@@ -114,4 +114,24 @@ Opposing lane impact point (stateful)
   - impact_pos = lerp(pos_a, pos_b, f)
 - This means equal hives do not necessarily meet at midpoint unless they started together.
 
+Selector intent (tap + drag)
+- Tap = click for dev; touch will map 1:1 later.
+- Two ways to ENABLE intent (attack/feed) from origin -> target:
+  - Tap origin, then tap target (neighbor with a lane).
+  - Press/hold origin, drag to target, release.
+- Two ways to DISABLE intent origin -> target:
+  - Tap target, then tap origin.
+  - Press/hold target, drag back to origin, release.
+- Drag preview line:
+  - Gray by default.
+  - Turns player color when hovering a valid target (lane exists).
+- Haptics:
+  - On drag-hover entering a valid target, vibrate once (20–35ms).
+  - Do not spam; pulse only on hover-enter or target change.
+
+NPC selectability
+- NPC (owner_id == 0) cannot be an origin for tap or drag.
+- NPC can be a valid target (end of a lane) for intent.
+- Tapping NPC alone does nothing (no selection as origin).
+
 End of canon

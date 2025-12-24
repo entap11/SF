@@ -9,12 +9,21 @@ const BASE_MS := 1000.0
 const PER_POWER_MS := 2.0
 const BONUS_10_MS := 2.0
 const BONUS_25_MS := 2.0
+const DRAG_DEADZONE_PX := 8.0
 
 var selected_cell := Vector2i(-1, -1)
 var selected_hive_id := -1
 var selected_lane_id := -1
 var hives: Array = []
 var lanes: Array = []
+var tap_first_id := -1
+var drag_active := false
+var drag_start_hive_id := -1
+var drag_start_pos: Vector2 = Vector2.ZERO
+var drag_current_pos: Vector2 = Vector2.ZERO
+var drag_hover_hive_id := -1
+var drag_moved := false
+var last_vibe_target_id := -1
 
 func _ready() -> void:
 	_init_hives()
@@ -25,33 +34,20 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		var local_pos := to_local(event.position)
-		var cx := int(local_pos.x / CELL_SIZE)
-		var cy := int(local_pos.y / CELL_SIZE)
-		cx = max(0, min(COLS - 1, cx))
-		cy = max(0, min(ROWS - 1, cy))
-		var hive := _find_hive_at_cell(Vector2i(cx, cy))
-		if hive != null:
-			selected_hive_id = hive["id"]
-			selected_lane_id = -1
-			selected_cell = Vector2i(cx, cy)
-			print("SF: Hive selected id=%d owner=%d at %d,%d" % [hive["id"], hive["owner_id"], cx, cy])
-			queue_redraw()
-			return
-		var lane_hit := _pick_lane(local_pos)
-		if lane_hit != null:
-			selected_hive_id = -1
-			selected_lane_id = lane_hit["id"]
-			selected_cell = Vector2i(cx, cy)
-			print("SF: Lane selected id=%d a=%d b=%d dir=%d" % [lane_hit["id"], lane_hit["a_id"], lane_hit["b_id"], lane_hit["dir"]])
-			queue_redraw()
-			return
-		selected_hive_id = -1
-		selected_lane_id = -1
-		selected_cell = Vector2i(cx, cy)
-		print("SF: Cell selected %d,%d" % [cx, cy])
-		queue_redraw()
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_handle_press(to_local(event.position))
+		else:
+			_handle_release(to_local(event.position))
+	if event is InputEventMouseMotion:
+		_handle_drag(to_local(event.position))
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_handle_press(to_local(event.position))
+		else:
+			_handle_release(to_local(event.position))
+	if event is InputEventScreenDrag:
+		_handle_drag(to_local(event.position))
 
 func _draw() -> void:
 	var grid_color := Color(0.25, 0.25, 0.25)
@@ -67,6 +63,7 @@ func _draw() -> void:
 		draw_rect(rect, Color(0.2, 0.6, 1.0, 0.35), true)
 	for lane in lanes:
 		_draw_lane(lane)
+	_draw_drag_preview()
 	for hive in hives:
 		var center := _cell_center(hive["grid_pos"])
 		var fill := _owner_color(hive["owner_id"])
@@ -102,24 +99,24 @@ func _init_lanes() -> void:
 		{"id": 8, "a_id": 4, "b_id": 6, "dir": 1, "send_a": true, "send_b": false, "a_pressure": 0.0, "b_pressure": 0.0, "a_stream_len": 0.0, "b_stream_len": 0.0}
 	]
 
-func _find_hive_at_cell(cell: Vector2i):
+func _find_hive_at_cell(cell: Vector2i) -> Dictionary:
 	for hive in hives:
 		if hive["grid_pos"] == cell:
 			return hive
-	return null
+	return {}
 
-func _find_hive_by_id(hive_id: int):
+func _find_hive_by_id(hive_id: int) -> Dictionary:
 	for hive in hives:
 		if hive["id"] == hive_id:
 			return hive
 	return {}
 
-func _pick_lane(local_pos: Vector2):
-	var best_lane = null
+func _pick_lane(local_pos: Vector2) -> Dictionary:
+	var best_lane: Dictionary = {}
 	var best_dist := INF
 	for lane in lanes:
-		var a := _find_hive_by_id(lane["a_id"])
-		var b := _find_hive_by_id(lane["b_id"])
+		var a: Dictionary = _find_hive_by_id(lane["a_id"])
+		var b: Dictionary = _find_hive_by_id(lane["b_id"])
 		if a.is_empty() or b.is_empty():
 			continue
 		var a_pos := _cell_center(a["grid_pos"])
@@ -155,8 +152,8 @@ func _cell_center(cell: Vector2i) -> Vector2:
 		cell.y * CELL_SIZE + CELL_SIZE * 0.5
 	)
 
-func _owner_color(owner: int) -> Color:
-	match owner:
+func _owner_color(owner_id: int) -> Color:
+	match owner_id:
 		0:
 			return Color(0.6, 0.6, 0.6)
 		1:
@@ -176,13 +173,13 @@ func _update_lanes(delta: float) -> void:
 		var b := _find_hive_by_id(lane["b_id"])
 		if a.is_empty() or b.is_empty():
 			continue
+		if a["owner_id"] == 0:
+			lane["send_a"] = false
+		if b["owner_id"] == 0:
+			lane["send_b"] = false
 		var mode := _lane_mode(a, b)
-		if mode == "friendly":
-			lane["send_a"] = lane["dir"] == 1
-			lane["send_b"] = lane["dir"] == -1
-		elif mode == "neutral":
-			lane["send_a"] = a["owner_id"] != 0 and b["owner_id"] == 0
-			lane["send_b"] = b["owner_id"] != 0 and a["owner_id"] == 0
+		if mode == "friendly" and lane["send_a"] and lane["send_b"]:
+			lane["send_b"] = false
 		var rate_a := _send_rate(a, lane["send_a"])
 		var rate_b := _send_rate(b, lane["send_b"])
 		if rate_a > 0.0:
@@ -232,8 +229,8 @@ func _draw_lane(lane: Dictionary) -> void:
 	if lane["id"] == selected_lane_id:
 		draw_line(a_pos, b_pos, Color(0.9, 0.9, 0.2), 4.0)
 	var mode := _lane_mode(a, b)
-	var send_a := lane["send_a"]
-	var send_b := lane["send_b"]
+	var send_a: bool = lane["send_a"]
+	var send_b: bool = lane["send_b"]
 	if mode == "opposing" and send_a and send_b:
 		_draw_opposing_lane(lane, a, b, a_pos, b_pos)
 		return
@@ -242,42 +239,230 @@ func _draw_lane(lane: Dictionary) -> void:
 	elif send_b:
 		_draw_one_way_lane(b, a, b_pos, a_pos, lane["b_stream_len"])
 
+func _handle_press(local_pos: Vector2) -> void:
+	var hive_id := _hive_id_at_point(local_pos)
+	if hive_id == -1:
+		var lane_hit: Dictionary = _pick_lane(local_pos)
+		if not lane_hit.is_empty():
+			selected_hive_id = -1
+			selected_lane_id = lane_hit["id"]
+			selected_cell = _cell_from_point(local_pos)
+			print("SF: Lane selected id=%d a=%d b=%d dir=%d" % [lane_hit["id"], lane_hit["a_id"], lane_hit["b_id"], lane_hit["dir"]])
+			return
+		selected_hive_id = -1
+		selected_lane_id = -1
+		selected_cell = _cell_from_point(local_pos)
+		print("SF: Cell selected %d,%d" % [selected_cell.x, selected_cell.y])
+		return
+	var hive := _find_hive_by_id(hive_id)
+	if hive.is_empty() or hive["owner_id"] == 0:
+		if tap_first_id != -1:
+			_handle_tap(hive_id)
+		else:
+			_clear_tap_state()
+			_clear_selection()
+		return
+	drag_active = true
+	drag_moved = false
+	drag_start_hive_id = hive_id
+	drag_start_pos = local_pos
+	drag_current_pos = local_pos
+	drag_hover_hive_id = -1
+	last_vibe_target_id = -1
+	selected_hive_id = hive_id
+	selected_lane_id = -1
+	selected_cell = _cell_from_point(local_pos)
+
+func _handle_release(local_pos: Vector2) -> void:
+	if not drag_active:
+		return
+	drag_current_pos = local_pos
+	var end_hive_id := _hive_id_at_point(local_pos)
+	if not drag_moved:
+		if drag_start_hive_id != -1:
+			_handle_tap(drag_start_hive_id)
+		_reset_drag()
+		return
+	if end_hive_id != -1 and end_hive_id != drag_start_hive_id:
+		if _lane_exists_between(drag_start_hive_id, end_hive_id):
+			_apply_intent_pair(drag_start_hive_id, end_hive_id)
+	_reset_drag()
+
+func _handle_drag(local_pos: Vector2) -> void:
+	if not drag_active:
+		return
+	drag_current_pos = local_pos
+	if drag_current_pos.distance_to(drag_start_pos) >= DRAG_DEADZONE_PX:
+		drag_moved = true
+	var hover_id := _hive_id_at_point(local_pos)
+	if hover_id != -1 and hover_id != drag_start_hive_id and _lane_exists_between(drag_start_hive_id, hover_id):
+		if hover_id != last_vibe_target_id:
+			Input.vibrate_handheld(30)
+			last_vibe_target_id = hover_id
+		drag_hover_hive_id = hover_id
+	else:
+		drag_hover_hive_id = -1
+		last_vibe_target_id = -1
+
+func _handle_tap(hive_id: int) -> void:
+	var hive := _find_hive_by_id(hive_id)
+	if hive.is_empty():
+		_clear_tap_state()
+		return
+	if hive["owner_id"] == 0 and tap_first_id == -1:
+		_clear_tap_state()
+		return
+	if tap_first_id == -1:
+		tap_first_id = hive_id
+		selected_hive_id = hive_id
+		return
+	if tap_first_id == hive_id:
+		_clear_tap_state()
+		return
+	if _lane_exists_between(tap_first_id, hive_id):
+		_apply_intent_pair(tap_first_id, hive_id)
+	_clear_tap_state()
+
+func _apply_intent_pair(start_id: int, end_id: int) -> void:
+	var lane_index := _lane_index_between(start_id, end_id)
+	if lane_index == -1:
+		return
+	var lane: Dictionary = lanes[lane_index]
+	var reverse_on := _intent_is_on(end_id, start_id)
+	if reverse_on:
+		_set_intent(end_id, start_id, false)
+		print("SF: Intent OFF %d->%d" % [end_id, start_id])
+	else:
+		_set_intent(start_id, end_id, true)
+		print("SF: Intent ON %d->%d" % [start_id, end_id])
+
+func _set_intent(from_id: int, to_id: int, enable: bool) -> void:
+	var lane_index := _lane_index_between(from_id, to_id)
+	if lane_index == -1:
+		return
+	var lane: Dictionary = lanes[lane_index]
+	var a_id: int = lane["a_id"]
+	var b_id: int = lane["b_id"]
+	var a := _find_hive_by_id(a_id)
+	var b := _find_hive_by_id(b_id)
+	var mode := _lane_mode(a, b)
+	if from_id == a_id and to_id == b_id:
+		lane["send_a"] = enable
+		if mode == "friendly" and enable:
+			lane["send_b"] = false
+			lane["dir"] = 1
+	elif from_id == b_id and to_id == a_id:
+		lane["send_b"] = enable
+		if mode == "friendly" and enable:
+			lane["send_a"] = false
+			lane["dir"] = -1
+	lanes[lane_index] = lane
+
+func _intent_is_on(from_id: int, to_id: int) -> bool:
+	var lane_index := _lane_index_between(from_id, to_id)
+	if lane_index == -1:
+		return false
+	var lane: Dictionary = lanes[lane_index]
+	if from_id == lane["a_id"] and to_id == lane["b_id"]:
+		return lane["send_a"]
+	if from_id == lane["b_id"] and to_id == lane["a_id"]:
+		return lane["send_b"]
+	return false
+
+func _lane_exists_between(a_id: int, b_id: int) -> bool:
+	return _lane_index_between(a_id, b_id) != -1
+
+func _lane_index_between(a_id: int, b_id: int) -> int:
+	for i in range(lanes.size()):
+		var lane: Dictionary = lanes[i]
+		if (lane["a_id"] == a_id and lane["b_id"] == b_id) or (lane["a_id"] == b_id and lane["b_id"] == a_id):
+			return i
+	return -1
+
+func _hive_id_at_point(local_pos: Vector2) -> int:
+	var cx := int(local_pos.x / CELL_SIZE)
+	var cy := int(local_pos.y / CELL_SIZE)
+	cx = max(0, min(COLS - 1, cx))
+	cy = max(0, min(ROWS - 1, cy))
+	var hive := _find_hive_at_cell(Vector2i(cx, cy))
+	if hive.is_empty():
+		return -1
+	return hive["id"]
+
+func _cell_from_point(local_pos: Vector2) -> Vector2i:
+	var cx := int(local_pos.x / CELL_SIZE)
+	var cy := int(local_pos.y / CELL_SIZE)
+	cx = max(0, min(COLS - 1, cx))
+	cy = max(0, min(ROWS - 1, cy))
+	return Vector2i(cx, cy)
+
+func _draw_drag_preview() -> void:
+	if not drag_active or drag_start_hive_id == -1:
+		return
+	var start_hive := _find_hive_by_id(drag_start_hive_id)
+	if start_hive.is_empty():
+		return
+	var start_pos := _cell_center(start_hive["grid_pos"])
+	var color := Color(0.4, 0.4, 0.4)
+	if drag_hover_hive_id != -1:
+		color = _owner_color(start_hive["owner_id"])
+	draw_line(start_pos, drag_current_pos, color, 2.0)
+	if drag_hover_hive_id != -1:
+		var hover_hive := _find_hive_by_id(drag_hover_hive_id)
+		if not hover_hive.is_empty():
+			var hover_pos := _cell_center(hover_hive["grid_pos"])
+			draw_arc(hover_pos, CELL_SIZE * 0.34, 0.0, TAU, 28, color, 2.0)
+
+func _clear_tap_state() -> void:
+	tap_first_id = -1
+
+func _clear_selection() -> void:
+	selected_hive_id = -1
+	selected_lane_id = -1
+
+func _reset_drag() -> void:
+	drag_active = false
+	drag_start_hive_id = -1
+	drag_hover_hive_id = -1
+	drag_moved = false
+	last_vibe_target_id = -1
+
 func _draw_opposing_lane(lane: Dictionary, a: Dictionary, b: Dictionary, a_pos: Vector2, b_pos: Vector2) -> void:
-	var total := lane["a_pressure"] + lane["b_pressure"]
+	var total: float = lane["a_pressure"] + lane["b_pressure"]
 	if total <= 0.0:
 		return
-	var f := lane["a_pressure"] / total
+	var f: float = lane["a_pressure"] / total
 	var impact := a_pos.lerp(b_pos, f)
 	_draw_segmented_clamped(a, a_pos, impact, lane["a_stream_len"])
 	_draw_segmented_clamped(b, b_pos, impact, lane["b_stream_len"])
 
-func _draw_one_way_lane(src: Dictionary, dst: Dictionary, src_pos: Vector2, dst_pos: Vector2, stream_len: float) -> void:
-	var max_len := src_pos.distance_to(dst_pos)
-	var dir := (dst_pos - src_pos).normalized()
-	var visible_len := min(stream_len, max_len)
+func _draw_one_way_lane(src: Dictionary, _dst: Dictionary, src_pos: Vector2, dst_pos: Vector2, stream_len: float) -> void:
+	var max_len: float = src_pos.distance_to(dst_pos)
+	var dir: Vector2 = (dst_pos - src_pos).normalized()
+	var visible_len: float = min(stream_len, max_len)
 	var end_pos := src_pos + dir * visible_len
 	_draw_segmented(src, src_pos, end_pos)
 	if visible_len >= max_len:
 		_draw_arrowhead(src_pos, dst_pos, _owner_color(src["owner_id"]))
 
 func _draw_segmented_clamped(src: Dictionary, src_pos: Vector2, dst_pos: Vector2, stream_len: float) -> void:
-	var max_len := src_pos.distance_to(dst_pos)
-	var dir := (dst_pos - src_pos).normalized()
-	var visible_len := min(stream_len, max_len)
+	var max_len: float = src_pos.distance_to(dst_pos)
+	var dir: Vector2 = (dst_pos - src_pos).normalized()
+	var visible_len: float = min(stream_len, max_len)
 	var end_pos := src_pos + dir * visible_len
 	_draw_segmented(src, src_pos, end_pos)
 
 func _draw_segmented(src: Dictionary, from_pos: Vector2, to_pos: Vector2) -> void:
-	var interval_ms := _interval_ms(src["power"])
-	var segment_len := UNIT_SPEED_PX * (interval_ms / 1000.0)
-	var color := _owner_color(src["owner_id"])
-	var total_len := from_pos.distance_to(to_pos)
+	var interval_ms: float = _interval_ms(src["power"])
+	var segment_len: float = UNIT_SPEED_PX * (interval_ms / 1000.0)
+	var color: Color = _owner_color(src["owner_id"])
+	var total_len: float = from_pos.distance_to(to_pos)
 	if total_len <= 0.0:
 		return
-	var dir := (to_pos - from_pos).normalized()
-	var traveled := 0.0
+	var dir: Vector2 = (to_pos - from_pos).normalized()
+	var traveled: float = 0.0
 	while traveled < total_len:
-		var seg_start := from_pos + dir * traveled
-		var seg_end := from_pos + dir * min(traveled + segment_len, total_len)
+		var seg_start: Vector2 = from_pos + dir * traveled
+		var seg_end: Vector2 = from_pos + dir * min(traveled + segment_len, total_len)
 		draw_line(seg_start, seg_end, color, 2.0)
 		traveled += segment_len + DASH_GAP_PX
