@@ -60,14 +60,30 @@ Power 50 pass-through
 - Unit is forwarded along an outgoing lane if any exist.
 - If no outgoing lane exists, the unit is removed.
 
-Lane canon (single lane, one-way at a time)
+Lane canon (one lane per pair)
 - Between any two hives A and B, there is only one lane ever.
 - Lane identity is the unordered pair (min(a_id,b_id), max(a_id,b_id)).
 - Each lane stores:
   - id
   - a_id, b_id
-  - dir: +1 means a->b, -1 means b->a
-- Flow is only from src_id -> dst_id based on dir.
+  - dir: +1 means a->b, -1 means b->a (used for friendly lanes)
+  - sending_from_a, sending_from_b (bools, for opposing lanes)
+  - a_pressure, b_pressure (float, opposing lanes)
+  - a_stream_len_px, b_stream_len_px (float, for lane growth)
+
+Lane modes
+- FRIENDLY: A.owner_id == B.owner_id and owner_id != 0
+  - Exactly one active direction at a time (use dir).
+  - Lane color is the origin hive's color.
+  - Segmentation (dash length) uses origin interval_ms.
+  - Lane grows from origin as first unit advances (stream_len).
+- OPPOSING: A.owner_id != B.owner_id and both owner_id != 0
+  - Each side may be attacking independently.
+  - One-way if only one side attacks.
+  - Split if both attack, with impact point between colors.
+- NEUTRAL_INVOLVED: at least one owner_id == 0
+  - NPC does not originate flow.
+  - Only the claimed side may send toward NPC until it is claimed.
 
 Lane reversal ("available lane" rule)
 - A lane may reverse only if the new source hive has outgoing capacity available.
@@ -75,5 +91,27 @@ Lane reversal ("available lane" rule)
 - outgoing_count(hive_id) = number of lanes where src_id == hive_id
 - Allow reversal if outgoing_count(new_src) < max_out_lanes(new_src.power)
 - On reversal, lane.dir *= -1
+
+Lane visual growth (origin-reveal rule)
+- A lane appears starting at the origin hive and grows as the first unit travels.
+- Each active stream has a visible length:
+  - stream_len_px += unit_speed_px_per_s * dt
+  - clamp to lane length
+- For opposing lanes, draw from each origin toward the impact point, but clamp by that side's stream_len.
+
+Lane segmentation (tempo encoding)
+- segment_len_px = unit_speed_px_per_s * (interval_ms / 1000.0)
+- gap_px = 6 (constant for now)
+- Draw dashed segments from origin toward destination or impact point.
+
+Opposing lane impact point (stateful)
+- Maintain a_pressure and b_pressure.
+- If A is attacking: a_pressure += rate_a * dt
+- If B is attacking: b_pressure += rate_b * dt
+- rate = 1 / interval_seconds
+- If both pressures > 0:
+  - f = a_pressure / (a_pressure + b_pressure)
+  - impact_pos = lerp(pos_a, pos_b, f)
+- This means equal hives do not necessarily meet at midpoint unless they started together.
 
 End of canon
