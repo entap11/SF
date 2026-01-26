@@ -1,0 +1,36 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "width": 12,
+  "height": 8,
+  "entities": [
+	{ "type": "npc_hive", "x": 2, "y": 0 },
+	{ "type": "npc_hive", "x": 4, "y": 0 },
+	{ "type": "npc_hive", "x": 7, "y": 0 },
+	{ "type": "npc_hive", "x": 9, "y": 0 },
+
+	{ "type": "barracks", "x": 2, "y": 1 },
+	{ "type": "barracks", "x": 9, "y": 1 },
+	{ "type": "barracks", "x": 6, "y": 2 },
+
+	{ "type": "tower", "x": 3, "y": 2 },
+	{ "type": "tower", "x": 8, "y": 2 },
+	{ "type": "tower", "x": 6, "y": 1 },
+
+	{ "type": "npc_hive", "x": 4, "y": 2 },
+	{ "type": "npc_hive", "x": 7, "y": 2 },
+	{ "type": "npc_hive", "x": 6, "y": 3 },
+
+	{ "type": "npc_hive", "x": 5, "y": 4 },
+	{ "type": "npc_hive", "x": 6, "y": 4 },
+
+	{ "type": "player_hive", "owner": "P1", "x": 1, "y": 6 },
+	{ "type": "player_hive", "owner": "P1", "x": 2, "y": 7 },
+	{ "type": "player_hive", "owner": "P1", "x": 4, "y": 7 },
+	{ "type": "player_hive", "owner": "P1", "x": 3, "y": 6 },
+
+	{ "type": "player_hive", "owner": "P2", "x": 10, "y": 6 },
+	{ "type": "player_hive", "owner": "P2", "x": 9, "y": 7 },
+	{ "type": "player_hive", "owner": "P2", "x": 7, "y": 7 },
+	{ "type": "player_hive", "owner": "P2", "x": 8, "y": 6 }
+  ]
+}

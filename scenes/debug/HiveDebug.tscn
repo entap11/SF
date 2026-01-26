@@ -1,0 +1,7 @@
+[gd_scene format=3]
+
+[node name="HiveDebug" type="Node2D"]
+
+[node name="ColorRect" type="ColorRect" parent="."]
+size = Vector2(32, 32)
+color = Color(1, 0.752941, 0, 1)

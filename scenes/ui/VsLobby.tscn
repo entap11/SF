@@ -1,0 +1,59 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/vs_lobby.gd" id="1"]
+
+[node name="VsLobby" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1")
+
+[node name="Panel" type="Panel" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="VBox" type="VBoxContainer" parent="Panel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+
+[node name="Header" type="HBoxContainer" parent="Panel/VBox"]
+
+[node name="Title" type="Label" parent="Panel/VBox/Header"]
+text = "VS Lobby"
+
+[node name="Back" type="Button" parent="Panel/VBox/Header"]
+text = "Back"
+
+[node name="Summary" type="Label" parent="Panel/VBox"]
+text = "Summary"
+
+[node name="Buttons" type="HBoxContainer" parent="Panel/VBox"]
+
+[node name="QuickMatch" type="Button" parent="Panel/VBox/Buttons"]
+text = "Quick Match"
+
+[node name="SmsInvite" type="Button" parent="Panel/VBox/Buttons"]
+text = "VS via SMS"
+
+[node name="Status" type="Label" parent="Panel/VBox"]
+text = "Status"
+
+[node name="Invite" type="Label" parent="Panel/VBox"]
+text = "Invite"
+
+[node name="Countdown" type="Label" parent="Panel/VBox"]
+text = ""
+
+[node name="CountdownTimer" type="Timer" parent="."]
+wait_time = 1.0
+one_shot = false
+
+[node name="TimeoutTimer" type="Timer" parent="."]
+wait_time = 1.0
+one_shot = false

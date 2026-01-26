@@ -1,0 +1,1954 @@
+[gd_scene load_steps=7 format=3 uid="uid://b2m2j1m3d5q8t"]
+
+[ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/ui/hex_button.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/ui/hex_grid.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/ui/ui_button.gd" id="4"]
+[ext_resource type="Texture2D" uid="uid://bkass4b8jo610" path="res://assets/sprites/sf_skin_v1/arena_underlayment_art.PNG" id="5"]
+[ext_resource type="Material" path="res://assets/shaders/underlayment_tile.tres" id="6"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.06, 0.06, 0.08, 1)
+
+[node name="Underlayment" type="TextureRect" parent="."]
+material = ExtResource("6")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("5")
+stretch_mode = 6
+
+[node name="GlowLeft" type="ColorRect" parent="."]
+layout_mode = 0
+offset_left = -120.0
+offset_top = -80.0
+offset_right = 420.0
+offset_bottom = 360.0
+mouse_filter = 2
+color = Color(0.9, 0.65, 0.15, 0.12)
+
+[node name="GlowRight" type="ColorRect" parent="."]
+layout_mode = 0
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -520.0
+offset_top = -420.0
+offset_right = 120.0
+offset_bottom = 120.0
+mouse_filter = 2
+color = Color(0.2, 0.45, 0.9, 0.12)
+
+[node name="HexGrid" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("3")
+
+[node name="TopBar" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 90.0
+grow_horizontal = 2
+
+[node name="RankLabel" type="Label" parent="TopBar"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 20.0
+offset_right = 260.0
+offset_bottom = 56.0
+text = "Tier: Bronze"
+
+[node name="HoneyLabel" type="Label" parent="TopBar"]
+layout_mode = 0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -260.0
+offset_top = 20.0
+offset_right = -24.0
+offset_bottom = 56.0
+text = "Honey: 12,480"
+horizontal_alignment = 2
+
+[node name="HiveButton" type="Control" parent="TopBar"]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -70.0
+offset_top = 10.0
+offset_right = 70.0
+offset_bottom = 80.0
+script = ExtResource("2")
+
+[node name="HeroPanel" type="Panel" parent="."]
+layout_mode = 0
+anchor_left = 0.08
+anchor_top = 0.18
+anchor_right = 0.92
+anchor_bottom = 0.78
+
+[node name="HeroVBox" type="VBoxContainer" parent="HeroPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HeroTitle" type="Label" parent="HeroPanel/HeroVBox"]
+layout_mode = 2
+text = "Last Match Replay"
+
+[node name="HeroSub" type="Label" parent="HeroPanel/HeroVBox"]
+layout_mode = 2
+text = "Replay + analysis stub (v1 placeholder)"
+
+[node name="BottomBar" type="Control" parent="."]
+anchors_preset = 0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -140.0
+
+[node name="MenuButtons" type="HBoxContainer" parent="BottomBar"]
+layout_mode = 0
+anchor_right = 1.0
+offset_left = 16.0
+offset_top = 20.0
+offset_right = -16.0
+offset_bottom = 84.0
+grow_horizontal = 2
+
+[node name="LeftButtons" type="HBoxContainer" parent="BottomBar/MenuButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AsyncButton" type="Button" parent="BottomBar/MenuButtons/LeftButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "ASYNC"
+script = ExtResource("4")
+bg_key_normal = "ui.mm.async.normal"
+bg_key_hover = "ui.mm.async.hover"
+bg_key_pressed = "ui.mm.async.pressed"
+bg_key_disabled = "ui.mm.async.disabled"
+
+[node name="BuffsButton" type="Button" parent="BottomBar/MenuButtons/LeftButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "BUFFS"
+script = ExtResource("4")
+bg_key_normal = "ui.mm.buffs.normal"
+bg_key_hover = "ui.mm.buffs.hover"
+bg_key_pressed = "ui.mm.buffs.pressed"
+bg_key_disabled = "ui.mm.buffs.disabled"
+
+[node name="StoreButton" type="Button" parent="BottomBar/MenuButtons/LeftButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "STORE"
+script = ExtResource("4")
+bg_key_normal = "ui.mm.store.normal"
+bg_key_hover = "ui.mm.store.hover"
+bg_key_pressed = "ui.mm.store.pressed"
+bg_key_disabled = "ui.mm.store.disabled"
+
+[node name="PlayButton" type="Button" parent="BottomBar/MenuButtons"]
+custom_minimum_size = Vector2(240, 60)
+layout_mode = 2
+text = "PLAY"
+script = ExtResource("4")
+bg_key_normal = "ui.mm.play.normal"
+bg_key_hover = "ui.mm.play.hover"
+bg_key_pressed = "ui.mm.play.pressed"
+bg_key_disabled = "ui.mm.play.disabled"
+
+[node name="RightButtons" type="HBoxContainer" parent="BottomBar/MenuButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+alignment = 2
+
+[node name="ClanButton" type="Button" parent="BottomBar/MenuButtons/RightButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "CLAN/HIVE"
+script = ExtResource("4")
+bg_key_normal = "ui.mm.hive.normal"
+bg_key_hover = "ui.mm.hive.hover"
+bg_key_pressed = "ui.mm.hive.pressed"
+bg_key_disabled = "ui.mm.hive.disabled"
+
+[node name="SettingsButton" type="Button" parent="BottomBar/MenuButtons/RightButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "SETTINGS"
+script = ExtResource("4")
+bg_key_normal = "ui.mm.settings.normal"
+bg_key_hover = "ui.mm.settings.hover"
+bg_key_pressed = "ui.mm.settings.pressed"
+bg_key_disabled = "ui.mm.settings.disabled"
+
+[node name="StatusLabel" type="Label" parent="BottomBar"]
+layout_mode = 0
+anchor_left = 0.05
+anchor_right = 0.95
+offset_top = 90.0
+offset_bottom = 120.0
+text = "Ready"
+horizontal_alignment = 1
+
+[node name="DashPanel" type="Panel" parent="."]
+visible = false
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="DashTopBar" type="Control" parent="DashPanel"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 64.0
+grow_horizontal = 2
+
+[node name="DashRankLabel" type="Label" parent="DashPanel/DashTopBar"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 18.0
+offset_right = 260.0
+offset_bottom = 50.0
+text = "Tier: Bronze"
+
+[node name="DashHoneyLabel" type="Label" parent="DashPanel/DashTopBar"]
+layout_mode = 0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -260.0
+offset_top = 18.0
+offset_right = -24.0
+offset_bottom = 50.0
+text = "Honey: 12,480"
+horizontal_alignment = 2
+
+[node name="DashRoot" type="VBoxContainer" parent="DashPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 72.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MatchHistoryPanel" type="Panel" parent="DashPanel/DashRoot"]
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 2.0
+
+[node name="MatchCenter" type="CenterContainer" parent="DashPanel/DashRoot/MatchHistoryPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MatchVBox" type="VBoxContainer" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter"]
+layout_mode = 2
+alignment = 1
+
+[node name="MatchHeader" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox"]
+layout_mode = 2
+text = "MATCH HISTORY"
+
+[node name="MatchList" type="VBoxContainer" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+alignment = 1
+
+[node name="MatchRow1" type="HBoxContainer" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList"]
+layout_mode = 2
+
+[node name="MatchTitle" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow1"]
+layout_mode = 2
+text = "Win — Hive Rush"
+
+[node name="MatchResult" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow1"]
+layout_mode = 2
+text = "W"
+
+[node name="MatchEff" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow1"]
+layout_mode = 2
+text = "HE 74"
+
+[node name="MatchStats" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow1"]
+layout_mode = 2
+text = "STATS"
+
+[node name="MatchAnalytics" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow1"]
+layout_mode = 2
+text = "ANALYTICS"
+
+[node name="MatchReplay" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow1"]
+layout_mode = 2
+text = "REPLAY"
+
+[node name="MatchRow2" type="HBoxContainer" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList"]
+layout_mode = 2
+
+[node name="MatchTitle" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow2"]
+layout_mode = 2
+text = "Loss — Tower Line"
+
+[node name="MatchResult" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow2"]
+layout_mode = 2
+text = "L"
+
+[node name="MatchEff" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow2"]
+layout_mode = 2
+text = "HE 61"
+
+[node name="MatchStats" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow2"]
+layout_mode = 2
+text = "STATS"
+
+[node name="MatchAnalytics" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow2"]
+layout_mode = 2
+text = "ANALYTICS"
+
+[node name="MatchReplay" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow2"]
+layout_mode = 2
+text = "REPLAY"
+
+[node name="MatchRow3" type="HBoxContainer" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList"]
+layout_mode = 2
+
+[node name="MatchTitle" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow3"]
+layout_mode = 2
+text = "Win — Split Push"
+
+[node name="MatchResult" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow3"]
+layout_mode = 2
+text = "W"
+
+[node name="MatchEff" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow3"]
+layout_mode = 2
+text = "HE 83"
+
+[node name="MatchStats" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow3"]
+layout_mode = 2
+text = "STATS"
+
+[node name="MatchAnalytics" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow3"]
+layout_mode = 2
+text = "ANALYTICS"
+
+[node name="MatchReplay" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow3"]
+layout_mode = 2
+text = "REPLAY"
+
+[node name="MatchRow4" type="HBoxContainer" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList"]
+layout_mode = 2
+
+[node name="MatchTitle" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow4"]
+layout_mode = 2
+text = "Win — Honey Trap"
+
+[node name="MatchResult" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow4"]
+layout_mode = 2
+text = "W"
+
+[node name="MatchEff" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow4"]
+layout_mode = 2
+text = "HE 70"
+
+[node name="MatchStats" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow4"]
+layout_mode = 2
+text = "STATS"
+
+[node name="MatchAnalytics" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow4"]
+layout_mode = 2
+text = "ANALYTICS"
+
+[node name="MatchReplay" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow4"]
+layout_mode = 2
+text = "REPLAY"
+
+[node name="MatchRow5" type="HBoxContainer" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList"]
+layout_mode = 2
+
+[node name="MatchTitle" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow5"]
+layout_mode = 2
+text = "Loss — Barracks Hold"
+
+[node name="MatchResult" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow5"]
+layout_mode = 2
+text = "L"
+
+[node name="MatchEff" type="Label" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow5"]
+layout_mode = 2
+text = "HE 55"
+
+[node name="MatchStats" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow5"]
+layout_mode = 2
+text = "STATS"
+
+[node name="MatchAnalytics" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow5"]
+layout_mode = 2
+text = "ANALYTICS"
+
+[node name="MatchReplay" type="Button" parent="DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow5"]
+layout_mode = 2
+text = "REPLAY"
+
+[node name="BadgesPanel" type="Panel" parent="DashPanel/DashRoot"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BadgesVBox" type="VBoxContainer" parent="DashPanel/DashRoot/BadgesPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BadgesHeader" type="Label" parent="DashPanel/DashRoot/BadgesPanel/BadgesVBox"]
+layout_mode = 2
+text = "BADGES"
+
+[node name="BadgesRow" type="HBoxContainer" parent="DashPanel/DashRoot/BadgesPanel/BadgesVBox"]
+layout_mode = 2
+
+[node name="BadgeButton1" type="Button" parent="DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesRow"]
+layout_mode = 2
+text = "Keystone I"
+
+[node name="BadgeButton2" type="Button" parent="DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesRow"]
+layout_mode = 2
+text = "Brick II"
+
+[node name="BadgeButton3" type="Button" parent="DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesRow"]
+layout_mode = 2
+text = "Relentless"
+
+[node name="BadgeButton4" type="Button" parent="DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesRow"]
+layout_mode = 2
+text = "Hiveguard"
+
+[node name="DashHexes" type="VBoxContainer" parent="DashPanel"]
+layout_mode = 0
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -120.0
+offset_top = -120.0
+offset_right = -20.0
+offset_bottom = 120.0
+
+[node name="DashBuffs" type="Control" parent="DashPanel/DashHexes"]
+custom_minimum_size = Vector2(90, 64)
+layout_mode = 2
+script = ExtResource("2")
+
+[node name="DashStore" type="Control" parent="DashPanel/DashHexes"]
+custom_minimum_size = Vector2(90, 64)
+layout_mode = 2
+script = ExtResource("2")
+
+[node name="DashHive" type="Control" parent="DashPanel/DashHexes"]
+custom_minimum_size = Vector2(90, 64)
+layout_mode = 2
+script = ExtResource("2")
+
+[node name="DashStatsPanel" type="Panel" parent="DashPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StatsVBox" type="VBoxContainer" parent="DashPanel/DashStatsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StatsTitle" type="Label" parent="DashPanel/DashStatsPanel/StatsVBox"]
+layout_mode = 2
+text = "MATCH STATS"
+
+[node name="StatsSub" type="Label" parent="DashPanel/DashStatsPanel/StatsVBox"]
+layout_mode = 2
+text = "Tiered stats view (stub)"
+
+[node name="StatsTierTabs" type="HBoxContainer" parent="DashPanel/DashStatsPanel/StatsVBox"]
+layout_mode = 2
+alignment = 1
+
+[node name="StatsTierFree" type="Button" parent="DashPanel/DashStatsPanel/StatsVBox/StatsTierTabs"]
+layout_mode = 2
+text = "FREE"
+
+[node name="StatsTierBP" type="Button" parent="DashPanel/DashStatsPanel/StatsVBox/StatsTierTabs"]
+layout_mode = 2
+text = "BATTLE PASS"
+
+[node name="StatsTierElite" type="Button" parent="DashPanel/DashStatsPanel/StatsVBox/StatsTierTabs"]
+layout_mode = 2
+text = "ELITE"
+
+[node name="StatsBody" type="Panel" parent="DashPanel/DashStatsPanel/StatsVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="StatsBodyVBox" type="VBoxContainer" parent="DashPanel/DashStatsPanel/StatsVBox/StatsBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StatsRow1" type="Label" parent="DashPanel/DashStatsPanel/StatsVBox/StatsBody/StatsBodyVBox"]
+layout_mode = 2
+text = "Win/Loss: W"
+
+[node name="StatsRow2" type="Label" parent="DashPanel/DashStatsPanel/StatsVBox/StatsBody/StatsBodyVBox"]
+layout_mode = 2
+text = "Duration: 3:12"
+
+[node name="StatsRow3" type="Label" parent="DashPanel/DashStatsPanel/StatsVBox/StatsBody/StatsBodyVBox"]
+layout_mode = 2
+text = "Units Spawned: 120"
+
+[node name="StatsRow4" type="Label" parent="DashPanel/DashStatsPanel/StatsVBox/StatsBody/StatsBodyVBox"]
+layout_mode = 2
+text = "Units Arrived: 102"
+
+[node name="StatsRow5" type="Label" parent="DashPanel/DashStatsPanel/StatsVBox/StatsBody/StatsBodyVBox"]
+layout_mode = 2
+text = "Hives Captured: 2"
+
+[node name="StatsClose" type="Button" parent="DashPanel/DashStatsPanel/StatsVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="DashAnalysisPanel" type="Panel" parent="DashPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AnalysisVBox" type="VBoxContainer" parent="DashPanel/DashAnalysisPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AnalysisTitle" type="Label" parent="DashPanel/DashAnalysisPanel/AnalysisVBox"]
+layout_mode = 2
+text = "ANALYSIS"
+
+[node name="AnalysisSub" type="Label" parent="DashPanel/DashAnalysisPanel/AnalysisVBox"]
+layout_mode = 2
+text = "AI analysis with timestamps (stub)"
+
+[node name="AnalysisBody" type="Panel" parent="DashPanel/DashAnalysisPanel/AnalysisVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="AnalysisBodyVBox" type="VBoxContainer" parent="DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AnalysisBodyHeader" type="Label" parent="DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox"]
+layout_mode = 2
+text = "AI ANALYSIS"
+
+[node name="AnalysisLine1" type="Label" parent="DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox"]
+layout_mode = 2
+text = "02:10 | Lane flip on Hive 3"
+
+[node name="AnalysisLine2" type="Label" parent="DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox"]
+layout_mode = 2
+text = "03:05 | Barracks chain activated"
+
+[node name="AnalysisLine3" type="Label" parent="DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox"]
+layout_mode = 2
+text = "04:18 | Capture swing at Hive 6"
+
+[node name="AnalysisLine4" type="Label" parent="DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox"]
+layout_mode = 2
+text = "04:30 | Pressure swing secured Hive 6"
+
+[node name="AnalysisLine5" type="Label" parent="DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox"]
+layout_mode = 2
+text = "05:02 | Missed retract on Hive 4"
+
+[node name="AnalysisClose" type="Button" parent="DashPanel/DashAnalysisPanel/AnalysisVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="DashReplayPanel" type="Panel" parent="DashPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ReplayVBox" type="VBoxContainer" parent="DashPanel/DashReplayPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ReplayTitle" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox"]
+layout_mode = 2
+text = "REPLAY BREAKDOWN"
+
+[node name="ReplaySub" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox"]
+layout_mode = 2
+text = "Free replay breakdown with key moments"
+
+[node name="ReplayBody" type="Panel" parent="DashPanel/DashReplayPanel/ReplayVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ReplayBodyVBox" type="VBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ReplayTopRow" type="HBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox"]
+layout_mode = 2
+
+[node name="ReplayControlsPanel" type="Panel" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ReplayControlsVBox" type="VBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayControlsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ReplayControlsHeader" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayControlsPanel/ReplayControlsVBox"]
+layout_mode = 2
+text = "REPLAY CONTROLS"
+
+[node name="ReplayControlsButtons" type="HBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayControlsPanel/ReplayControlsVBox"]
+layout_mode = 2
+
+[node name="ReplayPlay" type="Button" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayControlsPanel/ReplayControlsVBox/ReplayControlsButtons"]
+layout_mode = 2
+text = "PLAY"
+
+[node name="ReplayPause" type="Button" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayControlsPanel/ReplayControlsVBox/ReplayControlsButtons"]
+layout_mode = 2
+text = "PAUSE"
+
+[node name="ReplayStep" type="Button" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayControlsPanel/ReplayControlsVBox/ReplayControlsButtons"]
+layout_mode = 2
+text = "STEP"
+
+[node name="ReplaySpeed" type="Button" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayControlsPanel/ReplayControlsVBox/ReplayControlsButtons"]
+layout_mode = 2
+text = "1.0x"
+
+[node name="ReplayInfoPanel" type="Panel" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ReplayInfoVBox" type="VBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayInfoPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ReplayInfoHeader" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayInfoPanel/ReplayInfoVBox"]
+layout_mode = 2
+text = "MATCH INFO"
+
+[node name="ReplayInfoLine1" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayInfoPanel/ReplayInfoVBox"]
+layout_mode = 2
+text = "Mode: 4P Rumble"
+
+[node name="ReplayInfoLine2" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayInfoPanel/ReplayInfoVBox"]
+layout_mode = 2
+text = "Map: Map A"
+
+[node name="ReplayInfoLine3" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayInfoPanel/ReplayInfoVBox"]
+layout_mode = 2
+text = "Duration: 3:12"
+
+[node name="ReplayTimelinePanel" type="Panel" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ReplayTimelineVBox" type="VBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ReplayTimelineHeader" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox"]
+layout_mode = 2
+text = "KEY MOMENTS"
+
+[node name="ReplayTimelineRow1" type="HBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox"]
+layout_mode = 2
+
+[node name="ReplayTimelineTime" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineRow1"]
+layout_mode = 2
+text = "00:42"
+
+[node name="ReplayTimelineEvent" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineRow1"]
+layout_mode = 2
+text = "Lane established 2->6"
+
+[node name="ReplayTimelineRow2" type="HBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox"]
+layout_mode = 2
+
+[node name="ReplayTimelineTime" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineRow2"]
+layout_mode = 2
+text = "01:18"
+
+[node name="ReplayTimelineEvent" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineRow2"]
+layout_mode = 2
+text = "Hive 6 captured"
+
+[node name="ReplayTimelineRow3" type="HBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox"]
+layout_mode = 2
+
+[node name="ReplayTimelineTime" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineRow3"]
+layout_mode = 2
+text = "02:04"
+
+[node name="ReplayTimelineEvent" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineRow3"]
+layout_mode = 2
+text = "Barracks activated"
+
+[node name="ReplayTimelineRow4" type="HBoxContainer" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox"]
+layout_mode = 2
+
+[node name="ReplayTimelineTime" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineRow4"]
+layout_mode = 2
+text = "02:51"
+
+[node name="ReplayTimelineEvent" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineRow4"]
+layout_mode = 2
+text = "Final swing on Hive 3"
+
+[node name="ReplayNote" type="Label" parent="DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox"]
+layout_mode = 2
+text = "Full replay controls and scrubber hook (v1.1)."
+
+[node name="ReplayClose" type="Button" parent="DashPanel/DashReplayPanel/ReplayVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="DashBuffsPanel" type="Panel" parent="DashPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BuffsVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BuffsTitle" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox"]
+layout_mode = 2
+text = "BUFFS"
+
+[node name="BuffsSub" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox"]
+layout_mode = 2
+text = "Buffs + honey panel (stub)"
+
+[node name="BuffsBody" type="Panel" parent="DashPanel/DashBuffsPanel/BuffsVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BuffsBodyVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BuffsTopRow" type="HBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BuffsLoadoutPanel" type="Panel" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BuffsLoadoutVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BuffsLoadoutHeader" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox"]
+layout_mode = 2
+text = "LOADOUT"
+
+[node name="BuffsSlotsRow" type="HBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox"]
+layout_mode = 2
+
+[node name="BuffSlot1" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow"]
+layout_mode = 2
+text = "Slot 1"
+
+[node name="BuffSlot2" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow"]
+layout_mode = 2
+text = "Slot 2"
+
+[node name="BuffSlot3" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow"]
+layout_mode = 2
+text = "Slot 3"
+
+[node name="BuffSlot4" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow"]
+layout_mode = 2
+text = "Slot 4"
+
+[node name="BuffsLibraryPanel" type="Panel" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BuffsLibraryVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BuffsLibraryHeader" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox"]
+layout_mode = 2
+text = "BUFF LIBRARY"
+
+[node name="BuffsLibraryList" type="VBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BuffItem1" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList"]
+layout_mode = 2
+text = "Sting Surge"
+
+[node name="BuffItem2" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList"]
+layout_mode = 2
+text = "Wax Shield"
+
+[node name="BuffItem3" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList"]
+layout_mode = 2
+text = "Royal Pulse"
+
+[node name="BuffItem4" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList"]
+layout_mode = 2
+text = "Chain Echo"
+
+[node name="BuffItem5" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList"]
+layout_mode = 2
+text = "Hive Bloom"
+
+[node name="BuffItem6" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList"]
+layout_mode = 2
+text = "Overdrive"
+
+[node name="BuffsDetailPanel" type="Panel" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BuffsDetailVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BuffsDetailHeader" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox"]
+layout_mode = 2
+text = "DETAILS"
+
+[node name="BuffsDetailName" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox"]
+layout_mode = 2
+text = "Sting Surge"
+
+[node name="BuffsDetailDesc" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox"]
+layout_mode = 2
+text = "Short burst to lane output for 12s."
+
+[node name="BuffsDetailMeta" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox"]
+layout_mode = 2
+text = "Cooldown: 90s | Stack: No"
+
+[node name="BuffsDetailButtons" type="HBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox"]
+layout_mode = 2
+
+[node name="BuffEquip" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailButtons"]
+layout_mode = 2
+text = "EQUIP"
+
+[node name="BuffRemove" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailButtons"]
+layout_mode = 2
+text = "REMOVE"
+
+[node name="BuffsFooter" type="Label" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox"]
+layout_mode = 2
+text = "Buffs are earned through play (v1 hook)."
+
+[node name="BuffsClose" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="DashHivePanel" type="Panel" parent="DashPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HiveVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HiveTitle" type="Label" parent="DashPanel/DashHivePanel/HiveVBox"]
+layout_mode = 2
+text = "HIVE / CLAN"
+
+[node name="HiveSub" type="Label" parent="DashPanel/DashHivePanel/HiveVBox"]
+layout_mode = 2
+text = "Clan hub (stub)"
+
+[node name="HiveBody" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="HiveBodyVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HiveTopRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="HiveOverviewPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="HiveOverviewVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HiveOverviewHeader" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox"]
+layout_mode = 2
+text = "CLAN PROFILE"
+
+[node name="HiveClanName" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox"]
+layout_mode = 2
+text = "Name: Swarmfront"
+
+[node name="HiveClanTag" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox"]
+layout_mode = 2
+text = "Tag: SF"
+
+[node name="HiveClanLeague" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox"]
+layout_mode = 2
+text = "League: Bronze"
+
+[node name="HiveClanMembers" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox"]
+layout_mode = 2
+text = "Members: 12"
+
+[node name="HiveRosterPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="HiveRosterVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HiveRosterHeader" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox"]
+layout_mode = 2
+text = "ROSTER"
+
+[node name="HiveRosterList" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="HiveMember1" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+layout_mode = 2
+text = "Mason — Captain"
+
+[node name="HiveMember2" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+layout_mode = 2
+text = "Nora — Core"
+
+[node name="HiveMember3" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+layout_mode = 2
+text = "Sable — Core"
+
+[node name="HiveMember4" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+layout_mode = 2
+text = "Ivy — Scout"
+
+[node name="HiveActivityPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="HiveActivityVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HiveActivityHeader" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox"]
+layout_mode = 2
+text = "CLAN ACTIVITY"
+
+[node name="HiveActivity1" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox"]
+layout_mode = 2
+text = "Last win: 2h ago"
+
+[node name="HiveActivity2" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox"]
+layout_mode = 2
+text = "New member joined"
+
+[node name="HiveActivity3" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox"]
+layout_mode = 2
+text = "Quest progress: 3/5"
+
+[node name="HiveActionsPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
+layout_mode = 2
+
+[node name="HiveActionsVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HiveActionsHeader" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
+layout_mode = 2
+text = "CLAN ACTIONS"
+
+[node name="HiveActionsRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
+layout_mode = 2
+
+[node name="HiveChat" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
+layout_mode = 2
+text = "CHAT"
+
+[node name="HiveLadder" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
+layout_mode = 2
+text = "LADDER"
+
+[node name="HiveQuests" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
+layout_mode = 2
+text = "QUESTS"
+
+[node name="HiveFooter" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
+layout_mode = 2
+text = "Clan features are stubbed for v1."
+
+[node name="HiveClose" type="Button" parent="DashPanel/DashHivePanel/HiveVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="DashStorePanel" type="Panel" parent="DashPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StoreVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StoreTitle" type="Label" parent="DashPanel/DashStorePanel/StoreVBox"]
+layout_mode = 2
+text = "STORE"
+
+[node name="StoreSub" type="Label" parent="DashPanel/DashStorePanel/StoreVBox"]
+layout_mode = 2
+text = "Select a category to browse."
+
+[node name="StoreBody" type="Panel" parent="DashPanel/DashStorePanel/StoreVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="StoreBodyVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StoreLanding" type="Panel" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="StoreLandingVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StoreLandingHeader" type="Label" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox"]
+layout_mode = 2
+text = "CATEGORIES"
+
+[node name="StoreCategoryGrid" type="GridContainer" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox"]
+layout_mode = 2
+columns = 3
+
+[node name="StoreCategoryView" type="Panel" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox"]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="StoreCategoryVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StoreCategoryHeader" type="Label" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox"]
+layout_mode = 2
+text = "CATEGORY"
+
+[node name="StoreCategorySub" type="Label" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox"]
+layout_mode = 2
+text = "Browse items"
+
+[node name="StoreCategoryList" type="VBoxContainer" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="StoreCategoryPrefs" type="Panel" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox"]
+visible = false
+layout_mode = 2
+
+[node name="StoreCategoryPrefsVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryPrefs"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StorePrefsLabel" type="Label" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryPrefs/StoreCategoryPrefsVBox"]
+layout_mode = 2
+text = "Prefer Zero Ads Pass players"
+
+[node name="StorePrefsToggle" type="CheckButton" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryPrefs/StoreCategoryPrefsVBox"]
+layout_mode = 2
+text = "OFF"
+
+[node name="StoreCategoryBack" type="Button" parent="DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox"]
+layout_mode = 2
+text = "BACK TO CATEGORIES"
+
+[node name="StoreClose" type="Button" parent="DashPanel/DashStorePanel/StoreVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="DashBadgesPanel" type="Panel" parent="DashPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BadgesCollectionVBox" type="VBoxContainer" parent="DashPanel/DashBadgesPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BadgesTitle" type="Label" parent="DashPanel/DashBadgesPanel/BadgesCollectionVBox"]
+layout_mode = 2
+text = "BADGE COLLECTION"
+
+[node name="BadgesSub" type="Label" parent="DashPanel/DashBadgesPanel/BadgesCollectionVBox"]
+layout_mode = 2
+text = "Collection view (stub)"
+
+[node name="BadgesClose" type="Button" parent="DashPanel/DashBadgesPanel/BadgesCollectionVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="AsyncPanel" type="Panel" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AsyncVBox" type="VBoxContainer" parent="AsyncPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AsyncTitle" type="Label" parent="AsyncPanel/AsyncVBox"]
+layout_mode = 2
+text = "ASYNC"
+
+[node name="AsyncSub" type="Label" parent="AsyncPanel/AsyncVBox"]
+layout_mode = 2
+text = "Weekly, monthly, yearly contests."
+
+[node name="AsyncBody" type="Panel" parent="AsyncPanel/AsyncVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="AsyncBodyVBox" type="VBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AsyncTopRow" type="HBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="AsyncQueuePanel" type="Panel" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AsyncQueueVBox" type="VBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AsyncQueueHeader" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox"]
+layout_mode = 2
+text = "WEEKLY CONTENTS"
+
+[node name="AsyncQueueDesc" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox"]
+layout_mode = 2
+text = "Paid weekly async content."
+
+[node name="AsyncQueueAction" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox"]
+layout_mode = 2
+text = "OPEN WEEKLY"
+
+[node name="AsyncLeaderboardPanel" type="Panel" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AsyncLeaderboardVBox" type="VBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AsyncLeaderboardHeader" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox"]
+layout_mode = 2
+text = "MONTHLY CONTESTS"
+
+[node name="AsyncLeaderboardLine1" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox"]
+layout_mode = 2
+text = "Paid monthly ladder."
+
+[node name="AsyncLeaderboardLine2" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox"]
+layout_mode = 2
+text = "Seasonal leaderboard."
+
+[node name="AsyncLeaderboardLine3" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox"]
+layout_mode = 2
+text = "Rewards later."
+
+[node name="AsyncLeaderboardAction" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox"]
+layout_mode = 2
+text = "OPEN MONTHLY"
+
+[node name="AsyncSeasonPanel" type="Panel" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AsyncSeasonVBox" type="VBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AsyncSeasonHeader" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox"]
+layout_mode = 2
+text = "YEARLY CONTESTS"
+
+[node name="AsyncSeasonLine1" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox"]
+layout_mode = 2
+text = "Paid yearly ladder."
+
+[node name="AsyncSeasonLine2" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox"]
+layout_mode = 2
+text = "Long-form standings."
+
+[node name="AsyncSeasonLine3" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox"]
+layout_mode = 2
+text = "Rewards later."
+
+[node name="AsyncSeasonAction" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox"]
+layout_mode = 2
+text = "OPEN YEARLY"
+
+[node name="AsyncBottomRow" type="HBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="AsyncResultsPanel" type="Panel" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AsyncResultsVBox" type="VBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AsyncResultsHeader" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox"]
+layout_mode = 2
+text = "LADDER"
+
+[node name="AsyncResultsSub" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox"]
+layout_mode = 2
+text = "Competitive async ladders."
+
+[node name="AsyncResultsList" type="VBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox"]
+layout_mode = 2
+
+[node name="AsyncLadderMissNOut" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
+layout_mode = 2
+text = "Miss n Outs — $1 / $5 / $10 / $20"
+
+[node name="AsyncLadderRace3" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
+layout_mode = 2
+text = "3 Map Race"
+
+[node name="AsyncLadderRace5" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
+layout_mode = 2
+text = "5 Map Race"
+
+[node name="AsyncLadderStage3" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
+layout_mode = 2
+text = "3 Map Stage Race"
+
+[node name="AsyncLadderStage5" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
+layout_mode = 2
+text = "5 Map Stage Race"
+
+[node name="AsyncResultsAction" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox"]
+layout_mode = 2
+text = "VIEW LADDER"
+
+[node name="AsyncRulesPanel" type="Panel" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AsyncRulesVBox" type="VBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AsyncRulesHeader" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox"]
+layout_mode = 2
+text = "FREE PLAY"
+
+[node name="AsyncRulesLine1" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox"]
+layout_mode = 2
+text = "Choose a mode."
+
+[node name="AsyncRulesLine2" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox"]
+layout_mode = 2
+text = "No entry cost."
+
+[node name="AsyncFreeList" type="VBoxContainer" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox"]
+layout_mode = 2
+
+[node name="AsyncFreeMissNOut" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
+layout_mode = 2
+text = "Miss n Outs"
+
+[node name="AsyncFreeRace3" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
+layout_mode = 2
+text = "3 Map Race"
+
+[node name="AsyncFreeRace5" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
+layout_mode = 2
+text = "5 Map Race"
+
+[node name="AsyncFreeStage3" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
+layout_mode = 2
+text = "3 Map Stage Race"
+
+[node name="AsyncFreeStage5" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
+layout_mode = 2
+text = "5 Map Stage Race"
+
+[node name="AsyncRulesAction" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox"]
+layout_mode = 2
+text = "OPEN FREE PLAY"
+
+[node name="AsyncFooter" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox"]
+layout_mode = 2
+text = "Paid tracks first, free play last."
+
+[node name="AsyncClose" type="Button" parent="AsyncPanel/AsyncVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="AsyncWeeklyPanel" type="Panel" parent="AsyncPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="WeeklyVBox" type="VBoxContainer" parent="AsyncPanel/AsyncWeeklyPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="WeeklyTitle" type="Label" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox"]
+layout_mode = 2
+text = "WEEKLY CONTENTS"
+
+[node name="WeeklySub" type="Label" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox"]
+layout_mode = 2
+text = "Select entry, confirm to purchase."
+
+[node name="WeeklyBody" type="Panel" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="WeeklyBodyVBox" type="VBoxContainer" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="WeeklyListHeader" type="Label" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox"]
+layout_mode = 2
+text = "ENTRY"
+
+[node name="WeeklyList" type="VBoxContainer" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox"]
+layout_mode = 2
+
+[node name="WeeklyBuyin1" type="Button" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyList"]
+layout_mode = 2
+text = "$1 Entry"
+
+[node name="WeeklyBuyin2" type="Button" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyList"]
+layout_mode = 2
+text = "$5 Entry"
+
+[node name="WeeklyBuyin3" type="Button" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyList"]
+layout_mode = 2
+text = "$10 Entry"
+
+[node name="WeeklyBuyin4" type="Button" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyList"]
+layout_mode = 2
+text = "$20 Entry"
+
+[node name="WeeklyBuyin5" type="Button" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyList"]
+layout_mode = 2
+text = "$50 Entry"
+
+[node name="WeeklyRules" type="Label" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox"]
+layout_mode = 2
+text = "Buff cap: 3 for $1/$5/$20. $50 = unlimited."
+
+[node name="WeeklyMapPool" type="Label" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox"]
+layout_mode = 2
+text = "Map pool: 5 maps. Unlimited replays."
+
+[node name="WeeklyAssignedMap" type="Label" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox"]
+layout_mode = 2
+text = "Assigned Map: --"
+
+[node name="WeeklyPlay" type="Button" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox"]
+layout_mode = 2
+text = "PLAY"
+
+[node name="WeeklyBack" type="Button" parent="AsyncPanel/AsyncWeeklyPanel/WeeklyVBox"]
+layout_mode = 2
+text = "Back"
+
+[node name="AsyncMonthlyPanel" type="Panel" parent="AsyncPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MonthlyVBox" type="VBoxContainer" parent="AsyncPanel/AsyncMonthlyPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MonthlyTitle" type="Label" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox"]
+layout_mode = 2
+text = "MONTHLY CONTESTS"
+
+[node name="MonthlySub" type="Label" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox"]
+layout_mode = 2
+text = "Select entry, confirm to purchase."
+
+[node name="MonthlyBody" type="Panel" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="MonthlyBodyVBox" type="VBoxContainer" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MonthlyListHeader" type="Label" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox"]
+layout_mode = 2
+text = "ENTRY"
+
+[node name="MonthlyList" type="VBoxContainer" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox"]
+layout_mode = 2
+
+[node name="MonthlyBuyin1" type="Button" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyList"]
+layout_mode = 2
+text = "$1 Entry"
+
+[node name="MonthlyBuyin2" type="Button" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyList"]
+layout_mode = 2
+text = "$5 Entry"
+
+[node name="MonthlyBuyin3" type="Button" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyList"]
+layout_mode = 2
+text = "$10 Entry"
+
+[node name="MonthlyBuyin4" type="Button" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyList"]
+layout_mode = 2
+text = "$20 Entry"
+
+[node name="MonthlyBuyin5" type="Button" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyList"]
+layout_mode = 2
+text = "$50 Entry"
+
+[node name="MonthlyRules" type="Label" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox"]
+layout_mode = 2
+text = "Buff cap: 3 for $1/$5/$20. $50 = unlimited."
+
+[node name="MonthlyMapPool" type="Label" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox"]
+layout_mode = 2
+text = "Map pool: 5 maps. Unlimited replays."
+
+[node name="MonthlyAssignedMap" type="Label" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox"]
+layout_mode = 2
+text = "Assigned Map: --"
+
+[node name="MonthlyPlay" type="Button" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox"]
+layout_mode = 2
+text = "PLAY"
+
+[node name="MonthlyBack" type="Button" parent="AsyncPanel/AsyncMonthlyPanel/MonthlyVBox"]
+layout_mode = 2
+text = "Back"
+
+[node name="AsyncYearlyPanel" type="Panel" parent="AsyncPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="YearlyVBox" type="VBoxContainer" parent="AsyncPanel/AsyncYearlyPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="YearlyTitle" type="Label" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox"]
+layout_mode = 2
+text = "YEARLY CONTESTS"
+
+[node name="YearlySub" type="Label" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox"]
+layout_mode = 2
+text = "Select entry, confirm to purchase."
+
+[node name="YearlyBody" type="Panel" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="YearlyBodyVBox" type="VBoxContainer" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="YearlyListHeader" type="Label" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox"]
+layout_mode = 2
+text = "ENTRY"
+
+[node name="YearlyList" type="VBoxContainer" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox"]
+layout_mode = 2
+
+[node name="YearlyBuyin1" type="Button" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyList"]
+layout_mode = 2
+text = "$1 Entry"
+
+[node name="YearlyBuyin2" type="Button" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyList"]
+layout_mode = 2
+text = "$5 Entry"
+
+[node name="YearlyBuyin3" type="Button" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyList"]
+layout_mode = 2
+text = "$10 Entry"
+
+[node name="YearlyBuyin4" type="Button" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyList"]
+layout_mode = 2
+text = "$20 Entry"
+
+[node name="YearlyBuyin5" type="Button" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyList"]
+layout_mode = 2
+text = "$50 Entry"
+
+[node name="YearlyRules" type="Label" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox"]
+layout_mode = 2
+text = "Buff cap: 3 for $1/$5/$20. $50 = unlimited."
+
+[node name="YearlyMapPool" type="Label" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox"]
+layout_mode = 2
+text = "Map pool: 5 maps. Unlimited replays."
+
+[node name="YearlyAssignedMap" type="Label" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox"]
+layout_mode = 2
+text = "Assigned Map: --"
+
+[node name="YearlyPlay" type="Button" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox"]
+layout_mode = 2
+text = "PLAY"
+
+[node name="YearlyBack" type="Button" parent="AsyncPanel/AsyncYearlyPanel/YearlyVBox"]
+layout_mode = 2
+text = "Back"
+
+[node name="DashTab" type="Control" parent="."]
+anchors_preset = 0
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -90.0
+offset_top = -90.0
+offset_bottom = 90.0
+script = ExtResource("2")

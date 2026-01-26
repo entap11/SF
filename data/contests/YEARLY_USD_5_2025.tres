@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script="res://data/contest/ContestDef.gd" format=3]
+
+[resource]
+id = "YEARLY_USD_5_2025"
+scope = "YEARLY"
+currency = "USD"
+price = 5
+time_slice = "2025"
+name = "YEARLY Time Puzzle — $5"
+status = "OPEN"
+start_ts = 0
+end_ts = 4102444800
+published = true
+map_ids = PackedStringArray("tp_map_01", "tp_map_02", "tp_map_03", "tp_map_04", "tp_map_05")
+buff_cap_per_map = 2
+bonus_rules = {}

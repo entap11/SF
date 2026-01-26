@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script="res://data/contest/ContestDef.gd" format=3]
+
+[resource]
+id = "WEEKLY_USD_20_2025-W52"
+scope = "WEEKLY"
+currency = "USD"
+price = 20
+time_slice = "2025-W52"
+name = "WEEKLY Time Puzzle — $20"
+status = "OPEN"
+start_ts = 0
+end_ts = 4102444800
+published = true
+map_ids = PackedStringArray("tp_map_01", "tp_map_02", "tp_map_03", "tp_map_04", "tp_map_05")
+buff_cap_per_map = -1
+bonus_rules = {}

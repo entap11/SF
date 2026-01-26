@@ -1,0 +1,7 @@
+[gd_scene format=3]
+
+[node name="NPCDebug" type="Node2D"]
+
+[node name="ColorRect" type="ColorRect" parent="."]
+size = Vector2(32, 32)
+color = Color(0.658823, 0.780392, 1, 1)

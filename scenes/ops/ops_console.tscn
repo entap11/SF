@@ -1,0 +1,198 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ops/ops_console.gd" id="1"]
+
+[node name="OpsConsole" type="Control"]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="RootPanel" type="Panel" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = 40.0
+offset_right = -40.0
+offset_bottom = -40.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="RootVBox" type="VBoxContainer" parent="RootPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Title" type="Label" parent="RootPanel/RootVBox"]
+text = "OPS CONSOLE"
+
+[node name="Tabs" type="TabContainer" parent="RootPanel/RootVBox"]
+size_flags_vertical = 3
+
+[node name="Contests" type="Control" parent="RootPanel/RootVBox/Tabs"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ContestsHBox" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Contests"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ContestList" type="ItemList" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="ContestForm" type="VBoxContainer" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox"]
+size_flags_horizontal = 5
+size_flags_vertical = 3
+
+[node name="ContestIdLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "ID"
+
+[node name="ContestId" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = ""
+
+[node name="ContestNameLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Name"
+
+[node name="ContestName" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = ""
+
+[node name="ContestModeLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Mode"
+
+[node name="ContestMode" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "TIME_PUZZLE"
+
+[node name="ContestStartLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Start Unix"
+
+[node name="ContestStart" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "0"
+
+[node name="ContestEndLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "End Unix"
+
+[node name="ContestEnd" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "0"
+
+[node name="ContestEntryTypeLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Entry Type"
+
+[node name="ContestEntryType" type="OptionButton" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
+[node name="ContestAnteLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Ante Amount"
+
+[node name="ContestAnte" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+min_value = 0
+max_value = 999
+step = 1
+value = 0
+
+[node name="ContestMapPoolLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Map Pool"
+
+[node name="ContestMapPool" type="ItemList" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+size_flags_vertical = 3
+
+[node name="ContestPublished" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Published"
+
+[node name="ContestButtons" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
+[node name="ContestNew" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestButtons"]
+text = "New"
+
+[node name="ContestSave" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestButtons"]
+text = "Save"
+
+[node name="ContestDelete" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestButtons"]
+text = "Delete"
+
+[node name="ContestStatus" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = ""
+
+[node name="Maps" type="Control" parent="RootPanel/RootVBox/Tabs"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MapsHBox" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Maps"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MapList" type="ItemList" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="MapForm" type="VBoxContainer" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox"]
+size_flags_horizontal = 5
+size_flags_vertical = 3
+
+[node name="MapIdLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = "ID"
+
+[node name="MapId" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = ""
+
+[node name="MapNameLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = "Display Name"
+
+[node name="MapName" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = ""
+
+[node name="MapSceneLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = "Scene Path"
+
+[node name="MapScenePath" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = ""
+
+[node name="MapPreviewLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = "Preview"
+
+[node name="MapPreview" type="TextureRect" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+stretch_mode = 5
+custom_minimum_size = Vector2(320, 180)
+
+[node name="MapPreviewPath" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = ""
+
+[node name="MapInPool" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = "In Pool"
+
+[node name="MapLoadTest" type="Button" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = "LOAD IN TEST"
+
+[node name="MapStatus" type="Label" parent="RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm"]
+text = ""

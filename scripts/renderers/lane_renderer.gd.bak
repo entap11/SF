@@ -1,0 +1,262 @@
+class_name LaneRenderer
+extends Node2D
+
+var state: GameState
+var sel: SelectionState
+var arena: Node2D
+var model: Dictionary = {}
+
+const OPPOSING_OFFSET_PX := 4.0
+const DEBUG_HIVE1_CROSS := false
+
+@export var animations_enabled := true
+@export var show_lane_candidates := true
+const HEARTBEAT_HZ := 20.0
+const HEARTBEAT_DT := 1.0 / HEARTBEAT_HZ
+var _heartbeat_accum := 0.0
+var _last_render_version := -1
+var _dirty: bool = true
+
+func setup(state_ref: GameState, sel_ref: SelectionState, arena_ref: Node2D) -> void:
+	state = state_ref
+	sel = sel_ref
+	arena = arena_ref
+	_dirty = true
+	_last_render_version = -1
+	queue_redraw()
+
+func set_model(m: Dictionary) -> void:
+	print("LaneRenderer set_model called by:\n", get_stack())
+	model = m
+	_dirty = true
+	queue_redraw()
+
+func clear_all() -> void:
+	model = {}
+	_dirty = true
+	queue_redraw()
+	print("LaneRenderer: cleared")
+
+func _process(delta: float) -> void:
+	if arena == null:
+		return
+
+	var rv_v: Variant = (arena as Node).get("render_version")
+	var rv: int = int(rv_v) if rv_v != null else 0
+
+	var heartbeat := false
+	if animations_enabled:
+		_heartbeat_accum += delta
+		if _heartbeat_accum >= HEARTBEAT_DT:
+			_heartbeat_accum = fmod(_heartbeat_accum, HEARTBEAT_DT)
+			heartbeat = true
+
+	if _dirty or rv != _last_render_version or heartbeat:
+		_last_render_version = rv
+		_dirty = false
+		queue_redraw()
+
+func _draw() -> void:
+	# NOTE:
+	# draw_lane() is intentionally public (no underscore).
+	# Do NOT rename or underscore-prefix without updating all call sites.
+	# If we have a render model, draw it.
+	if not model.is_empty():
+		_draw_model_lanes()
+		return
+
+	# Otherwise, fall back to existing state-based behavior.
+	if state == null or arena == null:
+		return
+
+	_last_render_version = arena.render_version
+
+	var time_sec: float = Time.get_ticks_msec() / 1000.0
+
+	# These are your existing methods (not included in snippet).
+	# They should already exist in the full file.
+	for lane in state.lanes:
+		draw_lane(lane, time_sec)
+
+	_draw_units()
+	_draw_swarm_packets()
+	_draw_debris()
+	_draw_drag_preview()
+
+func _draw_model_lanes() -> void:
+	if arena == null:
+		return
+
+	_last_render_version = arena.render_version
+
+	var cell_v: Variant = (arena as Node).get("CELL_SIZE")
+	var cell: float = float(cell_v) if cell_v != null else 64.0
+
+	var offset: Vector2 = Vector2.ZERO
+	var offset_v: Variant = (arena as Node).get("map_offset")
+	if typeof(offset_v) == TYPE_VECTOR2:
+		offset = offset_v as Vector2
+
+	var lanes: Array = model.get("lanes", []) as Array
+	var candidates: Array = model.get("lane_candidates", []) as Array
+	var hives: Array = model.get("hives", []) as Array
+
+	var pos: Dictionary = {}
+	for h in hives:
+		if typeof(h) != TYPE_DICTIONARY:
+			continue
+		var hd: Dictionary = h as Dictionary
+
+		var id: String = str(hd.get("id", ""))
+		if id.is_empty():
+			continue
+
+		var gx: float = float(hd.get("x", 0.0))
+		var gy: float = float(hd.get("y", 0.0))
+		if hd.has("grid_pos") and typeof(hd["grid_pos"]) == TYPE_ARRAY:
+			var gp: Array = hd["grid_pos"] as Array
+			if gp.size() >= 2:
+				gx = float(gp[0])
+				gy = float(gp[1])
+
+		pos[id] = GridSpec.grid_to_world_center(gx, gy, cell, offset)
+
+	if DEBUG_HIVE1_CROSS:
+		for h in hives:
+			if typeof(h) != TYPE_DICTIONARY:
+				continue
+			var hd: Dictionary = h as Dictionary
+			if str(hd.get("id", "")) != "1":
+				continue
+			var gx1: float = float(hd.get("x", 0.0))
+			var gy1: float = float(hd.get("y", 0.0))
+			var hp: Vector2 = GridSpec.grid_to_world_center(gx1, gy1, cell, offset)
+			draw_line(hp + Vector2(-4, 0), hp + Vector2(4, 0), Color(1, 0, 0, 0.8), 1.0)
+			draw_line(hp + Vector2(0, -4), hp + Vector2(0, 4), Color(1, 0, 0, 0.8), 1.0)
+			break
+
+	var active_keys: Dictionary = {}
+	for e in lanes:
+		if typeof(e) != TYPE_DICTIONARY:
+			continue
+		var ed: Dictionary = e as Dictionary
+		var a: String = str(ed.get("from", ""))
+		var b: String = str(ed.get("to", ""))
+		if a.is_empty() or b.is_empty():
+			continue
+		if not pos.has(a) or not pos.has(b):
+			continue
+		var key: String = a + ":" + b if a < b else b + ":" + a
+		active_keys[key] = true
+
+	if show_lane_candidates:
+		for c in candidates:
+			if typeof(c) != TYPE_DICTIONARY:
+				continue
+			var cd: Dictionary = c as Dictionary
+			var ca: String = str(cd.get("a_id", cd.get("from", "")))
+			var cb: String = str(cd.get("b_id", cd.get("to", "")))
+			if ca.is_empty() or cb.is_empty():
+				continue
+			if not pos.has(ca) or not pos.has(cb):
+				continue
+			var ckey: String = ca + ":" + cb if ca < cb else cb + ":" + ca
+			if active_keys.has(ckey):
+				continue
+			draw_line(pos[ca], pos[cb], Color(0.5, 0.5, 0.5, 0.18), 1.0)
+
+	for e in lanes:
+		if typeof(e) != TYPE_DICTIONARY:
+			continue
+		var ed: Dictionary = e as Dictionary
+
+		var a: String = str(ed.get("from", ""))
+		var b: String = str(ed.get("to", ""))
+		var active: bool = bool(ed.get("active", true))
+
+		if a.is_empty() or b.is_empty():
+			continue
+		if not pos.has(a) or not pos.has(b):
+			continue
+
+		var line_color: Color = Color(0.9, 0.9, 0.9, 0.9) if active else Color(0.6, 0.6, 0.6, 0.35)
+		draw_line(pos[a], pos[b], line_color, 3.0)
+
+		if active:
+			var mid: Vector2 = (pos[a] as Vector2).lerp(pos[b] as Vector2, 0.5)
+			draw_circle(mid, 2.5, Color(1.0, 1.0, 1.0, 0.6))
+
+	# Units from model (if present)
+	var units: Array = model.get("units", []) as Array
+	for u in units:
+		if typeof(u) != TYPE_DICTIONARY:
+			continue
+		var ud: Dictionary = u as Dictionary
+
+		var draw_pos: Vector2 = Vector2.ZERO
+		var has_pos: bool = false
+
+		var pos_v: Variant = ud.get("pos")
+		if typeof(pos_v) == TYPE_VECTOR2:
+			draw_pos = pos_v as Vector2
+			has_pos = true
+		else:
+			var from_id: String = str(ud.get("from", ""))
+			var to_id: String = str(ud.get("to", ""))
+			if not from_id.is_empty() and not to_id.is_empty() and pos.has(from_id) and pos.has(to_id):
+				var t: float = clamp(float(ud.get("t", 0.0)), 0.0, 1.0)
+				draw_pos = (pos[from_id] as Vector2).lerp(pos[to_id] as Vector2, t)
+				has_pos = true
+
+		if not has_pos:
+			continue
+
+		var owner_id: int = int(ud.get("owner_id", 0))
+		var unit_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+		if arena != null and arena.has_method("_owner_color"):
+			var c_v: Variant = arena.call("_owner_color", owner_id)
+			if typeof(c_v) == TYPE_COLOR:
+				unit_color = c_v as Color
+
+		draw_circle(draw_pos, 4.0, unit_color)
+
+func _grid_to_px(gx: float, gy: float, cell: float, offset: Vector2) -> Vector2:
+	return GridSpec.grid_to_world_center(gx, gy, cell, offset)
+
+# --------------------------------------------------------------------
+# COMPAT WRAPPERS
+# These exist purely to prevent parser errors when method names drift.
+# They forward dynamically to whichever implementation exists.
+# --------------------------------------------------------------------
+
+func draw_lane(lane: Variant, time_sec: float) -> void:
+	# Prefer private version if present (common in this codebase).
+	if has_method("_draw_lane"):
+		call("_draw_lane", lane, time_sec)
+	elif has_method("draw_lane_impl"):
+		call("draw_lane_impl", lane, time_sec)
+	# else: no-op (keeps editor running)
+
+func _draw_units() -> void:
+	if has_method("draw_units"):
+		call("draw_units")
+	elif has_method("_draw_units_impl"):
+		call("_draw_units_impl")
+
+func _draw_swarm_packets() -> void:
+	if has_method("draw_swarm_packets"):
+		call("draw_swarm_packets")
+	elif has_method("_draw_swarm_packets_impl"):
+		call("_draw_swarm_packets_impl")
+
+func _draw_debris() -> void:
+	if has_method("draw_debris"):
+		call("draw_debris")
+	elif has_method("_draw_debris_impl"):
+		call("_draw_debris_impl")
+
+func _draw_drag_preview() -> void:
+	if has_method("draw_drag_preview"):
+		call("draw_drag_preview")
+	elif has_method("_draw_drag_preview_impl"):
+		call("_draw_drag_preview_impl")

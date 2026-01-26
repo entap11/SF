@@ -1,0 +1,812 @@
+# NOTE: Update unit motion to travel-time based t, resolve opposite-lane collisions, and keep debug logs gated.
+# WE MAINTAIN ONE AUTHORITATIVE GAME STATE (OpsState/SimState).
+# UI / render / input MUST NOT mutate state directly.
+# They only (1) emit intents/requests and (2) render from state.
+# Only simulation/state systems may mutate state, and ONLY via OpsState-owned references.
+class_name UnitSystem
+extends RefCounted
+
+const SFLog := preload("res://scripts/util/sf_log.gd")
+const MapSchema := preload("res://scripts/maps/map_schema.gd")
+const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
+
+const BASE_MS := 1000.0
+const PER_POWER_MS := 2.0
+const BONUS_10_MS := 2.0
+const BONUS_25_MS := 2.0
+const MIN_MS := 250.0
+const MAX_SPAWNS_PER_TICK := 5
+const UNIT_RADIUS_PX := 0.0
+const EDGE_MIN_DIST_PX := 1.0
+const ARRIVE_EPS_PX := 0.5
+
+var state: GameState = null
+var units: Array = []
+var unit_id_counter := 1
+var sim_time_us := 0
+var spawn_accum_by_lane: Dictionary = {}
+var _next_external_unit_id := 1
+var render_units: Array[Dictionary] = []
+var _next_uid: int = 1
+var win_system: WinSystem = null
+var debug_unit_speed_log: bool = false
+var debug_unit_tick_log: bool = false
+var debug_collisions: bool = false
+var use_lane_system_spawns: bool = true
+var _last_unit_speed_log_ms: int = 0
+var _last_unit_tick_log_ms: int = 0
+var _last_unit_speed_id: int = -1
+var _last_unit_speed_pos: Vector2 = Vector2.ZERO
+var _last_pressure_warn_ms: Dictionary = {}
+var _in_owner_update: bool = false
+
+const UNIT_SPEED_LOG_INTERVAL_MS := 1000
+const PRESSURE_WARN_INTERVAL_MS := 1000
+
+func setup(_sim_tuning: SimTuning = null) -> void:
+	return
+
+func bind_state(state_ref: GameState) -> void:
+	state = state_ref
+	units.clear()
+	render_units.clear()
+	unit_id_counter = 1
+	_next_uid = 1
+	sim_time_us = 0
+	spawn_accum_by_lane.clear()
+	if state != null:
+		state.unit_system = self
+		state.units_by_lane.clear()
+		state.units_by_lane["_all"] = units
+
+func tick(dt: float) -> void:
+	if state == null:
+		return
+	if OpsState.has_outcome():
+		return
+	sim_time_us += int(round(dt * 1000000.0))
+	_process_lane_retract_requests()
+	if not use_lane_system_spawns:
+		_spawn_units(dt)
+	_update_units(dt)
+	resolve_lane_interactions(state, sim_time_us)
+	_process_arrivals()
+	_sync_units_to_state()
+
+func _spawn_units(dt: float) -> void:
+	if state == null:
+		return
+	var dt_ms := dt * 1000.0
+	var spawn_ids := _spawn_ids()
+	for lane in state.lanes:
+		var ld: LaneData = lane
+		var a: HiveData = state.find_hive_by_id(int(ld.a_id))
+		var b: HiveData = state.find_hive_by_id(int(ld.b_id))
+		if a == null or b == null:
+			continue
+		var lane_len := _lane_length(ld)
+		if ld.send_a and int(a.owner_id) > 0 and _spawn_allowed(spawn_ids, int(a.id)) and _lane_established(ld, true, lane_len):
+			_accum_spawn(ld, true, a, b, dt_ms)
+		if ld.send_b and int(b.owner_id) > 0 and _spawn_allowed(spawn_ids, int(b.id)) and _lane_established(ld, false, lane_len):
+			_accum_spawn(ld, false, b, a, dt_ms)
+
+func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive: HiveData, dt_ms: float) -> void:
+	var lane_id := int(lane.id)
+	var side := "a" if from_is_a else "b"
+	var key := "%d:%s" % [lane_id, side]
+	var accum := float(spawn_accum_by_lane.get(key, 0.0))
+	accum += dt_ms
+	var interval_ms := _spawn_interval_ms_for_power(int(from_hive.power))
+	var spawned := 0
+	while accum >= interval_ms and spawned < MAX_SPAWNS_PER_TICK:
+		accum -= interval_ms
+		_spawn_unit(from_hive, to_hive, lane, from_is_a)
+		spawned += 1
+	spawn_accum_by_lane[key] = accum
+
+func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is_a: bool) -> void:
+	if state == null:
+		return
+	var a_hive: HiveData = state.find_hive_by_id(int(lane.a_id))
+	var b_hive: HiveData = state.find_hive_by_id(int(lane.b_id))
+	if a_hive == null or b_hive == null:
+		return
+	var edge_points := _edge_points(a_hive, b_hive)
+	if edge_points.is_empty():
+		return
+	var unit_id := unit_id_counter
+	var a_pos: Vector2 = edge_points[0]
+	var b_pos: Vector2 = edge_points[1]
+	var dir := 1 if from_is_a else -1
+	var t := 0.0 if from_is_a else 1.0
+	var pos := a_pos.lerp(b_pos, t)
+	var unit := {
+		"id": unit_id,
+		"from_id": int(from_hive.id),
+		"to_id": int(to_hive.id),
+		"owner_id": int(from_hive.owner_id),
+		"amount": 1,
+		"lane_id": int(lane.id),
+		"a_id": int(lane.a_id),
+		"b_id": int(lane.b_id),
+		"lane_key": state.lane_key(int(lane.a_id), int(lane.b_id)),
+		"dir": dir,
+		"t": t,
+		"from_pos": a_pos,
+		"to_pos": b_pos,
+		"pos": pos
+	}
+	unit_id_counter += 1
+	SFLog.info("UNIT_SPAWN", {
+		"iid": int(state.iid),
+		"unit_id": unit_id,
+		"lane_id": int(lane.id),
+		"owner_id": int(from_hive.owner_id),
+		"from_id": int(from_hive.id),
+		"to_id": int(to_hive.id)
+	})
+	if a_pos.distance_to(b_pos) <= ARRIVE_EPS_PX:
+		unit["t"] = 1.0 if from_is_a else 0.0
+		unit["pos"] = b_pos if from_is_a else a_pos
+		_apply_unit_arrival(unit)
+		return
+	units.append(unit)
+	_sync_units_to_state()
+
+func _update_units(dt: float) -> void:
+	if units.is_empty():
+		return
+	var delta_px := float(SimTuning.UNIT_SPEED_PX_PER_SEC) * dt
+	for i in range(units.size()):
+		var unit: Dictionary = units[i] as Dictionary
+		unit = _ensure_unit_edges(unit)
+		var dir := _unit_dir(unit)
+		var lane_len := _unit_lane_len(unit)
+		if lane_len <= 0.001:
+			units[i] = unit
+			continue
+		var delta_t := delta_px / lane_len
+		var t := clampf(float(unit.get("t", 0.0)) + (float(dir) * delta_t), 0.0, 1.0)
+		unit["t"] = t
+		unit = _update_unit_pos_from_t(unit)
+		units[i] = unit
+
+func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
+	if units.is_empty():
+		return
+	if state_ref == null:
+		return
+	var lanes: Dictionary = {}
+	for i in range(units.size()):
+		var unit: Dictionary = units[i] as Dictionary
+		var lane_id := int(unit.get("lane_id", -1))
+		if lane_id <= 0:
+			continue
+		var entry: Dictionary = lanes.get(lane_id, {"ab": [], "ba": []})
+		var dir := _unit_dir(unit)
+		if dir >= 0:
+			(entry["ab"] as Array).append(i)
+		else:
+			(entry["ba"] as Array).append(i)
+		lanes[lane_id] = entry
+
+	var remove_indices: Array[int] = []
+	var remove_set: Dictionary = {}
+
+	for lane_id in lanes.keys():
+		var entry: Dictionary = lanes[lane_id]
+		var ab: Array = entry.get("ab", [])
+		var ba: Array = entry.get("ba", [])
+		if ab.is_empty() or ba.is_empty():
+			continue
+		ab.sort_custom(Callable(self, "_sort_unit_index_by_t"))
+		ba.sort_custom(Callable(self, "_sort_unit_index_by_t"))
+		while not ab.is_empty() and not ba.is_empty():
+			var a_idx := int(ab[ab.size() - 1])
+			var b_idx := int(ba[0])
+			if remove_set.has(a_idx):
+				ab.pop_back()
+				continue
+			if remove_set.has(b_idx):
+				ba.pop_front()
+				continue
+			var a: Dictionary = units[a_idx]
+			var b: Dictionary = units[b_idx]
+			var lane_len := _unit_lane_len(a)
+			if lane_len <= 0.001:
+				lane_len = _unit_lane_len(b)
+			if lane_len <= 0.001:
+				break
+			var a_t := float(a.get("t", 0.0))
+			var b_t := float(b.get("t", 0.0))
+			if a_t < b_t:
+				break
+			var a_owner := int(a.get("owner_id", 0))
+			var b_owner := int(b.get("owner_id", 0))
+			var a_amt: int = int(a.get("amount", 0))
+			var b_amt: int = int(b.get("amount", 0))
+			var collision_t := clampf((a_t + b_t) * 0.5, 0.0, 1.0)
+			if a_owner == b_owner:
+				var keep_ab := a_t >= (1.0 - b_t)
+				if keep_ab:
+					a_amt += b_amt
+					_adjust_lane_pressure(int(lane_id), true, b_amt)
+					_adjust_lane_pressure(int(lane_id), false, -b_amt)
+					a["amount"] = a_amt
+					a["t"] = collision_t
+					a = _update_unit_pos_from_t(a)
+					units[a_idx] = a
+					_mark_unit_remove(b_idx, remove_indices, remove_set)
+					ba.pop_front()
+					if debug_collisions:
+						SFLog.info("UNIT_MERGE", {"lane_id": lane_id, "keep": "ab", "amount": a_amt})
+				else:
+					b_amt += a_amt
+					_adjust_lane_pressure(int(lane_id), true, -a_amt)
+					_adjust_lane_pressure(int(lane_id), false, a_amt)
+					b["amount"] = b_amt
+					b["t"] = collision_t
+					b = _update_unit_pos_from_t(b)
+					units[b_idx] = b
+					_mark_unit_remove(a_idx, remove_indices, remove_set)
+					ab.pop_back()
+					if debug_collisions:
+						SFLog.info("UNIT_MERGE", {"lane_id": lane_id, "keep": "ba", "amount": b_amt})
+				continue
+			var a_before := a_amt
+			var b_before := b_amt
+			var kill: int = min(a_amt, b_amt)
+			a_amt -= kill
+			b_amt -= kill
+			if kill > 0:
+				_adjust_lane_pressure(int(lane_id), true, -kill)
+				_adjust_lane_pressure(int(lane_id), false, -kill)
+				OpsState.add_units_killed(a_owner, kill)
+				OpsState.add_units_killed(b_owner, kill)
+			a["amount"] = a_amt
+			b["amount"] = b_amt
+			a["t"] = collision_t
+			b["t"] = collision_t
+			a = _update_unit_pos_from_t(a)
+			b = _update_unit_pos_from_t(b)
+			units[a_idx] = a
+			units[b_idx] = b
+			if kill > 0:
+				SFLog.info("UNIT_COLLISION", {
+					"lane_id": lane_id,
+					"a_amt": a_before,
+					"b_amt": b_before,
+					"kill": kill,
+					"at_us": now_us
+				})
+			if a_amt <= 0:
+				_mark_unit_remove(a_idx, remove_indices, remove_set)
+				ab.pop_back()
+			if b_amt <= 0:
+				_mark_unit_remove(b_idx, remove_indices, remove_set)
+				ba.pop_front()
+
+	if not remove_indices.is_empty():
+		remove_indices.sort()
+		for i in range(remove_indices.size() - 1, -1, -1):
+			units.remove_at(remove_indices[i])
+
+func _unit_dir(unit: Dictionary) -> int:
+	var dir := int(unit.get("dir", 0))
+	if dir != 0:
+		return dir
+	var from_id := int(unit.get("from_id", -1))
+	var a_id := int(unit.get("a_id", -1))
+	var b_id := int(unit.get("b_id", -1))
+	if from_id > 0 and a_id > 0 and b_id > 0:
+		return 1 if from_id == a_id else -1
+	return 1
+
+func _unit_lane_len(unit: Dictionary) -> float:
+	var from_pos_v: Variant = unit.get("from_pos")
+	var to_pos_v: Variant = unit.get("to_pos")
+	if from_pos_v is Vector2 and to_pos_v is Vector2:
+		return (from_pos_v as Vector2).distance_to(to_pos_v as Vector2)
+	return 0.0
+
+func _update_unit_pos_from_t(unit: Dictionary) -> Dictionary:
+	var from_pos_v: Variant = unit.get("from_pos")
+	var to_pos_v: Variant = unit.get("to_pos")
+	if from_pos_v is Vector2 and to_pos_v is Vector2:
+		var from_pos: Vector2 = from_pos_v
+		var to_pos: Vector2 = to_pos_v
+		var t := clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
+		unit["pos"] = from_pos.lerp(to_pos, t)
+	return unit
+
+func scoop_units_for_swarm(
+	from_id: int,
+	to_id: int,
+	owner_id: int,
+	lane_id: int,
+	prev_t: float,
+	curr_t: float,
+	swarm_dir: int = 0,
+	band_min_px: float = -1.0,
+	band_max_px: float = -1.0,
+	lane_len_px: float = 0.0
+) -> int:
+	if units.is_empty() or owner_id <= 0:
+		return 0
+	var scooped := 0
+	var min_t: float = minf(prev_t, curr_t)
+	var max_t: float = maxf(prev_t, curr_t)
+	var desired_dir: int = swarm_dir
+	if desired_dir == 0 and lane_id > 0:
+		var lane := _find_lane_by_id(lane_id)
+		if lane != null:
+			if from_id == int(lane.a_id) and to_id == int(lane.b_id):
+				desired_dir = 1
+			elif from_id == int(lane.b_id) and to_id == int(lane.a_id):
+				desired_dir = -1
+	for i in range(units.size() - 1, -1, -1):
+		var unit: Dictionary = units[i] as Dictionary
+		if int(unit.get("owner_id", 0)) != owner_id:
+			continue
+		if lane_id > 0 and int(unit.get("lane_id", -1)) != lane_id:
+			continue
+		var unit_dir: int = _unit_dir(unit)
+		if desired_dir != 0 and unit_dir != desired_dir:
+			continue
+		var t := float(unit.get("t", 0.0))
+		if band_min_px >= 0.0 and band_max_px >= 0.0 and lane_len_px > 0.0:
+			var unit_px := t * lane_len_px
+			if unit_px < band_min_px or unit_px > band_max_px:
+				continue
+		else:
+			if t < min_t or t > max_t:
+				continue
+		var amount: int = int(unit.get("amount", 1))
+		if amount > 0:
+			var from_is_a := _unit_dir(unit) >= 0
+			_adjust_lane_pressure(lane_id, from_is_a, -amount)
+			scooped += amount
+		units.remove_at(i)
+	if scooped > 0:
+		_sync_units_to_state()
+	return scooped
+
+func _find_lane_by_id(lane_id: int) -> LaneData:
+	if state == null or lane_id <= 0:
+		return null
+	for lane in state.lanes:
+		if lane is LaneData:
+			var ld := lane as LaneData
+			if int(ld.id) == lane_id:
+				return ld
+	return null
+
+func _adjust_lane_pressure(lane_id: int, from_is_a: bool, delta: int) -> void:
+	if state == null or delta == 0:
+		return
+	var lane := _find_lane_by_id(lane_id)
+	if lane == null:
+		return
+	if from_is_a:
+		var next := float(lane.a_pressure) + float(delta)
+		if next < 0.0:
+			_warn_pressure_underflow(lane_id, "A", float(lane.a_pressure), delta)
+			next = 0.0
+		lane.a_pressure = next
+	else:
+		var next := float(lane.b_pressure) + float(delta)
+		if next < 0.0:
+			_warn_pressure_underflow(lane_id, "B", float(lane.b_pressure), delta)
+			next = 0.0
+		lane.b_pressure = next
+
+func _warn_pressure_underflow(lane_id: int, side: String, current: float, delta: int) -> void:
+	var key := "%d:%s" % [lane_id, side]
+	var now_ms := Time.get_ticks_msec()
+	var last_ms := int(_last_pressure_warn_ms.get(key, 0))
+	if now_ms - last_ms < PRESSURE_WARN_INTERVAL_MS:
+		return
+	_last_pressure_warn_ms[key] = now_ms
+	SFLog.warn("LANE_PRESSURE_UNDERFLOW", {
+		"lane_id": lane_id,
+		"side": side,
+		"current": current,
+		"delta": delta
+	})
+
+func _mark_unit_remove(idx: int, remove_indices: Array[int], remove_set: Dictionary) -> void:
+	if remove_set.has(idx):
+		return
+	remove_set[idx] = true
+	remove_indices.append(idx)
+
+func _sort_unit_index_by_t(a: int, b: int) -> bool:
+	var ua: Dictionary = units[a]
+	var ub: Dictionary = units[b]
+	var ta := float(ua.get("t", 0.0))
+	var tb := float(ub.get("t", 0.0))
+	if ta == tb:
+		return int(ua.get("id", 0)) < int(ub.get("id", 0))
+	return ta < tb
+
+func _apply_unit_arrival(unit: Dictionary) -> void:
+	if state == null:
+		return
+	var owner_id := int(unit.get("owner_id", 0))
+	var to_id := int(unit.get("to_id", -1))
+	if owner_id <= 0 or to_id <= 0:
+		return
+	var hive: HiveData = state.find_hive_by_id(to_id)
+	if hive == null:
+		return
+	if _in_owner_update:
+		SFLog.error("REENTRANT_OWNER_UPDATE", {
+			"to_id": to_id,
+			"owner_id": owner_id,
+			"stack": get_stack()
+		})
+		return
+	_in_owner_update = true
+	var amount: int = int(unit.get("amount", 1))
+	var skip_pressure := bool(unit.get("skip_pressure", false))
+	if amount > 0 and not skip_pressure:
+		var from_is_a := _unit_dir(unit) >= 0
+		_adjust_lane_pressure(int(unit.get("lane_id", -1)), from_is_a, -amount)
+	OpsState.add_units_landed(owner_id, amount)
+	var before_owner := int(hive.owner_id)
+	var before_power := int(hive.power)
+	if int(hive.owner_id) == owner_id:
+		hive.power = min(SimTuning.MAX_POWER, int(hive.power) + amount)
+	else:
+		hive.power -= amount
+		if hive.power <= 0:
+			hive.owner_id = owner_id
+			hive.power = clampi(SimTuning.CAPTURE_START_POWER, 1, SimTuning.MAX_POWER)
+			if state.has_method("_clear_all_outgoing_from"):
+				state.call("_clear_all_outgoing_from", int(hive.id))
+		else:
+			hive.power = clampi(int(hive.power), 1, SimTuning.MAX_POWER)
+	var after_owner := int(hive.owner_id)
+	var after_power := int(hive.power)
+	if before_owner != after_owner:
+		SFLog.info("HIVE_FLIP", {
+			"hive_id": to_id,
+			"from": before_owner,
+			"to": after_owner,
+			"after_power": after_power
+		})
+		if win_system != null and win_system.has_method("notify_hive_owner_changed"):
+			win_system.notify_hive_owner_changed()
+		elif state.has_method("evaluate_full_control_win"):
+			state.call("evaluate_full_control_win")
+	var side := "A" if _unit_dir(unit) >= 0 else "B"
+	var arrive_source := str(unit.get("arrive_source", "unit_system"))
+	if SFLog.verbose_sim:
+		SFLog.throttled_info("ARRIVE_APPLY", {
+			"lane_id": int(unit.get("lane_id", -1)),
+			"side": side,
+			"src": int(unit.get("from_id", -1)),
+			"dst": to_id,
+			"amount": amount,
+			"owner": owner_id,
+			"before_owner": before_owner,
+			"before_power": before_power,
+			"after_owner": after_owner,
+			"after_power": after_power,
+			"arrive_source": arrive_source
+		}, 250)
+	if arrive_source == "recall":
+		SFLog.info("UNIT_RECALL_ARRIVE", {
+			"lane_id": int(unit.get("lane_id", -1)),
+			"src": int(unit.get("to_id", -1)),
+			"owner": owner_id,
+			"amount": amount
+		})
+	_in_owner_update = false
+
+func _process_arrivals() -> void:
+	if units.is_empty():
+		return
+	for i in range(units.size() - 1, -1, -1):
+		var unit: Dictionary = units[i] as Dictionary
+		var dir := _unit_dir(unit)
+		var t := float(unit.get("t", 0.0))
+		var arrived := (dir >= 0 and t >= 1.0) or (dir < 0 and t <= 0.0)
+		if arrived:
+			_apply_unit_arrival(unit)
+			units.remove_at(i)
+
+func _process_lane_retract_requests() -> void:
+	if state == null:
+		return
+	var requests_v: Variant = state.lane_retract_requests
+	if typeof(requests_v) != TYPE_ARRAY:
+		return
+	var requests: Array = requests_v as Array
+	if requests.is_empty():
+		return
+	for req_any in requests:
+		if typeof(req_any) != TYPE_DICTIONARY:
+			continue
+		var req: Dictionary = req_any as Dictionary
+		var lane_id: int = int(req.get("lane_id", -1))
+		var from_id: int = int(req.get("from_id", -1))
+		var owner_id: int = int(req.get("owner_id", 0))
+		if lane_id <= 0 or from_id <= 0:
+			continue
+		var recalled: int = _recall_units_for_lane(lane_id, from_id, owner_id)
+		if recalled > 0:
+			SFLog.info("UNIT_RECALL_START", {
+				"lane_id": lane_id,
+				"src": from_id,
+				"owner": owner_id,
+				"amount": recalled
+			})
+	state.lane_retract_requests = []
+
+func _recall_units_for_lane(lane_id: int, from_id: int, owner_id: int) -> int:
+	var recalled: int = 0
+	for i in range(units.size()):
+		var unit: Dictionary = units[i] as Dictionary
+		if int(unit.get("lane_id", -1)) != lane_id:
+			continue
+		if int(unit.get("from_id", -1)) != from_id:
+			continue
+		if owner_id > 0 and int(unit.get("owner_id", 0)) != owner_id:
+			continue
+		if bool(unit.get("returning", false)):
+			continue
+		var amount: int = int(unit.get("amount", 1))
+		recalled += amount
+		unit = _recall_unit(unit)
+		units[i] = unit
+	return recalled
+
+func _recall_unit(unit: Dictionary) -> Dictionary:
+	var old_from_id: int = int(unit.get("from_id", -1))
+	var old_to_id: int = int(unit.get("to_id", -1))
+	if old_from_id <= 0 or old_to_id <= 0:
+		return unit
+	unit["from_id"] = old_to_id
+	unit["to_id"] = old_from_id
+	var t: float = float(unit.get("t", 0.0))
+	unit["t"] = 1.0 - t
+	var from_pos_v: Variant = unit.get("from_pos", null)
+	var to_pos_v: Variant = unit.get("to_pos", null)
+	if from_pos_v is Vector2 and to_pos_v is Vector2:
+		unit["from_pos"] = to_pos_v
+		unit["to_pos"] = from_pos_v
+	var a_id: int = int(unit.get("a_id", -1))
+	var b_id: int = int(unit.get("b_id", -1))
+	var new_from_id: int = int(unit.get("from_id", -1))
+	if new_from_id == a_id:
+		unit["dir"] = 1
+	elif new_from_id == b_id:
+		unit["dir"] = -1
+	else:
+		unit["dir"] = -int(unit.get("dir", 1))
+	unit["returning"] = true
+	unit["arrive_source"] = "recall"
+	unit["skip_pressure"] = true
+	unit = _update_unit_pos_from_t(unit)
+	return unit
+
+func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: int, _now_us: int) -> bool:
+	if victim_unit_id <= 0:
+		return false
+	for i in range(units.size()):
+		var unit: Dictionary = units[i] as Dictionary
+		if int(unit.get("id", -1)) != victim_unit_id:
+			continue
+		if tower_owner_id > 0 and int(unit.get("owner_id", 0)) == tower_owner_id:
+			return false
+		var amount: int = int(unit.get("amount", 1))
+		if amount > 0:
+			var from_is_a := _unit_dir(unit) >= 0
+			_adjust_lane_pressure(int(unit.get("lane_id", -1)), from_is_a, -amount)
+			OpsState.add_units_killed(tower_owner_id, amount)
+		return _remove_unit(victim_unit_id, "tower_hit")
+	return false
+
+func _hive_radius_px(_hive: HiveData) -> float:
+	return GameState.HIVE_RADIUS_PX
+
+func _edge_points(from_hive: HiveData, to_hive: HiveData) -> Array:
+	if state == null or from_hive == null or to_hive == null:
+		return []
+	var a_pos := state.hive_world_pos_by_id(int(from_hive.id))
+	var b_pos := state.hive_world_pos_by_id(int(to_hive.id))
+	var dir_vec := b_pos - a_pos
+	if dir_vec.length_squared() <= 0.0001:
+		dir_vec = Vector2.RIGHT
+	else:
+		dir_vec = dir_vec.normalized()
+	var ra := _hive_radius_px(from_hive)
+	var rb := _hive_radius_px(to_hive)
+	var start_edge := a_pos + dir_vec * (ra + UNIT_RADIUS_PX)
+	var end_edge := b_pos - dir_vec * (rb + UNIT_RADIUS_PX)
+	if start_edge.distance_to(end_edge) < EDGE_MIN_DIST_PX:
+		end_edge = start_edge
+	return [start_edge, end_edge]
+
+func _ensure_unit_edges(unit: Dictionary) -> Dictionary:
+	if state == null:
+		return unit
+	var a_id := int(unit.get("a_id", -1))
+	var b_id := int(unit.get("b_id", -1))
+	if a_id <= 0 or b_id <= 0:
+		return unit
+	var a_hive: HiveData = state.find_hive_by_id(a_id)
+	var b_hive: HiveData = state.find_hive_by_id(b_id)
+	if a_hive == null or b_hive == null:
+		return unit
+	var edge_points := _edge_points(a_hive, b_hive)
+	if edge_points.is_empty():
+		return unit
+	unit["from_pos"] = edge_points[0]
+	unit["to_pos"] = edge_points[1]
+	unit["pos"] = edge_points[0].lerp(edge_points[1], clampf(float(unit.get("t", 0.0)), 0.0, 1.0))
+	return unit
+
+func _sync_units_to_state() -> void:
+	if state == null:
+		return
+	var all_v: Variant = state.units_by_lane.get("_all")
+	if all_v != units:
+		state.units_by_lane["_all"] = units
+
+func _remove_unit(unit_id: int, reason: String) -> bool:
+	for i in range(units.size()):
+		var unit: Dictionary = units[i] as Dictionary
+		if int(unit.get("id", -1)) != unit_id:
+			continue
+		units.remove_at(i)
+		_sync_units_to_state()
+		SFLog.info("UNIT_REMOVED", {"unit_id": unit_id, "reason": reason})
+		return true
+	return false
+
+func spawn_unit(unit: Dictionary) -> void:
+	if state == null:
+		return
+	if not unit.has("id") or int(unit.get("id", 0)) <= 0:
+		unit["id"] = _next_external_unit_id
+		_next_external_unit_id += 1
+	if not unit.has("amount") or int(unit.get("amount", 0)) <= 0:
+		unit["amount"] = 1
+	var dir := _unit_dir(unit)
+	if not unit.has("t"):
+		unit["t"] = 0.0 if dir >= 0 else 1.0
+	elif dir < 0 and float(unit.get("t", 0.0)) <= 0.0:
+		unit["t"] = 1.0
+	unit = _ensure_unit_edges(unit)
+	unit = _update_unit_pos_from_t(unit)
+	units.append(unit)
+	_sync_units_to_state()
+
+func export_units_render() -> Array:
+	return units.duplicate(true)
+
+func spawn_render_unit(lane_id: int, a_id: int, b_id: int, owner_id: int, from_side: String) -> void:
+	var from_id := a_id
+	var to_id := b_id
+	if from_side == "B":
+		from_id = b_id
+		to_id = a_id
+	var from_pos := Vector2.ZERO
+	var to_pos := Vector2.ZERO
+	if state != null:
+		var a_pos := state.hive_world_pos_by_id(a_id)
+		var b_pos := state.hive_world_pos_by_id(b_id)
+		var pts := GameState.lane_edge_points(a_pos, b_pos)
+		from_pos = pts.get("a_edge", a_pos)
+		to_pos = pts.get("b_edge", b_pos)
+	var dir := 1 if from_side == "A" else -1
+	var t := 0.0 if dir >= 0 else 1.0
+	var pos := from_pos.lerp(to_pos, t)
+	render_units.append({
+		"id": _next_uid,
+		"lane_id": lane_id,
+		"a_id": a_id,
+		"b_id": b_id,
+		"from_id": from_id,
+		"to_id": to_id,
+		"owner_id": owner_id,
+		"dir": dir,
+		"t": t,
+		"from_side": from_side,
+		"from_pos": from_pos,
+		"to_pos": to_pos,
+		"pos": pos
+	})
+	_next_uid += 1
+
+func tick_render_units(dt: float) -> void:
+	var delta_px := float(SimTuning.UNIT_SPEED_PX_PER_SEC) * dt
+	for i in range(render_units.size() - 1, -1, -1):
+		var u: Dictionary = render_units[i] as Dictionary
+		var dir := int(u.get("dir", 1))
+		var from_pos_v: Variant = u.get("from_pos")
+		var to_pos_v: Variant = u.get("to_pos")
+		if not (from_pos_v is Vector2 and to_pos_v is Vector2):
+			continue
+		var from_pos: Vector2 = from_pos_v
+		var to_pos: Vector2 = to_pos_v
+		var lane_len := from_pos.distance_to(to_pos)
+		if lane_len <= 0.001:
+			continue
+		var delta_t := delta_px / lane_len
+		var t := clampf(float(u.get("t", 0.0)) + (float(dir) * delta_t), 0.0, 1.0)
+		u["t"] = t
+		u["pos"] = from_pos.lerp(to_pos, t)
+		render_units[i] = u
+		var arrived := (dir >= 0 and t >= 1.0) or (dir < 0 and t <= 0.0)
+		if arrived:
+			render_units.remove_at(i)
+	if debug_unit_speed_log:
+		_log_unit_speed(render_units)
+
+func _log_unit_speed(units_in: Array) -> void:
+	var now_ms := Time.get_ticks_msec()
+	if now_ms - _last_unit_speed_log_ms < UNIT_SPEED_LOG_INTERVAL_MS:
+		return
+	if units_in.is_empty():
+		return
+	var u: Dictionary = units_in[0]
+	var from_pos_v: Variant = u.get("from_pos")
+	var to_pos_v: Variant = u.get("to_pos")
+	if not (from_pos_v is Vector2 and to_pos_v is Vector2):
+		return
+	var from_pos: Vector2 = from_pos_v
+	var to_pos: Vector2 = to_pos_v
+	var t: float = clampf(float(u.get("t", 0.0)), 0.0, 1.0)
+	var pos := from_pos.lerp(to_pos, t)
+	var lane_len := from_pos.distance_to(to_pos)
+	var unit_id := int(u.get("id", -1))
+	var elapsed_s := float(now_ms - _last_unit_speed_log_ms) / 1000.0
+	var speed_px_s := 0.0
+	if _last_unit_speed_id == unit_id and elapsed_s > 0.0:
+		speed_px_s = pos.distance_to(_last_unit_speed_pos) / elapsed_s
+	_last_unit_speed_log_ms = now_ms
+	_last_unit_speed_id = unit_id
+	_last_unit_speed_pos = pos
+	SFLog.info("UNIT_SPEED_DEBUG", {
+		"unit_id": unit_id,
+		"lane_id": int(u.get("lane_id", -1)),
+		"lane_len": lane_len,
+		"speed_px_s": speed_px_s
+	})
+
+func _lane_length(lane: LaneData) -> float:
+	if state == null:
+		return 0.0
+	var a_pos := state.hive_world_pos_by_id(int(lane.a_id))
+	var b_pos := state.hive_world_pos_by_id(int(lane.b_id))
+	return a_pos.distance_to(b_pos)
+
+func _lane_established(lane: LaneData, from_is_a: bool, lane_len: float) -> bool:
+	if lane_len <= 0.0:
+		return false
+	var stream_len := lane.a_stream_len if from_is_a else lane.b_stream_len
+	return stream_len >= lane_len - 0.1
+
+func _spawn_interval_ms_for_power(power: int) -> int:
+	var p := maxi(1, power)
+	return maxi(50, 1000 - (p - 1) * 2)
+
+func _spawn_ids() -> Dictionary:
+	var ids: Dictionary = {}
+	var spawns: Array = state.spawns
+	for spawn_v in spawns:
+		if typeof(spawn_v) != TYPE_DICTIONARY:
+			continue
+		var sd: Dictionary = spawn_v
+		var hive_id := int(sd.get("hive_id", sd.get("id", -1)))
+		if hive_id > 0:
+			ids[hive_id] = true
+	return ids
+
+func _spawn_allowed(spawn_ids: Dictionary, hive_id: int) -> bool:
+	if spawn_ids.is_empty():
+		return true
+	return spawn_ids.has(hive_id)

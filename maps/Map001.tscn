@@ -1,0 +1,109 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://maps/templates/MapTemplate.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/map_nodes/HiveNode.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/map_nodes/TowerNode.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://scenes/map_nodes/BarracksNode.tscn" id="4"]
+[ext_resource type="PackedScene" path="res://scenes/map_nodes/SpawnPoint.tscn" id="5"]
+[ext_resource type="PackedScene" path="res://scenes/map_nodes/LinkNode.tscn" id="6"]
+
+[node name="Map001" type="Node2D"]
+script = ExtResource("1")
+map_id = "map001"
+display_name = "Map 001"
+
+[node name="Spawns" type="Node2D" parent="."]
+
+[node name="Spawn1" parent="Spawns" instance=ExtResource("5")]
+position = Vector2(64, 64)
+spawn_id = 1
+team_id = 1
+grid_pos = Vector2i(1, 1)
+
+[node name="Spawn2" parent="Spawns" instance=ExtResource("5")]
+position = Vector2(640, 384)
+spawn_id = 2
+team_id = 3
+grid_pos = Vector2i(10, 6)
+
+[node name="Hives" type="Node2D" parent="."]
+
+[node name="Hive1" parent="Hives" instance=ExtResource("2")]
+position = Vector2(128, 128)
+hive_id = 1
+owner_id = 1
+grid_pos = Vector2i(2, 2)
+
+[node name="Hive2" parent="Hives" instance=ExtResource("2")]
+position = Vector2(128, 320)
+hive_id = 2
+owner_id = 1
+grid_pos = Vector2i(2, 5)
+
+[node name="Hive3" parent="Hives" instance=ExtResource("2")]
+position = Vector2(576, 128)
+hive_id = 3
+owner_id = 3
+grid_pos = Vector2i(9, 2)
+
+[node name="Hive4" parent="Hives" instance=ExtResource("2")]
+position = Vector2(576, 320)
+hive_id = 4
+owner_id = 3
+grid_pos = Vector2i(9, 5)
+
+[node name="Hive5" parent="Hives" instance=ExtResource("2")]
+position = Vector2(384, 192)
+hive_id = 5
+owner_id = 0
+grid_pos = Vector2i(6, 3)
+
+[node name="Hive6" parent="Hives" instance=ExtResource("2")]
+position = Vector2(384, 384)
+hive_id = 6
+owner_id = 0
+grid_pos = Vector2i(6, 6)
+
+[node name="Towers" type="Node2D" parent="."]
+
+[node name="Tower1" parent="Towers" instance=ExtResource("3")]
+position = Vector2(320, 256)
+tower_id = 1
+grid_pos = Vector2i(5, 4)
+required_hive_ids = [1, 2, 5]
+
+[node name="Barracks" type="Node2D" parent="."]
+
+[node name="Barracks1" parent="Barracks" instance=ExtResource("4")]
+position = Vector2(448, 256)
+barracks_id = 1
+grid_pos = Vector2i(7, 4)
+required_hive_ids = [3, 4, 5]
+
+[node name="Links" type="Node2D" parent="."]
+
+[node name="Link1" parent="Links" instance=ExtResource("6")]
+a_id = 1
+b_id = 5
+
+[node name="Link2" parent="Links" instance=ExtResource("6")]
+a_id = 2
+b_id = 5
+
+[node name="Link3" parent="Links" instance=ExtResource("6")]
+a_id = 5
+b_id = 3
+
+[node name="Link4" parent="Links" instance=ExtResource("6")]
+a_id = 5
+b_id = 4
+
+[node name="Link5" parent="Links" instance=ExtResource("6")]
+a_id = 2
+b_id = 6
+
+[node name="Link6" parent="Links" instance=ExtResource("6")]
+a_id = 6
+b_id = 4
+
+[node name="Decor" type="Node2D" parent="."]

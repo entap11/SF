@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script="res://scripts/data/map_def.gd" format=3]
+
+[resource]
+id = "map001"
+display_name = "Map 001"
+preview_path = ""
+map_scene_path = "res://maps/Map001.tscn"
+in_pool = true

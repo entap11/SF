@@ -1,0 +1,5 @@
+[
+  {"rank": 1, "player_id": "p1", "player_name": "Dart", "hive_name": "Keystone", "best_score": 1200, "best_run_ts": 0, "runs_count": 3},
+  {"rank": 2, "player_id": "p2", "player_name": "Hex", "hive_name": "Relentless", "best_score": 980, "best_run_ts": 0, "runs_count": 2},
+  {"rank": 3, "player_id": "p3", "player_name": "Wasp", "hive_name": "Brick", "best_score": 860, "best_run_ts": 0, "runs_count": 1}
+]

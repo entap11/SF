@@ -1,0 +1,95 @@
+[gd_scene load_steps=2 format=3 uid="uid://dkn5sbhyc6doi"]
+
+[ext_resource type="PackedScene" path="res://scenes/hives/HiveMedium.tscn" id="2_fvlrn"]
+
+[node name="MapRoot" type="Node2D"]
+
+[node name="Hives" type="Node2D" parent="."]
+
+[node name="P1_H1" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(64, 64)
+hive_id = 1
+grid_pos = Vector2i(1, 1)
+owner_id = 1
+
+[node name="P1_H2" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(64, 128)
+hive_id = 2
+grid_pos = Vector2i(1, 2)
+owner_id = 1
+
+[node name="P1_H3" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(64, 192)
+hive_id = 3
+grid_pos = Vector2i(1, 3)
+owner_id = 1
+
+[node name="P1_H4" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(64, 256)
+hive_id = 4
+grid_pos = Vector2i(1, 4)
+owner_id = 1
+
+[node name="P1_H5" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(64, 320)
+hive_id = 5
+grid_pos = Vector2i(1, 5)
+owner_id = 1
+
+[node name="P1_H6" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(64, 384)
+hive_id = 6
+grid_pos = Vector2i(1, 6)
+owner_id = 1
+
+[node name="P2_H1" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(640, 64)
+hive_id = 7
+grid_pos = Vector2i(10, 1)
+owner_id = 3
+
+[node name="P2_H2" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(640, 128)
+hive_id = 8
+grid_pos = Vector2i(10, 2)
+owner_id = 3
+
+[node name="P2_H3" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(640, 192)
+hive_id = 9
+grid_pos = Vector2i(10, 3)
+owner_id = 3
+
+[node name="P2_H4" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(640, 256)
+hive_id = 10
+grid_pos = Vector2i(10, 4)
+owner_id = 3
+
+[node name="P2_H5" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(640, 320)
+hive_id = 11
+grid_pos = Vector2i(10, 5)
+owner_id = 3
+
+[node name="P2_H6" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(640, 384)
+hive_id = 12
+grid_pos = Vector2i(10, 6)
+owner_id = 3
+
+[node name="NPC_1" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(320, 256)
+hive_id = 13
+grid_pos = Vector2i(5, 4)
+
+[node name="NPC_1_M" parent="Hives" instance=ExtResource("2_fvlrn")]
+position = Vector2(384, 256)
+hive_id = 14
+grid_pos = Vector2i(6, 4)
+
+[node name="Towers" type="Node2D" parent="."]
+
+[node name="Barracks" type="Node2D" parent="."]
+
+[node name="Lanes" type="Node2D" parent="."]

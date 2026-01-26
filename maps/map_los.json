@@ -1,0 +1,13 @@
+{
+  "hives": [
+    {"id": 1, "grid_pos": [2, 4], "owner_id": 1, "power": 12},
+    {"id": 2, "grid_pos": [5, 4], "owner_id": 0, "power": 1},
+    {"id": 3, "grid_pos": [8, 4], "owner_id": 4, "power": 12}
+  ],
+  "lanes": [
+    {"a_id": 1, "b_id": 2},
+    {"a_id": 2, "b_id": 3}
+  ],
+  "towers": [],
+  "barracks": []
+}

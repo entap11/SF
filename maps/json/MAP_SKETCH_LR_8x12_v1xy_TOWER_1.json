@@ -1,0 +1,26 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "width": 8,
+  "height": 12,
+  "entities": [
+    { "id": "p1_1", "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "x": 0, "y": 1 },
+    { "id": "p1_2", "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "x": 0, "y": 3 },
+    { "id": "p1_3", "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "x": 0, "y": 5 },
+    { "id": "p1_4", "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "x": 0, "y": 8 },
+    { "id": "p1_5", "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "x": 0, "y": 10 },
+
+    { "id": "p2_1", "kind": "hive", "type": "hive", "team": "p2", "team_id": 2, "x": 7, "y": 1 },
+    { "id": "p2_2", "kind": "hive", "type": "hive", "team": "p2", "team_id": 2, "x": 7, "y": 3 },
+    { "id": "p2_3", "kind": "hive", "type": "hive", "team": "p2", "team_id": 2, "x": 7, "y": 5 },
+    { "id": "p2_4", "kind": "hive", "type": "hive", "team": "p2", "team_id": 2, "x": 7, "y": 8 },
+    { "id": "p2_5", "kind": "hive", "type": "hive", "team": "p2", "team_id": 2, "x": 7, "y": 10 }
+  ],
+  "towers": [
+    {
+      "id": 1,
+      "grid_pos": [4, 4],
+      "required_hive_ids": [2, 3, 7, 8],
+      "owner_id": 1
+    }
+  ]
+}

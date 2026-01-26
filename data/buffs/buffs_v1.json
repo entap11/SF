@@ -1,0 +1,1869 @@
+{
+  "_schema": "swarmfront.buffs.v1",
+  "durations_sec": {
+    "classic": 10,
+    "premium": 15,
+    "elite": 20
+  },
+  "loadout_rules": {
+    "slots": 3,
+    "start_slots": 2,
+    "ot_unlock_slots": 3,
+    "max_elite": 1,
+    "max_premium": 1
+  },
+  "pricing_usd": {
+    "tier1": {
+      "classic": 0.1,
+      "premium": 0.15,
+      "elite": 0.2
+    },
+    "tier2": {
+      "classic": 0.25,
+      "premium": 0.3,
+      "elite": 0.35
+    },
+    "tier3": {
+      "classic": 0.4,
+      "premium": 0.45,
+      "elite": 0.5
+    }
+  },
+  "buffs": [
+    {
+      "id": "buff_swarm_speed_classic",
+      "name": "Swarm Speed",
+      "category": "unit",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_speed_pct",
+          "value": 0.25
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_speed_premium",
+      "name": "Swarm Speed",
+      "category": "unit",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_speed_pct",
+          "value": 0.35
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_speed_elite",
+      "name": "Swarm Speed",
+      "category": "unit",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_speed_pct",
+          "value": 0.45
+        },
+        {
+          "type": "swarm_slow_immunity",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_durability_classic",
+      "name": "Swarm Durability",
+      "category": "unit",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_hp_pct",
+          "value": 0.2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_durability_premium",
+      "name": "Swarm Durability",
+      "category": "unit",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_hp_pct",
+          "value": 0.3
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_durability_elite",
+      "name": "Swarm Durability",
+      "category": "unit",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_hp_pct",
+          "value": 0.4
+        },
+        {
+          "type": "swarm_shock_resist",
+          "value": "reduced"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_damage_classic",
+      "name": "Swarm Damage",
+      "category": "unit",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_damage_pct",
+          "value": 0.2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_damage_premium",
+      "name": "Swarm Damage",
+      "category": "unit",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_damage_pct",
+          "value": 0.3
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_damage_elite",
+      "name": "Swarm Damage",
+      "category": "unit",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_damage_pct",
+          "value": 0.4
+        },
+        {
+          "type": "swarm_ignore_first_defensive_hit",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_size_boost_classic",
+      "name": "Swarm Size Boost",
+      "category": "unit",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_start_units_pct",
+          "value": 0.2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_size_boost_premium",
+      "name": "Swarm Size Boost",
+      "category": "unit",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_start_units_pct",
+          "value": 0.3
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_size_boost_elite",
+      "name": "Swarm Size Boost",
+      "category": "unit",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_start_units_pct",
+          "value": 0.4
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_shock_resistance_classic",
+      "name": "Shock Resistance",
+      "category": "unit",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_shock_chance_pct",
+          "value": -0.5
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_shock_resistance_premium",
+      "name": "Shock Resistance",
+      "category": "unit",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_shock_chance_pct",
+          "value": -0.75
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_swarm_shock_resistance_elite",
+      "name": "Shock Resistance",
+      "category": "unit",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "swarm_shock_immune",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_overrun_classic",
+      "name": "Overrun",
+      "category": "unit",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "overrun_threshold",
+          "value": 15
+        },
+        {
+          "type": "overrun_targeting",
+          "value": "nearest_enemy"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_overrun_premium",
+      "name": "Overrun",
+      "category": "unit",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "overrun_threshold",
+          "value": 10
+        },
+        {
+          "type": "overrun_targeting",
+          "value": "weakest_enemy"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_overrun_elite",
+      "name": "Overrun",
+      "category": "unit",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "overrun_threshold",
+          "value": 8
+        },
+        {
+          "type": "overrun_targeting",
+          "value": "weakest_enemy"
+        },
+        {
+          "type": "overrun_chain_count",
+          "value": 1
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_attrition_immunity_classic",
+      "name": "Attrition Immunity",
+      "category": "unit",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "attrition_ignore_units",
+          "value": 5
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_attrition_immunity_premium",
+      "name": "Attrition Immunity",
+      "category": "unit",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "attrition_ignore_units",
+          "value": 10
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_attrition_immunity_elite",
+      "name": "Attrition Immunity",
+      "category": "unit",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "attrition_ignore_all",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_last_mile_certainty_classic",
+      "name": "Last-Mile Certainty",
+      "category": "unit",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "final_segment_pct",
+          "value": 0.2
+        },
+        {
+          "type": "final_segment_immunities",
+          "value": [
+            "slow"
+          ]
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_last_mile_certainty_premium",
+      "name": "Last-Mile Certainty",
+      "category": "unit",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "final_segment_pct",
+          "value": 0.25
+        },
+        {
+          "type": "final_segment_immunities",
+          "value": [
+            "slow",
+            "freeze"
+          ]
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_last_mile_certainty_elite",
+      "name": "Last-Mile Certainty",
+      "category": "unit",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "final_segment_pct",
+          "value": 0.3
+        },
+        {
+          "type": "final_segment_immunities",
+          "value": [
+            "slow",
+            "freeze",
+            "intercept",
+            "shock"
+          ]
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_faster_production_classic",
+      "name": "Faster Production",
+      "category": "hive",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_production_time_pct",
+          "value": -0.2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_faster_production_premium",
+      "name": "Faster Production",
+      "category": "hive",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_production_time_pct",
+          "value": -0.3
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_faster_production_elite",
+      "name": "Faster Production",
+      "category": "hive",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_production_time_pct",
+          "value": -0.4
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_durability_classic",
+      "name": "Hive Durability",
+      "category": "hive",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_hp_pct",
+          "value": 0.2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_durability_premium",
+      "name": "Hive Durability",
+      "category": "hive",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_hp_pct",
+          "value": 0.3
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_durability_elite",
+      "name": "Hive Durability",
+      "category": "hive",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_hp_pct",
+          "value": 0.4
+        },
+        {
+          "type": "hive_shock_duration",
+          "value": "reduced"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_extra_lane_classic",
+      "name": "Extra Lane",
+      "category": "hive",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_extra_lane",
+          "value": 1
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_extra_lane_premium",
+      "name": "Extra Lane",
+      "category": "hive",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_extra_lane",
+          "value": 1
+        },
+        {
+          "type": "extra_lane_persist_sec",
+          "value": 5
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_extra_lane_elite",
+      "name": "Extra Lane",
+      "category": "hive",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_extra_lane",
+          "value": 1
+        },
+        {
+          "type": "overflow_units_preserved",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_grace_window_classic",
+      "name": "Grace Window",
+      "category": "hive",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_tier_drop_protection",
+          "value": "first"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_grace_window_premium",
+      "name": "Grace Window",
+      "category": "hive",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_tier_drop_protection",
+          "value": "duration"
+        },
+        {
+          "type": "tier_drop_protection_sec",
+          "value": 10
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_grace_window_elite",
+      "name": "Grace Window",
+      "category": "hive",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_tier_drop_protection",
+          "value": "all"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_shock_immunity_classic",
+      "name": "Shock Immunity (Hive)",
+      "category": "hive",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_shock_chance_pct",
+          "value": -0.75
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_shock_immunity_premium",
+      "name": "Shock Immunity (Hive)",
+      "category": "hive",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_shock_immune",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_shock_immunity_elite",
+      "name": "Shock Immunity (Hive)",
+      "category": "hive",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_shock_immune",
+          "value": true
+        },
+        {
+          "type": "hive_shock_propagation_block",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_overflow_banking_classic",
+      "name": "Overflow Banking",
+      "category": "hive",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_overflow_bank",
+          "value": true
+        },
+        {
+          "type": "overflow_cap",
+          "value": "low"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_overflow_banking_premium",
+      "name": "Overflow Banking",
+      "category": "hive",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_overflow_bank",
+          "value": true
+        },
+        {
+          "type": "overflow_cap",
+          "value": "medium"
+        },
+        {
+          "type": "overflow_decay",
+          "value": "slow"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_hive_overflow_banking_elite",
+      "name": "Overflow Banking",
+      "category": "hive",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "hive_overflow_bank",
+          "value": true
+        },
+        {
+          "type": "overflow_cap",
+          "value": "high"
+        },
+        {
+          "type": "overflow_auto_deploy",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_fire_rate_classic",
+      "name": "Fire Rate Boost",
+      "category": "tower",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_fire_rate_pct",
+          "value": 0.25
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_fire_rate_premium",
+      "name": "Fire Rate Boost",
+      "category": "tower",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_fire_rate_pct",
+          "value": 0.35
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_fire_rate_elite",
+      "name": "Fire Rate Boost",
+      "category": "tower",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_fire_rate_pct",
+          "value": 0.5
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_range_classic",
+      "name": "Range Boost",
+      "category": "tower",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_range_pct",
+          "value": 0.15
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_range_premium",
+      "name": "Range Boost",
+      "category": "tower",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_range_pct",
+          "value": 0.25
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_range_elite",
+      "name": "Range Boost",
+      "category": "tower",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_range_pct",
+          "value": 0.35
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_chain_fire_classic",
+      "name": "Chain Fire",
+      "category": "tower",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_chain_jumps",
+          "value": 1
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_chain_fire_premium",
+      "name": "Chain Fire",
+      "category": "tower",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_chain_jumps",
+          "value": 2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_chain_fire_elite",
+      "name": "Chain Fire",
+      "category": "tower",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_chain_jumps",
+          "value": 3
+        },
+        {
+          "type": "tower_chain_prioritize",
+          "value": "large_swarms"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_suppression_classic",
+      "name": "Suppression",
+      "category": "tower",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_on_hit_slow",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_suppression_premium",
+      "name": "Suppression",
+      "category": "tower",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_on_hit_slow",
+          "value": true
+        },
+        {
+          "type": "tower_on_hit_weaken",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_suppression_elite",
+      "name": "Suppression",
+      "category": "tower",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_on_hit_slow",
+          "value": true
+        },
+        {
+          "type": "tower_on_hit_weaken",
+          "value": true
+        },
+        {
+          "type": "tower_on_hit_shock_bonus",
+          "value": "increased"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_multi_kill_classic",
+      "name": "Multi-Kill Shot",
+      "category": "tower",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_multi_kill",
+          "value": 2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_multi_kill_premium",
+      "name": "Multi-Kill Shot",
+      "category": "tower",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_multi_kill",
+          "value": 3
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_tower_multi_kill_elite",
+      "name": "Multi-Kill Shot",
+      "category": "tower",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "tower_multi_kill",
+          "value": 4
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_faster_production_classic",
+      "name": "Faster Production",
+      "category": "barracks",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_spawn_time_pct",
+          "value": -0.2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_faster_production_premium",
+      "name": "Faster Production",
+      "category": "barracks",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_spawn_time_pct",
+          "value": -0.3
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_faster_production_elite",
+      "name": "Faster Production",
+      "category": "barracks",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_spawn_time_pct",
+          "value": -0.4
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_batch_production_classic",
+      "name": "Batch Production",
+      "category": "barracks",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_batch_mode",
+          "value": true
+        },
+        {
+          "type": "barracks_batch_size",
+          "value": "small"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_batch_production_premium",
+      "name": "Batch Production",
+      "category": "barracks",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_batch_mode",
+          "value": true
+        },
+        {
+          "type": "barracks_batch_size",
+          "value": "medium"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_batch_production_elite",
+      "name": "Batch Production",
+      "category": "barracks",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_batch_mode",
+          "value": true
+        },
+        {
+          "type": "barracks_batch_size",
+          "value": "large"
+        },
+        {
+          "type": "barracks_batch_speed_boost",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_directional_bias_classic",
+      "name": "Directional Bias",
+      "category": "barracks",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_target_bias",
+          "value": "weakest_linked"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_directional_bias_premium",
+      "name": "Directional Bias",
+      "category": "barracks",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_target_bias",
+          "value": "weakest_linked"
+        },
+        {
+          "type": "barracks_leveling_speed",
+          "value": "faster"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_directional_bias_elite",
+      "name": "Directional Bias",
+      "category": "barracks",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_target_bias",
+          "value": "weakest_linked"
+        },
+        {
+          "type": "barracks_tier_sync",
+          "value": "highest"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_resupply_mode_classic",
+      "name": "Resupply Mode",
+      "category": "barracks",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_resupply_pct",
+          "value": 0.2
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_resupply_mode_premium",
+      "name": "Resupply Mode",
+      "category": "barracks",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_resupply_pct",
+          "value": 0.3
+        },
+        {
+          "type": "barracks_resupply_reaction",
+          "value": "faster"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_barracks_resupply_mode_elite",
+      "name": "Resupply Mode",
+      "category": "barracks",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "barracks_resupply_pct",
+          "value": 0.4
+        },
+        {
+          "type": "barracks_overflow_enabled",
+          "value": true
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_lane_slow_classic",
+      "name": "Slow Lane",
+      "category": "lane",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_slow_pct",
+          "value": 0.2
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_slow_premium",
+      "name": "Slow Lane",
+      "category": "lane",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_slow_pct",
+          "value": 0.3
+        },
+        {
+          "type": "lane_slow_decay",
+          "value": true
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_slow_elite",
+      "name": "Slow Lane",
+      "category": "lane",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_slow_pct",
+          "value": 0.4
+        },
+        {
+          "type": "lane_freeze_pulses",
+          "value": true
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_freeze_classic",
+      "name": "Freeze Lane",
+      "category": "lane",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_freeze_on_entry",
+          "value": "short"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_freeze_premium",
+      "name": "Freeze Lane",
+      "category": "lane",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_freeze_on_entry",
+          "value": "medium"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_freeze_elite",
+      "name": "Freeze Lane",
+      "category": "lane",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_freeze_on_entry",
+          "value": "long"
+        },
+        {
+          "type": "lane_freeze_zones",
+          "value": "periodic"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_stealth_classic",
+      "name": "Stealth Lane",
+      "category": "lane",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_stealth_reveal_after_units",
+          "value": 3
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_stealth_premium",
+      "name": "Stealth Lane",
+      "category": "lane",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_stealth_reveal_after_units",
+          "value": 4
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_stealth_elite",
+      "name": "Stealth Lane",
+      "category": "lane",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_stealth_reveal_on_damage",
+          "value": true
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_acceleration_classic",
+      "name": "Acceleration Lane",
+      "category": "lane",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_speed_ramp",
+          "value": "slow"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_acceleration_premium",
+      "name": "Acceleration Lane",
+      "category": "lane",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_speed_ramp",
+          "value": "medium"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_acceleration_elite",
+      "name": "Acceleration Lane",
+      "category": "lane",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_speed_ramp",
+          "value": "fast"
+        },
+        {
+          "type": "lane_damage_bonus",
+          "value": "tbd"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_forking_classic",
+      "name": "Forking Lane",
+      "category": "lane",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_forking",
+          "value": "late"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_forking_premium",
+      "name": "Forking Lane",
+      "category": "lane",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_forking",
+          "value": "early"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_forking_elite",
+      "name": "Forking Lane",
+      "category": "lane",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_forking",
+          "value": "intelligent"
+        },
+        {
+          "type": "lane_fork_targeting",
+          "value": "weakest"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_one_way_classic",
+      "name": "One-Way Lane",
+      "category": "lane",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_one_way",
+          "value": true
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_one_way_premium",
+      "name": "One-Way Lane",
+      "category": "lane",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_one_way",
+          "value": true
+        },
+        {
+          "type": "lane_speed_bonus",
+          "value": "tbd"
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_lane_one_way_elite",
+      "name": "One-Way Lane",
+      "category": "lane",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 3,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_one_way",
+          "value": true
+        },
+        {
+          "type": "lane_retract_immune",
+          "value": true
+        }
+      ],
+      "stacking": "refresh",
+      "target_scope": "lane",
+      "target_selector": "tbd"
+    },
+    {
+      "id": "buff_npc_support_classic",
+      "name": "NPC Support",
+      "category": "npc",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "npc_hives",
+      "effects": [
+        {
+          "type": "npc_support_level",
+          "value": "light"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_npc_support_premium",
+      "name": "NPC Support",
+      "category": "npc",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "npc_hives",
+      "effects": [
+        {
+          "type": "npc_support_level",
+          "value": "favor_lanes"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_npc_support_elite",
+      "name": "NPC Support",
+      "category": "npc",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "npc_hives",
+      "effects": [
+        {
+          "type": "npc_support_level",
+          "value": "aggressive"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_npc_aggression_classic",
+      "name": "NPC Aggression",
+      "category": "npc",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 3,
+      "scope": "npc_hives",
+      "effects": [
+        {
+          "type": "npc_targeting",
+          "value": "enemies"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_npc_aggression_premium",
+      "name": "NPC Aggression",
+      "category": "npc",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 3,
+      "scope": "npc_hives",
+      "effects": [
+        {
+          "type": "npc_targeting",
+          "value": "leaders"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_npc_aggression_elite",
+      "name": "NPC Aggression",
+      "category": "npc",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 3,
+      "scope": "npc_hives",
+      "effects": [
+        {
+          "type": "npc_targeting",
+          "value": "coordinated"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_lane_insight_classic",
+      "name": "Lane Insight",
+      "category": "info",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_insight",
+          "value": "highlight_unused"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_lane_insight_premium",
+      "name": "Lane Insight",
+      "category": "info",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_insight",
+          "value": "suggest_optimal"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_lane_insight_elite",
+      "name": "Lane Insight",
+      "category": "info",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 1,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "lane_insight",
+          "value": "predict_enemy_response"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_fake_swarm_classic",
+      "name": "Fake Swarm",
+      "category": "info",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "fake_swarm",
+          "value": "visual"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_fake_swarm_premium",
+      "name": "Fake Swarm",
+      "category": "info",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "fake_swarm",
+          "value": "delayed_reveal"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_fake_swarm_elite",
+      "name": "Fake Swarm",
+      "category": "info",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "fake_swarm",
+          "value": "triggers_defenses"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_fog_pierce_classic",
+      "name": "Fog Pierce",
+      "category": "info",
+      "tier": "classic",
+      "duration_sec": 10,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "fog_pierce",
+          "value": "lane"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_fog_pierce_premium",
+      "name": "Fog Pierce",
+      "category": "info",
+      "tier": "premium",
+      "duration_sec": 15,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "fog_pierce",
+          "value": "area"
+        }
+      ],
+      "stacking": "refresh"
+    },
+    {
+      "id": "buff_fog_pierce_elite",
+      "name": "Fog Pierce",
+      "category": "info",
+      "tier": "elite",
+      "duration_sec": 20,
+      "price_tier": 2,
+      "scope": "self",
+      "effects": [
+        {
+          "type": "fog_pierce",
+          "value": "intent_and_ownership"
+        }
+      ],
+      "stacking": "refresh"
+    }
+  ],
+  "stacking_default": "refresh"
+}

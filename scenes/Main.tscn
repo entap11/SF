@@ -1,14 +1,229 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=8 format=3 uid="uid://cbn0vdxan0nel"]
 
-[ext_resource type="PackedScene" path="res://scenes/Arena.tscn" id=1]
-[ext_resource type="Script" path="res://scripts/main.gd" id=2]
+[ext_resource type="PackedScene" uid="uid://bi1epiw4to48u" path="res://scenes/Arena.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/main.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/ui/control_bar.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/ui/outcome_overlay.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/ui/selection_hud.gd" id="5"]
+[ext_resource type="PackedScene" uid="uid://dhto58tjsse07" path="res://scenes/dev/DevMapLoader.tscn" id="6_syj60"]
+[ext_resource type="Script" path="res://scripts/ui/win_overlay.gd" id="7"]
 
 [node name="Main" type="Node"]
-script = ExtResource( 2 )
+script = ExtResource("2")
+show_dev_map_loader_in_game = true
 
-[node name="Arena" parent="." instance=ExtResource( 1 )]
+[node name="Arena" parent="." instance=ExtResource("1")]
+draw_arena_rect_debug = true
 
 [node name="UI" type="CanvasLayer" parent="."]
+layer = 50
+
+[node name="ControlBar" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 20.0
+grow_horizontal = 2
+script = ExtResource("3")
+
+[node name="TimerLabel" type="Label" parent="UI"]
+visible = false
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -40.0
+offset_top = 24.0
+offset_right = 40.0
+offset_bottom = 48.0
+text = "0:59"
+
+[node name="TieToast" type="Label" parent="UI"]
+visible = false
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -120.0
+offset_top = 52.0
+offset_right = 120.0
+offset_bottom = 76.0
+text = "TIE — coin flip (P1 wins)"
+horizontal_alignment = 1
+
+[node name="SelectionHud" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 8.0
+offset_top = 28.0
+offset_right = 228.0
+offset_bottom = 120.0
+script = ExtResource("5")
+
+[node name="Panel" type="Panel" parent="UI/SelectionHud"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="UI/SelectionHud/Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Title" type="Label" parent="UI/SelectionHud/Panel/VBox"]
+layout_mode = 2
+text = "Hive"
+
+[node name="Line1" type="Label" parent="UI/SelectionHud/Panel/VBox"]
+layout_mode = 2
+text = "Owner: 0"
+
+[node name="Line2" type="Label" parent="UI/SelectionHud/Panel/VBox"]
+layout_mode = 2
+text = "Power: 0"
+
+[node name="Line3" type="Label" parent="UI/SelectionHud/Panel/VBox"]
+layout_mode = 2
+text = "Shock: 0.0s"
+
+[node name="OutcomeOverlay" type="Control" parent="UI"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("4")
+
+[node name="Panel" type="Panel" parent="UI/OutcomeOverlay"]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -240.0
+offset_right = 200.0
+offset_bottom = 240.0
+
+[node name="VBox" type="VBoxContainer" parent="UI/OutcomeOverlay/Panel"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+
+[node name="Title" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "P1 WINS"
+
+[node name="Result" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "VICTORY"
+
+[node name="Reason" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "Reason: Elimination"
+
+[node name="Record" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "Record: 0-0"
+
+[node name="H2H" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "H2H: 0-0"
+
+[node name="StatsHeader" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "Match Stats"
+
+[node name="StatMaxHivePower" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "Max Total Hive Power: 0"
+
+[node name="StatUnitsKilled" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "Units Killed: 0"
+
+[node name="StatUnitsLanded" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "Units Landed: 0"
+
+[node name="Countdown" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "Rematch expires in 0:10"
+
+[node name="Status" type="Label" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+text = "You: NOT READY | Opponent: WAITING"
+
+[node name="Buttons" type="HBoxContainer" parent="UI/OutcomeOverlay/Panel/VBox"]
+layout_mode = 2
+
+[node name="Rematch" type="Button" parent="UI/OutcomeOverlay/Panel/VBox/Buttons"]
+layout_mode = 2
+text = "Restart"
+
+[node name="Exit" type="Button" parent="UI/OutcomeOverlay/Panel/VBox/Buttons"]
+layout_mode = 2
+text = "Return to Menu"
+
+[node name="WinOverlay" type="Control" parent="UI"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("7")
+
+[node name="Panel" type="Panel" parent="UI/WinOverlay"]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.1
+anchor_right = 0.5
+anchor_bottom = 0.1
+offset_left = -160.0
+offset_top = -30.0
+offset_right = 160.0
+offset_bottom = 30.0
+
+[node name="Title" type="Label" parent="UI/WinOverlay/Panel"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = -8.0
+offset_bottom = -18.0
+text = "PLAYER 1 WINS"
+horizontal_alignment = 1
+
+[node name="Sub" type="Label" parent="UI/WinOverlay/Panel"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 18.0
+offset_right = -8.0
+offset_bottom = -4.0
+text = "Reason: conquest"
+horizontal_alignment = 1
 
 [node name="BootLabel" type="Label" parent="UI"]
 text = "SF: boot OK"
+
+[node name="DevMapLoader" parent="UI" instance=ExtResource("6_syj60")]
+grow_horizontal = 2

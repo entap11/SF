@@ -1,6 +1,64 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=13 format=3 uid="uid://bi1epiw4to48u"]
 
-[ext_resource type="Script" path="res://scripts/arena.gd" id=1]
+[ext_resource type="Script" path="res://scripts/arena.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/renderers/lane_renderer.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/renderers/hive_renderer.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/renderers/unit_renderer.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/renderers/tower_renderer.gd" id="5"]
+[ext_resource type="Texture2D" path="res://assets/ui/selection_ring.png" id="6"]
+[ext_resource type="Script" path="res://scripts/renderers/tower_ground_glow_renderer.gd" id="7"]
+[ext_resource type="Script" path="res://scripts/renderers/barracks_renderer.gd" id="8"]
+[ext_resource type="Script" path="res://scripts/renderers/barracks_ground_glow_renderer.gd" id="9"]
+[ext_resource type="Script" path="res://scripts/renderers/floor_renderer.gd" id="10"]
+[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/arena_underlayment_art.PNG" id="11"]
+
+[sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_1"]
+blend_mode = 1
 
 [node name="Arena" type="Node2D"]
-script = ExtResource( 1 )
+script = ExtResource("1")
+
+[node name="MapRoot" type="Node2D" parent="."]
+
+[node name="FloorRenderer" type="Node2D" parent="MapRoot"]
+z_index = -20
+script = ExtResource("10")
+floor_texture = ExtResource("11")
+
+[node name="TowerGroundGlowRenderer" type="Node2D" parent="MapRoot"]
+z_index = -10
+script = ExtResource("7")
+
+[node name="BarracksGroundGlowRenderer" type="Node2D" parent="MapRoot"]
+z_index = -10
+script = ExtResource("9")
+
+[node name="LaneRenderer" type="Node2D" parent="MapRoot"]
+script = ExtResource("2")
+
+[node name="TowerRenderer" type="Node2D" parent="MapRoot"]
+z_index = 1
+script = ExtResource("5")
+
+[node name="BarracksRenderer" type="Node2D" parent="MapRoot"]
+z_index = 1
+script = ExtResource("8")
+
+[node name="HiveRenderer" type="Node2D" parent="MapRoot"]
+z_index = 1
+script = ExtResource("3")
+
+[node name="SelectionRing" type="Sprite2D" parent="MapRoot/HiveRenderer"]
+visible = false
+z_index = 10
+material = SubResource("CanvasItemMaterial_1")
+texture = ExtResource("6")
+
+[node name="UnitRenderer" type="Node2D" parent="MapRoot"]
+z_index = 2
+script = ExtResource("4")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+top_level = true
+
+[node name="CoinFlipPlayer" type="AudioStreamPlayer" parent="."]

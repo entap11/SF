@@ -1,0 +1,30 @@
+{
+  "id": "MAP_SKETCH_SYM_8x12",
+  "name": "Sketch Layout (Symmetric 8x12)",
+
+  "grid_width": 8,
+  "grid_height": 12,
+
+  "hives": [
+	{ "id": "P1_H1", "x": 1, "y": 2, "tier": "MEDIUM", "owner": "P1" },
+	{ "id": "P1_H2", "x": 1, "y": 3, "tier": "MEDIUM", "owner": "P1" },
+	{ "id": "P1_H3", "x": 1, "y": 5, "tier": "MEDIUM", "owner": "P1" },
+	{ "id": "P1_H4", "x": 1, "y": 6, "tier": "MEDIUM", "owner": "P1" },
+	{ "id": "P1_H5", "x": 1, "y": 8, "tier": "MEDIUM", "owner": "P1" },
+	{ "id": "P1_H6", "x": 1, "y": 9, "tier": "MEDIUM", "owner": "P1" },
+
+	{ "id": "P2_H1", "x": 6, "y": 2, "tier": "MEDIUM", "owner": "P2" },
+	{ "id": "P2_H2", "x": 6, "y": 3, "tier": "MEDIUM", "owner": "P2" },
+	{ "id": "P2_H3", "x": 6, "y": 5, "tier": "MEDIUM", "owner": "P2" },
+	{ "id": "P2_H4", "x": 6, "y": 6, "tier": "MEDIUM", "owner": "P2" },
+	{ "id": "P2_H5", "x": 6, "y": 8, "tier": "MEDIUM", "owner": "P2" },
+	{ "id": "P2_H6", "x": 6, "y": 9, "tier": "MEDIUM", "owner": "P2" },
+
+	{ "id": "NPC_CENTER", "x": 4, "y": 6, "tier": "MEDIUM", "owner": "NEUTRAL" }
+  ],
+
+  "lanes": [],
+  "towers": [],
+  "barracks": [],
+  "spawns": []
+}

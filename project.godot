@@ -1,8 +1,33 @@
 ; Engine configuration file.
-; It's best edited using the editor, not directly.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
 config_version=5
 
 [application]
+
 config/name="Swarmfront"
-run/main_scene="res://scenes/Main.tscn"
+run/main_scene="res://scenes/Shell.tscn"
 config/features=PackedStringArray("4.2")
+
+[autoload]
+
+OpsState="*res://scripts/ops/ops_state.gd"
+ContestState="*res://scripts/state/contest_state.gd"
+Gamebot="*res://scripts/autoload/game_boot.gd"
+
+[display]
+
+window/size/viewport_width=1080
+window/size/viewport_height=1920
+window/stretch/mode="canvas_items"
+window/size/window_width=1080
+window/size/window_height=1920
+
+[rendering]
+
+environment/defaults/default_clear_color=Color(0.168627, 0.168627, 0.168627, 1)
