@@ -5,77 +5,75 @@
 # Only simulation/state systems may mutate state, and ONLY via OpsState-owned references.
 extends Node2D
 
-const ARENA_MARKER := "ARENA_MARKER_2026-01-14_A"
+const ARENA_MARKER = "ARENA_MARKER_2026-01-14_A"
 
-const SFLog := preload("res://scripts/util/sf_log.gd")
-const MapSchema := preload("res://scripts/maps/map_schema.gd")
-const MapApplier := preload("res://scripts/maps/map_applier.gd")
-const GridSpec := preload("res://scripts/maps/grid_spec.gd")
+const SFLog = preload("res://scripts/util/sf_log.gd")
+const MapSchema = preload("res://scripts/maps/map_schema.gd")
+const GridSpec = preload("res://scripts/maps/grid_spec.gd")
+const TeamPalette = preload("res://scripts/util/team_palette.gd")
 
-const GRID_W := 8
-const GRID_H := 12
-const CELL_SIZE := 64
-const GRID_DEBUG := false
-const RENDER_DEBUG := false
-const UNIT_SPEED_PX := 160.0
-const LANE_ESTABLISH_MS := 2400.0
-const UNIT_TRAVEL_MS := 4800.0
-const SPAWN_BASE_MS := 1200.0
-const SPAWN_PER_POWER_MS := 2.0
-const SPAWN_MIN_MS := 250.0
-const FIRST_UNIT_OFFSET_MS := 2.0
-const SPIKE_PX := 48.0
-const LANE_EDGE_T := 0.18
-const DEBUG_COLLISION_ONLY := true
-const DASH_GAP_PX := 6.0
-const BASE_MS := 1000.0
-const PER_POWER_MS := 2.0
-const START_POWER := 10
-const BONUS_10_MS := 2.0
-const BONUS_25_MS := 2.0
-const IDLE_GROWTH_MS := 1500.0
-const CAPTURE_SHOCK_MS := 3000.0
-const SWARM_SHOCK_MS := 3000.0
-const DRAG_DEADZONE_PX := 8.0
-const MAX_OUT_LANES := 2
-const DOT_RADIUS := 3.0
-const HIVE_DIAMETER_PX := 36.0
-const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
-const HIVE_PICK_PADDING_PX := 12.0
-const HIVE_HIT_RADIUS_PX := HIVE_RADIUS_PX + HIVE_PICK_PADDING_PX
-const LANE_HIT_DIST_PX := 24.0
-const LANE_PICK_DIST_PX := 12.0
-const TICK_DT := 0.1
-const TICK_MS := 100.0
-const TICK_DEBUG := false
-const MAX_FRAME_DT := 0.25
-const MAX_STEPS_PER_FRAME := 8
-const MAX_ACCUM_DT := 1.0
-const MAX_SPAWNS_PER_TICK := 5
-const DEBRIS_LIFE := 4.0
-const DEBRIS_DRIFT := 30.0
-const DEBRIS_DAMP := 0.90
-const DEBRIS_MAX_PER_LANE := 8
-const DEBRIS_GLOBAL_CAP := 800
-const DEV_STATE_CHECKS := true
-const PRESSURE_DECAY_PER_SEC := 1.0
-const BLOCK_RADIUS_PX := CELL_SIZE * 0.25
-const LOS_DEBUG := false
-const TIE_WINDOW_US := 0
-const TIE_BUCKET_US := 100
-const TIE_CACHE_EXPIRE_US := 2_000_000
-const TIE_SFX_COOLDOWN_US := 500_000
-const COIN_SFX_SEC := 0.08
-const COIN_SFX_FREQ := 880.0
-const CONTEST_WINDOW_US := 2_000_000
-const CONTEST_LOG_INTERVAL_US := 1_000_000
-const SWARM_MERGE_WINDOW_US := 200_000
-const BARRACKS_MIN_REQ := 3
-const BARRACKS_MAX_REQ := 6
-const STRUCTURE_CANDIDATE_MAX := 12
-const OVERTIME_START_MS := 60000.0
-const BUFF_MIN_MULT := 0.1
-const BUFF_LANE_SLOW_PCT_DEFAULT := 0.25
+const GRID_W = MapSchema.CANON_GRID_W
+const GRID_H = MapSchema.CANON_GRID_H
+const CELL_SIZE = 64
+const GRID_DEBUG = false
+const RENDER_DEBUG = false
+const UNIT_SPEED_PX = 160.0
+const LANE_ESTABLISH_MS = 2400.0
+const UNIT_TRAVEL_MS = 4800.0
+const SPAWN_BASE_MS = 1200.0
+const SPAWN_PER_POWER_MS = 2.0
+const SPAWN_MIN_MS = 250.0
+const FIRST_UNIT_OFFSET_MS = 2.0
+const SPIKE_PX = 48.0
+const LANE_EDGE_T = 0.18
+const DEBUG_COLLISION_ONLY = true
+const DASH_GAP_PX = 6.0
+const BASE_MS = 1000.0
+const PER_POWER_MS = 2.0
+const START_POWER = 10
+const BONUS_10_MS = 2.0
+const BONUS_25_MS = 2.0
+const IDLE_GROWTH_MS = 1500.0
+const CAPTURE_SHOCK_MS = 3000.0
+const SWARM_SHOCK_MS = 3000.0
+const DRAG_DEADZONE_PX = 8.0
+const MAX_OUT_LANES = 2
+const DOT_RADIUS = 3.0
+const HIVE_RADIUS_PX = CELL_SIZE * 0.56
+const HIVE_HIT_RADIUS_PX = 64.0
+const LANE_HIT_DIST_PX = 24.0
+const TICK_DT = 0.1
+const TICK_MS = 100.0
+const TICK_DEBUG = false
+const MAX_FRAME_DT = 0.25
+const MAX_STEPS_PER_FRAME = 8
+const MAX_ACCUM_DT = 1.0
+const MAX_SPAWNS_PER_TICK = 5
+const DEBRIS_LIFE = 4.0
+const DEBRIS_DRIFT = 30.0
+const DEBRIS_DAMP = 0.90
+const DEBRIS_MAX_PER_LANE = 8
+const DEBRIS_GLOBAL_CAP = 800
+const DEV_STATE_CHECKS = true
+const PRESSURE_DECAY_PER_SEC = 1.0
+const BLOCK_RADIUS_PX = CELL_SIZE * 0.25
+const LOS_DEBUG = false
+const TIE_WINDOW_US = 0
+const TIE_BUCKET_US = 100
+const TIE_CACHE_EXPIRE_US = 2_000_000
+const TIE_SFX_COOLDOWN_US = 500_000
+const COIN_SFX_SEC = 0.08
+const COIN_SFX_FREQ = 880.0
+const CONTEST_WINDOW_US = 2_000_000
+const CONTEST_LOG_INTERVAL_US = 1_000_000
+const SWARM_MERGE_WINDOW_US = 200_000
+const BARRACKS_MIN_REQ = 3
+const BARRACKS_MAX_REQ = 6
+const STRUCTURE_CANDIDATE_MAX = 12
+const MATCH_LENGTH_MS = 300000.0
+const OVERTIME_START_MS = 60000.0
+const BUFF_MIN_MULT = 0.1
+const BUFF_LANE_SLOW_PCT_DEFAULT = 0.25
 
 var state: GameState
 var sel: SelectionState
@@ -84,11 +82,6 @@ var input_system: InputSystem
 var debug_system: DebugSystem
 var audio_system: AudioSystem
 var lane_system: LaneSystem
-var unit_system: UnitSystem = null
-var tower_system: TowerSystem = null
-var barracks_system: BarracksSystem = null
-var tower_renderer: TowerRenderer = null
-var swarm_system: SwarmSystem = null
 var sim_runner: SimRunner
 var events: Array[Dictionary] = []
 var grid_w: int = GRID_W
@@ -98,70 +91,55 @@ var render_version: int = 0
 var _render_dirty: bool = true
 var _render_model: Dictionary = {}
 var model: Dictionary = {}
-var _tick_render_dirty := false
+var _tick_render_dirty = false
 var _drag_from_id: String = ""
 var _drag_from_wp: Vector2 = Vector2.ZERO
 var _drag_active: bool = false
 var active_orders_by_attacker: Dictionary = {}
-var _last_tower_export_log_ms: int = 0
-var _last_barracks_export_log_ms: int = 0
 @onready var map_root: Node2D = $MapRoot
 @onready var floor_renderer: FloorRenderer = $MapRoot/FloorRenderer
 @onready var lane_renderer = $MapRoot/LaneRenderer
-@onready var tower_renderer_node = $MapRoot/TowerRenderer
 @onready var hive_renderer: HiveRenderer = $MapRoot/HiveRenderer
 @onready var unit_renderer: Node2D = $MapRoot/UnitRenderer
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
 @onready var buffs_label: Label = get_node_or_null("../UI/BuffsLabel") as Label
 @onready var outcome_overlay: OutcomeOverlay = get_node_or_null("../UI/OutcomeOverlay") as OutcomeOverlay
-@onready var win_overlay: WinOverlay = get_node_or_null("../UI/WinOverlay") as WinOverlay
-@export var selection_hud_path: NodePath = NodePath("../UI/SelectionHud")
-@onready var selection_hud: SelectionHud = get_node_or_null(selection_hud_path) as SelectionHud
+@onready var selection_hud: SelectionHud = get_node_or_null("../UI/SelectionHud") as SelectionHud
 @onready var tie_toast: Label = get_node_or_null("../UI/TieToast") as Label
 @onready var coin_player: AudioStreamPlayer = $CoinFlipPlayer
 @onready var camera: Camera2D = $Camera2D
-const FIT_MARGIN := 0.96
-const FIT_DEBUG := true
-const FIT_WIDTH := 0
-const FIT_HEIGHT := 1
-const WIN_OVERLAY_MS := 2500
-const TIMER_REVEAL_MS := 59000
-var _autostart_shadow := false
-var _sim_running_shadow := false
-var _win_overlay_until_ms: int = 0
-var _win_overlay_match_end_ms: int = 0
-var _inputs_locked_from_state: bool = false
-var _timer_layer: CanvasLayer = null
-var _timer_root: Control = null
-var _timer_last_seconds: int = -1
-var _timer_ui_logged: bool = false
-var _timer_debug_mode: bool = true
-var _timer_branch_logged: bool = false
-var _timer_label_bind_logged: bool = false
-var _prematch_overlay: Control = null
+var _prematch_countdown_layer: CanvasLayer = null
 var _prematch_countdown_label: Label = null
-var _prematch_records_panel: Control = null
-var _prematch_record_p1: Label = null
-var _prematch_record_p2: Label = null
-var _prematch_record_h2h: Label = null
-var _prematch_remaining_ms_f: float = 0.0
-var _prematch_last_sec: int = -1
-var _prematch_records_faded: bool = false
-var _prematch_countdown_faded: bool = false
-var _prematch_ui_bind_logged: bool = false
-var _prematch_ui_state_logged: bool = false
-var _match_started: bool = false
+var _prematch_countdown_timer: Timer = null
+var _prematch_countdown_active = false
+var _prematch_countdown_seconds = 0
+var _prematch_countdown_remaining = 0
+var _prematch_countdown_hide_id = 0
+var _prematch_request_pending = false
+var _prematch_request_seconds = 0
+var _prematch_request_reason = ""
+var _ops_state_signals_connected = false
+const FIT_MARGIN_X = 0.96
+const FIT_MARGIN_Y = 0.90
+const FIT_DEBUG = true
+const FIT_WIDTH = 0
+const FIT_HEIGHT = 1
+var _autostart_shadow = false
+var _sim_running_shadow = false
+var _last_render_model_log_ms: int = 0
 @export var autostart: bool = false:
 	set(value):
 		_set_autostart(value)
 	get:
 		return _get_autostart()
-@export var buffs_enabled := true
+@export var buffs_enabled = true
+@export var match_length_ms: float = MATCH_LENGTH_MS
 @export var overtime_start_ms: float = OVERTIME_START_MS
-@export var draw_arena_rect_debug := false
-@export var use_dev_safe_centering := false
-@export var FITCAM_POLICY := FIT_WIDTH
+@export var draw_arena_rect_debug = false
+@export var use_dev_safe_centering = false
+@export var FITCAM_POLICY = FIT_WIDTH
+@export var debug_render_model_log = false
 @export var debug_buff_loadout: Array[String] = [
 	"buff_swarm_speed_classic",
 	"buff_hive_faster_production_classic",
@@ -172,26 +150,25 @@ var _match_started: bool = false
 		_set_sim_running(value)
 	get:
 		return _get_sim_running()
-var tick_accum := 0.0
-var unit_id_counter := 1
+var tick_accum = 0.0
+var unit_id_counter = 1
 var units: Array = []
-var debris_id_counter := 1
+var debris_id_counter = 1
 var debris: Array = []
-var debris_enabled := true
-var swarm_id_counter := 1
+var debris_enabled = true
+var swarm_id_counter = 1
 var swarm_packets: Array = []
-var active_player_id := 1
-var hurry_mode := false
-var audio_hurry_pitch := 1.0
-var winner_id := -1
-var end_reason := ""
-var game_over := false
-var _match_end_handled := false
-var _post_match_action_taken := false
+var active_player_id = 1
+var match_ms_remaining: float = MATCH_LENGTH_MS
+var hurry_mode = false
+var audio_hurry_pitch = 1.0
+var winner_id = -1
+var end_reason = ""
+var game_over = false
 var towers: Array = []
 var barracks: Array = []
-var current_map_path := ""
-var current_map_name := ""
+var current_map_path = ""
+var current_map_name = ""
 var los_cache: Dictionary = {}
 var sim_time_us: int = 0
 var match_seed: int = 1
@@ -207,12 +184,12 @@ var capture_count: int = 0
 var error_count: int = 0
 var tower_control_ms: Dictionary = {}
 var barracks_control_ms: Dictionary = {}
-var overtime_active := false
+var overtime_active = false
 var barracks_select_id: int = -1
 var barracks_select_pid: int = -1
 var barracks_select_targets: Array = []
-var barracks_select_changed := false
-var map_offset := Vector2.ZERO
+var barracks_select_changed = false
+var map_offset = Vector2.ZERO
 var hive_lane_order: Dictionary = {}
 var hive_power_prev: Dictionary = {}
 var buff_states: Dictionary = {}
@@ -223,28 +200,22 @@ var current_map_data: Dictionary = {}
 var _map_build_version: int = 0
 var _map_built_version: int = -1
 var _map_bounds_size: Vector2 = Vector2.ZERO
-var _fit_serial := 0
-var _fit_applied_serial := -1
+var _fit_serial = 0
+var _fit_applied_serial = -1
 var _dev_tick_log_ms: int = 0
 var _dev_sim_dbg_us: int = 0
 var _last_spawnfail_ms: int = 0
-var _last_export_log_ms: int = 0
-@export var debug_export_rm_log := false
-@export var debug_export_rm_log_interval_ms := 1000
-var _last_export_rm_log_ms := 0
-@export var debug_swarms := false
-var _last_render_serial: int = -1
-var _last_rm_ms: int = 0
-const RM_REFRESH_HZ := 10.0
+var _last_scale: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
-	if Engine.is_editor_hint():
-		return
 	SFLog.info("ARENA_SCRIPT", {"path": get_script().resource_path})
 	SFLog.info("ARENA_READY", {"process": is_processing()})
+	SFLog.debug_log(1, ARENA_MARKER)
+	SFLog.debug_log(1, "ARENA_PATH=" + str(get_script().resource_path))
 	add_to_group("Arena")
 	self.scale = Vector2.ONE
-	var dmr := get_node_or_null("/root/DevMapRunner")
+	_last_scale = scale
+	var dmr = get_node_or_null("/root/DevMapRunner")
 	if dmr:
 		for c in dmr.get_children():
 			if c.name == "Arena":
@@ -264,6 +235,8 @@ func _ready() -> void:
 	$MapRoot/HiveRenderer.visible = true
 	$MapRoot/LaneRenderer.visible = true
 	$Camera2D.make_current()
+	assert(GRID_W == MapSchema.CANON_GRID_W)
+	assert(GRID_H == MapSchema.CANON_GRID_H)
 	SFLog.trace("CANON GRID", {
 		"grid_w": GRID_W,
 		"grid_h": GRID_H,
@@ -272,42 +245,31 @@ func _ready() -> void:
 	SFLog.trace("CURRENT CAMERA", {"camera": get_viewport().get_camera_2d()})
 	await get_tree().process_frame
 	_apply_canon_camera_fit("ready")
-	var cam := $Camera2D
-	var vcam := get_viewport().get_camera_2d()
+	var cam = $Camera2D
+	var vcam = get_viewport().get_camera_2d()
 	SFLog.trace("ARENA CAM", {"arena_cam": cam, "viewport_cam": vcam})
 	assert(vcam == cam)
 	state = OpsState.get_state()
-	if not OpsState.state_changed.is_connected(_on_ops_state_changed):
-		OpsState.state_changed.connect(_on_ops_state_changed)
-	if not OpsState.ops_state_changed.is_connected(_on_ops_state_changed_iid):
-		OpsState.ops_state_changed.connect(_on_ops_state_changed_iid)
-	if outcome_overlay != null and not outcome_overlay.post_match_action.is_connected(_on_post_match_action):
-		outcome_overlay.post_match_action.connect(_on_post_match_action)
+	_connect_ops_state_signals()
 	sel = SelectionState.new()
 	_init_systems()
-	if api != null:
-		api.bind_state(state)
-	if sim_runner != null and state != null:
-		sim_runner.autostart_on_bind = false
-		sim_runner.bind_state(state)
 	los_cache.clear()
 	_init_buff_states()
 	_reset_match_stats()
 	_reset_buff_states()
 	if state != null:
 		lane_renderer.setup(state, sel, self)
-		print("HIVE: renderer_ref=", hive_renderer)
+		SFLog.debug_log(2, "HIVE: renderer_ref=" + str(hive_renderer))
 		hive_renderer.setup(state, sel, self)
 		_sync_lane_system_blockers()
+		_init_towers()
 		_init_barracks()
 	_apply_autostart()
-	_ensure_timer_hud()
-	_start_match_flow()
 	_configure_grid_spec(grid_w, grid_h)
 	_map_bounds_size = _arena_rect().size
 	var arena_scale: Vector2 = global_transform.get_scale()
 	dbg("ARENA: global_scale=%s" % [arena_scale])
-	var viewport := get_viewport()
+	var viewport = get_viewport()
 	if viewport != null and not viewport.size_changed.is_connected(_on_viewport_size_changed):
 		viewport.size_changed.connect(_on_viewport_size_changed)
 	call_deferred("_debug_camera", "ready")
@@ -323,298 +285,33 @@ func _ready() -> void:
 	# (moved to top of _ready())
 	_list_canvasitems_with_scripts("/root/DevMapRunner/Arena")
 
-func _start_match_flow() -> void:
-	_force_unpause_sanity()
-	_ensure_prematch_ui()
-	_begin_prematch()
+func _enter_tree() -> void:
+	_connect_ops_state_signals()
 
-func _force_unpause_sanity() -> void:
-	var tree := get_tree()
-	var paused := false
-	if tree != null:
-		paused = tree.paused
-		tree.paused = false
-	Engine.time_scale = 1.0
-	var scene_name := ""
-	if tree != null and tree.current_scene != null:
-		scene_name = str(tree.current_scene.name)
-	SFLog.info("MATCH_FLOW_ENTER", {
-		"paused": paused,
-		"time_scale": float(Engine.time_scale),
-		"scene": scene_name
-	})
-
-func _begin_prematch() -> void:
-	if OpsState.match_phase == OpsState.MatchPhase.ENDING or OpsState.match_phase == OpsState.MatchPhase.ENDED:
+func _connect_ops_state_signals() -> void:
+	if _ops_state_signals_connected:
 		return
-	_match_started = false
-	OpsState.match_phase = OpsState.MatchPhase.PREMATCH
-	OpsState.input_locked = true
-	OpsState.input_locked_reason = "prematch"
-	if OpsState.prematch_duration_ms <= 0:
-		OpsState.prematch_duration_ms = OpsState.PREMATCH_DURATION_MS
-	_prematch_remaining_ms_f = float(OpsState.prematch_duration_ms)
-	OpsState.prematch_remaining_ms = int(ceil(_prematch_remaining_ms_f))
-	_prematch_last_sec = -1
-	_prematch_records_faded = false
-	_prematch_countdown_faded = false
-	_show_prematch_ui()
-	if sim_runner != null:
-		sim_runner.set_running(false, "prematch_hold")
-	SFLog.info("PREMATCH_START", {
-		"duration_s": int(round(float(OpsState.prematch_duration_ms) / 1000.0))
-	})
-
-func _ensure_prematch_ui() -> void:
-	if _prematch_overlay != null and is_instance_valid(_prematch_overlay):
-		return
-	var ui_root := get_node_or_null("../UI") as CanvasLayer
-	if ui_root == null:
-		return
-	var overlay := ui_root.get_node_or_null("PreMatchOverlay") as Control
-	if overlay == null:
-		overlay = Control.new()
-		overlay.name = "PreMatchOverlay"
-		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		ui_root.add_child(overlay)
-	_prematch_overlay = overlay
-	_force_fullscreen_anchors(_prematch_overlay)
-	_prematch_overlay.z_as_relative = false
-	_prematch_overlay.z_index = 950
-	_prematch_overlay.modulate = Color(1, 1, 1, 1)
-	_prematch_overlay.self_modulate = Color(1, 1, 1, 1)
-	var countdown := _prematch_overlay.get_node_or_null("CountdownLabel") as Label
-	if countdown == null:
-		countdown = Label.new()
-		countdown.name = "CountdownLabel"
-		countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		countdown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		countdown.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		countdown.anchor_left = 0.5
-		countdown.anchor_right = 0.5
-		countdown.anchor_top = 0.0
-		countdown.anchor_bottom = 0.0
-		countdown.offset_left = -40.0
-		countdown.offset_right = 40.0
-		countdown.offset_top = 20.0
-		countdown.offset_bottom = 60.0
-		countdown.add_theme_font_size_override("font_size", 64)
-		_prematch_overlay.add_child(countdown)
-	_prematch_countdown_label = countdown
-	var records := _prematch_overlay.get_node_or_null("RecordsPanel") as Control
-	if records == null:
-		records = Control.new()
-		records.name = "RecordsPanel"
-		records.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		records.anchor_left = 0.5
-		records.anchor_right = 0.5
-		records.anchor_top = 0.0
-		records.anchor_bottom = 0.0
-		records.offset_left = -150.0
-		records.offset_right = 150.0
-		records.offset_top = 120.0
-		records.offset_bottom = 200.0
-		var vbox := VBoxContainer.new()
-		vbox.name = "RecordsVBox"
-		vbox.anchor_left = 0.0
-		vbox.anchor_right = 1.0
-		vbox.anchor_top = 0.0
-		vbox.anchor_bottom = 1.0
-		vbox.offset_left = 0.0
-		vbox.offset_right = 0.0
-		vbox.offset_top = 0.0
-		vbox.offset_bottom = 0.0
-		var p1 := Label.new()
-		p1.name = "RecordP1"
-		var p2 := Label.new()
-		p2.name = "RecordP2"
-		var h2h := Label.new()
-		h2h.name = "RecordH2H"
-		vbox.add_child(p1)
-		vbox.add_child(p2)
-		vbox.add_child(h2h)
-		records.add_child(vbox)
-		_prematch_overlay.add_child(records)
-	_prematch_records_panel = records
-	_prematch_record_p1 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP1") as Label
-	_prematch_record_p2 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP2") as Label
-	_prematch_record_h2h = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordH2H") as Label
-	if not _prematch_ui_bind_logged:
-		_prematch_ui_bind_logged = true
-		SFLog.info("PREMATCH_UI_BIND", {
-			"overlay_path": str(_prematch_overlay.get_path()),
-			"countdown_path": str(_prematch_countdown_label.get_path()) if _prematch_countdown_label != null else "<null>",
-			"records_path": str(_prematch_records_panel.get_path()) if _prematch_records_panel != null else "<null>",
-			"inside_tree": _prematch_overlay.is_inside_tree()
-		})
-	_ensure_prematch_on_top()
-	if not _prematch_ui_state_logged:
-		_prematch_ui_state_logged = true
-		_log_prematch_ui_state()
-
-func _ensure_prematch_on_top() -> void:
-	if _prematch_overlay == null:
-		return
-	var hud := get_node_or_null("/root/HUDCanvasLayer") as CanvasLayer
-	if hud == null:
-		hud = _ensure_timer_layer()
-	if hud != null and _prematch_overlay.get_parent() != hud:
-		_prematch_overlay.reparent(hud)
-		_force_fullscreen_anchors(_prematch_overlay)
-	_prematch_overlay.z_as_relative = false
-	_prematch_overlay.z_index = 999
-	_prematch_overlay.top_level = true
-
-func _log_prematch_ui_state() -> void:
-	var overlay_dict := {}
-	if _prematch_overlay != null:
-		overlay_dict = {
-			"visible": _prematch_overlay.visible,
-			"modulate_a": _prematch_overlay.modulate.a,
-			"self_modulate_a": _prematch_overlay.self_modulate.a,
-			"global_position": _prematch_overlay.global_position,
-			"size": _prematch_overlay.size
-		}
-	var countdown_dict := {}
-	if _prematch_countdown_label != null:
-		countdown_dict = {
-			"visible": _prematch_countdown_label.visible,
-			"modulate_a": _prematch_countdown_label.modulate.a,
-			"self_modulate_a": _prematch_countdown_label.self_modulate.a,
-			"global_position": _prematch_countdown_label.global_position,
-			"size": _prematch_countdown_label.size
-		}
-	var records_dict := {}
-	if _prematch_records_panel != null:
-		records_dict = {
-			"visible": _prematch_records_panel.visible,
-			"modulate_a": _prematch_records_panel.modulate.a,
-			"self_modulate_a": _prematch_records_panel.self_modulate.a,
-			"global_position": _prematch_records_panel.global_position,
-			"size": _prematch_records_panel.size
-		}
-	SFLog.info("PREMATCH_UI_STATE", {
-		"overlay": overlay_dict,
-		"countdown": countdown_dict,
-		"records": records_dict
-	})
-
-func _center_match_timer() -> void:
-	var mt := get_node_or_null("/root/HUDCanvasLayer/MatchTimer")
-	if mt == null:
-		return
-	if not (mt is Control):
-		return
-	var c := mt as Control
-	c.set_anchors_preset(Control.PRESET_CENTER, true)
-	c.position = Vector2.ZERO
-	c.pivot_offset = c.size * 0.5
-	var lbl := c.get_node_or_null("MatchTimerLabel")
-	if lbl != null and lbl is Label:
-		var label := lbl as Label
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-
-func _show_prematch_ui() -> void:
-	if _prematch_overlay == null:
-		return
-	_prematch_overlay.visible = true
-	if _prematch_countdown_label != null:
-		var start_sec := int(ceil(float(OpsState.prematch_duration_ms) / 1000.0))
-		_prematch_countdown_label.text = str(start_sec)
-		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
-	if _prematch_records_panel != null:
-		_prematch_records_panel.visible = true
-		_prematch_records_panel.modulate = Color(1, 1, 1, 1)
-	_refresh_prematch_records()
-
-func _refresh_prematch_records() -> void:
-	if _prematch_record_p1 != null:
-		_prematch_record_p1.text = _get_player_record_line(1)
-	if _prematch_record_p2 != null:
-		_prematch_record_p2.text = _get_player_record_line(2)
-	if _prematch_record_h2h != null:
-		_prematch_record_h2h.text = _get_h2h_record_line()
-
-func _get_player_record_line(player_slot: int) -> String:
-	return "P%d: W-L (TBD)" % player_slot
-
-func _get_h2h_record_line() -> String:
-	return "H2H: TBD"
-
-func _update_prematch_flow(delta: float) -> void:
-	if OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
-		return
-	_prematch_remaining_ms_f = max(0.0, _prematch_remaining_ms_f - delta * 1000.0)
-	OpsState.prematch_remaining_ms = int(ceil(_prematch_remaining_ms_f))
-	var sec_left := 0
-	if _prematch_remaining_ms_f > 0.0:
-		sec_left = int(ceil(_prematch_remaining_ms_f / 1000.0))
-	if sec_left != _prematch_last_sec:
-		_prematch_last_sec = sec_left
-		SFLog.info("PREMATCH_TICK", {"sec_left": sec_left})
-	if _prematch_countdown_label != null:
-		_prematch_countdown_label.text = str(sec_left)
-	var records_threshold_ms := float(OpsState.prematch_duration_ms - OpsState.PREMATCH_RECORDS_SHOW_MS)
-	if not _prematch_records_faded and _prematch_remaining_ms_f <= records_threshold_ms:
-		_prematch_records_faded = true
-		_fade_prematch_records()
-	if _prematch_remaining_ms_f <= 0.0 and not _prematch_countdown_faded:
-		_prematch_countdown_faded = true
-		_fade_prematch_countdown()
-
-func _fade_prematch_records() -> void:
-	if _prematch_records_panel == null:
-		return
-	SFLog.info("PREMATCH_RECORDS_FADE", {})
-	var tween := create_tween()
-	tween.tween_property(_prematch_records_panel, "modulate:a", 0.0, 0.35)
-	tween.finished.connect(func() -> void:
-		if _prematch_records_panel != null:
-			_prematch_records_panel.visible = false
-	)
-
-func _fade_prematch_countdown() -> void:
-	if _prematch_countdown_label == null:
-		_finish_prematch()
-		return
-	SFLog.info("PREMATCH_COUNTDOWN_FADE", {})
-	var tween := create_tween()
-	tween.tween_property(_prematch_countdown_label, "modulate:a", 0.0, 0.25)
-	tween.finished.connect(_finish_prematch)
-
-func _finish_prematch() -> void:
-	OpsState.prematch_remaining_ms = 0
-	OpsState.match_phase = OpsState.MatchPhase.RUNNING
-	OpsState.input_locked = false
-	OpsState.input_locked_reason = ""
-	if _prematch_overlay != null:
-		_prematch_overlay.visible = false
-	_start_match_sim("prematch_complete")
-	SFLog.info("INPUT_UNLOCKED", {"reason": "prematch_complete"})
-
-func _start_match_sim(reason: String) -> void:
-	if _match_started:
-		return
-	_match_started = true
-	var iid := 0
-	if sim_runner != null:
-		iid = int(sim_runner.bound_iid)
-		sim_runner.set_running(true, reason)
-		sim_runner.log_pause_snapshot("arena_match_start")
-	SFLog.info("MATCH_STARTED", {"iid": iid, "reason": reason})
+	_ops_state_signals_connected = true
+	if not OpsState.state_changed.is_connected(_on_ops_state_changed):
+		OpsState.state_changed.connect(_on_ops_state_changed)
+	if not OpsState.ops_state_changed.is_connected(_on_ops_state_changed_iid):
+		OpsState.ops_state_changed.connect(_on_ops_state_changed_iid)
+	SFLog.info("ARENA_CONNECTED_STATE_SIGNALS", {})
+	var current_state = OpsState.get_state()
+	if current_state != null:
+		_on_ops_state_changed(current_state)
 
 func _init_systems() -> void:
 	api = ArenaAPI.new(self)
 	input_system = _create_system("res://scripts/systems/input_system.gd", "input") as InputSystem
 	if input_system != null:
 		input_system.setup(sel)
-	tower_renderer = tower_renderer_node as TowerRenderer
+		# If state already exists by the time input is created, bind it now.
+		if state != null and input_system.has_method("bind_state"):
+			input_system.call("bind_state", state)
 	_ensure_sim_runner()
 	if sim_runner != null:
 		lane_system = sim_runner.get_lane_system()
-		tower_system = sim_runner.get_tower_system()
-		barracks_system = sim_runner.get_barracks_system()
 	if lane_system != null:
 		if not lane_system.lane_created.is_connected(_on_lane_system_changed):
 			lane_system.lane_created.connect(_on_lane_system_changed)
@@ -624,107 +321,35 @@ func _init_systems() -> void:
 			lane_system.lane_removed.connect(_on_lane_system_removed)
 	if input_system != null:
 		input_system.set_lane_system(lane_system)
-	if tower_system != null:
-		tower_system.set_buff_mod_provider(Callable(self, "_buff_mod"))
-	if barracks_system != null:
-		if not barracks_system.barracks_activated.is_connected(_on_barracks_activated):
-			barracks_system.barracks_activated.connect(_on_barracks_activated)
 	debug_system = _create_system("res://scripts/systems/debug_system.gd", "debug") as DebugSystem
 	audio_system = _create_system("res://scripts/systems/audio_system.gd", "audio") as AudioSystem
 	if audio_system != null:
 		audio_system.setup(coin_player)
 
 func _ensure_sim_runner() -> void:
-	if sim_runner == null or not is_instance_valid(sim_runner):
-		var existing := get_node_or_null("SimRunner")
-		if existing != null and existing is SimRunner:
-			sim_runner = existing
-		else:
-			sim_runner = SimRunner.new()
-			sim_runner.name = "SimRunner"
-			add_child(sim_runner)
+	if sim_runner != null and is_instance_valid(sim_runner):
+		return
+	var existing = get_node_or_null("SimRunner")
+	if existing != null and existing is SimRunner:
+		sim_runner = existing
+	else:
+		sim_runner = SimRunner.new()
+		sim_runner.name = "SimRunner"
+		add_child(sim_runner)
 	sim_runner.set_process(true)
 	sim_runner.autostart = _autostart_shadow
 	if not sim_runner.sim_ticked.is_connected(_on_sim_ticked):
 		sim_runner.sim_ticked.connect(_on_sim_ticked)
-	if not sim_runner.match_ended.is_connected(_on_match_ended):
-		sim_runner.match_ended.connect(_on_match_ended)
-	if not sim_runner.post_match_action.is_connected(_on_post_match_action):
-		sim_runner.post_match_action.connect(_on_post_match_action)
-	unit_system = sim_runner.unit_system if sim_runner != null else null
-	swarm_system = sim_runner.swarm_system if sim_runner != null else null
+	if not sim_runner.sim_bound.is_connected(_on_sim_bound):
+		sim_runner.sim_bound.connect(_on_sim_bound)
 
 func _on_sim_ticked() -> void:
 	mark_render_dirty("sim_tick")
-	_maybe_push_render_model()
-
-func _maybe_push_render_model() -> void:
-	var st: GameState = OpsState.get_state()
-	if st == null:
-		return
-	var serial: int = int(OpsState._state_serial)
-	var now_ms: int = Time.get_ticks_msec()
-	if serial != _last_render_serial:
-		_last_render_serial = serial
-		_last_rm_ms = now_ms
-		_push_render_model()
-		return
-	var refresh_ms: int = int(1000.0 / RM_REFRESH_HZ)
-	if now_ms - _last_rm_ms < refresh_ms:
-		return
-	_last_rm_ms = now_ms
 	_push_render_model()
 
-func _on_match_ended(winner_id_in: int, reason: String) -> void:
-	if _match_end_handled:
-		SFLog.info("MATCH_END_DUPLICATE_SKIP", {"winner_id": winner_id_in})
-		return
-	_match_end_handled = true
-	game_over = true
-	winner_id = winner_id_in
-	end_reason = reason
-	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
-	call_deferred("_match_end_deferred", winner_id_in, reason)
-
-func _match_end_deferred(winner_id_in: int, reason: String) -> void:
-	if outcome_overlay != null:
-		outcome_overlay.show_outcome(winner_id_in, reason, active_player_id)
-	if sim_runner != null:
-		sim_runner.log_pause_snapshot("arena_show_outcome")
-	mark_render_dirty("match_end")
-
-func _on_post_match_action(action: String) -> void:
-	if _post_match_action_taken:
-		return
-	_post_match_action_taken = true
-	SFLog.info("POST_MATCH_ACTION", {"action": action})
-	match action:
-		"rematch":
-			get_tree().change_scene_to_file("res://scenes/Main.tscn")
-		"main_menu":
-			get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
-		_:
-			return
-
-func _handle_rematch() -> void:
-	if current_map_data.is_empty():
-		push_error("ARENA: rematch failed (no map data)")
-		return
-	SFLog.info("MATCH_RESET", {"map": current_map_name})
-	if outcome_overlay != null:
-		outcome_overlay.hide_overlay()
-	_reset_sim_state()
-	MapApplier.apply_map(self, current_map_data.duplicate(true))
-
-func _return_to_main_menu() -> void:
-	if outcome_overlay != null:
-		outcome_overlay.hide_overlay()
-	if sim_runner != null:
-		sim_runner.log_pause_snapshot("arena_return_to_main_menu")
-	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
-
-func _on_barracks_activated(_barracks_id: int, _owner_id: int) -> void:
-	_play_barracks_activate_sfx()
+func _on_sim_bound(_iid: int) -> void:
+	if _prematch_request_pending:
+		_request_prematch_if_possible()
 
 func _on_lane_system_changed(lane: Dictionary) -> void:
 	mark_render_dirty("lane_system")
@@ -753,9 +378,9 @@ func _sync_lane_system_blockers() -> void:
 		return
 	var hive_list: Array = []
 	if hive_renderer != null:
-		var nodes := hive_renderer.get_hive_nodes_by_id()
+		var nodes = hive_renderer.get_hive_nodes_by_id()
 		for key in nodes.keys():
-			var node := nodes.get(key) as Node2D
+			var node = nodes.get(key) as Node2D
 			if node == null:
 				continue
 			hive_list.append({
@@ -773,23 +398,19 @@ func _sync_lane_system_blockers() -> void:
 	lane_system.set_blockers_from_hives(hive_list, BLOCK_RADIUS_PX)
 
 func get_game_state() -> GameState:
-	return state
+	return OpsState.require_state()
 
 func _on_ops_state_changed(new_state: GameState) -> void:
 	state = new_state
 	if state == null:
 		return
-	if api != null:
-		api.bind_state(state)
-	state.grid_spec = grid_spec
+	# Ensure input always points at the current authoritative GameState.
+	if input_system != null and input_system.has_method("bind_state"):
+		input_system.call("bind_state", state)
 	_ensure_sim_runner()
 	if sim_runner != null:
 		sim_runner.bind_state(state)
-		if sim_runner.bound_iid != int(state.get_instance_id()):
-			SFLog.error("SIM_BIND_MISMATCH", {
-				"arena_iid": int(state.get_instance_id()),
-				"sim_iid": int(sim_runner.bound_iid)
-			})
+		SFLog.info("ARENA_ON_STATE_CHANGED_BIND", {"iid": int(sim_runner.bound_iid)})
 	if lane_system != null and lane_system.state != state:
 		lane_system.bind_state(state)
 	if lane_renderer != null:
@@ -799,21 +420,31 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	_sync_lane_system_blockers()
 	mark_render_dirty("ops_state_changed")
 
-func _on_ops_state_changed_iid(_payload := {}) -> void:
+func _on_ops_state_changed_iid(_payload = {}) -> void:
+	# Fallback: some boot paths fire ops_state_changed (iid) before state_changed (GameState).
+	# Bind sim_runner to the authoritative state if not already bound.
+	_ensure_sim_runner()
+	if sim_runner != null and not sim_runner.has_bound_state():
+		var ops_state = OpsState.get_state()
+		if ops_state != null:
+			sim_runner.bind_state(ops_state)
+			SFLog.info("ARENA_BOUND_SIM", {"iid": int(sim_runner.bound_iid)})
+			# Bind input here too (iid path can fire before state_changed).
+			if input_system != null and input_system.has_method("bind_state"):
+				input_system.call("bind_state", ops_state)
+		else:
+			SFLog.warn("ARENA_BOUND_SIM_NO_STATE", {})
 	call_deferred("_start_sim_after_state_change")
 
 func _start_sim_after_state_change() -> void:
 	if sim_runner == null:
 		SFLog.info("SIM_START_DEFERRED_FAIL", {"reason": "sim_runner_null"})
 		return
-	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH and not _match_started:
-		SFLog.info("SIM_START_DEFERRED_SKIP", {"reason": "prematch_hold"})
-		return
 	SFLog.info("ARENA_START_SIM_AFTER_STATE", {"iid": int(sim_runner.bound_iid)})
-	_start_match_sim("arena_after_ops_state_changed")
+	sim_runner.set_running(true, "arena_after_ops_state_changed")
 
 func _create_system(script_path: String, label: String) -> RefCounted:
-	var script := load(script_path)
+	var script = load(script_path)
 	if script == null:
 		push_error("ARENA: failed to load %s system (%s)" % [label, script_path])
 		return null
@@ -835,11 +466,10 @@ func _notification(what: int) -> void:
 
 func _on_viewport_size_changed() -> void:
 	fitcam_once()
-	_center_match_timer()
 
 func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
-	var cell_px := _cell_px()
-	var origin := map_offset
+	var cell_px = _cell_px()
+	var origin = map_offset
 	if grid_spec == null:
 		grid_spec = GridSpec.new()
 	grid_spec.configure(grid_w_in, grid_h_in, cell_px, origin)
@@ -847,89 +477,26 @@ func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 	grid_h = grid_spec.grid_h
 	if floor_renderer != null:
 		floor_renderer.configure(grid_w, grid_h, cell_px)
-	if state != null:
-		state.grid_spec = grid_spec
+	# Refit after cell/grid changes so the arena stays centered.
+	call_deferred("_apply_canon_camera_fit", "grid_spec")
 
 func _log_map_spec(map_data: Dictionary) -> void:
 	if not GRID_DEBUG or grid_spec == null:
 		return
-	var schema_id := str(map_data.get("_schema", ""))
-	var rect := Rect2(
-		grid_spec.origin,
-		Vector2(grid_spec.grid_w * grid_spec.cell_size, grid_spec.grid_h * grid_spec.cell_size)
-	)
+	var schema_id = str(map_data.get("_schema", ""))
 	SFLog.trace("ARENA: map schema=%s grid=%dx%d rect=%s" % [
 		schema_id,
 		grid_spec.grid_w,
 		grid_spec.grid_h,
-		str(rect)
+		str(grid_spec.board_world_rect)
 	])
-
-func _apply_neutral_towers(map_data: Dictionary) -> void:
-	if state == null:
-		return
-	state.towers = []
-	var towers_v: Variant = map_data.get("towers", [])
-	if typeof(towers_v) != TYPE_ARRAY:
-		SFLog.info("NEUTRAL_TOWERS_APPLIED", {"count": 0, "sample": null})
-		return
-	var out: Array = []
-	for tower_any in towers_v as Array:
-		if typeof(tower_any) != TYPE_DICTIONARY:
-			continue
-		var td: Dictionary = tower_any as Dictionary
-		var tower_id: int = int(td.get("id", -1))
-		if tower_id <= 0:
-			continue
-		var gp: Vector2i = Vector2i.ZERO
-		var gp_v: Variant = td.get("grid_pos", null)
-		if gp_v is Vector2i:
-			gp = gp_v as Vector2i
-		elif gp_v is Array:
-			var gp_arr: Array = gp_v as Array
-			if gp_arr.size() >= 2:
-				gp = Vector2i(int(gp_arr[0]), int(gp_arr[1]))
-		else:
-			var x: int = int(td.get("x", 0))
-			var y: int = int(td.get("y", 0))
-			gp = Vector2i(x, y)
-		var req_ids: Array = []
-		var req_v: Variant = td.get("required_hive_ids", [])
-		if typeof(req_v) == TYPE_ARRAY:
-			for req_any in req_v as Array:
-				req_ids.append(int(req_any))
-		var control_ids: Array = []
-		var control_v: Variant = td.get("control_hive_ids", [])
-		if typeof(control_v) == TYPE_ARRAY:
-			for control_any in control_v as Array:
-				control_ids.append(int(control_any))
-		out.append({
-			"id": tower_id,
-			"grid_pos": gp,
-			"required_hive_ids": req_ids,
-			"control_hive_ids": control_ids,
-			"owner_id": int(td.get("owner_id", 0))
-		})
-	state.towers = out
-	var sample: Variant = out[0] if out.size() > 0 else null
-	SFLog.info("NEUTRAL_TOWERS_APPLIED", {"count": out.size(), "sample": sample})
-	if out.size() > 0:
-		var first: Dictionary = out[0] as Dictionary
-		var first_gp_v: Variant = first.get("grid_pos", Vector2i.ZERO)
-		var first_gp: Vector2i = Vector2i.ZERO
-		if first_gp_v is Vector2i:
-			first_gp = first_gp_v as Vector2i
-		var px_pos: Vector2 = _cell_center(first_gp)
-		SFLog.info("TOWER_FIRST_POS", {"grid_pos": first_gp, "pos_px": px_pos})
 
 func load_from_map(map_data: Dictionary) -> void:
 	los_cache.clear()
 	state.hives.clear()
 	state.lanes.clear()
 	state.lane_sim_by_key.clear()
-	# Units are owned by UnitSystem; don't clear/publish from Arena.
-	# UnitSystem will reset its own units and keep state.units_by_lane["_all"] accurate.
-	# state.units_by_lane.clear()
+	state.units_by_lane.clear()
 	hive_lane_order.clear()
 	hive_power_prev.clear()
 	active_orders_by_attacker.clear()
@@ -946,7 +513,7 @@ func load_from_map(map_data: Dictionary) -> void:
 		var radius_px: float = float(hive_data.get("radius_px", hive_data.get("radius", 0.0)))
 		if radius_px <= 0.0:
 			radius_px = MapSchema.hive_radius_px_for_kind(kind, _cell_px())
-		var hive := HiveData.new(int(hive_data["id"]), grid_pos, owner_id, power, kind, radius_px)
+		var hive = HiveData.new(int(hive_data["id"]), grid_pos, owner_id, power, kind, radius_px)
 		state.hives.append(hive)
 		hive_lane_order[hive.id] = []
 		hive_power_prev[hive.id] = hive.power
@@ -969,16 +536,41 @@ func load_from_map(map_data: Dictionary) -> void:
 	var structure_sets: Array = []
 	var structure_positions: Array = []
 	towers = []
-	if tower_system != null:
-		tower_system.init_from_map(map_data)
-		towers = tower_system.towers
-		structure_sets = tower_system.get_structure_sets().duplicate()
-		structure_positions = tower_system.get_structure_positions().duplicate()
-	_apply_neutral_towers(map_data)
+	if state != null:
+		state.structure_by_node_id.clear()
+		state.tower_owner_by_node_id.clear()
+	for t in map_data.get("towers", []):
+		if state != null:
+			var tower_node_id: int = int(t.get("node_id", t.get("id", -1)))
+			if tower_node_id != -1:
+				state.structure_by_node_id[tower_node_id] = "tower"
+				state.tower_owner_by_node_id[tower_node_id] = int(t.get("owner_id", 0))
+		var t_pos: Array = t.get("grid_pos", [0, 0])
+		var t_grid_pos = Vector2i(int(t_pos[0]), int(t_pos[1]))
+		var t_required: Array = t.get("required_hive_ids", [])
+		var t_computed: Array = _structure_required_hives_for(
+			t_grid_pos,
+			t_required,
+			structure_sets,
+			structure_positions
+		)
+		structure_sets.append(t_computed)
+		if t_computed.size() >= BARRACKS_MIN_REQ:
+			structure_positions.append(_structure_center_for_required(t_computed, _cell_center(t_grid_pos)))
+		towers.append({
+			"id": int(t["id"]),
+			"node_id": int(t.get("node_id", t.get("id", -1))),
+			"grid_pos": t_grid_pos,
+			"required_hive_ids": t_computed,
+			"active": false,
+			"owner_id": 0,
+			"tier": 1,
+			"shot_accum_ms": 0.0
+		})
 	barracks = []
 	for b in map_data.get("barracks", []):
 		var b_pos: Array = b.get("grid_pos", [0, 0])
-		var b_grid_pos := Vector2i(int(b_pos[0]), int(b_pos[1]))
+		var b_grid_pos = Vector2i(int(b_pos[0]), int(b_pos[1]))
 		var required: Array = b.get("required_hive_ids", [])
 		var computed: Array = _structure_required_hives_for(
 			b_grid_pos,
@@ -993,11 +585,6 @@ func load_from_map(map_data: Dictionary) -> void:
 			"id": int(b["id"]),
 			"grid_pos": b_grid_pos,
 			"required_hive_ids": computed,
-			"control_hive_ids": computed.duplicate(),
-			"route_targets": [],
-			"route_hive_ids": [],
-			"route_mode": "round_robin",
-			"route_cursor": 0,
 			"active": false,
 			"owner_id": 0,
 			"tier": 1,
@@ -1005,11 +592,9 @@ func load_from_map(map_data: Dictionary) -> void:
 			"rr_index": 0,
 			"preferred_targets": []
 		})
-	if state != null:
-		state.barracks = barracks
 	_center_map_offset(map_data)
 	_configure_grid_spec(grid_w, grid_h)
-	var cam_zoom := camera.zoom if camera != null else Vector2.ONE
+	var cam_zoom = camera.zoom if camera != null else Vector2.ONE
 	SFLog.trace("ARENA: map_loaded hives=%d lanes=%d grid=%dx%d rect=%s cam_zoom=%s" % [
 		state.hives.size(),
 		state.lanes.size(),
@@ -1067,11 +652,6 @@ func apply_loaded_map(map: Dictionary) -> void:
 	grid_h = max(1, int(map.get("grid_h", GRID_H)))
 	current_map_data = map.duplicate(true)
 	_configure_grid_spec(grid_w, grid_h)
-	towers = []
-	if tower_system != null:
-		tower_system.init_from_map(map)
-		towers = tower_system.towers
-	_apply_neutral_towers(map)
 	_sync_lane_system_blockers()
 	mark_render_dirty("apply_loaded_map")
 	model = export_render_model()
@@ -1101,7 +681,7 @@ func on_map_built() -> void:
 	if lane_renderer != null:
 		lane_renderer.setup(state, sel, self)
 	if hive_renderer != null:
-		print("HIVE: renderer_ref=", hive_renderer)
+		SFLog.debug_log(2, "HIVE: renderer_ref=" + str(hive_renderer))
 		hive_renderer.setup(state, sel, self)
 	_sync_lane_system_blockers()
 	mark_render_dirty("map_built")
@@ -1117,7 +697,7 @@ func fitcam_once() -> void:
 	_apply_canon_camera_fit("fitcam_once")
 
 func _fitcam_verify_next_frame() -> void:
-	var cam := $Camera2D
+	var cam = $Camera2D
 	SFLog.trace("FITCAM_VERIFY", {
 		"zoom_now": cam.zoom,
 		"pos_now": cam.global_position,
@@ -1126,7 +706,7 @@ func _fitcam_verify_next_frame() -> void:
 
 func _find_overlay_controls() -> Array[Control]:
 	var overlays: Array[Control] = []
-	var root := get_tree().root
+	var root = get_tree().root
 	if root == null:
 		return overlays
 	var stack: Array[Node] = [root]
@@ -1136,7 +716,7 @@ func _find_overlay_controls() -> Array[Control]:
 			stack.append(child)
 		if not (node is Control):
 			continue
-		var control := node as Control
+		var control = node as Control
 		if not control.visible:
 			continue
 		if control.is_in_group("dev_overlay") or control is DevMapPicker or control.name.find("DevMapLoader") != -1:
@@ -1144,15 +724,15 @@ func _find_overlay_controls() -> Array[Control]:
 	return overlays
 
 func _compute_safe_rect(viewport_size: Vector2) -> Dictionary:
-	var viewport_rect := Rect2(Vector2.ZERO, viewport_size)
+	var viewport_rect = Rect2(Vector2.ZERO, viewport_size)
 	var safe_rect: Rect2 = Rect2(Vector2.ZERO, viewport_size)
 	var overlays_info: Array = []
 	var viewport_center: Vector2 = viewport_size * 0.5
-	var overlays := _find_overlay_controls()
+	var overlays = _find_overlay_controls()
 	for control in overlays:
 		var rect_pos: Vector2 = control.global_position
 		var rect_size: Vector2 = control.size
-		var rect := Rect2(rect_pos, rect_size)
+		var rect = Rect2(rect_pos, rect_size)
 		overlays_info.append({
 			"name": control.name,
 			"rect": rect
@@ -1190,7 +770,6 @@ func _set_sim_running(value: bool) -> void:
 	_sim_running_shadow = value
 	if sim_runner != null:
 		sim_runner.set_running(value)
-		sim_runner.log_pause_snapshot("arena_set_sim_running")
 
 func _apply_autostart() -> void:
 	if sim_runner == null:
@@ -1204,45 +783,161 @@ func _apply_autostart() -> void:
 	# autostart == true
 	sim_runner.set_running(true, "arena_apply_autostart_true")
 
+func _ensure_prematch_countdown_ui() -> void:
+	if _prematch_countdown_layer != null and is_instance_valid(_prematch_countdown_layer):
+		return
+	_prematch_countdown_layer = CanvasLayer.new()
+	_prematch_countdown_layer.name = "PrematchCountdown"
+	_prematch_countdown_layer.layer = 10
+	var root = Control.new()
+	root.name = "CountdownRoot"
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_prematch_countdown_label = Label.new()
+	_prematch_countdown_label.name = "CountdownLabel"
+	_prematch_countdown_label.visible = false
+	_prematch_countdown_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_prematch_countdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prematch_countdown_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_prematch_countdown_label.add_theme_font_size_override("font_size", 96)
+	_prematch_countdown_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(_prematch_countdown_label)
+	_prematch_countdown_layer.add_child(root)
+	add_child(_prematch_countdown_layer)
+	_prematch_countdown_timer = Timer.new()
+	_prematch_countdown_timer.name = "PrematchCountdownTimer"
+	_prematch_countdown_timer.one_shot = false
+	_prematch_countdown_timer.wait_time = 1.0
+	add_child(_prematch_countdown_timer)
+	if not _prematch_countdown_timer.timeout.is_connected(_on_prematch_countdown_tick):
+		_prematch_countdown_timer.timeout.connect(_on_prematch_countdown_tick)
+
+func _request_prematch_if_possible() -> void:
+	if sim_runner == null:
+		return
+	if not sim_runner.has_bound_state():
+		_prematch_request_pending = true
+		return
+	if _prematch_request_pending:
+		sim_runner.request_prematch(_prematch_request_seconds, _prematch_request_reason)
+		_prematch_request_pending = false
+
+func _start_sim_after_countdown() -> void:
+	if sim_runner == null:
+		return
+	if not sim_runner.has_bound_state():
+		await sim_runner.sim_bound
+	if sim_runner == null or not is_instance_valid(sim_runner):
+		return
+	if not sim_runner.has_bound_state():
+		SFLog.info("COUNTDOWN_START_SIM", {
+			"iid": int(sim_runner.bound_iid),
+			"has_state": false
+		})
+		return
+	SFLog.info("COUNTDOWN_START_SIM", {
+		"iid": int(sim_runner.bound_iid),
+		"has_state": true
+	})
+	SFLog.info("ARENA_START_SIM", {"iid": int(sim_runner.bound_iid)})
+	sim_runner.set_running(true, "prematch_countdown_complete")
+
+func start_prematch_countdown(seconds: int = 3, reason: String = "prematch_countdown") -> void:
+	_ensure_sim_runner()
+	_ensure_prematch_countdown_ui()
+	if seconds < 0:
+		seconds = 0
+	_prematch_countdown_seconds = seconds
+	_prematch_countdown_remaining = seconds
+	_prematch_countdown_active = true
+	_prematch_countdown_hide_id += 1
+	_prematch_request_pending = true
+	_prematch_request_seconds = seconds
+	_prematch_request_reason = reason
+	SFLog.info("COUNTDOWN_BEGIN", {"seconds": seconds, "reason": reason})
+	_set_prematch_countdown_label("%d" % _prematch_countdown_remaining)
+	SFLog.info("COUNTDOWN_TICK", {"remaining": _prematch_countdown_remaining})
+	_request_prematch_if_possible()
+	if _prematch_countdown_timer != null:
+		_prematch_countdown_timer.stop()
+	if seconds <= 0:
+		_finish_prematch_countdown()
+		return
+	if _prematch_countdown_timer != null:
+		_prematch_countdown_timer.start(1.0)
+
+func _on_prematch_countdown_tick() -> void:
+	if not _prematch_countdown_active:
+		if _prematch_countdown_timer != null:
+			_prematch_countdown_timer.stop()
+		return
+	_prematch_countdown_remaining -= 1
+	if _prematch_countdown_remaining <= 0:
+		_finish_prematch_countdown()
+		return
+	_set_prematch_countdown_label("%d" % _prematch_countdown_remaining)
+	SFLog.info("COUNTDOWN_TICK", {"remaining": _prematch_countdown_remaining})
+
+func _finish_prematch_countdown() -> void:
+	if not _prematch_countdown_active:
+		return
+	_prematch_countdown_active = false
+	if _prematch_countdown_timer != null:
+		_prematch_countdown_timer.stop()
+	_set_prematch_countdown_label("GO")
+	SFLog.info("COUNTDOWN_END", {"seconds": _prematch_countdown_seconds})
+	_schedule_prematch_countdown_hide()
+	_start_sim_after_countdown()
+
+func _schedule_prematch_countdown_hide() -> void:
+	var hide_id = _prematch_countdown_hide_id + 1
+	_prematch_countdown_hide_id = hide_id
+	var tree = get_tree()
+	if tree == null:
+		_set_prematch_countdown_label("")
+		return
+	var timer = tree.create_timer(0.75, true, false, true)
+	timer.timeout.connect(func() -> void:
+		if hide_id != _prematch_countdown_hide_id:
+			return
+		_set_prematch_countdown_label("")
+	)
+
+func _set_prematch_countdown_label(text: String) -> void:
+	if _prematch_countdown_label == null:
+		return
+	_prematch_countdown_label.text = text
+	_prematch_countdown_label.visible = text != ""
+
 func start_sim() -> void:
 	if sim_runner == null:
 		return
 	autostart = true
 	sim_runner.start_sim()
-	sim_runner.log_pause_snapshot("arena_start_sim")
 
 func _process(delta: float) -> void:
-	if Engine.is_editor_hint():
-		return
-	_update_prematch_flow(delta)
 	if input_system != null:
 		input_system.tick(delta, api)
-		_sync_inputs_locked_from_state()
-	_update_timer_ui()
 	if tie_toast != null and tie_toast_ms > 0.0:
 		tie_toast_ms = max(0.0, tie_toast_ms - delta * 1000.0)
 		if tie_toast_ms <= 0.0:
 			tie_toast.visible = false
-	_update_win_overlay()
 	_update_selection_hud()
 	_update_buff_ui()
-
-func _sync_inputs_locked_from_state() -> void:
-	if input_system == null:
-		return
-	var should_lock := bool(OpsState.input_locked)
-	if should_lock == _inputs_locked_from_state:
-		return
-	_inputs_locked_from_state = should_lock
-	var reason := OpsState.input_locked_reason if should_lock else ""
-	input_system.set_inputs_locked(should_lock, reason)
+	_update_ops_timer_label()
 
 func dbg(msg: String) -> void:
 	if debug_system != null:
 		debug_system.dbg(msg)
 		return
-	var t_sec := float(Time.get_ticks_msec()) / 1000.0
+	var t_sec = float(Time.get_ticks_msec()) / 1000.0
 	SFLog.debug("%8.3f | %s" % [t_sec, msg])
+
+func log_scale_if_changed(reason: String) -> void:
+	if scale == _last_scale:
+		return
+	SFLog.debug_log(1, "%s scale changed (%s): %s -> %s" % [name, reason, str(_last_scale), str(scale)])
+	_last_scale = scale
 
 func _note_render_dirty() -> void:
 	_tick_render_dirty = true
@@ -1262,10 +957,10 @@ func mark_render_dirty(reason: String = "") -> void:
 func _debug_camera(tag: String) -> void:
 	if debug_system == null:
 		return
-	var v := get_viewport()
+	var v = get_viewport()
 	if v == null:
 		return
-	var active := v.get_camera_2d()
+	var active = v.get_camera_2d()
 	var ours: Camera2D = camera if camera != null else $Camera2D
 	if ours == null:
 		return
@@ -1278,33 +973,8 @@ func _debug_camera(tag: String) -> void:
 		ours.zoom
 	)
 
-func _update_win_overlay() -> void:
-	if win_overlay == null:
-		return
-	if OpsState.match_over:
-		var end_ms := int(OpsState.match_end_ms)
-		if end_ms <= 0:
-			end_ms = Time.get_ticks_msec()
-		if end_ms != _win_overlay_match_end_ms:
-			_win_overlay_match_end_ms = end_ms
-			_win_overlay_until_ms = end_ms + WIN_OVERLAY_MS
-			win_overlay.show_win(int(OpsState.winner_id), str(OpsState.end_reason))
-			SFLog.info("OVERLAY_SHOWN", {
-				"type": "win_banner",
-				"winner_id": int(OpsState.winner_id),
-				"reason": str(OpsState.end_reason)
-			})
-		if _win_overlay_until_ms > 0 and Time.get_ticks_msec() >= _win_overlay_until_ms:
-			win_overlay.hide_overlay()
-		return
-	if _win_overlay_match_end_ms != 0:
-		_win_overlay_match_end_ms = 0
-		_win_overlay_until_ms = 0
-	if win_overlay.visible:
-		win_overlay.hide_overlay()
-
 func cam_set(tag: String, pos: Vector2, zoom: Vector2) -> void:
-	var cam := $Camera2D
+	var cam = $Camera2D
 	cam.make_current()
 	cam.global_position = pos
 	cam.zoom = zoom
@@ -1338,16 +1008,16 @@ func _dump_map_like_nodes(tag: String) -> void:
 
 func _dump_map_renderers(tag: String) -> void:
 	SFLog.trace("\n=== RENDERER DUMP ===", {"tag": tag})
-	var root := get_tree().root
-	var arenas := root.find_children("Arena", "Node", true, false)
+	var root = get_tree().root
+	var arenas = root.find_children("Arena", "Node", true, false)
 	SFLog.trace("Arenas", {"count": arenas.size()})
 	for a in arenas:
 		SFLog.trace(" - ", {"path": a.get_path()})
-	var map_roots := root.find_children("MapRoot", "Node", true, false)
+	var map_roots = root.find_children("MapRoot", "Node", true, false)
 	SFLog.trace("MapRoots", {"count": map_roots.size()})
 	for m in map_roots:
 		SFLog.trace(" - ", {"path": m.get_path()})
-	var hrs := root.find_children("HiveRenderer", "Node", true, false)
+	var hrs = root.find_children("HiveRenderer", "Node", true, false)
 	SFLog.trace("HiveRenderers", {"count": hrs.size()})
 	for h in hrs:
 		SFLog.trace(" - ", {
@@ -1355,7 +1025,7 @@ func _dump_map_renderers(tag: String) -> void:
 			"vis": (h.visible if h is CanvasItem else "n/a"),
 			"children": h.get_child_count()
 		})
-	var lrs := root.find_children("LaneRenderer", "Node", true, false)
+	var lrs = root.find_children("LaneRenderer", "Node", true, false)
 	SFLog.trace("LaneRenderers", {"count": lrs.size()})
 	for l in lrs:
 		SFLog.trace(" - ", {
@@ -1365,7 +1035,7 @@ func _dump_map_renderers(tag: String) -> void:
 		})
 
 func _dump_tree_with_scripts(path: String) -> void:
-	var root := get_node_or_null(path)
+	var root = get_node_or_null(path)
 	if root == null:
 		SFLog.trace("DUMP: node not found", {"path": path})
 		return
@@ -1373,8 +1043,8 @@ func _dump_tree_with_scripts(path: String) -> void:
 	_dump_node(root, 0)
 
 func _dump_node(n: Node, depth: int) -> void:
-	var indent := "  ".repeat(depth)
-	var s := ""
+	var indent = "  ".repeat(depth)
+	var s = ""
 	if n.get_script() != null:
 		s = " script=" + str(n.get_script().resource_path)
 	SFLog.trace(indent + "- ", {"path": n.get_path(), "type": n.get_class(), "script": s})
@@ -1382,15 +1052,15 @@ func _dump_node(n: Node, depth: int) -> void:
 		_dump_node(c, depth + 1)
 
 func _list_canvasitems_with_scripts(path: String) -> void:
-	var root := get_node_or_null(path)
+	var root = get_node_or_null(path)
 	if root == null:
 		SFLog.trace("SCAN: node not found", {"path": path})
 		return
 	SFLog.trace("\n=== CANVASITEM SCAN ===", {"path": root.get_path()})
-	var items := root.find_children("", "CanvasItem", true, false)
+	var items = root.find_children("", "CanvasItem", true, false)
 	for it in items:
-		var ci := it as CanvasItem
-		var sp := ""
+		var ci = it as CanvasItem
+		var sp = ""
 		if it.get_script() != null:
 			sp = str(it.get_script().resource_path)
 		if sp != "":
@@ -1398,12 +1068,12 @@ func _list_canvasitems_with_scripts(path: String) -> void:
 
 func _dump_viewports_and_textures() -> void:
 	SFLog.trace("\n=== VIEWPORT/TEXTURE DUMP ===")
-	var root := get_tree().root
-	var svcs := root.find_children("", "SubViewportContainer", true, false)
+	var root = get_tree().root
+	var svcs = root.find_children("", "SubViewportContainer", true, false)
 	SFLog.trace("SubViewportContainers", {"count": svcs.size()})
 	for c in svcs:
 		SFLog.trace(" - ", {"path": c.get_path()})
-	var svs := root.find_children("", "SubViewport", true, false)
+	var svs = root.find_children("", "SubViewport", true, false)
 	SFLog.trace("SubViewports", {"count": svs.size()})
 	for v in svs:
 		SFLog.trace(" - ", {
@@ -1411,23 +1081,23 @@ func _dump_viewports_and_textures() -> void:
 			"update": v.render_target_update_mode,
 			"clear": v.render_target_clear_mode
 		})
-	var trs := root.find_children("", "TextureRect", true, false)
+	var trs = root.find_children("", "TextureRect", true, false)
 	SFLog.trace("TextureRects", {"count": trs.size()})
 	for t in trs:
 		var tex: Texture2D = t.texture
 		SFLog.trace(" - ", {"path": t.get_path(), "tex": (tex.resource_path if tex else "null")})
 
 func _kill_foreign_renderers(keep_arena: Node) -> void:
-	var keep_prefix := str(keep_arena.get_path())
+	var keep_prefix = str(keep_arena.get_path())
 	for n in get_tree().root.find_children("HiveRenderer", "Node", true, false):
-		var p := str(n.get_path())
+		var p = str(n.get_path())
 		if not p.begins_with(keep_prefix):
 			SFLog.trace("KILL HiveRenderer", {"path": p})
 			if n is CanvasItem:
 				n.visible = false
 			n.queue_free()
 	for n in get_tree().root.find_children("LaneRenderer", "Node", true, false):
-		var p := str(n.get_path())
+		var p = str(n.get_path())
 		if not p.begins_with(keep_prefix):
 			SFLog.trace("KILL LaneRenderer", {"path": p})
 			if n is CanvasItem:
@@ -1436,21 +1106,21 @@ func _kill_foreign_renderers(keep_arena: Node) -> void:
 
 func _debug_scan_names() -> void:
 	var out: Array[Node] = []
-	var root := get_tree().root
+	var root = get_tree().root
 	_scan(root, out)
 	for n in out:
 		SFLog.trace("FOUND", {"path": str(n.get_path()), "type": n.get_class()})
 
 func _scan(n: Node, out: Array[Node]) -> void:
-	var cname := n.get_class()
+	var cname = n.get_class()
 	if cname.find("Hive") != -1 or cname.find("Lane") != -1 or str(n.name).find("Hive") != -1 or str(n.name).find("Lane") != -1:
 		out.append(n)
 	for c in n.get_children():
 		_scan(c, out)
 
 func clear_map() -> void:
-	var hr := $MapRoot/HiveRenderer
-	var lr := $MapRoot/LaneRenderer
+	var hr = $MapRoot/HiveRenderer
+	var lr = $MapRoot/LaneRenderer
 	for c in hr.get_children():
 		c.queue_free()
 	for c in lr.get_children():
@@ -1458,9 +1128,9 @@ func clear_map() -> void:
 	SFLog.trace("MAP CLEAR", {"hive": hr.get_child_count(), "lane": lr.get_child_count()})
 
 func clear_map_render() -> void:
-	var hr := $MapRoot/HiveRenderer
-	var lr := $MapRoot/LaneRenderer
-	var ur := $MapRoot/UnitRenderer
+	var hr = $MapRoot/HiveRenderer
+	var lr = $MapRoot/LaneRenderer
+	var ur = $MapRoot/UnitRenderer
 	for c in hr.get_children():
 		c.queue_free()
 	for c in lr.get_children():
@@ -1488,24 +1158,42 @@ func world_center() -> Vector2:
 func _canon_world_px() -> Vector2:
 	return Vector2(GRID_W * CELL_SIZE, GRID_H * CELL_SIZE)
 
-func _compute_fit_zoom(viewport_size: Vector2, margin: float) -> float:
-	var world_px: Vector2 = _canon_world_px()
+func _compute_fit_zoom(viewport_size: Vector2, margin_x: float, margin_y: float, world_px: Vector2) -> float:
 	if world_px.x <= 0.0 or world_px.y <= 0.0:
 		return 1.0
-	var fit: float = min(viewport_size.x / world_px.x, viewport_size.y / world_px.y)
-	return fit * margin
+	var fit_x: float = (viewport_size.x / world_px.x) * margin_x
+	var fit_y: float = (viewport_size.y / world_px.y) * margin_y
+	return min(fit_x, fit_y)
 
 func _apply_canon_camera_fit(tag: String) -> void:
 	var vp: Vector2 = get_viewport_rect().size
-	var world_px: Vector2 = _canon_world_px()
-	var center: Vector2 = world_px * 0.5
-	var zoom_factor: float = _compute_fit_zoom(vp, FIT_MARGIN)
+	var arena_rect = _arena_rect()
+	var raw_arena_rect = arena_rect
+	if RenderProjection.enabled:
+		arena_rect = RenderProjection.project_rect(arena_rect)
+	var world_px: Vector2 = arena_rect.size
+	var center: Vector2 = arena_rect.position + arena_rect.size * 0.5
+	var zoom_factor: float = _compute_fit_zoom(vp, FIT_MARGIN_X, FIT_MARGIN_Y, world_px)
 	# Project convention: Camera2D.zoom uses the fit scale directly (not inverse).
 	var zoom_vec: Vector2 = Vector2(zoom_factor, zoom_factor)
 	cam_set(tag, center, zoom_vec)
+	SFLog.log_once(
+		"FITCANON_DEBUG_" + tag,
+		"FITCANON_DEBUG",
+		SFLog.Level.INFO,
+		{
+			"tag": tag,
+			"viewport": vp,
+			"raw_arena_rect": raw_arena_rect,
+			"proj_enabled": RenderProjection.enabled,
+			"arena_rect_used": arena_rect,
+			"center": center,
+			"zoom": zoom_vec
+		}
+	)
 	SFLog.trace("FITCANON", {
-		"grid_w": GRID_W,
-		"grid_h": GRID_H,
+		"grid_w": MapSchema.CANON_GRID_W,
+		"grid_h": MapSchema.CANON_GRID_H,
 		"world_px": world_px,
 		"viewport": vp,
 		"center": center,
@@ -1513,7 +1201,7 @@ func _apply_canon_camera_fit(tag: String) -> void:
 	})
 
 func _nearest_canvas_layer(n: Node) -> CanvasLayer:
-	var p := n.get_parent()
+	var p = n.get_parent()
 	while p != null:
 		if p is CanvasLayer:
 			return p
@@ -1522,10 +1210,10 @@ func _nearest_canvas_layer(n: Node) -> CanvasLayer:
 
 func _debug_canvas_space() -> void:
 	await get_tree().process_frame
-	var lr := $MapRoot/LaneRenderer
-	var hr := $MapRoot/HiveRenderer
-	var lr_cl := _nearest_canvas_layer(lr)
-	var hr_cl := _nearest_canvas_layer(hr)
+	var lr = $MapRoot/LaneRenderer
+	var hr = $MapRoot/HiveRenderer
+	var lr_cl = _nearest_canvas_layer(lr)
+	var hr_cl = _nearest_canvas_layer(hr)
 	SFLog.trace("LaneRenderer under CanvasLayer?", {
 		"under": lr_cl != null,
 		"layer": lr_cl.layer if lr_cl else -999
@@ -1541,8 +1229,8 @@ func _log_fit_state(tag: String) -> void:
 	var arena_rect: Rect2 = _arena_rect()
 	var arena_center: Vector2 = arena_rect.get_center()
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var safe_rect := Rect2(Vector2.ZERO, viewport_size)
-	var overlays_count := 0
+	var safe_rect = Rect2(Vector2.ZERO, viewport_size)
+	var overlays_count = 0
 	if use_dev_safe_centering:
 		var safe_info: Dictionary = _compute_safe_rect(viewport_size)
 		safe_rect = safe_info["safe_rect"]
@@ -1562,7 +1250,7 @@ func _log_fit_state(tag: String) -> void:
 	)
 
 func _log_lane_establish(lane_key: String, owner_id: int, event: String, t: float = -1.0, extra: String = "") -> void:
-	var msg := "LANE_EST_%s lane=%s owner=%d" % [event, lane_key, owner_id]
+	var msg = "LANE_EST_%s lane=%s owner=%d" % [event, lane_key, owner_id]
 	if t >= 0.0:
 		msg += " t=%.3f" % t
 	if extra != "":
@@ -1585,6 +1273,7 @@ func _tick(dt: float) -> void:
 	_update_swarms(dt)
 	_update_contest_logs()
 	_normalize_friendly_intents()
+	_update_towers(dt)
 	_update_barracks(dt)
 	_update_debris(dt)
 	_update_lane_slots()
@@ -1603,25 +1292,28 @@ func _tick(dt: float) -> void:
 					var h0: HiveData = state.hives[0]
 					p0 = int(h0.power)
 			SFLog.trace("SIMDBG:tick", {"lanes": lane_count, "p0": p0, "units": units.size()})
-	if _tick_render_dirty:
-		mark_render_dirty("tick")
-		_push_render_model()
+		if _tick_render_dirty:
+			mark_render_dirty("tick")
+			_push_render_model()
+
+func _state_iid(state) -> int:
+	if state == null:
+		return 0
+	if typeof(state) == TYPE_DICTIONARY:
+		return int(state.get("iid", state.get("id", 0)))
+	if state.has_method("get"):
+		var v = state.get("iid")
+		if v != null:
+			return int(v)
+		v = state.get("id")
+		if v != null:
+			return int(v)
+	return 0
 
 func export_render_model() -> Dictionary:
-	if Engine.is_editor_hint():
-		return {}
-	if state == null:
-		return {}
-	var ops := OpsState
-	var prev_render_export: bool = bool(ops._in_render_export)
-	ops._in_render_export = true
-	var now_ms := Time.get_ticks_msec()
-	if now_ms - _last_export_log_ms > 1000:
-		_last_export_log_ms = now_ms
-		SFLog.error("EXPORT_RENDER_MODEL_VERSION", {"marker": "2026-01-14-A", "line": 0})
+	SFLog.error("EXPORT_RENDER_MODEL_VERSION", {"marker": "2026-01-14-A", "line": 0})
 	assert(state is GameState)
 	if not _render_dirty and not _render_model.is_empty():
-		ops._in_render_export = prev_render_export
 		return _render_model
 	var out_hives: Array[Dictionary] = []
 	var out_hives_by_id: Dictionary = {}
@@ -1650,36 +1342,29 @@ func export_render_model() -> Dictionary:
 			out_hives.append(hd)
 			out_hives_by_id[int(h.id)] = hd
 	var out_lanes: Array[Dictionary] = []
-	var front_by_lane_id: Dictionary = OpsState.lane_front_by_lane_id
 	if state != null:
 		for lane_any in state.lanes:
 			if lane_any is LaneData:
 				var l: LaneData = lane_any
-				var lane_id: int = int(l.id)
 				out_lanes.append({
-					"lane_id": lane_id,
+					"lane_id": int(l.id),
 					"a_id": int(l.a_id),
 					"b_id": int(l.b_id),
 					"send_a": bool(l.send_a),
 					"send_b": bool(l.send_b),
 					"intent": "",
-					"pressure": 0,
-					"front_t": float(front_by_lane_id.get(lane_id, 0.5))
+					"pressure": 0
 				})
 			elif lane_any is Dictionary:
 				var d: Dictionary = lane_any as Dictionary
-				var a_id: int = int(d.get("a_id", d.get("from", 0)))
-				var b_id: int = int(d.get("b_id", d.get("to", 0)))
-				var lane_id: int = int(d.get("lane_id", d.get("id", -1)))
 				out_lanes.append({
-					"lane_id": lane_id,
-					"a_id": a_id,
-					"b_id": b_id,
+					"lane_id": int(d.get("lane_id", d.get("id", -1))),
+					"a_id": int(d.get("a_id", d.get("from", 0))),
+					"b_id": int(d.get("b_id", d.get("to", 0))),
 					"send_a": bool(d.get("send_a", false)),
 					"send_b": bool(d.get("send_b", false)),
 					"intent": str(d.get("intent", "")),
-					"pressure": int(d.get("pressure", 0)),
-					"front_t": float(front_by_lane_id.get(lane_id, 0.5))
+					"pressure": int(d.get("pressure", 0))
 				})
 	var out_runtime_lanes: Array[Dictionary] = out_lanes
 	var out_lane_candidates: Array[Dictionary] = []
@@ -1708,7 +1393,7 @@ func export_render_model() -> Dictionary:
 			var established_by_owner: Dictionary = lane_state.get("established_by_owner", {})
 			for owner_key in side_by_owner.keys():
 				var side: Dictionary = side_by_owner[owner_key]
-				var owner_id := int(side.get("owner_id", 0))
+				var owner_id = int(side.get("owner_id", 0))
 				side_out.append({
 					"owner_id": owner_id,
 					"dir": int(side.get("dir", 0)),
@@ -1724,162 +1409,38 @@ func export_render_model() -> Dictionary:
 				"side": side_out
 			})
 	var out_units: Array[Dictionary] = []
-	var units_src: Array = []
-	if unit_system != null:
-		var units_v: Variant = unit_system.export_units_render()
-		if typeof(units_v) == TYPE_ARRAY:
-			units_src = units_v as Array
-	elif state != null:
+	if state != null:
 		var units_v: Variant = state.units_by_lane.get("_all", [])
 		if typeof(units_v) == TYPE_ARRAY:
-			units_src = units_v as Array
-	for unit in units_src:
-		if typeof(unit) != TYPE_DICTIONARY:
-			continue
-		var ud: Dictionary = unit as Dictionary
-		var entry := {
-			"id": int(ud.get("id", -1)),
-			"from": int(ud.get("from_id", 0)),
-			"to": int(ud.get("to_id", 0)),
-			"t": clampf(float(ud.get("t", 0.0)), 0.0, 1.0),
-			"lane_key": str(ud.get("lane_key", "")),
-			"a_id": int(ud.get("a_id", ud.get("from_id", 0))),
-			"b_id": int(ud.get("b_id", ud.get("to_id", 0))),
-			"owner_id": int(ud.get("owner_id", 0))
-		}
-		var from_pos_v: Variant = ud.get("from_pos")
-		if typeof(from_pos_v) == TYPE_VECTOR2:
-			entry["from_pos"] = from_pos_v
-		var to_pos_v: Variant = ud.get("to_pos")
-		if typeof(to_pos_v) == TYPE_VECTOR2:
-			entry["to_pos"] = to_pos_v
-		var pos_v: Variant = ud.get("pos")
-		if typeof(pos_v) == TYPE_VECTOR2:
-			entry["pos"] = pos_v
-		out_units.append(entry)
-	var out_towers: Array[Dictionary] = []
-	var towers_src: Array = state.towers if state != null else []
-	for tower_any in towers_src:
-		if typeof(tower_any) != TYPE_DICTIONARY:
-			continue
-		var td: Dictionary = tower_any as Dictionary
-		var tower_id: int = int(td.get("node_id", td.get("id", -1)))
-		if tower_id <= 0:
-			continue
-		var gp_v: Variant = td.get("grid_pos", Vector2i.ZERO)
-		var gp: Vector2i = Vector2i.ZERO
-		if gp_v is Vector2i:
-			gp = gp_v as Vector2i
-		elif gp_v is Array:
-			var gp_arr: Array = gp_v as Array
-			if gp_arr.size() >= 2:
-				gp = Vector2i(int(gp_arr[0]), int(gp_arr[1]))
-		var pos_px: Vector2 = _cell_center(gp)
-		var control_ids: Array = []
-		var control_v: Variant = td.get("control_hive_ids", td.get("required_hive_ids", []))
-		if typeof(control_v) == TYPE_ARRAY:
-			for hive_id_v in control_v as Array:
-				control_ids.append(int(hive_id_v))
-		out_towers.append({
-			"id": tower_id,
-			"grid_pos": gp,
-			"pos_px": pos_px,
-			"owner_id": int(td.get("owner_id", 0)),
-			"control_hive_ids": control_ids
-		})
-	SFLog.log_on_change_payload("RENDER_MODEL_TOWERS", out_towers.size(), {"count": out_towers.size()})
-	if towers_src.size() > 0 and out_towers.is_empty():
-		SFLog.error("TOWER_EXPORT_MISSING", {"source_count": towers_src.size()})
-	var out_barracks: Array[Dictionary] = []
-	var barracks_src: Array = state.barracks if state != null else []
-	for barracks_any in barracks_src:
-		if typeof(barracks_any) != TYPE_DICTIONARY:
-			continue
-		var bd: Dictionary = barracks_any as Dictionary
-		var barracks_id: int = int(bd.get("id", -1))
-		if barracks_id <= 0:
-			continue
-		var gp_b_v: Variant = bd.get("grid_pos", Vector2i.ZERO)
-		var gp_b: Vector2i = Vector2i.ZERO
-		if gp_b_v is Vector2i:
-			gp_b = gp_b_v as Vector2i
-		elif gp_b_v is Array:
-			var gp_b_arr: Array = gp_b_v as Array
-			if gp_b_arr.size() >= 2:
-				gp_b = Vector2i(int(gp_b_arr[0]), int(gp_b_arr[1]))
-		var pos_px: Vector2 = _cell_center(gp_b)
-		var control_ids: Array = []
-		var control_v: Variant = bd.get("control_hive_ids", bd.get("required_hive_ids", []))
-		if typeof(control_v) == TYPE_ARRAY:
-			for control_any in control_v as Array:
-				control_ids.append(int(control_any))
-		var req_ids: Array = []
-		var req_v: Variant = bd.get("required_hive_ids", [])
-		if typeof(req_v) == TYPE_ARRAY:
-			for req_any in req_v as Array:
-				req_ids.append(int(req_any))
-		out_barracks.append({
-			"id": barracks_id,
-			"grid_pos": gp_b,
-			"world_pos": pos_px,
-			"pos_px": pos_px,
-			"owner_id": int(bd.get("owner_id", 0)),
-			"control_hive_ids": control_ids,
-			"required_hive_ids": req_ids
-		})
-	SFLog.log_on_change_payload("RENDER_MODEL_BARRACKS", out_barracks.size(), {"count": out_barracks.size()})
-	if barracks_src.size() > 0 and out_barracks.is_empty():
-		SFLog.error("BARRACKS_EXPORT_MISSING", {"source_count": barracks_src.size()})
-	var out_swarms: Array[Dictionary] = []
-	if sim_runner != null and sim_runner.swarm_system != null:
-		var swarms_v: Variant = sim_runner.swarm_system.swarm_packets
-		if typeof(swarms_v) == TYPE_ARRAY:
-			for swarm_any in swarms_v as Array:
-				if typeof(swarm_any) != TYPE_DICTIONARY:
+			for unit in units_v as Array:
+				if typeof(unit) != TYPE_DICTIONARY:
 					continue
-				var sd: Dictionary = swarm_any as Dictionary
-				var swarm_id: int = int(sd.get("id", -1))
-				var lane_id: int = int(sd.get("lane_id", -1))
-				if swarm_id <= 0 or lane_id <= 0:
-					continue
-				var dir: int = int(sd.get("dir", 0))
-				var t_raw: float = clampf(float(sd.get("t", 0.0)), 0.0, 1.0)
-				var side: String = "A" if dir >= 0 else "B"
-				var t_out: float = t_raw if dir >= 0 else (1.0 - t_raw)
-				out_swarms.append({
-					"swarm_id": swarm_id,
-					"lane_id": lane_id,
-					"owner_id": int(sd.get("owner_id", 0)),
-					"side": side,
-					"t": t_out,
-					"count": int(sd.get("count", 0)),
-					"src": int(sd.get("from_id", 0)),
-					"dst": int(sd.get("to_id", 0))
-				})
-	if debug_export_rm_log:
-		var now_msec := Time.get_ticks_msec()
-		if now_msec - _last_export_rm_log_ms >= debug_export_rm_log_interval_ms:
-			_last_export_rm_log_ms = now_msec
-			print("EXPORT RM state=", state, " type=", typeof(state))
-	var sim_time_s: float = 0.0
-	if unit_system != null:
-		sim_time_s = float(unit_system.sim_time_us) / 1000000.0
-	var clock_payload: Dictionary = {}
-	if state != null:
-		var duration_ms := int(OpsState.match_duration_ms)
-		var elapsed_ms := int(OpsState.match_elapsed_ms)
-		var remaining_ms := maxi(0, duration_ms - elapsed_ms)
-		var over := OpsState.has_outcome()
-		var winner_id := int(OpsState.winner_id)
-		var reason := str(OpsState.match_end_reason) if over else ""
-		clock_payload = {
-			"elapsed_ms": elapsed_ms,
-			"duration_ms": duration_ms,
-			"remaining_ms": remaining_ms,
-			"over": over,
-			"winner_id": winner_id,
-			"reason": reason
-		}
+				var ud: Dictionary = unit as Dictionary
+				var entry = {
+					"id": int(ud.get("id", -1)),
+					"from": int(ud.get("from_id", 0)),
+					"to": int(ud.get("to_id", 0)),
+					"t": clampf(float(ud.get("t", 0.0)), 0.0, 1.0),
+					"lane_key": str(ud.get("lane_key", "")),
+					"a_id": int(ud.get("a_id", ud.get("from_id", 0))),
+					"b_id": int(ud.get("b_id", ud.get("to_id", 0))),
+					"owner_id": int(ud.get("owner_id", 0))
+				}
+				var from_pos_v: Variant = ud.get("from_pos")
+				if typeof(from_pos_v) == TYPE_VECTOR2:
+					entry["from_pos"] = from_pos_v
+				var to_pos_v: Variant = ud.get("to_pos")
+				if typeof(to_pos_v) == TYPE_VECTOR2:
+					entry["to_pos"] = to_pos_v
+				var pos_v: Variant = ud.get("pos")
+				if typeof(pos_v) == TYPE_VECTOR2:
+					entry["pos"] = pos_v
+				out_units.append(entry)
+	if debug_render_model_log:
+		var now_ms = Time.get_ticks_msec()
+		if now_ms - _last_render_model_log_ms >= 1000:
+			_last_render_model_log_ms = now_ms
+			SFLog.info("EXPORT_RM", {"state": state, "type": typeof(state)})
 	_render_model = {
 		"hives": out_hives,
 		"hives_by_id": out_hives_by_id,
@@ -1888,38 +1449,12 @@ func export_render_model() -> Dictionary:
 		"lane_candidates": out_lane_candidates,
 		"lane_sim": out_lane_sim,
 		"units": out_units,
-		"swarms": out_swarms,
-		"towers": out_towers,
-		"barracks": out_barracks,
 		"cell_size": int(CELL_SIZE),
-		"sim_running": bool(sim_runner != null and sim_runner.running),
-		"clock": clock_payload,
-		"outcome": int(OpsState.outcome) if state != null else int(GameState.GameOutcome.NONE),
-		"outcome_reason": str(OpsState.outcome_reason) if state != null else "",
-		"outcome_tick": int(OpsState.outcome_tick) if state != null else -1,
-		"winner_id": int(OpsState.winner_id) if state != null else 0,
-		"match_time_remaining_sec": float(OpsState.match_time_remaining_sec) if state != null else 0.0,
-		"match_clock_running": bool(OpsState.match_clock_running) if state != null else false,
 		"selected_lane_id": int(sel.selected_lane_id) if sel != null else -1,
-		"barracks_select_id": int(barracks_select_id),
-		"barracks_select_pid": int(barracks_select_pid),
-		"barracks_select_targets": barracks_select_targets.duplicate(),
 		"render_version": render_version,
-		"sim_time_s": sim_time_s,
-		"iid": int(state.get_instance_id()) if state != null else -1
-
+		"iid": _state_iid(state)
 	}
-	for d in out_lanes:
-		if int(d.get("lane_id", -1)) == 6:
-			var lane_id: int = int(d.get("lane_id", -1))
-			var front_t: Variant = front_by_lane_id.get(lane_id, null)
-			SFLog.log_once("RM_LANE6", "RM_LANE6", SFLog.Level.INFO, {
-				"rm": d,
-				"front_t_state": front_t
-			})
-			break
 	_render_dirty = false
-	ops._in_render_export = prev_render_export
 	return _render_model
 
 func _push_render_model() -> void:
@@ -1929,10 +1464,6 @@ func _push_render_model() -> void:
 	var lane_r: Node = get_node_or_null("MapRoot/LaneRenderer")
 	var hive_r: Node = get_node_or_null("MapRoot/HiveRenderer")
 	var unit_r: Node = get_node_or_null("MapRoot/UnitRenderer")
-	var tower_r: Node = get_node_or_null("MapRoot/TowerRenderer")
-	var tower_glow_r: Node = get_node_or_null("MapRoot/TowerGroundGlowRenderer")
-	var barracks_r: Node = get_node_or_null("MapRoot/BarracksRenderer")
-	var barracks_glow_r: Node = get_node_or_null("MapRoot/BarracksGroundGlowRenderer")
 	if hive_r != null:
 		if hive_r.has_method("set_model"):
 			hive_r.call("set_model", rm)
@@ -1952,53 +1483,9 @@ func _push_render_model() -> void:
 			unit_r.call("set_model", rm)
 		else:
 			unit_r.set("model", rm)
-		if unit_r.has_method("set_units"):
-			unit_r.call("set_units", rm.get("units", []))
 		if hive_r != null and unit_r.has_method("set_hive_nodes") and hive_r.has_method("get_hive_nodes_by_id"):
 			unit_r.call("set_hive_nodes", hive_r.call("get_hive_nodes_by_id"))
 		unit_r.queue_redraw()
-	if tower_r != null:
-		if tower_r.has_method("set_model"):
-			tower_r.call("set_model", rm)
-		else:
-			tower_r.set("model", rm)
-		var source_count: int = state.towers.size() if state != null else 0
-		if source_count > 0:
-			var towers_v: Variant = rm.get("towers", [])
-			var towers_arr: Array = towers_v as Array if typeof(towers_v) == TYPE_ARRAY else []
-			if towers_arr.is_empty():
-				SFLog.error("TOWER_RENDERER_MISSING", {
-					"arena_towers": source_count,
-					"render_towers": towers_arr.size()
-				})
-		tower_r.queue_redraw()
-	if tower_glow_r != null:
-		if tower_glow_r.has_method("set_model"):
-			tower_glow_r.call("set_model", rm)
-		else:
-			tower_glow_r.set("model", rm)
-		tower_glow_r.queue_redraw()
-	if barracks_glow_r != null:
-		if barracks_glow_r.has_method("set_model"):
-			barracks_glow_r.call("set_model", rm)
-		else:
-			barracks_glow_r.set("model", rm)
-		barracks_glow_r.queue_redraw()
-	if barracks_r != null:
-		if barracks_r.has_method("set_model"):
-			barracks_r.call("set_model", rm)
-		else:
-			barracks_r.set("model", rm)
-		var source_barracks: int = state.barracks.size() if state != null else 0
-		if source_barracks > 0:
-			var barracks_v: Variant = rm.get("barracks", [])
-			var barracks_arr: Array = barracks_v as Array if typeof(barracks_v) == TYPE_ARRAY else []
-			if barracks_arr.is_empty():
-				SFLog.error("BARRACKS_RENDERER_MISSING", {
-					"arena_barracks": source_barracks,
-					"render_barracks": barracks_arr.size()
-				})
-		barracks_r.queue_redraw()
 
 func _queue_event(event: Dictionary) -> void:
 	events.append(event)
@@ -2013,7 +1500,7 @@ func _dispatch_events() -> void:
 	events.clear()
 
 func _update_hive_shock(dt: float) -> void:
-	var dt_ms := dt * 1000.0
+	var dt_ms = dt * 1000.0
 	for hive in state.hives:
 		if hive.shock_ms > 0.0:
 			hive.shock_ms = max(0.0, hive.shock_ms - dt_ms)
@@ -2077,8 +1564,6 @@ func _enter_overtime() -> void:
 func _reset_match_stats() -> void:
 	units_landed = {1: 0, 2: 0, 3: 0, 4: 0}
 	tower_control_ms = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
-	if tower_system != null:
-		tower_system.reset_control_ms()
 	barracks_control_ms = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
 	capture_count = 0
 	error_count = 0
@@ -2215,11 +1700,10 @@ func _reset_sim_state() -> void:
 	tick_accum = 0.0
 	events.clear()
 	sim_time_us = 0
+	match_ms_remaining = match_length_ms
 	winner_id = -1
 	end_reason = ""
 	game_over = false
-	_match_end_handled = false
-	_post_match_action_taken = false
 	hurry_mode = false
 	audio_hurry_pitch = 1.0
 	overtime_active = false
@@ -2245,18 +1729,6 @@ func _reset_sim_state() -> void:
 		outcome_overlay.visible = false
 	if timer_label != null:
 		timer_label.visible = false
-	_timer_last_seconds = -1
-	_timer_ui_logged = false
-	_timer_branch_logged = false
-	_timer_label_bind_logged = false
-	_prematch_remaining_ms_f = 0.0
-	_prematch_last_sec = -1
-	_prematch_records_faded = false
-	_prematch_countdown_faded = false
-	_prematch_ui_state_logged = false
-	_match_started = false
-	if _prematch_overlay != null:
-		_prematch_overlay.visible = false
 	if selection_hud != null:
 		selection_hud.clear()
 	if buffs_label != null:
@@ -2315,12 +1787,12 @@ func _init_towers() -> void:
 	]
 	if state != null:
 		state.structure_by_node_id.clear()
-		state.structure_owner_by_node_id.clear()
+		state.tower_owner_by_node_id.clear()
 		for tower in towers:
 			var node_id: int = int(tower.get("node_id", tower.get("id", -1)))
 			if node_id != -1:
 				state.structure_by_node_id[node_id] = "tower"
-				state.structure_owner_by_node_id[node_id] = int(tower.get("owner_id", 0))
+				state.tower_owner_by_node_id[node_id] = int(tower.get("owner_id", 0))
 
 func _init_barracks() -> void:
 	var structure_sets: Array = []
@@ -2345,11 +1817,6 @@ func _init_barracks() -> void:
 			"id": 1,
 			"grid_pos": Vector2i(2, 1),
 			"required_hive_ids": b1_required,
-			"control_hive_ids": b1_required.duplicate(),
-			"route_targets": [],
-			"route_hive_ids": [],
-			"route_mode": "round_robin",
-			"route_cursor": 0,
 			"active": false,
 			"owner_id": 0,
 			"tier": 1,
@@ -2375,7 +1842,7 @@ func _mouse_world_pos() -> Vector2:
 	return _screen_to_world(get_viewport().get_mouse_position())
 
 func _screen_to_world(screen_pos: Vector2) -> Vector2:
-	var cam := get_viewport().get_camera_2d()
+	var cam = get_viewport().get_camera_2d()
 	if cam:
 		var vp_size: Vector2 = get_viewport().get_visible_rect().size
 		var screen_center: Vector2 = vp_size * 0.5
@@ -2387,7 +1854,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if input_system == null or api == null:
 		return
 	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
+		var mb = event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
 			var wp: Vector2 = map_root.get_global_mouse_position()
 			var lp: Vector2 = map_root.to_local(wp)
@@ -2395,20 +1862,20 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 	if event is InputEventMouseMotion:
-		var mm := event as InputEventMouseMotion
+		var mm = event as InputEventMouseMotion
 		var wp: Vector2 = map_root.get_global_mouse_position()
 		var lp: Vector2 = map_root.to_local(wp)
 		_send_pointer_event(false, 0, lp, true, wp, mm.position)
 		return
 	if event is InputEventScreenTouch:
-		var st := event as InputEventScreenTouch
+		var st = event as InputEventScreenTouch
 		var wp: Vector2 = map_root.get_global_mouse_position()
 		var lp: Vector2 = map_root.to_local(wp)
 		_send_pointer_event(st.pressed, MOUSE_BUTTON_LEFT, lp, false, wp, st.position)
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventScreenDrag:
-		var sd := event as InputEventScreenDrag
+		var sd = event as InputEventScreenDrag
 		var wp: Vector2 = map_root.get_global_mouse_position()
 		var lp: Vector2 = map_root.to_local(wp)
 		_send_pointer_event(false, 0, lp, true, wp, sd.position)
@@ -2458,7 +1925,7 @@ func _handle_model_drag(event: InputEvent) -> bool:
 		return false
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
-		var is_primary_click := (mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT)
+		var is_primary_click = (mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT)
 		if not is_primary_click:
 			return false
 		var wp: Vector2 = _screen_to_world(mb.position)
@@ -2500,6 +1967,20 @@ func _hive_radius_px_for_model(cell: float) -> float:
 	return float(radius_v) if radius_v != null else cell * 0.28
 
 func _find_hive_at_local(lp: Vector2) -> String:
+	if hive_renderer != null and hive_renderer.has_method("get_hive_nodes_by_id"):
+		var nodes_by_id: Dictionary = hive_renderer.call("get_hive_nodes_by_id")
+		for hid in nodes_by_id.keys():
+			var node = nodes_by_id[hid] as Node2D
+			if node == null:
+				continue
+			var center = node.position
+			if node.has_method("get_base_anchor_local"):
+				center = node.position + node.call("get_base_anchor_local")
+			var radius = float(node.call("get_base_radius_px")) if node.has_method("get_base_radius_px") else 0.0
+			if radius <= 0.0:
+				radius = _hive_radius_px_for_model(_cell_size_for_model())
+			if center.distance_to(lp) <= radius:
+				return str(hid)
 	var cell: float = _cell_size_for_model()
 	var radius: float = _hive_radius_px_for_model(cell)
 	var hives: Array = model.get("hives", []) as Array
@@ -2564,7 +2045,7 @@ func _toggle_lane(from_id: String, to_id: String) -> void:
 				"send_b": prev_lane.send_b
 			}
 		var new_state_lanes: Array[LaneData] = []
-		var lane_id := 1
+		var lane_id = 1
 		for lane_v in lanes:
 			if typeof(lane_v) != TYPE_DICTIONARY:
 				continue
@@ -2587,7 +2068,7 @@ func _toggle_lane(from_id: String, to_id: String) -> void:
 					b_id = int(b_str)
 			if a_id <= 0 or b_id <= 0 or a_id == b_id:
 				continue
-			var lane_data := LaneData.new(lane_id, a_id, b_id, 1, false, false)
+			var lane_data = LaneData.new(lane_id, a_id, b_id, 1, false, false)
 			var key_now: String = "%d:%d" % [a_id, b_id]
 			if prev_send.has(key_now):
 				var prev: Dictionary = prev_send[key_now]
@@ -2658,43 +2139,52 @@ func _pick_lane(local_pos: Vector2) -> LaneData:
 	return best_lane
 
 func _pick_lane_hit(local_pos: Vector2) -> Dictionary:
-	var best_lane_id: int = -1
-	var best_t: float = 0.0
+	var result = {
+		"ok": false,
+		"lane_id": -1,
+		"a_id": -1,
+		"b_id": -1,
+		"t": 0.0,
+		"dist": -1.0
+	}
+	if state == null:
+		return result
+	var best_lane: LaneData = null
 	var best_dist: float = INF
+	var best_t: float = 0.0
 	for lane in state.lanes:
+		if lane == null:
+			continue
 		var a: HiveData = _find_hive_by_id(lane.a_id)
 		var b: HiveData = _find_hive_by_id(lane.b_id)
 		if a == null or b == null:
 			continue
 		var a_pos: Vector2 = _cell_center(a.grid_pos)
 		var b_pos: Vector2 = _cell_center(b.grid_pos)
-		var hit: Dictionary = _project_point_to_segment(local_pos, a_pos, b_pos)
-		var dist: float = float(hit.get("dist", INF))
-		if dist <= LANE_PICK_DIST_PX and dist < best_dist:
+		var ab: Vector2 = b_pos - a_pos
+		var t: float = 0.0
+		var dist: float = 0.0
+		var ab_len_sq = ab.length_squared()
+		if ab_len_sq <= 0.0:
+			dist = local_pos.distance_to(a_pos)
+		else:
+			t = clamp((local_pos - a_pos).dot(ab) / ab_len_sq, 0.0, 1.0)
+			var proj = a_pos + ab * t
+			dist = local_pos.distance_to(proj)
+		if dist <= LANE_HIT_DIST_PX and dist < best_dist:
 			best_dist = dist
-			best_lane_id = int(lane.id)
-			best_t = float(hit.get("t", 0.0))
+			best_lane = lane
+			best_t = t
+	if best_lane == null:
+		return result
 	return {
-		"ok": best_lane_id != -1,
-		"lane_id": best_lane_id,
-		"t": best_t,
-		"dist": best_dist
+		"ok": true,
+		"lane_id": int(best_lane.id),
+		"a_id": int(best_lane.a_id),
+		"b_id": int(best_lane.b_id),
+		"t": float(best_t),
+		"dist": float(best_dist)
 	}
-
-func pick_lane_world(world_pos: Vector2) -> Dictionary:
-	var local_pos: Vector2 = world_pos
-	if map_root != null:
-		local_pos = map_root.to_local(world_pos)
-	var hit: Dictionary = _pick_lane_hit(local_pos)
-	if bool(hit.get("ok", false)):
-		SFLog.info("LANE_PICK_HIT", {
-			"lane_id": int(hit.get("lane_id", -1)),
-			"t": float(hit.get("t", 0.0)),
-			"dist": float(hit.get("dist", 0.0))
-		})
-	else:
-		SFLog.info("LANE_PICK_MISS", {"nearest_dist": float(hit.get("dist", INF))})
-	return hit
 
 func _distance_point_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
 	var ab: Vector2 = b - a
@@ -2705,29 +2195,17 @@ func _distance_point_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
 	var proj: Vector2 = a + ab * t
 	return p.distance_to(proj)
 
-func _project_point_to_segment(p: Vector2, a: Vector2, b: Vector2) -> Dictionary:
-	var ab: Vector2 = b - a
-	if ab.length_squared() == 0.0:
-		return {"t": 0.0, "dist": p.distance_to(a)}
-	var t: float = (p - a).dot(ab) / ab.length_squared()
-	t = clampf(t, 0.0, 1.0)
-	var proj: Vector2 = a + ab * t
-	return {"t": t, "dist": p.distance_to(proj)}
-
 func _cell_px() -> float:
 	if hive_renderer != null:
 		return float(hive_renderer.cell_px)
 	if grid_spec != null:
-		return float(grid_spec.cell_size)
+		return grid_spec.cell_size
 	return CELL_SIZE
 
 func _arena_rect() -> Rect2:
+	var cell_px = _cell_px()
 	if grid_spec != null:
-		return Rect2(
-			grid_spec.origin,
-			Vector2(grid_spec.grid_w * grid_spec.cell_size, grid_spec.grid_h * grid_spec.cell_size)
-		)
-	var cell_px := _cell_px()
+		return Rect2(grid_spec.origin, Vector2(grid_spec.grid_w * cell_px, grid_spec.grid_h * cell_px))
 	return Rect2(Vector2.ZERO, Vector2(grid_w * cell_px, grid_h * cell_px))
 
 func _clear_map_markers() -> void:
@@ -2737,7 +2215,7 @@ func _clear_map_markers() -> void:
 			child.queue_free()
 
 func _add_map_marker(pos: Vector2) -> void:
-	var marker := Node2D.new()
+	var marker = Node2D.new()
 	marker.position = pos
 	marker.visible = false
 	marker.set_meta("map_marker", true)
@@ -2745,7 +2223,7 @@ func _add_map_marker(pos: Vector2) -> void:
 
 func _rebuild_map_markers() -> void:
 	_clear_map_markers()
-	var arena_rect := _arena_rect()
+	var arena_rect = _arena_rect()
 	_add_map_marker(Vector2(0.0, 0.0))
 	_add_map_marker(Vector2(arena_rect.size.x, 0.0))
 	_add_map_marker(Vector2(0.0, arena_rect.size.y))
@@ -2760,11 +2238,11 @@ func _rebuild_map_markers() -> void:
 		_add_map_marker(_cell_center(grid_pos))
 
 func _compute_map_root_bounds() -> Rect2:
-	var r := Rect2()
-	var first := true
+	var r = Rect2()
+	var first = true
 	for child in map_root.get_children():
 		if child is Node2D:
-			var p := (child as Node2D).position
+			var p = (child as Node2D).position
 			if first:
 				r.position = p
 				r.size = Vector2.ZERO
@@ -2777,7 +2255,7 @@ func _compute_map_root_bounds() -> Rect2:
 
 func _normalize_map_root() -> Rect2:
 	map_root.position = Vector2.ZERO
-	var bounds := _compute_map_root_bounds()
+	var bounds = _compute_map_root_bounds()
 	if bounds.size.x <= 1.0 or bounds.size.y <= 1.0:
 		_map_bounds_size = _arena_rect().size
 		return Rect2(Vector2.ZERO, _map_bounds_size)
@@ -2788,9 +2266,9 @@ func _normalize_map_root() -> Rect2:
 func _debug_map_bounds(tag: String) -> void:
 	if debug_system == null:
 		return
-	var bounds := _compute_map_root_bounds()
-	var cam_pos := camera.global_position if camera != null else Vector2.ZERO
-	var cam_zoom := camera.zoom if camera != null else Vector2.ONE
+	var bounds = _compute_map_root_bounds()
+	var cam_pos = camera.global_position if camera != null else Vector2.ZERO
+	var cam_zoom = camera.zoom if camera != null else Vector2.ONE
 	debug_system.debug_map_bounds(tag, bounds, cam_pos, cam_zoom)
 
 func _center_map_offset(_map_data: Dictionary) -> void:
@@ -2802,7 +2280,7 @@ func cell_center(grid_pos: Vector2i) -> Vector2:
 func _cell_center(cell: Vector2i) -> Vector2:
 	if grid_spec != null:
 		return grid_spec.grid_to_world(cell)
-	var cell_px := _cell_px()
+	var cell_px = _cell_px()
 	return Vector2(
 		cell.x * cell_px + cell_px * 0.5,
 		cell.y * cell_px + cell_px * 0.5
@@ -2810,12 +2288,10 @@ func _cell_center(cell: Vector2i) -> Vector2:
 
 func _cell_rect(cell: Vector2i) -> Rect2:
 	if grid_spec != null:
-		var cs: float = float(grid_spec.cell_size)
-		var size: Vector2 = Vector2(cs, cs)
-		var origin: Vector2 = grid_spec.origin
-		var pos: Vector2 = origin + Vector2(float(cell.x), float(cell.y)) * cs
+		var size = Vector2(grid_spec.cell_size, grid_spec.cell_size)
+		var pos = grid_spec.origin + Vector2(cell.x, cell.y) * grid_spec.cell_size
 		return Rect2(pos, size)
-	var cell_px := _cell_px()
+	var cell_px = _cell_px()
 	return Rect2(
 		Vector2(cell.x, cell.y) * cell_px + map_offset,
 		Vector2(cell_px, cell_px)
@@ -2827,39 +2303,32 @@ func _to_map_local(local_pos: Vector2) -> Vector2:
 func _draw() -> void:
 	if not draw_arena_rect_debug:
 		return
-	draw_rect(_arena_rect(), Color(0.95, 0.65, 0.2, 0.9), false, 2.0)
-	var bounds := _compute_map_root_bounds()
+	var arena_rect = _arena_rect()
+	if RenderProjection.enabled:
+		arena_rect = RenderProjection.project_rect(arena_rect)
+	draw_rect(arena_rect, Color(0.95, 0.65, 0.2, 0.9), false, 2.0)
+	var bounds = _compute_map_root_bounds()
 	if bounds.size.x > 1.0 and bounds.size.y > 1.0:
 		bounds.position += map_root.position
+		if RenderProjection.enabled:
+			bounds = RenderProjection.project_rect(bounds)
 		draw_rect(bounds, Color(0.2, 0.8, 0.9, 0.9), false, 2.0)
 
 func _owner_color(owner_id: int) -> Color:
-	match owner_id:
-		0:
-			return Color(0.6, 0.6, 0.6)
-		1:
-			return Color(0.95, 0.85, 0.2)
-		2:
-			return Color8(34, 85, 34)
-		3:
-			return Color(0.9, 0.2, 0.2)
-		4:
-			return Color(0.2, 0.5, 0.95)
-		_:
-			return Color(0.8, 0.8, 0.8)
+	return TeamPalette.color_for_owner(owner_id)
 
 func _owner_label(owner_id: int) -> String:
 	match owner_id:
 		0:
 			return "Neutral"
 		1:
-			return "P1(Yellow)"
+			return "P1 (Yellow)"
 		2:
-			return "P2(Green)"
+			return "P2 (Green)"
 		3:
-			return "P3(Red)"
+			return "P3 (Red)"
 		4:
-			return "P4(Blue)"
+			return "P4 (Blue)"
 		_:
 			return "P%d" % owner_id
 
@@ -2868,7 +2337,7 @@ func _update_lanes(delta: float) -> void:
 		var lane: Variant = state.lanes[i]
 		var was_active: bool = false
 		if lane is LaneData:
-			var ld := lane as LaneData
+			var ld = lane as LaneData
 			was_active = (
 				ld.send_a or ld.send_b or ld.retract_a or ld.retract_b
 				or ld.establish_a or ld.establish_b
@@ -2904,7 +2373,7 @@ func _update_lanes(delta: float) -> void:
 				ld.establish_a = false
 			if ld.establish_b and ld.b_stream_len >= lane_len:
 				ld.establish_b = false
-			var is_active := (
+			var is_active = (
 				ld.send_a or ld.send_b or ld.retract_a or ld.retract_b
 				or ld.establish_a or ld.establish_b
 				or ld.a_stream_len > 0.0 or ld.b_stream_len > 0.0
@@ -2912,24 +2381,24 @@ func _update_lanes(delta: float) -> void:
 			if was_active or is_active:
 				_note_render_dirty()
 		elif lane is Dictionary:
-			var d := lane as Dictionary
-			var send_a := bool(d.get("send_a", false))
-			var send_b := bool(d.get("send_b", false))
-			var retract_a := bool(d.get("retract_a", false))
-			var retract_b := bool(d.get("retract_b", false))
-			var establish_a := bool(d.get("establish_a", false))
-			var establish_b := bool(d.get("establish_b", false))
-			var a_stream_len := float(d.get("a_stream_len", 0.0))
-			var b_stream_len := float(d.get("b_stream_len", 0.0))
-			var a_pressure := float(d.get("a_pressure", 0.0))
-			var b_pressure := float(d.get("b_pressure", 0.0))
+			var d = lane as Dictionary
+			var send_a = bool(d.get("send_a", false))
+			var send_b = bool(d.get("send_b", false))
+			var retract_a = bool(d.get("retract_a", false))
+			var retract_b = bool(d.get("retract_b", false))
+			var establish_a = bool(d.get("establish_a", false))
+			var establish_b = bool(d.get("establish_b", false))
+			var a_stream_len = float(d.get("a_stream_len", 0.0))
+			var b_stream_len = float(d.get("b_stream_len", 0.0))
+			var a_pressure = float(d.get("a_pressure", 0.0))
+			var b_pressure = float(d.get("b_pressure", 0.0))
 			was_active = (
 				send_a or send_b or retract_a or retract_b
 				or establish_a or establish_b
 				or a_stream_len > 0.0 or b_stream_len > 0.0
 			)
-			var a_id := int(d.get("a_id", -1))
-			var b_id := int(d.get("b_id", -1))
+			var a_id = int(d.get("a_id", -1))
+			var b_id = int(d.get("b_id", -1))
 			var a: HiveData = _find_hive_by_id(a_id)
 			var b: HiveData = _find_hive_by_id(b_id)
 			if a == null or b == null:
@@ -2968,7 +2437,7 @@ func _update_lanes(delta: float) -> void:
 			d["retract_b"] = retract_b
 			d["establish_a"] = establish_a
 			d["establish_b"] = establish_b
-			var is_active := (
+			var is_active = (
 				send_a or send_b or retract_a or retract_b
 				or establish_a or establish_b
 				or a_stream_len > 0.0 or b_stream_len > 0.0
@@ -2983,7 +2452,7 @@ func _update_lane_sim(dt: float) -> void:
 		return
 	if state.lane_sim_by_key.is_empty():
 		return
-	var any_dirty := false
+	var any_dirty = false
 	for key in state.lane_sim_by_key.keys():
 		var lane_state: Dictionary = state.lane_sim_by_key.get(key, {})
 		if lane_state.is_empty():
@@ -3008,7 +2477,7 @@ func _update_lane_sim(dt: float) -> void:
 		lane_state["length_px"] = length_px
 		if length_px <= 0.0:
 			continue
-		var lane_dirty := false
+		var lane_dirty = false
 		var side_by_owner: Dictionary = lane_state.get("side", {})
 		var establish_t_by_owner: Dictionary = lane_state.get("establish_t_by_owner", {})
 		var establishing_by_owner: Dictionary = lane_state.get("establishing_by_owner", {})
@@ -3017,15 +2486,15 @@ func _update_lane_sim(dt: float) -> void:
 		var establish_last_by_owner: Dictionary = lane_state.get("establish_last_by_owner", {})
 		for owner_key in side_by_owner.keys():
 			var side: Dictionary = side_by_owner[owner_key]
-			var owner_id := int(side.get("owner_id", 0))
-			var just_established := false
-			var establishing := bool(establishing_by_owner.get(owner_id, false))
-			var established := bool(established_by_owner.get(owner_id, false))
-			var progress := float(establish_t_by_owner.get(owner_id, 0.0))
-			var last_progress := float(establish_last_by_owner.get(owner_id, progress))
-			var lane_key_str := str(lane_state.get("lane_key", key))
+			var owner_id = int(side.get("owner_id", 0))
+			var just_established = false
+			var establishing = bool(establishing_by_owner.get(owner_id, false))
+			var established = bool(established_by_owner.get(owner_id, false))
+			var progress = float(establish_t_by_owner.get(owner_id, 0.0))
+			var last_progress = float(establish_last_by_owner.get(owner_id, progress))
+			var lane_key_str = str(lane_state.get("lane_key", key))
 			if last_progress > 0.0 and progress < last_progress:
-				var msg := "ESTABLISH_RESET lane=%s owner=%d progress=%.3f prev=%.3f" % [
+				var msg = "ESTABLISH_RESET lane=%s owner=%d progress=%.3f prev=%.3f" % [
 					lane_key_str,
 					owner_id,
 					progress,
@@ -3033,7 +2502,7 @@ func _update_lane_sim(dt: float) -> void:
 				]
 				SFLog.throttle("est_reset:%s:%d" % [lane_key_str, owner_id], 0.25, msg, SFLog.Level.INFO)
 			if establishing and not established:
-				var est_speed := float(side.get("est_speed", 0.0))
+				var est_speed = float(side.get("est_speed", 0.0))
 				if est_speed <= 0.0:
 					est_speed = length_px / (LANE_ESTABLISH_MS / 1000.0)
 				progress += (est_speed * dt) / length_px
@@ -3044,7 +2513,7 @@ func _update_lane_sim(dt: float) -> void:
 					if not bool(side.get("first_unit_sent", false)):
 						spawn_timer_ms_by_owner[owner_id] = float(side.get("first_unit_delay_ms", FIRST_UNIT_OFFSET_MS))
 					just_established = true
-					var msg := "ESTABLISH_COMPLETE lane=%s owner=%d progress=%.3f" % [
+					var msg = "ESTABLISH_COMPLETE lane=%s owner=%d progress=%.3f" % [
 						lane_key_str,
 						owner_id,
 						progress
@@ -3059,24 +2528,24 @@ func _update_lane_sim(dt: float) -> void:
 			var attacker_id: int = int(side.get("attacker_id", -1))
 			var attacker: HiveData = _find_hive_by_id(attacker_id)
 			var power: int = attacker.power if attacker != null else 1
-			var spawn_interval_ms := _spawn_interval_ms_for_power(power)
+			var spawn_interval_ms = _spawn_interval_ms_for_power(power)
 			if not established:
 				pass
 			else:
-				var spawn_timer_ms := float(spawn_timer_ms_by_owner.get(owner_id, 0.0))
+				var spawn_timer_ms = float(spawn_timer_ms_by_owner.get(owner_id, 0.0))
 				if just_established:
 					spawn_timer_ms = float(spawn_timer_ms_by_owner.get(owner_id, FIRST_UNIT_OFFSET_MS))
-				var timer_ms := spawn_timer_ms
-				var prev_timer_ms := timer_ms
+				var timer_ms = spawn_timer_ms
+				var prev_timer_ms = timer_ms
 				if not just_established:
 					timer_ms -= dt * 1000.0
-				var spawned := false
+				var spawned = false
 				while timer_ms <= 0.0:
 					_spawn_first_unit_for_side(lane_state, side)
 					if not bool(side.get("first_unit_sent", false)):
 						side["first_unit_sent"] = true
 						_clear_active_order_for_side(lane_state, side)
-						var msg := "FIRST_UNIT lane=%s owner=%d" % [
+						var msg = "FIRST_UNIT lane=%s owner=%d" % [
 							str(lane_state.get("lane_key", key)),
 							int(side.get("owner_id", 0))
 						]
@@ -3152,15 +2621,15 @@ func _spawn_units(dt: float) -> void:
 			if not spawn_ids.is_empty() and not spawn_ids.has(a.id):
 				stats["skip_other"] = int(stats["skip_other"]) + 1
 			else:
-				var spawned_a := _spawn_lane_units(lane, a, b, dt_ms, true, stats)
+				var spawned_a = _spawn_lane_units(lane, a, b, dt_ms, true, stats)
 				stats["did_spawn"] = int(stats["did_spawn"]) + spawned_a
 		if lane.send_b:
 			if not spawn_ids.is_empty() and not spawn_ids.has(b.id):
 				stats["skip_other"] = int(stats["skip_other"]) + 1
 			else:
-				var spawned_b := _spawn_lane_units(lane, b, a, dt_ms, false, stats)
+				var spawned_b = _spawn_lane_units(lane, b, a, dt_ms, false, stats)
 				stats["did_spawn"] = int(stats["did_spawn"]) + spawned_b
-	var spawnwhy_msg := "SPAWNWHY: did=%d bad_hive=%d no_lane=%d rate=%d other=%d lanes=%d units=%d" % [
+	var spawnwhy_msg = "SPAWNWHY: did=%d bad_hive=%d no_lane=%d rate=%d other=%d lanes=%d units=%d" % [
 		int(stats["did_spawn"]),
 		int(stats["skip_bad_hive"]),
 		int(stats["skip_no_lane"]),
@@ -3196,7 +2665,7 @@ func _spawn_lane_units(lane: LaneData, from_hive: HiveData, to_hive: HiveData, d
 	var interval_ms: float = _hive_spawn_interval_ms(from_hive)
 	var accum: float = lane.spawn_accum_a_ms if from_is_a else lane.spawn_accum_b_ms
 	accum += dt_ms
-	var spawned := 0
+	var spawned = 0
 	while accum >= interval_ms and spawned < MAX_SPAWNS_PER_TICK:
 		_spawn_unit(from_hive.id, to_hive.id, from_hive.owner_id, lane.id, true)
 		accum -= interval_ms
@@ -3265,7 +2734,7 @@ func _lane_endpoints_for_unit(unit: Dictionary) -> Array:
 	return _lane_endpoints_for_key(lane_key)
 
 func _ensure_unit_lane_fields(unit: Dictionary) -> Dictionary:
-	var endpoints := _lane_endpoints_for_unit(unit)
+	var endpoints = _lane_endpoints_for_unit(unit)
 	if endpoints.size() == 2:
 		var a_id: int = int(endpoints[0])
 		var b_id: int = int(endpoints[1])
@@ -3279,8 +2748,8 @@ func _ensure_unit_lane_fields(unit: Dictionary) -> Dictionary:
 		elif from_id == b_id:
 			unit["dir"] = -1
 			unit["spawn_end"] = "B"
-		var dir_i := int(unit.get("dir", 0))
-		var t_val := clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
+		var dir_i = int(unit.get("dir", 0))
+		var t_val = clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
 		if dir_i < 0:
 			unit["lane_t"] = clampf(1.0 - t_val, 0.0, 1.0)
 		else:
@@ -3290,8 +2759,8 @@ func _ensure_unit_lane_fields(unit: Dictionary) -> Dictionary:
 func _unit_lane_t(unit: Dictionary) -> float:
 	if unit.has("lane_t"):
 		return clampf(float(unit.get("lane_t", 0.0)), 0.0, 1.0)
-	var dir := int(unit.get("dir", 0))
-	var t := clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
+	var dir = int(unit.get("dir", 0))
+	var t = clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
 	if dir < 0:
 		return 1.0 - t
 	return t
@@ -3336,15 +2805,15 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 		if bool(unit.get("recall", false)):
 			continue
 		unit = _ensure_unit_lane_fields(unit)
-		var lane_key := str(unit.get("lane_key", ""))
+		var lane_key = str(unit.get("lane_key", ""))
 		if lane_key.is_empty():
 			continue
-		var lane_t := clampf(_unit_lane_t(unit), 0.0, 1.0)
+		var lane_t = clampf(_unit_lane_t(unit), 0.0, 1.0)
 		unit["lane_t"] = lane_t
 		units[i] = unit
 		if not units_by_lane.has(lane_key):
 			units_by_lane[lane_key] = {}
-		var owner_id := int(unit.get("owner_id", 0))
+		var owner_id = int(unit.get("owner_id", 0))
 		if not (units_by_lane[lane_key] as Dictionary).has(owner_id):
 			(units_by_lane[lane_key] as Dictionary)[owner_id] = []
 		((units_by_lane[lane_key] as Dictionary)[owner_id] as Array).append({
@@ -3353,28 +2822,26 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 			"owner_id": owner_id,
 			"dir": int(unit.get("dir", 0))
 		})
-	# Do NOT publish units_by_lane here.
-	# UnitSystem owns state.units_by_lane publishing (state.units_by_lane["_all"]).
-	# state.units_by_lane = units_by_lane
+	state.units_by_lane = units_by_lane
 
 	for lane_key in units_by_lane.keys():
-		var endpoints := _lane_endpoints_for_key(str(lane_key))
+		var endpoints = _lane_endpoints_for_key(str(lane_key))
 		if endpoints.size() != 2:
 			continue
 		var a_hive: HiveData = _find_hive_by_id(int(endpoints[0]))
 		var b_hive: HiveData = _find_hive_by_id(int(endpoints[1]))
 		if a_hive == null or b_hive == null:
 			continue
-		var lane_len := _lane_length_px(a_hive, b_hive)
+		var lane_len = _lane_length_px(a_hive, b_hive)
 		if not state.lane_sim_by_key.has(str(lane_key)):
 			state.ensure_lane_state(int(endpoints[0]), int(endpoints[1]), lane_len)
-		var spike_t := _lane_spike_t(lane_len)
+		var spike_t = _lane_spike_t(lane_len)
 		var a_node_id: int = int(endpoints[0])
 		var b_node_id: int = int(endpoints[1])
 		var a_has_tower: bool = state != null and str(state.structure_by_node_id.get(a_node_id, "")) == "tower"
 		var b_has_tower: bool = state != null and str(state.structure_by_node_id.get(b_node_id, "")) == "tower"
-		var a_tower_owner: int = int(state.structure_owner_by_node_id.get(a_node_id, 0)) if state != null else 0
-		var b_tower_owner: int = int(state.structure_owner_by_node_id.get(b_node_id, 0)) if state != null else 0
+		var a_tower_owner: int = int(state.tower_owner_by_node_id.get(a_node_id, 0)) if state != null else 0
+		var b_tower_owner: int = int(state.tower_owner_by_node_id.get(b_node_id, 0)) if state != null else 0
 
 		var by_owner: Dictionary = units_by_lane[lane_key]
 		for side_owner_id in by_owner.keys():
@@ -3386,7 +2853,7 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 				var unit: Dictionary = units[idx]
 				if bool(unit.get("dead", false)) or not bool(unit.get("alive", true)):
 					continue
-				var unit_lane_key := str(unit.get("lane_key", ""))
+				var unit_lane_key = str(unit.get("lane_key", ""))
 				if unit_lane_key != str(lane_key):
 					SFLog.info("LANE_LEAK unit_id=%d unit_lane=%s processing_lane=%s" % [
 						int(unit.get("id", -1)),
@@ -3394,10 +2861,10 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 						str(lane_key)
 					])
 					continue
-				var lane_t := clampf(float(unit.get("lane_t", entry.get("t", 0.0))), 0.0, 1.0)
+				var lane_t = clampf(float(unit.get("lane_t", entry.get("t", 0.0))), 0.0, 1.0)
 				# Edge zones for future feed/decay hooks (stub only).
-				var _edge_zone := lane_t <= LANE_EDGE_T or lane_t >= 1.0 - LANE_EDGE_T
-				var owner_id := int(unit.get("owner_id", 0))
+				var _edge_zone = lane_t <= LANE_EDGE_T or lane_t >= 1.0 - LANE_EDGE_T
+				var owner_id = int(unit.get("owner_id", 0))
 				if not DEBUG_COLLISION_ONLY:
 					if a_has_tower and owner_id != a_tower_owner and lane_t <= spike_t:
 						SFLog.info("UNIT_DIE spike lane=%s owner=%d t=%.3f" % [
@@ -3427,7 +2894,7 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 				var unit: Dictionary = units[idx]
 				if bool(unit.get("dead", false)) or not bool(unit.get("alive", true)):
 					continue
-				var unit_lane_key := str(unit.get("lane_key", ""))
+				var unit_lane_key = str(unit.get("lane_key", ""))
 				if unit_lane_key != str(lane_key):
 					SFLog.info("LANE_LEAK unit_id=%d unit_lane=%s processing_lane=%s" % [
 						int(unit.get("id", -1)),
@@ -3436,7 +2903,7 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 					])
 					continue
 				entry["t"] = clampf(float(unit.get("lane_t", 0.0)), 0.0, 1.0)
-				var dir_i := int(unit.get("dir", int(entry.get("dir", 0))))
+				var dir_i = int(unit.get("dir", int(entry.get("dir", 0))))
 				entry["dir"] = dir_i
 				if dir_i > 0:
 					forward.append(entry)
@@ -3462,25 +2929,25 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 				forward.pop_front()
 				backward.pop_front()
 				continue
-			var a_t := clampf(float(a_unit.get("lane_t", 0.0)), 0.0, 1.0)
-			var b_t := clampf(float(b_unit.get("lane_t", 0.0)), 0.0, 1.0)
+			var a_t = clampf(float(a_unit.get("lane_t", 0.0)), 0.0, 1.0)
+			var b_t = clampf(float(b_unit.get("lane_t", 0.0)), 0.0, 1.0)
 			var a_dir: int = int(a_unit.get("dir", 0))
 			var b_dir: int = int(b_unit.get("dir", 0))
-			var a_spawn_end := str(a_unit.get("spawn_end", "?"))
-			var b_spawn_end := str(b_unit.get("spawn_end", "?"))
+			var a_spawn_end = str(a_unit.get("spawn_end", "?"))
+			var b_spawn_end = str(b_unit.get("spawn_end", "?"))
 			var a_entry_dir: int = int(a_entry.get("dir", 0))
 			var b_entry_dir: int = int(b_entry.get("dir", 0))
 			var a_entry_t: float = float(a_entry.get("t", -1.0))
 			var b_entry_t: float = float(b_entry.get("t", -1.0))
-			var owner_match := int(a_unit.get("owner_id", 0)) == int(b_unit.get("owner_id", 0))
+			var owner_match = int(a_unit.get("owner_id", 0)) == int(b_unit.get("owner_id", 0))
 			var a_from_id: int = int(a_unit.get("from_id", -1))
 			var b_from_id: int = int(b_unit.get("from_id", -1))
-			var a_from_valid := a_from_id == a_node_id or a_from_id == b_node_id
-			var b_from_valid := b_from_id == a_node_id or b_from_id == b_node_id
-			var dir_invalid := a_dir == 0 or b_dir == 0
-			var from_invalid := not a_from_valid or not b_from_valid
+			var a_from_valid = a_from_id == a_node_id or a_from_id == b_node_id
+			var b_from_valid = b_from_id == a_node_id or b_from_id == b_node_id
+			var dir_invalid = a_dir == 0 or b_dir == 0
+			var from_invalid = not a_from_valid or not b_from_valid
 			if owner_match or dir_invalid or from_invalid:
-				var msg := "PAIR_DEBUG lane=%s f_idx=%d f_id=%d f_owner=%d f_dir=%d f_spawn=%s f_t=%.3f f_entry_dir=%d f_entry_t=%.3f | b_idx=%d b_id=%d b_owner=%d b_dir=%d b_spawn=%s b_t=%.3f b_entry_dir=%d b_entry_t=%.3f" % [
+				var msg = "PAIR_DEBUG lane=%s f_idx=%d f_id=%d f_owner=%d f_dir=%d f_spawn=%s f_t=%.3f f_entry_dir=%d f_entry_t=%.3f | b_idx=%d b_id=%d b_owner=%d b_dir=%d b_spawn=%s b_t=%.3f b_entry_dir=%d b_entry_t=%.3f" % [
 					str(lane_key),
 					a_idx,
 					int(a_unit.get("id", -1)),
@@ -3521,8 +2988,8 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 			if a_t >= b_t:
 				var a_id: int = int(a_unit.get("id", -1))
 				var b_id: int = int(b_unit.get("id", -1))
-				var a_dead := bool(a_unit.get("dead", false))
-				var b_dead := bool(b_unit.get("dead", false))
+				var a_dead = bool(a_unit.get("dead", false))
+				var b_dead = bool(b_unit.get("dead", false))
 				SFLog.info("COLLISION_PAIR lane=%s a_idx=%d a_id=%d a_dead=%s a_owner=%d a_t=%.3f b_idx=%d b_id=%d b_dead=%s b_owner=%d b_t=%.3f" % [
 					str(lane_key),
 					a_idx,
@@ -3541,8 +3008,8 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 				record_lane_collision(str(lane_key), t_collision)
 				_kill_unit(a_idx, a_unit, "collision", remove_indices, remove_set)
 				_kill_unit(b_idx, b_unit, "collision", remove_indices, remove_set)
-				var a_dead_post := false
-				var b_dead_post := false
+				var a_dead_post = false
+				var b_dead_post = false
 				if a_idx >= 0 and a_idx < units.size():
 					var a_unit_post: Dictionary = units[a_idx]
 					a_dead_post = bool(a_unit_post.get("dead", false))
@@ -3617,7 +3084,7 @@ func _update_units(dt: float) -> void:
 		if lane_len <= 0.0:
 			remove_indices.append(i)
 			continue
-		var speed_t := 1.0 / (UNIT_TRAVEL_MS / 1000.0)
+		var speed_t = 1.0 / (UNIT_TRAVEL_MS / 1000.0)
 		unit["speed_t"] = speed_t
 		var delta_t: float = speed_t * dt
 		var dir_i: int = int(unit.get("dir", 0))
@@ -3625,7 +3092,7 @@ func _update_units(dt: float) -> void:
 			dir_i = 1
 		if is_recall:
 			unit["t"] = clampf(float(unit["t"]) - delta_t, 0.0, 1.0)
-			var recall_t := float(unit["t"])
+			var recall_t = float(unit["t"])
 			if dir_i < 0:
 				unit["lane_t"] = clampf(1.0 - recall_t, 0.0, 1.0)
 			else:
@@ -3712,15 +3179,6 @@ func _update_swarms(dt: float) -> void:
 				if _pass_through_swarm(packet, to_hive):
 					swarm_packets.remove_at(i)
 					continue
-			if debug_swarms:
-				SFLog.info("SWARM_APPLY", {
-					"from_id": int(packet.get("from_id", -1)),
-					"to_id": int(packet.get("to_id", -1)),
-					"lane_id": int(packet.get("lane_id", -1)),
-					"owner_id": owner_id,
-					"payload": int(packet.get("payload", 0)),
-					"is_passthrough": bool(packet.get("is_passthrough", false))
-				})
 			for _j in range(int(packet["payload"])):
 				_apply_unit_arrival(owner_id, to_hive, int(packet.get("from_id", -1)), int(packet.get("lane_id", -1)), "other")
 			dbg("SF: swarm arrive %d payload=%d" % [to_hive.id, packet["payload"]])
@@ -3754,10 +3212,10 @@ func _preflag_ties(groups: Dictionary) -> void:
 			var to_id: int = int(unit.get("to_id", -1))
 			if from_id <= 0 or to_id != hive_id:
 				continue
-			var expected_lane_key := ""
+			var expected_lane_key = ""
 			if state != null:
 				expected_lane_key = state.lane_key(from_id, to_id)
-			var unit_lane_key := str(unit.get("lane_key", ""))
+			var unit_lane_key = str(unit.get("lane_key", ""))
 			if not expected_lane_key.is_empty() and not unit_lane_key.is_empty() and unit_lane_key != expected_lane_key:
 				continue
 			var owner_id: int = int(unit["owner_id"])
@@ -3819,10 +3277,10 @@ func _resolve_arrivals(groups: Dictionary, remove_indices: Array[int], remove_se
 				remove_set[idx_i] = true
 				remove_indices.append(idx_i)
 				continue
-			var expected_lane_key := ""
+			var expected_lane_key = ""
 			if state != null:
 				expected_lane_key = state.lane_key(from_id, to_id)
-			var unit_lane_key := str(unit.get("lane_key", ""))
+			var unit_lane_key = str(unit.get("lane_key", ""))
 			if not expected_lane_key.is_empty() and not unit_lane_key.is_empty() and unit_lane_key != expected_lane_key:
 				remove_set[idx_i] = true
 				remove_indices.append(idx_i)
@@ -3862,10 +3320,10 @@ func _resolve_arrivals(groups: Dictionary, remove_indices: Array[int], remove_se
 					remove_set[idx_i] = true
 					remove_indices.append(idx_i)
 					continue
-				var expected_lane_key := ""
+				var expected_lane_key = ""
 				if state != null:
 					expected_lane_key = state.lane_key(from_id, to_id)
-				var unit_lane_key := str(unit.get("lane_key", ""))
+				var unit_lane_key = str(unit.get("lane_key", ""))
 				if not expected_lane_key.is_empty() and not unit_lane_key.is_empty() and unit_lane_key != expected_lane_key:
 					remove_set[idx_i] = true
 					remove_indices.append(idx_i)
@@ -3915,10 +3373,10 @@ func _resolve_arrivals(groups: Dictionary, remove_indices: Array[int], remove_se
 					remove_set[idx_i] = true
 					remove_indices.append(idx_i)
 					continue
-				var expected_lane_key := ""
+				var expected_lane_key = ""
 				if state != null:
 					expected_lane_key = state.lane_key(from_id, to_id)
-				var unit_lane_key := str(unit.get("lane_key", ""))
+				var unit_lane_key = str(unit.get("lane_key", ""))
 				if not expected_lane_key.is_empty() and not unit_lane_key.is_empty() and unit_lane_key != expected_lane_key:
 					remove_set[idx_i] = true
 					remove_indices.append(idx_i)
@@ -3948,7 +3406,7 @@ func _resolve_arrivals(groups: Dictionary, remove_indices: Array[int], remove_se
 
 func _finalize_unit_removals(remove_indices: Array[int]) -> void:
 	remove_indices.sort()
-	var last_removed := -1
+	var last_removed = -1
 	for i in range(remove_indices.size() - 1, -1, -1):
 		var idx: int = int(remove_indices[i])
 		if idx == last_removed:
@@ -3980,7 +3438,7 @@ func _arrival_counts_last_window(hive_id: int, now_us: int) -> Dictionary:
 func _incoming_enemy_streams_count(hive_id: int, owner_id: int) -> int:
 	if owner_id == 0:
 		return 0
-	var count := 0
+	var count = 0
 	for lane in state.lanes:
 		if lane.send_a and lane.b_id == hive_id:
 			var a: HiveData = _find_hive_by_id(lane.a_id)
@@ -4008,7 +3466,7 @@ func _update_contest_logs() -> void:
 		var parts: Array[String] = []
 		for pid in pids:
 			parts.append("%s=%d" % [_owner_label(int(pid)), counts[pid]])
-		var arrivals_text := "none" if parts.is_empty() else " ".join(parts)
+		var arrivals_text = "none" if parts.is_empty() else " ".join(parts)
 		var owner_label: String = _owner_label(hive.owner_id)
 		dbg("SF: contest hive %d owner=%s pwr=%d interval_ms=%.1f last2s arrivals: %s" % [
 			hive.id,
@@ -4055,16 +3513,16 @@ func record_lane_collision(lane_key: String, collision: Variant) -> void:
 	var b_id: int = int(lane_state.get("b_id", 0))
 	if a_id <= 0 or b_id <= 0:
 		return
-	var t := 0.5
+	var t = 0.5
 	if typeof(collision) == TYPE_VECTOR2:
 		var a_hive: HiveData = _find_hive_by_id(a_id)
 		var b_hive: HiveData = _find_hive_by_id(b_id)
 		if a_hive == null or b_hive == null:
 			return
-		var a_pos := _cell_center(a_hive.grid_pos)
-		var b_pos := _cell_center(b_hive.grid_pos)
-		var ab := b_pos - a_pos
-		var len_sq := ab.length_squared()
+		var a_pos = _cell_center(a_hive.grid_pos)
+		var b_pos = _cell_center(b_hive.grid_pos)
+		var ab = b_pos - a_pos
+		var len_sq = ab.length_squared()
 		if len_sq <= 0.0001:
 			return
 		t = clamp((collision - a_pos).dot(ab) / len_sq, 0.0, 1.0)
@@ -4086,9 +3544,9 @@ func _collect_lane_collisions(remove_indices: Array[int], remove_set: Dictionary
 			continue
 		if a_hive.owner_id == b_hive.owner_id:
 			continue
-		var lane_key := state.lane_key(lane.a_id, lane.b_id)
-		var a_pos := _cell_center(a_hive.grid_pos)
-		var b_pos := _cell_center(b_hive.grid_pos)
+		var lane_key = state.lane_key(lane.a_id, lane.b_id)
+		var a_pos = _cell_center(a_hive.grid_pos)
+		var b_pos = _cell_center(b_hive.grid_pos)
 		var a_units: Array = []
 		var b_units: Array = []
 		for i in range(units.size()):
@@ -4111,8 +3569,8 @@ func _collect_lane_collisions(remove_indices: Array[int], remove_set: Dictionary
 			continue
 		a_units.sort_custom(Callable(self, "_sort_collision_desc"))
 		b_units.sort_custom(Callable(self, "_sort_collision_asc"))
-		var ai := 0
-		var bi := 0
+		var ai = 0
+		var bi = 0
 		while ai < a_units.size() and bi < b_units.size():
 			var a_entry: Dictionary = a_units[ai]
 			var b_entry: Dictionary = b_units[bi]
@@ -4216,16 +3674,6 @@ func _play_coin_flip_sfx(hive_id: int) -> void:
 	audio_system._play_coin_flip_sfx(hive_id, sim_time_us)
 
 func _scoop_units(packet: Dictionary, prev_t: float) -> int:
-	if unit_system != null:
-		return unit_system.scoop_units_for_swarm(
-			int(packet.get("from_id", -1)),
-			int(packet.get("to_id", -1)),
-			int(packet.get("owner_id", 0)),
-			int(packet.get("lane_id", -1)),
-			prev_t,
-			float(packet.get("t", 0.0)),
-			int(packet.get("dir", 0))
-		)
 	var scooped: int = 0
 	for i in range(units.size() - 1, -1, -1):
 		var unit: Dictionary = units[i]
@@ -4258,17 +3706,22 @@ func _update_match_state(dt: float) -> void:
 	if game_over:
 		return
 	_update_control_bar()
-	var remaining_ms := _get_match_remaining_ms()
-	if OpsState.in_overtime and not overtime_active:
-		_enter_overtime()
-	if state == null:
-		var alive_players: Array = _alive_players()
-		if alive_players.size() == 1:
-			_end_game(alive_players[0], "Elimination")
-			return
-		if remaining_ms <= 0:
-			var winner: int = _resolve_timeout_winner()
-			_end_game(winner, "Timeout")
+	var alive_players: Array = _alive_players()
+	if alive_players.size() == 1:
+		_end_game(alive_players[0], "Elimination")
+		return
+	if sim_running:
+		match_ms_remaining = max(0.0, match_ms_remaining - dt * 1000.0)
+	if match_ms_remaining <= overtime_start_ms:
+		if not overtime_active:
+			_enter_overtime()
+		_update_timer_label()
+	else:
+		if timer_label != null:
+			timer_label.visible = false
+	if match_ms_remaining <= 0.0:
+		var winner: int = _resolve_timeout_winner()
+		_end_game(winner, "Timeout")
 
 func _validate_state() -> void:
 	if not OS.is_debug_build() or not DEV_STATE_CHECKS:
@@ -4307,20 +3760,14 @@ func _update_control_bar() -> void:
 func _update_selection_hud() -> void:
 	if selection_hud == null:
 		return
-	if sel == null:
-		selection_hud.visible = false
-		return
-	var sel_ref = state.selection if state != null else null
-	var selected_hive_id := int(sel_ref.selected_hive_id) if sel_ref != null else -1
-	var selected_lane_id := int(sel_ref.selected_lane_id) if sel_ref != null else -1
-	if selected_hive_id != -1:
-		var hive: HiveData = _find_hive_by_id(selected_hive_id)
+	if sel.selected_hive_id != -1:
+		var hive: HiveData = _find_hive_by_id(sel.selected_hive_id)
 		if hive != null:
 			var outgoing_count: int = _active_outgoing_intent_count(hive.id)
 			selection_hud.show_hive(hive, outgoing_count)
 			return
-	if selected_lane_id != -1:
-		var lane: LaneData = _find_lane_by_id(selected_lane_id)
+	if sel.selected_lane_id != -1:
+		var lane: LaneData = _find_lane_by_id(sel.selected_lane_id)
 		if lane != null:
 			var a: HiveData = _find_hive_by_id(lane.a_id)
 			var b: HiveData = _find_hive_by_id(lane.b_id)
@@ -4332,7 +3779,7 @@ func _update_selection_hud() -> void:
 				impact_f = lane.last_impact_f
 			selection_hud.show_lane(lane, mode, impact_f)
 			return
-	selection_hud.visible = false
+	selection_hud.clear()
 
 func _update_buff_ui() -> void:
 	if buffs_label == null:
@@ -4362,203 +3809,43 @@ func _update_buff_ui() -> void:
 		buffs_label.text = "BUFFS:\\n" + "\\n".join(lines)
 	buffs_label.visible = true
 
-func _update_timer_ui() -> void:
-	_ensure_timer_hud()
-	if _timer_root == null or timer_label == null:
-		return
-	var should_show := OpsState.timer_visible_started
-	_timer_root.visible = should_show
-	timer_label.visible = should_show
-	if OpsState.timer_visible_started and not _timer_branch_logged:
-		_timer_branch_logged = true
-		SFLog.info("TIMER_BRANCH", {
-			"ops_iid": int(OpsState.get_instance_id()),
-			"timer_visible_started": OpsState.timer_visible_started,
-			"in_overtime": OpsState.in_overtime,
-			"timer_label_null": timer_label == null
-		})
-	if OpsState.timer_visible_started and not _timer_ui_logged:
-		SFLog.info("TIMER_ARENA_SEES_VISIBLE", {
-			"ops_iid": int(OpsState.get_instance_id()),
-			"timer_visible_started": OpsState.timer_visible_started,
-			"match_clock_started": OpsState.match_clock_started,
-			"in_overtime": OpsState.in_overtime,
-			"remaining_ms": int(_get_match_remaining_ms()),
-			"timer_label_ok": timer_label != null,
-			"timer_label_path": str(timer_label.get_path()) if timer_label != null else "<null>"
-		})
-	if OpsState.timer_visible_started:
-		_update_timer_label()
-
-func _ensure_timer_hud() -> void:
-	if _timer_root != null and is_instance_valid(_timer_root) and timer_label != null and is_instance_valid(timer_label):
-		return
-	var tree := get_tree()
-	if tree == null or tree.root == null:
-		return
-	_timer_layer = _ensure_timer_layer()
-	var existing := _timer_layer.get_node_or_null("MatchTimer")
-	if existing == null:
-		existing = _timer_layer.find_child("MatchTimer", true, false)
-	if existing != null and existing is Control:
-		_timer_root = existing as Control
-	else:
-		var root_control := Control.new()
-		root_control.name = "MatchTimer"
-		root_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_timer_layer.add_child(root_control)
-		_timer_root = root_control
-	_ensure_timer_layer(_timer_root)
-	_force_fullscreen_anchors(_timer_root)
-	if timer_label == null or not is_instance_valid(timer_label):
-		var existing_label := _timer_root.get_node_or_null("MatchTimerLabel")
-		if existing_label == null:
-			existing_label = _timer_root.find_child("MatchTimerLabel", true, false)
-		if existing_label != null and existing_label is Label:
-			timer_label = existing_label as Label
-	if timer_label == null or not is_instance_valid(timer_label) or timer_label.get_parent() != _timer_root:
-		var label := Label.new()
-		label.name = "MatchTimerLabel"
-		label.text = ""
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.anchor_left = 0.0
-		label.anchor_right = 0.0
-		label.anchor_top = 0.0
-		label.anchor_bottom = 0.0
-		label.offset_left = 10.0
-		label.offset_top = 10.0
-		label.offset_right = 1010.0
-		label.offset_bottom = 310.0
-		label.visible = false
-		label.z_as_relative = false
-		label.z_index = 900
-		_timer_root.add_child(label)
-		timer_label = label
-	var debug_bg := _timer_root.get_node_or_null("MatchTimerDebugBg")
-	if debug_bg != null:
-		debug_bg.visible = false
-	timer_label.visible = false
-	timer_label.modulate = Color(1, 1, 1, 1)
-	timer_label.self_modulate = Color(1, 1, 1, 1)
-	if not _timer_label_bind_logged:
-		_timer_label_bind_logged = true
-		timer_label.add_theme_color_override("font_color", Color(1, 1, 1, 1))
-		timer_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
-		timer_label.add_theme_constant_override("outline_size", 4)
-		timer_label.add_theme_font_size_override("font_size", 200)
-		SFLog.info("TIMER_LABEL_BIND", {
-			"path": str(timer_label.get_path()),
-			"inside_tree": timer_label.is_inside_tree(),
-			"visible": timer_label.visible,
-			"z_index": timer_label.z_index,
-			"global_position": timer_label.global_position,
-			"anchors": {
-				"anchor_left": timer_label.anchor_left,
-				"anchor_top": timer_label.anchor_top,
-				"anchor_right": timer_label.anchor_right,
-				"anchor_bottom": timer_label.anchor_bottom
-			},
-			"offsets": {
-				"offset_left": timer_label.offset_left,
-				"offset_top": timer_label.offset_top,
-				"offset_right": timer_label.offset_right,
-			"offset_bottom": timer_label.offset_bottom
-		}
-	})
-	_center_match_timer()
-
-func _ensure_timer_layer(match_timer: Control = null) -> CanvasLayer:
-	var tree := get_tree()
-	if tree == null or tree.root == null:
-		return null
-	var root := tree.root
-	var hud := root.get_node_or_null("HUDCanvasLayer") as CanvasLayer
-	if hud == null:
-		hud = CanvasLayer.new()
-		hud.name = "HUDCanvasLayer"
-		hud.layer = 50
-		root.add_child(hud)
-	if match_timer != null and match_timer.get_parent() != hud:
-		match_timer.reparent(hud)
-	return hud
-
-func _force_fullscreen_anchors(control: Control) -> void:
-	control.anchor_left = 0.0
-	control.anchor_top = 0.0
-	control.anchor_right = 1.0
-	control.anchor_bottom = 1.0
-	control.offset_left = 0.0
-	control.offset_top = 0.0
-	control.offset_right = 0.0
-	control.offset_bottom = 0.0
-
-func _get_match_remaining_ms() -> int:
-	if OpsState.match_clock_started:
-		return int(OpsState.match_remaining_ms)
-	return int(OpsState.match_duration_ms)
-
 func _update_timer_label() -> void:
 	if timer_label == null:
 		return
-	if OpsState.timer_visible_started and not _timer_ui_logged:
-		_timer_ui_logged = true
-		var anchors := {
-			"anchor_left": timer_label.anchor_left,
-			"anchor_top": timer_label.anchor_top,
-			"anchor_right": timer_label.anchor_right,
-			"anchor_bottom": timer_label.anchor_bottom
-		}
-		var offsets := {
-			"offset_left": timer_label.offset_left,
-			"offset_top": timer_label.offset_top,
-			"offset_right": timer_label.offset_right,
-			"offset_bottom": timer_label.offset_bottom
-		}
-		SFLog.info("TIMER_UI_STATE", {
-			"label_null": timer_label == null,
-			"path": str(timer_label.get_path()) if timer_label != null else "<null>",
-			"inside_tree": timer_label.is_inside_tree() if timer_label != null else false,
-			"visible": timer_label.visible if timer_label != null else false,
-			"modulate_a": timer_label.modulate.a if timer_label != null else -1.0,
-			"self_modulate_a": timer_label.self_modulate.a if timer_label != null else -1.0,
-			"global_position": timer_label.global_position if timer_label != null else Vector2.ZERO,
-			"size": timer_label.size if timer_label != null else Vector2.ZERO,
-			"anchors": anchors,
-			"offsets": offsets,
-			"parent_chain": _dump_timer_parent_chain(timer_label)
-		})
-	timer_label.modulate = Color(1, 0, 1, 1)
-	timer_label.self_modulate = Color(1, 0, 1, 1)
 	timer_label.visible = true
-	var remaining_ms := int(OpsState.match_remaining_ms)
-	if remaining_ms < 0:
-		remaining_ms = 0
-	var total_sec: int = int(ceil(float(remaining_ms) / 1000.0))
+	var total_sec: int = int(ceil(match_ms_remaining / 1000.0))
 	var minutes: int = int(total_sec / 60.0)
 	var seconds: int = total_sec % 60
-	if total_sec != _timer_last_seconds:
-		_timer_last_seconds = total_sec
-		SFLog.info("TIMER_TICK", {"remaining_ms": remaining_ms})
 	timer_label.text = "%d:%02d" % [minutes, seconds]
 
-func _dump_timer_parent_chain(node: Node) -> Array:
-	var out: Array = []
-	var n: Node = node
-	while n != null:
-		if n is CanvasItem:
-			var ci := n as CanvasItem
-			out.append({
-				"path": str(ci.get_path()),
-				"visible": ci.visible,
-				"modulate_a": ci.modulate.a,
-				"self_modulate_a": ci.self_modulate.a
-			})
-		else:
-			out.append({"path": str(n.get_path()), "type": n.get_class()})
-		n = n.get_parent()
-	return out
+func _update_ops_timer_label() -> void:
+	if timer_label == null:
+		return
+	var phase = OpsState.match_phase
+	if phase == OpsState.MatchPhase.PREMATCH:
+		var prematch_ms: int = int(OpsState.prematch_remaining_ms)
+		if prematch_ms < 0:
+			prematch_ms = 0
+		var total_sec: int = int(ceil(float(prematch_ms) / 1000.0))
+		var minutes: int = int(total_sec / 60.0)
+		var seconds: int = total_sec % 60
+		timer_label.visible = true
+		timer_label.text = "%d:%02d" % [minutes, seconds]
+		return
+	if phase == OpsState.MatchPhase.RUNNING:
+		if not OpsState.timer_visible_started:
+			timer_label.visible = false
+			return
+		var match_ms: int = int(OpsState.match_remaining_ms)
+		if match_ms < 0:
+			match_ms = 0
+		var total_sec: int = int(ceil(float(match_ms) / 1000.0))
+		var minutes: int = int(total_sec / 60.0)
+		var seconds: int = total_sec % 60
+		timer_label.visible = true
+		timer_label.text = "%d:%02d" % [minutes, seconds]
+		return
+	timer_label.visible = false
 
 func _player_hive_counts() -> Dictionary:
 	var counts: Dictionary = {1: 0, 2: 0, 3: 0, 4: 0}
@@ -4590,8 +3877,6 @@ func _resolve_timeout_winner() -> int:
 	var counts: Dictionary = _player_hive_counts()
 	var landed: Dictionary = units_landed
 	var tower_ms: Dictionary = tower_control_ms
-	if tower_system != null:
-		tower_ms = tower_system.tower_control_ms
 	var barracks_ms: Dictionary = barracks_control_ms
 	var best_ids: Array = _max_keys(totals)
 	if best_ids.size() == 1:
@@ -4650,7 +3935,7 @@ func _end_game(winner: int, reason: String) -> void:
 	end_reason = reason
 	sim_running = false
 	dbg("SF: WINNER pid=%d" % winner_id)
-	var winner_label := "none"
+	var winner_label = "none"
 	if winner_id == 0:
 		winner_label = "npc"
 	elif winner_id > 0:
@@ -4665,8 +3950,6 @@ func _end_game(winner: int, reason: String) -> void:
 	])
 	if outcome_overlay != null:
 		outcome_overlay.show_outcome(winner_id, reason, active_player_id)
-	if sim_runner != null:
-		sim_runner.log_pause_snapshot("arena_end_game")
 
 func _update_towers(dt: float) -> void:
 	var dt_ms: float = dt * 1000.0
@@ -4679,7 +3962,7 @@ func _update_towers(dt: float) -> void:
 			if state != null:
 				var node_id: int = int(tower.get("node_id", tower.get("id", -1)))
 				if node_id != -1:
-					state.structure_owner_by_node_id[node_id] = 0
+					state.tower_owner_by_node_id[node_id] = 0
 			continue
 		var owner_id: int = 0
 		var min_tier: int = 4
@@ -4704,7 +3987,7 @@ func _update_towers(dt: float) -> void:
 			if state != null:
 				var node_id: int = int(tower.get("node_id", tower.get("id", -1)))
 				if node_id != -1:
-					state.structure_owner_by_node_id[node_id] = 0
+					state.tower_owner_by_node_id[node_id] = 0
 			continue
 		tower["active"] = true
 		tower["owner_id"] = owner_id
@@ -4712,7 +3995,7 @@ func _update_towers(dt: float) -> void:
 		if state != null:
 			var node_id: int = int(tower.get("node_id", tower.get("id", -1)))
 			if node_id != -1:
-				state.structure_owner_by_node_id[node_id] = owner_id
+				state.tower_owner_by_node_id[node_id] = owner_id
 		if owner_id > 0:
 			tower_control_ms[owner_id] = float(tower_control_ms.get(owner_id, 0.0)) + dt_ms
 		tower["shot_accum_ms"] += dt_ms
@@ -4754,7 +4037,7 @@ func _tower_interval_ms_for(owner_id: int, tier: int) -> float:
 	return maxf(80.0, base / rate_mult)
 
 func _tower_range_px(tier: int) -> float:
-	var base := 160.0
+	var base = 160.0
 	if tier == 1:
 		return base
 	if tier == 2:
@@ -4838,13 +4121,9 @@ func _update_barracks(dt: float) -> void:
 			if targets.is_empty():
 				b["spawn_accum_ms"] = 0.0
 				continue
-			var cursor: int = int(b.get("route_cursor", b.get("rr_index", 0)))
-			if cursor < 0:
-				cursor = 0
-			var idx: int = cursor % targets.size()
+			var idx: int = int(b["rr_index"]) % targets.size()
 			var target_id: int = int(targets[idx])
-			b["route_cursor"] = cursor + 1
-			b["rr_index"] = int(b.get("route_cursor", 0))
+			b["rr_index"] += 1
 			var from_pos: Vector2 = _barracks_center_pos(b)
 			_spawn_unit(-b["id"], target_id, owner_id, -1, false, from_pos, true)
 			dbg("SF: barracks %d spawn to hive %d" % [b["id"], target_id])
@@ -4863,48 +4142,23 @@ func _barracks_interval_ms(tier: int) -> float:
 	return 3000.0
 
 func _barracks_targets(barracks_data: Dictionary) -> Array:
-	var allowed: Array = []
-	var allowed_lookup: Dictionary = {}
-	var control_v: Variant = barracks_data.get("control_hive_ids", [])
-	if typeof(control_v) == TYPE_ARRAY:
-		for hive_id_v in control_v as Array:
-			var hive_id: int = int(hive_id_v)
-			if hive_id <= 0 or allowed_lookup.has(hive_id):
-				continue
-			var hive: HiveData = _find_hive_by_id(hive_id)
-			if hive != null and hive.owner_id == barracks_data["owner_id"]:
-				allowed_lookup[hive_id] = true
-				allowed.append(hive_id)
-	if allowed.is_empty():
-		var required_v: Variant = barracks_data.get("required_hive_ids", [])
-		if typeof(required_v) == TYPE_ARRAY:
-			for hive_id_v in required_v as Array:
-				var hive_id: int = int(hive_id_v)
-				if hive_id <= 0 or allowed_lookup.has(hive_id):
-					continue
-				var hive: HiveData = _find_hive_by_id(hive_id)
-				if hive != null and hive.owner_id == barracks_data["owner_id"]:
-					allowed_lookup[hive_id] = true
-					allowed.append(hive_id)
-	if allowed.is_empty():
-		return []
-	allowed.sort()
-	var route_v: Variant = barracks_data.get("route_targets", [])
-	if typeof(route_v) != TYPE_ARRAY or (route_v as Array).is_empty():
-		route_v = barracks_data.get("route_hive_ids", [])
-	if typeof(route_v) != TYPE_ARRAY or (route_v as Array).is_empty():
-		route_v = barracks_data.get("preferred_targets", [])
-	var route: Array = []
-	if typeof(route_v) == TYPE_ARRAY:
-		var seen: Dictionary = {}
-		for target_id_v in route_v as Array:
+	var chain: Array = []
+	for hive_id_v in barracks_data["required_hive_ids"]:
+		var hive_id: int = int(hive_id_v)
+		var hive: HiveData = _find_hive_by_id(hive_id)
+		if hive != null and hive.owner_id == barracks_data["owner_id"]:
+			chain.append(hive_id)
+	if chain.is_empty():
+		return chain
+	var preferred: Array = []
+	if barracks_data["preferred_targets"].size() > 0:
+		for target_id_v in barracks_data["preferred_targets"]:
 			var target_id: int = int(target_id_v)
-			if allowed_lookup.has(target_id) and not seen.has(target_id):
-				seen[target_id] = true
-				route.append(target_id)
-	if route.is_empty():
-		return allowed
-	return route
+			if chain.has(target_id):
+				preferred.append(target_id)
+	if preferred.is_empty():
+		return chain
+	return preferred
 
 func _barracks_required_hives_for(pos: Vector2i, required: Array) -> Array:
 	return _structure_required_hives_for(pos, required, [], [])
@@ -5012,8 +4266,8 @@ func _structure_selection_penalty(candidate: Array, existing_sets: Array, struct
 func _structure_center_for_required(required: Array, fallback_center: Vector2) -> Vector2:
 	if required.is_empty():
 		return fallback_center
-	var sum := Vector2.ZERO
-	var count := 0
+	var sum = Vector2.ZERO
+	var count = 0
 	for hive_id_v in required:
 		var hive: HiveData = _find_hive_by_id(int(hive_id_v))
 		if hive == null:
@@ -5118,8 +4372,8 @@ func _barracks_center_pos(barracks_data: Dictionary) -> Vector2:
 	var required: Array = barracks_data.get("required_hive_ids", [])
 	if required.is_empty():
 		return _cell_center(barracks_data["grid_pos"])
-	var sum := Vector2.ZERO
-	var count := 0
+	var sum = Vector2.ZERO
+	var count = 0
 	for hive_id_v in required:
 		var hive: HiveData = _find_hive_by_id(int(hive_id_v))
 		if hive == null:
@@ -5134,8 +4388,8 @@ func _tower_center_pos(tower_data: Dictionary) -> Vector2:
 	var required: Array = tower_data.get("required_hive_ids", [])
 	if required.is_empty():
 		return _cell_center(tower_data["grid_pos"])
-	var sum := Vector2.ZERO
-	var count := 0
+	var sum = Vector2.ZERO
+	var count = 0
 	for hive_id_v in required:
 		var hive: HiveData = _find_hive_by_id(int(hive_id_v))
 		if hive == null:
@@ -5232,7 +4486,7 @@ func _spawn_debris_for_lane(lane: LaneData, owner_id: int, impact_f: float = -1.
 		return
 	var a_pos: Vector2 = _cell_center(a.grid_pos)
 	var b_pos: Vector2 = _cell_center(b.grid_pos)
-	var impact := impact_f
+	var impact = impact_f
 	if impact < 0.0:
 		impact = lane.last_impact_f
 	impact = clamp(impact, 0.0, 1.0)
@@ -5273,7 +4527,7 @@ func _count_debris_near(lane_id: int, pos: Vector2, radius: float) -> int:
 	return count
 
 func _spawn_unit(from_id: int, to_id: int, owner_id: int, lane_id: int, print_spawn: bool, from_pos: Vector2 = Vector2.ZERO, use_from_pos: bool = false) -> void:
-	var unit := {
+	var unit = {
 		"id": unit_id_counter,
 		"owner_id": owner_id,
 		"lane_id": lane_id,
@@ -5313,20 +4567,35 @@ func _spawn_unit(from_id: int, to_id: int, owner_id: int, lane_id: int, print_sp
 			unit["speed_t"] = 1.0 / (UNIT_TRAVEL_MS / 1000.0)
 	var arrival_us: int = _estimate_arrival_us(unit, from_pos, use_from_pos)
 	unit["arrival_us"] = arrival_us
-	# Units are owned by UnitSystem now; Arena must not append/spawn.
-	if unit_system != null:
-		unit_system.spawn_unit(unit)
-	else:
-		SFLog.warn("SPAWN_BLOCKED_NO_UNITSYSTEM", {"lane": str(unit.get("lane_key", ""))})
+	unit_id_counter += 1
+	units.append(unit)
+	_note_render_dirty()
+	SFLog.info("SPAWN_DEBUG lane=%s unit_id=%d owner=%d from=%d to=%d a=%d b=%d dir=%d t0=%.3f spawn_end=%s" % [
+		str(unit.get("lane_key", "")),
+		int(unit.get("id", -1)),
+		int(unit.get("owner_id", 0)),
+		int(unit.get("from_id", -1)),
+		int(unit.get("to_id", -1)),
+		int(unit.get("a_id", -1)),
+		int(unit.get("b_id", -1)),
+		int(unit.get("dir", 0)),
+		clampf(float(unit.get("lane_t", 0.0)), 0.0, 1.0),
+		str(unit.get("spawn_end", "?"))
+	])
+	SFLog.info("UNIT_SPAWN: id=%d lane=%s owner=%d" % [
+		int(unit.get("id", -1)),
+		str(unit.get("lane_key", "")),
+		int(unit.get("owner_id", 0))
+	])
 	if print_spawn:
-		var src_power := -1
-		var interval_ms := -1.0
+		var src_power = -1
+		var interval_ms = -1.0
 		var from_hive: HiveData = _find_hive_by_id(from_id)
 		if from_hive != null:
 			src_power = from_hive.power
 			interval_ms = _hive_spawn_interval_ms(from_hive)
-		var power_text := "NA" if src_power < 0 else str(src_power)
-		var interval_text := "NA" if interval_ms < 0.0 else "%.1f" % interval_ms
+		var power_text = "NA" if src_power < 0 else str(src_power)
+		var interval_text = "NA" if interval_ms < 0.0 else "%.1f" % interval_ms
 		var owner_label: String = str(_owner_label(owner_id))
 		dbg("SF: spawn unit %d %d->%d owner=%s pwr=%s interval_ms=%s" % [
 			unit["id"],
@@ -5417,9 +4686,9 @@ func _apply_unit_arrival(unit_owner: int, hive: HiveData, from_id: int = -1, lan
 					lane.establish_a = false
 
 func _update_idle_growth(dt: float) -> void:
-	var dt_ms := dt * 1000.0
+	var dt_ms = dt * 1000.0
 	for hive in state.hives:
-		var prev_power := hive.power
+		var prev_power = hive.power
 		if hive.owner_id == 0:
 			hive.idle_accum_ms = 0.0
 			continue
@@ -5438,14 +4707,14 @@ func _update_idle_growth(dt: float) -> void:
 			_note_render_dirty()
 
 func _pass_through(hive: HiveData, owner_id: int) -> void:
-	var targets := _get_pass_targets(hive)
+	var targets = _get_pass_targets(hive)
 	if targets.is_empty():
 		return
 	var idx: int = hive.pass_rr_index % targets.size()
 	var lane_id: int = int(targets[idx]["lane_id"])
 	var target_id: int = int(targets[idx]["target_id"])
 	hive.pass_rr_index += 1
-	var use_preferred := hive.pass_preferred_targets.size() > 0
+	var use_preferred = hive.pass_preferred_targets.size() > 0
 	if use_preferred:
 		dbg("SF: pass-through preferred %d -> %d" % [hive.id, target_id])
 	else:
@@ -5453,7 +4722,7 @@ func _pass_through(hive: HiveData, owner_id: int) -> void:
 	_spawn_unit(hive.id, target_id, owner_id, lane_id, false)
 
 func _get_pass_targets(hive: HiveData) -> Array:
-	var outgoing := _get_outgoing_intents(hive.id)
+	var outgoing = _get_outgoing_intents(hive.id)
 	if outgoing.is_empty():
 		return outgoing
 	if hive.pass_preferred_targets.is_empty():
@@ -5469,7 +4738,7 @@ func _get_pass_targets(hive: HiveData) -> Array:
 	return preferred
 
 func _active_outgoing_intent_count(hive_id: int) -> int:
-	var count := 0
+	var count = 0
 	for lane in state.lanes:
 		if lane.a_id == hive_id and lane.send_a:
 			count += 1
@@ -5518,7 +4787,7 @@ func _hive_lane_order_for(hive_id: int) -> Array:
 		return []
 	var filtered: Array = []
 	for target_id_v in order:
-		var target_id := int(target_id_v)
+		var target_id = int(target_id_v)
 		if _intent_is_on(hive_id, target_id):
 			filtered.append(target_id)
 	if filtered.size() != order.size():
@@ -5528,7 +4797,7 @@ func _hive_lane_order_for(hive_id: int) -> Array:
 func _hive_slot_has_intent(hive_id: int, slot_index: int) -> bool:
 	if slot_index <= 0:
 		return false
-	var order := _hive_lane_order_for(hive_id)
+	var order = _hive_lane_order_for(hive_id)
 	return slot_index <= order.size()
 
 func _track_hive_lane_intent(from_id: int, to_id: int, enable: bool) -> void:
@@ -5551,11 +4820,11 @@ func _track_hive_lane_intent(from_id: int, to_id: int, enable: bool) -> void:
 
 func _update_lane_slots() -> void:
 	for hive in state.hives:
-		var prev_power := int(hive_power_prev.get(hive.id, hive.power))
+		var prev_power = int(hive_power_prev.get(hive.id, hive.power))
 		if prev_power >= 25 and hive.power <= 24:
-			var order := _hive_lane_order_for(hive.id)
+			var order = _hive_lane_order_for(hive.id)
 			if order.size() >= 3:
-				var target_id := int(order[order.size() - 1])
+				var target_id = int(order[order.size() - 1])
 				_retract_lane(hive.id, target_id, hive.owner_id)
 		hive_power_prev[hive.id] = hive.power
 
@@ -5564,8 +4833,8 @@ func _send_rate(hive: HiveData, is_sending: bool) -> float:
 		return 0.0
 	if hive.owner_id == 0:
 		return 0.0
-	var interval_ms := _hive_spawn_interval_ms(hive)
-	var interval_sec := interval_ms / 1000.0
+	var interval_ms = _hive_spawn_interval_ms(hive)
+	var interval_sec = interval_ms / 1000.0
 	if interval_sec <= 0.0:
 		return 0.0
 	return 1.0 / interval_sec
@@ -5579,9 +4848,10 @@ func _interval_ms(power: int) -> float:
 	var value: float = BASE_MS - ((power - 1) * PER_POWER_MS) - bonus
 	return maxf(200.0, value)
 
-func _spawn_interval_ms_for_power(power: int) -> int:
-	var p := maxi(1, power)
-	return maxi(50, 1000 - (p - 1) * 2)
+func _spawn_interval_ms_for_power(power: int) -> float:
+	var p: int = max(1, power)
+	var value = SPAWN_BASE_MS - (SPAWN_PER_POWER_MS * float(p - 1))
+	return maxf(SPAWN_MIN_MS, value)
 
 func _hive_spawn_interval_ms(hive: HiveData) -> float:
 	var base: float = _interval_ms(hive.power)
@@ -5663,7 +4933,7 @@ func _handle_drag(local_pos: Vector2) -> void:
 	input_system.handle_drag(local_pos, api)
 
 func _handle_tap(hive_id: int, dev_pid: int = -1) -> void:
-	print("HIVE: emitting tapped for hive_id=", hive_id)
+	SFLog.debug_log(2, "HIVE: emitting tapped for hive_id=" + str(hive_id))
 	if input_system == null or api == null:
 		return
 	input_system.handle_tap(hive_id, dev_pid, api)
@@ -5674,51 +4944,7 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int = -1, pid: int = -
 	return input_system.handle_lane_double_tap(local_pos, dev_pid, pid, api)
 
 func _try_swarm(from_id: int, to_id: int, pid: int = -1) -> bool:
-	if state == null:
-		return false
-	var from_hive: HiveData = _find_hive_by_id(from_id)
-	var to_hive: HiveData = _find_hive_by_id(to_id)
-	if from_hive == null or to_hive == null:
-		return false
-	var owner_id := int(from_hive.owner_id)
-	if owner_id <= 0:
-		return false
-	if pid != -1 and owner_id != pid:
-		return false
-	if not _intent_is_on(from_id, to_id):
-		return false
-	var lane_index := _lane_index_between(from_id, to_id)
-	if lane_index == -1:
-		return false
-	var lane: LaneData = state.lanes[lane_index]
-	if not _lane_ready_for_send(lane, from_id):
-		return false
-	var payload: int = _consume_passthrough_payload(from_id, owner_id)
-	var packet := {
-		"id": swarm_id_counter,
-		"owner_id": owner_id,
-		"from_id": from_id,
-		"to_id": to_id,
-		"lane_id": int(lane.id),
-		"payload": payload,
-		"t": 0.0,
-		"armed_ms": 0.0,
-		"speed_mult": 3.0,
-		"created_us": sim_time_us,
-		"is_passthrough": false
-	}
-	swarm_id_counter += 1
-	swarm_packets.append(packet)
-	_note_render_dirty()
-	if debug_swarms:
-		SFLog.info("SWARM_CREATE", {
-			"from_id": from_id,
-			"to_id": to_id,
-			"lane_id": int(lane.id),
-			"owner_id": owner_id,
-			"payload": payload
-		})
-	return true
+	return OpsState.try_swarm(from_id, to_id, pid)
 
 func _project_t_on_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
 	var ab: Vector2 = b - a
@@ -5728,7 +4954,7 @@ func _project_t_on_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
 	return clamp(t, 0.0, 1.0)
 
 func _consume_passthrough_payload(from_id: int, owner_id: int) -> int:
-	var total := 0
+	var total = 0
 	for i in range(swarm_packets.size() - 1, -1, -1):
 		var packet: Dictionary = swarm_packets[i]
 		if not packet.get("is_passthrough", false):
@@ -5744,8 +4970,8 @@ func _consume_passthrough_payload(from_id: int, owner_id: int) -> int:
 	return total
 
 func _merge_passthrough_into_swarm(from_id: int, owner_id: int, payload: int) -> bool:
-	var best_index := -1
-	var best_created := -1
+	var best_index = -1
+	var best_created = -1
 	for i in range(swarm_packets.size()):
 		var packet: Dictionary = swarm_packets[i]
 		if packet.get("is_passthrough", false):
@@ -5763,17 +4989,10 @@ func _merge_passthrough_into_swarm(from_id: int, owner_id: int, payload: int) ->
 	var target: Dictionary = swarm_packets[best_index]
 	target["payload"] = int(target.get("payload", 0)) + payload
 	swarm_packets[best_index] = target
-	if debug_swarms:
-		SFLog.info("SWARM_MERGE", {
-			"from_id": from_id,
-			"owner_id": owner_id,
-			"payload": payload,
-			"target_id": int(target.get("id", -1))
-		})
 	return true
 
 func _pass_through_swarm(packet: Dictionary, hive: HiveData) -> bool:
-	var targets := _get_pass_targets(hive)
+	var targets = _get_pass_targets(hive)
 	if targets.is_empty():
 		return false
 	var idx: int = hive.pass_rr_index % targets.size()
@@ -5785,7 +5004,7 @@ func _pass_through_swarm(packet: Dictionary, hive: HiveData) -> bool:
 	if _merge_passthrough_into_swarm(hive.id, owner_id, payload):
 		dbg("SF: swarm merge %d->%d payload=%d" % [hive.id, target_id, payload])
 		return true
-	var new_packet := {
+	var new_packet = {
 		"id": swarm_id_counter,
 		"owner_id": owner_id,
 		"from_id": hive.id,
@@ -5830,7 +5049,7 @@ func _issue_attack_order(attacker_id: int, target_id: int) -> void:
 	var owner_id: int = attacker.owner_id
 	if owner_id <= 0:
 		return
-	var lane_index := _lane_index_between(attacker_id, target_id)
+	var lane_index = _lane_index_between(attacker_id, target_id)
 	if lane_index == -1:
 		if not _establish_lane_between(attacker_id, target_id):
 			return
@@ -5838,10 +5057,10 @@ func _issue_attack_order(attacker_id: int, target_id: int) -> void:
 	if lane_index == -1:
 		return
 	var lane: LaneData = state.lanes[lane_index]
-	var key := state.lane_key(lane.a_id, lane.b_id)
+	var key = state.lane_key(lane.a_id, lane.b_id)
 	var existing_order: Dictionary = active_orders_by_attacker.get(attacker_id, {})
 	if not existing_order.is_empty():
-		var existing_key := str(existing_order.get("lane_key", ""))
+		var existing_key = str(existing_order.get("lane_key", ""))
 		if existing_key == key:
 			return
 		return
@@ -5858,8 +5077,8 @@ func _issue_attack_order(attacker_id: int, target_id: int) -> void:
 	var b: HiveData = _find_hive_by_id(lane.b_id)
 	if a == null or b == null:
 		return
-	var length_px := _lane_length_px(a, b)
-	var est_speed_px := length_px / (LANE_ESTABLISH_MS / 1000.0)
+	var length_px = _lane_length_px(a, b)
+	var est_speed_px = length_px / (LANE_ESTABLISH_MS / 1000.0)
 	lane.send_a = false
 	lane.send_b = false
 	lane.establish_a = false
@@ -5890,7 +5109,7 @@ func _spawn_first_unit_for_side(lane_state: Dictionary, side: Dictionary) -> voi
 	var b_id: int = int(lane_state.get("b_id", 0))
 	if a_id <= 0 or b_id <= 0:
 		return
-	var lane_index := _lane_index_between(a_id, b_id)
+	var lane_index = _lane_index_between(a_id, b_id)
 	if lane_index == -1:
 		return
 	var lane: LaneData = state.lanes[lane_index]
@@ -5933,8 +5152,8 @@ func _set_intent(from_id: int, to_id: int, enable: bool, skip_budget: bool = fal
 		if _intent_is_on(from_id, to_id):
 			return
 		if not skip_budget and state != null:
-			var budget := state.lanes_allowed_for_power(int(from_hive.power))
-			var active := state.count_active_outgoing(from_id)
+			var budget = state.lanes_allowed_for_power(int(from_hive.power))
+			var active = state.count_active_outgoing(from_id)
 			if active >= budget:
 				SFLog.info("LANE_BUDGET_BLOCK", {
 					"src": from_id,
@@ -6025,8 +5244,8 @@ func _set_intent_dev(from_id: int, to_id: int, enable: bool) -> void:
 		if _intent_is_on(from_id, to_id):
 			return
 		if state != null:
-			var budget := state.lanes_allowed_for_power(int(from_hive.power))
-			var active := state.count_active_outgoing(from_id)
+			var budget = state.lanes_allowed_for_power(int(from_hive.power))
+			var active = state.count_active_outgoing(from_id)
 			if active >= budget:
 				SFLog.info("LANE_BUDGET_BLOCK", {
 					"src": from_id,
@@ -6079,7 +5298,7 @@ func _normalize_friendly_intents() -> void:
 				lane.establish_b = false
 
 func _intent_is_on(from_id: int, to_id: int) -> bool:
-	var lane_index := _lane_index_between(from_id, to_id)
+	var lane_index = _lane_index_between(from_id, to_id)
 	if lane_index == -1:
 		return false
 	var lane: LaneData = state.lanes[lane_index]
@@ -6152,11 +5371,11 @@ func _is_los_clear(a_id: int, b_id: int) -> bool:
 	return true
 
 func _hive_id_at_point(local_pos: Vector2) -> int:
-	var best_id := -1
-	var best_dist := HIVE_HIT_RADIUS_PX * HIVE_HIT_RADIUS_PX
+	var best_id = -1
+	var best_dist = HIVE_HIT_RADIUS_PX * HIVE_HIT_RADIUS_PX
 	for hive in state.hives:
-		var center := _cell_center(hive.grid_pos)
-		var dist := center.distance_squared_to(local_pos)
+		var center = _cell_center(hive.grid_pos)
+		var dist = center.distance_squared_to(local_pos)
 		if dist <= best_dist:
 			best_dist = dist
 			best_id = hive.id
@@ -6165,10 +5384,10 @@ func _hive_id_at_point(local_pos: Vector2) -> int:
 func _cell_from_point(local_pos: Vector2) -> Vector2i:
 	if grid_spec != null:
 		return grid_spec.world_to_grid(local_pos)
-	var adjusted := local_pos - map_offset
-	var cell_px := _cell_px()
-	var cx := int(adjusted.x / cell_px)
-	var cy := int(adjusted.y / cell_px)
+	var adjusted = local_pos - map_offset
+	var cell_px = _cell_px()
+	var cx = int(adjusted.x / cell_px)
+	var cy = int(adjusted.y / cell_px)
 	cx = max(0, min(grid_w - 1, cx))
 	cy = max(0, min(grid_h - 1, cy))
 	return Vector2i(cx, cy)
