@@ -19,6 +19,7 @@ const DASH_TAB_KEY_LEFT := "ui.mm.dash.left"
 @onready var dash_buffs_panel: Panel = $DashPanel/DashBuffsPanel
 @onready var dash_hive_panel: Panel = $DashPanel/DashHivePanel
 @onready var dash_store_panel: Panel = $DashPanel/DashStorePanel
+@onready var dash_settings_panel: Panel = $DashPanel/DashSettingsPanel
 @onready var dash_badges_panel_full: Panel = $DashPanel/DashBadgesPanel
 @onready var store_landing_panel: Panel = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding
 @onready var store_category_grid: GridContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox/StoreCategoryGrid
@@ -40,6 +41,7 @@ const DASH_TAB_KEY_LEFT := "ui.mm.dash.left"
 @onready var dash_buffs_close: Button = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsClose
 @onready var dash_hive_close: Button = $DashPanel/DashHivePanel/HiveVBox/HiveClose
 @onready var dash_store_close: Button = $DashPanel/DashStorePanel/StoreVBox/StoreClose
+@onready var dash_settings_close: Button = $DashPanel/DashSettingsPanel/SettingsVBox/SettingsClose
 @onready var dash_badges_close: Button = $DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesClose
 @onready var async_close: Button = $AsyncPanel/AsyncVBox/AsyncClose
 @onready var stats_tier_free: Button = $DashPanel/DashStatsPanel/StatsVBox/StatsTierTabs/StatsTierFree
@@ -732,7 +734,7 @@ func _style_panels() -> void:
 	_style_panel(dash_panel, Color(0.08, 0.09, 0.12, 0.95), Color(0.55, 0.56, 0.62, 0.8))
 	_style_panel(dash_match_panel, Color(0.07, 0.08, 0.1, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel(dash_badges_panel, Color(0.07, 0.08, 0.1, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_badges_panel_full]:
+	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_badges_panel_full, dash_settings_panel]:
 		_style_panel(panel, Color(0.06, 0.07, 0.1, 0.98), Color(0.45, 0.48, 0.58, 0.8))
 	_style_panel($DashPanel/DashStatsPanel/StatsVBox/StatsBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
@@ -772,7 +774,7 @@ func _wire_buttons() -> void:
 	$BottomBar/MenuButtons/LeftButtons/BuffsButton.pressed.connect(func(): _open_dash_panel_from_menu(dash_buffs_panel))
 	$BottomBar/MenuButtons/LeftButtons/StoreButton.pressed.connect(func(): _open_dash_panel_from_menu(dash_store_panel))
 	$BottomBar/MenuButtons/RightButtons/ClanButton.pressed.connect(func(): _open_dash_panel_from_menu(dash_hive_panel))
-	$BottomBar/MenuButtons/RightButtons/SettingsButton.pressed.connect(func(): _stub_action("Settings"))
+	$BottomBar/MenuButtons/RightButtons/SettingsButton.pressed.connect(func(): _open_dash_panel_from_menu(dash_settings_panel))
 	hive_button.pressed.connect(func(): _open_dash_panel_from_menu(dash_hive_panel))
 	dash_tab.pressed.connect(_toggle_dash)
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
@@ -786,6 +788,7 @@ func _wire_buttons() -> void:
 	dash_buffs_close.pressed.connect(func(): _close_dash_panel(dash_buffs_panel))
 	dash_hive_close.pressed.connect(func(): _close_dash_panel(dash_hive_panel))
 	dash_store_close.pressed.connect(func(): _close_dash_panel(dash_store_panel))
+	dash_settings_close.pressed.connect(func(): _close_dash_panel(dash_settings_panel))
 	dash_badges_close.pressed.connect(func(): _close_dash_panel(dash_badges_panel_full))
 	async_close.pressed.connect(_close_async_panel)
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction.pressed.connect(_open_async_weekly)
@@ -950,7 +953,7 @@ func _style_dash_buttons() -> void:
 		var badge_button: Button = get_node("DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesRow/%s" % badge_name)
 		_apply_font(badge_button, _font_semibold, 14)
 		_style_button(badge_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
-	for button in [dash_stats_close, dash_analysis_close, dash_replay_close, dash_buffs_close, dash_hive_close, dash_store_close, dash_badges_close, async_close]:
+	for button in [dash_stats_close, dash_analysis_close, dash_replay_close, dash_buffs_close, dash_hive_close, dash_store_close, dash_settings_close, dash_badges_close, async_close]:
 		_apply_font(button, _font_regular, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_set_stats_tier(_stats_tier)
@@ -1212,7 +1215,7 @@ func _close_dash_panel(panel: Panel) -> void:
 	panel.visible = false
 
 func _hide_dash_panels() -> void:
-	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_badges_panel_full]:
+	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full]:
 		panel.visible = false
 
 func _open_async_panel() -> void:

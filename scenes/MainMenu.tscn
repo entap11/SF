@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://b2m2j1m3d5q8t"]
+[gd_scene load_steps=8 format=3 uid="uid://b2m2j1m3d5q8t"]
 
 [ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/ui/hex_button.gd" id="2"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/ui/ui_button.gd" id="4"]
 [ext_resource type="Texture2D" uid="uid://bkass4b8jo610" path="res://assets/sprites/sf_skin_v1/arena_underlayment_art.PNG" id="5"]
 [ext_resource type="Material" path="res://assets/shaders/underlayment_tile.tres" id="6"]
+[ext_resource type="PackedScene" path="res://scenes/ui/settings/profile_settings_panel.tscn" id="7"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -1363,6 +1364,45 @@ layout_mode = 2
 text = "BACK TO CATEGORIES"
 
 [node name="StoreClose" type="Button" parent="DashPanel/DashStorePanel/StoreVBox"]
+layout_mode = 2
+text = "Close"
+
+[node name="DashSettingsPanel" type="Panel" parent="DashPanel"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SettingsVBox" type="VBoxContainer" parent="DashPanel/DashSettingsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SettingsTitle" type="Label" parent="DashPanel/DashSettingsPanel/SettingsVBox"]
+layout_mode = 2
+text = "SETTINGS"
+
+[node name="SettingsSub" type="Label" parent="DashPanel/DashSettingsPanel/SettingsVBox"]
+layout_mode = 2
+text = "Local profiles"
+
+[node name="SettingsBody" type="Panel" parent="DashPanel/DashSettingsPanel/SettingsVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ProfilePanel" parent="DashPanel/DashSettingsPanel/SettingsVBox/SettingsBody" instance=ExtResource("7")]
+
+[node name="SettingsClose" type="Button" parent="DashPanel/DashSettingsPanel/SettingsVBox"]
 layout_mode = 2
 text = "Close"
 

@@ -6,6 +6,22 @@ const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 @export var debug_show_kind_label := false
+@export var nine_margin_top: int = 48
+@export var nine_margin_bottom: int = 48
+@export var base_width_px: float = 0.0
+@export var height_small_px: float = 0.0
+@export var height_med_px: float = 0.0
+@export var height_large_px: float = 0.0
+@export var height_max_px: float = 0.0
+
+const TIER_2_MIN_POWER := 10
+const TIER_3_MIN_POWER := 25
+const TIER_4_MIN_POWER := 50
+const HEIGHT_MED_SCALE := 1.10
+const HEIGHT_LARGE_SCALE := 1.20
+const HEIGHT_MAX_SCALE := 1.30
+const NINEPATCH_STRETCH := 0
+const NINEPATCH_TILE := 1
 
 var radius_px: float = 18.0
 var owner_color: Color = Color(1.0, 1.0, 1.0)
@@ -17,10 +33,13 @@ var _tex: Texture2D = null
 var _sprite_key: String = ""
 var _sprite_scale: float = 1.0
 var _sprite_offset: Vector2 = Vector2.ZERO
+var _nine: NinePatchRect = null
+var _shader_mat: ShaderMaterial = null
+var _current_size: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
-	material = ShaderMaterial.new()
-	material.shader = COLORKEY_SHADER
+	_ensure_nine_patch()
+	_ensure_shader_material()
 
 func configure(owner_id_value: int, color: Color, radius: float, power_value: int, font_size_value: int, kind_value: String = "Hive") -> void:
 	owner_id = owner_id_value
@@ -51,8 +70,9 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 	_sprite_key = key
 	_sprite_scale = registry.get_scale(key) if registry != null else 1.0
 	_sprite_offset = registry.get_offset(key) if registry != null else Vector2.ZERO
-	if material is ShaderMaterial:
-		var mat := material as ShaderMaterial
+	_ensure_shader_material()
+	if _shader_mat != null:
+		var mat := _shader_mat
 		var ck_color := Color(0.0, 0.0, 0.0, 1.0)
 		var ck_threshold := 0.28
 		var ck_softness := 0.10
@@ -71,20 +91,18 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 			"Hive sprite missing key=" + key + " kind=" + hive_kind + " power=" + str(power) + " owner_id=" + str(owner_id),
 			SFLog.Level.WARN
 		)
-	queue_redraw()
-
-func _draw() -> void:
-	SFLog.log_once("HIVEVIS_DRAW", "HiveVisual._draw ran", SFLog.Level.INFO)
-	if _tex != null:
+	elif _tex != null:
 		SFLog.log_once(
 			"HIVE_TEX_INFO",
 			_hive_tex_debug(_tex, _sprite_key, _sprite_scale, _sprite_offset),
 			SFLog.Level.INFO
 		)
-		var size := Vector2(radius_px * 2.0, radius_px * 2.0) * _sprite_scale
-		var rect := Rect2(-size * 0.5 + _sprite_offset, size)
-		draw_texture_rect(_tex, rect, false)
-	else:
+	_apply_nine_patch()
+	queue_redraw()
+
+func _draw() -> void:
+	SFLog.log_once("HIVEVIS_DRAW", "HiveVisual._draw ran", SFLog.Level.INFO)
+	if _tex == null:
 		draw_circle(Vector2.ZERO, radius_px, owner_color)
 	var font: Font = ThemeDB.fallback_font
 	if font == null:
@@ -99,6 +117,86 @@ func _draw() -> void:
 	if debug_show_kind_label:
 		var kind_pos := pos + Vector2(0.0, font_size * 1.2)
 		draw_string(font, kind_pos, hive_kind, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
+func _ensure_nine_patch() -> void:
+	if _nine != null and is_instance_valid(_nine):
+		return
+	var existing := get_node_or_null("HiveNinePatch")
+	if existing is NinePatchRect:
+		_nine = existing as NinePatchRect
+		return
+	var nine := NinePatchRect.new()
+	nine.name = "HiveNinePatch"
+	nine.anchor_left = 0.0
+	nine.anchor_top = 0.0
+	nine.anchor_right = 0.0
+	nine.anchor_bottom = 0.0
+	nine.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	nine.z_index = -1
+	add_child(nine)
+	_nine = nine
+
+func _ensure_shader_material() -> void:
+	if _shader_mat == null:
+		_shader_mat = ShaderMaterial.new()
+		_shader_mat.shader = COLORKEY_SHADER
+	if _nine != null and is_instance_valid(_nine):
+		_nine.material = _shader_mat
+
+func _resolve_tier(power_value: int) -> int:
+	if power_value >= TIER_4_MIN_POWER:
+		return 4
+	if power_value >= TIER_3_MIN_POWER:
+		return 3
+	if power_value >= TIER_2_MIN_POWER:
+		return 2
+	return 1
+
+func _height_for_tier(base_height: float, tier: int) -> float:
+	var small_h := height_small_px if height_small_px > 0.0 else base_height
+	var med_h := height_med_px if height_med_px > 0.0 else base_height * HEIGHT_MED_SCALE
+	var large_h := height_large_px if height_large_px > 0.0 else base_height * HEIGHT_LARGE_SCALE
+	var max_h := height_max_px if height_max_px > 0.0 else base_height * HEIGHT_MAX_SCALE
+	match tier:
+		4:
+			return max_h
+		3:
+			return large_h
+		2:
+			return med_h
+		_:
+			return small_h
+
+func _apply_nine_patch() -> void:
+	_ensure_nine_patch()
+	_ensure_shader_material()
+	if _nine == null or not is_instance_valid(_nine):
+		return
+	_nine.texture = _tex
+	_nine.visible = _tex != null
+	_nine.patch_margin_left = 0
+	_nine.patch_margin_right = 0
+	var top := nine_margin_top
+	var bottom := nine_margin_bottom
+	if _tex != null:
+		var tex_h := int(_tex.get_height())
+		if tex_h > 0:
+			top = int(clamp(top, 0, tex_h - 1))
+			bottom = int(clamp(bottom, 0, tex_h - 1))
+			if top + bottom >= tex_h:
+				bottom = max(0, tex_h - top - 1)
+	_nine.patch_margin_top = top
+	_nine.patch_margin_bottom = bottom
+	_nine.set("axis_stretch_horizontal", NINEPATCH_STRETCH)
+	_nine.set("axis_stretch_vertical", NINEPATCH_TILE)
+
+	var legacy_size := Vector2(radius_px * 2.0, radius_px * 2.0) * _sprite_scale
+	var width := base_width_px if base_width_px > 0.0 else legacy_size.x
+	var base_height := height_small_px if height_small_px > 0.0 else legacy_size.y
+	var height := _height_for_tier(base_height, _resolve_tier(power))
+	_current_size = Vector2(width, height)
+	_nine.size = _current_size
+	_nine.position = Vector2(-width * 0.5, -height * 0.5) + _sprite_offset
 
 func _hive_tex_debug(tex: Texture2D, key: String, scale: float, offset: Vector2) -> String:
 	var region_enabled := false

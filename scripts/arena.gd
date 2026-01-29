@@ -113,6 +113,7 @@ var _last_barracks_export_log_ms: int = 0
 @onready var unit_renderer: Node2D = $MapRoot/UnitRenderer
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
+@onready var power_bar: PowerBar = get_node_or_null("../HUDCanvasLayer/PowerBar") as PowerBar
 @onready var buffs_label: Label = get_node_or_null("../UI/BuffsLabel") as Label
 @onready var outcome_overlay: OutcomeOverlay = get_node_or_null("../UI/OutcomeOverlay") as OutcomeOverlay
 @onready var win_overlay: WinOverlay = get_node_or_null("../UI/WinOverlay") as WinOverlay
@@ -149,6 +150,7 @@ var _prematch_remaining_ms_f: float = 0.0
 var _prematch_last_sec: int = -1
 var _prematch_records_faded: bool = false
 var _prematch_countdown_faded: bool = false
+var _power_bar_reveal_started: bool = false
 var _prematch_ui_bind_logged: bool = false
 var _prematch_ui_state_logged: bool = false
 var _match_started: bool = false
@@ -244,6 +246,12 @@ func _ready() -> void:
 	SFLog.info("ARENA_READY", {"process": is_processing()})
 	add_to_group("Arena")
 	self.scale = Vector2.ONE
+	SFLog.info("POWER_BAR_REF", {"exists": power_bar != null, "path": power_bar.get_path() if power_bar != null else "<null>"})
+	if power_bar == null:
+		SFLog.error("POWER_BAR_BIND_FAIL", {"path": "../HUDCanvasLayer/PowerBar"})
+	else:
+		SFLog.info("POWER_BAR_BOUND", {"path": power_bar.get_path(), "inside_tree": power_bar.is_inside_tree()})
+		power_bar.prepare_hidden()
 	var dmr := get_node_or_null("/root/DevMapRunner")
 	if dmr:
 		for c in dmr.get_children():
@@ -358,6 +366,9 @@ func _begin_prematch() -> void:
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
+	_power_bar_reveal_started = false
+	if power_bar != null:
+		power_bar.prepare_hidden()
 	_show_prematch_ui()
 	if sim_runner != null:
 		sim_runner.set_running(false, "prematch_hold")
@@ -593,6 +604,13 @@ func _finish_prematch() -> void:
 	_start_match_sim("prematch_complete")
 	SFLog.info("INPUT_UNLOCKED", {"reason": "prematch_complete"})
 
+func _begin_power_bar_reveal() -> void:
+	if _power_bar_reveal_started:
+		return
+	_power_bar_reveal_started = true
+	if power_bar != null:
+		power_bar.reveal_with_tween()
+
 func _start_match_sim(reason: String) -> void:
 	if _match_started:
 		return
@@ -603,6 +621,9 @@ func _start_match_sim(reason: String) -> void:
 		sim_runner.set_running(true, reason)
 		sim_runner.log_pause_snapshot("arena_match_start")
 	SFLog.info("MATCH_STARTED", {"iid": iid, "reason": reason})
+	if power_bar != null:
+		SFLog.info("POWER_BAR_REVEAL_REQUEST", {"path": power_bar.get_path()})
+		power_bar.reveal_with_tween()
 
 func _init_systems() -> void:
 	api = ArenaAPI.new(self)
@@ -1219,6 +1240,7 @@ func _process(delta: float) -> void:
 		input_system.tick(delta, api)
 		_sync_inputs_locked_from_state()
 	_update_timer_ui()
+	_update_power_bar(delta)
 	if tie_toast != null and tie_toast_ms > 0.0:
 		tie_toast_ms = max(0.0, tie_toast_ms - delta * 1000.0)
 		if tie_toast_ms <= 0.0:
@@ -1226,6 +1248,11 @@ func _process(delta: float) -> void:
 	_update_win_overlay()
 	_update_selection_hud()
 	_update_buff_ui()
+
+func _update_power_bar(delta: float) -> void:
+	if power_bar == null:
+		return
+	power_bar.tick(delta, state)
 
 func _sync_inputs_locked_from_state() -> void:
 	if input_system == null:

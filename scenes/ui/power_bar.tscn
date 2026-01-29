@@ -1,0 +1,73 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/power_bar.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/ui/power_bar/power_bar_4p_base.png" id="2"]
+
+[node name="PowerBar" type="Control"]
+anchor_left = 0.5
+anchor_top = 0.0
+anchor_right = 0.5
+anchor_bottom = 0.0
+offset_left = -200.0
+offset_top = 8.0
+offset_right = 200.0
+offset_bottom = 72.0
+mouse_filter = 2
+script = ExtResource("1")
+base_texture = ExtResource("2")
+
+[node name="FillLayer" type="Control" parent="."]
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+clip_contents = true
+mouse_filter = 2
+
+[node name="Ghosts" type="Control" parent="FillLayer"]
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="GhostP1" type="ColorRect" parent="FillLayer/Ghosts"]
+mouse_filter = 2
+
+[node name="GhostP2" type="ColorRect" parent="FillLayer/Ghosts"]
+mouse_filter = 2
+
+[node name="GhostP3" type="ColorRect" parent="FillLayer/Ghosts"]
+mouse_filter = 2
+
+[node name="GhostP4" type="ColorRect" parent="FillLayer/Ghosts"]
+mouse_filter = 2
+
+[node name="Fills" type="Control" parent="FillLayer"]
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="FillP1" type="ColorRect" parent="FillLayer/Fills"]
+mouse_filter = 2
+
+[node name="FillP2" type="ColorRect" parent="FillLayer/Fills"]
+mouse_filter = 2
+
+[node name="FillP3" type="ColorRect" parent="FillLayer/Fills"]
+mouse_filter = 2
+
+[node name="FillP4" type="ColorRect" parent="FillLayer/Fills"]
+mouse_filter = 2
+
+[node name="Frame" type="TextureRect" parent="."]
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+texture = ExtResource("2")
+stretch_mode = 0
+expand_mode = 1

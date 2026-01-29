@@ -5,6 +5,7 @@
 [ext_resource type="Script" path="res://scripts/ui/control_bar.gd" id="3"]
 [ext_resource type="Script" path="res://scripts/ui/outcome_overlay.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/ui/selection_hud.gd" id="5"]
+[ext_resource type="PackedScene" path="res://scenes/ui/power_bar.tscn" id="8"]
 [ext_resource type="PackedScene" uid="uid://dhto58tjsse07" path="res://scenes/dev/DevMapLoader.tscn" id="6_syj60"]
 [ext_resource type="Script" path="res://scripts/ui/win_overlay.gd" id="7"]
 
@@ -36,6 +37,12 @@ offset_top = 24.0
 offset_right = 40.0
 offset_bottom = 48.0
 text = "0:59"
+
+
+[node name="HUDCanvasLayer" type="CanvasLayer" parent="."]
+layer = 60
+
+[node name="PowerBar" parent="HUDCanvasLayer" instance=ExtResource("8")]
 
 [node name="TieToast" type="Label" parent="UI"]
 visible = false

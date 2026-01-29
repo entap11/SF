@@ -51,13 +51,13 @@ text = "SWARMFRONT"
 horizontal_alignment = 1
 
 [node name="PlayButton" type="Button" parent="MenuRoot/MenuPanel/VBox"]
-layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
 text = "PLAY"
 
 [node name="DevButton" type="Button" parent="MenuRoot/MenuPanel/VBox"]
-layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
 text = "DEV"
 
 [node name="BackButton" type="Button" parent="MenuRoot"]
