@@ -20,8 +20,7 @@ const TIER_4_MIN_POWER := 50
 const HEIGHT_MED_SCALE := 1.10
 const HEIGHT_LARGE_SCALE := 1.20
 const HEIGHT_MAX_SCALE := 1.30
-const NINEPATCH_STRETCH := 0
-const NINEPATCH_TILE := 1
+const HIVE_VISUAL_SCALE := 2.0
 
 var radius_px: float = 18.0
 var owner_color: Color = Color(1.0, 1.0, 1.0)
@@ -33,15 +32,18 @@ var _tex: Texture2D = null
 var _sprite_key: String = ""
 var _sprite_scale: float = 1.0
 var _sprite_offset: Vector2 = Vector2.ZERO
-var _nine: NinePatchRect = null
+var _sprite: Sprite2D = null
 var _shader_mat: ShaderMaterial = null
 var _current_size: Vector2 = Vector2.ZERO
+var _base_scale: Vector2 = Vector2.ONE
 
 func _ready() -> void:
-	_ensure_nine_patch()
+	_ensure_sprite()
 	_ensure_shader_material()
+	_base_scale = scale * HIVE_VISUAL_SCALE
 
 func configure(owner_id_value: int, color: Color, radius: float, power_value: int, font_size_value: int, kind_value: String = "Hive") -> void:
+	scale = _base_scale
 	owner_id = owner_id_value
 	owner_color = color
 	radius_px = radius
@@ -97,7 +99,7 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 			_hive_tex_debug(_tex, _sprite_key, _sprite_scale, _sprite_offset),
 			SFLog.Level.INFO
 		)
-	_apply_nine_patch()
+	_apply_sprite()
 	queue_redraw()
 
 func _draw() -> void:
@@ -118,30 +120,26 @@ func _draw() -> void:
 		var kind_pos := pos + Vector2(0.0, font_size * 1.2)
 		draw_string(font, kind_pos, hive_kind, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
-func _ensure_nine_patch() -> void:
-	if _nine != null and is_instance_valid(_nine):
+func _ensure_sprite() -> void:
+	if _sprite != null and is_instance_valid(_sprite):
 		return
-	var existing := get_node_or_null("HiveNinePatch")
-	if existing is NinePatchRect:
-		_nine = existing as NinePatchRect
+	var existing := get_node_or_null("HiveSprite")
+	if existing is Sprite2D:
+		_sprite = existing as Sprite2D
 		return
-	var nine := NinePatchRect.new()
-	nine.name = "HiveNinePatch"
-	nine.anchor_left = 0.0
-	nine.anchor_top = 0.0
-	nine.anchor_right = 0.0
-	nine.anchor_bottom = 0.0
-	nine.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	nine.z_index = -1
-	add_child(nine)
-	_nine = nine
+	var sprite := Sprite2D.new()
+	sprite.name = "HiveSprite"
+	sprite.centered = true
+	sprite.z_index = -1
+	add_child(sprite)
+	_sprite = sprite
 
 func _ensure_shader_material() -> void:
 	if _shader_mat == null:
 		_shader_mat = ShaderMaterial.new()
 		_shader_mat.shader = COLORKEY_SHADER
-	if _nine != null and is_instance_valid(_nine):
-		_nine.material = _shader_mat
+	if _sprite != null and is_instance_valid(_sprite):
+		_sprite.material = _shader_mat
 
 func _resolve_tier(power_value: int) -> int:
 	if power_value >= TIER_4_MIN_POWER:
@@ -167,36 +165,26 @@ func _height_for_tier(base_height: float, tier: int) -> float:
 		_:
 			return small_h
 
-func _apply_nine_patch() -> void:
-	_ensure_nine_patch()
+func _apply_sprite() -> void:
+	_ensure_sprite()
 	_ensure_shader_material()
-	if _nine == null or not is_instance_valid(_nine):
+	if _sprite == null or not is_instance_valid(_sprite):
 		return
-	_nine.texture = _tex
-	_nine.visible = _tex != null
-	_nine.patch_margin_left = 0
-	_nine.patch_margin_right = 0
-	var top := nine_margin_top
-	var bottom := nine_margin_bottom
-	if _tex != null:
-		var tex_h := int(_tex.get_height())
-		if tex_h > 0:
-			top = int(clamp(top, 0, tex_h - 1))
-			bottom = int(clamp(bottom, 0, tex_h - 1))
-			if top + bottom >= tex_h:
-				bottom = max(0, tex_h - top - 1)
-	_nine.patch_margin_top = top
-	_nine.patch_margin_bottom = bottom
-	_nine.set("axis_stretch_horizontal", NINEPATCH_STRETCH)
-	_nine.set("axis_stretch_vertical", NINEPATCH_TILE)
-
+	_sprite.texture = _tex
+	_sprite.visible = _tex != null
+	_sprite.position = _sprite_offset
+	if _tex == null:
+		return
 	var legacy_size := Vector2(radius_px * 2.0, radius_px * 2.0) * _sprite_scale
 	var width := base_width_px if base_width_px > 0.0 else legacy_size.x
 	var base_height := height_small_px if height_small_px > 0.0 else legacy_size.y
 	var height := _height_for_tier(base_height, _resolve_tier(power))
 	_current_size = Vector2(width, height)
-	_nine.size = _current_size
-	_nine.position = Vector2(-width * 0.5, -height * 0.5) + _sprite_offset
+	var tex_size := Vector2(float(_tex.get_width()), float(_tex.get_height()))
+	if tex_size.x > 0.0 and tex_size.y > 0.0:
+		_sprite.scale = Vector2(_current_size.x / tex_size.x, _current_size.y / tex_size.y)
+	else:
+		_sprite.scale = Vector2.ONE
 
 func _hive_tex_debug(tex: Texture2D, key: String, scale: float, offset: Vector2) -> String:
 	var region_enabled := false

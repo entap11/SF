@@ -272,12 +272,48 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 			units[a_idx] = a
 			units[b_idx] = b
 			if kill > 0:
-				SFLog.info("UNIT_COLLISION", {
+				var front_t: float = float(collision_t)
+				var from_pos_v: Variant = a.get("from_pos")
+				var to_pos_v: Variant = a.get("to_pos")
+				var p0: Vector2 = Vector2.ZERO
+				var p1: Vector2 = Vector2.ZERO
+				var has_geom: bool = false
+				if from_pos_v is Vector2 and to_pos_v is Vector2:
+					p0 = from_pos_v
+					p1 = to_pos_v
+					has_geom = true
+				else:
+					from_pos_v = b.get("from_pos")
+					to_pos_v = b.get("to_pos")
+					if from_pos_v is Vector2 and to_pos_v is Vector2:
+						p0 = from_pos_v
+						p1 = to_pos_v
+						has_geom = true
+				if has_geom:
+					var impact: Vector2 = p0.lerp(p1, front_t)
+					SFLog.info("UNIT_COLLISION_GEOM", {
+						"lane_id": lane_id,
+						"p0": p0,
+						"p1": p1,
+						"front_t": front_t,
+						"impact": impact,
+						"at_us": now_us
+					})
+				SFLog.info("UNIT_COLLISION_PRE", {
 					"lane_id": lane_id,
-					"a_amt": a_before,
-					"b_amt": b_before,
+					"a_before": a_before,
+					"b_before": b_before,
 					"kill": kill,
-					"at_us": now_us
+					"at_us": now_us,
+					"front_t": front_t
+				})
+				SFLog.info("UNIT_COLLISION_POST", {
+					"lane_id": lane_id,
+					"a_after": a_amt,
+					"b_after": b_amt,
+					"killed": kill,
+					"at_us": now_us,
+					"front_t": collision_t
 				})
 			if a_amt <= 0:
 				_mark_unit_remove(a_idx, remove_indices, remove_set)

@@ -4,17 +4,22 @@
 [ext_resource type="Texture2D" path="res://assets/ui/power_bar/power_bar_4p_base.png" id="2"]
 
 [node name="PowerBar" type="Control"]
-anchor_left = 0.5
-anchor_top = 0.0
-anchor_right = 0.5
-anchor_bottom = 0.0
-offset_left = -200.0
-offset_top = 8.0
-offset_right = 200.0
-offset_bottom = 72.0
+anchor_left = 0.06
+anchor_top = 0.02
+anchor_right = 0.94
+anchor_bottom = 0.12
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 0.0
+offset_bottom = 0.0
 mouse_filter = 2
 script = ExtResource("1")
 base_texture = ExtResource("2")
+top_margin_px = 24.0
+height_scale_ratio = 0.25
+max_width_ratio = 0.85
+min_scale = 0.45
+max_scale = 0.85
 
 [node name="FillLayer" type="Control" parent="."]
 anchor_left = 0.0
@@ -31,35 +36,11 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 
-[node name="GhostP1" type="ColorRect" parent="FillLayer/Ghosts"]
-mouse_filter = 2
-
-[node name="GhostP2" type="ColorRect" parent="FillLayer/Ghosts"]
-mouse_filter = 2
-
-[node name="GhostP3" type="ColorRect" parent="FillLayer/Ghosts"]
-mouse_filter = 2
-
-[node name="GhostP4" type="ColorRect" parent="FillLayer/Ghosts"]
-mouse_filter = 2
-
 [node name="Fills" type="Control" parent="FillLayer"]
 anchor_left = 0.0
 anchor_top = 0.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-mouse_filter = 2
-
-[node name="FillP1" type="ColorRect" parent="FillLayer/Fills"]
-mouse_filter = 2
-
-[node name="FillP2" type="ColorRect" parent="FillLayer/Fills"]
-mouse_filter = 2
-
-[node name="FillP3" type="ColorRect" parent="FillLayer/Fills"]
-mouse_filter = 2
-
-[node name="FillP4" type="ColorRect" parent="FillLayer/Fills"]
 mouse_filter = 2
 
 [node name="Frame" type="TextureRect" parent="."]

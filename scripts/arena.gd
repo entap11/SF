@@ -857,6 +857,7 @@ func _notification(what: int) -> void:
 func _on_viewport_size_changed() -> void:
 	fitcam_once()
 	_center_match_timer()
+	_snap_power_bar_to_map_top("viewport_resize")
 
 func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 	var cell_px := _cell_px()
@@ -1128,6 +1129,7 @@ func on_map_built() -> void:
 	mark_render_dirty("map_built")
 	_debug_map_bounds("map_built")
 	_debug_camera("map_built")
+	_snap_power_bar_to_map_top("map_built")
 
 func fitcam_once() -> void:
 	if _map_built_version < 0:
@@ -1136,6 +1138,7 @@ func fitcam_once() -> void:
 		return
 	_fit_applied_serial = _fit_serial
 	_apply_canon_camera_fit("fitcam_once")
+	_snap_power_bar_to_map_top("fitcam_once")
 
 func _fitcam_verify_next_frame() -> void:
 	var cam := $Camera2D
@@ -1253,6 +1256,13 @@ func _update_power_bar(delta: float) -> void:
 	if power_bar == null:
 		return
 	power_bar.tick(delta, state)
+
+func _snap_power_bar_to_map_top(reason: String = "") -> void:
+	if power_bar == null or camera == null or map_root == null:
+		return
+	var bounds := _compute_map_root_bounds()
+	var map_top_world_y: float = map_root.global_position.y + bounds.position.y
+	power_bar.snap_to_play_surface(camera, map_top_world_y, 8.0)
 
 func _sync_inputs_locked_from_state() -> void:
 	if input_system == null:

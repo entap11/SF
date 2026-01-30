@@ -19,9 +19,11 @@ var _sprite_registry: SpriteRegistry = null
 var _colorkey_materials: Dictionary = {}
 var _unit_material_by_sprite: Dictionary = {}
 var _unit_colorkey_logged := false
+var _unit_sprite_logged := false
 
 const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
+const UNIT_RENDER_SCALE: float = 3.0
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const UNIT_COLOR := Color(1.0, 1.0, 1.0, 0.9)
 const DEBUG_HIVE1_CROSS := false
@@ -350,8 +352,14 @@ func _draw() -> void:
 			tex = registry.get_tex(key)
 			scale = registry.get_scale(key)
 			offset = registry.get_offset(key)
+			if tex != null and not _unit_sprite_logged:
+				_unit_sprite_logged = true
+				SFLog.info("UNIT_SPRITE_RESOLVED", {
+					"key": key,
+					"path": str(tex.resource_path)
+				})
 		if tex != null:
-			var size_px := debug_force_big_radius_px * 2.0 * scale
+			var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
 			var size := Vector2(size_px, size_px)
 			var rect := Rect2(pos_v - size * 0.5 + offset, size)
 			draw_texture_rect(tex, rect, false)

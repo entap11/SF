@@ -37,54 +37,72 @@
     "ui.mm.settings.pressed": "res://assets/sprites/sf_skin_v1/settings_final.png",
     "ui.mm.settings.disabled": "res://assets/sprites/sf_skin_v1/settings_final.png",
     "hive.small.neutral": {
-      "path": "res://assets/sprites/sf_skin_v1/small_hive.png",
-      "scale": 1.3,
-      "region": {
-        "x": 487,
-        "y": 420,
-        "w": 562,
-        "h": 284
-      }
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_final.png",
+      "scale": 1.3
     },
     "hive.small.p1": {
-      "path": "res://assets/sprites/sf_skin_v1/small_hive.png",
-      "scale": 1.3,
-      "region": {
-        "x": 487,
-        "y": 420,
-        "w": 562,
-        "h": 284
-      }
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_final.png",
+      "scale": 1.3
     },
     "hive.small.p2": {
-      "path": "res://assets/sprites/sf_skin_v1/small_hive.png",
-      "scale": 1.3,
-      "region": {
-        "x": 487,
-        "y": 420,
-        "w": 562,
-        "h": 284
-      }
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_final.png",
+      "scale": 1.3
     },
     "hive.small.p3": {
-      "path": "res://assets/sprites/sf_skin_v1/small_hive.png",
-      "scale": 1.3,
-      "region": {
-        "x": 487,
-        "y": 420,
-        "w": 562,
-        "h": 284
-      }
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_final.png",
+      "scale": 1.3
     },
     "hive.small.p4": {
-      "path": "res://assets/sprites/sf_skin_v1/small_hive.png",
-      "scale": 1.3,
-      "region": {
-        "x": 487,
-        "y": 420,
-        "w": 562,
-        "h": 284
-      }
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_final.png",
+      "scale": 1.3
+    },
+    "hive.med.neutral": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_final.png",
+      "scale": 1.3
+    },
+    "hive.med.p1": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_final.png",
+      "scale": 1.3
+    },
+    "hive.med.p2": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_final.png",
+      "scale": 1.3
+    },
+    "hive.med.p3": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_final.png",
+      "scale": 1.3
+    },
+    "hive.med.p4": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_final.png",
+      "scale": 1.3
+    },
+    "hive.large.neutral": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_final.png",
+      "scale": 1.3
+    },
+    "hive.large.p1": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_final.png",
+      "scale": 1.3
+    },
+    "hive.large.p2": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_final.png",
+      "scale": 1.3
+    },
+    "hive.large.p3": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_final.png",
+      "scale": 1.3
+    },
+    "hive.large.p4": {
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_final.png",
+      "scale": 1.3
+    },
+    "lane.segment": {
+      "path": "res://assets/sprites/sf_skin_v1/lane_final.png",
+      "scale": 1.0
+    },
+    "lane.connector": {
+      "path": "res://assets/sprites/sf_skin_v1/lane_final.png",
+      "scale": 1.0
     },
     "barracks.base.neutral": {
       "path": "res://assets/sprites/sf_skin_v1/barracks.PNG",
@@ -127,24 +145,39 @@
       "scale": 8.0
     },
     "unit.neutral": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_rendered_alpha.png",
-      "scale": 1.0
+      "path": "res://assets/sprites/sf_skin_v1/unit_final.png",
+      "scale": 1.0,
+      "key_color": "#ffffff",
+      "threshold": 0.12,
+      "softness": 0.06
     },
     "unit.p1": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_rendered_alpha.png",
-      "scale": 1.0
+      "path": "res://assets/sprites/sf_skin_v1/unit_final.png",
+      "scale": 1.0,
+      "key_color": "#ffffff",
+      "threshold": 0.12,
+      "softness": 0.06
     },
     "unit.p2": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_rendered_alpha.png",
-      "scale": 1.0
+      "path": "res://assets/sprites/sf_skin_v1/unit_final.png",
+      "scale": 1.0,
+      "key_color": "#ffffff",
+      "threshold": 0.12,
+      "softness": 0.06
     },
     "unit.p3": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_rendered_alpha.png",
-      "scale": 1.0
+      "path": "res://assets/sprites/sf_skin_v1/unit_final.png",
+      "scale": 1.0,
+      "key_color": "#ffffff",
+      "threshold": 0.12,
+      "softness": 0.06
     },
     "unit.p4": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_rendered_alpha.png",
-      "scale": 1.0
+      "path": "res://assets/sprites/sf_skin_v1/unit_final.png",
+      "scale": 1.0,
+      "key_color": "#ffffff",
+      "threshold": 0.12,
+      "softness": 0.06
     }
   }
 }

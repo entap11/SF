@@ -492,7 +492,7 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"intent": intent
 		})
 
-	_apply_lane_intent(lane, src_hive_id, dst_hive_id, enable)
+	_apply_lane_intent(lane, src_hive_id, dst_hive_id, enable, intent)
 	result["ok"] = true
 
 	var log_intent := intent if enable else "none"
@@ -503,6 +503,10 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		"lane_id": int(lane.id),
 		"a_id": int(lane.a_id),
 		"b_id": int(lane.b_id),
+		"src": int(src_hive_id),
+		"dst": int(dst_hive_id),
+		"src_is_a": src_hive_id == int(lane.a_id),
+		"src_is_b": src_hive_id == int(lane.b_id),
 		"send_a": bool(lane.send_a),
 		"send_b": bool(lane.send_b),
 		"intent": log_intent
@@ -512,17 +516,21 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	return result
 
 
-func _apply_lane_intent(lane: LaneData, src_id: int, dst_id: int, enable: bool) -> void:
+func _apply_lane_intent(lane: LaneData, src_id: int, dst_id: int, enable: bool, intent: String) -> void:
 	var st: GameState = require_state()
 	var a: HiveData = st.find_hive_by_id(int(lane.a_id))
 	var b: HiveData = st.find_hive_by_id(int(lane.b_id))
 	if a == null or b == null:
 		return
-	var was_send_a := lane.send_a
-	var was_send_b := lane.send_b
-	var mode := _lane_mode(a, b)
-	if src_id == int(lane.a_id) and dst_id == int(lane.b_id):
-		lane.send_a = enable
+	var was_send_a: bool = bool(lane.send_a)
+	var was_send_b: bool = bool(lane.send_b)
+	var is_a_to_b: bool = src_id == int(lane.a_id) and dst_id == int(lane.b_id)
+	var is_b_to_a: bool = src_id == int(lane.b_id) and dst_id == int(lane.a_id)
+	if is_a_to_b:
+		if enable:
+			lane.send_a = lane.send_a or (src_id == int(lane.a_id))
+		else:
+			lane.send_a = false
 		if enable:
 			lane.dir = 1
 			lane.retract_a = false
@@ -531,13 +539,13 @@ func _apply_lane_intent(lane: LaneData, src_id: int, dst_id: int, enable: bool) 
 				lane.a_stream_len = 0.0
 		else:
 			lane.establish_a = false
-		if mode == "friendly" and enable:
+		if enable and intent == "feed":
 			lane.send_b = false
-			lane.retract_b = false
-			lane.establish_b = false
-			lane.dir = 1
-	elif src_id == int(lane.b_id) and dst_id == int(lane.a_id):
-		lane.send_b = enable
+	elif is_b_to_a:
+		if enable:
+			lane.send_b = lane.send_b or (src_id == int(lane.b_id))
+		else:
+			lane.send_b = false
 		if enable:
 			lane.dir = -1
 			lane.retract_b = false
@@ -546,11 +554,8 @@ func _apply_lane_intent(lane: LaneData, src_id: int, dst_id: int, enable: bool) 
 				lane.b_stream_len = 0.0
 		else:
 			lane.establish_b = false
-		if mode == "friendly" and enable:
+		if enable and intent == "feed":
 			lane.send_a = false
-			lane.retract_a = false
-			lane.establish_a = false
-			lane.dir = -1
 
 func apply_intent_pair(start_id: int, end_id: int) -> bool:
 	return request_intent_attack(start_id, end_id)

@@ -10,7 +10,8 @@
 [ext_resource type="Script" path="res://scripts/renderers/barracks_renderer.gd" id="8"]
 [ext_resource type="Script" path="res://scripts/renderers/barracks_ground_glow_renderer.gd" id="9"]
 [ext_resource type="Script" path="res://scripts/renderers/floor_renderer.gd" id="10"]
-[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/arena_underlayment_art.PNG" id="11"]
+[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/arena_floor.PNG" id="11"]
+[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/floor_sprite_final.jpg" id="12"]
 
 [sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_1"]
 blend_mode = 1
@@ -24,6 +25,15 @@ script = ExtResource("1")
 z_index = -20
 script = ExtResource("10")
 floor_texture = ExtResource("11")
+overlay_texture = ExtResource("12")
+
+[node name="BaseFloor" type="Sprite2D" parent="MapRoot/FloorRenderer"]
+centered = true
+z_index = 0
+
+[node name="FloorOverlay" type="Sprite2D" parent="MapRoot/FloorRenderer"]
+centered = true
+z_index = 1
 
 [node name="TowerGroundGlowRenderer" type="Node2D" parent="MapRoot"]
 z_index = -10

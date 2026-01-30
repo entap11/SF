@@ -43,6 +43,14 @@ text = "0:59"
 layer = 60
 
 [node name="PowerBar" parent="HUDCanvasLayer" instance=ExtResource("8")]
+anchor_left = 0.5
+anchor_top = 0.0
+anchor_right = 0.5
+anchor_bottom = 0.0
+offset_left = -475.2
+offset_top = 10.0
+offset_right = 475.2
+offset_bottom = 202.0
 
 [node name="TieToast" type="Label" parent="UI"]
 visible = false

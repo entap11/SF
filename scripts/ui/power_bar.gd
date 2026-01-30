@@ -8,6 +8,7 @@ const P2_COLOR: Color = Color(0.25, 0.95, 0.35, 0.95)
 const P3_COLOR: Color = Color(0.15, 0.45, 0.95, 0.95)
 const P4_COLOR: Color = Color(0.95, 0.20, 0.20, 0.95)
 const PLAYER_COLORS: Array[Color] = [P1_COLOR, P2_COLOR, P3_COLOR, P4_COLOR]
+const DEFAULT_TOP_PX := 10.0 # tweak to taste (we can wire to play-surface later)
 
 @export var base_texture: Texture2D
 @export var top_margin_px: float = 16.0
@@ -63,6 +64,7 @@ func _ready() -> void:
 	_build_node_lists()
 	_apply_base_size()
 	_update_scale()
+	_apply_layout(DEFAULT_TOP_PX)
 	_prepare_hidden()
 	var viewport: Viewport = get_viewport()
 	if viewport != null and not viewport.size_changed.is_connected(_on_viewport_size_changed):
@@ -148,6 +150,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _on_viewport_size_changed() -> void:
 	_update_scale()
+	_sync_layer_sizes()
 
 func _build_node_lists() -> void:
 	_fill_nodes.clear()
@@ -173,20 +176,54 @@ func _apply_base_size() -> void:
 	var height_ratio: float = clamp(height_scale_ratio, 0.1, 1.0)
 	var draw_size: Vector2 = Vector2(tex_size.x, tex_size.y * height_ratio)
 	custom_minimum_size = draw_size
-	size = draw_size
+	_base_offset_top = offset_top
+	_base_offset_bottom = offset_bottom
+	_sync_layer_sizes()
+
+func _sync_layer_sizes() -> void:
+	var bar_size: Vector2 = size
+	if bar_size.x <= 0.0 or bar_size.y <= 0.0:
+		bar_size = custom_minimum_size
+	fill_layer.size = bar_size
+	frame.size = bar_size
+	pivot_offset = bar_size * 0.5
+
+func _apply_layout(top: float) -> void:
+	# Ensure we are centered in X regardless of whatever the .tscn offsets are.
 	anchor_left = 0.5
 	anchor_right = 0.5
 	anchor_top = 0.0
 	anchor_bottom = 0.0
-	offset_left = -draw_size.x * 0.5
-	offset_right = draw_size.x * 0.5
-	offset_top = top_margin_px
-	offset_bottom = top_margin_px + draw_size.y
+
+	var bar_w: float = float(custom_minimum_size.x)
+	var bar_h: float = float(custom_minimum_size.y)
+
+	var vp_w: float = get_viewport_rect().size.x
+	var margin: float = 16.0
+	var max_w: float = maxf(0.0, vp_w - margin * 2.0)
+
+	# Keep height, but scale down uniformly if too wide.
+	var fit_scale: float = 1.0
+	if bar_w > max_w and bar_w > 0.0:
+		fit_scale = max_w / bar_w
+
+	var fit_size: Vector2 = Vector2(bar_w, bar_h) * fit_scale
+	custom_minimum_size = fit_size
+	size = fit_size
+	frame.size = fit_size
+	fill_layer.size = fit_size
+
+	# Center horizontally by symmetric offsets around anchor 0.5
+	offset_left = -fit_size.x * 0.5
+	offset_right = fit_size.x * 0.5
+
+	# Vertical placement
+	offset_top = top
+	offset_bottom = top + fit_size.y
+
+	# Preserve your slide/tween baseline
 	_base_offset_top = offset_top
 	_base_offset_bottom = offset_bottom
-	pivot_offset = draw_size * 0.5
-	fill_layer.size = draw_size
-	frame.size = draw_size
 
 func _update_scale() -> void:
 	if base_texture == null:
@@ -201,7 +238,14 @@ func _update_scale() -> void:
 	var max_w: float = vp_size.x * max_width_ratio
 	var target_scale: float = max_w / tex_w
 	target_scale = clamp(target_scale, min_scale, max_scale)
-	scale = Vector2(target_scale, target_scale)
+	pass
+
+func snap_to_play_surface(camera: Camera2D, map_top_world_y: float, margin_px: float = 8.0) -> void:
+	if camera == null:
+		return
+	var top_screen_y: float = camera.project_position(Vector2(0.0, map_top_world_y)).y
+	var top: float = top_screen_y + margin_px
+	_apply_layout(top)
 
 func _refresh_from_state() -> void:
 	if _state == null:
