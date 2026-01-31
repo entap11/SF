@@ -13,10 +13,14 @@ const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 @export var height_med_px: float = 0.0
 @export var height_large_px: float = 0.0
 @export var height_max_px: float = 0.0
+@export var debug_tier_changes := false
 
 const TIER_2_MIN_POWER := 10
 const TIER_3_MIN_POWER := 25
 const TIER_4_MIN_POWER := 50
+const SMALL_MAX_POWER := 9
+const MED_MAX_POWER := 24
+const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := 1.10
 const HEIGHT_LARGE_SCALE := 1.20
 const HEIGHT_MAX_SCALE := 1.30
@@ -36,6 +40,8 @@ var _sprite: Sprite2D = null
 var _shader_mat: ShaderMaterial = null
 var _current_size: Vector2 = Vector2.ZERO
 var _base_scale: Vector2 = Vector2.ONE
+var _visual_tier: int = -1
+var _last_radius_px: float = -1.0
 
 func _ready() -> void:
 	_ensure_sprite()
@@ -55,9 +61,8 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 		"HiveVisual.configure called: owner=%s power=%s kind=%s radius=%s" % [str(owner_id), str(power), str(hive_kind), str(radius_px)],
 		SFLog.Level.INFO
 	)
-	var kind_key := SpriteRegistry.hive_kind_key(hive_kind)
-	if power >= 1 and power <= 9:
-		kind_key = "small"
+	var desired_tier := _visual_tier_for_power(power)
+	var kind_key := _tier_key_for_tier(desired_tier)
 	var key := "hive.%s.%s" % [
 		kind_key,
 		SpriteRegistry.owner_key(owner_id)
@@ -68,38 +73,65 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 		SFLog.Level.INFO
 	)
 	var registry := SpriteRegistry.get_instance()
-	_tex = registry.get_tex(key) if registry != null else null
-	_sprite_key = key
-	_sprite_scale = registry.get_scale(key) if registry != null else 1.0
-	_sprite_offset = registry.get_offset(key) if registry != null else Vector2.ZERO
-	_ensure_shader_material()
-	if _shader_mat != null:
-		var mat := _shader_mat
-		var ck_color := Color(0.0, 0.0, 0.0, 1.0)
-		var ck_threshold := 0.28
-		var ck_softness := 0.10
-		if registry != null:
-			var ck := registry.get_colorkey(key)
-			if bool(ck.get("enabled", false)):
-				ck_color = ck.get("color", ck_color)
-				ck_threshold = float(ck.get("threshold", ck_threshold))
-				ck_softness = float(ck.get("softness", ck_softness))
-		mat.set_shader_parameter("key_color", ck_color)
-		mat.set_shader_parameter("threshold", ck_threshold)
-		mat.set_shader_parameter("softness", ck_softness)
-	if _tex == null:
-		SFLog.log_once(
-			"HIVE_SPRITE_MISSING_" + key,
-			"Hive sprite missing key=" + key + " kind=" + hive_kind + " power=" + str(power) + " owner_id=" + str(owner_id),
-			SFLog.Level.WARN
-		)
-	elif _tex != null:
-		SFLog.log_once(
-			"HIVE_TEX_INFO",
-			_hive_tex_debug(_tex, _sprite_key, _sprite_scale, _sprite_offset),
-			SFLog.Level.INFO
-		)
-	_apply_sprite()
+	var next_tex: Texture2D = registry.get_tex(key) if registry != null else null
+	var next_scale := registry.get_scale(key) if registry != null else 1.0
+	var next_offset := registry.get_offset(key) if registry != null else Vector2.ZERO
+	var tier_changed := desired_tier != _visual_tier
+	if tier_changed:
+		if debug_tier_changes:
+			var hive_id := -1
+			var parent := get_parent()
+			if parent != null and parent.has_method("get"):
+				var id_v: Variant = parent.get("hive_id")
+				if id_v != null:
+					hive_id = int(id_v)
+			SFLog.info("HIVE_TIER_CHANGE", {
+				"id": hive_id,
+				"old": _visual_tier,
+				"new": desired_tier,
+				"power": power
+			})
+		_visual_tier = desired_tier
+	var needs_sprite_refresh := (
+		tier_changed
+		or key != _sprite_key
+		or not is_equal_approx(radius_px, _last_radius_px)
+		or next_tex != _tex
+	)
+	if needs_sprite_refresh:
+		_tex = next_tex
+		_sprite_key = key
+		_sprite_scale = next_scale
+		_sprite_offset = next_offset
+		_last_radius_px = radius_px
+		_ensure_shader_material()
+		if _shader_mat != null:
+			var mat := _shader_mat
+			var ck_color := Color(0.0, 0.0, 0.0, 1.0)
+			var ck_threshold := 0.28
+			var ck_softness := 0.10
+			if registry != null:
+				var ck := registry.get_colorkey(key)
+				if bool(ck.get("enabled", false)):
+					ck_color = ck.get("color", ck_color)
+					ck_threshold = float(ck.get("threshold", ck_threshold))
+					ck_softness = float(ck.get("softness", ck_softness))
+			mat.set_shader_parameter("key_color", ck_color)
+			mat.set_shader_parameter("threshold", ck_threshold)
+			mat.set_shader_parameter("softness", ck_softness)
+		if _tex == null:
+			SFLog.log_once(
+				"HIVE_SPRITE_MISSING_" + key,
+				"Hive sprite missing key=" + key + " kind=" + hive_kind + " power=" + str(power) + " owner_id=" + str(owner_id),
+				SFLog.Level.WARN
+			)
+		elif _tex != null:
+			SFLog.log_once(
+				"HIVE_TEX_INFO",
+				_hive_tex_debug(_tex, _sprite_key, _sprite_scale, _sprite_offset),
+				SFLog.Level.INFO
+			)
+		_apply_sprite()
 	queue_redraw()
 
 func _draw() -> void:
@@ -142,13 +174,25 @@ func _ensure_shader_material() -> void:
 		_sprite.material = _shader_mat
 
 func _resolve_tier(power_value: int) -> int:
-	if power_value >= TIER_4_MIN_POWER:
-		return 4
-	if power_value >= TIER_3_MIN_POWER:
-		return 3
-	if power_value >= TIER_2_MIN_POWER:
+	return _visual_tier_for_power(power_value)
+
+func _visual_tier_for_power(power_value: int) -> int:
+	if power_value <= 0:
+		return 1
+	if power_value <= SMALL_MAX_POWER:
+		return 1
+	if power_value <= MED_MAX_POWER:
 		return 2
-	return 1
+	return 3
+
+func _tier_key_for_tier(tier: int) -> String:
+	match tier:
+		2:
+			return "med"
+		3:
+			return "large"
+		_:
+			return "small"
 
 func _height_for_tier(base_height: float, tier: int) -> float:
 	var small_h := height_small_px if height_small_px > 0.0 else base_height
