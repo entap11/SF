@@ -132,6 +132,8 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 				SFLog.Level.INFO
 			)
 		_apply_sprite()
+	if _sprite != null and is_instance_valid(_sprite):
+		_sprite.self_modulate = owner_color
 	queue_redraw()
 
 func _draw() -> void:

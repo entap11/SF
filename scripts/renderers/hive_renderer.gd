@@ -148,7 +148,10 @@ func _apply_selection(selected_id: int) -> void:
 		node.call("set_selected", hid == selected_id, color)
 
 static func _owner_color(owner_id: int) -> Color:
-	match owner_id:
+	return _team_color_for_player(owner_id)
+
+static func _team_color_for_player(player_id: int) -> Color:
+	match player_id:
 		1:
 			return Color8(255, 210, 0)
 		2:
