@@ -4,7 +4,7 @@ const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const ARENA_SCENE := preload("res://scenes/Arena.tscn")
-const MAP_PATH := "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_TOWER_1.json"
+const MAP_PATH := "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 
 func _initialize() -> void:
 	_run()

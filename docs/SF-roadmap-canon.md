@@ -3,6 +3,54 @@
 This document codifies the agreed Swarmfront roadmap, scope boundaries, and remaining major work items.
 Assume prior specs (maps, buffs, OT, pricing, leagues) are canonical.
 
+## Current Roadmap (2026-01-31)
+
+Swarmfront - MVP to v1 Roadmap
+
+PHASE 0 — Visual Foundation (MVP Critical)
+- Wire all skins (.tres + PNG) and get all art rendering in-game (MVP quality, not polish).
+- Orient units down lanes with correct 3/4 perspective.
+- Tilt barracks to match camera POV.
+- Increase hive vertical height for visual authority.
+- Render lanes emitting from the top of hives to create depth ("Coruscant traffic" effect).
+- Verify team color projection on hives, units, towers, barracks, and lanes.
+
+PHASE 1 — Combat Feedback & Juice
+- Code and wire tower spike logic and animations.
+- Implement spike impact effects (pixelize unit + crash).
+- Implement unit vaporization on impact with units, friendly towers, and enemy towers.
+- Add a minimal but effective sound FX set (spawn, impact, fire, death).
+- Wire sound on/off toggle.
+
+PHASE 2 — HUD & Player Feedback
+- Convert power bar from static art to fully dynamic indicator.
+- Ensure power bar works in 1v1, 2v2, 3p, and 4p layouts.
+- Design buff icon art.
+- Use bottom buffer area for buff display.
+- Show opponent buffs (available and used) and player buffs.
+- Implement drag-and-drop buff usage (logic may be stubbed initially).
+
+PHASE 3 — Identity & Settings
+- Implement persistent UUID system.
+- Create basic player profile structure.
+- Add settings: sound toggle, vibration toggle, and other core options.
+
+PHASE 4 — Multiplayer Expansion
+- Create 3-player and 4-player maps.
+- Wire 2v2 gameplay mode.
+- Validate power bar behavior and team dynamics.
+- Assign unit class by player slot: P1 Yellow Bees, P2 Green Yellowjackets, P3 Red Wasps, P4 Blue Hornets.
+
+PHASE 5 — Async Games (v1 Core)
+- Define async match formats.
+- Implement scoring systems and record keeping.
+- Build 12–15 dialed maps for async play.
+
+PHASE 6 — Parked for v2+
+- Jukebox system with royalty-free music playlists.
+- Economy and monetization systems.
+- Deeper progression and unlocks.
+
 ## MVP ROADMAP — Playable Core Loop
 
 ### MVP Definition (Hard Exit)

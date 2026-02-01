@@ -14,6 +14,7 @@ var _paths_by_key: Dictionary = {}
 var _meta_by_key: Dictionary = {}
 var _missing_keys: Dictionary = {}
 var _missing_keys_order: Array[String] = []
+var _tex_alpha_cache: Dictionary = {}
 
 static func get_instance() -> SpriteRegistry:
 	if _instance != null:
@@ -80,7 +81,62 @@ func get_tex(key: String) -> Texture2D:
 		tex = _textures_by_key[key]
 	if tex == null:
 		_mark_missing(key)
+	tex = _ensure_alpha(tex, key)
+	if tex != null:
+		_textures_by_key[key] = tex
 	return tex
+
+func get_tex_path(key: String) -> String:
+	_ensure_loaded()
+	return str(_paths_by_key.get(key, ""))
+
+func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
+	if _tex_alpha_cache.has(key):
+		return _tex_alpha_cache[key]
+	if tex == null:
+		_tex_alpha_cache[key] = null
+		return null
+
+	# Only do this for units (and only when the source has no alpha).
+	if not key.begins_with("unit."):
+		_tex_alpha_cache[key] = tex
+		return tex
+
+	var img := tex.get_image()
+	if img == null:
+		_tex_alpha_cache[key] = tex
+		return tex
+
+	# If image already has alpha, keep it.
+	var fmt := img.get_format()
+	var has_alpha := fmt in [
+		Image.FORMAT_RGBA8, Image.FORMAT_RGBAF,
+		Image.FORMAT_RGBAH
+	]
+	if has_alpha:
+		_tex_alpha_cache[key] = tex
+		return tex
+
+	# Convert to RGBA and punch out near-white.
+	img.convert(Image.FORMAT_RGBA8)
+	var w: int = img.get_width()
+	var h: int = img.get_height()
+
+	var thr: float = 0.20
+	for y in range(h):
+		for x in range(w):
+			var c: Color = img.get_pixel(x, y)
+			var dr: float = absf(c.r - 1.0)
+			var dg: float = absf(c.g - 1.0)
+			var db: float = absf(c.b - 1.0)
+			var d: float = maxf(dr, maxf(dg, db))
+			if d < thr:
+				c.a = 0.0
+				img.set_pixel(x, y, c)
+
+	var itex := ImageTexture.create_from_image(img)
+	_tex_alpha_cache[key] = itex
+	return itex
 
 func _ensure_loaded() -> void:
 	if _loaded:

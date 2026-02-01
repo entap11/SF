@@ -18,12 +18,21 @@ var _swarm_texture: Texture2D = null
 var _sprite_registry: SpriteRegistry = null
 var _colorkey_materials: Dictionary = {}
 var _unit_material_by_sprite: Dictionary = {}
+var _unit_material_by_instance: Dictionary = {}
+var _unit_team_color_logged: Dictionary = {}
+var _unit_tint_target_logged: Dictionary = {}
+var _unit_tint_no_sprite_logged: Dictionary = {}
+var _unit_material_cleared_logged: Dictionary = {}
+var _unit_orient_logged: Dictionary = {}
 var _unit_colorkey_logged := false
 var _unit_sprite_logged := false
 
 const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
 const UNIT_RENDER_SCALE: float = 3.0
+const UNIT_ART_ROT_OFFSET_RAD: float = -PI / 4.0
+const DEBUG_UNIT_ORIENT: bool = false
+const DBG_UNIT_FORWARD: bool = true
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const UNIT_COLOR := Color(1.0, 1.0, 1.0, 0.9)
 const DEBUG_HIVE1_CROSS := false
@@ -40,7 +49,7 @@ const BOBBLE_OMEGA: float = 8.0
 
 @export var debug_unit_logs: bool = false
 @export var debug_unit_owner_labels: bool = false
-@export var debug_draw_units: bool = true
+@export var debug_draw_units: bool = false
 @export var debug_force_top_z: bool = true
 @export var debug_force_big_radius_px: float = 10.0
 
@@ -111,6 +120,7 @@ func _sync_unit_nodes(units: Array) -> void:
 				node.z_index = 0
 				add_child(node)
 				unit_nodes_by_id[unit_id] = node
+				_log_unit_sprite_tree(node, unit_id)
 				SFLog.info("UNIT_RENDER_CREATE", {
 					"unit_id": unit_id,
 					"owner_id": int(ud.get("owner_id", 0))
@@ -146,6 +156,7 @@ func _update_unit_nodes_positions(units: Array) -> void:
 	if units.is_empty():
 		return
 	var hive_by_id := _build_hive_by_id()
+	var registry := _get_sprite_registry()
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
 			continue
@@ -164,6 +175,7 @@ func _update_unit_nodes_positions(units: Array) -> void:
 			node.global_position = pos_v
 		else:
 			node.position = pos_v
+		_update_unit_sprite(node, ud, hive_by_id, registry)
 
 func _build_hive_by_id() -> Dictionary:
 	var hive_by_id: Dictionary = {}
@@ -198,6 +210,272 @@ func _log_unit_space_once() -> void:
 		return
 	_unit_space_logged = true
 	SFLog.info("UNIT_SPACE", {"space": _unit_space})
+
+func _collect_sprite_descendants(root: Node) -> Array:
+	var sprites: Array = []
+	if root == null:
+		return sprites
+	var stack: Array = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is Sprite2D:
+			sprites.append(n)
+		for child in n.get_children():
+			if child is Node:
+				stack.append(child)
+	return sprites
+
+func _find_unit_tint_target(root: Node) -> Sprite2D:
+	var sprites := _collect_sprite_descendants(root)
+	var named: Sprite2D = null
+	for s_any in sprites:
+		var s := s_any as Sprite2D
+		if s == null:
+			continue
+		if s.name == "Sprite" or s.name == "UnitSprite":
+			if s.texture != null:
+				return s
+			if named == null:
+				named = s
+	for s_any in sprites:
+		var s := s_any as Sprite2D
+		if s != null and s.texture != null:
+			return s
+	if named != null:
+		return named
+	if not sprites.is_empty():
+		return sprites[0] as Sprite2D
+	return null
+
+func _log_unit_sprite_tree(node: Node, unit_id: int) -> void:
+	var sprites := _collect_sprite_descendants(node)
+	if sprites.is_empty():
+		SFLog.info("UNIT_SPRITE_DESC", {
+			"unit_id": unit_id,
+			"count": 0
+		})
+		return
+	for s_any in sprites:
+		var s := s_any as Sprite2D
+		if s == null:
+			continue
+		var tex := s.texture
+		var tex_path := ""
+		if tex != null:
+			tex_path = tex.resource_path
+		var mat := s.material
+		var mat_class := "null"
+		if mat != null:
+			mat_class = mat.get_class()
+		SFLog.info("UNIT_SPRITE_DESC", {
+			"unit_id": unit_id,
+			"path": str(s.get_path()),
+			"tex_path": tex_path,
+			"has_tex": tex != null,
+			"material": mat_class
+		})
+
+func _ensure_unit_sprite(node: Node2D) -> Sprite2D:
+	var sprite := node.get_node_or_null("Sprite") as Sprite2D
+	if sprite != null:
+		return sprite
+	sprite = Sprite2D.new()
+	sprite.name = "Sprite"
+	sprite.centered = true
+	node.add_child(sprite)
+	return sprite
+
+func _apply_unit_orientation(
+	unit_root: Node2D,
+	sprite: Sprite2D,
+	src_pos: Vector2,
+	dst_pos: Vector2,
+	unit_id: int,
+	lane_id: int,
+	src_id: int,
+	dst_id: int
+) -> void:
+	var delta: Vector2 = dst_pos - src_pos
+	if delta.length_squared() <= 0.0001:
+		return
+	var dir: Vector2 = delta.normalized()
+	var ang: float = dir.angle()
+	var final_ang: float = ang + UNIT_ART_ROT_OFFSET_RAD
+	unit_root.global_rotation = final_ang
+	sprite.rotation = 0.0
+	if unit_id > 0 and not _unit_orient_logged.has(unit_id):
+		_unit_orient_logged[unit_id] = true
+		var ang_deg: float = rad_to_deg(ang)
+		var final_deg: float = rad_to_deg(final_ang)
+		var fwd_deg: float = rad_to_deg(UNIT_ART_ROT_OFFSET_RAD)
+		var root_deg: float = rad_to_deg(unit_root.global_rotation)
+		var sprite_deg: float = rad_to_deg(sprite.global_rotation)
+		SFLog.info("UNIT_ORIENT", {
+			"unit_id": unit_id,
+			"lane_id": lane_id,
+			"src_id": src_id,
+			"dst_id": dst_id,
+			"src_pos": src_pos,
+			"dst_pos": dst_pos,
+			"dir": dir,
+			"ang_deg": ang_deg,
+			"final_deg": final_deg,
+			"fwd_deg": fwd_deg,
+			"root_deg": root_deg,
+			"sprite_deg": sprite_deg
+		})
+	if DEBUG_UNIT_ORIENT:
+		var fwd: Vector2 = unit_root.global_transform.x.normalized()
+		var delta_deg: float = rad_to_deg(fwd.angle_to(dir))
+		SFLog.info("UNIT_ORIENT_DEBUG", {
+			"unit_id": unit_id,
+			"dir": dir,
+			"fwd": fwd,
+			"delta_deg": delta_deg
+		})
+
+func _update_unit_sprite(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, registry: SpriteRegistry) -> void:
+	var owner_id: int = _unit_owner_id(ud, hive_by_id)
+	var unit_id := int(node.get_meta("unit_id", -1))
+	var sprite := _find_unit_tint_target(node)
+	if sprite == null:
+		if unit_id > 0 and not _unit_tint_no_sprite_logged.has(unit_id):
+			_unit_tint_no_sprite_logged[unit_id] = true
+			SFLog.info("UNIT_TINT_NO_SPRITE", {
+				"unit_id": unit_id,
+				"owner_id": owner_id
+			})
+		sprite = _ensure_unit_sprite(node)
+	if sprite == null:
+		return
+	var tex: Texture2D = null
+	var tex_path := ""
+	var scale := 1.0
+	var offset := Vector2.ZERO
+	var sprite_key := ""
+	if registry != null:
+		sprite_key = "unit.%s" % SpriteRegistry.owner_key(owner_id)
+		tex = registry.get_tex(sprite_key)
+		tex_path = registry.get_tex_path(sprite_key)
+		scale = registry.get_scale(sprite_key)
+		offset = registry.get_offset(sprite_key)
+	if tex == null and not tex_path.is_empty():
+		var fallback_res := ResourceLoader.load(tex_path)
+		if fallback_res is Texture2D:
+			tex = fallback_res as Texture2D
+			SFLog.warn("UNIT_SPRITE_FALLBACK", {
+				"unit_id": unit_id,
+				"owner_id": owner_id,
+				"key": sprite_key,
+				"fallback_path": tex_path
+			})
+	if tex == null and registry != null and sprite_key != "unit.neutral":
+		var neutral_key := "unit.neutral"
+		var neutral_path := registry.get_tex_path(neutral_key)
+		if not neutral_path.is_empty():
+			var neutral_res := ResourceLoader.load(neutral_path)
+			if neutral_res is Texture2D:
+				tex = neutral_res as Texture2D
+				tex_path = neutral_path
+				SFLog.warn("UNIT_SPRITE_FALLBACK", {
+					"unit_id": unit_id,
+					"owner_id": owner_id,
+					"key": neutral_key,
+					"fallback_path": neutral_path
+				})
+	if tex == null:
+		return
+	var resolved_path := tex.resource_path
+	if resolved_path.is_empty():
+		resolved_path = tex_path
+	# Order: texture -> material -> self_modulate
+	if sprite.texture == null or sprite.texture != tex:
+		sprite.texture = tex
+	var team_color: Color = _owner_color(owner_id)
+	team_color.a = UNIT_COLOR.a
+	sprite.self_modulate = team_color
+	var mat := _ensure_unit_colorkey_material(sprite, sprite_key, registry, owner_id, unit_id, team_color)
+	if mat != null:
+		sprite.material = mat
+	if sprite.material is ShaderMaterial and sprite.material.shader == COLORKEY_SHADER and tex.resource_path.is_empty():
+		sprite.material = null
+		if debug_unit_logs and unit_id > 0 and not _unit_material_cleared_logged.has(unit_id):
+			_unit_material_cleared_logged[unit_id] = true
+			SFLog.info("UNIT_MATERIAL_CLEARED_FOR_TINT", {
+				"unit_id": unit_id,
+				"owner_id": owner_id,
+				"path": str(sprite.get_path())
+			})
+	if debug_unit_logs and unit_id > 0 and not _unit_tint_target_logged.has(unit_id):
+		_unit_tint_target_logged[unit_id] = true
+		SFLog.info("UNIT_TINT_APPLIED", {
+			"unit_id": unit_id,
+			"owner_id": owner_id,
+			"modulate": team_color,
+			"texture_path": resolved_path
+		})
+		var mat_class := "null"
+		var mat_set := sprite.material != null
+		if mat_set:
+			mat_class = sprite.material.get_class()
+		SFLog.info("UNIT_TINT_DEBUG", {
+			"unit_id": unit_id,
+			"owner_id": owner_id,
+			"node": str(sprite.get_path()),
+			"modulate": sprite.modulate,
+			"material_set": mat_set,
+			"material_class": mat_class,
+			"texture_path": resolved_path
+		})
+		SFLog.info("UNIT_COLKEY_APPLIED", {
+			"node": str(sprite.get_path()),
+			"node_class": sprite.get_class(),
+			"ok": mat != null,
+			"key": sprite_key
+		})
+		SFLog.info("UNIT_TINT_TARGET", {
+			"unit_id": unit_id,
+			"owner_id": owner_id,
+			"target_path": str(sprite.get_path()),
+			"tex_path": resolved_path,
+			"is_sprite2d": sprite is Sprite2D
+		})
+	sprite.position = offset
+	var tex_size := tex.get_size()
+	if tex_size.x > 0.0 and tex_size.y > 0.0:
+		var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
+		sprite.scale = Vector2(size_px / tex_size.x, size_px / tex_size.y)
+	var lane_id: int = int(ud.get("lane_id", 0))
+	var src_id: int = _resolve_id(ud.get("from_id", 0))
+	var dst_id: int = _resolve_id(ud.get("to_id", 0))
+	if src_id <= 0 or dst_id <= 0:
+		var a_id: int = _resolve_id(ud.get("a_id", 0))
+		var b_id: int = _resolve_id(ud.get("b_id", 0))
+		src_id = a_id
+		dst_id = b_id
+	var src_pos_v: Variant = _hive_world_pos(src_id, hive_by_id)
+	var dst_pos_v: Variant = _hive_world_pos(dst_id, hive_by_id)
+	if src_pos_v is Vector2 and dst_pos_v is Vector2:
+		var src_pos: Vector2 = src_pos_v as Vector2
+		var dst_pos: Vector2 = dst_pos_v as Vector2
+		_apply_unit_orientation(node, sprite, src_pos, dst_pos, unit_id, lane_id, src_id, dst_id)
+	else:
+		var from_pos_v: Variant = ud.get("from_pos")
+		var to_pos_v: Variant = ud.get("to_pos")
+		if from_pos_v is Vector2 and to_pos_v is Vector2:
+			var from_world: Vector2 = _to_world_pos(from_pos_v as Vector2)
+			var to_world: Vector2 = _to_world_pos(to_pos_v as Vector2)
+			_apply_unit_orientation(
+				node,
+				sprite,
+				from_world,
+				to_world,
+				unit_id,
+				lane_id,
+				src_id,
+				dst_id
+			)
+	sprite.visible = not debug_draw_units
 
 func _apply_debug_force_top_z() -> void:
 	if debug_force_top_z == _last_force_top_z:
@@ -297,11 +575,11 @@ func _process(_dt: float) -> void:
 		queue_redraw()
 
 func _draw() -> void:
-	if not debug_draw_units:
+	if not debug_draw_units and not DBG_UNIT_FORWARD:
 		return
 	if _units.is_empty():
 		return
-	if not _bobble_logged:
+	if debug_draw_units and not _bobble_logged:
 		_bobble_logged = true
 		SFLog.info("UNIT_BOBBLE_ENABLED", {
 			"amp_min_px": BOBBLE_AMP_MIN_PX,
@@ -313,27 +591,6 @@ func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
 	var font_size: int = 10
 	var registry := _get_sprite_registry()
-	var colorkey_material: ShaderMaterial = null
-	var first_key := ""
-	if registry != null:
-		for u_any in _units:
-			if typeof(u_any) != TYPE_DICTIONARY:
-				continue
-			var ud_any: Dictionary = u_any as Dictionary
-			var owner_any := _unit_owner_id(ud_any, hive_by_id)
-			first_key = "unit.%s" % SpriteRegistry.owner_key(owner_any)
-			colorkey_material = _get_unit_colorkey_material(first_key, registry)
-			break
-	var prev_material := material
-	if colorkey_material != null:
-		material = colorkey_material
-		if not _unit_colorkey_logged:
-			_unit_colorkey_logged = true
-			SFLog.info("UNIT_COLKEY_APPLIED", {
-				"node": str(get_path()),
-				"ok": material != null,
-				"key": first_key
-			})
 	for u in _units:
 		if typeof(u) != TYPE_DICTIONARY:
 			continue
@@ -343,29 +600,58 @@ func _draw() -> void:
 		var pos_v: Vector2 = pos as Vector2
 		var ud: Dictionary = u as Dictionary
 		pos_v += _unit_bobble_offset(ud, hive_by_id, sim_time_s)
-		var owner_id := _unit_owner_id(u, hive_by_id)
-		var tex: Texture2D = null
-		var scale := 1.0
-		var offset := Vector2.ZERO
-		if registry != null:
-			var key := "unit.%s" % SpriteRegistry.owner_key(owner_id)
-			tex = registry.get_tex(key)
-			scale = registry.get_scale(key)
-			offset = registry.get_offset(key)
-			if tex != null and not _unit_sprite_logged:
-				_unit_sprite_logged = true
-				SFLog.info("UNIT_SPRITE_RESOLVED", {
-					"key": key,
-					"path": str(tex.resource_path)
-				})
-		if tex != null:
-			var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
-			var size := Vector2(size_px, size_px)
-			var rect := Rect2(pos_v - size * 0.5 + offset, size)
-			draw_texture_rect(tex, rect, false)
-		else:
-			draw_circle(pos_v, debug_force_big_radius_px, Color(1, 1, 1, 1))
-	material = prev_material
+		if debug_draw_units:
+			var owner_id: int = _unit_owner_id(u, hive_by_id)
+			var tex: Texture2D = null
+			var scale: float = 1.0
+			var offset: Vector2 = Vector2.ZERO
+			if registry != null:
+				var key := "unit.%s" % SpriteRegistry.owner_key(owner_id)
+				tex = registry.get_tex(key)
+				scale = registry.get_scale(key)
+				offset = registry.get_offset(key)
+				if tex != null and not _unit_sprite_logged:
+					_unit_sprite_logged = true
+					var resolved_path := tex.resource_path
+					if resolved_path.is_empty() and registry != null:
+						resolved_path = registry.get_tex_path(key)
+					SFLog.info("UNIT_SPRITE_RESOLVED", {
+						"key": key,
+						"path": str(resolved_path)
+					})
+			if tex != null:
+				var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
+				var size := Vector2(size_px, size_px)
+				var rect := Rect2(pos_v - size * 0.5 + offset, size)
+				draw_texture_rect(tex, rect, false)
+			else:
+				draw_circle(pos_v, debug_force_big_radius_px, Color(1, 1, 1, 1))
+		if DBG_UNIT_FORWARD:
+			var unit_id: int = int(ud.get("id", 0))
+			var unit_node_any: Variant = unit_nodes_by_id.get(unit_id, null)
+			if unit_node_any is Node2D:
+				var unit_node: Node2D = unit_node_any as Node2D
+				var src_id: int = _resolve_id(ud.get("from_id", 0))
+				var dst_id: int = _resolve_id(ud.get("to_id", 0))
+				if src_id <= 0 or dst_id <= 0:
+					var a_id: int = _resolve_id(ud.get("a_id", 0))
+					var b_id: int = _resolve_id(ud.get("b_id", 0))
+					src_id = a_id
+					dst_id = b_id
+				var src_w_v: Variant = _hive_world_pos(src_id, hive_by_id)
+				var dst_w_v: Variant = _hive_world_pos(dst_id, hive_by_id)
+				if src_w_v is Vector2 and dst_w_v is Vector2:
+					var src_w: Vector2 = src_w_v as Vector2
+					var dst_w: Vector2 = dst_w_v as Vector2
+					var dir_w: Vector2 = (dst_w - src_w).normalized()
+					if dir_w.length_squared() > 0.0001:
+						var fwd_w: Vector2 = unit_node.global_transform.x.normalized()
+						var p_w: Vector2 = unit_node.global_position
+						var p_l: Vector2 = to_local(p_w)
+						var dir_l: Vector2 = (to_local(p_w + dir_w) - p_l).normalized()
+						var fwd_l: Vector2 = (to_local(p_w + fwd_w) - p_l).normalized()
+						draw_line(pos_v, pos_v + dir_l * 30.0, Color(0.2, 1.0, 0.2, 1.0), 2.0)
+						draw_line(pos_v, pos_v + fwd_l * 30.0, Color(1.0, 0.2, 0.2, 1.0), 2.0)
 	if debug_unit_owner_labels and font != null:
 		for u in _units:
 			if typeof(u) != TYPE_DICTIONARY:
@@ -400,16 +686,16 @@ func _get_colorkey_material(color: Color, threshold: float, softness: float) -> 
 	_colorkey_materials[key] = mat
 	return mat
 
-func _get_unit_colorkey_material(sprite_key: String, registry: SpriteRegistry) -> ShaderMaterial:
-	if _unit_material_by_sprite.has(sprite_key):
-		return _unit_material_by_sprite[sprite_key]
-	var ck_color := Color(0.0, 0.0, 0.0, 1.0)
+func _get_unit_colorkey_material(sprite_key: String, owner_id: int, registry: SpriteRegistry) -> ShaderMaterial:
+	var key := "%s|%d" % [sprite_key, owner_id]
+	if _unit_material_by_sprite.has(key):
+		return _unit_material_by_sprite[key]
+	var ck_color := _owner_color(owner_id)
 	var ck_threshold := 0.28
 	var ck_softness := 0.10
 	if registry != null:
 		var ck := registry.get_colorkey(sprite_key)
 		if bool(ck.get("enabled", false)):
-			ck_color = ck.get("color", ck_color)
 			ck_threshold = float(ck.get("threshold", ck_threshold))
 			ck_softness = float(ck.get("softness", ck_softness))
 	SFLog.log_once(
@@ -423,7 +709,54 @@ func _get_unit_colorkey_material(sprite_key: String, registry: SpriteRegistry) -
 		SFLog.Level.INFO
 	)
 	var mat := _get_colorkey_material(ck_color, ck_threshold, ck_softness)
-	_unit_material_by_sprite[sprite_key] = mat
+	_unit_material_by_sprite[key] = mat
+	return mat
+
+func _ensure_unit_colorkey_material(
+	sprite: Sprite2D,
+	sprite_key: String,
+	registry: SpriteRegistry,
+	owner_id: int,
+	unit_id: int,
+	team_color: Color
+) -> ShaderMaterial:
+	if sprite == null:
+		return null
+	var instance_id := sprite.get_instance_id()
+	var mat: ShaderMaterial = null
+	if _unit_material_by_instance.has(instance_id):
+		mat = _unit_material_by_instance[instance_id]
+	else:
+		var base := _get_unit_colorkey_material(sprite_key, owner_id, registry)
+		if base != null:
+			var dup: Variant = base.duplicate()
+			if dup is ShaderMaterial:
+				mat = dup as ShaderMaterial
+			else:
+				mat = null
+		if mat == null:
+			mat = ShaderMaterial.new()
+			mat.shader = COLORKEY_SHADER
+		_unit_material_by_instance[instance_id] = mat
+	var ck_threshold := 0.28
+	var ck_softness := 0.10
+	if registry != null and sprite_key != "":
+		var ck := registry.get_colorkey(sprite_key)
+		if bool(ck.get("enabled", false)):
+			ck_threshold = float(ck.get("threshold", ck_threshold))
+			ck_softness = float(ck.get("softness", ck_softness))
+	mat.set_shader_parameter("key_color", team_color)
+	mat.set_shader_parameter("threshold", ck_threshold)
+	mat.set_shader_parameter("softness", ck_softness)
+	if unit_id > 0:
+		var last_owner: int = int(_unit_team_color_logged.get(unit_id, -1))
+		if last_owner != owner_id:
+			_unit_team_color_logged[unit_id] = owner_id
+			SFLog.info("UNIT_TEAM_COLOR", {
+				"unit_id": unit_id,
+				"owner_id": owner_id,
+				"team_color": team_color
+			})
 	return mat
 
 func _sync_swarm_nodes() -> void:
@@ -734,6 +1067,21 @@ func _hive_pos(hive_id: int, hive_by_id: Dictionary) -> Variant:
 		var gy := float(hd.get("y", 0.0))
 		return Vector2((gx + 0.5) * cell_size, (gy + 0.5) * cell_size)
 	return null
+
+func _hive_world_pos(hive_id: int, hive_by_id: Dictionary) -> Variant:
+	if hive_nodes_by_id.has(hive_id):
+		var node: Node2D = hive_nodes_by_id[hive_id]
+		if node != null:
+			return node.global_position
+	var local_v: Variant = _hive_pos(hive_id, hive_by_id)
+	if local_v is Vector2:
+		return to_global(local_v as Vector2)
+	return null
+
+func _to_world_pos(pos: Vector2) -> Vector2:
+	if _unit_space == "global":
+		return pos
+	return to_global(pos)
 
 func _resolve_id(raw: Variant) -> int:
 	if raw is int:

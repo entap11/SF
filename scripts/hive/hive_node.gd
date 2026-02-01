@@ -7,9 +7,9 @@ signal hive_unhovered(hive_id: int)
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const SELECTOR_PULSE_SHADER := preload("res://shaders/selector_pulse.gdshader")
-const SELECTOR_SMALL_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_small.png"
-const SELECTOR_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_medium.png"
-const SELECTOR_LARGE_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_large.png"
+const SELECTOR_SMALL_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_small.tres"
+const SELECTOR_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_medium.tres"
+const SELECTOR_LARGE_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_large.tres"
 
 const SELECTOR_STATE_INACTIVE := 0
 const SELECTOR_STATE_HOVER := 1
@@ -64,6 +64,8 @@ var _selector_tex_med: Texture2D = null
 var _selector_tex_large: Texture2D = null
 var _selector_mat: ShaderMaterial = null
 var _selector_state: int = SELECTOR_STATE_INACTIVE
+var _last_kind: String = ""
+var _sim_events: Node = null
 
 func _ready() -> void:
 	input_pickable = true
@@ -119,6 +121,12 @@ func apply_render(owner_id_in: int, power_in: int, radius_in: float, color: Colo
 	owner_id = owner_id_in
 	power = power_in
 	radius_px = radius_in
+	var prev_kind: String = _last_kind
+	_last_kind = kind
+	if prev_kind != "" and prev_kind != kind:
+		var sim_events := _get_sim_events()
+		if sim_events != null:
+			sim_events.emit_signal("hive_kind_changed", hive_id, owner_id, global_position, prev_kind, kind)
 	_sync_collision()
 	if visual != null and visual.has_method("configure"):
 		visual.call("configure", owner_id, color, radius_px, power, font_size, kind)
@@ -207,6 +215,15 @@ func _load_selector_texture(path: String) -> Texture2D:
 		return null
 	var res := ResourceLoader.load(path)
 	return res as Texture2D if res is Texture2D else null
+
+func _get_sim_events() -> Node:
+	if _sim_events != null and is_instance_valid(_sim_events):
+		return _sim_events
+	var tree := get_tree()
+	if tree == null:
+		return null
+	_sim_events = tree.get_first_node_in_group("sim_events")
+	return _sim_events
 
 func _ensure_selector_sprite() -> void:
 	if _selector_sprite != null and is_instance_valid(_selector_sprite):

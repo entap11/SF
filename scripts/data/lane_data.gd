@@ -13,8 +13,10 @@ var a_pressure: float
 var b_pressure: float
 var a_stream_len: float
 var b_stream_len: float
+var build_t: float
 var establish_a: bool
 var establish_b: bool
+var establish_t0_ms: int
 var spawn_accum_a_ms: float
 var spawn_accum_b_ms: float
 var retract_a: bool
@@ -35,9 +37,11 @@ func _init(
 	p_b_pressure: float = 0.0,
 	p_a_stream_len: float = 0.0,
 	p_b_stream_len: float = 0.0,
+	p_build_t: float = 1.0,
 	p_last_impact_f: float = 0.5,
 	p_establish_a: bool = false,
 	p_establish_b: bool = false,
+	p_establish_t0_ms: int = 0,
 	p_spawn_accum_a_ms: float = 0.0,
 	p_spawn_accum_b_ms: float = 0.0,
 	p_retract_a: bool = false,
@@ -53,14 +57,25 @@ func _init(
 	self.b_pressure = p_b_pressure
 	self.a_stream_len = p_a_stream_len
 	self.b_stream_len = p_b_stream_len
+	self.build_t = p_build_t
 	self.last_impact_f = p_last_impact_f
 	self.establish_a = p_establish_a
 	self.establish_b = p_establish_b
+	self.establish_t0_ms = p_establish_t0_ms
 	self.spawn_accum_a_ms = p_spawn_accum_a_ms
 	self.spawn_accum_b_ms = p_spawn_accum_b_ms
 	self.retract_a = p_retract_a
 	self.retract_b = p_retract_b
 	_init_segments()
+
+func is_built() -> bool:
+	return build_t >= 0.999
+
+func is_established(front_t: float = -1.0) -> bool:
+	var t := front_t
+	if t < 0.0:
+		t = float(OpsState.lane_front_by_lane_id.get(id, 0.0))
+	return t >= 0.999
 
 func _init_segments() -> void:
 	a_seg.resize(SEGMENTS)

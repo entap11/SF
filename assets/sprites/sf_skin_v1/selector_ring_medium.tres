@@ -1,0 +1,7 @@
+[gd_resource type="AtlasTexture" load_steps=2 format=3 uid="uid://c8xeipqndoeb0"]
+
+[ext_resource type="Texture2D" uid="uid://bdaum7xdx81ie" path="res://assets/sprites/sf_skin_v1/selector_rings_mvp.png" id="1_d4esq"]
+
+[resource]
+atlas = ExtResource("1_d4esq")
+region = Rect2(556, 434, 440, 194)

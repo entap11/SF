@@ -31,6 +31,7 @@ var running := false
 var autostart := false
 @export var autostart_on_bind: bool = true
 @export var debug_sim_tick_log: bool = false
+@export var debug_simrunner_alive: bool = false
 
 var lane_system: LaneSystem = null
 var unit_system: UnitSystem = null
@@ -252,7 +253,7 @@ func _start_if_ready(reason: String = "start_if_ready") -> void:
 
 func _process(delta: float) -> void:
 	var is_paused := not running
-	if Engine.get_frames_drawn() % 120 == 0:
+	if debug_simrunner_alive and Engine.get_frames_drawn() % 120 == 0:
 		SFLog.info("SIMRUNNER_ALIVE", {"running": running, "paused": is_paused})
 	var sim_delta := minf(delta, MAX_FRAME_DT)
 	if state_ref == null or is_paused:
@@ -302,6 +303,7 @@ func _tick_systems(dt: float) -> void:
 	var dt_ms := int(round(dt * 1000.0))
 	OpsState.tick_match_clock(state_ref, dt_ms)
 	state_ref.tick_lane_flow(dt * 1000.0)
+	state_ref.tick_unintended_power(float(dt_ms))
 	if lane_system != null:
 		lane_system.tick_lane_fronts(dt)
 	if swarm_system != null:

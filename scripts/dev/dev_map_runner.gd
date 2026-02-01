@@ -1,7 +1,7 @@
 extends Node
 
 var allowed_maps: PackedStringArray = PackedStringArray([
-	"res://maps/json/MAP_SKETCH_LR_8x12_v1xy_TOWER_1.json",
+	"res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json",
 	"res://maps/json/MAP_TEST_8x12.json",
 ])
 

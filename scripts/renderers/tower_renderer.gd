@@ -11,6 +11,7 @@ const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 
 const TOWER_SPIKE_PX: float = 8.0
+const TOWER_VISUAL_SCALE: float = 6.0
 const LOG_INTERVAL_MS: int = 1000
 
 var model: Dictionary = {}
@@ -18,9 +19,11 @@ var towers: Array = []
 var _last_set_log_ms: int = 0
 var _logged_tower_ids: Dictionary = {}
 var _sprite_registry: SpriteRegistry = null
+var _tower_labels: Dictionary = {}
 
 func _ready() -> void:
 	SFLog.info("TOWER_RENDERER_READY", {"path": str(get_path())})
+	set_process(true)
 
 func set_model(m: Dictionary) -> void:
 	model = m
@@ -53,7 +56,7 @@ func _draw() -> void:
 		if registry != null:
 			tex = registry.get_tex(key)
 		if tex != null:
-			var size_px := TOWER_SPIKE_PX * 2.0
+			var size_px := TOWER_SPIKE_PX * 2.0 * TOWER_VISUAL_SCALE
 			var size := Vector2(size_px, size_px)
 			var rect := Rect2(pos - size * 0.5, size)
 			draw_texture_rect(tex, rect, false)
@@ -63,6 +66,56 @@ func _draw() -> void:
 			var tip: Vector2 = pos + Vector2(0.0, -TOWER_SPIKE_PX)
 			draw_line(pos, tip, color, 2.0)
 			draw_line(pos + Vector2(-2.0, 0.0), pos + Vector2(2.0, 0.0), color, 1.0)
+
+func _process(_delta: float) -> void:
+	_update_tower_labels()
+
+func _update_tower_labels() -> void:
+	if towers.is_empty():
+		for key in _tower_labels.keys():
+			var label: Label = _tower_labels[key]
+			if label != null:
+				label.queue_free()
+		_tower_labels.clear()
+		return
+
+	var keep: Dictionary = {}
+	for tower_any in towers:
+		if typeof(tower_any) != TYPE_DICTIONARY:
+			continue
+		var td: Dictionary = tower_any as Dictionary
+		var tower_id: int = int(td.get("id", -1))
+		if tower_id <= 0:
+			continue
+		keep[tower_id] = true
+		var label: Label = _tower_labels.get(tower_id, null)
+		if label == null:
+			label = Label.new()
+			label.name = "TowerLabel_%d" % tower_id
+			label.z_index = 200
+			add_child(label)
+			_tower_labels[tower_id] = label
+		var owner_id: int = int(td.get("owner_id", 0))
+		var active: bool = bool(td.get("active", owner_id != 0))
+		var tier: int = int(td.get("tier", 0))
+		var cooldown_remaining: float = float(td.get("cooldown_remaining", td.get("cooldown_ms", 0.0)))
+		var current_power: float = float(td.get("current_power", td.get("power", 0.0)))
+		label.text = "owner_id=%s active=%s tier=%s cooldown_remaining=%s current_power=%s" % [
+			str(owner_id),
+			str(active),
+			str(tier),
+			str(cooldown_remaining),
+			str(current_power)
+		]
+		var pos: Vector2 = _tower_world_pos(td)
+		label.position = pos + Vector2(0.0, -TOWER_SPIKE_PX * TOWER_VISUAL_SCALE - 16.0)
+
+	for key in _tower_labels.keys():
+		if not keep.has(key):
+			var stale: Label = _tower_labels[key]
+			if stale != null:
+				stale.queue_free()
+			_tower_labels.erase(key)
 
 func _tower_world_pos(td: Dictionary) -> Vector2:
 	var pos_v: Variant = td.get("pos_px", null)

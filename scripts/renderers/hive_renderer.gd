@@ -5,6 +5,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const HiveNodeScene := preload("res://scenes/hive/HiveNode.tscn")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const HiveVisual := preload("res://scripts/hive/hive_visual.gd")
 
 var state: Object
 var sel: Object
@@ -142,26 +143,16 @@ func _apply_selection(selected_id: int) -> void:
 			var owner_v: Variant = node.get("owner_id")
 			if owner_v != null:
 				owner_id = int(owner_v)
-		var color := _owner_color(owner_id)
+		var color := _team_color_for_player(owner_id)
 		if hid == selected_id:
 			_selected_color = color
 		node.call("set_selected", hid == selected_id, color)
 
+static func _team_color_for_player(player_id: int) -> Color:
+	return HiveVisual._team_color_for_player(player_id)
+
 static func _owner_color(owner_id: int) -> Color:
 	return _team_color_for_player(owner_id)
-
-static func _team_color_for_player(player_id: int) -> Color:
-	match player_id:
-		1:
-			return Color8(255, 210, 0)
-		2:
-			return Color8(34, 85, 34)
-		3:
-			return Color8(229, 57, 53)
-		4:
-			return Color8(30, 136, 229)
-		_:
-			return Color8(224, 224, 224)
 
 static func _power_label_color(owner_id: int, owner_color: Color) -> Color:
 	if owner_id == 1:
@@ -286,7 +277,7 @@ func _draw_model() -> void:
 			owner_id = int(hd.get("owner_id"))
 		var kind: String = str(hd.get("kind", "Hive"))
 		var pwr: int = int(hd.get("pwr", hd.get("power", 0)))
-		color = _owner_color(owner_id)
+		color = _team_color_for_player(owner_id)
 		_draw_hive_visual(pos, radius, owner_id, color, kind, pwr)
 		var text_color := _power_label_color(owner_id, color)
 		if font != null:
@@ -373,7 +364,7 @@ func _draw_state() -> void:
 		var pos: Vector2 = _grid_to_world(gx, gy, cell)
 
 		var color: Color = Color(1, 1, 1, 1)
-		color = _owner_color(owner_id)
+		color = _team_color_for_player(owner_id)
 		_draw_hive_visual(pos, radius, owner_id, color, kind, pwr)
 
 		if font != null:
@@ -445,7 +436,7 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 			if radius_v != null:
 				radius = float(radius_v)
 		var color: Color = Color(1, 1, 1, 1)
-		color = _owner_color(owner_id)
+		color = _team_color_for_player(owner_id)
 		var kind: String = str(hd.get("kind", "Hive"))
 		if _color_log_remaining > 0 and not _color_log_hive_ids.has(id):
 			_color_log_remaining -= 1

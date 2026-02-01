@@ -12,6 +12,7 @@ const DOUBLE_TAP_MS := 250
 const DOUBLE_TAP_DIST_PX := 12.0
 const CLICK_DBL_MS := 250
 const CLICK_DBL_DIST_PX := 14.0
+const LANE_PICK_RADIUS := 22.0
 const BARRACKS_PICK_RADIUS_PX := 48.0
 const TOWER_PICK_RADIUS_PX := 40.0
 const STRUCTURE_PICK_BIAS := 0.95
@@ -283,12 +284,7 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 		"hid": hid,
 		"world": world_pos
 	})
-	if is_dbl and hid != -1:
-		SFLog.info("CLICK_DBL_HIVE_SKIP", {"hid": hid, "world": world_pos})
-		_last_click_ms = now_ms
-		_last_click_world = world_pos
-		return
-	if is_dbl and hid <= 0:
+	if is_dbl:
 		if barracks_id != -1 and selected_barracks_id == -1:
 			SFLog.info("BARRACKS_DBL_SELECT", {
 				"bid": barracks_id,
@@ -299,10 +295,9 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 			_last_click_ms = now_ms
 			_last_click_world = world_pos
 			return
-		var hit: Dictionary = arena_api.pick_lane_world(world_pos)
-		if bool(hit.get("ok", false)):
+		var hit: Dictionary = _pick_lane_hit(world_pos, arena_api)
+		if bool(hit.get("hit", false)):
 			var lane_id: int = int(hit.get("lane_id", -1))
-			var tap_t: float = float(hit.get("t", 0.0))
 			var lane: LaneData = arena_api.find_lane_by_id(lane_id)
 			if lane != null:
 				var a: HiveData = arena_api.find_hive_by_id(lane.a_id)
@@ -320,7 +315,11 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 						dst_id = int(a.id)
 						src_is_a = false
 					if src_id > 0 and dst_id > 0:
-						var tap_is_src_half: bool = tap_t < 0.5 if src_is_a else tap_t > 0.5
+						var a_pos: Vector2 = arena_api.cell_center(a.grid_pos)
+						var b_pos: Vector2 = arena_api.cell_center(b.grid_pos)
+						var src_pos: Vector2 = a_pos if src_is_a else b_pos
+						var dst_pos: Vector2 = b_pos if src_is_a else a_pos
+						var tap_is_src_half: bool = world_pos.distance_to(src_pos) <= world_pos.distance_to(dst_pos)
 						if tap_is_src_half:
 							if arena_api.intent_is_on(src_id, dst_id):
 								SFLog.info("LANE_DBL_RETRACT", {"lane_id": lane_id, "src": src_id, "dst": dst_id})
@@ -730,6 +729,56 @@ func _get_lane_renderer(arena_api: ArenaAPI) -> Object:
 	if renderer_v != null:
 		return renderer_v
 	return arena.get_node_or_null("MapRoot/LaneRenderer")
+
+func _lane_pick_radius(arena_api: ArenaAPI) -> float:
+	var radius := LANE_PICK_RADIUS
+	if arena_api == null:
+		return radius
+	var arena: Node = arena_api._arena
+	if arena == null:
+		return radius
+	var cam: Camera2D = null
+	var cam_v: Variant = arena.get("camera")
+	if cam_v is Camera2D:
+		cam = cam_v as Camera2D
+	if cam == null:
+		cam = arena.get_node_or_null("Camera2D") as Camera2D
+	if cam != null and cam.zoom.x > 0.001:
+		radius = radius / cam.zoom.x
+	return radius
+
+func _pick_lane_hit(world_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
+	var radius := _lane_pick_radius(arena_api)
+	var lr := _get_lane_renderer(arena_api)
+	if lr != null and lr.has_method("pick_lane_at_world_pos"):
+		var hit: Dictionary = lr.call("pick_lane_at_world_pos", world_pos, radius)
+		if bool(hit.get("hit", false)):
+			if lr.has_method("debug_pick_dot"):
+				lr.call("debug_pick_dot", world_pos, 200)
+			SFLog.info("LANE_PICK", {
+				"lane_id": int(hit.get("lane_id", -1)),
+				"dist": float(hit.get("dist", INF)),
+				"t": float(hit.get("t", 0.0)),
+				"radius": radius
+			})
+		return hit
+	var fallback: Dictionary = arena_api.pick_lane_world(world_pos)
+	var ok := bool(fallback.get("ok", false))
+	if ok and lr != null and lr.has_method("debug_pick_dot"):
+		lr.call("debug_pick_dot", world_pos, 200)
+	if ok:
+		SFLog.info("LANE_PICK", {
+			"lane_id": int(fallback.get("lane_id", -1)),
+			"dist": float(fallback.get("dist", INF)),
+			"t": float(fallback.get("t", 0.0)),
+			"radius": radius
+		})
+	return {
+		"hit": ok,
+		"lane_id": int(fallback.get("lane_id", -1)),
+		"t": float(fallback.get("t", 0.0)),
+		"dist": float(fallback.get("dist", INF))
+	}
 
 func _get_viewport_from_arena(arena_api: ArenaAPI) -> Viewport:
 	if arena_api == null:
@@ -1429,7 +1478,7 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		reset_drag()
 		_handling_click = false
 		return
-	if is_double and lane_id != -1:
+	if is_double:
 		if _handle_lane_double_tap(local_pos, actor_id, player_id, arena_api):
 			_handling_click = false
 			return
@@ -1665,8 +1714,8 @@ func _issue_swarm_intent(from_id: int, to_id: int, player_id: int) -> bool:
 
 func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_api: ArenaAPI) -> bool:
 	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
-	var hit: Dictionary = arena_api.pick_lane_world(world_pos)
-	if not bool(hit.get("ok", false)):
+	var hit: Dictionary = _pick_lane_hit(world_pos, arena_api)
+	if not bool(hit.get("hit", false)):
 		SFLog.info("LANE_PICK_MISS", {"world": world_pos})
 		return false
 	var lane_id: int = int(hit.get("lane_id", -1))
@@ -1687,7 +1736,6 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_a
 	var b: HiveData = arena_api.find_hive_by_id(lane.b_id)
 	if a == null or b == null:
 		return false
-	var tap_t: float = float(hit.get("t", 0.0))
 	var src_id: int = -1
 	var dst_id: int = -1
 	var src_is_a: bool = false
@@ -1701,7 +1749,11 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_a
 		src_is_a = false
 	if src_id <= 0 or dst_id <= 0:
 		return false
-	var tap_is_src_half: bool = tap_t < 0.5 if src_is_a else tap_t > 0.5
+	var a_pos: Vector2 = arena_api.cell_center(a.grid_pos)
+	var b_pos: Vector2 = arena_api.cell_center(b.grid_pos)
+	var src_pos: Vector2 = a_pos if src_is_a else b_pos
+	var dst_pos: Vector2 = b_pos if src_is_a else a_pos
+	var tap_is_src_half: bool = world_pos.distance_to(src_pos) <= world_pos.distance_to(dst_pos)
 	if tap_is_src_half:
 		if arena_api.intent_is_on(src_id, dst_id):
 			SFLog.info("LANE_DBL_RETRACT", {"lane_id": lane_id, "src": src_id, "dst": dst_id})

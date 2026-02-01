@@ -1,4 +1,4 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=4 format=3 uid="uid://cgnt8ipev5gkm"]
 
 [ext_resource type="Script" path="res://scripts/hive/hive_node.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/hive/hive_visual.gd" id="2"]
@@ -11,6 +11,17 @@ script = ExtResource("1")
 
 [node name="Visual" type="Node2D" parent="."]
 script = ExtResource("2")
+
+[node name="PowerLabelHolder" type="Node2D" parent="Visual"]
+position = Vector2(2.08165e-12, -120)
+
+[node name="PowerBadge" type="Control" parent="Visual/PowerLabelHolder"]
+mouse_filter = 2
+
+[node name="Backing" type="PanelContainer" parent="Visual/PowerLabelHolder/PowerBadge"]
+mouse_filter = 2
+
+[node name="PowerLabel" type="Label" parent="Visual/PowerLabelHolder/PowerBadge/Backing"]
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("1")

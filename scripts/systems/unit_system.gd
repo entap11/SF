@@ -9,6 +9,7 @@ extends RefCounted
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
+const SimEvents := preload("res://scripts/sim/sim_events.gd")
 
 const BASE_MS := 1000.0
 const PER_POWER_MS := 2.0
@@ -39,9 +40,13 @@ var _last_unit_speed_id: int = -1
 var _last_unit_speed_pos: Vector2 = Vector2.ZERO
 var _last_pressure_warn_ms: Dictionary = {}
 var _in_owner_update: bool = false
+var _sim_events: SimEvents = null
+var _lane_gate_block_log_ms: Dictionary = {}
+var _lane_gate_open_logged: Dictionary = {}
 
 const UNIT_SPEED_LOG_INTERVAL_MS := 1000
 const PRESSURE_WARN_INTERVAL_MS := 1000
+const UNIT_GATE_LOG_INTERVAL_MS := 500
 
 func setup(_sim_tuning: SimTuning = null) -> void:
 	return
@@ -54,10 +59,15 @@ func bind_state(state_ref: GameState) -> void:
 	_next_uid = 1
 	sim_time_us = 0
 	spawn_accum_by_lane.clear()
+	_lane_gate_block_log_ms.clear()
+	_lane_gate_open_logged.clear()
 	if state != null:
 		state.unit_system = self
 		state.units_by_lane.clear()
 		state.units_by_lane["_all"] = units
+
+func set_sim_events(sim_events: SimEvents) -> void:
+	_sim_events = sim_events
 
 func tick(dt: float) -> void:
 	if state == null:
@@ -85,10 +95,16 @@ func _spawn_units(dt: float) -> void:
 		if a == null or b == null:
 			continue
 		var lane_len := _lane_length(ld)
-		if ld.send_a and int(a.owner_id) > 0 and _spawn_allowed(spawn_ids, int(a.id)) and _lane_established(ld, true, lane_len):
-			_accum_spawn(ld, true, a, b, dt_ms)
-		if ld.send_b and int(b.owner_id) > 0 and _spawn_allowed(spawn_ids, int(b.id)) and _lane_established(ld, false, lane_len):
-			_accum_spawn(ld, false, b, a, dt_ms)
+		if ld.send_a and int(a.owner_id) > 0 and _spawn_allowed(spawn_ids, int(a.id)):
+			if _lane_established(ld, true, lane_len):
+				_accum_spawn(ld, true, a, b, dt_ms)
+			else:
+				_log_unit_gate_blocked(int(ld.id), int(a.id), int(b.id), "build", float(ld.build_t))
+		if ld.send_b and int(b.owner_id) > 0 and _spawn_allowed(spawn_ids, int(b.id)):
+			if _lane_established(ld, false, lane_len):
+				_accum_spawn(ld, false, b, a, dt_ms)
+			else:
+				_log_unit_gate_blocked(int(ld.id), int(b.id), int(a.id), "build", float(ld.build_t))
 
 func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive: HiveData, dt_ms: float) -> void:
 	var lane_id := int(lane.id)
@@ -111,6 +127,12 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 	var b_hive: HiveData = state.find_hive_by_id(int(lane.b_id))
 	if a_hive == null or b_hive == null:
 		return
+	_log_unit_gate_open_once(
+		int(lane.id),
+		int(from_hive.id),
+		int(to_hive.id),
+		float(lane.build_t)
+	)
 	var edge_points := _edge_points(a_hive, b_hive)
 	if edge_points.is_empty():
 		return
@@ -627,7 +649,7 @@ func _recall_unit(unit: Dictionary) -> Dictionary:
 	unit = _update_unit_pos_from_t(unit)
 	return unit
 
-func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: int, _now_us: int) -> bool:
+func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: int, _now_us: int, tower_pos: Vector2 = Vector2.ZERO, tower_tier: int = -1) -> bool:
 	if victim_unit_id <= 0:
 		return false
 	for i in range(units.size()):
@@ -636,6 +658,18 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 			continue
 		if tower_owner_id > 0 and int(unit.get("owner_id", 0)) == tower_owner_id:
 			return false
+		var hit_pos: Vector2 = Vector2.ZERO
+		var pos_v: Variant = unit.get("pos", null)
+		if pos_v is Vector2:
+			hit_pos = pos_v
+		else:
+			var from_pos_v: Variant = unit.get("from_pos", null)
+			var to_pos_v: Variant = unit.get("to_pos", null)
+			if from_pos_v is Vector2 and to_pos_v is Vector2:
+				var t: float = clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
+				hit_pos = (from_pos_v as Vector2).lerp(to_pos_v as Vector2, t)
+		if _sim_events != null:
+			_sim_events.emit_signal("tower_hit", source_tower_id, tower_owner_id, tower_tier, tower_pos, victim_unit_id, hit_pos)
 		var amount: int = int(unit.get("amount", 1))
 		if amount > 0:
 			var from_is_a := _unit_dir(unit) >= 0
@@ -705,6 +739,30 @@ func _remove_unit(unit_id: int, reason: String) -> bool:
 func spawn_unit(unit: Dictionary) -> void:
 	if state == null:
 		return
+	var lane_id := int(unit.get("lane_id", -1))
+	if lane_id > 0:
+		var established := false
+		var build_t := 0.0
+		var lane_any = state.find_lane_by_id(lane_id)
+		if lane_any is LaneData:
+			var ld := lane_any as LaneData
+			build_t = float(ld.build_t)
+			established = ld.is_built()
+		if not established:
+			_log_unit_gate_blocked(
+				lane_id,
+				int(unit.get("from_id", -1)),
+				int(unit.get("to_id", -1)),
+				"build",
+				build_t
+			)
+			return
+		_log_unit_gate_open_once(
+			lane_id,
+			int(unit.get("from_id", -1)),
+			int(unit.get("to_id", -1)),
+			build_t
+		)
 	if not unit.has("id") or int(unit.get("id", 0)) <= 0:
 		unit["id"] = _next_external_unit_id
 		_next_external_unit_id += 1
@@ -823,8 +881,37 @@ func _lane_length(lane: LaneData) -> float:
 func _lane_established(lane: LaneData, from_is_a: bool, lane_len: float) -> bool:
 	if lane_len <= 0.0:
 		return false
-	var stream_len := lane.a_stream_len if from_is_a else lane.b_stream_len
-	return stream_len >= lane_len - 0.1
+	return lane.is_built()
+
+func _lane_front_t(lane_id: int) -> float:
+	return float(OpsState.lane_front_by_lane_id.get(lane_id, 0.0))
+
+func _log_unit_gate_blocked(lane_id: int, src_id: int, dst_id: int, intent: String, build_t: float) -> void:
+	var now_ms := Time.get_ticks_msec()
+	var last_ms := int(_lane_gate_block_log_ms.get(lane_id, 0))
+	if now_ms - last_ms < UNIT_GATE_LOG_INTERVAL_MS:
+		return
+	_lane_gate_block_log_ms[lane_id] = now_ms
+	SFLog.info("UNIT_GATE_BLOCKED", {
+		"lane_id": lane_id,
+		"src": src_id,
+		"dst": dst_id,
+		"intent": intent,
+		"front_t": _lane_front_t(lane_id),
+		"build_t": build_t
+	})
+
+func _log_unit_gate_open_once(lane_id: int, src_id: int, dst_id: int, build_t: float) -> void:
+	if _lane_gate_open_logged.has(lane_id):
+		return
+	_lane_gate_open_logged[lane_id] = true
+	SFLog.info("UNIT_GATE_OPEN", {
+		"lane_id": lane_id,
+		"src": src_id,
+		"dst": dst_id,
+		"front_t": _lane_front_t(lane_id),
+		"build_t": build_t
+	})
 
 func _spawn_interval_ms_for_power(power: int) -> int:
 	var p := maxi(1, power)

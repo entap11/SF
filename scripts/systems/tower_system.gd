@@ -8,6 +8,7 @@ extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const StructureControlSystem := preload("res://scripts/systems/structure_control_system.gd")
 const StructureControlSolver := preload("res://scripts/sim/structure_control.gd")
+const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const DEFAULT_CELL_SIZE := 64.0
 const AIRSPACE_HALF_W: float = 260.0
 const AIRSPACE_HALF_H: float = 160.0
@@ -27,6 +28,7 @@ var structure_sets: Array = []
 var structure_positions: Array = []
 var _buff_mod_provider: Callable = Callable()
 var _last_eval_log_ms_by_id: Dictionary = {}
+var _sim_events: SimEvents = null
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
@@ -40,6 +42,9 @@ func reset_control_ms() -> void:
 
 func set_buff_mod_provider(provider: Callable) -> void:
 	_buff_mod_provider = provider
+
+func set_sim_events(sim_events: SimEvents) -> void:
+	_sim_events = sim_events
 
 func init_from_map(map_model: Dictionary) -> void:
 	towers = []
@@ -188,6 +193,7 @@ func _tower_shoot(tower: Dictionary, unit_system: UnitSystem) -> bool:
 	var best_id: int = -1
 	var best_owner: int = 0
 	var best_dist: float = INF
+	var best_pos: Vector2 = Vector2.ZERO
 	for unit in unit_system.units:
 		if typeof(unit) != TYPE_DICTIONARY:
 			continue
@@ -200,25 +206,31 @@ func _tower_shoot(tower: Dictionary, unit_system: UnitSystem) -> bool:
 			best_dist = dist
 			best_id = int(ud.get("id", -1))
 			best_owner = int(ud.get("owner_id", 0))
+			best_pos = pos
 	if best_id == -1:
 		return false
+	var tower_id: int = int(tower.get("id", -1))
+	var tower_owner: int = int(tower.get("owner_id", 0))
+	var tier: int = int(tower.get("tier", 1))
+	if _sim_events != null:
+		_sim_events.emit_signal("tower_fire", tower_id, tower_owner, tier, tower_pos, best_id, best_pos)
 	SFLog.info("TOWER_FIRE", {
-		"tower_id": int(tower.get("id", -1)),
+		"tower_id": tower_id,
 		"target_id": best_id,
-		"tower_owner": int(tower.get("owner_id", 0)),
-		"tier": int(tower.get("tier", 1))
+		"tower_owner": tower_owner,
+		"tier": tier
 	})
-	if unit_system.apply_tower_hit(best_id, int(tower.get("owner_id", 0)), int(tower.get("id", -1)), 0):
+	if unit_system.apply_tower_hit(best_id, tower_owner, tower_id, 0, tower_pos, tier):
 		SFLog.info("TOWER_HIT", {
-			"tower_id": int(tower.get("id", -1)),
+			"tower_id": tower_id,
 			"unit_id": best_id,
-			"tower_owner": int(tower.get("owner_id", 0))
+			"tower_owner": tower_owner
 		})
 		SFLog.info("TOWER_SHOT", {
-			"tower_id": int(tower.get("id", -1)),
+			"tower_id": tower_id,
 			"victim_unit_id": best_id,
 			"victim_owner": best_owner,
-			"tier": int(tower.get("tier", 1))
+			"tier": tier
 		})
 		return true
 	return false
@@ -298,6 +310,7 @@ func _kill_enemy_units_in_airspace(tower: Dictionary, owner_id: int, unit_system
 		return
 	var tower_id: int = int(tower.get("id", -1))
 	var tower_pos: Vector2 = _tower_center_pos(tower)
+	var tier: int = int(tower.get("tier", 1))
 	var kills: Array = []
 	for unit_any in unit_system.units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
@@ -317,7 +330,7 @@ func _kill_enemy_units_in_airspace(tower: Dictionary, owner_id: int, unit_system
 		var unit_id: int = int(kill_data.get("id", -1))
 		if unit_id <= 0:
 			continue
-		if unit_system.apply_tower_hit(unit_id, owner_id, tower_id, 0):
+		if unit_system.apply_tower_hit(unit_id, owner_id, tower_id, 0, tower_pos, tier):
 			SFLog.info("TOWER_KILL", {
 				"tower_id": tower_id,
 				"unit_id": unit_id,

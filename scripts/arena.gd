@@ -11,6 +11,8 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const MapApplier := preload("res://scripts/maps/map_applier.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
+const SimEvents := preload("res://scripts/sim/sim_events.gd")
+const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
 
 const GRID_W := 8
 const GRID_H := 12
@@ -90,6 +92,8 @@ var barracks_system: BarracksSystem = null
 var tower_renderer: TowerRenderer = null
 var swarm_system: SwarmSystem = null
 var sim_runner: SimRunner
+var sim_events: SimEvents = null
+var vfx_manager: VfxManager = null
 var events: Array[Dictionary] = []
 var grid_w: int = GRID_W
 var grid_h: int = GRID_H
@@ -631,6 +635,8 @@ func _init_systems() -> void:
 	if input_system != null:
 		input_system.setup(sel)
 	tower_renderer = tower_renderer_node as TowerRenderer
+	_ensure_sim_events()
+	_ensure_vfx_manager()
 	_ensure_sim_runner()
 	if sim_runner != null:
 		lane_system = sim_runner.get_lane_system()
@@ -647,6 +653,10 @@ func _init_systems() -> void:
 		input_system.set_lane_system(lane_system)
 	if tower_system != null:
 		tower_system.set_buff_mod_provider(Callable(self, "_buff_mod"))
+		if sim_events != null and tower_system.has_method("set_sim_events"):
+			tower_system.set_sim_events(sim_events)
+	if unit_system != null and sim_events != null and unit_system.has_method("set_sim_events"):
+		unit_system.set_sim_events(sim_events)
 	if barracks_system != null:
 		if not barracks_system.barracks_activated.is_connected(_on_barracks_activated):
 			barracks_system.barracks_activated.connect(_on_barracks_activated)
@@ -674,6 +684,31 @@ func _ensure_sim_runner() -> void:
 		sim_runner.post_match_action.connect(_on_post_match_action)
 	unit_system = sim_runner.unit_system if sim_runner != null else null
 	swarm_system = sim_runner.swarm_system if sim_runner != null else null
+
+func _ensure_sim_events() -> void:
+	if sim_events != null and is_instance_valid(sim_events):
+		return
+	var existing := get_node_or_null("SimEvents")
+	if existing is SimEvents:
+		sim_events = existing as SimEvents
+		return
+	sim_events = SimEvents.new()
+	sim_events.name = "SimEvents"
+	add_child(sim_events)
+
+func _ensure_vfx_manager() -> void:
+	if vfx_manager != null and is_instance_valid(vfx_manager):
+		return
+	var root := map_root if map_root != null else self
+	var existing := root.get_node_or_null("VfxManager")
+	if existing is VfxManager:
+		vfx_manager = existing as VfxManager
+	else:
+		vfx_manager = VfxManager.new()
+		vfx_manager.name = "VfxManager"
+		root.add_child(vfx_manager)
+	if sim_events != null and vfx_manager.has_method("set_sim_events"):
+		vfx_manager.set_sim_events(sim_events)
 
 func _on_sim_ticked() -> void:
 	mark_render_dirty("sim_tick")

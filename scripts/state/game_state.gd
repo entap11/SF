@@ -18,6 +18,9 @@ const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
 const DEFAULT_CELL_SIZE := 64.0
 const MATCH_DURATION_MS := 300000
+const DEFAULT_UNINTENDED_POWER_PER_SEC := 1.0
+const PASSIVE_CHILL_MS := 3000
+const PASSIVE_MS_PER_POWER: float = 3000.0
 
 enum GameOutcome {
 	NONE,
@@ -52,6 +55,10 @@ var _arrival_q: Dictionary = {}
 var _sim_time_us: int = 0
 var hive_spawn_block_until_us: Dictionary = {}
 var tick: int = 0
+var _unintended_power_accum_by_hive: Dictionary = {}
+var _passive_accum_ms: float = 0.0
+var _passive_config_logged: bool = false
+var _outgoing_sample_log_ms: int = 0
 
 # Indexes
 var hive_by_id: Dictionary = {}
@@ -132,6 +139,10 @@ func reset_map_only() -> void:
 	hive_spawn_block_until_us.clear()
 	_lane_spawn_disabled_logged = false
 	tick = 0
+	_unintended_power_accum_by_hive.clear()
+	_passive_accum_ms = 0.0
+	_passive_config_logged = false
+	_outgoing_sample_log_ms = 0
 	rebuild_indexes()
 
 # -------------------------------------------------------------------
@@ -776,6 +787,112 @@ func map_lane_between(a_id: int, b_id: int) -> int:
 # Lane flow
 # -------------------------------------------------------------------
 
+func tick_unintended_power(dt_ms: float) -> void:
+	if dt_ms <= 0.0 or hives.is_empty():
+		return
+	if OpsState.match_phase != OpsState.MatchPhase.RUNNING:
+		_passive_accum_ms = 0.0
+		return
+	if not _passive_config_logged:
+		_passive_config_logged = true
+		SFLog.info("PASSIVE_CONFIG", {
+			"chill_ms": PASSIVE_CHILL_MS,
+			"ms_per_power": PASSIVE_MS_PER_POWER
+		})
+	if int(OpsState.match_elapsed_ms) < PASSIVE_CHILL_MS:
+		_passive_accum_ms = 0.0
+		return
+	_passive_accum_ms += dt_ms
+	var ticks_fired: int = 0
+	while _passive_accum_ms >= PASSIVE_MS_PER_POWER:
+		_passive_accum_ms -= PASSIVE_MS_PER_POWER
+		ticks_fired += 1
+		_apply_passive_tick(1, ticks_fired)
+
+func _apply_passive_tick(inc: int, ticks_fired: int) -> void:
+	var eligible_count: int = 0
+	var applied_count: int = 0
+	var sample: Array = []
+	for hive in hives:
+		if hive == null:
+			continue
+		var hid: int = int(hive.id)
+		if _is_npc_hive(hive):
+			continue
+		var outgoing: int = outgoing_active_count(hid)
+		if outgoing > 0:
+			continue
+		eligible_count += 1
+		var before: int = int(hive.power)
+		var after: int = mini(SimTuning.MAX_POWER, before + inc)
+		if after > before:
+			hive.power = after
+			applied_count += 1
+		if sample.size() < 3:
+			sample.append({
+				"id": hid,
+				"outgoing": outgoing,
+				"p0": before,
+				"p1": int(hive.power),
+				"inc": inc
+			})
+	SFLog.info("PASSIVE_TICK", {
+		"ticks_fired": ticks_fired,
+		"eligible_count": eligible_count,
+		"applied_count": applied_count,
+		"sample": sample
+	})
+	var now_ms := Time.get_ticks_msec()
+	if now_ms - _outgoing_sample_log_ms >= 2000 and hives.size() > 0:
+		_outgoing_sample_log_ms = now_ms
+		var sample_h := hives[0] as HiveData
+		if sample_h != null:
+			SFLog.info("OUTGOING_COUNT_SAMPLE", {
+				"id": int(sample_h.id),
+				"outgoing_active_count": outgoing_active_count(int(sample_h.id))
+			})
+
+func _normalized_hive_kind(kind: String) -> String:
+	var key := kind.strip_edges().to_lower()
+	key = key.replace("_", "")
+	if key == "playerhive":
+		return "hive"
+	return key
+
+func _is_npc_hive(hv: Variant) -> bool:
+	if typeof(hv) == TYPE_DICTIONARY:
+		var hd: Dictionary = hv
+		var kind_norm := _normalized_hive_kind(str(hd.get("kind", "")))
+		if kind_norm == "npc" or kind_norm == "npchive":
+			return true
+		if bool(hd.get("is_npc", false)):
+			return true
+		var owner_str := str(hd.get("owner", "")).strip_edges().to_lower()
+		if owner_str == "npc":
+			return true
+		return false
+	var kind_norm := _normalized_hive_kind(str(hv.kind))
+	return kind_norm == "npc" or kind_norm == "npchive"
+
+func outgoing_active_count(hive_id: int) -> int:
+	var count := 0
+	for lane_any in lanes:
+		if lane_any is LaneData:
+			var ld := lane_any as LaneData
+			if int(ld.a_id) == hive_id and bool(ld.send_a):
+				count += 1
+			if int(ld.b_id) == hive_id and bool(ld.send_b):
+				count += 1
+		elif lane_any is Dictionary:
+			var d := lane_any as Dictionary
+			var a_id := int(d.get("a_id", d.get("from", 0)))
+			var b_id := int(d.get("b_id", d.get("to", 0)))
+			if a_id == hive_id and bool(d.get("send_a", false)):
+				count += 1
+			if b_id == hive_id and bool(d.get("send_b", false)):
+				count += 1
+	return count
+
 func tick_lane_flow(dt_ms: float, allow_spawns: bool = true) -> void:
 	if dt_ms <= 0.0 or lanes.is_empty():
 		return
@@ -863,74 +980,82 @@ func _accumulate_lane_pressure(
 		lane.spawn_accum_b_ms = 0.0
 		return
 	if lane.send_a and not lane.retract_a:
-		if a_hive != null and a_hive.owner_id > 0:
-			# Swarm shock: block outgoing spawns for a short window.
-			var block_until_us: int = int(hive_spawn_block_until_us.get(int(a_hive.id), 0))
-			if _sim_time_us < block_until_us:
-				lane.spawn_accum_a_ms = 0.0
-				_log_spawn_block(lane, "A", "SHOCK")
-			else:
-				lane.spawn_accum_a_ms += dt_ms
-				var spawn_ms: float = _spawn_ms_for_hive(int(a_hive.power))
-				var spawned_any := false
-				while lane.spawn_accum_a_ms >= spawn_ms:
-					lane.spawn_accum_a_ms -= spawn_ms
-					var amount := _pressure_per_spawn()
-					lane.a_pressure += amount
-					lane.establish_a = true
-					var spawn_count: int = int(maxi(1, int(round(amount))))
-					spawned_any = true
-					for _k in range(spawn_count):
-						_schedule_arrival(lane, "A", lane_len)
-						if unit_system != null:
-							_spawn_unit_packet(lane, a_hive, b_hive, true)
-					if SimTuning.LANE_FLOW_LOGS and SFLog.verbose_sim:
-						SFLog.throttled_info("LANE_SPAWN", {
-							"lane_id": int(lane.id),
-							"side": "A",
-							"amount": amount,
-							"pressure": lane.a_pressure
-						}, 250)
-				if not spawned_any:
-					_log_spawn_block(lane, "A", "INTERVAL")
+		if lane.build_t < 0.999:
+			lane.spawn_accum_a_ms = 0.0
+			_log_spawn_block(lane, "A", "BUILD")
 		else:
-			_log_spawn_block(lane, "A", "OWNER")
+			if a_hive != null and a_hive.owner_id > 0:
+				# Swarm shock: block outgoing spawns for a short window.
+				var block_until_us: int = int(hive_spawn_block_until_us.get(int(a_hive.id), 0))
+				if _sim_time_us < block_until_us:
+					lane.spawn_accum_a_ms = 0.0
+					_log_spawn_block(lane, "A", "SHOCK")
+				else:
+					lane.spawn_accum_a_ms += dt_ms
+					var spawn_ms: float = _spawn_ms_for_hive(int(a_hive.power))
+					var spawned_any := false
+					while lane.spawn_accum_a_ms >= spawn_ms:
+						lane.spawn_accum_a_ms -= spawn_ms
+						var amount := _pressure_per_spawn()
+						lane.a_pressure += amount
+						lane.establish_a = true
+						var spawn_count: int = int(maxi(1, int(round(amount))))
+						spawned_any = true
+						for _k in range(spawn_count):
+							_schedule_arrival(lane, "A", lane_len)
+							if unit_system != null:
+								_spawn_unit_packet(lane, a_hive, b_hive, true)
+						if SimTuning.LANE_FLOW_LOGS and SFLog.verbose_sim:
+							SFLog.throttled_info("LANE_SPAWN", {
+								"lane_id": int(lane.id),
+								"side": "A",
+								"amount": amount,
+								"pressure": lane.a_pressure
+							}, 250)
+					if not spawned_any:
+						_log_spawn_block(lane, "A", "INTERVAL")
+			else:
+				_log_spawn_block(lane, "A", "OWNER")
 	else:
 		lane.spawn_accum_a_ms = 0.0
 
 	if lane.send_b and not lane.retract_b:
-		if b_hive != null and b_hive.owner_id > 0:
-			# Swarm shock: block outgoing spawns for a short window.
-			var block_until_us_b: int = int(hive_spawn_block_until_us.get(int(b_hive.id), 0))
-			if _sim_time_us < block_until_us_b:
-				lane.spawn_accum_b_ms = 0.0
-				_log_spawn_block(lane, "B", "SHOCK")
-			else:
-				lane.spawn_accum_b_ms += dt_ms
-				var spawn_ms: float = _spawn_ms_for_hive(int(b_hive.power))
-				var spawned_any := false
-				while lane.spawn_accum_b_ms >= spawn_ms:
-					lane.spawn_accum_b_ms -= spawn_ms
-					var amount := _pressure_per_spawn()
-					lane.b_pressure += amount
-					lane.establish_b = true
-					var spawn_count: int = int(maxi(1, int(round(amount))))
-					spawned_any = true
-					for _k in range(spawn_count):
-						_schedule_arrival(lane, "B", lane_len)
-						if unit_system != null:
-							_spawn_unit_packet(lane, b_hive, a_hive, false)
-					if SimTuning.LANE_FLOW_LOGS and SFLog.verbose_sim:
-						SFLog.throttled_info("LANE_SPAWN", {
-							"lane_id": int(lane.id),
-							"side": "B",
-							"amount": amount,
-							"pressure": lane.b_pressure
-						}, 250)
-				if not spawned_any:
-					_log_spawn_block(lane, "B", "INTERVAL")
+		if lane.build_t < 0.999:
+			lane.spawn_accum_b_ms = 0.0
+			_log_spawn_block(lane, "B", "BUILD")
 		else:
-			_log_spawn_block(lane, "B", "OWNER")
+			if b_hive != null and b_hive.owner_id > 0:
+				# Swarm shock: block outgoing spawns for a short window.
+				var block_until_us_b: int = int(hive_spawn_block_until_us.get(int(b_hive.id), 0))
+				if _sim_time_us < block_until_us_b:
+					lane.spawn_accum_b_ms = 0.0
+					_log_spawn_block(lane, "B", "SHOCK")
+				else:
+					lane.spawn_accum_b_ms += dt_ms
+					var spawn_ms: float = _spawn_ms_for_hive(int(b_hive.power))
+					var spawned_any := false
+					while lane.spawn_accum_b_ms >= spawn_ms:
+						lane.spawn_accum_b_ms -= spawn_ms
+						var amount := _pressure_per_spawn()
+						lane.b_pressure += amount
+						lane.establish_b = true
+						var spawn_count: int = int(maxi(1, int(round(amount))))
+						spawned_any = true
+						for _k in range(spawn_count):
+							_schedule_arrival(lane, "B", lane_len)
+							if unit_system != null:
+								_spawn_unit_packet(lane, b_hive, a_hive, false)
+						if SimTuning.LANE_FLOW_LOGS and SFLog.verbose_sim:
+							SFLog.throttled_info("LANE_SPAWN", {
+								"lane_id": int(lane.id),
+								"side": "B",
+								"amount": amount,
+								"pressure": lane.b_pressure
+							}, 250)
+					if not spawned_any:
+						_log_spawn_block(lane, "B", "INTERVAL")
+			else:
+				_log_spawn_block(lane, "B", "OWNER")
 	else:
 		lane.spawn_accum_b_ms = 0.0
 

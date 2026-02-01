@@ -87,6 +87,11 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		if lane_r is CanvasItem:
 			(lane_r as CanvasItem).queue_redraw()
 
+	if arena.has_method("mark_render_dirty"):
+		arena.call("mark_render_dirty", "map_apply")
+	if arena.has_method("_push_render_model"):
+		arena.call("_push_render_model")
+
 	# === OWNER SANITY CHECK (log once per map apply) ===
 	var p1 := 0
 	var p2 := 0

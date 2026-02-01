@@ -9,11 +9,14 @@ signal lane_removed(lane_id: int)
 
 const LANE_BUILD_MS := 500
 const LANE_FRONT_SPEED := 0.35
+const LANE_ESTABLISH_EPS := 0.999
 
 var lanes: Dictionary = {} # key "lo:hi" -> Dictionary lane_d (render/intent view)
 var blockers: Array = []   # [{pos:Vector2, r:float, id:int}]
 var state: GameState = null
 var last_error_reason: String = ""
+var _established_by_lane_id: Dictionary = {}
+var _build_complete_logged: Dictionary = {}
 
 var establish_ms: float = 2400.0
 var first_unit_delay_ms: int = 2
@@ -29,6 +32,8 @@ func _ready() -> void:
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
 	lanes.clear()
+	_established_by_lane_id.clear()
+	_build_complete_logged.clear()
 	last_error_reason = ""
 	_sync_dirty = false
 	_next_lane_id = 1
@@ -285,6 +290,7 @@ func tick_lane_fronts(dt: float) -> void:
 		return
 	if dt <= 0.0:
 		return
+	var now_ms := Time.get_ticks_msec()
 	for lane_any in state.lanes:
 		var lane_id := -1
 		var send_a := false
@@ -294,6 +300,28 @@ func tick_lane_fronts(dt: float) -> void:
 			lane_id = int(l.id)
 			send_a = bool(l.send_a)
 			send_b = bool(l.send_b)
+			if l.establish_a or l.establish_b:
+				if int(l.establish_t0_ms) <= 0:
+					l.establish_t0_ms = now_ms
+				var progress := clampf(float(now_ms - int(l.establish_t0_ms)) / float(LANE_BUILD_MS), 0.0, 1.0)
+				l.build_t = progress
+				var was_built := bool(_build_complete_logged.get(lane_id, false))
+				var now_built := progress >= 1.0
+				if now_built:
+					l.build_t = 1.0
+					var side := "A" if l.establish_a else ("B" if l.establish_b else "")
+					l.establish_a = false
+					l.establish_b = false
+					if not was_built:
+						_build_complete_logged[lane_id] = true
+						SFLog.info("LANE_BUILD_COMPLETE", {
+							"lane_id": lane_id,
+							"side": side
+						})
+				elif was_built:
+					_build_complete_logged[lane_id] = false
+			elif l.build_t <= 0.0:
+				l.build_t = 1.0
 		elif lane_any is Dictionary:
 			var d: Dictionary = lane_any as Dictionary
 			lane_id = int(d.get("lane_id", d.get("id", -1)))
@@ -310,6 +338,30 @@ func tick_lane_fronts(dt: float) -> void:
 		if dir != 0.0:
 			t = clampf(t + dir * LANE_FRONT_SPEED * dt, 0.05, 0.95)
 		OpsState.lane_front_by_lane_id[lane_id] = t
+		var was_established := bool(_established_by_lane_id.get(lane_id, false))
+		var now_established := t >= LANE_ESTABLISH_EPS
+		if now_established and not was_established:
+			_established_by_lane_id[lane_id] = true
+			var src := -1
+			var dst := -1
+			if send_a and not send_b:
+				src = int(lane_any.a_id) if lane_any is LaneData else int((lane_any as Dictionary).get("a_id", -1))
+				dst = int(lane_any.b_id) if lane_any is LaneData else int((lane_any as Dictionary).get("b_id", -1))
+			elif send_b and not send_a:
+				src = int(lane_any.b_id) if lane_any is LaneData else int((lane_any as Dictionary).get("b_id", -1))
+				dst = int(lane_any.a_id) if lane_any is LaneData else int((lane_any as Dictionary).get("a_id", -1))
+			var a_id := int(lane_any.a_id) if lane_any is LaneData else int((lane_any as Dictionary).get("a_id", -1))
+			var b_id := int(lane_any.b_id) if lane_any is LaneData else int((lane_any as Dictionary).get("b_id", -1))
+			SFLog.info("LANE_ESTABLISHED", {
+				"lane_id": lane_id,
+				"a_id": a_id,
+				"b_id": b_id,
+				"src": src,
+				"dst": dst,
+				"front_t": t
+			})
+		elif not now_established and was_established:
+			_established_by_lane_id[lane_id] = false
 
 
 func _sync_to_state() -> void:
@@ -379,9 +431,11 @@ func _sync_to_state() -> void:
 			float(lane.get("b_pressure", (prev.b_pressure if prev != null else 0.0))),
 			float(lane.get("a_stream_len", (prev.a_stream_len if prev != null else 0.0))),
 			float(lane.get("b_stream_len", (prev.b_stream_len if prev != null else 0.0))),
+			float(lane.get("build_t", (prev.build_t if prev != null else 1.0))),
 			float(lane.get("split_t", (prev.last_impact_f if prev != null else 0.5))),
 			bool(lane.get("establish_a", (prev.establish_a if prev != null else false))),
 			bool(lane.get("establish_b", (prev.establish_b if prev != null else false))),
+			int(lane.get("establish_t0_ms", (prev.establish_t0_ms if prev != null else 0))),
 			float(lane.get("spawn_accum_a_ms", (prev.spawn_accum_a_ms if prev != null else 0.0))),
 			float(lane.get("spawn_accum_b_ms", (prev.spawn_accum_b_ms if prev != null else 0.0))),
 			bool(lane.get("retract_a", (prev.retract_a if prev != null else false))),
