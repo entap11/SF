@@ -1,5 +1,6 @@
 extends RefCounted
 class_name MapCatalog
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const MAP_DIR := "res://maps/json"
 
@@ -7,7 +8,8 @@ static func list_json_maps() -> Array[String]:
 	var out: Array[String] = []
 	var da := DirAccess.open(MAP_DIR)
 	if da == null:
-		push_warning("MAP_CATALOG: could not open dir: %s" % MAP_DIR)
+		if SFLog.LOGGING_ENABLED:
+			push_warning("MAP_CATALOG: could not open dir: %s" % MAP_DIR)
 		return out
 
 	da.list_dir_begin()

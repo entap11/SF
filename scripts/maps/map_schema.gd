@@ -405,7 +405,8 @@ static func build_internal_map(human: Dictionary) -> Dictionary:
 	var config: Dictionary = human
 	var schema_id := str(human.get("_schema", ""))
 	if schema_id != SCHEMA_ID:
-		push_error("MAP_SCHEMA: expected _schema=%s" % SCHEMA_ID)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_SCHEMA: expected _schema=%s" % SCHEMA_ID)
 		return {"ok": false, "error": "expected _schema=%s" % SCHEMA_ID}
 	if not human.has("entities"):
 		return {"ok": false, "error": "v1.xy missing entities[]"}
@@ -419,7 +420,8 @@ static func build_internal_map(human: Dictionary) -> Dictionary:
 		return {"ok": false, "error": "grid_w/grid_h must be > 0"}
 	if grid_w != CANON_GRID_W or grid_h != CANON_GRID_H:
 		var msg := "Expected canonical grid 8x12 (w×h). Got %dx%d. Fix the map schema." % [grid_w, grid_h]
-		push_error("MAP_SCHEMA: %s" % msg)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_SCHEMA: %s" % msg)
 		return {"ok": false, "error": msg}
 	var hives_raw: Array = source.get("hives", [])
 	if typeof(hives_raw) != TYPE_ARRAY or hives_raw.is_empty():

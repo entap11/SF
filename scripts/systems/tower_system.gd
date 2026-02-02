@@ -23,12 +23,15 @@ const tower_base_radius_px: float = DEFAULT_CELL_SIZE * 0.75
 
 var state: GameState = null
 var towers: Array = []
+var world_towers: Array[Node2D] = []
 var tower_control_ms: Dictionary = {}
 var structure_sets: Array = []
 var structure_positions: Array = []
 var _buff_mod_provider: Callable = Callable()
 var _last_eval_log_ms_by_id: Dictionary = {}
+var _last_no_target_ms_by_id: Dictionary = {}
 var _sim_events: SimEvents = null
+var _structure_control_system: Object = null
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
@@ -36,6 +39,18 @@ func bind_state(state_ref: GameState) -> void:
 	structure_sets.clear()
 	structure_positions.clear()
 	reset_control_ms()
+	world_towers.clear()
+	_bind_structure_control_system()
+	var state_towers_count: int = 0
+	if state != null and state.towers != null:
+		state_towers_count = int(state.towers.size())
+	SFLog.info("TOWER_BIND_SIM_DATA", {"state_towers": state_towers_count})
+	if state != null and state.towers != null and state.towers.size() > 0:
+		_init_from_state_towers(state.towers)
+		SFLog.info("TOWER_BIND_INIT_FROM_STATE", {"count": int(towers.size())})
+
+func bind_world_towers(nodes: Array[Node2D]) -> void:
+	world_towers = nodes
 
 func reset_control_ms() -> void:
 	tower_control_ms = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
@@ -117,11 +132,13 @@ func tick(dt: float, unit_system: UnitSystem) -> void:
 		tower["shot_accum_ms"] = float(tower.get("shot_accum_ms", 0.0)) + dt_ms
 		var interval_ms: float = _tower_interval_ms_for(owner_id, tier)
 		while float(tower["shot_accum_ms"]) >= interval_ms:
-			tower["shot_accum_ms"] = float(tower["shot_accum_ms"]) - interval_ms
 			var shot: bool = _tower_shoot(tower, unit_system)
-			if not shot:
-				# Nothing in range; stop early to avoid looping empty shots.
-				break
+			if shot:
+				tower["shot_accum_ms"] = float(tower["shot_accum_ms"]) - interval_ms
+				continue
+			# No target: keep gate ready so first target fires immediately.
+			tower["shot_accum_ms"] = interval_ms
+			break
 
 func _set_tower_inactive(tower: Dictionary) -> void:
 	tower["active"] = false
@@ -172,7 +189,7 @@ func _tower_interval_ms_for(owner_id: int, tier: int) -> float:
 	return maxf(80.0, base / rate_mult)
 
 func _tower_range_px(tier: int) -> float:
-	var base_radius := 48.0 # 96px diameter
+	var base_radius: float = 160.0
 	match tier:
 		1:
 			return base_radius
@@ -188,38 +205,71 @@ func _tower_shoot(tower: Dictionary, unit_system: UnitSystem) -> bool:
 	if unit_system == null or not bool(tower.get("active", false)):
 		return false
 	var tower_pos: Vector2 = _tower_center_pos(tower)
-	var range_px: float = _tower_range_px(int(tower.get("tier", 1)))
+	var tier: int = int(tower.get("tier", 1))
+	var tower_owner: int = int(tower.get("owner_id", 0))
+	var range_px: float = _tower_range_px(tier)
 	var range_sq: float = range_px * range_px
 	var best_id: int = -1
 	var best_owner: int = 0
 	var best_dist: float = INF
 	var best_pos: Vector2 = Vector2.ZERO
+	var units_seen: int = 0
+	var units_in_lane: int = 0
+	var units_in_range: int = 0
+	var units_bad_lane: int = 0
 	for unit in unit_system.units:
 		if typeof(unit) != TYPE_DICTIONARY:
 			continue
+		units_seen += 1
 		var ud: Dictionary = unit
-		if int(ud.get("owner_id", 0)) == int(tower.get("owner_id", 0)):
+		var lane_id: int = int(ud.get("lane_id", -1))
+		if lane_id <= 0:
+			units_bad_lane += 1
+			continue
+		units_in_lane += 1
+		if int(ud.get("owner_id", 0)) == tower_owner:
 			continue
 		var pos: Vector2 = _unit_position(ud)
 		var dist: float = tower_pos.distance_squared_to(pos)
-		if dist <= range_sq and dist < best_dist:
-			best_dist = dist
-			best_id = int(ud.get("id", -1))
-			best_owner = int(ud.get("owner_id", 0))
-			best_pos = pos
+		if dist <= range_sq:
+			units_in_range += 1
+			if dist < best_dist:
+				best_dist = dist
+				best_id = int(ud.get("id", -1))
+				best_owner = int(ud.get("owner_id", 0))
+				best_pos = pos
 	if best_id == -1:
+		var interval_ms: float = _tower_interval_ms_for(tower_owner, tier)
+		var cooldown_remaining: float = maxf(0.0, interval_ms - float(tower.get("shot_accum_ms", 0.0)))
+		_log_no_target(
+			tower,
+			units_seen,
+			units_in_lane,
+			units_in_range,
+			units_bad_lane,
+			cooldown_remaining
+		)
 		return false
 	var tower_id: int = int(tower.get("id", -1))
-	var tower_owner: int = int(tower.get("owner_id", 0))
-	var tier: int = int(tower.get("tier", 1))
 	if _sim_events != null:
 		_sim_events.emit_signal("tower_fire", tower_id, tower_owner, tier, tower_pos, best_id, best_pos)
+	var now_ms: int = Time.get_ticks_msec()
+	SFLog.info("TOWER_TRY_FIRE", {
+		"tower": tower_id,
+		"now_ms": now_ms,
+		"can_fire": true,
+		"target": best_id
+	})
 	SFLog.info("TOWER_FIRE", {
 		"tower_id": tower_id,
 		"target_id": best_id,
 		"tower_owner": tower_owner,
 		"tier": tier
 	})
+	var cooldown_ms: float = _tower_interval_ms_for(tower_owner, tier)
+	tower["cooldown_remaining"] = cooldown_ms
+	tower["cooldown_ms"] = cooldown_ms
+	tower["last_fire_ms"] = now_ms
 	if unit_system.apply_tower_hit(best_id, tower_owner, tower_id, 0, tower_pos, tier):
 		SFLog.info("TOWER_HIT", {
 			"tower_id": tower_id,
@@ -250,6 +300,40 @@ func _log_tower_eval(tower: Dictionary, owner_id: int, control_ids: Array, now_m
 		"active": bool(tower.get("active", false)),
 		"control_count": control_ids.size()
 	})
+
+func _log_no_target(
+	tower: Dictionary,
+	units_seen: int,
+	units_in_lane: int,
+	units_in_range: int,
+	units_bad_lane: int,
+	cooldown_remaining: float
+) -> void:
+	var tower_id: int = int(tower.get("id", -1))
+	if tower_id <= 0:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	var last_ms: int = int(_last_no_target_ms_by_id.get(tower_id, 0))
+	if now_ms - last_ms < TOWER_EVAL_LOG_MS:
+		return
+	_last_no_target_ms_by_id[tower_id] = now_ms
+	SFLog.info("TOWER_TARGET_SCAN", {
+		"tower_id": tower_id,
+		"owner_id": int(tower.get("owner_id", 0)),
+		"active": bool(tower.get("active", false)),
+		"units_seen": units_seen,
+		"units_in_lane": units_in_lane,
+		"units_in_range": units_in_range,
+		"units_bad_lane": units_bad_lane,
+		"world_nodes": world_towers.size(),
+		"cooldown_remaining": cooldown_remaining
+	})
+	if OS.is_debug_build() and units_seen > 0 and units_in_range == 0:
+		SFLog.info("TOWER_DEBUG_NO_TARGET_BUT_UNITS_EXIST", {
+			"tower_id": tower_id,
+			"owner_id": int(tower.get("owner_id", 0)),
+			"units_seen": units_seen
+		})
 
 func _tower_center_pos(tower_data: Dictionary) -> Vector2:
 	var gp_v: Variant = tower_data.get("grid_pos", null)
@@ -564,6 +648,71 @@ func _structure_point_inside_existing_hulls(point: Vector2, existing_sets: Array
 		if _point_in_convex_polygon(point, hull):
 			return true
 	return false
+
+func _bind_structure_control_system() -> void:
+	if _structure_control_system != null and is_instance_valid(_structure_control_system):
+		return
+	var sim_runner: Node = get_parent()
+	if sim_runner == null or not sim_runner.has_method("get_structure_control_system"):
+		sim_runner = _find_sim_runner()
+	if sim_runner == null or not sim_runner.has_method("get_structure_control_system"):
+		return
+	var scs: Object = sim_runner.call("get_structure_control_system")
+	if scs == null:
+		return
+	_structure_control_system = scs
+	if _structure_control_system.has_signal("structure_owner_changed"):
+		var signal_obj = _structure_control_system.structure_owner_changed
+		if not signal_obj.is_connected(_on_structure_owner_changed):
+			signal_obj.connect(_on_structure_owner_changed)
+
+func _find_sim_runner() -> Node:
+	var n: Node = self
+	while n != null:
+		var sr: Node = n.get_node_or_null("SimRunner")
+		if sr != null:
+			return sr
+		n = n.get_parent()
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		return scene.find_child("SimRunner", true, false)
+	return null
+
+func _on_structure_owner_changed(
+	structure_type: String,
+	structure_id: int,
+	prev_owner: int,
+	next_owner: int,
+	control_ids: Array
+) -> void:
+	if structure_type != "tower":
+		return
+	for td in towers:
+		if typeof(td) != TYPE_DICTIONARY:
+			continue
+		if int(td.get("id", -1)) != structure_id:
+			continue
+		var now_ms: int = Time.get_ticks_msec()
+		_reset_fire_gate_for_capture(td, next_owner, now_ms)
+		SFLog.info("TOWER_CAPTURE_RESET", {
+			"tower": structure_id,
+			"owner": next_owner,
+			"now_ms": now_ms,
+			"next_fire_at_ms": now_ms
+		})
+		return
+
+func _reset_fire_gate_for_capture(tower: Dictionary, owner_id: int, _now_ms: int) -> void:
+	# Cooldown must ONLY exist between shots.
+	tower["cooldown_remaining"] = 0.0
+	tower["cooldown_ms"] = 0.0
+	tower["last_fire_ms"] = -1
+	tower["target_unit_id"] = -1
+	if owner_id <= 0:
+		tower["shot_accum_ms"] = 0.0
+		return
+	var tier: int = int(tower.get("tier", 1))
+	tower["shot_accum_ms"] = _tower_interval_ms_for(owner_id, tier)
 
 func _structure_hull_violation_count(candidate: Array, structure_positions: Array) -> int:
 	if candidate.size() < 3:

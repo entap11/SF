@@ -1,4 +1,5 @@
 extends Control
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 signal closed
 
@@ -101,7 +102,8 @@ func _on_timeout_tick() -> void:
 func _start_match() -> void:
 	var price_text := "FREE" if _free_roll else "$%d" % _price_usd
 	status_label.text = "Match starting..."
-	print("VS RUN", {
+	if SFLog.LOGGING_ENABLED:
+		print("VS RUN", {
 		"mode": _mode,
 		"map_count": _map_count,
 		"price": price_text

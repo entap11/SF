@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://b2m2j1m3d5q8t"]
+[gd_scene load_steps=9 format=3 uid="uid://b2m2j1m3d5q8t"]
 
 [ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/ui/hex_button.gd" id="2"]
@@ -7,6 +7,7 @@
 [ext_resource type="Texture2D" uid="uid://bkass4b8jo610" path="res://assets/sprites/sf_skin_v1/arena_underlayment_art.PNG" id="5"]
 [ext_resource type="Material" path="res://assets/shaders/underlayment_tile.tres" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/ui/settings/profile_settings_panel.tscn" id="7"]
+[ext_resource type="PackedScene" path="res://scenes/ui/onboarding/onboarding_panel.tscn" id="8"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -1992,3 +1993,51 @@ offset_left = -90.0
 offset_top = -90.0
 offset_bottom = 90.0
 script = ExtResource("2")
+
+[node name="ProfileFirstRunOverlay" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+
+[node name="OverlayDim" type="ColorRect" parent="ProfileFirstRunOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+color = Color(0, 0, 0, 0.6)
+
+[node name="OverlayCenter" type="CenterContainer" parent="ProfileFirstRunOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+
+[node name="OverlayPanel" type="Panel" parent="ProfileFirstRunOverlay/OverlayCenter"]
+custom_minimum_size = Vector2(560, 420)
+mouse_filter = 1
+
+[node name="OverlayVBox" type="VBoxContainer" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="OnboardingPanel" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel/OverlayVBox" instance=ExtResource("8")]
+layout_mode = 2
+custom_minimum_size = Vector2(520, 260)

@@ -1,17 +1,14 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=3 format=3 uid="uid://bna4cmslnw2d1"]
 
 [ext_resource type="Script" path="res://scripts/ui/power_bar.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/ui/power_bar/power_bar_4p_base.png" id="2"]
+[ext_resource type="Texture2D" uid="uid://ldej02en1kpv" path="res://assets/ui/power_bar/power_bar_frame_border.png" id="2"]
 
 [node name="PowerBar" type="Control"]
+layout_mode = 3
 anchor_left = 0.06
 anchor_top = 0.02
 anchor_right = 0.94
 anchor_bottom = 0.12
-offset_left = 0.0
-offset_top = 0.0
-offset_right = 0.0
-offset_bottom = 0.0
 mouse_filter = 2
 script = ExtResource("1")
 base_texture = ExtResource("2")
@@ -21,34 +18,30 @@ max_width_ratio = 0.85
 min_scale = 0.45
 max_scale = 0.85
 
-[node name="FillLayer" type="Control" parent="."]
-anchor_left = 0.0
-anchor_top = 0.0
-anchor_right = 1.0
-anchor_bottom = 1.0
+[node name="FillMask" type="Control" parent="."]
 clip_contents = true
+anchors_preset = 0
+offset_left = 110.0
+offset_top = 22.0
+offset_right = 830.0
+offset_bottom = 94.0
 mouse_filter = 2
 
-[node name="Ghosts" type="Control" parent="FillLayer"]
-anchor_left = 0.0
-anchor_top = 0.0
-anchor_right = 1.0
+[node name="FillP1" type="ColorRect" parent="FillMask"]
+layout_mode = 0
 anchor_bottom = 1.0
 mouse_filter = 2
 
-[node name="Fills" type="Control" parent="FillLayer"]
-anchor_left = 0.0
-anchor_top = 0.0
-anchor_right = 1.0
+[node name="FillP2" type="ColorRect" parent="FillMask"]
+layout_mode = 0
 anchor_bottom = 1.0
 mouse_filter = 2
 
 [node name="Frame" type="TextureRect" parent="."]
-anchor_left = 0.0
-anchor_top = 0.0
+z_index = 100
+layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 texture = ExtResource("2")
-stretch_mode = 0
 expand_mode = 1

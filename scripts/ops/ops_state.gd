@@ -11,6 +11,7 @@ signal state_changed(state: GameState)
 signal ops_state_changed(iid: int)
 signal lanes_changed(iid: int)
 signal lane_intent_changed(iid: int, lane_id: int)
+signal hud_changed(hud: Dictionary)
 
 const CONTESTS_DIR := "res://data/contests"
 const MAPS_DIR := "res://data/maps"
@@ -74,6 +75,8 @@ var prematch_duration_ms: int = PREMATCH_DURATION_MS
 var prematch_remaining_ms: int = PREMATCH_DURATION_MS
 var match_end_ms: int = 0
 var lane_front_by_lane_id: Dictionary = {} # lane_id -> front_t [0..1]
+var match_roster: Array = []
+var _hud_snapshot: Dictionary = {}
 
 func get_state() -> GameState:
 	return state
@@ -135,6 +138,28 @@ func reset_match_state() -> void:
 	prematch_remaining_ms = prematch_duration_ms
 	match_end_ms = 0
 	lane_front_by_lane_id.clear()
+	match_roster.clear()
+	_hud_snapshot = {}
+
+func get_hud_snapshot() -> Dictionary:
+	if _hud_snapshot.is_empty():
+		return _default_hud_snapshot()
+	return _hud_snapshot
+
+func update_hud_snapshot(snapshot: Dictionary) -> void:
+	if snapshot == null:
+		return
+	if snapshot == _hud_snapshot:
+		return
+	_hud_snapshot = snapshot
+	emit_signal("hud_changed", _hud_snapshot)
+
+func _default_hud_snapshot() -> Dictionary:
+	var snap: Dictionary = {}
+	for seat in range(1, 5):
+		snap[seat] = {"power": 0}
+	snap["visible_seats"] = 2
+	return snap
 
 func begin_match_end(winner: int, reason: String, linger_ms: int = 1500) -> void:
 	if match_phase != MatchPhase.RUNNING:

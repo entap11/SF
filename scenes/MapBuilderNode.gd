@@ -1,6 +1,7 @@
 @tool
 extends Node2D
 class_name MapBuilderNode
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 @export var autoplay_in_game := false
 @export var map_id := "res://maps/json/MAP_SKETCH_SYM_8x12.json"
@@ -11,7 +12,8 @@ func _ready() -> void:
 		return
 
 	if not autoplay_in_game:
-		print("MAP_BUILDER_NODE: autoplay_in_game=false (not building)")
+		if SFLog.LOGGING_ENABLED:
+			print("MAP_BUILDER_NODE: autoplay_in_game=false (not building)")
 		return
 
 	build()
@@ -19,10 +21,12 @@ func _ready() -> void:
 func build() -> void:
 	var arena := get_node_or_null(arena_path)
 	if arena == null:
-		push_error("MAP_BUILDER_NODE: arena_path invalid")
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER_NODE: arena_path invalid")
 		return
 
-	print("MAP_BUILDER_NODE: building map_id=", map_id, " into arena=", arena.name)
+	if SFLog.LOGGING_ENABLED:
+		print("MAP_BUILDER_NODE: building map_id=", map_id, " into arena=", arena.name)
 	var builder := MapBuilder.new()
 	if arena.has_method("clear_map"):
 		arena.call("clear_map")

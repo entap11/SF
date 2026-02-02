@@ -52,11 +52,14 @@ var _end_sequence_started := false
 var _end_sequence_winner_id := 0
 var _last_pause_snapshot_sig: String = ""
 var _last_pause_snapshot: Dictionary = {}
+var _bound_tower_nodes: Array = []
+var _bind_structures_scheduled: bool = false
 
 func _ready() -> void:
 	set_process(true)
 	set_process_unhandled_input(true)
 	_ensure_systems()
+	_schedule_bind_structures("ready")
 	# Arena binds the authoritative OpsState-owned GameState via bind_state().
 
 func _ensure_systems() -> void:
@@ -185,7 +188,7 @@ func start() -> void:
 func _on_state_changed(new_state: GameState) -> void:
 	if new_state == null:
 		return
-	var iid := _state_iid(new_state)
+	var iid: int = int(_state_iid(new_state))
 	if iid == bound_iid:
 		return
 	state_ref = new_state
@@ -209,12 +212,8 @@ func _on_state_changed(new_state: GameState) -> void:
 		structure_control_system.bind_state(state_ref)
 	if tower_system != null:
 		tower_system.bind_state(state_ref)
-		var state_towers: int = state_ref.towers.size() if state_ref != null else 0
-		SFLog.info("TOWER_BIND_STATE", {
-			"iid": bound_iid,
-			"towers_count": tower_system.towers.size(),
-			"state_towers": state_towers
-		})
+		call_deferred("_bind_world_towers_deferred", bound_iid)
+		_schedule_bind_structures("state_changed")
 	if swarm_system != null:
 		swarm_system.bind_state(state_ref)
 	if barracks_system != null:
@@ -228,8 +227,111 @@ func _on_state_changed(new_state: GameState) -> void:
 	if autostart_on_bind:
 		_start_if_ready("bind_state_autostart")
 
+func _schedule_bind_structures(reason: String) -> void:
+	if _bind_structures_scheduled:
+		return
+	_bind_structures_scheduled = true
+	call_deferred("_bind_structures", reason, 1)
+
+func _bind_structures(reason: String, attempt: int) -> void:
+	_bind_structures_scheduled = false
+	var result: Dictionary = _find_tower_nodes()
+	var towers: Array = result.get("nodes", [])
+	_bound_tower_nodes = towers
+	var sample_paths: Array = []
+	var limit: int = mini(3, towers.size())
+	for i in range(limit):
+		var node: Node = towers[i] as Node
+		if node != null:
+			sample_paths.append(str(node.get_path()))
+	var state_towers: int = state_ref.towers.size() if state_ref != null else 0
+	SFLog.info("TOWER_BIND_STATE", {
+		"iid": bound_iid,
+		"reason": reason,
+		"attempt": attempt,
+		"towers_count": towers.size(),
+		"state_towers": state_towers,
+		"group_count": int(result.get("group_count", 0)),
+		"fallback_used": bool(result.get("fallback_used", false)),
+		"map_root": str(result.get("map_root_path", "")),
+		"sample_paths": sample_paths
+	})
+	if towers.is_empty():
+		if attempt < 2:
+			call_deferred("_bind_structures_retry", reason, attempt + 1)
+		else:
+			SFLog.warn("TOWER_BIND_EMPTY", {
+				"iid": bound_iid,
+				"reason": reason,
+				"attempt": attempt,
+				"state_towers": state_towers
+			})
+
+func _bind_structures_retry(reason: String, attempt: int) -> void:
+	await get_tree().process_frame
+	_bind_structures(reason, attempt)
+
+func _find_tower_nodes() -> Dictionary:
+	var group_nodes: Array = []
+	if get_tree() != null:
+		group_nodes = get_tree().get_nodes_in_group("sf_tower")
+	var group_count: int = group_nodes.size()
+	var towers: Array = []
+	var fallback_used: bool = false
+	var map_root_path: String = ""
+	if group_count > 0:
+		towers = group_nodes
+	else:
+		fallback_used = true
+		var map_root: Node = _find_map_root()
+		if map_root != null:
+			map_root_path = str(map_root.get_path())
+			var candidates: Array = map_root.find_children("*", "", true, false)
+			for n_any in candidates:
+				var n: Node = n_any as Node
+				if n != null and (n.is_in_group("sf_tower") or n.is_in_group("map_tower")):
+					towers.append(n)
+	return {
+		"nodes": towers,
+		"group_count": group_count,
+		"fallback_used": fallback_used,
+		"map_root_path": map_root_path
+	}
+
+func _find_map_root() -> Node:
+	var n: Node = get_parent()
+	while n != null:
+		var map_root: Node = n.get_node_or_null("MapRoot")
+		if map_root != null:
+			return map_root
+		n = n.get_parent()
+	var scene: Node = get_tree().current_scene if get_tree() != null else null
+	if scene != null:
+		return scene.find_child("MapRoot", true, false)
+	return null
+
 func bind_state(new_state: GameState) -> void:
 	_on_state_changed(new_state)
+
+func _bind_world_towers_deferred(expected_iid: int) -> void:
+	SFLog.info("TOWER_WORLD_BIND_DEFERRED_START", {"iid": int(bound_iid)})
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if expected_iid != bound_iid:
+		return
+	if tower_system == null:
+		return
+	var group_nodes: Array = get_tree().get_nodes_in_group("sf_tower")
+	var tower_nodes: Array[Node2D] = []
+	for n in group_nodes:
+		var n2d: Node2D = n as Node2D
+		if n2d != null:
+			tower_nodes.append(n2d)
+	tower_system.bind_world_towers(tower_nodes)
+	SFLog.info("TOWER_WORLD_BIND", {
+		"iid": int(bound_iid),
+		"found": tower_nodes.size()
+	})
 
 func _start_if_ready(reason: String = "start_if_ready") -> void:
 	SFLog.info("SIM_START_CHECK", {
@@ -245,6 +347,15 @@ func _start_if_ready(reason: String = "start_if_ready") -> void:
 	if running:
 		_pending_start = false
 		return
+	SFLog.info("SIM_SYSTEMS", {
+		"tower": tower_system != null,
+		"unit": unit_system != null,
+		"lane": lane_system != null,
+		"swarm": swarm_system != null,
+		"barracks": barracks_system != null,
+		"structure_control": structure_control_system != null,
+		"win": win_system != null
+	})
 	_set_running(true, reason)
 	_pending_start = false
 	_tick_accum = 0.0
@@ -349,6 +460,38 @@ func _update_match_stats(now_ms: int) -> void:
 		totals[owner_id] = int(totals.get(owner_id, 0)) + int(h.power)
 	for team_id in totals.keys():
 		OpsState.update_team_max_power(int(team_id), int(totals[team_id]))
+	var active_seats: Array = []
+	var roster: Array = OpsState.match_roster
+	if roster != null:
+		for entry_any in roster:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_any as Dictionary
+			var seat: int = int(entry.get("seat", 0))
+			if seat <= 0 or seat > 4:
+				continue
+			var active: bool = false
+			if entry.has("active"):
+				active = bool(entry.get("active", false))
+			else:
+				var uid: String = str(entry.get("uid", ""))
+				var is_cpu: bool = bool(entry.get("is_cpu", false))
+				active = not uid.is_empty() or is_cpu
+			if active and not active_seats.has(seat):
+				active_seats.append(seat)
+	if active_seats.is_empty():
+		active_seats = [1, 2]
+	active_seats.sort()
+	var visible_seats: int = clamp(active_seats.size(), 2, 4)
+	var hud: Dictionary = {
+		1: {"power": int(totals.get(1, 0))},
+		2: {"power": int(totals.get(2, 0))},
+		3: {"power": int(totals.get(3, 0))},
+		4: {"power": int(totals.get(4, 0))},
+		"visible_seats": visible_seats,
+		"active_seats": active_seats
+	}
+	OpsState.update_hud_snapshot(hud)
 	SFLog.log_once("M4_STATS_ACTIVE", "M4_MATCH_STATS_ACTIVE", SFLog.Level.INFO)
 
 func _check_match_win(now_ms: int) -> void:

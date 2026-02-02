@@ -21,37 +21,51 @@ var _unit_material_by_sprite: Dictionary = {}
 var _unit_material_by_instance: Dictionary = {}
 var _unit_team_color_logged: Dictionary = {}
 var _unit_tint_target_logged: Dictionary = {}
-var _unit_tint_no_sprite_logged: Dictionary = {}
 var _unit_material_cleared_logged: Dictionary = {}
-var _unit_orient_logged: Dictionary = {}
+var _unit_visual_by_id: Dictionary = {}
+var _unit_samples_by_id: Dictionary = {}
+var _unit_data_by_id: Dictionary = {}
 var _unit_colorkey_logged := false
 var _unit_sprite_logged := false
 
 const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
 const UNIT_RENDER_SCALE: float = 3.0
-const UNIT_ART_ROT_OFFSET_RAD: float = -PI / 4.0
-const DEBUG_UNIT_ORIENT: bool = false
-const DBG_UNIT_FORWARD: bool = true
+const UNIT_SPRITE_FORWARD_DEG: float = 45.0
+const UNIT_TRAVEL_T_EPS: float = 0.02
+const DBG_UNITS: bool = false
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const UNIT_COLOR := Color(1.0, 1.0, 1.0, 0.9)
 const DEBUG_HIVE1_CROSS := false
 const UNIT_LOG_INTERVAL_MS := 1000
 const UNIT_BOUNDS_LOG_INTERVAL_MS := 1000
 const UNIT_REDRAW_INTERVAL_MS := 30
-const SWARM_SCALE_MULT: float = 3.0
+const SWARM_SCALE_MULT: float = 15.0
 const SWARM_LABEL_FONT_SIZE: int = 12
 const SWARM_LABEL_SIZE: Vector2 = Vector2(48.0, 20.0)
 const SWARM_TEXTURE_SIZE: int = 32
+const SWARM_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/swarm.png"
 const BOBBLE_AMP_MIN_PX: float = 2.0
 const BOBBLE_AMP_MAX_PX: float = 6.0
 const BOBBLE_OMEGA: float = 8.0
+const SIM_DT_SEC_DEFAULT: float = 0.1
+const BUTTER_INTERP_DELAY_TICKS: float = 1.0
+const SAMPLE_T_EPS: float = 0.001
+const BUTTER_MAX_EXTRAP_SEC: float = 0.05
+const DBG_BUTTER: bool = false
+const DBG_BUTTER_LOG_INTERVAL_MS: int = 1000
+const DBG_FORCE_CONSTANT_VISUAL_MOTION: bool = false
+const DBG_VISUAL_SPEED: float = 0.35
+const USE_UNIT_POOL: bool = true
+const UNIT_POOL_SIZE_PER_TEAM: int = 64
+const UNIT_POOL_OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
 
 @export var debug_unit_logs: bool = false
 @export var debug_unit_owner_labels: bool = false
 @export var debug_draw_units: bool = false
 @export var debug_force_top_z: bool = true
 @export var debug_force_big_radius_px: float = 10.0
+@export var sim_dt_sec: float = SIM_DT_SEC_DEFAULT
 
 var _unit_space: String = "local"
 var _unit_space_logged: bool = false
@@ -60,10 +74,177 @@ var _last_redraw_ms: int = 0
 var _last_bounds_log_ms: int = 0
 var _last_force_top_z: bool = false
 var _bobble_logged: bool = false
+var _dbg_butter_last_ms: int = 0
+var _diag_visual_phase_by_id: Dictionary = {}
+var _unit_pool: Array[Node2D] = []
+var _unit_in_use: Dictionary = {}
+var _pooled_nodes: Dictionary = {}
 
 func _ready() -> void:
+	_pool_build()
 	_apply_debug_force_top_z()
 	_request_redraw()
+
+func _now_sec() -> float:
+	return float(Time.get_ticks_usec()) / 1000000.0
+
+func _assert_not_freed(n: Node) -> bool:
+	if n == null:
+		push_error("UnitRenderer: NULL node passed")
+		return false
+	elif not is_instance_valid(n):
+		push_error("UnitRenderer: FREED node detected — pooling violation")
+		return false
+	return true
+
+func _tracked_unit_id_for_node(node: Node2D) -> int:
+	if node == null:
+		return -1
+	var meta_id: int = int(node.get_meta("unit_id", -1))
+	if meta_id > 0 and unit_nodes_by_id.get(meta_id, null) == node:
+		return meta_id
+	var ids: Array = unit_nodes_by_id.keys()
+	for id_any in ids:
+		var unit_id: int = int(id_any)
+		var candidate: Node2D = unit_nodes_by_id.get(unit_id, null)
+		if candidate == node:
+			return unit_id
+	return -1
+
+func _create_unit_render_node() -> Node2D:
+	var node: Node2D = Node2D.new()
+	node.z_index = 0
+	_ensure_unit_sprite(node)
+	return node
+
+func _pool_build() -> void:
+	if not USE_UNIT_POOL:
+		return
+	if not _unit_pool.is_empty():
+		return
+	var total_nodes: int = UNIT_POOL_SIZE_PER_TEAM * 4
+	for i in range(total_nodes):
+		var node: Node2D = _create_unit_render_node()
+		node.name = "UnitPool_%d" % i
+		node.visible = false
+		node.position = UNIT_POOL_OFFSCREEN_POS
+		node.rotation = 0.0
+		node.scale = Vector2.ONE
+		node.process_mode = Node.PROCESS_MODE_DISABLED
+		add_child(node)
+		_unit_pool.append(node)
+		_pooled_nodes[node] = true
+
+func _pool_acquire() -> Node2D:
+	if not USE_UNIT_POOL:
+		var direct_node: Node2D = _create_unit_render_node()
+		add_child(direct_node)
+		if not _assert_not_freed(direct_node):
+			return null
+		return direct_node
+	_pool_build()
+	if _unit_pool.is_empty():
+		var node_extra: Node2D = _create_unit_render_node()
+		node_extra.name = "UnitPool_Extra"
+		add_child(node_extra)
+		if not _assert_not_freed(node_extra):
+			return null
+		_pool_release(node_extra)
+	var node: Node2D = _unit_pool.pop_back()
+	if not _assert_not_freed(node):
+		return null
+	if not _pooled_nodes.has(node):
+		push_error("UnitRenderer: acquired node missing from pool tracking")
+	_pooled_nodes.erase(node)
+	if not _assert_not_freed(node):
+		return null
+	node.visible = true
+	if not _assert_not_freed(node):
+		return null
+	node.process_mode = Node.PROCESS_MODE_INHERIT
+	return node
+
+func _pool_release(node: Node2D) -> void:
+	if not _assert_not_freed(node):
+		return
+	if node == null:
+		return
+	if _pooled_nodes.has(node):
+		push_error("UnitRenderer: double-release detected")
+		return
+	var unit_id: int = _tracked_unit_id_for_node(node)
+	if unit_id > 0:
+		unit_nodes_by_id.erase(unit_id)
+		_unit_in_use.erase(unit_id)
+		_unit_visual_by_id.erase(unit_id)
+		_unit_samples_by_id.erase(unit_id)
+		_diag_visual_phase_by_id.erase(unit_id)
+	node.set_meta("unit_id", -1)
+	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
+	if sprite != null:
+		sprite.texture = null
+		sprite.material = null
+		sprite.position = Vector2.ZERO
+		sprite.scale = Vector2.ONE
+		sprite.rotation = 0.0
+		sprite.self_modulate = Color(1.0, 1.0, 1.0, 1.0)
+		sprite.visible = false
+	if not _assert_not_freed(node):
+		return
+	node.visible = false
+	if not _assert_not_freed(node):
+		return
+	node.position = Vector2.ZERO
+	if not _assert_not_freed(node):
+		return
+	node.rotation = 0.0
+	if not _assert_not_freed(node):
+		return
+	node.global_rotation = 0.0
+	if not _assert_not_freed(node):
+		return
+	node.scale = Vector2.ONE
+	if not _assert_not_freed(node):
+		return
+	node.process_mode = Node.PROCESS_MODE_DISABLED
+	_pooled_nodes[node] = true
+	if USE_UNIT_POOL:
+		if not _unit_pool.has(node):
+			_unit_pool.append(node)
+	else:
+		push_error("UnitRenderer: queue_free forbidden for unit render nodes")
+
+func prewarm_pool() -> void:
+	_pool_build()
+	if not USE_UNIT_POOL:
+		return
+	var node: Node2D = _pool_acquire()
+	if node == null:
+		return
+	if not _assert_not_freed(node):
+		return
+	node.position = UNIT_POOL_OFFSCREEN_POS
+	var sprite: Sprite2D = _ensure_unit_sprite(node)
+	if sprite != null:
+		var registry: SpriteRegistry = _get_sprite_registry()
+		if registry != null:
+			var key: String = "unit.neutral"
+			var tex: Texture2D = registry.get_tex(key)
+			if tex == null:
+				var tex_path: String = registry.get_tex_path(key)
+				if not tex_path.is_empty():
+					var res: Resource = ResourceLoader.load(tex_path)
+					if res is Texture2D:
+						tex = res as Texture2D
+			sprite.texture = tex
+		sprite.visible = true
+	call_deferred("_release_prewarm_unit_next_frame", node)
+
+func _release_prewarm_unit_next_frame(node: Node2D) -> void:
+	await get_tree().process_frame
+	if not _assert_not_freed(node):
+		return
+	_pool_release(node)
 
 func set_model(m: Dictionary) -> void:
 	model = m
@@ -72,6 +253,7 @@ func set_model(m: Dictionary) -> void:
 	if typeof(units_v) == TYPE_ARRAY:
 		units_arr = units_v as Array
 	_units = units_arr
+	_rebuild_unit_data_index(units_arr)
 	_sync_unit_nodes(units_arr)
 	_update_unit_nodes_positions(units_arr)
 	_sync_swarm_nodes()
@@ -80,6 +262,7 @@ func set_model(m: Dictionary) -> void:
 func set_units(units: Array) -> void:
 	_units = units
 	model["units"] = units
+	_rebuild_unit_data_index(units)
 	_sync_unit_nodes(units)
 	_update_unit_nodes_positions(units)
 	var c := units.size()
@@ -98,6 +281,10 @@ func set_hive_nodes(dict: Dictionary) -> void:
 
 func clear_all() -> void:
 	model = {}
+	_unit_data_by_id.clear()
+	_unit_visual_by_id.clear()
+	_unit_samples_by_id.clear()
+	_diag_visual_phase_by_id.clear()
 	_clear_swarm_nodes()
 	_clear_unit_nodes()
 	_request_redraw()
@@ -111,28 +298,36 @@ func _sync_unit_nodes(units: Array) -> void:
 			continue
 		var ud: Dictionary = unit_any as Dictionary
 		var unit_id: int = int(ud.get("id", -1))
-		if unit_id > 0:
-			present[unit_id] = true
-			if not unit_nodes_by_id.has(unit_id):
-				var node := Node2D.new()
-				node.name = "Unit_%d" % unit_id
-				node.set_meta("unit_id", unit_id)
-				node.z_index = 0
-				add_child(node)
-				unit_nodes_by_id[unit_id] = node
-				_log_unit_sprite_tree(node, unit_id)
-				SFLog.info("UNIT_RENDER_CREATE", {
-					"unit_id": unit_id,
-					"owner_id": int(ud.get("owner_id", 0))
-				})
+		if unit_id <= 0:
+			continue
+		present[unit_id] = true
+		if not unit_nodes_by_id.has(unit_id):
+			var node: Node2D = _pool_acquire()
+			if node == null:
+				continue
+			if not _assert_not_freed(node):
+				continue
+			node.name = "Unit_%d" % unit_id
+			node.set_meta("unit_id", unit_id)
+			node.z_index = 0
+			unit_nodes_by_id[unit_id] = node
+			_unit_in_use[unit_id] = node
+			_ensure_unit_sprite(node)
+			_log_unit_sprite_tree(node, unit_id)
+			SFLog.info("UNIT_RENDER_CREATE", {
+				"unit_id": unit_id,
+				"owner_id": int(ud.get("owner_id", 0))
+			})
 	var existing_ids: Array = unit_nodes_by_id.keys()
 	for existing_id in existing_ids:
-		if not present.has(existing_id):
-			var node: Node2D = unit_nodes_by_id.get(existing_id, null)
-			if node != null:
-				node.queue_free()
-				SFLog.info("UNIT_RENDER_PRUNE", {"unit_id": int(existing_id)})
-			unit_nodes_by_id.erase(existing_id)
+		if present.has(existing_id):
+			continue
+		var node: Node2D = unit_nodes_by_id.get(existing_id, null)
+		if node != null:
+			if not _assert_not_freed(node):
+				continue
+			_pool_release(node)
+			SFLog.info("UNIT_RENDER_PRUNE", {"unit_id": int(existing_id)})
 	var model_count: int = units.size()
 	var live_count: int = unit_nodes_by_id.size()
 	if model_count != _last_model_units_count or live_count != _last_live_nodes_count:
@@ -144,19 +339,35 @@ func _sync_unit_nodes(units: Array) -> void:
 				"live_nodes": unit_nodes_by_id.size()
 			}, 500)
 
+func _rebuild_unit_data_index(units: Array) -> void:
+	_unit_data_by_id.clear()
+	for unit_any in units:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var ud: Dictionary = unit_any as Dictionary
+		var unit_id: int = int(ud.get("id", -1))
+		if unit_id <= 0:
+			continue
+		_unit_data_by_id[unit_id] = ud
+
 func _clear_unit_nodes() -> void:
 	var existing_ids: Array = unit_nodes_by_id.keys()
 	for existing_id in existing_ids:
 		var node: Node2D = unit_nodes_by_id.get(existing_id, null)
 		if node != null:
-			node.queue_free()
+			if not _assert_not_freed(node):
+				continue
+			_pool_release(node)
 	unit_nodes_by_id.clear()
+	_unit_in_use.clear()
+	_unit_visual_by_id.clear()
+	_unit_samples_by_id.clear()
 
 func _update_unit_nodes_positions(units: Array) -> void:
 	if units.is_empty():
 		return
-	var hive_by_id := _build_hive_by_id()
-	var registry := _get_sprite_registry()
+	var hive_by_id: Dictionary = _build_hive_by_id()
+	var registry: SpriteRegistry = _get_sprite_registry()
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
 			continue
@@ -167,15 +378,139 @@ func _update_unit_nodes_positions(units: Array) -> void:
 		var node: Node2D = unit_nodes_by_id.get(unit_id, null)
 		if node == null:
 			continue
-		var pos: Variant = _unit_pos_in_space(ud, hive_by_id)
-		if not (pos is Vector2):
+		var sprite: Sprite2D = _ensure_unit_sprite(node)
+		if sprite == null:
 			continue
-		var pos_v: Vector2 = pos as Vector2
-		if _unit_space == "global":
-			node.global_position = pos_v
-		else:
-			node.position = pos_v
-		_update_unit_sprite(node, ud, hive_by_id, registry)
+		_update_unit_sprite(node, ud, hive_by_id, registry, false)
+		_ingest_unit_sample(ud, hive_by_id, unit_id)
+
+func _update_unit_visual_target(_node: Node2D, ud: Dictionary, hive_by_id: Dictionary, unit_id: int) -> void:
+	_ingest_unit_sample(ud, hive_by_id, unit_id)
+
+func _ingest_unit_sample(ud: Dictionary, hive_by_id: Dictionary, unit_id: int) -> void:
+	var lane_id: int = int(ud.get("lane_id", 0))
+	var sample_pos: Vector2 = _sample_unit_pos_map_local(ud, hive_by_id)
+	var sample_dir: Vector2 = _sample_unit_dir_map_local(ud, hive_by_id)
+	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+	var target_t: float = clampf(float(ud.get("t", 0.0)), 0.0, 1.0)
+	var a_pos: Vector2 = sample_pos
+	var b_pos: Vector2 = sample_pos
+	if bool(endpoints.get("ok", false)):
+		a_pos = endpoints.get("a", sample_pos)
+		b_pos = endpoints.get("b", sample_pos)
+	var s_new: Dictionary = {
+		"t": target_t,
+		"a": a_pos,
+		"b": b_pos,
+		"ts": _now_sec()
+	}
+	var buf_any: Variant = _unit_samples_by_id.get(unit_id, null)
+	var buf: Dictionary = {}
+	if typeof(buf_any) == TYPE_DICTIONARY:
+		buf = buf_any as Dictionary
+	if not buf.has("s0"):
+		buf["s0"] = s_new
+		buf["s1"] = s_new
+	else:
+		var prev_any: Variant = buf.get("s1", s_new)
+		var prev: Dictionary = s_new
+		if typeof(prev_any) == TYPE_DICTIONARY:
+			prev = prev_any as Dictionary
+		buf["s0"] = prev
+		buf["s1"] = s_new
+	_unit_samples_by_id[unit_id] = buf
+	var entry: Dictionary = {}
+	var existing_any: Variant = _unit_visual_by_id.get(unit_id, null)
+	if typeof(existing_any) == TYPE_DICTIONARY:
+		entry = existing_any as Dictionary
+	if entry.is_empty():
+		entry["prev_pos"] = sample_pos
+		entry["curr_pos"] = sample_pos
+	else:
+		var curr_pos: Vector2 = entry.get("curr_pos", sample_pos)
+		entry["prev_pos"] = curr_pos
+		entry["curr_pos"] = sample_pos
+	entry["lane_id"] = lane_id
+	entry["dir"] = sample_dir
+	_unit_visual_by_id[unit_id] = entry
+
+func _sample_unit_pos_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Vector2:
+	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+	if bool(endpoints.get("ok", false)):
+		var a_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
+		var b_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
+		var t: float = clampf(float(ud.get("t", 0.0)), 0.0, 1.0)
+		return a_pos.lerp(b_pos, t)
+	var pos_v: Variant = ud.get("pos", null)
+	if pos_v is Vector2:
+		return pos_v as Vector2
+	var wp_v: Variant = ud.get("wp", null)
+	if wp_v is Vector2:
+		return wp_v as Vector2
+	var p_v: Variant = ud.get("position", null)
+	if p_v is Vector2:
+		return p_v as Vector2
+	return Vector2.ZERO
+
+func _sample_unit_dir_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Vector2:
+	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+	if bool(endpoints.get("ok", false)):
+		var a_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
+		var b_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
+		var axis: Vector2 = b_pos - a_pos
+		if axis.length_squared() > 0.000001:
+			var sign: int = _unit_travel_sign(ud)
+			return axis.normalized() * float(sign)
+	return Vector2.RIGHT
+
+func _unit_path_endpoints_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Dictionary:
+	var from_pos_v: Variant = ud.get("from_pos", null)
+	var to_pos_v: Variant = ud.get("to_pos", null)
+	if from_pos_v is Vector2 and to_pos_v is Vector2:
+		return {"ok": true, "a": from_pos_v as Vector2, "b": to_pos_v as Vector2}
+	var a_id: int = _resolve_id(ud.get("a_id", 0))
+	var b_id: int = _resolve_id(ud.get("b_id", 0))
+	if a_id > 0 and b_id > 0:
+		var a_center_v: Variant = _hive_center_map_local(a_id, hive_by_id)
+		var b_center_v: Variant = _hive_center_map_local(b_id, hive_by_id)
+		if a_center_v is Vector2 and b_center_v is Vector2:
+			var a_center: Vector2 = a_center_v as Vector2
+			var b_center: Vector2 = b_center_v as Vector2
+			var edge: Dictionary = GameState.lane_edge_points(a_center, b_center)
+			var a_edge: Vector2 = edge.get("a_edge", a_center)
+			var b_edge: Vector2 = edge.get("b_edge", b_center)
+			return {"ok": true, "a": a_edge, "b": b_edge}
+	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
+	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
+	if from_id > 0 and to_id > 0:
+		var from_center_v: Variant = _hive_center_map_local(from_id, hive_by_id)
+		var to_center_v: Variant = _hive_center_map_local(to_id, hive_by_id)
+		if from_center_v is Vector2 and to_center_v is Vector2:
+			var from_center: Vector2 = from_center_v as Vector2
+			var to_center: Vector2 = to_center_v as Vector2
+			var edge_ft: Dictionary = GameState.lane_edge_points(from_center, to_center)
+			var from_edge: Vector2 = edge_ft.get("a_edge", from_center)
+			var to_edge: Vector2 = edge_ft.get("b_edge", to_center)
+			return {"ok": true, "a": from_edge, "b": to_edge}
+	return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
+
+func _hive_center_map_local(hive_id: int, hive_by_id: Dictionary) -> Variant:
+	if hive_nodes_by_id.has(hive_id):
+		var node: Node2D = hive_nodes_by_id[hive_id]
+		if node != null:
+			return node.position
+	if hive_by_id.has(hive_id):
+		var hd: Dictionary = hive_by_id[hive_id]
+		var cell_size: float = float(model.get("cell_size", 64))
+		var gx: float = float(hd.get("x", 0.0))
+		var gy: float = float(hd.get("y", 0.0))
+		return Vector2((gx + 0.5) * cell_size, (gy + 0.5) * cell_size)
+	return null
+
+func _to_render_local(pos: Vector2) -> Vector2:
+	if _unit_space == "global":
+		return to_local(pos)
+	return pos
 
 func _build_hive_by_id() -> Dictionary:
 	var hive_by_id: Dictionary = {}
@@ -226,28 +561,12 @@ func _collect_sprite_descendants(root: Node) -> Array:
 	return sprites
 
 func _find_unit_tint_target(root: Node) -> Sprite2D:
-	var sprites := _collect_sprite_descendants(root)
-	var named: Sprite2D = null
-	for s_any in sprites:
-		var s := s_any as Sprite2D
-		if s == null:
-			continue
-		if s.name == "Sprite" or s.name == "UnitSprite":
-			if s.texture != null:
-				return s
-			if named == null:
-				named = s
-	for s_any in sprites:
-		var s := s_any as Sprite2D
-		if s != null and s.texture != null:
-			return s
-	if named != null:
-		return named
-	if not sprites.is_empty():
-		return sprites[0] as Sprite2D
-	return null
+	var sprite: Sprite2D = root.get_node_or_null("UnitSprite") as Sprite2D
+	return sprite
 
 func _log_unit_sprite_tree(node: Node, unit_id: int) -> void:
+	if not DBG_UNITS:
+		return
 	var sprites := _collect_sprite_descendants(node)
 	if sprites.is_empty():
 		SFLog.info("UNIT_SPRITE_DESC", {
@@ -276,11 +595,11 @@ func _log_unit_sprite_tree(node: Node, unit_id: int) -> void:
 		})
 
 func _ensure_unit_sprite(node: Node2D) -> Sprite2D:
-	var sprite := node.get_node_or_null("Sprite") as Sprite2D
+	var sprite := node.get_node_or_null("UnitSprite") as Sprite2D
 	if sprite != null:
 		return sprite
 	sprite = Sprite2D.new()
-	sprite.name = "Sprite"
+	sprite.name = "UnitSprite"
 	sprite.centered = true
 	node.add_child(sprite)
 	return sprite
@@ -288,64 +607,46 @@ func _ensure_unit_sprite(node: Node2D) -> Sprite2D:
 func _apply_unit_orientation(
 	unit_root: Node2D,
 	sprite: Sprite2D,
-	src_pos: Vector2,
-	dst_pos: Vector2,
+	ud: Dictionary,
+	hive_by_id: Dictionary,
 	unit_id: int,
-	lane_id: int,
-	src_id: int,
-	dst_id: int
+	owner_id: int,
+	lane_id: int
 ) -> void:
-	var delta: Vector2 = dst_pos - src_pos
-	if delta.length_squared() <= 0.0001:
-		return
-	var dir: Vector2 = delta.normalized()
+	var p_now: Vector2 = unit_root.global_position
+	var heading: Dictionary = _unit_travel_heading(ud, hive_by_id, p_now)
+	var dir_v: Variant = heading.get("dir", Vector2.RIGHT)
+	var dir: Vector2 = dir_v as Vector2 if dir_v is Vector2 else Vector2.RIGHT
+	if dir.length_squared() < 0.000001:
+		dir = Vector2.RIGHT
+	else:
+		dir = dir.normalized()
 	var ang: float = dir.angle()
-	var final_ang: float = ang + UNIT_ART_ROT_OFFSET_RAD
+	var final_ang: float = ang + deg_to_rad(UNIT_SPRITE_FORWARD_DEG)
 	unit_root.global_rotation = final_ang
 	sprite.rotation = 0.0
-	if unit_id > 0 and not _unit_orient_logged.has(unit_id):
-		_unit_orient_logged[unit_id] = true
-		var ang_deg: float = rad_to_deg(ang)
-		var final_deg: float = rad_to_deg(final_ang)
-		var fwd_deg: float = rad_to_deg(UNIT_ART_ROT_OFFSET_RAD)
-		var root_deg: float = rad_to_deg(unit_root.global_rotation)
-		var sprite_deg: float = rad_to_deg(sprite.global_rotation)
-		SFLog.info("UNIT_ORIENT", {
-			"unit_id": unit_id,
-			"lane_id": lane_id,
-			"src_id": src_id,
-			"dst_id": dst_id,
-			"src_pos": src_pos,
-			"dst_pos": dst_pos,
-			"dir": dir,
-			"ang_deg": ang_deg,
-			"final_deg": final_deg,
-			"fwd_deg": fwd_deg,
-			"root_deg": root_deg,
-			"sprite_deg": sprite_deg
-		})
-	if DEBUG_UNIT_ORIENT:
-		var fwd: Vector2 = unit_root.global_transform.x.normalized()
-		var delta_deg: float = rad_to_deg(fwd.angle_to(dir))
-		SFLog.info("UNIT_ORIENT_DEBUG", {
-			"unit_id": unit_id,
-			"dir": dir,
-			"fwd": fwd,
-			"delta_deg": delta_deg
-		})
 
-func _update_unit_sprite(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, registry: SpriteRegistry) -> void:
+func _apply_unit_orientation_from_dir(unit_root: Node2D, sprite: Sprite2D, dir: Vector2) -> void:
+	var safe_dir: Vector2 = dir
+	if safe_dir.length_squared() < 0.000001:
+		safe_dir = Vector2.RIGHT
+	else:
+		safe_dir = safe_dir.normalized()
+	var ang: float = safe_dir.angle()
+	var final_ang: float = ang + deg_to_rad(UNIT_SPRITE_FORWARD_DEG)
+	unit_root.global_rotation = final_ang
+	sprite.rotation = 0.0
+
+func _update_unit_sprite(
+	node: Node2D,
+	ud: Dictionary,
+	hive_by_id: Dictionary,
+	registry: SpriteRegistry,
+	apply_orientation: bool = true
+) -> void:
 	var owner_id: int = _unit_owner_id(ud, hive_by_id)
 	var unit_id := int(node.get_meta("unit_id", -1))
-	var sprite := _find_unit_tint_target(node)
-	if sprite == null:
-		if unit_id > 0 and not _unit_tint_no_sprite_logged.has(unit_id):
-			_unit_tint_no_sprite_logged[unit_id] = true
-			SFLog.info("UNIT_TINT_NO_SPRITE", {
-				"unit_id": unit_id,
-				"owner_id": owner_id
-			})
-		sprite = _ensure_unit_sprite(node)
+	var sprite := _ensure_unit_sprite(node)
 	if sprite == null:
 		return
 	var tex: Texture2D = null
@@ -445,36 +746,9 @@ func _update_unit_sprite(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, r
 	if tex_size.x > 0.0 and tex_size.y > 0.0:
 		var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
 		sprite.scale = Vector2(size_px / tex_size.x, size_px / tex_size.y)
-	var lane_id: int = int(ud.get("lane_id", 0))
-	var src_id: int = _resolve_id(ud.get("from_id", 0))
-	var dst_id: int = _resolve_id(ud.get("to_id", 0))
-	if src_id <= 0 or dst_id <= 0:
-		var a_id: int = _resolve_id(ud.get("a_id", 0))
-		var b_id: int = _resolve_id(ud.get("b_id", 0))
-		src_id = a_id
-		dst_id = b_id
-	var src_pos_v: Variant = _hive_world_pos(src_id, hive_by_id)
-	var dst_pos_v: Variant = _hive_world_pos(dst_id, hive_by_id)
-	if src_pos_v is Vector2 and dst_pos_v is Vector2:
-		var src_pos: Vector2 = src_pos_v as Vector2
-		var dst_pos: Vector2 = dst_pos_v as Vector2
-		_apply_unit_orientation(node, sprite, src_pos, dst_pos, unit_id, lane_id, src_id, dst_id)
-	else:
-		var from_pos_v: Variant = ud.get("from_pos")
-		var to_pos_v: Variant = ud.get("to_pos")
-		if from_pos_v is Vector2 and to_pos_v is Vector2:
-			var from_world: Vector2 = _to_world_pos(from_pos_v as Vector2)
-			var to_world: Vector2 = _to_world_pos(to_pos_v as Vector2)
-			_apply_unit_orientation(
-				node,
-				sprite,
-				from_world,
-				to_world,
-				unit_id,
-				lane_id,
-				src_id,
-				dst_id
-			)
+	if apply_orientation:
+		var lane_id: int = int(ud.get("lane_id", 0))
+		_apply_unit_orientation(node, sprite, ud, hive_by_id, unit_id, owner_id, lane_id)
 	sprite.visible = not debug_draw_units
 
 func _apply_debug_force_top_z() -> void:
@@ -565,8 +839,12 @@ func _camera_rect_in_unit_space() -> Rect2:
 	var max_y := maxf(tl.y, maxf(tr.y, maxf(bl.y, br.y)))
 	return Rect2(Vector2(min_x, min_y), Vector2(max_x - min_x, max_y - min_y))
 
-func _process(_dt: float) -> void:
+func _process(delta: float) -> void:
 	_apply_debug_force_top_z()
+	if DBG_FORCE_CONSTANT_VISUAL_MOTION:
+		_render_units_constant_speed(delta)
+	else:
+		_update_unit_visual_smoothing(delta)
 	_maybe_log_unit_bounds()
 	var now_ms := Time.get_ticks_msec()
 	if _pending_redraw and now_ms - _last_redraw_ms >= UNIT_REDRAW_INTERVAL_MS:
@@ -574,12 +852,144 @@ func _process(_dt: float) -> void:
 		_pending_redraw = false
 		queue_redraw()
 
+func _sample_float(sample: Dictionary, key: String, fallback: float) -> float:
+	return float(sample.get(key, fallback))
+
+func _sample_vec2(sample: Dictionary, key: String, fallback: Vector2) -> Vector2:
+	var value: Variant = sample.get(key, fallback)
+	if value is Vector2:
+		return value as Vector2
+	return fallback
+
+func _update_unit_visual_smoothing(_delta: float) -> void:
+	var step_sec: float = maxf(sim_dt_sec, 0.000001)
+	var interp_delay: float = step_sec * BUTTER_INTERP_DELAY_TICKS
+	var render_time: float = _now_sec() - interp_delay
+	_render_units(render_time, step_sec)
+
+func _render_units_constant_speed(delta: float) -> void:
+	if unit_nodes_by_id.is_empty():
+		return
+	var safe_delta: float = maxf(delta, 0.0)
+	var hive_by_id: Dictionary = _build_hive_by_id()
+	var ids: Array = unit_nodes_by_id.keys()
+	for id_any in ids:
+		var unit_id: int = int(id_any)
+		var node: Node2D = unit_nodes_by_id.get(unit_id, null)
+		if node == null:
+			continue
+		if not _assert_not_freed(node):
+			continue
+		var phase: float = float(_diag_visual_phase_by_id.get(unit_id, 0.0))
+		phase = fposmod(phase + safe_delta * DBG_VISUAL_SPEED, 1.0)
+		_diag_visual_phase_by_id[unit_id] = phase
+		var start_pos: Vector2 = Vector2.ZERO
+		var end_pos: Vector2 = Vector2.ZERO
+		var has_endpoints: bool = false
+		var unit_any: Variant = _unit_data_by_id.get(unit_id, null)
+		if typeof(unit_any) == TYPE_DICTIONARY:
+			var ud: Dictionary = unit_any as Dictionary
+			var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+			has_endpoints = bool(endpoints.get("ok", false))
+			if has_endpoints:
+				start_pos = endpoints.get("a", Vector2.ZERO)
+				end_pos = endpoints.get("b", Vector2.ZERO)
+		if not has_endpoints:
+			var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+			if typeof(state_any) == TYPE_DICTIONARY:
+				var state: Dictionary = state_any as Dictionary
+				start_pos = state.get("prev_pos", Vector2.ZERO)
+				end_pos = state.get("curr_pos", start_pos)
+			else:
+				start_pos = node.position
+				end_pos = node.position
+		if not _assert_not_freed(node):
+			continue
+		node.position = start_pos.lerp(end_pos, phase)
+		var dir_vec: Vector2 = end_pos - start_pos
+		if dir_vec.length_squared() <= 0.000001:
+			var fallback_any: Variant = _unit_visual_by_id.get(unit_id, null)
+			if typeof(fallback_any) == TYPE_DICTIONARY:
+				var fallback_state: Dictionary = fallback_any as Dictionary
+				dir_vec = fallback_state.get("dir", Vector2.RIGHT)
+		if dir_vec.length_squared() <= 0.000001:
+			dir_vec = Vector2.RIGHT
+		var sprite: Sprite2D = _ensure_unit_sprite(node)
+		if sprite != null:
+			_apply_unit_orientation_from_dir(node, sprite, dir_vec)
+
+func _render_units(render_time: float, step_sec: float) -> void:
+	if _unit_samples_by_id.is_empty():
+		return
+	var ids: Array = unit_nodes_by_id.keys()
+	for id_any in ids:
+		var unit_id: int = int(id_any)
+		var node: Node2D = unit_nodes_by_id.get(unit_id, null)
+		if node == null:
+			continue
+		if not _assert_not_freed(node):
+			continue
+		var buf_any: Variant = _unit_samples_by_id.get(unit_id, null)
+		if typeof(buf_any) != TYPE_DICTIONARY:
+			continue
+		var buf: Dictionary = buf_any as Dictionary
+		var s0_any: Variant = buf.get("s0", null)
+		var s1_any: Variant = buf.get("s1", s0_any)
+		if typeof(s0_any) != TYPE_DICTIONARY and typeof(s1_any) != TYPE_DICTIONARY:
+			continue
+		var s0: Dictionary = {}
+		var s1: Dictionary = {}
+		if typeof(s0_any) == TYPE_DICTIONARY:
+			s0 = s0_any as Dictionary
+		if typeof(s1_any) == TYPE_DICTIONARY:
+			s1 = s1_any as Dictionary
+		if s0.is_empty() and s1.is_empty():
+			continue
+		if s0.is_empty():
+			s0 = s1
+		if s1.is_empty():
+			s1 = s0
+		var t0: float = _sample_float(s0, "ts", 0.0)
+		var t1: float = _sample_float(s1, "ts", t0)
+		var denom: float = maxf(t1 - t0, 0.000001)
+		var alpha: float = clampf((render_time - t0) / denom, 0.0, 1.0)
+		var tt0: float = clampf(_sample_float(s0, "t", 0.0), 0.0, 1.0)
+		var tt1: float = clampf(_sample_float(s1, "t", tt0), 0.0, 1.0)
+		var t_render: float = lerpf(tt0, tt1, alpha)
+		if render_time > t1 and step_sec > 0.0:
+			var late: float = minf(render_time - t1, BUTTER_MAX_EXTRAP_SEC)
+			if late > 0.0:
+				var extra_alpha: float = clampf(late / step_sec, 0.0, 1.0)
+				var extrap_t: float = tt1 + (tt1 - tt0) * extra_alpha
+				t_render = clampf(extrap_t, 0.0, 1.0)
+		var a_pos: Vector2 = _sample_vec2(s1, "a", Vector2.ZERO)
+		var b_pos: Vector2 = _sample_vec2(s1, "b", a_pos)
+		var render_pos: Vector2 = a_pos.lerp(b_pos, t_render)
+		if not _assert_not_freed(node):
+			continue
+		node.position = render_pos
+		var t_next: float = clampf(t_render + SAMPLE_T_EPS, 0.0, 1.0)
+		var p_next: Vector2 = a_pos.lerp(b_pos, t_next)
+		var dir_vec: Vector2 = p_next - render_pos
+		if dir_vec.length_squared() <= 0.000001:
+			dir_vec = b_pos - a_pos
+		if dir_vec.length_squared() <= 0.000001:
+			var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+			if typeof(state_any) == TYPE_DICTIONARY:
+				var state: Dictionary = state_any as Dictionary
+				dir_vec = _sample_vec2(state, "dir", Vector2.RIGHT)
+		if dir_vec.length_squared() <= 0.000001:
+			dir_vec = Vector2.RIGHT
+		var sprite: Sprite2D = _ensure_unit_sprite(node)
+		if sprite != null:
+			_apply_unit_orientation_from_dir(node, sprite, dir_vec)
+
 func _draw() -> void:
-	if not debug_draw_units and not DBG_UNIT_FORWARD:
+	if not debug_draw_units:
 		return
 	if _units.is_empty():
 		return
-	if debug_draw_units and not _bobble_logged:
+	if not _bobble_logged:
 		_bobble_logged = true
 		SFLog.info("UNIT_BOBBLE_ENABLED", {
 			"amp_min_px": BOBBLE_AMP_MIN_PX,
@@ -600,58 +1010,31 @@ func _draw() -> void:
 		var pos_v: Vector2 = pos as Vector2
 		var ud: Dictionary = u as Dictionary
 		pos_v += _unit_bobble_offset(ud, hive_by_id, sim_time_s)
-		if debug_draw_units:
-			var owner_id: int = _unit_owner_id(u, hive_by_id)
-			var tex: Texture2D = null
-			var scale: float = 1.0
-			var offset: Vector2 = Vector2.ZERO
-			if registry != null:
-				var key := "unit.%s" % SpriteRegistry.owner_key(owner_id)
-				tex = registry.get_tex(key)
-				scale = registry.get_scale(key)
-				offset = registry.get_offset(key)
-				if tex != null and not _unit_sprite_logged:
-					_unit_sprite_logged = true
-					var resolved_path := tex.resource_path
-					if resolved_path.is_empty() and registry != null:
-						resolved_path = registry.get_tex_path(key)
-					SFLog.info("UNIT_SPRITE_RESOLVED", {
-						"key": key,
-						"path": str(resolved_path)
-					})
-			if tex != null:
-				var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
-				var size := Vector2(size_px, size_px)
-				var rect := Rect2(pos_v - size * 0.5 + offset, size)
-				draw_texture_rect(tex, rect, false)
-			else:
-				draw_circle(pos_v, debug_force_big_radius_px, Color(1, 1, 1, 1))
-		if DBG_UNIT_FORWARD:
-			var unit_id: int = int(ud.get("id", 0))
-			var unit_node_any: Variant = unit_nodes_by_id.get(unit_id, null)
-			if unit_node_any is Node2D:
-				var unit_node: Node2D = unit_node_any as Node2D
-				var src_id: int = _resolve_id(ud.get("from_id", 0))
-				var dst_id: int = _resolve_id(ud.get("to_id", 0))
-				if src_id <= 0 or dst_id <= 0:
-					var a_id: int = _resolve_id(ud.get("a_id", 0))
-					var b_id: int = _resolve_id(ud.get("b_id", 0))
-					src_id = a_id
-					dst_id = b_id
-				var src_w_v: Variant = _hive_world_pos(src_id, hive_by_id)
-				var dst_w_v: Variant = _hive_world_pos(dst_id, hive_by_id)
-				if src_w_v is Vector2 and dst_w_v is Vector2:
-					var src_w: Vector2 = src_w_v as Vector2
-					var dst_w: Vector2 = dst_w_v as Vector2
-					var dir_w: Vector2 = (dst_w - src_w).normalized()
-					if dir_w.length_squared() > 0.0001:
-						var fwd_w: Vector2 = unit_node.global_transform.x.normalized()
-						var p_w: Vector2 = unit_node.global_position
-						var p_l: Vector2 = to_local(p_w)
-						var dir_l: Vector2 = (to_local(p_w + dir_w) - p_l).normalized()
-						var fwd_l: Vector2 = (to_local(p_w + fwd_w) - p_l).normalized()
-						draw_line(pos_v, pos_v + dir_l * 30.0, Color(0.2, 1.0, 0.2, 1.0), 2.0)
-						draw_line(pos_v, pos_v + fwd_l * 30.0, Color(1.0, 0.2, 0.2, 1.0), 2.0)
+		var owner_id: int = _unit_owner_id(u, hive_by_id)
+		var tex: Texture2D = null
+		var scale: float = 1.0
+		var offset: Vector2 = Vector2.ZERO
+		if registry != null:
+			var key := "unit.%s" % SpriteRegistry.owner_key(owner_id)
+			tex = registry.get_tex(key)
+			scale = registry.get_scale(key)
+			offset = registry.get_offset(key)
+			if tex != null and not _unit_sprite_logged:
+				_unit_sprite_logged = true
+				var resolved_path := tex.resource_path
+				if resolved_path.is_empty() and registry != null:
+					resolved_path = registry.get_tex_path(key)
+				SFLog.info("UNIT_SPRITE_RESOLVED", {
+					"key": key,
+					"path": str(resolved_path)
+				})
+		if tex != null:
+			var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
+			var size := Vector2(size_px, size_px)
+			var rect := Rect2(pos_v - size * 0.5 + offset, size)
+			draw_texture_rect(tex, rect, false)
+		else:
+			draw_circle(pos_v, debug_force_big_radius_px, Color(1, 1, 1, 1))
 	if debug_unit_owner_labels and font != null:
 		for u in _units:
 			if typeof(u) != TYPE_DICTIONARY:
@@ -911,6 +1294,11 @@ func _clear_swarm_nodes() -> void:
 func _ensure_swarm_texture() -> Texture2D:
 	if _swarm_texture != null:
 		return _swarm_texture
+	var loaded: Resource = load(SWARM_TEXTURE_PATH)
+	if loaded is Texture2D:
+		_swarm_texture = loaded as Texture2D
+		return _swarm_texture
+	SFLog.warn("SWARM_TEXTURE_FALLBACK", {"path": SWARM_TEXTURE_PATH})
 	var size: int = SWARM_TEXTURE_SIZE
 	var img: Image = Image.create(size, size, false, Image.FORMAT_RGBA8)
 	img.fill(Color(1, 1, 1, 0))
@@ -1000,6 +1388,69 @@ func _unit_lane_dir(ud: Dictionary, hive_by_id: Dictionary) -> Vector2:
 	if delta.length_squared() <= 0.0001:
 		return Vector2.ZERO
 	return delta.normalized()
+
+func _unit_travel_heading(ud: Dictionary, hive_by_id: Dictionary, p_now_world: Vector2) -> Dictionary:
+	var t_val: float = clampf(float(ud.get("t", 0.0)), 0.0, 1.0)
+	var dir_sign: int = _unit_travel_sign(ud)
+	var t_next: float = clampf(t_val + float(dir_sign) * UNIT_TRAVEL_T_EPS, 0.0, 1.0)
+	var endpoints: Dictionary = _unit_path_endpoints_world(ud, hive_by_id)
+	var p_next: Vector2 = p_now_world
+	if bool(endpoints.get("ok", false)):
+		var a_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
+		var b_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
+		p_next = a_pos.lerp(b_pos, t_next)
+	else:
+		var lane_dir: Vector2 = _unit_lane_dir(ud, hive_by_id)
+		if lane_dir.length_squared() > 0.000001:
+			p_next = p_now_world + lane_dir.normalized() * float(dir_sign)
+	return {
+		"t": t_val,
+		"t_next": t_next,
+		"dir": p_next - p_now_world
+	}
+
+func _unit_travel_sign(ud: Dictionary) -> int:
+	var dir_i: int = int(ud.get("dir", 0))
+	if dir_i != 0:
+		return 1 if dir_i > 0 else -1
+	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
+	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
+	var a_id: int = _resolve_id(ud.get("a_id", 0))
+	var b_id: int = _resolve_id(ud.get("b_id", 0))
+	if from_id > 0 and to_id > 0 and a_id > 0 and b_id > 0:
+		if from_id == a_id and to_id == b_id:
+			return 1
+		if from_id == b_id and to_id == a_id:
+			return -1
+	var side: String = str(ud.get("from_side", ""))
+	if side == "B":
+		return -1
+	if side == "A":
+		return 1
+	return 1
+
+func _unit_path_endpoints_world(ud: Dictionary, hive_by_id: Dictionary) -> Dictionary:
+	var from_pos_v: Variant = ud.get("from_pos")
+	var to_pos_v: Variant = ud.get("to_pos")
+	if from_pos_v is Vector2 and to_pos_v is Vector2:
+		var a_world: Vector2 = _to_world_pos(from_pos_v as Vector2)
+		var b_world: Vector2 = _to_world_pos(to_pos_v as Vector2)
+		return {"ok": true, "a": a_world, "b": b_world}
+	var a_id: int = _resolve_id(ud.get("a_id", 0))
+	var b_id: int = _resolve_id(ud.get("b_id", 0))
+	if a_id > 0 and b_id > 0:
+		var a_pos_v: Variant = _hive_world_pos(a_id, hive_by_id)
+		var b_pos_v: Variant = _hive_world_pos(b_id, hive_by_id)
+		if a_pos_v is Vector2 and b_pos_v is Vector2:
+			return {"ok": true, "a": a_pos_v as Vector2, "b": b_pos_v as Vector2}
+	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
+	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
+	if from_id > 0 and to_id > 0:
+		var from_pos_w: Variant = _hive_world_pos(from_id, hive_by_id)
+		var to_pos_w: Variant = _hive_world_pos(to_id, hive_by_id)
+		if from_pos_w is Vector2 and to_pos_w is Vector2:
+			return {"ok": true, "a": from_pos_w as Vector2, "b": to_pos_w as Vector2}
+	return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
 
 func _unit_phase(unit_id: int) -> float:
 	var h := _hash_unit_id(unit_id)

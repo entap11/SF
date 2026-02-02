@@ -1,4 +1,5 @@
 extends SceneTree
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
@@ -12,7 +13,8 @@ func _initialize() -> void:
 func _run() -> void:
 	var arena := ARENA_SCENE.instantiate() as Node2D
 	if arena == null:
-		push_error("HEADLESS: failed to instantiate Arena.tscn")
+		if SFLog.LOGGING_ENABLED:
+			push_error("HEADLESS: failed to instantiate Arena.tscn")
 		quit()
 		return
 	root.add_child(arena)
@@ -23,7 +25,8 @@ func _run() -> void:
 
 	var result: Dictionary = MAP_LOADER.load_map(MAP_PATH)
 	if not bool(result.get("ok", false)):
-		push_error("HEADLESS: load_map failed %s" % str(result.get("err", result.get("error", "unknown"))))
+		if SFLog.LOGGING_ENABLED:
+			push_error("HEADLESS: load_map failed %s" % str(result.get("err", result.get("error", "unknown"))))
 		quit()
 		return
 	var data: Dictionary = result.get("data", {})
@@ -39,7 +42,8 @@ func _run() -> void:
 func _simulate_clicks(arena: Node2D) -> void:
 	var state = arena.state
 	if state == null or state.hives.is_empty():
-		push_error("HEADLESS: no hives in state")
+		if SFLog.LOGGING_ENABLED:
+			push_error("HEADLESS: no hives in state")
 		return
 	var hives: Array = state.hives.duplicate()
 	hives.sort_custom(Callable(self, "_sort_hive_x"))
@@ -65,18 +69,22 @@ func _sort_hive_x(a: HiveData, b: HiveData) -> bool:
 func _log_owner_summary_from_schema() -> void:
 	var f: FileAccess = FileAccess.open(MAP_PATH, FileAccess.READ)
 	if f == null:
-		push_error("HEADLESS: map file open failed for %s" % MAP_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_error("HEADLESS: map file open failed for %s" % MAP_PATH)
 		return
 	var raw: String = f.get_as_text()
 	if raw.strip_edges().is_empty():
-		push_error("HEADLESS: map file empty for %s" % MAP_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_error("HEADLESS: map file empty for %s" % MAP_PATH)
 		return
 	var json := JSON.new()
 	var err: int = json.parse(raw)
 	if err != OK:
-		push_error("HEADLESS: map json parse failed for %s" % MAP_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_error("HEADLESS: map json parse failed for %s" % MAP_PATH)
 		return
 	if typeof(json.data) != TYPE_DICTIONARY:
-		push_error("HEADLESS: map json root not dict for %s" % MAP_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_error("HEADLESS: map json root not dict for %s" % MAP_PATH)
 		return
 	MAP_SCHEMA._adapt_v1_xy_to_internal(json.data as Dictionary)

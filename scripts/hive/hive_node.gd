@@ -15,6 +15,7 @@ const SELECTOR_STATE_INACTIVE := 0
 const SELECTOR_STATE_HOVER := 1
 const SELECTOR_STATE_SELECTED := 2
 const SELECTOR_STATE_ACTIVATED := 3
+const LANE_ANCHOR_Y_PX: float = 58.0
 
 @export var hive_id: int = -1
 @export var owner_id: int = 0
@@ -66,6 +67,31 @@ var _selector_mat: ShaderMaterial = null
 var _selector_state: int = SELECTOR_STATE_INACTIVE
 var _last_kind: String = ""
 var _sim_events: Node = null
+
+static func lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
+	return center_world + Vector2(0.0, -LANE_ANCHOR_Y_PX)
+
+static func compute_lane_endpoints_world(a_center_world: Vector2, b_center_world: Vector2) -> Dictionary:
+	var a_anchor: Vector2 = lane_anchor_world_from_center(a_center_world)
+	var b_anchor: Vector2 = lane_anchor_world_from_center(b_center_world)
+	var lane_vec: Vector2 = b_anchor - a_anchor
+	var lane_len: float = lane_vec.length()
+	var lane_dir: Vector2 = Vector2.ZERO
+	if lane_len > 0.000001:
+		lane_dir = lane_vec / lane_len
+	return {
+		"a_center": a_center_world,
+		"b_center": b_center_world,
+		"a_anchor": a_anchor,
+		"b_anchor": b_anchor,
+		"a": a_anchor,
+		"b": b_anchor,
+		"dir": lane_dir,
+		"len": lane_len
+	}
+
+func get_lane_anchor_world() -> Vector2:
+	return lane_anchor_world_from_center(global_position)
 
 func _ready() -> void:
 	input_pickable = true
@@ -189,7 +215,8 @@ func _input_event(viewport: Viewport, event: InputEvent, _shape_idx: int) -> voi
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
-			print("HIVE_NODE_CLICK hive_id=", hive_id)
+			if SFLog.LOGGING_ENABLED:
+				print("HIVE_NODE_CLICK hive_id=", hive_id)
 			emit_signal("hive_clicked", hive_id, mb.button_index, global_position)
 			return
 		if mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed:

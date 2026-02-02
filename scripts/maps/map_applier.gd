@@ -8,18 +8,36 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 
 static func apply_map(arena: Node2D, d: Dictionary) -> void:
 	var map_id := str(d.get("map_id", d.get("_id", d.get("id", "UNKNOWN"))))
-	print("MAP_APPLY_TRIGGERED map_id=",
+	if SFLog.LOGGING_ENABLED:
+		print("MAP_APPLY_TRIGGERED map_id=",
 		map_id,
 		" schema=", str(d.get("_schema", "")),
 		"\nSTACK:\n", str(get_stack()))
 	if arena == null:
-		push_error("MAP APPLY FAIL: arena is null")
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP APPLY FAIL: arena is null")
 		return
 	if d.is_empty():
-		push_error("MAP APPLY FAIL: map is empty")
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP APPLY FAIL: map is empty")
 		return
 	if _is_dev_runner():
 		_dev_seed_lanes_and_spawns(d)
+
+	var p1_uid: String = ProfileManager.get_user_id()
+	var roster: Array = [
+		{"seat": 1, "uid": p1_uid, "is_local": true, "is_cpu": false, "active": true},
+		{"seat": 2, "uid": "", "is_local": false, "is_cpu": true, "active": true},
+		{"seat": 3, "uid": "", "is_local": false, "is_cpu": false, "active": false},
+		{"seat": 4, "uid": "", "is_local": false, "is_cpu": false, "active": false}
+	]
+	OpsState.match_roster = roster
+	SFLog.info("MATCH_ROSTER", {
+		"p1_uid": p1_uid,
+		"p2_uid": "",
+		"p3_uid": "",
+		"p4_uid": ""
+	})
 
 	var built_state := OpsState.reset_state_from_map(d)
 	var map_lanes: Array = []
@@ -194,4 +212,5 @@ static func _dev_seed_lanes_and_spawns(model: Dictionary) -> void:
 					"owner_id": owner_id
 				})
 			model["spawns"] = dev_spawns
-			print("DEV_FALLBACK: seeded spawns=%d" % dev_spawns.size())
+			if SFLog.LOGGING_ENABLED:
+				print("DEV_FALLBACK: seeded spawns=%d" % dev_spawns.size())

@@ -1,5 +1,6 @@
 class_name DevMapPicker
 extends Control
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const MAPS_DIR := "res://maps/json"
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
@@ -94,7 +95,8 @@ func _ensure_arena() -> Node:
 		return current.get_node("Arena")
 	var main_scene_res := load("res://scenes/Main.tscn") as PackedScene
 	if main_scene_res == null:
-		push_error("DEV_MAP_PICKER: failed to load Main.tscn")
+		if SFLog.LOGGING_ENABLED:
+			push_error("DEV_MAP_PICKER: failed to load Main.tscn")
 		return null
 	var main_scene: Node = main_scene_res.instantiate()
 	get_tree().root.add_child(main_scene)

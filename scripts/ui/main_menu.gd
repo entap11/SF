@@ -1,5 +1,7 @@
 extends Control
 
+const SFLog = preload("res://scripts/util/sf_log.gd")
+
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
 const DASH_TAB_KEY_RIGHT := "ui.mm.dash.right"
@@ -171,6 +173,8 @@ var _play_mode_select: Control = null
 @onready var async_yearly_back: Button = $AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBack
 @onready var play_button: Button = $BottomBar/MenuButtons/PlayButton
 @onready var status_label: Label = $BottomBar/StatusLabel
+@onready var onboarding_overlay: Control = $ProfileFirstRunOverlay
+@onready var onboarding_panel: OnboardingPanel = $ProfileFirstRunOverlay/OverlayCenter/OverlayPanel/OverlayVBox/OnboardingPanel
 
 var _font_regular: Font
 var _font_semibold: Font
@@ -521,6 +525,20 @@ func _ready() -> void:
 	call_deferred("_init_dash_state")
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
+	_bind_onboarding_gate()
+
+func _bind_onboarding_gate() -> void:
+	ProfileManager.ensure_loaded()
+	if not ProfileManager.is_onboarding_complete():
+		onboarding_overlay.visible = true
+		if onboarding_panel != null:
+			if not onboarding_panel.onboarding_done.is_connected(_on_onboarding_done):
+				onboarding_panel.onboarding_done.connect(_on_onboarding_done)
+	else:
+		onboarding_overlay.visible = false
+
+func _on_onboarding_done() -> void:
+	onboarding_overlay.visible = false
 
 func _load_fonts() -> void:
 	_font_regular = load(FONT_REGULAR_PATH)
@@ -1190,7 +1208,8 @@ func _stub_action(label: String) -> void:
 
 func _dash_stub_action(label: String) -> void:
 	if dash_panel.visible:
-		print("DASH: %s" % label)
+		if SFLog.LOGGING_ENABLED:
+			print("DASH: %s" % label)
 	else:
 		_stub_action(label)
 

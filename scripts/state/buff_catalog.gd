@@ -1,5 +1,6 @@
 class_name BuffCatalog
 extends RefCounted
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const BUFFS_PATH := "res://data/buffs/buffs_v1.json"
 const BUFFS_SCHEMA := "swarmfront.buffs.v1"
@@ -17,17 +18,20 @@ static func _ensure_loaded() -> bool:
 	_loaded = true
 	var file: FileAccess = FileAccess.open(BUFFS_PATH, FileAccess.READ)
 	if file == null:
-		push_error("BUFF_CATALOG: failed to open %s" % BUFFS_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_error("BUFF_CATALOG: failed to open %s" % BUFFS_PATH)
 		return false
 	var text: String = file.get_as_text()
 	var json := JSON.new()
 	var err: int = json.parse(text)
 	if err != OK or typeof(json.data) != TYPE_DICTIONARY:
-		push_error("BUFF_CATALOG: JSON root is not a Dictionary")
+		if SFLog.LOGGING_ENABLED:
+			push_error("BUFF_CATALOG: JSON root is not a Dictionary")
 		return false
 	var root: Dictionary = json.data
 	if str(root.get("_schema", "")) != BUFFS_SCHEMA:
-		push_error("BUFF_CATALOG: invalid schema %s" % str(root.get("_schema", "")))
+		if SFLog.LOGGING_ENABLED:
+			push_error("BUFF_CATALOG: invalid schema %s" % str(root.get("_schema", "")))
 		return false
 	_stacking_default = str(root.get("stacking_default", "refresh"))
 	var buffs: Array = root.get("buffs", [])

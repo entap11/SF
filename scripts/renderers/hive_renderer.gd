@@ -236,7 +236,8 @@ func _draw() -> void:
 
 func _draw_model() -> void:
 	if arena != null:
-		print("HIVE: arena_ref=", arena)
+		if SFLog.LOGGING_ENABLED:
+			print("HIVE: arena_ref=", arena)
 		_last_render_version = arena.render_version
 
 	var font: Font = ThemeDB.fallback_font
@@ -300,7 +301,8 @@ func _draw_state() -> void:
 	if state == null or arena == null:
 		return
 
-	print("HIVE: arena_ref=", arena)
+	if SFLog.LOGGING_ENABLED:
+		print("HIVE: arena_ref=", arena)
 	_last_render_version = arena.render_version
 
 	var font: Font = ThemeDB.fallback_font

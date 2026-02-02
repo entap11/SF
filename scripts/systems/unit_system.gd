@@ -10,6 +10,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
+const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 
 const BASE_MS := 1000.0
 const PER_POWER_MS := 2.0
@@ -311,8 +312,13 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 						p0 = from_pos_v
 						p1 = to_pos_v
 						has_geom = true
+				var impact: Vector2 = Vector2.ZERO
+				var lane_dir: Vector2 = Vector2.RIGHT
 				if has_geom:
-					var impact: Vector2 = p0.lerp(p1, front_t)
+					impact = p0.lerp(p1, front_t)
+					var dir_vec: Vector2 = p1 - p0
+					if dir_vec.length_squared() > 0.000001:
+						lane_dir = dir_vec.normalized()
 					SFLog.info("UNIT_COLLISION_GEOM", {
 						"lane_id": lane_id,
 						"p0": p0,
@@ -321,6 +327,26 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 						"impact": impact,
 						"at_us": now_us
 					})
+				else:
+					var a_pos_any: Variant = a.get("pos", Vector2.ZERO)
+					var b_pos_any: Variant = b.get("pos", Vector2.ZERO)
+					var a_pos: Vector2 = a_pos_any if a_pos_any is Vector2 else Vector2.ZERO
+					var b_pos: Vector2 = b_pos_any if b_pos_any is Vector2 else Vector2.ZERO
+					impact = (a_pos + b_pos) * 0.5
+					var fallback_dir: Vector2 = b_pos - a_pos
+					if fallback_dir.length_squared() > 0.000001:
+						lane_dir = fallback_dir.normalized()
+				if _sim_events != null:
+					var vfx_intensity: float = clampf(float(kill) * 0.5, 0.6, 2.0)
+					_sim_events.emit_signal(
+						"unit_collision",
+						impact,
+						lane_dir,
+						a_owner,
+						b_owner,
+						int(lane_id),
+						vfx_intensity
+					)
 				SFLog.info("UNIT_COLLISION_PRE", {
 					"lane_id": lane_id,
 					"a_before": a_before,
@@ -513,6 +539,28 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	OpsState.add_units_landed(owner_id, amount)
 	var before_owner := int(hive.owner_id)
 	var before_power := int(hive.power)
+	var arrive_source: String = str(unit.get("arrive_source", "unit_system"))
+	if _sim_events != null and arrive_source != "recall":
+		var impact_kind: String = "feed"
+		var impact_intensity: float = 0.6
+		if before_owner != owner_id:
+			impact_kind = "attack"
+			impact_intensity = 1.0
+		var impact_pos: Vector2 = _arrival_impact_world_pos(unit, to_id)
+		var impact_dir: Vector2 = _arrival_impact_dir(unit)
+		var impact_lane_id: int = int(unit.get("lane_id", -1))
+		var impact_unit_id: int = int(unit.get("id", -1))
+		_sim_events.emit_signal(
+			"unit_impact",
+			impact_kind,
+			impact_pos,
+			impact_dir,
+			owner_id,
+			impact_intensity,
+			impact_lane_id,
+			impact_unit_id,
+			to_id
+		)
 	if int(hive.owner_id) == owner_id:
 		hive.power = min(SimTuning.MAX_POWER, int(hive.power) + amount)
 	else:
@@ -538,7 +586,6 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		elif state.has_method("evaluate_full_control_win"):
 			state.call("evaluate_full_control_win")
 	var side := "A" if _unit_dir(unit) >= 0 else "B"
-	var arrive_source := str(unit.get("arrive_source", "unit_system"))
 	if SFLog.verbose_sim:
 		SFLog.throttled_info("ARRIVE_APPLY", {
 			"lane_id": int(unit.get("lane_id", -1)),
@@ -561,6 +608,29 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 			"amount": amount
 		})
 	_in_owner_update = false
+
+func _arrival_impact_world_pos(unit: Dictionary, to_hive_id: int) -> Vector2:
+	var pos_any: Variant = unit.get("pos", null)
+	if pos_any is Vector2:
+		return pos_any as Vector2
+	if state != null and to_hive_id > 0:
+		var hive_center: Vector2 = state.hive_world_pos_by_id(to_hive_id)
+		return _lane_anchor_world_from_center(hive_center)
+	return Vector2.ZERO
+
+func _arrival_impact_dir(unit: Dictionary) -> Vector2:
+	var from_any: Variant = unit.get("from_pos", null)
+	var to_any: Variant = unit.get("to_pos", null)
+	if from_any is Vector2 and to_any is Vector2:
+		var from_pos: Vector2 = from_any as Vector2
+		var to_pos: Vector2 = to_any as Vector2
+		var dir_vec: Vector2 = to_pos - from_pos
+		if dir_vec.length_squared() > 0.000001:
+			var travel_dir: Vector2 = dir_vec.normalized()
+			if _unit_dir(unit) < 0:
+				travel_dir = -travel_dir
+			return travel_dir
+	return Vector2.RIGHT
 
 func _process_arrivals() -> void:
 	if units.is_empty():
@@ -678,23 +748,17 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 		return _remove_unit(victim_unit_id, "tower_hit")
 	return false
 
-func _hive_radius_px(_hive: HiveData) -> float:
-	return GameState.HIVE_RADIUS_PX
+func _lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
+	return HiveNodeScript.lane_anchor_world_from_center(center_world)
 
 func _edge_points(from_hive: HiveData, to_hive: HiveData) -> Array:
 	if state == null or from_hive == null or to_hive == null:
 		return []
-	var a_pos := state.hive_world_pos_by_id(int(from_hive.id))
-	var b_pos := state.hive_world_pos_by_id(int(to_hive.id))
-	var dir_vec := b_pos - a_pos
-	if dir_vec.length_squared() <= 0.0001:
-		dir_vec = Vector2.RIGHT
-	else:
-		dir_vec = dir_vec.normalized()
-	var ra := _hive_radius_px(from_hive)
-	var rb := _hive_radius_px(to_hive)
-	var start_edge := a_pos + dir_vec * (ra + UNIT_RADIUS_PX)
-	var end_edge := b_pos - dir_vec * (rb + UNIT_RADIUS_PX)
+	var a_pos: Vector2 = state.hive_world_pos_by_id(int(from_hive.id))
+	var b_pos: Vector2 = state.hive_world_pos_by_id(int(to_hive.id))
+	var ep: Dictionary = HiveNodeScript.compute_lane_endpoints_world(a_pos, b_pos)
+	var start_edge: Vector2 = ep.get("a", _lane_anchor_world_from_center(a_pos))
+	var end_edge: Vector2 = ep.get("b", _lane_anchor_world_from_center(b_pos))
 	if start_edge.distance_to(end_edge) < EDGE_MIN_DIST_PX:
 		end_edge = start_edge
 	return [start_edge, end_edge]
@@ -790,11 +854,10 @@ func spawn_render_unit(lane_id: int, a_id: int, b_id: int, owner_id: int, from_s
 	var from_pos := Vector2.ZERO
 	var to_pos := Vector2.ZERO
 	if state != null:
-		var a_pos := state.hive_world_pos_by_id(a_id)
-		var b_pos := state.hive_world_pos_by_id(b_id)
-		var pts := GameState.lane_edge_points(a_pos, b_pos)
-		from_pos = pts.get("a_edge", a_pos)
-		to_pos = pts.get("b_edge", b_pos)
+		var a_pos: Vector2 = state.hive_world_pos_by_id(a_id)
+		var b_pos: Vector2 = state.hive_world_pos_by_id(b_id)
+		from_pos = _lane_anchor_world_from_center(a_pos)
+		to_pos = _lane_anchor_world_from_center(b_pos)
 	var dir := 1 if from_side == "A" else -1
 	var t := 0.0 if dir >= 0 else 1.0
 	var pos := from_pos.lerp(to_pos, t)

@@ -287,7 +287,15 @@ func _barracks_accent_color(owner_id: int) -> Color:
 		return NPC_ACCENT_COLOR
 	if owner_id <= 0:
 		return NPC_ACCENT_COLOR
-	return HiveRenderer._owner_color(owner_id)
+	if owner_id >= 1 and owner_id <= 4:
+		return HiveRenderer._owner_color(owner_id)
+	SFLog.log_once(
+		"UNKNOWN_OWNER_ID:%d" % owner_id,
+		"UNKNOWN_OWNER_ID",
+		SFLog.Level.WARN,
+		{"owner_id": owner_id}
+	)
+	return NPC_ACCENT_COLOR
 
 func _is_prematch() -> bool:
 	return OpsState.match_phase == OpsState.MatchPhase.PREMATCH and int(OpsState.prematch_remaining_ms) > 0

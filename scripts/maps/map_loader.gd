@@ -98,7 +98,8 @@ static func load_map(path_or_id: String) -> Dictionary:
 		var idx := 0
 		for e in errors:
 			if idx < 5:
-				push_error("MAP_LOADER: validate err path=%s err=%s" % [resolved, str(e)])
+				if SFLog.LOGGING_ENABLED:
+					push_error("MAP_LOADER: validate err path=%s err=%s" % [resolved, str(e)])
 			else:
 				SFLog.trace("MAP_LOADER: validate err path=%s err=%s" % [resolved, str(e)])
 			idx += 1
@@ -115,7 +116,8 @@ static func _ok(data: Dictionary) -> Dictionary:
 	}
 
 static func _fail(err: String) -> Dictionary:
-	push_error("MAP_LOADER: " + err)
+	if SFLog.LOGGING_ENABLED:
+		push_error("MAP_LOADER: " + err)
 	return {
 		"ok": false,
 		"data": {},
@@ -214,7 +216,8 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	var w: int = _as_int(data.get("width", 0), 0)
 	var h: int = _as_int(data.get("height", 0), 0)
 	if w != CANON_GRID_W or h != CANON_GRID_H:
-		push_error("MAP_LOADER: v1.xy wrong dims %dx%d (canon %dx%d) path=%s" % [
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_LOADER: v1.xy wrong dims %dx%d (canon %dx%d) path=%s" % [
 			w,
 			h,
 			CANON_GRID_W,
@@ -225,7 +228,8 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 
 	var ents_v: Variant = data.get("entities", [])
 	if typeof(ents_v) != TYPE_ARRAY:
-		push_error("MAP_LOADER: v1.xy entities not array path=%s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_LOADER: v1.xy entities not array path=%s" % path)
 		return {}
 	var ents: Array = ents_v as Array
 
@@ -259,7 +263,8 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	for i in range(ents.size()):
 		var e_v: Variant = ents[i]
 		if typeof(e_v) != TYPE_DICTIONARY:
-			push_error("MAP_LOADER: v1.xy entity[%d] not dict path=%s" % [i, path])
+			if SFLog.LOGGING_ENABLED:
+				push_error("MAP_LOADER: v1.xy entity[%d] not dict path=%s" % [i, path])
 			continue
 		var e: Dictionary = e_v as Dictionary
 
@@ -271,20 +276,24 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		var x: int = _as_int(e.get("x", null), -999)
 		var y: int = _as_int(e.get("y", null), -999)
 		if x < 0 or y < 0:
-			push_error("MAP_LOADER: v1.xy entity[%s] missing x/y path=%s" % [id_str, path])
+			if SFLog.LOGGING_ENABLED:
+				push_error("MAP_LOADER: v1.xy entity[%s] missing x/y path=%s" % [id_str, path])
 			continue
 		if x >= w or y >= h:
-			push_error("MAP_LOADER: v1.xy entity[%s] out of bounds x=%d y=%d path=%s" % [id_str, x, y, path])
+			if SFLog.LOGGING_ENABLED:
+				push_error("MAP_LOADER: v1.xy entity[%s] out of bounds x=%d y=%d path=%s" % [id_str, x, y, path])
 			continue
 
 		var kind: String = _v1_kind(e)
 		if kind.is_empty():
-			push_error("MAP_LOADER: v1.xy entity[%s] missing kind/type/entity path=%s" % [id_str, path])
+			if SFLog.LOGGING_ENABLED:
+				push_error("MAP_LOADER: v1.xy entity[%s] missing kind/type/entity path=%s" % [id_str, path])
 			continue
 
 		if kind == "hive" or kind == "player_hive" or kind == "npc_hive":
 			if id_map.has(id_str):
-				push_error("MAP_LOADER: v1.xy duplicate hive id=%s path=%s" % [id_str, path])
+				if SFLog.LOGGING_ENABLED:
+					push_error("MAP_LOADER: v1.xy duplicate hive id=%s path=%s" % [id_str, path])
 				continue
 			var hive_id: int = 0
 			if id_raw is int:
@@ -323,7 +332,8 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 			if tower_id == next_tower_id:
 				next_tower_id += 1
 			if tower_ids.has(tower_id):
-				push_warning("MAP_LOADER: v1.xy duplicate tower id=%d path=%s" % [tower_id, path])
+				if SFLog.LOGGING_ENABLED:
+					push_warning("MAP_LOADER: v1.xy duplicate tower id=%d path=%s" % [tower_id, path])
 				continue
 			tower_ids[tower_id] = true
 			var req_v: Variant = e.get("required_hive_ids", [])
@@ -343,7 +353,8 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 			if barracks_id == next_barracks_id:
 				next_barracks_id += 1
 			if barracks_ids.has(barracks_id):
-				push_warning("MAP_LOADER: v1.xy duplicate barracks id=%d path=%s" % [barracks_id, path])
+				if SFLog.LOGGING_ENABLED:
+					push_warning("MAP_LOADER: v1.xy duplicate barracks id=%d path=%s" % [barracks_id, path])
 				continue
 			barracks_ids[barracks_id] = true
 			var req_v: Variant = e.get("required_hive_ids", [])
@@ -367,7 +378,8 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 				"grid_pos": [x, y]
 			})
 		else:
-			push_error("MAP_LOADER: v1.xy unknown kind='%s' id=%s path=%s" % [kind, id_str, path])
+			if SFLog.LOGGING_ENABLED:
+				push_error("MAP_LOADER: v1.xy unknown kind='%s' id=%s path=%s" % [kind, id_str, path])
 
 	var towers_v: Variant = data.get("towers", [])
 	if typeof(towers_v) == TYPE_ARRAY:
@@ -444,13 +456,15 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	if bool(auto_result.get("ok", false)):
 		lane_candidates = auto_result.get("lanes", []) as Array
 	else:
-		push_error("MAP_LOADER: v1.xy auto lanes failed path=%s err=%s" % [
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_LOADER: v1.xy auto lanes failed path=%s err=%s" % [
 			path,
 			str(auto_result.get("error", "auto lanes failed"))
 		])
 
 	if hives.is_empty():
-		push_error("MAP_LOADER: v1.xy no hives parsed path=%s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_LOADER: v1.xy no hives parsed path=%s" % path)
 		return {}
 
 	if spawns.is_empty():
@@ -474,7 +488,8 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		# Dev/default behavior: start with all candidates active.
 		model["lanes"] = lane_candidates.duplicate(true)
 	if (model.get("lanes", []) as Array).is_empty():
-		push_warning("Loaded map has 0 active lanes. Spawns will be blocked unless lanes are created.")
+		if SFLog.LOGGING_ENABLED:
+			push_warning("Loaded map has 0 active lanes. Spawns will be blocked unless lanes are created.")
 	model["towers"] = towers
 	model["barracks"] = barracks
 	model["spawns"] = spawns

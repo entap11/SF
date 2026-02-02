@@ -7,8 +7,12 @@ const P1_COLOR: Color = Color(0.85, 0.72, 0.12, 0.95)
 const P2_COLOR: Color = Color(0.25, 0.95, 0.35, 0.95)
 const P3_COLOR: Color = Color(0.15, 0.45, 0.95, 0.95)
 const P4_COLOR: Color = Color(0.95, 0.20, 0.20, 0.95)
-const PLAYER_COLORS: Array[Color] = [P1_COLOR, P2_COLOR, P3_COLOR, P4_COLOR]
-const DEFAULT_TOP_PX := 10.0 # tweak to taste (we can wire to play-surface later)
+const DEFAULT_TOP_PX: float = 10.0
+
+const INNER_LEFT_PX: float = 110.0
+const INNER_TOP_PX: float = 22.0
+const INNER_W_PX: float = 720.0
+const INNER_H_PX: float = 72.0
 
 @export var base_texture: Texture2D
 @export var top_margin_px: float = 16.0
@@ -16,68 +20,58 @@ const DEFAULT_TOP_PX := 10.0 # tweak to taste (we can wire to play-surface later
 @export var max_width_ratio: float = 0.72
 @export var min_scale: float = 0.6
 @export var max_scale: float = 1.0
-@export var poll_hz: float = 8.0
-@export var sample_interval_sec: float = 0.5
-@export var history_samples: int = 10
-@export var fill_inset_left: float = 6.0
-@export var fill_inset_right: float = 6.0
-@export var fill_inset_top: float = 6.0
-@export var fill_inset_bottom: float = 6.0
-@export var pulse_duration: float = 0.25
-@export var pulse_expand_px: float = 6.0
-@export var ghost_alpha: float = 0.28
 @export var reveal_duration: float = 0.6
 @export var reveal_slide_px: float = 6.0
 
-@onready var frame: TextureRect = $Frame
-@onready var fill_layer: Control = $FillLayer
-@onready var ghost_layer: Control = $FillLayer/Ghosts
-@onready var fill_layer_main: Control = $FillLayer/Fills
+@onready var _fill_mask: Control = $FillMask
+@onready var _fill_p1: ColorRect = $FillMask/FillP1
+@onready var _fill_p2: ColorRect = $FillMask/FillP2
+@onready var _frame: TextureRect = $Frame
 
 var _state: GameState = null
-var _fill_nodes: Array[Control] = []
-var _ghost_nodes: Array[Control] = []
-var _visible_count: int = 4
-var _current_shares: Array[float] = [0.25, 0.25, 0.25, 0.25]
-var _ghost_shares: Array[float] = [0.25, 0.25, 0.25, 0.25]
-var _history: Array = [[], [], [], []] # each entry is Array[float]
-var _sample_accum: float = 0.0
-var _poll_accum: float = 0.0
-var _pulse_t: Array[float] = [0.0, 0.0, 0.0, 0.0]
-var _pulse_sign: Array[int] = [1, 1, 1, 1]
-var _state_sig: String = ""
+var _target_share_p1: float = 0.5
+var _target_share_p2: float = 0.5
+var _display_share_p1: float = 0.5
+var _display_share_p2: float = 0.5
+var _lerp_speed: float = 6.0
+var _max_width: float = 0.0
+var _base_size: Vector2 = Vector2.ZERO
+var _current_top_px: float = DEFAULT_TOP_PX
 var _base_offset_top: float = 0.0
 var _base_offset_bottom: float = 0.0
 var _reveal_tween: Tween = null
 var _revealed: bool = false
+var _inner_full_pos: Vector2 = Vector2.ZERO
+var _inner_full_size: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_process_unhandled_input(true)
 	z_index = 1000
-	if base_texture == null and frame.texture != null:
-		base_texture = frame.texture
-	elif base_texture != null:
-		frame.texture = base_texture
-	frame.stretch_mode = TextureRect.STRETCH_SCALE
-	frame.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_build_node_lists()
+	if base_texture == null:
+		base_texture = _frame.texture
+	_ensure_visual_textures()
 	_apply_base_size()
-	_update_scale()
-	_apply_layout(DEFAULT_TOP_PX)
+	_apply_layout(_current_top_px)
 	_prepare_hidden()
 	var viewport: Viewport = get_viewport()
 	if viewport != null and not viewport.size_changed.is_connected(_on_viewport_size_changed):
 		viewport.size_changed.connect(_on_viewport_size_changed)
-	var canvas_layer: CanvasLayer = get_parent() as CanvasLayer
-	var layer: int = canvas_layer.layer if canvas_layer != null else -1
-	SFLog.info("POWER_BAR_READY", {
-		"pos": global_position,
-		"size": size,
-		"visible": visible,
-		"modulate_a": modulate.a,
-		"z": z_index,
-		"layer": layer
+	_bind_hud()
+	_apply_hud_snapshot(OpsState.get_hud_snapshot())
+	_max_width = _fill_mask.size.x
+	_apply_fill()
+	_enforce_layer_order()
+	SFLog.info("POWERBAR_READY_V2", {
+		"path": str(get_path()),
+		"mask_w": _max_width,
+		"fill_mask_path": str(_fill_mask.get_path()),
+		"fill_p1_path": str(_fill_p1.get_path()),
+		"fill_p2_path": str(_fill_p2.get_path()),
+		"frame_path": str(_frame.get_path())
+	})
+	SFLog.info("POWERBAR_LAYER_OK", {
+		"fill_mask_z": _fill_mask.z_index,
+		"frame_z": _frame.z_index
 	})
 
 func set_state(state_ref: GameState) -> void:
@@ -85,43 +79,36 @@ func set_state(state_ref: GameState) -> void:
 
 func tick(delta: float, state_ref: GameState) -> void:
 	if state_ref != null:
-		set_state(state_ref)
-	_update_pulses(delta)
-	_sample_accum += delta
-	_poll_accum += delta
-	var poll_interval: float = 0.0
-	if poll_hz > 0.0:
-		poll_interval = 1.0 / poll_hz
-	if poll_interval <= 0.0 or _poll_accum >= poll_interval:
-		if poll_interval > 0.0:
-			_poll_accum = fmod(_poll_accum, poll_interval)
-		_refresh_from_state()
-	_layout_fills()
+		_state = state_ref
 
-func pulse_player(player_index: int, gain_sign: int) -> void:
-	var idx: int = player_index - 1
-	if idx < 0 or idx >= 4:
-		return
-	_pulse_t[idx] = pulse_duration
-	_pulse_sign[idx] = 1 if gain_sign >= 0 else -1
-	SFLog.info("POWER_BAR_PULSE", {"player": player_index, "sign": _pulse_sign[idx]})
+func set_power(pct: float) -> void:
+	var p1_ratio: float = clampf(pct, 0.0, 1.0)
+	_target_share_p1 = p1_ratio
+	_target_share_p2 = 1.0 - p1_ratio
+
+func set_power_ratio(pct: float) -> void:
+	set_power(pct)
+
+func _process(delta: float) -> void:
+	var t: float = clampf(delta * _lerp_speed, 0.0, 1.0)
+	_display_share_p1 = lerpf(_display_share_p1, _target_share_p1, t)
+	_display_share_p2 = lerpf(_display_share_p2, _target_share_p2, t)
+	_apply_fill()
+
+func pulse_player(_player_index: int, _gain_sign: int) -> void:
+	return
 
 func prepare_hidden() -> void:
 	_prepare_hidden()
 
 func reveal_with_tween() -> void:
-	SFLog.info("POWER_BAR_REVEAL_CALLED", {
-		"was_revealed": _revealed,
-		"visible_before": visible,
-		"modulate_a_before": modulate.a,
-		"pos": global_position,
-		"size": size,
-		"z": z_index
-	})
 	if _revealed:
 		return
 	_revealed = true
+	# Hard safety
 	visible = true
+	modulate.a = 1.0
+	self_modulate.a = 1.0
 	if _reveal_tween != null and _reveal_tween.is_running():
 		_reveal_tween.kill()
 	modulate.a = 0.0
@@ -132,114 +119,6 @@ func reveal_with_tween() -> void:
 	_reveal_tween.tween_property(self, "modulate:a", 1.0, reveal_duration)
 	_reveal_tween.parallel().tween_method(_set_slide_offset, -reveal_slide_px, 0.0, reveal_duration)
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey:
-		var key: InputEventKey = event as InputEventKey
-		if not key.pressed or key.echo:
-			return
-		var gain_sign: int = -1 if key.shift_pressed else 1
-		match key.keycode:
-			KEY_1:
-				pulse_player(1, gain_sign)
-			KEY_2:
-				pulse_player(2, gain_sign)
-			KEY_3:
-				pulse_player(3, gain_sign)
-			KEY_4:
-				pulse_player(4, gain_sign)
-
-func _on_viewport_size_changed() -> void:
-	_update_scale()
-	_sync_layer_sizes()
-
-func _build_node_lists() -> void:
-	_fill_nodes.clear()
-	_ghost_nodes.clear()
-	for i in range(1, 5):
-		var ghost: Control = ghost_layer.get_node_or_null("GhostP%d" % i) as Control
-		if ghost != null:
-			_ghost_nodes.append(ghost)
-		var fill: Control = fill_layer_main.get_node_or_null("FillP%d" % i) as Control
-		if fill != null:
-			_fill_nodes.append(fill)
-	for node in _ghost_nodes:
-		if node is ColorRect:
-			(node as ColorRect).mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for node in _fill_nodes:
-		if node is ColorRect:
-			(node as ColorRect).mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-func _apply_base_size() -> void:
-	if base_texture == null:
-		return
-	var tex_size: Vector2 = Vector2(base_texture.get_width(), base_texture.get_height())
-	var height_ratio: float = clamp(height_scale_ratio, 0.1, 1.0)
-	var draw_size: Vector2 = Vector2(tex_size.x, tex_size.y * height_ratio)
-	custom_minimum_size = draw_size
-	_base_offset_top = offset_top
-	_base_offset_bottom = offset_bottom
-	_sync_layer_sizes()
-
-func _sync_layer_sizes() -> void:
-	var bar_size: Vector2 = size
-	if bar_size.x <= 0.0 or bar_size.y <= 0.0:
-		bar_size = custom_minimum_size
-	fill_layer.size = bar_size
-	frame.size = bar_size
-	pivot_offset = bar_size * 0.5
-
-func _apply_layout(top: float) -> void:
-	# Ensure we are centered in X regardless of whatever the .tscn offsets are.
-	anchor_left = 0.5
-	anchor_right = 0.5
-	anchor_top = 0.0
-	anchor_bottom = 0.0
-
-	var bar_w: float = float(custom_minimum_size.x)
-	var bar_h: float = float(custom_minimum_size.y)
-
-	var vp_w: float = get_viewport_rect().size.x
-	var margin: float = 16.0
-	var max_w: float = maxf(0.0, vp_w - margin * 2.0)
-
-	# Keep height, but scale down uniformly if too wide.
-	var fit_scale: float = 1.0
-	if bar_w > max_w and bar_w > 0.0:
-		fit_scale = max_w / bar_w
-
-	var fit_size: Vector2 = Vector2(bar_w, bar_h) * fit_scale
-	custom_minimum_size = fit_size
-	size = fit_size
-	frame.size = fit_size
-	fill_layer.size = fit_size
-
-	# Center horizontally by symmetric offsets around anchor 0.5
-	offset_left = -fit_size.x * 0.5
-	offset_right = fit_size.x * 0.5
-
-	# Vertical placement
-	offset_top = top
-	offset_bottom = top + fit_size.y
-
-	# Preserve your slide/tween baseline
-	_base_offset_top = offset_top
-	_base_offset_bottom = offset_bottom
-
-func _update_scale() -> void:
-	if base_texture == null:
-		return
-	var viewport: Viewport = get_viewport()
-	if viewport == null:
-		return
-	var vp_size: Vector2 = viewport.get_visible_rect().size
-	var tex_w: float = float(base_texture.get_width())
-	if tex_w <= 0.0:
-		return
-	var max_w: float = vp_size.x * max_width_ratio
-	var target_scale: float = max_w / tex_w
-	target_scale = clamp(target_scale, min_scale, max_scale)
-	pass
-
 func snap_to_play_surface(camera: Camera2D, map_top_world_y: float, margin_px: float = 8.0) -> void:
 	if camera == null:
 		return
@@ -247,113 +126,206 @@ func snap_to_play_surface(camera: Camera2D, map_top_world_y: float, margin_px: f
 	var top: float = top_screen_y + margin_px
 	_apply_layout(top)
 
-func _refresh_from_state() -> void:
-	if _state == null:
-		return
-	var sig: String = _state_signature(_state)
-	if sig != _state_sig:
-		_state_sig = sig
-		_visible_count = _resolve_visible_count(_state)
-		_update_visibility()
-	var totals: Array[float] = [0.0, 0.0, 0.0, 0.0]
-	for hive in _state.hives:
-		var oid: int = int(hive.owner_id)
-		if oid >= 1 and oid <= 4:
-			totals[oid - 1] += float(hive.power)
-	var total_visible: float = 0.0
-	for i in range(_visible_count):
-		total_visible += totals[i]
-	if total_visible <= 0.0:
-		var even_share: float = 1.0 / float(_visible_count)
-		for i in range(4):
-			_current_shares[i] = even_share if i < _visible_count else 0.0
-	else:
-		for i in range(4):
-			_current_shares[i] = (totals[i] / total_visible) if i < _visible_count else 0.0
-	if _sample_accum >= sample_interval_sec:
-		_sample_accum = fmod(_sample_accum, sample_interval_sec)
-		_update_history()
+func _bind_hud() -> void:
+	if not OpsState.hud_changed.is_connected(_on_hud_changed):
+		OpsState.hud_changed.connect(_on_hud_changed)
 
-func _update_history() -> void:
-	for i in range(4):
-		var hist: Array = _history[i]
-		var prev: float = float(hist.back()) if hist.size() > 0 else 0.0
-		_ghost_shares[i] = prev
-		hist.append(float(_current_shares[i]))
-		while hist.size() > history_samples:
-			hist.pop_front()
-		_history[i] = hist
+func _on_hud_changed(hud: Dictionary) -> void:
+	_apply_hud_snapshot(hud)
 
-func _update_visibility() -> void:
-	for i in range(4):
-		var visible: bool = i < _visible_count
-		if i < _fill_nodes.size():
-			_fill_nodes[i].visible = visible
-		if i < _ghost_nodes.size():
-			_ghost_nodes[i].visible = visible
+func _apply_hud_snapshot(hud: Dictionary) -> void:
+	var totals: Dictionary = {1: 0.0, 2: 0.0}
+	var state_ref: GameState = OpsState.get_state()
+	if state_ref != null:
+		totals = compute_team_power(state_ref)
+	elif hud != null:
+		totals[1] = _seat_power_from_hud(hud, 1)
+		totals[2] = _seat_power_from_hud(hud, 2)
+	_fill_p1.color = P1_COLOR
+	_fill_p2.color = P2_COLOR
+	apply_power_totals(totals)
 
-func _layout_fills() -> void:
-	if base_texture == null:
-		return
-	var bar_size: Vector2 = size
-	var inner_w: float = maxf(1.0, bar_size.x - fill_inset_left - fill_inset_right)
-	var inner_h: float = maxf(1.0, bar_size.y - fill_inset_top - fill_inset_bottom)
-	var base_x: float = fill_inset_left
-	var base_y: float = fill_inset_top
+func _seat_power_from_hud(hud: Dictionary, seat: int) -> float:
+	if hud == null or not hud.has(seat):
+		return 0.0
+	var entry_any: Variant = hud.get(seat)
+	if typeof(entry_any) != TYPE_DICTIONARY:
+		return 0.0
+	var entry: Dictionary = entry_any as Dictionary
+	return float(entry.get("power", 0.0))
 
-	var cursor: float = 0.0
-	var ghost_cursor: float = 0.0
-	for i in range(4):
-		var share: float = float(_current_shares[i] if _current_shares[i] != null else 0.0)
-		var ghost_share: float = float(_ghost_shares[i] if _ghost_shares[i] != null else 0.0)
-		var width: float = inner_w * share
-		var ghost_width: float = inner_w * ghost_share
-		var fill_node: Control = _fill_nodes[i] if i < _fill_nodes.size() else null
-		var ghost_node: Control = _ghost_nodes[i] if i < _ghost_nodes.size() else null
-		if i >= _visible_count:
-			if fill_node != null:
-				fill_node.visible = false
-			if ghost_node != null:
-				ghost_node.visible = false
+func compute_team_power(state_ref: GameState) -> Dictionary:
+	var totals: Dictionary = {1: 0.0, 2: 0.0}
+	if state_ref == null:
+		return totals
+	var hive_list: Array = state_ref.hives
+	for hive_any in hive_list:
+		if hive_any == null:
 			continue
-		var pulse_f: float = _pulse_t[i] / pulse_duration if pulse_duration > 0.0 else 0.0
-		pulse_f = clamp(pulse_f, 0.0, 1.0)
-		var pulse_expand: float = pulse_expand_px * pulse_f
-		var fill_x: float = base_x + cursor - pulse_expand * 0.5
-		var fill_w: float = maxf(0.0, width + pulse_expand)
-		if fill_node != null:
-			fill_node.visible = true
-			fill_node.position = Vector2(fill_x, base_y)
-			fill_node.size = Vector2(fill_w, inner_h)
-			fill_node.color = _pulse_color(i, pulse_f)
-		if ghost_node != null:
-			ghost_node.visible = true
-			ghost_node.position = Vector2(base_x + ghost_cursor, base_y)
-			ghost_node.size = Vector2(maxf(0.0, ghost_width), inner_h)
-			ghost_node.color = _ghost_color(i)
-		cursor += width
-		ghost_cursor += ghost_width
+		var owner_id: int = 0
+		var power: float = 0.0
+		if hive_any is HiveData:
+			var hive_data: HiveData = hive_any as HiveData
+			owner_id = int(hive_data.owner_id)
+			power = float(hive_data.power)
+		elif typeof(hive_any) == TYPE_DICTIONARY:
+			var hive_dict: Dictionary = hive_any as Dictionary
+			owner_id = int(hive_dict.get("owner_id", 0))
+			power = float(hive_dict.get("power", 0.0))
+		if owner_id == 0:
+			continue
+		if not totals.has(owner_id):
+			continue
+		totals[owner_id] = float(totals.get(owner_id, 0.0)) + power
+	return totals
 
-func _pulse_color(idx: int, pulse_f: float) -> Color:
-	var base: Color = PLAYER_COLORS[idx]
-	var pulse_color: Color = base
-	if pulse_f > 0.0:
-		if _pulse_sign[idx] >= 0:
-			pulse_color = base.lerp(Color(1, 1, 1, base.a), 0.25 * pulse_f)
-		else:
-			pulse_color = base.lerp(Color(0, 0, 0, base.a), 0.25 * pulse_f)
-	pulse_color.a = base.a
-	return pulse_color
+func apply_power_totals(totals: Dictionary) -> void:
+	var p1: float = float(totals.get(1, 0.0))
+	var p2: float = float(totals.get(2, 0.0))
+	var total: float = p1 + p2
+	if total <= 0.0:
+		_set_balanced()
+		return
+	_target_share_p1 = p1 / total
+	_target_share_p2 = p2 / total
 
-func _ghost_color(idx: int) -> Color:
-	var base: Color = PLAYER_COLORS[idx]
-	base.a = ghost_alpha
-	return base
+func _set_balanced() -> void:
+	_target_share_p1 = 0.5
+	_target_share_p2 = 0.5
 
-func _update_pulses(delta: float) -> void:
-	for i in range(4):
-		if _pulse_t[i] > 0.0:
-			_pulse_t[i] = maxf(0.0, _pulse_t[i] - delta)
+func _seat_color(seat: int) -> Color:
+	match seat:
+		1:
+			return P1_COLOR
+		2:
+			return P2_COLOR
+		3:
+			return P3_COLOR
+		4:
+			return P4_COLOR
+		_:
+			return P1_COLOR
+
+func _on_viewport_size_changed() -> void:
+	_apply_layout(_current_top_px)
+
+func _ensure_visual_textures() -> void:
+	if base_texture != null:
+		_frame.texture = base_texture
+	_fill_mask.clip_contents = true
+	_fill_mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fill_p1.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fill_p2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fill_mask.z_index = 0
+	_frame.z_index = 100
+	_fill_p1.color = P1_COLOR
+	_fill_p2.color = P2_COLOR
+	move_child(_frame, get_child_count() - 1)
+
+func _apply_base_size() -> void:
+	var ref_tex: Texture2D = base_texture
+	if ref_tex == null:
+		ref_tex = _frame.texture
+	if ref_tex == null:
+		_base_size = Vector2(960.0, 128.0)
+		return
+	var tex_size: Vector2 = Vector2(ref_tex.get_width(), ref_tex.get_height())
+	var height_ratio: float = clampf(height_scale_ratio, 0.1, 1.0)
+	_base_size = Vector2(tex_size.x, tex_size.y * height_ratio)
+
+func _apply_layout(top: float) -> void:
+	_current_top_px = top
+	anchor_left = 0.5
+	anchor_right = 0.5
+	anchor_top = 0.0
+	anchor_bottom = 0.0
+
+	var vp_w: float = get_viewport_rect().size.x
+	var target_max_w: float = maxf(1.0, vp_w * clampf(max_width_ratio, 0.1, 1.0))
+	var base_w: float = maxf(1.0, _base_size.x)
+	var base_h: float = maxf(1.0, _base_size.y)
+
+	var fit_scale: float = target_max_w / base_w
+	fit_scale = clampf(fit_scale, min_scale, max_scale)
+
+	var fit_size: Vector2 = Vector2(base_w, base_h) * fit_scale
+	custom_minimum_size = fit_size
+	size = fit_size
+
+	offset_left = -fit_size.x * 0.5
+	offset_right = fit_size.x * 0.5
+	offset_top = top
+	offset_bottom = top + fit_size.y
+
+	_base_offset_top = offset_top
+	_base_offset_bottom = offset_bottom
+
+	_frame.anchor_left = 0.0
+	_frame.anchor_top = 0.0
+	_frame.anchor_right = 1.0
+	_frame.anchor_bottom = 1.0
+	_frame.offset_left = 0.0
+	_frame.offset_top = 0.0
+	_frame.offset_right = 0.0
+	_frame.offset_bottom = 0.0
+
+	var design_w: float = maxf(1.0, _base_size.x)
+	var design_h: float = maxf(1.0, _base_size.y)
+	var scale_x: float = size.x / design_w
+	var scale_y: float = size.y / design_h
+
+	_inner_full_pos = Vector2(INNER_LEFT_PX * scale_x, INNER_TOP_PX * scale_y)
+	_inner_full_size = Vector2(INNER_W_PX * scale_x, INNER_H_PX * scale_y)
+	_fill_mask.position = _inner_full_pos
+	_fill_mask.size = _inner_full_size
+	_max_width = _fill_mask.size.x
+
+	_fill_p1.anchor_left = 0.0
+	_fill_p1.anchor_top = 0.0
+	_fill_p1.anchor_right = 0.0
+	_fill_p1.anchor_bottom = 1.0
+	_fill_p1.offset_left = 0.0
+	_fill_p1.offset_right = 0.0
+	_fill_p1.offset_top = 0.0
+	_fill_p1.offset_bottom = 0.0
+
+	_fill_p2.anchor_left = 0.0
+	_fill_p2.anchor_top = 0.0
+	_fill_p2.anchor_right = 0.0
+	_fill_p2.anchor_bottom = 1.0
+	_fill_p2.offset_left = 0.0
+	_fill_p2.offset_right = 0.0
+	_fill_p2.offset_top = 0.0
+	_fill_p2.offset_bottom = 0.0
+
+	_apply_fill()
+
+func _apply_fill() -> void:
+	if _fill_mask == null or _fill_p1 == null or _fill_p2 == null:
+		return
+	var left_width: float = _max_width * clampf(_display_share_p1, 0.0, 1.0)
+	var right_width: float = maxf(0.0, _max_width - left_width)
+	var mask_h: float = _fill_mask.size.y
+	_fill_p1.position = Vector2(0.0, 0.0)
+	_fill_p1.size = Vector2(left_width, mask_h)
+	_fill_p2.position = Vector2(_max_width - right_width, 0.0)
+	_fill_p2.size = Vector2(right_width, mask_h)
+
+func _enforce_layer_order() -> void:
+	_fill_mask.z_as_relative = false
+	_frame.z_as_relative = false
+	_fill_p1.z_as_relative = false
+	_fill_p2.z_as_relative = false
+	_fill_mask.z_index = 0
+	_fill_p1.z_index = 0
+	_fill_p2.z_index = 0
+	_frame.z_index = 100
+	move_child(_frame, get_child_count() - 1)
+	if has_theme_stylebox_override("panel"):
+		remove_theme_stylebox_override("panel")
+	if _fill_mask.has_theme_stylebox_override("panel"):
+		_fill_mask.remove_theme_stylebox_override("panel")
 
 func _prepare_hidden() -> void:
 	_revealed = false
@@ -364,20 +336,3 @@ func _prepare_hidden() -> void:
 func _set_slide_offset(offset_y: float) -> void:
 	offset_top = _base_offset_top + offset_y
 	offset_bottom = _base_offset_bottom + offset_y
-
-func _resolve_visible_count(state_ref: GameState) -> int:
-	var max_owner: int = 0
-	for hive in state_ref.hives:
-		var oid: int = int(hive.owner_id)
-		if oid > max_owner:
-			max_owner = oid
-	if max_owner <= 0:
-		max_owner = 2
-	return clamp(max_owner, 2, 4)
-
-func _state_signature(state_ref: GameState) -> String:
-	var ids: Array[String] = []
-	for hive in state_ref.hives:
-		ids.append(str(hive.id))
-	ids.sort()
-	return "|".join(ids)

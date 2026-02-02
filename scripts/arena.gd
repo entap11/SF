@@ -78,6 +78,10 @@ const STRUCTURE_CANDIDATE_MAX := 12
 const OVERTIME_START_MS := 60000.0
 const BUFF_MIN_MULT := 0.1
 const BUFF_LANE_SLOW_PCT_DEFAULT := 0.25
+const HITCH_MS_THRESHOLD: float = 50.0
+const HITCH_COOLDOWN_MS: int = 250
+const DBG_HITCH: bool = false
+const HITCH_MS: float = 25.0
 
 var state: GameState
 var sel: SelectionState
@@ -130,6 +134,7 @@ const FIT_MARGIN := 0.96
 const FIT_DEBUG := true
 const FIT_WIDTH := 0
 const FIT_HEIGHT := 1
+const DBG_TREE_DUMP: bool = false
 const WIN_OVERLAY_MS := 2500
 const TIMER_REVEAL_MS := 59000
 var _autostart_shadow := false
@@ -149,6 +154,8 @@ var _prematch_countdown_label: Label = null
 var _prematch_records_panel: Control = null
 var _prematch_record_p1: Label = null
 var _prematch_record_p2: Label = null
+var _prematch_record_p3: Label = null
+var _prematch_record_p4: Label = null
 var _prematch_record_h2h: Label = null
 var _prematch_remaining_ms_f: float = 0.0
 var _prematch_last_sec: int = -1
@@ -242,10 +249,18 @@ var _last_export_rm_log_ms := 0
 var _last_render_serial: int = -1
 var _last_rm_ms: int = 0
 const RM_REFRESH_HZ := 10.0
+const POWERBAR_LOG_THROTTLE_MS: int = 250
+var _pb_last_ratio: float = -1.0
+var _pb_last_log_ms: int = 0
+var _dbg_last_event: String = ""
+var _dbg_last_event_ms: int = 0
+var _dbg_last_hitch_ms: int = 0
+var _render_assets_prewarmed: bool = false
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	set_process_unhandled_input(false)
 	SFLog.info("ARENA_SCRIPT", {"path": get_script().resource_path})
 	SFLog.info("ARENA_READY", {"process": is_processing()})
 	add_to_group("Arena")
@@ -293,10 +308,12 @@ func _ready() -> void:
 		OpsState.state_changed.connect(_on_ops_state_changed)
 	if not OpsState.ops_state_changed.is_connected(_on_ops_state_changed_iid):
 		OpsState.ops_state_changed.connect(_on_ops_state_changed_iid)
+	_bind_powerbar_signals()
 	if outcome_overlay != null and not outcome_overlay.post_match_action.is_connected(_on_post_match_action):
 		outcome_overlay.post_match_action.connect(_on_post_match_action)
 	sel = SelectionState.new()
 	_init_systems()
+	_prewarm_render_assets()
 	if api != null:
 		api.bind_state(state)
 	if sim_runner != null and state != null:
@@ -308,12 +325,15 @@ func _ready() -> void:
 	_reset_buff_states()
 	if state != null:
 		lane_renderer.setup(state, sel, self)
-		print("HIVE: renderer_ref=", hive_renderer)
+		SFLog.trace("HIVE_RENDERER_REF", {"ref": hive_renderer})
 		hive_renderer.setup(state, sel, self)
 		_sync_lane_system_blockers()
 		_init_barracks()
+		if state.hives != null:
+			set_process_unhandled_input(true)
 	_apply_autostart()
 	_ensure_timer_hud()
+	_update_power_bar_from_state("arena_ready")
 	_start_match_flow()
 	_configure_grid_spec(grid_w, grid_h)
 	_map_bounds_size = _arena_rect().size
@@ -336,6 +356,7 @@ func _ready() -> void:
 	_list_canvasitems_with_scripts("/root/DevMapRunner/Arena")
 
 func _start_match_flow() -> void:
+	SFLog.info("PREMATCH_BEGIN", {})
 	_force_unpause_sanity()
 	_ensure_prematch_ui()
 	_begin_prematch()
@@ -359,6 +380,7 @@ func _force_unpause_sanity() -> void:
 func _begin_prematch() -> void:
 	if OpsState.match_phase == OpsState.MatchPhase.ENDING or OpsState.match_phase == OpsState.MatchPhase.ENDED:
 		return
+	_ensure_match_roster()
 	_match_started = false
 	OpsState.match_phase = OpsState.MatchPhase.PREMATCH
 	OpsState.input_locked = true
@@ -443,16 +465,24 @@ func _ensure_prematch_ui() -> void:
 		p1.name = "RecordP1"
 		var p2 := Label.new()
 		p2.name = "RecordP2"
+		var p3 := Label.new()
+		p3.name = "RecordP3"
+		var p4 := Label.new()
+		p4.name = "RecordP4"
 		var h2h := Label.new()
 		h2h.name = "RecordH2H"
 		vbox.add_child(p1)
 		vbox.add_child(p2)
+		vbox.add_child(p3)
+		vbox.add_child(p4)
 		vbox.add_child(h2h)
 		records.add_child(vbox)
 		_prematch_overlay.add_child(records)
 	_prematch_records_panel = records
 	_prematch_record_p1 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP1") as Label
 	_prematch_record_p2 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP2") as Label
+	_prematch_record_p3 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP3") as Label
+	_prematch_record_p4 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP4") as Label
 	_prematch_record_h2h = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordH2H") as Label
 	if not _prematch_ui_bind_logged:
 		_prematch_ui_bind_logged = true
@@ -542,20 +572,122 @@ func _show_prematch_ui() -> void:
 		_prematch_records_panel.visible = true
 		_prematch_records_panel.modulate = Color(1, 1, 1, 1)
 	_refresh_prematch_records()
+	SFLog.info("PREMATCH_UI_INIT", {
+		"overlay_ok": _prematch_overlay != null,
+		"countdown_ok": _prematch_countdown_label != null,
+		"records_ok": _prematch_records_panel != null
+	})
 
 func _refresh_prematch_records() -> void:
 	if _prematch_record_p1 != null:
 		_prematch_record_p1.text = _get_player_record_line(1)
 	if _prematch_record_p2 != null:
 		_prematch_record_p2.text = _get_player_record_line(2)
+	if _prematch_record_p3 != null:
+		_prematch_record_p3.text = _get_player_record_line(3)
+	if _prematch_record_p4 != null:
+		_prematch_record_p4.text = _get_player_record_line(4)
 	if _prematch_record_h2h != null:
 		_prematch_record_h2h.text = _get_h2h_record_line()
 
 func _get_player_record_line(player_slot: int) -> String:
-	return "P%d: W-L (TBD)" % player_slot
+	var entry: Dictionary = _get_roster_entry_for_slot(player_slot)
+	var uid: String = str(entry.get("uid", ""))
+	var is_cpu: bool = bool(entry.get("is_cpu", false))
+	var handle: String = _display_name_for_seat(player_slot, uid, is_cpu)
+	SFLog.info("PREMATCH_NAME_RESOLVE", {
+		"seat": player_slot,
+		"uid": uid,
+		"handle": handle
+	})
+	return "%s: W-L (TBD)" % handle
 
 func _get_h2h_record_line() -> String:
 	return "H2H: TBD"
+
+func _ensure_match_roster() -> void:
+	var roster: Array = OpsState.match_roster
+	var local_uid: String = ProfileManager.get_user_id()
+	var had_roster: bool = roster != null and roster.size() > 0
+	var updated: bool = false
+	if roster == null:
+		roster = []
+	var seat_map: Dictionary = {}
+	for entry_any in roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var seat: int = int(entry.get("seat", 0))
+		if seat <= 0:
+			continue
+		seat_map[seat] = entry
+	for seat in range(1, 5):
+		var entry: Dictionary = {}
+		if seat_map.has(seat) and typeof(seat_map.get(seat)) == TYPE_DICTIONARY:
+			entry = seat_map.get(seat) as Dictionary
+		if entry.is_empty():
+			var is_cpu: bool = seat == 2
+			var active: bool = seat <= 2
+			entry = {
+				"seat": seat,
+				"uid": "",
+				"is_local": seat == 1,
+				"is_cpu": is_cpu,
+				"active": active
+			}
+			updated = true
+		else:
+			if not entry.has("active"):
+				entry["active"] = seat <= 2
+				updated = true
+			if not entry.has("is_cpu"):
+				entry["is_cpu"] = seat == 2
+				updated = true
+		if seat == 1 and not local_uid.is_empty():
+			var prev_uid: String = str(entry.get("uid", ""))
+			if prev_uid != local_uid:
+				entry["uid"] = local_uid
+				entry["is_local"] = true
+				entry["is_cpu"] = false
+				entry["active"] = true
+				updated = true
+		seat_map[seat] = entry
+	var next_roster: Array = []
+	for seat in range(1, 5):
+		next_roster.append(seat_map.get(seat, {"seat": seat, "uid": "", "is_local": seat == 1, "is_cpu": seat != 1}))
+	if updated or not had_roster:
+		OpsState.match_roster = next_roster
+		SFLog.info("MATCH_ROSTER", {
+			"local_uid": local_uid,
+			"p1_uid": str((next_roster[0] as Dictionary).get("uid", "")),
+			"p2_uid": str((next_roster[1] as Dictionary).get("uid", "")),
+			"p3_uid": str((next_roster[2] as Dictionary).get("uid", "")),
+			"p4_uid": str((next_roster[3] as Dictionary).get("uid", ""))
+		})
+	else:
+		OpsState.match_roster = next_roster
+
+func _get_roster_entry_for_slot(player_slot: int) -> Dictionary:
+	var roster: Array = OpsState.match_roster if OpsState != null else []
+	if roster == null or roster.is_empty():
+		return {}
+	for entry_any in roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		if int(entry.get("seat", -1)) != player_slot:
+			continue
+		return entry
+	return {}
+
+func _display_name_for_seat(seat: int, uid: String, is_cpu: bool) -> String:
+	if not uid.is_empty():
+		var handle: String = ProfileManager.get_handle(uid)
+		if not handle.is_empty():
+			return handle
+	if is_cpu:
+		return "CPU"
+	return "Player %d" % seat
 
 func _update_prematch_flow(delta: float) -> void:
 	if OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
@@ -615,19 +747,133 @@ func _begin_power_bar_reveal() -> void:
 	if power_bar != null:
 		power_bar.reveal_with_tween()
 
+func _prewarm_render_assets() -> void:
+	if _render_assets_prewarmed:
+		return
+	_render_assets_prewarmed = true
+	if unit_renderer != null and unit_renderer.has_method("prewarm_pool"):
+		unit_renderer.call("prewarm_pool")
+	if vfx_manager != null and vfx_manager.has_method("prewarm"):
+		vfx_manager.call("prewarm")
+
 func _start_match_sim(reason: String) -> void:
 	if _match_started:
 		return
 	_match_started = true
+	_prewarm_render_assets()
 	var iid := 0
 	if sim_runner != null:
 		iid = int(sim_runner.bound_iid)
 		sim_runner.set_running(true, reason)
 		sim_runner.log_pause_snapshot("arena_match_start")
 	SFLog.info("MATCH_STARTED", {"iid": iid, "reason": reason})
+	var pb: PowerBar = get_node_or_null("/root/Shell/ArenaRoot/Main/HUDCanvasLayer/PowerBar")
+	if pb != null:
+		SFLog.info("POWER_BAR_REVEAL_REQUEST", {"path": pb.get_path()})
+		pb.reveal_with_tween()
+	_update_power_bar_from_state("match_started")
+
+func _bind_powerbar_signals() -> void:
+	if not OpsState.state_changed.is_connected(_on_ops_state_changed_for_powerbar):
+		OpsState.state_changed.connect(_on_ops_state_changed_for_powerbar)
+	if not OpsState.ops_state_changed.is_connected(_on_ops_state_changed_for_powerbar):
+		OpsState.ops_state_changed.connect(_on_ops_state_changed_for_powerbar)
+
+func _on_ops_state_changed_for_powerbar(_payload: Variant = null) -> void:
+	_update_power_bar_from_state("ops_state_changed")
+
+func _get_power_bar() -> Node:
 	if power_bar != null:
-		SFLog.info("POWER_BAR_REVEAL_REQUEST", {"path": power_bar.get_path()})
-		power_bar.reveal_with_tween()
+		return power_bar
+	return get_node_or_null("/root/Shell/ArenaRoot/Main/HUDCanvasLayer/PowerBar")
+
+func _compute_team_power_totals(state_ref: Object) -> Dictionary:
+	var totals: Dictionary = {1: 0, 2: 0, 3: 0, 4: 0}
+	var ignored: int = 0
+	if state_ref == null:
+		return {"totals": totals, "ignored": ignored}
+	var hives: Array = []
+	if state_ref is GameState:
+		hives = (state_ref as GameState).hives
+	elif state_ref.has_method("get_hives"):
+		var hives_any: Variant = state_ref.call("get_hives")
+		if typeof(hives_any) == TYPE_ARRAY:
+			hives = hives_any as Array
+	elif state_ref.has_method("get"):
+		var maybe_hives: Variant = state_ref.call("get", "hives")
+		if typeof(maybe_hives) == TYPE_ARRAY:
+			hives = maybe_hives as Array
+	for hive_any in hives:
+		if hive_any == null:
+			continue
+		var owner_id: int = 0
+		var power: int = 0
+		if hive_any is HiveData:
+			var hive_data: HiveData = hive_any as HiveData
+			owner_id = int(hive_data.owner_id)
+			power = int(hive_data.power)
+		elif typeof(hive_any) == TYPE_DICTIONARY:
+			var hive_dict: Dictionary = hive_any as Dictionary
+			owner_id = int(hive_dict.get("owner_id", 0))
+			power = int(hive_dict.get("power", 0))
+		elif typeof(hive_any) == TYPE_OBJECT and hive_any != null and hive_any.has_method("get"):
+			owner_id = int(hive_any.get("owner_id"))
+			power = int(hive_any.get("power"))
+		if owner_id < 1 or owner_id > 4:
+			ignored += 1
+			continue
+		totals[owner_id] = int(totals.get(owner_id, 0)) + power
+	return {"totals": totals, "ignored": ignored}
+
+func _resolve_local_owner_id() -> int:
+	var roster: Array = OpsState.match_roster
+	for entry_any in roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		if bool(entry.get("is_local", false)):
+			var seat: int = int(entry.get("seat", 1))
+			if seat >= 1 and seat <= 4:
+				return seat
+	return 1
+
+func _update_power_bar_from_state(reason: String) -> void:
+	var pb: Node = _get_power_bar()
+	if pb == null:
+		return
+	var state_ref: Object = state
+	if state_ref == null:
+		state_ref = OpsState.get_state()
+	if state_ref == null:
+		if pb.has_method("set_power_ratio"):
+			pb.call("set_power_ratio", 0.0)
+		return
+	var totals_result: Dictionary = _compute_team_power_totals(state_ref)
+	var totals: Dictionary = totals_result.get("totals", {1: 0, 2: 0, 3: 0, 4: 0}) as Dictionary
+	var ignored_hives: int = int(totals_result.get("ignored", 0))
+	var local_id: int = _resolve_local_owner_id()
+	var local_total: int = int(totals.get(local_id, 0))
+	var all_total: int = 0
+	for team_id in [1, 2, 3, 4]:
+		all_total += int(totals.get(team_id, 0))
+	var ratio: float = 0.0
+	if all_total > 0:
+		ratio = float(local_total) / float(all_total)
+	if pb.has_method("set_power_ratio"):
+		pb.call("set_power_ratio", ratio)
+	var now_ms: int = Time.get_ticks_msec()
+	if absf(ratio - _pb_last_ratio) >= 0.01 or (now_ms - _pb_last_log_ms) >= POWERBAR_LOG_THROTTLE_MS:
+		_pb_last_ratio = ratio
+		_pb_last_log_ms = now_ms
+		SFLog.info("POWERBAR_TEAM_SHARE", {
+			"reason": reason,
+			"local_id": local_id,
+			"local_total": local_total,
+			"all_total": all_total,
+			"ratio": ratio,
+			"totals": totals,
+			"ignored_hives": ignored_hives
+		})
 
 func _init_systems() -> void:
 	api = ArenaAPI.new(self)
@@ -764,7 +1010,8 @@ func _on_post_match_action(action: String) -> void:
 
 func _handle_rematch() -> void:
 	if current_map_data.is_empty():
-		push_error("ARENA: rematch failed (no map data)")
+		if SFLog.LOGGING_ENABLED:
+			push_error("ARENA: rematch failed (no map data)")
 		return
 	SFLog.info("MATCH_RESET", {"map": current_map_name})
 	if outcome_overlay != null:
@@ -783,6 +1030,7 @@ func _on_barracks_activated(_barracks_id: int, _owner_id: int) -> void:
 	_play_barracks_activate_sfx()
 
 func _on_lane_system_changed(lane: Dictionary) -> void:
+	dbg_mark_event("lane_build")
 	mark_render_dirty("lane_system")
 
 	if lane_renderer != null:
@@ -796,6 +1044,7 @@ func _on_lane_system_changed(lane: Dictionary) -> void:
 
 
 func _on_lane_system_removed(lane_id: int) -> void:
+	dbg_mark_event("lane_build")
 	mark_render_dirty("lane_system_removed")
 
 	if lane_renderer != null:
@@ -834,6 +1083,7 @@ func get_game_state() -> GameState:
 func _on_ops_state_changed(new_state: GameState) -> void:
 	state = new_state
 	if state == null:
+		_update_power_bar_from_state("ops_state_null")
 		return
 	if api != null:
 		api.bind_state(state)
@@ -854,6 +1104,9 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 		hive_renderer.setup(state, sel, self)
 	_sync_lane_system_blockers()
 	mark_render_dirty("ops_state_changed")
+	if state.hives != null:
+		set_process_unhandled_input(true)
+	_update_power_bar_from_state("ops_state_changed")
 
 func _on_ops_state_changed_iid(_payload := {}) -> void:
 	call_deferred("_start_sim_after_state_change")
@@ -871,14 +1124,17 @@ func _start_sim_after_state_change() -> void:
 func _create_system(script_path: String, label: String) -> RefCounted:
 	var script := load(script_path)
 	if script == null:
-		push_error("ARENA: failed to load %s system (%s)" % [label, script_path])
+		if SFLog.LOGGING_ENABLED:
+			push_error("ARENA: failed to load %s system (%s)" % [label, script_path])
 		return null
 	if script is Script and not script.can_instantiate():
-		push_error("ARENA: %s system script cannot instantiate (%s)" % [label, script_path])
+		if SFLog.LOGGING_ENABLED:
+			push_error("ARENA: %s system script cannot instantiate (%s)" % [label, script_path])
 		return null
 	var instance = script.new()
 	if instance == null:
-		push_error("ARENA: failed to init %s system (%s)" % [label, script_path])
+		if SFLog.LOGGING_ENABLED:
+			push_error("ARENA: failed to init %s system (%s)" % [label, script_path])
 		return null
 	return instance
 
@@ -1088,7 +1344,8 @@ func load_from_map(map_data: Dictionary) -> void:
 
 func apply_loaded_map(map: Dictionary) -> void:
 	if map.is_empty():
-		push_error("ARENA: apply_loaded_map failed (empty map)")
+		if SFLog.LOGGING_ENABLED:
+			push_error("ARENA: apply_loaded_map failed (empty map)")
 		return
 	_reset_sim_state()
 	if get_node_or_null("/root/DevMapRunner") != null:
@@ -1141,7 +1398,8 @@ func apply_loaded_map(map: Dictionary) -> void:
 
 func reset_match() -> void:
 	if current_map_data.is_empty():
-		push_error("ARENA: reset_match failed (no map data)")
+		if SFLog.LOGGING_ENABLED:
+			push_error("ARENA: reset_match failed (no map data)")
 		return
 	load_from_map(current_map_data.duplicate(true))
 
@@ -1158,7 +1416,7 @@ func on_map_built() -> void:
 	if lane_renderer != null:
 		lane_renderer.setup(state, sel, self)
 	if hive_renderer != null:
-		print("HIVE: renderer_ref=", hive_renderer)
+		SFLog.trace("HIVE_RENDERER_REF", {"ref": hive_renderer})
 		hive_renderer.setup(state, sel, self)
 	_sync_lane_system_blockers()
 	mark_render_dirty("map_built")
@@ -1273,6 +1531,7 @@ func start_sim() -> void:
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
+	_maybe_log_frame_hitch(delta)
 	_update_prematch_flow(delta)
 	if input_system != null:
 		input_system.tick(delta, api)
@@ -1291,6 +1550,18 @@ func _update_power_bar(delta: float) -> void:
 	if power_bar == null:
 		return
 	power_bar.tick(delta, state)
+
+func _maybe_log_frame_hitch(delta: float) -> void:
+	if not DBG_HITCH:
+		return
+	var dt_ms: float = delta * 1000.0
+	if dt_ms > HITCH_MS:
+		print("HITCH dt_ms=", snappedf(dt_ms, 0.1))
+
+func dbg_mark_event(label: String) -> void:
+	_dbg_last_event = label
+	_dbg_last_event_ms = Time.get_ticks_msec()
+	SFLog.mark_event(label)
 
 func _snap_power_bar_to_map_top(reason: String = "") -> void:
 	if power_bar == null or camera == null or map_root == null:
@@ -1398,7 +1669,8 @@ func _scan_cameras(node: Node, out: Array) -> void:
 
 func _dump_map_like_nodes(tag: String) -> void:
 	SFLog.trace("\n=== DUMP ===", {"tag": tag})
-	print_tree_pretty()
+	if DBG_TREE_DUMP:
+		print_tree_pretty()
 	var suspects: Array[Node] = []
 	_scan(get_tree().current_scene, suspects)
 	for n in suspects:
@@ -1536,8 +1808,6 @@ func clear_map_render() -> void:
 	for c in hr.get_children():
 		c.queue_free()
 	for c in lr.get_children():
-		c.queue_free()
-	for c in ur.get_children():
 		c.queue_free()
 	if hr.has_method("clear_all"):
 		hr.call("clear_all")
@@ -1813,6 +2083,7 @@ func export_render_model() -> Dictionary:
 			"id": int(ud.get("id", -1)),
 			"from": int(ud.get("from_id", 0)),
 			"to": int(ud.get("to_id", 0)),
+			"lane_id": int(ud.get("lane_id", 0)),
 			"t": clampf(float(ud.get("t", 0.0)), 0.0, 1.0),
 			"lane_key": str(ud.get("lane_key", "")),
 			"a_id": int(ud.get("a_id", ud.get("from_id", 0))),
@@ -1932,7 +2203,7 @@ func export_render_model() -> Dictionary:
 		var now_msec := Time.get_ticks_msec()
 		if now_msec - _last_export_rm_log_ms >= debug_export_rm_log_interval_ms:
 			_last_export_rm_log_ms = now_msec
-			print("EXPORT RM state=", state, " type=", typeof(state))
+			SFLog.trace("EXPORT_RM_STATE", {"state": state, "type": typeof(state)})
 	var sim_time_s: float = 0.0
 	if unit_system != null:
 		sim_time_s = float(unit_system.sim_time_us) / 1000000.0
@@ -2024,8 +2295,6 @@ func _push_render_model() -> void:
 			unit_r.call("set_model", rm)
 		else:
 			unit_r.set("model", rm)
-		if unit_r.has_method("set_units"):
-			unit_r.call("set_units", rm.get("units", []))
 		if hive_r != null and unit_r.has_method("set_hive_nodes") and hive_r.has_method("get_hive_nodes_by_id"):
 			unit_r.call("set_hive_nodes", hive_r.call("get_hive_nodes_by_id"))
 		unit_r.queue_redraw()
@@ -2099,7 +2368,8 @@ func _init_buff_states() -> void:
 		var buff_state: BuffState = BuffState.new()
 		var result: Dictionary = buff_state.configure_loadout(_default_buff_loadout())
 		if not bool(result.get("ok", false)):
-			push_error("ARENA: buff loadout invalid for P%d: %s" % [pid, result.get("error", "unknown")])
+			if SFLog.LOGGING_ENABLED:
+				push_error("ARENA: buff loadout invalid for P%d: %s" % [pid, result.get("error", "unknown")])
 		buff_states[pid] = buff_state
 
 func _default_buff_loadout() -> Array:
@@ -2456,6 +2726,8 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	return get_global_mouse_position()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if state == null:
+		return
 	if input_system == null or api == null:
 		return
 	if event is InputEventMouseButton:
@@ -3582,63 +3854,64 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 						],
 						SFLog.Level.INFO
 					)
-			if owner_match:
-				var a_progress: float = a_t
-				var b_progress: float = 1.0 - b_t
-				if a_progress <= b_progress:
+				if owner_match:
+					var a_progress: float = a_t
+					var b_progress: float = 1.0 - b_t
+					if a_progress <= b_progress:
+						forward.pop_front()
+					else:
+						backward.pop_front()
+					continue
+				if a_t >= b_t:
+					dbg_mark_event("unit_collision")
+					var a_id: int = int(a_unit.get("id", -1))
+					var b_id: int = int(b_unit.get("id", -1))
+					var a_dead := bool(a_unit.get("dead", false))
+					var b_dead := bool(b_unit.get("dead", false))
+					SFLog.info("COLLISION_PAIR lane=%s a_idx=%d a_id=%d a_dead=%s a_owner=%d a_t=%.3f b_idx=%d b_id=%d b_dead=%s b_owner=%d b_t=%.3f" % [
+						str(lane_key),
+						a_idx,
+						a_id,
+						str(a_dead),
+						int(a_unit.get("owner_id", 0)),
+						a_t,
+						b_idx,
+						b_id,
+						str(b_dead),
+						int(b_unit.get("owner_id", 0)),
+						b_t
+					])
+					var t_collision: float = clampf((a_t + b_t) * 0.5, 0.0, 1.0)
+					SFLog.info("COLLISION: lane=%s t=%.3f" % [str(lane_key), t_collision])
+					record_lane_collision(str(lane_key), t_collision)
+					_kill_unit(a_idx, a_unit, "collision", remove_indices, remove_set)
+					_kill_unit(b_idx, b_unit, "collision", remove_indices, remove_set)
+					var a_dead_post := false
+					var b_dead_post := false
+					if a_idx >= 0 and a_idx < units.size():
+						var a_unit_post: Dictionary = units[a_idx]
+						a_dead_post = bool(a_unit_post.get("dead", false))
+						a_id = int(a_unit_post.get("id", a_id))
+					if b_idx >= 0 and b_idx < units.size():
+						var b_unit_post: Dictionary = units[b_idx]
+						b_dead_post = bool(b_unit_post.get("dead", false))
+						b_id = int(b_unit_post.get("id", b_id))
+					SFLog.info("POST_KILL lane=%s a_id=%d a_dead=%s b_id=%d b_dead=%s" % [
+						str(lane_key),
+						a_id,
+						str(a_dead_post),
+						b_id,
+						str(b_dead_post)
+					])
 					forward.pop_front()
-				else:
 					backward.pop_front()
-				continue
-			if a_t >= b_t:
-				var a_id: int = int(a_unit.get("id", -1))
-				var b_id: int = int(b_unit.get("id", -1))
-				var a_dead := bool(a_unit.get("dead", false))
-				var b_dead := bool(b_unit.get("dead", false))
-				SFLog.info("COLLISION_PAIR lane=%s a_idx=%d a_id=%d a_dead=%s a_owner=%d a_t=%.3f b_idx=%d b_id=%d b_dead=%s b_owner=%d b_t=%.3f" % [
-					str(lane_key),
-					a_idx,
-					a_id,
-					str(a_dead),
-					int(a_unit.get("owner_id", 0)),
-					a_t,
-					b_idx,
-					b_id,
-					str(b_dead),
-					int(b_unit.get("owner_id", 0)),
-					b_t
-				])
-				var t_collision: float = clampf((a_t + b_t) * 0.5, 0.0, 1.0)
-				SFLog.info("COLLISION: lane=%s t=%.3f" % [str(lane_key), t_collision])
-				record_lane_collision(str(lane_key), t_collision)
-				_kill_unit(a_idx, a_unit, "collision", remove_indices, remove_set)
-				_kill_unit(b_idx, b_unit, "collision", remove_indices, remove_set)
-				var a_dead_post := false
-				var b_dead_post := false
-				if a_idx >= 0 and a_idx < units.size():
-					var a_unit_post: Dictionary = units[a_idx]
-					a_dead_post = bool(a_unit_post.get("dead", false))
-					a_id = int(a_unit_post.get("id", a_id))
-				if b_idx >= 0 and b_idx < units.size():
-					var b_unit_post: Dictionary = units[b_idx]
-					b_dead_post = bool(b_unit_post.get("dead", false))
-					b_id = int(b_unit_post.get("id", b_id))
-				SFLog.info("POST_KILL lane=%s a_id=%d a_dead=%s b_id=%d b_dead=%s" % [
-					str(lane_key),
-					a_id,
-					str(a_dead_post),
-					b_id,
-					str(b_dead_post)
-				])
-				forward.pop_front()
-				backward.pop_front()
-			else:
-				SFLog.info("NO_COLLISION lane=%s f_t=%.3f b_t=%.3f" % [
-					str(lane_key),
-					a_t,
-					b_t
-				])
-				break
+				else:
+					SFLog.info("NO_COLLISION lane=%s f_t=%.3f b_t=%.3f" % [
+						str(lane_key),
+						a_t,
+						b_t
+					])
+					break
 
 func _sort_lane_t_desc(a: Dictionary, b: Dictionary) -> bool:
 	return float(a.get("t", 0.0)) > float(b.get("t", 0.0))
@@ -4019,6 +4292,8 @@ func _resolve_arrivals(groups: Dictionary, remove_indices: Array[int], remove_se
 				_kill_unit(idx_i, unit, "edge_hit", remove_indices, remove_set)
 
 func _finalize_unit_removals(remove_indices: Array[int]) -> void:
+	if not remove_indices.is_empty():
+		dbg_mark_event("unit_prune")
 	remove_indices.sort()
 	var last_removed := -1
 	for i in range(remove_indices.size() - 1, -1, -1):
@@ -4189,6 +4464,7 @@ func _collect_lane_collisions(remove_indices: Array[int], remove_set: Dictionary
 			var a_entry: Dictionary = a_units[ai]
 			var b_entry: Dictionary = b_units[bi]
 			if float(a_entry["pos"]) >= float(b_entry["pos"]):
+				dbg_mark_event("unit_collision")
 				var a_idx: int = int(a_entry["idx"])
 				var b_idx: int = int(b_entry["idx"])
 				if not remove_set.has(a_idx):
@@ -4741,6 +5017,7 @@ func _end_game(winner: int, reason: String) -> void:
 		sim_runner.log_pause_snapshot("arena_end_game")
 
 func _update_towers(dt: float) -> void:
+	dbg_mark_event("tower_eval")
 	var dt_ms: float = dt * 1000.0
 	for tower in towers:
 		if int(tower.get("required_hive_ids", []).size()) < BARRACKS_MIN_REQ:
@@ -5294,6 +5571,7 @@ func _packet_position(packet: Dictionary) -> Vector2:
 	return start_pos.lerp(end_pos, float(packet["t"]))
 
 func _spawn_debris_for_lane(lane: LaneData, owner_id: int, impact_f: float = -1.0) -> void:
+	dbg_mark_event("vfx_spawn")
 	if not debris_enabled:
 		return
 	if debris.size() >= DEBRIS_GLOBAL_CAP:
@@ -5387,6 +5665,7 @@ func _spawn_unit(from_id: int, to_id: int, owner_id: int, lane_id: int, print_sp
 	unit["arrival_us"] = arrival_us
 	# Units are owned by UnitSystem now; Arena must not append/spawn.
 	if unit_system != null:
+		dbg_mark_event("unit_create")
 		unit_system.spawn_unit(unit)
 	else:
 		SFLog.warn("SPAWN_BLOCKED_NO_UNITSYSTEM", {"lane": str(unit.get("lane_key", ""))})
@@ -5463,6 +5742,7 @@ func _apply_unit_arrival(unit_owner: int, hive: HiveData, from_id: int = -1, lan
 		hive.power -= 1
 		return
 	hive.owner_id = unit_owner
+	dbg_mark_event("tower_eval")
 	capture_count += 1
 	hive.power = 1
 	hive.shock_ms = CAPTURE_SHOCK_MS
@@ -5735,7 +6015,7 @@ func _handle_drag(local_pos: Vector2) -> void:
 	input_system.handle_drag(local_pos, api)
 
 func _handle_tap(hive_id: int, dev_pid: int = -1) -> void:
-	print("HIVE: emitting tapped for hive_id=", hive_id)
+	SFLog.trace("HIVE_TAPPED", {"hive_id": hive_id})
 	if input_system == null or api == null:
 		return
 	input_system.handle_tap(hive_id, dev_pid, api)
@@ -6177,6 +6457,7 @@ func _ensure_lane_between(a_id: int, b_id: int, create_if_missing: bool) -> int:
 		return -1
 	if not _is_los_clear(a_id, b_id):
 		return -1
+	dbg_mark_event("lane_build")
 	var new_id: int = _next_lane_id()
 	state.lanes.append(LaneData.new(new_id, a_id, b_id, 1, false, false))
 	return state.lanes.size() - 1
@@ -6224,6 +6505,10 @@ func _is_los_clear(a_id: int, b_id: int) -> bool:
 	return true
 
 func _hive_id_at_point(local_pos: Vector2) -> int:
+	if state == null:
+		return -1
+	if state.hives == null:
+		return -1
 	var best_id := -1
 	var best_dist := HIVE_HIT_RADIUS_PX * HIVE_HIT_RADIUS_PX
 	for hive in state.hives:

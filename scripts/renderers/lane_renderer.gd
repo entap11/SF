@@ -11,6 +11,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const LANE_BAND_SHADER := preload("res://shaders/lane_band.gdshader")
+const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 
 @export var debug_lane_seg_overlay: bool = false
 @export var debug_draw_magenta_x: bool = false
@@ -18,9 +19,13 @@ const LANE_BAND_SHADER := preload("res://shaders/lane_band.gdshader")
 @export var show_lane_candidates_pre_game: bool = true
 @export var show_lane_candidates_while_running: bool = false
 @export var show_lane_sprites: bool = true
+@export var debug_draw_endpoints: bool = false
+@export var lane_thickness_mode: int = 0
+@export var lane_thickness_px: float = 80.0
+@export var lane_vs_unit_ratio: float = 0.85
 
 const DEBUG_LANES := false
-const USE_LANE_SPRITES := false
+const USE_LANE_SPRITES := true
 
 const LANE_LOG_INTERVAL_MS := 1000
 const LANE_FLASH_DEFAULT_MS := 250
@@ -44,6 +49,13 @@ const LANE_THICKNESS_PX := 2.0
 const LANE_WIDTH_PX := 14.0
 const LANE_MIN_LEN_PX := 6.0
 const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
+const LANE_GROW_TIME_MS: float = 260.0
+const LANE_ART_NORMAL_OFFSET_PX: float = 58.0
+const LANE_THICKNESS_MODE_MANUAL: int = 0
+const LANE_THICKNESS_MODE_MATCH_UNIT_RATIO: int = 1
+const UNIT_RENDER_SCALE_MATCH: float = 3.0
+const UNIT_RENDER_BASE_DIAMETER_PX: float = 20.0
+const UNIT_THICKNESS_KEY: String = "unit.p1"
 const DEBUG_PICK_DOT_MS := 200
 const DEBUG_PICK_DOT_RADIUS := 3.5
 const DEBUG_PICK_DOT_COLOR := Color(1.0, 0.2, 0.9, 0.9)
@@ -77,6 +89,9 @@ var _debug_pick_dots: Array = []
 var _lane_xform_logged: bool = false
 var _lane_tex_logged: bool = false
 var _lane_map_sig: String = ""
+var _lane_scale_logged: Dictionary = {}
+var _lane_endpoint_logged: Dictionary = {}
+var _lane_align_logged: bool = false
 
 func _lane_color_for_hive(hive_id: int) -> Color:
 	var owner_id: int = 0
@@ -90,11 +105,44 @@ func _owner_color(owner_id: int) -> Color:
 	return HiveRenderer._owner_color(owner_id)
 
 func _hive_world_pos(hive_id: int) -> Variant:
-	var hives_by_id: Dictionary = _collect_hive_positions()
-	if not hives_by_id.has(hive_id):
-		return null
-	var local_pos: Vector2 = hives_by_id[hive_id]
-	return to_global(local_pos)
+	var anchor_local_any: Variant = _hive_local_pos_for_lane(hive_id)
+	if anchor_local_any is Vector2:
+		return to_global(anchor_local_any as Vector2)
+	return null
+
+func _lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
+	return HiveNodeScript.lane_anchor_world_from_center(center_world)
+
+func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_center_local: Vector2) -> Dictionary:
+	var a_center_world: Vector2 = to_global(a_center_local)
+	var b_center_world: Vector2 = to_global(b_center_local)
+	var ep_world: Dictionary = HiveNodeScript.compute_lane_endpoints_world(a_center_world, b_center_world)
+	var a_anchor_world: Vector2 = ep_world.get("a_anchor", _lane_anchor_world_from_center(a_center_world))
+	var b_anchor_world: Vector2 = ep_world.get("b_anchor", _lane_anchor_world_from_center(b_center_world))
+	var a_local: Vector2 = to_local(ep_world.get("a", a_anchor_world))
+	var b_local: Vector2 = to_local(ep_world.get("b", b_anchor_world))
+	var lane_vec: Vector2 = b_local - a_local
+	var lane_len: float = lane_vec.length()
+	var lane_dir: Vector2 = Vector2.ZERO
+	if lane_len > 0.000001:
+		lane_dir = lane_vec / lane_len
+	return {
+		"a_center": a_center_local,
+		"b_center": b_center_local,
+		"a_anchor": to_local(a_anchor_world),
+		"b_anchor": to_local(b_anchor_world),
+		"a": a_local,
+		"b": b_local,
+		"dir": lane_dir,
+		"len": lane_len
+	}
+
+func compute_lane_endpoints_map_local(hive_a: Node2D, hive_b: Node2D) -> Dictionary:
+	if hive_a == null or hive_b == null:
+		return {}
+	var a_center_local: Vector2 = to_local(hive_a.global_position)
+	var b_center_local: Vector2 = to_local(hive_b.global_position)
+	return _compute_lane_endpoints_from_centers_local(a_center_local, b_center_local)
 
 func _build_lane_segments(rm: Dictionary) -> Array:
 	# Returns array of {p0:Vector2, p1:Vector2, color:Color}
@@ -191,9 +239,15 @@ func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sp
 func _ready() -> void:
 	_load_lane_textures()
 	_ensure_lane_sprite_root()
-	set_process(false)
+	set_process(USE_LANE_SPRITES and show_lane_sprites)
 	_lane_candidates_visible = false
 	_request_rebuild("ready")
+
+func _process(delta: float) -> void:
+	if USE_LANE_SPRITES and show_lane_sprites:
+		_update_lane_visuals(delta)
+	if not _debug_pick_dots.is_empty():
+		queue_redraw()
 
 # Arena expects this signature.
 func setup(state_ref: GameState, selection_ref: Object, arena_ref: Node2D) -> void:
@@ -263,6 +317,10 @@ func _draw() -> void:
 		draw_line(Vector2(0, 0), Vector2(w, h), Color(1, 0, 1, 1), 6.0)
 		draw_line(Vector2(w, 0), Vector2(0, h), Color(1, 0, 1, 1), 6.0)
 	_draw_pick_debug()
+	if debug_draw_endpoints:
+		_draw_endpoint_debug()
+	if USE_LANE_SPRITES and show_lane_sprites:
+		return
 
 	_draw_intended_lanes()
 
@@ -281,6 +339,28 @@ func _draw() -> void:
 	else:
 		_draw_state_lanes()
 
+func _draw_endpoint_debug() -> void:
+	var lanes: Array = _lane_entries_from_model()
+	if lanes.is_empty():
+		lanes = _lane_entries_from_state()
+	for lane_any in lanes:
+		if typeof(lane_any) != TYPE_DICTIONARY:
+			continue
+		var lane: Dictionary = lane_any as Dictionary
+		var a_id: int = int(lane.get("a_id", lane.get("from", 0)))
+		var b_id: int = int(lane.get("b_id", lane.get("to", 0)))
+		if a_id <= 0 or b_id <= 0:
+			continue
+		var a_any: Variant = _hive_local_pos_for_lane(a_id)
+		var b_any: Variant = _hive_local_pos_for_lane(b_id)
+		if not (a_any is Vector2 and b_any is Vector2):
+			continue
+		var a_pos: Vector2 = a_any as Vector2
+		var b_pos: Vector2 = b_any as Vector2
+		draw_line(a_pos, b_pos, Color(1.0, 0.0, 1.0, 1.0), 2.0)
+		draw_circle(a_pos, 4.0, Color(0.0, 1.0, 1.0, 1.0))
+		draw_circle(b_pos, 4.0, Color(0.0, 1.0, 1.0, 1.0))
+
 func _draw_intended_lanes() -> void:
 	if model.is_empty():
 		return
@@ -292,7 +372,12 @@ func _draw_intended_lanes() -> void:
 			var node := hive_nodes_by_id[hid] as Node2D
 			if node == null:
 				continue
-			hives_by_id[int(hid)] = to_local(node.global_position)
+			if node.has_method("get_lane_anchor_world"):
+				var anchor_any: Variant = node.call("get_lane_anchor_world")
+				if anchor_any is Vector2:
+					hives_by_id[int(hid)] = to_local(anchor_any as Vector2)
+					continue
+			hives_by_id[int(hid)] = to_local(_lane_anchor_world_from_center(node.global_position))
 	else:
 		var hives_v: Variant = model.get("hives", [])
 		if typeof(hives_v) == TYPE_ARRAY:
@@ -307,12 +392,15 @@ func _draw_intended_lanes() -> void:
 				var pos_v: Variant = h.get("pos")
 				var pos: Vector2
 				if typeof(pos_v) == TYPE_VECTOR2:
-					pos = pos_v as Vector2
+					var center_local: Vector2 = pos_v as Vector2
+					var center_world: Vector2 = to_global(center_local)
+					pos = to_local(_lane_anchor_world_from_center(center_world))
 				else:
 					var x: int = int(h.get("x", 0))
 					var y: int = int(h.get("y", 0))
-					pos = _grid_to_world_center(x, y, cell_size)
-				hives_by_id[hid] = to_local(pos)
+					var center_world: Vector2 = _grid_to_world_center(x, y, cell_size)
+					pos = to_local(_lane_anchor_world_from_center(center_world))
+				hives_by_id[hid] = pos
 
 	var lanes_v: Variant = model.get("lanes", [])
 	if typeof(lanes_v) != TYPE_ARRAY:
@@ -329,9 +417,8 @@ func _draw_intended_lanes() -> void:
 		if bool(l.get("send_a", false)) or bool(l.get("send_b", false)):
 			var a_pos: Vector2 = hives_by_id[a_id]
 			var b_pos: Vector2 = hives_by_id[b_id]
-			var pts: Dictionary = GameState.lane_edge_points(a_pos, b_pos)
-			var p0: Vector2 = pts.get("a_edge", a_pos)
-			var p1: Vector2 = pts.get("b_edge", b_pos)
+			var p0: Vector2 = a_pos
+			var p1: Vector2 = b_pos
 			var send_a: bool = bool(l.get("send_a", false))
 			var send_b: bool = bool(l.get("send_b", false))
 			_draw_lane_colored(p0, p1, a_id, b_id, send_a, send_b, model, 3.0, l)
@@ -461,21 +548,16 @@ func _grid_to_world_center(x: int, y: int, cell_size: float) -> Vector2:
 	return Vector2((float(x) + 0.5) * cell_size, (float(y) + 0.5) * cell_size)
 
 func _load_lane_textures() -> void:
-	var registry := SpriteRegistry.get_instance()
 	var tex: Texture2D = null
-	var tex_path := ""
-	if registry != null:
-		tex = _unwrap_atlas(registry.get_tex(LANE_TEX_KEY))
-		tex_path = registry.get_tex_path(LANE_TEX_KEY)
-	if tex == null and ResourceLoader.exists(LANE_FALLBACK_PATH):
+	var tex_path: String = ""
+	if ResourceLoader.exists(LANE_FALLBACK_PATH):
 		tex = ResourceLoader.load(LANE_FALLBACK_PATH) as Texture2D
 		tex_path = LANE_FALLBACK_PATH
-		if not _lane_tex_logged:
-			_lane_tex_logged = true
-			SFLog.warn("LANE_TEX_RESOLVE_FALLBACK", {
-				"key": LANE_TEX_KEY,
-				"fallback_path": LANE_FALLBACK_PATH
-			})
+	if tex == null:
+		var registry := SpriteRegistry.get_instance()
+		if registry != null:
+			tex = _unwrap_atlas(registry.get_tex(LANE_TEX_KEY))
+			tex_path = registry.get_tex_path(LANE_TEX_KEY)
 	if tex != null and not _lane_tex_logged:
 		_lane_tex_logged = true
 		SFLog.info("LANE_TEX_RESOLVE_OK", {
@@ -578,6 +660,8 @@ func _clear_lane_sprites() -> void:
 		child.free()
 	_lane_nodes_by_key.clear()
 	_lane_key_by_id.clear()
+	_lane_scale_logged.clear()
+	_lane_endpoint_logged.clear()
 
 func _collect_hive_positions() -> Dictionary:
 	var hives_by_id: Dictionary = {}
@@ -587,7 +671,12 @@ func _collect_hive_positions() -> Dictionary:
 			var node := hive_nodes_by_id[hid] as Node2D
 			if node == null:
 				continue
-			hives_by_id[int(hid)] = to_local(node.global_position)
+			if node.has_method("get_lane_anchor_world"):
+				var anchor_any: Variant = node.call("get_lane_anchor_world")
+				if anchor_any is Vector2:
+					hives_by_id[int(hid)] = to_local(anchor_any as Vector2)
+					continue
+			hives_by_id[int(hid)] = to_local(_lane_anchor_world_from_center(node.global_position))
 	else:
 		var hives_v: Variant = model.get("hives", [])
 		if typeof(hives_v) == TYPE_ARRAY:
@@ -602,12 +691,15 @@ func _collect_hive_positions() -> Dictionary:
 				var pos_v: Variant = h.get("pos")
 				var pos: Vector2
 				if typeof(pos_v) == TYPE_VECTOR2:
-					pos = pos_v as Vector2
+					var center_local: Vector2 = pos_v as Vector2
+					var center_world: Vector2 = to_global(center_local)
+					pos = to_local(_lane_anchor_world_from_center(center_world))
 				else:
 					var x: int = int(h.get("x", 0))
 					var y: int = int(h.get("y", 0))
-					pos = _grid_to_world_center(x, y, cell_size)
-				hives_by_id[hid] = to_local(pos)
+					var center_world: Vector2 = _grid_to_world_center(x, y, cell_size)
+					pos = to_local(_lane_anchor_world_from_center(center_world))
+				hives_by_id[hid] = pos
 	return hives_by_id
 
 func _lane_entries_from_model() -> Array:
@@ -681,166 +773,281 @@ func _compute_active_lane_signature() -> String:
 	return "|".join(parts)
 
 func _rebuild_lane_sprites_now() -> void:
-	if not USE_LANE_SPRITES:
+	if not USE_LANE_SPRITES or not show_lane_sprites:
+		_clear_lane_sprites()
 		return
-	if not show_lane_sprites:
-		return
-	# HARD GUARD: never draw candidate lanes unless explicitly enabled.
-	if not _lane_candidates_visible:
-		# We still allow ACTIVE lanes (send_a/send_b true) to render.
-		# But we do NOT want “all possible lanes” ever.
-		pass
-	_ensure_lane_sprite_root()
-	# Hard clear before any rebuild to avoid double-draw/accumulation.
-	_clear_lane_sprites()
 	if _lane_tex == null:
 		_load_lane_textures()
 	if _lane_tex == null:
 		return
-	if hive_nodes_by_id.is_empty() and model.is_empty():
-		return
-	var hives_by_id := _collect_hive_positions()
-	if hives_by_id.is_empty():
-		return
+	_ensure_lane_sprite_root()
 	var lanes: Array = _lane_entries_from_model()
-	var rm: Dictionary = model
 	if lanes.is_empty():
 		lanes = _lane_entries_from_state()
-		rm = {}
-	var total_rm_lanes := lanes.size()
-	if not _lane_candidates_visible:
-		var active: Array = []
-		for lane in lanes:
-			if typeof(lane) != TYPE_DICTIONARY:
-				continue
-			var d := lane as Dictionary
-			var send_a: bool = bool(d.get("send_a", false))
-			var send_b: bool = bool(d.get("send_b", false))
-			var intent: String = str(d.get("intent", ""))
-			if send_a or send_b or intent != "":
-				active.append(d)
-		lanes = active
-	if lanes.is_empty():
-		return
-	var lane_count := 0
-	var seg_total := 0
-	var sample_seg_len: float = -1.0
-	var sample_scale: Vector2 = Vector2.ZERO
-	for lane in lanes:
-		if typeof(lane) != TYPE_DICTIONARY:
+	var seen: Dictionary = {}
+	for lane_any in lanes:
+		if typeof(lane_any) != TYPE_DICTIONARY:
 			continue
-		var d := lane as Dictionary
-		var a_id: int = int(d.get("a_id", d.get("from", 0)))
-		var b_id: int = int(d.get("b_id", d.get("to", 0)))
+		var lane: Dictionary = lane_any as Dictionary
+		var a_id: int = int(lane.get("a_id", lane.get("from", 0)))
+		var b_id: int = int(lane.get("b_id", lane.get("to", 0)))
 		if a_id <= 0 or b_id <= 0:
 			continue
-		var send_a: bool = bool(d.get("send_a", false))
-		var send_b: bool = bool(d.get("send_b", false))
-		var intent: String = str(d.get("intent", ""))
-		var is_candidate: bool = (not send_a and not send_b and intent == "")
-		if is_candidate and not _lane_candidates_visible:
+		var send_a: bool = bool(lane.get("send_a", false))
+		var send_b: bool = bool(lane.get("send_b", false))
+		if not send_a and not send_b:
 			continue
-		if not (hives_by_id.has(a_id) and hives_by_id.has(b_id)):
-			continue
-		var lane_id: int = int(d.get("lane_id", d.get("id", -1)))
-		var key := _lane_key(a_id, b_id, lane_id)
+		var lane_id: int = int(lane.get("lane_id", lane.get("id", -1)))
+		var key: String = _lane_key(a_id, b_id, lane_id)
+		seen[key] = true
 		if lane_id > 0:
 			_lane_key_by_id[lane_id] = key
-		var p0: Vector2 = hives_by_id[a_id]
-		var p1: Vector2 = hives_by_id[b_id]
-		var dist := p0.distance_to(p1)
-		if dist <= 0.01:
+		var entry: Dictionary = {}
+		var existing_any: Variant = _lane_nodes_by_key.get(key, null)
+		if typeof(existing_any) == TYPE_DICTIONARY:
+			entry = existing_any as Dictionary
+		if entry.is_empty() or not entry.has("sprite_a") or not entry.has("sprite_b"):
+			var sprite_a: Sprite2D = _create_lane_sprite_node()
+			var sprite_b: Sprite2D = _create_lane_sprite_node()
+			_lane_sprite_root.add_child(sprite_a)
+			_lane_sprite_root.add_child(sprite_b)
+			entry = {
+				"sprite_a": sprite_a,
+				"sprite_b": sprite_b,
+				"visual_t": 0.0
+			}
+		var prev_send_a: bool = bool(entry.get("send_a", false))
+		var prev_send_b: bool = bool(entry.get("send_b", false))
+		if prev_send_a != send_a or prev_send_b != send_b:
+			entry["visual_t"] = 0.0
+		entry["a_id"] = a_id
+		entry["b_id"] = b_id
+		entry["lane_id"] = lane_id
+		entry["send_a"] = send_a
+		entry["send_b"] = send_b
+		_lane_nodes_by_key[key] = entry
+	var keys: Array = _lane_nodes_by_key.keys()
+	for key_any in keys:
+		var key: String = str(key_any)
+		if seen.has(key):
 			continue
-		var seg_len := maxf(_lane_segment_len(), 1.0)
-		var n: int = int(clamp(round(dist / seg_len), 1, LANE_MAX_SEGMENTS))
-		lane_count += 1
-		seg_total += n
-		var color_a: Color = _lane_color_for_hive(a_id)
-		var color_b: Color = _lane_color_for_hive(b_id)
-		var front_t: float = float(d.get("front_t", d.get("split_t", 0.5)))
-		var segments: Array = []
-		for i in range(n):
-			var t0: float = float(i) / float(n)
-			var t1: float = float(i + 1) / float(n)
-			var t_mid: float = (t0 + t1) * 0.5
-			var a_seg: Vector2 = p0.lerp(p1, t0)
-			var b_seg: Vector2 = p0.lerp(p1, t1)
-			var lane_tex: Texture2D = _lane_tex
-			var sprite := _make_lane_segment_sprite(a_seg, b_seg, lane_tex)
-			if sprite == null:
-				continue
-			if sample_seg_len < 0.0:
-				sample_seg_len = a_seg.distance_to(b_seg)
-				sample_scale = sprite.scale
-			var seg_color: Color = _lane_color_for_t(send_a, send_b, color_a, color_b, t_mid, front_t)
-			sprite.modulate = seg_color
-			sprite.modulate.a = 0.0
-			sprite.z_index = LANE_Z_INDEX
-			_lane_sprite_root.add_child(sprite)
-			segments.append(sprite)
-		var connectors: Array = []
-		var connector_tex := _lane_connector_tex if _lane_connector_tex != null else _lane_tex
-		if connector_tex != null:
-			var start_j := 1
-			var end_j := n - 1
-			if LANE_CONNECTOR_AT_ENDPOINTS:
-				start_j = 0
-				end_j = n
-			for j in range(start_j, end_j + 1):
-				if j <= 0 or j >= n:
-					if not LANE_CONNECTOR_AT_ENDPOINTS:
-						continue
-				var t_j: float = float(j) / float(n)
-				var pos_j: Vector2 = p0.lerp(p1, t_j)
-				var conn := Sprite2D.new()
-				conn.texture = connector_tex
-				conn.material = null
-				if not _lane_connector_tex_has_alpha:
-					var lane_mat := _get_lane_colorkey_material()
-					if lane_mat != null:
-						conn.material = lane_mat
-				conn.position = pos_j
-				conn.rotation = 0.0
-				conn.scale = Vector2.ONE * LANE_CONNECTOR_SCALE
-				var conn_color: Color = _lane_color_for_t(send_a, send_b, color_a, color_b, t_j, front_t)
-				conn.modulate = conn_color
-				conn.modulate.a = 0.0
-				conn.centered = true
-				conn.z_index = LANE_Z_INDEX
-				_lane_sprite_root.add_child(conn)
-				connectors.append(conn)
-		_lane_nodes_by_key[key] = {
-			"segments": segments,
-			"connectors": connectors,
-			"a_id": a_id,
-			"b_id": b_id,
-			"lane_id": lane_id
-		}
-	var sprite_children := _lane_sprite_root.get_child_count() if _lane_sprite_root != null else 0
-	if DEBUG_LANES and debug_lane_metrics:
-		SFLog.info("LANE_SPRITE_FILTER", {
-			"total_rm_lanes": total_rm_lanes,
-			"visible_lane_count": lane_count,
-			"segments_created_total": seg_total,
-			"sprite_children": sprite_children
+		var old_any: Variant = _lane_nodes_by_key.get(key, null)
+		if typeof(old_any) == TYPE_DICTIONARY:
+			var old_entry: Dictionary = old_any as Dictionary
+			var sprite_a_old: Sprite2D = old_entry.get("sprite_a", null) as Sprite2D
+			var sprite_b_old: Sprite2D = old_entry.get("sprite_b", null) as Sprite2D
+			if sprite_a_old != null:
+				sprite_a_old.queue_free()
+			if sprite_b_old != null:
+				sprite_b_old.queue_free()
+		_lane_nodes_by_key.erase(key)
+	var lane_ids: Array = _lane_key_by_id.keys()
+	for lane_id_any in lane_ids:
+		var key_ref: String = str(_lane_key_by_id.get(lane_id_any, ""))
+		if key_ref.is_empty() or not seen.has(key_ref):
+			_lane_key_by_id.erase(lane_id_any)
+
+func _create_lane_sprite_node() -> Sprite2D:
+	var sprite: Sprite2D = Sprite2D.new()
+	sprite.texture = _lane_tex
+	sprite.centered = true
+	sprite.z_index = LANE_Z_INDEX
+	sprite.material = _get_lane_band_material()
+	sprite.visible = false
+	return sprite
+
+func _update_lane_visuals(delta: float) -> void:
+	if _lane_nodes_by_key.is_empty():
+		return
+	var thickness_info: Dictionary = _resolve_lane_thickness_info()
+	var target_px: float = float(thickness_info.get("target_px", lane_thickness_px))
+	var unit_body_px: float = float(thickness_info.get("unit_body_px", -1.0))
+	var grow_time_s: float = maxf(0.001, LANE_GROW_TIME_MS / 1000.0)
+	var step: float = delta / grow_time_s
+	var keys: Array = _lane_nodes_by_key.keys()
+	for key_any in keys:
+		var entry_any: Variant = _lane_nodes_by_key.get(key_any, null)
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var sprite_a: Sprite2D = entry.get("sprite_a", null) as Sprite2D
+		var sprite_b: Sprite2D = entry.get("sprite_b", null) as Sprite2D
+		if sprite_a == null or sprite_b == null:
+			continue
+		var send_a: bool = bool(entry.get("send_a", false))
+		var send_b: bool = bool(entry.get("send_b", false))
+		var a_id: int = int(entry.get("a_id", 0))
+		var b_id: int = int(entry.get("b_id", 0))
+		var lane_id: int = int(entry.get("lane_id", -1))
+		var visual_t: float = clampf(float(entry.get("visual_t", 0.0)) + step, 0.0, 1.0)
+		entry["visual_t"] = visual_t
+		_lane_nodes_by_key[key_any] = entry
+		var a_center_v: Variant = _hive_center_local_for_lane(a_id)
+		var b_center_v: Variant = _hive_center_local_for_lane(b_id)
+		if not (a_center_v is Vector2 and b_center_v is Vector2):
+			sprite_a.visible = false
+			sprite_b.visible = false
+			continue
+		var a_center: Vector2 = a_center_v as Vector2
+		var b_center: Vector2 = b_center_v as Vector2
+		var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_center, b_center)
+		var a_pos: Vector2 = ep.get("a", a_center)
+		var b_pos: Vector2 = ep.get("b", b_center)
+		_log_lane_endpoints_once(lane_id, ep)
+		var color_a: Color = _with_alpha(_lane_color_for_hive(a_id), LANE_ACTIVE_ALPHA)
+		var color_b: Color = _with_alpha(_lane_color_for_hive(b_id), LANE_ACTIVE_ALPHA)
+		var lane_basis_dir: Vector2 = b_pos - a_pos
+		if send_a and send_b:
+			var mid: Vector2 = a_pos.lerp(b_pos, 0.5)
+			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(mid, visual_t), color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
+			_apply_lane_sprite_visual(sprite_b, b_pos, b_pos.lerp(mid, visual_t), color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
+		elif send_a:
+			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
+			sprite_b.visible = false
+		elif send_b:
+			_apply_lane_sprite_visual(sprite_b, b_pos, b_pos.lerp(a_pos, visual_t), color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
+			sprite_a.visible = false
+		else:
+			sprite_a.visible = false
+			sprite_b.visible = false
+
+func _resolve_lane_thickness_info() -> Dictionary:
+	var target_px: float = lane_thickness_px
+	var unit_body_px: float = -1.0
+	if lane_thickness_mode == LANE_THICKNESS_MODE_MATCH_UNIT_RATIO:
+		unit_body_px = _resolve_unit_body_width_px()
+		if unit_body_px > 0.0:
+			target_px = unit_body_px * lane_vs_unit_ratio
+	target_px = clampf(target_px, 18.0, 120.0)
+	return {
+		"target_px": target_px,
+		"unit_body_px": unit_body_px
+	}
+
+func _resolve_unit_body_width_px() -> float:
+	var registry: SpriteRegistry = SpriteRegistry.get_instance()
+	if registry == null:
+		return -1.0
+	var unit_scale: float = float(registry.get_scale(UNIT_THICKNESS_KEY))
+	if unit_scale <= 0.0:
+		unit_scale = 1.0
+	var unit_body_px: float = UNIT_RENDER_BASE_DIAMETER_PX * unit_scale * UNIT_RENDER_SCALE_MATCH
+	return unit_body_px
+
+func _hive_center_local_for_lane(hive_id: int) -> Variant:
+	var node_any: Variant = hive_nodes_by_id.get(hive_id, null)
+	if node_any is Node2D:
+		var hive_node: Node2D = node_any as Node2D
+		return to_local(hive_node.global_position)
+	var hives_by_id_any: Variant = model.get("hives_by_id", {})
+	if typeof(hives_by_id_any) == TYPE_DICTIONARY:
+		var hives_by_id: Dictionary = hives_by_id_any as Dictionary
+		if hives_by_id.has(hive_id):
+			var hive_any: Variant = hives_by_id.get(hive_id, null)
+			if typeof(hive_any) == TYPE_DICTIONARY:
+				var hive_dict: Dictionary = hive_any as Dictionary
+				var pos_any: Variant = hive_dict.get("pos", null)
+				if pos_any is Vector2:
+					return pos_any as Vector2
+	return null
+
+func _hive_local_pos_for_lane(hive_id: int) -> Variant:
+	var center_any: Variant = _hive_center_local_for_lane(hive_id)
+	if not (center_any is Vector2):
+		return null
+	var center_local: Vector2 = center_any as Vector2
+	var center_world: Vector2 = to_global(center_local)
+	return to_local(_lane_anchor_world_from_center(center_world))
+
+func _apply_lane_sprite_visual(
+	sprite: Sprite2D,
+	start_pos: Vector2,
+	end_pos: Vector2,
+	color: Color,
+	lane_id: int,
+	target_thickness_px: float,
+	unit_body_px: float,
+	lane_basis_dir: Vector2 = Vector2.ZERO
+) -> void:
+	if sprite == null or sprite.texture == null:
+		return
+	var dir: Vector2 = end_pos - start_pos
+	var length_px: float = dir.length()
+	if length_px <= LANE_MIN_LEN_PX:
+		sprite.visible = false
+		return
+	var tex_w: float = maxf(1.0, float(sprite.texture.get_width()))
+	var tex_h: float = maxf(1.0, float(sprite.texture.get_height()))
+	var scale_x: float = clampf(length_px / tex_w, 0.0, LANE_SCALE_CLAMP.x)
+	var scale_y: float = clampf(target_thickness_px / tex_h, 0.0, LANE_SCALE_CLAMP.y)
+	var normal_basis: Vector2 = lane_basis_dir
+	if normal_basis.length_squared() <= 0.000001:
+		normal_basis = dir
+	var normal_dir: Vector2 = Vector2.ZERO
+	if normal_basis.length_squared() > 0.000001:
+		var unit_dir: Vector2 = normal_basis.normalized()
+		normal_dir = Vector2(-unit_dir.y, unit_dir.x)
+	var mid_pos: Vector2 = (start_pos + end_pos) * 0.5
+	var final_pos: Vector2 = mid_pos + (normal_dir * LANE_ART_NORMAL_OFFSET_PX)
+	sprite.visible = true
+	sprite.position = final_pos
+	sprite.rotation = dir.angle()
+	sprite.scale = Vector2(scale_x, scale_y)
+	sprite.modulate = color
+	if lane_id == 9 and not _lane_align_logged:
+		_lane_align_logged = true
+		var dir_norm: Vector2 = Vector2.ZERO
+		if normal_basis.length_squared() > 0.000001:
+			dir_norm = normal_basis.normalized()
+		SFLog.info("LANE_ALIGN_DEBUG", {
+			"lane_id": lane_id,
+			"p0": start_pos,
+			"p1": end_pos,
+			"mid": mid_pos,
+			"dir": dir_norm,
+			"normal": normal_dir,
+			"offset_px": LANE_ART_NORMAL_OFFSET_PX,
+			"final_pos": final_pos
 		})
-	if OS.is_debug_build():
-		assert(seg_total <= lane_count * 32)
-	if lane_count > 0:
-		var avg := float(seg_total) / float(lane_count)
-		var tex_size := _lane_tex.get_size() if _lane_tex != null else Vector2.ZERO
-		if DEBUG_LANES and debug_lane_metrics:
-			SFLog.info("LANE_SPRITE_SIZE", {
-				"tex_size": tex_size,
-				"seg_len": sample_seg_len,
-				"scale": sample_scale,
-				"lane_count": lane_count,
-				"seg_per_lane": avg
-			})
-			SFLog.info("LANE_SPRITE_BUILD", {
-				"lane_count": lane_count,
-				"seg_per_lane_avg": avg
-			})
+	if lane_id > 0 and not _lane_scale_logged.has(lane_id):
+		_lane_scale_logged[lane_id] = true
+		SFLog.info("LANE_VISUAL_THICKNESS", {
+			"lane_id": lane_id,
+			"mode": lane_thickness_mode,
+			"target_px": target_thickness_px,
+			"base_h": tex_h,
+			"unit_body_px": unit_body_px,
+			"x_scale": scale_x,
+			"y_scale": scale_y,
+			"tex_size": [sprite.texture.get_width(), sprite.texture.get_height()]
+		})
+
+func _log_lane_endpoints_once(lane_id: int, ep: Dictionary) -> void:
+	if lane_id <= 0:
+		return
+	if _lane_endpoint_logged.has(lane_id):
+		return
+	var a_pos: Vector2 = ep.get("a", Vector2.ZERO)
+	var b_pos: Vector2 = ep.get("b", Vector2.ZERO)
+	var a_center: Vector2 = ep.get("a_center", Vector2.ZERO)
+	var b_center: Vector2 = ep.get("b_center", Vector2.ZERO)
+	var a_anchor: Vector2 = ep.get("a_anchor", a_pos)
+	var b_anchor: Vector2 = ep.get("b_anchor", b_pos)
+	var lane_vec: Vector2 = b_pos - a_pos
+	var lane_len: float = lane_vec.length()
+	var lane_deg: float = rad_to_deg(lane_vec.angle()) if lane_len > 0.000001 else 0.0
+	_lane_endpoint_logged[lane_id] = true
+	SFLog.info("LANE_ENDPOINTS_UNIFIED", {
+		"lane_id": lane_id,
+		"a_center": a_center,
+		"b_center": b_center,
+		"a_anchor": a_anchor,
+		"b_anchor": b_anchor,
+		"a": a_pos,
+		"b": b_pos,
+		"len": lane_len,
+		"deg": lane_deg
+	})
 
 func _update_lane_sprite_tints() -> void:
 	if not USE_LANE_SPRITES:
@@ -948,7 +1155,11 @@ func _draw_model_lanes(rm: Dictionary) -> void:
 		_draw_lane_colored(seg[0], seg[1], a_id, b_id, send_a, send_b, rm, width, lane_meta)
 
 func _edge_to_edge_segment(a_pos: Vector2, b_pos: Vector2) -> PackedVector2Array:
-	return PackedVector2Array([a_pos, b_pos])
+	var a_world: Vector2 = to_global(a_pos)
+	var b_world: Vector2 = to_global(b_pos)
+	var a_edge: Vector2 = to_local(_lane_anchor_world_from_center(a_world))
+	var b_edge: Vector2 = to_local(_lane_anchor_world_from_center(b_world))
+	return PackedVector2Array([a_edge, b_edge])
 
 func pick_lane_at_world_pos(world_pos: Vector2, max_dist: float) -> Dictionary:
 	if max_dist <= 0.0:

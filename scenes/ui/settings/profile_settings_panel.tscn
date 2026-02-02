@@ -40,6 +40,49 @@ text = "Handle"
 layout_mode = 2
 size_flags_horizontal = 3
 
+[node name="DisplayNameInput" type="LineEdit" parent="VBox/ProfileRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Display name"
+
+[node name="UserIdSection" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="UserIdLabel" type="Label" parent="VBox/UserIdSection"]
+layout_mode = 2
+text = "User ID"
+
+[node name="UserIdWarningLabel" type="Label" parent="VBox/UserIdSection"]
+layout_mode = 2
+text = "UID is your identity key for stats."
+
+[node name="UserIdCurrentRow" type="HBoxContainer" parent="VBox/UserIdSection"]
+layout_mode = 2
+
+[node name="CurrentUserIdLabel" type="Label" parent="VBox/UserIdSection/UserIdCurrentRow"]
+layout_mode = 2
+text = "Current: "
+
+[node name="CopyUserIdButton" type="Button" parent="VBox/UserIdSection/UserIdCurrentRow"]
+layout_mode = 2
+text = "Copy"
+
+[node name="UserIdRow" type="HBoxContainer" parent="VBox/UserIdSection"]
+layout_mode = 2
+
+[node name="UserIdInput" type="LineEdit" parent="VBox/UserIdSection/UserIdRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "u_001122aabbcc"
+
+[node name="SetUserIdButton" type="Button" parent="VBox/UserIdSection/UserIdRow"]
+layout_mode = 2
+text = "Set User ID"
+
+[node name="UserIdStatusLabel" type="Label" parent="VBox/UserIdSection"]
+layout_mode = 2
+text = ""
+
 [node name="ButtonsRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
 

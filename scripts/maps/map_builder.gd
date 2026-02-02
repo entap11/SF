@@ -16,13 +16,15 @@ func build_into(arena: Node2D, map_id: String) -> bool:
 	)
 	if arena == null:
 		SFLog.trace("MAP_BUILDER: arena is null")
-		push_error("MAP_BUILDER: arena is null")
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: arena is null")
 		return false
 
 	var map_root: Node = arena.get_node_or_null("MapRoot")
 	if map_root == null:
 		SFLog.trace("MAP_BUILDER: map_root is null")
-		push_error("MAP_BUILDER: Arena missing child 'MapRoot'")
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: Arena missing child 'MapRoot'")
 		return false
 	var hive_parent := map_root.get_node_or_null("HiveRenderer")
 	var lane_parent := map_root.get_node_or_null("LaneRenderer")
@@ -36,12 +38,14 @@ func build_into(arena: Node2D, map_id: String) -> bool:
 	var data: Variant = _load_json(path)
 	if data == null:
 		SFLog.trace("MAP_BUILDER: data == null after _load_json path=%s" % path)
-		push_error("MAP_BUILDER: failed to load json: %s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: failed to load json: %s" % path)
 		return false
 
 	if typeof(data) != TYPE_DICTIONARY:
 		SFLog.trace("MAP_BUILDER: json root is not a Dictionary type=%s path=%s" % [str(typeof(data)), path])
-		push_error("MAP_BUILDER: json root is not a Dictionary: %s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: json root is not a Dictionary: %s" % path)
 		return false
 
 	var dict: Dictionary = data
@@ -102,7 +106,8 @@ func build_into(arena: Node2D, map_id: String) -> bool:
 		hives = dict.get("nodes", [])
 	if typeof(hives) != TYPE_ARRAY:
 		SFLog.trace("MAP_BUILDER: hives not array type=%s" % [str(typeof(hives))])
-		push_error("MAP_BUILDER: no 'hives' (or 'nodes') array in %s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: no 'hives' (or 'nodes') array in %s" % path)
 		return false
 
 	var hive_pos: Dictionary = {} # id -> Vector2 (px)
@@ -174,17 +179,20 @@ func build_into(arena: Node2D, map_id: String) -> bool:
 
 func _load_json(path: String) -> Variant:
 	if not FileAccess.file_exists(path):
-		push_error("MAP_BUILDER: file not found: %s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: file not found: %s" % path)
 		return null
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		push_error("MAP_BUILDER: cannot open: %s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: cannot open: %s" % path)
 		return null
 	var txt := f.get_as_text()
 	var json := JSON.new()
 	var err := json.parse(txt)
 	if err != OK:
-		push_error("MAP_BUILDER: JSON.parse failed (%s) %s" % [err, path])
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: JSON.parse failed (%s) %s" % [err, path])
 		return null
 	var parsed: Variant = json.data
 	return parsed

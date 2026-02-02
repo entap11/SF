@@ -1,5 +1,6 @@
 extends RefCounted
 class_name JsonMapBuilder
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const DEFAULT_CELL := 64.0
 
@@ -9,17 +10,20 @@ const DEFAULT_CELL := 64.0
 # - draws debug hives + lanes so we SEE something, even if renderers are not wired yet
 func build_into(arena: Node, map_id: String, cell_size: float = DEFAULT_CELL) -> bool:
 	if arena == null:
-		push_error("JsonMapBuilder: arena is null")
+		if SFLog.LOGGING_ENABLED:
+			push_error("JsonMapBuilder: arena is null")
 		return false
 
 	var map_root := arena.get_node_or_null("MapRoot")
 	if map_root == null:
-		push_error("JsonMapBuilder: Arena missing child 'MapRoot'")
+		if SFLog.LOGGING_ENABLED:
+			push_error("JsonMapBuilder: Arena missing child 'MapRoot'")
 		return false
 
 	var data := _load_json(map_id)
 	if data == null:
-		push_error("JsonMapBuilder: failed to load json: %s" % map_id)
+		if SFLog.LOGGING_ENABLED:
+			push_error("JsonMapBuilder: failed to load json: %s" % map_id)
 		return false
 
 	_clear_map_geometry(map_root)
@@ -32,7 +36,8 @@ func build_into(arena: Node, map_id: String, cell_size: float = DEFAULT_CELL) ->
 		elif data.has("nodes"):
 			hives = data["nodes"] # some schemas call them nodes
 	if typeof(hives) != TYPE_ARRAY:
-		push_error("JsonMapBuilder: no 'hives' (or 'nodes') array in %s" % map_id)
+		if SFLog.LOGGING_ENABLED:
+			push_error("JsonMapBuilder: no 'hives' (or 'nodes') array in %s" % map_id)
 		return false
 
 	var hive_pos := {} # id -> Vector2 (px)
@@ -76,22 +81,26 @@ func build_into(arena: Node, map_id: String, cell_size: float = DEFAULT_CELL) ->
 			line.add_point(hive_pos[b])
 			map_root.add_child(line)
 
-	print("JsonMapBuilder: built %d hives, %d lanes from %s" % [hive_pos.size(), lanes.size(), map_id])
+	if SFLog.LOGGING_ENABLED:
+		print("JsonMapBuilder: built %d hives, %d lanes from %s" % [hive_pos.size(), lanes.size(), map_id])
 	return true
 
 
 func _load_json(path: String) -> Variant:
 	if not FileAccess.file_exists(path):
-		push_error("JsonMapBuilder: file not found: %s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("JsonMapBuilder: file not found: %s" % path)
 		return null
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		push_error("JsonMapBuilder: cannot open: %s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("JsonMapBuilder: cannot open: %s" % path)
 		return null
 	var txt := f.get_as_text()
 	var parsed := JSON.parse_string(txt)
 	if parsed == null:
-		push_error("JsonMapBuilder: JSON.parse_string failed: %s" % path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("JsonMapBuilder: JSON.parse_string failed: %s" % path)
 	return parsed
 
 

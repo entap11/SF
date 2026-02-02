@@ -1,198 +1,250 @@
 extends Node
 
-const FILE_PATH: String = "user://profiles.json"
-const DATA_VERSION: int = 1
-const HANDLE_PREFIX: String = "Player "
-const HANDLE_MIN_LEN: int = 3
-const HANDLE_MAX_LEN: int = 20
+const SFLog = preload("res://scripts/util/sf_log.gd")
 
-var _profiles: Array[Dictionary] = []
-var _active_profile_id: String = ""
+const PROFILE_PATH: String = "user://profile.cfg"
+const PROFILE_SECTION: String = "profile"
+const USER_ID_PREFIX: String = "u_"
+const USER_ID_HEX_LEN: int = 12
+const DISPLAY_NAME_PREFIX: String = "Player "
+const DISPLAY_NAME_MAX_LEN: int = 20
+
+var _has_loaded: bool = false
+var _boot_trace_enter_logged: bool = false
+var _created_this_run: bool = false
+var _onboarding_complete: bool = false
+var _user_id: String = ""
+var _display_name: String = ""
+var _created_at_unix: int = 0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
-	_rng.randomize()
-	var loaded: bool = _load()
-	if not loaded:
-		_create_default_profile()
-		_save()
-		return
-	var changed: bool = _ensure_active_valid()
-	if changed:
-		_save()
+	ensure_loaded()
 
+func ensure_loaded() -> void:
+	if not _boot_trace_enter_logged:
+		_boot_trace_enter_logged = true
+		SFLog.info("PROFILE_BOOT_TRACE_ENTER", {
+			"user_id": _user_id,
+			"display_name": _display_name,
+			"created_at_unix": _created_at_unix,
+			"has_loaded": _has_loaded
+		})
+		SFLog.info("PROFILE_USER_DATA_DIR", {"dir": OS.get_user_data_dir()})
+	if _has_loaded:
+		return
+	_rng.randomize()
+	var cfg: ConfigFile = ConfigFile.new()
+	var err: int = cfg.load(PROFILE_PATH)
+	SFLog.info("PROFILE_BOOT_TRACE_LOAD", {
+		"path": PROFILE_PATH,
+		"err": err
+	})
+	if err == OK:
+		_user_id = str(cfg.get_value(PROFILE_SECTION, "user_id", ""))
+		_display_name = str(cfg.get_value(PROFILE_SECTION, "display_name", ""))
+		_created_at_unix = int(cfg.get_value(PROFILE_SECTION, "created_at_unix", 0))
+		_onboarding_complete = bool(cfg.get_value(PROFILE_SECTION, "onboarding_complete", false))
+
+	var created: bool = false
+	if _user_id.is_empty():
+		_user_id = _generate_user_id()
+		_created_at_unix = int(Time.get_unix_time_from_system())
+		_display_name = _default_display_name(_user_id)
+		_onboarding_complete = false
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		created = true
+		_created_this_run = true
+	else:
+		_created_this_run = false
+		var cleaned_name: String = _sanitize_display_name(_display_name, _user_id)
+		var updated: bool = false
+		if cleaned_name != _display_name:
+			_display_name = cleaned_name
+			updated = true
+		if _created_at_unix <= 0:
+			_created_at_unix = int(Time.get_unix_time_from_system())
+			updated = true
+		if updated:
+			_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+
+	_has_loaded = true
+	if created:
+		SFLog.info("PROFILE_CREATED", {
+			"user_id": _user_id,
+			"display_name": _display_name,
+			"onboarding_complete": _onboarding_complete
+		})
+	else:
+		SFLog.info("PROFILE_LOADED", {
+			"user_id": _user_id,
+			"display_name": _display_name,
+			"onboarding_complete": _onboarding_complete
+		})
+
+func get_user_id() -> String:
+	ensure_loaded()
+	return _user_id
+
+func was_created_this_run() -> bool:
+	ensure_loaded()
+	return _created_this_run
+
+func is_onboarding_complete() -> bool:
+	ensure_loaded()
+	return _onboarding_complete
+
+func get_display_name() -> String:
+	ensure_loaded()
+	return _display_name
+
+func get_handle(uid: String) -> String:
+	ensure_loaded()
+	if uid == _user_id:
+		return _display_name
+	return ""
+
+func set_display_name(name: String) -> void:
+	ensure_loaded()
+	var cleaned: String = _sanitize_display_name(name, _user_id)
+	if cleaned == _display_name:
+		return
+	_display_name = cleaned
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_DISPLAY_NAME_SET", {
+		"user_id": _user_id,
+		"display_name": _display_name
+	})
+
+func set_user_id(raw: String) -> bool:
+	ensure_loaded()
+	var uid: String = _sanitize_user_id(raw)
+	if not _is_valid_user_id(uid):
+		SFLog.info("PROFILE_USER_ID_REJECTED", {"attempted": raw})
+		return false
+	if uid == _user_id:
+		SFLog.info("PROFILE_USER_ID_NOOP", {"user_id": _user_id})
+		return true
+	var old_id: String = _user_id
+	_user_id = uid
+	if _display_name.strip_edges().is_empty():
+		_display_name = _default_display_name(_user_id)
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_USER_ID_SET", {
+		"old": old_id,
+		"new": _user_id
+	})
+	return true
+
+func mark_onboarding_complete() -> void:
+	ensure_loaded()
+	if _onboarding_complete:
+		return
+	_onboarding_complete = true
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_ONBOARDING_COMPLETE", {"user_id": _user_id})
+
+func _save_profile(user_id: String, display_name: String, created_at: int, onboarding_complete: bool) -> void:
+	var cfg: ConfigFile = ConfigFile.new()
+	cfg.set_value(PROFILE_SECTION, "user_id", user_id)
+	cfg.set_value(PROFILE_SECTION, "display_name", display_name)
+	if created_at > 0:
+		cfg.set_value(PROFILE_SECTION, "created_at_unix", created_at)
+	cfg.set_value(PROFILE_SECTION, "onboarding_complete", onboarding_complete)
+	var err: int = cfg.save(PROFILE_PATH)
+	SFLog.info("PROFILE_BOOT_TRACE_SAVE", {
+		"path": PROFILE_PATH,
+		"err": err
+	})
+	if err == OK:
+		SFLog.info("PROFILE_SAVED", {
+			"path": PROFILE_PATH,
+			"user_id": user_id,
+			"display_name": display_name
+		})
+
+func _generate_user_id() -> String:
+	var hex: String = ""
+	for i in range(6):
+		var value: int = int(_rng.randi_range(0, 255))
+		hex += "%02x" % value
+	return USER_ID_PREFIX + hex
+
+func _default_display_name(user_id: String) -> String:
+	var suffix: String = user_id
+	if user_id.begins_with(USER_ID_PREFIX):
+		suffix = user_id.substr(USER_ID_PREFIX.length(), user_id.length() - USER_ID_PREFIX.length())
+	if suffix.length() >= 4:
+		suffix = suffix.substr(suffix.length() - 4, 4)
+	else:
+		suffix = suffix.pad_zeros(4)
+	return DISPLAY_NAME_PREFIX + suffix.to_upper()
+
+func _sanitize_display_name(name: String, user_id: String) -> String:
+	var cleaned: String = name.strip_edges()
+	if cleaned.length() > DISPLAY_NAME_MAX_LEN:
+		cleaned = cleaned.substr(0, DISPLAY_NAME_MAX_LEN)
+	if cleaned.is_empty():
+		cleaned = _default_display_name(user_id)
+	return cleaned
+
+func _sanitize_user_id(raw: String) -> String:
+	var cleaned: String = raw.strip_edges().to_lower()
+	return cleaned
+
+func _is_valid_user_id(uid: String) -> bool:
+	if not uid.begins_with(USER_ID_PREFIX):
+		return false
+	var suffix: String = uid.substr(USER_ID_PREFIX.length(), uid.length() - USER_ID_PREFIX.length())
+	if suffix.length() != USER_ID_HEX_LEN:
+		return false
+	for i in range(suffix.length()):
+		var ch: String = suffix.substr(i, 1)
+		var code: int = ch.unicode_at(0)
+		var is_digit: bool = code >= 48 and code <= 57
+		var is_lower_hex: bool = code >= 97 and code <= 102
+		var is_upper_hex: bool = code >= 65 and code <= 70
+		if not (is_digit or is_lower_hex or is_upper_hex):
+			return false
+	return true
+
+# Legacy compatibility (single-profile semantics).
 func get_profiles() -> Array[Dictionary]:
-	return _profiles.duplicate(true)
+	ensure_loaded()
+	var profile: Dictionary = {
+		"profile_id": _user_id,
+		"handle": _display_name,
+		"created_at_unix": _created_at_unix,
+		"last_used_at_unix": _created_at_unix
+	}
+	return [profile]
 
 func get_active_profile_id() -> String:
-	return _active_profile_id
+	return get_user_id()
 
 func get_active_profile() -> Dictionary:
-	var idx: int = _find_profile_index(_active_profile_id)
-	if idx >= 0:
-		return _profiles[idx]
-	if _profiles.size() > 0:
-		return _profiles[0]
-	return {}
+	var profiles: Array[Dictionary] = get_profiles()
+	if profiles.is_empty():
+		return {}
+	return profiles[0]
 
 func get_active_handle() -> String:
-	var profile: Dictionary = get_active_profile()
-	return str(profile.get("handle", ""))
+	return get_display_name()
 
 func set_active_profile(profile_id: String) -> void:
-	var idx: int = _find_profile_index(profile_id)
-	if idx < 0:
+	ensure_loaded()
+	if profile_id != _user_id:
 		return
-	_active_profile_id = profile_id
-	_touch_profile(idx)
-	_save()
 
 func create_profile() -> String:
-	var id: String = _create_profile_internal(true)
-	_save()
-	return id
+	return get_user_id()
 
 func rename_profile(profile_id: String, new_handle: String) -> bool:
-	var trimmed: String = new_handle.strip_edges()
-	if trimmed.length() < HANDLE_MIN_LEN or trimmed.length() > HANDLE_MAX_LEN:
+	ensure_loaded()
+	if profile_id != _user_id:
 		return false
-	var idx: int = _find_profile_index(profile_id)
-	if idx < 0:
-		return false
-	var profile: Dictionary = _profiles[idx]
-	profile["handle"] = trimmed
-	_profiles[idx] = profile
-	_save()
+	set_display_name(new_handle)
 	return true
 
-func delete_profile(profile_id: String) -> bool:
-	if _profiles.size() <= 1:
-		return false
-	var idx: int = _find_profile_index(profile_id)
-	if idx < 0:
-		return false
-	_profiles.remove_at(idx)
-	if _active_profile_id == profile_id:
-		_active_profile_id = str(_profiles[0].get("profile_id", ""))
-		var active_idx: int = _find_profile_index(_active_profile_id)
-		if active_idx >= 0:
-			_touch_profile(active_idx)
-	_save()
-	return true
-
-func _load() -> bool:
-	if not FileAccess.file_exists(FILE_PATH):
-		return false
-	var file: FileAccess = FileAccess.open(FILE_PATH, FileAccess.READ)
-	if file == null:
-		return false
-	var text: String = file.get_as_text()
-	file.close()
-	var parsed: Variant = JSON.parse_string(text)
-	if typeof(parsed) != TYPE_DICTIONARY:
-		return false
-	var data: Dictionary = parsed
-	_active_profile_id = str(data.get("active_profile_id", ""))
-	var profiles_v: Variant = data.get("profiles", [])
-	_profiles = _parse_profiles(profiles_v)
-	return _profiles.size() > 0
-
-func _save() -> void:
-	var data: Dictionary = {
-		"version": DATA_VERSION,
-		"active_profile_id": _active_profile_id,
-		"profiles": _profiles
-	}
-	var text: String = JSON.stringify(data)
-	var file: FileAccess = FileAccess.open(FILE_PATH, FileAccess.WRITE)
-	if file == null:
-		return
-	file.store_string(text)
-	file.close()
-
-func _parse_profiles(profiles_v: Variant) -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
-	if typeof(profiles_v) != TYPE_ARRAY:
-		return out
-	var profiles_arr: Array = profiles_v
-	for entry in profiles_arr:
-		if typeof(entry) != TYPE_DICTIONARY:
-			continue
-		var d: Dictionary = entry
-		var pid: String = str(d.get("profile_id", ""))
-		var handle: String = str(d.get("handle", "")).strip_edges()
-		if pid.is_empty() or handle.is_empty():
-			continue
-		var created: int = int(d.get("created_at_unix", 0))
-		var last_used: int = int(d.get("last_used_at_unix", created))
-		out.append({
-			"profile_id": pid,
-			"handle": handle,
-			"created_at_unix": created,
-			"last_used_at_unix": last_used
-		})
-	return out
-
-func _ensure_active_valid() -> bool:
-	if _profiles.size() == 0:
-		return false
-	var idx: int = _find_profile_index(_active_profile_id)
-	if idx >= 0:
-		return false
-	_active_profile_id = str(_profiles[0].get("profile_id", ""))
-	var active_idx: int = _find_profile_index(_active_profile_id)
-	if active_idx >= 0:
-		_touch_profile(active_idx)
-	return true
-
-func _create_default_profile() -> void:
-	_create_profile_internal(true)
-
-func _create_profile_internal(make_active: bool) -> String:
-	var now: int = int(Time.get_unix_time_from_system())
-	var id: String = _generate_uuid()
-	var handle: String = _generate_default_handle()
-	var profile: Dictionary = {
-		"profile_id": id,
-		"handle": handle,
-		"created_at_unix": now,
-		"last_used_at_unix": now
-	}
-	_profiles.append(profile)
-	if make_active:
-		_active_profile_id = id
-	return id
-
-func _touch_profile(idx: int) -> void:
-	if idx < 0 or idx >= _profiles.size():
-		return
-	var profile: Dictionary = _profiles[idx]
-	profile["last_used_at_unix"] = int(Time.get_unix_time_from_system())
-	_profiles[idx] = profile
-
-func _find_profile_index(profile_id: String) -> int:
-	if profile_id.is_empty():
-		return -1
-	for i in range(_profiles.size()):
-		var profile: Dictionary = _profiles[i]
-		if str(profile.get("profile_id", "")) == profile_id:
-			return i
-	return -1
-
-func _generate_default_handle() -> String:
-	var num: int = _rng.randi_range(0, 9999)
-	var suffix: String = str(num).pad_zeros(4)
-	return HANDLE_PREFIX + suffix
-
-func _generate_uuid() -> String:
-	var bytes: Array[String] = []
-	for i in range(16):
-		var value: int = int(_rng.randi_range(0, 255))
-		bytes.append("%02x" % value)
-	return "%s%s%s%s-%s%s-%s%s-%s%s-%s%s%s%s%s%s" % [
-		bytes[0], bytes[1], bytes[2], bytes[3],
-		bytes[4], bytes[5],
-		bytes[6], bytes[7],
-		bytes[8], bytes[9],
-		bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
-	]
+func delete_profile(_profile_id: String) -> bool:
+	return false

@@ -1,5 +1,6 @@
 class_name LaneRenderer
 extends Node2D
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 var state: GameState
 var sel: SelectionState
@@ -26,7 +27,8 @@ func setup(state_ref: GameState, sel_ref: SelectionState, arena_ref: Node2D) -> 
 	queue_redraw()
 
 func set_model(m: Dictionary) -> void:
-	print("LaneRenderer set_model called by:\n", get_stack())
+	if SFLog.LOGGING_ENABLED:
+		print("LaneRenderer set_model called by:\n", get_stack())
 	model = m
 	_dirty = true
 	queue_redraw()
@@ -35,7 +37,8 @@ func clear_all() -> void:
 	model = {}
 	_dirty = true
 	queue_redraw()
-	print("LaneRenderer: cleared")
+	if SFLog.LOGGING_ENABLED:
+		print("LaneRenderer: cleared")
 
 func _process(delta: float) -> void:
 	if arena == null:

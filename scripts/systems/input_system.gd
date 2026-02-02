@@ -1411,7 +1411,8 @@ func _dev_mouse_pid_from_button(button_index: int) -> int:
 
 func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, button_index: int) -> void:
 	if _handling_click:
-		print("HIVE: re-entrant click blocked")
+		if SFLog.LOGGING_ENABLED:
+			print("HIVE: re-entrant click blocked")
 		return
 	_handling_click = true
 	if not (button_index == MOUSE_BUTTON_LEFT or button_index == MOUSE_BUTTON_RIGHT):
@@ -1438,7 +1439,8 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 	if arena != null:
 		arena._handle_tap(hive_id, -1)
 	else:
-		print("HIVE: arena is NULL at click time")
+		if SFLog.LOGGING_ENABLED:
+			print("HIVE: arena is NULL at click time")
 	if button_index == MOUSE_BUTTON_LEFT:
 		arena_api.set_active_player_id(1)
 	elif button_index == MOUSE_BUTTON_RIGHT:

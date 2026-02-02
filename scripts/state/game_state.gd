@@ -546,7 +546,8 @@ func rebuild_indexes() -> void:
 	for hive in hives:
 		var hive_id: int = int(hive.id)
 		if hive_by_id.has(hive_id):
-			push_warning("GAMESTATE: duplicate hive id in rebuild_indexes: %d" % hive_id)
+			if SFLog.LOGGING_ENABLED:
+				push_warning("GAMESTATE: duplicate hive id in rebuild_indexes: %d" % hive_id)
 			continue
 		hive_by_id[hive_id] = hive
 
@@ -557,7 +558,8 @@ func rebuild_indexes() -> void:
 		var ld := lane as LaneData
 		var key := _lane_key(int(ld.a_id), int(ld.b_id))
 		if lane_index_by_key.has(key):
-			push_warning("GAMESTATE: duplicate lane key in rebuild_indexes: %s" % key)
+			if SFLog.LOGGING_ENABLED:
+				push_warning("GAMESTATE: duplicate lane key in rebuild_indexes: %s" % key)
 			continue
 		lane_index_by_key[key] = i
 

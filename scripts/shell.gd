@@ -1,4 +1,5 @@
 extends Node
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
@@ -18,7 +19,8 @@ var _arena_instance: Node = null
 var _dev_loader: CanvasItem = null
 
 func _ready() -> void:
-	print("MAIN FLAGS: start_in_menu=", start_in_menu,
+	if SFLog.LOGGING_ENABLED:
+		print("MAIN FLAGS: start_in_menu=", start_in_menu,
 		" enable_dev_map_loader=", enable_dev_map_loader,
 		" show_dev_map_loader_in_game=", show_dev_map_loader_in_game)
 	if play_button != null:
@@ -72,7 +74,8 @@ func _start_game() -> void:
 		return
 	var packed := load(game_scene_path) as PackedScene
 	if packed == null:
-		push_error("SHELL: game_scene_path invalid: %s" % game_scene_path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("SHELL: game_scene_path invalid: %s" % game_scene_path)
 		return
 	var inst := packed.instantiate()
 	_arena_instance = inst
@@ -104,7 +107,8 @@ func _open_main_menu() -> void:
 		return
 	var err := get_tree().change_scene_to_file(main_menu_scene_path)
 	if err != OK:
-		push_error("SHELL: failed to open main menu: %s" % main_menu_scene_path)
+		if SFLog.LOGGING_ENABLED:
+			push_error("SHELL: failed to open main menu: %s" % main_menu_scene_path)
 
 func _show_dev_panel(show: bool) -> void:
 	if _dev_loader == null:

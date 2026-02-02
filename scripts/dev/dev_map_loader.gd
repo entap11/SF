@@ -17,7 +17,7 @@ const CANON_GRID_W := 8
 const CANON_GRID_H := 12
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
-const DEFAULT_DEV_MAP_ID := "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
+const DEFAULT_DEV_MAP_ID := "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_TOWER_1.json"
 var map_id := ""
 var _arena: Node2D = null
 var _builder := preload("res://scripts/maps/map_builder.gd").new()
@@ -174,7 +174,8 @@ func _on_load_pressed() -> void:
 
 	if _arena == null:
 		StatusLbl.text = "Arena not injected"
-		push_error("DEV_MAP_LOADER: Arena not injected by Main")
+		if SFLog.LOGGING_ENABLED:
+			push_error("DEV_MAP_LOADER: Arena not injected by Main")
 		return
 	if map_id == "":
 		StatusLbl.text = "No map selected."
@@ -196,7 +197,8 @@ func _on_load_pressed() -> void:
 	if not ok:
 		var err: String = str(result.get("err", "unknown error"))
 		StatusLbl.text = "LOAD FAILED: see console for reason"
-		push_error("DEV_MAP_LOADER: MAP LOAD FAIL for %s err=%s" % [map_id, err])
+		if SFLog.LOGGING_ENABLED:
+			push_error("DEV_MAP_LOADER: MAP LOAD FAIL for %s err=%s" % [map_id, err])
 		return
 	var d: Dictionary = result.get("data", {}) as Dictionary
 	SFLog.debug("DEV_MAP_LOADER: load_map ok size=%s keys=%s" % [d.size(), str(d.keys())])
@@ -282,7 +284,8 @@ func load_map(map_id_path: String) -> void:
 	elif has_method("_on_load_button_pressed"):
 		call("_on_load_button_pressed")
 	else:
-		push_error("DEV_MAP_LOADER: No load handler found (_on_load_pressed/_on_load_button_pressed)")
+		if SFLog.LOGGING_ENABLED:
+			push_error("DEV_MAP_LOADER: No load handler found (_on_load_pressed/_on_load_button_pressed)")
 
 func _has_prop(obj: Object, prop_name: String) -> bool:
 	for p in obj.get_property_list():

@@ -1,5 +1,6 @@
 extends Control
 class_name MapLeaderboardPanel
+const SFLog := preload("res://scripts/util/sf_log.gd")
 
 signal closed
 
@@ -45,7 +46,8 @@ func _on_play_pressed() -> void:
 		return
 	var context: Dictionary = contest_state.build_run_context(contest_id, map_id)
 	if not context.is_empty():
-		print("TP RUN", context)
+		if SFLog.LOGGING_ENABLED:
+			print("TP RUN", context)
 
 func _on_back_pressed() -> void:
 	closed.emit()
