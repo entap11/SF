@@ -7,6 +7,7 @@ class_name MapApplier
 const SFLog := preload("res://scripts/util/sf_log.gd")
 
 static func apply_map(arena: Node2D, d: Dictionary) -> void:
+	SFLog.allow_tag("MAP_APPLIER_RUNTIME_ROSTER_WRITE")
 	var map_id := str(d.get("map_id", d.get("_id", d.get("id", "UNKNOWN"))))
 	if SFLog.LOGGING_ENABLED:
 		print("MAP_APPLY_TRIGGERED map_id=",
@@ -31,6 +32,13 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		{"seat": 3, "uid": "", "is_local": false, "is_cpu": false, "active": false},
 		{"seat": 4, "uid": "", "is_local": false, "is_cpu": false, "active": false}
 	]
+	if _is_runtime_non_dev_context():
+		SFLog.warn("MAP_APPLIER_RUNTIME_ROSTER_WRITE", {
+			"map_id": map_id,
+			"reason": "runtime_direct_roster_assignment"
+		})
+	if OpsState.has_method("audit_mutation"):
+		OpsState.audit_mutation("MapApplier.apply_map", "match_roster", "res://scripts/maps/map_applier.gd")
 	OpsState.match_roster = roster
 	SFLog.info("MATCH_ROSTER", {
 		"p1_uid": p1_uid,
@@ -141,6 +149,15 @@ static func _is_dev_runner() -> bool:
 		return false
 	var tree := loop as SceneTree
 	return tree.get_root().get_node_or_null("DevMapRunner") != null
+
+static func _is_runtime_non_dev_context() -> bool:
+	if Engine.is_editor_hint():
+		return false
+	var loop := Engine.get_main_loop()
+	if loop == null or not (loop is SceneTree):
+		return true
+	var tree := loop as SceneTree
+	return tree.get_root().get_node_or_null("DevMapRunner") == null
 
 static func _dump_lanes(map_id: String, state: GameState) -> void:
 	if state == null:

@@ -18,11 +18,19 @@ const MAPS_DIR := "res://data/maps"
 const OPS_CONSOLE_SCENE := "res://scenes/ops/ops_console.tscn"
 const MATCH_DURATION_MS_DEFAULT := 300000
 const MATCH_DURATION_MS_TEST := 70000
+const AUTH_FENCE_LOG_INTERVAL_MS := 1000
+const AUTH_FENCE_ALLOWED_PREFIXES := [
+	"res://scripts/systems/",
+	"res://scripts/sim/",
+	"res://scripts/ops/"
+]
 
 var dev_enabled := false
 var contests: Dictionary = {}
 var maps: Dictionary = {}
 var _in_render_export := false
+var auth_fence_assert_enabled: bool = false
+var _auth_fence_last_ms: Dictionary = {}
 
 var state: GameState = null
 var _state_serial: int = 0
@@ -698,6 +706,12 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 	call_deferred("_emit_state_changed", new_state)
 	return new_state
 
+func _emit_state_changed(new_state: GameState) -> void:
+	if new_state == null:
+		return
+	emit_signal("state_changed", new_state)
+	emit_signal("ops_state_changed", int(new_state.get_instance_id()))
+
 func _guard_mutation(context: String) -> bool:
 	if not _in_render_export:
 		return false
@@ -706,3 +720,50 @@ func _guard_mutation(context: String) -> bool:
 		"stack": get_stack()
 	})
 	return true
+
+func _auth_fence_first_external_frame() -> Dictionary:
+	var stack: Array = get_stack()
+	for i in range(1, stack.size()):
+		var frame: Dictionary = stack[i]
+		var source: String = str(frame.get("source", ""))
+		if source.ends_with("scripts/ops/ops_state.gd"):
+			continue
+		return frame
+	return {}
+
+func _auth_fence_source_allowed(source: String) -> bool:
+	if source.is_empty():
+		return true
+	if source.ends_with("scripts/ops/ops_state.gd"):
+		return true
+	for prefix in AUTH_FENCE_ALLOWED_PREFIXES:
+		if source.begins_with(prefix):
+			return true
+	return false
+
+func audit_mutation(context: String, target: String = "", source_hint: String = "") -> void:
+	SFLog.allow_tag("OPSSTATE_MUTATION_FENCE")
+	var source: String = source_hint.strip_edges()
+	var frame: Dictionary = {}
+	if source.is_empty():
+		frame = _auth_fence_first_external_frame()
+		source = str(frame.get("source", ""))
+	if source.is_empty():
+		source = context
+	if _auth_fence_source_allowed(source):
+		return
+	var line_no: int = int(frame.get("line", 0))
+	var key: String = "%s|%s|%s|%d" % [source, context, target, line_no]
+	var now_ms: int = Time.get_ticks_msec()
+	var last_ms: int = int(_auth_fence_last_ms.get(key, 0))
+	if now_ms - last_ms < AUTH_FENCE_LOG_INTERVAL_MS:
+		return
+	_auth_fence_last_ms[key] = now_ms
+	SFLog.warn("OPSSTATE_MUTATION_FENCE", {
+		"context": context,
+		"target": target,
+		"source": source,
+		"line": line_no
+	})
+	if auth_fence_assert_enabled:
+		assert(false, "OpsState mutation fence hit: %s (%s)" % [context, target])

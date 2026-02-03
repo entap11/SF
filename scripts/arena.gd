@@ -165,6 +165,7 @@ var _power_bar_reveal_started: bool = false
 var _prematch_ui_bind_logged: bool = false
 var _prematch_ui_state_logged: bool = false
 var _match_started: bool = false
+var _legacy_tick_fenced_logged: bool = false
 @export var autostart: bool = false:
 	set(value):
 		_set_autostart(value)
@@ -268,6 +269,12 @@ func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
 	SFLog.allow_tag("ARENA_FRAME_HEARTBEAT")
+	SFLog.allow_tag("SIM_PIPELINE_ACTIVE")
+	SFLog.allow_tag("LEGACY_SIM_PATH_BLOCKED")
+	SFLog.allow_tag("MAP_APPLY_ONE_WAY_DOOR")
+	SFLog.allow_tag("OPSSTATE_MUTATION_FENCE")
+	SFLog.allow_tag("GAMESTATE_MUTATION_FENCE")
+	SFLog.allow_tag("MAP_APPLIER_RUNTIME_ROSTER_WRITE")
 	set_physics_process(true)
 	set_process_unhandled_input(false)
 	SFLog.info("ARENA_SCRIPT", {"path": get_script().resource_path})
@@ -323,6 +330,10 @@ func _ready() -> void:
 	sel = SelectionState.new()
 	_init_systems()
 	_prewarm_render_assets()
+	SFLog.info("SIM_PIPELINE_ACTIVE", {
+		"pipeline": "SimRunner",
+		"legacy_arena_tick_fenced": true
+	})
 	if api != null:
 		api.bind_state(state)
 	if sim_runner != null and state != null:
@@ -336,6 +347,7 @@ func _ready() -> void:
 		lane_renderer.setup(state, sel, self)
 		SFLog.trace("HIVE_RENDERER_REF", {"ref": hive_renderer})
 		hive_renderer.setup(state, sel, self)
+		_inject_renderer_references()
 		_sync_lane_system_blockers()
 		_init_barracks()
 		if state.hives != null:
@@ -370,6 +382,23 @@ func _start_match_flow() -> void:
 	_ensure_prematch_ui()
 	_begin_prematch()
 
+func _is_dev_or_editor_context() -> bool:
+	if Engine.is_editor_hint():
+		return true
+	return get_node_or_null("/root/DevMapRunner") != null
+
+func _audit_ops_write(target: String, context: String) -> void:
+	if OpsState == null:
+		return
+	if OpsState.has_method("audit_mutation"):
+		OpsState.audit_mutation(context, target, get_script().resource_path)
+
+func _audit_state_write(target: String, context: String) -> void:
+	if state == null:
+		return
+	if state.has_method("audit_mutation"):
+		state.audit_mutation(context, target, get_script().resource_path)
+
 func _force_unpause_sanity() -> void:
 	var tree := get_tree()
 	var paused := false
@@ -391,12 +420,17 @@ func _begin_prematch() -> void:
 		return
 	_ensure_match_roster()
 	_match_started = false
+	_audit_ops_write("match_phase", "Arena._begin_prematch")
 	OpsState.match_phase = OpsState.MatchPhase.PREMATCH
+	_audit_ops_write("input_locked", "Arena._begin_prematch")
 	OpsState.input_locked = true
+	_audit_ops_write("input_locked_reason", "Arena._begin_prematch")
 	OpsState.input_locked_reason = "prematch"
 	if OpsState.prematch_duration_ms <= 0:
+		_audit_ops_write("prematch_duration_ms", "Arena._begin_prematch")
 		OpsState.prematch_duration_ms = OpsState.PREMATCH_DURATION_MS
 	_prematch_remaining_ms_f = float(OpsState.prematch_duration_ms)
+	_audit_ops_write("prematch_remaining_ms", "Arena._begin_prematch")
 	OpsState.prematch_remaining_ms = int(ceil(_prematch_remaining_ms_f))
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
@@ -665,6 +699,7 @@ func _ensure_match_roster() -> void:
 	for seat in range(1, 5):
 		next_roster.append(seat_map.get(seat, {"seat": seat, "uid": "", "is_local": seat == 1, "is_cpu": seat != 1}))
 	if updated or not had_roster:
+		_audit_ops_write("match_roster", "Arena._ensure_match_roster")
 		OpsState.match_roster = next_roster
 		SFLog.info("MATCH_ROSTER", {
 			"local_uid": local_uid,
@@ -674,6 +709,7 @@ func _ensure_match_roster() -> void:
 			"p4_uid": str((next_roster[3] as Dictionary).get("uid", ""))
 		})
 	else:
+		_audit_ops_write("match_roster", "Arena._ensure_match_roster")
 		OpsState.match_roster = next_roster
 
 func _get_roster_entry_for_slot(player_slot: int) -> Dictionary:
@@ -702,6 +738,7 @@ func _update_prematch_flow(delta: float) -> void:
 	if OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
 		return
 	_prematch_remaining_ms_f = max(0.0, _prematch_remaining_ms_f - delta * 1000.0)
+	_audit_ops_write("prematch_remaining_ms", "Arena._update_prematch_flow")
 	OpsState.prematch_remaining_ms = int(ceil(_prematch_remaining_ms_f))
 	var sec_left := 0
 	if _prematch_remaining_ms_f > 0.0:
@@ -740,9 +777,13 @@ func _fade_prematch_countdown() -> void:
 	tween.finished.connect(_finish_prematch)
 
 func _finish_prematch() -> void:
+	_audit_ops_write("prematch_remaining_ms", "Arena._finish_prematch")
 	OpsState.prematch_remaining_ms = 0
+	_audit_ops_write("match_phase", "Arena._finish_prematch")
 	OpsState.match_phase = OpsState.MatchPhase.RUNNING
+	_audit_ops_write("input_locked", "Arena._finish_prematch")
 	OpsState.input_locked = false
+	_audit_ops_write("input_locked_reason", "Arena._finish_prematch")
 	OpsState.input_locked_reason = ""
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
@@ -1062,6 +1103,14 @@ func _on_lane_system_removed(lane_id: int) -> void:
 	_push_render_model()
 
 
+func _inject_renderer_references() -> void:
+	if unit_renderer == null:
+		return
+	if lane_renderer == null:
+		return
+	if unit_renderer.has_method("setup_renderer_refs"):
+		unit_renderer.call("setup_renderer_refs", lane_renderer)
+
 func _sync_lane_system_blockers() -> void:
 	if lane_system == null:
 		return
@@ -1096,6 +1145,7 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 		return
 	if api != null:
 		api.bind_state(state)
+	_audit_state_write("grid_spec", "Arena._on_ops_state_changed")
 	state.grid_spec = grid_spec
 	_ensure_sim_runner()
 	if sim_runner != null:
@@ -1111,6 +1161,7 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 		lane_renderer.setup(state, sel, self)
 	if hive_renderer != null:
 		hive_renderer.setup(state, sel, self)
+	_inject_renderer_references()
 	_sync_lane_system_blockers()
 	mark_render_dirty("ops_state_changed")
 	if state.hives != null:
@@ -1170,6 +1221,7 @@ func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 	if floor_renderer != null:
 		floor_renderer.configure(grid_w, grid_h, cell_px)
 	if state != null:
+		_audit_state_write("grid_spec", "Arena._configure_grid_spec")
 		state.grid_spec = grid_spec
 
 func _log_map_spec(map_data: Dictionary) -> void:
@@ -1190,6 +1242,7 @@ func _log_map_spec(map_data: Dictionary) -> void:
 func _apply_neutral_towers(map_data: Dictionary) -> void:
 	if state == null:
 		return
+	_audit_state_write("towers", "Arena._apply_neutral_towers")
 	state.towers = []
 	var towers_v: Variant = map_data.get("towers", [])
 	if typeof(towers_v) != TYPE_ARRAY:
@@ -1232,6 +1285,7 @@ func _apply_neutral_towers(map_data: Dictionary) -> void:
 			"control_hive_ids": control_ids,
 			"owner_id": int(td.get("owner_id", 0))
 		})
+	_audit_state_write("towers", "Arena._apply_neutral_towers")
 	state.towers = out
 	var sample: Variant = out[0] if out.size() > 0 else null
 	SFLog.info("NEUTRAL_TOWERS_APPLIED", {"count": out.size(), "sample": sample})
@@ -1245,6 +1299,13 @@ func _apply_neutral_towers(map_data: Dictionary) -> void:
 		SFLog.info("TOWER_FIRST_POS", {"grid_pos": first_gp, "pos_px": px_pos})
 
 func load_from_map(map_data: Dictionary) -> void:
+	if not _is_dev_or_editor_context():
+		SFLog.warn("MAP_APPLY_ONE_WAY_DOOR", {
+			"entrypoint": "Arena.load_from_map",
+			"authoritative_runtime_entrypoint": "MapApplier.apply_map"
+		})
+		MapApplier.apply_map(self, map_data.duplicate(true))
+		return
 	los_cache.clear()
 	state.hives.clear()
 	state.lanes.clear()
@@ -1278,6 +1339,7 @@ func load_from_map(map_data: Dictionary) -> void:
 		var b_id: int = int(lane_data["b_id"])
 		state.lanes.append(LaneData.new(lane_id, a_id, b_id, 1, false, false))
 		lane_id += 1
+	_audit_state_write("map_lanes", "Arena.load_from_map")
 	state.map_lanes = []
 	for lane in state.lanes:
 		state.map_lanes.append({
@@ -1328,6 +1390,7 @@ func load_from_map(map_data: Dictionary) -> void:
 			"preferred_targets": []
 		})
 	if state != null:
+		_audit_state_write("barracks", "Arena.load_from_map")
 		state.barracks = barracks
 	_center_map_offset(map_data)
 	_configure_grid_spec(grid_w, grid_h)
@@ -1352,6 +1415,13 @@ func load_from_map(map_data: Dictionary) -> void:
 	_push_render_model()
 
 func apply_loaded_map(map: Dictionary) -> void:
+	if not _is_dev_or_editor_context():
+		SFLog.warn("MAP_APPLY_ONE_WAY_DOOR", {
+			"entrypoint": "Arena.apply_loaded_map",
+			"authoritative_runtime_entrypoint": "MapApplier.apply_map"
+		})
+		MapApplier.apply_map(self, map.duplicate(true))
+		return
 	if map.is_empty():
 		if SFLog.LOGGING_ENABLED:
 			push_error("ARENA: apply_loaded_map failed (empty map)")
@@ -1384,6 +1454,7 @@ func apply_loaded_map(map: Dictionary) -> void:
 		lane_renderer.setup(state, sel, self)
 	if hive_renderer != null:
 		hive_renderer.setup(state, sel, self)
+	_inject_renderer_references()
 	hive_lane_order.clear()
 	hive_power_prev.clear()
 	grid_w = max(1, int(map.get("grid_w", GRID_W)))
@@ -1427,6 +1498,7 @@ func on_map_built() -> void:
 	if hive_renderer != null:
 		SFLog.trace("HIVE_RENDERER_REF", {"ref": hive_renderer})
 		hive_renderer.setup(state, sel, self)
+	_inject_renderer_references()
 	_sync_lane_system_blockers()
 	mark_render_dirty("map_built")
 	_debug_map_bounds("map_built")
@@ -1980,6 +2052,14 @@ func _log_lane_establish(lane_key: String, owner_id: int, event: String, t: floa
 		SFLog.info(msg)
 
 func _tick(dt: float) -> void:
+	if not _legacy_tick_fenced_logged:
+		_legacy_tick_fenced_logged = true
+		SFLog.error("LEGACY_SIM_PATH_BLOCKED", {
+			"path": "Arena._tick",
+			"active_pipeline": "SimRunner"
+		})
+	assert(false, "Arena._tick is fenced. SimRunner is authoritative.")
+	return
 	events.clear()
 	_tick_render_dirty = false
 	sim_time_us += int(round(dt * 1000000.0))
@@ -2362,6 +2442,8 @@ func _push_render_model() -> void:
 			unit_r.call("set_model", rm)
 		else:
 			unit_r.set("model", rm)
+		if hive_r != null and unit_r.has_method("set_hive_nodes") and hive_r.has_method("get_hive_nodes_by_id"):
+			unit_r.call("set_hive_nodes", hive_r.call("get_hive_nodes_by_id"))
 		var hives_v: Variant = rm.get("hives", [])
 		var hives_arr: Array = hives_v as Array if typeof(hives_v) == TYPE_ARRAY else []
 		var units_v: Variant = rm.get("units", [])
@@ -2373,8 +2455,6 @@ func _push_render_model() -> void:
 			unit_r.call("bind_hives", hives_arr, hives_version)
 		if unit_r.has_method("bind_units"):
 			unit_r.call("bind_units", units_arr, units_version, sim_time_us_out)
-		if hive_r != null and unit_r.has_method("set_hive_nodes") and hive_r.has_method("get_hive_nodes_by_id"):
-			unit_r.call("set_hive_nodes", hive_r.call("get_hive_nodes_by_id"))
 		unit_r.queue_redraw()
 	if tower_r != null:
 		if tower_r.has_method("set_model"):

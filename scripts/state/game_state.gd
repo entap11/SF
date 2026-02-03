@@ -21,6 +21,13 @@ const MATCH_DURATION_MS := 300000
 const DEFAULT_UNINTENDED_POWER_PER_SEC := 1.0
 const PASSIVE_CHILL_MS := 3000
 const PASSIVE_MS_PER_POWER: float = 3000.0
+const AUTH_FENCE_LOG_INTERVAL_MS := 1000
+const AUTH_FENCE_ALLOWED_PREFIXES := [
+	"res://scripts/systems/",
+	"res://scripts/sim/",
+	"res://scripts/ops/",
+	"res://scripts/maps/map_applier.gd"
+]
 
 enum GameOutcome {
 	NONE,
@@ -77,6 +84,8 @@ var _last_lane_len_log_ms: int = 0
 var _last_spawn_block_log_ms: Dictionary = {}
 var _last_spawn_block_reason: Dictionary = {}
 var _lane_spawn_disabled_logged: bool = false
+var auth_fence_assert_enabled: bool = false
+var _auth_fence_last_ms: Dictionary = {}
 
 # -------------------------------------------------------------------
 # Init
@@ -1308,3 +1317,50 @@ func _debug_dump_lane_state() -> void:
 			"a_stream_len": ld.a_stream_len,
 			"b_stream_len": ld.b_stream_len
 		})
+
+func _auth_fence_first_external_frame() -> Dictionary:
+	var stack: Array = get_stack()
+	for i in range(1, stack.size()):
+		var frame: Dictionary = stack[i]
+		var source: String = str(frame.get("source", ""))
+		if source.ends_with("scripts/state/game_state.gd"):
+			continue
+		return frame
+	return {}
+
+func _auth_fence_source_allowed(source: String) -> bool:
+	if source.is_empty():
+		return true
+	if source.ends_with("scripts/state/game_state.gd"):
+		return true
+	for prefix in AUTH_FENCE_ALLOWED_PREFIXES:
+		if source.begins_with(prefix):
+			return true
+	return false
+
+func audit_mutation(context: String, target: String = "", source_hint: String = "") -> void:
+	SFLog.allow_tag("GAMESTATE_MUTATION_FENCE")
+	var source: String = source_hint.strip_edges()
+	var frame: Dictionary = {}
+	if source.is_empty():
+		frame = _auth_fence_first_external_frame()
+		source = str(frame.get("source", ""))
+	if source.is_empty():
+		source = context
+	if _auth_fence_source_allowed(source):
+		return
+	var line_no: int = int(frame.get("line", 0))
+	var key: String = "%s|%s|%s|%d" % [source, context, target, line_no]
+	var now_ms: int = Time.get_ticks_msec()
+	var last_ms: int = int(_auth_fence_last_ms.get(key, 0))
+	if now_ms - last_ms < AUTH_FENCE_LOG_INTERVAL_MS:
+		return
+	_auth_fence_last_ms[key] = now_ms
+	SFLog.warn("GAMESTATE_MUTATION_FENCE", {
+		"context": context,
+		"target": target,
+		"source": source,
+		"line": line_no
+	})
+	if auth_fence_assert_enabled:
+		assert(false, "GameState mutation fence hit: %s (%s)" % [context, target])

@@ -52,7 +52,8 @@ const LANE_MIN_LEN_PX := 6.0
 const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
 const LANE_ART_NORMAL_OFFSET_PX: float = 58.0
-const LANE_TUCK_IN_PX: float = 12.0
+# Anchors are already lane-edge-biased; extra tuck visually shortens lanes too much.
+const LANE_TUCK_IN_PX: float = 0.0
 const LANE_THICKNESS_MODE_MANUAL: int = 0
 const LANE_THICKNESS_MODE_MATCH_UNIT_RATIO: int = 1
 const UNIT_RENDER_SCALE_MATCH: float = 3.0
@@ -816,6 +817,15 @@ func _rebuild_hive_lane_anchor_cache() -> void:
 func _collect_hive_positions() -> Dictionary:
 	_ensure_hive_lane_anchor_cache()
 	return _hive_lane_anchor_local_by_id
+
+func get_hive_lane_anchor_local(hive_id: int, fallback_local: Vector2) -> Vector2:
+	_ensure_hive_lane_anchor_cache()
+	var v_any: Variant = _hive_lane_anchor_local_by_id.get(hive_id, null)
+	if v_any == null:
+		return fallback_local
+	if v_any is Vector2:
+		return v_any as Vector2
+	return fallback_local
 
 func _lane_entries_from_model() -> Array:
 	var lanes_v: Variant = model.get("lanes", [])

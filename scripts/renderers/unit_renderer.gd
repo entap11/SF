@@ -34,11 +34,15 @@ const UNIT_SPRITE_FORWARD_DEG: float = 45.0
 const UNIT_TRAVEL_T_EPS: float = 0.02
 const DBG_UNITS: bool = false
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
+const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 const UNIT_COLOR := Color(1.0, 1.0, 1.0, 0.9)
 const DEBUG_HIVE1_CROSS := false
 const UNIT_LOG_INTERVAL_MS := 1000
 const UNIT_BOUNDS_LOG_INTERVAL_MS := 1000
 const UNIT_REDRAW_INTERVAL_MS := 30
+const UNIT_BASELINE_AUDIT_INTERVAL_MS: int = 1000
+const UNIT_RECONCILE_LOG_INTERVAL_MS: int = 1000
+const UNIT_RECONCILE_SLOW_MS: float = 2.0
 const SWARM_SCALE_MULT: float = 15.0
 const SWARM_LABEL_FONT_SIZE: int = 12
 const SWARM_LABEL_SIZE: Vector2 = Vector2(48.0, 20.0)
@@ -47,6 +51,7 @@ const SWARM_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/swarm.png"
 const BOBBLE_AMP_MIN_PX: float = 2.0
 const BOBBLE_AMP_MAX_PX: float = 6.0
 const BOBBLE_OMEGA: float = 8.0
+const BOBBLE_Y_CLAMP_PX: float = 6.0
 const SIM_DT_SEC_DEFAULT: float = 0.1
 const BUTTER_INTERP_DELAY_TICKS: float = 1.0
 const SAMPLE_T_EPS: float = 0.001
@@ -100,15 +105,38 @@ var _hive_cache_count: int = 0
 var _hive_bind_version: int = 0
 var _hive_key_sig: int = 0
 var _unit_missing_ticks: Dictionary = {}
+var _last_baseline_audit_ms: int = 0
+var _lane_renderer: Object = null
+var _reconcile_last_log_ms: int = 0
+var _death_reconcile_last_log_ms: int = 0
+var _reconcile_baseline_ms: float = 0.0
+var _reconcile_baseline_samples: int = 0
+var _last_bound_units_count: int = 0
+var _hive_lookup_last_log_ms: int = 0
+var _cached_hive_anchor_info: Dictionary = {}
+var _cached_lane_endpoints: Dictionary = {}
 
 func _ready() -> void:
 	SFLog.allow_tag("RENDER_AUDIT_UNITS")
 	SFLog.allow_tag("RENDER_AUDIT_UNITS_TOP_MAT_KEYS")
 	SFLog.allow_tag("RENDER_AUDIT_UNITS_REBUILDS")
 	SFLog.allow_tag("UNIT_RENDER_REBUILD")
+	SFLog.allow_tag("UNIT_BASELINE_AUDIT")
+	SFLog.allow_tag("UNIT_DEATH_FRAME_MS")
+	SFLog.allow_tag("UNIT_RECONCILE_SLOW")
+	SFLog.allow_tag("UNIT_HIVE_LOOKUP_BUILD_MS")
 	_pool_build()
 	_apply_debug_force_top_z()
 	_request_redraw()
+
+func setup_renderer_refs(lane_renderer_ref: Object) -> void:
+	if _lane_renderer != lane_renderer_ref:
+		_invalidate_endpoint_caches()
+	_lane_renderer = lane_renderer_ref
+
+func _invalidate_endpoint_caches() -> void:
+	_cached_hive_anchor_info.clear()
+	_cached_lane_endpoints.clear()
 
 func _now_sec() -> float:
 	return float(Time.get_ticks_usec()) / 1000000.0
@@ -321,8 +349,11 @@ func bind_units(snapshot: Array, units_version: int, sim_time_us: int) -> void:
 			"reason": "units_version_changed",
 			"units": snapshot.size()
 		}, 250)
-	_sync_unit_nodes(snapshot)
-	_update_unit_nodes_positions(snapshot)
+	var reconcile_t0_us: int = Time.get_ticks_usec()
+	var sync_profile: Dictionary = _sync_unit_nodes(snapshot)
+	var update_profile: Dictionary = _update_unit_nodes_positions(snapshot)
+	var reconcile_total_us: int = int(Time.get_ticks_usec() - reconcile_t0_us)
+	_log_reconcile_profile(snapshot, sync_profile, update_profile, reconcile_total_us, "bind_units")
 	_sync_swarm_nodes()
 	_request_redraw()
 
@@ -346,8 +377,11 @@ func set_units_snapshot(snapshot: Array, sim_time_us: int) -> void:
 			"reason": "units_signature_changed",
 			"units": snapshot.size()
 		}, 250)
-	_sync_unit_nodes(snapshot)
-	_update_unit_nodes_positions(snapshot)
+	var reconcile_t0_us: int = Time.get_ticks_usec()
+	var sync_profile: Dictionary = _sync_unit_nodes(snapshot)
+	var update_profile: Dictionary = _update_unit_nodes_positions(snapshot)
+	var reconcile_total_us: int = int(Time.get_ticks_usec() - reconcile_t0_us)
+	_log_reconcile_profile(snapshot, sync_profile, update_profile, reconcile_total_us, "set_units_snapshot")
 	_sync_swarm_nodes()
 	_request_redraw()
 
@@ -382,7 +416,100 @@ func _units_snapshot_signature(snapshot: Array) -> int:
 	sig = (sig * 31 + mix_sum) & 0x7fffffff
 	return sig
 
+func _us_to_ms(us: int) -> float:
+	return float(us) / 1000.0
+
+func _max_reconcile_step(step_ms: Dictionary) -> Dictionary:
+	var best_name: String = "none"
+	var best_ms: float = 0.0
+	for key_any in step_ms.keys():
+		var key: String = str(key_any)
+		var val: float = float(step_ms.get(key, 0.0))
+		if val > best_ms:
+			best_ms = val
+			best_name = key
+	return {
+		"name": best_name,
+		"ms": best_ms
+	}
+
+func _log_reconcile_profile(
+	snapshot: Array,
+	sync_profile: Dictionary,
+	update_profile: Dictionary,
+	reconcile_total_us: int,
+	source: String
+) -> void:
+	var current_count: int = snapshot.size()
+	var deaths_this_bind: int = maxi(0, _last_bound_units_count - current_count)
+	var total_ms: float = _us_to_ms(reconcile_total_us)
+	var step_ms: Dictionary = {
+		"scan": _us_to_ms(int(sync_profile.get("scan_us", 0))),
+		"stale": _us_to_ms(int(sync_profile.get("stale_us", 0))),
+		"create": _us_to_ms(int(sync_profile.get("create_us", 0))),
+		"prune": _us_to_ms(int(sync_profile.get("prune_us", 0))),
+		"hive_lookup": _us_to_ms(int(update_profile.get("hive_lookup_us", 0))),
+		"endpoint_eval": _us_to_ms(int(update_profile.get("endpoint_eval_us", 0))),
+		"group_scan": _us_to_ms(int(sync_profile.get("group_scan_us", 0))) + _us_to_ms(int(update_profile.get("group_scan_us", 0)))
+	}
+	if deaths_this_bind <= 0:
+		if _reconcile_baseline_samples <= 0:
+			_reconcile_baseline_ms = total_ms
+		else:
+			_reconcile_baseline_ms = lerpf(_reconcile_baseline_ms, total_ms, 0.10)
+		_reconcile_baseline_samples += 1
+	var max_step: Dictionary = _max_reconcile_step(step_ms)
+	var culprit_name: String = str(max_step.get("name", "none"))
+	var culprit_ms: float = float(max_step.get("ms", 0.0))
+	var now_ms: int = Time.get_ticks_msec()
+	if deaths_this_bind > 0:
+		if now_ms - _death_reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
+			_death_reconcile_last_log_ms = now_ms
+			var baseline_ms: float = _reconcile_baseline_ms if _reconcile_baseline_samples > 0 else total_ms
+			var extra_ms: float = maxf(0.0, total_ms - baseline_ms)
+			SFLog.warn("UNIT_DEATH_FRAME_MS", {
+				"source": source,
+				"deaths": deaths_this_bind,
+				"units_now": current_count,
+				"extra_ms": snapped(extra_ms, 0.01),
+				"total_ms": snapped(total_ms, 0.01),
+				"baseline_ms": snapped(baseline_ms, 0.01),
+				"culprit": culprit_name,
+				"culprit_ms": snapped(culprit_ms, 0.01),
+				"scan_ms": snapped(float(step_ms.get("scan", 0.0)), 0.01),
+				"stale_ms": snapped(float(step_ms.get("stale", 0.0)), 0.01),
+				"create_ms": snapped(float(step_ms.get("create", 0.0)), 0.01),
+				"prune_ms": snapped(float(step_ms.get("prune", 0.0)), 0.01),
+				"hive_lookup_ms": snapped(float(step_ms.get("hive_lookup", 0.0)), 0.01),
+				"endpoint_eval_ms": snapped(float(step_ms.get("endpoint_eval", 0.0)), 0.01),
+				"group_scan_ms": snapped(float(step_ms.get("group_scan", 0.0)), 0.01),
+				"group_scans": int(sync_profile.get("group_scan_n", 0)) + int(update_profile.get("group_scan_n", 0)),
+				"create_count": int(sync_profile.get("create_n", 0)),
+				"prune_count": int(sync_profile.get("prune_n", 0))
+			})
+	elif total_ms >= UNIT_RECONCILE_SLOW_MS and now_ms - _reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
+		_reconcile_last_log_ms = now_ms
+		SFLog.warn("UNIT_RECONCILE_SLOW", {
+			"source": source,
+			"units_now": current_count,
+			"total_ms": snapped(total_ms, 0.01),
+			"culprit": culprit_name,
+			"culprit_ms": snapped(culprit_ms, 0.01),
+			"scan_ms": snapped(float(step_ms.get("scan", 0.0)), 0.01),
+			"stale_ms": snapped(float(step_ms.get("stale", 0.0)), 0.01),
+			"create_ms": snapped(float(step_ms.get("create", 0.0)), 0.01),
+			"prune_ms": snapped(float(step_ms.get("prune", 0.0)), 0.01),
+			"hive_lookup_ms": snapped(float(step_ms.get("hive_lookup", 0.0)), 0.01),
+			"endpoint_eval_ms": snapped(float(step_ms.get("endpoint_eval", 0.0)), 0.01),
+			"group_scan_ms": snapped(float(step_ms.get("group_scan", 0.0)), 0.01),
+			"group_scans": int(sync_profile.get("group_scan_n", 0)) + int(update_profile.get("group_scan_n", 0)),
+			"create_count": int(sync_profile.get("create_n", 0)),
+			"prune_count": int(sync_profile.get("prune_n", 0))
+		})
+	_last_bound_units_count = current_count
+
 func set_hive_snapshot(hives: Array, force_rebuild: bool = false) -> void:
+	var t0_us: int = Time.get_ticks_usec()
 	var count: int = hives.size()
 	var sig: int = _hive_snapshot_signature(hives)
 	if not force_rebuild and count == _hive_cache_count and sig == _hive_key_sig:
@@ -398,7 +525,17 @@ func set_hive_snapshot(hives: Array, force_rebuild: bool = false) -> void:
 	_hive_cache_count = count
 	_hive_key_sig = sig
 	_hive_bind_version += 1
+	_invalidate_endpoint_caches()
 	_audit_mark_rebuild("hive_lookup_build")
+	var dt_ms: float = _us_to_ms(int(Time.get_ticks_usec() - t0_us))
+	var now_ms: int = Time.get_ticks_msec()
+	if dt_ms >= 1.0 and now_ms - _hive_lookup_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
+		_hive_lookup_last_log_ms = now_ms
+		SFLog.warn("UNIT_HIVE_LOOKUP_BUILD_MS", {
+			"hives": count,
+			"force_rebuild": force_rebuild,
+			"dt_ms": snapped(dt_ms, 0.01)
+		})
 
 func _hive_snapshot_signature(hives: Array) -> int:
 	var sig: int = hives.size()
@@ -420,6 +557,7 @@ func _hive_snapshot_signature(hives: Array) -> int:
 
 func set_hive_nodes(dict: Dictionary) -> void:
 	hive_nodes_by_id = dict
+	_invalidate_endpoint_caches()
 	_sync_swarm_nodes()
 	_request_redraw()
 
@@ -434,6 +572,12 @@ func clear_all() -> void:
 	_hive_cache_count = 0
 	_hive_bind_version = 0
 	_hive_key_sig = 0
+	_reconcile_baseline_ms = 0.0
+	_reconcile_baseline_samples = 0
+	_last_bound_units_count = 0
+	_reconcile_last_log_ms = 0
+	_death_reconcile_last_log_ms = 0
+	_invalidate_endpoint_caches()
 	_unit_missing_ticks.clear()
 	_unit_data_by_id.clear()
 	_unit_visual_by_id.clear()
@@ -443,10 +587,23 @@ func clear_all() -> void:
 	_clear_unit_nodes()
 	_request_redraw()
 
-func _sync_unit_nodes(units: Array) -> void:
+func _sync_unit_nodes(units: Array) -> Dictionary:
+	var profile: Dictionary = {
+		"scan_us": 0,
+		"create_us": 0,
+		"create_n": 0,
+		"stale_us": 0,
+		"prune_us": 0,
+		"prune_n": 0,
+		"group_scan_us": 0,
+		"group_scan_n": 0,
+		"total_us": 0
+	}
+	var total_t0_us: int = Time.get_ticks_usec()
 	if not units.is_empty():
 		_log_unit_space_once()
 	var seen_ids: Dictionary = {}
+	var scan_t0_us: int = Time.get_ticks_usec()
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
 			continue
@@ -458,6 +615,7 @@ func _sync_unit_nodes(units: Array) -> void:
 		_unit_missing_ticks.erase(unit_id)
 		_unit_data_by_id[unit_id] = ud
 		if not unit_nodes_by_id.has(unit_id):
+			var create_t0_us: int = Time.get_ticks_usec()
 			var node: Node2D = _pool_acquire()
 			if node == null:
 				continue
@@ -471,17 +629,24 @@ func _sync_unit_nodes(units: Array) -> void:
 			_audit_mark_rebuild("unit_node_create")
 			_ensure_unit_sprite(node)
 			_log_unit_sprite_tree(node, unit_id)
-			SFLog.info("UNIT_RENDER_CREATE", {
-				"unit_id": unit_id,
-				"owner_id": int(ud.get("owner_id", 0))
-			})
+			if debug_unit_logs and SFLog.verbose_sim:
+				SFLog.info("UNIT_RENDER_CREATE", {
+					"unit_id": unit_id,
+					"owner_id": int(ud.get("owner_id", 0))
+				})
+			profile["create_n"] = int(profile.get("create_n", 0)) + 1
+			profile["create_us"] = int(profile.get("create_us", 0)) + int(Time.get_ticks_usec() - create_t0_us)
+	profile["scan_us"] = int(Time.get_ticks_usec() - scan_t0_us)
+	var stale_t0_us: int = Time.get_ticks_usec()
 	for existing_id_any in unit_nodes_by_id.keys():
 		var existing_id: int = int(existing_id_any)
 		if seen_ids.has(existing_id):
 			continue
 		_unit_missing_ticks[existing_id] = int(_unit_missing_ticks.get(existing_id, 0)) + 1
 		_unit_data_by_id.erase(existing_id)
+	profile["stale_us"] = int(Time.get_ticks_usec() - stale_t0_us)
 	var missing_ids: Array = _unit_missing_ticks.keys()
+	var prune_t0_us: int = Time.get_ticks_usec()
 	for existing_id_any in missing_ids:
 		var existing_id: int = int(existing_id_any)
 		if seen_ids.has(existing_id):
@@ -495,19 +660,24 @@ func _sync_unit_nodes(units: Array) -> void:
 				continue
 			_audit_mark_rebuild("unit_node_prune")
 			_pool_release(node)
-			SFLog.info("UNIT_RENDER_PRUNE", {"unit_id": int(existing_id)})
+			if debug_unit_logs and SFLog.verbose_sim:
+				SFLog.info("UNIT_RENDER_PRUNE", {"unit_id": int(existing_id)})
+			profile["prune_n"] = int(profile.get("prune_n", 0)) + 1
 		_unit_missing_ticks.erase(existing_id)
 		_unit_data_by_id.erase(existing_id)
+	profile["prune_us"] = int(Time.get_ticks_usec() - prune_t0_us)
 	var model_count: int = units.size()
 	var live_count: int = unit_nodes_by_id.size()
 	if model_count != _last_model_units_count or live_count != _last_live_nodes_count:
 		_last_model_units_count = model_count
 		_last_live_nodes_count = live_count
 		if SFLog.verbose_sim:
-			SFLog.throttled_info("UNIT_RENDER_COUNTS", {
-				"model_units": units.size(),
-				"live_nodes": unit_nodes_by_id.size()
-			}, 500)
+				SFLog.throttled_info("UNIT_RENDER_COUNTS", {
+					"model_units": units.size(),
+					"live_nodes": unit_nodes_by_id.size()
+				}, 500)
+	profile["total_us"] = int(Time.get_ticks_usec() - total_t0_us)
+	return profile
 
 func _rebuild_unit_data_index(units: Array) -> void:
 	SFLog.info("UNIT_RENDER_REBUILD", {
@@ -541,11 +711,25 @@ func _clear_unit_nodes() -> void:
 	_unit_visual_by_id.clear()
 	_unit_samples_by_id.clear()
 
-func _update_unit_nodes_positions(units: Array) -> void:
+func _update_unit_nodes_positions(units: Array) -> Dictionary:
+	var profile: Dictionary = {
+		"hive_lookup_us": 0,
+		"endpoint_eval_us": 0,
+		"group_scan_us": 0,
+		"group_scan_n": 0,
+		"total_us": 0
+	}
+	var total_t0_us: int = Time.get_ticks_usec()
 	if units.is_empty():
-		return
+		profile["total_us"] = int(Time.get_ticks_usec() - total_t0_us)
+		return profile
+	var hive_lookup_t0_us: int = Time.get_ticks_usec()
 	var hive_by_id: Dictionary = _build_hive_by_id()
+	profile["hive_lookup_us"] = int(Time.get_ticks_usec() - hive_lookup_t0_us)
 	var registry: SpriteRegistry = _get_sprite_registry()
+	var endpoint_cache: Dictionary = _cached_lane_endpoints
+	var hive_anchor_cache: Dictionary = _cached_hive_anchor_info
+	var endpoint_t0_us: int = Time.get_ticks_usec()
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
 			continue
@@ -560,7 +744,7 @@ func _update_unit_nodes_positions(units: Array) -> void:
 		if sprite == null:
 			continue
 		_update_unit_sprite(node, ud, hive_by_id, registry, false)
-		_ingest_unit_sample(ud, hive_by_id, unit_id)
+		_ingest_unit_sample(ud, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache)
 		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
 		if typeof(state_any) == TYPE_DICTIONARY:
 			var state: Dictionary = state_any as Dictionary
@@ -569,15 +753,24 @@ func _update_unit_nodes_positions(units: Array) -> void:
 				if curr_pos_v is Vector2:
 					node.position = curr_pos_v as Vector2
 				node.rotation = float(state.get("curr_rot", node.rotation))
+	profile["endpoint_eval_us"] = int(Time.get_ticks_usec() - endpoint_t0_us)
+	profile["total_us"] = int(Time.get_ticks_usec() - total_t0_us)
+	return profile
 
 func _update_unit_visual_target(_node: Node2D, ud: Dictionary, hive_by_id: Dictionary, unit_id: int) -> void:
 	_ingest_unit_sample(ud, hive_by_id, unit_id)
 
-func _ingest_unit_sample(ud: Dictionary, hive_by_id: Dictionary, unit_id: int) -> void:
+func _ingest_unit_sample(
+	ud: Dictionary,
+	hive_by_id: Dictionary,
+	unit_id: int,
+	endpoint_cache: Variant = null,
+	hive_anchor_cache: Variant = null
+) -> void:
 	var lane_id: int = int(ud.get("lane_id", 0))
-	var sample_pos: Vector2 = _sample_unit_pos_map_local(ud, hive_by_id)
-	var sample_dir: Vector2 = _sample_unit_dir_map_local(ud, hive_by_id)
-	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id, endpoint_cache, hive_anchor_cache)
+	var sample_pos: Vector2 = _sample_unit_pos_from_endpoints(ud, endpoints)
+	var sample_dir: Vector2 = _sample_unit_dir_from_endpoints(ud, endpoints)
 	var target_t: float = clampf(float(ud.get("t", 0.0)), 0.0, 1.0)
 	var a_pos: Vector2 = sample_pos
 	var b_pos: Vector2 = sample_pos
@@ -643,6 +836,9 @@ func _ingest_unit_sample(ud: Dictionary, hive_by_id: Dictionary, unit_id: int) -
 
 func _sample_unit_pos_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Vector2:
 	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+	return _sample_unit_pos_from_endpoints(ud, endpoints)
+
+func _sample_unit_pos_from_endpoints(ud: Dictionary, endpoints: Dictionary) -> Vector2:
 	if bool(endpoints.get("ok", false)):
 		var a_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
 		var b_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
@@ -661,6 +857,9 @@ func _sample_unit_pos_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Vecto
 
 func _sample_unit_dir_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Vector2:
 	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+	return _sample_unit_dir_from_endpoints(ud, endpoints)
+
+func _sample_unit_dir_from_endpoints(ud: Dictionary, endpoints: Dictionary) -> Vector2:
 	if bool(endpoints.get("ok", false)):
 		var a_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
 		var b_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
@@ -670,35 +869,29 @@ func _sample_unit_dir_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Vecto
 			return axis.normalized() * float(sign)
 	return Vector2.RIGHT
 
-func _unit_path_endpoints_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Dictionary:
+func _unit_path_endpoints_map_local(
+	ud: Dictionary,
+	hive_by_id: Dictionary,
+	endpoint_cache: Variant = null,
+	hive_anchor_cache: Variant = null
+) -> Dictionary:
 	var from_pos_v: Variant = ud.get("from_pos", null)
 	var to_pos_v: Variant = ud.get("to_pos", null)
 	if from_pos_v is Vector2 and to_pos_v is Vector2:
 		return {"ok": true, "a": from_pos_v as Vector2, "b": to_pos_v as Vector2}
+	var unit_id: int = int(ud.get("id", -1))
 	var a_id: int = _resolve_id(ud.get("a_id", 0))
 	var b_id: int = _resolve_id(ud.get("b_id", 0))
 	if a_id > 0 and b_id > 0:
-		var a_center_v: Variant = _hive_center_map_local(a_id, hive_by_id)
-		var b_center_v: Variant = _hive_center_map_local(b_id, hive_by_id)
-		if a_center_v is Vector2 and b_center_v is Vector2:
-			var a_center: Vector2 = a_center_v as Vector2
-			var b_center: Vector2 = b_center_v as Vector2
-			var edge: Dictionary = GameState.lane_edge_points(a_center, b_center)
-			var a_edge: Vector2 = edge.get("a_edge", a_center)
-			var b_edge: Vector2 = edge.get("b_edge", b_center)
-			return {"ok": true, "a": a_edge, "b": b_edge}
+		var ab_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(a_id, b_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache)
+		if bool(ab_endpoints.get("ok", false)):
+			return ab_endpoints
 	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
 	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
 	if from_id > 0 and to_id > 0:
-		var from_center_v: Variant = _hive_center_map_local(from_id, hive_by_id)
-		var to_center_v: Variant = _hive_center_map_local(to_id, hive_by_id)
-		if from_center_v is Vector2 and to_center_v is Vector2:
-			var from_center: Vector2 = from_center_v as Vector2
-			var to_center: Vector2 = to_center_v as Vector2
-			var edge_ft: Dictionary = GameState.lane_edge_points(from_center, to_center)
-			var from_edge: Vector2 = edge_ft.get("a_edge", from_center)
-			var to_edge: Vector2 = edge_ft.get("b_edge", to_center)
-			return {"ok": true, "a": from_edge, "b": to_edge}
+		var ft_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(from_id, to_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache)
+		if bool(ft_endpoints.get("ok", false)):
+			return ft_endpoints
 	return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
 
 func _hive_center_map_local(hive_id: int, hive_by_id: Dictionary) -> Variant:
@@ -713,6 +906,141 @@ func _hive_center_map_local(hive_id: int, hive_by_id: Dictionary) -> Variant:
 		var gy: float = float(hd.get("y", 0.0))
 		return Vector2((gx + 0.5) * cell_size, (gy + 0.5) * cell_size)
 	return null
+
+func _hive_center_world_pos(hive_id: int, hive_by_id: Dictionary) -> Variant:
+	if hive_nodes_by_id.has(hive_id):
+		var node: Node2D = hive_nodes_by_id[hive_id]
+		if node != null:
+			return node.global_position
+	var center_local_v: Variant = _hive_center_map_local(hive_id, hive_by_id)
+	if center_local_v is Vector2:
+		return to_global(center_local_v as Vector2)
+	return null
+
+func _lane_anchor_local_from_center_world(hive_center_world: Vector2) -> Vector2:
+	var anchor_world: Vector2 = HiveNodeScript.lane_anchor_world_from_center(hive_center_world)
+	return to_local(anchor_world)
+
+func _maybe_log_unit_baseline_audit(
+	unit_id: int,
+	from_id: int,
+	to_id: int,
+	from_anchor_lane_local: Vector2,
+	to_anchor_lane_local: Vector2,
+	from_anchor_unit_local: Vector2,
+	to_anchor_unit_local: Vector2
+) -> void:
+	if unit_id <= 0:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if _last_baseline_audit_ms > 0 and now_ms - _last_baseline_audit_ms < UNIT_BASELINE_AUDIT_INTERVAL_MS:
+		return
+	_last_baseline_audit_ms = now_ms
+	SFLog.info("UNIT_BASELINE_AUDIT", {
+		"unit_id": unit_id,
+		"from_id": from_id,
+		"to_id": to_id,
+		"from_anchor_lane_local": from_anchor_lane_local,
+		"to_anchor_lane_local": to_anchor_lane_local,
+		"from_anchor_unit_local": from_anchor_unit_local,
+		"to_anchor_unit_local": to_anchor_unit_local
+	})
+
+func _resolve_hive_lane_anchor_info(hive_id: int, hive_by_id: Dictionary, hive_anchor_cache: Variant = null) -> Dictionary:
+	var cache: Dictionary = _cached_hive_anchor_info
+	if typeof(hive_anchor_cache) == TYPE_DICTIONARY:
+		cache = hive_anchor_cache as Dictionary
+	if cache.has(hive_id):
+		var cached_any: Variant = cache.get(hive_id, null)
+		if typeof(cached_any) == TYPE_DICTIONARY:
+			return cached_any as Dictionary
+	var fallback_unit_local: Vector2 = Vector2.ZERO
+	var has_anchor: bool = false
+	var center_world_v: Variant = _hive_center_world_pos(hive_id, hive_by_id)
+	if center_world_v is Vector2:
+		var center_world: Vector2 = center_world_v as Vector2
+		fallback_unit_local = _lane_anchor_local_from_center_world(center_world)
+		has_anchor = true
+	else:
+		var center_local_v: Variant = _hive_center_map_local(hive_id, hive_by_id)
+		if center_local_v is Vector2:
+			fallback_unit_local = center_local_v as Vector2
+			has_anchor = true
+	var lane_anchor_local: Vector2 = fallback_unit_local
+	var unit_anchor_local: Vector2 = fallback_unit_local
+	var lane_node: Node2D = null
+	if _lane_renderer != null and is_instance_valid(_lane_renderer):
+		if _lane_renderer is Node2D:
+			lane_node = _lane_renderer as Node2D
+	if lane_node != null:
+		var fallback_global: Vector2 = to_global(fallback_unit_local)
+		lane_anchor_local = lane_node.to_local(fallback_global)
+		unit_anchor_local = fallback_unit_local
+	var out: Dictionary = {
+		"ok": has_anchor,
+		"lane_local": lane_anchor_local,
+		"unit_local": unit_anchor_local
+	}
+	cache[hive_id] = out
+	return out
+
+func _lane_endpoints_map_local_from_hive_ids(
+	from_id: int,
+	to_id: int,
+	hive_by_id: Dictionary,
+	unit_id: int = -1,
+	endpoint_cache: Variant = null,
+	hive_anchor_cache: Variant = null
+) -> Dictionary:
+	var endpoint_cache_dict: Dictionary = _cached_lane_endpoints
+	if typeof(endpoint_cache) == TYPE_DICTIONARY:
+		endpoint_cache_dict = endpoint_cache as Dictionary
+	var key: String = "%d>%d" % [from_id, to_id]
+	if endpoint_cache_dict.has(key):
+		var cached_any: Variant = endpoint_cache_dict.get(key, null)
+		if typeof(cached_any) == TYPE_DICTIONARY:
+			var cached: Dictionary = cached_any as Dictionary
+			if bool(cached.get("ok", false)):
+				_maybe_log_unit_baseline_audit(
+					unit_id,
+					from_id,
+					to_id,
+					cached.get("from_lane_local", Vector2.ZERO),
+					cached.get("to_lane_local", Vector2.ZERO),
+					cached.get("a", Vector2.ZERO),
+					cached.get("b", Vector2.ZERO)
+				)
+			return cached
+	var from_info: Dictionary = _resolve_hive_lane_anchor_info(from_id, hive_by_id, hive_anchor_cache)
+	var to_info: Dictionary = _resolve_hive_lane_anchor_info(to_id, hive_by_id, hive_anchor_cache)
+	var from_ok: bool = bool(from_info.get("ok", false))
+	var to_ok: bool = bool(to_info.get("ok", false))
+	if not from_ok or not to_ok:
+		var miss: Dictionary = {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
+		endpoint_cache_dict[key] = miss
+		return miss
+	var from_lane_local: Vector2 = from_info.get("lane_local", Vector2.ZERO)
+	var to_lane_local: Vector2 = to_info.get("lane_local", Vector2.ZERO)
+	var from_unit_local: Vector2 = from_info.get("unit_local", Vector2.ZERO)
+	var to_unit_local: Vector2 = to_info.get("unit_local", Vector2.ZERO)
+	var out: Dictionary = {
+		"ok": true,
+		"a": from_unit_local,
+		"b": to_unit_local,
+		"from_lane_local": from_lane_local,
+		"to_lane_local": to_lane_local
+	}
+	endpoint_cache_dict[key] = out
+	_maybe_log_unit_baseline_audit(
+		unit_id,
+		from_id,
+		to_id,
+		from_lane_local,
+		to_lane_local,
+		from_unit_local,
+		to_unit_local
+	)
+	return out
 
 func _to_render_local(pos: Vector2) -> Vector2:
 	if _unit_space == "global":
@@ -1592,11 +1920,10 @@ func _unit_pos(u: Variant, hive_by_id: Dictionary) -> Array:
 		var a_id := _resolve_id(ud.get("a_id", 0))
 		var b_id := _resolve_id(ud.get("b_id", 0))
 		if a_id > 0 and b_id > 0 and ud.has("t"):
-			var a_pos_v: Variant = _hive_pos(a_id, hive_by_id)
-			var b_pos_v: Variant = _hive_pos(b_id, hive_by_id)
-			if typeof(a_pos_v) == TYPE_VECTOR2 and typeof(b_pos_v) == TYPE_VECTOR2:
-				var a_pos: Vector2 = a_pos_v as Vector2
-				var b_pos: Vector2 = b_pos_v as Vector2
+			var endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(a_id, b_id, hive_by_id)
+			if bool(endpoints.get("ok", false)):
+				var a_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
+				var b_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
 				var t: float = clampf(float(ud.get("t", 0.0)), 0.0, 1.0)
 				return [true, a_pos.lerp(b_pos, t)]
 		var wp: Variant = ud.get("wp")
@@ -1618,34 +1945,24 @@ func _unit_bobble_offset(ud: Dictionary, hive_by_id: Dictionary, sim_time_s: flo
 	var unit_id: int = int(ud.get("id", 0))
 	if unit_id <= 0:
 		return Vector2.ZERO
-	var dir := _unit_lane_dir(ud, hive_by_id)
+	var dir: Vector2 = _unit_lane_dir(ud, hive_by_id)
 	if dir == Vector2.ZERO:
 		return Vector2.ZERO
-	var normal := Vector2(-dir.y, dir.x)
-	var phase := _unit_phase(unit_id)
-	var amp := _unit_amp(unit_id)
-	var offset := sin(BOBBLE_OMEGA * sim_time_s + phase) * amp
-	return normal * offset
+	var normal: Vector2 = Vector2(-dir.y, dir.x)
+	var phase: float = _unit_phase(unit_id)
+	var amp: float = _unit_amp(unit_id)
+	var offset: float = sin(BOBBLE_OMEGA * sim_time_s + phase) * amp
+	var off: Vector2 = normal * offset
+	off.y = clampf(off.y, -BOBBLE_Y_CLAMP_PX, BOBBLE_Y_CLAMP_PX)
+	return off
 
 func _unit_lane_dir(ud: Dictionary, hive_by_id: Dictionary) -> Vector2:
-	var from_pos: Vector2 = Vector2.ZERO
-	var to_pos: Vector2 = Vector2.ZERO
-	var from_pos_v: Variant = ud.get("from_pos")
-	var to_pos_v: Variant = ud.get("to_pos")
-	if from_pos_v is Vector2 and to_pos_v is Vector2:
-		from_pos = from_pos_v
-		to_pos = to_pos_v
-	else:
-		var a_id := _resolve_id(ud.get("a_id", 0))
-		var b_id := _resolve_id(ud.get("b_id", 0))
-		var a_pos_v: Variant = _hive_pos(a_id, hive_by_id)
-		var b_pos_v: Variant = _hive_pos(b_id, hive_by_id)
-		if a_pos_v is Vector2 and b_pos_v is Vector2:
-			from_pos = a_pos_v
-			to_pos = b_pos_v
-		else:
-			return Vector2.ZERO
-	var delta := to_pos - from_pos
+	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+	if not bool(endpoints.get("ok", false)):
+		return Vector2.ZERO
+	var from_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
+	var to_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
+	var delta: Vector2 = to_pos - from_pos
 	if delta.length_squared() <= 0.0001:
 		return Vector2.ZERO
 	return delta.normalized()
@@ -1697,20 +2014,31 @@ func _unit_path_endpoints_world(ud: Dictionary, hive_by_id: Dictionary) -> Dicti
 		var a_world: Vector2 = _to_world_pos(from_pos_v as Vector2)
 		var b_world: Vector2 = _to_world_pos(to_pos_v as Vector2)
 		return {"ok": true, "a": a_world, "b": b_world}
+	var unit_id: int = int(ud.get("id", -1))
 	var a_id: int = _resolve_id(ud.get("a_id", 0))
 	var b_id: int = _resolve_id(ud.get("b_id", 0))
 	if a_id > 0 and b_id > 0:
-		var a_pos_v: Variant = _hive_world_pos(a_id, hive_by_id)
-		var b_pos_v: Variant = _hive_world_pos(b_id, hive_by_id)
-		if a_pos_v is Vector2 and b_pos_v is Vector2:
-			return {"ok": true, "a": a_pos_v as Vector2, "b": b_pos_v as Vector2}
+		var ab_local: Dictionary = _lane_endpoints_map_local_from_hive_ids(a_id, b_id, hive_by_id, unit_id)
+		if bool(ab_local.get("ok", false)):
+			var a_world_local: Vector2 = ab_local.get("a", Vector2.ZERO)
+			var b_world_local: Vector2 = ab_local.get("b", Vector2.ZERO)
+			return {
+				"ok": true,
+				"a": _to_world_pos(a_world_local),
+				"b": _to_world_pos(b_world_local)
+			}
 	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
 	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
 	if from_id > 0 and to_id > 0:
-		var from_pos_w: Variant = _hive_world_pos(from_id, hive_by_id)
-		var to_pos_w: Variant = _hive_world_pos(to_id, hive_by_id)
-		if from_pos_w is Vector2 and to_pos_w is Vector2:
-			return {"ok": true, "a": from_pos_w as Vector2, "b": to_pos_w as Vector2}
+		var ft_local: Dictionary = _lane_endpoints_map_local_from_hive_ids(from_id, to_id, hive_by_id, unit_id)
+		if bool(ft_local.get("ok", false)):
+			var from_local: Vector2 = ft_local.get("a", Vector2.ZERO)
+			var to_local_v: Vector2 = ft_local.get("b", Vector2.ZERO)
+			return {
+				"ok": true,
+				"a": _to_world_pos(from_local),
+				"b": _to_world_pos(to_local_v)
+			}
 	return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
 
 func _unit_phase(unit_id: int) -> float:
