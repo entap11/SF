@@ -256,10 +256,19 @@ var _dbg_last_event: String = ""
 var _dbg_last_event_ms: int = 0
 var _dbg_last_hitch_ms: int = 0
 var _render_assets_prewarmed: bool = false
+var _hb_last_ms: int = 0
+var _hb_frames: int = 0
+var _hb_max_frame_ms: float = 0.0
+var _hb_sum_frame_ms: float = 0.0
+var _hb_phys: int = 0
+var _hb_max_phys_ms: float = 0.0
+var _hb_sum_phys_ms: float = 0.0
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	SFLog.allow_tag("ARENA_FRAME_HEARTBEAT")
+	set_physics_process(true)
 	set_process_unhandled_input(false)
 	SFLog.info("ARENA_SCRIPT", {"path": get_script().resource_path})
 	SFLog.info("ARENA_READY", {"process": is_processing()})
@@ -1531,6 +1540,8 @@ func start_sim() -> void:
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
+	_hb_record_frame(delta)
+	_hb_maybe_flush()
 	_maybe_log_frame_hitch(delta)
 	_update_prematch_flow(delta)
 	if input_system != null:
@@ -1545,6 +1556,60 @@ func _process(delta: float) -> void:
 	_update_win_overlay()
 	_update_selection_hud()
 	_update_buff_ui()
+
+func _physics_process(delta: float) -> void:
+	if Engine.is_editor_hint():
+		return
+	_hb_record_physics(delta)
+
+func _hb_record_frame(delta: float) -> void:
+	var frame_ms: float = delta * 1000.0
+	_hb_frames += 1
+	_hb_sum_frame_ms += frame_ms
+	if frame_ms > _hb_max_frame_ms:
+		_hb_max_frame_ms = frame_ms
+
+func _hb_record_physics(delta: float) -> void:
+	var phys_ms: float = delta * 1000.0
+	_hb_phys += 1
+	_hb_sum_phys_ms += phys_ms
+	if phys_ms > _hb_max_phys_ms:
+		_hb_max_phys_ms = phys_ms
+
+func _hb_maybe_flush() -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	if _hb_last_ms <= 0:
+		_hb_last_ms = now_ms
+		return
+	var window_ms: int = now_ms - _hb_last_ms
+	if window_ms < 1000:
+		return
+	var frames: int = _hb_frames
+	var avg_frame_ms: float = 0.0
+	var fps_est: float = 0.0
+	if frames > 0:
+		avg_frame_ms = _hb_sum_frame_ms / float(frames)
+		fps_est = (float(frames) * 1000.0) / float(window_ms)
+	var phys_ticks: int = _hb_phys
+	var avg_phys_ms: float = 0.0
+	if phys_ticks > 0:
+		avg_phys_ms = _hb_sum_phys_ms / float(phys_ticks)
+	SFLog.info("ARENA_FRAME_HEARTBEAT", {
+		"frames": frames,
+		"fps": snapped(fps_est, 0.1),
+		"max_frame_ms": snapped(_hb_max_frame_ms, 0.1),
+		"avg_frame_ms": snapped(avg_frame_ms, 0.1),
+		"physics_ticks": phys_ticks,
+		"max_physics_ms": snapped(_hb_max_phys_ms, 0.1),
+		"avg_physics_ms": snapped(avg_phys_ms, 0.1)
+	})
+	_hb_last_ms = now_ms
+	_hb_frames = 0
+	_hb_max_frame_ms = 0.0
+	_hb_sum_frame_ms = 0.0
+	_hb_phys = 0
+	_hb_max_phys_ms = 0.0
+	_hb_sum_phys_ms = 0.0
 
 func _update_power_bar(delta: float) -> void:
 	if power_bar == null:
@@ -2249,6 +2314,8 @@ func export_render_model() -> Dictionary:
 		"barracks_select_targets": barracks_select_targets.duplicate(),
 		"render_version": render_version,
 		"sim_time_s": sim_time_s,
+		"units_set_version": int(state.units_set_version) if state != null else 0,
+		"hives_set_version": int(state.hives_set_version) if state != null else 0,
 		"iid": int(state.get_instance_id()) if state != null else -1
 
 	}
@@ -2295,6 +2362,17 @@ func _push_render_model() -> void:
 			unit_r.call("set_model", rm)
 		else:
 			unit_r.set("model", rm)
+		var hives_v: Variant = rm.get("hives", [])
+		var hives_arr: Array = hives_v as Array if typeof(hives_v) == TYPE_ARRAY else []
+		var units_v: Variant = rm.get("units", [])
+		var units_arr: Array = units_v as Array if typeof(units_v) == TYPE_ARRAY else []
+		var hives_version: int = int(rm.get("hives_set_version", -1))
+		var units_version: int = int(rm.get("units_set_version", -1))
+		var sim_time_us_out: int = int(round(float(rm.get("sim_time_s", 0.0)) * 1000000.0))
+		if unit_r.has_method("bind_hives"):
+			unit_r.call("bind_hives", hives_arr, hives_version)
+		if unit_r.has_method("bind_units"):
+			unit_r.call("bind_units", units_arr, units_version, sim_time_us_out)
 		if hive_r != null and unit_r.has_method("set_hive_nodes") and hive_r.has_method("get_hive_nodes_by_id"):
 			unit_r.call("set_hive_nodes", hive_r.call("get_hive_nodes_by_id"))
 		unit_r.queue_redraw()

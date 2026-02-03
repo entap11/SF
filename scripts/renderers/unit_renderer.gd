@@ -18,7 +18,6 @@ var _swarm_texture: Texture2D = null
 var _sprite_registry: SpriteRegistry = null
 var _colorkey_materials: Dictionary = {}
 var _unit_material_by_sprite: Dictionary = {}
-var _unit_material_by_instance: Dictionary = {}
 var _unit_team_color_logged: Dictionary = {}
 var _unit_tint_target_logged: Dictionary = {}
 var _unit_material_cleared_logged: Dictionary = {}
@@ -56,9 +55,11 @@ const DBG_BUTTER: bool = false
 const DBG_BUTTER_LOG_INTERVAL_MS: int = 1000
 const DBG_FORCE_CONSTANT_VISUAL_MOTION: bool = false
 const DBG_VISUAL_SPEED: float = 0.35
+const AUDIT_RENDER: bool = true
 const USE_UNIT_POOL: bool = true
 const UNIT_POOL_SIZE_PER_TEAM: int = 64
 const UNIT_POOL_OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
+const PRUNE_AFTER_TICKS: int = 2
 
 @export var debug_unit_logs: bool = false
 @export var debug_unit_owner_labels: bool = false
@@ -79,8 +80,32 @@ var _diag_visual_phase_by_id: Dictionary = {}
 var _unit_pool: Array[Node2D] = []
 var _unit_in_use: Dictionary = {}
 var _pooled_nodes: Dictionary = {}
+var _audit_last_ms: int = 0
+var _audit_draw_ops: int = 0
+var _audit_mat_sets: int = 0
+var _audit_rebuilds: int = 0
+var _audit_units_peak: int = 0
+var _audit_frames: int = 0
+var _audit_material_assigns: int = 0
+var _audit_modulate_sets: int = 0
+var _audit_mat_key_counts: Dictionary = {}
+var _audit_rebuild_counts: Dictionary = {}
+var _last_units_snapshot: Array = []
+var _last_units_snapshot_size: int = -1
+var _last_units_snapshot_sig: int = 0
+var _bound_units_version: int = -1
+var _bound_hives_version: int = -1
+var _hive_by_id_cache: Dictionary = {}
+var _hive_cache_count: int = 0
+var _hive_bind_version: int = 0
+var _hive_key_sig: int = 0
+var _unit_missing_ticks: Dictionary = {}
 
 func _ready() -> void:
+	SFLog.allow_tag("RENDER_AUDIT_UNITS")
+	SFLog.allow_tag("RENDER_AUDIT_UNITS_TOP_MAT_KEYS")
+	SFLog.allow_tag("RENDER_AUDIT_UNITS_REBUILDS")
+	SFLog.allow_tag("UNIT_RENDER_REBUILD")
 	_pool_build()
 	_apply_debug_force_top_z()
 	_request_redraw()
@@ -158,7 +183,7 @@ func _pool_acquire() -> Node2D:
 	_pooled_nodes.erase(node)
 	if not _assert_not_freed(node):
 		return null
-	node.visible = true
+	node.visible = false
 	if not _assert_not_freed(node):
 		return null
 	node.process_mode = Node.PROCESS_MODE_INHERIT
@@ -175,6 +200,8 @@ func _pool_release(node: Node2D) -> void:
 	var unit_id: int = _tracked_unit_id_for_node(node)
 	if unit_id > 0:
 		unit_nodes_by_id.erase(unit_id)
+		_unit_missing_ticks.erase(unit_id)
+		_unit_data_by_id.erase(unit_id)
 		_unit_in_use.erase(unit_id)
 		_unit_visual_by_id.erase(unit_id)
 		_unit_samples_by_id.erase(unit_id)
@@ -183,10 +210,14 @@ func _pool_release(node: Node2D) -> void:
 	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
 	if sprite != null:
 		sprite.texture = null
+		if AUDIT_RENDER and sprite.material != null:
+			_audit_material_assigns += 1
 		sprite.material = null
 		sprite.position = Vector2.ZERO
 		sprite.scale = Vector2.ONE
 		sprite.rotation = 0.0
+		if AUDIT_RENDER:
+			_audit_modulate_sets += 1
 		sprite.self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 		sprite.visible = false
 	if not _assert_not_freed(node):
@@ -248,23 +279,55 @@ func _release_prewarm_unit_next_frame(node: Node2D) -> void:
 
 func set_model(m: Dictionary) -> void:
 	model = m
+	var units_version: int = int(model.get("units_set_version", -1))
+	var hives_version: int = int(model.get("hives_set_version", -1))
+	if units_version >= 0 or hives_version >= 0:
+		return
 	var units_v: Variant = model.get("units", [])
 	var units_arr: Array = []
 	if typeof(units_v) == TYPE_ARRAY:
 		units_arr = units_v as Array
-	_units = units_arr
-	_rebuild_unit_data_index(units_arr)
-	_sync_unit_nodes(units_arr)
-	_update_unit_nodes_positions(units_arr)
+	var hives_v: Variant = model.get("hives", [])
+	var hives_arr: Array = []
+	if typeof(hives_v) == TYPE_ARRAY:
+		hives_arr = hives_v as Array
+	if not hives_arr.is_empty():
+		set_hive_snapshot(hives_arr)
+	set_units_snapshot(units_arr, Time.get_ticks_usec())
+
+func bind_hives(hives: Array, hives_version: int) -> void:
+	if hives_version >= 0:
+		if hives_version == _bound_hives_version:
+			return
+		_bound_hives_version = hives_version
+		set_hive_snapshot(hives, true)
+		return
+	set_hive_snapshot(hives, false)
+
+func bind_units(snapshot: Array, units_version: int, sim_time_us: int) -> void:
+	if units_version < 0:
+		set_units_snapshot(snapshot, sim_time_us)
+		return
+	_units = snapshot
+	model["units"] = snapshot
+	model["sim_time_s"] = float(sim_time_us) / 1000000.0
+	var structure_changed: bool = units_version != _bound_units_version
+	_bound_units_version = units_version
+	_last_units_snapshot = snapshot
+	_last_units_snapshot_size = snapshot.size()
+	_last_units_snapshot_sig = _units_snapshot_signature(snapshot)
+	if structure_changed:
+		SFLog.throttled_info("UNIT_RENDER_REBUILD", {
+			"reason": "units_version_changed",
+			"units": snapshot.size()
+		}, 250)
+	_sync_unit_nodes(snapshot)
+	_update_unit_nodes_positions(snapshot)
 	_sync_swarm_nodes()
 	_request_redraw()
 
 func set_units(units: Array) -> void:
-	_units = units
-	model["units"] = units
-	_rebuild_unit_data_index(units)
-	_sync_unit_nodes(units)
-	_update_unit_nodes_positions(units)
+	set_units_snapshot(units, Time.get_ticks_usec())
 	var c := units.size()
 	if debug_unit_logs and c != _last_set_count:
 		_last_set_count = c
@@ -272,7 +335,88 @@ func set_units(units: Array) -> void:
 		if now_ms - _last_set_log_ms >= UNIT_LOG_INTERVAL_MS:
 			_last_set_log_ms = now_ms
 			SFLog.info("UNIT_RENDERER_SET", {"count": c})
+
+func set_units_snapshot(snapshot: Array, sim_time_us: int) -> void:
+	_units = snapshot
+	model["units"] = snapshot
+	model["sim_time_s"] = float(sim_time_us) / 1000000.0
+	var structure_changed: bool = _consume_units_snapshot_signature(snapshot)
+	if structure_changed:
+		SFLog.throttled_info("UNIT_RENDER_REBUILD", {
+			"reason": "units_signature_changed",
+			"units": snapshot.size()
+		}, 250)
+	_sync_unit_nodes(snapshot)
+	_update_unit_nodes_positions(snapshot)
+	_sync_swarm_nodes()
 	_request_redraw()
+
+func _consume_units_snapshot_signature(snapshot: Array) -> bool:
+	var size_now: int = snapshot.size()
+	var sig_now: int = _units_snapshot_signature(snapshot)
+	var size_changed: bool = size_now != _last_units_snapshot_size
+	var sig_changed: bool = sig_now != _last_units_snapshot_sig
+	_last_units_snapshot = snapshot
+	_last_units_snapshot_size = size_now
+	_last_units_snapshot_sig = sig_now
+	return size_changed or sig_changed
+
+func _units_snapshot_signature(snapshot: Array) -> int:
+	var count: int = snapshot.size()
+	var all_xor: int = 0
+	var sum_ids: int = 0
+	var mix_sum: int = 0
+	for i in range(count):
+		var unit_any: Variant = snapshot[i]
+		var unit_id: int = -1
+		if typeof(unit_any) == TYPE_DICTIONARY:
+			var ud: Dictionary = unit_any as Dictionary
+			unit_id = int(ud.get("id", -1))
+		all_xor = all_xor ^ unit_id
+		sum_ids = (sum_ids + unit_id) & 0x7fffffff
+		var unit_mix: int = int((int(unit_id) * 2654435761) & 0x7fffffff)
+		mix_sum = (mix_sum + unit_mix) & 0x7fffffff
+	var sig: int = count
+	sig = (sig * 31 + all_xor) & 0x7fffffff
+	sig = (sig * 31 + sum_ids) & 0x7fffffff
+	sig = (sig * 31 + mix_sum) & 0x7fffffff
+	return sig
+
+func set_hive_snapshot(hives: Array, force_rebuild: bool = false) -> void:
+	var count: int = hives.size()
+	var sig: int = _hive_snapshot_signature(hives)
+	if not force_rebuild and count == _hive_cache_count and sig == _hive_key_sig:
+		return
+	_hive_by_id_cache.clear()
+	for h in hives:
+		if typeof(h) != TYPE_DICTIONARY:
+			continue
+		var hd: Dictionary = h as Dictionary
+		var id_str: String = str(hd.get("id", ""))
+		if id_str.is_valid_int():
+			_hive_by_id_cache[int(id_str)] = hd
+	_hive_cache_count = count
+	_hive_key_sig = sig
+	_hive_bind_version += 1
+	_audit_mark_rebuild("hive_lookup_build")
+
+func _hive_snapshot_signature(hives: Array) -> int:
+	var sig: int = hives.size()
+	var xor_ids: int = 0
+	var sample_n: int = mini(8, hives.size())
+	var edge_xor: int = 0
+	for i in range(hives.size()):
+		var hive_any: Variant = hives[i]
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hd: Dictionary = hive_any as Dictionary
+		var hive_id: int = int(hd.get("id", -1))
+		xor_ids = xor_ids ^ hive_id
+		if i < sample_n or i >= hives.size() - sample_n:
+			edge_xor = edge_xor ^ hive_id
+	sig = (sig * 31 + xor_ids) & 0x7fffffff
+	sig = (sig * 31 + edge_xor) & 0x7fffffff
+	return sig
 
 func set_hive_nodes(dict: Dictionary) -> void:
 	hive_nodes_by_id = dict
@@ -281,6 +425,16 @@ func set_hive_nodes(dict: Dictionary) -> void:
 
 func clear_all() -> void:
 	model = {}
+	_last_units_snapshot = []
+	_last_units_snapshot_size = -1
+	_last_units_snapshot_sig = 0
+	_bound_units_version = -1
+	_bound_hives_version = -1
+	_hive_by_id_cache.clear()
+	_hive_cache_count = 0
+	_hive_bind_version = 0
+	_hive_key_sig = 0
+	_unit_missing_ticks.clear()
 	_unit_data_by_id.clear()
 	_unit_visual_by_id.clear()
 	_unit_samples_by_id.clear()
@@ -290,9 +444,9 @@ func clear_all() -> void:
 	_request_redraw()
 
 func _sync_unit_nodes(units: Array) -> void:
-	var present: Dictionary = {}
 	if not units.is_empty():
 		_log_unit_space_once()
+	var seen_ids: Dictionary = {}
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
 			continue
@@ -300,7 +454,9 @@ func _sync_unit_nodes(units: Array) -> void:
 		var unit_id: int = int(ud.get("id", -1))
 		if unit_id <= 0:
 			continue
-		present[unit_id] = true
+		seen_ids[unit_id] = true
+		_unit_missing_ticks.erase(unit_id)
+		_unit_data_by_id[unit_id] = ud
 		if not unit_nodes_by_id.has(unit_id):
 			var node: Node2D = _pool_acquire()
 			if node == null:
@@ -312,22 +468,36 @@ func _sync_unit_nodes(units: Array) -> void:
 			node.z_index = 0
 			unit_nodes_by_id[unit_id] = node
 			_unit_in_use[unit_id] = node
+			_audit_mark_rebuild("unit_node_create")
 			_ensure_unit_sprite(node)
 			_log_unit_sprite_tree(node, unit_id)
 			SFLog.info("UNIT_RENDER_CREATE", {
 				"unit_id": unit_id,
 				"owner_id": int(ud.get("owner_id", 0))
 			})
-	var existing_ids: Array = unit_nodes_by_id.keys()
-	for existing_id in existing_ids:
-		if present.has(existing_id):
+	for existing_id_any in unit_nodes_by_id.keys():
+		var existing_id: int = int(existing_id_any)
+		if seen_ids.has(existing_id):
+			continue
+		_unit_missing_ticks[existing_id] = int(_unit_missing_ticks.get(existing_id, 0)) + 1
+		_unit_data_by_id.erase(existing_id)
+	var missing_ids: Array = _unit_missing_ticks.keys()
+	for existing_id_any in missing_ids:
+		var existing_id: int = int(existing_id_any)
+		if seen_ids.has(existing_id):
+			continue
+		var missing_ticks: int = int(_unit_missing_ticks.get(existing_id, 0))
+		if missing_ticks < PRUNE_AFTER_TICKS:
 			continue
 		var node: Node2D = unit_nodes_by_id.get(existing_id, null)
 		if node != null:
 			if not _assert_not_freed(node):
 				continue
+			_audit_mark_rebuild("unit_node_prune")
 			_pool_release(node)
 			SFLog.info("UNIT_RENDER_PRUNE", {"unit_id": int(existing_id)})
+		_unit_missing_ticks.erase(existing_id)
+		_unit_data_by_id.erase(existing_id)
 	var model_count: int = units.size()
 	var live_count: int = unit_nodes_by_id.size()
 	if model_count != _last_model_units_count or live_count != _last_live_nodes_count:
@@ -340,6 +510,11 @@ func _sync_unit_nodes(units: Array) -> void:
 			}, 500)
 
 func _rebuild_unit_data_index(units: Array) -> void:
+	SFLog.info("UNIT_RENDER_REBUILD", {
+		"reason": "unit_data_index",
+		"units": units.size()
+	})
+	_audit_mark_rebuild("unit_data_index")
 	_unit_data_by_id.clear()
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
@@ -352,6 +527,8 @@ func _rebuild_unit_data_index(units: Array) -> void:
 
 func _clear_unit_nodes() -> void:
 	var existing_ids: Array = unit_nodes_by_id.keys()
+	if not existing_ids.is_empty():
+		_audit_mark_rebuild("unit_nodes_clear", existing_ids.size())
 	for existing_id in existing_ids:
 		var node: Node2D = unit_nodes_by_id.get(existing_id, null)
 		if node != null:
@@ -359,6 +536,7 @@ func _clear_unit_nodes() -> void:
 				continue
 			_pool_release(node)
 	unit_nodes_by_id.clear()
+	_unit_missing_ticks.clear()
 	_unit_in_use.clear()
 	_unit_visual_by_id.clear()
 	_unit_samples_by_id.clear()
@@ -383,6 +561,14 @@ func _update_unit_nodes_positions(units: Array) -> void:
 			continue
 		_update_unit_sprite(node, ud, hive_by_id, registry, false)
 		_ingest_unit_sample(ud, hive_by_id, unit_id)
+		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+		if typeof(state_any) == TYPE_DICTIONARY:
+			var state: Dictionary = state_any as Dictionary
+			if bool(state.get("just_spawned", false)):
+				var curr_pos_v: Variant = state.get("curr_pos", null)
+				if curr_pos_v is Vector2:
+					node.position = curr_pos_v as Vector2
+				node.rotation = float(state.get("curr_rot", node.rotation))
 
 func _update_unit_visual_target(_node: Node2D, ud: Dictionary, hive_by_id: Dictionary, unit_id: int) -> void:
 	_ingest_unit_sample(ud, hive_by_id, unit_id)
@@ -398,11 +584,20 @@ func _ingest_unit_sample(ud: Dictionary, hive_by_id: Dictionary, unit_id: int) -
 	if bool(endpoints.get("ok", false)):
 		a_pos = endpoints.get("a", sample_pos)
 		b_pos = endpoints.get("b", sample_pos)
+	var sample_time_us: int = Time.get_ticks_usec()
+	var sample_time_s: float = float(sample_time_us) / 1000000.0
+	var sample_dir_norm: Vector2 = sample_dir
+	if sample_dir_norm.length_squared() <= 0.000001:
+		sample_dir_norm = Vector2.RIGHT
+	else:
+		sample_dir_norm = sample_dir_norm.normalized()
+	var sample_rot: float = sample_dir_norm.angle() + deg_to_rad(UNIT_SPRITE_FORWARD_DEG)
 	var s_new: Dictionary = {
 		"t": target_t,
 		"a": a_pos,
 		"b": b_pos,
-		"ts": _now_sec()
+		"ts": sample_time_s,
+		"ts_us": sample_time_us
 	}
 	var buf_any: Variant = _unit_samples_by_id.get(unit_id, null)
 	var buf: Dictionary = {}
@@ -426,12 +621,24 @@ func _ingest_unit_sample(ud: Dictionary, hive_by_id: Dictionary, unit_id: int) -
 	if entry.is_empty():
 		entry["prev_pos"] = sample_pos
 		entry["curr_pos"] = sample_pos
+		entry["prev_time_us"] = sample_time_us
+		entry["curr_time_us"] = sample_time_us
+		entry["prev_rot"] = sample_rot
+		entry["curr_rot"] = sample_rot
+		entry["render_pos"] = sample_pos
+		entry["just_spawned"] = true
 	else:
 		var curr_pos: Vector2 = entry.get("curr_pos", sample_pos)
 		entry["prev_pos"] = curr_pos
 		entry["curr_pos"] = sample_pos
+		var curr_time_us: int = int(entry.get("curr_time_us", sample_time_us))
+		entry["prev_time_us"] = curr_time_us
+		entry["curr_time_us"] = sample_time_us
+		var curr_rot: float = float(entry.get("curr_rot", sample_rot))
+		entry["prev_rot"] = curr_rot
+		entry["curr_rot"] = sample_rot
 	entry["lane_id"] = lane_id
-	entry["dir"] = sample_dir
+	entry["dir"] = sample_dir_norm
 	_unit_visual_by_id[unit_id] = entry
 
 func _sample_unit_pos_map_local(ud: Dictionary, hive_by_id: Dictionary) -> Vector2:
@@ -513,17 +720,11 @@ func _to_render_local(pos: Vector2) -> Vector2:
 	return pos
 
 func _build_hive_by_id() -> Dictionary:
-	var hive_by_id: Dictionary = {}
-	var hives_v: Variant = model.get("hives", [])
-	if typeof(hives_v) == TYPE_ARRAY:
-		for h in hives_v as Array:
-			if typeof(h) != TYPE_DICTIONARY:
-				continue
-			var hd: Dictionary = h as Dictionary
-			var id_str := str(hd.get("id", ""))
-			if id_str.is_valid_int():
-				hive_by_id[int(id_str)] = hd
-	return hive_by_id
+	if _hive_bind_version == 0:
+		var hives_v: Variant = model.get("hives", [])
+		if typeof(hives_v) == TYPE_ARRAY:
+			set_hive_snapshot(hives_v as Array)
+	return _hive_by_id_cache
 
 func _unit_pos_in_space(u: Variant, hive_by_id: Dictionary) -> Variant:
 	var pos_result: Array = _unit_pos(u, hive_by_id)
@@ -685,6 +886,8 @@ func _update_unit_sprite(
 					"fallback_path": neutral_path
 				})
 	if tex == null:
+		node.visible = false
+		sprite.visible = false
 		return
 	var resolved_path := tex.resource_path
 	if resolved_path.is_empty():
@@ -694,12 +897,22 @@ func _update_unit_sprite(
 		sprite.texture = tex
 	var team_color: Color = _owner_color(owner_id)
 	team_color.a = UNIT_COLOR.a
-	sprite.self_modulate = team_color
-	var mat := _ensure_unit_colorkey_material(sprite, sprite_key, registry, owner_id, unit_id, team_color)
-	if mat != null:
-		sprite.material = mat
-	if sprite.material is ShaderMaterial and sprite.material.shader == COLORKEY_SHADER and tex.resource_path.is_empty():
-		sprite.material = null
+	if _color_changed(sprite.self_modulate, team_color):
+		if AUDIT_RENDER:
+			_audit_modulate_sets += 1
+		sprite.self_modulate = team_color
+	var has_resource_path: bool = not tex.resource_path.is_empty()
+	if has_resource_path:
+		var mat: ShaderMaterial = _ensure_unit_colorkey_material(sprite, sprite_key, registry, owner_id, unit_id)
+		if mat != null and sprite.material != mat:
+			if AUDIT_RENDER:
+				_audit_material_assigns += 1
+			sprite.material = mat
+	else:
+		if sprite.material != null:
+			if AUDIT_RENDER:
+				_audit_material_assigns += 1
+			sprite.material = null
 		if debug_unit_logs and unit_id > 0 and not _unit_material_cleared_logged.has(unit_id):
 			_unit_material_cleared_logged[unit_id] = true
 			SFLog.info("UNIT_MATERIAL_CLEARED_FOR_TINT", {
@@ -731,7 +944,7 @@ func _update_unit_sprite(
 		SFLog.info("UNIT_COLKEY_APPLIED", {
 			"node": str(sprite.get_path()),
 			"node_class": sprite.get_class(),
-			"ok": mat != null,
+			"ok": sprite.material != null,
 			"key": sprite_key
 		})
 		SFLog.info("UNIT_TINT_TARGET", {
@@ -749,6 +962,7 @@ func _update_unit_sprite(
 	if apply_orientation:
 		var lane_id: int = int(ud.get("lane_id", 0))
 		_apply_unit_orientation(node, sprite, ud, hive_by_id, unit_id, owner_id, lane_id)
+	node.visible = true
 	sprite.visible = not debug_draw_units
 
 func _apply_debug_force_top_z() -> void:
@@ -851,6 +1065,115 @@ func _process(delta: float) -> void:
 		_last_redraw_ms = now_ms
 		_pending_redraw = false
 		queue_redraw()
+	_audit_render_maybe_flush()
+
+func _audit_render_maybe_flush() -> void:
+	if not AUDIT_RENDER:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if _audit_last_ms <= 0:
+		_audit_last_ms = now_ms
+		return
+	_audit_frames += 1
+	var active_units: int = unit_nodes_by_id.size()
+	if active_units > _audit_units_peak:
+		_audit_units_peak = active_units
+	if now_ms - _audit_last_ms < 1000:
+		return
+	SFLog.info("RENDER_AUDIT_UNITS", {
+		"units": _audit_units_peak,
+		"draw_ops": _audit_draw_ops,
+		"mat_sets": _audit_mat_sets,
+		"rebuilds": _audit_rebuilds,
+		"material_sets": _audit_material_assigns,
+		"modulate_sets": _audit_modulate_sets
+	})
+	var top_mat_entries: Array = _audit_top_entries(_audit_mat_key_counts, 5)
+	SFLog.info("RENDER_AUDIT_UNITS_TOP_MAT_KEYS", {
+		"total_mat_sets": _audit_mat_sets,
+		"top": top_mat_entries
+	})
+	var rebuild_entries: Array = _audit_top_entries(_audit_rebuild_counts, 5)
+	SFLog.info("RENDER_AUDIT_UNITS_REBUILDS", {
+		"total_rebuilds": _audit_rebuilds,
+		"rebuilds": rebuild_entries
+	})
+	_audit_last_ms = now_ms
+	_audit_draw_ops = 0
+	_audit_mat_sets = 0
+	_audit_rebuilds = 0
+	_audit_units_peak = 0
+	_audit_frames = 0
+	_audit_material_assigns = 0
+	_audit_modulate_sets = 0
+	_audit_mat_key_counts.clear()
+	_audit_rebuild_counts.clear()
+
+func _audit_inc_count(bucket: Dictionary, key: String, amount: int = 1) -> void:
+	if not AUDIT_RENDER:
+		return
+	if key.is_empty() or amount <= 0:
+		return
+	bucket[key] = int(bucket.get(key, 0)) + amount
+
+func _audit_mark_rebuild(reason: String, amount: int = 1) -> void:
+	if not AUDIT_RENDER:
+		return
+	if reason.is_empty() or amount <= 0:
+		return
+	_audit_rebuilds += amount
+	_audit_inc_count(_audit_rebuild_counts, reason, amount)
+
+func _audit_top_entries(bucket: Dictionary, max_items: int) -> Array:
+	var result: Array = []
+	if bucket.is_empty() or max_items <= 0:
+		return result
+	var top_keys: Array = []
+	var top_values: Array = []
+	for key_any in bucket.keys():
+		var key: String = str(key_any)
+		var value: int = int(bucket.get(key, 0))
+		if value <= 0:
+			continue
+		var inserted: bool = false
+		var idx: int = 0
+		while idx < top_values.size():
+			if value > int(top_values[idx]):
+				top_values.insert(idx, value)
+				top_keys.insert(idx, key)
+				inserted = true
+				break
+			idx += 1
+		if not inserted and top_values.size() < max_items:
+			top_values.append(value)
+			top_keys.append(key)
+		if top_values.size() > max_items:
+			top_values.resize(max_items)
+			top_keys.resize(max_items)
+	for i in range(top_keys.size()):
+		result.append({"k": str(top_keys[i]), "n": int(top_values[i])})
+	return result
+
+func _mat_set(mat: ShaderMaterial, key: StringName, value: Variant) -> void:
+	if mat == null:
+		return
+	mat.set_shader_parameter(key, value)
+	if not AUDIT_RENDER:
+		return
+	_audit_mat_sets += 1
+	_audit_inc_count(_audit_mat_key_counts, str(key), 1)
+
+func _color_changed(a: Color, b: Color) -> bool:
+	var eps: float = 0.0001
+	if absf(a.r - b.r) > eps:
+		return true
+	if absf(a.g - b.g) > eps:
+		return true
+	if absf(a.b - b.b) > eps:
+		return true
+	if absf(a.a - b.a) > eps:
+		return true
+	return false
 
 func _sample_float(sample: Dictionary, key: String, fallback: float) -> float:
 	return float(sample.get(key, fallback))
@@ -862,10 +1185,8 @@ func _sample_vec2(sample: Dictionary, key: String, fallback: Vector2) -> Vector2
 	return fallback
 
 func _update_unit_visual_smoothing(_delta: float) -> void:
-	var step_sec: float = maxf(sim_dt_sec, 0.000001)
-	var interp_delay: float = step_sec * BUTTER_INTERP_DELAY_TICKS
-	var render_time: float = _now_sec() - interp_delay
-	_render_units(render_time, step_sec)
+	var alpha: float = clampf(Engine.get_physics_interpolation_fraction(), 0.0, 1.0)
+	_render_units(alpha)
 
 func _render_units_constant_speed(delta: float) -> void:
 	if unit_nodes_by_id.is_empty():
@@ -873,6 +1194,8 @@ func _render_units_constant_speed(delta: float) -> void:
 	var safe_delta: float = maxf(delta, 0.0)
 	var hive_by_id: Dictionary = _build_hive_by_id()
 	var ids: Array = unit_nodes_by_id.keys()
+	if AUDIT_RENDER:
+		_audit_draw_ops += ids.size()
 	for id_any in ids:
 		var unit_id: int = int(id_any)
 		var node: Node2D = unit_nodes_by_id.get(unit_id, null)
@@ -918,10 +1241,12 @@ func _render_units_constant_speed(delta: float) -> void:
 		if sprite != null:
 			_apply_unit_orientation_from_dir(node, sprite, dir_vec)
 
-func _render_units(render_time: float, step_sec: float) -> void:
-	if _unit_samples_by_id.is_empty():
+func _render_units(alpha: float) -> void:
+	if _unit_visual_by_id.is_empty():
 		return
 	var ids: Array = unit_nodes_by_id.keys()
+	if AUDIT_RENDER:
+		_audit_draw_ops += ids.size()
 	for id_any in ids:
 		var unit_id: int = int(id_any)
 		var node: Node2D = unit_nodes_by_id.get(unit_id, null)
@@ -929,60 +1254,26 @@ func _render_units(render_time: float, step_sec: float) -> void:
 			continue
 		if not _assert_not_freed(node):
 			continue
-		var buf_any: Variant = _unit_samples_by_id.get(unit_id, null)
-		if typeof(buf_any) != TYPE_DICTIONARY:
-			continue
-		var buf: Dictionary = buf_any as Dictionary
-		var s0_any: Variant = buf.get("s0", null)
-		var s1_any: Variant = buf.get("s1", s0_any)
-		if typeof(s0_any) != TYPE_DICTIONARY and typeof(s1_any) != TYPE_DICTIONARY:
-			continue
-		var s0: Dictionary = {}
-		var s1: Dictionary = {}
-		if typeof(s0_any) == TYPE_DICTIONARY:
-			s0 = s0_any as Dictionary
-		if typeof(s1_any) == TYPE_DICTIONARY:
-			s1 = s1_any as Dictionary
-		if s0.is_empty() and s1.is_empty():
-			continue
-		if s0.is_empty():
-			s0 = s1
-		if s1.is_empty():
-			s1 = s0
-		var t0: float = _sample_float(s0, "ts", 0.0)
-		var t1: float = _sample_float(s1, "ts", t0)
-		var denom: float = maxf(t1 - t0, 0.000001)
-		var alpha: float = clampf((render_time - t0) / denom, 0.0, 1.0)
-		var tt0: float = clampf(_sample_float(s0, "t", 0.0), 0.0, 1.0)
-		var tt1: float = clampf(_sample_float(s1, "t", tt0), 0.0, 1.0)
-		var t_render: float = lerpf(tt0, tt1, alpha)
-		if render_time > t1 and step_sec > 0.0:
-			var late: float = minf(render_time - t1, BUTTER_MAX_EXTRAP_SEC)
-			if late > 0.0:
-				var extra_alpha: float = clampf(late / step_sec, 0.0, 1.0)
-				var extrap_t: float = tt1 + (tt1 - tt0) * extra_alpha
-				t_render = clampf(extrap_t, 0.0, 1.0)
-		var a_pos: Vector2 = _sample_vec2(s1, "a", Vector2.ZERO)
-		var b_pos: Vector2 = _sample_vec2(s1, "b", a_pos)
-		var render_pos: Vector2 = a_pos.lerp(b_pos, t_render)
-		if not _assert_not_freed(node):
-			continue
-		node.position = render_pos
-		var t_next: float = clampf(t_render + SAMPLE_T_EPS, 0.0, 1.0)
-		var p_next: Vector2 = a_pos.lerp(b_pos, t_next)
-		var dir_vec: Vector2 = p_next - render_pos
-		if dir_vec.length_squared() <= 0.000001:
-			dir_vec = b_pos - a_pos
-		if dir_vec.length_squared() <= 0.000001:
-			var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
-			if typeof(state_any) == TYPE_DICTIONARY:
-				var state: Dictionary = state_any as Dictionary
-				dir_vec = _sample_vec2(state, "dir", Vector2.RIGHT)
-		if dir_vec.length_squared() <= 0.000001:
-			dir_vec = Vector2.RIGHT
-		var sprite: Sprite2D = _ensure_unit_sprite(node)
-		if sprite != null:
-			_apply_unit_orientation_from_dir(node, sprite, dir_vec)
+		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+		if typeof(state_any) == TYPE_DICTIONARY:
+			var state: Dictionary = state_any as Dictionary
+			if bool(state.get("just_spawned", false)):
+				var spawn_pos: Vector2 = state.get("curr_pos", node.position)
+				node.position = spawn_pos
+				node.rotation = float(state.get("curr_rot", node.rotation))
+				state["render_pos"] = spawn_pos
+				state["just_spawned"] = false
+				_unit_visual_by_id[unit_id] = state
+				continue
+			var prev_pos: Vector2 = state.get("prev_pos", node.position)
+			var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
+			var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)
+			node.position = render_pos
+			var prev_rot: float = float(state.get("prev_rot", node.rotation))
+			var curr_rot: float = float(state.get("curr_rot", prev_rot))
+			node.rotation = lerp_angle(prev_rot, curr_rot, alpha)
+			state["render_pos"] = render_pos
+			_unit_visual_by_id[unit_id] = state
 
 func _draw() -> void:
 	if not debug_draw_units:
@@ -1061,11 +1352,12 @@ func _get_colorkey_material(color: Color, threshold: float, softness: float) -> 
 	]
 	if _colorkey_materials.has(key):
 		return _colorkey_materials[key]
+	_audit_mark_rebuild("colorkey_material_cache_miss")
 	var mat := ShaderMaterial.new()
 	mat.shader = COLORKEY_SHADER
-	mat.set_shader_parameter("key_color", color)
-	mat.set_shader_parameter("threshold", threshold)
-	mat.set_shader_parameter("softness", softness)
+	_mat_set(mat, "key_color", color)
+	_mat_set(mat, "threshold", threshold)
+	_mat_set(mat, "softness", softness)
 	_colorkey_materials[key] = mat
 	return mat
 
@@ -1073,6 +1365,7 @@ func _get_unit_colorkey_material(sprite_key: String, owner_id: int, registry: Sp
 	var key := "%s|%d" % [sprite_key, owner_id]
 	if _unit_material_by_sprite.has(key):
 		return _unit_material_by_sprite[key]
+	_audit_mark_rebuild("unit_colorkey_lookup")
 	var ck_color := _owner_color(owner_id)
 	var ck_threshold := 0.28
 	var ck_softness := 0.10
@@ -1100,45 +1393,22 @@ func _ensure_unit_colorkey_material(
 	sprite_key: String,
 	registry: SpriteRegistry,
 	owner_id: int,
-	unit_id: int,
-	team_color: Color
+	unit_id: int
 ) -> ShaderMaterial:
 	if sprite == null:
 		return null
-	var instance_id := sprite.get_instance_id()
-	var mat: ShaderMaterial = null
-	if _unit_material_by_instance.has(instance_id):
-		mat = _unit_material_by_instance[instance_id]
-	else:
-		var base := _get_unit_colorkey_material(sprite_key, owner_id, registry)
-		if base != null:
-			var dup: Variant = base.duplicate()
-			if dup is ShaderMaterial:
-				mat = dup as ShaderMaterial
-			else:
-				mat = null
-		if mat == null:
-			mat = ShaderMaterial.new()
-			mat.shader = COLORKEY_SHADER
-		_unit_material_by_instance[instance_id] = mat
-	var ck_threshold := 0.28
-	var ck_softness := 0.10
-	if registry != null and sprite_key != "":
-		var ck := registry.get_colorkey(sprite_key)
-		if bool(ck.get("enabled", false)):
-			ck_threshold = float(ck.get("threshold", ck_threshold))
-			ck_softness = float(ck.get("softness", ck_softness))
-	mat.set_shader_parameter("key_color", team_color)
-	mat.set_shader_parameter("threshold", ck_threshold)
-	mat.set_shader_parameter("softness", ck_softness)
+	var mat: ShaderMaterial = _get_unit_colorkey_material(sprite_key, owner_id, registry)
+	if mat == null:
+		return null
 	if unit_id > 0:
 		var last_owner: int = int(_unit_team_color_logged.get(unit_id, -1))
 		if last_owner != owner_id:
 			_unit_team_color_logged[unit_id] = owner_id
+			var team_color_dbg: Color = _owner_color(owner_id)
 			SFLog.info("UNIT_TEAM_COLOR", {
 				"unit_id": unit_id,
 				"owner_id": owner_id,
-				"team_color": team_color
+				"team_color": team_color_dbg
 			})
 	return mat
 
@@ -1152,16 +1422,7 @@ func _sync_swarm_nodes() -> void:
 			_clear_swarm_nodes()
 		return
 
-	var hive_by_id: Dictionary = {}
-	var hives_v: Variant = model.get("hives", [])
-	if typeof(hives_v) == TYPE_ARRAY:
-		for h in hives_v as Array:
-			if typeof(h) != TYPE_DICTIONARY:
-				continue
-			var hd: Dictionary = h as Dictionary
-			var id_str := str(hd.get("id", ""))
-			if id_str.is_valid_int():
-				hive_by_id[int(id_str)] = hd
+	var hive_by_id: Dictionary = _build_hive_by_id()
 
 	var lanes_by_id: Dictionary = {}
 	var lanes_v: Variant = model.get("lanes", [])

@@ -21,9 +21,11 @@ const MAX_SPAWNS_PER_TICK := 5
 const UNIT_RADIUS_PX := 0.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
+const ARRIVE_EPS_T: float = 0.995
 
 var state: GameState = null
 var units: Array = []
+var units_set_version: int = 0
 var unit_id_counter := 1
 var sim_time_us := 0
 var spawn_accum_by_lane: Dictionary = {}
@@ -44,6 +46,8 @@ var _in_owner_update: bool = false
 var _sim_events: SimEvents = null
 var _lane_gate_block_log_ms: Dictionary = {}
 var _lane_gate_open_logged: Dictionary = {}
+var _last_units_set_count: int = -1
+var _last_units_set_sig: int = 0
 
 const UNIT_SPEED_LOG_INTERVAL_MS := 1000
 const PRESSURE_WARN_INTERVAL_MS := 1000
@@ -55,6 +59,9 @@ func setup(_sim_tuning: SimTuning = null) -> void:
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
 	units.clear()
+	units_set_version = 0
+	_last_units_set_count = -1
+	_last_units_set_sig = 0
 	render_units.clear()
 	unit_id_counter = 1
 	_next_uid = 1
@@ -64,6 +71,7 @@ func bind_state(state_ref: GameState) -> void:
 	_lane_gate_open_logged.clear()
 	if state != null:
 		state.unit_system = self
+		state.units_set_version = units_set_version
 		state.units_by_lane.clear()
 		state.units_by_lane["_all"] = units
 
@@ -632,15 +640,38 @@ func _arrival_impact_dir(unit: Dictionary) -> Vector2:
 			return travel_dir
 	return Vector2.RIGHT
 
+func _unit_has_arrived(unit: Dictionary) -> bool:
+	var dir: int = _unit_dir(unit)
+	var t: float = clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
+	var arrived_by_t: bool = (dir >= 0 and t >= ARRIVE_EPS_T) or (dir < 0 and t <= (1.0 - ARRIVE_EPS_T))
+	if arrived_by_t:
+		return true
+	var from_pos_v: Variant = unit.get("from_pos", null)
+	var to_pos_v: Variant = unit.get("to_pos", null)
+	if not (from_pos_v is Vector2 and to_pos_v is Vector2):
+		return false
+	var from_pos: Vector2 = from_pos_v as Vector2
+	var to_pos: Vector2 = to_pos_v as Vector2
+	var target_pos: Vector2 = to_pos if dir >= 0 else from_pos
+	var pos_v: Variant = unit.get("pos", null)
+	var pos: Vector2 = from_pos.lerp(to_pos, t)
+	if pos_v is Vector2:
+		pos = pos_v as Vector2
+	return pos.distance_to(target_pos) <= ARRIVE_EPS_PX
+
 func _process_arrivals() -> void:
 	if units.is_empty():
 		return
 	for i in range(units.size() - 1, -1, -1):
 		var unit: Dictionary = units[i] as Dictionary
-		var dir := _unit_dir(unit)
-		var t := float(unit.get("t", 0.0))
-		var arrived := (dir >= 0 and t >= 1.0) or (dir < 0 and t <= 0.0)
-		if arrived:
+		if _unit_has_arrived(unit):
+			var t: float = clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
+			SFLog.info("UNIT_ARRIVED", {
+				"unit_id": int(unit.get("id", -1)),
+				"lane": int(unit.get("lane_id", -1)),
+				"dst": int(unit.get("to_id", -1)),
+				"t": snapped(t, 0.001)
+			})
 			_apply_unit_arrival(unit)
 			units.remove_at(i)
 
@@ -785,9 +816,34 @@ func _ensure_unit_edges(unit: Dictionary) -> Dictionary:
 func _sync_units_to_state() -> void:
 	if state == null:
 		return
+	_refresh_units_set_version()
 	var all_v: Variant = state.units_by_lane.get("_all")
 	if all_v != units:
 		state.units_by_lane["_all"] = units
+
+func _refresh_units_set_version() -> void:
+	if state == null:
+		return
+	var count: int = units.size()
+	var sig: int = _units_set_signature()
+	if count == _last_units_set_count and sig == _last_units_set_sig:
+		state.units_set_version = units_set_version
+		return
+	_last_units_set_count = count
+	_last_units_set_sig = sig
+	units_set_version += 1
+	state.units_set_version = units_set_version
+
+func _units_set_signature() -> int:
+	var sig: int = units.size()
+	var xor_ids: int = 0
+	for unit_any in units:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var unit: Dictionary = unit_any as Dictionary
+		xor_ids = xor_ids ^ int(unit.get("id", -1))
+	sig = (sig * 31 + xor_ids) & 0x7fffffff
+	return sig
 
 func _remove_unit(unit_id: int, reason: String) -> bool:
 	for i in range(units.size()):

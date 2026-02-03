@@ -26,6 +26,7 @@ const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 
 const DEBUG_LANES := false
 const USE_LANE_SPRITES := true
+const AUDIT_RENDER: bool = true
 
 const LANE_LOG_INTERVAL_MS := 1000
 const LANE_FLASH_DEFAULT_MS := 250
@@ -41,7 +42,7 @@ const LANE_FALLBACK_PATH := "res://assets/sprites/sf_skin_v1/lane_mvp.png"
 const LANE_SEGMENT_TARGET_PX := 40.0
 const LANE_SEGMENT_SCALE := 1.0
 const LANE_CONNECTOR_SCALE := 0.75
-const LANE_MAX_SEGMENTS := 8
+const LANE_MAX_SEGMENTS := 64
 const LANE_Z_INDEX := -5
 const LANE_CONNECTOR_AT_ENDPOINTS := false
 # --- Lane sprite sizing ---
@@ -51,6 +52,7 @@ const LANE_MIN_LEN_PX := 6.0
 const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
 const LANE_ART_NORMAL_OFFSET_PX: float = 58.0
+const LANE_TUCK_IN_PX: float = 12.0
 const LANE_THICKNESS_MODE_MANUAL: int = 0
 const LANE_THICKNESS_MODE_MATCH_UNIT_RATIO: int = 1
 const UNIT_RENDER_SCALE_MATCH: float = 3.0
@@ -92,6 +94,16 @@ var _lane_map_sig: String = ""
 var _lane_scale_logged: Dictionary = {}
 var _lane_endpoint_logged: Dictionary = {}
 var _lane_align_logged: bool = false
+var _lane_endpoints_audit_last_ms: int = 0
+var _lane_sprite_coverage_last_ms: int = 0
+var _hive_cache_dirty: bool = true
+var _hive_cache_map_sig: String = ""
+var _hive_lane_anchor_local_by_id: Dictionary = {}
+var _hive_meta_by_id: Dictionary = {}
+var _audit_last_ms: int = 0
+var _audit_draw_ops: int = 0
+var _audit_mat_sets: int = 0
+var _audit_rebuilds: int = 0
 
 func _lane_color_for_hive(hive_id: int) -> Color:
 	var owner_id: int = 0
@@ -113,14 +125,48 @@ func _hive_world_pos(hive_id: int) -> Variant:
 func _lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return HiveNodeScript.lane_anchor_world_from_center(center_world)
 
-func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_center_local: Vector2) -> Dictionary:
-	var a_center_world: Vector2 = to_global(a_center_local)
-	var b_center_world: Vector2 = to_global(b_center_local)
-	var ep_world: Dictionary = HiveNodeScript.compute_lane_endpoints_world(a_center_world, b_center_world)
-	var a_anchor_world: Vector2 = ep_world.get("a_anchor", _lane_anchor_world_from_center(a_center_world))
-	var b_anchor_world: Vector2 = ep_world.get("b_anchor", _lane_anchor_world_from_center(b_center_world))
-	var a_local: Vector2 = to_local(ep_world.get("a", a_anchor_world))
-	var b_local: Vector2 = to_local(ep_world.get("b", b_anchor_world))
+func _compute_lane_endpoints_world(a_anchor_world: Vector2, b_anchor_world: Vector2) -> Dictionary:
+	var lane_vec: Vector2 = b_anchor_world - a_anchor_world
+	var lane_len: float = lane_vec.length()
+	var start_world: Vector2 = a_anchor_world
+	var end_world: Vector2 = b_anchor_world
+	var dir: Vector2 = Vector2.ZERO
+	if lane_len > 0.000001:
+		dir = lane_vec / lane_len
+		var tuck: float = minf(LANE_TUCK_IN_PX, lane_len * 0.5)
+		start_world = a_anchor_world + (dir * tuck)
+		end_world = b_anchor_world - (dir * tuck)
+	return {
+		"a_anchor": a_anchor_world,
+		"b_anchor": b_anchor_world,
+		"a": start_world,
+		"b": end_world,
+		"dir": dir,
+		"len": start_world.distance_to(end_world)
+	}
+
+func _maybe_log_lane_endpoints(a_anchor_world: Vector2, b_anchor_world: Vector2, start_world: Vector2, end_world: Vector2) -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	if _lane_endpoints_audit_last_ms > 0 and now_ms - _lane_endpoints_audit_last_ms < 1000:
+		return
+	_lane_endpoints_audit_last_ms = now_ms
+	SFLog.info("LANE_ENDPOINTS", {
+		"a": a_anchor_world,
+		"b": b_anchor_world,
+		"start": start_world,
+		"end": end_world,
+		"tuck": LANE_TUCK_IN_PX
+	})
+
+func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_center_local: Vector2, _a_id: int = -1, _b_id: int = -1) -> Dictionary:
+	var a_anchor_world: Vector2 = to_global(a_center_local)
+	var b_anchor_world: Vector2 = to_global(b_center_local)
+	var ep_world: Dictionary = _compute_lane_endpoints_world(a_anchor_world, b_anchor_world)
+	var start_world: Vector2 = ep_world.get("a", a_anchor_world)
+	var end_world: Vector2 = ep_world.get("b", b_anchor_world)
+	_maybe_log_lane_endpoints(a_anchor_world, b_anchor_world, start_world, end_world)
+	var a_local: Vector2 = to_local(start_world)
+	var b_local: Vector2 = to_local(end_world)
 	var lane_vec: Vector2 = b_local - a_local
 	var lane_len: float = lane_vec.length()
 	var lane_dir: Vector2 = Vector2.ZERO
@@ -129,8 +175,8 @@ func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_cente
 	return {
 		"a_center": a_center_local,
 		"b_center": b_center_local,
-		"a_anchor": to_local(a_anchor_world),
-		"b_anchor": to_local(b_anchor_world),
+		"a_anchor": a_local,
+		"b_anchor": b_local,
 		"a": a_local,
 		"b": b_local,
 		"dir": lane_dir,
@@ -140,9 +186,25 @@ func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_cente
 func compute_lane_endpoints_map_local(hive_a: Node2D, hive_b: Node2D) -> Dictionary:
 	if hive_a == null or hive_b == null:
 		return {}
-	var a_center_local: Vector2 = to_local(hive_a.global_position)
-	var b_center_local: Vector2 = to_local(hive_b.global_position)
-	return _compute_lane_endpoints_from_centers_local(a_center_local, b_center_local)
+	var a_anchor_world: Vector2 = hive_a.global_position
+	var b_anchor_world: Vector2 = hive_b.global_position
+	if hive_a.has_method("get_lane_anchor_world"):
+		var a_anchor_any: Variant = hive_a.call("get_lane_anchor_world")
+		if a_anchor_any is Vector2:
+			a_anchor_world = a_anchor_any as Vector2
+	else:
+		a_anchor_world = _lane_anchor_world_from_center(hive_a.global_position)
+	if hive_b.has_method("get_lane_anchor_world"):
+		var b_anchor_any: Variant = hive_b.call("get_lane_anchor_world")
+		if b_anchor_any is Vector2:
+			b_anchor_world = b_anchor_any as Vector2
+	else:
+		b_anchor_world = _lane_anchor_world_from_center(hive_b.global_position)
+	var a_center_local: Vector2 = to_local(a_anchor_world)
+	var b_center_local: Vector2 = to_local(b_anchor_world)
+	var a_id: int = int(hive_a.get("hive_id"))
+	var b_id: int = int(hive_b.get("hive_id"))
+	return _compute_lane_endpoints_from_centers_local(a_center_local, b_center_local, a_id, b_id)
 
 func _build_lane_segments(rm: Dictionary) -> Array:
 	# Returns array of {p0:Vector2, p1:Vector2, color:Color}
@@ -237,6 +299,11 @@ func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sp
 	return sprite
 
 func _ready() -> void:
+	SFLog.allow_tag("RENDER_AUDIT_LANES")
+	SFLog.allow_tag("LANE_ENDPOINTS")
+	SFLog.allow_tag("LANE_SPRITE_COVERAGE")
+	SFLog.allow_tag("LANE_ANCHOR_CACHE")
+	SFLog.allow_tag("LANE_RENDER_REBUILD")
 	_load_lane_textures()
 	_ensure_lane_sprite_root()
 	set_process(USE_LANE_SPRITES and show_lane_sprites)
@@ -248,20 +315,54 @@ func _process(delta: float) -> void:
 		_update_lane_visuals(delta)
 	if not _debug_pick_dots.is_empty():
 		queue_redraw()
+	_audit_render_maybe_flush()
+
+func _audit_render_maybe_flush() -> void:
+	if not AUDIT_RENDER:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if _audit_last_ms <= 0:
+		_audit_last_ms = now_ms
+		return
+	if now_ms - _audit_last_ms < 1000:
+		return
+	SFLog.info("RENDER_AUDIT_LANES", {
+		"lanes": _lane_nodes_by_key.size(),
+		"draw_ops": _audit_draw_ops,
+		"mat_sets": _audit_mat_sets,
+		"rebuilds": _audit_rebuilds
+	})
+	_audit_last_ms = now_ms
+	_audit_draw_ops = 0
+	_audit_mat_sets = 0
+	_audit_rebuilds = 0
 
 # Arena expects this signature.
 func setup(state_ref: GameState, selection_ref: Object, arena_ref: Node2D) -> void:
 	state = state_ref
 	sel = selection_ref
 	arena = arena_ref
+	_hive_cache_dirty = true
 	queue_redraw()
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
+	_hive_cache_dirty = true
 	queue_redraw()
 
 func set_model(rm: Dictionary) -> void:
 	model = rm
+	var map_id_for_cache: String = str(rm.get("map_id", rm.get("id", "")))
+	var hives_count_for_cache: int = 0
+	var hives_v_for_cache: Variant = rm.get("hives", [])
+	if typeof(hives_v_for_cache) == TYPE_ARRAY:
+		hives_count_for_cache = (hives_v_for_cache as Array).size()
+	elif typeof(rm.get("hives_by_id", {})) == TYPE_DICTIONARY:
+		hives_count_for_cache = (rm.get("hives_by_id", {}) as Dictionary).size()
+	var cache_sig: String = "%s:%d" % [map_id_for_cache, hives_count_for_cache]
+	if cache_sig != _hive_cache_map_sig:
+		_hive_cache_map_sig = cache_sig
+		_hive_cache_dirty = true
 	var lanes_total := 0
 	var lanes_active := 0
 	var lanes_v: Variant = model.get("lanes", [])
@@ -286,12 +387,15 @@ func set_model(rm: Dictionary) -> void:
 	var running: bool = bool(model.get("sim_running", false))
 	_update_lane_candidates_visibility(running)
 	queue_redraw()
-	_request_rebuild("state_changed")
+	var active_sig: String = _compute_active_lane_signature()
+	if active_sig != _last_sig:
+		_request_rebuild("state_changed")
 
 func set_hive_nodes(dict: Dictionary) -> void:
 	if dict == hive_nodes_by_id:
 		return
 	hive_nodes_by_id = dict
+	_hive_cache_dirty = true
 	if DEBUG_LANES:
 		SFLog.info("LANE_RENDERER_HIVES_SET", {"count": hive_nodes_by_id.size()})
 	queue_redraw()
@@ -365,42 +469,7 @@ func _draw_intended_lanes() -> void:
 	if model.is_empty():
 		return
 
-	var hives_by_id: Dictionary = {}
-	var cell_size: float = float(model.get("cell_size", 64))
-	if not hive_nodes_by_id.is_empty():
-		for hid in hive_nodes_by_id.keys():
-			var node := hive_nodes_by_id[hid] as Node2D
-			if node == null:
-				continue
-			if node.has_method("get_lane_anchor_world"):
-				var anchor_any: Variant = node.call("get_lane_anchor_world")
-				if anchor_any is Vector2:
-					hives_by_id[int(hid)] = to_local(anchor_any as Vector2)
-					continue
-			hives_by_id[int(hid)] = to_local(_lane_anchor_world_from_center(node.global_position))
-	else:
-		var hives_v: Variant = model.get("hives", [])
-		if typeof(hives_v) == TYPE_ARRAY:
-			var hives: Array = hives_v as Array
-			for h_v in hives:
-				if typeof(h_v) != TYPE_DICTIONARY:
-					continue
-				var h: Dictionary = h_v as Dictionary
-				var hid: int = int(h.get("id", -1))
-				if hid <= 0:
-					continue
-				var pos_v: Variant = h.get("pos")
-				var pos: Vector2
-				if typeof(pos_v) == TYPE_VECTOR2:
-					var center_local: Vector2 = pos_v as Vector2
-					var center_world: Vector2 = to_global(center_local)
-					pos = to_local(_lane_anchor_world_from_center(center_world))
-				else:
-					var x: int = int(h.get("x", 0))
-					var y: int = int(h.get("y", 0))
-					var center_world: Vector2 = _grid_to_world_center(x, y, cell_size)
-					pos = to_local(_lane_anchor_world_from_center(center_world))
-				hives_by_id[hid] = pos
+	var hive_anchor_local_by_id: Dictionary = _collect_hive_positions()
 
 	var lanes_v: Variant = model.get("lanes", [])
 	if typeof(lanes_v) != TYPE_ARRAY:
@@ -412,13 +481,18 @@ func _draw_intended_lanes() -> void:
 		var l: Dictionary = l_v as Dictionary
 		var a_id: int = int(l.get("a_id", l.get("from", -1)))
 		var b_id: int = int(l.get("b_id", l.get("to", -1)))
-		if not (hives_by_id.has(a_id) and hives_by_id.has(b_id)):
+		if not (hive_anchor_local_by_id.has(a_id) and hive_anchor_local_by_id.has(b_id)):
 			continue
 		if bool(l.get("send_a", false)) or bool(l.get("send_b", false)):
-			var a_pos: Vector2 = hives_by_id[a_id]
-			var b_pos: Vector2 = hives_by_id[b_id]
-			var p0: Vector2 = a_pos
-			var p1: Vector2 = b_pos
+			var a_pos_any: Variant = hive_anchor_local_by_id.get(a_id, null)
+			var b_pos_any: Variant = hive_anchor_local_by_id.get(b_id, null)
+			if not (a_pos_any is Vector2 and b_pos_any is Vector2):
+				continue
+			var a_pos: Vector2 = a_pos_any as Vector2
+			var b_pos: Vector2 = b_pos_any as Vector2
+			var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_pos, b_pos, a_id, b_id)
+			var p0: Vector2 = ep.get("a", a_pos)
+			var p1: Vector2 = ep.get("b", b_pos)
 			var send_a: bool = bool(l.get("send_a", false))
 			var send_b: bool = bool(l.get("send_b", false))
 			_draw_lane_colored(p0, p1, a_id, b_id, send_a, send_b, model, 3.0, l)
@@ -468,10 +542,14 @@ func _draw_state_lanes() -> bool:
 		if a_node == null or b_node == null:
 			continue
 
-		var a_pos := to_local(a_node.global_position)
-		var b_pos := to_local(b_node.global_position)
+		var a_pos_any: Variant = _hive_local_pos_for_lane(a_id)
+		var b_pos_any: Variant = _hive_local_pos_for_lane(b_id)
+		if not (a_pos_any is Vector2 and b_pos_any is Vector2):
+			continue
+		var a_pos: Vector2 = a_pos_any as Vector2
+		var b_pos: Vector2 = b_pos_any as Vector2
 
-		var seg := _edge_to_edge_segment(a_pos, b_pos)
+		var seg := _edge_to_edge_segment(a_id, b_id, a_pos, b_pos)
 		if seg.size() != 2:
 			continue
 
@@ -638,6 +716,8 @@ func _get_lane_colorkey_material() -> ShaderMaterial:
 	mat.set_shader_parameter("key_color", Color(1, 1, 1, 1))
 	mat.set_shader_parameter("threshold", 0.12)
 	mat.set_shader_parameter("softness", 0.06)
+	if AUDIT_RENDER:
+		_audit_mat_sets += 3
 	_lane_colorkey_material = mat
 	return mat
 
@@ -648,6 +728,8 @@ func _get_lane_band_material() -> ShaderMaterial:
 	mat.shader = LANE_BAND_SHADER
 	mat.set_shader_parameter("band", 0.18)
 	mat.set_shader_parameter("feather", 0.10)
+	if AUDIT_RENDER:
+		_audit_mat_sets += 2
 	_lane_band_material = mat
 	return mat
 
@@ -663,20 +745,27 @@ func _clear_lane_sprites() -> void:
 	_lane_scale_logged.clear()
 	_lane_endpoint_logged.clear()
 
-func _collect_hive_positions() -> Dictionary:
-	var hives_by_id: Dictionary = {}
+func _ensure_hive_lane_anchor_cache() -> void:
+	if not _hive_cache_dirty and not _hive_lane_anchor_local_by_id.is_empty():
+		return
+	_rebuild_hive_lane_anchor_cache()
+
+func _rebuild_hive_lane_anchor_cache() -> void:
+	_hive_lane_anchor_local_by_id.clear()
+	_hive_meta_by_id.clear()
 	var cell_size: float = float(model.get("cell_size", 64))
 	if not hive_nodes_by_id.is_empty():
-		for hid in hive_nodes_by_id.keys():
-			var node := hive_nodes_by_id[hid] as Node2D
+		for hid_any in hive_nodes_by_id.keys():
+			var hid: int = int(hid_any)
+			var node: Node2D = hive_nodes_by_id.get(hid_any, null) as Node2D
 			if node == null:
 				continue
+			var anchor_world: Vector2 = _lane_anchor_world_from_center(node.global_position)
 			if node.has_method("get_lane_anchor_world"):
 				var anchor_any: Variant = node.call("get_lane_anchor_world")
 				if anchor_any is Vector2:
-					hives_by_id[int(hid)] = to_local(anchor_any as Vector2)
-					continue
-			hives_by_id[int(hid)] = to_local(_lane_anchor_world_from_center(node.global_position))
+					anchor_world = anchor_any as Vector2
+			_hive_lane_anchor_local_by_id[hid] = to_local(anchor_world)
 	else:
 		var hives_v: Variant = model.get("hives", [])
 		if typeof(hives_v) == TYPE_ARRAY:
@@ -684,23 +773,49 @@ func _collect_hive_positions() -> Dictionary:
 			for h_v in hives:
 				if typeof(h_v) != TYPE_DICTIONARY:
 					continue
-				var h: Dictionary = h_v as Dictionary
-				var hid: int = int(h.get("id", -1))
+				var hive_data: Dictionary = h_v as Dictionary
+				var hid: int = int(hive_data.get("id", -1))
 				if hid <= 0:
 					continue
-				var pos_v: Variant = h.get("pos")
-				var pos: Vector2
-				if typeof(pos_v) == TYPE_VECTOR2:
+				_hive_meta_by_id[hid] = hive_data
+				var pos_v: Variant = hive_data.get("pos", null)
+				var center_world: Vector2
+				if pos_v is Vector2:
 					var center_local: Vector2 = pos_v as Vector2
-					var center_world: Vector2 = to_global(center_local)
-					pos = to_local(_lane_anchor_world_from_center(center_world))
+					center_world = to_global(center_local)
 				else:
-					var x: int = int(h.get("x", 0))
-					var y: int = int(h.get("y", 0))
-					var center_world: Vector2 = _grid_to_world_center(x, y, cell_size)
-					pos = to_local(_lane_anchor_world_from_center(center_world))
-				hives_by_id[hid] = pos
-	return hives_by_id
+					var x: int = int(hive_data.get("x", 0))
+					var y: int = int(hive_data.get("y", 0))
+					center_world = _grid_to_world_center(x, y, cell_size)
+				var anchor_world: Vector2 = _lane_anchor_world_from_center(center_world)
+				_hive_lane_anchor_local_by_id[hid] = to_local(anchor_world)
+
+	var rm_hives_by_id_any: Variant = model.get("hives_by_id", {})
+	if typeof(rm_hives_by_id_any) == TYPE_DICTIONARY:
+		var rm_hives_by_id: Dictionary = rm_hives_by_id_any as Dictionary
+		for hid_any in rm_hives_by_id.keys():
+			var hid: int = int(hid_any)
+			var hive_any: Variant = rm_hives_by_id.get(hid_any, null)
+			if typeof(hive_any) != TYPE_DICTIONARY:
+				continue
+			var hive_dict: Dictionary = hive_any as Dictionary
+			_hive_meta_by_id[hid] = hive_dict
+			if _hive_lane_anchor_local_by_id.has(hid):
+				continue
+			var pos_any: Variant = hive_dict.get("pos", null)
+			if pos_any is Vector2:
+				var center_local: Vector2 = pos_any as Vector2
+				var center_world: Vector2 = to_global(center_local)
+				_hive_lane_anchor_local_by_id[hid] = to_local(_lane_anchor_world_from_center(center_world))
+
+	_hive_cache_dirty = false
+	SFLog.throttled_info("LANE_ANCHOR_CACHE", {
+		"count": _hive_lane_anchor_local_by_id.size()
+	}, 1000)
+
+func _collect_hive_positions() -> Dictionary:
+	_ensure_hive_lane_anchor_cache()
+	return _hive_lane_anchor_local_by_id
 
 func _lane_entries_from_model() -> Array:
 	var lanes_v: Variant = model.get("lanes", [])
@@ -734,6 +849,8 @@ func _lane_entries_from_state() -> Array:
 	return out
 
 func _request_rebuild(reason: String) -> void:
+	if AUDIT_RENDER:
+		_audit_rebuilds += 1
 	_rebuild_req_reason = reason
 	if _rebuild_pending:
 		return
@@ -746,6 +863,10 @@ func _flush_rebuild() -> void:
 	if sig == _last_sig:
 		return
 	_last_sig = sig
+	SFLog.info("LANE_RENDER_REBUILD", {
+		"reason": _rebuild_req_reason,
+		"lanes": _lane_nodes_by_key.size()
+	})
 	_rebuild_lane_sprites_now()
 
 func _compute_active_lane_signature() -> String:
@@ -865,6 +986,8 @@ func _update_lane_visuals(delta: float) -> void:
 	var grow_time_s: float = maxf(0.001, LANE_GROW_TIME_MS / 1000.0)
 	var step: float = delta / grow_time_s
 	var keys: Array = _lane_nodes_by_key.keys()
+	if AUDIT_RENDER:
+		_audit_draw_ops += keys.size()
 	for key_any in keys:
 		var entry_any: Variant = _lane_nodes_by_key.get(key_any, null)
 		if typeof(entry_any) != TYPE_DICTIONARY:
@@ -882,17 +1005,17 @@ func _update_lane_visuals(delta: float) -> void:
 		var visual_t: float = clampf(float(entry.get("visual_t", 0.0)) + step, 0.0, 1.0)
 		entry["visual_t"] = visual_t
 		_lane_nodes_by_key[key_any] = entry
-		var a_center_v: Variant = _hive_center_local_for_lane(a_id)
-		var b_center_v: Variant = _hive_center_local_for_lane(b_id)
-		if not (a_center_v is Vector2 and b_center_v is Vector2):
+		var a_anchor_v: Variant = _hive_local_pos_for_lane(a_id)
+		var b_anchor_v: Variant = _hive_local_pos_for_lane(b_id)
+		if not (a_anchor_v is Vector2 and b_anchor_v is Vector2):
 			sprite_a.visible = false
 			sprite_b.visible = false
 			continue
-		var a_center: Vector2 = a_center_v as Vector2
-		var b_center: Vector2 = b_center_v as Vector2
-		var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_center, b_center)
-		var a_pos: Vector2 = ep.get("a", a_center)
-		var b_pos: Vector2 = ep.get("b", b_center)
+		var a_anchor: Vector2 = a_anchor_v as Vector2
+		var b_anchor: Vector2 = b_anchor_v as Vector2
+		var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_anchor, b_anchor, a_id, b_id)
+		var a_pos: Vector2 = ep.get("a", a_anchor)
+		var b_pos: Vector2 = ep.get("b", b_anchor)
 		_log_lane_endpoints_once(lane_id, ep)
 		var color_a: Color = _with_alpha(_lane_color_for_hive(a_id), LANE_ACTIVE_ALPHA)
 		var color_b: Color = _with_alpha(_lane_color_for_hive(b_id), LANE_ACTIVE_ALPHA)
@@ -935,29 +1058,29 @@ func _resolve_unit_body_width_px() -> float:
 	return unit_body_px
 
 func _hive_center_local_for_lane(hive_id: int) -> Variant:
-	var node_any: Variant = hive_nodes_by_id.get(hive_id, null)
-	if node_any is Node2D:
-		var hive_node: Node2D = node_any as Node2D
-		return to_local(hive_node.global_position)
-	var hives_by_id_any: Variant = model.get("hives_by_id", {})
-	if typeof(hives_by_id_any) == TYPE_DICTIONARY:
-		var hives_by_id: Dictionary = hives_by_id_any as Dictionary
-		if hives_by_id.has(hive_id):
-			var hive_any: Variant = hives_by_id.get(hive_id, null)
-			if typeof(hive_any) == TYPE_DICTIONARY:
-				var hive_dict: Dictionary = hive_any as Dictionary
-				var pos_any: Variant = hive_dict.get("pos", null)
-				if pos_any is Vector2:
-					return pos_any as Vector2
+	_ensure_hive_lane_anchor_cache()
+	var anchor_any: Variant = _hive_lane_anchor_local_by_id.get(hive_id, null)
+	if anchor_any is Vector2:
+		return anchor_any as Vector2
 	return null
 
 func _hive_local_pos_for_lane(hive_id: int) -> Variant:
-	var center_any: Variant = _hive_center_local_for_lane(hive_id)
-	if not (center_any is Vector2):
-		return null
-	var center_local: Vector2 = center_any as Vector2
-	var center_world: Vector2 = to_global(center_local)
-	return to_local(_lane_anchor_world_from_center(center_world))
+	return _hive_center_local_for_lane(hive_id)
+
+func _maybe_log_lane_sprite_coverage(length_px: float, segment_count: int, effective_seg_len: float) -> void:
+	if length_px <= LANE_SEGMENT_TARGET_PX:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if _lane_sprite_coverage_last_ms > 0 and now_ms - _lane_sprite_coverage_last_ms < 1000:
+		return
+	_lane_sprite_coverage_last_ms = now_ms
+	SFLog.info("LANE_SPRITE_COVERAGE", {
+		"len": snapped(length_px, 0.1),
+		"seg_count": segment_count,
+		"eff_seg_len": snapped(effective_seg_len, 0.1),
+		"max": LANE_MAX_SEGMENTS,
+		"target": LANE_SEGMENT_TARGET_PX
+	})
 
 func _apply_lane_sprite_visual(
 	sprite: Sprite2D,
@@ -976,9 +1099,20 @@ func _apply_lane_sprite_visual(
 	if length_px <= LANE_MIN_LEN_PX:
 		sprite.visible = false
 		return
+	var desired_seg_len: float = LANE_SEGMENT_TARGET_PX
+	var min_segments: int = 1
+	var max_segments: int = LANE_MAX_SEGMENTS
+	var segment_count: int = int(ceil(length_px / desired_seg_len))
+	segment_count = clampi(segment_count, min_segments, max_segments)
+	var effective_seg_len: float = length_px / float(segment_count)
+	_maybe_log_lane_sprite_coverage(length_px, segment_count, effective_seg_len)
 	var tex_w: float = maxf(1.0, float(sprite.texture.get_width()))
 	var tex_h: float = maxf(1.0, float(sprite.texture.get_height()))
-	var scale_x: float = clampf(length_px / tex_w, 0.0, LANE_SCALE_CLAMP.x)
+	# Keep visual coverage full length while preserving per-segment texture density.
+	sprite.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+	sprite.region_enabled = true
+	sprite.region_rect = Rect2(0.0, 0.0, tex_w * float(segment_count), tex_h)
+	var scale_x: float = maxf(0.0, effective_seg_len / tex_w)
 	var scale_y: float = clampf(target_thickness_px / tex_h, 0.0, LANE_SCALE_CLAMP.y)
 	var normal_basis: Vector2 = lane_basis_dir
 	if normal_basis.length_squared() <= 0.000001:
@@ -1059,14 +1193,14 @@ func _update_lane_sprite_tints() -> void:
 	if lanes.is_empty():
 		lanes = _lane_entries_from_state()
 		rm = {}
-	var hives_by_id: Dictionary = _collect_hive_positions()
+	var hive_anchor_local_by_id: Dictionary = _collect_hive_positions()
 	for lane in lanes:
 		if typeof(lane) != TYPE_DICTIONARY:
 			continue
 		var d := lane as Dictionary
 		var a_id: int = int(d.get("a_id", d.get("from", 0)))
 		var b_id: int = int(d.get("b_id", d.get("to", 0)))
-		if not (hives_by_id.has(a_id) and hives_by_id.has(b_id)):
+		if not (hive_anchor_local_by_id.has(a_id) and hive_anchor_local_by_id.has(b_id)):
 			continue
 		var lane_id: int = int(d.get("lane_id", d.get("id", -1)))
 		var key := _lane_key(a_id, b_id, lane_id)
@@ -1077,8 +1211,12 @@ func _update_lane_sprite_tints() -> void:
 		var color_a: Color = _lane_color_for_hive(a_id)
 		var color_b: Color = _lane_color_for_hive(b_id)
 		var front_t: float = float(d.get("front_t", d.get("split_t", 0.5)))
-		var p0_local: Vector2 = hives_by_id[a_id]
-		var p1_local: Vector2 = hives_by_id[b_id]
+		var p0_any: Variant = hive_anchor_local_by_id.get(a_id, null)
+		var p1_any: Variant = hive_anchor_local_by_id.get(b_id, null)
+		if not (p0_any is Vector2 and p1_any is Vector2):
+			continue
+		var p0_local: Vector2 = p0_any as Vector2
+		var p1_local: Vector2 = p1_any as Vector2
 		var p0: Vector2 = to_global(p0_local)
 		var p1: Vector2 = to_global(p1_local)
 		var dir: Vector2 = p1 - p0
@@ -1141,10 +1279,14 @@ func _draw_model_lanes(rm: Dictionary) -> void:
 		if a_node == null or b_node == null:
 			continue
 
-		var a_pos := to_local(a_node.global_position)
-		var b_pos := to_local(b_node.global_position)
+		var a_pos_any: Variant = _hive_local_pos_for_lane(a_id)
+		var b_pos_any: Variant = _hive_local_pos_for_lane(b_id)
+		if not (a_pos_any is Vector2 and b_pos_any is Vector2):
+			continue
+		var a_pos: Vector2 = a_pos_any as Vector2
+		var b_pos: Vector2 = b_pos_any as Vector2
 
-		var seg := _edge_to_edge_segment(a_pos, b_pos)
+		var seg := _edge_to_edge_segment(a_id, b_id, a_pos, b_pos)
 		if seg.size() != 2:
 			continue
 		var width := 2.0
@@ -1154,26 +1296,25 @@ func _draw_model_lanes(rm: Dictionary) -> void:
 		lane_meta["build_t"] = build_t
 		_draw_lane_colored(seg[0], seg[1], a_id, b_id, send_a, send_b, rm, width, lane_meta)
 
-func _edge_to_edge_segment(a_pos: Vector2, b_pos: Vector2) -> PackedVector2Array:
-	var a_world: Vector2 = to_global(a_pos)
-	var b_world: Vector2 = to_global(b_pos)
-	var a_edge: Vector2 = to_local(_lane_anchor_world_from_center(a_world))
-	var b_edge: Vector2 = to_local(_lane_anchor_world_from_center(b_world))
+func _edge_to_edge_segment(a_id: int, b_id: int, a_pos: Vector2, b_pos: Vector2) -> PackedVector2Array:
+	var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_pos, b_pos, a_id, b_id)
+	var a_edge: Vector2 = ep.get("a", a_pos)
+	var b_edge: Vector2 = ep.get("b", b_pos)
 	return PackedVector2Array([a_edge, b_edge])
 
 func pick_lane_at_world_pos(world_pos: Vector2, max_dist: float) -> Dictionary:
 	if max_dist <= 0.0:
 		return {"hit": false}
-	var lanes := _lane_entries_from_model()
+	var lanes: Array = _lane_entries_from_model()
 	if lanes.is_empty():
 		lanes = _lane_entries_from_state()
 	if lanes.is_empty():
 		return {"hit": false}
-	var hives_by_id := _collect_hive_positions()
-	if hives_by_id.is_empty():
+	var hive_anchor_local_by_id: Dictionary = _collect_hive_positions()
+	if hive_anchor_local_by_id.is_empty():
 		return {"hit": false}
-	var local_pos := to_local(world_pos)
-	var best_dist := max_dist
+	var local_pos: Vector2 = to_local(world_pos)
+	var best_dist: float = max_dist
 	var best: Dictionary = {"hit": false}
 	for lane_any in lanes:
 		if typeof(lane_any) != TYPE_DICTIONARY:
@@ -1187,10 +1328,14 @@ func pick_lane_at_world_pos(world_pos: Vector2, max_dist: float) -> Dictionary:
 		var b_id: int = int(d.get("b_id", d.get("to", 0)))
 		if a_id <= 0 or b_id <= 0:
 			continue
-		if not hives_by_id.has(a_id) or not hives_by_id.has(b_id):
+		if not hive_anchor_local_by_id.has(a_id) or not hive_anchor_local_by_id.has(b_id):
 			continue
-		var a_pos: Vector2 = hives_by_id[a_id]
-		var b_pos: Vector2 = hives_by_id[b_id]
+		var a_pos_any: Variant = hive_anchor_local_by_id.get(a_id, null)
+		var b_pos_any: Variant = hive_anchor_local_by_id.get(b_id, null)
+		if not (a_pos_any is Vector2 and b_pos_any is Vector2):
+			continue
+		var a_pos: Vector2 = a_pos_any as Vector2
+		var b_pos: Vector2 = b_pos_any as Vector2
 		var hit := _project_point_to_segment(local_pos, a_pos, b_pos)
 		var dist: float = float(hit.get("dist", INF))
 		if dist <= best_dist:
@@ -1320,10 +1465,10 @@ func _owner_id_for_lane(hive_id: int, rm: Dictionary) -> int:
 		if hive != null:
 			return int(hive.owner_id)
 	if not rm.is_empty():
-		var hives_by_id: Dictionary = rm.get("hives_by_id", {})
-		if hives_by_id.has(hive_id):
-			var h: Dictionary = hives_by_id[hive_id]
-			return _owner_id_from_hive_ref(h)
+		var rm_hives_by_id: Dictionary = rm.get("hives_by_id", {})
+		if rm_hives_by_id.has(hive_id):
+			var hive_data: Variant = rm_hives_by_id.get(hive_id, null)
+			return _owner_id_from_hive_ref(hive_data)
 	return 0
 
 func _with_alpha(color: Color, a: float) -> Color:

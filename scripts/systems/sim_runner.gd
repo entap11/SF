@@ -13,6 +13,8 @@ signal post_match_action(action: String)
 
 const MAX_FRAME_DT := 0.25
 const TICK_DT := 0.1
+const HITCH_MULT: float = 2.0
+const HITCH_PAD_MS: int = 25
 const MAX_STEPS_PER_FRAME := 8
 const STATS_INTERVAL_MS := 200
 const TIMEOUT_CONTESTABLE_KIND := {
@@ -54,10 +56,21 @@ var _last_pause_snapshot_sig: String = ""
 var _last_pause_snapshot: Dictionary = {}
 var _bound_tower_nodes: Array = []
 var _bind_structures_scheduled: bool = false
+var _last_tick_us: int = 0
+var _hb_last_ms: int = 0
+var _hb_max_tick_ms: float = 0.0
+var _hb_ticks: int = 0
 
 func _ready() -> void:
 	set_process(true)
+	set_physics_process(true)
 	set_process_unhandled_input(true)
+	SFLog.allow_tag("SIM_TICK")
+	SFLog.allow_tag("SIM_HITCH")
+	SFLog.allow_tag("SIM_TICK_COST")
+	SFLog.allow_tag("SIM_HEARTBEAT")
+	SFLog.allow_tag("SIM_TICK_PHASE")
+	SFLog.allow_tag("UNIT_ARRIVED")
 	_ensure_systems()
 	_schedule_bind_structures("ready")
 	# Arena binds the authoritative OpsState-owned GameState via bind_state().
@@ -127,6 +140,11 @@ func _set_running(value: bool, reason: String) -> void:
 		return
 	var prev_running: bool = running
 	running = value
+	if not running:
+		_last_tick_us = 0
+		_hb_last_ms = 0
+		_hb_max_tick_ms = 0.0
+		_hb_ticks = 0
 	_log_run_state_change(reason, prev_running, running)
 	_sync_match_clock_pause()
 
@@ -386,8 +404,10 @@ func _unhandled_input(event: InputEvent) -> void:
 func _tick(dt: float) -> void:
 	if state_ref == null:
 		return
-	var now_ms := Time.get_ticks_msec()
-	var phase := OpsState.match_phase
+	var tick_t0_us: int = Time.get_ticks_usec()
+	_log_sim_tick()
+	var now_ms: int = Time.get_ticks_msec()
+	var phase: int = OpsState.match_phase
 	if phase == OpsState.MatchPhase.ENDED:
 		_log_match_phase(now_ms)
 		_log_tick_phase()
@@ -395,6 +415,7 @@ func _tick(dt: float) -> void:
 		OpsState.expire_rematch_if_needed()
 		_emit_match_end_if_needed()
 		_emit_post_match_action_if_needed()
+		_finalize_tick_profile(tick_t0_us)
 		return
 	if phase == OpsState.MatchPhase.ENDING:
 		_log_match_phase(now_ms)
@@ -405,30 +426,87 @@ func _tick(dt: float) -> void:
 		if OpsState.match_phase == OpsState.MatchPhase.ENDED:
 			_emit_match_end_if_needed()
 			_emit_post_match_action_if_needed()
+		_finalize_tick_profile(tick_t0_us)
 		return
 	_tick_systems(dt)
 	_update_match_stats(now_ms)
 	_check_match_win(now_ms)
+	_finalize_tick_profile(tick_t0_us)
 
 func _tick_systems(dt: float) -> void:
-	var dt_ms := int(round(dt * 1000.0))
-	OpsState.tick_match_clock(state_ref, dt_ms)
-	state_ref.tick_lane_flow(dt * 1000.0)
-	state_ref.tick_unintended_power(float(dt_ms))
-	if lane_system != null:
-		lane_system.tick_lane_fronts(dt)
-	if swarm_system != null:
-		swarm_system.tick(dt, unit_system)
-	if unit_system != null:
-		unit_system.tick(dt)
-	if unit_system != null:
-		unit_system.tick_render_units(dt)
-	if structure_control_system != null:
-		structure_control_system.tick(dt)
-	if tower_system != null:
-		tower_system.tick(dt, unit_system)
-	if barracks_system != null:
-		barracks_system.tick(dt)
+	var dt_ms: int = int(round(dt * 1000.0))
+	_timed_phase("ops_events", func() -> void:
+		OpsState.tick_match_clock(state_ref, dt_ms)
+		state_ref.tick_unintended_power(float(dt_ms))
+	)
+	_timed_phase("lane_flow", func() -> void:
+		state_ref.tick_lane_flow(dt * 1000.0)
+		if lane_system != null:
+			lane_system.tick_lane_fronts(dt)
+	)
+	_timed_phase("unit_system", func() -> void:
+		if swarm_system != null:
+			swarm_system.tick(dt, unit_system)
+		if unit_system != null:
+			unit_system.tick(dt)
+			unit_system.tick_render_units(dt)
+	)
+	_timed_phase("tower_system", func() -> void:
+		if structure_control_system != null:
+			structure_control_system.tick(dt)
+		if tower_system != null:
+			tower_system.tick(dt, unit_system)
+	)
+	_timed_phase("barracks_system", func() -> void:
+		if barracks_system != null:
+			barracks_system.tick(dt)
+	)
+
+func _log_sim_tick() -> void:
+	var now_us: int = Time.get_ticks_usec()
+	if _last_tick_us != 0:
+		var dt_us: int = now_us - _last_tick_us
+		var expected_us: int = int(round(TICK_DT * 1000000.0))
+		var hitch_us: int = int(float(expected_us) * HITCH_MULT) + (HITCH_PAD_MS * 1000)
+		if dt_us >= hitch_us:
+			SFLog.warn("SIM_HITCH", {
+				"dt_ms": int(dt_us / 1000),
+				"dt_us": dt_us,
+				"expected_ms": int(expected_us / 1000),
+				"frame": Engine.get_process_frames(),
+				"physics": Engine.get_physics_frames()
+			})
+	_last_tick_us = now_us
+	SFLog.info("SIM_TICK", {
+		"frame": Engine.get_process_frames(),
+		"physics": Engine.get_physics_frames()
+	})
+
+func _finalize_tick_profile(tick_t0_us: int) -> void:
+	var tick_ms: float = float(Time.get_ticks_usec() - tick_t0_us) / 1000.0
+	if tick_ms >= 5.0:
+		SFLog.warn("SIM_TICK_COST", {"dt_ms": snapped(tick_ms, 0.1)})
+	var now_ms: int = Time.get_ticks_msec()
+	if _hb_last_ms == 0:
+		_hb_last_ms = now_ms
+	_hb_ticks += 1
+	if tick_ms > _hb_max_tick_ms:
+		_hb_max_tick_ms = tick_ms
+	if now_ms - _hb_last_ms >= 1000:
+		SFLog.info("SIM_HEARTBEAT", {
+			"ticks": _hb_ticks,
+			"max_tick_ms": snapped(_hb_max_tick_ms, 0.1)
+		})
+		_hb_last_ms = now_ms
+		_hb_max_tick_ms = 0.0
+		_hb_ticks = 0
+
+func _timed_phase(label: String, f: Callable) -> void:
+	var t0: int = Time.get_ticks_usec()
+	f.call()
+	var dt_ms: float = float(Time.get_ticks_usec() - t0) / 1000.0
+	if dt_ms >= 3.0:
+		SFLog.warn("SIM_TICK_PHASE", {"phase": label, "dt_ms": snapped(dt_ms, 0.1)})
 
 func _tick_units_only(dt: float) -> void:
 	if unit_system != null:
@@ -436,13 +514,7 @@ func _tick_units_only(dt: float) -> void:
 		unit_system.tick_render_units(dt)
 
 func _log_tick_phase() -> void:
-	var units_count := 0
-	if unit_system != null:
-		units_count = unit_system.units.size()
-	SFLog.info("SIM_TICK_PHASE", {
-		"phase": int(OpsState.match_phase),
-		"units": units_count
-	})
+	return
 
 func _update_match_stats(now_ms: int) -> void:
 	if now_ms - _last_stats_ms < STATS_INTERVAL_MS:

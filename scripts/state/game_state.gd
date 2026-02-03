@@ -41,6 +41,8 @@ var spawns: Array = []
 var swarm_requests: Array = []
 var swarm_packets: Array = []
 var lane_retract_requests: Array = []
+var units_set_version: int = 0
+var hives_set_version: int = 0
 
 # Optional lane sim state (v2+)
 var lane_sim_by_key: Dictionary = {}
@@ -65,6 +67,8 @@ var hive_by_id: Dictionary = {}
 var lane_index_by_key: Dictionary = {}
 var _hive_index_count: int = 0
 var _lane_index_count: int = 0
+var _last_hives_set_count: int = -1
+var _last_hives_set_sig: int = 0
 
 # Debug
 var _lane_dump_accum_ms: float = 0.0
@@ -143,6 +147,9 @@ func reset_map_only() -> void:
 	_passive_accum_ms = 0.0
 	_passive_config_logged = false
 	_outgoing_sample_log_ms = 0
+	units_set_version = 0
+	_last_hives_set_count = -1
+	_last_hives_set_sig = 0
 	rebuild_indexes()
 
 # -------------------------------------------------------------------
@@ -565,8 +572,34 @@ func rebuild_indexes() -> void:
 
 	_hive_index_count = hives.size()
 	_lane_index_count = lanes.size()
+	_refresh_hives_set_version()
 
 	rebuild_lane_adjacency()
+
+func _refresh_hives_set_version() -> void:
+	var count: int = hives.size()
+	var sig: int = _hives_set_signature()
+	if count == _last_hives_set_count and sig == _last_hives_set_sig:
+		return
+	_last_hives_set_count = count
+	_last_hives_set_sig = sig
+	hives_set_version += 1
+
+func _hives_set_signature() -> int:
+	var sig: int = hives.size()
+	var xor_sig: int = 0
+	for hive_any in hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		var packed: int = int(hive.id)
+		packed = (packed * 31 + int(hive.grid_pos.x)) & 0x7fffffff
+		packed = (packed * 31 + int(hive.grid_pos.y)) & 0x7fffffff
+		packed = (packed * 31 + int(hive.owner_id)) & 0x7fffffff
+		packed = (packed * 31 + int(String(hive.kind).hash())) & 0x7fffffff
+		xor_sig = xor_sig ^ packed
+	sig = (sig * 31 + xor_sig) & 0x7fffffff
+	return sig
 
 func rebuild_lane_adjacency() -> void:
 	outgoing_by_hive.clear()
