@@ -1,7 +1,9 @@
 extends RefCounted
 class_name EdgeEndpoints
 
-const EDGE_TUCK_PX: float = 38.0
+# Cap trims are already applied in EdgeGeometry/LaneGeometry. Keep this at zero
+# so lanes/units use one deterministic endpoint authority.
+const EDGE_TUCK_PX: float = 0.0
 
 static func compute(from_anchor: Vector2, to_anchor: Vector2, tuck_px: float) -> Dictionary:
 	var delta: Vector2 = to_anchor - from_anchor

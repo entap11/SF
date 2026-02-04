@@ -17,7 +17,7 @@ static func compute_endpoints(a: Vector2, b: Vector2, start_trim_px: float, end_
 
 	dir /= len
 	var start: Vector2 = a + dir * start_trim_px
-	var end: Vector2 = b + dir * end_trim_px
+	var end: Vector2 = b - dir * end_trim_px
 
 	# Perpendicular normal (right-hand). Useful for debugging unintended offsets.
 	var normal: Vector2 = Vector2(-dir.y, dir.x)

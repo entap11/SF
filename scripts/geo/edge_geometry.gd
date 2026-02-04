@@ -32,6 +32,6 @@ static func build(src_id_: int, dst_id_: int, a_: Vector2, b_: Vector2, start_tr
 	e.dir = v / len
 	e.normal = Vector2(-e.dir.y, e.dir.x)
 	e.start = a_ + e.dir * start_trim_px
-	e.end = b_ + e.dir * end_trim_px
+	e.end = b_ - e.dir * end_trim_px
 	e.length = (e.end - e.start).length()
 	return e
