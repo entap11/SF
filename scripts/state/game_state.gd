@@ -1037,8 +1037,13 @@ func _accumulate_lane_pressure(
 				else:
 					lane.spawn_accum_a_ms += dt_ms
 					var spawn_ms: float = _spawn_ms_for_hive(int(a_hive.power))
+					var lane_cap_a: float = _lane_hard_cap_units(lane_len)
 					var spawned_any := false
 					while lane.spawn_accum_a_ms >= spawn_ms:
+						if lane.a_pressure >= lane_cap_a:
+							lane.spawn_accum_a_ms = minf(lane.spawn_accum_a_ms, spawn_ms)
+							_log_spawn_block(lane, "A", "LANE_CAP")
+							break
 						lane.spawn_accum_a_ms -= spawn_ms
 						var amount := _pressure_per_spawn()
 						lane.a_pressure += amount
@@ -1077,8 +1082,13 @@ func _accumulate_lane_pressure(
 				else:
 					lane.spawn_accum_b_ms += dt_ms
 					var spawn_ms: float = _spawn_ms_for_hive(int(b_hive.power))
+					var lane_cap_b: float = _lane_hard_cap_units(lane_len)
 					var spawned_any := false
 					while lane.spawn_accum_b_ms >= spawn_ms:
+						if lane.b_pressure >= lane_cap_b:
+							lane.spawn_accum_b_ms = minf(lane.spawn_accum_b_ms, spawn_ms)
+							_log_spawn_block(lane, "B", "LANE_CAP")
+							break
 						lane.spawn_accum_b_ms -= spawn_ms
 						var amount := _pressure_per_spawn()
 						lane.b_pressure += amount
@@ -1112,6 +1122,11 @@ func _log_spawn_block(lane: LaneData, side: String, reason: String) -> void:
 		return
 	_last_spawn_block_log_ms[lane_key] = now_ms
 	_last_spawn_block_reason[lane_key] = reason
+	if reason == "LANE_CAP":
+		SFLog.info("LANE_CAP_BLOCK", {
+			"lane_id": int(lane.id),
+			"side": side
+		})
 	if SFLog.verbose_sim:
 		SFLog.throttled_info("LANE_SPAWN_BLOCK", {
 			"lane_id": int(lane.id),
@@ -1141,6 +1156,13 @@ func _spawn_unit_packet(lane: LaneData, from_hive: HiveData, to_hive: HiveData, 
 			"owner_id": int(from_hive.owner_id)
 		}, 250)
 	unit_system.spawn_unit(unit)
+
+func _lane_hard_cap_units(lane_len: float) -> float:
+	var px_per_unit: float = maxf(1.0, float(SimTuning.LANE_HARD_CAP_PX_PER_UNIT))
+	var raw_cap: int = int(round(maxf(1.0, lane_len) / px_per_unit))
+	var min_cap: int = int(SimTuning.LANE_HARD_CAP_MIN_UNITS)
+	var max_cap: int = int(SimTuning.LANE_HARD_CAP_MAX_UNITS)
+	return float(clampi(raw_cap, min_cap, max_cap))
 
 func _cancel_lane_pressure(lane: LaneData) -> void:
 	if unit_system != null and unit_system.use_lane_system_spawns:

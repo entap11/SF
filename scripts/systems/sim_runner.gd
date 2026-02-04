@@ -69,6 +69,8 @@ func _ready() -> void:
 	SFLog.allow_tag("SIM_HITCH")
 	SFLog.allow_tag("SIM_HEARTBEAT")
 	SFLog.allow_tag("EDGE_CACHE_REBUILT")
+	SFLog.allow_tag("UNIT_LANE_CAP_BLOCK")
+	SFLog.allow_tag("LANE_CAP_BLOCK")
 	if debug_sim_tick_log:
 		SFLog.allow_tag("SIM_TICK")
 		SFLog.allow_tag("SIM_TICK_COST")

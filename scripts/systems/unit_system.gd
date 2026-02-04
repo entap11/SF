@@ -46,12 +46,14 @@ var _in_owner_update: bool = false
 var _sim_events: SimEvents = null
 var _lane_gate_block_log_ms: Dictionary = {}
 var _lane_gate_open_logged: Dictionary = {}
+var _last_lane_cap_block_ms: Dictionary = {}
 var _last_units_set_count: int = -1
 var _last_units_set_sig: int = 0
 
 const UNIT_SPEED_LOG_INTERVAL_MS := 1000
 const PRESSURE_WARN_INTERVAL_MS := 1000
 const UNIT_GATE_LOG_INTERVAL_MS := 500
+const LANE_CAP_LOG_INTERVAL_MS := 1000
 
 func setup(_sim_tuning: SimTuning = null) -> void:
 	return
@@ -69,6 +71,7 @@ func bind_state(state_ref: GameState) -> void:
 	spawn_accum_by_lane.clear()
 	_lane_gate_block_log_ms.clear()
 	_lane_gate_open_logged.clear()
+	_last_lane_cap_block_ms.clear()
 	if state != null:
 		state.unit_system = self
 		state.units_set_version = units_set_version
@@ -122,8 +125,21 @@ func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive:
 	var accum := float(spawn_accum_by_lane.get(key, 0.0))
 	accum += dt_ms
 	var interval_ms := _spawn_interval_ms_for_power(int(from_hive.power))
+	var lane_cap := _lane_hard_cap_units(_lane_length(lane))
 	var spawned := 0
 	while accum >= interval_ms and spawned < MAX_SPAWNS_PER_TICK:
+		var pressure := _lane_side_pressure(lane, from_is_a)
+		if pressure >= float(lane_cap):
+			accum = minf(accum, interval_ms)
+			_log_lane_cap_blocked(
+				lane_id,
+				int(from_hive.id),
+				int(to_hive.id),
+				("A" if from_is_a else "B"),
+				pressure,
+				lane_cap
+			)
+			break
 		accum -= interval_ms
 		_spawn_unit(from_hive, to_hive, lane, from_is_a)
 		spawned += 1
@@ -178,10 +194,12 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 			"to_id": int(to_hive.id)
 		})
 	if a_pos.distance_to(b_pos) <= ARRIVE_EPS_PX:
+		_adjust_lane_pressure(int(lane.id), from_is_a, 1)
 		unit["t"] = 1.0 if from_is_a else 0.0
 		unit["pos"] = b_pos if from_is_a else a_pos
 		_apply_unit_arrival(unit)
 		return
+	_adjust_lane_pressure(int(lane.id), from_is_a, 1)
 	units.append(unit)
 	_sync_units_to_state()
 
@@ -1002,6 +1020,14 @@ func _lane_length(lane: LaneData) -> float:
 	var b_pos := state.hive_world_pos_by_id(int(lane.b_id))
 	return a_pos.distance_to(b_pos)
 
+func _lane_hard_cap_units(lane_len: float) -> int:
+	var px_per_unit: float = maxf(1.0, float(SimTuning.LANE_HARD_CAP_PX_PER_UNIT))
+	var raw_cap: int = int(round(maxf(1.0, lane_len) / px_per_unit))
+	return clampi(raw_cap, int(SimTuning.LANE_HARD_CAP_MIN_UNITS), int(SimTuning.LANE_HARD_CAP_MAX_UNITS))
+
+func _lane_side_pressure(lane: LaneData, from_is_a: bool) -> float:
+	return float(lane.a_pressure) if from_is_a else float(lane.b_pressure)
+
 func _lane_established(lane: LaneData, from_is_a: bool, lane_len: float) -> bool:
 	if lane_len <= 0.0:
 		return false
@@ -1035,6 +1061,22 @@ func _log_unit_gate_open_once(lane_id: int, src_id: int, dst_id: int, build_t: f
 		"dst": dst_id,
 		"front_t": _lane_front_t(lane_id),
 		"build_t": build_t
+	})
+
+func _log_lane_cap_blocked(lane_id: int, src_id: int, dst_id: int, side: String, pressure: float, cap_units: int) -> void:
+	var key := "%d:%s" % [lane_id, side]
+	var now_ms := Time.get_ticks_msec()
+	var last_ms := int(_last_lane_cap_block_ms.get(key, 0))
+	if now_ms - last_ms < LANE_CAP_LOG_INTERVAL_MS:
+		return
+	_last_lane_cap_block_ms[key] = now_ms
+	SFLog.info("UNIT_LANE_CAP_BLOCK", {
+		"lane_id": lane_id,
+		"src": src_id,
+		"dst": dst_id,
+		"side": side,
+		"pressure": pressure,
+		"cap_units": cap_units
 	})
 
 func _spawn_interval_ms_for_power(power: int) -> int:
