@@ -1008,10 +1008,14 @@ func _ensure_vfx_manager() -> void:
 		root.add_child(vfx_manager)
 	if sim_events != null and vfx_manager.has_method("set_sim_events"):
 		vfx_manager.set_sim_events(sim_events)
+	if vfx_manager != null and vfx_manager.has_method("prewarm"):
+		vfx_manager.prewarm()
 
 func _on_sim_ticked() -> void:
 	mark_render_dirty("sim_tick")
-	_maybe_push_render_model()
+	# SimRunner already ticks at fixed cadence; pushing every sim tick avoids
+	# time-gate jitter (99ms/101ms skip pattern) that reads as sawtooth motion.
+	_push_render_model()
 
 func _maybe_push_render_model() -> void:
 	var st: GameState = OpsState.get_state()

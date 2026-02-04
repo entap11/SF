@@ -58,9 +58,9 @@ const BOBBLE_AMP_MAX_PX: float = 6.0
 const BOBBLE_OMEGA: float = 8.0
 const BOBBLE_Y_CLAMP_PX: float = 6.0
 const SIM_DT_SEC_DEFAULT: float = 0.1
-const BUTTER_INTERP_DELAY_TICKS: float = 1.0
+const BUTTER_INTERP_DELAY_TICKS: float = 0.75
 const SAMPLE_T_EPS: float = 0.001
-const BUTTER_MAX_EXTRAP_SEC: float = 0.05
+const BUTTER_MAX_EXTRAP_SEC: float = 0.12
 const DBG_BUTTER: bool = false
 const DBG_BUTTER_LOG_INTERVAL_MS: int = 1000
 const DBG_FORCE_CONSTANT_VISUAL_MOTION: bool = false
@@ -131,6 +131,8 @@ var _endpoint_perf_cache_hits: int = 0
 var _endpoint_perf_max_eval_ms: float = 0.0
 var _endpoint_perf_spike_count: int = 0
 var _last_endpoint_trace: Dictionary = {}
+var _unit_assets_prewarmed: bool = false
+var _lane_endpoint_prewarm_sig: int = -1
 
 func _ready() -> void:
 	SFLog.allow_tag("RENDER_AUDIT_UNITS")
@@ -148,6 +150,7 @@ func _ready() -> void:
 	SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
 	_pool_build()
 	_apply_debug_force_top_z()
+	_prewarm_unit_assets()
 	_request_redraw()
 
 func setup_renderer_refs(lane_renderer_ref: Object) -> void:
@@ -169,6 +172,7 @@ func _endpoint_invalidate_caller_hint() -> String:
 func _invalidate_endpoint_caches(reason: String = "unspecified") -> void:
 	_cached_hive_anchor_info.clear()
 	_cached_lane_endpoints.clear()
+	_lane_endpoint_prewarm_sig = -1
 	SFLog.info("UNIT_ENDPOINT_CACHE_INVALIDATE", {
 		"reason": reason,
 		"caller": _endpoint_invalidate_caller_hint()
@@ -375,6 +379,8 @@ func bind_units(snapshot: Array, units_version: int, sim_time_us: int) -> void:
 	_units = snapshot
 	model["units"] = snapshot
 	model["sim_time_s"] = float(sim_time_us) / 1000000.0
+	_maybe_invalidate_on_lane_signature()
+	_prewarm_active_lane_endpoints()
 	var structure_changed: bool = units_version != _bound_units_version
 	_bound_units_version = units_version
 	_last_units_snapshot = snapshot
@@ -407,6 +413,8 @@ func set_units_snapshot(snapshot: Array, sim_time_us: int) -> void:
 	_units = snapshot
 	model["units"] = snapshot
 	model["sim_time_s"] = float(sim_time_us) / 1000000.0
+	_maybe_invalidate_on_lane_signature()
+	_prewarm_active_lane_endpoints()
 	var structure_changed: bool = _consume_units_snapshot_signature(snapshot)
 	if structure_changed:
 		SFLog.throttled_info("UNIT_RENDER_REBUILD", {
@@ -478,6 +486,105 @@ func _maybe_invalidate_on_lane_signature() -> void:
 		return
 	_last_lane_sig = sig
 	_invalidate_endpoint_caches("lane_sig_changed")
+
+func _owner_id_from_unit_sprite_key(sprite_key: String) -> int:
+	if sprite_key == "unit.neutral":
+		return 0
+	if sprite_key.begins_with("unit.p"):
+		var owner_s: String = sprite_key.trim_prefix("unit.p")
+		if owner_s.is_valid_int():
+			return int(owner_s)
+	return 0
+
+func _prewarm_unit_assets() -> void:
+	if _unit_assets_prewarmed:
+		return
+	var registry: SpriteRegistry = _get_sprite_registry()
+	if registry == null:
+		return
+	_pool_build()
+	var prewarm_node: Node2D = _pool_acquire()
+	var prewarm_sprite: Sprite2D = null
+	if prewarm_node != null:
+		prewarm_sprite = _ensure_unit_sprite(prewarm_node)
+	var keys: Array[String] = ["unit.neutral", "unit.p1", "unit.p2", "unit.p3", "unit.p4"]
+	for sprite_key in keys:
+		var tex: Texture2D = registry.get_tex(sprite_key)
+		if tex == null:
+			var tex_path: String = registry.get_tex_path(sprite_key)
+			if not tex_path.is_empty():
+				var res: Resource = ResourceLoader.load(tex_path)
+				if res is Texture2D:
+					tex = res as Texture2D
+		var owner_id: int = _owner_id_from_unit_sprite_key(sprite_key)
+		var mat: ShaderMaterial = _get_unit_colorkey_material(sprite_key, owner_id, registry)
+		if prewarm_sprite != null:
+			prewarm_sprite.texture = tex
+			prewarm_sprite.material = mat
+			prewarm_sprite.visible = true
+	if prewarm_node != null:
+		_pool_release(prewarm_node)
+	_unit_assets_prewarmed = true
+
+func _collect_active_lane_entries() -> Array:
+	var lanes_v: Variant = model.get("lanes", [])
+	if typeof(lanes_v) != TYPE_ARRAY:
+		return []
+	var out: Array = []
+	var seen: Dictionary = {}
+	for lane_any in lanes_v as Array:
+		if typeof(lane_any) != TYPE_DICTIONARY:
+			continue
+		var ld: Dictionary = lane_any as Dictionary
+		var lane_id: int = int(ld.get("lane_id", ld.get("id", -1)))
+		if lane_id <= 0:
+			continue
+		var a_id: int = int(ld.get("a_id", ld.get("from", 0)))
+		var b_id: int = int(ld.get("b_id", ld.get("to", 0)))
+		if a_id <= 0 or b_id <= 0:
+			continue
+		var send_a: bool = bool(ld.get("send_a", false))
+		var send_b: bool = bool(ld.get("send_b", false))
+		if not send_a and not send_b:
+			continue
+		if send_a:
+			var key_a: String = _lane_cache_key(lane_id, a_id, b_id)
+			if not seen.has(key_a):
+				seen[key_a] = true
+				out.append({"lane_id": lane_id, "from_id": a_id, "to_id": b_id})
+		if send_b:
+			var key_b: String = _lane_cache_key(lane_id, b_id, a_id)
+			if not seen.has(key_b):
+				seen[key_b] = true
+				out.append({"lane_id": lane_id, "from_id": b_id, "to_id": a_id})
+	return out
+
+func _prewarm_active_lane_endpoints() -> void:
+	var sig: int = _lane_renderer_signature()
+	if sig < 0:
+		return
+	if sig == _lane_endpoint_prewarm_sig:
+		return
+	var entries: Array = _collect_active_lane_entries()
+	if entries.is_empty():
+		_lane_endpoint_prewarm_sig = sig
+		return
+	var hive_by_id: Dictionary = _build_hive_by_id()
+	if hive_by_id.is_empty():
+		return
+	var endpoint_cache: Dictionary = _cached_lane_endpoints
+	var hive_anchor_cache: Dictionary = _cached_hive_anchor_info
+	for entry_any in entries:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var lane_id: int = int(entry.get("lane_id", -1))
+		var from_id: int = int(entry.get("from_id", 0))
+		var to_id: int = int(entry.get("to_id", 0))
+		if lane_id <= 0 or from_id <= 0 or to_id <= 0:
+			continue
+		_lane_endpoints_map_local_from_hive_ids(from_id, to_id, hive_by_id, -1, endpoint_cache, hive_anchor_cache, lane_id)
+	_lane_endpoint_prewarm_sig = sig
 
 func _endpoint_perf_maybe_flush(now_ms: int) -> void:
 	if _endpoint_perf_window_start_ms <= 0:
@@ -895,10 +1002,10 @@ func _update_unit_nodes_positions(units: Array) -> Dictionary:
 	var hive_lookup_t0_us: int = Time.get_ticks_usec()
 	var hive_by_id: Dictionary = _build_hive_by_id()
 	profile["hive_lookup_us"] = int(Time.get_ticks_usec() - hive_lookup_t0_us)
-	_maybe_invalidate_on_lane_signature()
 	var registry: SpriteRegistry = _get_sprite_registry()
 	var endpoint_cache: Dictionary = _cached_lane_endpoints
 	var hive_anchor_cache: Dictionary = _cached_hive_anchor_info
+	var sample_sim_us: int = int(round(float(model.get("sim_time_s", 0.0)) * 1000000.0))
 	var endpoint_t0_us: int = Time.get_ticks_usec()
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
@@ -914,7 +1021,7 @@ func _update_unit_nodes_positions(units: Array) -> Dictionary:
 		if sprite == null:
 			continue
 		_update_unit_sprite(node, ud, hive_by_id, registry, false)
-		_ingest_unit_sample(ud, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache)
+		_ingest_unit_sample(ud, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache, sample_sim_us)
 		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
 		if typeof(state_any) == TYPE_DICTIONARY:
 			var state: Dictionary = state_any as Dictionary
@@ -935,7 +1042,8 @@ func _ingest_unit_sample(
 	hive_by_id: Dictionary,
 	unit_id: int,
 	endpoint_cache: Variant = null,
-	hive_anchor_cache: Variant = null
+	hive_anchor_cache: Variant = null,
+	sample_sim_us: int = -1
 ) -> void:
 	var lane_id: int = int(ud.get("lane_id", 0))
 	var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id, endpoint_cache, hive_anchor_cache)
@@ -947,8 +1055,10 @@ func _ingest_unit_sample(
 	if bool(endpoints.get("ok", false)):
 		a_pos = endpoints.get("a", sample_pos)
 		b_pos = endpoints.get("b", sample_pos)
-	var sample_time_us: int = Time.get_ticks_usec()
-	var sample_time_s: float = float(sample_time_us) / 1000000.0
+	var sample_wall_us: int = Time.get_ticks_usec()
+	if sample_sim_us < 0:
+		sample_sim_us = int(round(float(model.get("sim_time_s", 0.0)) * 1000000.0))
+	var sample_time_s: float = float(sample_sim_us) / 1000000.0
 	var sample_dir_norm: Vector2 = sample_dir
 	if sample_dir_norm.length_squared() <= 0.000001:
 		sample_dir_norm = Vector2.RIGHT
@@ -960,7 +1070,7 @@ func _ingest_unit_sample(
 		"a": a_pos,
 		"b": b_pos,
 		"ts": sample_time_s,
-		"ts_us": sample_time_us
+		"ts_us": sample_sim_us
 	}
 	var buf_any: Variant = _unit_samples_by_id.get(unit_id, null)
 	var buf: Dictionary = {}
@@ -984,8 +1094,12 @@ func _ingest_unit_sample(
 	if entry.is_empty():
 		entry["prev_pos"] = sample_pos
 		entry["curr_pos"] = sample_pos
-		entry["prev_time_us"] = sample_time_us
-		entry["curr_time_us"] = sample_time_us
+		entry["prev_time_us"] = sample_sim_us
+		entry["curr_time_us"] = sample_sim_us
+		entry["prev_sim_us"] = sample_sim_us
+		entry["curr_sim_us"] = sample_sim_us
+		entry["prev_wall_us"] = sample_wall_us
+		entry["curr_wall_us"] = sample_wall_us
 		entry["prev_rot"] = sample_rot
 		entry["curr_rot"] = sample_rot
 		entry["render_pos"] = sample_pos
@@ -994,9 +1108,15 @@ func _ingest_unit_sample(
 		var curr_pos: Vector2 = entry.get("curr_pos", sample_pos)
 		entry["prev_pos"] = curr_pos
 		entry["curr_pos"] = sample_pos
-		var curr_time_us: int = int(entry.get("curr_time_us", sample_time_us))
+		var curr_time_us: int = int(entry.get("curr_time_us", sample_sim_us))
 		entry["prev_time_us"] = curr_time_us
-		entry["curr_time_us"] = sample_time_us
+		entry["curr_time_us"] = sample_sim_us
+		var curr_sim_us: int = int(entry.get("curr_sim_us", sample_sim_us))
+		entry["prev_sim_us"] = curr_sim_us
+		entry["curr_sim_us"] = sample_sim_us
+		var curr_wall_us: int = int(entry.get("curr_wall_us", sample_wall_us))
+		entry["prev_wall_us"] = curr_wall_us
+		entry["curr_wall_us"] = sample_wall_us
 		var curr_rot: float = float(entry.get("curr_rot", sample_rot))
 		entry["prev_rot"] = curr_rot
 		entry["curr_rot"] = sample_rot
@@ -2078,8 +2198,8 @@ func _sample_vec2(sample: Dictionary, key: String, fallback: Vector2) -> Vector2
 	return fallback
 
 func _update_unit_visual_smoothing(_delta: float) -> void:
-	var alpha: float = clampf(Engine.get_physics_interpolation_fraction(), 0.0, 1.0)
-	_render_units(alpha)
+	var now_us: int = Time.get_ticks_usec()
+	_render_units(now_us)
 
 func _render_units_constant_speed(delta: float) -> void:
 	if unit_nodes_by_id.is_empty():
@@ -2140,7 +2260,29 @@ func _render_units_constant_speed(delta: float) -> void:
 		if sprite != null:
 			_apply_unit_orientation_from_dir(node, sprite, dir_vec)
 
-func _render_units(alpha: float) -> void:
+func _render_alpha_for_state(state: Dictionary, now_us: int) -> float:
+	var prev_sim_us: int = int(state.get("prev_sim_us", state.get("prev_time_us", 0)))
+	var curr_sim_us: int = int(state.get("curr_sim_us", state.get("curr_time_us", prev_sim_us)))
+	if curr_sim_us <= prev_sim_us:
+		return 1.0
+	var interval_sim_us: int = curr_sim_us - prev_sim_us
+	if interval_sim_us <= 0:
+		return 1.0
+	var curr_wall_us: int = int(state.get("curr_wall_us", now_us))
+	var elapsed_wall_us: int = maxi(0, now_us - curr_wall_us)
+	var interp_delay_us: int = int(maxf(0.0, BUTTER_INTERP_DELAY_TICKS) * float(interval_sim_us))
+	var desired_sim_us: int = curr_sim_us + elapsed_wall_us - interp_delay_us
+	if desired_sim_us <= prev_sim_us:
+		return 0.0
+	var alpha: float = float(desired_sim_us - prev_sim_us) / float(interval_sim_us)
+	if alpha <= 1.0:
+		return alpha
+	var max_extra_alpha: float = float(int(BUTTER_MAX_EXTRAP_SEC * 1000000.0)) / float(interval_sim_us)
+	if max_extra_alpha <= 0.0:
+		return 1.0
+	return minf(alpha, 1.0 + max_extra_alpha)
+
+func _render_units(now_us: int) -> void:
 	if _unit_visual_by_id.is_empty():
 		return
 	var ids: Array = unit_nodes_by_id.keys()
@@ -2164,6 +2306,7 @@ func _render_units(alpha: float) -> void:
 				state["just_spawned"] = false
 				_unit_visual_by_id[unit_id] = state
 				continue
+			var alpha: float = _render_alpha_for_state(state, now_us)
 			var prev_pos: Vector2 = state.get("prev_pos", node.position)
 			var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
 			var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)

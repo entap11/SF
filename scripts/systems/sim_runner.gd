@@ -66,13 +66,14 @@ func _ready() -> void:
 	set_process(true)
 	set_physics_process(true)
 	set_process_unhandled_input(true)
-	SFLog.allow_tag("SIM_TICK")
 	SFLog.allow_tag("SIM_HITCH")
-	SFLog.allow_tag("SIM_TICK_COST")
 	SFLog.allow_tag("SIM_HEARTBEAT")
-	SFLog.allow_tag("SIM_TICK_PHASE")
-	SFLog.allow_tag("UNIT_ARRIVED")
 	SFLog.allow_tag("EDGE_CACHE_REBUILT")
+	if debug_sim_tick_log:
+		SFLog.allow_tag("SIM_TICK")
+		SFLog.allow_tag("SIM_TICK_COST")
+		SFLog.allow_tag("SIM_TICK_PHASE")
+		SFLog.allow_tag("UNIT_ARRIVED")
 	_ensure_systems()
 	_schedule_bind_structures("ready")
 	# Arena binds the authoritative OpsState-owned GameState via bind_state().
@@ -488,14 +489,15 @@ func _log_sim_tick() -> void:
 				"physics": Engine.get_physics_frames()
 			})
 	_last_tick_us = now_us
-	SFLog.info("SIM_TICK", {
-		"frame": Engine.get_process_frames(),
-		"physics": Engine.get_physics_frames()
-	})
+	if debug_sim_tick_log:
+		SFLog.info("SIM_TICK", {
+			"frame": Engine.get_process_frames(),
+			"physics": Engine.get_physics_frames()
+		})
 
 func _finalize_tick_profile(tick_t0_us: int) -> void:
 	var tick_ms: float = float(Time.get_ticks_usec() - tick_t0_us) / 1000.0
-	if tick_ms >= 5.0:
+	if debug_sim_tick_log and tick_ms >= 5.0:
 		SFLog.warn("SIM_TICK_COST", {"dt_ms": snapped(tick_ms, 0.1)})
 	var now_ms: int = Time.get_ticks_msec()
 	if _hb_last_ms == 0:
@@ -516,7 +518,7 @@ func _timed_phase(label: String, f: Callable) -> void:
 	var t0: int = Time.get_ticks_usec()
 	f.call()
 	var dt_ms: float = float(Time.get_ticks_usec() - t0) / 1000.0
-	if dt_ms >= 3.0:
+	if debug_sim_tick_log and dt_ms >= 3.0:
 		SFLog.warn("SIM_TICK_PHASE", {"phase": label, "dt_ms": snapped(dt_ms, 0.1)})
 
 func _tick_units_only(dt: float) -> void:

@@ -15,7 +15,9 @@ const SELECTOR_STATE_INACTIVE := 0
 const SELECTOR_STATE_HOVER := 1
 const SELECTOR_STATE_SELECTED := 2
 const SELECTOR_STATE_ACTIVATED := 3
-const LANE_ANCHOR_Y_PX: float = 58.0
+# Edge trims now define lane/unit contact deterministically.
+# Keep hive anchor at center to avoid a global upward bias.
+const LANE_ANCHOR_Y_PX: float = 0.0
 
 @export var hive_id: int = -1
 @export var owner_id: int = 0

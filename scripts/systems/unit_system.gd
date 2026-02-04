@@ -168,14 +168,15 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		"pos": pos
 	}
 	unit_id_counter += 1
-	SFLog.info("UNIT_SPAWN", {
-		"iid": int(state.iid),
-		"unit_id": unit_id,
-		"lane_id": int(lane.id),
-		"owner_id": int(from_hive.owner_id),
-		"from_id": int(from_hive.id),
-		"to_id": int(to_hive.id)
-	})
+	if SFLog.verbose_sim:
+		SFLog.info("UNIT_SPAWN", {
+			"iid": int(state.iid),
+			"unit_id": unit_id,
+			"lane_id": int(lane.id),
+			"owner_id": int(from_hive.owner_id),
+			"from_id": int(from_hive.id),
+			"to_id": int(to_hive.id)
+		})
 	if a_pos.distance_to(b_pos) <= ARRIVE_EPS_PX:
 		unit["t"] = 1.0 if from_is_a else 0.0
 		unit["pos"] = b_pos if from_is_a else a_pos
@@ -327,14 +328,15 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 					var dir_vec: Vector2 = p1 - p0
 					if dir_vec.length_squared() > 0.000001:
 						lane_dir = dir_vec.normalized()
-					SFLog.info("UNIT_COLLISION_GEOM", {
-						"lane_id": lane_id,
-						"p0": p0,
-						"p1": p1,
-						"front_t": front_t,
-						"impact": impact,
-						"at_us": now_us
-					})
+					if debug_collisions:
+						SFLog.info("UNIT_COLLISION_GEOM", {
+							"lane_id": lane_id,
+							"p0": p0,
+							"p1": p1,
+							"front_t": front_t,
+							"impact": impact,
+							"at_us": now_us
+						})
 				else:
 					var a_pos_any: Variant = a.get("pos", Vector2.ZERO)
 					var b_pos_any: Variant = b.get("pos", Vector2.ZERO)
@@ -355,22 +357,23 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 						int(lane_id),
 						vfx_intensity
 					)
-				SFLog.info("UNIT_COLLISION_PRE", {
-					"lane_id": lane_id,
-					"a_before": a_before,
-					"b_before": b_before,
-					"kill": kill,
-					"at_us": now_us,
-					"front_t": front_t
-				})
-				SFLog.info("UNIT_COLLISION_POST", {
-					"lane_id": lane_id,
-					"a_after": a_amt,
-					"b_after": b_amt,
-					"killed": kill,
-					"at_us": now_us,
-					"front_t": collision_t
-				})
+				if debug_collisions:
+					SFLog.info("UNIT_COLLISION_PRE", {
+						"lane_id": lane_id,
+						"a_before": a_before,
+						"b_before": b_before,
+						"kill": kill,
+						"at_us": now_us,
+						"front_t": front_t
+					})
+					SFLog.info("UNIT_COLLISION_POST", {
+						"lane_id": lane_id,
+						"a_after": a_amt,
+						"b_after": b_amt,
+						"killed": kill,
+						"at_us": now_us,
+						"front_t": collision_t
+					})
 			if a_amt <= 0:
 				_mark_unit_remove(a_idx, remove_indices, remove_set)
 				ab.pop_back()
@@ -666,12 +669,13 @@ func _process_arrivals() -> void:
 		var unit: Dictionary = units[i] as Dictionary
 		if _unit_has_arrived(unit):
 			var t: float = clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
-			SFLog.info("UNIT_ARRIVED", {
-				"unit_id": int(unit.get("id", -1)),
-				"lane": int(unit.get("lane_id", -1)),
-				"dst": int(unit.get("to_id", -1)),
-				"t": snapped(t, 0.001)
-			})
+			if SFLog.verbose_sim:
+				SFLog.info("UNIT_ARRIVED", {
+					"unit_id": int(unit.get("id", -1)),
+					"lane": int(unit.get("lane_id", -1)),
+					"dst": int(unit.get("to_id", -1)),
+					"t": snapped(t, 0.001)
+				})
 			_apply_unit_arrival(unit)
 			units.remove_at(i)
 
@@ -852,7 +856,8 @@ func _remove_unit(unit_id: int, reason: String) -> bool:
 			continue
 		units.remove_at(i)
 		_sync_units_to_state()
-		SFLog.info("UNIT_REMOVED", {"unit_id": unit_id, "reason": reason})
+		if SFLog.verbose_sim:
+			SFLog.info("UNIT_REMOVED", {"unit_id": unit_id, "reason": reason})
 		return true
 	return false
 
