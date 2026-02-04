@@ -1250,7 +1250,14 @@ func _rebuild_lane_sprites_now() -> void:
 		var prev_send_a: bool = bool(entry.get("send_a", false))
 		var prev_send_b: bool = bool(entry.get("send_b", false))
 		if prev_send_a != send_a or prev_send_b != send_b:
-			entry["visual_t"] = 0.0
+			var was_active: bool = prev_send_a or prev_send_b
+			var now_active: bool = send_a or send_b
+			# Only animate growth when a lane first turns on; do not "rebuild" when
+			# the opposite side joins an already-active lane.
+			if not was_active and now_active:
+				entry["visual_t"] = 0.0
+			else:
+				entry["visual_t"] = 1.0
 		entry["a_id"] = a_id
 		entry["b_id"] = b_id
 		entry["lane_id"] = lane_id
@@ -1335,9 +1342,11 @@ func _update_lane_visuals(delta: float) -> void:
 		var color_b: Color = _with_alpha(_lane_color_for_hive(b_id), LANE_ACTIVE_ALPHA)
 		var lane_basis_dir: Vector2 = b_pos - a_pos
 		if send_a and send_b:
-			var mid: Vector2 = a_pos.lerp(b_pos, 0.5)
-			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(mid, visual_t), color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
-			_apply_lane_sprite_visual(sprite_b, b_pos, b_pos.lerp(mid, visual_t), color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
+			var front_t: float = clampf(float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)), 0.0, 1.0)
+			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
+			# Contested lanes should show a stable split immediately.
+			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
+			_apply_lane_sprite_visual(sprite_b, b_pos, front_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
 		elif send_a:
 			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
 			sprite_b.visible = false

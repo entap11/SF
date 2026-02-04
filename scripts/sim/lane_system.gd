@@ -9,6 +9,7 @@ signal lane_removed(lane_id: int)
 
 const LANE_BUILD_MS := 500
 const LANE_FRONT_SPEED := 0.35
+const LANE_CONTEST_RETURN_SPEED := 1.25
 const LANE_ESTABLISH_EPS := 0.999
 
 var lanes: Dictionary = {} # key "lo:hi" -> Dictionary lane_d (render/intent view)
@@ -335,7 +336,10 @@ func tick_lane_fronts(dt: float) -> void:
 			dir = 1.0
 		elif send_b and not send_a:
 			dir = -1.0
-		if dir != 0.0:
+		if send_a and send_b:
+			# When both sides are sending, keep the split centered for MVP readability.
+			t = move_toward(t, 0.5, LANE_CONTEST_RETURN_SPEED * dt)
+		elif dir != 0.0:
 			t = clampf(t + dir * LANE_FRONT_SPEED * dt, 0.05, 0.95)
 		OpsState.lane_front_by_lane_id[lane_id] = t
 		var was_established := bool(_established_by_lane_id.get(lane_id, false))

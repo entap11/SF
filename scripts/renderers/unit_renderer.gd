@@ -60,7 +60,7 @@ const BOBBLE_Y_CLAMP_PX: float = 6.0
 const SIM_DT_SEC_DEFAULT: float = 0.1
 const BUTTER_INTERP_DELAY_TICKS: float = 0.75
 const SAMPLE_T_EPS: float = 0.001
-const BUTTER_MAX_EXTRAP_SEC: float = 0.12
+const BUTTER_MAX_EXTRAP_SEC: float = 0.05
 const DBG_BUTTER: bool = false
 const DBG_BUTTER_LOG_INTERVAL_MS: int = 1000
 const DBG_FORCE_CONSTANT_VISUAL_MOTION: bool = false
@@ -1094,6 +1094,8 @@ func _ingest_unit_sample(
 	if entry.is_empty():
 		entry["prev_pos"] = sample_pos
 		entry["curr_pos"] = sample_pos
+		entry["prev_t"] = target_t
+		entry["curr_t"] = target_t
 		entry["prev_time_us"] = sample_sim_us
 		entry["curr_time_us"] = sample_sim_us
 		entry["prev_sim_us"] = sample_sim_us
@@ -1108,6 +1110,9 @@ func _ingest_unit_sample(
 		var curr_pos: Vector2 = entry.get("curr_pos", sample_pos)
 		entry["prev_pos"] = curr_pos
 		entry["curr_pos"] = sample_pos
+		var curr_t: float = float(entry.get("curr_t", target_t))
+		entry["prev_t"] = curr_t
+		entry["curr_t"] = target_t
 		var curr_time_us: int = int(entry.get("curr_time_us", sample_sim_us))
 		entry["prev_time_us"] = curr_time_us
 		entry["curr_time_us"] = sample_sim_us
@@ -1185,14 +1190,16 @@ func _unit_path_endpoints_map_local(
 	var b_id: int = _resolve_id(ud.get("b_id", 0))
 	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
 	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
-	if from_id > 0 and to_id > 0:
-		var ft_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(from_id, to_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache, lane_id)
-		if bool(ft_endpoints.get("ok", false)):
-			return ft_endpoints
+	# Sim uses canonical lane endpoints (a_id->b_id) and encodes travel direction in dir/t.
+	# Rendering against from_id/to_id can invert one side and create "phantom" collisions.
 	if a_id > 0 and b_id > 0:
 		var ab_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(a_id, b_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache, lane_id)
 		if bool(ab_endpoints.get("ok", false)):
 			return ab_endpoints
+	if from_id > 0 and to_id > 0:
+		var ft_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(from_id, to_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache, lane_id)
+		if bool(ft_endpoints.get("ok", false)):
+			return ft_endpoints
 	var lane_renderer_authoritative: bool = _lane_renderer != null and is_instance_valid(_lane_renderer) and _lane_renderer.has_method("get_lane_endpoints_world")
 	if lane_renderer_authoritative and ((from_id > 0 and to_id > 0) or (a_id > 0 and b_id > 0)):
 		return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO, "normal": Vector2.ZERO}
@@ -2307,6 +2314,11 @@ func _render_units(now_us: int) -> void:
 				_unit_visual_by_id[unit_id] = state
 				continue
 			var alpha: float = _render_alpha_for_state(state, now_us)
+			if alpha > 1.0:
+				var curr_t: float = float(state.get("curr_t", 0.5))
+				# Avoid endpoint overshoot artifacts when units are about to arrive.
+				if curr_t <= 0.05 or curr_t >= 0.95:
+					alpha = 1.0
 			var prev_pos: Vector2 = state.get("prev_pos", node.position)
 			var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
 			var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)
