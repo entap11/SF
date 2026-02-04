@@ -3,6 +3,9 @@ extends Node2D
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
+const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
+const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 
 var model: Dictionary = {}
@@ -43,6 +46,8 @@ const UNIT_REDRAW_INTERVAL_MS := 30
 const UNIT_BASELINE_AUDIT_INTERVAL_MS: int = 1000
 const UNIT_RECONCILE_LOG_INTERVAL_MS: int = 1000
 const UNIT_RECONCILE_SLOW_MS: float = 2.0
+const UNIT_ENDPOINT_SPIKE_LOG_INTERVAL_MS: int = 500
+const UNIT_ENDPOINT_PERF_WINDOW_MS: int = 2000
 const SWARM_SCALE_MULT: float = 15.0
 const SWARM_LABEL_FONT_SIZE: int = 12
 const SWARM_LABEL_SIZE: Vector2 = Vector2(48.0, 20.0)
@@ -72,6 +77,8 @@ const PRUNE_AFTER_TICKS: int = 2
 @export var debug_force_top_z: bool = true
 @export var debug_force_big_radius_px: float = 10.0
 @export var sim_dt_sec: float = SIM_DT_SEC_DEFAULT
+@export var lane_start_cap_trim_px: float = 18.0
+@export var lane_end_cap_trim_px: float = 18.0
 
 var _unit_space: String = "local"
 var _unit_space_logged: bool = false
@@ -104,9 +111,9 @@ var _hive_by_id_cache: Dictionary = {}
 var _hive_cache_count: int = 0
 var _hive_bind_version: int = 0
 var _hive_key_sig: int = 0
+var _hive_nodes_sig: int = 0
 var _unit_missing_ticks: Dictionary = {}
 var _last_baseline_audit_ms: int = 0
-var _lane_renderer: Object = null
 var _reconcile_last_log_ms: int = 0
 var _death_reconcile_last_log_ms: int = 0
 var _reconcile_baseline_ms: float = 0.0
@@ -115,6 +122,15 @@ var _last_bound_units_count: int = 0
 var _hive_lookup_last_log_ms: int = 0
 var _cached_hive_anchor_info: Dictionary = {}
 var _cached_lane_endpoints: Dictionary = {}
+var _lane_renderer: Object = null
+var _last_lane_sig: int = -1
+var _endpoint_spike_last_ms: int = 0
+var _endpoint_perf_window_start_ms: int = 0
+var _endpoint_perf_calls: int = 0
+var _endpoint_perf_cache_hits: int = 0
+var _endpoint_perf_max_eval_ms: float = 0.0
+var _endpoint_perf_spike_count: int = 0
+var _last_endpoint_trace: Dictionary = {}
 
 func _ready() -> void:
 	SFLog.allow_tag("RENDER_AUDIT_UNITS")
@@ -125,18 +141,38 @@ func _ready() -> void:
 	SFLog.allow_tag("UNIT_DEATH_FRAME_MS")
 	SFLog.allow_tag("UNIT_RECONCILE_SLOW")
 	SFLog.allow_tag("UNIT_HIVE_LOOKUP_BUILD_MS")
+	SFLog.allow_tag("UNIT_EDGE_BIND")
+	SFLog.allow_tag("UNIT_ENDPOINT_SPIKE")
+	SFLog.allow_tag("UNIT_ENDPOINT_CACHE_INVALIDATE")
+	SFLog.allow_tag("UNIT_ENDPOINT_PERF_SUMMARY")
+	SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
 	_pool_build()
 	_apply_debug_force_top_z()
 	_request_redraw()
 
 func setup_renderer_refs(lane_renderer_ref: Object) -> void:
-	if _lane_renderer != lane_renderer_ref:
-		_invalidate_endpoint_caches()
+	if _lane_renderer == lane_renderer_ref:
+		return
 	_lane_renderer = lane_renderer_ref
+	_last_lane_sig = -1
+	_invalidate_endpoint_caches("renderer_ref_changed")
 
-func _invalidate_endpoint_caches() -> void:
+func _endpoint_invalidate_caller_hint() -> String:
+	var stack: Array = get_stack()
+	for i in range(1, stack.size()):
+		var frame: Dictionary = stack[i]
+		var fn: String = str(frame.get("function", ""))
+		if fn != "_invalidate_endpoint_caches" and fn != "":
+			return fn
+	return ""
+
+func _invalidate_endpoint_caches(reason: String = "unspecified") -> void:
 	_cached_hive_anchor_info.clear()
 	_cached_lane_endpoints.clear()
+	SFLog.info("UNIT_ENDPOINT_CACHE_INVALIDATE", {
+		"reason": reason,
+		"caller": _endpoint_invalidate_caller_hint()
+	})
 
 func _now_sec() -> float:
 	return float(Time.get_ticks_usec()) / 1000000.0
@@ -419,6 +455,76 @@ func _units_snapshot_signature(snapshot: Array) -> int:
 func _us_to_ms(us: int) -> float:
 	return float(us) / 1000.0
 
+func _lane_renderer_signature() -> int:
+	if _lane_renderer == null or not is_instance_valid(_lane_renderer):
+		return -1
+	if not _lane_renderer.has_method("get_lane_signature"):
+		return -1
+	var sig_any: Variant = _lane_renderer.call("get_lane_signature")
+	if typeof(sig_any) == TYPE_INT:
+		return int(sig_any)
+	if typeof(sig_any) == TYPE_FLOAT:
+		return int(sig_any)
+	return -1
+
+func _maybe_invalidate_on_lane_signature() -> void:
+	var sig: int = _lane_renderer_signature()
+	if sig < 0:
+		return
+	if _last_lane_sig < 0:
+		_last_lane_sig = sig
+		return
+	if sig == _last_lane_sig:
+		return
+	_last_lane_sig = sig
+	_invalidate_endpoint_caches("lane_sig_changed")
+
+func _endpoint_perf_maybe_flush(now_ms: int) -> void:
+	if _endpoint_perf_window_start_ms <= 0:
+		_endpoint_perf_window_start_ms = now_ms
+		return
+	if now_ms - _endpoint_perf_window_start_ms < UNIT_ENDPOINT_PERF_WINDOW_MS:
+		return
+	var calls: int = _endpoint_perf_calls
+	var hit_rate: float = 0.0
+	if calls > 0:
+		hit_rate = float(_endpoint_perf_cache_hits) / float(calls)
+	SFLog.info("UNIT_ENDPOINT_PERF_SUMMARY", {
+		"calls": calls,
+		"cache_hits": int(_endpoint_perf_cache_hits),
+		"hit_rate": snapped(hit_rate * 100.0, 0.1),
+		"max_endpoint_eval_ms": snapped(_endpoint_perf_max_eval_ms, 0.01),
+		"spikes": int(_endpoint_perf_spike_count)
+	})
+	_endpoint_perf_window_start_ms = now_ms
+	_endpoint_perf_calls = 0
+	_endpoint_perf_cache_hits = 0
+	_endpoint_perf_max_eval_ms = 0.0
+	_endpoint_perf_spike_count = 0
+
+func _endpoint_perf_record(eval_ms: float, cache_hit: bool, spike: bool) -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	if _endpoint_perf_window_start_ms <= 0:
+		_endpoint_perf_window_start_ms = now_ms
+	_endpoint_perf_calls += 1
+	if cache_hit:
+		_endpoint_perf_cache_hits += 1
+	if eval_ms > _endpoint_perf_max_eval_ms:
+		_endpoint_perf_max_eval_ms = eval_ms
+	if spike:
+		_endpoint_perf_spike_count += 1
+	_endpoint_perf_maybe_flush(now_ms)
+
+func _maybe_log_endpoint_spike(trace: Dictionary, endpoint_eval_ms: float, total_ms: float) -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	if _endpoint_spike_last_ms > 0 and now_ms - _endpoint_spike_last_ms < UNIT_ENDPOINT_SPIKE_LOG_INTERVAL_MS:
+		return
+	_endpoint_spike_last_ms = now_ms
+	var out: Dictionary = trace.duplicate()
+	out["endpoint_eval_ms"] = snapped(endpoint_eval_ms, 0.01)
+	out["total_ms"] = snapped(total_ms, 0.01)
+	SFLog.warn("UNIT_ENDPOINT_SPIKE", out)
+
 func _max_reconcile_step(step_ms: Dictionary) -> Dictionary:
 	var best_name: String = "none"
 	var best_ms: float = 0.0
@@ -462,6 +568,31 @@ func _log_reconcile_profile(
 	var culprit_name: String = str(max_step.get("name", "none"))
 	var culprit_ms: float = float(max_step.get("ms", 0.0))
 	var now_ms: int = Time.get_ticks_msec()
+	var endpoint_eval_ms: float = float(step_ms.get("endpoint_eval", 0.0))
+	if endpoint_eval_ms > 10.0 or total_ms > 16.0:
+		var spike_trace: Dictionary = _last_endpoint_trace.duplicate()
+		if spike_trace.is_empty():
+			spike_trace = {
+				"unit_id": -1,
+				"lane_id": -1,
+				"from_id": -1,
+				"to_id": -1,
+				"branch": "unknown",
+				"edge_geo_cache": "unknown",
+				"cache_hit": false,
+				"lane_renderer_valid": _lane_renderer != null and is_instance_valid(_lane_renderer),
+				"lane_renderer_has_get_lane_endpoints_world": _lane_renderer != null and is_instance_valid(_lane_renderer) and _lane_renderer.has_method("get_lane_endpoints_world"),
+				"lane_renderer_has_get_edge_geo": _lane_renderer != null and is_instance_valid(_lane_renderer) and _lane_renderer.has_method("get_edge_geo"),
+				"shared_anchor_used": false,
+				"fallback_used": false,
+				"fallback_path": "",
+				"scene_scan_count": 0,
+				"scene_scan_ms": 0.0
+			}
+		spike_trace["group_scans"] = int(sync_profile.get("group_scan_n", 0)) + int(update_profile.get("group_scan_n", 0))
+		spike_trace["group_scan_ms"] = snapped(float(step_ms.get("group_scan", 0.0)), 0.01)
+		spike_trace["culprit"] = culprit_name
+		_maybe_log_endpoint_spike(spike_trace, endpoint_eval_ms, total_ms)
 	if deaths_this_bind > 0:
 		if now_ms - _death_reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
 			_death_reconcile_last_log_ms = now_ms
@@ -525,7 +656,7 @@ func set_hive_snapshot(hives: Array, force_rebuild: bool = false) -> void:
 	_hive_cache_count = count
 	_hive_key_sig = sig
 	_hive_bind_version += 1
-	_invalidate_endpoint_caches()
+	_invalidate_endpoint_caches("hive_snapshot_changed")
 	_audit_mark_rebuild("hive_lookup_build")
 	var dt_ms: float = _us_to_ms(int(Time.get_ticks_usec() - t0_us))
 	var now_ms: int = Time.get_ticks_msec()
@@ -555,9 +686,38 @@ func _hive_snapshot_signature(hives: Array) -> int:
 	sig = (sig * 31 + edge_xor) & 0x7fffffff
 	return sig
 
+func _compute_hive_nodes_sig(dict: Dictionary) -> int:
+	var sig: int = dict.size()
+	var sum_ids: int = 0
+	var sum_nodes: int = 0
+	var xor_mix: int = 0
+	for key_any in dict.keys():
+		var hive_id: int = int(key_any)
+		var node_any: Variant = dict.get(key_any, null)
+		var node_iid: int = 0
+		if node_any is Object:
+			var node_obj: Object = node_any as Object
+			node_iid = int(node_obj.get_instance_id())
+		sum_ids = (sum_ids + hive_id) & 0x7fffffff
+		sum_nodes = (sum_nodes + node_iid) & 0x7fffffff
+		xor_mix = xor_mix ^ int((hive_id * 1315423911) ^ node_iid)
+	sig = (sig * 31 + sum_ids) & 0x7fffffff
+	sig = (sig * 31 + sum_nodes) & 0x7fffffff
+	sig = (sig * 31 + xor_mix) & 0x7fffffff
+	return sig
+
 func set_hive_nodes(dict: Dictionary) -> void:
+	var next_sig: int = _compute_hive_nodes_sig(dict)
+	if next_sig == _hive_nodes_sig:
+		SFLog.info("HIVE_NODES_SET_SKIPPED", {
+			"renderer": "unit",
+			"reason": "sig_unchanged",
+			"count": dict.size()
+		}, "", 1000)
+		return
+	_hive_nodes_sig = next_sig
 	hive_nodes_by_id = dict
-	_invalidate_endpoint_caches()
+	_invalidate_endpoint_caches("hive_nodes_set")
 	_sync_swarm_nodes()
 	_request_redraw()
 
@@ -572,12 +732,21 @@ func clear_all() -> void:
 	_hive_cache_count = 0
 	_hive_bind_version = 0
 	_hive_key_sig = 0
+	_hive_nodes_sig = 0
 	_reconcile_baseline_ms = 0.0
 	_reconcile_baseline_samples = 0
 	_last_bound_units_count = 0
 	_reconcile_last_log_ms = 0
 	_death_reconcile_last_log_ms = 0
-	_invalidate_endpoint_caches()
+	_endpoint_spike_last_ms = 0
+	_endpoint_perf_window_start_ms = 0
+	_endpoint_perf_calls = 0
+	_endpoint_perf_cache_hits = 0
+	_endpoint_perf_max_eval_ms = 0.0
+	_endpoint_perf_spike_count = 0
+	_last_endpoint_trace.clear()
+	_last_lane_sig = -1
+	_invalidate_endpoint_caches("clear_all")
 	_unit_missing_ticks.clear()
 	_unit_data_by_id.clear()
 	_unit_visual_by_id.clear()
@@ -726,6 +895,7 @@ func _update_unit_nodes_positions(units: Array) -> Dictionary:
 	var hive_lookup_t0_us: int = Time.get_ticks_usec()
 	var hive_by_id: Dictionary = _build_hive_by_id()
 	profile["hive_lookup_us"] = int(Time.get_ticks_usec() - hive_lookup_t0_us)
+	_maybe_invalidate_on_lane_signature()
 	var registry: SpriteRegistry = _get_sprite_registry()
 	var endpoint_cache: Dictionary = _cached_lane_endpoints
 	var hive_anchor_cache: Dictionary = _cached_hive_anchor_info
@@ -843,7 +1013,9 @@ func _sample_unit_pos_from_endpoints(ud: Dictionary, endpoints: Dictionary) -> V
 		var a_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
 		var b_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
 		var t: float = clampf(float(ud.get("t", 0.0)), 0.0, 1.0)
-		return a_pos.lerp(b_pos, t)
+		var base_pos: Vector2 = a_pos.lerp(b_pos, t)
+		var normal: Vector2 = _unit_visual_normal_from_endpoints(endpoints, a_pos, b_pos)
+		return EdgeVisual.unit_point(base_pos, normal)
 	var pos_v: Variant = ud.get("pos", null)
 	if pos_v is Vector2:
 		return pos_v as Vector2
@@ -869,30 +1041,127 @@ func _sample_unit_dir_from_endpoints(ud: Dictionary, endpoints: Dictionary) -> V
 			return axis.normalized() * float(sign)
 	return Vector2.RIGHT
 
+func _unit_visual_normal_from_endpoints(endpoints: Dictionary, a_pos: Vector2, b_pos: Vector2) -> Vector2:
+	var normal_any: Variant = endpoints.get("normal", Vector2.ZERO)
+	if normal_any is Vector2:
+		var normal: Vector2 = normal_any as Vector2
+		if normal.length_squared() > 0.000001:
+			return normal.normalized()
+	var axis: Vector2 = b_pos - a_pos
+	if axis.length_squared() > 0.000001:
+		var dir: Vector2 = axis.normalized()
+		return Vector2(-dir.y, dir.x)
+	return Vector2.ZERO
+
 func _unit_path_endpoints_map_local(
 	ud: Dictionary,
 	hive_by_id: Dictionary,
 	endpoint_cache: Variant = null,
 	hive_anchor_cache: Variant = null
 ) -> Dictionary:
-	var from_pos_v: Variant = ud.get("from_pos", null)
-	var to_pos_v: Variant = ud.get("to_pos", null)
-	if from_pos_v is Vector2 and to_pos_v is Vector2:
-		return {"ok": true, "a": from_pos_v as Vector2, "b": to_pos_v as Vector2}
 	var unit_id: int = int(ud.get("id", -1))
+	var lane_id: int = _resolve_id(ud.get("lane_id", 0))
 	var a_id: int = _resolve_id(ud.get("a_id", 0))
 	var b_id: int = _resolve_id(ud.get("b_id", 0))
-	if a_id > 0 and b_id > 0:
-		var ab_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(a_id, b_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache)
-		if bool(ab_endpoints.get("ok", false)):
-			return ab_endpoints
 	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
 	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
 	if from_id > 0 and to_id > 0:
-		var ft_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(from_id, to_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache)
+		var ft_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(from_id, to_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache, lane_id)
 		if bool(ft_endpoints.get("ok", false)):
 			return ft_endpoints
+	if a_id > 0 and b_id > 0:
+		var ab_endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(a_id, b_id, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache, lane_id)
+		if bool(ab_endpoints.get("ok", false)):
+			return ab_endpoints
+	var lane_renderer_authoritative: bool = _lane_renderer != null and is_instance_valid(_lane_renderer) and _lane_renderer.has_method("get_lane_endpoints_world")
+	if lane_renderer_authoritative and ((from_id > 0 and to_id > 0) or (a_id > 0 and b_id > 0)):
+		return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO, "normal": Vector2.ZERO}
+	var from_pos_v: Variant = ud.get("from_pos", null)
+	var to_pos_v: Variant = ud.get("to_pos", null)
+	if from_pos_v is Vector2 and to_pos_v is Vector2:
+		var from_pos: Vector2 = from_pos_v as Vector2
+		var to_pos: Vector2 = to_pos_v as Vector2
+		if _should_apply_lane_cap_trim(ud):
+			var trimmed: Dictionary = _lane_geometry_for_endpoints(from_pos, to_pos)
+			var start_space: Vector2 = trimmed.get("start", from_pos)
+			var end_space: Vector2 = trimmed.get("end", to_pos)
+			SFLog.info("UNIT_EDGE_BIND", {
+				"lane_key": "fallback_pos",
+				"a": trimmed.get("a_world", _to_world_pos(from_pos)),
+				"b": trimmed.get("b_world", _to_world_pos(to_pos)),
+				"start": trimmed.get("start_world", _to_world_pos(start_space)),
+				"end": trimmed.get("end_world", _to_world_pos(end_space)),
+				"normal": trimmed.get("normal", Vector2.ZERO)
+			}, "", 250)
+			return {
+				"ok": true,
+				"a": start_space,
+				"b": end_space,
+				"normal": trimmed.get("normal", Vector2.ZERO)
+			}
+		var axis: Vector2 = to_pos - from_pos
+		var normal: Vector2 = Vector2.ZERO
+		if axis.length_squared() > 0.000001:
+			var dir: Vector2 = axis.normalized()
+			normal = Vector2(-dir.y, dir.x)
+		return {"ok": true, "a": from_pos, "b": to_pos, "normal": normal}
 	return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
+
+func _edge_geo_from_cache(lane_id: int, from_id: int, to_id: int) -> Variant:
+	var edge_any: Variant = null
+	if lane_id > 0:
+		edge_any = OpsState.get_edge_for_lane_key(lane_id)
+		if edge_any == null:
+			edge_any = OpsState.get_edge_for_lane_key(str(lane_id))
+	if edge_any == null and from_id > 0 and to_id > 0:
+		edge_any = OpsState.get_edge_for_lane_key("%d->%d" % [from_id, to_id])
+	return edge_any
+
+func _edge_geo_to_unit_endpoints_local(edge_any: Variant, from_id: int, to_id: int) -> Dictionary:
+	var a_world: Vector2 = Vector2.ZERO
+	var b_world: Vector2 = Vector2.ZERO
+	var normal_world: Vector2 = Vector2.ZERO
+	var src_id: int = -1
+	var dst_id: int = -1
+	if edge_any is EdgeGeometry:
+		var edge: EdgeGeometry = edge_any as EdgeGeometry
+		a_world = edge.a
+		b_world = edge.b
+		normal_world = edge.normal
+		src_id = edge.src_id
+		dst_id = edge.dst_id
+	elif typeof(edge_any) == TYPE_DICTIONARY:
+		var d: Dictionary = edge_any as Dictionary
+		a_world = d.get("a", d.get("start", Vector2.ZERO))
+		b_world = d.get("b", d.get("end", Vector2.ZERO))
+		normal_world = d.get("normal", Vector2.ZERO)
+		src_id = int(d.get("src_id", -1))
+		dst_id = int(d.get("dst_id", -1))
+	else:
+		return {"ok": false}
+	if from_id > 0 and to_id > 0 and src_id == to_id and dst_id == from_id:
+		var swap: Vector2 = a_world
+		a_world = b_world
+		b_world = swap
+		normal_world = -normal_world
+	var trimmed: Dictionary = EdgeEndpoints.compute(a_world, b_world, EdgeEndpoints.EDGE_TUCK_PX)
+	var start_world: Vector2 = trimmed.get("start", a_world)
+	var end_world: Vector2 = trimmed.get("end", b_world)
+	var start_local: Vector2 = start_world
+	var end_local: Vector2 = end_world
+	if _unit_space != "global":
+		start_local = to_local(start_world)
+		end_local = to_local(end_world)
+	return {
+		"ok": true,
+		"a": start_local,
+		"b": end_local,
+		"a_world": a_world,
+		"b_world": b_world,
+		"start_world": start_world,
+		"end_world": end_world,
+		"normal": normal_world
+	}
 
 func _hive_center_map_local(hive_id: int, hive_by_id: Dictionary) -> Variant:
 	if hive_nodes_by_id.has(hive_id):
@@ -920,6 +1189,61 @@ func _hive_center_world_pos(hive_id: int, hive_by_id: Dictionary) -> Variant:
 func _lane_anchor_local_from_center_world(hive_center_world: Vector2) -> Vector2:
 	var anchor_world: Vector2 = HiveNodeScript.lane_anchor_world_from_center(hive_center_world)
 	return to_local(anchor_world)
+
+func _shared_hive_render_anchor_local(hive_id: int) -> Variant:
+	if _lane_renderer == null or not is_instance_valid(_lane_renderer):
+		return null
+	if not _lane_renderer.has_method("get_hive_render_anchor_local"):
+		return null
+	var lane_local_any: Variant = _lane_renderer.call("get_hive_render_anchor_local", hive_id)
+	if not (lane_local_any is Vector2):
+		return null
+	var lane_local: Vector2 = lane_local_any as Vector2
+	if lane_local == Vector2.INF:
+		return null
+	if _lane_renderer is Node2D:
+		var lane_node: Node2D = _lane_renderer as Node2D
+		var anchor_global: Vector2 = lane_node.to_global(lane_local)
+		if _unit_space == "global":
+			return anchor_global
+		return to_local(anchor_global)
+	return lane_local
+
+func _should_apply_lane_cap_trim(ud: Dictionary) -> bool:
+	if int(ud.get("lane_id", 0)) > 0:
+		return true
+	var a_id: int = _resolve_id(ud.get("a_id", 0))
+	var b_id: int = _resolve_id(ud.get("b_id", 0))
+	return a_id > 0 and b_id > 0
+
+func _lane_geometry_for_endpoints(a: Vector2, b: Vector2) -> Dictionary:
+	var a_world: Vector2 = _to_world_pos(a)
+	var b_world: Vector2 = _to_world_pos(b)
+	var trimmed: Dictionary = EdgeEndpoints.compute(a_world, b_world, EdgeEndpoints.EDGE_TUCK_PX)
+	var start_world: Vector2 = trimmed.get("start", a_world)
+	var end_world: Vector2 = trimmed.get("end", b_world)
+	var dir_world: Vector2 = trimmed.get("dir", Vector2.RIGHT)
+	var delta_world: Vector2 = end_world - start_world
+	var len_world: float = delta_world.length()
+	var normal_world: Vector2 = Vector2.ZERO
+	if dir_world.length_squared() > 0.000001:
+		normal_world = Vector2(-dir_world.y, dir_world.x)
+	var start: Vector2 = start_world
+	var end: Vector2 = end_world
+	if _unit_space != "global":
+		start = to_local(start_world)
+		end = to_local(end_world)
+	return {
+		"a_world": a_world,
+		"b_world": b_world,
+		"start_world": start_world,
+		"end_world": end_world,
+		"start": start,
+		"end": end,
+		"dir": dir_world,
+		"normal": normal_world,
+		"len": len_world
+	}
 
 func _maybe_log_unit_baseline_audit(
 	unit_id: int,
@@ -956,33 +1280,53 @@ func _resolve_hive_lane_anchor_info(hive_id: int, hive_by_id: Dictionary, hive_a
 			return cached_any as Dictionary
 	var fallback_unit_local: Vector2 = Vector2.ZERO
 	var has_anchor: bool = false
-	var center_world_v: Variant = _hive_center_world_pos(hive_id, hive_by_id)
-	if center_world_v is Vector2:
-		var center_world: Vector2 = center_world_v as Vector2
-		fallback_unit_local = _lane_anchor_local_from_center_world(center_world)
+	var source: String = ""
+	var shared_anchor_v: Variant = _shared_hive_render_anchor_local(hive_id)
+	if shared_anchor_v is Vector2:
+		fallback_unit_local = shared_anchor_v as Vector2
 		has_anchor = true
+		source = "shared_anchor"
 	else:
-		var center_local_v: Variant = _hive_center_map_local(hive_id, hive_by_id)
-		if center_local_v is Vector2:
-			fallback_unit_local = center_local_v as Vector2
+		var center_world_v: Variant = _hive_center_world_pos(hive_id, hive_by_id)
+		if center_world_v is Vector2:
+			var center_world: Vector2 = center_world_v as Vector2
+			fallback_unit_local = _lane_anchor_local_from_center_world(center_world)
 			has_anchor = true
+			source = "center_world"
+		else:
+			var center_local_v: Variant = _hive_center_map_local(hive_id, hive_by_id)
+			if center_local_v is Vector2:
+				fallback_unit_local = center_local_v as Vector2
+				has_anchor = true
+				source = "center_map_local"
 	var lane_anchor_local: Vector2 = fallback_unit_local
 	var unit_anchor_local: Vector2 = fallback_unit_local
-	var lane_node: Node2D = null
-	if _lane_renderer != null and is_instance_valid(_lane_renderer):
-		if _lane_renderer is Node2D:
-			lane_node = _lane_renderer as Node2D
-	if lane_node != null:
-		var fallback_global: Vector2 = to_global(fallback_unit_local)
-		lane_anchor_local = lane_node.to_local(fallback_global)
-		unit_anchor_local = fallback_unit_local
 	var out: Dictionary = {
 		"ok": has_anchor,
 		"lane_local": lane_anchor_local,
-		"unit_local": unit_anchor_local
+		"unit_local": unit_anchor_local,
+		"source": source
 	}
 	cache[hive_id] = out
 	return out
+
+func _lane_cache_key(lane_id: int, from_id: int, to_id: int) -> String:
+	return "%d|%d>%d" % [lane_id, from_id, to_id]
+
+func _endpoint_cache_sig() -> int:
+	if _last_lane_sig >= 0:
+		return _last_lane_sig
+	return int(int(OpsState.edge_cache_version) * 131 + int(_hive_bind_version))
+
+func _get_authoritative_endpoints_world(lane_id: int, from_id: int, to_id: int) -> Dictionary:
+	if _lane_renderer == null or not is_instance_valid(_lane_renderer):
+		return {"ok": false}
+	if not _lane_renderer.has_method("get_lane_endpoints_world"):
+		return {"ok": false}
+	var d_any: Variant = _lane_renderer.call("get_lane_endpoints_world", lane_id, from_id, to_id)
+	if typeof(d_any) != TYPE_DICTIONARY:
+		return {"ok": false}
+	return d_any as Dictionary
 
 func _lane_endpoints_map_local_from_hive_ids(
 	from_id: int,
@@ -990,57 +1334,277 @@ func _lane_endpoints_map_local_from_hive_ids(
 	hive_by_id: Dictionary,
 	unit_id: int = -1,
 	endpoint_cache: Variant = null,
-	hive_anchor_cache: Variant = null
+	hive_anchor_cache: Variant = null,
+	lane_id: int = -1
 ) -> Dictionary:
+	var endpoint_t0_us: int = Time.get_ticks_usec()
 	var endpoint_cache_dict: Dictionary = _cached_lane_endpoints
 	if typeof(endpoint_cache) == TYPE_DICTIONARY:
 		endpoint_cache_dict = endpoint_cache as Dictionary
-	var key: String = "%d>%d" % [from_id, to_id]
+	var key: String = _lane_cache_key(lane_id, from_id, to_id)
+	var sig: int = _endpoint_cache_sig()
+	var lane_renderer_valid: bool = _lane_renderer != null and is_instance_valid(_lane_renderer)
+	var lane_renderer_has_get_lane_endpoints_world: bool = lane_renderer_valid and _lane_renderer.has_method("get_lane_endpoints_world")
+	var lane_renderer_has_get_edge_geo: bool = lane_renderer_valid and _lane_renderer.has_method("get_edge_geo")
 	if endpoint_cache_dict.has(key):
 		var cached_any: Variant = endpoint_cache_dict.get(key, null)
 		if typeof(cached_any) == TYPE_DICTIONARY:
 			var cached: Dictionary = cached_any as Dictionary
-			if bool(cached.get("ok", false)):
-				_maybe_log_unit_baseline_audit(
-					unit_id,
-					from_id,
-					to_id,
-					cached.get("from_lane_local", Vector2.ZERO),
-					cached.get("to_lane_local", Vector2.ZERO),
-					cached.get("a", Vector2.ZERO),
-					cached.get("b", Vector2.ZERO)
-				)
-			return cached
+			var cached_sig: int = int(cached.get("sig", -1))
+			if cached_sig == sig:
+				if bool(cached.get("ok", false)):
+					_maybe_log_unit_baseline_audit(
+						unit_id,
+						from_id,
+						to_id,
+						cached.get("from_lane_local", Vector2.ZERO),
+						cached.get("to_lane_local", Vector2.ZERO),
+						cached.get("a", Vector2.ZERO),
+						cached.get("b", Vector2.ZERO)
+					)
+				var eval_ms_hit: float = _us_to_ms(int(Time.get_ticks_usec() - endpoint_t0_us))
+				var trace_hit: Dictionary = {
+					"unit_id": unit_id,
+					"lane_id": lane_id,
+					"from_id": from_id,
+					"to_id": to_id,
+					"lane_key": key,
+					"cache_hit": true,
+					"edge_geo_cache": str(cached.get("_edge_geo_source", "unknown")),
+					"lane_renderer_valid": lane_renderer_valid,
+					"lane_renderer_has_get_lane_endpoints_world": lane_renderer_has_get_lane_endpoints_world,
+					"lane_renderer_has_get_edge_geo": lane_renderer_has_get_edge_geo,
+					"shared_anchor_used": bool(cached.get("_shared_anchor_used", false)),
+					"fallback_used": bool(cached.get("_fallback_used", false)),
+					"fallback_path": str(cached.get("_fallback_path", "")),
+					"branch": str(cached.get("_branch", "endpoint_cache_hit")),
+					"scene_scan_count": 0,
+					"scene_scan_ms": 0.0
+				}
+				_last_endpoint_trace = trace_hit
+				var hit_spike: bool = eval_ms_hit > 10.0
+				_endpoint_perf_record(eval_ms_hit, true, hit_spike)
+				if hit_spike:
+					_maybe_log_endpoint_spike(trace_hit, eval_ms_hit, 0.0)
+				return cached
 	var from_info: Dictionary = _resolve_hive_lane_anchor_info(from_id, hive_by_id, hive_anchor_cache)
 	var to_info: Dictionary = _resolve_hive_lane_anchor_info(to_id, hive_by_id, hive_anchor_cache)
-	var from_ok: bool = bool(from_info.get("ok", false))
-	var to_ok: bool = bool(to_info.get("ok", false))
-	if not from_ok or not to_ok:
-		var miss: Dictionary = {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
+	if not bool(from_info.get("ok", false)) or not bool(to_info.get("ok", false)):
+		var miss: Dictionary = {
+			"ok": false,
+			"a": Vector2.ZERO,
+			"b": Vector2.ZERO,
+			"normal": Vector2.ZERO,
+			"sig": sig,
+			"_branch": "anchor_missing",
+			"_edge_geo_source": "none",
+			"_fallback_used": false,
+			"_fallback_path": "",
+			"_shared_anchor_used": false
+		}
 		endpoint_cache_dict[key] = miss
+		var eval_ms_miss: float = _us_to_ms(int(Time.get_ticks_usec() - endpoint_t0_us))
+		var trace_miss: Dictionary = {
+			"unit_id": unit_id,
+			"lane_id": lane_id,
+			"from_id": from_id,
+			"to_id": to_id,
+			"lane_key": key,
+			"cache_hit": false,
+			"edge_geo_cache": "none",
+			"lane_renderer_valid": lane_renderer_valid,
+			"lane_renderer_has_get_lane_endpoints_world": lane_renderer_has_get_lane_endpoints_world,
+			"lane_renderer_has_get_edge_geo": lane_renderer_has_get_edge_geo,
+			"shared_anchor_used": false,
+			"fallback_used": false,
+			"fallback_path": "",
+			"branch": "anchor_missing",
+			"scene_scan_count": 0,
+			"scene_scan_ms": 0.0
+		}
+		_last_endpoint_trace = trace_miss
+		var miss_spike: bool = eval_ms_miss > 10.0
+		_endpoint_perf_record(eval_ms_miss, false, miss_spike)
+		if miss_spike:
+			_maybe_log_endpoint_spike(trace_miss, eval_ms_miss, 0.0)
 		return miss
-	var from_lane_local: Vector2 = from_info.get("lane_local", Vector2.ZERO)
-	var to_lane_local: Vector2 = to_info.get("lane_local", Vector2.ZERO)
 	var from_unit_local: Vector2 = from_info.get("unit_local", Vector2.ZERO)
 	var to_unit_local: Vector2 = to_info.get("unit_local", Vector2.ZERO)
-	var out: Dictionary = {
+	var shared_anchor_used: bool = str(from_info.get("source", "")) == "shared_anchor" and str(to_info.get("source", "")) == "shared_anchor"
+
+	if lane_renderer_has_get_lane_endpoints_world:
+		var auth: Dictionary = _get_authoritative_endpoints_world(lane_id, from_id, to_id)
+		if bool(auth.get("ok", false)):
+			var start_world: Vector2 = auth.get("start_world", Vector2.ZERO)
+			var end_world: Vector2 = auth.get("end_world", Vector2.ZERO)
+			var start_local: Vector2 = start_world
+			var end_local: Vector2 = end_world
+			if _unit_space != "global":
+				start_local = to_local(start_world)
+				end_local = to_local(end_world)
+			var normal: Vector2 = auth.get("normal", Vector2.ZERO)
+			if normal.length_squared() <= 0.000001:
+				var axis: Vector2 = end_local - start_local
+				if axis.length_squared() > 0.000001:
+					var dir: Vector2 = axis.normalized()
+					normal = Vector2(-dir.y, dir.x)
+			var edge_source: String = str(auth.get("source", "compute"))
+			var branch_ok: String = "lane_authoritative_%s/%s" % [edge_source, "shared_anchor" if shared_anchor_used else "fallback_anchor"]
+			var out_geo: Dictionary = {
+				"ok": true,
+				"a": start_local,
+				"b": end_local,
+				"normal": normal,
+				"from_lane_local": from_info.get("lane_local", from_unit_local),
+				"to_lane_local": to_info.get("lane_local", to_unit_local),
+				"sig": sig,
+				"_branch": branch_ok,
+				"_edge_geo_source": edge_source,
+				"_fallback_used": false,
+				"_fallback_path": "",
+				"_shared_anchor_used": shared_anchor_used
+			}
+			endpoint_cache_dict[key] = out_geo
+			_maybe_log_unit_baseline_audit(
+				unit_id,
+				from_id,
+				to_id,
+				out_geo.get("from_lane_local", from_unit_local),
+				out_geo.get("to_lane_local", to_unit_local),
+				start_local,
+				end_local
+			)
+			SFLog.info("UNIT_EDGE_BIND", {
+				"lane_key": key,
+				"start": start_world,
+				"end": end_world,
+				"normal": normal
+			}, "", 250)
+			var eval_ms_ok: float = _us_to_ms(int(Time.get_ticks_usec() - endpoint_t0_us))
+			var trace_ok: Dictionary = {
+				"unit_id": unit_id,
+				"lane_id": lane_id,
+				"from_id": from_id,
+				"to_id": to_id,
+				"lane_key": key,
+				"cache_hit": false,
+				"edge_geo_cache": edge_source,
+				"lane_renderer_valid": lane_renderer_valid,
+				"lane_renderer_has_get_lane_endpoints_world": lane_renderer_has_get_lane_endpoints_world,
+				"lane_renderer_has_get_edge_geo": lane_renderer_has_get_edge_geo,
+				"shared_anchor_used": shared_anchor_used,
+				"fallback_used": false,
+				"fallback_path": "",
+				"branch": branch_ok,
+				"scene_scan_count": 0,
+				"scene_scan_ms": 0.0
+			}
+			_last_endpoint_trace = trace_ok
+			var ok_spike: bool = eval_ms_ok > 10.0
+			_endpoint_perf_record(eval_ms_ok, false, ok_spike)
+			if ok_spike:
+				_maybe_log_endpoint_spike(trace_ok, eval_ms_ok, 0.0)
+			return out_geo
+		var auth_fail: Dictionary = {
+			"ok": false,
+			"a": Vector2.ZERO,
+			"b": Vector2.ZERO,
+			"normal": Vector2.ZERO,
+			"sig": sig,
+			"_branch": "lane_authoritative_fail/%s" % ("shared_anchor" if shared_anchor_used else "fallback_anchor"),
+			"_edge_geo_source": "fail",
+			"_fallback_used": false,
+			"_fallback_path": "",
+			"_shared_anchor_used": shared_anchor_used
+		}
+		endpoint_cache_dict[key] = auth_fail
+		var eval_ms_fail: float = _us_to_ms(int(Time.get_ticks_usec() - endpoint_t0_us))
+		var trace_fail: Dictionary = {
+			"unit_id": unit_id,
+			"lane_id": lane_id,
+			"from_id": from_id,
+			"to_id": to_id,
+			"lane_key": key,
+			"cache_hit": false,
+			"edge_geo_cache": "fail",
+			"lane_renderer_valid": lane_renderer_valid,
+			"lane_renderer_has_get_lane_endpoints_world": lane_renderer_has_get_lane_endpoints_world,
+			"lane_renderer_has_get_edge_geo": lane_renderer_has_get_edge_geo,
+			"shared_anchor_used": shared_anchor_used,
+			"fallback_used": false,
+			"fallback_path": "",
+			"branch": str(auth_fail.get("_branch", "")),
+			"scene_scan_count": 0,
+			"scene_scan_ms": 0.0
+		}
+		_last_endpoint_trace = trace_fail
+		var fail_spike: bool = eval_ms_fail > 10.0
+		_endpoint_perf_record(eval_ms_fail, false, fail_spike)
+		if fail_spike:
+			_maybe_log_endpoint_spike(trace_fail, eval_ms_fail, 0.0)
+		return auth_fail
+
+	var fallback_geo: Dictionary = _lane_geometry_for_endpoints(from_unit_local, to_unit_local)
+	var start_fallback: Vector2 = fallback_geo.get("start", from_unit_local)
+	var end_fallback: Vector2 = fallback_geo.get("end", to_unit_local)
+	var fallback_path: String = "%s>%s" % [str(from_info.get("source", "")), str(to_info.get("source", ""))]
+	SFLog.info("UNIT_EDGE_BIND", {
+		"lane_key": key,
+		"a": fallback_geo.get("a_world", _to_world_pos(from_unit_local)),
+		"b": fallback_geo.get("b_world", _to_world_pos(to_unit_local)),
+		"start": fallback_geo.get("start_world", _to_world_pos(start_fallback)),
+		"end": fallback_geo.get("end_world", _to_world_pos(end_fallback)),
+		"normal": fallback_geo.get("normal", Vector2.ZERO)
+	}, "", 250)
+	var out_fallback: Dictionary = {
 		"ok": true,
-		"a": from_unit_local,
-		"b": to_unit_local,
-		"from_lane_local": from_lane_local,
-		"to_lane_local": to_lane_local
+		"a": start_fallback,
+		"b": end_fallback,
+		"normal": fallback_geo.get("normal", Vector2.ZERO),
+		"from_lane_local": from_info.get("lane_local", from_unit_local),
+		"to_lane_local": to_info.get("lane_local", to_unit_local),
+		"sig": sig,
+		"_branch": "no_lane_renderer/fallback_%s" % fallback_path,
+		"_edge_geo_source": "none",
+		"_fallback_used": true,
+		"_fallback_path": fallback_path,
+		"_shared_anchor_used": shared_anchor_used
 	}
-	endpoint_cache_dict[key] = out
+	endpoint_cache_dict[key] = out_fallback
 	_maybe_log_unit_baseline_audit(
 		unit_id,
 		from_id,
 		to_id,
-		from_lane_local,
-		to_lane_local,
-		from_unit_local,
-		to_unit_local
+		out_fallback.get("from_lane_local", from_unit_local),
+		out_fallback.get("to_lane_local", to_unit_local),
+		start_fallback,
+		end_fallback
 	)
-	return out
+	var eval_ms_fallback: float = _us_to_ms(int(Time.get_ticks_usec() - endpoint_t0_us))
+	var trace_fallback: Dictionary = {
+		"unit_id": unit_id,
+		"lane_id": lane_id,
+		"from_id": from_id,
+		"to_id": to_id,
+		"lane_key": key,
+		"cache_hit": false,
+		"edge_geo_cache": "none",
+		"lane_renderer_valid": lane_renderer_valid,
+		"lane_renderer_has_get_lane_endpoints_world": lane_renderer_has_get_lane_endpoints_world,
+		"lane_renderer_has_get_edge_geo": lane_renderer_has_get_edge_geo,
+		"shared_anchor_used": shared_anchor_used,
+		"fallback_used": true,
+		"fallback_path": fallback_path,
+		"branch": str(out_fallback.get("_branch", "")),
+		"scene_scan_count": 0,
+		"scene_scan_ms": 0.0
+	}
+	_last_endpoint_trace = trace_fallback
+	var fallback_spike: bool = eval_ms_fallback > 10.0
+	_endpoint_perf_record(eval_ms_fallback, false, fallback_spike)
+	if fallback_spike:
+		_maybe_log_endpoint_spike(trace_fallback, eval_ms_fallback, 0.0)
+	return out_fallback
 
 func _to_render_local(pos: Vector2) -> Vector2:
 	if _unit_space == "global":
@@ -1125,12 +1689,13 @@ func _log_unit_sprite_tree(node: Node, unit_id: int) -> void:
 
 func _ensure_unit_sprite(node: Node2D) -> Sprite2D:
 	var sprite := node.get_node_or_null("UnitSprite") as Sprite2D
-	if sprite != null:
-		return sprite
-	sprite = Sprite2D.new()
-	sprite.name = "UnitSprite"
+	if sprite == null:
+		sprite = Sprite2D.new()
+		sprite.name = "UnitSprite"
+		node.add_child(sprite)
 	sprite.centered = true
-	node.add_child(sprite)
+	sprite.offset = Vector2.ZERO
+	sprite.position = Vector2.ZERO
 	return sprite
 
 func _apply_unit_orientation(
@@ -1181,14 +1746,12 @@ func _update_unit_sprite(
 	var tex: Texture2D = null
 	var tex_path := ""
 	var scale := 1.0
-	var offset := Vector2.ZERO
 	var sprite_key := ""
 	if registry != null:
 		sprite_key = "unit.%s" % SpriteRegistry.owner_key(owner_id)
 		tex = registry.get_tex(sprite_key)
 		tex_path = registry.get_tex_path(sprite_key)
 		scale = registry.get_scale(sprite_key)
-		offset = registry.get_offset(sprite_key)
 	if tex == null and not tex_path.is_empty():
 		var fallback_res := ResourceLoader.load(tex_path)
 		if fallback_res is Texture2D:
@@ -1282,7 +1845,9 @@ func _update_unit_sprite(
 			"tex_path": resolved_path,
 			"is_sprite2d": sprite is Sprite2D
 		})
-	sprite.position = offset
+	sprite.centered = true
+	sprite.offset = Vector2.ZERO
+	sprite.position = Vector2.ZERO
 	var tex_size := tex.get_size()
 	if tex_size.x > 0.0 and tex_size.y > 0.0:
 		var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
@@ -1556,7 +2121,13 @@ func _render_units_constant_speed(delta: float) -> void:
 				end_pos = node.position
 		if not _assert_not_freed(node):
 			continue
-		node.position = start_pos.lerp(end_pos, phase)
+		var visual_pos: Vector2 = start_pos.lerp(end_pos, phase)
+		var normal_dir: Vector2 = Vector2.ZERO
+		var axis: Vector2 = end_pos - start_pos
+		if axis.length_squared() > 0.000001:
+			var axis_dir: Vector2 = axis.normalized()
+			normal_dir = Vector2(-axis_dir.y, axis_dir.x)
+		node.position = EdgeVisual.unit_point(visual_pos, normal_dir)
 		var dir_vec: Vector2 = end_pos - start_pos
 		if dir_vec.length_squared() <= 0.000001:
 			var fallback_any: Variant = _unit_visual_by_id.get(unit_id, null)
@@ -1910,6 +2481,11 @@ func _unit_pos(u: Variant, hive_by_id: Dictionary) -> Array:
 		var pos_v: Variant = ud.get("pos")
 		if typeof(pos_v) == TYPE_VECTOR2:
 			return [true, pos_v as Vector2]
+		if ud.has("t"):
+			var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+			if bool(endpoints.get("ok", false)):
+				var sample_pos: Vector2 = _sample_unit_pos_from_endpoints(ud, endpoints)
+				return [true, sample_pos]
 		var from_pos_v: Variant = ud.get("from_pos")
 		var to_pos_v: Variant = ud.get("to_pos")
 		if typeof(from_pos_v) == TYPE_VECTOR2 and typeof(to_pos_v) == TYPE_VECTOR2 and ud.has("t"):
@@ -1917,15 +2493,6 @@ func _unit_pos(u: Variant, hive_by_id: Dictionary) -> Array:
 			var to_pos: Vector2 = to_pos_v as Vector2
 			var t: float = clampf(float(ud.get("t", 0.0)), 0.0, 1.0)
 			return [true, from_pos.lerp(to_pos, t)]
-		var a_id := _resolve_id(ud.get("a_id", 0))
-		var b_id := _resolve_id(ud.get("b_id", 0))
-		if a_id > 0 and b_id > 0 and ud.has("t"):
-			var endpoints: Dictionary = _lane_endpoints_map_local_from_hive_ids(a_id, b_id, hive_by_id)
-			if bool(endpoints.get("ok", false)):
-				var a_pos: Vector2 = endpoints.get("a", Vector2.ZERO)
-				var b_pos: Vector2 = endpoints.get("b", Vector2.ZERO)
-				var t: float = clampf(float(ud.get("t", 0.0)), 0.0, 1.0)
-				return [true, a_pos.lerp(b_pos, t)]
 		var wp: Variant = ud.get("wp")
 		if typeof(wp) == TYPE_VECTOR2:
 			return [true, wp as Vector2]
@@ -2008,37 +2575,15 @@ func _unit_travel_sign(ud: Dictionary) -> int:
 	return 1
 
 func _unit_path_endpoints_world(ud: Dictionary, hive_by_id: Dictionary) -> Dictionary:
-	var from_pos_v: Variant = ud.get("from_pos")
-	var to_pos_v: Variant = ud.get("to_pos")
-	if from_pos_v is Vector2 and to_pos_v is Vector2:
-		var a_world: Vector2 = _to_world_pos(from_pos_v as Vector2)
-		var b_world: Vector2 = _to_world_pos(to_pos_v as Vector2)
-		return {"ok": true, "a": a_world, "b": b_world}
-	var unit_id: int = int(ud.get("id", -1))
-	var a_id: int = _resolve_id(ud.get("a_id", 0))
-	var b_id: int = _resolve_id(ud.get("b_id", 0))
-	if a_id > 0 and b_id > 0:
-		var ab_local: Dictionary = _lane_endpoints_map_local_from_hive_ids(a_id, b_id, hive_by_id, unit_id)
-		if bool(ab_local.get("ok", false)):
-			var a_world_local: Vector2 = ab_local.get("a", Vector2.ZERO)
-			var b_world_local: Vector2 = ab_local.get("b", Vector2.ZERO)
-			return {
-				"ok": true,
-				"a": _to_world_pos(a_world_local),
-				"b": _to_world_pos(b_world_local)
-			}
-	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
-	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
-	if from_id > 0 and to_id > 0:
-		var ft_local: Dictionary = _lane_endpoints_map_local_from_hive_ids(from_id, to_id, hive_by_id, unit_id)
-		if bool(ft_local.get("ok", false)):
-			var from_local: Vector2 = ft_local.get("a", Vector2.ZERO)
-			var to_local_v: Vector2 = ft_local.get("b", Vector2.ZERO)
-			return {
-				"ok": true,
-				"a": _to_world_pos(from_local),
-				"b": _to_world_pos(to_local_v)
-			}
+	var local_endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
+	if bool(local_endpoints.get("ok", false)):
+		var local_a: Vector2 = local_endpoints.get("a", Vector2.ZERO)
+		var local_b: Vector2 = local_endpoints.get("b", Vector2.ZERO)
+		return {
+			"ok": true,
+			"a": _to_world_pos(local_a),
+			"b": _to_world_pos(local_b)
+		}
 	return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
 
 func _unit_phase(unit_id: int) -> float:

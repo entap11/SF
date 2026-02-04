@@ -113,6 +113,8 @@ var _drag_active: bool = false
 var active_orders_by_attacker: Dictionary = {}
 var _last_tower_export_log_ms: int = 0
 var _last_barracks_export_log_ms: int = 0
+var _last_render_hive_nodes_sig: int = -1
+var _last_render_hives_version: int = -1
 @onready var map_root: Node2D = $MapRoot
 @onready var floor_renderer: FloorRenderer = $MapRoot/FloorRenderer
 @onready var lane_renderer = $MapRoot/LaneRenderer
@@ -275,6 +277,7 @@ func _ready() -> void:
 	SFLog.allow_tag("OPSSTATE_MUTATION_FENCE")
 	SFLog.allow_tag("GAMESTATE_MUTATION_FENCE")
 	SFLog.allow_tag("MAP_APPLIER_RUNTIME_ROSTER_WRITE")
+	SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
 	set_physics_process(true)
 	set_process_unhandled_input(false)
 	SFLog.info("ARENA_SCRIPT", {"path": get_script().resource_path})
@@ -2412,6 +2415,45 @@ func export_render_model() -> Dictionary:
 	ops._in_render_export = prev_render_export
 	return _render_model
 
+func _compute_hive_nodes_sig_for_render(hive_nodes_by_id: Dictionary) -> int:
+	var sig: int = hive_nodes_by_id.size()
+	var sum_ids: int = 0
+	var sum_nodes: int = 0
+	var xor_mix: int = 0
+	for key_any in hive_nodes_by_id.keys():
+		var hive_id: int = int(key_any)
+		var node_any: Variant = hive_nodes_by_id.get(key_any, null)
+		var node_iid: int = 0
+		if node_any is Object:
+			var node_obj: Object = node_any as Object
+			node_iid = int(node_obj.get_instance_id())
+		sum_ids = (sum_ids + hive_id) & 0x7fffffff
+		sum_nodes = (sum_nodes + node_iid) & 0x7fffffff
+		xor_mix = xor_mix ^ int((hive_id * 1315423911) ^ node_iid)
+	sig = (sig * 31 + sum_ids) & 0x7fffffff
+	sig = (sig * 31 + sum_nodes) & 0x7fffffff
+	sig = (sig * 31 + xor_mix) & 0x7fffffff
+	return sig
+
+func _maybe_push_hive_nodes_to_renderers(lane_r: Node, unit_r: Node, hive_nodes_by_id: Dictionary, hives_version: int) -> void:
+	var sig: int = _compute_hive_nodes_sig_for_render(hive_nodes_by_id)
+	var force_push: bool = false
+	if hives_version != _last_render_hives_version:
+		_last_render_hives_version = hives_version
+		force_push = true
+	if not force_push and sig == _last_render_hive_nodes_sig:
+		SFLog.info("HIVE_NODES_SET_SKIPPED", {
+			"renderer": "arena",
+			"reason": "sig_unchanged",
+			"count": hive_nodes_by_id.size()
+		}, "", 1000)
+		return
+	_last_render_hive_nodes_sig = sig
+	if lane_r != null and lane_r.has_method("set_hive_nodes"):
+		lane_r.call("set_hive_nodes", hive_nodes_by_id)
+	if unit_r != null and unit_r.has_method("set_hive_nodes"):
+		unit_r.call("set_hive_nodes", hive_nodes_by_id)
+
 func _push_render_model() -> void:
 	var rm: Dictionary = export_render_model()
 	if rm.is_empty():
@@ -2423,6 +2465,12 @@ func _push_render_model() -> void:
 	var tower_glow_r: Node = get_node_or_null("MapRoot/TowerGroundGlowRenderer")
 	var barracks_r: Node = get_node_or_null("MapRoot/BarracksRenderer")
 	var barracks_glow_r: Node = get_node_or_null("MapRoot/BarracksGroundGlowRenderer")
+	var hives_version_render: int = int(rm.get("hives_set_version", -1))
+	var hive_nodes_by_id: Dictionary = {}
+	if hive_r != null and hive_r.has_method("get_hive_nodes_by_id"):
+		var hive_nodes_any: Variant = hive_r.call("get_hive_nodes_by_id")
+		if typeof(hive_nodes_any) == TYPE_DICTIONARY:
+			hive_nodes_by_id = hive_nodes_any as Dictionary
 	if hive_r != null:
 		if hive_r.has_method("set_model"):
 			hive_r.call("set_model", rm)
@@ -2434,21 +2482,17 @@ func _push_render_model() -> void:
 			lane_r.call("set_model", rm)
 		else:
 			lane_r.set("model", rm)
-		if hive_r != null and lane_r.has_method("set_hive_nodes") and hive_r.has_method("get_hive_nodes_by_id"):
-			lane_r.call("set_hive_nodes", hive_r.call("get_hive_nodes_by_id"))
 		lane_r.queue_redraw()
 	if unit_r != null:
 		if unit_r.has_method("set_model"):
 			unit_r.call("set_model", rm)
 		else:
 			unit_r.set("model", rm)
-		if hive_r != null and unit_r.has_method("set_hive_nodes") and hive_r.has_method("get_hive_nodes_by_id"):
-			unit_r.call("set_hive_nodes", hive_r.call("get_hive_nodes_by_id"))
 		var hives_v: Variant = rm.get("hives", [])
 		var hives_arr: Array = hives_v as Array if typeof(hives_v) == TYPE_ARRAY else []
 		var units_v: Variant = rm.get("units", [])
 		var units_arr: Array = units_v as Array if typeof(units_v) == TYPE_ARRAY else []
-		var hives_version: int = int(rm.get("hives_set_version", -1))
+		var hives_version: int = hives_version_render
 		var units_version: int = int(rm.get("units_set_version", -1))
 		var sim_time_us_out: int = int(round(float(rm.get("sim_time_s", 0.0)) * 1000000.0))
 		if unit_r.has_method("bind_hives"):
@@ -2456,6 +2500,8 @@ func _push_render_model() -> void:
 		if unit_r.has_method("bind_units"):
 			unit_r.call("bind_units", units_arr, units_version, sim_time_us_out)
 		unit_r.queue_redraw()
+	if not hive_nodes_by_id.is_empty() and (lane_r != null or unit_r != null):
+		_maybe_push_hive_nodes_to_renderers(lane_r, unit_r, hive_nodes_by_id, hives_version_render)
 	if tower_r != null:
 		if tower_r.has_method("set_model"):
 			tower_r.call("set_model", rm)

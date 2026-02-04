@@ -9,6 +9,9 @@ extends Node2D
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
+const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
+const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const LANE_BAND_SHADER := preload("res://shaders/lane_band.gdshader")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
@@ -23,6 +26,8 @@ const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 @export var lane_thickness_mode: int = 0
 @export var lane_thickness_px: float = 80.0
 @export var lane_vs_unit_ratio: float = 0.85
+@export var lane_start_cap_trim_px: float = 18.0
+@export var lane_end_cap_trim_px: float = 18.0
 
 const DEBUG_LANES := false
 const USE_LANE_SPRITES := true
@@ -51,7 +56,6 @@ const LANE_WIDTH_PX := 14.0
 const LANE_MIN_LEN_PX := 6.0
 const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
-const LANE_ART_NORMAL_OFFSET_PX: float = 58.0
 # Anchors are already lane-edge-biased; extra tuck visually shortens lanes too much.
 const LANE_TUCK_IN_PX: float = 0.0
 const LANE_THICKNESS_MODE_MANUAL: int = 0
@@ -96,11 +100,18 @@ var _lane_scale_logged: Dictionary = {}
 var _lane_endpoint_logged: Dictionary = {}
 var _lane_align_logged: bool = false
 var _lane_endpoints_audit_last_ms: int = 0
+var _lane_endpoints_logged_this_rebuild: bool = false
+var _anchor_proof_logged_this_rebuild: bool = false
 var _lane_sprite_coverage_last_ms: int = 0
 var _hive_cache_dirty: bool = true
 var _hive_cache_map_sig: String = ""
 var _hive_lane_anchor_local_by_id: Dictionary = {}
 var _hive_meta_by_id: Dictionary = {}
+var _anchor_world_by_hive_id: Dictionary = {}
+var _hive_nodes_sig: int = 0
+var _anchor_snapshot_sig: int = 0
+var _anchor_snapshot_ready: bool = false
+var _pending_snapshot_rebuild: bool = false
 var _audit_last_ms: int = 0
 var _audit_draw_ops: int = 0
 var _audit_mat_sets: int = 0
@@ -126,6 +137,118 @@ func _hive_world_pos(hive_id: int) -> Variant:
 func _lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return HiveNodeScript.lane_anchor_world_from_center(center_world)
 
+func _hive_render_anchor_world_from_node(node: Node2D) -> Vector2:
+	if node == null:
+		return Vector2.ZERO
+
+	# Debug visibility: if someone adds a generic child named "Anchor", it is NOT authoritative for lanes.
+	# Log once per rebuild so it doesn't spam.
+	if not _anchor_proof_logged_this_rebuild:
+		var maybe_anchor: Node = node.get_node_or_null("Anchor")
+		if maybe_anchor != null:
+			SFLog.warn("LANE_NONAUTHORITATIVE_CHILD_ANCHOR_PRESENT", {
+				"path": str(node.get_path()),
+				"child": "Anchor"
+			})
+
+	# Authoritative hooks (explicit only)
+	if node.has_method("get_lane_anchor_world"):
+		var a_any: Variant = node.call("get_lane_anchor_world")
+		if a_any is Vector2:
+			return a_any as Vector2
+
+	if node.has_method("get_hive_render_anchor_world"):
+		var r_any: Variant = node.call("get_hive_render_anchor_world")
+		if r_any is Vector2:
+			return r_any as Vector2
+
+	# Final fallback: node origin
+	return node.global_position
+
+func _maybe_log_anchor_proof(a_id: int, b_id: int, raw_a_local: Vector2, raw_b_local: Vector2, start_local: Vector2, end_local: Vector2) -> void:
+	if _anchor_proof_logged_this_rebuild:
+		return
+	_anchor_proof_logged_this_rebuild = true
+	SFLog.info("LANE_ANCHOR_PROOF", {
+		"edge": "%d->%d" % [a_id, b_id],
+		"raw_a": raw_a_local,
+		"raw_b": raw_b_local,
+		"start": start_local,
+		"end": end_local,
+		"hive_a_local": get_hive_render_anchor_local(a_id),
+		"hive_b_local": get_hive_render_anchor_local(b_id)
+	})
+
+func _edge_geo_from_cache(lane_id: int, a_id: int, b_id: int) -> Variant:
+	var edge_any: Variant = null
+	if lane_id > 0:
+		edge_any = OpsState.get_edge_for_lane_key(lane_id)
+		if edge_any == null:
+			edge_any = OpsState.get_edge_for_lane_key(str(lane_id))
+	if edge_any == null and a_id > 0 and b_id > 0:
+		edge_any = OpsState.get_edge_for_lane_key("%d->%d" % [a_id, b_id])
+	return edge_any
+
+func _edge_geo_to_endpoints_local(edge_any: Variant, a_center_local: Vector2, b_center_local: Vector2, a_id: int = -1, b_id: int = -1) -> Dictionary:
+	var from_anchor_world: Vector2 = Vector2.ZERO
+	var to_anchor_world: Vector2 = Vector2.ZERO
+	var dir_world: Vector2 = Vector2.ZERO
+	var src_id: int = -1
+	var dst_id: int = -1
+	if edge_any is EdgeGeometry:
+		var edge: EdgeGeometry = edge_any as EdgeGeometry
+		from_anchor_world = edge.a
+		to_anchor_world = edge.b
+		dir_world = edge.dir
+		src_id = edge.src_id
+		dst_id = edge.dst_id
+	elif typeof(edge_any) == TYPE_DICTIONARY:
+		var d: Dictionary = edge_any as Dictionary
+		from_anchor_world = d.get("a", d.get("start", Vector2.ZERO))
+		to_anchor_world = d.get("b", d.get("end", Vector2.ZERO))
+		dir_world = d.get("dir", Vector2.ZERO)
+		src_id = int(d.get("src_id", -1))
+		dst_id = int(d.get("dst_id", -1))
+	else:
+		return {"ok": false}
+	if a_id > 0 and b_id > 0 and src_id == b_id and dst_id == a_id:
+		var swap: Vector2 = from_anchor_world
+		from_anchor_world = to_anchor_world
+		to_anchor_world = swap
+		dir_world = -dir_world
+	var trimmed: Dictionary = EdgeEndpoints.compute(from_anchor_world, to_anchor_world, EdgeEndpoints.EDGE_TUCK_PX)
+	var start_world: Vector2 = trimmed.get("start", from_anchor_world)
+	var end_world: Vector2 = trimmed.get("end", to_anchor_world)
+	var a_local: Vector2 = to_local(start_world)
+	var b_local: Vector2 = to_local(end_world)
+	var lane_vec: Vector2 = b_local - a_local
+	var lane_len: float = lane_vec.length()
+	var lane_dir: Vector2 = Vector2.ZERO
+	if lane_len > 0.000001:
+		lane_dir = lane_vec / lane_len
+	elif dir_world.length_squared() > 0.000001:
+		lane_dir = (to_local(start_world + dir_world) - a_local).normalized()
+	var lane_normal: Vector2 = Vector2.ZERO
+	if lane_dir.length_squared() > 0.000001:
+		lane_normal = Vector2(-lane_dir.y, lane_dir.x)
+	a_local = EdgeVisual.lane_point(a_local, lane_normal)
+	b_local = EdgeVisual.lane_point(b_local, lane_normal)
+	var visual_vec: Vector2 = b_local - a_local
+	var visual_len: float = visual_vec.length()
+	if visual_len > 0.000001:
+		lane_dir = visual_vec / visual_len
+	return {
+		"ok": true,
+		"a_center": a_center_local,
+		"b_center": b_center_local,
+		"a_anchor": a_local,
+		"b_anchor": b_local,
+		"a": a_local,
+		"b": b_local,
+		"dir": lane_dir,
+		"len": visual_len
+	}
+
 func _compute_lane_endpoints_world(a_anchor_world: Vector2, b_anchor_world: Vector2) -> Dictionary:
 	var lane_vec: Vector2 = b_anchor_world - a_anchor_world
 	var lane_len: float = lane_vec.length()
@@ -147,25 +270,34 @@ func _compute_lane_endpoints_world(a_anchor_world: Vector2, b_anchor_world: Vect
 	}
 
 func _maybe_log_lane_endpoints(a_anchor_world: Vector2, b_anchor_world: Vector2, start_world: Vector2, end_world: Vector2) -> void:
-	var now_ms: int = Time.get_ticks_msec()
-	if _lane_endpoints_audit_last_ms > 0 and now_ms - _lane_endpoints_audit_last_ms < 1000:
+	if _lane_endpoints_logged_this_rebuild:
 		return
-	_lane_endpoints_audit_last_ms = now_ms
+	_lane_endpoints_logged_this_rebuild = true
 	SFLog.info("LANE_ENDPOINTS", {
 		"a": a_anchor_world,
 		"b": b_anchor_world,
 		"start": start_world,
 		"end": end_world,
-		"tuck": LANE_TUCK_IN_PX
+		"tuck": EdgeEndpoints.EDGE_TUCK_PX
 	})
 
-func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_center_local: Vector2, _a_id: int = -1, _b_id: int = -1) -> Dictionary:
+func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_center_local: Vector2, _a_id: int = -1, _b_id: int = -1, _lane_id: int = -1) -> Dictionary:
 	var a_anchor_world: Vector2 = to_global(a_center_local)
 	var b_anchor_world: Vector2 = to_global(b_center_local)
 	var ep_world: Dictionary = _compute_lane_endpoints_world(a_anchor_world, b_anchor_world)
-	var start_world: Vector2 = ep_world.get("a", a_anchor_world)
-	var end_world: Vector2 = ep_world.get("b", b_anchor_world)
-	_maybe_log_lane_endpoints(a_anchor_world, b_anchor_world, start_world, end_world)
+	var from_anchor_world: Vector2 = ep_world.get("a", a_anchor_world)
+	var to_anchor_world: Vector2 = ep_world.get("b", b_anchor_world)
+	var geo: EdgeGeometry = EdgeGeometry.build(
+		_a_id,
+		_b_id,
+		from_anchor_world,
+		to_anchor_world,
+		lane_start_cap_trim_px,
+		lane_end_cap_trim_px
+	)
+	var trimmed: Dictionary = EdgeEndpoints.compute(geo.a, geo.b, EdgeEndpoints.EDGE_TUCK_PX)
+	var start_world: Vector2 = trimmed.get("start", geo.a)
+	var end_world: Vector2 = trimmed.get("end", geo.b)
 	var a_local: Vector2 = to_local(start_world)
 	var b_local: Vector2 = to_local(end_world)
 	var lane_vec: Vector2 = b_local - a_local
@@ -173,7 +305,22 @@ func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_cente
 	var lane_dir: Vector2 = Vector2.ZERO
 	if lane_len > 0.000001:
 		lane_dir = lane_vec / lane_len
+	var lane_normal: Vector2 = Vector2.ZERO
+	if lane_dir.length_squared() > 0.000001:
+		lane_normal = Vector2(-lane_dir.y, lane_dir.x)
+	a_local = EdgeVisual.lane_point(a_local, lane_normal)
+	b_local = EdgeVisual.lane_point(b_local, lane_normal)
+	var visual_start_world: Vector2 = to_global(a_local)
+	var visual_end_world: Vector2 = to_global(b_local)
+	_maybe_log_lane_endpoints(a_anchor_world, b_anchor_world, visual_start_world, visual_end_world)
+	if _a_id > 0 and _b_id > 0:
+		_maybe_log_anchor_proof(_a_id, _b_id, a_center_local, b_center_local, a_local, b_local)
+	var visual_vec: Vector2 = b_local - a_local
+	var visual_len: float = visual_vec.length()
+	if visual_len > 0.000001:
+		lane_dir = visual_vec / visual_len
 	return {
+		"ok": true,
 		"a_center": a_center_local,
 		"b_center": b_center_local,
 		"a_anchor": a_local,
@@ -181,26 +328,14 @@ func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_cente
 		"a": a_local,
 		"b": b_local,
 		"dir": lane_dir,
-		"len": lane_len
+		"len": visual_len
 	}
 
 func compute_lane_endpoints_map_local(hive_a: Node2D, hive_b: Node2D) -> Dictionary:
 	if hive_a == null or hive_b == null:
 		return {}
-	var a_anchor_world: Vector2 = hive_a.global_position
-	var b_anchor_world: Vector2 = hive_b.global_position
-	if hive_a.has_method("get_lane_anchor_world"):
-		var a_anchor_any: Variant = hive_a.call("get_lane_anchor_world")
-		if a_anchor_any is Vector2:
-			a_anchor_world = a_anchor_any as Vector2
-	else:
-		a_anchor_world = _lane_anchor_world_from_center(hive_a.global_position)
-	if hive_b.has_method("get_lane_anchor_world"):
-		var b_anchor_any: Variant = hive_b.call("get_lane_anchor_world")
-		if b_anchor_any is Vector2:
-			b_anchor_world = b_anchor_any as Vector2
-	else:
-		b_anchor_world = _lane_anchor_world_from_center(hive_b.global_position)
+	var a_anchor_world: Vector2 = _hive_render_anchor_world_from_node(hive_a)
+	var b_anchor_world: Vector2 = _hive_render_anchor_world_from_node(hive_b)
 	var a_center_local: Vector2 = to_local(a_anchor_world)
 	var b_center_local: Vector2 = to_local(b_anchor_world)
 	var a_id: int = int(hive_a.get("hive_id"))
@@ -302,9 +437,15 @@ func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sp
 func _ready() -> void:
 	SFLog.allow_tag("RENDER_AUDIT_LANES")
 	SFLog.allow_tag("LANE_ENDPOINTS")
+	SFLog.allow_tag("LANE_EDGE_BIND")
+	SFLog.allow_tag("LANE_ANCHOR_PROOF")
+	SFLog.allow_tag("LANE_NONAUTHORITATIVE_CHILD_ANCHOR_PRESENT")
+	SFLog.allow_tag("EDGE_VISUAL_OFFSETS")
 	SFLog.allow_tag("LANE_SPRITE_COVERAGE")
 	SFLog.allow_tag("LANE_ANCHOR_CACHE")
 	SFLog.allow_tag("LANE_RENDER_REBUILD")
+	SFLog.allow_tag("LANE_ANCHOR_SNAPSHOT_BUILT")
+	SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
 	_load_lane_textures()
 	_ensure_lane_sprite_root()
 	set_process(USE_LANE_SPRITES and show_lane_sprites)
@@ -364,6 +505,9 @@ func set_model(rm: Dictionary) -> void:
 	if cache_sig != _hive_cache_map_sig:
 		_hive_cache_map_sig = cache_sig
 		_hive_cache_dirty = true
+		if not hive_nodes_by_id.is_empty():
+			_anchor_snapshot_ready = false
+			_schedule_anchor_snapshot_rebuild("map_sig_changed")
 	var lanes_total := 0
 	var lanes_active := 0
 	var lanes_v: Variant = model.get("lanes", [])
@@ -393,14 +537,69 @@ func set_model(rm: Dictionary) -> void:
 		_request_rebuild("state_changed")
 
 func set_hive_nodes(dict: Dictionary) -> void:
-	if dict == hive_nodes_by_id:
+	var next_sig: int = _compute_hive_nodes_sig(dict)
+	if next_sig == _hive_nodes_sig:
+		SFLog.info("HIVE_NODES_SET_SKIPPED", {
+			"renderer": "lane",
+			"reason": "sig_unchanged",
+			"count": dict.size()
+		}, "", 1000)
 		return
+	_hive_nodes_sig = next_sig
 	hive_nodes_by_id = dict
 	_hive_cache_dirty = true
+	_anchor_snapshot_ready = false
+	_schedule_anchor_snapshot_rebuild("hive_nodes_changed")
 	if DEBUG_LANES:
 		SFLog.info("LANE_RENDERER_HIVES_SET", {"count": hive_nodes_by_id.size()})
 	queue_redraw()
 	_request_rebuild("hives_set")
+
+func _compute_hive_nodes_sig(dict: Dictionary) -> int:
+	var sig: int = dict.size()
+	var sum_ids: int = 0
+	var sum_nodes: int = 0
+	var xor_mix: int = 0
+	for key_any in dict.keys():
+		var hive_id: int = int(key_any)
+		var node_any: Variant = dict.get(key_any, null)
+		var node_iid: int = 0
+		if node_any is Object:
+			var node_obj: Object = node_any as Object
+			node_iid = int(node_obj.get_instance_id())
+		sum_ids = (sum_ids + hive_id) & 0x7fffffff
+		sum_nodes = (sum_nodes + node_iid) & 0x7fffffff
+		xor_mix = xor_mix ^ int((hive_id * 1315423911) ^ node_iid)
+	sig = (sig * 31 + sum_ids) & 0x7fffffff
+	sig = (sig * 31 + sum_nodes) & 0x7fffffff
+	sig = (sig * 31 + xor_mix) & 0x7fffffff
+	return sig
+
+func _schedule_anchor_snapshot_rebuild(reason: String) -> void:
+	if _pending_snapshot_rebuild:
+		return
+	_pending_snapshot_rebuild = true
+	call_deferred("_rebuild_anchor_snapshot_deferred", reason)
+
+func _rebuild_anchor_snapshot_deferred(reason: String) -> void:
+	_pending_snapshot_rebuild = false
+	_anchor_world_by_hive_id.clear()
+	for key_any in hive_nodes_by_id.keys():
+		var hive_id: int = int(key_any)
+		var node_any: Variant = hive_nodes_by_id.get(key_any, null)
+		if not (node_any is Node2D):
+			continue
+		var node: Node2D = node_any as Node2D
+		_anchor_world_by_hive_id[hive_id] = _hive_render_anchor_world_from_node(node)
+	_anchor_snapshot_sig = _hive_nodes_sig
+	_anchor_snapshot_ready = true
+	_hive_cache_dirty = true
+	queue_redraw()
+	_request_rebuild("anchor_snapshot_ready")
+	SFLog.info("LANE_ANCHOR_SNAPSHOT_BUILT", {
+		"count": _anchor_world_by_hive_id.size(),
+		"reason": reason
+	})
 
 func mark_lane_changed(lane_id: int) -> void:
 	_last_changed_lane_id = lane_id
@@ -482,6 +681,7 @@ func _draw_intended_lanes() -> void:
 		var l: Dictionary = l_v as Dictionary
 		var a_id: int = int(l.get("a_id", l.get("from", -1)))
 		var b_id: int = int(l.get("b_id", l.get("to", -1)))
+		var lane_id: int = int(l.get("lane_id", l.get("id", -1)))
 		if not (hive_anchor_local_by_id.has(a_id) and hive_anchor_local_by_id.has(b_id)):
 			continue
 		if bool(l.get("send_a", false)) or bool(l.get("send_b", false)):
@@ -491,7 +691,9 @@ func _draw_intended_lanes() -> void:
 				continue
 			var a_pos: Vector2 = a_pos_any as Vector2
 			var b_pos: Vector2 = b_pos_any as Vector2
-			var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_pos, b_pos, a_id, b_id)
+			var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_pos, b_pos, a_id, b_id, lane_id)
+			if not bool(ep.get("ok", false)):
+				continue
 			var p0: Vector2 = ep.get("a", a_pos)
 			var p1: Vector2 = ep.get("b", b_pos)
 			var send_a: bool = bool(l.get("send_a", false))
@@ -550,7 +752,7 @@ func _draw_state_lanes() -> bool:
 		var a_pos: Vector2 = a_pos_any as Vector2
 		var b_pos: Vector2 = b_pos_any as Vector2
 
-		var seg := _edge_to_edge_segment(a_id, b_id, a_pos, b_pos)
+		var seg := _edge_to_edge_segment(a_id, b_id, a_pos, b_pos, lane_id)
 		if seg.size() != 2:
 			continue
 
@@ -756,16 +958,15 @@ func _rebuild_hive_lane_anchor_cache() -> void:
 	_hive_meta_by_id.clear()
 	var cell_size: float = float(model.get("cell_size", 64))
 	if not hive_nodes_by_id.is_empty():
-		for hid_any in hive_nodes_by_id.keys():
+		if not _anchor_snapshot_ready:
+			_hive_cache_dirty = false
+			return
+		for hid_any in _anchor_world_by_hive_id.keys():
 			var hid: int = int(hid_any)
-			var node: Node2D = hive_nodes_by_id.get(hid_any, null) as Node2D
-			if node == null:
+			var anchor_any: Variant = _anchor_world_by_hive_id.get(hid_any, null)
+			if not (anchor_any is Vector2):
 				continue
-			var anchor_world: Vector2 = _lane_anchor_world_from_center(node.global_position)
-			if node.has_method("get_lane_anchor_world"):
-				var anchor_any: Variant = node.call("get_lane_anchor_world")
-				if anchor_any is Vector2:
-					anchor_world = anchor_any as Vector2
+			var anchor_world: Vector2 = anchor_any as Vector2
 			_hive_lane_anchor_local_by_id[hid] = to_local(anchor_world)
 	else:
 		var hives_v: Variant = model.get("hives", [])
@@ -788,7 +989,7 @@ func _rebuild_hive_lane_anchor_cache() -> void:
 					var x: int = int(hive_data.get("x", 0))
 					var y: int = int(hive_data.get("y", 0))
 					center_world = _grid_to_world_center(x, y, cell_size)
-				var anchor_world: Vector2 = _lane_anchor_world_from_center(center_world)
+				var anchor_world: Vector2 = center_world
 				_hive_lane_anchor_local_by_id[hid] = to_local(anchor_world)
 
 	var rm_hives_by_id_any: Variant = model.get("hives_by_id", {})
@@ -807,7 +1008,7 @@ func _rebuild_hive_lane_anchor_cache() -> void:
 			if pos_any is Vector2:
 				var center_local: Vector2 = pos_any as Vector2
 				var center_world: Vector2 = to_global(center_local)
-				_hive_lane_anchor_local_by_id[hid] = to_local(_lane_anchor_world_from_center(center_world))
+				_hive_lane_anchor_local_by_id[hid] = to_local(center_world)
 
 	_hive_cache_dirty = false
 	SFLog.throttled_info("LANE_ANCHOR_CACHE", {
@@ -818,13 +1019,99 @@ func _collect_hive_positions() -> Dictionary:
 	_ensure_hive_lane_anchor_cache()
 	return _hive_lane_anchor_local_by_id
 
-func get_hive_lane_anchor_local(hive_id: int, fallback_local: Vector2) -> Vector2:
+func get_hive_render_anchor_local(hive_id: int) -> Vector2:
 	_ensure_hive_lane_anchor_cache()
 	var v_any: Variant = _hive_lane_anchor_local_by_id.get(hive_id, null)
-	if v_any == null:
-		return fallback_local
 	if v_any is Vector2:
 		return v_any as Vector2
+	return Vector2.INF
+
+func get_edge_geo(lane_id: int, a_id: int, b_id: int) -> Dictionary:
+	var lane_key: String = "%s|%d>%d" % [str(lane_id), a_id, b_id]
+	if not _anchor_snapshot_ready and not hive_nodes_by_id.is_empty():
+		return {
+			"ok": false,
+			"lane_key": lane_key,
+			"source": "snapshot_not_ready"
+		}
+	if a_id <= 0 or b_id <= 0:
+		return {
+			"ok": false,
+			"lane_key": lane_key,
+			"source": "fail"
+		}
+	var a_any: Variant = _hive_local_pos_for_lane(a_id)
+	var b_any: Variant = _hive_local_pos_for_lane(b_id)
+	if not (a_any is Vector2 and b_any is Vector2):
+		return {
+			"ok": false,
+			"lane_key": lane_key,
+			"source": "fail"
+		}
+	var a_local: Vector2 = a_any as Vector2
+	var b_local: Vector2 = b_any as Vector2
+	var ep: Dictionary = {}
+	var source: String = "compute"
+	var edge_any: Variant = _edge_geo_from_cache(lane_id, a_id, b_id)
+	if edge_any != null:
+		source = "cache"
+		ep = _edge_geo_to_endpoints_local(edge_any, a_local, b_local, a_id, b_id)
+	else:
+		ep = _compute_lane_endpoints_from_centers_local(a_local, b_local, a_id, b_id, lane_id)
+	if not bool(ep.get("ok", false)):
+		return {
+			"ok": false,
+			"lane_key": lane_key,
+			"source": "fail"
+		}
+	var start_local: Vector2 = ep.get("a", a_local)
+	var end_local: Vector2 = ep.get("b", b_local)
+	var start_world: Vector2 = to_global(start_local)
+	var end_world: Vector2 = to_global(end_local)
+	var axis: Vector2 = end_local - start_local
+	var normal: Vector2 = Vector2.ZERO
+	if axis.length_squared() > 0.000001:
+		var dir: Vector2 = axis.normalized()
+		normal = Vector2(-dir.y, dir.x)
+	return {
+		"ok": true,
+		"start_local": start_local,
+		"end_local": end_local,
+		"start_world": start_world,
+		"end_world": end_world,
+		"normal": normal,
+		"lane_key": lane_key,
+		"source": source
+	}
+
+func get_lane_endpoints_world(lane_id: int, from_id: int, to_id: int) -> Dictionary:
+	var lane_key: String = "%s|%d>%d" % [str(lane_id), from_id, to_id]
+	if not _anchor_snapshot_ready and not hive_nodes_by_id.is_empty():
+		return {
+			"ok": false,
+			"lane_key": lane_key,
+			"source": "snapshot_not_ready"
+		}
+	var edge_geo: Dictionary = get_edge_geo(lane_id, from_id, to_id)
+	if not bool(edge_geo.get("ok", false)):
+		return {
+			"ok": false,
+			"lane_key": lane_key,
+			"source": str(edge_geo.get("source", "fail"))
+		}
+	return {
+		"ok": true,
+		"lane_key": str(edge_geo.get("lane_key", lane_key)),
+		"start_world": edge_geo.get("start_world", Vector2.ZERO),
+		"end_world": edge_geo.get("end_world", Vector2.ZERO),
+		"normal": edge_geo.get("normal", Vector2.ZERO),
+		"source": str(edge_geo.get("source", "compute"))
+	}
+
+func get_hive_lane_anchor_local(hive_id: int, fallback_local: Vector2) -> Vector2:
+	var anchor_local: Vector2 = get_hive_render_anchor_local(hive_id)
+	if anchor_local != Vector2.INF:
+		return anchor_local
 	return fallback_local
 
 func _lane_entries_from_model() -> Array:
@@ -869,6 +1156,8 @@ func _request_rebuild(reason: String) -> void:
 
 func _flush_rebuild() -> void:
 	_rebuild_pending = false
+	_lane_endpoints_logged_this_rebuild = false
+	_anchor_proof_logged_this_rebuild = false
 	var sig := _compute_active_lane_signature()
 	if sig == _last_sig:
 		return
@@ -877,6 +1166,11 @@ func _flush_rebuild() -> void:
 		"reason": _rebuild_req_reason,
 		"lanes": _lane_nodes_by_key.size()
 	})
+	SFLog.info("EDGE_VISUAL_OFFSETS", {
+		"lane_normal_px": EdgeVisual.LANE_NORMAL_OFFSET_PX,
+		"unit_normal_px": EdgeVisual.UNIT_NORMAL_OFFSET_PX,
+		"unit_lift_y_px": EdgeVisual.UNIT_LIFT_Y_PX
+	}, "", 250)
 	_rebuild_lane_sprites_now()
 
 func _compute_active_lane_signature() -> String:
@@ -901,7 +1195,13 @@ func _compute_active_lane_signature() -> String:
 			str(intent)
 		])
 	parts.sort()
-	return "|".join(parts)
+	var lanes_sig: String = "|".join(parts)
+	var snapshot_state: String = "%d:%d" % [_anchor_snapshot_sig, 1 if _anchor_snapshot_ready else 0]
+	return "%s#%s" % [lanes_sig, snapshot_state]
+
+func get_lane_signature() -> int:
+	var sig: String = _compute_active_lane_signature()
+	return int(hash(sig))
 
 func _rebuild_lane_sprites_now() -> void:
 	if not USE_LANE_SPRITES or not show_lane_sprites:
@@ -1023,7 +1323,11 @@ func _update_lane_visuals(delta: float) -> void:
 			continue
 		var a_anchor: Vector2 = a_anchor_v as Vector2
 		var b_anchor: Vector2 = b_anchor_v as Vector2
-		var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_anchor, b_anchor, a_id, b_id)
+		var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_anchor, b_anchor, a_id, b_id, lane_id)
+		if not bool(ep.get("ok", false)):
+			sprite_a.visible = false
+			sprite_b.visible = false
+			continue
 		var a_pos: Vector2 = ep.get("a", a_anchor)
 		var b_pos: Vector2 = ep.get("b", b_anchor)
 		_log_lane_endpoints_once(lane_id, ep)
@@ -1068,10 +1372,9 @@ func _resolve_unit_body_width_px() -> float:
 	return unit_body_px
 
 func _hive_center_local_for_lane(hive_id: int) -> Variant:
-	_ensure_hive_lane_anchor_cache()
-	var anchor_any: Variant = _hive_lane_anchor_local_by_id.get(hive_id, null)
-	if anchor_any is Vector2:
-		return anchor_any as Vector2
+	var anchor_local: Vector2 = get_hive_render_anchor_local(hive_id)
+	if anchor_local != Vector2.INF:
+		return anchor_local
 	return null
 
 func _hive_local_pos_for_lane(hive_id: int) -> Variant:
@@ -1131,11 +1434,13 @@ func _apply_lane_sprite_visual(
 	if normal_basis.length_squared() > 0.000001:
 		var unit_dir: Vector2 = normal_basis.normalized()
 		normal_dir = Vector2(-unit_dir.y, unit_dir.x)
-	var mid_pos: Vector2 = (start_pos + end_pos) * 0.5
-	var final_pos: Vector2 = mid_pos + (normal_dir * LANE_ART_NORMAL_OFFSET_PX)
+	var start_visual: Vector2 = EdgeVisual.lane_point(start_pos, normal_dir)
+	var end_visual: Vector2 = EdgeVisual.lane_point(end_pos, normal_dir)
+	var visual_dir: Vector2 = end_visual - start_visual
+	var mid_pos: Vector2 = (start_visual + end_visual) * 0.5
 	sprite.visible = true
-	sprite.position = final_pos
-	sprite.rotation = dir.angle()
+	sprite.position = mid_pos
+	sprite.rotation = visual_dir.angle()
 	sprite.scale = Vector2(scale_x, scale_y)
 	sprite.modulate = color
 	if lane_id == 9 and not _lane_align_logged:
@@ -1145,13 +1450,13 @@ func _apply_lane_sprite_visual(
 			dir_norm = normal_basis.normalized()
 		SFLog.info("LANE_ALIGN_DEBUG", {
 			"lane_id": lane_id,
-			"p0": start_pos,
-			"p1": end_pos,
+			"p0": start_visual,
+			"p1": end_visual,
 			"mid": mid_pos,
 			"dir": dir_norm,
 			"normal": normal_dir,
-			"offset_px": LANE_ART_NORMAL_OFFSET_PX,
-			"final_pos": final_pos
+			"offset_px": EdgeVisual.LANE_NORMAL_OFFSET_PX,
+			"final_pos": mid_pos
 		})
 	if lane_id > 0 and not _lane_scale_logged.has(lane_id):
 		_lane_scale_logged[lane_id] = true
@@ -1296,7 +1601,7 @@ func _draw_model_lanes(rm: Dictionary) -> void:
 		var a_pos: Vector2 = a_pos_any as Vector2
 		var b_pos: Vector2 = b_pos_any as Vector2
 
-		var seg := _edge_to_edge_segment(a_id, b_id, a_pos, b_pos)
+		var seg := _edge_to_edge_segment(a_id, b_id, a_pos, b_pos, lane_id)
 		if seg.size() != 2:
 			continue
 		var width := 2.0
@@ -1306,8 +1611,10 @@ func _draw_model_lanes(rm: Dictionary) -> void:
 		lane_meta["build_t"] = build_t
 		_draw_lane_colored(seg[0], seg[1], a_id, b_id, send_a, send_b, rm, width, lane_meta)
 
-func _edge_to_edge_segment(a_id: int, b_id: int, a_pos: Vector2, b_pos: Vector2) -> PackedVector2Array:
-	var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_pos, b_pos, a_id, b_id)
+func _edge_to_edge_segment(a_id: int, b_id: int, a_pos: Vector2, b_pos: Vector2, lane_id: int = -1) -> PackedVector2Array:
+	var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_pos, b_pos, a_id, b_id, lane_id)
+	if not bool(ep.get("ok", false)):
+		return PackedVector2Array()
 	var a_edge: Vector2 = ep.get("a", a_pos)
 	var b_edge: Vector2 = ep.get("b", b_pos)
 	return PackedVector2Array([a_edge, b_edge])

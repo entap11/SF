@@ -85,6 +85,8 @@ var match_end_ms: int = 0
 var lane_front_by_lane_id: Dictionary = {} # lane_id -> front_t [0..1]
 var match_roster: Array = []
 var _hud_snapshot: Dictionary = {}
+var edge_cache: Dictionary = {}
+var edge_cache_version: int = -1
 
 func get_state() -> GameState:
 	return state
@@ -97,6 +99,15 @@ func get_state_iid() -> int:
 	if state == null:
 		return 0
 	return int(state.iid)
+
+func set_edge_cache(cache: Dictionary) -> void:
+	edge_cache = cache if cache != null else {}
+
+func get_edge_for_lane_key(key: Variant) -> Variant:
+	return edge_cache.get(key, null)
+
+func bump_edge_cache_version(v: int) -> void:
+	edge_cache_version = v
 
 func has_outcome() -> bool:
 	return match_phase == MatchPhase.ENDED
@@ -672,6 +683,8 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 		return state
 	_state_serial += 1
 	reset_match_state()
+	edge_cache = {}
+	edge_cache_version = -1
 
 	var new_state: GameState = GameState.new()
 	state = new_state

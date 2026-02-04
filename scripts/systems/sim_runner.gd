@@ -37,6 +37,7 @@ var autostart := false
 
 var lane_system: LaneSystem = null
 var unit_system: UnitSystem = null
+var edge_cache_system: EdgeCacheSystem = null
 var structure_control_system: StructureControlSystem = null
 var tower_system: TowerSystem = null
 var swarm_system: SwarmSystem = null
@@ -71,6 +72,7 @@ func _ready() -> void:
 	SFLog.allow_tag("SIM_HEARTBEAT")
 	SFLog.allow_tag("SIM_TICK_PHASE")
 	SFLog.allow_tag("UNIT_ARRIVED")
+	SFLog.allow_tag("EDGE_CACHE_REBUILT")
 	_ensure_systems()
 	_schedule_bind_structures("ready")
 	# Arena binds the authoritative OpsState-owned GameState via bind_state().
@@ -81,6 +83,9 @@ func _ensure_systems() -> void:
 		add_child(lane_system)
 	if unit_system == null:
 		unit_system = UnitSystem.new()
+	if edge_cache_system == null:
+		edge_cache_system = EdgeCacheSystem.new()
+		add_child(edge_cache_system)
 	if structure_control_system == null:
 		structure_control_system = StructureControlSystem.new()
 		add_child(structure_control_system)
@@ -241,6 +246,8 @@ func _on_state_changed(new_state: GameState) -> void:
 	if win_system != null:
 		win_system.bind_state(state_ref, OpsState)
 		win_system.debug_log = debug_sim_tick_log
+	if edge_cache_system != null:
+		edge_cache_system.rebuild_edge_cache(OpsState)
 	SFLog.info("SIM_BIND_STATE", {"iid": bound_iid})
 	if autostart_on_bind:
 		_start_if_ready("bind_state_autostart")
@@ -443,6 +450,10 @@ func _tick_systems(dt: float) -> void:
 		state_ref.tick_lane_flow(dt * 1000.0)
 		if lane_system != null:
 			lane_system.tick_lane_fronts(dt)
+	)
+	_timed_phase("edge_cache", func() -> void:
+		if edge_cache_system != null:
+			edge_cache_system.rebuild_edge_cache(OpsState)
 	)
 	_timed_phase("unit_system", func() -> void:
 		if swarm_system != null:

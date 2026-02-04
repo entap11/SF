@@ -7,6 +7,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 @export var debug_show_kind_label := false
 @export var debug_tint_log := false
+@export var show_hive_ids: bool = OS.is_debug_build()
 @export var nine_margin_top: int = 48
 @export var nine_margin_bottom: int = 48
 @export var base_width_px: float = 0.0
@@ -49,6 +50,7 @@ var _power_label_holder: Node2D = null
 var _power_badge: Control = null
 var _power_backing: PanelContainer = null
 var _power_label: Label = null
+var _hive_id_label: Label = null
 var _current_size: Vector2 = Vector2.ZERO
 var _base_scale: Vector2 = Vector2.ONE
 var _visual_tier: int = -1
@@ -159,6 +161,7 @@ func _draw() -> void:
 
 func _ensure_power_label() -> void:
 	if _power_label != null and is_instance_valid(_power_label):
+		_ensure_hive_id_label()
 		return
 	var holder := get_node_or_null("PowerLabelHolder")
 	if holder is Node2D:
@@ -172,6 +175,9 @@ func _ensure_power_label() -> void:
 				var existing := _power_backing.get_node_or_null("PowerLabel")
 				if existing is Label:
 					_power_label = existing as Label
+					var existing_id := _power_label_holder.get_node_or_null("HiveIdLabel")
+					if existing_id is Label:
+						_hive_id_label = existing_id as Label
 					return
 	if _power_label_holder == null:
 		var new_holder := Node2D.new()
@@ -223,11 +229,49 @@ func _ensure_power_label() -> void:
 	label.label_settings = settings
 	_power_backing.add_child(label)
 	_power_label = label
+	_ensure_hive_id_label()
+
+func _ensure_hive_id_label() -> void:
+	if _power_label_holder == null:
+		return
+	if _hive_id_label != null and is_instance_valid(_hive_id_label):
+		return
+	var existing := _power_label_holder.get_node_or_null("HiveIdLabel")
+	if existing is Label:
+		_hive_id_label = existing as Label
+		return
+	var id_label := Label.new()
+	id_label.name = "HiveIdLabel"
+	id_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	id_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	id_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	id_label.size = Vector2(56.0, 18.0)
+	id_label.position = Vector2(-28.0, 16.0)
+	var settings := LabelSettings.new()
+	settings.font_size = 13
+	settings.outline_size = 1
+	settings.outline_color = Color(0.0, 0.0, 0.0, 0.85)
+	settings.shadow_size = 2
+	settings.shadow_color = Color(0.0, 0.0, 0.0, 0.65)
+	settings.shadow_offset = Vector2(1.0, 1.0)
+	id_label.label_settings = settings
+	_power_label_holder.add_child(id_label)
+	_hive_id_label = id_label
 
 func _update_power_label(owner_id_value: int, power_value: int) -> void:
 	_ensure_power_label()
 	if _power_label == null or not is_instance_valid(_power_label) or _power_label_holder == null or _power_badge == null:
 		return
+	var hive_id := -1
+	var parent := get_parent()
+	if parent != null and parent.has_method("get"):
+		var id_v: Variant = parent.get("hive_id")
+		if id_v != null:
+			hive_id = int(id_v)
+	_ensure_hive_id_label()
+	if _hive_id_label != null and is_instance_valid(_hive_id_label):
+		_hive_id_label.visible = show_hive_ids
+		_hive_id_label.text = ("h" + str(hive_id)) if hive_id > 0 else ""
 	var next_state := "%s:%s" % [str(owner_id_value), str(power_value)]
 	if next_state == _power_label_state:
 		return
@@ -251,12 +295,6 @@ func _update_power_label(owner_id_value: int, power_value: int) -> void:
 	if power_label_offset_override != Vector2.INF:
 		off = power_label_offset_override
 	_power_label_holder.position = off
-	var hive_id := -1
-	var parent := get_parent()
-	if parent != null and parent.has_method("get"):
-		var id_v: Variant = parent.get("hive_id")
-		if id_v != null:
-			hive_id = int(id_v)
 	if not _power_label_logged.has(hive_id):
 		_power_label_logged[hive_id] = true
 		SFLog.info("HIVE_POWER_LABEL", {
