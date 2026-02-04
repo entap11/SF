@@ -102,6 +102,7 @@ var events: Array[Dictionary] = []
 var grid_w: int = GRID_W
 var grid_h: int = GRID_H
 var grid_spec: GridSpec = null
+var _playfield_outline: PlayfieldOutline = null
 var render_version: int = 0
 var _render_dirty: bool = true
 var _render_model: Dictionary = {}
@@ -123,7 +124,8 @@ var _last_render_hives_version: int = -1
 @onready var unit_renderer: Node2D = $MapRoot/UnitRenderer
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
-@onready var power_bar: PowerBar = get_node_or_null("../HUDCanvasLayer/PowerBar") as PowerBar
+@onready var top_buffer_background: TextureRect = _resolve_top_buffer_background()
+@onready var power_bar: PowerBar = _resolve_power_bar_node()
 @onready var buffs_label: Label = get_node_or_null("../UI/BuffsLabel") as Label
 @onready var outcome_overlay: OutcomeOverlay = get_node_or_null("../UI/OutcomeOverlay") as OutcomeOverlay
 @onready var win_overlay: WinOverlay = get_node_or_null("../UI/WinOverlay") as WinOverlay
@@ -286,7 +288,9 @@ func _ready() -> void:
 	self.scale = Vector2.ONE
 	SFLog.info("POWER_BAR_REF", {"exists": power_bar != null, "path": power_bar.get_path() if power_bar != null else "<null>"})
 	if power_bar == null:
-		SFLog.error("POWER_BAR_BIND_FAIL", {"path": "../HUDCanvasLayer/PowerBar"})
+		power_bar = _resolve_power_bar_node()
+	if power_bar == null:
+		SFLog.error("POWER_BAR_BIND_FAIL", {"path": "../BufferBackdropLayer/TopBufferBackground/PowerBarAnchor/PowerBar"})
 	else:
 		SFLog.info("POWER_BAR_BOUND", {"path": power_bar.get_path(), "inside_tree": power_bar.is_inside_tree()})
 		power_bar.prepare_hidden()
@@ -384,6 +388,29 @@ func _start_match_flow() -> void:
 	_force_unpause_sanity()
 	_ensure_prematch_ui()
 	_begin_prematch()
+
+func _resolve_top_hud_root() -> Node:
+	var top_hud_root: Node = get_node_or_null("../HUDCanvasLayer/TopHudRoot")
+	if top_hud_root != null:
+		return top_hud_root
+	return get_node_or_null("../HUDCanvasLayer")
+
+func _resolve_power_bar_node() -> PowerBar:
+	var pb: PowerBar = get_node_or_null("../BufferBackdropLayer/TopBufferBackground/PowerBarAnchor/PowerBar") as PowerBar
+	if pb != null:
+		return pb
+	return null
+
+func _resolve_top_buffer_background() -> TextureRect:
+	var top_hud_root: Node = _resolve_top_hud_root()
+	if top_hud_root != null:
+		var top_buffer: TextureRect = top_hud_root.get_node_or_null("TopBufferBackground") as TextureRect
+		if top_buffer != null:
+			return top_buffer
+	var backdrop_buffer: TextureRect = get_node_or_null("../BufferBackdropLayer/TopBufferBackground") as TextureRect
+	if backdrop_buffer != null:
+		return backdrop_buffer
+	return get_node_or_null("../HUDCanvasLayer/TopBufferBackground") as TextureRect
 
 func _is_dev_or_editor_context() -> bool:
 	if Engine.is_editor_hint():
@@ -820,7 +847,7 @@ func _start_match_sim(reason: String) -> void:
 		sim_runner.set_running(true, reason)
 		sim_runner.log_pause_snapshot("arena_match_start")
 	SFLog.info("MATCH_STARTED", {"iid": iid, "reason": reason})
-	var pb: PowerBar = get_node_or_null("/root/Shell/ArenaRoot/Main/HUDCanvasLayer/PowerBar")
+	var pb: PowerBar = _get_power_bar() as PowerBar
 	if pb != null:
 		SFLog.info("POWER_BAR_REVEAL_REQUEST", {"path": pb.get_path()})
 		pb.reveal_with_tween()
@@ -838,7 +865,8 @@ func _on_ops_state_changed_for_powerbar(_payload: Variant = null) -> void:
 func _get_power_bar() -> Node:
 	if power_bar != null:
 		return power_bar
-	return get_node_or_null("/root/Shell/ArenaRoot/Main/HUDCanvasLayer/PowerBar")
+	power_bar = _resolve_power_bar_node()
+	return power_bar
 
 func _compute_team_power_totals(state_ref: Object) -> Dictionary:
 	var totals: Dictionary = {1: 0, 2: 0, 3: 0, 4: 0}
@@ -1217,12 +1245,39 @@ func _on_viewport_size_changed() -> void:
 	_center_match_timer()
 	_snap_power_bar_to_map_top("viewport_resize")
 
+func _ensure_playfield_outline() -> PlayfieldOutline:
+	if is_instance_valid(_playfield_outline):
+		return _playfield_outline
+	var map_root_node: Node = get_node_or_null("MapRoot")
+	if map_root_node == null:
+		return null
+	var existing: Node = map_root_node.get_node_or_null("PlayfieldOutline")
+	if existing != null and existing is PlayfieldOutline:
+		_playfield_outline = existing as PlayfieldOutline
+		return _playfield_outline
+	var po: PlayfieldOutline = PlayfieldOutline.new()
+	po.name = "PlayfieldOutline"
+	po.z_index = 9999
+	po.z_as_relative = false
+	if not OS.is_debug_build():
+		po.enabled = false
+	map_root_node.add_child(po)
+	_playfield_outline = po
+	return po
+
+func _sync_playfield_outline() -> void:
+	var po: PlayfieldOutline = _ensure_playfield_outline()
+	if po == null:
+		return
+	po.set_playfield_rect_world(_arena_rect())
+
 func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 	var cell_px := _cell_px()
 	var origin := map_offset
 	if grid_spec == null:
 		grid_spec = GridSpec.new()
 	grid_spec.configure(grid_w_in, grid_h_in, cell_px, origin)
+	_sync_playfield_outline()
 	grid_w = grid_spec.grid_w
 	grid_h = grid_spec.grid_h
 	if floor_renderer != null:
@@ -1420,6 +1475,7 @@ func load_from_map(map_data: Dictionary) -> void:
 	on_map_built()
 	_render_dirty = true
 	_push_render_model()
+	_sync_playfield_outline()
 
 func apply_loaded_map(map: Dictionary) -> void:
 	if not _is_dev_or_editor_context():
@@ -1477,6 +1533,7 @@ func apply_loaded_map(map: Dictionary) -> void:
 	mark_render_dirty("apply_loaded_map")
 	model = export_render_model()
 	_push_render_model()
+	_sync_playfield_outline()
 	SFLog.trace("POST-LOAD: candidates=%d actives=%d" % [
 		(state.lane_candidates as Array).size(),
 		(state.lanes as Array).size()
@@ -1708,11 +1765,7 @@ func dbg_mark_event(label: String) -> void:
 	SFLog.mark_event(label)
 
 func _snap_power_bar_to_map_top(reason: String = "") -> void:
-	if power_bar == null or camera == null or map_root == null:
-		return
-	var bounds := _compute_map_root_bounds()
-	var map_top_world_y: float = map_root.global_position.y + bounds.position.y
-	power_bar.snap_to_play_surface(camera, map_top_world_y, 8.0)
+	return # PowerBar is HUD/buffer-placed; do not snap to play surface.
 
 func _sync_inputs_locked_from_state() -> void:
 	if input_system == null:
