@@ -243,30 +243,10 @@ grow_vertical = 2
 mouse_filter = 2
 
 [node name="BufferBackdropLayer" type="CanvasLayer" parent="."]
-layer = -10
+layer = 55
+follow_viewport_enabled = true
 
-[node name="TopBufferBackground" type="TextureRect" parent="BufferBackdropLayer"]
-texture_repeat = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_bottom = 200.0
-grow_horizontal = 2
-mouse_filter = 2
-texture = ExtResource("9_3m02a")
-stretch_mode = 2
-
-[node name="PowerBarAnchor" type="Control" parent="BufferBackdropLayer/TopBufferBackground"]
-anchors_preset = 0
-offset_left = 64.8
-offset_top = 8.0
-offset_right = 1015.2
-offset_bottom = 188.0
-mouse_filter = 2
-
-[node name="HudOverlayLayer" type="CanvasLayer" parent="."]
-layer = 20
-
-[node name="HudOverlay" type="Control" parent="HudOverlayLayer"]
+[node name="BufferRoot" type="Control" parent="BufferBackdropLayer"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -275,11 +255,60 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="PowerBar" parent="BufferBackdropLayer/TopBufferBackground/PowerBarAnchor" instance=ExtResource("8")]
-visible = false
+[node name="TopBufferBackground" type="TextureRect" parent="BufferBackdropLayer/BufferRoot"]
+texture_repeat = 1
 layout_mode = 1
-anchors_preset = 5
-offset_left = -475.2
-offset_top = 10.0
-offset_right = 475.2
-offset_bottom = 202.0
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = -160.0
+offset_right = 162.0
+offset_bottom = 323.0
+grow_horizontal = 2
+mouse_filter = 2
+texture = ExtResource("9_3m02a")
+stretch_mode = 2
+
+[node name="PowerBarAnchor" type="Control" parent="BufferBackdropLayer/BufferRoot/TopBufferBackground"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -701.0
+offset_top = -161.5
+offset_right = 249.4
+offset_bottom = 18.5
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="PowerBar" parent="BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor" instance=ExtResource("8")]
+z_index = 10
+layout_mode = 1
+anchors_preset = 15
+anchor_left = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 232.0
+offset_top = -2.0
+offset_right = 232.0
+offset_bottom = -2.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HudOverlayLayer" type="CanvasLayer" parent="."]
+layer = 60
+
+[node name="HudOverlay" type="Control" parent="HudOverlayLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 7.0
+offset_top = 3.0
+offset_right = 7.0
+offset_bottom = 3.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2

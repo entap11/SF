@@ -1,0 +1,7 @@
+[gd_resource type="AtlasTexture" load_steps=2 format=3 uid="uid://bfdxquv5c3xrg"]
+
+[ext_resource type="Texture2D" uid="uid://dbhmn21027rtr" path="res://assets/sprites/sf_skin_v1/buffer_background.png" id="1_nt4wr"]
+
+[resource]
+atlas = ExtResource("1_nt4wr")
+region = Rect2(15, 770, 1501, 214)

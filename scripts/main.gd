@@ -27,8 +27,9 @@ func _ready() -> void:
 		print("MAIN: _ready scene=", get_tree().current_scene.scene_file_path)
 	if SFLog.LOGGING_ENABLED:
 		print("MAIN FLAGS: start_in_menu=", start_in_menu,
-		" enable_dev_map_loader=", enable_dev_map_loader,
-		" show_dev_map_loader_in_game=", show_dev_map_loader_in_game)
+			" enable_dev_map_loader=", enable_dev_map_loader,
+			" show_dev_map_loader_in_game=", show_dev_map_loader_in_game)
+	_log_top_buffer_layer_once()
 
 	var pending_map_id: String = ""
 	var has_pending_map: bool = false
@@ -92,6 +93,34 @@ func _ready() -> void:
 
 func _has_dev_map_loader() -> bool:
 	return get_node_or_null("UI/DevMapLoader") != null or find_child("DevMapPicker", true, false) != null
+
+func _log_top_buffer_layer_once() -> void:
+	# Correct path: BufferBackdropLayer -> BufferRoot -> TopBufferBackground
+	var buffer_node: Node = get_node_or_null("BufferBackdropLayer/BufferRoot/TopBufferBackground")
+	if buffer_node == null:
+		buffer_node = get_node_or_null("HUDCanvasLayer/TopHudRoot/TopBufferBackground")
+	if buffer_node == null:
+		buffer_node = get_node_or_null("HUDCanvasLayer/TopBufferBackground")
+	var canvas_layer: CanvasLayer = _nearest_canvas_layer(buffer_node)
+	var canvas_item: CanvasItem = buffer_node as CanvasItem
+	print("TEMP_BUFFER_LAYER path=", str(buffer_node.get_path()) if buffer_node != null else "<missing>",
+		" inside_canvas_layer=", canvas_layer != null,
+		" canvas_layer=", int(canvas_layer.layer) if canvas_layer != null else 0,
+		" z_index=", int(canvas_item.z_index) if canvas_item != null else 0)
+	SFLog.info("TEMP_BUFFER_LAYER", {
+		"path": str(buffer_node.get_path()) if buffer_node != null else "<missing>",
+		"inside_canvas_layer": canvas_layer != null,
+		"canvas_layer": int(canvas_layer.layer) if canvas_layer != null else 0,
+		"z_index": int(canvas_item.z_index) if canvas_item != null else 0
+	})
+
+func _nearest_canvas_layer(node: Node) -> CanvasLayer:
+	var cursor: Node = node
+	while cursor != null:
+		if cursor is CanvasLayer:
+			return cursor as CanvasLayer
+		cursor = cursor.get_parent()
+	return null
 
 
 func start_game() -> void:

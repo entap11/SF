@@ -290,7 +290,7 @@ func _ready() -> void:
 	if power_bar == null:
 		power_bar = _resolve_power_bar_node()
 	if power_bar == null:
-		SFLog.error("POWER_BAR_BIND_FAIL", {"path": "../BufferBackdropLayer/TopBufferBackground/PowerBarAnchor/PowerBar"})
+		SFLog.error("POWER_BAR_BIND_FAIL", {"path": "../BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar"})
 	else:
 		SFLog.info("POWER_BAR_BOUND", {"path": power_bar.get_path(), "inside_tree": power_bar.is_inside_tree()})
 		power_bar.prepare_hidden()
@@ -396,7 +396,7 @@ func _resolve_top_hud_root() -> Node:
 	return get_node_or_null("../HUDCanvasLayer")
 
 func _resolve_power_bar_node() -> PowerBar:
-	var pb: PowerBar = get_node_or_null("../BufferBackdropLayer/TopBufferBackground/PowerBarAnchor/PowerBar") as PowerBar
+	var pb: PowerBar = get_node_or_null("../BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar") as PowerBar
 	if pb != null:
 		return pb
 	return null
@@ -407,10 +407,20 @@ func _resolve_top_buffer_background() -> TextureRect:
 		var top_buffer: TextureRect = top_hud_root.get_node_or_null("TopBufferBackground") as TextureRect
 		if top_buffer != null:
 			return top_buffer
-	var backdrop_buffer: TextureRect = get_node_or_null("../BufferBackdropLayer/TopBufferBackground") as TextureRect
+	var backdrop_buffer: TextureRect = get_node_or_null("../BufferBackdropLayer/BufferRoot/TopBufferBackground") as TextureRect
 	if backdrop_buffer != null:
 		return backdrop_buffer
 	return get_node_or_null("../HUDCanvasLayer/TopBufferBackground") as TextureRect
+
+func _ui_top_inset_px() -> float:
+	var top_buffer: Control = _resolve_top_buffer_background() as Control
+	if top_buffer == null:
+		top_buffer = get_node_or_null("/root/Shell/ArenaRoot/Main/BufferBackdropLayer/BufferRoot/TopBufferBackground") as Control
+	if top_buffer == null:
+		top_buffer = get_node_or_null("/root/HUDCanvasLayer/TopHudRoot/TopBufferBackground") as Control
+	if top_buffer == null:
+		return 0.0
+	return maxf(0.0, float(top_buffer.get_global_rect().size.y))
 
 func _is_dev_or_editor_context() -> bool:
 	if Engine.is_editor_hint():
@@ -2036,9 +2046,16 @@ func _compute_fit_zoom(viewport_size: Vector2, margin: float) -> float:
 
 func _apply_canon_camera_fit(tag: String) -> void:
 	var vp: Vector2 = get_viewport_rect().size
+	var usable: Rect2 = Rect2(Vector2.ZERO, vp)
+	var inset: float = _ui_top_inset_px()
+	if inset > 0.0:
+		usable.position.y += inset
+		usable.size.y = maxf(1.0, usable.size.y - inset)
 	var world_px: Vector2 = _canon_world_px()
 	var center: Vector2 = world_px * 0.5
-	var zoom_factor: float = _compute_fit_zoom(vp, FIT_MARGIN)
+	var zoom_factor: float = _compute_fit_zoom(usable.size, FIT_MARGIN)
+	if inset > 0.0 and zoom_factor > 0.0001:
+		center.y -= (inset * 0.5) / zoom_factor
 	# Project convention: Camera2D.zoom uses the fit scale directly (not inverse).
 	var zoom_vec: Vector2 = Vector2(zoom_factor, zoom_factor)
 	cam_set(tag, center, zoom_vec)
@@ -2047,6 +2064,8 @@ func _apply_canon_camera_fit(tag: String) -> void:
 		"grid_h": GRID_H,
 		"world_px": world_px,
 		"viewport": vp,
+		"usable": usable,
+		"ui_top_inset": inset,
 		"center": center,
 		"zoom": zoom_vec
 	})

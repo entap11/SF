@@ -1,47 +1,66 @@
-[gd_scene load_steps=3 format=3 uid="uid://bna4cmslnw2d1"]
+[gd_scene load_steps=4 format=3 uid="uid://bna4cmslnw2d1"]
 
 [ext_resource type="Script" path="res://scripts/ui/power_bar.gd" id="1"]
-[ext_resource type="Texture2D" uid="uid://ldej02en1kpv" path="res://assets/ui/power_bar/power_bar_frame_border.png" id="2"]
+[ext_resource type="Texture2D" uid="uid://cshfeg46jx2m1" path="res://assets/sprites/sf_skin_v1/power_bar_unfilled.png" id="2"]
+[ext_resource type="Material" path="res://assets/shaders/power_bar_frame_key.tres" id="3"]
 
 [node name="PowerBar" type="Control"]
+custom_minimum_size = Vector2(0, 120)
 layout_mode = 3
-anchor_left = 0.06
-anchor_top = 0.02
-anchor_right = 0.94
-anchor_bottom = 0.12
+anchor_left = 0.5
+anchor_top = 0.0
+anchor_right = 0.5
+anchor_bottom = 0.0
+offset_left = -408.0
+offset_right = 408.0
+offset_bottom = 108.8
 mouse_filter = 2
 script = ExtResource("1")
 base_texture = ExtResource("2")
 top_margin_px = 24.0
-height_scale_ratio = 0.25
+height_scale_ratio = 0.8
 max_width_ratio = 0.85
 min_scale = 0.45
 max_scale = 0.85
 
-[node name="FillMask" type="Control" parent="."]
-clip_contents = true
-anchors_preset = 0
+[node name="Rig" type="Control" parent="."]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="FrameArt" type="TextureRect" parent="Rig"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+material = ExtResource("3")
+texture = ExtResource("2")
+expand_mode = 1
+
+[node name="BarDock" type="Control" parent="Rig"]
+layout_mode = 0
 offset_left = 110.0
 offset_top = 22.0
 offset_right = 830.0
 offset_bottom = 94.0
 mouse_filter = 2
 
-[node name="FillP1" type="ColorRect" parent="FillMask"]
-layout_mode = 0
-anchor_bottom = 1.0
-mouse_filter = 2
-
-[node name="FillP2" type="ColorRect" parent="FillMask"]
-layout_mode = 0
-anchor_bottom = 1.0
-mouse_filter = 2
-
-[node name="Frame" type="TextureRect" parent="."]
-z_index = 100
-layout_mode = 0
+[node name="FillMask" type="Control" parent="Rig/BarDock"]
+layout_mode = 1
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 mouse_filter = 2
-texture = ExtResource("2")
-expand_mode = 1
+
+[node name="FillP1" type="ColorRect" parent="Rig/BarDock/FillMask"]
+layout_mode = 0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="FillP2" type="ColorRect" parent="Rig/BarDock/FillMask"]
+layout_mode = 0
+anchor_bottom = 1.0
+mouse_filter = 2
