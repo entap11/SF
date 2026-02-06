@@ -49,10 +49,20 @@ func build_into(arena: Node2D, map_id: String) -> bool:
 		return false
 
 	var dict: Dictionary = data
-	var grid_w_val := int(dict.get("grid_width", dict.get("width", 0)))
-	var grid_h_val := int(dict.get("grid_height", dict.get("height", 0)))
-	assert(grid_w_val == MAP_SCHEMA.CANON_GRID_W)
-	assert(grid_h_val == MAP_SCHEMA.CANON_GRID_H)
+	var grid_w_val: int = int(dict.get("grid_width", dict.get("width", 0)))
+	var grid_h_val: int = int(dict.get("grid_height", dict.get("height", 0)))
+	if grid_w_val <= 0 or grid_h_val <= 0:
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: invalid grid %dx%d path=%s" % [grid_w_val, grid_h_val, path])
+		return false
+	if grid_w_val != MAP_SCHEMA.CANON_GRID_W or grid_h_val != MAP_SCHEMA.CANON_GRID_H:
+		SFLog.info("MAP_BUILDER: non-canon grid %dx%d (canon %dx%d) path=%s" % [
+			grid_w_val,
+			grid_h_val,
+			MAP_SCHEMA.CANON_GRID_W,
+			MAP_SCHEMA.CANON_GRID_H,
+			path
+		])
 	SFLog.trace("MAP_BUILDER: keys=%s" % [str(dict.keys())])
 	for k in ["hives", "nodes", "lanes", "edges", "entities", "points", "links"]:
 		if dict.has(k):

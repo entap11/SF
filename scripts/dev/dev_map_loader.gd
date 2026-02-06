@@ -83,7 +83,7 @@ func _apply_in_game_input_passthrough() -> void:
 	else:
 		var main := get_tree().current_scene
 		if main != null:
-			arena_ci = main.get_node_or_null("WorldViewportContainer/WorldViewport/Arena") as CanvasItem
+			arena_ci = main.get_node_or_null("WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena") as CanvasItem
 	if arena_ci == null or not arena_ci.visible:
 		return
 	# If we are showing the game (not in dev menu mode), do not intercept clicks.

@@ -419,10 +419,12 @@ static func build_internal_map(human: Dictionary) -> Dictionary:
 	if grid_w <= 0 or grid_h <= 0:
 		return {"ok": false, "error": "grid_w/grid_h must be > 0"}
 	if grid_w != CANON_GRID_W or grid_h != CANON_GRID_H:
-		var msg := "Expected canonical grid 8x12 (w×h). Got %dx%d. Fix the map schema." % [grid_w, grid_h]
-		if SFLog.LOGGING_ENABLED:
-			push_error("MAP_SCHEMA: %s" % msg)
-		return {"ok": false, "error": msg}
+		SFLog.info("MAP_SCHEMA: non-canon grid %dx%d (canon %dx%d)" % [
+			grid_w,
+			grid_h,
+			CANON_GRID_W,
+			CANON_GRID_H
+		])
 	var hives_raw: Array = source.get("hives", [])
 	if typeof(hives_raw) != TYPE_ARRAY or hives_raw.is_empty():
 		return {"ok": false, "error": "missing hives[]"}

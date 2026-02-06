@@ -125,7 +125,7 @@ var _last_render_hives_version: int = -1
 @onready var lane_renderer = $MapRoot/LaneRenderer
 @onready var tower_renderer_node = $MapRoot/TowerRenderer
 @onready var hive_renderer: HiveRenderer = $MapRoot/HiveRenderer
-@onready var unit_renderer: Node2D = $MapRoot/UnitRenderer
+@onready var unit_renderer: Node2D = _resolve_unit_renderer()
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
 @onready var top_buffer_background: TextureRect = _resolve_top_buffer_background()
@@ -142,6 +142,9 @@ const FIT_MARGIN := 0.96
 const FIT_DEBUG := true
 const FIT_WIDTH := 0
 const FIT_HEIGHT := 1
+const CAMFIT_PAD_PX: float = 20.0
+const SAFE_PAD_PX: float = 20.0
+const SAFE_HIVE_PAD_PX: float = 40.0
 const DBG_TREE_DUMP: bool = false
 const WIN_OVERLAY_MS := 2500
 const TIMER_REVEAL_MS := 59000
@@ -157,6 +160,8 @@ var _timer_ui_logged: bool = false
 var _timer_debug_mode: bool = true
 var _timer_branch_logged: bool = false
 var _timer_label_bind_logged: bool = false
+var _timer_ready_logged: bool = false
+var _cam_probe_accum: float = 0.0
 var _prematch_overlay: Control = null
 var _prematch_countdown_label: Label = null
 var _prematch_records_panel: Control = null
@@ -180,8 +185,14 @@ var _legacy_tick_fenced_logged: bool = false
 	get:
 		return _get_autostart()
 @export var buffs_enabled := true
+@export var debug_cam_probe: bool = true
+@export var cam_fit_margin: float = 1.0 # < 1.0 = more padding (zoom in), > 1.0 = less padding (zoom out)
+@export var cam_fit_pad_px: float = 10.0 # additional world padding in pixels
+@export var cam_fit_bias_y_px: float = -40.0 # negative = push camera up, positive = push down
+@export var cam_fit_mode: int = 0 # 0=contain(min), 1=fit_width, 2=fit_height
 @export var overtime_start_ms: float = OVERTIME_START_MS
 @export var draw_arena_rect_debug := false
+@export var draw_world_bounds_debug: bool = true
 @export var use_dev_safe_centering := false
 @export var FITCAM_POLICY := FIT_WIDTH
 @export var debug_buff_loadout: Array[String] = [
@@ -245,6 +256,7 @@ var current_map_data: Dictionary = {}
 var _map_build_version: int = 0
 var _map_built_version: int = -1
 var _map_bounds_size: Vector2 = Vector2.ZERO
+var _map_bounds_missing_logged: bool = false
 var _fit_serial := 0
 var _fit_applied_serial := -1
 var _dev_tick_log_ms: int = 0
@@ -365,12 +377,13 @@ func _ready() -> void:
 	_ensure_timer_hud()
 	_start_match_flow()
 	_configure_grid_spec(grid_w, grid_h)
-	_map_bounds_size = _arena_rect().size
+	_map_bounds_size = Vector2.ZERO
 	var arena_scale: Vector2 = global_transform.get_scale()
 	dbg("ARENA: global_scale=%s" % [arena_scale])
 	var viewport := get_viewport()
 	if viewport != null and not viewport.size_changed.is_connected(_on_viewport_size_changed):
 		viewport.size_changed.connect(_on_viewport_size_changed)
+	call_deferred("_resize_world_viewport")
 	call_deferred("_debug_camera", "ready")
 	call_deferred("_debug_scan_cameras")
 	call_deferred("_debug_canvas_space")
@@ -950,6 +963,7 @@ func _init_systems() -> void:
 	tower_renderer = tower_renderer_node as TowerRenderer
 	_ensure_sim_events()
 	_ensure_vfx_manager()
+	_ensure_unit_renderer()
 	_ensure_sim_runner()
 	if sim_runner != null:
 		lane_system = sim_runner.get_lane_system()
@@ -1009,17 +1023,65 @@ func _ensure_sim_events() -> void:
 	sim_events.name = "SimEvents"
 	add_child(sim_events)
 
+func _ensure_pools_root() -> Node:
+	var pools_root: Node = get_node_or_null("PoolsRoot")
+	if pools_root == null:
+		var new_pools: Node2D = Node2D.new()
+		new_pools.name = "PoolsRoot"
+		new_pools.position = Vector2.ZERO
+		add_child(new_pools)
+		pools_root = new_pools
+	return pools_root
+
+func _resolve_unit_renderer() -> Node2D:
+	var pools_node: Node = get_node_or_null("PoolsRoot/UnitRenderer")
+	if pools_node is Node2D:
+		return pools_node as Node2D
+	var map_node: Node = get_node_or_null("MapRoot/UnitRenderer")
+	if map_node is Node2D:
+		return map_node as Node2D
+	return null
+
+func _ensure_unit_renderer() -> void:
+	var pools_root: Node = _ensure_pools_root()
+	var existing: Node = pools_root.get_node_or_null("UnitRenderer")
+	if existing is Node2D:
+		unit_renderer = existing as Node2D
+	else:
+		var map_existing: Node = null
+		if map_root != null:
+			map_existing = map_root.get_node_or_null("UnitRenderer")
+		if map_existing is Node2D:
+			unit_renderer = map_existing as Node2D
+			if unit_renderer.get_parent() != pools_root:
+				unit_renderer.reparent(pools_root)
+			unit_renderer.name = "UnitRenderer"
+		else:
+			unit_renderer = null
+	if unit_renderer != null:
+		print("UNIT_PARENT:", unit_renderer.get_path())
+
 func _ensure_vfx_manager() -> void:
 	if vfx_manager != null and is_instance_valid(vfx_manager):
 		return
-	var root := map_root if map_root != null else self
-	var existing := root.get_node_or_null("VfxManager")
+	var pools_root: Node = _ensure_pools_root()
+
+	var existing: Node = pools_root.get_node_or_null("VfxManager")
 	if existing is VfxManager:
 		vfx_manager = existing as VfxManager
 	else:
-		vfx_manager = VfxManager.new()
-		vfx_manager.name = "VfxManager"
-		root.add_child(vfx_manager)
+		var map_existing: Node = null
+		if map_root != null:
+			map_existing = map_root.get_node_or_null("VfxManager")
+		if map_existing is VfxManager:
+			vfx_manager = map_existing as VfxManager
+			if vfx_manager.get_parent() != pools_root:
+				vfx_manager.reparent(pools_root)
+		else:
+			vfx_manager = VfxManager.new()
+			vfx_manager.name = "VfxManager"
+			pools_root.add_child(vfx_manager)
+	print("VFX_PARENT:", vfx_manager.get_path())
 	if sim_events != null and vfx_manager.has_method("set_sim_events"):
 		vfx_manager.set_sim_events(sim_events)
 	if vfx_manager != null and vfx_manager.has_method("prewarm"):
@@ -1225,9 +1287,43 @@ func _notification(what: int) -> void:
 			dbg("FIT: wm_size_changed viewport=%s window=%s" % [viewport_size, window_size])
 
 func _on_viewport_size_changed() -> void:
+	_resize_world_viewport()
 	fitcam_once()
 	_center_match_timer()
 	_snap_power_bar_to_map_top("viewport_resize")
+
+func _resize_world_viewport() -> void:
+	var wvc: Control = get_node_or_null("/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer") as Control
+	if wvc == null:
+		var found: Node = get_tree().root.find_child("WorldViewportContainer", true, false)
+		if found != null and found is Control:
+			wvc = found as Control
+	var sv: SubViewport = null
+	if wvc != null:
+		var direct: Node = wvc.get_node_or_null("WorldViewport")
+		if direct != null and direct is SubViewport:
+			sv = direct as SubViewport
+	if sv == null:
+		var found_sv: Node = get_tree().root.find_child("WorldViewport", true, false)
+		if found_sv != null and found_sv is SubViewport:
+			sv = found_sv as SubViewport
+	if wvc == null or sv == null:
+		return
+	var overscan_x: float = 80.0
+	var overscan_y: float = 120.0
+	var old_size: Vector2i = sv.size
+	var target: Vector2 = wvc.size + Vector2(overscan_x * 2.0, overscan_y * 2.0)
+	var new_w: int = max(1, int(target.x))
+	var new_h: int = max(1, int(target.y))
+	var new_size: Vector2i = Vector2i(new_w, new_h)
+	sv.size = new_size
+	SFLog.info("WVP_RESIZE", {
+		"wvc_path": str(wvc.get_path()),
+		"container_size": wvc.size,
+		"sv_old": old_size,
+		"sv_new": sv.size,
+		"overscan": [overscan_x, overscan_y]
+	})
 
 func _ensure_playfield_outline() -> PlayfieldOutline:
 	if is_instance_valid(_playfield_outline):
@@ -1660,6 +1756,25 @@ func start_sim() -> void:
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
+	if debug_cam_probe:
+		_cam_probe_accum += delta
+		if _cam_probe_accum >= 0.5:
+			_cam_probe_accum = 0.0
+			var sv: SubViewport = null
+			var root: Window = get_tree().root
+			if root != null:
+				var found: Node = root.find_child("WorldViewport", true, false)
+				if found != null and found is SubViewport:
+					sv = found as SubViewport
+			var cam: Camera2D = null
+			if sv != null:
+				cam = sv.get_camera_2d()
+			SFLog.info("CAM_PROBE", {
+				"sv_found": sv != null,
+				"sv_size": sv.size if sv != null else Vector2.ZERO,
+				"cam_found": cam != null,
+				"cam_zoom": cam.zoom if cam != null else Vector2.ZERO
+			})
 	_hb_record_frame(delta)
 	_hb_maybe_flush()
 	_maybe_log_frame_hitch(delta)
@@ -1829,7 +1944,6 @@ func cam_set(tag: String, pos: Vector2, zoom: Vector2) -> void:
 	var cam := $Camera2D
 	cam.make_current()
 	cam.global_position = pos
-	cam.zoom = zoom
 	SFLog.trace("CAM_SET", {"tag": tag, "pos": pos, "zoom": zoom})
 
 func _debug_scan_cameras() -> void:
@@ -1983,7 +2097,10 @@ func clear_map() -> void:
 func clear_map_render() -> void:
 	var hr := $MapRoot/HiveRenderer
 	var lr := $MapRoot/LaneRenderer
-	var ur := $MapRoot/UnitRenderer
+	var ur: Node2D = unit_renderer
+	if ur == null:
+		ur = _resolve_unit_renderer()
+		unit_renderer = ur
 	for c in hr.get_children():
 		c.queue_free()
 	for c in lr.get_children():
@@ -1992,12 +2109,12 @@ func clear_map_render() -> void:
 		hr.call("clear_all")
 	if lr.has_method("clear_all"):
 		lr.call("clear_all")
-	if ur.has_method("clear_all"):
+	if ur != null and ur.has_method("clear_all"):
 		ur.call("clear_all")
 	SFLog.trace("CLEAR_MAP_RENDER", {
 		"hr": hr.get_child_count(),
 		"lr": lr.get_child_count(),
-		"ur": ur.get_child_count()
+		"ur": ur.get_child_count() if ur != null else -1
 	})
 
 func set_model(m: Dictionary) -> void:
@@ -2011,36 +2128,144 @@ func _canon_world_px() -> Vector2:
 
 func _compute_fit_zoom(viewport_size: Vector2, margin: float) -> float:
 	var world_px: Vector2 = _canon_world_px()
+	if grid_spec != null:
+		world_px = Vector2(
+			grid_spec.grid_w * grid_spec.cell_size,
+			grid_spec.grid_h * grid_spec.cell_size
+		)
 	if world_px.x <= 0.0 or world_px.y <= 0.0:
 		return 1.0
-	var fit: float = min(viewport_size.x / world_px.x, viewport_size.y / world_px.y)
+	var pad: float = CAMFIT_PAD_PX
+	var effective_vp: Vector2 = viewport_size - Vector2(pad * 2.0, pad * 2.0)
+	effective_vp.x = maxf(1.0, effective_vp.x)
+	effective_vp.y = maxf(1.0, effective_vp.y)
+	var sx: float = effective_vp.x / world_px.x
+	var sy: float = effective_vp.y / world_px.y
+	var fit: float = min(sx, sy)
 	return fit * margin
 
 func _apply_canon_camera_fit(tag: String) -> void:
-	var vp: Vector2 = get_viewport_rect().size
-	var usable: Rect2 = Rect2(Vector2.ZERO, vp)
-	var inset: float = _ui_top_inset_px()
-	if inset > 0.0:
-		usable.position.y += inset
-		usable.size.y = maxf(1.0, usable.size.y - inset)
-	var world_px: Vector2 = _canon_world_px()
-	var center: Vector2 = world_px * 0.5
-	var zoom_factor: float = _compute_fit_zoom(usable.size, FIT_MARGIN)
-	if inset > 0.0 and zoom_factor > 0.0001:
-		center.y -= (inset * 0.5) / zoom_factor
-	# Project convention: Camera2D.zoom uses the fit scale directly (not inverse).
-	var zoom_vec: Vector2 = Vector2(zoom_factor, zoom_factor)
-	cam_set(tag, center, zoom_vec)
-	SFLog.trace("FITCANON", {
-		"grid_w": GRID_W,
-		"grid_h": GRID_H,
-		"world_px": world_px,
-		"viewport": vp,
-		"usable": usable,
-		"ui_top_inset": inset,
-		"center": center,
-		"zoom": zoom_vec
+	_fit_camera_to_viewport(tag)
+
+func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
+	var cam: Camera2D = camera if camera != null else $Camera2D
+	if cam == null:
+		return
+	var arena_rect: Rect2 = _arena_rect()
+	var arena_size: Vector2 = arena_rect.size
+	var grid_w_local: int = grid_w
+	var grid_h_local: int = grid_h
+	var cell_px: float = CELL_SIZE
+	if grid_spec != null:
+		grid_w_local = grid_spec.grid_w
+		grid_h_local = grid_spec.grid_h
+		cell_px = grid_spec.cell_size
+	var world_px: Vector2 = Vector2(float(grid_w_local) * cell_px, float(grid_h_local) * cell_px)
+	var map_bounds: Rect2 = _map_world_bounds()
+	var root_bounds_local: Rect2 = _compute_map_root_bounds()
+	var root_bounds: Rect2 = root_bounds_local
+	if map_root != null:
+		root_bounds.position += map_root.position
+	var vp: Viewport = cam.get_viewport()
+	if vp == null:
+		return
+	var vp_size: Vector2 = vp.get_visible_rect().size
+	var cam_vp: Viewport = cam.get_viewport()
+	var cam_vp_size: Vector2 = Vector2.ZERO
+	if cam_vp != null:
+		cam_vp_size = cam_vp.get_visible_rect().size
+	var root_vp: Viewport = get_viewport()
+	var root_vp_size: Vector2 = Vector2.ZERO
+	if root_vp != null:
+		root_vp_size = root_vp.get_visible_rect().size
+	if arena_size.x <= 0.0 or arena_size.y <= 0.0:
+		return
+	if vp_size.x <= 0.0 or vp_size.y <= 0.0:
+		return
+	if cam_vp_size.x <= 0.0 or cam_vp_size.y <= 0.0:
+		return
+	var pad: float = CAMFIT_PAD_PX
+	var vp_fit: Vector2 = Vector2(
+		maxf(1.0, cam_vp_size.x - (pad * 2.0)),
+		maxf(1.0, cam_vp_size.y - (pad * 2.0))
+	)
+	var fit_scalar: float = _compute_fit_zoom(cam_vp_size, FIT_MARGIN)
+	var zoom_scalar: float = fit_scalar
+	var z_min: float = 0.00001
+	var z_clamped: bool = false
+	if zoom_scalar <= z_min:
+		zoom_scalar = z_min
+		z_clamped = true
+	var zoom_target: Vector2 = Vector2(zoom_scalar, zoom_scalar)
+	print(
+		"CAMFIT_GRID:",
+		" tag=",
+		tag,
+		" vp=",
+		cam_vp_size,
+		" vp_fit=",
+		vp_fit,
+		" grid=",
+		str(grid_w_local) + "x" + str(grid_h_local),
+		" cell=",
+		cell_px,
+		" world_px=",
+		world_px,
+		" pad_px=",
+		pad,
+		" margin=",
+		FIT_MARGIN
+	)
+	print(
+		"CAMFIT_ZOOM:",
+		" fit=",
+		fit_scalar,
+		" zoom_scalar=",
+		zoom_scalar,
+		" zoom_target=",
+		zoom_target,
+		" clamped=",
+		z_clamped
+	)
+	var center: Vector2 = Vector2.ZERO
+	if grid_spec != null:
+		center = grid_spec.origin + (world_px * 0.5)
+	else:
+		center = arena_rect.get_center()
+	cam.make_current()
+	cam.global_position = center
+	cam.zoom = zoom_target
+	if abs(cam.zoom.x - zoom_target.x) > 0.0001:
+		push_error("CAMFIT: zoom not applied")
+	cam.force_update_scroll()
+	SFLog.throttle("camfit_applied", 1.0, "CAMFIT applied", SFLog.Level.TRACE)
+	print("CAMFIT_CAM_ID:", " path=", cam.get_path(), " rid=", cam.get_instance_id(), " current=", cam.is_current())
+	call_deferred("_sf_camfit_late_probe", cam, zoom_target)
+	print(
+		"CAMFIT_APPLIED:",
+		" pos=",
+		cam.global_position,
+		" zoom=",
+		cam.zoom
+	)
+	SFLog.info("CAMFIT", {
+		"tag": tag,
+		"cam_path": str(cam.get_path()),
+		"cam_vp_size": cam_vp_size,
+		"root_vp_size": root_vp_size,
+		"arena_size": arena_size,
+		"mode": "cover_width",
+		"z": zoom_scalar,
+		"cam_zoom_now": cam.zoom
 	})
+
+func _sf_camfit_late_probe(cam: Camera2D, expected: Vector2) -> void:
+	if cam == null:
+		return
+	var changed: bool = cam.zoom != expected
+	print("CAMFIT_LATE: expected_zoom=", expected, " actual_zoom=", cam.zoom, " changed=", changed)
+	if changed:
+		push_warning("CAMFIT_LATE: zoom changed cam=%s" % str(cam.get_path()))
 
 func _nearest_canvas_layer(n: Node) -> CanvasLayer:
 	var p := n.get_parent()
@@ -2508,7 +2733,11 @@ func _push_render_model() -> void:
 		return
 	var lane_r: Node = get_node_or_null("MapRoot/LaneRenderer")
 	var hive_r: Node = get_node_or_null("MapRoot/HiveRenderer")
-	var unit_r: Node = get_node_or_null("MapRoot/UnitRenderer")
+	var unit_r: Node = unit_renderer
+	if unit_r == null:
+		unit_r = _resolve_unit_renderer()
+		if unit_r is Node2D:
+			unit_renderer = unit_r as Node2D
 	var tower_r: Node = get_node_or_null("MapRoot/TowerRenderer")
 	var tower_glow_r: Node = get_node_or_null("MapRoot/TowerGroundGlowRenderer")
 	var barracks_r: Node = get_node_or_null("MapRoot/BarracksRenderer")
@@ -3373,18 +3602,52 @@ func _compute_map_root_bounds() -> Rect2:
 
 func _normalize_map_root() -> Rect2:
 	map_root.position = Vector2.ZERO
-	var bounds := _compute_map_root_bounds()
+	var bounds: Rect2 = _compute_map_root_bounds()
 	if bounds.size.x <= 1.0 or bounds.size.y <= 1.0:
-		_map_bounds_size = _arena_rect().size
-		return Rect2(Vector2.ZERO, _map_bounds_size)
+		_map_bounds_size = Vector2.ZERO
+		if not _map_bounds_missing_logged:
+			_map_bounds_missing_logged = true
+			SFLog.info("CAMFIT_NO_WORLD_BOUNDS", {
+				"reason": "normalize_map_root_empty",
+				"map_root": str(map_root.get_path()) if map_root != null else "<null>",
+				"child_count": map_root.get_child_count() if map_root != null else 0
+			})
+		return Rect2(Vector2.ZERO, Vector2.ZERO)
 	map_root.position -= bounds.position
 	_map_bounds_size = bounds.size
 	return Rect2(Vector2.ZERO, _map_bounds_size)
 
+func _map_world_bounds() -> Rect2:
+	if grid_spec != null:
+		return Rect2(
+			grid_spec.origin,
+			Vector2(grid_spec.grid_w * grid_spec.cell_size, grid_spec.grid_h * grid_spec.cell_size)
+		)
+	if map_root == null:
+		if not _map_bounds_missing_logged:
+			_map_bounds_missing_logged = true
+			SFLog.info("CAMFIT_NO_WORLD_BOUNDS", {
+				"reason": "map_root_null",
+				"map_root": "<null>"
+			})
+		return Rect2()
+	var local_bounds: Rect2 = _compute_map_root_bounds()
+	if local_bounds.size.x <= 1.0 or local_bounds.size.y <= 1.0:
+		if not _map_bounds_missing_logged:
+			_map_bounds_missing_logged = true
+			SFLog.info("CAMFIT_NO_WORLD_BOUNDS", {
+				"reason": "map_root_bounds_empty",
+				"map_root": str(map_root.get_path()),
+				"child_count": map_root.get_child_count()
+			})
+		return Rect2()
+	local_bounds.position += map_root.position
+	return local_bounds
+
 func _debug_map_bounds(tag: String) -> void:
 	if debug_system == null:
 		return
-	var bounds := _compute_map_root_bounds()
+	var bounds: Rect2 = _map_world_bounds()
 	var cam_pos := camera.global_position if camera != null else Vector2.ZERO
 	var cam_zoom := camera.zoom if camera != null else Vector2.ONE
 	debug_system.debug_map_bounds(tag, bounds, cam_pos, cam_zoom)
@@ -3421,13 +3684,24 @@ func _to_map_local(local_pos: Vector2) -> Vector2:
 	return local_pos - map_root.position
 
 func _draw() -> void:
-	if not draw_arena_rect_debug:
+	if not draw_arena_rect_debug and not draw_world_bounds_debug:
 		return
-	draw_rect(_arena_rect(), Color(0.95, 0.65, 0.2, 0.9), false, 2.0)
-	var bounds := _compute_map_root_bounds()
-	if bounds.size.x > 1.0 and bounds.size.y > 1.0:
-		bounds.position += map_root.position
-		draw_rect(bounds, Color(0.2, 0.8, 0.9, 0.9), false, 2.0)
+	if draw_arena_rect_debug:
+		draw_rect(_arena_rect(), Color(0.95, 0.65, 0.2, 0.9), false, 2.0)
+		var bounds := _compute_map_root_bounds()
+		if bounds.size.x > 1.0 and bounds.size.y > 1.0:
+			bounds.position += map_root.position
+			draw_rect(bounds, Color(0.2, 0.8, 0.9, 0.9), false, 2.0)
+	if draw_world_bounds_debug:
+		var world_bounds: Rect2 = _map_world_bounds()
+		if world_bounds.size.x > 1.0 and world_bounds.size.y > 1.0:
+			draw_rect(world_bounds, Color(1, 0.6, 0, 0.9), false, 3.0)
+			draw_line(
+				world_bounds.position,
+				world_bounds.position + Vector2(80, 0),
+				Color(1, 0.6, 0, 0.9),
+				4.0
+			)
 
 func _owner_color(owner_id: int) -> Color:
 	match owner_id:
@@ -5042,12 +5316,25 @@ func _ensure_timer_hud() -> void:
 	timer_label.visible = false
 	timer_label.modulate = Color(1, 1, 1, 1)
 	timer_label.self_modulate = Color(1, 1, 1, 1)
+	if not _timer_ready_logged:
+		_timer_ready_logged = true
+		SFLog.info("UI_TIMER_READY", {
+			"node": _timer_node_info(timer_label),
+			"root": _timer_node_info(_timer_root)
+		})
 	if not _timer_label_bind_logged:
 		_timer_label_bind_logged = true
+		var font_before: int = _control_font_size(timer_label)
 		timer_label.add_theme_color_override("font_color", Color(1, 1, 1, 1))
 		timer_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
 		timer_label.add_theme_constant_override("outline_size", 4)
 		timer_label.add_theme_font_size_override("font_size", 200)
+		var font_after: int = _control_font_size(timer_label)
+		SFLog.info("UI_TIMER_BIND", {
+			"node": _timer_node_info(timer_label),
+			"font_before": font_before,
+			"font_after": font_after
+		})
 		SFLog.info("TIMER_LABEL_BIND", {
 			"path": str(timer_label.get_path()),
 			"inside_tree": timer_label.is_inside_tree(),
@@ -5064,9 +5351,9 @@ func _ensure_timer_hud() -> void:
 				"offset_left": timer_label.offset_left,
 				"offset_top": timer_label.offset_top,
 				"offset_right": timer_label.offset_right,
-			"offset_bottom": timer_label.offset_bottom
-		}
-	})
+				"offset_bottom": timer_label.offset_bottom
+			}
+		})
 	_center_match_timer()
 
 func _ensure_timer_layer(match_timer: Control = null) -> CanvasLayer:
@@ -5098,6 +5385,44 @@ func _force_fullscreen_anchors(control: Control) -> void:
 	control.offset_top = 0.0
 	control.offset_right = 0.0
 	control.offset_bottom = 0.0
+
+func _control_font_size(control: Control) -> int:
+	if control == null:
+		return -1
+	if control.has_theme_font_size_override("font_size") or control.has_theme_font_size("font_size"):
+		return int(control.get_theme_font_size("font_size"))
+	return -1
+
+func _timer_node_info(node: CanvasItem) -> Dictionary:
+	if node == null:
+		return {
+			"path": "<null>",
+			"class": "<null>",
+			"inside_tree": false,
+			"visible_in_tree": false,
+			"modulate": Color(0, 0, 0, 0),
+			"self_modulate": Color(0, 0, 0, 0),
+			"scale": Vector2.ZERO,
+			"size": Vector2.ZERO,
+			"font_size": -1
+		}
+	var size: Vector2 = Vector2.ZERO
+	var font_size: int = -1
+	if node is Control:
+		var control: Control = node as Control
+		size = control.size
+		font_size = _control_font_size(control)
+	return {
+		"path": str(node.get_path()),
+		"class": node.get_class(),
+		"inside_tree": node.is_inside_tree(),
+		"visible_in_tree": node.is_visible_in_tree(),
+		"modulate": node.modulate,
+		"self_modulate": node.self_modulate,
+		"scale": node.scale,
+		"size": size,
+		"font_size": font_size
+	}
 
 func _get_match_remaining_ms() -> int:
 	if OpsState.match_clock_started:
@@ -5145,8 +5470,19 @@ func _update_timer_label() -> void:
 	var seconds: int = total_sec % 60
 	if total_sec != _timer_last_seconds:
 		_timer_last_seconds = total_sec
+		SFLog.info("UI_TIMER_TICK", {
+			"node": _timer_node_info(timer_label),
+			"remaining_ms": remaining_ms,
+			"seconds": total_sec
+		})
 		SFLog.info("TIMER_TICK", {"remaining_ms": remaining_ms})
-	timer_label.text = "%d:%02d" % [minutes, seconds]
+	var next_text: String = "%d:%02d" % [minutes, seconds]
+	if timer_label.text != next_text:
+		timer_label.text = next_text
+		SFLog.info("UI_TIMER_TEXT_SET", {
+			"node": _timer_node_info(timer_label),
+			"text": next_text
+		})
 
 func _dump_timer_parent_chain(node: Node) -> Array:
 	var out: Array = []

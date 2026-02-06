@@ -13,17 +13,20 @@
 script = ExtResource("2")
 show_dev_map_loader_in_game = true
 
-[node name="WorldViewportContainer" type="SubViewportContainer" parent="."]
+[node name="WorldCanvasLayer" type="CanvasLayer" parent="."]
+layer = 61
+
+[node name="WorldViewportContainer" type="SubViewportContainer" parent="WorldCanvasLayer"]
 stretch = true
 script = ExtResource("8")
 
-[node name="WorldViewport" type="SubViewport" parent="WorldViewportContainer"]
+[node name="WorldViewport" type="SubViewport" parent="WorldCanvasLayer/WorldViewportContainer"]
 disable_3d = true
 handle_input_locally = false
 size = Vector2i(2, 2)
 render_target_update_mode = 4
 
-[node name="Arena" parent="WorldViewportContainer/WorldViewport" instance=ExtResource("1")]
+[node name="Arena" parent="WorldCanvasLayer/WorldViewportContainer/WorldViewport" instance=ExtResource("1")]
 draw_arena_rect_debug = true
 
 [node name="UI" type="CanvasLayer" parent="."]

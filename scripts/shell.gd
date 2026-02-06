@@ -116,6 +116,15 @@ func _start_game() -> void:
 		inst.set("enable_dev_map_loader", enable_dev_map_loader)
 		inst.set("show_dev_map_loader_in_game", show_dev_map_loader_in_game)
 	arena_root.add_child(inst)
+	var hud_layer: CanvasLayer = get_node_or_null("/root/Shell/HUDCanvasLayer") as CanvasLayer
+	var world_layer: CanvasLayer = inst.get_node_or_null("WorldCanvasLayer") as CanvasLayer
+	var wvp: Node = null
+	if world_layer != null:
+		wvp = world_layer.get_node_or_null("WorldViewportContainer")
+	print("LAYER_ORDER hud=", hud_layer.layer if hud_layer != null else -1,
+		" world=", world_layer.layer if world_layer != null else -1,
+		" wvp=", str(wvp.get_path()) if wvp != null else "<null>"
+	)
 	_set_menu_state(false)
 	if inst.has_method("start_game"):
 		inst.call_deferred("start_game")
@@ -266,7 +275,6 @@ func _ensure_power_bar_anchor() -> Control:
 	# Do not use legacy BufferRoot/PowerBarAnchor shims. PowerBar must remain under:
 	# /root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar
 	anchor = Control.new()
-	anchor.name = "PowerBarAnchor"
 	anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	anchor.anchor_left = 0.0
 	anchor.anchor_top = 0.0

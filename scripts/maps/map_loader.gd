@@ -61,6 +61,8 @@ static func load_map(path_or_id: String) -> Dictionary:
 	if schema_id == MAP_SCHEMA.SCHEMA_ID and data.has("entities"):
 		var width: int = _as_int(data.get("width", 0), 0)
 		var height: int = _as_int(data.get("height", 0), 0)
+		if width <= 0 or height <= 0:
+			return _fail("v1.xy invalid dims %dx%d path=%s" % [width, height, resolved])
 		if width != CANON_GRID_W or height != CANON_GRID_H:
 			if _is_dev_runner() and width == CANON_GRID_H and height == CANON_GRID_W:
 				SFLog.debug("MAP_LOADER: dev transpose v1.xy width/height -> 8x12")
@@ -68,7 +70,7 @@ static func load_map(path_or_id: String) -> Dictionary:
 				width = _as_int(data.get("width", 0), 0)
 				height = _as_int(data.get("height", 0), 0)
 			else:
-				return _fail("v1.xy wrong dims %dx%d (canon %dx%d) path=%s" % [
+				SFLog.info("MAP_LOADER: non-canon v1.xy dims %dx%d (canon %dx%d) path=%s" % [
 					width,
 					height,
 					CANON_GRID_W,
@@ -83,13 +85,15 @@ static func load_map(path_or_id: String) -> Dictionary:
 
 	var grid_w: int = int(data.get("grid_width", data.get("grid_w", 0)))
 	var grid_h: int = int(data.get("grid_height", data.get("grid_h", 0)))
+	if grid_w <= 0 or grid_h <= 0:
+		return _fail("grid_invalid path=%s grid=%dx%d" % [resolved, grid_w, grid_h])
 	if grid_w != CANON_GRID_W or grid_h != CANON_GRID_H:
-		return _fail("canon_mismatch path=%s grid=%dx%d expected=%dx%d" % [
-			resolved,
+		SFLog.info("MAP_LOADER: non-canon grid %dx%d (canon %dx%d) path=%s" % [
 			grid_w,
 			grid_h,
 			CANON_GRID_W,
-			CANON_GRID_H
+			CANON_GRID_H,
+			resolved
 		])
 
 	var result: Dictionary = MAP_SCHEMA.validate_map(data)

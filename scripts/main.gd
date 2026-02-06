@@ -45,7 +45,7 @@ func _ready() -> void:
 		start_in_menu = false
 		show_dev_map_loader_in_game = false
 
-	var arena: Node = get_node_or_null("WorldViewportContainer/WorldViewport/Arena")
+	var arena: Node = get_node_or_null("WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena")
 	var dml := get_node_or_null("UI/DevMapLoader")
 	var ui := get_node_or_null("UI")
 
@@ -183,7 +183,7 @@ func _nearest_canvas_layer(node: Node) -> CanvasLayer:
 
 func start_game() -> void:
 	var ui := get_node_or_null("UI")
-	var arena_node: Node = get_node_or_null("WorldViewportContainer/WorldViewport/Arena")
+	var arena_node: Node = get_node_or_null("WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena")
 	var dml := get_node_or_null("UI/DevMapLoader")
 
 	if ui != null:
