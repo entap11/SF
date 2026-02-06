@@ -82,6 +82,10 @@ const HITCH_MS_THRESHOLD: float = 50.0
 const HITCH_COOLDOWN_MS: int = 250
 const DBG_HITCH: bool = false
 const HITCH_MS: float = 25.0
+const SHELL_HUD_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer"
+const SHELL_TOP_BUFFER_PATH: String = SHELL_HUD_LAYER_PATH + "/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground"
+const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
+const COUNTDOWN_DEBUG_SCRIPT: Script = preload("res://scripts/ui/prematch_countdown_view.gd")
 
 var state: GameState
 var sel: SelectionState
@@ -290,10 +294,9 @@ func _ready() -> void:
 	if power_bar == null:
 		power_bar = _resolve_power_bar_node()
 	if power_bar == null:
-		SFLog.error("POWER_BAR_BIND_FAIL", {"path": "../BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar"})
+		SFLog.error("POWER_BAR_BIND_FAIL", {"path": SHELL_POWER_BAR_PATH})
 	else:
 		SFLog.info("POWER_BAR_BOUND", {"path": power_bar.get_path(), "inside_tree": power_bar.is_inside_tree()})
-		power_bar.prepare_hidden()
 	var dmr := get_node_or_null("/root/DevMapRunner")
 	if dmr:
 		for c in dmr.get_children():
@@ -331,7 +334,6 @@ func _ready() -> void:
 		OpsState.state_changed.connect(_on_ops_state_changed)
 	if not OpsState.ops_state_changed.is_connected(_on_ops_state_changed_iid):
 		OpsState.ops_state_changed.connect(_on_ops_state_changed_iid)
-	_bind_powerbar_signals()
 	if outcome_overlay != null and not outcome_overlay.post_match_action.is_connected(_on_post_match_action):
 		outcome_overlay.post_match_action.connect(_on_post_match_action)
 	sel = SelectionState.new()
@@ -361,7 +363,6 @@ func _ready() -> void:
 			set_process_unhandled_input(true)
 	_apply_autostart()
 	_ensure_timer_hud()
-	_update_power_bar_from_state("arena_ready")
 	_start_match_flow()
 	_configure_grid_spec(grid_w, grid_h)
 	_map_bounds_size = _arena_rect().size
@@ -390,13 +391,13 @@ func _start_match_flow() -> void:
 	_begin_prematch()
 
 func _resolve_top_hud_root() -> Node:
-	var top_hud_root: Node = get_node_or_null("../HUDCanvasLayer/TopHudRoot")
+	var top_hud_root: Node = get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopHudRoot")
 	if top_hud_root != null:
 		return top_hud_root
-	return get_node_or_null("../HUDCanvasLayer")
+	return get_node_or_null(SHELL_HUD_LAYER_PATH)
 
 func _resolve_power_bar_node() -> PowerBar:
-	var pb: PowerBar = get_node_or_null("../BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar") as PowerBar
+	var pb: PowerBar = get_node_or_null(SHELL_POWER_BAR_PATH) as PowerBar
 	if pb != null:
 		return pb
 	return null
@@ -407,17 +408,17 @@ func _resolve_top_buffer_background() -> TextureRect:
 		var top_buffer: TextureRect = top_hud_root.get_node_or_null("TopBufferBackground") as TextureRect
 		if top_buffer != null:
 			return top_buffer
-	var backdrop_buffer: TextureRect = get_node_or_null("../BufferBackdropLayer/BufferRoot/TopBufferBackground") as TextureRect
+	var backdrop_buffer: TextureRect = get_node_or_null(SHELL_TOP_BUFFER_PATH) as TextureRect
 	if backdrop_buffer != null:
 		return backdrop_buffer
-	return get_node_or_null("../HUDCanvasLayer/TopBufferBackground") as TextureRect
+	return get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopBufferBackground") as TextureRect
 
 func _ui_top_inset_px() -> float:
 	var top_buffer: Control = _resolve_top_buffer_background() as Control
 	if top_buffer == null:
-		top_buffer = get_node_or_null("/root/Shell/ArenaRoot/Main/BufferBackdropLayer/BufferRoot/TopBufferBackground") as Control
+		top_buffer = get_node_or_null(SHELL_TOP_BUFFER_PATH) as Control
 	if top_buffer == null:
-		top_buffer = get_node_or_null("/root/HUDCanvasLayer/TopHudRoot/TopBufferBackground") as Control
+		top_buffer = get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopHudRoot/TopBufferBackground") as Control
 	if top_buffer == null:
 		return 0.0
 	return maxf(0.0, float(top_buffer.get_global_rect().size.y))
@@ -460,24 +461,29 @@ func _begin_prematch() -> void:
 		return
 	_ensure_match_roster()
 	_match_started = false
-	_audit_ops_write("match_phase", "Arena._begin_prematch")
-	OpsState.match_phase = OpsState.MatchPhase.PREMATCH
-	_audit_ops_write("input_locked", "Arena._begin_prematch")
-	OpsState.input_locked = true
-	_audit_ops_write("input_locked_reason", "Arena._begin_prematch")
-	OpsState.input_locked_reason = "prematch"
-	if OpsState.prematch_duration_ms <= 0:
+	var prematch_dur_ms: int = OpsState.prematch_duration_ms
+	if prematch_dur_ms <= 0:
+		prematch_dur_ms = OpsState.PREMATCH_DURATION_MS
+	_prematch_remaining_ms_f = float(prematch_dur_ms)
+	OpsState.sim_mutate("Arena._begin_prematch", func() -> void:
+		_audit_ops_write("match_phase", "Arena._begin_prematch")
+		OpsState.match_phase = OpsState.MatchPhase.PREMATCH
+		_audit_ops_write("input_locked", "Arena._begin_prematch")
+		OpsState.input_locked = true
+		_audit_ops_write("input_locked_reason", "Arena._begin_prematch")
+		OpsState.input_locked_reason = "prematch"
 		_audit_ops_write("prematch_duration_ms", "Arena._begin_prematch")
-		OpsState.prematch_duration_ms = OpsState.PREMATCH_DURATION_MS
-	_prematch_remaining_ms_f = float(OpsState.prematch_duration_ms)
-	_audit_ops_write("prematch_remaining_ms", "Arena._begin_prematch")
-	OpsState.prematch_remaining_ms = int(ceil(_prematch_remaining_ms_f))
+		OpsState.prematch_duration_ms = prematch_dur_ms
+		OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._begin_prematch")
+	)
+	SFLog.info("PREMATCH_BEGIN", {
+		"phase": int(OpsState.match_phase),
+		"ms": int(OpsState.prematch_remaining_ms)
+	})
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
 	_power_bar_reveal_started = false
-	if power_bar != null:
-		power_bar.prepare_hidden()
 	_show_prematch_ui()
 	if sim_runner != null:
 		sim_runner.set_running(false, "prematch_hold")
@@ -507,6 +513,7 @@ func _ensure_prematch_ui() -> void:
 	if countdown == null:
 		countdown = Label.new()
 		countdown.name = "CountdownLabel"
+		countdown.set_script(COUNTDOWN_DEBUG_SCRIPT)
 		countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		countdown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		countdown.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -583,7 +590,7 @@ func _ensure_prematch_ui() -> void:
 func _ensure_prematch_on_top() -> void:
 	if _prematch_overlay == null:
 		return
-	var hud := get_node_or_null("/root/HUDCanvasLayer") as CanvasLayer
+	var hud: CanvasLayer = get_node_or_null(SHELL_HUD_LAYER_PATH) as CanvasLayer
 	if hud == null:
 		hud = _ensure_timer_layer()
 	if hud != null and _prematch_overlay.get_parent() != hud:
@@ -628,7 +635,7 @@ func _log_prematch_ui_state() -> void:
 	})
 
 func _center_match_timer() -> void:
-	var mt := get_node_or_null("/root/HUDCanvasLayer/MatchTimer")
+	var mt := get_node_or_null(SHELL_HUD_LAYER_PATH + "/MatchTimer")
 	if mt == null:
 		return
 	if not (mt is Control):
@@ -650,6 +657,11 @@ func _show_prematch_ui() -> void:
 	if _prematch_countdown_label != null:
 		var start_sec := int(ceil(float(OpsState.prematch_duration_ms) / 1000.0))
 		_prematch_countdown_label.text = str(start_sec)
+		if Engine.is_editor_hint() == false:
+			SFLog.info("CLOCK_NODE_PATH", {
+				"path": _prematch_countdown_label.get_path(),
+				"type": _prematch_countdown_label.get_class()
+			})
 		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
 	if _prematch_records_panel != null:
 		_prematch_records_panel.visible = true
@@ -739,8 +751,10 @@ func _ensure_match_roster() -> void:
 	for seat in range(1, 5):
 		next_roster.append(seat_map.get(seat, {"seat": seat, "uid": "", "is_local": seat == 1, "is_cpu": seat != 1}))
 	if updated or not had_roster:
-		_audit_ops_write("match_roster", "Arena._ensure_match_roster")
-		OpsState.match_roster = next_roster
+		OpsState.sim_mutate("Arena._ensure_match_roster", func() -> void:
+			_audit_ops_write("match_roster", "Arena._ensure_match_roster")
+			OpsState.match_roster = next_roster
+		)
 		SFLog.info("MATCH_ROSTER", {
 			"local_uid": local_uid,
 			"p1_uid": str((next_roster[0] as Dictionary).get("uid", "")),
@@ -749,8 +763,10 @@ func _ensure_match_roster() -> void:
 			"p4_uid": str((next_roster[3] as Dictionary).get("uid", ""))
 		})
 	else:
-		_audit_ops_write("match_roster", "Arena._ensure_match_roster")
-		OpsState.match_roster = next_roster
+		OpsState.sim_mutate("Arena._ensure_match_roster", func() -> void:
+			_audit_ops_write("match_roster", "Arena._ensure_match_roster")
+			OpsState.match_roster = next_roster
+		)
 
 func _get_roster_entry_for_slot(player_slot: int) -> Dictionary:
 	var roster: Array = OpsState.match_roster if OpsState != null else []
@@ -778,16 +794,18 @@ func _update_prematch_flow(delta: float) -> void:
 	if OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
 		return
 	_prematch_remaining_ms_f = max(0.0, _prematch_remaining_ms_f - delta * 1000.0)
-	_audit_ops_write("prematch_remaining_ms", "Arena._update_prematch_flow")
-	OpsState.prematch_remaining_ms = int(ceil(_prematch_remaining_ms_f))
-	var sec_left := 0
+	OpsState.sim_mutate("Arena._update_prematch_flow", func() -> void:
+		OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._update_prematch_flow")
+	)
+	var sec_left: int = 0
 	if _prematch_remaining_ms_f > 0.0:
 		sec_left = int(ceil(_prematch_remaining_ms_f / 1000.0))
 	if sec_left != _prematch_last_sec:
 		_prematch_last_sec = sec_left
-		SFLog.info("PREMATCH_TICK", {"sec_left": sec_left})
-	if _prematch_countdown_label != null:
-		_prematch_countdown_label.text = str(sec_left)
+		SFLog.info("PREMATCH_TICK", {
+			"ms": OpsState.prematch_remaining_ms,
+			"sec": int(ceil(float(OpsState.prematch_remaining_ms) / 1000.0))
+		})
 	var records_threshold_ms := float(OpsState.prematch_duration_ms - OpsState.PREMATCH_RECORDS_SHOW_MS)
 	if not _prematch_records_faded and _prematch_remaining_ms_f <= records_threshold_ms:
 		_prematch_records_faded = true
@@ -817,25 +835,23 @@ func _fade_prematch_countdown() -> void:
 	tween.finished.connect(_finish_prematch)
 
 func _finish_prematch() -> void:
-	_audit_ops_write("prematch_remaining_ms", "Arena._finish_prematch")
-	OpsState.prematch_remaining_ms = 0
-	_audit_ops_write("match_phase", "Arena._finish_prematch")
-	OpsState.match_phase = OpsState.MatchPhase.RUNNING
-	_audit_ops_write("input_locked", "Arena._finish_prematch")
-	OpsState.input_locked = false
-	_audit_ops_write("input_locked_reason", "Arena._finish_prematch")
-	OpsState.input_locked_reason = ""
+	OpsState.sim_mutate("Arena._finish_prematch", func() -> void:
+		OpsState.set_prematch_remaining_ms(0, "Arena._finish_prematch")
+		_audit_ops_write("match_phase", "Arena._finish_prematch")
+		OpsState.match_phase = OpsState.MatchPhase.RUNNING
+		_audit_ops_write("input_locked", "Arena._finish_prematch")
+		OpsState.input_locked = false
+		_audit_ops_write("input_locked_reason", "Arena._finish_prematch")
+		OpsState.input_locked_reason = ""
+	)
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
 	_start_match_sim("prematch_complete")
 	SFLog.info("INPUT_UNLOCKED", {"reason": "prematch_complete"})
 
 func _begin_power_bar_reveal() -> void:
-	if _power_bar_reveal_started:
-		return
-	_power_bar_reveal_started = true
-	if power_bar != null:
-		power_bar.reveal_with_tween()
+	# UI observes OpsState; no sim-driven UI mutations.
+	return
 
 func _prewarm_render_assets() -> void:
 	if _render_assets_prewarmed:
@@ -857,20 +873,14 @@ func _start_match_sim(reason: String) -> void:
 		sim_runner.set_running(true, reason)
 		sim_runner.log_pause_snapshot("arena_match_start")
 	SFLog.info("MATCH_STARTED", {"iid": iid, "reason": reason})
-	var pb: PowerBar = _get_power_bar() as PowerBar
-	if pb != null:
-		SFLog.info("POWER_BAR_REVEAL_REQUEST", {"path": pb.get_path()})
-		pb.reveal_with_tween()
-	_update_power_bar_from_state("match_started")
 
 func _bind_powerbar_signals() -> void:
-	if not OpsState.state_changed.is_connected(_on_ops_state_changed_for_powerbar):
-		OpsState.state_changed.connect(_on_ops_state_changed_for_powerbar)
-	if not OpsState.ops_state_changed.is_connected(_on_ops_state_changed_for_powerbar):
-		OpsState.ops_state_changed.connect(_on_ops_state_changed_for_powerbar)
+	# UI observes OpsState; no sim-driven UI mutations.
+	return
 
 func _on_ops_state_changed_for_powerbar(_payload: Variant = null) -> void:
-	_update_power_bar_from_state("ops_state_changed")
+	# UI observes OpsState; no sim-driven UI mutations.
+	return
 
 func _get_power_bar() -> Node:
 	if power_bar != null:
@@ -929,42 +939,8 @@ func _resolve_local_owner_id() -> int:
 	return 1
 
 func _update_power_bar_from_state(reason: String) -> void:
-	var pb: Node = _get_power_bar()
-	if pb == null:
-		return
-	var state_ref: Object = state
-	if state_ref == null:
-		state_ref = OpsState.get_state()
-	if state_ref == null:
-		if pb.has_method("set_power_ratio"):
-			pb.call("set_power_ratio", 0.0)
-		return
-	var totals_result: Dictionary = _compute_team_power_totals(state_ref)
-	var totals: Dictionary = totals_result.get("totals", {1: 0, 2: 0, 3: 0, 4: 0}) as Dictionary
-	var ignored_hives: int = int(totals_result.get("ignored", 0))
-	var local_id: int = _resolve_local_owner_id()
-	var local_total: int = int(totals.get(local_id, 0))
-	var all_total: int = 0
-	for team_id in [1, 2, 3, 4]:
-		all_total += int(totals.get(team_id, 0))
-	var ratio: float = 0.0
-	if all_total > 0:
-		ratio = float(local_total) / float(all_total)
-	if pb.has_method("set_power_ratio"):
-		pb.call("set_power_ratio", ratio)
-	var now_ms: int = Time.get_ticks_msec()
-	if absf(ratio - _pb_last_ratio) >= 0.01 or (now_ms - _pb_last_log_ms) >= POWERBAR_LOG_THROTTLE_MS:
-		_pb_last_ratio = ratio
-		_pb_last_log_ms = now_ms
-		SFLog.info("POWERBAR_TEAM_SHARE", {
-			"reason": reason,
-			"local_id": local_id,
-			"local_total": local_total,
-			"all_total": all_total,
-			"ratio": ratio,
-			"totals": totals,
-			"ignored_hives": ignored_hives
-		})
+	# UI observes OpsState; no sim-driven UI mutations.
+	return
 
 func _init_systems() -> void:
 	api = ArenaAPI.new(self)
@@ -1186,7 +1162,6 @@ func get_game_state() -> GameState:
 func _on_ops_state_changed(new_state: GameState) -> void:
 	state = new_state
 	if state == null:
-		_update_power_bar_from_state("ops_state_null")
 		return
 	if api != null:
 		api.bind_state(state)
@@ -1211,7 +1186,6 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	mark_render_dirty("ops_state_changed")
 	if state.hives != null:
 		set_process_unhandled_input(true)
-	_update_power_bar_from_state("ops_state_changed")
 
 func _on_ops_state_changed_iid(_payload := {}) -> void:
 	call_deferred("_start_sim_after_state_change")
@@ -1694,7 +1668,6 @@ func _process(delta: float) -> void:
 		input_system.tick(delta, api)
 		_sync_inputs_locked_from_state()
 	_update_timer_ui()
-	_update_power_bar(delta)
 	if tie_toast != null and tie_toast_ms > 0.0:
 		tie_toast_ms = max(0.0, tie_toast_ms - delta * 1000.0)
 		if tie_toast_ms <= 0.0:
@@ -1758,9 +1731,8 @@ func _hb_maybe_flush() -> void:
 	_hb_sum_phys_ms = 0.0
 
 func _update_power_bar(delta: float) -> void:
-	if power_bar == null:
-		return
-	power_bar.tick(delta, state)
+	# UI observes OpsState; no sim-driven UI mutations.
+	return
 
 func _maybe_log_frame_hitch(delta: float) -> void:
 	if not DBG_HITCH:
@@ -5102,7 +5074,12 @@ func _ensure_timer_layer(match_timer: Control = null) -> CanvasLayer:
 	if tree == null or tree.root == null:
 		return null
 	var root := tree.root
-	var hud := root.get_node_or_null("HUDCanvasLayer") as CanvasLayer
+	var hud: CanvasLayer = null
+	var current_scene: Node = tree.current_scene
+	if current_scene != null:
+		hud = current_scene.get_node_or_null("HUDCanvasLayer") as CanvasLayer
+	if hud == null:
+		hud = root.get_node_or_null("HUDCanvasLayer") as CanvasLayer
 	if hud == null:
 		hud = CanvasLayer.new()
 		hud.name = "HUDCanvasLayer"

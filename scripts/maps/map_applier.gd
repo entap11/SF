@@ -37,9 +37,11 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 			"map_id": map_id,
 			"reason": "runtime_direct_roster_assignment"
 		})
-	if OpsState.has_method("audit_mutation"):
-		OpsState.audit_mutation("MapApplier.apply_map", "match_roster", "res://scripts/maps/map_applier.gd")
-	OpsState.match_roster = roster
+	OpsState.sim_mutate("MapApplier.apply_map", func() -> void:
+		if OpsState.has_method("audit_mutation"):
+			OpsState.audit_mutation("MapApplier.apply_map", "match_roster", "res://scripts/maps/map_applier.gd")
+		OpsState.match_roster = roster
+	)
 	SFLog.info("MATCH_ROSTER", {
 		"p1_uid": p1_uid,
 		"p2_uid": "",

@@ -1,5 +1,8 @@
 extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const SHELL_BUFFER_ROOT_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"
+const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
+const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
 
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
@@ -18,6 +21,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 var _arena_instance: Node = null
 var _dev_loader: CanvasItem = null
 var _last_power_bar_visible: int = -1
+var _ui_watch_prev: Dictionary = {}
 
 func _ready() -> void:
 	set_process(true)
@@ -42,9 +46,26 @@ func _ready() -> void:
 		OpsState.ops_state_changed.connect(_on_ops_ui_signal)
 	if not OpsState.state_changed.is_connected(_on_ops_ui_signal):
 		OpsState.state_changed.connect(_on_ops_ui_signal)
+	call_deferred("_log_shell_buffer_boot")
 	_set_menu_state(start_in_menu)
 	if not start_in_menu:
 		_start_game()
+
+func _log_shell_buffer_boot() -> void:
+	await get_tree().process_frame
+	var top_buffer: Control = get_node_or_null(SHELL_TOP_BUFFER_PATH) as Control
+	if top_buffer == null:
+		print("UI_BUFFER_BOOT: missing path=", SHELL_TOP_BUFFER_PATH)
+		return
+	var rect: Rect2 = top_buffer.get_global_rect()
+	var top_y: float = rect.position.y
+	var aligned: bool = top_y >= -1.0 and top_y <= 1.0
+	print("UI_BUFFER_BOOT:",
+		" path=", str(top_buffer.get_path()),
+		" rect=", rect,
+		" top_y=", top_y,
+		" aligned=", aligned
+	)
 
 func _set_menu_state(in_menu: bool) -> void:
 	if menu_root != null:
@@ -153,6 +174,61 @@ func _process(_delta: float) -> void:
 	if _arena_instance == null:
 		return
 	_update_power_bar_visibility()
+	_ui_watch_tick()
+
+func _ui_watch_tick() -> void:
+	var hud: Node = get_node_or_null("/root/Shell/HUDCanvasLayer")
+	var top_bg: Node = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground")
+
+	if hud == null or top_bg == null:
+		return
+
+	var vp: Viewport = get_viewport()
+	var vp_canvas: Transform2D = vp.get_canvas_transform()
+	var vp_visible: Rect2 = vp.get_visible_rect()
+
+	var hud_follow: bool = false
+	var hud_off: Vector2 = Vector2.INF
+	var hud_scale: Vector2 = Vector2.ONE
+	var hud_rot: float = 0.0
+	if hud is CanvasLayer:
+		var cl: CanvasLayer = hud as CanvasLayer
+		hud_follow = cl.follow_viewport_enabled
+		hud_off = cl.offset
+		hud_scale = cl.scale
+		hud_rot = cl.rotation
+
+	var tb_rect: Rect2 = Rect2()
+	var tb_gt: Transform2D = Transform2D()
+	if top_bg is Control:
+		var c: Control = top_bg as Control
+		tb_rect = c.get_global_rect()
+		tb_gt = c.get_global_transform_with_canvas()
+
+	var snap: Dictionary = {
+		"vp_visible": vp_visible,
+		"vp_canvas": vp_canvas,
+		"hud_follow": hud_follow,
+		"hud_off": hud_off,
+		"hud_scale": hud_scale,
+		"hud_rot": hud_rot,
+		"tb_rect": tb_rect,
+		"tb_gt": tb_gt,
+	}
+
+	if _ui_watch_prev.is_empty():
+		_ui_watch_prev = snap
+		print("UI_WATCH init ", snap)
+		return
+
+	var changed: Array[String] = []
+	for k in snap.keys():
+		if snap[k] != _ui_watch_prev.get(k):
+			changed.append(k)
+
+	if changed.size() > 0:
+		print("UI_WATCH changed=", changed, " snap=", snap)
+		_ui_watch_prev = snap
 
 func _on_ops_ui_signal(_payload: Variant = null) -> void:
 	if _arena_instance == null:
@@ -162,7 +238,7 @@ func _on_ops_ui_signal(_payload: Variant = null) -> void:
 func _sync_power_bar_buffer_placement() -> void:
 	if _arena_instance == null:
 		return
-	var power_bar: Control = _arena_instance.get_node_or_null("BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar") as Control
+	var power_bar: Control = get_node_or_null(SHELL_POWER_BAR_PATH) as Control
 	if power_bar == null:
 		return
 
@@ -178,7 +254,7 @@ func _sync_power_bar_buffer_placement() -> void:
 func _ensure_power_bar_anchor() -> Control:
 	if _arena_instance == null:
 		return null
-	var top_buffer: Control = _arena_instance.get_node_or_null("BufferBackdropLayer/BufferRoot/TopBufferBackground") as Control
+	var top_buffer: Control = get_node_or_null(SHELL_TOP_BUFFER_PATH) as Control
 	if top_buffer == null:
 		return null
 	var anchor: Control = top_buffer.get_node_or_null("PowerBarAnchor") as Control
@@ -186,9 +262,9 @@ func _ensure_power_bar_anchor() -> Control:
 		return anchor
 	# IMPORTANT:
 	# Do NOT rewrite PowerBarAnchor geometry at runtime.
-	# It is authored in scenes/Main.tscn (under TopBufferBackground) and must remain stable.
+	# It is authored in scenes/Shell.tscn (under TopBufferBackground) and must remain stable.
 	# Do not use legacy BufferRoot/PowerBarAnchor shims. PowerBar must remain under:
-	# BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar
+	# /root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar
 	anchor = Control.new()
 	anchor.name = "PowerBarAnchor"
 	anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -202,7 +278,7 @@ func _ensure_power_bar_anchor() -> Control:
 func _update_power_bar_visibility() -> void:
 	if _arena_instance == null:
 		return
-	var power_bar: Control = _arena_instance.get_node_or_null("BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar") as Control
+	var power_bar: Control = get_node_or_null(SHELL_POWER_BAR_PATH) as Control
 	if power_bar == null:
 		return
 	var is_live: bool = _is_match_live()

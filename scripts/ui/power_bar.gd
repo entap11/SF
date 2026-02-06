@@ -2,6 +2,8 @@ class_name PowerBar
 extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
+const FILL_SHADER: Shader = preload("res://assets/shaders/ui_fill_clip.gdshader")
+const DEBUG_FILL_PROBE: bool = true
 
 const P1_COLOR: Color = Color(0.85, 0.72, 0.12, 0.95)
 const P2_COLOR: Color = Color(0.25, 0.95, 0.35, 0.95)
@@ -21,6 +23,8 @@ const SOCKET_PX_SIZE: Vector2 = Vector2(1231.0, 159.0)
 @export var max_scale: float = 1.0
 @export var reveal_duration: float = 0.6
 @export var reveal_slide_px: float = 6.0
+@export var auto_fit_to_parent: bool = false
+@export var allow_auto_layout: bool = false
 @export var debug_socket: bool = false
 @export var drive_layout: bool = false
 
@@ -46,32 +50,25 @@ var _base_offset_bottom: float = 0.0
 var _reveal_tween: Tween = null
 var _revealed: bool = false
 var _dock_rect_local: Rect2 = Rect2()
+var _fill_wired_logged: bool = false
+var _fill_missing_logged: bool = false
+var _fill_probe_ready_logged: bool = false
+var _fill_probe_last_log_ms: int = 0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	z_index = 1000
-	# Editor-authoritative placement: fill the authored PowerBarAnchor rect.
-	set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	position = Vector2.ZERO
-	offset_left = 0.0
-	offset_top = 0.0
-	offset_right = 0.0
-	offset_bottom = 0.0
-	top_level = false
 
 	_sf_debug_dump("ready")
 	if base_texture == null:
 		base_texture = _frame_art.texture
 	_apply_base_size()
 	_ensure_visual_nodes()
-	custom_minimum_size = Vector2.ZERO
-	size = Vector2.ZERO
+	_base_offset_top = offset_top
+	_base_offset_bottom = offset_bottom
 	_apply_layout(top_margin_px if top_margin_px > 0.0 else DEFAULT_TOP_PX)
 	if not resized.is_connected(_on_resized):
 		resized.connect(_on_resized)
-	_revealed = true
-	visible = true
-	modulate.a = 1.0
+	_update_visibility_from_state()
 	var viewport: Viewport = get_viewport()
 	if viewport != null and not viewport.size_changed.is_connected(_on_viewport_size_changed):
 		viewport.size_changed.connect(_on_viewport_size_changed)
@@ -134,7 +131,18 @@ func _process(delta: float) -> void:
 	var t: float = clampf(delta * _lerp_speed, 0.0, 1.0)
 	_display_share_p1 = lerpf(_display_share_p1, _target_share_p1, t)
 	_display_share_p2 = lerpf(_display_share_p2, _target_share_p2, t)
-	_apply_fill()
+	if DEBUG_FILL_PROBE:
+		_run_fill_probe()
+	else:
+		_apply_fill()
+	_update_visibility_from_state()
+
+func _update_visibility_from_state() -> void:
+	var phase: int = int(OpsState.match_phase)
+	var prematch_ms: int = int(OpsState.prematch_remaining_ms)
+	var should_show: bool = (phase != int(OpsState.MatchPhase.PREMATCH)) or (prematch_ms <= 0)
+	if visible != should_show:
+		visible = should_show
 
 func _sf_debug_dump(tag: String) -> void:
 	var parent_node: Node = get_parent()
@@ -160,31 +168,16 @@ func pulse_player(_player_index: int, _gain_sign: int) -> void:
 	return
 
 func prepare_hidden() -> void:
-	_prepare_hidden()
+	# UI observes OpsState; visibility is derived in _update_visibility_from_state().
+	return
 
 func reveal_with_tween() -> void:
-	if _revealed:
-		return
-	_revealed = true
-	visible = true
-	modulate.a = 1.0
-	self_modulate.a = 1.0
-	if _reveal_tween != null and _reveal_tween.is_running():
-		_reveal_tween.kill()
-	modulate.a = 0.0
-	_set_slide_offset(-reveal_slide_px)
-	_reveal_tween = create_tween()
-	_reveal_tween.set_trans(Tween.TRANS_SINE)
-	_reveal_tween.set_ease(Tween.EASE_OUT)
-	_reveal_tween.tween_property(self, "modulate:a", 1.0, reveal_duration)
-	_reveal_tween.parallel().tween_method(_set_slide_offset, -reveal_slide_px, 0.0, reveal_duration)
+	# UI observes OpsState; visibility is derived in _update_visibility_from_state().
+	return
 
 func snap_to_play_surface(camera: Camera2D, map_top_world_y: float, margin_px: float = 8.0) -> void:
-	if camera == null:
-		return
-	var top_screen_y: float = camera.project_position(Vector2(0.0, map_top_world_y)).y
-	var top: float = top_screen_y + margin_px
-	_apply_layout(top)
+	# WYSIWYG: power bar does not reposition at runtime.
+	return
 
 func _bind_hud() -> void:
 	if not OpsState.hud_changed.is_connected(_on_hud_changed):
@@ -267,10 +260,11 @@ func _seat_color(seat: int) -> Color:
 			return P1_COLOR
 
 func _on_viewport_size_changed() -> void:
-	_apply_layout(_current_top_px)
+	if _should_auto_layout():
+		_apply_layout(_current_top_px)
 
 func _on_resized() -> void:
-	_sync_layout()
+	_maybe_sync_layout()
 
 func _draw() -> void:
 	if not debug_socket or _bar_dock == null or _rig == null:
@@ -281,6 +275,17 @@ func _ensure_visual_nodes() -> void:
 	if base_texture != null:
 		_frame_art.texture = base_texture
 	_rig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_frame_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bar_dock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fill_mask.clip_contents = true
+	_fill_mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fill_p1.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fill_p2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fill_p1.color = P1_COLOR
+	_fill_p2.color = P2_COLOR
+	_setup_fill_materials()
+	if not _should_auto_layout():
+		return
 	_rig.anchor_left = 0.0
 	_rig.anchor_top = 0.0
 	_rig.anchor_right = 0.0
@@ -289,7 +294,6 @@ func _ensure_visual_nodes() -> void:
 	_rig.offset_top = 0.0
 	_rig.offset_right = _rig.offset_left + _design_texture_size.x
 	_rig.offset_bottom = _design_texture_size.y
-	_frame_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_frame_art.anchor_left = 0.0
 	_frame_art.anchor_top = 0.0
 	_frame_art.anchor_right = 1.0
@@ -298,9 +302,6 @@ func _ensure_visual_nodes() -> void:
 	_frame_art.offset_top = 0.0
 	_frame_art.offset_right = 0.0
 	_frame_art.offset_bottom = 0.0
-	_bar_dock.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_fill_mask.clip_contents = true
-	_fill_mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fill_mask.anchor_left = 0.0
 	_fill_mask.anchor_top = 0.0
 	_fill_mask.anchor_right = 1.0
@@ -309,10 +310,6 @@ func _ensure_visual_nodes() -> void:
 	_fill_mask.offset_top = 0.0
 	_fill_mask.offset_right = 0.0
 	_fill_mask.offset_bottom = 0.0
-	_fill_p1.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_fill_p2.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_fill_p1.color = P1_COLOR
-	_fill_p2.color = P2_COLOR
 	_fill_p1.anchor_left = 0.0
 	_fill_p1.anchor_top = 0.0
 	_fill_p1.anchor_right = 0.0
@@ -341,7 +338,7 @@ func _apply_base_size() -> void:
 	_design_texture_size = Vector2(ref_tex.get_width(), ref_tex.get_height())
 	var height_ratio: float = clampf(height_scale_ratio, 0.25, 1.0)
 	_base_size = Vector2(_design_texture_size.x, _design_texture_size.y * height_ratio)
-	if _rig != null:
+	if _rig != null and _should_auto_layout():
 		_rig.offset_left = -_design_texture_size.x * 0.5
 		_rig.offset_top = 0.0
 		_rig.offset_right = _rig.offset_left + _design_texture_size.x
@@ -349,44 +346,80 @@ func _apply_base_size() -> void:
 
 func _apply_layout(top: float) -> void:
 	_current_top_px = top
-	set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	position = Vector2.ZERO
-	offset_left = 0.0
-	offset_top = 0.0
-	offset_right = 0.0
-	offset_bottom = 0.0
+	if not _should_auto_layout():
+		return
 
-	var parent_control: Control = get_parent() as Control
-	var parent_width: float = get_viewport_rect().size.x
-	if parent_control != null:
-		parent_width = parent_control.size.x
-	var target_max_w: float = clampf(parent_width * 0.85, 0.0, 99999.0)
-	var tex: Texture2D = base_texture
-	if tex == null:
-		tex = _frame_art.texture
-	var fit_scale: float = 1.0
-	if tex != null and tex.get_width() > 0:
-		fit_scale = target_max_w / float(tex.get_width())
-	fit_scale = clampf(fit_scale, min_scale, max_scale)
-	scale = Vector2.ONE * fit_scale
+	if auto_fit_to_parent:
+		var parent_control: Control = get_parent() as Control
+		var parent_width: float = get_viewport_rect().size.x
+		if parent_control != null:
+			parent_width = parent_control.size.x
 
-	var fit_size: Vector2 = Vector2(maxf(1.0, _base_size.x), maxf(1.0, _base_size.y)) * fit_scale
-	if drive_layout:
-		custom_minimum_size = fit_size
-	_base_offset_top = 0.0
-	_base_offset_bottom = 0.0
-	_sync_layout()
+		var target_max_w: float = clampf(parent_width * 0.85, 0.0, 99999.0)
+
+		var tex: Texture2D = base_texture
+		if tex == null:
+			tex = _frame_art.texture
+
+		var fit_scale: float = 1.0
+		if tex != null and tex.get_width() > 0:
+			fit_scale = target_max_w / float(tex.get_width())
+
+		fit_scale = clampf(fit_scale, min_scale, max_scale)
+		scale = Vector2.ONE * fit_scale
+
+		var fit_size: Vector2 = Vector2(maxf(1.0, _base_size.x), maxf(1.0, _base_size.y)) * fit_scale
+		if drive_layout:
+			custom_minimum_size = fit_size
+
+	_maybe_sync_layout()
 	_apply_fill()
 	queue_redraw()
 
+func _should_auto_layout() -> bool:
+	return OS.is_debug_build() and allow_auto_layout
+
+func _maybe_sync_layout() -> void:
+	if _should_auto_layout():
+		_sync_layout()
+
 func _sync_layout() -> void:
-	if _rig == null or _frame_art == null or _bar_dock == null:
+	if _frame_art == null or _bar_dock == null or _fill_mask == null:
 		return
-	var frame_size: Vector2 = _frame_art.size
-	var scale_x: float = frame_size.x / FRAME_TEX_SIZE.x
-	var scale_y: float = frame_size.y / FRAME_TEX_SIZE.y
-	var socket_pos: Vector2 = _frame_art.position + Vector2(SOCKET_PX_POS.x * scale_x, SOCKET_PX_POS.y * scale_y)
-	var socket_size: Vector2 = Vector2(SOCKET_PX_SIZE.x * scale_x, SOCKET_PX_SIZE.y * scale_y)
+	var root_rect: Rect2 = Rect2(Vector2.ZERO, size)
+	var pad: Vector2 = Vector2(0.0, 0.0)
+	var frame_rect: Rect2 = Rect2(root_rect.position + pad, root_rect.size - pad * 2.0)
+
+	if _rig != null:
+		var rig: Control = _rig
+		rig.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		rig.offset_left = 0.0
+		rig.offset_top = 0.0
+		rig.offset_right = 0.0
+		rig.offset_bottom = 0.0
+
+	_frame_art.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	_frame_art.offset_left = frame_rect.position.x
+	_frame_art.offset_top = frame_rect.position.y
+	_frame_art.offset_right = -(root_rect.size.x - (frame_rect.position.x + frame_rect.size.x))
+	_frame_art.offset_bottom = -(root_rect.size.y - (frame_rect.position.y + frame_rect.size.y))
+
+	var socket_pos_n: Vector2 = Vector2(
+		SOCKET_PX_POS.x / FRAME_TEX_SIZE.x,
+		SOCKET_PX_POS.y / FRAME_TEX_SIZE.y
+	)
+	var socket_size_n: Vector2 = Vector2(
+		SOCKET_PX_SIZE.x / FRAME_TEX_SIZE.x,
+		SOCKET_PX_SIZE.y / FRAME_TEX_SIZE.y
+	)
+	var socket_pos: Vector2 = frame_rect.position + Vector2(
+		frame_rect.size.x * socket_pos_n.x,
+		frame_rect.size.y * socket_pos_n.y
+	)
+	var socket_size: Vector2 = Vector2(
+		frame_rect.size.x * socket_size_n.x,
+		frame_rect.size.y * socket_size_n.y
+	)
 	socket_size.x = maxf(1.0, socket_size.x)
 	socket_size.y = maxf(1.0, socket_size.y)
 	_dock_rect_local = Rect2(socket_pos, socket_size)
@@ -396,10 +429,7 @@ func _sync_layout() -> void:
 	_bar_dock.anchor_bottom = 0.0
 	_bar_dock.position = _dock_rect_local.position
 	_bar_dock.size = _dock_rect_local.size
-	_fill_mask.anchor_left = 0.0
-	_fill_mask.anchor_top = 0.0
-	_fill_mask.anchor_right = 1.0
-	_fill_mask.anchor_bottom = 1.0
+	_fill_mask.set_anchors_preset(Control.PRESET_FULL_RECT, true)
 	_fill_mask.offset_left = 0.0
 	_fill_mask.offset_top = 0.0
 	_fill_mask.offset_right = 0.0
@@ -409,19 +439,79 @@ func _sync_layout() -> void:
 		queue_redraw()
 
 func _apply_fill() -> void:
-	if _fill_mask == null or _fill_p1 == null or _fill_p2 == null:
+	if _fill_p1 == null or _fill_p2 == null:
 		return
-	_max_width = maxf(1.0, _fill_mask.size.x)
-	var left_width: float = _max_width * clampf(_display_share_p1, 0.0, 1.0)
-	var right_width: float = maxf(0.0, _max_width - left_width)
-	var mask_h: float = _fill_mask.size.y
-	_fill_p1.position = Vector2(0.0, 0.0)
-	_fill_p1.size = Vector2(left_width, mask_h)
-	_fill_p2.position = Vector2(_max_width - right_width, 0.0)
-	_fill_p2.size = Vector2(right_width, mask_h)
+	var mat1: ShaderMaterial = _fill_p1.material as ShaderMaterial
+	var mat2: ShaderMaterial = _fill_p2.material as ShaderMaterial
+	if mat1 == null or mat2 == null:
+		if not _fill_missing_logged:
+			_fill_missing_logged = true
+			SFLog.warn("POWERBAR_FILL_MISSING", {
+				"expected": "ShaderMaterial on FillP1/FillP2",
+				"root": str(get_path())
+			})
+		return
+	var p1: float = clampf(_display_share_p1, 0.0, 1.0)
+	var p2: float = clampf(_display_share_p2, 0.0, 1.0)
+	mat1.set_shader_parameter("fill_ratio", p1)
+	mat2.set_shader_parameter("fill_ratio", p2)
+	if not _fill_wired_logged:
+		_fill_wired_logged = true
+		SFLog.info("POWERBAR_FILL_WIRED", {
+			"ratio": p1,
+			"bar_path": str(get_path())
+		})
+
+func _run_fill_probe() -> void:
+	if _fill_p1 == null:
+		if not _fill_missing_logged:
+			_fill_missing_logged = true
+			SFLog.warn("POWER_FILL_PROBE_MISSING", {
+				"expected": "FillP1",
+				"root": str(get_path())
+			})
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	var t_raw: float = fmod(float(now_ms) / 1000.0, 1.0)
+	var alpha: float = lerpf(0.15, 1.0, t_raw)
+	_fill_p1.modulate.a = alpha
+	if _fill_p2 != null:
+		_fill_p2.modulate.a = alpha
+	if not _fill_probe_ready_logged:
+		_fill_probe_ready_logged = true
+		SFLog.info("POWER_FILL_PROBE_READY", {
+			"fill_path": str(_fill_p1.get_path()),
+			"fill_type": _fill_p1.get_class(),
+			"initial_visible": _fill_p1.visible,
+			"initial_modulate": _fill_p1.modulate
+		})
+	if now_ms - _fill_probe_last_log_ms >= 1000:
+		_fill_probe_last_log_ms = now_ms
+		SFLog.info("POWER_FILL_PROBE_TICK", {
+			"t": t_raw,
+			"fill_alpha": alpha
+		})
+
+func _setup_fill_materials() -> void:
+	if _fill_p1 != null:
+		var mat1: ShaderMaterial = _fill_p1.material as ShaderMaterial
+		if mat1 == null or mat1.shader != FILL_SHADER:
+			mat1 = ShaderMaterial.new()
+			mat1.shader = FILL_SHADER
+			_fill_p1.material = mat1
+	if _fill_p2 != null:
+		var mat2: ShaderMaterial = _fill_p2.material as ShaderMaterial
+		if mat2 == null or mat2.shader != FILL_SHADER:
+			mat2 = ShaderMaterial.new()
+			mat2.shader = FILL_SHADER
+			_fill_p2.material = mat2
+		if mat2 != null:
+			mat2.set_shader_parameter("align_right", true)
 
 func _enforce_layer_order() -> void:
 	if _rig == null:
+		return
+	if not _should_auto_layout():
 		return
 	_bar_dock.z_as_relative = false
 	_fill_mask.z_as_relative = false
@@ -446,9 +536,8 @@ func _prepare_hidden() -> void:
 	_set_slide_offset(-reveal_slide_px)
 
 func _set_slide_offset(offset_y: float) -> void:
-	# No-op: avoid runtime drift; anchor decides placement.
-	offset_top = _base_offset_top
-	offset_bottom = _base_offset_bottom
+	# No-op in WYSIWYG mode.
+	return
 
 func _find_canvas_layer() -> CanvasLayer:
 	var p: Node = get_parent()

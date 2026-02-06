@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://cbn0vdxan0nel"]
+[gd_scene load_steps=9 format=3 uid="uid://cbn0vdxan0nel"]
 
 [ext_resource type="PackedScene" uid="uid://bi1epiw4to48u" path="res://scenes/Arena.tscn" id="1"]
 [ext_resource type="Script" path="res://scripts/main.gd" id="2"]
@@ -7,14 +7,23 @@
 [ext_resource type="Script" path="res://scripts/ui/selection_hud.gd" id="5"]
 [ext_resource type="PackedScene" uid="uid://dhto58tjsse07" path="res://scenes/dev/DevMapLoader.tscn" id="6_syj60"]
 [ext_resource type="Script" path="res://scripts/ui/win_overlay.gd" id="7"]
-[ext_resource type="PackedScene" uid="uid://bna4cmslnw2d1" path="res://scenes/ui/power_bar.tscn" id="8"]
-[ext_resource type="Texture2D" uid="uid://b5g0qqihihlya" path="res://assets/sprites/sf_skin_v1/top_buffer_background.tres" id="9_3m02a"]
+[ext_resource type="Script" path="res://scripts/ui/world_viewport_fit.gd" id="8"]
 
 [node name="Main" type="Node"]
 script = ExtResource("2")
 show_dev_map_loader_in_game = true
 
-[node name="Arena" parent="." instance=ExtResource("1")]
+[node name="WorldViewportContainer" type="SubViewportContainer" parent="."]
+stretch = true
+script = ExtResource("8")
+
+[node name="WorldViewport" type="SubViewport" parent="WorldViewportContainer"]
+disable_3d = true
+handle_input_locally = false
+size = Vector2i(2, 2)
+render_target_update_mode = 4
+
+[node name="Arena" parent="WorldViewportContainer/WorldViewport" instance=ExtResource("1")]
 draw_arena_rect_debug = true
 
 [node name="UI" type="CanvasLayer" parent="."]
@@ -241,61 +250,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-
-[node name="BufferBackdropLayer" type="CanvasLayer" parent="."]
-layer = 55
-follow_viewport_enabled = true
-
-[node name="BufferRoot" type="Control" parent="BufferBackdropLayer"]
-layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-
-[node name="TopBufferBackground" type="TextureRect" parent="BufferBackdropLayer/BufferRoot"]
-texture_repeat = 1
-layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_left = -160.0
-offset_right = 162.0
-offset_bottom = 323.0
-grow_horizontal = 2
-mouse_filter = 2
-texture = ExtResource("9_3m02a")
-stretch_mode = 2
-
-[node name="PowerBarAnchor" type="Control" parent="BufferBackdropLayer/BufferRoot/TopBufferBackground"]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -701.0
-offset_top = -161.5
-offset_right = 249.4
-offset_bottom = 18.5
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-
-[node name="PowerBar" parent="BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor" instance=ExtResource("8")]
-z_index = 10
-layout_mode = 1
-anchors_preset = 15
-anchor_left = 0.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 232.0
-offset_top = -2.0
-offset_right = 232.0
-offset_bottom = -2.0
-grow_horizontal = 2
-grow_vertical = 2
 
 [node name="HudOverlayLayer" type="CanvasLayer" parent="."]
 layer = 60

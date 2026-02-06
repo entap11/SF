@@ -3,6 +3,9 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const MAP_BUILDER_SCRIPT := preload("res://scenes/MapBuilder.gd")
 const DEFAULT_MAP_PATH := "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_TOWER_1.json"
+const SHELL_BUFFER_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer"
+const SHELL_BUFFER_ROOT_PATH: String = SHELL_BUFFER_LAYER_PATH + "/BufferRoot"
+const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
 
 @export var start_in_menu := true
 
@@ -30,6 +33,7 @@ func _ready() -> void:
 			" enable_dev_map_loader=", enable_dev_map_loader,
 			" show_dev_map_loader_in_game=", show_dev_map_loader_in_game)
 	_log_top_buffer_layer_once()
+	call_deferred("_log_ui_debug_once")
 
 	var pending_map_id: String = ""
 	var has_pending_map: bool = false
@@ -41,7 +45,7 @@ func _ready() -> void:
 		start_in_menu = false
 		show_dev_map_loader_in_game = false
 
-	var arena := $Arena
+	var arena: Node = get_node_or_null("WorldViewportContainer/WorldViewport/Arena")
 	var dml := get_node_or_null("UI/DevMapLoader")
 	var ui := get_node_or_null("UI")
 
@@ -90,17 +94,71 @@ func _ready() -> void:
 				gamebot.set("next_map_id", "")
 				gamebot.set("next_mode", "")
 
+func _node_pos(n: Node) -> Variant:
+	if n == null:
+		return "nil"
+	if n is Node2D:
+		return (n as Node2D).position
+	if n is Control:
+		return (n as Control).position
+	return "<no position>"
+
+func _node_scale(n: Node) -> Variant:
+	if n == null:
+		return "nil"
+	if n is Node2D:
+		return (n as Node2D).scale
+	if n is Control:
+		return (n as Control).scale
+	return "<no scale>"
+
+func _log_ui_debug_once() -> void:
+	await get_tree().process_frame
+	var br := get_node_or_null(SHELL_BUFFER_ROOT_PATH)
+	var tb := get_node_or_null(SHELL_TOP_BUFFER_PATH)
+	var bbl := get_node_or_null(SHELL_BUFFER_LAYER_PATH)
+	var main := get_node_or_null("/root/Shell/ArenaRoot/Main")
+
+	var bbl_off: Variant = "nil"
+	if bbl != null and bbl is CanvasLayer:
+		bbl_off = (bbl as CanvasLayer).offset
+
+	var tb_rect: Variant = "nil"
+	if tb != null and tb is Control:
+		tb_rect = (tb as Control).get_global_rect()
+
+	print("UI_DEBUG2:",
+		" main_type=", main.get_class() if main else "nil",
+		" main_pos=", _node_pos(main),
+		" main_scale=", _node_scale(main),
+		" bbl_type=", bbl.get_class() if bbl else "nil",
+		" bbl_offset=", bbl_off,
+		" br_type=", br.get_class() if br else "nil",
+		" br_pos=", _node_pos(br),
+		" tb_type=", tb.get_class() if tb else "nil",
+		" tb_pos=", _node_pos(tb),
+		" tb_rect=", tb_rect
+	)
+	var top_buffer: Control = tb as Control
+	if top_buffer != null:
+		var top_rect: Rect2 = top_buffer.get_global_rect()
+		var top_y: float = top_rect.position.y
+		var aligned_to_top: bool = top_y >= -1.0 and top_y <= 1.0
+		print("UI_BUFFER_ALIGN:",
+			" path=", str(top_buffer.get_path()),
+			" rect=", top_rect,
+			" top_y=", top_y,
+			" aligned=", aligned_to_top
+		)
+	else:
+		print("UI_BUFFER_ALIGN: top buffer missing or non-control")
+
 
 func _has_dev_map_loader() -> bool:
 	return get_node_or_null("UI/DevMapLoader") != null or find_child("DevMapPicker", true, false) != null
 
 func _log_top_buffer_layer_once() -> void:
-	# Correct path: BufferBackdropLayer -> BufferRoot -> TopBufferBackground
-	var buffer_node: Node = get_node_or_null("BufferBackdropLayer/BufferRoot/TopBufferBackground")
-	if buffer_node == null:
-		buffer_node = get_node_or_null("HUDCanvasLayer/TopHudRoot/TopBufferBackground")
-	if buffer_node == null:
-		buffer_node = get_node_or_null("HUDCanvasLayer/TopBufferBackground")
+	var buffer_node: Node = get_node_or_null(SHELL_TOP_BUFFER_PATH)
 	var canvas_layer: CanvasLayer = _nearest_canvas_layer(buffer_node)
 	var canvas_item: CanvasItem = buffer_node as CanvasItem
 	print("TEMP_BUFFER_LAYER path=", str(buffer_node.get_path()) if buffer_node != null else "<missing>",
@@ -125,7 +183,7 @@ func _nearest_canvas_layer(node: Node) -> CanvasLayer:
 
 func start_game() -> void:
 	var ui := get_node_or_null("UI")
-	var arena_node: Node = get_node_or_null("Arena")
+	var arena_node: Node = get_node_or_null("WorldViewportContainer/WorldViewport/Arena")
 	var dml := get_node_or_null("UI/DevMapLoader")
 
 	if ui != null:

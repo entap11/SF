@@ -31,6 +31,8 @@ var maps: Dictionary = {}
 var _in_render_export := false
 var auth_fence_assert_enabled: bool = false
 var _auth_fence_last_ms: Dictionary = {}
+var _sim_mutate_depth: int = 0
+var _sim_mutate_tag_stack: Array[String] = []
 
 var state: GameState = null
 var _state_serial: int = 0
@@ -159,6 +161,13 @@ func reset_match_state() -> void:
 	lane_front_by_lane_id.clear()
 	match_roster.clear()
 	_hud_snapshot = {}
+
+func set_prematch_remaining_ms(value_ms: int, context: String = "") -> void:
+	var ctx: String = context
+	if ctx == "":
+		ctx = "set_prematch_remaining_ms"
+	audit_mutation(ctx, "prematch_remaining_ms")
+	prematch_remaining_ms = value_ms
 
 func get_hud_snapshot() -> Dictionary:
 	if _hud_snapshot.is_empty():
@@ -754,8 +763,29 @@ func _auth_fence_source_allowed(source: String) -> bool:
 			return true
 	return false
 
+func sim_mutate(tag: String, fn: Callable) -> void:
+	_sim_mutate_depth += 1
+	var tag_to_push: String = tag
+	if tag_to_push == "":
+		tag_to_push = "<untagged>"
+	_sim_mutate_tag_stack.append(tag_to_push)
+	if not fn.is_valid():
+		SFLog.warn("SIM_MUTATE_INVALID_CALLABLE", {"tag": tag_to_push})
+	else:
+		fn.call()
+	if _sim_mutate_tag_stack.is_empty():
+		SFLog.warn("SIM_MUTATE_STACK_UNDERFLOW", {"tag": tag_to_push})
+	else:
+		_sim_mutate_tag_stack.pop_back()
+	_sim_mutate_depth -= 1
+	if _sim_mutate_depth < 0:
+		SFLog.error("SIM_MUTATE_UNDERFLOW", {"tag": tag_to_push, "depth": _sim_mutate_depth})
+		_sim_mutate_depth = 0
+
 func audit_mutation(context: String, target: String = "", source_hint: String = "") -> void:
 	SFLog.allow_tag("OPSSTATE_MUTATION_FENCE")
+	if _sim_mutate_depth > 0:
+		return
 	var source: String = source_hint.strip_edges()
 	var frame: Dictionary = {}
 	if source.is_empty():
@@ -772,11 +802,15 @@ func audit_mutation(context: String, target: String = "", source_hint: String = 
 	if now_ms - last_ms < AUTH_FENCE_LOG_INTERVAL_MS:
 		return
 	_auth_fence_last_ms[key] = now_ms
+	var active_tag: String = ""
+	if _sim_mutate_tag_stack.size() > 0:
+		active_tag = _sim_mutate_tag_stack[_sim_mutate_tag_stack.size() - 1]
 	SFLog.warn("OPSSTATE_MUTATION_FENCE", {
 		"context": context,
 		"target": target,
 		"source": source,
-		"line": line_no
+		"line": line_no,
+		"active_sim_tag": active_tag
 	})
 	if auth_fence_assert_enabled:
 		assert(false, "OpsState mutation fence hit: %s (%s)" % [context, target])

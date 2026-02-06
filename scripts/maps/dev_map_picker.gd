@@ -91,8 +91,10 @@ func _load_selected_map() -> Dictionary:
 
 func _ensure_arena() -> Node:
 	var current := get_tree().current_scene
-	if current != null and current.has_node("Arena"):
-		return current.get_node("Arena")
+	if current != null:
+		var arena_existing: Node = current.get_node_or_null("WorldViewportContainer/WorldViewport/Arena")
+		if arena_existing != null:
+			return arena_existing
 	var main_scene_res := load("res://scenes/Main.tscn") as PackedScene
 	if main_scene_res == null:
 		if SFLog.LOGGING_ENABLED:
@@ -101,7 +103,7 @@ func _ensure_arena() -> Node:
 	var main_scene: Node = main_scene_res.instantiate()
 	get_tree().root.add_child(main_scene)
 	get_tree().current_scene = main_scene
-	return main_scene.get_node_or_null("Arena")
+	return main_scene.get_node_or_null("WorldViewportContainer/WorldViewport/Arena")
 
 func _output_info(lines: Array) -> void:
 	output_label.text = "\n".join(lines)

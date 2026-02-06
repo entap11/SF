@@ -48,6 +48,11 @@ func _has_property(obj: Object, prop_name: String) -> bool:
 	return false
 
 func _find_arena() -> Node:
+	var current: Node = get_tree().current_scene
+	if current != null:
+		var arena: Node = current.get_node_or_null("WorldViewportContainer/WorldViewport/Arena")
+		if arena != null:
+			return arena
 	var a: Node = get_node_or_null("Arena")
 	if a != null:
 		return a
