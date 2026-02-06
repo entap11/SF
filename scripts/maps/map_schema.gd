@@ -15,6 +15,126 @@ const HIVE_RADIUS_RATIO_BY_KIND := {
 	"barracks": 0.24
 }
 
+static func _walls_from_field(walls_v: Variant) -> Array:
+	var out: Array = []
+	if typeof(walls_v) == TYPE_DICTIONARY:
+		var wdict: Dictionary = walls_v as Dictionary
+		var vlist: Variant = wdict.get("vertical", [])
+		if typeof(vlist) == TYPE_ARRAY:
+			for entry_any in vlist as Array:
+				var entry: Dictionary = entry_any as Dictionary if typeof(entry_any) == TYPE_DICTIONARY else {}
+				var x := int(entry.get("x", entry.get("gx", -1)))
+				var y := int(entry.get("y", entry.get("gy", -1)))
+				if x >= 0 and y >= 0:
+					out.append({"dir": "v", "x": x, "y": y})
+		var hlist: Variant = wdict.get("horizontal", [])
+		if typeof(hlist) == TYPE_ARRAY:
+			for entry_any in hlist as Array:
+				var entry: Dictionary = entry_any as Dictionary if typeof(entry_any) == TYPE_DICTIONARY else {}
+				var x := int(entry.get("x", entry.get("gx", -1)))
+				var y := int(entry.get("y", entry.get("gy", -1)))
+				if x >= 0 and y >= 0:
+					out.append({"dir": "h", "x": x, "y": y})
+	elif typeof(walls_v) == TYPE_ARRAY:
+		for entry_any in walls_v as Array:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_any as Dictionary
+			if entry.has("x1") and entry.has("y1") and entry.has("x2") and entry.has("y2"):
+				out.append({
+					"x1": float(entry.get("x1")),
+					"y1": float(entry.get("y1")),
+					"x2": float(entry.get("x2")),
+					"y2": float(entry.get("y2"))
+				})
+				continue
+			var dir := str(entry.get("dir", entry.get("orientation", entry.get("axis", "")))).to_lower()
+			var x := int(entry.get("x", entry.get("gx", -1)))
+			var y := int(entry.get("y", entry.get("gy", -1)))
+			if x >= 0 and y >= 0:
+				if dir == "v" or dir == "vertical":
+					out.append({"dir": "v", "x": x, "y": y})
+				elif dir == "h" or dir == "horizontal":
+					out.append({"dir": "h", "x": x, "y": y})
+	return out
+
+static func _walls_from_entities(entities_v: Variant) -> Array:
+	var out: Array = []
+	if typeof(entities_v) != TYPE_ARRAY:
+		return out
+	for e_any in entities_v as Array:
+		if typeof(e_any) != TYPE_DICTIONARY:
+			continue
+		var e: Dictionary = e_any as Dictionary
+		var kind := str(e.get("type", e.get("kind", e.get("entity", "")))).strip_edges().to_lower()
+		if kind != "wall" and kind != "walls":
+			continue
+		var x := int(e.get("x", e.get("gx", -1)))
+		var y := int(e.get("y", e.get("gy", -1)))
+		if e.has("x1") and e.has("y1") and e.has("x2") and e.has("y2"):
+			out.append({
+				"x1": float(e.get("x1")),
+				"y1": float(e.get("y1")),
+				"x2": float(e.get("x2")),
+				"y2": float(e.get("y2"))
+			})
+		elif x >= 0 and y >= 0:
+			var dir := str(e.get("dir", e.get("orientation", e.get("axis", "")))).to_lower()
+			if dir == "v" or dir == "vertical":
+				out.append({"dir": "v", "x": x, "y": y})
+			elif dir == "h" or dir == "horizontal":
+				out.append({"dir": "h", "x": x, "y": y})
+	return out
+
+static func _wall_segments_from_walls(walls: Array) -> Array:
+	var segs: Array = []
+	for w_any in walls:
+		if typeof(w_any) != TYPE_DICTIONARY:
+			continue
+		var w: Dictionary = w_any as Dictionary
+		if w.has("x1") and w.has("y1") and w.has("x2") and w.has("y2"):
+			segs.append({
+				"a": Vector2(float(w.get("x1")), float(w.get("y1"))),
+				"b": Vector2(float(w.get("x2")), float(w.get("y2")))
+			})
+			continue
+		var dir := str(w.get("dir", "")).to_lower()
+		var x := float(w.get("x", -999))
+		var y := float(w.get("y", -999))
+		if x < -100 or y < -100:
+			continue
+		if dir == "v" or dir == "vertical":
+			var xline := x - 0.5
+			segs.append({"a": Vector2(xline, y - 0.5), "b": Vector2(xline, y + 0.5)})
+		elif dir == "h" or dir == "horizontal":
+			var yline := y - 0.5
+			segs.append({"a": Vector2(x - 0.5, yline), "b": Vector2(x + 0.5, yline)})
+	return segs
+
+static func _seg_intersects(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool:
+	var ab := b - a
+	var cd := d - c
+	var denom := ab.cross(cd)
+	if absf(denom) <= 0.000001:
+		# Parallel or colinear; treat as no intersection for walls.
+		return false
+	var ac := c - a
+	var t := ac.cross(cd) / denom
+	var u := ac.cross(ab) / denom
+	return t >= 0.0 and t <= 1.0 and u >= 0.0 and u <= 1.0
+
+static func _segment_intersects_any_wall(a: Vector2, b: Vector2, wall_segments: Array) -> bool:
+	for seg_any in wall_segments:
+		if typeof(seg_any) != TYPE_DICTIONARY:
+			continue
+		var seg: Dictionary = seg_any as Dictionary
+		var wa: Variant = seg.get("a", null)
+		var wb: Variant = seg.get("b", null)
+		if wa is Vector2 and wb is Vector2:
+			if _seg_intersects(a, b, wa as Vector2, wb as Vector2):
+				return true
+	return false
+
 static func hive_radius_px_for_kind(kind: String, cell_size: float = -1.0) -> float:
 	if cell_size <= 0.0:
 		cell_size = DEFAULT_CELL_SIZE
@@ -73,6 +193,7 @@ static func _adapt_v1_xy_to_internal(human: Dictionary) -> Dictionary:
 	var hives: Array = []
 	var towers: Array = []
 	var barracks: Array = []
+	var walls: Array = []
 	var hive_counts: Dictionary = {}
 	var seen_hive_cells: Dictionary = {}
 	var next_tower_id := 1
@@ -174,8 +295,26 @@ static func _adapt_v1_xy_to_internal(human: Dictionary) -> Dictionary:
 					"x": x,
 					"y": y
 				})
+			"wall", "walls":
+				var dir := str(e.get("dir", e.get("orientation", e.get("axis", "")))).to_lower()
+				if e.has("x1") and e.has("y1") and e.has("x2") and e.has("y2"):
+					walls.append({
+						"x1": float(e.get("x1")),
+						"y1": float(e.get("y1")),
+						"x2": float(e.get("x2")),
+						"y2": float(e.get("y2"))
+					})
+				elif dir == "v" or dir == "vertical":
+					walls.append({"dir": "v", "x": x, "y": y})
+				elif dir == "h" or dir == "horizontal":
+					walls.append({"dir": "h", "x": x, "y": y})
 			_:
+				SFLog.warn("MAP_ENTITY_KIND_UNKNOWN", {"kind": t, "id": str(e.get("id", ""))})
 				continue
+
+	var walls_from_field: Array = _walls_from_field(human.get("walls", null))
+	if not walls_from_field.is_empty():
+		walls.append_array(walls_from_field)
 
 	SFLog.info("MAP_OWNER_SUMMARY", {
 		"p1": hives.filter(func(x): return int(x.get("owner_id", 0)) == 1).size(),
@@ -194,6 +333,7 @@ static func _adapt_v1_xy_to_internal(human: Dictionary) -> Dictionary:
 			"lanes": lanes,
 			"towers": towers,
 			"barracks": barracks,
+			"walls": walls,
 			"spawns": []
 		}
 	}
@@ -338,6 +478,13 @@ static func _auto_generate_lanes(hives: Array, grid_w: int, grid_h: int, config:
 	if hive_ids.size() <= 1:
 		return {"ok": true, "lanes": []}
 
+	var walls: Array = []
+	if config.has("walls"):
+		walls.append_array(_walls_from_field(config.get("walls", null)))
+	if config.has("entities"):
+		walls.append_array(_walls_from_entities(config.get("entities", [])))
+	var wall_segments: Array = _wall_segments_from_walls(walls)
+
 	var symmetry_cfg := _resolve_symmetry_config(config)
 	var enforce_symmetry := bool(symmetry_cfg.get("enforce", false))
 
@@ -355,6 +502,8 @@ static func _auto_generate_lanes(hives: Array, grid_w: int, grid_h: int, config:
 			var b: Dictionary = hive_points[j]
 			var b_id := int(b.get("id", 0))
 			var b_pos: Vector2 = b.get("pos", Vector2.ZERO)
+			if not wall_segments.is_empty() and _segment_intersects_any_wall(a_pos, b_pos, wall_segments):
+				continue
 			if _segment_occluded(a_pos, b_pos, hive_points, a_id, b_id, OCCLUSION_RADIUS_MAX):
 				continue
 			var key := _lane_key(a_id, b_id)
@@ -529,6 +678,7 @@ static func build_internal_map(human: Dictionary) -> Dictionary:
 		"lanes": lanes,
 		"towers": towers,
 		"barracks": barracks,
+		"walls": source.get("walls", []),
 		"spawns": spawns
 	}
 

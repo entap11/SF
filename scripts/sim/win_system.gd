@@ -89,6 +89,7 @@ func _build_snapshot(state_ref: GameState) -> Dictionary:
 	var neutral_count := 0
 	var npc_count := 0
 	var owned_by_team: Dictionary = {}
+	var alive_player_teams: Dictionary = {}
 	var winner_candidate := 0
 	var split_owner := false
 	var hives: Array = []
@@ -111,21 +112,20 @@ func _build_snapshot(state_ref: GameState) -> Dictionary:
 		if oid <= 0:
 			neutral_count += 1
 			continue
-		owned_by_team[oid] = int(owned_by_team.get(oid, 0)) + 1
+		if oid >= 1 and oid <= 4:
+			alive_player_teams[oid] = true
+			owned_by_team[oid] = int(owned_by_team.get(oid, 0)) + 1
 	var winner_id := 0
 	var reason := ""
 	var win_reason := ""
-	if contestable_total > 0:
-		for team_id in [1, 2, 3, 4]:
-			if int(owned_by_team.get(team_id, 0)) == contestable_total:
-				winner_candidate = int(team_id)
-				break
+	if alive_player_teams.size() == 1:
+		for team_id in alive_player_teams.keys():
+			winner_candidate = int(team_id)
+			break
 	winner_id = winner_candidate
-	split_owner = owned_by_team.size() > 1
-	if contestable_total <= 0:
-		reason = "zero_contestable"
-	elif neutral_count > 0:
-		reason = "neutral_contestable"
+	split_owner = alive_player_teams.size() > 1
+	if alive_player_teams.is_empty():
+		reason = "no_player_hives"
 	elif split_owner:
 		reason = "split_ownership"
 	elif winner_id > 0:

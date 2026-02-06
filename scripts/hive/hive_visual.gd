@@ -26,7 +26,9 @@ const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := 1.10
 const HEIGHT_LARGE_SCALE := 1.20
 const HEIGHT_MAX_SCALE := 1.30
-const HIVE_VISUAL_SCALE := 2.0
+const HIVE_VISUAL_SCALE: float = 0.75
+const HIVE_RING_SCALE: float = 0.85
+const HIVE_LABEL_SCALE_COMP: bool = true
 const POWER_LABEL_OFFSET := Vector2(-10.0, -30.0)
 const POWER_LABEL_SCALE := 0.5
 const POWER_LABEL_FONT_SIZE := 20
@@ -59,11 +61,15 @@ var _power_color: Color = Color(1.0, 1.0, 1.0, 1.0)
 var _tint_logged := false
 var _power_label_logged: Dictionary = {}
 var _power_label_state := ""
+static var _scale_logged: bool = false
 
 func _ready() -> void:
 	_ensure_sprite()
 	_ensure_shader_material()
 	_base_scale = scale * HIVE_VISUAL_SCALE
+	if not _scale_logged:
+		_scale_logged = true
+		SFLog.info("HIVE_VISUAL_SCALE_SET", {"scale": HIVE_VISUAL_SCALE, "ring_scale": HIVE_RING_SCALE})
 
 func configure(owner_id_value: int, color: Color, radius: float, power_value: int, font_size_value: int, kind_value: String = "Hive") -> void:
 	scale = _base_scale
@@ -166,6 +172,7 @@ func _ensure_power_label() -> void:
 	var holder := get_node_or_null("PowerLabelHolder")
 	if holder is Node2D:
 		_power_label_holder = holder as Node2D
+		_apply_label_scale_comp()
 		var badge := _power_label_holder.get_node_or_null("PowerBadge")
 		if badge is Control:
 			_power_badge = badge as Control
@@ -185,6 +192,7 @@ func _ensure_power_label() -> void:
 		new_holder.z_index = 20
 		add_child(new_holder)
 		_power_label_holder = new_holder
+		_apply_label_scale_comp()
 	if _power_badge == null:
 		var new_badge := Control.new()
 		new_badge.name = "PowerBadge"
@@ -230,6 +238,14 @@ func _ensure_power_label() -> void:
 	_power_backing.add_child(label)
 	_power_label = label
 	_ensure_hive_id_label()
+
+func _apply_label_scale_comp() -> void:
+	if not HIVE_LABEL_SCALE_COMP:
+		return
+	if _power_label_holder == null:
+		return
+	var comp := clampf(1.0 / HIVE_VISUAL_SCALE, 1.1, 1.35)
+	_power_label_holder.scale = Vector2.ONE * comp
 
 func _ensure_hive_id_label() -> void:
 	if _power_label_holder == null:

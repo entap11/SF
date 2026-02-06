@@ -5,6 +5,7 @@
 extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 
 signal map_selected(map_id: String)
 signal state_changed(state: GameState)
@@ -89,6 +90,7 @@ var match_roster: Array = []
 var _hud_snapshot: Dictionary = {}
 var edge_cache: Dictionary = {}
 var edge_cache_version: int = -1
+var blocked_wall_pairs: Array = []
 
 func get_state() -> GameState:
 	return state
@@ -110,6 +112,12 @@ func get_edge_for_lane_key(key: Variant) -> Variant:
 
 func bump_edge_cache_version(v: int) -> void:
 	edge_cache_version = v
+
+func set_blocked_wall_pairs(pairs: Array) -> void:
+	blocked_wall_pairs = pairs if pairs != null else []
+
+func get_blocked_wall_pairs() -> Array:
+	return blocked_wall_pairs if blocked_wall_pairs != null else []
 
 func has_outcome() -> bool:
 	return match_phase == MatchPhase.ENDED
@@ -446,6 +454,35 @@ func _barracks_allowed_route_ids(state: GameState, barracks_data: Dictionary, ow
 	allowed.sort()
 	return allowed
 
+func _log_intent_blocked_by_wall(st: GameState, src_hive_id: int, dst_hive_id: int, intent: String) -> void:
+	if st == null:
+		return
+	var walls: Array = st.walls if st != null else []
+	if walls.is_empty():
+		return
+	var wall_segments: Array = MAP_SCHEMA._wall_segments_from_walls(walls)
+	if wall_segments.is_empty():
+		return
+	var src_hive: HiveData = st.find_hive_by_id(src_hive_id)
+	var dst_hive: HiveData = st.find_hive_by_id(dst_hive_id)
+	if src_hive == null or dst_hive == null:
+		return
+	var a_grid := Vector2(float(src_hive.grid_pos.x), float(src_hive.grid_pos.y))
+	var b_grid := Vector2(float(dst_hive.grid_pos.x), float(dst_hive.grid_pos.y))
+	if not MAP_SCHEMA._segment_intersects_any_wall(a_grid, b_grid, wall_segments):
+		return
+	var from_xy := Vector2i(int(src_hive.grid_pos.x), int(src_hive.grid_pos.y))
+	var to_xy := Vector2i(int(dst_hive.grid_pos.x), int(dst_hive.grid_pos.y))
+	var edge_key := "%d->%d" % [src_hive_id, dst_hive_id]
+	SFLog.info("INTENT_BLOCKED_BY_WALL", {
+		"intent_kind": intent,
+		"from_id": int(src_hive_id),
+		"to_id": int(dst_hive_id),
+		"from_xy": from_xy,
+		"to_xy": to_xy,
+		"edge_key": edge_key
+	})
+
 func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Dictionary:
 	var result := {
 		"ok": false,
@@ -483,6 +520,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		return result
 	var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
 	if lane_index == -1:
+		if intent != "none":
+			_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, intent)
 		result["reason"] = "no_lane"
 		return result
 	var lane: LaneData = st.lanes[lane_index]
@@ -694,6 +733,7 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 	reset_match_state()
 	edge_cache = {}
 	edge_cache_version = -1
+	blocked_wall_pairs = []
 
 	var new_state: GameState = GameState.new()
 	state = new_state

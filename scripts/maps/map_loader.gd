@@ -216,6 +216,49 @@ static func _resolve_v1_ref(raw_id: Variant, id_map: Dictionary) -> int:
 		return int(id_map[id_str])
 	return 0
 
+static func _hive_pos_by_id(hives: Array) -> Dictionary:
+	var out: Dictionary = {}
+	for h_any in hives:
+		if typeof(h_any) != TYPE_DICTIONARY:
+			continue
+		var h: Dictionary = h_any as Dictionary
+		var id := int(h.get("id", 0))
+		if id <= 0:
+			continue
+		var x := int(h.get("x", -1))
+		var y := int(h.get("y", -1))
+		var gp: Variant = h.get("grid_pos", null)
+		if gp is Array and gp.size() >= 2:
+			x = int(gp[0])
+			y = int(gp[1])
+		if x >= 0 and y >= 0:
+			out[id] = Vector2(float(x), float(y))
+	return out
+
+static func _filter_lanes_by_walls(lanes: Array, hive_pos_by_id: Dictionary, wall_segments: Array) -> Array:
+	if wall_segments.is_empty():
+		return lanes
+	var out: Array = []
+	for lane_any in lanes:
+		if typeof(lane_any) != TYPE_DICTIONARY:
+			continue
+		var lane: Dictionary = lane_any as Dictionary
+		var a_id := int(lane.get("a_id", lane.get("from", 0)))
+		var b_id := int(lane.get("b_id", lane.get("to", 0)))
+		if a_id <= 0 or b_id <= 0 or a_id == b_id:
+			continue
+		var a_any: Variant = hive_pos_by_id.get(a_id, null)
+		var b_any: Variant = hive_pos_by_id.get(b_id, null)
+		if not (a_any is Vector2 and b_any is Vector2):
+			out.append(lane)
+			continue
+		var a_pos: Vector2 = a_any as Vector2
+		var b_pos: Vector2 = b_any as Vector2
+		if MAP_SCHEMA._segment_intersects_any_wall(a_pos, b_pos, wall_segments):
+			continue
+		out.append(lane)
+	return out
+
 static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	var w: int = _as_int(data.get("width", 0), 0)
 	var h: int = _as_int(data.get("height", 0), 0)
@@ -248,6 +291,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		"lane_candidates": [],
 		"towers": [],
 		"barracks": [],
+		"walls": [],
 		"spawns": []
 	}
 
@@ -255,6 +299,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	var towers: Array = []
 	var barracks: Array = []
 	var spawns: Array = []
+	var walls: Array = []
 	var tower_ids: Dictionary = {}
 	var barracks_ids: Dictionary = {}
 	var id_map: Dictionary = {}
@@ -381,9 +426,26 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 				"id": spawn_id,
 				"grid_pos": [x, y]
 			})
+		elif kind == "wall" or kind == "walls":
+			var dir := str(e.get("dir", e.get("orientation", e.get("axis", "")))).to_lower()
+			if e.has("x1") and e.has("y1") and e.has("x2") and e.has("y2"):
+				walls.append({
+					"x1": float(e.get("x1")),
+					"y1": float(e.get("y1")),
+					"x2": float(e.get("x2")),
+					"y2": float(e.get("y2"))
+				})
+			elif dir == "v" or dir == "vertical":
+				walls.append({"dir": "v", "x": x, "y": y})
+			elif dir == "h" or dir == "horizontal":
+				walls.append({"dir": "h", "x": x, "y": y})
 		else:
 			if SFLog.LOGGING_ENABLED:
 				push_error("MAP_LOADER: v1.xy unknown kind='%s' id=%s path=%s" % [kind, id_str, path])
+
+	var walls_from_field: Array = MAP_SCHEMA._walls_from_field(data.get("walls", null))
+	if not walls_from_field.is_empty():
+		walls.append_array(walls_from_field)
 
 	var towers_v: Variant = data.get("towers", [])
 	if typeof(towers_v) == TYPE_ARRAY:
@@ -466,6 +528,11 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 			str(auto_result.get("error", "auto lanes failed"))
 		])
 
+	if not walls.is_empty() and not lane_candidates.is_empty():
+		var hive_pos_by_id := _hive_pos_by_id(hives)
+		var wall_segments: Array = MAP_SCHEMA._wall_segments_from_walls(walls)
+		lane_candidates = _filter_lanes_by_walls(lane_candidates, hive_pos_by_id, wall_segments)
+
 	if hives.is_empty():
 		if SFLog.LOGGING_ENABLED:
 			push_error("MAP_LOADER: v1.xy no hives parsed path=%s" % path)
@@ -496,7 +563,22 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 			push_warning("Loaded map has 0 active lanes. Spawns will be blocked unless lanes are created.")
 	model["towers"] = towers
 	model["barracks"] = barracks
+	model["walls"] = walls
 	model["spawns"] = spawns
+
+	var npc_count := 0
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hd: Dictionary = hive_any as Dictionary
+		if int(hd.get("owner_id", 0)) <= 0:
+			npc_count += 1
+	SFLog.info("MAP_ENTITY_COUNTS", {
+		"hives": hives.size(),
+		"npc": npc_count,
+		"towers": towers.size(),
+		"walls": walls.size()
+	})
 
 	SFLog.debug("MAP_LOADER: v1.xy -> model hives=%d lanes=%d candidates=%d" % [
 		(hives as Array).size(),

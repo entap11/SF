@@ -10,6 +10,7 @@ const ARENA_MARKER := "ARENA_MARKER_2026-01-14_A"
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const MapApplier := preload("res://scripts/maps/map_applier.gd")
+const WallRenderer := preload("res://scripts/renderers/wall_renderer.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
@@ -98,6 +99,7 @@ var unit_system: UnitSystem = null
 var tower_system: TowerSystem = null
 var barracks_system: BarracksSystem = null
 var tower_renderer: TowerRenderer = null
+var wall_renderer: WallRenderer = null
 var swarm_system: SwarmSystem = null
 var sim_runner: SimRunner
 var sim_events: SimEvents = null
@@ -328,6 +330,7 @@ func _ready() -> void:
 	clear_map_render()
 	$MapRoot/HiveRenderer.visible = true
 	$MapRoot/LaneRenderer.visible = true
+	_ensure_wall_renderer()
 	$Camera2D.make_current()
 	SFLog.trace("CANON GRID", {
 		"grid_w": GRID_W,
@@ -1061,6 +1064,18 @@ func _ensure_unit_renderer() -> void:
 	if unit_renderer != null:
 		print("UNIT_PARENT:", unit_renderer.get_path())
 
+func _ensure_wall_renderer() -> void:
+	if wall_renderer != null and is_instance_valid(wall_renderer):
+		return
+	var existing: WallRenderer = get_node_or_null("WallRenderer") as WallRenderer
+	if existing != null:
+		wall_renderer = existing
+		return
+	wall_renderer = WallRenderer.new()
+	wall_renderer.name = "WallRenderer"
+	wall_renderer.z_index = -4
+	add_child(wall_renderer)
+
 func _ensure_vfx_manager() -> void:
 	if vfx_manager != null and is_instance_valid(vfx_manager):
 		return
@@ -1727,6 +1742,12 @@ func _get_sim_running() -> bool:
 	if sim_runner != null:
 		return bool(sim_runner.running)
 	return _sim_running_shadow
+
+func get_hive_count() -> int:
+	var st: GameState = OpsState.get_state() if OpsState != null else null
+	if st != null and st.hives != null:
+		return int(st.hives.size())
+	return 0
 
 func _set_sim_running(value: bool) -> void:
 	_sim_running_shadow = value
@@ -2727,6 +2748,36 @@ func _maybe_push_hive_nodes_to_renderers(lane_r: Node, unit_r: Node, hive_nodes_
 	if unit_r != null and unit_r.has_method("set_hive_nodes"):
 		unit_r.call("set_hive_nodes", hive_nodes_by_id)
 
+func _build_hive_pos_by_id(hive_nodes_by_id: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	if wall_renderer == null:
+		return out
+	if not hive_nodes_by_id.is_empty():
+		for key_any in hive_nodes_by_id.keys():
+			var hive_id: int = int(key_any)
+			var node_any: Variant = hive_nodes_by_id.get(key_any, null)
+			if node_any is Node2D:
+				var node: Node2D = node_any as Node2D
+				out[hive_id] = wall_renderer.to_local(node.global_position)
+	if out.is_empty() and state != null:
+		for hive in state.hives:
+			if hive == null:
+				continue
+			out[int(hive.id)] = cell_center(hive.grid_pos)
+	return out
+
+func _sync_wall_renderer(hive_nodes_by_id: Dictionary) -> void:
+	_ensure_wall_renderer()
+	if wall_renderer == null:
+		return
+	var pairs: Array = []
+	if OpsState != null and OpsState.has_method("get_blocked_wall_pairs"):
+		var any_pairs: Variant = OpsState.call("get_blocked_wall_pairs")
+		if typeof(any_pairs) == TYPE_ARRAY:
+			pairs = any_pairs as Array
+	var hive_pos_by_id := _build_hive_pos_by_id(hive_nodes_by_id)
+	wall_renderer.set_wall_pairs(pairs, hive_pos_by_id)
+
 func _push_render_model() -> void:
 	var rm: Dictionary = export_render_model()
 	if rm.is_empty():
@@ -2748,6 +2799,7 @@ func _push_render_model() -> void:
 		var hive_nodes_any: Variant = hive_r.call("get_hive_nodes_by_id")
 		if typeof(hive_nodes_any) == TYPE_DICTIONARY:
 			hive_nodes_by_id = hive_nodes_any as Dictionary
+	_sync_wall_renderer(hive_nodes_by_id)
 	if hive_r != null:
 		if hive_r.has_method("set_model"):
 			hive_r.call("set_model", rm)

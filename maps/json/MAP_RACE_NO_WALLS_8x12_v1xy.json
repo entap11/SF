@@ -1,0 +1,31 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "width": 8,
+  "height": 12,
+  "entities": [
+	{ "id": "p1_start_a", "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "x": 0, "y": 11 },
+	{ "id": "p1_start_b", "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "x": 3, "y": 11 },
+
+	{ "id": "p2_start_a", "kind": "hive", "type": "hive", "team": "p2", "team_id": 2, "x": 4, "y": 11 },
+	{ "id": "p2_start_b", "kind": "hive", "type": "hive", "team": "p2", "team_id": 2, "x": 7, "y": 11 },
+
+	{ "id": "npc_top_l", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 1, "y": 1 },
+	{ "id": "npc_top_r", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 6, "y": 1 },
+
+	{ "id": "npc_top_mid_l", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 3, "y": 2 },
+	{ "id": "npc_top_mid_r", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 4, "y": 2 },
+
+	{ "id": "npc_mid_a_l", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 1, "y": 4 },
+	{ "id": "npc_mid_a_r", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 6, "y": 4 },
+
+	{ "id": "npc_mid_b_l", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 3, "y": 5 },
+	{ "id": "npc_mid_b_r", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 4, "y": 5 },
+
+	{ "id": "npc_mid_c_l", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 2, "y": 7 },
+	{ "id": "npc_mid_c_r", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 5, "y": 7 },
+
+	{ "id": "npc_low_a_l", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 1, "y": 9 },
+	{ "id": "npc_low_a_r", "kind": "hive", "type": "hive", "team": "npc", "team_id": 0, "x": 6, "y": 9 }
+  ],
+  "towers": []
+}

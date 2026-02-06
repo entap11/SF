@@ -487,6 +487,7 @@ func _resolve_hive_id(raw: Variant) -> int:
 	return 0
 
 func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color, kind: String, power: int = 0) -> void:
+	var visual_radius := radius * float(HiveVisual.HIVE_VISUAL_SCALE)
 	var tex: Texture2D = null
 	var registry := _get_sprite_registry()
 	if registry != null:
@@ -499,11 +500,11 @@ func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color,
 		]
 		tex = registry.get_tex(key)
 	if tex != null:
-		var size := Vector2(radius * 2.0, radius * 2.0)
+		var size := Vector2(visual_radius * 2.0, visual_radius * 2.0)
 		var rect := Rect2(pos - size * 0.5, size)
 		draw_texture_rect(tex, rect, false)
 	else:
-		draw_circle(pos, radius, color)
+		draw_circle(pos, visual_radius, color)
 
 func _get_sprite_registry() -> SpriteRegistry:
 	if _sprite_registry == null:

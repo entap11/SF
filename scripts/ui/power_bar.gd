@@ -58,6 +58,8 @@ var _fill_probe_ready_logged: bool = false
 var _fill_probe_last_log_ms: int = 0
 var _powerbar_bind_logged: bool = false
 var _powerbar_ready_logged: bool = false
+var _powerbar_layout_flags_logged: bool = false
+var _powerbar_dock_rect_logged: bool = false
 var _powerbar_last_visible_logged: int = -1
 var _powerbar_last_ratio_logged: float = -1.0
 var _powerbar_last_total_logged: float = -1.0
@@ -219,6 +221,23 @@ func _ready() -> void:
 	_base_offset_top = offset_top
 	_base_offset_bottom = offset_bottom
 	_apply_layout(top_margin_px if top_margin_px > 0.0 else DEFAULT_TOP_PX)
+	if not _powerbar_layout_flags_logged:
+		_powerbar_layout_flags_logged = true
+		var will_socket: bool = _should_socket_layout()
+		var parent_size: Variant = "<no parent control>"
+		var parent_control: Control = get_parent() as Control
+		if parent_control != null:
+			parent_size = parent_control.size
+		SFLog.info("POWERBAR_LAYOUT_FLAGS", {
+			"path": str(get_path()),
+			"drive_layout": drive_layout,
+			"allow_auto_layout": allow_auto_layout,
+			"debug_build": OS.is_debug_build(),
+			"will_socket_layout": will_socket,
+			"allow_runtime_docking": allow_runtime_docking,
+			"size": size,
+			"parent_size": parent_size
+		})
 	if not resized.is_connected(_on_resized):
 		resized.connect(_on_resized)
 	_update_visibility_from_state()
@@ -518,7 +537,7 @@ func _seat_color(seat: int) -> Color:
 			return P1_COLOR
 
 func _on_viewport_size_changed() -> void:
-	if _should_auto_layout():
+	if _should_socket_layout():
 		_apply_layout(_current_top_px)
 
 func _on_resized() -> void:
@@ -605,10 +624,12 @@ func _apply_base_size() -> void:
 
 func _apply_layout(top: float) -> void:
 	_current_top_px = top
-	if not _should_auto_layout():
+	var do_auto_layout := _should_auto_layout()
+	var do_socket_layout := _should_socket_layout()
+	if not do_auto_layout and not do_socket_layout:
 		return
 
-	if auto_fit_to_parent:
+	if do_auto_layout and auto_fit_to_parent:
 		var parent_control: Control = get_parent() as Control
 		var parent_width: float = get_viewport_rect().size.x
 		if parent_control != null:
@@ -631,15 +652,29 @@ func _apply_layout(top: float) -> void:
 		if drive_layout and allow_runtime_docking:
 			custom_minimum_size = fit_size
 
-	_maybe_sync_layout()
-	_apply_fill()
-	queue_redraw()
+	if do_socket_layout:
+		_maybe_sync_layout()
+		if not _powerbar_dock_rect_logged and _bar_dock != null:
+			_powerbar_dock_rect_logged = true
+			SFLog.info("POWERBAR_DOCK_RECT", {
+				"path": str(get_path()),
+				"dock_pos": _bar_dock.position,
+				"dock_size": _bar_dock.size,
+				"dock_rect_local": _dock_rect_local
+			})
+		_apply_fill()
+		queue_redraw()
 
 func _should_auto_layout() -> bool:
 	return OS.is_debug_build() and allow_auto_layout
 
+func _should_socket_layout() -> bool:
+	# Socket docking is a WYSIWYG / runtime layout decision, not a debug-only feature.
+	# drive_layout is the explicit "make the script drive layout" switch.
+	return drive_layout or _should_auto_layout()
+
 func _maybe_sync_layout() -> void:
-	if _should_auto_layout():
+	if _should_socket_layout():
 		_sync_layout()
 
 func _sync_layout() -> void:
@@ -686,9 +721,8 @@ func _sync_layout() -> void:
 	_bar_dock.anchor_top = 0.0
 	_bar_dock.anchor_right = 0.0
 	_bar_dock.anchor_bottom = 0.0
-	if allow_runtime_docking:
-		_bar_dock.position = _dock_rect_local.position
-		_bar_dock.size = _dock_rect_local.size
+	_bar_dock.position = _dock_rect_local.position
+	_bar_dock.size = _dock_rect_local.size
 	_fill_mask.set_anchors_preset(Control.PRESET_FULL_RECT, true)
 	_fill_mask.offset_left = 0.0
 	_fill_mask.offset_top = 0.0
@@ -833,7 +867,7 @@ func _setup_fill_materials() -> void:
 func _enforce_layer_order() -> void:
 	if _rig == null:
 		return
-	if not _should_auto_layout():
+	if not _should_socket_layout():
 		return
 	_bar_dock.z_as_relative = false
 	_fill_mask.z_as_relative = false

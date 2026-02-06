@@ -40,6 +40,7 @@ var hives: Array[HiveData] = []
 var lanes: Array = [] # Array[LaneData] (kept untyped for compatibility)
 var map_lanes: Array = []
 var lane_candidates: Array = []
+var walls: Array = []
 var selection: SelectionState = null
 var grid_spec: Object = null
 
@@ -134,6 +135,7 @@ func reset_map_only() -> void:
 	lanes = []
 	map_lanes = []
 	lane_candidates = []
+	walls = []
 	selection = SelectionState.new()
 	outgoing_by_hive.clear()
 	spawns = []
@@ -278,6 +280,10 @@ func load_from_map_dict(map: Dictionary) -> void:
 	var spawns_v: Variant = map.get("spawns", [])
 	if typeof(spawns_v) == TYPE_ARRAY:
 		spawns = (spawns_v as Array).duplicate(true)
+
+	var walls_v: Variant = map.get("walls", [])
+	if typeof(walls_v) == TYPE_ARRAY:
+		walls = (walls_v as Array).duplicate(true)
 
 	var towers_out: Array = []
 	var towers_v: Variant = map.get("towers", [])

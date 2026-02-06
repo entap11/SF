@@ -1,0 +1,7 @@
+[gd_resource type="AtlasTexture" load_steps=2 format=3 uid="uid://bymtft0ss0q3g"]
+
+[ext_resource type="Texture2D" uid="uid://dnrw7aixuqrhl" path="res://assets/sprites/sf_skin_v1/wall_segments.png" id="1_wbyxa"]
+
+[resource]
+atlas = ExtResource("1_wbyxa")
+region = Rect2(17, 184, 492, 358)
