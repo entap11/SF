@@ -1,0 +1,20 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "name": "PHONEBOOTH_4P_8x14",
+  "grid": {
+    "w": 8,
+    "h": 14
+  },
+  "entities": [
+    { "id": "p1_1", "kind": "hive", "x": 3, "y": 6, "owner_id": 1, "power": 30 },
+    { "id": "p2_1", "kind": "hive", "x": 4, "y": 6, "owner_id": 2, "power": 30 },
+    { "id": "p3_1", "kind": "hive", "x": 4, "y": 7, "owner_id": 3, "power": 30 },
+    { "id": "p4_1", "kind": "hive", "x": 3, "y": 7, "owner_id": 4, "power": 30 },
+    { "id": "npc_1", "kind": "hive", "x": 2, "y": 4, "owner_id": 0, "power": 10 },
+    { "id": "npc_2", "kind": "hive", "x": 5, "y": 4, "owner_id": 0, "power": 10 },
+    { "id": "npc_3", "kind": "hive", "x": 2, "y": 9, "owner_id": 0, "power": 10 },
+    { "id": "npc_4", "kind": "hive", "x": 5, "y": 9, "owner_id": 0, "power": 10 },
+    { "id": "npc_5", "kind": "hive", "x": 1, "y": 7, "owner_id": 0, "power": 10 },
+    { "id": "npc_6", "kind": "hive", "x": 6, "y": 7, "owner_id": 0, "power": 10 }
+  ]
+}

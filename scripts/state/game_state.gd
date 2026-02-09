@@ -840,7 +840,7 @@ func map_lane_between(a_id: int, b_id: int) -> int:
 func tick_unintended_power(dt_ms: float) -> void:
 	if dt_ms <= 0.0 or hives.is_empty():
 		return
-	if OpsState.match_phase != OpsState.MatchPhase.RUNNING:
+	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH:
 		_passive_accum_ms = 0.0
 		return
 	if not _passive_config_logged:
@@ -912,6 +912,10 @@ func _normalized_hive_kind(kind: String) -> String:
 func _is_npc_hive(hv: Variant) -> bool:
 	if typeof(hv) == TYPE_DICTIONARY:
 		var hd: Dictionary = hv
+		if hd.has("owner_id") and int(hd.get("owner_id", 0)) <= 0:
+			return true
+		if hd.has("team_id") and int(hd.get("team_id", 0)) <= 0:
+			return true
 		var kind_norm := _normalized_hive_kind(str(hd.get("kind", "")))
 		if kind_norm == "npc" or kind_norm == "npchive":
 			return true
@@ -921,6 +925,8 @@ func _is_npc_hive(hv: Variant) -> bool:
 		if owner_str == "npc":
 			return true
 		return false
+	if int(hv.owner_id) <= 0:
+		return true
 	var kind_norm := _normalized_hive_kind(str(hv.kind))
 	return kind_norm == "npc" or kind_norm == "npchive"
 

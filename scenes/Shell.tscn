@@ -1,11 +1,26 @@
-[gd_scene load_steps=7 format=3 uid="uid://c7m3fwrq1j5f4"]
+[gd_scene load_steps=8 format=3 uid="uid://c7m3fwrq1j5f4"]
 
 [ext_resource type="Script" path="res://scripts/shell.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://bna4cmslnw2d1" path="res://scenes/ui/power_bar.tscn" id="2"]
 [ext_resource type="Texture2D" uid="uid://b5g0qqihihlya" path="res://assets/sprites/sf_skin_v1/top_buffer_background.tres" id="3"]
 [ext_resource type="Script" path="res://scripts/ui/hud_freeze_guard.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/ui/hud_geometry_guard.gd" id="5"]
-[ext_resource type="Script" path="res://scripts/ui/prematch_countdown_probe.gd" id="6"]
+[ext_resource type="Script" path="res://scripts/ui/opponent_buff_strip.gd" id="6"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_buff_slot"]
+bg_color = Color(0.04, 0.05, 0.07, 0.72)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.85, 0.72, 0.24, 0.9)
+corner_radius_top_left = 56
+corner_radius_top_right = 56
+corner_radius_bottom_right = 56
+corner_radius_bottom_left = 56
+shadow_color = Color(0, 0, 0, 0.35)
+shadow_size = 5
+anti_aliasing_size = 1.5
 
 [node name="Shell" type="Node"]
 script = ExtResource("1")
@@ -67,6 +82,11 @@ layout_mode = 2
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "Select Map"
+
+[node name="TeamModeButton" type="Button" parent="MenuRoot/MenuPanel/VBox/ButtonsRow"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Mode: 2v2"
 
 [node name="MapPickerPanel" type="Control" parent="MenuRoot/MenuPanel"]
 visible = false
@@ -152,21 +172,6 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="PrematchCountdownLabel" type="Label" parent="HUDCanvasLayer/HUDRoot"]
-z_index = 100
-z_as_relative = false
-layout_mode = 0
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -80.0
-offset_top = 20.0
-offset_right = 80.0
-offset_bottom = 80.0
-text = "PROBE"
-horizontal_alignment = 1
-vertical_alignment = 1
-script = ExtResource("6")
-
 [node name="BufferBackdropLayer" type="Control" parent="HUDCanvasLayer/HUDRoot"]
 z_as_relative = false
 layout_mode = 1
@@ -240,3 +245,129 @@ grow_vertical = 0
 mouse_filter = 2
 texture = ExtResource("3")
 stretch_mode = 2
+
+[node name="BuffSlotsStrip" type="Control" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground"]
+layout_mode = 1
+anchor_left = 0.166667
+anchor_right = 0.833333
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Center" type="CenterContainer" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="SlotsRow" type="HBoxContainer" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip/Center"]
+custom_minimum_size = Vector2(444, 96)
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 48
+alignment = 1
+
+[node name="BuffSlot1" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip/Center/SlotsRow"]
+custom_minimum_size = Vector2(96, 96)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
+
+[node name="BuffSlot2" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip/Center/SlotsRow"]
+custom_minimum_size = Vector2(96, 96)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
+
+[node name="BuffSlot3" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip/Center/SlotsRow"]
+custom_minimum_size = Vector2(96, 96)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
+
+[node name="OpponentBuffStrip" type="Control" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 180.0
+offset_right = 132.0
+offset_bottom = -180.0
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("6")
+
+[node name="SlotsColumn" type="VBoxContainer" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/separation = 28
+alignment = 1
+
+[node name="OpponentSlot1" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn"]
+custom_minimum_size = Vector2(96, 96)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
+
+[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn/OpponentSlot1"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.95, 0.22, 0.22, 0.95)
+theme_override_font_sizes/font_size = 52
+text = "X"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="OpponentSlot2" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn"]
+custom_minimum_size = Vector2(96, 96)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
+
+[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn/OpponentSlot2"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.95, 0.22, 0.22, 0.95)
+theme_override_font_sizes/font_size = 52
+text = "X"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="OpponentSlot3" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn"]
+custom_minimum_size = Vector2(96, 96)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
+
+[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn/OpponentSlot3"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.95, 0.22, 0.22, 0.95)
+theme_override_font_sizes/font_size = 52
+text = "X"
+horizontal_alignment = 1
+vertical_alignment = 1

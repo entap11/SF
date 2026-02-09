@@ -1,0 +1,12 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_TEST",
+  "name": "MAP_TEST",
+  "width": 9,
+  "height": 14,
+  "entities": [
+    { "id": 1, "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "owner_id": 1, "x": 1, "y": 5, "power": 5 },
+    { "id": 2, "kind": "hive", "type": "hive", "team": "p1", "team_id": 1, "owner_id": 1, "x": 1, "y": 8, "power": 5 },
+    { "id": 3, "kind": "hive", "type": "hive", "team": "p2", "team_id": 2, "owner_id": 2, "x": 6, "y": 6, "power": 5 }
+  ]
+}

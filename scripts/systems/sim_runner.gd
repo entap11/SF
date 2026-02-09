@@ -6,6 +6,7 @@ class_name SimRunner
 extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const BotSystemScript := preload("res://scripts/systems/bot_system.gd")
 
 signal sim_ticked
 signal match_ended(winner_id: int, reason: String)
@@ -43,6 +44,7 @@ var tower_system: TowerSystem = null
 var swarm_system: SwarmSystem = null
 var barracks_system: BarracksSystem = null
 var win_system: WinSystem = null
+var bot_system: Node = null
 
 var _tick_accum := 0.0
 var _pending_start := false
@@ -53,6 +55,8 @@ var _last_phase_log_ms: int = 0
 var _match_over := false
 var _end_sequence_started := false
 var _end_sequence_winner_id := 0
+var _had_player_control_during_match: bool = false
+var _had_multiple_teams_during_match: bool = false
 var _last_pause_snapshot_sig: String = ""
 var _last_pause_snapshot: Dictionary = {}
 var _bound_tower_nodes: Array = []
@@ -61,6 +65,8 @@ var _last_tick_us: int = 0
 var _hb_last_ms: int = 0
 var _hb_max_tick_ms: float = 0.0
 var _hb_ticks: int = 0
+var _last_win_tick_warn_ms: int = 0
+var _last_win_tick_sig: String = ""
 
 func _ready() -> void:
 	set_process(true)
@@ -71,6 +77,14 @@ func _ready() -> void:
 	SFLog.allow_tag("EDGE_CACHE_REBUILT")
 	SFLog.allow_tag("UNIT_LANE_CAP_BLOCK")
 	SFLog.allow_tag("LANE_CAP_BLOCK")
+	SFLog.allow_tag("WIN_FALLBACK_LIVE_SINGLE_ALIVE")
+	SFLog.allow_tag("WIN_FALLBACK_LIVE_NO_PLAYER_HIVES")
+	SFLog.allow_tag("WIN_FALLBACK_DIRECT_SINGLE_ALIVE")
+	SFLog.allow_tag("WIN_FALLBACK_DIRECT_NO_PLAYER_HIVES")
+	SFLog.allow_tag("WIN_TICK_SNAPSHOT")
+	SFLog.allow_tag("WIN_DECLARED")
+	SFLog.allow_tag("MATCH_ENDED_EMIT")
+	SFLog.allow_tag("BOT_INTENT")
 	if debug_sim_tick_log:
 		SFLog.allow_tag("SIM_TICK")
 		SFLog.allow_tag("SIM_TICK_COST")
@@ -106,6 +120,9 @@ func _ensure_systems() -> void:
 		add_child(win_system)
 	elif win_system != null:
 		win_system.debug_log = debug_sim_tick_log
+	if bot_system == null:
+		bot_system = BotSystemScript.new()
+		add_child(bot_system)
 
 func _caller_hint() -> String:
 	var stack: Array = get_stack()
@@ -150,9 +167,11 @@ func _set_running(value: bool, reason: String) -> void:
 	running = value
 	if not running:
 		_last_tick_us = 0
-		_hb_last_ms = 0
-		_hb_max_tick_ms = 0.0
-		_hb_ticks = 0
+	_hb_last_ms = 0
+	_hb_max_tick_ms = 0.0
+	_hb_ticks = 0
+	_last_win_tick_warn_ms = 0
+	_last_win_tick_sig = ""
 	_log_run_state_change(reason, prev_running, running)
 	_sync_match_clock_pause()
 
@@ -226,6 +245,8 @@ func _on_state_changed(new_state: GameState) -> void:
 	_match_over = false
 	_end_sequence_started = false
 	_end_sequence_winner_id = 0
+	_had_player_control_during_match = false
+	_had_multiple_teams_during_match = false
 	_set_running(false, "state_changed")
 	_pending_start = autostart_on_bind
 	if lane_system != null and lane_system.state != state_ref:
@@ -249,6 +270,8 @@ func _on_state_changed(new_state: GameState) -> void:
 	if win_system != null:
 		win_system.bind_state(state_ref, OpsState)
 		win_system.debug_log = debug_sim_tick_log
+	if bot_system != null and bot_system.has_method("bind_state"):
+		bot_system.call("bind_state", state_ref)
 	if edge_cache_system != null:
 		edge_cache_system.rebuild_edge_cache(OpsState)
 	SFLog.info("SIM_BIND_STATE", {"iid": bound_iid})
@@ -419,19 +442,26 @@ func _tick(dt: float) -> void:
 	var now_ms: int = Time.get_ticks_msec()
 	var phase: int = OpsState.match_phase
 	if phase == OpsState.MatchPhase.ENDED:
+		OpsState.enforce_post_match_authority("SimRunner._tick:ENDED")
 		_log_match_phase(now_ms)
 		_log_tick_phase()
-		_tick_units_only(dt)
+		_tick_post_match_ghost(dt, true)
 		OpsState.expire_rematch_if_needed()
 		_emit_match_end_if_needed()
 		_emit_post_match_action_if_needed()
 		_finalize_tick_profile(tick_t0_us)
 		return
 	if phase == OpsState.MatchPhase.ENDING:
+		OpsState.enforce_post_match_authority("SimRunner._tick:ENDING")
 		_log_match_phase(now_ms)
 		_log_tick_phase()
-		_tick_units_only(dt)
+		_tick_post_match_ghost(dt, true)
 		if now_ms >= int(OpsState.end_screen_ready_ms):
+			SFLog.info("MATCH_END_FINALIZE", {
+				"winner": int(OpsState.winner_id),
+				"reason": str(OpsState.match_end_reason),
+				"phase": int(OpsState.match_phase)
+			})
 			OpsState.finalize_match_end()
 		if OpsState.match_phase == OpsState.MatchPhase.ENDED:
 			_emit_match_end_if_needed()
@@ -448,6 +478,10 @@ func _tick_systems(dt: float) -> void:
 	_timed_phase("ops_events", func() -> void:
 		OpsState.tick_match_clock(state_ref, dt_ms)
 		state_ref.tick_unintended_power(float(dt_ms))
+	)
+	_timed_phase("bot_system", func() -> void:
+		if bot_system != null and bot_system.has_method("tick"):
+			bot_system.call("tick", dt)
 	)
 	_timed_phase("lane_flow", func() -> void:
 		state_ref.tick_lane_flow(dt * 1000.0)
@@ -528,6 +562,27 @@ func _tick_units_only(dt: float) -> void:
 		unit_system.tick(dt)
 		unit_system.tick_render_units(dt)
 
+func _tick_post_match_ghost(dt: float, update_stats: bool) -> void:
+	if state_ref == null:
+		return
+	var dt_ms: int = int(round(dt * 1000.0))
+	_timed_phase("ghost_ops_events", func() -> void:
+		# Keep passive hive growth alive post-match while input remains locked.
+		state_ref.tick_unintended_power(float(dt_ms))
+	)
+	_timed_phase("ghost_lane_flow", func() -> void:
+		state_ref.tick_lane_flow(dt * 1000.0)
+	)
+	_timed_phase("ghost_unit_system", func() -> void:
+		if swarm_system != null:
+			swarm_system.tick(dt, unit_system)
+		if unit_system != null:
+			unit_system.tick(dt)
+			unit_system.tick_render_units(dt)
+	)
+	if update_stats:
+		_update_match_stats(Time.get_ticks_msec())
+
 func _log_tick_phase() -> void:
 	return
 
@@ -537,16 +592,22 @@ func _update_match_stats(now_ms: int) -> void:
 	_last_stats_ms = now_ms
 	if state_ref == null:
 		return
-	var totals: Dictionary = {}
+	var totals_by_team: Dictionary = {}
+	var totals_by_seat: Dictionary = {}
 	for h in state_ref.hives:
 		if h == null:
 			continue
-		var owner_id := int(h.owner_id)
+		var owner_id: int = int(h.owner_id)
 		if owner_id <= 0:
 			continue
-		totals[owner_id] = int(totals.get(owner_id, 0)) + int(h.power)
-	for team_id in totals.keys():
-		OpsState.update_team_max_power(int(team_id), int(totals[team_id]))
+		totals_by_seat[owner_id] = int(totals_by_seat.get(owner_id, 0)) + int(h.power)
+		var team_id: int = _team_for_owner(owner_id)
+		if team_id <= 0:
+			continue
+		totals_by_team[team_id] = int(totals_by_team.get(team_id, 0)) + int(h.power)
+	for team_id_any in totals_by_team.keys():
+		var team_id: int = int(team_id_any)
+		OpsState.update_team_max_power(team_id, int(totals_by_team.get(team_id, 0)))
 	var active_seats: Array = []
 	var roster: Array = OpsState.match_roster
 	if roster != null:
@@ -571,10 +632,10 @@ func _update_match_stats(now_ms: int) -> void:
 	active_seats.sort()
 	var visible_seats: int = clamp(active_seats.size(), 2, 4)
 	var hud: Dictionary = {
-		1: {"power": int(totals.get(1, 0))},
-		2: {"power": int(totals.get(2, 0))},
-		3: {"power": int(totals.get(3, 0))},
-		4: {"power": int(totals.get(4, 0))},
+		1: {"power": int(totals_by_seat.get(1, 0))},
+		2: {"power": int(totals_by_seat.get(2, 0))},
+		3: {"power": int(totals_by_seat.get(3, 0))},
+		4: {"power": int(totals_by_seat.get(4, 0))},
 		"visible_seats": visible_seats,
 		"active_seats": active_seats
 	}
@@ -612,8 +673,14 @@ func _check_match_win(now_ms: int) -> void:
 				"delta": delta
 			})
 		OpsState.ot_checked = true
-	if OpsState.match_clock_started and remaining_ms <= 0:
-		SFLog.info("MATCH_TIMER_EXPIRED", {"remaining_ms": remaining_ms})
+	var deadline_elapsed: bool = bool(OpsState.match_clock_started) and int(OpsState.match_deadline_ms) > 0 and now_ms >= int(OpsState.match_deadline_ms)
+	if OpsState.match_clock_started and (remaining_ms <= 0 or deadline_elapsed):
+		SFLog.info("MATCH_TIMER_EXPIRED", {
+			"remaining_ms": remaining_ms,
+			"deadline_elapsed": deadline_elapsed,
+			"deadline_ms": int(OpsState.match_deadline_ms),
+			"now_ms": now_ms
+		})
 		var snapshot: Dictionary = _build_timeout_snapshot()
 		var owned: Dictionary = snapshot.get("owned_by_team", {})
 		var contestable_total: int = int(snapshot.get("contestable_total", 0))
@@ -622,17 +689,63 @@ func _check_match_win(now_ms: int) -> void:
 		var owned2: int = int(owned.get(2, 0))
 		_declare_time_win(winner_id, owned1, owned2, contestable_total)
 		return
+	var live_snapshot: Dictionary = _build_timeout_snapshot()
+	var live_owned: Dictionary = Dictionary(live_snapshot.get("owned_by_team", {}))
+	var live_alive_teams: Array = _alive_teams_from_owned_counts(live_owned)
+	var direct_snapshot: Dictionary = _build_direct_live_snapshot()
+	var direct_owned: Dictionary = Dictionary(direct_snapshot.get("owned_by_team", {}))
+	var direct_alive_teams: Array = _alive_teams_from_owned_counts(direct_owned)
+	if direct_alive_teams.size() >= 2:
+		_had_multiple_teams_during_match = true
+	if not direct_alive_teams.is_empty():
+		_had_player_control_during_match = true
+	_log_win_tick_snapshot(now_ms, live_snapshot, direct_snapshot)
 	var result: Variant = win_system.tick(state_ref, now_ms)
-	if result == null:
+	if result != null:
+		var winner_id := int(result.get("winner_id", 0))
+		if winner_id > 0:
+			var reason := str(result.get("reason", "conquest"))
+			_declare_conquest_win(winner_id, reason)
+			return
+	var contestable_total_live: int = int(live_snapshot.get("contestable_total", 0))
+	if _had_multiple_teams_during_match and contestable_total_live > 0 and live_alive_teams.size() == 1:
+		var fallback_winner: int = int(live_alive_teams[0])
+		SFLog.warn("WIN_FALLBACK_LIVE_SINGLE_ALIVE", {
+			"winner_id": fallback_winner,
+			"contestable_total": contestable_total_live,
+			"owned_by_team": live_owned
+		})
+		_declare_conquest_win(fallback_winner, "conquest")
 		return
-	var winner_id := int(result.get("winner_id", 0))
+	if _had_multiple_teams_during_match and contestable_total_live > 0 and live_alive_teams.is_empty() and _had_player_control_during_match:
+		SFLog.warn("WIN_FALLBACK_LIVE_NO_PLAYER_HIVES", {
+			"contestable_total": contestable_total_live,
+			"owned_by_team": live_owned
+		})
+		_declare_conquest_draw("domination_draw")
+		return
+	if _had_multiple_teams_during_match and direct_alive_teams.size() == 1:
+		var direct_winner: int = int(direct_alive_teams[0])
+		SFLog.warn("WIN_FALLBACK_DIRECT_SINGLE_ALIVE", {
+			"winner_id": direct_winner,
+			"owned_by_team": direct_owned
+		})
+		_declare_conquest_win(direct_winner, "conquest")
+		return
+	if _had_multiple_teams_during_match and direct_alive_teams.is_empty() and _had_player_control_during_match:
+		SFLog.warn("WIN_FALLBACK_DIRECT_NO_PLAYER_HIVES", {
+			"owned_by_team": direct_owned
+		})
+		_declare_conquest_draw("domination_draw")
+		return
+
+func _declare_conquest_win(winner_id: int, reason: String) -> void:
 	if winner_id <= 0:
 		return
-	var reason := str(result.get("reason", "conquest"))
-	remaining_ms = int(OpsState.match_duration_ms - OpsState.match_elapsed_ms)
+	var remaining_ms := int(OpsState.match_duration_ms - OpsState.match_elapsed_ms)
 	if remaining_ms < 0:
 		remaining_ms = 0
-	SFLog.info("WIN_DECLARED", {
+	SFLog.warn("WIN_DECLARED", {
 		"winner_id": winner_id,
 		"reason": reason,
 		"iid": int(state_ref.get_instance_id()),
@@ -643,6 +756,34 @@ func _check_match_win(now_ms: int) -> void:
 	SFLog.info("WINNER_CONFIRMED", {"winner_id": winner_id, "reason": reason})
 	OpsState.begin_match_end(winner_id, reason, OpsState.ending_linger_ms)
 	_start_end_sequence(winner_id)
+
+func _declare_conquest_draw(reason: String) -> void:
+	var remaining_ms := int(OpsState.match_duration_ms - OpsState.match_elapsed_ms)
+	if remaining_ms < 0:
+		remaining_ms = 0
+	SFLog.warn("WIN_DECLARED", {
+		"winner_id": 0,
+		"reason": reason,
+		"iid": int(state_ref.get_instance_id()),
+		"time_remaining_ms": remaining_ms
+	})
+	log_pause_snapshot("win_declared_draw")
+	_match_over = true
+	SFLog.info("WINNER_CONFIRMED", {"winner_id": 0, "reason": reason})
+	OpsState.begin_match_end(0, reason, OpsState.ending_linger_ms)
+	_start_end_sequence(0)
+
+func _alive_teams_from_owned_counts(owned_by_team: Dictionary) -> Array:
+	var alive: Array = []
+	var team_ids: Array = owned_by_team.keys()
+	team_ids.sort()
+	for team_any in team_ids:
+		var team_id: int = int(team_any)
+		if int(owned_by_team.get(team_id, 0)) <= 0:
+			continue
+		if not alive.has(team_id):
+			alive.append(team_id)
+	return alive
 
 func _get_match_remaining_ms() -> int:
 	if OpsState.match_clock_started:
@@ -657,7 +798,7 @@ func _get_match_remaining_ms() -> int:
 
 func _build_timeout_snapshot() -> Dictionary:
 	var contestable_total := 0
-	var owned_by_team: Dictionary = {1: 0, 2: 0, 3: 0, 4: 0}
+	var owned_by_team: Dictionary = _empty_team_owned_counts()
 	var hives: Array = []
 	var hives_by_id: Dictionary = state_ref.hive_by_id if state_ref != null else {}
 	if hives_by_id.size() > 0:
@@ -673,10 +814,13 @@ func _build_timeout_snapshot() -> Dictionary:
 		if _is_npc_hive(h, kind_norm):
 			continue
 		contestable_total += 1
-		var owner_id := _hive_owner_id(h)
-		if owner_id < 1 or owner_id > 4:
+		var owner_id: int = _hive_owner_id(h)
+		if owner_id <= 0:
 			continue
-		owned_by_team[owner_id] = int(owned_by_team.get(owner_id, 0)) + 1
+		var team_id: int = _team_for_owner(owner_id)
+		if team_id <= 0:
+			continue
+		owned_by_team[team_id] = int(owned_by_team.get(team_id, 0)) + 1
 	return {
 		"contestable_total": contestable_total,
 		"owned_by_team": owned_by_team
@@ -710,8 +854,9 @@ func _trigger_overtime(snapshot: Dictionary, remaining_ms: int, delta: float) ->
 	})
 
 func _declare_time_win(winner_id: int, owned1: int, owned2: int, contestable_total: int) -> void:
-	SFLog.info("TIME_WIN", {
+	SFLog.warn("WIN_DECLARED", {
 		"winner_id": winner_id,
+		"reason": "time",
 		"owned1": owned1,
 		"owned2": owned2,
 		"contestable_total": contestable_total
@@ -726,7 +871,10 @@ func _resolve_time_winner(owned_by_team: Dictionary) -> int:
 	var best_id := 0
 	var best_count := -1
 	var tie := false
-	for team_id in [1, 2, 3, 4]:
+	var team_ids: Array = owned_by_team.keys()
+	team_ids.sort()
+	for team_any in team_ids:
+		var team_id: int = int(team_any)
 		var count := int(owned_by_team.get(team_id, 0))
 		if count > best_count:
 			best_count = count
@@ -738,7 +886,8 @@ func _resolve_time_winner(owned_by_team: Dictionary) -> int:
 
 func _top_two_counts(owned_by_team: Dictionary) -> Array:
 	var counts := []
-	for team_id in [1, 2, 3, 4]:
+	for team_any in owned_by_team.keys():
+		var team_id: int = int(team_any)
 		counts.append(int(owned_by_team.get(team_id, 0)))
 	counts.sort()
 	counts.reverse()
@@ -788,22 +937,12 @@ func _start_end_sequence(winner_id: int) -> void:
 		return
 	_end_sequence_started = true
 	_end_sequence_winner_id = winner_id
-	SFLog.info("MATCH_END_SEQUENCE_START", {"winner": winner_id})
-	var tree := get_tree()
-	if tree == null:
-		return
-	var wait_s := float(OpsState.ending_linger_ms) / 1000.0
-	if wait_s <= 0.0:
-		wait_s = 0.01
-	await tree.create_timer(wait_s, true, false, true).timeout
-	if OpsState.match_phase != OpsState.MatchPhase.ENDING:
-		return
-	if int(OpsState.winner_id) != winner_id or winner_id <= 0:
-		return
-	SFLog.info("MATCH_END_FINALIZE", {"winner": winner_id})
-	OpsState.finalize_match_end()
-	_emit_match_end_if_needed()
-	_emit_post_match_action_if_needed()
+	# Deterministic path: ENDING->ENDED transition is finalized in _tick().
+	SFLog.info("MATCH_END_SEQUENCE_START", {
+		"winner": winner_id,
+		"phase": int(OpsState.match_phase),
+		"linger_ms": int(OpsState.ending_linger_ms)
+	})
 
 func _log_match_phase(now_ms: int) -> void:
 	const PHASE_LOG_INTERVAL_MS := 500
@@ -837,8 +976,94 @@ func _emit_match_end_if_needed() -> void:
 		"reason": reason,
 		"iid": int(state_ref.get_instance_id())
 	})
-	SFLog.info("MATCH_ENDED_EMIT", {"winner_id": winner_id, "reason": reason})
+	SFLog.warn("MATCH_ENDED_EMIT", {"winner_id": winner_id, "reason": reason})
 	emit_signal("match_ended", winner_id, reason)
+
+func _build_direct_live_snapshot() -> Dictionary:
+	var owned_by_team: Dictionary = _empty_team_owned_counts()
+	var hives: Array = []
+	var hives_by_id: Dictionary = state_ref.hive_by_id if state_ref != null else {}
+	if hives_by_id.size() > 0:
+		hives = hives_by_id.values()
+	else:
+		hives = state_ref.hives
+	for h in hives:
+		if h == null:
+			continue
+		var owner_id: int = _hive_owner_id(h)
+		if owner_id <= 0:
+			continue
+		var team_id: int = _team_for_owner(owner_id)
+		if team_id <= 0:
+			continue
+		owned_by_team[team_id] = int(owned_by_team.get(team_id, 0)) + 1
+	return {"owned_by_team": owned_by_team}
+
+func _team_for_owner(owner_id: int) -> int:
+	var seat_id: int = int(owner_id)
+	if seat_id < 1 or seat_id > 4:
+		return 0
+	var team_id: int = seat_id
+	if OpsState.has_method("get_team_for_seat"):
+		team_id = int(OpsState.call("get_team_for_seat", seat_id))
+	if team_id <= 0:
+		return seat_id
+	return team_id
+
+func _all_team_ids_from_roster() -> Array:
+	var team_ids: Array = []
+	var roster: Array = OpsState.match_roster
+	if roster != null:
+		for entry_any in roster:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_any as Dictionary
+			var seat_id: int = int(entry.get("seat", 0))
+			if seat_id < 1 or seat_id > 4:
+				continue
+			var active: bool = bool(entry.get("active", true))
+			if not active:
+				continue
+			var team_id: int = _team_for_owner(seat_id)
+			if team_id <= 0 or team_ids.has(team_id):
+				continue
+			team_ids.append(team_id)
+	if team_ids.is_empty():
+		team_ids = [1, 2]
+	team_ids.sort()
+	return team_ids
+
+func _empty_team_owned_counts() -> Dictionary:
+	var owned_by_team: Dictionary = {}
+	for team_any in _all_team_ids_from_roster():
+		var team_id: int = int(team_any)
+		owned_by_team[team_id] = 0
+	return owned_by_team
+
+func _log_win_tick_snapshot(now_ms: int, live_snapshot: Dictionary, direct_snapshot: Dictionary) -> void:
+	const WIN_TICK_LOG_INTERVAL_MS := 750
+	var live_owned: Dictionary = Dictionary(live_snapshot.get("owned_by_team", {}))
+	var direct_owned: Dictionary = Dictionary(direct_snapshot.get("owned_by_team", {}))
+	var live_alive: Array = _alive_teams_from_owned_counts(live_owned)
+	var direct_alive: Array = _alive_teams_from_owned_counts(direct_owned)
+	var sig: String = "%s|%s|%d|%d" % [
+		str(live_owned),
+		str(direct_owned),
+		live_alive.size(),
+		direct_alive.size()
+	]
+	if sig == _last_win_tick_sig and now_ms - _last_win_tick_warn_ms < WIN_TICK_LOG_INTERVAL_MS:
+		return
+	_last_win_tick_sig = sig
+	_last_win_tick_warn_ms = now_ms
+	SFLog.warn("WIN_TICK_SNAPSHOT", {
+		"phase": int(OpsState.match_phase),
+		"live_owned": live_owned,
+		"live_alive": live_alive,
+		"direct_owned": direct_owned,
+		"direct_alive": direct_alive,
+		"had_multiple": _had_multiple_teams_during_match
+	})
 
 func _emit_post_match_action_if_needed() -> void:
 	var action := str(OpsState.post_end_action)

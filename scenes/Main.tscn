@@ -27,7 +27,7 @@ size = Vector2i(2, 2)
 render_target_update_mode = 4
 
 [node name="Arena" parent="WorldCanvasLayer/WorldViewportContainer/WorldViewport" instance=ExtResource("1")]
-draw_arena_rect_debug = true
+draw_arena_rect_debug = false
 
 [node name="UI" type="CanvasLayer" parent="."]
 layer = 50

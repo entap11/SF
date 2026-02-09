@@ -32,7 +32,7 @@ var _unit_sprite_logged := false
 
 const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
-const UNIT_RENDER_SCALE: float = 3.0
+const UNIT_RENDER_SCALE: float = 2.4
 const UNIT_SPRITE_FORWARD_DEG: float = 45.0
 const UNIT_TRAVEL_T_EPS: float = 0.02
 const DBG_UNITS: bool = false
@@ -46,6 +46,9 @@ const UNIT_REDRAW_INTERVAL_MS := 30
 const UNIT_BASELINE_AUDIT_INTERVAL_MS: int = 1000
 const UNIT_RECONCILE_LOG_INTERVAL_MS: int = 1000
 const UNIT_RECONCILE_SLOW_MS: float = 2.0
+const UNIT_DEATH_LOG_MIN_EXTRA_MS: float = 0.50
+const UNIT_DEATH_LOG_MIN_TOTAL_MS: float = 1.00
+const UNIT_DEATH_LOG_MIN_DEATHS: int = 3
 const UNIT_ENDPOINT_SPIKE_LOG_INTERVAL_MS: int = 500
 const UNIT_ENDPOINT_PERF_WINDOW_MS: int = 2000
 const SWARM_SCALE_MULT: float = 15.0
@@ -74,7 +77,7 @@ const PRUNE_AFTER_TICKS: int = 2
 @export var debug_unit_logs: bool = false
 @export var debug_unit_owner_labels: bool = false
 @export var debug_draw_units: bool = false
-@export var debug_force_top_z: bool = true
+@export var debug_force_top_z: bool = false
 @export var debug_force_big_radius_px: float = 10.0
 @export var sim_dt_sec: float = SIM_DT_SEC_DEFAULT
 @export var lane_start_cap_trim_px: float = 18.0
@@ -701,10 +704,15 @@ func _log_reconcile_profile(
 		spike_trace["culprit"] = culprit_name
 		_maybe_log_endpoint_spike(spike_trace, endpoint_eval_ms, total_ms)
 	if deaths_this_bind > 0:
-		if now_ms - _death_reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
+		var baseline_ms: float = _reconcile_baseline_ms if _reconcile_baseline_samples > 0 else total_ms
+		var extra_ms: float = maxf(0.0, total_ms - baseline_ms)
+		var should_log_death_frame: bool = (
+			deaths_this_bind >= UNIT_DEATH_LOG_MIN_DEATHS
+			or extra_ms >= UNIT_DEATH_LOG_MIN_EXTRA_MS
+			or total_ms >= UNIT_DEATH_LOG_MIN_TOTAL_MS
+		)
+		if should_log_death_frame and now_ms - _death_reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
 			_death_reconcile_last_log_ms = now_ms
-			var baseline_ms: float = _reconcile_baseline_ms if _reconcile_baseline_samples > 0 else total_ms
-			var extra_ms: float = maxf(0.0, total_ms - baseline_ms)
 			SFLog.warn("UNIT_DEATH_FRAME_MS", {
 				"source": source,
 				"deaths": deaths_this_bind,
@@ -1991,7 +1999,7 @@ func _apply_debug_force_top_z() -> void:
 	_last_force_top_z = debug_force_top_z
 	if debug_force_top_z:
 		z_as_relative = false
-		z_index = 9999
+		z_index = 4095
 		for node in unit_nodes_by_id.values():
 			if node is Node2D:
 				(node as Node2D).z_index = 0

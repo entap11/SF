@@ -23,9 +23,9 @@ signal post_match_action(action: String)
 var local_player_id: int = 1
 var _action_taken: bool = false
 var _outcome_layer: CanvasLayer = null
+var _reparent_queued: bool = false
 
 func _ready() -> void:
-	_ensure_outcome_layer()
 	_force_fullscreen_anchors()
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -35,7 +35,13 @@ func _ready() -> void:
 	rematch_button.pressed.connect(_on_rematch_pressed)
 	exit_button.pressed.connect(_on_exit_pressed)
 
-func show_outcome(winner_id: int, reason: String, player_id: int) -> void:
+func show_outcome(
+	winner_id: int,
+	reason: String,
+	player_id: int,
+	record_text: String = "",
+	h2h_text: String = ""
+) -> void:
 	SFLog.info("OUTCOME_OVERLAY_SHOW_CALL", {
 		"iid": int(get_instance_id()),
 		"inside_tree": is_inside_tree(),
@@ -54,7 +60,7 @@ func show_outcome(winner_id: int, reason: String, player_id: int) -> void:
 	self_modulate = Color(1, 1, 1, 1)
 	panel.modulate = Color(1, 1, 1, 1)
 	panel.self_modulate = Color(1, 1, 1, 1)
-	_apply_outcome(winner_id, reason)
+	_apply_outcome(winner_id, reason, record_text, h2h_text)
 	set_process(true)
 	rematch_button.grab_focus()
 	_log_show_state()
@@ -70,15 +76,15 @@ func _process(_delta: float) -> void:
 	_update_countdown_label()
 	_update_status()
 
-func _apply_outcome(winner_id: int, reason: String) -> void:
+func _apply_outcome(winner_id: int, reason: String, record_text: String, h2h_text: String) -> void:
 	title_label.text = "REMATCH?"
 	if winner_id == 0:
 		result_label.text = "DRAW"
 	else:
 		result_label.text = "PLAYER %d WINS" % winner_id
-	reason_label.text = "Reason: %s" % reason
-	record_label.text = "Record: 0-0"
-	h2h_label.text = "H2H: 0-0"
+	reason_label.text = "How: %s" % _present_reason(reason)
+	record_label.text = record_text if not record_text.is_empty() else "Record: 0-0"
+	h2h_label.text = h2h_text if not h2h_text.is_empty() else "H2H: 0-0"
 	stats_header.text = "Match Stats"
 	_update_stat_labels()
 	_update_countdown_label()
@@ -108,19 +114,44 @@ func _update_countdown_label() -> void:
 
 func _update_status() -> void:
 	var votes: Dictionary = OpsState.rematch_votes
+	var local_voted: bool = votes.has(local_player_id)
+	var post_action: String = str(OpsState.post_end_action)
+	var window_open: bool = _is_rematch_window_open()
+	rematch_button.disabled = local_voted or post_action != "" or not window_open
+	if post_action == "rematch":
+		status_label.text = "Rematch locked. Restarting..."
+		return
+	if post_action == "main_menu":
+		status_label.text = "Rematch window expired."
+		return
+	if not window_open:
+		status_label.text = "Rematch window expired. Choose Main Menu."
+		return
+	if local_voted:
+		status_label.text = "Vote sent. Waiting on opponent..."
+		return
 	status_label.text = "Rematch votes: %d/2" % int(votes.size())
 
 func _on_rematch_pressed() -> void:
-	if _action_taken:
+	if _action_taken or rematch_button.disabled or not _is_rematch_window_open():
 		return
-	_action_taken = true
-	emit_signal("post_match_action", "rematch")
+	emit_signal("post_match_action", "rematch_vote")
 
 func _on_exit_pressed() -> void:
 	if _action_taken:
 		return
 	_action_taken = true
 	emit_signal("post_match_action", "main_menu")
+
+func _present_reason(reason: String) -> String:
+	var normalized: String = reason.strip_edges().to_lower()
+	match normalized:
+		"time", "timeout":
+			return "time"
+		"conquest", "elimination", "domination":
+			return "domination"
+		_:
+			return normalized
 
 func _log_show_state() -> void:
 	var layer := -999
@@ -208,34 +239,50 @@ func _ensure_outcome_layer() -> void:
 	if existing != null and existing is CanvasLayer:
 		_outcome_layer = existing as CanvasLayer
 	else:
-		_outcome_layer = CanvasLayer.new()
-		_outcome_layer.name = "OutcomeCanvasLayer"
-		_outcome_layer.layer = 999
-		ui_parent.add_child(_outcome_layer)
+		if _outcome_layer == null:
+			_outcome_layer = CanvasLayer.new()
+			_outcome_layer.name = "OutcomeCanvasLayer"
+			_outcome_layer.layer = 999
+		if _outcome_layer.get_parent() == null:
+			ui_parent.call_deferred("add_child", _outcome_layer)
 	if _outcome_layer == null:
 		return
 	_outcome_layer.layer = 999
 	if get_parent() != _outcome_layer:
-		var old_parent := get_parent()
-		if old_parent != null:
-			old_parent.remove_child(self)
-		_outcome_layer.add_child(self)
-		var viewport_rect := Rect2()
-		var viewport := get_viewport()
-		if viewport != null:
-			viewport_rect = viewport.get_visible_rect()
-		SFLog.info("OUTCOME_LAYER_REPARENT", {
-			"overlay_inside_tree": is_inside_tree(),
-			"overlay_path": str(get_path()) if is_inside_tree() else "<detached>",
-			"layer_inside_tree": _outcome_layer.is_inside_tree(),
-			"layer_path": str(_outcome_layer.get_path()) if _outcome_layer.is_inside_tree() else "<detached>",
-			"viewport_rect": viewport_rect
-		})
+		if not _reparent_queued:
+			_reparent_queued = true
+			call_deferred("_deferred_reparent_to_outcome_layer")
 	visible = false
 	top_level = false
 	z_as_relative = false
 	z_index = 0
 	clip_children = Control.CLIP_CHILDREN_DISABLED
+
+func _deferred_reparent_to_outcome_layer() -> void:
+	if _outcome_layer == null:
+		_reparent_queued = false
+		return
+	if _outcome_layer.get_parent() == null:
+		call_deferred("_deferred_reparent_to_outcome_layer")
+		return
+	_reparent_queued = false
+	if get_parent() == _outcome_layer:
+		return
+	var old_parent: Node = get_parent()
+	if old_parent != null:
+		old_parent.remove_child(self)
+	_outcome_layer.add_child(self)
+	var viewport_rect := Rect2()
+	var viewport := get_viewport()
+	if viewport != null:
+		viewport_rect = viewport.get_visible_rect()
+	SFLog.info("OUTCOME_LAYER_REPARENT", {
+		"overlay_inside_tree": is_inside_tree(),
+		"overlay_path": str(get_path()) if is_inside_tree() else "<detached>",
+		"layer_inside_tree": _outcome_layer.is_inside_tree(),
+		"layer_path": str(_outcome_layer.get_path()) if _outcome_layer.is_inside_tree() else "<detached>",
+		"viewport_rect": viewport_rect
+	})
 
 func _nearest_canvas_layer() -> CanvasLayer:
 	var p := get_parent()
@@ -244,6 +291,12 @@ func _nearest_canvas_layer() -> CanvasLayer:
 			return p
 		p = p.get_parent()
 	return null
+
+func _is_rematch_window_open() -> bool:
+	var deadline_ms: int = int(OpsState.rematch_deadline_ms)
+	if deadline_ms <= 0:
+		return true
+	return Time.get_ticks_msec() <= deadline_ms
 
 func _exit_to_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")

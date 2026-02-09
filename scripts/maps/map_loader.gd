@@ -58,17 +58,20 @@ static func load_map(path_or_id: String) -> Dictionary:
 	var data: Dictionary = data_v as Dictionary
 
 	var schema_id: String = str(data.get("_schema", ""))
-	if schema_id == MAP_SCHEMA.SCHEMA_ID and data.has("entities"):
-		var width: int = _as_int(data.get("width", 0), 0)
-		var height: int = _as_int(data.get("height", 0), 0)
+	if schema_id == MAP_SCHEMA.SCHEMA_ID:
+		var v1_source: Dictionary = _expand_v1xy_compact_if_needed(data, resolved)
+		if v1_source.is_empty():
+			return _fail("v1.xy compact adaptation failed path=%s" % resolved)
+		var width: int = _as_int(v1_source.get("width", 0), 0)
+		var height: int = _as_int(v1_source.get("height", 0), 0)
 		if width <= 0 or height <= 0:
 			return _fail("v1.xy invalid dims %dx%d path=%s" % [width, height, resolved])
 		if width != CANON_GRID_W or height != CANON_GRID_H:
 			if _is_dev_runner() and width == CANON_GRID_H and height == CANON_GRID_W:
 				SFLog.debug("MAP_LOADER: dev transpose v1.xy width/height -> 8x12")
-				data = _transpose_v1_xy(data)
-				width = _as_int(data.get("width", 0), 0)
-				height = _as_int(data.get("height", 0), 0)
+				v1_source = _transpose_v1_xy(v1_source)
+				width = _as_int(v1_source.get("width", 0), 0)
+				height = _as_int(v1_source.get("height", 0), 0)
 			else:
 				SFLog.info("MAP_LOADER: non-canon v1.xy dims %dx%d (canon %dx%d) path=%s" % [
 					width,
@@ -77,7 +80,7 @@ static func load_map(path_or_id: String) -> Dictionary:
 					CANON_GRID_H,
 					resolved
 				])
-		var model: Dictionary = _load_v1xy(data, resolved)
+		var model: Dictionary = _load_v1xy(v1_source, resolved)
 		if model.is_empty():
 			return _fail("v1.xy load failed path=%s" % resolved)
 		_log_map_summary(resolved, schema_id, width, height, model)
@@ -185,6 +188,133 @@ static func _transpose_v1_xy(source: Dictionary) -> Dictionary:
 	out["entities"] = entities
 	return out
 
+static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> Dictionary:
+	var out: Dictionary = source.duplicate(true)
+	var width: int = _as_int(out.get("width", 0), 0)
+	var height: int = _as_int(out.get("height", 0), 0)
+	var grid_v: Variant = out.get("grid", null)
+	if (width <= 0 or height <= 0) and typeof(grid_v) == TYPE_DICTIONARY:
+		var grid: Dictionary = grid_v as Dictionary
+		if width <= 0:
+			width = _as_int(grid.get("w", grid.get("width", 0)), 0)
+		if height <= 0:
+			height = _as_int(grid.get("h", grid.get("height", 0)), 0)
+	if width > 0:
+		out["width"] = width
+	if height > 0:
+		out["height"] = height
+	if out.has("entities"):
+		return out
+	var hives_v: Variant = out.get("hives", null)
+	if typeof(grid_v) != TYPE_DICTIONARY or typeof(hives_v) != TYPE_DICTIONARY:
+		return out
+	if width <= 0 or height <= 0:
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_LOADER: compact v1.xy missing grid dims path=%s" % path)
+		return {}
+	var entities: Array = []
+	var next_entity_id: int = 1
+	var hive_groups: Dictionary = hives_v as Dictionary
+	for owner_key_any in hive_groups.keys():
+		var owner_key: String = str(owner_key_any)
+		var owner_id: int = _owner_id_from_compact_group(owner_key)
+		var points_v: Variant = hive_groups.get(owner_key_any, null)
+		if typeof(points_v) != TYPE_ARRAY:
+			continue
+		for point_any in points_v as Array:
+			var hive_xy: Vector2i = _extract_xy_pair(point_any)
+			if hive_xy.x < 0 or hive_xy.y < 0:
+				continue
+			entities.append({
+				"id": next_entity_id,
+				"kind": "hive",
+				"x": hive_xy.x,
+				"y": hive_xy.y,
+				"owner_id": owner_id
+			})
+			next_entity_id += 1
+	var towers_v: Variant = out.get("towers", [])
+	if typeof(towers_v) == TYPE_ARRAY:
+		for tower_any in towers_v as Array:
+			var tower_xy: Vector2i = _extract_xy_pair(tower_any)
+			if tower_xy.x < 0 or tower_xy.y < 0:
+				continue
+			entities.append({
+				"id": "tower_%d" % next_entity_id,
+				"kind": "tower",
+				"x": tower_xy.x,
+				"y": tower_xy.y
+			})
+			next_entity_id += 1
+	var barracks_v: Variant = out.get("barracks", [])
+	if typeof(barracks_v) == TYPE_ARRAY:
+		for barracks_any in barracks_v as Array:
+			var barracks_xy: Vector2i = _extract_xy_pair(barracks_any)
+			if barracks_xy.x < 0 or barracks_xy.y < 0:
+				continue
+			entities.append({
+				"id": "barracks_%d" % next_entity_id,
+				"kind": "barracks",
+				"x": barracks_xy.x,
+				"y": barracks_xy.y
+			})
+			next_entity_id += 1
+	if entities.is_empty():
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_LOADER: compact v1.xy produced 0 entities path=%s" % path)
+		return {}
+	var lanes_v: Variant = out.get("lanes", null)
+	if typeof(lanes_v) == TYPE_ARRAY:
+		var normalized_lanes: Array = []
+		for lane_any in lanes_v as Array:
+			if typeof(lane_any) == TYPE_DICTIONARY:
+				normalized_lanes.append(lane_any)
+			elif typeof(lane_any) == TYPE_ARRAY:
+				var lane_arr: Array = lane_any as Array
+				if lane_arr.size() >= 2:
+					normalized_lanes.append({
+						"from": lane_arr[0],
+						"to": lane_arr[1]
+					})
+		out["lanes"] = normalized_lanes
+	out["entities"] = entities
+	SFLog.warn("MAP_LOADER_COMPACT_V1XY_ADAPTED", {
+		"path": path,
+		"width": width,
+		"height": height,
+		"entities": entities.size()
+	})
+	return out
+
+static func _owner_id_from_compact_group(owner_key: String) -> int:
+	var normalized: String = owner_key.strip_edges().to_upper()
+	var owner_id: int = MAP_SCHEMA.owner_to_owner_id(normalized)
+	if owner_id != 0:
+		return owner_id
+	match normalized:
+		"NPC", "NEUTRAL", "N":
+			return 0
+		_:
+			return 0
+
+static func _extract_xy_pair(v: Variant) -> Vector2i:
+	if typeof(v) == TYPE_ARRAY:
+		var arr: Array = v as Array
+		if arr.size() >= 2:
+			return Vector2i(_as_int(arr[0], -1), _as_int(arr[1], -1))
+	if typeof(v) == TYPE_DICTIONARY:
+		var d: Dictionary = v as Dictionary
+		var x: int = _as_int(d.get("x", d.get("gx", -1)), -1)
+		var y: int = _as_int(d.get("y", d.get("gy", -1)), -1)
+		if x >= 0 and y >= 0:
+			return Vector2i(x, y)
+		var gp_v: Variant = d.get("grid_pos", null)
+		if typeof(gp_v) == TYPE_ARRAY:
+			var gp: Array = gp_v as Array
+			if gp.size() >= 2:
+				return Vector2i(_as_int(gp[0], -1), _as_int(gp[1], -1))
+	return Vector2i(-1, -1)
+
 static func _v1_kind(e: Dictionary) -> String:
 	var k: String = ""
 	if e.has("kind"):
@@ -262,16 +392,18 @@ static func _filter_lanes_by_walls(lanes: Array, hive_pos_by_id: Dictionary, wal
 static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	var w: int = _as_int(data.get("width", 0), 0)
 	var h: int = _as_int(data.get("height", 0), 0)
-	if w != CANON_GRID_W or h != CANON_GRID_H:
+	if w <= 0 or h <= 0:
 		if SFLog.LOGGING_ENABLED:
-			push_error("MAP_LOADER: v1.xy wrong dims %dx%d (canon %dx%d) path=%s" % [
+			push_error("MAP_LOADER: v1.xy invalid dims %dx%d path=%s" % [w, h, path])
+		return {}
+	if w != CANON_GRID_W or h != CANON_GRID_H:
+		SFLog.info("MAP_LOADER: v1.xy non-canon dims %dx%d (canon %dx%d) path=%s" % [
 			w,
 			h,
 			CANON_GRID_W,
 			CANON_GRID_H,
 			path
 		])
-		return {}
 
 	var ents_v: Variant = data.get("entities", [])
 	if typeof(ents_v) != TYPE_ARRAY:
@@ -517,6 +649,32 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 				"owner_id": owner_id_b
 			})
 
+	var explicit_lanes: Array = []
+	var explicit_lane_keys: Dictionary = {}
+	var lanes_v: Variant = data.get("lanes", [])
+	if typeof(lanes_v) == TYPE_ARRAY:
+		var lanes_arr: Array = lanes_v as Array
+		for lane_v in lanes_arr:
+			if typeof(lane_v) != TYPE_DICTIONARY:
+				continue
+			var lane_d: Dictionary = lane_v as Dictionary
+			var from_raw: Variant = lane_d.get("from_hive", lane_d.get("from", lane_d.get("a_id", null)))
+			var to_raw: Variant = lane_d.get("to_hive", lane_d.get("to", lane_d.get("b_id", null)))
+			var a_id: int = _resolve_v1_ref(from_raw, id_map)
+			var b_id: int = _resolve_v1_ref(to_raw, id_map)
+			if a_id <= 0 or b_id <= 0 or a_id == b_id:
+				continue
+			var lo: int = mini(a_id, b_id)
+			var hi: int = maxi(a_id, b_id)
+			var lane_key: String = "%d:%d" % [lo, hi]
+			if explicit_lane_keys.has(lane_key):
+				continue
+			explicit_lane_keys[lane_key] = true
+			explicit_lanes.append({
+				"a_id": a_id,
+				"b_id": b_id
+			})
+
 	var lane_candidates: Array = []
 	var auto_result: Dictionary = MAP_SCHEMA._auto_generate_lanes(hives, w, h, data)
 	if bool(auto_result.get("ok", false)):
@@ -528,10 +686,13 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 			str(auto_result.get("error", "auto lanes failed"))
 		])
 
-	if not walls.is_empty() and not lane_candidates.is_empty():
+	if not walls.is_empty():
 		var hive_pos_by_id := _hive_pos_by_id(hives)
 		var wall_segments: Array = MAP_SCHEMA._wall_segments_from_walls(walls)
-		lane_candidates = _filter_lanes_by_walls(lane_candidates, hive_pos_by_id, wall_segments)
+		if not lane_candidates.is_empty():
+			lane_candidates = _filter_lanes_by_walls(lane_candidates, hive_pos_by_id, wall_segments)
+		if not explicit_lanes.is_empty():
+			explicit_lanes = _filter_lanes_by_walls(explicit_lanes, hive_pos_by_id, wall_segments)
 
 	if hives.is_empty():
 		if SFLog.LOGGING_ENABLED:
@@ -554,9 +715,9 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 
 	model["hives"] = hives
 	model["lane_candidates"] = lane_candidates
-	model["lanes"] = []
+	model["lanes"] = explicit_lanes.duplicate(true)
 	if (model.get("lanes", []) as Array).is_empty() and not lane_candidates.is_empty():
-		# Dev/default behavior: start with all candidates active.
+		# Dev/default behavior: start with all candidates active only when map has no explicit lanes.
 		model["lanes"] = lane_candidates.duplicate(true)
 	if (model.get("lanes", []) as Array).is_empty():
 		if SFLog.LOGGING_ENABLED:

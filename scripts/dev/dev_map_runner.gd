@@ -2,12 +2,11 @@ extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 
-var allowed_maps: PackedStringArray = PackedStringArray([
-	"res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json",
-	"res://maps/json/MAP_TEST_8x12.json",
-])
+var allowed_maps: PackedStringArray = PackedStringArray()
 
 func _ready() -> void:
+	if allowed_maps.is_empty():
+		allowed_maps = PackedStringArray(MapCatalog.list_json_maps())
 	var arena: Node2D = _find_arena() as Node2D
 	if arena == null:
 		if SFLog.LOGGING_ENABLED:

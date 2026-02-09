@@ -6,6 +6,7 @@ extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+const BotTelemetryStoreScript := preload("res://scripts/state/bot_telemetry_store.gd")
 
 signal map_selected(map_id: String)
 signal state_changed(state: GameState)
@@ -19,6 +20,8 @@ const MAPS_DIR := "res://data/maps"
 const OPS_CONSOLE_SCENE := "res://scenes/ops/ops_console.tscn"
 const MATCH_DURATION_MS_DEFAULT := 300000
 const MATCH_DURATION_MS_TEST := 70000
+const TEAM_MODE_2V2 := "2v2"
+const TEAM_MODE_FFA := "ffa"
 const AUTH_FENCE_LOG_INTERVAL_MS := 1000
 const AUTH_FENCE_ALLOWED_PREFIXES := [
 	"res://scripts/systems/",
@@ -38,6 +41,7 @@ var _sim_mutate_tag_stack: Array[String] = []
 var state: GameState = null
 var _state_serial: int = 0
 var _console_instance: Control = null
+var _bot_telemetry_store: RefCounted = BotTelemetryStoreScript.new()
 
 # --- MATCH OUTCOME + CLOCK (authoritative) ---
 enum MatchPhase {
@@ -82,6 +86,7 @@ var _input_ignored_match_over_logged: bool = false
 var match_over: bool = false
 var input_locked: bool = false
 var input_locked_reason: String = ""
+var team_mode_override: String = TEAM_MODE_2V2
 var prematch_duration_ms: int = PREMATCH_DURATION_MS
 var prematch_remaining_ms: int = PREMATCH_DURATION_MS
 var match_end_ms: int = 0
@@ -91,6 +96,7 @@ var _hud_snapshot: Dictionary = {}
 var edge_cache: Dictionary = {}
 var edge_cache_version: int = -1
 var blocked_wall_pairs: Array = []
+var bot_profiles: Dictionary = {}
 
 func get_state() -> GameState:
 	return state
@@ -168,6 +174,7 @@ func reset_match_state() -> void:
 	match_end_ms = 0
 	lane_front_by_lane_id.clear()
 	match_roster.clear()
+	bot_profiles.clear()
 	_hud_snapshot = {}
 
 func set_prematch_remaining_ms(value_ms: int, context: String = "") -> void:
@@ -197,6 +204,199 @@ func _default_hud_snapshot() -> Dictionary:
 	snap["visible_seats"] = 2
 	return snap
 
+func _normalize_team_mode(mode: String) -> String:
+	var norm: String = mode.strip_edges().to_lower()
+	if norm == TEAM_MODE_FFA:
+		return TEAM_MODE_FFA
+	return TEAM_MODE_2V2
+
+func set_team_mode_override(mode: String) -> void:
+	var normalized: String = _normalize_team_mode(mode)
+	if team_mode_override == normalized:
+		return
+	team_mode_override = normalized
+	SFLog.info("TEAM_MODE_OVERRIDE", {"mode": team_mode_override})
+
+func get_team_mode_override() -> String:
+	return _normalize_team_mode(team_mode_override)
+
+func _default_bot_profile_for_seat(seat: int) -> Dictionary:
+	var profile: Dictionary = {
+		"seat": seat,
+		"enabled": true,
+		"policy": "baseline_v1",
+		"persona": "balanced",
+		"think_interval_ms": 520,
+		"think_jitter_ms": 90,
+		"post_intent_delay_ms": 120,
+		"opening_delay_ms": 900,
+		"opening_stagger_ms": 120,
+		"aggression": 0.72,
+		"feed_bias": 0.22,
+		"min_attack_power": 5,
+		"min_feed_power": 11,
+		"min_swarm_power": 14,
+		"allow_swarm": false,
+		"max_actions_per_tick": 1,
+		"prefer_neutral_bonus": 0.5,
+		"randomness": 0.08,
+		"retry_block_ms": 900,
+		"no_lane_retry_ms": 3200,
+		"swarm_cooldown_ms": 1600
+	}
+	match seat:
+		2:
+			profile["persona"] = "striker"
+			profile["think_interval_ms"] = 540
+			profile["opening_delay_ms"] = 900
+			profile["aggression"] = 0.76
+			profile["feed_bias"] = 0.18
+			profile["randomness"] = 0.06
+		3:
+			profile["persona"] = "builder"
+			profile["think_interval_ms"] = 620
+			profile["think_jitter_ms"] = 110
+			profile["opening_delay_ms"] = 1050
+			profile["aggression"] = 0.58
+			profile["feed_bias"] = 0.34
+			profile["min_attack_power"] = 7
+			profile["min_feed_power"] = 10
+			profile["min_swarm_power"] = 17
+			profile["prefer_neutral_bonus"] = 0.80
+			profile["randomness"] = 0.10
+		4:
+			profile["persona"] = "raider"
+			profile["think_interval_ms"] = 600
+			profile["think_jitter_ms"] = 110
+			profile["opening_delay_ms"] = 1200
+			profile["aggression"] = 0.84
+			profile["feed_bias"] = 0.12
+			profile["min_attack_power"] = 4
+			profile["min_feed_power"] = 13
+			profile["min_swarm_power"] = 12
+			profile["prefer_neutral_bonus"] = 0.35
+			profile["randomness"] = 0.12
+	return profile
+
+func _merge_bot_profile(seat: int, patch: Dictionary) -> Dictionary:
+	var merged: Dictionary = _default_bot_profile_for_seat(seat)
+	if patch != null:
+		for key_any in patch.keys():
+			merged[key_any] = patch.get(key_any)
+	merged["seat"] = seat
+	return merged
+
+func ensure_bot_profiles_from_roster() -> void:
+	var next_profiles: Dictionary = {}
+	var roster: Array = match_roster if match_roster != null else []
+	for entry_any in roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var seat: int = int(entry.get("seat", 0))
+		if seat < 1 or seat > 4:
+			continue
+		var is_cpu: bool = bool(entry.get("is_cpu", false))
+		var active: bool = bool(entry.get("active", true))
+		if not is_cpu or not active:
+			continue
+		var existing: Dictionary = bot_profiles.get(seat, {})
+		next_profiles[seat] = _merge_bot_profile(seat, existing)
+	bot_profiles = next_profiles
+
+func get_bot_profile(seat: int) -> Dictionary:
+	var seat_id: int = int(seat)
+	if seat_id < 1 or seat_id > 4:
+		return {}
+	if not bot_profiles.has(seat_id):
+		bot_profiles[seat_id] = _default_bot_profile_for_seat(seat_id)
+	return (bot_profiles.get(seat_id, {}) as Dictionary).duplicate(true)
+
+func set_bot_profile(seat: int, patch: Dictionary) -> void:
+	var seat_id: int = int(seat)
+	if seat_id < 1 or seat_id > 4:
+		return
+	bot_profiles[seat_id] = _merge_bot_profile(seat_id, patch)
+
+func get_bot_profiles_snapshot() -> Dictionary:
+	var snapshot: Dictionary = {}
+	for seat_any in bot_profiles.keys():
+		var seat: int = int(seat_any)
+		snapshot[seat] = (bot_profiles.get(seat, {}) as Dictionary).duplicate(true)
+	return snapshot
+
+func _is_cpu_seat(seat: int) -> bool:
+	if seat < 1 or seat > 4:
+		return false
+	for entry_any in match_roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		if int(entry.get("seat", 0)) == seat:
+			return bool(entry.get("is_cpu", false))
+	return false
+
+func get_team_for_seat(seat: int) -> int:
+	var seat_id: int = int(seat)
+	if seat_id < 1 or seat_id > 4:
+		return 0
+	for entry_any in match_roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		if int(entry.get("seat", 0)) != seat_id:
+			continue
+		var team_id: int = int(entry.get("team_id", seat_id))
+		if team_id > 0:
+			return team_id
+		return seat_id
+	return seat_id
+
+func are_allies(seat_a: int, seat_b: int) -> bool:
+	var a_id: int = int(seat_a)
+	var b_id: int = int(seat_b)
+	if a_id <= 0 or b_id <= 0:
+		return false
+	return get_team_for_seat(a_id) == get_team_for_seat(b_id)
+
+func get_team_by_seat_snapshot() -> Dictionary:
+	var out: Dictionary = {}
+	for seat in [1, 2, 3, 4]:
+		out[seat] = get_team_for_seat(seat)
+	return out
+
+func _record_intent_telemetry(
+	src_hive_id: int,
+	dst_hive_id: int,
+	intent: String,
+	ok: bool,
+	reason: String,
+	lane_id: int = -1,
+	src_owner_id: int = 0,
+	dst_owner_id: int = 0
+) -> void:
+	if _bot_telemetry_store == null:
+		return
+	if not _bot_telemetry_store.has_method("record_intent"):
+		return
+	var st: GameState = state
+	var event: Dictionary = {
+		"iid": int(st.get_instance_id()) if st != null else 0,
+		"phase": int(match_phase),
+		"tick": int(st.tick) if st != null else -1,
+		"src": src_hive_id,
+		"dst": dst_hive_id,
+		"intent": intent,
+		"ok": ok,
+		"reason": reason,
+		"lane_id": lane_id,
+		"actor_id": src_owner_id,
+		"src_owner_id": src_owner_id,
+		"dst_owner_id": dst_owner_id,
+		"is_cpu_actor": _is_cpu_seat(src_owner_id)
+	}
+	_bot_telemetry_store.call("record_intent", event)
+
 func begin_match_end(winner: int, reason: String, linger_ms: int = 1500) -> void:
 	if match_phase != MatchPhase.RUNNING:
 		return
@@ -213,6 +413,7 @@ func begin_match_end(winner: int, reason: String, linger_ms: int = 1500) -> void
 	match_end_reason = reason
 	match_over = true
 	input_locked = true
+	input_locked_reason = "match_end"
 	match_end_ms = now_ms
 	SFLog.info("MATCH_END", {
 		"winner_id": winner_id,
@@ -255,6 +456,31 @@ func finalize_match_end() -> void:
 	SFLog.log_once("M3_MATCH_ENDED", "M3_MATCH_ENDED", SFLog.Level.INFO)
 	SFLog.log_once("M5_REMATCH_READY", "M5_REMATCH_WINDOW_READY", SFLog.Level.INFO)
 
+func enforce_post_match_authority(context: String = "") -> void:
+	if match_phase != MatchPhase.ENDING and match_phase != MatchPhase.ENDED:
+		return
+	var corrected: bool = false
+	if not match_over:
+		match_over = true
+		corrected = true
+	if not input_locked:
+		input_locked = true
+		corrected = true
+	if input_locked_reason == "":
+		input_locked_reason = "match_end"
+		corrected = true
+	if match_clock_running:
+		match_clock_running = false
+		corrected = true
+	if corrected:
+		SFLog.warn("POSTMATCH_AUTHORITY_ENFORCED", {
+			"context": context,
+			"phase": int(match_phase),
+			"winner_id": int(winner_id),
+			"reason": str(end_reason),
+			"input_locked_reason": str(input_locked_reason)
+		})
+
 func end_match(winner: int, reason: String) -> void:
 	# Back-compat wrapper: ends immediately.
 	begin_match_end(winner, reason, 0)
@@ -292,8 +518,11 @@ func expire_rematch_if_needed() -> void:
 	var now_ms := Time.get_ticks_msec()
 	if now_ms <= rematch_deadline_ms:
 		return
-	post_end_action = "main_menu"
-	SFLog.info("REMATCH_TIMEOUT_TO_MM", {"deadline_ms": rematch_deadline_ms})
+	SFLog.warn("REMATCH_TIMEOUT_HOLD", {
+		"deadline_ms": rematch_deadline_ms,
+		"now_ms": now_ms,
+		"note": "timeout reached; awaiting explicit user exit"
+	}, "", 5000)
 
 func _ensure_team_stats(team_id: int) -> Dictionary:
 	if team_id <= 0:
@@ -320,16 +549,22 @@ func update_team_max_power(team_id: int, total_power: int) -> void:
 func add_units_landed(owner_id: int, count: int) -> void:
 	if owner_id <= 0 or count <= 0:
 		return
-	var stats := _ensure_team_stats(owner_id)
+	var team_id: int = get_team_for_seat(owner_id)
+	if team_id <= 0:
+		return
+	var stats := _ensure_team_stats(team_id)
 	stats["units_landed"] = int(stats.get("units_landed", 0)) + count
-	stats_by_team[owner_id] = stats
+	stats_by_team[team_id] = stats
 
 func add_units_killed(killer_id: int, count: int) -> void:
 	if killer_id <= 0 or count <= 0:
 		return
-	var stats := _ensure_team_stats(killer_id)
+	var team_id: int = get_team_for_seat(killer_id)
+	if team_id <= 0:
+		return
+	var stats := _ensure_team_stats(team_id)
 	stats["units_killed"] = int(stats.get("units_killed", 0)) + count
-	stats_by_team[killer_id] = stats
+	stats_by_team[team_id] = stats
 
 func tick_match_clock(state_ref: GameState, dt_ms: int) -> void:
 	if not is_running():
@@ -375,11 +610,29 @@ func tick_match_clock(state_ref: GameState, dt_ms: int) -> void:
 
 func request_intent_feed(src_id: int, dst_id: int) -> bool:
 	var result := apply_lane_intent(src_id, dst_id, "feed")
-	return bool(result.get("ok", false))
+	var ok: bool = bool(result.get("ok", false))
+	if not ok:
+		SFLog.info("INTENT_BLOCKED", {
+			"intent": "feed",
+			"src": src_id,
+			"dst": dst_id,
+			"reason": str(result.get("reason", "unknown")),
+			"lane_id": int(result.get("lane_id", -1))
+		})
+	return ok
 
 func request_intent_attack(src_id: int, dst_id: int) -> bool:
 	var result := apply_lane_intent(src_id, dst_id, "attack")
-	return bool(result.get("ok", false))
+	var ok: bool = bool(result.get("ok", false))
+	if not ok:
+		SFLog.info("INTENT_BLOCKED", {
+			"intent": "attack",
+			"src": src_id,
+			"dst": dst_id,
+			"reason": str(result.get("reason", "unknown")),
+			"lane_id": int(result.get("lane_id", -1))
+		})
+	return ok
 
 func request_barracks_route(barracks_id: int, route_hive_ids: Array, player_id: int = -1) -> bool:
 	var st: GameState = require_state()
@@ -483,6 +736,52 @@ func _log_intent_blocked_by_wall(st: GameState, src_hive_id: int, dst_hive_id: i
 		"edge_key": edge_key
 	})
 
+func _next_runtime_lane_id(st: GameState) -> int:
+	var max_id: int = 0
+	for lane_any in st.lanes:
+		if lane_any is LaneData:
+			max_id = maxi(max_id, int((lane_any as LaneData).id))
+		elif lane_any is Dictionary:
+			var lane_d: Dictionary = lane_any as Dictionary
+			max_id = maxi(max_id, int(lane_d.get("lane_id", lane_d.get("id", 0))))
+	return max_id + 1
+
+func _can_create_runtime_lane(st: GameState, src_hive_id: int, dst_hive_id: int, intent: String) -> bool:
+	var src_hive: HiveData = st.find_hive_by_id(src_hive_id)
+	var dst_hive: HiveData = st.find_hive_by_id(dst_hive_id)
+	if src_hive == null or dst_hive == null:
+		return false
+	if not st.can_connect(src_hive_id, dst_hive_id):
+		return false
+	var walls: Array = st.walls if st != null else []
+	if not walls.is_empty():
+		var wall_segments: Array = MAP_SCHEMA._wall_segments_from_walls(walls)
+		if not wall_segments.is_empty():
+			var a_grid := Vector2(float(src_hive.grid_pos.x), float(src_hive.grid_pos.y))
+			var b_grid := Vector2(float(dst_hive.grid_pos.x), float(dst_hive.grid_pos.y))
+			if MAP_SCHEMA._segment_intersects_any_wall(a_grid, b_grid, wall_segments):
+				_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, intent)
+				return false
+	return true
+
+func _ensure_runtime_lane(st: GameState, src_hive_id: int, dst_hive_id: int, intent: String) -> int:
+	var lane_index: int = st.lane_index_between(src_hive_id, dst_hive_id)
+	if lane_index != -1:
+		return lane_index
+	if not _can_create_runtime_lane(st, src_hive_id, dst_hive_id, intent):
+		return -1
+	var lane_id: int = _next_runtime_lane_id(st)
+	st.lanes.append(LaneData.new(lane_id, src_hive_id, dst_hive_id, 1, false, false))
+	st.rebuild_indexes()
+	SFLog.allow_tag("RUNTIME_LANE_CREATED")
+	SFLog.warn("RUNTIME_LANE_CREATED", {
+		"lane_id": lane_id,
+		"src": src_hive_id,
+		"dst": dst_hive_id,
+		"intent": intent
+	})
+	return st.lane_index_between(src_hive_id, dst_hive_id)
+
 func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Dictionary:
 	var result := {
 		"ok": false,
@@ -492,17 +791,21 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		"dst": dst_hive_id,
 		"intent": intent
 	}
-	var state: GameState = null
+	var telemetry_src_owner: int = 0
+	var telemetry_dst_owner: int = 0
 	var st: GameState = require_state()
 	if st == null:
 		result["reason"] = "state_missing"
+		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
 	if _guard_mutation("apply_lane_intent"):
 		result["reason"] = "render_export"
+		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
 	if is_ending_or_ended():
 		result["reason"] = "match_over"
 		_log_input_ignored_match_over("apply_lane_intent")
+		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
 	if intent == "swarm":
 		var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
@@ -516,13 +819,32 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			st.swarm_requests = []
 		st.swarm_requests.append({"src": src_hive_id, "dst": dst_hive_id})
 		result["ok"] = true
+		var swarm_src: HiveData = st.find_hive_by_id(src_hive_id)
+		var swarm_dst: HiveData = st.find_hive_by_id(dst_hive_id)
+		if swarm_src != null:
+			telemetry_src_owner = int(swarm_src.owner_id)
+		if swarm_dst != null:
+			telemetry_dst_owner = int(swarm_dst.owner_id)
 		SFLog.info("INTENT_SWARM", {"src": src_hive_id, "dst": dst_hive_id})
+		_record_intent_telemetry(
+			src_hive_id,
+			dst_hive_id,
+			intent,
+			true,
+			"",
+			int(result.get("lane_id", -1)),
+			telemetry_src_owner,
+			telemetry_dst_owner
+		)
 		return result
 	var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
+	if lane_index == -1 and intent != "none":
+		lane_index = _ensure_runtime_lane(st, src_hive_id, dst_hive_id, intent)
 	if lane_index == -1:
 		if intent != "none":
 			_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, intent)
 		result["reason"] = "no_lane"
+		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
 	var lane: LaneData = st.lanes[lane_index]
 	result["lane_id"] = int(lane.id)
@@ -531,14 +853,27 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	var dst_hive: HiveData = st.find_hive_by_id(dst_hive_id)
 	if src_hive == null or dst_hive == null:
 		result["reason"] = "missing_hive"
+		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
 	var src_owner := int(src_hive.owner_id)
 	var dst_owner := int(dst_hive.owner_id)
+	telemetry_src_owner = src_owner
+	telemetry_dst_owner = dst_owner
 	if src_owner <= 0:
 		result["reason"] = "src_owner"
+		_record_intent_telemetry(
+			src_hive_id,
+			dst_hive_id,
+			intent,
+			false,
+			str(result.get("reason", "")),
+			int(result.get("lane_id", -1)),
+			telemetry_src_owner,
+			telemetry_dst_owner
+		)
 		return result
 
-	var same_owner := src_owner > 0 and src_owner == dst_owner
+	var same_team: bool = are_allies(src_owner, dst_owner)
 	var enable := true
 	if intent == "none":
 		enable = false
@@ -552,14 +887,44 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 
 	if not enable and not already_active:
 		result["reason"] = "not_active"
+		_record_intent_telemetry(
+			src_hive_id,
+			dst_hive_id,
+			intent,
+			false,
+			str(result.get("reason", "")),
+			int(result.get("lane_id", -1)),
+			telemetry_src_owner,
+			telemetry_dst_owner
+		)
 		return result
 
 	if enable and intent != "none":
-		if intent == "feed" and not same_owner:
+		if intent == "feed" and not same_team:
 			result["reason"] = "ownership"
+			_record_intent_telemetry(
+				src_hive_id,
+				dst_hive_id,
+				intent,
+				false,
+				str(result.get("reason", "")),
+				int(result.get("lane_id", -1)),
+				telemetry_src_owner,
+				telemetry_dst_owner
+			)
 			return result
-		if intent == "attack" and same_owner:
+		if intent == "attack" and same_team:
 			result["reason"] = "ownership"
+			_record_intent_telemetry(
+				src_hive_id,
+				dst_hive_id,
+				intent,
+				false,
+				str(result.get("reason", "")),
+				int(result.get("lane_id", -1)),
+				telemetry_src_owner,
+				telemetry_dst_owner
+			)
 			return result
 		if not already_active and active >= budget:
 			SFLog.info("LANE_BUDGET_BLOCK", {
@@ -570,6 +935,16 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 				"budget": budget
 			})
 			result["reason"] = "budget"
+			_record_intent_telemetry(
+				src_hive_id,
+				dst_hive_id,
+				intent,
+				false,
+				str(result.get("reason", "")),
+				int(result.get("lane_id", -1)),
+				telemetry_src_owner,
+				telemetry_dst_owner
+			)
 			return result
 
 	if (enable and not already_active) or (already_active and not enable):
@@ -603,6 +978,16 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		"send_b": bool(lane.send_b),
 		"intent": log_intent
 	})
+	_record_intent_telemetry(
+		src_hive_id,
+		dst_hive_id,
+		intent,
+		true,
+		"",
+		int(result.get("lane_id", -1)),
+		telemetry_src_owner,
+		telemetry_dst_owner
+	)
 	emit_signal("lane_intent_changed", iid, int(lane.id))
 	emit_signal("lanes_changed", iid)
 	return result

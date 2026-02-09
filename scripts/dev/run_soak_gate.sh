@@ -6,9 +6,21 @@ LOG_FILE="${SOAK_LOG_FILE:-/tmp/swarmfront_soak.log}"
 SOAK_SECONDS="${SOAK_SECONDS:-1800}"
 ROUND_SECONDS="${SOAK_ROUND_SECONDS:-300}"
 PAIR_COUNT="${SOAK_PAIR_COUNT:-2}"
-SOAK_MAP="${SOAK_MAP:-res://maps/json/MAP_SKETCH_LR_8x12_v1xy_TOWER_1.json}"
+SOAK_MAP="${SOAK_MAP:-}"
 MAX_FRAME_MS="${MAX_FRAME_MS:-45.0}"
 MAX_TICK_MS="${MAX_TICK_MS:-8.0}"
+
+if [[ -z "${SOAK_MAP}" ]]; then
+  FIRST_JSON="$(ls "${ROOT_DIR}"/maps/json/*.json 2>/dev/null | sort | head -n 1 || true)"
+  if [[ -n "${FIRST_JSON}" ]]; then
+    SOAK_MAP="res://${FIRST_JSON#${ROOT_DIR}/}"
+  fi
+fi
+
+if [[ -z "${SOAK_MAP}" ]]; then
+  echo "SOAK_GATE_FAIL no map found under ${ROOT_DIR}/maps/json and SOAK_MAP not provided"
+  exit 1
+fi
 
 echo "Running soak: seconds=${SOAK_SECONDS}, round_seconds=${ROUND_SECONDS}, pairs=${PAIR_COUNT}"
 echo "Log: ${LOG_FILE}"

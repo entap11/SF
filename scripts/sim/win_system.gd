@@ -43,8 +43,6 @@ func notify_hive_owner_changed() -> void:
 func tick(state_ref: GameState, now_ms: int) -> Variant:
 	if state_ref == null or ops_state == null:
 		return null
-	if ops_state.match_over:
-		return null
 	if ops_state.match_phase != ops_state.MatchPhase.RUNNING:
 		return null
 	var heartbeat_due := debug_log and now_ms - last_log_ms >= DEBUG_HEARTBEAT_MS
@@ -112,9 +110,10 @@ func _build_snapshot(state_ref: GameState) -> Dictionary:
 		if oid <= 0:
 			neutral_count += 1
 			continue
-		if oid >= 1 and oid <= 4:
-			alive_player_teams[oid] = true
-			owned_by_team[oid] = int(owned_by_team.get(oid, 0)) + 1
+		var team_id: int = _team_for_owner_seat(oid)
+		if team_id >= 1:
+			alive_player_teams[team_id] = true
+			owned_by_team[team_id] = int(owned_by_team.get(team_id, 0)) + 1
 	var winner_id := 0
 	var reason := ""
 	var win_reason := ""
@@ -208,7 +207,17 @@ func _is_npc_hive(hv: Variant, kind_norm: String) -> bool:
 		var hd: Dictionary = hv
 		if bool(hd.get("is_npc", false)):
 			return true
-		var owner_str := str(hd.get("owner", "")).strip_edges().to_lower()
-		if owner_str == "npc":
-			return true
+			var owner_str := str(hd.get("owner", "")).strip_edges().to_lower()
+			if owner_str == "npc":
+				return true
 	return false
+
+func _team_for_owner_seat(owner_id: int) -> int:
+	var seat_id: int = int(owner_id)
+	if seat_id < 1 or seat_id > 4:
+		return 0
+	if ops_state != null and ops_state.has_method("get_team_for_seat"):
+		var team_id: int = int(ops_state.call("get_team_for_seat", seat_id))
+		if team_id > 0:
+			return team_id
+	return seat_id

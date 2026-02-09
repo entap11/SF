@@ -19,6 +19,9 @@ const HIT_RING_LIFE := 0.25
 const UPGRADE_RING_RADIUS := 22.0
 const UPGRADE_RING_LIFE := 0.45
 const RING_SEGMENTS := 24
+const IMPACT_IONIZE_LINE_LIFE := 0.12
+const IMPACT_IONIZE_LEN_MIN := 10.0
+const IMPACT_IONIZE_LEN_MAX := 22.0
 const USE_VFX_POOL: bool = true
 const VFX_POOL_COLLISION: int = 16
 const VFX_POOL_IMPACT: int = 32
@@ -220,6 +223,8 @@ func _bind_sim_events() -> void:
 		_sim_events.connect("unit_collision", Callable(self, "_on_unit_collision"))
 	if not _sim_events.is_connected("unit_impact", Callable(self, "_on_unit_impact")):
 		_sim_events.connect("unit_impact", Callable(self, "_on_unit_impact"))
+	if not _sim_events.is_connected("unit_death", Callable(self, "_on_unit_death")):
+		_sim_events.connect("unit_death", Callable(self, "_on_unit_death"))
 	if not _sim_events.is_connected("hive_kind_changed", Callable(self, "_on_hive_kind_changed")):
 		_sim_events.connect("hive_kind_changed", Callable(self, "_on_hive_kind_changed"))
 
@@ -264,8 +269,14 @@ func _on_unit_impact(
 ) -> void:
 	var map_root: Node2D = get_parent() as Node2D
 	var rot_rad: float = 0.0
+	var lane_norm: Vector2 = Vector2.RIGHT
 	if lane_dir.length_squared() > 0.000001:
-		rot_rad = lane_dir.angle()
+		lane_norm = lane_dir.normalized()
+		rot_rad = lane_norm.angle()
+	var ionize_intensity: float = clampf(intensity, 0.5, 2.2)
+	var ionize_len: float = lerpf(IMPACT_IONIZE_LEN_MIN, IMPACT_IONIZE_LEN_MAX, clampf(ionize_intensity / 2.2, 0.0, 1.0))
+	var ionize_from: Vector2 = world_pos - lane_norm * ionize_len
+	_spawn_ionize_line(ionize_from, world_pos, _owner_color(owner_id), ionize_intensity)
 	spawn_impact_flash(
 		map_root,
 		world_pos,
@@ -277,6 +288,36 @@ func _on_unit_impact(
 		unit_id,
 		hive_id
 	)
+	if kind == "attack":
+		_spawn_ring(world_pos, 7.0, _owner_color(owner_id), 0.12)
+
+func _on_unit_death(
+	world_pos: Vector2,
+	lane_dir: Vector2,
+	owner_id: int,
+	intensity: float,
+	lane_id: int,
+	unit_id: int,
+	reason: String
+) -> void:
+	var map_root: Node2D = get_parent() as Node2D
+	var rot_rad: float = 0.0
+	if lane_dir.length_squared() > 0.000001:
+		rot_rad = lane_dir.angle()
+	var death_color: Color = _owner_color(owner_id).lerp(Color(1.0, 1.0, 1.0, 1.0), 0.2)
+	var death_intensity: float = clampf(intensity * 1.1, 0.7, 2.4)
+	spawn_impact_flash(
+		map_root,
+		world_pos,
+		rot_rad,
+		death_color,
+		death_intensity,
+		reason,
+		lane_id,
+		unit_id,
+		-1
+	)
+	_spawn_ring(world_pos, lerpf(6.0, 13.0, clampf(death_intensity / 2.4, 0.0, 1.0)), death_color, 0.16)
 
 func _on_hive_kind_changed(hive_id: int, owner_id: int, world_pos: Vector2, prev_kind: String, next_kind: String) -> void:
 	if DEBUG_VFX:
@@ -301,6 +342,18 @@ func _spawn_tracer(from_pos: Vector2, to_pos: Vector2, owner_id: int) -> void:
 	var tween := create_tween()
 	tween.tween_property(line, "modulate:a", 0.0, TRACER_LIFE)
 	tween.parallel().tween_property(line, "width", 0.0, TRACER_LIFE)
+	tween.tween_callback(Callable(line, "queue_free"))
+
+func _spawn_ionize_line(from_pos: Vector2, to_pos: Vector2, owner_color: Color, intensity: float) -> void:
+	var line := Line2D.new()
+	line.width = lerpf(1.6, 3.0, clampf(intensity / 2.2, 0.0, 1.0))
+	line.default_color = owner_color.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.45)
+	line.points = PackedVector2Array([from_pos, to_pos])
+	line.z_index = Z_INDEX_VFX + 1
+	add_child(line)
+	var tween := create_tween()
+	tween.tween_property(line, "modulate:a", 0.0, IMPACT_IONIZE_LINE_LIFE)
+	tween.parallel().tween_property(line, "width", 0.0, IMPACT_IONIZE_LINE_LIFE)
 	tween.tween_callback(Callable(line, "queue_free"))
 
 func _spawn_spike(from_pos: Vector2, to_pos: Vector2) -> void:

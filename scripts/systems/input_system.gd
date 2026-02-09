@@ -114,13 +114,18 @@ func handle_input(event: InputEvent, arena_api: ArenaAPI) -> Array:
 	var commands: Array = []
 	if selection == null or arena_api == null:
 		return commands
+	SFLog.allow_tag("INPUT_FROZEN_BY_MATCH_PHASE")
+	SFLog.allow_tag("INPUT_IGNORED_MATCH_PHASE")
+	SFLog.allow_tag("INPUT_IGNORED_LOCKED")
+	SFLog.allow_tag("INPUT_RELEASE_PICK")
+	SFLog.allow_tag("INPUT_HIVE_NOT_SELECTABLE")
 	if OpsState.match_phase != OpsState.MatchPhase.RUNNING:
 		if not _phase_input_frozen_logged:
 			_phase_input_frozen_logged = true
-			SFLog.info("INPUT_FROZEN_BY_MATCH_PHASE", {"phase": int(OpsState.match_phase)})
+			SFLog.warn("INPUT_FROZEN_BY_MATCH_PHASE", {"phase": int(OpsState.match_phase)})
 		if not _phase_input_attempt_logged:
 			_phase_input_attempt_logged = true
-			SFLog.info("INPUT_IGNORED_MATCH_PHASE", {"phase": int(OpsState.match_phase)})
+			SFLog.warn("INPUT_IGNORED_MATCH_PHASE", {"phase": int(OpsState.match_phase)})
 		return commands
 	if inputs_locked:
 		return commands
@@ -134,9 +139,14 @@ func handle_input(event: InputEvent, arena_api: ArenaAPI) -> Array:
 			else:
 				arena_api.dbg("SF: sim start blocked (use DevMapLoader)")
 		if event.keycode == KEY_B:
-			var next_debris: bool = not arena_api.get_debris_enabled()
-			arena_api.set_debris_enabled(next_debris)
-			arena_api.dbg("SF: debris_enabled = %s" % str(next_debris))
+			if event.shift_pressed:
+				var next_debris: bool = not arena_api.get_debris_enabled()
+				arena_api.set_debris_enabled(next_debris)
+				arena_api.dbg("SF: debris_enabled = %s" % str(next_debris))
+			else:
+				# Quick buff test hotkey: P1 slot 2 (default: Faster Production).
+				arena_api.try_activate_buff_slot(1, 1)
+				arena_api.dbg("SF: buff hotkey B -> P1 slot 2")
 		if event.keycode == KEY_1:
 			arena_api.set_active_player_id(1)
 			arena_api.dbg("SF: active_player_id = 1")
@@ -160,22 +170,29 @@ func handle_input(event: InputEvent, arena_api: ArenaAPI) -> Array:
 func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	if selection == null or arena_api == null:
 		return
+	SFLog.allow_tag("INPUT_FROZEN_BY_MATCH_PHASE")
+	SFLog.allow_tag("INPUT_IGNORED_MATCH_PHASE")
+	SFLog.allow_tag("INPUT_IGNORED_LOCKED")
+	SFLog.allow_tag("INPUT_RELEASE_PICK")
+	SFLog.allow_tag("INPUT_HIVE_NOT_SELECTABLE")
 	if OpsState.match_phase != OpsState.MatchPhase.RUNNING:
 		if not _phase_input_frozen_logged:
 			_phase_input_frozen_logged = true
-			SFLog.info("INPUT_FROZEN_BY_MATCH_PHASE", {"phase": int(OpsState.match_phase)})
+			SFLog.warn("INPUT_FROZEN_BY_MATCH_PHASE", {"phase": int(OpsState.match_phase)})
 		if not _phase_input_attempt_logged:
 			_phase_input_attempt_logged = true
-			SFLog.info("INPUT_IGNORED_MATCH_PHASE", {"phase": int(OpsState.match_phase)})
+			SFLog.warn("INPUT_IGNORED_MATCH_PHASE", {"phase": int(OpsState.match_phase)})
 		return
 	if inputs_locked:
+		SFLog.warn("INPUT_IGNORED_LOCKED", {"reason": "input_system_lock"})
 		return
 	if OpsState.is_ending_or_ended():
+		SFLog.warn("INPUT_IGNORED_LOCKED", {"reason": "match_ending_or_ended"})
 		return
 	if OpsState.input_locked:
 		if not _input_lock_logged:
 			_input_lock_logged = true
-			SFLog.info("INPUT_LOCKED", {
+			SFLog.warn("INPUT_LOCKED", {
 				"reason": OpsState.input_locked_reason if OpsState.input_locked_reason != "" else "match_over",
 				"winner_id": int(OpsState.winner_id)
 			})
@@ -228,9 +245,30 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	var pick_type: String = str(pick.get("type", ""))
 	var pick_id: int = int(pick.get("id", -1))
 	var pick_dist: float = float(pick.get("dist", INF))
+	if pick_type == "" or pick_id <= 0:
+		var hinted_hive_id: int = int(ev.get("hive_id", -1))
+		if hinted_hive_id <= 0:
+			hinted_hive_id = int(arena_api.hive_id_at_point(map_local))
+		if hinted_hive_id > 0:
+			pick_type = "hive"
+			pick_id = hinted_hive_id
+			var nearest_hint: Dictionary = arena_api.get_nearest_hive_local(map_local)
+			pick_dist = float(nearest_hint.get("dist", 0.0))
 	var hid: int = pick_id if pick_type == "hive" else -1
 	var barracks_id: int = pick_id if pick_type == "barracks" else -1
 	var tower_id: int = pick_id if pick_type == "tower" else -1
+	SFLog.warn("INPUT_RELEASE_PICK", {
+		"phase": int(OpsState.match_phase),
+		"inputs_locked": inputs_locked,
+		"ops_locked": bool(OpsState.input_locked),
+		"ops_reason": str(OpsState.input_locked_reason),
+		"actor_id": actor_id,
+		"pick_type": pick_type,
+		"pick_id": pick_id,
+		"hid": hid,
+		"local_pos": map_local,
+		"world_pos": world_pos
+	})
 	var nearest := arena_api.get_nearest_hive_local(map_local)
 	var now_ms: int = Time.get_ticks_msec()
 	var dt_ms: int = now_ms - _last_click_ms
@@ -361,12 +399,13 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	var selectable := owner_id == active_pid or _is_dev_mouse_override()
 	var selected_id := _get_selected_for_player(actor_id)
 	var enemy_first_id: int = _get_enemy_first_for_player(actor_id)
-	var clicked_friendly: bool = owner_id == active_pid
+	var clicked_owned: bool = owner_id == active_pid
+	var clicked_ally: bool = _are_allied_seats(active_pid, owner_id)
 	if enemy_first_id > 0:
 		var friendly_id := -1
 		var has_lane := false
 		var action := "noop"
-		if clicked_friendly:
+		if clicked_owned:
 			friendly_id = hid
 			has_lane = arena_api.is_outgoing_lane_active(hid, enemy_first_id)
 			if has_lane:
@@ -386,7 +425,7 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 		_clear_enemy_first_for_player(actor_id)
 		clear_tap_state()
 		return
-	if not clicked_friendly and (selected_id <= 0 or selected_id == hid):
+	if owner_id > 0 and not clicked_ally and (selected_id <= 0 or selected_id == hid):
 		_set_enemy_first_for_player(actor_id, hid)
 		SFLog.info("ENEMY_FIRST_ARM", {"enemy_id": hid})
 		_clear_selected_for_player(arena_api, actor_id)
@@ -396,20 +435,26 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	if selected_id <= 0:
 		if selectable:
 			_set_selected_for_player(arena_api, actor_id, hid)
+		else:
+			SFLog.warn("INPUT_HIVE_NOT_SELECTABLE", {
+				"actor_id": actor_id,
+				"hive_id": hid,
+				"owner_id": owner_id
+			})
 		return
 	if hid == selected_id:
 		return
 	# --- FORCE intent kind from ownership ---
 	var src_owner := int(arena_api.get_hive_owner_id(selected_id))
 	var dst_owner := int(arena_api.get_hive_owner_id(hid))
-	var same_owner := (src_owner > 0 and src_owner == dst_owner)
+	var same_team: bool = _are_allied_seats(src_owner, dst_owner)
 
 	SFLog.info("OWNERSHIP_CHECK", {
 		"src": selected_id,
 		"dst": hid,
 		"src_owner": src_owner,
 		"dst_owner": dst_owner,
-		"same_owner": same_owner
+		"same_team": same_team
 	})
 
 	var validation := _validate_target(selected_id, hid, arena_api)
@@ -499,14 +544,17 @@ func _get_active_pid(arena_api: ArenaAPI) -> int:
 	return 1
 
 func _player_id_from_button(button_index: int, arena_api: ArenaAPI, dev_pid: int = -1) -> int:
-	if button_index == MOUSE_BUTTON_LEFT:
-		return 1
-	if button_index == MOUSE_BUTTON_RIGHT:
-		return 2
 	if dev_pid != -1:
 		return dev_pid
+	if _is_dev_mouse_override():
+		if button_index == MOUSE_BUTTON_LEFT:
+			return 1
+		if button_index == MOUSE_BUTTON_RIGHT:
+			return 2
 	if arena_api != null:
-		return arena_api.get_active_player_id()
+		var active_pid: int = int(arena_api.get_active_player_id())
+		if active_pid >= 1 and active_pid <= 4:
+			return active_pid
 	return 1
 
 func _get_selected_for_player(player_id: int) -> int:
@@ -559,13 +607,22 @@ func _owner_color(owner_id: int) -> Color:
 		1:
 			return Color(1.0, 0.8235, 0.0, 1.0)
 		2:
-			return Color8(34, 85, 34)
-		3:
 			return Color(1.0, 0.0, 0.0, 1.0)
+		3:
+			return Color8(34, 85, 34)
 		4:
 			return Color(0.0, 0.35, 1.0, 1.0)
 		_:
 			return Color(1.0, 1.0, 1.0, 1.0)
+
+func _are_allied_seats(seat_a: int, seat_b: int) -> bool:
+	var a_id: int = int(seat_a)
+	var b_id: int = int(seat_b)
+	if a_id <= 0 or b_id <= 0:
+		return false
+	if OpsState.has_method("are_allies"):
+		return bool(OpsState.call("are_allies", a_id, b_id))
+	return a_id == b_id
 
 func _validate_target(src_id: int, dst_id: int, arena_api: ArenaAPI) -> Dictionary:
 	_last_arena_api = arena_api
@@ -1441,10 +1498,6 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 	else:
 		if SFLog.LOGGING_ENABLED:
 			print("HIVE: arena is NULL at click time")
-	if button_index == MOUSE_BUTTON_LEFT:
-		arena_api.set_active_player_id(1)
-	elif button_index == MOUSE_BUTTON_RIGHT:
-		arena_api.set_active_player_id(2)
 	var now_ms: int = Time.get_ticks_msec()
 	var is_double: bool = (now_ms - _last_tap_time_ms) <= DOUBLE_TAP_MS and _last_tap_pos.distance_to(local_pos) <= DOUBLE_TAP_DIST_PX
 	_last_tap_time_ms = now_ms
@@ -1595,12 +1648,13 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 	var world_pos := _map_local_to_world(local_pos, arena_api)
 	SFLog.info("INPUT_CLICK", {"player_id": player_id, "hid": clicked_id, "world": world_pos})
 	var enemy_first_id: int = _get_enemy_first_for_player(player_id)
-	var clicked_friendly: bool = hive.owner_id == player_id
+	var clicked_owned: bool = hive.owner_id == player_id
+	var clicked_ally: bool = _are_allied_seats(player_id, hive.owner_id)
 	if enemy_first_id > 0:
 		var friendly_id := -1
 		var has_lane := false
 		var action := "noop"
-		if clicked_friendly:
+		if clicked_owned:
 			friendly_id = clicked_id
 			has_lane = arena_api.is_outgoing_lane_active(clicked_id, enemy_first_id)
 			if has_lane:
@@ -1620,7 +1674,7 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 		_clear_enemy_first_for_player(player_id)
 		clear_tap_state()
 		return
-	if not clicked_friendly and (prev_selected_id <= 0 or prev_selected_id == clicked_id):
+	if int(hive.owner_id) > 0 and not clicked_ally and (prev_selected_id <= 0 or prev_selected_id == clicked_id):
 		_set_enemy_first_for_player(player_id, clicked_id)
 		SFLog.info("ENEMY_FIRST_ARM", {"enemy_id": clicked_id})
 		_clear_selected_for_player(arena_api, player_id)
@@ -1629,7 +1683,7 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 		return
 	if prev_selected_id != -1 and prev_selected_id != clicked_id:
 		_apply_hive_to_hive_action(prev_selected_id, clicked_id, player_id, dev_pid, arena_api)
-	if clicked_friendly:
+	if clicked_owned:
 		_set_selected_for_player(arena_api, player_id, clicked_id)
 		if player_id == 1:
 			selection.selected_cell = arena_api.cell_from_point(local_pos)
@@ -1671,9 +1725,9 @@ func _apply_hive_to_hive_action(from_id: int, to_id: int, player_id: int, dev_pi
 	var to_hive: HiveData = arena_api.find_hive_by_id(to_id)
 	if from_hive == null or to_hive == null:
 		return
-	var from_friendly: bool = from_hive.owner_id == player_id
-	var to_friendly: bool = to_hive.owner_id == player_id
-	if from_friendly:
+	var from_owned: bool = from_hive.owner_id == player_id
+	var to_owned: bool = to_hive.owner_id == player_id
+	if from_owned:
 		var lane_active: bool = arena_api.is_outgoing_lane_active(from_id, to_id)
 		var action := "swarm" if lane_active else "establish"
 		SFLog.info("SRC_DST_ACTION", {
@@ -1687,24 +1741,41 @@ func _apply_hive_to_hive_action(from_id: int, to_id: int, player_id: int, dev_pi
 		else:
 			_issue_intent(from_id, to_id, player_id, dev_pid, arena_api)
 		return
-	if not from_friendly and to_friendly:
+	if not from_owned and to_owned:
 		if arena_api.intent_is_on(to_id, from_id):
 			arena_api.retract_lane(to_id, from_id, player_id)
 
 func _issue_intent(from_id: int, to_id: int, player_id: int, dev_pid: int, arena_api: ArenaAPI) -> void:
+	SFLog.allow_tag("INPUT_INTENT_REJECTED")
 	var src_owner := int(arena_api.get_hive_owner_id(from_id))
 	var dst_owner := int(arena_api.get_hive_owner_id(to_id))
-	var same_owner := src_owner > 0 and src_owner == dst_owner
-	if same_owner:
+	var same_team: bool = _are_allied_seats(src_owner, dst_owner)
+	if same_team:
 		var result := OpsState.apply_lane_intent(from_id, to_id, "feed")
 		if bool(result.get("ok", false)):
 			SFLog.info("INPUT_INTENT", {"player_id": player_id, "src": from_id, "dst": to_id, "intent": "feed"})
 			SFLog.info("INTENT_FEED", {"src": from_id, "dst": to_id})
+		else:
+			SFLog.warn("INPUT_INTENT_REJECTED", {
+				"player_id": player_id,
+				"src": from_id,
+				"dst": to_id,
+				"intent": "feed",
+				"reason": str(result.get("reason", "unknown"))
+			})
 		return
 	var result := OpsState.apply_lane_intent(from_id, to_id, "attack")
 	if bool(result.get("ok", false)):
 		SFLog.info("INPUT_INTENT", {"player_id": player_id, "src": from_id, "dst": to_id, "intent": "attack"})
 		SFLog.info("INTENT_ATTACK", {"src": from_id, "dst": to_id})
+	else:
+		SFLog.warn("INPUT_INTENT_REJECTED", {
+			"player_id": player_id,
+			"src": from_id,
+			"dst": to_id,
+			"intent": "attack",
+			"reason": str(result.get("reason", "unknown"))
+		})
 
 func _issue_swarm_intent(from_id: int, to_id: int, player_id: int) -> bool:
 	var result := OpsState.apply_lane_intent(from_id, to_id, "swarm")

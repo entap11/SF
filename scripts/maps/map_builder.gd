@@ -10,10 +10,10 @@ const CELL_SIZE := 64.0
 # - draws debug hives + lanes so we SEE something
 func build_into(arena: Node2D, map_id: String) -> bool:
 	SFLog.trace("MAPBUILDER: build_into map_id=%s stack=%s" % [map_id, str(get_stack())])
-	assert(
-		map_id.find("MAP_TEST_8x12") != -1
-		or map_id.find("MAP_SKETCH_SYM_8x12") != -1
-	)
+	if map_id.strip_edges().is_empty():
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER: map_id is empty")
+		return false
 	if arena == null:
 		SFLog.trace("MAP_BUILDER: arena is null")
 		if SFLog.LOGGING_ENABLED:

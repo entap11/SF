@@ -5,14 +5,13 @@ const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const ARENA_SCENE := preload("res://scenes/Arena.tscn")
 
-const DEFAULT_MAP_PATH := "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_TOWER_1.json"
 const DEFAULT_SOAK_SECONDS := 1800
 const DEFAULT_ROUND_SECONDS := 300
 const DEFAULT_PAIR_COUNT := 2
 const DEFAULT_REAPPLY_MS := 1000
 const DEFAULT_START_TIMEOUT_MS := 15000
 
-var _map_path: String = DEFAULT_MAP_PATH
+var _map_path: String = ""
 var _soak_seconds: int = DEFAULT_SOAK_SECONDS
 var _round_seconds: int = DEFAULT_ROUND_SECONDS
 var _pair_count: int = DEFAULT_PAIR_COUNT
@@ -22,6 +21,7 @@ var _start_timeout_ms: int = DEFAULT_START_TIMEOUT_MS
 func _initialize() -> void:
 	_configure_logging()
 	_parse_args(OS.get_cmdline_user_args())
+	_resolve_map_path()
 	await _run()
 
 func _configure_logging() -> void:
@@ -48,8 +48,20 @@ func _parse_args(args: Array) -> void:
 		elif arg.begins_with("--start-timeout-ms="):
 			_start_timeout_ms = max(1000, int(arg.trim_prefix("--start-timeout-ms=")))
 
+func _resolve_map_path() -> void:
+	if not _map_path.is_empty():
+		return
+	var discovered: Array[String] = MapCatalog.list_json_maps()
+	if discovered.is_empty():
+		return
+	_map_path = discovered[0]
+
 func _run() -> void:
 	await process_frame
+	if _map_path.is_empty():
+		SFLog.warn("SOAK_ERROR", {"reason": "no_map_available"})
+		quit(1)
+		return
 	var soak_start_ms := Time.get_ticks_msec()
 	var soak_deadline_ms := soak_start_ms + (_soak_seconds * 1000)
 	var rounds: int = 0
@@ -60,11 +72,11 @@ func _run() -> void:
 		"round_seconds": _round_seconds,
 		"pairs": _pair_count
 	})
-		while Time.get_ticks_msec() < soak_deadline_ms:
-			rounds += 1
-			var remaining_ms: int = soak_deadline_ms - Time.get_ticks_msec()
-			var round_budget_ms: int = mini(_round_seconds * 1000, remaining_ms)
-			var ok: bool = await _run_round(rounds, round_budget_ms)
+	while Time.get_ticks_msec() < soak_deadline_ms:
+		rounds += 1
+		var remaining_ms: int = soak_deadline_ms - Time.get_ticks_msec()
+		var round_budget_ms: int = mini(_round_seconds * 1000, remaining_ms)
+		var ok: bool = await _run_round(rounds, round_budget_ms)
 		if not ok:
 			failed_rounds += 1
 	var elapsed_ms := Time.get_ticks_msec() - soak_start_ms
@@ -115,8 +127,8 @@ func _run_round(round_index: int, round_budget_ms: int) -> bool:
 		"round": round_index,
 		"pairs": pairs
 	})
-		var end_ms: int = Time.get_ticks_msec() + maxi(1000, round_budget_ms)
-	var last_reapply_ms := 0
+	var end_ms: int = Time.get_ticks_msec() + maxi(1000, round_budget_ms)
+	var last_reapply_ms: int = 0
 	while Time.get_ticks_msec() < end_ms:
 		if OpsState.match_phase == OpsState.MatchPhase.ENDED:
 			break

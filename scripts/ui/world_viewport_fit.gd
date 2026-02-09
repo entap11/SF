@@ -13,13 +13,15 @@ extends SubViewportContainer
 # Can be negative if you want extra gutter above.
 @export var top_overlap_px: float = 0.0
 
-@export var debug_print: bool = true
+@export var debug_print: bool = false
+@export var show_debug_outline: bool = false
 
 var root_viewport: Viewport = null
 var _debug_outline: ColorRect = null
 
 func _ready() -> void:
-	print("WVF_READY:", get_path())
+	if debug_print:
+		print("WVF_READY:", get_path())
 	root_viewport = get_viewport()
 	_apply_layout()
 	if root_viewport != null and not root_viewport.size_changed.is_connected(_apply_layout):
@@ -83,27 +85,31 @@ func _apply_layout() -> void:
 		if sv.size != sv_size:
 			sv.size = sv_size
 
-	if _debug_outline == null or not is_instance_valid(_debug_outline):
-		var outline: ColorRect = ColorRect.new()
-		outline.name = "WVF_DebugOutline"
-		outline.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		outline.color = Color(1, 1, 1, 0)
-		outline.z_as_relative = false
-		outline.z_index = 1000
-		var sb: StyleBoxFlat = StyleBoxFlat.new()
-		sb.bg_color = Color(0, 0, 0, 0)
-		sb.set_border_width_all(2)
-		sb.border_color = Color(1, 1, 1, 1)
-		outline.add_theme_stylebox_override("panel", sb)
-		world_viewport_container.add_child(outline)
-		_debug_outline = outline
-	if _debug_outline != null and is_instance_valid(_debug_outline):
-		_debug_outline.anchor_left = 0.0
-		_debug_outline.anchor_top = 0.0
-		_debug_outline.anchor_right = 0.0
-		_debug_outline.anchor_bottom = 0.0
-		_debug_outline.position = Vector2.ZERO
-		_debug_outline.size = world_viewport_container.size
+	if show_debug_outline:
+		if _debug_outline == null or not is_instance_valid(_debug_outline):
+			var outline: ColorRect = ColorRect.new()
+			outline.name = "WVF_DebugOutline"
+			outline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			outline.color = Color(1, 1, 1, 0)
+			outline.z_as_relative = false
+			outline.z_index = 1000
+			var sb: StyleBoxFlat = StyleBoxFlat.new()
+			sb.bg_color = Color(0, 0, 0, 0)
+			sb.set_border_width_all(2)
+			sb.border_color = Color(1, 1, 1, 1)
+			outline.add_theme_stylebox_override("panel", sb)
+			world_viewport_container.call_deferred("add_child", outline)
+			_debug_outline = outline
+		if _debug_outline != null and is_instance_valid(_debug_outline):
+			_debug_outline.anchor_left = 0.0
+			_debug_outline.anchor_top = 0.0
+			_debug_outline.anchor_right = 0.0
+			_debug_outline.anchor_bottom = 0.0
+			_debug_outline.position = Vector2.ZERO
+			_debug_outline.size = world_viewport_container.size
+	elif _debug_outline != null and is_instance_valid(_debug_outline):
+		_debug_outline.queue_free()
+		_debug_outline = null
 
 	if debug_print:
 		print(
@@ -118,9 +124,12 @@ func _apply_layout() -> void:
 			" offs=",
 			offs
 		)
-	call_deferred("_wvf_post_audit", vp_visible, container_size)
+	if debug_print:
+		call_deferred("_wvf_post_audit", vp_visible, container_size)
 
 func _wvf_post_audit(vp_sz: Vector2, intended_container: Vector2) -> void:
+	if not debug_print:
+		return
 	var world_viewport_container: Control = self
 	var subviewport_container: SubViewportContainer = self
 	var subviewport: SubViewport = get_node_or_null(world_viewport_path) as SubViewport

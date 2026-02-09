@@ -5,11 +5,12 @@
 extends RefCounted
 class_name MapApplier
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const TRACE_MAP_APPLY: bool = false
 
 static func apply_map(arena: Node2D, d: Dictionary) -> void:
 	SFLog.allow_tag("MAP_APPLIER_RUNTIME_ROSTER_WRITE")
 	var map_id := str(d.get("map_id", d.get("_id", d.get("id", "UNKNOWN"))))
-	if SFLog.LOGGING_ENABLED:
+	if TRACE_MAP_APPLY and SFLog.LOGGING_ENABLED:
 		print("MAP_APPLY_TRIGGERED map_id=",
 		map_id,
 		" schema=", str(d.get("_schema", "")),
@@ -26,11 +27,41 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		_dev_seed_lanes_and_spawns(d)
 
 	var p1_uid: String = ProfileManager.get_user_id()
+	var active_seats: Array = _infer_active_seats_from_map(d)
+	var team_by_seat: Dictionary = _resolve_team_ids_for_seats(d, active_seats)
 	var roster: Array = [
-		{"seat": 1, "uid": p1_uid, "is_local": true, "is_cpu": false, "active": true},
-		{"seat": 2, "uid": "", "is_local": false, "is_cpu": true, "active": true},
-		{"seat": 3, "uid": "", "is_local": false, "is_cpu": false, "active": false},
-		{"seat": 4, "uid": "", "is_local": false, "is_cpu": false, "active": false}
+		{
+			"seat": 1,
+			"team_id": int(team_by_seat.get(1, 1)),
+			"uid": p1_uid,
+			"is_local": true,
+			"is_cpu": false,
+			"active": active_seats.has(1)
+		},
+		{
+			"seat": 2,
+			"team_id": int(team_by_seat.get(2, 2)),
+			"uid": "",
+			"is_local": false,
+			"is_cpu": active_seats.has(2),
+			"active": active_seats.has(2)
+		},
+		{
+			"seat": 3,
+			"team_id": int(team_by_seat.get(3, 3)),
+			"uid": "",
+			"is_local": false,
+			"is_cpu": active_seats.has(3),
+			"active": active_seats.has(3)
+		},
+		{
+			"seat": 4,
+			"team_id": int(team_by_seat.get(4, 4)),
+			"uid": "",
+			"is_local": false,
+			"is_cpu": active_seats.has(4),
+			"active": active_seats.has(4)
+		}
 	]
 	if _is_runtime_non_dev_context():
 		SFLog.warn("MAP_APPLIER_RUNTIME_ROSTER_WRITE", {
@@ -41,13 +72,25 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		if OpsState.has_method("audit_mutation"):
 			OpsState.audit_mutation("MapApplier.apply_map", "match_roster", "res://scripts/maps/map_applier.gd")
 		OpsState.match_roster = roster
+		if OpsState.has_method("ensure_bot_profiles_from_roster"):
+			OpsState.ensure_bot_profiles_from_roster()
 	)
 	SFLog.info("MATCH_ROSTER", {
 		"p1_uid": p1_uid,
 		"p2_uid": "",
 		"p3_uid": "",
-		"p4_uid": ""
+		"p4_uid": "",
+		"active_seats": active_seats,
+		"team_by_seat": team_by_seat
 	})
+	if "active_player_id" in arena:
+		var local_seat: int = _resolve_local_seat(roster)
+		arena.set("active_player_id", local_seat)
+		SFLog.allow_tag("ACTIVE_PLAYER_RESET")
+		SFLog.warn("ACTIVE_PLAYER_RESET", {
+			"seat": local_seat,
+			"map_id": map_id
+		})
 
 	var built_state := OpsState.reset_state_from_map(d)
 	var map_lanes: Array = []
@@ -82,11 +125,31 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		arena.state = built_state
 		if "lane_system" in arena and arena.lane_system != null:
 			arena.lane_system.bind_state(built_state)
+	if "current_map_data" in arena:
+		arena.current_map_data = d.duplicate(true)
+	var dims: Vector2i = _resolve_grid_dims(d, built_state)
+	if arena.has_method("_configure_grid_spec"):
+		arena.call("_configure_grid_spec", int(dims.x), int(dims.y))
+	SFLog.allow_tag("MAP_GRID_SPEC_APPLIED")
+	SFLog.warn("MAP_GRID_SPEC_APPLIED", {
+		"map_id": map_id,
+		"grid_w": int(dims.x),
+		"grid_h": int(dims.y)
+	}, "", 0)
+	if arena.has_method("_apply_canon_camera_fit"):
+		arena.call("_apply_canon_camera_fit", "map_applier")
+		SFLog.allow_tag("MAP_FITCAM_APPLIED")
+		SFLog.warn("MAP_FITCAM_APPLIED", {
+			"map_id": map_id,
+			"grid_w": int(dims.x),
+			"grid_h": int(dims.y)
+		}, "", 0)
 	SFLog.info("MAP_APPLIED_STATE", {
 		"map_id": map_id,
 		"hive_count": built_state.hives.size(),
 		"state_iid": built_state.get_instance_id()
 	})
+	_dump_hive_snapshot(map_id, built_state)
 	_dump_lanes(map_id, built_state)
 
 	if arena.has_method("set_model"):
@@ -161,6 +224,101 @@ static func _is_runtime_non_dev_context() -> bool:
 	var tree := loop as SceneTree
 	return tree.get_root().get_node_or_null("DevMapRunner") == null
 
+static func _infer_active_seats_from_map(map_dict: Dictionary) -> Array:
+	var seats: Array = []
+	var hives_v: Variant = map_dict.get("hives", [])
+	if typeof(hives_v) == TYPE_ARRAY:
+		for hive_any in hives_v as Array:
+			if typeof(hive_any) != TYPE_DICTIONARY:
+				continue
+			var hive: Dictionary = hive_any as Dictionary
+			var owner_id: int = int(hive.get("owner_id", 0))
+			if owner_id < 1 or owner_id > 4:
+				continue
+			if not seats.has(owner_id):
+				seats.append(owner_id)
+	if seats.is_empty():
+		seats = [1, 2]
+	elif seats.size() == 1:
+		var only: int = int(seats[0])
+		if only == 1:
+			seats.append(2)
+		else:
+			seats.insert(0, 1)
+	seats.sort()
+	return seats
+
+static func _resolve_local_seat(roster: Array) -> int:
+	for entry_any in roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		if bool(entry.get("is_local", false)):
+			var seat: int = int(entry.get("seat", 1))
+			if seat >= 1 and seat <= 4:
+				return seat
+	return 1
+
+static func _resolve_team_ids_for_seats(map_dict: Dictionary, active_seats: Array) -> Dictionary:
+	var team_by_seat: Dictionary = {1: 1, 2: 2, 3: 3, 4: 4}
+	var has_all_four: bool = active_seats.has(1) and active_seats.has(2) and active_seats.has(3) and active_seats.has(4) and active_seats.size() == 4
+	if has_all_four:
+		var mode_override: String = _team_mode_override()
+		if mode_override == "ffa":
+			team_by_seat[1] = 1
+			team_by_seat[2] = 2
+			team_by_seat[3] = 3
+			team_by_seat[4] = 4
+			return team_by_seat
+		if mode_override == "2v2":
+			team_by_seat[1] = 1
+			team_by_seat[3] = 1
+			team_by_seat[2] = 2
+			team_by_seat[4] = 2
+			return team_by_seat
+	var explicit_any: Variant = map_dict.get("team_by_seat", map_dict.get("teams", null))
+	if typeof(explicit_any) == TYPE_DICTIONARY:
+		var explicit_dict: Dictionary = explicit_any as Dictionary
+		for key_any in explicit_dict.keys():
+			var seat: int = int(key_any)
+			if seat < 1 or seat > 4:
+				continue
+			var team_id: int = int(explicit_dict.get(key_any, seat))
+			if team_id <= 0:
+				team_id = seat
+			team_by_seat[seat] = team_id
+		return team_by_seat
+	if typeof(explicit_any) == TYPE_ARRAY:
+		for team_entry_any in explicit_any as Array:
+			if typeof(team_entry_any) != TYPE_DICTIONARY:
+				continue
+			var team_entry: Dictionary = team_entry_any as Dictionary
+			var team_id: int = int(team_entry.get("team_id", team_entry.get("id", 0)))
+			if team_id <= 0:
+				continue
+			var seats_any: Variant = team_entry.get("seats", [])
+			if typeof(seats_any) != TYPE_ARRAY:
+				continue
+			for seat_any in seats_any as Array:
+				var seat: int = int(seat_any)
+				if seat >= 1 and seat <= 4:
+					team_by_seat[seat] = team_id
+		return team_by_seat
+	if has_all_four:
+		team_by_seat[1] = 1
+		team_by_seat[3] = 1
+		team_by_seat[2] = 2
+		team_by_seat[4] = 2
+	return team_by_seat
+
+static func _team_mode_override() -> String:
+	if not OpsState.has_method("get_team_mode_override"):
+		return ""
+	var mode: String = str(OpsState.call("get_team_mode_override")).strip_edges().to_lower()
+	if mode == "ffa" or mode == "2v2":
+		return mode
+	return ""
+
 static func _dump_lanes(map_id: String, state: GameState) -> void:
 	if state == null:
 		return
@@ -199,6 +357,45 @@ static func _dump_lanes(map_id: String, state: GameState) -> void:
 	var json := JSON.stringify(payload)
 	SFLog.info("LANE_DUMP_JSON", {"json": json})
 
+static func _dump_hive_snapshot(map_id: String, state: GameState) -> void:
+	if state == null:
+		return
+	SFLog.allow_tag("MAP_HIVE_SNAPSHOT")
+	var hives_out: Array = []
+	for hive_any in state.hives:
+		if hive_any == null:
+			continue
+		var hive: HiveData = hive_any as HiveData
+		hives_out.append({
+			"id": int(hive.id),
+			"owner_id": int(hive.owner_id),
+			"grid_pos": Vector2i(int(hive.grid_pos.x), int(hive.grid_pos.y))
+		})
+	hives_out.sort_custom(Callable(MapApplier, "_hive_dump_less"))
+	SFLog.warn("MAP_HIVE_SNAPSHOT", {
+		"map_id": map_id,
+		"hive_count": hives_out.size(),
+		"hives": hives_out
+	}, "", 0)
+
+static func _resolve_grid_dims(map_dict: Dictionary, state: GameState) -> Vector2i:
+	var w: int = int(map_dict.get("grid_w", map_dict.get("width", 0)))
+	var h: int = int(map_dict.get("grid_h", map_dict.get("height", 0)))
+	if w > 0 and h > 0:
+		return Vector2i(w, h)
+	if state != null:
+		var max_x: int = -1
+		var max_y: int = -1
+		for hive_any in state.hives:
+			var hive: HiveData = hive_any as HiveData
+			if hive == null:
+				continue
+			max_x = maxi(max_x, int(hive.grid_pos.x))
+			max_y = maxi(max_y, int(hive.grid_pos.y))
+		if max_x >= 0 and max_y >= 0:
+			return Vector2i(max_x + 1, max_y + 1)
+	return Vector2i(8, 12)
+
 static func _lane_dump_less(a: Dictionary, b: Dictionary) -> bool:
 	var a_min: int = mini(int(a.get("a_id", -1)), int(a.get("b_id", -1)))
 	var b_min: int = mini(int(b.get("a_id", -1)), int(b.get("b_id", -1)))
@@ -211,6 +408,9 @@ static func _lane_dump_less(a: Dictionary, b: Dictionary) -> bool:
 			return a_key < b_key
 		return a_max < b_max
 	return a_min < b_min
+
+static func _hive_dump_less(a: Dictionary, b: Dictionary) -> bool:
+	return int(a.get("id", -1)) < int(b.get("id", -1))
 
 static func _dev_seed_lanes_and_spawns(model: Dictionary) -> void:
 	var spawns_v: Variant = model.get("spawns", [])

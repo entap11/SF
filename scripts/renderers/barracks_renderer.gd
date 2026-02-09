@@ -12,7 +12,7 @@ const BARRACKS_ACCENT_SHADER := preload("res://assets/shaders/barracks_accent_re
 
 const LOG_INTERVAL_MS: int = 1000
 const BARRACKS_SIZE_PX: float = 10.0
-const BARRACKS_VISUAL_SCALE: float = 1.5
+const BARRACKS_VISUAL_SCALE: float = 1.05
 const BARRACKS_PITCH_SCALE_X := 1.00
 const BARRACKS_PITCH_SCALE_Y := 0.88
 const BARRACKS_SELECTOR_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_large.tres"
@@ -22,7 +22,11 @@ const TARGET_RING_STEPS: int = 48
 const ORDER_LABEL_RADIUS_PX: float = 7.0
 const ORDER_LABEL_FONT_SIZE: int = 12
 const DRAW_TARGET_LINKS := false
+const DRAW_CONTROL_LINKS := false
 const NPC_ACCENT_COLOR := Color(0.55, 0.50, 0.70, 1.0)
+const CONTROL_LINK_ALPHA: float = 0.52
+const CONTROL_LINK_WIDTH_PX: float = 1.8
+const CONTROL_LINK_NODE_RADIUS_PX: float = 1.9
 
 var model: Dictionary = {}
 var barracks: Array = []
@@ -90,7 +94,8 @@ func _draw() -> void:
 			ring_owner_id = owner_id
 		var color: Color = HiveRenderer._owner_color(owner_id)
 		color.a = 0.9
-		_draw_control_links(pos, bd, color, hives_by_id)
+		if DRAW_CONTROL_LINKS:
+			_draw_control_links(pos, bd, color, hives_by_id)
 		var owner_key := SpriteRegistry.owner_key(owner_id)
 		var state_key := "active" if active else "base"
 		var key := "barracks.%s.%s" % [state_key, owner_key]
@@ -239,20 +244,24 @@ func _sync_barracks_sprites() -> void:
 			anchor.queue_free()
 		_barracks_nodes.erase(id)
 
-func _draw_control_links(pos: Vector2, bd: Dictionary, base_color: Color, hives_by_id: Dictionary) -> void:
+func _draw_control_links(pos: Vector2, bd: Dictionary, _base_color: Color, hives_by_id: Dictionary) -> void:
 	var control_v: Variant = bd.get("control_hive_ids", bd.get("required_hive_ids", []))
 	if typeof(control_v) != TYPE_ARRAY:
 		return
-	var link_color: Color = base_color
-	link_color.a = 0.25
 	for hive_id_v in control_v as Array:
 		var hive_id: int = int(hive_id_v)
 		if not hives_by_id.has(hive_id):
 			continue
 		var hive: Dictionary = hives_by_id[hive_id]
 		var hive_pos_v: Variant = hive.get("pos", null)
-		if hive_pos_v is Vector2:
-			draw_line(pos, hive_pos_v as Vector2, link_color, 1.0)
+		if not (hive_pos_v is Vector2):
+			continue
+		var hive_pos: Vector2 = hive_pos_v as Vector2
+		var owner_id: int = int(hive.get("owner_id", 0))
+		var link_color: Color = _circuit_link_color(owner_id, CONTROL_LINK_ALPHA)
+		draw_line(pos, hive_pos, link_color, CONTROL_LINK_WIDTH_PX)
+		draw_circle(pos, CONTROL_LINK_NODE_RADIUS_PX, link_color)
+		draw_circle(hive_pos, CONTROL_LINK_NODE_RADIUS_PX, link_color)
 
 func _barracks_anchor_pos(bd: Dictionary, hives_by_id: Dictionary) -> Vector2:
 	var ids := [2, 3, 7, 8]
@@ -296,6 +305,13 @@ func _barracks_accent_color(owner_id: int) -> Color:
 		{"owner_id": owner_id}
 	)
 	return NPC_ACCENT_COLOR
+
+func _circuit_link_color(owner_id: int, alpha_value: float) -> Color:
+	var color: Color = NPC_ACCENT_COLOR
+	if owner_id > 0:
+		color = HiveRenderer._owner_color(owner_id)
+	color.a = alpha_value
+	return color
 
 func _is_prematch() -> bool:
 	return OpsState.match_phase == OpsState.MatchPhase.PREMATCH and int(OpsState.prematch_remaining_ms) > 0

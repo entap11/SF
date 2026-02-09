@@ -26,7 +26,11 @@ const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := 1.10
 const HEIGHT_LARGE_SCALE := 1.20
 const HEIGHT_MAX_SCALE := 1.30
-const HIVE_VISUAL_SCALE: float = 0.75
+const HIVE_VISUAL_SCALE: float = 1.125
+const HIVE_WIDTH_MULT: float = 0.90
+const HIVE_HEIGHT_MULT: float = 1.28
+const HIVE_COLOR_SAT_BOOST: float = 1.22
+const HIVE_COLOR_VAL_BOOST: float = 1.12
 const HIVE_RING_SCALE: float = 0.85
 const HIVE_LABEL_SCALE_COMP: bool = true
 const POWER_LABEL_OFFSET := Vector2(-10.0, -30.0)
@@ -369,9 +373,9 @@ static func _team_color_for_player(player_id: int) -> Color:
 		1:
 			return Color8(255, 210, 0)
 		2:
-			return Color(0.2, 1.0, 0.35, 1.0)
-		3:
 			return Color8(229, 57, 53)
+		3:
+			return Color(0.2, 1.0, 0.35, 1.0)
 		4:
 			return Color8(30, 136, 229)
 		_:
@@ -380,6 +384,8 @@ static func _team_color_for_player(player_id: int) -> Color:
 func _apply_tint(owner_id_value: int, power_value: int) -> void:
 	_ensure_shader_material()
 	var team_color: Color = _team_color_for_player(owner_id_value)
+	if owner_id_value > 0:
+		team_color = _boost_team_color(team_color)
 	owner_color = team_color
 	var t: float = clamp(
 		float(power_value) / float(LARGE_MAX_POWER),
@@ -407,6 +413,11 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 		_shader_mat.set_shader_parameter("team_color", team_color)
 		_shader_mat.set_shader_parameter("glow_strength", lerp(0.6, 1.0, t))
 
+func _boost_team_color(in_color: Color) -> Color:
+	var boosted_s: float = clampf(in_color.s * HIVE_COLOR_SAT_BOOST, 0.0, 1.0)
+	var boosted_v: float = clampf(in_color.v * HIVE_COLOR_VAL_BOOST, 0.0, 1.0)
+	return Color.from_hsv(in_color.h, boosted_s, boosted_v, 1.0)
+
 func _height_for_tier(base_height: float, tier: int) -> float:
 	var small_h := height_small_px if height_small_px > 0.0 else base_height
 	var med_h := height_med_px if height_med_px > 0.0 else base_height * HEIGHT_MED_SCALE
@@ -433,9 +444,9 @@ func _apply_sprite() -> void:
 	if _tex == null:
 		return
 	var legacy_size := Vector2(radius_px * 2.0, radius_px * 2.0) * _sprite_scale
-	var width := base_width_px if base_width_px > 0.0 else legacy_size.x
+	var width := (base_width_px if base_width_px > 0.0 else legacy_size.x) * HIVE_WIDTH_MULT
 	var base_height := height_small_px if height_small_px > 0.0 else legacy_size.y
-	var height := _height_for_tier(base_height, _resolve_tier(power))
+	var height := _height_for_tier(base_height, _resolve_tier(power)) * HIVE_HEIGHT_MULT
 	_current_size = Vector2(width, height)
 	var tex_size := Vector2(float(_tex.get_width()), float(_tex.get_height()))
 	if tex_size.x > 0.0 and tex_size.y > 0.0:

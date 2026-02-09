@@ -60,6 +60,7 @@ func setup(_sim_tuning: SimTuning = null) -> void:
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
+	SFLog.allow_tag("HIVE_FLIP")
 	units.clear()
 	units_set_version = 0
 	_last_units_set_count = -1
@@ -83,8 +84,6 @@ func set_sim_events(sim_events: SimEvents) -> void:
 
 func tick(dt: float) -> void:
 	if state == null:
-		return
-	if OpsState.has_outcome():
 		return
 	sim_time_us += int(round(dt * 1000000.0))
 	_process_lane_retract_requests()
@@ -375,6 +374,9 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 						int(lane_id),
 						vfx_intensity
 					)
+					var death_intensity: float = clampf(float(kill) * 0.55, 0.7, 2.0)
+					_emit_unit_death_event(a, "collision", death_intensity, impact, lane_dir)
+					_emit_unit_death_event(b, "collision", death_intensity, impact, lane_dir)
 				if debug_collisions:
 					SFLog.info("UNIT_COLLISION_PRE", {
 						"lane_id": lane_id,
@@ -591,7 +593,15 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 			to_id
 		)
 	if int(hive.owner_id) == owner_id:
-		hive.power = min(SimTuning.MAX_POWER, int(hive.power) + amount)
+		var before_power_same_owner: int = int(hive.power)
+		var raw_after: int = before_power_same_owner + amount
+		hive.power = min(SimTuning.MAX_POWER, raw_after)
+		if before_power_same_owner >= SimTuning.MAX_POWER:
+			_pass_through_arrival(hive, owner_id, amount)
+		else:
+			var overflow: int = maxi(0, raw_after - SimTuning.MAX_POWER)
+			if overflow > 0:
+				_pass_through_arrival(hive, owner_id, overflow)
 	else:
 		hive.power -= amount
 		if hive.power <= 0:
@@ -604,7 +614,7 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	var after_owner := int(hive.owner_id)
 	var after_power := int(hive.power)
 	if before_owner != after_owner:
-		SFLog.info("HIVE_FLIP", {
+		SFLog.warn("HIVE_FLIP", {
 			"hive_id": to_id,
 			"from": before_owner,
 			"to": after_owner,
@@ -638,6 +648,86 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		})
 	_in_owner_update = false
 
+func _pass_through_arrival(hive: HiveData, owner_id: int, payload: int) -> void:
+	if state == null or hive == null or owner_id <= 0 or payload <= 0:
+		return
+	var targets: Array = _pass_through_targets(hive)
+	if targets.is_empty():
+		return
+	var target_count: int = targets.size()
+	var remaining: int = payload
+	while remaining > 0:
+		var target_index: int = int(hive.pass_rr_index % target_count)
+		var target_any: Variant = targets[target_index]
+		if typeof(target_any) != TYPE_DICTIONARY:
+			break
+		var target: Dictionary = target_any as Dictionary
+		var target_id: int = int(target.get("target_id", -1))
+		var lane_id: int = int(target.get("lane_id", -1))
+		hive.pass_rr_index += 1
+		_spawn_pass_through_unit(hive, owner_id, target_id, lane_id)
+		remaining -= 1
+
+func _pass_through_targets(hive: HiveData) -> Array:
+	var outgoing: Array = []
+	if state == null or hive == null:
+		return outgoing
+	var hive_id: int = int(hive.id)
+	for lane_any in state.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		if int(lane.a_id) == hive_id and bool(lane.send_a):
+			outgoing.append({"target_id": int(lane.b_id), "lane_id": int(lane.id)})
+		elif int(lane.b_id) == hive_id and bool(lane.send_b):
+			outgoing.append({"target_id": int(lane.a_id), "lane_id": int(lane.id)})
+	if outgoing.is_empty():
+		return outgoing
+	if hive.pass_preferred_targets.is_empty():
+		return outgoing
+	var preferred: Array = []
+	for preferred_target_any in hive.pass_preferred_targets:
+		var preferred_target: int = int(preferred_target_any)
+		for entry_any in outgoing:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_any as Dictionary
+			if int(entry.get("target_id", -1)) == preferred_target:
+				preferred.append(entry)
+				break
+	if preferred.is_empty():
+		return outgoing
+	return preferred
+
+func _spawn_pass_through_unit(hive: HiveData, owner_id: int, target_id: int, lane_id: int) -> void:
+	if hive == null or owner_id <= 0 or target_id <= 0 or lane_id <= 0:
+		return
+	var lane: LaneData = _find_lane_by_id(lane_id)
+	if lane == null:
+		return
+	var a_id: int = int(lane.a_id)
+	var b_id: int = int(lane.b_id)
+	var from_id: int = int(hive.id)
+	var dir: int = 0
+	if from_id == a_id and target_id == b_id:
+		dir = 1
+	elif from_id == b_id and target_id == a_id:
+		dir = -1
+	else:
+		return
+	var pass_unit: Dictionary = {
+		"from_id": from_id,
+		"to_id": target_id,
+		"owner_id": owner_id,
+		"amount": 1,
+		"lane_id": lane_id,
+		"a_id": a_id,
+		"b_id": b_id,
+		"dir": dir,
+		"arrive_source": "pass_through"
+	}
+	spawn_unit(pass_unit)
+
 func _arrival_impact_world_pos(unit: Dictionary, to_hive_id: int) -> Vector2:
 	var pos_any: Variant = unit.get("pos", null)
 	if pos_any is Vector2:
@@ -660,6 +750,64 @@ func _arrival_impact_dir(unit: Dictionary) -> Vector2:
 				travel_dir = -travel_dir
 			return travel_dir
 	return Vector2.RIGHT
+
+func _unit_world_pos(unit: Dictionary) -> Vector2:
+	var pos_any: Variant = unit.get("pos", null)
+	if pos_any is Vector2:
+		return pos_any as Vector2
+	var from_any: Variant = unit.get("from_pos", null)
+	var to_any: Variant = unit.get("to_pos", null)
+	if from_any is Vector2 and to_any is Vector2:
+		var t: float = clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
+		return (from_any as Vector2).lerp(to_any as Vector2, t)
+	return Vector2.ZERO
+
+func _unit_travel_dir(unit: Dictionary) -> Vector2:
+	var from_any: Variant = unit.get("from_pos", null)
+	var to_any: Variant = unit.get("to_pos", null)
+	if from_any is Vector2 and to_any is Vector2:
+		var dir_vec: Vector2 = (to_any as Vector2) - (from_any as Vector2)
+		if dir_vec.length_squared() > 0.000001:
+			var forward: Vector2 = dir_vec.normalized()
+			if _unit_dir(unit) < 0:
+				forward = -forward
+			return forward
+	return Vector2.RIGHT
+
+func _emit_unit_death_event(
+	unit: Dictionary,
+	reason: String,
+	intensity: float = 1.0,
+	pos_hint: Variant = null,
+	dir_hint: Variant = null
+) -> void:
+	if _sim_events == null:
+		return
+	var owner_id: int = int(unit.get("owner_id", 0))
+	if owner_id <= 0:
+		return
+	var world_pos: Vector2 = _unit_world_pos(unit)
+	if pos_hint is Vector2:
+		world_pos = pos_hint as Vector2
+	var lane_dir: Vector2 = _unit_travel_dir(unit)
+	if dir_hint is Vector2:
+		var hint_dir: Vector2 = dir_hint as Vector2
+		if hint_dir.length_squared() > 0.000001:
+			lane_dir = hint_dir.normalized()
+	var lane_id: int = int(unit.get("lane_id", -1))
+	var unit_id: int = int(unit.get("id", -1))
+	var amount: int = maxi(1, int(unit.get("amount", 1)))
+	var vfx_intensity: float = clampf(maxf(intensity, float(amount) * 0.35), 0.5, 2.0)
+	_sim_events.emit_signal(
+		"unit_death",
+		world_pos,
+		lane_dir,
+		owner_id,
+		vfx_intensity,
+		lane_id,
+		unit_id,
+		reason
+	)
 
 func _unit_has_arrived(unit: Dictionary) -> bool:
 	var dir: int = _unit_dir(unit)
@@ -872,6 +1020,7 @@ func _remove_unit(unit_id: int, reason: String) -> bool:
 		var unit: Dictionary = units[i] as Dictionary
 		if int(unit.get("id", -1)) != unit_id:
 			continue
+		_emit_unit_death_event(unit, reason)
 		units.remove_at(i)
 		_sync_units_to_state()
 		if SFLog.verbose_sim:

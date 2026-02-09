@@ -2,14 +2,14 @@ extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const MAP_BUILDER_SCRIPT := preload("res://scenes/MapBuilder.gd")
-const DEFAULT_MAP_PATH := "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_TOWER_1.json"
 const SHELL_BUFFER_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer"
 const SHELL_BUFFER_ROOT_PATH: String = SHELL_BUFFER_LAYER_PATH + "/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
+const TRACE_MAIN_LOGS: bool = false
 
 @export var start_in_menu := true
 
-# Dev-only: when ON, Main will NOT auto-load DEFAULT_MAP_PATH (DevMapLoader becomes source of truth).
+# Dev-only: when ON, DevMapLoader is source of truth for map selection.
 @export var enable_dev_map_loader := true
 
 # If true, DevMapLoader stays visible even after Start Game.
@@ -27,11 +27,11 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	if SFLog.LOGGING_ENABLED:
-		print("MAIN: _ready scene=", get_tree().current_scene.scene_file_path)
+		if TRACE_MAIN_LOGS: print("MAIN: _ready scene=", get_tree().current_scene.scene_file_path)
 	if SFLog.LOGGING_ENABLED:
-		print("MAIN FLAGS: start_in_menu=", start_in_menu,
-			" enable_dev_map_loader=", enable_dev_map_loader,
-			" show_dev_map_loader_in_game=", show_dev_map_loader_in_game)
+		if TRACE_MAIN_LOGS: print("MAIN FLAGS: start_in_menu=", start_in_menu,
+				" enable_dev_map_loader=", enable_dev_map_loader,
+				" show_dev_map_loader_in_game=", show_dev_map_loader_in_game)
 	_log_top_buffer_layer_once()
 	call_deferred("_log_ui_debug_once")
 
@@ -72,14 +72,19 @@ func _ready() -> void:
 		# If you skip menu, start game immediately.
 		start_game()
 
-	# Auto-load a default map only when dev loader is OFF (real gameplay path)
+	# Map load is explicit: either pending map from Gamebot or DevMapLoader selection.
 	if arena != null:
 		if enable_dev_map_loader and _has_dev_map_loader() and not has_pending_map:
 			return
 
-		var map_path: String = DEFAULT_MAP_PATH
-		if has_pending_map:
-			map_path = pending_map_id
+		if not has_pending_map:
+			SFLog.warn("MAIN_NO_PENDING_MAP", {
+				"reason": "explicit_map_selection_required",
+				"dev_loader_enabled": enable_dev_map_loader
+			})
+			return
+
+		var map_path: String = pending_map_id
 
 		var builder := MAP_BUILDER_SCRIPT.new()
 		if arena.has_method("clear_map"):
@@ -127,7 +132,7 @@ func _log_ui_debug_once() -> void:
 	if tb != null and tb is Control:
 		tb_rect = (tb as Control).get_global_rect()
 
-	print("UI_DEBUG2:",
+	if TRACE_MAIN_LOGS: print("UI_DEBUG2:",
 		" main_type=", main.get_class() if main else "nil",
 		" main_pos=", _node_pos(main),
 		" main_scale=", _node_scale(main),
@@ -144,14 +149,14 @@ func _log_ui_debug_once() -> void:
 		var top_rect: Rect2 = top_buffer.get_global_rect()
 		var top_y: float = top_rect.position.y
 		var aligned_to_top: bool = top_y >= -1.0 and top_y <= 1.0
-		print("UI_BUFFER_ALIGN:",
+		if TRACE_MAIN_LOGS: print("UI_BUFFER_ALIGN:",
 			" path=", str(top_buffer.get_path()),
 			" rect=", top_rect,
 			" top_y=", top_y,
 			" aligned=", aligned_to_top
 		)
 	else:
-		print("UI_BUFFER_ALIGN: top buffer missing or non-control")
+		if TRACE_MAIN_LOGS: print("UI_BUFFER_ALIGN: top buffer missing or non-control")
 
 
 func _has_dev_map_loader() -> bool:
@@ -161,7 +166,7 @@ func _log_top_buffer_layer_once() -> void:
 	var buffer_node: Node = get_node_or_null(SHELL_TOP_BUFFER_PATH)
 	var canvas_layer: CanvasLayer = _nearest_canvas_layer(buffer_node)
 	var canvas_item: CanvasItem = buffer_node as CanvasItem
-	print("TEMP_BUFFER_LAYER path=", str(buffer_node.get_path()) if buffer_node != null else "<missing>",
+	if TRACE_MAIN_LOGS: print("TEMP_BUFFER_LAYER path=", str(buffer_node.get_path()) if buffer_node != null else "<missing>",
 		" inside_canvas_layer=", canvas_layer != null,
 		" canvas_layer=", int(canvas_layer.layer) if canvas_layer != null else 0,
 		" z_index=", int(canvas_item.z_index) if canvas_item != null else 0)

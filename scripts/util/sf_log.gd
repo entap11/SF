@@ -10,7 +10,7 @@ static var QUIET_MODE: bool = true
 static var ALLOW_TAGS: PackedStringArray = PackedStringArray(["FRAME_HITCH"])
 
 # Default runtime level (edit this to change verbosity).
-static var LOG_LEVEL: int = Level.INFO
+static var LOG_LEVEL: int = Level.WARN
 static var CHANNEL_ENABLED: Dictionary = {}
 static var verbose_sim: bool = false
 

@@ -28,7 +28,7 @@ static func get_instance() -> SpriteRegistry:
 			return _instance
 		var node := SpriteRegistry.new()
 		node.name = "SpriteRegistry"
-		root.add_child(node)
+		root.call_deferred("add_child", node)
 		_instance = node
 		return _instance
 	return null
@@ -97,46 +97,80 @@ func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
 		_tex_alpha_cache[key] = null
 		return null
 
-	# Only do this for units (and only when the source has no alpha).
-	if not key.begins_with("unit."):
+	var colorkey: Dictionary = get_colorkey(key)
+	var colorkey_enabled: bool = bool(colorkey.get("enabled", false))
+	var auto_key_white: bool = _should_auto_key_white(key)
+	if not colorkey_enabled and not auto_key_white:
 		_tex_alpha_cache[key] = tex
 		return tex
 
-	var img := tex.get_image()
+	var img: Image = tex.get_image()
 	if img == null:
 		_tex_alpha_cache[key] = tex
 		return tex
 
-	# If image already has alpha, keep it.
-	var fmt := img.get_format()
-	var has_alpha := fmt in [
+	var fmt: int = img.get_format()
+	var has_alpha: bool = fmt in [
 		Image.FORMAT_RGBA8, Image.FORMAT_RGBAF,
 		Image.FORMAT_RGBAH
 	]
-	if has_alpha:
+	if has_alpha and not colorkey_enabled:
 		_tex_alpha_cache[key] = tex
 		return tex
 
-	# Convert to RGBA and punch out near-white.
 	img.convert(Image.FORMAT_RGBA8)
 	var w: int = img.get_width()
 	var h: int = img.get_height()
 
-	var thr: float = 0.20
+	var key_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+	var threshold: float = 0.20
+	var softness: float = 0.08
+	if colorkey_enabled:
+		var color_v: Variant = colorkey.get("color", key_color)
+		if color_v is Color:
+			key_color = color_v as Color
+		threshold = float(colorkey.get("threshold", threshold))
+		softness = float(colorkey.get("softness", softness))
+	softness = maxf(0.001, softness)
+
 	for y in range(h):
 		for x in range(w):
 			var c: Color = img.get_pixel(x, y)
-			var dr: float = absf(c.r - 1.0)
-			var dg: float = absf(c.g - 1.0)
-			var db: float = absf(c.b - 1.0)
+			var dr: float = absf(c.r - key_color.r)
+			var dg: float = absf(c.g - key_color.g)
+			var db: float = absf(c.b - key_color.b)
 			var d: float = maxf(dr, maxf(dg, db))
-			if d < thr:
+			if d <= threshold - softness:
 				c.a = 0.0
 				img.set_pixel(x, y, c)
+				continue
+			if d >= threshold + softness:
+				continue
+			var t: float = (d - (threshold - softness)) / (2.0 * softness)
+			c.a *= clampf(t, 0.0, 1.0)
+			img.set_pixel(x, y, c)
 
-	var itex := ImageTexture.create_from_image(img)
+	var itex: ImageTexture = ImageTexture.create_from_image(img)
+	if auto_key_white and key.begins_with("tower."):
+		SFLog.allow_tag("STRUCTURE_TEX_ALPHA_FIX")
+		SFLog.warn("STRUCTURE_TEX_ALPHA_FIX", {
+			"key": key,
+			"path": get_tex_path(key),
+			"size": Vector2i(w, h),
+			"threshold": threshold,
+			"softness": softness
+		}, "", 0)
 	_tex_alpha_cache[key] = itex
 	return itex
+
+func _should_auto_key_white(key: String) -> bool:
+	if key.begins_with("unit."):
+		return true
+	if key.begins_with("tower."):
+		return true
+	if key.begins_with("barracks."):
+		return true
+	return false
 
 func _ensure_loaded() -> void:
 	if _loaded:

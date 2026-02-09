@@ -4,7 +4,7 @@ class_name MapBuilderNode
 const SFLog := preload("res://scripts/util/sf_log.gd")
 
 @export var autoplay_in_game := false
-@export var map_id := "res://maps/json/MAP_SKETCH_SYM_8x12.json"
+@export var map_id: String = ""
 @export_node_path("Node2D") var arena_path: NodePath
 
 func _ready() -> void:
@@ -23,6 +23,10 @@ func build() -> void:
 	if arena == null:
 		if SFLog.LOGGING_ENABLED:
 			push_error("MAP_BUILDER_NODE: arena_path invalid")
+		return
+	if map_id.is_empty():
+		if SFLog.LOGGING_ENABLED:
+			push_error("MAP_BUILDER_NODE: map_id is empty")
 		return
 
 	if SFLog.LOGGING_ENABLED:

@@ -2,13 +2,13 @@ class_name PowerBar
 extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
-const FILL_SHADER: Shader = preload("res://assets/shaders/ui_fill_clip.gdshader")
 const DEBUG_FILL_PROBE: bool = false
+const TRACE_POWER_BAR_DUMP: bool = false
 
 const P1_COLOR: Color = Color(0.85, 0.72, 0.12, 0.95)
-const P2_COLOR: Color = Color(0.25, 0.95, 0.35, 0.95)
-const P3_COLOR: Color = Color(0.15, 0.45, 0.95, 0.95)
-const P4_COLOR: Color = Color(0.95, 0.20, 0.20, 0.95)
+const P2_COLOR: Color = Color(0.95, 0.20, 0.20, 0.95)
+const P3_COLOR: Color = Color(0.25, 0.95, 0.35, 0.95)
+const P4_COLOR: Color = Color(0.15, 0.45, 0.95, 0.95)
 const DEFAULT_TOP_PX: float = 10.0
 const DEFAULT_ART_SIZE: Vector2 = Vector2(960.0, 128.0)
 const FRAME_TEX_SIZE: Vector2 = Vector2(1536.0, 1024.0)
@@ -28,7 +28,7 @@ const SOCKET_PX_SIZE: Vector2 = Vector2(1231.0, 159.0)
 @export var allow_runtime_docking: bool = false
 @export var debug_socket: bool = false
 @export var drive_layout: bool = false
-@export var debug_draw_rect: bool = true
+@export var debug_draw_rect: bool = false
 
 @onready var _rig: Control = $Rig
 @onready var _frame_art: TextureRect = $Rig/FrameArt
@@ -36,12 +36,17 @@ const SOCKET_PX_SIZE: Vector2 = Vector2(1231.0, 159.0)
 @onready var _fill_mask: Control = $Rig/BarDock/FillMask
 @onready var _fill_p1: ColorRect = $Rig/BarDock/FillMask/FillP1
 @onready var _fill_p2: ColorRect = $Rig/BarDock/FillMask/FillP2
+@onready var _fill_p3: ColorRect = get_node_or_null("Rig/BarDock/FillMask/FillP3") as ColorRect
+@onready var _fill_p4: ColorRect = get_node_or_null("Rig/BarDock/FillMask/FillP4") as ColorRect
 
 var _state: GameState = null
 var _target_share_p1: float = 0.5
 var _target_share_p2: float = 0.5
 var _display_share_p1: float = 0.5
 var _display_share_p2: float = 0.5
+var _target_share_by_seat: Dictionary = {1: 0.5, 2: 0.5, 3: 0.0, 4: 0.0}
+var _display_share_by_seat: Dictionary = {1: 0.5, 2: 0.5, 3: 0.0, 4: 0.0}
+var _active_seats: Array = [1, 2]
 var _lerp_speed: float = 6.0
 var _max_width: float = 0.0
 var _base_size: Vector2 = Vector2.ZERO
@@ -206,11 +211,24 @@ func _ensure_fill_bounds() -> void:
 		_fill_p2.offset_top = 0.0
 		_fill_p2.offset_right = 0.0
 		_fill_p2.offset_bottom = 0.0
+	if _fill_p3 != null:
+		_fill_p3.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		_fill_p3.offset_left = 0.0
+		_fill_p3.offset_top = 0.0
+		_fill_p3.offset_right = 0.0
+		_fill_p3.offset_bottom = 0.0
+	if _fill_p4 != null:
+		_fill_p4.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		_fill_p4.offset_left = 0.0
+		_fill_p4.offset_top = 0.0
+		_fill_p4.offset_right = 0.0
+		_fill_p4.offset_bottom = 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_sf_debug_dump("ready")
+	if TRACE_POWER_BAR_DUMP:
+		_sf_debug_dump("ready")
 	if base_texture == null:
 		base_texture = _frame_art.texture
 	_apply_base_size()
@@ -255,13 +273,15 @@ func _ready() -> void:
 			"rig": _ui_node_info(_rig),
 			"frame": _ui_node_info(_frame_art),
 			"dock": _ui_node_info(_bar_dock),
-			"fill_mask": _ui_node_info(_fill_mask),
-			"fill_p1": _ui_node_info(_fill_p1),
-			"fill_p2": _ui_node_info(_fill_p2),
-			"progress": _progress_probe_info(),
-			"target_share_p1": _target_share_p1,
-			"display_share_p1": _display_share_p1
-		})
+				"fill_mask": _ui_node_info(_fill_mask),
+				"fill_p1": _ui_node_info(_fill_p1),
+				"fill_p2": _ui_node_info(_fill_p2),
+				"fill_p3": _ui_node_info(_fill_p3),
+				"fill_p4": _ui_node_info(_fill_p4),
+				"progress": _progress_probe_info(),
+				"target_share_p1": _target_share_p1,
+				"display_share_p1": _display_share_p1
+			})
 	SFLog.info("POWERBAR_READY_V3", {
 		"path": str(get_path()),
 		"dock_rect": str(_dock_rect_local),
@@ -315,8 +335,12 @@ func set_power_ratio(pct: float) -> void:
 
 func _process(delta: float) -> void:
 	var t: float = clampf(delta * _lerp_speed, 0.0, 1.0)
-	_display_share_p1 = lerpf(_display_share_p1, _target_share_p1, t)
-	_display_share_p2 = lerpf(_display_share_p2, _target_share_p2, t)
+	for seat in [1, 2, 3, 4]:
+		var current: float = float(_display_share_by_seat.get(seat, 0.0))
+		var target: float = float(_target_share_by_seat.get(seat, 0.0))
+		_display_share_by_seat[seat] = lerpf(current, target, t)
+	_display_share_p1 = float(_display_share_by_seat.get(1, 0.0))
+	_display_share_p2 = float(_display_share_by_seat.get(2, 0.0))
 	_apply_fill()
 	if DEBUG_FILL_PROBE:
 		_run_fill_probe()
@@ -329,12 +353,14 @@ func _process(delta: float) -> void:
 			"node": _ui_node_info(self),
 			"target_share_p1": _target_share_p1,
 			"display_share_p1": _display_share_p1,
-			"progress": _progress_probe_info(),
-			"fill_mask": _ui_node_info(_fill_mask),
-			"fill_p1": _ui_node_info(_fill_p1),
-			"fill_p2": _ui_node_info(_fill_p2),
-			"reason": "process_tick"
-		})
+				"progress": _progress_probe_info(),
+				"fill_mask": _ui_node_info(_fill_mask),
+				"fill_p1": _ui_node_info(_fill_p1),
+				"fill_p2": _ui_node_info(_fill_p2),
+				"fill_p3": _ui_node_info(_fill_p3),
+				"fill_p4": _ui_node_info(_fill_p4),
+				"reason": "process_tick"
+			})
 	_update_visibility_from_state()
 
 func _update_visibility_from_state() -> void:
@@ -354,6 +380,8 @@ func _update_visibility_from_state() -> void:
 		})
 
 func _sf_debug_dump(tag: String) -> void:
+	if not TRACE_POWER_BAR_DUMP:
+		return
 	var parent_node: Node = get_parent()
 	var parent_path: String = "<none>"
 	if parent_node != null and parent_node.is_inside_tree():
@@ -433,6 +461,8 @@ func _bind_hud() -> void:
 	var was_connected: bool = OpsState.hud_changed.is_connected(_on_hud_changed)
 	if not was_connected:
 		OpsState.hud_changed.connect(_on_hud_changed)
+	if not OpsState.state_changed.is_connected(_on_state_changed):
+		OpsState.state_changed.connect(_on_state_changed)
 	if not _powerbar_bind_logged:
 		_powerbar_bind_logged = true
 		SFLog.info("UI_POWERBAR_BIND", {
@@ -445,34 +475,49 @@ func _bind_hud() -> void:
 func _on_hud_changed(hud: Dictionary) -> void:
 	_apply_hud_snapshot(hud)
 
+func _on_state_changed(state_ref: GameState) -> void:
+	_state = state_ref
+	_apply_hud_snapshot(OpsState.get_hud_snapshot())
+
 func _apply_hud_snapshot(hud: Dictionary) -> void:
-	var totals: Dictionary = {1: 0.0, 2: 0.0}
+	var totals: Dictionary = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
 	var state_ref: GameState = OpsState.get_state()
+	_active_seats = _resolve_active_seats(state_ref, hud)
 	if state_ref != null:
 		totals = compute_team_power(state_ref)
 	elif hud != null:
 		totals[1] = _seat_power_from_hud(hud, 1)
 		totals[2] = _seat_power_from_hud(hud, 2)
-	_fill_p1.color = P1_COLOR
-	_fill_p2.color = P2_COLOR
+		totals[3] = _seat_power_from_hud(hud, 3)
+		totals[4] = _seat_power_from_hud(hud, 4)
+	if _fill_p1 != null:
+		_fill_p1.color = _seat_color(1)
+	if _fill_p2 != null:
+		_fill_p2.color = _seat_color(2)
+	if _fill_p3 != null:
+		_fill_p3.color = _seat_color(3)
+	if _fill_p4 != null:
+		_fill_p4.color = _seat_color(4)
 	apply_power_totals(totals)
-	var p1: float = float(totals.get(1, 0.0))
-	var p2: float = float(totals.get(2, 0.0))
-	var total: float = p1 + p2
+	var total: float = 0.0
+	for seat in _active_seats:
+		total += float(totals.get(int(seat), 0.0))
 	if absf(_target_share_p1 - _powerbar_last_ratio_logged) > 0.001 or absf(total - _powerbar_last_total_logged) > 0.1:
 		_powerbar_last_ratio_logged = _target_share_p1
 		_powerbar_last_total_logged = total
 		SFLog.info("UI_POWERBAR_UPDATE", {
 			"node": _ui_node_info(self),
-			"p1_power": p1,
-			"p2_power": p2,
+			"totals": totals,
+			"active_seats": _active_seats,
 			"total": total,
-			"target_share_p1": _target_share_p1,
-			"display_share_p1": _display_share_p1,
+			"target_share_by_seat": _target_share_by_seat,
+			"display_share_by_seat": _display_share_by_seat,
 			"progress": _progress_probe_info(),
 			"fill_mask": _ui_node_info(_fill_mask),
 			"fill_p1": _ui_node_info(_fill_p1),
-			"fill_p2": _ui_node_info(_fill_p2)
+			"fill_p2": _ui_node_info(_fill_p2),
+			"fill_p3": _ui_node_info(_fill_p3),
+			"fill_p4": _ui_node_info(_fill_p4)
 		})
 
 func _seat_power_from_hud(hud: Dictionary, seat: int) -> float:
@@ -485,7 +530,7 @@ func _seat_power_from_hud(hud: Dictionary, seat: int) -> float:
 	return float(entry.get("power", 0.0))
 
 func compute_team_power(state_ref: GameState) -> Dictionary:
-	var totals: Dictionary = {1: 0.0, 2: 0.0}
+	var totals: Dictionary = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
 	if state_ref == null:
 		return totals
 	var hive_list: Array = state_ref.hives
@@ -510,18 +555,64 @@ func compute_team_power(state_ref: GameState) -> Dictionary:
 	return totals
 
 func apply_power_totals(totals: Dictionary) -> void:
-	var p1: float = float(totals.get(1, 0.0))
-	var p2: float = float(totals.get(2, 0.0))
-	var total: float = p1 + p2
+	var total: float = 0.0
+	for seat in _active_seats:
+		total += float(totals.get(int(seat), 0.0))
 	if total <= 0.0:
 		_set_balanced()
 		return
-	_target_share_p1 = p1 / total
-	_target_share_p2 = p2 / total
+	for seat in [1, 2, 3, 4]:
+		_target_share_by_seat[seat] = 0.0
+	for seat_any in _active_seats:
+		var seat: int = int(seat_any)
+		_target_share_by_seat[seat] = float(totals.get(seat, 0.0)) / total
+	_target_share_p1 = float(_target_share_by_seat.get(1, 0.0))
+	_target_share_p2 = float(_target_share_by_seat.get(2, 0.0))
 
 func _set_balanced() -> void:
-	_target_share_p1 = 0.5
-	_target_share_p2 = 0.5
+	var seats: Array = _active_seats
+	if seats.is_empty():
+		seats = [1, 2]
+	var each: float = 1.0 / float(maxi(1, seats.size()))
+	for seat in [1, 2, 3, 4]:
+		_target_share_by_seat[seat] = 0.0
+	for seat_any in seats:
+		_target_share_by_seat[int(seat_any)] = each
+	_target_share_p1 = float(_target_share_by_seat.get(1, 0.0))
+	_target_share_p2 = float(_target_share_by_seat.get(2, 0.0))
+
+func _resolve_active_seats(state_ref: GameState, hud: Dictionary) -> Array:
+	var seats: Array = []
+	if state_ref != null:
+		var hive_list: Array = state_ref.hives
+		for hive_any in hive_list:
+			if hive_any == null:
+				continue
+			var owner_id: int = 0
+			if hive_any is HiveData:
+				var hive: HiveData = hive_any as HiveData
+				owner_id = int(hive.owner_id)
+			elif typeof(hive_any) == TYPE_DICTIONARY:
+				var hd: Dictionary = hive_any as Dictionary
+				owner_id = int(hd.get("owner_id", 0))
+			if owner_id >= 1 and owner_id <= 4 and not seats.has(owner_id):
+				seats.append(owner_id)
+	if seats.is_empty() and hud != null:
+		var active_v: Variant = hud.get("active_seats", [])
+		if typeof(active_v) == TYPE_ARRAY:
+			for seat_any in active_v as Array:
+				var seat: int = int(seat_any)
+				if seat >= 1 and seat <= 4 and not seats.has(seat):
+					seats.append(seat)
+	if seats.is_empty():
+		seats = [1, 2]
+	elif seats.size() == 1:
+		if int(seats[0]) == 1:
+			seats.append(2)
+		else:
+			seats.insert(0, 1)
+	seats.sort()
+	return seats
 
 func _seat_color(seat: int) -> Color:
 	match seat:
@@ -560,6 +651,7 @@ func _ensure_visual_nodes() -> void:
 	_fill_p2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fill_p1.color = P1_COLOR
 	_fill_p2.color = P2_COLOR
+	_ensure_extra_fill_nodes()
 	_ensure_fill_bounds()
 	_setup_fill_materials()
 	if not _should_auto_layout():
@@ -604,6 +696,24 @@ func _ensure_visual_nodes() -> void:
 	_fill_p2.offset_top = 0.0
 	_fill_p2.offset_right = 0.0
 	_fill_p2.offset_bottom = 0.0
+
+func _ensure_extra_fill_nodes() -> void:
+	if _fill_mask == null:
+		return
+	if _fill_p3 == null:
+		var p3: ColorRect = ColorRect.new()
+		p3.name = "FillP3"
+		p3.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		p3.color = _seat_color(3)
+		_fill_mask.add_child(p3)
+		_fill_p3 = p3
+	if _fill_p4 == null:
+		var p4: ColorRect = ColorRect.new()
+		p4.name = "FillP4"
+		p4.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		p4.color = _seat_color(4)
+		_fill_mask.add_child(p4)
+		_fill_p4 = p4
 
 func _apply_base_size() -> void:
 	var ref_tex: Texture2D = base_texture
@@ -733,31 +843,65 @@ func _sync_layout() -> void:
 		queue_redraw()
 
 func _apply_fill() -> void:
-	if _fill_p1 == null or _fill_p2 == null:
+	if _fill_mask == null or _fill_p1 == null or _fill_p2 == null:
 		return
-	var mat1: ShaderMaterial = _fill_p1.material as ShaderMaterial
-	var mat2: ShaderMaterial = _fill_p2.material as ShaderMaterial
-	if mat1 == null or mat2 == null:
-		if not _fill_missing_logged:
-			_fill_missing_logged = true
-			SFLog.warn("POWERBAR_FILL_MISSING", {
-				"expected": "ShaderMaterial on FillP1/FillP2",
-				"root": str(get_path())
-			})
-		return
-	var p1: float = clampf(_display_share_p1, 0.0, 1.0)
-	var p2: float = clampf(_display_share_p2, 0.0, 1.0)
-	mat1.set_shader_parameter("fill_ratio", p1)
-	mat2.set_shader_parameter("fill_ratio", p2)
+	var nodes: Dictionary = {
+		1: _fill_p1,
+		2: _fill_p2,
+		3: _fill_p3,
+		4: _fill_p4
+	}
+	var active: Array = _active_seats
+	if active.is_empty():
+		active = [1, 2]
+	var total_share: float = 0.0
+	for seat_any in active:
+		var seat: int = int(seat_any)
+		total_share += maxf(0.0, float(_display_share_by_seat.get(seat, 0.0)))
+	if total_share <= 0.0001:
+		total_share = float(active.size())
+	var mask_w: float = maxf(1.0, _fill_mask.size.x)
+	for seat in [1, 2, 3, 4]:
+		var node: ColorRect = nodes.get(seat, null) as ColorRect
+		if node == null:
+			continue
+		node.visible = false
+	var x_cursor: float = 0.0
+	var last_idx: int = active.size() - 1
+	for idx in range(active.size()):
+		var seat: int = int(active[idx])
+		var node: ColorRect = nodes.get(seat, null) as ColorRect
+		if node == null:
+			continue
+		var raw_share: float = maxf(0.0, float(_display_share_by_seat.get(seat, 0.0)))
+		var seat_share: float = raw_share / total_share
+		var width_px: float = mask_w * seat_share
+		if idx == last_idx:
+			width_px = maxf(0.0, mask_w - x_cursor)
+		node.visible = true
+		node.color = _seat_color(seat)
+		node.anchor_left = 0.0
+		node.anchor_top = 0.0
+		node.anchor_right = 0.0
+		node.anchor_bottom = 1.0
+		node.offset_left = x_cursor
+		node.offset_top = 0.0
+		node.offset_right = x_cursor + width_px
+		node.offset_bottom = 0.0
+		x_cursor += width_px
 	if not _fill_wired_logged:
 		_fill_wired_logged = true
 		SFLog.info("POWERBAR_FILL_WIRED", {
-			"ratio": p1,
+			"active_seats": active,
+			"shares": _display_share_by_seat,
 			"bar_path": str(get_path())
 		})
 
 func _ensure_debug_rect() -> void:
 	if not debug_draw_rect:
+		if _debug_rect != null and is_instance_valid(_debug_rect):
+			_debug_rect.queue_free()
+			_debug_rect = null
 		return
 	if _debug_rect != null and is_instance_valid(_debug_rect):
 		_debug_rect.set_anchors_preset(Control.PRESET_FULL_RECT, true)
@@ -850,19 +994,13 @@ func _run_fill_probe() -> void:
 
 func _setup_fill_materials() -> void:
 	if _fill_p1 != null:
-		var mat1: ShaderMaterial = _fill_p1.material as ShaderMaterial
-		if mat1 == null or mat1.shader != FILL_SHADER:
-			mat1 = ShaderMaterial.new()
-			mat1.shader = FILL_SHADER
-			_fill_p1.material = mat1
+		_fill_p1.material = null
 	if _fill_p2 != null:
-		var mat2: ShaderMaterial = _fill_p2.material as ShaderMaterial
-		if mat2 == null or mat2.shader != FILL_SHADER:
-			mat2 = ShaderMaterial.new()
-			mat2.shader = FILL_SHADER
-			_fill_p2.material = mat2
-		if mat2 != null:
-			mat2.set_shader_parameter("align_right", true)
+		_fill_p2.material = null
+	if _fill_p3 != null:
+		_fill_p3.material = null
+	if _fill_p4 != null:
+		_fill_p4.material = null
 
 func _enforce_layer_order() -> void:
 	if _rig == null:
@@ -873,11 +1011,19 @@ func _enforce_layer_order() -> void:
 	_fill_mask.z_as_relative = false
 	_fill_p1.z_as_relative = false
 	_fill_p2.z_as_relative = false
+	if _fill_p3 != null:
+		_fill_p3.z_as_relative = false
+	if _fill_p4 != null:
+		_fill_p4.z_as_relative = false
 	_frame_art.z_as_relative = false
 	_bar_dock.z_index = 0
 	_fill_mask.z_index = 0
 	_fill_p1.z_index = 0
 	_fill_p2.z_index = 0
+	if _fill_p3 != null:
+		_fill_p3.z_index = 0
+	if _fill_p4 != null:
+		_fill_p4.z_index = 0
 	_frame_art.z_index = 10
 	_rig.move_child(_frame_art, _rig.get_child_count() - 1)
 	if has_theme_stylebox_override("panel"):

@@ -17,7 +17,6 @@ const CANON_GRID_W := 8
 const CANON_GRID_H := 12
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
-const DEFAULT_DEV_MAP_ID := "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_TOWER_1.json"
 var map_id := ""
 var _arena: Node2D = null
 var _builder := preload("res://scripts/maps/map_builder.gd").new()
@@ -135,12 +134,13 @@ func _populate_picker() -> void:
 		MapPicker.add_item(p.get_file())
 		MapPicker.set_item_metadata(MapPicker.item_count - 1, p)
 
-	var preferred_idx := -1
-	for i in range(maps.size()):
-		if maps[i] == DEFAULT_DEV_MAP_ID:
-			preferred_idx = i
-			break
-	var select_idx := preferred_idx if preferred_idx >= 0 else 0
+	var selected_idx: int = 0
+	if not map_id.is_empty():
+		for i in range(maps.size()):
+			if maps[i] == map_id:
+				selected_idx = i
+				break
+	var select_idx: int = selected_idx
 	MapPicker.select(select_idx)
 	map_id = str(MapPicker.get_item_metadata(select_idx))
 	StatusLbl.text = "Ready: %s" % map_id

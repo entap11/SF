@@ -14,6 +14,7 @@ const WallRenderer := preload("res://scripts/renderers/wall_renderer.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
+const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
 
 const GRID_W := 8
 const GRID_H := 12
@@ -84,9 +85,16 @@ const HITCH_COOLDOWN_MS: int = 250
 const DBG_HITCH: bool = false
 const HITCH_MS: float = 25.0
 const SHELL_HUD_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer"
+const SHELL_HUD_ROOT_PATH: String = SHELL_HUD_LAYER_PATH + "/HUDRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_HUD_LAYER_PATH + "/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground"
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
+const SHELL_OUTCOME_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/OutcomeOverlay"
+const SHELL_WIN_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/WinOverlay"
 const COUNTDOWN_DEBUG_SCRIPT: Script = preload("res://scripts/ui/prematch_countdown_view.gd")
+const PREMATCH_RECORDS_WIDTH_PX: float = 520.0
+const PREMATCH_RECORDS_HEIGHT_PX: float = 132.0
+const PREMATCH_RECORDS_TOP_GAP_PX: float = 24.0
+const PREMATCH_RECORDS_FONT_SIZE: int = 17
 
 var state: GameState
 var sel: SelectionState
@@ -144,6 +152,8 @@ const FIT_MARGIN := 0.96
 const FIT_DEBUG := true
 const FIT_WIDTH := 0
 const FIT_HEIGHT := 1
+const PLAYFIELD_OUTLINE_Z_INDEX: int = 4095
+const TRACE_ARENA_PRINTS: bool = false
 const CAMFIT_PAD_PX: float = 20.0
 const SAFE_PAD_PX: float = 20.0
 const SAFE_HIVE_PAD_PX: float = 40.0
@@ -179,7 +189,10 @@ var _prematch_countdown_faded: bool = false
 var _power_bar_reveal_started: bool = false
 var _prematch_ui_bind_logged: bool = false
 var _prematch_ui_state_logged: bool = false
+var _postmatch_ui_missing_logged: bool = false
 var _match_started: bool = false
+var _match_records: MatchRecordsStore = MatchRecordsStore.new()
+var _match_record_committed: bool = false
 var _legacy_tick_fenced_logged: bool = false
 @export var autostart: bool = false:
 	set(value):
@@ -194,7 +207,7 @@ var _legacy_tick_fenced_logged: bool = false
 @export var cam_fit_mode: int = 0 # 0=contain(min), 1=fit_width, 2=fit_height
 @export var overtime_start_ms: float = OVERTIME_START_MS
 @export var draw_arena_rect_debug := false
-@export var draw_world_bounds_debug: bool = true
+@export var draw_world_bounds_debug: bool = false
 @export var use_dev_safe_centering := false
 @export var FITCAM_POLICY := FIT_WIDTH
 @export var debug_buff_loadout: Array[String] = [
@@ -349,6 +362,7 @@ func _ready() -> void:
 		OpsState.state_changed.connect(_on_ops_state_changed)
 	if not OpsState.ops_state_changed.is_connected(_on_ops_state_changed_iid):
 		OpsState.ops_state_changed.connect(_on_ops_state_changed_iid)
+	_ensure_post_match_ui()
 	if outcome_overlay != null and not outcome_overlay.post_match_action.is_connected(_on_post_match_action):
 		outcome_overlay.post_match_action.connect(_on_post_match_action)
 	sel = SelectionState.new()
@@ -417,6 +431,227 @@ func _resolve_power_bar_node() -> PowerBar:
 	if pb != null:
 		return pb
 	return null
+
+func _resolve_hud_root() -> Control:
+	var hud_root: Control = get_node_or_null(SHELL_HUD_ROOT_PATH) as Control
+	if hud_root != null:
+		return hud_root
+	var hud_layer: CanvasLayer = get_node_or_null(SHELL_HUD_LAYER_PATH) as CanvasLayer
+	if hud_layer != null:
+		var from_layer: Control = hud_layer.get_node_or_null("HUDRoot") as Control
+		if from_layer != null:
+			return from_layer
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		var found: Node = scene.find_child("HUDRoot", true, false)
+		if found is Control:
+			return found as Control
+	var legacy_ui: Control = get_node_or_null("../UI") as Control
+	return legacy_ui
+
+func _ensure_post_match_ui() -> void:
+	outcome_overlay = _resolve_or_create_outcome_overlay()
+	win_overlay = _resolve_or_create_win_overlay()
+	if outcome_overlay != null and not outcome_overlay.post_match_action.is_connected(_on_post_match_action):
+		outcome_overlay.post_match_action.connect(_on_post_match_action)
+	var ui_ready: bool = outcome_overlay != null and win_overlay != null
+	if ui_ready:
+		if _postmatch_ui_missing_logged:
+			SFLog.warn("POSTMATCH_UI_RECOVERED", {
+				"outcome_path": str(outcome_overlay.get_path()),
+				"win_path": str(win_overlay.get_path())
+			})
+		_postmatch_ui_missing_logged = false
+		return
+	if not _postmatch_ui_missing_logged:
+		_postmatch_ui_missing_logged = true
+		SFLog.warn("POSTMATCH_UI_MISSING", {
+			"outcome_found": outcome_overlay != null,
+			"win_found": win_overlay != null
+		})
+
+func _resolve_or_create_outcome_overlay() -> OutcomeOverlay:
+	var existing: OutcomeOverlay = get_node_or_null(SHELL_OUTCOME_OVERLAY_PATH) as OutcomeOverlay
+	if existing != null:
+		return existing
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		var found: Node = scene.find_child("OutcomeOverlay", true, false)
+		if found is OutcomeOverlay:
+			return found as OutcomeOverlay
+	var hud_root: Control = _resolve_hud_root()
+	if hud_root == null:
+		return null
+	var created: OutcomeOverlay = _build_outcome_overlay()
+	hud_root.add_child(created)
+	return created
+
+func _resolve_or_create_win_overlay() -> WinOverlay:
+	var existing: WinOverlay = get_node_or_null(SHELL_WIN_OVERLAY_PATH) as WinOverlay
+	if existing != null:
+		return existing
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		var found: Node = scene.find_child("WinOverlay", true, false)
+		if found is WinOverlay:
+			return found as WinOverlay
+	var hud_root: Control = _resolve_hud_root()
+	if hud_root == null:
+		return null
+	var created: WinOverlay = _build_win_overlay()
+	hud_root.add_child(created)
+	return created
+
+func _build_outcome_overlay() -> OutcomeOverlay:
+	var overlay: OutcomeOverlay = OutcomeOverlay.new()
+	overlay.name = "OutcomeOverlay"
+	overlay.visible = false
+	overlay.layout_mode = 3
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.grow_horizontal = 2
+	overlay.grow_vertical = 2
+
+	var panel: Panel = Panel.new()
+	panel.name = "Panel"
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -200.0
+	panel.offset_top = -240.0
+	panel.offset_right = 200.0
+	panel.offset_bottom = 240.0
+	overlay.add_child(panel)
+
+	var vbox: VBoxContainer = VBoxContainer.new()
+	vbox.name = "VBox"
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.offset_left = 12.0
+	vbox.offset_top = 12.0
+	vbox.offset_right = -12.0
+	vbox.offset_bottom = -12.0
+	panel.add_child(vbox)
+
+	var title: Label = Label.new()
+	title.name = "Title"
+	title.text = "P1 WINS"
+	vbox.add_child(title)
+
+	var result: Label = Label.new()
+	result.name = "Result"
+	result.text = "VICTORY"
+	vbox.add_child(result)
+
+	var reason: Label = Label.new()
+	reason.name = "Reason"
+	reason.text = "Reason: Elimination"
+	vbox.add_child(reason)
+
+	var record: Label = Label.new()
+	record.name = "Record"
+	record.text = "Record: 0-0"
+	vbox.add_child(record)
+
+	var h2h: Label = Label.new()
+	h2h.name = "H2H"
+	h2h.text = "H2H: 0-0"
+	vbox.add_child(h2h)
+
+	var stats_header: Label = Label.new()
+	stats_header.name = "StatsHeader"
+	stats_header.text = "Match Stats"
+	vbox.add_child(stats_header)
+
+	var stat_max: Label = Label.new()
+	stat_max.name = "StatMaxHivePower"
+	stat_max.text = "Max Total Hive Power: 0"
+	vbox.add_child(stat_max)
+
+	var stat_killed: Label = Label.new()
+	stat_killed.name = "StatUnitsKilled"
+	stat_killed.text = "Units Killed: 0"
+	vbox.add_child(stat_killed)
+
+	var stat_landed: Label = Label.new()
+	stat_landed.name = "StatUnitsLanded"
+	stat_landed.text = "Units Landed: 0"
+	vbox.add_child(stat_landed)
+
+	var countdown: Label = Label.new()
+	countdown.name = "Countdown"
+	countdown.text = "Rematch expires in 0:10"
+	vbox.add_child(countdown)
+
+	var status: Label = Label.new()
+	status.name = "Status"
+	status.text = "You: NOT READY | Opponent: WAITING"
+	vbox.add_child(status)
+
+	var buttons: HBoxContainer = HBoxContainer.new()
+	buttons.name = "Buttons"
+	vbox.add_child(buttons)
+
+	var rematch: Button = Button.new()
+	rematch.name = "Rematch"
+	rematch.text = "Restart"
+	buttons.add_child(rematch)
+
+	var exit: Button = Button.new()
+	exit.name = "Exit"
+	exit.text = "Return to Menu"
+	buttons.add_child(exit)
+
+	return overlay
+
+func _build_win_overlay() -> WinOverlay:
+	var overlay: WinOverlay = WinOverlay.new()
+	overlay.name = "WinOverlay"
+	overlay.visible = false
+	overlay.layout_mode = 3
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.grow_horizontal = 2
+	overlay.grow_vertical = 2
+
+	var panel: Panel = Panel.new()
+	panel.name = "Panel"
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.1
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.1
+	panel.offset_left = -160.0
+	panel.offset_top = -30.0
+	panel.offset_right = 160.0
+	panel.offset_bottom = 30.0
+	overlay.add_child(panel)
+
+	var title: Label = Label.new()
+	title.name = "Title"
+	title.anchor_right = 1.0
+	title.anchor_bottom = 1.0
+	title.offset_left = 8.0
+	title.offset_top = 4.0
+	title.offset_right = -8.0
+	title.offset_bottom = -18.0
+	title.text = "PLAYER 1 WINS"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(title)
+
+	var sub: Label = Label.new()
+	sub.name = "Sub"
+	sub.anchor_right = 1.0
+	sub.anchor_bottom = 1.0
+	sub.offset_left = 8.0
+	sub.offset_top = 18.0
+	sub.offset_right = -8.0
+	sub.offset_bottom = -4.0
+	sub.text = "Reason: conquest"
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(sub)
+
+	return overlay
 
 func _resolve_top_buffer_background() -> TextureRect:
 	var top_hud_root: Node = _resolve_top_hud_root()
@@ -510,15 +745,33 @@ func _begin_prematch() -> void:
 func _ensure_prematch_ui() -> void:
 	if _prematch_overlay != null and is_instance_valid(_prematch_overlay):
 		return
-	var ui_root := get_node_or_null("../UI") as CanvasLayer
+	var ui_root: Node = get_node_or_null(SHELL_HUD_ROOT_PATH)
+	if ui_root == null:
+		var hud_layer: CanvasLayer = get_node_or_null(SHELL_HUD_LAYER_PATH) as CanvasLayer
+		if hud_layer == null:
+			hud_layer = _ensure_timer_layer()
+		if hud_layer != null:
+			ui_root = hud_layer.get_node_or_null("HUDRoot")
+			if ui_root == null:
+				ui_root = hud_layer
+	if ui_root == null:
+		ui_root = get_node_or_null("../UI")
 	if ui_root == null:
 		return
 	var overlay := ui_root.get_node_or_null("PreMatchOverlay") as Control
+	if overlay == null:
+		var scene: Node = get_tree().current_scene
+		if scene != null:
+			var found: Node = scene.find_child("PreMatchOverlay", true, false)
+			if found is Control:
+				overlay = found as Control
 	if overlay == null:
 		overlay = Control.new()
 		overlay.name = "PreMatchOverlay"
 		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		ui_root.add_child(overlay)
+	elif overlay.get_parent() != ui_root:
+		overlay.reparent(ui_root)
 	_prematch_overlay = overlay
 	_force_fullscreen_anchors(_prematch_overlay)
 	_prematch_overlay.z_as_relative = false
@@ -548,48 +801,77 @@ func _ensure_prematch_ui() -> void:
 	if records == null:
 		records = Control.new()
 		records.name = "RecordsPanel"
-		records.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		records.anchor_left = 0.5
-		records.anchor_right = 0.5
-		records.anchor_top = 0.0
-		records.anchor_bottom = 0.0
-		records.offset_left = -150.0
-		records.offset_right = 150.0
-		records.offset_top = 120.0
-		records.offset_bottom = 200.0
-		var vbox := VBoxContainer.new()
-		vbox.name = "RecordsVBox"
-		vbox.anchor_left = 0.0
-		vbox.anchor_right = 1.0
-		vbox.anchor_top = 0.0
-		vbox.anchor_bottom = 1.0
-		vbox.offset_left = 0.0
-		vbox.offset_right = 0.0
-		vbox.offset_top = 0.0
-		vbox.offset_bottom = 0.0
-		var p1 := Label.new()
-		p1.name = "RecordP1"
-		var p2 := Label.new()
-		p2.name = "RecordP2"
-		var p3 := Label.new()
-		p3.name = "RecordP3"
-		var p4 := Label.new()
-		p4.name = "RecordP4"
-		var h2h := Label.new()
-		h2h.name = "RecordH2H"
-		vbox.add_child(p1)
-		vbox.add_child(p2)
-		vbox.add_child(p3)
-		vbox.add_child(p4)
-		vbox.add_child(h2h)
-		records.add_child(vbox)
 		_prematch_overlay.add_child(records)
+	records.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	records.anchor_left = 0.0
+	records.anchor_right = 0.0
+	records.anchor_top = 0.0
+	records.anchor_bottom = 0.0
+	records.z_as_relative = false
+	records.z_index = 1000
+	_layout_prematch_records_panel(records)
+
+	var records_bg := records.get_node_or_null("RecordsBg") as Panel
+	if records_bg == null:
+		records_bg = Panel.new()
+		records_bg.name = "RecordsBg"
+		records.add_child(records_bg)
+	records_bg.anchor_left = 0.0
+	records_bg.anchor_right = 1.0
+	records_bg.anchor_top = 0.0
+	records_bg.anchor_bottom = 1.0
+	records_bg.offset_left = 0.0
+	records_bg.offset_top = 0.0
+	records_bg.offset_right = 0.0
+	records_bg.offset_bottom = 0.0
+	var panel_style: StyleBoxFlat = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.02, 0.04, 0.08, 0.58)
+	panel_style.border_color = Color(0.62, 0.70, 0.82, 0.92)
+	panel_style.border_width_left = 1
+	panel_style.border_width_top = 1
+	panel_style.border_width_right = 1
+	panel_style.border_width_bottom = 1
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	records_bg.add_theme_stylebox_override("panel", panel_style)
+
+	var records_vbox := records_bg.get_node_or_null("RecordsVBox") as VBoxContainer
+	if records_vbox == null:
+		var legacy_vbox := records.get_node_or_null("RecordsVBox") as VBoxContainer
+		if legacy_vbox != null:
+			legacy_vbox.reparent(records_bg)
+			records_vbox = legacy_vbox
+		else:
+			records_vbox = VBoxContainer.new()
+			records_vbox.name = "RecordsVBox"
+			records_bg.add_child(records_vbox)
+	records_vbox.anchor_left = 0.0
+	records_vbox.anchor_right = 1.0
+	records_vbox.anchor_top = 0.0
+	records_vbox.anchor_bottom = 1.0
+	records_vbox.offset_left = 10.0
+	records_vbox.offset_top = 8.0
+	records_vbox.offset_right = -10.0
+	records_vbox.offset_bottom = -8.0
+	records_vbox.add_theme_constant_override("separation", 2)
+	var p1: Label = _ensure_prematch_record_label(records_vbox, "RecordP1")
+	var p2: Label = _ensure_prematch_record_label(records_vbox, "RecordP2")
+	var p3: Label = _ensure_prematch_record_label(records_vbox, "RecordP3")
+	var p4: Label = _ensure_prematch_record_label(records_vbox, "RecordP4")
+	var h2h: Label = _ensure_prematch_record_label(records_vbox, "RecordH2H")
+	_style_prematch_record_label(p1)
+	_style_prematch_record_label(p2)
+	_style_prematch_record_label(p3)
+	_style_prematch_record_label(p4)
+	_style_prematch_record_label(h2h)
 	_prematch_records_panel = records
-	_prematch_record_p1 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP1") as Label
-	_prematch_record_p2 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP2") as Label
-	_prematch_record_p3 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP3") as Label
-	_prematch_record_p4 = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordP4") as Label
-	_prematch_record_h2h = _prematch_records_panel.get_node_or_null("RecordsVBox/RecordH2H") as Label
+	_prematch_record_p1 = p1
+	_prematch_record_p2 = p2
+	_prematch_record_p3 = p3
+	_prematch_record_p4 = p4
+	_prematch_record_h2h = h2h
 	if not _prematch_ui_bind_logged:
 		_prematch_ui_bind_logged = true
 		SFLog.info("PREMATCH_UI_BIND", {
@@ -606,15 +888,57 @@ func _ensure_prematch_ui() -> void:
 func _ensure_prematch_on_top() -> void:
 	if _prematch_overlay == null:
 		return
-	var hud: CanvasLayer = get_node_or_null(SHELL_HUD_LAYER_PATH) as CanvasLayer
-	if hud == null:
-		hud = _ensure_timer_layer()
-	if hud != null and _prematch_overlay.get_parent() != hud:
-		_prematch_overlay.reparent(hud)
+	var preferred_parent: Node = get_node_or_null(SHELL_HUD_ROOT_PATH)
+	if preferred_parent == null:
+		var hud: CanvasLayer = get_node_or_null(SHELL_HUD_LAYER_PATH) as CanvasLayer
+		if hud == null:
+			hud = _ensure_timer_layer()
+		if hud != null:
+			var hud_root: Node = hud.get_node_or_null("HUDRoot")
+			if hud_root != null:
+				preferred_parent = hud_root
+			else:
+				preferred_parent = hud
+	if preferred_parent != null and _prematch_overlay.get_parent() != preferred_parent:
+		_prematch_overlay.reparent(preferred_parent)
 		_force_fullscreen_anchors(_prematch_overlay)
+	if preferred_parent != null:
+		preferred_parent.move_child(_prematch_overlay, preferred_parent.get_child_count() - 1)
 	_prematch_overlay.z_as_relative = false
-	_prematch_overlay.z_index = 999
-	_prematch_overlay.top_level = true
+	_prematch_overlay.z_index = 2000
+	_prematch_overlay.top_level = false
+
+func _layout_prematch_records_panel(records: Control) -> void:
+	if records == null:
+		return
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var vr: Rect2 = vp.get_visible_rect()
+	var top_inset: float = _ui_top_inset_px()
+	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX
+	records.position = Vector2((vr.size.x - PREMATCH_RECORDS_WIDTH_PX) * 0.5, panel_top)
+	records.size = Vector2(PREMATCH_RECORDS_WIDTH_PX, PREMATCH_RECORDS_HEIGHT_PX)
+
+func _ensure_prematch_record_label(vbox: VBoxContainer, name: String) -> Label:
+	if vbox == null:
+		return null
+	var label := vbox.get_node_or_null(name) as Label
+	if label == null:
+		label = Label.new()
+		label.name = name
+		vbox.add_child(label)
+	return label
+
+func _style_prematch_record_label(label: Label) -> void:
+	if label == null:
+		return
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", PREMATCH_RECORDS_FONT_SIZE)
+	label.add_theme_color_override("font_color", Color(0.97, 0.99, 1.0, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("outline_size", 2)
 
 func _log_prematch_ui_state() -> void:
 	var overlay_dict := {}
@@ -669,6 +993,8 @@ func _center_match_timer() -> void:
 func _show_prematch_ui() -> void:
 	if _prematch_overlay == null:
 		return
+	SFLog.allow_tag("PREMATCH_UI_VIS")
+	_ensure_prematch_on_top()
 	_prematch_overlay.visible = true
 	if _prematch_countdown_label != null:
 		var start_sec := int(ceil(float(OpsState.prematch_duration_ms) / 1000.0))
@@ -679,10 +1005,26 @@ func _show_prematch_ui() -> void:
 				"type": _prematch_countdown_label.get_class()
 			})
 		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
+	_refresh_prematch_records()
 	if _prematch_records_panel != null:
+		_layout_prematch_records_panel(_prematch_records_panel)
 		_prematch_records_panel.visible = true
 		_prematch_records_panel.modulate = Color(1, 1, 1, 1)
-	_refresh_prematch_records()
+		SFLog.warn("PREMATCH_UI_VIS", {
+			"records_path": str(_prematch_records_panel.get_path()),
+			"records_visible": _prematch_records_panel.visible,
+			"records_pos": _prematch_records_panel.global_position,
+			"records_size": _prematch_records_panel.size,
+			"records_z": _prematch_records_panel.z_index,
+			"record_p1": _prematch_record_p1.text if _prematch_record_p1 != null else "<null>",
+			"record_p2": _prematch_record_p2.text if _prematch_record_p2 != null else "<null>",
+			"record_p3": _prematch_record_p3.text if _prematch_record_p3 != null else "<null>",
+			"record_p4": _prematch_record_p4.text if _prematch_record_p4 != null else "<null>",
+			"record_h2h": _prematch_record_h2h.text if _prematch_record_h2h != null else "<null>",
+			"overlay_path": str(_prematch_overlay.get_path()),
+			"overlay_visible": _prematch_overlay.visible,
+			"overlay_z": _prematch_overlay.z_index
+		}, "", 250)
 	SFLog.info("PREMATCH_UI_INIT", {
 		"overlay_ok": _prematch_overlay != null,
 		"countdown_ok": _prematch_countdown_label != null,
@@ -706,19 +1048,96 @@ func _get_player_record_line(player_slot: int) -> String:
 	var uid: String = str(entry.get("uid", ""))
 	var is_cpu: bool = bool(entry.get("is_cpu", false))
 	var handle: String = _display_name_for_seat(player_slot, uid, is_cpu)
+	var record_key: String = _record_key_for_roster_entry(entry)
+	var record: Dictionary = _match_records.get_record(record_key)
+	var wins: int = int(record.get("wins", 0))
+	var losses: int = int(record.get("losses", 0))
+	var uid_label: String = uid
+	if uid_label.is_empty():
+		if is_cpu:
+			uid_label = "cpu"
+		else:
+			uid_label = "unassigned"
 	SFLog.info("PREMATCH_NAME_RESOLVE", {
 		"seat": player_slot,
 		"uid": uid,
 		"handle": handle
 	})
-	return "%s: W-L (TBD)" % handle
+	return "P%d [%s] %s  W-L %d-%d" % [player_slot, uid_label, handle, wins, losses]
 
 func _get_h2h_record_line() -> String:
-	return "H2H: TBD"
+	var p1_entry: Dictionary = _get_roster_entry_for_slot(1)
+	var p2_entry: Dictionary = _get_roster_entry_for_slot(2)
+	var p1_uid: String = str(p1_entry.get("uid", ""))
+	var p2_uid: String = str(p2_entry.get("uid", ""))
+	var p1_cpu: bool = bool(p1_entry.get("is_cpu", false))
+	var p2_cpu: bool = bool(p2_entry.get("is_cpu", false))
+	var p1_name: String = _display_name_for_seat(1, p1_uid, p1_cpu)
+	var p2_name: String = _display_name_for_seat(2, p2_uid, p2_cpu)
+	var p1_key: String = _record_key_for_roster_entry(p1_entry)
+	var p2_key: String = _record_key_for_roster_entry(p2_entry)
+	var h2h: Dictionary = _match_records.get_h2h(p1_key, p2_key)
+	var p1_wins: int = int(h2h.get("a_wins", 0))
+	var p2_wins: int = int(h2h.get("b_wins", 0))
+	return "H2H: %s vs %s (%d-%d)" % [p1_name, p2_name, p1_wins, p2_wins]
+
+func _record_key_for_roster_entry(entry: Dictionary) -> String:
+	if entry.is_empty():
+		return ""
+	var uid: String = str(entry.get("uid", "")).strip_edges()
+	if not uid.is_empty():
+		return uid
+	if bool(entry.get("is_cpu", false)):
+		return "cpu"
+	return ""
+
+func _record_key_for_seat(seat: int) -> String:
+	return _record_key_for_roster_entry(_get_roster_entry_for_slot(seat))
+
+func _record_active_seats() -> Array[int]:
+	var seats: Array[int] = []
+	for seat in range(1, 5):
+		var entry: Dictionary = _get_roster_entry_for_slot(seat)
+		if entry.is_empty():
+			continue
+		if bool(entry.get("active", seat <= 2)):
+			seats.append(seat)
+	return seats
+
+func _commit_match_records(winner_slot: int) -> void:
+	if _match_record_committed:
+		return
+	if winner_slot <= 0:
+		return
+	var winner_key: String = _record_key_for_seat(winner_slot)
+	var loser_keys: Array[String] = []
+	var loser_seen: Dictionary = {}
+	var active_seats: Array[int] = _record_active_seats()
+	for seat in active_seats:
+		if seat == winner_slot:
+			continue
+		var key: String = _record_key_for_seat(seat)
+		if key.is_empty() or loser_seen.has(key):
+			continue
+		loser_seen[key] = true
+		loser_keys.append(key)
+	var p1_key: String = _record_key_for_seat(1)
+	var p2_key: String = _record_key_for_seat(2)
+	_match_records.record_match(winner_key, loser_keys, p1_key, p2_key)
+	_match_record_committed = true
+	_refresh_prematch_records()
+	SFLog.info("MATCH_RECORDS_COMMIT", {
+		"winner_slot": winner_slot,
+		"winner_key": winner_key,
+		"loser_keys": loser_keys,
+		"h2h_p1": p1_key,
+		"h2h_p2": p2_key
+	})
 
 func _ensure_match_roster() -> void:
 	var roster: Array = OpsState.match_roster
 	var local_uid: String = ProfileManager.get_user_id()
+	var active_seats_lookup: Dictionary = _active_seat_lookup_from_state()
 	var had_roster: bool = roster != null and roster.size() > 0
 	var updated: bool = false
 	if roster == null:
@@ -737,8 +1156,8 @@ func _ensure_match_roster() -> void:
 		if seat_map.has(seat) and typeof(seat_map.get(seat)) == TYPE_DICTIONARY:
 			entry = seat_map.get(seat) as Dictionary
 		if entry.is_empty():
-			var is_cpu: bool = seat == 2
-			var active: bool = seat <= 2
+			var active: bool = bool(active_seats_lookup.get(seat, seat <= 2))
+			var is_cpu: bool = seat != 1 and active
 			entry = {
 				"seat": seat,
 				"uid": "",
@@ -749,11 +1168,21 @@ func _ensure_match_roster() -> void:
 			updated = true
 		else:
 			if not entry.has("active"):
-				entry["active"] = seat <= 2
+				entry["active"] = bool(active_seats_lookup.get(seat, seat <= 2))
 				updated = true
 			if not entry.has("is_cpu"):
-				entry["is_cpu"] = seat == 2
+				var default_cpu: bool = seat != 1 and bool(entry.get("active", false))
+				entry["is_cpu"] = default_cpu
 				updated = true
+			if seat != 1:
+				var seat_active: bool = bool(entry.get("active", false))
+				var seat_uid: String = str(entry.get("uid", "")).strip_edges()
+				if seat_active and seat_uid == "" and not bool(entry.get("is_cpu", false)):
+					entry["is_cpu"] = true
+					updated = true
+				if not seat_active and bool(entry.get("is_cpu", false)) and seat_uid != "":
+					entry["is_cpu"] = false
+					updated = true
 		if seat == 1 and not local_uid.is_empty():
 			var prev_uid: String = str(entry.get("uid", ""))
 			if prev_uid != local_uid:
@@ -783,6 +1212,22 @@ func _ensure_match_roster() -> void:
 			_audit_ops_write("match_roster", "Arena._ensure_match_roster")
 			OpsState.match_roster = next_roster
 		)
+
+func _active_seat_lookup_from_state() -> Dictionary:
+	var active_lookup: Dictionary = {}
+	if state != null:
+		for hive_any in state.hives:
+			var hive: HiveData = hive_any as HiveData
+			if hive == null:
+				continue
+			var owner_id: int = int(hive.owner_id)
+			if owner_id < 1 or owner_id > 4:
+				continue
+			active_lookup[owner_id] = true
+	if active_lookup.is_empty():
+		active_lookup[1] = true
+		active_lookup[2] = true
+	return active_lookup
 
 func _get_roster_entry_for_slot(player_slot: int) -> Dictionary:
 	var roster: Array = OpsState.match_roster if OpsState != null else []
@@ -822,12 +1267,11 @@ func _update_prematch_flow(delta: float) -> void:
 			"ms": OpsState.prematch_remaining_ms,
 			"sec": int(ceil(float(OpsState.prematch_remaining_ms) / 1000.0))
 		})
-	var records_threshold_ms := float(OpsState.prematch_duration_ms - OpsState.PREMATCH_RECORDS_SHOW_MS)
-	if not _prematch_records_faded and _prematch_remaining_ms_f <= records_threshold_ms:
-		_prematch_records_faded = true
-		_fade_prematch_records()
 	if _prematch_remaining_ms_f <= 0.0 and not _prematch_countdown_faded:
 		_prematch_countdown_faded = true
+		if not _prematch_records_faded:
+			_prematch_records_faded = true
+			_fade_prematch_records()
 		_fade_prematch_countdown()
 
 func _fade_prematch_records() -> void:
@@ -835,7 +1279,7 @@ func _fade_prematch_records() -> void:
 		return
 	SFLog.info("PREMATCH_RECORDS_FADE", {})
 	var tween := create_tween()
-	tween.tween_property(_prematch_records_panel, "modulate:a", 0.0, 0.35)
+	tween.tween_property(_prematch_records_panel, "modulate:a", 0.0, 0.25)
 	tween.finished.connect(func() -> void:
 		if _prematch_records_panel != null:
 			_prematch_records_panel.visible = false
@@ -863,7 +1307,7 @@ func _finish_prematch() -> void:
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
 	_start_match_sim("prematch_complete")
-	SFLog.info("INPUT_UNLOCKED", {"reason": "prematch_complete"})
+	SFLog.warn("INPUT_UNLOCKED", {"reason": "prematch_complete"})
 
 func _begin_power_bar_reveal() -> void:
 	# UI observes OpsState; no sim-driven UI mutations.
@@ -1062,7 +1506,8 @@ func _ensure_unit_renderer() -> void:
 		else:
 			unit_renderer = null
 	if unit_renderer != null:
-		print("UNIT_PARENT:", unit_renderer.get_path())
+		if TRACE_ARENA_PRINTS:
+			print("UNIT_PARENT:", unit_renderer.get_path())
 
 func _ensure_wall_renderer() -> void:
 	if wall_renderer != null and is_instance_valid(wall_renderer):
@@ -1074,7 +1519,7 @@ func _ensure_wall_renderer() -> void:
 	wall_renderer = WallRenderer.new()
 	wall_renderer.name = "WallRenderer"
 	wall_renderer.z_index = -4
-	add_child(wall_renderer)
+	call_deferred("add_child", wall_renderer)
 
 func _ensure_vfx_manager() -> void:
 	if vfx_manager != null and is_instance_valid(vfx_manager):
@@ -1096,7 +1541,8 @@ func _ensure_vfx_manager() -> void:
 			vfx_manager = VfxManager.new()
 			vfx_manager.name = "VfxManager"
 			pools_root.add_child(vfx_manager)
-	print("VFX_PARENT:", vfx_manager.get_path())
+	if TRACE_ARENA_PRINTS:
+		print("VFX_PARENT:", vfx_manager.get_path())
 	if sim_events != null and vfx_manager.has_method("set_sim_events"):
 		vfx_manager.set_sim_events(sim_events)
 	if vfx_manager != null and vfx_manager.has_method("prewarm"):
@@ -1130,29 +1576,52 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		SFLog.info("MATCH_END_DUPLICATE_SKIP", {"winner_id": winner_id_in})
 		return
 	_match_end_handled = true
+	if input_system != null:
+		input_system.set_inputs_locked(true, "match_end")
 	game_over = true
 	winner_id = winner_id_in
 	end_reason = reason
+	_commit_match_records(winner_id_in)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
+	if outcome_overlay == null:
+		_ensure_post_match_ui()
 	if outcome_overlay != null:
-		outcome_overlay.show_outcome(winner_id_in, reason, active_player_id)
+		var record_slot: int = clampi(active_player_id, 1, 4)
+		var record_text: String = _get_player_record_line(record_slot)
+		var h2h_text: String = _get_h2h_record_line()
+		outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
+	else:
+		SFLog.warn("POSTMATCH_UI_MISSING", {"kind": "outcome_overlay"})
 	if sim_runner != null:
 		sim_runner.log_pause_snapshot("arena_show_outcome")
 	mark_render_dirty("match_end")
 
 func _on_post_match_action(action: String) -> void:
+	if action == "rematch_vote":
+		var voter_id: int = active_player_id
+		if voter_id != 1 and voter_id != 2:
+			voter_id = 1
+		var accepted: bool = OpsState.request_rematch(voter_id)
+		SFLog.info("REMATCH_VOTE_INTENT", {
+			"voter_id": voter_id,
+			"accepted": accepted,
+			"p1": OpsState.rematch_votes.has(1),
+			"p2": OpsState.rematch_votes.has(2)
+		})
+		return
 	if _post_match_action_taken:
 		return
-	_post_match_action_taken = true
 	SFLog.info("POST_MATCH_ACTION", {"action": action})
 	match action:
 		"rematch":
-			get_tree().change_scene_to_file("res://scenes/Main.tscn")
+			_post_match_action_taken = true
+			_handle_rematch()
 		"main_menu":
-			get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
+			_post_match_action_taken = true
+			_return_to_main_menu()
 		_:
 			return
 
@@ -1264,7 +1733,7 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	if state.hives != null:
 		set_process_unhandled_input(true)
 
-func _on_ops_state_changed_iid(_payload := {}) -> void:
+func _on_ops_state_changed_iid(_payload: Variant = null) -> void:
 	call_deferred("_start_sim_after_state_change")
 
 func _start_sim_after_state_change() -> void:
@@ -1305,6 +1774,8 @@ func _on_viewport_size_changed() -> void:
 	_resize_world_viewport()
 	fitcam_once()
 	_center_match_timer()
+	if _prematch_records_panel != null and _prematch_records_panel.visible:
+		_layout_prematch_records_panel(_prematch_records_panel)
 	_snap_power_bar_to_map_top("viewport_resize")
 
 func _resize_world_viewport() -> void:
@@ -1342,6 +1813,8 @@ func _resize_world_viewport() -> void:
 
 func _ensure_playfield_outline() -> PlayfieldOutline:
 	if is_instance_valid(_playfield_outline):
+		_playfield_outline.enabled = false
+		_playfield_outline.show_center_crosshair = false
 		return _playfield_outline
 	var map_root_node: Node = get_node_or_null("MapRoot")
 	if map_root_node == null:
@@ -1349,13 +1822,15 @@ func _ensure_playfield_outline() -> PlayfieldOutline:
 	var existing: Node = map_root_node.get_node_or_null("PlayfieldOutline")
 	if existing != null and existing is PlayfieldOutline:
 		_playfield_outline = existing as PlayfieldOutline
+		_playfield_outline.enabled = false
+		_playfield_outline.show_center_crosshair = false
 		return _playfield_outline
 	var po: PlayfieldOutline = PlayfieldOutline.new()
 	po.name = "PlayfieldOutline"
-	po.z_index = 9999
+	po.z_index = PLAYFIELD_OUTLINE_Z_INDEX
 	po.z_as_relative = false
-	if not OS.is_debug_build():
-		po.enabled = false
+	po.enabled = false
+	po.show_center_crosshair = false
 	map_root_node.add_child(po)
 	_playfield_outline = po
 	return po
@@ -1800,6 +2275,14 @@ func _process(delta: float) -> void:
 	_hb_maybe_flush()
 	_maybe_log_frame_hitch(delta)
 	_update_prematch_flow(delta)
+	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH \
+	and int(OpsState.prematch_remaining_ms) <= 0 \
+	and bool(OpsState.input_locked):
+		SFLog.warn("PREMATCH_WATCHDOG_FINISH", {
+			"remaining_ms": int(OpsState.prematch_remaining_ms),
+			"input_locked": bool(OpsState.input_locked)
+		})
+		_finish_prematch()
 	if input_system != null:
 		input_system.tick(delta, api)
 		_sync_inputs_locked_from_state()
@@ -1937,6 +2420,8 @@ func _debug_camera(tag: String) -> void:
 	)
 
 func _update_win_overlay() -> void:
+	if win_overlay == null:
+		_ensure_post_match_ui()
 	if win_overlay == null:
 		return
 	if OpsState.match_over:
@@ -2218,36 +2703,37 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 		zoom_scalar = z_min
 		z_clamped = true
 	var zoom_target: Vector2 = Vector2(zoom_scalar, zoom_scalar)
-	print(
-		"CAMFIT_GRID:",
-		" tag=",
-		tag,
-		" vp=",
-		cam_vp_size,
-		" vp_fit=",
-		vp_fit,
-		" grid=",
-		str(grid_w_local) + "x" + str(grid_h_local),
-		" cell=",
-		cell_px,
-		" world_px=",
-		world_px,
-		" pad_px=",
-		pad,
-		" margin=",
-		FIT_MARGIN
-	)
-	print(
-		"CAMFIT_ZOOM:",
-		" fit=",
-		fit_scalar,
-		" zoom_scalar=",
-		zoom_scalar,
-		" zoom_target=",
-		zoom_target,
-		" clamped=",
-		z_clamped
-	)
+	if TRACE_ARENA_PRINTS:
+		print(
+			"CAMFIT_GRID:",
+			" tag=",
+			tag,
+			" vp=",
+			cam_vp_size,
+			" vp_fit=",
+			vp_fit,
+			" grid=",
+			str(grid_w_local) + "x" + str(grid_h_local),
+			" cell=",
+			cell_px,
+			" world_px=",
+			world_px,
+			" pad_px=",
+			pad,
+			" margin=",
+			FIT_MARGIN
+		)
+		print(
+			"CAMFIT_ZOOM:",
+			" fit=",
+			fit_scalar,
+			" zoom_scalar=",
+			zoom_scalar,
+			" zoom_target=",
+			zoom_target,
+			" clamped=",
+			z_clamped
+		)
 	var center: Vector2 = Vector2.ZERO
 	if grid_spec != null:
 		center = grid_spec.origin + (world_px * 0.5)
@@ -2260,15 +2746,17 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 		push_error("CAMFIT: zoom not applied")
 	cam.force_update_scroll()
 	SFLog.throttle("camfit_applied", 1.0, "CAMFIT applied", SFLog.Level.TRACE)
-	print("CAMFIT_CAM_ID:", " path=", cam.get_path(), " rid=", cam.get_instance_id(), " current=", cam.is_current())
+	if TRACE_ARENA_PRINTS:
+		print("CAMFIT_CAM_ID:", " path=", cam.get_path(), " rid=", cam.get_instance_id(), " current=", cam.is_current())
 	call_deferred("_sf_camfit_late_probe", cam, zoom_target)
-	print(
-		"CAMFIT_APPLIED:",
-		" pos=",
-		cam.global_position,
-		" zoom=",
-		cam.zoom
-	)
+	if TRACE_ARENA_PRINTS:
+		print(
+			"CAMFIT_APPLIED:",
+			" pos=",
+			cam.global_position,
+			" zoom=",
+			cam.zoom
+		)
 	SFLog.info("CAMFIT", {
 		"tag": tag,
 		"cam_path": str(cam.get_path()),
@@ -2284,7 +2772,8 @@ func _sf_camfit_late_probe(cam: Camera2D, expected: Vector2) -> void:
 	if cam == null:
 		return
 	var changed: bool = cam.zoom != expected
-	print("CAMFIT_LATE: expected_zoom=", expected, " actual_zoom=", cam.zoom, " changed=", changed)
+	if TRACE_ARENA_PRINTS:
+		print("CAMFIT_LATE: expected_zoom=", expected, " actual_zoom=", cam.zoom, " changed=", changed)
 	if changed:
 		push_warning("CAMFIT_LATE: zoom changed cam=%s" % str(cam.get_path()))
 
@@ -2766,16 +3255,106 @@ func _build_hive_pos_by_id(hive_nodes_by_id: Dictionary) -> Dictionary:
 			out[int(hive.id)] = cell_center(hive.grid_pos)
 	return out
 
+func _grid_coord_to_world(coord: Vector2) -> Vector2:
+	if grid_spec != null:
+		var cs: float = float(grid_spec.cell_size)
+		return grid_spec.origin + (coord + Vector2(0.5, 0.5)) * cs
+	var cell_px: float = _cell_px()
+	return (coord + Vector2(0.5, 0.5)) * cell_px + map_offset
+
+func _wall_entry_to_grid_segment(w: Dictionary) -> Dictionary:
+	if w.has("x1") and w.has("y1") and w.has("x2") and w.has("y2"):
+		return {
+			"a": Vector2(float(w.get("x1", 0.0)), float(w.get("y1", 0.0))),
+			"b": Vector2(float(w.get("x2", 0.0)), float(w.get("y2", 0.0)))
+		}
+	var dir: String = str(w.get("dir", "")).to_lower()
+	var x: float = float(w.get("x", -999.0))
+	var y: float = float(w.get("y", -999.0))
+	if x < -100.0 or y < -100.0:
+		return {}
+	if dir == "v" or dir == "vertical":
+		var xline: float = x - 0.5
+		return {
+			"a": Vector2(xline, y - 0.5),
+			"b": Vector2(xline, y + 0.5)
+		}
+	if dir == "h" or dir == "horizontal":
+		var yline: float = y - 0.5
+		return {
+			"a": Vector2(x - 0.5, yline),
+			"b": Vector2(x + 0.5, yline)
+		}
+	return {}
+
+func _build_wall_segments_local() -> Array:
+	var out: Array = []
+	if wall_renderer == null or state == null:
+		return out
+	var walls_v: Variant = state.get("walls")
+	if typeof(walls_v) != TYPE_ARRAY:
+		return out
+	var walls: Array = walls_v as Array
+	for w_any in walls:
+		if typeof(w_any) != TYPE_DICTIONARY:
+			continue
+		var w: Dictionary = w_any as Dictionary
+		var seg_grid: Dictionary = _wall_entry_to_grid_segment(w)
+		if seg_grid.is_empty():
+			continue
+		var a_any: Variant = seg_grid.get("a", null)
+		var b_any: Variant = seg_grid.get("b", null)
+		if not (a_any is Vector2 and b_any is Vector2):
+			continue
+		var a_map_local: Vector2 = _grid_coord_to_world(a_any as Vector2)
+		var b_map_local: Vector2 = _grid_coord_to_world(b_any as Vector2)
+		var a_world: Vector2 = a_map_local
+		var b_world: Vector2 = b_map_local
+		if map_root != null:
+			a_world = map_root.to_global(a_map_local)
+			b_world = map_root.to_global(b_map_local)
+		out.append({
+			"a": wall_renderer.to_local(a_world),
+			"b": wall_renderer.to_local(b_world)
+		})
+	return out
+
 func _sync_wall_renderer(hive_nodes_by_id: Dictionary) -> void:
 	_ensure_wall_renderer()
 	if wall_renderer == null:
+		return
+	var segments: Array = _build_wall_segments_local()
+	if not segments.is_empty():
+		var sample_seg: Dictionary = segments[0] as Dictionary if typeof(segments[0]) == TYPE_DICTIONARY else {}
+		SFLog.warn("WALL_VIS_SYNC", {
+			"mode": "segments",
+			"segments": segments.size(),
+			"sample_a": sample_seg.get("a", null),
+			"sample_b": sample_seg.get("b", null),
+			"wall_renderer_path": str(wall_renderer.get_path()),
+			"wall_renderer_pos": wall_renderer.position,
+			"wall_renderer_visible": wall_renderer.visible,
+			"wall_renderer_z": wall_renderer.z_index,
+			"map_root_pos": map_root.position if map_root != null else null
+		}, "", 5000)
+		wall_renderer.set_wall_segments(segments)
 		return
 	var pairs: Array = []
 	if OpsState != null and OpsState.has_method("get_blocked_wall_pairs"):
 		var any_pairs: Variant = OpsState.call("get_blocked_wall_pairs")
 		if typeof(any_pairs) == TYPE_ARRAY:
 			pairs = any_pairs as Array
-	var hive_pos_by_id := _build_hive_pos_by_id(hive_nodes_by_id)
+	var hive_pos_by_id: Dictionary = _build_hive_pos_by_id(hive_nodes_by_id)
+	SFLog.warn("WALL_VIS_SYNC", {
+		"mode": "pairs",
+		"pairs": pairs.size(),
+		"hive_pos_count": hive_pos_by_id.size(),
+		"wall_renderer_path": str(wall_renderer.get_path()),
+		"wall_renderer_pos": wall_renderer.position,
+		"wall_renderer_visible": wall_renderer.visible,
+		"wall_renderer_z": wall_renderer.z_index,
+		"map_root_pos": map_root.position if map_root != null else null
+	}, "", 5000)
 	wall_renderer.set_wall_pairs(pairs, hive_pos_by_id)
 
 func _push_render_model() -> void:
@@ -3079,7 +3658,34 @@ func _lane_insight_active(pid: int) -> bool:
 	return _buff_flag(pid, "lane_insight")
 
 func _try_activate_buff_slot(pid: int, slot_index: int) -> void:
-	OpsState.try_activate_buff_slot(pid, slot_index)
+	if not buffs_enabled:
+		return
+	if buff_states.is_empty():
+		_init_buff_states()
+	var buff_state: BuffState = buff_states.get(pid)
+	if buff_state == null:
+		return
+	var now_ms: int = int(sim_time_us / 1000)
+	if not buff_state.activate_slot(slot_index, now_ms):
+		SFLog.info("BUFF_ACTIVATE_BLOCKED", {
+			"pid": pid,
+			"slot_index": slot_index,
+			"slots_active": int(buff_state.slots_active),
+			"is_active": bool(buff_state.is_slot_active(slot_index)),
+			"is_consumed": bool(buff_state.is_slot_consumed(slot_index))
+		})
+		return
+	var slot: Dictionary = buff_state.slots[slot_index]
+	SFLog.info("BUFF_ACTIVATED", {
+		"pid": pid,
+		"slot_index": slot_index,
+		"buff_id": str(slot.get("id", "")),
+		"ends_ms": int(slot.get("ends_ms", 0))
+	})
+	_sync_buff_effects(now_ms)
+	_update_buff_ui()
+	mark_render_dirty("buff_activate")
+
 func _reset_sim_state() -> void:
 	units.clear()
 	swarm_packets.clear()
@@ -3094,6 +3700,7 @@ func _reset_sim_state() -> void:
 	end_reason = ""
 	game_over = false
 	_match_end_handled = false
+	_match_record_committed = false
 	_post_match_action_taken = false
 	hurry_mode = false
 	audio_hurry_pitch = 1.0
@@ -3250,13 +3857,12 @@ func _mouse_world_pos() -> Vector2:
 	return _screen_to_world(get_viewport().get_mouse_position())
 
 func _screen_to_world(screen_pos: Vector2) -> Vector2:
-	var cam := get_viewport().get_camera_2d()
-	if cam:
-		var vp_size: Vector2 = get_viewport().get_visible_rect().size
-		var screen_center: Vector2 = vp_size * 0.5
-		var world_center: Vector2 = cam.get_screen_center_position()
-		return world_center + (screen_pos - screen_center) / cam.zoom
-	return get_global_mouse_position()
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return get_global_mouse_position()
+	# Canonical screen->world conversion from viewport canvas transform.
+	var canvas_xform: Transform2D = vp.get_canvas_transform()
+	return canvas_xform.affine_inverse() * screen_pos
 
 func _unhandled_input(event: InputEvent) -> void:
 	if state == null:
@@ -3266,27 +3872,27 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
-			var wp: Vector2 = map_root.get_global_mouse_position()
+			var wp: Vector2 = _screen_to_world(mb.position)
 			var lp: Vector2 = map_root.to_local(wp)
 			_send_pointer_event(mb.pressed, mb.button_index, lp, false, wp, mb.position)
 			get_viewport().set_input_as_handled()
 			return
 	if event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
-		var wp: Vector2 = map_root.get_global_mouse_position()
+		var wp: Vector2 = _screen_to_world(mm.position)
 		var lp: Vector2 = map_root.to_local(wp)
 		_send_pointer_event(false, 0, lp, true, wp, mm.position)
 		return
 	if event is InputEventScreenTouch:
 		var st := event as InputEventScreenTouch
-		var wp: Vector2 = map_root.get_global_mouse_position()
+		var wp: Vector2 = _screen_to_world(st.position)
 		var lp: Vector2 = map_root.to_local(wp)
 		_send_pointer_event(st.pressed, MOUSE_BUTTON_LEFT, lp, false, wp, st.position)
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventScreenDrag:
 		var sd := event as InputEventScreenDrag
-		var wp: Vector2 = map_root.get_global_mouse_position()
+		var wp: Vector2 = _screen_to_world(sd.position)
 		var lp: Vector2 = map_root.to_local(wp)
 		_send_pointer_event(false, 0, lp, true, wp, sd.position)
 		return
@@ -3301,6 +3907,16 @@ func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, i
 	var lane_hit: LaneData = api.pick_lane(local_pos)
 	var lane_id: int = lane_hit.id if lane_hit != null else -1
 	var ev_type: String = "motion" if is_motion else ("press" if pressed else "release")
+	if not is_motion:
+		SFLog.allow_tag("INPUT_POINTER_EVENT")
+		SFLog.warn("INPUT_POINTER_EVENT", {
+			"type": ev_type,
+			"button": button_index,
+			"hive_id": hive_id,
+			"lane_id": lane_id,
+			"local_pos": local_pos,
+			"world_pos": world_pos
+		}, "", 0)
 	var ev: Dictionary = {
 		"type": ev_type,
 		"button": button_index,
@@ -3618,7 +4234,7 @@ func _add_map_marker(pos: Vector2) -> void:
 	marker.position = pos
 	marker.visible = false
 	marker.set_meta("map_marker", true)
-	map_root.add_child(marker)
+	map_root.call_deferred("add_child", marker)
 
 func _rebuild_map_markers() -> void:
 	_clear_map_markers()
@@ -3762,9 +4378,9 @@ func _owner_color(owner_id: int) -> Color:
 		1:
 			return Color(0.95, 0.85, 0.2)
 		2:
-			return Color8(34, 85, 34)
-		3:
 			return Color(0.9, 0.2, 0.2)
+		3:
+			return Color8(34, 85, 34)
 		4:
 			return Color(0.2, 0.5, 0.95)
 		_:
@@ -3777,9 +4393,9 @@ func _owner_label(owner_id: int) -> String:
 		1:
 			return "P1(Yellow)"
 		2:
-			return "P2(Green)"
+			return "P2(Red)"
 		3:
-			return "P3(Red)"
+			return "P3(Green)"
 		4:
 			return "P4(Blue)"
 		_:
@@ -5417,6 +6033,8 @@ func _ensure_timer_layer(match_timer: Control = null) -> CanvasLayer:
 	var current_scene: Node = tree.current_scene
 	if current_scene != null:
 		hud = current_scene.get_node_or_null("HUDCanvasLayer") as CanvasLayer
+		if hud == null:
+			hud = current_scene.get_node_or_null("UI") as CanvasLayer
 	if hud == null:
 		hud = root.get_node_or_null("HUDCanvasLayer") as CanvasLayer
 	if hud == null:
@@ -5511,8 +6129,8 @@ func _update_timer_label() -> void:
 			"offsets": offsets,
 			"parent_chain": _dump_timer_parent_chain(timer_label)
 		})
-	timer_label.modulate = Color(1, 0, 1, 1)
-	timer_label.self_modulate = Color(1, 0, 1, 1)
+	timer_label.modulate = Color(1, 1, 1, 1)
+	timer_label.self_modulate = Color(1, 1, 1, 1)
 	timer_label.visible = true
 	var remaining_ms := int(OpsState.match_remaining_ms)
 	if remaining_ms < 0:
@@ -5641,6 +6259,7 @@ func _end_game(winner: int, reason: String) -> void:
 	game_over = true
 	winner_id = winner
 	end_reason = reason
+	_commit_match_records(winner)
 	sim_running = false
 	dbg("SF: WINNER pid=%d" % winner_id)
 	var winner_label := "none"
@@ -5657,7 +6276,10 @@ func _end_game(winner: int, reason: String) -> void:
 		error_count
 	])
 	if outcome_overlay != null:
-		outcome_overlay.show_outcome(winner_id, reason, active_player_id)
+		var record_slot: int = clampi(active_player_id, 1, 4)
+		var record_text: String = _get_player_record_line(record_slot)
+		var h2h_text: String = _get_h2h_record_line()
+		outcome_overlay.show_outcome(winner_id, reason, active_player_id, record_text, h2h_text)
 	if sim_runner != null:
 		sim_runner.log_pause_snapshot("arena_end_game")
 
@@ -7155,11 +7777,15 @@ func _hive_id_at_point(local_pos: Vector2) -> int:
 	if state.hives == null:
 		return -1
 	var best_id := -1
-	var best_dist := HIVE_HIT_RADIUS_PX * HIVE_HIT_RADIUS_PX
+	var best_dist := INF
 	for hive in state.hives:
 		var center := _cell_center(hive.grid_pos)
 		var dist := center.distance_squared_to(local_pos)
-		if dist <= best_dist:
+		var hive_radius: float = float(hive.radius_px)
+		if hive_radius <= 0.0:
+			hive_radius = HIVE_RADIUS_PX
+		var hit_radius: float = maxf(HIVE_HIT_RADIUS_PX, hive_radius + HIVE_PICK_PADDING_PX)
+		if dist <= hit_radius * hit_radius and dist < best_dist:
 			best_dist = dist
 			best_id = hive.id
 	return best_id
