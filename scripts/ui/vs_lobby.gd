@@ -19,6 +19,7 @@ const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako"
 @onready var quick_button: Button = $Panel/VBox/Buttons/QuickMatch
 @onready var sms_button: Button = $Panel/VBox/Buttons/SmsInvite
 @onready var dev_min_override_button: Button = $Panel/VBox/Buttons/DevMinOverride
+@onready var dev_autostart_button: Button = $Panel/VBox/Buttons/DevAutostart
 @onready var status_label: Label = $Panel/VBox/Status
 @onready var slots_label: Label = $Panel/VBox/Slots
 @onready var invite_label: Label = $Panel/VBox/Invite
@@ -73,6 +74,7 @@ func _ready() -> void:
 	quick_button.pressed.connect(_on_quick_match)
 	sms_button.pressed.connect(_on_sms_invite)
 	dev_min_override_button.pressed.connect(_on_dev_min_override_pressed)
+	dev_autostart_button.pressed.connect(_on_dev_autostart_pressed)
 	countdown_timer.timeout.connect(_on_countdown_tick)
 	timeout_timer.timeout.connect(_on_timeout_tick)
 	_assigned_players = ["You"]
@@ -81,6 +83,7 @@ func _ready() -> void:
 	invite_label.visible = false
 	_dev_min_players_override = false
 	dev_min_override_button.visible = OS.is_debug_build()
+	dev_autostart_button.visible = OS.is_debug_build()
 	_sync_dev_button_text()
 	if _uses_async_window():
 		quick_button.text = "Join Contest"
@@ -249,6 +252,9 @@ func _on_back_pressed() -> void:
 	_stop_timers()
 	closed.emit()
 
+func _on_dev_autostart_pressed() -> void:
+	dev_autostart_now()
+
 func _uses_async_window() -> bool:
 	return _mode == "STAGE_RACE" or _mode == "MISS_N_OUT"
 
@@ -298,6 +304,13 @@ func _join_async_contest(from_invite: bool) -> void:
 		invite_label.visible = false
 	_status("Contest open")
 	_start_countdown(_window_sec)
+
+func dev_autostart_now() -> void:
+	if not OS.is_debug_build():
+		return
+	if _uses_async_window() and not _local_joined:
+		_join_async_contest(false)
+	_start_match()
 
 func _effective_required_players() -> int:
 	if _dev_min_players_override:

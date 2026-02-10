@@ -44,6 +44,9 @@ text = "VS via SMS"
 [node name="DevMinOverride" type="Button" parent="Panel/VBox/Buttons"]
 text = "DEV: Min=1 OFF"
 
+[node name="DevAutostart" type="Button" parent="Panel/VBox/Buttons"]
+text = "DEV: Autostart"
+
 [node name="Status" type="Label" parent="Panel/VBox"]
 text = "Status"
 

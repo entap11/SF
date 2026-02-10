@@ -30,6 +30,11 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
+[node name="TeamMode" type="Button" parent="VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Mode: 2v2"
+
 [node name="Start" type="Button" parent="VBox"]
 layout_mode = 2
 text = "Start VS"
