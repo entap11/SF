@@ -67,9 +67,12 @@ func _format_contest_tile(contest: ContestDef) -> String:
 	var entry_text := "Entered" if entered else "Not entered"
 	var cap_text := _cap_text(contest.buff_cap_per_map)
 	var remaining := _format_remaining(contest.end_ts)
-	return "%s\n%s | %s | %s" % [
-		contest.name,
+	var stage_label: String = "5-Map Stage Race"
+	var contest_label: String = contest.name.replace("Time Puzzle", "Stage Race")
+	return "%s\n%s | %s | %s | %s" % [
+		contest_label,
 		entry_text,
+		stage_label,
 		cap_text,
 		remaining
 	]

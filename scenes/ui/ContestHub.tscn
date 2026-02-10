@@ -39,4 +39,17 @@ text = "Enter"
 [node name="Back" type="Button" parent="Panel/VBox/Header"]
 text = "Back"
 
+[node name="StageRaceSummary" type="Label" parent="Panel/VBox"]
+text = "Overall lead: --"
+
+[node name="StageRaceActions" type="HBoxContainer" parent="Panel/VBox"]
+
+[node name="StageRacePlay" type="Button" parent="Panel/VBox/StageRaceActions"]
+text = "Start Stage Race"
+
+[node name="StageRaceBoard" type="Button" parent="Panel/VBox/StageRaceActions"]
+text = "Overall Board"
+
+[node name="StageRaceLeaders" type="VBoxContainer" parent="Panel/VBox"]
+
 [node name="MapsList" type="VBoxContainer" parent="Panel/VBox"]

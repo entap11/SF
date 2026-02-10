@@ -1,6 +1,7 @@
 extends Node
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
+const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 
 const PROFILE_PATH: String = "user://profile.cfg"
 const PROFILE_SECTION: String = "profile"
@@ -8,6 +9,12 @@ const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player "
 const DISPLAY_NAME_MAX_LEN: int = 20
+const BUFF_LOADOUT_SIZE: int = 3
+const DEFAULT_BUFF_LOADOUT_IDS: Array[String] = [
+	"buff_swarm_speed_classic",
+	"buff_hive_faster_production_classic",
+	"buff_tower_fire_rate_classic"
+]
 
 var _has_loaded: bool = false
 var _boot_trace_enter_logged: bool = false
@@ -16,6 +23,8 @@ var _onboarding_complete: bool = false
 var _user_id: String = ""
 var _display_name: String = ""
 var _created_at_unix: int = 0
+var _owned_buff_ids: Array[String] = []
+var _buff_loadout_ids: Array[String] = []
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -45,6 +54,8 @@ func ensure_loaded() -> void:
 		_display_name = str(cfg.get_value(PROFILE_SECTION, "display_name", ""))
 		_created_at_unix = int(cfg.get_value(PROFILE_SECTION, "created_at_unix", 0))
 		_onboarding_complete = bool(cfg.get_value(PROFILE_SECTION, "onboarding_complete", false))
+		_owned_buff_ids = _sanitize_owned_ids(cfg.get_value(PROFILE_SECTION, "owned_buff_ids", []))
+		_buff_loadout_ids = _sanitize_loadout_ids(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids", []))
 
 	var created: bool = false
 	if _user_id.is_empty():
@@ -52,6 +63,8 @@ func ensure_loaded() -> void:
 		_created_at_unix = int(Time.get_unix_time_from_system())
 		_display_name = _default_display_name(_user_id)
 		_onboarding_complete = false
+		_owned_buff_ids = _default_owned_ids()
+		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 		created = true
 		_created_this_run = true
@@ -65,6 +78,14 @@ func ensure_loaded() -> void:
 		if _created_at_unix <= 0:
 			_created_at_unix = int(Time.get_unix_time_from_system())
 			updated = true
+		if _owned_buff_ids.is_empty():
+			_owned_buff_ids = _default_owned_ids()
+			updated = true
+		var cleaned_loadout: Array[String] = _sanitize_loadout_ids(_buff_loadout_ids)
+		if cleaned_loadout != _buff_loadout_ids:
+			_buff_loadout_ids = cleaned_loadout
+			updated = true
+		_ensure_loadout_owned()
 		if updated:
 			_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 
@@ -144,6 +165,48 @@ func mark_onboarding_complete() -> void:
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_ONBOARDING_COMPLETE", {"user_id": _user_id})
 
+func get_owned_buff_ids() -> Array[String]:
+	ensure_loaded()
+	return _owned_buff_ids.duplicate()
+
+func set_owned_buff_ids(ids: Array) -> void:
+	ensure_loaded()
+	_owned_buff_ids = _sanitize_owned_ids(ids)
+	_ensure_loadout_owned()
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+
+func add_owned_buffs(ids: Array) -> int:
+	ensure_loaded()
+	var added: int = 0
+	for buff_id_v in ids:
+		var buff_id: String = str(buff_id_v).strip_edges()
+		if buff_id == "":
+			continue
+		if BuffCatalog.get_buff(buff_id).is_empty():
+			continue
+		if _owned_buff_ids.has(buff_id):
+			continue
+		_owned_buff_ids.append(buff_id)
+		added += 1
+	if added > 0:
+		_ensure_loadout_owned()
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	return added
+
+func get_buff_loadout_ids() -> Array[String]:
+	ensure_loaded()
+	return _buff_loadout_ids.duplicate()
+
+func set_buff_loadout_ids(ids: Array) -> bool:
+	ensure_loaded()
+	var next_ids: Array[String] = _sanitize_loadout_ids(ids)
+	if next_ids == _buff_loadout_ids:
+		return true
+	_buff_loadout_ids = next_ids
+	_ensure_loadout_owned()
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	return true
+
 func _save_profile(user_id: String, display_name: String, created_at: int, onboarding_complete: bool) -> void:
 	var cfg: ConfigFile = ConfigFile.new()
 	cfg.set_value(PROFILE_SECTION, "user_id", user_id)
@@ -151,6 +214,8 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	if created_at > 0:
 		cfg.set_value(PROFILE_SECTION, "created_at_unix", created_at)
 	cfg.set_value(PROFILE_SECTION, "onboarding_complete", onboarding_complete)
+	cfg.set_value(PROFILE_SECTION, "owned_buff_ids", _owned_buff_ids)
+	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids", _buff_loadout_ids)
 	var err: int = cfg.save(PROFILE_PATH)
 	SFLog.info("PROFILE_BOOT_TRACE_SAVE", {
 		"path": PROFILE_PATH,
@@ -207,6 +272,73 @@ func _is_valid_user_id(uid: String) -> bool:
 		if not (is_digit or is_lower_hex or is_upper_hex):
 			return false
 	return true
+
+func _default_owned_ids() -> Array[String]:
+	var out: Array[String] = []
+	for buff_id in DEFAULT_BUFF_LOADOUT_IDS:
+		if BuffCatalog.get_buff(buff_id).is_empty():
+			continue
+		if out.has(buff_id):
+			continue
+		out.append(buff_id)
+	return out
+
+func _sanitize_owned_ids(raw: Variant) -> Array[String]:
+	var out: Array[String] = []
+	if typeof(raw) != TYPE_ARRAY:
+		return _default_owned_ids()
+	for buff_id_v in raw as Array:
+		var buff_id: String = str(buff_id_v).strip_edges()
+		if buff_id == "":
+			continue
+		if BuffCatalog.get_buff(buff_id).is_empty():
+			continue
+		if out.has(buff_id):
+			continue
+		out.append(buff_id)
+	if out.is_empty():
+		out = _default_owned_ids()
+	return out
+
+func _sanitize_loadout_ids(raw: Variant) -> Array[String]:
+	var base: Array[String] = _default_owned_ids()
+	var out: Array[String] = []
+	if typeof(raw) == TYPE_ARRAY:
+		for buff_id_v in raw as Array:
+			var buff_id: String = str(buff_id_v).strip_edges()
+			if buff_id == "":
+				continue
+			if BuffCatalog.get_buff(buff_id).is_empty():
+				continue
+			if out.has(buff_id):
+				continue
+			out.append(buff_id)
+	if out.size() > BUFF_LOADOUT_SIZE:
+		out = out.slice(0, BUFF_LOADOUT_SIZE)
+	var fill_i: int = 0
+	while out.size() < BUFF_LOADOUT_SIZE and fill_i < base.size():
+		var fallback_id: String = base[fill_i]
+		if not out.has(fallback_id):
+			out.append(fallback_id)
+		fill_i += 1
+	while out.size() < BUFF_LOADOUT_SIZE:
+		for fallback_id in DEFAULT_BUFF_LOADOUT_IDS:
+			if BuffCatalog.get_buff(fallback_id).is_empty():
+				continue
+			if out.has(fallback_id):
+				continue
+			out.append(fallback_id)
+			break
+		if out.size() >= BUFF_LOADOUT_SIZE:
+			break
+		break
+	return out
+
+func _ensure_loadout_owned() -> void:
+	for buff_id in _buff_loadout_ids:
+		if _owned_buff_ids.has(buff_id):
+			continue
+		_owned_buff_ids.append(buff_id)
 
 # Legacy compatibility (single-profile semantics).
 func get_profiles() -> Array[Dictionary]:

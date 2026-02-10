@@ -7,6 +7,9 @@ const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const SHELL_BUFFER_ROOT_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
+const SHELL_BOTTOM_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/BottomBufferBackground"
+const SHELL_PLAYER_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/BuffSlotsStrip"
+const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BUFFER_ROOT_PATH + "/OpponentBuffStrip"
 const PENDING_APPLY_MAX_TRIES: int = 60
 const TRACE_SHELL_LOGS: bool = false
 const MVP_SMOKE_ARENA_PATH: String = "/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena"
@@ -46,6 +49,8 @@ const MVP_SMOKE_DEFAULT_WIN_MAP: String = "res://maps/json/MAP_TEST.json"
 @onready var _team_mode_button: Button = get_node_or_null(team_mode_button_path) as Button
 @onready var _play_selected_button: Button = get_node_or_null(play_selected_button_path) as Button
 @onready var _picker_back_button: Button = get_node_or_null(picker_back_button_path) as Button
+@onready var _player_buff_strip: Control = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
+@onready var _opponent_buff_strip: Control = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_PATH) as Control
 
 static var _shell_enter_count: int = 0
 static var _shell_ready_count: int = 0
@@ -62,6 +67,7 @@ var _pending_apply_tries: int = 0
 var _err_conn_ready: bool = false
 var _frame_once: bool = false
 var _team_mode_ui: String = "2v2"
+var _buff_ui_last_active_pid: int = 1
 
 func _install_error_hooks() -> void:
 	if _err_conn_ready:
@@ -156,9 +162,11 @@ func _ready() -> void:
 	_resolve_map_picker_ui_nodes()
 	_resolve_team_mode_ui_node()
 	_resolve_dev_map_loader()
+	_resolve_buff_ui_nodes()
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 040: after_resolve_map_picker_ui_nodes")
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 050: before_wire_map_picker_ui")
 	_safe_call("wire_map_picker_ui", Callable(self, "_wire_map_picker_ui"))
+	_safe_call("wire_buff_ui", Callable(self, "_wire_buff_ui"))
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 060: after_wire_map_picker_ui")
 	if back_button != null:
 		if not back_button.pressed.is_connected(_on_back_pressed):
@@ -335,6 +343,41 @@ func _resolve_dev_map_loader() -> void:
 		"node": _np(_dev_map_loader),
 		"iid": _iid(_dev_map_loader),
 		"visible": (_dev_map_loader.visible if _dev_map_loader != null else false)
+	})
+
+func _resolve_buff_ui_nodes() -> void:
+	_player_buff_strip = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
+	_opponent_buff_strip = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_PATH) as Control
+	SFLog.info("BUFF_UI_RESOLVE", {
+		"player_strip": _diag_resolve(_player_buff_strip),
+		"opponent_strip": _diag_resolve(_opponent_buff_strip)
+	})
+
+func _wire_buff_ui() -> void:
+	if _player_buff_strip == null:
+		SFLog.warn("BUFF_UI_MISSING_PLAYER_STRIP", {})
+		return
+	if _player_buff_strip.has_signal("buff_drag_started"):
+		var drag_started_cb: Callable = Callable(self, "_on_player_buff_drag_started")
+		if not _player_buff_strip.is_connected("buff_drag_started", drag_started_cb):
+			_player_buff_strip.connect("buff_drag_started", drag_started_cb)
+	if _player_buff_strip.has_signal("buff_drop_requested"):
+		var drop_cb: Callable = Callable(self, "_on_player_buff_drop_requested")
+		if not _player_buff_strip.is_connected("buff_drop_requested", drop_cb):
+			_player_buff_strip.connect("buff_drop_requested", drop_cb)
+	if _player_buff_strip.has_signal("buff_drag_cancelled"):
+		var cancel_cb: Callable = Callable(self, "_on_player_buff_drag_cancelled")
+		if not _player_buff_strip.is_connected("buff_drag_cancelled", cancel_cb):
+			_player_buff_strip.connect("buff_drag_cancelled", cancel_cb)
+	if _player_buff_strip.has_method("apply_snapshot"):
+		_player_buff_strip.call("apply_snapshot", {"slots_active": 0, "slots": []})
+	if _opponent_buff_strip != null and _opponent_buff_strip.has_method("set_visible_slot_count"):
+		_opponent_buff_strip.call("set_visible_slot_count", 0)
+	if _opponent_buff_strip != null and _opponent_buff_strip.has_method("reset_slots"):
+		_opponent_buff_strip.call("reset_slots")
+	SFLog.info("BUFF_UI_WIRED", {
+		"player_strip_connected": true,
+		"opponent_strip_present": _opponent_buff_strip != null
 	})
 
 func _resolve_dev_map_loader_node() -> Node:
@@ -735,6 +778,7 @@ func _stop_game() -> void:
 		_arena_instance = null
 	_dev_loader = null
 	_set_menu_state(true)
+	_sync_buff_ui()
 
 func _on_dev_pressed() -> void:
 	_open_main_menu()
@@ -780,6 +824,7 @@ func _on_viewport_size_changed() -> void:
 	call_deferred("_sync_power_bar_buffer_placement")
 
 func _process(_delta: float) -> void:
+	_sync_buff_ui()
 	if _arena_instance == null:
 		return
 	_update_power_bar_visibility()
@@ -840,9 +885,154 @@ func _ui_watch_tick() -> void:
 		_ui_watch_prev = snap
 
 func _on_ops_ui_signal(_payload: Variant = null) -> void:
+	call_deferred("_sync_buff_ui")
+	if _arena_instance != null:
+		call_deferred("_update_power_bar_visibility")
+
+func _resolve_runtime_arena_node() -> Node:
 	if _arena_instance == null:
+		return null
+	return _arena_instance.get_node_or_null("WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena")
+
+func _sync_buff_ui() -> void:
+	if _player_buff_strip == null:
 		return
-	call_deferred("_update_power_bar_visibility")
+	if _arena_instance == null:
+		_player_buff_strip.visible = false
+		if _opponent_buff_strip != null:
+			_opponent_buff_strip.visible = false
+		return
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node == null or not arena_node.has_method("get_buff_ui_snapshot"):
+		_player_buff_strip.visible = false
+		if _opponent_buff_strip != null:
+			_opponent_buff_strip.visible = false
+		return
+	var snap_v: Variant = arena_node.call("get_buff_ui_snapshot")
+	if typeof(snap_v) != TYPE_DICTIONARY:
+		return
+	var snapshot: Dictionary = snap_v as Dictionary
+	if not bool(snapshot.get("buffs_enabled", false)):
+		_player_buff_strip.visible = false
+		if _opponent_buff_strip != null:
+			_opponent_buff_strip.visible = false
+		return
+	_player_buff_strip.visible = true
+	if _opponent_buff_strip != null:
+		_opponent_buff_strip.visible = true
+	var active_pid: int = int(snapshot.get("active_player_id", 1))
+	_buff_ui_last_active_pid = active_pid
+	var players_any: Variant = snapshot.get("players", {})
+	var players: Dictionary = {}
+	if typeof(players_any) == TYPE_DICTIONARY:
+		players = players_any as Dictionary
+	var player_data: Dictionary = _player_data_for_pid(players, active_pid)
+	if _player_buff_strip.has_method("apply_snapshot"):
+		_player_buff_strip.call("apply_snapshot", player_data)
+	if _opponent_buff_strip == null:
+		return
+	var active_seats: Array = _active_seats_from_hud()
+	var opponent_pid: int = _pick_opponent_pid(active_pid, players, active_seats)
+	var opponent_data: Dictionary = _player_data_for_pid(players, opponent_pid)
+	if _opponent_buff_strip.has_method("set_visible_slot_count"):
+		_opponent_buff_strip.call("set_visible_slot_count", int(opponent_data.get("slots_active", 0)))
+	if _opponent_buff_strip.has_method("set_used_slots"):
+		_opponent_buff_strip.call("set_used_slots", _collect_used_slots(opponent_data))
+
+func _player_data_for_pid(players: Dictionary, pid: int) -> Dictionary:
+	var value: Variant = players.get(pid, {})
+	if typeof(value) == TYPE_DICTIONARY:
+		return value as Dictionary
+	return {}
+
+func _active_seats_from_hud() -> Array:
+	var hud: Dictionary = OpsState.get_hud_snapshot()
+	var seats_any: Variant = hud.get("active_seats", [])
+	var out: Array = []
+	if typeof(seats_any) == TYPE_ARRAY:
+		for seat_any in seats_any as Array:
+			var seat: int = int(seat_any)
+			if seat >= 1 and seat <= 4 and not out.has(seat):
+				out.append(seat)
+	if out.is_empty():
+		out = [1, 2]
+	out.sort()
+	return out
+
+func _pick_opponent_pid(active_pid: int, players: Dictionary, active_seats: Array) -> int:
+	var candidates: Array = []
+	for seat_any in active_seats:
+		var seat: int = int(seat_any)
+		if seat == active_pid:
+			continue
+		if not players.has(seat):
+			continue
+		candidates.append(seat)
+	if candidates.is_empty():
+		for key_any in players.keys():
+			var seat: int = int(key_any)
+			if seat != active_pid:
+				candidates.append(seat)
+	if candidates.is_empty():
+		return 2 if active_pid == 1 else 1
+	for seat_any in candidates:
+		var seat: int = int(seat_any)
+		if not OpsState.has_method("are_allies"):
+			return seat
+		if not bool(OpsState.call("are_allies", active_pid, seat)):
+			return seat
+	return int(candidates[0])
+
+func _collect_used_slots(player_data: Dictionary) -> Array:
+	var used: Array = []
+	var slots_any: Variant = player_data.get("slots", [])
+	if typeof(slots_any) != TYPE_ARRAY:
+		return used
+	var slots: Array = slots_any as Array
+	for i in range(slots.size()):
+		if typeof(slots[i]) != TYPE_DICTIONARY:
+			continue
+		var slot: Dictionary = slots[i] as Dictionary
+		if bool(slot.get("consumed", false)) or bool(slot.get("active", false)):
+			used.append(i)
+	return used
+
+func _on_player_buff_drag_started(slot_index: int, buff_id: String) -> void:
+	SFLog.info("BUFF_DRAG_STARTED", {
+		"pid": _buff_ui_last_active_pid,
+		"slot_index": slot_index,
+		"buff_id": buff_id
+	})
+
+func _on_player_buff_drop_requested(slot_index: int, screen_pos: Vector2, held_ms: int) -> void:
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node == null or not arena_node.has_method("request_buff_drop"):
+		return
+	var world_pos: Vector2 = screen_pos
+	if arena_node.has_method("_screen_to_world"):
+		world_pos = arena_node.call("_screen_to_world", screen_pos)
+	var result_v: Variant = arena_node.call("request_buff_drop", _buff_ui_last_active_pid, slot_index, world_pos)
+	var result: Dictionary = {}
+	if typeof(result_v) == TYPE_DICTIONARY:
+		result = result_v as Dictionary
+	SFLog.info("BUFF_DROP_REQUEST", {
+		"pid": _buff_ui_last_active_pid,
+		"slot_index": slot_index,
+		"held_ms": held_ms,
+		"screen_pos": screen_pos,
+		"world_pos": world_pos,
+		"ok": bool(result.get("ok", false)),
+		"reason": str(result.get("reason", "")),
+		"target": result.get("target", {})
+	})
+	call_deferred("_sync_buff_ui")
+
+func _on_player_buff_drag_cancelled(slot_index: int, reason: String) -> void:
+	SFLog.info("BUFF_DRAG_CANCELLED", {
+		"pid": _buff_ui_last_active_pid,
+		"slot_index": slot_index,
+		"reason": reason
+	})
 
 func _sync_power_bar_buffer_placement() -> void:
 	if _arena_instance == null:

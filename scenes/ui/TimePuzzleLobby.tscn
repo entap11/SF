@@ -25,7 +25,7 @@ offset_bottom = -12.0
 [node name="Header" type="HBoxContainer" parent="Panel/VBox"]
 
 [node name="Title" type="Label" parent="Panel/VBox/Header"]
-text = "Time Puzzle Contests"
+text = "Stage Race Tournaments"
 
 [node name="Back" type="Button" parent="Panel/VBox/Header"]
 text = "Back"

@@ -275,7 +275,7 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 			var a_amt: int = int(a.get("amount", 0))
 			var b_amt: int = int(b.get("amount", 0))
 			var collision_t := clampf((a_t + b_t) * 0.5, 0.0, 1.0)
-			if a_owner == b_owner:
+			if _are_allied_owners(a_owner, b_owner):
 				var keep_ab := a_t >= (1.0 - b_t)
 				if keep_ab:
 					a_amt += b_amt
@@ -544,6 +544,15 @@ func _sort_unit_index_by_t(a: int, b: int) -> bool:
 		return int(ua.get("id", 0)) < int(ub.get("id", 0))
 	return ta < tb
 
+func _are_allied_owners(owner_a: int, owner_b: int) -> bool:
+	var a_id: int = int(owner_a)
+	var b_id: int = int(owner_b)
+	if a_id <= 0 or b_id <= 0:
+		return false
+	if OpsState != null and OpsState.has_method("are_allies"):
+		return bool(OpsState.call("are_allies", a_id, b_id))
+	return a_id == b_id
+
 func _apply_unit_arrival(unit: Dictionary) -> void:
 	if state == null:
 		return
@@ -570,11 +579,15 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	OpsState.add_units_landed(owner_id, amount)
 	var before_owner := int(hive.owner_id)
 	var before_power := int(hive.power)
+	var friendly_arrival: bool = _are_allied_owners(before_owner, owner_id)
+	var pass_owner: int = owner_id if owner_id > 0 else before_owner
+	if friendly_arrival and before_owner > 0:
+		pass_owner = before_owner
 	var arrive_source: String = str(unit.get("arrive_source", "unit_system"))
 	if _sim_events != null and arrive_source != "recall":
 		var impact_kind: String = "feed"
 		var impact_intensity: float = 0.6
-		if before_owner != owner_id:
+		if not friendly_arrival:
 			impact_kind = "attack"
 			impact_intensity = 1.0
 		var impact_pos: Vector2 = _arrival_impact_world_pos(unit, to_id)
@@ -592,16 +605,16 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 			impact_unit_id,
 			to_id
 		)
-	if int(hive.owner_id) == owner_id:
+	if friendly_arrival:
 		var before_power_same_owner: int = int(hive.power)
 		var raw_after: int = before_power_same_owner + amount
 		hive.power = min(SimTuning.MAX_POWER, raw_after)
 		if before_power_same_owner >= SimTuning.MAX_POWER:
-			_pass_through_arrival(hive, owner_id, amount)
+			_pass_through_arrival(hive, pass_owner, amount)
 		else:
 			var overflow: int = maxi(0, raw_after - SimTuning.MAX_POWER)
 			if overflow > 0:
-				_pass_through_arrival(hive, owner_id, overflow)
+				_pass_through_arrival(hive, pass_owner, overflow)
 	else:
 		hive.power -= amount
 		if hive.power <= 0:
@@ -927,7 +940,7 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 		var unit: Dictionary = units[i] as Dictionary
 		if int(unit.get("id", -1)) != victim_unit_id:
 			continue
-		if tower_owner_id > 0 and int(unit.get("owner_id", 0)) == tower_owner_id:
+		if tower_owner_id > 0 and _are_allied_owners(int(unit.get("owner_id", 0)), tower_owner_id):
 			return false
 		var hit_pos: Vector2 = Vector2.ZERO
 		var pos_v: Variant = unit.get("pos", null)

@@ -1,6 +1,7 @@
 extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
+const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
@@ -34,6 +35,21 @@ const DASH_TAB_KEY_LEFT := "ui.mm.dash.left"
 @onready var store_prefs_toggle: CheckButton = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryPrefs/StoreCategoryPrefsVBox/StorePrefsToggle
 @onready var store_category_back: Button = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryBack
 @onready var async_panel: Panel = $AsyncPanel
+@onready var async_subtitle_label: Label = $AsyncPanel/AsyncVBox/AsyncSub
+@onready var async_top_row: HBoxContainer = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow
+@onready var async_bottom_row: HBoxContainer = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow
+@onready var async_results_panel: Panel = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel
+@onready var async_results_header: Label = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsHeader
+@onready var async_results_sub: Label = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsSub
+@onready var async_results_list: VBoxContainer = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList
+@onready var async_results_action: Button = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsAction
+@onready var async_rules_panel: Panel = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel
+@onready var async_rules_header: Label = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncRulesHeader
+@onready var async_rules_line1: Label = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncRulesLine1
+@onready var async_rules_line2: Label = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncRulesLine2
+@onready var async_free_list: VBoxContainer = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList
+@onready var async_rules_action: Button = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncRulesAction
+@onready var async_footer_label: Label = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncFooter
 @onready var dash_stats_sub: Label = $DashPanel/DashStatsPanel/StatsVBox/StatsSub
 @onready var dash_analysis_sub: Label = $DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisSub
 @onready var dash_replay_sub: Label = $DashPanel/DashReplayPanel/ReplayVBox/ReplaySub
@@ -92,6 +108,15 @@ const DASH_TAB_KEY_LEFT := "ui.mm.dash.left"
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow/BuffSlot3,
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow/BuffSlot4
 ]
+@onready var buffs_top_row: HBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow
+@onready var buffs_loadout_panel: Panel = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel
+@onready var buffs_library_panel: Panel = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel
+@onready var buffs_detail_panel: Panel = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel
+@onready var buffs_loadout_vbox: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox
+@onready var buffs_slots_row: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow
+@onready var buffs_library_vbox: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox
+@onready var buffs_library_header: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryHeader
+@onready var buffs_footer_label: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsFooter
 @onready var buffs_library_buttons: Array = [
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList/BuffItem1,
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList/BuffItem2,
@@ -100,6 +125,9 @@ const DASH_TAB_KEY_LEFT := "ui.mm.dash.left"
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList/BuffItem5,
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryList/BuffItem6
 ]
+@onready var buffs_detail_name_label: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailName
+@onready var buffs_detail_desc_label: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailDesc
+@onready var buffs_detail_meta_label: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailMeta
 @onready var buffs_detail_buttons: Array = [
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailButtons/BuffEquip,
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailButtons/BuffRemove
@@ -113,6 +141,7 @@ var _store_category_buttons: Array = []
 var _store_sku_buttons: Array = []
 var _time_puzzle_lobby: TimePuzzleLobby = null
 var _play_mode_select: Control = null
+var _vs_lobby: Control = null
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -216,10 +245,41 @@ var _async_assigned_map := {
 	"monthly": "",
 	"yearly": ""
 }
+var _async_paid_entry_usd: int = 1
+var _async_track_mode: String = "select"
 
-const ASYNC_BUYINS := [1, 5, 10, 20, 50]
+const ASYNC_BUYINS := [1, 5, 10, 20]
 const ASYNC_MAPS := ["Map A", "Map B", "Map C", "Map D", "Map E"]
 const ASYNC_CONFIRM_WINDOW_MS := 900
+const ASYNC_TRACK_SELECT := "select"
+const ASYNC_TRACK_PAID := "paid"
+const ASYNC_TRACK_FREE := "free"
+const ASYNC_STAGE_AND_MISS_WINDOW_SEC := 30 * 60
+const ASYNC_WINDOW_START_PLAYERS := 5
+const ASYNC_TIMED_RACE_SYNC_JOIN_SEC := 30
+const BUFF_LOADOUT_SIZE: int = 3
+const BUFF_DRAG_MIN_PX: float = 16.0
+const BUFF_LIBRARY_TIERS: Array[String] = ["classic", "premium", "elite"]
+
+var _buff_library_all: Array[Dictionary] = []
+var _buff_library_selected_ids: Dictionary = {}
+var _buff_owned_ids: Array[String] = []
+var _buff_loadout_ids: Array[String] = []
+var _buff_selected_id: String = ""
+var _buff_selected_origin: String = ""
+var _buff_selected_slot_index: int = -1
+var _buff_owned_panel: Panel = null
+var _buff_loadout_top_panel: Panel = null
+var _buff_owned_header_label: Label = null
+var _buff_owned_empty_label: Label = null
+var _buff_owned_flow: VBoxContainer = null
+var _buff_owned_buttons: Array[Button] = []
+var _buff_library_scroll: ScrollContainer = null
+var _buff_library_tier_root: VBoxContainer = null
+var _buff_library_tier_grids: Dictionary = {}
+var _buff_library_tier_headers: Dictionary = {}
+var _buff_library_runtime_buttons: Array[Button] = []
+var _buff_drag_state: Dictionary = {}
 
 const DEFAULT_STATS_TIERS := {
 	"FREE": [
@@ -522,10 +582,33 @@ func _ready() -> void:
 	_set_hex_buttons()
 	_load_match_history()
 	_build_store_landing()
+	_init_buffs_ui()
 	call_deferred("_init_dash_state")
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
 	_bind_onboarding_gate()
+
+func _input(event: InputEvent) -> void:
+	if _buff_drag_state.is_empty():
+		return
+	if event is InputEventMouseMotion:
+		var motion: InputEventMouseMotion = event as InputEventMouseMotion
+		_update_buff_drag(motion.position)
+	elif event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		_update_buff_drag(mb.position)
+		if not mb.pressed:
+			_finish_buff_drag(mb.position)
+	elif event is InputEventScreenDrag:
+		var drag: InputEventScreenDrag = event as InputEventScreenDrag
+		_update_buff_drag(drag.position)
+	elif event is InputEventScreenTouch:
+		var touch: InputEventScreenTouch = event as InputEventScreenTouch
+		_update_buff_drag(touch.position)
+		if not touch.pressed:
+			_finish_buff_drag(touch.position)
 
 func _bind_onboarding_gate() -> void:
 	ProfileManager.ensure_loaded()
@@ -812,8 +895,8 @@ func _wire_buttons() -> void:
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction.pressed.connect(_open_async_weekly)
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction.pressed.connect(_open_async_monthly)
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox/AsyncSeasonAction.pressed.connect(_open_async_yearly)
-	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsAction.pressed.connect(func(): _stub_action("Async Ladder"))
-	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncRulesAction.pressed.connect(func(): _stub_action("Async Free Play"))
+	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsAction.pressed.connect(_on_async_results_action_pressed)
+	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncRulesAction.pressed.connect(_on_async_rules_action_pressed)
 	for idx in range(ASYNC_BUYINS.size()):
 		var amount: int = ASYNC_BUYINS[idx]
 		async_weekly_buyin_buttons[idx].pressed.connect(func(): _set_async_buyin("weekly", amount))
@@ -821,24 +904,60 @@ func _wire_buttons() -> void:
 		async_yearly_buyin_buttons[idx].pressed.connect(func(): _set_async_buyin("yearly", amount))
 	var ladder_labels: PackedStringArray = PackedStringArray([
 		"Ladder: Miss n Outs ($1/$5/$10/$20)",
-		"Ladder: 3 Map Race",
-		"Ladder: 5 Map Race",
+		"Ladder: Timed Race (3-map sync start)",
+		"Ladder: Timed Race (5-map sync start)",
 		"Ladder: 3 Map Stage Race",
 		"Ladder: 5 Map Stage Race"
 	])
 	var ladder_count: int = int(min(async_ladder_buttons.size(), ladder_labels.size()))
 	for i in range(ladder_count):
+		var ladder_button: Button = async_ladder_buttons[i] as Button
+		if ladder_button != null:
+			ladder_button.text = ladder_labels[i]
+		if i == 0:
+			async_ladder_buttons[i].pressed.connect(func(): _on_async_miss_n_out_selected(false))
+			continue
+		if i == 1:
+			async_ladder_buttons[i].pressed.connect(func(): _on_async_timed_race_selected(3, false))
+			continue
+		if i == 2:
+			async_ladder_buttons[i].pressed.connect(func(): _on_async_timed_race_selected(5, false))
+			continue
+		if i == 3:
+			async_ladder_buttons[i].pressed.connect(func(): _on_async_stage_race_selected(3, false))
+			continue
+		if i == 4:
+			async_ladder_buttons[i].pressed.connect(func(): _on_async_stage_race_selected(5, false))
+			continue
 		var label: String = ladder_labels[i]
 		async_ladder_buttons[i].pressed.connect(func(): _stub_action(label))
 	var free_labels: PackedStringArray = PackedStringArray([
 		"Free Play: Miss n Outs",
-		"Free Play: 3 Map Race",
-		"Free Play: 5 Map Race",
+		"Free Play: Timed Race (3-map sync start)",
+		"Free Play: Timed Race (5-map sync start)",
 		"Free Play: 3 Map Stage Race",
 		"Free Play: 5 Map Stage Race"
 	])
 	var free_count: int = int(min(async_free_buttons.size(), free_labels.size()))
 	for i in range(free_count):
+		var free_button: Button = async_free_buttons[i] as Button
+		if free_button != null:
+			free_button.text = free_labels[i]
+		if i == 0:
+			async_free_buttons[i].pressed.connect(func(): _on_async_miss_n_out_selected(true))
+			continue
+		if i == 1:
+			async_free_buttons[i].pressed.connect(func(): _on_async_timed_race_selected(3, true))
+			continue
+		if i == 2:
+			async_free_buttons[i].pressed.connect(func(): _on_async_timed_race_selected(5, true))
+			continue
+		if i == 3:
+			async_free_buttons[i].pressed.connect(func(): _on_async_stage_race_selected(3, true))
+			continue
+		if i == 4:
+			async_free_buttons[i].pressed.connect(func(): _on_async_stage_race_selected(5, true))
+			continue
 		var label: String = free_labels[i]
 		async_free_buttons[i].pressed.connect(func(): _stub_action(label))
 	async_weekly_play.pressed.connect(func(): _on_async_play_pressed("weekly"))
@@ -852,6 +971,7 @@ func _wire_buttons() -> void:
 	stats_tier_free.pressed.connect(func(): _set_stats_tier("FREE"))
 	stats_tier_bp.pressed.connect(func(): _set_stats_tier("BP"))
 	stats_tier_elite.pressed.connect(func(): _set_stats_tier("ELITE"))
+	_wire_buffs_buttons()
 
 func _set_hex_buttons() -> void:
 	hive_button.text = "HIVE"
@@ -991,6 +1111,671 @@ func _wire_badges() -> void:
 	for badge_name in ["BadgeButton1", "BadgeButton2", "BadgeButton3", "BadgeButton4"]:
 		var badge_button: Button = get_node("DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesRow/%s" % badge_name)
 		badge_button.pressed.connect(func(): _open_dash_panel(dash_badges_panel_full))
+
+func _wire_buffs_buttons() -> void:
+	for idx in range(buffs_slot_buttons.size()):
+		var slot_button: Button = buffs_slot_buttons[idx] as Button
+		if slot_button == null:
+			continue
+		var press_cb: Callable = Callable(self, "_on_buff_loadout_pressed").bind(idx)
+		if not slot_button.pressed.is_connected(press_cb):
+			slot_button.pressed.connect(press_cb)
+		var input_cb: Callable = Callable(self, "_on_buff_loadout_gui_input").bind(idx)
+		if not slot_button.gui_input.is_connected(input_cb):
+			slot_button.gui_input.connect(input_cb)
+	if buffs_detail_buttons.size() >= 2:
+		var equip_button: Button = buffs_detail_buttons[0] as Button
+		var remove_button: Button = buffs_detail_buttons[1] as Button
+		if equip_button != null and not equip_button.pressed.is_connected(_on_buff_equip_pressed):
+			equip_button.pressed.connect(_on_buff_equip_pressed)
+		if remove_button != null and not remove_button.pressed.is_connected(_on_buff_remove_pressed):
+			remove_button.pressed.connect(_on_buff_remove_pressed)
+
+func _apply_buffs_panel_layout() -> void:
+	_ensure_buffs_loadout_top_panel()
+	if buffs_top_row != null:
+		buffs_top_row.add_theme_constant_override("separation", 10)
+	if buffs_loadout_panel != null:
+		buffs_loadout_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		buffs_loadout_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		buffs_loadout_panel.size_flags_stretch_ratio = 1.0
+	if buffs_loadout_vbox != null:
+		buffs_loadout_vbox.add_theme_constant_override("separation", 10)
+	if buffs_slots_row != null:
+		buffs_slots_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		buffs_slots_row.size_flags_stretch_ratio = 1.0
+	if buffs_library_panel != null:
+		buffs_library_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		buffs_library_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		buffs_library_panel.size_flags_stretch_ratio = 1.35
+	if buffs_library_vbox != null:
+		buffs_library_vbox.add_theme_constant_override("separation", 8)
+	if buffs_detail_panel != null:
+		buffs_detail_panel.visible = false
+
+func _ensure_buffs_loadout_top_panel() -> void:
+	if _buff_loadout_top_panel != null and is_instance_valid(_buff_loadout_top_panel):
+		return
+	if buffs_loadout_vbox == null:
+		return
+	var existing: Panel = buffs_loadout_vbox.get_node_or_null("LoadoutTopPanel") as Panel
+	if existing != null:
+		_buff_loadout_top_panel = existing
+		return
+	var header: Label = buffs_loadout_vbox.get_node_or_null("BuffsLoadoutHeader") as Label
+	if header == null or buffs_slots_row == null:
+		return
+	if header.get_parent() != buffs_loadout_vbox or buffs_slots_row.get_parent() != buffs_loadout_vbox:
+		return
+	var panel: Panel = Panel.new()
+	panel.name = "LoadoutTopPanel"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.size_flags_stretch_ratio = 1.1
+	panel.custom_minimum_size = Vector2(0, 154)
+	buffs_loadout_vbox.add_child(panel)
+	buffs_loadout_vbox.move_child(panel, 0)
+	var inner: VBoxContainer = VBoxContainer.new()
+	inner.name = "LoadoutTopVBox"
+	inner.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	inner.offset_left = 8.0
+	inner.offset_top = 8.0
+	inner.offset_right = -8.0
+	inner.offset_bottom = -8.0
+	inner.add_theme_constant_override("separation", 6)
+	panel.add_child(inner)
+	buffs_loadout_vbox.remove_child(header)
+	buffs_loadout_vbox.remove_child(buffs_slots_row)
+	inner.add_child(header)
+	inner.add_child(buffs_slots_row)
+	_style_panel(panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+	_buff_loadout_top_panel = panel
+
+func _init_buffs_ui() -> void:
+	ProfileManager.ensure_loaded()
+	_buff_library_all.clear()
+	var library_any: Variant = BuffCatalog.list_all()
+	if typeof(library_any) == TYPE_ARRAY:
+		for buff_v in library_any as Array:
+			if typeof(buff_v) != TYPE_DICTIONARY:
+				continue
+			_buff_library_all.append(buff_v as Dictionary)
+	_buff_library_all.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return str(a.get("name", a.get("id", ""))) < str(b.get("name", b.get("id", "")))
+	)
+	_apply_buffs_panel_layout()
+	_ensure_buffs_owned_panel()
+	_ensure_buffs_library_nav()
+	_load_buff_profile_state()
+	_refresh_buffs_library_buttons()
+	_refresh_buffs_owned_ui()
+	_refresh_buffs_loadout_ui()
+	if buffs_footer_label != null:
+		buffs_footer_label.text = "Store -> Owned -> Loadout. Multi-select in Library, then drag to Owned."
+	if not _buff_loadout_ids.is_empty():
+		_set_selected_buff(_buff_loadout_ids[0], "loadout", 0)
+	else:
+		_update_buff_details()
+
+func _ensure_buffs_owned_panel() -> void:
+	if _buff_owned_panel != null and is_instance_valid(_buff_owned_panel):
+		return
+	if buffs_loadout_vbox == null:
+		return
+	var panel: Panel = Panel.new()
+	panel.name = "BuffsOwnedPanel"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.size_flags_stretch_ratio = 2.9
+	panel.custom_minimum_size = Vector2(0, 0)
+	buffs_loadout_vbox.add_child(panel)
+	var owned_vbox: VBoxContainer = VBoxContainer.new()
+	owned_vbox.name = "OwnedVBox"
+	owned_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	owned_vbox.offset_left = 8.0
+	owned_vbox.offset_top = 8.0
+	owned_vbox.offset_right = -8.0
+	owned_vbox.offset_bottom = -8.0
+	owned_vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(owned_vbox)
+	var header: Label = Label.new()
+	header.name = "OwnedHeader"
+	header.text = "OWNED"
+	owned_vbox.add_child(header)
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.name = "OwnedScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	owned_vbox.add_child(scroll)
+	var list: VBoxContainer = VBoxContainer.new()
+	list.name = "OwnedList"
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 4)
+	scroll.add_child(list)
+	var empty_label: Label = Label.new()
+	empty_label.name = "OwnedEmpty"
+	empty_label.text = "Drag selected buffs from Library to add ownership."
+	list.add_child(empty_label)
+	_buff_owned_panel = panel
+	_buff_owned_header_label = header
+	_buff_owned_empty_label = empty_label
+	_buff_owned_flow = list
+	_style_panel(panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+	_apply_font(header, _font_semibold, 13)
+	_apply_font(empty_label, _font_regular, 12)
+
+func _ensure_buffs_library_nav() -> void:
+	if buffs_library_vbox == null:
+		return
+	var legacy_list: Control = buffs_library_vbox.get_node_or_null("BuffsLibraryList") as Control
+	if legacy_list != null:
+		legacy_list.visible = false
+	for button_any in buffs_library_buttons:
+		var old_button: Button = button_any as Button
+		if old_button == null:
+			continue
+		old_button.visible = false
+	if _buff_library_tier_root != null and is_instance_valid(_buff_library_tier_root):
+		return
+	var tier_root: VBoxContainer = VBoxContainer.new()
+	tier_root.name = "BuffLibraryTierRoot"
+	tier_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tier_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tier_root.add_theme_constant_override("separation", 8)
+	buffs_library_vbox.add_child(tier_root)
+	_buff_library_scroll = null
+	_buff_library_tier_root = tier_root
+	_buff_library_tier_grids.clear()
+	_buff_library_tier_headers.clear()
+	for tier_id in BUFF_LIBRARY_TIERS:
+		var panel: Panel = Panel.new()
+		panel.name = "Tier_%s" % tier_id
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		panel.size_flags_stretch_ratio = 1.0
+		tier_root.add_child(panel)
+		_style_panel(panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+		var tier_vbox: VBoxContainer = VBoxContainer.new()
+		tier_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		tier_vbox.offset_left = 8.0
+		tier_vbox.offset_top = 8.0
+		tier_vbox.offset_right = -8.0
+		tier_vbox.offset_bottom = -8.0
+		tier_vbox.add_theme_constant_override("separation", 6)
+		panel.add_child(tier_vbox)
+		var header: Label = Label.new()
+		header.text = tier_id.to_upper()
+		tier_vbox.add_child(header)
+		_apply_font(header, _font_semibold, 12)
+		var tier_scroll: ScrollContainer = ScrollContainer.new()
+		tier_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tier_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		tier_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		tier_vbox.add_child(tier_scroll)
+		var grid: GridContainer = GridContainer.new()
+		grid.columns = 2
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_theme_constant_override("h_separation", 6)
+		grid.add_theme_constant_override("v_separation", 6)
+		tier_scroll.add_child(grid)
+		_buff_library_tier_grids[tier_id] = grid
+		_buff_library_tier_headers[tier_id] = header
+
+func _load_buff_profile_state() -> void:
+	var owned_any: Variant = ProfileManager.call("get_owned_buff_ids") if ProfileManager.has_method("get_owned_buff_ids") else []
+	_buff_owned_ids.clear()
+	if typeof(owned_any) == TYPE_ARRAY:
+		for buff_id_v in owned_any as Array:
+			var buff_id: String = str(buff_id_v).strip_edges()
+			if buff_id == "" or BuffCatalog.get_buff(buff_id).is_empty():
+				continue
+			if _buff_owned_ids.has(buff_id):
+				continue
+			_buff_owned_ids.append(buff_id)
+	var loadout_any: Variant = ProfileManager.call("get_buff_loadout_ids") if ProfileManager.has_method("get_buff_loadout_ids") else []
+	_buff_loadout_ids.clear()
+	if typeof(loadout_any) == TYPE_ARRAY:
+		for buff_id_v in loadout_any as Array:
+			var buff_id: String = str(buff_id_v).strip_edges()
+			if buff_id == "" or BuffCatalog.get_buff(buff_id).is_empty():
+				continue
+			if _buff_loadout_ids.has(buff_id):
+				continue
+			_buff_loadout_ids.append(buff_id)
+	while _buff_loadout_ids.size() < BUFF_LOADOUT_SIZE:
+		var fallback: String = _fallback_buff_for_index(_buff_loadout_ids.size())
+		if fallback == "" or _buff_loadout_ids.has(fallback):
+			break
+		_buff_loadout_ids.append(fallback)
+	for buff_id in _buff_loadout_ids:
+		if buff_id == "" or _buff_owned_ids.has(buff_id):
+			continue
+		_buff_owned_ids.append(buff_id)
+	_persist_buff_profile_state()
+
+func _persist_buff_profile_state() -> void:
+	if ProfileManager.has_method("set_owned_buff_ids"):
+		ProfileManager.call("set_owned_buff_ids", _buff_owned_ids)
+	if ProfileManager.has_method("set_buff_loadout_ids"):
+		ProfileManager.call("set_buff_loadout_ids", _buff_loadout_ids)
+
+func _fallback_buff_for_index(idx: int) -> String:
+	var defaults: Array[String] = [
+		"buff_swarm_speed_classic",
+		"buff_hive_faster_production_classic",
+		"buff_tower_fire_rate_classic"
+	]
+	if idx >= 0 and idx < defaults.size():
+		return defaults[idx]
+	if not _buff_library_all.is_empty():
+		return str(_buff_library_all[0].get("id", ""))
+	return ""
+
+func _refresh_buffs_library_buttons() -> void:
+	for button in _buff_library_runtime_buttons:
+		if button != null and is_instance_valid(button):
+			button.queue_free()
+	_buff_library_runtime_buttons.clear()
+	var counts: Dictionary = {"classic": 0, "premium": 0, "elite": 0}
+	for buff in _buff_library_all:
+		var tier_id: String = str(buff.get("tier", "classic")).to_lower()
+		if not _buff_library_tier_grids.has(tier_id):
+			continue
+		counts[tier_id] = int(counts.get(tier_id, 0)) + 1
+		var buff_id: String = str(buff.get("id", ""))
+		var selected: bool = bool(_buff_library_selected_ids.get(buff_id, false))
+		var selected_mark: String = "[x] " if selected else "[ ] "
+		var button: Button = Button.new()
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0.0, 26.0)
+		button.clip_text = true
+		button.text = "%s%s" % [selected_mark, str(buff.get("name", buff_id))]
+		_apply_font(button, _font_regular, 11)
+		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+		var press_cb: Callable = Callable(self, "_on_buff_library_pressed_by_id").bind(buff_id)
+		if not button.pressed.is_connected(press_cb):
+			button.pressed.connect(press_cb)
+		var input_cb: Callable = Callable(self, "_on_buff_library_gui_input_by_id").bind(buff_id)
+		if not button.gui_input.is_connected(input_cb):
+			button.gui_input.connect(input_cb)
+		var grid: GridContainer = _buff_library_tier_grids[tier_id] as GridContainer
+		grid.add_child(button)
+		_buff_library_runtime_buttons.append(button)
+	for tier_id in BUFF_LIBRARY_TIERS:
+		var header: Label = _buff_library_tier_headers[tier_id] as Label
+		if header != null:
+			header.text = "%s (%d)" % [tier_id.to_upper(), int(counts.get(tier_id, 0))]
+	if buffs_library_header != null:
+		buffs_library_header.text = "BUFF STORE (%d)" % _buff_library_all.size()
+
+func _refresh_buffs_owned_ui() -> void:
+	if _buff_owned_flow == null:
+		return
+	for button in _buff_owned_buttons:
+		if button != null and is_instance_valid(button):
+			button.queue_free()
+	_buff_owned_buttons.clear()
+	if _buff_owned_empty_label != null:
+		_buff_owned_empty_label.visible = _buff_owned_ids.is_empty()
+	if _buff_owned_ids.is_empty():
+		return
+	for buff_id in _buff_owned_ids:
+		var buff: Dictionary = BuffCatalog.get_buff(buff_id)
+		if buff.is_empty():
+			continue
+		var button: Button = Button.new()
+		button.text = str(buff.get("name", buff_id))
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0.0, 28.0)
+		button.clip_text = true
+		_style_button(button, Color(0.10, 0.11, 0.14), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+		_apply_font(button, _font_regular, 11)
+		var selected: bool = _buff_selected_origin == "owned" and _buff_selected_id == buff_id
+		if selected:
+			button.text = "> " + button.text
+		var press_cb: Callable = Callable(self, "_on_buff_owned_pressed").bind(buff_id)
+		if not button.pressed.is_connected(press_cb):
+			button.pressed.connect(press_cb)
+		var input_cb: Callable = Callable(self, "_on_buff_owned_gui_input").bind(buff_id)
+		if not button.gui_input.is_connected(input_cb):
+			button.gui_input.connect(input_cb)
+		_buff_owned_flow.add_child(button)
+		_buff_owned_buttons.append(button)
+	if _buff_owned_header_label != null:
+		_buff_owned_header_label.text = "OWNED (%d)" % _buff_owned_ids.size()
+
+func _refresh_buffs_loadout_ui() -> void:
+	for idx in range(buffs_slot_buttons.size()):
+		var button: Button = buffs_slot_buttons[idx] as Button
+		if button == null:
+			continue
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0.0, 28.0)
+		button.clip_text = true
+		if idx >= BUFF_LOADOUT_SIZE:
+			button.visible = false
+			continue
+		button.visible = true
+		button.disabled = false
+		var buff_id: String = _buff_loadout_ids[idx] if idx < _buff_loadout_ids.size() else ""
+		var buff: Dictionary = BuffCatalog.get_buff(buff_id)
+		var label: String = "Slot %d" % (idx + 1)
+		if not buff.is_empty():
+			label = "%d: %s" % [idx + 1, str(buff.get("name", buff_id))]
+		if _buff_selected_origin == "loadout" and _buff_selected_slot_index == idx:
+			label = "> " + label
+		button.text = label
+
+func _set_selected_buff(buff_id: String, origin: String, slot_index: int = -1) -> void:
+	_buff_selected_id = buff_id
+	_buff_selected_origin = origin
+	_buff_selected_slot_index = slot_index
+	_update_buff_details()
+	_refresh_buffs_loadout_ui()
+	_refresh_buffs_owned_ui()
+
+func _update_buff_details() -> void:
+	var buff: Dictionary = BuffCatalog.get_buff(_buff_selected_id)
+	if buff.is_empty():
+		if buffs_detail_name_label != null:
+			buffs_detail_name_label.text = "Select a buff"
+		if buffs_detail_desc_label != null:
+			buffs_detail_desc_label.text = "Library is the store. Select one or many, then drag into Owned."
+		if buffs_detail_meta_label != null:
+			buffs_detail_meta_label.text = "Drag Owned into Loadout slots to equip."
+		return
+	if buffs_detail_name_label != null:
+		buffs_detail_name_label.text = str(buff.get("name", _buff_selected_id))
+	if buffs_detail_desc_label != null:
+		buffs_detail_desc_label.text = _buff_description(buff)
+	if buffs_detail_meta_label != null:
+		var tier: String = str(buff.get("tier", "classic")).to_upper()
+		var category: String = str(buff.get("category", "unknown"))
+		var origin_tag: String = _buff_selected_origin.to_upper()
+		buffs_detail_meta_label.text = "Tier: %s | Category: %s | Source: %s" % [tier, category, origin_tag]
+
+func _buff_description(buff: Dictionary) -> String:
+	var effects_any: Variant = buff.get("effects", [])
+	if typeof(effects_any) != TYPE_ARRAY:
+		return "No details yet."
+	var effect_lines: Array[String] = []
+	for effect_v in effects_any as Array:
+		if typeof(effect_v) != TYPE_DICTIONARY:
+			continue
+		var effect: Dictionary = effect_v as Dictionary
+		var effect_type: String = str(effect.get("type", "effect"))
+		var value: Variant = effect.get("value", "")
+		effect_lines.append("%s=%s" % [effect_type, str(value)])
+	if effect_lines.is_empty():
+		return "No details yet."
+	return ", ".join(effect_lines)
+
+func _on_buff_library_pressed(index: int) -> void:
+	# Legacy static-list path; tiered buttons use _on_buff_library_pressed_by_id.
+	if index < 0:
+		return
+
+func _on_buff_library_gui_input(event: InputEvent, index: int) -> void:
+	# Legacy static-list path; tiered buttons use _on_buff_library_gui_input_by_id.
+	if event == null or index < 0:
+		return
+
+func _on_buff_library_pressed_by_id(buff_id: String) -> void:
+	var selected: bool = bool(_buff_library_selected_ids.get(buff_id, false))
+	_buff_library_selected_ids[buff_id] = not selected
+	_set_selected_buff(buff_id, "library", -1)
+	_refresh_buffs_library_buttons()
+
+func _on_buff_library_gui_input_by_id(event: InputEvent, buff_id: String) -> void:
+	if event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+			var payload: Array[String] = [buff_id]
+			if bool(_buff_library_selected_ids.get(buff_id, false)):
+				payload = _selected_library_ids()
+			_begin_buff_drag("library", payload, mb.position, -1)
+	elif event is InputEventScreenTouch:
+		var st: InputEventScreenTouch = event as InputEventScreenTouch
+		if st.pressed:
+			var payload: Array[String] = [buff_id]
+			if bool(_buff_library_selected_ids.get(buff_id, false)):
+				payload = _selected_library_ids()
+			_begin_buff_drag("library", payload, st.position, -1)
+
+func _selected_library_ids() -> Array[String]:
+	var out: Array[String] = []
+	for buff_id_any in _buff_library_selected_ids.keys():
+		var buff_id: String = str(buff_id_any)
+		if not bool(_buff_library_selected_ids.get(buff_id, false)):
+			continue
+		out.append(buff_id)
+	out.sort()
+	return out
+
+func _on_buff_owned_pressed(buff_id: String) -> void:
+	_set_selected_buff(buff_id, "owned", -1)
+
+func _on_buff_owned_gui_input(event: InputEvent, buff_id: String) -> void:
+	if event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+			_begin_buff_drag("owned", [buff_id], mb.position, -1)
+	elif event is InputEventScreenTouch:
+		var st: InputEventScreenTouch = event as InputEventScreenTouch
+		if st.pressed:
+			_begin_buff_drag("owned", [buff_id], st.position, -1)
+
+func _on_buff_loadout_pressed(slot_index: int) -> void:
+	if slot_index < 0 or slot_index >= BUFF_LOADOUT_SIZE:
+		return
+	if slot_index >= _buff_loadout_ids.size():
+		return
+	_set_selected_buff(_buff_loadout_ids[slot_index], "loadout", slot_index)
+
+func _on_buff_loadout_gui_input(event: InputEvent, slot_index: int) -> void:
+	if slot_index < 0 or slot_index >= BUFF_LOADOUT_SIZE:
+		return
+	if slot_index >= _buff_loadout_ids.size():
+		return
+	var buff_id: String = _buff_loadout_ids[slot_index]
+	if event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+			_begin_buff_drag("loadout", [buff_id], mb.position, slot_index)
+	elif event is InputEventScreenTouch:
+		var st: InputEventScreenTouch = event as InputEventScreenTouch
+		if st.pressed:
+			_begin_buff_drag("loadout", [buff_id], st.position, slot_index)
+
+func _begin_buff_drag(source: String, payload: Array[String], start_screen: Vector2, slot_index: int) -> void:
+	if payload.is_empty():
+		return
+	_buff_drag_state = {
+		"active": false,
+		"source": source,
+		"start_screen": start_screen,
+		"payload": payload.duplicate(),
+		"slot_index": slot_index
+	}
+	status_label.text = "Hold and drag to drop buff(s)."
+
+func _update_buff_drag(screen_pos: Vector2) -> void:
+	if _buff_drag_state.is_empty():
+		return
+	var active: bool = bool(_buff_drag_state.get("active", false))
+	if active:
+		return
+	var start: Vector2 = _buff_drag_state.get("start_screen", screen_pos)
+	if start.distance_to(screen_pos) < BUFF_DRAG_MIN_PX:
+		return
+	_buff_drag_state["active"] = true
+	var payload: Array = _buff_drag_state.get("payload", [])
+	var source: String = str(_buff_drag_state.get("source", ""))
+	if source == "library":
+		status_label.text = "Drop on OWNED to add %d buff(s)." % payload.size()
+	elif source == "owned":
+		status_label.text = "Drop on a LOADOUT slot to equip."
+	elif source == "loadout":
+		status_label.text = "Drop on another LOADOUT slot to swap."
+
+func _finish_buff_drag(screen_pos: Vector2) -> void:
+	if _buff_drag_state.is_empty():
+		return
+	var was_active: bool = bool(_buff_drag_state.get("active", false))
+	var source: String = str(_buff_drag_state.get("source", ""))
+	var payload: Array = _buff_drag_state.get("payload", [])
+	var slot_index: int = int(_buff_drag_state.get("slot_index", -1))
+	_buff_drag_state.clear()
+	if not was_active:
+		return
+	var payload_ids: Array[String] = []
+	for buff_id_v in payload:
+		var buff_id: String = str(buff_id_v).strip_edges()
+		if buff_id == "" or payload_ids.has(buff_id):
+			continue
+		payload_ids.append(buff_id)
+	if payload_ids.is_empty():
+		return
+	if source == "library":
+		if _control_contains_screen(_buff_owned_panel, screen_pos):
+			_drop_library_to_owned(payload_ids)
+			return
+	elif source == "owned":
+		var target_slot: int = _slot_index_at_screen(screen_pos)
+		if target_slot >= 0:
+			_drop_owned_to_loadout(payload_ids[0], target_slot)
+			return
+	elif source == "loadout":
+		var target_slot: int = _slot_index_at_screen(screen_pos)
+		if target_slot >= 0 and slot_index >= 0 and slot_index < BUFF_LOADOUT_SIZE:
+			_swap_loadout_slots(slot_index, target_slot)
+			return
+	status_label.text = "Drop cancelled."
+
+func _drop_library_to_owned(ids: Array[String]) -> void:
+	var added: int = 0
+	for buff_id in ids:
+		if BuffCatalog.get_buff(buff_id).is_empty():
+			continue
+		if _buff_owned_ids.has(buff_id):
+			continue
+		_buff_owned_ids.append(buff_id)
+		added += 1
+	_persist_buff_profile_state()
+	_refresh_buffs_owned_ui()
+	if added > 0:
+		status_label.text = "Added %d buff(s) to Owned." % added
+	else:
+		status_label.text = "All selected buffs already owned."
+
+func _drop_owned_to_loadout(buff_id: String, slot_index: int) -> void:
+	if slot_index < 0 or slot_index >= BUFF_LOADOUT_SIZE:
+		return
+	if not _buff_owned_ids.has(buff_id):
+		status_label.text = "You must own a buff before equipping."
+		return
+	while _buff_loadout_ids.size() < BUFF_LOADOUT_SIZE:
+		_buff_loadout_ids.append(_fallback_buff_for_index(_buff_loadout_ids.size()))
+	var existing_slot: int = _buff_loadout_ids.find(buff_id)
+	if existing_slot == slot_index:
+		status_label.text = "Already equipped to slot %d." % (slot_index + 1)
+		return
+	if existing_slot >= 0 and existing_slot < BUFF_LOADOUT_SIZE:
+		var displaced: String = _buff_loadout_ids[slot_index]
+		_buff_loadout_ids[existing_slot] = displaced
+	_buff_loadout_ids[slot_index] = buff_id
+	_persist_buff_profile_state()
+	_set_selected_buff(buff_id, "loadout", slot_index)
+	status_label.text = "Equipped to slot %d." % (slot_index + 1)
+
+func _swap_loadout_slots(a: int, b: int) -> void:
+	if a == b:
+		return
+	if a < 0 or a >= BUFF_LOADOUT_SIZE or b < 0 or b >= BUFF_LOADOUT_SIZE:
+		return
+	while _buff_loadout_ids.size() < BUFF_LOADOUT_SIZE:
+		_buff_loadout_ids.append(_fallback_buff_for_index(_buff_loadout_ids.size()))
+	var tmp: String = _buff_loadout_ids[a]
+	_buff_loadout_ids[a] = _buff_loadout_ids[b]
+	_buff_loadout_ids[b] = tmp
+	_persist_buff_profile_state()
+	_refresh_buffs_loadout_ui()
+	status_label.text = "Loadout slots swapped."
+
+func _slot_index_at_screen(screen_pos: Vector2) -> int:
+	for idx in range(BUFF_LOADOUT_SIZE):
+		var button: Button = buffs_slot_buttons[idx] as Button
+		if _control_contains_screen(button, screen_pos):
+			return idx
+	return -1
+
+func _control_contains_screen(control: Control, screen_pos: Vector2) -> bool:
+	if control == null:
+		return false
+	return control.get_global_rect().has_point(screen_pos)
+
+func _on_buff_equip_pressed() -> void:
+	if _buff_selected_id == "":
+		return
+	if _buff_selected_origin == "library":
+		_drop_library_to_owned([_buff_selected_id])
+		return
+	if _buff_selected_origin == "owned":
+		_drop_owned_to_loadout(_buff_selected_id, 0)
+		return
+
+func _on_buff_remove_pressed() -> void:
+	if _buff_selected_id == "":
+		return
+	if _buff_selected_origin == "library":
+		if _buff_library_selected_ids.has(_buff_selected_id):
+			_buff_library_selected_ids.erase(_buff_selected_id)
+			_refresh_buffs_library_buttons()
+			status_label.text = "Unselected from batch."
+		return
+	if _buff_selected_origin == "owned":
+		if _buff_loadout_ids.has(_buff_selected_id):
+			status_label.text = "Cannot remove: buff is equipped in loadout."
+			return
+		if _buff_owned_ids.has(_buff_selected_id):
+			_buff_owned_ids.erase(_buff_selected_id)
+			_persist_buff_profile_state()
+			_refresh_buffs_owned_ui()
+			_set_selected_buff("", "", -1)
+			status_label.text = "Removed from Owned."
+		return
+	if _buff_selected_origin == "loadout":
+		var slot_idx: int = _buff_selected_slot_index
+		if slot_idx < 0 or slot_idx >= BUFF_LOADOUT_SIZE:
+			return
+		var replacement: String = _first_owned_not_in_loadout(slot_idx)
+		if replacement == "":
+			status_label.text = "No replacement buff available."
+			return
+		_buff_loadout_ids[slot_idx] = replacement
+		_persist_buff_profile_state()
+		_set_selected_buff(replacement, "loadout", slot_idx)
+		status_label.text = "Loadout slot %d replaced." % (slot_idx + 1)
+
+func _first_owned_not_in_loadout(exclude_slot: int) -> String:
+	for buff_id in _buff_owned_ids:
+		var used_elsewhere: bool = false
+		for idx in range(mini(_buff_loadout_ids.size(), BUFF_LOADOUT_SIZE)):
+			if idx == exclude_slot:
+				continue
+			if _buff_loadout_ids[idx] == buff_id:
+				used_elsewhere = true
+				break
+		if not used_elsewhere:
+			return buff_id
+	return ""
+
+func _on_buff_library_prev_pressed() -> void:
+	_refresh_buffs_library_buttons()
+
+func _on_buff_library_next_pressed() -> void:
+	_refresh_buffs_library_buttons()
 
 func _build_store_landing() -> void:
 	_clear_store_buttons()
@@ -1254,6 +2039,100 @@ func _open_async_main() -> void:
 	if async_vbox != null:
 		async_vbox.visible = true
 	_hide_async_subpanels()
+	_show_async_track_select()
+
+func _on_async_results_action_pressed() -> void:
+	if _async_track_mode == ASYNC_TRACK_PAID:
+		_open_async_main()
+		return
+	_open_async_paid_menu()
+
+func _on_async_rules_action_pressed() -> void:
+	if _async_track_mode == ASYNC_TRACK_FREE:
+		_open_async_main()
+		return
+	_open_async_free_menu()
+
+func _show_async_track_select() -> void:
+	_async_track_mode = ASYNC_TRACK_SELECT
+	if async_subtitle_label != null:
+		async_subtitle_label.text = "Choose your track first."
+	if async_top_row != null:
+		async_top_row.visible = false
+	if async_bottom_row != null:
+		async_bottom_row.visible = true
+	if async_results_panel != null:
+		async_results_panel.visible = true
+	if async_rules_panel != null:
+		async_rules_panel.visible = true
+	if async_results_header != null:
+		async_results_header.text = "PLAY FOR $"
+	if async_results_sub != null:
+		async_results_sub.text = "Entry-fee contests and ladders."
+	if async_results_list != null:
+		async_results_list.visible = false
+	if async_results_action != null:
+		async_results_action.text = "OPEN $"
+	if async_rules_header != null:
+		async_rules_header.text = "FREEPLAY"
+	if async_rules_line1 != null:
+		async_rules_line1.text = "Choose a mode."
+	if async_rules_line2 != null:
+		async_rules_line2.text = "No entry cost."
+	if async_free_list != null:
+		async_free_list.visible = false
+	if async_rules_action != null:
+		async_rules_action.text = "OPEN FREEPLAY"
+	if async_footer_label != null:
+		async_footer_label.text = "Pick $ or Freeplay, then choose a format."
+
+func _open_async_paid_menu() -> void:
+	_async_track_mode = ASYNC_TRACK_PAID
+	if async_subtitle_label != null:
+		async_subtitle_label.text = "Cash track: choose weekly, monthly, yearly, or ladder."
+	if async_top_row != null:
+		async_top_row.visible = true
+	if async_bottom_row != null:
+		async_bottom_row.visible = true
+	if async_results_panel != null:
+		async_results_panel.visible = true
+	if async_rules_panel != null:
+		async_rules_panel.visible = false
+	if async_results_header != null:
+		async_results_header.text = "LADDER"
+	if async_results_sub != null:
+		async_results_sub.text = "Competitive async ladders."
+	if async_results_list != null:
+		async_results_list.visible = true
+	if async_results_action != null:
+		async_results_action.text = "BACK"
+	if async_footer_label != null:
+		async_footer_label.text = "Cash contests now. Payout logic comes later."
+
+func _open_async_free_menu() -> void:
+	_async_track_mode = ASYNC_TRACK_FREE
+	if async_subtitle_label != null:
+		async_subtitle_label.text = "Freeplay track: pick a mode below."
+	if async_top_row != null:
+		async_top_row.visible = false
+	if async_bottom_row != null:
+		async_bottom_row.visible = true
+	if async_results_panel != null:
+		async_results_panel.visible = false
+	if async_rules_panel != null:
+		async_rules_panel.visible = true
+	if async_rules_header != null:
+		async_rules_header.text = "FREEPLAY MODES"
+	if async_rules_line1 != null:
+		async_rules_line1.text = "Practice and no-stakes async runs."
+	if async_rules_line2 != null:
+		async_rules_line2.text = "Pick a mode below."
+	if async_free_list != null:
+		async_free_list.visible = true
+	if async_rules_action != null:
+		async_rules_action.text = "BACK"
+	if async_footer_label != null:
+		async_footer_label.text = "Freeplay has no buy-in."
 
 func _hide_async_subpanels() -> void:
 	for panel in [async_weekly_panel, async_monthly_panel, async_yearly_panel]:
@@ -1261,15 +2140,15 @@ func _hide_async_subpanels() -> void:
 			panel.visible = false
 
 func _open_async_weekly() -> void:
-	_open_time_puzzle_lobby("WEEKLY")
+	_open_stage_race_tournament_lobby("WEEKLY")
 
 func _open_async_monthly() -> void:
-	_open_time_puzzle_lobby("MONTHLY")
+	_open_stage_race_tournament_lobby("MONTHLY")
 
 func _open_async_yearly() -> void:
-	_open_time_puzzle_lobby("YEARLY")
+	_open_stage_race_tournament_lobby("YEARLY")
 
-func _open_time_puzzle_lobby(scope: String) -> void:
+func _open_stage_race_tournament_lobby(scope: String) -> void:
 	if _time_puzzle_lobby == null:
 		_time_puzzle_lobby = preload("res://scenes/ui/TimePuzzleLobby.tscn").instantiate()
 		_time_puzzle_lobby.closed.connect(func():
@@ -1281,6 +2160,8 @@ func _open_time_puzzle_lobby(scope: String) -> void:
 		add_child(_time_puzzle_lobby)
 	_time_puzzle_lobby.set_scope(scope)
 	_time_puzzle_lobby.visible = true
+	if status_label != null:
+		status_label.text = "%s Stage Race tournaments." % scope.capitalize()
 	if async_panel != null:
 		async_panel.visible = false
 
@@ -1301,6 +2182,7 @@ func _sync_async_mode_ui(mode: String) -> void:
 
 func _set_async_buyin(mode: String, amount: int) -> void:
 	_async_buyins[mode] = amount
+	_async_paid_entry_usd = amount
 	_reset_async_confirm(mode)
 	_sync_async_buyin_buttons(mode)
 	_update_async_rules(mode)
@@ -1308,10 +2190,20 @@ func _set_async_buyin(mode: String, amount: int) -> void:
 func _sync_async_buyin_buttons(mode: String) -> void:
 	var buttons := _get_async_buyin_buttons(mode)
 	var selected := int(_async_buyins.get(mode, ASYNC_BUYINS[0]))
+	for button_v in buttons:
+		var any_button: Button = button_v as Button
+		if any_button != null:
+			any_button.visible = false
 	for i in range(ASYNC_BUYINS.size()):
 		var amount: int = ASYNC_BUYINS[i]
+		if i >= buttons.size():
+			break
+		var button: Button = buttons[i] as Button
+		if button == null:
+			continue
 		var prefix := "* " if amount == selected else ""
-		buttons[i].text = "%s$%d Entry" % [prefix, amount]
+		button.text = "%s$%d Entry" % [prefix, amount]
+		button.visible = true
 
 func _update_async_rules(mode: String) -> void:
 	var label: Label = _get_async_rules_label(mode)
@@ -1358,6 +2250,140 @@ func _on_async_play_pressed(mode: String) -> void:
 	_assign_async_map(mode)
 	var amount := int(_async_buyins.get(mode, ASYNC_BUYINS[0]))
 	_stub_action("%s entry $%d confirmed" % [mode.capitalize(), amount])
+
+func _on_async_miss_n_out_selected(free_play: bool) -> void:
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	var track_label: String = "Free Play" if free_play else "Ladder"
+	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	var lobby_options: Dictionary = {
+		"start_players": ASYNC_WINDOW_START_PLAYERS,
+		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
+	}
+	if contest_state == null:
+		status_label.text = "%s Miss-N-Out (fallback lobby config)" % track_label
+		_open_async_vs_lobby("MISS_N_OUT", 4, free_play, entry_usd, lobby_options)
+		return
+	if not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_miss_n_out_plan"):
+		status_label.text = "%s Miss-N-Out (fallback lobby config)" % track_label
+		_open_async_vs_lobby("MISS_N_OUT", 4, free_play, entry_usd, lobby_options)
+		return
+	var contest: Variant = contest_state.call("get_contest_by_scope", "WEEKLY")
+	if contest == null:
+		status_label.text = "%s Miss-N-Out (no weekly contest, fallback lobby config)" % track_label
+		_open_async_vs_lobby("MISS_N_OUT", 4, free_play, entry_usd, lobby_options)
+		return
+	var contest_id: String = str(contest.get("id"))
+	var plan: Dictionary = contest_state.call("build_miss_n_out_plan", contest_id, 5) as Dictionary
+	if not bool(plan.get("ok", false)):
+		status_label.text = "%s Miss-N-Out (plan unavailable, fallback lobby config)" % track_label
+		_open_async_vs_lobby("MISS_N_OUT", 4, free_play, entry_usd, lobby_options)
+		return
+	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
+	var map_labels: Array[String] = []
+	for map_id_v in map_ids:
+		map_labels.append(str(map_id_v))
+	var map_count: int = int(plan.get("map_count", 0))
+	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
+	lobby_options["window_sec"] = window_sec
+	status_label.text = "%s Miss-N-Out (%d maps, %d min window): %s | Eliminated players can continue for practice or return to lobby." % [track_label, map_count, int(window_sec / 60), ", ".join(map_labels)]
+	_open_async_vs_lobby("MISS_N_OUT", map_count, free_play, entry_usd, lobby_options)
+
+func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	var track_label: String = "Free Play" if free_play else "Ladder"
+	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	var lobby_options: Dictionary = {
+		"start_players": ASYNC_WINDOW_START_PLAYERS,
+		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
+	}
+	if contest_state == null:
+		status_label.text = "%s Stage Race (%d maps, fallback lobby config)." % [track_label, map_count]
+		_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
+		return
+	if not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_stage_race_plan"):
+		status_label.text = "%s Stage Race (%d maps, fallback lobby config)." % [track_label, map_count]
+		_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
+		return
+	var contest: Variant = contest_state.call("get_contest_by_scope", "WEEKLY")
+	if contest == null:
+		status_label.text = "%s Stage Race (%d maps, no weekly contest, fallback lobby config)." % [track_label, map_count]
+		_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
+		return
+	var contest_id: String = str(contest.get("id"))
+	var plan: Dictionary = contest_state.call("build_stage_race_plan", contest_id, map_count) as Dictionary
+	if not bool(plan.get("ok", false)):
+		status_label.text = "%s Stage Race (%d maps, plan unavailable, fallback lobby config)." % [track_label, map_count]
+		_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
+		return
+	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
+	var map_labels: Array[String] = []
+	for map_id_v in map_ids:
+		map_labels.append(str(map_id_v))
+	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
+	lobby_options["window_sec"] = window_sec
+	status_label.text = "%s Stage Race (%d maps, %d min window): %s" % [track_label, map_count, int(window_sec / 60), ", ".join(map_labels)]
+	_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
+
+func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	var track_label: String = "Free Play" if free_play else "Ladder"
+	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	var lobby_options: Dictionary = {
+		"start_players": ASYNC_WINDOW_START_PLAYERS,
+		"sync_join_sec": ASYNC_TIMED_RACE_SYNC_JOIN_SEC
+	}
+	if contest_state == null:
+		status_label.text = "%s Timed Race (%d maps, fallback lobby config)." % [track_label, map_count]
+		_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
+		return
+	if not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_timed_race_plan"):
+		status_label.text = "%s Timed Race (%d maps, fallback lobby config)." % [track_label, map_count]
+		_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
+		return
+	var contest: Variant = contest_state.call("get_contest_by_scope", "WEEKLY")
+	if contest == null:
+		status_label.text = "%s Timed Race (%d maps, no weekly contest, fallback lobby config)." % [track_label, map_count]
+		_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
+		return
+	var contest_id: String = str(contest.get("id"))
+	var plan: Dictionary = contest_state.call("build_timed_race_plan", contest_id, map_count) as Dictionary
+	if not bool(plan.get("ok", false)):
+		status_label.text = "%s Timed Race (%d maps, plan unavailable, fallback lobby config)." % [track_label, map_count]
+		_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
+		return
+	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
+	var map_labels: Array[String] = []
+	for map_id_v in map_ids:
+		map_labels.append(str(map_id_v))
+	lobby_options["sync_join_sec"] = maxi(1, int(plan.get("start_countdown_sec", ASYNC_TIMED_RACE_SYNC_JOIN_SEC)))
+	status_label.text = "%s Timed Race (%d maps, sync start after %ds): %s" % [track_label, map_count, int(lobby_options.get("sync_join_sec", ASYNC_TIMED_RACE_SYNC_JOIN_SEC)), ", ".join(map_labels)]
+	_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
+
+func _current_async_paid_entry_usd() -> int:
+	if ASYNC_BUYINS.has(_async_paid_entry_usd):
+		return _async_paid_entry_usd
+	return ASYNC_BUYINS[0]
+
+func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> void:
+	if _vs_lobby == null:
+		_vs_lobby = preload("res://scenes/ui/VsLobby.tscn").instantiate()
+		_vs_lobby.closed.connect(func():
+			_vs_lobby.queue_free()
+			_vs_lobby = null
+			if async_panel != null:
+				async_panel.visible = true
+		)
+		add_child(_vs_lobby)
+	if _vs_lobby.has_method("configure"):
+		_vs_lobby.call("configure", mode_id, map_count, entry_usd, free_play, options)
+	_vs_lobby.visible = true
+	if async_panel != null:
+		async_panel.visible = false
+
+func _resolve_plan_time_window_sec(plan: Dictionary, fallback_sec: int) -> int:
+	var ms: int = int(plan.get("time_limit_ms", fallback_sec * 1000))
+	var seconds: int = int(round(float(ms) / 1000.0))
+	return maxi(1, seconds)
 
 func _assign_async_map(mode: String) -> void:
 	if ASYNC_MAPS.is_empty():

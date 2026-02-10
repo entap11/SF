@@ -41,8 +41,14 @@ text = "Quick Match"
 [node name="SmsInvite" type="Button" parent="Panel/VBox/Buttons"]
 text = "VS via SMS"
 
+[node name="DevMinOverride" type="Button" parent="Panel/VBox/Buttons"]
+text = "DEV: Min=1 OFF"
+
 [node name="Status" type="Label" parent="Panel/VBox"]
 text = "Status"
+
+[node name="Slots" type="Label" parent="Panel/VBox"]
+text = "Assigned: You\nOpen slots: 0"
 
 [node name="Invite" type="Label" parent="Panel/VBox"]
 text = "Invite"

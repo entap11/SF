@@ -13,6 +13,7 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	var min_attack_power: int = maxi(1, int(profile.get("min_attack_power", 8)))
 	var min_feed_power: int = maxi(1, int(profile.get("min_feed_power", 11)))
 	var min_swarm_power: int = maxi(1, int(profile.get("min_swarm_power", min_attack_power + 6)))
+	var allow_swarm: bool = bool(profile.get("allow_swarm", true))
 	var aggression: float = clampf(float(profile.get("aggression", 0.72)), 0.0, 1.0)
 	var feed_bias: float = clampf(float(profile.get("feed_bias", 0.22)), 0.0, 1.0)
 	var randomness: float = clampf(float(profile.get("randomness", 0.08)), 0.0, 0.5)
@@ -45,15 +46,15 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 			if _is_blocked_pair(blocked_pairs, src_id, dst_id):
 				continue
 
-				var dst_owner: int = int(dst.owner_id)
-				var dst_power: int = int(dst.power)
-				var dst_is_ally: bool = _are_allies(team_by_seat, seat, dst_owner)
-				var outgoing_active: bool = state_ref.is_outgoing_lane_active(src_id, dst_id)
-				if outgoing_active:
-					if dst_owner > 0 and not dst_is_ally and src_power >= min_swarm_power:
-						var swarm_score: float = _score_swarm(src, dst, src_power, dst_power)
-						swarm_candidates.append({
-							"src": src_id,
+			var dst_owner: int = int(dst.owner_id)
+			var dst_power: int = int(dst.power)
+			var dst_is_ally: bool = _are_allies(team_by_seat, seat, dst_owner)
+			var outgoing_active: bool = state_ref.is_outgoing_lane_active(src_id, dst_id)
+			if outgoing_active:
+				if allow_swarm and dst_owner > 0 and not dst_is_ally and src_power >= min_swarm_power:
+					var swarm_score: float = _score_swarm(src, dst, src_power, dst_power)
+					swarm_candidates.append({
+						"src": src_id,
 						"dst": dst_id,
 						"intent": "swarm",
 						"score": swarm_score,
@@ -61,13 +62,13 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					})
 				continue
 
-				if active_outgoing >= outgoing_budget:
-					continue
+			if active_outgoing >= outgoing_budget:
+				continue
 
-				if dst_is_ally:
-					if src_power < min_feed_power:
-						continue
-					var feed_score: float = _score_feed(src, dst, src_power, dst_power, outgoing_budget, active_outgoing)
+			if dst_is_ally:
+				if src_power < min_feed_power:
+					continue
+				var feed_score: float = _score_feed(src, dst, src_power, dst_power, outgoing_budget, active_outgoing)
 				feed_candidates.append({
 					"src": src_id,
 					"dst": dst_id,
@@ -94,7 +95,7 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 		return {}
 
 	# If a lane is already active against an enemy, occasionally trigger a burst swarm.
-	if not swarm_candidates.is_empty():
+	if allow_swarm and not swarm_candidates.is_empty():
 		var swarm_roll: float = _deterministic_roll(int(state_ref.tick), seat, now_ms, 211)
 		var swarm_bias: float = clampf(aggression * 0.60, 0.0, 0.85)
 		if swarm_roll <= swarm_bias:

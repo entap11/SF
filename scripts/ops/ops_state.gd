@@ -236,13 +236,14 @@ func _default_bot_profile_for_seat(seat: int) -> Dictionary:
 		"min_attack_power": 5,
 		"min_feed_power": 11,
 		"min_swarm_power": 14,
-		"allow_swarm": false,
+		"allow_swarm": true,
 		"max_actions_per_tick": 1,
 		"prefer_neutral_bonus": 0.5,
 		"randomness": 0.08,
 		"retry_block_ms": 900,
 		"no_lane_retry_ms": 3200,
-		"swarm_cooldown_ms": 1600
+		"swarm_cooldown_ms": 1600,
+		"swarm_global_cooldown_ms": 3500
 	}
 	match seat:
 		2:
@@ -874,8 +875,20 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		return result
 
 	var same_team: bool = are_allies(src_owner, dst_owner)
+	var resolved_intent: String = intent
+	if resolved_intent == "attack" and same_team:
+		resolved_intent = "feed"
+		result["intent"] = resolved_intent
+		SFLog.info("INTENT_AUTO_FEED_ALLY", {
+			"src": src_hive_id,
+			"dst": dst_hive_id,
+			"requested_intent": intent,
+			"resolved_intent": resolved_intent,
+			"src_owner": src_owner,
+			"dst_owner": dst_owner
+		})
 	var enable := true
-	if intent == "none":
+	if resolved_intent == "none":
 		enable = false
 	else:
 		enable = not st.intent_is_on(src_hive_id, dst_hive_id)
@@ -890,7 +903,7 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		_record_intent_telemetry(
 			src_hive_id,
 			dst_hive_id,
-			intent,
+			resolved_intent,
 			false,
 			str(result.get("reason", "")),
 			int(result.get("lane_id", -1)),
@@ -899,26 +912,13 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		)
 		return result
 
-	if enable and intent != "none":
-		if intent == "feed" and not same_team:
+	if enable and resolved_intent != "none":
+		if resolved_intent == "feed" and not same_team:
 			result["reason"] = "ownership"
 			_record_intent_telemetry(
 				src_hive_id,
 				dst_hive_id,
-				intent,
-				false,
-				str(result.get("reason", "")),
-				int(result.get("lane_id", -1)),
-				telemetry_src_owner,
-				telemetry_dst_owner
-			)
-			return result
-		if intent == "attack" and same_team:
-			result["reason"] = "ownership"
-			_record_intent_telemetry(
-				src_hive_id,
-				dst_hive_id,
-				intent,
+				resolved_intent,
 				false,
 				str(result.get("reason", "")),
 				int(result.get("lane_id", -1)),
@@ -938,7 +938,7 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			_record_intent_telemetry(
 				src_hive_id,
 				dst_hive_id,
-				intent,
+				resolved_intent,
 				false,
 				str(result.get("reason", "")),
 				int(result.get("lane_id", -1)),
@@ -955,14 +955,14 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"power": power,
 			"active": active,
 			"budget": budget,
-			"action": action,
-			"intent": intent
-		})
+				"action": action,
+				"intent": resolved_intent
+			})
 
-	_apply_lane_intent(lane, src_hive_id, dst_hive_id, enable, intent)
+	_apply_lane_intent(lane, src_hive_id, dst_hive_id, enable, resolved_intent)
 	result["ok"] = true
 
-	var log_intent := intent if enable else "none"
+	var log_intent := resolved_intent if enable else "none"
 	var iid := int(st.get_instance_id())
 
 	SFLog.info("LANE_INTENT_APPLIED", {
@@ -981,7 +981,7 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	_record_intent_telemetry(
 		src_hive_id,
 		dst_hive_id,
-		intent,
+		log_intent,
 		true,
 		"",
 		int(result.get("lane_id", -1)),

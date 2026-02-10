@@ -9,11 +9,13 @@ var state: GameState = null
 var policy: RefCounted = BaselineBotPolicyScript.new()
 var _next_think_ms_by_seat: Dictionary = {}
 var _failed_intent_until_ms: Dictionary = {}
+var _swarm_cooldown_until_by_seat: Dictionary = {}
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
 	_next_think_ms_by_seat.clear()
 	_failed_intent_until_ms.clear()
+	_swarm_cooldown_until_by_seat.clear()
 
 func tick(_dt: float) -> void:
 	if state == null:
@@ -44,12 +46,16 @@ func tick(_dt: float) -> void:
 		var is_active: bool = bool(entry.get("active", true))
 		if not is_cpu or not is_active:
 			continue
-			var profile: Dictionary = _get_profile_for_seat(seat)
-			if profile.is_empty():
-				continue
-			profile["team_by_seat"] = team_by_seat.duplicate(true)
-			if OpsState.has_method("get_blocked_wall_pairs"):
-				profile["blocked_wall_pairs"] = OpsState.call("get_blocked_wall_pairs")
+		var profile: Dictionary = _get_profile_for_seat(seat)
+		if profile.is_empty():
+			continue
+		var allow_swarm_profile: bool = bool(profile.get("allow_swarm", true))
+		var swarm_cd_until_ms: int = int(_swarm_cooldown_until_by_seat.get(seat, 0))
+		var swarm_ready: bool = now_ms >= swarm_cd_until_ms
+		profile["allow_swarm"] = allow_swarm_profile and swarm_ready
+		profile["team_by_seat"] = team_by_seat.duplicate(true)
+		if OpsState.has_method("get_blocked_wall_pairs"):
+			profile["blocked_wall_pairs"] = OpsState.call("get_blocked_wall_pairs")
 		if not bool(profile.get("enabled", true)):
 			continue
 		if not _next_think_ms_by_seat.has(seat):
@@ -98,8 +104,10 @@ func tick(_dt: float) -> void:
 			})
 			if ok:
 				if intent == "swarm":
-					var swarm_cooldown_ms: int = maxi(250, int(profile.get("swarm_cooldown_ms", 1600)))
-					_failed_intent_until_ms[cooldown_key] = now_ms + swarm_cooldown_ms
+					var swarm_pair_cooldown_ms: int = maxi(250, int(profile.get("swarm_cooldown_ms", 1600)))
+					_failed_intent_until_ms[cooldown_key] = now_ms + swarm_pair_cooldown_ms
+					var swarm_global_cooldown_ms: int = maxi(500, int(profile.get("swarm_global_cooldown_ms", 3500)))
+					_swarm_cooldown_until_by_seat[seat] = now_ms + swarm_global_cooldown_ms
 				else:
 					_failed_intent_until_ms.erase(cooldown_key)
 				var post_intent_delay_ms: int = maxi(0, int(profile.get("post_intent_delay_ms", 0)))

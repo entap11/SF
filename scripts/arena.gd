@@ -92,7 +92,7 @@ const SHELL_OUTCOME_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/OutcomeOverla
 const SHELL_WIN_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/WinOverlay"
 const COUNTDOWN_DEBUG_SCRIPT: Script = preload("res://scripts/ui/prematch_countdown_view.gd")
 const PREMATCH_RECORDS_WIDTH_PX: float = 520.0
-const PREMATCH_RECORDS_HEIGHT_PX: float = 132.0
+const PREMATCH_RECORDS_HEIGHT_PX: float = 168.0
 const PREMATCH_RECORDS_TOP_GAP_PX: float = 24.0
 const PREMATCH_RECORDS_FONT_SIZE: int = 17
 
@@ -182,6 +182,8 @@ var _prematch_record_p2: Label = null
 var _prematch_record_p3: Label = null
 var _prematch_record_p4: Label = null
 var _prematch_record_h2h: Label = null
+var _prematch_record_teams: Label = null
+var _prematch_record_team_arrows: Label = null
 var _prematch_remaining_ms_f: float = 0.0
 var _prematch_last_sec: int = -1
 var _prematch_records_faded: bool = false
@@ -861,17 +863,25 @@ func _ensure_prematch_ui() -> void:
 	var p3: Label = _ensure_prematch_record_label(records_vbox, "RecordP3")
 	var p4: Label = _ensure_prematch_record_label(records_vbox, "RecordP4")
 	var h2h: Label = _ensure_prematch_record_label(records_vbox, "RecordH2H")
+	var teams: Label = _ensure_prematch_record_label(records_vbox, "RecordTeams")
+	var team_arrows: Label = _ensure_prematch_record_label(records_vbox, "RecordTeamArrows")
+	records_vbox.move_child(teams, 0)
+	records_vbox.move_child(team_arrows, 1)
 	_style_prematch_record_label(p1)
 	_style_prematch_record_label(p2)
 	_style_prematch_record_label(p3)
 	_style_prematch_record_label(p4)
 	_style_prematch_record_label(h2h)
+	_style_prematch_team_label(teams)
+	_style_prematch_team_arrow_label(team_arrows)
 	_prematch_records_panel = records
 	_prematch_record_p1 = p1
 	_prematch_record_p2 = p2
 	_prematch_record_p3 = p3
 	_prematch_record_p4 = p4
 	_prematch_record_h2h = h2h
+	_prematch_record_teams = teams
+	_prematch_record_team_arrows = team_arrows
 	if not _prematch_ui_bind_logged:
 		_prematch_ui_bind_logged = true
 		SFLog.info("PREMATCH_UI_BIND", {
@@ -939,6 +949,19 @@ func _style_prematch_record_label(label: Label) -> void:
 	label.add_theme_color_override("font_color", Color(0.97, 0.99, 1.0, 1.0))
 	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 	label.add_theme_constant_override("outline_size", 2)
+
+func _style_prematch_team_label(label: Label) -> void:
+	if label == null:
+		return
+	_style_prematch_record_label(label)
+	label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
+
+func _style_prematch_team_arrow_label(label: Label) -> void:
+	if label == null:
+		return
+	_style_prematch_record_label(label)
+	label.add_theme_color_override("font_color", Color(0.82, 0.92, 1.0, 0.92))
+	label.add_theme_font_size_override("font_size", PREMATCH_RECORDS_FONT_SIZE + 1)
 
 func _log_prematch_ui_state() -> void:
 	var overlay_dict := {}
@@ -1021,6 +1044,8 @@ func _show_prematch_ui() -> void:
 			"record_p3": _prematch_record_p3.text if _prematch_record_p3 != null else "<null>",
 			"record_p4": _prematch_record_p4.text if _prematch_record_p4 != null else "<null>",
 			"record_h2h": _prematch_record_h2h.text if _prematch_record_h2h != null else "<null>",
+			"record_teams": _prematch_record_teams.text if _prematch_record_teams != null else "<null>",
+			"record_team_links": _prematch_record_team_arrows.text if _prematch_record_team_arrows != null else "<null>",
 			"overlay_path": str(_prematch_overlay.get_path()),
 			"overlay_visible": _prematch_overlay.visible,
 			"overlay_z": _prematch_overlay.z_index
@@ -1032,6 +1057,10 @@ func _show_prematch_ui() -> void:
 	})
 
 func _refresh_prematch_records() -> void:
+	if _prematch_record_teams != null:
+		_prematch_record_teams.text = _get_team_banner_line()
+	if _prematch_record_team_arrows != null:
+		_prematch_record_team_arrows.text = _get_team_arrow_line()
 	if _prematch_record_p1 != null:
 		_prematch_record_p1.text = _get_player_record_line(1)
 	if _prematch_record_p2 != null:
@@ -1042,6 +1071,105 @@ func _refresh_prematch_records() -> void:
 		_prematch_record_p4.text = _get_player_record_line(4)
 	if _prematch_record_h2h != null:
 		_prematch_record_h2h.text = _get_h2h_record_line()
+
+func _get_team_banner_line() -> String:
+	var active_seats: Array[int] = _record_active_seats()
+	if active_seats.is_empty():
+		return "Teams: --"
+	var team_to_seats: Dictionary = {}
+	for seat in active_seats:
+		var team_id: int = seat
+		if OpsState != null and OpsState.has_method("get_team_for_seat"):
+			team_id = int(OpsState.call("get_team_for_seat", seat))
+		if team_id <= 0:
+			team_id = seat
+		if not team_to_seats.has(team_id):
+			team_to_seats[team_id] = []
+		var seats_for_team: Array = team_to_seats[team_id] as Array
+		seats_for_team.append(seat)
+		seats_for_team.sort()
+		team_to_seats[team_id] = seats_for_team
+	var team_ids: Array[int] = []
+	for team_id_any in team_to_seats.keys():
+		team_ids.append(int(team_id_any))
+	team_ids.sort()
+	var local_seat: int = _resolve_local_owner_id()
+	var local_team: int = local_seat
+	if OpsState != null and OpsState.has_method("get_team_for_seat"):
+		local_team = int(OpsState.call("get_team_for_seat", local_seat))
+	if local_team <= 0:
+		local_team = local_seat
+	if team_ids.size() == 2:
+		var left_team_id: int = team_ids[0]
+		var right_team_id: int = team_ids[1]
+		var left_team_seats: Array = (team_to_seats.get(left_team_id, []) as Array).duplicate()
+		var right_team_seats: Array = (team_to_seats.get(right_team_id, []) as Array).duplicate()
+		left_team_seats.sort()
+		right_team_seats.sort()
+		var teammate: String = "solo"
+		var local_team_seats: Array = (team_to_seats.get(local_team, []) as Array).duplicate()
+		local_team_seats.sort()
+		for seat_any in local_team_seats:
+			var seat_int: int = int(seat_any)
+			if seat_int != local_seat:
+				teammate = "P%d" % seat_int
+				break
+		return "Teams: T%d %s vs T%d %s | You: P%d + %s" % [
+			left_team_id,
+			_format_team_seats_text(left_team_seats),
+			right_team_id,
+			_format_team_seats_text(right_team_seats),
+			local_seat,
+			teammate
+		]
+	var chunks: Array[String] = []
+	for team_id in team_ids:
+		var seats_for_team: Array = (team_to_seats.get(team_id, []) as Array).duplicate()
+		seats_for_team.sort()
+		chunks.append("T%d %s" % [team_id, _format_team_seats_text(seats_for_team)])
+	return "Teams: %s | You: P%d" % [" | ".join(chunks), local_seat]
+
+func _get_team_arrow_line() -> String:
+	var active_seats: Array[int] = _record_active_seats()
+	if active_seats.is_empty():
+		return ""
+	var team_to_seats: Dictionary = {}
+	for seat in active_seats:
+		var team_id: int = seat
+		if OpsState != null and OpsState.has_method("get_team_for_seat"):
+			team_id = int(OpsState.call("get_team_for_seat", seat))
+		if team_id <= 0:
+			team_id = seat
+		if not team_to_seats.has(team_id):
+			team_to_seats[team_id] = []
+		var seats_for_team: Array = team_to_seats[team_id] as Array
+		seats_for_team.append(seat)
+		seats_for_team.sort()
+		team_to_seats[team_id] = seats_for_team
+	var team_ids: Array[int] = []
+	for team_id_any in team_to_seats.keys():
+		team_ids.append(int(team_id_any))
+	team_ids.sort()
+	var chunks: Array[String] = []
+	for team_id in team_ids:
+		var seats_for_team: Array = (team_to_seats.get(team_id, []) as Array).duplicate()
+		seats_for_team.sort()
+		if seats_for_team.size() >= 2:
+			var members: Array[String] = []
+			for seat_any in seats_for_team:
+				members.append("P%d" % int(seat_any))
+			chunks.append("T%d %s" % [team_id, " --> ".join(members)])
+	if chunks.is_empty():
+		return "Team Links: --"
+	return "Team Links: %s" % "  |  ".join(chunks)
+
+func _format_team_seats_text(seats: Array) -> String:
+	if seats.is_empty():
+		return "-"
+	var out: Array[String] = []
+	for seat_any in seats:
+		out.append("P%d" % int(seat_any))
+	return "+".join(out)
 
 func _get_player_record_line(player_slot: int) -> String:
 	var entry: Dictionary = _get_roster_entry_for_slot(player_slot)
@@ -2690,12 +2818,16 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 		return
 	if cam_vp_size.x <= 0.0 or cam_vp_size.y <= 0.0:
 		return
+	var top_ui_inset_px: float = _ui_top_inset_px()
+	var safe_cam_vp_size: Vector2 = cam_vp_size - Vector2(0.0, top_ui_inset_px)
+	safe_cam_vp_size.x = maxf(1.0, safe_cam_vp_size.x)
+	safe_cam_vp_size.y = maxf(1.0, safe_cam_vp_size.y)
 	var pad: float = CAMFIT_PAD_PX
 	var vp_fit: Vector2 = Vector2(
-		maxf(1.0, cam_vp_size.x - (pad * 2.0)),
-		maxf(1.0, cam_vp_size.y - (pad * 2.0))
+		maxf(1.0, safe_cam_vp_size.x - (pad * 2.0)),
+		maxf(1.0, safe_cam_vp_size.y - (pad * 2.0))
 	)
-	var fit_scalar: float = _compute_fit_zoom(cam_vp_size, FIT_MARGIN)
+	var fit_scalar: float = _compute_fit_zoom(safe_cam_vp_size, FIT_MARGIN)
 	var zoom_scalar: float = fit_scalar
 	var z_min: float = 0.00001
 	var z_clamped: bool = false
@@ -2739,6 +2871,9 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 		center = grid_spec.origin + (world_px * 0.5)
 	else:
 		center = arena_rect.get_center()
+	if top_ui_inset_px > 0.0 and zoom_scalar > 0.0:
+		# Shift camera down by half the obscured top inset in world space so top-row hives remain visible.
+		center.y += (top_ui_inset_px * 0.5) / zoom_scalar
 	cam.make_current()
 	cam.global_position = center
 	cam.zoom = zoom_target
@@ -2761,6 +2896,8 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 		"tag": tag,
 		"cam_path": str(cam.get_path()),
 		"cam_vp_size": cam_vp_size,
+		"safe_cam_vp_size": safe_cam_vp_size,
+		"top_ui_inset_px": top_ui_inset_px,
 		"root_vp_size": root_vp_size,
 		"arena_size": arena_size,
 		"mode": "cover_width",
@@ -3485,7 +3622,19 @@ func _init_buff_states() -> void:
 		buff_states[pid] = buff_state
 
 func _default_buff_loadout() -> Array:
-	var ids: Array[String] = debug_buff_loadout
+	var ids: Array[String] = []
+	if ProfileManager != null and ProfileManager.has_method("get_buff_loadout_ids"):
+		var profile_ids: Variant = ProfileManager.call("get_buff_loadout_ids")
+		if typeof(profile_ids) == TYPE_ARRAY:
+			for buff_id_v in profile_ids as Array:
+				var buff_id: String = str(buff_id_v).strip_edges()
+				if buff_id == "":
+					continue
+				if BuffCatalog.get_buff(buff_id).is_empty():
+					continue
+				ids.append(buff_id)
+	if ids.size() != 3:
+		ids = debug_buff_loadout
 	if ids.size() != 3:
 		ids = [
 			"buff_swarm_speed_classic",
@@ -3656,6 +3805,120 @@ func _buff_flag(pid: int, key: String) -> bool:
 
 func _lane_insight_active(pid: int) -> bool:
 	return _buff_flag(pid, "lane_insight")
+
+func get_buff_ui_snapshot() -> Dictionary:
+	var snapshot: Dictionary = {
+		"buffs_enabled": bool(buffs_enabled),
+		"active_player_id": int(active_player_id),
+		"overtime_active": bool(overtime_active),
+		"sim_time_ms": int(sim_time_us / 1000),
+		"players": {}
+	}
+	if not buffs_enabled:
+		return snapshot
+	if buff_states.is_empty():
+		_init_buff_states()
+	var now_ms: int = int(sim_time_us / 1000)
+	var players: Dictionary = {}
+	for pid in [1, 2, 3, 4]:
+		var buff_state: BuffState = buff_states.get(pid)
+		if buff_state == null:
+			continue
+		players[pid] = _buff_ui_player_snapshot(pid, buff_state, now_ms)
+	snapshot["players"] = players
+	return snapshot
+
+func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> Dictionary:
+	var slots_out: Array = []
+	for i in range(buff_state.slots.size()):
+		var slot: Dictionary = buff_state.slots[i]
+		var buff_id: String = str(slot.get("id", ""))
+		var buff_def: Dictionary = BuffCatalog.get_buff(buff_id)
+		var tier: String = str(slot.get("tier", buff_def.get("tier", "classic")))
+		var ends_ms: int = int(slot.get("ends_ms", 0))
+		var active: bool = bool(slot.get("active", false))
+		var consumed: bool = bool(slot.get("consumed", false))
+		var remaining_ms: int = 0
+		if active:
+			remaining_ms = max(0, ends_ms - now_ms)
+		slots_out.append({
+			"index": i,
+			"id": buff_id,
+			"name": str(buff_def.get("name", buff_id)),
+			"tier": tier,
+			"category": str(buff_def.get("category", "unknown")),
+			"locked": i >= int(buff_state.slots_active),
+			"active": active,
+			"consumed": consumed,
+			"ends_ms": ends_ms,
+			"remaining_ms": remaining_ms
+		})
+	return {
+		"pid": pid,
+		"slots_active": int(buff_state.slots_active),
+		"tap_to_top_enabled": bool(buff_state.tap_to_top_enabled),
+		"slots": slots_out
+	}
+
+func request_buff_drop(pid: int, slot_index: int, world_pos: Vector2) -> Dictionary:
+	var result: Dictionary = {
+		"ok": false,
+		"pid": pid,
+		"slot_index": slot_index,
+		"reason": "",
+		"target": _buff_target_context_from_world(world_pos)
+	}
+	if not buffs_enabled:
+		result["reason"] = "buffs_disabled"
+		return result
+	if buff_states.is_empty():
+		_init_buff_states()
+	var buff_state: BuffState = buff_states.get(pid)
+	if buff_state == null:
+		result["reason"] = "missing_player_state"
+		return result
+	if slot_index < 0 or slot_index >= buff_state.slots.size():
+		result["reason"] = "slot_out_of_range"
+		return result
+	if not buff_state.can_activate_slot(slot_index):
+		result["reason"] = "slot_blocked"
+		return result
+	_try_activate_buff_slot(pid, slot_index)
+	var slot: Dictionary = buff_state.slots[slot_index]
+	result["ok"] = bool(slot.get("active", false))
+	if not bool(result["ok"]):
+		result["reason"] = "activation_failed"
+		return result
+	result["buff_id"] = str(slot.get("id", ""))
+	result["ends_ms"] = int(slot.get("ends_ms", 0))
+	return result
+
+func _buff_target_context_from_world(world_pos: Vector2) -> Dictionary:
+	var local_pos: Vector2 = world_pos
+	if map_root != null:
+		local_pos = map_root.to_local(world_pos)
+	var hive_id: int = _hive_id_at_point(local_pos)
+	var lane_hit: Dictionary = _pick_lane_hit(local_pos)
+	var lane_id: int = int(lane_hit.get("lane_id", -1))
+	var barracks_id: int = _barracks_id_at_point(local_pos)
+	var kind: String = "world"
+	if hive_id > 0:
+		kind = "hive"
+	elif barracks_id > 0:
+		kind = "barracks"
+	elif bool(lane_hit.get("ok", false)):
+		kind = "lane"
+	return {
+		"kind": kind,
+		"world_pos": world_pos,
+		"local_pos": local_pos,
+		"grid_pos": _cell_from_point(local_pos),
+		"hive_id": hive_id,
+		"lane_id": lane_id,
+		"lane_t": float(lane_hit.get("t", 0.0)),
+		"barracks_id": barracks_id,
+		"tower_id": -1
+	}
 
 func _try_activate_buff_slot(pid: int, slot_index: int) -> void:
 	if not buffs_enabled:
@@ -4937,7 +5200,7 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 				var _edge_zone := lane_t <= LANE_EDGE_T or lane_t >= 1.0 - LANE_EDGE_T
 				var owner_id := int(unit.get("owner_id", 0))
 				if not DEBUG_COLLISION_ONLY:
-					if a_has_tower and owner_id != a_tower_owner and lane_t <= spike_t:
+					if a_has_tower and not _are_allied_owners(owner_id, a_tower_owner) and lane_t <= spike_t:
 						SFLog.info("UNIT_DIE spike lane=%s owner=%d t=%.3f" % [
 							str(lane_key),
 							owner_id,
@@ -4945,7 +5208,7 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 						])
 						record_lane_collision(str(lane_key), lane_t)
 						_kill_unit(idx, unit, "spike_a", remove_indices, remove_set)
-					elif b_has_tower and owner_id != b_tower_owner and lane_t >= 1.0 - spike_t:
+					elif b_has_tower and not _are_allied_owners(owner_id, b_tower_owner) and lane_t >= 1.0 - spike_t:
 						SFLog.info("UNIT_DIE spike lane=%s owner=%d t=%.3f" % [
 							str(lane_key),
 							owner_id,
@@ -5010,7 +5273,10 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 			var b_entry_dir: int = int(b_entry.get("dir", 0))
 			var a_entry_t: float = float(a_entry.get("t", -1.0))
 			var b_entry_t: float = float(b_entry.get("t", -1.0))
-			var owner_match := int(a_unit.get("owner_id", 0)) == int(b_unit.get("owner_id", 0))
+			var owner_match := _are_allied_owners(
+				int(a_unit.get("owner_id", 0)),
+				int(b_unit.get("owner_id", 0))
+			)
 			var a_from_id: int = int(a_unit.get("from_id", -1))
 			var b_from_id: int = int(b_unit.get("from_id", -1))
 			var a_from_valid := a_from_id == a_node_id or a_from_id == b_node_id
@@ -5247,7 +5513,7 @@ func _update_swarms(dt: float) -> void:
 		packet["t"] += (speed * dt) / lane_len
 		packet["payload"] += _scoop_units(packet, prev_t)
 		if packet["t"] >= 1.0:
-			if to_hive.owner_id == owner_id and to_hive.power >= 50 and to_hive.shock_ms <= 0.0:
+			if _are_allied_owners(to_hive.owner_id, owner_id) and to_hive.power >= 50 and to_hive.shock_ms <= 0.0:
 				if _pass_through_swarm(packet, to_hive):
 					swarm_packets.remove_at(i)
 					continue
@@ -5525,11 +5791,11 @@ func _incoming_enemy_streams_count(hive_id: int, owner_id: int) -> int:
 	for lane in state.lanes:
 		if lane.send_a and lane.b_id == hive_id:
 			var a: HiveData = _find_hive_by_id(lane.a_id)
-			if a != null and a.owner_id != 0 and a.owner_id != owner_id:
+			if a != null and a.owner_id != 0 and not _are_allied_owners(a.owner_id, owner_id):
 				count += 1
 		if lane.send_b and lane.a_id == hive_id:
 			var b: HiveData = _find_hive_by_id(lane.b_id)
-			if b != null and b.owner_id != 0 and b.owner_id != owner_id:
+			if b != null and b.owner_id != 0 and not _are_allied_owners(b.owner_id, owner_id):
 				count += 1
 	return count
 
@@ -5625,7 +5891,7 @@ func _collect_lane_collisions(remove_indices: Array[int], remove_set: Dictionary
 			continue
 		if a_hive.owner_id == 0 or b_hive.owner_id == 0:
 			continue
-		if a_hive.owner_id == b_hive.owner_id:
+		if _are_allied_owners(a_hive.owner_id, b_hive.owner_id):
 			continue
 		var lane_key := state.lane_key(lane.a_id, lane.b_id)
 		var a_pos := _cell_center(a_hive.grid_pos)
@@ -5823,7 +6089,7 @@ func _validate_state() -> void:
 		if a == null or b == null:
 			errors.append("Lane %d missing hive" % lane.id)
 			continue
-		if a.owner_id == b.owner_id and a.owner_id != 0 and lane.send_a and lane.send_b:
+		if _are_allied_owners(a.owner_id, b.owner_id) and lane.send_a and lane.send_b:
 			errors.append("Lane %d friendly both intents" % lane.id)
 	for hive in state.hives:
 		if hive_ids.has(hive.id):
@@ -6999,11 +7265,15 @@ func _apply_unit_arrival(unit_owner: int, hive: HiveData, from_id: int = -1, lan
 	if unit_owner >= 1 and unit_owner <= 4:
 		units_landed[unit_owner] = int(units_landed.get(unit_owner, 0)) + 1
 	var prev_owner: int = hive.owner_id
-	if hive.owner_id == unit_owner:
+	var friendly_arrival: bool = _are_allied_owners(prev_owner, unit_owner)
+	var pass_owner: int = unit_owner if unit_owner > 0 else prev_owner
+	if friendly_arrival and prev_owner > 0:
+		pass_owner = prev_owner
+	if friendly_arrival:
 		if hive.power < 50:
 			hive.power += 1
 		elif hive.shock_ms <= 0.0:
-			_pass_through(hive, unit_owner)
+			_pass_through(hive, pass_owner)
 		return
 	if hive.power > 1:
 		hive.power -= 1
@@ -7102,20 +7372,29 @@ func _has_incoming_enemy_intent(hive_id: int, owner_id: int) -> bool:
 	for lane in state.lanes:
 		if lane.send_a and lane.b_id == hive_id:
 			var a: HiveData = _find_hive_by_id(lane.a_id)
-			if a != null and a.owner_id != 0 and a.owner_id != owner_id:
+			if a != null and a.owner_id != 0 and not _are_allied_owners(a.owner_id, owner_id):
 				return true
 		if lane.send_b and lane.a_id == hive_id:
 			var b: HiveData = _find_hive_by_id(lane.b_id)
-			if b != null and b.owner_id != 0 and b.owner_id != owner_id:
+			if b != null and b.owner_id != 0 and not _are_allied_owners(b.owner_id, owner_id):
 				return true
 	return false
 
 func _lane_mode(a: HiveData, b: HiveData) -> String:
 	if a.owner_id == 0 or b.owner_id == 0:
 		return "neutral"
-	if a.owner_id == b.owner_id:
+	if _are_allied_owners(a.owner_id, b.owner_id):
 		return "friendly"
 	return "opposing"
+
+func _are_allied_owners(owner_a: int, owner_b: int) -> bool:
+	var a_id: int = int(owner_a)
+	var b_id: int = int(owner_b)
+	if a_id <= 0 or b_id <= 0:
+		return false
+	if OpsState != null and OpsState.has_method("are_allies"):
+		return bool(OpsState.call("are_allies", a_id, b_id))
+	return a_id == b_id
 
 func _max_out_lanes(power: int) -> int:
 	if power >= 25:
@@ -7431,7 +7710,7 @@ func request_intent_toggle(src_id: int, dst_id: int) -> bool:
 		return false
 	var src: HiveData = st.find_hive_by_id(src_id)
 	var dst: HiveData = st.find_hive_by_id(dst_id)
-	if src != null and dst != null and src.owner_id != 0 and src.owner_id == dst.owner_id:
+	if src != null and dst != null and src.owner_id != 0 and _are_allied_owners(src.owner_id, dst.owner_id):
 		return OpsState.request_intent_feed(src_id, dst_id)
 	return OpsState.request_intent_attack(src_id, dst_id)
 
@@ -7632,7 +7911,7 @@ func _set_intent_dev(from_id: int, to_id: int, enable: bool) -> void:
 	var a: HiveData = _find_hive_by_id(lane.a_id)
 	var b: HiveData = _find_hive_by_id(lane.b_id)
 	if enable and a != null and b != null and _lane_mode(a, b) == "friendly":
-		if a.owner_id != 0 and a.owner_id == b.owner_id:
+		if _are_allied_owners(a.owner_id, b.owner_id):
 			_force_friendly_direction(lane, from_id, to_id)
 			return
 	var was_send_a: bool = lane.send_a
@@ -7687,7 +7966,7 @@ func _normalize_friendly_intents() -> void:
 			continue
 		if a.owner_id == 0 or b.owner_id == 0:
 			continue
-		if a.owner_id != b.owner_id:
+		if not _are_allied_owners(a.owner_id, b.owner_id):
 			continue
 		if lane.send_a and lane.send_b:
 			if lane.dir == -1:

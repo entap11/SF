@@ -4,11 +4,11 @@ signal closed
 
 const MODES := [
 	{"id": "STAGE_RACE", "label": "Stage Race"},
-	{"id": "RACE", "label": "Race"},
+	{"id": "TIMED_RACE", "label": "Timed Race"},
 	{"id": "MISS_N_OUT", "label": "Miss-N-Out"}
 ]
 const MAP_COUNTS := [3, 5]
-const PRICES := [1, 5, 10, 15, 20, 50, 100]
+const PRICES := [1, 5, 10, 20]
 
 @onready var back_button: Button = $Panel/VBox/Header/Back
 @onready var mode_buttons: HBoxContainer = $Panel/VBox/ModeRow/ModeButtons

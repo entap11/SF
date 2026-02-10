@@ -68,13 +68,6 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 			"map_id": map_id,
 			"reason": "runtime_direct_roster_assignment"
 		})
-	OpsState.sim_mutate("MapApplier.apply_map", func() -> void:
-		if OpsState.has_method("audit_mutation"):
-			OpsState.audit_mutation("MapApplier.apply_map", "match_roster", "res://scripts/maps/map_applier.gd")
-		OpsState.match_roster = roster
-		if OpsState.has_method("ensure_bot_profiles_from_roster"):
-			OpsState.ensure_bot_profiles_from_roster()
-	)
 	SFLog.info("MATCH_ROSTER", {
 		"p1_uid": p1_uid,
 		"p2_uid": "",
@@ -83,8 +76,31 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		"active_seats": active_seats,
 		"team_by_seat": team_by_seat
 	})
+	SFLog.allow_tag("TEAM_ASSIGNMENT")
+	var local_seat_for_team: int = _resolve_local_seat(roster)
+	var local_team_id: int = int(team_by_seat.get(local_seat_for_team, local_seat_for_team))
+	var ally_seats: Array = []
+	var enemy_seats: Array = []
+	for seat in [1, 2, 3, 4]:
+		if not active_seats.has(seat):
+			continue
+		var team_id: int = int(team_by_seat.get(seat, seat))
+		if team_id == local_team_id:
+			ally_seats.append(seat)
+		else:
+			enemy_seats.append(seat)
+	SFLog.warn("TEAM_ASSIGNMENT", {
+		"map_id": map_id,
+		"mode_override": _team_mode_override(),
+		"active_seats": active_seats,
+		"team_by_seat": team_by_seat,
+		"local_seat": local_seat_for_team,
+		"local_team_id": local_team_id,
+		"ally_seats": ally_seats,
+		"enemy_seats": enemy_seats
+	}, "", 0)
 	if "active_player_id" in arena:
-		var local_seat: int = _resolve_local_seat(roster)
+		var local_seat: int = local_seat_for_team
 		arena.set("active_player_id", local_seat)
 		SFLog.allow_tag("ACTIVE_PLAYER_RESET")
 		SFLog.warn("ACTIVE_PLAYER_RESET", {
@@ -93,6 +109,15 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		})
 
 	var built_state := OpsState.reset_state_from_map(d)
+	# reset_state_from_map() resets match state, including match_roster.
+	# Reapply roster after reset so team mapping remains authoritative for the live match.
+	OpsState.sim_mutate("MapApplier.apply_map_post_reset_roster", func() -> void:
+		if OpsState.has_method("audit_mutation"):
+			OpsState.audit_mutation("MapApplier.apply_map_post_reset_roster", "match_roster", "res://scripts/maps/map_applier.gd")
+		OpsState.match_roster = roster
+		if OpsState.has_method("ensure_bot_profiles_from_roster"):
+			OpsState.ensure_bot_profiles_from_roster()
+	)
 	var map_lanes: Array = []
 	for i in range(built_state.lanes.size()):
 		var lane: Variant = built_state.lanes[i]

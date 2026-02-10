@@ -10,6 +10,7 @@ static var _load_ok := false
 static var _by_id: Dictionary = {}
 static var _by_category: Dictionary = {}
 static var _by_tier: Dictionary = {}
+static var _all: Array = []
 static var _stacking_default := "refresh"
 
 static func _ensure_loaded() -> bool:
@@ -38,6 +39,7 @@ static func _ensure_loaded() -> bool:
 	_by_id.clear()
 	_by_category.clear()
 	_by_tier.clear()
+	_all.clear()
 	for buff_v in buffs:
 		if typeof(buff_v) != TYPE_DICTIONARY:
 			continue
@@ -46,6 +48,7 @@ static func _ensure_loaded() -> bool:
 		if buff_id == "":
 			continue
 		_by_id[buff_id] = buff
+		_all.append(buff)
 		var category: String = str(buff.get("category", "unknown"))
 		if not _by_category.has(category):
 			_by_category[category] = []
@@ -62,6 +65,11 @@ static func get_buff(buff_id: String) -> Dictionary:
 		return {}
 	return _by_id.get(buff_id, {})
 
+static func list_all() -> Array:
+	if not _ensure_loaded():
+		return []
+	return _all.duplicate(true)
+
 static func list_by_category(category: String) -> Array:
 	if not _ensure_loaded():
 		return []
@@ -71,6 +79,24 @@ static func list_by_tier(tier: String) -> Array:
 	if not _ensure_loaded():
 		return []
 	return _by_tier.get(tier, [])
+
+static func list_categories() -> PackedStringArray:
+	if not _ensure_loaded():
+		return PackedStringArray()
+	var out: PackedStringArray = PackedStringArray()
+	for category_any in _by_category.keys():
+		out.append(str(category_any))
+	out.sort()
+	return out
+
+static func list_tiers() -> PackedStringArray:
+	if not _ensure_loaded():
+		return PackedStringArray()
+	var out: PackedStringArray = PackedStringArray()
+	for tier_any in _by_tier.keys():
+		out.append(str(tier_any))
+	out.sort()
+	return out
 
 static func stacking_default() -> String:
 	_ensure_loaded()

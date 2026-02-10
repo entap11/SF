@@ -6,6 +6,11 @@ const SHELL_BUFFER_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/Buff
 const SHELL_BUFFER_ROOT_PATH: String = SHELL_BUFFER_LAYER_PATH + "/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
 const TRACE_MAIN_LOGS: bool = false
+const MAIN_MENU_SCENE_PATH: String = "res://scenes/MainMenu.tscn"
+
+@onready var miss_n_out_banner: Control = $UI/MissNOutBanner
+@onready var miss_n_out_banner_label: Label = $UI/MissNOutBanner/Panel/Row/Label
+@onready var miss_n_out_back_button: Button = $UI/MissNOutBanner/Panel/Row/BackToLobby
 
 @export var start_in_menu := true
 
@@ -15,6 +20,8 @@ const TRACE_MAIN_LOGS: bool = false
 # If true, DevMapLoader stays visible even after Start Game.
 @export var show_dev_map_loader_in_game := false
 
+var _miss_n_out_banner_notice_cache: String = ""
+var _miss_n_out_banner_visible_cache: bool = false
 
 func _enter_tree() -> void:
 	if not enable_dev_map_loader:
@@ -26,6 +33,10 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
+	if miss_n_out_back_button != null and not miss_n_out_back_button.pressed.is_connected(_on_miss_n_out_back_to_lobby_pressed):
+		miss_n_out_back_button.pressed.connect(_on_miss_n_out_back_to_lobby_pressed)
+	_set_miss_n_out_banner(false, "")
+	set_process(true)
 	if SFLog.LOGGING_ENABLED:
 		if TRACE_MAIN_LOGS: print("MAIN: _ready scene=", get_tree().current_scene.scene_file_path)
 	if SFLog.LOGGING_ENABLED:
@@ -210,3 +221,45 @@ func start_game() -> void:
 	# Defer fit until after visibility changes take effect.
 	if arena_node != null and arena_node.has_method("_fit_camera_to_viewport"):
 		arena_node.call_deferred("_fit_camera_to_viewport")
+
+func _process(_delta: float) -> void:
+	_refresh_miss_n_out_banner_from_runtime_state()
+
+func _refresh_miss_n_out_banner_from_runtime_state() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var show_banner: bool = false
+	var notice: String = ""
+	if tree.has_meta("miss_n_out_eliminated") and bool(tree.get_meta("miss_n_out_eliminated")):
+		show_banner = true
+		notice = str(tree.get_meta("miss_n_out_notice", "Eliminated. You can keep playing or return to lobby."))
+	if not show_banner and tree.has_meta("miss_n_out_result") and tree.has_meta("miss_n_out_local_player_id"):
+		var contest_state: Node = get_node_or_null("/root/ContestState")
+		if contest_state != null and contest_state.has_method("miss_n_out_player_status"):
+			var result: Dictionary = tree.get_meta("miss_n_out_result", {}) as Dictionary
+			var player_id: String = str(tree.get_meta("miss_n_out_local_player_id", ""))
+			var status: Dictionary = contest_state.call("miss_n_out_player_status", result, player_id) as Dictionary
+			if bool(status.get("eliminated", false)):
+				show_banner = true
+				notice = str(status.get("notice", "Eliminated. You can keep playing or return to lobby."))
+	if show_banner and notice.is_empty():
+		notice = "Eliminated. You can keep playing or return to lobby."
+	_set_miss_n_out_banner(show_banner, notice)
+
+func _set_miss_n_out_banner(visible: bool, notice: String) -> void:
+	if miss_n_out_banner == null or miss_n_out_banner_label == null:
+		return
+	if visible == _miss_n_out_banner_visible_cache and notice == _miss_n_out_banner_notice_cache:
+		return
+	_miss_n_out_banner_visible_cache = visible
+	_miss_n_out_banner_notice_cache = notice
+	miss_n_out_banner.visible = visible
+	if visible:
+		miss_n_out_banner_label.text = notice
+
+func _on_miss_n_out_back_to_lobby_pressed() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	tree.change_scene_to_file(MAIN_MENU_SCENE_PATH)

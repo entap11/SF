@@ -5,6 +5,27 @@ signal run_requested(context: Dictionary)
 const CONTESTS_DIR := "res://data/contests"
 const LEADERBOARDS_DIR := "res://data/leaderboards"
 const ENTRY_SAVE_PATH := "user://contest_entries.json"
+const TIMED_GAME_DEFAULT_MAP_COUNT := 3
+const TIMED_GAME_MAP_COUNT_3 := 3
+const TIMED_GAME_MAP_COUNT_5 := 5
+const TIMED_GAME_SUPPORTED_MAP_COUNTS: Array[int] = [TIMED_GAME_MAP_COUNT_3, TIMED_GAME_MAP_COUNT_5]
+const TIMED_GAME_MIN_PLAYERS := 5
+const TIMED_GAME_MAX_PLAYERS := 10
+const TIMED_GAME_DEFAULT_LIMIT_MS := 30 * 60 * 1000
+const TIMED_GAME_MAIN_LEADERBOARD_THRESHOLD := 0.5
+const DEFAULT_STAGE_RACE_MAP_IDS := ["tp_map_01", "tp_map_02", "tp_map_03", "tp_map_04", "tp_map_05"]
+const TIMED_RACE_DEFAULT_MAP_COUNT := TIMED_GAME_MAP_COUNT_3
+const TIMED_RACE_SUPPORTED_MAP_COUNTS: Array[int] = TIMED_GAME_SUPPORTED_MAP_COUNTS
+const TIMED_RACE_MIN_PLAYERS := 5
+const TIMED_RACE_MAX_PLAYERS := 10
+const TIMED_RACE_START_COUNTDOWN_SEC := 30
+const MISS_N_OUT_MIN_PLAYERS := 4
+const MISS_N_OUT_MAX_PLAYERS := 8
+const MISS_N_OUT_DEFAULT_PLAYERS := 5
+const MISS_N_OUT_DEFAULT_LIMIT_MS := 30 * 60 * 1000
+const MISS_N_OUT_DNF_TIME_MS := 2147483647
+const MISS_N_OUT_ACTION_KEEP_PLAYING := "keep_playing_for_practice"
+const MISS_N_OUT_ACTION_RETURN_TO_LOBBY := "return_to_lobby"
 
 var contests: Dictionary = {}
 var player_entries: Dictionary = {}
@@ -57,26 +78,31 @@ func load_contests() -> void:
 	for file_name in dir.get_files():
 		if not _is_resource_file(file_name):
 			continue
-		var res: Resource = load("%s/%s" % [CONTESTS_DIR, file_name])
-		if res is ContestDef and not res.id.is_empty():
-			var normalized_id := normalize_contest_id(res.id)
-			if normalized_id.is_empty():
-				continue
-			if normalized_id != res.id:
-				res.id = normalized_id
-			var parts := parse_contest_id(normalized_id)
-			if not parts.is_empty():
-				if res.scope.is_empty():
-					res.scope = str(parts.get("scope", res.scope))
-				if res.currency.is_empty():
-					res.currency = str(parts.get("currency", res.currency))
-				if res.price <= 0:
-					res.price = int(parts.get("price", res.price))
-				if res.time_slice.is_empty():
-					res.time_slice = str(parts.get("time", res.time_slice))
-			if res.mode.is_empty():
-				res.mode = "TIME_PUZZLE"
-			contests[normalized_id] = res
+		var contest: ContestDef = _load_contest_def("%s/%s" % [CONTESTS_DIR, file_name], file_name)
+		if contest == null:
+			continue
+		var normalized_id := normalize_contest_id(contest.id)
+		if normalized_id.is_empty():
+			continue
+		if normalized_id != contest.id:
+			contest.id = normalized_id
+		var parts := parse_contest_id(normalized_id)
+		if not parts.is_empty():
+			if contest.scope.is_empty():
+				contest.scope = str(parts.get("scope", contest.scope))
+			if contest.currency.is_empty():
+				contest.currency = str(parts.get("currency", contest.currency))
+			if contest.price <= 0:
+				contest.price = int(parts.get("price", contest.price))
+			if contest.time_slice.is_empty():
+				contest.time_slice = str(parts.get("time", contest.time_slice))
+		if contest.mode.is_empty():
+			contest.mode = "STAGE_RACE"
+		if contest.map_ids.is_empty():
+			contest.map_ids = PackedStringArray(DEFAULT_STAGE_RACE_MAP_IDS)
+		if contest.name.is_empty():
+			contest.name = "%s Stage Race — $%d" % [contest.scope, contest.price]
+		contests[normalized_id] = contest
 
 func get_contest(contest_id: String) -> ContestDef:
 	return contests.get(normalize_contest_id(contest_id))
@@ -166,6 +192,798 @@ func get_best_score(contest_id: String, map_id: String) -> int:
 	var first: Dictionary = entries[0]
 	return int(first.get("best_score", 0))
 
+func timed_game_rules() -> Dictionary:
+	return {
+		"mode": "TIMED_GAME",
+		"map_count_default": TIMED_GAME_DEFAULT_MAP_COUNT,
+		"map_count_supported": TIMED_GAME_SUPPORTED_MAP_COUNTS.duplicate(),
+		"player_count_min": TIMED_GAME_MIN_PLAYERS,
+		"player_count_max": TIMED_GAME_MAX_PLAYERS,
+		"time_limit_ms": TIMED_GAME_DEFAULT_LIMIT_MS,
+		"main_leaderboard_threshold": TIMED_GAME_MAIN_LEADERBOARD_THRESHOLD,
+		"ad_hook_between_maps": true
+	}
+
+func evaluate_timed_game(participants: Array, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	var resolved_map_count: int = _resolve_timed_map_count(map_count)
+	var normalized: Array[Dictionary] = _normalize_timed_participants(participants, resolved_map_count)
+	if normalized.is_empty():
+		return {
+			"ok": false,
+			"err": "no_participants",
+			"rules": timed_game_rules()
+		}
+	var main_map_index: int = _timed_main_leaderboard_map_index(normalized, resolved_map_count)
+	var main_leaders: Array[Dictionary] = _timed_rank_for_map(normalized, main_map_index)
+	var clubhouse: Dictionary = _timed_clubhouse(normalized, resolved_map_count)
+	var winner: Dictionary = _timed_pick_winner(normalized, resolved_map_count)
+	return {
+		"ok": true,
+		"rules": timed_game_rules(),
+		"map_count": resolved_map_count,
+		"participants_total": normalized.size(),
+		"main": {
+			"map_index": main_map_index,
+			"leaders": main_leaders
+		},
+		"clubhouse": clubhouse,
+		"winner": winner
+	}
+
+func evaluate_stage_race_3(participants: Array) -> Dictionary:
+	return evaluate_timed_game(participants, TIMED_GAME_MAP_COUNT_3)
+
+func evaluate_stage_race_5(participants: Array) -> Dictionary:
+	return evaluate_timed_game(participants, TIMED_GAME_MAP_COUNT_5)
+
+func timed_race_rules() -> Dictionary:
+	return {
+		"mode": "TIMED_RACE",
+		"map_count_default": TIMED_RACE_DEFAULT_MAP_COUNT,
+		"map_count_supported": TIMED_RACE_SUPPORTED_MAP_COUNTS.duplicate(),
+		"player_count_min": TIMED_RACE_MIN_PLAYERS,
+		"player_count_max": TIMED_RACE_MAX_PLAYERS,
+		"start_countdown_sec": TIMED_RACE_START_COUNTDOWN_SEC,
+		"sync_start": true,
+		"winner_rule": "first_to_finish"
+	}
+
+func build_timed_race_plan(contest_id: String, map_count: int = TIMED_RACE_DEFAULT_MAP_COUNT) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "err": "contest_not_found", "contest_id": contest_id}
+	var resolved_map_count: int = _resolve_timed_map_count(map_count)
+	var map_ids: PackedStringArray = _take_stage_maps(contest.map_ids, resolved_map_count)
+	if map_ids.size() < resolved_map_count:
+		return {
+			"ok": false,
+			"err": "insufficient_maps",
+			"contest_id": contest.id,
+			"map_count": resolved_map_count,
+			"map_ids": map_ids
+		}
+	return {
+		"ok": true,
+		"contest_id": contest.id,
+		"mode": "TIMED_RACE",
+		"map_count": resolved_map_count,
+		"map_ids": map_ids,
+		"start_countdown_sec": TIMED_RACE_START_COUNTDOWN_SEC
+	}
+
+func evaluate_timed_race(participants: Array, map_count: int = TIMED_RACE_DEFAULT_MAP_COUNT) -> Dictionary:
+	var resolved_map_count: int = _resolve_timed_map_count(map_count)
+	var normalized: Array[Dictionary] = _normalize_timed_participants(participants, resolved_map_count)
+	if normalized.is_empty():
+		return {
+			"ok": false,
+			"err": "no_participants",
+			"rules": timed_race_rules()
+		}
+	var leaderboard: Array[Dictionary] = []
+	for p in normalized:
+		var completed_maps: int = int(p.get("completed_maps", 0))
+		var completed_all: bool = completed_maps >= resolved_map_count
+		leaderboard.append({
+			"player_id": str(p.get("player_id", "")),
+			"player_name": str(p.get("player_name", "")),
+			"completed_maps": completed_maps,
+			"completed_all": completed_all,
+			"aggregate_ms": int(p.get("aggregate_ms", 0)),
+			"failed_map_elapsed_ms": int(p.get("failed_map_elapsed_ms", 0))
+		})
+	leaderboard.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_done: bool = bool(a.get("completed_all", false))
+		var b_done: bool = bool(b.get("completed_all", false))
+		if a_done != b_done:
+			return a_done
+		var a_completed: int = int(a.get("completed_maps", 0))
+		var b_completed: int = int(b.get("completed_maps", 0))
+		if a_completed != b_completed:
+			return a_completed > b_completed
+		var a_agg: int = int(a.get("aggregate_ms", 0))
+		var b_agg: int = int(b.get("aggregate_ms", 0))
+		if a_agg != b_agg:
+			return a_agg < b_agg
+		var a_id: String = str(a.get("player_id", ""))
+		var b_id: String = str(b.get("player_id", ""))
+		return a_id < b_id
+	)
+	for i in range(leaderboard.size()):
+		leaderboard[i]["rank"] = i + 1
+	var winner: Dictionary = leaderboard[0] if not leaderboard.is_empty() else {}
+	return {
+		"ok": true,
+		"rules": timed_race_rules(),
+		"map_count": resolved_map_count,
+		"participants_total": leaderboard.size(),
+		"leaderboard": leaderboard,
+		"winner": winner,
+		"winner_reason": "first_to_finish" if bool(winner.get("completed_all", false)) else "most_progress_then_fastest_time"
+	}
+
+func get_stage_race_maps(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> PackedStringArray:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return PackedStringArray()
+	return _take_stage_maps(contest.map_ids, _resolve_timed_map_count(map_count))
+
+func get_stage_race_3_maps(contest_id: String) -> PackedStringArray:
+	return get_stage_race_maps(contest_id, TIMED_GAME_MAP_COUNT_3)
+
+func get_stage_race_5_maps(contest_id: String) -> PackedStringArray:
+	return get_stage_race_maps(contest_id, TIMED_GAME_MAP_COUNT_5)
+
+func build_stage_race_plan(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "err": "contest_not_found", "contest_id": contest_id}
+	var resolved_map_count: int = _resolve_timed_map_count(map_count)
+	var stage_maps: PackedStringArray = _take_stage_maps(contest.map_ids, resolved_map_count)
+	if stage_maps.size() < resolved_map_count:
+		return {
+			"ok": false,
+			"err": "insufficient_maps",
+			"contest_id": contest.id,
+			"map_count": resolved_map_count,
+			"map_ids": stage_maps
+		}
+	return {
+		"ok": true,
+		"contest_id": contest.id,
+		"mode": "STAGE_RACE",
+		"map_count": resolved_map_count,
+		"map_ids": stage_maps,
+		"time_limit_ms": TIMED_GAME_DEFAULT_LIMIT_MS,
+		"main_leaderboard_threshold": TIMED_GAME_MAIN_LEADERBOARD_THRESHOLD
+	}
+
+func build_stage_race_3_plan(contest_id: String) -> Dictionary:
+	return build_stage_race_plan(contest_id, TIMED_GAME_MAP_COUNT_3)
+
+func build_stage_race_5_plan(contest_id: String) -> Dictionary:
+	return build_stage_race_plan(contest_id, TIMED_GAME_MAP_COUNT_5)
+
+func build_stage_race_overall_leaderboard(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT, limit: int = 10) -> Array[Dictionary]:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return []
+	var resolved_map_count: int = _resolve_timed_map_count(map_count)
+	if map_count <= 0:
+		resolved_map_count = contest.map_ids.size()
+	var stage_maps: PackedStringArray = _take_stage_maps(contest.map_ids, resolved_map_count)
+	if stage_maps.is_empty():
+		return []
+	var by_player: Dictionary = {}
+	for map_id in stage_maps:
+		var entries: Array = get_leaderboard_entries(contest.id, map_id)
+		for entry_v in entries:
+			if typeof(entry_v) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_v as Dictionary
+			var player_id: String = str(entry.get("player_id", ""))
+			if player_id.is_empty():
+				continue
+			var row: Dictionary = by_player.get(player_id, {
+				"player_id": player_id,
+				"player_name": str(entry.get("player_name", player_id)),
+				"hive_name": str(entry.get("hive_name", "")),
+				"completed_maps": 0,
+				"aggregate_time_ms": 0,
+				"map_times_ms": {},
+				"runs_count": 0
+			})
+			var map_times: Dictionary = row.get("map_times_ms", {}) as Dictionary
+			if map_times.has(map_id):
+				continue
+			var time_ms: int = _entry_time_ms(entry)
+			map_times[map_id] = time_ms
+			row["map_times_ms"] = map_times
+			row["completed_maps"] = int(row.get("completed_maps", 0)) + 1
+			row["aggregate_time_ms"] = int(row.get("aggregate_time_ms", 0)) + time_ms
+			row["runs_count"] = int(row.get("runs_count", 0)) + int(entry.get("runs_count", 0))
+			by_player[player_id] = row
+	var rows: Array[Dictionary] = []
+	var required_maps: int = stage_maps.size()
+	for player_row_v in by_player.values():
+		if typeof(player_row_v) != TYPE_DICTIONARY:
+			continue
+		var player_row: Dictionary = player_row_v as Dictionary
+		player_row["required_maps"] = required_maps
+		rows.append(player_row)
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_completed: int = int(a.get("completed_maps", 0))
+		var b_completed: int = int(b.get("completed_maps", 0))
+		if a_completed != b_completed:
+			return a_completed > b_completed
+		var a_agg: int = int(a.get("aggregate_time_ms", 0))
+		var b_agg: int = int(b.get("aggregate_time_ms", 0))
+		if a_agg != b_agg:
+			return a_agg < b_agg
+		var a_id: String = str(a.get("player_id", ""))
+		var b_id: String = str(b.get("player_id", ""))
+		return a_id < b_id
+	)
+	for i in range(rows.size()):
+		rows[i]["rank"] = i + 1
+	if limit > 0 and rows.size() > limit:
+		return rows.slice(0, limit)
+	return rows
+
+func get_stage_race_overall_lead(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	var rows: Array[Dictionary] = build_stage_race_overall_leaderboard(contest_id, map_count, 1)
+	if rows.is_empty():
+		return {}
+	return rows[0]
+
+func get_stage_race_map_leaderboard(contest_id: String, map_id: String, limit: int = 10) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	var entries: Array = get_leaderboard_entries(contest_id, map_id)
+	for entry_v in entries:
+		if typeof(entry_v) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_v as Dictionary
+		rows.append({
+			"player_id": str(entry.get("player_id", "")),
+			"player_name": str(entry.get("player_name", "Player")),
+			"hive_name": str(entry.get("hive_name", "")),
+			"time_ms": _entry_time_ms(entry),
+			"runs_count": int(entry.get("runs_count", 0))
+		})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_time: int = int(a.get("time_ms", 0))
+		var b_time: int = int(b.get("time_ms", 0))
+		if a_time != b_time:
+			return a_time < b_time
+		var a_id: String = str(a.get("player_id", ""))
+		var b_id: String = str(b.get("player_id", ""))
+		return a_id < b_id
+	)
+	for i in range(rows.size()):
+		rows[i]["rank"] = i + 1
+	if limit > 0 and rows.size() > limit:
+		return rows.slice(0, limit)
+	return rows
+
+func miss_n_out_rules() -> Dictionary:
+	return {
+		"mode": "MISS_N_OUT",
+		"player_count_min": MISS_N_OUT_MIN_PLAYERS,
+		"player_count_max": MISS_N_OUT_MAX_PLAYERS,
+		"player_count_default": MISS_N_OUT_DEFAULT_PLAYERS,
+		"map_count_formula": "players_minus_one",
+		"time_limit_ms": MISS_N_OUT_DEFAULT_LIMIT_MS,
+		"async_resolution": true,
+		"elimination_notice": true,
+		"eliminated_player_actions": [
+			MISS_N_OUT_ACTION_KEEP_PLAYING,
+			MISS_N_OUT_ACTION_RETURN_TO_LOBBY
+		]
+	}
+
+func build_miss_n_out_plan(contest_id: String, player_count: int = MISS_N_OUT_DEFAULT_PLAYERS) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "err": "contest_not_found", "contest_id": contest_id}
+	var resolved_players: int = _resolve_miss_n_out_player_count(player_count)
+	var map_count: int = maxi(resolved_players - 1, 1)
+	var map_ids: PackedStringArray = _take_stage_maps(contest.map_ids, map_count)
+	if map_ids.size() < map_count:
+		return {
+			"ok": false,
+			"err": "insufficient_maps",
+			"contest_id": contest.id,
+			"player_count": resolved_players,
+			"map_count": map_count,
+			"map_ids": map_ids
+		}
+	return {
+		"ok": true,
+		"contest_id": contest.id,
+		"mode": "MISS_N_OUT",
+		"player_count": resolved_players,
+		"map_count": map_count,
+		"map_ids": map_ids,
+		"time_limit_ms": MISS_N_OUT_DEFAULT_LIMIT_MS
+	}
+
+func evaluate_miss_n_out(participants: Array, player_count: int = MISS_N_OUT_DEFAULT_PLAYERS, round_benchmarks_ms: Array = []) -> Dictionary:
+	var normalized: Array[Dictionary] = _normalize_miss_n_out_participants(participants)
+	if normalized.is_empty():
+		return {
+			"ok": false,
+			"err": "no_participants",
+			"rules": miss_n_out_rules()
+		}
+	var target_players: int = player_count
+	if normalized.size() > 0:
+		target_players = normalized.size()
+	var resolved_players: int = _resolve_miss_n_out_player_count(target_players)
+	if normalized.size() > resolved_players:
+		normalized = normalized.slice(0, resolved_players)
+	if normalized.size() < MISS_N_OUT_MIN_PLAYERS:
+		return {
+			"ok": false,
+			"err": "insufficient_participants",
+			"rules": miss_n_out_rules(),
+			"participants_total": normalized.size()
+		}
+	var map_count: int = normalized.size() - 1
+	var benchmarks: Array[int] = _normalize_miss_n_out_benchmarks(round_benchmarks_ms, map_count)
+	var by_id: Dictionary = {}
+	var alive_ids: Array[String] = []
+	for p in normalized:
+		var pid: String = str(p.get("player_id", ""))
+		by_id[pid] = p
+		alive_ids.append(pid)
+	var rounds: Array[Dictionary] = []
+	var eliminated_order: Array[Dictionary] = []
+	var winner_id: String = ""
+	for round_idx in range(map_count):
+		if alive_ids.size() <= 0:
+			break
+		var rows: Array[Dictionary] = []
+		var benchmark_ms: int = benchmarks[round_idx]
+		for pid in alive_ids:
+			var p: Dictionary = by_id.get(pid, {})
+			rows.append(_miss_n_out_round_row(p, round_idx, benchmark_ms))
+		rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			var a_time: int = int(a.get("effective_time_ms", MISS_N_OUT_DNF_TIME_MS))
+			var b_time: int = int(b.get("effective_time_ms", MISS_N_OUT_DNF_TIME_MS))
+			if a_time != b_time:
+				return a_time < b_time
+			var a_id: String = str(a.get("player_id", ""))
+			var b_id: String = str(b.get("player_id", ""))
+			return a_id < b_id
+		)
+		var is_final_round: bool = rows.size() <= 2 or round_idx == map_count - 1
+		if is_final_round:
+			var winner_row: Dictionary = rows[0]
+			winner_id = str(winner_row.get("player_id", ""))
+			var eliminated_ids: Array[String] = []
+			var eliminated_rows: Array[Dictionary] = []
+			for i in range(1, rows.size()):
+				var elim_row: Dictionary = rows[i]
+				var elim_id: String = str(elim_row.get("player_id", ""))
+				eliminated_ids.append(elim_id)
+				eliminated_rows.append(elim_row)
+				eliminated_order.append({
+					"round_index": round_idx + 1,
+					"map_index": round_idx + 1,
+					"player_id": elim_id,
+					"player_name": str(elim_row.get("player_name", "")),
+					"time_ms": int(elim_row.get("time_ms", 0)),
+					"dnf": bool(elim_row.get("dnf", false)),
+					"reason": str(elim_row.get("reason", ""))
+				})
+			rounds.append({
+				"round_index": round_idx + 1,
+				"map_index": round_idx + 1,
+				"benchmark_ms": benchmark_ms,
+				"is_final": true,
+				"rows": rows,
+				"winner": winner_row,
+				"eliminated_player_ids": eliminated_ids,
+				"eliminated_rows": eliminated_rows
+			})
+			alive_ids = [winner_id]
+			break
+		var eliminated_row: Dictionary = rows[rows.size() - 1]
+		var eliminated_id: String = str(eliminated_row.get("player_id", ""))
+		alive_ids.erase(eliminated_id)
+		eliminated_order.append({
+			"round_index": round_idx + 1,
+			"map_index": round_idx + 1,
+			"player_id": eliminated_id,
+			"player_name": str(eliminated_row.get("player_name", "")),
+			"time_ms": int(eliminated_row.get("time_ms", 0)),
+			"dnf": bool(eliminated_row.get("dnf", false)),
+			"reason": str(eliminated_row.get("reason", ""))
+		})
+		rounds.append({
+			"round_index": round_idx + 1,
+			"map_index": round_idx + 1,
+			"benchmark_ms": benchmark_ms,
+			"is_final": false,
+			"rows": rows,
+			"eliminated_player_id": eliminated_id,
+			"eliminated_row": eliminated_row
+		})
+	if winner_id.is_empty() and alive_ids.size() == 1:
+		winner_id = alive_ids[0]
+	var winner: Dictionary = {}
+	if not winner_id.is_empty():
+		var w: Dictionary = by_id.get(winner_id, {})
+		winner = {
+			"player_id": winner_id,
+			"player_name": str(w.get("player_name", winner_id)),
+			"survived_rounds": map_count,
+			"reason": "final_lowest_time"
+		}
+	var player_states: Dictionary = _build_miss_n_out_player_states(normalized, eliminated_order, winner_id)
+	return {
+		"ok": true,
+		"rules": miss_n_out_rules(),
+		"participants_total": normalized.size(),
+		"player_count": normalized.size(),
+		"map_count": map_count,
+		"benchmarks_ms": benchmarks,
+		"rounds": rounds,
+		"eliminated_order": eliminated_order,
+		"winner": winner,
+		"player_states": player_states
+	}
+
+func miss_n_out_player_status(result: Dictionary, player_id: String) -> Dictionary:
+	if player_id.is_empty():
+		return {}
+	if typeof(result.get("player_states", null)) == TYPE_DICTIONARY:
+		var states: Dictionary = result.get("player_states", {}) as Dictionary
+		if states.has(player_id):
+			return states[player_id] as Dictionary
+	var eliminated_order: Array = result.get("eliminated_order", []) as Array
+	var eliminated_round: int = 0
+	for row_v in eliminated_order:
+		if typeof(row_v) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_v as Dictionary
+		if str(row.get("player_id", "")) != player_id:
+			continue
+		eliminated_round = int(row.get("round_index", 0))
+		break
+	var winner_id: String = str((result.get("winner", {}) as Dictionary).get("player_id", ""))
+	var is_winner: bool = winner_id == player_id and not winner_id.is_empty()
+	if eliminated_round > 0:
+		return {
+			"player_id": player_id,
+			"is_winner": false,
+			"eliminated": true,
+			"eliminated_round": eliminated_round,
+			"can_win": false,
+			"actions": [MISS_N_OUT_ACTION_KEEP_PLAYING, MISS_N_OUT_ACTION_RETURN_TO_LOBBY],
+			"notice": "Eliminated in round %d. You can keep playing for practice or return to lobby." % eliminated_round
+		}
+	if is_winner:
+		return {
+			"player_id": player_id,
+			"is_winner": true,
+			"eliminated": false,
+			"eliminated_round": 0,
+			"can_win": true,
+			"actions": [],
+			"notice": "You won Miss-N-Out."
+		}
+	return {
+		"player_id": player_id,
+		"is_winner": false,
+		"eliminated": false,
+		"eliminated_round": 0,
+		"can_win": true,
+		"actions": [],
+		"notice": "Still alive in Miss-N-Out."
+	}
+
+func _normalize_timed_participants(participants: Array, map_count: int) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for i in range(participants.size()):
+		var raw_v: Variant = participants[i]
+		if typeof(raw_v) != TYPE_DICTIONARY:
+			continue
+		var raw: Dictionary = raw_v as Dictionary
+		var player_id: String = str(raw.get("player_id", "p_%d" % (i + 1)))
+		var player_name: String = str(raw.get("player_name", player_id))
+		var times_raw: Variant = raw.get("map_times_ms", [])
+		var times: Array[int] = []
+		if typeof(times_raw) == TYPE_ARRAY:
+			for t_v in times_raw as Array:
+				var t: int = maxi(0, int(t_v))
+				times.append(t)
+		var completed_maps: int = int(raw.get("completed_maps", times.size()))
+		completed_maps = mini(maxi(completed_maps, 0), map_count)
+		if times.size() > completed_maps:
+			times = times.slice(0, completed_maps)
+		if times.size() > map_count:
+			times = times.slice(0, map_count)
+		var aggregate_ms: int = 0
+		for t in times:
+			aggregate_ms += int(t)
+		var failed_elapsed_ms: int = maxi(0, int(raw.get("failed_map_elapsed_ms", 0)))
+		var status: String = str(raw.get("status", "active"))
+		out.append({
+			"player_id": player_id,
+			"player_name": player_name,
+			"completed_maps": completed_maps,
+			"map_times_ms": times,
+			"aggregate_ms": aggregate_ms,
+			"failed_map_elapsed_ms": failed_elapsed_ms,
+			"status": status
+		})
+	return out
+
+func _timed_main_leaderboard_map_index(participants: Array[Dictionary], map_count: int) -> int:
+	if participants.is_empty():
+		return 0
+	var total: int = participants.size()
+	var required: int = int(ceil(float(total) * TIMED_GAME_MAIN_LEADERBOARD_THRESHOLD))
+	var best_threshold_map: int = 0
+	for map_idx in range(map_count, 0, -1):
+		var completed_here: int = 0
+		for p in participants:
+			if int(p.get("completed_maps", 0)) >= map_idx:
+				completed_here += 1
+		if completed_here >= required:
+			best_threshold_map = map_idx
+			break
+	if best_threshold_map > 0:
+		return best_threshold_map
+	# Fallback matching edge-case expectation:
+	# if no map reached the threshold, show the map with the highest completion count.
+	var best_count: int = -1
+	var best_map: int = 0
+	for map_idx in range(1, map_count + 1):
+		var completed_here: int = 0
+		for p in participants:
+			if int(p.get("completed_maps", 0)) >= map_idx:
+				completed_here += 1
+		if completed_here > best_count:
+			best_count = completed_here
+			best_map = map_idx
+	return best_map
+
+func _timed_rank_for_map(participants: Array[Dictionary], map_index: int) -> Array[Dictionary]:
+	if map_index <= 0:
+		return []
+	var rows: Array[Dictionary] = []
+	for p in participants:
+		var completed_maps: int = int(p.get("completed_maps", 0))
+		if completed_maps < map_index:
+			continue
+		var times: Array[int] = p.get("map_times_ms", []) as Array[int]
+		var agg: int = 0
+		for i in range(mini(times.size(), map_index)):
+			agg += int(times[i])
+		rows.append({
+			"player_id": str(p.get("player_id", "")),
+			"player_name": str(p.get("player_name", "")),
+			"completed_maps": completed_maps,
+			"aggregate_ms": agg,
+			"failed_map_elapsed_ms": int(p.get("failed_map_elapsed_ms", 0)),
+			"status": str(p.get("status", "active"))
+		})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_agg: int = int(a.get("aggregate_ms", 0))
+		var b_agg: int = int(b.get("aggregate_ms", 0))
+		if a_agg != b_agg:
+			return a_agg < b_agg
+		var a_id: String = str(a.get("player_id", ""))
+		var b_id: String = str(b.get("player_id", ""))
+		return a_id < b_id
+	)
+	for i in range(rows.size()):
+		rows[i]["rank"] = i + 1
+	return rows
+
+func _timed_clubhouse(participants: Array[Dictionary], map_count: int) -> Dictionary:
+	if participants.is_empty():
+		return {"frontier_map_index": 0, "leaders": [], "leader": {}}
+	var frontier: int = 0
+	for p in participants:
+		frontier = maxi(frontier, int(p.get("completed_maps", 0)))
+	frontier = mini(frontier, map_count)
+	var rows: Array[Dictionary] = []
+	for p in participants:
+		var completed_maps: int = int(p.get("completed_maps", 0))
+		if completed_maps != frontier:
+			continue
+		var adjusted: int = _timed_adjusted_score_ms(p, map_count)
+		rows.append({
+			"player_id": str(p.get("player_id", "")),
+			"player_name": str(p.get("player_name", "")),
+			"completed_maps": completed_maps,
+			"aggregate_ms": int(p.get("aggregate_ms", 0)),
+			"failed_map_elapsed_ms": int(p.get("failed_map_elapsed_ms", 0)),
+			"adjusted_score_ms": adjusted,
+			"status": str(p.get("status", "active"))
+		})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_score: int = int(a.get("adjusted_score_ms", 0))
+		var b_score: int = int(b.get("adjusted_score_ms", 0))
+		if a_score != b_score:
+			return a_score < b_score
+		var a_fail: int = int(a.get("failed_map_elapsed_ms", 0))
+		var b_fail: int = int(b.get("failed_map_elapsed_ms", 0))
+		if a_fail != b_fail:
+			return a_fail > b_fail
+		var a_id: String = str(a.get("player_id", ""))
+		var b_id: String = str(b.get("player_id", ""))
+		return a_id < b_id
+	)
+	for i in range(rows.size()):
+		rows[i]["rank"] = i + 1
+	var leader: Dictionary = rows[0] if not rows.is_empty() else {}
+	return {
+		"frontier_map_index": frontier,
+		"leaders": rows,
+		"leader": leader
+	}
+
+func _timed_pick_winner(participants: Array[Dictionary], map_count: int) -> Dictionary:
+	if participants.is_empty():
+		return {}
+	var top_completed: int = 0
+	for p in participants:
+		top_completed = maxi(top_completed, int(p.get("completed_maps", 0)))
+	var candidates: Array[Dictionary] = []
+	for p in participants:
+		if int(p.get("completed_maps", 0)) == top_completed:
+			candidates.append(p)
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_score: int = _timed_adjusted_score_ms(a, map_count)
+		var b_score: int = _timed_adjusted_score_ms(b, map_count)
+		if a_score != b_score:
+			return a_score < b_score
+		var a_fail: int = int(a.get("failed_map_elapsed_ms", 0))
+		var b_fail: int = int(b.get("failed_map_elapsed_ms", 0))
+		if a_fail != b_fail:
+			return a_fail > b_fail
+		var a_id: String = str(a.get("player_id", ""))
+		var b_id: String = str(b.get("player_id", ""))
+		return a_id < b_id
+	)
+	if candidates.is_empty():
+		return {}
+	var winner: Dictionary = candidates[0]
+	return {
+		"player_id": str(winner.get("player_id", "")),
+		"player_name": str(winner.get("player_name", "")),
+		"completed_maps": int(winner.get("completed_maps", 0)),
+		"aggregate_ms": int(winner.get("aggregate_ms", 0)),
+		"failed_map_elapsed_ms": int(winner.get("failed_map_elapsed_ms", 0)),
+		"adjusted_score_ms": _timed_adjusted_score_ms(winner, map_count),
+		"reason": "completed_all_lowest_aggregate" if int(winner.get("completed_maps", 0)) >= map_count else "most_progress_adjusted_score"
+	}
+
+func _timed_adjusted_score_ms(p: Dictionary, map_count: int) -> int:
+	var completed_maps: int = mini(maxi(int(p.get("completed_maps", 0)), 0), map_count)
+	var aggregate_ms: int = int(p.get("aggregate_ms", 0))
+	if completed_maps >= map_count:
+		return aggregate_ms
+	var failed_elapsed_ms: int = maxi(0, int(p.get("failed_map_elapsed_ms", 0)))
+	return aggregate_ms - failed_elapsed_ms
+
+func _resolve_timed_map_count(map_count: int) -> int:
+	if TIMED_GAME_SUPPORTED_MAP_COUNTS.has(map_count):
+		return map_count
+	return TIMED_GAME_DEFAULT_MAP_COUNT
+
+func _take_stage_maps(map_ids: PackedStringArray, map_count: int) -> PackedStringArray:
+	var out := PackedStringArray()
+	var count: int = mini(map_ids.size(), map_count)
+	for i in range(count):
+		out.append(map_ids[i])
+	return out
+
+func _resolve_miss_n_out_player_count(player_count: int) -> int:
+	return mini(maxi(player_count, MISS_N_OUT_MIN_PLAYERS), MISS_N_OUT_MAX_PLAYERS)
+
+func _normalize_miss_n_out_participants(participants: Array) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for i in range(participants.size()):
+		var raw_v: Variant = participants[i]
+		if typeof(raw_v) != TYPE_DICTIONARY:
+			continue
+		var raw: Dictionary = raw_v as Dictionary
+		var player_id: String = str(raw.get("player_id", "p_%d" % (i + 1)))
+		var player_name: String = str(raw.get("player_name", player_id))
+		var times_raw: Variant = raw.get("map_times_ms", [])
+		var times: Array[int] = []
+		if typeof(times_raw) == TYPE_ARRAY:
+			for t_v in times_raw as Array:
+				times.append(maxi(0, int(t_v)))
+		out.append({
+			"player_id": player_id,
+			"player_name": player_name,
+			"map_times_ms": times
+		})
+	return out
+
+func _normalize_miss_n_out_benchmarks(round_benchmarks_ms: Array, map_count: int) -> Array[int]:
+	var out: Array[int] = []
+	for i in range(map_count):
+		if i < round_benchmarks_ms.size():
+			out.append(maxi(0, int(round_benchmarks_ms[i])))
+		else:
+			out.append(0)
+	return out
+
+func _build_miss_n_out_player_states(participants: Array[Dictionary], eliminated_order: Array[Dictionary], winner_id: String) -> Dictionary:
+	var eliminated_round_by_id: Dictionary = {}
+	for row in eliminated_order:
+		var pid: String = str(row.get("player_id", ""))
+		if pid.is_empty() or eliminated_round_by_id.has(pid):
+			continue
+		eliminated_round_by_id[pid] = int(row.get("round_index", 0))
+	var states: Dictionary = {}
+	for p in participants:
+		var pid: String = str(p.get("player_id", ""))
+		if pid.is_empty():
+			continue
+		var eliminated_round: int = int(eliminated_round_by_id.get(pid, 0))
+		if eliminated_round > 0:
+			states[pid] = {
+				"player_id": pid,
+				"player_name": str(p.get("player_name", pid)),
+				"is_winner": false,
+				"eliminated": true,
+				"eliminated_round": eliminated_round,
+				"can_win": false,
+				"actions": [MISS_N_OUT_ACTION_KEEP_PLAYING, MISS_N_OUT_ACTION_RETURN_TO_LOBBY],
+				"notice": "Eliminated in round %d. You can keep playing for practice or return to lobby." % eliminated_round
+			}
+			continue
+		var is_winner: bool = winner_id == pid and not winner_id.is_empty()
+		states[pid] = {
+			"player_id": pid,
+			"player_name": str(p.get("player_name", pid)),
+			"is_winner": is_winner,
+			"eliminated": false,
+			"eliminated_round": 0,
+			"can_win": true,
+			"actions": [],
+			"notice": "You won Miss-N-Out." if is_winner else "Still alive in Miss-N-Out."
+		}
+	return states
+
+func _miss_n_out_round_row(p: Dictionary, round_idx: int, benchmark_ms: int) -> Dictionary:
+	var times: Array[int] = p.get("map_times_ms", []) as Array[int]
+	var has_time: bool = round_idx >= 0 and round_idx < times.size() and int(times[round_idx]) > 0
+	var time_ms: int = int(times[round_idx]) if has_time else 0
+	var dnf: bool = false
+	var reason: String = ""
+	var effective_time_ms: int = time_ms
+	if not has_time:
+		dnf = true
+		reason = "missing_time"
+		effective_time_ms = MISS_N_OUT_DNF_TIME_MS
+	elif benchmark_ms > 0 and time_ms > benchmark_ms:
+		dnf = true
+		reason = "missed_benchmark"
+		effective_time_ms = MISS_N_OUT_DNF_TIME_MS
+	return {
+		"player_id": str(p.get("player_id", "")),
+		"player_name": str(p.get("player_name", "")),
+		"time_ms": time_ms,
+		"benchmark_ms": benchmark_ms,
+		"dnf": dnf,
+		"reason": reason,
+		"effective_time_ms": effective_time_ms
+	}
+
+func _entry_time_ms(entry: Dictionary) -> int:
+	if entry.has("best_time_ms"):
+		return maxi(0, int(entry.get("best_time_ms", 0)))
+	return maxi(0, int(entry.get("best_score", 0)))
+
 func _load_entries() -> void:
 	player_entries.clear()
 	if not FileAccess.file_exists(ENTRY_SAVE_PATH):
@@ -199,3 +1017,30 @@ func _normalize_time_slice(time_slice: String) -> String:
 	if time_slice.length() == 6 and time_slice.is_valid_int():
 		return "%s-%s" % [time_slice.substr(0, 4), time_slice.substr(4, 2)]
 	return time_slice
+
+func _load_contest_def(path: String, file_name: String) -> ContestDef:
+	var res: Resource = load(path)
+	if res is ContestDef:
+		var typed: ContestDef = res as ContestDef
+		if not typed.id.is_empty():
+			return typed
+	var fallback := ContestDef.new()
+	var stem: String = file_name.get_basename()
+	var normalized_id: String = normalize_contest_id(stem)
+	var parts: Dictionary = parse_contest_id(normalized_id)
+	if parts.is_empty():
+		return null
+	fallback.id = normalized_id
+	fallback.scope = str(parts.get("scope", "WEEKLY"))
+	fallback.currency = str(parts.get("currency", "USD"))
+	fallback.price = int(parts.get("price", 1))
+	fallback.time_slice = str(parts.get("time", ""))
+	fallback.mode = "STAGE_RACE"
+	fallback.status = "OPEN"
+	fallback.name = "%s Stage Race — $%d" % [fallback.scope, fallback.price]
+	fallback.published = true
+	fallback.start_ts = 0
+	fallback.end_ts = 4102444800
+	fallback.map_ids = PackedStringArray(DEFAULT_STAGE_RACE_MAP_IDS)
+	fallback.buff_cap_per_map = -1 if fallback.price >= 50 else 2
+	return fallback

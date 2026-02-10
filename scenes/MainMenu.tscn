@@ -904,6 +904,8 @@ size_flags_vertical = 3
 [node name="BuffsLoadoutPanel" type="Panel" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow"]
 layout_mode = 2
 size_flags_horizontal = 3
+size_flags_vertical = 3
+size_flags_stretch_ratio = 1.0
 
 [node name="BuffsLoadoutVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel"]
 layout_mode = 1
@@ -921,7 +923,7 @@ grow_vertical = 2
 layout_mode = 2
 text = "LOADOUT"
 
-[node name="BuffsSlotsRow" type="HBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox"]
+[node name="BuffsSlotsRow" type="VBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox"]
 layout_mode = 2
 
 [node name="BuffSlot1" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow"]
@@ -943,6 +945,8 @@ text = "Slot 4"
 [node name="BuffsLibraryPanel" type="Panel" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow"]
 layout_mode = 2
 size_flags_horizontal = 3
+size_flags_vertical = 3
+size_flags_stretch_ratio = 1.35
 
 [node name="BuffsLibraryVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel"]
 layout_mode = 1
@@ -989,6 +993,7 @@ layout_mode = 2
 text = "Overdrive"
 
 [node name="BuffsDetailPanel" type="Panel" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow"]
+visible = false
 layout_mode = 2
 size_flags_horizontal = 3
 
@@ -1511,7 +1516,7 @@ text = "WEEKLY CONTENTS"
 
 [node name="AsyncQueueDesc" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox"]
 layout_mode = 2
-text = "Paid weekly async content."
+text = "Weekly Stage Race tournament."
 
 [node name="AsyncQueueAction" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox"]
 layout_mode = 2
@@ -1539,7 +1544,7 @@ text = "MONTHLY CONTESTS"
 
 [node name="AsyncLeaderboardLine1" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox"]
 layout_mode = 2
-text = "Paid monthly ladder."
+text = "Monthly Stage Race tournament."
 
 [node name="AsyncLeaderboardLine2" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox"]
 layout_mode = 2
@@ -1575,7 +1580,7 @@ text = "YEARLY CONTESTS"
 
 [node name="AsyncSeasonLine1" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox"]
 layout_mode = 2
-text = "Paid yearly ladder."
+text = "Yearly Stage Race tournament."
 
 [node name="AsyncSeasonLine2" type="Label" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox"]
 layout_mode = 2
@@ -1626,11 +1631,11 @@ text = "Miss n Outs — $1 / $5 / $10 / $20"
 
 [node name="AsyncLadderRace3" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
 layout_mode = 2
-text = "3 Map Race"
+text = "Timed Race (3-map sync)"
 
 [node name="AsyncLadderRace5" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
 layout_mode = 2
-text = "5 Map Race"
+text = "Timed Race (5-map sync)"
 
 [node name="AsyncLadderStage3" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
 layout_mode = 2
@@ -1681,11 +1686,11 @@ text = "Miss n Outs"
 
 [node name="AsyncFreeRace3" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
 layout_mode = 2
-text = "3 Map Race"
+text = "Timed Race (3-map sync)"
 
 [node name="AsyncFreeRace5" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
 layout_mode = 2
-text = "5 Map Race"
+text = "Timed Race (5-map sync)"
 
 [node name="AsyncFreeStage3" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
 layout_mode = 2
