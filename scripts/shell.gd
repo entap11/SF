@@ -9,7 +9,7 @@ const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackgr
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
 const SHELL_BOTTOM_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/BottomBufferBackground"
 const SHELL_PLAYER_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/BuffSlotsStrip"
-const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BUFFER_ROOT_PATH + "/OpponentBuffStrip"
+const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStrip"
 const PENDING_APPLY_MAX_TRIES: int = 60
 const TRACE_SHELL_LOGS: bool = false
 const MVP_SMOKE_ARENA_PATH: String = "/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena"
@@ -186,8 +186,13 @@ func _ready() -> void:
 	if not OpsState.state_changed.is_connected(_on_ops_ui_signal):
 		OpsState.state_changed.connect(_on_ops_ui_signal)
 	call_deferred("_log_shell_buffer_boot")
+	var startup_request: Dictionary = _resolve_startup_launch_request()
+	var startup_requested: bool = bool(startup_request.get("start", false))
+	var startup_map_path: String = str(startup_request.get("map_path", "")).strip_edges()
+	var startup_reason: String = str(startup_request.get("reason", "none"))
+	var in_menu_boot: bool = start_in_menu and not startup_requested
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 070: before_startup_menu_flow")
-	_set_menu_state(start_in_menu)
+	_set_menu_state(in_menu_boot)
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 080: after_startup_menu_flow")
 	if _maybe_start_mvp_smoke():
 		return
@@ -201,9 +206,62 @@ func _ready() -> void:
 		"map_picker_visible": (_map_picker_panel.visible if _map_picker_panel != null else false),
 		"select_map_button": _select_map_button != null
 	})
-	if not start_in_menu:
+	if startup_requested:
+		SFLog.info("SHELL_BOOT_AUTOSTART", {
+			"reason": startup_reason,
+			"map_path": startup_map_path,
+			"in_menu_boot": in_menu_boot
+		})
+		if startup_map_path != "":
+			call_deferred("_apply_map_then_start", startup_map_path)
+		else:
+			_start_game()
+	elif not in_menu_boot:
 		_start_game()
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 090: after_start_game_check")
+
+func _resolve_startup_launch_request() -> Dictionary:
+	var request: Dictionary = {
+		"start": false,
+		"map_path": "",
+		"reason": "none"
+	}
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return request
+	var start_requested: bool = bool(tree.get_meta("start_game", false))
+	if not start_requested:
+		return request
+	if tree.has_meta("start_game"):
+		tree.remove_meta("start_game")
+	request["start"] = true
+	var stage_map_path: String = _resolve_stage_map_from_tree_meta(tree)
+	if stage_map_path != "":
+		request["map_path"] = stage_map_path
+		request["reason"] = "stage_meta"
+		return request
+	var gamebot: Node = get_node_or_null("/root/Gamebot")
+	if gamebot != null:
+		var gamebot_map_path: String = str(gamebot.get("next_map_id")).strip_edges()
+		if gamebot_map_path != "":
+			request["map_path"] = gamebot_map_path
+			request["reason"] = "gamebot_next_map"
+			return request
+	request["reason"] = "start_flag_no_map"
+	return request
+
+func _resolve_stage_map_from_tree_meta(tree: SceneTree) -> String:
+	if tree == null or not tree.has_meta("vs_stage_map_paths"):
+		return ""
+	var stage_maps_any: Variant = tree.get_meta("vs_stage_map_paths", [])
+	if typeof(stage_maps_any) != TYPE_ARRAY:
+		return ""
+	var stage_maps: Array = stage_maps_any as Array
+	if stage_maps.is_empty():
+		return ""
+	var index_raw: int = int(tree.get_meta("vs_stage_current_index", 0))
+	var index: int = clampi(index_raw, 0, stage_maps.size() - 1)
+	return str(stage_maps[index]).strip_edges()
 
 func _wire_map_picker_ui() -> void:
 	if TRACE_SHELL_LOGS: print("MAP_PICKER_WIRE_BEGIN_RAW",
@@ -761,8 +819,23 @@ func _enter_game() -> void:
 	if _arena_instance == null:
 		return
 	_set_menu_state(false)
+	_ensure_vs_frame_visible()
+	call_deferred("_sync_power_bar_buffer_placement")
+	call_deferred("_sync_buff_ui")
 	if _arena_instance.has_method("start_game"):
 		_arena_instance.call_deferred("start_game")
+
+func _ensure_vs_frame_visible() -> void:
+	var hud_root: CanvasItem = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as CanvasItem
+	var buffer_layer: CanvasItem = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer") as CanvasItem
+	var buffer_root: CanvasItem = get_node_or_null(SHELL_BUFFER_ROOT_PATH) as CanvasItem
+	var top_buffer: CanvasItem = get_node_or_null(SHELL_TOP_BUFFER_PATH) as CanvasItem
+	var bottom_buffer: CanvasItem = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as CanvasItem
+	for node_any in [hud_root, buffer_layer, buffer_root, top_buffer, bottom_buffer]:
+		var node: CanvasItem = node_any as CanvasItem
+		if node == null:
+			continue
+		node.visible = true
 
 func _start_game() -> void:
 	_ensure_game_instance()

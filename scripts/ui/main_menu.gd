@@ -2285,6 +2285,12 @@ func _on_async_miss_n_out_selected(free_play: bool) -> void:
 	var map_count: int = int(plan.get("map_count", 0))
 	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
 	lobby_options["window_sec"] = window_sec
+	lobby_options["contest_id"] = contest_id
+	var miss_scope: String = str(contest.get("scope"))
+	if miss_scope.is_empty():
+		miss_scope = "WEEKLY"
+	lobby_options["contest_scope"] = miss_scope
+	lobby_options["map_ids"] = map_ids
 	status_label.text = "%s Miss-N-Out (%d maps, %d min window): %s | Eliminated players can continue for practice or return to lobby." % [track_label, map_count, int(window_sec / 60), ", ".join(map_labels)]
 	_open_async_vs_lobby("MISS_N_OUT", map_count, free_play, entry_usd, lobby_options)
 
@@ -2321,6 +2327,12 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 		map_labels.append(str(map_id_v))
 	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
 	lobby_options["window_sec"] = window_sec
+	lobby_options["contest_id"] = contest_id
+	var stage_scope: String = str(contest.get("scope"))
+	if stage_scope.is_empty():
+		stage_scope = "WEEKLY"
+	lobby_options["contest_scope"] = stage_scope
+	lobby_options["map_ids"] = map_ids
 	status_label.text = "%s Stage Race (%d maps, %d min window): %s" % [track_label, map_count, int(window_sec / 60), ", ".join(map_labels)]
 	_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
 
@@ -2356,6 +2368,12 @@ func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
 	for map_id_v in map_ids:
 		map_labels.append(str(map_id_v))
 	lobby_options["sync_join_sec"] = maxi(1, int(plan.get("start_countdown_sec", ASYNC_TIMED_RACE_SYNC_JOIN_SEC)))
+	lobby_options["contest_id"] = contest_id
+	var timed_scope: String = str(contest.get("scope"))
+	if timed_scope.is_empty():
+		timed_scope = "WEEKLY"
+	lobby_options["contest_scope"] = timed_scope
+	lobby_options["map_ids"] = map_ids
 	status_label.text = "%s Timed Race (%d maps, sync start after %ds): %s" % [track_label, map_count, int(lobby_options.get("sync_join_sec", ASYNC_TIMED_RACE_SYNC_JOIN_SEC)), ", ".join(map_labels)]
 	_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
 

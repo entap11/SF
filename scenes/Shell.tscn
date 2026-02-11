@@ -291,19 +291,19 @@ layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
 
-[node name="OpponentBuffStrip" type="Control" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"]
+[node name="OpponentBuffStrip" type="Control" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground"]
 layout_mode = 1
 anchors_preset = 9
 anchor_bottom = 1.0
-offset_left = 20.0
-offset_top = 180.0
-offset_right = 132.0
-offset_bottom = -180.0
+offset_left = 181.0
+offset_top = 20.0
+offset_right = 293.0
+offset_bottom = -20.0
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("6")
 
-[node name="SlotsColumn" type="VBoxContainer" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip"]
+[node name="SlotsColumn" type="VBoxContainer" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/OpponentBuffStrip"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -314,13 +314,13 @@ mouse_filter = 2
 theme_override_constants/separation = 28
 alignment = 1
 
-[node name="OpponentSlot1" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn"]
+[node name="OpponentSlot1" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/OpponentBuffStrip/SlotsColumn"]
 custom_minimum_size = Vector2(96, 96)
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
 
-[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn/OpponentSlot1"]
+[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/OpponentBuffStrip/SlotsColumn/OpponentSlot1"]
 visible = false
 layout_mode = 1
 anchors_preset = 15
@@ -334,13 +334,13 @@ text = "X"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="OpponentSlot2" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn"]
+[node name="OpponentSlot2" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/OpponentBuffStrip/SlotsColumn"]
 custom_minimum_size = Vector2(96, 96)
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
 
-[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn/OpponentSlot2"]
+[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/OpponentBuffStrip/SlotsColumn/OpponentSlot2"]
 visible = false
 layout_mode = 1
 anchors_preset = 15
@@ -354,13 +354,13 @@ text = "X"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="OpponentSlot3" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn"]
+[node name="OpponentSlot3" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/OpponentBuffStrip/SlotsColumn"]
 custom_minimum_size = Vector2(96, 96)
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
 
-[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/OpponentBuffStrip/SlotsColumn/OpponentSlot3"]
+[node name="UsedMark" type="Label" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/OpponentBuffStrip/SlotsColumn/OpponentSlot3"]
 visible = false
 layout_mode = 1
 anchors_preset = 15

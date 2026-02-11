@@ -1,5 +1,6 @@
 extends Control
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 
 signal closed
 
@@ -11,7 +12,15 @@ const SYNC_JOIN_COUNTDOWN_SEC := 30
 const ASYNC_WINDOW_COUNTDOWN_SEC := 30 * 60
 const ASYNC_SLOT_FILL_EVERY_SEC := 15
 const SMS_TIMEOUT_SEC := 120
+const SHELL_SCENE_PATH := "res://scenes/Shell.tscn"
 const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako", "Drift", "Pax"]
+const DEFAULT_STAGE_MAP_PATHS := [
+	"res://maps/json/MAP_RACE_NO_WALLS_8x12_v1xy.json",
+	"res://maps/json/CROSS_4P_8x14.json",
+	"res://maps/json/FAST_LANE_4P_8x14.json",
+	"res://maps/json/CRACK_THE_EGG_4P_8x14.json",
+	"res://maps/json/PHONEBOOTH_4P_8x14.json"
+]
 
 @onready var title_label: Label = $Panel/VBox/Header/Title
 @onready var back_button: Button = $Panel/VBox/Header/Back
@@ -63,10 +72,7 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 				_context_meta[str(key)] = options[key]
 	if is_node_ready():
 		_refresh_summary()
-		if _uses_async_window() and not _local_joined:
-			quick_button.text = "Join Contest"
-		elif not _uses_async_window():
-			quick_button.text = "Quick Match"
+		_sync_quick_button_text()
 
 func _ready() -> void:
 	back_button.pressed.connect(_on_back_pressed)
@@ -82,10 +88,7 @@ func _ready() -> void:
 	_dev_min_players_override = false
 	dev_min_override_button.visible = OS.is_debug_build()
 	_sync_dev_button_text()
-	if _uses_async_window():
-		quick_button.text = "Join Contest"
-	else:
-		quick_button.text = "Quick Match"
+	_sync_quick_button_text()
 	quick_button.disabled = false
 	_refresh_summary()
 	_status("Lobby idle")
@@ -98,6 +101,9 @@ func _on_quick_match() -> void:
 	if _uses_async_window():
 		if not _local_joined:
 			_join_async_contest(false)
+			# Async contests are intended to start immediately for the local player.
+			# Others can still join during the active window.
+			_start_match()
 			return
 		if _contest_window_open:
 			_start_match()
@@ -201,13 +207,16 @@ func _start_match() -> void:
 		status_label.text = "Contest window closed."
 		return
 	var price_text := "FREE" if _free_roll else "$%d" % _price_usd
+	var stage_map_paths: Array[String] = _resolve_stage_map_paths()
+	var first_stage_map: String = stage_map_paths[0] if not stage_map_paths.is_empty() else ""
 	status_label.text = "Match starting..."
 	if SFLog.LOGGING_ENABLED:
 		print("VS RUN", {
 		"mode": _mode,
 		"map_count": _map_count,
 		"price": price_text,
-		"assigned_players": _assigned_players
+		"assigned_players": _assigned_players,
+		"stage_maps": stage_map_paths
 	})
 	var tree := get_tree()
 	tree.set_meta("start_game", true)
@@ -222,13 +231,42 @@ func _start_match() -> void:
 	tree.set_meta("vs_window_sec", _window_sec)
 	tree.set_meta("vs_window_started_unix", _contest_started_unix)
 	tree.set_meta("vs_window_deadline_unix", _contest_deadline_unix)
+	tree.set_meta("vs_stage_map_paths", stage_map_paths)
+	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
 	for key in _context_meta.keys():
 		tree.set_meta(key, _context_meta[key])
 	if _mode == "MISS_N_OUT":
 		tree.set_meta("miss_n_out_local_player_id", "You")
 		tree.set_meta("miss_n_out_eliminated", false)
 		tree.set_meta("miss_n_out_notice", "")
-	tree.change_scene_to_file("res://scenes/Main.tscn")
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("_apply_map_then_start"):
+		if first_stage_map.is_empty():
+			status_label.text = "No valid stage map found."
+			return
+		var ops_state: Node = get_node_or_null("/root/OpsState")
+		if ops_state != null and ops_state.has_method("set_team_mode_override"):
+			ops_state.call("set_team_mode_override", "ffa")
+		shell.call("_apply_map_then_start", first_stage_map)
+		closed.emit()
+		return
+	if _mode == "STAGE_RACE" and first_stage_map.is_empty():
+		status_label.text = "No valid stage map found."
+		return
+	var gamebot: Node = get_node_or_null("/root/Gamebot")
+	if gamebot != null and not first_stage_map.is_empty():
+		if gamebot.has_method("set_vs"):
+			gamebot.call("set_vs", first_stage_map)
+		else:
+			gamebot.set("next_map_id", first_stage_map)
+	if _mode == "STAGE_RACE":
+		var ops_state: Node = get_node_or_null("/root/OpsState")
+		if ops_state != null and ops_state.has_method("set_team_mode_override"):
+			ops_state.call("set_team_mode_override", "ffa")
+		tree.change_scene_to_file(SHELL_SCENE_PATH)
+	else:
+		tree.change_scene_to_file("res://scenes/Main.tscn")
 
 func _mode_label(mode_id: String) -> String:
 	match mode_id:
@@ -316,6 +354,75 @@ func _on_dev_min_override_pressed() -> void:
 		_status("Contest open")
 	else:
 		_status("Sync lobby")
+
+func _sync_quick_button_text() -> void:
+	if quick_button == null:
+		return
+	if _uses_async_window():
+		if _local_joined and _contest_window_open:
+			quick_button.text = "Start Run"
+		elif _mode == "STAGE_RACE":
+			quick_button.text = "Play Stage Race"
+		elif _mode == "MISS_N_OUT":
+			quick_button.text = "Play Miss-N-Out"
+		else:
+			quick_button.text = "Play Contest"
+		return
+	quick_button.text = "Quick Match"
+
+func _resolve_stage_map_paths() -> Array[String]:
+	var resolved: Array[String] = []
+	var ids: PackedStringArray = _context_map_ids()
+	for map_id in ids:
+		var map_path: String = _resolve_map_path(map_id)
+		if map_path.is_empty():
+			continue
+		if not resolved.has(map_path):
+			resolved.append(map_path)
+		if resolved.size() >= _map_count:
+			return resolved
+	for map_path in DEFAULT_STAGE_MAP_PATHS:
+		if not FileAccess.file_exists(map_path):
+			continue
+		if resolved.has(map_path):
+			continue
+		resolved.append(map_path)
+		if resolved.size() >= _map_count:
+			return resolved
+	return resolved
+
+func _context_map_ids() -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	var raw: Variant = _context_meta.get("map_ids", PackedStringArray())
+	if typeof(raw) == TYPE_PACKED_STRING_ARRAY:
+		return raw as PackedStringArray
+	if typeof(raw) == TYPE_ARRAY:
+		for item in raw as Array:
+			var map_id: String = str(item).strip_edges()
+			if not map_id.is_empty():
+				out.append(map_id)
+	return out
+
+func _resolve_map_path(map_id: String) -> String:
+	var trimmed: String = map_id.strip_edges()
+	if trimmed.is_empty():
+		return ""
+	if trimmed.begins_with("res://") and FileAccess.file_exists(trimmed):
+		return trimmed
+	var candidate := trimmed
+	if not candidate.ends_with(".json"):
+		candidate += ".json"
+	var paths := [
+		"res://maps/json/" + candidate,
+		"res://maps/" + candidate
+	]
+	for path in paths:
+		if FileAccess.file_exists(path):
+			return path
+	var resolved: String = MAP_LOADER._resolve_map_path(trimmed)
+	if not resolved.is_empty() and FileAccess.file_exists(resolved):
+		return resolved
+	return ""
 
 func _sync_dev_button_text() -> void:
 	if dev_min_override_button == null:

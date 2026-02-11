@@ -90,6 +90,12 @@ const SHELL_TOP_BUFFER_PATH: String = SHELL_HUD_LAYER_PATH + "/HUDRoot/BufferBac
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
 const SHELL_OUTCOME_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/OutcomeOverlay"
 const SHELL_WIN_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/WinOverlay"
+const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
+const VS_MODE_STAGE_RACE: String = "STAGE_RACE"
+const TREE_META_VS_MODE: String = "vs_mode"
+const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
+const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
+const TREE_META_VS_STAGE_ROUND_RESULTS: String = "vs_stage_round_results"
 const COUNTDOWN_DEBUG_SCRIPT: Script = preload("res://scripts/ui/prematch_countdown_view.gd")
 const PREMATCH_RECORDS_WIDTH_PX: float = 520.0
 const PREMATCH_RECORDS_HEIGHT_PX: float = 168.0
@@ -313,6 +319,7 @@ func _ready() -> void:
 	SFLog.allow_tag("GAMESTATE_MUTATION_FENCE")
 	SFLog.allow_tag("MAP_APPLIER_RUNTIME_ROSTER_WRITE")
 	SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
+	SFLog.allow_tag("BUFF_FIRED")
 	set_physics_process(true)
 	set_process_unhandled_input(false)
 	SFLog.info("ARENA_SCRIPT", {"path": get_script().resource_path})
@@ -1714,6 +1721,12 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
+	if _is_stage_race_runtime_mode():
+		_show_stage_race_round_overlay(winner_id_in, reason)
+		if sim_runner != null:
+			sim_runner.log_pause_snapshot("arena_show_stage_round_outcome")
+		mark_render_dirty("match_end_stage_round")
+		return
 	if outcome_overlay == null:
 		_ensure_post_match_ui()
 	if outcome_overlay != null:
@@ -1728,7 +1741,7 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	mark_render_dirty("match_end")
 
 func _on_post_match_action(action: String) -> void:
-	if action == "rematch_vote":
+	if action == "rematch_vote" and not _is_stage_race_runtime_mode():
 		var voter_id: int = active_player_id
 		if voter_id != 1 and voter_id != 2:
 			voter_id = 1
@@ -1744,14 +1757,300 @@ func _on_post_match_action(action: String) -> void:
 		return
 	SFLog.info("POST_MATCH_ACTION", {"action": action})
 	match action:
+		"next_round":
+			_post_match_action_taken = true
+			_advance_stage_race_round()
+		"finish_run":
+			_post_match_action_taken = true
+			_clear_stage_runtime_meta()
+			_return_to_main_menu()
 		"rematch":
 			_post_match_action_taken = true
 			_handle_rematch()
 		"main_menu":
 			_post_match_action_taken = true
+			if _is_stage_race_runtime_mode():
+				_clear_stage_runtime_meta()
 			_return_to_main_menu()
 		_:
 			return
+
+func _is_stage_race_runtime_mode() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var mode: String = str(tree.get_meta(TREE_META_VS_MODE, "")).strip_edges().to_upper()
+	return mode == VS_MODE_STAGE_RACE
+
+func _get_stage_map_paths_runtime() -> Array[String]:
+	var out: Array[String] = []
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta(TREE_META_VS_STAGE_MAP_PATHS):
+		return out
+	var raw: Variant = tree.get_meta(TREE_META_VS_STAGE_MAP_PATHS, [])
+	if typeof(raw) != TYPE_ARRAY:
+		return out
+	for path_any in raw as Array:
+		var path: String = str(path_any).strip_edges()
+		if path.is_empty():
+			continue
+		out.append(path)
+	return out
+
+func _get_stage_round_results_runtime() -> Array:
+	var out: Array = []
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta(TREE_META_VS_STAGE_ROUND_RESULTS):
+		return out
+	var raw: Variant = tree.get_meta(TREE_META_VS_STAGE_ROUND_RESULTS, [])
+	if typeof(raw) != TYPE_ARRAY:
+		return out
+	for item_any in raw as Array:
+		if typeof(item_any) != TYPE_DICTIONARY:
+			continue
+		out.append((item_any as Dictionary).duplicate(true))
+	return out
+
+func _set_stage_round_results_runtime(results: Array) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	tree.set_meta(TREE_META_VS_STAGE_ROUND_RESULTS, results.duplicate(true))
+
+func _upsert_stage_round_result(results: Array, round_index: int, result: Dictionary) -> Array:
+	var out: Array = results.duplicate(true)
+	for i in range(out.size()):
+		if typeof(out[i]) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = out[i] as Dictionary
+		if int(row.get("round_index", -1)) != round_index:
+			continue
+		out[i] = result.duplicate(true)
+		return out
+	out.append(result.duplicate(true))
+	return out
+
+func _owned_hive_counts_by_owner() -> Dictionary:
+	var counts: Dictionary = {}
+	if state == null:
+		return counts
+	for hive in state.hives:
+		if hive == null:
+			continue
+		var owner_id: int = int(hive.owner_id)
+		if owner_id <= 0:
+			continue
+		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
+	return counts
+
+func _resolve_stage_opponent_owner_id(owned_by_owner: Dictionary, local_owner_id: int, winner_id_in: int) -> int:
+	if winner_id_in > 0 and winner_id_in != local_owner_id:
+		return winner_id_in
+	var best_owner: int = 0
+	var best_owned: int = -1
+	for owner_any in owned_by_owner.keys():
+		var owner_id: int = int(owner_any)
+		if owner_id <= 0 or owner_id == local_owner_id:
+			continue
+		var owned: int = int(owned_by_owner.get(owner_id, 0))
+		if owned > best_owned:
+			best_owned = owned
+			best_owner = owner_id
+	return best_owner
+
+func _stage_stats_add(stats_by_owner: Dictionary, owner_id: int, owned_delta: int, elapsed_ms_delta: int, won_round: bool) -> void:
+	if owner_id <= 0:
+		return
+	var stats: Dictionary = stats_by_owner.get(owner_id, {
+		"wins": 0,
+		"owned": 0,
+		"elapsed_ms": 0
+	})
+	stats["wins"] = int(stats.get("wins", 0)) + (1 if won_round else 0)
+	stats["owned"] = int(stats.get("owned", 0)) + maxi(0, owned_delta)
+	stats["elapsed_ms"] = int(stats.get("elapsed_ms", 0)) + maxi(0, elapsed_ms_delta)
+	stats_by_owner[owner_id] = stats
+
+func _stage_rank_snapshot(results: Array, local_owner_id: int) -> Dictionary:
+	var stats_by_owner: Dictionary = {}
+	for result_any in results:
+		if typeof(result_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = result_any as Dictionary
+		var winner: int = int(row.get("winner_id", 0))
+		var elapsed_ms: int = maxi(0, int(row.get("elapsed_ms", 0)))
+		var row_local_owner: int = int(row.get("local_owner_id", local_owner_id))
+		var row_opponent_owner: int = int(row.get("opponent_owner_id", 0))
+		var row_local_owned: int = maxi(0, int(row.get("local_owned_hives", 0)))
+		var row_opponent_owned: int = maxi(0, int(row.get("opponent_owned_hives", 0)))
+		_stage_stats_add(stats_by_owner, row_local_owner, row_local_owned, elapsed_ms, winner == row_local_owner)
+		_stage_stats_add(stats_by_owner, row_opponent_owner, row_opponent_owned, elapsed_ms, winner == row_opponent_owner)
+	var owners: Array = stats_by_owner.keys()
+	owners.sort_custom(func(a, b):
+		var a_id: int = int(a)
+		var b_id: int = int(b)
+		var a_stats: Dictionary = stats_by_owner.get(a_id, {})
+		var b_stats: Dictionary = stats_by_owner.get(b_id, {})
+		var a_wins: int = int(a_stats.get("wins", 0))
+		var b_wins: int = int(b_stats.get("wins", 0))
+		if a_wins != b_wins:
+			return a_wins > b_wins
+		var a_owned: int = int(a_stats.get("owned", 0))
+		var b_owned: int = int(b_stats.get("owned", 0))
+		if a_owned != b_owned:
+			return a_owned > b_owned
+		var a_elapsed: int = int(a_stats.get("elapsed_ms", 0))
+		var b_elapsed: int = int(b_stats.get("elapsed_ms", 0))
+		if a_elapsed != b_elapsed:
+			return a_elapsed < b_elapsed
+		return a_id < b_id
+	)
+	var rank: int = 0
+	for i in range(owners.size()):
+		if int(owners[i]) == local_owner_id:
+			rank = i + 1
+			break
+	var local_wins: int = int((stats_by_owner.get(local_owner_id, {}) as Dictionary).get("wins", 0))
+	var opponent_wins: int = 0
+	for owner_any in owners:
+		var owner_id: int = int(owner_any)
+		if owner_id == local_owner_id:
+			continue
+		opponent_wins = int((stats_by_owner.get(owner_id, {}) as Dictionary).get("wins", 0))
+		break
+	return {
+		"rank": rank,
+		"local_wins": local_wins,
+		"opponent_wins": opponent_wins
+	}
+
+func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return {}
+	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
+	if stage_maps.is_empty():
+		return {}
+	var total_rounds: int = stage_maps.size()
+	var raw_round_index: int = int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0))
+	var round_index: int = clampi(raw_round_index, 0, total_rounds - 1)
+	var local_owner_id: int = _resolve_local_owner_id()
+	if local_owner_id <= 0:
+		local_owner_id = clampi(active_player_id, 1, 4)
+	var owned_by_owner: Dictionary = _owned_hive_counts_by_owner()
+	var local_owned_hives: int = int(owned_by_owner.get(local_owner_id, 0))
+	var opponent_owner_id: int = _resolve_stage_opponent_owner_id(owned_by_owner, local_owner_id, winner_id_in)
+	var opponent_owned_hives: int = int(owned_by_owner.get(opponent_owner_id, 0))
+	var elapsed_ms: int = maxi(0, int(OpsState.match_elapsed_ms))
+	var round_result: Dictionary = {
+		"round_index": round_index,
+		"round_number": round_index + 1,
+		"map_path": stage_maps[round_index],
+		"winner_id": winner_id_in,
+		"reason": reason,
+		"elapsed_ms": elapsed_ms,
+		"local_owner_id": local_owner_id,
+		"opponent_owner_id": opponent_owner_id,
+		"local_owned_hives": local_owned_hives,
+		"opponent_owned_hives": opponent_owned_hives,
+		"recorded_ms": Time.get_ticks_msec()
+	}
+	var results: Array = _get_stage_round_results_runtime()
+	results = _upsert_stage_round_result(results, round_index, round_result)
+	_set_stage_round_results_runtime(results)
+	var rank_snapshot: Dictionary = _stage_rank_snapshot(results, local_owner_id)
+	return {
+		"round_number": round_index + 1,
+		"total_rounds": total_rounds,
+		"winner_id": winner_id_in,
+		"reason": reason,
+		"local_owner_id": local_owner_id,
+		"round_time_ms": elapsed_ms,
+		"local_owned_hives": local_owned_hives,
+		"opponent_owned_hives": opponent_owned_hives,
+		"current_rank": int(rank_snapshot.get("rank", 0)),
+		"local_round_wins": int(rank_snapshot.get("local_wins", 0)),
+		"opponent_round_wins": int(rank_snapshot.get("opponent_wins", 0)),
+		"next_round_available": round_index + 1 < total_rounds
+	}
+
+func _show_stage_race_round_overlay(winner_id_in: int, reason: String) -> void:
+	if outcome_overlay == null:
+		_ensure_post_match_ui()
+	if outcome_overlay == null:
+		SFLog.warn("POSTMATCH_UI_MISSING", {"kind": "outcome_overlay_stage"})
+		return
+	var summary: Dictionary = _build_stage_round_summary(winner_id_in, reason)
+	if summary.is_empty():
+		var record_slot: int = clampi(active_player_id, 1, 4)
+		var record_text: String = _get_player_record_line(record_slot)
+		var h2h_text: String = _get_h2h_record_line()
+		outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
+		return
+	var next_round_available: bool = bool(summary.get("next_round_available", false))
+	var next_action: String = "next_round" if next_round_available else "finish_run"
+	var next_label: String = "Next Round" if next_round_available else "Finish Run"
+	var status_text: String = "Current rank is provisional. Ready for next round?" if next_round_available else "Current rank is provisional. Run complete."
+	var payload: Dictionary = summary.duplicate(true)
+	payload["next_action"] = next_action
+	payload["next_label"] = next_label
+	payload["exit_label"] = "Back to Lobby"
+	payload["status_text"] = status_text
+	payload["next_round_available"] = true
+	payload["next_button_enabled"] = true
+	outcome_overlay.show_stage_round_outcome(payload)
+
+func _advance_stage_race_round() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
+	if stage_maps.is_empty():
+		_return_to_main_menu()
+		return
+	var current_index: int = int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0))
+	var next_index: int = current_index + 1
+	if next_index < 0 or next_index >= stage_maps.size():
+		_clear_stage_runtime_meta()
+		_return_to_main_menu()
+		return
+	var next_map_path: String = str(stage_maps[next_index]).strip_edges()
+	if next_map_path.is_empty():
+		_clear_stage_runtime_meta()
+		_return_to_main_menu()
+		return
+	tree.set_meta(TREE_META_VS_STAGE_CURRENT_INDEX, next_index)
+	if outcome_overlay != null:
+		outcome_overlay.hide_overlay()
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("_apply_map_then_start"):
+		shell.call("_apply_map_then_start", next_map_path)
+		return
+	var gamebot: Node = get_node_or_null("/root/Gamebot")
+	if gamebot != null:
+		if gamebot.has_method("set_vs"):
+			gamebot.call("set_vs", next_map_path)
+		else:
+			gamebot.set("next_map_id", next_map_path)
+	var ops_state: Node = get_node_or_null("/root/OpsState")
+	if ops_state != null and ops_state.has_method("set_team_mode_override"):
+		ops_state.call("set_team_mode_override", "ffa")
+	tree.set_meta("start_game", true)
+	tree.change_scene_to_file(SHELL_SCENE_PATH)
+
+func _clear_stage_runtime_meta() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var keys: Array[String] = [
+		TREE_META_VS_MODE,
+		TREE_META_VS_STAGE_MAP_PATHS,
+		TREE_META_VS_STAGE_CURRENT_INDEX,
+		TREE_META_VS_STAGE_ROUND_RESULTS
+	]
+	for key in keys:
+		if tree.has_meta(key):
+			tree.remove_meta(key)
 
 func _handle_rematch() -> void:
 	if current_map_data.is_empty():
@@ -3940,6 +4239,12 @@ func _try_activate_buff_slot(pid: int, slot_index: int) -> void:
 		return
 	var slot: Dictionary = buff_state.slots[slot_index]
 	SFLog.info("BUFF_ACTIVATED", {
+		"pid": pid,
+		"slot_index": slot_index,
+		"buff_id": str(slot.get("id", "")),
+		"ends_ms": int(slot.get("ends_ms", 0))
+	})
+	SFLog.warn("BUFF_FIRED", {
 		"pid": pid,
 		"slot_index": slot_index,
 		"buff_id": str(slot.get("id", "")),

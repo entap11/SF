@@ -24,6 +24,13 @@ var local_player_id: int = 1
 var _action_taken: bool = false
 var _outcome_layer: CanvasLayer = null
 var _reparent_queued: bool = false
+var _overlay_mode: String = "rematch"
+var _stage_next_action: String = "next_round"
+var _stage_next_available: bool = false
+var _stage_status_text: String = ""
+
+const OVERLAY_MODE_REMATCH: String = "rematch"
+const OVERLAY_MODE_STAGE_ROUND: String = "stage_round"
 
 func _ready() -> void:
 	_force_fullscreen_anchors()
@@ -42,6 +49,10 @@ func show_outcome(
 	record_text: String = "",
 	h2h_text: String = ""
 ) -> void:
+	_overlay_mode = OVERLAY_MODE_REMATCH
+	_stage_next_action = "next_round"
+	_stage_next_available = false
+	_stage_status_text = ""
 	SFLog.info("OUTCOME_OVERLAY_SHOW_CALL", {
 		"iid": int(get_instance_id()),
 		"inside_tree": is_inside_tree(),
@@ -61,6 +72,37 @@ func show_outcome(
 	panel.modulate = Color(1, 1, 1, 1)
 	panel.self_modulate = Color(1, 1, 1, 1)
 	_apply_outcome(winner_id, reason, record_text, h2h_text)
+	set_process(true)
+	rematch_button.grab_focus()
+	_log_show_state()
+	call_deferred("_log_layout_after_frame")
+
+func show_stage_round_outcome(data: Dictionary) -> void:
+	_overlay_mode = OVERLAY_MODE_STAGE_ROUND
+	_stage_next_action = str(data.get("next_action", "next_round"))
+	_stage_next_available = bool(data.get("next_button_enabled", data.get("next_round_available", false)))
+	_stage_status_text = str(data.get("status_text", "Ready for next round?"))
+	SFLog.info("OUTCOME_OVERLAY_STAGE_SHOW_CALL", {
+		"iid": int(get_instance_id()),
+		"inside_tree": is_inside_tree(),
+		"path": str(get_path()) if is_inside_tree() else "<detached>",
+		"next_action": _stage_next_action,
+		"next_available": _stage_next_available
+	})
+	_force_fullscreen_anchors()
+	_ensure_outcome_layer()
+	local_player_id = maxi(1, int(data.get("local_player_id", 1)))
+	_action_taken = false
+	visible = true
+	panel.visible = true
+	show()
+	if get_parent() != null:
+		get_parent().move_child(self, get_parent().get_child_count() - 1)
+	modulate = Color(1, 1, 1, 1)
+	self_modulate = Color(1, 1, 1, 1)
+	panel.modulate = Color(1, 1, 1, 1)
+	panel.self_modulate = Color(1, 1, 1, 1)
+	_apply_stage_round_outcome(data)
 	set_process(true)
 	rematch_button.grab_focus()
 	_log_show_state()
@@ -90,7 +132,45 @@ func _apply_outcome(winner_id: int, reason: String, record_text: String, h2h_tex
 	_update_countdown_label()
 	_update_status()
 
+func _apply_stage_round_outcome(data: Dictionary) -> void:
+	var round_number: int = maxi(1, int(data.get("round_number", 1)))
+	var total_rounds: int = maxi(round_number, int(data.get("total_rounds", round_number)))
+	var winner_id: int = int(data.get("winner_id", 0))
+	var reason: String = str(data.get("reason", ""))
+	var round_time_ms: int = maxi(0, int(data.get("round_time_ms", 0)))
+	var local_owned: int = maxi(0, int(data.get("local_owned_hives", 0)))
+	var opponent_owned: int = maxi(0, int(data.get("opponent_owned_hives", 0)))
+	var current_rank: int = int(data.get("current_rank", 0))
+	var local_round_wins: int = maxi(0, int(data.get("local_round_wins", 0)))
+	var opponent_round_wins: int = maxi(0, int(data.get("opponent_round_wins", 0)))
+	var next_label: String = str(data.get("next_label", "Next Round"))
+	var exit_label: String = str(data.get("exit_label", "Back to Lobby"))
+	title_label.text = "ROUND %d OF %d" % [round_number, total_rounds]
+	if winner_id == 0:
+		result_label.text = "ROUND RESULT: DRAW"
+	elif winner_id == local_player_id:
+		result_label.text = "ROUND RESULT: YOU WON"
+	else:
+		result_label.text = "ROUND RESULT: YOU LOST"
+	reason_label.text = "How: %s" % _present_reason(reason)
+	record_label.text = "Round Time: %s" % _format_stage_time(round_time_ms)
+	h2h_label.text = "Score: You %d | Opponent %d" % [local_owned, opponent_owned]
+	stats_header.text = "Current Rank"
+	if current_rank > 0:
+		stat_max_power.text = "#%d (provisional)" % current_rank
+	else:
+		stat_max_power.text = "-- (provisional)"
+	stat_units_killed.text = "Round Wins: You %d | Opponent %d" % [local_round_wins, opponent_round_wins]
+	stat_units_landed.text = "Round %d/%d complete" % [round_number, total_rounds]
+	countdown_label.text = ""
+	rematch_button.text = next_label
+	rematch_button.disabled = not _stage_next_available
+	exit_button.text = exit_label
+	_update_status()
+
 func _update_stat_labels() -> void:
+	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
+		return
 	var stats_by_team: Dictionary = OpsState.stats_by_team
 	var team_stats: Dictionary = stats_by_team.get(local_player_id, {})
 	var max_power: int = int(team_stats.get("max_total_hive_power", 0))
@@ -101,6 +181,9 @@ func _update_stat_labels() -> void:
 	stat_units_landed.text = "Units Landed: %d" % landed
 
 func _update_countdown_label() -> void:
+	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
+		countdown_label.text = ""
+		return
 	var deadline_ms: int = int(OpsState.rematch_deadline_ms)
 	if deadline_ms <= 0:
 		countdown_label.text = ""
@@ -113,6 +196,15 @@ func _update_countdown_label() -> void:
 	countdown_label.text = "Rematch window: 0:%02d" % sec
 
 func _update_status() -> void:
+	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
+		if _action_taken:
+			status_label.text = "Loading next round..."
+			return
+		if _stage_status_text != "":
+			status_label.text = _stage_status_text
+			return
+		status_label.text = "Ready for next round?"
+		return
 	var votes: Dictionary = OpsState.rematch_votes
 	var local_voted: bool = votes.has(local_player_id)
 	var post_action: String = str(OpsState.post_end_action)
@@ -133,6 +225,12 @@ func _update_status() -> void:
 	status_label.text = "Rematch votes: %d/2" % int(votes.size())
 
 func _on_rematch_pressed() -> void:
+	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
+		if _action_taken or rematch_button.disabled:
+			return
+		_action_taken = true
+		emit_signal("post_match_action", _stage_next_action)
+		return
 	if _action_taken or rematch_button.disabled or not _is_rematch_window_open():
 		return
 	emit_signal("post_match_action", "rematch_vote")
@@ -297,6 +395,13 @@ func _is_rematch_window_open() -> bool:
 	if deadline_ms <= 0:
 		return true
 	return Time.get_ticks_msec() <= deadline_ms
+
+func _format_stage_time(ms: int) -> String:
+	var clamped: int = maxi(0, ms)
+	var total_seconds: int = int(round(float(clamped) / 1000.0))
+	var minutes: int = total_seconds / 60
+	var seconds: int = total_seconds % 60
+	return "%02d:%02d" % [minutes, seconds]
 
 func _exit_to_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
