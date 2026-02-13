@@ -223,6 +223,14 @@ func _input_event(viewport: Viewport, event: InputEvent, _shape_idx: int) -> voi
 			return
 		if mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed:
 			emit_signal("hive_released", hive_id, mb.button_index, global_position)
+	elif event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.pressed:
+			if SFLog.LOGGING_ENABLED:
+				print("HIVE_NODE_TOUCH hive_id=", hive_id)
+			emit_signal("hive_clicked", hive_id, MOUSE_BUTTON_LEFT, global_position)
+			return
+		emit_signal("hive_released", hive_id, MOUSE_BUTTON_LEFT, global_position)
 
 func _sync_collision() -> void:
 	if collision_shape == null:

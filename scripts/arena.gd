@@ -78,6 +78,8 @@ const BARRACKS_MIN_REQ := 3
 const BARRACKS_MAX_REQ := 6
 const STRUCTURE_CANDIDATE_MAX := 12
 const OVERTIME_START_MS := 60000.0
+const POST_MATCH_SETTLE_SEC := 3.0
+const POST_MATCH_EXTRAP_SEC := 3.0
 const BUFF_MIN_MULT := 0.1
 const BUFF_LANE_SLOW_PCT_DEFAULT := 0.25
 const HITCH_MS_THRESHOLD: float = 50.0
@@ -190,6 +192,7 @@ var _prematch_record_p4: Label = null
 var _prematch_record_h2h: Label = null
 var _prematch_record_teams: Label = null
 var _prematch_record_team_arrows: Label = null
+var _controls_hint_overlay: Control = null
 var _prematch_remaining_ms_f: float = 0.0
 var _prematch_last_sec: int = -1
 var _prematch_records_faded: bool = false
@@ -435,7 +438,9 @@ func _start_match_flow() -> void:
 	SFLog.info("PREMATCH_BEGIN", {})
 	_force_unpause_sanity()
 	_ensure_prematch_ui()
+	_ensure_controls_hint_overlay()
 	_begin_prematch()
+	_maybe_show_controls_hint_once()
 
 func _resolve_top_hud_root() -> Node:
 	var top_hud_root: Node = get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopHudRoot")
@@ -669,6 +674,111 @@ func _build_win_overlay() -> WinOverlay:
 	panel.add_child(sub)
 
 	return overlay
+
+func _ensure_controls_hint_overlay() -> void:
+	if _controls_hint_overlay != null and is_instance_valid(_controls_hint_overlay):
+		return
+	var hud_root: Control = _resolve_hud_root()
+	if hud_root == null:
+		return
+	var overlay: Control = hud_root.get_node_or_null("ControlsHintOverlay") as Control
+	if overlay == null:
+		overlay = _build_controls_hint_overlay()
+		hud_root.add_child(overlay)
+	elif overlay.get_parent() != hud_root:
+		overlay.reparent(hud_root)
+	_force_fullscreen_anchors(overlay)
+	overlay.z_as_relative = false
+	overlay.z_index = 2050
+	overlay.top_level = false
+	var got_it: Button = overlay.get_node_or_null("Panel/VBox/GotItButton") as Button
+	if got_it != null and not got_it.pressed.is_connected(_on_controls_hint_continue_pressed):
+		got_it.pressed.connect(_on_controls_hint_continue_pressed)
+	_controls_hint_overlay = overlay
+
+func _build_controls_hint_overlay() -> Control:
+	var overlay := Control.new()
+	overlay.name = "ControlsHintOverlay"
+	overlay.visible = false
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.layout_mode = 3
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.grow_horizontal = 2
+	overlay.grow_vertical = 2
+	var panel := Panel.new()
+	panel.name = "Panel"
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -230.0
+	panel.offset_top = -120.0
+	panel.offset_right = 230.0
+	panel.offset_bottom = 120.0
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(panel)
+	var vbox := VBoxContainer.new()
+	vbox.name = "VBox"
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.offset_left = 14.0
+	vbox.offset_top = 14.0
+	vbox.offset_right = -14.0
+	vbox.offset_bottom = -14.0
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(vbox)
+	var title := Label.new()
+	title.name = "Title"
+	title.text = "Controls"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+	var body := Label.new()
+	body.name = "Body"
+	body.text = "Tap a hive to select.\nTap another hive to send units.\nDrag from hive to hive to build lanes."
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(body)
+	var got_it := Button.new()
+	got_it.name = "GotItButton"
+	got_it.text = "Got it"
+	vbox.add_child(got_it)
+	return overlay
+
+func _maybe_show_controls_hint_once() -> void:
+	if _has_seen_controls_hint():
+		return
+	if _controls_hint_overlay == null:
+		_ensure_controls_hint_overlay()
+	if _controls_hint_overlay == null:
+		return
+	_controls_hint_overlay.visible = true
+	var parent_node: Node = _controls_hint_overlay.get_parent()
+	if parent_node != null:
+		parent_node.move_child(_controls_hint_overlay, parent_node.get_child_count() - 1)
+	var got_it: Button = _controls_hint_overlay.get_node_or_null("Panel/VBox/GotItButton") as Button
+	if got_it != null:
+		got_it.grab_focus()
+
+func _hide_controls_hint_overlay(mark_seen: bool = false) -> void:
+	if _controls_hint_overlay == null:
+		return
+	var was_visible: bool = _controls_hint_overlay.visible
+	_controls_hint_overlay.visible = false
+	if mark_seen and was_visible:
+		_mark_controls_hint_seen()
+
+func _on_controls_hint_continue_pressed() -> void:
+	_hide_controls_hint_overlay(true)
+
+func _has_seen_controls_hint() -> bool:
+	if ProfileManager != null and ProfileManager.has_method("has_seen_controls_hint"):
+		return bool(ProfileManager.call("has_seen_controls_hint"))
+	return false
+
+func _mark_controls_hint_seen() -> void:
+	if ProfileManager != null and ProfileManager.has_method("mark_controls_hint_seen"):
+		ProfileManager.call("mark_controls_hint_seen")
 
 func _resolve_top_buffer_background() -> TextureRect:
 	var top_hud_root: Node = _resolve_top_hud_root()
@@ -1697,17 +1807,36 @@ func _on_sim_ticked() -> void:
 	if post_match_phase:
 		if _post_match_render_frozen:
 			return
-		_post_match_render_frozen = true
 		_update_buff_states()
 		mark_render_dirty("sim_tick_post_match_final")
 		_push_render_model()
+		var unit_r: Node = unit_renderer
+		if unit_r == null:
+			unit_r = _resolve_unit_renderer()
+			if unit_r is Node2D:
+				unit_renderer = unit_r as Node2D
+		if unit_r != null and unit_r.has_method("begin_post_match_settle"):
+			unit_r.call("begin_post_match_settle", POST_MATCH_SETTLE_SEC, POST_MATCH_EXTRAP_SEC)
+		_post_match_render_frozen = true
 		return
+	var was_post_match_frozen: bool = _post_match_render_frozen
 	_post_match_render_frozen = false
+	if was_post_match_frozen:
+		_end_post_match_settle_if_supported()
 	_update_buff_states()
 	mark_render_dirty("sim_tick")
 	# SimRunner already ticks at fixed cadence; pushing every sim tick avoids
 	# time-gate jitter (99ms/101ms skip pattern) that reads as sawtooth motion.
 	_push_render_model()
+
+func _end_post_match_settle_if_supported() -> void:
+	var unit_r: Node = unit_renderer
+	if unit_r == null:
+		unit_r = _resolve_unit_renderer()
+		if unit_r is Node2D:
+			unit_renderer = unit_r as Node2D
+	if unit_r != null and unit_r.has_method("end_post_match_settle"):
+		unit_r.call("end_post_match_settle")
 
 func _maybe_push_render_model() -> void:
 	var st: GameState = OpsState.get_state()
@@ -1741,6 +1870,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
+	_hide_controls_hint_overlay()
 	if _is_stage_race_runtime_mode():
 		_show_stage_race_round_overlay(winner_id_in, reason)
 		if sim_runner != null:
@@ -2168,6 +2298,7 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	_match_record_committed = false
 	_post_match_action_taken = false
 	_post_match_render_frozen = false
+	_end_post_match_settle_if_supported()
 	game_over = false
 	winner_id = -1
 	end_reason = ""
@@ -4393,6 +4524,7 @@ func _reset_sim_state() -> void:
 	_match_record_committed = false
 	_post_match_action_taken = false
 	_post_match_render_frozen = false
+	_end_post_match_settle_if_supported()
 	hurry_mode = false
 	audio_hurry_pitch = 1.0
 	overtime_active = false
@@ -4560,6 +4692,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if input_system == null or api == null:
 		return
+	if _controls_hint_overlay != null and _controls_hint_overlay.visible:
+		if event is InputEventMouseButton:
+			var hint_mb := event as InputEventMouseButton
+			if hint_mb.button_index == MOUSE_BUTTON_LEFT and hint_mb.pressed:
+				_hide_controls_hint_overlay(true)
+				get_viewport().set_input_as_handled()
+				return
+		elif event is InputEventScreenTouch:
+			var hint_st := event as InputEventScreenTouch
+			if hint_st.pressed:
+				_hide_controls_hint_overlay(true)
+				get_viewport().set_input_as_handled()
+				return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:

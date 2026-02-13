@@ -45,6 +45,16 @@ func _gui_input(event: InputEvent) -> void:
 				emit_signal("pressed")
 			_is_pressed = false
 			queue_redraw()
+	elif event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.pressed:
+			_is_pressed = true
+			queue_redraw()
+		else:
+			if _is_pressed:
+				emit_signal("pressed")
+			_is_pressed = false
+			queue_redraw()
 
 func _on_mouse_entered() -> void:
 	_is_hovered = true

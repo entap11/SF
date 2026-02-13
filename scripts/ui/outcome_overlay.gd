@@ -124,6 +124,8 @@ func _apply_outcome(winner_id: int, reason: String, record_text: String, h2h_tex
 		result_label.text = "DRAW"
 	else:
 		result_label.text = "PLAYER %d WINS" % winner_id
+	var local_lost: bool = winner_id > 0 and winner_id != local_player_id
+	exit_button.text = "BACK TO LOBBY" if local_lost else "MAIN MENU"
 	reason_label.text = "How: %s" % _present_reason(reason)
 	record_label.text = record_text if not record_text.is_empty() else "Record: 0-0"
 	h2h_label.text = h2h_text if not h2h_text.is_empty() else "H2H: 0-0"

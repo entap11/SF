@@ -20,6 +20,7 @@ var _has_loaded: bool = false
 var _boot_trace_enter_logged: bool = false
 var _created_this_run: bool = false
 var _onboarding_complete: bool = false
+var _controls_hint_seen: bool = false
 var _user_id: String = ""
 var _display_name: String = ""
 var _created_at_unix: int = 0
@@ -54,6 +55,7 @@ func ensure_loaded() -> void:
 		_display_name = str(cfg.get_value(PROFILE_SECTION, "display_name", ""))
 		_created_at_unix = int(cfg.get_value(PROFILE_SECTION, "created_at_unix", 0))
 		_onboarding_complete = bool(cfg.get_value(PROFILE_SECTION, "onboarding_complete", false))
+		_controls_hint_seen = bool(cfg.get_value(PROFILE_SECTION, "controls_hint_seen", false))
 		_owned_buff_ids = _sanitize_owned_ids(cfg.get_value(PROFILE_SECTION, "owned_buff_ids", []))
 		_buff_loadout_ids = _sanitize_loadout_ids(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids", []))
 
@@ -63,6 +65,7 @@ func ensure_loaded() -> void:
 		_created_at_unix = int(Time.get_unix_time_from_system())
 		_display_name = _default_display_name(_user_id)
 		_onboarding_complete = false
+		_controls_hint_seen = false
 		_owned_buff_ids = _default_owned_ids()
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
@@ -115,6 +118,10 @@ func is_onboarding_complete() -> bool:
 	ensure_loaded()
 	return _onboarding_complete
 
+func has_seen_controls_hint() -> bool:
+	ensure_loaded()
+	return _controls_hint_seen
+
 func get_display_name() -> String:
 	ensure_loaded()
 	return _display_name
@@ -165,6 +172,14 @@ func mark_onboarding_complete() -> void:
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_ONBOARDING_COMPLETE", {"user_id": _user_id})
 
+func mark_controls_hint_seen() -> void:
+	ensure_loaded()
+	if _controls_hint_seen:
+		return
+	_controls_hint_seen = true
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_CONTROLS_HINT_SEEN", {"user_id": _user_id})
+
 func get_owned_buff_ids() -> Array[String]:
 	ensure_loaded()
 	return _owned_buff_ids.duplicate()
@@ -214,6 +229,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	if created_at > 0:
 		cfg.set_value(PROFILE_SECTION, "created_at_unix", created_at)
 	cfg.set_value(PROFILE_SECTION, "onboarding_complete", onboarding_complete)
+	cfg.set_value(PROFILE_SECTION, "controls_hint_seen", _controls_hint_seen)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids", _owned_buff_ids)
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids", _buff_loadout_ids)
 	var err: int = cfg.save(PROFILE_PATH)
