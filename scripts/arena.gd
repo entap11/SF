@@ -182,6 +182,8 @@ var _timer_branch_logged: bool = false
 var _timer_label_bind_logged: bool = false
 var _timer_ready_logged: bool = false
 var _cam_probe_accum: float = 0.0
+var _world_viewport_container_cache: Control = null
+var _world_subviewport_cache: SubViewport = null
 var _prematch_overlay: Control = null
 var _prematch_countdown_label: Label = null
 var _prematch_records_panel: Control = null
@@ -2373,20 +2375,8 @@ func _on_viewport_size_changed() -> void:
 	_snap_power_bar_to_map_top("viewport_resize")
 
 func _resize_world_viewport() -> void:
-	var wvc: Control = get_node_or_null("/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer") as Control
-	if wvc == null:
-		var found: Node = get_tree().root.find_child("WorldViewportContainer", true, false)
-		if found != null and found is Control:
-			wvc = found as Control
-	var sv: SubViewport = null
-	if wvc != null:
-		var direct: Node = wvc.get_node_or_null("WorldViewport")
-		if direct != null and direct is SubViewport:
-			sv = direct as SubViewport
-	if sv == null:
-		var found_sv: Node = get_tree().root.find_child("WorldViewport", true, false)
-		if found_sv != null and found_sv is SubViewport:
-			sv = found_sv as SubViewport
+	var wvc: Control = _resolve_world_viewport_container_cached()
+	var sv: SubViewport = _resolve_world_subviewport_cached()
 	if wvc == null or sv == null:
 		return
 	var overscan_x: float = 80.0
@@ -2404,6 +2394,36 @@ func _resize_world_viewport() -> void:
 		"sv_new": sv.size,
 		"overscan": [overscan_x, overscan_y]
 	})
+
+func _resolve_world_viewport_container_cached() -> Control:
+	if _world_viewport_container_cache != null and is_instance_valid(_world_viewport_container_cache):
+		return _world_viewport_container_cache
+	var direct: Control = get_node_or_null("/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer") as Control
+	if direct != null:
+		_world_viewport_container_cache = direct
+		return direct
+	var tree: SceneTree = get_tree()
+	if tree == null or tree.root == null:
+		return null
+	var found: Node = tree.root.find_child("WorldViewportContainer", true, false)
+	if found != null and found is Control:
+		_world_viewport_container_cache = found as Control
+	return _world_viewport_container_cache
+
+func _resolve_world_subviewport_cached() -> SubViewport:
+	if _world_subviewport_cache != null and is_instance_valid(_world_subviewport_cache):
+		return _world_subviewport_cache
+	var direct: SubViewport = get_node_or_null("/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport") as SubViewport
+	if direct != null:
+		_world_subviewport_cache = direct
+		return direct
+	var tree: SceneTree = get_tree()
+	if tree == null or tree.root == null:
+		return null
+	var found: Node = tree.root.find_child("WorldViewport", true, false)
+	if found != null and found is SubViewport:
+		_world_subviewport_cache = found as SubViewport
+	return _world_subviewport_cache
 
 func _ensure_playfield_outline() -> PlayfieldOutline:
 	if is_instance_valid(_playfield_outline):
@@ -2843,28 +2863,34 @@ func start_sim() -> void:
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
-	if debug_cam_probe:
-		_cam_probe_accum += delta
-		if _cam_probe_accum >= 0.5:
-			_cam_probe_accum = 0.0
-			var sv: SubViewport = null
-			var root: Window = get_tree().root
-			if root != null:
-				var found: Node = root.find_child("WorldViewport", true, false)
-				if found != null and found is SubViewport:
-					sv = found as SubViewport
-			var cam: Camera2D = null
-			if sv != null:
-				cam = sv.get_camera_2d()
-			SFLog.info("CAM_PROBE", {
-				"sv_found": sv != null,
-				"sv_size": sv.size if sv != null else Vector2.ZERO,
-				"cam_found": cam != null,
-				"cam_zoom": cam.zoom if cam != null else Vector2.ZERO
-			})
+	_maybe_debug_camera_probe(delta)
+	_tick_arena_heartbeat(delta)
+	_tick_arena_runtime(delta)
+
+func _maybe_debug_camera_probe(delta: float) -> void:
+	if not debug_cam_probe:
+		return
+	_cam_probe_accum += delta
+	if _cam_probe_accum < 0.5:
+		return
+	_cam_probe_accum = 0.0
+	var sv: SubViewport = _resolve_world_subviewport_cached()
+	var cam: Camera2D = null
+	if sv != null:
+		cam = sv.get_camera_2d()
+	SFLog.info("CAM_PROBE", {
+		"sv_found": sv != null,
+		"sv_size": sv.size if sv != null else Vector2.ZERO,
+		"cam_found": cam != null,
+		"cam_zoom": cam.zoom if cam != null else Vector2.ZERO
+	})
+
+func _tick_arena_heartbeat(delta: float) -> void:
 	_hb_record_frame(delta)
 	_hb_maybe_flush()
 	_maybe_log_frame_hitch(delta)
+
+func _tick_arena_runtime(delta: float) -> void:
 	_update_prematch_flow(delta)
 	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH \
 	and int(OpsState.prematch_remaining_ms) <= 0 \
