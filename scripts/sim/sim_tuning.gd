@@ -6,7 +6,7 @@ class_name SimTuning
 extends RefCounted
 
 const UNIT_TRAVEL_MS := 4800.0
-const UNIT_SPEED_PX_PER_SEC := 204.0
+const UNIT_SPEED_PX_PER_SEC := 160.0
 const LANE_ESTABLISH_MS := 2400.0
 const BASE_SPAWN_MS := 1000.0
 const PER_POWER_MS := 2.0

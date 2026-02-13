@@ -2,6 +2,7 @@
 class_name BaselineBotPolicy
 extends "res://scripts/bot/bot_policy.gd"
 
+const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const DEFAULT_MAX_HIVE_POWER: int = 50
 
 func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms: int) -> Dictionary:
@@ -18,6 +19,9 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	var feed_bias: float = clampf(float(profile.get("feed_bias", 0.22)), 0.0, 1.0)
 	var randomness: float = clampf(float(profile.get("randomness", 0.08)), 0.0, 0.5)
 	var prefer_neutral_bonus: float = clampf(float(profile.get("prefer_neutral_bonus", 0.5)), 0.0, 2.0)
+	var wall_segments: Array = []
+	if state_ref != null and state_ref.walls != null and not state_ref.walls.is_empty():
+		wall_segments = MAP_SCHEMA._wall_segments_from_walls(state_ref.walls)
 
 	var blocked_pairs: Dictionary = _build_blocked_pair_lookup_from_profile(profile)
 	var attack_candidates: Array = []
@@ -44,6 +48,8 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 			if not state_ref.can_connect(src_id, dst_id):
 				continue
 			if _is_blocked_pair(blocked_pairs, src_id, dst_id):
+				continue
+			if _pair_intersects_wall(src, dst, wall_segments):
 				continue
 
 			var dst_owner: int = int(dst.owner_id)
@@ -203,6 +209,15 @@ func _pair_key(a_id: int, b_id: int) -> String:
 	var lo: int = mini(a_id, b_id)
 	var hi: int = maxi(a_id, b_id)
 	return "%d:%d" % [lo, hi]
+
+func _pair_intersects_wall(src: HiveData, dst: HiveData, wall_segments: Array) -> bool:
+	if wall_segments.is_empty():
+		return false
+	if src == null or dst == null:
+		return false
+	var a_grid := Vector2(float(src.grid_pos.x), float(src.grid_pos.y))
+	var b_grid := Vector2(float(dst.grid_pos.x), float(dst.grid_pos.y))
+	return MAP_SCHEMA._segment_intersects_any_wall(a_grid, b_grid, wall_segments)
 
 func _normalized_team_map(raw: Variant) -> Dictionary:
 	var out: Dictionary = {1: 1, 2: 2, 3: 3, 4: 4}

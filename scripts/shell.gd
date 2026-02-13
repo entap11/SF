@@ -10,6 +10,8 @@ const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/Po
 const SHELL_BOTTOM_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/BottomBufferBackground"
 const SHELL_PLAYER_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/BuffSlotsStrip"
 const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStrip"
+const SHELL_OPPONENT_BUFF_STRIP_B_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStripB"
+const SHELL_ALLY_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/AllyBuffStrip"
 const PENDING_APPLY_MAX_TRIES: int = 60
 const TRACE_SHELL_LOGS: bool = false
 const MVP_SMOKE_ARENA_PATH: String = "/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena"
@@ -51,6 +53,8 @@ const MVP_SMOKE_DEFAULT_WIN_MAP: String = "res://maps/json/MAP_TEST.json"
 @onready var _picker_back_button: Button = get_node_or_null(picker_back_button_path) as Button
 @onready var _player_buff_strip: Control = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
 @onready var _opponent_buff_strip: Control = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_PATH) as Control
+@onready var _opponent_buff_strip_b: Control = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_B_PATH) as Control
+@onready var _ally_buff_strip: Control = get_node_or_null(SHELL_ALLY_BUFF_STRIP_PATH) as Control
 
 static var _shell_enter_count: int = 0
 static var _shell_ready_count: int = 0
@@ -406,9 +410,13 @@ func _resolve_dev_map_loader() -> void:
 func _resolve_buff_ui_nodes() -> void:
 	_player_buff_strip = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
 	_opponent_buff_strip = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_PATH) as Control
+	_opponent_buff_strip_b = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_B_PATH) as Control
+	_ally_buff_strip = get_node_or_null(SHELL_ALLY_BUFF_STRIP_PATH) as Control
 	SFLog.info("BUFF_UI_RESOLVE", {
 		"player_strip": _diag_resolve(_player_buff_strip),
-		"opponent_strip": _diag_resolve(_opponent_buff_strip)
+		"opponent_strip": _diag_resolve(_opponent_buff_strip),
+		"opponent_strip_b": _diag_resolve(_opponent_buff_strip_b),
+		"ally_strip": _diag_resolve(_ally_buff_strip)
 	})
 
 func _wire_buff_ui() -> void:
@@ -433,9 +441,19 @@ func _wire_buff_ui() -> void:
 		_opponent_buff_strip.call("set_visible_slot_count", 0)
 	if _opponent_buff_strip != null and _opponent_buff_strip.has_method("reset_slots"):
 		_opponent_buff_strip.call("reset_slots")
+	if _opponent_buff_strip_b != null and _opponent_buff_strip_b.has_method("set_visible_slot_count"):
+		_opponent_buff_strip_b.call("set_visible_slot_count", 0)
+	if _opponent_buff_strip_b != null and _opponent_buff_strip_b.has_method("reset_slots"):
+		_opponent_buff_strip_b.call("reset_slots")
+	if _ally_buff_strip != null and _ally_buff_strip.has_method("set_visible_slot_count"):
+		_ally_buff_strip.call("set_visible_slot_count", 0)
+	if _ally_buff_strip != null and _ally_buff_strip.has_method("reset_slots"):
+		_ally_buff_strip.call("reset_slots")
 	SFLog.info("BUFF_UI_WIRED", {
 		"player_strip_connected": true,
-		"opponent_strip_present": _opponent_buff_strip != null
+		"opponent_strip_present": _opponent_buff_strip != null,
+		"opponent_strip_b_present": _opponent_buff_strip_b != null,
+		"ally_strip_present": _ally_buff_strip != null
 	})
 
 func _resolve_dev_map_loader_node() -> Node:
@@ -749,8 +767,6 @@ func _apply_map_direct_to_arena(map_path: String) -> bool:
 		})
 		return false
 	var model: Dictionary = result.get("data", {}) as Dictionary
-	if arena.has_method("apply_loaded_map"):
-		arena.call("apply_loaded_map", model)
 	MAP_APPLIER.apply_map(arena, model)
 	if arena.has_method("notify_map_built"):
 		arena.call("notify_map_built")
@@ -895,6 +911,7 @@ func _on_viewport_size_changed() -> void:
 	if _arena_instance == null:
 		return
 	call_deferred("_sync_power_bar_buffer_placement")
+	call_deferred("_layout_buff_strip_positions")
 
 func _process(_delta: float) -> void:
 	_sync_buff_ui()
@@ -971,28 +988,20 @@ func _sync_buff_ui() -> void:
 	if _player_buff_strip == null:
 		return
 	if _arena_instance == null:
-		_player_buff_strip.visible = false
-		if _opponent_buff_strip != null:
-			_opponent_buff_strip.visible = false
+		_set_buff_strip_visibility(false, false, false, false)
 		return
 	var arena_node: Node = _resolve_runtime_arena_node()
 	if arena_node == null or not arena_node.has_method("get_buff_ui_snapshot"):
-		_player_buff_strip.visible = false
-		if _opponent_buff_strip != null:
-			_opponent_buff_strip.visible = false
+		_set_buff_strip_visibility(false, false, false, false)
 		return
 	var snap_v: Variant = arena_node.call("get_buff_ui_snapshot")
 	if typeof(snap_v) != TYPE_DICTIONARY:
 		return
 	var snapshot: Dictionary = snap_v as Dictionary
 	if not bool(snapshot.get("buffs_enabled", false)):
-		_player_buff_strip.visible = false
-		if _opponent_buff_strip != null:
-			_opponent_buff_strip.visible = false
+		_set_buff_strip_visibility(false, false, false, false)
 		return
 	_player_buff_strip.visible = true
-	if _opponent_buff_strip != null:
-		_opponent_buff_strip.visible = true
 	var active_pid: int = int(snapshot.get("active_player_id", 1))
 	_buff_ui_last_active_pid = active_pid
 	var players_any: Variant = snapshot.get("players", {})
@@ -1002,15 +1011,89 @@ func _sync_buff_ui() -> void:
 	var player_data: Dictionary = _player_data_for_pid(players, active_pid)
 	if _player_buff_strip.has_method("apply_snapshot"):
 		_player_buff_strip.call("apply_snapshot", player_data)
-	if _opponent_buff_strip == null:
-		return
 	var active_seats: Array = _active_seats_from_hud()
-	var opponent_pid: int = _pick_opponent_pid(active_pid, players, active_seats)
-	var opponent_data: Dictionary = _player_data_for_pid(players, opponent_pid)
-	if _opponent_buff_strip.has_method("set_visible_slot_count"):
-		_opponent_buff_strip.call("set_visible_slot_count", int(opponent_data.get("slots_active", 0)))
-	if _opponent_buff_strip.has_method("set_used_slots"):
-		_opponent_buff_strip.call("set_used_slots", _collect_used_slots(opponent_data))
+	var relation: Dictionary = _split_relative_seats(active_pid, players, active_seats)
+	var ally_seats: Array = relation.get("allies", [])
+	var opponent_seats: Array = relation.get("opponents", [])
+	_sync_side_strip(_ally_buff_strip, players, ally_seats, _ally_strip_title(active_seats, ally_seats))
+	_sync_opponent_strips(players, opponent_seats, active_seats, ally_seats)
+	_layout_buff_strip_positions()
+
+func _set_buff_strip_visibility(player_visible: bool, opponent_visible: bool, opponent_b_visible: bool, ally_visible: bool) -> void:
+	if _player_buff_strip != null:
+		_player_buff_strip.visible = player_visible
+	if _opponent_buff_strip != null:
+		_opponent_buff_strip.visible = opponent_visible
+	if _opponent_buff_strip_b != null:
+		_opponent_buff_strip_b.visible = opponent_b_visible
+	if _ally_buff_strip != null:
+		_ally_buff_strip.visible = ally_visible
+
+func _layout_buff_strip_positions() -> void:
+	_layout_teammate_strip_left_of_player_slots()
+
+func _layout_teammate_strip_left_of_player_slots() -> void:
+	if _ally_buff_strip == null or _player_buff_strip == null:
+		return
+	var ally_strip: Control = _ally_buff_strip as Control
+	var player_strip: Control = _player_buff_strip as Control
+	var parent: Control = ally_strip.get_parent() as Control
+	if parent == null:
+		return
+	var slots_rect: Rect2 = _player_slots_cluster_global_rect(player_strip)
+	if slots_rect.size.x <= 0.0 or slots_rect.size.y <= 0.0:
+		return
+	var target_size: Vector2 = ally_strip.size
+	if target_size.x < 96.0 or target_size.y < 220.0:
+		target_size = Vector2(112.0, 336.0)
+	var gap_px: float = 24.0
+	var parent_rect: Rect2 = parent.get_global_rect()
+	var target_pos: Vector2 = Vector2(
+		slots_rect.position.x - target_size.x - gap_px,
+		slots_rect.position.y + slots_rect.size.y - target_size.y
+	)
+	var min_x: float = maxf(parent_rect.position.x + 8.0, parent_rect.position.x + parent_rect.size.x * 0.5 + 8.0)
+	target_pos.x = clampf(target_pos.x, min_x, parent_rect.end.x - target_size.x - 8.0)
+	target_pos.y = clampf(target_pos.y, parent_rect.position.y + 8.0, parent_rect.end.y - target_size.y - 8.0)
+	_set_control_global_rect(ally_strip, Rect2(target_pos, target_size))
+	ally_strip.z_as_relative = false
+	ally_strip.z_index = 3000
+
+func _player_slots_cluster_global_rect(player_strip: Control) -> Rect2:
+	if player_strip == null:
+		return Rect2()
+	var slot_nodes: Array[Control] = []
+	for idx in [1, 2, 3]:
+		var slot_node: Control = player_strip.get_node_or_null("Center/SlotsRow/BuffSlot%d" % idx) as Control
+		if slot_node == null or not slot_node.visible:
+			continue
+		slot_nodes.append(slot_node)
+	if slot_nodes.is_empty():
+		var slots_row: Control = player_strip.get_node_or_null("Center/SlotsRow") as Control
+		if slots_row != null:
+			return slots_row.get_global_rect()
+		return player_strip.get_global_rect()
+	var merged: Rect2 = slot_nodes[0].get_global_rect()
+	for i in range(1, slot_nodes.size()):
+		merged = merged.merge(slot_nodes[i].get_global_rect())
+	return merged
+
+func _set_control_global_rect(ctrl: Control, global_rect: Rect2) -> void:
+	if ctrl == null:
+		return
+	var parent: Control = ctrl.get_parent() as Control
+	if parent == null:
+		return
+	var parent_inv: Transform2D = parent.get_global_transform_with_canvas().affine_inverse()
+	var local_pos: Vector2 = parent_inv * global_rect.position
+	ctrl.anchor_left = 0.0
+	ctrl.anchor_top = 0.0
+	ctrl.anchor_right = 0.0
+	ctrl.anchor_bottom = 0.0
+	ctrl.offset_left = local_pos.x
+	ctrl.offset_top = local_pos.y
+	ctrl.offset_right = local_pos.x + global_rect.size.x
+	ctrl.offset_bottom = local_pos.y + global_rect.size.y
 
 func _player_data_for_pid(players: Dictionary, pid: int) -> Dictionary:
 	var value: Variant = players.get(pid, {})
@@ -1031,6 +1114,180 @@ func _active_seats_from_hud() -> Array:
 		out = [1, 2]
 	out.sort()
 	return out
+
+func _split_relative_seats(active_pid: int, players: Dictionary, active_seats: Array) -> Dictionary:
+	var candidates: Array = []
+	var candidate_lookup: Dictionary = {}
+	for seat_any in active_seats:
+		var seat: int = int(seat_any)
+		if seat < 1 or seat > 4 or seat == active_pid:
+			continue
+		if candidate_lookup.has(seat):
+			continue
+		candidate_lookup[seat] = true
+		candidates.append(seat)
+	for key_any in players.keys():
+		var seat: int = int(key_any)
+		if seat < 1 or seat > 4 or seat == active_pid:
+			continue
+		if candidate_lookup.has(seat):
+			continue
+		candidate_lookup[seat] = true
+		candidates.append(seat)
+	var allies: Array = []
+	var opponents: Array = []
+	if _team_mode_ui == "2v2":
+		var canonical_teammate: int = _canonical_teammate_seat(active_pid)
+		if canonical_teammate > 0 and candidates.has(canonical_teammate):
+			allies.append(canonical_teammate)
+			for seat_any in candidates:
+				var seat: int = int(seat_any)
+				if seat == canonical_teammate:
+					continue
+				opponents.append(seat)
+			allies.sort()
+			opponents.sort()
+			return {
+				"allies": allies,
+				"opponents": opponents
+			}
+	for seat_any in candidates:
+		var seat: int = int(seat_any)
+		var same_team: bool = false
+		if OpsState.has_method("are_allies"):
+			same_team = bool(OpsState.call("are_allies", active_pid, seat))
+		if same_team:
+			allies.append(seat)
+		else:
+			opponents.append(seat)
+	if opponents.is_empty() and not candidates.is_empty():
+		var fallback_pid: int = _pick_opponent_pid(active_pid, players, candidates)
+		if allies.has(fallback_pid):
+			allies.erase(fallback_pid)
+		if not opponents.has(fallback_pid):
+			opponents.append(fallback_pid)
+	# UI fallback for layout sanity: if mode is explicitly 2v2 but ally data still
+	# resolves empty, enforce canonical teammate pairing.
+	if allies.is_empty() and _team_mode_ui == "2v2":
+		var canonical_teammate: int = _canonical_teammate_seat(active_pid)
+		if canonical_teammate > 0 and canonical_teammate != active_pid and candidates.has(canonical_teammate):
+			if opponents.has(canonical_teammate):
+				opponents.erase(canonical_teammate)
+			if not allies.has(canonical_teammate):
+				allies.append(canonical_teammate)
+		for seat_any in candidates:
+			var seat: int = int(seat_any)
+			if seat == active_pid or seat == canonical_teammate:
+				continue
+			if not opponents.has(seat):
+				opponents.append(seat)
+	allies.sort()
+	opponents.sort()
+	return {
+		"allies": allies,
+		"opponents": opponents
+	}
+
+func _canonical_teammate_seat(active_pid: int) -> int:
+	match int(active_pid):
+		1:
+			return 3
+		2:
+			return 4
+		3:
+			return 1
+		4:
+			return 2
+	return -1
+
+func _ally_strip_title(_active_seats: Array, ally_seats: Array) -> String:
+	if ally_seats.size() <= 1:
+		return "Teammate Buffs"
+	return "Ally Buffs"
+
+func _opponent_strip_title(active_seats: Array, ally_seats: Array) -> String:
+	if active_seats.size() <= 2:
+		return "Opponent Buffs"
+	if not ally_seats.is_empty():
+		return "Opponent Team"
+	return "Opponents"
+
+func _sync_opponent_strips(players: Dictionary, opponent_seats: Array, active_seats: Array, ally_seats: Array) -> void:
+	var seats: Array = []
+	for seat_any in opponent_seats:
+		var seat: int = int(seat_any)
+		if seat < 1 or seat > 4 or seats.has(seat):
+			continue
+		seats.append(seat)
+	seats.sort()
+	var primary_seats: Array = []
+	var secondary_seats: Array = []
+	if seats.size() > 0:
+		primary_seats.append(int(seats[0]))
+	if seats.size() > 1:
+		secondary_seats.append(int(seats[1]))
+	for i in range(2, seats.size()):
+		secondary_seats.append(int(seats[i]))
+	var primary_title: String = _opponent_strip_title(active_seats, ally_seats)
+	var secondary_title: String = ""
+	if seats.size() > 1:
+		primary_title = "Opponent 1" if not ally_seats.is_empty() else "Opp 1"
+		secondary_title = "Opponent 2" if not ally_seats.is_empty() else "Opp 2"
+	_sync_side_strip(_opponent_buff_strip, players, primary_seats, primary_title)
+	_sync_side_strip(_opponent_buff_strip_b, players, secondary_seats, secondary_title)
+
+func _sync_side_strip(strip: Control, players: Dictionary, seats: Array, strip_title: String) -> void:
+	if strip == null:
+		return
+	var deduped: Array = []
+	for seat_any in seats:
+		var seat: int = int(seat_any)
+		if seat < 1 or seat > 4 or deduped.has(seat):
+			continue
+		deduped.append(seat)
+	deduped.sort()
+	if deduped.is_empty():
+		strip.visible = false
+		if strip.has_method("set_visible_slot_count"):
+			strip.call("set_visible_slot_count", 0)
+		if strip.has_method("reset_slots"):
+			strip.call("reset_slots")
+		return
+	var side_data: Dictionary = _aggregate_side_data(players, deduped)
+	var slots_active: int = int(side_data.get("slots_active", 0))
+	if slots_active <= 0 and not deduped.is_empty():
+		# Layout-first fallback: keep side strips visible even if per-seat slot data
+		# has not hydrated yet for this frame.
+		slots_active = 3
+	strip.visible = slots_active > 0
+	if strip.has_method("set_strip_title"):
+		strip.call("set_strip_title", strip_title)
+	if strip.has_method("set_show_title"):
+		strip.call("set_show_title", true)
+	if strip.has_method("set_visible_slot_count"):
+		strip.call("set_visible_slot_count", slots_active)
+	if strip.has_method("set_used_slots"):
+		strip.call("set_used_slots", side_data.get("used_slots", []))
+
+func _aggregate_side_data(players: Dictionary, seats: Array) -> Dictionary:
+	var slots_active: int = 0
+	var used_lookup: Dictionary = {}
+	for seat_any in seats:
+		var seat: int = int(seat_any)
+		var player_data: Dictionary = _player_data_for_pid(players, seat)
+		slots_active = maxi(slots_active, int(player_data.get("slots_active", 0)))
+		var used_slots: Array = _collect_used_slots(player_data)
+		for used_any in used_slots:
+			var slot_idx: int = int(used_any)
+			if slot_idx < 0:
+				continue
+			used_lookup[slot_idx] = true
+	var merged_used_slots: Array = used_lookup.keys()
+	merged_used_slots.sort()
+	return {
+		"slots_active": slots_active,
+		"used_slots": merged_used_slots
+	}
 
 func _pick_opponent_pid(active_pid: int, players: Dictionary, active_seats: Array) -> int:
 	var candidates: Array = []

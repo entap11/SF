@@ -6,8 +6,9 @@ extends SubViewportContainer
 # Insets (px). These define the play-surface box relative to the window.
 @export var inset_left_px: float = 0.0
 @export var inset_right_px: float = 0.0
-@export var inset_top_px: float = 220.0
-@export var inset_bottom_px: float = 180.0
+# Default to full-bleed world viewport in dev so arena/UI visibility issues are easier to validate.
+@export var inset_top_px: float = 0.0
+@export var inset_bottom_px: float = 0.0
 
 # Positive values reduce the top inset (allowing overlap into the top buffer).
 # Can be negative if you want extra gutter above.

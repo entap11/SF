@@ -15,11 +15,13 @@ const SMS_TIMEOUT_SEC := 120
 const SHELL_SCENE_PATH := "res://scenes/Shell.tscn"
 const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako", "Drift", "Pax"]
 const DEFAULT_STAGE_MAP_PATHS := [
+	"res://maps/json/MAP_TEST.json",
+	"res://maps/json/PHONEBOOTH_4P_8x14.json",
+	"res://maps/json/FAST_LANE_4P_8x14.json",
 	"res://maps/json/MAP_RACE_NO_WALLS_8x12_v1xy.json",
 	"res://maps/json/CROSS_4P_8x14.json",
-	"res://maps/json/FAST_LANE_4P_8x14.json",
 	"res://maps/json/CRACK_THE_EGG_4P_8x14.json",
-	"res://maps/json/PHONEBOOTH_4P_8x14.json"
+	"res://maps/json/CLUSTER_F_4P_8x14.json"
 ]
 
 @onready var title_label: Label = $Panel/VBox/Header/Title

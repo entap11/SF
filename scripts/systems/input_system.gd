@@ -143,10 +143,6 @@ func handle_input(event: InputEvent, arena_api: ArenaAPI) -> Array:
 				var next_debris: bool = not arena_api.get_debris_enabled()
 				arena_api.set_debris_enabled(next_debris)
 				arena_api.dbg("SF: debris_enabled = %s" % str(next_debris))
-			else:
-				# Quick buff test hotkey: P1 slot 2 (default: Faster Production).
-				arena_api.try_activate_buff_slot(1, 1)
-				arena_api.dbg("SF: buff hotkey B -> P1 slot 2")
 		if event.keycode == KEY_1:
 			arena_api.set_active_player_id(1)
 			arena_api.dbg("SF: active_player_id = 1")
@@ -159,12 +155,6 @@ func handle_input(event: InputEvent, arena_api: ArenaAPI) -> Array:
 		if event.keycode == KEY_4:
 			arena_api.set_active_player_id(4)
 			arena_api.dbg("SF: active_player_id = 4")
-		if event.keycode == KEY_Z:
-			arena_api.try_activate_buff_slot(arena_api.get_active_player_id(), 0)
-		if event.keycode == KEY_X:
-			arena_api.try_activate_buff_slot(arena_api.get_active_player_id(), 1)
-		if event.keycode == KEY_C:
-			arena_api.try_activate_buff_slot(arena_api.get_active_player_id(), 2)
 	return commands
 
 func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
