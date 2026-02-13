@@ -27,6 +27,7 @@ var _unit_material_cleared_logged: Dictionary = {}
 var _unit_visual_by_id: Dictionary = {}
 var _unit_samples_by_id: Dictionary = {}
 var _unit_data_by_id: Dictionary = {}
+var _unit_style_sig_by_id: Dictionary = {}
 var _unit_colorkey_logged := false
 var _unit_sprite_logged := false
 
@@ -51,6 +52,7 @@ const UNIT_DEATH_LOG_MIN_TOTAL_MS: float = 1.00
 const UNIT_DEATH_LOG_MIN_DEATHS: int = 3
 const UNIT_ENDPOINT_SPIKE_LOG_INTERVAL_MS: int = 500
 const UNIT_ENDPOINT_PERF_WINDOW_MS: int = 2000
+const UNIT_ENDPOINT_PROFILE_CACHE_HITS: bool = false
 const SWARM_SCALE_MULT: float = 15.0
 const SWARM_LABEL_FONT_SIZE: int = 12
 const SWARM_LABEL_SIZE: Vector2 = Vector2(48.0, 20.0)
@@ -68,7 +70,7 @@ const DBG_BUTTER: bool = false
 const DBG_BUTTER_LOG_INTERVAL_MS: int = 1000
 const DBG_FORCE_CONSTANT_VISUAL_MOTION: bool = false
 const DBG_VISUAL_SPEED: float = 0.35
-const AUDIT_RENDER: bool = true
+const AUDIT_RENDER: bool = false
 const USE_UNIT_POOL: bool = true
 const UNIT_POOL_SIZE_PER_TEAM: int = 64
 const UNIT_POOL_OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
@@ -276,6 +278,7 @@ func _pool_release(node: Node2D) -> void:
 		_unit_in_use.erase(unit_id)
 		_unit_visual_by_id.erase(unit_id)
 		_unit_samples_by_id.erase(unit_id)
+		_unit_style_sig_by_id.erase(unit_id)
 		_diag_visual_phase_by_id.erase(unit_id)
 	node.set_meta("unit_id", -1)
 	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
@@ -866,6 +869,7 @@ func clear_all() -> void:
 	_unit_data_by_id.clear()
 	_unit_visual_by_id.clear()
 	_unit_samples_by_id.clear()
+	_unit_style_sig_by_id.clear()
 	_diag_visual_phase_by_id.clear()
 	_clear_swarm_nodes()
 	_clear_unit_nodes()
@@ -994,6 +998,15 @@ func _clear_unit_nodes() -> void:
 	_unit_in_use.clear()
 	_unit_visual_by_id.clear()
 	_unit_samples_by_id.clear()
+	_unit_style_sig_by_id.clear()
+
+func _unit_style_global_sig() -> int:
+	var draw_bit: int = 1 if debug_draw_units else 0
+	var radius_bucket: int = int(round(debug_force_big_radius_px * 10.0))
+	return draw_bit * 100000 + radius_bucket
+
+func _unit_style_sig(owner_id: int) -> int:
+	return owner_id * 1000000 + _unit_style_global_sig()
 
 func _update_unit_nodes_positions(units: Array) -> Dictionary:
 	var profile: Dictionary = {
@@ -1028,7 +1041,16 @@ func _update_unit_nodes_positions(units: Array) -> Dictionary:
 		var sprite: Sprite2D = _ensure_unit_sprite(node)
 		if sprite == null:
 			continue
-		_update_unit_sprite(node, ud, hive_by_id, registry, false)
+		var owner_id: int = _unit_owner_id(ud, hive_by_id)
+		var style_sig: int = _unit_style_sig(owner_id)
+		var last_style_sig: int = int(_unit_style_sig_by_id.get(unit_id, -2147483648))
+		var needs_style_refresh: bool = last_style_sig != style_sig or sprite.texture == null
+		if needs_style_refresh:
+			_update_unit_sprite(node, ud, hive_by_id, registry, false, owner_id)
+			_unit_style_sig_by_id[unit_id] = style_sig
+		else:
+			node.visible = true
+			sprite.visible = not debug_draw_units
 		_ingest_unit_sample(ud, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache, sample_sim_us)
 		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
 		if typeof(state_any) == TYPE_DICTIONARY:
@@ -1497,30 +1519,10 @@ func _lane_endpoints_map_local_from_hive_ids(
 						cached.get("a", Vector2.ZERO),
 						cached.get("b", Vector2.ZERO)
 					)
-				var eval_ms_hit: float = _us_to_ms(int(Time.get_ticks_usec() - endpoint_t0_us))
-				var trace_hit: Dictionary = {
-					"unit_id": unit_id,
-					"lane_id": lane_id,
-					"from_id": from_id,
-					"to_id": to_id,
-					"lane_key": key,
-					"cache_hit": true,
-					"edge_geo_cache": str(cached.get("_edge_geo_source", "unknown")),
-					"lane_renderer_valid": lane_renderer_valid,
-					"lane_renderer_has_get_lane_endpoints_world": lane_renderer_has_get_lane_endpoints_world,
-					"lane_renderer_has_get_edge_geo": lane_renderer_has_get_edge_geo,
-					"shared_anchor_used": bool(cached.get("_shared_anchor_used", false)),
-					"fallback_used": bool(cached.get("_fallback_used", false)),
-					"fallback_path": str(cached.get("_fallback_path", "")),
-					"branch": str(cached.get("_branch", "endpoint_cache_hit")),
-					"scene_scan_count": 0,
-					"scene_scan_ms": 0.0
-				}
-				_last_endpoint_trace = trace_hit
-				var hit_spike: bool = eval_ms_hit > 10.0
-				_endpoint_perf_record(eval_ms_hit, true, hit_spike)
-				if hit_spike:
-					_maybe_log_endpoint_spike(trace_hit, eval_ms_hit, 0.0)
+				if UNIT_ENDPOINT_PROFILE_CACHE_HITS:
+					var eval_ms_hit: float = _us_to_ms(int(Time.get_ticks_usec() - endpoint_t0_us))
+					var hit_spike: bool = eval_ms_hit > 10.0
+					_endpoint_perf_record(eval_ms_hit, true, hit_spike)
 				return cached
 	var from_info: Dictionary = _resolve_hive_lane_anchor_info(from_id, hive_by_id, hive_anchor_cache)
 	var to_info: Dictionary = _resolve_hive_lane_anchor_info(to_id, hive_by_id, hive_anchor_cache)
@@ -1871,9 +1873,10 @@ func _update_unit_sprite(
 	ud: Dictionary,
 	hive_by_id: Dictionary,
 	registry: SpriteRegistry,
-	apply_orientation: bool = true
+	apply_orientation: bool = true,
+	owner_id_override: int = -1
 ) -> void:
-	var owner_id: int = _unit_owner_id(ud, hive_by_id)
+	var owner_id: int = owner_id_override if owner_id_override >= 0 else _unit_owner_id(ud, hive_by_id)
 	var unit_id := int(node.get_meta("unit_id", -1))
 	var sprite := _ensure_unit_sprite(node)
 	if sprite == null:

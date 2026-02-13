@@ -22,6 +22,9 @@ const UNIT_RADIUS_PX := 0.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
+const PASS_THROUGH_EMIT_RATE_MULT: float = 2.0
+const PASS_THROUGH_PIPELINE_MULT: float = 1.25
+const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 
 var state: GameState = null
 var units: Array = []
@@ -49,6 +52,9 @@ var _lane_gate_open_logged: Dictionary = {}
 var _last_lane_cap_block_ms: Dictionary = {}
 var _last_units_set_count: int = -1
 var _last_units_set_sig: int = 0
+var _pass_through_queue_by_key: Dictionary = {}
+var _pass_through_emit_accum_ms_by_key: Dictionary = {}
+var _pass_through_last_log_ms_by_key: Dictionary = {}
 
 const UNIT_SPEED_LOG_INTERVAL_MS := 1000
 const PRESSURE_WARN_INTERVAL_MS := 1000
@@ -73,6 +79,9 @@ func bind_state(state_ref: GameState) -> void:
 	_lane_gate_block_log_ms.clear()
 	_lane_gate_open_logged.clear()
 	_last_lane_cap_block_ms.clear()
+	_pass_through_queue_by_key.clear()
+	_pass_through_emit_accum_ms_by_key.clear()
+	_pass_through_last_log_ms_by_key.clear()
 	if state != null:
 		state.unit_system = self
 		state.units_set_version = units_set_version
@@ -92,6 +101,7 @@ func tick(dt: float) -> void:
 	_update_units(dt)
 	resolve_lane_interactions(state, sim_time_us)
 	_process_arrivals()
+	_drain_pass_through_queues(dt)
 	_sync_units_to_state()
 
 func _spawn_units(dt: float) -> void:
@@ -667,19 +677,9 @@ func _pass_through_arrival(hive: HiveData, owner_id: int, payload: int) -> void:
 	var targets: Array = _pass_through_targets(hive)
 	if targets.is_empty():
 		return
-	var target_count: int = targets.size()
-	var remaining: int = payload
-	while remaining > 0:
-		var target_index: int = int(hive.pass_rr_index % target_count)
-		var target_any: Variant = targets[target_index]
-		if typeof(target_any) != TYPE_DICTIONARY:
-			break
-		var target: Dictionary = target_any as Dictionary
-		var target_id: int = int(target.get("target_id", -1))
-		var lane_id: int = int(target.get("lane_id", -1))
-		hive.pass_rr_index += 1
-		_spawn_pass_through_unit(hive, owner_id, target_id, lane_id)
-		remaining -= 1
+	var key: int = _pass_through_key(int(hive.id), owner_id)
+	var prev_queue: int = int(_pass_through_queue_by_key.get(key, 0))
+	_pass_through_queue_by_key[key] = prev_queue + payload
 
 func _pass_through_targets(hive: HiveData) -> Array:
 	var outgoing: Array = []
@@ -740,6 +740,154 @@ func _spawn_pass_through_unit(hive: HiveData, owner_id: int, target_id: int, lan
 		"arrive_source": "pass_through"
 	}
 	spawn_unit(pass_unit)
+
+func _drain_pass_through_queues(dt: float) -> void:
+	if state == null or _pass_through_queue_by_key.is_empty():
+		return
+	var dt_ms: float = maxf(0.0, dt * 1000.0)
+	var keys: Array = _pass_through_queue_by_key.keys()
+	keys.sort()
+	for key_any in keys:
+		var key: int = int(key_any)
+		var queued: int = int(_pass_through_queue_by_key.get(key, 0))
+		if queued <= 0:
+			_pass_through_queue_by_key.erase(key)
+			_pass_through_emit_accum_ms_by_key.erase(key)
+			_pass_through_last_log_ms_by_key.erase(key)
+			continue
+		var hive_id: int = _pass_through_key_hive_id(key)
+		var owner_id: int = _pass_through_key_owner_id(key)
+		var hive: HiveData = state.find_hive_by_id(hive_id)
+		if hive == null or int(hive.owner_id) != owner_id:
+			_pass_through_queue_by_key.erase(key)
+			_pass_through_emit_accum_ms_by_key.erase(key)
+			_pass_through_last_log_ms_by_key.erase(key)
+			continue
+		if int(hive.power) < int(SimTuning.MAX_POWER):
+			continue
+		var targets: Array = _pass_through_targets(hive)
+		if targets.is_empty():
+			continue
+		var emit_rate: float = _pass_through_emit_rate_units_per_sec(hive)
+		var emit_accum_ms: float = float(_pass_through_emit_accum_ms_by_key.get(key, 0.0))
+		emit_accum_ms += dt_ms
+		var releasable_by_rate: int = int(floor((emit_accum_ms / 1000.0) * emit_rate))
+		if releasable_by_rate <= 0:
+			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
+			continue
+		var inflight_now: int = _pass_through_inflight_count(hive_id, owner_id)
+		var pipeline_cap: int = _pass_through_pipeline_cap_units(hive, emit_rate)
+		var pipeline_room: int = maxi(0, pipeline_cap - inflight_now)
+		var release_count: int = mini(mini(queued, releasable_by_rate), pipeline_room)
+		if release_count <= 0:
+			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
+			_log_pass_through_congested_once_per_sec(key, hive_id, owner_id, queued, inflight_now, pipeline_cap)
+			continue
+		var target_count: int = targets.size()
+		var released: int = 0
+		for _i in range(release_count):
+			var target_index: int = int(hive.pass_rr_index % target_count)
+			var target_any: Variant = targets[target_index]
+			if typeof(target_any) != TYPE_DICTIONARY:
+				break
+			var target: Dictionary = target_any as Dictionary
+			var target_id: int = int(target.get("target_id", -1))
+			var lane_id: int = int(target.get("lane_id", -1))
+			hive.pass_rr_index += 1
+			_spawn_pass_through_unit(hive, owner_id, target_id, lane_id)
+			released += 1
+		if released <= 0:
+			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
+			continue
+		queued -= released
+		emit_accum_ms = maxf(0.0, emit_accum_ms - (float(released) * (1000.0 / emit_rate)))
+		_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
+		if queued > 0:
+			_pass_through_queue_by_key[key] = queued
+		else:
+			_pass_through_queue_by_key.erase(key)
+			_pass_through_emit_accum_ms_by_key.erase(key)
+			_pass_through_last_log_ms_by_key.erase(key)
+
+func _pass_through_key(hive_id: int, owner_id: int) -> int:
+	return int((hive_id << 3) | (owner_id & 0x7))
+
+func _pass_through_key_hive_id(key: int) -> int:
+	return int(key >> 3)
+
+func _pass_through_key_owner_id(key: int) -> int:
+	return int(key & 0x7)
+
+func _pass_through_emit_rate_units_per_sec(hive: HiveData) -> float:
+	if hive == null:
+		return 0.0
+	var single_interval_ms: float = float(_spawn_interval_ms_for_power(int(hive.power)))
+	var single_rate: float = 1000.0 / maxf(1.0, single_interval_ms)
+	return maxf(0.0, single_rate * PASS_THROUGH_EMIT_RATE_MULT)
+
+func _pass_through_pipeline_cap_units(hive: HiveData, emit_rate_units_per_sec: float) -> int:
+	if hive == null or emit_rate_units_per_sec <= 0.0:
+		return 0
+	var avg_travel_time_sec: float = _pass_through_avg_travel_time_sec(hive)
+	if avg_travel_time_sec <= 0.0:
+		avg_travel_time_sec = 1.0
+	return maxi(1, int(ceil(emit_rate_units_per_sec * avg_travel_time_sec * PASS_THROUGH_PIPELINE_MULT)))
+
+func _pass_through_avg_travel_time_sec(hive: HiveData) -> float:
+	if state == null or hive == null:
+		return 0.0
+	var targets: Array = _pass_through_targets(hive)
+	if targets.is_empty():
+		return 0.0
+	var speed_px_s: float = maxf(1.0, float(SimTuning.UNIT_SPEED_PX_PER_SEC))
+	var travel_sum_s: float = 0.0
+	var valid_count: int = 0
+	for target_any in targets:
+		if typeof(target_any) != TYPE_DICTIONARY:
+			continue
+		var lane_id: int = int((target_any as Dictionary).get("lane_id", -1))
+		var lane: LaneData = _find_lane_by_id(lane_id)
+		if lane == null:
+			continue
+		var lane_len_px: float = _lane_length(lane)
+		if lane_len_px <= 0.0:
+			continue
+		travel_sum_s += lane_len_px / speed_px_s
+		valid_count += 1
+	if valid_count <= 0:
+		return 0.0
+	return travel_sum_s / float(valid_count)
+
+func _pass_through_inflight_count(hive_id: int, owner_id: int) -> int:
+	if hive_id <= 0 or owner_id <= 0:
+		return 0
+	var count: int = 0
+	for unit_any in units:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var unit: Dictionary = unit_any as Dictionary
+		if str(unit.get("arrive_source", "")) != "pass_through":
+			continue
+		if int(unit.get("from_id", -1)) != hive_id:
+			continue
+		if int(unit.get("owner_id", 0)) != owner_id:
+			continue
+		count += 1
+	return count
+
+func _log_pass_through_congested_once_per_sec(key: int, hive_id: int, owner_id: int, queued: int, inflight_now: int, pipeline_cap: int) -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	var last_ms: int = int(_pass_through_last_log_ms_by_key.get(key, 0))
+	if now_ms - last_ms < PASS_THROUGH_LOG_INTERVAL_MS:
+		return
+	_pass_through_last_log_ms_by_key[key] = now_ms
+	SFLog.info("PASS_THROUGH_CONGESTED", {
+		"hive_id": hive_id,
+		"owner_id": owner_id,
+		"queue": queued,
+		"inflight": inflight_now,
+		"pipeline_cap": pipeline_cap
+	})
 
 func _arrival_impact_world_pos(unit: Dictionary, to_hive_id: int) -> Vector2:
 	var pos_any: Variant = unit.get("pos", null)

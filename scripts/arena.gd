@@ -12,6 +12,7 @@ const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const MapApplier := preload("res://scripts/maps/map_applier.gd")
 const WallRenderer := preload("res://scripts/renderers/wall_renderer.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
+const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
 const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
@@ -21,7 +22,6 @@ const GRID_H := 12
 const CELL_SIZE := 64
 const GRID_DEBUG := false
 const RENDER_DEBUG := false
-const UNIT_SPEED_PX := 160.0
 const LANE_ESTABLISH_MS := 2400.0
 const UNIT_TRAVEL_MS := 4800.0
 const SPAWN_BASE_MS := 1200.0
@@ -244,6 +244,7 @@ var end_reason := ""
 var game_over := false
 var _match_end_handled := false
 var _post_match_action_taken := false
+var _post_match_render_frozen := false
 var towers: Array = []
 var barracks: Array = []
 var current_map_path := ""
@@ -275,6 +276,13 @@ var buff_states: Dictionary = {}
 var buff_active_slots: Dictionary = {}
 var buff_instances: Dictionary = {}
 var buff_mods: Dictionary = {}
+const RUNTIME_SUPPORTED_BUFF_EFFECT_TYPES: Dictionary = {
+	"swarm_speed_pct": true,
+	"hive_production_time_pct": true,
+	"tower_fire_rate_pct": true,
+	"lane_slow_pct": true,
+	"lane_insight": true
+}
 var current_map_data: Dictionary = {}
 var _map_build_version: int = 0
 var _map_built_version: int = -1
@@ -1684,6 +1692,18 @@ func _ensure_vfx_manager() -> void:
 		vfx_manager.prewarm()
 
 func _on_sim_ticked() -> void:
+	var phase: int = int(OpsState.match_phase)
+	var post_match_phase: bool = phase == int(OpsState.MatchPhase.ENDING) or phase == int(OpsState.MatchPhase.ENDED)
+	if post_match_phase:
+		if _post_match_render_frozen:
+			return
+		_post_match_render_frozen = true
+		_update_buff_states()
+		mark_render_dirty("sim_tick_post_match_final")
+		_push_render_model()
+		return
+	_post_match_render_frozen = false
+	_update_buff_states()
 	mark_render_dirty("sim_tick")
 	# SimRunner already ticks at fixed cadence; pushing every sim tick avoids
 	# time-gate jitter (99ms/101ms skip pattern) that reads as sawtooth motion.
@@ -1911,17 +1931,22 @@ func _stage_rank_snapshot(results: Array, local_owner_id: int) -> Dictionary:
 			rank = i + 1
 			break
 	var local_wins: int = int((stats_by_owner.get(local_owner_id, {}) as Dictionary).get("wins", 0))
+	var local_elapsed_ms: int = int((stats_by_owner.get(local_owner_id, {}) as Dictionary).get("elapsed_ms", 0))
 	var opponent_wins: int = 0
+	var opponent_elapsed_ms: int = 0
 	for owner_any in owners:
 		var owner_id: int = int(owner_any)
 		if owner_id == local_owner_id:
 			continue
 		opponent_wins = int((stats_by_owner.get(owner_id, {}) as Dictionary).get("wins", 0))
+		opponent_elapsed_ms = int((stats_by_owner.get(owner_id, {}) as Dictionary).get("elapsed_ms", 0))
 		break
 	return {
 		"rank": rank,
 		"local_wins": local_wins,
-		"opponent_wins": opponent_wins
+		"opponent_wins": opponent_wins,
+		"local_elapsed_ms": local_elapsed_ms,
+		"opponent_elapsed_ms": opponent_elapsed_ms
 	}
 
 func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary:
@@ -1971,6 +1996,7 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 		"current_rank": int(rank_snapshot.get("rank", 0)),
 		"local_round_wins": int(rank_snapshot.get("local_wins", 0)),
 		"opponent_round_wins": int(rank_snapshot.get("opponent_wins", 0)),
+		"cumulative_time_ms": maxi(0, int(rank_snapshot.get("local_elapsed_ms", elapsed_ms))),
 		"next_round_available": round_index + 1 < total_rounds
 	}
 
@@ -1990,7 +2016,7 @@ func _show_stage_race_round_overlay(winner_id_in: int, reason: String) -> void:
 	var next_round_available: bool = bool(summary.get("next_round_available", false))
 	var next_action: String = "next_round" if next_round_available else "finish_run"
 	var next_label: String = "Next Round" if next_round_available else "Finish Run"
-	var status_text: String = "Current rank is provisional. Ready for next round?" if next_round_available else "Current rank is provisional. Run complete."
+	var status_text: String = "Cumulative rank is provisional. Ready for next round?" if next_round_available else "Cumulative rank is provisional. Run complete."
 	var payload: Dictionary = summary.duplicate(true)
 	payload["next_action"] = next_action
 	payload["next_label"] = next_label
@@ -2136,10 +2162,17 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	state = new_state
 	if state == null:
 		return
+	# MapApplier swaps in a fresh authoritative state without calling Arena._reset_sim_state().
+	# Clear post-match latches here so stage-race rounds can always advance.
+	_match_end_handled = false
+	_match_record_committed = false
+	_post_match_action_taken = false
+	_post_match_render_frozen = false
+	game_over = false
+	winner_id = -1
+	end_reason = ""
 	if api != null:
 		api.bind_state(state)
-	_audit_state_write("grid_spec", "Arena._on_ops_state_changed")
-	state.grid_spec = grid_spec
 	_ensure_sim_runner()
 	if sim_runner != null:
 		sim_runner.bind_state(state)
@@ -2167,7 +2200,10 @@ func _start_sim_after_state_change() -> void:
 	if sim_runner == null:
 		SFLog.info("SIM_START_DEFERRED_FAIL", {"reason": "sim_runner_null"})
 		return
-	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH and not _match_started:
+	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH:
+		# A map swap creates a fresh OpsState in PREMATCH. Re-seed prematch gates so
+		# stale round state does not block the next round from starting.
+		_begin_prematch()
 		SFLog.info("SIM_START_DEFERRED_SKIP", {"reason": "prematch_hold"})
 		return
 	SFLog.info("ARENA_START_SIM_AFTER_STATE", {"iid": int(sim_runner.bound_iid)})
@@ -2279,9 +2315,6 @@ func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 	grid_h = grid_spec.grid_h
 	if floor_renderer != null:
 		floor_renderer.configure(grid_w, grid_h, cell_px)
-	if state != null:
-		_audit_state_write("grid_spec", "Arena._configure_grid_spec")
-		state.grid_spec = grid_spec
 
 func _log_map_spec(map_data: Dictionary) -> void:
 	if not GRID_DEBUG or grid_spec == null:
@@ -3832,6 +3865,9 @@ func _push_render_model() -> void:
 			unit_r.call("set_model", rm)
 		else:
 			unit_r.set("model", rm)
+		var phase_now: int = int(OpsState.match_phase)
+		var post_match_phase: bool = phase_now == int(OpsState.MatchPhase.ENDING) or phase_now == int(OpsState.MatchPhase.ENDED)
+		var freeze_unit_bind: bool = post_match_phase and _post_match_render_frozen
 		var hives_v: Variant = rm.get("hives", [])
 		var hives_arr: Array = hives_v as Array if typeof(hives_v) == TYPE_ARRAY else []
 		var units_v: Variant = rm.get("units", [])
@@ -3841,7 +3877,7 @@ func _push_render_model() -> void:
 		var sim_time_us_out: int = int(round(float(rm.get("sim_time_s", 0.0)) * 1000000.0))
 		if unit_r.has_method("bind_hives"):
 			unit_r.call("bind_hives", hives_arr, hives_version)
-		if unit_r.has_method("bind_units"):
+		if unit_r.has_method("bind_units") and not freeze_unit_bind:
 			unit_r.call("bind_units", units_arr, units_version, sim_time_us_out)
 		unit_r.queue_redraw()
 	if not hive_nodes_by_id.is_empty() and (lane_r != null or unit_r != null):
@@ -3914,13 +3950,28 @@ func _init_buff_states() -> void:
 		return
 	for pid in [1, 2, 3, 4]:
 		var buff_state: BuffState = BuffState.new()
-		var result: Dictionary = buff_state.configure_loadout(_default_buff_loadout())
+		var result: Dictionary = buff_state.configure_loadout(_default_buff_loadout(pid))
 		if not bool(result.get("ok", false)):
 			if SFLog.LOGGING_ENABLED:
 				push_error("ARENA: buff loadout invalid for P%d: %s" % [pid, result.get("error", "unknown")])
 		buff_states[pid] = buff_state
 
-func _default_buff_loadout() -> Array:
+func _default_buff_loadout(pid: int = -1) -> Array:
+	var profile_ids: Array[String] = _resolve_profile_loadout_ids()
+	var resolved_pid: int = pid
+	if resolved_pid <= 0:
+		resolved_pid = int(active_player_id)
+	if resolved_pid == int(active_player_id):
+		return _build_loadout_entries(profile_ids)
+	var candidate_pool: Array[String] = _supported_runtime_classic_buff_ids(profile_ids)
+	if candidate_pool.size() < BuffState.LOADOUT_SIZE:
+		candidate_pool = _supported_runtime_classic_buff_ids([])
+	var seeded_ids: Array[String] = _pick_seeded_unique_ids(candidate_pool, resolved_pid, BuffState.LOADOUT_SIZE)
+	if seeded_ids.size() < BuffState.LOADOUT_SIZE:
+		seeded_ids = profile_ids
+	return _build_loadout_entries(seeded_ids)
+
+func _resolve_profile_loadout_ids() -> Array[String]:
 	var ids: Array[String] = []
 	if ProfileManager != null and ProfileManager.has_method("get_buff_loadout_ids"):
 		var profile_ids: Variant = ProfileManager.call("get_buff_loadout_ids")
@@ -3940,11 +3991,77 @@ func _default_buff_loadout() -> Array:
 			"buff_hive_faster_production_classic",
 			"buff_tower_fire_rate_classic"
 		]
-	return [
-		{"id": ids[0], "tier": "classic"},
-		{"id": ids[1], "tier": "classic"},
-		{"id": ids[2], "tier": "classic"}
-	]
+	return ids
+
+func _build_loadout_entries(ids: Array[String]) -> Array:
+	var out: Array = []
+	var count: int = mini(ids.size(), BuffState.LOADOUT_SIZE)
+	for i in range(count):
+		out.append({"id": ids[i], "tier": "classic"})
+	return out
+
+func _supported_runtime_classic_buff_ids(excluded_ids: Array[String]) -> Array[String]:
+	var excluded_lookup: Dictionary = {}
+	for buff_id in excluded_ids:
+		excluded_lookup[str(buff_id)] = true
+	var out: Array[String] = []
+	var all_buffs: Array = BuffCatalog.list_all()
+	for buff_v in all_buffs:
+		if typeof(buff_v) != TYPE_DICTIONARY:
+			continue
+		var buff: Dictionary = buff_v as Dictionary
+		var buff_id: String = str(buff.get("id", "")).strip_edges()
+		if buff_id == "":
+			continue
+		if excluded_lookup.has(buff_id):
+			continue
+		var tier: String = str(buff.get("tier", "classic")).to_lower()
+		if tier != "classic":
+			continue
+		var effects_any: Variant = buff.get("effects", [])
+		if typeof(effects_any) != TYPE_ARRAY:
+			continue
+		if not _buff_effects_supported_for_runtime(effects_any as Array):
+			continue
+		if out.has(buff_id):
+			continue
+		out.append(buff_id)
+	out.sort()
+	return out
+
+func _buff_effects_supported_for_runtime(effects: Array) -> bool:
+	if effects.is_empty():
+		return false
+	var has_supported: bool = false
+	for effect_v in effects:
+		if typeof(effect_v) != TYPE_DICTIONARY:
+			return false
+		var effect: Dictionary = effect_v as Dictionary
+		var effect_type: String = str(effect.get("type", "")).strip_edges()
+		if effect_type == "":
+			return false
+		if not bool(RUNTIME_SUPPORTED_BUFF_EFFECT_TYPES.get(effect_type, false)):
+			return false
+		has_supported = true
+	return has_supported
+
+func _pick_seeded_unique_ids(pool: Array[String], pid: int, needed: int) -> Array[String]:
+	var out: Array[String] = []
+	if pool.is_empty() or needed <= 0:
+		return out
+	var start_idx: int = 0
+	if pool.size() > 0:
+		start_idx = int(abs(match_seed) + (pid * 97)) % pool.size()
+	var cursor: int = start_idx
+	var attempts: int = 0
+	var max_attempts: int = maxi(pool.size() * 3, needed * 3)
+	while out.size() < needed and attempts < max_attempts:
+		var candidate: String = pool[cursor % pool.size()]
+		if not out.has(candidate):
+			out.append(candidate)
+		cursor += 1
+		attempts += 1
+	return out
 
 func _reset_buff_states() -> void:
 	if not buffs_enabled:
@@ -3960,7 +4077,7 @@ func _update_buff_states() -> void:
 		return
 	if buff_states.is_empty():
 		return
-	var now_ms: int = int(sim_time_us / 1000)
+	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
 	for buff_state in buff_states.values():
 		buff_state.update(now_ms)
 	_sync_buff_effects(now_ms)
@@ -3999,6 +4116,11 @@ func _reset_buff_runtime() -> void:
 			"lane_slow_pct": 0.0,
 			"lane_insight": 0
 		}
+
+func _authoritative_sim_time_us() -> int:
+	if unit_system != null:
+		return int(unit_system.sim_time_us)
+	return int(sim_time_us)
 
 func _sync_buff_effects(now_ms: int) -> void:
 	for pid_v in buff_states.keys():
@@ -4106,18 +4228,18 @@ func _lane_insight_active(pid: int) -> bool:
 	return _buff_flag(pid, "lane_insight")
 
 func get_buff_ui_snapshot() -> Dictionary:
+	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
 	var snapshot: Dictionary = {
 		"buffs_enabled": bool(buffs_enabled),
 		"active_player_id": int(active_player_id),
 		"overtime_active": bool(overtime_active),
-		"sim_time_ms": int(sim_time_us / 1000),
+		"sim_time_ms": now_ms,
 		"players": {}
 	}
 	if not buffs_enabled:
 		return snapshot
 	if buff_states.is_empty():
 		_init_buff_states()
-	var now_ms: int = int(sim_time_us / 1000)
 	var players: Dictionary = {}
 	for pid in [1, 2, 3, 4]:
 		var buff_state: BuffState = buff_states.get(pid)
@@ -4227,7 +4349,7 @@ func _try_activate_buff_slot(pid: int, slot_index: int) -> void:
 	var buff_state: BuffState = buff_states.get(pid)
 	if buff_state == null:
 		return
-	var now_ms: int = int(sim_time_us / 1000)
+	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
 	if not buff_state.activate_slot(slot_index, now_ms):
 		SFLog.info("BUFF_ACTIVATE_BLOCKED", {
 			"pid": pid,
@@ -4270,6 +4392,7 @@ func _reset_sim_state() -> void:
 	_match_end_handled = false
 	_match_record_committed = false
 	_post_match_action_taken = false
+	_post_match_render_frozen = false
 	hurry_mode = false
 	audio_hurry_pitch = 1.0
 	overtime_active = false
@@ -4994,16 +5117,16 @@ func _update_lanes(delta: float) -> void:
 			ld.b_pressure *= decay
 			if rate_a > 0.0:
 				ld.a_pressure += rate_a * delta
-				ld.a_stream_len = min(lane_len, ld.a_stream_len + UNIT_SPEED_PX * delta)
+				ld.a_stream_len = min(lane_len, ld.a_stream_len + _base_unit_speed_px() * delta)
 			if rate_b > 0.0:
 				ld.b_pressure += rate_b * delta
-				ld.b_stream_len = min(lane_len, ld.b_stream_len + UNIT_SPEED_PX * delta)
+				ld.b_stream_len = min(lane_len, ld.b_stream_len + _base_unit_speed_px() * delta)
 			if ld.retract_a:
-				ld.a_stream_len = max(0.0, ld.a_stream_len - UNIT_SPEED_PX * delta)
+				ld.a_stream_len = max(0.0, ld.a_stream_len - _base_unit_speed_px() * delta)
 				if ld.a_stream_len <= 0.0:
 					ld.retract_a = false
 			if ld.retract_b:
-				ld.b_stream_len = max(0.0, ld.b_stream_len - UNIT_SPEED_PX * delta)
+				ld.b_stream_len = max(0.0, ld.b_stream_len - _base_unit_speed_px() * delta)
 				if ld.b_stream_len <= 0.0:
 					ld.retract_b = false
 			if ld.establish_a and ld.a_stream_len >= lane_len:
@@ -5050,16 +5173,16 @@ func _update_lanes(delta: float) -> void:
 			b_pressure *= decay
 			if rate_a > 0.0:
 				a_pressure += rate_a * delta
-				a_stream_len = min(lane_len, a_stream_len + UNIT_SPEED_PX * delta)
+				a_stream_len = min(lane_len, a_stream_len + _base_unit_speed_px() * delta)
 			if rate_b > 0.0:
 				b_pressure += rate_b * delta
-				b_stream_len = min(lane_len, b_stream_len + UNIT_SPEED_PX * delta)
+				b_stream_len = min(lane_len, b_stream_len + _base_unit_speed_px() * delta)
 			if retract_a:
-				a_stream_len = max(0.0, a_stream_len - UNIT_SPEED_PX * delta)
+				a_stream_len = max(0.0, a_stream_len - _base_unit_speed_px() * delta)
 				if a_stream_len <= 0.0:
 					retract_a = false
 			if retract_b:
-				b_stream_len = max(0.0, b_stream_len - UNIT_SPEED_PX * delta)
+				b_stream_len = max(0.0, b_stream_len - _base_unit_speed_px() * delta)
 				if b_stream_len <= 0.0:
 					retract_b = false
 			if establish_a and a_stream_len >= lane_len:
@@ -6457,7 +6580,7 @@ func _update_buff_ui() -> void:
 	if buff_state == null:
 		buffs_label.visible = false
 		return
-	var now_ms: int = int(sim_time_us / 1000)
+	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
 	var lines: Array[String] = []
 	for i in range(buff_state.slots.size()):
 		var slot: Dictionary = buff_state.slots[i]
@@ -7793,13 +7916,16 @@ func _hive_spawn_interval_ms(hive: HiveData) -> float:
 	return maxf(80.0, base * mult)
 
 func _unit_speed_px(owner_id: int, lane_id: int) -> float:
-	var speed: float = UNIT_SPEED_PX
+	var speed: float = _base_unit_speed_px()
 	var speed_pct: float = _buff_mod(owner_id, "unit_speed_pct")
 	speed *= maxf(BUFF_MIN_MULT, 1.0 + speed_pct)
 	var slow_pct: float = _lane_slow_pct_for_unit(owner_id, lane_id)
 	if slow_pct > 0.0:
 		speed *= maxf(BUFF_MIN_MULT, 1.0 - slow_pct)
 	return speed
+
+func _base_unit_speed_px() -> float:
+	return float(SimTuning.UNIT_SPEED_PX_PER_SEC)
 
 func _lane_slow_pct_for_unit(owner_id: int, lane_id: int) -> float:
 	if lane_id <= 0:

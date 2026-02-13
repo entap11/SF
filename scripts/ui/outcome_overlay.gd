@@ -138,6 +138,7 @@ func _apply_stage_round_outcome(data: Dictionary) -> void:
 	var winner_id: int = int(data.get("winner_id", 0))
 	var reason: String = str(data.get("reason", ""))
 	var round_time_ms: int = maxi(0, int(data.get("round_time_ms", 0)))
+	var cumulative_time_ms: int = maxi(round_time_ms, int(data.get("cumulative_time_ms", round_time_ms)))
 	var local_owned: int = maxi(0, int(data.get("local_owned_hives", 0)))
 	var opponent_owned: int = maxi(0, int(data.get("opponent_owned_hives", 0)))
 	var current_rank: int = int(data.get("current_rank", 0))
@@ -153,15 +154,15 @@ func _apply_stage_round_outcome(data: Dictionary) -> void:
 	else:
 		result_label.text = "ROUND RESULT: YOU LOST"
 	reason_label.text = "How: %s" % _present_reason(reason)
-	record_label.text = "Round Time: %s" % _format_stage_time(round_time_ms)
+	record_label.text = "Current Map Time: %s | Cumulative Time: %s" % [_format_stage_time(round_time_ms), _format_stage_time(cumulative_time_ms)]
 	h2h_label.text = "Score: You %d | Opponent %d" % [local_owned, opponent_owned]
-	stats_header.text = "Current Rank"
+	stats_header.text = "Cumulative Rank"
 	if current_rank > 0:
-		stat_max_power.text = "#%d (provisional)" % current_rank
+		stat_max_power.text = "#%d (provisional, cumulative)" % current_rank
 	else:
-		stat_max_power.text = "-- (provisional)"
+		stat_max_power.text = "-- (provisional, cumulative)"
 	stat_units_killed.text = "Round Wins: You %d | Opponent %d" % [local_round_wins, opponent_round_wins]
-	stat_units_landed.text = "Round %d/%d complete" % [round_number, total_rounds]
+	stat_units_landed.text = "Rank is based on cumulative run totals (%d/%d)" % [round_number, total_rounds]
 	countdown_label.text = ""
 	rematch_button.text = next_label
 	rematch_button.disabled = not _stage_next_available
