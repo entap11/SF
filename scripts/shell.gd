@@ -4,6 +4,9 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/startup_launch_request_resolver.gd")
+const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
+const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
 const SHELL_BUFFER_ROOT_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
@@ -72,6 +75,9 @@ var _err_conn_ready: bool = false
 var _frame_once: bool = false
 var _team_mode_ui: String = "2v2"
 var _buff_ui_last_active_pid: int = 1
+var _startup_request_resolver: ShellStartupLaunchRequestResolver = ShellStartupLaunchRequestResolver.new()
+var _mvp_waiter: ShellMvpWaiter = ShellMvpWaiter.new()
+var _mvp_map_utils: ShellMvpMapUtils = ShellMvpMapUtils.new()
 
 func _install_error_hooks() -> void:
 	if _err_conn_ready:
@@ -225,47 +231,16 @@ func _ready() -> void:
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 090: after_start_game_check")
 
 func _resolve_startup_launch_request() -> Dictionary:
-	var request: Dictionary = {
-		"start": false,
-		"map_path": "",
-		"reason": "none"
-	}
 	var tree: SceneTree = get_tree()
-	if tree == null:
-		return request
-	var start_requested: bool = bool(tree.get_meta("start_game", false))
-	if not start_requested:
-		return request
-	if tree.has_meta("start_game"):
-		tree.remove_meta("start_game")
-	request["start"] = true
-	var stage_map_path: String = _resolve_stage_map_from_tree_meta(tree)
-	if stage_map_path != "":
-		request["map_path"] = stage_map_path
-		request["reason"] = "stage_meta"
-		return request
 	var gamebot: Node = get_node_or_null("/root/Gamebot")
-	if gamebot != null:
-		var gamebot_map_path: String = str(gamebot.get("next_map_id")).strip_edges()
-		if gamebot_map_path != "":
-			request["map_path"] = gamebot_map_path
-			request["reason"] = "gamebot_next_map"
-			return request
-	request["reason"] = "start_flag_no_map"
-	return request
+	if _startup_request_resolver == null:
+		_startup_request_resolver = ShellStartupLaunchRequestResolver.new()
+	return _startup_request_resolver.resolve(tree, gamebot)
 
 func _resolve_stage_map_from_tree_meta(tree: SceneTree) -> String:
-	if tree == null or not tree.has_meta("vs_stage_map_paths"):
-		return ""
-	var stage_maps_any: Variant = tree.get_meta("vs_stage_map_paths", [])
-	if typeof(stage_maps_any) != TYPE_ARRAY:
-		return ""
-	var stage_maps: Array = stage_maps_any as Array
-	if stage_maps.is_empty():
-		return ""
-	var index_raw: int = int(tree.get_meta("vs_stage_current_index", 0))
-	var index: int = clampi(index_raw, 0, stage_maps.size() - 1)
-	return str(stage_maps[index]).strip_edges()
+	if _startup_request_resolver == null:
+		_startup_request_resolver = ShellStartupLaunchRequestResolver.new()
+	return _startup_request_resolver.resolve_stage_map_from_tree_meta(tree)
 
 func _wire_map_picker_ui() -> void:
 	if TRACE_SHELL_LOGS: print("MAP_PICKER_WIRE_BEGIN_RAW",
@@ -1787,72 +1762,45 @@ func _mvp_start_conquest_flow() -> Dictionary:
 	}
 
 func _mvp_list_json_maps() -> Array[String]:
-	var out: Array[String] = []
-	var dir: DirAccess = DirAccess.open("res://maps/json")
-	if dir == null:
-		return out
-	dir.list_dir_begin()
-	while true:
-		var name: String = dir.get_next()
-		if name == "":
-			break
-		if dir.current_is_dir():
-			continue
-		if not name.to_lower().ends_with(".json"):
-			continue
-		out.append("res://maps/json/%s" % name)
-	dir.list_dir_end()
-	out.sort()
-	return out
+	if _mvp_map_utils == null:
+		_mvp_map_utils = ShellMvpMapUtils.new()
+	return _mvp_map_utils.list_json_maps()
 
 func _mvp_wait_for_node(path: String, timeout_ms: int) -> Node:
-	var start_ms: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - start_ms <= timeout_ms:
-		var node: Node = get_node_or_null(path)
-		if node != null:
-			return node
-		await get_tree().process_frame
-	return null
+	if _mvp_waiter == null:
+		_mvp_waiter = ShellMvpWaiter.new()
+	return await _mvp_waiter.wait_for_node(self, path, timeout_ms)
 
 func _mvp_wait_for_records_visible(timeout_ms: int) -> bool:
-	var start_ms: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - start_ms <= timeout_ms:
-		var records: Control = get_node_or_null(MVP_SMOKE_RECORDS_PATH) as Control
-		var prematch: bool = int(OpsState.match_phase) == int(OpsState.MatchPhase.PREMATCH)
-		if records != null and prematch and records.visible:
-			return true
-		await get_tree().process_frame
-	return false
+	if _mvp_waiter == null:
+		_mvp_waiter = ShellMvpWaiter.new()
+	return await _mvp_waiter.wait_for_records_visible(
+		self,
+		MVP_SMOKE_RECORDS_PATH,
+		OpsState,
+		int(OpsState.MatchPhase.PREMATCH),
+		timeout_ms
+	)
 
 func _mvp_wait_for_phase(target_phase: int, timeout_ms: int) -> bool:
-	var start_ms: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - start_ms <= timeout_ms:
-		if int(OpsState.match_phase) == target_phase:
-			return true
-		await get_tree().process_frame
-	return false
+	if _mvp_waiter == null:
+		_mvp_waiter = ShellMvpWaiter.new()
+	return await _mvp_waiter.wait_for_phase(self, OpsState, target_phase, timeout_ms)
 
 func _mvp_wait_for_phase_not(target_phase: int, timeout_ms: int) -> bool:
-	var start_ms: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - start_ms <= timeout_ms:
-		if int(OpsState.match_phase) != target_phase:
-			return true
-		await get_tree().process_frame
-	return false
+	if _mvp_waiter == null:
+		_mvp_waiter = ShellMvpWaiter.new()
+	return await _mvp_waiter.wait_for_phase_not(self, OpsState, target_phase, timeout_ms)
 
 func _mvp_wait_ms(duration_ms: int) -> void:
-	var start_ms: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - start_ms < duration_ms:
-		await get_tree().process_frame
+	if _mvp_waiter == null:
+		_mvp_waiter = ShellMvpWaiter.new()
+	await _mvp_waiter.wait_ms(self, duration_ms)
 
 func _mvp_wait_for_outcome_overlay_visible(timeout_ms: int) -> bool:
-	var start_ms: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - start_ms <= timeout_ms:
-		var overlay: Control = get_node_or_null(MVP_SMOKE_OUTCOME_OVERLAY_PATH) as Control
-		if overlay != null and overlay.visible:
-			return true
-		await get_tree().process_frame
-	return false
+	if _mvp_waiter == null:
+		_mvp_waiter = ShellMvpWaiter.new()
+	return await _mvp_waiter.wait_for_outcome_overlay_visible(self, MVP_SMOKE_OUTCOME_OVERLAY_PATH, timeout_ms)
 
 func _mvp_count_hud_countdowns() -> int:
 	var hud_root: Node = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot")

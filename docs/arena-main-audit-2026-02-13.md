@@ -53,6 +53,16 @@
   - Extracted Miss-N-Out banner runtime-state decision logic to `scripts/main_helpers/miss_n_out_banner_runtime.gd`.
   - `main.gd` now focuses on orchestration + polling cadence only.
 
+## Tranche 3 Follow-up (Current)
+- `scripts/shell.gd`
+  - Extracted startup request resolution to `scripts/shell_helpers/startup_launch_request_resolver.gd`.
+  - Extracted MVP async wait logic to `scripts/shell_helpers/mvp_waiter.gd`.
+  - Extracted MVP map listing utility to `scripts/shell_helpers/mvp_map_utils.gd`.
+  - `shell.gd` now delegates these responsibilities via helper wrappers.
+- `scripts/systems/input_system.gd`
+  - Extracted event and dev-mouse utility logic to `scripts/systems/input_helpers/input_event_utils.gd`.
+  - `input_system.gd` now delegates pointer/world-pos and dev button mapping through the helper.
+
 ## Next Tranche (Recommended)
 1. Extract UI overlay builders out of `arena.gd`:
    - post-match, prematch, controls hint.

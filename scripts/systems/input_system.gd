@@ -7,6 +7,7 @@ class_name InputSystem
 extends RefCounted
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const InputEventUtils := preload("res://scripts/systems/input_helpers/input_event_utils.gd")
 
 const DOUBLE_TAP_MS := 250
 const DOUBLE_TAP_DIST_PX := 12.0
@@ -534,18 +535,7 @@ func _get_active_pid(arena_api: ArenaAPI) -> int:
 	return 1
 
 func _player_id_from_button(button_index: int, arena_api: ArenaAPI, dev_pid: int = -1) -> int:
-	if dev_pid != -1:
-		return dev_pid
-	if _is_dev_mouse_override():
-		if button_index == MOUSE_BUTTON_LEFT:
-			return 1
-		if button_index == MOUSE_BUTTON_RIGHT:
-			return 2
-	if arena_api != null:
-		var active_pid: int = int(arena_api.get_active_player_id())
-		if active_pid >= 1 and active_pid <= 4:
-			return active_pid
-	return 1
+	return InputEventUtils.player_id_from_button(button_index, arena_api, dev_pid)
 
 func _get_selected_for_player(player_id: int) -> int:
 	return int(_selected_by_player.get(player_id, -1))
@@ -828,32 +818,13 @@ func _pick_lane_hit(world_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
 	}
 
 func _get_viewport_from_arena(arena_api: ArenaAPI) -> Viewport:
-	if arena_api == null:
-		return null
-	var arena: Node = arena_api._arena
-	if arena == null:
-		return null
-	return arena.get_viewport()
+	return InputEventUtils.get_viewport_from_arena(arena_api)
 
 func _get_screen_pos_from_event(event: InputEvent, arena_api: ArenaAPI) -> Vector2:
-	if event is InputEventMouseButton:
-		return (event as InputEventMouseButton).position
-	if event is InputEventMouseMotion:
-		return (event as InputEventMouseMotion).position
-	var viewport := _get_viewport_from_arena(arena_api)
-	if viewport != null:
-		return viewport.get_mouse_position()
-	return Vector2.ZERO
+	return InputEventUtils.get_screen_pos_from_event(event, arena_api)
 
 func _get_world_pos_from_event(event: InputEvent, arena_api: ArenaAPI) -> Vector2:
-	var screen_pos := _get_screen_pos_from_event(event, arena_api)
-	var viewport := _get_viewport_from_arena(arena_api)
-	if viewport != null:
-		var inv := viewport.get_canvas_transform().affine_inverse()
-		return inv * screen_pos
-	if arena_api != null and arena_api._arena is Node2D:
-		return (arena_api._arena as Node2D).get_global_mouse_position()
-	return screen_pos
+	return InputEventUtils.get_world_pos_from_event(event, arena_api)
 
 func _map_local_to_world(local_pos: Vector2, arena_api: ArenaAPI) -> Vector2:
 	if arena_api == null:
@@ -1442,19 +1413,10 @@ func _handle_hive_released(hive_id: int, button: int, global_pos: Vector2, arena
 	handle_hive_released(hive_id, button, global_pos, arena_api)
 
 func _is_dev_mouse_override() -> bool:
-	return OS.is_debug_build() or Engine.is_editor_hint()
+	return InputEventUtils.is_dev_mouse_override()
 
 func _dev_mouse_pid_from_button(button_index: int) -> int:
-	if not _is_dev_mouse_override():
-		return -1
-	# Dev convenience mapping:
-	# Left mouse = P1
-	# Right mouse = P2
-	if button_index == MOUSE_BUTTON_LEFT:
-		return 1
-	if button_index == MOUSE_BUTTON_RIGHT:
-		return 2
-	return -1
+	return InputEventUtils.dev_mouse_pid_from_button(button_index)
 
 func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, button_index: int) -> void:
 	if _handling_click:
