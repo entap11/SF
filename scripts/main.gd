@@ -1,5 +1,6 @@
 extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const MissNOutBannerRuntime := preload("res://scripts/main_helpers/miss_n_out_banner_runtime.gd")
 
 const MAP_BUILDER_SCRIPT := preload("res://scenes/MapBuilder.gd")
 const SHELL_BUFFER_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer"
@@ -24,8 +25,8 @@ const MISS_N_OUT_BANNER_POLL_SEC: float = 0.25
 var _miss_n_out_banner_notice_cache: String = ""
 var _miss_n_out_banner_visible_cache: bool = false
 var _miss_n_out_poll_accum: float = 0.0
-var _miss_n_out_runtime_sig_cache: int = 0
 var _miss_n_out_contest_state_cache: Node = null
+var _miss_n_out_banner_runtime: MissNOutBannerRuntime = MissNOutBannerRuntime.new()
 
 func _enter_tree() -> void:
 	if not enable_dev_map_loader:
@@ -238,38 +239,12 @@ func _refresh_miss_n_out_banner_from_runtime_state(force: bool = false) -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
-	var sig: int = _miss_n_out_runtime_signature(tree)
-	if not force and sig == _miss_n_out_runtime_sig_cache:
+	if _miss_n_out_banner_runtime == null:
 		return
-	_miss_n_out_runtime_sig_cache = sig
-	var show_banner: bool = false
-	var notice: String = ""
-	if tree.has_meta("miss_n_out_eliminated") and bool(tree.get_meta("miss_n_out_eliminated")):
-		show_banner = true
-		notice = str(tree.get_meta("miss_n_out_notice", "Eliminated. You can keep playing or return to lobby."))
-	if not show_banner and tree.has_meta("miss_n_out_result") and tree.has_meta("miss_n_out_local_player_id"):
-		var contest_state: Node = _get_contest_state()
-		if contest_state != null and contest_state.has_method("miss_n_out_player_status"):
-			var result: Dictionary = tree.get_meta("miss_n_out_result", {}) as Dictionary
-			var player_id: String = str(tree.get_meta("miss_n_out_local_player_id", ""))
-			var status: Dictionary = contest_state.call("miss_n_out_player_status", result, player_id) as Dictionary
-			if bool(status.get("eliminated", false)):
-				show_banner = true
-				notice = str(status.get("notice", "Eliminated. You can keep playing or return to lobby."))
-	if show_banner and notice.is_empty():
-		notice = "Eliminated. You can keep playing or return to lobby."
-	_set_miss_n_out_banner(show_banner, notice)
-
-func _miss_n_out_runtime_signature(tree: SceneTree) -> int:
-	if tree == null:
-		return 0
-	var eliminated: bool = bool(tree.get_meta("miss_n_out_eliminated", false))
-	var notice: String = str(tree.get_meta("miss_n_out_notice", ""))
-	var local_player: String = str(tree.get_meta("miss_n_out_local_player_id", ""))
-	var result_hash: int = 0
-	if tree.has_meta("miss_n_out_result"):
-		result_hash = hash(tree.get_meta("miss_n_out_result", {}))
-	return hash([eliminated, notice, local_player, result_hash])
+	var runtime: Dictionary = _miss_n_out_banner_runtime.refresh(tree, _get_contest_state(), force)
+	if not bool(runtime.get("changed", false)):
+		return
+	_set_miss_n_out_banner(bool(runtime.get("visible", false)), str(runtime.get("notice", "")))
 
 func _get_contest_state() -> Node:
 	if _miss_n_out_contest_state_cache != null and is_instance_valid(_miss_n_out_contest_state_cache):

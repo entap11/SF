@@ -16,6 +16,8 @@ const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
 const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
+const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
+const ArenaWorldViewportCache := preload("res://scripts/arena_helpers/world_viewport_cache.gd")
 
 const GRID_W := 8
 const GRID_H := 12
@@ -182,8 +184,7 @@ var _timer_branch_logged: bool = false
 var _timer_label_bind_logged: bool = false
 var _timer_ready_logged: bool = false
 var _cam_probe_accum: float = 0.0
-var _world_viewport_container_cache: Control = null
-var _world_subviewport_cache: SubViewport = null
+var _world_viewport_cache: ArenaWorldViewportCache = ArenaWorldViewportCache.new()
 var _prematch_overlay: Control = null
 var _prematch_countdown_label: Label = null
 var _prematch_records_panel: Control = null
@@ -194,7 +195,7 @@ var _prematch_record_p4: Label = null
 var _prematch_record_h2h: Label = null
 var _prematch_record_teams: Label = null
 var _prematch_record_team_arrows: Label = null
-var _controls_hint_overlay: Control = null
+var _controls_hint_controller: ArenaControlsHintController = ArenaControlsHintController.new()
 var _prematch_remaining_ms_f: float = 0.0
 var _prematch_last_sec: int = -1
 var _prematch_records_faded: bool = false
@@ -440,9 +441,11 @@ func _start_match_flow() -> void:
 	SFLog.info("PREMATCH_BEGIN", {})
 	_force_unpause_sanity()
 	_ensure_prematch_ui()
-	_ensure_controls_hint_overlay()
+	if _controls_hint_controller != null:
+		_controls_hint_controller.ensure_overlay(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
 	_begin_prematch()
-	_maybe_show_controls_hint_once()
+	if _controls_hint_controller != null:
+		_controls_hint_controller.maybe_show_once(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
 
 func _resolve_top_hud_root() -> Node:
 	var top_hud_root: Node = get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopHudRoot")
@@ -676,111 +679,6 @@ func _build_win_overlay() -> WinOverlay:
 	panel.add_child(sub)
 
 	return overlay
-
-func _ensure_controls_hint_overlay() -> void:
-	if _controls_hint_overlay != null and is_instance_valid(_controls_hint_overlay):
-		return
-	var hud_root: Control = _resolve_hud_root()
-	if hud_root == null:
-		return
-	var overlay: Control = hud_root.get_node_or_null("ControlsHintOverlay") as Control
-	if overlay == null:
-		overlay = _build_controls_hint_overlay()
-		hud_root.add_child(overlay)
-	elif overlay.get_parent() != hud_root:
-		overlay.reparent(hud_root)
-	_force_fullscreen_anchors(overlay)
-	overlay.z_as_relative = false
-	overlay.z_index = 2050
-	overlay.top_level = false
-	var got_it: Button = overlay.get_node_or_null("Panel/VBox/GotItButton") as Button
-	if got_it != null and not got_it.pressed.is_connected(_on_controls_hint_continue_pressed):
-		got_it.pressed.connect(_on_controls_hint_continue_pressed)
-	_controls_hint_overlay = overlay
-
-func _build_controls_hint_overlay() -> Control:
-	var overlay := Control.new()
-	overlay.name = "ControlsHintOverlay"
-	overlay.visible = false
-	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	overlay.layout_mode = 3
-	overlay.anchor_right = 1.0
-	overlay.anchor_bottom = 1.0
-	overlay.grow_horizontal = 2
-	overlay.grow_vertical = 2
-	var panel := Panel.new()
-	panel.name = "Panel"
-	panel.anchor_left = 0.5
-	panel.anchor_top = 0.5
-	panel.anchor_right = 0.5
-	panel.anchor_bottom = 0.5
-	panel.offset_left = -230.0
-	panel.offset_top = -120.0
-	panel.offset_right = 230.0
-	panel.offset_bottom = 120.0
-	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	overlay.add_child(panel)
-	var vbox := VBoxContainer.new()
-	vbox.name = "VBox"
-	vbox.anchor_right = 1.0
-	vbox.anchor_bottom = 1.0
-	vbox.offset_left = 14.0
-	vbox.offset_top = 14.0
-	vbox.offset_right = -14.0
-	vbox.offset_bottom = -14.0
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(vbox)
-	var title := Label.new()
-	title.name = "Title"
-	title.text = "Controls"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title)
-	var body := Label.new()
-	body.name = "Body"
-	body.text = "Tap a hive to select.\nTap another hive to send units.\nDrag from hive to hive to build lanes."
-	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vbox.add_child(body)
-	var got_it := Button.new()
-	got_it.name = "GotItButton"
-	got_it.text = "Got it"
-	vbox.add_child(got_it)
-	return overlay
-
-func _maybe_show_controls_hint_once() -> void:
-	if _has_seen_controls_hint():
-		return
-	if _controls_hint_overlay == null:
-		_ensure_controls_hint_overlay()
-	if _controls_hint_overlay == null:
-		return
-	_controls_hint_overlay.visible = true
-	var parent_node: Node = _controls_hint_overlay.get_parent()
-	if parent_node != null:
-		parent_node.move_child(_controls_hint_overlay, parent_node.get_child_count() - 1)
-	var got_it: Button = _controls_hint_overlay.get_node_or_null("Panel/VBox/GotItButton") as Button
-	if got_it != null:
-		got_it.grab_focus()
-
-func _hide_controls_hint_overlay(mark_seen: bool = false) -> void:
-	if _controls_hint_overlay == null:
-		return
-	var was_visible: bool = _controls_hint_overlay.visible
-	_controls_hint_overlay.visible = false
-	if mark_seen and was_visible:
-		_mark_controls_hint_seen()
-
-func _on_controls_hint_continue_pressed() -> void:
-	_hide_controls_hint_overlay(true)
-
-func _has_seen_controls_hint() -> bool:
-	if ProfileManager != null and ProfileManager.has_method("has_seen_controls_hint"):
-		return bool(ProfileManager.call("has_seen_controls_hint"))
-	return false
-
-func _mark_controls_hint_seen() -> void:
-	if ProfileManager != null and ProfileManager.has_method("mark_controls_hint_seen"):
-		ProfileManager.call("mark_controls_hint_seen")
 
 func _resolve_top_buffer_background() -> TextureRect:
 	var top_hud_root: Node = _resolve_top_hud_root()
@@ -1872,7 +1770,8 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
-	_hide_controls_hint_overlay()
+	if _controls_hint_controller != null:
+		_controls_hint_controller.hide(false)
 	if _is_stage_race_runtime_mode():
 		_show_stage_race_round_overlay(winner_id_in, reason)
 		if sim_runner != null:
@@ -2375,8 +2274,9 @@ func _on_viewport_size_changed() -> void:
 	_snap_power_bar_to_map_top("viewport_resize")
 
 func _resize_world_viewport() -> void:
-	var wvc: Control = _resolve_world_viewport_container_cached()
-	var sv: SubViewport = _resolve_world_subviewport_cached()
+	var tree: SceneTree = get_tree()
+	var wvc: Control = _world_viewport_cache.resolve_container(tree) if _world_viewport_cache != null else null
+	var sv: SubViewport = _world_viewport_cache.resolve_subviewport(tree) if _world_viewport_cache != null else null
 	if wvc == null or sv == null:
 		return
 	var overscan_x: float = 80.0
@@ -2394,36 +2294,6 @@ func _resize_world_viewport() -> void:
 		"sv_new": sv.size,
 		"overscan": [overscan_x, overscan_y]
 	})
-
-func _resolve_world_viewport_container_cached() -> Control:
-	if _world_viewport_container_cache != null and is_instance_valid(_world_viewport_container_cache):
-		return _world_viewport_container_cache
-	var direct: Control = get_node_or_null("/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer") as Control
-	if direct != null:
-		_world_viewport_container_cache = direct
-		return direct
-	var tree: SceneTree = get_tree()
-	if tree == null or tree.root == null:
-		return null
-	var found: Node = tree.root.find_child("WorldViewportContainer", true, false)
-	if found != null and found is Control:
-		_world_viewport_container_cache = found as Control
-	return _world_viewport_container_cache
-
-func _resolve_world_subviewport_cached() -> SubViewport:
-	if _world_subviewport_cache != null and is_instance_valid(_world_subviewport_cache):
-		return _world_subviewport_cache
-	var direct: SubViewport = get_node_or_null("/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport") as SubViewport
-	if direct != null:
-		_world_subviewport_cache = direct
-		return direct
-	var tree: SceneTree = get_tree()
-	if tree == null or tree.root == null:
-		return null
-	var found: Node = tree.root.find_child("WorldViewport", true, false)
-	if found != null and found is SubViewport:
-		_world_subviewport_cache = found as SubViewport
-	return _world_subviewport_cache
 
 func _ensure_playfield_outline() -> PlayfieldOutline:
 	if is_instance_valid(_playfield_outline):
@@ -2874,7 +2744,8 @@ func _maybe_debug_camera_probe(delta: float) -> void:
 	if _cam_probe_accum < 0.5:
 		return
 	_cam_probe_accum = 0.0
-	var sv: SubViewport = _resolve_world_subviewport_cached()
+	var tree: SceneTree = get_tree()
+	var sv: SubViewport = _world_viewport_cache.resolve_subviewport(tree) if _world_viewport_cache != null else null
 	var cam: Camera2D = null
 	if sv != null:
 		cam = sv.get_camera_2d()
@@ -4718,19 +4589,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if input_system == null or api == null:
 		return
-	if _controls_hint_overlay != null and _controls_hint_overlay.visible:
-		if event is InputEventMouseButton:
-			var hint_mb := event as InputEventMouseButton
-			if hint_mb.button_index == MOUSE_BUTTON_LEFT and hint_mb.pressed:
-				_hide_controls_hint_overlay(true)
-				get_viewport().set_input_as_handled()
-				return
-		elif event is InputEventScreenTouch:
-			var hint_st := event as InputEventScreenTouch
-			if hint_st.pressed:
-				_hide_controls_hint_overlay(true)
-				get_viewport().set_input_as_handled()
-				return
+	if _controls_hint_controller != null and _controls_hint_controller.consume_dismiss_input(event, get_viewport()):
+		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:

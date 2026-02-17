@@ -44,6 +44,15 @@
     - `_tick_arena_heartbeat(...)`
     - `_tick_arena_runtime(...)`
 
+## Tranche 2 Follow-up (Current)
+- `scripts/arena.gd`
+  - Extracted controls hint overlay lifecycle to `scripts/arena_helpers/controls_hint_controller.gd`.
+  - Extracted world viewport lookup cache to `scripts/arena_helpers/world_viewport_cache.gd`.
+  - `arena.gd` now orchestrates these helpers instead of owning all inline implementation.
+- `scripts/main.gd`
+  - Extracted Miss-N-Out banner runtime-state decision logic to `scripts/main_helpers/miss_n_out_banner_runtime.gd`.
+  - `main.gd` now focuses on orchestration + polling cadence only.
+
 ## Next Tranche (Recommended)
 1. Extract UI overlay builders out of `arena.gd`:
    - post-match, prematch, controls hint.
@@ -62,4 +71,3 @@
    - `scripts/shell.gd`
    - `scripts/systems/input_system.gd`
    - `scripts/ui/main_menu.gd`
-
