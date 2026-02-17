@@ -18,6 +18,9 @@ const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
 const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaWorldViewportCache := preload("res://scripts/arena_helpers/world_viewport_cache.gd")
+const ArenaStageRuntimeFlow := preload("res://scripts/arena_helpers/stage_runtime_flow.gd")
+const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
+const ArenaInputBridgeUtils := preload("res://scripts/arena_helpers/input_bridge_utils.gd")
 
 const GRID_W := 8
 const GRID_H := 12
@@ -185,6 +188,9 @@ var _timer_label_bind_logged: bool = false
 var _timer_ready_logged: bool = false
 var _cam_probe_accum: float = 0.0
 var _world_viewport_cache: ArenaWorldViewportCache = ArenaWorldViewportCache.new()
+var _stage_runtime_flow: ArenaStageRuntimeFlow = ArenaStageRuntimeFlow.new()
+var _prematch_team_ui_formatter: ArenaPrematchTeamUiFormatter = ArenaPrematchTeamUiFormatter.new()
+var _input_bridge_utils: ArenaInputBridgeUtils = ArenaInputBridgeUtils.new()
 var _prematch_overlay: Control = null
 var _prematch_countdown_label: Label = null
 var _prematch_records_panel: Control = null
@@ -1098,103 +1104,29 @@ func _refresh_prematch_records() -> void:
 		_prematch_record_h2h.text = _get_h2h_record_line()
 
 func _get_team_banner_line() -> String:
-	var active_seats: Array[int] = _record_active_seats()
-	if active_seats.is_empty():
-		return "Teams: --"
-	var team_to_seats: Dictionary = {}
-	for seat in active_seats:
-		var team_id: int = seat
-		if OpsState != null and OpsState.has_method("get_team_for_seat"):
-			team_id = int(OpsState.call("get_team_for_seat", seat))
-		if team_id <= 0:
-			team_id = seat
-		if not team_to_seats.has(team_id):
-			team_to_seats[team_id] = []
-		var seats_for_team: Array = team_to_seats[team_id] as Array
-		seats_for_team.append(seat)
-		seats_for_team.sort()
-		team_to_seats[team_id] = seats_for_team
-	var team_ids: Array[int] = []
-	for team_id_any in team_to_seats.keys():
-		team_ids.append(int(team_id_any))
-	team_ids.sort()
 	var local_seat: int = _resolve_local_owner_id()
-	var local_team: int = local_seat
-	if OpsState != null and OpsState.has_method("get_team_for_seat"):
-		local_team = int(OpsState.call("get_team_for_seat", local_seat))
-	if local_team <= 0:
-		local_team = local_seat
-	if team_ids.size() == 2:
-		var left_team_id: int = team_ids[0]
-		var right_team_id: int = team_ids[1]
-		var left_team_seats: Array = (team_to_seats.get(left_team_id, []) as Array).duplicate()
-		var right_team_seats: Array = (team_to_seats.get(right_team_id, []) as Array).duplicate()
-		left_team_seats.sort()
-		right_team_seats.sort()
-		var teammate: String = "solo"
-		var local_team_seats: Array = (team_to_seats.get(local_team, []) as Array).duplicate()
-		local_team_seats.sort()
-		for seat_any in local_team_seats:
-			var seat_int: int = int(seat_any)
-			if seat_int != local_seat:
-				teammate = "P%d" % seat_int
-				break
-		return "Teams: T%d %s vs T%d %s | You: P%d + %s" % [
-			left_team_id,
-			_format_team_seats_text(left_team_seats),
-			right_team_id,
-			_format_team_seats_text(right_team_seats),
-			local_seat,
-			teammate
-		]
-	var chunks: Array[String] = []
-	for team_id in team_ids:
-		var seats_for_team: Array = (team_to_seats.get(team_id, []) as Array).duplicate()
-		seats_for_team.sort()
-		chunks.append("T%d %s" % [team_id, _format_team_seats_text(seats_for_team)])
-	return "Teams: %s | You: P%d" % [" | ".join(chunks), local_seat]
+	return _prematch_team_ui_formatter.format_team_banner_line(
+		_record_active_seats(),
+		Callable(self, "_resolve_team_for_seat"),
+		local_seat
+	)
 
 func _get_team_arrow_line() -> String:
-	var active_seats: Array[int] = _record_active_seats()
-	if active_seats.is_empty():
-		return ""
-	var team_to_seats: Dictionary = {}
-	for seat in active_seats:
-		var team_id: int = seat
-		if OpsState != null and OpsState.has_method("get_team_for_seat"):
-			team_id = int(OpsState.call("get_team_for_seat", seat))
-		if team_id <= 0:
-			team_id = seat
-		if not team_to_seats.has(team_id):
-			team_to_seats[team_id] = []
-		var seats_for_team: Array = team_to_seats[team_id] as Array
-		seats_for_team.append(seat)
-		seats_for_team.sort()
-		team_to_seats[team_id] = seats_for_team
-	var team_ids: Array[int] = []
-	for team_id_any in team_to_seats.keys():
-		team_ids.append(int(team_id_any))
-	team_ids.sort()
-	var chunks: Array[String] = []
-	for team_id in team_ids:
-		var seats_for_team: Array = (team_to_seats.get(team_id, []) as Array).duplicate()
-		seats_for_team.sort()
-		if seats_for_team.size() >= 2:
-			var members: Array[String] = []
-			for seat_any in seats_for_team:
-				members.append("P%d" % int(seat_any))
-			chunks.append("T%d %s" % [team_id, " --> ".join(members)])
-	if chunks.is_empty():
-		return "Team Links: --"
-	return "Team Links: %s" % "  |  ".join(chunks)
+	return _prematch_team_ui_formatter.format_team_arrow_line(
+		_record_active_seats(),
+		Callable(self, "_resolve_team_for_seat")
+	)
 
 func _format_team_seats_text(seats: Array) -> String:
-	if seats.is_empty():
-		return "-"
-	var out: Array[String] = []
-	for seat_any in seats:
-		out.append("P%d" % int(seat_any))
-	return "+".join(out)
+	return _prematch_team_ui_formatter.format_team_seats_text(seats)
+
+func _resolve_team_for_seat(seat: int) -> int:
+	var team_id: int = seat
+	if OpsState != null and OpsState.has_method("get_team_for_seat"):
+		team_id = int(OpsState.call("get_team_for_seat", seat))
+	if team_id <= 0:
+		team_id = seat
+	return team_id
 
 func _get_player_record_line(player_slot: int) -> String:
 	var entry: Dictionary = _get_roster_entry_for_slot(player_slot)
@@ -1827,158 +1759,28 @@ func _on_post_match_action(action: String) -> void:
 			return
 
 func _is_stage_race_runtime_mode() -> bool:
-	var tree: SceneTree = get_tree()
-	if tree == null:
-		return false
-	var mode: String = str(tree.get_meta(TREE_META_VS_MODE, "")).strip_edges().to_upper()
-	return mode == VS_MODE_STAGE_RACE
+	return _stage_runtime_flow.is_stage_race_runtime_mode(get_tree(), TREE_META_VS_MODE, VS_MODE_STAGE_RACE)
 
 func _get_stage_map_paths_runtime() -> Array[String]:
-	var out: Array[String] = []
-	var tree: SceneTree = get_tree()
-	if tree == null or not tree.has_meta(TREE_META_VS_STAGE_MAP_PATHS):
-		return out
-	var raw: Variant = tree.get_meta(TREE_META_VS_STAGE_MAP_PATHS, [])
-	if typeof(raw) != TYPE_ARRAY:
-		return out
-	for path_any in raw as Array:
-		var path: String = str(path_any).strip_edges()
-		if path.is_empty():
-			continue
-		out.append(path)
-	return out
+	return _stage_runtime_flow.get_stage_map_paths_runtime(get_tree(), TREE_META_VS_STAGE_MAP_PATHS)
 
 func _get_stage_round_results_runtime() -> Array:
-	var out: Array = []
-	var tree: SceneTree = get_tree()
-	if tree == null or not tree.has_meta(TREE_META_VS_STAGE_ROUND_RESULTS):
-		return out
-	var raw: Variant = tree.get_meta(TREE_META_VS_STAGE_ROUND_RESULTS, [])
-	if typeof(raw) != TYPE_ARRAY:
-		return out
-	for item_any in raw as Array:
-		if typeof(item_any) != TYPE_DICTIONARY:
-			continue
-		out.append((item_any as Dictionary).duplicate(true))
-	return out
+	return _stage_runtime_flow.get_stage_round_results_runtime(get_tree(), TREE_META_VS_STAGE_ROUND_RESULTS)
 
 func _set_stage_round_results_runtime(results: Array) -> void:
-	var tree: SceneTree = get_tree()
-	if tree == null:
-		return
-	tree.set_meta(TREE_META_VS_STAGE_ROUND_RESULTS, results.duplicate(true))
+	_stage_runtime_flow.set_stage_round_results_runtime(get_tree(), TREE_META_VS_STAGE_ROUND_RESULTS, results)
 
 func _upsert_stage_round_result(results: Array, round_index: int, result: Dictionary) -> Array:
-	var out: Array = results.duplicate(true)
-	for i in range(out.size()):
-		if typeof(out[i]) != TYPE_DICTIONARY:
-			continue
-		var row: Dictionary = out[i] as Dictionary
-		if int(row.get("round_index", -1)) != round_index:
-			continue
-		out[i] = result.duplicate(true)
-		return out
-	out.append(result.duplicate(true))
-	return out
+	return _stage_runtime_flow.upsert_stage_round_result(results, round_index, result)
 
 func _owned_hive_counts_by_owner() -> Dictionary:
-	var counts: Dictionary = {}
-	if state == null:
-		return counts
-	for hive in state.hives:
-		if hive == null:
-			continue
-		var owner_id: int = int(hive.owner_id)
-		if owner_id <= 0:
-			continue
-		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
-	return counts
+	return _stage_runtime_flow.owned_hive_counts_by_owner(state)
 
 func _resolve_stage_opponent_owner_id(owned_by_owner: Dictionary, local_owner_id: int, winner_id_in: int) -> int:
-	if winner_id_in > 0 and winner_id_in != local_owner_id:
-		return winner_id_in
-	var best_owner: int = 0
-	var best_owned: int = -1
-	for owner_any in owned_by_owner.keys():
-		var owner_id: int = int(owner_any)
-		if owner_id <= 0 or owner_id == local_owner_id:
-			continue
-		var owned: int = int(owned_by_owner.get(owner_id, 0))
-		if owned > best_owned:
-			best_owned = owned
-			best_owner = owner_id
-	return best_owner
-
-func _stage_stats_add(stats_by_owner: Dictionary, owner_id: int, owned_delta: int, elapsed_ms_delta: int, won_round: bool) -> void:
-	if owner_id <= 0:
-		return
-	var stats: Dictionary = stats_by_owner.get(owner_id, {
-		"wins": 0,
-		"owned": 0,
-		"elapsed_ms": 0
-	})
-	stats["wins"] = int(stats.get("wins", 0)) + (1 if won_round else 0)
-	stats["owned"] = int(stats.get("owned", 0)) + maxi(0, owned_delta)
-	stats["elapsed_ms"] = int(stats.get("elapsed_ms", 0)) + maxi(0, elapsed_ms_delta)
-	stats_by_owner[owner_id] = stats
+	return _stage_runtime_flow.resolve_stage_opponent_owner_id(owned_by_owner, local_owner_id, winner_id_in)
 
 func _stage_rank_snapshot(results: Array, local_owner_id: int) -> Dictionary:
-	var stats_by_owner: Dictionary = {}
-	for result_any in results:
-		if typeof(result_any) != TYPE_DICTIONARY:
-			continue
-		var row: Dictionary = result_any as Dictionary
-		var winner: int = int(row.get("winner_id", 0))
-		var elapsed_ms: int = maxi(0, int(row.get("elapsed_ms", 0)))
-		var row_local_owner: int = int(row.get("local_owner_id", local_owner_id))
-		var row_opponent_owner: int = int(row.get("opponent_owner_id", 0))
-		var row_local_owned: int = maxi(0, int(row.get("local_owned_hives", 0)))
-		var row_opponent_owned: int = maxi(0, int(row.get("opponent_owned_hives", 0)))
-		_stage_stats_add(stats_by_owner, row_local_owner, row_local_owned, elapsed_ms, winner == row_local_owner)
-		_stage_stats_add(stats_by_owner, row_opponent_owner, row_opponent_owned, elapsed_ms, winner == row_opponent_owner)
-	var owners: Array = stats_by_owner.keys()
-	owners.sort_custom(func(a, b):
-		var a_id: int = int(a)
-		var b_id: int = int(b)
-		var a_stats: Dictionary = stats_by_owner.get(a_id, {})
-		var b_stats: Dictionary = stats_by_owner.get(b_id, {})
-		var a_wins: int = int(a_stats.get("wins", 0))
-		var b_wins: int = int(b_stats.get("wins", 0))
-		if a_wins != b_wins:
-			return a_wins > b_wins
-		var a_owned: int = int(a_stats.get("owned", 0))
-		var b_owned: int = int(b_stats.get("owned", 0))
-		if a_owned != b_owned:
-			return a_owned > b_owned
-		var a_elapsed: int = int(a_stats.get("elapsed_ms", 0))
-		var b_elapsed: int = int(b_stats.get("elapsed_ms", 0))
-		if a_elapsed != b_elapsed:
-			return a_elapsed < b_elapsed
-		return a_id < b_id
-	)
-	var rank: int = 0
-	for i in range(owners.size()):
-		if int(owners[i]) == local_owner_id:
-			rank = i + 1
-			break
-	var local_wins: int = int((stats_by_owner.get(local_owner_id, {}) as Dictionary).get("wins", 0))
-	var local_elapsed_ms: int = int((stats_by_owner.get(local_owner_id, {}) as Dictionary).get("elapsed_ms", 0))
-	var opponent_wins: int = 0
-	var opponent_elapsed_ms: int = 0
-	for owner_any in owners:
-		var owner_id: int = int(owner_any)
-		if owner_id == local_owner_id:
-			continue
-		opponent_wins = int((stats_by_owner.get(owner_id, {}) as Dictionary).get("wins", 0))
-		opponent_elapsed_ms = int((stats_by_owner.get(owner_id, {}) as Dictionary).get("elapsed_ms", 0))
-		break
-	return {
-		"rank": rank,
-		"local_wins": local_wins,
-		"opponent_wins": opponent_wins,
-		"local_elapsed_ms": local_elapsed_ms,
-		"opponent_elapsed_ms": opponent_elapsed_ms
-	}
+	return _stage_runtime_flow.stage_rank_snapshot(results, local_owner_id)
 
 func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary:
 	var tree: SceneTree = get_tree()
@@ -4562,27 +4364,17 @@ func _init_barracks() -> void:
 	]
 
 func _is_dev_mouse_override() -> bool:
-	return OS.is_debug_build() or Engine.is_editor_hint()
+	return _input_bridge_utils.is_dev_mouse_override()
 
 func _dev_mouse_pid(event: InputEventMouseButton) -> int:
-	if not _is_dev_mouse_override():
-		return -1
-	if event.button_index == MOUSE_BUTTON_LEFT:
-		return 1
-	if event.button_index == MOUSE_BUTTON_RIGHT:
-		return 3
-	return -1
+	return _input_bridge_utils.dev_mouse_pid(event)
 
 func _mouse_world_pos() -> Vector2:
 	return _screen_to_world(get_viewport().get_mouse_position())
 
 func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	var vp: Viewport = get_viewport()
-	if vp == null:
-		return get_global_mouse_position()
-	# Canonical screen->world conversion from viewport canvas transform.
-	var canvas_xform: Transform2D = vp.get_canvas_transform()
-	return canvas_xform.affine_inverse() * screen_pos
+	return _input_bridge_utils.screen_to_world(vp, get_global_mouse_position(), screen_pos)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if state == null:
@@ -4621,8 +4413,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	input_system.handle_input(event, api)
 
 func _pointer_local_from_screen(screen_pos: Vector2) -> Vector2:
-	var wp: Vector2 = _screen_to_world(screen_pos)
-	return map_root.to_local(wp)
+	return _input_bridge_utils.pointer_local_from_screen(
+		get_viewport(),
+		map_root,
+		get_global_mouse_position(),
+		screen_pos
+	)
 
 func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, is_motion: bool = false, world_pos: Vector2 = Vector2.ZERO, screen_pos: Vector2 = Vector2.ZERO) -> void:
 	var hive_id: int = api.hive_id_at_point(local_pos)

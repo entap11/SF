@@ -27,6 +27,11 @@ const MVP_SMOKE_DEFAULT_BOOT_TIMEOUT_MS: int = 7000
 const MVP_SMOKE_DEFAULT_RUN_TIMEOUT_MS: int = 12000
 const MVP_SMOKE_DEFAULT_END_TIMEOUT_MS: int = 25000
 const MVP_SMOKE_DEFAULT_WIN_MAP: String = "res://maps/json/MAP_TEST.json"
+const SOAK_DEFAULT_SECONDS: int = 1800
+const SOAK_DEFAULT_ROUND_SECONDS: int = 300
+const SOAK_DEFAULT_PAIR_COUNT: int = 2
+const SOAK_DEFAULT_REAPPLY_MS: int = 1000
+const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
@@ -204,6 +209,8 @@ func _ready() -> void:
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 070: before_startup_menu_flow")
 	_set_menu_state(in_menu_boot)
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 080: after_startup_menu_flow")
+	if _maybe_start_soak_perf():
+		return
 	if _maybe_start_mvp_smoke():
 		return
 	var menu_root_node: Node = get_node_or_null("MenuRoot")
@@ -1396,6 +1403,253 @@ func _update_power_bar_visibility() -> void:
 
 func _is_match_live() -> bool:
 	return int(OpsState.match_phase) == int(OpsState.MatchPhase.RUNNING) and int(OpsState.prematch_remaining_ms) <= 0
+
+func _maybe_start_soak_perf() -> bool:
+	var config: Dictionary = _parse_soak_perf_config(OS.get_cmdline_user_args())
+	if not bool(config.get("enabled", false)):
+		return false
+	call_deferred("_run_soak_perf", config)
+	return true
+
+func _parse_soak_perf_config(args: Array) -> Dictionary:
+	var config: Dictionary = {
+		"enabled": false,
+		"map_path": "",
+		"seconds": SOAK_DEFAULT_SECONDS,
+		"round_seconds": SOAK_DEFAULT_ROUND_SECONDS,
+		"pairs": SOAK_DEFAULT_PAIR_COUNT,
+		"reapply_ms": SOAK_DEFAULT_REAPPLY_MS,
+		"start_timeout_ms": SOAK_DEFAULT_START_TIMEOUT_MS
+	}
+	for arg_any in args:
+		var arg: String = str(arg_any)
+		if arg == "--soak-perf":
+			config["enabled"] = true
+		elif arg.begins_with("--soak-map="):
+			config["map_path"] = arg.trim_prefix("--soak-map=")
+		elif arg.begins_with("--soak-seconds="):
+			config["seconds"] = max(10, int(arg.trim_prefix("--soak-seconds=")))
+		elif arg.begins_with("--soak-round-seconds="):
+			config["round_seconds"] = max(10, int(arg.trim_prefix("--soak-round-seconds=")))
+		elif arg.begins_with("--soak-pairs="):
+			config["pairs"] = clampi(int(arg.trim_prefix("--soak-pairs=")), 1, 8)
+		elif arg.begins_with("--soak-reapply-ms="):
+			config["reapply_ms"] = max(250, int(arg.trim_prefix("--soak-reapply-ms=")))
+		elif arg.begins_with("--soak-start-timeout-ms="):
+			config["start_timeout_ms"] = max(1000, int(arg.trim_prefix("--soak-start-timeout-ms=")))
+	return config
+
+func _run_soak_perf(config: Dictionary) -> void:
+	var prev_log_level: int = int(SFLog.LOG_LEVEL)
+	SFLog.LOG_LEVEL = SFLog.Level.INFO
+	SFLog.allow_tag("SOAK_START")
+	SFLog.allow_tag("SOAK_ROUND_START")
+	SFLog.allow_tag("SOAK_ROUND_INTENTS")
+	SFLog.allow_tag("SOAK_ROUND_END")
+	SFLog.allow_tag("SOAK_SUMMARY")
+	SFLog.allow_tag("SOAK_ERROR")
+	SFLog.allow_tag("ARENA_FRAME_HEARTBEAT")
+	SFLog.allow_tag("SIM_HEARTBEAT")
+	SFLog.allow_tag("SIM_TICK_COST")
+
+	var map_path: String = str(config.get("map_path", "")).strip_edges()
+	if map_path == "":
+		var maps: Array[String] = _mvp_list_json_maps()
+		if not maps.is_empty():
+			map_path = maps[0]
+	if map_path == "":
+		SFLog.warn("SOAK_ERROR", {"reason": "no_map_available"})
+		SFLog.LOG_LEVEL = prev_log_level
+		get_tree().quit(1)
+		return
+	var soak_seconds: int = int(config.get("seconds", SOAK_DEFAULT_SECONDS))
+	var round_seconds: int = int(config.get("round_seconds", SOAK_DEFAULT_ROUND_SECONDS))
+	var pair_count: int = int(config.get("pairs", SOAK_DEFAULT_PAIR_COUNT))
+	var reapply_ms: int = int(config.get("reapply_ms", SOAK_DEFAULT_REAPPLY_MS))
+	var start_timeout_ms: int = int(config.get("start_timeout_ms", SOAK_DEFAULT_START_TIMEOUT_MS))
+	_stop_game()
+	await get_tree().process_frame
+	_apply_map_then_start(map_path)
+	var boot_running_ok: bool = await _mvp_wait_for_phase(int(OpsState.MatchPhase.RUNNING), start_timeout_ms)
+	if not boot_running_ok:
+		SFLog.warn("SOAK_ERROR", {"round": 0, "reason": "initial_match_not_running"})
+		SFLog.LOG_LEVEL = prev_log_level
+		get_tree().quit(1)
+		return
+	_soak_disable_bots()
+
+	var soak_start_ms := Time.get_ticks_msec()
+	var soak_deadline_ms := soak_start_ms + (soak_seconds * 1000)
+	var rounds: int = 0
+	var failed_rounds: int = 0
+	SFLog.info("SOAK_START", {
+		"map": map_path,
+		"seconds": soak_seconds,
+		"round_seconds": round_seconds,
+		"pairs": pair_count
+	})
+	while Time.get_ticks_msec() < soak_deadline_ms:
+		rounds += 1
+		var remaining_ms: int = soak_deadline_ms - Time.get_ticks_msec()
+		var round_budget_ms: int = mini(round_seconds * 1000, remaining_ms)
+		var ok: bool = await _run_soak_perf_round(rounds, round_budget_ms, map_path, pair_count, reapply_ms, start_timeout_ms)
+		if not ok:
+			failed_rounds += 1
+	var elapsed_ms := Time.get_ticks_msec() - soak_start_ms
+	SFLog.info("SOAK_SUMMARY", {
+		"rounds": rounds,
+		"failed_rounds": failed_rounds,
+		"elapsed_s": snapped(float(elapsed_ms) / 1000.0, 0.1)
+	})
+	SFLog.LOG_LEVEL = prev_log_level
+	_stop_game()
+	await get_tree().process_frame
+	get_tree().quit(1 if failed_rounds > 0 else 0)
+
+func _run_soak_perf_round(
+	round_index: int,
+	round_budget_ms: int,
+	map_path: String,
+	pair_count: int,
+	reapply_ms: int,
+	start_timeout_ms: int
+) -> bool:
+	SFLog.info("SOAK_ROUND_START", {
+		"round": round_index,
+		"budget_ms": round_budget_ms
+	})
+	if int(OpsState.match_phase) != int(OpsState.MatchPhase.RUNNING):
+		_apply_map_then_start(map_path)
+		var running_ok: bool = await _mvp_wait_for_phase(int(OpsState.MatchPhase.RUNNING), start_timeout_ms)
+		if not running_ok:
+			SFLog.warn("SOAK_ERROR", {"round": round_index, "reason": "match_not_running"})
+			return false
+		_soak_disable_bots()
+	var pairs: Array = _soak_pick_duel_pairs(pair_count)
+	if pairs.is_empty():
+		SFLog.warn("SOAK_ERROR", {"round": round_index, "reason": "no_opposing_pairs"})
+		return false
+	_soak_ensure_pairs_active(pairs)
+	SFLog.info("SOAK_ROUND_INTENTS", {
+		"round": round_index,
+		"pairs": pairs
+	})
+	var end_ms: int = Time.get_ticks_msec() + maxi(1000, round_budget_ms)
+	var last_reapply_ms: int = 0
+	while Time.get_ticks_msec() < end_ms:
+		if OpsState.match_phase == OpsState.MatchPhase.ENDED:
+			break
+		var now_ms := Time.get_ticks_msec()
+		if now_ms - last_reapply_ms >= reapply_ms:
+			last_reapply_ms = now_ms
+			if not _soak_ensure_pairs_active(pairs):
+				pairs = _soak_pick_duel_pairs(pair_count)
+				_soak_ensure_pairs_active(pairs)
+		await get_tree().process_frame
+	SFLog.info("SOAK_ROUND_END", {
+		"round": round_index,
+		"phase": int(OpsState.match_phase)
+	})
+	return true
+
+func _soak_pick_duel_pairs(max_pairs: int) -> Array:
+	var st: GameState = OpsState.get_state()
+	if st == null:
+		return []
+	var candidates: Array = []
+	for lane_any in st.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		var a_hive: HiveData = st.find_hive_by_id(int(lane.a_id))
+		var b_hive: HiveData = st.find_hive_by_id(int(lane.b_id))
+		if a_hive == null or b_hive == null:
+			continue
+		var a_owner: int = int(a_hive.owner_id)
+		var b_owner: int = int(b_hive.owner_id)
+		if a_owner <= 0 or b_owner <= 0 or a_owner == b_owner:
+			continue
+		var a_pos: Vector2 = st.hive_world_pos_by_id(int(a_hive.id))
+		var b_pos: Vector2 = st.hive_world_pos_by_id(int(b_hive.id))
+		candidates.append({
+			"src": int(a_hive.id),
+			"dst": int(b_hive.id),
+			"len": a_pos.distance_to(b_pos)
+		})
+	if candidates.is_empty():
+		for i in range(st.hives.size()):
+			var a_any: Variant = st.hives[i]
+			if not (a_any is HiveData):
+				continue
+			var a_hive: HiveData = a_any as HiveData
+			var a_owner: int = int(a_hive.owner_id)
+			if a_owner <= 0:
+				continue
+			for j in range(i + 1, st.hives.size()):
+				var b_any: Variant = st.hives[j]
+				if not (b_any is HiveData):
+					continue
+				var b_hive: HiveData = b_any as HiveData
+				var b_owner: int = int(b_hive.owner_id)
+				if b_owner <= 0 or b_owner == a_owner:
+					continue
+				var a_pos_fb: Vector2 = st.hive_world_pos_by_id(int(a_hive.id))
+				var b_pos_fb: Vector2 = st.hive_world_pos_by_id(int(b_hive.id))
+				candidates.append({
+					"src": int(a_hive.id),
+					"dst": int(b_hive.id),
+					"len": a_pos_fb.distance_to(b_pos_fb)
+				})
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("len", 0.0)) > float(b.get("len", 0.0))
+	)
+	var pairs: Array = []
+	for c_any in candidates:
+		if pairs.size() >= max_pairs:
+			break
+		var c: Dictionary = c_any as Dictionary
+		pairs.append({
+			"src": int(c.get("src", -1)),
+			"dst": int(c.get("dst", -1))
+		})
+	return pairs
+
+func _soak_ensure_pairs_active(pairs: Array) -> bool:
+	var st: GameState = OpsState.get_state()
+	if st == null:
+		return false
+	var kept: int = 0
+	for p_any in pairs:
+		if typeof(p_any) != TYPE_DICTIONARY:
+			continue
+		var p: Dictionary = p_any as Dictionary
+		var src: int = int(p.get("src", -1))
+		var dst: int = int(p.get("dst", -1))
+		if src <= 0 or dst <= 0 or src == dst:
+			continue
+		var src_hive: HiveData = st.find_hive_by_id(src)
+		var dst_hive: HiveData = st.find_hive_by_id(dst)
+		if src_hive == null or dst_hive == null:
+			continue
+		var src_owner: int = int(src_hive.owner_id)
+		var dst_owner: int = int(dst_hive.owner_id)
+		if src_owner <= 0 or dst_owner <= 0 or src_owner == dst_owner:
+			continue
+		_soak_ensure_attack_intent(src, dst, st)
+		_soak_ensure_attack_intent(dst, src, st)
+		kept += 1
+	return kept > 0
+
+func _soak_ensure_attack_intent(src: int, dst: int, st: GameState) -> void:
+	if st.intent_is_on(src, dst):
+		return
+	OpsState.apply_lane_intent(src, dst, "attack")
+
+func _soak_disable_bots() -> void:
+	if OpsState == null or not OpsState.has_method("set_bot_profile"):
+		return
+	for seat in [1, 2, 3, 4]:
+		OpsState.call("set_bot_profile", int(seat), {"enabled": false})
 
 func _maybe_start_mvp_smoke() -> bool:
 	var config: Dictionary = _parse_mvp_smoke_config(OS.get_cmdline_user_args())

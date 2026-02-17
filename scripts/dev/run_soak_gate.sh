@@ -9,6 +9,7 @@ PAIR_COUNT="${SOAK_PAIR_COUNT:-2}"
 SOAK_MAP="${SOAK_MAP:-}"
 MAX_FRAME_MS="${MAX_FRAME_MS:-45.0}"
 MAX_TICK_MS="${MAX_TICK_MS:-8.0}"
+WARMUP_SAMPLES="${SOAK_WARMUP_SAMPLES:-1}"
 
 if [[ -z "${SOAK_MAP}" ]]; then
   FIRST_JSON="$(ls "${ROOT_DIR}"/maps/json/*.json 2>/dev/null | sort | head -n 1 || true)"
@@ -24,18 +25,20 @@ fi
 
 echo "Running soak: seconds=${SOAK_SECONDS}, round_seconds=${ROUND_SECONDS}, pairs=${PAIR_COUNT}"
 echo "Log: ${LOG_FILE}"
+echo "Warmup samples skipped: ${WARMUP_SAMPLES}"
 
 set +e
 godot --headless --path "${ROOT_DIR}" \
-  --script scripts/dev/soak_perf_runner.gd -- \
-  --seconds="${SOAK_SECONDS}" \
-  --round-seconds="${ROUND_SECONDS}" \
-  --pairs="${PAIR_COUNT}" \
-  --map="${SOAK_MAP}" >"${LOG_FILE}" 2>&1
+  -- \
+  --soak-perf \
+  --soak-seconds="${SOAK_SECONDS}" \
+  --soak-round-seconds="${ROUND_SECONDS}" \
+  --soak-pairs="${PAIR_COUNT}" \
+  --soak-map="${SOAK_MAP}" >"${LOG_FILE}" 2>&1
 GODOT_RC=$?
 set -e
 
-python3 - "${LOG_FILE}" "${MAX_FRAME_MS}" "${MAX_TICK_MS}" "${GODOT_RC}" <<'PY'
+python3 - "${LOG_FILE}" "${MAX_FRAME_MS}" "${MAX_TICK_MS}" "${GODOT_RC}" "${WARMUP_SAMPLES}" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -44,6 +47,7 @@ log_path = Path(sys.argv[1])
 max_frame_limit = float(sys.argv[2])
 max_tick_limit = float(sys.argv[3])
 godot_rc = int(sys.argv[4])
+warmup_samples = max(0, int(sys.argv[5]))
 
 if not log_path.exists():
     print(f"SOAK_GATE_FAIL missing log file: {log_path}")
@@ -53,6 +57,9 @@ text = log_path.read_text(errors="replace")
 frame_vals = [float(m.group(1)) for m in re.finditer(r"ARENA_FRAME_HEARTBEAT.*max_frame_ms=([0-9]+(?:\\.[0-9]+)?)", text)]
 tick_vals = [float(m.group(1)) for m in re.finditer(r"SIM_HEARTBEAT.*max_tick_ms=([0-9]+(?:\\.[0-9]+)?)", text)]
 tick_cost_vals = [float(m.group(1)) for m in re.finditer(r"SIM_TICK_COST\\s+dt_ms=([0-9]+(?:\\.[0-9]+)?)", text)]
+if warmup_samples > 0:
+    frame_vals = frame_vals[warmup_samples:] if len(frame_vals) > warmup_samples else []
+    tick_vals = tick_vals[warmup_samples:] if len(tick_vals) > warmup_samples else []
 
 max_frame = max(frame_vals) if frame_vals else 0.0
 max_tick_hb = max(tick_vals) if tick_vals else 0.0

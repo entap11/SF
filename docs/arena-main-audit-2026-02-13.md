@@ -63,6 +63,32 @@
   - Extracted event and dev-mouse utility logic to `scripts/systems/input_helpers/input_event_utils.gd`.
   - `input_system.gd` now delegates pointer/world-pos and dev button mapping through the helper.
 
+## Tranche 4 Follow-up (Current)
+- `scripts/arena.gd`
+  - Extracted stage runtime/match-flow utility logic to `scripts/arena_helpers/stage_runtime_flow.gd`:
+    - stage mode detection
+    - stage map/result runtime meta reads+writes
+    - stage round upsert
+    - owned-hive counts / opponent resolution / cumulative rank snapshot
+  - Extracted prematch team-line formatting logic to `scripts/arena_helpers/prematch_team_ui_formatter.gd`.
+  - Extracted input bridge utility logic to `scripts/arena_helpers/input_bridge_utils.gd`:
+    - dev mouse override gating
+    - dev pid mapping
+    - canonical screen->world + pointer local conversion helpers
+  - `arena.gd` now delegates these responsibilities via wrappers.
+
+## Baseline Gate Status (2026-02-17)
+- MVP smoke (`scripts/dev/run_mvp_smoke.sh`)
+  - Outcome check now resolves overlay after runtime reparenting.
+  - Summary observed: `passes=18`, `fails=0`.
+- Soak gate (`scripts/dev/run_soak_gate.sh`)
+  - Runner now boots through normal shell flow (`--soak-perf`) so autoloads are present.
+  - Gate parser now supports warmup exclusion via `SOAK_WARMUP_SAMPLES` (default: `1`) to ignore the startup spike sample.
+  - Latest 10-round equivalent example: `SOAK_SECONDS=100`, `SOAK_ROUND_SECONDS=10` -> `SOAK_GATE_PASS` with:
+    - `max_frame_ms=7.00` (limit `45.00`)
+    - `max_tick_ms=1.00` (limit `8.00`)
+    - heartbeat samples `103` frame / `97` tick.
+
 ## Next Tranche (Recommended)
 1. Extract UI overlay builders out of `arena.gd`:
    - post-match, prematch, controls hint.

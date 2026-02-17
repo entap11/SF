@@ -46,8 +46,29 @@ func wait_ms(owner: Node, duration_ms: int) -> void:
 func wait_for_outcome_overlay_visible(owner: Node, overlay_path: String, timeout_ms: int) -> bool:
 	var start_ms: int = Time.get_ticks_msec()
 	while Time.get_ticks_msec() - start_ms <= timeout_ms:
-		var overlay: Control = owner.get_node_or_null(overlay_path) as Control
+		var overlay: Control = _resolve_outcome_overlay(owner, overlay_path)
 		if overlay != null and overlay.visible:
 			return true
 		await owner.get_tree().process_frame
 	return false
+
+func _resolve_outcome_overlay(owner: Node, overlay_path: String) -> Control:
+	var direct: Control = owner.get_node_or_null(overlay_path) as Control
+	if direct != null:
+		return direct
+	if owner == null:
+		return null
+	var tree: SceneTree = owner.get_tree()
+	if tree == null or tree.root == null:
+		return null
+	var by_name: Array[Node] = tree.root.find_children("OutcomeOverlay", "Control", true, false)
+	var fallback: Control = null
+	for node_any in by_name:
+		var candidate: Control = node_any as Control
+		if candidate == null:
+			continue
+		if candidate.visible:
+			return candidate
+		if fallback == null:
+			fallback = candidate
+	return fallback
