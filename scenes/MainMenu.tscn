@@ -153,17 +153,16 @@ grow_horizontal = 2
 
 [node name="LeftButtons" type="HBoxContainer" parent="BottomBar/MenuButtons"]
 layout_mode = 2
-size_flags_horizontal = 3
 
 [node name="AsyncButton" type="Button" parent="BottomBar/MenuButtons/LeftButtons"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "ASYNC"
+text = "STORE"
 script = ExtResource("4")
-bg_key_normal = "ui.mm.async.normal"
-bg_key_hover = "ui.mm.async.hover"
-bg_key_pressed = "ui.mm.async.pressed"
-bg_key_disabled = "ui.mm.async.disabled"
+bg_key_normal = "ui.mm.store.normal"
+bg_key_hover = "ui.mm.store.hover"
+bg_key_pressed = "ui.mm.store.pressed"
+bg_key_disabled = "ui.mm.store.disabled"
 
 [node name="BuffsButton" type="Button" parent="BottomBar/MenuButtons/LeftButtons"]
 layout_mode = 2
@@ -178,39 +177,26 @@ bg_key_disabled = "ui.mm.buffs.disabled"
 [node name="StoreButton" type="Button" parent="BottomBar/MenuButtons/LeftButtons"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "STORE"
+text = "FREE ROLL"
 script = ExtResource("4")
-bg_key_normal = "ui.mm.store.normal"
-bg_key_hover = "ui.mm.store.hover"
-bg_key_pressed = "ui.mm.store.pressed"
-bg_key_disabled = "ui.mm.store.disabled"
 
 [node name="PlayButton" type="Button" parent="BottomBar/MenuButtons"]
-custom_minimum_size = Vector2(240, 60)
+custom_minimum_size = Vector2(140, 60)
 layout_mode = 2
-text = "PLAY"
+text = "$"
 script = ExtResource("4")
-bg_key_normal = "ui.mm.play.normal"
-bg_key_hover = "ui.mm.play.hover"
-bg_key_pressed = "ui.mm.play.pressed"
-bg_key_disabled = "ui.mm.play.disabled"
 
 [node name="RightButtons" type="HBoxContainer" parent="BottomBar/MenuButtons"]
 layout_mode = 2
-size_flags_horizontal = 3
-alignment = 2
 
 [node name="ClanButton" type="Button" parent="BottomBar/MenuButtons/RightButtons"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "CLAN/HIVE"
+text = "BATTLE PASS"
 script = ExtResource("4")
-bg_key_normal = "ui.mm.hive.normal"
-bg_key_hover = "ui.mm.hive.hover"
-bg_key_pressed = "ui.mm.hive.pressed"
-bg_key_disabled = "ui.mm.hive.disabled"
 
 [node name="SettingsButton" type="Button" parent="BottomBar/MenuButtons/RightButtons"]
+visible = false
 layout_mode = 2
 size_flags_horizontal = 3
 text = "SETTINGS"

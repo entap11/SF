@@ -138,6 +138,9 @@ var _endpoint_perf_spike_count: int = 0
 var _last_endpoint_trace: Dictionary = {}
 var _unit_assets_prewarmed: bool = false
 var _lane_endpoint_prewarm_sig: int = -1
+var _post_match_settle_active: bool = false
+var _post_match_settle_until_us: int = 0
+var _post_match_extrap_sec: float = BUTTER_MAX_EXTRAP_SEC
 
 func _ready() -> void:
 	SFLog.allow_tag("RENDER_AUDIT_UNITS")
@@ -157,6 +160,33 @@ func _ready() -> void:
 	_apply_debug_force_top_z()
 	_prewarm_unit_assets()
 	_request_redraw()
+
+func begin_post_match_settle(duration_sec: float = 0.75, extrap_sec: float = 0.40) -> void:
+	var safe_duration_sec: float = maxf(0.0, duration_sec)
+	var safe_extrap_sec: float = maxf(BUTTER_MAX_EXTRAP_SEC, extrap_sec)
+	_post_match_settle_active = safe_duration_sec > 0.0
+	_post_match_extrap_sec = safe_extrap_sec
+	if _post_match_settle_active:
+		_post_match_settle_until_us = Time.get_ticks_usec() + int(round(safe_duration_sec * 1000000.0))
+	else:
+		_post_match_settle_until_us = 0
+
+func end_post_match_settle() -> void:
+	_post_match_settle_active = false
+	_post_match_settle_until_us = 0
+	_post_match_extrap_sec = BUTTER_MAX_EXTRAP_SEC
+
+func _post_match_settle_is_active(now_us: int) -> bool:
+	if not _post_match_settle_active:
+		return false
+	if _post_match_settle_until_us <= 0:
+		return true
+	if now_us < _post_match_settle_until_us:
+		return true
+	_post_match_settle_active = false
+	_post_match_settle_until_us = 0
+	_post_match_extrap_sec = BUTTER_MAX_EXTRAP_SEC
+	return false
 
 func setup_renderer_refs(lane_renderer_ref: Object) -> void:
 	if _lane_renderer == lane_renderer_ref:
@@ -864,6 +894,7 @@ func clear_all() -> void:
 	_endpoint_perf_spike_count = 0
 	_last_endpoint_trace.clear()
 	_last_lane_sig = -1
+	end_post_match_settle()
 	_invalidate_endpoint_caches("clear_all")
 	_unit_missing_ticks.clear()
 	_unit_data_by_id.clear()
@@ -2278,7 +2309,7 @@ func _render_units_constant_speed(delta: float) -> void:
 		if sprite != null:
 			_apply_unit_orientation_from_dir(node, sprite, dir_vec)
 
-func _render_alpha_for_state(state: Dictionary, now_us: int) -> float:
+func _render_alpha_for_state(state: Dictionary, now_us: int, settle_active: bool = false) -> float:
 	var prev_sim_us: int = int(state.get("prev_sim_us", state.get("prev_time_us", 0)))
 	var curr_sim_us: int = int(state.get("curr_sim_us", state.get("curr_time_us", prev_sim_us)))
 	if curr_sim_us <= prev_sim_us:
@@ -2295,14 +2326,64 @@ func _render_alpha_for_state(state: Dictionary, now_us: int) -> float:
 	var alpha: float = float(desired_sim_us - prev_sim_us) / float(interval_sim_us)
 	if alpha <= 1.0:
 		return alpha
-	var max_extra_alpha: float = float(int(BUTTER_MAX_EXTRAP_SEC * 1000000.0)) / float(interval_sim_us)
+	var max_extrap_sec: float = _post_match_extrap_sec if settle_active else BUTTER_MAX_EXTRAP_SEC
+	var max_extra_alpha: float = float(int(max_extrap_sec * 1000000.0)) / float(interval_sim_us)
 	if max_extra_alpha <= 0.0:
 		return 1.0
 	return minf(alpha, 1.0 + max_extra_alpha)
 
+func _render_settle_projected_pose(unit_id: int, state: Dictionary, alpha: float) -> Dictionary:
+	var buf_any: Variant = _unit_samples_by_id.get(unit_id, null)
+	if typeof(buf_any) != TYPE_DICTIONARY:
+		return {"ok": false}
+	var buf: Dictionary = buf_any as Dictionary
+	var s0_any: Variant = buf.get("s0", null)
+	var s1_any: Variant = buf.get("s1", null)
+	if typeof(s0_any) != TYPE_DICTIONARY or typeof(s1_any) != TYPE_DICTIONARY:
+		return {"ok": false}
+	var s0: Dictionary = s0_any as Dictionary
+	var s1: Dictionary = s1_any as Dictionary
+	var a_pos_v: Variant = s1.get("a", null)
+	var b_pos_v: Variant = s1.get("b", null)
+	if not (a_pos_v is Vector2 and b_pos_v is Vector2):
+		return {"ok": false}
+	var a_pos: Vector2 = a_pos_v as Vector2
+	var b_pos: Vector2 = b_pos_v as Vector2
+	var prev_t: float = clampf(float(s0.get("t", state.get("prev_t", 0.0))), 0.0, 1.0)
+	var curr_t: float = clampf(float(s1.get("t", state.get("curr_t", prev_t))), 0.0, 1.0)
+	var projected_t: float = clampf(lerpf(prev_t, curr_t, alpha), 0.0, 1.0)
+	var base_pos: Vector2 = a_pos.lerp(b_pos, projected_t)
+	var axis: Vector2 = b_pos - a_pos
+	var normal: Vector2 = Vector2.ZERO
+	if axis.length_squared() > 0.000001:
+		var axis_n: Vector2 = axis.normalized()
+		normal = Vector2(-axis_n.y, axis_n.x)
+	var render_pos: Vector2 = EdgeVisual.unit_point(base_pos, normal)
+	var dir_vec: Vector2 = axis
+	var dt_t: float = curr_t - prev_t
+	if dir_vec.length_squared() > 0.000001:
+		dir_vec = dir_vec.normalized()
+		if dt_t < 0.0:
+			dir_vec = -dir_vec
+	else:
+		var state_dir_any: Variant = state.get("dir", Vector2.RIGHT)
+		if state_dir_any is Vector2:
+			dir_vec = state_dir_any as Vector2
+		if dir_vec.length_squared() <= 0.000001:
+			dir_vec = Vector2.RIGHT
+		else:
+			dir_vec = dir_vec.normalized()
+	var rot: float = dir_vec.angle() + deg_to_rad(UNIT_SPRITE_FORWARD_DEG)
+	return {
+		"ok": true,
+		"pos": render_pos,
+		"rot": rot
+	}
+
 func _render_units(now_us: int) -> void:
 	if _unit_visual_by_id.is_empty():
 		return
+	var settle_active: bool = _post_match_settle_is_active(now_us)
 	var ids: Array = unit_nodes_by_id.keys()
 	if AUDIT_RENDER:
 		_audit_draw_ops += ids.size()
@@ -2324,12 +2405,23 @@ func _render_units(now_us: int) -> void:
 				state["just_spawned"] = false
 				_unit_visual_by_id[unit_id] = state
 				continue
-			var alpha: float = _render_alpha_for_state(state, now_us)
+			var alpha: float = _render_alpha_for_state(state, now_us, settle_active)
+			if settle_active and alpha > 1.0:
+				var settle_pose: Dictionary = _render_settle_projected_pose(unit_id, state, alpha)
+				if bool(settle_pose.get("ok", false)):
+					var settle_pos_v: Variant = settle_pose.get("pos", node.position)
+					if settle_pos_v is Vector2:
+						node.position = settle_pos_v as Vector2
+					node.rotation = float(settle_pose.get("rot", float(state.get("curr_rot", node.rotation))))
+					state["render_pos"] = node.position
+					_unit_visual_by_id[unit_id] = state
+					continue
 			if alpha > 1.0:
-				var curr_t: float = float(state.get("curr_t", 0.5))
-				# Avoid endpoint overshoot artifacts when units are about to arrive.
-				if curr_t <= 0.05 or curr_t >= 0.95:
-					alpha = 1.0
+				if not settle_active:
+					var curr_t: float = float(state.get("curr_t", 0.5))
+					# Avoid endpoint overshoot artifacts when units are about to arrive.
+					if curr_t <= 0.05 or curr_t >= 0.95:
+						alpha = 1.0
 			var prev_pos: Vector2 = state.get("prev_pos", node.position)
 			var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
 			var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)

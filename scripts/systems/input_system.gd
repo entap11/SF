@@ -461,6 +461,7 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 		_clear_selected_for_player(arena_api, actor_id)
 		return
 	_apply_hive_to_hive_action(selected_id, hid, actor_id, actor_id, arena_api)
+	# Click-to-intent should be single-shot; clear source selection after issuing.
 	_clear_selected_for_player(arena_api, actor_id)
 	return
 
@@ -1635,6 +1636,11 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 		return
 	if prev_selected_id != -1 and prev_selected_id != clicked_id:
 		_apply_hive_to_hive_action(prev_selected_id, clicked_id, player_id, dev_pid, arena_api)
+		# Keep legacy hive-node path consistent with pointer path:
+		# do not retain selection after an issued intent.
+		_clear_selected_for_player(arena_api, player_id)
+		clear_tap_state()
+		return
 	if clicked_owned:
 		_set_selected_for_player(arena_api, player_id, clicked_id)
 		if player_id == 1:

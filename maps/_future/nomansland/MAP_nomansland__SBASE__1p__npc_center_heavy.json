@@ -1,0 +1,41 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_nomansland__SBASE__1p__npc_center_heavy",
+  "family": "nomansland",
+  "mode": "1p",
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+
+  "defaults": {
+    "player_start_power": 10,
+    "npc_start_power": 4
+  },
+
+  "nodes": [
+    { "id": "p1h1", "pos": { "x": 1,  "y": 1  }, "owner": "P1",  "kind": "hive" },
+
+    { "id": "l2", "pos": { "x": 1,  "y": 6  }, "owner": "NPC", "kind": "hive" },
+    { "id": "l3", "pos": { "x": 1,  "y": 11 }, "owner": "NPC", "kind": "hive" },
+    { "id": "l4", "pos": { "x": 1,  "y": 16 }, "owner": "NPC", "kind": "hive" },
+    { "id": "l5", "pos": { "x": 1,  "y": 21 }, "owner": "NPC", "kind": "hive" },
+    { "id": "l6", "pos": { "x": 1,  "y": 26 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "r1", "pos": { "x": 17, "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "r2", "pos": { "x": 17, "y": 6  }, "owner": "NPC", "kind": "hive" },
+    { "id": "r3", "pos": { "x": 17, "y": 11 }, "owner": "NPC", "kind": "hive" },
+    { "id": "r4", "pos": { "x": 17, "y": 16 }, "owner": "NPC", "kind": "hive" },
+    { "id": "r5", "pos": { "x": 17, "y": 21 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "p2h6", "pos": { "x": 17, "y": 26 }, "owner": "P2",  "kind": "hive" },
+
+    { "id": "c1", "pos": { "x": 9,  "y": 3  }, "owner": "NPC", "kind": "hive", "start_power": 7 },
+    { "id": "c2", "pos": { "x": 9,  "y": 8  }, "owner": "NPC", "kind": "hive", "start_power": 7 },
+    { "id": "c3", "pos": { "x": 9,  "y": 13 }, "owner": "NPC", "kind": "hive", "start_power": 7 },
+    { "id": "c4", "pos": { "x": 9,  "y": 18 }, "owner": "NPC", "kind": "hive", "start_power": 7 },
+    { "id": "c5", "pos": { "x": 9,  "y": 23 }, "owner": "NPC", "kind": "hive", "start_power": 7 }
+  ],
+
+  "occluders": {
+    "walls": [],
+    "blocks_los": []
+  }
+}

@@ -53,6 +53,15 @@ text = "Assigned: You\nOpen slots: 0"
 [node name="Invite" type="Label" parent="Panel/VBox"]
 text = "Invite"
 
+[node name="JoinRow" type="HBoxContainer" parent="Panel/VBox"]
+
+[node name="JoinCode" type="LineEdit" parent="Panel/VBox/JoinRow"]
+size_flags_horizontal = 3
+placeholder_text = "Enter invite code"
+
+[node name="JoinButton" type="Button" parent="Panel/VBox/JoinRow"]
+text = "Join"
+
 [node name="Countdown" type="Label" parent="Panel/VBox"]
 text = ""
 

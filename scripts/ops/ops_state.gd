@@ -97,6 +97,7 @@ var edge_cache: Dictionary = {}
 var edge_cache_version: int = -1
 var blocked_wall_pairs: Array = []
 var bot_profiles: Dictionary = {}
+var _remote_replication_apply_depth: int = 0
 
 func get_state() -> GameState:
 	return state
@@ -109,6 +110,11 @@ func get_state_iid() -> int:
 	if state == null:
 		return 0
 	return int(state.iid)
+
+func with_remote_replication_apply(callback: Callable) -> void:
+	_remote_replication_apply_depth += 1
+	callback.call()
+	_remote_replication_apply_depth = maxi(0, _remote_replication_apply_depth - 1)
 
 func set_edge_cache(cache: Dictionary) -> void:
 	edge_cache = cache if cache != null else {}
@@ -398,6 +404,33 @@ func _record_intent_telemetry(
 	}
 	_bot_telemetry_store.call("record_intent", event)
 
+func _vs_pvp_runtime() -> Node:
+	return get_node_or_null("/root/VsPvpRuntime")
+
+func _maybe_replicate_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String, src_owner_id: int, dst_owner_id: int) -> void:
+	if _remote_replication_apply_depth > 0:
+		return
+	var runtime: Node = _vs_pvp_runtime()
+	if runtime == null or not runtime.has_method("record_local_lane_intent"):
+		return
+	runtime.call("record_local_lane_intent", src_hive_id, dst_hive_id, intent, src_owner_id, dst_owner_id)
+
+func _maybe_replicate_lane_retract(from_id: int, to_id: int, owner_id: int) -> void:
+	if _remote_replication_apply_depth > 0:
+		return
+	var runtime: Node = _vs_pvp_runtime()
+	if runtime == null or not runtime.has_method("record_local_lane_retract"):
+		return
+	runtime.call("record_local_lane_retract", from_id, to_id, owner_id)
+
+func _maybe_replicate_barracks_route(barracks_id: int, route_hive_ids: Array, owner_id: int) -> void:
+	if _remote_replication_apply_depth > 0:
+		return
+	var runtime: Node = _vs_pvp_runtime()
+	if runtime == null or not runtime.has_method("record_local_barracks_route"):
+		return
+	runtime.call("record_local_barracks_route", barracks_id, route_hive_ids, owner_id)
+
 func begin_match_end(winner: int, reason: String, linger_ms: int = 1500) -> void:
 	if match_phase != MatchPhase.RUNNING:
 		return
@@ -679,6 +712,7 @@ func request_barracks_route(barracks_id: int, route_hive_ids: Array, player_id: 
 	barracks_data["preferred_targets"] = route.duplicate()
 	barracks_data["rr_index"] = 0
 	SFLog.info("BARRACKS_ROUTE_SET", {"id": barracks_id, "route": route})
+	_maybe_replicate_barracks_route(barracks_id, route, owner_id)
 	return true
 
 func _barracks_allowed_route_ids(state: GameState, barracks_data: Dictionary, owner_id: int) -> Array:
@@ -988,6 +1022,7 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		telemetry_src_owner,
 		telemetry_dst_owner
 	)
+	_maybe_replicate_lane_intent(src_hive_id, dst_hive_id, log_intent, telemetry_src_owner, telemetry_dst_owner)
 	emit_signal("lane_intent_changed", iid, int(lane.id))
 	emit_signal("lanes_changed", iid)
 	return result
@@ -1085,6 +1120,7 @@ func retract_lane(from_id: int, to_id: int, owner_id: int) -> void:
 		"to_id": to_id,
 		"owner_id": owner_id
 	})
+	_maybe_replicate_lane_retract(from_id, to_id, owner_id)
 
 func try_swarm(_from_id: int, _to_id: int, _pid: int = -1) -> bool:
 	var result := apply_lane_intent(_from_id, _to_id, "swarm")

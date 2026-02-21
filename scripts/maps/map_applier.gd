@@ -63,16 +63,17 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 			"active": active_seats.has(4)
 		}
 	]
+	_apply_tree_vs_profiles_to_roster(roster, active_seats)
 	if _is_runtime_non_dev_context():
 		SFLog.warn("MAP_APPLIER_RUNTIME_ROSTER_WRITE", {
 			"map_id": map_id,
 			"reason": "runtime_direct_roster_assignment"
 		})
 	SFLog.info("MATCH_ROSTER", {
-		"p1_uid": p1_uid,
-		"p2_uid": "",
-		"p3_uid": "",
-		"p4_uid": "",
+		"p1_uid": str((roster[0] as Dictionary).get("uid", "")),
+		"p2_uid": str((roster[1] as Dictionary).get("uid", "")),
+		"p3_uid": str((roster[2] as Dictionary).get("uid", "")),
+		"p4_uid": str((roster[3] as Dictionary).get("uid", "")),
 		"active_seats": active_seats,
 		"team_by_seat": team_by_seat
 	})
@@ -335,6 +336,64 @@ static func _resolve_team_ids_for_seats(map_dict: Dictionary, active_seats: Arra
 		team_by_seat[2] = 2
 		team_by_seat[4] = 2
 	return team_by_seat
+
+static func _apply_tree_vs_profiles_to_roster(roster: Array, active_seats: Array) -> void:
+	if roster == null or roster.is_empty():
+		return
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return
+	var role: String = str(tree.get_meta("vs_handshake_role", "host")).strip_edges().to_lower()
+	var local_seat: int = 2 if role == "guest" else 1
+	var remote_seat: int = 1 if local_seat == 2 else 2
+	_set_roster_local_flag(roster, 1, local_seat == 1)
+	_set_roster_local_flag(roster, 2, local_seat == 2)
+	var local_profile: Dictionary = _tree_profile_meta(tree, "vs_local_profile")
+	var remote_profile: Dictionary = _tree_profile_meta(tree, "vs_remote_profile")
+	_apply_profile_to_roster_entry(roster, local_seat, local_profile, active_seats, true)
+	_apply_profile_to_roster_entry(roster, remote_seat, remote_profile, active_seats, false)
+
+static func _tree_profile_meta(tree: SceneTree, key: String) -> Dictionary:
+	if tree == null or not tree.has_meta(key):
+		return {}
+	var raw: Variant = tree.get_meta(key, {})
+	if typeof(raw) != TYPE_DICTIONARY:
+		return {}
+	var profile: Dictionary = (raw as Dictionary).duplicate(true)
+	var uid: String = str(profile.get("uid", "")).strip_edges()
+	if uid.is_empty():
+		return {}
+	profile["uid"] = uid
+	profile["display_name"] = str(profile.get("display_name", "")).strip_edges()
+	return profile
+
+static func _apply_profile_to_roster_entry(roster: Array, seat: int, profile: Dictionary, active_seats: Array, is_local: bool) -> void:
+	if profile.is_empty():
+		return
+	var index: int = seat - 1
+	if index < 0 or index >= roster.size():
+		return
+	if typeof(roster[index]) != TYPE_DICTIONARY:
+		return
+	var entry: Dictionary = (roster[index] as Dictionary).duplicate(true)
+	entry["uid"] = str(profile.get("uid", ""))
+	var display_name: String = str(profile.get("display_name", "")).strip_edges()
+	if not display_name.is_empty():
+		entry["display_name"] = display_name
+	entry["is_local"] = is_local
+	entry["is_cpu"] = false
+	entry["active"] = active_seats.has(seat)
+	roster[index] = entry
+
+static func _set_roster_local_flag(roster: Array, seat: int, is_local: bool) -> void:
+	var index: int = seat - 1
+	if index < 0 or index >= roster.size():
+		return
+	if typeof(roster[index]) != TYPE_DICTIONARY:
+		return
+	var entry: Dictionary = (roster[index] as Dictionary).duplicate(true)
+	entry["is_local"] = is_local
+	roster[index] = entry
 
 static func _team_mode_override() -> String:
 	if not OpsState.has_method("get_team_mode_override"):

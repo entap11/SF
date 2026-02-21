@@ -2,32 +2,12 @@ extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const CANON_GRID_W := 8
 const CANON_GRID_H := 12
 const CANON_CELL_SIZE := 64
-const MAP_DIRS: Array[String] = [
-	"res://maps/json",
-	"res://maps"
-]
-
 static func list_maps() -> Array[String]:
-	var out: Array[String] = []
-	for dir_path in MAP_DIRS:
-		var d: DirAccess = DirAccess.open(dir_path)
-		if d == null:
-			continue
-		d.list_dir_begin()
-		while true:
-			var name: String = d.get_next()
-			if name == "":
-				break
-			if d.current_is_dir():
-				continue
-			if name.ends_with(".json"):
-				out.append(dir_path + "/" + name)
-		d.list_dir_end()
-	out.sort()
-	return out
+	return MAP_REGISTRY.list_map_paths()
 
 static func load_map(path_or_id: String) -> Dictionary:
 	var resolved: String = _resolve_map_path(path_or_id)
@@ -137,16 +117,24 @@ static func _resolve_map_path(path_or_id: String) -> String:
 		return ""
 	var normalized: String = MAP_SCHEMA.normalize_path(raw)
 	if FileAccess.file_exists(normalized):
-		return normalized
+		return normalized if MAP_REGISTRY.is_map_path_allowed(normalized) else ""
 	if normalized.begins_with("res://"):
 		return ""
-	var name: String = normalized
-	if not name.ends_with(".json"):
-		name += ".json"
-	for dir_path in MAP_DIRS:
-		var candidate: String = dir_path + "/" + name
-		if FileAccess.file_exists(candidate):
-			return candidate
+	var requested_id: String = MAP_REGISTRY.map_id_from_input(normalized)
+	if requested_id.is_empty():
+		return ""
+	var requested_canonical: String = requested_id
+	var normalized_id: Dictionary = MAP_REGISTRY.normalize_map_id(requested_id)
+	if bool(normalized_id.get("ok", false)):
+		var canonical_id: String = str(normalized_id.get("id", "")).strip_edges()
+		if not canonical_id.is_empty():
+			requested_canonical = canonical_id
+	for path_any in MAP_REGISTRY.list_map_paths():
+		var path: String = str(path_any)
+		var path_id: String = MAP_REGISTRY.map_id_from_path(path)
+		var path_id_upper: String = path_id.to_upper()
+		if path_id_upper == requested_id.to_upper() or path_id_upper == requested_canonical.to_upper():
+			return path
 	return ""
 
 static func _is_dev_runner() -> bool:
@@ -204,6 +192,61 @@ static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> 
 	if height > 0:
 		out["height"] = height
 	if out.has("entities"):
+		return out
+	var nodes_v: Variant = out.get("nodes", null)
+	if typeof(nodes_v) == TYPE_ARRAY:
+		var nodes: Array = nodes_v as Array
+		var defaults: Dictionary = out.get("defaults", {}) as Dictionary if typeof(out.get("defaults", {})) == TYPE_DICTIONARY else {}
+		var default_player_power: int = maxi(1, _as_int(defaults.get("player_start_power", 10), 10))
+		var default_npc_power: int = maxi(1, _as_int(defaults.get("npc_start_power", 5), 5))
+		var entities_from_nodes: Array = []
+		var next_entity_id: int = 1
+		for node_any in nodes:
+			if typeof(node_any) != TYPE_DICTIONARY:
+				continue
+			var node: Dictionary = node_any as Dictionary
+			var kind: String = str(node.get("kind", "hive")).strip_edges().to_lower()
+			var pos_xy: Vector2i = _extract_xy_pair(node.get("pos", node))
+			if pos_xy.x < 0 or pos_xy.y < 0:
+				continue
+			var owner_raw: String = str(node.get("owner", node.get("team", ""))).strip_edges()
+			var owner_id: int = MAP_SCHEMA.owner_to_owner_id(owner_raw)
+			var id_raw: Variant = node.get("id", next_entity_id)
+			var entity: Dictionary = {
+				"id": id_raw,
+				"kind": kind,
+				"x": pos_xy.x,
+				"y": pos_xy.y
+			}
+			if kind == "hive" or kind == "player_hive" or kind == "npc_hive":
+				var explicit_power: int = _as_int(node.get("power", -1), -1)
+				var default_power: int = default_npc_power if owner_id <= 0 else default_player_power
+				entity["owner_id"] = owner_id
+				entity["owner"] = owner_raw
+				entity["power"] = maxi(1, explicit_power if explicit_power > 0 else default_power)
+			entities_from_nodes.append(entity)
+			next_entity_id += 1
+		if entities_from_nodes.is_empty():
+			if SFLog.LOGGING_ENABLED:
+				push_error("MAP_LOADER: nodes v1.xy produced 0 entities path=%s" % path)
+			return {}
+		out["entities"] = entities_from_nodes
+		if not out.has("walls"):
+			var occluders_v: Variant = out.get("occluders", null)
+			if typeof(occluders_v) == TYPE_DICTIONARY:
+				var occluders: Dictionary = occluders_v as Dictionary
+				var walls_v: Variant = occluders.get("walls", null)
+				if walls_v != null:
+					out["walls"] = walls_v
+		# Node-authored maps should not be forced through mirror symmetry unless explicitly requested.
+		if not out.has("symmetry") and not out.has("symmetry_mode") and not out.has("symmetric"):
+			out["symmetry"] = "none"
+		SFLog.warn("MAP_LOADER_NODES_V1XY_ADAPTED", {
+			"path": path,
+			"width": width,
+			"height": height,
+			"entities": entities_from_nodes.size()
+		})
 		return out
 	var hives_v: Variant = out.get("hives", null)
 	if typeof(grid_v) != TYPE_DICTIONARY or typeof(hives_v) != TYPE_DICTIONARY:
@@ -649,32 +692,6 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 				"owner_id": owner_id_b
 			})
 
-	var explicit_lanes: Array = []
-	var explicit_lane_keys: Dictionary = {}
-	var lanes_v: Variant = data.get("lanes", [])
-	if typeof(lanes_v) == TYPE_ARRAY:
-		var lanes_arr: Array = lanes_v as Array
-		for lane_v in lanes_arr:
-			if typeof(lane_v) != TYPE_DICTIONARY:
-				continue
-			var lane_d: Dictionary = lane_v as Dictionary
-			var from_raw: Variant = lane_d.get("from_hive", lane_d.get("from", lane_d.get("a_id", null)))
-			var to_raw: Variant = lane_d.get("to_hive", lane_d.get("to", lane_d.get("b_id", null)))
-			var a_id: int = _resolve_v1_ref(from_raw, id_map)
-			var b_id: int = _resolve_v1_ref(to_raw, id_map)
-			if a_id <= 0 or b_id <= 0 or a_id == b_id:
-				continue
-			var lo: int = mini(a_id, b_id)
-			var hi: int = maxi(a_id, b_id)
-			var lane_key: String = "%d:%d" % [lo, hi]
-			if explicit_lane_keys.has(lane_key):
-				continue
-			explicit_lane_keys[lane_key] = true
-			explicit_lanes.append({
-				"a_id": a_id,
-				"b_id": b_id
-			})
-
 	var lane_candidates: Array = []
 	var auto_result: Dictionary = MAP_SCHEMA._auto_generate_lanes(hives, w, h, data)
 	if bool(auto_result.get("ok", false)):
@@ -691,8 +708,6 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		var wall_segments: Array = MAP_SCHEMA._wall_segments_from_walls(walls)
 		if not lane_candidates.is_empty():
 			lane_candidates = _filter_lanes_by_walls(lane_candidates, hive_pos_by_id, wall_segments)
-		if not explicit_lanes.is_empty():
-			explicit_lanes = _filter_lanes_by_walls(explicit_lanes, hive_pos_by_id, wall_segments)
 
 	if hives.is_empty():
 		if SFLog.LOGGING_ENABLED:
@@ -715,10 +730,9 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 
 	model["hives"] = hives
 	model["lane_candidates"] = lane_candidates
-	model["lanes"] = explicit_lanes.duplicate(true)
-	if (model.get("lanes", []) as Array).is_empty() and not lane_candidates.is_empty():
-		# Dev/default behavior: start with all candidates active only when map has no explicit lanes.
-		model["lanes"] = lane_candidates.duplicate(true)
+	# Design rule: maps do not author active lanes.
+	# Keep topology as candidates only; runtime intents instantiate active lanes.
+	model["lanes"] = []
 	if (model.get("lanes", []) as Array).is_empty():
 		if SFLog.LOGGING_ENABLED:
 			push_warning("Loaded map has 0 active lanes. Spawns will be blocked unless lanes are created.")

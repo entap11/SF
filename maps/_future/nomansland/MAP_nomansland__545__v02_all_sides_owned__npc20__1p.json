@@ -1,0 +1,147 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_nomansland__545__v02_all_sides_owned__npc20__1p",
+  "family": "nomansland",
+  "mode": "1p",
+  "grid": {
+    "w": 18,
+    "h": 28,
+    "quant": "full_or_half"
+  },
+  "defaults": {
+    "player_start_power": 10,
+    "npc_start_power": 20
+  },
+  "nodes": [
+    {
+      "id": "p1h1",
+      "pos": {
+        "x": 1,
+        "y": 1
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "l2",
+      "pos": {
+        "x": 1,
+        "y": 7
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "l3",
+      "pos": {
+        "x": 1,
+        "y": 13
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "l4",
+      "pos": {
+        "x": 1,
+        "y": 19
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "l5",
+      "pos": {
+        "x": 1,
+        "y": 26
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "r1",
+      "pos": {
+        "x": 17,
+        "y": 1
+      },
+      "owner": "P2",
+      "kind": "hive"
+    },
+    {
+      "id": "r2",
+      "pos": {
+        "x": 17,
+        "y": 7
+      },
+      "owner": "P2",
+      "kind": "hive"
+    },
+    {
+      "id": "r3",
+      "pos": {
+        "x": 17,
+        "y": 13
+      },
+      "owner": "P2",
+      "kind": "hive"
+    },
+    {
+      "id": "r4",
+      "pos": {
+        "x": 17,
+        "y": 19
+      },
+      "owner": "P2",
+      "kind": "hive"
+    },
+    {
+      "id": "p2h5",
+      "pos": {
+        "x": 17,
+        "y": 26
+      },
+      "owner": "P2",
+      "kind": "hive"
+    },
+    {
+      "id": "c1",
+      "pos": {
+        "x": 9,
+        "y": 4
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "c2",
+      "pos": {
+        "x": 9,
+        "y": 10
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "c3",
+      "pos": {
+        "x": 9,
+        "y": 16
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "c4",
+      "pos": {
+        "x": 9,
+        "y": 22
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    }
+  ],
+  "occluders": {
+    "walls": [],
+    "blocks_los": []
+  }
+}

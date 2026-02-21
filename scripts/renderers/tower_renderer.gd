@@ -12,7 +12,11 @@ const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 
 const TOWER_SPIKE_PX: float = 8.0
-const TOWER_VISUAL_SCALE: float = 6.0
+const TOWER_VISUAL_SCALE: float = 12.5
+const TOWER_PITCH_SCALE_X: float = 1.1
+const TOWER_PITCH_SCALE_Y: float = 1.6
+const TOWER_BASE_LIFT_RATIO: float = 0.36
+const TOWER_SPRITE_Z_INDEX: int = 2
 const LOG_INTERVAL_MS: int = 1000
 const TOWER_LIGHT_SWAP_SHADER_PATH: String = "res://assets/shaders/sf_color_swap.gdshader"
 const TOWER_LIGHT_FROM_COLOR: Color = Color(1.0, 0.8235, 0.0, 1.0)
@@ -62,9 +66,11 @@ func _draw() -> void:
 		if not has_tex:
 			var color: Color = HiveRenderer._owner_color(owner_id)
 			color.a = 0.9
-			var tip: Vector2 = pos + Vector2(0.0, -TOWER_SPIKE_PX)
+			var fallback_h: float = TOWER_SPIKE_PX * TOWER_VISUAL_SCALE * TOWER_PITCH_SCALE_Y
+			var tip: Vector2 = pos + Vector2(0.0, -fallback_h)
 			draw_line(pos, tip, color, 2.0)
-			draw_line(pos + Vector2(-2.0, 0.0), pos + Vector2(2.0, 0.0), color, 1.0)
+			var half_w: float = maxf(2.0, fallback_h * 0.14)
+			draw_line(pos + Vector2(-half_w, 0.0), pos + Vector2(half_w, 0.0), color, 1.5)
 
 func _process(_delta: float) -> void:
 	_update_tower_labels()
@@ -107,7 +113,12 @@ func _update_tower_labels() -> void:
 			str(current_power)
 		]
 		var pos: Vector2 = _tower_world_pos(td)
-		label.position = pos + Vector2(0.0, -TOWER_SPIKE_PX * TOWER_VISUAL_SCALE - 16.0)
+		var label_pos: Vector2 = pos + Vector2(0.0, -TOWER_SPIKE_PX * TOWER_VISUAL_SCALE * TOWER_PITCH_SCALE_Y - 20.0)
+		var sprite: Sprite2D = _tower_sprites_by_id.get(tower_id, null)
+		if sprite != null and sprite.visible and sprite.texture != null:
+			var draw_h: float = float(sprite.texture.get_height()) * absf(sprite.scale.y)
+			label_pos = sprite.position + Vector2(0.0, -draw_h * 0.58 - 18.0)
+		label.position = label_pos
 
 	for key in _tower_labels.keys():
 		if not keep.has(key):
@@ -175,7 +186,7 @@ func _sync_tower_sprites() -> void:
 			sprite = Sprite2D.new()
 			sprite.name = "TowerSprite_%d" % tower_id
 			sprite.centered = true
-			sprite.z_index = 0
+			sprite.z_index = TOWER_SPRITE_Z_INDEX
 			sprite.add_to_group("sf_tower")
 			add_child(sprite)
 			_tower_sprites_by_id[tower_id] = sprite
@@ -198,16 +209,27 @@ func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegi
 	var state_key: String = "active" if active else "base"
 	var key: String = "tower.%s.%s" % [state_key, owner_key]
 	var tex: Texture2D = null
+	var scale: float = 1.0
+	var offset: Vector2 = Vector2.ZERO
 	if registry != null:
 		tex = registry.get_tex(key)
+		scale = registry.get_scale(key)
+		offset = registry.get_offset(key)
 	sprite.texture = tex
 	if tex != null:
-		var size_px: float = TOWER_SPIKE_PX * 2.0 * TOWER_VISUAL_SCALE
-		var scale_x: float = size_px / float(tex.get_width())
-		var scale_y: float = size_px / float(tex.get_height())
+		var tex_size: Vector2 = tex.get_size()
+		var draw_size_px: float = TOWER_SPIKE_PX * 2.0 * TOWER_VISUAL_SCALE * maxf(0.1, scale)
+		var tex_max: float = maxf(tex_size.x, tex_size.y)
+		var s: float = draw_size_px / tex_max if tex_max > 0.0 else 1.0
+		var scale_x: float = TOWER_PITCH_SCALE_X * s
+		var scale_y: float = TOWER_PITCH_SCALE_Y * s
 		sprite.scale = Vector2(scale_x, scale_y)
+		var draw_h: float = tex_size.y * scale_y
+		sprite.position = pos + offset + Vector2(0.0, -draw_h * TOWER_BASE_LIFT_RATIO)
+		sprite.z_index = TOWER_SPRITE_Z_INDEX
 		sprite.visible = true
 	else:
+		sprite.position = pos
 		sprite.visible = false
 
 func _apply_tower_owner_visual(tower_id: int, owner_id: int) -> void:

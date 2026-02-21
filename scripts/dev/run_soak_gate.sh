@@ -6,20 +6,13 @@ LOG_FILE="${SOAK_LOG_FILE:-/tmp/swarmfront_soak.log}"
 SOAK_SECONDS="${SOAK_SECONDS:-1800}"
 ROUND_SECONDS="${SOAK_ROUND_SECONDS:-300}"
 PAIR_COUNT="${SOAK_PAIR_COUNT:-2}"
-SOAK_MAP="${SOAK_MAP:-}"
+SOAK_MAP="${SOAK_MAP:-MAP_TEST}"
 MAX_FRAME_MS="${MAX_FRAME_MS:-45.0}"
 MAX_TICK_MS="${MAX_TICK_MS:-8.0}"
 WARMUP_SAMPLES="${SOAK_WARMUP_SAMPLES:-1}"
 
 if [[ -z "${SOAK_MAP}" ]]; then
-  FIRST_JSON="$(ls "${ROOT_DIR}"/maps/json/*.json 2>/dev/null | sort | head -n 1 || true)"
-  if [[ -n "${FIRST_JSON}" ]]; then
-    SOAK_MAP="res://${FIRST_JSON#${ROOT_DIR}/}"
-  fi
-fi
-
-if [[ -z "${SOAK_MAP}" ]]; then
-  echo "SOAK_GATE_FAIL no map found under ${ROOT_DIR}/maps/json and SOAK_MAP not provided"
+  echo "SOAK_GATE_FAIL no soak map provided (set SOAK_MAP or rely on default MAP_TEST)"
   exit 1
 fi
 

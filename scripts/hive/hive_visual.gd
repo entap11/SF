@@ -26,7 +26,7 @@ const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := 1.10
 const HEIGHT_LARGE_SCALE := 1.20
 const HEIGHT_MAX_SCALE := 1.30
-const HIVE_VISUAL_SCALE: float = 1.125
+const HIVE_VISUAL_SCALE: float = 1.6875
 const HIVE_WIDTH_MULT: float = 0.90
 const HIVE_HEIGHT_MULT: float = 1.28
 const HIVE_COLOR_SAT_BOOST: float = 1.22
@@ -384,7 +384,8 @@ static func _team_color_for_player(player_id: int) -> Color:
 func _apply_tint(owner_id_value: int, power_value: int) -> void:
 	_ensure_shader_material()
 	var team_color: Color = _team_color_for_player(owner_id_value)
-	if owner_id_value > 0:
+	var is_neutral_owner: bool = owner_id_value <= 0
+	if not is_neutral_owner:
 		team_color = _boost_team_color(team_color)
 	owner_color = team_color
 	var t: float = clamp(
@@ -409,7 +410,16 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 			"owner_id": owner_id_value,
 			"team_color": team_color
 		})
-	if _shader_mat != null:
+	if _sprite != null and is_instance_valid(_sprite):
+		if is_neutral_owner:
+			# Keep NPC/neutral hives visually unambiguous for gameplay testing.
+			_sprite.material = null
+			_sprite.modulate = Color(0.62, 0.62, 0.62, 1.0)
+		else:
+			if _shader_mat != null:
+				_sprite.material = _shader_mat
+			_sprite.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	if _shader_mat != null and not is_neutral_owner:
 		_shader_mat.set_shader_parameter("team_color", team_color)
 		_shader_mat.set_shader_parameter("glow_strength", lerp(0.6, 1.0, t))
 

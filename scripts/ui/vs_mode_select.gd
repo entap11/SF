@@ -25,6 +25,14 @@ var _selected_mode := "STAGE_RACE"
 var _selected_map_count := 3
 var _selected_price := 1
 var _free_roll := false
+var _entry_lock := "any" # "any", "free_only", "paid_only"
+
+func configure_entry(free_roll: bool) -> void:
+	_entry_lock = "free_only" if free_roll else "paid_only"
+	_selected_price = 0 if free_roll else PRICES[0]
+	_free_roll = free_roll
+	if not _price_buttons.is_empty():
+		_build_buttons()
 
 func _ready() -> void:
 	back_button.pressed.connect(_on_back_pressed)
@@ -68,26 +76,33 @@ func _build_buttons() -> void:
 		_map_buttons[count] = button
 
 	var price_group := ButtonGroup.new()
-	for price in PRICES:
-		var button := Button.new()
-		button.text = "$%d" % price
-		button.toggle_mode = true
-		button.button_group = price_group
-		button.pressed.connect(func(): _select_price(price))
-		price_buttons.add_child(button)
-		_price_buttons[price] = button
+	if _entry_lock != "free_only":
+		for price in PRICES:
+			var button := Button.new()
+			button.text = "$%d" % price
+			button.toggle_mode = true
+			button.button_group = price_group
+			button.pressed.connect(func(): _select_price(price))
+			price_buttons.add_child(button)
+			_price_buttons[price] = button
 
-	var free_button := Button.new()
-	free_button.text = "Free Roll"
-	free_button.toggle_mode = true
-	free_button.button_group = price_group
-	free_button.pressed.connect(func(): _select_price(0))
-	price_buttons.add_child(free_button)
-	_price_buttons[0] = free_button
+	if _entry_lock != "paid_only":
+		var free_button := Button.new()
+		free_button.text = "Free Roll"
+		free_button.toggle_mode = true
+		free_button.button_group = price_group
+		free_button.pressed.connect(func(): _select_price(0))
+		price_buttons.add_child(free_button)
+		_price_buttons[0] = free_button
 
 	_select_mode(_selected_mode)
 	_select_map_count(_selected_map_count)
-	_select_price(_selected_price)
+	if _entry_lock == "free_only":
+		_select_price(0)
+	elif _entry_lock == "paid_only":
+		_select_price(PRICES[0])
+	else:
+		_select_price(_selected_price)
 
 func _select_mode(mode_id: String) -> void:
 	_selected_mode = mode_id

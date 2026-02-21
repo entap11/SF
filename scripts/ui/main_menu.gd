@@ -142,6 +142,7 @@ var _store_sku_buttons: Array = []
 var _time_puzzle_lobby: TimePuzzleLobby = null
 var _play_mode_select: Control = null
 var _vs_lobby: Control = null
+var _entry_route_modal: Panel = null
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -200,7 +201,12 @@ var _vs_lobby: Control = null
 @onready var async_weekly_back: Button = $AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBack
 @onready var async_monthly_back: Button = $AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBack
 @onready var async_yearly_back: Button = $AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBack
-@onready var play_button: Button = $BottomBar/MenuButtons/PlayButton
+@onready var menu_store_button: Button = $BottomBar/MenuButtons/LeftButtons/AsyncButton
+@onready var menu_buffs_button: Button = $BottomBar/MenuButtons/LeftButtons/BuffsButton
+@onready var menu_free_roll_button: Button = $BottomBar/MenuButtons/LeftButtons/StoreButton
+@onready var menu_cash_button: Button = $BottomBar/MenuButtons/PlayButton
+@onready var menu_battle_pass_button: Button = $BottomBar/MenuButtons/RightButtons/ClanButton
+@onready var menu_unused_button: Button = $BottomBar/MenuButtons/RightButtons/SettingsButton
 @onready var status_label: Label = $BottomBar/StatusLabel
 @onready var onboarding_overlay: Control = $ProfileFirstRunOverlay
 @onready var onboarding_panel: OnboardingPanel = $ProfileFirstRunOverlay/OverlayCenter/OverlayPanel/OverlayVBox/OnboardingPanel
@@ -217,6 +223,28 @@ var _dash_tween: Tween
 var _player_profile := {
 	"tier_text": "Tier: Bronze",
 	"honey": 12480
+}
+var _wallet_profile := {
+	"balance_usd": 0
+}
+var _dev_bypass_cash_balance := true
+var _hive_panel_profile := {
+	"name": "Swarmfront Prime",
+	"tier": "Bronze",
+	"member_role": "Member",
+	"honey_score": 12480,
+	"wax_score": 940,
+	"season_name": "Season 01: Founding Swarm",
+	"season_reset_text": "Resets in 12d 04h",
+	"achievements": [
+		"Keystone Circuit I",
+		"Season Relay I",
+		"Wax Guard II",
+		"Hive Lift-Off",
+		"Lane Integrity II",
+		"Twin Tower Break",
+		"Barracks Lockdown"
+	]
 }
 var _stats_tier := "FREE"
 var _current_match_index := 0
@@ -249,6 +277,7 @@ var _async_paid_entry_usd: int = 1
 var _async_track_mode: String = "select"
 
 const ASYNC_BUYINS := [1, 5, 10, 20]
+const MONEY_DENOMINATIONS := [1, 2, 3, 5, 10, 20, 50]
 const ASYNC_MAPS := ["Map A", "Map B", "Map C", "Map D", "Map E"]
 const ASYNC_CONFIRM_WINDOW_MS := 900
 const ASYNC_TRACK_SELECT := "select"
@@ -415,6 +444,12 @@ const MATCH_HISTORY := [
 			{"t": "04:05", "event": "Last hive swings"}
 		]
 	}
+]
+const DASH_ACHIEVEMENT_STUBS := [
+	{"name": "First Swarm", "progress": 2, "goal": 5},
+	{"name": "Lane Planner", "progress": 1, "goal": 5},
+	{"name": "Tower Breaker", "progress": 3, "goal": 5},
+	{"name": "Hive Keeper", "progress": 0, "goal": 5}
 ]
 const STORE_CATEGORIES := [
 	{"id": "Buffs", "title": "Buffs", "desc": "Match, info, and identity buffs."},
@@ -583,6 +618,7 @@ func _ready() -> void:
 	_load_match_history()
 	_build_store_landing()
 	_init_buffs_ui()
+	_configure_dash_account_surfaces()
 	call_deferred("_init_dash_state")
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
@@ -788,17 +824,18 @@ func _style_labels() -> void:
 	_apply_font(status_label, _font_regular, 14)
 
 func _style_buttons() -> void:
-	_apply_font(play_button, _font_semibold, 20)
-	_style_button(play_button, Color(0.85, 0.64, 0.16), Color(1.0, 0.9, 0.5), Color(0.1, 0.08, 0.02))
+	_apply_font(menu_cash_button, _font_semibold, 20)
+	_style_button(menu_cash_button, Color(0.85, 0.64, 0.16), Color(1.0, 0.9, 0.5), Color(0.1, 0.08, 0.02))
 	for button in [
-		$BottomBar/MenuButtons/LeftButtons/AsyncButton,
-		$BottomBar/MenuButtons/LeftButtons/BuffsButton,
-		$BottomBar/MenuButtons/LeftButtons/StoreButton,
-		$BottomBar/MenuButtons/RightButtons/ClanButton,
-		$BottomBar/MenuButtons/RightButtons/SettingsButton
+		menu_store_button,
+		menu_buffs_button,
+		menu_free_roll_button,
+		menu_battle_pass_button
 	]:
 		_apply_font(button, _font_regular, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
+	if menu_unused_button != null:
+		menu_unused_button.visible = false
 	for button in replay_controls_buttons:
 		_apply_font(button, _font_regular, 12)
 		_style_button(button, Color(0.1, 0.11, 0.14), Color(0.4, 0.42, 0.5), Color(0.92, 0.92, 0.92))
@@ -870,12 +907,11 @@ func _style_panels() -> void:
 	_style_panel($AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 
 func _wire_buttons() -> void:
-	play_button.pressed.connect(_on_play_pressed)
-	$BottomBar/MenuButtons/LeftButtons/AsyncButton.pressed.connect(_open_async_panel)
-	$BottomBar/MenuButtons/LeftButtons/BuffsButton.pressed.connect(func(): _open_dash_panel_from_menu(dash_buffs_panel))
-	$BottomBar/MenuButtons/LeftButtons/StoreButton.pressed.connect(func(): _open_dash_panel_from_menu(dash_store_panel))
-	$BottomBar/MenuButtons/RightButtons/ClanButton.pressed.connect(func(): _open_dash_panel_from_menu(dash_hive_panel))
-	$BottomBar/MenuButtons/RightButtons/SettingsButton.pressed.connect(func(): _open_dash_panel_from_menu(dash_settings_panel))
+	menu_store_button.pressed.connect(func(): _open_dash_panel_from_menu(dash_store_panel))
+	menu_buffs_button.pressed.connect(_open_buffs_store)
+	menu_free_roll_button.pressed.connect(_open_free_roll_split)
+	menu_cash_button.pressed.connect(_open_cash_split)
+	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
 	hive_button.pressed.connect(func(): _open_dash_panel_from_menu(dash_hive_panel))
 	dash_tab.pressed.connect(_toggle_dash)
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
@@ -1022,6 +1058,7 @@ func _apply_player_profile(profile: Dictionary) -> void:
 	$TopBar/HoneyLabel.text = honey_text
 	$DashPanel/DashTopBar/DashRankLabel.text = tier_text
 	$DashPanel/DashTopBar/DashHoneyLabel.text = honey_text
+	_refresh_dash_account_snapshot()
 
 func _format_number(value: int) -> String:
 	var negative := value < 0
@@ -1034,6 +1071,169 @@ func _format_number(value: int) -> String:
 	if negative:
 		out = "-" + out
 	return out
+
+func _configure_dash_account_surfaces() -> void:
+	$DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader.text = "ACCOUNT SNAPSHOT"
+	$DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesHeader.text = "ACHIEVEMENTS"
+	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsSub.text = "Equip owned buffs here. Use STORE to buy."
+	if buffs_footer_label != null:
+		buffs_footer_label.text = "Equip only in this panel. Purchases happen in STORE."
+	$DashPanel/DashHivePanel/HiveVBox/HiveSub.text = "Hive profile + hive-earned achievements."
+	_refresh_hive_panel()
+	var action_texts: Array[String] = ["HIVE CHAT (SOON)", "HIVE LADDER (SOON)", "HIVE QUESTS (SOON)"]
+	for idx in range(hive_action_buttons.size()):
+		var button: Button = hive_action_buttons[idx] as Button
+		if button == null:
+			continue
+		button.disabled = true
+		if idx >= 0 and idx < action_texts.size():
+			button.text = action_texts[idx]
+	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesTitle.text = "ACHIEVEMENTS"
+	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesSub.text = "Progress meters are placeholder for live achievement hooks."
+	_refresh_dash_achievement_preview()
+	_refresh_dash_account_snapshot()
+
+func _refresh_hive_panel() -> void:
+	if not is_inside_tree():
+		return
+	var hive_name := str(_hive_panel_profile.get("name", "TBD Hive"))
+	var hive_tier := str(_hive_panel_profile.get("tier", "TBD"))
+	var member_role := str(_hive_panel_profile.get("member_role", "Member"))
+	var honey_score := int(_hive_panel_profile.get("honey_score", 0))
+	var wax_score := int(_hive_panel_profile.get("wax_score", 0))
+	var season_name := str(_hive_panel_profile.get("season_name", "Season TBD"))
+	var season_reset_text := str(_hive_panel_profile.get("season_reset_text", "Reset timer TBD"))
+	var achievements_any: Variant = _hive_panel_profile.get("achievements", [])
+	var achievements: Array[String] = []
+	if typeof(achievements_any) == TYPE_ARRAY:
+		for ach_v in achievements_any as Array:
+			var ach := str(ach_v).strip_edges()
+			if ach != "":
+				achievements.append(ach)
+	$DashPanel/DashHivePanel/HiveVBox/HiveSub.text = "Role: %s | %s | %s" % [member_role, season_name, season_reset_text]
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "HIVE PROFILE"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Hive: %s" % hive_name
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Tier: %s" % hive_tier
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Honey Score: %s" % _format_number(honey_score)
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Wax Score: %s" % _format_number(wax_score)
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "HIVE ACHIEVEMENTS"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "MORE ACHIEVEMENTS"
+	var roster_labels: Array[Label] = [
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember1,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember2,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember3,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember4
+	]
+	var activity_labels: Array[Label] = [
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity1,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity2,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity3
+	]
+	for i in range(roster_labels.size()):
+		if i < achievements.size():
+			roster_labels[i].text = achievements[i]
+		else:
+			roster_labels[i].text = "No additional achievement"
+	for i in range(activity_labels.size()):
+		var ach_idx := i + roster_labels.size()
+		if ach_idx < achievements.size():
+			activity_labels[i].text = achievements[ach_idx]
+		else:
+			activity_labels[i].text = "No additional achievement"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "Showing hive-earned achievements (not member-scoped). %s." % season_reset_text
+
+func _refresh_dash_achievement_preview() -> void:
+	var active_count := 0
+	for achievement_any in DASH_ACHIEVEMENT_STUBS:
+		var achievement: Dictionary = achievement_any as Dictionary
+		if int(achievement.get("progress", 0)) > 0:
+			active_count += 1
+	$DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesHeader.text = "ACHIEVEMENTS (%d/%d ACTIVE)" % [active_count, DASH_ACHIEVEMENT_STUBS.size()]
+	for i in range(4):
+		var button: Button = get_node_or_null("DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesRow/BadgeButton%d" % (i + 1)) as Button
+		if button == null:
+			continue
+		if i >= DASH_ACHIEVEMENT_STUBS.size():
+			button.text = "COMING SOON [-----]"
+			continue
+		var achievement: Dictionary = DASH_ACHIEVEMENT_STUBS[i]
+		var name := str(achievement.get("name", "Achievement"))
+		var progress := int(achievement.get("progress", 0))
+		var goal := maxi(1, int(achievement.get("goal", 1)))
+		button.text = "%s %s" % [name, _achievement_meter(progress, goal)]
+
+func _achievement_meter(progress: int, goal: int) -> String:
+	var safe_goal := maxi(1, goal)
+	var clamped_progress := clampi(progress, 0, safe_goal)
+	var fill_slots := clampi(int(round((float(clamped_progress) / float(safe_goal)) * 5.0)), 0, 5)
+	return "[%s%s] %d/%d" % ["#".repeat(fill_slots), "-".repeat(5 - fill_slots), clamped_progress, safe_goal]
+
+func _refresh_dash_account_snapshot() -> void:
+	if not is_inside_tree():
+		return
+	var tier_text := str(_player_profile.get("tier_text", "Tier: Bronze"))
+	var honey_value := int(_player_profile.get("honey", 0))
+	var owned_count := _buff_owned_ids.size()
+	var equipped_count := 0
+	for buff_id in _buff_loadout_ids:
+		if str(buff_id).strip_edges() != "":
+			equipped_count += 1
+	var active_achievements := 0
+	for achievement_any in DASH_ACHIEVEMENT_STUBS:
+		var achievement: Dictionary = achievement_any as Dictionary
+		if int(achievement.get("progress", 0)) > 0:
+			active_achievements += 1
+	var hive_name := str(_hive_panel_profile.get("name", "TBD Hive"))
+	var hive_tier := str(_hive_panel_profile.get("tier", "TBD"))
+	var hive_achievements_count := 0
+	var hive_achievements_any: Variant = _hive_panel_profile.get("achievements", [])
+	if typeof(hive_achievements_any) == TYPE_ARRAY:
+		hive_achievements_count = (hive_achievements_any as Array).size()
+	var rows: Array[Dictionary] = [
+		{
+			"title": "Hive Membership",
+			"result": "%s | Tier %s" % [hive_name, hive_tier],
+			"eff": "Hive achievements: %d" % hive_achievements_count
+		},
+		{
+			"title": "Rank / Tier",
+			"result": tier_text,
+			"eff": "Dynamic profile hook enabled"
+		},
+		{
+			"title": "Buff Inventory",
+			"result": "Owned: %d" % owned_count,
+			"eff": "Equipped: %d/%d" % [equipped_count, BUFF_LOADOUT_SIZE]
+		},
+		{
+			"title": "Achievements",
+			"result": "Active: %d/%d" % [active_achievements, DASH_ACHIEVEMENT_STUBS.size()],
+			"eff": "Progress meters drive Honey Score"
+		},
+		{
+			"title": "Honey Score",
+			"result": "Honey: %s" % _format_number(honey_value),
+			"eff": "Updates after completed games"
+		}
+	]
+	for i in range(rows.size()):
+		_set_dash_account_row(i + 1, rows[i])
+
+func _set_dash_account_row(row_index: int, row: Dictionary) -> void:
+	var row_path := "DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow%d" % row_index
+	var title_label: Label = get_node_or_null("%s/MatchTitle" % row_path) as Label
+	var result_label: Label = get_node_or_null("%s/MatchResult" % row_path) as Label
+	var meta_label: Label = get_node_or_null("%s/MatchEff" % row_path) as Label
+	if title_label != null:
+		title_label.text = str(row.get("title", ""))
+	if result_label != null:
+		result_label.text = str(row.get("result", ""))
+	if meta_label != null:
+		meta_label.text = str(row.get("eff", ""))
+	for button_name in ["MatchStats", "MatchAnalytics", "MatchReplay"]:
+		var action_button: Button = get_node_or_null("%s/%s" % [row_path, button_name]) as Button
+		if action_button != null:
+			action_button.visible = false
 
 func _style_button(button: Button, bg: Color, border: Color, text_color: Color) -> void:
 	if button == null:
@@ -1211,11 +1411,12 @@ func _init_buffs_ui() -> void:
 	_refresh_buffs_owned_ui()
 	_refresh_buffs_loadout_ui()
 	if buffs_footer_label != null:
-		buffs_footer_label.text = "Store -> Owned -> Loadout. Multi-select in Library, then drag to Owned."
+		buffs_footer_label.text = "Equip only in this panel. Purchases happen in STORE."
 	if not _buff_loadout_ids.is_empty():
 		_set_selected_buff(_buff_loadout_ids[0], "loadout", 0)
 	else:
 		_update_buff_details()
+	_refresh_dash_account_snapshot()
 
 func _ensure_buffs_owned_panel() -> void:
 	if _buff_owned_panel != null and is_instance_valid(_buff_owned_panel):
@@ -1359,6 +1560,7 @@ func _persist_buff_profile_state() -> void:
 		ProfileManager.call("set_owned_buff_ids", _buff_owned_ids)
 	if ProfileManager.has_method("set_buff_loadout_ids"):
 		ProfileManager.call("set_buff_loadout_ids", _buff_loadout_ids)
+	_refresh_dash_account_snapshot()
 
 func _fallback_buff_for_index(idx: int) -> String:
 	var defaults: Array[String] = [
@@ -1958,6 +2160,425 @@ func _open_match_replay(match_index: int) -> void:
 func _on_play_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/VSMenu.tscn")
 
+func _open_buffs_store() -> void:
+	_open_dash_panel_from_menu(dash_store_panel)
+	_open_store_category("Buffs")
+	status_label.text = "Buff store opened."
+
+func _open_free_roll_split() -> void:
+	_open_game_hub(false, 0)
+
+func _open_cash_split() -> void:
+	if _dev_bypass_cash_balance:
+		_open_game_hub(true, _default_money_denomination())
+		return
+	if _wallet_balance_usd() <= 0:
+		_open_insufficient_balance_modal()
+		return
+	_open_game_hub(true, _default_money_denomination())
+
+func _on_battle_pass_pressed() -> void:
+	_open_dash_panel_from_menu(dash_store_panel)
+	_open_store_category("Passes")
+	status_label.text = "Battle Pass placeholder opened."
+
+func _wallet_balance_usd() -> int:
+	return int(_wallet_profile.get("balance_usd", 0))
+
+func _default_money_denomination() -> int:
+	var balance := _wallet_balance_usd()
+	for denom in MONEY_DENOMINATIONS:
+		if denom <= balance:
+			return denom
+	return MONEY_DENOMINATIONS[0]
+
+func _require_balance_for_entry(entry_usd: int) -> bool:
+	if _dev_bypass_cash_balance:
+		return true
+	if entry_usd <= 0:
+		return true
+	var balance := _wallet_balance_usd()
+	if balance >= entry_usd:
+		return true
+	_open_insufficient_balance_modal("Insufficient balance: $%d available, $%d required." % [balance, entry_usd])
+	return false
+
+func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -> void:
+	_close_entry_route_modal()
+	var panel := _build_entry_overlay("INSUFFICIENT BALANCE", subtitle)
+	var body: VBoxContainer = panel.get_node("EntryBody") as VBoxContainer
+	var add_funds := Button.new()
+	add_funds.text = "ADD FUNDS"
+	add_funds.pressed.connect(func():
+		_close_entry_route_modal()
+		status_label.text = "Add funds placeholder."
+	)
+	body.add_child(add_funds)
+	var add_card := Button.new()
+	add_card.text = "ADD CREDIT/DEBIT CARD"
+	add_card.pressed.connect(func():
+		_close_entry_route_modal()
+		status_label.text = "Card setup placeholder."
+	)
+	body.add_child(add_card)
+	var free_roll := Button.new()
+	free_roll.text = "PLAY A FREE ROLL"
+	free_roll.pressed.connect(func():
+		_close_entry_route_modal()
+		_open_game_hub(false, 0)
+	)
+	body.add_child(free_roll)
+	var cancel := Button.new()
+	cancel.text = "CANCEL"
+	cancel.pressed.connect(_close_entry_route_modal)
+	body.add_child(cancel)
+	_style_entry_overlay_buttons([add_funds, add_card, free_roll, cancel])
+	_entry_route_modal = panel
+
+func _open_game_hub(paid: bool, denomination: int) -> void:
+	_close_entry_route_modal()
+	var selected_denom: int = denomination
+	if paid and selected_denom <= 0:
+		selected_denom = _default_money_denomination()
+	var title := "MONEY GAMES" if paid else "FREE ROLL"
+	var subtitle := "Select mode and route."
+	if paid:
+		subtitle = "Balance: $%d | Select denomination, then mode." % _wallet_balance_usd()
+	var overlay_size := Vector2(920, 460)
+	if paid:
+		overlay_size = Vector2(920, 620)
+	else:
+		overlay_size = Vector2(920, 560)
+	var panel := _build_entry_overlay(title, subtitle, overlay_size)
+	var body: VBoxContainer = panel.get_node("EntryBody") as VBoxContainer
+	if paid:
+		var denom_header := Label.new()
+		denom_header.text = "DENOMINATION TABS"
+		body.add_child(denom_header)
+		_apply_font(denom_header, _font_semibold, 13)
+		var denom_row := HBoxContainer.new()
+		denom_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		denom_row.add_theme_constant_override("separation", 8)
+		body.add_child(denom_row)
+		for denom in MONEY_DENOMINATIONS:
+			var tab_denom: int = denom
+			var denom_button := Button.new()
+			denom_button.text = "$%d" % denom
+			denom_button.custom_minimum_size = Vector2(76, 40)
+			denom_button.disabled = (not _dev_bypass_cash_balance) and denom > _wallet_balance_usd()
+			denom_button.pressed.connect(func(): _open_game_hub(true, tab_denom))
+			denom_row.add_child(denom_button)
+			_apply_font(denom_button, _font_regular, 12)
+			if denom == selected_denom:
+				_style_button(denom_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
+			else:
+				_style_button(denom_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+		var entry_scope := Label.new()
+		entry_scope.text = "CURRENT TAB: ALL ENTRIES ARE $%d" % selected_denom
+		entry_scope.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		body.add_child(entry_scope)
+		_apply_font(entry_scope, _font_regular, 12)
+	var human_header := Label.new()
+	human_header.text = "HUMAN MATCHES%s" % (" ($%d ENTRY)" % selected_denom if paid else "")
+	body.add_child(human_header)
+	_apply_font(human_header, _font_semibold, 13)
+	var human_row := HBoxContainer.new()
+	human_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	human_row.add_theme_constant_override("separation", 8)
+	body.add_child(human_row)
+	for mode_id in ["1V1", "2V2", "3P FFA", "4P FFA"]:
+		var chosen_mode: String = mode_id
+		var button := Button.new()
+		button.text = "%s  $%d" % [mode_id, selected_denom] if paid else mode_id
+		button.custom_minimum_size = Vector2(104, 42)
+		button.pressed.connect(func(): _on_human_mode_selected(chosen_mode, paid, selected_denom))
+		human_row.add_child(button)
+		_apply_font(button, _font_regular, 12)
+		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	var async_header := Label.new()
+	async_header.text = "ASYNC CONTESTS%s" % (" ($%d ENTRY)" % selected_denom if paid else "")
+	body.add_child(async_header)
+	_apply_font(async_header, _font_semibold, 13)
+	if paid:
+		var cycle_row := HBoxContainer.new()
+		cycle_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		cycle_row.add_theme_constant_override("separation", 8)
+		body.add_child(cycle_row)
+		var cycle_items := [
+			{"label": "WEEKLY", "id": "WEEKLY"},
+			{"label": "MONTHLY", "id": "MONTHLY"},
+			{"label": "YEARLY", "id": "YEARLY"}
+		]
+		for item_any in cycle_items:
+			var item: Dictionary = item_any as Dictionary
+			var label := str(item.get("label", "ASYNC"))
+			var id := str(item.get("id", ""))
+			var async_mode_id: String = id
+			var button := Button.new()
+			button.text = "%s  $%d" % [label, selected_denom]
+			button.custom_minimum_size = Vector2(176, 42)
+			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, paid, selected_denom))
+			cycle_row.add_child(button)
+			_apply_font(button, _font_regular, 12)
+			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+		var three_map_label := Label.new()
+		three_map_label.text = "3 MAP"
+		body.add_child(three_map_label)
+		_apply_font(three_map_label, _font_semibold, 12)
+		var three_map_row := HBoxContainer.new()
+		three_map_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		three_map_row.add_theme_constant_override("separation", 8)
+		body.add_child(three_map_row)
+		var three_map_items := [
+			{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
+			{"label": "RACE", "id": "TIMED_RACE_3"},
+			{"label": "MISS N OUT", "id": "MISS_N_OUT_3"}
+		]
+		for item_any in three_map_items:
+			var item: Dictionary = item_any as Dictionary
+			var label := str(item.get("label", "ASYNC"))
+			var id := str(item.get("id", ""))
+			var async_mode_id: String = id
+			var button := Button.new()
+			button.text = "%s  $%d" % [label, selected_denom]
+			button.custom_minimum_size = Vector2(176, 42)
+			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, paid, selected_denom))
+			three_map_row.add_child(button)
+			_apply_font(button, _font_regular, 12)
+			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+		var five_map_label := Label.new()
+		five_map_label.text = "5 MAP"
+		body.add_child(five_map_label)
+		_apply_font(five_map_label, _font_semibold, 12)
+		var five_map_row := HBoxContainer.new()
+		five_map_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		five_map_row.add_theme_constant_override("separation", 8)
+		body.add_child(five_map_row)
+		var five_map_items := [
+			{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
+			{"label": "RACE", "id": "TIMED_RACE_5"},
+			{"label": "MISS N OUT", "id": "MISS_N_OUT_5"}
+		]
+		for item_any in five_map_items:
+			var item: Dictionary = item_any as Dictionary
+			var label := str(item.get("label", "ASYNC"))
+			var id := str(item.get("id", ""))
+			var async_mode_id: String = id
+			var button := Button.new()
+			button.text = "%s  $%d" % [label, selected_denom]
+			button.custom_minimum_size = Vector2(176, 42)
+			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, paid, selected_denom))
+			five_map_row.add_child(button)
+			_apply_font(button, _font_regular, 12)
+			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	else:
+		var three_map_label := Label.new()
+		three_map_label.text = "3 MAP"
+		body.add_child(three_map_label)
+		_apply_font(three_map_label, _font_semibold, 12)
+		var three_map_row := HBoxContainer.new()
+		three_map_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		three_map_row.add_theme_constant_override("separation", 8)
+		body.add_child(three_map_row)
+		var three_map_items := [
+			{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
+			{"label": "RACE", "id": "TIMED_RACE_3"},
+			{"label": "MISS N OUT", "id": "MISS_N_OUT_3"}
+		]
+		for item_any in three_map_items:
+			var item: Dictionary = item_any as Dictionary
+			var label := str(item.get("label", "ASYNC"))
+			var id := str(item.get("id", ""))
+			var async_mode_id: String = id
+			var button := Button.new()
+			button.text = label
+			button.custom_minimum_size = Vector2(176, 42)
+			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
+			three_map_row.add_child(button)
+			_apply_font(button, _font_regular, 12)
+			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+		var five_map_label := Label.new()
+		five_map_label.text = "5 MAP"
+		body.add_child(five_map_label)
+		_apply_font(five_map_label, _font_semibold, 12)
+		var five_map_row := HBoxContainer.new()
+		five_map_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		five_map_row.add_theme_constant_override("separation", 8)
+		body.add_child(five_map_row)
+		var five_map_items := [
+			{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
+			{"label": "RACE", "id": "TIMED_RACE_5"},
+			{"label": "MISS N OUT", "id": "MISS_N_OUT_5"}
+		]
+		for item_any in five_map_items:
+			var item: Dictionary = item_any as Dictionary
+			var label := str(item.get("label", "ASYNC"))
+			var id := str(item.get("id", ""))
+			var async_mode_id: String = id
+			var button := Button.new()
+			button.text = label
+			button.custom_minimum_size = Vector2(176, 42)
+			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
+			five_map_row.add_child(button)
+			_apply_font(button, _font_regular, 12)
+			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	var cancel := Button.new()
+	cancel.text = "CANCEL"
+	cancel.pressed.connect(_close_entry_route_modal)
+	body.add_child(cancel)
+	_style_entry_overlay_buttons([cancel])
+	_entry_route_modal = panel
+
+func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
+	if paid and not _require_balance_for_entry(maxi(1, denomination)):
+		return
+	_close_entry_route_modal()
+	get_tree().set_meta("requested_human_mode", mode_id)
+	if mode_id == "1V1":
+		_open_vs_mode_select_panel(not paid)
+		if paid:
+			status_label.text = "Human 1v1 selected at $%d." % denomination
+		else:
+			status_label.text = "Human 1v1 free roll selected."
+		return
+	var lane := "paid" if paid else "free"
+	status_label.text = "Human %s (%s) selected. Queue wiring is next." % [mode_id, lane]
+
+func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
+	if paid and not _require_balance_for_entry(maxi(1, denomination)):
+		return
+	_close_entry_route_modal()
+	_apply_async_entry_amount(paid, denomination)
+	match mode_id:
+		"WEEKLY":
+			_open_async_panel()
+			if paid:
+				_open_async_paid_menu()
+			else:
+				_open_async_free_menu()
+			_open_async_weekly()
+		"MONTHLY":
+			_open_async_panel()
+			if paid:
+				_open_async_paid_menu()
+			else:
+				_open_async_free_menu()
+			_open_async_monthly()
+		"YEARLY":
+			_open_async_panel()
+			if paid:
+				_open_async_paid_menu()
+			else:
+				_open_async_free_menu()
+			_open_async_yearly()
+		"STAGE_RACE":
+			_on_async_stage_race_selected(3, not paid)
+		"STAGE_RACE_3":
+			_on_async_stage_race_selected(3, not paid)
+		"STAGE_RACE_5":
+			_on_async_stage_race_selected(5, not paid)
+		"TIMED_RACE":
+			_on_async_timed_race_selected(3, not paid)
+		"TIMED_RACE_3":
+			_on_async_timed_race_selected(3, not paid)
+		"TIMED_RACE_5":
+			_on_async_timed_race_selected(5, not paid)
+		"MISS_N_OUT":
+			_on_async_miss_n_out_selected(not paid)
+		"MISS_N_OUT_3":
+			_on_async_miss_n_out_selected(not paid, 3)
+		"MISS_N_OUT_5":
+			_on_async_miss_n_out_selected(not paid, 5)
+		_:
+			status_label.text = "Async mode unavailable."
+
+func _apply_async_entry_amount(paid: bool, denomination: int) -> void:
+	if not paid:
+		_async_paid_entry_usd = 0
+		return
+	var amount := maxi(1, denomination)
+	_async_paid_entry_usd = amount
+	for key in ["weekly", "monthly", "yearly"]:
+		_async_buyins[key] = amount
+
+func _open_human_entry_selector(free_roll: bool) -> void:
+	_open_vs_mode_select_panel(free_roll)
+	if free_roll:
+		status_label.text = "Human free-play selector opened."
+	else:
+		status_label.text = "Human paid-match selector opened."
+
+func _open_async_entry_selector(free_roll: bool) -> void:
+	_close_entry_route_modal()
+	_open_async_panel()
+	if free_roll:
+		_open_async_free_menu()
+		status_label.text = "Async free-play selector opened."
+	else:
+		_open_async_paid_menu()
+		status_label.text = "Async paid-contest selector opened."
+
+func _open_vs_mode_select_panel(free_roll: bool) -> void:
+	_close_entry_route_modal()
+	var panel := preload("res://scenes/ui/VsModeSelect.tscn").instantiate()
+	if panel.has_method("configure_entry"):
+		panel.call("configure_entry", free_roll)
+	panel.closed.connect(func(): panel.queue_free())
+	add_child(panel)
+
+func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vector2(480, 220)) -> Panel:
+	_close_entry_route_modal()
+	var panel := Panel.new()
+	panel.name = "EntryRouteModal"
+	panel.layout_mode = 0
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -size.x * 0.5
+	panel.offset_top = -size.y * 0.5
+	panel.offset_right = size.x * 0.5
+	panel.offset_bottom = size.y * 0.5
+	panel.z_index = 200
+	var vbox := VBoxContainer.new()
+	vbox.name = "EntryBody"
+	vbox.layout_mode = 1
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	vbox.offset_left = 16.0
+	vbox.offset_top = 16.0
+	vbox.offset_right = -16.0
+	vbox.offset_bottom = -16.0
+	vbox.add_theme_constant_override("separation", 10)
+	panel.add_child(vbox)
+	var title_label := Label.new()
+	title_label.text = title
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title_label)
+	var subtitle_label := Label.new()
+	subtitle_label.text = subtitle
+	subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(subtitle_label)
+	add_child(panel)
+	_style_panel(panel, Color(0.06, 0.07, 0.1, 0.98), Color(0.45, 0.48, 0.58, 0.8))
+	_apply_font(title_label, _font_semibold, 18)
+	_apply_font(subtitle_label, _font_regular, 13)
+	return panel
+
+func _style_entry_overlay_buttons(buttons: Array) -> void:
+	for button_any in buttons:
+		var button: Button = button_any as Button
+		if button == null:
+			continue
+		_apply_font(button, _font_regular, 13)
+		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+func _close_entry_route_modal() -> void:
+	if _entry_route_modal == null:
+		return
+	if is_instance_valid(_entry_route_modal):
+		_entry_route_modal.queue_free()
+	_entry_route_modal = null
+
 
 func _open_play_mode_select() -> void:
 	if _play_mode_select == null:
@@ -2251,38 +2872,39 @@ func _on_async_play_pressed(mode: String) -> void:
 	var amount := int(_async_buyins.get(mode, ASYNC_BUYINS[0]))
 	_stub_action("%s entry $%d confirmed" % [mode.capitalize(), amount])
 
-func _on_async_miss_n_out_selected(free_play: bool) -> void:
+func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
+	var map_count_requested: int = maxi(1, requested_map_count)
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
 	var lobby_options: Dictionary = {
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
 	}
 	if contest_state == null:
-		status_label.text = "%s Miss-N-Out (fallback lobby config)" % track_label
-		_open_async_vs_lobby("MISS_N_OUT", 4, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Miss-N-Out (%d maps, fallback lobby config)" % [track_label, map_count_requested]
+		_open_async_vs_lobby("MISS_N_OUT", map_count_requested, free_play, entry_usd, lobby_options)
 		return
 	if not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_miss_n_out_plan"):
-		status_label.text = "%s Miss-N-Out (fallback lobby config)" % track_label
-		_open_async_vs_lobby("MISS_N_OUT", 4, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Miss-N-Out (%d maps, fallback lobby config)" % [track_label, map_count_requested]
+		_open_async_vs_lobby("MISS_N_OUT", map_count_requested, free_play, entry_usd, lobby_options)
 		return
 	var contest: Variant = contest_state.call("get_contest_by_scope", "WEEKLY")
 	if contest == null:
-		status_label.text = "%s Miss-N-Out (no weekly contest, fallback lobby config)" % track_label
-		_open_async_vs_lobby("MISS_N_OUT", 4, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Miss-N-Out (%d maps, no weekly contest, fallback lobby config)" % [track_label, map_count_requested]
+		_open_async_vs_lobby("MISS_N_OUT", map_count_requested, free_play, entry_usd, lobby_options)
 		return
 	var contest_id: String = str(contest.get("id"))
-	var plan: Dictionary = contest_state.call("build_miss_n_out_plan", contest_id, 5) as Dictionary
+	var plan: Dictionary = contest_state.call("build_miss_n_out_plan", contest_id, map_count_requested) as Dictionary
 	if not bool(plan.get("ok", false)):
-		status_label.text = "%s Miss-N-Out (plan unavailable, fallback lobby config)" % track_label
-		_open_async_vs_lobby("MISS_N_OUT", 4, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Miss-N-Out (%d maps, plan unavailable, fallback lobby config)" % [track_label, map_count_requested]
+		_open_async_vs_lobby("MISS_N_OUT", map_count_requested, free_play, entry_usd, lobby_options)
 		return
 	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
 	var map_labels: Array[String] = []
 	for map_id_v in map_ids:
 		map_labels.append(str(map_id_v))
-	var map_count: int = int(plan.get("map_count", 0))
+	var resolved_map_count: int = int(plan.get("map_count", map_count_requested))
 	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
 	lobby_options["window_sec"] = window_sec
 	lobby_options["contest_id"] = contest_id
@@ -2291,8 +2913,8 @@ func _on_async_miss_n_out_selected(free_play: bool) -> void:
 		miss_scope = "WEEKLY"
 	lobby_options["contest_scope"] = miss_scope
 	lobby_options["map_ids"] = map_ids
-	status_label.text = "%s Miss-N-Out (%d maps, %d min window): %s | Eliminated players can continue for practice or return to lobby." % [track_label, map_count, int(window_sec / 60), ", ".join(map_labels)]
-	_open_async_vs_lobby("MISS_N_OUT", map_count, free_play, entry_usd, lobby_options)
+	status_label.text = "%s Miss-N-Out (%d maps, %d min window): %s | Eliminated players can continue for practice or return to lobby." % [track_label, resolved_map_count, int(window_sec / 60), ", ".join(map_labels)]
+	_open_async_vs_lobby("MISS_N_OUT", resolved_map_count, free_play, entry_usd, lobby_options)
 
 func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
@@ -2378,9 +3000,7 @@ func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
 	_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
 
 func _current_async_paid_entry_usd() -> int:
-	if ASYNC_BUYINS.has(_async_paid_entry_usd):
-		return _async_paid_entry_usd
-	return ASYNC_BUYINS[0]
+	return maxi(1, _async_paid_entry_usd)
 
 func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> void:
 	if _vs_lobby == null:

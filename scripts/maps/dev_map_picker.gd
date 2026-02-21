@@ -1,9 +1,7 @@
 class_name DevMapPicker
 extends Control
 const SFLog := preload("res://scripts/util/sf_log.gd")
-
-const MAPS_DIR := "res://maps/json"
-const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 
 @onready var map_select: OptionButton = $Panel/VBox/MapSelect
 @onready var output_label: Label = $Panel/VBox/Output
@@ -21,23 +19,14 @@ func _ready() -> void:
 	if map_paths.size() > 0:
 		_on_map_selected(0)
 	else:
-		_output_error(["No maps found in %s" % MAPS_DIR])
+		_output_error(["No maps found"])
 
 func _refresh_list() -> void:
 	map_select.clear()
-	map_paths.clear()
-	_scan_maps(MAPS_DIR)
+	map_paths = MAP_LOADER.list_maps()
 	map_paths.sort()
 	for path in map_paths:
 		map_select.add_item(path.get_file())
-
-func _scan_maps(dir_path: String) -> void:
-	var dir := DirAccess.open(dir_path)
-	if dir == null:
-		return
-	for file_name in dir.get_files():
-		if file_name.ends_with(".json") and not file_name.ends_with(".tscn.json"):
-			map_paths.append("%s/%s" % [dir_path, file_name])
 
 func _on_map_selected(index: int) -> void:
 	last_valid_data = {}
@@ -70,23 +59,10 @@ func _load_selected_map() -> Dictionary:
 	var index := map_select.selected
 	if index < 0 or index >= map_paths.size():
 		return {"ok": false, "error": "Invalid selection"}
-	var path := MAP_SCHEMA.normalize_path(map_paths[index])
-	if not FileAccess.file_exists(path):
-		return {"ok": false, "error": "Map file not found: %s" % path}
-	var file := FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return {"ok": false, "error": "Failed to open: %s" % path}
-	var text := file.get_as_text()
-	var json := JSON.new()
-	var err := json.parse(text)
-	if err != OK:
-		return {"ok": false, "error": "JSON parse failed: %s" % path}
-	var parsed: Variant = json.data
-	if typeof(parsed) != TYPE_DICTIONARY:
-		return {"ok": false, "error": "JSON parse failed: %s" % path}
-	var result := MAP_SCHEMA.build_internal_map(parsed as Dictionary)
-	if not result.get("ok", false):
-		return {"ok": false, "error": result.get("error", "Invalid map")}
+	var path := map_paths[index]
+	var result: Dictionary = MAP_LOADER.load_map(path)
+	if not bool(result.get("ok", false)):
+		return {"ok": false, "error": str(result.get("err", "Invalid map"))}
 	return {"ok": true, "data": result.get("data", {})}
 
 func _ensure_arena() -> Node:

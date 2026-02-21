@@ -585,36 +585,24 @@ func _show_map_picker() -> void:
 		_on_map_item_selected(selected_idx)
 
 func _scan_maps_into_list() -> void:
-	var folder: String = "res://maps/json"
 	if _map_list == null:
-		SFLog.error("MAP_SCAN_NO_MAP_LIST", {"folder": folder})
+		SFLog.error("MAP_SCAN_NO_MAP_LIST", {})
 		return
 	_map_list.clear()
 	_map_list.set_meta("paths", PackedStringArray())
-	var dir: DirAccess = DirAccess.open(folder)
-	if dir == null:
-		SFLog.error("MAP_SCAN_DIR_OPEN_FAIL", {"folder": folder})
-		return
 	var paths: PackedStringArray = PackedStringArray()
-	dir.list_dir_begin()
-	while true:
-		var f: String = dir.get_next()
-		if f == "":
-			break
-		if dir.current_is_dir():
+	for path_any in MAP_LOADER.list_maps():
+		var path: String = str(path_any)
+		if path.is_empty():
 			continue
-		if not f.ends_with(".json"):
-			continue
-		var full_path: String = folder.path_join(f)
-		paths.append(full_path)
-	dir.list_dir_end()
+		paths.append(path)
 	paths.sort()
 	for p in paths:
 		_map_list.add_item(p.get_file())
 		var idx: int = _map_list.item_count - 1
 		_map_list.set_item_metadata(idx, p)
 	_map_list.set_meta("paths", paths)
-	SFLog.info("MAP_SCAN_DONE", {"folder": folder, "count": paths.size()})
+	SFLog.info("MAP_SCAN_DONE", {"count": paths.size()})
 
 func _on_map_item_selected(index: int) -> void:
 	if _map_list == null:

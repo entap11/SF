@@ -13,6 +13,7 @@ const HIVE_DIAMETER_PX := 36.0
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
 const HIVE_LANE_RADIUS_PX := 18.0
 const HIVE_BLOCK_RADIUS_PX := HIVE_RADIUS_PX
+const HIVE_BLOCK_RADIUS_SCALE := 1.75
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC
 const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
@@ -205,73 +206,16 @@ func load_from_map_dict(map: Dictionary) -> void:
 
 			var power: int = int(hd.get("pwr", hd.get("power", 0)))
 			var kind: String = str(hd.get("kind", "Hive"))
+			var radius_px: float = float(hd.get("radius_px", hd.get("radius", 0.0)))
+			if radius_px <= 0.0:
+				radius_px = MapSchema.hive_radius_px_for_kind(kind, _grid_cell_size_px())
 
-			hives.append(HiveData.new(hive_id, Vector2i(gx, gy), owner_id, power, kind))
+			hives.append(HiveData.new(hive_id, Vector2i(gx, gy), owner_id, power, kind, radius_px))
 
-	var lanes_v: Variant = map.get("lanes", [])
-	if typeof(lanes_v) == TYPE_ARRAY:
-		var lanes_arr: Array = lanes_v as Array
-		var lane_id := 1
-		for lane_v in lanes_arr:
-			if typeof(lane_v) != TYPE_DICTIONARY:
-				continue
-			var ld: Dictionary = lane_v as Dictionary
-
-			var a_v: Variant = ld.get("a_id", ld.get("from", ld.get("from_hive", 0)))
-			var b_v: Variant = ld.get("b_id", ld.get("to", ld.get("to_hive", 0)))
-
-			var a_id: int = 0
-			var b_id: int = 0
-
-			if a_v is int:
-				a_id = int(a_v)
-			else:
-				var a_str: String = str(a_v)
-				if a_str.is_valid_int():
-					a_id = int(a_str)
-
-			if b_v is int:
-				b_id = int(b_v)
-			else:
-				var b_str: String = str(b_v)
-				if b_str.is_valid_int():
-					b_id = int(b_str)
-
-			if a_id <= 0 or b_id <= 0 or a_id == b_id:
-				continue
-
-			lanes.append(LaneData.new(lane_id, a_id, b_id, 1, false, false))
-			lane_id += 1
-
-	# Snapshot map lanes (stable IDs for “original layout”)
-	var map_lanes_out: Array = []
-	for i in range(lanes.size()):
-		var lane: Variant = lanes[i]
-		var lane_id_out := -1
-		var a_id_out := -1
-		var b_id_out := -1
-
-		if lane is LaneData:
-			var ld := lane as LaneData
-			lane_id_out = int(ld.id)
-			a_id_out = int(ld.a_id)
-			b_id_out = int(ld.b_id)
-		elif lane is Dictionary:
-			var d := lane as Dictionary
-			lane_id_out = int(d.get("lane_id", d.get("id", -1)))
-			a_id_out = int(d.get("a_id", -1))
-			b_id_out = int(d.get("b_id", -1))
-
-		if a_id_out <= 0 or b_id_out <= 0:
-			continue
-
-		map_lanes_out.append({
-			"lane_id": lane_id_out,
-			"a_id": a_id_out,
-			"b_id": b_id_out
-		})
-
-	map_lanes = map_lanes_out
+	# Design rule: maps do not author active lanes.
+	# Live lanes are created at runtime from intents and occlusion checks.
+	lanes.clear()
+	map_lanes = []
 
 	var candidates_v: Variant = map.get("lane_candidates", [])
 	if typeof(candidates_v) == TYPE_ARRAY:
@@ -399,7 +343,8 @@ func is_segment_blocked(a: Vector2, b: Vector2, a_id: int, b_id: int) -> bool:
 	for h in hives:
 		if h.id == a_id or h.id == b_id:
 			continue
-		if _segment_hits_circle(a, b, _hive_world_pos(h), HIVE_BLOCK_RADIUS_PX):
+		var block_r: float = _hive_block_radius(h)
+		if _segment_hits_circle(a, b, _hive_world_pos(h), block_r):
 			return true
 	return false
 
@@ -436,6 +381,25 @@ func _hive_world_pos(hive: HiveData) -> Vector2:
 		(float(hive.grid_pos.x) + 0.5) * DEFAULT_CELL_SIZE,
 		(float(hive.grid_pos.y) + 0.5) * DEFAULT_CELL_SIZE
 	)
+
+func _grid_cell_size_px() -> float:
+	if grid_spec != null:
+		var cell_v: Variant = grid_spec.get("cell_size")
+		if cell_v != null:
+			var cell: float = float(cell_v)
+			if cell > 0.0:
+				return cell
+	return DEFAULT_CELL_SIZE
+
+func _hive_block_radius(hive: HiveData) -> float:
+	if hive == null:
+		return HIVE_BLOCK_RADIUS_PX
+	var radius: float = float(hive.radius_px)
+	if radius <= 0.0:
+		radius = MapSchema.hive_radius_px_for_kind(str(hive.kind), _grid_cell_size_px())
+	if radius <= 0.0:
+		radius = HIVE_BLOCK_RADIUS_PX
+	return maxf(HIVE_BLOCK_RADIUS_PX, radius * HIVE_BLOCK_RADIUS_SCALE)
 
 func hive_world_pos_by_id(hive_id: int) -> Vector2:
 	var hive := find_hive_by_id(hive_id)
