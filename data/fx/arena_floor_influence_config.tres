@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script="res://scripts/fx/arena_floor_influence_config.gd" format=3]
 
 [resource]
-enabled = true
+enabled = false
 disable_on_apple_forward_plus = false
 force_enable_on_apple = false
 influence_tex_size = 256
