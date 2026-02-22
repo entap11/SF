@@ -238,6 +238,7 @@ var _legacy_tick_fenced_logged: bool = false
 @export var draw_arena_rect_debug := false
 @export var draw_world_bounds_debug: bool = false
 @export var show_floor_influence_debug: bool = false
+@export var enable_floor_influence_runtime: bool = false
 @export var use_dev_safe_centering := false
 @export var FITCAM_POLICY := FIT_WIDTH
 @export var debug_buff_loadout: Array[String] = [
@@ -1756,6 +1757,18 @@ func _ensure_pools_root() -> Node:
 	return pools_root
 
 func _ensure_floor_influence_system() -> void:
+	if not enable_floor_influence_runtime:
+		if floor_influence_system != null and is_instance_valid(floor_influence_system):
+			floor_influence_system.queue_free()
+			floor_influence_system = null
+		if floor_renderer != null:
+			var base_floor: Sprite2D = floor_renderer.get_base_floor_sprite()
+			var overlay_floor: Sprite2D = floor_renderer.get_overlay_floor_sprite()
+			if base_floor != null and is_instance_valid(base_floor):
+				base_floor.material = null
+			if overlay_floor != null and is_instance_valid(overlay_floor):
+				overlay_floor.material = null
+		return
 	if floor_renderer == null:
 		return
 	var pools_root: Node = _ensure_pools_root()
