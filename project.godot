@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.2")
 OpsState="*res://scripts/ops/ops_state.gd"
 ContestState="*res://scripts/state/contest_state.gd"
 ProfileManager="*res://scripts/profile/profile_manager.gd"
+SwarmPassState="*res://scripts/state/swarm_pass_state.gd"
 VsHandshake="*res://scripts/state/vs_handshake_state.gd"
 VsPvpRuntime="*res://scripts/state/vs_pvp_runtime.gd"
 Gamebot="*res://scripts/autoload/game_boot.gd"

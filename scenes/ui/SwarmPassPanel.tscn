@@ -1,0 +1,111 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/swarm_pass_panel.gd" id="1"]
+
+[node name="SwarmPassPanel" type="Panel"]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 120.0
+offset_top = 180.0
+offset_right = -120.0
+offset_bottom = -180.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Root" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="Root"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Root/VBox"]
+layout_mode = 2
+text = "SwarmPass v1"
+
+[node name="Season" type="Label" parent="Root/VBox"]
+layout_mode = 2
+text = "Season"
+
+[node name="Tier" type="Label" parent="Root/VBox"]
+layout_mode = 2
+text = "Tier"
+
+[node name="Progress" type="Label" parent="Root/VBox"]
+layout_mode = 2
+text = "Progress"
+
+[node name="ProgressBar" type="ProgressBar" parent="Root/VBox"]
+layout_mode = 2
+min_value = 0.0
+max_value = 100.0
+value = 0.0
+show_percentage = true
+
+[node name="Guardrail" type="Label" parent="Root/VBox"]
+layout_mode = 2
+autowrap_mode = 2
+text = "Pass multipliers affect Nectar and Pass progression only."
+
+[node name="Prestige" type="Label" parent="Root/VBox"]
+layout_mode = 2
+autowrap_mode = 2
+text = "Prestige"
+
+[node name="ActionsRow" type="HBoxContainer" parent="Root/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PremiumButton" type="Button" parent="Root/VBox/ActionsRow"]
+layout_mode = 2
+text = "Get Premium"
+
+[node name="EliteButton" type="Button" parent="Root/VBox/ActionsRow"]
+layout_mode = 2
+text = "Get Elite"
+
+[node name="ClaimButton" type="Button" parent="Root/VBox/ActionsRow"]
+layout_mode = 2
+text = "Claim Current"
+
+[node name="AsyncButton" type="Button" parent="Root/VBox/ActionsRow"]
+layout_mode = 2
+text = "Elite Async"
+
+[node name="CloseButton" type="Button" parent="Root/VBox/ActionsRow"]
+layout_mode = 2
+text = "Close"
+
+[node name="EventLog" type="Label" parent="Root/VBox"]
+layout_mode = 2
+autowrap_mode = 2
+text = ""
+
+[node name="LevelsScroll" type="ScrollContainer" parent="Root/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LevelsText" type="RichTextLabel" parent="Root/VBox/LevelsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+bbcode_enabled = false
+fit_content = false
+scroll_active = false
+text = ""

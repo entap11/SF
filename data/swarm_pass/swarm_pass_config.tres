@@ -1,0 +1,84 @@
+[gd_resource type="Resource" script="res://scripts/state/swarm_pass_config.gd" format=3]
+
+[resource]
+enabled = true
+season_duration_days = 30
+total_levels = 100
+standard_level_end = 60
+advanced_level_end = 75
+prestige_level_start = 76
+apex_level_start = 91
+xp_per_level_standard = 100
+xp_per_level_advanced = 140
+xp_per_level_prestige = 185
+xp_per_level_apex = 240
+premium_multiplier = 1.18
+elite_multiplier = 1.3
+premium_price_usd = 9.99
+elite_price_usd = 14.99
+elite_async_access = true
+prestige_model = 1
+hard_brick_caps = {
+"100": 5,
+"76": 3000,
+"77": 2500,
+"78": 2000,
+"79": 1600,
+"80": 1300,
+"81": 1100,
+"82": 950,
+"83": 820,
+"84": 700,
+"85": 600,
+"86": 520,
+"87": 450,
+"88": 380,
+"89": 320,
+"90": 280,
+"91": 230,
+"92": 190,
+"93": 150,
+"94": 120,
+"95": 90,
+"96": 60,
+"97": 40,
+"98": 25,
+"99": 12
+}
+soft_variant_cutoffs = {
+"100": 12,
+"76": 5000,
+"77": 4500,
+"78": 4000,
+"79": 3500,
+"80": 3000,
+"81": 2600,
+"82": 2200,
+"83": 2000,
+"84": 1800,
+"85": 1600,
+"86": 1400,
+"87": 1200,
+"88": 1000,
+"89": 850,
+"90": 700,
+"91": 560,
+"92": 460,
+"93": 360,
+"94": 280,
+"95": 220,
+"96": 170,
+"97": 120,
+"98": 80,
+"99": 40
+}
+nectar_awards = {
+"async_completed": 6,
+"contest_participation": 10,
+"match_completed_free": 8,
+"match_completed_money": 24,
+"money_match_completed": 30,
+"tournament_participation": 14,
+"tournament_placement_bonus": 20
+}
+store_kickback_nectar_per_usd = 6.0

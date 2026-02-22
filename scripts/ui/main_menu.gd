@@ -2,6 +2,7 @@ extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPanel.tscn")
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
@@ -143,6 +144,7 @@ var _time_puzzle_lobby: TimePuzzleLobby = null
 var _play_mode_select: Control = null
 var _vs_lobby: Control = null
 var _entry_route_modal: Panel = null
+var _swarm_pass_panel: Control = null
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -619,6 +621,7 @@ func _ready() -> void:
 	_build_store_landing()
 	_init_buffs_ui()
 	_configure_dash_account_surfaces()
+	_ensure_swarm_pass_panel()
 	call_deferred("_init_dash_state")
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
@@ -2178,9 +2181,31 @@ func _open_cash_split() -> void:
 	_open_game_hub(true, _default_money_denomination())
 
 func _on_battle_pass_pressed() -> void:
-	_open_dash_panel_from_menu(dash_store_panel)
-	_open_store_category("Passes")
-	status_label.text = "Battle Pass placeholder opened."
+	_open_swarm_pass_panel()
+	status_label.text = "SwarmPass opened."
+
+func _ensure_swarm_pass_panel() -> void:
+	if _swarm_pass_panel != null and is_instance_valid(_swarm_pass_panel):
+		return
+	var panel_instance_any: Variant = SWARM_PASS_PANEL_SCENE.instantiate()
+	if panel_instance_any is Control:
+		_swarm_pass_panel = panel_instance_any as Control
+		add_child(_swarm_pass_panel)
+		_swarm_pass_panel.visible = false
+		if _swarm_pass_panel.has_signal("close_requested"):
+			_swarm_pass_panel.connect("close_requested", Callable(self, "_close_swarm_pass_panel"))
+
+func _open_swarm_pass_panel() -> void:
+	_ensure_swarm_pass_panel()
+	if _swarm_pass_panel == null:
+		return
+	_swarm_pass_panel.visible = true
+	_swarm_pass_panel.raise()
+
+func _close_swarm_pass_panel() -> void:
+	if _swarm_pass_panel == null:
+		return
+	_swarm_pass_panel.visible = false
 
 func _wallet_balance_usd() -> int:
 	return int(_wallet_profile.get("balance_usd", 0))
