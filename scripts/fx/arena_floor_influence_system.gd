@@ -681,10 +681,107 @@ func _rasterize_cpu_influence_map(tex_size: int, emitters: Array) -> void:
 					3:
 						c.a = minf(max_per_pixel, c.a + add)
 				_influence_image.set_pixel(x, y, c)
+	_apply_territory_domain_fill(tex_size, emitters, max_per_pixel)
 	if _influence_texture == null:
 		_influence_texture = ImageTexture.create_from_image(_influence_image)
 	else:
 		_influence_texture.update(_influence_image)
+
+func _apply_territory_domain_fill(tex_size: int, emitters: Array, max_per_pixel: float) -> void:
+	if _config == null:
+		return
+	if not bool(_config.territory_domain_enabled):
+		return
+	if emitters.is_empty():
+		return
+	var domain_base_strength: float = maxf(0.0, float(_config.territory_domain_base_strength))
+	if domain_base_strength <= 0.0:
+		return
+	var falloff: float = maxf(0.25, float(_config.territory_domain_falloff))
+	var radius_bias: float = maxf(0.0, float(_config.territory_domain_radius_bias))
+	var conflict_threshold: float = clampf(float(_config.territory_domain_conflict_threshold), 0.0, 1.0)
+	var conflict_blend: float = clampf(float(_config.territory_domain_conflict_blend), 0.0, 1.0)
+
+	var domain_emitters: Array = []
+	for emitter_any in emitters:
+		if typeof(emitter_any) != TYPE_DICTIONARY:
+			continue
+		var emitter: Dictionary = emitter_any as Dictionary
+		var uv: Vector2 = emitter.get("uv", Vector2.ZERO) as Vector2
+		var owner_index: int = int(emitter.get("owner_index", -1))
+		if owner_index < 0 or owner_index > 3:
+			continue
+		var radius_px: float = maxf(1.0, float(emitter.get("radius_px", 1.0)))
+		var strength: float = maxf(0.01, float(emitter.get("strength", 0.01)))
+		domain_emitters.append({
+			"x": uv.x * float(tex_size),
+			"y": uv.y * float(tex_size),
+			"radius_px": radius_px,
+			"strength": strength,
+			"owner_index": owner_index
+		})
+	if domain_emitters.is_empty():
+		return
+
+	for y in range(tex_size):
+		var py: float = float(y) + 0.5
+		for x in range(tex_size):
+			var px: float = float(x) + 0.5
+			var best_owner: int = -1
+			var second_owner: int = -1
+			var best_score: float = 0.0
+			var second_score: float = 0.0
+			for de_any in domain_emitters:
+				var de: Dictionary = de_any as Dictionary
+				var ex: float = float(de.get("x", 0.0))
+				var ey: float = float(de.get("y", 0.0))
+				var er: float = maxf(1.0, float(de.get("radius_px", 1.0)))
+				var es: float = maxf(0.01, float(de.get("strength", 0.01)))
+				var dx: float = px - ex
+				var dy: float = py - ey
+				var dist: float = sqrt(dx * dx + dy * dy)
+				var norm: float = dist / maxf(1.0, er * (1.0 + radius_bias))
+				var score: float = es / pow(1.0 + norm, falloff)
+				var owner_idx: int = int(de.get("owner_index", -1))
+				if owner_idx < 0:
+					continue
+				if score > best_score:
+					second_score = best_score
+					second_owner = best_owner
+					best_score = score
+					best_owner = owner_idx
+				elif score > second_score:
+					second_score = score
+					second_owner = owner_idx
+			if best_owner < 0 or best_score <= 0.0001:
+				continue
+			var conflict_ratio: float = 0.0
+			if second_score > 0.0:
+				conflict_ratio = clampf(second_score / maxf(best_score, 0.0001), 0.0, 1.0)
+			var primary_gain: float = domain_base_strength * (1.0 - conflict_ratio * 0.35)
+			var secondary_gain: float = 0.0
+			if second_owner >= 0 and conflict_ratio >= conflict_threshold:
+				var t: float = (conflict_ratio - conflict_threshold) / maxf(0.0001, (1.0 - conflict_threshold))
+				secondary_gain = domain_base_strength * conflict_blend * clampf(t, 0.0, 1.0)
+			var c: Color = _influence_image.get_pixel(x, y)
+			c = _add_channel_to_color(c, best_owner, primary_gain, max_per_pixel)
+			if secondary_gain > 0.0:
+				c = _add_channel_to_color(c, second_owner, secondary_gain, max_per_pixel)
+			_influence_image.set_pixel(x, y, c)
+
+func _add_channel_to_color(c: Color, owner_index: int, add: float, max_per_pixel: float) -> Color:
+	if add <= 0.0:
+		return c
+	match owner_index:
+		0:
+			c.r = minf(max_per_pixel, c.r + add)
+		1:
+			c.g = minf(max_per_pixel, c.g + add)
+		2:
+			c.b = minf(max_per_pixel, c.b + add)
+		3:
+			c.a = minf(max_per_pixel, c.a + add)
+	return c
 
 func _pulse_gain_for_key(key: String, now_ms: int) -> Dictionary:
 	if key.is_empty() or not _pulses_by_key.has(key):

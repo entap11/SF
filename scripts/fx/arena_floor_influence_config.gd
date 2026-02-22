@@ -43,6 +43,12 @@ enum GrowthCurve {
 @export var territory_threshold: float = 0.18
 @export var territory_softness: float = 0.24
 @export var dominance_threshold: float = 0.48
+@export var territory_domain_enabled: bool = true
+@export var territory_domain_base_strength: float = 0.26
+@export var territory_domain_falloff: float = 1.1
+@export var territory_domain_radius_bias: float = 0.45
+@export var territory_domain_conflict_threshold: float = 0.62
+@export var territory_domain_conflict_blend: float = 0.38
 @export var wire_base_strength: float = 0.22
 @export var wire_pulse_strength: float = 0.45
 @export var wire_pulse_speed: float = 2.2

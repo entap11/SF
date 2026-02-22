@@ -111,7 +111,8 @@ void fragment() {
 		float maturity_mix = mix(clamp(initial_maturity_floor, 0.0, 1.0), 1.0, clamp(maturity, 0.0, 1.0));
 		float bright_mask = smoothstep(circuit_threshold, circuit_threshold + max(circuit_softness, 0.001), luma);
 		float edge_mask = smoothstep(circuit_edge_threshold, circuit_edge_threshold + max(circuit_edge_softness, 0.001), edge_energy);
-		float conduit_mask = mix(bright_mask, max(bright_mask, edge_mask), clamp(circuit_edge_emphasis, 0.0, 1.0));
+		float conduit_mask = max(edge_mask, bright_mask * 0.25);
+		conduit_mask = mix(conduit_mask, max(conduit_mask, edge_mask), clamp(circuit_edge_emphasis, 0.0, 1.0));
 		float conduit_weight = mix(clamp(circuit_background_leak, 0.0, 1.0), 1.0, clamp(conduit_mask, 0.0, 1.0));
 		float circuit_weight = mix(1.0, conduit_weight, clamp(circuit_emphasis, 0.0, 1.0));
 		float territory_mask = smoothstep(
@@ -128,7 +129,7 @@ void fragment() {
 		float wire_mask = clamp(conduit_mask * circuit_weight, 0.0, 1.0);
 		float pulse_wave = 0.5 + 0.5 * sin(TIME * wire_pulse_speed + (UV.x + UV.y) * wire_phase_scale);
 		float wire_strength = owned_area * wire_mask * (wire_base_strength + wire_pulse_strength * pulse_wave);
-		float base_tint_strength = owned_area * wire_mask * 0.22;
+		float base_tint_strength = owned_area * mix(0.05, 0.16, wire_mask);
 
 		vec3 neutral_col = base_col * neutral_floor_strength;
 		vec3 out_col = neutral_col + player_mix * base_tint_strength;
