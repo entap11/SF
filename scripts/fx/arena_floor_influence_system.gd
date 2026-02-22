@@ -10,7 +10,7 @@ const BLOB_SHADER: Shader = preload("res://shaders/arena_influence_blob.gdshader
 
 const CONFIG_PATH: String = "res://data/fx/arena_floor_influence_config.tres"
 const DEFAULT_BLOB_TEX_SIZE: int = 96
-const DEFAULT_PULSE_UPDATE_HZ: float = 10.0
+const DEFAULT_PULSE_UPDATE_HZ: float = 4.0
 
 var _config = null
 var _map_root: Node2D = null
@@ -701,6 +701,9 @@ func _apply_territory_domain_fill(tex_size: int, emitters: Array, max_per_pixel:
 	var radius_bias: float = maxf(0.0, float(_config.territory_domain_radius_bias))
 	var conflict_threshold: float = clampf(float(_config.territory_domain_conflict_threshold), 0.0, 1.0)
 	var conflict_blend: float = clampf(float(_config.territory_domain_conflict_blend), 0.0, 1.0)
+	var low_res_divisor: int = maxi(1, int(_config.territory_domain_low_res_divisor))
+	var domain_size: int = maxi(int(_config.territory_domain_min_resolution), int(round(float(tex_size) / float(low_res_divisor))))
+	domain_size = clampi(domain_size, 16, tex_size)
 
 	var domain_emitters: Array = []
 	for emitter_any in emitters:
@@ -723,10 +726,14 @@ func _apply_territory_domain_fill(tex_size: int, emitters: Array, max_per_pixel:
 	if domain_emitters.is_empty():
 		return
 
-	for y in range(tex_size):
-		var py: float = float(y) + 0.5
-		for x in range(tex_size):
-			var px: float = float(x) + 0.5
+	var domain_channels: PackedFloat32Array = PackedFloat32Array()
+	domain_channels.resize(domain_size * domain_size * 4)
+
+	var tex_to_domain: float = float(tex_size) / float(domain_size)
+	for y in range(domain_size):
+		var py: float = (float(y) + 0.5) * tex_to_domain
+		for x in range(domain_size):
+			var px: float = (float(x) + 0.5) * tex_to_domain
 			var best_owner: int = -1
 			var second_owner: int = -1
 			var best_score: float = 0.0
@@ -739,9 +746,9 @@ func _apply_territory_domain_fill(tex_size: int, emitters: Array, max_per_pixel:
 				var es: float = maxf(0.01, float(de.get("strength", 0.01)))
 				var dx: float = px - ex
 				var dy: float = py - ey
-				var dist: float = sqrt(dx * dx + dy * dy)
-				var norm: float = dist / maxf(1.0, er * (1.0 + radius_bias))
-				var score: float = es / pow(1.0 + norm, falloff)
+				var eff_radius: float = maxf(1.0, er * (1.0 + radius_bias))
+				var norm2: float = (dx * dx + dy * dy) / (eff_radius * eff_radius)
+				var score: float = es / (1.0 + norm2 * falloff)
 				var owner_idx: int = int(de.get("owner_index", -1))
 				if owner_idx < 0:
 					continue
@@ -763,25 +770,59 @@ func _apply_territory_domain_fill(tex_size: int, emitters: Array, max_per_pixel:
 			if second_owner >= 0 and conflict_ratio >= conflict_threshold:
 				var t: float = (conflict_ratio - conflict_threshold) / maxf(0.0001, (1.0 - conflict_threshold))
 				secondary_gain = domain_base_strength * conflict_blend * clampf(t, 0.0, 1.0)
-			var c: Color = _influence_image.get_pixel(x, y)
-			c = _add_channel_to_color(c, best_owner, primary_gain, max_per_pixel)
-			if secondary_gain > 0.0:
-				c = _add_channel_to_color(c, second_owner, secondary_gain, max_per_pixel)
-			_influence_image.set_pixel(x, y, c)
+			var di: int = (y * domain_size + x) * 4
+			if best_owner == 0:
+				domain_channels[di] = primary_gain
+			elif best_owner == 1:
+				domain_channels[di + 1] = primary_gain
+			elif best_owner == 2:
+				domain_channels[di + 2] = primary_gain
+			elif best_owner == 3:
+				domain_channels[di + 3] = primary_gain
+			if secondary_gain > 0.0 and second_owner >= 0:
+				if second_owner == 0:
+					domain_channels[di] += secondary_gain
+				elif second_owner == 1:
+					domain_channels[di + 1] += secondary_gain
+				elif second_owner == 2:
+					domain_channels[di + 2] += secondary_gain
+				elif second_owner == 3:
+					domain_channels[di + 3] += secondary_gain
 
-func _add_channel_to_color(c: Color, owner_index: int, add: float, max_per_pixel: float) -> Color:
-	if add <= 0.0:
-		return c
-	match owner_index:
-		0:
-			c.r = minf(max_per_pixel, c.r + add)
-		1:
-			c.g = minf(max_per_pixel, c.g + add)
-		2:
-			c.b = minf(max_per_pixel, c.b + add)
-		3:
-			c.a = minf(max_per_pixel, c.a + add)
-	return c
+	for y_full in range(tex_size):
+		var v: float = ((float(y_full) + 0.5) / float(tex_size)) * float(domain_size) - 0.5
+		var y0: int = clampi(int(floor(v)), 0, domain_size - 1)
+		var y1: int = clampi(y0 + 1, 0, domain_size - 1)
+		var ty: float = clampf(v - float(y0), 0.0, 1.0)
+		for x_full in range(tex_size):
+			var u: float = ((float(x_full) + 0.5) / float(tex_size)) * float(domain_size) - 0.5
+			var x0: int = clampi(int(floor(u)), 0, domain_size - 1)
+			var x1: int = clampi(x0 + 1, 0, domain_size - 1)
+			var tx: float = clampf(u - float(x0), 0.0, 1.0)
+			var i00: int = (y0 * domain_size + x0) * 4
+			var i10: int = (y0 * domain_size + x1) * 4
+			var i01: int = (y1 * domain_size + x0) * 4
+			var i11: int = (y1 * domain_size + x1) * 4
+			var r0: float = lerpf(domain_channels[i00], domain_channels[i10], tx)
+			var g0: float = lerpf(domain_channels[i00 + 1], domain_channels[i10 + 1], tx)
+			var b0: float = lerpf(domain_channels[i00 + 2], domain_channels[i10 + 2], tx)
+			var a0: float = lerpf(domain_channels[i00 + 3], domain_channels[i10 + 3], tx)
+			var r1: float = lerpf(domain_channels[i01], domain_channels[i11], tx)
+			var g1: float = lerpf(domain_channels[i01 + 1], domain_channels[i11 + 1], tx)
+			var b1: float = lerpf(domain_channels[i01 + 2], domain_channels[i11 + 2], tx)
+			var a1: float = lerpf(domain_channels[i01 + 3], domain_channels[i11 + 3], tx)
+			var add_r: float = lerpf(r0, r1, ty)
+			var add_g: float = lerpf(g0, g1, ty)
+			var add_b: float = lerpf(b0, b1, ty)
+			var add_a: float = lerpf(a0, a1, ty)
+			if add_r <= 0.0001 and add_g <= 0.0001 and add_b <= 0.0001 and add_a <= 0.0001:
+				continue
+			var c: Color = _influence_image.get_pixel(x_full, y_full)
+			c.r = minf(max_per_pixel, c.r + add_r)
+			c.g = minf(max_per_pixel, c.g + add_g)
+			c.b = minf(max_per_pixel, c.b + add_b)
+			c.a = minf(max_per_pixel, c.a + add_a)
+			_influence_image.set_pixel(x_full, y_full, c)
 
 func _pulse_gain_for_key(key: String, now_ms: int) -> Dictionary:
 	if key.is_empty() or not _pulses_by_key.has(key):
