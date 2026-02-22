@@ -21,6 +21,7 @@ const ArenaWorldViewportCache := preload("res://scripts/arena_helpers/world_view
 const ArenaStageRuntimeFlow := preload("res://scripts/arena_helpers/stage_runtime_flow.gd")
 const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
 const ArenaInputBridgeUtils := preload("res://scripts/arena_helpers/input_bridge_utils.gd")
+const ArenaFloorInfluenceSystem := preload("res://scripts/fx/arena_floor_influence_system.gd")
 
 const GRID_W := 8
 const GRID_H := 12
@@ -236,6 +237,7 @@ var _legacy_tick_fenced_logged: bool = false
 @export var overtime_start_ms: float = OVERTIME_START_MS
 @export var draw_arena_rect_debug := false
 @export var draw_world_bounds_debug: bool = false
+@export var show_floor_influence_debug: bool = false
 @export var use_dev_safe_centering := false
 @export var FITCAM_POLICY := FIT_WIDTH
 @export var debug_buff_loadout: Array[String] = [
@@ -336,6 +338,7 @@ var _hb_phys: int = 0
 var _hb_max_phys_ms: float = 0.0
 var _hb_sum_phys_ms: float = 0.0
 var _vs_pvp_runtime: Node = null
+var floor_influence_system: ArenaFloorInfluenceSystem = null
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
@@ -1601,6 +1604,8 @@ func _start_match_sim(reason: String) -> void:
 		iid = int(sim_runner.bound_iid)
 		sim_runner.set_running(true, reason)
 		sim_runner.log_pause_snapshot("arena_match_start")
+	if floor_influence_system != null:
+		floor_influence_system.notify_match_started()
 	SFLog.info("MATCH_STARTED", {"iid": iid, "reason": reason})
 
 func _bind_powerbar_signals() -> void:
@@ -1680,6 +1685,7 @@ func _init_systems() -> void:
 	_ensure_sim_events()
 	_ensure_vfx_manager()
 	_ensure_unit_renderer()
+	_ensure_floor_influence_system()
 	_ensure_sim_runner()
 	if sim_runner != null:
 		lane_system = sim_runner.get_lane_system()
@@ -1748,6 +1754,29 @@ func _ensure_pools_root() -> Node:
 		add_child(new_pools)
 		pools_root = new_pools
 	return pools_root
+
+func _ensure_floor_influence_system() -> void:
+	if floor_renderer == null:
+		return
+	var pools_root: Node = _ensure_pools_root()
+	if pools_root == null:
+		return
+	if floor_influence_system == null or not is_instance_valid(floor_influence_system):
+		var existing: Node = pools_root.get_node_or_null("ArenaFloorInfluenceSystem")
+		if existing is ArenaFloorInfluenceSystem:
+			floor_influence_system = existing as ArenaFloorInfluenceSystem
+		else:
+			floor_influence_system = ArenaFloorInfluenceSystem.new()
+			floor_influence_system.name = "ArenaFloorInfluenceSystem"
+			pools_root.add_child(floor_influence_system)
+	if floor_influence_system != null:
+		floor_influence_system.setup(map_root, pools_root, floor_renderer)
+		floor_influence_system.set_debug_enabled(show_floor_influence_debug)
+
+func set_floor_influence_debug(enabled: bool) -> void:
+	show_floor_influence_debug = enabled
+	if floor_influence_system != null:
+		floor_influence_system.set_debug_enabled(enabled)
 
 func _resolve_unit_renderer() -> Node2D:
 	var pools_node: Node = get_node_or_null("PoolsRoot/UnitRenderer")
@@ -1876,6 +1905,8 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		SFLog.info("MATCH_END_DUPLICATE_SKIP", {"winner_id": winner_id_in})
 		return
 	_match_end_handled = true
+	if floor_influence_system != null:
+		floor_influence_system.notify_match_ended()
 	if input_system != null:
 		input_system.set_inputs_locked(true, "match_end")
 	game_over = true
@@ -2320,8 +2351,12 @@ func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 	_sync_playfield_outline()
 	grid_w = grid_spec.grid_w
 	grid_h = grid_spec.grid_h
+	if floor_influence_system == null:
+		_ensure_floor_influence_system()
 	if floor_renderer != null:
-		floor_renderer.configure(grid_w, grid_h, cell_px)
+		floor_renderer.configure(grid_w, grid_h, cell_px, origin)
+	if floor_influence_system != null and floor_renderer != null:
+		floor_influence_system.configure_floor_bounds(floor_renderer.get_floor_bounds_rect())
 
 func _log_map_spec(map_data: Dictionary) -> void:
 	if not GRID_DEBUG or grid_spec == null:
@@ -3091,6 +3126,10 @@ func clear_map_render() -> void:
 
 func set_model(m: Dictionary) -> void:
 	model = m
+	if floor_influence_system == null:
+		_ensure_floor_influence_system()
+	if floor_influence_system != null and floor_renderer != null:
+		floor_influence_system.configure_floor_bounds(floor_renderer.get_floor_bounds_rect())
 
 func world_center() -> Vector2:
 	return _canon_world_px() * 0.5
@@ -4176,6 +4215,8 @@ func _push_render_model() -> void:
 					"render_barracks": barracks_arr.size()
 				})
 		barracks_r.queue_redraw()
+	if floor_influence_system != null:
+		floor_influence_system.apply_render_model(rm)
 
 func _queue_event(event: Dictionary) -> void:
 	events.append(event)
@@ -4338,6 +4379,8 @@ func _enter_overtime() -> void:
 	overtime_active = true
 	hurry_mode = true
 	audio_hurry_pitch = 1.15
+	if floor_influence_system != null:
+		floor_influence_system.notify_overtime_started()
 	if buffs_enabled:
 		for buff_state in buff_states.values():
 			buff_state.unlock_third_slot()
@@ -7230,11 +7273,14 @@ func _update_towers(dt: float) -> void:
 	dbg_mark_event("tower_eval")
 	var dt_ms: float = dt * 1000.0
 	for tower in towers:
+		var prev_owner_id: int = int(tower.get("owner_id", 0))
+		var tower_id: int = int(tower.get("id", -1))
 		if int(tower.get("required_hive_ids", []).size()) < BARRACKS_MIN_REQ:
 			tower["active"] = false
 			tower["owner_id"] = 0
 			tower["tier"] = 1
 			tower["shot_accum_ms"] = 0.0
+			_notify_floor_structure_owner_changed("tower", tower_id, prev_owner_id, 0)
 			if state != null:
 				var node_id: int = int(tower.get("node_id", tower.get("id", -1)))
 				if node_id != -1:
@@ -7260,6 +7306,7 @@ func _update_towers(dt: float) -> void:
 			tower["owner_id"] = 0
 			tower["tier"] = 1
 			tower["shot_accum_ms"] = 0.0
+			_notify_floor_structure_owner_changed("tower", tower_id, prev_owner_id, 0)
 			if state != null:
 				var node_id: int = int(tower.get("node_id", tower.get("id", -1)))
 				if node_id != -1:
@@ -7268,6 +7315,7 @@ func _update_towers(dt: float) -> void:
 		tower["active"] = true
 		tower["owner_id"] = owner_id
 		tower["tier"] = min_tier
+		_notify_floor_structure_owner_changed("tower", tower_id, prev_owner_id, owner_id)
 		if state != null:
 			var node_id: int = int(tower.get("node_id", tower.get("id", -1)))
 			if node_id != -1:
@@ -7351,6 +7399,8 @@ func _tower_shoot(tower: Dictionary) -> bool:
 func _update_barracks(dt: float) -> void:
 	var dt_ms: float = dt * 1000.0
 	for b in barracks:
+		var prev_owner_id: int = int(b.get("owner_id", 0))
+		var barracks_id: int = int(b.get("id", -1))
 		var prev_active: bool = bool(b.get("active", false))
 		var prev_tier: int = int(b.get("tier", 1))
 		if int(b.get("required_hive_ids", []).size()) < BARRACKS_MIN_REQ:
@@ -7358,6 +7408,7 @@ func _update_barracks(dt: float) -> void:
 			b["owner_id"] = 0
 			b["tier"] = 1
 			b["spawn_accum_ms"] = 0.0
+			_notify_floor_structure_owner_changed("barracks", barracks_id, prev_owner_id, 0)
 			continue
 		var owner_id: int = 0
 		var min_tier: int = 4
@@ -7379,10 +7430,12 @@ func _update_barracks(dt: float) -> void:
 			b["owner_id"] = 0
 			b["tier"] = 1
 			b["spawn_accum_ms"] = 0.0
+			_notify_floor_structure_owner_changed("barracks", barracks_id, prev_owner_id, 0)
 			continue
 		b["active"] = true
 		b["owner_id"] = owner_id
 		b["tier"] = min_tier
+		_notify_floor_structure_owner_changed("barracks", barracks_id, prev_owner_id, owner_id)
 		if owner_id > 0:
 			barracks_control_ms[owner_id] = float(barracks_control_ms.get(owner_id, 0.0)) + dt_ms
 		if min_tier != prev_tier:
@@ -7956,6 +8009,7 @@ func _apply_unit_arrival(unit_owner: int, hive: HiveData, from_id: int = -1, lan
 		hive.power -= 1
 		return
 	hive.owner_id = unit_owner
+	_notify_floor_structure_owner_changed("hive", int(hive.id), prev_owner, unit_owner)
 	dbg_mark_event("tower_eval")
 	capture_count += 1
 	hive.power = 1
@@ -7981,6 +8035,15 @@ func _apply_unit_arrival(unit_owner: int, hive: HiveData, from_id: int = -1, lan
 				if lane.send_a and lane.send_b:
 					lane.send_a = false
 					lane.establish_a = false
+
+func _notify_floor_structure_owner_changed(structure_type: String, structure_id: int, prev_owner: int, next_owner: int) -> void:
+	if floor_influence_system == null:
+		return
+	if structure_id <= 0:
+		return
+	if prev_owner == next_owner:
+		return
+	floor_influence_system.notify_ownership_changed(structure_type, structure_id, prev_owner, next_owner)
 
 func _update_idle_growth(dt: float) -> void:
 	var dt_ms := dt * 1000.0
