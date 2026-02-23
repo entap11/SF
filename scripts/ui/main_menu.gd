@@ -3,6 +3,7 @@ extends Control
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPanel.tscn")
+const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePassPanel.tscn")
 const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
@@ -146,6 +147,7 @@ var _play_mode_select: Control = null
 var _vs_lobby: Control = null
 var _entry_route_modal: Panel = null
 var _swarm_pass_panel: Control = null
+var _battle_pass_panel: Control = null
 var _rank_panel: Control = null
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
@@ -2188,8 +2190,8 @@ func _open_cash_split() -> void:
 	_open_game_hub(true, _default_money_denomination())
 
 func _on_battle_pass_pressed() -> void:
-	_open_swarm_pass_panel()
-	status_label.text = "SwarmPass opened."
+	_open_battle_pass_panel()
+	status_label.text = "Battle Pass opened."
 
 func _on_rank_pressed() -> void:
 	_open_rank_panel()
@@ -2217,6 +2219,29 @@ func _close_swarm_pass_panel() -> void:
 	if _swarm_pass_panel == null:
 		return
 	_swarm_pass_panel.visible = false
+
+func _ensure_battle_pass_panel() -> void:
+	if _battle_pass_panel != null and is_instance_valid(_battle_pass_panel):
+		return
+	var panel_instance_any: Variant = BATTLE_PASS_PANEL_SCENE.instantiate()
+	if panel_instance_any is Control:
+		_battle_pass_panel = panel_instance_any as Control
+		add_child(_battle_pass_panel)
+		_battle_pass_panel.visible = false
+		if _battle_pass_panel.has_signal("close_requested"):
+			_battle_pass_panel.connect("close_requested", Callable(self, "_close_battle_pass_panel"))
+
+func _open_battle_pass_panel() -> void:
+	_ensure_battle_pass_panel()
+	if _battle_pass_panel == null:
+		return
+	_battle_pass_panel.visible = true
+	_battle_pass_panel.raise()
+
+func _close_battle_pass_panel() -> void:
+	if _battle_pass_panel == null:
+		return
+	_battle_pass_panel.visible = false
 
 func _ensure_rank_panel() -> void:
 	if _rank_panel != null and is_instance_valid(_rank_panel):
