@@ -5,6 +5,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const IonPopScene: PackedScene = preload("res://scenes/vfx/ion_pop.tscn")
+const VfxPoolScript := preload("res://scripts/vfx/vfx_pool.gd")
 
 const DEBUG_VFX := false
 const Z_INDEX_VFX := 20
@@ -43,7 +44,7 @@ var _sim_events: Node = null
 var _prewarmed: bool = false
 var _pool_collision: Array[Node2D] = []
 var _pool_impact: Array[Node2D] = []
-var _ion_pop_pool: VfxPool = null
+var _ion_pop_pool: Node = null
 var _last_hive_ionpop_ms: Dictionary = {}
 var _gpu_vfx_enabled: bool = true
 var _auto_gpu_vfx_disable_enabled: bool = AUTO_GPU_VFX_DISABLE_ENABLED
@@ -297,7 +298,7 @@ func set_gpu_vfx_enabled(enabled: bool) -> void:
 func _ensure_ion_pop_pool() -> void:
 	if _ion_pop_pool != null and is_instance_valid(_ion_pop_pool):
 		return
-	var pool: VfxPool = VfxPool.new()
+	var pool: Node = VfxPoolScript.new()
 	pool.name = "IonPopPool"
 	add_child(pool)
 	_ion_pop_pool = pool
@@ -467,7 +468,7 @@ func _spawn_ionize_line(from_pos: Vector2, to_pos: Vector2, owner_color: Color, 
 	tween.tween_callback(Callable(line, "queue_free"))
 
 func _spawn_collision_ionpop(world_pos: Vector2, lane_dir: Vector2) -> void:
-	if _ion_pop_pool == null:
+	if _ion_pop_pool == null or not _ion_pop_pool.has_method("spawn_ionpop"):
 		return
 	var axis: Vector2 = lane_dir
 	if axis.length_squared() <= 0.000001:
@@ -475,17 +476,17 @@ func _spawn_collision_ionpop(world_pos: Vector2, lane_dir: Vector2) -> void:
 	axis = axis.normalized()
 	var from_pos: Vector2 = world_pos - (axis * IONPOP_COLLISION_HALF_LEN_PX)
 	var to_pos: Vector2 = world_pos + (axis * IONPOP_COLLISION_HALF_LEN_PX)
-	_ion_pop_pool.spawn_ionpop(from_pos, to_pos)
+	_ion_pop_pool.call("spawn_ionpop", from_pos, to_pos)
 
 func _spawn_hive_ionpop(hive_id: int, from_pos: Vector2, hive_pos: Vector2) -> void:
-	if _ion_pop_pool == null:
+	if _ion_pop_pool == null or not _ion_pop_pool.has_method("spawn_ionpop"):
 		return
 	var now_ms: int = Time.get_ticks_msec()
 	var last_ms: int = int(_last_hive_ionpop_ms.get(hive_id, -HIVE_IONPOP_THROTTLE_MS))
 	if now_ms - last_ms < HIVE_IONPOP_THROTTLE_MS:
 		return
 	_last_hive_ionpop_ms[hive_id] = now_ms
-	_ion_pop_pool.spawn_ionpop(from_pos, hive_pos)
+	_ion_pop_pool.call("spawn_ionpop", from_pos, hive_pos)
 
 func _spawn_spike(from_pos: Vector2, to_pos: Vector2, tier: int) -> void:
 	var tex: Texture2D = SPIKE_TEX

@@ -257,9 +257,11 @@ func _tower_texture_for_tier(tier: int, state_key: String, owner_key: String, re
 			return TOWER_TEX_LARGE
 
 func _visual_tier_bucket(tier: int) -> int:
-	if tier <= 1:
+	# Sim tier is 1..4 while art has 3 sizes:
+	# tiers 1-2 -> small, 3 -> medium, 4+ -> large.
+	if tier <= 2:
 		return 1
-	if tier == 2:
+	if tier == 3:
 		return 2
 	return 3
 

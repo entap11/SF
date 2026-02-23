@@ -7,8 +7,8 @@ var max_active: int = 24
 var preload_count: int = 32
 var ionpop_scene: PackedScene = null
 
-var _available: Array[IonPop] = []
-var _active: Array[IonPop] = []
+var _available: Array[Node2D] = []
+var _active: Array[Node2D] = []
 var _enabled: bool = true
 var _configured: bool = false
 
@@ -31,8 +31,8 @@ func set_enabled(enabled: bool) -> void:
 	_enabled = enabled
 	if enabled:
 		return
-	var to_release: Array[IonPop] = _active.duplicate()
-	for fx: IonPop in to_release:
+	var to_release: Array[Node2D] = _active.duplicate()
+	for fx: Node2D in to_release:
 		return_ionpop(fx)
 
 func spawn_ionpop(from_pos: Vector2, to_pos: Vector2) -> void:
@@ -44,11 +44,12 @@ func spawn_ionpop(from_pos: Vector2, to_pos: Vector2) -> void:
 		return
 	if _available.is_empty():
 		return
-	var fx: IonPop = _available.pop_back()
+	var fx: Node2D = _available.pop_back()
 	_active.append(fx)
-	fx.play(from_pos, to_pos)
+	if fx.has_method("play"):
+		fx.call("play", from_pos, to_pos)
 
-func return_ionpop(fx: IonPop) -> void:
+func return_ionpop(fx: Node2D) -> void:
 	if fx == null:
 		return
 	var active_index: int = _active.find(fx)
@@ -65,12 +66,13 @@ func _build_pool() -> void:
 		return
 	for i: int in range(preload_count):
 		var instance_any: Node = ionpop_scene.instantiate()
-		var fx: IonPop = instance_any as IonPop
+		var fx: Node2D = instance_any as Node2D
 		if fx == null:
 			if instance_any != null:
 				instance_any.queue_free()
 			continue
 		fx.name = "IonPop_%d" % i
 		add_child(fx)
-		fx.init(self)
+		if fx.has_method("init"):
+			fx.call("init", self)
 		_available.append(fx)
