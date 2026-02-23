@@ -1834,6 +1834,14 @@ func _ensure_wall_renderer() -> void:
 
 func _ensure_vfx_manager() -> void:
 	if vfx_manager != null and is_instance_valid(vfx_manager):
+		var pools_parent: Node = _ensure_pools_root()
+		if pools_parent != null and vfx_manager.get_parent() != pools_parent:
+			vfx_manager.reparent(pools_parent)
+			SFLog.allow_tag("VFX_REPARENT")
+			SFLog.warn("VFX_REPARENT", {
+				"target_parent": str(pools_parent.get_path()),
+				"node_path": str(vfx_manager.get_path())
+			})
 		return
 	var pools_root: Node = _ensure_pools_root()
 
@@ -1854,10 +1862,30 @@ func _ensure_vfx_manager() -> void:
 			pools_root.add_child(vfx_manager)
 	if TRACE_ARENA_PRINTS:
 		print("VFX_PARENT:", vfx_manager.get_path())
+	if vfx_manager != null and vfx_manager.get_parent() != pools_root:
+		vfx_manager.reparent(pools_root)
+		SFLog.allow_tag("VFX_REPARENT")
+		SFLog.warn("VFX_REPARENT", {
+			"target_parent": str(pools_root.get_path()),
+			"node_path": str(vfx_manager.get_path())
+		})
 	if sim_events != null and vfx_manager.has_method("set_sim_events"):
 		vfx_manager.set_sim_events(sim_events)
+	if vfx_manager != null and vfx_manager.has_method("set_gpu_vfx_enabled"):
+		vfx_manager.call("set_gpu_vfx_enabled", _gpu_vfx_pref_enabled())
 	if vfx_manager != null and vfx_manager.has_method("prewarm"):
 		vfx_manager.prewarm()
+
+func _gpu_vfx_pref_enabled() -> bool:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager != null and profile_manager.has_method("is_gpu_vfx_enabled"):
+		return bool(profile_manager.call("is_gpu_vfx_enabled"))
+	return true
+
+func set_gpu_vfx_enabled(enabled: bool) -> void:
+	_ensure_vfx_manager()
+	if vfx_manager != null and vfx_manager.has_method("set_gpu_vfx_enabled"):
+		vfx_manager.call("set_gpu_vfx_enabled", enabled)
 
 func _on_sim_ticked() -> void:
 	var phase: int = int(OpsState.match_phase)
@@ -7374,16 +7402,14 @@ func _tower_interval_ms_for(owner_id: int, tier: int) -> float:
 	return maxf(80.0, base / rate_mult)
 
 func _tower_range_px(tier: int) -> float:
-	var base := 160.0
-	if tier == 1:
-		return base
+	var small_range_px: float = 192.0
+	var medium_range_px: float = 256.0
+	var large_range_px: float = 320.0
+	if tier <= 1:
+		return small_range_px
 	if tier == 2:
-		return base * 1.2
-	if tier == 3:
-		return base * 1.2 * 1.15
-	if tier == 4:
-		return base * 1.2 * 1.15 * 1.10
-	return base
+		return medium_range_px
+	return large_range_px
 
 func _tower_shoot(tower: Dictionary) -> bool:
 	if not tower["active"]:

@@ -5,6 +5,7 @@ const P2_TEXT_COLOR := Color(1.0, 1.0, 1.0)
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
+const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader")
 @export var debug_show_kind_label := false
 @export var debug_tint_log := false
 @export var show_hive_ids: bool = OS.is_debug_build()
@@ -26,7 +27,7 @@ const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := 1.10
 const HEIGHT_LARGE_SCALE := 1.20
 const HEIGHT_MAX_SCALE := 1.30
-const HIVE_VISUAL_SCALE: float = 1.6875
+const HIVE_VISUAL_SCALE: float = 2.53125
 const HIVE_WIDTH_MULT: float = 0.90
 const HIVE_HEIGHT_MULT: float = 1.28
 const HIVE_COLOR_SAT_BOOST: float = 1.22
@@ -52,6 +53,7 @@ var _sprite_scale: float = 1.0
 var _sprite_offset: Vector2 = Vector2.ZERO
 var _sprite: Sprite2D = null
 var _shader_mat: ShaderMaterial = null
+var _npc_shader_mat: ShaderMaterial = null
 var _power_label_holder: Node2D = null
 var _power_badge: Control = null
 var _power_backing: PanelContainer = null
@@ -347,6 +349,13 @@ func _ensure_shader_material() -> void:
 	if _sprite != null and is_instance_valid(_sprite):
 		_sprite.material = _shader_mat
 
+func _ensure_npc_shader_material() -> void:
+	if _npc_shader_mat == null:
+		_npc_shader_mat = ShaderMaterial.new()
+		_npc_shader_mat.shader = NPC_GRAYSCALE_SHADER
+	if _sprite != null and is_instance_valid(_sprite):
+		_sprite.material = _npc_shader_mat
+
 func _resolve_tier(power_value: int) -> int:
 	return _visual_tier_for_power(power_value)
 
@@ -412,9 +421,9 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 		})
 	if _sprite != null and is_instance_valid(_sprite):
 		if is_neutral_owner:
-			# Keep NPC/neutral hives visually unambiguous for gameplay testing.
-			_sprite.material = null
-			_sprite.modulate = Color(0.62, 0.62, 0.62, 1.0)
+			# Hard grayscale for NPC/neutral owners: no red/green/blue/yellow tinting.
+			_ensure_npc_shader_material()
+			_sprite.modulate = Color(1.0, 1.0, 1.0, 1.0)
 		else:
 			if _shader_mat != null:
 				_sprite.material = _shader_mat

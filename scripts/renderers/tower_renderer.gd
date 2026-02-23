@@ -10,9 +10,12 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const BarracksRenderer := preload("res://scripts/renderers/barracks_renderer.gd")
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const TOWER_TEX_SMALL: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_small.tres")
+const TOWER_TEX_MEDIUM: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_medium.tres")
+const TOWER_TEX_LARGE: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_large.tres")
 
 const TOWER_SPIKE_PX: float = 8.0
-const TOWER_VISUAL_SCALE: float = 12.5
+const TOWER_VISUAL_SCALE: float = 8.75
 const TOWER_PITCH_SCALE_X: float = 1.1
 const TOWER_PITCH_SCALE_Y: float = 1.6
 const TOWER_BASE_LIFT_RATIO: float = 0.36
@@ -20,6 +23,9 @@ const TOWER_SPRITE_Z_INDEX: int = 2
 const LOG_INTERVAL_MS: int = 1000
 const TOWER_LIGHT_SWAP_SHADER_PATH: String = "res://assets/shaders/sf_color_swap.gdshader"
 const TOWER_LIGHT_FROM_COLOR: Color = Color(1.0, 0.8235, 0.0, 1.0)
+const TOWER_SIZE_MULT_T1: float = 1.0
+const TOWER_SIZE_MULT_T2: float = 1.14
+const TOWER_SIZE_MULT_T3_PLUS: float = 1.30
 
 var model: Dictionary = {}
 var towers: Array = []
@@ -205,6 +211,7 @@ func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegi
 	sprite.position = pos
 	var owner_id: int = int(td.get("owner_id", 0))
 	var active: bool = bool(td.get("active", owner_id != 0))
+	var tier: int = int(td.get("tier", 1))
 	var owner_key: String = SpriteRegistry.owner_key(owner_id)
 	var state_key: String = "active" if active else "base"
 	var key: String = "tower.%s.%s" % [state_key, owner_key]
@@ -215,10 +222,14 @@ func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegi
 		tex = registry.get_tex(key)
 		scale = registry.get_scale(key)
 		offset = registry.get_offset(key)
+	var tier_tex: Texture2D = _tower_texture_for_tier(tier, state_key, owner_key, registry)
+	if tier_tex != null:
+		tex = tier_tex
 	sprite.texture = tex
 	if tex != null:
 		var tex_size: Vector2 = tex.get_size()
-		var draw_size_px: float = TOWER_SPIKE_PX * 2.0 * TOWER_VISUAL_SCALE * maxf(0.1, scale)
+		var tier_mult: float = _tower_size_multiplier_for_tier(tier)
+		var draw_size_px: float = TOWER_SPIKE_PX * 2.0 * TOWER_VISUAL_SCALE * maxf(0.1, scale) * tier_mult
 		var tex_max: float = maxf(tex_size.x, tex_size.y)
 		var s: float = draw_size_px / tex_max if tex_max > 0.0 else 1.0
 		var scale_x: float = TOWER_PITCH_SCALE_X * s
@@ -231,6 +242,33 @@ func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegi
 	else:
 		sprite.position = pos
 		sprite.visible = false
+
+func _tower_texture_for_tier(tier: int, state_key: String, owner_key: String, registry: SpriteRegistry) -> Texture2D:
+	if registry != null:
+		var tier_key: String = "tower.%s.t%d.%s" % [state_key, _visual_tier_bucket(tier), owner_key]
+		if registry.has_tex(tier_key):
+			return registry.get_tex(tier_key)
+	match _visual_tier_bucket(tier):
+		1:
+			return TOWER_TEX_SMALL
+		2:
+			return TOWER_TEX_MEDIUM
+		_:
+			return TOWER_TEX_LARGE
+
+func _visual_tier_bucket(tier: int) -> int:
+	if tier <= 1:
+		return 1
+	if tier == 2:
+		return 2
+	return 3
+
+func _tower_size_multiplier_for_tier(tier: int) -> float:
+	if tier <= 1:
+		return TOWER_SIZE_MULT_T1
+	if tier == 2:
+		return TOWER_SIZE_MULT_T2
+	return TOWER_SIZE_MULT_T3_PLUS
 
 func _apply_tower_owner_visual(tower_id: int, owner_id: int) -> void:
 	if not _tower_sprites_by_id.has(tower_id):

@@ -232,55 +232,59 @@ func _default_bot_profile_for_seat(seat: int) -> Dictionary:
 		"enabled": true,
 		"policy": "baseline_v1",
 		"persona": "balanced",
-		"think_interval_ms": 520,
-		"think_jitter_ms": 90,
-		"post_intent_delay_ms": 120,
-		"opening_delay_ms": 900,
+		"think_interval_ms": 900,
+		"think_jitter_ms": 140,
+		"post_intent_delay_ms": 420,
+		"opening_delay_ms": 1800,
 		"opening_stagger_ms": 120,
-		"aggression": 0.72,
-		"feed_bias": 0.22,
-		"min_attack_power": 5,
-		"min_feed_power": 11,
-		"min_swarm_power": 14,
+		"aggression": 0.62,
+		"feed_bias": 0.30,
+		"min_attack_power": 9,
+		"min_feed_power": 12,
+		"min_swarm_power": 17,
 		"allow_swarm": true,
 		"max_actions_per_tick": 1,
 		"prefer_neutral_bonus": 0.5,
 		"randomness": 0.08,
 		"retry_block_ms": 900,
 		"no_lane_retry_ms": 3200,
+		"pair_intent_cooldown_ms": 1300,
+		"global_intent_cooldown_ms": 1000,
 		"swarm_cooldown_ms": 1600,
 		"swarm_global_cooldown_ms": 3500
 	}
 	match seat:
 		2:
 			profile["persona"] = "striker"
-			profile["think_interval_ms"] = 540
-			profile["opening_delay_ms"] = 900
-			profile["aggression"] = 0.76
-			profile["feed_bias"] = 0.18
+			profile["think_interval_ms"] = 980
+			profile["opening_delay_ms"] = 2000
+			profile["aggression"] = 0.67
+			profile["feed_bias"] = 0.24
+			profile["min_attack_power"] = 10
+			profile["min_swarm_power"] = 18
 			profile["randomness"] = 0.06
 		3:
 			profile["persona"] = "builder"
-			profile["think_interval_ms"] = 620
-			profile["think_jitter_ms"] = 110
-			profile["opening_delay_ms"] = 1050
-			profile["aggression"] = 0.58
-			profile["feed_bias"] = 0.34
-			profile["min_attack_power"] = 7
-			profile["min_feed_power"] = 10
-			profile["min_swarm_power"] = 17
+			profile["think_interval_ms"] = 1100
+			profile["think_jitter_ms"] = 160
+			profile["opening_delay_ms"] = 2200
+			profile["aggression"] = 0.52
+			profile["feed_bias"] = 0.38
+			profile["min_attack_power"] = 10
+			profile["min_feed_power"] = 11
+			profile["min_swarm_power"] = 19
 			profile["prefer_neutral_bonus"] = 0.80
 			profile["randomness"] = 0.10
 		4:
 			profile["persona"] = "raider"
-			profile["think_interval_ms"] = 600
-			profile["think_jitter_ms"] = 110
-			profile["opening_delay_ms"] = 1200
-			profile["aggression"] = 0.84
-			profile["feed_bias"] = 0.12
-			profile["min_attack_power"] = 4
+			profile["think_interval_ms"] = 1050
+			profile["think_jitter_ms"] = 170
+			profile["opening_delay_ms"] = 2400
+			profile["aggression"] = 0.70
+			profile["feed_bias"] = 0.20
+			profile["min_attack_power"] = 9
 			profile["min_feed_power"] = 13
-			profile["min_swarm_power"] = 12
+			profile["min_swarm_power"] = 17
 			profile["prefer_neutral_bonus"] = 0.35
 			profile["randomness"] = 0.12
 	return profile

@@ -24,10 +24,10 @@ extends Control
 @onready var map_in_pool: CheckButton = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm/MapInPool
 @onready var map_load_test: Button = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm/MapLoadTest
 @onready var map_status: Label = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm/MapStatus
-@onready var contest_state := get_node_or_null("/root/ContestState")
+@onready var contest_state: Node = get_node_or_null("/root/ContestState")
 
-var _current_contest_id := ""
-var _current_map_id := ""
+var _current_contest_id: String = ""
+var _current_map_id: String = ""
 
 func _ready() -> void:
 	contest_entry_type.clear()
@@ -56,7 +56,7 @@ func refresh() -> void:
 func _load_contests() -> void:
 	contest_list.clear()
 	OpsState.load_contests()
-	var ids := OpsState.get_contest_ids()
+	var ids: PackedStringArray = OpsState.get_contest_ids()
 	if ids.is_empty():
 		contest_list.add_item("No contests yet")
 		contest_list.set_item_selectable(0, false)
@@ -64,17 +64,17 @@ func _load_contests() -> void:
 		return
 	for id in ids:
 		var contest: ContestDef = OpsState.contests.get(id)
-		var label := id
+		var label: String = id
 		if contest != null and contest.published:
 			label = "%s (published)" % id
-		var idx := contest_list.add_item(label)
+		var idx: int = contest_list.add_item(label)
 		contest_list.set_item_metadata(idx, id)
 	_clear_contest_form()
 
 func _load_maps() -> void:
 	map_list.clear()
 	OpsState.load_maps()
-	var ids := OpsState.get_map_ids()
+	var ids: PackedStringArray = OpsState.get_map_ids()
 	contest_map_pool.clear()
 	if ids.is_empty():
 		map_list.add_item("No maps found")
@@ -85,20 +85,20 @@ func _load_maps() -> void:
 		return
 	for id in ids:
 		var map_def: MapDef = OpsState.maps.get(id)
-		var label := id
+		var label: String = id
 		if map_def != null and not map_def.display_name.is_empty():
 			label = "%s (%s)" % [id, map_def.display_name]
-		var idx := map_list.add_item(label)
+		var idx: int = map_list.add_item(label)
 		map_list.set_item_metadata(idx, id)
-		var pool_idx := contest_map_pool.add_item(id)
+		var pool_idx: int = contest_map_pool.add_item(id)
 		contest_map_pool.set_item_metadata(pool_idx, id)
 	_clear_map_form()
 
 func _on_contest_selected(index: int) -> void:
-	var contest_id_meta := contest_list.get_item_metadata(index)
+	var contest_id_meta: Variant = contest_list.get_item_metadata(index)
 	if contest_id_meta == null:
 		return
-	var contest_id_str := str(contest_id_meta)
+	var contest_id_str: String = str(contest_id_meta)
 	var contest: ContestDef = OpsState.contests.get(contest_id_str)
 	if contest == null:
 		return
@@ -117,7 +117,7 @@ func _on_contest_selected(index: int) -> void:
 func _set_contest_map_pool_selection(map_ids: PackedStringArray) -> void:
 	contest_map_pool.deselect_all()
 	for i in range(contest_map_pool.item_count):
-		var map_id := str(contest_map_pool.get_item_metadata(i))
+		var map_id: String = str(contest_map_pool.get_item_metadata(i))
 		if map_ids.has(map_id):
 			contest_map_pool.select(i, true)
 
@@ -127,13 +127,13 @@ func _on_contest_new() -> void:
 	contest_status.text = "New contest"
 
 func _on_contest_save() -> void:
-	var contest := ContestDef.new()
+	var contest: ContestDef = ContestDef.new()
 	contest.id = contest_id.text.strip_edges()
-	var parts := _parse_contest_id(contest.id)
+	var parts: Dictionary = _parse_contest_id(contest.id)
 	if parts.is_empty():
 		contest_status.text = "Invalid contest ID format"
 		return
-	var normalized_id := _normalize_contest_id(contest.id)
+	var normalized_id: String = _normalize_contest_id(contest.id)
 	if not normalized_id.is_empty():
 		contest.id = normalized_id
 	contest.name = contest_name.text.strip_edges()
@@ -166,9 +166,9 @@ func _on_contest_delete() -> void:
 	_load_contests()
 
 func _collect_selected_map_pool() -> PackedStringArray:
-	var ids := PackedStringArray()
+	var ids: PackedStringArray = PackedStringArray()
 	for idx in contest_map_pool.get_selected_items():
-		var map_id := str(contest_map_pool.get_item_metadata(idx))
+		var map_id: String = str(contest_map_pool.get_item_metadata(idx))
 		if not map_id.is_empty():
 			ids.append(map_id)
 	return ids
@@ -185,10 +185,10 @@ func _clear_contest_form() -> void:
 	contest_map_pool.deselect_all()
 
 func _on_map_selected(index: int) -> void:
-	var map_id_meta := map_list.get_item_metadata(index)
+	var map_id_meta: Variant = map_list.get_item_metadata(index)
 	if map_id_meta == null:
 		return
-	var map_id_str := str(map_id_meta)
+	var map_id_str: String = str(map_id_meta)
 	var map_def: MapDef = OpsState.maps.get(map_id_str)
 	if map_def == null:
 		return
@@ -231,7 +231,7 @@ func _clear_map_form() -> void:
 	map_preview.texture = null
 
 func _set_scope_selection(scope: String) -> void:
-	var scope_upper := scope.to_upper()
+	var scope_upper: String = scope.to_upper()
 	for i in range(contest_entry_type.item_count):
 		if contest_entry_type.get_item_text(i) == scope_upper:
 			contest_entry_type.select(i)

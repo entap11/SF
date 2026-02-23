@@ -5,6 +5,7 @@ const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 
 const PROFILE_PATH: String = "user://profile.cfg"
 const PROFILE_SECTION: String = "profile"
+const PROFILE_KEY_GPU_VFX_ENABLED: String = "gpu_vfx_enabled"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player "
@@ -26,6 +27,7 @@ var _display_name: String = ""
 var _created_at_unix: int = 0
 var _owned_buff_ids: Array[String] = []
 var _buff_loadout_ids: Array[String] = []
+var _gpu_vfx_enabled: bool = true
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -56,6 +58,7 @@ func ensure_loaded() -> void:
 		_created_at_unix = int(cfg.get_value(PROFILE_SECTION, "created_at_unix", 0))
 		_onboarding_complete = bool(cfg.get_value(PROFILE_SECTION, "onboarding_complete", false))
 		_controls_hint_seen = bool(cfg.get_value(PROFILE_SECTION, "controls_hint_seen", false))
+		_gpu_vfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, true))
 		_owned_buff_ids = _sanitize_owned_ids(cfg.get_value(PROFILE_SECTION, "owned_buff_ids", []))
 		_buff_loadout_ids = _sanitize_loadout_ids(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids", []))
 
@@ -66,6 +69,7 @@ func ensure_loaded() -> void:
 		_display_name = _default_display_name(_user_id)
 		_onboarding_complete = false
 		_controls_hint_seen = false
+		_gpu_vfx_enabled = true
 		_owned_buff_ids = _default_owned_ids()
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
@@ -212,6 +216,21 @@ func get_buff_loadout_ids() -> Array[String]:
 	ensure_loaded()
 	return _buff_loadout_ids.duplicate()
 
+func is_gpu_vfx_enabled() -> bool:
+	ensure_loaded()
+	return _gpu_vfx_enabled
+
+func set_gpu_vfx_enabled(enabled: bool) -> void:
+	ensure_loaded()
+	if _gpu_vfx_enabled == enabled:
+		return
+	_gpu_vfx_enabled = enabled
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_GPU_VFX", {
+		"user_id": _user_id,
+		"enabled": _gpu_vfx_enabled
+	})
+
 func set_buff_loadout_ids(ids: Array) -> bool:
 	ensure_loaded()
 	var next_ids: Array[String] = _sanitize_loadout_ids(ids)
@@ -230,6 +249,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 		cfg.set_value(PROFILE_SECTION, "created_at_unix", created_at)
 	cfg.set_value(PROFILE_SECTION, "onboarding_complete", onboarding_complete)
 	cfg.set_value(PROFILE_SECTION, "controls_hint_seen", _controls_hint_seen)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, _gpu_vfx_enabled)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids", _owned_buff_ids)
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids", _buff_loadout_ids)
 	var err: int = cfg.save(PROFILE_PATH)

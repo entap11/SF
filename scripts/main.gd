@@ -1,6 +1,7 @@
 extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MissNOutBannerRuntime := preload("res://scripts/main_helpers/miss_n_out_banner_runtime.gd")
+const BetaRuntimeBannerRuntime := preload("res://scripts/main_helpers/beta_runtime_banner_runtime.gd")
 
 const MAP_BUILDER_SCRIPT := preload("res://scenes/MapBuilder.gd")
 const SHELL_BUFFER_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer"
@@ -9,10 +10,13 @@ const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackgr
 const TRACE_MAIN_LOGS: bool = false
 const MAIN_MENU_SCENE_PATH: String = "res://scenes/MainMenu.tscn"
 const MISS_N_OUT_BANNER_POLL_SEC: float = 0.25
+const CRASH_REPORTING_PROVIDER: String = "sentry"
 
 @onready var miss_n_out_banner: Control = $UI/MissNOutBanner
 @onready var miss_n_out_banner_label: Label = $UI/MissNOutBanner/Panel/Row/Label
 @onready var miss_n_out_back_button: Button = $UI/MissNOutBanner/Panel/Row/BackToLobby
+@onready var beta_runtime_banner: Control = $UI/BetaRuntimeBanner
+@onready var beta_runtime_banner_label: Label = $UI/BetaRuntimeBanner/Panel/Row/Label
 
 @export var start_in_menu := true
 
@@ -27,6 +31,10 @@ var _miss_n_out_banner_visible_cache: bool = false
 var _miss_n_out_poll_accum: float = 0.0
 var _miss_n_out_contest_state_cache: Node = null
 var _miss_n_out_banner_runtime: MissNOutBannerRuntime = MissNOutBannerRuntime.new()
+var _beta_runtime_banner_notice_cache: String = ""
+var _beta_runtime_banner_visible_cache: bool = false
+var _beta_runtime_banner_runtime: BetaRuntimeBannerRuntime = BetaRuntimeBannerRuntime.new()
+var _beta_handshake_cache: Node = null
 
 func _enter_tree() -> void:
 	if not enable_dev_map_loader:
@@ -40,8 +48,11 @@ func _enter_tree() -> void:
 func _ready() -> void:
 	if miss_n_out_back_button != null and not miss_n_out_back_button.pressed.is_connected(_on_miss_n_out_back_to_lobby_pressed):
 		miss_n_out_back_button.pressed.connect(_on_miss_n_out_back_to_lobby_pressed)
+	SFLog.info("CRASH_PROVIDER_LOCKED", {"provider": CRASH_REPORTING_PROVIDER})
 	_set_miss_n_out_banner(false, "")
+	_set_beta_runtime_banner(false, "")
 	_refresh_miss_n_out_banner_from_runtime_state(true)
+	_refresh_beta_runtime_banner_from_runtime_state(true)
 	set_process(true)
 	if SFLog.LOGGING_ENABLED:
 		if TRACE_MAIN_LOGS: print("MAIN: _ready scene=", get_tree().current_scene.scene_file_path)
@@ -234,6 +245,7 @@ func _process(_delta: float) -> void:
 		return
 	_miss_n_out_poll_accum = 0.0
 	_refresh_miss_n_out_banner_from_runtime_state()
+	_refresh_beta_runtime_banner_from_runtime_state()
 
 func _refresh_miss_n_out_banner_from_runtime_state(force: bool = false) -> void:
 	var tree: SceneTree = get_tree()
@@ -262,6 +274,34 @@ func _set_miss_n_out_banner(visible: bool, notice: String) -> void:
 	miss_n_out_banner.visible = visible
 	if visible:
 		miss_n_out_banner_label.text = notice
+
+func _refresh_beta_runtime_banner_from_runtime_state(force: bool = false) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	if _beta_runtime_banner_runtime == null:
+		return
+	var runtime: Dictionary = _beta_runtime_banner_runtime.refresh(tree, _get_vs_handshake(), force)
+	if not bool(runtime.get("changed", false)):
+		return
+	_set_beta_runtime_banner(bool(runtime.get("visible", false)), str(runtime.get("notice", "")))
+
+func _get_vs_handshake() -> Node:
+	if _beta_handshake_cache != null and is_instance_valid(_beta_handshake_cache):
+		return _beta_handshake_cache
+	_beta_handshake_cache = get_node_or_null("/root/VsHandshake")
+	return _beta_handshake_cache
+
+func _set_beta_runtime_banner(visible: bool, notice: String) -> void:
+	if beta_runtime_banner == null or beta_runtime_banner_label == null:
+		return
+	if visible == _beta_runtime_banner_visible_cache and notice == _beta_runtime_banner_notice_cache:
+		return
+	_beta_runtime_banner_visible_cache = visible
+	_beta_runtime_banner_notice_cache = notice
+	beta_runtime_banner.visible = visible
+	if visible:
+		beta_runtime_banner_label.text = notice
 
 func _on_miss_n_out_back_to_lobby_pressed() -> void:
 	var tree: SceneTree = get_tree()

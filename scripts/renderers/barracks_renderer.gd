@@ -263,18 +263,10 @@ func _draw_control_links(pos: Vector2, bd: Dictionary, _base_color: Color, hives
 		draw_circle(pos, CONTROL_LINK_NODE_RADIUS_PX, link_color)
 		draw_circle(hive_pos, CONTROL_LINK_NODE_RADIUS_PX, link_color)
 
-func _barracks_anchor_pos(bd: Dictionary, hives_by_id: Dictionary) -> Vector2:
-	var ids := [2, 3, 7, 8]
-	var sum := Vector2.ZERO
-	for hive_id in ids:
-		if not hives_by_id.has(hive_id):
-			return _barracks_world_pos(bd)
-		var h: Dictionary = hives_by_id[hive_id]
-		var pos_v: Variant = h.get("pos", null)
-		if not (pos_v is Vector2):
-			return _barracks_world_pos(bd)
-		sum += pos_v as Vector2
-	return sum * 0.25
+func _barracks_anchor_pos(bd: Dictionary, _hives_by_id: Dictionary) -> Vector2:
+	# Authoritative placement: map-authored grid_pos/x/y only.
+	# This keeps barracks exactly on the intended intersection tiles.
+	return _barracks_world_pos(bd)
 
 func _barracks_world_pos(bd: Dictionary) -> Vector2:
 	var pos_v: Variant = bd.get("pos_px", null)

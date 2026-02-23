@@ -1,0 +1,106 @@
+[gd_resource type="Resource" script="res://scripts/state/rank_config.gd" format=3]
+
+[resource]
+enabled = true
+base_gain = 100.0
+opponent_strength_exponent = 0.6
+opponent_strength_min = 0.6
+opponent_strength_max = 1.6
+losses_subtract_wax = true
+loss_scale = 0.55
+mode_modifiers = {
+"MONEY_MATCH": 2.0,
+"STANDARD": 1.0,
+"STEROIDS_LEAGUE": 3.0,
+"TOURNAMENT": 1.5
+}
+inactivity_grace_days = 14
+daily_decay_rate = 0.0075
+wax_floor = 100.0
+tier_bands = [{
+"id": "DRONE",
+"max_pct": 0.2,
+"min_pct": 0.0,
+"name": "Drone"
+}, {
+"id": "WORKER",
+"max_pct": 0.35,
+"min_pct": 0.2,
+"name": "Worker"
+}, {
+"id": "SOLDIER",
+"max_pct": 0.5,
+"min_pct": 0.35,
+"name": "Soldier"
+}, {
+"id": "HONEY_BEE",
+"max_pct": 0.65,
+"min_pct": 0.5,
+"name": "Honey Bee"
+}, {
+"id": "BUMBLEBEE",
+"max_pct": 0.8,
+"min_pct": 0.65,
+"name": "Bumblebee"
+}, {
+"id": "QUEEN",
+"max_pct": 0.9,
+"min_pct": 0.8,
+"name": "Queen"
+}, {
+"id": "YELLOWJACKET",
+"max_pct": 0.94,
+"min_pct": 0.9,
+"name": "Yellowjacket"
+}, {
+"id": "RED_WASP",
+"max_pct": 0.965,
+"min_pct": 0.94,
+"name": "Red Wasp"
+}, {
+"id": "HORNET",
+"max_pct": 0.98,
+"min_pct": 0.965,
+"name": "Hornet"
+}, {
+"id": "BALD_FACED_HORNET",
+"max_pct": 0.989,
+"min_pct": 0.98,
+"name": "Bald-Faced Hornet"
+}, {
+"id": "KILLER_BEE",
+"max_pct": 0.995,
+"min_pct": 0.989,
+"name": "Killer Bee"
+}, {
+"id": "ASIAN_GIANT_HORNET",
+"max_pct": 0.998,
+"min_pct": 0.995,
+"name": "Asian Giant Hornet (Murder Hornet)"
+}, {
+"id": "EXECUTIONER_WASP",
+"max_pct": 0.999,
+"min_pct": 0.998,
+"name": "Executioner Wasp"
+}, {
+"id": "SCORPION_WASP",
+"max_pct": 1.0,
+"min_pct": 0.999,
+"name": "Scorpion Wasp"
+}, {
+"id": "COW_KILLER",
+"max_pct": 1.0,
+"min_pct": 1.0,
+"name": "Cow Killer"
+}]
+apex_top_count = 5
+promotion_buffer = 0.005
+color_buffer = 0.002
+color_quintiles = ["GREEN", "BLUE", "RED", "BLACK", "YELLOW"]
+mm_same_tier_priority = 25.0
+mm_same_color_priority = 10.0
+mm_base_wax_tolerance = 120.0
+mm_wax_tolerance_per_sec = 4.0
+mm_max_wax_tolerance = 800.0
+default_region = "GLOBAL"
+ceremony_first_time_only = true

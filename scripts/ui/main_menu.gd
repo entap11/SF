@@ -3,6 +3,7 @@ extends Control
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPanel.tscn")
+const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
@@ -145,6 +146,7 @@ var _play_mode_select: Control = null
 var _vs_lobby: Control = null
 var _entry_route_modal: Panel = null
 var _swarm_pass_panel: Control = null
+var _rank_panel: Control = null
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -838,7 +840,10 @@ func _style_buttons() -> void:
 		_apply_font(button, _font_regular, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
 	if menu_unused_button != null:
-		menu_unused_button.visible = false
+		menu_unused_button.visible = true
+		menu_unused_button.text = "Ranks"
+		_apply_font(menu_unused_button, _font_regular, 14)
+		_style_button(menu_unused_button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
 	for button in replay_controls_buttons:
 		_apply_font(button, _font_regular, 12)
 		_style_button(button, Color(0.1, 0.11, 0.14), Color(0.4, 0.42, 0.5), Color(0.92, 0.92, 0.92))
@@ -915,6 +920,8 @@ func _wire_buttons() -> void:
 	menu_free_roll_button.pressed.connect(_open_free_roll_split)
 	menu_cash_button.pressed.connect(_open_cash_split)
 	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
+	if menu_unused_button != null:
+		menu_unused_button.pressed.connect(_on_rank_pressed)
 	hive_button.pressed.connect(func(): _open_dash_panel_from_menu(dash_hive_panel))
 	dash_tab.pressed.connect(_toggle_dash)
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
@@ -2184,6 +2191,10 @@ func _on_battle_pass_pressed() -> void:
 	_open_swarm_pass_panel()
 	status_label.text = "SwarmPass opened."
 
+func _on_rank_pressed() -> void:
+	_open_rank_panel()
+	status_label.text = "Rank leaderboard opened."
+
 func _ensure_swarm_pass_panel() -> void:
 	if _swarm_pass_panel != null and is_instance_valid(_swarm_pass_panel):
 		return
@@ -2206,6 +2217,29 @@ func _close_swarm_pass_panel() -> void:
 	if _swarm_pass_panel == null:
 		return
 	_swarm_pass_panel.visible = false
+
+func _ensure_rank_panel() -> void:
+	if _rank_panel != null and is_instance_valid(_rank_panel):
+		return
+	var panel_instance_any: Variant = RANK_PANEL_SCENE.instantiate()
+	if panel_instance_any is Control:
+		_rank_panel = panel_instance_any as Control
+		add_child(_rank_panel)
+		_rank_panel.visible = false
+		if _rank_panel.has_signal("close_requested"):
+			_rank_panel.connect("close_requested", Callable(self, "_close_rank_panel"))
+
+func _open_rank_panel() -> void:
+	_ensure_rank_panel()
+	if _rank_panel == null:
+		return
+	_rank_panel.visible = true
+	_rank_panel.raise()
+
+func _close_rank_panel() -> void:
+	if _rank_panel == null:
+		return
+	_rank_panel.visible = false
 
 func _wallet_balance_usd() -> int:
 	return int(_wallet_profile.get("balance_usd", 0))

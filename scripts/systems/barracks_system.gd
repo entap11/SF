@@ -709,8 +709,6 @@ func _log_barracks_changes(list: Array) -> void:
 					"from": prev_owner,
 					"to": owner_id
 				})
-				if prev_owner == 0 and owner_id > 0:
-					emit_signal("barracks_activated", id, owner_id)
 		_last_barracks_snapshot[id] = owner_id
 	for id_v in _last_barracks_snapshot.keys():
 		var id: int = int(id_v)
@@ -732,9 +730,11 @@ func _tick_barracks_spawns(dt: float) -> void:
 		if barracks_id <= 0:
 			continue
 		_ensure_barracks_fields(b)
+		var was_active: bool = bool(b.get("active", false))
 		var control_ids: Array = StructureControlSystem.control_ids_for(b)
 		var owner_id: int = int(b.get("owner_id", 0))
-		if owner_id <= 0 or control_ids.size() < BARRACKS_MIN_REQ:
+		var is_controlled: bool = bool(b.get("is_controlled", owner_id > 0))
+		if not is_controlled or control_ids.size() < BARRACKS_MIN_REQ:
 			b["active"] = false
 			b["tier"] = 1
 			b["spawn_accum_ms"] = 0.0
@@ -747,6 +747,8 @@ func _tick_barracks_spawns(dt: float) -> void:
 			continue
 		b["active"] = true
 		b["tier"] = min_tier
+		if not was_active:
+			emit_signal("barracks_activated", barracks_id, owner_id)
 		barracks_control_ms[owner_id] = float(barracks_control_ms.get(owner_id, 0.0)) + dt_ms
 		b["spawn_accum_ms"] = float(b.get("spawn_accum_ms", 0.0)) + dt_ms
 		var interval_ms: float = _barracks_interval_ms(min_tier)
@@ -834,8 +836,6 @@ func _barracks_targets(barracks_data: Dictionary, owner_id: int) -> Array:
 	return route
 
 func _barracks_tier_for_owner(control_ids: Array, owner_id: int) -> int:
-	if owner_id <= 0:
-		return 0
 	var min_tier: int = 4
 	for hive_id_v in control_ids:
 		var hive_id: int = int(hive_id_v)

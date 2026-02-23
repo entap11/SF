@@ -1,0 +1,47 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/buff_hud_widget.gd" id="1"]
+
+[node name="BuffHudWidget" type="Panel"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -360.0
+offset_right = 300.0
+offset_bottom = 360.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Root" type="MarginContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+
+[node name="VBox" type="VBoxContainer" parent="Root"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Root/VBox"]
+layout_mode = 2
+text = "Match Buff HUD"
+
+[node name="Status" type="Label" parent="Root/VBox"]
+layout_mode = 2
+text = "Status"
+
+[node name="SlotsScroll" type="ScrollContainer" parent="Root/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SlotsText" type="RichTextLabel" parent="Root/VBox/SlotsScroll"]
+custom_minimum_size = Vector2(0, 420)
+layout_mode = 2
+text = ""

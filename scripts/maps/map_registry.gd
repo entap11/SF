@@ -4,7 +4,14 @@ extends RefCounted
 const MAP_ROOT: String = "res://maps"
 const SKIP_DIR_TOKENS: Array[String] = ["/_legacy", "/templates", "/_future"]
 const SANDBOX_ENABLED: bool = true
-const SANDBOX_ALLOWED_MAP_IDS: Array[String] = ["MAP_TEST", "MAP_nomansland__SBASE__1p", "MAP_nomansland__SN6__1p", "MAP_nomansland__GBASE__1p"]
+const SANDBOX_ALLOWED_MAP_IDS: Array[String] = [
+	"MAP_TEST",
+	"MAP_nomansland__SBASE__1p",
+	"MAP_nomansland__SN6__1p",
+	"MAP_nomansland__GBASE__1p",
+	"MAP_nomansland__GBASE__BR2__TR2__1p",
+	"MAP_nomansland__GBASE__TB__1p"
+]
 const ALLOWED_MODES: Array[String] = ["1p", "2p", "3p", "4p"]
 
 static func list_map_paths() -> Array[String]:

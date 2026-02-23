@@ -83,6 +83,25 @@ text = "Set User ID"
 layout_mode = 2
 text = ""
 
+[node name="VideoSection" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="VideoLabel" type="Label" parent="VBox/VideoSection"]
+layout_mode = 2
+text = "Video"
+
+[node name="GpuVfxRow" type="HBoxContainer" parent="VBox/VideoSection"]
+layout_mode = 2
+
+[node name="GpuVfxLabel" type="Label" parent="VBox/VideoSection/GpuVfxRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "GPU VFX"
+
+[node name="GpuVfxToggle" type="CheckButton" parent="VBox/VideoSection/GpuVfxRow"]
+layout_mode = 2
+text = "ON"
+
 [node name="ButtonsRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
 

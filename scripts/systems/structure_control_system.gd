@@ -54,13 +54,19 @@ func _eval_structures(list: Array, structure_type: String) -> void:
 		var struct_id: int = int(sd.get("id", -1))
 		var control_ids: Array = control_ids_for(sd)
 		var prev_owner: int = int(sd.get("owner_id", 0))
+		var prev_controlled: bool = bool(sd.get("is_controlled", false))
 		var next_owner: int = 0
+		var next_controlled: bool = false
 		if control_ids.is_empty():
 			_warn_empty_control_ids(structure_type, struct_id)
 			next_owner = 0
+			next_controlled = false
 		else:
-			next_owner = _compute_owner_from_controls(control_ids)
-		if next_owner != prev_owner:
+			var control_resolution: Dictionary = _compute_control_resolution(control_ids)
+			next_owner = int(control_resolution.get("owner_id", 0))
+			next_controlled = bool(control_resolution.get("controlled", false))
+		sd["is_controlled"] = next_controlled
+		if next_owner != prev_owner or next_controlled != prev_controlled:
 			sd["owner_id"] = next_owner
 			_update_structure_owner_index(sd, structure_type, next_owner)
 			SFLog.info("STRUCTURE_OWNER_CHANGED", {
@@ -68,24 +74,30 @@ func _eval_structures(list: Array, structure_type: String) -> void:
 				"id": struct_id,
 				"prev_owner": prev_owner,
 				"next_owner": next_owner,
+				"prev_controlled": prev_controlled,
+				"next_controlled": next_controlled,
 				"control_ids": control_ids
 			})
 			emit_signal("structure_owner_changed", structure_type, struct_id, prev_owner, next_owner, control_ids)
 		else:
 			_update_structure_owner_index(sd, structure_type, prev_owner)
 
-func _compute_owner_from_controls(control_ids: Array) -> int:
+func _compute_control_resolution(control_ids: Array) -> Dictionary:
 	var owner_id: int = 0
+	var initialized: bool = false
 	for hive_id_v in control_ids:
 		var hive_id: int = int(hive_id_v)
 		var hive: HiveData = state.find_hive_by_id(hive_id)
-		if hive == null or hive.owner_id == 0:
-			return 0
-		if owner_id == 0:
+		if hive == null:
+			return {"owner_id": 0, "controlled": false}
+		if not initialized:
 			owner_id = hive.owner_id
+			initialized = true
 		elif hive.owner_id != owner_id:
-			return 0
-	return owner_id
+			return {"owner_id": 0, "controlled": false}
+	if not initialized:
+		return {"owner_id": 0, "controlled": false}
+	return {"owner_id": owner_id, "controlled": true}
 
 func _warn_empty_control_ids(structure_type: String, struct_id: int) -> void:
 	if struct_id <= 0:

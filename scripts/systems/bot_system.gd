@@ -59,7 +59,7 @@ func tick(_dt: float) -> void:
 		if not bool(profile.get("enabled", true)):
 			continue
 		if not _next_think_ms_by_seat.has(seat):
-			var opening_delay_ms: int = maxi(0, int(profile.get("opening_delay_ms", 850)))
+			var opening_delay_ms: int = maxi(0, int(profile.get("opening_delay_ms", 1400)))
 			var opening_stagger_ms: int = maxi(0, int(profile.get("opening_stagger_ms", 120)))
 			_next_think_ms_by_seat[seat] = now_ms + opening_delay_ms + ((seat - 1) * opening_stagger_ms)
 			continue
@@ -103,13 +103,20 @@ func tick(_dt: float) -> void:
 				"policy": str(decision.get("policy", "baseline_v1"))
 			})
 			if ok:
+				var pair_cooldown_ms: int = maxi(250, int(profile.get("pair_intent_cooldown_ms", 1200)))
+				var pair_until_ms: int = now_ms + pair_cooldown_ms
+				_apply_pair_cooldown(seat, src_id, dst_id, pair_until_ms)
 				if intent == "swarm":
 					var swarm_pair_cooldown_ms: int = maxi(250, int(profile.get("swarm_cooldown_ms", 1600)))
-					_failed_intent_until_ms[cooldown_key] = now_ms + swarm_pair_cooldown_ms
+					_failed_intent_until_ms[cooldown_key] = maxi(int(_failed_intent_until_ms.get(cooldown_key, 0)), now_ms + swarm_pair_cooldown_ms)
 					var swarm_global_cooldown_ms: int = maxi(500, int(profile.get("swarm_global_cooldown_ms", 3500)))
 					_swarm_cooldown_until_by_seat[seat] = now_ms + swarm_global_cooldown_ms
-				else:
-					_failed_intent_until_ms.erase(cooldown_key)
+				var global_cooldown_ms: int = maxi(0, int(profile.get("global_intent_cooldown_ms", 900)))
+				if global_cooldown_ms > 0:
+					var global_until_ms: int = now_ms + global_cooldown_ms
+					var planned_after_global: int = int(_next_think_ms_by_seat.get(seat, 0))
+					if global_until_ms > planned_after_global:
+						_next_think_ms_by_seat[seat] = global_until_ms
 				var post_intent_delay_ms: int = maxi(0, int(profile.get("post_intent_delay_ms", 0)))
 				if post_intent_delay_ms > 0:
 					var delayed_until_ms: int = now_ms + post_intent_delay_ms

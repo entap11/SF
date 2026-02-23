@@ -55,6 +55,7 @@ var _last_units_set_sig: int = 0
 var _pass_through_queue_by_key: Dictionary = {}
 var _pass_through_emit_accum_ms_by_key: Dictionary = {}
 var _pass_through_last_log_ms_by_key: Dictionary = {}
+var _pending_tower_hits: Array = []
 
 const UNIT_SPEED_LOG_INTERVAL_MS := 1000
 const PRESSURE_WARN_INTERVAL_MS := 1000
@@ -82,6 +83,7 @@ func bind_state(state_ref: GameState) -> void:
 	_pass_through_queue_by_key.clear()
 	_pass_through_emit_accum_ms_by_key.clear()
 	_pass_through_last_log_ms_by_key.clear()
+	_pending_tower_hits.clear()
 	if state != null:
 		state.unit_system = self
 		state.units_set_version = units_set_version
@@ -99,10 +101,61 @@ func tick(dt: float) -> void:
 	if not use_lane_system_spawns:
 		_spawn_units(dt)
 	_update_units(dt)
+	_process_pending_tower_hits()
 	resolve_lane_interactions(state, sim_time_us)
 	_process_arrivals()
 	_drain_pass_through_queues(dt)
 	_sync_units_to_state()
+
+func queue_tower_hit(
+	victim_unit_id: int,
+	tower_owner_id: int,
+	source_tower_id: int,
+	delay_ms: float,
+	tower_pos: Vector2 = Vector2.ZERO,
+	tower_tier: int = -1
+) -> bool:
+	if victim_unit_id <= 0:
+		return false
+	var clamped_delay_ms: float = maxf(0.0, delay_ms)
+	var due_us: int = sim_time_us + int(round(clamped_delay_ms * 1000.0))
+	_pending_tower_hits.append({
+		"victim_unit_id": victim_unit_id,
+		"tower_owner_id": tower_owner_id,
+		"source_tower_id": source_tower_id,
+		"tower_pos": tower_pos,
+		"tower_tier": tower_tier,
+		"due_us": due_us
+	})
+	SFLog.info("TOWER_HIT_QUEUED", {
+		"unit_id": victim_unit_id,
+		"tower_owner_id": tower_owner_id,
+		"source_tower_id": source_tower_id,
+		"delay_ms": clamped_delay_ms
+	})
+	return true
+
+func _process_pending_tower_hits() -> void:
+	if _pending_tower_hits.is_empty():
+		return
+	var remaining: Array = []
+	for pending_any in _pending_tower_hits:
+		if typeof(pending_any) != TYPE_DICTIONARY:
+			continue
+		var pending: Dictionary = pending_any as Dictionary
+		var due_us: int = int(pending.get("due_us", 0))
+		if sim_time_us < due_us:
+			remaining.append(pending)
+			continue
+		apply_tower_hit(
+			int(pending.get("victim_unit_id", -1)),
+			int(pending.get("tower_owner_id", 0)),
+			int(pending.get("source_tower_id", -1)),
+			0,
+			pending.get("tower_pos", Vector2.ZERO) as Vector2,
+			int(pending.get("tower_tier", -1))
+		)
+	_pending_tower_hits = remaining
 
 func _spawn_units(dt: float) -> void:
 	if state == null:
@@ -557,6 +610,8 @@ func _sort_unit_index_by_t(a: int, b: int) -> bool:
 func _are_allied_owners(owner_a: int, owner_b: int) -> bool:
 	var a_id: int = int(owner_a)
 	var b_id: int = int(owner_b)
+	if a_id <= 0 and b_id <= 0:
+		return true
 	if a_id <= 0 or b_id <= 0:
 		return false
 	if OpsState != null and OpsState.has_method("are_allies"):
@@ -568,7 +623,7 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		return
 	var owner_id := int(unit.get("owner_id", 0))
 	var to_id := int(unit.get("to_id", -1))
-	if owner_id <= 0 or to_id <= 0:
+	if to_id <= 0:
 		return
 	var hive: HiveData = state.find_hive_by_id(to_id)
 	if hive == null:
@@ -1088,7 +1143,7 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 		var unit: Dictionary = units[i] as Dictionary
 		if int(unit.get("id", -1)) != victim_unit_id:
 			continue
-		if tower_owner_id > 0 and _are_allied_owners(int(unit.get("owner_id", 0)), tower_owner_id):
+		if _are_allied_owners(int(unit.get("owner_id", 0)), tower_owner_id):
 			return false
 		var hit_pos: Vector2 = Vector2.ZERO
 		var pos_v: Variant = unit.get("pos", null)

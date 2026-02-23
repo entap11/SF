@@ -45,6 +45,22 @@ func _configure_transport() -> void:
 	SFLog.allow_tag("VS_TRANSPORT_CONFIG")
 	SFLog.info("VS_TRANSPORT_CONFIG", {"mode": _transport_mode, "url": backend_url})
 
+func get_transport_mode() -> String:
+	return _transport_mode
+
+func is_authoritative_transport_online() -> bool:
+	return _transport_mode == "http" and _transport_http != null and _transport_http.configured()
+
+func get_beta_runtime_flags() -> Dictionary:
+	var remote_online: bool = is_authoritative_transport_online()
+	return {
+		"match_authority": "local_ops_state",
+		"progression_authority": "remote_authoritative" if remote_online else "local_provisional",
+		"transport_mode": get_transport_mode(),
+		"competitive_provisional": not remote_online,
+		"authoritative_progression_online": remote_online
+	}
+
 func _configured_backend_url() -> String:
 	var env_url: String = OS.get_environment(ENV_BACKEND_URL).strip_edges()
 	if not env_url.is_empty():

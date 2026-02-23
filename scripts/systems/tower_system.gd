@@ -6,6 +6,7 @@ class_name TowerSystem
 extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const StructureControlSystem := preload("res://scripts/systems/structure_control_system.gd")
 const StructureControlSolver := preload("res://scripts/sim/structure_control.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
@@ -20,6 +21,9 @@ const MAX_CYCLE_LEN := 10
 const STRUCTURE_CANDIDATE_MAX := 12
 const BUFF_MIN_MULT := 0.1
 const tower_base_radius_px: float = DEFAULT_CELL_SIZE * 0.75
+const TOWER_RANGE_SMALL_PX: float = 192.0
+const TOWER_RANGE_MEDIUM_PX: float = 256.0
+const TOWER_RANGE_LARGE_PX: float = 320.0
 
 var state: GameState = null
 var towers: Array = []
@@ -30,6 +34,7 @@ var structure_positions: Array = []
 var _buff_mod_provider: Callable = Callable()
 var _last_eval_log_ms_by_id: Dictionary = {}
 var _last_no_target_ms_by_id: Dictionary = {}
+var _first_fire_logged_keys: Dictionary = {}
 var _sim_events: SimEvents = null
 var _structure_control_system: Object = null
 
@@ -40,6 +45,7 @@ func bind_state(state_ref: GameState) -> void:
 	structure_positions.clear()
 	reset_control_ms()
 	world_towers.clear()
+	_first_fire_logged_keys.clear()
 	_bind_structure_control_system()
 	var state_towers_count: int = 0
 	if state != null and state.towers != null:
@@ -118,11 +124,12 @@ func tick(dt: float, unit_system: UnitSystem) -> void:
 	for tower in towers:
 		var control_ids: Array = StructureControlSystem.control_ids_for(tower)
 		var owner_id: int = int(tower.get("owner_id", 0))
+		var is_controlled: bool = bool(tower.get("is_controlled", owner_id != 0))
 		var next_tier: int = _tower_tier_for_owner(control_ids, owner_id)
 		tower["active_owner_id"] = owner_id
-		tower["active"] = owner_id != 0
+		tower["active"] = is_controlled
 		_log_tower_eval(tower, owner_id, control_ids, now_ms)
-		if owner_id == 0:
+		if not is_controlled:
 			tower["tier"] = 1
 			tower["shot_accum_ms"] = 0.0
 			continue
@@ -189,17 +196,11 @@ func _tower_interval_ms_for(owner_id: int, tier: int) -> float:
 	return maxf(80.0, base / rate_mult)
 
 func _tower_range_px(tier: int) -> float:
-	var base_radius: float = 160.0
-	match tier:
-		1:
-			return base_radius
-		2:
-			return base_radius * 1.20
-		3:
-			return base_radius * 1.20 * 1.15
-		4:
-			return base_radius * 1.20 * 1.15 * 1.10
-	return base_radius
+	if tier <= 1:
+		return TOWER_RANGE_SMALL_PX
+	if tier == 2:
+		return TOWER_RANGE_MEDIUM_PX
+	return TOWER_RANGE_LARGE_PX
 
 func _tower_shoot(tower: Dictionary, unit_system: UnitSystem) -> bool:
 	if unit_system == null or not bool(tower.get("active", false)):
@@ -247,7 +248,8 @@ func _tower_shoot(tower: Dictionary, unit_system: UnitSystem) -> bool:
 			units_in_lane,
 			units_in_range,
 			units_bad_lane,
-			cooldown_remaining
+			cooldown_remaining,
+			range_px
 		)
 		return false
 	var tower_id: int = int(tower.get("id", -1))
@@ -270,20 +272,39 @@ func _tower_shoot(tower: Dictionary, unit_system: UnitSystem) -> bool:
 	tower["cooldown_remaining"] = cooldown_ms
 	tower["cooldown_ms"] = cooldown_ms
 	tower["last_fire_ms"] = now_ms
-	if unit_system.apply_tower_hit(best_id, tower_owner, tower_id, 0, tower_pos, tier):
-		SFLog.info("TOWER_HIT", {
-			"tower_id": tower_id,
-			"unit_id": best_id,
-			"tower_owner": tower_owner
-		})
+	var queued: bool = unit_system.queue_tower_hit(
+		best_id,
+		tower_owner,
+		tower_id,
+		float(SimTuning.TOWER_PROJECTILE_TRAVEL_MS),
+		tower_pos,
+		tier
+	)
+	if queued:
+		_log_first_fire_observed_once(tower_id, tower_owner, tier, best_id)
 		SFLog.info("TOWER_SHOT", {
 			"tower_id": tower_id,
 			"victim_unit_id": best_id,
 			"victim_owner": best_owner,
-			"tier": tier
+			"tier": tier,
+			"queued_hit_ms": float(SimTuning.TOWER_PROJECTILE_TRAVEL_MS)
 		})
 		return true
 	return false
+
+func _log_first_fire_observed_once(tower_id: int, owner_id: int, tier: int, target_id: int) -> void:
+	if tower_id <= 0:
+		return
+	var key: String = "%d:%d" % [tower_id, owner_id]
+	if _first_fire_logged_keys.has(key):
+		return
+	_first_fire_logged_keys[key] = true
+	SFLog.warn("TOWER_FIRE_OBSERVED", {
+		"tower_id": tower_id,
+		"owner_id": owner_id,
+		"tier": tier,
+		"target_id": target_id
+	})
 
 func _log_tower_eval(tower: Dictionary, owner_id: int, control_ids: Array, now_ms: int) -> void:
 	var tower_id: int = int(tower.get("id", -1))
@@ -307,7 +328,8 @@ func _log_no_target(
 	units_in_lane: int,
 	units_in_range: int,
 	units_bad_lane: int,
-	cooldown_remaining: float
+	cooldown_remaining: float,
+	range_px: float
 ) -> void:
 	var tower_id: int = int(tower.get("id", -1))
 	if tower_id <= 0:
@@ -325,6 +347,7 @@ func _log_no_target(
 		"units_in_lane": units_in_lane,
 		"units_in_range": units_in_range,
 		"units_bad_lane": units_bad_lane,
+		"range_px": range_px,
 		"world_nodes": world_towers.size(),
 		"cooldown_remaining": cooldown_remaining
 	})
@@ -378,8 +401,6 @@ func _unit_position(unit: Dictionary) -> Vector2:
 	return a_edge.lerp(b_edge, clampf(float(unit.get("t", 0.0)), 0.0, 1.0))
 
 func _tower_tier_for_owner(control_ids: Array, owner_id: int) -> int:
-	if owner_id == 0:
-		return 1
 	var min_tier: int = 4
 	for hive_id_v in control_ids:
 		var hive_id: int = int(hive_id_v)
@@ -414,7 +435,14 @@ func _kill_enemy_units_in_airspace(tower: Dictionary, owner_id: int, unit_system
 		var unit_id: int = int(kill_data.get("id", -1))
 		if unit_id <= 0:
 			continue
-		if unit_system.apply_tower_hit(unit_id, owner_id, tower_id, 0, tower_pos, tier):
+		if unit_system.queue_tower_hit(
+			unit_id,
+			owner_id,
+			tower_id,
+			float(SimTuning.TOWER_PROJECTILE_TRAVEL_MS),
+			tower_pos,
+			tier
+		):
 			SFLog.info("TOWER_KILL", {
 				"tower_id": tower_id,
 				"unit_id": unit_id,

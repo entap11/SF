@@ -1,0 +1,101 @@
+[gd_resource type="Resource" script="res://scripts/state/mode_rules_config.gd" format=3]
+
+[resource]
+enabled = true
+default_mode_key = "STANDARD"
+slot_unlock_cost_nectar = 50
+tournament_entry_cost_nectar = 100
+rules_by_mode = {
+"ESPORTS_NO_BUFFS": {
+"baseline_free_slots": 0,
+"buffs_enabled": false,
+"classic_requires_overtime": false,
+"classic_slot_index": -1,
+"entry_cost": 0,
+"entry_currency": "FREE",
+"esports_standardized_buff_enabled": false,
+"esports_standardized_buff_id": "",
+"label": "eSports (No Buffs)",
+"loadout_ui_enabled": false,
+"max_additional_slots": 0,
+"max_elite": 0,
+"max_premium": 0,
+"max_total_slots": 0,
+"nectar_awards": {
+"match_completed": 6,
+"paid_match_completed": 6,
+"purchase_kickback_per_usd": 6.0,
+"tournament_participation": 10
+},
+"unlimited_buffs": false
+},
+"ESPORTS_STANDARDIZED": {
+"baseline_free_slots": 1,
+"buffs_enabled": true,
+"classic_requires_overtime": false,
+"classic_slot_index": -1,
+"entry_cost": 0,
+"entry_currency": "FREE",
+"esports_standardized_buff_enabled": true,
+"esports_standardized_buff_id": "buff_swarm_speed_classic",
+"label": "eSports (Standardized Buff)",
+"loadout_ui_enabled": false,
+"max_additional_slots": 0,
+"max_elite": 0,
+"max_premium": 0,
+"max_total_slots": 1,
+"nectar_awards": {
+"match_completed": 6,
+"paid_match_completed": 6,
+"purchase_kickback_per_usd": 6.0,
+"tournament_participation": 10
+},
+"unlimited_buffs": false
+},
+"STANDARD": {
+"baseline_free_slots": 1,
+"buffs_enabled": true,
+"classic_requires_overtime": true,
+"classic_slot_index": 3,
+"entry_cost": 0,
+"entry_currency": "FREE",
+"esports_standardized_buff_enabled": false,
+"esports_standardized_buff_id": "",
+"label": "Standard",
+"loadout_ui_enabled": true,
+"max_additional_slots": 3,
+"max_elite": 1,
+"max_premium": 1,
+"max_total_slots": 4,
+"nectar_awards": {
+"match_completed": 8,
+"paid_match_completed": 24,
+"purchase_kickback_per_usd": 6.0,
+"tournament_participation": 12
+},
+"unlimited_buffs": false
+},
+"STEROIDS_LEAGUE": {
+"baseline_free_slots": 0,
+"buffs_enabled": true,
+"classic_requires_overtime": false,
+"classic_slot_index": -1,
+"entry_cost": 20,
+"entry_currency": "USD",
+"esports_standardized_buff_enabled": false,
+"esports_standardized_buff_id": "",
+"label": "Steroids League",
+"loadout_ui_enabled": true,
+"max_additional_slots": 0,
+"max_elite": -1,
+"max_premium": -1,
+"max_total_slots": 0,
+"nectar_awards": {
+"match_completed": 20,
+"paid_match_completed": 45,
+"purchase_kickback_per_usd": 6.0,
+"tournament_participation": 0
+},
+"unlimited_buffs": true
+}
+}

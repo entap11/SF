@@ -213,7 +213,7 @@ func _handle_left_press(pos: Vector2) -> void:
 func _select_at_point(pos: Vector2) -> void:
 	selected_lane_index = -1
 	var node: Dictionary = _node_at_point(pos)
-	if node != null:
+	if not node.is_empty():
 		selected_node_id = str(node.get("id", ""))
 		dragging_node_id = selected_node_id
 		dragging = true
@@ -226,7 +226,7 @@ func _select_at_point(pos: Vector2) -> void:
 
 func _handle_connect_click(pos: Vector2) -> void:
 	var node: Dictionary = _node_at_point(pos)
-	if node == null:
+	if node.is_empty():
 		return
 	if not _is_hive_node(node):
 		_emit_status("Only hives can be lane endpoints")
@@ -248,7 +248,7 @@ func _place_node_at_hover() -> void:
 	if not hover_valid:
 		_emit_status("Click inside the grid")
 		return
-	if _node_at_cell(hover_cell, "") != null:
+	if not _node_at_cell(hover_cell, "").is_empty():
 		_emit_status("Cell already occupied")
 		return
 	var node: Dictionary = _create_node(hover_cell)
@@ -261,9 +261,9 @@ func _drag_move(pos: Vector2) -> void:
 	if not hover_valid:
 		return
 	var node: Dictionary = _node_by_id(dragging_node_id)
-	if node == null:
+	if node.is_empty():
 		return
-	if _node_at_cell(hover_cell, dragging_node_id) != null:
+	if not _node_at_cell(hover_cell, dragging_node_id).is_empty():
 		return
 	node["grid"] = hover_cell
 	queue_redraw()
@@ -311,7 +311,7 @@ func _node_at_point(pos: Vector2) -> Dictionary:
 		var center := _grid_to_screen(node.get("grid", Vector2i.ZERO))
 		if center.distance_to(pos) <= hit_radius:
 			return node
-	return null
+	return {}
 
 func _node_at_cell(cell: Vector2i, ignore_id: String) -> Dictionary:
 	for node in nodes:
@@ -319,21 +319,21 @@ func _node_at_cell(cell: Vector2i, ignore_id: String) -> Dictionary:
 			continue
 		if node.get("grid", Vector2i(-1, -1)) == cell:
 			return node
-	return null
+	return {}
 
 func _node_by_id(node_id: String) -> Dictionary:
 	for node in nodes:
 		if str(node.get("id", "")) == node_id:
 			return node
-	return null
+	return {}
 
 func _lane_at_point(pos: Vector2) -> int:
 	var threshold := max(6.0, 6.0 * zoom)
 	for i in range(lanes.size()):
-	var lane: Dictionary = lanes[i]
+		var lane: Dictionary = lanes[i]
 		var a_node: Dictionary = _node_by_id(str(lane.get("from_id", "")))
 		var b_node: Dictionary = _node_by_id(str(lane.get("to_id", "")))
-		if a_node == null or b_node == null:
+		if a_node.is_empty() or b_node.is_empty():
 			continue
 		var a_pos := _grid_to_screen(a_node.get("grid", Vector2i.ZERO))
 		var b_pos := _grid_to_screen(b_node.get("grid", Vector2i.ZERO))
@@ -523,7 +523,7 @@ func _draw_lanes() -> void:
 		var lane: Dictionary = lanes[i]
 		var a_node: Dictionary = _node_by_id(str(lane.get("from_id", "")))
 		var b_node: Dictionary = _node_by_id(str(lane.get("to_id", "")))
-		if a_node == null or b_node == null:
+		if a_node.is_empty() or b_node.is_empty():
 			continue
 		var a_pos := _grid_to_screen(a_node.get("grid", Vector2i.ZERO))
 		var b_pos := _grid_to_screen(b_node.get("grid", Vector2i.ZERO))
@@ -534,7 +534,7 @@ func _draw_selection() -> void:
 	if selected_node_id.is_empty():
 		return
 	var node: Dictionary = _node_by_id(selected_node_id)
-	if node == null:
+	if node.is_empty():
 		return
 	var center := _grid_to_screen(node.get("grid", Vector2i.ZERO))
 	var radius := CELL_SIZE * 0.32 * zoom
@@ -544,7 +544,7 @@ func _draw_pending_lane() -> void:
 	if pending_lane_start.is_empty():
 		return
 	var node: Dictionary = _node_by_id(pending_lane_start)
-	if node == null:
+	if node.is_empty():
 		return
 	var start := _grid_to_screen(node.get("grid", Vector2i.ZERO))
 	var end := start

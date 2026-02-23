@@ -111,7 +111,7 @@ func _on_node_type_selected(index: int) -> void:
 			canvas.set_place_type("barracks")
 
 func _on_owner_selected(index: int) -> void:
-	var owner := "P1"
+	var owner: String = "P1"
 	match index:
 		1:
 			owner = "P2"
@@ -122,7 +122,7 @@ func _on_owner_selected(index: int) -> void:
 	canvas.set_place_owner(owner)
 
 func _on_validate() -> void:
-	var result := canvas.validate_map(name_edit.text, desc_edit.text)
+	var result: Dictionary = canvas.validate_map(name_edit.text, desc_edit.text)
 	if result.get("ok", false):
 		_set_status("Validation OK")
 		return
@@ -137,18 +137,18 @@ func _on_export() -> void:
 	save_dialog.popup_centered_ratio(0.6)
 
 func _on_export_file_selected(path: String) -> void:
-	var result := canvas.validate_map(name_edit.text, desc_edit.text)
+	var result: Dictionary = canvas.validate_map(name_edit.text, desc_edit.text)
 	if not result.get("ok", false):
 		_on_validate()
 		return
 	canvas.export_json_to_path(path, name_edit.text, desc_edit.text)
 
 func _on_copy() -> void:
-	var result := canvas.validate_map(name_edit.text, desc_edit.text)
+	var result: Dictionary = canvas.validate_map(name_edit.text, desc_edit.text)
 	if not result.get("ok", false):
 		_on_validate()
 		return
-	var json_text := canvas.export_json(name_edit.text, desc_edit.text)
+	var json_text: String = canvas.export_json(name_edit.text, desc_edit.text)
 	DisplayServer.clipboard_set(json_text)
 	_set_status("JSON copied to clipboard")
 

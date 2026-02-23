@@ -14,6 +14,7 @@ const DEV_ALLOW_UID_EDIT: bool = false
 @onready var user_id_input: LineEdit = $VBox/UserIdSection/UserIdRow/UserIdInput
 @onready var set_user_id_button: Button = $VBox/UserIdSection/UserIdRow/SetUserIdButton
 @onready var user_id_status_label: Label = $VBox/UserIdSection/UserIdStatusLabel
+@onready var gpu_vfx_toggle: CheckButton = $VBox/VideoSection/GpuVfxRow/GpuVfxToggle
 @onready var buttons_row: HBoxContainer = $VBox/ButtonsRow
 @onready var new_button: Button = $VBox/ButtonsRow/NewProfileButton
 @onready var rename_button: Button = $VBox/ButtonsRow/RenameButton
@@ -32,11 +33,13 @@ func _ready() -> void:
 	display_name_input.focus_exited.connect(_on_display_name_focus_exited)
 	set_user_id_button.pressed.connect(_on_set_user_id_pressed)
 	copy_user_id_button.pressed.connect(_on_copy_user_id_pressed)
+	gpu_vfx_toggle.toggled.connect(_on_gpu_vfx_toggled)
 	_disable_legacy_profile_controls()
 	_set_uid_edit_enabled(DEV_ALLOW_UID_EDIT)
 	_refresh_options()
 	_refresh_display_name()
 	_refresh_user_id()
+	_refresh_gpu_vfx()
 
 func _refresh_options() -> void:
 	var profiles: Array[Dictionary] = ProfileManager.get_profiles()
@@ -68,6 +71,11 @@ func _refresh_user_id() -> void:
 	if DEV_ALLOW_UID_EDIT:
 		user_id_input.text = uid
 	user_id_status_label.text = ""
+
+func _refresh_gpu_vfx() -> void:
+	var enabled: bool = ProfileManager.is_gpu_vfx_enabled()
+	gpu_vfx_toggle.set_pressed_no_signal(enabled)
+	gpu_vfx_toggle.text = "ON" if enabled else "OFF"
 
 func _set_uid_edit_enabled(enabled: bool) -> void:
 	user_id_input.visible = enabled
@@ -143,3 +151,13 @@ func _on_copy_user_id_pressed() -> void:
 	DisplayServer.clipboard_set(ProfileManager.get_user_id())
 	SFLog.info("PROFILE_UID_COPIED", {"user_id": ProfileManager.get_user_id()})
 	user_id_status_label.text = "Copied."
+
+func _on_gpu_vfx_toggled(enabled: bool) -> void:
+	ProfileManager.set_gpu_vfx_enabled(enabled)
+	gpu_vfx_toggle.text = "ON" if enabled else "OFF"
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var arena_any: Node = tree.get_first_node_in_group("Arena")
+	if arena_any != null and arena_any.has_method("set_gpu_vfx_enabled"):
+		arena_any.call("set_gpu_vfx_enabled", enabled)
