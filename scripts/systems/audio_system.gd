@@ -15,6 +15,8 @@ func reset() -> void:
 	_last_coin_sfx_us.clear()
 
 func handle_events(events: Array, sim_time_us: int) -> void:
+	if not _is_sfx_enabled():
+		return
 	for event in events:
 		var event_type: String = str(event.get("type", ""))
 		match event_type:
@@ -22,6 +24,20 @@ func handle_events(events: Array, sim_time_us: int) -> void:
 				_play_coin_flip_sfx(int(event.get("hive_id", -1)), sim_time_us)
 			"barracks_active":
 				_play_barracks_activate_sfx()
+
+func _is_sfx_enabled() -> bool:
+	if _coin_player == null:
+		return true
+	var tree: SceneTree = _coin_player.get_tree()
+	if tree == null:
+		return true
+	var root: Window = tree.root
+	if root == null:
+		return true
+	var profile_manager: Node = root.get_node_or_null("/root/ProfileManager")
+	if profile_manager != null and profile_manager.has_method("is_sfx_enabled"):
+		return bool(profile_manager.call("is_sfx_enabled"))
+	return true
 
 func _play_coin_flip_sfx(hive_id: int, sim_time_us: int) -> void:
 	if hive_id == -1:

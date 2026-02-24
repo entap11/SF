@@ -1686,6 +1686,7 @@ func _init_systems() -> void:
 	_ensure_sim_events()
 	_ensure_vfx_manager()
 	_ensure_unit_renderer()
+	enable_floor_influence_runtime = _floor_graphics_pref_enabled()
 	_ensure_floor_influence_system()
 	_ensure_sim_runner()
 	if sim_runner != null:
@@ -1882,10 +1883,20 @@ func _gpu_vfx_pref_enabled() -> bool:
 		return bool(profile_manager.call("is_gpu_vfx_enabled"))
 	return true
 
+func _floor_graphics_pref_enabled() -> bool:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager != null and profile_manager.has_method("is_floor_graphics_enabled"):
+		return bool(profile_manager.call("is_floor_graphics_enabled"))
+	return enable_floor_influence_runtime
+
 func set_gpu_vfx_enabled(enabled: bool) -> void:
 	_ensure_vfx_manager()
 	if vfx_manager != null and vfx_manager.has_method("set_gpu_vfx_enabled"):
 		vfx_manager.call("set_gpu_vfx_enabled", enabled)
+
+func set_floor_graphics_enabled(enabled: bool) -> void:
+	enable_floor_influence_runtime = enabled
+	_ensure_floor_influence_system()
 
 func _on_sim_ticked() -> void:
 	var phase: int = int(OpsState.match_phase)

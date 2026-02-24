@@ -18,10 +18,18 @@ const DASH_TAB_KEY_LEFT := "ui.mm.dash.right"
 const DASH_HEX_BUFFS_KEY := "ui.mm.buffs.normal"
 const DASH_HEX_STORE_KEY := "ui.mm.store.normal"
 const DASH_HEX_HIVE_KEY := "ui.mm.hive.normal"
+const DASH_HEX_BASE_SIZE: Vector2 = Vector2(90.0, 64.0)
+const DASH_HEX_SIZE_SCALE: float = 1.38
+const DASH_HEX_CONTAINER_RIGHT_MARGIN: float = 8.0
+const DASH_HEX_CONTAINER_EXTRA_WIDTH: float = 16.0
+const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 
 @onready var hive_button: HexButton = $TopBar/HiveButton
 @onready var dash_tab: HexButton = $DashTab
 @onready var dash_panel: Panel = $DashPanel
+@onready var dash_top_bar: Control = $DashPanel/DashTopBar
+@onready var dash_root: VBoxContainer = $DashPanel/DashRoot
+@onready var dash_hexes: VBoxContainer = $DashPanel/DashHexes
 @onready var dash_match_panel: Panel = $DashPanel/DashRoot/MatchHistoryPanel
 @onready var dash_badges_panel: Panel = $DashPanel/DashRoot/BadgesPanel
 @onready var dash_hex_buffs: HexButton = $DashPanel/DashHexes/DashBuffs
@@ -242,6 +250,8 @@ var _dash_tab_closed_right := 0.0
 var _dash_tab_open_left := 0.0
 var _dash_tab_open_right := 0.0
 var _dash_tween: Tween
+var _store_direct_mode: bool = false
+var _settings_direct_mode: bool = false
 var _player_profile := {
 	"tier_text": "Tier: Bronze",
 	"honey": 12480
@@ -511,14 +521,61 @@ const DASH_ACHIEVEMENT_STUBS := [
 	{"name": "Hive Keeper", "progress": 0, "goal": 5}
 ]
 const STORE_CATEGORIES := [
-	{"id": "Buffs", "title": "Buffs", "desc": "Match, info, and identity buffs."},
-	{"id": "Analysis", "title": "Analysis", "desc": "Forensic replay and AI commentary."},
-	{"id": "StatsMemory", "title": "Stats & Memory", "desc": "Extended history and reports."},
-	{"id": "TimePuzzles", "title": "Time Puzzles", "desc": "Async thinking economy."},
-	{"id": "Passes", "title": "Passes", "desc": "Access and depth unlocks."},
-	{"id": "Cosmetics", "title": "Cosmetics", "desc": "Skins, themes, frames."}
+	{"id": "Bundles", "title": "Bundles", "desc": "High-value packs across systems."},
+	{"id": "BattlePass", "title": "Battle Pass", "desc": "Seasonal progression tracks and upgrades."},
+	{"id": "Buffs", "title": "Buffs", "desc": "Match-impact kits and utility."},
+	{"id": "Skins", "title": "Skins", "desc": "Hives, lanes, and background art."},
+	{"id": "Merch", "title": "Merch", "desc": "Physical and collectible Swarmfront gear."},
+	{"id": "GameplayAnalysis", "title": "Game Play Analysis", "desc": "Replay forensics, AI notes, and coaching."}
 ]
 const STORE_SKUS := [
+	{
+		"id": "bundle_founders_pack",
+		"category": "Bundles",
+		"subcategory": "Starter",
+		"title": "Founder's Pack",
+		"description": "Starter economy pack with early progression boosts.",
+		"price_real": "$4.99",
+		"entitlements": [],
+		"is_bundle": true
+	},
+	{
+		"id": "bundle_competitor_pack",
+		"category": "Bundles",
+		"subcategory": "Competitive",
+		"title": "Competitor Pack",
+		"description": "Buff unlocks and analysis access for ranked prep.",
+		"price_real": "$9.99",
+		"entitlements": ["analysis_forensic", "analysis_ai"],
+		"is_bundle": true
+	},
+	{
+		"id": "bundle_zero_ads",
+		"category": "Bundles",
+		"subcategory": "QoL",
+		"title": "Zero Ads",
+		"description": "Removes all advertisements from Swarmfront.",
+		"price_real": "$3.99",
+		"entitlements": ["zero_ads"]
+	},
+	{
+		"id": "battle_pass_premium",
+		"category": "BattlePass",
+		"subcategory": "Season",
+		"title": "Premium Track",
+		"description": "Unlocks premium seasonal rewards.",
+		"price_real": "$9.99",
+		"entitlements": ["battle_pass_premium"]
+	},
+	{
+		"id": "battle_pass_elite",
+		"category": "BattlePass",
+		"subcategory": "Season",
+		"title": "Elite Track",
+		"description": "Premium track plus tier skips and elite cosmetics.",
+		"price_real": "$19.99",
+		"entitlements": ["battle_pass_elite"]
+	},
 	{
 		"id": "buff_match_tempo",
 		"category": "Buffs",
@@ -538,132 +595,76 @@ const STORE_SKUS := [
 		"entitlements": []
 	},
 	{
+		"id": "skin_hive_obsidian",
+		"category": "Skins",
+		"subcategory": "Hives",
+		"title": "Obsidian Hive Skin",
+		"description": "Dark metallic hive visual set.",
+		"price_honey": 350,
+		"entitlements": ["skin_hive_obsidian"]
+	},
+	{
+		"id": "skin_lane_goldpulse",
+		"category": "Skins",
+		"subcategory": "Lanes",
+		"title": "Gold Pulse Lanes",
+		"description": "High-contrast lane visuals for readability.",
+		"price_honey": 300,
+		"entitlements": ["skin_lane_goldpulse"]
+	},
+	{
+		"id": "skin_bg_circuit_forge",
+		"category": "Skins",
+		"subcategory": "Background Art",
+		"title": "Circuit Forge Background",
+		"description": "Alternate board underlayment art.",
+		"price_honey": 280,
+		"entitlements": ["skin_bg_circuit_forge"]
+	},
+	{
+		"id": "merch_founder_tee",
+		"category": "Merch",
+		"subcategory": "Apparel",
+		"title": "Founder Tee",
+		"description": "Official Swarmfront launch shirt.",
+		"price_real": "$24.99",
+		"entitlements": []
+	},
+	{
+		"id": "merch_hex_mousepad",
+		"category": "Merch",
+		"subcategory": "Desk",
+		"title": "Hex Mousepad",
+		"description": "Large desk mat with Swarmfront map lines.",
+		"price_real": "$19.99",
+		"entitlements": []
+	},
+	{
 		"id": "analysis_forensic_replay",
-		"category": "Analysis",
+		"category": "GameplayAnalysis",
 		"subcategory": "Replay",
 		"title": "Forensic Replay",
-		"description": "Unlock full replay scrubbing.",
+		"description": "Unlock full replay scrubbing and event markers.",
 		"price_honey": 600,
 		"entitlements": ["analysis_forensic"]
 	},
 	{
 		"id": "analysis_ai_commentary",
-		"category": "Analysis",
+		"category": "GameplayAnalysis",
 		"subcategory": "AI",
 		"title": "AI Commentary",
-		"description": "Cold, factual commentary.",
+		"description": "Cold, factual lane-by-lane commentary.",
 		"price_honey": 500,
 		"entitlements": ["analysis_ai"]
 	},
 	{
-		"id": "stats_archive",
-		"category": "StatsMemory",
-		"subcategory": "History",
-		"title": "Extended History",
-		"description": "Keep match history beyond rolling window.",
-		"price_honey": 400,
-		"entitlements": ["stats_archive"]
-	},
-	{
-		"id": "stats_filters",
-		"category": "StatsMemory",
-		"subcategory": "Filters",
-		"title": "Advanced Filters",
-		"description": "Filter by mode, season, and team.",
-		"price_honey": 300,
-		"entitlements": ["stats_filters"]
-	},
-	{
-		"id": "puzzle_entry",
-		"category": "TimePuzzles",
-		"subcategory": "Entry",
-		"title": "Contest Entry",
-		"description": "Enter the weekly puzzle.",
-		"price_honey": 120,
-		"entitlements": []
-	},
-	{
-		"id": "puzzle_hints",
-		"category": "TimePuzzles",
-		"subcategory": "Hints",
-		"title": "Hint Pack",
-		"description": "Additional hint attempts.",
-		"price_honey": 90,
-		"entitlements": []
-	},
-	{
-		"id": "pass_analysis",
-		"category": "Passes",
-		"subcategory": "Pass",
-		"title": "Analysis Pass",
-		"description": "Unlimited analysis depth.",
-		"price_real": "$4.99",
-		"entitlements": ["pass_analysis"]
-	},
-	{
-		"id": "pass_archivist",
-		"category": "Passes",
-		"subcategory": "Pass",
-		"title": "Archivist Pass",
-		"description": "Unlimited stat history and reports.",
-		"price_real": "$4.99",
-		"entitlements": ["pass_archivist"]
-	},
-	{
-		"id": "pass_puzzle",
-		"category": "Passes",
-		"subcategory": "Pass",
-		"title": "Puzzle Pass",
-		"description": "Puzzle access with reduced friction.",
-		"price_real": "$2.99",
-		"entitlements": ["pass_puzzle"]
-	},
-	{
-		"id": "pass_zero_ads",
-		"category": "Passes",
-		"subcategory": "Pass",
-		"title": "Zero Ads Pass",
-		"description": "Removes all advertisements from Swarmfront.",
-		"price_real": "$3.99",
-		"entitlements": ["zero_ads"]
-	},
-	{
-		"id": "bundle_analyst",
-		"category": "Analysis",
-		"subcategory": "Bundle",
-		"title": "The Analyst",
-		"description": "Replay + AI + key moments + comparison.",
-		"price_real": "$6.99",
-		"entitlements": ["analysis_forensic", "analysis_ai"],
-		"is_bundle": true
-	},
-	{
-		"id": "bundle_archivist",
-		"category": "StatsMemory",
-		"subcategory": "Bundle",
-		"title": "The Archivist",
-		"description": "History + filters + seasonal reports.",
+		"id": "analysis_coach_pack",
+		"category": "GameplayAnalysis",
+		"subcategory": "Coaching",
+		"title": "Coach Pack",
+		"description": "Post-match coaching notes and tactical prompts.",
 		"price_real": "$5.99",
-		"entitlements": ["stats_archive", "stats_filters"],
-		"is_bundle": true
-	},
-	{
-		"id": "cosmetic_skin_a",
-		"category": "Cosmetics",
-		"subcategory": "Skins",
-		"title": "Hive Skin A",
-		"description": "Clean metallic hive skin.",
-		"price_honey": 350,
-		"entitlements": ["cosmetic_skin_a"]
-	},
-	{
-		"id": "cosmetic_frame_hex",
-		"category": "Cosmetics",
-		"subcategory": "Frames",
-		"title": "Hex Frame",
-		"description": "Badge frame, cosmetic only.",
-		"price_honey": 220,
-		"entitlements": ["cosmetic_frame_hex"]
+		"entitlements": ["analysis_coach"]
 	}
 ]
 
@@ -684,6 +685,7 @@ func _ready() -> void:
 	_configure_dash_account_surfaces()
 	_ensure_swarm_pass_panel()
 	_load_profile_commerce_state()
+	_apply_performance_pref_from_profile()
 	call_deferred("_init_dash_state")
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
@@ -720,6 +722,14 @@ func _bind_onboarding_gate() -> void:
 				onboarding_panel.onboarding_done.connect(_on_onboarding_done)
 	else:
 		onboarding_overlay.visible = false
+
+func _apply_performance_pref_from_profile() -> void:
+	if not ProfileManager.has_method("get_content_scale_factor"):
+		return
+	var scale_factor: float = float(ProfileManager.call("get_content_scale_factor"))
+	var window_ref: Window = get_window()
+	if window_ref != null:
+		window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.0)
 
 func _on_onboarding_done() -> void:
 	onboarding_overlay.visible = false
@@ -903,7 +913,7 @@ func _style_buttons() -> void:
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
 	if menu_unused_button != null:
 		menu_unused_button.visible = true
-		menu_unused_button.text = "Ranks"
+		menu_unused_button.text = "Settings"
 		_apply_font(menu_unused_button, _font_regular, 14)
 		_style_button(menu_unused_button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
 	for button in replay_controls_buttons:
@@ -980,13 +990,13 @@ func _style_panels() -> void:
 	_style_panel($AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 
 func _wire_buttons() -> void:
-	menu_store_button.pressed.connect(func(): _open_dash_panel_from_menu(dash_store_panel))
+	menu_store_button.pressed.connect(_open_storefront_panel)
 	menu_buffs_button.pressed.connect(_open_buffs_store)
 	menu_free_roll_button.pressed.connect(_open_free_roll_split)
 	menu_cash_button.pressed.connect(_open_cash_split)
 	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
 	if menu_unused_button != null:
-		menu_unused_button.pressed.connect(_on_rank_pressed)
+		menu_unused_button.pressed.connect(_on_settings_pressed)
 	hive_button.pressed.connect(_toggle_hive_dropdown)
 	dash_tab.pressed.connect(_toggle_dash)
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
@@ -999,8 +1009,8 @@ func _wire_buttons() -> void:
 	dash_replay_close.pressed.connect(func(): _close_dash_panel(dash_replay_panel))
 	dash_buffs_close.pressed.connect(func(): _close_dash_panel(dash_buffs_panel))
 	dash_hive_close.pressed.connect(func(): _close_dash_panel(dash_hive_panel))
-	dash_store_close.pressed.connect(func(): _close_dash_panel(dash_store_panel))
-	dash_settings_close.pressed.connect(func(): _close_dash_panel(dash_settings_panel))
+	dash_store_close.pressed.connect(_on_dash_store_close_pressed)
+	dash_settings_close.pressed.connect(_on_dash_settings_close_pressed)
 	dash_badges_close.pressed.connect(func(): _close_dash_panel(dash_badges_panel_full))
 	async_close.pressed.connect(_close_async_panel)
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction.pressed.connect(_open_async_weekly)
@@ -1118,6 +1128,12 @@ func _set_hex_buttons() -> void:
 	dash_hex_buffs.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_buffs.text_color = Color(0.92, 0.94, 0.98)
 	dash_hex_buffs.sprite_key = DASH_HEX_BUFFS_KEY
+	var dash_hex_size: Vector2 = DASH_HEX_BASE_SIZE * DASH_HEX_SIZE_SCALE
+	if dash_hexes != null:
+		dash_hexes.offset_right = -DASH_HEX_CONTAINER_RIGHT_MARGIN
+		dash_hexes.offset_left = dash_hexes.offset_right - dash_hex_size.x - DASH_HEX_CONTAINER_EXTRA_WIDTH
+	dash_hex_buffs.custom_minimum_size = dash_hex_size
+	_apply_black_key_to_hex_button(dash_hex_buffs)
 	dash_hex_buffs.queue_redraw()
 	dash_hex_store.text = "STORE"
 	dash_hex_store.font = _font_semibold
@@ -1126,6 +1142,8 @@ func _set_hex_buttons() -> void:
 	dash_hex_store.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_store.text_color = Color(0.92, 0.94, 0.98)
 	dash_hex_store.sprite_key = DASH_HEX_STORE_KEY
+	dash_hex_store.custom_minimum_size = dash_hex_size
+	_apply_black_key_to_hex_button(dash_hex_store)
 	dash_hex_store.queue_redraw()
 	dash_hex_hive.text = "HIVE"
 	dash_hex_hive.font = _font_semibold
@@ -1134,6 +1152,8 @@ func _set_hex_buttons() -> void:
 	dash_hex_hive.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_hive.text_color = Color(0.92, 0.94, 0.98)
 	dash_hex_hive.sprite_key = DASH_HEX_HIVE_KEY
+	dash_hex_hive.custom_minimum_size = dash_hex_size
+	_apply_black_key_to_hex_button(dash_hex_hive)
 	dash_hex_hive.queue_redraw()
 
 func _apply_black_key_to_hex_button(button: HexButton) -> void:
@@ -2741,7 +2761,7 @@ func _get_store_category(category_id: String) -> Dictionary:
 	return {}
 
 func _update_store_prefs_visibility(category_id: String) -> void:
-	var show_prefs := category_id == "Passes" and _has_entitlement("zero_ads")
+	var show_prefs := category_id == "Bundles" and _has_entitlement("zero_ads")
 	store_category_prefs_panel.visible = show_prefs
 	if show_prefs:
 		store_prefs_toggle.button_pressed = _prefer_zero_ads
@@ -2945,6 +2965,10 @@ func _on_battle_pass_pressed() -> void:
 	_open_battle_pass_panel()
 	status_label.text = "Battle Pass opened."
 
+func _on_settings_pressed() -> void:
+	_open_settings_panel()
+	status_label.text = "Settings opened."
+
 func _on_rank_pressed() -> void:
 	_open_rank_panel()
 	status_label.text = "Rank leaderboard opened."
@@ -2965,7 +2989,7 @@ func _open_swarm_pass_panel() -> void:
 	if _swarm_pass_panel == null:
 		return
 	_swarm_pass_panel.visible = true
-	_swarm_pass_panel.raise()
+	_swarm_pass_panel.move_to_front()
 
 func _close_swarm_pass_panel() -> void:
 	if _swarm_pass_panel == null:
@@ -2988,7 +3012,7 @@ func _open_battle_pass_panel() -> void:
 	if _battle_pass_panel == null:
 		return
 	_battle_pass_panel.visible = true
-	_battle_pass_panel.raise()
+	_battle_pass_panel.move_to_front()
 
 func _close_battle_pass_panel() -> void:
 	if _battle_pass_panel == null:
@@ -3011,7 +3035,7 @@ func _open_rank_panel() -> void:
 	if _rank_panel == null:
 		return
 	_rank_panel.visible = true
-	_rank_panel.raise()
+	_rank_panel.move_to_front()
 
 func _close_rank_panel() -> void:
 	if _rank_panel == null:
@@ -3434,9 +3458,84 @@ func _open_play_mode_select() -> void:
 		add_child(_play_mode_select)
 	_play_mode_select.visible = true
 
+func _set_dash_chrome_visible(visible: bool) -> void:
+	if dash_top_bar != null:
+		dash_top_bar.visible = visible
+	if dash_root != null:
+		dash_root.visible = visible
+	if dash_hexes != null:
+		dash_hexes.visible = visible
+	dash_tab.visible = visible
+
+func _open_storefront_panel() -> void:
+	if _hive_dropdown_open:
+		_hide_hive_dropdown_immediate()
+	if async_panel != null:
+		async_panel.visible = false
+	if _settings_direct_mode:
+		_close_settings_panel()
+	_store_direct_mode = true
+	_hide_dash_panels()
+	_show_store_landing()
+	_set_dash_chrome_visible(false)
+	_set_dash_offsets(0.0)
+	dash_panel.visible = true
+	dash_store_panel.visible = true
+	_dash_open = true
+	status_label.text = "Store opened."
+
+func _close_storefront_panel() -> void:
+	_store_direct_mode = false
+	dash_store_panel.visible = false
+	_set_dash_chrome_visible(true)
+	_set_dash_offsets(_dash_hidden_x)
+	dash_panel.visible = false
+	_dash_open = false
+
+func _open_settings_panel() -> void:
+	if _hive_dropdown_open:
+		_hide_hive_dropdown_immediate()
+	if async_panel != null:
+		async_panel.visible = false
+	if _store_direct_mode:
+		_close_storefront_panel()
+	_settings_direct_mode = true
+	_hide_dash_panels()
+	_set_dash_chrome_visible(false)
+	_set_dash_offsets(0.0)
+	dash_panel.visible = true
+	dash_settings_panel.visible = true
+	_dash_open = true
+
+func _close_settings_panel() -> void:
+	_settings_direct_mode = false
+	dash_settings_panel.visible = false
+	_set_dash_chrome_visible(true)
+	_set_dash_offsets(_dash_hidden_x)
+	dash_panel.visible = false
+	_dash_open = false
+
+func _on_dash_store_close_pressed() -> void:
+	if _store_direct_mode:
+		_close_storefront_panel()
+		return
+	_close_dash_panel(dash_store_panel)
+
+func _on_dash_settings_close_pressed() -> void:
+	if _settings_direct_mode:
+		_close_settings_panel()
+		return
+	_close_dash_panel(dash_settings_panel)
+
 func _toggle_dash() -> void:
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
+	if _store_direct_mode:
+		_close_storefront_panel()
+		return
+	if _settings_direct_mode:
+		_close_settings_panel()
+		return
 	if _dash_tween != null and _dash_tween.is_running():
 		_dash_tween.kill()
 	var target_x := 0.0 if not _dash_open else _dash_hidden_x
@@ -3468,6 +3567,12 @@ func _dash_stub_action(label: String) -> void:
 func _open_dash_panel(panel: Panel) -> void:
 	if panel == null:
 		return
+	if _store_direct_mode:
+		_store_direct_mode = false
+		_set_dash_chrome_visible(true)
+	if _settings_direct_mode:
+		_settings_direct_mode = false
+		_set_dash_chrome_visible(true)
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
 	if async_panel != null:
@@ -3494,6 +3599,10 @@ func _hide_dash_panels() -> void:
 func _open_async_panel() -> void:
 	if async_panel == null:
 		return
+	if _store_direct_mode:
+		_close_storefront_panel()
+	if _settings_direct_mode:
+		_close_settings_panel()
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
 	if _dash_open:
@@ -3970,8 +4079,13 @@ func _set_stats_tier(tier: String) -> void:
 func _init_dash_state() -> void:
 	var view_w := get_viewport_rect().size.x
 	_dash_hidden_x = view_w
-	_dash_tab_closed_left = dash_tab.offset_left
-	_dash_tab_closed_right = dash_tab.offset_right
+	_set_dash_chrome_visible(true)
+	_store_direct_mode = false
+	_settings_direct_mode = false
+	_dash_tab_closed_left = dash_tab.offset_left + DASH_TAB_CLOSED_EDGE_SHIFT
+	_dash_tab_closed_right = dash_tab.offset_right + DASH_TAB_CLOSED_EDGE_SHIFT
+	dash_tab.offset_left = _dash_tab_closed_left
+	dash_tab.offset_right = _dash_tab_closed_right
 	var tab_width := _dash_tab_closed_right - _dash_tab_closed_left
 	_dash_tab_open_left = -view_w
 	_dash_tab_open_right = _dash_tab_open_left + tab_width

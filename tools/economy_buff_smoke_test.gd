@@ -3,10 +3,10 @@ extends SceneTree
 const EconomyBuffStateScript = preload("res://scripts/state/economy_buff_state.gd")
 
 const PLAYER_ID: String = "p1"
-const BUFF_CLASSIC: String = "buff_swarm_speed_classic"
-const BUFF_PREMIUM: String = "buff_swarm_speed_premium"
-const BUFF_ELITE: String = "buff_swarm_speed_elite"
-const BUFF_ELITE_2: String = "buff_swarm_durability_elite"
+const BUFF_CLASSIC: String = "buff_unit_speed_classic"
+const BUFF_PREMIUM: String = "buff_unit_speed_premium"
+const BUFF_ELITE: String = "buff_unit_speed_elite"
+const BUFF_ELITE_2: String = "buff_swarm_damage_elite"
 
 func _init() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://economy_buff_state.json"))

@@ -6,6 +6,11 @@ const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const PROFILE_PATH: String = "user://profile.cfg"
 const PROFILE_SECTION: String = "profile"
 const PROFILE_KEY_GPU_VFX_ENABLED: String = "gpu_vfx_enabled"
+const PROFILE_KEY_AUDIO_ENABLED: String = "audio_enabled"
+const PROFILE_KEY_SFX_ENABLED: String = "sfx_enabled"
+const PROFILE_KEY_HAPTICS_ENABLED: String = "haptics_enabled"
+const PROFILE_KEY_FLOOR_GRAPHICS_ENABLED: String = "floor_graphics_enabled"
+const PROFILE_KEY_PERFORMANCE_MODE: String = "performance_mode"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player "
@@ -13,6 +18,9 @@ const DISPLAY_NAME_MAX_LEN: int = 20
 const BUFF_LOADOUT_SIZE: int = 3
 const BUFF_MODE_VS: String = "vs"
 const BUFF_MODE_ASYNC: String = "async"
+const PERFORMANCE_MODE_QUALITY: String = "quality"
+const PERFORMANCE_MODE_BALANCED: String = "balanced"
+const PERFORMANCE_MODE_PERFORMANCE: String = "performance"
 const DEFAULT_HONEY_BALANCE: int = 12480
 const DEFAULT_BUFF_LOADOUT_IDS: Array[String] = [
 	"buff_swarm_speed_classic",
@@ -35,6 +43,11 @@ var _buff_loadout_ids_by_mode: Dictionary = {}
 var _honey_balance: int = DEFAULT_HONEY_BALANCE
 var _store_entitlements: Dictionary = {}
 var _gpu_vfx_enabled: bool = true
+var _audio_enabled: bool = true
+var _sfx_enabled: bool = true
+var _haptics_enabled: bool = true
+var _floor_graphics_enabled: bool = true
+var _performance_mode: String = PERFORMANCE_MODE_QUALITY
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -66,6 +79,11 @@ func ensure_loaded() -> void:
 		_onboarding_complete = bool(cfg.get_value(PROFILE_SECTION, "onboarding_complete", false))
 		_controls_hint_seen = bool(cfg.get_value(PROFILE_SECTION, "controls_hint_seen", false))
 		_gpu_vfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, true))
+		_audio_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, true))
+		_sfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, true))
+		_haptics_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_HAPTICS_ENABLED, true))
+		_floor_graphics_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_FLOOR_GRAPHICS_ENABLED, true))
+		_performance_mode = _sanitize_performance_mode(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, PERFORMANCE_MODE_QUALITY)))
 		_owned_buff_ids = _sanitize_owned_ids(cfg.get_value(PROFILE_SECTION, "owned_buff_ids", []))
 		_buff_loadout_ids = _sanitize_loadout_ids(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids", []))
 		_owned_buff_ids_by_mode = _sanitize_owned_mode_map(cfg.get_value(PROFILE_SECTION, "owned_buff_ids_by_mode", {}))
@@ -81,6 +99,11 @@ func ensure_loaded() -> void:
 		_onboarding_complete = false
 		_controls_hint_seen = false
 		_gpu_vfx_enabled = true
+		_audio_enabled = true
+		_sfx_enabled = true
+		_haptics_enabled = true
+		_floor_graphics_enabled = true
+		_performance_mode = PERFORMANCE_MODE_QUALITY
 		_owned_buff_ids = _default_owned_ids()
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
 		_honey_balance = DEFAULT_HONEY_BALANCE
@@ -98,6 +121,10 @@ func ensure_loaded() -> void:
 			updated = true
 		if _created_at_unix <= 0:
 			_created_at_unix = int(Time.get_unix_time_from_system())
+			updated = true
+		var clean_mode: String = _sanitize_performance_mode(_performance_mode)
+		if clean_mode != _performance_mode:
+			_performance_mode = clean_mode
 			updated = true
 		if _owned_buff_ids.is_empty():
 			_owned_buff_ids = _default_owned_ids()
@@ -274,6 +301,77 @@ func set_gpu_vfx_enabled(enabled: bool) -> void:
 		"enabled": _gpu_vfx_enabled
 	})
 
+func is_audio_enabled() -> bool:
+	ensure_loaded()
+	return _audio_enabled
+
+func set_audio_enabled(enabled: bool) -> void:
+	ensure_loaded()
+	if _audio_enabled == enabled:
+		return
+	_audio_enabled = enabled
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_AUDIO_ENABLED", {"user_id": _user_id, "enabled": _audio_enabled})
+
+func is_sfx_enabled() -> bool:
+	ensure_loaded()
+	return _sfx_enabled
+
+func set_sfx_enabled(enabled: bool) -> void:
+	ensure_loaded()
+	if _sfx_enabled == enabled:
+		return
+	_sfx_enabled = enabled
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_SFX_ENABLED", {"user_id": _user_id, "enabled": _sfx_enabled})
+
+func is_haptics_enabled() -> bool:
+	ensure_loaded()
+	return _haptics_enabled
+
+func set_haptics_enabled(enabled: bool) -> void:
+	ensure_loaded()
+	if _haptics_enabled == enabled:
+		return
+	_haptics_enabled = enabled
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_HAPTICS_ENABLED", {"user_id": _user_id, "enabled": _haptics_enabled})
+
+func is_floor_graphics_enabled() -> bool:
+	ensure_loaded()
+	return _floor_graphics_enabled
+
+func set_floor_graphics_enabled(enabled: bool) -> void:
+	ensure_loaded()
+	if _floor_graphics_enabled == enabled:
+		return
+	_floor_graphics_enabled = enabled
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_FLOOR_GRAPHICS_ENABLED", {"user_id": _user_id, "enabled": _floor_graphics_enabled})
+
+func get_performance_mode() -> String:
+	ensure_loaded()
+	return _performance_mode
+
+func set_performance_mode(mode: String) -> void:
+	ensure_loaded()
+	var next_mode: String = _sanitize_performance_mode(mode)
+	if _performance_mode == next_mode:
+		return
+	_performance_mode = next_mode
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_PERFORMANCE_MODE", {"user_id": _user_id, "mode": _performance_mode})
+
+func get_content_scale_factor() -> float:
+	ensure_loaded()
+	match _performance_mode:
+		PERFORMANCE_MODE_PERFORMANCE:
+			return 0.8
+		PERFORMANCE_MODE_BALANCED:
+			return 0.9
+		_:
+			return 1.0
+
 func get_honey_balance() -> int:
 	ensure_loaded()
 	return _honey_balance
@@ -379,6 +477,11 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "onboarding_complete", onboarding_complete)
 	cfg.set_value(PROFILE_SECTION, "controls_hint_seen", _controls_hint_seen)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, _gpu_vfx_enabled)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, _audio_enabled)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, _sfx_enabled)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_HAPTICS_ENABLED, _haptics_enabled)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_FLOOR_GRAPHICS_ENABLED, _floor_graphics_enabled)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, _performance_mode)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids", _owned_buff_ids)
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids", _buff_loadout_ids)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids_by_mode", _owned_buff_ids_by_mode)
@@ -420,6 +523,12 @@ func _sanitize_display_name(name: String, user_id: String) -> String:
 		cleaned = cleaned.substr(0, DISPLAY_NAME_MAX_LEN)
 	if cleaned.is_empty():
 		cleaned = _default_display_name(user_id)
+	return cleaned
+
+func _sanitize_performance_mode(mode: String) -> String:
+	var cleaned: String = mode.strip_edges().to_lower()
+	if cleaned != PERFORMANCE_MODE_QUALITY and cleaned != PERFORMANCE_MODE_BALANCED and cleaned != PERFORMANCE_MODE_PERFORMANCE:
+		return PERFORMANCE_MODE_QUALITY
 	return cleaned
 
 func _sanitize_user_id(raw: String) -> String:

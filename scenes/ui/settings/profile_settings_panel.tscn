@@ -102,6 +102,84 @@ text = "GPU VFX"
 layout_mode = 2
 text = "ON"
 
+[node name="AudioSection" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="AudioLabel" type="Label" parent="VBox/AudioSection"]
+layout_mode = 2
+text = "Audio"
+
+[node name="MasterAudioRow" type="HBoxContainer" parent="VBox/AudioSection"]
+layout_mode = 2
+
+[node name="MasterAudioLabel" type="Label" parent="VBox/AudioSection/MasterAudioRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Master Audio"
+
+[node name="MasterAudioToggle" type="CheckButton" parent="VBox/AudioSection/MasterAudioRow"]
+layout_mode = 2
+text = "ON"
+
+[node name="SfxRow" type="HBoxContainer" parent="VBox/AudioSection"]
+layout_mode = 2
+
+[node name="SfxLabel" type="Label" parent="VBox/AudioSection/SfxRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "SFX"
+
+[node name="SfxToggle" type="CheckButton" parent="VBox/AudioSection/SfxRow"]
+layout_mode = 2
+text = "ON"
+
+[node name="HapticsRow" type="HBoxContainer" parent="VBox/AudioSection"]
+layout_mode = 2
+
+[node name="HapticsLabel" type="Label" parent="VBox/AudioSection/HapticsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Haptics"
+
+[node name="HapticsToggle" type="CheckButton" parent="VBox/AudioSection/HapticsRow"]
+layout_mode = 2
+text = "ON"
+
+[node name="PerformanceSection" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="PerformanceLabel" type="Label" parent="VBox/PerformanceSection"]
+layout_mode = 2
+text = "Performance"
+
+[node name="PerformanceModeRow" type="HBoxContainer" parent="VBox/PerformanceSection"]
+layout_mode = 2
+
+[node name="PerformanceModeLabel" type="Label" parent="VBox/PerformanceSection/PerformanceModeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Graphics Preset"
+
+[node name="PerformanceModeOption" type="OptionButton" parent="VBox/PerformanceSection/PerformanceModeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="FloorGraphicsRow" type="HBoxContainer" parent="VBox/PerformanceSection"]
+layout_mode = 2
+
+[node name="FloorGraphicsLabel" type="Label" parent="VBox/PerformanceSection/FloorGraphicsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Floor Graphics"
+
+[node name="FloorGraphicsToggle" type="CheckButton" parent="VBox/PerformanceSection/FloorGraphicsRow"]
+layout_mode = 2
+text = "ON"
+
+[node name="RenamePolicyLabel" type="Label" parent="VBox"]
+layout_mode = 2
+text = "Display-name edits are free in dev. Paid rename flow ships in production."
+
 [node name="ButtonsRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
 

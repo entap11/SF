@@ -6,6 +6,9 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const MIN_HANDLE_LEN: int = 3
 const MAX_HANDLE_LEN: int = 20
 const DEV_ALLOW_UID_EDIT: bool = false
+const PERF_MODE_QUALITY: String = "quality"
+const PERF_MODE_BALANCED: String = "balanced"
+const PERF_MODE_PERFORMANCE: String = "performance"
 
 @onready var profile_dropdown: OptionButton = $VBox/ProfileRow/ProfileDropdown
 @onready var display_name_input: LineEdit = $VBox/ProfileRow/DisplayNameInput
@@ -15,6 +18,11 @@ const DEV_ALLOW_UID_EDIT: bool = false
 @onready var set_user_id_button: Button = $VBox/UserIdSection/UserIdRow/SetUserIdButton
 @onready var user_id_status_label: Label = $VBox/UserIdSection/UserIdStatusLabel
 @onready var gpu_vfx_toggle: CheckButton = $VBox/VideoSection/GpuVfxRow/GpuVfxToggle
+@onready var master_audio_toggle: CheckButton = $VBox/AudioSection/MasterAudioRow/MasterAudioToggle
+@onready var sfx_toggle: CheckButton = $VBox/AudioSection/SfxRow/SfxToggle
+@onready var haptics_toggle: CheckButton = $VBox/AudioSection/HapticsRow/HapticsToggle
+@onready var performance_mode_option: OptionButton = $VBox/PerformanceSection/PerformanceModeRow/PerformanceModeOption
+@onready var floor_graphics_toggle: CheckButton = $VBox/PerformanceSection/FloorGraphicsRow/FloorGraphicsToggle
 @onready var buttons_row: HBoxContainer = $VBox/ButtonsRow
 @onready var new_button: Button = $VBox/ButtonsRow/NewProfileButton
 @onready var rename_button: Button = $VBox/ButtonsRow/RenameButton
@@ -34,12 +42,22 @@ func _ready() -> void:
 	set_user_id_button.pressed.connect(_on_set_user_id_pressed)
 	copy_user_id_button.pressed.connect(_on_copy_user_id_pressed)
 	gpu_vfx_toggle.toggled.connect(_on_gpu_vfx_toggled)
+	master_audio_toggle.toggled.connect(_on_master_audio_toggled)
+	sfx_toggle.toggled.connect(_on_sfx_toggled)
+	haptics_toggle.toggled.connect(_on_haptics_toggled)
+	performance_mode_option.item_selected.connect(_on_performance_mode_selected)
+	floor_graphics_toggle.toggled.connect(_on_floor_graphics_toggled)
 	_disable_legacy_profile_controls()
 	_set_uid_edit_enabled(DEV_ALLOW_UID_EDIT)
+	_build_performance_options()
 	_refresh_options()
 	_refresh_display_name()
 	_refresh_user_id()
 	_refresh_gpu_vfx()
+	_refresh_audio_settings()
+	_refresh_performance_settings()
+	_apply_master_audio_setting()
+	_apply_performance_mode_setting()
 
 func _refresh_options() -> void:
 	var profiles: Array[Dictionary] = ProfileManager.get_profiles()
@@ -76,6 +94,70 @@ func _refresh_gpu_vfx() -> void:
 	var enabled: bool = ProfileManager.is_gpu_vfx_enabled()
 	gpu_vfx_toggle.set_pressed_no_signal(enabled)
 	gpu_vfx_toggle.text = "ON" if enabled else "OFF"
+
+func _refresh_audio_settings() -> void:
+	var audio_enabled: bool = true
+	var sfx_enabled: bool = true
+	var haptics_enabled: bool = true
+	if ProfileManager.has_method("is_audio_enabled"):
+		audio_enabled = bool(ProfileManager.call("is_audio_enabled"))
+	if ProfileManager.has_method("is_sfx_enabled"):
+		sfx_enabled = bool(ProfileManager.call("is_sfx_enabled"))
+	if ProfileManager.has_method("is_haptics_enabled"):
+		haptics_enabled = bool(ProfileManager.call("is_haptics_enabled"))
+	master_audio_toggle.set_pressed_no_signal(audio_enabled)
+	sfx_toggle.set_pressed_no_signal(sfx_enabled)
+	haptics_toggle.set_pressed_no_signal(haptics_enabled)
+	master_audio_toggle.text = "ON" if audio_enabled else "OFF"
+	sfx_toggle.text = "ON" if sfx_enabled else "OFF"
+	haptics_toggle.text = "ON" if haptics_enabled else "OFF"
+
+func _refresh_performance_settings() -> void:
+	var perf_mode: String = PERF_MODE_QUALITY
+	var floor_enabled: bool = true
+	if ProfileManager.has_method("get_performance_mode"):
+		perf_mode = str(ProfileManager.call("get_performance_mode"))
+	if ProfileManager.has_method("is_floor_graphics_enabled"):
+		floor_enabled = bool(ProfileManager.call("is_floor_graphics_enabled"))
+	_select_performance_mode(perf_mode)
+	floor_graphics_toggle.set_pressed_no_signal(floor_enabled)
+	floor_graphics_toggle.text = "ON" if floor_enabled else "OFF"
+
+func _build_performance_options() -> void:
+	performance_mode_option.clear()
+	performance_mode_option.add_item("Quality")
+	performance_mode_option.set_item_metadata(0, PERF_MODE_QUALITY)
+	performance_mode_option.add_item("Balanced")
+	performance_mode_option.set_item_metadata(1, PERF_MODE_BALANCED)
+	performance_mode_option.add_item("Performance")
+	performance_mode_option.set_item_metadata(2, PERF_MODE_PERFORMANCE)
+
+func _select_performance_mode(mode: String) -> void:
+	var target: String = mode.strip_edges().to_lower()
+	var selected_index: int = 0
+	for index in range(performance_mode_option.get_item_count()):
+		var metadata: Variant = performance_mode_option.get_item_metadata(index)
+		var value: String = str(metadata)
+		if value == target:
+			selected_index = index
+			break
+	performance_mode_option.select(selected_index)
+
+func _apply_master_audio_setting() -> void:
+	var enabled: bool = true
+	if ProfileManager.has_method("is_audio_enabled"):
+		enabled = bool(ProfileManager.call("is_audio_enabled"))
+	var bus_index: int = 0
+	if bus_index >= 0 and bus_index < AudioServer.get_bus_count():
+		AudioServer.set_bus_mute(bus_index, not enabled)
+
+func _apply_performance_mode_setting() -> void:
+	if not ProfileManager.has_method("get_content_scale_factor"):
+		return
+	var scale_factor: float = float(ProfileManager.call("get_content_scale_factor"))
+	var window_ref: Window = get_window()
+	if window_ref != null:
+		window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.0)
 
 func _set_uid_edit_enabled(enabled: bool) -> void:
 	user_id_input.visible = enabled
@@ -161,3 +243,37 @@ func _on_gpu_vfx_toggled(enabled: bool) -> void:
 	var arena_any: Node = tree.get_first_node_in_group("Arena")
 	if arena_any != null and arena_any.has_method("set_gpu_vfx_enabled"):
 		arena_any.call("set_gpu_vfx_enabled", enabled)
+
+func _on_master_audio_toggled(enabled: bool) -> void:
+	if ProfileManager.has_method("set_audio_enabled"):
+		ProfileManager.call("set_audio_enabled", enabled)
+	master_audio_toggle.text = "ON" if enabled else "OFF"
+	_apply_master_audio_setting()
+
+func _on_sfx_toggled(enabled: bool) -> void:
+	if ProfileManager.has_method("set_sfx_enabled"):
+		ProfileManager.call("set_sfx_enabled", enabled)
+	sfx_toggle.text = "ON" if enabled else "OFF"
+
+func _on_haptics_toggled(enabled: bool) -> void:
+	if ProfileManager.has_method("set_haptics_enabled"):
+		ProfileManager.call("set_haptics_enabled", enabled)
+	haptics_toggle.text = "ON" if enabled else "OFF"
+
+func _on_performance_mode_selected(index: int) -> void:
+	var metadata: Variant = performance_mode_option.get_item_metadata(index)
+	var mode: String = str(metadata)
+	if ProfileManager.has_method("set_performance_mode"):
+		ProfileManager.call("set_performance_mode", mode)
+	_apply_performance_mode_setting()
+
+func _on_floor_graphics_toggled(enabled: bool) -> void:
+	if ProfileManager.has_method("set_floor_graphics_enabled"):
+		ProfileManager.call("set_floor_graphics_enabled", enabled)
+	floor_graphics_toggle.text = "ON" if enabled else "OFF"
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var arena_any: Node = tree.get_first_node_in_group("Arena")
+	if arena_any != null and arena_any.has_method("set_floor_graphics_enabled"):
+		arena_any.call("set_floor_graphics_enabled", enabled)
