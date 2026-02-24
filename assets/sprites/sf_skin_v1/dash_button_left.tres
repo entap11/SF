@@ -1,0 +1,7 @@
+[gd_resource type="AtlasTexture" load_steps=2 format=3 uid="uid://dr4somcgleuns"]
+
+[ext_resource type="Texture2D" uid="uid://dij4k4o33ttxm" path="res://assets/sprites/sf_skin_v1/Dash_buttons.png" id="1_jfray"]
+
+[resource]
+atlas = ExtResource("1_jfray")
+region = Rect2(0, 0, 743, 1024)

@@ -179,12 +179,20 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "FREE ROLL"
 script = ExtResource("4")
+bg_key_normal = "ui.mm.free_roll.normal"
+bg_key_hover = "ui.mm.free_roll.hover"
+bg_key_pressed = "ui.mm.free_roll.pressed"
+bg_key_disabled = "ui.mm.free_roll.disabled"
 
 [node name="PlayButton" type="Button" parent="BottomBar/MenuButtons"]
 custom_minimum_size = Vector2(140, 60)
 layout_mode = 2
 text = "$"
 script = ExtResource("4")
+bg_key_normal = "ui.mm.cash.normal"
+bg_key_hover = "ui.mm.cash.hover"
+bg_key_pressed = "ui.mm.cash.pressed"
+bg_key_disabled = "ui.mm.cash.disabled"
 
 [node name="RightButtons" type="HBoxContainer" parent="BottomBar/MenuButtons"]
 layout_mode = 2
@@ -194,6 +202,10 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "BATTLE PASS"
 script = ExtResource("4")
+bg_key_normal = "ui.mm.battle_pass.normal"
+bg_key_hover = "ui.mm.battle_pass.hover"
+bg_key_pressed = "ui.mm.battle_pass.pressed"
+bg_key_disabled = "ui.mm.battle_pass.disabled"
 
 [node name="SettingsButton" type="Button" parent="BottomBar/MenuButtons/RightButtons"]
 visible = false
@@ -882,6 +894,20 @@ offset_right = -16.0
 offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="BuffsModeTabs" type="HBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="BuffsModeVS" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "VS"
+
+[node name="BuffsModeAsync" type="Button" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "ASYNC"
 
 [node name="BuffsTopRow" type="HBoxContainer" parent="DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox"]
 layout_mode = 2

@@ -1,0 +1,6 @@
+[gd_resource type="AtlasTexture" load_steps=2 format=3 uid="uid://bkkktws2avqrp"]
+
+[ext_resource type="Texture2D" uid="uid://dij4k4o33ttxm" path="res://assets/sprites/sf_skin_v1/Dash_buttons.png" id="1_h0mod"]
+
+[resource]
+atlas = ExtResource("1_h0mod")

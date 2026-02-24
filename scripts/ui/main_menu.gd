@@ -8,8 +8,16 @@ const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
-const DASH_TAB_KEY_RIGHT := "ui.mm.dash.right"
-const DASH_TAB_KEY_LEFT := "ui.mm.dash.left"
+const HIVE_TAB_KEY := "ui.mm.hive.normal"
+const HIVE_BUTTON_SCALE: float = 1.5
+const HIVE_BUTTON_BASE_WIDTH: float = 140.0
+const HIVE_BUTTON_BASE_HEIGHT: float = 70.0
+const HIVE_BUTTON_CENTER_Y: float = 45.0
+const DASH_TAB_KEY_RIGHT := "ui.mm.dash.left"
+const DASH_TAB_KEY_LEFT := "ui.mm.dash.right"
+const DASH_HEX_BUFFS_KEY := "ui.mm.buffs.normal"
+const DASH_HEX_STORE_KEY := "ui.mm.store.normal"
+const DASH_HEX_HIVE_KEY := "ui.mm.hive.normal"
 
 @onready var hive_button: HexButton = $TopBar/HiveButton
 @onready var dash_tab: HexButton = $DashTab
@@ -112,10 +120,14 @@ const DASH_TAB_KEY_LEFT := "ui.mm.dash.left"
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow/BuffSlot4
 ]
 @onready var buffs_top_row: HBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow
+@onready var buffs_mode_tabs: HBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs
+@onready var buffs_mode_vs_button: Button = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs/BuffsModeVS
+@onready var buffs_mode_async_button: Button = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs/BuffsModeAsync
 @onready var buffs_loadout_panel: Panel = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel
 @onready var buffs_library_panel: Panel = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel
 @onready var buffs_detail_panel: Panel = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel
 @onready var buffs_loadout_vbox: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox
+@onready var buffs_loadout_header: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsLoadoutHeader
 @onready var buffs_slots_row: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow
 @onready var buffs_library_vbox: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox
 @onready var buffs_library_header: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryHeader
@@ -214,6 +226,10 @@ var _rank_panel: Control = null
 @onready var menu_battle_pass_button: Button = $BottomBar/MenuButtons/RightButtons/ClanButton
 @onready var menu_unused_button: Button = $BottomBar/MenuButtons/RightButtons/SettingsButton
 @onready var status_label: Label = $BottomBar/StatusLabel
+@onready var bottom_bar: Control = $BottomBar
+@onready var menu_buttons_row: HBoxContainer = $BottomBar/MenuButtons
+@onready var menu_left_buttons_row: HBoxContainer = $BottomBar/MenuButtons/LeftButtons
+@onready var menu_right_buttons_row: HBoxContainer = $BottomBar/MenuButtons/RightButtons
 @onready var onboarding_overlay: Control = $ProfileFirstRunOverlay
 @onready var onboarding_panel: OnboardingPanel = $ProfileFirstRunOverlay/OverlayCenter/OverlayPanel/OverlayVBox/OnboardingPanel
 
@@ -238,10 +254,20 @@ var _hive_panel_profile := {
 	"name": "Swarmfront Prime",
 	"tier": "Bronze",
 	"member_role": "Member",
+	"member_rank_within_hive": 7,
+	"office_title": "Quartermaster",
+	"ecosystem_rank": 148,
+	"hive_honey": 12480,
+	"hive_honey_total": 982400,
 	"honey_score": 12480,
 	"wax_score": 940,
 	"season_name": "Season 01: Founding Swarm",
 	"season_reset_text": "Resets in 12d 04h",
+	"messages": [
+		"Leader: Push Hive Quests before reset.",
+		"Officer: Ladder sync tonight at 9pm.",
+		"New member approved: WaspRider."
+	],
 	"achievements": [
 		"Keystone Circuit I",
 		"Season Relay I",
@@ -282,7 +308,7 @@ var _async_assigned_map := {
 var _async_paid_entry_usd: int = 1
 var _async_track_mode: String = "select"
 
-const ASYNC_BUYINS := [1, 5, 10, 20]
+const ASYNC_BUYINS := [1, 2, 3, 5, 10]
 const MONEY_DENOMINATIONS := [1, 2, 3, 5, 10, 20, 50]
 const ASYNC_MAPS := ["Map A", "Map B", "Map C", "Map D", "Map E"]
 const ASYNC_CONFIRM_WINDOW_MS := 900
@@ -292,14 +318,36 @@ const ASYNC_TRACK_FREE := "free"
 const ASYNC_STAGE_AND_MISS_WINDOW_SEC := 30 * 60
 const ASYNC_WINDOW_START_PLAYERS := 5
 const ASYNC_TIMED_RACE_SYNC_JOIN_SEC := 30
+const BUFF_MODE_VS: String = "vs"
+const BUFF_MODE_ASYNC: String = "async"
+const LOCAL_REAL_PURCHASES_ENABLED: bool = true
 const BUFF_LOADOUT_SIZE: int = 3
 const BUFF_DRAG_MIN_PX: float = 16.0
 const BUFF_LIBRARY_TIERS: Array[String] = ["classic", "premium", "elite"]
+const BUFF_PRICE_USD_BY_TIER: Dictionary = {
+	"classic": 0.20,
+	"premium": 0.35,
+	"elite": 0.50
+}
+const USD_SKIN_DIR_PATH: String = "res://assets/sprites/sf_skin_v1"
+const USD_SKIN_FALLBACK_PATH: String = "res://assets/sprites/sf_skin_v1/$.png"
+const BOTTOM_NAV_BUTTON_SCALE: float = 2.925
+const BOTTOM_NAV_HEIGHT_SCALE: float = 1.2
+const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(38.0, 56.0)
+const BOTTOM_NAV_CENTER_STRETCH_RATIO: float = 1.2
+const BOTTOM_NAV_OUTER_PADDING: float = 8.0
+const BOTTOM_NAV_GROUP_SEPARATION: int = 6
+const BOTTOM_NAV_BUTTON_SEPARATION: int = 4
+const HIVE_DROPDOWN_WIDTH: float = 420.0
+const HIVE_DROPDOWN_HEIGHT: float = 248.0
+const HIVE_DROPDOWN_TOP_GAP: float = 8.0
 
 var _buff_library_all: Array[Dictionary] = []
 var _buff_library_selected_ids: Dictionary = {}
 var _buff_owned_ids: Array[String] = []
 var _buff_loadout_ids: Array[String] = []
+var _buff_active_mode: String = BUFF_MODE_VS
+var _buff_mode_initialized: bool = false
 var _buff_selected_id: String = ""
 var _buff_selected_origin: String = ""
 var _buff_selected_slot_index: int = -1
@@ -315,6 +363,11 @@ var _buff_library_tier_grids: Dictionary = {}
 var _buff_library_tier_headers: Dictionary = {}
 var _buff_library_runtime_buttons: Array[Button] = []
 var _buff_drag_state: Dictionary = {}
+var _usd_skin_cache: Dictionary = {}
+var _bottom_nav_skin_material: ShaderMaterial = null
+var _hive_dropdown_panel: Panel = null
+var _hive_dropdown_tween: Tween = null
+var _hive_dropdown_open: bool = false
 
 const DEFAULT_STATS_TIERS := {
 	"FREE": [
@@ -472,7 +525,7 @@ const STORE_SKUS := [
 		"subcategory": "Match Buffs",
 		"title": "Tempo Kit",
 		"description": "Minor send interval tuning for a match.",
-		"price_honey": 250,
+		"price_real": "$0.20",
 		"entitlements": []
 	},
 	{
@@ -481,7 +534,7 @@ const STORE_SKUS := [
 		"subcategory": "Information Buffs",
 		"title": "Signal Cleanser",
 		"description": "Cleaner alerts and lane signal.",
-		"price_honey": 180,
+		"price_real": "$0.20",
 		"entitlements": []
 	},
 	{
@@ -618,14 +671,19 @@ func _ready() -> void:
 	_load_fonts()
 	_style_labels()
 	_style_buttons()
+	_apply_bottom_nav_sprite_presentation()
+	_apply_bottom_nav_layout()
 	_style_panels()
 	_wire_buttons()
+	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
+		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
 	_set_hex_buttons()
 	_load_match_history()
 	_build_store_landing()
 	_init_buffs_ui()
 	_configure_dash_account_surfaces()
 	_ensure_swarm_pass_panel()
+	_load_profile_commerce_state()
 	call_deferred("_init_dash_state")
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
@@ -709,6 +767,8 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailDesc, _font_regular, 13)
 	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailMeta, _font_regular, 12)
 	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsFooter, _font_regular, 12)
+	_apply_font(buffs_mode_vs_button, _font_semibold, 12)
+	_apply_font(buffs_mode_async_button, _font_semibold, 12)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveTitle, _font_semibold, 20)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveSub, _font_regular, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader, _font_semibold, 14)
@@ -855,6 +915,8 @@ func _style_buttons() -> void:
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 	for button in buffs_detail_buttons:
 		_style_button(button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
+	_style_button(buffs_mode_vs_button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+	_style_button(buffs_mode_async_button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 	for button in hive_action_buttons:
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 	for button in async_action_buttons:
@@ -875,6 +937,7 @@ func _style_buttons() -> void:
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_style_button(store_category_back, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_style_button(store_prefs_toggle, Color(0.1, 0.11, 0.14), Color(0.4, 0.42, 0.5), Color(0.92, 0.92, 0.92))
+	_sync_buff_mode_tabs()
 	_style_dash_buttons()
 
 func _style_panels() -> void:
@@ -924,7 +987,7 @@ func _wire_buttons() -> void:
 	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
 	if menu_unused_button != null:
 		menu_unused_button.pressed.connect(_on_rank_pressed)
-	hive_button.pressed.connect(func(): _open_dash_panel_from_menu(dash_hive_panel))
+	hive_button.pressed.connect(_toggle_hive_dropdown)
 	dash_tab.pressed.connect(_toggle_dash)
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
 	dash_hex_store.pressed.connect(func(): _open_dash_panel(dash_store_panel))
@@ -951,7 +1014,7 @@ func _wire_buttons() -> void:
 		async_monthly_buyin_buttons[idx].pressed.connect(func(): _set_async_buyin("monthly", amount))
 		async_yearly_buyin_buttons[idx].pressed.connect(func(): _set_async_buyin("yearly", amount))
 	var ladder_labels: PackedStringArray = PackedStringArray([
-		"Ladder: Miss n Outs ($1/$5/$10/$20)",
+		"Ladder: Miss n Outs ($1/$2/$3/$5/$10)",
 		"Ladder: Timed Race (3-map sync start)",
 		"Ladder: Timed Race (5-map sync start)",
 		"Ladder: 3 Map Stage Race",
@@ -1019,6 +1082,8 @@ func _wire_buttons() -> void:
 	stats_tier_free.pressed.connect(func(): _set_stats_tier("FREE"))
 	stats_tier_bp.pressed.connect(func(): _set_stats_tier("BP"))
 	stats_tier_elite.pressed.connect(func(): _set_stats_tier("ELITE"))
+	buffs_mode_vs_button.pressed.connect(func(): _set_buff_mode(BUFF_MODE_VS))
+	buffs_mode_async_button.pressed.connect(func(): _set_buff_mode(BUFF_MODE_ASYNC))
 	_wire_buffs_buttons()
 
 func _set_hex_buttons() -> void:
@@ -1028,6 +1093,15 @@ func _set_hex_buttons() -> void:
 	hive_button.fill_color = Color(0.16, 0.14, 0.12)
 	hive_button.border_color = Color(0.95, 0.75, 0.25)
 	hive_button.text_color = Color(0.98, 0.92, 0.72)
+	var hive_width: float = HIVE_BUTTON_BASE_WIDTH * HIVE_BUTTON_SCALE
+	var hive_height: float = HIVE_BUTTON_BASE_HEIGHT * HIVE_BUTTON_SCALE
+	hive_button.offset_left = -hive_width * 0.5
+	hive_button.offset_right = hive_width * 0.5
+	hive_button.offset_top = HIVE_BUTTON_CENTER_Y - (hive_height * 0.5)
+	hive_button.offset_bottom = hive_button.offset_top + hive_height
+	hive_button.sprite_key = HIVE_TAB_KEY
+	_apply_black_key_to_hex_button(hive_button)
+	hive_button.queue_redraw()
 	dash_tab.text = "DASH"
 	dash_tab.font = _font_semibold
 	dash_tab.font_size = 14
@@ -1043,18 +1117,169 @@ func _set_hex_buttons() -> void:
 	dash_hex_buffs.fill_color = Color(0.16, 0.16, 0.2)
 	dash_hex_buffs.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_buffs.text_color = Color(0.92, 0.94, 0.98)
+	dash_hex_buffs.sprite_key = DASH_HEX_BUFFS_KEY
+	dash_hex_buffs.queue_redraw()
 	dash_hex_store.text = "STORE"
 	dash_hex_store.font = _font_semibold
 	dash_hex_store.font_size = 14
 	dash_hex_store.fill_color = Color(0.16, 0.16, 0.2)
 	dash_hex_store.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_store.text_color = Color(0.92, 0.94, 0.98)
+	dash_hex_store.sprite_key = DASH_HEX_STORE_KEY
+	dash_hex_store.queue_redraw()
 	dash_hex_hive.text = "HIVE"
 	dash_hex_hive.font = _font_semibold
 	dash_hex_hive.font_size = 14
 	dash_hex_hive.fill_color = Color(0.16, 0.16, 0.2)
 	dash_hex_hive.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_hive.text_color = Color(0.92, 0.94, 0.98)
+	dash_hex_hive.sprite_key = DASH_HEX_HIVE_KEY
+	dash_hex_hive.queue_redraw()
+
+func _apply_black_key_to_hex_button(button: HexButton) -> void:
+	if button == null:
+		return
+	if not button.has_node("SkinTex"):
+		return
+	var skin_tex: TextureRect = button.get_node("SkinTex") as TextureRect
+	if skin_tex == null:
+		return
+	skin_tex.material = _bottom_nav_skin_shader_material()
+
+func _hive_dropdown_open_top() -> float:
+	return hive_button.offset_bottom + HIVE_DROPDOWN_TOP_GAP
+
+func _hive_dropdown_closed_top() -> float:
+	return -HIVE_DROPDOWN_HEIGHT - 12.0
+
+func _hive_dropdown_set_top(top: float) -> void:
+	if _hive_dropdown_panel == null:
+		return
+	_hive_dropdown_panel.offset_top = top
+	_hive_dropdown_panel.offset_bottom = top + HIVE_DROPDOWN_HEIGHT
+
+func _ensure_hive_dropdown() -> void:
+	if _hive_dropdown_panel != null and is_instance_valid(_hive_dropdown_panel):
+		return
+	var panel: Panel = Panel.new()
+	panel.name = "HiveDropdown"
+	panel.layout_mode = 0
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.offset_left = -HIVE_DROPDOWN_WIDTH * 0.5
+	panel.offset_right = HIVE_DROPDOWN_WIDTH * 0.5
+	panel.z_index = 160
+	panel.visible = false
+	_hive_dropdown_panel = panel
+	_hive_dropdown_set_top(_hive_dropdown_closed_top())
+	add_child(panel)
+	_style_panel(panel, Color(0.06, 0.07, 0.1, 0.98), Color(0.95, 0.75, 0.25, 0.75))
+
+	var body: VBoxContainer = VBoxContainer.new()
+	body.name = "HiveDropdownVBox"
+	body.layout_mode = 1
+	body.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	body.offset_left = 14.0
+	body.offset_top = 14.0
+	body.offset_right = -14.0
+	body.offset_bottom = -14.0
+	body.add_theme_constant_override("separation", 8)
+	panel.add_child(body)
+
+	var title: Label = Label.new()
+	title.text = "HIVE MENU"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.add_child(title)
+	_apply_font(title, _font_semibold, 16)
+
+	var sub: Label = Label.new()
+	sub.text = "Top pull-down. No side dash required."
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.add_child(sub)
+	_apply_font(sub, _font_regular, 12)
+
+	var open_hive_button: Button = Button.new()
+	open_hive_button.text = "OPEN HIVE DASHBOARD"
+	open_hive_button.pressed.connect(func(): _on_hive_dropdown_action("dashboard"))
+	body.add_child(open_hive_button)
+	_apply_font(open_hive_button, _font_regular, 13)
+	_style_button(open_hive_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+	var chat_button: Button = Button.new()
+	chat_button.text = "HIVE CHAT"
+	chat_button.pressed.connect(func(): _on_hive_dropdown_action("chat"))
+	body.add_child(chat_button)
+	_apply_font(chat_button, _font_regular, 13)
+	_style_button(chat_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+	var ladder_button: Button = Button.new()
+	ladder_button.text = "HIVE LADDER"
+	ladder_button.pressed.connect(func(): _on_hive_dropdown_action("ladder"))
+	body.add_child(ladder_button)
+	_apply_font(ladder_button, _font_regular, 13)
+	_style_button(ladder_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+	var quests_button: Button = Button.new()
+	quests_button.text = "HIVE QUESTS"
+	quests_button.pressed.connect(func(): _on_hive_dropdown_action("quests"))
+	body.add_child(quests_button)
+	_apply_font(quests_button, _font_regular, 13)
+	_style_button(quests_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+	var close_button: Button = Button.new()
+	close_button.text = "CLOSE"
+	close_button.pressed.connect(func(): _set_hive_dropdown_open(false))
+	body.add_child(close_button)
+	_apply_font(close_button, _font_regular, 12)
+	_style_button(close_button, Color(0.14, 0.12, 0.08), Color(0.72, 0.6, 0.28), Color(0.96, 0.92, 0.8))
+
+func _on_hive_dropdown_action(action: String) -> void:
+	_set_hive_dropdown_open(false)
+	match action:
+		"dashboard":
+			_open_dash_panel_from_menu(dash_hive_panel)
+		"chat":
+			_stub_action("Hive Chat")
+		"ladder":
+			_stub_action("Hive Ladder")
+		"quests":
+			_stub_action("Hive Quests")
+		_:
+			pass
+
+func _set_hive_dropdown_open(open: bool) -> void:
+	_ensure_hive_dropdown()
+	if _hive_dropdown_panel == null:
+		return
+	if _hive_dropdown_tween != null and _hive_dropdown_tween.is_running():
+		_hive_dropdown_tween.kill()
+	var target_top: float = _hive_dropdown_open_top() if open else _hive_dropdown_closed_top()
+	if open:
+		if _dash_open:
+			_toggle_dash()
+		if async_panel != null:
+			async_panel.visible = false
+		_hive_dropdown_panel.visible = true
+	_hive_dropdown_tween = create_tween()
+	_hive_dropdown_tween.tween_property(_hive_dropdown_panel, "offset_top", target_top, 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_hive_dropdown_tween.parallel().tween_property(_hive_dropdown_panel, "offset_bottom", target_top + HIVE_DROPDOWN_HEIGHT, 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if not open:
+		_hive_dropdown_tween.tween_callback(func():
+			if _hive_dropdown_panel != null:
+				_hive_dropdown_panel.visible = false
+		)
+	_hive_dropdown_open = open
+
+func _toggle_hive_dropdown() -> void:
+	_set_hive_dropdown_open(not _hive_dropdown_open)
+
+func _hide_hive_dropdown_immediate() -> void:
+	if _hive_dropdown_tween != null and _hive_dropdown_tween.is_running():
+		_hive_dropdown_tween.kill()
+	if _hive_dropdown_panel != null:
+		_hive_dropdown_set_top(_hive_dropdown_closed_top())
+		_hive_dropdown_panel.visible = false
+	_hive_dropdown_open = false
 
 func _apply_font(node: Control, font: Font, size: int) -> void:
 	if node == null or font == null:
@@ -1072,6 +1297,61 @@ func _apply_player_profile(profile: Dictionary) -> void:
 	$DashPanel/DashTopBar/DashHoneyLabel.text = honey_text
 	_refresh_dash_account_snapshot()
 
+func _load_profile_commerce_state() -> void:
+	ProfileManager.ensure_loaded()
+	if ProfileManager.has_method("get_honey_balance"):
+		var balance: int = int(ProfileManager.call("get_honey_balance"))
+		_player_profile["honey"] = maxi(0, balance)
+	if ProfileManager.has_method("get_store_entitlements"):
+		var entitlements_any: Variant = ProfileManager.call("get_store_entitlements")
+		if typeof(entitlements_any) == TYPE_DICTIONARY:
+			_store_owned_entitlements = (entitlements_any as Dictionary).duplicate(true)
+
+func _current_honey_balance() -> int:
+	return maxi(0, int(_player_profile.get("honey", 0)))
+
+func _set_honey_balance_local(balance: int) -> void:
+	_player_profile["honey"] = maxi(0, balance)
+	_apply_player_profile(_player_profile)
+
+func _sync_entitlements_from_profile() -> void:
+	if ProfileManager.has_method("get_store_entitlements"):
+		var entitlements_any: Variant = ProfileManager.call("get_store_entitlements")
+		if typeof(entitlements_any) == TYPE_DICTIONARY:
+			_store_owned_entitlements = (entitlements_any as Dictionary).duplicate(true)
+
+func _spend_honey(amount: int, reason: String) -> Dictionary:
+	if amount <= 0:
+		return {"ok": false, "reason": "invalid_amount", "honey_balance": _current_honey_balance()}
+	if ProfileManager.has_method("spend_honey"):
+		var result_any: Variant = ProfileManager.call("spend_honey", amount, reason)
+		if typeof(result_any) != TYPE_DICTIONARY:
+			return {"ok": false, "reason": "bad_profile_response", "honey_balance": _current_honey_balance()}
+		var result: Dictionary = result_any as Dictionary
+		if bool(result.get("ok", false)):
+			_set_honey_balance_local(int(result.get("honey_balance", _current_honey_balance())))
+		return result
+	if _current_honey_balance() < amount:
+		return {"ok": false, "reason": "insufficient_honey", "honey_balance": _current_honey_balance()}
+	_set_honey_balance_local(_current_honey_balance() - amount)
+	return {"ok": true, "honey_balance": _current_honey_balance()}
+
+func _grant_entitlements(flags: Array[String], reason: String) -> Dictionary:
+	if flags.is_empty():
+		return {"ok": true, "granted": PackedStringArray(), "store_entitlements": _store_owned_entitlements.duplicate(true)}
+	if ProfileManager.has_method("grant_store_entitlements"):
+		var grant_any: Variant = ProfileManager.call("grant_store_entitlements", flags, reason)
+		if typeof(grant_any) == TYPE_DICTIONARY:
+			_sync_entitlements_from_profile()
+			var grant_result: Dictionary = grant_any as Dictionary
+			grant_result["store_entitlements"] = _store_owned_entitlements.duplicate(true)
+			return grant_result
+	for flag in flags:
+		if flag.strip_edges() == "":
+			continue
+		_store_owned_entitlements[flag] = true
+	return {"ok": true, "granted": flags.duplicate(), "store_entitlements": _store_owned_entitlements.duplicate(true)}
+
 func _format_number(value: int) -> String:
 	var negative := value < 0
 	var digits := str(abs(value))
@@ -1087,9 +1367,7 @@ func _format_number(value: int) -> String:
 func _configure_dash_account_surfaces() -> void:
 	$DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader.text = "ACCOUNT SNAPSHOT"
 	$DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesHeader.text = "ACHIEVEMENTS"
-	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsSub.text = "Equip owned buffs here. Use STORE to buy."
-	if buffs_footer_label != null:
-		buffs_footer_label.text = "Equip only in this panel. Purchases happen in STORE."
+	_apply_buffs_mode_copy()
 	$DashPanel/DashHivePanel/HiveVBox/HiveSub.text = "Hive profile + hive-earned achievements."
 	_refresh_hive_panel()
 	var action_texts: Array[String] = ["HIVE CHAT (SOON)", "HIVE LADDER (SOON)", "HIVE QUESTS (SOON)"]
@@ -1108,28 +1386,43 @@ func _configure_dash_account_surfaces() -> void:
 func _refresh_hive_panel() -> void:
 	if not is_inside_tree():
 		return
-	var hive_name := str(_hive_panel_profile.get("name", "TBD Hive"))
-	var hive_tier := str(_hive_panel_profile.get("tier", "TBD"))
-	var member_role := str(_hive_panel_profile.get("member_role", "Member"))
-	var honey_score := int(_hive_panel_profile.get("honey_score", 0))
-	var wax_score := int(_hive_panel_profile.get("wax_score", 0))
-	var season_name := str(_hive_panel_profile.get("season_name", "Season TBD"))
-	var season_reset_text := str(_hive_panel_profile.get("season_reset_text", "Reset timer TBD"))
+	var hive_name: String = str(_hive_panel_profile.get("name", "TBD Hive"))
+	var hive_tier: String = str(_hive_panel_profile.get("tier", "TBD"))
+	var member_role: String = str(_hive_panel_profile.get("member_role", "Member"))
+	var member_rank_within_hive: int = maxi(1, int(_hive_panel_profile.get("member_rank_within_hive", 1)))
+	var office_title: String = str(_hive_panel_profile.get("office_title", "None"))
+	var ecosystem_rank: int = maxi(1, int(_hive_panel_profile.get("ecosystem_rank", 1)))
+	var hive_honey: int = maxi(0, int(_hive_panel_profile.get("hive_honey", 0)))
+	var hive_honey_total: int = maxi(0, int(_hive_panel_profile.get("hive_honey_total", 0)))
+	var season_name: String = str(_hive_panel_profile.get("season_name", "Season TBD"))
+	var season_reset_text: String = str(_hive_panel_profile.get("season_reset_text", "Reset timer TBD"))
+	var messages_any: Variant = _hive_panel_profile.get("messages", [])
 	var achievements_any: Variant = _hive_panel_profile.get("achievements", [])
 	var achievements: Array[String] = []
+	var messages: Array[String] = []
+	if typeof(messages_any) == TYPE_ARRAY:
+		for msg_v in messages_any as Array:
+			var msg: String = str(msg_v).strip_edges()
+			if msg != "":
+				messages.append(msg)
 	if typeof(achievements_any) == TYPE_ARRAY:
 		for ach_v in achievements_any as Array:
-			var ach := str(ach_v).strip_edges()
+			var ach: String = str(ach_v).strip_edges()
 			if ach != "":
 				achievements.append(ach)
-	$DashPanel/DashHivePanel/HiveVBox/HiveSub.text = "Role: %s | %s | %s" % [member_role, season_name, season_reset_text]
+	var hive_title_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveTitle
+	var hive_sub_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveSub
+	hive_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	hive_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hive_title_label.text = "HIVE HONEY: %s" % _format_number(hive_honey)
+	hive_sub_label.text = "TOTAL HIVE HONEY: %s" % _format_number(hive_honey_total)
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "HIVE PROFILE"
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Hive: %s" % hive_name
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Tier: %s" % hive_tier
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Honey Score: %s" % _format_number(honey_score)
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Wax Score: %s" % _format_number(wax_score)
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "HIVE ACHIEVEMENTS"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "MORE ACHIEVEMENTS"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "My Hive Rank: #%d | Office: %s" % [member_rank_within_hive, office_title]
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Ecosystem Rank: #%d" % ecosystem_rank
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Tier: %s | Role: %s | %s" % [hive_tier, member_role, season_name]
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "MESSAGES"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "HIVE ACHIEVEMENTS"
 	var roster_labels: Array[Label] = [
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember1,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember2,
@@ -1142,17 +1435,16 @@ func _refresh_hive_panel() -> void:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity3
 	]
 	for i in range(roster_labels.size()):
-		if i < achievements.size():
-			roster_labels[i].text = achievements[i]
+		if i < messages.size():
+			roster_labels[i].text = messages[i]
 		else:
-			roster_labels[i].text = "No additional achievement"
+			roster_labels[i].text = "No hive message"
 	for i in range(activity_labels.size()):
-		var ach_idx := i + roster_labels.size()
-		if ach_idx < achievements.size():
-			activity_labels[i].text = achievements[ach_idx]
+		if i < achievements.size():
+			activity_labels[i].text = achievements[i]
 		else:
-			activity_labels[i].text = "No additional achievement"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "Showing hive-earned achievements (not member-scoped). %s." % season_reset_text
+			activity_labels[i].text = "No hive achievement"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "Hive panel: profile + messages + achievements. %s." % season_reset_text
 
 func _refresh_dash_achievement_preview() -> void:
 	var active_count := 0
@@ -1214,7 +1506,7 @@ func _refresh_dash_account_snapshot() -> void:
 		},
 		{
 			"title": "Buff Inventory",
-			"result": "Owned: %d" % owned_count,
+			"result": "Owned (%s): %d" % [_buff_active_mode.to_upper(), owned_count],
 			"eff": "Equipped: %d/%d" % [equipped_count, BUFF_LOADOUT_SIZE]
 		},
 		{
@@ -1246,6 +1538,181 @@ func _set_dash_account_row(row_index: int, row: Dictionary) -> void:
 		var action_button: Button = get_node_or_null("%s/%s" % [row_path, button_name]) as Button
 		if action_button != null:
 			action_button.visible = false
+
+func _bottom_nav_buttons() -> Array[Button]:
+	var buttons: Array[Button] = [
+		menu_store_button,
+		menu_buffs_button,
+		menu_free_roll_button,
+		menu_cash_button,
+		menu_battle_pass_button
+	]
+	if menu_unused_button != null:
+		buttons.append(menu_unused_button)
+	return buttons
+
+func _bottom_nav_skin_shader_material() -> ShaderMaterial:
+	if _bottom_nav_skin_material != null:
+		return _bottom_nav_skin_material
+	var shader := Shader.new()
+	shader.code = """
+shader_type canvas_item;
+uniform float black_cutoff : hint_range(0.0, 0.25) = 0.06;
+uniform float feather : hint_range(0.0, 0.2) = 0.045;
+uniform float sat_limit : hint_range(0.0, 0.3) = 0.12;
+
+void fragment() {
+	vec4 tex = texture(TEXTURE, UV);
+	float max_v = max(tex.r, max(tex.g, tex.b));
+	float min_v = min(tex.r, min(tex.g, tex.b));
+	float sat = max_v - min_v;
+	float dark_key = 1.0 - smoothstep(black_cutoff, black_cutoff + feather, max_v);
+	float neutral_key = 1.0 - smoothstep(0.02, sat_limit, sat);
+	float cut = clamp(dark_key * neutral_key, 0.0, 1.0);
+	COLOR = vec4(tex.rgb, tex.a * (1.0 - cut));
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	_bottom_nav_skin_material = material
+	return _bottom_nav_skin_material
+
+func _style_bottom_nav_sprite_button(button: Button) -> void:
+	if button == null:
+		return
+	var clear_style := StyleBoxEmpty.new()
+	button.flat = true
+	button.add_theme_stylebox_override("normal", clear_style)
+	button.add_theme_stylebox_override("hover", clear_style)
+	button.add_theme_stylebox_override("pressed", clear_style)
+	button.add_theme_stylebox_override("focus", clear_style)
+	button.add_theme_stylebox_override("disabled", clear_style)
+	button.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.0))
+	button.add_theme_color_override("font_hover_color", Color(1.0, 1.0, 1.0, 0.0))
+	button.add_theme_color_override("font_pressed_color", Color(1.0, 1.0, 1.0, 0.0))
+
+func _apply_bottom_nav_sprite_presentation() -> void:
+	var material: ShaderMaterial = _bottom_nav_skin_shader_material()
+	for button in _bottom_nav_buttons():
+		if button == null:
+			continue
+		if (not button.has_node("SkinTex")) and button.has_method("apply_skin"):
+			button.call("apply_skin")
+		if not button.has_node("SkinTex"):
+			continue
+		_style_bottom_nav_sprite_button(button)
+		var skin_tex: TextureRect = button.get_node("SkinTex") as TextureRect
+		if skin_tex != null:
+			skin_tex.material = material
+
+func _apply_bottom_nav_layout() -> void:
+	if menu_buttons_row == null or menu_left_buttons_row == null or menu_right_buttons_row == null:
+		return
+	var scale: float = maxf(1.0, BOTTOM_NAV_BUTTON_SCALE)
+	var nav_button_w: float = round(BOTTOM_NAV_BASE_BUTTON_SIZE.x * scale)
+	var nav_button_h: float = round(BOTTOM_NAV_BASE_BUTTON_SIZE.y * scale * BOTTOM_NAV_HEIGHT_SCALE)
+	var side_size: Vector2 = Vector2(
+		nav_button_w,
+		nav_button_h
+	)
+	var center_size: Vector2 = Vector2(
+		round(nav_button_w * 1.12),
+		nav_button_h
+	)
+	menu_buttons_row.offset_left = BOTTOM_NAV_OUTER_PADDING
+	menu_buttons_row.offset_right = -BOTTOM_NAV_OUTER_PADDING
+	menu_buttons_row.add_theme_constant_override("separation", BOTTOM_NAV_GROUP_SEPARATION)
+	menu_left_buttons_row.add_theme_constant_override("separation", BOTTOM_NAV_BUTTON_SEPARATION)
+	menu_right_buttons_row.add_theme_constant_override("separation", BOTTOM_NAV_BUTTON_SEPARATION)
+	menu_left_buttons_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	menu_right_buttons_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	menu_left_buttons_row.size_flags_stretch_ratio = 3.0
+	menu_right_buttons_row.size_flags_stretch_ratio = 2.0
+	var side_buttons: Array[Button] = [
+		menu_store_button,
+		menu_buffs_button,
+		menu_free_roll_button,
+		menu_battle_pass_button
+	]
+	if menu_unused_button != null and menu_unused_button.visible:
+		side_buttons.append(menu_unused_button)
+	for button in side_buttons:
+		if button == null:
+			continue
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = side_size
+	menu_cash_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	menu_cash_button.size_flags_stretch_ratio = BOTTOM_NAV_CENTER_STRETCH_RATIO
+	menu_cash_button.custom_minimum_size = center_size
+	var row_top: float = 14.0
+	menu_buttons_row.offset_top = row_top
+	menu_buttons_row.offset_bottom = row_top + side_size.y
+	var status_top: float = menu_buttons_row.offset_bottom + 6.0
+	status_label.offset_top = status_top
+	status_label.offset_bottom = status_top + 30.0
+	bottom_bar.offset_top = -(status_label.offset_bottom + 8.0)
+
+func _usd_skin_candidates(amount: int) -> PackedStringArray:
+	var candidates: PackedStringArray = PackedStringArray()
+	if amount > 0:
+		candidates.append("%s/$%d.png" % [USD_SKIN_DIR_PATH, amount])
+	candidates.append(USD_SKIN_FALLBACK_PATH)
+	return candidates
+
+func _usd_skin_for_amount(amount: int) -> Texture2D:
+	var cache_key: String = str(amount)
+	if _usd_skin_cache.has(cache_key):
+		var cached_any: Variant = _usd_skin_cache.get(cache_key)
+		if cached_any is Texture2D:
+			return cached_any as Texture2D
+		return null
+	var candidates: PackedStringArray = _usd_skin_candidates(amount)
+	for candidate_path in candidates:
+		if not ResourceLoader.exists(candidate_path):
+			continue
+		var loaded_any: Variant = load(candidate_path)
+		if loaded_any is Texture2D:
+			var tex: Texture2D = loaded_any as Texture2D
+			_usd_skin_cache[cache_key] = tex
+			return tex
+	_usd_skin_cache[cache_key] = null
+	return null
+
+func _apply_usd_skin_to_button(button: Button, amount: int, label_text: String) -> void:
+	if button == null:
+		return
+	var tex: Texture2D = _usd_skin_for_amount(amount)
+	button.tooltip_text = label_text
+	button.icon = tex
+	if tex == null:
+		button.text = label_text
+		return
+	button.text = ""
+	button.custom_minimum_size = Vector2(84, 56)
+	# Guarded dynamic sets keep compatibility across minor engine property differences.
+	button.set("expand_icon", true)
+	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.add_theme_constant_override("h_separation", 0)
+
+func _style_usd_sprite_button(button: Button, selected: bool) -> void:
+	if button == null:
+		return
+	var clear_style := StyleBoxEmpty.new()
+	button.flat = true
+	button.add_theme_stylebox_override("normal", clear_style)
+	button.add_theme_stylebox_override("hover", clear_style)
+	button.add_theme_stylebox_override("pressed", clear_style)
+	button.add_theme_stylebox_override("focus", clear_style)
+	button.add_theme_stylebox_override("disabled", clear_style)
+	button.add_theme_color_override("font_color", Color(1, 1, 1, 0))
+	button.add_theme_color_override("font_hover_color", Color(1, 1, 1, 0))
+	button.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0))
+	if button.disabled:
+		button.modulate = Color(0.35, 0.35, 0.35, 0.55)
+	elif selected:
+		button.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	else:
+		button.modulate = Color(0.78, 0.78, 0.78, 0.95)
 
 func _style_button(button: Button, bg: Color, border: Color, text_color: Color) -> void:
 	if button == null:
@@ -1418,17 +1885,69 @@ func _init_buffs_ui() -> void:
 	_apply_buffs_panel_layout()
 	_ensure_buffs_owned_panel()
 	_ensure_buffs_library_nav()
+	_buff_mode_initialized = false
+	_set_buff_mode(_buff_active_mode)
+
+func _sync_buff_mode_tabs() -> void:
+	if buffs_mode_vs_button == null or buffs_mode_async_button == null:
+		return
+	var active_bg: Color = Color(0.95, 0.85, 0.55)
+	var active_border: Color = Color(0.1, 0.08, 0.02)
+	var inactive_bg: Color = Color(0.12, 0.13, 0.16)
+	var inactive_border: Color = Color(0.45, 0.48, 0.6)
+	var inactive_text: Color = Color(0.92, 0.92, 0.92)
+	if _buff_active_mode == BUFF_MODE_ASYNC:
+		_style_button(buffs_mode_vs_button, inactive_bg, inactive_border, inactive_text)
+		_style_button(buffs_mode_async_button, active_bg, active_border, Color(0.1, 0.08, 0.02))
+	else:
+		_style_button(buffs_mode_vs_button, active_bg, active_border, Color(0.1, 0.08, 0.02))
+		_style_button(buffs_mode_async_button, inactive_bg, inactive_border, inactive_text)
+
+func _set_buff_mode(mode: String) -> void:
+	var normalized_mode: String = BUFF_MODE_ASYNC if mode == BUFF_MODE_ASYNC else BUFF_MODE_VS
+	if _buff_mode_initialized and normalized_mode == _buff_active_mode:
+		_sync_buff_mode_tabs()
+		return
+	if _buff_mode_initialized:
+		_persist_buff_profile_state()
+	_buff_active_mode = normalized_mode
 	_load_buff_profile_state()
+	_buff_library_selected_ids.clear()
+	_buff_selected_id = ""
+	_buff_selected_origin = ""
+	_buff_selected_slot_index = -1
+	_apply_buffs_mode_copy()
+	_sync_buff_mode_tabs()
 	_refresh_buffs_library_buttons()
 	_refresh_buffs_owned_ui()
 	_refresh_buffs_loadout_ui()
-	if buffs_footer_label != null:
-		buffs_footer_label.text = "Equip only in this panel. Purchases happen in STORE."
 	if not _buff_loadout_ids.is_empty():
 		_set_selected_buff(_buff_loadout_ids[0], "loadout", 0)
 	else:
 		_update_buff_details()
+	_buff_mode_initialized = true
 	_refresh_dash_account_snapshot()
+
+func _apply_buffs_mode_copy() -> void:
+	var sub_label: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsSub
+	if _buff_active_mode == BUFF_MODE_ASYNC:
+		if sub_label != null:
+			sub_label.text = "ASYNC buffs: stronger and longer. Stacks allowed when owned."
+		if buffs_footer_label != null:
+			buffs_footer_label.text = "Async uses limited-item stacks. Equip repeats only when you own multiple copies."
+		if buffs_loadout_header != null:
+			buffs_loadout_header.text = "LOADOUT (ASYNC)"
+		if _buff_owned_empty_label != null:
+			_buff_owned_empty_label.text = "Drag from Library to buy Async copies into Owned."
+	else:
+		if sub_label != null:
+			sub_label.text = "VS buffs: balanced loadout with one copy per buff."
+		if buffs_footer_label != null:
+			buffs_footer_label.text = "VS loadout enforces one copy per buff for fair match balance."
+		if buffs_loadout_header != null:
+			buffs_loadout_header.text = "LOADOUT (VS)"
+		if _buff_owned_empty_label != null:
+			_buff_owned_empty_label.text = "Drag selected buffs from Library to buy ownership."
 
 func _ensure_buffs_owned_panel() -> void:
 	if _buff_owned_panel != null and is_instance_valid(_buff_owned_panel):
@@ -1468,7 +1987,7 @@ func _ensure_buffs_owned_panel() -> void:
 	scroll.add_child(list)
 	var empty_label: Label = Label.new()
 	empty_label.name = "OwnedEmpty"
-	empty_label.text = "Drag selected buffs from Library to add ownership."
+	empty_label.text = "Drag selected buffs from Library to buy ownership."
 	list.add_child(empty_label)
 	_buff_owned_panel = panel
 	_buff_owned_header_label = header
@@ -1536,41 +2055,69 @@ func _ensure_buffs_library_nav() -> void:
 		_buff_library_tier_headers[tier_id] = header
 
 func _load_buff_profile_state() -> void:
-	var owned_any: Variant = ProfileManager.call("get_owned_buff_ids") if ProfileManager.has_method("get_owned_buff_ids") else []
+	var allow_duplicates: bool = _buff_mode_allows_duplicates()
+	var owned_any: Variant = []
+	if ProfileManager.has_method("get_owned_buff_ids_for_mode"):
+		owned_any = ProfileManager.call("get_owned_buff_ids_for_mode", _buff_active_mode)
+	elif ProfileManager.has_method("get_owned_buff_ids"):
+		owned_any = ProfileManager.call("get_owned_buff_ids")
 	_buff_owned_ids.clear()
 	if typeof(owned_any) == TYPE_ARRAY:
 		for buff_id_v in owned_any as Array:
 			var buff_id: String = str(buff_id_v).strip_edges()
-			if buff_id == "" or BuffCatalog.get_buff(buff_id).is_empty():
+			if buff_id == "":
 				continue
-			if _buff_owned_ids.has(buff_id):
+			if BuffCatalog.get_buff(buff_id).is_empty():
+				continue
+			if not allow_duplicates and _buff_owned_ids.has(buff_id):
 				continue
 			_buff_owned_ids.append(buff_id)
-	var loadout_any: Variant = ProfileManager.call("get_buff_loadout_ids") if ProfileManager.has_method("get_buff_loadout_ids") else []
+	var loadout_any: Variant = []
+	if ProfileManager.has_method("get_buff_loadout_ids_for_mode"):
+		loadout_any = ProfileManager.call("get_buff_loadout_ids_for_mode", _buff_active_mode)
+	elif ProfileManager.has_method("get_buff_loadout_ids"):
+		loadout_any = ProfileManager.call("get_buff_loadout_ids")
 	_buff_loadout_ids.clear()
 	if typeof(loadout_any) == TYPE_ARRAY:
 		for buff_id_v in loadout_any as Array:
 			var buff_id: String = str(buff_id_v).strip_edges()
-			if buff_id == "" or BuffCatalog.get_buff(buff_id).is_empty():
+			if buff_id == "":
 				continue
-			if _buff_loadout_ids.has(buff_id):
+			if BuffCatalog.get_buff(buff_id).is_empty():
+				continue
+			if not allow_duplicates and _buff_loadout_ids.has(buff_id):
 				continue
 			_buff_loadout_ids.append(buff_id)
 	while _buff_loadout_ids.size() < BUFF_LOADOUT_SIZE:
 		var fallback: String = _fallback_buff_for_index(_buff_loadout_ids.size())
-		if fallback == "" or _buff_loadout_ids.has(fallback):
+		if fallback == "":
+			break
+		if not allow_duplicates and _buff_loadout_ids.has(fallback):
 			break
 		_buff_loadout_ids.append(fallback)
 	for buff_id in _buff_loadout_ids:
-		if buff_id == "" or _buff_owned_ids.has(buff_id):
+		if buff_id == "":
 			continue
-		_buff_owned_ids.append(buff_id)
+		if not allow_duplicates and _buff_owned_ids.has(buff_id):
+			continue
+		if allow_duplicates:
+			var need_count: int = _count_buff_in_ids(_buff_loadout_ids, buff_id)
+			var have_count: int = _count_buff_in_ids(_buff_owned_ids, buff_id)
+			while have_count < need_count:
+				_buff_owned_ids.append(buff_id)
+				have_count += 1
+		else:
+			_buff_owned_ids.append(buff_id)
 	_persist_buff_profile_state()
 
 func _persist_buff_profile_state() -> void:
-	if ProfileManager.has_method("set_owned_buff_ids"):
+	if ProfileManager.has_method("set_owned_buff_ids_for_mode"):
+		ProfileManager.call("set_owned_buff_ids_for_mode", _buff_active_mode, _buff_owned_ids)
+	elif ProfileManager.has_method("set_owned_buff_ids"):
 		ProfileManager.call("set_owned_buff_ids", _buff_owned_ids)
-	if ProfileManager.has_method("set_buff_loadout_ids"):
+	if ProfileManager.has_method("set_buff_loadout_ids_for_mode"):
+		ProfileManager.call("set_buff_loadout_ids_for_mode", _buff_active_mode, _buff_loadout_ids)
+	elif ProfileManager.has_method("set_buff_loadout_ids"):
 		ProfileManager.call("set_buff_loadout_ids", _buff_loadout_ids)
 	_refresh_dash_account_snapshot()
 
@@ -1586,6 +2133,74 @@ func _fallback_buff_for_index(idx: int) -> String:
 		return str(_buff_library_all[0].get("id", ""))
 	return ""
 
+func _buff_price_usd(buff: Dictionary) -> float:
+	var tier_name: String = str(buff.get("tier", "classic")).to_lower()
+	if tier_name != "premium" and tier_name != "elite":
+		tier_name = "classic"
+	return maxf(0.0, float(BUFF_PRICE_USD_BY_TIER.get(tier_name, 0.20)))
+
+func _buff_mode_allows_duplicates() -> bool:
+	return _buff_active_mode == BUFF_MODE_ASYNC
+
+func _count_buff_in_ids(buff_ids: Array[String], buff_id: String) -> int:
+	if buff_id == "":
+		return 0
+	var out: int = 0
+	for owned_id in buff_ids:
+		if owned_id == buff_id:
+			out += 1
+	return out
+
+func _purchase_library_buffs(ids: Array[String]) -> Dictionary:
+	var purchase_ids: Array[String] = []
+	var total_cost_usd: float = 0.0
+	var total_cost_cents: int = 0
+	for buff_id in ids:
+		var clean_buff_id: String = buff_id.strip_edges()
+		if clean_buff_id == "":
+			continue
+		var buff: Dictionary = BuffCatalog.get_buff(clean_buff_id)
+		if buff.is_empty():
+			continue
+		if (not _buff_mode_allows_duplicates()) and _buff_owned_ids.has(clean_buff_id):
+			continue
+		purchase_ids.append(clean_buff_id)
+		var unit_price_usd: float = _buff_price_usd(buff)
+		total_cost_usd += unit_price_usd
+		total_cost_cents += int(round(unit_price_usd * 100.0))
+	if purchase_ids.is_empty():
+		return {"ok": false, "reason": "already_owned_or_invalid", "total_cost_usd": 0.0}
+	if not LOCAL_REAL_PURCHASES_ENABLED:
+		return {
+			"ok": false,
+			"reason": "iap_not_wired",
+			"total_cost_usd": total_cost_usd
+		}
+	for buff_id in purchase_ids:
+		_buff_owned_ids.append(buff_id)
+	_persist_buff_profile_state()
+	_refresh_buffs_owned_ui()
+	_refresh_buffs_library_buttons()
+	_update_buff_details()
+	return {
+		"ok": true,
+		"purchased_ids": purchase_ids.duplicate(),
+		"total_cost_usd": total_cost_usd,
+		"total_cost_cents": total_cost_cents
+	}
+
+func _has_async_copy_available_for_slot(buff_id: String, target_slot: int) -> bool:
+	if _buff_active_mode != BUFF_MODE_ASYNC:
+		return true
+	var owned_count: int = _count_buff_in_ids(_buff_owned_ids, buff_id)
+	var equipped_count_excluding_target: int = 0
+	for idx in range(mini(_buff_loadout_ids.size(), BUFF_LOADOUT_SIZE)):
+		if idx == target_slot:
+			continue
+		if _buff_loadout_ids[idx] == buff_id:
+			equipped_count_excluding_target += 1
+	return owned_count > equipped_count_excluding_target
+
 func _refresh_buffs_library_buttons() -> void:
 	for button in _buff_library_runtime_buttons:
 		if button != null and is_instance_valid(button):
@@ -1600,11 +2215,18 @@ func _refresh_buffs_library_buttons() -> void:
 		var buff_id: String = str(buff.get("id", ""))
 		var selected: bool = bool(_buff_library_selected_ids.get(buff_id, false))
 		var selected_mark: String = "[x] " if selected else "[ ] "
+		var price_usd: float = _buff_price_usd(buff)
+		var owned_count: int = _count_buff_in_ids(_buff_owned_ids, buff_id)
+		var ownership_tag: String = ""
+		if _buff_active_mode == BUFF_MODE_ASYNC:
+			ownership_tag = " x%d" % owned_count if owned_count > 0 else ""
+		elif owned_count > 0:
+			ownership_tag = " (OWNED)"
 		var button: Button = Button.new()
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size = Vector2(0.0, 26.0)
 		button.clip_text = true
-		button.text = "%s%s" % [selected_mark, str(buff.get("name", buff_id))]
+		button.text = "%s%s%s - $%.2f" % [selected_mark, str(buff.get("name", buff_id)), ownership_tag, price_usd]
 		_apply_font(button, _font_regular, 11)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 		var press_cb: Callable = Callable(self, "_on_buff_library_pressed_by_id").bind(buff_id)
@@ -1621,7 +2243,7 @@ func _refresh_buffs_library_buttons() -> void:
 		if header != null:
 			header.text = "%s (%d)" % [tier_id.to_upper(), int(counts.get(tier_id, 0))]
 	if buffs_library_header != null:
-		buffs_library_header.text = "BUFF STORE (%d)" % _buff_library_all.size()
+		buffs_library_header.text = "BUFF STORE (%d) [%s]" % [_buff_library_all.size(), _buff_active_mode.to_upper()]
 
 func _refresh_buffs_owned_ui() -> void:
 	if _buff_owned_flow == null:
@@ -1634,12 +2256,24 @@ func _refresh_buffs_owned_ui() -> void:
 		_buff_owned_empty_label.visible = _buff_owned_ids.is_empty()
 	if _buff_owned_ids.is_empty():
 		return
+	var ordered_ids: Array[String] = []
+	var counts_by_id: Dictionary = {}
 	for buff_id in _buff_owned_ids:
+		if buff_id == "":
+			continue
+		if not counts_by_id.has(buff_id):
+			counts_by_id[buff_id] = 0
+			ordered_ids.append(buff_id)
+		counts_by_id[buff_id] = int(counts_by_id.get(buff_id, 0)) + 1
+	for buff_id in ordered_ids:
 		var buff: Dictionary = BuffCatalog.get_buff(buff_id)
 		if buff.is_empty():
 			continue
+		var owned_count: int = int(counts_by_id.get(buff_id, 0))
 		var button: Button = Button.new()
 		button.text = str(buff.get("name", buff_id))
+		if owned_count > 1:
+			button.text = "%s x%d" % [button.text, owned_count]
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size = Vector2(0.0, 28.0)
 		button.clip_text = true
@@ -1657,7 +2291,10 @@ func _refresh_buffs_owned_ui() -> void:
 		_buff_owned_flow.add_child(button)
 		_buff_owned_buttons.append(button)
 	if _buff_owned_header_label != null:
-		_buff_owned_header_label.text = "OWNED (%d)" % _buff_owned_ids.size()
+		if _buff_active_mode == BUFF_MODE_ASYNC:
+			_buff_owned_header_label.text = "OWNED (%d TYPES / %d TOTAL)" % [ordered_ids.size(), _buff_owned_ids.size()]
+		else:
+			_buff_owned_header_label.text = "OWNED (%d)" % _buff_owned_ids.size()
 
 func _refresh_buffs_loadout_ui() -> void:
 	for idx in range(buffs_slot_buttons.size()):
@@ -1707,7 +2344,13 @@ func _update_buff_details() -> void:
 		var tier: String = str(buff.get("tier", "classic")).to_upper()
 		var category: String = str(buff.get("category", "unknown"))
 		var origin_tag: String = _buff_selected_origin.to_upper()
-		buffs_detail_meta_label.text = "Tier: %s | Category: %s | Source: %s" % [tier, category, origin_tag]
+		var mode_tag: String = _buff_active_mode.to_upper()
+		var price_usd: float = _buff_price_usd(buff)
+		if _buff_active_mode == BUFF_MODE_ASYNC:
+			var owned_count: int = _count_buff_in_ids(_buff_owned_ids, _buff_selected_id)
+			buffs_detail_meta_label.text = "Tier: %s | Category: %s | Source: %s | Mode: %s | Cost: $%.2f | Copies: %d" % [tier, category, origin_tag, mode_tag, price_usd, owned_count]
+		else:
+			buffs_detail_meta_label.text = "Tier: %s | Category: %s | Source: %s | Mode: %s | Cost: $%.2f" % [tier, category, origin_tag, mode_tag, price_usd]
 
 func _buff_description(buff: Dictionary) -> String:
 	var effects_any: Variant = buff.get("effects", [])
@@ -1868,20 +2511,20 @@ func _finish_buff_drag(screen_pos: Vector2) -> void:
 	status_label.text = "Drop cancelled."
 
 func _drop_library_to_owned(ids: Array[String]) -> void:
-	var added: int = 0
-	for buff_id in ids:
-		if BuffCatalog.get_buff(buff_id).is_empty():
-			continue
-		if _buff_owned_ids.has(buff_id):
-			continue
-		_buff_owned_ids.append(buff_id)
-		added += 1
-	_persist_buff_profile_state()
-	_refresh_buffs_owned_ui()
-	if added > 0:
-		status_label.text = "Added %d buff(s) to Owned." % added
-	else:
-		status_label.text = "All selected buffs already owned."
+	var purchase: Dictionary = _purchase_library_buffs(ids)
+	if bool(purchase.get("ok", false)):
+		var bought_count: int = 0
+		var purchased_ids_any: Variant = purchase.get("purchased_ids", [])
+		if typeof(purchased_ids_any) == TYPE_ARRAY:
+			bought_count = (purchased_ids_any as Array).size()
+		var total_cost_usd: float = float(purchase.get("total_cost_usd", 0.0))
+		status_label.text = "Purchased %d buff(s) for $%.2f." % [bought_count, total_cost_usd]
+		return
+	var reason: String = str(purchase.get("reason", "purchase_failed"))
+	if reason == "iap_not_wired":
+		status_label.text = "Buff purchases require payment wiring (IAP disabled)."
+		return
+	status_label.text = "All selected buffs already owned."
 
 func _drop_owned_to_loadout(buff_id: String, slot_index: int) -> void:
 	if slot_index < 0 or slot_index >= BUFF_LOADOUT_SIZE:
@@ -1891,6 +2534,15 @@ func _drop_owned_to_loadout(buff_id: String, slot_index: int) -> void:
 		return
 	while _buff_loadout_ids.size() < BUFF_LOADOUT_SIZE:
 		_buff_loadout_ids.append(_fallback_buff_for_index(_buff_loadout_ids.size()))
+	if _buff_mode_allows_duplicates():
+		if not _has_async_copy_available_for_slot(buff_id, slot_index):
+			status_label.text = "No additional Async copy available for this slot."
+			return
+		_buff_loadout_ids[slot_index] = buff_id
+		_persist_buff_profile_state()
+		_set_selected_buff(buff_id, "loadout", slot_index)
+		status_label.text = "Equipped to slot %d (Async stack)." % (slot_index + 1)
+		return
 	var existing_slot: int = _buff_loadout_ids.find(buff_id)
 	if existing_slot == slot_index:
 		status_label.text = "Already equipped to slot %d." % (slot_index + 1)
@@ -1949,11 +2601,19 @@ func _on_buff_remove_pressed() -> void:
 			status_label.text = "Unselected from batch."
 		return
 	if _buff_selected_origin == "owned":
-		if _buff_loadout_ids.has(_buff_selected_id):
+		if _buff_active_mode == BUFF_MODE_ASYNC:
+			var owned_count: int = _count_buff_in_ids(_buff_owned_ids, _buff_selected_id)
+			var equipped_count: int = _count_buff_in_ids(_buff_loadout_ids, _buff_selected_id)
+			if owned_count <= equipped_count:
+				status_label.text = "Cannot remove: all copies are equipped in Async loadout."
+				return
+		elif _buff_loadout_ids.has(_buff_selected_id):
 			status_label.text = "Cannot remove: buff is equipped in loadout."
 			return
 		if _buff_owned_ids.has(_buff_selected_id):
-			_buff_owned_ids.erase(_buff_selected_id)
+			var remove_index: int = _buff_owned_ids.find(_buff_selected_id)
+			if remove_index >= 0:
+				_buff_owned_ids.remove_at(remove_index)
 			_persist_buff_profile_state()
 			_refresh_buffs_owned_ui()
 			_set_selected_buff("", "", -1)
@@ -1973,7 +2633,21 @@ func _on_buff_remove_pressed() -> void:
 		status_label.text = "Loadout slot %d replaced." % (slot_idx + 1)
 
 func _first_owned_not_in_loadout(exclude_slot: int) -> String:
+	var current_buff: String = ""
+	if exclude_slot >= 0 and exclude_slot < _buff_loadout_ids.size():
+		current_buff = _buff_loadout_ids[exclude_slot]
+	if _buff_active_mode == BUFF_MODE_ASYNC:
+		for buff_id in _buff_owned_ids:
+			if buff_id == "":
+				continue
+			if buff_id == current_buff:
+				continue
+			if _has_async_copy_available_for_slot(buff_id, exclude_slot):
+				return buff_id
+		return ""
 	for buff_id in _buff_owned_ids:
+		if buff_id == current_buff:
+			continue
 		var used_elsewhere: bool = false
 		for idx in range(mini(_buff_loadout_ids.size(), BUFF_LOADOUT_SIZE)):
 			if idx == exclude_slot:
@@ -2047,6 +2721,8 @@ func _format_store_sku_label(sku: Dictionary) -> String:
 	var price := _format_store_price(sku)
 	if sku.get("is_bundle", false):
 		title = "Bundle: %s" % title
+	if _sku_already_owned(sku):
+		title = "%s [OWNED]" % title
 	if price.is_empty():
 		return title
 	return "%s — %s" % [title, price]
@@ -2076,11 +2752,87 @@ func _on_store_prefs_toggled(enabled: bool) -> void:
 	store_prefs_toggle.text = "ON" if _prefer_zero_ads else "OFF"
 
 func _has_entitlement(flag: String) -> bool:
+	if ProfileManager.has_method("has_store_entitlement"):
+		return bool(ProfileManager.call("has_store_entitlement", flag))
 	return bool(_store_owned_entitlements.get(flag, false))
 
+func _sku_entitlements(sku: Dictionary) -> Array[String]:
+	var out: Array[String] = []
+	var ent_any: Variant = sku.get("entitlements", [])
+	if typeof(ent_any) != TYPE_ARRAY:
+		return out
+	for ent_v in ent_any as Array:
+		var ent: String = str(ent_v).strip_edges()
+		if ent == "":
+			continue
+		out.append(ent)
+	return out
+
+func _sku_already_owned(sku: Dictionary) -> bool:
+	var entitlements: Array[String] = _sku_entitlements(sku)
+	if entitlements.is_empty():
+		return false
+	for ent in entitlements:
+		if not _has_entitlement(ent):
+			return false
+	return true
+
 func _on_store_sku_pressed(sku: Dictionary) -> void:
-	var title := str(sku.get("title", "Item"))
-	status_label.text = "Store: %s" % title
+	var title: String = str(sku.get("title", "Item"))
+	var sku_id: String = str(sku.get("id", "")).strip_edges()
+	if sku_id == "":
+		status_label.text = "Store item is missing sku id."
+		return
+	if _sku_already_owned(sku):
+		status_label.text = "Already owned: %s" % title
+		return
+	var entitlements: Array[String] = _sku_entitlements(sku)
+	if sku.has("price_honey"):
+		var price_honey: int = maxi(0, int(sku.get("price_honey", 0)))
+		if price_honey <= 0:
+			status_label.text = "Invalid honey price for %s." % title
+			return
+		var spend_result: Dictionary = _spend_honey(price_honey, "store_sku:%s" % sku_id)
+		if not bool(spend_result.get("ok", false)):
+			status_label.text = "Not enough Honey for %s (H%d needed, H%d available)." % [
+				title,
+				price_honey,
+				int(spend_result.get("honey_balance", _current_honey_balance()))
+			]
+			return
+		var grant_result: Dictionary = _grant_entitlements(entitlements, "store_sku:%s" % sku_id)
+		_update_store_prefs_visibility(str(sku.get("category", "")))
+		_populate_store_category(str(sku.get("category", "")))
+		_refresh_dash_account_snapshot()
+		var granted_count: int = 0
+		var granted_any: Variant = grant_result.get("granted", [])
+		if typeof(granted_any) == TYPE_ARRAY:
+			granted_count = (granted_any as Array).size()
+		status_label.text = "Purchased %s for H%d. Entitlements +%d. Balance: H%d" % [
+			title,
+			price_honey,
+			granted_count,
+			_current_honey_balance()
+		]
+		return
+	if sku.has("price_real"):
+		if not LOCAL_REAL_PURCHASES_ENABLED:
+			status_label.text = "IAP not wired yet for %s." % title
+			return
+		var grant_result_local: Dictionary = _grant_entitlements(entitlements, "sim_real_sku:%s" % sku_id)
+		_update_store_prefs_visibility(str(sku.get("category", "")))
+		_populate_store_category(str(sku.get("category", "")))
+		var granted_local_count: int = 0
+		var granted_local_any: Variant = grant_result_local.get("granted", [])
+		if typeof(granted_local_any) == TYPE_ARRAY:
+			granted_local_count = (granted_local_any as Array).size()
+		status_label.text = "Simulated purchase: %s (%s). Entitlements +%d." % [
+			title,
+			str(sku.get("price_real", "")),
+			granted_local_count
+		]
+		return
+	status_label.text = "Store item has no recognized price: %s" % title
 
 func _clear_store_buttons() -> void:
 	for child in store_category_grid.get_children():
@@ -2287,6 +3039,19 @@ func _require_balance_for_entry(entry_usd: int) -> bool:
 	_open_insufficient_balance_modal("Insufficient balance: $%d available, $%d required." % [balance, entry_usd])
 	return false
 
+func _charge_paid_entry_usd(entry_usd: int, reason: String) -> Dictionary:
+	var amount: int = maxi(0, entry_usd)
+	if amount <= 0:
+		return {"ok": true, "charged_usd": 0, "remaining_usd": _wallet_balance_usd(), "bypassed": false, "reason": reason}
+	if not _require_balance_for_entry(amount):
+		return {"ok": false, "charged_usd": 0, "remaining_usd": _wallet_balance_usd(), "bypassed": false, "reason": reason}
+	if _dev_bypass_cash_balance:
+		return {"ok": true, "charged_usd": 0, "remaining_usd": _wallet_balance_usd(), "bypassed": true, "reason": reason}
+	var balance: int = _wallet_balance_usd()
+	var next_balance: int = maxi(0, balance - amount)
+	_wallet_profile["balance_usd"] = next_balance
+	return {"ok": true, "charged_usd": amount, "remaining_usd": next_balance, "bypassed": false, "reason": reason}
+
 func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -> void:
 	_close_entry_route_modal()
 	var panel := _build_entry_overlay("INSUFFICIENT BALANCE", subtitle)
@@ -2347,16 +3112,11 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		for denom in MONEY_DENOMINATIONS:
 			var tab_denom: int = denom
 			var denom_button := Button.new()
-			denom_button.text = "$%d" % denom
-			denom_button.custom_minimum_size = Vector2(76, 40)
+			_apply_usd_skin_to_button(denom_button, denom, "$%d" % denom)
 			denom_button.disabled = (not _dev_bypass_cash_balance) and denom > _wallet_balance_usd()
 			denom_button.pressed.connect(func(): _open_game_hub(true, tab_denom))
 			denom_row.add_child(denom_button)
-			_apply_font(denom_button, _font_regular, 12)
-			if denom == selected_denom:
-				_style_button(denom_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
-			else:
-				_style_button(denom_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+			_style_usd_sprite_button(denom_button, denom == selected_denom)
 		var entry_scope := Label.new()
 		entry_scope.text = "CURRENT TAB: ALL ENTRIES ARE $%d" % selected_denom
 		entry_scope.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -2675,6 +3435,8 @@ func _open_play_mode_select() -> void:
 	_play_mode_select.visible = true
 
 func _toggle_dash() -> void:
+	if _hive_dropdown_open:
+		_hide_hive_dropdown_immediate()
 	if _dash_tween != null and _dash_tween.is_running():
 		_dash_tween.kill()
 	var target_x := 0.0 if not _dash_open else _dash_hidden_x
@@ -2706,6 +3468,8 @@ func _dash_stub_action(label: String) -> void:
 func _open_dash_panel(panel: Panel) -> void:
 	if panel == null:
 		return
+	if _hive_dropdown_open:
+		_hide_hive_dropdown_immediate()
 	if async_panel != null:
 		async_panel.visible = false
 	if panel == dash_store_panel:
@@ -2730,6 +3494,8 @@ func _hide_dash_panels() -> void:
 func _open_async_panel() -> void:
 	if async_panel == null:
 		return
+	if _hive_dropdown_open:
+		_hide_hive_dropdown_immediate()
 	if _dash_open:
 		_toggle_dash()
 	async_panel.visible = true
@@ -2906,8 +3672,8 @@ func _sync_async_buyin_buttons(mode: String) -> void:
 		var button: Button = buttons[i] as Button
 		if button == null:
 			continue
-		var prefix := "* " if amount == selected else ""
-		button.text = "%s$%d Entry" % [prefix, amount]
+		_apply_usd_skin_to_button(button, amount, "$%d Entry" % amount)
+		_style_usd_sprite_button(button, amount == selected)
 		button.visible = true
 
 func _update_async_rules(mode: String) -> void:
@@ -2953,14 +3719,24 @@ func _on_async_play_pressed(mode: String) -> void:
 	_async_confirm_pending[mode] = false
 	_set_async_play_label(mode, false)
 	_assign_async_map(mode)
-	var amount := int(_async_buyins.get(mode, ASYNC_BUYINS[0]))
-	_stub_action("%s entry $%d confirmed" % [mode.capitalize(), amount])
+	var amount: int = int(_async_buyins.get(mode, ASYNC_BUYINS[0]))
+	var charge: Dictionary = _charge_paid_entry_usd(amount, "async_confirm:%s" % mode)
+	if not bool(charge.get("ok", false)):
+		return
+	if bool(charge.get("bypassed", false)):
+		_stub_action("%s entry $%d confirmed (dev bypass)" % [mode.capitalize(), amount])
+		return
+	_stub_action("%s entry $%d confirmed (charged, balance $%d)" % [mode.capitalize(), amount, int(charge.get("remaining_usd", _wallet_balance_usd()))])
 
 func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var map_count_requested: int = maxi(1, requested_map_count)
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	if not free_play:
+		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_miss_n_out")
+		if not bool(charge.get("ok", false)):
+			return
 	var lobby_options: Dictionary = {
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
@@ -3004,6 +3780,10 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	if not free_play:
+		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_stage_race")
+		if not bool(charge.get("ok", false)):
+			return
 	var lobby_options: Dictionary = {
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
@@ -3046,6 +3826,10 @@ func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	if not free_play:
+		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_timed_race")
+		if not bool(charge.get("ok", false)):
+			return
 	var lobby_options: Dictionary = {
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"sync_join_sec": ASYNC_TIMED_RACE_SYNC_JOIN_SEC

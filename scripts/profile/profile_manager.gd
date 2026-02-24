@@ -11,6 +11,9 @@ const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player "
 const DISPLAY_NAME_MAX_LEN: int = 20
 const BUFF_LOADOUT_SIZE: int = 3
+const BUFF_MODE_VS: String = "vs"
+const BUFF_MODE_ASYNC: String = "async"
+const DEFAULT_HONEY_BALANCE: int = 12480
 const DEFAULT_BUFF_LOADOUT_IDS: Array[String] = [
 	"buff_swarm_speed_classic",
 	"buff_hive_faster_production_classic",
@@ -27,6 +30,10 @@ var _display_name: String = ""
 var _created_at_unix: int = 0
 var _owned_buff_ids: Array[String] = []
 var _buff_loadout_ids: Array[String] = []
+var _owned_buff_ids_by_mode: Dictionary = {}
+var _buff_loadout_ids_by_mode: Dictionary = {}
+var _honey_balance: int = DEFAULT_HONEY_BALANCE
+var _store_entitlements: Dictionary = {}
 var _gpu_vfx_enabled: bool = true
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -61,6 +68,10 @@ func ensure_loaded() -> void:
 		_gpu_vfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, true))
 		_owned_buff_ids = _sanitize_owned_ids(cfg.get_value(PROFILE_SECTION, "owned_buff_ids", []))
 		_buff_loadout_ids = _sanitize_loadout_ids(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids", []))
+		_owned_buff_ids_by_mode = _sanitize_owned_mode_map(cfg.get_value(PROFILE_SECTION, "owned_buff_ids_by_mode", {}))
+		_buff_loadout_ids_by_mode = _sanitize_loadout_mode_map(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids_by_mode", {}), _owned_buff_ids_by_mode)
+		_honey_balance = maxi(0, int(cfg.get_value(PROFILE_SECTION, "honey_balance", DEFAULT_HONEY_BALANCE)))
+		_store_entitlements = _sanitize_store_entitlements(cfg.get_value(PROFILE_SECTION, "store_entitlements", {}))
 
 	var created: bool = false
 	if _user_id.is_empty():
@@ -72,6 +83,9 @@ func ensure_loaded() -> void:
 		_gpu_vfx_enabled = true
 		_owned_buff_ids = _default_owned_ids()
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
+		_honey_balance = DEFAULT_HONEY_BALANCE
+		_store_entitlements = {}
+		_ensure_mode_maps()
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 		created = true
 		_created_this_run = true
@@ -91,6 +105,16 @@ func ensure_loaded() -> void:
 		var cleaned_loadout: Array[String] = _sanitize_loadout_ids(_buff_loadout_ids)
 		if cleaned_loadout != _buff_loadout_ids:
 			_buff_loadout_ids = cleaned_loadout
+			updated = true
+		var cleaned_honey: int = maxi(0, _honey_balance)
+		if cleaned_honey != _honey_balance:
+			_honey_balance = cleaned_honey
+			updated = true
+		var cleaned_entitlements: Dictionary = _sanitize_store_entitlements(_store_entitlements)
+		if cleaned_entitlements != _store_entitlements:
+			_store_entitlements = cleaned_entitlements
+			updated = true
+		if _ensure_mode_maps():
 			updated = true
 		_ensure_loadout_owned()
 		if updated:
@@ -185,17 +209,35 @@ func mark_controls_hint_seen() -> void:
 	SFLog.info("PROFILE_CONTROLS_HINT_SEEN", {"user_id": _user_id})
 
 func get_owned_buff_ids() -> Array[String]:
-	ensure_loaded()
-	return _owned_buff_ids.duplicate()
+	return get_owned_buff_ids_for_mode(BUFF_MODE_VS)
 
 func set_owned_buff_ids(ids: Array) -> void:
-	ensure_loaded()
-	_owned_buff_ids = _sanitize_owned_ids(ids)
-	_ensure_loadout_owned()
-	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	set_owned_buff_ids_for_mode(BUFF_MODE_VS, ids)
 
 func add_owned_buffs(ids: Array) -> int:
+	return add_owned_buffs_for_mode(BUFF_MODE_VS, ids)
+
+func get_owned_buff_ids_for_mode(mode: String) -> Array[String]:
 	ensure_loaded()
+	var mode_key: String = _normalize_buff_mode(mode)
+	return _copy_string_array(_owned_buff_ids_by_mode.get(mode_key, []))
+
+func set_owned_buff_ids_for_mode(mode: String, ids: Array) -> void:
+	ensure_loaded()
+	var mode_key: String = _normalize_buff_mode(mode)
+	var owned_ids: Array[String] = _sanitize_owned_ids_for_mode(ids, mode_key)
+	_owned_buff_ids_by_mode[mode_key] = owned_ids
+	var current_loadout: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(mode_key, []))
+	_buff_loadout_ids_by_mode[mode_key] = _sanitize_loadout_ids_for_mode(current_loadout, mode_key, owned_ids)
+	_ensure_loadout_owned_for_mode(mode_key)
+	_sync_legacy_from_vs_mode()
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+
+func add_owned_buffs_for_mode(mode: String, ids: Array) -> int:
+	ensure_loaded()
+	var mode_key: String = _normalize_buff_mode(mode)
+	var allow_duplicates: bool = _mode_allows_duplicates(mode_key)
+	var owned_ids: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(mode_key, []))
 	var added: int = 0
 	for buff_id_v in ids:
 		var buff_id: String = str(buff_id_v).strip_edges()
@@ -203,18 +245,19 @@ func add_owned_buffs(ids: Array) -> int:
 			continue
 		if BuffCatalog.get_buff(buff_id).is_empty():
 			continue
-		if _owned_buff_ids.has(buff_id):
+		if (not allow_duplicates) and owned_ids.has(buff_id):
 			continue
-		_owned_buff_ids.append(buff_id)
+		owned_ids.append(buff_id)
 		added += 1
 	if added > 0:
-		_ensure_loadout_owned()
+		_owned_buff_ids_by_mode[mode_key] = owned_ids
+		_ensure_loadout_owned_for_mode(mode_key)
+		_sync_legacy_from_vs_mode()
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	return added
 
 func get_buff_loadout_ids() -> Array[String]:
-	ensure_loaded()
-	return _buff_loadout_ids.duplicate()
+	return get_buff_loadout_ids_for_mode(BUFF_MODE_VS)
 
 func is_gpu_vfx_enabled() -> bool:
 	ensure_loaded()
@@ -231,13 +274,99 @@ func set_gpu_vfx_enabled(enabled: bool) -> void:
 		"enabled": _gpu_vfx_enabled
 	})
 
-func set_buff_loadout_ids(ids: Array) -> bool:
+func get_honey_balance() -> int:
 	ensure_loaded()
-	var next_ids: Array[String] = _sanitize_loadout_ids(ids)
-	if next_ids == _buff_loadout_ids:
+	return _honey_balance
+
+func set_honey_balance(amount: int) -> void:
+	ensure_loaded()
+	var next_balance: int = maxi(0, amount)
+	if next_balance == _honey_balance:
+		return
+	_honey_balance = next_balance
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+
+func add_honey(amount: int, reason: String = "") -> Dictionary:
+	ensure_loaded()
+	if amount <= 0:
+		return {"ok": false, "reason": "invalid_amount", "honey_balance": _honey_balance}
+	_honey_balance += amount
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_HONEY_ADDED", {
+		"user_id": _user_id,
+		"amount": amount,
+		"reason": reason,
+		"honey_balance": _honey_balance
+	})
+	return {"ok": true, "honey_balance": _honey_balance}
+
+func spend_honey(amount: int, reason: String = "") -> Dictionary:
+	ensure_loaded()
+	if amount <= 0:
+		return {"ok": false, "reason": "invalid_amount", "honey_balance": _honey_balance}
+	if _honey_balance < amount:
+		return {"ok": false, "reason": "insufficient_honey", "honey_balance": _honey_balance}
+	_honey_balance -= amount
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_HONEY_SPENT", {
+		"user_id": _user_id,
+		"amount": amount,
+		"reason": reason,
+		"honey_balance": _honey_balance
+	})
+	return {"ok": true, "honey_balance": _honey_balance}
+
+func get_store_entitlements() -> Dictionary:
+	ensure_loaded()
+	return _store_entitlements.duplicate(true)
+
+func has_store_entitlement(flag: String) -> bool:
+	ensure_loaded()
+	var clean_flag: String = flag.strip_edges()
+	if clean_flag == "":
+		return false
+	return bool(_store_entitlements.get(clean_flag, false))
+
+func grant_store_entitlements(flags: Array, reason: String = "") -> Dictionary:
+	ensure_loaded()
+	var granted: Array[String] = []
+	for flag_any in flags:
+		var clean_flag: String = str(flag_any).strip_edges()
+		if clean_flag == "":
+			continue
+		if bool(_store_entitlements.get(clean_flag, false)):
+			continue
+		_store_entitlements[clean_flag] = true
+		granted.append(clean_flag)
+	if granted.is_empty():
+		return {"ok": true, "granted": granted, "store_entitlements": _store_entitlements.duplicate(true)}
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_ENTITLEMENTS_GRANTED", {
+		"user_id": _user_id,
+		"reason": reason,
+		"granted": granted
+	})
+	return {"ok": true, "granted": granted, "store_entitlements": _store_entitlements.duplicate(true)}
+
+func set_buff_loadout_ids(ids: Array) -> bool:
+	return set_buff_loadout_ids_for_mode(BUFF_MODE_VS, ids)
+
+func get_buff_loadout_ids_for_mode(mode: String) -> Array[String]:
+	ensure_loaded()
+	var mode_key: String = _normalize_buff_mode(mode)
+	return _copy_string_array(_buff_loadout_ids_by_mode.get(mode_key, []))
+
+func set_buff_loadout_ids_for_mode(mode: String, ids: Array) -> bool:
+	ensure_loaded()
+	var mode_key: String = _normalize_buff_mode(mode)
+	var owned_ids: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(mode_key, []))
+	var next_ids: Array[String] = _sanitize_loadout_ids_for_mode(ids, mode_key, owned_ids)
+	var current_ids: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(mode_key, []))
+	if next_ids == current_ids:
 		return true
-	_buff_loadout_ids = next_ids
-	_ensure_loadout_owned()
+	_buff_loadout_ids_by_mode[mode_key] = next_ids
+	_ensure_loadout_owned_for_mode(mode_key)
+	_sync_legacy_from_vs_mode()
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	return true
 
@@ -252,6 +381,10 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, _gpu_vfx_enabled)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids", _owned_buff_ids)
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids", _buff_loadout_ids)
+	cfg.set_value(PROFILE_SECTION, "owned_buff_ids_by_mode", _owned_buff_ids_by_mode)
+	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids_by_mode", _buff_loadout_ids_by_mode)
+	cfg.set_value(PROFILE_SECTION, "honey_balance", _honey_balance)
+	cfg.set_value(PROFILE_SECTION, "store_entitlements", _store_entitlements)
 	var err: int = cfg.save(PROFILE_PATH)
 	SFLog.info("PROFILE_BOOT_TRACE_SAVE", {
 		"path": PROFILE_PATH,
@@ -370,11 +503,211 @@ func _sanitize_loadout_ids(raw: Variant) -> Array[String]:
 		break
 	return out
 
-func _ensure_loadout_owned() -> void:
-	for buff_id in _buff_loadout_ids:
-		if _owned_buff_ids.has(buff_id):
+func _sanitize_store_entitlements(raw: Variant) -> Dictionary:
+	var out: Dictionary = {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	var in_map: Dictionary = raw as Dictionary
+	for key_any in in_map.keys():
+		var key: String = str(key_any).strip_edges()
+		if key == "":
 			continue
-		_owned_buff_ids.append(buff_id)
+		if not bool(in_map.get(key_any, false)):
+			continue
+		out[key] = true
+	return out
+
+func _normalize_buff_mode(mode: String) -> String:
+	if mode.strip_edges().to_lower() == BUFF_MODE_ASYNC:
+		return BUFF_MODE_ASYNC
+	return BUFF_MODE_VS
+
+func _mode_allows_duplicates(mode: String) -> bool:
+	return _normalize_buff_mode(mode) == BUFF_MODE_ASYNC
+
+func _copy_string_array(raw: Variant) -> Array[String]:
+	var out: Array[String] = []
+	if typeof(raw) != TYPE_ARRAY:
+		return out
+	for value_any in raw as Array:
+		out.append(str(value_any).strip_edges())
+	return out
+
+func _sanitize_owned_ids_for_mode(raw: Variant, mode: String) -> Array[String]:
+	var allow_duplicates: bool = _mode_allows_duplicates(mode)
+	var out: Array[String] = []
+	if typeof(raw) == TYPE_ARRAY:
+		for buff_id_v in raw as Array:
+			var buff_id: String = str(buff_id_v).strip_edges()
+			if buff_id == "":
+				continue
+			if BuffCatalog.get_buff(buff_id).is_empty():
+				continue
+			if (not allow_duplicates) and out.has(buff_id):
+				continue
+			out.append(buff_id)
+	if out.is_empty():
+		out = _default_owned_ids()
+	return out
+
+func _sanitize_loadout_ids_for_mode(raw: Variant, mode: String, owned_ids: Array[String]) -> Array[String]:
+	var allow_duplicates: bool = _mode_allows_duplicates(mode)
+	var base: Array[String] = owned_ids.duplicate()
+	if base.is_empty():
+		base = _default_owned_ids()
+	var out: Array[String] = []
+	if typeof(raw) == TYPE_ARRAY:
+		for buff_id_v in raw as Array:
+			var buff_id: String = str(buff_id_v).strip_edges()
+			if buff_id == "":
+				continue
+			if BuffCatalog.get_buff(buff_id).is_empty():
+				continue
+			if (not allow_duplicates) and out.has(buff_id):
+				continue
+			out.append(buff_id)
+	if out.size() > BUFF_LOADOUT_SIZE:
+		out = out.slice(0, BUFF_LOADOUT_SIZE)
+	var fill_i: int = 0
+	while out.size() < BUFF_LOADOUT_SIZE and fill_i < base.size():
+		var fallback_id: String = base[fill_i]
+		if allow_duplicates or (not out.has(fallback_id)):
+			out.append(fallback_id)
+		fill_i += 1
+	while out.size() < BUFF_LOADOUT_SIZE:
+		for fallback_id in DEFAULT_BUFF_LOADOUT_IDS:
+			if BuffCatalog.get_buff(fallback_id).is_empty():
+				continue
+			if (not allow_duplicates) and out.has(fallback_id):
+				continue
+			out.append(fallback_id)
+			break
+		if out.size() >= BUFF_LOADOUT_SIZE:
+			break
+		break
+	return out
+
+func _sanitize_owned_mode_map(raw: Variant) -> Dictionary:
+	var out: Dictionary = {}
+	if typeof(raw) == TYPE_DICTIONARY:
+		var map_any: Dictionary = raw as Dictionary
+		if map_any.has(BUFF_MODE_VS):
+			out[BUFF_MODE_VS] = _sanitize_owned_ids_for_mode(map_any.get(BUFF_MODE_VS, []), BUFF_MODE_VS)
+		if map_any.has(BUFF_MODE_ASYNC):
+			out[BUFF_MODE_ASYNC] = _sanitize_owned_ids_for_mode(map_any.get(BUFF_MODE_ASYNC, []), BUFF_MODE_ASYNC)
+	return out
+
+func _sanitize_loadout_mode_map(raw: Variant, owned_by_mode: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	var map_any: Dictionary = raw as Dictionary
+	for mode in [BUFF_MODE_VS, BUFF_MODE_ASYNC]:
+		if not map_any.has(mode):
+			continue
+		var owned_any: Variant = owned_by_mode.get(mode, _default_owned_ids())
+		var owned_ids: Array[String] = _copy_string_array(owned_any)
+		out[mode] = _sanitize_loadout_ids_for_mode(map_any.get(mode, []), mode, owned_ids)
+	return out
+
+func _count_buff_in_list(entries: Array[String], buff_id: String) -> int:
+	if buff_id == "":
+		return 0
+	var out: int = 0
+	for entry_id in entries:
+		if entry_id == buff_id:
+			out += 1
+	return out
+
+func _ensure_mode_maps() -> bool:
+	var changed: bool = false
+	var legacy_owned_vs: Array[String] = _sanitize_owned_ids(_owned_buff_ids)
+	var legacy_loadout_vs: Array[String] = _sanitize_loadout_ids(_buff_loadout_ids)
+	for mode in [BUFF_MODE_VS, BUFF_MODE_ASYNC]:
+		if not _owned_buff_ids_by_mode.has(mode):
+			if mode == BUFF_MODE_VS:
+				_owned_buff_ids_by_mode[mode] = legacy_owned_vs.duplicate()
+			else:
+				_owned_buff_ids_by_mode[mode] = legacy_owned_vs.duplicate()
+			changed = true
+	var vs_owned_any: Variant = _owned_buff_ids_by_mode.get(BUFF_MODE_VS, legacy_owned_vs)
+	var vs_owned_ids: Array[String] = _sanitize_owned_ids_for_mode(vs_owned_any, BUFF_MODE_VS)
+	if vs_owned_ids != _copy_string_array(vs_owned_any):
+		changed = true
+	_owned_buff_ids_by_mode[BUFF_MODE_VS] = vs_owned_ids
+	var async_owned_any: Variant = _owned_buff_ids_by_mode.get(BUFF_MODE_ASYNC, vs_owned_ids)
+	var async_owned_ids: Array[String] = _sanitize_owned_ids_for_mode(async_owned_any, BUFF_MODE_ASYNC)
+	if async_owned_ids != _copy_string_array(async_owned_any):
+		changed = true
+	_owned_buff_ids_by_mode[BUFF_MODE_ASYNC] = async_owned_ids
+
+	for mode in [BUFF_MODE_VS, BUFF_MODE_ASYNC]:
+		if not _buff_loadout_ids_by_mode.has(mode):
+			if mode == BUFF_MODE_VS:
+				_buff_loadout_ids_by_mode[mode] = legacy_loadout_vs.duplicate()
+			else:
+				_buff_loadout_ids_by_mode[mode] = legacy_loadout_vs.duplicate()
+			changed = true
+	var vs_loadout_any: Variant = _buff_loadout_ids_by_mode.get(BUFF_MODE_VS, legacy_loadout_vs)
+	var vs_loadout_ids: Array[String] = _sanitize_loadout_ids_for_mode(vs_loadout_any, BUFF_MODE_VS, vs_owned_ids)
+	if vs_loadout_ids != _copy_string_array(vs_loadout_any):
+		changed = true
+	_buff_loadout_ids_by_mode[BUFF_MODE_VS] = vs_loadout_ids
+	var async_loadout_any: Variant = _buff_loadout_ids_by_mode.get(BUFF_MODE_ASYNC, vs_loadout_ids)
+	var async_loadout_ids: Array[String] = _sanitize_loadout_ids_for_mode(async_loadout_any, BUFF_MODE_ASYNC, async_owned_ids)
+	if async_loadout_ids != _copy_string_array(async_loadout_any):
+		changed = true
+	_buff_loadout_ids_by_mode[BUFF_MODE_ASYNC] = async_loadout_ids
+
+	var before_vs_owned: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_VS, []))
+	var before_async_owned: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_ASYNC, []))
+	_ensure_loadout_owned_for_mode(BUFF_MODE_VS)
+	_ensure_loadout_owned_for_mode(BUFF_MODE_ASYNC)
+	if before_vs_owned != _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_VS, [])):
+		changed = true
+	if before_async_owned != _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_ASYNC, [])):
+		changed = true
+
+	var old_legacy_owned: Array[String] = _owned_buff_ids.duplicate()
+	var old_legacy_loadout: Array[String] = _buff_loadout_ids.duplicate()
+	_sync_legacy_from_vs_mode()
+	if old_legacy_owned != _owned_buff_ids:
+		changed = true
+	if old_legacy_loadout != _buff_loadout_ids:
+		changed = true
+	return changed
+
+func _ensure_loadout_owned_for_mode(mode: String) -> void:
+	var mode_key: String = _normalize_buff_mode(mode)
+	var owned_ids: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(mode_key, []))
+	var loadout_ids: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(mode_key, []))
+	if _mode_allows_duplicates(mode_key):
+		for buff_id in loadout_ids:
+			if buff_id == "":
+				continue
+			var required: int = _count_buff_in_list(loadout_ids, buff_id)
+			var available: int = _count_buff_in_list(owned_ids, buff_id)
+			while available < required:
+				owned_ids.append(buff_id)
+				available += 1
+	else:
+		for buff_id in loadout_ids:
+			if buff_id == "":
+				continue
+			if owned_ids.has(buff_id):
+				continue
+			owned_ids.append(buff_id)
+	_owned_buff_ids_by_mode[mode_key] = owned_ids
+
+func _sync_legacy_from_vs_mode() -> void:
+	var vs_owned: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_VS, _default_owned_ids()))
+	var vs_loadout: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(BUFF_MODE_VS, _sanitize_loadout_ids(vs_owned)))
+	_owned_buff_ids = _sanitize_owned_ids_for_mode(vs_owned, BUFF_MODE_VS)
+	_buff_loadout_ids = _sanitize_loadout_ids_for_mode(vs_loadout, BUFF_MODE_VS, _owned_buff_ids)
+
+func _ensure_loadout_owned() -> void:
+	_ensure_loadout_owned_for_mode(BUFF_MODE_VS)
+	_sync_legacy_from_vs_mode()
 
 # Legacy compatibility (single-profile semantics).
 func get_profiles() -> Array[Dictionary]:
