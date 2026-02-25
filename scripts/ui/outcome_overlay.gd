@@ -2,10 +2,12 @@ class_name OutcomeOverlay
 extends Control
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const PostMatchSummaryPanelScript := preload("res://scripts/ui/ui_post_match_summary.gd")
 
 signal post_match_action(action: String)
 
 @onready var panel: Panel = $Panel
+@onready var vbox: VBoxContainer = $Panel/VBox
 @onready var title_label: Label = $Panel/VBox/Title
 @onready var result_label: Label = $Panel/VBox/Result
 @onready var reason_label: Label = $Panel/VBox/Reason
@@ -28,6 +30,7 @@ var _overlay_mode: String = "rematch"
 var _stage_next_action: String = "next_round"
 var _stage_next_available: bool = false
 var _stage_status_text: String = ""
+var _post_match_summary_panel: Control = null
 
 const OVERLAY_MODE_REMATCH: String = "rematch"
 const OVERLAY_MODE_STAGE_ROUND: String = "stage_round"
@@ -37,6 +40,7 @@ func _ready() -> void:
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_ensure_post_match_summary_panel()
 	rematch_button.text = "REMATCH"
 	exit_button.text = "MAIN MENU"
 	rematch_button.pressed.connect(_on_rematch_pressed)
@@ -62,6 +66,7 @@ func show_outcome(
 	_ensure_outcome_layer()
 	local_player_id = maxi(1, player_id)
 	_action_taken = false
+	clear_post_match_summary()
 	visible = true
 	panel.visible = true
 	show()
@@ -93,6 +98,7 @@ func show_stage_round_outcome(data: Dictionary) -> void:
 	_ensure_outcome_layer()
 	local_player_id = maxi(1, int(data.get("local_player_id", 1)))
 	_action_taken = false
+	clear_post_match_summary()
 	visible = true
 	panel.visible = true
 	show()
@@ -109,8 +115,52 @@ func show_stage_round_outcome(data: Dictionary) -> void:
 	call_deferred("_log_layout_after_frame")
 
 func hide_overlay() -> void:
+	clear_post_match_summary()
 	visible = false
 	set_process(false)
+
+func set_post_match_summary(summary: Dictionary, winner_id: int, player_id: int) -> void:
+	_ensure_post_match_summary_panel()
+	if _post_match_summary_panel == null:
+		return
+	if summary.is_empty():
+		if _post_match_summary_panel.has_method("clear_summary"):
+			_post_match_summary_panel.call("clear_summary")
+		return
+	var local_id: int = maxi(1, player_id)
+	var victory: bool = winner_id > 0 and winner_id == local_id
+	if _post_match_summary_panel.has_method("render_summary"):
+		_post_match_summary_panel.call("render_summary", summary, victory)
+
+func clear_post_match_summary() -> void:
+	_ensure_post_match_summary_panel()
+	if _post_match_summary_panel == null:
+		return
+	if _post_match_summary_panel.has_method("clear_summary"):
+		_post_match_summary_panel.call("clear_summary")
+
+func _ensure_post_match_summary_panel() -> void:
+	if _post_match_summary_panel != null and is_instance_valid(_post_match_summary_panel):
+		return
+	if vbox == null:
+		return
+	var existing: Node = vbox.get_node_or_null("PostMatchSummaryPanel")
+	if existing != null and existing.has_method("render_summary") and existing.has_method("clear_summary"):
+		_post_match_summary_panel = existing as Control
+		return
+	var created_any: Variant = PostMatchSummaryPanelScript.new()
+	if not (created_any is Control):
+		return
+	var created: Control = created_any as Control
+	created.name = "PostMatchSummaryPanel"
+	created.visible = false
+	var insert_index: int = vbox.get_child_count()
+	if countdown_label != null and countdown_label.get_parent() == vbox:
+		insert_index = countdown_label.get_index()
+	vbox.add_child(created)
+	if insert_index >= 0 and insert_index < vbox.get_child_count() - 1:
+		vbox.move_child(created, insert_index)
+	_post_match_summary_panel = created
 
 func _process(_delta: float) -> void:
 	if not visible:

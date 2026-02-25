@@ -128,6 +128,7 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsSlotsRow/BuffSlot4
 ]
 @onready var buffs_top_row: HBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow
+@onready var buffs_body_vbox: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox
 @onready var buffs_mode_tabs: HBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs
 @onready var buffs_mode_vs_button: Button = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs/BuffsModeVS
 @onready var buffs_mode_async_button: Button = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs/BuffsModeAsync
@@ -166,6 +167,7 @@ var _time_puzzle_lobby: TimePuzzleLobby = null
 var _play_mode_select: Control = null
 var _vs_lobby: Control = null
 var _entry_route_modal: Panel = null
+var _async_stage_section: Panel = null
 var _swarm_pass_panel: Control = null
 var _battle_pass_panel: Control = null
 var _rank_panel: Control = null
@@ -215,9 +217,21 @@ var _rank_panel: Control = null
 	$AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyList/YearlyBuyin4,
 	$AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyList/YearlyBuyin5
 ]
+@onready var async_weekly_body_vbox: VBoxContainer = $AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox
+@onready var async_monthly_body_vbox: VBoxContainer = $AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox
+@onready var async_yearly_body_vbox: VBoxContainer = $AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox
+@onready var async_weekly_list_header: Label = $AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyListHeader
+@onready var async_monthly_list_header: Label = $AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyListHeader
+@onready var async_yearly_list_header: Label = $AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyListHeader
+@onready var async_weekly_list: VBoxContainer = $AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyList
+@onready var async_monthly_list: VBoxContainer = $AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyList
+@onready var async_yearly_list: VBoxContainer = $AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyList
 @onready var async_weekly_rules: Label = $AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyRules
 @onready var async_monthly_rules: Label = $AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyRules
 @onready var async_yearly_rules: Label = $AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyRules
+@onready var async_weekly_map_pool: Label = $AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyMapPool
+@onready var async_monthly_map_pool: Label = $AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyMapPool
+@onready var async_yearly_map_pool: Label = $AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyMapPool
 @onready var async_weekly_assigned_map: Label = $AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyAssignedMap
 @onready var async_monthly_assigned_map: Label = $AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyAssignedMap
 @onready var async_yearly_assigned_map: Label = $AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyAssignedMap
@@ -252,6 +266,9 @@ var _dash_tab_open_right := 0.0
 var _dash_tween: Tween
 var _store_direct_mode: bool = false
 var _settings_direct_mode: bool = false
+var _buffs_direct_mode: bool = false
+var _hive_direct_mode: bool = false
+var _hive_panel_tween: Tween = null
 var _player_profile := {
 	"tier_text": "Tier: Bronze",
 	"honey": 12480
@@ -330,6 +347,10 @@ const ASYNC_WINDOW_START_PLAYERS := 5
 const ASYNC_TIMED_RACE_SYNC_JOIN_SEC := 30
 const BUFF_MODE_VS: String = "vs"
 const BUFF_MODE_ASYNC: String = "async"
+const BUFF_FILTER_HIVE: String = "hive"
+const BUFF_FILTER_UNIT: String = "unit"
+const BUFF_FILTER_LANE: String = "lane"
+const BUFF_FILTER_ACROSS: String = "across"
 const LOCAL_REAL_PURCHASES_ENABLED: bool = true
 const BUFF_LOADOUT_SIZE: int = 3
 const BUFF_DRAG_MIN_PX: float = 16.0
@@ -351,6 +372,8 @@ const BOTTOM_NAV_BUTTON_SEPARATION: int = 4
 const HIVE_DROPDOWN_WIDTH: float = 420.0
 const HIVE_DROPDOWN_HEIGHT: float = 248.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
+const HIVE_PULLDOWN_DURATION: float = 0.24
+const UI_TEXT_SCALE: float = 2.0
 
 var _buff_library_all: Array[Dictionary] = []
 var _buff_library_selected_ids: Dictionary = {}
@@ -372,6 +395,18 @@ var _buff_library_tier_root: VBoxContainer = null
 var _buff_library_tier_grids: Dictionary = {}
 var _buff_library_tier_headers: Dictionary = {}
 var _buff_library_runtime_buttons: Array[Button] = []
+var _buff_category_filter: String = BUFF_FILTER_HIVE
+var _buff_category_tabs_row: HBoxContainer = null
+var _buff_category_buttons: Dictionary = {}
+var _buff_cart_root: VBoxContainer = null
+var _buff_cart_line: ColorRect = null
+var _buff_cart_panel: Panel = null
+var _buff_cart_rows: VBoxContainer = null
+var _buff_cart_empty_label: Label = null
+var _buff_cart_subtotal_label: Label = null
+var _buff_cart_buy_button: Button = null
+var _buff_cart_clear_button: Button = null
+var _buff_cart_counts: Dictionary = {}
 var _buff_drag_state: Dictionary = {}
 var _usd_skin_cache: Dictionary = {}
 var _bottom_nav_skin_material: ShaderMaterial = null
@@ -675,6 +710,7 @@ func _ready() -> void:
 	_apply_bottom_nav_sprite_presentation()
 	_apply_bottom_nav_layout()
 	_style_panels()
+	_ensure_async_stage_contest_section()
 	_wire_buttons()
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
@@ -879,8 +915,8 @@ func _style_labels() -> void:
 		_apply_font(button, _font_regular, 12)
 	var analysis_vbox: VBoxContainer = $DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox
 	analysis_vbox.add_theme_constant_override("separation", 8)
-	var buffs_body_vbox: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox
-	buffs_body_vbox.add_theme_constant_override("separation", 12)
+	if buffs_body_vbox != null:
+		buffs_body_vbox.add_theme_constant_override("separation", 12)
 	var hive_body_vbox: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox
 	hive_body_vbox.add_theme_constant_override("separation", 12)
 	var store_body_vbox: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox
@@ -997,7 +1033,7 @@ func _wire_buttons() -> void:
 	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
 	if menu_unused_button != null:
 		menu_unused_button.pressed.connect(_on_settings_pressed)
-	hive_button.pressed.connect(_toggle_hive_dropdown)
+	hive_button.pressed.connect(_open_hive_panel)
 	dash_tab.pressed.connect(_toggle_dash)
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
 	dash_hex_store.pressed.connect(func(): _open_dash_panel(dash_store_panel))
@@ -1007,8 +1043,8 @@ func _wire_buttons() -> void:
 	dash_stats_close.pressed.connect(func(): _close_dash_panel(dash_stats_panel))
 	dash_analysis_close.pressed.connect(func(): _close_dash_panel(dash_analysis_panel))
 	dash_replay_close.pressed.connect(func(): _close_dash_panel(dash_replay_panel))
-	dash_buffs_close.pressed.connect(func(): _close_dash_panel(dash_buffs_panel))
-	dash_hive_close.pressed.connect(func(): _close_dash_panel(dash_hive_panel))
+	dash_buffs_close.pressed.connect(_on_dash_buffs_close_pressed)
+	dash_hive_close.pressed.connect(_on_dash_hive_close_pressed)
 	dash_store_close.pressed.connect(_on_dash_store_close_pressed)
 	dash_settings_close.pressed.connect(_on_dash_settings_close_pressed)
 	dash_badges_close.pressed.connect(func(): _close_dash_panel(dash_badges_panel_full))
@@ -1099,7 +1135,7 @@ func _wire_buttons() -> void:
 func _set_hex_buttons() -> void:
 	hive_button.text = "HIVE"
 	hive_button.font = _font_semibold
-	hive_button.font_size = 16
+	hive_button.font_size = _scaled_ui_font_size(16)
 	hive_button.fill_color = Color(0.16, 0.14, 0.12)
 	hive_button.border_color = Color(0.95, 0.75, 0.25)
 	hive_button.text_color = Color(0.98, 0.92, 0.72)
@@ -1114,7 +1150,7 @@ func _set_hex_buttons() -> void:
 	hive_button.queue_redraw()
 	dash_tab.text = "DASH"
 	dash_tab.font = _font_semibold
-	dash_tab.font_size = 14
+	dash_tab.font_size = _scaled_ui_font_size(14)
 	dash_tab.fill_color = Color(0.18, 0.19, 0.22)
 	dash_tab.border_color = Color(0.55, 0.56, 0.62)
 	dash_tab.text_color = Color(0.85, 0.86, 0.9)
@@ -1123,7 +1159,7 @@ func _set_hex_buttons() -> void:
 	dash_tab.queue_redraw()
 	dash_hex_buffs.text = "BUFFS"
 	dash_hex_buffs.font = _font_semibold
-	dash_hex_buffs.font_size = 14
+	dash_hex_buffs.font_size = _scaled_ui_font_size(14)
 	dash_hex_buffs.fill_color = Color(0.16, 0.16, 0.2)
 	dash_hex_buffs.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_buffs.text_color = Color(0.92, 0.94, 0.98)
@@ -1137,7 +1173,7 @@ func _set_hex_buttons() -> void:
 	dash_hex_buffs.queue_redraw()
 	dash_hex_store.text = "STORE"
 	dash_hex_store.font = _font_semibold
-	dash_hex_store.font_size = 14
+	dash_hex_store.font_size = _scaled_ui_font_size(14)
 	dash_hex_store.fill_color = Color(0.16, 0.16, 0.2)
 	dash_hex_store.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_store.text_color = Color(0.92, 0.94, 0.98)
@@ -1147,7 +1183,7 @@ func _set_hex_buttons() -> void:
 	dash_hex_store.queue_redraw()
 	dash_hex_hive.text = "HIVE"
 	dash_hex_hive.font = _font_semibold
-	dash_hex_hive.font_size = 14
+	dash_hex_hive.font_size = _scaled_ui_font_size(14)
 	dash_hex_hive.fill_color = Color(0.16, 0.16, 0.2)
 	dash_hex_hive.border_color = Color(0.7, 0.72, 0.8)
 	dash_hex_hive.text_color = Color(0.92, 0.94, 0.98)
@@ -1301,11 +1337,14 @@ func _hide_hive_dropdown_immediate() -> void:
 		_hive_dropdown_panel.visible = false
 	_hive_dropdown_open = false
 
+func _scaled_ui_font_size(size: int) -> int:
+	return maxi(1, int(round(float(size) * UI_TEXT_SCALE)))
+
 func _apply_font(node: Control, font: Font, size: int) -> void:
 	if node == null or font == null:
 		return
 	node.add_theme_font_override("font", font)
-	node.add_theme_font_size_override("font_size", size)
+	node.add_theme_font_size_override("font_size", _scaled_ui_font_size(size))
 
 func _apply_player_profile(profile: Dictionary) -> void:
 	var tier_text := str(profile.get("tier_text", "Tier: Bronze"))
@@ -1903,6 +1942,7 @@ func _init_buffs_ui() -> void:
 		return str(a.get("name", a.get("id", ""))) < str(b.get("name", b.get("id", "")))
 	)
 	_apply_buffs_panel_layout()
+	_ensure_buffs_cart_ui()
 	_ensure_buffs_owned_panel()
 	_ensure_buffs_library_nav()
 	_buff_mode_initialized = false
@@ -1936,11 +1976,14 @@ func _set_buff_mode(mode: String) -> void:
 	_buff_selected_id = ""
 	_buff_selected_origin = ""
 	_buff_selected_slot_index = -1
+	_buff_cart_counts.clear()
 	_apply_buffs_mode_copy()
 	_sync_buff_mode_tabs()
+	_sync_buff_category_tabs()
 	_refresh_buffs_library_buttons()
 	_refresh_buffs_owned_ui()
 	_refresh_buffs_loadout_ui()
+	_refresh_buffs_cart_ui()
 	if not _buff_loadout_ids.is_empty():
 		_set_selected_buff(_buff_loadout_ids[0], "loadout", 0)
 	else:
@@ -2017,6 +2060,408 @@ func _ensure_buffs_owned_panel() -> void:
 	_apply_font(header, _font_semibold, 13)
 	_apply_font(empty_label, _font_regular, 12)
 
+func _ensure_buffs_cart_ui() -> void:
+	if _buff_cart_root != null and is_instance_valid(_buff_cart_root):
+		_refresh_buffs_cart_ui()
+		return
+	if buffs_body_vbox == null:
+		return
+	var root: VBoxContainer = VBoxContainer.new()
+	root.name = "BuffCartRoot"
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.custom_minimum_size = Vector2(0.0, 188.0)
+	root.add_theme_constant_override("separation", 6)
+	buffs_body_vbox.add_child(root)
+	var footer: Control = buffs_body_vbox.get_node_or_null("BuffsFooter") as Control
+	if footer != null:
+		buffs_body_vbox.move_child(root, footer.get_index())
+
+	var line: ColorRect = ColorRect.new()
+	line.name = "BuffCartLine"
+	line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.custom_minimum_size = Vector2(0.0, 2.0)
+	line.color = Color(0.92, 0.8, 0.38, 0.85)
+	root.add_child(line)
+
+	var hint_label: Label = Label.new()
+	hint_label.name = "BuffCartHint"
+	hint_label.text = "CART: drag store buffs below this line to add them."
+	root.add_child(hint_label)
+	_apply_font(hint_label, _font_regular, 11)
+
+	var panel: Panel = Panel.new()
+	panel.name = "BuffCartPanel"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.custom_minimum_size = Vector2(0.0, 156.0)
+	root.add_child(panel)
+	_style_panel(panel, Color(0.08, 0.09, 0.12, 0.92), Color(0.45, 0.48, 0.6, 0.8))
+
+	var panel_vbox: VBoxContainer = VBoxContainer.new()
+	panel_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	panel_vbox.offset_left = 10.0
+	panel_vbox.offset_top = 10.0
+	panel_vbox.offset_right = -10.0
+	panel_vbox.offset_bottom = -10.0
+	panel_vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(panel_vbox)
+
+	var header: Label = Label.new()
+	header.text = "RUNNING TALLY"
+	panel_vbox.add_child(header)
+	_apply_font(header, _font_semibold, 12)
+
+	var rows_scroll: ScrollContainer = ScrollContainer.new()
+	rows_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rows_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rows_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel_vbox.add_child(rows_scroll)
+
+	var rows: VBoxContainer = VBoxContainer.new()
+	rows.name = "BuffCartRows"
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rows.add_theme_constant_override("separation", 4)
+	rows_scroll.add_child(rows)
+
+	var subtotal_row: HBoxContainer = HBoxContainer.new()
+	subtotal_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	subtotal_row.alignment = BoxContainer.ALIGNMENT_END
+	subtotal_row.add_theme_constant_override("separation", 8)
+	panel_vbox.add_child(subtotal_row)
+
+	var subtotal: Label = Label.new()
+	subtotal.name = "BuffCartSubtotal"
+	subtotal.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	subtotal.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	subtotal_row.add_child(subtotal)
+	_apply_font(subtotal, _font_semibold, 12)
+
+	var clear_button: Button = Button.new()
+	clear_button.text = "CLEAR"
+	clear_button.custom_minimum_size = Vector2(94.0, 30.0)
+	clear_button.pressed.connect(_on_buff_cart_clear_pressed)
+	subtotal_row.add_child(clear_button)
+	_apply_font(clear_button, _font_regular, 12)
+	_style_button(clear_button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+
+	var buy_button: Button = Button.new()
+	buy_button.text = "BUY"
+	buy_button.custom_minimum_size = Vector2(106.0, 30.0)
+	buy_button.pressed.connect(_on_buff_cart_buy_pressed)
+	subtotal_row.add_child(buy_button)
+	_apply_font(buy_button, _font_semibold, 12)
+	_style_button(buy_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
+
+	_buff_cart_root = root
+	_buff_cart_line = line
+	_buff_cart_panel = panel
+	_buff_cart_rows = rows
+	_buff_cart_subtotal_label = subtotal
+	_buff_cart_buy_button = buy_button
+	_buff_cart_clear_button = clear_button
+	_refresh_buffs_cart_ui()
+
+func _buff_cart_display_name(buff: Dictionary, buff_id: String) -> String:
+	var name: String = str(buff.get("name", buff_id))
+	var tier: String = str(buff.get("tier", "classic")).to_upper()
+	var category: String = str(buff.get("category", "unknown")).to_upper()
+	return "%s | %s | %s" % [category, name, tier]
+
+func _buff_cart_max_qty_for_id(buff_id: String) -> int:
+	if _buff_mode_allows_duplicates():
+		return 99
+	if _buff_owned_ids.has(buff_id):
+		return 0
+	return 1
+
+func _buff_cart_subtotal_usd() -> float:
+	var subtotal_usd: float = 0.0
+	for buff_id_any in _buff_cart_counts.keys():
+		var buff_id: String = str(buff_id_any)
+		var qty: int = maxi(0, int(_buff_cart_counts.get(buff_id_any, 0)))
+		if qty <= 0:
+			continue
+		var buff: Dictionary = BuffCatalog.get_buff(buff_id)
+		if buff.is_empty():
+			continue
+		subtotal_usd += _buff_price_usd(buff) * float(qty)
+	return subtotal_usd
+
+func _refresh_buffs_cart_ui() -> void:
+	if _buff_cart_rows == null:
+		return
+	for child in _buff_cart_rows.get_children():
+		child.queue_free()
+	var buff_keys: Array[String] = []
+	var normalized_counts: Dictionary = {}
+	for buff_id_any in _buff_cart_counts.keys():
+		var buff_id: String = str(buff_id_any).strip_edges()
+		if buff_id == "":
+			continue
+		var max_qty: int = _buff_cart_max_qty_for_id(buff_id)
+		if max_qty <= 0:
+			continue
+		var qty: int = maxi(1, int(_buff_cart_counts.get(buff_id_any, 1)))
+		if qty > max_qty:
+			qty = max_qty
+		buff_keys.append(buff_id)
+		normalized_counts[buff_id] = qty
+	buff_keys.sort_custom(func(a: String, b: String) -> bool:
+		var buff_a: Dictionary = BuffCatalog.get_buff(a)
+		var buff_b: Dictionary = BuffCatalog.get_buff(b)
+		return _buff_cart_display_name(buff_a, a) < _buff_cart_display_name(buff_b, b)
+	)
+	_buff_cart_counts.clear()
+	for buff_id in buff_keys:
+		var qty: int = maxi(1, int(normalized_counts.get(buff_id, 1)))
+		_buff_cart_counts[buff_id] = qty
+	for buff_id in buff_keys:
+		var buff: Dictionary = BuffCatalog.get_buff(buff_id)
+		if buff.is_empty():
+			continue
+		var qty: int = maxi(1, int(_buff_cart_counts.get(buff_id, 1)))
+		var unit_price: float = _buff_price_usd(buff)
+		var line_total: float = unit_price * float(qty)
+		var row: HBoxContainer = HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_theme_constant_override("separation", 6)
+		_buff_cart_rows.add_child(row)
+
+		var name_label: Label = Label.new()
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.text = _buff_cart_display_name(buff, buff_id)
+		name_label.clip_text = true
+		row.add_child(name_label)
+		_apply_font(name_label, _font_regular, 11)
+
+		var qty_spin: SpinBox = SpinBox.new()
+		qty_spin.custom_minimum_size = Vector2(72.0, 26.0)
+		qty_spin.min_value = 1.0
+		qty_spin.max_value = float(_buff_cart_max_qty_for_id(buff_id))
+		qty_spin.step = 1.0
+		qty_spin.allow_greater = false
+		qty_spin.allow_lesser = false
+		qty_spin.rounded = true
+		qty_spin.value = float(qty)
+		if _buff_cart_max_qty_for_id(buff_id) <= 1:
+			qty_spin.editable = false
+		var qty_cb: Callable = Callable(self, "_on_buff_cart_qty_changed").bind(buff_id)
+		qty_spin.value_changed.connect(qty_cb)
+		row.add_child(qty_spin)
+
+		var line_label: Label = Label.new()
+		line_label.custom_minimum_size = Vector2(84.0, 0.0)
+		line_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		line_label.text = "$%.2f" % line_total
+		row.add_child(line_label)
+		_apply_font(line_label, _font_regular, 11)
+
+		var remove_button: Button = Button.new()
+		remove_button.text = "X"
+		remove_button.custom_minimum_size = Vector2(34.0, 26.0)
+		var remove_cb: Callable = Callable(self, "_on_buff_cart_remove_pressed").bind(buff_id)
+		remove_button.pressed.connect(remove_cb)
+		row.add_child(remove_button)
+		_apply_font(remove_button, _font_semibold, 11)
+		_style_button(remove_button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+
+	if buff_keys.is_empty():
+		var empty_label: Label = Label.new()
+		empty_label.text = "Cart empty. Drag buffs from Store into this cart area."
+		_buff_cart_rows.add_child(empty_label)
+		_apply_font(empty_label, _font_regular, 11)
+		_buff_cart_empty_label = empty_label
+	else:
+		_buff_cart_empty_label = null
+	if _buff_cart_subtotal_label != null:
+		_buff_cart_subtotal_label.text = "Subtotal: $%.2f" % _buff_cart_subtotal_usd()
+	if _buff_cart_buy_button != null:
+		_buff_cart_buy_button.disabled = buff_keys.is_empty()
+	if _buff_cart_clear_button != null:
+		_buff_cart_clear_button.disabled = buff_keys.is_empty()
+
+func _add_buffs_to_cart(ids: Array[String]) -> int:
+	var added: int = 0
+	for buff_id in ids:
+		var clean_id: String = str(buff_id).strip_edges()
+		if clean_id == "":
+			continue
+		var buff: Dictionary = BuffCatalog.get_buff(clean_id)
+		if buff.is_empty():
+			continue
+		var max_qty: int = _buff_cart_max_qty_for_id(clean_id)
+		if max_qty <= 0:
+			continue
+		var current_qty: int = int(_buff_cart_counts.get(clean_id, 0))
+		if current_qty >= max_qty:
+			continue
+		_buff_cart_counts[clean_id] = current_qty + 1
+		added += 1
+	_refresh_buffs_cart_ui()
+	return added
+
+func _drop_library_to_cart(ids: Array[String]) -> void:
+	var added: int = _add_buffs_to_cart(ids)
+	if added <= 0:
+		status_label.text = "Cart unchanged (already owned or max quantity reached)."
+		return
+	status_label.text = "Added %d buff type(s) to cart." % added
+
+func _on_buff_cart_qty_changed(value: float, buff_id: String) -> void:
+	var clean_id: String = buff_id.strip_edges()
+	if clean_id == "":
+		return
+	if not _buff_cart_counts.has(clean_id):
+		return
+	var max_qty: int = _buff_cart_max_qty_for_id(clean_id)
+	if max_qty <= 0:
+		_buff_cart_counts.erase(clean_id)
+		_refresh_buffs_cart_ui()
+		return
+	var qty: int = clampi(int(round(value)), 1, max_qty)
+	_buff_cart_counts[clean_id] = qty
+	_refresh_buffs_cart_ui()
+
+func _on_buff_cart_remove_pressed(buff_id: String) -> void:
+	var clean_id: String = buff_id.strip_edges()
+	if clean_id == "":
+		return
+	if _buff_cart_counts.has(clean_id):
+		_buff_cart_counts.erase(clean_id)
+	_refresh_buffs_cart_ui()
+
+func _on_buff_cart_clear_pressed() -> void:
+	_buff_cart_counts.clear()
+	_refresh_buffs_cart_ui()
+	status_label.text = "Buff cart cleared."
+
+func _on_buff_cart_buy_pressed() -> void:
+	if _buff_cart_counts.is_empty():
+		status_label.text = "Cart is empty."
+		return
+	var purchase_ids: Array[String] = []
+	for buff_id_any in _buff_cart_counts.keys():
+		var buff_id: String = str(buff_id_any)
+		var qty: int = maxi(0, int(_buff_cart_counts.get(buff_id_any, 0)))
+		for i in range(qty):
+			purchase_ids.append(buff_id)
+	if purchase_ids.is_empty():
+		status_label.text = "Cart is empty."
+		return
+	var purchase: Dictionary = _purchase_library_buffs(purchase_ids)
+	if bool(purchase.get("ok", false)):
+		var bought_count: int = 0
+		var purchased_ids_any: Variant = purchase.get("purchased_ids", [])
+		if typeof(purchased_ids_any) == TYPE_ARRAY:
+			bought_count = (purchased_ids_any as Array).size()
+		var total_cost_usd: float = float(purchase.get("total_cost_usd", 0.0))
+		_buff_cart_counts.clear()
+		_refresh_buffs_cart_ui()
+		status_label.text = "Purchase complete: %d buff(s) for $%.2f." % [bought_count, total_cost_usd]
+		return
+	var reason: String = str(purchase.get("reason", "purchase_failed"))
+	if reason == "iap_not_wired":
+		status_label.text = "Buff purchases require payment wiring (IAP disabled)."
+		return
+	status_label.text = "Purchase failed."
+
+func _buff_filter_order() -> PackedStringArray:
+	return PackedStringArray([BUFF_FILTER_HIVE, BUFF_FILTER_UNIT, BUFF_FILTER_LANE, BUFF_FILTER_ACROSS])
+
+func _buff_filter_label(filter_id: String) -> String:
+	match filter_id:
+		BUFF_FILTER_HIVE:
+			return "HIVE"
+		BUFF_FILTER_UNIT:
+			return "UNIT"
+		BUFF_FILTER_LANE:
+			return "LANE"
+		BUFF_FILTER_ACROSS:
+			return "ACROSS"
+		_:
+			return filter_id.to_upper()
+
+func _normalize_buff_filter(filter_id: String) -> String:
+	var cleaned: String = filter_id.strip_edges().to_lower()
+	for valid_filter in _buff_filter_order():
+		if cleaned == valid_filter:
+			return valid_filter
+	return BUFF_FILTER_HIVE
+
+func _buff_matches_category_filter(buff: Dictionary) -> bool:
+	var filter_id: String = _normalize_buff_filter(_buff_category_filter)
+	var category: String = str(buff.get("category", "")).to_lower()
+	var target_type: String = str(buff.get("target_type", "none")).to_lower()
+	match filter_id:
+		BUFF_FILTER_HIVE:
+			return category == "hive"
+		BUFF_FILTER_UNIT:
+			return category == "unit"
+		BUFF_FILTER_LANE:
+			return category == "lane"
+		BUFF_FILTER_ACROSS:
+			return target_type == "none"
+		_:
+			return true
+
+func _set_buff_category_filter(filter_id: String) -> void:
+	var normalized_filter: String = _normalize_buff_filter(filter_id)
+	if normalized_filter == _buff_category_filter:
+		_sync_buff_category_tabs()
+		return
+	_buff_category_filter = normalized_filter
+	_sync_buff_category_tabs()
+	_refresh_buffs_library_buttons()
+	if _buff_selected_origin == "library":
+		var selected_buff: Dictionary = BuffCatalog.get_buff(_buff_selected_id)
+		if selected_buff.is_empty() or not _buff_matches_category_filter(selected_buff):
+			_set_selected_buff("", "", -1)
+
+func _sync_buff_category_tabs() -> void:
+	if _buff_category_buttons.is_empty():
+		return
+	var active_bg: Color = Color(0.95, 0.85, 0.55)
+	var active_border: Color = Color(0.1, 0.08, 0.02)
+	var inactive_bg: Color = Color(0.12, 0.13, 0.16)
+	var inactive_border: Color = Color(0.45, 0.48, 0.6)
+	var inactive_text: Color = Color(0.92, 0.92, 0.92)
+	for filter_any in _buff_filter_order():
+		var button: Button = _buff_category_buttons.get(filter_any, null) as Button
+		if button == null:
+			continue
+		if filter_any == _buff_category_filter:
+			_style_button(button, active_bg, active_border, Color(0.1, 0.08, 0.02))
+		else:
+			_style_button(button, inactive_bg, inactive_border, inactive_text)
+
+func _ensure_buffs_category_tabs() -> void:
+	if buffs_library_vbox == null:
+		return
+	if _buff_category_tabs_row != null and is_instance_valid(_buff_category_tabs_row):
+		_sync_buff_category_tabs()
+		return
+	var row: HBoxContainer = HBoxContainer.new()
+	row.name = "BuffTypeTabs"
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.alignment = BoxContainer.ALIGNMENT_BEGIN
+	row.add_theme_constant_override("separation", 6)
+	buffs_library_vbox.add_child(row)
+	if buffs_library_header != null:
+		buffs_library_vbox.move_child(row, buffs_library_header.get_index() + 1)
+	_buff_category_tabs_row = row
+	_buff_category_buttons.clear()
+	for filter_id in _buff_filter_order():
+		var button: Button = Button.new()
+		button.text = _buff_filter_label(filter_id)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0, 34)
+		_apply_font(button, _font_semibold, 11)
+		var press_cb: Callable = Callable(self, "_set_buff_category_filter").bind(filter_id)
+		button.pressed.connect(press_cb)
+		row.add_child(button)
+		_buff_category_buttons[filter_id] = button
+	_sync_buff_category_tabs()
+
 func _ensure_buffs_library_nav() -> void:
 	if buffs_library_vbox == null:
 		return
@@ -2028,6 +2473,7 @@ func _ensure_buffs_library_nav() -> void:
 		if old_button == null:
 			continue
 		old_button.visible = false
+	_ensure_buffs_category_tabs()
 	if _buff_library_tier_root != null and is_instance_valid(_buff_library_tier_root):
 		return
 	var tier_root: VBoxContainer = VBoxContainer.new()
@@ -2175,6 +2621,7 @@ func _purchase_library_buffs(ids: Array[String]) -> Dictionary:
 	var purchase_ids: Array[String] = []
 	var total_cost_usd: float = 0.0
 	var total_cost_cents: int = 0
+	var seen_nonstack_batch: Dictionary = {}
 	for buff_id in ids:
 		var clean_buff_id: String = buff_id.strip_edges()
 		if clean_buff_id == "":
@@ -2182,8 +2629,12 @@ func _purchase_library_buffs(ids: Array[String]) -> Dictionary:
 		var buff: Dictionary = BuffCatalog.get_buff(clean_buff_id)
 		if buff.is_empty():
 			continue
-		if (not _buff_mode_allows_duplicates()) and _buff_owned_ids.has(clean_buff_id):
-			continue
+		if not _buff_mode_allows_duplicates():
+			if _buff_owned_ids.has(clean_buff_id):
+				continue
+			if seen_nonstack_batch.has(clean_buff_id):
+				continue
+			seen_nonstack_batch[clean_buff_id] = true
 		purchase_ids.append(clean_buff_id)
 		var unit_price_usd: float = _buff_price_usd(buff)
 		total_cost_usd += unit_price_usd
@@ -2227,10 +2678,14 @@ func _refresh_buffs_library_buttons() -> void:
 			button.queue_free()
 	_buff_library_runtime_buttons.clear()
 	var counts: Dictionary = {"classic": 0, "premium": 0, "elite": 0}
+	var visible_total: int = 0
 	for buff in _buff_library_all:
+		if not _buff_matches_category_filter(buff):
+			continue
 		var tier_id: String = str(buff.get("tier", "classic")).to_lower()
 		if not _buff_library_tier_grids.has(tier_id):
 			continue
+		visible_total += 1
 		counts[tier_id] = int(counts.get(tier_id, 0)) + 1
 		var buff_id: String = str(buff.get("id", ""))
 		var selected: bool = bool(_buff_library_selected_ids.get(buff_id, false))
@@ -2263,7 +2718,7 @@ func _refresh_buffs_library_buttons() -> void:
 		if header != null:
 			header.text = "%s (%d)" % [tier_id.to_upper(), int(counts.get(tier_id, 0))]
 	if buffs_library_header != null:
-		buffs_library_header.text = "BUFF STORE (%d) [%s]" % [_buff_library_all.size(), _buff_active_mode.to_upper()]
+		buffs_library_header.text = "BUFF STORE (%d) [%s]  TYPE: %s" % [visible_total, _buff_active_mode.to_upper(), _buff_filter_label(_buff_category_filter)]
 
 func _refresh_buffs_owned_ui() -> void:
 	if _buff_owned_flow == null:
@@ -2490,7 +2945,7 @@ func _update_buff_drag(screen_pos: Vector2) -> void:
 	var payload: Array = _buff_drag_state.get("payload", [])
 	var source: String = str(_buff_drag_state.get("source", ""))
 	if source == "library":
-		status_label.text = "Drop on OWNED to add %d buff(s)." % payload.size()
+		status_label.text = "Drop into CART (below line) or OWNED to add %d buff(s)." % payload.size()
 	elif source == "owned":
 		status_label.text = "Drop on a LOADOUT slot to equip."
 	elif source == "loadout":
@@ -2515,6 +2970,9 @@ func _finish_buff_drag(screen_pos: Vector2) -> void:
 	if payload_ids.is_empty():
 		return
 	if source == "library":
+		if _control_contains_screen(_buff_cart_panel, screen_pos):
+			_drop_library_to_cart(payload_ids)
+			return
 		if _control_contains_screen(_buff_owned_panel, screen_pos):
 			_drop_library_to_owned(payload_ids)
 			return
@@ -2605,7 +3063,7 @@ func _on_buff_equip_pressed() -> void:
 	if _buff_selected_id == "":
 		return
 	if _buff_selected_origin == "library":
-		_drop_library_to_owned([_buff_selected_id])
+		_drop_library_to_cart([_buff_selected_id])
 		return
 	if _buff_selected_origin == "owned":
 		_drop_owned_to_loadout(_buff_selected_id, 0)
@@ -2945,8 +3403,7 @@ func _on_play_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/VSMenu.tscn")
 
 func _open_buffs_store() -> void:
-	_open_dash_panel_from_menu(dash_store_panel)
-	_open_store_category("Buffs")
+	_open_buffs_panel()
 	status_label.text = "Buff store opened."
 
 func _open_free_roll_split() -> void:
@@ -3440,6 +3897,253 @@ func _style_entry_overlay_buttons(buttons: Array) -> void:
 		_apply_font(button, _font_regular, 13)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 
+func _ensure_async_stage_contest_section() -> void:
+	if async_vbox == null:
+		return
+	if _async_stage_section != null and is_instance_valid(_async_stage_section):
+		return
+	var panel: Panel = Panel.new()
+	panel.name = "StageContestSection"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.custom_minimum_size = Vector2(0.0, 164.0)
+	_style_panel(panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+
+	var vbox: VBoxContainer = VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	vbox.offset_left = 12.0
+	vbox.offset_top = 12.0
+	vbox.offset_right = -12.0
+	vbox.offset_bottom = -12.0
+	vbox.add_theme_constant_override("separation", 8)
+	panel.add_child(vbox)
+
+	var title: Label = Label.new()
+	title.text = "STAGE CONTEST LEADERBOARDS"
+	vbox.add_child(title)
+	_apply_font(title, _font_semibold, 14)
+
+	var sub: Label = Label.new()
+	sub.text = "Free-play first: tap 3-map or 5-map to view top 10."
+	vbox.add_child(sub)
+	_apply_font(sub, _font_regular, 12)
+
+	var button_row: HBoxContainer = HBoxContainer.new()
+	button_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button_row.add_theme_constant_override("separation", 10)
+	vbox.add_child(button_row)
+
+	var three_map_button: Button = Button.new()
+	three_map_button.text = "3 MAP STAGE LEADERS"
+	three_map_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	three_map_button.custom_minimum_size = Vector2(0.0, 40.0)
+	three_map_button.pressed.connect(Callable(self, "_open_async_stage_contest_leaderboard").bind(3))
+	button_row.add_child(three_map_button)
+	_apply_font(three_map_button, _font_semibold, 12)
+	_style_button(three_map_button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+
+	var five_map_button: Button = Button.new()
+	five_map_button.text = "5 MAP STAGE LEADERS"
+	five_map_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	five_map_button.custom_minimum_size = Vector2(0.0, 40.0)
+	five_map_button.pressed.connect(Callable(self, "_open_async_stage_contest_leaderboard").bind(5))
+	button_row.add_child(five_map_button)
+	_apply_font(five_map_button, _font_semibold, 12)
+	_style_button(five_map_button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+
+	async_vbox.add_child(panel)
+	var close_index: int = async_close.get_index() if async_close != null else -1
+	if close_index >= 0:
+		async_vbox.move_child(panel, close_index)
+	_async_stage_section = panel
+
+func _get_async_stage_leaderboard_rows(map_count: int) -> Array:
+	var contest_data: Dictionary = _resolve_async_stage_contest_data(map_count)
+	var rows_any: Variant = contest_data.get("rows", [])
+	var out: Array = []
+	if typeof(rows_any) != TYPE_ARRAY:
+		return out
+	for row_any in rows_any as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		out.append(row_any)
+	return out
+
+func _open_async_stage_contest_leaderboard(map_count: int) -> void:
+	var resolved_map_count: int = 5
+	if map_count == 3:
+		resolved_map_count = 3
+	var contest_data: Dictionary = _resolve_async_stage_contest_data(resolved_map_count)
+	var contest_name: String = str(contest_data.get("contest_name", "Stage Contest"))
+	var contest_time_left: String = str(contest_data.get("time_left", "--"))
+	var title: String = "%d MAP STAGE CONTEST LEADERBOARD" % resolved_map_count
+	var subtitle: String = "%s | Time Left: %s" % [contest_name, contest_time_left]
+	var panel: Panel = _build_entry_overlay(title, subtitle, Vector2(980, 700))
+	var body: VBoxContainer = panel.get_node("EntryBody") as VBoxContainer
+	if body == null:
+		return
+	var header_row: HBoxContainer = HBoxContainer.new()
+	header_row.add_theme_constant_override("separation", 10)
+	body.add_child(header_row)
+
+	var handle_header: Label = Label.new()
+	handle_header.text = "HANDLE"
+	handle_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_row.add_child(handle_header)
+	_apply_font(handle_header, _font_semibold, 13)
+
+	var total_header: Label = Label.new()
+	total_header.text = "TOTAL TIME"
+	total_header.custom_minimum_size = Vector2(240.0, 0.0)
+	total_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	header_row.add_child(total_header)
+	_apply_font(total_header, _font_semibold, 13)
+
+	var left_header: Label = Label.new()
+	left_header.text = "TIME LEFT"
+	left_header.custom_minimum_size = Vector2(220.0, 0.0)
+	left_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	header_row.add_child(left_header)
+	_apply_font(left_header, _font_semibold, 13)
+
+	var rows: Array = []
+	var rows_any: Variant = contest_data.get("rows", [])
+	if typeof(rows_any) == TYPE_ARRAY:
+		rows = rows_any as Array
+	for i in range(10):
+		var row_box: HBoxContainer = HBoxContainer.new()
+		row_box.add_theme_constant_override("separation", 10)
+		body.add_child(row_box)
+		var entry: Dictionary = {}
+		if i < rows.size() and typeof(rows[i]) == TYPE_DICTIONARY:
+			entry = rows[i] as Dictionary
+		var handle_label: Label = Label.new()
+		handle_label.text = "%d. %s" % [i + 1, str(entry.get("handle", "--"))]
+		handle_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row_box.add_child(handle_label)
+		_apply_font(handle_label, _font_regular, 12)
+		var total_label: Label = Label.new()
+		total_label.text = str(entry.get("total_time", "--:--.---"))
+		total_label.custom_minimum_size = Vector2(240.0, 0.0)
+		total_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row_box.add_child(total_label)
+		_apply_font(total_label, _font_regular, 12)
+		var left_label: Label = Label.new()
+		left_label.text = str(entry.get("time_left", "--"))
+		left_label.custom_minimum_size = Vector2(220.0, 0.0)
+		left_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row_box.add_child(left_label)
+		_apply_font(left_label, _font_regular, 12)
+	if rows.is_empty():
+		var empty_label: Label = Label.new()
+		empty_label.text = "No stage race submissions yet."
+		empty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		body.add_child(empty_label)
+		_apply_font(empty_label, _font_regular, 12)
+
+	var close_button: Button = Button.new()
+	close_button.text = "CLOSE"
+	close_button.custom_minimum_size = Vector2(0.0, 40.0)
+	close_button.pressed.connect(_close_entry_route_modal)
+	body.add_child(close_button)
+	_apply_font(close_button, _font_regular, 13)
+	_style_button(close_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+func _resolve_async_stage_contest_data(map_count: int) -> Dictionary:
+	var output: Dictionary = {
+		"contest_id": "",
+		"contest_name": "Stage Contest",
+		"time_left": "--",
+		"rows": []
+	}
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state == null:
+		return output
+	var contest_obj: Object = _select_async_stage_contest_for_leaderboard(contest_state)
+	if contest_obj == null:
+		return output
+	var contest_id: String = str(contest_obj.get("id", ""))
+	if contest_id.is_empty():
+		return output
+	output["contest_id"] = contest_id
+	output["contest_name"] = str(contest_obj.get("name", "Stage Contest"))
+	output["time_left"] = _format_async_contest_time_left(int(contest_obj.get("end_ts", 0)))
+	if not contest_state.has_method("build_stage_race_overall_leaderboard"):
+		return output
+	var rows_any: Variant = contest_state.call("build_stage_race_overall_leaderboard", contest_id, map_count, 10)
+	if typeof(rows_any) != TYPE_ARRAY:
+		return output
+	var rows_out: Array = []
+	for row_any in rows_any as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		var handle: String = str(row.get("player_name", row.get("player_id", "--")))
+		rows_out.append({
+			"handle": handle,
+			"total_time": _format_async_stage_total_time_ms(int(row.get("aggregate_time_ms", 0))),
+			"time_left": str(output.get("time_left", "--"))
+		})
+	output["rows"] = rows_out
+	return output
+
+func _select_async_stage_contest_for_leaderboard(contest_state: Node) -> Object:
+	var selected: Object = null
+	var scope: String = "WEEKLY"
+	var target_entry_usd: int = _current_async_paid_entry_usd()
+	var best_distance: int = 2147483647
+	var best_price: int = 2147483647
+	if contest_state.has_method("get_contests_by_scope"):
+		var contests_any: Variant = contest_state.call("get_contests_by_scope", scope)
+		if typeof(contests_any) == TYPE_ARRAY:
+			for contest_any in contests_any as Array:
+				var contest_obj: Object = contest_any as Object
+				if contest_obj == null:
+					continue
+				var price_usd: int = maxi(0, int(contest_obj.get("price", 0)))
+				if selected == null:
+					selected = contest_obj
+					best_price = price_usd
+					best_distance = abs(price_usd - target_entry_usd)
+					continue
+				if _async_track_mode == ASYNC_TRACK_PAID:
+					var next_distance: int = abs(price_usd - target_entry_usd)
+					if next_distance < best_distance or (next_distance == best_distance and price_usd < best_price):
+						selected = contest_obj
+						best_distance = next_distance
+						best_price = price_usd
+				elif price_usd < best_price:
+					selected = contest_obj
+					best_price = price_usd
+	if selected != null:
+		return selected
+	if contest_state.has_method("get_contest_by_scope"):
+		var fallback_any: Variant = contest_state.call("get_contest_by_scope", scope)
+		var fallback_obj: Object = fallback_any as Object
+		if fallback_obj != null:
+			return fallback_obj
+	return null
+
+func _format_async_contest_time_left(end_ts: int) -> String:
+	if end_ts <= 0:
+		return "--"
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	var remaining: int = maxi(0, end_ts - now_unix)
+	var days: int = remaining / 86400
+	var hours: int = (remaining % 86400) / 3600
+	var minutes: int = (remaining % 3600) / 60
+	if days > 0:
+		return "%dd %02dh" % [days, hours]
+	if hours > 0:
+		return "%dh %02dm" % [hours, minutes]
+	return "%dm" % minutes
+
+func _format_async_stage_total_time_ms(value_ms: int) -> String:
+	var clamped: int = maxi(0, value_ms)
+	var minutes: int = clamped / 60000
+	var seconds: int = (clamped % 60000) / 1000
+	var millis: int = clamped % 1000
+	return "%02d:%02d.%03d" % [minutes, seconds, millis]
+
 func _close_entry_route_modal() -> void:
 	if _entry_route_modal == null:
 		return
@@ -3467,9 +4171,128 @@ func _set_dash_chrome_visible(visible: bool) -> void:
 		dash_hexes.visible = visible
 	dash_tab.visible = visible
 
+func _set_dash_hidden_state() -> void:
+	_set_dash_chrome_visible(true)
+	_set_dash_offsets(_dash_hidden_x)
+	dash_panel.visible = false
+	_dash_open = false
+
+func _hive_panel_hidden_top() -> float:
+	var hidden_height: float = get_viewport_rect().size.y
+	if dash_panel != null:
+		hidden_height = maxf(hidden_height, dash_panel.size.y)
+	return -hidden_height - 24.0
+
+func _set_hive_panel_vertical_offset(offset_y: float) -> void:
+	if dash_hive_panel == null:
+		return
+	dash_hive_panel.offset_top = offset_y
+	dash_hive_panel.offset_bottom = offset_y
+
+func _close_hive_panel_immediate() -> void:
+	if _hive_panel_tween != null and _hive_panel_tween.is_running():
+		_hive_panel_tween.kill()
+	_hive_direct_mode = false
+	_set_hive_panel_vertical_offset(0.0)
+	if dash_hive_panel != null:
+		dash_hive_panel.visible = false
+
+func _open_hive_panel() -> void:
+	if _hive_direct_mode:
+		_close_hive_panel()
+		return
+	if _hive_dropdown_open:
+		_hide_hive_dropdown_immediate()
+	if _buffs_direct_mode:
+		_close_buffs_panel_immediate()
+	if async_panel != null:
+		async_panel.visible = false
+	if _store_direct_mode:
+		_close_storefront_panel()
+	if _settings_direct_mode:
+		_close_settings_panel()
+	if _dash_tween != null and _dash_tween.is_running():
+		_dash_tween.kill()
+	_hive_direct_mode = true
+	_hide_dash_panels()
+	_set_dash_chrome_visible(false)
+	_set_dash_offsets(0.0)
+	_set_hive_panel_vertical_offset(_hive_panel_hidden_top())
+	dash_panel.visible = true
+	dash_hive_panel.visible = true
+	_hive_panel_tween = create_tween()
+	_hive_panel_tween.tween_property(dash_hive_panel, "offset_top", 0.0, HIVE_PULLDOWN_DURATION).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_hive_panel_tween.parallel().tween_property(dash_hive_panel, "offset_bottom", 0.0, HIVE_PULLDOWN_DURATION).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_dash_open = true
+
+func _close_hive_panel() -> void:
+	if not _hive_direct_mode:
+		_close_dash_panel(dash_hive_panel)
+		return
+	if _hive_panel_tween != null and _hive_panel_tween.is_running():
+		_hive_panel_tween.kill()
+	_hive_direct_mode = false
+	var hidden_top: float = _hive_panel_hidden_top()
+	_hive_panel_tween = create_tween()
+	_hive_panel_tween.tween_property(dash_hive_panel, "offset_top", hidden_top, HIVE_PULLDOWN_DURATION).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	_hive_panel_tween.parallel().tween_property(dash_hive_panel, "offset_bottom", hidden_top, HIVE_PULLDOWN_DURATION).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	_hive_panel_tween.tween_callback(func() -> void:
+		_close_hive_panel_immediate()
+		_set_dash_hidden_state()
+	)
+
+func _on_dash_hive_close_pressed() -> void:
+	_close_hive_panel()
+
+func _open_buffs_panel() -> void:
+	if _buffs_direct_mode:
+		return
+	if _hive_dropdown_open:
+		_hide_hive_dropdown_immediate()
+	if _hive_direct_mode:
+		_close_hive_panel_immediate()
+	if async_panel != null:
+		async_panel.visible = false
+	if _store_direct_mode:
+		_close_storefront_panel()
+	if _settings_direct_mode:
+		_close_settings_panel()
+	if _dash_tween != null and _dash_tween.is_running():
+		_dash_tween.kill()
+	_buffs_direct_mode = true
+	_hide_dash_panels()
+	_set_dash_chrome_visible(false)
+	_set_dash_offsets(0.0)
+	dash_panel.visible = true
+	dash_buffs_panel.visible = true
+	_dash_open = true
+	_ensure_buffs_cart_ui()
+	_sync_buff_mode_tabs()
+	_sync_buff_category_tabs()
+	_refresh_buffs_library_buttons()
+	_refresh_buffs_cart_ui()
+
+func _close_buffs_panel_immediate() -> void:
+	_buffs_direct_mode = false
+	dash_buffs_panel.visible = false
+
+func _close_buffs_panel() -> void:
+	if not _buffs_direct_mode:
+		_close_dash_panel(dash_buffs_panel)
+		return
+	_close_buffs_panel_immediate()
+	_set_dash_hidden_state()
+
+func _on_dash_buffs_close_pressed() -> void:
+	_close_buffs_panel()
+
 func _open_storefront_panel() -> void:
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
+	if _buffs_direct_mode:
+		_close_buffs_panel_immediate()
+	if _hive_direct_mode:
+		_close_hive_panel_immediate()
 	if async_panel != null:
 		async_panel.visible = false
 	if _settings_direct_mode:
@@ -3495,6 +4318,10 @@ func _close_storefront_panel() -> void:
 func _open_settings_panel() -> void:
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
+	if _buffs_direct_mode:
+		_close_buffs_panel_immediate()
+	if _hive_direct_mode:
+		_close_hive_panel_immediate()
 	if async_panel != null:
 		async_panel.visible = false
 	if _store_direct_mode:
@@ -3530,6 +4357,14 @@ func _on_dash_settings_close_pressed() -> void:
 func _toggle_dash() -> void:
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
+	if _buffs_direct_mode:
+		_close_buffs_panel_immediate()
+		_set_dash_hidden_state()
+		return
+	if _hive_direct_mode:
+		_close_hive_panel_immediate()
+		_set_dash_hidden_state()
+		return
 	if _store_direct_mode:
 		_close_storefront_panel()
 		return
@@ -3567,6 +4402,12 @@ func _dash_stub_action(label: String) -> void:
 func _open_dash_panel(panel: Panel) -> void:
 	if panel == null:
 		return
+	if _buffs_direct_mode:
+		_close_buffs_panel_immediate()
+		_set_dash_chrome_visible(true)
+	if _hive_direct_mode:
+		_close_hive_panel_immediate()
+		_set_dash_chrome_visible(true)
 	if _store_direct_mode:
 		_store_direct_mode = false
 		_set_dash_chrome_visible(true)
@@ -3599,6 +4440,12 @@ func _hide_dash_panels() -> void:
 func _open_async_panel() -> void:
 	if async_panel == null:
 		return
+	if _buffs_direct_mode:
+		_close_buffs_panel_immediate()
+		_set_dash_hidden_state()
+	if _hive_direct_mode:
+		_close_hive_panel_immediate()
+		_set_dash_hidden_state()
 	if _store_direct_mode:
 		_close_storefront_panel()
 	if _settings_direct_mode:
@@ -3669,9 +4516,9 @@ func _show_async_track_select() -> void:
 func _open_async_paid_menu() -> void:
 	_async_track_mode = ASYNC_TRACK_PAID
 	if async_subtitle_label != null:
-		async_subtitle_label.text = "Cash track: choose weekly, monthly, yearly, or ladder."
+		async_subtitle_label.text = "Cash track: ladders now. Stage contest boards are listed below."
 	if async_top_row != null:
-		async_top_row.visible = true
+		async_top_row.visible = false
 	if async_bottom_row != null:
 		async_bottom_row.visible = true
 	if async_results_panel != null:
@@ -3692,7 +4539,7 @@ func _open_async_paid_menu() -> void:
 func _open_async_free_menu() -> void:
 	_async_track_mode = ASYNC_TRACK_FREE
 	if async_subtitle_label != null:
-		async_subtitle_label.text = "Freeplay track: pick a mode below."
+		async_subtitle_label.text = "Freeplay track: pick a mode below. Stage contest boards are listed below."
 	if async_top_row != null:
 		async_top_row.visible = false
 	if async_bottom_row != null:
@@ -4082,6 +4929,13 @@ func _init_dash_state() -> void:
 	_set_dash_chrome_visible(true)
 	_store_direct_mode = false
 	_settings_direct_mode = false
+	_buffs_direct_mode = false
+	_hive_direct_mode = false
+	if _hive_panel_tween != null and _hive_panel_tween.is_running():
+		_hive_panel_tween.kill()
+	_set_hive_panel_vertical_offset(0.0)
+	dash_buffs_panel.visible = false
+	dash_hive_panel.visible = false
 	_dash_tab_closed_left = dash_tab.offset_left + DASH_TAB_CLOSED_EDGE_SHIFT
 	_dash_tab_closed_right = dash_tab.offset_right + DASH_TAB_CLOSED_EDGE_SHIFT
 	dash_tab.offset_left = _dash_tab_closed_left

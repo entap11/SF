@@ -11,6 +11,8 @@ const PROFILE_KEY_SFX_ENABLED: String = "sfx_enabled"
 const PROFILE_KEY_HAPTICS_ENABLED: String = "haptics_enabled"
 const PROFILE_KEY_FLOOR_GRAPHICS_ENABLED: String = "floor_graphics_enabled"
 const PROFILE_KEY_PERFORMANCE_MODE: String = "performance_mode"
+const PROFILE_KEY_ADMIN_DASHBOARD_USERNAME: String = "admin_dashboard_username"
+const PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD: String = "admin_dashboard_password"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player "
@@ -22,6 +24,8 @@ const PERFORMANCE_MODE_QUALITY: String = "quality"
 const PERFORMANCE_MODE_BALANCED: String = "balanced"
 const PERFORMANCE_MODE_PERFORMANCE: String = "performance"
 const DEFAULT_HONEY_BALANCE: int = 12480
+const DEFAULT_ADMIN_DASHBOARD_USERNAME: String = "Mattballou"
+const DEFAULT_ADMIN_DASHBOARD_PASSWORD: String = "$warmFr0nt"
 const DEFAULT_BUFF_LOADOUT_IDS: Array[String] = [
 	"buff_swarm_speed_classic",
 	"buff_hive_faster_production_classic",
@@ -48,6 +52,8 @@ var _sfx_enabled: bool = true
 var _haptics_enabled: bool = true
 var _floor_graphics_enabled: bool = true
 var _performance_mode: String = PERFORMANCE_MODE_QUALITY
+var _admin_dashboard_username: String = DEFAULT_ADMIN_DASHBOARD_USERNAME
+var _admin_dashboard_password: String = DEFAULT_ADMIN_DASHBOARD_PASSWORD
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -84,6 +90,8 @@ func ensure_loaded() -> void:
 		_haptics_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_HAPTICS_ENABLED, true))
 		_floor_graphics_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_FLOOR_GRAPHICS_ENABLED, true))
 		_performance_mode = _sanitize_performance_mode(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, PERFORMANCE_MODE_QUALITY)))
+		_admin_dashboard_username = _sanitize_admin_dashboard_username(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_USERNAME, DEFAULT_ADMIN_DASHBOARD_USERNAME)))
+		_admin_dashboard_password = _sanitize_admin_dashboard_password(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD, DEFAULT_ADMIN_DASHBOARD_PASSWORD)))
 		_owned_buff_ids = _sanitize_owned_ids(cfg.get_value(PROFILE_SECTION, "owned_buff_ids", []))
 		_buff_loadout_ids = _sanitize_loadout_ids(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids", []))
 		_owned_buff_ids_by_mode = _sanitize_owned_mode_map(cfg.get_value(PROFILE_SECTION, "owned_buff_ids_by_mode", {}))
@@ -104,6 +112,8 @@ func ensure_loaded() -> void:
 		_haptics_enabled = true
 		_floor_graphics_enabled = true
 		_performance_mode = PERFORMANCE_MODE_QUALITY
+		_admin_dashboard_username = DEFAULT_ADMIN_DASHBOARD_USERNAME
+		_admin_dashboard_password = DEFAULT_ADMIN_DASHBOARD_PASSWORD
 		_owned_buff_ids = _default_owned_ids()
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
 		_honey_balance = DEFAULT_HONEY_BALANCE
@@ -125,6 +135,14 @@ func ensure_loaded() -> void:
 		var clean_mode: String = _sanitize_performance_mode(_performance_mode)
 		if clean_mode != _performance_mode:
 			_performance_mode = clean_mode
+			updated = true
+		var clean_admin_username: String = _sanitize_admin_dashboard_username(_admin_dashboard_username)
+		if clean_admin_username != _admin_dashboard_username:
+			_admin_dashboard_username = clean_admin_username
+			updated = true
+		var clean_admin_password: String = _sanitize_admin_dashboard_password(_admin_dashboard_password)
+		if clean_admin_password != _admin_dashboard_password:
+			_admin_dashboard_password = clean_admin_password
 			updated = true
 		if _owned_buff_ids.is_empty():
 			_owned_buff_ids = _default_owned_ids()
@@ -362,6 +380,31 @@ func set_performance_mode(mode: String) -> void:
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_PERFORMANCE_MODE", {"user_id": _user_id, "mode": _performance_mode})
 
+func get_admin_dashboard_username() -> String:
+	ensure_loaded()
+	return _admin_dashboard_username
+
+func set_admin_dashboard_username(username: String) -> void:
+	set_admin_dashboard_credentials(username, _admin_dashboard_password)
+
+func get_admin_dashboard_password() -> String:
+	ensure_loaded()
+	return _admin_dashboard_password
+
+func set_admin_dashboard_password(password: String) -> void:
+	set_admin_dashboard_credentials(_admin_dashboard_username, password)
+
+func set_admin_dashboard_credentials(username: String, password: String) -> void:
+	ensure_loaded()
+	var next_username: String = _sanitize_admin_dashboard_username(username)
+	var next_password: String = _sanitize_admin_dashboard_password(password)
+	if next_username == _admin_dashboard_username and next_password == _admin_dashboard_password:
+		return
+	_admin_dashboard_username = next_username
+	_admin_dashboard_password = next_password
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_ADMIN_DASHBOARD_CREDENTIALS_SET", {"user_id": _user_id, "username": _admin_dashboard_username})
+
 func get_content_scale_factor() -> float:
 	ensure_loaded()
 	match _performance_mode:
@@ -482,6 +525,8 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_HAPTICS_ENABLED, _haptics_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_FLOOR_GRAPHICS_ENABLED, _floor_graphics_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, _performance_mode)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_USERNAME, _admin_dashboard_username)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD, _admin_dashboard_password)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids", _owned_buff_ids)
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids", _buff_loadout_ids)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids_by_mode", _owned_buff_ids_by_mode)
@@ -530,6 +575,12 @@ func _sanitize_performance_mode(mode: String) -> String:
 	if cleaned != PERFORMANCE_MODE_QUALITY and cleaned != PERFORMANCE_MODE_BALANCED and cleaned != PERFORMANCE_MODE_PERFORMANCE:
 		return PERFORMANCE_MODE_QUALITY
 	return cleaned
+
+func _sanitize_admin_dashboard_username(username: String) -> String:
+	return username.strip_edges()
+
+func _sanitize_admin_dashboard_password(password: String) -> String:
+	return password
 
 func _sanitize_user_id(raw: String) -> String:
 	var cleaned: String = raw.strip_edges().to_lower()

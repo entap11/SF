@@ -176,6 +176,45 @@ text = "Floor Graphics"
 layout_mode = 2
 text = "ON"
 
+[node name="AdminSection" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="AdminLabel" type="Label" parent="VBox/AdminSection"]
+layout_mode = 2
+text = "Admin"
+
+[node name="AdminCredentialsRow" type="HBoxContainer" parent="VBox/AdminSection"]
+layout_mode = 2
+
+[node name="AdminUsernameInput" type="LineEdit" parent="VBox/AdminSection/AdminCredentialsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Username"
+text = "Mattballou"
+
+[node name="AdminPasswordInput" type="LineEdit" parent="VBox/AdminSection/AdminCredentialsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+secret = true
+placeholder_text = "Password"
+text = "$warmFr0nt"
+
+[node name="AdminRow" type="HBoxContainer" parent="VBox/AdminSection"]
+layout_mode = 2
+
+[node name="AdminHint" type="Label" parent="VBox/AdminSection/AdminRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Analytics Dashboard"
+
+[node name="AdminOpenButton" type="Button" parent="VBox/AdminSection/AdminRow"]
+layout_mode = 2
+text = "Admin Login"
+
+[node name="AdminStatusLabel" type="Label" parent="VBox/AdminSection"]
+layout_mode = 2
+text = "Private admin dashboard. Use in-app credentials."
+
 [node name="RenamePolicyLabel" type="Label" parent="VBox"]
 layout_mode = 2
 text = "Display-name edits are free in dev. Paid rename flow ships in production."

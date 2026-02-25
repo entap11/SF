@@ -16,6 +16,9 @@ const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
 const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
+const MatchTelemetryModelScript := preload("res://scripts/state/match_telemetry_model.gd")
+const MatchTelemetryCollectorScript := preload("res://scripts/state/match_telemetry_collector.gd")
+const MatchAnalyzerScript := preload("res://scripts/state/match_analyzer.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaWorldViewportCache := preload("res://scripts/arena_helpers/world_viewport_cache.gd")
 const ArenaStageRuntimeFlow := preload("res://scripts/arena_helpers/stage_runtime_flow.gd")
@@ -307,6 +310,11 @@ const RUNTIME_SUPPORTED_BUFF_EFFECT_TYPES: Dictionary = {
 	"lane_insight": true
 }
 var current_map_data: Dictionary = {}
+var _match_telemetry_collector: Variant = MatchTelemetryCollectorScript.new()
+var _match_analyzer: Variant = MatchAnalyzerScript.new()
+var _post_match_analysis_summary: Dictionary = {}
+var _post_match_telemetry_path: String = ""
+var _telemetry_active: bool = false
 var _map_build_version: int = 0
 var _map_built_version: int = -1
 var _map_bounds_size: Vector2 = Vector2.ZERO
@@ -1599,6 +1607,9 @@ func _start_match_sim(reason: String) -> void:
 	if _match_started:
 		return
 	_match_started = true
+	_post_match_analysis_summary.clear()
+	_post_match_telemetry_path = ""
+	_begin_match_telemetry_session(reason)
 	_prewarm_render_assets()
 	var iid := 0
 	if sim_runner != null:
@@ -1608,6 +1619,164 @@ func _start_match_sim(reason: String) -> void:
 	if floor_influence_system != null:
 		floor_influence_system.notify_match_started()
 	SFLog.info("MATCH_STARTED", {"iid": iid, "reason": reason})
+
+func _begin_match_telemetry_session(reason: String) -> void:
+	_telemetry_active = false
+	_post_match_analysis_summary.clear()
+	_post_match_telemetry_path = ""
+	if state == null:
+		return
+	if _match_telemetry_collector == null:
+		_match_telemetry_collector = MatchTelemetryCollectorScript.new()
+	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		_match_telemetry_collector.call("reset")
+	if _match_telemetry_collector == null or not _match_telemetry_collector.has_method("begin_match"):
+		return
+	var player_ids: Array[int] = _record_active_seats()
+	if player_ids.is_empty():
+		var owners_seen: Dictionary = {}
+		for hive_any in state.hives:
+			if not (hive_any is HiveData):
+				continue
+			var owner_id: int = int((hive_any as HiveData).owner_id)
+			if owner_id <= 0:
+				continue
+			owners_seen[owner_id] = true
+		for owner_key in owners_seen.keys():
+			var owner_id_any: int = int(owner_key)
+			if owner_id_any <= 0:
+				continue
+			player_ids.append(owner_id_any)
+		player_ids.sort()
+	if player_ids.is_empty():
+		player_ids = [1, 2]
+	var match_id: String = _resolve_telemetry_match_id(reason)
+	var season_id: String = _resolve_telemetry_season_id()
+	var map_id: String = _resolve_telemetry_map_id()
+	var match_type: int = _resolve_telemetry_match_type()
+	var start_utc_ms: int = _telemetry_utc_ms_now()
+	_match_telemetry_collector.call(
+		"begin_match",
+		match_id,
+		season_id,
+		map_id,
+		match_type,
+		player_ids,
+		start_utc_ms
+	)
+	var active_any: Variant = false
+	if _match_telemetry_collector.has_method("is_active"):
+		active_any = _match_telemetry_collector.call("is_active")
+	_telemetry_active = bool(active_any)
+	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
+		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
+	SFLog.info("TELEMETRY_BEGIN", {
+		"match_id": match_id,
+		"season_id": season_id,
+		"map_id": map_id,
+		"match_type": match_type,
+		"players": player_ids,
+		"reason": reason
+	})
+
+func _finalize_match_telemetry_session(winner_id_in: int) -> void:
+	if not _telemetry_active:
+		return
+	if _match_telemetry_collector == null:
+		_telemetry_active = false
+		return
+	var end_utc_ms: int = _telemetry_utc_ms_now()
+	if not _match_telemetry_collector.has_method("finalize_match"):
+		_telemetry_active = false
+		return
+	var telemetry_model: Variant = _match_telemetry_collector.call("finalize_match", winner_id_in, end_utc_ms)
+	var summary_any: Variant = {}
+	if _match_analyzer != null and _match_analyzer.has_method("analyze"):
+		summary_any = _match_analyzer.call("analyze", telemetry_model, clampi(active_player_id, 1, 4))
+	var summary: Dictionary = summary_any as Dictionary if typeof(summary_any) == TYPE_DICTIONARY else {}
+	_post_match_analysis_summary = summary.duplicate(true)
+	if _match_telemetry_collector.has_method("attach_analysis_summary"):
+		_match_telemetry_collector.call("attach_analysis_summary", summary)
+	var save_result_any: Variant = {}
+	if _match_telemetry_collector.has_method("save_to_user"):
+		save_result_any = _match_telemetry_collector.call("save_to_user", telemetry_model)
+	var save_result: Dictionary = save_result_any as Dictionary if typeof(save_result_any) == TYPE_DICTIONARY else {}
+	if bool(save_result.get("ok", false)):
+		_post_match_telemetry_path = str(save_result.get("path", ""))
+	else:
+		_post_match_telemetry_path = ""
+		SFLog.warn("TELEMETRY_SAVE_FAILED", save_result)
+	_telemetry_active = false
+	SFLog.info("TELEMETRY_FINALIZE", {
+		"winner_id": winner_id_in,
+		"summary_insights": int(_post_match_analysis_summary.get("insights", []).size()),
+		"save_path": _post_match_telemetry_path
+	})
+
+func _telemetry_utc_ms_now() -> int:
+	return int(round(Time.get_unix_time_from_system() * 1000.0))
+
+func _resolve_telemetry_match_id(reason: String) -> String:
+	var utc_ms: int = _telemetry_utc_ms_now()
+	var map_id: String = _resolve_telemetry_map_id()
+	var match_type: int = _resolve_telemetry_match_type()
+	var reason_tag: String = reason.strip_edges().to_lower()
+	if reason_tag == "":
+		reason_tag = "start"
+	var seed_tag: int = int(abs(match_seed)) % 1000000
+	return "m_%d_%s_t%d_s%d_%s" % [utc_ms, map_id, match_type, seed_tag, reason_tag]
+
+func _resolve_telemetry_season_id() -> String:
+	var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
+	if battle_pass_state != null and battle_pass_state.has_method("get_snapshot"):
+		var snapshot_any: Variant = battle_pass_state.call("get_snapshot")
+		if typeof(snapshot_any) == TYPE_DICTIONARY:
+			var snapshot: Dictionary = snapshot_any as Dictionary
+			var season_from_bp: String = str(snapshot.get("season_id", "")).strip_edges()
+			if season_from_bp != "":
+				return season_from_bp
+	var swarm_pass_state: Node = get_node_or_null("/root/SwarmPassState")
+	if swarm_pass_state != null and swarm_pass_state.has_method("get_snapshot"):
+		var swarm_snapshot_any: Variant = swarm_pass_state.call("get_snapshot")
+		if typeof(swarm_snapshot_any) == TYPE_DICTIONARY:
+			var swarm_snapshot: Dictionary = swarm_snapshot_any as Dictionary
+			var season_from_swarm: String = str(swarm_snapshot.get("season_id", "")).strip_edges()
+			if season_from_swarm != "":
+				return season_from_swarm
+	return "local_beta"
+
+func _resolve_telemetry_map_id() -> String:
+	var map_id: String = current_map_name.strip_edges()
+	if map_id == "" and current_map_path != "":
+		map_id = current_map_path.get_file()
+	map_id = map_id.get_basename().strip_edges()
+	if map_id == "":
+		map_id = "unknown_map"
+	return map_id
+
+func _resolve_telemetry_match_type() -> int:
+	if _is_stage_race_runtime_mode():
+		return int(MatchTelemetryModelScript.MATCH_TYPE_ASYNC)
+	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("is_active"):
+		if bool(_vs_pvp_runtime.call("is_active")):
+			return int(MatchTelemetryModelScript.MATCH_TYPE_VS)
+	var roster: Array = OpsState.match_roster if OpsState != null else []
+	var active_count: int = 0
+	var human_count: int = 0
+	for entry_any in roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		if not bool(entry.get("active", true)):
+			continue
+		active_count += 1
+		if not bool(entry.get("is_cpu", false)):
+			human_count += 1
+	if human_count >= 2:
+		return int(MatchTelemetryModelScript.MATCH_TYPE_VS)
+	if active_count >= 2:
+		return int(MatchTelemetryModelScript.MATCH_TYPE_BOT)
+	return int(MatchTelemetryModelScript.MATCH_TYPE_ASYNC)
 
 func _bind_powerbar_signals() -> void:
 	# UI observes OpsState; no sim-driven UI mutations.
@@ -1708,6 +1877,8 @@ func _init_systems() -> void:
 			tower_system.set_sim_events(sim_events)
 	if unit_system != null and sim_events != null and unit_system.has_method("set_sim_events"):
 		unit_system.set_sim_events(sim_events)
+	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
+		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
 	if barracks_system != null:
 		if not barracks_system.barracks_activated.is_connected(_on_barracks_activated):
 			barracks_system.barracks_activated.connect(_on_barracks_activated)
@@ -1735,6 +1906,8 @@ func _ensure_sim_runner() -> void:
 		sim_runner.post_match_action.connect(_on_post_match_action)
 	unit_system = sim_runner.unit_system if sim_runner != null else null
 	swarm_system = sim_runner.swarm_system if sim_runner != null else null
+	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
+		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
 
 func _ensure_sim_events() -> void:
 	if sim_events != null and is_instance_valid(sim_events):
@@ -1921,6 +2094,8 @@ func _on_sim_ticked() -> void:
 	if was_post_match_frozen:
 		_end_post_match_settle_if_supported()
 	_update_buff_states()
+	if _telemetry_active and _match_telemetry_collector != null and state != null and _match_telemetry_collector.has_method("sample_state"):
+		_match_telemetry_collector.call("sample_state", int(_authoritative_sim_time_us() / 1000), TICK_DT, state)
 	mark_render_dirty("sim_tick")
 	# SimRunner already ticks at fixed cadence; pushing every sim tick avoids
 	# time-gate jitter (99ms/101ms skip pattern) that reads as sawtooth motion.
@@ -1965,6 +2140,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	winner_id = winner_id_in
 	end_reason = reason
 	_commit_match_records(winner_id_in)
+	_finalize_match_telemetry_session(winner_id_in)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
@@ -1972,6 +2148,8 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	if _controls_hint_controller != null:
 		_controls_hint_controller.hide(false)
 	if _is_stage_race_runtime_mode():
+		if outcome_overlay != null and outcome_overlay.has_method("clear_post_match_summary"):
+			outcome_overlay.call("clear_post_match_summary")
 		_show_stage_race_round_overlay(winner_id_in, reason)
 		if sim_runner != null:
 			sim_runner.log_pause_snapshot("arena_show_stage_round_outcome")
@@ -1984,6 +2162,8 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 		var record_text: String = _get_player_record_line(record_slot)
 		var h2h_text: String = _get_h2h_record_line()
 		outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
+		if outcome_overlay.has_method("set_post_match_summary"):
+			outcome_overlay.call("set_post_match_summary", _post_match_analysis_summary, winner_id_in, active_player_id)
 	else:
 		SFLog.warn("POSTMATCH_UI_MISSING", {"kind": "outcome_overlay"})
 	if sim_runner != null:
@@ -2272,6 +2452,13 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	game_over = false
 	winner_id = -1
 	end_reason = ""
+	_telemetry_active = false
+	_post_match_analysis_summary.clear()
+	_post_match_telemetry_path = ""
+	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		_match_telemetry_collector.call("reset")
+	if outcome_overlay != null and outcome_overlay.has_method("clear_post_match_summary"):
+		outcome_overlay.call("clear_post_match_summary")
 	if api != null:
 		api.bind_state(state)
 	_ensure_sim_runner()
@@ -4659,7 +4846,79 @@ func request_buff_drop(pid: int, slot_index: int, world_pos: Vector2) -> Diction
 		return result
 	result["buff_id"] = str(slot.get("id", ""))
 	result["ends_ms"] = int(slot.get("ends_ms", 0))
+	_record_match_telemetry_buff_activation(
+		int(result.get("pid", pid)),
+		str(result.get("buff_id", "")),
+		result.get("target", {}),
+		int(_authoritative_sim_time_us() / 1000)
+	)
 	return result
+
+func _record_match_telemetry_buff_activation(
+	pid: int,
+	buff_id: String,
+	target_ctx_any: Variant,
+	now_ms: int
+) -> void:
+	if not _telemetry_active:
+		return
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_buff_activation"):
+		return
+	var safe_pid: int = maxi(0, pid)
+	if safe_pid <= 0:
+		return
+	var clean_buff_id: String = buff_id.strip_edges()
+	if clean_buff_id == "":
+		return
+	var target_ctx: Dictionary = {}
+	if typeof(target_ctx_any) == TYPE_DICTIONARY:
+		target_ctx = (target_ctx_any as Dictionary).duplicate(true)
+	var buff_def: Dictionary = BuffCatalog.get_buff(clean_buff_id)
+	var canonical_id: String = str(buff_def.get("canonical_id", clean_buff_id)).strip_edges()
+	if canonical_id == "":
+		canonical_id = clean_buff_id
+	var scope: String = _telemetry_scope_from_buff(canonical_id, buff_def)
+	var target_id: Variant = _telemetry_target_id_for_scope(scope, target_ctx)
+	_match_telemetry_collector.call(
+		"record_buff_activation",
+		maxi(0, now_ms),
+		safe_pid,
+		canonical_id,
+		scope,
+		target_id
+	)
+
+func _telemetry_scope_from_buff(canonical_buff_id: String, buff_def: Dictionary) -> String:
+	var canonical_id: String = canonical_buff_id.strip_edges().to_upper()
+	var category: String = str(buff_def.get("category", "")).strip_edges().to_lower()
+	var target_type: String = str(buff_def.get("target_type", "")).strip_edges().to_lower()
+	if target_type == BuffDefinitions.TARGET_HIVE:
+		return "HIVE"
+	if target_type == BuffDefinitions.TARGET_LANE:
+		return "LANE"
+	if category == BuffDefinitions.CATEGORY_UNIT:
+		return "UNIT"
+	if category == BuffDefinitions.CATEGORY_LANE:
+		return "LANE"
+	if category == BuffDefinitions.CATEGORY_HIVE:
+		if canonical_id == BuffDefinitions.HIVE_GLOBAL_PRODUCTION_BOOST or canonical_id == BuffDefinitions.HIVE_SHIELD_GLOBAL:
+			return "GLOBAL"
+		return "HIVE"
+	return "GLOBAL"
+
+func _telemetry_target_id_for_scope(scope: String, target_ctx: Dictionary) -> Variant:
+	var scope_key: String = scope.strip_edges().to_upper()
+	if scope_key == "HIVE" or scope_key == "UNIT":
+		var hive_id: int = int(target_ctx.get("hive_id", -1))
+		if hive_id > 0:
+			return hive_id
+	if scope_key == "LANE":
+		var lane_id: int = int(target_ctx.get("lane_id", -1))
+		if lane_id > 0:
+			return lane_id
+	return ""
 
 func _buff_target_context_from_world(world_pos: Vector2) -> Dictionary:
 	var local_pos: Vector2 = world_pos
@@ -4764,6 +5023,8 @@ func _reset_sim_state() -> void:
 	_reset_drag()
 	if outcome_overlay != null:
 		outcome_overlay.visible = false
+		if outcome_overlay.has_method("clear_post_match_summary"):
+			outcome_overlay.call("clear_post_match_summary")
 	if timer_label != null:
 		timer_label.visible = false
 	_timer_last_seconds = -1
@@ -4776,6 +5037,11 @@ func _reset_sim_state() -> void:
 	_prematch_countdown_faded = false
 	_prematch_ui_state_logged = false
 	_match_started = false
+	_telemetry_active = false
+	_post_match_analysis_summary.clear()
+	_post_match_telemetry_path = ""
+	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		_match_telemetry_collector.call("reset")
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
 	if selection_hud != null:

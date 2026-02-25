@@ -9,6 +9,9 @@ const DEV_ALLOW_UID_EDIT: bool = false
 const PERF_MODE_QUALITY: String = "quality"
 const PERF_MODE_BALANCED: String = "balanced"
 const PERF_MODE_PERFORMANCE: String = "performance"
+const ADMIN_DASHBOARD_URL_DEFAULT: String = "http://127.0.0.1:8787/dashboard"
+const ADMIN_DASHBOARD_USERNAME_DEFAULT: String = "Mattballou"
+const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = "$warmFr0nt"
 
 @onready var profile_dropdown: OptionButton = $VBox/ProfileRow/ProfileDropdown
 @onready var display_name_input: LineEdit = $VBox/ProfileRow/DisplayNameInput
@@ -23,12 +26,19 @@ const PERF_MODE_PERFORMANCE: String = "performance"
 @onready var haptics_toggle: CheckButton = $VBox/AudioSection/HapticsRow/HapticsToggle
 @onready var performance_mode_option: OptionButton = $VBox/PerformanceSection/PerformanceModeRow/PerformanceModeOption
 @onready var floor_graphics_toggle: CheckButton = $VBox/PerformanceSection/FloorGraphicsRow/FloorGraphicsToggle
+@onready var admin_section: VBoxContainer = $VBox/AdminSection
+@onready var admin_open_button: Button = $VBox/AdminSection/AdminRow/AdminOpenButton
+@onready var admin_username_input: LineEdit = $VBox/AdminSection/AdminCredentialsRow/AdminUsernameInput
+@onready var admin_password_input: LineEdit = $VBox/AdminSection/AdminCredentialsRow/AdminPasswordInput
+@onready var admin_status_label: Label = $VBox/AdminSection/AdminStatusLabel
 @onready var buttons_row: HBoxContainer = $VBox/ButtonsRow
 @onready var new_button: Button = $VBox/ButtonsRow/NewProfileButton
 @onready var rename_button: Button = $VBox/ButtonsRow/RenameButton
 @onready var delete_button: Button = $VBox/ButtonsRow/DeleteButton
 @onready var rename_dialog: AcceptDialog = $RenameDialog
 @onready var rename_input: LineEdit = $RenameDialog/RenameInput
+@export var admin_dashboard_url: String = ADMIN_DASHBOARD_URL_DEFAULT
+@export var admin_tools_enabled_in_release: bool = false
 
 func _ready() -> void:
 	ProfileManager.ensure_loaded()
@@ -47,8 +57,15 @@ func _ready() -> void:
 	haptics_toggle.toggled.connect(_on_haptics_toggled)
 	performance_mode_option.item_selected.connect(_on_performance_mode_selected)
 	floor_graphics_toggle.toggled.connect(_on_floor_graphics_toggled)
+	admin_username_input.text_submitted.connect(_on_admin_credentials_submitted)
+	admin_password_input.text_submitted.connect(_on_admin_credentials_submitted)
+	admin_username_input.focus_exited.connect(_on_admin_credentials_focus_exited)
+	admin_password_input.focus_exited.connect(_on_admin_credentials_focus_exited)
+	admin_open_button.pressed.connect(_on_admin_open_pressed)
 	_disable_legacy_profile_controls()
 	_set_uid_edit_enabled(DEV_ALLOW_UID_EDIT)
+	_refresh_admin_credentials()
+	_refresh_admin_tools()
 	_build_performance_options()
 	_refresh_options()
 	_refresh_display_name()
@@ -277,3 +294,75 @@ func _on_floor_graphics_toggled(enabled: bool) -> void:
 	var arena_any: Node = tree.get_first_node_in_group("Arena")
 	if arena_any != null and arena_any.has_method("set_floor_graphics_enabled"):
 		arena_any.call("set_floor_graphics_enabled", enabled)
+
+func _refresh_admin_tools() -> void:
+	var enabled: bool = OS.is_debug_build() or admin_tools_enabled_in_release
+	admin_section.visible = enabled
+	admin_open_button.visible = enabled
+	admin_open_button.disabled = not enabled
+	admin_status_label.visible = enabled
+	admin_status_label.text = "Private admin dashboard. Use in-app credentials."
+
+func _refresh_admin_credentials() -> void:
+	var username: String = ADMIN_DASHBOARD_USERNAME_DEFAULT
+	var password: String = ADMIN_DASHBOARD_PASSWORD_DEFAULT
+	if ProfileManager.has_method("get_admin_dashboard_username"):
+		username = str(ProfileManager.call("get_admin_dashboard_username"))
+	if ProfileManager.has_method("get_admin_dashboard_password"):
+		password = str(ProfileManager.call("get_admin_dashboard_password"))
+	admin_username_input.text = username
+	admin_password_input.text = password
+
+func _persist_admin_credentials() -> void:
+	if not ProfileManager.has_method("set_admin_dashboard_credentials"):
+		return
+	var username: String = admin_username_input.text.strip_edges()
+	var password: String = admin_password_input.text
+	ProfileManager.call("set_admin_dashboard_credentials", username, password)
+
+func _build_auth_dashboard_url(base_url: String, username: String, password: String) -> String:
+	var clean_username: String = username.strip_edges()
+	if clean_username == "" or password == "":
+		return base_url
+	var scheme_sep_index: int = base_url.find("://")
+	if scheme_sep_index < 0:
+		return base_url
+	var scheme_prefix: String = base_url.substr(0, scheme_sep_index + 3)
+	var remainder: String = base_url.substr(scheme_sep_index + 3, base_url.length() - (scheme_sep_index + 3))
+	var slash_index: int = remainder.find("/")
+	var authority: String = remainder if slash_index < 0 else remainder.substr(0, slash_index)
+	var suffix: String = "" if slash_index < 0 else remainder.substr(slash_index, remainder.length() - slash_index)
+	var at_index: int = authority.rfind("@")
+	if at_index >= 0:
+		authority = authority.substr(at_index + 1, authority.length() - (at_index + 1))
+	var credential_block: String = "%s:%s@" % [clean_username.uri_encode(), password.uri_encode()]
+	return scheme_prefix + credential_block + authority + suffix
+
+func _on_admin_open_pressed() -> void:
+	var enabled: bool = OS.is_debug_build() or admin_tools_enabled_in_release
+	if not enabled:
+		admin_status_label.text = "Admin tools disabled in this build."
+		return
+	var url: String = admin_dashboard_url.strip_edges()
+	if url == "":
+		admin_status_label.text = "Dashboard URL missing."
+		return
+	_persist_admin_credentials()
+	var username: String = admin_username_input.text.strip_edges()
+	var password: String = admin_password_input.text
+	var open_url: String = _build_auth_dashboard_url(url, username, password)
+	var err: Error = OS.shell_open(open_url)
+	if err == OK:
+		if username == "" or password == "":
+			admin_status_label.text = "Opened dashboard. Browser prompt expected (missing saved credentials)."
+		else:
+			admin_status_label.text = "Opened dashboard with saved credentials."
+	else:
+		admin_status_label.text = "Failed to open dashboard (%d)." % int(err)
+
+func _on_admin_credentials_submitted(_text: String) -> void:
+	_persist_admin_credentials()
+	admin_status_label.text = "Admin credentials saved."
+
+func _on_admin_credentials_focus_exited() -> void:
+	_persist_admin_credentials()

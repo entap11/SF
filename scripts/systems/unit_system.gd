@@ -56,6 +56,7 @@ var _pass_through_queue_by_key: Dictionary = {}
 var _pass_through_emit_accum_ms_by_key: Dictionary = {}
 var _pass_through_last_log_ms_by_key: Dictionary = {}
 var _pending_tower_hits: Array = []
+var _match_telemetry_collector: RefCounted = null
 
 const UNIT_SPEED_LOG_INTERVAL_MS := 1000
 const PRESSURE_WARN_INTERVAL_MS := 1000
@@ -92,6 +93,9 @@ func bind_state(state_ref: GameState) -> void:
 
 func set_sim_events(sim_events: SimEvents) -> void:
 	_sim_events = sim_events
+
+func set_match_telemetry_collector(collector: RefCounted) -> void:
+	_match_telemetry_collector = collector
 
 func tick(dt: float) -> void:
 	if state == null:
@@ -246,6 +250,7 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		"pos": pos
 	}
 	unit_id_counter += 1
+	_telemetry_record_unit_produced(int(from_hive.owner_id), int(unit.get("amount", 1)))
 	if SFLog.verbose_sim:
 		SFLog.info("UNIT_SPAWN", {
 			"iid": int(state.iid),
@@ -375,6 +380,16 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 				_adjust_lane_pressure(int(lane_id), false, -kill)
 				OpsState.add_units_killed(a_owner, kill)
 				OpsState.add_units_killed(b_owner, kill)
+				_telemetry_record_collision(
+					int(round(float(now_us) / 1000.0)),
+					int(lane_id),
+					collision_t,
+					a_before,
+					b_before,
+					a_owner,
+					b_owner,
+					kill
+				)
 			a["amount"] = a_amt
 			b["amount"] = b_amt
 			a["t"] = collision_t
@@ -681,7 +696,10 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 			if overflow > 0:
 				_pass_through_arrival(hive, pass_owner, overflow)
 	else:
+		var applied_damage: int = mini(maxi(0, before_power), maxi(0, amount))
 		hive.power -= amount
+		if owner_id > 0 and before_owner > 0 and applied_damage > 0:
+			_telemetry_record_hive_damage(owner_id, before_owner, applied_damage)
 		if hive.power <= 0:
 			hive.owner_id = owner_id
 			hive.power = clampi(SimTuning.CAPTURE_START_POWER, 1, SimTuning.MAX_POWER)
@@ -1283,8 +1301,65 @@ func spawn_unit(unit: Dictionary) -> void:
 		unit["t"] = 1.0
 	unit = _ensure_unit_edges(unit)
 	unit = _update_unit_pos_from_t(unit)
+	_telemetry_record_unit_produced(int(unit.get("owner_id", 0)), int(unit.get("amount", 1)))
 	units.append(unit)
 	_sync_units_to_state()
+
+func _telemetry_match_ms() -> int:
+	return maxi(0, int(round(float(sim_time_us) / 1000.0)))
+
+func _telemetry_record_unit_produced(player_id: int, count: int) -> void:
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_unit_produced"):
+		return
+	var safe_player_id: int = maxi(0, player_id)
+	var safe_count: int = maxi(0, count)
+	if safe_player_id <= 0 or safe_count <= 0:
+		return
+	_match_telemetry_collector.call("record_unit_produced", _telemetry_match_ms(), safe_player_id, safe_count)
+
+func _telemetry_record_collision(
+	t_ms: int,
+	lane_id: int,
+	pos_scalar: float,
+	units_a: int,
+	units_b: int,
+	owner_a: int,
+	owner_b: int,
+	units_lost_each: int
+) -> void:
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_collision_event"):
+		return
+	_match_telemetry_collector.call(
+		"record_collision_event",
+		maxi(0, t_ms),
+		lane_id,
+		clampf(pos_scalar, 0.0, 1.0),
+		maxi(0, units_a),
+		maxi(0, units_b),
+		owner_a,
+		owner_b,
+		maxi(0, units_lost_each)
+	)
+
+func _telemetry_record_hive_damage(attacker_id: int, defender_id: int, damage_amount: int) -> void:
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_hive_damage"):
+		return
+	var safe_damage: int = maxi(0, damage_amount)
+	if safe_damage <= 0:
+		return
+	_match_telemetry_collector.call(
+		"record_hive_damage",
+		_telemetry_match_ms(),
+		maxi(0, attacker_id),
+		maxi(0, defender_id),
+		safe_damage
+	)
 
 func export_units_render() -> Array:
 	return units.duplicate(true)
