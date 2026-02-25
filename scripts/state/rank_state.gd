@@ -12,6 +12,7 @@ const RankMatchmakerScript = preload("res://scripts/state/rank_matchmaker.gd")
 
 signal rank_state_changed(snapshot: Dictionary)
 signal rank_event(event: Dictionary)
+signal tier_changed(tier_index: int, tier_rank: int)
 
 const CONFIG_PATH: String = "res://data/rank/rank_config.tres"
 const SAVE_PATH: String = "user://rank_state.json"
@@ -28,6 +29,7 @@ var _matchmaker: RankMatchmakerScript = RankMatchmakerScript.new()
 var _players_by_id: Dictionary = {}
 var _sorted_player_ids: Array[String] = []
 var _local_player_id: String = ""
+var _last_tier_badge: Dictionary = {}
 
 func _ready() -> void:
 	SFLog.allow_tag("RANK_STATE")
@@ -260,8 +262,31 @@ func get_snapshot() -> Dictionary:
 		"config_enabled": _config.enabled
 	}
 
+func get_local_tier_badge() -> Dictionary:
+	var player_id: String = _resolve_local_player_id()
+	var record: Dictionary = _players_by_id.get(player_id, {}) as Dictionary
+	if record.is_empty():
+		return {
+			"tier_index": 0,
+			"tier_rank": 0,
+			"tier_id": "DRONE"
+		}
+	var tier_id: String = str(record.get("tier_id", "DRONE")).strip_edges().to_upper()
+	var tier_index_zero: int = _config.tier_index(tier_id)
+	var tier_index_one: int = tier_index_zero + 1 if tier_index_zero >= 0 else 0
+	var tier_rank: int = _compute_tier_rank_for_player(player_id, tier_id)
+	return {
+		"tier_index": tier_index_one,
+		"tier_rank": tier_rank,
+		"tier_id": tier_id
+	}
+
 func _emit_changed() -> void:
 	rank_state_changed.emit(get_snapshot())
+	var badge: Dictionary = get_local_tier_badge()
+	if badge != _last_tier_badge:
+		_last_tier_badge = badge.duplicate(true)
+		tier_changed.emit(int(badge.get("tier_index", 0)), int(badge.get("tier_rank", 0)))
 
 func _load_config() -> void:
 	var loaded_any: Variant = load(CONFIG_PATH)
@@ -445,6 +470,21 @@ func _top_rows(limit: int) -> Array[Dictionary]:
 			"percentile": float(record.get("percentile", 0.0))
 		})
 	return rows
+
+func _compute_tier_rank_for_player(player_id: String, tier_id: String) -> int:
+	if player_id.strip_edges() == "" or tier_id.strip_edges() == "":
+		return 0
+	var rank_in_tier: int = 0
+	for sorted_id in _sorted_player_ids:
+		var row_record: Dictionary = _players_by_id.get(sorted_id, {}) as Dictionary
+		if row_record.is_empty():
+			continue
+		if str(row_record.get("tier_id", "")).strip_edges().to_upper() != tier_id:
+			continue
+		rank_in_tier += 1
+		if sorted_id == player_id:
+			return rank_in_tier
+	return 0
 
 func _resolve_local_player_id() -> String:
 	if _local_player_id.strip_edges() != "":

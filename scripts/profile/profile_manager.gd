@@ -1,5 +1,7 @@
 extends Node
 
+signal honey_balance_changed(new_value: int, delta: int, reason: String)
+
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 
@@ -424,13 +426,16 @@ func set_honey_balance(amount: int) -> void:
 	var next_balance: int = maxi(0, amount)
 	if next_balance == _honey_balance:
 		return
+	var previous_balance: int = _honey_balance
 	_honey_balance = next_balance
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	honey_balance_changed.emit(_honey_balance, _honey_balance - previous_balance, "set_honey_balance")
 
 func add_honey(amount: int, reason: String = "") -> Dictionary:
 	ensure_loaded()
 	if amount <= 0:
 		return {"ok": false, "reason": "invalid_amount", "honey_balance": _honey_balance}
+	var previous_balance: int = _honey_balance
 	_honey_balance += amount
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_HONEY_ADDED", {
@@ -439,6 +444,7 @@ func add_honey(amount: int, reason: String = "") -> Dictionary:
 		"reason": reason,
 		"honey_balance": _honey_balance
 	})
+	honey_balance_changed.emit(_honey_balance, _honey_balance - previous_balance, reason if reason != "" else "add_honey")
 	return {"ok": true, "honey_balance": _honey_balance}
 
 func spend_honey(amount: int, reason: String = "") -> Dictionary:
@@ -447,6 +453,7 @@ func spend_honey(amount: int, reason: String = "") -> Dictionary:
 		return {"ok": false, "reason": "invalid_amount", "honey_balance": _honey_balance}
 	if _honey_balance < amount:
 		return {"ok": false, "reason": "insufficient_honey", "honey_balance": _honey_balance}
+	var previous_balance: int = _honey_balance
 	_honey_balance -= amount
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_HONEY_SPENT", {
@@ -455,6 +462,7 @@ func spend_honey(amount: int, reason: String = "") -> Dictionary:
 		"reason": reason,
 		"honey_balance": _honey_balance
 	})
+	honey_balance_changed.emit(_honey_balance, _honey_balance - previous_balance, reason if reason != "" else "spend_honey")
 	return {"ok": true, "honey_balance": _honey_balance}
 
 func get_store_entitlements() -> Dictionary:

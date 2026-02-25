@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bfq0am0dq3n8l"
-path="res://.godot/imported/barracks.png-82b640bdf5c3552eeb9b69f22d5bf80d.ctex"
+uid="uid://bfo2mfcqnpey8"
+path="res://.godot/imported/weekly_blacknwhite.png-3ac44eb196a68c6479282e89cdedc8e6.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/sf_skin_v1/barracks.png"
-dest_files=["res://.godot/imported/barracks.png-82b640bdf5c3552eeb9b69f22d5bf80d.ctex"]
+source_file="res://assets/sprites/sf_skin_v1/weekly_blacknwhite.png"
+dest_files=["res://.godot/imported/weekly_blacknwhite.png-3ac44eb196a68c6479282e89cdedc8e6.ctex"]
 
 [params]
 

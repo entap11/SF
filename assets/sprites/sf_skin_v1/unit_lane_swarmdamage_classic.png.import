@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bfq0am0dq3n8l"
-path="res://.godot/imported/barracks.png-82b640bdf5c3552eeb9b69f22d5bf80d.ctex"
+uid="uid://b8vj1rbr6pnh"
+path="res://.godot/imported/unit_lane_swarmdamage_classic.png-9b9846af314714a993dfadadb23ce27d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/sf_skin_v1/barracks.png"
-dest_files=["res://.godot/imported/barracks.png-82b640bdf5c3552eeb9b69f22d5bf80d.ctex"]
+source_file="res://assets/sprites/sf_skin_v1/unit_lane_swarmdamage_classic.png"
+dest_files=["res://.godot/imported/unit_lane_swarmdamage_classic.png-9b9846af314714a993dfadadb23ce27d.ctex"]
 
 [params]
 

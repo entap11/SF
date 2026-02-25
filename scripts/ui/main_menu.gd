@@ -5,6 +5,8 @@ const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPanel.tscn")
 const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePassPanel.tscn")
 const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
+const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
+const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
@@ -171,6 +173,8 @@ var _async_stage_section: Panel = null
 var _swarm_pass_panel: Control = null
 var _battle_pass_panel: Control = null
 var _rank_panel: Control = null
+var _honey_widget: Control = null
+var _tier_widget: Control = null
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -362,6 +366,24 @@ const BUFF_PRICE_USD_BY_TIER: Dictionary = {
 }
 const USD_SKIN_DIR_PATH: String = "res://assets/sprites/sf_skin_v1"
 const USD_SKIN_FALLBACK_PATH: String = "res://assets/sprites/sf_skin_v1/$.png"
+const CANCEL_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/cancel.png"
+const CLOSE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/Close.png"
+const HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
+	"1V1": "res://assets/sprites/sf_skin_v1/1v1.png",
+	"2V2": "res://assets/sprites/sf_skin_v1/2v2.png",
+	"3P FFA": "res://assets/sprites/sf_skin_v1/3_player.png",
+	"4P FFA": "res://assets/sprites/sf_skin_v1/4p_ffa.png"
+}
+const ASYNC_CYCLE_SKIN_BY_LABEL: Dictionary = {
+	"WEEKLY": "res://assets/sprites/sf_skin_v1/weekly_color.png",
+	"MONTHLY": "res://assets/sprites/sf_skin_v1/monthly.png",
+	"SEASON": "res://assets/sprites/sf_skin_v1/season.png"
+}
+const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
+	"STAGE RACE": "res://assets/sprites/sf_skin_v1/Stage_Race.png",
+	"RACE": "res://assets/sprites/sf_skin_v1/Race.png",
+	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png"
+}
 const BOTTOM_NAV_BUTTON_SCALE: float = 2.925
 const BOTTOM_NAV_HEIGHT_SCALE: float = 1.2
 const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(38.0, 56.0)
@@ -409,6 +431,13 @@ var _buff_cart_clear_button: Button = null
 var _buff_cart_counts: Dictionary = {}
 var _buff_drag_state: Dictionary = {}
 var _usd_skin_cache: Dictionary = {}
+var _cancel_skin_cache: Texture2D = null
+var _cancel_skin_loaded: bool = false
+var _close_skin_cache: Texture2D = null
+var _close_skin_loaded: bool = false
+var _async_cycle_skin_cache: Dictionary = {}
+var _human_mode_skin_cache: Dictionary = {}
+var _async_mode_skin_cache: Dictionary = {}
 var _bottom_nav_skin_material: ShaderMaterial = null
 var _hive_dropdown_panel: Panel = null
 var _hive_dropdown_tween: Tween = null
@@ -705,6 +734,8 @@ const STORE_SKUS := [
 
 func _ready() -> void:
 	_load_fonts()
+	_ensure_tier_widget()
+	_ensure_honey_widget()
 	_style_labels()
 	_style_buttons()
 	_apply_bottom_nav_sprite_presentation()
@@ -721,6 +752,7 @@ func _ready() -> void:
 	_configure_dash_account_surfaces()
 	_ensure_swarm_pass_panel()
 	_load_profile_commerce_state()
+	_bind_profile_honey_signal()
 	_apply_performance_pref_from_profile()
 	call_deferred("_init_dash_state")
 	_apply_player_profile(_player_profile)
@@ -776,7 +808,11 @@ func _load_fonts() -> void:
 
 func _style_labels() -> void:
 	_apply_font($TopBar/RankLabel, _font_regular, 16)
+	if _tier_widget != null and _tier_widget.has_method("apply_label_fonts"):
+		_tier_widget.call("apply_label_fonts", _font_regular, _scaled_ui_font_size(16))
 	_apply_font($TopBar/HoneyLabel, _font_regular, 16)
+	if _honey_widget != null and _honey_widget.has_method("apply_label_font"):
+		_honey_widget.call("apply_label_font", _font_regular, _scaled_ui_font_size(16))
 	_apply_font($DashPanel/DashTopBar/DashRankLabel, _font_regular, 16)
 	_apply_font($DashPanel/DashTopBar/DashHoneyLabel, _font_regular, 16)
 	_apply_font($HeroPanel/HeroVBox/HeroTitle, _font_semibold, 20)
@@ -1352,9 +1388,85 @@ func _apply_player_profile(profile: Dictionary) -> void:
 	var honey_text := "Honey: %s" % _format_number(honey_value)
 	$TopBar/RankLabel.text = tier_text
 	$TopBar/HoneyLabel.text = honey_text
+	if _honey_widget != null and _honey_widget.has_method("set_honey_value"):
+		_honey_widget.call("set_honey_value", honey_value, "main_menu_profile_apply", false)
 	$DashPanel/DashTopBar/DashRankLabel.text = tier_text
 	$DashPanel/DashTopBar/DashHoneyLabel.text = honey_text
 	_refresh_dash_account_snapshot()
+
+func _ensure_honey_widget() -> void:
+	if _honey_widget != null:
+		return
+	var top_bar: Control = $TopBar
+	var legacy_honey_label: Label = $TopBar/HoneyLabel
+	if top_bar == null or legacy_honey_label == null:
+		return
+	var widget_any: Variant = HONEY_WIDGET_SCENE.instantiate()
+	var widget_control: Control = widget_any as Control
+	if widget_control == null:
+		return
+	widget_control.name = "HoneyWidget"
+	widget_control.layout_mode = legacy_honey_label.layout_mode
+	widget_control.anchor_left = legacy_honey_label.anchor_left
+	widget_control.anchor_top = legacy_honey_label.anchor_top
+	widget_control.anchor_right = legacy_honey_label.anchor_right
+	widget_control.anchor_bottom = legacy_honey_label.anchor_bottom
+	widget_control.offset_left = legacy_honey_label.offset_left
+	widget_control.offset_top = legacy_honey_label.offset_top
+	widget_control.offset_right = legacy_honey_label.offset_right
+	widget_control.offset_bottom = legacy_honey_label.offset_bottom
+	widget_control.grow_horizontal = legacy_honey_label.grow_horizontal
+	widget_control.grow_vertical = legacy_honey_label.grow_vertical
+	top_bar.add_child(widget_control)
+	top_bar.move_child(widget_control, legacy_honey_label.get_index() + 1)
+	legacy_honey_label.visible = false
+	_honey_widget = widget_control
+	if _honey_widget.has_method("set_honey_value"):
+		_honey_widget.call("set_honey_value", _current_honey_balance(), "main_menu_boot", false)
+
+func _ensure_tier_widget() -> void:
+	if _tier_widget != null:
+		return
+	var top_bar: Control = $TopBar
+	var legacy_rank_label: Label = $TopBar/RankLabel
+	if top_bar == null or legacy_rank_label == null:
+		return
+	var widget_any: Variant = TIER_WIDGET_SCENE.instantiate()
+	var widget_control: Control = widget_any as Control
+	if widget_control == null:
+		return
+	widget_control.name = "TierWidget"
+	widget_control.layout_mode = legacy_rank_label.layout_mode
+	widget_control.anchor_left = legacy_rank_label.anchor_left
+	widget_control.anchor_top = legacy_rank_label.anchor_top
+	widget_control.anchor_right = legacy_rank_label.anchor_right
+	widget_control.anchor_bottom = legacy_rank_label.anchor_bottom
+	widget_control.offset_left = legacy_rank_label.offset_left
+	widget_control.offset_top = legacy_rank_label.offset_top
+	widget_control.offset_right = legacy_rank_label.offset_right
+	widget_control.offset_bottom = legacy_rank_label.offset_bottom
+	widget_control.grow_horizontal = legacy_rank_label.grow_horizontal
+	widget_control.grow_vertical = legacy_rank_label.grow_vertical
+	top_bar.add_child(widget_control)
+	top_bar.move_child(widget_control, legacy_rank_label.get_index() + 1)
+	legacy_rank_label.visible = false
+	_tier_widget = widget_control
+
+func _bind_profile_honey_signal() -> void:
+	if ProfileManager == null:
+		return
+	if not ProfileManager.has_signal("honey_balance_changed"):
+		return
+	var callback: Callable = Callable(self, "_on_profile_honey_balance_changed")
+	if not ProfileManager.is_connected("honey_balance_changed", callback):
+		ProfileManager.connect("honey_balance_changed", callback)
+
+func _on_profile_honey_balance_changed(new_value: int, _delta: int, _reason: String) -> void:
+	var safe_value: int = maxi(0, new_value)
+	if safe_value == _current_honey_balance():
+		return
+	_player_profile["honey"] = safe_value
+	_apply_player_profile(_player_profile)
 
 func _load_profile_commerce_state() -> void:
 	ProfileManager.ensure_loaded()
@@ -1773,6 +1885,239 @@ func _style_usd_sprite_button(button: Button, selected: bool) -> void:
 	else:
 		button.modulate = Color(0.78, 0.78, 0.78, 0.95)
 
+func _cancel_skin_texture() -> Texture2D:
+	if _cancel_skin_loaded:
+		return _cancel_skin_cache
+	_cancel_skin_loaded = true
+	if not ResourceLoader.exists(CANCEL_SKIN_PATH):
+		return null
+	var loaded_any: Variant = load(CANCEL_SKIN_PATH)
+	if loaded_any is Texture2D:
+		_cancel_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D)
+	return _cancel_skin_cache
+
+func _close_skin_texture() -> Texture2D:
+	if _close_skin_loaded:
+		return _close_skin_cache
+	_close_skin_loaded = true
+	if not ResourceLoader.exists(CLOSE_SKIN_PATH):
+		return null
+	var loaded_any: Variant = load(CLOSE_SKIN_PATH)
+	if loaded_any is Texture2D:
+		_close_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D)
+	return _close_skin_cache
+
+func _apply_close_skin_to_button(button: Button) -> void:
+	if button == null:
+		return
+	var is_close_button: bool = false
+	if button.has_meta("sf_close_skin"):
+		is_close_button = bool(button.get_meta("sf_close_skin"))
+	else:
+		var raw_text: String = button.text.strip_edges().to_upper()
+		if raw_text.find("CLOSE") >= 0:
+			is_close_button = true
+			button.set_meta("sf_close_skin", true)
+	if not is_close_button:
+		return
+	var tex: Texture2D = _close_skin_texture()
+	if tex == null:
+		return
+	if button.tooltip_text.is_empty():
+		button.tooltip_text = "CLOSE"
+	button.icon = tex
+	button.text = ""
+	button.custom_minimum_size = Vector2(
+		maxf(button.custom_minimum_size.x, 330.0),
+		maxf(button.custom_minimum_size.y, 140.0)
+	)
+	button.set("expand_icon", true)
+	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.add_theme_constant_override("h_separation", 0)
+	_style_usd_sprite_button(button, true)
+
+func _apply_cancel_skin_to_button(button: Button) -> void:
+	if button == null:
+		return
+	var is_cancel_button: bool = false
+	if button.has_meta("sf_cancel_skin"):
+		is_cancel_button = bool(button.get_meta("sf_cancel_skin"))
+	else:
+		var raw_text: String = button.text.strip_edges().to_upper()
+		if raw_text.find("CANCEL") >= 0:
+			is_cancel_button = true
+			button.set_meta("sf_cancel_skin", true)
+	if not is_cancel_button:
+		return
+	var tex: Texture2D = _cancel_skin_texture()
+	if tex == null:
+		return
+	if button.tooltip_text.is_empty():
+		button.tooltip_text = "CANCEL"
+	button.icon = tex
+	button.text = ""
+	button.custom_minimum_size = Vector2(
+		maxf(button.custom_minimum_size.x, 330.0),
+		maxf(button.custom_minimum_size.y, 140.0)
+	)
+	button.set("expand_icon", true)
+	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.add_theme_constant_override("h_separation", 0)
+	_style_usd_sprite_button(button, true)
+
+func _key_black_to_alpha_texture(source_tex: Texture2D) -> Texture2D:
+	if source_tex == null:
+		return null
+	var source_image: Image = source_tex.get_image()
+	if source_image == null or source_image.is_empty():
+		return source_tex
+	source_image.convert(Image.FORMAT_RGBA8)
+	var width: int = source_image.get_width()
+	var height: int = source_image.get_height()
+	for y in range(height):
+		for x in range(width):
+			var px: Color = source_image.get_pixel(x, y)
+			if px.a <= 0.0:
+				continue
+			var max_v: float = max(px.r, max(px.g, px.b))
+			var min_v: float = min(px.r, min(px.g, px.b))
+			var sat: float = max_v - min_v
+			if max_v <= 0.03:
+				px.a = 0.0
+			elif max_v < 0.14 and sat < 0.20:
+				var t: float = clamp((max_v - 0.03) / 0.11, 0.0, 1.0)
+				px.a *= t
+			source_image.set_pixel(x, y, px)
+	var keyed_tex: ImageTexture = ImageTexture.create_from_image(source_image)
+	return keyed_tex
+
+func _human_mode_skin_for_mode(mode_id: String) -> Texture2D:
+	var cache_key: String = mode_id.strip_edges()
+	if _human_mode_skin_cache.has(cache_key):
+		var cached_any: Variant = _human_mode_skin_cache.get(cache_key)
+		if cached_any is Texture2D:
+			return cached_any as Texture2D
+		return null
+	var path: String = str(HUMAN_MODE_SKIN_BY_MODE.get(cache_key, ""))
+	if path.is_empty():
+		_human_mode_skin_cache[cache_key] = null
+		return null
+	if not ResourceLoader.exists(path):
+		_human_mode_skin_cache[cache_key] = null
+		return null
+	var loaded_any: Variant = load(path)
+	if loaded_any is Texture2D:
+		var tex: Texture2D = loaded_any as Texture2D
+		_human_mode_skin_cache[cache_key] = tex
+		return tex
+	_human_mode_skin_cache[cache_key] = null
+	return null
+
+func _apply_human_mode_skin_to_button(button: Button, mode_id: String, paid: bool, denomination: int) -> void:
+	if button == null:
+		return
+	var label_text: String = "%s  $%d" % [mode_id, denomination] if paid else mode_id
+	var tex: Texture2D = _human_mode_skin_for_mode(mode_id)
+	button.tooltip_text = label_text
+	if tex == null:
+		button.text = label_text
+		_apply_font(button, _font_regular, 12)
+		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+		return
+	button.icon = tex
+	button.text = ""
+	button.custom_minimum_size = Vector2(144.0, 64.0)
+	button.set("expand_icon", true)
+	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.add_theme_constant_override("h_separation", 0)
+	_style_usd_sprite_button(button, true)
+
+func _async_mode_skin_for_label(label: String) -> Texture2D:
+	var cache_key: String = label.strip_edges().to_upper()
+	if _async_mode_skin_cache.has(cache_key):
+		var cached_any: Variant = _async_mode_skin_cache.get(cache_key)
+		if cached_any is Texture2D:
+			return cached_any as Texture2D
+		return null
+	var path: String = str(ASYNC_MODE_SKIN_BY_LABEL.get(cache_key, ""))
+	if path.is_empty():
+		_async_mode_skin_cache[cache_key] = null
+		return null
+	if not ResourceLoader.exists(path):
+		_async_mode_skin_cache[cache_key] = null
+		return null
+	var loaded_any: Variant = load(path)
+	if loaded_any is Texture2D:
+		var raw_tex: Texture2D = loaded_any as Texture2D
+		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex)
+		_async_mode_skin_cache[cache_key] = keyed_tex
+		return keyed_tex
+	_async_mode_skin_cache[cache_key] = null
+	return null
+
+func _async_cycle_skin_for_label(label: String) -> Texture2D:
+	var cache_key: String = label.strip_edges().to_upper()
+	if _async_cycle_skin_cache.has(cache_key):
+		var cached_any: Variant = _async_cycle_skin_cache.get(cache_key)
+		if cached_any is Texture2D:
+			return cached_any as Texture2D
+		return null
+	var path: String = str(ASYNC_CYCLE_SKIN_BY_LABEL.get(cache_key, ""))
+	if path.is_empty():
+		_async_cycle_skin_cache[cache_key] = null
+		return null
+	if not ResourceLoader.exists(path):
+		_async_cycle_skin_cache[cache_key] = null
+		return null
+	var loaded_any: Variant = load(path)
+	if loaded_any is Texture2D:
+		var raw_tex: Texture2D = loaded_any as Texture2D
+		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex)
+		_async_cycle_skin_cache[cache_key] = keyed_tex
+		return keyed_tex
+	_async_cycle_skin_cache[cache_key] = null
+	return null
+
+func _apply_async_cycle_skin_to_button(button: Button, label: String, paid: bool, denomination: int) -> void:
+	if button == null:
+		return
+	var label_text: String = "%s  $%d" % [label, denomination] if paid else label
+	var tex: Texture2D = _async_cycle_skin_for_label(label)
+	button.tooltip_text = label_text
+	if tex == null:
+		button.text = label_text
+		_apply_font(button, _font_regular, 12)
+		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+		return
+	button.icon = tex
+	button.text = ""
+	button.custom_minimum_size = Vector2(256.0, 96.0)
+	button.set("expand_icon", true)
+	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.set("icon_max_width", 240)
+	button.add_theme_constant_override("h_separation", 0)
+	_style_usd_sprite_button(button, true)
+
+func _apply_async_mode_skin_to_button(button: Button, label: String, paid: bool, denomination: int) -> void:
+	if button == null:
+		return
+	var label_text: String = "%s  $%d" % [label, denomination] if paid else label
+	var tex: Texture2D = _async_mode_skin_for_label(label)
+	button.tooltip_text = label_text
+	if tex == null:
+		button.text = label_text
+		_apply_font(button, _font_regular, 12)
+		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+		return
+	button.icon = tex
+	button.text = ""
+	button.custom_minimum_size = Vector2(352.0, 112.0)
+	button.set("expand_icon", true)
+	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.set("icon_max_width", 336)
+	button.add_theme_constant_override("h_separation", 0)
+	_style_usd_sprite_button(button, true)
+
 func _style_button(button: Button, bg: Color, border: Color, text_color: Color) -> void:
 	if button == null:
 		return
@@ -1801,6 +2146,8 @@ func _style_button(button: Button, bg: Color, border: Color, text_color: Color) 
 	button.add_theme_color_override("font_color", text_color)
 	button.add_theme_color_override("font_hover_color", text_color)
 	button.add_theme_color_override("font_pressed_color", text_color)
+	_apply_close_skin_to_button(button)
+	_apply_cancel_skin_to_button(button)
 
 func _style_panel(panel: Panel, bg: Color, border: Color) -> void:
 	if panel == null:
@@ -3536,7 +3883,9 @@ func _charge_paid_entry_usd(entry_usd: int, reason: String) -> Dictionary:
 func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -> void:
 	_close_entry_route_modal()
 	var panel := _build_entry_overlay("INSUFFICIENT BALANCE", subtitle)
-	var body: VBoxContainer = panel.get_node("EntryBody") as VBoxContainer
+	var body: VBoxContainer = _entry_overlay_body(panel)
+	if body == null:
+		return
 	var add_funds := Button.new()
 	add_funds.text = "ADD FUNDS"
 	add_funds.pressed.connect(func():
@@ -3580,7 +3929,9 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	else:
 		overlay_size = Vector2(920, 560)
 	var panel := _build_entry_overlay(title, subtitle, overlay_size)
-	var body: VBoxContainer = panel.get_node("EntryBody") as VBoxContainer
+	var body: VBoxContainer = _entry_overlay_body(panel)
+	if body == null:
+		return
 	if paid:
 		var denom_header := Label.new()
 		denom_header.text = "DENOMINATION TABS"
@@ -3614,45 +3965,48 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	for mode_id in ["1V1", "2V2", "3P FFA", "4P FFA"]:
 		var chosen_mode: String = mode_id
 		var button := Button.new()
-		button.text = "%s  $%d" % [mode_id, selected_denom] if paid else mode_id
-		button.custom_minimum_size = Vector2(104, 42)
+		button.custom_minimum_size = Vector2(144.0, 64.0)
 		button.pressed.connect(func(): _on_human_mode_selected(chosen_mode, paid, selected_denom))
 		human_row.add_child(button)
-		_apply_font(button, _font_regular, 12)
-		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+		_apply_human_mode_skin_to_button(button, chosen_mode, paid, selected_denom)
 	var async_header := Label.new()
 	async_header.text = "ASYNC CONTESTS%s" % (" ($%d ENTRY)" % selected_denom if paid else "")
 	body.add_child(async_header)
 	_apply_font(async_header, _font_semibold, 13)
+	var cycle_row := GridContainer.new()
+	cycle_row.columns = 3
+	cycle_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cycle_row.add_theme_constant_override("h_separation", 8)
+	cycle_row.add_theme_constant_override("v_separation", 8)
+	body.add_child(cycle_row)
+	var cycle_items := [
+		{"label": "WEEKLY", "id": "WEEKLY"},
+		{"label": "MONTHLY", "id": "MONTHLY"},
+		{"label": "SEASON", "id": "YEARLY"}
+	]
+	for item_any in cycle_items:
+		var item: Dictionary = item_any as Dictionary
+		var label := str(item.get("label", "ASYNC"))
+		var id := str(item.get("id", ""))
+		var async_mode_id: String = id
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(256.0, 96.0)
+		if paid:
+			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, true, selected_denom))
+		else:
+			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
+		cycle_row.add_child(button)
+		_apply_async_cycle_skin_to_button(button, label, paid, selected_denom)
 	if paid:
-		var cycle_row := HBoxContainer.new()
-		cycle_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		cycle_row.add_theme_constant_override("separation", 8)
-		body.add_child(cycle_row)
-		var cycle_items := [
-			{"label": "WEEKLY", "id": "WEEKLY"},
-			{"label": "MONTHLY", "id": "MONTHLY"},
-			{"label": "YEARLY", "id": "YEARLY"}
-		]
-		for item_any in cycle_items:
-			var item: Dictionary = item_any as Dictionary
-			var label := str(item.get("label", "ASYNC"))
-			var id := str(item.get("id", ""))
-			var async_mode_id: String = id
-			var button := Button.new()
-			button.text = "%s  $%d" % [label, selected_denom]
-			button.custom_minimum_size = Vector2(176, 42)
-			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, paid, selected_denom))
-			cycle_row.add_child(button)
-			_apply_font(button, _font_regular, 12)
-			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 		var three_map_label := Label.new()
 		three_map_label.text = "3 MAP"
 		body.add_child(three_map_label)
 		_apply_font(three_map_label, _font_semibold, 12)
-		var three_map_row := HBoxContainer.new()
-		three_map_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		three_map_row.add_theme_constant_override("separation", 8)
+		var three_map_row := GridContainer.new()
+		three_map_row.columns = 2
+		three_map_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		three_map_row.add_theme_constant_override("h_separation", 8)
+		three_map_row.add_theme_constant_override("v_separation", 8)
 		body.add_child(three_map_row)
 		var three_map_items := [
 			{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
@@ -3665,19 +4019,19 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 			var id := str(item.get("id", ""))
 			var async_mode_id: String = id
 			var button := Button.new()
-			button.text = "%s  $%d" % [label, selected_denom]
-			button.custom_minimum_size = Vector2(176, 42)
+			button.custom_minimum_size = Vector2(176.0, 56.0)
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, paid, selected_denom))
 			three_map_row.add_child(button)
-			_apply_font(button, _font_regular, 12)
-			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+			_apply_async_mode_skin_to_button(button, label, paid, selected_denom)
 		var five_map_label := Label.new()
 		five_map_label.text = "5 MAP"
 		body.add_child(five_map_label)
 		_apply_font(five_map_label, _font_semibold, 12)
-		var five_map_row := HBoxContainer.new()
-		five_map_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		five_map_row.add_theme_constant_override("separation", 8)
+		var five_map_row := GridContainer.new()
+		five_map_row.columns = 2
+		five_map_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		five_map_row.add_theme_constant_override("h_separation", 8)
+		five_map_row.add_theme_constant_override("v_separation", 8)
 		body.add_child(five_map_row)
 		var five_map_items := [
 			{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
@@ -3690,20 +4044,20 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 			var id := str(item.get("id", ""))
 			var async_mode_id: String = id
 			var button := Button.new()
-			button.text = "%s  $%d" % [label, selected_denom]
-			button.custom_minimum_size = Vector2(176, 42)
+			button.custom_minimum_size = Vector2(176.0, 56.0)
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, paid, selected_denom))
 			five_map_row.add_child(button)
-			_apply_font(button, _font_regular, 12)
-			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+			_apply_async_mode_skin_to_button(button, label, paid, selected_denom)
 	else:
 		var three_map_label := Label.new()
 		three_map_label.text = "3 MAP"
 		body.add_child(three_map_label)
 		_apply_font(three_map_label, _font_semibold, 12)
-		var three_map_row := HBoxContainer.new()
-		three_map_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		three_map_row.add_theme_constant_override("separation", 8)
+		var three_map_row := GridContainer.new()
+		three_map_row.columns = 2
+		three_map_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		three_map_row.add_theme_constant_override("h_separation", 8)
+		three_map_row.add_theme_constant_override("v_separation", 8)
 		body.add_child(three_map_row)
 		var three_map_items := [
 			{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
@@ -3716,19 +4070,19 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 			var id := str(item.get("id", ""))
 			var async_mode_id: String = id
 			var button := Button.new()
-			button.text = label
-			button.custom_minimum_size = Vector2(176, 42)
+			button.custom_minimum_size = Vector2(176.0, 56.0)
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
 			three_map_row.add_child(button)
-			_apply_font(button, _font_regular, 12)
-			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+			_apply_async_mode_skin_to_button(button, label, false, 0)
 		var five_map_label := Label.new()
 		five_map_label.text = "5 MAP"
 		body.add_child(five_map_label)
 		_apply_font(five_map_label, _font_semibold, 12)
-		var five_map_row := HBoxContainer.new()
-		five_map_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		five_map_row.add_theme_constant_override("separation", 8)
+		var five_map_row := GridContainer.new()
+		five_map_row.columns = 2
+		five_map_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		five_map_row.add_theme_constant_override("h_separation", 8)
+		five_map_row.add_theme_constant_override("v_separation", 8)
 		body.add_child(five_map_row)
 		var five_map_items := [
 			{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
@@ -3741,12 +4095,10 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 			var id := str(item.get("id", ""))
 			var async_mode_id: String = id
 			var button := Button.new()
-			button.text = label
-			button.custom_minimum_size = Vector2(176, 42)
+			button.custom_minimum_size = Vector2(176.0, 56.0)
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
 			five_map_row.add_child(button)
-			_apply_font(button, _font_regular, 12)
-			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+			_apply_async_mode_skin_to_button(button, label, false, 0)
 	var cancel := Button.new()
 	cancel.text = "CANCEL"
 	cancel.pressed.connect(_close_entry_route_modal)
@@ -3865,16 +4217,28 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	panel.offset_right = size.x * 0.5
 	panel.offset_bottom = size.y * 0.5
 	panel.z_index = 200
+	var scroll := ScrollContainer.new()
+	scroll.name = "EntryScroll"
+	scroll.layout_mode = 1
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	scroll.offset_left = 0.0
+	scroll.offset_top = 0.0
+	scroll.offset_right = 0.0
+	scroll.offset_bottom = 0.0
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	panel.add_child(scroll)
 	var vbox := VBoxContainer.new()
 	vbox.name = "EntryBody"
-	vbox.layout_mode = 1
-	vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	vbox.layout_mode = 0
+	vbox.anchor_right = 1.0
 	vbox.offset_left = 16.0
 	vbox.offset_top = 16.0
 	vbox.offset_right = -16.0
-	vbox.offset_bottom = -16.0
+	vbox.custom_minimum_size = Vector2(maxf(size.x - 32.0, 280.0), 0.0)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 10)
-	panel.add_child(vbox)
+	scroll.add_child(vbox)
 	var title_label := Label.new()
 	title_label.text = title
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -3888,6 +4252,14 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	_apply_font(title_label, _font_semibold, 18)
 	_apply_font(subtitle_label, _font_regular, 13)
 	return panel
+
+func _entry_overlay_body(panel: Panel) -> VBoxContainer:
+	if panel == null:
+		return null
+	var direct: VBoxContainer = panel.get_node_or_null("EntryBody") as VBoxContainer
+	if direct != null:
+		return direct
+	return panel.get_node_or_null("EntryScroll/EntryBody") as VBoxContainer
 
 func _style_entry_overlay_buttons(buttons: Array) -> void:
 	for button_any in buttons:
@@ -3978,7 +4350,7 @@ func _open_async_stage_contest_leaderboard(map_count: int) -> void:
 	var title: String = "%d MAP STAGE CONTEST LEADERBOARD" % resolved_map_count
 	var subtitle: String = "%s | Time Left: %s" % [contest_name, contest_time_left]
 	var panel: Panel = _build_entry_overlay(title, subtitle, Vector2(980, 700))
-	var body: VBoxContainer = panel.get_node("EntryBody") as VBoxContainer
+	var body: VBoxContainer = _entry_overlay_body(panel)
 	if body == null:
 		return
 	var header_row: HBoxContainer = HBoxContainer.new()
@@ -4058,15 +4430,15 @@ func _resolve_async_stage_contest_data(map_count: int) -> Dictionary:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	if contest_state == null:
 		return output
-	var contest_obj: Object = _select_async_stage_contest_for_leaderboard(contest_state)
+	var contest_obj: Variant = _select_async_stage_contest_for_leaderboard(contest_state)
 	if contest_obj == null:
 		return output
-	var contest_id: String = str(contest_obj.get("id", ""))
+	var contest_id: String = str(_variant_dict_or_object_get(contest_obj, "id", ""))
 	if contest_id.is_empty():
 		return output
 	output["contest_id"] = contest_id
-	output["contest_name"] = str(contest_obj.get("name", "Stage Contest"))
-	output["time_left"] = _format_async_contest_time_left(int(contest_obj.get("end_ts", 0)))
+	output["contest_name"] = str(_variant_dict_or_object_get(contest_obj, "name", "Stage Contest"))
+	output["time_left"] = _format_async_contest_time_left(int(_variant_dict_or_object_get(contest_obj, "end_ts", 0)))
 	if not contest_state.has_method("build_stage_race_overall_leaderboard"):
 		return output
 	var rows_any: Variant = contest_state.call("build_stage_race_overall_leaderboard", contest_id, map_count, 10)
@@ -4086,8 +4458,8 @@ func _resolve_async_stage_contest_data(map_count: int) -> Dictionary:
 	output["rows"] = rows_out
 	return output
 
-func _select_async_stage_contest_for_leaderboard(contest_state: Node) -> Object:
-	var selected: Object = null
+func _select_async_stage_contest_for_leaderboard(contest_state: Node) -> Variant:
+	var selected: Variant = null
 	var scope: String = "WEEKLY"
 	var target_entry_usd: int = _current_async_paid_entry_usd()
 	var best_distance: int = 2147483647
@@ -4096,32 +4468,42 @@ func _select_async_stage_contest_for_leaderboard(contest_state: Node) -> Object:
 		var contests_any: Variant = contest_state.call("get_contests_by_scope", scope)
 		if typeof(contests_any) == TYPE_ARRAY:
 			for contest_any in contests_any as Array:
-				var contest_obj: Object = contest_any as Object
-				if contest_obj == null:
+				if contest_any == null:
 					continue
-				var price_usd: int = maxi(0, int(contest_obj.get("price", 0)))
+				var price_usd: int = maxi(0, int(_variant_dict_or_object_get(contest_any, "price", 0)))
 				if selected == null:
-					selected = contest_obj
+					selected = contest_any
 					best_price = price_usd
 					best_distance = abs(price_usd - target_entry_usd)
 					continue
 				if _async_track_mode == ASYNC_TRACK_PAID:
 					var next_distance: int = abs(price_usd - target_entry_usd)
 					if next_distance < best_distance or (next_distance == best_distance and price_usd < best_price):
-						selected = contest_obj
+						selected = contest_any
 						best_distance = next_distance
 						best_price = price_usd
 				elif price_usd < best_price:
-					selected = contest_obj
+					selected = contest_any
 					best_price = price_usd
 	if selected != null:
 		return selected
 	if contest_state.has_method("get_contest_by_scope"):
 		var fallback_any: Variant = contest_state.call("get_contest_by_scope", scope)
-		var fallback_obj: Object = fallback_any as Object
-		if fallback_obj != null:
-			return fallback_obj
+		if fallback_any != null:
+			return fallback_any
 	return null
+
+func _variant_dict_or_object_get(source: Variant, key: String, default_value: Variant) -> Variant:
+	if typeof(source) == TYPE_DICTIONARY:
+		var dict: Dictionary = source as Dictionary
+		return dict.get(key, default_value)
+	if source is Object:
+		var obj: Object = source as Object
+		var value: Variant = obj.get(key)
+		if value == null:
+			return default_value
+		return value
+	return default_value
 
 func _format_async_contest_time_left(end_ts: int) -> String:
 	if end_ts <= 0:

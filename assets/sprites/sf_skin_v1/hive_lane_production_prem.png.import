@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bfq0am0dq3n8l"
-path="res://.godot/imported/barracks.png-82b640bdf5c3552eeb9b69f22d5bf80d.ctex"
+uid="uid://dj4runlyo8bvw"
+path="res://.godot/imported/hive_lane_production_prem.png-f48ac96ec1d4f8afc7f0da643ef78a46.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/sf_skin_v1/barracks.png"
-dest_files=["res://.godot/imported/barracks.png-82b640bdf5c3552eeb9b69f22d5bf80d.ctex"]
+source_file="res://assets/sprites/sf_skin_v1/hive_lane_production_prem.png"
+dest_files=["res://.godot/imported/hive_lane_production_prem.png-f48ac96ec1d4f8afc7f0da643ef78a46.ctex"]
 
 [params]
 
