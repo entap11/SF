@@ -9,8 +9,8 @@ shader = ExtResource("2")
 [node name="HoneyWidget" type="Control"]
 clip_contents = false
 layout_mode = 0
-offset_right = 236.0
-offset_bottom = 36.0
+offset_right = 300.0
+offset_bottom = 200.0
 script = ExtResource("1")
 
 [node name="HoneyDisplay" type="TextureRect" parent="."]
@@ -25,7 +25,7 @@ stretch_mode = 2
 
 [node name="HoneyViewport" type="SubViewport" parent="."]
 disable_3d = true
-size = Vector2i(236, 36)
+size = Vector2i(300, 200)
 transparent_bg = true
 render_target_update_mode = 4
 
@@ -38,15 +38,32 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="HoneyRenderLabel" type="Label" parent="HoneyViewport/HoneyRenderRoot"]
-material = SubResource("ShaderMaterial_honey")
+[node name="HoneyTextRow" type="VBoxContainer" parent="HoneyViewport/HoneyRenderRoot"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_left = 2.0
+offset_top = 2.0
+offset_right = -2.0
+offset_bottom = -2.0
 grow_horizontal = 2
 grow_vertical = 2
-text = "Honey: 0"
+theme_override_constants/separation = 4
+
+[node name="HoneyPrefixLabel" type="Label" parent="HoneyViewport/HoneyRenderRoot/HoneyTextRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Honey:"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="HoneyValueLabel" type="Label" parent="HoneyViewport/HoneyRenderRoot/HoneyTextRow"]
+material = SubResource("ShaderMaterial_honey")
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+text = "0"
 horizontal_alignment = 2
 vertical_alignment = 1
 

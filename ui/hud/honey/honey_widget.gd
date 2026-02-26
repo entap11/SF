@@ -2,9 +2,19 @@ extends Control
 class_name HoneyWidget
 
 const HoneyDripScript = preload("res://ui/hud/honey/honey_drip.gd")
+const HONEY_VALUE_SHADER: Shader = preload("res://ui/hud/honey/honey_text_honeycomb.gdshader")
+const HONEY_PREFIX_FONT_COLOR: Color = Color(0.97, 0.73, 0.19, 1.0)
+const HONEY_PREFIX_OUTLINE_COLOR: Color = Color(0.20, 0.09, 0.01, 0.98)
+const HONEY_VALUE_FONT_TINT: Color = Color(1.0, 0.86, 0.32, 1.0)
+const HONEY_VALUE_OUTLINE_COLOR: Color = Color(0.22, 0.10, 0.01, 1.0)
+const HONEY_TEXT_SHADOW_COLOR: Color = Color(0.10, 0.04, 0.01, 0.88)
+const DEFAULT_WIDGET_WIDTH: float = 300.0
+const DEFAULT_WIDGET_HEIGHT: float = 200.0
 
 @export var viewport_path: NodePath = NodePath("HoneyViewport")
 @export var display_path: NodePath = NodePath("HoneyDisplay")
+@export var prefix_label_path: NodePath = NodePath("HoneyViewport/HoneyRenderRoot/HoneyTextRow/HoneyPrefixLabel")
+@export var value_label_path: NodePath = NodePath("HoneyViewport/HoneyRenderRoot/HoneyTextRow/HoneyValueLabel")
 @export var label_path: NodePath = NodePath("HoneyViewport/HoneyRenderRoot/HoneyRenderLabel")
 @export var drip_spawn_path: NodePath = NodePath("DripSpawnPoint")
 @export var fx_root_path: NodePath = NodePath("HudFxRoot")
@@ -22,9 +32,13 @@ static var _boot_drip_emitted: bool = false
 var _profile_manager: Node = null
 var _honey_viewport: SubViewport = null
 var _honey_display: TextureRect = null
-var _honey_label: Label = null
+var _honey_prefix_label: Label = null
+var _honey_value_label: Label = null
 var _drip_spawn_point: Node2D = null
 var _fx_root: Node2D = null
+var _use_legacy_single_label: bool = false
+var _label_font: Font = null
+var _label_size_hint: int = 0
 
 var _current_honey: int = -1
 var _gain_budget: int = 0
@@ -56,10 +70,12 @@ func _process(delta: float) -> void:
 	_try_spawn_queued_drip()
 
 func apply_label_font(font: Font, size: int) -> void:
-	if _honey_label == null or font == null:
+	if font == null:
 		return
-	_honey_label.add_theme_font_override("font", font)
-	_honey_label.add_theme_font_size_override("font_size", maxi(1, size))
+	_label_font = font
+	_label_size_hint = maxi(1, size)
+	_apply_text_layout()
+	_ensure_honey_label_styling()
 
 func set_honey_value(new_value: int, reason: String = "", emit_gain: bool = true) -> void:
 	var safe_value: int = maxi(0, new_value)
@@ -78,9 +94,16 @@ func set_honey_value(new_value: int, reason: String = "", emit_gain: bool = true
 func _resolve_nodes() -> void:
 	_honey_viewport = get_node_or_null(viewport_path) as SubViewport
 	_honey_display = get_node_or_null(display_path) as TextureRect
-	_honey_label = get_node_or_null(label_path) as Label
+	_honey_prefix_label = get_node_or_null(prefix_label_path) as Label
+	_honey_value_label = get_node_or_null(value_label_path) as Label
+	_use_legacy_single_label = false
+	if _honey_value_label == null:
+		_honey_value_label = get_node_or_null(label_path) as Label
+		_use_legacy_single_label = _honey_value_label != null and _honey_prefix_label == null
 	_drip_spawn_point = get_node_or_null(drip_spawn_path) as Node2D
 	_fx_root = get_node_or_null(fx_root_path) as Node2D
+	_ensure_honey_label_styling()
+	_apply_text_layout()
 	if _honey_viewport != null:
 		_honey_viewport.transparent_bg = true
 		_honey_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
@@ -106,8 +129,8 @@ func _sync_initial_honey() -> void:
 	if _profile_manager != null and _profile_manager.has_method("get_honey_balance"):
 		var balance: int = int(_profile_manager.call("get_honey_balance"))
 		set_honey_value(balance, "init_sync", false)
-	elif _honey_label != null:
-		var fallback_value: int = _extract_honey_value(_honey_label.text)
+	elif _honey_value_label != null:
+		var fallback_value: int = _extract_honey_value(_honey_value_label.text)
 		set_honey_value(fallback_value, "init_label", false)
 
 func _on_honey_balance_changed(new_value: int, delta: int, _reason: String) -> void:
@@ -126,9 +149,14 @@ func _on_honey_balance_changed(new_value: int, delta: int, _reason: String) -> v
 		_accumulate_gain(safe_value - previous_value)
 
 func _update_honey_label() -> void:
-	if _honey_label == null:
+	if _honey_value_label == null:
 		return
-	_honey_label.text = "%s%s" % [honey_prefix, _format_number(_current_honey)]
+	if _use_legacy_single_label:
+		_honey_value_label.text = "%s%s" % [honey_prefix, _format_number(_current_honey)]
+		return
+	if _honey_prefix_label != null:
+		_honey_prefix_label.text = honey_prefix.strip_edges()
+	_honey_value_label.text = _format_number(_current_honey)
 
 func _accumulate_gain(delta: int) -> void:
 	if delta <= 0:
@@ -169,8 +197,8 @@ func _resolve_drip_spawn_position() -> Vector2:
 	if _honey_display != null:
 		var display_rect: Rect2 = _honey_display.get_global_rect()
 		return display_rect.position + Vector2(display_rect.size.x - 16.0, display_rect.size.y - 4.0)
-	if _honey_label != null:
-		var label_rect: Rect2 = _honey_label.get_global_rect()
+	if _honey_value_label != null:
+		var label_rect: Rect2 = _honey_value_label.get_global_rect()
 		return label_rect.position + Vector2(label_rect.size.x - 16.0, label_rect.size.y - 4.0)
 	return global_position
 
@@ -231,6 +259,7 @@ func _on_visibility_changed() -> void:
 
 func _on_resized() -> void:
 	_sync_viewport_size()
+	_apply_text_layout()
 
 func _sync_viewport_size() -> void:
 	if _honey_viewport == null:
@@ -239,9 +268,9 @@ func _sync_viewport_size() -> void:
 	if target_size.x < 1.0 or target_size.y < 1.0:
 		target_size = custom_minimum_size
 	if target_size.x < 1.0:
-		target_size.x = 236.0
+		target_size.x = DEFAULT_WIDGET_WIDTH
 	if target_size.y < 1.0:
-		target_size.y = 36.0
+		target_size.y = DEFAULT_WIDGET_HEIGHT
 	var viewport_size: Vector2i = Vector2i(maxi(1, int(ceil(target_size.x))), maxi(1, int(ceil(target_size.y))))
 	if _honey_viewport.size != viewport_size:
 		_honey_viewport.size = viewport_size
@@ -269,3 +298,56 @@ func _format_number(value: int) -> String:
 	if negative:
 		return "-" + out
 	return out
+
+func _ensure_honey_label_styling() -> void:
+	_ensure_prefix_label_styling()
+	_ensure_value_label_styling()
+
+func _apply_text_layout() -> void:
+	var target_height: float = size.y
+	if target_height < 1.0:
+		target_height = custom_minimum_size.y
+	if target_height < 1.0:
+		target_height = DEFAULT_WIDGET_HEIGHT
+	var prefix_size: int = maxi(12, int(round(target_height * 0.16)))
+	var value_size: int = maxi(prefix_size + 12, int(round(target_height * 0.50)))
+	if _label_size_hint > 0:
+		prefix_size = maxi(prefix_size, int(round(float(_label_size_hint) * 0.72)))
+		value_size = maxi(value_size, int(round(float(_label_size_hint) * 1.85)))
+	if _honey_prefix_label != null:
+		if _label_font != null:
+			_honey_prefix_label.add_theme_font_override("font", _label_font)
+		_honey_prefix_label.add_theme_font_size_override("font_size", prefix_size)
+		_honey_prefix_label.custom_minimum_size = Vector2(0.0, round(float(prefix_size) * 1.35))
+	if _honey_value_label != null:
+		if _label_font != null:
+			_honey_value_label.add_theme_font_override("font", _label_font)
+		_honey_value_label.add_theme_font_size_override("font_size", value_size)
+
+func _ensure_prefix_label_styling() -> void:
+	if _honey_prefix_label == null:
+		return
+	_honey_prefix_label.material = null
+	_honey_prefix_label.add_theme_color_override("font_color", HONEY_PREFIX_FONT_COLOR)
+	_honey_prefix_label.add_theme_color_override("font_outline_color", HONEY_PREFIX_OUTLINE_COLOR)
+	_honey_prefix_label.add_theme_color_override("font_shadow_color", HONEY_TEXT_SHADOW_COLOR)
+	_honey_prefix_label.add_theme_constant_override("outline_size", 2)
+	_honey_prefix_label.add_theme_constant_override("shadow_offset_x", 2)
+	_honey_prefix_label.add_theme_constant_override("shadow_offset_y", 2)
+
+func _ensure_value_label_styling() -> void:
+	if _honey_value_label == null or HONEY_VALUE_SHADER == null:
+		return
+	var mat: ShaderMaterial = _honey_value_label.material as ShaderMaterial
+	if mat == null or mat.shader == null or mat.shader.resource_path != HONEY_VALUE_SHADER.resource_path:
+		mat = ShaderMaterial.new()
+		mat.shader = HONEY_VALUE_SHADER
+	else:
+		mat = mat.duplicate() as ShaderMaterial
+	_honey_value_label.material = mat
+	_honey_value_label.add_theme_color_override("font_color", HONEY_VALUE_FONT_TINT)
+	_honey_value_label.add_theme_color_override("font_outline_color", HONEY_VALUE_OUTLINE_COLOR)
+	_honey_value_label.add_theme_color_override("font_shadow_color", HONEY_TEXT_SHADOW_COLOR)
+	_honey_value_label.add_theme_constant_override("outline_size", 1)
+	_honey_value_label.add_theme_constant_override("shadow_offset_x", 2)
+	_honey_value_label.add_theme_constant_override("shadow_offset_y", 2)

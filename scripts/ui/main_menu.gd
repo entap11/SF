@@ -7,6 +7,14 @@ const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePass
 const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
 const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
+const HONEY_TEXT_SHADER: Shader = preload("res://ui/hud/honey/honey_text_honeycomb.gdshader")
+const HONEY_FONT_COLOR: Color = Color(0.97, 0.73, 0.19, 1.0)
+const HONEY_OUTLINE_COLOR: Color = Color(0.20, 0.09, 0.01, 0.98)
+const HONEY_SHADOW_COLOR: Color = Color(0.10, 0.04, 0.01, 0.88)
+const HONEY_WIDGET_PANEL_WIDTH: float = 300.0
+const HONEY_WIDGET_PANEL_HEIGHT: float = 200.0
+const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
+const HONEY_WIDGET_TOP_OFFSET: float = 10.0
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
@@ -811,10 +819,12 @@ func _style_labels() -> void:
 	if _tier_widget != null and _tier_widget.has_method("apply_label_fonts"):
 		_tier_widget.call("apply_label_fonts", _font_regular, _scaled_ui_font_size(16))
 	_apply_font($TopBar/HoneyLabel, _font_regular, 16)
+	_apply_honey_label_shader($TopBar/HoneyLabel)
 	if _honey_widget != null and _honey_widget.has_method("apply_label_font"):
-		_honey_widget.call("apply_label_font", _font_regular, _scaled_ui_font_size(16))
+		_honey_widget.call("apply_label_font", _font_regular, _scaled_ui_font_size(17))
 	_apply_font($DashPanel/DashTopBar/DashRankLabel, _font_regular, 16)
-	_apply_font($DashPanel/DashTopBar/DashHoneyLabel, _font_regular, 16)
+	_apply_font($DashPanel/DashTopBar/DashHoneyLabel, _font_regular, 17)
+	_apply_honey_label_shader($DashPanel/DashTopBar/DashHoneyLabel)
 	_apply_font($HeroPanel/HeroVBox/HeroTitle, _font_semibold, 20)
 	_apply_font($HeroPanel/HeroVBox/HeroSub, _font_regular, 14)
 	_apply_font($DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader, _font_semibold, 18)
@@ -1382,6 +1392,23 @@ func _apply_font(node: Control, font: Font, size: int) -> void:
 	node.add_theme_font_override("font", font)
 	node.add_theme_font_size_override("font_size", _scaled_ui_font_size(size))
 
+func _apply_honey_label_shader(label: Label) -> void:
+	if label == null or HONEY_TEXT_SHADER == null:
+		return
+	var mat: ShaderMaterial = label.material as ShaderMaterial
+	if mat == null or mat.shader == null or mat.shader.resource_path != HONEY_TEXT_SHADER.resource_path:
+		mat = ShaderMaterial.new()
+		mat.shader = HONEY_TEXT_SHADER
+	else:
+		mat = mat.duplicate() as ShaderMaterial
+	label.material = mat
+	label.add_theme_color_override("font_color", HONEY_FONT_COLOR)
+	label.add_theme_color_override("font_outline_color", HONEY_OUTLINE_COLOR)
+	label.add_theme_color_override("font_shadow_color", HONEY_SHADOW_COLOR)
+	label.add_theme_constant_override("outline_size", 1)
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+
 func _apply_player_profile(profile: Dictionary) -> void:
 	var tier_text := str(profile.get("tier_text", "Tier: Bronze"))
 	var honey_value := int(profile.get("honey", 0))
@@ -1406,17 +1433,19 @@ func _ensure_honey_widget() -> void:
 	if widget_control == null:
 		return
 	widget_control.name = "HoneyWidget"
-	widget_control.layout_mode = legacy_honey_label.layout_mode
-	widget_control.anchor_left = legacy_honey_label.anchor_left
-	widget_control.anchor_top = legacy_honey_label.anchor_top
-	widget_control.anchor_right = legacy_honey_label.anchor_right
-	widget_control.anchor_bottom = legacy_honey_label.anchor_bottom
-	widget_control.offset_left = legacy_honey_label.offset_left
-	widget_control.offset_top = legacy_honey_label.offset_top
-	widget_control.offset_right = legacy_honey_label.offset_right
-	widget_control.offset_bottom = legacy_honey_label.offset_bottom
-	widget_control.grow_horizontal = legacy_honey_label.grow_horizontal
-	widget_control.grow_vertical = legacy_honey_label.grow_vertical
+	widget_control.layout_mode = 0
+	widget_control.anchor_left = 1.0
+	widget_control.anchor_top = 0.0
+	widget_control.anchor_right = 1.0
+	widget_control.anchor_bottom = 0.0
+	widget_control.offset_left = -HONEY_WIDGET_RIGHT_MARGIN - HONEY_WIDGET_PANEL_WIDTH
+	widget_control.offset_top = HONEY_WIDGET_TOP_OFFSET
+	widget_control.offset_right = -HONEY_WIDGET_RIGHT_MARGIN
+	widget_control.offset_bottom = HONEY_WIDGET_TOP_OFFSET + HONEY_WIDGET_PANEL_HEIGHT
+	widget_control.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	widget_control.grow_vertical = Control.GROW_DIRECTION_END
+	widget_control.custom_minimum_size = Vector2(HONEY_WIDGET_PANEL_WIDTH, HONEY_WIDGET_PANEL_HEIGHT)
+	widget_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top_bar.add_child(widget_control)
 	top_bar.move_child(widget_control, legacy_honey_label.get_index() + 1)
 	legacy_honey_label.visible = false
