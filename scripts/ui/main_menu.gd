@@ -5,6 +5,7 @@ const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPanel.tscn")
 const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePassPanel.tscn")
 const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
+const HEX_SEAM_BACKGROUND_SCENE: PackedScene = preload("res://ui/backgrounds/HexSeamBackground.tscn")
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
 const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
 const HONEY_TEXT_SHADER: Shader = preload("res://ui/hud/honey/honey_text_honeycomb.gdshader")
@@ -25,6 +26,16 @@ const HIVE_BUTTON_BASE_HEIGHT: float = 70.0
 const HIVE_BUTTON_CENTER_Y: float = 45.0
 const DASH_TAB_KEY_RIGHT := "ui.mm.dash.left"
 const DASH_TAB_KEY_LEFT := "ui.mm.dash.right"
+const UI_SURFACE_DASH := "dash"
+const UI_SURFACE_ASYNC := "async"
+const UI_SURFACE_ENTRY := "entry"
+const UI_SURFACE_PLAY_MODE := "play_mode"
+const UI_SURFACE_VS_LOBBY := "vs_lobby"
+const UI_SURFACE_TIME_PUZZLE := "time_puzzle"
+const UI_SURFACE_SWARM_PASS := "swarm_pass"
+const UI_SURFACE_BATTLE_PASS := "battle_pass"
+const UI_SURFACE_RANK := "rank"
+const UI_SURFACE_HIVE_DROPDOWN := "hive_dropdown"
 const DASH_HEX_BUFFS_KEY := "ui.mm.buffs.normal"
 const DASH_HEX_STORE_KEY := "ui.mm.store.normal"
 const DASH_HEX_HIVE_KEY := "ui.mm.hive.normal"
@@ -49,8 +60,11 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 @onready var dash_analysis_panel: Panel = $DashPanel/DashAnalysisPanel
 @onready var dash_replay_panel: Panel = $DashPanel/DashReplayPanel
 @onready var dash_buffs_panel: Panel = $DashPanel/DashBuffsPanel
+@onready var dash_buffs_background: Control = $DashPanel/DashBuffsPanel/HexSeamBackground
 @onready var dash_hive_panel: Panel = $DashPanel/DashHivePanel
 @onready var dash_store_panel: Panel = $DashPanel/DashStorePanel
+@onready var dash_hive_background: Control = $DashPanel/DashHivePanel/HexSeamBackground
+@onready var dash_store_background: Control = $DashPanel/DashStorePanel/HexSeamBackground
 @onready var dash_settings_panel: Panel = $DashPanel/DashSettingsPanel
 @onready var dash_badges_panel_full: Panel = $DashPanel/DashBadgesPanel
 @onready var store_landing_panel: Panel = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding
@@ -63,7 +77,9 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 @onready var store_prefs_label: Label = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryPrefs/StoreCategoryPrefsVBox/StorePrefsLabel
 @onready var store_prefs_toggle: CheckButton = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryPrefs/StoreCategoryPrefsVBox/StorePrefsToggle
 @onready var store_category_back: Button = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryBack
+@onready var store_body_panel: Panel = $DashPanel/DashStorePanel/StoreVBox/StoreBody
 @onready var async_panel: Panel = $AsyncPanel
+@onready var main_hex_background: Control = $MainHexSeamBackground
 @onready var async_subtitle_label: Label = $AsyncPanel/AsyncVBox/AsyncSub
 @onready var async_top_row: HBoxContainer = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow
 @onready var async_bottom_row: HBoxContainer = $AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow
@@ -139,6 +155,7 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 ]
 @onready var buffs_top_row: HBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow
 @onready var buffs_body_vbox: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox
+@onready var buffs_body_panel: Panel = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody
 @onready var buffs_mode_tabs: HBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs
 @onready var buffs_mode_vs_button: Button = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs/BuffsModeVS
 @onready var buffs_mode_async_button: Button = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsModeTabs/BuffsModeAsync
@@ -749,6 +766,7 @@ func _ready() -> void:
 	_apply_bottom_nav_sprite_presentation()
 	_apply_bottom_nav_layout()
 	_style_panels()
+	_start_entry_hub_skin_prewarm()
 	_ensure_async_stage_contest_section()
 	_wire_buttons()
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
@@ -757,6 +775,7 @@ func _ready() -> void:
 	_load_match_history()
 	_build_store_landing()
 	_init_buffs_ui()
+	_apply_surface_hex_background_presets()
 	_configure_dash_account_surfaces()
 	_ensure_swarm_pass_panel()
 	_load_profile_commerce_state()
@@ -788,6 +807,67 @@ func _input(event: InputEvent) -> void:
 		_update_buff_drag(touch.position)
 		if not touch.pressed:
 			_finish_buff_drag(touch.position)
+
+func _apply_surface_hex_background_presets() -> void:
+	_apply_hex_background_preset(main_hex_background, StringName("dash"))
+	_apply_hex_background_preset(dash_buffs_background, StringName("dash"))
+	_apply_hex_background_preset(dash_store_background, StringName("store"))
+	_apply_hex_background_preset(dash_hive_background, StringName("hive"))
+	_ensure_embedded_hex_background(store_landing_panel, StringName("store"))
+	_ensure_embedded_hex_background(store_category_view, StringName("store"))
+	_ensure_embedded_hex_background(buffs_body_panel, StringName("dash"))
+	_ensure_embedded_hex_background(buffs_loadout_panel, StringName("dash"))
+	_ensure_embedded_hex_background(buffs_library_panel, StringName("dash"))
+	_ensure_embedded_hex_background(buffs_detail_panel, StringName("dash"))
+
+func _apply_hex_background_preset(target: Node, preset_name: StringName) -> void:
+	if target == null:
+		return
+	if target.has_method("apply_preset"):
+		target.call("apply_preset", preset_name)
+
+
+func _ensure_embedded_hex_background(host_panel: Control, preset_name: StringName) -> void:
+	if host_panel == null:
+		return
+	var background: Control = null
+	if host_panel.has_node("HexSeamBackground"):
+		background = host_panel.get_node("HexSeamBackground") as Control
+	else:
+		var background_node: Node = HEX_SEAM_BACKGROUND_SCENE.instantiate()
+		background = background_node as Control
+		if background != null:
+			background.name = "HexSeamBackground"
+			background.layout_mode = 1
+			background.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+			background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			host_panel.add_child(background)
+			host_panel.move_child(background, 0)
+	_apply_hex_background_preset(background, preset_name)
+
+
+func _start_entry_hub_skin_prewarm() -> void:
+	call_deferred("_prewarm_entry_hub_skin_cache")
+
+
+func _prewarm_entry_hub_skin_cache() -> void:
+	if not is_inside_tree():
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var human_modes: PackedStringArray = PackedStringArray(["1V1", "2V2", "3P FFA", "4P FFA"])
+	for mode_id in human_modes:
+		_human_mode_skin_for_mode(mode_id)
+		await tree.process_frame
+	var cycle_labels: PackedStringArray = PackedStringArray(["WEEKLY", "MONTHLY", "SEASON"])
+	for label in cycle_labels:
+		_async_cycle_skin_for_label(label)
+		await tree.process_frame
+	var async_labels: PackedStringArray = PackedStringArray(["STAGE RACE", "RACE", "MISS N OUT"])
+	for label in async_labels:
+		_async_mode_skin_for_label(label)
+		await tree.process_frame
 
 func _bind_onboarding_gate() -> void:
 	ProfileManager.ensure_loaded()
@@ -1054,10 +1134,12 @@ func _style_panels() -> void:
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	_style_panel($DashPanel/DashStorePanel/StoreVBox/StoreBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	_style_panel(store_landing_panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	_style_panel(store_category_view, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	_style_panel(store_category_prefs_panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+	var store_panel_bg: Color = Color(0.06, 0.06, 0.07, 0.16)
+	var store_panel_border: Color = Color(0.62, 0.50, 0.22, 0.52)
+	_style_panel($DashPanel/DashStorePanel/StoreVBox/StoreBody, store_panel_bg, store_panel_border)
+	_style_panel(store_landing_panel, store_panel_bg, store_panel_border)
+	_style_panel(store_category_view, store_panel_bg, store_panel_border)
+	_style_panel(store_category_prefs_panel, store_panel_bg, store_panel_border)
 	_style_panel($AsyncPanel/AsyncVBox/AsyncBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
@@ -1357,10 +1439,7 @@ func _set_hive_dropdown_open(open: bool) -> void:
 		_hive_dropdown_tween.kill()
 	var target_top: float = _hive_dropdown_open_top() if open else _hive_dropdown_closed_top()
 	if open:
-		if _dash_open:
-			_toggle_dash()
-		if async_panel != null:
-			async_panel.visible = false
+		_close_top_level_windows(UI_SURFACE_HIVE_DROPDOWN)
 		_hive_dropdown_panel.visible = true
 	_hive_dropdown_tween = create_tween()
 	_hive_dropdown_tween.tween_property(_hive_dropdown_panel, "offset_top", target_top, 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
@@ -1922,7 +2001,7 @@ func _cancel_skin_texture() -> Texture2D:
 		return null
 	var loaded_any: Variant = load(CANCEL_SKIN_PATH)
 	if loaded_any is Texture2D:
-		_cancel_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D)
+		_cancel_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D, 512, 256)
 	return _cancel_skin_cache
 
 func _close_skin_texture() -> Texture2D:
@@ -1933,7 +2012,7 @@ func _close_skin_texture() -> Texture2D:
 		return null
 	var loaded_any: Variant = load(CLOSE_SKIN_PATH)
 	if loaded_any is Texture2D:
-		_close_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D)
+		_close_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D, 512, 256)
 	return _close_skin_cache
 
 func _apply_close_skin_to_button(button: Button) -> void:
@@ -1994,7 +2073,7 @@ func _apply_cancel_skin_to_button(button: Button) -> void:
 	button.add_theme_constant_override("h_separation", 0)
 	_style_usd_sprite_button(button, true)
 
-func _key_black_to_alpha_texture(source_tex: Texture2D) -> Texture2D:
+func _key_black_to_alpha_texture(source_tex: Texture2D, max_width: int = 512, max_height: int = 256) -> Texture2D:
 	if source_tex == null:
 		return null
 	var source_image: Image = source_tex.get_image()
@@ -2003,6 +2082,16 @@ func _key_black_to_alpha_texture(source_tex: Texture2D) -> Texture2D:
 	source_image.convert(Image.FORMAT_RGBA8)
 	var width: int = source_image.get_width()
 	var height: int = source_image.get_height()
+	var can_resize: bool = max_width > 0 and max_height > 0
+	if can_resize and (width > max_width or height > max_height):
+		var width_scale: float = float(max_width) / float(width)
+		var height_scale: float = float(max_height) / float(height)
+		var resize_scale: float = minf(width_scale, height_scale)
+		var target_w: int = maxi(1, int(round(float(width) * resize_scale)))
+		var target_h: int = maxi(1, int(round(float(height) * resize_scale)))
+		source_image.resize(target_w, target_h, Image.INTERPOLATE_LANCZOS)
+		width = source_image.get_width()
+		height = source_image.get_height()
 	for y in range(height):
 		for x in range(width):
 			var px: Color = source_image.get_pixel(x, y)
@@ -2078,7 +2167,7 @@ func _async_mode_skin_for_label(label: String) -> Texture2D:
 	var loaded_any: Variant = load(path)
 	if loaded_any is Texture2D:
 		var raw_tex: Texture2D = loaded_any as Texture2D
-		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex)
+		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex, 512, 256)
 		_async_mode_skin_cache[cache_key] = keyed_tex
 		return keyed_tex
 	_async_mode_skin_cache[cache_key] = null
@@ -2101,7 +2190,7 @@ func _async_cycle_skin_for_label(label: String) -> Texture2D:
 	var loaded_any: Variant = load(path)
 	if loaded_any is Texture2D:
 		var raw_tex: Texture2D = loaded_any as Texture2D
-		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex)
+		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex, 512, 256)
 		_async_cycle_skin_cache[cache_key] = keyed_tex
 		return keyed_tex
 	_async_cycle_skin_cache[cache_key] = null
@@ -2870,6 +2959,7 @@ func _ensure_buffs_library_nav() -> void:
 		panel.size_flags_stretch_ratio = 1.0
 		tier_root.add_child(panel)
 		_style_panel(panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+		_ensure_embedded_hex_background(panel, StringName("dash"))
 		var tier_vbox: VBoxContainer = VBoxContainer.new()
 		tier_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
 		tier_vbox.offset_left = 8.0
@@ -3818,6 +3908,7 @@ func _ensure_swarm_pass_panel() -> void:
 			_swarm_pass_panel.connect("close_requested", Callable(self, "_close_swarm_pass_panel"))
 
 func _open_swarm_pass_panel() -> void:
+	_close_top_level_windows(UI_SURFACE_SWARM_PASS)
 	_ensure_swarm_pass_panel()
 	if _swarm_pass_panel == null:
 		return
@@ -3841,6 +3932,7 @@ func _ensure_battle_pass_panel() -> void:
 			_battle_pass_panel.connect("close_requested", Callable(self, "_close_battle_pass_panel"))
 
 func _open_battle_pass_panel() -> void:
+	_close_top_level_windows(UI_SURFACE_BATTLE_PASS)
 	_ensure_battle_pass_panel()
 	if _battle_pass_panel == null:
 		return
@@ -3864,6 +3956,7 @@ func _ensure_rank_panel() -> void:
 			_rank_panel.connect("close_requested", Callable(self, "_close_rank_panel"))
 
 func _open_rank_panel() -> void:
+	_close_top_level_windows(UI_SURFACE_RANK)
 	_ensure_rank_panel()
 	if _rank_panel == null:
 		return
@@ -3910,7 +4003,7 @@ func _charge_paid_entry_usd(entry_usd: int, reason: String) -> Dictionary:
 	return {"ok": true, "charged_usd": amount, "remaining_usd": next_balance, "bypassed": false, "reason": reason}
 
 func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -> void:
-	_close_entry_route_modal()
+	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var panel := _build_entry_overlay("INSUFFICIENT BALANCE", subtitle)
 	var body: VBoxContainer = _entry_overlay_body(panel)
 	if body == null:
@@ -3944,7 +4037,7 @@ func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -
 	_entry_route_modal = panel
 
 func _open_game_hub(paid: bool, denomination: int) -> void:
-	_close_entry_route_modal()
+	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var selected_denom: int = denomination
 	if paid and selected_denom <= 0:
 		selected_denom = _default_money_denomination()
@@ -3952,11 +4045,11 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var subtitle := "Select mode and route."
 	if paid:
 		subtitle = "Balance: $%d | Select denomination, then mode." % _wallet_balance_usd()
-	var overlay_size := Vector2(920, 460)
+	var overlay_size := Vector2(920, 620)
 	if paid:
-		overlay_size = Vector2(920, 620)
+		overlay_size = Vector2(920, 760)
 	else:
-		overlay_size = Vector2(920, 560)
+		overlay_size = Vector2(920, 680)
 	var panel := _build_entry_overlay(title, subtitle, overlay_size)
 	var body: VBoxContainer = _entry_overlay_body(panel)
 	if body == null:
@@ -4225,7 +4318,7 @@ func _open_async_entry_selector(free_roll: bool) -> void:
 		status_label.text = "Async paid-contest selector opened."
 
 func _open_vs_mode_select_panel(free_roll: bool) -> void:
-	_close_entry_route_modal()
+	_close_top_level_windows(UI_SURFACE_PLAY_MODE)
 	var panel := preload("res://scenes/ui/VsModeSelect.tscn").instantiate()
 	if panel.has_method("configure_entry"):
 		panel.call("configure_entry", free_roll)
@@ -4234,6 +4327,15 @@ func _open_vs_mode_select_panel(free_roll: bool) -> void:
 
 func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vector2(480, 220)) -> Panel:
 	_close_entry_route_modal()
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var max_size := Vector2(
+		maxf(320.0, viewport_size.x - 64.0),
+		maxf(240.0, viewport_size.y - 64.0)
+	)
+	var resolved_size := Vector2(
+		minf(size.x, max_size.x),
+		minf(size.y, max_size.y)
+	)
 	var panel := Panel.new()
 	panel.name = "EntryRouteModal"
 	panel.layout_mode = 0
@@ -4241,11 +4343,23 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	panel.anchor_top = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -size.x * 0.5
-	panel.offset_top = -size.y * 0.5
-	panel.offset_right = size.x * 0.5
-	panel.offset_bottom = size.y * 0.5
+	panel.offset_left = -resolved_size.x * 0.5
+	panel.offset_top = -resolved_size.y * 0.5
+	panel.offset_right = resolved_size.x * 0.5
+	panel.offset_bottom = resolved_size.y * 0.5
 	panel.z_index = 200
+	panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	var popup_bg_node: Node = HEX_SEAM_BACKGROUND_SCENE.instantiate()
+	var popup_bg: Control = popup_bg_node as Control
+	if popup_bg != null:
+		popup_bg.name = "HexSeamBackground"
+		popup_bg.layout_mode = 1
+		popup_bg.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		popup_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(popup_bg)
+		panel.move_child(popup_bg, 0)
+		if popup_bg.has_method("apply_preset"):
+			popup_bg.call("apply_preset", StringName("popup"))
 	var scroll := ScrollContainer.new()
 	scroll.name = "EntryScroll"
 	scroll.layout_mode = 1
@@ -4256,6 +4370,7 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	scroll.offset_bottom = 0.0
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	panel.add_child(scroll)
 	var vbox := VBoxContainer.new()
 	vbox.name = "EntryBody"
@@ -4264,7 +4379,7 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	vbox.offset_left = 16.0
 	vbox.offset_top = 16.0
 	vbox.offset_right = -16.0
-	vbox.custom_minimum_size = Vector2(maxf(size.x - 32.0, 280.0), 0.0)
+	vbox.custom_minimum_size = Vector2(maxf(resolved_size.x - 32.0, 280.0), 0.0)
 	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 10)
 	scroll.add_child(vbox)
@@ -4370,6 +4485,7 @@ func _get_async_stage_leaderboard_rows(map_count: int) -> Array:
 	return out
 
 func _open_async_stage_contest_leaderboard(map_count: int) -> void:
+	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var resolved_map_count: int = 5
 	if map_count == 3:
 		resolved_map_count = 3
@@ -4562,8 +4678,61 @@ func _close_entry_route_modal() -> void:
 		_entry_route_modal.queue_free()
 	_entry_route_modal = null
 
+func _close_play_mode_select() -> void:
+	if _play_mode_select == null:
+		return
+	if is_instance_valid(_play_mode_select):
+		_play_mode_select.queue_free()
+	_play_mode_select = null
+
+func _close_vs_lobby() -> void:
+	if _vs_lobby == null:
+		return
+	if is_instance_valid(_vs_lobby):
+		_vs_lobby.queue_free()
+	_vs_lobby = null
+
+func _close_time_puzzle_lobby() -> void:
+	if _time_puzzle_lobby == null:
+		return
+	if is_instance_valid(_time_puzzle_lobby):
+		_time_puzzle_lobby.queue_free()
+	_time_puzzle_lobby = null
+
+func _close_top_level_windows(except_surface: String = "") -> void:
+	if except_surface != UI_SURFACE_ENTRY:
+		_close_entry_route_modal()
+	if except_surface != UI_SURFACE_HIVE_DROPDOWN and _hive_dropdown_open:
+		_hide_hive_dropdown_immediate()
+	if except_surface != UI_SURFACE_DASH:
+		if _dash_tween != null and _dash_tween.is_running():
+			_dash_tween.kill()
+		if _hive_panel_tween != null and _hive_panel_tween.is_running():
+			_hive_panel_tween.kill()
+		_hive_direct_mode = false
+		_buffs_direct_mode = false
+		_store_direct_mode = false
+		_settings_direct_mode = false
+		_set_hive_panel_vertical_offset(0.0)
+		_hide_dash_panels()
+		_set_dash_hidden_state()
+	if except_surface != UI_SURFACE_ASYNC and async_panel != null:
+		async_panel.visible = false
+	if except_surface != UI_SURFACE_PLAY_MODE:
+		_close_play_mode_select()
+	if except_surface != UI_SURFACE_VS_LOBBY:
+		_close_vs_lobby()
+	if except_surface != UI_SURFACE_TIME_PUZZLE:
+		_close_time_puzzle_lobby()
+	if except_surface != UI_SURFACE_SWARM_PASS and _swarm_pass_panel != null:
+		_swarm_pass_panel.visible = false
+	if except_surface != UI_SURFACE_BATTLE_PASS and _battle_pass_panel != null:
+		_battle_pass_panel.visible = false
+	if except_surface != UI_SURFACE_RANK and _rank_panel != null:
+		_rank_panel.visible = false
 
 func _open_play_mode_select() -> void:
+	_close_top_level_windows(UI_SURFACE_PLAY_MODE)
 	if _play_mode_select == null:
 		_play_mode_select = preload("res://scenes/ui/PlayModeSelect.tscn").instantiate()
 		_play_mode_select.closed.connect(func():
@@ -4612,18 +4781,7 @@ func _open_hive_panel() -> void:
 	if _hive_direct_mode:
 		_close_hive_panel()
 		return
-	if _hive_dropdown_open:
-		_hide_hive_dropdown_immediate()
-	if _buffs_direct_mode:
-		_close_buffs_panel_immediate()
-	if async_panel != null:
-		async_panel.visible = false
-	if _store_direct_mode:
-		_close_storefront_panel()
-	if _settings_direct_mode:
-		_close_settings_panel()
-	if _dash_tween != null and _dash_tween.is_running():
-		_dash_tween.kill()
+	_close_top_level_windows(UI_SURFACE_DASH)
 	_hive_direct_mode = true
 	_hide_dash_panels()
 	_set_dash_chrome_visible(false)
@@ -4658,18 +4816,7 @@ func _on_dash_hive_close_pressed() -> void:
 func _open_buffs_panel() -> void:
 	if _buffs_direct_mode:
 		return
-	if _hive_dropdown_open:
-		_hide_hive_dropdown_immediate()
-	if _hive_direct_mode:
-		_close_hive_panel_immediate()
-	if async_panel != null:
-		async_panel.visible = false
-	if _store_direct_mode:
-		_close_storefront_panel()
-	if _settings_direct_mode:
-		_close_settings_panel()
-	if _dash_tween != null and _dash_tween.is_running():
-		_dash_tween.kill()
+	_close_top_level_windows(UI_SURFACE_DASH)
 	_buffs_direct_mode = true
 	_hide_dash_panels()
 	_set_dash_chrome_visible(false)
@@ -4698,16 +4845,7 @@ func _on_dash_buffs_close_pressed() -> void:
 	_close_buffs_panel()
 
 func _open_storefront_panel() -> void:
-	if _hive_dropdown_open:
-		_hide_hive_dropdown_immediate()
-	if _buffs_direct_mode:
-		_close_buffs_panel_immediate()
-	if _hive_direct_mode:
-		_close_hive_panel_immediate()
-	if async_panel != null:
-		async_panel.visible = false
-	if _settings_direct_mode:
-		_close_settings_panel()
+	_close_top_level_windows(UI_SURFACE_DASH)
 	_store_direct_mode = true
 	_hide_dash_panels()
 	_show_store_landing()
@@ -4727,16 +4865,7 @@ func _close_storefront_panel() -> void:
 	_dash_open = false
 
 func _open_settings_panel() -> void:
-	if _hive_dropdown_open:
-		_hide_hive_dropdown_immediate()
-	if _buffs_direct_mode:
-		_close_buffs_panel_immediate()
-	if _hive_direct_mode:
-		_close_hive_panel_immediate()
-	if async_panel != null:
-		async_panel.visible = false
-	if _store_direct_mode:
-		_close_storefront_panel()
+	_close_top_level_windows(UI_SURFACE_DASH)
 	_settings_direct_mode = true
 	_hide_dash_panels()
 	_set_dash_chrome_visible(false)
@@ -4782,6 +4911,8 @@ func _toggle_dash() -> void:
 	if _settings_direct_mode:
 		_close_settings_panel()
 		return
+	if not _dash_open:
+		_close_top_level_windows(UI_SURFACE_DASH)
 	if _dash_tween != null and _dash_tween.is_running():
 		_dash_tween.kill()
 	var target_x := 0.0 if not _dash_open else _dash_hidden_x
@@ -4813,25 +4944,14 @@ func _dash_stub_action(label: String) -> void:
 func _open_dash_panel(panel: Panel) -> void:
 	if panel == null:
 		return
-	if _buffs_direct_mode:
-		_close_buffs_panel_immediate()
-		_set_dash_chrome_visible(true)
-	if _hive_direct_mode:
-		_close_hive_panel_immediate()
-		_set_dash_chrome_visible(true)
-	if _store_direct_mode:
-		_store_direct_mode = false
-		_set_dash_chrome_visible(true)
-	if _settings_direct_mode:
-		_settings_direct_mode = false
-		_set_dash_chrome_visible(true)
-	if _hive_dropdown_open:
-		_hide_hive_dropdown_immediate()
-	if async_panel != null:
-		async_panel.visible = false
+	_close_top_level_windows(UI_SURFACE_DASH)
+	_set_dash_chrome_visible(true)
 	if panel == dash_store_panel:
 		_show_store_landing()
 	_hide_dash_panels()
+	dash_panel.visible = true
+	_set_dash_offsets(0.0)
+	_dash_open = true
 	panel.visible = true
 
 func _open_dash_panel_from_menu(panel: Panel) -> void:
@@ -4851,20 +4971,7 @@ func _hide_dash_panels() -> void:
 func _open_async_panel() -> void:
 	if async_panel == null:
 		return
-	if _buffs_direct_mode:
-		_close_buffs_panel_immediate()
-		_set_dash_hidden_state()
-	if _hive_direct_mode:
-		_close_hive_panel_immediate()
-		_set_dash_hidden_state()
-	if _store_direct_mode:
-		_close_storefront_panel()
-	if _settings_direct_mode:
-		_close_settings_panel()
-	if _hive_dropdown_open:
-		_hide_hive_dropdown_immediate()
-	if _dash_open:
-		_toggle_dash()
+	_close_top_level_windows(UI_SURFACE_ASYNC)
 	async_panel.visible = true
 	_open_async_main()
 
@@ -4987,6 +5094,7 @@ func _open_async_yearly() -> void:
 	_open_stage_race_tournament_lobby("YEARLY")
 
 func _open_stage_race_tournament_lobby(scope: String) -> void:
+	_close_top_level_windows(UI_SURFACE_TIME_PUZZLE)
 	if _time_puzzle_lobby == null:
 		_time_puzzle_lobby = preload("res://scenes/ui/TimePuzzleLobby.tscn").instantiate()
 		_time_puzzle_lobby.closed.connect(func():
@@ -5238,6 +5346,7 @@ func _current_async_paid_entry_usd() -> int:
 	return maxi(1, _async_paid_entry_usd)
 
 func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> void:
+	_close_top_level_windows(UI_SURFACE_VS_LOBBY)
 	if _vs_lobby == null:
 		_vs_lobby = preload("res://scenes/ui/VsLobby.tscn").instantiate()
 		_vs_lobby.closed.connect(func():
