@@ -121,7 +121,12 @@ func _cache_signature(gs: GameState) -> String:
 		int(gs.hives_set_version),
 		str(snapped(lane_start_cap_trim_px, 0.001)),
 		str(snapped(lane_end_cap_trim_px, 0.001)),
-		"|".join(lane_sigs)
+		"|".join([
+			"|".join(lane_sigs),
+			str(snapped(float(HiveNodeScript.LANE_ANCHOR_Y_PX), 0.001)),
+			str(snapped(float(HiveNodeScript.LANE_ANCHOR_LEFT_EXTRA_Y_PX), 0.001)),
+			str(snapped(float(HiveNodeScript.LANE_ANCHOR_RIGHT_EXTRA_Y_PX), 0.001))
+		])
 	]
 
 func _resolve_ops_state(obj: Object) -> Object:
@@ -199,8 +204,17 @@ func rebuild_edge_cache(state: Object) -> void:
 				continue
 		var src_center_world: Vector2 = gs.hive_world_pos_by_id(src_id)
 		var dst_center_world: Vector2 = gs.hive_world_pos_by_id(dst_id)
-		var a: Vector2 = HiveNodeScript.lane_anchor_world_from_center(src_center_world)
-		var b: Vector2 = HiveNodeScript.lane_anchor_world_from_center(dst_center_world)
+		var src_radius: float = maxf(0.0, float(src_hive.radius_px))
+		var dst_radius: float = maxf(0.0, float(dst_hive.radius_px))
+		var anchor_pair: Dictionary = HiveNodeScript.lane_anchor_pair_world(
+			src_center_world,
+			dst_center_world,
+			null,
+			src_radius,
+			dst_radius
+		)
+		var a: Vector2 = anchor_pair.get("a", HiveNodeScript.lane_anchor_world_from_center(src_center_world))
+		var b: Vector2 = anchor_pair.get("b", HiveNodeScript.lane_anchor_world_from_center(dst_center_world))
 		var forward: EdgeGeometry = EdgeGeometry.build(
 			src_id,
 			dst_id,

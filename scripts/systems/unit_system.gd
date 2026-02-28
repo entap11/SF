@@ -11,6 +11,7 @@ const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
+const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 
 const BASE_MS := 1000.0
 const PER_POWER_MS := 2.0
@@ -224,7 +225,7 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		int(to_hive.id),
 		float(lane.build_t)
 	)
-	var edge_points := _edge_points(a_hive, b_hive)
+	var edge_points := _edge_points(a_hive, b_hive, int(lane.id))
 	if edge_points.is_empty():
 		return
 	var unit_id := unit_id_counter
@@ -443,6 +444,10 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 						lane_dir = fallback_dir.normalized()
 				if _sim_events != null:
 					var vfx_intensity: float = clampf(float(kill) * 0.5, 0.6, 2.0)
+					var a_unit_id: int = int(a.get("id", -1))
+					var b_unit_id: int = int(b.get("id", -1))
+					var a_travel_dir: Vector2 = _unit_travel_dir_world(a)
+					var b_travel_dir: Vector2 = _unit_travel_dir_world(b)
 					_sim_events.emit_signal(
 						"unit_collision",
 						impact,
@@ -450,7 +455,11 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 						a_owner,
 						b_owner,
 						int(lane_id),
-						vfx_intensity
+						vfx_intensity,
+						a_unit_id,
+						b_unit_id,
+						a_travel_dir,
+						b_travel_dir
 					)
 					var death_intensity: float = clampf(float(kill) * 0.55, 0.7, 2.0)
 					_emit_unit_death_event(a, "collision", death_intensity, impact, lane_dir)
@@ -501,6 +510,19 @@ func _unit_lane_len(unit: Dictionary) -> float:
 	if from_pos_v is Vector2 and to_pos_v is Vector2:
 		return (from_pos_v as Vector2).distance_to(to_pos_v as Vector2)
 	return 0.0
+
+func _unit_travel_dir_world(unit: Dictionary) -> Vector2:
+	var from_pos_v: Variant = unit.get("from_pos")
+	var to_pos_v: Variant = unit.get("to_pos")
+	if not (from_pos_v is Vector2 and to_pos_v is Vector2):
+		return Vector2.ZERO
+	var axis: Vector2 = (to_pos_v as Vector2) - (from_pos_v as Vector2)
+	if axis.length_squared() <= 0.000001:
+		return Vector2.ZERO
+	var dir_sign: int = _unit_dir(unit)
+	if dir_sign == 0:
+		dir_sign = 1
+	return axis.normalized() * float(dir_sign)
 
 func _update_unit_pos_from_t(unit: Dictionary) -> Dictionary:
 	var from_pos_v: Variant = unit.get("from_pos")
@@ -1186,14 +1208,65 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 func _lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return HiveNodeScript.lane_anchor_world_from_center(center_world)
 
-func _edge_points(from_hive: HiveData, to_hive: HiveData) -> Array:
+func _edge_points(from_hive: HiveData, to_hive: HiveData, lane_id: int = -1) -> Array:
 	if state == null or from_hive == null or to_hive == null:
 		return []
-	var a_pos: Vector2 = state.hive_world_pos_by_id(int(from_hive.id))
-	var b_pos: Vector2 = state.hive_world_pos_by_id(int(to_hive.id))
-	var ep: Dictionary = HiveNodeScript.compute_lane_endpoints_world(a_pos, b_pos)
-	var start_edge: Vector2 = ep.get("a", _lane_anchor_world_from_center(a_pos))
-	var end_edge: Vector2 = ep.get("b", _lane_anchor_world_from_center(b_pos))
+	var from_id: int = int(from_hive.id)
+	var to_id: int = int(to_hive.id)
+	var edge_any: Variant = null
+	if OpsState != null and OpsState.has_method("get_edge_for_lane_key"):
+		if from_id > 0 and to_id > 0:
+			edge_any = OpsState.get_edge_for_lane_key("%d->%d" % [from_id, to_id])
+		if edge_any == null and lane_id > 0:
+			edge_any = OpsState.get_edge_for_lane_key(lane_id)
+			if edge_any == null:
+				edge_any = OpsState.get_edge_for_lane_key(str(lane_id))
+	if edge_any != null:
+		var start_edge: Vector2 = Vector2.ZERO
+		var end_edge: Vector2 = Vector2.ZERO
+		var src_id: int = -1
+		var dst_id: int = -1
+		if edge_any is EdgeGeometry:
+			var edge: EdgeGeometry = edge_any as EdgeGeometry
+			start_edge = edge.start
+			end_edge = edge.end
+			src_id = edge.src_id
+			dst_id = edge.dst_id
+		elif typeof(edge_any) == TYPE_DICTIONARY:
+			var edge_dict: Dictionary = edge_any as Dictionary
+			start_edge = edge_dict.get("start", edge_dict.get("a", Vector2.ZERO))
+			end_edge = edge_dict.get("end", edge_dict.get("b", Vector2.ZERO))
+			src_id = int(edge_dict.get("src_id", -1))
+			dst_id = int(edge_dict.get("dst_id", -1))
+		if from_id > 0 and to_id > 0 and src_id == to_id and dst_id == from_id:
+			var swap: Vector2 = start_edge
+			start_edge = end_edge
+			end_edge = swap
+		if start_edge.distance_to(end_edge) < EDGE_MIN_DIST_PX:
+			end_edge = start_edge
+		return [start_edge, end_edge]
+	var a_pos: Vector2 = state.hive_world_pos_by_id(from_id)
+	var b_pos: Vector2 = state.hive_world_pos_by_id(to_id)
+	var anchor_pair: Dictionary = HiveNodeScript.lane_anchor_pair_world(
+		a_pos,
+		b_pos,
+		null,
+		float(from_hive.radius_px),
+		float(to_hive.radius_px)
+	)
+	var start_edge: Vector2 = anchor_pair.get("a", _lane_anchor_world_from_center(a_pos))
+	var end_edge: Vector2 = anchor_pair.get("b", _lane_anchor_world_from_center(b_pos))
+	var lane_vec: Vector2 = end_edge - start_edge
+	var lane_len: float = lane_vec.length()
+	if lane_len > 0.000001:
+		var lane_dir: Vector2 = lane_vec / lane_len
+		var start_trim: float = maxf(0.0, float(from_hive.radius_px))
+		var end_trim: float = maxf(0.0, float(to_hive.radius_px))
+		var trim_cap: float = lane_len * 0.5
+		start_trim = minf(start_trim, trim_cap)
+		end_trim = minf(end_trim, trim_cap)
+		start_edge += lane_dir * start_trim
+		end_edge -= lane_dir * end_trim
 	if start_edge.distance_to(end_edge) < EDGE_MIN_DIST_PX:
 		end_edge = start_edge
 	return [start_edge, end_edge]
@@ -1209,7 +1282,7 @@ func _ensure_unit_edges(unit: Dictionary) -> Dictionary:
 	var b_hive: HiveData = state.find_hive_by_id(b_id)
 	if a_hive == null or b_hive == null:
 		return unit
-	var edge_points := _edge_points(a_hive, b_hive)
+	var edge_points := _edge_points(a_hive, b_hive, int(unit.get("lane_id", -1)))
 	if edge_points.is_empty():
 		return unit
 	unit["from_pos"] = edge_points[0]

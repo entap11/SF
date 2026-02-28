@@ -15,6 +15,7 @@ var cut_value: float = 0.0
 var shield_active: bool = false
 var penetration_px: float = 0.0
 var precontact_3_5px: bool = false
+var snap_on_first_contact: bool = false
 
 var _entrance_point_world: Vector2 = Vector2.ZERO
 var _travel_dir_world: Vector2 = Vector2.RIGHT
@@ -68,6 +69,9 @@ func set_local_cut_dir(local_cut_dir: Vector2) -> void:
 func set_shield_active(active: bool) -> void:
 	shield_active = active
 
+func set_first_contact_snap(enabled: bool) -> void:
+	snap_on_first_contact = enabled
+
 func set_colorkey(enabled: bool, key_color: Color, threshold: float, softness: float) -> void:
 	if _material == null:
 		return
@@ -95,8 +99,8 @@ func update_from_world_position(
 		else:
 			penetration_px = minf(target_penetration_px, penetration_px + forward_step_px)
 	else:
-		# On first contact frame, avoid a deep snap by starting at boundary.
-		penetration_px = 0.0
+		# Optional for collision clips: allow immediate dissolve on first contact frame.
+		penetration_px = target_penetration_px if snap_on_first_contact else 0.0
 	_prev_nose_world = nose_world
 	_has_prev_nose_world = true
 	entering_state = distance_to_plane_px >= 0.0
@@ -120,6 +124,7 @@ func reset() -> void:
 	shield_active = false
 	penetration_px = 0.0
 	precontact_3_5px = false
+	snap_on_first_contact = false
 	_reported_fully_clipped = false
 	_prev_nose_world = Vector2.ZERO
 	_has_prev_nose_world = false

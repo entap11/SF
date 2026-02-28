@@ -16,6 +16,14 @@ const HONEY_WIDGET_PANEL_WIDTH: float = 300.0
 const HONEY_WIDGET_PANEL_HEIGHT: float = 200.0
 const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
 const HONEY_WIDGET_TOP_OFFSET: float = 10.0
+const MM_BACKGROUND_Y_SHIFT: float = 36.0
+const MM_BACKGROUND_X_SCALE: float = 0.88
+const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+const MM_PLATFORM_DIMMER_ALPHA: float = 0.19
+const MM_HERO_PANEL_ANCHOR_LEFT: float = 0.14
+const MM_HERO_PANEL_ANCHOR_RIGHT: float = 0.86
+const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
+const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
@@ -281,6 +289,12 @@ var _tier_widget: Control = null
 @onready var menu_buttons_row: HBoxContainer = $BottomBar/MenuButtons
 @onready var menu_left_buttons_row: HBoxContainer = $BottomBar/MenuButtons/LeftButtons
 @onready var menu_right_buttons_row: HBoxContainer = $BottomBar/MenuButtons/RightButtons
+@onready var underlayment_tex: TextureRect = $Underlayment
+@onready var platform_dimmer: ColorRect = $PlatformDimmer
+@onready var hero_panel: Panel = $HeroPanel
+@onready var hero_vbox: VBoxContainer = $HeroPanel/HeroVBox
+@onready var hero_title_label: Label = $HeroPanel/HeroVBox/HeroTitle
+@onready var hero_sub_label: Label = $HeroPanel/HeroVBox/HeroSub
 @onready var onboarding_overlay: Control = $ProfileFirstRunOverlay
 @onready var onboarding_panel: OnboardingPanel = $ProfileFirstRunOverlay/OverlayCenter/OverlayPanel/OverlayVBox/OnboardingPanel
 
@@ -393,6 +407,11 @@ const USD_SKIN_DIR_PATH: String = "res://assets/sprites/sf_skin_v1"
 const USD_SKIN_FALLBACK_PATH: String = "res://assets/sprites/sf_skin_v1/$.png"
 const CANCEL_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/cancel.png"
 const CLOSE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/Close.png"
+const STORE_CATEGORY_SKIN_BY_ID: Dictionary = {
+	"BUNDLES": "res://assets/sprites/sf_skin_v1/Bundles.png",
+	"SKINS": "res://assets/sprites/sf_skin_v1/skins_alpha.png",
+	"MERCH": "res://assets/sprites/sf_skin_v1/merch.png"
+}
 const HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
 	"1V1": "res://assets/sprites/sf_skin_v1/1v1.png",
 	"2V2": "res://assets/sprites/sf_skin_v1/2v2.png",
@@ -463,6 +482,7 @@ var _close_skin_loaded: bool = false
 var _async_cycle_skin_cache: Dictionary = {}
 var _human_mode_skin_cache: Dictionary = {}
 var _async_mode_skin_cache: Dictionary = {}
+var _store_category_skin_cache: Dictionary = {}
 var _bottom_nav_skin_material: ShaderMaterial = null
 var _hive_dropdown_panel: Panel = null
 var _hive_dropdown_tween: Tween = null
@@ -759,6 +779,7 @@ const STORE_SKUS := [
 
 func _ready() -> void:
 	_load_fonts()
+	_apply_background_art_direction()
 	_ensure_tier_widget()
 	_ensure_honey_widget()
 	_style_labels()
@@ -771,6 +792,8 @@ func _ready() -> void:
 	_wire_buttons()
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
+	if not get_viewport().size_changed.is_connected(_apply_background_art_direction):
+		get_viewport().size_changed.connect(_apply_background_art_direction)
 	_set_hex_buttons()
 	_load_match_history()
 	_build_store_landing()
@@ -905,8 +928,8 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashTopBar/DashRankLabel, _font_regular, 16)
 	_apply_font($DashPanel/DashTopBar/DashHoneyLabel, _font_regular, 17)
 	_apply_honey_label_shader($DashPanel/DashTopBar/DashHoneyLabel)
-	_apply_font($HeroPanel/HeroVBox/HeroTitle, _font_semibold, 20)
-	_apply_font($HeroPanel/HeroVBox/HeroSub, _font_regular, 14)
+	_apply_font($HeroPanel/HeroVBox/HeroTitle, _font_semibold, 24)
+	_apply_font($HeroPanel/HeroVBox/HeroSub, _font_regular, 16)
 	_apply_font($DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader, _font_semibold, 18)
 	_apply_font($DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesHeader, _font_semibold, 18)
 	for i in range(1, 6):
@@ -1061,6 +1084,38 @@ func _style_labels() -> void:
 	for row in stats_rows:
 		_apply_font(row, _font_regular, 14)
 	_apply_font(status_label, _font_regular, 14)
+
+func _apply_background_art_direction() -> void:
+	if underlayment_tex != null:
+		underlayment_tex.stretch_mode = MM_BACKGROUND_STRETCH_MODE
+		underlayment_tex.offset_left = 0.0
+		underlayment_tex.offset_right = 0.0
+		underlayment_tex.offset_top = MM_BACKGROUND_Y_SHIFT
+		underlayment_tex.offset_bottom = MM_BACKGROUND_Y_SHIFT
+		underlayment_tex.pivot_offset = underlayment_tex.size * 0.5
+		underlayment_tex.scale = Vector2(MM_BACKGROUND_X_SCALE, 1.0)
+	if platform_dimmer != null:
+		var dimmer_color: Color = platform_dimmer.color
+		dimmer_color.a = MM_PLATFORM_DIMMER_ALPHA
+		platform_dimmer.color = dimmer_color
+	if hero_panel != null:
+		hero_panel.anchor_left = MM_HERO_PANEL_ANCHOR_LEFT
+		hero_panel.anchor_right = MM_HERO_PANEL_ANCHOR_RIGHT
+		hero_panel.anchor_top = MM_HERO_PANEL_ANCHOR_TOP
+		hero_panel.anchor_bottom = MM_HERO_PANEL_ANCHOR_BOTTOM
+		hero_panel.offset_left = 0.0
+		hero_panel.offset_top = 0.0
+		hero_panel.offset_right = 0.0
+		hero_panel.offset_bottom = 0.0
+	if hero_vbox != null:
+		hero_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+		hero_vbox.add_theme_constant_override("separation", 8)
+	if hero_title_label != null:
+		hero_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hero_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if hero_sub_label != null:
+		hero_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hero_sub_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 func _style_buttons() -> void:
 	_apply_font(menu_cash_button, _font_semibold, 20)
@@ -1951,9 +2006,10 @@ func _usd_skin_for_amount(amount: int) -> Texture2D:
 			continue
 		var loaded_any: Variant = load(candidate_path)
 		if loaded_any is Texture2D:
-			var tex: Texture2D = loaded_any as Texture2D
-			_usd_skin_cache[cache_key] = tex
-			return tex
+			var raw_tex: Texture2D = loaded_any as Texture2D
+			var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex)
+			_usd_skin_cache[cache_key] = keyed_tex
+			return keyed_tex
 	_usd_skin_cache[cache_key] = null
 	return null
 
@@ -2125,9 +2181,10 @@ func _human_mode_skin_for_mode(mode_id: String) -> Texture2D:
 		return null
 	var loaded_any: Variant = load(path)
 	if loaded_any is Texture2D:
-		var tex: Texture2D = loaded_any as Texture2D
-		_human_mode_skin_cache[cache_key] = tex
-		return tex
+		var raw_tex: Texture2D = loaded_any as Texture2D
+		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex)
+		_human_mode_skin_cache[cache_key] = keyed_tex
+		return keyed_tex
 	_human_mode_skin_cache[cache_key] = null
 	return null
 
@@ -2147,6 +2204,48 @@ func _apply_human_mode_skin_to_button(button: Button, mode_id: String, paid: boo
 	button.custom_minimum_size = Vector2(144.0, 64.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.add_theme_constant_override("h_separation", 0)
+	_style_usd_sprite_button(button, true)
+
+func _store_category_skin_for_id(category_id: String) -> Texture2D:
+	var cache_key: String = category_id.strip_edges().to_upper()
+	if _store_category_skin_cache.has(cache_key):
+		var cached_any: Variant = _store_category_skin_cache.get(cache_key)
+		if cached_any is Texture2D:
+			return cached_any as Texture2D
+		return null
+	var path: String = str(STORE_CATEGORY_SKIN_BY_ID.get(cache_key, ""))
+	if path.is_empty():
+		_store_category_skin_cache[cache_key] = null
+		return null
+	if not ResourceLoader.exists(path):
+		_store_category_skin_cache[cache_key] = null
+		return null
+	var loaded_any: Variant = load(path)
+	if loaded_any is Texture2D:
+		var tex: Texture2D = loaded_any as Texture2D
+		_store_category_skin_cache[cache_key] = tex
+		return tex
+	_store_category_skin_cache[cache_key] = null
+	return null
+
+func _apply_store_category_skin_to_button(button: Button, category_id: String, label_text: String) -> void:
+	if button == null:
+		return
+	var tex: Texture2D = _store_category_skin_for_id(category_id)
+	button.tooltip_text = label_text
+	if tex == null:
+		button.text = label_text
+		return
+	button.icon = tex
+	button.text = ""
+	button.custom_minimum_size = Vector2(
+		maxf(button.custom_minimum_size.x, 220.0),
+		maxf(button.custom_minimum_size.y, 96.0)
+	)
+	button.set("expand_icon", true)
+	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.set("icon_max_width", 208)
 	button.add_theme_constant_override("h_separation", 0)
 	_style_usd_sprite_button(button, true)
 
@@ -3613,7 +3712,8 @@ func _build_store_landing() -> void:
 	_clear_store_buttons()
 	for category in STORE_CATEGORIES:
 		var button := Button.new()
-		button.text = category.get("title", "Category")
+		var title_text: String = str(category.get("title", "Category"))
+		button.text = title_text
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		var category_id := str(category.get("id", ""))
@@ -3621,6 +3721,7 @@ func _build_store_landing() -> void:
 		store_category_grid.add_child(button)
 		_apply_font(button, _font_semibold, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+		_apply_store_category_skin_to_button(button, category_id, title_text)
 		_store_category_buttons.append(button)
 	_show_store_landing()
 

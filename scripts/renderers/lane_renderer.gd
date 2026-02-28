@@ -190,35 +190,35 @@ func _edge_geo_from_cache(lane_id: int, a_id: int, b_id: int) -> Variant:
 	return edge_any
 
 func _edge_geo_to_endpoints_local(edge_any: Variant, a_center_local: Vector2, b_center_local: Vector2, a_id: int = -1, b_id: int = -1) -> Dictionary:
-	var from_anchor_world: Vector2 = Vector2.ZERO
-	var to_anchor_world: Vector2 = Vector2.ZERO
+	var start_world: Vector2 = Vector2.ZERO
+	var end_world: Vector2 = Vector2.ZERO
 	var dir_world: Vector2 = Vector2.ZERO
 	var src_id: int = -1
 	var dst_id: int = -1
 	if edge_any is EdgeGeometry:
 		var edge: EdgeGeometry = edge_any as EdgeGeometry
-		from_anchor_world = edge.a
-		to_anchor_world = edge.b
+		start_world = edge.start
+		end_world = edge.end
 		dir_world = edge.dir
 		src_id = edge.src_id
 		dst_id = edge.dst_id
 	elif typeof(edge_any) == TYPE_DICTIONARY:
 		var d: Dictionary = edge_any as Dictionary
-		from_anchor_world = d.get("a", d.get("start", Vector2.ZERO))
-		to_anchor_world = d.get("b", d.get("end", Vector2.ZERO))
+		start_world = d.get("start", d.get("a", Vector2.ZERO))
+		end_world = d.get("end", d.get("b", Vector2.ZERO))
 		dir_world = d.get("dir", Vector2.ZERO)
 		src_id = int(d.get("src_id", -1))
 		dst_id = int(d.get("dst_id", -1))
 	else:
 		return {"ok": false}
 	if a_id > 0 and b_id > 0 and src_id == b_id and dst_id == a_id:
-		var swap: Vector2 = from_anchor_world
-		from_anchor_world = to_anchor_world
-		to_anchor_world = swap
+		var swap: Vector2 = start_world
+		start_world = end_world
+		end_world = swap
 		dir_world = -dir_world
-	var trimmed: Dictionary = EdgeEndpoints.compute(from_anchor_world, to_anchor_world, EdgeEndpoints.EDGE_TUCK_PX)
-	var start_world: Vector2 = trimmed.get("start", from_anchor_world)
-	var end_world: Vector2 = trimmed.get("end", to_anchor_world)
+	var trimmed: Dictionary = EdgeEndpoints.compute(start_world, end_world, EdgeEndpoints.EDGE_TUCK_PX)
+	start_world = trimmed.get("start", start_world)
+	end_world = trimmed.get("end", end_world)
 	var a_local: Vector2 = to_local(start_world)
 	var b_local: Vector2 = to_local(end_world)
 	var lane_vec: Vector2 = b_local - a_local
@@ -282,11 +282,25 @@ func _maybe_log_lane_endpoints(a_anchor_world: Vector2, b_anchor_world: Vector2,
 	})
 
 func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_center_local: Vector2, _a_id: int = -1, _b_id: int = -1, _lane_id: int = -1) -> Dictionary:
+	if _lane_id > 0 and _a_id > 0 and _b_id > 0:
+		var edge_any: Variant = _edge_geo_from_cache(_lane_id, _a_id, _b_id)
+		if edge_any != null:
+			var from_cache: Dictionary = _edge_geo_to_endpoints_local(edge_any, a_center_local, b_center_local, _a_id, _b_id)
+			if bool(from_cache.get("ok", false)):
+				return from_cache
 	var a_anchor_world: Vector2 = to_global(a_center_local)
 	var b_anchor_world: Vector2 = to_global(b_center_local)
-	var ep_world: Dictionary = _compute_lane_endpoints_world(a_anchor_world, b_anchor_world)
-	var from_anchor_world: Vector2 = ep_world.get("a", a_anchor_world)
-	var to_anchor_world: Vector2 = ep_world.get("b", b_anchor_world)
+	var src_radius: float = _hive_radius_px_for_lane(_a_id)
+	var dst_radius: float = _hive_radius_px_for_lane(_b_id)
+	var anchor_pair: Dictionary = HiveNodeScript.lane_anchor_pair_world(
+		a_anchor_world,
+		b_anchor_world,
+		null,
+		src_radius,
+		dst_radius
+	)
+	var from_anchor_world: Vector2 = anchor_pair.get("a", a_anchor_world)
+	var to_anchor_world: Vector2 = anchor_pair.get("b", b_anchor_world)
 	var geo: EdgeGeometry = EdgeGeometry.build(
 		_a_id,
 		_b_id,
@@ -295,9 +309,9 @@ func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_cente
 		lane_start_cap_trim_px,
 		lane_end_cap_trim_px
 	)
-	var trimmed: Dictionary = EdgeEndpoints.compute(geo.a, geo.b, EdgeEndpoints.EDGE_TUCK_PX)
-	var start_world: Vector2 = trimmed.get("start", geo.a)
-	var end_world: Vector2 = trimmed.get("end", geo.b)
+	var trimmed: Dictionary = EdgeEndpoints.compute(geo.start, geo.end, EdgeEndpoints.EDGE_TUCK_PX)
+	var start_world: Vector2 = trimmed.get("start", geo.start)
+	var end_world: Vector2 = trimmed.get("end", geo.end)
 	var a_local: Vector2 = to_local(start_world)
 	var b_local: Vector2 = to_local(end_world)
 	var lane_vec: Vector2 = b_local - a_local
@@ -1388,6 +1402,27 @@ func _hive_center_local_for_lane(hive_id: int) -> Variant:
 
 func _hive_local_pos_for_lane(hive_id: int) -> Variant:
 	return _hive_center_local_for_lane(hive_id)
+
+func _hive_radius_px_for_lane(hive_id: int) -> float:
+	var fallback_radius: float = 18.0
+	var node_any: Variant = hive_nodes_by_id.get(hive_id, null)
+	if node_any is Node:
+		var node: Node = node_any as Node
+		if node != null and is_instance_valid(node):
+			var radius_any: Variant = node.get("radius_px")
+			if typeof(radius_any) == TYPE_FLOAT or typeof(radius_any) == TYPE_INT:
+				var node_radius: float = float(radius_any)
+				if node_radius > 0.0:
+					return node_radius
+	var meta_any: Variant = _hive_meta_by_id.get(hive_id, null)
+	if typeof(meta_any) == TYPE_DICTIONARY:
+		var meta: Dictionary = meta_any as Dictionary
+		var radius_meta_any: Variant = meta.get("radius_px", meta.get("radius", null))
+		if typeof(radius_meta_any) == TYPE_FLOAT or typeof(radius_meta_any) == TYPE_INT:
+			var meta_radius: float = float(radius_meta_any)
+			if meta_radius > 0.0:
+				return meta_radius
+	return fallback_radius
 
 func _maybe_log_lane_sprite_coverage(length_px: float, segment_count: int, effective_seg_len: float) -> void:
 	if length_px <= LANE_SEGMENT_TARGET_PX:

@@ -49,6 +49,17 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
+[node name="PlatformDimmer" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 0.58
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.18)
+
 [node name="GlowLeft" type="ColorRect" parent="."]
 layout_mode = 0
 offset_left = -120.0
@@ -241,6 +252,15 @@ visible = false
 layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
+
+[node name="HexSeamBackground" parent="DashPanel" instance=ExtResource("9")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+preset_name = &"dash"
 
 [node name="DashTopBar" type="Control" parent="DashPanel"]
 layout_mode = 1
@@ -1091,6 +1111,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+preset_name = &"hive"
 
 [node name="HiveVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel"]
 layout_mode = 1
@@ -1299,6 +1320,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+preset_name = &"store"
 
 [node name="StoreVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel"]
 layout_mode = 1
@@ -2082,6 +2104,15 @@ mouse_filter = 1
 [node name="OverlayPanel" type="Panel" parent="ProfileFirstRunOverlay/OverlayCenter"]
 custom_minimum_size = Vector2(560, 420)
 mouse_filter = 1
+
+[node name="HexSeamBackground" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel" instance=ExtResource("9")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+preset_name = &"popup"
 
 [node name="OverlayVBox" type="VBoxContainer" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel"]
 anchors_preset = 15

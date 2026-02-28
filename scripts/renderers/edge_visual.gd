@@ -3,7 +3,7 @@ class_name EdgeVisual
 
 const LANE_NORMAL_OFFSET_PX: float = 0.0
 const UNIT_NORMAL_OFFSET_PX: float = 0.0
-const UNIT_LIFT_Y_PX: float = 0.0
+const UNIT_LIFT_Y_PX: float = -4.0
 
 static func apply_normal_offset(p: Vector2, normal: Vector2, px: float) -> Vector2:
 	return p + normal * px

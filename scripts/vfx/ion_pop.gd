@@ -13,6 +13,7 @@ var _timer: float = 0.0
 var _active: bool = false
 var _pool: Node = null
 var _fallback_tex: Texture2D = null
+var _flash_base_scale: Vector2 = Vector2(0.34, 0.14)
 
 func _ready() -> void:
 	_ensure_fallback_texture()
@@ -48,7 +49,9 @@ func play(from_pos: Vector2, to_pos: Vector2) -> void:
 
 	if flash != null:
 		flash.visible = true
-		flash.scale = Vector2.ONE
+		var flash_scale_x: float = clampf(distance * 0.024, 0.30, 0.60)
+		_flash_base_scale = Vector2(flash_scale_x, 0.14)
+		flash.scale = _flash_base_scale
 		flash.modulate.a = 0.9
 	if sparks != null:
 		sparks.restart()
@@ -61,7 +64,8 @@ func _process(delta: float) -> void:
 	if flash != null:
 		var t: float = clampf(_timer / maxf(0.001, lifetime), 0.0, 1.0)
 		flash.modulate.a = t
-		flash.scale = Vector2.ONE * lerpf(0.9, 0.5, 1.0 - t)
+		var shrink: float = lerpf(1.0, 0.55, 1.0 - t)
+		flash.scale = _flash_base_scale * shrink
 	if _timer > 0.0:
 		return
 	_active = false

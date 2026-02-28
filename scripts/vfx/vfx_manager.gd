@@ -24,6 +24,7 @@ const HIT_RING_LIFE := 0.25
 const UPGRADE_RING_RADIUS := 22.0
 const UPGRADE_RING_LIFE := 0.45
 const RING_SEGMENTS := 24
+const ENABLE_RING_OVERLAYS: bool = false
 const IMPACT_IONIZE_LINE_LIFE := 0.12
 const IMPACT_IONIZE_LEN_MIN := 10.0
 const IMPACT_IONIZE_LEN_MAX := 22.0
@@ -354,7 +355,18 @@ func _on_tower_hit(tower_id: int, owner_id: int, tier: int, tower_pos: Vector2, 
 		})
 	_spawn_ring(hit_pos, HIT_RING_RADIUS, _owner_color(owner_id), HIT_RING_LIFE)
 
-func _on_unit_collision(world_pos: Vector2, lane_dir: Vector2, owner_a: int, owner_b: int, lane_id: int, intensity: float) -> void:
+func _on_unit_collision(
+	world_pos: Vector2,
+	lane_dir: Vector2,
+	owner_a: int,
+	owner_b: int,
+	lane_id: int,
+	intensity: float,
+	_unit_a_id: int = -1,
+	_unit_b_id: int = -1,
+	_unit_a_travel_dir: Vector2 = Vector2.ZERO,
+	_unit_b_travel_dir: Vector2 = Vector2.ZERO
+) -> void:
 	if not _vfx_enabled():
 		return
 	_spawn_collision_vfx(world_pos, lane_dir, owner_a, owner_b, intensity, lane_id)
@@ -520,6 +532,8 @@ func _spike_len_for_tier(tier: int) -> float:
 	return SPIKE_LEN_T3_PLUS_PX
 
 func _spawn_ring(pos: Vector2, radius: float, color: Color, life: float) -> void:
+	if not ENABLE_RING_OVERLAYS:
+		return
 	var line := Line2D.new()
 	line.width = 2.0
 	line.default_color = color

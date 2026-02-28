@@ -28,6 +28,7 @@ const ArenaStageRuntimeFlow := preload("res://scripts/arena_helpers/stage_runtim
 const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
 const ArenaInputBridgeUtils := preload("res://scripts/arena_helpers/input_bridge_utils.gd")
 const ArenaFloorInfluenceSystem := preload("res://scripts/fx/arena_floor_influence_system.gd")
+const FORCE_DISABLE_FLOOR_INFLUENCE: bool = true
 
 const GRID_W := 8
 const GRID_H := 12
@@ -152,6 +153,7 @@ var _last_barracks_export_log_ms: int = 0
 var _last_render_hive_nodes_sig: int = -1
 var _last_render_hives_version: int = -1
 @onready var map_root: Node2D = $MapRoot
+@onready var map_hex_background: Control = get_node_or_null("MapHexBackgroundLayer/HexSeamBackground") as Control
 @onready var floor_renderer: FloorRenderer = $MapRoot/FloorRenderer
 @onready var lane_renderer = $MapRoot/LaneRenderer
 @onready var tower_renderer_node = $MapRoot/TowerRenderer
@@ -372,6 +374,7 @@ func _ready() -> void:
 	SFLog.info("ARENA_SCRIPT", {"path": get_script().resource_path})
 	SFLog.info("ARENA_READY", {"process": is_processing()})
 	add_to_group("Arena")
+	_configure_map_hex_background()
 	self.scale = Vector2.ONE
 	SFLog.info("POWER_BAR_REF", {"exists": power_bar != null, "path": power_bar.get_path() if power_bar != null else "<null>"})
 	if power_bar == null:
@@ -469,6 +472,12 @@ func _ready() -> void:
 	_dump_tree_with_scripts("/root/DevMapRunner")
 	# (moved to top of _ready())
 	_list_canvasitems_with_scripts("/root/DevMapRunner/Arena")
+
+func _configure_map_hex_background() -> void:
+	if map_hex_background == null:
+		return
+	if map_hex_background.has_method("apply_preset"):
+		map_hex_background.call("apply_preset", StringName("dash"))
 
 func _start_match_flow() -> void:
 	SFLog.info("PREMATCH_BEGIN", {})
@@ -2104,6 +2113,8 @@ func _gpu_vfx_pref_enabled() -> bool:
 	return true
 
 func _floor_graphics_pref_enabled() -> bool:
+	if FORCE_DISABLE_FLOOR_INFLUENCE:
+		return false
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
 	if profile_manager != null and profile_manager.has_method("is_floor_graphics_enabled"):
 		return bool(profile_manager.call("is_floor_graphics_enabled"))
@@ -2115,7 +2126,10 @@ func set_gpu_vfx_enabled(enabled: bool) -> void:
 		vfx_manager.call("set_gpu_vfx_enabled", enabled)
 
 func set_floor_graphics_enabled(enabled: bool) -> void:
-	enable_floor_influence_runtime = enabled
+	if FORCE_DISABLE_FLOOR_INFLUENCE:
+		enable_floor_influence_runtime = false
+	else:
+		enable_floor_influence_runtime = enabled
 	_ensure_floor_influence_system()
 
 func _on_sim_ticked() -> void:

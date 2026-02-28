@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3 uid="uid://bi1epiw4to48u"]
+[gd_scene load_steps=17 format=3 uid="uid://bi1epiw4to48u"]
 
 [ext_resource type="Script" path="res://scripts/arena.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/renderers/lane_renderer.gd" id="2"]
@@ -15,12 +15,18 @@
 [ext_resource type="Script" path="res://scripts/systems/sim_runner.gd" id="13"]
 [ext_resource type="Script" path="res://scripts/sim/sim_events.gd" id="14"]
 [ext_resource type="Script" path="res://scripts/renderers/wall_renderer.gd" id="15"]
+[ext_resource type="PackedScene" path="res://ui/backgrounds/HexSeamBackground.tscn" id="16"]
 
 [sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_1"]
 blend_mode = 1
 
 [node name="Arena" type="Node2D"]
 script = ExtResource("1")
+
+[node name="MapHexBackgroundLayer" type="CanvasLayer" parent="."]
+layer = -100
+
+[node name="HexSeamBackground" parent="MapHexBackgroundLayer" instance=ExtResource("16")]
 
 [node name="MapRoot" type="Node2D" parent="."]
 

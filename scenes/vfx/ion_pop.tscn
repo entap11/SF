@@ -1,8 +1,7 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/vfx/ion_pop.gd" id="1"]
 [ext_resource type="Shader" path="res://shaders/IonBeam.gdshader" id="2"]
-[ext_resource type="Texture2D" path="res://assets/ui/selection_ring.png" id="3"]
 
 [sub_resource type="ShaderMaterial" id="1"]
 shader = ExtResource("2")
@@ -15,13 +14,11 @@ centered = true
 scale = Vector2(1, 0.12)
 material = SubResource("1")
 self_modulate = Color(1, 1, 1, 0.95)
-texture = ExtResource("3")
 
 [node name="Flash" type="Sprite2D" parent="."]
 centered = true
 scale = Vector2(0.4, 0.4)
 self_modulate = Color(1, 1, 1, 0.9)
-texture = ExtResource("3")
 
 [node name="Sparks" type="GPUParticles2D" parent="."]
 amount = 8

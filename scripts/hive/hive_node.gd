@@ -15,9 +15,11 @@ const SELECTOR_STATE_INACTIVE := 0
 const SELECTOR_STATE_HOVER := 1
 const SELECTOR_STATE_SELECTED := 2
 const SELECTOR_STATE_ACTIVATED := 3
-# Edge trims now define lane/unit contact deterministically.
-# Keep hive anchor at center to avoid a global upward bias.
-const LANE_ANCHOR_Y_PX: float = 0.0
+# Edge trims define contact along the lane axis; this Y bias sets the visible
+# lane "height" on the hive plate.
+const LANE_ANCHOR_Y_PX: float = -33.0
+const LANE_ANCHOR_LEFT_EXTRA_Y_PX: float = 1.0
+const LANE_ANCHOR_RIGHT_EXTRA_Y_PX: float = 0.0
 
 @export var hive_id: int = -1
 @export var owner_id: int = 0
@@ -73,9 +75,49 @@ var _sim_events: Node = null
 static func lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return center_world + Vector2(0.0, -LANE_ANCHOR_Y_PX)
 
-static func compute_lane_endpoints_world(a_center_world: Vector2, b_center_world: Vector2) -> Dictionary:
+static func lane_anchor_pair_world(
+	a_center_world: Vector2,
+	b_center_world: Vector2,
+	src_override_world_pos: Variant = null,
+	_src_radius_px: float = 0.0,
+	_dst_radius_px: float = 0.0,
+	_src_global_xform: Variant = null,
+	_dst_global_xform: Variant = null
+) -> Dictionary:
 	var a_anchor: Vector2 = lane_anchor_world_from_center(a_center_world)
 	var b_anchor: Vector2 = lane_anchor_world_from_center(b_center_world)
+	var side_weight: float = 1.0
+	var lane_vec: Vector2 = b_center_world - a_center_world
+	if lane_vec.length_squared() > 0.000001:
+		side_weight = absf(lane_vec.normalized().x)
+	var left_extra: float = LANE_ANCHOR_LEFT_EXTRA_Y_PX * side_weight
+	var right_extra: float = LANE_ANCHOR_RIGHT_EXTRA_Y_PX * side_weight
+	if a_center_world.x <= b_center_world.x:
+		a_anchor.y += left_extra
+		b_anchor.y += right_extra
+	else:
+		a_anchor.y += right_extra
+		b_anchor.y += left_extra
+	if src_override_world_pos is Vector2:
+		a_anchor = src_override_world_pos as Vector2
+	var dir: Vector2 = Vector2.ZERO
+	var lane_dir_vec: Vector2 = b_anchor - a_anchor
+	if lane_dir_vec.length_squared() > 0.000001:
+		dir = lane_dir_vec.normalized()
+	var normal: Vector2 = Vector2(-dir.y, dir.x) if dir.length_squared() > 0.000001 else Vector2.ZERO
+	return {
+		"a_anchor": a_anchor,
+		"b_anchor": b_anchor,
+		"a": a_anchor,
+		"b": b_anchor,
+		"dir": dir,
+		"normal": normal
+	}
+
+static func compute_lane_endpoints_world(a_center_world: Vector2, b_center_world: Vector2) -> Dictionary:
+	var anchor_pair: Dictionary = lane_anchor_pair_world(a_center_world, b_center_world)
+	var a_anchor: Vector2 = anchor_pair.get("a", lane_anchor_world_from_center(a_center_world))
+	var b_anchor: Vector2 = anchor_pair.get("b", lane_anchor_world_from_center(b_center_world))
 	var lane_vec: Vector2 = b_anchor - a_anchor
 	var lane_len: float = lane_vec.length()
 	var lane_dir: Vector2 = Vector2.ZERO
