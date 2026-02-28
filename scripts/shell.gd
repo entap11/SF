@@ -32,6 +32,8 @@ const SOAK_DEFAULT_ROUND_SECONDS: int = 300
 const SOAK_DEFAULT_PAIR_COUNT: int = 2
 const SOAK_DEFAULT_REAPPLY_MS: int = 1000
 const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
+const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
+const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
 
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
@@ -41,6 +43,7 @@ const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 @export var map_picker_panel_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel")
 @export var map_list_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/MapList")
 @export var select_map_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/SelectMapButton")
+@export var tutorial_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TutorialButton")
 @export var team_mode_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TeamModeButton")
 @export var play_selected_button_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerButtonsRow/PlaySelectedButton")
 @export var picker_back_button_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerButtonsRow/PickerBackButton")
@@ -56,6 +59,7 @@ const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 @onready var _map_picker_panel: Control = get_node_or_null(map_picker_panel_path) as Control
 @onready var _map_list: ItemList = get_node_or_null(map_list_path) as ItemList
 @onready var _select_map_button: Button = get_node_or_null(select_map_button_path) as Button
+@onready var _tutorial_button: Button = get_node_or_null(tutorial_button_path) as Button
 @onready var _team_mode_button: Button = get_node_or_null(team_mode_button_path) as Button
 @onready var _play_selected_button: Button = get_node_or_null(play_selected_button_path) as Button
 @onready var _picker_back_button: Button = get_node_or_null(picker_back_button_path) as Button
@@ -175,6 +179,7 @@ func _ready() -> void:
 	})
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 030: before_resolve_map_picker_ui_nodes")
 	_resolve_map_picker_ui_nodes()
+	_resolve_tutorial_ui_node()
 	_resolve_team_mode_ui_node()
 	_resolve_dev_map_loader()
 	_resolve_buff_ui_nodes()
@@ -351,6 +356,15 @@ func _resolve_map_picker_ui_nodes() -> void:
 		"play_selected_button": _diag_resolve(_play_selected_button),
 		"picker_back_button": _diag_resolve(_picker_back_button)
 	})
+
+func _resolve_tutorial_ui_node() -> void:
+	_tutorial_button = get_node_or_null(tutorial_button_path) as Button
+	SFLog.info("TUTORIAL_UI_RESOLVE", {
+		"tutorial_button_np": str(tutorial_button_path),
+		"tutorial_button": _diag_resolve(_tutorial_button)
+	})
+	if _tutorial_button != null and not _tutorial_button.pressed.is_connected(_on_tutorial_pressed):
+		_tutorial_button.pressed.connect(_on_tutorial_pressed)
 
 func _resolve_team_mode_ui_node() -> void:
 	_team_mode_button = get_node_or_null(team_mode_button_path) as Button
@@ -841,6 +855,40 @@ func _stop_game() -> void:
 
 func _on_dev_pressed() -> void:
 	_open_main_menu()
+
+func _on_tutorial_pressed() -> void:
+	_set_team_mode_ui("2v2")
+	_prepare_tutorial_section3_sandbox_profile()
+	var map_path: String = _resolve_tutorial_sandbox_map_path()
+	SFLog.info("TUTORIAL_SANDBOX_LAUNCH", {"map_path": map_path, "mode": _team_mode_ui})
+	_apply_map_then_start(map_path)
+
+func _prepare_tutorial_section3_sandbox_profile() -> void:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return
+	if profile_manager.has_method("prepare_tutorial_section3_sandbox"):
+		profile_manager.call("prepare_tutorial_section3_sandbox")
+		return
+	if profile_manager.has_method("mark_onboarding_complete"):
+		profile_manager.call("mark_onboarding_complete")
+	if profile_manager.has_method("mark_tutorial_section1_completed"):
+		profile_manager.call("mark_tutorial_section1_completed")
+	if profile_manager.has_method("mark_tutorial_section2_completed"):
+		profile_manager.call("mark_tutorial_section2_completed")
+	if profile_manager.has_method("begin_tutorial_section3"):
+		profile_manager.call("begin_tutorial_section3")
+	if profile_manager.has_method("set_tutorial_section3_step"):
+		profile_manager.call("set_tutorial_section3_step", "step_0_intro")
+
+func _resolve_tutorial_sandbox_map_path() -> String:
+	if ResourceLoader.exists(TUTORIAL_SANDBOX_MAP_PATH):
+		return TUTORIAL_SANDBOX_MAP_PATH
+	if ResourceLoader.exists(TUTORIAL_SANDBOX_FALLBACK_MAP_PATH):
+		return TUTORIAL_SANDBOX_FALLBACK_MAP_PATH
+	if _selected_map_path != "" and ResourceLoader.exists(_selected_map_path):
+		return _selected_map_path
+	return ""
 
 func _open_main_menu() -> void:
 	if main_menu_scene_path.is_empty():

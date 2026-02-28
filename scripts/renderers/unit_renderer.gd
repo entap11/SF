@@ -1,12 +1,16 @@
 # NOTE: Add debug gating/rate limits for logs to prevent per-frame spam.
 extends Node2D
 
+signal bee_clip_absorb_ready(unit_id: int, to_hive_id: int, lane_id: int, cut_value: float)
+
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
+const BeeClipControllerScript := preload("res://scripts/vfx/bee_clip_controller.gd")
+const BEE_CLIP_SHADER := preload("res://shaders/BeeClip.gdshader")
 
 var model: Dictionary = {}
 var hive_nodes_by_id: Dictionary = {}
@@ -84,6 +88,17 @@ const PRUNE_AFTER_TICKS: int = 2
 @export var sim_dt_sec: float = SIM_DT_SEC_DEFAULT
 @export var lane_start_cap_trim_px: float = 18.0
 @export var lane_end_cap_trim_px: float = 18.0
+@export var bee_clip_enabled: bool = true
+@export var bee_clip_visual_length_px_override: float = 0.0
+@export var bee_clip_length_scale: float = 1.35
+@export var bee_clip_min_visual_length_px: float = 40.0
+@export var bee_clip_nose_offset_px: float = 0.0
+@export var bee_clip_entrance_plane_offset_px: float = 0.0
+@export var bee_clip_flip_forward_axis: bool = false
+@export var bee_clip_debug_logs: bool = false
+@export var bee_clip_missing_speed_fallback_px_s: float = 220.0
+@export var bee_clip_hold_missing_until_clipped: bool = true
+@export var bee_clip_missing_hold_max_ticks: int = 14
 
 var _unit_space: String = "local"
 var _unit_space_logged: bool = false
@@ -141,6 +156,17 @@ var _lane_endpoint_prewarm_sig: int = -1
 var _post_match_settle_active: bool = false
 var _post_match_settle_until_us: int = 0
 var _post_match_extrap_sec: float = BUTTER_MAX_EXTRAP_SEC
+var _bee_clip_by_unit_id: Dictionary = {}
+var _bee_clip_plane_override_by_unit_id: Dictionary = {}
+var _bee_clip_last_debug_log_ms: int = 0
+var _bee_clip_last_world_pos_by_unit_id: Dictionary = {}
+var _bee_clip_last_update_us_by_unit_id: Dictionary = {}
+var _bee_clip_travel_dir_world_by_unit_id: Dictionary = {}
+var _bee_clip_speed_px_s_by_unit_id: Dictionary = {}
+var _bee_clip_entrance_world_by_unit_id: Dictionary = {}
+var _bee_clip_visual_len_by_unit_id: Dictionary = {}
+var _bee_clip_to_hive_id_by_unit_id: Dictionary = {}
+var _bee_clip_lane_id_by_unit_id: Dictionary = {}
 
 func _ready() -> void:
 	SFLog.allow_tag("RENDER_AUDIT_UNITS")
@@ -310,6 +336,16 @@ func _pool_release(node: Node2D) -> void:
 		_unit_samples_by_id.erase(unit_id)
 		_unit_style_sig_by_id.erase(unit_id)
 		_diag_visual_phase_by_id.erase(unit_id)
+		_bee_clip_by_unit_id.erase(unit_id)
+		_bee_clip_plane_override_by_unit_id.erase(unit_id)
+		_bee_clip_last_world_pos_by_unit_id.erase(unit_id)
+		_bee_clip_last_update_us_by_unit_id.erase(unit_id)
+		_bee_clip_travel_dir_world_by_unit_id.erase(unit_id)
+		_bee_clip_speed_px_s_by_unit_id.erase(unit_id)
+		_bee_clip_entrance_world_by_unit_id.erase(unit_id)
+		_bee_clip_visual_len_by_unit_id.erase(unit_id)
+		_bee_clip_to_hive_id_by_unit_id.erase(unit_id)
+		_bee_clip_lane_id_by_unit_id.erase(unit_id)
 	node.set_meta("unit_id", -1)
 	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
 	if sprite != null:
@@ -902,9 +938,81 @@ func clear_all() -> void:
 	_unit_samples_by_id.clear()
 	_unit_style_sig_by_id.clear()
 	_diag_visual_phase_by_id.clear()
+	_bee_clip_by_unit_id.clear()
+	_bee_clip_plane_override_by_unit_id.clear()
+	_bee_clip_last_world_pos_by_unit_id.clear()
+	_bee_clip_last_update_us_by_unit_id.clear()
+	_bee_clip_travel_dir_world_by_unit_id.clear()
+	_bee_clip_speed_px_s_by_unit_id.clear()
+	_bee_clip_entrance_world_by_unit_id.clear()
+	_bee_clip_visual_len_by_unit_id.clear()
+	_bee_clip_to_hive_id_by_unit_id.clear()
+	_bee_clip_lane_id_by_unit_id.clear()
 	_clear_swarm_nodes()
 	_clear_unit_nodes()
 	_request_redraw()
+
+func set_bee_clip_plane_override(unit_id: int, entrance_point_world: Vector2, travel_dir_world: Vector2) -> void:
+	if unit_id <= 0:
+		return
+	var safe_dir: Vector2 = travel_dir_world
+	if safe_dir.length_squared() <= 0.000001:
+		safe_dir = Vector2.RIGHT
+	else:
+		safe_dir = safe_dir.normalized()
+	_bee_clip_plane_override_by_unit_id[unit_id] = {
+		"point": entrance_point_world,
+		"dir": safe_dir
+	}
+
+func clear_bee_clip_plane_override(unit_id: int) -> void:
+	if unit_id <= 0:
+		return
+	_bee_clip_plane_override_by_unit_id.erase(unit_id)
+
+func set_bee_clip_shield_active(unit_id: int, active: bool) -> void:
+	if unit_id <= 0:
+		return
+	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
+	if controller != null and controller.has_method("set_shield_active"):
+		controller.call("set_shield_active", active)
+
+func get_bee_clip_state(unit_id: int) -> Dictionary:
+	var state: Dictionary = {
+		"distance_to_plane_px": 0.0,
+		"penetration_px": 0.0,
+		"entering_state": false,
+		"precontact_3_5px": false,
+		"cut": 0.0,
+		"shield_active": false
+	}
+	if unit_id <= 0:
+		return state
+	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
+	if controller == null:
+		return state
+	state["distance_to_plane_px"] = float(controller.get("distance_to_plane_px"))
+	state["penetration_px"] = float(controller.get("penetration_px"))
+	state["entering_state"] = bool(controller.get("entering_state"))
+	state["precontact_3_5px"] = bool(controller.get("precontact_3_5px"))
+	state["cut"] = float(controller.get("cut_value"))
+	state["shield_active"] = bool(controller.get("shield_active"))
+	return state
+
+func _should_delay_prune_for_bee_clip(unit_id: int, missing_ticks: int) -> bool:
+	if not bee_clip_enabled or not bee_clip_hold_missing_until_clipped:
+		return false
+	if unit_id <= 0:
+		return false
+	if missing_ticks <= 0:
+		return false
+	if missing_ticks > max(1, bee_clip_missing_hold_max_ticks):
+		return false
+	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
+	if controller == null:
+		return false
+	var cut_value_now: float = float(controller.get("cut_value"))
+	return cut_value_now < 0.995
 
 func _sync_unit_nodes(units: Array) -> Dictionary:
 	var profile: Dictionary = {
@@ -973,6 +1081,8 @@ func _sync_unit_nodes(units: Array) -> Dictionary:
 		var missing_ticks: int = int(_unit_missing_ticks.get(existing_id, 0))
 		if missing_ticks < PRUNE_AFTER_TICKS:
 			continue
+		if _should_delay_prune_for_bee_clip(existing_id, missing_ticks):
+			continue
 		var node: Node2D = unit_nodes_by_id.get(existing_id, null)
 		if node != null:
 			if not _assert_not_freed(node):
@@ -1030,6 +1140,16 @@ func _clear_unit_nodes() -> void:
 	_unit_visual_by_id.clear()
 	_unit_samples_by_id.clear()
 	_unit_style_sig_by_id.clear()
+	_bee_clip_by_unit_id.clear()
+	_bee_clip_plane_override_by_unit_id.clear()
+	_bee_clip_last_world_pos_by_unit_id.clear()
+	_bee_clip_last_update_us_by_unit_id.clear()
+	_bee_clip_travel_dir_world_by_unit_id.clear()
+	_bee_clip_speed_px_s_by_unit_id.clear()
+	_bee_clip_entrance_world_by_unit_id.clear()
+	_bee_clip_visual_len_by_unit_id.clear()
+	_bee_clip_to_hive_id_by_unit_id.clear()
+	_bee_clip_lane_id_by_unit_id.clear()
 
 func _unit_style_global_sig() -> int:
 	var draw_bit: int = 1 if debug_draw_units else 0
@@ -1227,6 +1347,29 @@ func _sample_unit_dir_from_endpoints(ud: Dictionary, endpoints: Dictionary) -> V
 			return axis.normalized() * float(sign)
 	return Vector2.RIGHT
 
+func _target_hive_boundary_world(to_hive_id: int, hive_by_id: Dictionary, travel_dir_world: Vector2) -> Variant:
+	if to_hive_id <= 0:
+		return null
+	var dir: Vector2 = travel_dir_world
+	if dir.length_squared() <= 0.000001:
+		return null
+	dir = dir.normalized()
+	var center_any: Variant = _hive_world_pos(to_hive_id, hive_by_id)
+	if not (center_any is Vector2):
+		return null
+	var center_world: Vector2 = center_any as Vector2
+	var radius_px: float = 18.0
+	var hive_node_any: Variant = hive_nodes_by_id.get(to_hive_id, null)
+	if hive_node_any is Node:
+		var hive_node: Node = hive_node_any as Node
+		if hive_node != null and is_instance_valid(hive_node):
+			var radius_any: Variant = hive_node.get("radius_px")
+			if typeof(radius_any) == TYPE_FLOAT or typeof(radius_any) == TYPE_INT:
+				var resolved_radius: float = float(radius_any)
+				if resolved_radius > 0.0:
+					radius_px = resolved_radius
+	return center_world - (dir * radius_px)
+
 func _unit_visual_normal_from_endpoints(endpoints: Dictionary, a_pos: Vector2, b_pos: Vector2) -> Vector2:
 	var normal_any: Variant = endpoints.get("normal", Vector2.ZERO)
 	if normal_any is Vector2:
@@ -1238,6 +1381,27 @@ func _unit_visual_normal_from_endpoints(endpoints: Dictionary, a_pos: Vector2, b
 		var dir: Vector2 = axis.normalized()
 		return Vector2(-dir.y, dir.x)
 	return Vector2.ZERO
+
+func _unit_colorkey_params(sprite_key: String, owner_id: int, registry: SpriteRegistry) -> Dictionary:
+	var ck_enabled: bool = sprite_key.begins_with("unit.")
+	var ck_color: Color = Color(1.0, 1.0, 1.0, 1.0) if ck_enabled else _owner_color(owner_id)
+	var ck_threshold: float = 0.12 if ck_enabled else 0.28
+	var ck_softness: float = 0.06 if ck_enabled else 0.10
+	if registry != null:
+		var ck: Dictionary = registry.get_colorkey(sprite_key)
+		if bool(ck.get("enabled", false)):
+			ck_enabled = true
+			var ck_color_any: Variant = ck.get("color", ck_color)
+			if ck_color_any is Color:
+				ck_color = ck_color_any as Color
+			ck_threshold = float(ck.get("threshold", ck_threshold))
+			ck_softness = float(ck.get("softness", ck_softness))
+	return {
+		"enabled": ck_enabled,
+		"color": ck_color,
+		"threshold": ck_threshold,
+		"softness": ck_softness
+	}
 
 func _unit_path_endpoints_map_local(
 	ud: Dictionary,
@@ -1866,6 +2030,249 @@ func _ensure_unit_sprite(node: Node2D) -> Sprite2D:
 	sprite.position = Vector2.ZERO
 	return sprite
 
+func _bee_clip_local_cut_dir() -> Vector2:
+	var base_dir: Vector2 = Vector2.RIGHT.rotated(deg_to_rad(-UNIT_SPRITE_FORWARD_DEG))
+	if bee_clip_flip_forward_axis:
+		base_dir = -base_dir
+	if base_dir.length_squared() <= 0.000001:
+		return Vector2.RIGHT
+	return base_dir.normalized()
+
+func _compute_bee_visual_length_px(sprite: Sprite2D) -> float:
+	if bee_clip_visual_length_px_override > 0.0:
+		return bee_clip_visual_length_px_override
+	if sprite == null or sprite.texture == null:
+		return maxf(1.0, bee_clip_min_visual_length_px)
+	var tex_width: float = float(sprite.texture.get_width())
+	var tex_height: float = float(sprite.texture.get_height())
+	var scale_x: float = absf(sprite.global_scale.x)
+	var scale_y: float = absf(sprite.global_scale.y)
+	if scale_x <= 0.000001:
+		scale_x = 1.0
+	if scale_y <= 0.000001:
+		scale_y = 1.0
+	var base_len: float = maxf(tex_width * scale_x, tex_height * scale_y)
+	var scaled_len: float = base_len * maxf(0.1, bee_clip_length_scale)
+	return maxf(1.0, maxf(bee_clip_min_visual_length_px, scaled_len))
+
+func _ensure_bee_clip_controller(unit_id: int, sprite: Sprite2D) -> RefCounted:
+	if unit_id <= 0 or sprite == null:
+		return null
+	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
+	if controller == null:
+		controller = BeeClipControllerScript.new()
+		_bee_clip_by_unit_id[unit_id] = controller
+	if controller != null and controller.has_method("configure_sprite"):
+		controller.call("configure_sprite", sprite, BEE_CLIP_SHADER)
+		controller.call("set_local_cut_dir", _bee_clip_local_cut_dir())
+	return controller
+
+func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_by_id: Dictionary) -> void:
+	if not bee_clip_enabled:
+		return
+	if unit_id <= 0 or node == null:
+		return
+	var sprite: Sprite2D = _ensure_unit_sprite(node)
+	var controller: RefCounted = _ensure_bee_clip_controller(unit_id, sprite)
+	if controller == null:
+		return
+	var owner_id: int = _unit_owner_id(ud, hive_by_id)
+	var registry: SpriteRegistry = _get_sprite_registry()
+	var sprite_key: String = "unit.%s" % SpriteRegistry.owner_key(owner_id)
+	var key_params: Dictionary = _unit_colorkey_params(sprite_key, owner_id, registry)
+	var key_enabled: bool = false
+	var key_color: Color = key_params.get("color", Color(0.0, 0.0, 0.0, 1.0))
+	var key_threshold: float = float(key_params.get("threshold", 0.28))
+	var key_softness: float = float(key_params.get("softness", 0.10))
+	if controller.has_method("set_colorkey"):
+		controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
+
+	var entrance_point_world: Vector2 = Vector2.ZERO
+	var travel_dir_world: Vector2 = Vector2.RIGHT
+	var have_plane: bool = false
+	var has_override_plane: bool = false
+	var motion_dir_world: Vector2 = Vector2.ZERO
+	var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+	if typeof(state_any) == TYPE_DICTIONARY:
+		var state: Dictionary = state_any as Dictionary
+		var prev_pos_any: Variant = state.get("prev_pos", null)
+		var curr_pos_any: Variant = state.get("curr_pos", null)
+		if prev_pos_any is Vector2 and curr_pos_any is Vector2:
+			var motion_local: Vector2 = (curr_pos_any as Vector2) - (prev_pos_any as Vector2)
+			if motion_local.length_squared() > 0.000001:
+				motion_dir_world = _to_world_dir(motion_local)
+		if motion_dir_world.length_squared() <= 0.000001:
+			var state_dir_any: Variant = state.get("dir", null)
+			if state_dir_any is Vector2:
+				var state_dir_local: Vector2 = state_dir_any as Vector2
+				if state_dir_local.length_squared() > 0.000001:
+					motion_dir_world = _to_world_dir(state_dir_local)
+	var override_any: Variant = _bee_clip_plane_override_by_unit_id.get(unit_id, null)
+	if typeof(override_any) == TYPE_DICTIONARY:
+		var override_dict: Dictionary = override_any as Dictionary
+		var point_any: Variant = override_dict.get("point", null)
+		var dir_any: Variant = override_dict.get("dir", null)
+		if point_any is Vector2 and dir_any is Vector2:
+			entrance_point_world = point_any as Vector2
+			travel_dir_world = dir_any as Vector2
+			have_plane = travel_dir_world.length_squared() > 0.000001
+			has_override_plane = have_plane
+
+	if not have_plane:
+		if motion_dir_world.length_squared() > 0.000001:
+			travel_dir_world = motion_dir_world
+		var sample_any: Variant = _unit_samples_by_id.get(unit_id, null)
+		var a_world: Vector2 = Vector2.ZERO
+		var b_world: Vector2 = Vector2.ZERO
+		var have_endpoints: bool = false
+		if typeof(sample_any) == TYPE_DICTIONARY:
+			var sample_buf: Dictionary = sample_any as Dictionary
+			var s1_any: Variant = sample_buf.get("s1", null)
+			if typeof(s1_any) == TYPE_DICTIONARY:
+				var s1: Dictionary = s1_any as Dictionary
+				var a_any: Variant = s1.get("a", null)
+				var b_any: Variant = s1.get("b", null)
+				if a_any is Vector2 and b_any is Vector2:
+					a_world = _to_world_pos(a_any as Vector2)
+					b_world = _to_world_pos(b_any as Vector2)
+					have_endpoints = true
+		if not have_endpoints:
+			var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id, _cached_lane_endpoints, _cached_hive_anchor_info)
+			if bool(endpoints.get("ok", false)):
+				var a_local: Vector2 = endpoints.get("a", Vector2.ZERO)
+				var b_local: Vector2 = endpoints.get("b", Vector2.ZERO)
+				a_world = _to_world_pos(a_local)
+				b_world = _to_world_pos(b_local)
+				have_endpoints = true
+		if have_endpoints:
+			var lane_axis: Vector2 = b_world - a_world
+			if lane_axis.length_squared() > 0.000001:
+				var lane_axis_norm: Vector2 = lane_axis.normalized()
+				if motion_dir_world.length_squared() > 0.000001:
+					travel_dir_world = motion_dir_world
+				else:
+					var travel_sign: int = _unit_travel_sign(ud)
+					if travel_sign == 0:
+						travel_sign = 1
+					travel_dir_world = lane_axis_norm * float(travel_sign)
+				var target_dot_a: float = (a_world - node.global_position).dot(travel_dir_world)
+				var target_dot_b: float = (b_world - node.global_position).dot(travel_dir_world)
+				entrance_point_world = b_world if target_dot_b >= target_dot_a else a_world
+				have_plane = true
+
+	if not have_plane:
+		if controller.has_method("reset"):
+			controller.call("reset")
+		return
+	if not has_override_plane:
+		var to_hive_id_for_plane: int = int(ud.get("to_id", -1))
+		var boundary_plane_v: Variant = _target_hive_boundary_world(to_hive_id_for_plane, hive_by_id, travel_dir_world)
+		if boundary_plane_v is Vector2:
+			entrance_point_world = boundary_plane_v as Vector2
+
+	var bee_length_px: float = _compute_bee_visual_length_px(sprite)
+	var speed_px_s: float = _estimate_unit_visual_speed_px_s(unit_id)
+	if speed_px_s <= 0.0:
+		speed_px_s = bee_clip_missing_speed_fallback_px_s
+	_bee_clip_last_world_pos_by_unit_id[unit_id] = node.global_position
+	_bee_clip_last_update_us_by_unit_id[unit_id] = Time.get_ticks_usec()
+	_bee_clip_travel_dir_world_by_unit_id[unit_id] = travel_dir_world
+	_bee_clip_speed_px_s_by_unit_id[unit_id] = speed_px_s
+	_bee_clip_entrance_world_by_unit_id[unit_id] = entrance_point_world
+	_bee_clip_visual_len_by_unit_id[unit_id] = bee_length_px
+	_bee_clip_to_hive_id_by_unit_id[unit_id] = int(ud.get("to_id", -1))
+	_bee_clip_lane_id_by_unit_id[unit_id] = int(ud.get("lane_id", -1))
+	controller.call("set_plane", entrance_point_world, travel_dir_world)
+	controller.call("set_visual_length_px", bee_length_px)
+	var cut_value_now: float = float(controller.call(
+		"update_from_world_position",
+		node.global_position,
+		bee_clip_nose_offset_px,
+		bee_clip_entrance_plane_offset_px
+	))
+	if bool(controller.call("consume_full_clip_transition")):
+		var to_hive_id: int = int(ud.get("to_id", -1))
+		var lane_id: int = int(ud.get("lane_id", -1))
+		emit_signal("bee_clip_absorb_ready", unit_id, to_hive_id, lane_id, cut_value_now)
+	if bee_clip_debug_logs:
+		var now_ms: int = Time.get_ticks_msec()
+		if _bee_clip_last_debug_log_ms <= 0 or now_ms - _bee_clip_last_debug_log_ms >= 200:
+			_bee_clip_last_debug_log_ms = now_ms
+			SFLog.info("BEE_CLIP_STATE", {
+				"unit_id": unit_id,
+				"distance_to_plane_px": float(controller.get("distance_to_plane_px")),
+				"penetration_px": float(controller.get("penetration_px")),
+				"entering_state": bool(controller.get("entering_state")),
+				"precontact_3_5px": bool(controller.get("precontact_3_5px")),
+				"cut": float(controller.get("cut_value"))
+			})
+
+func _estimate_unit_visual_speed_px_s(unit_id: int) -> float:
+	var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+	if typeof(state_any) != TYPE_DICTIONARY:
+		return 0.0
+	var state: Dictionary = state_any as Dictionary
+	var prev_pos_any: Variant = state.get("prev_pos", null)
+	var curr_pos_any: Variant = state.get("curr_pos", null)
+	if not (prev_pos_any is Vector2 and curr_pos_any is Vector2):
+		return 0.0
+	var prev_pos_world: Vector2 = _to_world_pos(prev_pos_any as Vector2)
+	var curr_pos_world: Vector2 = _to_world_pos(curr_pos_any as Vector2)
+	var dist_px: float = prev_pos_world.distance_to(curr_pos_world)
+	if dist_px <= 0.0001:
+		return 0.0
+	var prev_sim_us: int = int(state.get("prev_sim_us", state.get("prev_time_us", 0)))
+	var curr_sim_us: int = int(state.get("curr_sim_us", state.get("curr_time_us", prev_sim_us)))
+	var dt_us: int = curr_sim_us - prev_sim_us
+	if dt_us <= 0:
+		return 0.0
+	var dt_s: float = float(dt_us) / 1000000.0
+	if dt_s <= 0.000001:
+		return 0.0
+	return dist_px / dt_s
+
+func _update_bee_clip_for_missing_unit(unit_id: int, node: Node2D, now_us: int) -> void:
+	if not bee_clip_enabled:
+		return
+	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
+	if controller == null:
+		return
+	var dir_any: Variant = _bee_clip_travel_dir_world_by_unit_id.get(unit_id, null)
+	if not (dir_any is Vector2):
+		return
+	var travel_dir_world: Vector2 = dir_any as Vector2
+	if travel_dir_world.length_squared() <= 0.000001:
+		return
+	travel_dir_world = travel_dir_world.normalized()
+	var last_pos_any: Variant = _bee_clip_last_world_pos_by_unit_id.get(unit_id, node.global_position)
+	var world_pos: Vector2 = node.global_position
+	if last_pos_any is Vector2:
+		world_pos = last_pos_any as Vector2
+	var last_us: int = int(_bee_clip_last_update_us_by_unit_id.get(unit_id, now_us))
+	var dt_s: float = clampf(float(maxi(0, now_us - last_us)) / 1000000.0, 0.0, 0.05)
+	var speed_px_s: float = float(_bee_clip_speed_px_s_by_unit_id.get(unit_id, bee_clip_missing_speed_fallback_px_s))
+	if speed_px_s <= 0.0:
+		speed_px_s = bee_clip_missing_speed_fallback_px_s
+	world_pos += travel_dir_world * speed_px_s * dt_s
+	_bee_clip_last_world_pos_by_unit_id[unit_id] = world_pos
+	_bee_clip_last_update_us_by_unit_id[unit_id] = now_us
+	node.global_position = world_pos
+	var entrance_any: Variant = _bee_clip_entrance_world_by_unit_id.get(unit_id, null)
+	if entrance_any is Vector2:
+		controller.call("set_plane", entrance_any as Vector2, travel_dir_world)
+	var visual_len_px: float = float(_bee_clip_visual_len_by_unit_id.get(unit_id, bee_clip_min_visual_length_px))
+	controller.call("set_visual_length_px", visual_len_px)
+	var cut_value_now: float = float(controller.call(
+		"update_from_world_position",
+		world_pos,
+		bee_clip_nose_offset_px,
+		bee_clip_entrance_plane_offset_px
+	))
+	if bool(controller.call("consume_full_clip_transition")):
+		var to_hive_id: int = int(_bee_clip_to_hive_id_by_unit_id.get(unit_id, -1))
+		var lane_id: int = int(_bee_clip_lane_id_by_unit_id.get(unit_id, -1))
+		emit_signal("bee_clip_absorb_ready", unit_id, to_hive_id, lane_id, cut_value_now)
+
 func _apply_unit_orientation(
 	unit_root: Node2D,
 	sprite: Sprite2D,
@@ -2272,8 +2679,10 @@ func _render_units_constant_speed(delta: float) -> void:
 		var end_pos: Vector2 = Vector2.ZERO
 		var has_endpoints: bool = false
 		var unit_any: Variant = _unit_data_by_id.get(unit_id, null)
+		var unit_data: Dictionary = {}
 		if typeof(unit_any) == TYPE_DICTIONARY:
 			var ud: Dictionary = unit_any as Dictionary
+			unit_data = ud
 			var endpoints: Dictionary = _unit_path_endpoints_map_local(ud, hive_by_id)
 			has_endpoints = bool(endpoints.get("ok", false))
 			if has_endpoints:
@@ -2308,6 +2717,8 @@ func _render_units_constant_speed(delta: float) -> void:
 		var sprite: Sprite2D = _ensure_unit_sprite(node)
 		if sprite != null:
 			_apply_unit_orientation_from_dir(node, sprite, dir_vec)
+		if not unit_data.is_empty():
+			_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
 
 func _render_alpha_for_state(state: Dictionary, now_us: int, settle_active: bool = false) -> float:
 	var prev_sim_us: int = int(state.get("prev_sim_us", state.get("prev_time_us", 0)))
@@ -2384,6 +2795,7 @@ func _render_units(now_us: int) -> void:
 	if _unit_visual_by_id.is_empty():
 		return
 	var settle_active: bool = _post_match_settle_is_active(now_us)
+	var hive_by_id: Dictionary = _build_hive_by_id()
 	var ids: Array = unit_nodes_by_id.keys()
 	if AUDIT_RENDER:
 		_audit_draw_ops += ids.size()
@@ -2394,6 +2806,10 @@ func _render_units(now_us: int) -> void:
 			continue
 		if not _assert_not_freed(node):
 			continue
+		var unit_any: Variant = _unit_data_by_id.get(unit_id, null)
+		var unit_data: Dictionary = {}
+		if typeof(unit_any) == TYPE_DICTIONARY:
+			unit_data = unit_any as Dictionary
 		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
 		if typeof(state_any) == TYPE_DICTIONARY:
 			var state: Dictionary = state_any as Dictionary
@@ -2404,6 +2820,8 @@ func _render_units(now_us: int) -> void:
 				state["render_pos"] = spawn_pos
 				state["just_spawned"] = false
 				_unit_visual_by_id[unit_id] = state
+				if not unit_data.is_empty():
+					_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
 				continue
 			var alpha: float = _render_alpha_for_state(state, now_us, settle_active)
 			if settle_active and alpha > 1.0:
@@ -2415,6 +2833,8 @@ func _render_units(now_us: int) -> void:
 					node.rotation = float(settle_pose.get("rot", float(state.get("curr_rot", node.rotation))))
 					state["render_pos"] = node.position
 					_unit_visual_by_id[unit_id] = state
+					if not unit_data.is_empty():
+						_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
 					continue
 			if alpha > 1.0:
 				if not settle_active:
@@ -2422,15 +2842,19 @@ func _render_units(now_us: int) -> void:
 					# Avoid endpoint overshoot artifacts when units are about to arrive.
 					if curr_t <= 0.05 or curr_t >= 0.95:
 						alpha = 1.0
-			var prev_pos: Vector2 = state.get("prev_pos", node.position)
-			var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
-			var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)
-			node.position = render_pos
-			var prev_rot: float = float(state.get("prev_rot", node.rotation))
-			var curr_rot: float = float(state.get("curr_rot", prev_rot))
-			node.rotation = lerp_angle(prev_rot, curr_rot, alpha)
-			state["render_pos"] = render_pos
-			_unit_visual_by_id[unit_id] = state
+				var prev_pos: Vector2 = state.get("prev_pos", node.position)
+				var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
+				var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)
+				node.position = render_pos
+				var prev_rot: float = float(state.get("prev_rot", node.rotation))
+				var curr_rot: float = float(state.get("curr_rot", prev_rot))
+				node.rotation = lerp_angle(prev_rot, curr_rot, alpha)
+				state["render_pos"] = render_pos
+				_unit_visual_by_id[unit_id] = state
+				if not unit_data.is_empty():
+					_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
+				else:
+					_update_bee_clip_for_missing_unit(unit_id, node, now_us)
 
 func _draw() -> void:
 	if not debug_draw_units:
@@ -2523,14 +2947,10 @@ func _get_unit_colorkey_material(sprite_key: String, owner_id: int, registry: Sp
 	if _unit_material_by_sprite.has(key):
 		return _unit_material_by_sprite[key]
 	_audit_mark_rebuild("unit_colorkey_lookup")
-	var ck_color := _owner_color(owner_id)
-	var ck_threshold := 0.28
-	var ck_softness := 0.10
-	if registry != null:
-		var ck := registry.get_colorkey(sprite_key)
-		if bool(ck.get("enabled", false)):
-			ck_threshold = float(ck.get("threshold", ck_threshold))
-			ck_softness = float(ck.get("softness", ck_softness))
+	var ck_params: Dictionary = _unit_colorkey_params(sprite_key, owner_id, registry)
+	var ck_color: Color = ck_params.get("color", _owner_color(owner_id))
+	var ck_threshold: float = float(ck_params.get("threshold", 0.28))
+	var ck_softness: float = float(ck_params.get("softness", 0.10))
 	SFLog.log_once(
 		"UNIT_COLKEY_PARAMS",
 		JSON.stringify({
@@ -2925,6 +3345,16 @@ func _to_world_pos(pos: Vector2) -> Vector2:
 	if _unit_space == "global":
 		return pos
 	return to_global(pos)
+
+func _to_world_dir(dir: Vector2) -> Vector2:
+	if dir.length_squared() <= 0.000001:
+		return Vector2.ZERO
+	if _unit_space == "global":
+		return dir.normalized()
+	var world_vec: Vector2 = global_transform.basis_xform(dir)
+	if world_vec.length_squared() <= 0.000001:
+		return dir.normalized()
+	return world_vec.normalized()
 
 func _resolve_id(raw: Variant) -> int:
 	if raw is int:

@@ -85,6 +85,11 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "Select Map"
 
+[node name="TutorialButton" type="Button" parent="MenuRoot/MenuPanel/VBox/ButtonsRow"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Tutorial"
+
 [node name="TeamModeButton" type="Button" parent="MenuRoot/MenuPanel/VBox/ButtonsRow"]
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2

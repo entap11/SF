@@ -25,6 +25,36 @@ const BUFF_MODE_ASYNC: String = "async"
 const PERFORMANCE_MODE_QUALITY: String = "quality"
 const PERFORMANCE_MODE_BALANCED: String = "balanced"
 const PERFORMANCE_MODE_PERFORMANCE: String = "performance"
+const TUTORIAL_SECTION1_STATUS_NOT_STARTED: String = "not_started"
+const TUTORIAL_SECTION1_STATUS_IN_PROGRESS: String = "in_progress"
+const TUTORIAL_SECTION1_STATUS_COMPLETED: String = "completed"
+const TUTORIAL_SECTION1_STATUS_SKIPPED: String = "skipped"
+const TUTORIAL_SECTION1_STEP_0_INTRO: String = "step_0_intro"
+const TUTORIAL_SECTION1_STEP_1_ATTACK_LANE: String = "step_1_attack_lane"
+const TUTORIAL_SECTION1_STEP_2_RETRACT_LANE: String = "step_2_retract_lane"
+const TUTORIAL_SECTION1_STEP_3_CAPTURE_HIVE: String = "step_3_capture_hive"
+const TUTORIAL_SECTION1_STEP_COMPLETED: String = "completed"
+const TUTORIAL_SECTION1_STEP_SKIPPED: String = "skipped"
+const TUTORIAL_SECTION2_STATUS_NOT_STARTED: String = "not_started"
+const TUTORIAL_SECTION2_STATUS_IN_PROGRESS: String = "in_progress"
+const TUTORIAL_SECTION2_STATUS_COMPLETED: String = "completed"
+const TUTORIAL_SECTION2_STATUS_SKIPPED: String = "skipped"
+const TUTORIAL_SECTION2_STEP_0_INTRO: String = "step_0_intro"
+const TUTORIAL_SECTION2_STEP_1_DUAL_LANE: String = "step_1_dual_lane"
+const TUTORIAL_SECTION2_STEP_2_RETRACT_LANE: String = "step_2_retract_lane"
+const TUTORIAL_SECTION2_STEP_3_REDIRECT_LANE: String = "step_3_redirect_lane"
+const TUTORIAL_SECTION2_STEP_COMPLETED: String = "completed"
+const TUTORIAL_SECTION2_STEP_SKIPPED: String = "skipped"
+const TUTORIAL_SECTION3_STATUS_NOT_STARTED: String = "not_started"
+const TUTORIAL_SECTION3_STATUS_IN_PROGRESS: String = "in_progress"
+const TUTORIAL_SECTION3_STATUS_COMPLETED: String = "completed"
+const TUTORIAL_SECTION3_STATUS_SKIPPED: String = "skipped"
+const TUTORIAL_SECTION3_STEP_0_INTRO: String = "step_0_intro"
+const TUTORIAL_SECTION3_STEP_1_SWARM: String = "step_1_swarm"
+const TUTORIAL_SECTION3_STEP_2_TOWER_CONTROL: String = "step_2_tower_control"
+const TUTORIAL_SECTION3_STEP_3_BARRACKS_ROUTE: String = "step_3_barracks_route"
+const TUTORIAL_SECTION3_STEP_COMPLETED: String = "completed"
+const TUTORIAL_SECTION3_STEP_SKIPPED: String = "skipped"
 const DEFAULT_HONEY_BALANCE: int = 12480
 const DEFAULT_ADMIN_DASHBOARD_USERNAME: String = "Mattballou"
 const DEFAULT_ADMIN_DASHBOARD_PASSWORD: String = "$warmFr0nt"
@@ -39,6 +69,14 @@ var _boot_trace_enter_logged: bool = false
 var _created_this_run: bool = false
 var _onboarding_complete: bool = false
 var _controls_hint_seen: bool = false
+var _tutorial_section1_status: String = TUTORIAL_SECTION1_STATUS_NOT_STARTED
+var _tutorial_section1_step: String = TUTORIAL_SECTION1_STEP_0_INTRO
+var _tutorial_section2_unlocked: bool = false
+var _tutorial_section2_status: String = TUTORIAL_SECTION2_STATUS_NOT_STARTED
+var _tutorial_section2_step: String = TUTORIAL_SECTION2_STEP_0_INTRO
+var _tutorial_section3_unlocked: bool = false
+var _tutorial_section3_status: String = TUTORIAL_SECTION3_STATUS_NOT_STARTED
+var _tutorial_section3_step: String = TUTORIAL_SECTION3_STEP_0_INTRO
 var _user_id: String = ""
 var _display_name: String = ""
 var _created_at_unix: int = 0
@@ -86,6 +124,26 @@ func ensure_loaded() -> void:
 		_created_at_unix = int(cfg.get_value(PROFILE_SECTION, "created_at_unix", 0))
 		_onboarding_complete = bool(cfg.get_value(PROFILE_SECTION, "onboarding_complete", false))
 		_controls_hint_seen = bool(cfg.get_value(PROFILE_SECTION, "controls_hint_seen", false))
+		_tutorial_section1_status = _sanitize_tutorial_section1_status(
+			str(cfg.get_value(PROFILE_SECTION, "tutorial_section1_status", TUTORIAL_SECTION1_STATUS_NOT_STARTED))
+		)
+		_tutorial_section1_step = _sanitize_tutorial_section1_step(
+			str(cfg.get_value(PROFILE_SECTION, "tutorial_section1_step", TUTORIAL_SECTION1_STEP_0_INTRO))
+		)
+		_tutorial_section2_unlocked = bool(cfg.get_value(PROFILE_SECTION, "tutorial_section2_unlocked", false))
+		_tutorial_section2_status = _sanitize_tutorial_section2_status(
+			str(cfg.get_value(PROFILE_SECTION, "tutorial_section2_status", TUTORIAL_SECTION2_STATUS_NOT_STARTED))
+		)
+		_tutorial_section2_step = _sanitize_tutorial_section2_step(
+			str(cfg.get_value(PROFILE_SECTION, "tutorial_section2_step", TUTORIAL_SECTION2_STEP_0_INTRO))
+		)
+		_tutorial_section3_unlocked = bool(cfg.get_value(PROFILE_SECTION, "tutorial_section3_unlocked", false))
+		_tutorial_section3_status = _sanitize_tutorial_section3_status(
+			str(cfg.get_value(PROFILE_SECTION, "tutorial_section3_status", TUTORIAL_SECTION3_STATUS_NOT_STARTED))
+		)
+		_tutorial_section3_step = _sanitize_tutorial_section3_step(
+			str(cfg.get_value(PROFILE_SECTION, "tutorial_section3_step", TUTORIAL_SECTION3_STEP_0_INTRO))
+		)
 		_gpu_vfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, true))
 		_audio_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, true))
 		_sfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, true))
@@ -108,6 +166,14 @@ func ensure_loaded() -> void:
 		_display_name = _default_display_name(_user_id)
 		_onboarding_complete = false
 		_controls_hint_seen = false
+		_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_NOT_STARTED
+		_tutorial_section1_step = TUTORIAL_SECTION1_STEP_0_INTRO
+		_tutorial_section2_unlocked = false
+		_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_NOT_STARTED
+		_tutorial_section2_step = TUTORIAL_SECTION2_STEP_0_INTRO
+		_tutorial_section3_unlocked = false
+		_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_NOT_STARTED
+		_tutorial_section3_step = TUTORIAL_SECTION3_STEP_0_INTRO
 		_gpu_vfx_enabled = true
 		_audio_enabled = true
 		_sfx_enabled = true
@@ -148,6 +214,39 @@ func ensure_loaded() -> void:
 			updated = true
 		if _owned_buff_ids.is_empty():
 			_owned_buff_ids = _default_owned_ids()
+			updated = true
+		var clean_tutorial_status: String = _sanitize_tutorial_section1_status(_tutorial_section1_status)
+		if clean_tutorial_status != _tutorial_section1_status:
+			_tutorial_section1_status = clean_tutorial_status
+			updated = true
+		var clean_tutorial_step: String = _sanitize_tutorial_section1_step(_tutorial_section1_step)
+		if clean_tutorial_step != _tutorial_section1_step:
+			_tutorial_section1_step = clean_tutorial_step
+			updated = true
+		if _tutorial_section1_status == TUTORIAL_SECTION1_STATUS_COMPLETED and not _tutorial_section2_unlocked:
+			_tutorial_section2_unlocked = true
+			updated = true
+		var clean_tutorial2_status: String = _sanitize_tutorial_section2_status(_tutorial_section2_status)
+		if clean_tutorial2_status != _tutorial_section2_status:
+			_tutorial_section2_status = clean_tutorial2_status
+			updated = true
+		var clean_tutorial2_step: String = _sanitize_tutorial_section2_step(_tutorial_section2_step)
+		if clean_tutorial2_step != _tutorial_section2_step:
+			_tutorial_section2_step = clean_tutorial2_step
+			updated = true
+		if _tutorial_section2_status == TUTORIAL_SECTION2_STATUS_COMPLETED and not _tutorial_section3_unlocked:
+			_tutorial_section3_unlocked = true
+			updated = true
+		var clean_tutorial3_status: String = _sanitize_tutorial_section3_status(_tutorial_section3_status)
+		if clean_tutorial3_status != _tutorial_section3_status:
+			_tutorial_section3_status = clean_tutorial3_status
+			updated = true
+		var clean_tutorial3_step: String = _sanitize_tutorial_section3_step(_tutorial_section3_step)
+		if clean_tutorial3_step != _tutorial_section3_step:
+			_tutorial_section3_step = clean_tutorial3_step
+			updated = true
+		if _tutorial_section3_status == TUTORIAL_SECTION3_STATUS_COMPLETED and not _tutorial_section3_unlocked:
+			_tutorial_section3_unlocked = true
 			updated = true
 		var cleaned_loadout: Array[String] = _sanitize_loadout_ids(_buff_loadout_ids)
 		if cleaned_loadout != _buff_loadout_ids:
@@ -196,6 +295,38 @@ func is_onboarding_complete() -> bool:
 func has_seen_controls_hint() -> bool:
 	ensure_loaded()
 	return _controls_hint_seen
+
+func get_tutorial_section1_status() -> String:
+	ensure_loaded()
+	return _tutorial_section1_status
+
+func get_tutorial_section1_step() -> String:
+	ensure_loaded()
+	return _tutorial_section1_step
+
+func is_tutorial_section2_unlocked() -> bool:
+	ensure_loaded()
+	return _tutorial_section2_unlocked
+
+func get_tutorial_section2_status() -> String:
+	ensure_loaded()
+	return _tutorial_section2_status
+
+func get_tutorial_section2_step() -> String:
+	ensure_loaded()
+	return _tutorial_section2_step
+
+func is_tutorial_section3_unlocked() -> bool:
+	ensure_loaded()
+	return _tutorial_section3_unlocked
+
+func get_tutorial_section3_status() -> String:
+	ensure_loaded()
+	return _tutorial_section3_status
+
+func get_tutorial_section3_step() -> String:
+	ensure_loaded()
+	return _tutorial_section3_step
 
 func get_display_name() -> String:
 	ensure_loaded()
@@ -254,6 +385,171 @@ func mark_controls_hint_seen() -> void:
 	_controls_hint_seen = true
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_CONTROLS_HINT_SEEN", {"user_id": _user_id})
+
+func begin_tutorial_section1() -> void:
+	ensure_loaded()
+	if _tutorial_section1_status == TUTORIAL_SECTION1_STATUS_COMPLETED or _tutorial_section1_status == TUTORIAL_SECTION1_STATUS_SKIPPED:
+		return
+	var changed: bool = false
+	if _tutorial_section1_status != TUTORIAL_SECTION1_STATUS_IN_PROGRESS:
+		_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_IN_PROGRESS
+		changed = true
+	if _tutorial_section1_step == TUTORIAL_SECTION1_STEP_COMPLETED or _tutorial_section1_step == TUTORIAL_SECTION1_STEP_SKIPPED:
+		_tutorial_section1_step = TUTORIAL_SECTION1_STEP_0_INTRO
+		changed = true
+	if changed:
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		SFLog.info("PROFILE_TUTORIAL_SECTION1_BEGIN", {"user_id": _user_id, "step": _tutorial_section1_step})
+
+func set_tutorial_section1_step(step_name: String) -> void:
+	ensure_loaded()
+	var next_step: String = _sanitize_tutorial_section1_step(step_name)
+	if _tutorial_section1_status == TUTORIAL_SECTION1_STATUS_COMPLETED or _tutorial_section1_status == TUTORIAL_SECTION1_STATUS_SKIPPED:
+		return
+	var changed: bool = false
+	if _tutorial_section1_status != TUTORIAL_SECTION1_STATUS_IN_PROGRESS:
+		_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_IN_PROGRESS
+		changed = true
+	if _tutorial_section1_step != next_step:
+		_tutorial_section1_step = next_step
+		changed = true
+	if changed:
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		SFLog.info("PROFILE_TUTORIAL_SECTION1_STEP", {"user_id": _user_id, "step": _tutorial_section1_step})
+
+func mark_tutorial_section1_completed() -> void:
+	ensure_loaded()
+	if _tutorial_section1_status == TUTORIAL_SECTION1_STATUS_COMPLETED and _tutorial_section1_step == TUTORIAL_SECTION1_STEP_COMPLETED and _tutorial_section2_unlocked:
+		return
+	_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_COMPLETED
+	_tutorial_section1_step = TUTORIAL_SECTION1_STEP_COMPLETED
+	_tutorial_section2_unlocked = true
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION1_COMPLETED", {"user_id": _user_id})
+
+func mark_tutorial_section1_skipped() -> void:
+	ensure_loaded()
+	if _tutorial_section1_status == TUTORIAL_SECTION1_STATUS_SKIPPED and _tutorial_section1_step == TUTORIAL_SECTION1_STEP_SKIPPED:
+		return
+	_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_SKIPPED
+	_tutorial_section1_step = TUTORIAL_SECTION1_STEP_SKIPPED
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION1_SKIPPED", {"user_id": _user_id})
+
+func begin_tutorial_section2() -> void:
+	ensure_loaded()
+	if _tutorial_section2_status == TUTORIAL_SECTION2_STATUS_COMPLETED or _tutorial_section2_status == TUTORIAL_SECTION2_STATUS_SKIPPED:
+		return
+	var changed: bool = false
+	if _tutorial_section2_status != TUTORIAL_SECTION2_STATUS_IN_PROGRESS:
+		_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_IN_PROGRESS
+		changed = true
+	if _tutorial_section2_step == TUTORIAL_SECTION2_STEP_COMPLETED or _tutorial_section2_step == TUTORIAL_SECTION2_STEP_SKIPPED:
+		_tutorial_section2_step = TUTORIAL_SECTION2_STEP_0_INTRO
+		changed = true
+	if changed:
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		SFLog.info("PROFILE_TUTORIAL_SECTION2_BEGIN", {"user_id": _user_id, "step": _tutorial_section2_step})
+
+func set_tutorial_section2_step(step_name: String) -> void:
+	ensure_loaded()
+	var next_step: String = _sanitize_tutorial_section2_step(step_name)
+	if _tutorial_section2_status == TUTORIAL_SECTION2_STATUS_COMPLETED or _tutorial_section2_status == TUTORIAL_SECTION2_STATUS_SKIPPED:
+		return
+	var changed: bool = false
+	if _tutorial_section2_status != TUTORIAL_SECTION2_STATUS_IN_PROGRESS:
+		_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_IN_PROGRESS
+		changed = true
+	if _tutorial_section2_step != next_step:
+		_tutorial_section2_step = next_step
+		changed = true
+	if changed:
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		SFLog.info("PROFILE_TUTORIAL_SECTION2_STEP", {"user_id": _user_id, "step": _tutorial_section2_step})
+
+func mark_tutorial_section2_completed() -> void:
+	ensure_loaded()
+	if _tutorial_section2_status == TUTORIAL_SECTION2_STATUS_COMPLETED and _tutorial_section2_step == TUTORIAL_SECTION2_STEP_COMPLETED and _tutorial_section3_unlocked:
+		return
+	_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_COMPLETED
+	_tutorial_section2_step = TUTORIAL_SECTION2_STEP_COMPLETED
+	_tutorial_section3_unlocked = true
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION2_COMPLETED", {"user_id": _user_id})
+
+func mark_tutorial_section2_skipped() -> void:
+	ensure_loaded()
+	if _tutorial_section2_status == TUTORIAL_SECTION2_STATUS_SKIPPED and _tutorial_section2_step == TUTORIAL_SECTION2_STEP_SKIPPED:
+		return
+	_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_SKIPPED
+	_tutorial_section2_step = TUTORIAL_SECTION2_STEP_SKIPPED
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION2_SKIPPED", {"user_id": _user_id})
+
+func begin_tutorial_section3() -> void:
+	ensure_loaded()
+	if _tutorial_section3_status == TUTORIAL_SECTION3_STATUS_COMPLETED or _tutorial_section3_status == TUTORIAL_SECTION3_STATUS_SKIPPED:
+		return
+	var changed: bool = false
+	if _tutorial_section3_status != TUTORIAL_SECTION3_STATUS_IN_PROGRESS:
+		_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_IN_PROGRESS
+		changed = true
+	if _tutorial_section3_step == TUTORIAL_SECTION3_STEP_COMPLETED or _tutorial_section3_step == TUTORIAL_SECTION3_STEP_SKIPPED:
+		_tutorial_section3_step = TUTORIAL_SECTION3_STEP_0_INTRO
+		changed = true
+	if changed:
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		SFLog.info("PROFILE_TUTORIAL_SECTION3_BEGIN", {"user_id": _user_id, "step": _tutorial_section3_step})
+
+func set_tutorial_section3_step(step_name: String) -> void:
+	ensure_loaded()
+	var next_step: String = _sanitize_tutorial_section3_step(step_name)
+	if _tutorial_section3_status == TUTORIAL_SECTION3_STATUS_COMPLETED or _tutorial_section3_status == TUTORIAL_SECTION3_STATUS_SKIPPED:
+		return
+	var changed: bool = false
+	if _tutorial_section3_status != TUTORIAL_SECTION3_STATUS_IN_PROGRESS:
+		_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_IN_PROGRESS
+		changed = true
+	if _tutorial_section3_step != next_step:
+		_tutorial_section3_step = next_step
+		changed = true
+	if changed:
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		SFLog.info("PROFILE_TUTORIAL_SECTION3_STEP", {"user_id": _user_id, "step": _tutorial_section3_step})
+
+func mark_tutorial_section3_completed() -> void:
+	ensure_loaded()
+	if _tutorial_section3_status == TUTORIAL_SECTION3_STATUS_COMPLETED and _tutorial_section3_step == TUTORIAL_SECTION3_STEP_COMPLETED:
+		return
+	_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_COMPLETED
+	_tutorial_section3_step = TUTORIAL_SECTION3_STEP_COMPLETED
+	_tutorial_section3_unlocked = true
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION3_COMPLETED", {"user_id": _user_id})
+
+func mark_tutorial_section3_skipped() -> void:
+	ensure_loaded()
+	if _tutorial_section3_status == TUTORIAL_SECTION3_STATUS_SKIPPED and _tutorial_section3_step == TUTORIAL_SECTION3_STEP_SKIPPED:
+		return
+	_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_SKIPPED
+	_tutorial_section3_step = TUTORIAL_SECTION3_STEP_SKIPPED
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION3_SKIPPED", {"user_id": _user_id})
+
+func prepare_tutorial_section3_sandbox() -> void:
+	ensure_loaded()
+	_onboarding_complete = true
+	_controls_hint_seen = true
+	_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_COMPLETED
+	_tutorial_section1_step = TUTORIAL_SECTION1_STEP_COMPLETED
+	_tutorial_section2_unlocked = true
+	_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_COMPLETED
+	_tutorial_section2_step = TUTORIAL_SECTION2_STEP_COMPLETED
+	_tutorial_section3_unlocked = true
+	_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_IN_PROGRESS
+	_tutorial_section3_step = TUTORIAL_SECTION3_STEP_0_INTRO
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION3_SANDBOX_PREPARED", {"user_id": _user_id})
 
 func get_owned_buff_ids() -> Array[String]:
 	return get_owned_buff_ids_for_mode(BUFF_MODE_VS)
@@ -527,6 +823,14 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 		cfg.set_value(PROFILE_SECTION, "created_at_unix", created_at)
 	cfg.set_value(PROFILE_SECTION, "onboarding_complete", onboarding_complete)
 	cfg.set_value(PROFILE_SECTION, "controls_hint_seen", _controls_hint_seen)
+	cfg.set_value(PROFILE_SECTION, "tutorial_section1_status", _tutorial_section1_status)
+	cfg.set_value(PROFILE_SECTION, "tutorial_section1_step", _tutorial_section1_step)
+	cfg.set_value(PROFILE_SECTION, "tutorial_section2_unlocked", _tutorial_section2_unlocked)
+	cfg.set_value(PROFILE_SECTION, "tutorial_section2_status", _tutorial_section2_status)
+	cfg.set_value(PROFILE_SECTION, "tutorial_section2_step", _tutorial_section2_step)
+	cfg.set_value(PROFILE_SECTION, "tutorial_section3_unlocked", _tutorial_section3_unlocked)
+	cfg.set_value(PROFILE_SECTION, "tutorial_section3_status", _tutorial_section3_status)
+	cfg.set_value(PROFILE_SECTION, "tutorial_section3_step", _tutorial_section3_step)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, _gpu_vfx_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, _audio_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, _sfx_enabled)
@@ -583,6 +887,78 @@ func _sanitize_performance_mode(mode: String) -> String:
 	if cleaned != PERFORMANCE_MODE_QUALITY and cleaned != PERFORMANCE_MODE_BALANCED and cleaned != PERFORMANCE_MODE_PERFORMANCE:
 		return PERFORMANCE_MODE_QUALITY
 	return cleaned
+
+func _sanitize_tutorial_section1_status(status: String) -> String:
+	var cleaned: String = status.strip_edges().to_lower()
+	if cleaned == TUTORIAL_SECTION1_STATUS_IN_PROGRESS:
+		return TUTORIAL_SECTION1_STATUS_IN_PROGRESS
+	if cleaned == TUTORIAL_SECTION1_STATUS_COMPLETED:
+		return TUTORIAL_SECTION1_STATUS_COMPLETED
+	if cleaned == TUTORIAL_SECTION1_STATUS_SKIPPED:
+		return TUTORIAL_SECTION1_STATUS_SKIPPED
+	return TUTORIAL_SECTION1_STATUS_NOT_STARTED
+
+func _sanitize_tutorial_section1_step(step_name: String) -> String:
+	var cleaned: String = step_name.strip_edges().to_lower()
+	if cleaned == TUTORIAL_SECTION1_STEP_1_ATTACK_LANE:
+		return TUTORIAL_SECTION1_STEP_1_ATTACK_LANE
+	if cleaned == TUTORIAL_SECTION1_STEP_2_RETRACT_LANE:
+		return TUTORIAL_SECTION1_STEP_2_RETRACT_LANE
+	if cleaned == TUTORIAL_SECTION1_STEP_3_CAPTURE_HIVE:
+		return TUTORIAL_SECTION1_STEP_3_CAPTURE_HIVE
+	if cleaned == TUTORIAL_SECTION1_STEP_COMPLETED:
+		return TUTORIAL_SECTION1_STEP_COMPLETED
+	if cleaned == TUTORIAL_SECTION1_STEP_SKIPPED:
+		return TUTORIAL_SECTION1_STEP_SKIPPED
+	return TUTORIAL_SECTION1_STEP_0_INTRO
+
+func _sanitize_tutorial_section2_status(status: String) -> String:
+	var cleaned: String = status.strip_edges().to_lower()
+	if cleaned == TUTORIAL_SECTION2_STATUS_IN_PROGRESS:
+		return TUTORIAL_SECTION2_STATUS_IN_PROGRESS
+	if cleaned == TUTORIAL_SECTION2_STATUS_COMPLETED:
+		return TUTORIAL_SECTION2_STATUS_COMPLETED
+	if cleaned == TUTORIAL_SECTION2_STATUS_SKIPPED:
+		return TUTORIAL_SECTION2_STATUS_SKIPPED
+	return TUTORIAL_SECTION2_STATUS_NOT_STARTED
+
+func _sanitize_tutorial_section2_step(step_name: String) -> String:
+	var cleaned: String = step_name.strip_edges().to_lower()
+	if cleaned == TUTORIAL_SECTION2_STEP_1_DUAL_LANE:
+		return TUTORIAL_SECTION2_STEP_1_DUAL_LANE
+	if cleaned == TUTORIAL_SECTION2_STEP_2_RETRACT_LANE:
+		return TUTORIAL_SECTION2_STEP_2_RETRACT_LANE
+	if cleaned == TUTORIAL_SECTION2_STEP_3_REDIRECT_LANE:
+		return TUTORIAL_SECTION2_STEP_3_REDIRECT_LANE
+	if cleaned == TUTORIAL_SECTION2_STEP_COMPLETED:
+		return TUTORIAL_SECTION2_STEP_COMPLETED
+	if cleaned == TUTORIAL_SECTION2_STEP_SKIPPED:
+		return TUTORIAL_SECTION2_STEP_SKIPPED
+	return TUTORIAL_SECTION2_STEP_0_INTRO
+
+func _sanitize_tutorial_section3_status(status: String) -> String:
+	var cleaned: String = status.strip_edges().to_lower()
+	if cleaned == TUTORIAL_SECTION3_STATUS_IN_PROGRESS:
+		return TUTORIAL_SECTION3_STATUS_IN_PROGRESS
+	if cleaned == TUTORIAL_SECTION3_STATUS_COMPLETED:
+		return TUTORIAL_SECTION3_STATUS_COMPLETED
+	if cleaned == TUTORIAL_SECTION3_STATUS_SKIPPED:
+		return TUTORIAL_SECTION3_STATUS_SKIPPED
+	return TUTORIAL_SECTION3_STATUS_NOT_STARTED
+
+func _sanitize_tutorial_section3_step(step_name: String) -> String:
+	var cleaned: String = step_name.strip_edges().to_lower()
+	if cleaned == TUTORIAL_SECTION3_STEP_1_SWARM:
+		return TUTORIAL_SECTION3_STEP_1_SWARM
+	if cleaned == TUTORIAL_SECTION3_STEP_2_TOWER_CONTROL:
+		return TUTORIAL_SECTION3_STEP_2_TOWER_CONTROL
+	if cleaned == TUTORIAL_SECTION3_STEP_3_BARRACKS_ROUTE:
+		return TUTORIAL_SECTION3_STEP_3_BARRACKS_ROUTE
+	if cleaned == TUTORIAL_SECTION3_STEP_COMPLETED:
+		return TUTORIAL_SECTION3_STEP_COMPLETED
+	if cleaned == TUTORIAL_SECTION3_STEP_SKIPPED:
+		return TUTORIAL_SECTION3_STEP_SKIPPED
+	return TUTORIAL_SECTION3_STEP_0_INTRO
 
 func _sanitize_admin_dashboard_username(username: String) -> String:
 	return username.strip_edges()

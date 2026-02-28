@@ -20,6 +20,9 @@ const MatchTelemetryModelScript := preload("res://scripts/state/match_telemetry_
 const MatchTelemetryCollectorScript := preload("res://scripts/state/match_telemetry_collector.gd")
 const MatchAnalyzerScript := preload("res://scripts/state/match_analyzer.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
+const ArenaTutorialSection1Controller := preload("res://scripts/arena_helpers/tutorial_section1_controller.gd")
+const ArenaTutorialSection2Controller := preload("res://scripts/arena_helpers/tutorial_section2_controller.gd")
+const ArenaTutorialSection3Controller := preload("res://scripts/arena_helpers/tutorial_section3_controller.gd")
 const ArenaWorldViewportCache := preload("res://scripts/arena_helpers/world_viewport_cache.gd")
 const ArenaStageRuntimeFlow := preload("res://scripts/arena_helpers/stage_runtime_flow.gd")
 const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
@@ -206,6 +209,9 @@ var _prematch_record_h2h: Label = null
 var _prematch_record_teams: Label = null
 var _prematch_record_team_arrows: Label = null
 var _controls_hint_controller: ArenaControlsHintController = ArenaControlsHintController.new()
+var _tutorial_section1_controller: ArenaTutorialSection1Controller = ArenaTutorialSection1Controller.new()
+var _tutorial_section2_controller: ArenaTutorialSection2Controller = ArenaTutorialSection2Controller.new()
+var _tutorial_section3_controller: ArenaTutorialSection3Controller = ArenaTutorialSection3Controller.new()
 var _prematch_remaining_ms_f: float = 0.0
 var _prematch_last_sec: int = -1
 var _prematch_records_faded: bool = false
@@ -471,8 +477,49 @@ func _start_match_flow() -> void:
 	if _controls_hint_controller != null:
 		_controls_hint_controller.ensure_overlay(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
 	_begin_prematch()
-	if _controls_hint_controller != null:
+	var tutorial_active: bool = false
+	if _tutorial_section1_controller != null:
+		tutorial_active = _tutorial_section1_controller.start_if_needed(
+			Callable(self, "_resolve_hud_root"),
+			Callable(self, "_force_fullscreen_anchors"),
+			_resolve_local_owner_id(),
+			state
+		)
+	if not tutorial_active and _tutorial_section2_controller != null:
+		tutorial_active = _tutorial_section2_controller.start_if_needed(
+			Callable(self, "_resolve_hud_root"),
+			Callable(self, "_force_fullscreen_anchors"),
+			_resolve_local_owner_id(),
+			state
+		)
+	if not tutorial_active and _tutorial_section3_controller != null:
+		tutorial_active = _tutorial_section3_controller.start_if_needed(
+			Callable(self, "_resolve_hud_root"),
+			Callable(self, "_force_fullscreen_anchors"),
+			_resolve_local_owner_id(),
+			state
+		)
+	if tutorial_active:
+		_apply_tutorial_low_pressure_scenario()
+		if _controls_hint_controller != null:
+			_controls_hint_controller.hide(false)
+	elif _controls_hint_controller != null:
 		_controls_hint_controller.maybe_show_once(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
+
+func _apply_tutorial_low_pressure_scenario() -> void:
+	if OpsState == null or not OpsState.has_method("set_bot_profile"):
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	for seat in [1, 2, 3, 4]:
+		var seat_id: int = int(seat)
+		if seat_id == local_owner_id:
+			continue
+		OpsState.call("set_bot_profile", seat_id, {
+			"enabled": false,
+			"opening_delay_ms": 999999,
+			"aggression": 0.0
+		})
+	SFLog.info("TUTORIAL_LOW_PRESSURE_SCENARIO", {"local_owner_id": local_owner_id})
 
 func _resolve_top_hud_root() -> Node:
 	var top_hud_root: Node = get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopHudRoot")
@@ -2147,6 +2194,12 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	if _controls_hint_controller != null:
 		_controls_hint_controller.hide(false)
+	if _tutorial_section1_controller != null:
+		_tutorial_section1_controller.on_match_ended()
+	if _tutorial_section2_controller != null:
+		_tutorial_section2_controller.on_match_ended()
+	if _tutorial_section3_controller != null:
+		_tutorial_section3_controller.on_match_ended()
 	if _is_stage_race_runtime_mode():
 		if outcome_overlay != null and outcome_overlay.has_method("clear_post_match_summary"):
 			outcome_overlay.call("clear_post_match_summary")
@@ -3034,6 +3087,12 @@ func _tick_arena_runtime(delta: float) -> void:
 	_update_win_overlay()
 	_update_selection_hud()
 	_update_buff_ui()
+	if _tutorial_section1_controller != null and state != null:
+		_tutorial_section1_controller.tick(state, _resolve_local_owner_id())
+	if _tutorial_section2_controller != null and state != null:
+		_tutorial_section2_controller.tick(state, _resolve_local_owner_id())
+	if _tutorial_section3_controller != null and state != null:
+		_tutorial_section3_controller.tick(state, _resolve_local_owner_id())
 
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint():
