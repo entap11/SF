@@ -6,6 +6,7 @@ const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPa
 const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePassPanel.tscn")
 const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
 const HEX_SEAM_BACKGROUND_SCENE: PackedScene = preload("res://ui/backgrounds/HexSeamBackground.tscn")
+const MATCH_BACKGROUND_INLAY_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/match_background_inlay.png")
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
 const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
 const HONEY_TEXT_SHADER: Shader = preload("res://ui/hud/honey/honey_text_honeycomb.gdshader")
@@ -18,6 +19,7 @@ const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
 const HONEY_WIDGET_TOP_OFFSET: float = 10.0
 const MM_BACKGROUND_Y_SHIFT: float = 36.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
+const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 const MM_PLATFORM_DIMMER_ALPHA: float = 0.19
 const MM_HERO_PANEL_ANCHOR_LEFT: float = 0.14
@@ -377,6 +379,8 @@ var _async_assigned_map := {
 }
 var _async_paid_entry_usd: int = 1
 var _async_track_mode: String = "select"
+var _money_games_selected_division: String = "division_i"
+var _money_games_selected_tier: int = 1
 
 const ASYNC_BUYINS := [1, 2, 3, 5, 10]
 const MONEY_DENOMINATIONS := [1, 2, 3, 5, 10, 20, 50]
@@ -439,6 +443,74 @@ const HIVE_DROPDOWN_WIDTH: float = 420.0
 const HIVE_DROPDOWN_HEIGHT: float = 248.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
 const HIVE_PULLDOWN_DURATION: float = 0.24
+const GAME_HUB_OVERLAY_TARGET_WIDTH: float = 980.0
+const GAME_HUB_OVERLAY_FREE_TARGET_HEIGHT: float = 860.0
+const GAME_HUB_OVERLAY_PAID_TARGET_HEIGHT: float = 1040.0
+const GAME_HUB_OVERLAY_VIEWPORT_MARGIN_X: float = 24.0
+const GAME_HUB_OVERLAY_VIEWPORT_MARGIN_Y: float = 24.0
+const GAME_HUB_OVERLAY_FREE_MIN_HEIGHT: float = 700.0
+const GAME_HUB_OVERLAY_PAID_MIN_HEIGHT: float = 760.0
+const GAME_HUB_HUMAN_BUTTON_SIZE: Vector2 = Vector2(172.0, 72.0)
+const GAME_HUB_HUMAN_ICON_MAX_WIDTH: int = 166
+const GAME_HUB_CYCLE_BUTTON_SIZE: Vector2 = Vector2(286.0, 108.0)
+const GAME_HUB_CYCLE_ICON_MAX_WIDTH: int = 272
+const GAME_HUB_ASYNC_MODE_BUTTON_SIZE: Vector2 = Vector2(236.0, 82.0)
+const GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH: int = 224
+const GAME_HUB_CANCEL_BUTTON_SIZE: Vector2 = Vector2(168.0, 32.0)
+const GAME_HUB_SECTION_HEADER_COLOR: Color = Color8(201, 204, 214, 255)
+const GAME_HUB_SECTION_SUBTEXT_COLOR: Color = Color(0.86, 0.88, 0.92, 0.60)
+const GAME_HUB_BLOCK_LABEL_COLOR: Color = Color(0.82, 0.85, 0.90, 0.78)
+const GAME_HUB_DIVIDER_COLOR: Color = Color(0.95, 0.77, 0.28, 0.30)
+const GAME_HUB_BLOCK_SPACING_PX: float = 14.0
+const GAME_HUB_BLOCK_SPACING_FREE_PX: float = 15.0
+const GAME_HUB_TITLE_OUTLINE_COLOR: Color = Color(1.0, 0.87, 0.56, 0.18)
+const GAME_HUB_HOVER_EDGE_COLOR: Color = Color(0.95, 0.80, 0.34, 0.72)
+const GAME_HUB_HOVER_BRIGHTNESS: float = 1.10
+const GAME_HUB_SWEEP_DURATION_SEC: float = 0.8
+const GAME_HUB_PANEL_PULSE_HALF_CYCLE_SEC: float = 1.8
+const GAME_HUB_PANEL_SCAN_DRIFT_SEC: float = 34.0
+const ENTRY_OVERLAY_INLAY_MARGIN_X_LANDSCAPE_RATIO: float = 0.070
+const ENTRY_OVERLAY_INLAY_MARGIN_Y_LANDSCAPE_RATIO: float = 0.145
+const ENTRY_OVERLAY_INLAY_MARGIN_X_PORTRAIT_RATIO: float = 0.145
+const ENTRY_OVERLAY_INLAY_MARGIN_Y_PORTRAIT_RATIO: float = 0.070
+const ENTRY_OVERLAY_MIDFIELD_ALPHA: float = 0.34
+const ENTRY_OVERLAY_NOISE_ALPHA: float = 0.03
+const MONEY_DIVISION_I: String = "division_i"
+const MONEY_DIVISION_II: String = "division_ii"
+const MONEY_DIVISION_III: String = "division_iii"
+const MONEY_DIVISION_CLASSIFIED: String = "classified"
+const MONEY_DIVISION_TAB_IDS: Array[String] = [
+	MONEY_DIVISION_I,
+	MONEY_DIVISION_II,
+	MONEY_DIVISION_III,
+	MONEY_DIVISION_CLASSIFIED
+]
+const MONEY_DIVISION_LABELS: Dictionary = {
+	MONEY_DIVISION_I: "DIVISION I",
+	MONEY_DIVISION_II: "DIVISION II",
+	MONEY_DIVISION_III: "DIVISION III",
+	MONEY_DIVISION_CLASSIFIED: "CLASSIFIED"
+}
+const MONEY_DIVISION_TIERS: Dictionary = {
+	MONEY_DIVISION_I: [1, 2, 3],
+	MONEY_DIVISION_II: [5, 10],
+	MONEY_DIVISION_III: [20, 50]
+}
+const MONEY_TAB_INACTIVE_BG: Color = Color(0.10, 0.11, 0.14, 0.92)
+const MONEY_TAB_INACTIVE_EDGE: Color = Color(0.92, 0.76, 0.30, 0.30)
+const MONEY_TAB_ACTIVE_TEXT: Color = Color(0.97, 0.97, 0.95, 1.0)
+const MONEY_TAB_INACTIVE_TEXT: Color = Color(0.80, 0.83, 0.88, 0.96)
+const MONEY_TAB_LOCKED_TEXT: Color = Color(0.58, 0.60, 0.64, 0.90)
+const MONEY_TAB_LOCKED_SUBTEXT: String = "Access Restricted"
+const MONEY_ENTRY_LABEL_COLOR: Color = Color(0.83, 0.86, 0.90, 0.82)
+const MONEY_ENTRY_ACTIVE_EDGE: Color = Color(0.96, 0.80, 0.34, 0.72)
+const MONEY_ENTRY_ACTIVE_BG: Color = Color(0.18, 0.15, 0.10, 0.95)
+const MONEY_ENTRY_INACTIVE_BG: Color = Color(0.11, 0.12, 0.16, 0.90)
+const MONEY_ENTRY_INACTIVE_EDGE: Color = Color(0.44, 0.46, 0.53, 0.52)
+const MONEY_DIVISION_TAB_SIZE: Vector2 = Vector2(186.0, 62.0)
+const MONEY_ENTRY_TIER_BUTTON_SIZE: Vector2 = Vector2(96.0, 38.0)
+const MONEY_DIVISION_LABEL_SIZE: int = 13
+const MONEY_DIVISION_LOCKED_LABEL_SIZE: int = 11
 const UI_TEXT_SCALE: float = 2.0
 
 var _buff_library_all: Array[Dictionary] = []
@@ -487,6 +559,8 @@ var _bottom_nav_skin_material: ShaderMaterial = null
 var _hive_dropdown_panel: Panel = null
 var _hive_dropdown_tween: Tween = null
 var _hive_dropdown_open: bool = false
+var _entry_overlay_inlay_rotated_texture: Texture2D = null
+var _entry_overlay_noise_texture: Texture2D = null
 
 const DEFAULT_STATS_TIERS := {
 	"FREE": [
@@ -1093,7 +1167,11 @@ func _apply_background_art_direction() -> void:
 		underlayment_tex.offset_top = MM_BACKGROUND_Y_SHIFT
 		underlayment_tex.offset_bottom = MM_BACKGROUND_Y_SHIFT
 		underlayment_tex.pivot_offset = underlayment_tex.size * 0.5
-		underlayment_tex.scale = Vector2(MM_BACKGROUND_X_SCALE, 1.0)
+		var base_width_px: float = maxf(1.0, underlayment_tex.size.x)
+		if base_width_px <= 1.0 and get_viewport() != null:
+			base_width_px = maxf(1.0, get_viewport().get_visible_rect().size.x)
+		var width_scale_extra: float = 1.0 + ((MM_BACKGROUND_EXTRA_SIDE_PX * 2.0) / base_width_px)
+		underlayment_tex.scale = Vector2(MM_BACKGROUND_X_SCALE * width_scale_extra, 1.0)
 	if platform_dimmer != null:
 		var dimmer_color: Color = platform_dimmer.color
 		dimmer_color.a = MM_PLATFORM_DIMMER_ALPHA
@@ -4145,63 +4223,54 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var title := "MONEY GAMES" if paid else "FREE ROLL"
 	var subtitle := "Select mode and route."
 	if paid:
-		subtitle = "Balance: $%d | Select denomination, then mode." % _wallet_balance_usd()
-	var overlay_size := Vector2(920, 620)
-	if paid:
-		overlay_size = Vector2(920, 760)
-	else:
-		overlay_size = Vector2(920, 680)
+		subtitle = "Select division."
+		_money_games_selected_division = _money_division_for_tier(selected_denom)
+		_money_games_selected_tier = _money_clamp_tier_for_division(_money_games_selected_division, selected_denom)
+	var overlay_size: Vector2 = _resolve_game_hub_overlay_size(paid)
 	var panel := _build_entry_overlay(title, subtitle, overlay_size)
+	var broadcast_free_roll: bool = not paid
+	if paid:
+		_apply_money_games_panel_theme(panel, _money_games_selected_division)
+		_apply_money_games_title_treatment(panel)
+	else:
+		_apply_game_hub_panel_fx(panel)
+		_apply_game_hub_title_treatment(panel, title)
 	var body: VBoxContainer = _entry_overlay_body(panel)
 	if body == null:
 		return
+	body.add_theme_constant_override("separation", 8 if paid else 7)
+	var cluster_spacing: int = 6 if paid else 5
 	if paid:
-		var denom_header := Label.new()
-		denom_header.text = "DENOMINATION TABS"
-		body.add_child(denom_header)
-		_apply_font(denom_header, _font_semibold, 13)
-		var denom_row := HBoxContainer.new()
-		denom_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		denom_row.add_theme_constant_override("separation", 8)
-		body.add_child(denom_row)
-		for denom in MONEY_DENOMINATIONS:
-			var tab_denom: int = denom
-			var denom_button := Button.new()
-			_apply_usd_skin_to_button(denom_button, denom, "$%d" % denom)
-			denom_button.disabled = (not _dev_bypass_cash_balance) and denom > _wallet_balance_usd()
-			denom_button.pressed.connect(func(): _open_game_hub(true, tab_denom))
-			denom_row.add_child(denom_button)
-			_style_usd_sprite_button(denom_button, denom == selected_denom)
-		var entry_scope := Label.new()
-		entry_scope.text = "CURRENT TAB: ALL ENTRIES ARE $%d" % selected_denom
-		entry_scope.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		body.add_child(entry_scope)
-		_apply_font(entry_scope, _font_regular, 12)
-	var human_header := Label.new()
-	human_header.text = "HUMAN MATCHES%s" % (" ($%d ENTRY)" % selected_denom if paid else "")
-	body.add_child(human_header)
-	_apply_font(human_header, _font_semibold, 13)
+		_build_money_games_division_layer(body, panel)
+	_add_game_hub_block_label(body, "MATCH TYPE", broadcast_free_roll)
+	var match_type_block := VBoxContainer.new()
+	match_type_block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	match_type_block.add_theme_constant_override("separation", cluster_spacing)
+	body.add_child(match_type_block)
+	_add_game_hub_section_header(match_type_block, "HUMAN MATCHES", "Live competitive matches", broadcast_free_roll)
 	var human_row := HBoxContainer.new()
 	human_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	human_row.add_theme_constant_override("separation", 8)
-	body.add_child(human_row)
+	human_row.add_theme_constant_override("separation", cluster_spacing)
+	match_type_block.add_child(human_row)
 	for mode_id in ["1V1", "2V2", "3P FFA", "4P FFA"]:
 		var chosen_mode: String = mode_id
 		var button := Button.new()
-		button.custom_minimum_size = Vector2(144.0, 64.0)
-		button.pressed.connect(func(): _on_human_mode_selected(chosen_mode, paid, selected_denom))
+		button.custom_minimum_size = GAME_HUB_HUMAN_BUTTON_SIZE
+		if paid:
+			button.pressed.connect(func(): _on_human_mode_selected(chosen_mode, true, _money_games_selected_tier))
+		else:
+			button.pressed.connect(func(): _on_human_mode_selected(chosen_mode, false, selected_denom))
 		human_row.add_child(button)
 		_apply_human_mode_skin_to_button(button, chosen_mode, paid, selected_denom)
-	var async_header := Label.new()
-	async_header.text = "ASYNC CONTESTS%s" % (" ($%d ENTRY)" % selected_denom if paid else "")
-	body.add_child(async_header)
-	_apply_font(async_header, _font_semibold, 13)
+		_tune_game_hub_human_button(button)
+		_configure_game_hub_option_button(button, broadcast_free_roll)
+	_add_game_hub_section_header(match_type_block, "TIME PUZZLES", "Race against time & ranking", broadcast_free_roll)
 	var cycle_row := GridContainer.new()
 	cycle_row.columns = 3
 	cycle_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cycle_row.add_theme_constant_override("h_separation", 8)
-	cycle_row.add_theme_constant_override("v_separation", 8)
-	body.add_child(cycle_row)
+	cycle_row.add_theme_constant_override("h_separation", 6)
+	cycle_row.add_theme_constant_override("v_separation", 6)
+	match_type_block.add_child(cycle_row)
 	var cycle_items := [
 		{"label": "WEEKLY", "id": "WEEKLY"},
 		{"label": "MONTHLY", "id": "MONTHLY"},
@@ -4213,121 +4282,912 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		var id := str(item.get("id", ""))
 		var async_mode_id: String = id
 		var button := Button.new()
-		button.custom_minimum_size = Vector2(256.0, 96.0)
+		button.custom_minimum_size = GAME_HUB_CYCLE_BUTTON_SIZE
 		if paid:
-			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, true, selected_denom))
+			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, true, _money_games_selected_tier))
 		else:
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
 		cycle_row.add_child(button)
 		_apply_async_cycle_skin_to_button(button, label, paid, selected_denom)
-	if paid:
-		var three_map_label := Label.new()
-		three_map_label.text = "3 MAP"
-		body.add_child(three_map_label)
-		_apply_font(three_map_label, _font_semibold, 12)
-		var three_map_row := GridContainer.new()
-		three_map_row.columns = 2
-		three_map_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		three_map_row.add_theme_constant_override("h_separation", 8)
-		three_map_row.add_theme_constant_override("v_separation", 8)
-		body.add_child(three_map_row)
-		var three_map_items := [
-			{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
-			{"label": "RACE", "id": "TIMED_RACE_3"},
-			{"label": "MISS N OUT", "id": "MISS_N_OUT_3"}
-		]
-		for item_any in three_map_items:
-			var item: Dictionary = item_any as Dictionary
-			var label := str(item.get("label", "ASYNC"))
-			var id := str(item.get("id", ""))
-			var async_mode_id: String = id
-			var button := Button.new()
-			button.custom_minimum_size = Vector2(176.0, 56.0)
-			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, paid, selected_denom))
-			three_map_row.add_child(button)
-			_apply_async_mode_skin_to_button(button, label, paid, selected_denom)
-		var five_map_label := Label.new()
-		five_map_label.text = "5 MAP"
-		body.add_child(five_map_label)
-		_apply_font(five_map_label, _font_semibold, 12)
-		var five_map_row := GridContainer.new()
-		five_map_row.columns = 2
-		five_map_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		five_map_row.add_theme_constant_override("h_separation", 8)
-		five_map_row.add_theme_constant_override("v_separation", 8)
-		body.add_child(five_map_row)
-		var five_map_items := [
-			{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
-			{"label": "RACE", "id": "TIMED_RACE_5"},
-			{"label": "MISS N OUT", "id": "MISS_N_OUT_5"}
-		]
-		for item_any in five_map_items:
-			var item: Dictionary = item_any as Dictionary
-			var label := str(item.get("label", "ASYNC"))
-			var id := str(item.get("id", ""))
-			var async_mode_id: String = id
-			var button := Button.new()
-			button.custom_minimum_size = Vector2(176.0, 56.0)
-			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, paid, selected_denom))
-			five_map_row.add_child(button)
-			_apply_async_mode_skin_to_button(button, label, paid, selected_denom)
-	else:
-		var three_map_label := Label.new()
-		three_map_label.text = "3 MAP"
-		body.add_child(three_map_label)
-		_apply_font(three_map_label, _font_semibold, 12)
-		var three_map_row := GridContainer.new()
-		three_map_row.columns = 2
-		three_map_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		three_map_row.add_theme_constant_override("h_separation", 8)
-		three_map_row.add_theme_constant_override("v_separation", 8)
-		body.add_child(three_map_row)
-		var three_map_items := [
-			{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
-			{"label": "RACE", "id": "TIMED_RACE_3"},
-			{"label": "MISS N OUT", "id": "MISS_N_OUT_3"}
-		]
-		for item_any in three_map_items:
-			var item: Dictionary = item_any as Dictionary
-			var label := str(item.get("label", "ASYNC"))
-			var id := str(item.get("id", ""))
-			var async_mode_id: String = id
-			var button := Button.new()
-			button.custom_minimum_size = Vector2(176.0, 56.0)
-			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
-			three_map_row.add_child(button)
-			_apply_async_mode_skin_to_button(button, label, false, 0)
-		var five_map_label := Label.new()
-		five_map_label.text = "5 MAP"
-		body.add_child(five_map_label)
-		_apply_font(five_map_label, _font_semibold, 12)
-		var five_map_row := GridContainer.new()
-		five_map_row.columns = 2
-		five_map_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		five_map_row.add_theme_constant_override("h_separation", 8)
-		five_map_row.add_theme_constant_override("v_separation", 8)
-		body.add_child(five_map_row)
-		var five_map_items := [
-			{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
-			{"label": "RACE", "id": "TIMED_RACE_5"},
-			{"label": "MISS N OUT", "id": "MISS_N_OUT_5"}
-		]
-		for item_any in five_map_items:
-			var item: Dictionary = item_any as Dictionary
-			var label := str(item.get("label", "ASYNC"))
-			var id := str(item.get("id", ""))
-			var async_mode_id: String = id
-			var button := Button.new()
-			button.custom_minimum_size = Vector2(176.0, 56.0)
-			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
-			five_map_row.add_child(button)
-			_apply_async_mode_skin_to_button(button, label, false, 0)
+		_tune_game_hub_cycle_button(button)
+		_configure_game_hub_option_button(button, broadcast_free_roll)
+	_add_game_hub_block_divider(body, broadcast_free_roll)
+	_add_game_hub_spacer(body, GAME_HUB_BLOCK_SPACING_PX if paid else GAME_HUB_BLOCK_SPACING_FREE_PX)
+	_add_game_hub_block_label(body, "MAP CONFIG", broadcast_free_roll)
+	var map_block := VBoxContainer.new()
+	map_block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	map_block.add_theme_constant_override("separation", cluster_spacing)
+	body.add_child(map_block)
+	var three_map_items := [
+		{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
+		{"label": "RACE", "id": "TIMED_RACE_3"},
+		{"label": "MISS N OUT", "id": "MISS_N_OUT_3"}
+	]
+	_add_game_hub_map_group(map_block, "3 MAP", three_map_items, paid, selected_denom, broadcast_free_roll)
+	var five_map_items := [
+		{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
+		{"label": "RACE", "id": "TIMED_RACE_5"},
+		{"label": "MISS N OUT", "id": "MISS_N_OUT_5"}
+	]
+	_add_game_hub_map_group(map_block, "5 MAP", five_map_items, paid, selected_denom, broadcast_free_roll)
+	var cancel_row := HBoxContainer.new()
+	cancel_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cancel_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	body.add_child(cancel_row)
 	var cancel := Button.new()
 	cancel.text = "CANCEL"
 	cancel.pressed.connect(_close_entry_route_modal)
-	body.add_child(cancel)
-	_style_entry_overlay_buttons([cancel])
+	cancel_row.add_child(cancel)
+	_style_game_hub_cancel_button(cancel)
 	_entry_route_modal = panel
+
+func _compact_game_hub_async_mode_button(button: Button) -> void:
+	if button == null:
+		return
+	button.custom_minimum_size = GAME_HUB_ASYNC_MODE_BUTTON_SIZE
+	button.set("icon_max_width", GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH)
+
+func _tune_game_hub_human_button(button: Button) -> void:
+	if button == null:
+		return
+	button.custom_minimum_size = GAME_HUB_HUMAN_BUTTON_SIZE
+	button.set("icon_max_width", GAME_HUB_HUMAN_ICON_MAX_WIDTH)
+
+func _tune_game_hub_cycle_button(button: Button) -> void:
+	if button == null:
+		return
+	button.custom_minimum_size = GAME_HUB_CYCLE_BUTTON_SIZE
+	button.set("icon_max_width", GAME_HUB_CYCLE_ICON_MAX_WIDTH)
+
+func _add_game_hub_block_label(parent: VBoxContainer, text_value: String, subdued: bool = false) -> void:
+	if parent == null:
+		return
+	var label := Label.new()
+	label.text = text_value.strip_edges().to_upper()
+	var label_color: Color = GAME_HUB_BLOCK_LABEL_COLOR
+	if subdued:
+		label_color = Color(label_color.r, label_color.g, label_color.b, 0.46)
+	label.add_theme_color_override("font_color", label_color)
+	label.add_theme_constant_override("outline_size", 0)
+	if subdued:
+		label.add_theme_constant_override("font_spacing", 1)
+	parent.add_child(label)
+	_apply_font(label, _font_regular if subdued else _font_semibold, 11)
+
+func _add_game_hub_section_header(parent: VBoxContainer, heading: String, subtext: String = "", subdued: bool = false) -> void:
+	if parent == null:
+		return
+	var heading_label := Label.new()
+	heading_label.text = heading.strip_edges().to_upper()
+	var heading_color: Color = GAME_HUB_SECTION_HEADER_COLOR
+	if subdued:
+		heading_color = Color(heading_color.r, heading_color.g, heading_color.b, 0.49)
+	heading_label.add_theme_color_override("font_color", heading_color)
+	heading_label.add_theme_constant_override("outline_size", 0)
+	if subdued:
+		heading_label.add_theme_constant_override("font_spacing", 1)
+	parent.add_child(heading_label)
+	_apply_font(heading_label, _font_regular if subdued else _font_semibold, 13)
+	if subtext.is_empty():
+		return
+	var subtext_label := Label.new()
+	subtext_label.text = subtext
+	var subtext_color: Color = GAME_HUB_SECTION_SUBTEXT_COLOR
+	if subdued:
+		subtext_color = Color(subtext_color.r, subtext_color.g, subtext_color.b, 0.66)
+	subtext_label.add_theme_color_override("font_color", subtext_color)
+	subtext_label.add_theme_constant_override("outline_size", 0)
+	parent.add_child(subtext_label)
+	_apply_font(subtext_label, _font_regular, 12 if subdued else 11)
+
+func _add_game_hub_block_divider(parent: VBoxContainer, subdued: bool = false) -> void:
+	if parent == null:
+		return
+	var divider := ColorRect.new()
+	divider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	divider.custom_minimum_size = Vector2(0.0, 1.0)
+	var divider_color: Color = GAME_HUB_DIVIDER_COLOR
+	if subdued:
+		divider_color = Color(divider_color.r, divider_color.g, divider_color.b, 0.20)
+	divider.color = divider_color
+	divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(divider)
+
+func _add_game_hub_spacer(parent: VBoxContainer, height_px: float) -> void:
+	if parent == null:
+		return
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.custom_minimum_size = Vector2(0.0, maxf(0.0, height_px))
+	parent.add_child(spacer)
+
+func _build_money_games_division_layer(body: VBoxContainer, panel: Panel) -> void:
+	if body == null:
+		return
+	var tabs_row := HBoxContainer.new()
+	tabs_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	tabs_row.add_theme_constant_override("separation", 10)
+	body.add_child(tabs_row)
+	_add_game_hub_spacer(body, 4.0)
+	var entry_label := Label.new()
+	entry_label.text = "ENTRY TIER"
+	entry_label.add_theme_color_override("font_color", MONEY_ENTRY_LABEL_COLOR)
+	body.add_child(entry_label)
+	_apply_font(entry_label, _font_semibold, 13)
+	var tier_row := HBoxContainer.new()
+	tier_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tier_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	tier_row.add_theme_constant_override("separation", 10)
+	body.add_child(tier_row)
+	_add_game_hub_spacer(body, 4.0)
+	var division_arena_label := Label.new()
+	division_arena_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	division_arena_label.add_theme_color_override("font_color", GAME_HUB_SECTION_HEADER_COLOR)
+	body.add_child(division_arena_label)
+	_apply_font(division_arena_label, _font_semibold, 14)
+	var entry_fee_label := Label.new()
+	entry_fee_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	entry_fee_label.add_theme_color_override("font_color", MONEY_ENTRY_LABEL_COLOR)
+	body.add_child(entry_fee_label)
+	_apply_font(entry_fee_label, _font_regular, 12)
+	_add_game_hub_spacer(body, 8.0)
+	var tab_buttons: Dictionary = {}
+	for division_id in MONEY_DIVISION_TAB_IDS:
+		var bound_division_id: String = division_id
+		var tab_button := Button.new()
+		tab_button.custom_minimum_size = MONEY_DIVISION_TAB_SIZE
+		var label_text: String = str(MONEY_DIVISION_LABELS.get(bound_division_id, "DIVISION"))
+		if bound_division_id == MONEY_DIVISION_CLASSIFIED:
+			tab_button.text = "%s\n%s" % [label_text, MONEY_TAB_LOCKED_SUBTEXT]
+			tab_button.disabled = true
+			_apply_font(tab_button, _font_regular, MONEY_DIVISION_LOCKED_LABEL_SIZE)
+		else:
+			tab_button.text = label_text
+			_apply_font(tab_button, _font_semibold, MONEY_DIVISION_LABEL_SIZE)
+			tab_button.pressed.connect(func() -> void:
+				_on_money_games_division_tab_pressed(bound_division_id, tab_buttons, tier_row, division_arena_label, entry_fee_label, panel)
+			)
+			_configure_game_hub_option_button(tab_button)
+		tabs_row.add_child(tab_button)
+		tab_buttons[bound_division_id] = tab_button
+	_refresh_money_games_division_ui(tab_buttons, tier_row, division_arena_label, entry_fee_label, panel, false)
+
+func _on_money_games_division_tab_pressed(
+		division_id: String,
+		tab_buttons: Dictionary,
+		tier_row: HBoxContainer,
+		division_arena_label: Label,
+		entry_fee_label: Label,
+		panel: Panel
+	) -> void:
+	var normalized: String = _money_normalize_division_id(division_id)
+	if normalized == MONEY_DIVISION_CLASSIFIED:
+		return
+	if normalized != _money_games_selected_division:
+		_money_games_selected_division = normalized
+		var tiers: Array = _money_tiers_for_division(_money_games_selected_division)
+		if tiers.is_empty():
+			_money_games_selected_tier = 1
+		else:
+			_money_games_selected_tier = int(tiers[0])
+	_refresh_money_games_division_ui(tab_buttons, tier_row, division_arena_label, entry_fee_label, panel, true)
+	var selected_tab: Button = tab_buttons.get(normalized) as Button
+	_play_money_division_activation_sweep(selected_tab)
+
+func _refresh_money_games_division_ui(
+		tab_buttons: Dictionary,
+		tier_row: HBoxContainer,
+		division_arena_label: Label,
+		entry_fee_label: Label,
+		panel: Panel,
+		animate_swap: bool
+	) -> void:
+	_refresh_money_games_division_tabs(tab_buttons)
+	_rebuild_money_games_tier_row(tier_row, division_arena_label, entry_fee_label, animate_swap)
+	_refresh_money_games_context_labels(division_arena_label, entry_fee_label)
+	_apply_money_games_panel_theme(panel, _money_games_selected_division)
+
+func _refresh_money_games_division_tabs(tab_buttons: Dictionary) -> void:
+	for division_id in MONEY_DIVISION_TAB_IDS:
+		var button: Button = tab_buttons.get(division_id) as Button
+		if button == null:
+			continue
+		if division_id == MONEY_DIVISION_CLASSIFIED:
+			_style_money_division_tab(button, "locked", _money_division_profile(_money_games_selected_division))
+			continue
+		if division_id == _money_games_selected_division:
+			_style_money_division_tab(button, "active", _money_division_profile(division_id))
+		else:
+			_style_money_division_tab(button, "inactive", _money_division_profile(division_id))
+
+func _style_money_division_tab(button: Button, state: String, profile: Dictionary) -> void:
+	if button == null:
+		return
+	var style := StyleBoxFlat.new()
+	style.corner_radius_bottom_left = 8
+	style.corner_radius_bottom_right = 8
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.border_width_bottom = 1
+	style.border_width_left = 1
+	style.border_width_right = 1
+	style.border_width_top = 1
+	match state:
+		"active":
+			style.bg_color = Color(0.13, 0.12, 0.10, 0.95)
+			style.border_color = profile.get("tab_active_edge", Color(0.95, 0.78, 0.34, 0.65))
+			style.border_width_bottom = 2
+			style.border_width_left = 2
+			style.border_width_right = 2
+			style.border_width_top = 2
+			style.shadow_color = Color(0.0, 0.0, 0.0, 0.34)
+			style.shadow_size = 5
+			button.add_theme_color_override("font_color", MONEY_TAB_ACTIVE_TEXT)
+		"locked":
+			style.bg_color = Color(0.08, 0.09, 0.11, 0.92)
+			style.border_color = Color(0.30, 0.32, 0.38, 0.42)
+			style.shadow_size = 0
+			button.add_theme_color_override("font_color", MONEY_TAB_LOCKED_TEXT)
+		_:
+			style.bg_color = MONEY_TAB_INACTIVE_BG
+			style.border_color = MONEY_TAB_INACTIVE_EDGE
+			style.shadow_size = 0
+			button.add_theme_color_override("font_color", MONEY_TAB_INACTIVE_TEXT)
+	button.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	if hover != null:
+		if state == "inactive":
+			hover.bg_color = hover.bg_color.lightened(0.05)
+		button.add_theme_stylebox_override("hover", hover)
+		button.add_theme_stylebox_override("pressed", hover)
+
+func _rebuild_money_games_tier_row(
+		tier_row: HBoxContainer,
+		division_arena_label: Label,
+		entry_fee_label: Label,
+		animate_swap: bool
+	) -> void:
+	if tier_row == null:
+		return
+	var rebuild_now := func() -> void:
+		for child in tier_row.get_children():
+			child.queue_free()
+		var tiers: Array = _money_tiers_for_division(_money_games_selected_division)
+		for tier_any in tiers:
+				var tier: int = int(tier_any)
+				var bound_tier: int = tier
+				var button := Button.new()
+				button.custom_minimum_size = MONEY_ENTRY_TIER_BUTTON_SIZE
+				button.text = "$%d" % tier
+				button.pressed.connect(func() -> void:
+					_on_money_games_tier_pressed(bound_tier, tier_row, division_arena_label, entry_fee_label)
+				)
+				tier_row.add_child(button)
+				_apply_font(button, _font_semibold, 12)
+				_style_money_entry_tier_button(button, tier == _money_games_selected_tier)
+				_configure_game_hub_option_button(button)
+	if animate_swap and tier_row.is_inside_tree():
+		var tween := tier_row.create_tween()
+		tween.tween_property(tier_row, "modulate:a", 0.35, 0.10)
+		tween.tween_callback(rebuild_now)
+		tween.tween_property(tier_row, "modulate:a", 1.0, 0.10)
+	else:
+		rebuild_now.call()
+
+func _on_money_games_tier_pressed(
+		tier: int,
+		tier_row: HBoxContainer,
+		division_arena_label: Label,
+		entry_fee_label: Label
+	) -> void:
+	if tier <= 0:
+		return
+	_money_games_selected_tier = _money_clamp_tier_for_division(_money_games_selected_division, tier)
+	for child in tier_row.get_children():
+		var button: Button = child as Button
+		if button == null:
+			continue
+		var active: bool = button.text.strip_edges() == "$%d" % _money_games_selected_tier
+		_style_money_entry_tier_button(button, active)
+	_refresh_money_games_context_labels(division_arena_label, entry_fee_label)
+	if entry_fee_label != null:
+		var tween := entry_fee_label.create_tween()
+		tween.tween_property(entry_fee_label, "modulate:a", 0.55, 0.08)
+		tween.tween_property(entry_fee_label, "modulate:a", 1.0, 0.12)
+
+func _style_money_entry_tier_button(button: Button, active: bool) -> void:
+	if button == null:
+		return
+	var style := StyleBoxFlat.new()
+	style.corner_radius_bottom_left = 6
+	style.corner_radius_bottom_right = 6
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.border_width_bottom = 1
+	style.border_width_left = 1
+	style.border_width_right = 1
+	style.border_width_top = 1
+	if active:
+		style.bg_color = MONEY_ENTRY_ACTIVE_BG
+		style.border_color = MONEY_ENTRY_ACTIVE_EDGE
+		style.border_width_bottom = 2
+		style.border_width_left = 2
+		style.border_width_right = 2
+		style.border_width_top = 2
+		button.modulate = Color(1.0, 1.0, 1.0, 1.0)
+		button.add_theme_color_override("font_color", MONEY_TAB_ACTIVE_TEXT)
+	else:
+		style.bg_color = MONEY_ENTRY_INACTIVE_BG
+		style.border_color = MONEY_ENTRY_INACTIVE_EDGE
+		button.modulate = Color(0.85, 0.85, 0.85, 0.92)
+		button.add_theme_color_override("font_color", MONEY_TAB_INACTIVE_TEXT)
+	button.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	if hover != null:
+		hover.bg_color = hover.bg_color.lightened(0.06)
+		button.add_theme_stylebox_override("hover", hover)
+		button.add_theme_stylebox_override("pressed", hover)
+
+func _refresh_money_games_context_labels(division_arena_label: Label, entry_fee_label: Label) -> void:
+	var arena_label: String = _money_division_arena_label(_money_games_selected_division)
+	if division_arena_label != null:
+		division_arena_label.text = arena_label
+	if entry_fee_label != null:
+		entry_fee_label.text = "Entry Fee: $%d" % _money_games_selected_tier
+
+func _money_division_arena_label(division_id: String) -> String:
+	match _money_normalize_division_id(division_id):
+		MONEY_DIVISION_II:
+			return "Division II Arena"
+		MONEY_DIVISION_III:
+			return "Division III Arena"
+		_:
+			return "Division I Arena"
+
+func _money_tiers_for_division(division_id: String) -> Array:
+	var normalized: String = _money_normalize_division_id(division_id)
+	var tiers_any: Variant = MONEY_DIVISION_TIERS.get(normalized, [1, 2, 3])
+	if typeof(tiers_any) == TYPE_ARRAY:
+		return tiers_any as Array
+	return [1, 2, 3]
+
+func _money_division_for_tier(tier: int) -> String:
+	for division_id in [MONEY_DIVISION_I, MONEY_DIVISION_II, MONEY_DIVISION_III]:
+		var tiers: Array = _money_tiers_for_division(division_id)
+		for tier_any in tiers:
+			if int(tier_any) == tier:
+				return division_id
+	return MONEY_DIVISION_I
+
+func _money_clamp_tier_for_division(division_id: String, tier: int) -> int:
+	var tiers: Array = _money_tiers_for_division(division_id)
+	for tier_any in tiers:
+		if int(tier_any) == tier:
+			return tier
+	if tiers.is_empty():
+		return 1
+	return int(tiers[0])
+
+func _money_normalize_division_id(division_id: String) -> String:
+	var normalized: String = division_id.strip_edges().to_lower()
+	if normalized == MONEY_DIVISION_II:
+		return MONEY_DIVISION_II
+	if normalized == MONEY_DIVISION_III:
+		return MONEY_DIVISION_III
+	if normalized == MONEY_DIVISION_CLASSIFIED:
+		return MONEY_DIVISION_CLASSIFIED
+	return MONEY_DIVISION_I
+
+func _money_division_profile(division_id: String) -> Dictionary:
+	var normalized: String = _money_normalize_division_id(division_id)
+	match normalized:
+		MONEY_DIVISION_II:
+			return {
+				"panel_bg": Color(0.057, 0.066, 0.095, 0.98),
+				"panel_border": Color(0.80, 0.63, 0.26, 0.76),
+				"edge_color": Color(0.97, 0.75, 0.30, 0.44),
+				"edge_alpha_lo": 0.74,
+				"edge_alpha_hi": 0.90,
+				"edge_width": 2,
+				"tab_active_edge": Color(0.96, 0.75, 0.30, 0.76)
+			}
+		MONEY_DIVISION_III:
+			return {
+				"panel_bg": Color(0.053, 0.063, 0.092, 0.98),
+				"panel_border": Color(0.72, 0.52, 0.20, 0.82),
+				"edge_color": Color(0.90, 0.66, 0.26, 0.52),
+				"edge_alpha_lo": 0.76,
+				"edge_alpha_hi": 0.93,
+				"edge_width": 3,
+				"tab_active_edge": Color(0.90, 0.66, 0.26, 0.80)
+			}
+		_:
+			return {
+				"panel_bg": Color(0.06, 0.07, 0.10, 0.98),
+				"panel_border": Color(0.74, 0.60, 0.26, 0.72),
+				"edge_color": Color(0.95, 0.80, 0.34, 0.40),
+				"edge_alpha_lo": 0.72,
+				"edge_alpha_hi": 0.88,
+				"edge_width": 2,
+				"tab_active_edge": Color(0.95, 0.80, 0.34, 0.74)
+			}
+
+func _apply_money_games_panel_theme(panel: Panel, division_id: String) -> void:
+	if panel == null:
+		return
+	var profile: Dictionary = _money_division_profile(division_id)
+	var panel_bg: Color = profile.get("panel_bg", Color(0.06, 0.07, 0.10, 0.98))
+	var panel_border: Color = profile.get("panel_border", Color(0.74, 0.60, 0.26, 0.72))
+	_style_panel(panel, panel_bg, panel_border)
+	_apply_money_games_active_edge(panel, profile)
+
+func _apply_money_games_active_edge(panel: Panel, profile: Dictionary) -> void:
+	if panel == null:
+		return
+	var edge: Panel = panel.get_node_or_null("MoneyGamesActiveEdge") as Panel
+	if edge == null:
+		edge = Panel.new()
+		edge.name = "MoneyGamesActiveEdge"
+		edge.layout_mode = 1
+		edge.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(edge)
+		panel.move_child(edge, panel.get_child_count() - 1)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+	style.draw_center = false
+	var edge_width: int = int(profile.get("edge_width", 2))
+	style.border_width_bottom = edge_width
+	style.border_width_left = edge_width
+	style.border_width_right = edge_width
+	style.border_width_top = edge_width
+	style.border_color = profile.get("edge_color", Color(0.95, 0.80, 0.34, 0.34))
+	style.corner_radius_bottom_left = 10
+	style.corner_radius_bottom_right = 10
+	style.corner_radius_top_left = 10
+	style.corner_radius_top_right = 10
+	edge.add_theme_stylebox_override("panel", style)
+	var alpha_lo: float = float(profile.get("edge_alpha_lo", 0.70))
+	var alpha_hi: float = float(profile.get("edge_alpha_hi", 0.86))
+	edge.modulate = Color(1.0, 1.0, 1.0, alpha_lo)
+	var pulse := panel.create_tween()
+	pulse.tween_property(edge, "modulate:a", alpha_hi, 0.20)
+	pulse.tween_property(edge, "modulate:a", alpha_lo, 0.22)
+
+func _play_money_division_activation_sweep(button: Button) -> void:
+	if button == null:
+		return
+	var sweep: ColorRect = button.get_node_or_null("MoneyDivisionSweep") as ColorRect
+	if sweep == null:
+		sweep = ColorRect.new()
+		sweep.name = "MoneyDivisionSweep"
+		sweep.layout_mode = 0
+		sweep.anchor_top = 0.0
+		sweep.anchor_bottom = 1.0
+		sweep.offset_top = 0.0
+		sweep.offset_bottom = 0.0
+		sweep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(sweep)
+	var sweep_width: float = maxf(14.0, button.size.x * 0.14)
+	sweep.size = Vector2(sweep_width, maxf(1.0, button.size.y))
+	sweep.position = Vector2(-sweep_width - 4.0, 0.0)
+	sweep.color = Color(1.0, 0.95, 0.80, 0.14)
+	var tween := button.create_tween()
+	tween.tween_property(sweep, "position:x", button.size.x + sweep_width + 4.0, 0.20)
+	tween.parallel().tween_property(sweep, "color:a", 0.0, 0.20)
+
+func _add_game_hub_map_group(
+		parent: VBoxContainer,
+		heading: String,
+		items: Array,
+		paid: bool,
+		selected_denom: int,
+		broadcast_free_roll: bool = false
+	) -> void:
+	if parent == null:
+		return
+	_add_game_hub_section_header(parent, heading, "", broadcast_free_roll)
+	var row := GridContainer.new()
+	row.columns = 3
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 6)
+	parent.add_child(row)
+	for item_any in items:
+		if typeof(item_any) != TYPE_DICTIONARY:
+			continue
+		var item: Dictionary = item_any as Dictionary
+		var label: String = str(item.get("label", "ASYNC"))
+		var mode_id: String = str(item.get("id", ""))
+		if mode_id.is_empty():
+			continue
+		var chosen_mode_id: String = mode_id
+		var button := Button.new()
+		button.custom_minimum_size = GAME_HUB_ASYNC_MODE_BUTTON_SIZE
+		if paid:
+			button.pressed.connect(func(): _on_async_mode_selected(chosen_mode_id, true, _money_games_selected_tier))
+		else:
+			button.pressed.connect(func(): _on_async_mode_selected(chosen_mode_id, false, 0))
+		row.add_child(button)
+		_apply_async_mode_skin_to_button(button, label, paid, _money_games_selected_tier if paid else selected_denom)
+		_compact_game_hub_async_mode_button(button)
+		_configure_game_hub_option_button(button, broadcast_free_roll)
+
+func _style_game_hub_cancel_button(button: Button) -> void:
+	if button == null:
+		return
+	button.set_meta("sf_cancel_skin", false)
+	button.set_meta("sf_close_skin", false)
+	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	button.custom_minimum_size = GAME_HUB_CANCEL_BUTTON_SIZE
+	_apply_font(button, _font_regular, 12)
+	_style_button(button, Color(0.15, 0.16, 0.19, 0.72), Color(0.28, 0.30, 0.34, 0.26), Color(0.74, 0.77, 0.82))
+
+func _configure_game_hub_option_button(button: Button, broadcast_mode: bool = false) -> void:
+	if button == null:
+		return
+	if button.has_meta("sf_game_hub_motion"):
+		return
+	button.set_meta("sf_game_hub_motion", true)
+	button.set_meta("sf_game_hub_base_modulate", button.modulate)
+	button.set_meta("sf_game_hub_hovered", false)
+	button.set_meta("sf_game_hub_pressed", false)
+	button.clip_contents = true
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var shell_tone := ColorRect.new()
+	shell_tone.name = "GameHubShellTone"
+	shell_tone.layout_mode = 1
+	shell_tone.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	shell_tone.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shell_tone.color = Color(0.0, 0.0, 0.0, 0.0)
+	button.add_child(shell_tone)
+	var inner_glow: CanvasItem = null
+	if broadcast_mode:
+		var radial_glow := TextureRect.new()
+		radial_glow.name = "GameHubInnerGlow"
+		radial_glow.layout_mode = 0
+		radial_glow.anchor_left = 0.24
+		radial_glow.anchor_right = 0.76
+		radial_glow.anchor_top = 0.25
+		radial_glow.anchor_bottom = 0.75
+		radial_glow.offset_left = 0.0
+		radial_glow.offset_right = 0.0
+		radial_glow.offset_top = 0.0
+		radial_glow.offset_bottom = 0.0
+		radial_glow.stretch_mode = TextureRect.STRETCH_SCALE
+		radial_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		radial_glow.texture = _build_game_hub_radial_texture(
+			PackedColorArray([
+				Color(1.0, 1.0, 1.0, 0.70),
+				Color(1.0, 1.0, 1.0, 0.0)
+			]),
+			PackedFloat32Array([0.0, 1.0])
+		)
+		radial_glow.modulate = Color(1.0, 0.84, 0.44, 0.0)
+		button.add_child(radial_glow)
+		inner_glow = radial_glow
+	else:
+		var flat_glow := ColorRect.new()
+		flat_glow.name = "GameHubInnerGlow"
+		flat_glow.layout_mode = 1
+		flat_glow.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		flat_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		flat_glow.color = Color(0.95, 0.74, 0.28, 0.0)
+		button.add_child(flat_glow)
+		inner_glow = flat_glow
+	var edge := Panel.new()
+	edge.name = "GameHubHoverEdge"
+	edge.layout_mode = 1
+	edge.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	edge.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	var edge_style := StyleBoxFlat.new()
+	edge_style.bg_color = Color(0, 0, 0, 0)
+	edge_style.draw_center = false
+	edge_style.border_width_bottom = 0 if broadcast_mode else 1
+	edge_style.border_width_left = 0 if broadcast_mode else 1
+	edge_style.border_width_right = 0 if broadcast_mode else 1
+	edge_style.border_width_top = 0 if broadcast_mode else 1
+	edge_style.border_color = Color(0.95, 0.80, 0.34, 0.0) if broadcast_mode else GAME_HUB_HOVER_EDGE_COLOR
+	edge_style.corner_radius_bottom_left = 6
+	edge_style.corner_radius_bottom_right = 6
+	edge_style.corner_radius_top_left = 6
+	edge_style.corner_radius_top_right = 6
+	edge.add_theme_stylebox_override("panel", edge_style)
+	button.add_child(edge)
+	var sweep: ColorRect = null
+	if not broadcast_mode:
+		sweep = ColorRect.new()
+		sweep.name = "GameHubSweep"
+		sweep.layout_mode = 0
+		sweep.anchor_top = 0.0
+		sweep.anchor_bottom = 1.0
+		sweep.offset_top = 0.0
+		sweep.offset_bottom = 0.0
+		sweep.custom_minimum_size = Vector2(24.0, 0.0)
+		sweep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		sweep.color = Color(1.0, 0.97, 0.83, 0.0)
+		sweep.position = Vector2(-30.0, 0.0)
+		button.add_child(sweep)
+	button.mouse_entered.connect(func() -> void:
+		_set_game_hub_option_hover_state(button, edge, sweep, shell_tone, inner_glow, true, broadcast_mode)
+	)
+	button.mouse_exited.connect(func() -> void:
+		_set_game_hub_option_hover_state(button, edge, sweep, shell_tone, inner_glow, false, broadcast_mode)
+	)
+	button.button_down.connect(func() -> void:
+		_set_game_hub_option_pressed_state(button, edge, shell_tone, inner_glow, true, broadcast_mode)
+	)
+	button.button_up.connect(func() -> void:
+		_set_game_hub_option_pressed_state(button, edge, shell_tone, inner_glow, false, broadcast_mode)
+	)
+
+func _set_game_hub_option_hover_state(
+		button: Button,
+		edge: Panel,
+		sweep: ColorRect,
+		shell_tone: CanvasItem,
+		inner_glow: CanvasItem,
+		hovered: bool,
+		broadcast_mode: bool
+	) -> void:
+	if button == null or edge == null or shell_tone == null or inner_glow == null:
+		return
+	if button.disabled:
+		return
+	button.set_meta("sf_game_hub_hovered", hovered)
+	var tween := button.create_tween()
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.set_ease(Tween.EASE_OUT)
+	var base_any: Variant = button.get_meta("sf_game_hub_base_modulate", Color(1, 1, 1, 1))
+	var base_modulate: Color = base_any if typeof(base_any) == TYPE_COLOR else Color(1, 1, 1, 1)
+	if broadcast_mode:
+		var target_scale := Vector2(1.024, 1.024) if hovered else Vector2.ONE
+		var target_shell_alpha: float = 0.0
+		var target_glow_alpha: float = 0.10 if hovered else 0.0
+		var target_edge_alpha: float = 0.0
+		tween.tween_property(button, "scale", target_scale, 0.14)
+		tween.parallel().tween_property(button, "modulate", base_modulate, 0.14)
+		tween.parallel().tween_property(shell_tone, "modulate:a", target_shell_alpha, 0.14)
+		tween.parallel().tween_property(inner_glow, "modulate:a", target_glow_alpha, 0.14)
+		tween.parallel().tween_property(edge, "modulate:a", target_edge_alpha, 0.14)
+		return
+	if hovered:
+		tween.tween_property(button, "modulate", Color(GAME_HUB_HOVER_BRIGHTNESS, GAME_HUB_HOVER_BRIGHTNESS, GAME_HUB_HOVER_BRIGHTNESS, 1.0), 0.12)
+		tween.parallel().tween_property(edge, "modulate:a", 1.0, 0.12)
+		_play_game_hub_option_sweep(button, sweep)
+	else:
+		tween.tween_property(button, "modulate", base_modulate, 0.18)
+		tween.parallel().tween_property(edge, "modulate:a", 0.0, 0.18)
+
+func _set_game_hub_option_pressed_state(
+		button: Button,
+		edge: Panel,
+		shell_tone: CanvasItem,
+		inner_glow: CanvasItem,
+		pressed: bool,
+		broadcast_mode: bool
+	) -> void:
+	if button == null:
+		return
+	if button.disabled:
+		return
+	button.set_meta("sf_game_hub_pressed", pressed)
+	if not broadcast_mode:
+		button.scale = Vector2(0.986, 0.986) if pressed else Vector2.ONE
+		return
+	if edge == null or shell_tone == null or inner_glow == null:
+		return
+	var hovered_any: Variant = button.get_meta("sf_game_hub_hovered", false)
+	var hovered: bool = bool(hovered_any)
+	var target_scale: Vector2 = Vector2.ONE
+	var target_shell_alpha: float = 0.0
+	var target_glow_alpha: float = 0.0
+	var target_edge_alpha: float = 0.0
+	if pressed:
+		target_scale = Vector2(1.012, 1.012)
+		target_shell_alpha = 0.0
+		target_glow_alpha = 0.13
+		target_edge_alpha = 0.0
+	elif hovered:
+		target_scale = Vector2(1.024, 1.024)
+		target_shell_alpha = 0.0
+		target_glow_alpha = 0.10
+		target_edge_alpha = 0.0
+	var tween := button.create_tween()
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "scale", target_scale, 0.14)
+	tween.parallel().tween_property(shell_tone, "modulate:a", target_shell_alpha, 0.14)
+	tween.parallel().tween_property(inner_glow, "modulate:a", target_glow_alpha, 0.14)
+	tween.parallel().tween_property(edge, "modulate:a", target_edge_alpha, 0.14)
+
+func _play_game_hub_option_sweep(button: Button, sweep: ColorRect) -> void:
+	if button == null or sweep == null:
+		return
+	var sweep_width: float = maxf(18.0, button.size.x * 0.18)
+	sweep.size = Vector2(sweep_width, maxf(1.0, button.size.y))
+	sweep.position = Vector2(-sweep_width - 6.0, 0.0)
+	sweep.color = Color(1.0, 0.97, 0.83, 0.10)
+	var tween := button.create_tween()
+	tween.tween_property(sweep, "position:x", button.size.x + sweep_width + 6.0, GAME_HUB_SWEEP_DURATION_SEC)
+	tween.parallel().tween_property(sweep, "color:a", 0.0, GAME_HUB_SWEEP_DURATION_SEC)
+
+func _apply_game_hub_panel_fx(panel: Panel) -> void:
+	if panel == null:
+		return
+	var matte_overlay := ColorRect.new()
+	matte_overlay.name = "GameHubMatteOverlay"
+	matte_overlay.layout_mode = 1
+	matte_overlay.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	matte_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	matte_overlay.color = Color(0.0, 0.0, 0.0, 0.03)
+	panel.add_child(matte_overlay)
+	panel.move_child(matte_overlay, 1)
+	var center_tension := TextureRect.new()
+	center_tension.name = "GameHubCenterTension"
+	center_tension.layout_mode = 1
+	center_tension.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	center_tension.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center_tension.stretch_mode = TextureRect.STRETCH_SCALE
+	center_tension.texture = _build_game_hub_radial_texture(
+		PackedColorArray([
+			Color(1.0, 1.0, 1.0, 1.0),
+			Color(1.0, 1.0, 1.0, 0.0)
+		]),
+		PackedFloat32Array([0.0, 1.0])
+	)
+	center_tension.modulate = Color(0.96, 0.98, 1.0, 0.028)
+	panel.add_child(center_tension)
+	panel.move_child(center_tension, 2)
+	var directional_shade := TextureRect.new()
+	directional_shade.name = "GameHubDirectionalShade"
+	directional_shade.layout_mode = 1
+	directional_shade.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	directional_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	directional_shade.stretch_mode = TextureRect.STRETCH_SCALE
+	directional_shade.texture = _build_game_hub_gradient_texture(
+		PackedColorArray([
+			Color(0.0, 0.0, 0.0, 0.00),
+			Color(0.0, 0.0, 0.0, 0.07)
+		]),
+		PackedFloat32Array([0.0, 1.0]),
+		Vector2(0.5, 0.0),
+		Vector2(0.5, 1.0)
+	)
+	panel.add_child(directional_shade)
+	panel.move_child(directional_shade, 3)
+	var edge := Panel.new()
+	edge.name = "GameHubActiveEdge"
+	edge.layout_mode = 1
+	edge.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	edge.modulate = Color(1.0, 1.0, 1.0, 0.88)
+	var edge_style := StyleBoxFlat.new()
+	edge_style.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+	edge_style.draw_center = false
+	edge_style.border_width_bottom = 2
+	edge_style.border_width_left = 2
+	edge_style.border_width_right = 2
+	edge_style.border_width_top = 2
+	edge_style.border_color = Color(0.95, 0.80, 0.34, 0.08)
+	edge_style.corner_radius_bottom_left = 10
+	edge_style.corner_radius_bottom_right = 10
+	edge_style.corner_radius_top_left = 10
+	edge_style.corner_radius_top_right = 10
+	edge.add_theme_stylebox_override("panel", edge_style)
+	panel.add_child(edge)
+	panel.move_child(edge, panel.get_child_count() - 1)
+	var pulse := panel.create_tween()
+	pulse.set_loops()
+	pulse.tween_property(edge, "modulate:a", 0.74, GAME_HUB_PANEL_PULSE_HALF_CYCLE_SEC)
+	pulse.tween_property(edge, "modulate:a", 0.90, GAME_HUB_PANEL_PULSE_HALF_CYCLE_SEC)
+	var ambient_tween := panel.create_tween()
+	ambient_tween.set_loops()
+	ambient_tween.tween_property(center_tension, "modulate:a", 0.020, GAME_HUB_PANEL_SCAN_DRIFT_SEC * 0.5)
+	ambient_tween.tween_property(center_tension, "modulate:a", 0.032, GAME_HUB_PANEL_SCAN_DRIFT_SEC * 0.5)
+
+func _build_game_hub_gradient_texture(
+		colors: PackedColorArray,
+		offsets: PackedFloat32Array,
+		fill_from: Vector2,
+		fill_to: Vector2
+	) -> GradientTexture2D:
+	var gradient := Gradient.new()
+	gradient.colors = colors
+	gradient.offsets = offsets
+	var texture := GradientTexture2D.new()
+	texture.fill = GradientTexture2D.FILL_LINEAR
+	texture.fill_from = fill_from
+	texture.fill_to = fill_to
+	texture.width = 32
+	texture.height = 32
+	texture.gradient = gradient
+	return texture
+
+func _build_game_hub_radial_texture(colors: PackedColorArray, offsets: PackedFloat32Array) -> GradientTexture2D:
+	var gradient := Gradient.new()
+	gradient.colors = colors
+	gradient.offsets = offsets
+	var texture := GradientTexture2D.new()
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(1.0, 1.0)
+	texture.width = 48
+	texture.height = 48
+	texture.gradient = gradient
+	return texture
+
+func _apply_game_hub_title_treatment(panel: Panel, title: String) -> void:
+	if panel == null:
+		return
+	if title.strip_edges().to_upper() != "FREE ROLL":
+		return
+	var title_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntryTitle") as Label
+	if title_label == null:
+		return
+	_apply_font(title_label, _font_semibold, 20)
+	title_label.add_theme_color_override("font_color", Color(0.995, 0.997, 1.0, 1.0))
+	title_label.add_theme_constant_override("outline_size", 1)
+	title_label.add_theme_color_override("font_outline_color", Color(GAME_HUB_TITLE_OUTLINE_COLOR.r, GAME_HUB_TITLE_OUTLINE_COLOR.g, GAME_HUB_TITLE_OUTLINE_COLOR.b, 0.08))
+	title_label.add_theme_constant_override("font_spacing", 1)
+	_apply_free_roll_title_micro_gradient(title_label)
+	var subtitle_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntrySubtitle") as Label
+	if subtitle_label != null:
+		_apply_font(subtitle_label, _font_regular, 13)
+		subtitle_label.add_theme_color_override("font_color", Color(0.86, 0.89, 0.94, 0.88))
+	var body: VBoxContainer = panel.get_node_or_null("EntryScroll/EntryBody") as VBoxContainer
+	if body != null:
+		body.add_theme_constant_override("separation", 8)
+
+func _apply_free_roll_title_micro_gradient(title_label: Label) -> void:
+	if title_label == null:
+		return
+	title_label.clip_contents = true
+	var gradient_overlay: TextureRect = title_label.get_node_or_null("FreeRollTitleMicroGradient") as TextureRect
+	if gradient_overlay == null:
+		gradient_overlay = TextureRect.new()
+		gradient_overlay.name = "FreeRollTitleMicroGradient"
+		gradient_overlay.layout_mode = 1
+		gradient_overlay.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		gradient_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		gradient_overlay.stretch_mode = TextureRect.STRETCH_SCALE
+		title_label.add_child(gradient_overlay)
+	gradient_overlay.texture = _build_game_hub_gradient_texture(
+		PackedColorArray([
+			Color(1.0, 1.0, 1.0, 0.05),
+			Color(1.0, 1.0, 1.0, 0.00)
+		]),
+		PackedFloat32Array([0.0, 1.0]),
+		Vector2(0.5, 0.0),
+		Vector2(0.5, 1.0)
+	)
+
+func _apply_money_games_title_treatment(panel: Panel) -> void:
+	if panel == null:
+		return
+	var title_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntryTitle") as Label
+	if title_label != null:
+		_apply_font(title_label, _font_semibold, 21)
+		title_label.add_theme_color_override("font_color", Color(0.94, 0.95, 0.98, 1.0))
+		title_label.add_theme_constant_override("outline_size", 2)
+		title_label.add_theme_color_override("font_outline_color", Color(1.0, 0.86, 0.52, 0.16))
+	var subtitle_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntrySubtitle") as Label
+	if subtitle_label != null:
+		_apply_font(subtitle_label, _font_regular, 14)
+		subtitle_label.add_theme_color_override("font_color", Color(0.84, 0.87, 0.92, 0.86))
+
+func _resolve_game_hub_overlay_size(paid: bool) -> Vector2:
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var target_height: float = GAME_HUB_OVERLAY_PAID_TARGET_HEIGHT if paid else GAME_HUB_OVERLAY_FREE_TARGET_HEIGHT
+	var min_height: float = GAME_HUB_OVERLAY_PAID_MIN_HEIGHT if paid else GAME_HUB_OVERLAY_FREE_MIN_HEIGHT
+	var max_width: float = maxf(360.0, viewport_size.x - (GAME_HUB_OVERLAY_VIEWPORT_MARGIN_X * 2.0))
+	var max_height: float = maxf(min_height, viewport_size.y - (GAME_HUB_OVERLAY_VIEWPORT_MARGIN_Y * 2.0))
+	return Vector2(
+		minf(GAME_HUB_OVERLAY_TARGET_WIDTH, max_width),
+		clampf(target_height, min_height, max_height)
+	)
 
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
@@ -4450,17 +5310,7 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	panel.offset_bottom = resolved_size.y * 0.5
 	panel.z_index = 200
 	panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var popup_bg_node: Node = HEX_SEAM_BACKGROUND_SCENE.instantiate()
-	var popup_bg: Control = popup_bg_node as Control
-	if popup_bg != null:
-		popup_bg.name = "HexSeamBackground"
-		popup_bg.layout_mode = 1
-		popup_bg.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-		popup_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.add_child(popup_bg)
-		panel.move_child(popup_bg, 0)
-		if popup_bg.has_method("apply_preset"):
-			popup_bg.call("apply_preset", StringName("popup"))
+	_build_entry_overlay_background_layers(panel, resolved_size)
 	var scroll := ScrollContainer.new()
 	scroll.name = "EntryScroll"
 	scroll.layout_mode = 1
@@ -4485,10 +5335,12 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	vbox.add_theme_constant_override("separation", 10)
 	scroll.add_child(vbox)
 	var title_label := Label.new()
+	title_label.name = "EntryTitle"
 	title_label.text = title
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title_label)
 	var subtitle_label := Label.new()
+	subtitle_label.name = "EntrySubtitle"
 	subtitle_label.text = subtitle
 	subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(subtitle_label)
@@ -4497,6 +5349,135 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	_apply_font(title_label, _font_semibold, 18)
 	_apply_font(subtitle_label, _font_regular, 13)
 	return panel
+
+func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2) -> void:
+	if panel == null:
+		return
+	var background_base := TextureRect.new()
+	background_base.name = "Background_Base"
+	background_base.layout_mode = 1
+	background_base.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	background_base.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	background_base.stretch_mode = TextureRect.STRETCH_SCALE
+	background_base.texture = _build_game_hub_gradient_texture(
+		PackedColorArray([
+			Color(0.03, 0.035, 0.05, 1.0),
+			Color(0.05, 0.04, 0.03, 1.0)
+		]),
+		PackedFloat32Array([0.0, 1.0]),
+		Vector2(0.5, 0.0),
+		Vector2(0.5, 1.0)
+	)
+	panel.add_child(background_base)
+	panel.move_child(background_base, 0)
+
+	var background_noise := TextureRect.new()
+	background_noise.name = "Background_Noise"
+	background_noise.layout_mode = 1
+	background_noise.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	background_noise.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	background_noise.stretch_mode = TextureRect.STRETCH_TILE
+	background_noise.texture = _get_entry_overlay_noise_texture()
+	background_noise.modulate = Color(1.0, 1.0, 1.0, ENTRY_OVERLAY_NOISE_ALPHA)
+	panel.add_child(background_noise)
+	panel.move_child(background_noise, 1)
+
+	var frame_inlay := NinePatchRect.new()
+	frame_inlay.name = "Frame_Inlay"
+	frame_inlay.layout_mode = 1
+	frame_inlay.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	frame_inlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame_inlay.draw_center = true
+	frame_inlay.texture = _get_entry_overlay_inlay_texture_for_size(resolved_size)
+	_apply_entry_overlay_inlay_patch_margins(frame_inlay)
+	panel.add_child(frame_inlay)
+	panel.move_child(frame_inlay, 2)
+
+	var popup_bg_node: Node = HEX_SEAM_BACKGROUND_SCENE.instantiate()
+	var popup_bg: Control = popup_bg_node as Control
+	if popup_bg == null:
+		return
+	popup_bg.name = "Midfield_Hex_Dark"
+	popup_bg.layout_mode = 1
+	popup_bg.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	popup_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(popup_bg)
+	panel.move_child(popup_bg, 3)
+	if popup_bg.has_method("apply_preset"):
+		popup_bg.call("apply_preset", StringName("popup"))
+	if popup_bg is ColorRect:
+		var color_rect: ColorRect = popup_bg as ColorRect
+		color_rect.color = Color(1.0, 1.0, 1.0, ENTRY_OVERLAY_MIDFIELD_ALPHA)
+
+func _get_entry_overlay_inlay_texture_for_size(target_size: Vector2) -> Texture2D:
+	if MATCH_BACKGROUND_INLAY_TEXTURE == null:
+		return null
+	var source_size: Vector2 = MATCH_BACKGROUND_INLAY_TEXTURE.get_size()
+	if source_size.x <= 1.0 or source_size.y <= 1.0:
+		return MATCH_BACKGROUND_INLAY_TEXTURE
+	var target_portrait: bool = target_size.y > target_size.x
+	var source_portrait: bool = source_size.y > source_size.x
+	if target_portrait == source_portrait:
+		return MATCH_BACKGROUND_INLAY_TEXTURE
+	if _entry_overlay_inlay_rotated_texture != null:
+		return _entry_overlay_inlay_rotated_texture
+	var base_image: Image = MATCH_BACKGROUND_INLAY_TEXTURE.get_image()
+	if base_image == null:
+		return MATCH_BACKGROUND_INLAY_TEXTURE
+	var rotated_image: Image = _rotate_image_clockwise(base_image)
+	if rotated_image == null:
+		return MATCH_BACKGROUND_INLAY_TEXTURE
+	_entry_overlay_inlay_rotated_texture = ImageTexture.create_from_image(rotated_image)
+	if _entry_overlay_inlay_rotated_texture == null:
+		return MATCH_BACKGROUND_INLAY_TEXTURE
+	return _entry_overlay_inlay_rotated_texture
+
+func _rotate_image_clockwise(source: Image) -> Image:
+	if source == null:
+		return null
+	var src_w: int = source.get_width()
+	var src_h: int = source.get_height()
+	if src_w <= 0 or src_h <= 0:
+		return null
+	var out := Image.create(src_h, src_w, false, source.get_format())
+	for y in src_h:
+		for x in src_w:
+			out.set_pixel(src_h - y - 1, x, source.get_pixel(x, y))
+	return out
+
+func _apply_entry_overlay_inlay_patch_margins(frame_inlay: NinePatchRect) -> void:
+	if frame_inlay == null:
+		return
+	var texture: Texture2D = frame_inlay.texture
+	if texture == null:
+		return
+	var texture_size: Vector2 = texture.get_size()
+	var portrait: bool = texture_size.y > texture_size.x
+	var margin_x_ratio: float = ENTRY_OVERLAY_INLAY_MARGIN_X_PORTRAIT_RATIO if portrait else ENTRY_OVERLAY_INLAY_MARGIN_X_LANDSCAPE_RATIO
+	var margin_y_ratio: float = ENTRY_OVERLAY_INLAY_MARGIN_Y_PORTRAIT_RATIO if portrait else ENTRY_OVERLAY_INLAY_MARGIN_Y_LANDSCAPE_RATIO
+	var margin_x: int = int(clampi(int(round(texture_size.x * margin_x_ratio)), 48, int(texture_size.x * 0.30)))
+	var margin_y: int = int(clampi(int(round(texture_size.y * margin_y_ratio)), 48, int(texture_size.y * 0.30)))
+	frame_inlay.patch_margin_left = margin_x
+	frame_inlay.patch_margin_right = margin_x
+	frame_inlay.patch_margin_top = margin_y
+	frame_inlay.patch_margin_bottom = margin_y
+	frame_inlay.axis_stretch_horizontal = NinePatchRect.AXIS_STRETCH_MODE_STRETCH
+	frame_inlay.axis_stretch_vertical = NinePatchRect.AXIS_STRETCH_MODE_STRETCH
+
+func _get_entry_overlay_noise_texture() -> Texture2D:
+	if _entry_overlay_noise_texture != null:
+		return _entry_overlay_noise_texture
+	var fast_noise := FastNoiseLite.new()
+	fast_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	fast_noise.frequency = 0.07
+	fast_noise.seed = 419
+	var noise_texture := NoiseTexture2D.new()
+	noise_texture.width = 256
+	noise_texture.height = 256
+	noise_texture.seamless = true
+	noise_texture.noise = fast_noise
+	_entry_overlay_noise_texture = noise_texture
+	return _entry_overlay_noise_texture
 
 func _entry_overlay_body(panel: Panel) -> VBoxContainer:
 	if panel == null:
@@ -4511,6 +5492,8 @@ func _style_entry_overlay_buttons(buttons: Array) -> void:
 		var button: Button = button_any as Button
 		if button == null:
 			continue
+		button.set_meta("sf_cancel_skin", false)
+		button.set_meta("sf_close_skin", false)
 		_apply_font(button, _font_regular, 13)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 
