@@ -2,6 +2,7 @@ class_name PowerBar
 extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
+const CosmeticThemeDB = preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const DEBUG_FILL_PROBE: bool = false
 const TRACE_POWER_BAR_DUMP: bool = false
 
@@ -72,6 +73,13 @@ var _powerbar_last_display_logged: float = -1.0
 var _powerbar_last_update_log_ms: int = 0
 var _progress_probe_node: ProgressBar = null
 var _debug_rect: ColorRect = null
+var _profile_manager: Node = null
+var _default_frame_texture: Texture2D = null
+var _default_frame_material: Material = null
+var _theme_material: ShaderMaterial = null
+var _current_theme_id: String = "base"
+var _last_theme_fill_ratio: float = -1.0
+var _theme_last_ratio: float = -1.0
 
 func _control_font_size(control: Control) -> int:
 	if control == null:
@@ -231,6 +239,10 @@ func _ready() -> void:
 		_sf_debug_dump("ready")
 	if base_texture == null:
 		base_texture = _frame_art.texture
+	_default_frame_texture = base_texture if base_texture != null else _frame_art.texture
+	_default_frame_material = _frame_art.material
+	_bind_profile_theme()
+	refresh_theme(true)
 	_apply_base_size()
 	_ensure_visual_nodes()
 	_ensure_debug_rect()
@@ -317,6 +329,86 @@ func _ready() -> void:
 	})
 	# Optional one-shot sanity log during placement debugging:
 	# print("PB READY pos=", global_position, " rect=", size)
+
+func _exit_tree() -> void:
+	if _profile_manager == null:
+		return
+	if _profile_manager.has_signal("powerbar_theme_changed") and _profile_manager.powerbar_theme_changed.is_connected(_on_powerbar_theme_changed):
+		_profile_manager.powerbar_theme_changed.disconnect(_on_powerbar_theme_changed)
+
+func _bind_profile_theme() -> void:
+	_profile_manager = get_node_or_null("/root/ProfileManager")
+	if _profile_manager == null:
+		return
+	if _profile_manager.has_signal("powerbar_theme_changed") and not _profile_manager.powerbar_theme_changed.is_connected(_on_powerbar_theme_changed):
+		_profile_manager.powerbar_theme_changed.connect(_on_powerbar_theme_changed)
+
+func _on_powerbar_theme_changed(_theme_id: String) -> void:
+	refresh_theme(false)
+
+func refresh_theme(force: bool = false) -> void:
+	var requested_theme: String = _resolve_profile_theme_id()
+	var normalized_theme: String = CosmeticThemeDB.normalize_powerbar_theme(requested_theme)
+	if not force and normalized_theme == _current_theme_id:
+		return
+	_current_theme_id = normalized_theme
+	var themed_texture: Texture2D = CosmeticThemeDB.get_powerbar_texture(_current_theme_id)
+	if themed_texture == null:
+		themed_texture = _default_frame_texture
+	if themed_texture != null:
+		base_texture = themed_texture
+		_frame_art.texture = themed_texture
+	_apply_theme_stretch_mode(themed_texture)
+	_apply_theme_material(_current_theme_id)
+	_apply_base_size()
+	_apply_theme_fill_uniform()
+	print("Loaded powerbar theme: %s" % _current_theme_id)
+
+func _resolve_profile_theme_id() -> String:
+	if _profile_manager == null:
+		return "base"
+	if not _profile_manager.has_method("get_powerbar_theme"):
+		return "base"
+	return str(_profile_manager.call("get_powerbar_theme"))
+
+func _apply_theme_material(theme_id: String) -> void:
+	_theme_material = null
+	var shader: Shader = CosmeticThemeDB.get_powerbar_shader(theme_id)
+	if shader == null:
+		_frame_art.material = _default_frame_material
+		return
+	var themed_material: ShaderMaterial = ShaderMaterial.new()
+	themed_material.shader = shader
+	_theme_material = themed_material
+	_frame_art.material = _theme_material
+	_last_theme_fill_ratio = -1.0
+	_theme_last_ratio = -1.0
+
+func _apply_theme_stretch_mode(themed_texture: Texture2D) -> void:
+	_frame_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	if themed_texture == null or _default_frame_texture == null:
+		_frame_art.stretch_mode = TextureRect.STRETCH_SCALE
+		return
+	var default_size: Vector2i = Vector2i(_default_frame_texture.get_width(), _default_frame_texture.get_height())
+	var themed_size: Vector2i = Vector2i(themed_texture.get_width(), themed_texture.get_height())
+	if themed_size == default_size:
+		_frame_art.stretch_mode = TextureRect.STRETCH_SCALE
+	else:
+		_frame_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+
+func _apply_theme_fill_uniform() -> void:
+	if _theme_material == null:
+		return
+	var fill_ratio: float = clampf(_target_share_p1, 0.0, 1.0)
+	var velocity: float = 0.0
+	if _theme_last_ratio >= 0.0:
+		velocity = absf(fill_ratio - _theme_last_ratio)
+	_theme_last_ratio = fill_ratio
+	if absf(fill_ratio - _last_theme_fill_ratio) < 0.001:
+		return
+	_last_theme_fill_ratio = fill_ratio
+	_theme_material.set_shader_parameter("fill_ratio", fill_ratio)
+	_theme_material.set_shader_parameter("fill_velocity", clampf(velocity * 16.0, 0.0, 1.0))
 
 func set_state(state_ref: GameState) -> void:
 	_state = state_ref
@@ -889,6 +981,7 @@ func _apply_fill() -> void:
 		node.offset_right = x_cursor + width_px
 		node.offset_bottom = 0.0
 		x_cursor += width_px
+	_apply_theme_fill_uniform()
 	if not _fill_wired_logged:
 		_fill_wired_logged = true
 		SFLog.info("POWERBAR_FILL_WIRED", {

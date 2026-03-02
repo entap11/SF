@@ -1,6 +1,8 @@
 extends Node
 
 signal honey_balance_changed(new_value: int, delta: int, reason: String)
+signal achievement_granted(achievement_id: String)
+signal powerbar_theme_changed(theme_id: String)
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
@@ -15,6 +17,8 @@ const PROFILE_KEY_FLOOR_GRAPHICS_ENABLED: String = "floor_graphics_enabled"
 const PROFILE_KEY_PERFORMANCE_MODE: String = "performance_mode"
 const PROFILE_KEY_ADMIN_DASHBOARD_USERNAME: String = "admin_dashboard_username"
 const PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD: String = "admin_dashboard_password"
+const PROFILE_KEY_UNLOCKED_ACHIEVEMENTS: String = "unlocked_achievements"
+const PROFILE_KEY_POWERBAR_THEME: String = "cosmetic_powerbar_theme"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player "
@@ -58,6 +62,10 @@ const TUTORIAL_SECTION3_STEP_SKIPPED: String = "skipped"
 const DEFAULT_HONEY_BALANCE: int = 12480
 const DEFAULT_ADMIN_DASHBOARD_USERNAME: String = "Mattballou"
 const DEFAULT_ADMIN_DASHBOARD_PASSWORD: String = "$warmFr0nt"
+const POWERBAR_THEME_BASE: String = "base"
+const POWERBAR_THEME_UPGRADED: String = "upgraded"
+const POWERBAR_THEME_UPGRADED_DYNAMIC: String = "upgraded_dynamic"
+const POWERBAR_THEME_UPGRADED_BOIL: String = "upgraded_boil"
 const DEFAULT_BUFF_LOADOUT_IDS: Array[String] = [
 	"buff_swarm_speed_classic",
 	"buff_hive_faster_production_classic",
@@ -86,6 +94,8 @@ var _owned_buff_ids_by_mode: Dictionary = {}
 var _buff_loadout_ids_by_mode: Dictionary = {}
 var _honey_balance: int = DEFAULT_HONEY_BALANCE
 var _store_entitlements: Dictionary = {}
+var _unlocked_achievements: Dictionary = {}
+var _powerbar_theme: String = POWERBAR_THEME_BASE
 var _gpu_vfx_enabled: bool = true
 var _audio_enabled: bool = true
 var _sfx_enabled: bool = true
@@ -158,6 +168,8 @@ func ensure_loaded() -> void:
 		_buff_loadout_ids_by_mode = _sanitize_loadout_mode_map(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids_by_mode", {}), _owned_buff_ids_by_mode)
 		_honey_balance = maxi(0, int(cfg.get_value(PROFILE_SECTION, "honey_balance", DEFAULT_HONEY_BALANCE)))
 		_store_entitlements = _sanitize_store_entitlements(cfg.get_value(PROFILE_SECTION, "store_entitlements", {}))
+		_unlocked_achievements = _sanitize_unlocked_achievements(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_UNLOCKED_ACHIEVEMENTS, {}))
+		_powerbar_theme = _sanitize_powerbar_theme(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_POWERBAR_THEME, POWERBAR_THEME_BASE)))
 
 	var created: bool = false
 	if _user_id.is_empty():
@@ -186,6 +198,8 @@ func ensure_loaded() -> void:
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
 		_honey_balance = DEFAULT_HONEY_BALANCE
 		_store_entitlements = {}
+		_unlocked_achievements = {}
+		_powerbar_theme = POWERBAR_THEME_BASE
 		_ensure_mode_maps()
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 		created = true
@@ -259,6 +273,14 @@ func ensure_loaded() -> void:
 		var cleaned_entitlements: Dictionary = _sanitize_store_entitlements(_store_entitlements)
 		if cleaned_entitlements != _store_entitlements:
 			_store_entitlements = cleaned_entitlements
+			updated = true
+		var cleaned_achievements: Dictionary = _sanitize_unlocked_achievements(_unlocked_achievements)
+		if cleaned_achievements != _unlocked_achievements:
+			_unlocked_achievements = cleaned_achievements
+			updated = true
+		var cleaned_theme: String = _sanitize_powerbar_theme(_powerbar_theme)
+		if cleaned_theme != _powerbar_theme:
+			_powerbar_theme = cleaned_theme
 			updated = true
 		if _ensure_mode_maps():
 			updated = true
@@ -772,6 +794,51 @@ func has_store_entitlement(flag: String) -> bool:
 		return false
 	return bool(_store_entitlements.get(clean_flag, false))
 
+func get_unlocked_achievements() -> Dictionary:
+	ensure_loaded()
+	return _unlocked_achievements.duplicate(true)
+
+func has_achievement(achievement_id: String) -> bool:
+	ensure_loaded()
+	var clean_id: String = achievement_id.strip_edges()
+	if clean_id == "":
+		return false
+	return bool(_unlocked_achievements.get(clean_id, false))
+
+func grant_achievement(achievement_id: String) -> bool:
+	ensure_loaded()
+	var clean_id: String = achievement_id.strip_edges()
+	if clean_id == "":
+		return false
+	if bool(_unlocked_achievements.get(clean_id, false)):
+		return false
+	_unlocked_achievements[clean_id] = true
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_ACHIEVEMENT_GRANTED", {
+		"user_id": _user_id,
+		"achievement_id": clean_id
+	})
+	achievement_granted.emit(clean_id)
+	return true
+
+func get_powerbar_theme() -> String:
+	ensure_loaded()
+	return _powerbar_theme
+
+func set_powerbar_theme(theme_id: String) -> bool:
+	ensure_loaded()
+	var clean_theme: String = _sanitize_powerbar_theme(theme_id)
+	if clean_theme == _powerbar_theme:
+		return false
+	_powerbar_theme = clean_theme
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_POWERBAR_THEME_SET", {
+		"user_id": _user_id,
+		"theme_id": _powerbar_theme
+	})
+	powerbar_theme_changed.emit(_powerbar_theme)
+	return true
+
 func grant_store_entitlements(flags: Array, reason: String = "") -> Dictionary:
 	ensure_loaded()
 	var granted: Array[String] = []
@@ -845,6 +912,8 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids_by_mode", _buff_loadout_ids_by_mode)
 	cfg.set_value(PROFILE_SECTION, "honey_balance", _honey_balance)
 	cfg.set_value(PROFILE_SECTION, "store_entitlements", _store_entitlements)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_UNLOCKED_ACHIEVEMENTS, _unlocked_achievements)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_POWERBAR_THEME, _powerbar_theme)
 	var err: int = cfg.save(PROFILE_PATH)
 	SFLog.info("PROFILE_BOOT_TRACE_SAVE", {
 		"path": PROFILE_PATH,
@@ -1060,6 +1129,34 @@ func _sanitize_store_entitlements(raw: Variant) -> Dictionary:
 			continue
 		out[key] = true
 	return out
+
+func _sanitize_unlocked_achievements(raw: Variant) -> Dictionary:
+	var out: Dictionary = {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	var in_map: Dictionary = raw as Dictionary
+	for key_any in in_map.keys():
+		var key: String = str(key_any).strip_edges()
+		if key == "":
+			continue
+		if not bool(in_map.get(key_any, false)):
+			continue
+		out[key] = true
+	return out
+
+func _sanitize_powerbar_theme(theme_id: String) -> String:
+	var clean: String = theme_id.strip_edges().to_lower()
+	match clean:
+		"", POWERBAR_THEME_BASE:
+			return POWERBAR_THEME_BASE
+		"upgraded_static", POWERBAR_THEME_UPGRADED:
+			return POWERBAR_THEME_UPGRADED
+		POWERBAR_THEME_UPGRADED_DYNAMIC:
+			return POWERBAR_THEME_UPGRADED_DYNAMIC
+		POWERBAR_THEME_UPGRADED_BOIL:
+			return POWERBAR_THEME_UPGRADED_BOIL
+		_:
+			return POWERBAR_THEME_BASE
 
 func _normalize_buff_mode(mode: String) -> String:
 	if mode.strip_edges().to_lower() == BUFF_MODE_ASYNC:

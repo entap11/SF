@@ -746,6 +746,7 @@ func _save_state() -> void:
 	file.store_string(JSON.stringify(payload))
 
 func _emit_state_changed() -> void:
+	_ensure_bp_level_achievements()
 	var snapshot: Dictionary = get_snapshot()
 	battle_pass_state_changed.emit(snapshot)
 	SFLog.info("BATTLE_PASS_STATE", {
@@ -759,3 +760,11 @@ func _emit_event(event_type: String, payload: Dictionary) -> void:
 	event["type"] = event_type
 	battle_pass_event.emit(event)
 	SFLog.info("BATTLE_PASS_EVENT", event)
+
+func _ensure_bp_level_achievements() -> void:
+	var achievement_service: Node = get_node_or_null("/root/AchievementService")
+	if achievement_service == null:
+		return
+	if not achievement_service.has_method("ensure_bp_level_achievements"):
+		return
+	achievement_service.call("ensure_bp_level_achievements", _battle_pass_level)
