@@ -444,10 +444,12 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 						lane_dir = fallback_dir.normalized()
 				if _sim_events != null:
 					var vfx_intensity: float = clampf(float(kill) * 0.5, 0.6, 2.0)
-					var a_unit_id: int = int(a.get("id", -1))
-					var b_unit_id: int = int(b.get("id", -1))
-					var a_travel_dir: Vector2 = _unit_travel_dir_world(a)
-					var b_travel_dir: Vector2 = _unit_travel_dir_world(b)
+					var a_depleted: bool = a_amt <= 0
+					var b_depleted: bool = b_amt <= 0
+					var a_unit_id: int = int(a.get("id", -1)) if a_depleted else -1
+					var b_unit_id: int = int(b.get("id", -1)) if b_depleted else -1
+					var a_travel_dir: Vector2 = _unit_travel_dir_world(a) if a_depleted else Vector2.ZERO
+					var b_travel_dir: Vector2 = _unit_travel_dir_world(b) if b_depleted else Vector2.ZERO
 					_sim_events.emit_signal(
 						"unit_collision",
 						impact,
@@ -1346,7 +1348,16 @@ func spawn_unit(unit: Dictionary) -> void:
 		if lane_any is LaneData:
 			var ld := lane_any as LaneData
 			build_t = float(ld.build_t)
-			established = ld.is_built()
+			var from_id: int = int(unit.get("from_id", -1))
+			var to_id: int = int(unit.get("to_id", -1))
+			var from_is_a: bool = true
+			if from_id == int(ld.a_id) and to_id == int(ld.b_id):
+				from_is_a = true
+			elif from_id == int(ld.b_id) and to_id == int(ld.a_id):
+				from_is_a = false
+			else:
+				from_is_a = int(unit.get("dir", 1)) >= 0
+			established = _lane_established(ld, from_is_a, _lane_length(ld))
 		if not established:
 			_log_unit_gate_blocked(
 				lane_id,
@@ -1544,7 +1555,13 @@ func _lane_side_pressure(lane: LaneData, from_is_a: bool) -> float:
 func _lane_established(lane: LaneData, from_is_a: bool, lane_len: float) -> bool:
 	if lane_len <= 0.0:
 		return false
-	return lane.is_built()
+	if from_is_a:
+		if bool(lane.establish_a) and float(lane.build_t) < 0.999:
+			return false
+	else:
+		if bool(lane.establish_b) and float(lane.build_t) < 0.999:
+			return false
+	return true
 
 func _lane_front_t(lane_id: int) -> float:
 	return float(OpsState.lane_front_by_lane_id.get(lane_id, 0.0))

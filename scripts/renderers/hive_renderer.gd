@@ -418,11 +418,7 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 			node.set_meta("hive_id", id)
 		if node is Area2D:
 			_bind_node_signals(node as Area2D)
-		var pos := Vector2.ZERO
-		if arena != null and arena.grid_spec != null:
-			pos = arena.grid_spec.grid_to_world(Vector2i(int(gx), int(gy)))
-		else:
-			pos = _grid_to_world(gx, gy, cell)
+		var pos: Vector2 = _grid_to_world(gx, gy, cell)
 		node.position = pos
 		node.hive_id = id
 		var owner_id: int = 0
@@ -514,9 +510,12 @@ func _get_sprite_registry() -> SpriteRegistry:
 func _grid_to_world(gx: float, gy: float, cell: float) -> Vector2:
 	var cell_px := cell
 	var origin := Vector2.ZERO
+	var center_offset: float = 0.5
 	if arena != null:
 		var spec: Variant = arena.get("grid_spec")
 		if spec != null:
 			cell_px = float(spec.cell_size)
 			origin = spec.origin
-	return origin + Vector2((gx + 0.5) * cell_px, (gy + 0.5) * cell_px)
+		if arena.has_method("get_grid_coord_render_offset"):
+			center_offset = float(arena.call("get_grid_coord_render_offset"))
+	return origin + Vector2((gx + center_offset) * cell_px, (gy + center_offset) * cell_px)

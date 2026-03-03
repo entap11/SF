@@ -16,6 +16,7 @@ var shield_active: bool = false
 var penetration_px: float = 0.0
 var precontact_3_5px: bool = false
 var snap_on_first_contact: bool = false
+var first_contact_snap_max_cut: float = 1.0
 
 var _entrance_point_world: Vector2 = Vector2.ZERO
 var _travel_dir_world: Vector2 = Vector2.RIGHT
@@ -69,8 +70,9 @@ func set_local_cut_dir(local_cut_dir: Vector2) -> void:
 func set_shield_active(active: bool) -> void:
 	shield_active = active
 
-func set_first_contact_snap(enabled: bool) -> void:
+func set_first_contact_snap(enabled: bool, max_cut: float = 1.0) -> void:
 	snap_on_first_contact = enabled
+	first_contact_snap_max_cut = clampf(max_cut, 0.0, 1.0)
 
 func set_colorkey(enabled: bool, key_color: Color, threshold: float, softness: float) -> void:
 	if _material == null:
@@ -100,7 +102,11 @@ func update_from_world_position(
 			penetration_px = minf(target_penetration_px, penetration_px + forward_step_px)
 	else:
 		# Optional for collision clips: allow immediate dissolve on first contact frame.
-		penetration_px = target_penetration_px if snap_on_first_contact else 0.0
+		if snap_on_first_contact:
+			var snap_cap_px: float = _bee_visual_length_px * first_contact_snap_max_cut
+			penetration_px = minf(target_penetration_px, snap_cap_px)
+		else:
+			penetration_px = 0.0
 	_prev_nose_world = nose_world
 	_has_prev_nose_world = true
 	entering_state = distance_to_plane_px >= 0.0
@@ -125,6 +131,7 @@ func reset() -> void:
 	penetration_px = 0.0
 	precontact_3_5px = false
 	snap_on_first_contact = false
+	first_contact_snap_max_cut = 1.0
 	_reported_fully_clipped = false
 	_prev_nose_world = Vector2.ZERO
 	_has_prev_nose_world = false

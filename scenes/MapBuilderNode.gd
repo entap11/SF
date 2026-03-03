@@ -38,5 +38,7 @@ func build() -> void:
 	if ok:
 		if arena.has_method("notify_map_built"):
 			arena.call("notify_map_built")
-		if arena.has_method("fitcam_once"):
+		if arena.has_method("apply_camera_fit_next_frame"):
+			arena.call("apply_camera_fit_next_frame", "map_builder_node_build")
+		elif arena.has_method("fitcam_once"):
 			arena.call("fitcam_once")

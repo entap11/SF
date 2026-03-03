@@ -674,8 +674,10 @@ func _set_balanced() -> void:
 	_target_share_p2 = float(_target_share_by_seat.get(2, 0.0))
 
 func _resolve_active_seats(state_ref: GameState, hud: Dictionary) -> Array:
-	var seats: Array = []
-	if state_ref != null:
+	var seats: Array = _active_seats_from_hud(hud)
+	if seats.is_empty():
+		seats = _active_seats_from_roster()
+	if seats.is_empty() and state_ref != null:
 		var hive_list: Array = state_ref.hives
 		for hive_any in hive_list:
 			if hive_any == null:
@@ -689,13 +691,6 @@ func _resolve_active_seats(state_ref: GameState, hud: Dictionary) -> Array:
 				owner_id = int(hd.get("owner_id", 0))
 			if owner_id >= 1 and owner_id <= 4 and not seats.has(owner_id):
 				seats.append(owner_id)
-	if seats.is_empty() and hud != null:
-		var active_v: Variant = hud.get("active_seats", [])
-		if typeof(active_v) == TYPE_ARRAY:
-			for seat_any in active_v as Array:
-				var seat: int = int(seat_any)
-				if seat >= 1 and seat <= 4 and not seats.has(seat):
-					seats.append(seat)
 	if seats.is_empty():
 		seats = [1, 2]
 	elif seats.size() == 1:
@@ -703,6 +698,44 @@ func _resolve_active_seats(state_ref: GameState, hud: Dictionary) -> Array:
 			seats.append(2)
 		else:
 			seats.insert(0, 1)
+	seats.sort()
+	return seats
+
+func _active_seats_from_hud(hud: Dictionary) -> Array:
+	var seats: Array = []
+	if hud == null:
+		return seats
+	var active_v: Variant = hud.get("active_seats", [])
+	if typeof(active_v) != TYPE_ARRAY:
+		return seats
+	for seat_any in active_v as Array:
+		var seat: int = int(seat_any)
+		if seat >= 1 and seat <= 4 and not seats.has(seat):
+			seats.append(seat)
+	seats.sort()
+	return seats
+
+func _active_seats_from_roster() -> Array:
+	var seats: Array = []
+	var roster_v: Variant = OpsState.match_roster
+	if typeof(roster_v) != TYPE_ARRAY:
+		return seats
+	for entry_any in roster_v as Array:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var seat: int = int(entry.get("seat", 0))
+		if seat < 1 or seat > 4:
+			continue
+		var active: bool = false
+		if entry.has("active"):
+			active = bool(entry.get("active", false))
+		else:
+			var uid: String = str(entry.get("uid", "")).strip_edges()
+			var is_cpu: bool = bool(entry.get("is_cpu", false))
+			active = not uid.is_empty() or is_cpu
+		if active and not seats.has(seat):
+			seats.append(seat)
 	seats.sort()
 	return seats
 

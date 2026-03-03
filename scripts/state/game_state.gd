@@ -190,13 +190,15 @@ func load_from_map_dict(map: Dictionary) -> void:
 			if hive_id <= 0:
 				continue
 
-			var gx: int = int(hd.get("x", 0))
-			var gy: int = int(hd.get("y", 0))
+			var gx_f: float = float(hd.get("x", 0.0))
+			var gy_f: float = float(hd.get("y", 0.0))
 			if hd.has("grid_pos") and typeof(hd["grid_pos"]) == TYPE_ARRAY:
 				var gp: Array = hd["grid_pos"] as Array
 				if gp.size() >= 2:
-					gx = int(gp[0])
-					gy = int(gp[1])
+					gx_f = float(gp[0])
+					gy_f = float(gp[1])
+			var gx: int = int(floor(gx_f))
+			var gy: int = int(floor(gy_f))
 
 			var owner_id: int = 0
 			if hd.has("owner_id"):
@@ -210,7 +212,15 @@ func load_from_map_dict(map: Dictionary) -> void:
 			if radius_px <= 0.0:
 				radius_px = MapSchema.hive_radius_px_for_kind(kind, _grid_cell_size_px())
 
-			hives.append(HiveData.new(hive_id, Vector2i(gx, gy), owner_id, power, kind, radius_px))
+			hives.append(HiveData.new(
+				hive_id,
+				Vector2i(gx, gy),
+				owner_id,
+				power,
+				kind,
+				radius_px,
+				Vector2(gx_f, gy_f)
+			))
 
 	# Design rule: maps do not author active lanes.
 	# Live lanes are created at runtime from intents and occlusion checks.
@@ -1000,7 +1010,7 @@ func _accumulate_lane_pressure(
 		lane.spawn_accum_b_ms = 0.0
 		return
 	if lane.send_a and not lane.retract_a:
-		if lane.build_t < 0.999:
+		if lane.establish_a and lane.build_t < 0.999:
 			lane.spawn_accum_a_ms = 0.0
 			_log_spawn_block(lane, "A", "BUILD")
 		else:
@@ -1045,7 +1055,7 @@ func _accumulate_lane_pressure(
 		lane.spawn_accum_a_ms = 0.0
 
 	if lane.send_b and not lane.retract_b:
-		if lane.build_t < 0.999:
+		if lane.establish_b and lane.build_t < 0.999:
 			lane.spawn_accum_b_ms = 0.0
 			_log_spawn_block(lane, "B", "BUILD")
 		else:

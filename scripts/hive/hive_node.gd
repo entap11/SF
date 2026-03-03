@@ -17,7 +17,7 @@ const SELECTOR_STATE_SELECTED := 2
 const SELECTOR_STATE_ACTIVATED := 3
 # Edge trims define contact along the lane axis; this Y bias sets the visible
 # lane "height" on the hive plate.
-const LANE_ANCHOR_Y_PX: float = -33.0
+const LANE_ANCHOR_Y_PX: float = -24.0
 const LANE_ANCHOR_LEFT_EXTRA_Y_PX: float = 1.0
 const LANE_ANCHOR_RIGHT_EXTRA_Y_PX: float = 0.0
 

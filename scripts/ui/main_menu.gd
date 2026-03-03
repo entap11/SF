@@ -29,6 +29,9 @@ const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/atlas_free_roll_font.tres"
+const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
+const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
 const HIVE_BUTTON_SCALE: float = 1.5
 const HIVE_BUTTON_BASE_WIDTH: float = 140.0
@@ -80,6 +83,7 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 @onready var store_landing_panel: Panel = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding
 @onready var store_category_grid: GridContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox/StoreCategoryGrid
 @onready var store_category_view: Panel = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView
+@onready var store_vbox: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox
 @onready var store_category_header: Label = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryHeader
 @onready var store_category_sub: Label = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategorySub
 @onready var store_category_list: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryList
@@ -302,6 +306,7 @@ var _tier_widget: Control = null
 
 var _font_regular: Font
 var _font_semibold: Font
+var _font_free_roll_atlas: Font
 var _dash_open := false
 var _dash_hidden_x := 0.0
 var _dash_tab_closed_left := 0.0
@@ -450,13 +455,17 @@ const GAME_HUB_OVERLAY_VIEWPORT_MARGIN_X: float = 24.0
 const GAME_HUB_OVERLAY_VIEWPORT_MARGIN_Y: float = 24.0
 const GAME_HUB_OVERLAY_FREE_MIN_HEIGHT: float = 700.0
 const GAME_HUB_OVERLAY_PAID_MIN_HEIGHT: float = 760.0
+const GAME_HUB_OVERLAY_EXTRA_BOTTOM_PX: float = 50.0
+const GAME_HUB_OVERLAY_EXTRA_TOP_PX: float = 30.0
 const GAME_HUB_HUMAN_BUTTON_SIZE: Vector2 = Vector2(172.0, 72.0)
 const GAME_HUB_HUMAN_ICON_MAX_WIDTH: int = 166
 const GAME_HUB_CYCLE_BUTTON_SIZE: Vector2 = Vector2(286.0, 108.0)
 const GAME_HUB_CYCLE_ICON_MAX_WIDTH: int = 272
 const GAME_HUB_ASYNC_MODE_BUTTON_SIZE: Vector2 = Vector2(236.0, 82.0)
 const GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH: int = 224
-const GAME_HUB_CANCEL_BUTTON_SIZE: Vector2 = Vector2(168.0, 32.0)
+const GAME_HUB_CANCEL_BUTTON_SIZE: Vector2 = Vector2(236.0, 82.0)
+const GAME_HUB_CONTENT_SHIFT_X: float = -20.0
+const GAME_HUB_CONTENT_TOP_PADDING_PX: float = 24.0
 const GAME_HUB_SECTION_HEADER_COLOR: Color = Color8(201, 204, 214, 255)
 const GAME_HUB_SECTION_SUBTEXT_COLOR: Color = Color(0.86, 0.88, 0.92, 0.60)
 const GAME_HUB_BLOCK_LABEL_COLOR: Color = Color(0.82, 0.85, 0.90, 0.78)
@@ -467,12 +476,21 @@ const GAME_HUB_TITLE_OUTLINE_COLOR: Color = Color(1.0, 0.87, 0.56, 0.18)
 const GAME_HUB_HOVER_EDGE_COLOR: Color = Color(0.95, 0.80, 0.34, 0.72)
 const GAME_HUB_HOVER_BRIGHTNESS: float = 1.10
 const GAME_HUB_SWEEP_DURATION_SEC: float = 0.8
-const GAME_HUB_PANEL_PULSE_HALF_CYCLE_SEC: float = 1.8
-const GAME_HUB_PANEL_SCAN_DRIFT_SEC: float = 34.0
+const STORE_WINDOW_SCALE: float = 0.75
 const ENTRY_OVERLAY_INLAY_MARGIN_X_LANDSCAPE_RATIO: float = 0.070
 const ENTRY_OVERLAY_INLAY_MARGIN_Y_LANDSCAPE_RATIO: float = 0.145
 const ENTRY_OVERLAY_INLAY_MARGIN_X_PORTRAIT_RATIO: float = 0.145
 const ENTRY_OVERLAY_INLAY_MARGIN_Y_PORTRAIT_RATIO: float = 0.070
+const ENTRY_OVERLAY_INLAY_CROP_X_LANDSCAPE_RATIO: float = 0.040
+const ENTRY_OVERLAY_INLAY_CROP_Y_LANDSCAPE_RATIO: float = 0.090
+const ENTRY_OVERLAY_INLAY_CROP_X_PORTRAIT_RATIO: float = 0.120
+const ENTRY_OVERLAY_INLAY_CROP_Y_PORTRAIT_RATIO: float = 0.040
+const ENTRY_OVERLAY_INLAY_OVERSCAN_X_RATIO: float = 0.1023
+const ENTRY_OVERLAY_INLAY_OVERSCAN_Y_RATIO: float = 0.12
+const ENTRY_OVERLAY_INLAY_SHIFT_X_RATIO: float = -0.0545
+const ENTRY_OVERLAY_INLAY_SHIFT_Y_RATIO: float = 0.0
+const ENTRY_OVERLAY_INLAY_SHIFT_X_PX: float = -20.0
+const ENTRY_OVERLAY_INLAY_SHIFT_Y_PX: float = 90.0
 const ENTRY_OVERLAY_MIDFIELD_ALPHA: float = 0.34
 const ENTRY_OVERLAY_NOISE_ALPHA: float = 0.03
 const MONEY_DIVISION_I: String = "division_i"
@@ -560,6 +578,8 @@ var _hive_dropdown_panel: Panel = null
 var _hive_dropdown_tween: Tween = null
 var _hive_dropdown_open: bool = false
 var _entry_overlay_inlay_rotated_texture: Texture2D = null
+var _entry_overlay_inlay_cropped_texture: Texture2D = null
+var _entry_overlay_inlay_rotated_cropped_texture: Texture2D = null
 var _entry_overlay_noise_texture: Texture2D = null
 
 const DEFAULT_STATS_TIERS := {
@@ -873,6 +893,7 @@ func _ready() -> void:
 	_build_store_landing()
 	_init_buffs_ui()
 	_apply_surface_hex_background_presets()
+	call_deferred("_prime_store_free_roll_skin")
 	_configure_dash_account_surfaces()
 	_ensure_swarm_pass_panel()
 	_load_profile_commerce_state()
@@ -916,6 +937,76 @@ func _apply_surface_hex_background_presets() -> void:
 	_ensure_embedded_hex_background(buffs_loadout_panel, StringName("dash"))
 	_ensure_embedded_hex_background(buffs_library_panel, StringName("dash"))
 	_ensure_embedded_hex_background(buffs_detail_panel, StringName("dash"))
+
+
+func _prime_store_free_roll_skin() -> void:
+	_apply_store_window_scale()
+	_ensure_store_free_roll_skin()
+
+
+func _ensure_store_free_roll_skin() -> void:
+	if dash_store_panel == null:
+		return
+	var resolved_size: Vector2 = dash_store_panel.size
+	if resolved_size.x <= 1.0 or resolved_size.y <= 1.0:
+		resolved_size = dash_store_panel.get_rect().size
+	if resolved_size.x <= 1.0 or resolved_size.y <= 1.0:
+		var viewport_size: Vector2 = get_viewport_rect().size
+		resolved_size = Vector2(maxf(420.0, viewport_size.x * 0.86), maxf(320.0, viewport_size.y * 0.74))
+	for node_name in [
+		"Background_Base",
+		"Background_Noise",
+		"Frame_Inlay",
+		"Midfield_Hex_Dark",
+		"GameHubMatteOverlay",
+		"GameHubCenterTension",
+		"GameHubDirectionalShade"
+	]:
+		var existing: Node = dash_store_panel.get_node_or_null(node_name)
+		if existing != null:
+			existing.queue_free()
+	_build_entry_overlay_background_layers(dash_store_panel, resolved_size)
+	_apply_game_hub_panel_fx(dash_store_panel)
+	var inlay: CanvasItem = dash_store_panel.get_node_or_null("Frame_Inlay") as CanvasItem
+	if inlay != null:
+		inlay.visible = false
+	if dash_store_background != null:
+		dash_store_background.visible = false
+	if store_landing_panel != null:
+		var landing_hex: CanvasItem = store_landing_panel.get_node_or_null("HexSeamBackground") as CanvasItem
+		if landing_hex != null:
+			landing_hex.visible = false
+	if store_category_view != null:
+		var category_hex: CanvasItem = store_category_view.get_node_or_null("HexSeamBackground") as CanvasItem
+		if category_hex != null:
+			category_hex.visible = false
+
+
+func _apply_store_window_scale() -> void:
+	if dash_store_panel == null or store_vbox == null:
+		return
+	var panel_size: Vector2 = get_viewport_rect().size
+	if panel_size.x <= 1.0 or panel_size.y <= 1.0:
+		panel_size = dash_store_panel.size
+	var target_size := Vector2(
+		clampf(panel_size.x * STORE_WINDOW_SCALE, 520.0, maxf(520.0, panel_size.x - 24.0)),
+		clampf(panel_size.y * STORE_WINDOW_SCALE, 420.0, maxf(420.0, panel_size.y - 24.0))
+	)
+	dash_store_panel.layout_mode = 0
+	dash_store_panel.anchor_left = 0.5
+	dash_store_panel.anchor_top = 0.5
+	dash_store_panel.anchor_right = 0.5
+	dash_store_panel.anchor_bottom = 0.5
+	dash_store_panel.offset_left = -target_size.x * 0.5
+	dash_store_panel.offset_top = -target_size.y * 0.5
+	dash_store_panel.offset_right = target_size.x * 0.5
+	dash_store_panel.offset_bottom = target_size.y * 0.5
+	store_vbox.layout_mode = 1
+	store_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	store_vbox.offset_left = 24.0
+	store_vbox.offset_top = 24.0
+	store_vbox.offset_right = -24.0
+	store_vbox.offset_bottom = -24.0
 
 func _apply_hex_background_preset(target: Node, preset_name: StringName) -> void:
 	if target == null:
@@ -990,6 +1081,7 @@ func _on_onboarding_done() -> void:
 func _load_fonts() -> void:
 	_font_regular = load(FONT_REGULAR_PATH)
 	_font_semibold = load(FONT_SEMIBOLD_PATH)
+	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
 
 func _style_labels() -> void:
 	_apply_font($TopBar/RankLabel, _font_regular, 16)
@@ -1047,6 +1139,8 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter, _font_regular, 12)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreTitle, _font_semibold, 20)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreSub, _font_regular, 14)
+	_apply_font($DashPanel/DashSettingsPanel/SettingsVBox/SettingsTitle, _font_semibold, 24)
+	_apply_font($DashPanel/DashSettingsPanel/SettingsVBox/SettingsSub, _font_regular, 16)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox/StoreLandingHeader, _font_semibold, 14)
 	_apply_font(store_category_header, _font_semibold, 16)
 	_apply_font(store_category_sub, _font_regular, 13)
@@ -1144,6 +1238,8 @@ func _style_labels() -> void:
 	hive_body_vbox.add_theme_constant_override("separation", 12)
 	var store_body_vbox: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox
 	store_body_vbox.add_theme_constant_override("separation", 12)
+	var settings_vbox: VBoxContainer = $DashPanel/DashSettingsPanel/SettingsVBox
+	settings_vbox.add_theme_constant_override("separation", 16)
 	store_category_grid.add_theme_constant_override("h_separation", 12)
 	store_category_grid.add_theme_constant_override("v_separation", 12)
 	store_category_list.add_theme_constant_override("separation", 8)
@@ -1206,6 +1302,7 @@ func _style_buttons() -> void:
 	]:
 		_apply_font(button, _font_regular, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
+	_apply_free_roll_atlas_font(menu_free_roll_button, 14)
 	if menu_unused_button != null:
 		menu_unused_button.visible = true
 		menu_unused_button.text = "Settings"
@@ -1268,7 +1365,7 @@ func _style_panels() -> void:
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	var store_panel_bg: Color = Color(0.06, 0.06, 0.07, 0.16)
-	var store_panel_border: Color = Color(0.62, 0.50, 0.22, 0.52)
+	var store_panel_border: Color = Color(0.62, 0.50, 0.22, 0.00)
 	_style_panel($DashPanel/DashStorePanel/StoreVBox/StoreBody, store_panel_bg, store_panel_border)
 	_style_panel(store_landing_panel, store_panel_bg, store_panel_border)
 	_style_panel(store_category_view, store_panel_bg, store_panel_border)
@@ -1603,6 +1700,35 @@ func _apply_font(node: Control, font: Font, size: int) -> void:
 		return
 	node.add_theme_font_override("font", font)
 	node.add_theme_font_size_override("font_size", _scaled_ui_font_size(size))
+
+func _text_uses_free_roll_charset(text: String) -> bool:
+	var source := text.to_upper()
+	for i in source.length():
+		var ch := source.substr(i, 1)
+		if FONT_FREE_ROLL_SUPPORTED.find(ch) == -1:
+			return false
+	return true
+
+func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
+	if node == null or _font_free_roll_atlas == null:
+		return false
+	var raw_text := ""
+	if node is Label:
+		raw_text = (node as Label).text
+	elif node is BaseButton:
+		raw_text = (node as BaseButton).text
+	if raw_text == "":
+		return false
+	var upper_text := raw_text.to_upper()
+	if not _text_uses_free_roll_charset(upper_text):
+		return false
+	if node is Label:
+		(node as Label).text = upper_text
+	elif node is BaseButton:
+		(node as BaseButton).text = upper_text
+	node.add_theme_font_override("font", _font_free_roll_atlas)
+	node.add_theme_font_size_override("font_size", _scaled_ui_font_size(size))
+	return true
 
 func _apply_honey_label_shader(label: Label) -> void:
 	if label == null or HONEY_TEXT_SHADER == null:
@@ -2196,11 +2322,17 @@ func _apply_cancel_skin_to_button(button: Button) -> void:
 		return
 	if button.tooltip_text.is_empty():
 		button.tooltip_text = "CANCEL"
+	var min_width: float = 330.0
+	var min_height: float = 140.0
+	if button.has_meta("sf_cancel_skin_min_w"):
+		min_width = maxf(1.0, float(button.get_meta("sf_cancel_skin_min_w")))
+	if button.has_meta("sf_cancel_skin_min_h"):
+		min_height = maxf(1.0, float(button.get_meta("sf_cancel_skin_min_h")))
 	button.icon = tex
 	button.text = ""
 	button.custom_minimum_size = Vector2(
-		maxf(button.custom_minimum_size.x, 330.0),
-		maxf(button.custom_minimum_size.y, 140.0)
+		maxf(button.custom_minimum_size.x, min_width),
+		maxf(button.custom_minimum_size.y, min_height)
 	)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
@@ -2472,6 +2604,10 @@ func _style_dash_buttons() -> void:
 		_apply_font(badge_button, _font_semibold, 14)
 		_style_button(badge_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
 	for button in [dash_stats_close, dash_analysis_close, dash_replay_close, dash_buffs_close, dash_hive_close, dash_store_close, dash_settings_close, dash_badges_close, async_close]:
+		if button == dash_settings_close:
+			# Settings uses dense form controls; keep close button compact and avoid oversized sprite overlap.
+			button.set_meta("sf_close_skin", false)
+			button.custom_minimum_size = Vector2(220.0, 56.0)
 		_apply_font(button, _font_regular, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_set_stats_tier(_stats_tier)
@@ -3795,13 +3931,23 @@ func _build_store_landing() -> void:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		var category_id := str(category.get("id", ""))
-		button.pressed.connect(func(): _open_store_category(category_id))
+		var bound_category_id: String = category_id
+		button.pressed.connect(func() -> void:
+			_on_store_category_button_pressed(bound_category_id)
+		)
 		store_category_grid.add_child(button)
 		_apply_font(button, _font_semibold, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 		_apply_store_category_skin_to_button(button, category_id, title_text)
 		_store_category_buttons.append(button)
 	_show_store_landing()
+
+
+func _on_store_category_button_pressed(category_id: String) -> void:
+	var resolved_id: String = category_id.strip_edges()
+	if resolved_id.is_empty():
+		return
+	_open_store_category(resolved_id)
 
 func _open_store_category(category_id: String) -> void:
 	var category := _get_store_category(category_id)
@@ -4213,6 +4359,8 @@ func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -
 	cancel.pressed.connect(_close_entry_route_modal)
 	body.add_child(cancel)
 	_style_entry_overlay_buttons([add_funds, add_card, free_roll, cancel])
+	_apply_free_roll_atlas_font(free_roll, 13)
+	_style_game_hub_cancel_button(cancel)
 	_entry_route_modal = panel
 
 func _open_game_hub(paid: bool, denomination: int) -> void:
@@ -4228,20 +4376,28 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		_money_games_selected_tier = _money_clamp_tier_for_division(_money_games_selected_division, selected_denom)
 	var overlay_size: Vector2 = _resolve_game_hub_overlay_size(paid)
 	var panel := _build_entry_overlay(title, subtitle, overlay_size)
-	var broadcast_free_roll: bool = not paid
-	if paid:
-		_apply_money_games_panel_theme(panel, _money_games_selected_division)
-		_apply_money_games_title_treatment(panel)
-	else:
-		_apply_game_hub_panel_fx(panel)
-		_apply_game_hub_title_treatment(panel, title)
+	var viewport_height: float = get_viewport_rect().size.y
+	var current_top: float = (viewport_height * 0.5) + panel.offset_top
+	var remaining_up_space: float = maxf(0.0, current_top - 8.0)
+	var extra_top: float = minf(GAME_HUB_OVERLAY_EXTRA_TOP_PX, remaining_up_space)
+	panel.offset_top -= extra_top
+	var current_bottom: float = (viewport_height * 0.5) + panel.offset_bottom
+	var remaining_down_space: float = maxf(0.0, viewport_height - current_bottom - 8.0)
+	var extra_bottom: float = minf(GAME_HUB_OVERLAY_EXTRA_BOTTOM_PX, remaining_down_space)
+	panel.offset_bottom += extra_bottom
+	var broadcast_free_roll: bool = true
+	_apply_game_hub_panel_fx(panel)
+	_apply_game_hub_title_treatment(panel, title)
 	var body: VBoxContainer = _entry_overlay_body(panel)
 	if body == null:
 		return
+	body.offset_top += extra_top + GAME_HUB_CONTENT_TOP_PADDING_PX
+	body.offset_left += GAME_HUB_CONTENT_SHIFT_X
+	body.offset_right += GAME_HUB_CONTENT_SHIFT_X
 	body.add_theme_constant_override("separation", 8 if paid else 7)
 	var cluster_spacing: int = 6 if paid else 5
 	if paid:
-		_build_money_games_division_layer(body, panel)
+		_build_money_games_division_layer(body, panel, broadcast_free_roll)
 	_add_game_hub_block_label(body, "MATCH TYPE", broadcast_free_roll)
 	var match_type_block := VBoxContainer.new()
 	match_type_block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4265,12 +4421,16 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		_tune_game_hub_human_button(button)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	_add_game_hub_section_header(match_type_block, "TIME PUZZLES", "Race against time & ranking", broadcast_free_roll)
+	var cycle_row_wrap := HBoxContainer.new()
+	cycle_row_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cycle_row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
+	match_type_block.add_child(cycle_row_wrap)
 	var cycle_row := GridContainer.new()
 	cycle_row.columns = 3
-	cycle_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cycle_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	cycle_row.add_theme_constant_override("h_separation", 6)
 	cycle_row.add_theme_constant_override("v_separation", 6)
-	match_type_block.add_child(cycle_row)
+	cycle_row_wrap.add_child(cycle_row)
 	var cycle_items := [
 		{"label": "WEEKLY", "id": "WEEKLY"},
 		{"label": "MONTHLY", "id": "MONTHLY"},
@@ -4319,6 +4479,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	cancel.pressed.connect(_close_entry_route_modal)
 	cancel_row.add_child(cancel)
 	_style_game_hub_cancel_button(cancel)
+	_configure_game_hub_option_button(cancel, broadcast_free_roll)
 	_entry_route_modal = panel
 
 func _compact_game_hub_async_mode_button(button: Button) -> void:
@@ -4401,7 +4562,7 @@ func _add_game_hub_spacer(parent: VBoxContainer, height_px: float) -> void:
 	spacer.custom_minimum_size = Vector2(0.0, maxf(0.0, height_px))
 	parent.add_child(spacer)
 
-func _build_money_games_division_layer(body: VBoxContainer, panel: Panel) -> void:
+func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadcast_mode: bool = true) -> void:
 	if body == null:
 		return
 	var tabs_row := HBoxContainer.new()
@@ -4446,12 +4607,12 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel) -> voi
 			tab_button.text = label_text
 			_apply_font(tab_button, _font_semibold, MONEY_DIVISION_LABEL_SIZE)
 			tab_button.pressed.connect(func() -> void:
-				_on_money_games_division_tab_pressed(bound_division_id, tab_buttons, tier_row, division_arena_label, entry_fee_label, panel)
+				_on_money_games_division_tab_pressed(bound_division_id, tab_buttons, tier_row, division_arena_label, entry_fee_label, panel, broadcast_mode)
 			)
-			_configure_game_hub_option_button(tab_button)
+			_configure_game_hub_option_button(tab_button, broadcast_mode)
 		tabs_row.add_child(tab_button)
 		tab_buttons[bound_division_id] = tab_button
-	_refresh_money_games_division_ui(tab_buttons, tier_row, division_arena_label, entry_fee_label, panel, false)
+	_refresh_money_games_division_ui(tab_buttons, tier_row, division_arena_label, entry_fee_label, panel, false, broadcast_mode)
 
 func _on_money_games_division_tab_pressed(
 		division_id: String,
@@ -4459,7 +4620,8 @@ func _on_money_games_division_tab_pressed(
 		tier_row: HBoxContainer,
 		division_arena_label: Label,
 		entry_fee_label: Label,
-		panel: Panel
+		panel: Panel,
+		broadcast_mode: bool = true
 	) -> void:
 	var normalized: String = _money_normalize_division_id(division_id)
 	if normalized == MONEY_DIVISION_CLASSIFIED:
@@ -4471,9 +4633,10 @@ func _on_money_games_division_tab_pressed(
 			_money_games_selected_tier = 1
 		else:
 			_money_games_selected_tier = int(tiers[0])
-	_refresh_money_games_division_ui(tab_buttons, tier_row, division_arena_label, entry_fee_label, panel, true)
+	_refresh_money_games_division_ui(tab_buttons, tier_row, division_arena_label, entry_fee_label, panel, true, broadcast_mode)
 	var selected_tab: Button = tab_buttons.get(normalized) as Button
-	_play_money_division_activation_sweep(selected_tab)
+	if not broadcast_mode:
+		_play_money_division_activation_sweep(selected_tab)
 
 func _refresh_money_games_division_ui(
 		tab_buttons: Dictionary,
@@ -4481,12 +4644,12 @@ func _refresh_money_games_division_ui(
 		division_arena_label: Label,
 		entry_fee_label: Label,
 		panel: Panel,
-		animate_swap: bool
+		animate_swap: bool,
+		broadcast_mode: bool = true
 	) -> void:
 	_refresh_money_games_division_tabs(tab_buttons)
-	_rebuild_money_games_tier_row(tier_row, division_arena_label, entry_fee_label, animate_swap)
+	_rebuild_money_games_tier_row(tier_row, division_arena_label, entry_fee_label, animate_swap, broadcast_mode)
 	_refresh_money_games_context_labels(division_arena_label, entry_fee_label)
-	_apply_money_games_panel_theme(panel, _money_games_selected_division)
 
 func _refresh_money_games_division_tabs(tab_buttons: Dictionary) -> void:
 	for division_id in MONEY_DIVISION_TAB_IDS:
@@ -4546,7 +4709,8 @@ func _rebuild_money_games_tier_row(
 		tier_row: HBoxContainer,
 		division_arena_label: Label,
 		entry_fee_label: Label,
-		animate_swap: bool
+		animate_swap: bool,
+		broadcast_mode: bool = true
 	) -> void:
 	if tier_row == null:
 		return
@@ -4566,7 +4730,7 @@ func _rebuild_money_games_tier_row(
 				tier_row.add_child(button)
 				_apply_font(button, _font_semibold, 12)
 				_style_money_entry_tier_button(button, tier == _money_games_selected_tier)
-				_configure_game_hub_option_button(button)
+				_configure_game_hub_option_button(button, broadcast_mode)
 	if animate_swap and tier_row.is_inside_tree():
 		var tween := tier_row.create_tween()
 		tween.tween_property(tier_row, "modulate:a", 0.35, 0.10)
@@ -4788,12 +4952,16 @@ func _add_game_hub_map_group(
 	if parent == null:
 		return
 	_add_game_hub_section_header(parent, heading, "", broadcast_free_roll)
+	var row_wrap := HBoxContainer.new()
+	row_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
+	parent.add_child(row_wrap)
 	var row := GridContainer.new()
 	row.columns = 3
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	row.add_theme_constant_override("h_separation", 6)
 	row.add_theme_constant_override("v_separation", 6)
-	parent.add_child(row)
+	row_wrap.add_child(row)
 	for item_any in items:
 		if typeof(item_any) != TYPE_DICTIONARY:
 			continue
@@ -4817,12 +4985,16 @@ func _add_game_hub_map_group(
 func _style_game_hub_cancel_button(button: Button) -> void:
 	if button == null:
 		return
-	button.set_meta("sf_cancel_skin", false)
+	button.set_meta("sf_cancel_skin", true)
 	button.set_meta("sf_close_skin", false)
 	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	button.custom_minimum_size = GAME_HUB_CANCEL_BUTTON_SIZE
+	button.set_meta("sf_cancel_skin_min_w", GAME_HUB_CANCEL_BUTTON_SIZE.x)
+	button.set_meta("sf_cancel_skin_min_h", GAME_HUB_CANCEL_BUTTON_SIZE.y)
 	_apply_font(button, _font_regular, 12)
 	_style_button(button, Color(0.15, 0.16, 0.19, 0.72), Color(0.28, 0.30, 0.34, 0.26), Color(0.74, 0.77, 0.82))
+	button.custom_minimum_size = GAME_HUB_CANCEL_BUTTON_SIZE
+	button.set("icon_max_width", GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH)
 
 func _configure_game_hub_option_button(button: Button, broadcast_mode: bool = false) -> void:
 	if button == null:
@@ -4934,25 +5106,42 @@ func _set_game_hub_option_hover_state(
 	) -> void:
 	if button == null or edge == null or shell_tone == null or inner_glow == null:
 		return
+	if not is_instance_valid(button) or not is_instance_valid(edge) or not is_instance_valid(shell_tone) or not is_instance_valid(inner_glow):
+		return
 	if button.disabled:
 		return
 	button.set_meta("sf_game_hub_hovered", hovered)
-	var tween := button.create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_OUT)
 	var base_any: Variant = button.get_meta("sf_game_hub_base_modulate", Color(1, 1, 1, 1))
 	var base_modulate: Color = base_any if typeof(base_any) == TYPE_COLOR else Color(1, 1, 1, 1)
+	var tween: Tween = null
+	if button.is_inside_tree():
+		tween = button.create_tween()
 	if broadcast_mode:
 		var target_scale := Vector2(1.024, 1.024) if hovered else Vector2.ONE
 		var target_shell_alpha: float = 0.0
 		var target_glow_alpha: float = 0.10 if hovered else 0.0
 		var target_edge_alpha: float = 0.0
+		if tween == null:
+			button.scale = target_scale
+			button.modulate = base_modulate
+			shell_tone.modulate.a = target_shell_alpha
+			inner_glow.modulate.a = target_glow_alpha
+			edge.modulate.a = target_edge_alpha
+			return
+		tween.set_trans(Tween.TRANS_SINE)
+		tween.set_ease(Tween.EASE_OUT)
 		tween.tween_property(button, "scale", target_scale, 0.14)
 		tween.parallel().tween_property(button, "modulate", base_modulate, 0.14)
 		tween.parallel().tween_property(shell_tone, "modulate:a", target_shell_alpha, 0.14)
 		tween.parallel().tween_property(inner_glow, "modulate:a", target_glow_alpha, 0.14)
 		tween.parallel().tween_property(edge, "modulate:a", target_edge_alpha, 0.14)
 		return
+	if tween == null:
+		button.modulate = Color(GAME_HUB_HOVER_BRIGHTNESS, GAME_HUB_HOVER_BRIGHTNESS, GAME_HUB_HOVER_BRIGHTNESS, 1.0) if hovered else base_modulate
+		edge.modulate.a = 1.0 if hovered else 0.0
+		return
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.set_ease(Tween.EASE_OUT)
 	if hovered:
 		tween.tween_property(button, "modulate", Color(GAME_HUB_HOVER_BRIGHTNESS, GAME_HUB_HOVER_BRIGHTNESS, GAME_HUB_HOVER_BRIGHTNESS, 1.0), 0.12)
 		tween.parallel().tween_property(edge, "modulate:a", 1.0, 0.12)
@@ -4971,6 +5160,8 @@ func _set_game_hub_option_pressed_state(
 	) -> void:
 	if button == null:
 		return
+	if not is_instance_valid(button):
+		return
 	if button.disabled:
 		return
 	button.set_meta("sf_game_hub_pressed", pressed)
@@ -4978,6 +5169,8 @@ func _set_game_hub_option_pressed_state(
 		button.scale = Vector2(0.986, 0.986) if pressed else Vector2.ONE
 		return
 	if edge == null or shell_tone == null or inner_glow == null:
+		return
+	if not is_instance_valid(edge) or not is_instance_valid(shell_tone) or not is_instance_valid(inner_glow):
 		return
 	var hovered_any: Variant = button.get_meta("sf_game_hub_hovered", false)
 	var hovered: bool = bool(hovered_any)
@@ -4995,7 +5188,15 @@ func _set_game_hub_option_pressed_state(
 		target_shell_alpha = 0.0
 		target_glow_alpha = 0.10
 		target_edge_alpha = 0.0
-	var tween := button.create_tween()
+	var tween: Tween = null
+	if button.is_inside_tree():
+		tween = button.create_tween()
+	if tween == null:
+		button.scale = target_scale
+		shell_tone.modulate.a = target_shell_alpha
+		inner_glow.modulate.a = target_glow_alpha
+		edge.modulate.a = target_edge_alpha
+		return
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
 	tween.tween_property(button, "scale", target_scale, 0.14)
@@ -5006,11 +5207,19 @@ func _set_game_hub_option_pressed_state(
 func _play_game_hub_option_sweep(button: Button, sweep: ColorRect) -> void:
 	if button == null or sweep == null:
 		return
+	if not is_instance_valid(button) or not is_instance_valid(sweep):
+		return
 	var sweep_width: float = maxf(18.0, button.size.x * 0.18)
 	sweep.size = Vector2(sweep_width, maxf(1.0, button.size.y))
 	sweep.position = Vector2(-sweep_width - 6.0, 0.0)
 	sweep.color = Color(1.0, 0.97, 0.83, 0.10)
-	var tween := button.create_tween()
+	var tween: Tween = null
+	if button.is_inside_tree():
+		tween = button.create_tween()
+	if tween == null:
+		sweep.position.x = button.size.x + sweep_width + 6.0
+		sweep.color.a = 0.0
+		return
 	tween.tween_property(sweep, "position:x", button.size.x + sweep_width + 6.0, GAME_HUB_SWEEP_DURATION_SEC)
 	tween.parallel().tween_property(sweep, "color:a", 0.0, GAME_HUB_SWEEP_DURATION_SEC)
 
@@ -5058,35 +5267,6 @@ func _apply_game_hub_panel_fx(panel: Panel) -> void:
 	)
 	panel.add_child(directional_shade)
 	panel.move_child(directional_shade, 3)
-	var edge := Panel.new()
-	edge.name = "GameHubActiveEdge"
-	edge.layout_mode = 1
-	edge.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	edge.modulate = Color(1.0, 1.0, 1.0, 0.88)
-	var edge_style := StyleBoxFlat.new()
-	edge_style.bg_color = Color(0.0, 0.0, 0.0, 0.0)
-	edge_style.draw_center = false
-	edge_style.border_width_bottom = 2
-	edge_style.border_width_left = 2
-	edge_style.border_width_right = 2
-	edge_style.border_width_top = 2
-	edge_style.border_color = Color(0.95, 0.80, 0.34, 0.08)
-	edge_style.corner_radius_bottom_left = 10
-	edge_style.corner_radius_bottom_right = 10
-	edge_style.corner_radius_top_left = 10
-	edge_style.corner_radius_top_right = 10
-	edge.add_theme_stylebox_override("panel", edge_style)
-	panel.add_child(edge)
-	panel.move_child(edge, panel.get_child_count() - 1)
-	var pulse := panel.create_tween()
-	pulse.set_loops()
-	pulse.tween_property(edge, "modulate:a", 0.74, GAME_HUB_PANEL_PULSE_HALF_CYCLE_SEC)
-	pulse.tween_property(edge, "modulate:a", 0.90, GAME_HUB_PANEL_PULSE_HALF_CYCLE_SEC)
-	var ambient_tween := panel.create_tween()
-	ambient_tween.set_loops()
-	ambient_tween.tween_property(center_tension, "modulate:a", 0.020, GAME_HUB_PANEL_SCAN_DRIFT_SEC * 0.5)
-	ambient_tween.tween_property(center_tension, "modulate:a", 0.032, GAME_HUB_PANEL_SCAN_DRIFT_SEC * 0.5)
 
 func _build_game_hub_gradient_texture(
 		colors: PackedColorArray,
@@ -5127,7 +5307,8 @@ func _apply_game_hub_title_treatment(panel: Panel, title: String) -> void:
 	var title_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntryTitle") as Label
 	if title_label == null:
 		return
-	_apply_font(title_label, _font_semibold, 20)
+	if not _apply_free_roll_atlas_font(title_label, 22):
+		_apply_font(title_label, _font_semibold, 20)
 	title_label.add_theme_color_override("font_color", Color(0.995, 0.997, 1.0, 1.0))
 	title_label.add_theme_constant_override("outline_size", 1)
 	title_label.add_theme_color_override("font_outline_color", Color(GAME_HUB_TITLE_OUTLINE_COLOR.r, GAME_HUB_TITLE_OUTLINE_COLOR.g, GAME_HUB_TITLE_OUTLINE_COLOR.b, 0.08))
@@ -5195,14 +5376,31 @@ func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 	_close_entry_route_modal()
 	get_tree().set_meta("requested_human_mode", mode_id)
 	if mode_id == "1V1":
-		_open_vs_mode_select_panel(not paid)
 		if paid:
+			_open_vs_mode_select_panel(false)
 			status_label.text = "Human 1v1 selected at $%d." % denomination
 		else:
-			status_label.text = "Human 1v1 free roll selected."
+			if _open_shell_map_picker_from_free_roll():
+				status_label.text = "Human 1v1 free roll selected. Map picker opened."
+			else:
+				_open_vs_mode_select_panel(true)
+				status_label.text = "Human 1v1 free roll selected."
 		return
 	var lane := "paid" if paid else "free"
 	status_label.text = "Human %s (%s) selected. Queue wiring is next." % [mode_id, lane]
+
+func _open_shell_map_picker_from_free_roll() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	tree.set_meta("open_map_picker_on_ready", true)
+	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
+	if err == OK:
+		return true
+	if tree.has_meta("open_map_picker_on_ready"):
+		tree.remove_meta("open_map_picker_on_ready")
+	SFLog.warn("FREE_ROLL_MAP_PICKER_ROUTE_FAILED", {"error_code": int(err)})
+	return false
 
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
@@ -5300,6 +5498,7 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	var panel := Panel.new()
 	panel.name = "EntryRouteModal"
 	panel.layout_mode = 0
+	panel.clip_contents = true
 	panel.anchor_left = 0.5
 	panel.anchor_top = 0.5
 	panel.anchor_right = 0.5
@@ -5389,6 +5588,14 @@ func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2
 	frame_inlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	frame_inlay.draw_center = true
 	frame_inlay.texture = _get_entry_overlay_inlay_texture_for_size(resolved_size)
+	var overscan_x: float = resolved_size.x * ENTRY_OVERLAY_INLAY_OVERSCAN_X_RATIO
+	var overscan_y: float = resolved_size.y * ENTRY_OVERLAY_INLAY_OVERSCAN_Y_RATIO
+	var shift_x: float = (resolved_size.x * ENTRY_OVERLAY_INLAY_SHIFT_X_RATIO) + ENTRY_OVERLAY_INLAY_SHIFT_X_PX
+	var shift_y: float = (resolved_size.y * ENTRY_OVERLAY_INLAY_SHIFT_Y_RATIO) + ENTRY_OVERLAY_INLAY_SHIFT_Y_PX
+	frame_inlay.offset_left = -overscan_x + shift_x
+	frame_inlay.offset_top = -overscan_y + shift_y
+	frame_inlay.offset_right = overscan_x + shift_x
+	frame_inlay.offset_bottom = overscan_y + shift_y
 	_apply_entry_overlay_inlay_patch_margins(frame_inlay)
 	panel.add_child(frame_inlay)
 	panel.move_child(frame_inlay, 2)
@@ -5415,22 +5622,60 @@ func _get_entry_overlay_inlay_texture_for_size(target_size: Vector2) -> Texture2
 	var source_size: Vector2 = MATCH_BACKGROUND_INLAY_TEXTURE.get_size()
 	if source_size.x <= 1.0 or source_size.y <= 1.0:
 		return MATCH_BACKGROUND_INLAY_TEXTURE
-	var target_portrait: bool = target_size.y > target_size.x
-	var source_portrait: bool = source_size.y > source_size.x
-	if target_portrait == source_portrait:
-		return MATCH_BACKGROUND_INLAY_TEXTURE
+	# Broadcast inlay is authored in landscape; force rotated source for portrait-first game UI.
+	var rotated: Texture2D = _get_entry_overlay_rotated_inlay_texture()
+	if rotated == null:
+		return _get_entry_overlay_cropped_inlay_texture(MATCH_BACKGROUND_INLAY_TEXTURE, false)
+	return _get_entry_overlay_cropped_inlay_texture(rotated, true)
+
+func _get_entry_overlay_rotated_inlay_texture() -> Texture2D:
 	if _entry_overlay_inlay_rotated_texture != null:
 		return _entry_overlay_inlay_rotated_texture
+	if MATCH_BACKGROUND_INLAY_TEXTURE == null:
+		return null
 	var base_image: Image = MATCH_BACKGROUND_INLAY_TEXTURE.get_image()
 	if base_image == null:
-		return MATCH_BACKGROUND_INLAY_TEXTURE
+		return null
 	var rotated_image: Image = _rotate_image_clockwise(base_image)
 	if rotated_image == null:
-		return MATCH_BACKGROUND_INLAY_TEXTURE
+		return null
 	_entry_overlay_inlay_rotated_texture = ImageTexture.create_from_image(rotated_image)
-	if _entry_overlay_inlay_rotated_texture == null:
-		return MATCH_BACKGROUND_INLAY_TEXTURE
 	return _entry_overlay_inlay_rotated_texture
+
+func _get_entry_overlay_cropped_inlay_texture(source_texture: Texture2D, rotated: bool) -> Texture2D:
+	if source_texture == null:
+		return null
+	if rotated:
+		if _entry_overlay_inlay_rotated_cropped_texture != null:
+			return _entry_overlay_inlay_rotated_cropped_texture
+	else:
+		if _entry_overlay_inlay_cropped_texture != null:
+			return _entry_overlay_inlay_cropped_texture
+	var image: Image = source_texture.get_image()
+	if image == null:
+		return source_texture
+	var width: int = image.get_width()
+	var height: int = image.get_height()
+	if width <= 2 or height <= 2:
+		return source_texture
+	var portrait: bool = height > width
+	var crop_x_ratio: float = ENTRY_OVERLAY_INLAY_CROP_X_PORTRAIT_RATIO if portrait else ENTRY_OVERLAY_INLAY_CROP_X_LANDSCAPE_RATIO
+	var crop_y_ratio: float = ENTRY_OVERLAY_INLAY_CROP_Y_PORTRAIT_RATIO if portrait else ENTRY_OVERLAY_INLAY_CROP_Y_LANDSCAPE_RATIO
+	var crop_x: int = int(clampi(int(round(float(width) * crop_x_ratio)), 0, maxi(0, (width / 2) - 1)))
+	var crop_y: int = int(clampi(int(round(float(height) * crop_y_ratio)), 0, maxi(0, (height / 2) - 1)))
+	var region_w: int = width - (crop_x * 2)
+	var region_h: int = height - (crop_y * 2)
+	if region_w <= 1 or region_h <= 1:
+		return source_texture
+	var bounds := Rect2i(crop_x, crop_y, region_w, region_h)
+	var atlas := AtlasTexture.new()
+	atlas.atlas = source_texture
+	atlas.region = Rect2(bounds.position, bounds.size)
+	if rotated:
+		_entry_overlay_inlay_rotated_cropped_texture = atlas
+		return _entry_overlay_inlay_rotated_cropped_texture
+	_entry_overlay_inlay_cropped_texture = atlas
+	return _entry_overlay_inlay_cropped_texture
 
 func _rotate_image_clockwise(source: Image) -> Image:
 	if source == null:
@@ -5937,6 +6182,8 @@ func _open_storefront_panel() -> void:
 	_set_dash_offsets(0.0)
 	dash_panel.visible = true
 	dash_store_panel.visible = true
+	_apply_store_window_scale()
+	_ensure_store_free_roll_skin()
 	_dash_open = true
 	status_label.text = "Store opened."
 
@@ -6031,6 +6278,8 @@ func _open_dash_panel(panel: Panel) -> void:
 	_close_top_level_windows(UI_SURFACE_DASH)
 	_set_dash_chrome_visible(true)
 	if panel == dash_store_panel:
+		_apply_store_window_scale()
+		_ensure_store_free_roll_skin()
 		_show_store_landing()
 	_hide_dash_panels()
 	dash_panel.visible = true

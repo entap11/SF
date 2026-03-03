@@ -34,6 +34,34 @@ const SOAK_DEFAULT_REAPPLY_MS: int = 1000
 const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
+const BUFF_SIDE_STRIP_WIDTH_PX: float = 92.0
+const BUFF_SIDE_STRIP_TARGET_HEIGHT_PX: float = 150.0
+const BUFF_SIDE_STRIP_GAP_PX: float = 16.0
+const BUFF_SIDE_STRIP_MARGIN_PX: float = 12.0
+const BUFF_SIDE_SLOT_SIZE_PX: float = 42.0
+const BUFF_SIDE_SLOT_SEPARATION_PX: int = 4
+const BUFF_SIDE_TITLE_FONT_SIZE: int = 12
+const BUFF_SIDE_USED_MARK_FONT_SIZE: int = 40
+const BUFF_OPP_STRIP_WIDTH_PX: float = 176.0
+const BUFF_OPP_STRIP_HEIGHT_PX: float = 56.0
+const BUFF_OPP_STRIP_ROW_GAP_PX: float = 10.0
+const BUFF_OPP_SLOT_SIZE_PX: float = 48.0
+const BUFF_OPP_SLOT_SEPARATION_PX: int = 8
+const BUFF_OPP_USED_MARK_FONT_SIZE: int = 28
+const BUFF_OPP_STRIP_MIN_HEIGHT_PX: float = 44.0
+const BUFF_OPP_STRIP_MAX_HEIGHT_PX: float = 72.0
+const BUFF_OPP_SLOT_MIN_PX: float = 30.0
+const BUFF_OPP_SLOT_MAX_PX: float = 72.0
+const BUFF_OPP_ROW_SIDE_PAD_PX: float = 8.0
+const BUFF_PLAYER_STRIP_WIDTH_PX: float = 420.0
+const BUFF_PLAYER_STRIP_HEIGHT_PX: float = 120.0
+const BUFF_PLAYER_SLOT_SIZE_PX: float = 84.0
+const BUFF_PLAYER_SLOT_SEPARATION_PX: int = 24
+const PREMATCH_POWERBAR_REVEAL_WINDOW_MS: int = 350
+const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
+const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/atlas_free_roll_font.tres"
+const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
@@ -53,6 +81,7 @@ const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x1
 @onready var menu_root: Control = $MenuRoot
 @onready var arena_root: CanvasItem = $ArenaRoot
 @onready var menu_panel: Control = $MenuRoot/MenuPanel
+@onready var menu_title: Label = $MenuRoot/MenuPanel/VBox/Title
 @onready var dev_button: Button = $MenuRoot/MenuPanel/VBox/DevButton
 @onready var back_button: Button = $MenuRoot/BackButton
 @onready var back_overlay: Control = $ArenaRoot/BackOverlay
@@ -84,6 +113,9 @@ var _err_conn_ready: bool = false
 var _frame_once: bool = false
 var _team_mode_ui: String = "2v2"
 var _buff_ui_last_active_pid: int = 1
+var _font_regular: Font
+var _font_semibold: Font
+var _font_free_roll_atlas: Font
 var _startup_request_resolver: ShellStartupLaunchRequestResolver = ShellStartupLaunchRequestResolver.new()
 var _mvp_waiter: ShellMvpWaiter = ShellMvpWaiter.new()
 var _mvp_map_utils: ShellMvpMapUtils = ShellMvpMapUtils.new()
@@ -177,12 +209,14 @@ func _ready() -> void:
 		"play_selected_button": _play_selected_button != null,
 		"picker_back_button": _picker_back_button != null
 	})
+	_load_dev_menu_fonts()
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 030: before_resolve_map_picker_ui_nodes")
 	_resolve_map_picker_ui_nodes()
 	_resolve_tutorial_ui_node()
 	_resolve_team_mode_ui_node()
 	_resolve_dev_map_loader()
 	_resolve_buff_ui_nodes()
+	_apply_dev_menu_fonts()
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 040: after_resolve_map_picker_ui_nodes")
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 050: before_wire_map_picker_ui")
 	_safe_call("wire_map_picker_ui", Callable(self, "_wire_map_picker_ui"))
@@ -210,6 +244,7 @@ func _ready() -> void:
 	var startup_requested: bool = bool(startup_request.get("start", false))
 	var startup_map_path: String = str(startup_request.get("map_path", "")).strip_edges()
 	var startup_reason: String = str(startup_request.get("reason", "none"))
+	var open_map_picker_on_ready: bool = _consume_open_map_picker_request(get_tree())
 	var in_menu_boot: bool = start_in_menu and not startup_requested
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 070: before_startup_menu_flow")
 	_set_menu_state(in_menu_boot)
@@ -240,6 +275,9 @@ func _ready() -> void:
 			_start_game()
 	elif not in_menu_boot:
 		_start_game()
+	elif open_map_picker_on_ready:
+		call_deferred("_show_map_picker")
+		SFLog.info("MAP_PICKER_OPEN_ON_READY", {})
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 090: after_start_game_check")
 
 func _resolve_startup_launch_request() -> Dictionary:
@@ -248,6 +286,14 @@ func _resolve_startup_launch_request() -> Dictionary:
 	if _startup_request_resolver == null:
 		_startup_request_resolver = ShellStartupLaunchRequestResolver.new()
 	return _startup_request_resolver.resolve(tree, gamebot)
+
+func _consume_open_map_picker_request(tree: SceneTree) -> bool:
+	if tree == null:
+		return false
+	var should_open: bool = bool(tree.get_meta("open_map_picker_on_ready", false))
+	if tree.has_meta("open_map_picker_on_ready"):
+		tree.remove_meta("open_map_picker_on_ready")
+	return should_open
 
 func _resolve_stage_map_from_tree_meta(tree: SceneTree) -> String:
 	if _startup_request_resolver == null:
@@ -390,9 +436,119 @@ func _set_team_mode_ui(mode: String) -> void:
 	_team_mode_ui = normalized
 	if _team_mode_button != null:
 		_team_mode_button.text = "Mode: FFA" if _team_mode_ui == "ffa" else "Mode: 2v2"
+		_apply_team_mode_button_font()
 	if OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", _team_mode_ui)
 	SFLog.info("TEAM_MODE_SELECTED", {"mode": _team_mode_ui})
+
+func _load_dev_menu_fonts() -> void:
+	_font_regular = load(FONT_REGULAR_PATH)
+	_font_semibold = load(FONT_SEMIBOLD_PATH)
+	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
+
+func _apply_dev_menu_fonts() -> void:
+	if menu_title != null:
+		if not _apply_free_roll_atlas_font(menu_title, 72):
+			_apply_font(menu_title, _font_semibold, 48)
+	if dev_button != null:
+		dev_button.custom_minimum_size.y = maxf(dev_button.custom_minimum_size.y, 78.0)
+	if dev_button != null:
+		if not _apply_free_roll_atlas_font(dev_button, 44):
+			_apply_font(dev_button, _font_semibold, 30)
+	if _select_map_button != null:
+		_select_map_button.custom_minimum_size.y = maxf(_select_map_button.custom_minimum_size.y, 78.0)
+		if not _apply_free_roll_atlas_font(_select_map_button, 40):
+			_apply_font(_select_map_button, _font_regular, 28)
+	if _tutorial_button != null:
+		_tutorial_button.custom_minimum_size.y = maxf(_tutorial_button.custom_minimum_size.y, 78.0)
+		if not _apply_free_roll_atlas_font(_tutorial_button, 40):
+			_apply_font(_tutorial_button, _font_regular, 28)
+	if _play_selected_button != null:
+		_play_selected_button.custom_minimum_size.y = maxf(_play_selected_button.custom_minimum_size.y, 78.0)
+		if not _apply_free_roll_atlas_font(_play_selected_button, 40):
+			_apply_font(_play_selected_button, _font_regular, 28)
+	if _picker_back_button != null:
+		_picker_back_button.custom_minimum_size.y = maxf(_picker_back_button.custom_minimum_size.y, 78.0)
+		if not _apply_free_roll_atlas_font(_picker_back_button, 40):
+			_apply_font(_picker_back_button, _font_regular, 28)
+	if back_button != null:
+		back_button.custom_minimum_size.y = maxf(back_button.custom_minimum_size.y, 56.0)
+		if not _apply_free_roll_atlas_font(back_button, 26):
+			_apply_font(back_button, _font_regular, 18)
+	_apply_team_mode_button_font()
+	_log_dev_menu_font_state()
+
+func _apply_team_mode_button_font() -> void:
+	if _team_mode_button == null:
+		return
+	if not _apply_free_roll_atlas_font(_team_mode_button, 22):
+		_apply_font(_team_mode_button, _font_regular, 16)
+
+func _apply_font(node: Control, font: Font, size: int) -> void:
+	if node == null or font == null:
+		return
+	node.add_theme_font_override("font", font)
+	node.add_theme_font_size_override("font_size", maxi(1, size))
+
+func _text_uses_free_roll_charset(text: String) -> bool:
+	var source := text.to_upper()
+	for i in source.length():
+		var ch := source.substr(i, 1)
+		if FONT_FREE_ROLL_SUPPORTED.find(ch) == -1:
+			return false
+	return true
+
+func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
+	if node == null or _font_free_roll_atlas == null:
+		return false
+	var raw_text := ""
+	if node is Label:
+		raw_text = (node as Label).text
+	elif node is BaseButton:
+		raw_text = (node as BaseButton).text
+	if raw_text == "":
+		return false
+	var upper_text := raw_text.to_upper()
+	if not _text_uses_free_roll_charset(upper_text):
+		return false
+	if node is Label:
+		(node as Label).text = upper_text
+	elif node is BaseButton:
+		(node as BaseButton).text = upper_text
+	node.add_theme_font_override("font", _font_free_roll_atlas)
+	node.add_theme_font_size_override("font_size", maxi(1, size))
+	return true
+
+func _log_dev_menu_font_state() -> void:
+	var targets: Array[Control] = []
+	if menu_title != null:
+		targets.append(menu_title)
+	if dev_button != null:
+		targets.append(dev_button)
+	if _select_map_button != null:
+		targets.append(_select_map_button)
+	if _tutorial_button != null:
+		targets.append(_tutorial_button)
+	if _team_mode_button != null:
+		targets.append(_team_mode_button)
+	if back_button != null:
+		targets.append(back_button)
+	for node in targets:
+		var text := ""
+		if node is Label:
+			text = (node as Label).text
+		elif node is BaseButton:
+			text = (node as BaseButton).text
+		var f: Font = node.get_theme_font("font")
+		var font_path := f.resource_path if f != null else "<null>"
+		SFLog.info("DEV_MENU_FONT_STATE", {
+			"node": str(node.get_path()),
+			"text": text,
+			"font_path": font_path,
+			"font_size": node.get_theme_font_size("font_size"),
+			"has_font_override": node.has_theme_font_override("font"),
+			"has_size_override": node.has_theme_font_size_override("font_size")
+		})
 
 func _resolve_dev_map_loader() -> void:
 	_dev_map_loader = get_node_or_null(dev_map_loader_path) as CanvasItem
@@ -754,8 +910,8 @@ func _apply_map_direct_to_arena(map_path: String) -> bool:
 	MAP_APPLIER.apply_map(arena, model)
 	if arena.has_method("notify_map_built"):
 		arena.call("notify_map_built")
-	if arena.has_method("fitcam_once"):
-		arena.call("fitcam_once")
+	if arena.has_method("apply_camera_fit_next_frame"):
+		arena.call("apply_camera_fit_next_frame", "shell_map_apply")
 	return true
 
 func _verify_map_applied_and_start(map_path: String) -> void:
@@ -1048,24 +1204,211 @@ func _set_buff_strip_visibility(player_visible: bool, opponent_visible: bool, op
 		_ally_buff_strip.visible = ally_visible
 
 func _layout_buff_strip_positions() -> void:
-	_layout_teammate_strip_left_of_player_slots()
+	_layout_player_strip_inside_bottom_buffer()
+	_layout_side_strips_inside_bottom_buffer()
+
+func _visible_screen_rect() -> Rect2:
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return Rect2()
+	var size: Vector2 = vp.get_visible_rect().size
+	if size.x <= 1.0 or size.y <= 1.0:
+		return Rect2()
+	return Rect2(Vector2.ZERO, size)
+
+func _bottom_buffer_layout_rect(bottom_buffer: Control) -> Rect2:
+	if bottom_buffer == null:
+		return Rect2()
+	var buffer_rect: Rect2 = bottom_buffer.get_global_rect()
+	var visible_rect: Rect2 = _visible_screen_rect()
+	if visible_rect.size.x <= 1.0 or visible_rect.size.y <= 1.0:
+		return buffer_rect
+	if not buffer_rect.intersects(visible_rect):
+		return visible_rect
+	var clipped: Rect2 = buffer_rect.intersection(visible_rect)
+	if clipped.size.x <= 1.0 or clipped.size.y <= 1.0:
+		return visible_rect
+	return clipped
+
+func _layout_player_strip_inside_bottom_buffer() -> void:
+	var player_strip: Control = _player_buff_strip as Control
+	if player_strip == null or not player_strip.visible:
+		return
+	var bottom_buffer: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as Control
+	if bottom_buffer == null:
+		return
+	var parent_rect: Rect2 = _bottom_buffer_layout_rect(bottom_buffer)
+	if parent_rect.size.x <= 1.0 or parent_rect.size.y <= 1.0:
+		return
+	var max_width: float = maxf(220.0, parent_rect.size.x - (BUFF_SIDE_STRIP_MARGIN_PX * 2.0))
+	var target_width: float = minf(BUFF_PLAYER_STRIP_WIDTH_PX, max_width)
+	var target_height: float = minf(BUFF_PLAYER_STRIP_HEIGHT_PX, maxf(96.0, parent_rect.size.y - (BUFF_SIDE_STRIP_MARGIN_PX * 2.0)))
+	var target_pos: Vector2 = Vector2(
+		parent_rect.end.x - target_width - BUFF_SIDE_STRIP_MARGIN_PX,
+		parent_rect.end.y - target_height - BUFF_SIDE_STRIP_MARGIN_PX
+	)
+	_set_control_global_rect(player_strip, Rect2(target_pos, Vector2(target_width, target_height)))
+	player_strip.z_as_relative = false
+	player_strip.z_index = 3000
+	_compact_player_strip(player_strip)
+
+func _compact_player_strip(player_strip: Control) -> void:
+	if player_strip == null:
+		return
+	var slots_row: HBoxContainer = player_strip.get_node_or_null("Center/SlotsRow") as HBoxContainer
+	if slots_row != null:
+		slots_row.add_theme_constant_override("separation", BUFF_PLAYER_SLOT_SEPARATION_PX)
+		slots_row.custom_minimum_size = Vector2(0.0, BUFF_PLAYER_SLOT_SIZE_PX)
+		slots_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for idx in [1, 2, 3]:
+		var slot: Panel = player_strip.get_node_or_null("Center/SlotsRow/BuffSlot%d" % idx) as Panel
+		if slot == null:
+			continue
+		slot.custom_minimum_size = Vector2(BUFF_PLAYER_SLOT_SIZE_PX, BUFF_PLAYER_SLOT_SIZE_PX)
+		slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+func _layout_side_strips_inside_bottom_buffer() -> void:
+	var bottom_buffer: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as Control
+	if bottom_buffer == null:
+		return
+	var parent_rect: Rect2 = _bottom_buffer_layout_rect(bottom_buffer)
+	if parent_rect.size.x <= 1.0 or parent_rect.size.y <= 1.0:
+		return
+
+	var left_strips: Array[Control] = []
+	if _opponent_buff_strip != null and _opponent_buff_strip.visible:
+		left_strips.append(_opponent_buff_strip)
+	if _opponent_buff_strip_b != null and _opponent_buff_strip_b.visible:
+		left_strips.append(_opponent_buff_strip_b)
+	var left_count: int = left_strips.size()
+	if left_count <= 0:
+		return
+
+	var center_x: float = parent_rect.position.x + parent_rect.size.x * 0.5
+	var left_bound: float = parent_rect.position.x + BUFF_SIDE_STRIP_MARGIN_PX
+	var max_right: float = center_x - BUFF_SIDE_STRIP_MARGIN_PX
+	var max_width_left: float = maxf(96.0, max_right - left_bound)
+	var available_h: float = maxf(BUFF_OPP_STRIP_MIN_HEIGHT_PX, parent_rect.size.y - (BUFF_SIDE_STRIP_MARGIN_PX * 2.0))
+	var dyn_h: float = (available_h - (BUFF_OPP_STRIP_ROW_GAP_PX * float(maxi(0, left_count - 1)))) / float(left_count)
+	var strip_h: float = clampf(dyn_h, BUFF_OPP_STRIP_MIN_HEIGHT_PX, BUFF_OPP_STRIP_MAX_HEIGHT_PX)
+	var strip_size: Vector2 = _resolved_opponent_strip_size(parent_rect, max_width_left, strip_h)
+	var base_x: float = minf(left_bound, max_right - strip_size.x)
+	base_x = maxf(left_bound, base_x)
+	var base_y: float = parent_rect.end.y - strip_size.y - BUFF_SIDE_STRIP_MARGIN_PX
+
+	for i in range(left_strips.size()):
+		var strip: Control = left_strips[i]
+		_compact_opponent_strip(strip, strip_size)
+		var y: float = base_y - float(i) * (strip_size.y + BUFF_OPP_STRIP_ROW_GAP_PX)
+		y = maxf(parent_rect.position.y + BUFF_SIDE_STRIP_MARGIN_PX, y)
+		_set_control_global_rect(strip, Rect2(Vector2(base_x, y), strip_size))
+		strip.z_as_relative = false
+		strip.z_index = 3000
+
+	if _ally_buff_strip != null and _ally_buff_strip.visible:
+		var ally_strip: Control = _ally_buff_strip as Control
+		var ally_size: Vector2 = _resolved_side_strip_size(parent_rect)
+		var right_x: float = parent_rect.end.x - ally_size.x - BUFF_SIDE_STRIP_MARGIN_PX
+		var y: float = parent_rect.end.y - ally_size.y - BUFF_SIDE_STRIP_MARGIN_PX
+		_compact_side_strip(ally_strip)
+		_set_control_global_rect(ally_strip, Rect2(Vector2(right_x, y), ally_size))
+		ally_strip.z_as_relative = false
+		ally_strip.z_index = 3000
+
+func _resolved_opponent_strip_size(parent_rect: Rect2, max_width_left: float, preferred_h: float) -> Vector2:
+	var width_px: float = maxf(64.0, max_width_left)
+	var max_h: float = maxf(BUFF_OPP_STRIP_MIN_HEIGHT_PX, parent_rect.size.y - (BUFF_SIDE_STRIP_MARGIN_PX * 2.0))
+	var height_px: float = clampf(preferred_h, BUFF_OPP_STRIP_MIN_HEIGHT_PX, max_h)
+	return Vector2(width_px, height_px)
+
+func _resolved_side_strip_size(parent_rect: Rect2) -> Vector2:
+	var max_h: float = maxf(180.0, parent_rect.size.y - (BUFF_SIDE_STRIP_MARGIN_PX * 2.0))
+	var resolved_h: float = minf(BUFF_SIDE_STRIP_TARGET_HEIGHT_PX, max_h)
+	return Vector2(BUFF_SIDE_STRIP_WIDTH_PX, resolved_h)
+
+func _compact_opponent_strip(strip: Control, strip_size: Vector2) -> void:
+	if strip == null:
+		return
+	if strip.has_method("set_show_title"):
+		strip.call("set_show_title", false)
+	var title_label: Label = strip.get_node_or_null("Title") as Label
+	if title_label != null:
+		title_label.visible = false
+	var slots_row: Control = strip.get_node_or_null("SlotsColumn") as Control
+	if slots_row != null:
+		slots_row.anchor_left = 0.0
+		slots_row.anchor_top = 0.0
+		slots_row.anchor_right = 1.0
+		slots_row.anchor_bottom = 1.0
+		slots_row.offset_left = 0.0
+		slots_row.offset_top = 0.0
+		slots_row.offset_right = 0.0
+		slots_row.offset_bottom = 0.0
+		var box: BoxContainer = slots_row as BoxContainer
+		if box != null:
+			var slot_size: float = _resolved_opponent_slot_size(strip_size)
+			var sep: int = _resolved_opponent_slot_separation(strip_size.x, slot_size)
+			box.add_theme_constant_override("separation", sep)
+			box.alignment = BoxContainer.ALIGNMENT_CENTER
+	for idx in [1, 2, 3]:
+		var slot: Panel = strip.get_node_or_null("SlotsColumn/OpponentSlot%d" % idx) as Panel
+		if slot != null:
+			var resolved_slot_size: float = _resolved_opponent_slot_size(strip_size)
+			slot.custom_minimum_size = Vector2(resolved_slot_size, resolved_slot_size)
+		var used_mark: Label = strip.get_node_or_null("SlotsColumn/OpponentSlot%d/UsedMark" % idx) as Label
+		if used_mark != null:
+			used_mark.add_theme_font_size_override("font_size", BUFF_OPP_USED_MARK_FONT_SIZE)
+
+func _resolved_opponent_slot_size(strip_size: Vector2) -> float:
+	var slot_by_h: float = strip_size.y - 8.0
+	var slot_by_w: float = (strip_size.x - (BUFF_OPP_ROW_SIDE_PAD_PX * 2.0) - (float(BUFF_OPP_SLOT_SEPARATION_PX) * 2.0)) / 3.0
+	return clampf(minf(slot_by_h, slot_by_w), BUFF_OPP_SLOT_MIN_PX, BUFF_OPP_SLOT_MAX_PX)
+
+func _resolved_opponent_slot_separation(strip_w: float, slot_size: float) -> int:
+	var free_w: float = strip_w - (BUFF_OPP_ROW_SIDE_PAD_PX * 2.0) - (slot_size * 3.0)
+	var ideal_sep: float = maxf(4.0, free_w / 2.0)
+	return int(round(clampf(ideal_sep, 4.0, 64.0)))
+
+func _compact_side_strip(strip: Control) -> void:
+	if strip == null:
+		return
+	if strip.has_method("set_show_title"):
+		strip.call("set_show_title", false)
+	var title_label: Label = strip.get_node_or_null("Title") as Label
+	if title_label != null:
+		title_label.add_theme_font_size_override("font_size", BUFF_SIDE_TITLE_FONT_SIZE)
+	var slots_column: VBoxContainer = strip.get_node_or_null("SlotsColumn") as VBoxContainer
+	if slots_column != null:
+		slots_column.add_theme_constant_override("separation", BUFF_SIDE_SLOT_SEPARATION_PX)
+		slots_column.offset_top = 4.0
+	for idx in [1, 2, 3]:
+		var slot: Panel = strip.get_node_or_null("SlotsColumn/OpponentSlot%d" % idx) as Panel
+		if slot != null:
+			slot.custom_minimum_size = Vector2(BUFF_SIDE_SLOT_SIZE_PX, BUFF_SIDE_SLOT_SIZE_PX)
+		var used_mark: Label = strip.get_node_or_null("SlotsColumn/OpponentSlot%d/UsedMark" % idx) as Label
+		if used_mark != null:
+			used_mark.add_theme_font_size_override("font_size", BUFF_SIDE_USED_MARK_FONT_SIZE)
 
 func _layout_teammate_strip_left_of_player_slots() -> void:
 	if _ally_buff_strip == null or _player_buff_strip == null:
 		return
 	var ally_strip: Control = _ally_buff_strip as Control
 	var player_strip: Control = _player_buff_strip as Control
+	if ally_strip == null or player_strip == null:
+		return
+	if not ally_strip.visible or not player_strip.visible:
+		return
 	var parent: Control = ally_strip.get_parent() as Control
 	if parent == null:
 		return
 	var slots_rect: Rect2 = _player_slots_cluster_global_rect(player_strip)
 	if slots_rect.size.x <= 0.0 or slots_rect.size.y <= 0.0:
 		return
-	var target_size: Vector2 = ally_strip.size
-	if target_size.x < 96.0 or target_size.y < 220.0:
-		target_size = Vector2(112.0, 336.0)
+	var bottom_buffer: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as Control
+	var parent_rect: Rect2 = _bottom_buffer_layout_rect(bottom_buffer if bottom_buffer != null else parent)
+	var target_size: Vector2 = _resolved_side_strip_size(parent_rect)
 	var gap_px: float = 24.0
-	var parent_rect: Rect2 = parent.get_global_rect()
+	_compact_side_strip(ally_strip)
 	var target_pos: Vector2 = Vector2(
 		slots_rect.position.x - target_size.x - gap_px,
 		slots_rect.position.y + slots_rect.size.y - target_size.y
@@ -1273,6 +1616,9 @@ func _sync_side_strip(strip: Control, players: Dictionary, seats: Array, strip_t
 		return
 	var side_data: Dictionary = _aggregate_side_data(players, deduped)
 	var slots_active: int = int(side_data.get("slots_active", 0))
+	var is_opponent_strip: bool = (strip == _opponent_buff_strip or strip == _opponent_buff_strip_b)
+	if is_opponent_strip:
+		slots_active = maxi(3, slots_active)
 	if slots_active <= 0 and not deduped.is_empty():
 		# Layout-first fallback: keep side strips visible even if per-seat slot data
 		# has not hydrated yet for this frame.
@@ -1427,18 +1773,22 @@ func _update_power_bar_visibility() -> void:
 	var power_bar: Control = get_node_or_null(SHELL_POWER_BAR_PATH) as Control
 	if power_bar == null:
 		return
-	var is_live: bool = _is_match_live()
-	power_bar.visible = is_live
-	if _last_power_bar_visible != int(is_live):
-		_last_power_bar_visible = int(is_live)
+	var should_show: bool = _is_match_live()
+	power_bar.visible = should_show
+	if _last_power_bar_visible != int(should_show):
+		_last_power_bar_visible = int(should_show)
 		SFLog.info("POWERBAR_VISIBLE", {
-			"visible": is_live,
+			"visible": should_show,
 			"prematch_ms": int(OpsState.prematch_remaining_ms),
 			"phase": int(OpsState.match_phase)
 		})
 
 func _is_match_live() -> bool:
-	return int(OpsState.match_phase) == int(OpsState.MatchPhase.RUNNING) and int(OpsState.prematch_remaining_ms) <= 0
+	var phase: int = int(OpsState.match_phase)
+	var prematch_ms: int = int(OpsState.prematch_remaining_ms)
+	if phase == int(OpsState.MatchPhase.PREMATCH):
+		return prematch_ms <= PREMATCH_POWERBAR_REVEAL_WINDOW_MS
+	return phase == int(OpsState.MatchPhase.RUNNING) and prematch_ms <= 0
 
 func _maybe_start_soak_perf() -> bool:
 	var config: Dictionary = _parse_soak_perf_config(OS.get_cmdline_user_args())

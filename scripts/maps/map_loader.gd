@@ -3,9 +3,12 @@ extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
-const CANON_GRID_W := 8
-const CANON_GRID_H := 12
+const CANON_GRID_W := 18
+const CANON_GRID_H := 28
 const CANON_CELL_SIZE := 64
+const RUNTIME_STD_GRID_W := 18
+const RUNTIME_STD_GRID_H := 28
+const FORCE_RUNTIME_STD_GRID := true
 static func list_maps() -> Array[String]:
 	return MAP_REGISTRY.list_map_paths()
 
@@ -48,7 +51,7 @@ static func load_map(path_or_id: String) -> Dictionary:
 			return _fail("v1.xy invalid dims %dx%d path=%s" % [width, height, resolved])
 		if width != CANON_GRID_W or height != CANON_GRID_H:
 			if _is_dev_runner() and width == CANON_GRID_H and height == CANON_GRID_W:
-				SFLog.debug("MAP_LOADER: dev transpose v1.xy width/height -> 8x12")
+				SFLog.debug("MAP_LOADER: dev transpose v1.xy width/height -> %dx%d" % [CANON_GRID_W, CANON_GRID_H])
 				v1_source = _transpose_v1_xy(v1_source)
 				width = _as_int(v1_source.get("width", 0), 0)
 				height = _as_int(v1_source.get("height", 0), 0)
@@ -63,11 +66,18 @@ static func load_map(path_or_id: String) -> Dictionary:
 		var model: Dictionary = _load_v1xy(v1_source, resolved)
 		if model.is_empty():
 			return _fail("v1.xy load failed path=%s" % resolved)
-		_log_map_summary(resolved, schema_id, width, height, model)
+		if FORCE_RUNTIME_STD_GRID:
+			model = _normalize_model_to_runtime_grid(model, resolved)
+		var model_w: int = int(model.get("grid_w", width))
+		var model_h: int = int(model.get("grid_h", height))
+		_log_map_summary(resolved, schema_id, model_w, model_h, model)
 		return _ok(model)
 
-	var grid_w: int = int(data.get("grid_width", data.get("grid_w", 0)))
-	var grid_h: int = int(data.get("grid_height", data.get("grid_h", 0)))
+	var normalized_data: Dictionary = data
+	if FORCE_RUNTIME_STD_GRID:
+		normalized_data = _normalize_model_to_runtime_grid(data, resolved)
+	var grid_w: int = int(normalized_data.get("grid_width", normalized_data.get("grid_w", normalized_data.get("width", 0))))
+	var grid_h: int = int(normalized_data.get("grid_height", normalized_data.get("grid_h", normalized_data.get("height", 0))))
 	if grid_w <= 0 or grid_h <= 0:
 		return _fail("grid_invalid path=%s grid=%dx%d" % [resolved, grid_w, grid_h])
 	if grid_w != CANON_GRID_W or grid_h != CANON_GRID_H:
@@ -79,7 +89,7 @@ static func load_map(path_or_id: String) -> Dictionary:
 			resolved
 		])
 
-	var result: Dictionary = MAP_SCHEMA.validate_map(data)
+	var result: Dictionary = MAP_SCHEMA.validate_map(normalized_data)
 	if not bool(result.get("ok", false)):
 		var errors: Array = result.get("errors", []) as Array
 		var idx := 0
@@ -92,8 +102,8 @@ static func load_map(path_or_id: String) -> Dictionary:
 			idx += 1
 		return _fail("validation_failed path=%s" % resolved)
 
-	_log_map_summary(resolved, schema_id, grid_w, grid_h, data)
-	return _ok(data)
+	_log_map_summary(resolved, schema_id, grid_w, grid_h, normalized_data)
+	return _ok(normalized_data)
 
 static func _ok(data: Dictionary) -> Dictionary:
 	return {
@@ -191,6 +201,23 @@ static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> 
 		out["width"] = width
 	if height > 0:
 		out["height"] = height
+	var half_quantized_grid: bool = _should_normalize_half_grid(out, width, height)
+	if half_quantized_grid:
+		var src_w: int = width
+		var src_h: int = height
+		width = int(floor(float(width) * 0.5))
+		height = int(floor(float(height) * 0.5))
+		out["width"] = width
+		out["height"] = height
+		if out.has("entities") and typeof(out.get("entities", null)) == TYPE_ARRAY:
+			out["entities"] = _normalize_entities_half_grid(out.get("entities", []) as Array)
+		if out.has("walls") and typeof(out.get("walls", null)) == TYPE_ARRAY:
+			out["walls"] = _normalize_walls_half_grid(out.get("walls", []) as Array)
+		SFLog.warn("MAP_LOADER_HALF_GRID_NORMALIZED", {
+			"path": path,
+			"from_grid": Vector2i(src_w, src_h),
+			"to_grid": Vector2i(width, height)
+		})
 	if out.has("entities"):
 		return out
 	var nodes_v: Variant = out.get("nodes", null)
@@ -206,7 +233,9 @@ static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> 
 				continue
 			var node: Dictionary = node_any as Dictionary
 			var kind: String = str(node.get("kind", "hive")).strip_edges().to_lower()
-			var pos_xy: Vector2i = _extract_xy_pair(node.get("pos", node))
+			var pos_xy: Vector2 = _extract_xy_pairf(node.get("pos", node))
+			if half_quantized_grid:
+				pos_xy = _normalize_half_grid_cellf(pos_xy)
 			if pos_xy.x < 0 or pos_xy.y < 0:
 				continue
 			var owner_raw: String = str(node.get("owner", node.get("team", ""))).strip_edges()
@@ -265,7 +294,9 @@ static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> 
 		if typeof(points_v) != TYPE_ARRAY:
 			continue
 		for point_any in points_v as Array:
-			var hive_xy: Vector2i = _extract_xy_pair(point_any)
+			var hive_xy: Vector2 = _extract_xy_pairf(point_any)
+			if half_quantized_grid:
+				hive_xy = _normalize_half_grid_cellf(hive_xy)
 			if hive_xy.x < 0 or hive_xy.y < 0:
 				continue
 			entities.append({
@@ -279,7 +310,9 @@ static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> 
 	var towers_v: Variant = out.get("towers", [])
 	if typeof(towers_v) == TYPE_ARRAY:
 		for tower_any in towers_v as Array:
-			var tower_xy: Vector2i = _extract_xy_pair(tower_any)
+			var tower_xy: Vector2 = _extract_xy_pairf(tower_any)
+			if half_quantized_grid:
+				tower_xy = _normalize_half_grid_cellf(tower_xy)
 			if tower_xy.x < 0 or tower_xy.y < 0:
 				continue
 			entities.append({
@@ -292,7 +325,9 @@ static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> 
 	var barracks_v: Variant = out.get("barracks", [])
 	if typeof(barracks_v) == TYPE_ARRAY:
 		for barracks_any in barracks_v as Array:
-			var barracks_xy: Vector2i = _extract_xy_pair(barracks_any)
+			var barracks_xy: Vector2 = _extract_xy_pairf(barracks_any)
+			if half_quantized_grid:
+				barracks_xy = _normalize_half_grid_cellf(barracks_xy)
 			if barracks_xy.x < 0 or barracks_xy.y < 0:
 				continue
 			entities.append({
@@ -329,6 +364,192 @@ static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> 
 	})
 	return out
 
+static func _should_normalize_half_grid(data: Dictionary, width: int, height: int) -> bool:
+	# Native runtime is 18x28. Keep authored coordinates exactly as provided.
+	return false
+
+static func _normalize_half_grid_cell(cell: Vector2i) -> Vector2i:
+	if cell.x < 0 or cell.y < 0:
+		return cell
+	return Vector2i(
+		int(floor(float(cell.x) * 0.5)),
+		int(floor(float(cell.y) * 0.5))
+	)
+
+static func _normalize_half_grid_cellf(cell: Vector2) -> Vector2:
+	if cell.x < 0.0 or cell.y < 0.0:
+		return cell
+	return Vector2(cell.x * 0.5, cell.y * 0.5)
+
+static func _normalize_entities_half_grid(entities_in: Array) -> Array:
+	var entities_out: Array = []
+	for e_any in entities_in:
+		if typeof(e_any) != TYPE_DICTIONARY:
+			entities_out.append(e_any)
+			continue
+		var e: Dictionary = (e_any as Dictionary).duplicate(true)
+		if e.has("x"):
+			e["x"] = float(e.get("x", 0.0)) * 0.5
+		if e.has("y"):
+			e["y"] = float(e.get("y", 0.0)) * 0.5
+		var gp_v: Variant = e.get("grid_pos", null)
+		if typeof(gp_v) == TYPE_ARRAY:
+			var gp: Array = gp_v as Array
+			if gp.size() >= 2:
+				gp[0] = float(gp[0]) * 0.5
+				gp[1] = float(gp[1]) * 0.5
+				e["grid_pos"] = gp
+		if e.has("x1"):
+			e["x1"] = float(e.get("x1", 0.0)) * 0.5
+		if e.has("y1"):
+			e["y1"] = float(e.get("y1", 0.0)) * 0.5
+		if e.has("x2"):
+			e["x2"] = float(e.get("x2", 0.0)) * 0.5
+		if e.has("y2"):
+			e["y2"] = float(e.get("y2", 0.0)) * 0.5
+		entities_out.append(e)
+	return entities_out
+
+static func _normalize_walls_half_grid(walls_in: Array) -> Array:
+	var walls_out: Array = []
+	for w_any in walls_in:
+		if typeof(w_any) != TYPE_DICTIONARY:
+			walls_out.append(w_any)
+			continue
+		var w: Dictionary = (w_any as Dictionary).duplicate(true)
+		if w.has("x"):
+			w["x"] = int(floor(float(w.get("x", 0.0)) * 0.5))
+		if w.has("y"):
+			w["y"] = int(floor(float(w.get("y", 0.0)) * 0.5))
+		if w.has("x1"):
+			w["x1"] = float(w.get("x1", 0.0)) * 0.5
+		if w.has("y1"):
+			w["y1"] = float(w.get("y1", 0.0)) * 0.5
+		if w.has("x2"):
+			w["x2"] = float(w.get("x2", 0.0)) * 0.5
+		if w.has("y2"):
+			w["y2"] = float(w.get("y2", 0.0)) * 0.5
+		walls_out.append(w)
+	return walls_out
+
+static func _normalize_model_to_runtime_grid(model_in: Dictionary, path: String) -> Dictionary:
+	var out: Dictionary = model_in.duplicate(true)
+	var src_w: int = int(out.get("grid_w", out.get("grid_width", out.get("width", 0))))
+	var src_h: int = int(out.get("grid_h", out.get("grid_height", out.get("height", 0))))
+	if src_w <= 0 or src_h <= 0:
+		return out
+	if src_w == RUNTIME_STD_GRID_W and src_h == RUNTIME_STD_GRID_H:
+		_set_runtime_grid_dims(out, src_w, src_h)
+		return out
+	out["hives"] = _normalize_grid_entry_array(out.get("hives", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	out["towers"] = _normalize_grid_entry_array(out.get("towers", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	out["barracks"] = _normalize_grid_entry_array(out.get("barracks", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	out["entities"] = _normalize_grid_entry_array(out.get("entities", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	out["nodes"] = _normalize_grid_entry_array(out.get("nodes", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	out["walls"] = _normalize_wall_entry_array(out.get("walls", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	_set_runtime_grid_dims(out, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	SFLog.warn("MAP_LOADER_RUNTIME_GRID_FORCED", {
+		"path": path,
+		"from_grid": Vector2i(src_w, src_h),
+		"to_grid": Vector2i(RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	})
+	return out
+
+static func _set_runtime_grid_dims(out: Dictionary, w: int, h: int) -> void:
+	out["grid_w"] = w
+	out["grid_h"] = h
+	out["grid_width"] = w
+	out["grid_height"] = h
+	out["width"] = w
+	out["height"] = h
+	var grid_v: Variant = out.get("grid", null)
+	if typeof(grid_v) == TYPE_DICTIONARY:
+		var grid_d: Dictionary = (grid_v as Dictionary).duplicate(true)
+		grid_d["w"] = w
+		grid_d["h"] = h
+		out["grid"] = grid_d
+
+static func _normalize_grid_entry_array(entries_v: Variant, src_w: int, src_h: int, dst_w: int, dst_h: int) -> Array:
+	if typeof(entries_v) != TYPE_ARRAY:
+		return []
+	var entries: Array = entries_v as Array
+	var out: Array = []
+	for entry_any in entries:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			out.append(entry_any)
+			continue
+		var d: Dictionary = (entry_any as Dictionary).duplicate(true)
+		_normalize_grid_dict_in_place(d, src_w, src_h, dst_w, dst_h)
+		out.append(d)
+	return out
+
+static func _normalize_grid_dict_in_place(d: Dictionary, src_w: int, src_h: int, dst_w: int, dst_h: int) -> void:
+	if d.has("x"):
+		d["x"] = _map_cell_coord_int(float(d.get("x", 0.0)), src_w, dst_w)
+	if d.has("y"):
+		d["y"] = _map_cell_coord_int(float(d.get("y", 0.0)), src_h, dst_h)
+	if d.has("gx"):
+		d["gx"] = _map_cell_coord_int(float(d.get("gx", 0.0)), src_w, dst_w)
+	if d.has("gy"):
+		d["gy"] = _map_cell_coord_int(float(d.get("gy", 0.0)), src_h, dst_h)
+	var gp_v: Variant = d.get("grid_pos", null)
+	if typeof(gp_v) == TYPE_ARRAY:
+		var gp: Array = gp_v as Array
+		if gp.size() >= 2:
+			gp[0] = _map_cell_coord_int(float(gp[0]), src_w, dst_w)
+			gp[1] = _map_cell_coord_int(float(gp[1]), src_h, dst_h)
+			d["grid_pos"] = gp
+	var pos_v: Variant = d.get("pos", null)
+	if typeof(pos_v) == TYPE_DICTIONARY:
+		var pos_d: Dictionary = (pos_v as Dictionary).duplicate(true)
+		if pos_d.has("x"):
+			pos_d["x"] = _map_cell_coord_int(float(pos_d.get("x", 0.0)), src_w, dst_w)
+		if pos_d.has("y"):
+			pos_d["y"] = _map_cell_coord_int(float(pos_d.get("y", 0.0)), src_h, dst_h)
+		d["pos"] = pos_d
+	elif typeof(pos_v) == TYPE_ARRAY:
+		var pos_a: Array = pos_v as Array
+		if pos_a.size() >= 2:
+			pos_a[0] = _map_cell_coord_int(float(pos_a[0]), src_w, dst_w)
+			pos_a[1] = _map_cell_coord_int(float(pos_a[1]), src_h, dst_h)
+			d["pos"] = pos_a
+
+static func _normalize_wall_entry_array(entries_v: Variant, src_w: int, src_h: int, dst_w: int, dst_h: int) -> Array:
+	if typeof(entries_v) != TYPE_ARRAY:
+		return []
+	var entries: Array = entries_v as Array
+	var out: Array = []
+	for entry_any in entries:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			out.append(entry_any)
+			continue
+		var d: Dictionary = (entry_any as Dictionary).duplicate(true)
+		if d.has("x"):
+			d["x"] = _map_cell_coord_int(float(d.get("x", 0.0)), src_w, dst_w)
+		if d.has("y"):
+			d["y"] = _map_cell_coord_int(float(d.get("y", 0.0)), src_h, dst_h)
+		if d.has("x1"):
+			d["x1"] = _map_wall_coord_float(float(d.get("x1", 0.0)), src_w, dst_w)
+		if d.has("y1"):
+			d["y1"] = _map_wall_coord_float(float(d.get("y1", 0.0)), src_h, dst_h)
+		if d.has("x2"):
+			d["x2"] = _map_wall_coord_float(float(d.get("x2", 0.0)), src_w, dst_w)
+		if d.has("y2"):
+			d["y2"] = _map_wall_coord_float(float(d.get("y2", 0.0)), src_h, dst_h)
+		out.append(d)
+	return out
+
+static func _map_cell_coord_int(v: float, src_cells: int, dst_cells: int) -> int:
+	if src_cells <= 1 or dst_cells <= 1:
+		return 0
+	var mapped: float = v * (float(dst_cells - 1) / float(src_cells - 1))
+	return clampi(int(round(mapped)), 0, dst_cells - 1)
+
+static func _map_wall_coord_float(v: float, src_cells: int, dst_cells: int) -> float:
+	if src_cells <= 0 or dst_cells <= 0:
+		return 0.0
+	return v * (float(dst_cells) / float(src_cells))
+
 static func _owner_id_from_compact_group(owner_key: String) -> int:
 	var normalized: String = owner_key.strip_edges().to_upper()
 	var owner_id: int = MAP_SCHEMA.owner_to_owner_id(normalized)
@@ -358,6 +579,24 @@ static func _extract_xy_pair(v: Variant) -> Vector2i:
 				return Vector2i(_as_int(gp[0], -1), _as_int(gp[1], -1))
 	return Vector2i(-1, -1)
 
+static func _extract_xy_pairf(v: Variant) -> Vector2:
+	if typeof(v) == TYPE_ARRAY:
+		var arr: Array = v as Array
+		if arr.size() >= 2:
+			return Vector2(_as_float(arr[0], -1.0), _as_float(arr[1], -1.0))
+	if typeof(v) == TYPE_DICTIONARY:
+		var d: Dictionary = v as Dictionary
+		var x: float = _as_float(d.get("x", d.get("gx", -1.0)), -1.0)
+		var y: float = _as_float(d.get("y", d.get("gy", -1.0)), -1.0)
+		if x >= 0.0 and y >= 0.0:
+			return Vector2(x, y)
+		var gp_v: Variant = d.get("grid_pos", null)
+		if typeof(gp_v) == TYPE_ARRAY:
+			var gp: Array = gp_v as Array
+			if gp.size() >= 2:
+				return Vector2(_as_float(gp[0], -1.0), _as_float(gp[1], -1.0))
+	return Vector2(-1.0, -1.0)
+
 static func _v1_kind(e: Dictionary) -> String:
 	var k: String = ""
 	if e.has("kind"):
@@ -379,6 +618,15 @@ static func _as_int(v: Variant, fallback: int) -> int:
 			return int(s)
 	return fallback
 
+static func _as_float(v: Variant, fallback: float) -> float:
+	if typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT:
+		return float(v)
+	if typeof(v) == TYPE_STRING:
+		var s: String = str(v)
+		if s.is_valid_float():
+			return float(s)
+	return fallback
+
 static func _resolve_v1_ref(raw_id: Variant, id_map: Dictionary) -> int:
 	if raw_id is int:
 		return int(raw_id)
@@ -398,14 +646,14 @@ static func _hive_pos_by_id(hives: Array) -> Dictionary:
 		var id := int(h.get("id", 0))
 		if id <= 0:
 			continue
-		var x := int(h.get("x", -1))
-		var y := int(h.get("y", -1))
+		var x: float = float(h.get("x", -1.0))
+		var y: float = float(h.get("y", -1.0))
 		var gp: Variant = h.get("grid_pos", null)
 		if gp is Array and gp.size() >= 2:
-			x = int(gp[0])
-			y = int(gp[1])
-		if x >= 0 and y >= 0:
-			out[id] = Vector2(float(x), float(y))
+			x = float(gp[0])
+			y = float(gp[1])
+		if x >= 0.0 and y >= 0.0:
+			out[id] = Vector2(x, y)
 	return out
 
 static func _filter_lanes_by_walls(lanes: Array, hive_pos_by_id: Dictionary, wall_segments: Array) -> Array:
@@ -497,16 +745,18 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		if id_str.is_empty():
 			id_str = "e_%d" % i
 
-		var x: int = _as_int(e.get("x", null), -999)
-		var y: int = _as_int(e.get("y", null), -999)
-		if x < 0 or y < 0:
+		var x_f: float = _as_float(e.get("x", null), -999.0)
+		var y_f: float = _as_float(e.get("y", null), -999.0)
+		if x_f < 0.0 or y_f < 0.0:
 			if SFLog.LOGGING_ENABLED:
 				push_error("MAP_LOADER: v1.xy entity[%s] missing x/y path=%s" % [id_str, path])
 			continue
-		if x >= w or y >= h:
+		if x_f >= float(w) or y_f >= float(h):
 			if SFLog.LOGGING_ENABLED:
-				push_error("MAP_LOADER: v1.xy entity[%s] out of bounds x=%d y=%d path=%s" % [id_str, x, y, path])
+				push_error("MAP_LOADER: v1.xy entity[%s] out of bounds x=%s y=%s path=%s" % [id_str, str(x_f), str(y_f), path])
 			continue
+		var x_i: int = int(floor(x_f))
+		var y_i: int = int(floor(y_f))
 
 		var kind: String = _v1_kind(e)
 		if kind.is_empty():
@@ -544,9 +794,9 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 
 			hives.append({
 				"id": hive_id,
-				"x": x,
-				"y": y,
-				"grid_pos": [x, y],
+				"x": x_f,
+				"y": y_f,
+				"grid_pos": [x_f, y_f],
 				"owner_id": owner_id,
 				"kind": "Hive",
 				"power": maxi(1, _as_int(e.get("power", 10), 10))
@@ -567,7 +817,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 			var owner_id: int = _as_int(e.get("owner_id", 0), 0)
 			towers.append({
 				"id": tower_id,
-				"grid_pos": [x, y],
+				"grid_pos": [x_i, y_i],
 				"required_hive_ids": req,
 				"control_hive_ids": control_ids,
 				"owner_id": owner_id
@@ -588,7 +838,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 			var owner_id: int = _as_int(e.get("owner_id", 0), 0)
 			barracks.append({
 				"id": barracks_id,
-				"grid_pos": [x, y],
+				"grid_pos": [x_i, y_i],
 				"required_hive_ids": req,
 				"control_hive_ids": control_ids,
 				"owner_id": owner_id
@@ -599,7 +849,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 				next_spawn_id += 1
 			spawns.append({
 				"id": spawn_id,
-				"grid_pos": [x, y]
+				"grid_pos": [x_i, y_i]
 			})
 		elif kind == "wall" or kind == "walls":
 			var dir := str(e.get("dir", e.get("orientation", e.get("axis", "")))).to_lower()
@@ -611,9 +861,9 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 					"y2": float(e.get("y2"))
 				})
 			elif dir == "v" or dir == "vertical":
-				walls.append({"dir": "v", "x": x, "y": y})
+				walls.append({"dir": "v", "x": x_i, "y": y_i})
 			elif dir == "h" or dir == "horizontal":
-				walls.append({"dir": "h", "x": x, "y": y})
+				walls.append({"dir": "h", "x": x_i, "y": y_i})
 		else:
 			if SFLog.LOGGING_ENABLED:
 				push_error("MAP_LOADER: v1.xy unknown kind='%s' id=%s path=%s" % [kind, id_str, path])

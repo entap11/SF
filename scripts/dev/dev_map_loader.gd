@@ -207,10 +207,11 @@ func _on_load_pressed() -> void:
 	MAP_APPLIER.apply_map(_arena, d)
 	SFLog.debug("DEV_MAP_LOADER: apply_map DONE")
 
-	_center_cam()
 	if _arena.has_method("notify_map_built"):
 		_arena.call("notify_map_built")
-	if _arena.has_method("fitcam_once"):
+	if _arena.has_method("apply_camera_fit_next_frame"):
+		_arena.call("apply_camera_fit_next_frame", "dev_map_loader_load")
+	elif _arena.has_method("fitcam_once"):
 		_arena.call("fitcam_once")
 	_boot_done = true
 	# After we successfully load once, the dev loader should never be able to fire again in-game.
@@ -302,9 +303,7 @@ func _clear_map(arena: Node2D) -> void:
 		c.queue_free()
 
 func _center_cam() -> void:
-	var world := Vector2(CANON_GRID_W * cell_size, CANON_GRID_H * cell_size)
-	if _arena.has_method("cam_set"):
-		var cam := _arena.get_node("Camera2D") as Camera2D
-		_arena.call("cam_set", "dev_loader_center", world * 0.5, cam.zoom)
-	else:
-		(_arena.get_node("Camera2D") as Camera2D).global_position = world * 0.5
+	if _arena == null:
+		return
+	if _arena.has_method("apply_camera_fit_next_frame"):
+		_arena.call("apply_camera_fit_next_frame", "dev_loader_center")

@@ -11,19 +11,21 @@ offset_left = 0.0
 offset_top = 0.0
 offset_right = 0.0
 offset_bottom = 0.0
-mouse_filter = 2
+mouse_filter = 0
+custom_minimum_size = Vector2(0, 760)
 script = ExtResource("1")
 
 [node name="VBox" type="VBoxContainer" parent="."]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = -12.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = -20.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_constants/separation = 14
 
 [node name="Header" type="Label" parent="VBox"]
 layout_mode = 2
@@ -210,6 +212,18 @@ text = "Analytics Dashboard"
 [node name="AdminOpenButton" type="Button" parent="VBox/AdminSection/AdminRow"]
 layout_mode = 2
 text = "Admin Login"
+
+[node name="PowerBarThemeRow" type="HBoxContainer" parent="VBox/AdminSection"]
+layout_mode = 2
+
+[node name="PowerBarThemeLabel" type="Label" parent="VBox/AdminSection/PowerBarThemeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "PowerBar Theme"
+
+[node name="PowerBarThemeOption" type="OptionButton" parent="VBox/AdminSection/PowerBarThemeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
 
 [node name="AdminStatusLabel" type="Label" parent="VBox/AdminSection"]
 layout_mode = 2

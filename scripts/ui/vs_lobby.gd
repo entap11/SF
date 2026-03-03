@@ -4,6 +4,10 @@ const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 
 signal closed
 
+const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
+const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/atlas_free_roll_font.tres"
+const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 const BASE_MIN_PLAYERS := 5
 const BASE_MAX_PLAYERS := 10
 const MISS_N_OUT_MIN_PLAYERS := 4
@@ -60,6 +64,9 @@ var _session_role: String = ""
 var _quick_ticket_id: String = ""
 var _search_elapsed_sec: int = 0
 var _debug_filled: bool = false
+var _font_regular: Font
+var _font_semibold: Font
+var _font_free_roll_atlas: Font
 
 func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, options: Dictionary = {}) -> void:
 	_mode = mode
@@ -84,6 +91,8 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 		_sync_dev_button_text()
 
 func _ready() -> void:
+	_load_fonts()
+	_apply_static_fonts()
 	back_button.pressed.connect(_on_back_pressed)
 	quick_button.pressed.connect(_on_quick_match)
 	sms_button.pressed.connect(_on_sms_invite)
@@ -754,14 +763,17 @@ func _sync_quick_button_text() -> void:
 		else:
 			quick_button.text = "Play Contest"
 		quick_button.disabled = false
+		_apply_quick_button_font()
 		return
 	if not _quick_ticket_id.is_empty():
 		quick_button.text = "Cancel Search"
 		quick_button.disabled = false
+		_apply_quick_button_font()
 		return
 	if _session_id.is_empty():
 		quick_button.text = "Quick Match"
 		quick_button.disabled = false
+		_apply_quick_button_font()
 		return
 	var handshake: Node = _handshake()
 	var session: Dictionary = {}
@@ -770,23 +782,28 @@ func _sync_quick_button_text() -> void:
 	if session.is_empty():
 		quick_button.text = "Quick Match"
 		quick_button.disabled = false
+		_apply_quick_button_font()
 		return
 	if _can_start_sync_match():
 		quick_button.text = "Start Match"
 		quick_button.disabled = false
+		_apply_quick_button_font()
 		return
 	var guest: Dictionary = session.get("guest", {}) as Dictionary
 	var has_guest: bool = not str(guest.get("uid", "")).strip_edges().is_empty()
 	if not has_guest:
 		quick_button.text = "Waiting..."
 		quick_button.disabled = true
+		_apply_quick_button_font()
 		return
 	if _is_local_ready(session):
 		quick_button.text = "Unready"
 		quick_button.disabled = false
+		_apply_quick_button_font()
 		return
 	quick_button.text = "Ready Up"
 	quick_button.disabled = false
+	_apply_quick_button_font()
 
 func _sync_join_row_visibility() -> void:
 	if join_row == null:
@@ -879,3 +896,61 @@ func _format_duration(total_seconds: int) -> String:
 	if hours > 0:
 		return "%02d:%02d:%02d" % [hours, minutes, seconds]
 	return "%02d:%02d" % [minutes, seconds]
+
+func _load_fonts() -> void:
+	_font_regular = load(FONT_REGULAR_PATH)
+	_font_semibold = load(FONT_SEMIBOLD_PATH)
+	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
+
+func _apply_static_fonts() -> void:
+	_apply_free_roll_atlas_font(title_label, 20)
+	_apply_font(back_button, _font_regular, 14)
+	_apply_font(summary_label, _font_regular, 14)
+	_apply_quick_button_font()
+	_apply_free_roll_atlas_font(sms_button, 13)
+	_apply_font(dev_min_override_button, _font_regular, 12)
+	_apply_font(status_label, _font_regular, 13)
+	_apply_font(slots_label, _font_regular, 13)
+	_apply_font(invite_label, _font_regular, 13)
+	_apply_font(join_code, _font_regular, 13)
+	_apply_font(join_button, _font_regular, 13)
+	_apply_font(countdown_label, _font_semibold, 13)
+
+func _apply_quick_button_font() -> void:
+	if not _apply_free_roll_atlas_font(quick_button, 13):
+		_apply_font(quick_button, _font_semibold, 13)
+
+func _apply_font(node: Control, font: Font, size: int) -> void:
+	if node == null or font == null:
+		return
+	node.add_theme_font_override("font", font)
+	node.add_theme_font_size_override("font_size", maxi(1, size))
+
+func _text_uses_free_roll_charset(text: String) -> bool:
+	var source := text.to_upper()
+	for i in source.length():
+		var ch := source.substr(i, 1)
+		if FONT_FREE_ROLL_SUPPORTED.find(ch) == -1:
+			return false
+	return true
+
+func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
+	if node == null or _font_free_roll_atlas == null:
+		return false
+	var raw_text := ""
+	if node is Label:
+		raw_text = (node as Label).text
+	elif node is BaseButton:
+		raw_text = (node as BaseButton).text
+	if raw_text == "":
+		return false
+	var upper_text := raw_text.to_upper()
+	if not _text_uses_free_roll_charset(upper_text):
+		return false
+	if node is Label:
+		(node as Label).text = upper_text
+	elif node is BaseButton:
+		(node as BaseButton).text = upper_text
+	node.add_theme_font_override("font", _font_free_roll_atlas)
+	node.add_theme_font_size_override("font_size", maxi(1, size))
+	return true

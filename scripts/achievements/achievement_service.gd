@@ -5,6 +5,10 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const ACH_BP_LEVEL_1: String = "ACH_BP_LEVEL_1"
 const POWERBAR_UNLOCK_THEME_ID: String = "upgraded_dynamic"
 const POWERBAR_FALLBACK_THEME_ID: String = "upgraded"
+const POWERBAR_THEME_BASE: String = "base"
+const POWERBAR_THEME_UPGRADED: String = "upgraded"
+const POWERBAR_THEME_UPGRADED_DYNAMIC: String = "upgraded_dynamic"
+const POWERBAR_THEME_UPGRADED_BOIL: String = "upgraded_boil"
 const DEBUG_TARGET_DISPLAY_NAME: String = "Swarmfather"
 
 var _target_skip_logged: bool = false
@@ -33,6 +37,12 @@ func ensure_bp_level_achievements(bp_level: int) -> void:
 func _apply_phase2_theme_if_needed(profile_manager: Node) -> void:
 	if not profile_manager.has_method("set_powerbar_theme"):
 		return
+	if profile_manager.has_method("get_powerbar_theme"):
+		var current_theme: String = str(profile_manager.call("get_powerbar_theme")).strip_edges().to_lower()
+		if current_theme == POWERBAR_THEME_UPGRADED_DYNAMIC or current_theme == POWERBAR_THEME_UPGRADED_BOIL:
+			return
+		if current_theme != POWERBAR_THEME_BASE and current_theme != POWERBAR_THEME_UPGRADED:
+			return
 	var desired_theme: String = _resolve_unlock_theme(profile_manager)
 	profile_manager.call("set_powerbar_theme", desired_theme)
 	print("PowerBar theme set to %s" % desired_theme)

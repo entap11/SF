@@ -162,14 +162,6 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		"grid_w": int(dims.x),
 		"grid_h": int(dims.y)
 	}, "", 0)
-	if arena.has_method("_apply_canon_camera_fit"):
-		arena.call("_apply_canon_camera_fit", "map_applier")
-		SFLog.allow_tag("MAP_FITCAM_APPLIED")
-		SFLog.warn("MAP_FITCAM_APPLIED", {
-			"map_id": map_id,
-			"grid_w": int(dims.x),
-			"grid_h": int(dims.y)
-		}, "", 0)
 	SFLog.info("MAP_APPLIED_STATE", {
 		"map_id": map_id,
 		"hive_count": built_state.hives.size(),
@@ -208,6 +200,14 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		arena.call("mark_render_dirty", "map_apply")
 	if arena.has_method("_push_render_model"):
 		arena.call("_push_render_model")
+	if arena.has_method("apply_camera_fit_next_frame"):
+		arena.call("apply_camera_fit_next_frame", "map_applier")
+		SFLog.allow_tag("MAP_FITCAM_APPLIED")
+		SFLog.warn("MAP_FITCAM_APPLIED", {
+			"map_id": map_id,
+			"grid_w": int(dims.x),
+			"grid_h": int(dims.y)
+		}, "", 0)
 
 	# === OWNER SANITY CHECK (log once per map apply) ===
 	var p1 := 0
@@ -251,6 +251,9 @@ static func _is_runtime_non_dev_context() -> bool:
 	return tree.get_root().get_node_or_null("DevMapRunner") == null
 
 static func _infer_active_seats_from_map(map_dict: Dictionary) -> Array:
+	var declared: Array = _active_seats_from_declared_mode(map_dict)
+	if not declared.is_empty():
+		return declared
 	var seats: Array = []
 	var hives_v: Variant = map_dict.get("hives", [])
 	if typeof(hives_v) == TYPE_ARRAY:
@@ -273,6 +276,33 @@ static func _infer_active_seats_from_map(map_dict: Dictionary) -> Array:
 			seats.insert(0, 1)
 	seats.sort()
 	return seats
+
+static func _active_seats_from_declared_mode(map_dict: Dictionary) -> Array:
+	var mode: String = _mode_from_map_descriptor(map_dict)
+	match mode:
+		"1p", "2p":
+			return [1, 2]
+		"3p":
+			return [1, 2, 3]
+		"4p":
+			return [1, 2, 3, 4]
+		_:
+			return []
+
+static func _mode_from_map_descriptor(map_dict: Dictionary) -> String:
+	var mode_raw: String = str(map_dict.get("mode", "")).strip_edges().to_lower()
+	if mode_raw == "1p" or mode_raw == "2p" or mode_raw == "3p" or mode_raw == "4p":
+		return mode_raw
+	var map_id: String = str(map_dict.get("id", map_dict.get("_id", map_dict.get("map_id", "")))).strip_edges().to_lower()
+	if map_id.ends_with("__1p"):
+		return "1p"
+	if map_id.ends_with("__2p"):
+		return "2p"
+	if map_id.ends_with("__3p"):
+		return "3p"
+	if map_id.ends_with("__4p"):
+		return "4p"
+	return ""
 
 static func _resolve_local_seat(roster: Array) -> int:
 	for entry_any in roster:

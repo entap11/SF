@@ -58,6 +58,7 @@ const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
 # Anchors are already lane-edge-biased; extra tuck visually shortens lanes too much.
 const LANE_TUCK_IN_PX: float = 0.0
+const LANE_CAP_TRIM_RADIUS_RATIO: float = 0.45
 const LANE_THICKNESS_MODE_MANUAL: int = 0
 const LANE_THICKNESS_MODE_MATCH_UNIT_RATIO: int = 1
 const UNIT_RENDER_SCALE_MATCH: float = 2.4
@@ -301,13 +302,15 @@ func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_cente
 	)
 	var from_anchor_world: Vector2 = anchor_pair.get("a", a_anchor_world)
 	var to_anchor_world: Vector2 = anchor_pair.get("b", b_anchor_world)
+	var start_trim: float = minf(maxf(0.0, lane_start_cap_trim_px), maxf(0.0, src_radius * LANE_CAP_TRIM_RADIUS_RATIO))
+	var end_trim: float = minf(maxf(0.0, lane_end_cap_trim_px), maxf(0.0, dst_radius * LANE_CAP_TRIM_RADIUS_RATIO))
 	var geo: EdgeGeometry = EdgeGeometry.build(
 		_a_id,
 		_b_id,
 		from_anchor_world,
 		to_anchor_world,
-		lane_start_cap_trim_px,
-		lane_end_cap_trim_px
+		start_trim,
+		end_trim
 	)
 	var trimmed: Dictionary = EdgeEndpoints.compute(geo.start, geo.end, EdgeEndpoints.EDGE_TUCK_PX)
 	var start_world: Vector2 = trimmed.get("start", geo.start)
@@ -832,15 +835,23 @@ func _prune_lane_flashes(now_ms: int) -> void:
 	for lane_id in to_remove:
 		_lane_flash_expire_by_id.erase(lane_id)
 
-func _grid_to_world(x: int, y: int, cell_size: float) -> Vector2:
+func _grid_to_world(x: float, y: float, cell_size: float) -> Vector2:
+	var center_offset: float = 0.5
 	if arena != null:
 		var spec: Variant = arena.get("grid_spec")
 		if spec != null:
-			return spec.grid_to_world(Vector2i(x, y))
-	return Vector2((float(x) + 0.5) * cell_size, (float(y) + 0.5) * cell_size)
+			if arena.has_method("get_grid_coord_render_offset"):
+				center_offset = float(arena.call("get_grid_coord_render_offset"))
+			return spec.origin + Vector2((x + center_offset) * spec.cell_size, (y + center_offset) * spec.cell_size)
+	if arena != null and arena.has_method("get_grid_coord_render_offset"):
+		center_offset = float(arena.call("get_grid_coord_render_offset"))
+	return Vector2((x + center_offset) * cell_size, (y + center_offset) * cell_size)
 
-func _grid_to_world_center(x: int, y: int, cell_size: float) -> Vector2:
-	return Vector2((float(x) + 0.5) * cell_size, (float(y) + 0.5) * cell_size)
+func _grid_to_world_center(x: float, y: float, cell_size: float) -> Vector2:
+	var center_offset: float = 0.5
+	if arena != null and arena.has_method("get_grid_coord_render_offset"):
+		center_offset = float(arena.call("get_grid_coord_render_offset"))
+	return Vector2((x + center_offset) * cell_size, (y + center_offset) * cell_size)
 
 func _load_lane_textures() -> void:
 	var tex: Texture2D = null
@@ -1000,8 +1011,8 @@ func _rebuild_hive_lane_anchor_cache() -> void:
 					var center_local: Vector2 = pos_v as Vector2
 					center_world = to_global(center_local)
 				else:
-					var x: int = int(hive_data.get("x", 0))
-					var y: int = int(hive_data.get("y", 0))
+					var x: float = float(hive_data.get("x", 0.0))
+					var y: float = float(hive_data.get("y", 0.0))
 					center_world = _grid_to_world_center(x, y, cell_size)
 				var anchor_world: Vector2 = center_world
 				_hive_lane_anchor_local_by_id[hid] = to_local(anchor_world)
@@ -1360,12 +1371,13 @@ func _update_lane_visuals(delta: float) -> void:
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
 			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
-			_apply_lane_sprite_visual(sprite_b, b_pos, front_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
+			# Keep B segment orientation aligned with lane basis so both halves stitch cleanly.
+			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
 		elif send_a:
 			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
 			sprite_b.visible = false
 		elif send_b:
-			_apply_lane_sprite_visual(sprite_b, b_pos, b_pos.lerp(a_pos, visual_t), color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
+			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
 			sprite_a.visible = false
 		else:
 			sprite_a.visible = false
@@ -1457,19 +1469,17 @@ func _apply_lane_sprite_visual(
 		sprite.visible = false
 		return
 	var desired_seg_len: float = LANE_SEGMENT_TARGET_PX
-	var min_segments: int = 1
 	var max_segments: int = LANE_MAX_SEGMENTS
-	var segment_count: int = int(ceil(length_px / desired_seg_len))
-	segment_count = clampi(segment_count, min_segments, max_segments)
-	var effective_seg_len: float = length_px / float(segment_count)
-	_maybe_log_lane_sprite_coverage(length_px, segment_count, effective_seg_len)
+	var segment_count_f: float = clampf(length_px / maxf(1.0, desired_seg_len), 1.0, float(max_segments))
+	var effective_seg_len: float = length_px / segment_count_f
+	_maybe_log_lane_sprite_coverage(length_px, int(round(segment_count_f)), effective_seg_len)
 	var tex_w: float = maxf(1.0, float(sprite.texture.get_width()))
 	var tex_h: float = maxf(1.0, float(sprite.texture.get_height()))
-	# Keep visual coverage full length while preserving per-segment texture density.
+	# Keep full coverage while allowing a partial tail tile for non-integer segment counts.
 	sprite.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	sprite.region_enabled = true
-	sprite.region_rect = Rect2(0.0, 0.0, tex_w * float(segment_count), tex_h)
-	var scale_x: float = maxf(0.0, effective_seg_len / tex_w)
+	sprite.region_rect = Rect2(0.0, 0.0, tex_w * segment_count_f, tex_h)
+	var scale_x: float = maxf(0.0, length_px / maxf(1.0, tex_w * segment_count_f))
 	var scale_y: float = clampf(target_thickness_px / tex_h, 0.0, LANE_SCALE_CLAMP.y)
 	var normal_basis: Vector2 = lane_basis_dir
 	if normal_basis.length_squared() <= 0.000001:

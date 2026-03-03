@@ -13,3 +13,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local tools
+tools/analytics/.env
+tools/analytics/node_modules/

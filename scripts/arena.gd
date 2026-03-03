@@ -30,8 +30,8 @@ const ArenaInputBridgeUtils := preload("res://scripts/arena_helpers/input_bridge
 const ArenaFloorInfluenceSystem := preload("res://scripts/fx/arena_floor_influence_system.gd")
 const FORCE_DISABLE_FLOOR_INFLUENCE: bool = true
 
-const GRID_W := 8
-const GRID_H := 12
+const GRID_W := 18
+const GRID_H := 28
 const CELL_SIZE := 64
 const GRID_DEBUG := false
 const RENDER_DEBUG := false
@@ -117,6 +117,13 @@ const PREMATCH_RECORDS_WIDTH_PX: float = 520.0
 const PREMATCH_RECORDS_HEIGHT_PX: float = 168.0
 const PREMATCH_RECORDS_TOP_GAP_PX: float = 24.0
 const PREMATCH_RECORDS_FONT_SIZE: int = 17
+const PREMATCH_UI_CROSSFADE_MS: int = 350
+const MM_BACKGROUND_ART_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/mm_back_art.png")
+const MM_BACKGROUND_Y_SHIFT: float = 36.0
+const MM_BACKGROUND_X_SCALE: float = 0.88
+const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
+const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+const MAP_MM_BACKGROUND_NODE_NAME: StringName = &"MMBackgroundArt"
 
 var state: GameState
 var sel: SelectionState
@@ -177,6 +184,7 @@ const FIT_WIDTH := 1
 const FIT_HEIGHT := 2
 const PLAYFIELD_OUTLINE_Z_INDEX: int = 4095
 const TRACE_ARENA_PRINTS: bool = false
+const CAMERA_FIT_APPLY_DEBUG: bool = true
 const SAFE_PAD_PX: float = 20.0
 const SAFE_HIVE_PAD_PX: float = 40.0
 const DBG_TREE_DUMP: bool = false
@@ -219,6 +227,7 @@ var _prematch_last_sec: int = -1
 var _prematch_records_faded: bool = false
 var _prematch_countdown_faded: bool = false
 var _power_bar_reveal_started: bool = false
+var _prematch_final_fit_requested: bool = false
 var _prematch_ui_bind_logged: bool = false
 var _prematch_ui_state_logged: bool = false
 var _postmatch_ui_missing_logged: bool = false
@@ -226,6 +235,7 @@ var _match_started: bool = false
 var _match_records: MatchRecordsStore = MatchRecordsStore.new()
 var _match_record_committed: bool = false
 var _legacy_tick_fenced_logged: bool = false
+var _map_mm_background_art: TextureRect = null
 @export var autostart: bool = false:
 	set(value):
 		_set_autostart(value)
@@ -237,14 +247,18 @@ var _legacy_tick_fenced_logged: bool = false
 @export var cam_fit_pad_px: float = 0.0 # additional world padding in pixels
 @export var use_node_bounds_camfit: bool = false
 @export var cam_fit_nodes_mode: String = "cover" # "cover" fills width first, "contain" shows all
-@export var cam_fit_node_pad_px: float = 80.0
+@export var cam_fit_node_pad_px: float = 48.0
 @export var cam_fit_reserved_top_px: float = 140.0
-@export var cam_fit_reserved_bottom_px: float = 140.0
+@export var cam_fit_reserved_bottom_px: float = 160.0
 @export var cam_fit_height_world_pad_px: float = 0.0 # extra world padding when FIT_HEIGHT is active
-@export var cam_fit_height_y_scale: float = 0.82 # < 1.0 shortens visible map height without changing width
-@export var cam_fit_bias_y_px: float = -40.0 # negative = push camera up, positive = push down
-@export var cam_fit_bias_x_px: float = 16.0 # positive = push board right, negative = push left
+@export var cam_fit_height_y_scale: float = 0.95 # lower than 1.0 shows a bit more vertical world (shorter board on screen)
+@export var cam_fit_bias_y_px: float = -24.0 # positive shifts board down on screen in FIT_HEIGHT
+@export var cam_fit_bias_x_px: float = 0.0 # positive = push board right, negative = push left
+@export var cam_fit_bias_x_px_wide_map: float = 0.0 # default X-bias for wide maps
+@export var cam_fit_wide_map_min_grid_w: int = 12
 @export var cam_fit_mode: int = FIT_HEIGHT # 0=contain(min), 1=fit_width, 2=fit_height
+@export var cam_fit_lock_map_edges_to_container: bool = true
+@export var grid_coord_render_offset: float = 0.0 # 0.0 = authored coords map directly to world; 0.5 = cell-center indexing
 @export var overtime_start_ms: float = OVERTIME_START_MS
 @export var draw_arena_rect_debug := false
 @export var draw_world_bounds_debug: bool = false
@@ -329,9 +343,28 @@ var _map_bounds_size: Vector2 = Vector2.ZERO
 var _map_bounds_missing_logged: bool = false
 var _fit_serial := 0
 var _fit_applied_serial := -1
+var _camera_fit_signature_last: String = ""
+var _camera_fit_request_serial: int = 0
+var _camera_transition_lock_active: bool = false
+var _camera_transition_lock_frames: int = 0
+var _camera_transition_lock_pos: Vector2 = Vector2.ZERO
+var _camera_transition_lock_zoom: Vector2 = Vector2.ONE
 var _dev_tick_log_ms: int = 0
 var _dev_sim_dbg_us: int = 0
 var _last_spawnfail_ms: int = 0
+
+func _allow_camfit_log_tags() -> void:
+	for tag in [
+		"CAMFIT_DEFER_REQUEST",
+		"CAMFIT_DEFER_DROP",
+		"CAMFIT_DEFER_APPLY",
+		"CAMFIT_ABORT",
+		"CAMFIT_APPLY_SKIP",
+		"CAMFIT_APPLY",
+		"CAMFIT_TRANSITION_LOCK_ARMED",
+		"CAMFIT_TRANSITION_DRIFT"
+	]:
+		SFLog.allow_tag(tag)
 var _last_export_log_ms: int = 0
 @export var debug_export_rm_log := false
 @export var debug_export_rm_log_interval_ms := 1000
@@ -360,6 +393,7 @@ var floor_influence_system: ArenaFloorInfluenceSystem = null
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	_allow_camfit_log_tags()
 	SFLog.allow_tag("ARENA_FRAME_HEARTBEAT")
 	SFLog.allow_tag("SIM_PIPELINE_ACTIVE")
 	SFLog.allow_tag("LEGACY_SIM_PATH_BLOCKED")
@@ -411,7 +445,7 @@ func _ready() -> void:
 	})
 	SFLog.trace("CURRENT CAMERA", {"camera": get_viewport().get_camera_2d()})
 	await get_tree().process_frame
-	_apply_canon_camera_fit("ready")
+	apply_camera_fit_next_frame("ready")
 	var cam := $Camera2D
 	var vcam := get_viewport().get_camera_2d()
 	SFLog.trace("ARENA CAM", {"arena_cam": cam, "viewport_cam": vcam})
@@ -474,10 +508,43 @@ func _ready() -> void:
 	_list_canvasitems_with_scripts("/root/DevMapRunner/Arena")
 
 func _configure_map_hex_background() -> void:
+	_ensure_map_mm_background_art()
 	if map_hex_background == null:
 		return
 	if map_hex_background.has_method("apply_preset"):
 		map_hex_background.call("apply_preset", StringName("dash"))
+
+func _ensure_map_mm_background_art() -> void:
+	var map_background_layer: CanvasLayer = get_node_or_null("MapHexBackgroundLayer") as CanvasLayer
+	if map_background_layer == null:
+		return
+	var background_art: TextureRect = map_background_layer.get_node_or_null(String(MAP_MM_BACKGROUND_NODE_NAME)) as TextureRect
+	if background_art == null:
+		background_art = TextureRect.new()
+		background_art.name = String(MAP_MM_BACKGROUND_NODE_NAME)
+		background_art.layout_mode = 1
+		background_art.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		background_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		map_background_layer.add_child(background_art)
+		map_background_layer.move_child(background_art, 0)
+	_map_mm_background_art = background_art
+	_apply_map_mm_background_art_layout()
+
+func _apply_map_mm_background_art_layout() -> void:
+	if _map_mm_background_art == null:
+		return
+	_map_mm_background_art.texture = MM_BACKGROUND_ART_TEXTURE
+	_map_mm_background_art.stretch_mode = MM_BACKGROUND_STRETCH_MODE
+	_map_mm_background_art.offset_left = 0.0
+	_map_mm_background_art.offset_right = 0.0
+	_map_mm_background_art.offset_top = MM_BACKGROUND_Y_SHIFT
+	_map_mm_background_art.offset_bottom = MM_BACKGROUND_Y_SHIFT
+	_map_mm_background_art.pivot_offset = _map_mm_background_art.size * 0.5
+	var base_width_px: float = maxf(1.0, _map_mm_background_art.size.x)
+	if base_width_px <= 1.0 and get_viewport() != null:
+		base_width_px = maxf(1.0, get_viewport().get_visible_rect().size.x)
+	var width_scale_extra: float = 1.0 + ((MM_BACKGROUND_EXTRA_SIDE_PX * 2.0) / base_width_px)
+	_map_mm_background_art.scale = Vector2(MM_BACKGROUND_X_SCALE * width_scale_extra, 1.0)
 
 func _start_match_flow() -> void:
 	SFLog.info("PREMATCH_BEGIN", {})
@@ -887,8 +954,10 @@ func _begin_prematch() -> void:
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
+	_prematch_final_fit_requested = false
 	_power_bar_reveal_started = false
 	_show_prematch_ui()
+	apply_camera_fit_next_frame("prematch_begin")
 	if sim_runner != null:
 		sim_runner.set_running(false, "prematch_hold")
 	SFLog.info("PREMATCH_START", {
@@ -1604,11 +1673,15 @@ func _update_prematch_flow(delta: float) -> void:
 			"ms": OpsState.prematch_remaining_ms,
 			"sec": int(ceil(float(OpsState.prematch_remaining_ms) / 1000.0))
 		})
+	if _prematch_remaining_ms_f <= float(PREMATCH_UI_CROSSFADE_MS) and not _prematch_records_faded:
+		_prematch_records_faded = true
+		_fade_prematch_records()
+	# Apply one final fit during prematch so RUNNING does not need a visible camera correction.
+	if _prematch_remaining_ms_f <= float(PREMATCH_UI_CROSSFADE_MS) and not _prematch_final_fit_requested:
+		_prematch_final_fit_requested = true
+		apply_camera_fit_next_frame("prematch_final")
 	if _prematch_remaining_ms_f <= 0.0 and not _prematch_countdown_faded:
 		_prematch_countdown_faded = true
-		if not _prematch_records_faded:
-			_prematch_records_faded = true
-			_fade_prematch_records()
 		_fade_prematch_countdown()
 
 func _fade_prematch_records() -> void:
@@ -1643,6 +1716,7 @@ func _finish_prematch() -> void:
 	)
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
+	_arm_camera_transition_lock("prematch_to_running")
 	_start_match_sim("prematch_complete")
 	SFLog.warn("INPUT_UNLOCKED", {"reason": "prematch_complete"})
 
@@ -2589,8 +2663,11 @@ func _notification(what: int) -> void:
 			dbg("FIT: wm_size_changed viewport=%s window=%s" % [viewport_size, window_size])
 
 func _on_viewport_size_changed() -> void:
+	_camera_transition_lock_active = false
+	_camera_transition_lock_frames = 0
+	_apply_map_mm_background_art_layout()
 	_resize_world_viewport()
-	fitcam_once()
+	apply_camera_fit_next_frame("viewport_size_changed")
 	_center_match_timer()
 	if _prematch_records_panel != null and _prematch_records_panel.visible:
 		_layout_prematch_records_panel(_prematch_records_panel)
@@ -2602,10 +2679,8 @@ func _resize_world_viewport() -> void:
 	var sv: SubViewport = _world_viewport_cache.resolve_subviewport(tree) if _world_viewport_cache != null else null
 	if wvc == null or sv == null:
 		return
-	var overscan_x: float = 80.0
-	var overscan_y: float = 120.0
 	var old_size: Vector2i = sv.size
-	var target: Vector2 = wvc.size + Vector2(overscan_x * 2.0, overscan_y * 2.0)
+	var target: Vector2 = wvc.size
 	var new_w: int = max(1, int(target.x))
 	var new_h: int = max(1, int(target.y))
 	var new_size: Vector2i = Vector2i(new_w, new_h)
@@ -2614,8 +2689,7 @@ func _resize_world_viewport() -> void:
 		"wvc_path": str(wvc.get_path()),
 		"container_size": wvc.size,
 		"sv_old": old_size,
-		"sv_new": sv.size,
-		"overscan": [overscan_x, overscan_y]
+		"sv_new": sv.size
 	})
 
 func _ensure_playfield_outline() -> PlayfieldOutline:
@@ -2653,7 +2727,7 @@ func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 	var origin := map_offset
 	if grid_spec == null:
 		grid_spec = GridSpec.new()
-	grid_spec.configure(grid_w_in, grid_h_in, cell_px, origin)
+	grid_spec.configure(grid_w_in, grid_h_in, cell_px, origin, grid_coord_render_offset)
 	_sync_playfield_outline()
 	grid_w = grid_spec.grid_w
 	grid_h = grid_spec.grid_h
@@ -2762,14 +2836,24 @@ func load_from_map(map_data: Dictionary) -> void:
 	var hives_data: Array = map_data.get("hives", [])
 	for hive_data in hives_data:
 		var pos_arr: Array = hive_data.get("grid_pos", [0, 0])
-		var grid_pos: Vector2i = Vector2i(int(pos_arr[0]), int(pos_arr[1]))
+		var gx_f: float = float(pos_arr[0])
+		var gy_f: float = float(pos_arr[1])
+		var grid_pos: Vector2i = Vector2i(int(floor(gx_f)), int(floor(gy_f)))
 		var owner_id: int = int(hive_data.get("owner_id", 0))
 		var power: int = START_POWER
 		var kind: String = str(hive_data.get("kind", "Hive"))
 		var radius_px: float = float(hive_data.get("radius_px", hive_data.get("radius", 0.0)))
 		if radius_px <= 0.0:
 			radius_px = MapSchema.hive_radius_px_for_kind(kind, _cell_px())
-		var hive := HiveData.new(int(hive_data["id"]), grid_pos, owner_id, power, kind, radius_px)
+		var hive := HiveData.new(
+			int(hive_data["id"]),
+			grid_pos,
+			owner_id,
+			power,
+			kind,
+			radius_px,
+			Vector2(gx_f, gy_f)
+		)
 		state.hives.append(hive)
 		hive_lane_order[hive.id] = []
 		hive_power_prev[hive.id] = hive.power
@@ -2919,6 +3003,8 @@ func reset_match() -> void:
 func notify_map_built() -> void:
 	_fit_serial += 1
 	_fit_applied_serial = -1
+	_camera_fit_signature_last = ""
+	apply_camera_fit_next_frame("notify_map_built")
 
 func on_map_built() -> void:
 	if _map_built_version == _map_build_version:
@@ -2936,16 +3022,10 @@ func on_map_built() -> void:
 	mark_render_dirty("map_built")
 	_debug_map_bounds("map_built")
 	_debug_camera("map_built")
-	_snap_power_bar_to_map_top("map_built")
+	apply_camera_fit_next_frame("pregame_map_built")
 
 func fitcam_once() -> void:
-	if _map_built_version < 0:
-		return
-	if _fit_applied_serial == _fit_serial:
-		return
-	_fit_applied_serial = _fit_serial
-	_apply_canon_camera_fit("fitcam_once")
-	_snap_power_bar_to_map_top("fitcam_once")
+	apply_camera_fit_next_frame("fitcam_once")
 
 func _fitcam_verify_next_frame() -> void:
 	var cam := $Camera2D
@@ -3080,13 +3160,17 @@ func _tick_arena_heartbeat(delta: float) -> void:
 	_maybe_log_frame_hitch(delta)
 
 func _tick_arena_runtime(delta: float) -> void:
+	_enforce_camera_transition_lock()
 	_update_prematch_flow(delta)
 	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH \
 	and int(OpsState.prematch_remaining_ms) <= 0 \
+	and _prematch_countdown_faded \
+	and (_prematch_countdown_label == null or _prematch_countdown_label.modulate.a <= 0.01) \
 	and bool(OpsState.input_locked):
 		SFLog.warn("PREMATCH_WATCHDOG_FINISH", {
 			"remaining_ms": int(OpsState.prematch_remaining_ms),
-			"input_locked": bool(OpsState.input_locked)
+			"input_locked": bool(OpsState.input_locked),
+			"countdown_alpha": _prematch_countdown_label.modulate.a if _prematch_countdown_label != null else -1.0
 		})
 		_finish_prematch()
 	if input_system != null:
@@ -3107,6 +3191,55 @@ func _tick_arena_runtime(delta: float) -> void:
 		_tutorial_section2_controller.tick(state, _resolve_local_owner_id())
 	if _tutorial_section3_controller != null and state != null:
 		_tutorial_section3_controller.tick(state, _resolve_local_owner_id())
+
+func _arm_camera_transition_lock(reason: String) -> void:
+	var cam: Camera2D = camera if camera != null else $Camera2D
+	if cam == null:
+		return
+	_camera_transition_lock_pos = cam.global_position
+	_camera_transition_lock_zoom = cam.zoom
+	_camera_transition_lock_frames = 8
+	_camera_transition_lock_active = true
+	SFLog.warn("CAMFIT_TRANSITION_LOCK_ARMED", {
+		"reason": reason,
+		"pos": _camera_transition_lock_pos,
+		"zoom": _camera_transition_lock_zoom,
+		"frames": _camera_transition_lock_frames
+	})
+
+func _enforce_camera_transition_lock() -> void:
+	if not _camera_transition_lock_active:
+		return
+	if _camera_transition_lock_frames <= 0:
+		_camera_transition_lock_active = false
+		return
+	if OpsState == null or int(OpsState.match_phase) != int(OpsState.MatchPhase.RUNNING):
+		return
+	var cam: Camera2D = camera if camera != null else $Camera2D
+	if cam == null:
+		_camera_transition_lock_active = false
+		_camera_transition_lock_frames = 0
+		return
+	var pos_delta: float = cam.global_position.distance_to(_camera_transition_lock_pos)
+	var zoom_delta: float = (cam.zoom - _camera_transition_lock_zoom).length()
+	if pos_delta > 0.1 or zoom_delta > 0.0001:
+		SFLog.warn("CAMFIT_TRANSITION_DRIFT", {
+			"phase": int(OpsState.match_phase),
+			"prematch_ms": int(OpsState.prematch_remaining_ms),
+			"pos_delta": pos_delta,
+			"zoom_delta": zoom_delta,
+			"from_pos": cam.global_position,
+			"from_zoom": cam.zoom,
+			"to_pos": _camera_transition_lock_pos,
+			"to_zoom": _camera_transition_lock_zoom,
+			"frames_left": _camera_transition_lock_frames
+		})
+	cam.global_position = _camera_transition_lock_pos
+	cam.zoom = _camera_transition_lock_zoom
+	cam.force_update_scroll()
+	_camera_transition_lock_frames -= 1
+	if _camera_transition_lock_frames <= 0:
+		_camera_transition_lock_active = false
 
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint():
@@ -3467,9 +3600,11 @@ func _compute_fit_zoom(viewport_size: Vector2, margin: float) -> float:
 	var fit: float = min(sx, sy)
 	return fit * clampf(margin, 0.5, 2.0)
 
-func _compute_fit_zoom_for_mode(viewport_size: Vector2, margin: float, fit_mode: int) -> float:
-	var world_px: Vector2 = _canon_world_px()
-	if grid_spec != null:
+func _compute_fit_zoom_for_mode(viewport_size: Vector2, margin: float, fit_mode: int, world_bounds: Rect2 = Rect2()) -> float:
+	var world_px: Vector2 = world_bounds.size
+	if world_px.x <= 0.0 or world_px.y <= 0.0:
+		world_px = _canon_world_px()
+	if (world_px.x <= 0.0 or world_px.y <= 0.0) and grid_spec != null:
 		world_px = Vector2(
 			grid_spec.grid_w * grid_spec.cell_size,
 			grid_spec.grid_h * grid_spec.cell_size
@@ -3518,7 +3653,15 @@ func _bounds_from_positions_world(node_positions: Array[Vector2]) -> Rect2:
 	return Rect2(minv, maxv - minv)
 
 # mode: FIT_HEIGHT (fill top/bottom playable strip exactly, no geometric stretch)
-func cam_fit_height_to_bounds(camera_node: Camera2D, bounds_world: Rect2, top_px: float, bottom_px: float, pad_world: float = 0.0) -> Dictionary:
+func cam_fit_height_to_bounds(
+	camera_node: Camera2D,
+	bounds_world: Rect2,
+	top_px: float,
+	bottom_px: float,
+	pad_world: float = 0.0,
+	bias_x_px: float = 0.0,
+	bias_y_px: float = 0.0
+) -> Dictionary:
 	if camera_node == null:
 		return {"ok": false, "reason": "camera_null"}
 	var bw: float = maxf(1.0, bounds_world.size.x)
@@ -3538,15 +3681,14 @@ func cam_fit_height_to_bounds(camera_node: Camera2D, bounds_world: Rect2, top_px
 	if z > z_width_max:
 		z = z_width_max
 	z = clampf(z, 0.02, 50.0)
-	var y_scale: float = clampf(cam_fit_height_y_scale, 0.75, 1.25)
+	var y_scale: float = 1.0 if cam_fit_lock_map_edges_to_container else clampf(cam_fit_height_y_scale, 0.75, 1.25)
 	var z_y: float = clampf(z * y_scale, 0.02, 50.0)
 	var center: Vector2 = padded_bounds.position + padded_bounds.size * 0.5
 	if z_y > 0.0:
 		# Keep world centered in the remaining playable strip when top/bottom reserves differ.
 		center.y -= ((top_px - bottom_px) * 0.5) / z_y
-	if z > 0.0:
-		# Positive X bias nudges the visible board to the right (camera moves left).
-		center.x -= cam_fit_bias_x_px / z
+	if z_y > 0.0:
+		center.y += bias_y_px / z_y
 	camera_node.make_current()
 	camera_node.zoom = Vector2(z, z_y)
 	camera_node.global_position = center
@@ -3563,7 +3705,41 @@ func cam_fit_height_to_bounds(camera_node: Camera2D, bounds_world: Rect2, top_px
 		"vp": vp
 	}
 
+func _resolved_cam_fit_bias_x_px(grid_w_local: int) -> float:
+	if current_map_data.has("cam_fit_bias_x_px"):
+		return float(current_map_data.get("cam_fit_bias_x_px", cam_fit_bias_x_px))
+	if grid_w_local >= maxi(1, cam_fit_wide_map_min_grid_w):
+		return cam_fit_bias_x_px_wide_map
+	return cam_fit_bias_x_px
+
+func _collect_fit_node_positions_world_from_render_tree() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	var renderer_paths: Array[String] = [
+		"MapRoot/HiveRenderer",
+		"MapRoot/TowerRenderer",
+		"MapRoot/BarracksRenderer"
+	]
+	for path in renderer_paths:
+		var renderer_node: Node = get_node_or_null(path)
+		if renderer_node == null:
+			continue
+		for child_any in renderer_node.get_children():
+			if not (child_any is Node2D):
+				continue
+			var n2: Node2D = child_any as Node2D
+			if n2 == null:
+				continue
+			if n2.name == "SelectionRing":
+				continue
+			if n2 is CanvasItem and not (n2 as CanvasItem).visible:
+				continue
+			out.append(n2.global_position)
+	return out
+
 func _collect_fit_node_positions_world() -> Array[Vector2]:
+	var rendered_positions: Array[Vector2] = _collect_fit_node_positions_world_from_render_tree()
+	if not rendered_positions.is_empty():
+		return rendered_positions
 	var out: Array[Vector2] = []
 	if state != null and state.hives != null:
 		for hive_any in state.hives:
@@ -3641,13 +3817,183 @@ func _compute_nodes_fit(
 		"mode": mode
 	}
 
-func _apply_canon_camera_fit(tag: String) -> void:
-	_fit_camera_to_viewport(tag)
+func _resolve_playfield_rect_px() -> Rect2:
+	var tree: SceneTree = get_tree()
+	var world_container: Control = _world_viewport_cache.resolve_container(tree) if _world_viewport_cache != null else null
+	if world_container != null:
+		var container_rect: Rect2 = world_container.get_global_rect()
+		if container_rect.size.x > 1.0 and container_rect.size.y > 1.0:
+			return container_rect
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		var vp_size: Vector2 = vp.get_visible_rect().size
+		if vp_size.x > 1.0 and vp_size.y > 1.0:
+			return Rect2(Vector2.ZERO, vp_size)
+	return Rect2()
 
-func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
+func _resolve_camera_fit_bounds_world() -> Rect2:
+	return _resolve_camera_fit_bounds_world_with_source().get("bounds", Rect2()) as Rect2
+
+func _resolve_camera_fit_bounds_world_with_source() -> Dictionary:
+	var node_positions: Array[Vector2] = _collect_fit_node_positions_world()
+	var node_bounds: Rect2 = _bounds_from_positions_world(node_positions)
+	if node_bounds.size.x > 1.0 and node_bounds.size.y > 1.0:
+		return {"bounds": node_bounds, "source": "nodes"}
+	var map_bounds: Rect2 = _map_world_bounds()
+	if map_bounds.size.x > 1.0 and map_bounds.size.y > 1.0:
+		return {"bounds": map_bounds, "source": "map"}
+	if floor_renderer != null and floor_renderer.has_method("get_floor_bounds_rect"):
+		var floor_bounds_any: Variant = floor_renderer.call("get_floor_bounds_rect")
+		if floor_bounds_any is Rect2:
+			var floor_bounds: Rect2 = floor_bounds_any as Rect2
+			if floor_bounds.size.x > 1.0 and floor_bounds.size.y > 1.0:
+				return {"bounds": floor_bounds, "source": "floor"}
+	return {"bounds": _arena_rect(), "source": "arena"}
+
+func _camera_fit_signature(
+	playfield_rect_px: Rect2,
+	bounds_world: Rect2,
+	top_ui_inset_px: float = 0.0,
+	bottom_ui_inset_px: float = 0.0
+) -> String:
+	return "%.3f,%.3f,%.3f,%.3f|%.3f,%.3f,%.3f,%.3f|%.3f,%.3f|%d,%d,%.3f,%.3f,%.3f,%.3f" % [
+		playfield_rect_px.position.x,
+		playfield_rect_px.position.y,
+		playfield_rect_px.size.x,
+		playfield_rect_px.size.y,
+		bounds_world.position.x,
+		bounds_world.position.y,
+		bounds_world.size.x,
+		bounds_world.size.y,
+		top_ui_inset_px,
+		bottom_ui_inset_px,
+		cam_fit_mode,
+		1 if cam_fit_lock_map_edges_to_container else 0,
+		cam_fit_margin,
+		cam_fit_pad_px,
+		cam_fit_reserved_top_px,
+		cam_fit_reserved_bottom_px
+	]
+
+func apply_camera_fit_next_frame(reason: String = "") -> void:
+	_allow_camfit_log_tags()
+	_camera_fit_request_serial += 1
+	SFLog.warn("CAMFIT_DEFER_REQUEST", {
+		"reason": reason,
+		"request_serial": _camera_fit_request_serial
+	})
+	call_deferred("_apply_camera_fit_deferred", reason, _camera_fit_request_serial)
+
+func _apply_camera_fit_deferred(reason: String, request_serial: int) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if request_serial != _camera_fit_request_serial:
+		SFLog.warn("CAMFIT_DEFER_DROP", {
+			"reason": reason,
+			"request_serial": request_serial,
+			"latest_serial": _camera_fit_request_serial
+		})
+		return
+	SFLog.warn("CAMFIT_DEFER_APPLY", {
+		"reason": reason,
+		"request_serial": request_serial
+	})
+	apply_camera_fit(reason)
+
+func apply_camera_fit(reason: String = "") -> bool:
+	_allow_camfit_log_tags()
 	var cam: Camera2D = camera if camera != null else $Camera2D
 	if cam == null:
-		return
+		SFLog.warn("CAMFIT_ABORT", {
+			"reason": reason,
+			"abort": "camera_null"
+		})
+		return false
+	if state == null or state.hives == null or state.hives.is_empty():
+		SFLog.warn("CAMFIT_ABORT", {
+			"reason": reason,
+			"abort": "state_or_hives_empty",
+			"state_null": state == null,
+			"hives_null": state == null or state.hives == null,
+			"hive_count": 0 if state == null or state.hives == null else state.hives.size()
+		})
+		return false
+	var playfield_rect_px: Rect2 = _resolve_playfield_rect_px()
+	var bounds_info: Dictionary = _resolve_camera_fit_bounds_world_with_source()
+	var bounds_world: Rect2 = bounds_info.get("bounds", Rect2()) as Rect2
+	var bounds_source: String = str(bounds_info.get("source", "unknown"))
+	if playfield_rect_px.size.x <= 1.0 or playfield_rect_px.size.y <= 1.0:
+		SFLog.warn("CAMFIT_ABORT", {
+			"reason": reason,
+			"abort": "playfield_rect_invalid",
+			"playfield_rect_px": playfield_rect_px
+		})
+		return false
+	if bounds_world.size.x <= 1.0 or bounds_world.size.y <= 1.0:
+		SFLog.warn("CAMFIT_ABORT", {
+			"reason": reason,
+			"abort": "bounds_invalid",
+			"bounds_world": bounds_world,
+			"bounds_source": bounds_source
+		})
+		return false
+	var ui_insets: Dictionary = _ui_vertical_insets_px()
+	var top_ui_inset_px: float = float(ui_insets.get("top", 0.0))
+	var bottom_ui_inset_px: float = float(ui_insets.get("bottom", 0.0))
+	var sig: String = _camera_fit_signature(playfield_rect_px, bounds_world, top_ui_inset_px, bottom_ui_inset_px)
+	if sig == _camera_fit_signature_last:
+		if CAMERA_FIT_APPLY_DEBUG:
+			SFLog.warn("CAMFIT_APPLY_SKIP", {
+				"reason": reason,
+				"playfield_rect_px": playfield_rect_px,
+				"bounds_world": bounds_world,
+				"bounds_source": bounds_source,
+				"map_root_pos": map_root.position if map_root != null else Vector2.ZERO,
+				"top_ui_inset_px": top_ui_inset_px,
+				"bottom_ui_inset_px": bottom_ui_inset_px,
+				"camera_pos": cam.global_position,
+				"camera_zoom": cam.zoom,
+				"signature": sig
+			})
+		return false
+	var before_pos: Vector2 = cam.global_position
+	var before_zoom: Vector2 = cam.zoom
+	var applied: bool = _fit_camera_to_viewport(reason, bounds_world, playfield_rect_px)
+	if not applied:
+		SFLog.warn("CAMFIT_ABORT", {
+			"reason": reason,
+			"abort": "fit_camera_to_viewport_false",
+			"bounds_world": bounds_world,
+			"bounds_source": bounds_source,
+			"playfield_rect_px": playfield_rect_px
+		})
+		return false
+	_camera_fit_signature_last = sig
+	_snap_power_bar_to_map_top("camera_fit_%s" % reason)
+	if CAMERA_FIT_APPLY_DEBUG:
+		SFLog.warn("CAMFIT_APPLY", {
+			"reason": reason,
+			"playfield_rect_px": playfield_rect_px,
+			"bounds_world": bounds_world,
+			"bounds_source": bounds_source,
+			"map_root_pos": map_root.position if map_root != null else Vector2.ZERO,
+			"top_ui_inset_px": top_ui_inset_px,
+			"bottom_ui_inset_px": bottom_ui_inset_px,
+			"camera_pos": cam.global_position,
+			"camera_zoom": cam.zoom,
+			"delta_px": cam.global_position.distance_to(before_pos),
+			"delta_zoom": (cam.zoom - before_zoom).length(),
+			"signature": sig
+		})
+	return true
+
+func _apply_canon_camera_fit(tag: String) -> void:
+	apply_camera_fit(tag)
+
+func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 = Rect2(), forced_playfield_rect_px: Rect2 = Rect2()) -> bool:
+	var cam: Camera2D = camera if camera != null else $Camera2D
+	if cam == null:
+		return false
 	var arena_rect: Rect2 = _arena_rect()
 	var arena_size: Vector2 = arena_rect.size
 	var grid_w_local: int = grid_w
@@ -3657,15 +4003,13 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 		grid_w_local = grid_spec.grid_w
 		grid_h_local = grid_spec.grid_h
 		cell_px = grid_spec.cell_size
-	var world_px: Vector2 = Vector2(float(grid_w_local) * cell_px, float(grid_h_local) * cell_px)
-	var map_bounds: Rect2 = _map_world_bounds()
-	var root_bounds_local: Rect2 = _compute_map_root_bounds()
-	var root_bounds: Rect2 = root_bounds_local
-	if map_root != null:
-		root_bounds.position += map_root.position
+	var map_bounds: Rect2 = forced_bounds_world
+	if map_bounds.size.x <= 1.0 or map_bounds.size.y <= 1.0:
+		map_bounds = _resolve_camera_fit_bounds_world_with_source().get("bounds", Rect2()) as Rect2
+	var world_px: Vector2 = map_bounds.size if map_bounds.size.x > 1.0 and map_bounds.size.y > 1.0 else Vector2(float(grid_w_local) * cell_px, float(grid_h_local) * cell_px)
 	var vp: Viewport = cam.get_viewport()
 	if vp == null:
-		return
+		return false
 	var vp_size: Vector2 = vp.get_visible_rect().size
 	var cam_vp: Viewport = cam.get_viewport()
 	var cam_vp_size: Vector2 = Vector2.ZERO
@@ -3678,16 +4022,18 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 	var tree: SceneTree = get_tree()
 	var world_container: Control = _world_viewport_cache.resolve_container(tree) if _world_viewport_cache != null else null
 	var visible_vp_size: Vector2 = cam_vp_size
-	if world_container != null:
+	if forced_playfield_rect_px.size.x > 1.0 and forced_playfield_rect_px.size.y > 1.0:
+		visible_vp_size = forced_playfield_rect_px.size
+	elif world_container != null:
 		var container_size: Vector2 = world_container.size
 		if container_size.x > 0.0 and container_size.y > 0.0:
 			visible_vp_size = container_size
 	if arena_size.x <= 0.0 or arena_size.y <= 0.0:
-		return
+		return false
 	if vp_size.x <= 0.0 or vp_size.y <= 0.0:
-		return
+		return false
 	if visible_vp_size.x <= 0.0 or visible_vp_size.y <= 0.0:
-		return
+		return false
 	var ui_insets: Dictionary = _ui_vertical_insets_px()
 	var top_ui_inset_px: float = float(ui_insets.get("top", 0.0))
 	var bottom_ui_inset_px: float = float(ui_insets.get("bottom", 0.0))
@@ -3696,25 +4042,30 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 	safe_cam_vp_size.y = maxf(1.0, safe_cam_vp_size.y)
 	var fit_top_px: float = top_ui_inset_px
 	var fit_bottom_px: float = bottom_ui_inset_px
-	if cam_fit_reserved_top_px > 0.0:
+	var fit_bias_x_px: float = 0.0 if cam_fit_lock_map_edges_to_container else _resolved_cam_fit_bias_x_px(grid_w_local)
+	if not cam_fit_lock_map_edges_to_container and cam_fit_reserved_top_px > 0.0:
 		fit_top_px = cam_fit_reserved_top_px
-	if cam_fit_reserved_bottom_px > 0.0:
+	if not cam_fit_lock_map_edges_to_container and cam_fit_reserved_bottom_px > 0.0:
 		fit_bottom_px = cam_fit_reserved_bottom_px
 	if cam_fit_mode == FIT_HEIGHT:
 		var bounds_for_height: Rect2 = map_bounds
 		if bounds_for_height.size.x <= 1.0 or bounds_for_height.size.y <= 1.0:
 			bounds_for_height = arena_rect
-		if use_node_bounds_camfit:
+		if use_node_bounds_camfit and not cam_fit_lock_map_edges_to_container:
 			var node_positions_h: Array[Vector2] = _collect_fit_node_positions_world()
 			var node_bounds: Rect2 = _bounds_from_positions_world(node_positions_h)
 			if node_bounds.size.x > 1.0 and node_bounds.size.y > 1.0:
 				bounds_for_height = node_bounds
+		var fit_bias_y_px: float = 0.0 if cam_fit_lock_map_edges_to_container else cam_fit_bias_y_px
+		var fit_height_pad_world: float = 0.0 if cam_fit_lock_map_edges_to_container else maxf(0.0, cam_fit_pad_px) + maxf(0.0, cam_fit_height_world_pad_px)
 		var hfit: Dictionary = cam_fit_height_to_bounds(
 			cam,
 			bounds_for_height,
 			fit_top_px,
 			fit_bottom_px,
-			maxf(0.0, cam_fit_pad_px) + maxf(0.0, cam_fit_height_world_pad_px)
+			fit_height_pad_world,
+			fit_bias_x_px,
+			fit_bias_y_px
 		)
 		if bool(hfit.get("ok", false)):
 			var z_h: float = float(hfit.get("z", 1.0))
@@ -3731,6 +4082,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 				"bottom_ui_inset_px": bottom_ui_inset_px,
 				"fit_top_px": fit_top_px,
 				"fit_bottom_px": fit_bottom_px,
+				"fit_bias_x_px": fit_bias_x_px,
 				"root_vp_size": root_vp_size,
 				"arena_size": arena_size,
 				"mode": "fit_height_bounds",
@@ -3739,22 +4091,19 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 				"z": z_h,
 				"cam_zoom_now": cam.zoom
 			})
-			return
+			return true
 	var pad: float = maxf(0.0, cam_fit_pad_px)
 	var vp_fit: Vector2 = Vector2(
 		maxf(1.0, safe_cam_vp_size.x - (pad * 2.0)),
 		maxf(1.0, safe_cam_vp_size.y - (pad * 2.0))
 	)
-	var fit_scalar: float = _compute_fit_zoom_for_mode(safe_cam_vp_size, cam_fit_margin, cam_fit_mode)
+	var fit_scalar: float = _compute_fit_zoom_for_mode(safe_cam_vp_size, cam_fit_margin, cam_fit_mode, map_bounds)
 	var zoom_scalar: float = fit_scalar
 	var fit_strategy: String = "grid"
 	var z_min: float = 0.00001
 	var z_clamped: bool = false
 	var center: Vector2 = Vector2.ZERO
-	if grid_spec != null:
-		center = grid_spec.origin + (world_px * 0.5)
-	else:
-		center = arena_rect.get_center()
+	center = map_bounds.get_center() if map_bounds.size.x > 1.0 and map_bounds.size.y > 1.0 else arena_rect.get_center()
 	var node_fit_info: Dictionary = {"ok": false}
 	if use_node_bounds_camfit:
 		var node_positions: Array[Vector2] = _collect_fit_node_positions_world()
@@ -3801,9 +4150,6 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 	if zoom_scalar > 0.0 and fit_strategy != "nodes":
 		# Bias toward the center of the actually visible window between top and bottom overlays.
 		center.y -= ((top_ui_inset_px - bottom_ui_inset_px) * 0.5) / zoom_scalar
-	if zoom_scalar > 0.0:
-		# Positive X bias nudges the visible board to the right (camera moves left).
-		center.x -= cam_fit_bias_x_px / zoom_scalar
 	cam.make_current()
 	cam.global_position = center
 	cam.zoom = zoom_target
@@ -3830,6 +4176,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 		"safe_cam_vp_size": safe_cam_vp_size,
 		"top_ui_inset_px": top_ui_inset_px,
 		"bottom_ui_inset_px": bottom_ui_inset_px,
+		"fit_bias_x_px": fit_bias_x_px,
 		"root_vp_size": root_vp_size,
 		"arena_size": arena_size,
 		"mode": fit_strategy,
@@ -3839,6 +4186,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam") -> void:
 		"z": zoom_scalar,
 		"cam_zoom_now": cam.zoom
 	})
+	return true
 
 func _sf_camfit_late_probe(cam: Camera2D, expected: Vector2) -> void:
 	if cam == null:
@@ -3977,15 +4325,19 @@ func export_render_model() -> Dictionary:
 			var radius_px: float = float(h.radius_px)
 			if radius_px <= 0.0:
 				radius_px = MapSchema.hive_radius_px_for_kind(String(h.kind), cell_px)
+			var render_gp: Vector2 = h.render_grid_pos
+			if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+				render_gp = Vector2(float(h.grid_pos.x), float(h.grid_pos.y))
 			var pos: Vector2 = Vector2(
-				float(h.grid_pos.x) * cell_px + cell_px * 0.5,
-				float(h.grid_pos.y) * cell_px + cell_px * 0.5
+				(render_gp.x + grid_coord_render_offset) * cell_px,
+				(render_gp.y + grid_coord_render_offset) * cell_px
 			)
 			var hd: Dictionary = {
 				"id": int(h.id),
-				"grid_pos": Vector2i(h.grid_pos),
-				"x": int(h.grid_pos.x),
-				"y": int(h.grid_pos.y),
+				"grid_pos": [render_gp.x, render_gp.y],
+				"x": render_gp.x,
+				"y": render_gp.y,
+				"grid_cell": Vector2i(h.grid_pos),
 				"pos": pos,
 				"radius_px": radius_px,
 				"owner_id": int(h.owner_id),
@@ -4328,11 +4680,12 @@ func _build_hive_pos_by_id(hive_nodes_by_id: Dictionary) -> Dictionary:
 	return out
 
 func _grid_coord_to_world(coord: Vector2) -> Vector2:
+	var center_offset: float = grid_coord_render_offset
 	if grid_spec != null:
 		var cs: float = float(grid_spec.cell_size)
-		return grid_spec.origin + (coord + Vector2(0.5, 0.5)) * cs
+		return grid_spec.origin + (coord + Vector2(center_offset, center_offset)) * cs
 	var cell_px: float = _cell_px()
-	return (coord + Vector2(0.5, 0.5)) * cell_px + map_offset
+	return (coord + Vector2(center_offset, center_offset)) * cell_px + map_offset
 
 func _wall_entry_to_grid_segment(w: Dictionary) -> Dictionary:
 	if w.has("x1") and w.has("y1") and w.has("x2") and w.has("y2"):
@@ -5108,6 +5461,7 @@ func _reset_sim_state() -> void:
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
+	_prematch_final_fit_requested = false
 	_prematch_ui_state_logged = false
 	_match_started = false
 	_telemetry_active = false
@@ -5377,14 +5731,18 @@ func _find_hive_at_local(lp: Vector2) -> String:
 		var id: String = str(hd.get("id", ""))
 		if id.is_empty():
 			continue
-		var gx: int = int(hd.get("x", 0))
-		var gy: int = int(hd.get("y", 0))
+		var gx: float = float(hd.get("x", 0.0))
+		var gy: float = float(hd.get("y", 0.0))
 		if hd.has("grid_pos") and typeof(hd["grid_pos"]) == TYPE_ARRAY:
 			var gp: Array = hd["grid_pos"] as Array
 			if gp.size() >= 2:
-				gx = int(gp[0])
-				gy = int(gp[1])
-		var hp: Vector2 = _cell_center(Vector2i(gx, gy))
+				gx = float(gp[0])
+				gy = float(gp[1])
+		var hp: Vector2
+		if grid_spec != null:
+			hp = grid_spec.origin + Vector2((gx + grid_coord_render_offset) * grid_spec.cell_size, (gy + grid_coord_render_offset) * grid_spec.cell_size)
+		else:
+			hp = Vector2((gx + grid_coord_render_offset) * cell, (gy + grid_coord_render_offset) * cell)
 		if hp.distance_to(lp) <= radius:
 			return id
 	return ""
@@ -5588,6 +5946,9 @@ func _cell_px() -> float:
 		return float(grid_spec.cell_size)
 	return CELL_SIZE
 
+func get_grid_coord_render_offset() -> float:
+	return grid_coord_render_offset
+
 func _arena_rect() -> Rect2:
 	if grid_spec != null:
 		return Rect2(
@@ -5705,8 +6066,8 @@ func _cell_center(cell: Vector2i) -> Vector2:
 		return grid_spec.grid_to_world(cell)
 	var cell_px := _cell_px()
 	return Vector2(
-		cell.x * cell_px + cell_px * 0.5,
-		cell.y * cell_px + cell_px * 0.5
+		(float(cell.x) + grid_coord_render_offset) * cell_px,
+		(float(cell.y) + grid_coord_render_offset) * cell_px
 	) + map_offset
 
 func _cell_rect(cell: Vector2i) -> Rect2:

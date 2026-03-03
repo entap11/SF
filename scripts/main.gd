@@ -117,15 +117,15 @@ func _ready() -> void:
 		var builder := MAP_BUILDER_SCRIPT.new()
 		if arena.has_method("clear_map"):
 			arena.call("clear_map")
-		var ok := builder.build_into(arena, map_path)
-		if ok:
-			if arena.has_method("notify_map_built"):
-				arena.call("notify_map_built")
-			if arena.has_method("fitcam_once"):
-				arena.call("fitcam_once")
-			if has_pending_map and gamebot != null:
-				gamebot.set("next_map_id", "")
-				gamebot.set("next_mode", "")
+			var ok := builder.build_into(arena, map_path)
+			if ok:
+				if arena.has_method("notify_map_built"):
+					arena.call("notify_map_built")
+				if arena.has_method("apply_camera_fit_next_frame"):
+					arena.call("apply_camera_fit_next_frame", "main_map_build")
+				if has_pending_map and gamebot != null:
+					gamebot.set("next_map_id", "")
+					gamebot.set("next_mode", "")
 
 func _node_pos(n: Node) -> Variant:
 	if n == null:

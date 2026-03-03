@@ -94,8 +94,15 @@ const PRUNE_AFTER_TICKS: int = 2
 @export var bee_clip_min_visual_length_px: float = 24.0
 @export var bee_clip_nose_offset_px: float = 0.0
 @export var bee_clip_entrance_plane_offset_px: float = 14.0
-@export var bee_clip_collision_lead_px: float = 50.0
+@export var bee_clip_collision_lead_px: float = 120.0
 @export var bee_clip_collision_snap_on_prime: bool = true
+@export var bee_clip_collision_first_contact_cut_max: float = 0.30
+@export var bee_clip_collision_plane_offset_px: float = 32.0
+@export var bee_clip_collision_prime_nose_bias_px: float = 56.0
+@export var bee_clip_collision_missing_speed_cap_px_s: float = 180.0
+@export var bee_clip_collision_min_hold_ticks: int = 6
+@export var bee_clip_collision_debug_logs: bool = false
+@export var bee_clip_collision_debug_throttle_ms: int = 120
 @export var bee_clip_flip_forward_axis: bool = false
 @export var bee_clip_debug_logs: bool = false
 @export var bee_clip_missing_speed_fallback_px_s: float = 220.0
@@ -169,6 +176,8 @@ var _bee_clip_entrance_world_by_unit_id: Dictionary = {}
 var _bee_clip_visual_len_by_unit_id: Dictionary = {}
 var _bee_clip_to_hive_id_by_unit_id: Dictionary = {}
 var _bee_clip_lane_id_by_unit_id: Dictionary = {}
+var _bee_clip_collision_active_by_unit_id: Dictionary = {}
+var _bee_clip_collision_last_log_ms_by_unit_id: Dictionary = {}
 var _sim_events: Node = null
 
 func _ready() -> void:
@@ -185,6 +194,7 @@ func _ready() -> void:
 	SFLog.allow_tag("UNIT_ENDPOINT_CACHE_INVALIDATE")
 	SFLog.allow_tag("UNIT_ENDPOINT_PERF_SUMMARY")
 	SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
+	SFLog.allow_tag("BEE_CLIP_COLLISION_DBG")
 	_pool_build()
 	_apply_debug_force_top_z()
 	_prewarm_unit_assets()
@@ -360,6 +370,8 @@ func _pool_release(node: Node2D) -> void:
 		_bee_clip_visual_len_by_unit_id.erase(unit_id)
 		_bee_clip_to_hive_id_by_unit_id.erase(unit_id)
 		_bee_clip_lane_id_by_unit_id.erase(unit_id)
+		_bee_clip_collision_active_by_unit_id.erase(unit_id)
+		_bee_clip_collision_last_log_ms_by_unit_id.erase(unit_id)
 	node.set_meta("unit_id", -1)
 	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
 	if sprite != null:
@@ -962,6 +974,8 @@ func clear_all() -> void:
 	_bee_clip_visual_len_by_unit_id.clear()
 	_bee_clip_to_hive_id_by_unit_id.clear()
 	_bee_clip_lane_id_by_unit_id.clear()
+	_bee_clip_collision_active_by_unit_id.clear()
+	_bee_clip_collision_last_log_ms_by_unit_id.clear()
 	_clear_swarm_nodes()
 	_clear_unit_nodes()
 	_request_redraw()
@@ -985,6 +999,46 @@ func clear_bee_clip_plane_override(unit_id: int) -> void:
 	if unit_id <= 0:
 		return
 	_bee_clip_plane_override_by_unit_id.erase(unit_id)
+	_bee_clip_collision_active_by_unit_id.erase(unit_id)
+	_bee_clip_collision_last_log_ms_by_unit_id.erase(unit_id)
+
+func _bee_clip_plane_offset_for_unit(unit_id: int) -> float:
+	if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)):
+		return bee_clip_collision_plane_offset_px
+	return bee_clip_entrance_plane_offset_px
+
+func _log_collision_clip_state(unit_id: int, stage: String, controller: RefCounted, node: Node2D, extra: Dictionary = {}) -> void:
+	if not bee_clip_collision_debug_logs:
+		return
+	if unit_id <= 0 or controller == null:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	var throttle_ms: int = maxi(1, bee_clip_collision_debug_throttle_ms)
+	var last_ms: int = int(_bee_clip_collision_last_log_ms_by_unit_id.get(unit_id, 0))
+	if stage != "prime" and now_ms - last_ms < throttle_ms:
+		return
+	_bee_clip_collision_last_log_ms_by_unit_id[unit_id] = now_ms
+	var payload: Dictionary = {
+		"unit_id": unit_id,
+		"stage": stage,
+		"lane_id": int(_bee_clip_lane_id_by_unit_id.get(unit_id, -1)),
+		"cut": float(controller.get("cut_value")),
+		"distance_to_plane_px": float(controller.get("distance_to_plane_px")),
+		"penetration_px": float(controller.get("penetration_px")),
+		"lead_px": bee_clip_collision_lead_px,
+		"plane_offset_px": _bee_clip_plane_offset_for_unit(unit_id),
+		"first_contact_snap": bee_clip_collision_snap_on_prime,
+		"first_contact_cut_max": bee_clip_collision_first_contact_cut_max,
+		"prime_nose_bias_px": bee_clip_collision_prime_nose_bias_px,
+		"collision_active": bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)),
+		"speed_px_s": float(_bee_clip_speed_px_s_by_unit_id.get(unit_id, 0.0)),
+		"speed_cap_px_s": bee_clip_collision_missing_speed_cap_px_s
+	}
+	if node != null and is_instance_valid(node):
+		payload["node_world"] = node.global_position
+	for key_any in extra.keys():
+		payload[key_any] = extra[key_any]
+	SFLog.info("BEE_CLIP_COLLISION_DBG", payload)
 
 func _on_sim_unit_collision(
 	world_pos: Vector2,
@@ -1018,17 +1072,29 @@ func _prime_bee_collision_clip_override(unit_id: int, impact_world: Vector2, tra
 		safe_dir = Vector2.RIGHT
 	else:
 		safe_dir = safe_dir.normalized()
+	var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+	if typeof(state_any) == TYPE_DICTIONARY:
+		var state: Dictionary = state_any as Dictionary
+		var prev_pos_any: Variant = state.get("prev_pos", null)
+		var curr_pos_any: Variant = state.get("curr_pos", null)
+		if prev_pos_any is Vector2 and curr_pos_any is Vector2:
+			var motion_local: Vector2 = (curr_pos_any as Vector2) - (prev_pos_any as Vector2)
+			if motion_local.length_squared() > 0.000001:
+				var motion_world: Vector2 = _to_world_dir(motion_local)
+				if motion_world.length_squared() > 0.000001:
+					safe_dir = motion_world.normalized()
 	var node: Node2D = unit_nodes_by_id.get(unit_id, null)
 	if node != null and is_instance_valid(node):
 		var to_impact: Vector2 = impact_world - node.global_position
 		if to_impact.length_squared() > 0.000001:
 			var impact_dir: Vector2 = to_impact.normalized()
-			# Force collision clip direction to point toward the impact point.
-			# This guarantees increasing lead_px moves dissolve earlier, not later.
-			if safe_dir.dot(impact_dir) < 0.25:
+			var impact_ahead_px: float = to_impact.dot(safe_dir)
+			# If impact is ahead and direction is badly off, retarget toward impact.
+			# If impact is behind, keep motion-aligned direction to avoid late flips.
+			if impact_ahead_px > 0.0 and safe_dir.dot(impact_dir) < 0.25:
 				safe_dir = impact_dir
 	var collision_plane_world: Vector2 = impact_world - (safe_dir * bee_clip_collision_lead_px)
-	set_bee_clip_plane_override(unit_id, collision_plane_world, safe_dir)
+	_bee_clip_collision_active_by_unit_id[unit_id] = true
 	_bee_clip_lane_id_by_unit_id[unit_id] = lane_id
 	_bee_clip_last_update_us_by_unit_id[unit_id] = Time.get_ticks_usec()
 	if node == null or not is_instance_valid(node):
@@ -1038,22 +1104,38 @@ func _prime_bee_collision_clip_override(unit_id: int, impact_world: Vector2, tra
 	var controller: RefCounted = _ensure_bee_clip_controller(unit_id, sprite)
 	if controller == null:
 		return
+	if controller.has_method("reset"):
+		controller.call("reset")
 	if controller.has_method("set_first_contact_snap"):
-		controller.call("set_first_contact_snap", bee_clip_collision_snap_on_prime)
+		controller.call("set_first_contact_snap", bee_clip_collision_snap_on_prime, bee_clip_collision_first_contact_cut_max)
 	var visual_len_px: float = _compute_bee_visual_length_px(sprite)
+	var nose_contact_offset_px: float = bee_clip_nose_offset_px + (visual_len_px * 0.5)
+	if bee_clip_collision_prime_nose_bias_px > 0.0:
+		var prime_nose_world: Vector2 = node.global_position + (safe_dir * nose_contact_offset_px)
+		var min_plane_world: Vector2 = prime_nose_world - (safe_dir * bee_clip_collision_prime_nose_bias_px)
+		if collision_plane_world.dot(safe_dir) > min_plane_world.dot(safe_dir):
+			collision_plane_world = min_plane_world
+	set_bee_clip_plane_override(unit_id, collision_plane_world, safe_dir)
 	_bee_clip_visual_len_by_unit_id[unit_id] = visual_len_px
 	var speed_px_s: float = _estimate_unit_visual_speed_px_s(unit_id)
 	if speed_px_s <= 0.0:
 		speed_px_s = bee_clip_missing_speed_fallback_px_s
+	if bee_clip_collision_missing_speed_cap_px_s > 0.0:
+		speed_px_s = minf(speed_px_s, bee_clip_collision_missing_speed_cap_px_s)
 	_bee_clip_speed_px_s_by_unit_id[unit_id] = speed_px_s
 	controller.call("set_plane", collision_plane_world, safe_dir)
 	controller.call("set_visual_length_px", visual_len_px)
 	controller.call(
 		"update_from_world_position",
 		node.global_position,
-		bee_clip_nose_offset_px + (visual_len_px * 0.5),
-		bee_clip_entrance_plane_offset_px
+		nose_contact_offset_px,
+		_bee_clip_plane_offset_for_unit(unit_id)
 	)
+	_log_collision_clip_state(unit_id, "prime", controller, node, {
+		"impact_world": impact_world,
+		"collision_plane_world": collision_plane_world,
+		"travel_dir_world": safe_dir
+	})
 
 func set_bee_clip_shield_active(unit_id: int, active: bool) -> void:
 	if unit_id <= 0:
@@ -1093,6 +1175,10 @@ func _should_delay_prune_for_bee_clip(unit_id: int, missing_ticks: int) -> bool:
 		return false
 	if missing_ticks > max(1, bee_clip_missing_hold_max_ticks):
 		return false
+	if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)):
+		var min_collision_hold_ticks: int = max(1, bee_clip_collision_min_hold_ticks)
+		if missing_ticks < min_collision_hold_ticks:
+			return true
 	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
 	if controller == null:
 		return false
@@ -1235,6 +1321,8 @@ func _clear_unit_nodes() -> void:
 	_bee_clip_visual_len_by_unit_id.clear()
 	_bee_clip_to_hive_id_by_unit_id.clear()
 	_bee_clip_lane_id_by_unit_id.clear()
+	_bee_clip_collision_active_by_unit_id.clear()
+	_bee_clip_collision_last_log_ms_by_unit_id.clear()
 
 func _unit_style_global_sig() -> int:
 	var draw_bit: int = 1 if debug_draw_units else 0
@@ -1618,7 +1706,8 @@ func _hive_center_map_local(hive_id: int, hive_by_id: Dictionary) -> Variant:
 		var cell_size: float = float(model.get("cell_size", 64))
 		var gx: float = float(hd.get("x", 0.0))
 		var gy: float = float(hd.get("y", 0.0))
-		return Vector2((gx + 0.5) * cell_size, (gy + 0.5) * cell_size)
+		var center_offset: float = _grid_coord_render_offset()
+		return Vector2((gx + center_offset) * cell_size, (gy + center_offset) * cell_size)
 	return null
 
 func _hive_center_world_pos(hive_id: int, hive_by_id: Dictionary) -> Variant:
@@ -2282,8 +2371,14 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 		"update_from_world_position",
 		node.global_position,
 		nose_contact_offset_px,
-		bee_clip_entrance_plane_offset_px
+		_bee_clip_plane_offset_for_unit(unit_id)
 	))
+	if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)):
+		_log_collision_clip_state(unit_id, "live", controller, node, {
+			"entrance_point_world": entrance_point_world,
+			"travel_dir_world": travel_dir_world,
+			"cut_value_now": cut_value_now
+		})
 	if bool(controller.call("consume_full_clip_transition")):
 		var to_hive_id: int = int(ud.get("to_id", -1))
 		var lane_id: int = int(ud.get("lane_id", -1))
@@ -2361,8 +2456,14 @@ func _update_bee_clip_for_missing_unit(unit_id: int, node: Node2D, now_us: int) 
 		"update_from_world_position",
 		world_pos,
 		nose_contact_offset_px,
-		bee_clip_entrance_plane_offset_px
+		_bee_clip_plane_offset_for_unit(unit_id)
 	))
+	if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)):
+		_log_collision_clip_state(unit_id, "missing", controller, node, {
+			"world_pos": world_pos,
+			"travel_dir_world": travel_dir_world,
+			"cut_value_now": cut_value_now
+		})
 	if bool(controller.call("consume_full_clip_transition")):
 		var to_hive_id: int = int(_bee_clip_to_hive_id_by_unit_id.get(unit_id, -1))
 		var lane_id: int = int(_bee_clip_lane_id_by_unit_id.get(unit_id, -1))
@@ -3425,8 +3526,22 @@ func _hive_pos(hive_id: int, hive_by_id: Dictionary) -> Variant:
 		var cell_size := float(model.get("cell_size", 64))
 		var gx := float(hd.get("x", 0.0))
 		var gy := float(hd.get("y", 0.0))
-		return Vector2((gx + 0.5) * cell_size, (gy + 0.5) * cell_size)
+		var center_offset: float = _grid_coord_render_offset()
+		return Vector2((gx + center_offset) * cell_size, (gy + center_offset) * cell_size)
 	return null
+
+func _arena_node() -> Node:
+	var parent_node: Node = get_parent()
+	if parent_node == null:
+		return null
+	var arena_node: Node = parent_node.get_parent()
+	return arena_node
+
+func _grid_coord_render_offset() -> float:
+	var arena_node: Node = _arena_node()
+	if arena_node != null and arena_node.has_method("get_grid_coord_render_offset"):
+		return float(arena_node.call("get_grid_coord_render_offset"))
+	return 0.5
 
 func _hive_world_pos(hive_id: int, hive_by_id: Dictionary) -> Variant:
 	if hive_nodes_by_id.has(hive_id):

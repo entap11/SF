@@ -3,6 +3,7 @@ extends RefCounted
 
 var id: int
 var grid_pos: Vector2i
+var render_grid_pos: Vector2
 var owner_id: int
 var power: int
 var kind: String
@@ -20,10 +21,15 @@ func _init(
 	p_owner_id: int,
 	p_power: int,
 	p_kind: String = "Hive",
-	p_radius_px: float = 0.0
+	p_radius_px: float = 0.0,
+	p_render_grid_pos: Vector2 = Vector2.INF
 ) -> void:
 	self.id = p_id
 	self.grid_pos = p_grid_pos
+	if is_finite(p_render_grid_pos.x) and is_finite(p_render_grid_pos.y):
+		self.render_grid_pos = p_render_grid_pos
+	else:
+		self.render_grid_pos = Vector2(float(p_grid_pos.x), float(p_grid_pos.y))
 	self.owner_id = p_owner_id
 	self.power = p_power
 	self.kind = p_kind

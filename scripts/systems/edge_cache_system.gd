@@ -7,6 +7,7 @@ const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 
 @export var lane_start_cap_trim_px: float = 18.0
 @export var lane_end_cap_trim_px: float = 18.0
+const LANE_CAP_TRIM_RADIUS_RATIO: float = 0.45
 
 var _last_sig: String = ""
 
@@ -123,6 +124,7 @@ func _cache_signature(gs: GameState) -> String:
 		str(snapped(lane_end_cap_trim_px, 0.001)),
 		"|".join([
 			"|".join(lane_sigs),
+			str(snapped(LANE_CAP_TRIM_RADIUS_RATIO, 0.001)),
 			str(snapped(float(HiveNodeScript.LANE_ANCHOR_Y_PX), 0.001)),
 			str(snapped(float(HiveNodeScript.LANE_ANCHOR_LEFT_EXTRA_Y_PX), 0.001)),
 			str(snapped(float(HiveNodeScript.LANE_ANCHOR_RIGHT_EXTRA_Y_PX), 0.001))
@@ -215,21 +217,23 @@ func rebuild_edge_cache(state: Object) -> void:
 		)
 		var a: Vector2 = anchor_pair.get("a", HiveNodeScript.lane_anchor_world_from_center(src_center_world))
 		var b: Vector2 = anchor_pair.get("b", HiveNodeScript.lane_anchor_world_from_center(dst_center_world))
+		var start_trim: float = minf(maxf(0.0, lane_start_cap_trim_px), maxf(0.0, src_radius * LANE_CAP_TRIM_RADIUS_RATIO))
+		var end_trim: float = minf(maxf(0.0, lane_end_cap_trim_px), maxf(0.0, dst_radius * LANE_CAP_TRIM_RADIUS_RATIO))
 		var forward: EdgeGeometry = EdgeGeometry.build(
 			src_id,
 			dst_id,
 			a,
 			b,
-			lane_start_cap_trim_px,
-			lane_end_cap_trim_px
+			start_trim,
+			end_trim
 		)
 		var reverse: EdgeGeometry = EdgeGeometry.build(
 			dst_id,
 			src_id,
 			b,
 			a,
-			lane_start_cap_trim_px,
-			lane_end_cap_trim_px
+			end_trim,
+			start_trim
 		)
 		if lane_id > 0:
 			cache[lane_id] = forward

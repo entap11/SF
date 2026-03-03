@@ -2,8 +2,8 @@ extends RefCounted
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const SCHEMA_ID := "swarmfront.map.v1.xy"
-const CANON_GRID_W := 8
-const CANON_GRID_H := 12
+const CANON_GRID_W := 18
+const CANON_GRID_H := 28
 const DEFAULT_CELL_SIZE := 64.0
 const OCCLUSION_RADIUS_MAX := 0.45
 const OCCLUSION_EPS := 0.0001
@@ -167,9 +167,10 @@ static func owner_to_owner_id(owner: String) -> int:
 static func _default_owner_for_grid_pos(gx: float, gy: float) -> int:
 	# Dev-safe fallback owner assignment:
 	# Left half = P1, Right half = P2 (for now).
-	# CANON grid is 8x12, x in [0..7]. Midline at 3.5.
+	# Midline is derived from current canonical width.
 	# If you later want 4 players: split by y too.
-	if gx <= 3.5:
+	var midline_x: float = float(CANON_GRID_W - 1) * 0.5
+	if gx <= midline_x:
 		return 1
 	return 2
 

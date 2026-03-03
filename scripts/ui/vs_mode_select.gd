@@ -2,6 +2,10 @@ extends Control
 
 signal closed
 
+const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
+const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/atlas_free_roll_font.tres"
+const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 const MODES := [
 	{"id": "STAGE_RACE", "label": "Stage Race"},
 	{"id": "TIMED_RACE", "label": "Timed Race"},
@@ -10,9 +14,13 @@ const MODES := [
 const MAP_COUNTS := [3, 5]
 const PRICES := [1, 5, 10, 20]
 
+@onready var title_label: Label = $Panel/VBox/Header/Title
 @onready var back_button: Button = $Panel/VBox/Header/Back
+@onready var mode_label: Label = $Panel/VBox/ModeRow/ModeLabel
 @onready var mode_buttons: HBoxContainer = $Panel/VBox/ModeRow/ModeButtons
+@onready var map_label: Label = $Panel/VBox/MapRow/MapLabel
 @onready var map_buttons: HBoxContainer = $Panel/VBox/MapRow/MapButtons
+@onready var price_label: Label = $Panel/VBox/PriceRow/PriceLabel
 @onready var price_buttons: HBoxContainer = $Panel/VBox/PriceRow/PriceButtons
 @onready var summary_label: Label = $Panel/VBox/Summary
 @onready var confirm_button: Button = $Panel/VBox/ConfirmRow/Confirm
@@ -20,6 +28,9 @@ const PRICES := [1, 5, 10, 20]
 var _mode_buttons: Dictionary = {}
 var _map_buttons: Dictionary = {}
 var _price_buttons: Dictionary = {}
+var _font_regular: Font
+var _font_semibold: Font
+var _font_free_roll_atlas: Font
 
 var _selected_mode := "STAGE_RACE"
 var _selected_map_count := 3
@@ -35,6 +46,8 @@ func configure_entry(free_roll: bool) -> void:
 		_build_buttons()
 
 func _ready() -> void:
+	_load_fonts()
+	_apply_static_fonts()
 	back_button.pressed.connect(_on_back_pressed)
 	confirm_button.pressed.connect(_on_confirm_pressed)
 	_build_buttons()
@@ -59,6 +72,7 @@ func _build_buttons() -> void:
 			continue
 		var button := Button.new()
 		button.text = label
+		_apply_font(button, _font_regular, 13)
 		button.toggle_mode = true
 		button.button_group = mode_group
 		button.pressed.connect(func(): _select_mode(mode_id))
@@ -69,6 +83,7 @@ func _build_buttons() -> void:
 	for count in MAP_COUNTS:
 		var button := Button.new()
 		button.text = "%d Maps" % count
+		_apply_font(button, _font_regular, 13)
 		button.toggle_mode = true
 		button.button_group = count_group
 		button.pressed.connect(func(): _select_map_count(count))
@@ -80,6 +95,7 @@ func _build_buttons() -> void:
 		for price in PRICES:
 			var button := Button.new()
 			button.text = "$%d" % price
+			_apply_font(button, _font_regular, 13)
 			button.toggle_mode = true
 			button.button_group = price_group
 			button.pressed.connect(func(): _select_price(price))
@@ -89,6 +105,8 @@ func _build_buttons() -> void:
 	if _entry_lock != "paid_only":
 		var free_button := Button.new()
 		free_button.text = "Free Roll"
+		if not _apply_free_roll_atlas_font(free_button, 13):
+			_apply_font(free_button, _font_semibold, 13)
 		free_button.toggle_mode = true
 		free_button.button_group = price_group
 		free_button.pressed.connect(func(): _select_price(0))
@@ -139,3 +157,52 @@ func _on_confirm_pressed() -> void:
 
 func _on_back_pressed() -> void:
 	closed.emit()
+
+func _load_fonts() -> void:
+	_font_regular = load(FONT_REGULAR_PATH)
+	_font_semibold = load(FONT_SEMIBOLD_PATH)
+	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
+
+func _apply_static_fonts() -> void:
+	_apply_free_roll_atlas_font(title_label, 20)
+	_apply_font(back_button, _font_regular, 14)
+	_apply_font(mode_label, _font_semibold, 14)
+	_apply_font(map_label, _font_semibold, 14)
+	_apply_font(price_label, _font_semibold, 14)
+	_apply_font(summary_label, _font_regular, 14)
+	_apply_font(confirm_button, _font_semibold, 14)
+
+func _apply_font(node: Control, font: Font, size: int) -> void:
+	if node == null or font == null:
+		return
+	node.add_theme_font_override("font", font)
+	node.add_theme_font_size_override("font_size", maxi(1, size))
+
+func _text_uses_free_roll_charset(text: String) -> bool:
+	var source := text.to_upper()
+	for i in source.length():
+		var ch := source.substr(i, 1)
+		if FONT_FREE_ROLL_SUPPORTED.find(ch) == -1:
+			return false
+	return true
+
+func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
+	if node == null or _font_free_roll_atlas == null:
+		return false
+	var raw_text := ""
+	if node is Label:
+		raw_text = (node as Label).text
+	elif node is BaseButton:
+		raw_text = (node as BaseButton).text
+	if raw_text == "":
+		return false
+	var upper_text := raw_text.to_upper()
+	if not _text_uses_free_roll_charset(upper_text):
+		return false
+	if node is Label:
+		(node as Label).text = upper_text
+	elif node is BaseButton:
+		(node as BaseButton).text = upper_text
+	node.add_theme_font_override("font", _font_free_roll_atlas)
+	node.add_theme_font_size_override("font_size", maxi(1, size))
+	return true
