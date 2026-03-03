@@ -13,8 +13,6 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 
 @export var autoplay := false
 @export var autostart_sim := false
-const CANON_GRID_W := 8
-const CANON_GRID_H := 12
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 var map_id := ""
@@ -207,7 +205,7 @@ func _on_load_pressed() -> void:
 	MAP_APPLIER.apply_map(_arena, d)
 	SFLog.debug("DEV_MAP_LOADER: apply_map DONE")
 
-	_center_cam()
+	_center_cam(_resolved_map_dims(d))
 	if _arena.has_method("notify_map_built"):
 		_arena.call("notify_map_built")
 	if _arena.has_method("fitcam_once"):
@@ -301,8 +299,21 @@ func _clear_map(arena: Node2D) -> void:
 	for c in lr.get_children():
 		c.queue_free()
 
-func _center_cam() -> void:
-	var world := Vector2(CANON_GRID_W * cell_size, CANON_GRID_H * cell_size)
+func _resolved_map_dims(d: Dictionary) -> Vector2i:
+	var w: int = int(d.get("grid_w", d.get("grid_width", d.get("width", 0))))
+	var h: int = int(d.get("grid_h", d.get("grid_height", d.get("height", 0))))
+	return Vector2i(w, h)
+
+func _center_cam(map_dims: Vector2i = Vector2i.ZERO) -> void:
+	var grid_w: int = map_dims.x
+	var grid_h: int = map_dims.y
+	if grid_w <= 0:
+		grid_w = int(_arena.get("grid_w")) if _arena != null else 0
+	if grid_h <= 0:
+		grid_h = int(_arena.get("grid_h")) if _arena != null else 0
+	grid_w = maxi(1, grid_w)
+	grid_h = maxi(1, grid_h)
+	var world := Vector2(float(grid_w * cell_size), float(grid_h * cell_size))
 	if _arena.has_method("cam_set"):
 		var cam := _arena.get_node("Camera2D") as Camera2D
 		_arena.call("cam_set", "dev_loader_center", world * 0.5, cam.zoom)

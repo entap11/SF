@@ -17,6 +17,10 @@ const HONEY_WIDGET_PANEL_WIDTH: float = 300.0
 const HONEY_WIDGET_PANEL_HEIGHT: float = 200.0
 const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
 const HONEY_WIDGET_TOP_OFFSET: float = 10.0
+const TIER_WIDGET_LEFT_MARGIN: float = 24.0
+const TIER_WIDGET_TOP_OFFSET: float = 18.0
+const TIER_WIDGET_PANEL_WIDTH: float = 234.0
+const TIER_WIDGET_PANEL_HEIGHT: float = 52.0
 const MM_BACKGROUND_Y_SHIFT: float = 36.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
@@ -994,7 +998,7 @@ func _load_fonts() -> void:
 func _style_labels() -> void:
 	_apply_font($TopBar/RankLabel, _font_regular, 16)
 	if _tier_widget != null and _tier_widget.has_method("apply_label_fonts"):
-		_tier_widget.call("apply_label_fonts", _font_regular, _scaled_ui_font_size(16))
+		_tier_widget.call("apply_label_fonts", _font_semibold, _scaled_ui_font_size(20))
 	_apply_font($TopBar/HoneyLabel, _font_regular, 16)
 	_apply_honey_label_shader($TopBar/HoneyLabel)
 	if _honey_widget != null and _honey_widget.has_method("apply_label_font"):
@@ -1677,17 +1681,19 @@ func _ensure_tier_widget() -> void:
 	if widget_control == null:
 		return
 	widget_control.name = "TierWidget"
-	widget_control.layout_mode = legacy_rank_label.layout_mode
-	widget_control.anchor_left = legacy_rank_label.anchor_left
-	widget_control.anchor_top = legacy_rank_label.anchor_top
-	widget_control.anchor_right = legacy_rank_label.anchor_right
-	widget_control.anchor_bottom = legacy_rank_label.anchor_bottom
-	widget_control.offset_left = legacy_rank_label.offset_left
-	widget_control.offset_top = legacy_rank_label.offset_top
-	widget_control.offset_right = legacy_rank_label.offset_right
-	widget_control.offset_bottom = legacy_rank_label.offset_bottom
-	widget_control.grow_horizontal = legacy_rank_label.grow_horizontal
-	widget_control.grow_vertical = legacy_rank_label.grow_vertical
+	widget_control.layout_mode = 0
+	widget_control.anchor_left = 0.0
+	widget_control.anchor_top = 0.0
+	widget_control.anchor_right = 0.0
+	widget_control.anchor_bottom = 0.0
+	widget_control.offset_left = TIER_WIDGET_LEFT_MARGIN
+	widget_control.offset_top = TIER_WIDGET_TOP_OFFSET
+	widget_control.offset_right = TIER_WIDGET_LEFT_MARGIN + TIER_WIDGET_PANEL_WIDTH
+	widget_control.offset_bottom = TIER_WIDGET_TOP_OFFSET + TIER_WIDGET_PANEL_HEIGHT
+	widget_control.grow_horizontal = Control.GROW_DIRECTION_END
+	widget_control.grow_vertical = Control.GROW_DIRECTION_END
+	widget_control.custom_minimum_size = Vector2(TIER_WIDGET_PANEL_WIDTH, TIER_WIDGET_PANEL_HEIGHT)
+	widget_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top_bar.add_child(widget_control)
 	top_bar.move_child(widget_control, legacy_rank_label.get_index() + 1)
 	legacy_rank_label.visible = false

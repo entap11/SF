@@ -1,110 +1,88 @@
 extends Control
 class_name TierWidget
 
+const RANK_TITLE_TEXT: String = "Rank"
+const RANK_DRONE_OVERLAP_PX: int = 6
+
 @export var rank_state_path: NodePath = NodePath("/root/RankState")
-@export var plate_path: NodePath = NodePath("Plate")
-@export var tier_label_path: NodePath = NodePath("HBox/TierLabel")
-@export var hex_icon_path: NodePath = NodePath("HBox/HexIcon")
-@export var hex_label_path: NodePath = NodePath("HBox/HexLabel")
-@export var rank_label_path: NodePath = NodePath("HBox/RankLabel")
+@export var tier_static_label_path: NodePath = NodePath("Content/Row/TierCol/TierStaticLabel")
+@export var tier_value_label_path: NodePath = NodePath("Content/Row/TierCol/TierValueLabel")
+@export var tier_label_path: NodePath = NodePath("Content/Row/RightCol/TierLabel")
+@export var rank_row_path: NodePath = NodePath("Content/Row/RightCol/RankRow")
+@export var rank_value_label_path: NodePath = NodePath("Content/Row/RightCol/RankRow/RankValueLabel")
+@export var rank_static_label_path: NodePath = NodePath("Content/Row/RightCol/RankRow/RankStaticLabel")
 @export var rank_up_flash_path: NodePath = NodePath("RankUpFlash")
-@export var hex_icon_texture_path: String = "res://ui/hud/tier/hex_separator.png"
-@export var hex_fallback_glyph: String = "⬡"
-@export var hex_fallback_dot: String = "·"
 @export var rankup_duration_sec: float = 0.20
 @export var significant_rank_improvement: int = 10
 
 var _rank_state: Node = null
-var _plate: Panel = null
+var _tier_static_label: Label = null
+var _tier_value_label: Label = null
 var _tier_label: Label = null
-var _hex_icon: TextureRect = null
-var _hex_label: Label = null
-var _rank_label: Label = null
+var _rank_row: HBoxContainer = null
+var _rank_value_label: Label = null
+var _rank_static_label: Label = null
 var _rank_up_flash: ColorRect = null
 
 var _has_values: bool = false
 var _tier_index: int = 0
 var _tier_rank: int = 0
-
-var _text_materials: Array[ShaderMaterial] = []
-var _material_base_inlay: Array[float] = []
-var _sweep_tween: Tween = null
+var _tier_id: String = "DRONE"
+var _flash_tween: Tween = null
 
 func _ready() -> void:
 	_resolve_nodes()
-	_configure_plate()
-	_prepare_text_materials()
-	_resolve_separator_visual()
+	_apply_text_style()
 	_bind_rank_state()
 	_refresh_from_state(false)
 
 func apply_label_fonts(font: Font, size: int) -> void:
 	if font == null:
 		return
+	var base_size: int = maxi(1, size)
+	var tier_size: int = maxi(1, int(round(base_size * 0.72)))
+	if _tier_static_label != null:
+		_tier_static_label.add_theme_font_override("font", font)
+		_tier_static_label.add_theme_font_size_override("font_size", tier_size)
+	if _tier_value_label != null:
+		_tier_value_label.add_theme_font_override("font", font)
+		_tier_value_label.add_theme_font_size_override("font_size", tier_size)
 	if _tier_label != null:
 		_tier_label.add_theme_font_override("font", font)
-		_tier_label.add_theme_font_size_override("font_size", maxi(1, size))
-	if _rank_label != null:
-		_rank_label.add_theme_font_override("font", font)
-		_rank_label.add_theme_font_size_override("font_size", maxi(1, size))
-	if _hex_label != null:
-		_hex_label.add_theme_font_override("font", font)
-		_hex_label.add_theme_font_size_override("font_size", maxi(1, int(round(size * 0.86))))
-	_resolve_separator_glyph()
+		_tier_label.add_theme_font_size_override("font_size", tier_size)
+	if _rank_value_label != null:
+		_rank_value_label.add_theme_font_override("font", font)
+		_rank_value_label.add_theme_font_size_override("font_size", tier_size)
+	if _rank_static_label != null:
+		_rank_static_label.add_theme_font_override("font", font)
+		_rank_static_label.add_theme_font_size_override("font_size", tier_size)
+	_sync_rank_anchor_width()
 
 func _resolve_nodes() -> void:
-	_plate = get_node_or_null(plate_path) as Panel
+	_tier_static_label = get_node_or_null(tier_static_label_path) as Label
+	_tier_value_label = get_node_or_null(tier_value_label_path) as Label
 	_tier_label = get_node_or_null(tier_label_path) as Label
-	_hex_icon = get_node_or_null(hex_icon_path) as TextureRect
-	_hex_label = get_node_or_null(hex_label_path) as Label
-	_rank_label = get_node_or_null(rank_label_path) as Label
+	_rank_row = get_node_or_null(rank_row_path) as HBoxContainer
+	_rank_value_label = get_node_or_null(rank_value_label_path) as Label
+	_rank_static_label = get_node_or_null(rank_static_label_path) as Label
 	_rank_up_flash = get_node_or_null(rank_up_flash_path) as ColorRect
-
-func _configure_plate() -> void:
-	if _plate == null:
-		return
-	var plate_style: StyleBoxFlat = StyleBoxFlat.new()
-	plate_style.bg_color = Color(0.09, 0.10, 0.12, 0.84)
-	plate_style.border_width_left = 1
-	plate_style.border_width_top = 1
-	plate_style.border_width_right = 1
-	plate_style.border_width_bottom = 1
-	plate_style.border_color = Color(0.74, 0.47, 0.12, 0.38)
-	plate_style.corner_radius_top_left = 6
-	plate_style.corner_radius_top_right = 6
-	plate_style.corner_radius_bottom_right = 6
-	plate_style.corner_radius_bottom_left = 6
-	plate_style.content_margin_left = 8
-	plate_style.content_margin_top = 2
-	plate_style.content_margin_right = 8
-	plate_style.content_margin_bottom = 2
-	_plate.add_theme_stylebox_override("panel", plate_style)
 	if _rank_up_flash != null:
-		_rank_up_flash.modulate = Color(1.0, 0.78, 0.35, 0.0)
 		_rank_up_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_rank_up_flash.modulate = Color(0.56, 1.0, 0.62, 0.0)
 
-func _prepare_text_materials() -> void:
-	_text_materials.clear()
-	_material_base_inlay.clear()
-	_register_label_material(_tier_label)
-	_register_label_material(_rank_label)
-	_register_label_material(_hex_label)
-	_apply_sweep_state(-0.3, 0.0, 1.0)
-
-func _register_label_material(label: Label) -> void:
-	if label == null:
-		return
-	var material_any: Variant = label.material
-	if not (material_any is ShaderMaterial):
-		return
-	var unique_mat: ShaderMaterial = (material_any as ShaderMaterial).duplicate() as ShaderMaterial
-	label.material = unique_mat
-	_text_materials.append(unique_mat)
-	var inlay_strength_any: Variant = unique_mat.get_shader_parameter("inlay_strength")
-	var inlay_strength: float = 0.55
-	if typeof(inlay_strength_any) == TYPE_FLOAT or typeof(inlay_strength_any) == TYPE_INT:
-		inlay_strength = inlay_strength_any
-	_material_base_inlay.append(inlay_strength)
+func _apply_text_style() -> void:
+	for label in [_tier_static_label, _tier_value_label, _tier_label, _rank_value_label, _rank_static_label]:
+		if label == null:
+			continue
+		label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.82, 1.0))
+		label.add_theme_color_override("font_outline_color", Color(0.12, 0.07, 0.01, 0.86))
+		label.add_theme_constant_override("outline_size", 1)
+	if _tier_label != null:
+		_tier_label.add_theme_color_override("font_color", Color(0.64, 1.0, 0.70, 1.0))
+	if _rank_value_label != null:
+		_rank_value_label.add_theme_color_override("font_color", Color(0.64, 1.0, 0.70, 1.0))
+	if _rank_static_label != null:
+		_rank_static_label.add_theme_color_override("font_color", Color(0.64, 1.0, 0.70, 1.0))
 
 func _bind_rank_state() -> void:
 	_rank_state = get_node_or_null(rank_state_path)
@@ -130,15 +108,19 @@ func _refresh_from_state(allow_anim: bool) -> void:
 	var badge: Dictionary = badge_any as Dictionary
 	var tier_index: int = maxi(0, int(badge.get("tier_index", 0)))
 	var tier_rank: int = maxi(0, int(badge.get("tier_rank", 0)))
-	_set_values(tier_index, tier_rank, allow_anim)
+	var tier_id: String = str(badge.get("tier_id", "DRONE"))
+	_set_values(tier_index, tier_rank, tier_id, allow_anim)
 
 func _on_tier_changed(tier_index: int, tier_rank: int) -> void:
-	_set_values(maxi(0, tier_index), maxi(0, tier_rank), true)
+	if _rank_state != null and _rank_state.has_method("get_local_tier_badge"):
+		_refresh_from_state(true)
+	else:
+		_set_values(maxi(0, tier_index), maxi(0, tier_rank), _tier_id, true)
 
 func _on_rank_state_changed(_snapshot: Dictionary) -> void:
 	_refresh_from_state(true)
 
-func _set_values(tier_index: int, tier_rank: int, allow_anim: bool) -> void:
+func _set_values(tier_index: int, tier_rank: int, tier_id: String, allow_anim: bool) -> void:
 	var play_rankup: bool = false
 	if _has_values and allow_anim:
 		if tier_index > _tier_index:
@@ -149,105 +131,93 @@ func _set_values(tier_index: int, tier_rank: int, allow_anim: bool) -> void:
 				play_rankup = true
 	_tier_index = tier_index
 	_tier_rank = tier_rank
+	_tier_id = _normalize_tier_id(tier_id)
 	_has_values = true
 	_update_text()
 	if play_rankup:
-		_play_rankup_sweep()
+		_play_rankup_flash()
 
 func _update_text() -> void:
+	if _tier_static_label != null:
+		_tier_static_label.text = "Tier"
+	if _tier_value_label != null:
+		_tier_value_label.text = str(_tier_index)
 	if _tier_label != null:
-		_tier_label.text = "T%d" % _tier_index
-	if _rank_label != null:
-		_rank_label.text = str(_tier_rank)
+		_tier_label.text = RANK_TITLE_TEXT
+	if _rank_value_label != null:
+		_rank_value_label.text = "--" if _tier_rank <= 0 else str(_tier_rank)
+	if _rank_static_label != null:
+		_rank_static_label.text = _display_tier_name(_tier_id)
+	_sync_rank_anchor_width()
 
-func _resolve_separator_visual() -> void:
-	var icon_tex: Texture2D = null
-	if ResourceLoader.exists(hex_icon_texture_path):
-		var loaded_any: Variant = load(hex_icon_texture_path)
-		if loaded_any is Texture2D:
-			icon_tex = loaded_any as Texture2D
-	if icon_tex != null and _hex_icon != null:
-		_hex_icon.texture = icon_tex
-		_hex_icon.modulate = Color(0.86, 0.62, 0.18, 0.85)
-		_hex_icon.visible = true
-		if _hex_label != null:
-			_hex_label.visible = false
-	else:
-		if _hex_icon != null:
-			_hex_icon.visible = false
-		if _hex_label != null:
-			_hex_label.visible = true
-			_resolve_separator_glyph()
-
-func _resolve_separator_glyph() -> void:
-	if _hex_label == null:
+func _sync_rank_anchor_width() -> void:
+	if _tier_label == null or _rank_value_label == null:
 		return
-	var glyph: String = hex_fallback_glyph
-	var font_any: Variant = _hex_label.get_theme_font("font")
-	if font_any is Font:
-		var font_ref: Font = font_any as Font
-		if font_ref.has_char(hex_fallback_glyph.unicode_at(0)) == false:
-			glyph = hex_fallback_dot
-	_hex_label.text = glyph
+	var rank_font: Font = _tier_label.get_theme_font("font")
+	var rank_font_size: int = _tier_label.get_theme_font_size("font_size")
+	if rank_font == null or rank_font_size <= 0:
+		return
+	var rank_title_width: float = rank_font.get_string_size(RANK_TITLE_TEXT, HORIZONTAL_ALIGNMENT_LEFT, -1, rank_font_size).x
+	var rank_value_text: String = "--" if _tier_rank <= 0 else str(_tier_rank)
+	var value_font: Font = _rank_value_label.get_theme_font("font")
+	var value_font_size: int = _rank_value_label.get_theme_font_size("font_size")
+	var rank_value_width: float = 0.0
+	if value_font != null and value_font_size > 0:
+		rank_value_width = value_font.get_string_size(rank_value_text, HORIZONTAL_ALIGNMENT_LEFT, -1, value_font_size).x
+	var slot_width: float = ceil(maxf(rank_title_width, rank_value_width)) + 2.0
+	_tier_label.custom_minimum_size = Vector2(slot_width, _tier_label.custom_minimum_size.y)
+	_rank_value_label.custom_minimum_size = Vector2(slot_width, _rank_value_label.custom_minimum_size.y)
+	if _rank_row != null:
+		_rank_row.add_theme_constant_override("separation", -RANK_DRONE_OVERLAP_PX)
 
-func _play_rankup_sweep() -> void:
-	if _sweep_tween != null and _sweep_tween.is_running():
-		_sweep_tween.kill()
-	_sweep_tween = create_tween()
-	_apply_sweep_state(-0.2, 0.9, 1.35)
-	_sweep_tween.tween_method(Callable(self, "_set_sweep_position"), -0.2, 1.2, rankup_duration_sec).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_sweep_tween.parallel().tween_method(Callable(self, "_set_sweep_strength"), 0.9, 0.0, rankup_duration_sec).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_sweep_tween.parallel().tween_method(Callable(self, "_set_inlay_multiplier"), 1.35, 1.0, rankup_duration_sec).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	if _rank_up_flash != null:
-		_rank_up_flash.modulate = Color(1.0, 0.78, 0.35, 0.22)
-		_sweep_tween.parallel().tween_property(_rank_up_flash, "modulate:a", 0.0, rankup_duration_sec).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_sweep_tween.finished.connect(func() -> void:
-		_apply_sweep_state(-0.3, 0.0, 1.0)
-	)
+func _play_rankup_flash() -> void:
+	if _rank_up_flash == null:
+		return
+	if _flash_tween != null and _flash_tween.is_running():
+		_flash_tween.kill()
+	_rank_up_flash.modulate = Color(0.56, 1.0, 0.62, 0.22)
+	_flash_tween = create_tween()
+	_flash_tween.tween_property(_rank_up_flash, "modulate:a", 0.0, rankup_duration_sec).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
-func _set_sweep_position(value: float) -> void:
-	_apply_sweep_state(value, _current_sweep_strength(), _current_inlay_multiplier())
+func _normalize_tier_id(tier_id: String) -> String:
+	var clean: String = tier_id.strip_edges().to_upper()
+	if clean == "":
+		return "DRONE"
+	return clean
 
-func _set_sweep_strength(value: float) -> void:
-	_apply_sweep_state(_current_sweep_position(), value, _current_inlay_multiplier())
-
-func _set_inlay_multiplier(value: float) -> void:
-	_apply_sweep_state(_current_sweep_position(), _current_sweep_strength(), value)
-
-func _current_sweep_position() -> float:
-	if _text_materials.is_empty():
-		return -0.3
-	var value_any: Variant = _text_materials[0].get_shader_parameter("sweep_pos")
-	if typeof(value_any) == TYPE_FLOAT or typeof(value_any) == TYPE_INT:
-		return value_any
-	return -0.3
-
-func _current_sweep_strength() -> float:
-	if _text_materials.is_empty():
-		return 0.0
-	var value_any: Variant = _text_materials[0].get_shader_parameter("sweep_strength")
-	if typeof(value_any) == TYPE_FLOAT or typeof(value_any) == TYPE_INT:
-		return value_any
-	return 0.0
-
-func _current_inlay_multiplier() -> float:
-	if _text_materials.is_empty() or _material_base_inlay.is_empty():
-		return 1.0
-	var current_any: Variant = _text_materials[0].get_shader_parameter("inlay_strength")
-	var current: float = 0.55
-	if typeof(current_any) == TYPE_FLOAT or typeof(current_any) == TYPE_INT:
-		current = current_any
-	var base: float = _material_base_inlay[0]
-	if is_zero_approx(base):
-		return 1.0
-	return current / base
-
-func _apply_sweep_state(position: float, strength: float, inlay_multiplier: float) -> void:
-	for idx in range(_text_materials.size()):
-		var mat: ShaderMaterial = _text_materials[idx]
-		if mat == null:
-			continue
-		mat.set_shader_parameter("sweep_pos", position)
-		mat.set_shader_parameter("sweep_strength", strength)
-		var base_inlay: float = _material_base_inlay[idx] if idx < _material_base_inlay.size() else 0.55
-		mat.set_shader_parameter("inlay_strength", base_inlay * inlay_multiplier)
+func _display_tier_name(tier_id: String) -> String:
+	match _normalize_tier_id(tier_id):
+		"DRONE":
+			return "DRONE"
+		"WORKER":
+			return "WORKER"
+		"SOLDIER":
+			return "SOLDIER"
+		"HONEY_BEE":
+			return "HONEY BEE"
+		"BUMBLEBEE":
+			return "BUMBLEBEE"
+		"QUEEN":
+			return "QUEEN"
+		"YELLOWJACKET":
+			return "YELLOWJACKET"
+		"RED_WASP":
+			return "RED WASP"
+		"HORNET":
+			return "HORNET"
+		"BALD_FACED_HORNET":
+			return "BALD-FACED"
+		"KILLER_BEE":
+			return "KILLER BEE"
+		"ASIAN_GIANT_HORNET":
+			return "GIANT HORNET"
+		"EXECUTIONER_WASP":
+			return "EXECUTIONER"
+		"SCORPION_WASP":
+			return "SCORPION"
+		"COW_KILLER":
+			return "COW KILLER"
+	var fallback: String = _normalize_tier_id(tier_id).replace("_", " ")
+	if fallback == "":
+		return "DRONE"
+	return fallback

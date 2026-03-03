@@ -61,6 +61,7 @@ mouse_filter = 2
 color = Color(0, 0, 0, 0.18)
 
 [node name="GlowLeft" type="ColorRect" parent="."]
+visible = false
 layout_mode = 0
 offset_left = -120.0
 offset_top = -80.0
