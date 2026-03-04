@@ -60,28 +60,6 @@ grow_vertical = 0
 mouse_filter = 2
 color = Color(0, 0, 0, 0.18)
 
-[node name="GlowLeft" type="ColorRect" parent="."]
-layout_mode = 0
-offset_left = -120.0
-offset_top = -80.0
-offset_right = 420.0
-offset_bottom = 360.0
-mouse_filter = 2
-color = Color(0.9, 0.65, 0.15, 0.12)
-
-[node name="GlowRight" type="ColorRect" parent="."]
-layout_mode = 0
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -520.0
-offset_top = -420.0
-offset_right = 120.0
-offset_bottom = 120.0
-mouse_filter = 2
-color = Color(0.2, 0.45, 0.9, 0.12)
-
 [node name="HexGrid" type="Control" parent="."]
 visible = false
 layout_mode = 1
@@ -127,6 +105,19 @@ offset_top = 10.0
 offset_right = 70.0
 offset_bottom = 80.0
 script = ExtResource("2")
+
+[node name="BrandTitle" type="Label" parent="TopBar"]
+layout_mode = 0
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -210.0
+offset_top = 58.0
+offset_right = 210.0
+offset_bottom = 88.0
+mouse_filter = 2
+text = "SWARMFRONT"
+horizontal_alignment = 1
+vertical_alignment = 1
 
 [node name="HeroPanel" type="Panel" parent="."]
 layout_mode = 0

@@ -1,66 +1,81 @@
 shader_type canvas_item;
 render_mode unshaded;
 
-uniform vec4 base_dark : source_color = vec4(0.14, 0.15, 0.17, 1.0);
-uniform vec4 metal_highlight : source_color = vec4(0.42, 0.44, 0.46, 1.0);
-uniform vec4 amber_inlay : source_color = vec4(0.95, 0.66, 0.22, 1.0);
-uniform float inlay_strength : hint_range(0.0, 2.0) = 0.55;
-uniform float hex_scale : hint_range(8.0, 80.0) = 28.0;
-uniform float hex_strength : hint_range(0.0, 1.0) = 0.18;
+uniform vec4 top_color : source_color = vec4(0.90, 0.74, 0.09, 1.0);
+uniform vec4 bottom_color : source_color = vec4(1.0, 0.831, 0.0, 1.0);
+uniform vec4 stroke_color : source_color = vec4(0.44, 0.28, 0.05, 1.0);
+uniform float stroke_width : hint_range(0.5, 2.0) = 1.0;
+uniform vec4 glow_color : source_color = vec4(1.0, 0.80, 0.22, 1.0);
+uniform float glow_strength : hint_range(0.0, 0.8) = 0.22;
+uniform float glow_radius : hint_range(1.0, 4.0) = 2.3;
+uniform float bevel_strength : hint_range(0.0, 1.0) = 0.20;
+uniform float inner_shadow_strength : hint_range(0.0, 1.0) = 0.16;
 uniform float sweep_pos : hint_range(-0.5, 1.5) = -0.3;
-uniform float sweep_width : hint_range(0.02, 0.6) = 0.16;
+uniform float sweep_width : hint_range(0.02, 0.5) = 0.18;
 uniform float sweep_strength : hint_range(0.0, 1.5) = 0.0;
-uniform float noise_strength : hint_range(0.0, 0.35) = 0.09;
 
-float hash12(vec2 p) {
-	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return fract((p3.x + p3.y) * p3.z);
-}
-
-float hex_sdf(vec2 p) {
-	p = abs(p);
-	return max(dot(p, vec2(0.8660254, 0.5)), p.x);
-}
-
-float hex_line(vec2 uv, float scale, float width) {
-	vec2 grid_uv = uv * scale;
-	grid_uv.x *= 1.1547005;
-	grid_uv.y += floor(grid_uv.x) * 0.5;
-	vec2 cell_uv = fract(grid_uv) - 0.5;
-	float dist = hex_sdf(cell_uv);
-	return 1.0 - smoothstep(0.5 - width, 0.5, dist);
+float sample_alpha(vec2 uv) {
+	return texture(TEXTURE, uv).a * COLOR.a;
 }
 
 void fragment() {
-	vec4 atlas = texture(TEXTURE, UV);
-	float alpha = atlas.a * COLOR.a;
+	float alpha = sample_alpha(UV);
 	if (alpha <= 0.001) {
 		discard;
 	}
 
 	vec2 texel = TEXTURE_PIXEL_SIZE;
-	float n1 = texture(TEXTURE, UV + vec2(texel.x, 0.0)).a;
-	float n2 = texture(TEXTURE, UV + vec2(-texel.x, 0.0)).a;
-	float n3 = texture(TEXTURE, UV + vec2(0.0, texel.y)).a;
-	float n4 = texture(TEXTURE, UV + vec2(0.0, -texel.y)).a;
-	float neighbor = (n1 + n2 + n3 + n4) * 0.25;
-	float edge = clamp(alpha - neighbor, 0.0, 1.0);
+	vec2 stroke_step = texel * stroke_width;
+	float a_r = sample_alpha(UV + vec2(stroke_step.x, 0.0));
+	float a_l = sample_alpha(UV + vec2(-stroke_step.x, 0.0));
+	float a_d = sample_alpha(UV + vec2(0.0, stroke_step.y));
+	float a_u = sample_alpha(UV + vec2(0.0, -stroke_step.y));
+	float a_ur = sample_alpha(UV + vec2(stroke_step.x, -stroke_step.y));
+	float a_ul = sample_alpha(UV + vec2(-stroke_step.x, -stroke_step.y));
+	float a_dr = sample_alpha(UV + vec2(stroke_step.x, stroke_step.y));
+	float a_dl = sample_alpha(UV + vec2(-stroke_step.x, stroke_step.y));
 
-	float grad = smoothstep(0.0, 1.0, UV.y);
-	vec3 metal = mix(base_dark.rgb, metal_highlight.rgb, grad * 0.55);
-	float grain = (hash12(UV * 420.0) - 0.5) * 2.0;
-	metal += grain * noise_strength;
+	float dilated = max(max(max(a_r, a_l), max(a_d, a_u)), max(max(a_ur, a_ul), max(a_dr, a_dl)));
+	float outline = clamp(dilated - alpha, 0.0, 1.0);
 
-	float hex = hex_line(UV, hex_scale, 0.045);
-	float matte = 1.0 - (hex * hex_strength);
-	metal *= matte;
+	vec2 glow_step = texel * glow_radius;
+	float g_r = sample_alpha(UV + vec2(glow_step.x, 0.0));
+	float g_l = sample_alpha(UV + vec2(-glow_step.x, 0.0));
+	float g_d = sample_alpha(UV + vec2(0.0, glow_step.y));
+	float g_u = sample_alpha(UV + vec2(0.0, -glow_step.y));
+	float g_ur = sample_alpha(UV + vec2(glow_step.x, -glow_step.y));
+	float g_ul = sample_alpha(UV + vec2(-glow_step.x, -glow_step.y));
+	float g_dr = sample_alpha(UV + vec2(glow_step.x, glow_step.y));
+	float g_dl = sample_alpha(UV + vec2(-glow_step.x, glow_step.y));
+	float glow_mask = max(max(max(g_r, g_l), max(g_d, g_u)), max(max(g_ur, g_ul), max(g_dr, g_dl)));
+	float glow = clamp(glow_mask - alpha, 0.0, 1.0) * glow_strength;
 
-	vec3 inlay = amber_inlay.rgb * edge * inlay_strength;
+	float eroded = min(min(min(a_r, a_l), min(a_d, a_u)), min(min(a_ur, a_ul), min(a_dr, a_dl)));
+	float inner_edge = clamp(alpha - eroded, 0.0, 1.0);
+	float inner_shadow = inner_edge * inner_shadow_strength;
+
+	float bevel_sample_l = sample_alpha(UV + vec2(-texel.x, 0.0));
+	float bevel_sample_r = sample_alpha(UV + vec2(texel.x, 0.0));
+	float bevel_sample_u = sample_alpha(UV + vec2(0.0, -texel.y));
+	float bevel_sample_d = sample_alpha(UV + vec2(0.0, texel.y));
+	vec2 gradient = vec2(bevel_sample_r - bevel_sample_l, bevel_sample_d - bevel_sample_u);
+	vec2 light_dir = normalize(vec2(-0.55, -0.85));
+	float bevel = clamp(dot(-gradient, light_dir), -1.0, 1.0) * bevel_strength;
+
+	float grad_t = clamp(UV.y, 0.0, 1.0);
+	vec3 fill = mix(top_color.rgb, bottom_color.rgb, grad_t);
+	fill *= COLOR.rgb;
+	fill *= 1.0 + bevel;
+	fill *= 1.0 - inner_shadow;
+
 	float sweep_dist = abs(UV.x - sweep_pos);
 	float sweep = exp(-pow(sweep_dist / max(sweep_width, 0.001), 2.0));
-	vec3 sweep_color = (metal_highlight.rgb * 0.85 + amber_inlay.rgb * 0.45) * sweep * sweep_strength;
+	vec3 sweep_color = glow_color.rgb * (sweep * sweep_strength * 0.5);
 
-	vec3 final_rgb = (metal + inlay + sweep_color) * COLOR.rgb;
-	COLOR = vec4(final_rgb, alpha);
+	vec3 final_rgb = fill * alpha;
+	final_rgb += stroke_color.rgb * outline;
+	final_rgb += glow_color.rgb * glow;
+	final_rgb += sweep_color * alpha;
+	float final_alpha = clamp(alpha + outline + glow, 0.0, 1.0);
+	COLOR = vec4(final_rgb, final_alpha);
 }

@@ -10,6 +10,7 @@ const MATCH_BACKGROUND_INLAY_TEXTURE: Texture2D = preload("res://assets/sprites/
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
 const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
 const HONEY_TEXT_SHADER: Shader = preload("res://ui/hud/honey/honey_text_honeycomb.gdshader")
+const SWARMFRONT_TITLE_SHADER: Shader = preload("res://ui/main_menu/swarmfront_title_forged.gdshader")
 const HONEY_FONT_COLOR: Color = Color(0.97, 0.73, 0.19, 1.0)
 const HONEY_OUTLINE_COLOR: Color = Color(0.20, 0.09, 0.01, 0.98)
 const HONEY_SHADOW_COLOR: Color = Color(0.10, 0.04, 0.01, 0.88)
@@ -17,6 +18,10 @@ const HONEY_WIDGET_PANEL_WIDTH: float = 300.0
 const HONEY_WIDGET_PANEL_HEIGHT: float = 200.0
 const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
 const HONEY_WIDGET_TOP_OFFSET: float = 10.0
+const TIER_WIDGET_LEFT_MARGIN: float = 8.0
+const TIER_WIDGET_TOP_OFFSET: float = 8.0
+const TIER_WIDGET_PANEL_WIDTH: float = 166.0
+const TIER_WIDGET_PANEL_HEIGHT: float = 58.0
 const MM_BACKGROUND_Y_SHIFT: float = 36.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
@@ -59,6 +64,7 @@ const DASH_HEX_CONTAINER_EXTRA_WIDTH: float = 16.0
 const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 
 @onready var hive_button: HexButton = $TopBar/HiveButton
+@onready var brand_title_label: Label = $TopBar/BrandTitle
 @onready var dash_tab: HexButton = $DashTab
 @onready var dash_panel: Panel = $DashPanel
 @onready var dash_top_bar: Control = $DashPanel/DashTopBar
@@ -1086,7 +1092,7 @@ func _load_fonts() -> void:
 func _style_labels() -> void:
 	_apply_font($TopBar/RankLabel, _font_regular, 16)
 	if _tier_widget != null and _tier_widget.has_method("apply_label_fonts"):
-		_tier_widget.call("apply_label_fonts", _font_regular, _scaled_ui_font_size(16))
+		_tier_widget.call("apply_label_fonts", _font_semibold, 8)
 	_apply_font($TopBar/HoneyLabel, _font_regular, 16)
 	_apply_honey_label_shader($TopBar/HoneyLabel)
 	if _honey_widget != null and _honey_widget.has_method("apply_label_font"):
@@ -1094,6 +1100,10 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashTopBar/DashRankLabel, _font_regular, 16)
 	_apply_font($DashPanel/DashTopBar/DashHoneyLabel, _font_regular, 17)
 	_apply_honey_label_shader($DashPanel/DashTopBar/DashHoneyLabel)
+	if brand_title_label != null:
+		if not _apply_free_roll_atlas_font(brand_title_label, 17):
+			_apply_font(brand_title_label, _font_semibold, 19)
+		_apply_swarmfront_title_shader(brand_title_label)
 	_apply_font($HeroPanel/HeroVBox/HeroTitle, _font_semibold, 24)
 	_apply_font($HeroPanel/HeroVBox/HeroSub, _font_regular, 16)
 	_apply_font($DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader, _font_semibold, 18)
@@ -1747,6 +1757,31 @@ func _apply_honey_label_shader(label: Label) -> void:
 	label.add_theme_constant_override("shadow_offset_x", 2)
 	label.add_theme_constant_override("shadow_offset_y", 2)
 
+func _apply_swarmfront_title_shader(label: Label) -> void:
+	if label == null or SWARMFRONT_TITLE_SHADER == null:
+		return
+	label.text = "SWARMFRONT"
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.0))
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.0))
+	label.add_theme_constant_override("outline_size", 0)
+	label.add_theme_constant_override("shadow_offset_x", 0)
+	label.add_theme_constant_override("shadow_offset_y", 0)
+	var mat: ShaderMaterial = label.material as ShaderMaterial
+	if mat == null or mat.shader == null or mat.shader.resource_path != SWARMFRONT_TITLE_SHADER.resource_path:
+		mat = ShaderMaterial.new()
+		mat.shader = SWARMFRONT_TITLE_SHADER
+	else:
+		mat = mat.duplicate() as ShaderMaterial
+	label.material = mat
+	mat.set_shader_parameter("backlight_color", Color(1.0, 0.831, 0.0, 1.0))
+	mat.set_shader_parameter("halo_core_strength", 1.15)
+	mat.set_shader_parameter("halo_outer_strength", 0.58)
+	mat.set_shader_parameter("wall_spill_strength", 0.22)
+	mat.set_shader_parameter("bevel_strength", 0.24)
+
 func _apply_player_profile(profile: Dictionary) -> void:
 	var tier_text := str(profile.get("tier_text", "Tier: Bronze"))
 	var honey_value := int(profile.get("honey", 0))
@@ -1803,17 +1838,19 @@ func _ensure_tier_widget() -> void:
 	if widget_control == null:
 		return
 	widget_control.name = "TierWidget"
-	widget_control.layout_mode = legacy_rank_label.layout_mode
-	widget_control.anchor_left = legacy_rank_label.anchor_left
-	widget_control.anchor_top = legacy_rank_label.anchor_top
-	widget_control.anchor_right = legacy_rank_label.anchor_right
-	widget_control.anchor_bottom = legacy_rank_label.anchor_bottom
-	widget_control.offset_left = legacy_rank_label.offset_left
-	widget_control.offset_top = legacy_rank_label.offset_top
-	widget_control.offset_right = legacy_rank_label.offset_right
-	widget_control.offset_bottom = legacy_rank_label.offset_bottom
-	widget_control.grow_horizontal = legacy_rank_label.grow_horizontal
-	widget_control.grow_vertical = legacy_rank_label.grow_vertical
+	widget_control.layout_mode = 0
+	widget_control.anchor_left = 0.0
+	widget_control.anchor_top = 0.0
+	widget_control.anchor_right = 0.0
+	widget_control.anchor_bottom = 0.0
+	widget_control.offset_left = TIER_WIDGET_LEFT_MARGIN
+	widget_control.offset_top = TIER_WIDGET_TOP_OFFSET
+	widget_control.offset_right = TIER_WIDGET_LEFT_MARGIN + TIER_WIDGET_PANEL_WIDTH
+	widget_control.offset_bottom = TIER_WIDGET_TOP_OFFSET + TIER_WIDGET_PANEL_HEIGHT
+	widget_control.grow_horizontal = Control.GROW_DIRECTION_END
+	widget_control.grow_vertical = Control.GROW_DIRECTION_END
+	widget_control.custom_minimum_size = Vector2(TIER_WIDGET_PANEL_WIDTH, TIER_WIDGET_PANEL_HEIGHT)
+	widget_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top_bar.add_child(widget_control)
 	top_bar.move_child(widget_control, legacy_rank_label.get_index() + 1)
 	legacy_rank_label.visible = false

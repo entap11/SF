@@ -1,0 +1,68 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="FontFile" path="res://assets/fonts/ChakraPetch-SemiBold.ttf" id="1"]
+
+[node name="MainMenuHeaderHierarchyStudy" type="Control"]
+layout_mode = 0
+offset_right = 390.0
+offset_bottom = 211.0
+mouse_filter = 2
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.035, 0.039, 0.047, 1)
+
+[node name="HeaderVBox" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 22.0
+offset_top = 8.0
+offset_right = -22.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/separation = 0
+alignment = 1
+
+[node name="Wordmark" type="Label" parent="HeaderVBox"]
+custom_minimum_size = Vector2(300, 84)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_fonts/font = ExtResource("1")
+theme_override_font_sizes/font_size = 52
+theme_override_constants/outline_size = 0
+text = "SWARMFRONT"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TierLabel" type="Label" parent="HeaderVBox"]
+custom_minimum_size = Vector2(0, 18)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_fonts/font = ExtResource("1")
+theme_override_font_sizes/font_size = 13
+theme_override_constants/outline_size = 0
+text = "TIER"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TierValue" type="Label" parent="HeaderVBox"]
+custom_minimum_size = Vector2(0, 88)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_fonts/font = ExtResource("1")
+theme_override_font_sizes/font_size = 70
+theme_override_constants/outline_size = 0
+text = "21"
+horizontal_alignment = 1
+vertical_alignment = 1
