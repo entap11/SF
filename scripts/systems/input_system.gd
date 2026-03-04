@@ -19,6 +19,7 @@ const TOWER_PICK_RADIUS_PX := 40.0
 const STRUCTURE_PICK_BIAS := 0.95
 const LONG_PRESS_MS := 400
 const LONG_PRESS_MOVE_PX := 12.0
+const DRAG_HOVER_EXTRA_PX := 22.0
 const ENABLE_ROUTE_LANE_FLASH := true
 const ROUTE_LANE_FLASH_MS := 250
 
@@ -195,275 +196,20 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	var button_index: int = int(ev.get("button", MOUSE_BUTTON_LEFT))
 	if event_type != "motion" and not (button_index == MOUSE_BUTTON_LEFT or button_index == MOUSE_BUTTON_RIGHT):
 		return
-	var actor_id: int = _player_id_from_button(button_index, arena_api)
-	SFLog.log_once("input_path_pointer", "INPUT_PATH: handle_pointer_event", SFLog.Level.INFO)
+	var dev_pid: int = _dev_mouse_pid_from_button(button_index)
 	var local_pos: Vector2 = ev.get("local_pos", Vector2.ZERO)
-	var world_pos: Vector2 = ev.get("world_pos", local_pos)
-	var screen_pos: Vector2 = ev.get("screen_pos", Vector2.ZERO)
-	var map_local: Vector2 = local_pos
-	if event_type == "motion":
-		if _press_active and _press_candidate_barracks_id != -1:
-			_press_last_world = world_pos
-			var move_dist: float = map_local.distance_to(_press_start_pos)
-			if move_dist > LONG_PRESS_MOVE_PX:
-				_press_candidate_barracks_id = -1
-		return
-	if event_type == "press":
-		_press_active = true
-		_press_consumed = false
-		_press_start_ms = Time.get_ticks_msec()
-		_press_started_ms = _press_start_ms
-		_press_start_pos = map_local
-		_press_start_world = world_pos
-		_press_last_world = world_pos
-		_press_start_screen = screen_pos
-		_press_candidate_barracks_id = _pick_barracks_id_at(map_local)
-		if _press_candidate_barracks_id != -1:
-			_start_long_press_timer(actor_id, arena_api)
+	var hive_id: int = int(ev.get("hive_id", -1))
+	var lane_id: int = int(ev.get("lane_id", -1))
+	SFLog.log_once("input_path_pointer", "INPUT_PATH: handle_pointer_event", SFLog.Level.INFO)
+	match event_type:
+		"press":
+			_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index)
+		"motion":
+			_handle_drag(local_pos, hive_id, lane_id, arena_api)
+		"release":
+			_handle_release(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index)
+		_:
 			return
-		return
-	if event_type != "release":
-		return
-	_press_active = false
-	_press_last_world = world_pos
-	if _press_consumed:
-		_press_consumed = false
-		_press_candidate_barracks_id = -1
-		return
-	_press_candidate_barracks_id = -1
-	map_local = arena_api.world_to_map_local(world_pos)
-	var pick: Dictionary = _pick_target(world_pos, map_local, arena_api)
-	var pick_type: String = str(pick.get("type", ""))
-	var pick_id: int = int(pick.get("id", -1))
-	var pick_dist: float = float(pick.get("dist", INF))
-	if pick_type == "" or pick_id <= 0:
-		var hinted_hive_id: int = int(ev.get("hive_id", -1))
-		if hinted_hive_id <= 0:
-			hinted_hive_id = int(arena_api.hive_id_at_point(map_local))
-		if hinted_hive_id > 0:
-			pick_type = "hive"
-			pick_id = hinted_hive_id
-			var nearest_hint: Dictionary = arena_api.get_nearest_hive_local(map_local)
-			pick_dist = float(nearest_hint.get("dist", 0.0))
-	var hid: int = pick_id if pick_type == "hive" else -1
-	var barracks_id: int = pick_id if pick_type == "barracks" else -1
-	var tower_id: int = pick_id if pick_type == "tower" else -1
-	SFLog.warn("INPUT_RELEASE_PICK", {
-		"phase": int(OpsState.match_phase),
-		"inputs_locked": inputs_locked,
-		"ops_locked": bool(OpsState.input_locked),
-		"ops_reason": str(OpsState.input_locked_reason),
-		"actor_id": actor_id,
-		"pick_type": pick_type,
-		"pick_id": pick_id,
-		"hid": hid,
-		"local_pos": map_local,
-		"world_pos": world_pos
-	})
-	var nearest := arena_api.get_nearest_hive_local(map_local)
-	var now_ms: int = Time.get_ticks_msec()
-	var dt_ms: int = now_ms - _last_click_ms
-	var dist: float = world_pos.distance_to(_last_click_world)
-	var is_dbl: bool = dt_ms <= CLICK_DBL_MS and dist <= CLICK_DBL_DIST_PX
-	if pick_type == "barracks" or pick_type == "tower":
-		SFLog.info("PICK_HIT", {
-			"world": world_pos,
-			"type": pick_type,
-			"id": pick_id,
-			"dist": pick_dist
-		})
-	if selected_barracks_id != -1 and event_type == "release" and route_edit_mode:
-		if button_index == MOUSE_BUTTON_RIGHT:
-			_clear_barracks_route(arena_api)
-			_last_click_ms = now_ms
-			_last_click_world = world_pos
-			return
-		if hid > 0:
-			_barracks_selector_toggle_hive(hid, actor_id, arena_api)
-		else:
-			_end_barracks_selector(arena_api)
-		_last_click_ms = now_ms
-		_last_click_world = world_pos
-		return
-	SFLog.info("CLICK_PICK_DEBUG", {
-		"screen": screen_pos,
-		"world": world_pos,
-		"map_local": map_local,
-		"hid": hid,
-		"pick_type": pick_type,
-		"pick_id": pick_id,
-		"pick_dist": pick_dist,
-		"tower_id": tower_id,
-		"nearest_id": int(nearest.get("id", -1)),
-		"nearest_dist": float(nearest.get("dist", -1.0)),
-		"nearest_center": nearest.get("center", Vector2.INF),
-		"radius": arena_api.get_hive_radius_px()
-	})
-	SFLog.info("INPUT_CLICK", {
-		"player_id": actor_id,
-		"hid": hid,
-		"pick_type": pick_type,
-		"pick_id": pick_id,
-		"world": world_pos
-	})
-	SFLog.info("CLICK_DBL_CHECK", {
-		"is_dbl": is_dbl,
-		"dt_ms": dt_ms,
-		"dist": dist,
-		"hid": hid,
-		"world": world_pos
-	})
-	if is_dbl:
-		if barracks_id != -1 and selected_barracks_id == -1:
-			SFLog.info("BARRACKS_DBL_SELECT", {
-				"bid": barracks_id,
-				"player_id": actor_id,
-				"world": world_pos
-			})
-			_start_barracks_selector(barracks_id, actor_id, arena_api)
-			_last_click_ms = now_ms
-			_last_click_world = world_pos
-			return
-		var hit: Dictionary = _pick_lane_hit(world_pos, arena_api)
-		if bool(hit.get("hit", false)):
-			var lane_id: int = int(hit.get("lane_id", -1))
-			var lane: LaneData = arena_api.find_lane_by_id(lane_id)
-			if lane != null:
-				var a: HiveData = arena_api.find_hive_by_id(lane.a_id)
-				var b: HiveData = arena_api.find_hive_by_id(lane.b_id)
-				if a != null and b != null:
-					var src_id: int = -1
-					var dst_id: int = -1
-					var src_is_a: bool = false
-					if lane.send_a and int(a.owner_id) == actor_id:
-						src_id = int(a.id)
-						dst_id = int(b.id)
-						src_is_a = true
-					elif lane.send_b and int(b.owner_id) == actor_id:
-						src_id = int(b.id)
-						dst_id = int(a.id)
-						src_is_a = false
-					if src_id > 0 and dst_id > 0:
-						var a_pos: Vector2 = arena_api.cell_center(a.grid_pos)
-						var b_pos: Vector2 = arena_api.cell_center(b.grid_pos)
-						var src_pos: Vector2 = a_pos if src_is_a else b_pos
-						var dst_pos: Vector2 = b_pos if src_is_a else a_pos
-						var tap_is_src_half: bool = world_pos.distance_to(src_pos) <= world_pos.distance_to(dst_pos)
-						if tap_is_src_half:
-							if arena_api.intent_is_on(src_id, dst_id):
-								SFLog.info("LANE_DBL_RETRACT", {"lane_id": lane_id, "src": src_id, "dst": dst_id})
-								SFLog.info("LANE_RETRACT_INTENT", {"lane_id": lane_id, "src": src_id, "dst": dst_id, "player_id": actor_id})
-								arena_api.retract_lane(src_id, dst_id, actor_id)
-								_last_click_ms = now_ms
-								_last_click_world = world_pos
-								return
-						elif arena_api.intent_is_on(src_id, dst_id):
-							SFLog.info("LANE_DBL_SWARM", {"lane_id": lane_id, "src": src_id, "dst": dst_id})
-							_issue_swarm_intent(src_id, dst_id, actor_id)
-							_last_click_ms = now_ms
-							_last_click_world = world_pos
-							return
-		_last_click_ms = now_ms
-		_last_click_world = world_pos
-		return
-	_last_click_ms = now_ms
-	_last_click_world = world_pos
-	if barracks_id != -1:
-		if selected_barracks_id == -1:
-			route_edit_mode = false
-			SFLog.info("BARRACKS_CLICK_SELECT", {"bid": barracks_id, "player": actor_id})
-			_start_barracks_selector(barracks_id, actor_id, arena_api)
-			return
-		if selected_barracks_id == barracks_id:
-			_toggle_route_edit(barracks_id)
-			return
-		_end_barracks_selector(arena_api)
-		route_edit_mode = false
-		SFLog.info("BARRACKS_CLICK_SELECT", {"bid": barracks_id, "player": actor_id})
-		_start_barracks_selector(barracks_id, actor_id, arena_api)
-		return
-	if hid <= 0:
-		_handle_click_ground(-1, local_pos, arena_api, actor_id)
-		return
-	var active_pid := actor_id
-	var owner_id := int(arena_api.get_hive_owner_id(hid))
-	var selectable := owner_id == active_pid or _is_dev_mouse_override()
-	var selected_id := _get_selected_for_player(actor_id)
-	var enemy_first_id: int = _get_enemy_first_for_player(actor_id)
-	var clicked_owned: bool = owner_id == active_pid
-	var clicked_ally: bool = _are_allied_seats(active_pid, owner_id)
-	if enemy_first_id > 0:
-		var friendly_id := -1
-		var has_lane := false
-		var action := "noop"
-		if clicked_owned:
-			friendly_id = hid
-			has_lane = arena_api.is_outgoing_lane_active(hid, enemy_first_id)
-			if has_lane:
-				action = "retract"
-				arena_api.retract_lane(hid, enemy_first_id, actor_id)
-			_set_selected_for_player(arena_api, actor_id, hid)
-			if actor_id == 1:
-				selection.selected_cell = arena_api.cell_from_point(local_pos)
-		else:
-			_clear_enemy_first_visual(arena_api, actor_id)
-		SFLog.info("ENEMY_FIRST_RESOLVE", {
-			"enemy_id": enemy_first_id,
-			"friendly_id": friendly_id,
-			"has_lane": has_lane,
-			"action": action
-		})
-		_clear_enemy_first_for_player(actor_id)
-		clear_tap_state()
-		return
-	if owner_id > 0 and not clicked_ally and (selected_id <= 0 or selected_id == hid):
-		_set_enemy_first_for_player(actor_id, hid)
-		SFLog.info("ENEMY_FIRST_ARM", {"enemy_id": hid})
-		_clear_selected_for_player(arena_api, actor_id)
-		_set_enemy_first_visual(arena_api, hid, actor_id)
-		clear_tap_state()
-		return
-	if selected_id <= 0:
-		if selectable:
-			_set_selected_for_player(arena_api, actor_id, hid)
-		else:
-			SFLog.warn("INPUT_HIVE_NOT_SELECTABLE", {
-				"actor_id": actor_id,
-				"hive_id": hid,
-				"owner_id": owner_id
-			})
-		return
-	if hid == selected_id:
-		return
-	# --- FORCE intent kind from ownership ---
-	var src_owner := int(arena_api.get_hive_owner_id(selected_id))
-	var dst_owner := int(arena_api.get_hive_owner_id(hid))
-	var same_team: bool = _are_allied_seats(src_owner, dst_owner)
-
-	SFLog.info("OWNERSHIP_CHECK", {
-		"src": selected_id,
-		"dst": hid,
-		"src_owner": src_owner,
-		"dst_owner": dst_owner,
-		"same_team": same_team
-	})
-
-	var validation := _validate_target(selected_id, hid, arena_api)
-	if not bool(validation.get("ok", false)):
-		SFLog.info("INVALID_TARGET", {
-			"src": selected_id,
-			"dst": hid,
-			"reason": str(validation.get("reason", "")),
-			"src_owner": int(validation.get("src_owner", -1)),
-			"dst_owner": int(validation.get("dst_owner", -1)),
-			"has_lane": bool(validation.get("has_lane", false))
-		})
-		_clear_selected_for_player(arena_api, actor_id)
-		return
-	_apply_hive_to_hive_action(selected_id, hid, actor_id, actor_id, arena_api)
-	# Click-to-intent should be single-shot; clear source selection after issuing.
-	_clear_selected_for_player(arena_api, actor_id)
-	return
 
 func handle_press(local_pos: Vector2, dev_pid: int, arena_api: ArenaAPI, button_index: int = MOUSE_BUTTON_LEFT) -> void:
 	if selection == null or arena_api == null:
@@ -767,6 +513,27 @@ func _get_lane_renderer(arena_api: ArenaAPI) -> Object:
 	if renderer_v != null:
 		return renderer_v
 	return arena.get_node_or_null("MapRoot/LaneRenderer")
+
+func _pick_drag_hover_hive_id(local_pos: Vector2, arena_api: ArenaAPI) -> int:
+	var direct_id: int = arena_api.pick_hive_id_local(local_pos)
+	if direct_id > 0:
+		return direct_id
+	var nearest: Dictionary = arena_api.get_nearest_hive_local(local_pos)
+	var nearest_id: int = int(nearest.get("id", -1))
+	if nearest_id <= 0:
+		return -1
+	var dist: float = float(nearest.get("dist", INF))
+	if dist == INF:
+		return -1
+	var snap_radius: float = maxf(1.0, arena_api.get_hive_radius_px()) + DRAG_HOVER_EXTRA_PX
+	if dist <= snap_radius:
+		return nearest_id
+	return -1
+
+func _queue_lane_preview_redraw(arena_api: ArenaAPI) -> void:
+	var lane_renderer: Object = _get_lane_renderer(arena_api)
+	if lane_renderer is CanvasItem:
+		(lane_renderer as CanvasItem).queue_redraw()
 
 func _lane_pick_radius(arena_api: ArenaAPI) -> float:
 	var radius := LANE_PICK_RADIUS
@@ -1504,6 +1271,7 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		selection.drag_start_pos = local_pos
 		selection.drag_current_pos = local_pos
 		selection.drag_hover_hive_id = -1
+		selection.drag_hover_valid = false
 		selection.last_vibe_target_id = -1
 		selection.drag_dev_pid = actor_id
 		if actor_id == 1 and friendly:
@@ -1516,9 +1284,11 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		selection.drag_start_hive_id = -1
 		selection.drag_start_owner_id = -1
 		selection.drag_hover_hive_id = -1
+		selection.drag_hover_valid = false
 		selection.last_vibe_target_id = -1
 		selection.drag_dev_pid = actor_id
 	_handling_click = false
+	_queue_lane_preview_redraw(arena_api)
 	arena_api.mark_render_dirty("input_press")
 
 func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, _button_index: int) -> void:
@@ -1530,6 +1300,7 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 	if _press_consumed:
 		_press_consumed = false
 		reset_drag()
+		_queue_lane_preview_redraw(arena_api)
 		arena_api.mark_render_dirty("input_release")
 		return
 	selection.drag_current_pos = local_pos
@@ -1541,7 +1312,10 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		var start_id: int = selection.drag_start_hive_id
 		if end_id > 0 and end_id != start_id:
 			_apply_hive_to_hive_action(start_id, end_id, player_id, player_id, arena_api)
+			# Keep drag behavior consistent with tap: clear source selection after issuing.
+			_clear_selected_for_player(arena_api, player_id)
 		reset_drag()
+		_queue_lane_preview_redraw(arena_api)
 		arena_api.mark_render_dirty("input_release")
 		return
 	if _press_hive_id > 0:
@@ -1549,6 +1323,7 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 	else:
 		_handle_click_ground(_press_lane_id, local_pos, arena_api, player_id)
 	reset_drag()
+	_queue_lane_preview_redraw(arena_api)
 	arena_api.mark_render_dirty("input_release")
 
 func _handle_drag(local_pos: Vector2, _hive_id: int, _lane_id: int, arena_api: ArenaAPI) -> void:
@@ -1563,18 +1338,25 @@ func _handle_drag(local_pos: Vector2, _hive_id: int, _lane_id: int, arena_api: A
 	selection.drag_current_pos = local_pos
 	if selection.drag_current_pos.distance_to(selection.drag_start_pos) >= arena_api.get_drag_deadzone_px():
 		selection.drag_moved = true
+	_queue_lane_preview_redraw(arena_api)
 	arena_api.mark_render_dirty("input_drag")
 	if not selection.drag_moved:
 		return
-	var hover_id: int = arena_api.pick_hive_id_local(local_pos)
+	var hover_id: int = _pick_drag_hover_hive_id(local_pos, arena_api)
 	if hover_id > 0 and hover_id != selection.drag_start_hive_id:
-		if arena_api.lane_exists_between(selection.drag_start_hive_id, hover_id):
+		selection.drag_hover_hive_id = hover_id
+		var validation: Dictionary = _validate_target(selection.drag_start_hive_id, hover_id, arena_api)
+		var hover_valid: bool = bool(validation.get("ok", false))
+		selection.drag_hover_valid = hover_valid
+		if hover_valid and arena_api.lane_exists_between(selection.drag_start_hive_id, hover_id):
 			if hover_id != selection.last_vibe_target_id:
 				Input.vibrate_handheld(30)
 				selection.last_vibe_target_id = hover_id
-			selection.drag_hover_hive_id = hover_id
-			return
+		else:
+			selection.last_vibe_target_id = -1
+		return
 	selection.drag_hover_hive_id = -1
+	selection.drag_hover_valid = false
 	selection.last_vibe_target_id = -1
 
 func _handle_tap(hive_id: int, dev_pid: int, arena_api: ArenaAPI) -> void:
@@ -1687,17 +1469,18 @@ func _apply_hive_to_hive_action(from_id: int, to_id: int, player_id: int, dev_pi
 	var to_owned: bool = to_hive.owner_id == player_id
 	if from_owned:
 		var lane_active: bool = arena_api.is_outgoing_lane_active(from_id, to_id)
-		var action := "swarm" if lane_active else "establish"
+		var action := "lane_active_noop" if lane_active else "establish"
 		SFLog.info("SRC_DST_ACTION", {
 			"src": from_id,
 			"dst": to_id,
 			"lane_active": lane_active,
 			"action": action
 		})
+		# Src->dst tap/drag should establish intent, not trigger swarm.
+		# Swarm remains available through explicit lane double-tap.
 		if lane_active:
-			_issue_swarm_intent(from_id, to_id, player_id)
-		else:
-			_issue_intent(from_id, to_id, player_id, dev_pid, arena_api)
+			return
+		_issue_intent(from_id, to_id, player_id, dev_pid, arena_api)
 		return
 	if not from_owned and to_owned:
 		if arena_api.intent_is_on(to_id, from_id):

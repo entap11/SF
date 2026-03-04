@@ -35,6 +35,7 @@ const SEL_SEG := 48
 const SEL_W := 5.0
 const SEL_PAD := 6.0
 const SELECTOR_RING_SCALE_MUL := 1.1
+const MIN_RENDER_RADIUS_PX := 27.0
 const SELECTOR_OFFSET_SMALL_MUL := 0.99
 const SELECTOR_OFFSET_MED_MUL := 1.14
 const SELECTOR_OFFSET_LARGE_MUL := 1.26
@@ -190,7 +191,7 @@ func apply_render(owner_id_in: int, power_in: int, radius_in: float, color: Colo
 	)
 	owner_id = owner_id_in
 	power = power_in
-	radius_px = radius_in
+	radius_px = maxf(float(radius_in), MIN_RENDER_RADIUS_PX)
 	var prev_kind: String = _last_kind
 	_last_kind = kind
 	if prev_kind != "" and prev_kind != kind:

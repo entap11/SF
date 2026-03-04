@@ -9,8 +9,8 @@ const OCCLUSION_RADIUS_MAX := 0.45
 const OCCLUSION_EPS := 0.0001
 const DEFAULT_SYMMETRY_MODE := "mirror_x"
 const HIVE_RADIUS_RATIO_BY_KIND := {
-	"hive": 0.28,
-	"npc": 0.28,
+	"hive": 0.42,
+	"npc": 0.42,
 	"tower": 0.22,
 	"barracks": 0.24
 }
@@ -143,7 +143,7 @@ static func hive_radius_px_for_kind(kind: String, cell_size: float = -1.0) -> fl
 		key = "hive"
 	elif key == "neutral":
 		key = "npc"
-	var ratio := float(HIVE_RADIUS_RATIO_BY_KIND.get(key, HIVE_RADIUS_RATIO_BY_KIND.get("hive", 0.28)))
+	var ratio := float(HIVE_RADIUS_RATIO_BY_KIND.get(key, HIVE_RADIUS_RATIO_BY_KIND.get("hive", 0.42)))
 	return maxf(1.0, ratio * cell_size)
 
 static func owner_to_owner_id(owner: String) -> int:

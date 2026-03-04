@@ -56,6 +56,14 @@ const LANE_WIDTH_PX := 14.0
 const LANE_MIN_LEN_PX := 6.0
 const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
+const DRAG_PREVIEW_MIN_LEN_PX := 2.0
+const DRAG_PREVIEW_SHIMMER_HZ: float = 1.75
+const DRAG_PREVIEW_BLACK_ALPHA_MIN: float = 0.28
+const DRAG_PREVIEW_BLACK_ALPHA_MAX: float = 0.58
+const DRAG_PREVIEW_VALID_ALPHA_MIN: float = 0.62
+const DRAG_PREVIEW_VALID_ALPHA_MAX: float = 0.90
+const DRAG_PREVIEW_VALID_SNAP_MIN_T: float = 0.84
+const DRAG_PREVIEW_VALID_SNAP_GAIN: float = 1.75
 # Anchors are already lane-edge-biased; extra tuck visually shortens lanes too much.
 const LANE_TUCK_IN_PX: float = 0.0
 const LANE_CAP_TRIM_RADIUS_RATIO: float = 0.45
@@ -104,6 +112,7 @@ var _lane_endpoints_audit_last_ms: int = 0
 var _lane_endpoints_logged_this_rebuild: bool = false
 var _anchor_proof_logged_this_rebuild: bool = false
 var _lane_sprite_coverage_last_ms: int = 0
+var _drag_preview_sprite: Sprite2D = null
 var _hive_cache_dirty: bool = true
 var _hive_cache_map_sig: String = ""
 var _hive_lane_anchor_local_by_id: Dictionary = {}
@@ -472,6 +481,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if USE_LANE_SPRITES and show_lane_sprites:
 		_update_lane_visuals(delta)
+		_update_drag_preview_sprite()
+	else:
+		_hide_drag_preview_sprite()
 	if not _debug_pick_dots.is_empty():
 		queue_redraw()
 	_audit_render_maybe_flush()
@@ -643,6 +655,7 @@ func _draw() -> void:
 	if USE_LANE_SPRITES and show_lane_sprites:
 		return
 
+	_hide_drag_preview_sprite()
 	_draw_intended_lanes()
 
 	# Need hive nodes to draw anything.
@@ -659,6 +672,127 @@ func _draw() -> void:
 		_draw_model_lanes(model)
 	else:
 		_draw_state_lanes()
+	_draw_drag_preview_lane()
+
+func _draw_drag_preview_lane() -> void:
+	var seg: Dictionary = _compute_drag_preview_segment_local()
+	if not bool(seg.get("ok", false)):
+		return
+	var preview_start: Vector2 = seg.get("start", Vector2.ZERO)
+	var preview_end: Vector2 = seg.get("end", Vector2.ZERO)
+	var start_hive_id: int = int(seg.get("start_hive_id", -1))
+	if _lane_tex == null:
+		_load_lane_textures()
+	if _lane_tex == null:
+		return
+	var thickness_info: Dictionary = _resolve_lane_thickness_info()
+	var preview_width: float = float(thickness_info.get("target_px", LANE_WIDTH_PX))
+	_draw_lane_textured_segment(preview_start, preview_end, _drag_preview_color(start_hive_id), preview_width)
+
+func _compute_drag_preview_segment_local() -> Dictionary:
+	var selection_state: SelectionState = sel as SelectionState
+	if selection_state == null:
+		return {"ok": false}
+	if not selection_state.drag_active:
+		return {"ok": false}
+	var start_hive_id: int = int(selection_state.drag_start_hive_id)
+	if start_hive_id <= 0:
+		return {"ok": false}
+	var start_center_any: Variant = _hive_local_pos_for_lane(start_hive_id)
+	if not (start_center_any is Vector2):
+		return {"ok": false}
+	var start_center: Vector2 = start_center_any as Vector2
+	var drag_current: Vector2 = selection_state.drag_current_pos
+	var preview_start: Vector2 = start_center
+	var preview_end: Vector2 = drag_current
+	var hover_hive_id: int = int(selection_state.drag_hover_hive_id)
+	if hover_hive_id > 0 and hover_hive_id != start_hive_id:
+		var hover_center_any: Variant = _hive_local_pos_for_lane(hover_hive_id)
+		if hover_center_any is Vector2:
+			var hover_center: Vector2 = hover_center_any as Vector2
+			var final_ep: Dictionary = _compute_lane_endpoints_from_centers_local(start_center, hover_center, start_hive_id, hover_hive_id)
+			if bool(final_ep.get("ok", false)):
+				preview_start = final_ep.get("a", start_center)
+				var final_end: Vector2 = final_ep.get("b", hover_center)
+				var center_len: float = start_center.distance_to(hover_center)
+				var draw_t: float = 1.0
+				if center_len > 0.000001:
+					draw_t = clampf(start_center.distance_to(drag_current) / center_len, 0.0, 1.0)
+				if bool(selection_state.drag_hover_valid):
+					draw_t = clampf(maxf(draw_t * DRAG_PREVIEW_VALID_SNAP_GAIN, DRAG_PREVIEW_VALID_SNAP_MIN_T), 0.0, 1.0)
+				preview_end = preview_start.lerp(final_end, draw_t)
+	else:
+		var free_ep: Dictionary = _compute_lane_endpoints_from_centers_local(start_center, drag_current, start_hive_id, -1)
+		if bool(free_ep.get("ok", false)):
+			preview_start = free_ep.get("a", start_center)
+			preview_end = free_ep.get("b", drag_current)
+	if preview_start.distance_to(preview_end) < DRAG_PREVIEW_MIN_LEN_PX:
+		return {"ok": false}
+	return {
+		"ok": true,
+		"start_hive_id": start_hive_id,
+		"start": preview_start,
+		"end": preview_end
+	}
+
+func _drag_preview_color(start_hive_id: int) -> Color:
+	var t_sec: float = float(Time.get_ticks_msec()) / 1000.0
+	var shimmer: float = 0.5 + 0.5 * sin(t_sec * TAU * DRAG_PREVIEW_SHIMMER_HZ)
+	var selection_state: SelectionState = sel as SelectionState
+	var hover_valid: bool = selection_state != null and bool(selection_state.drag_hover_valid)
+	if hover_valid and start_hive_id > 0:
+		var team_color: Color = _lane_color_for_hive(start_hive_id)
+		var pulse: float = lerpf(0.86, 1.0, shimmer)
+		return Color(
+			clampf(team_color.r * pulse, 0.0, 1.0),
+			clampf(team_color.g * pulse, 0.0, 1.0),
+			clampf(team_color.b * pulse, 0.0, 1.0),
+			lerpf(DRAG_PREVIEW_VALID_ALPHA_MIN, DRAG_PREVIEW_VALID_ALPHA_MAX, shimmer)
+		)
+	return Color(
+		0.0,
+		0.0,
+		0.0,
+		lerpf(DRAG_PREVIEW_BLACK_ALPHA_MIN, DRAG_PREVIEW_BLACK_ALPHA_MAX, shimmer)
+	)
+
+func _update_drag_preview_sprite() -> void:
+	if not USE_LANE_SPRITES or not show_lane_sprites:
+		_hide_drag_preview_sprite()
+		return
+	var seg: Dictionary = _compute_drag_preview_segment_local()
+	if not bool(seg.get("ok", false)):
+		_hide_drag_preview_sprite()
+		return
+	if _lane_tex == null:
+		_load_lane_textures()
+	if _lane_tex == null:
+		_hide_drag_preview_sprite()
+		return
+	_ensure_drag_preview_sprite()
+	if _drag_preview_sprite == null:
+		return
+	_drag_preview_sprite.texture = _lane_tex
+	var preview_start: Vector2 = seg.get("start", Vector2.ZERO)
+	var preview_end: Vector2 = seg.get("end", Vector2.ZERO)
+	var start_hive_id: int = int(seg.get("start_hive_id", -1))
+	var thickness_info: Dictionary = _resolve_lane_thickness_info()
+	var target_px: float = float(thickness_info.get("target_px", lane_thickness_px))
+	var unit_body_px: float = float(thickness_info.get("unit_body_px", -1.0))
+	_apply_lane_sprite_visual(
+		_drag_preview_sprite,
+		preview_start,
+		preview_end,
+		_drag_preview_color(start_hive_id),
+		-1,
+		target_px,
+		unit_body_px,
+		preview_end - preview_start
+	)
+
+func _hide_drag_preview_sprite() -> void:
+	if _drag_preview_sprite != null and is_instance_valid(_drag_preview_sprite):
+		_drag_preview_sprite.visible = false
 
 func _draw_endpoint_debug() -> void:
 	var lanes: Array = _lane_entries_from_model()
@@ -897,6 +1031,23 @@ func _ensure_lane_sprite_root() -> void:
 	root.name = "LaneSprites"
 	add_child(root)
 	_lane_sprite_root = root
+
+func _ensure_drag_preview_sprite() -> void:
+	if _drag_preview_sprite != null and is_instance_valid(_drag_preview_sprite):
+		return
+	var existing: Node = get_node_or_null("DragPreviewLane")
+	if existing is Sprite2D:
+		_drag_preview_sprite = existing as Sprite2D
+	else:
+		var sprite: Sprite2D = _create_lane_sprite_node()
+		sprite.name = "DragPreviewLane"
+		sprite.z_index = LANE_Z_INDEX + 1
+		add_child(sprite)
+		_drag_preview_sprite = sprite
+	if _drag_preview_sprite != null:
+		_drag_preview_sprite.texture = _lane_tex
+		_drag_preview_sprite.material = _get_lane_band_material()
+		_drag_preview_sprite.visible = false
 
 func _lane_key(a_id: int, b_id: int, lane_id: int) -> String:
 	if lane_id > 0:
@@ -1773,14 +1924,13 @@ func _draw_lane_colored(start: Vector2, end: Vector2, a_id: int, b_id: int, send
 	var color := _resolve_lane_color(a_id, b_id, send_a, send_b, rm, lane)
 	_draw_lane_textured_segment(start, end, color)
 
-func _draw_lane_textured_segment(start: Vector2, end: Vector2, color: Color) -> void:
+func _draw_lane_textured_segment(start: Vector2, end: Vector2, color: Color, lane_width: float = LANE_WIDTH_PX) -> void:
 	var dir: Vector2 = end - start
 	var len := dir.length()
 	if len <= 0.01:
 		return
 	var mid := (start + end) * 0.5
 	var ang := dir.angle()
-	var lane_width := LANE_WIDTH_PX
 	draw_set_transform(mid, ang, Vector2.ONE)
 	draw_texture_rect(
 		_lane_tex,

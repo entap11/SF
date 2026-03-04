@@ -9,9 +9,9 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 
-const HIVE_DIAMETER_PX := 36.0
+const HIVE_DIAMETER_PX := 54.0
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
-const HIVE_LANE_RADIUS_PX := 18.0
+const HIVE_LANE_RADIUS_PX := HIVE_RADIUS_PX
 const HIVE_BLOCK_RADIUS_PX := HIVE_RADIUS_PX
 const HIVE_BLOCK_RADIUS_SCALE := 1.75
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC

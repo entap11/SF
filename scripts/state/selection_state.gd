@@ -14,6 +14,7 @@ var drag_start_owner_id: int = -1
 var drag_start_pos: Vector2 = Vector2.ZERO
 var drag_current_pos: Vector2 = Vector2.ZERO
 var drag_hover_hive_id: int = -1
+var drag_hover_valid: bool = false
 var drag_moved: bool = false
 var last_vibe_target_id: int = -1
 var drag_dev_pid: int = -1
@@ -35,6 +36,7 @@ func reset_drag() -> void:
 	drag_start_hive_id = -1
 	drag_start_owner_id = -1
 	drag_hover_hive_id = -1
+	drag_hover_valid = false
 	drag_moved = false
 	last_vibe_target_id = -1
 	drag_dev_pid = -1

@@ -56,7 +56,7 @@ const SWARM_SHOCK_MS := 3000.0
 const DRAG_DEADZONE_PX := 8.0
 const MAX_OUT_LANES := 2
 const DOT_RADIUS := 3.0
-const HIVE_DIAMETER_PX := 36.0
+const HIVE_DIAMETER_PX := 54.0
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
 const HIVE_PICK_PADDING_PX := 12.0
 const HIVE_HIT_RADIUS_PX := HIVE_RADIUS_PX + HIVE_PICK_PADDING_PX
@@ -113,6 +113,7 @@ const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
 const TREE_META_VS_STAGE_ROUND_RESULTS: String = "vs_stage_round_results"
 const COUNTDOWN_DEBUG_SCRIPT: Script = preload("res://scripts/ui/prematch_countdown_view.gd")
+const TOUCH_MOUSE_SUPPRESS_MS: int = 120
 const PREMATCH_RECORDS_WIDTH_PX: float = 520.0
 const PREMATCH_RECORDS_HEIGHT_PX: float = 168.0
 const PREMATCH_RECORDS_TOP_GAP_PX: float = 24.0
@@ -337,6 +338,7 @@ var _match_analyzer: Variant = MatchAnalyzerScript.new()
 var _post_match_analysis_summary: Dictionary = {}
 var _post_match_telemetry_path: String = ""
 var _telemetry_active: bool = false
+var _last_screen_pointer_ms: int = -1000000
 var _map_build_version: int = 0
 var _map_built_version: int = -1
 var _map_bounds_size: Vector2 = Vector2.ZERO
@@ -2568,9 +2570,12 @@ func _sync_lane_system_blockers() -> void:
 			})
 	if hive_list.is_empty() and state != null:
 		for hive in state.hives:
+			var render_gp: Vector2 = hive.render_grid_pos
+			if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+				render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
 			hive_list.append({
 				"id": int(hive.id),
-				"pos": cell_center(hive.grid_pos)
+				"pos": _grid_coord_to_world(render_gp)
 			})
 	if hive_list.is_empty():
 		return
@@ -3745,7 +3750,10 @@ func _collect_fit_node_positions_world() -> Array[Vector2]:
 		for hive_any in state.hives:
 			if hive_any is HiveData:
 				var hive: HiveData = hive_any as HiveData
-				out.append(_cell_center(hive.grid_pos))
+				var render_gp: Vector2 = hive.render_grid_pos
+				if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+					render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+				out.append(_grid_coord_to_world(render_gp))
 	if towers != null:
 		for tower_any in towers:
 			if typeof(tower_any) != TYPE_DICTIONARY:
@@ -4676,7 +4684,10 @@ func _build_hive_pos_by_id(hive_nodes_by_id: Dictionary) -> Dictionary:
 		for hive in state.hives:
 			if hive == null:
 				continue
-			out[int(hive.id)] = cell_center(hive.grid_pos)
+			var render_gp: Vector2 = hive.render_grid_pos
+			if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+				render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+			out[int(hive.id)] = _grid_coord_to_world(render_gp)
 	return out
 
 func _grid_coord_to_world(coord: Vector2) -> Vector2:
@@ -5591,9 +5602,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if input_system == null or api == null:
 		return
+	var now_ms: int = Time.get_ticks_msec()
 	if _controls_hint_controller != null and _controls_hint_controller.consume_dismiss_input(event, get_viewport()):
 		return
 	if event is InputEventMouseButton:
+		if OS.has_feature("mobile") and (now_ms - _last_screen_pointer_ms) <= TOUCH_MOUSE_SUPPRESS_MS:
+			get_viewport().set_input_as_handled()
+			return
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
 			var wp: Vector2 = _screen_to_world(mb.position)
@@ -5602,12 +5617,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 	if event is InputEventMouseMotion:
+		if OS.has_feature("mobile") and (now_ms - _last_screen_pointer_ms) <= TOUCH_MOUSE_SUPPRESS_MS:
+			get_viewport().set_input_as_handled()
+			return
 		var mm := event as InputEventMouseMotion
 		var wp: Vector2 = _screen_to_world(mm.position)
 		var lp: Vector2 = map_root.to_local(wp)
 		_send_pointer_event(false, 0, lp, true, wp, mm.position)
 		return
 	if event is InputEventScreenTouch:
+		_last_screen_pointer_ms = now_ms
 		var st := event as InputEventScreenTouch
 		var wp: Vector2 = _screen_to_world(st.position)
 		var lp: Vector2 = map_root.to_local(wp)
@@ -5615,6 +5634,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventScreenDrag:
+		_last_screen_pointer_ms = now_ms
 		var sd := event as InputEventScreenDrag
 		var wp: Vector2 = _screen_to_world(sd.position)
 		var lp: Vector2 = map_root.to_local(wp)
@@ -5631,7 +5651,9 @@ func _pointer_local_from_screen(screen_pos: Vector2) -> Vector2:
 	)
 
 func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, is_motion: bool = false, world_pos: Vector2 = Vector2.ZERO, screen_pos: Vector2 = Vector2.ZERO) -> void:
-	var hive_id: int = api.hive_id_at_point(local_pos)
+	var hive_id: int = api.pick_hive_id(world_pos)
+	if hive_id <= 0:
+		hive_id = api.hive_id_at_point(local_pos)
 	var lane_hit: LaneData = api.pick_lane(local_pos)
 	var lane_id: int = lane_hit.id if lane_hit != null else -1
 	var ev_type: String = "motion" if is_motion else ("press" if pressed else "release")
@@ -5718,7 +5740,7 @@ func _cell_size_for_model() -> float:
 
 func _hive_radius_px_for_model(cell: float) -> float:
 	var radius_v: Variant = (self as Node).get("HIVE_RADIUS_PX")
-	return float(radius_v) if radius_v != null else cell * 0.28
+	return float(radius_v) if radius_v != null else cell * 0.42
 
 func _find_hive_at_local(lp: Vector2) -> String:
 	var cell: float = _cell_size_for_model()
@@ -9551,7 +9573,10 @@ func _hive_id_at_point(local_pos: Vector2) -> int:
 	var best_id := -1
 	var best_dist := INF
 	for hive in state.hives:
-		var center := _cell_center(hive.grid_pos)
+		var render_gp: Vector2 = hive.render_grid_pos
+		if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+			render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+		var center := _grid_coord_to_world(render_gp)
 		var dist := center.distance_squared_to(local_pos)
 		var hive_radius: float = float(hive.radius_px)
 		if hive_radius <= 0.0:

@@ -67,6 +67,7 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 @onready var brand_title_label: Label = $TopBar/BrandTitle
 @onready var dash_tab: HexButton = $DashTab
 @onready var dash_panel: Panel = $DashPanel
+@onready var dash_main_background: Control = $DashPanel/HexSeamBackground
 @onready var dash_top_bar: Control = $DashPanel/DashTopBar
 @onready var dash_root: VBoxContainer = $DashPanel/DashRoot
 @onready var dash_hexes: VBoxContainer = $DashPanel/DashHexes
@@ -90,6 +91,9 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 @onready var store_category_grid: GridContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox/StoreCategoryGrid
 @onready var store_category_view: Panel = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView
 @onready var store_vbox: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox
+@onready var store_title_label: Label = $DashPanel/DashStorePanel/StoreVBox/StoreTitle
+@onready var store_sub_label: Label = $DashPanel/DashStorePanel/StoreVBox/StoreSub
+@onready var store_landing_header_label: Label = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox/StoreLandingHeader
 @onready var store_category_header: Label = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryHeader
 @onready var store_category_sub: Label = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategorySub
 @onready var store_category_list: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreCategoryView/StoreCategoryVBox/StoreCategoryList
@@ -424,6 +428,9 @@ const CANCEL_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/cancel.png"
 const CLOSE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/Close.png"
 const STORE_CATEGORY_SKIN_BY_ID: Dictionary = {
 	"BUNDLES": "res://assets/sprites/sf_skin_v1/Bundles.png",
+	"BATTLEPASS": "res://assets/sprites/sf_skin_v1/battle_pass.png",
+	"BUFFS": "res://assets/sprites/sf_skin_v1/Buffs_1.png",
+	"GAMEPLAYANALYSIS": "res://assets/sprites/sf_skin_v1/Analyticsii.png",
 	"SKINS": "res://assets/sprites/sf_skin_v1/skins_alpha.png",
 	"MERCH": "res://assets/sprites/sf_skin_v1/merch.png"
 }
@@ -482,7 +489,27 @@ const GAME_HUB_TITLE_OUTLINE_COLOR: Color = Color(1.0, 0.87, 0.56, 0.18)
 const GAME_HUB_HOVER_EDGE_COLOR: Color = Color(0.95, 0.80, 0.34, 0.72)
 const GAME_HUB_HOVER_BRIGHTNESS: float = 1.10
 const GAME_HUB_SWEEP_DURATION_SEC: float = 0.8
-const STORE_WINDOW_SCALE: float = 0.75
+const STORE_WINDOW_SCALE_X: float = 0.74
+const STORE_WINDOW_SCALE_Y: float = 0.62
+const STORE_WINDOW_INSET_BOTTOM: float = 14.0
+const STORE_CLOSE_SKIN_MIN_WIDTH: float = 280.0
+const STORE_CLOSE_SKIN_MIN_HEIGHT: float = 104.0
+const DASH_PANEL_BG_COLOR: Color = Color(0.08, 0.09, 0.12, 0.95)
+const DASH_PANEL_BORDER_COLOR: Color = Color(0.55, 0.56, 0.62, 0.8)
+const STORE_PANEL_BG_COLOR: Color = Color(0.04, 0.04, 0.05, 0.24)
+const STORE_PANEL_BORDER_COLOR: Color = Color(0.62, 0.50, 0.22, 0.14)
+const STORE_LANDING_BG_COLOR: Color = Color(0.02, 0.02, 0.03, 0.58)
+const STORE_LANDING_BORDER_COLOR: Color = Color(0.95, 0.77, 0.28, 0.22)
+const STORE_CATEGORY_VIEW_BG_COLOR: Color = Color(0.02, 0.02, 0.03, 0.52)
+const STORE_CATEGORY_VIEW_BORDER_COLOR: Color = Color(0.95, 0.77, 0.28, 0.18)
+const STORE_FRAME_SHIFT_X_PX: float = -22.0
+const STORE_FRAME_SHIFT_Y_PX: float = 0.0
+const STORE_HEADER_TOP_INSET: float = -22.0
+const STORE_HEADER_BOTTOM_INSET: float = 24.0
+const STORE_VBOX_SPACING: int = 10
+const STORE_CATEGORY_GRID_COLUMNS: int = 2
+const STORE_CATEGORY_BUTTON_MIN_SIZE: Vector2 = Vector2(330.0, 144.0)
+const STORE_CATEGORY_ICON_MAX_WIDTH: int = 312
 const ENTRY_OVERLAY_INLAY_MARGIN_X_LANDSCAPE_RATIO: float = 0.070
 const ENTRY_OVERLAY_INLAY_MARGIN_Y_LANDSCAPE_RATIO: float = 0.145
 const ENTRY_OVERLAY_INLAY_MARGIN_X_PORTRAIT_RATIO: float = 0.145
@@ -580,6 +607,7 @@ var _human_mode_skin_cache: Dictionary = {}
 var _async_mode_skin_cache: Dictionary = {}
 var _store_category_skin_cache: Dictionary = {}
 var _bottom_nav_skin_material: ShaderMaterial = null
+var _store_category_skin_material: ShaderMaterial = null
 var _hive_dropdown_panel: Panel = null
 var _hive_dropdown_tween: Tween = null
 var _hive_dropdown_open: bool = false
@@ -970,12 +998,15 @@ func _ensure_store_free_roll_skin() -> void:
 	]:
 		var existing: Node = dash_store_panel.get_node_or_null(node_name)
 		if existing != null:
-			existing.queue_free()
-	_build_entry_overlay_background_layers(dash_store_panel, resolved_size)
+			existing.free()
+	_build_entry_overlay_background_layers(dash_store_panel, resolved_size, false)
 	_apply_game_hub_panel_fx(dash_store_panel)
-	var inlay: CanvasItem = dash_store_panel.get_node_or_null("Frame_Inlay") as CanvasItem
-	if inlay != null:
-		inlay.visible = false
+	var store_inlay: NinePatchRect = dash_store_panel.get_node_or_null("Frame_Inlay") as NinePatchRect
+	if store_inlay != null:
+		store_inlay.offset_left += STORE_FRAME_SHIFT_X_PX
+		store_inlay.offset_right += STORE_FRAME_SHIFT_X_PX
+		store_inlay.offset_top += STORE_FRAME_SHIFT_Y_PX
+		store_inlay.offset_bottom += STORE_FRAME_SHIFT_Y_PX
 	if dash_store_background != null:
 		dash_store_background.visible = false
 	if store_landing_panel != null:
@@ -995,8 +1026,8 @@ func _apply_store_window_scale() -> void:
 	if panel_size.x <= 1.0 or panel_size.y <= 1.0:
 		panel_size = dash_store_panel.size
 	var target_size := Vector2(
-		clampf(panel_size.x * STORE_WINDOW_SCALE, 520.0, maxf(520.0, panel_size.x - 24.0)),
-		clampf(panel_size.y * STORE_WINDOW_SCALE, 420.0, maxf(420.0, panel_size.y - 24.0))
+		clampf(panel_size.x * STORE_WINDOW_SCALE_X, 520.0, maxf(520.0, panel_size.x - 24.0)),
+		clampf(panel_size.y * STORE_WINDOW_SCALE_Y, 420.0, maxf(420.0, panel_size.y - 24.0))
 	)
 	dash_store_panel.layout_mode = 0
 	dash_store_panel.anchor_left = 0.5
@@ -1010,9 +1041,23 @@ func _apply_store_window_scale() -> void:
 	store_vbox.layout_mode = 1
 	store_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
 	store_vbox.offset_left = 24.0
-	store_vbox.offset_top = 24.0
+	store_vbox.offset_top = STORE_HEADER_TOP_INSET
 	store_vbox.offset_right = -24.0
-	store_vbox.offset_bottom = -24.0
+	store_vbox.offset_bottom = -STORE_HEADER_BOTTOM_INSET
+	store_vbox.add_theme_constant_override("separation", STORE_VBOX_SPACING)
+	if store_title_label != null:
+		store_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		store_title_label.custom_minimum_size = Vector2(0.0, 42.0)
+		store_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		store_title_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	if store_sub_label != null:
+		store_sub_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		store_sub_label.custom_minimum_size = Vector2(0.0, 32.0)
+		store_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		store_sub_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	if store_landing_header_label != null:
+		store_landing_header_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		store_landing_header_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 func _apply_hex_background_preset(target: Node, preset_name: StringName) -> void:
 	if target == null:
@@ -1354,7 +1399,7 @@ func _style_buttons() -> void:
 
 func _style_panels() -> void:
 	_style_panel($HeroPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.8))
-	_style_panel(dash_panel, Color(0.08, 0.09, 0.12, 0.95), Color(0.55, 0.56, 0.62, 0.8))
+	_style_panel(dash_panel, DASH_PANEL_BG_COLOR, DASH_PANEL_BORDER_COLOR)
 	_style_panel(dash_match_panel, Color(0.07, 0.08, 0.1, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel(dash_badges_panel, Color(0.07, 0.08, 0.1, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_badges_panel_full, dash_settings_panel]:
@@ -1374,12 +1419,10 @@ func _style_panels() -> void:
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	var store_panel_bg: Color = Color(0.06, 0.06, 0.07, 0.16)
-	var store_panel_border: Color = Color(0.62, 0.50, 0.22, 0.00)
-	_style_panel($DashPanel/DashStorePanel/StoreVBox/StoreBody, store_panel_bg, store_panel_border)
-	_style_panel(store_landing_panel, store_panel_bg, store_panel_border)
-	_style_panel(store_category_view, store_panel_bg, store_panel_border)
-	_style_panel(store_category_prefs_panel, store_panel_bg, store_panel_border)
+	_style_panel($DashPanel/DashStorePanel/StoreVBox/StoreBody, STORE_PANEL_BG_COLOR, STORE_PANEL_BORDER_COLOR)
+	_style_panel(store_landing_panel, STORE_LANDING_BG_COLOR, STORE_LANDING_BORDER_COLOR)
+	_style_panel(store_category_view, STORE_CATEGORY_VIEW_BG_COLOR, STORE_CATEGORY_VIEW_BORDER_COLOR)
+	_style_panel(store_category_prefs_panel, STORE_PANEL_BG_COLOR, STORE_PANEL_BORDER_COLOR)
 	_style_panel($AsyncPanel/AsyncVBox/AsyncBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
@@ -2152,6 +2195,34 @@ void fragment() {
 	_bottom_nav_skin_material = material
 	return _bottom_nav_skin_material
 
+func _store_category_skin_shader_material() -> ShaderMaterial:
+	if _store_category_skin_material != null:
+		return _store_category_skin_material
+	var shader := Shader.new()
+	shader.code = """
+shader_type canvas_item;
+uniform float black_cutoff : hint_range(0.0, 0.3) = 0.08;
+uniform float white_cutoff : hint_range(0.7, 1.0) = 0.94;
+uniform float feather : hint_range(0.0, 0.2) = 0.06;
+uniform float sat_limit : hint_range(0.0, 0.4) = 0.18;
+
+void fragment() {
+	vec4 tex = texture(TEXTURE, UV);
+	float max_v = max(tex.r, max(tex.g, tex.b));
+	float min_v = min(tex.r, min(tex.g, tex.b));
+	float sat = max_v - min_v;
+	float dark_key = 1.0 - smoothstep(black_cutoff, black_cutoff + feather, max_v);
+	float bright_key = smoothstep(white_cutoff - feather, white_cutoff, max_v);
+	float neutral_key = 1.0 - smoothstep(0.02, sat_limit, sat);
+	float cut = clamp((dark_key + bright_key) * neutral_key, 0.0, 1.0);
+	COLOR = vec4(tex.rgb, tex.a * (1.0 - cut));
+}
+	"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	_store_category_skin_material = material
+	return _store_category_skin_material
+
 func _style_bottom_nav_sprite_button(button: Button) -> void:
 	if button == null:
 		return
@@ -2330,11 +2401,17 @@ func _apply_close_skin_to_button(button: Button) -> void:
 		return
 	if button.tooltip_text.is_empty():
 		button.tooltip_text = "CLOSE"
+	var min_width: float = 330.0
+	var min_height: float = 140.0
+	if button.has_meta("sf_close_skin_min_w"):
+		min_width = maxf(1.0, float(button.get_meta("sf_close_skin_min_w")))
+	if button.has_meta("sf_close_skin_min_h"):
+		min_height = maxf(1.0, float(button.get_meta("sf_close_skin_min_h")))
 	button.icon = tex
 	button.text = ""
 	button.custom_minimum_size = Vector2(
-		maxf(button.custom_minimum_size.x, 330.0),
-		maxf(button.custom_minimum_size.y, 140.0)
+		maxf(button.custom_minimum_size.x, min_width),
+		maxf(button.custom_minimum_size.y, min_height)
 	)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
@@ -2412,6 +2489,67 @@ func _key_black_to_alpha_texture(source_tex: Texture2D, max_width: int = 512, ma
 	var keyed_tex: ImageTexture = ImageTexture.create_from_image(source_image)
 	return keyed_tex
 
+func _key_neutral_to_alpha_texture(source_tex: Texture2D, max_width: int = 1024, max_height: int = 512, trim_alpha_threshold: float = 0.04) -> Texture2D:
+	if source_tex == null:
+		return null
+	var source_image: Image = source_tex.get_image()
+	if source_image == null or source_image.is_empty():
+		return source_tex
+	source_image.convert(Image.FORMAT_RGBA8)
+	var width: int = source_image.get_width()
+	var height: int = source_image.get_height()
+	if max_width > 0 and max_height > 0 and (width > max_width or height > max_height):
+		var width_scale: float = float(max_width) / float(width)
+		var height_scale: float = float(max_height) / float(height)
+		var resize_scale: float = minf(width_scale, height_scale)
+		var target_w: int = maxi(1, int(round(float(width) * resize_scale)))
+		var target_h: int = maxi(1, int(round(float(height) * resize_scale)))
+		source_image.resize(target_w, target_h, Image.INTERPOLATE_LANCZOS)
+		width = source_image.get_width()
+		height = source_image.get_height()
+	for y in range(height):
+		for x in range(width):
+			var px: Color = source_image.get_pixel(x, y)
+			if px.a <= 0.0:
+				continue
+			var max_v: float = max(px.r, max(px.g, px.b))
+			var min_v: float = min(px.r, min(px.g, px.b))
+			var sat: float = max_v - min_v
+			var dark_key: float = 1.0 - smoothstep(0.03, 0.17, max_v)
+			var bright_key: float = smoothstep(0.80, 0.99, max_v)
+			var neutral_key: float = 1.0 - smoothstep(0.02, 0.24, sat)
+			var cut: float = clamp((dark_key + bright_key) * neutral_key, 0.0, 1.0)
+			var out_alpha: float = clamp(px.a * (1.0 - cut), 0.0, 1.0)
+			if out_alpha <= trim_alpha_threshold:
+				source_image.set_pixel(x, y, Color(px.r, px.g, px.b, 0.0))
+				continue
+			var fringe: float = clamp((1.0 - out_alpha) * (1.0 - smoothstep(0.02, 0.20, sat)) * smoothstep(0.65, 1.0, max_v), 0.0, 1.0)
+			px.r = lerpf(px.r, px.r * 0.30, fringe)
+			px.g = lerpf(px.g, px.g * 0.30, fringe)
+			px.b = lerpf(px.b, px.b * 0.30, fringe)
+			px.a = out_alpha
+			source_image.set_pixel(x, y, px)
+	var min_x: int = width
+	var min_y: int = height
+	var max_x: int = -1
+	var max_y: int = -1
+	for y in range(height):
+		for x in range(width):
+			if source_image.get_pixel(x, y).a <= trim_alpha_threshold:
+				continue
+			min_x = mini(min_x, x)
+			min_y = mini(min_y, y)
+			max_x = maxi(max_x, x)
+			max_y = maxi(max_y, y)
+	if max_x >= min_x and max_y >= min_y:
+		var crop_w: int = (max_x - min_x) + 1
+		var crop_h: int = (max_y - min_y) + 1
+		var cropped: Image = Image.create(crop_w, crop_h, false, Image.FORMAT_RGBA8)
+		cropped.blit_rect(source_image, Rect2i(min_x, min_y, crop_w, crop_h), Vector2i.ZERO)
+		source_image = cropped
+	var keyed_tex: ImageTexture = ImageTexture.create_from_image(source_image)
+	return keyed_tex
+
 func _human_mode_skin_for_mode(mode_id: String) -> Texture2D:
 	var cache_key: String = mode_id.strip_edges()
 	if _human_mode_skin_cache.has(cache_key):
@@ -2470,9 +2608,10 @@ func _store_category_skin_for_id(category_id: String) -> Texture2D:
 		return null
 	var loaded_any: Variant = load(path)
 	if loaded_any is Texture2D:
-		var tex: Texture2D = loaded_any as Texture2D
-		_store_category_skin_cache[cache_key] = tex
-		return tex
+		var raw_tex: Texture2D = loaded_any as Texture2D
+		var keyed_tex: Texture2D = _key_neutral_to_alpha_texture(raw_tex, 1024, 512, 0.03)
+		_store_category_skin_cache[cache_key] = keyed_tex
+		return keyed_tex
 	_store_category_skin_cache[cache_key] = null
 	return null
 
@@ -2482,17 +2621,20 @@ func _apply_store_category_skin_to_button(button: Button, category_id: String, l
 	var tex: Texture2D = _store_category_skin_for_id(category_id)
 	button.tooltip_text = label_text
 	if tex == null:
+		button.icon = null
+		button.material = null
 		button.text = label_text
 		return
 	button.icon = tex
 	button.text = ""
+	button.material = null
 	button.custom_minimum_size = Vector2(
-		maxf(button.custom_minimum_size.x, 220.0),
-		maxf(button.custom_minimum_size.y, 96.0)
+		maxf(button.custom_minimum_size.x, STORE_CATEGORY_BUTTON_MIN_SIZE.x),
+		maxf(button.custom_minimum_size.y, STORE_CATEGORY_BUTTON_MIN_SIZE.y)
 	)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
-	button.set("icon_max_width", 208)
+	button.set("icon_max_width", STORE_CATEGORY_ICON_MAX_WIDTH)
 	button.add_theme_constant_override("h_separation", 0)
 	_style_usd_sprite_button(button, true)
 
@@ -2645,6 +2787,9 @@ func _style_dash_buttons() -> void:
 			# Settings uses dense form controls; keep close button compact and avoid oversized sprite overlap.
 			button.set_meta("sf_close_skin", false)
 			button.custom_minimum_size = Vector2(220.0, 56.0)
+		if button == dash_store_close:
+			button.set_meta("sf_close_skin_min_w", STORE_CLOSE_SKIN_MIN_WIDTH)
+			button.set_meta("sf_close_skin_min_h", STORE_CLOSE_SKIN_MIN_HEIGHT)
 		_apply_font(button, _font_regular, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_set_stats_tier(_stats_tier)
@@ -3961,6 +4106,7 @@ func _on_buff_library_next_pressed() -> void:
 
 func _build_store_landing() -> void:
 	_clear_store_buttons()
+	store_category_grid.columns = STORE_CATEGORY_GRID_COLUMNS
 	for category in STORE_CATEGORIES:
 		var button := Button.new()
 		var title_text: String = str(category.get("title", "Category"))
@@ -4231,13 +4377,16 @@ func _on_play_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/VSMenu.tscn")
 
 func _open_buffs_store() -> void:
+	_close_top_level_windows()
 	_open_buffs_panel()
 	status_label.text = "Buff store opened."
 
 func _open_free_roll_split() -> void:
+	_close_top_level_windows()
 	_open_game_hub(false, 0)
 
 func _open_cash_split() -> void:
+	_close_top_level_windows()
 	if _dev_bypass_cash_balance:
 		_open_game_hub(true, _default_money_denomination())
 		return
@@ -4247,10 +4396,12 @@ func _open_cash_split() -> void:
 	_open_game_hub(true, _default_money_denomination())
 
 func _on_battle_pass_pressed() -> void:
+	_close_top_level_windows()
 	_open_battle_pass_panel()
 	status_label.text = "Battle Pass opened."
 
 func _on_settings_pressed() -> void:
+	_close_top_level_windows()
 	_open_settings_panel()
 	status_label.text = "Settings opened."
 
@@ -5586,7 +5737,7 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 	_apply_font(subtitle_label, _font_regular, 13)
 	return panel
 
-func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2) -> void:
+func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2, use_default_inlay_shift: bool = true) -> void:
 	if panel == null:
 		return
 	var background_base := TextureRect.new()
@@ -5627,8 +5778,11 @@ func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2
 	frame_inlay.texture = _get_entry_overlay_inlay_texture_for_size(resolved_size)
 	var overscan_x: float = resolved_size.x * ENTRY_OVERLAY_INLAY_OVERSCAN_X_RATIO
 	var overscan_y: float = resolved_size.y * ENTRY_OVERLAY_INLAY_OVERSCAN_Y_RATIO
-	var shift_x: float = (resolved_size.x * ENTRY_OVERLAY_INLAY_SHIFT_X_RATIO) + ENTRY_OVERLAY_INLAY_SHIFT_X_PX
-	var shift_y: float = (resolved_size.y * ENTRY_OVERLAY_INLAY_SHIFT_Y_RATIO) + ENTRY_OVERLAY_INLAY_SHIFT_Y_PX
+	var shift_x: float = 0.0
+	var shift_y: float = 0.0
+	if use_default_inlay_shift:
+		shift_x = (resolved_size.x * ENTRY_OVERLAY_INLAY_SHIFT_X_RATIO) + ENTRY_OVERLAY_INLAY_SHIFT_X_PX
+		shift_y = (resolved_size.y * ENTRY_OVERLAY_INLAY_SHIFT_Y_RATIO) + ENTRY_OVERLAY_INLAY_SHIFT_Y_PX
 	frame_inlay.offset_left = -overscan_x + shift_x
 	frame_inlay.offset_top = -overscan_y + shift_y
 	frame_inlay.offset_right = overscan_x + shift_x
@@ -6079,6 +6233,7 @@ func _close_top_level_windows(except_surface: String = "") -> void:
 		_buffs_direct_mode = false
 		_store_direct_mode = false
 		_settings_direct_mode = false
+		_set_dash_panel_store_passthrough(false)
 		_set_hive_panel_vertical_offset(0.0)
 		_hide_dash_panels()
 		_set_dash_hidden_state()
@@ -6211,11 +6366,12 @@ func _on_dash_buffs_close_pressed() -> void:
 	_close_buffs_panel()
 
 func _open_storefront_panel() -> void:
-	_close_top_level_windows(UI_SURFACE_DASH)
+	_close_top_level_windows()
 	_store_direct_mode = true
 	_hide_dash_panels()
 	_show_store_landing()
 	_set_dash_chrome_visible(false)
+	_set_dash_panel_store_passthrough(true)
 	_set_dash_offsets(0.0)
 	dash_panel.visible = true
 	dash_store_panel.visible = true
@@ -6227,6 +6383,7 @@ func _open_storefront_panel() -> void:
 func _close_storefront_panel() -> void:
 	_store_direct_mode = false
 	dash_store_panel.visible = false
+	_set_dash_panel_store_passthrough(false)
 	_set_dash_chrome_visible(true)
 	_set_dash_offsets(_dash_hidden_x)
 	dash_panel.visible = false
@@ -6314,6 +6471,7 @@ func _open_dash_panel(panel: Panel) -> void:
 		return
 	_close_top_level_windows(UI_SURFACE_DASH)
 	_set_dash_chrome_visible(true)
+	_set_dash_panel_store_passthrough(panel == dash_store_panel)
 	if panel == dash_store_panel:
 		_apply_store_window_scale()
 		_ensure_store_free_roll_skin()
@@ -6332,7 +6490,22 @@ func _open_dash_panel_from_menu(panel: Panel) -> void:
 func _close_dash_panel(panel: Panel) -> void:
 	if panel == null:
 		return
+	if panel == dash_store_panel:
+		_set_dash_panel_store_passthrough(false)
 	panel.visible = false
+
+func _set_dash_panel_store_passthrough(enabled: bool) -> void:
+	if dash_panel == null:
+		return
+	dash_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE if enabled else Control.MOUSE_FILTER_STOP
+	if dash_store_panel != null:
+		dash_store_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	if dash_main_background != null:
+		dash_main_background.visible = not enabled
+	if enabled:
+		_style_panel(dash_panel, Color(0.0, 0.0, 0.0, 0.0), Color(0.0, 0.0, 0.0, 0.0))
+	else:
+		_style_panel(dash_panel, DASH_PANEL_BG_COLOR, DASH_PANEL_BORDER_COLOR)
 
 func _hide_dash_panels() -> void:
 	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full]:

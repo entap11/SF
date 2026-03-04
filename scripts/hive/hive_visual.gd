@@ -28,6 +28,7 @@ const HEIGHT_MED_SCALE := 1.10
 const HEIGHT_LARGE_SCALE := 1.20
 const HEIGHT_MAX_SCALE := 1.30
 const HIVE_VISUAL_SCALE: float = 1.15
+const HIVE_SIZE_TEST_MULT: float = 1.5
 const HIVE_WIDTH_MULT: float = 0.90
 const HIVE_HEIGHT_MULT: float = 1.28
 const HIVE_COLOR_SAT_BOOST: float = 1.22
@@ -154,7 +155,7 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 func _draw() -> void:
 	SFLog.log_once("HIVEVIS_DRAW", "HiveVisual._draw ran", SFLog.Level.INFO)
 	if _tex == null:
-		draw_circle(Vector2.ZERO, radius_px, _power_color)
+		draw_circle(Vector2.ZERO, radius_px * HIVE_SIZE_TEST_MULT, _power_color)
 	var font: Font = ThemeDB.fallback_font
 	if font == null:
 		return
@@ -463,9 +464,9 @@ func _apply_sprite() -> void:
 	if _tex == null:
 		return
 	var legacy_size := Vector2(radius_px * 2.0, radius_px * 2.0) * _sprite_scale
-	var width := (base_width_px if base_width_px > 0.0 else legacy_size.x) * HIVE_WIDTH_MULT
+	var width := (base_width_px if base_width_px > 0.0 else legacy_size.x) * HIVE_WIDTH_MULT * HIVE_SIZE_TEST_MULT
 	var base_height := height_small_px if height_small_px > 0.0 else legacy_size.y
-	var height := _height_for_tier(base_height, _resolve_tier(power)) * HIVE_HEIGHT_MULT
+	var height := _height_for_tier(base_height, _resolve_tier(power)) * HIVE_HEIGHT_MULT * HIVE_SIZE_TEST_MULT
 	_current_size = Vector2(width, height)
 	var tex_size := Vector2(float(_tex.get_width()), float(_tex.get_height()))
 	if tex_size.x > 0.0 and tex_size.y > 0.0:

@@ -188,14 +188,8 @@ func _bind_node_signals(node: Area2D) -> void:
 	var arena_api: ArenaAPI = arena.api
 	if input_sys == null or arena_api == null:
 		return
-	if node.has_signal("hive_clicked"):
-		var cb := Callable(input_sys, "_handle_hive_clicked").bind(arena_api)
-		if not node.is_connected("hive_clicked", cb):
-			node.connect("hive_clicked", cb)
-	if node.has_signal("hive_released"):
-		var cb2 := Callable(input_sys, "_handle_hive_released").bind(arena_api)
-		if not node.is_connected("hive_released", cb2):
-			node.connect("hive_released", cb2)
+	# Primary input path is Arena._unhandled_input -> InputSystem.handle_pointer_event.
+	# Avoid binding click/release here to prevent duplicate press/release processing.
 	if node.has_signal("hive_hovered"):
 		var cb3 := Callable(input_sys, "handle_hive_hovered")
 		if not node.is_connected("hive_hovered", cb3):
@@ -244,14 +238,14 @@ func _draw_model() -> void:
 	var font_size: int = POWER_LABEL_FONT_SIZE
 
 	var cell: float = float(cell_px)
-	var radius: float = cell * 0.28
+	var radius: float = cell * 0.42
 
 	if arena != null:
 		var cell_v: Variant = (arena as Node).get("CELL_SIZE")
 		cell = float(cell_v) if cell_v != null else 64.0
 
 		var radius_v: Variant = (arena as Node).get("HIVE_RADIUS_PX")
-		radius = float(radius_v) if radius_v != null else cell * 0.28
+		radius = float(radius_v) if radius_v != null else cell * 0.42
 
 	var hives: Array = model.get("hives", []) as Array
 	for hive in hives:
@@ -309,12 +303,12 @@ func _draw_state() -> void:
 	var font_size: int = POWER_LABEL_FONT_SIZE
 
 	var cell: float = 64.0
-	var radius: float = cell * 0.28
+	var radius: float = cell * 0.42
 
 	var cell_v: Variant = (arena as Node).get("CELL_SIZE")
 	cell = float(cell_v) if cell_v != null else 64.0
 	var radius_v: Variant = (arena as Node).get("HIVE_RADIUS_PX")
-	radius = float(radius_v) if radius_v != null else cell * 0.28
+	radius = float(radius_v) if radius_v != null else cell * 0.42
 
 	# Try to iterate something hive-like.
 	var hive_list: Array = []
@@ -428,7 +422,7 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 			owner_id = int(hd.get("owner_id"))
 		node.owner_id = owner_id
 		var pwr: int = int(hd.get("pwr", hd.get("power", 0)))
-		var radius: float = cell * 0.28
+		var radius: float = cell * 0.42
 		if arena != null:
 			var radius_v: Variant = (arena as Node).get("HIVE_RADIUS_PX")
 			if radius_v != null:
@@ -510,7 +504,8 @@ func _get_sprite_registry() -> SpriteRegistry:
 func _grid_to_world(gx: float, gy: float, cell: float) -> Vector2:
 	var cell_px := cell
 	var origin := Vector2.ZERO
-	var center_offset: float = 0.5
+	# Match Arena's authored-coordinate default when setup has not bound arena yet.
+	var center_offset: float = 0.0
 	if arena != null:
 		var spec: Variant = arena.get("grid_spec")
 		if spec != null:
