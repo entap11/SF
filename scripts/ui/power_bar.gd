@@ -27,6 +27,7 @@ const SOCKET_PX_SIZE: Vector2 = Vector2(1231.0, 159.0)
 @export var auto_fit_to_parent: bool = false
 @export var allow_auto_layout: bool = false
 @export var allow_runtime_docking: bool = false
+@export var theme_motion_smooth_speed: float = 2.2
 @export var debug_socket: bool = false
 @export var drive_layout: bool = false
 @export var debug_draw_rect: bool = false
@@ -47,6 +48,7 @@ var _display_share_p1: float = 0.5
 var _display_share_p2: float = 0.5
 var _target_share_by_seat: Dictionary = {1: 0.5, 2: 0.5, 3: 0.0, 4: 0.0}
 var _display_share_by_seat: Dictionary = {1: 0.5, 2: 0.5, 3: 0.0, 4: 0.0}
+var _theme_share_by_seat: Dictionary = {1: 0.5, 2: 0.5, 3: 0.0, 4: 0.0}
 var _active_seats: Array = [1, 2]
 var _lerp_speed: float = 6.0
 var _max_width: float = 0.0
@@ -78,8 +80,11 @@ var _default_frame_texture: Texture2D = null
 var _default_frame_material: Material = null
 var _theme_material: ShaderMaterial = null
 var _current_theme_id: String = "base"
+var _current_theme_player_count: int = -1
 var _last_theme_fill_ratio: float = -1.0
 var _theme_last_ratio: float = -1.0
+var _theme_drives_fill: bool = false
+var _theme_fill_display_ratio: float = 0.5
 
 func _control_font_size(control: Control) -> int:
 	if control == null:
@@ -277,6 +282,8 @@ func _ready() -> void:
 	_bind_hud()
 	_apply_hud_snapshot(OpsState.get_hud_snapshot())
 	_apply_fill()
+	_theme_share_by_seat = _display_share_by_seat.duplicate(true)
+	_theme_fill_display_ratio = clampf(float(_theme_share_by_seat.get(1, _display_share_p1)), 0.0, 1.0)
 	_enforce_layer_order()
 	if not _powerbar_ready_logged:
 		_powerbar_ready_logged = true
@@ -349,10 +356,12 @@ func _on_powerbar_theme_changed(_theme_id: String) -> void:
 func refresh_theme(force: bool = false) -> void:
 	var requested_theme: String = _resolve_profile_theme_id()
 	var normalized_theme: String = CosmeticThemeDB.normalize_powerbar_theme(requested_theme)
-	if not force and normalized_theme == _current_theme_id:
+	var player_count: int = _active_theme_player_count()
+	if not force and normalized_theme == _current_theme_id and player_count == _current_theme_player_count:
 		return
 	_current_theme_id = normalized_theme
-	var themed_texture: Texture2D = CosmeticThemeDB.get_powerbar_texture(_current_theme_id)
+	_current_theme_player_count = player_count
+	var themed_texture: Texture2D = CosmeticThemeDB.get_powerbar_texture(_current_theme_id, _current_theme_player_count)
 	if themed_texture == null:
 		themed_texture = _default_frame_texture
 	if themed_texture != null:
@@ -362,7 +371,13 @@ func refresh_theme(force: bool = false) -> void:
 	_apply_theme_material(_current_theme_id)
 	_apply_base_size()
 	_apply_theme_fill_uniform()
-	print("Loaded powerbar theme: %s" % _current_theme_id)
+	print("Loaded powerbar theme: %s (players=%d)" % [_current_theme_id, _current_theme_player_count])
+
+func _active_theme_player_count() -> int:
+	var count: int = _active_seats.size()
+	if count <= 0:
+		count = 2
+	return clampi(count, 2, 4)
 
 func _resolve_profile_theme_id() -> String:
 	if _profile_manager == null:
@@ -373,16 +388,23 @@ func _resolve_profile_theme_id() -> String:
 
 func _apply_theme_material(theme_id: String) -> void:
 	_theme_material = null
+	_theme_drives_fill = false
 	var shader: Shader = CosmeticThemeDB.get_powerbar_shader(theme_id)
 	if shader == null:
 		_frame_art.material = _default_frame_material
+		_set_fill_layer_visible(true)
 		return
 	var themed_material: ShaderMaterial = ShaderMaterial.new()
 	themed_material.shader = shader
 	_theme_material = themed_material
 	_frame_art.material = _theme_material
+	_theme_drives_fill = CosmeticThemeDB.is_powerbar_animated(theme_id)
+	_set_fill_layer_visible(not _theme_drives_fill)
+	_theme_share_by_seat = _display_share_by_seat.duplicate(true)
+	_theme_fill_display_ratio = clampf(float(_theme_share_by_seat.get(1, _display_share_p1)), 0.0, 1.0)
 	_last_theme_fill_ratio = -1.0
 	_theme_last_ratio = -1.0
+	_apply_theme_fill_uniform()
 
 func _apply_theme_stretch_mode(themed_texture: Texture2D) -> void:
 	_frame_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -399,16 +421,38 @@ func _apply_theme_stretch_mode(themed_texture: Texture2D) -> void:
 func _apply_theme_fill_uniform() -> void:
 	if _theme_material == null:
 		return
-	var fill_ratio: float = clampf(_target_share_p1, 0.0, 1.0)
+	var fill_ratio: float = clampf(_theme_fill_display_ratio, 0.0, 1.0)
 	var velocity: float = 0.0
 	if _theme_last_ratio >= 0.0:
 		velocity = absf(fill_ratio - _theme_last_ratio)
 	_theme_last_ratio = fill_ratio
-	if absf(fill_ratio - _last_theme_fill_ratio) < 0.001:
-		return
 	_last_theme_fill_ratio = fill_ratio
 	_theme_material.set_shader_parameter("fill_ratio", fill_ratio)
 	_theme_material.set_shader_parameter("fill_velocity", clampf(velocity * 16.0, 0.0, 1.0))
+	var s1: float = clampf(float(_theme_share_by_seat.get(1, 0.0)), 0.0, 1.0)
+	var s2: float = clampf(float(_theme_share_by_seat.get(2, 0.0)), 0.0, 1.0)
+	var s3: float = clampf(float(_theme_share_by_seat.get(3, 0.0)), 0.0, 1.0)
+	var s4: float = clampf(float(_theme_share_by_seat.get(4, 0.0)), 0.0, 1.0)
+	_theme_material.set_shader_parameter("share_p1", s1)
+	_theme_material.set_shader_parameter("share_p2", s2)
+	_theme_material.set_shader_parameter("share_p3", s3)
+	_theme_material.set_shader_parameter("share_p4", s4)
+	_theme_material.set_shader_parameter("color_p1", _seat_color(1))
+	_theme_material.set_shader_parameter("color_p2", _seat_color(2))
+	_theme_material.set_shader_parameter("color_p3", _seat_color(3))
+	_theme_material.set_shader_parameter("color_p4", _seat_color(4))
+
+func _set_fill_layer_visible(visible_state: bool) -> void:
+	if _fill_mask != null:
+		_fill_mask.visible = visible_state
+	if _fill_p1 != null:
+		_fill_p1.visible = visible_state
+	if _fill_p2 != null:
+		_fill_p2.visible = visible_state
+	if _fill_p3 != null:
+		_fill_p3.visible = visible_state
+	if _fill_p4 != null:
+		_fill_p4.visible = visible_state
 
 func set_state(state_ref: GameState) -> void:
 	_state = state_ref
@@ -431,8 +475,14 @@ func _process(delta: float) -> void:
 		var current: float = float(_display_share_by_seat.get(seat, 0.0))
 		var target: float = float(_target_share_by_seat.get(seat, 0.0))
 		_display_share_by_seat[seat] = lerpf(current, target, t)
+	var theme_t: float = clampf(delta * maxf(0.05, theme_motion_smooth_speed), 0.0, 1.0)
+	for seat in [1, 2, 3, 4]:
+		var theme_current: float = float(_theme_share_by_seat.get(seat, _display_share_by_seat.get(seat, 0.0)))
+		var theme_target: float = float(_display_share_by_seat.get(seat, 0.0))
+		_theme_share_by_seat[seat] = lerpf(theme_current, theme_target, theme_t)
 	_display_share_p1 = float(_display_share_by_seat.get(1, 0.0))
 	_display_share_p2 = float(_display_share_by_seat.get(2, 0.0))
+	_theme_fill_display_ratio = clampf(float(_theme_share_by_seat.get(1, _display_share_p1)), 0.0, 1.0)
 	_apply_fill()
 	if DEBUG_FILL_PROBE:
 		_run_fill_probe()
@@ -574,7 +624,10 @@ func _on_state_changed(state_ref: GameState) -> void:
 func _apply_hud_snapshot(hud: Dictionary) -> void:
 	var totals: Dictionary = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
 	var state_ref: GameState = OpsState.get_state()
+	var prior_player_count: int = _active_theme_player_count()
 	_active_seats = _resolve_active_seats(state_ref, hud)
+	if _active_theme_player_count() != prior_player_count:
+		refresh_theme(false)
 	if state_ref != null:
 		totals = compute_team_power(state_ref)
 	elif hud != null:
@@ -969,6 +1022,10 @@ func _sync_layout() -> void:
 
 func _apply_fill() -> void:
 	if _fill_mask == null or _fill_p1 == null or _fill_p2 == null:
+		return
+	if _theme_drives_fill:
+		_set_fill_layer_visible(false)
+		_apply_theme_fill_uniform()
 		return
 	var nodes: Dictionary = {
 		1: _fill_p1,

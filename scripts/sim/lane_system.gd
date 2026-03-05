@@ -83,7 +83,11 @@ func set_blockers_from_hives(hive_list: Array, radius: float = 24.0) -> void:
 		if h is Dictionary:
 			var d: Dictionary = h
 			var pos: Vector2 = d.get("pos", Vector2.ZERO)
-			blockers.append({"pos": pos, "r": rr, "id": int(d.get("id", -1))})
+			var r_v: Variant = d.get("radius_px", rr)
+			var r_px: float = float(r_v) if r_v != null else rr
+			if r_px <= 0.0:
+				r_px = rr
+			blockers.append({"pos": pos, "r": r_px, "id": int(d.get("id", -1))})
 
 
 func get_lane_between(a_id: int, b_id: int) -> Dictionary:
@@ -503,6 +507,6 @@ func _can_connect_segment(a_id: int, b_id: int, a_pos: Vector2, b_pos: Vector2) 
 		var c: Vector2 = blk.get("pos", Vector2.ZERO)
 		var r: float = float(blk.get("r", 0.0))
 		var closest := Geometry2D.get_closest_point_to_segment(c, a_pos, b_pos)
-		if c.distance_to(closest) < r:
+		if c.distance_to(closest) <= r:
 			return false
 	return true

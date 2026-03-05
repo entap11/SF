@@ -116,8 +116,18 @@ static func _seg_intersects(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> b
 	var cd := d - c
 	var denom := ab.cross(cd)
 	if absf(denom) <= 0.000001:
-		# Parallel or colinear; treat as no intersection for walls.
-		return false
+		# Parallel: only intersects when colinear and projected spans overlap.
+		var ac := c - a
+		if absf(ac.cross(ab)) > 0.000001:
+			return false
+		var ab_len2 := ab.length_squared()
+		if ab_len2 <= 0.000001:
+			return a.distance_squared_to(c) <= 0.000001 or a.distance_squared_to(d) <= 0.000001
+		var t0 := ac.dot(ab) / ab_len2
+		var t1 := (d - a).dot(ab) / ab_len2
+		var t_min := minf(t0, t1)
+		var t_max := maxf(t0, t1)
+		return t_max >= 0.0 and t_min <= 1.0
 	var ac := c - a
 	var t := ac.cross(cd) / denom
 	var u := ac.cross(ab) / denom

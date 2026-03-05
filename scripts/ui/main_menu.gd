@@ -497,14 +497,20 @@ const STORE_CLOSE_SKIN_MIN_HEIGHT: float = 104.0
 const DASH_PANEL_BG_COLOR: Color = Color(0.08, 0.09, 0.12, 0.95)
 const DASH_PANEL_BORDER_COLOR: Color = Color(0.55, 0.56, 0.62, 0.8)
 const STORE_PANEL_BG_COLOR: Color = Color(0.04, 0.04, 0.05, 0.24)
-const STORE_PANEL_BORDER_COLOR: Color = Color(0.62, 0.50, 0.22, 0.14)
+const STORE_PANEL_BORDER_COLOR: Color = Color(0.62, 0.50, 0.22, 0.0)
 const STORE_LANDING_BG_COLOR: Color = Color(0.02, 0.02, 0.03, 0.58)
-const STORE_LANDING_BORDER_COLOR: Color = Color(0.95, 0.77, 0.28, 0.22)
+const STORE_LANDING_BORDER_COLOR: Color = Color(0.95, 0.77, 0.28, 0.0)
 const STORE_CATEGORY_VIEW_BG_COLOR: Color = Color(0.02, 0.02, 0.03, 0.52)
-const STORE_CATEGORY_VIEW_BORDER_COLOR: Color = Color(0.95, 0.77, 0.28, 0.18)
-const STORE_FRAME_SHIFT_X_PX: float = -22.0
+const STORE_CATEGORY_VIEW_BORDER_COLOR: Color = Color(0.95, 0.77, 0.28, 0.0)
+const STORE_FRAME_SHIFT_X_PX: float = 0.0
 const STORE_FRAME_SHIFT_Y_PX: float = 0.0
-const STORE_HEADER_TOP_INSET: float = -22.0
+const STORE_BACKGROUND_STRETCH_X_PX: float = 50.0
+const STORE_BACKGROUND_STRETCH_Y_PX: float = 0.0
+const STORE_INLAY_STRETCH_X_PX: float = 0.0
+const STORE_INLAY_STRETCH_Y_PX: float = 0.0
+const STORE_INLAY_TEXTURE_PAN_X_PX: float = 0.0
+const STORE_INLAY_TEXTURE_PAN_Y_PX: float = 0.0
+const STORE_HEADER_TOP_INSET: float = -116.0
 const STORE_HEADER_BOTTOM_INSET: float = 24.0
 const STORE_VBOX_SPACING: int = 10
 const STORE_CATEGORY_GRID_COLUMNS: int = 2
@@ -1001,12 +1007,17 @@ func _ensure_store_free_roll_skin() -> void:
 			existing.free()
 	_build_entry_overlay_background_layers(dash_store_panel, resolved_size, false)
 	_apply_game_hub_panel_fx(dash_store_panel)
+	_apply_store_background_layer_shift(
+		dash_store_panel,
+		STORE_FRAME_SHIFT_X_PX,
+		STORE_FRAME_SHIFT_Y_PX,
+		STORE_BACKGROUND_STRETCH_X_PX,
+		STORE_BACKGROUND_STRETCH_Y_PX
+	)
 	var store_inlay: NinePatchRect = dash_store_panel.get_node_or_null("Frame_Inlay") as NinePatchRect
 	if store_inlay != null:
-		store_inlay.offset_left += STORE_FRAME_SHIFT_X_PX
-		store_inlay.offset_right += STORE_FRAME_SHIFT_X_PX
-		store_inlay.offset_top += STORE_FRAME_SHIFT_Y_PX
-		store_inlay.offset_bottom += STORE_FRAME_SHIFT_Y_PX
+		_apply_store_inlay_stretch(store_inlay, STORE_INLAY_STRETCH_X_PX, STORE_INLAY_STRETCH_Y_PX)
+		_apply_store_inlay_texture_pan(store_inlay, STORE_INLAY_TEXTURE_PAN_X_PX, STORE_INLAY_TEXTURE_PAN_Y_PX)
 	if dash_store_background != null:
 		dash_store_background.visible = false
 	if store_landing_panel != null:
@@ -1017,6 +1028,66 @@ func _ensure_store_free_roll_skin() -> void:
 		var category_hex: CanvasItem = store_category_view.get_node_or_null("HexSeamBackground") as CanvasItem
 		if category_hex != null:
 			category_hex.visible = false
+
+func _apply_store_background_layer_shift(
+		panel: Panel,
+		shift_x: float,
+		shift_y: float,
+		stretch_x: float = 0.0,
+		stretch_y: float = 0.0
+	) -> void:
+	if panel == null:
+		return
+	for node_name in [
+		"Background_Base",
+		"Background_Noise",
+		"Frame_Inlay",
+		"Midfield_Hex_Dark",
+		"GameHubMatteOverlay",
+		"GameHubCenterTension",
+		"GameHubDirectionalShade"
+	]:
+		var node_any: Variant = panel.get_node_or_null(node_name)
+		if node_any is Control:
+			var layer: Control = node_any as Control
+			layer.offset_left -= stretch_x
+			layer.offset_right += stretch_x
+			layer.offset_top -= stretch_y
+			layer.offset_bottom += stretch_y
+			layer.offset_left += shift_x
+			layer.offset_right += shift_x
+			layer.offset_top += shift_y
+			layer.offset_bottom += shift_y
+
+func _apply_store_inlay_texture_pan(inlay: NinePatchRect, pan_x: float, pan_y: float) -> void:
+	if inlay == null:
+		return
+	var atlas: AtlasTexture = inlay.texture as AtlasTexture
+	if atlas == null:
+		return
+	var shifted: AtlasTexture = atlas.duplicate() as AtlasTexture
+	if shifted == null:
+		return
+	var region: Rect2 = shifted.region
+	var atlas_tex: Texture2D = shifted.atlas
+	if atlas_tex != null:
+		var atlas_size: Vector2 = atlas_tex.get_size()
+		var max_x: float = maxf(0.0, atlas_size.x - region.size.x)
+		var max_y: float = maxf(0.0, atlas_size.y - region.size.y)
+		region.position.x = clampf(region.position.x + pan_x, 0.0, max_x)
+		region.position.y = clampf(region.position.y + pan_y, 0.0, max_y)
+	else:
+		region.position += Vector2(pan_x, pan_y)
+	shifted.region = region
+	inlay.texture = shifted
+
+func _apply_store_inlay_stretch(inlay: NinePatchRect, stretch_x: float, stretch_y: float) -> void:
+	if inlay == null:
+		return
+	inlay.offset_left -= stretch_x
+	inlay.offset_right += stretch_x
+	inlay.offset_top -= stretch_y
+	inlay.offset_bottom += stretch_y
 
 
 func _apply_store_window_scale() -> void:
@@ -2489,6 +2560,39 @@ func _key_black_to_alpha_texture(source_tex: Texture2D, max_width: int = 512, ma
 	var keyed_tex: ImageTexture = ImageTexture.create_from_image(source_image)
 	return keyed_tex
 
+func _is_neutral_background_candidate(px: Color) -> bool:
+	if px.a <= 0.0:
+		return false
+	var max_v: float = max(px.r, max(px.g, px.b))
+	var min_v: float = min(px.r, min(px.g, px.b))
+	var sat: float = max_v - min_v
+	if sat > 0.24:
+		return false
+	# Store category source art has checker/frame remnants that can be dark, mid-gray, or white.
+	return max_v <= 0.68 or max_v >= 0.86
+
+func _queue_neutral_background_pixel(
+	image: Image,
+	x: int,
+	y: int,
+	width: int,
+	height: int,
+	mask: PackedByteArray,
+	queue: Array[Vector2i]
+) -> void:
+	if x < 0 or y < 0 or x >= width or y >= height:
+		return
+	var idx: int = (y * width) + x
+	if idx < 0 or idx >= mask.size():
+		return
+	if mask[idx] != 0:
+		return
+	var px: Color = image.get_pixel(x, y)
+	if not _is_neutral_background_candidate(px):
+		return
+	mask[idx] = 1
+	queue.append(Vector2i(x, y))
+
 func _key_neutral_to_alpha_texture(source_tex: Texture2D, max_width: int = 1024, max_height: int = 512, trim_alpha_threshold: float = 0.04) -> Texture2D:
 	if source_tex == null:
 		return null
@@ -2507,17 +2611,38 @@ func _key_neutral_to_alpha_texture(source_tex: Texture2D, max_width: int = 1024,
 		source_image.resize(target_w, target_h, Image.INTERPOLATE_LANCZOS)
 		width = source_image.get_width()
 		height = source_image.get_height()
+	var background_mask := PackedByteArray()
+	background_mask.resize(width * height)
+	var flood_queue: Array[Vector2i] = []
+	for x in range(width):
+		_queue_neutral_background_pixel(source_image, x, 0, width, height, background_mask, flood_queue)
+		_queue_neutral_background_pixel(source_image, x, height - 1, width, height, background_mask, flood_queue)
+	for y in range(height):
+		_queue_neutral_background_pixel(source_image, 0, y, width, height, background_mask, flood_queue)
+		_queue_neutral_background_pixel(source_image, width - 1, y, width, height, background_mask, flood_queue)
+	var queue_idx: int = 0
+	while queue_idx < flood_queue.size():
+		var cell: Vector2i = flood_queue[queue_idx]
+		queue_idx += 1
+		_queue_neutral_background_pixel(source_image, cell.x - 1, cell.y, width, height, background_mask, flood_queue)
+		_queue_neutral_background_pixel(source_image, cell.x + 1, cell.y, width, height, background_mask, flood_queue)
+		_queue_neutral_background_pixel(source_image, cell.x, cell.y - 1, width, height, background_mask, flood_queue)
+		_queue_neutral_background_pixel(source_image, cell.x, cell.y + 1, width, height, background_mask, flood_queue)
 	for y in range(height):
 		for x in range(width):
+			var idx: int = (y * width) + x
 			var px: Color = source_image.get_pixel(x, y)
 			if px.a <= 0.0:
+				continue
+			if idx >= 0 and idx < background_mask.size() and background_mask[idx] != 0:
+				source_image.set_pixel(x, y, Color(px.r, px.g, px.b, 0.0))
 				continue
 			var max_v: float = max(px.r, max(px.g, px.b))
 			var min_v: float = min(px.r, min(px.g, px.b))
 			var sat: float = max_v - min_v
-			var dark_key: float = 1.0 - smoothstep(0.03, 0.17, max_v)
-			var bright_key: float = smoothstep(0.80, 0.99, max_v)
-			var neutral_key: float = 1.0 - smoothstep(0.02, 0.24, sat)
+			var dark_key: float = 1.0 - smoothstep(0.04, 0.22, max_v)
+			var bright_key: float = smoothstep(0.74, 0.98, max_v)
+			var neutral_key: float = 1.0 - smoothstep(0.015, 0.22, sat)
 			var cut: float = clamp((dark_key + bright_key) * neutral_key, 0.0, 1.0)
 			var out_alpha: float = clamp(px.a * (1.0 - cut), 0.0, 1.0)
 			if out_alpha <= trim_alpha_threshold:
@@ -4105,6 +4230,7 @@ func _on_buff_library_next_pressed() -> void:
 	_refresh_buffs_library_buttons()
 
 func _build_store_landing() -> void:
+	_store_category_skin_cache.clear()
 	_clear_store_buttons()
 	store_category_grid.columns = STORE_CATEGORY_GRID_COLUMNS
 	for category in STORE_CATEGORIES:

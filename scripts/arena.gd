@@ -13,6 +13,7 @@ const MapApplier := preload("res://scripts/maps/map_applier.gd")
 const WallRenderer := preload("res://scripts/renderers/wall_renderer.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
+const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
 const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
@@ -56,7 +57,7 @@ const SWARM_SHOCK_MS := 3000.0
 const DRAG_DEADZONE_PX := 8.0
 const MAX_OUT_LANES := 2
 const DOT_RADIUS := 3.0
-const HIVE_DIAMETER_PX := 54.0
+const HIVE_DIAMETER_PX := HiveGeometry.BASE_DIAMETER_PX
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
 const HIVE_PICK_PADDING_PX := 12.0
 const HIVE_HIT_RADIUS_PX := HIVE_RADIUS_PX + HIVE_PICK_PADDING_PX
@@ -76,7 +77,6 @@ const DEBRIS_MAX_PER_LANE := 8
 const DEBRIS_GLOBAL_CAP := 800
 const DEV_STATE_CHECKS := true
 const PRESSURE_DECAY_PER_SEC := 1.0
-const BLOCK_RADIUS_PX := CELL_SIZE * 0.25
 const LOS_DEBUG := false
 const TIE_WINDOW_US := 0
 const TIE_BUCKET_US := 100
@@ -2554,6 +2554,17 @@ func _inject_renderer_references() -> void:
 	if unit_renderer.has_method("setup_renderer_refs"):
 		unit_renderer.call("setup_renderer_refs", lane_renderer)
 
+func _hive_render_grid_pos(hive: HiveData) -> Vector2:
+	if hive == null:
+		return Vector2.ZERO
+	var render_gp: Vector2 = hive.render_grid_pos
+	if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+		render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+	return render_gp
+
+func _hive_lane_occlusion_radius_px(radius_px: float = HIVE_RADIUS_PX) -> float:
+	return HiveGeometry.lane_occlusion_radius_px(maxf(1.0, radius_px))
+
 func _sync_lane_system_blockers() -> void:
 	if lane_system == null:
 		return
@@ -2564,22 +2575,30 @@ func _sync_lane_system_blockers() -> void:
 			var node := nodes.get(key) as Node2D
 			if node == null:
 				continue
+			var radius_px: float = HIVE_RADIUS_PX
+			if node.has_method("get"):
+				var radius_v: Variant = node.get("radius_px")
+				if radius_v != null:
+					radius_px = float(radius_v)
 			hive_list.append({
 				"id": int(key),
-				"pos": node.position
+				"pos": node.position,
+				"radius_px": _hive_lane_occlusion_radius_px(radius_px)
 			})
 	if hive_list.is_empty() and state != null:
 		for hive in state.hives:
-			var render_gp: Vector2 = hive.render_grid_pos
-			if not is_finite(render_gp.x) or not is_finite(render_gp.y):
-				render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+			var render_gp: Vector2 = _hive_render_grid_pos(hive)
+			var radius_px: float = float(hive.radius_px)
+			if radius_px <= 0.0:
+				radius_px = HIVE_RADIUS_PX
 			hive_list.append({
 				"id": int(hive.id),
-				"pos": _grid_coord_to_world(render_gp)
+				"pos": _grid_coord_to_world(render_gp),
+				"radius_px": _hive_lane_occlusion_radius_px(radius_px)
 			})
 	if hive_list.is_empty():
 		return
-	lane_system.set_blockers_from_hives(hive_list, BLOCK_RADIUS_PX)
+	lane_system.set_blockers_from_hives(hive_list, _hive_lane_occlusion_radius_px(HIVE_RADIUS_PX))
 
 func get_game_state() -> GameState:
 	return state
@@ -9544,20 +9563,33 @@ func _is_los_clear(a_id: int, b_id: int) -> bool:
 	if a == null or b == null:
 		los_cache[key] = false
 		return false
-	var a_pos: Vector2 = _cell_center(a.grid_pos)
-	var b_pos: Vector2 = _cell_center(b.grid_pos)
-	var min_x: float = min(a_pos.x, b_pos.x) - BLOCK_RADIUS_PX
-	var max_x: float = max(a_pos.x, b_pos.x) + BLOCK_RADIUS_PX
-	var min_y: float = min(a_pos.y, b_pos.y) - BLOCK_RADIUS_PX
-	var max_y: float = max(a_pos.y, b_pos.y) + BLOCK_RADIUS_PX
+	var walls_v: Variant = state.walls
+	if typeof(walls_v) == TYPE_ARRAY:
+		var wall_segments: Array = MapSchema._wall_segments_from_walls(walls_v as Array)
+		if not wall_segments.is_empty():
+			var a_grid: Vector2 = _hive_render_grid_pos(a)
+			var b_grid: Vector2 = _hive_render_grid_pos(b)
+			if MapSchema._segment_intersects_any_wall(a_grid, b_grid, wall_segments):
+				los_cache[key] = false
+				return false
+	var a_pos: Vector2 = _grid_coord_to_world(_hive_render_grid_pos(a))
+	var b_pos: Vector2 = _grid_coord_to_world(_hive_render_grid_pos(b))
 	for hive in state.hives:
 		if hive.id == a_id or hive.id == b_id:
 			continue
-		var center: Vector2 = _cell_center(hive.grid_pos)
+		var center: Vector2 = _grid_coord_to_world(_hive_render_grid_pos(hive))
+		var hive_radius_px: float = float(hive.radius_px)
+		if hive_radius_px <= 0.0:
+			hive_radius_px = HIVE_RADIUS_PX
+		var block_radius_px: float = _hive_lane_occlusion_radius_px(hive_radius_px)
+		var min_x: float = min(a_pos.x, b_pos.x) - block_radius_px
+		var max_x: float = max(a_pos.x, b_pos.x) + block_radius_px
+		var min_y: float = min(a_pos.y, b_pos.y) - block_radius_px
+		var max_y: float = max(a_pos.y, b_pos.y) + block_radius_px
 		if center.x < min_x or center.x > max_x or center.y < min_y or center.y > max_y:
 			continue
 		var dist: float = _distance_point_to_segment(center, a_pos, b_pos)
-		if dist <= BLOCK_RADIUS_PX:
+		if dist <= block_radius_px:
 			if LOS_DEBUG:
 				dbg("SF: LOS blocked %d->%d by hive %d" % [a_id, b_id, hive.id])
 			los_cache[key] = false

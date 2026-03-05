@@ -8,12 +8,12 @@ const START_POWER := 10
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
+const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
 
-const HIVE_DIAMETER_PX := 54.0
+const HIVE_DIAMETER_PX := HiveGeometry.BASE_DIAMETER_PX
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
 const HIVE_LANE_RADIUS_PX := HIVE_RADIUS_PX
 const HIVE_BLOCK_RADIUS_PX := HIVE_RADIUS_PX
-const HIVE_BLOCK_RADIUS_SCALE := 1.75
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC
 const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
@@ -347,6 +347,8 @@ func can_connect(a_id: int, b_id: int) -> bool:
 	var b := get_hive(b_id)
 	if a == null or b == null:
 		return false
+	if _is_segment_blocked_by_walls(a, b):
+		return false
 	return not is_segment_blocked(_hive_world_pos(a), _hive_world_pos(b), a_id, b_id)
 
 func is_segment_blocked(a: Vector2, b: Vector2, a_id: int, b_id: int) -> bool:
@@ -385,11 +387,30 @@ func _segment_hits_circle(a: Vector2, b: Vector2, c: Vector2, r: float) -> bool:
 	return p.distance_squared_to(c) <= r * r
 
 func _hive_world_pos(hive: HiveData) -> Vector2:
+	return _grid_coord_to_world(_hive_render_grid_pos(hive))
+
+func _hive_render_grid_pos(hive: HiveData) -> Vector2:
+	if hive == null:
+		return Vector2.ZERO
+	var render_gp: Vector2 = hive.render_grid_pos
+	if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+		render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+	return render_gp
+
+func _grid_coord_to_world(coord: Vector2) -> Vector2:
+	var cell_px: float = _grid_cell_size_px()
+	var origin: Vector2 = Vector2.ZERO
+	var center_offset: float = 0.0
 	if grid_spec != null:
-		return grid_spec.grid_to_world(hive.grid_pos)
-	return Vector2(
-		(float(hive.grid_pos.x) + 0.5) * DEFAULT_CELL_SIZE,
-		(float(hive.grid_pos.y) + 0.5) * DEFAULT_CELL_SIZE
+		var origin_v: Variant = grid_spec.get("origin")
+		if origin_v is Vector2:
+			origin = origin_v as Vector2
+		var offset_v: Variant = grid_spec.get("center_offset")
+		if offset_v != null:
+			center_offset = float(offset_v)
+	return origin + Vector2(
+		(coord.x + center_offset) * cell_px,
+		(coord.y + center_offset) * cell_px
 	)
 
 func _grid_cell_size_px() -> float:
@@ -409,7 +430,19 @@ func _hive_block_radius(hive: HiveData) -> float:
 		radius = MapSchema.hive_radius_px_for_kind(str(hive.kind), _grid_cell_size_px())
 	if radius <= 0.0:
 		radius = HIVE_BLOCK_RADIUS_PX
-	return maxf(HIVE_BLOCK_RADIUS_PX, radius * HIVE_BLOCK_RADIUS_SCALE)
+	return HiveGeometry.lane_occlusion_radius_px(maxf(HIVE_BLOCK_RADIUS_PX, radius))
+
+func _is_segment_blocked_by_walls(a_hive: HiveData, b_hive: HiveData) -> bool:
+	if a_hive == null or b_hive == null:
+		return false
+	if walls.is_empty():
+		return false
+	var wall_segments: Array = MapSchema._wall_segments_from_walls(walls)
+	if wall_segments.is_empty():
+		return false
+	var a_grid: Vector2 = _hive_render_grid_pos(a_hive)
+	var b_grid: Vector2 = _hive_render_grid_pos(b_hive)
+	return MapSchema._segment_intersects_any_wall(a_grid, b_grid, wall_segments)
 
 func hive_world_pos_by_id(hive_id: int) -> Vector2:
 	var hive := find_hive_by_id(hive_id)
