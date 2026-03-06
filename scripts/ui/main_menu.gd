@@ -477,6 +477,8 @@ const GAME_HUB_CYCLE_ICON_MAX_WIDTH: int = 272
 const GAME_HUB_ASYNC_MODE_BUTTON_SIZE: Vector2 = Vector2(236.0, 82.0)
 const GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH: int = 224
 const GAME_HUB_CANCEL_BUTTON_SIZE: Vector2 = Vector2(236.0, 82.0)
+const GAME_HUB_FREE_TOP_ROW_SCALE: float = 1.75
+const GAME_HUB_FREE_LOWER_ROWS_SCALE: float = 1.35
 const GAME_HUB_CONTENT_SHIFT_X: float = -20.0
 const GAME_HUB_CONTENT_TOP_PADDING_PX: float = 24.0
 const GAME_HUB_SECTION_HEADER_COLOR: Color = Color8(201, 204, 214, 255)
@@ -4705,6 +4707,11 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var body: VBoxContainer = _entry_overlay_body(panel)
 	if body == null:
 		return
+	var top_row_scale: float = 1.0
+	var lower_rows_scale: float = 1.0
+	if not paid:
+		top_row_scale = GAME_HUB_FREE_TOP_ROW_SCALE
+		lower_rows_scale = GAME_HUB_FREE_LOWER_ROWS_SCALE
 	body.offset_top += extra_top + GAME_HUB_CONTENT_TOP_PADDING_PX
 	body.offset_left += GAME_HUB_CONTENT_SHIFT_X
 	body.offset_right += GAME_HUB_CONTENT_SHIFT_X
@@ -4732,7 +4739,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 			button.pressed.connect(func(): _on_human_mode_selected(chosen_mode, false, selected_denom))
 		human_row.add_child(button)
 		_apply_human_mode_skin_to_button(button, chosen_mode, paid, selected_denom)
-		_tune_game_hub_human_button(button)
+		_tune_game_hub_human_button(button, top_row_scale)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	_add_game_hub_section_header(match_type_block, "TIME PUZZLES", "Race against time & ranking", broadcast_free_roll)
 	var cycle_row_wrap := HBoxContainer.new()
@@ -4763,7 +4770,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
 		cycle_row.add_child(button)
 		_apply_async_cycle_skin_to_button(button, label, paid, selected_denom)
-		_tune_game_hub_cycle_button(button)
+		_tune_game_hub_cycle_button(button, lower_rows_scale)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	_add_game_hub_block_divider(body, broadcast_free_roll)
 	_add_game_hub_spacer(body, GAME_HUB_BLOCK_SPACING_PX if paid else GAME_HUB_BLOCK_SPACING_FREE_PX)
@@ -4777,13 +4784,13 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		{"label": "RACE", "id": "TIMED_RACE_3"},
 		{"label": "MISS N OUT", "id": "MISS_N_OUT_3"}
 	]
-	_add_game_hub_map_group(map_block, "3 MAP", three_map_items, paid, selected_denom, broadcast_free_roll)
+	_add_game_hub_map_group(map_block, "3 MAP", three_map_items, paid, selected_denom, broadcast_free_roll, lower_rows_scale)
 	var five_map_items := [
 		{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
 		{"label": "RACE", "id": "TIMED_RACE_5"},
 		{"label": "MISS N OUT", "id": "MISS_N_OUT_5"}
 	]
-	_add_game_hub_map_group(map_block, "5 MAP", five_map_items, paid, selected_denom, broadcast_free_roll)
+	_add_game_hub_map_group(map_block, "5 MAP", five_map_items, paid, selected_denom, broadcast_free_roll, lower_rows_scale)
 	var cancel_row := HBoxContainer.new()
 	cancel_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cancel_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -4792,27 +4799,35 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	cancel.text = "CANCEL"
 	cancel.pressed.connect(_close_entry_route_modal)
 	cancel_row.add_child(cancel)
-	_style_game_hub_cancel_button(cancel)
+	_style_game_hub_cancel_button(cancel, lower_rows_scale)
 	_configure_game_hub_option_button(cancel, broadcast_free_roll)
 	_entry_route_modal = panel
 
-func _compact_game_hub_async_mode_button(button: Button) -> void:
-	if button == null:
-		return
-	button.custom_minimum_size = GAME_HUB_ASYNC_MODE_BUTTON_SIZE
-	button.set("icon_max_width", GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH)
+func _scaled_game_hub_size(base_size: Vector2, size_scale: float) -> Vector2:
+	var scale: float = maxf(0.1, size_scale)
+	return Vector2(round(base_size.x * scale), round(base_size.y * scale))
 
-func _tune_game_hub_human_button(button: Button) -> void:
-	if button == null:
-		return
-	button.custom_minimum_size = GAME_HUB_HUMAN_BUTTON_SIZE
-	button.set("icon_max_width", GAME_HUB_HUMAN_ICON_MAX_WIDTH)
+func _scaled_game_hub_icon_width(base_width: int, size_scale: float) -> int:
+	var scale: float = maxf(0.1, size_scale)
+	return maxi(1, int(round(float(base_width) * scale)))
 
-func _tune_game_hub_cycle_button(button: Button) -> void:
+func _compact_game_hub_async_mode_button(button: Button, size_scale: float = 1.0) -> void:
 	if button == null:
 		return
-	button.custom_minimum_size = GAME_HUB_CYCLE_BUTTON_SIZE
-	button.set("icon_max_width", GAME_HUB_CYCLE_ICON_MAX_WIDTH)
+	button.custom_minimum_size = _scaled_game_hub_size(GAME_HUB_ASYNC_MODE_BUTTON_SIZE, size_scale)
+	button.set("icon_max_width", _scaled_game_hub_icon_width(GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH, size_scale))
+
+func _tune_game_hub_human_button(button: Button, size_scale: float = 1.0) -> void:
+	if button == null:
+		return
+	button.custom_minimum_size = _scaled_game_hub_size(GAME_HUB_HUMAN_BUTTON_SIZE, size_scale)
+	button.set("icon_max_width", _scaled_game_hub_icon_width(GAME_HUB_HUMAN_ICON_MAX_WIDTH, size_scale))
+
+func _tune_game_hub_cycle_button(button: Button, size_scale: float = 1.0) -> void:
+	if button == null:
+		return
+	button.custom_minimum_size = _scaled_game_hub_size(GAME_HUB_CYCLE_BUTTON_SIZE, size_scale)
+	button.set("icon_max_width", _scaled_game_hub_icon_width(GAME_HUB_CYCLE_ICON_MAX_WIDTH, size_scale))
 
 func _add_game_hub_block_label(parent: VBoxContainer, text_value: String, subdued: bool = false) -> void:
 	if parent == null:
@@ -5261,7 +5276,8 @@ func _add_game_hub_map_group(
 		items: Array,
 		paid: bool,
 		selected_denom: int,
-		broadcast_free_roll: bool = false
+		broadcast_free_roll: bool = false,
+		size_scale: float = 1.0
 	) -> void:
 	if parent == null:
 		return
@@ -5293,22 +5309,23 @@ func _add_game_hub_map_group(
 			button.pressed.connect(func(): _on_async_mode_selected(chosen_mode_id, false, 0))
 		row.add_child(button)
 		_apply_async_mode_skin_to_button(button, label, paid, _money_games_selected_tier if paid else selected_denom)
-		_compact_game_hub_async_mode_button(button)
+		_compact_game_hub_async_mode_button(button, size_scale)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 
-func _style_game_hub_cancel_button(button: Button) -> void:
+func _style_game_hub_cancel_button(button: Button, size_scale: float = 1.0) -> void:
 	if button == null:
 		return
+	var scaled_size: Vector2 = _scaled_game_hub_size(GAME_HUB_CANCEL_BUTTON_SIZE, size_scale)
 	button.set_meta("sf_cancel_skin", true)
 	button.set_meta("sf_close_skin", false)
 	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	button.custom_minimum_size = GAME_HUB_CANCEL_BUTTON_SIZE
-	button.set_meta("sf_cancel_skin_min_w", GAME_HUB_CANCEL_BUTTON_SIZE.x)
-	button.set_meta("sf_cancel_skin_min_h", GAME_HUB_CANCEL_BUTTON_SIZE.y)
+	button.custom_minimum_size = scaled_size
+	button.set_meta("sf_cancel_skin_min_w", scaled_size.x)
+	button.set_meta("sf_cancel_skin_min_h", scaled_size.y)
 	_apply_font(button, _font_regular, 12)
 	_style_button(button, Color(0.15, 0.16, 0.19, 0.72), Color(0.28, 0.30, 0.34, 0.26), Color(0.74, 0.77, 0.82))
-	button.custom_minimum_size = GAME_HUB_CANCEL_BUTTON_SIZE
-	button.set("icon_max_width", GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH)
+	button.custom_minimum_size = scaled_size
+	button.set("icon_max_width", _scaled_game_hub_icon_width(GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH, size_scale))
 
 func _configure_game_hub_option_button(button: Button, broadcast_mode: bool = false) -> void:
 	if button == null:

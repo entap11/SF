@@ -1,5 +1,5 @@
 extends RefCounted
-class_name VsHandshakeTransportHttp
+class_name RankTransportHttp
 
 const DEFAULT_TIMEOUT_SEC: float = 2.0
 

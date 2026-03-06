@@ -9,13 +9,25 @@ const RankPercentileCalculatorScript = preload("res://scripts/state/rank_percent
 const RankPromotionResolverScript = preload("res://scripts/state/rank_promotion_resolver.gd")
 const RankLeaderboardManagerScript = preload("res://scripts/state/rank_leaderboard_manager.gd")
 const RankMatchmakerScript = preload("res://scripts/state/rank_matchmaker.gd")
+const RankTransportHttpScript = preload("res://scripts/state/rank_transport_http.gd")
 
 signal rank_state_changed(snapshot: Dictionary)
 signal rank_event(event: Dictionary)
 signal tier_changed(tier_index: int, tier_rank: int)
 
 const CONFIG_PATH: String = "res://data/rank/rank_config.tres"
-const SAVE_PATH: String = "user://rank_state.json"
+const SAVE_PATH_DEFAULT: String = "user://rank_state.json"
+const ENV_BACKEND_URL: String = "SF_RANK_BACKEND_URL"
+const ENV_BACKEND_TOKEN: String = "SF_RANK_BACKEND_TOKEN"
+const SETTINGS_BACKEND_URL: String = "swarmfront/rank/backend_url"
+const SETTINGS_BACKEND_TOKEN: String = "swarmfront/rank/backend_token"
+const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/rank/backend_timeout_sec"
+const DEFAULT_BACKEND_TIMEOUT_SEC: float = 2.0
+const SMOKE_FIXTURE_PREFIX: String = "p"
+const SMOKE_FIXTURE_ID_LEN: int = 4
+const SMOKE_FIXTURE_MIN_BULK_COUNT: int = 50
+const SMOKE_FIXTURE_SENTINEL_FIRST: String = "p001"
+const SMOKE_FIXTURE_SENTINEL_LAST: String = "p101"
 const DAY_SECONDS: int = 86400
 
 var _config: RankConfigScript = null
@@ -30,6 +42,10 @@ var _players_by_id: Dictionary = {}
 var _sorted_player_ids: Array[String] = []
 var _local_player_id: String = ""
 var _last_tier_badge: Dictionary = {}
+var _transport_http = null
+var _transport_mode: String = "local"
+var _transport_error_logged: bool = false
+var save_path: String = SAVE_PATH_DEFAULT
 
 func _ready() -> void:
 	SFLog.allow_tag("RANK_STATE")
@@ -37,7 +53,9 @@ func _ready() -> void:
 	_load_config()
 	_load_state()
 	_bootstrap_local_player()
-	_recompute_rankings(false)
+	_configure_transport()
+	if not _refresh_from_backend_internal(false):
+		_recompute_rankings(false)
 	_save_state()
 	_emit_changed()
 
@@ -50,6 +68,18 @@ func intent_register_player(
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
+	var transport := _call_transport("register_player", {
+		"player_id": clean_id,
+		"display_name": display_name,
+		"region": region,
+		"friends": friends
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
+			_save_state()
+			_emit_changed()
+		return remote_result
 	var existing: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	var now_unix: int = _now_unix()
 	if existing.is_empty():
@@ -78,6 +108,16 @@ func intent_set_player_friends(player_id: String, friends: Array) -> Dictionary:
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
+	var transport := _call_transport("set_player_friends", {
+		"player_id": clean_id,
+		"friends": friends
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
+			_save_state()
+			_emit_changed()
+		return remote_result
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	if record.is_empty():
 		return {"ok": false, "reason": "player_not_found"}
@@ -91,6 +131,16 @@ func intent_set_player_region(player_id: String, region: String) -> Dictionary:
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
+	var transport := _call_transport("set_player_region", {
+		"player_id": clean_id,
+		"region": region
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
+			_save_state()
+			_emit_changed()
+		return remote_result
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	if record.is_empty():
 		return {"ok": false, "reason": "player_not_found"}
@@ -113,6 +163,19 @@ func intent_record_match_result(
 		return {"ok": false, "reason": "missing_player_ids"}
 	if p1 == p2:
 		return {"ok": false, "reason": "same_player_ids"}
+	var transport := _call_transport("record_match_result", {
+		"player_id": p1,
+		"opponent_id": p2,
+		"did_player_win": did_player_win,
+		"mode_name": mode_name,
+		"metadata": metadata
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
+			_save_state()
+			_emit_changed()
+		return remote_result
 	_ensure_player_exists(p1)
 	_ensure_player_exists(p2)
 
@@ -174,6 +237,13 @@ func intent_record_match_result(
 	}
 
 func intent_apply_decay_tick() -> Dictionary:
+	var transport := _call_transport("apply_decay_tick", {})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
+			_save_state()
+			_emit_changed()
+		return remote_result
 	var now_unix: int = _now_unix()
 	var applied: int = _apply_decay_all(now_unix)
 	if applied > 0:
@@ -186,6 +256,16 @@ func intent_debug_set_player_wax(player_id: String, wax_score: float) -> Diction
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
+	var transport := _call_transport("debug_set_player_wax", {
+		"player_id": clean_id,
+		"wax_score": wax_score
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
+			_save_state()
+			_emit_changed()
+		return remote_result
 	_ensure_player_exists(clean_id)
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	record["wax_score"] = maxf(_config.wax_floor, wax_score)
@@ -199,6 +279,16 @@ func intent_debug_set_last_active(player_id: String, last_active_unix: int) -> D
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
+	var transport := _call_transport("debug_set_last_active", {
+		"player_id": clean_id,
+		"last_active_unix": last_active_unix
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
+			_save_state()
+			_emit_changed()
+		return remote_result
 	_ensure_player_exists(clean_id)
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	record["last_active_unix"] = maxi(0, last_active_unix)
@@ -209,6 +299,21 @@ func intent_debug_set_last_active(player_id: String, last_active_unix: int) -> D
 	return {"ok": true}
 
 func get_player_snapshot(player_id: String) -> Dictionary:
+	var clean_id: String = player_id.strip_edges()
+	var transport := _call_transport("get_player_snapshot", {"player_id": clean_id})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)):
+			var remote_player: Variant = remote_result.get("player", null)
+			if typeof(remote_player) == TYPE_DICTIONARY:
+				_upsert_remote_player(remote_player)
+				return (remote_player as Dictionary).duplicate(true)
+			if remote_result.has("player_id"):
+				_upsert_remote_player(remote_result)
+				return remote_result.duplicate(true)
+	return _get_player_snapshot_local(clean_id)
+
+func _get_player_snapshot_local(player_id: String) -> Dictionary:
 	var clean_id: String = player_id.strip_edges()
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	if record.is_empty():
@@ -229,6 +334,21 @@ func get_player_snapshot(player_id: String) -> Dictionary:
 
 func get_local_rank_view(filter_name: String = "GLOBAL", limit: int = 25) -> Dictionary:
 	var requester_id: String = _resolve_local_player_id()
+	var transport := _call_transport("get_local_rank_view", {
+		"filter_name": filter_name,
+		"limit": limit,
+		"requester_id": requester_id
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)):
+			if _cache_remote_write_result(remote_result):
+				_save_state()
+			var remote_board: Variant = remote_result.get("board", null)
+			if typeof(remote_board) == TYPE_DICTIONARY:
+				return (remote_board as Dictionary).duplicate(true)
+			if remote_result.has("rows"):
+				return remote_result.duplicate(true)
 	var board: Dictionary = _leaderboard_manager.build_view(
 		_players_by_id,
 		_sorted_player_ids,
@@ -238,10 +358,25 @@ func get_local_rank_view(filter_name: String = "GLOBAL", limit: int = 25) -> Dic
 		_config
 	)
 	board["local_player_id"] = requester_id
-	board["player"] = get_player_snapshot(requester_id)
+	board["player"] = _get_player_snapshot_local(requester_id)
 	return board
 
 func get_leaderboard_snapshot(requester_id: String, filter_name: String = "GLOBAL", limit: int = 25) -> Dictionary:
+	var transport := _call_transport("get_leaderboard_snapshot", {
+		"requester_id": requester_id,
+		"filter_name": filter_name,
+		"limit": limit
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)):
+			if _cache_remote_write_result(remote_result):
+				_save_state()
+			var remote_board: Variant = remote_result.get("board", null)
+			if typeof(remote_board) == TYPE_DICTIONARY:
+				return (remote_board as Dictionary).duplicate(true)
+			if remote_result.has("rows"):
+				return remote_result.duplicate(true)
 	return _leaderboard_manager.build_view(
 		_players_by_id,
 		_sorted_player_ids,
@@ -249,9 +384,24 @@ func get_leaderboard_snapshot(requester_id: String, filter_name: String = "GLOBA
 		filter_name,
 		limit,
 		_config
-	)
+)
 
 func find_match_candidates(requester_id: String, queue_entries: Array) -> Array[Dictionary]:
+	var transport := _call_transport("find_match_candidates", {
+		"requester_id": requester_id,
+		"queue_entries": queue_entries
+	})
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)):
+			var rows_any: Variant = remote_result.get("rows", [])
+			if typeof(rows_any) == TYPE_ARRAY:
+				var rows_out: Array[Dictionary] = []
+				for row_any in rows_any as Array:
+					if typeof(row_any) != TYPE_DICTIONARY:
+						continue
+					rows_out.append((row_any as Dictionary).duplicate(true))
+				return rows_out
 	return _matchmaker.find_candidates(_players_by_id, requester_id, queue_entries, _config)
 
 func get_snapshot() -> Dictionary:
@@ -259,7 +409,9 @@ func get_snapshot() -> Dictionary:
 		"local_player_id": _resolve_local_player_id(),
 		"player_count": _players_by_id.size(),
 		"top_players": _top_rows(10),
-		"config_enabled": _config.enabled
+		"config_enabled": _config.enabled,
+		"transport_mode": _transport_mode,
+		"authoritative_online": is_authoritative_transport_online()
 	}
 
 func get_local_tier_badge() -> Dictionary:
@@ -288,6 +440,156 @@ func _emit_changed() -> void:
 		_last_tier_badge = badge.duplicate(true)
 		tier_changed.emit(int(badge.get("tier_index", 0)), int(badge.get("tier_rank", 0)))
 
+func get_transport_mode() -> String:
+	return _transport_mode
+
+func is_authoritative_transport_online() -> bool:
+	return _transport_mode == "http" and _transport_http != null and _transport_http.configured()
+
+func refresh_from_backend() -> Dictionary:
+	var ok: bool = _refresh_from_backend_internal(true)
+	return {
+		"ok": ok,
+		"transport_mode": _transport_mode,
+		"player_count": _players_by_id.size()
+	}
+
+func _configure_transport() -> void:
+	var backend_url: String = _configured_backend_url()
+	if backend_url.is_empty():
+		_transport_http = null
+		_transport_mode = "local"
+		return
+	_transport_http = RankTransportHttpScript.new()
+	_transport_http.configure(
+		backend_url,
+		_configured_backend_timeout_sec(),
+		_configured_backend_token()
+	)
+	_transport_mode = "http"
+	SFLog.allow_tag("RANK_TRANSPORT_CONFIG")
+	SFLog.info("RANK_TRANSPORT_CONFIG", {"mode": _transport_mode, "url": backend_url})
+
+func _configured_backend_url() -> String:
+	var env_url: String = OS.get_environment(ENV_BACKEND_URL).strip_edges()
+	if not env_url.is_empty():
+		return env_url
+	if ProjectSettings.has_setting(SETTINGS_BACKEND_URL):
+		return str(ProjectSettings.get_setting(SETTINGS_BACKEND_URL, "")).strip_edges()
+	return ""
+
+func _configured_backend_token() -> String:
+	var env_token: String = OS.get_environment(ENV_BACKEND_TOKEN).strip_edges()
+	if not env_token.is_empty():
+		return env_token
+	if ProjectSettings.has_setting(SETTINGS_BACKEND_TOKEN):
+		return str(ProjectSettings.get_setting(SETTINGS_BACKEND_TOKEN, "")).strip_edges()
+	return ""
+
+func _configured_backend_timeout_sec() -> float:
+	if ProjectSettings.has_setting(SETTINGS_BACKEND_TIMEOUT_SEC):
+		return maxf(0.1, float(ProjectSettings.get_setting(SETTINGS_BACKEND_TIMEOUT_SEC, DEFAULT_BACKEND_TIMEOUT_SEC)))
+	return DEFAULT_BACKEND_TIMEOUT_SEC
+
+func _call_transport(action: String, payload: Dictionary) -> Dictionary:
+	if _transport_http == null or not _transport_http.configured():
+		return {"handled": false}
+	var result: Dictionary = _transport_http.call_action(action, payload)
+	if bool(result.get("ok", false)):
+		_transport_error_logged = false
+		return {"handled": true, "result": result}
+	if bool(result.get("transport_error", false)):
+		if not _transport_error_logged:
+			_transport_error_logged = true
+			SFLog.allow_tag("RANK_TRANSPORT_FALLBACK")
+			SFLog.warn("RANK_TRANSPORT_FALLBACK", {
+				"action": action,
+				"err": str(result.get("err", "transport_error")),
+				"mode": _transport_mode
+			}, "", 3000)
+		return {"handled": false}
+	return {"handled": true, "result": result}
+
+func _refresh_from_backend_internal(emit_changed: bool) -> bool:
+	var transport := _call_transport("get_snapshot", {"local_player_id": _resolve_local_player_id()})
+	if not bool(transport.get("handled", false)):
+		return false
+	var result: Dictionary = transport.get("result", {}) as Dictionary
+	if not bool(result.get("ok", false)):
+		return false
+	var changed: bool = _apply_remote_state_payload(result)
+	if changed:
+		_save_state()
+		if emit_changed:
+			_emit_changed()
+	return changed
+
+func _apply_remote_state_payload(payload: Dictionary) -> bool:
+	var state_any: Variant = payload.get("state", null)
+	if typeof(state_any) != TYPE_DICTIONARY:
+		state_any = payload.get("snapshot", null)
+	if typeof(state_any) != TYPE_DICTIONARY and payload.has("players_by_id"):
+		state_any = payload
+	if typeof(state_any) != TYPE_DICTIONARY:
+		return false
+	var state: Dictionary = state_any as Dictionary
+	var players_any: Variant = state.get("players_by_id", null)
+	if typeof(players_any) != TYPE_DICTIONARY:
+		return false
+	var players_raw: Dictionary = players_any as Dictionary
+	_players_by_id.clear()
+	for player_id_any in players_raw.keys():
+		var player_id: String = str(player_id_any)
+		var record_any: Variant = players_raw.get(player_id_any, {})
+		if typeof(record_any) != TYPE_DICTIONARY:
+			continue
+		var record: Dictionary = record_any as Dictionary
+		_players_by_id[player_id] = _normalize_player_record(player_id, record)
+	var remote_local_id: String = str(state.get("local_player_id", _local_player_id)).strip_edges()
+	if not remote_local_id.is_empty():
+		_local_player_id = remote_local_id
+	_prune_smoke_fixture_players_if_present()
+	_sorted_player_ids = _percentile_calculator.sort_player_ids_desc(_players_by_id)
+	return true
+
+func _cache_remote_write_result(result: Dictionary) -> bool:
+	if _apply_remote_state_payload(result):
+		return true
+	var changed: bool = false
+	changed = _upsert_remote_player(result.get("player", null)) or changed
+	changed = _upsert_remote_player(result.get("opponent", null)) or changed
+	if changed:
+		_sorted_player_ids = _percentile_calculator.sort_player_ids_desc(_players_by_id)
+	return changed
+
+func _upsert_remote_player(player_any: Variant) -> bool:
+	if typeof(player_any) != TYPE_DICTIONARY:
+		return false
+	var player: Dictionary = player_any as Dictionary
+	var player_id: String = str(player.get("player_id", "")).strip_edges()
+	if player_id.is_empty():
+		return false
+	var existing: Dictionary = _players_by_id.get(player_id, {}) as Dictionary
+	var merged: Dictionary = existing.duplicate(true)
+	merged["display_name"] = str(player.get("display_name", merged.get("display_name", player_id)))
+	merged["region"] = str(player.get("region", merged.get("region", _config.default_region)))
+	merged["wax_score"] = float(player.get("wax_score", merged.get("wax_score", _config.base_gain)))
+	merged["last_active_unix"] = int(player.get("last_active_unix", merged.get("last_active_unix", _now_unix())))
+	merged["last_decay_day"] = int(merged.get("last_decay_day", -1))
+	merged["tier_id"] = str(player.get("tier_id", merged.get("tier_id", "DRONE")))
+	merged["color_id"] = str(player.get("color_id", merged.get("color_id", "GREEN")))
+	merged["rank_position"] = int(player.get("rank_position", merged.get("rank_position", 0)))
+	merged["percentile"] = float(player.get("percentile", merged.get("percentile", 0.0)))
+	merged["promotion_history"] = _safe_dictionary(player.get("promotion_history", merged.get("promotion_history", {})))
+	var friends_any: Variant = merged.get("friends", [])
+	var friends_array: Array = []
+	if typeof(friends_any) == TYPE_ARRAY:
+		friends_array = friends_any as Array
+	merged["friends"] = RankModelsScript.sanitize_friends(friends_array)
+	merged["apex_active"] = bool(player.get("apex_active", merged.get("apex_active", false)))
+	_players_by_id[player_id] = _normalize_player_record(player_id, merged)
+	return true
+
 func _load_config() -> void:
 	var loaded_any: Variant = load(CONFIG_PATH)
 	if loaded_any is RankConfigScript:
@@ -300,9 +602,10 @@ func _load_config() -> void:
 func _load_state() -> void:
 	_players_by_id.clear()
 	_sorted_player_ids.clear()
-	if not FileAccess.file_exists(SAVE_PATH):
+	var resolved_save_path: String = _resolved_save_path()
+	if not FileAccess.file_exists(resolved_save_path):
 		return
-	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var file: FileAccess = FileAccess.open(resolved_save_path, FileAccess.READ)
 	if file == null:
 		return
 	var parsed_any: Variant = JSON.parse_string(file.get_as_text())
@@ -321,16 +624,23 @@ func _load_state() -> void:
 			continue
 		var record: Dictionary = record_any as Dictionary
 		_players_by_id[player_id] = _normalize_player_record(player_id, record)
+	_prune_smoke_fixture_players_if_present()
 
 func _save_state() -> void:
 	var payload: Dictionary = {
 		"local_player_id": _resolve_local_player_id(),
 		"players_by_id": _players_by_id
 	}
-	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var file: FileAccess = FileAccess.open(_resolved_save_path(), FileAccess.WRITE)
 	if file == null:
 		return
 	file.store_string(JSON.stringify(payload, "\t"))
+
+func _resolved_save_path() -> String:
+	var clean: String = save_path.strip_edges()
+	if clean == "":
+		return SAVE_PATH_DEFAULT
+	return clean
 
 func _bootstrap_local_player() -> void:
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
@@ -509,6 +819,42 @@ func _region_or_default(region: String) -> String:
 	if clean == "":
 		return _config.default_region.strip_edges().to_upper()
 	return clean
+
+func _prune_smoke_fixture_players_if_present() -> void:
+	if _players_by_id.is_empty():
+		return
+	var fixture_ids: Array[String] = []
+	for player_id_any in _players_by_id.keys():
+		var player_id: String = str(player_id_any)
+		var record: Dictionary = _players_by_id.get(player_id, {}) as Dictionary
+		if _is_smoke_fixture_player(player_id, record):
+			fixture_ids.append(player_id)
+	if fixture_ids.size() < SMOKE_FIXTURE_MIN_BULK_COUNT:
+		return
+	if not fixture_ids.has(SMOKE_FIXTURE_SENTINEL_FIRST) or not fixture_ids.has(SMOKE_FIXTURE_SENTINEL_LAST):
+		return
+	var local_record: Dictionary = _players_by_id.get(_local_player_id, {}) as Dictionary
+	if _is_smoke_fixture_player(_local_player_id, local_record):
+		return
+	for fixture_id in fixture_ids:
+		_players_by_id.erase(fixture_id)
+	SFLog.info("RANK_STATE", {
+		"fixture_cleanup": true,
+		"removed_players": fixture_ids.size()
+	})
+
+func _is_smoke_fixture_player(player_id: String, record: Dictionary) -> bool:
+	if record.is_empty():
+		return false
+	if player_id.length() != SMOKE_FIXTURE_ID_LEN:
+		return false
+	if not player_id.begins_with(SMOKE_FIXTURE_PREFIX):
+		return false
+	var suffix: String = player_id.substr(1, 3)
+	if not suffix.is_valid_int():
+		return false
+	var expected_name: String = "Player %s" % suffix
+	return str(record.get("display_name", "")).strip_edges() == expected_name
 
 func _safe_dictionary(value: Variant) -> Dictionary:
 	if typeof(value) == TYPE_DICTIONARY:

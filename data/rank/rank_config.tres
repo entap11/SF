@@ -17,6 +17,10 @@ mode_modifiers = {
 inactivity_grace_days = 14
 daily_decay_rate = 0.0075
 wax_floor = 100.0
+players_per_tier_to_unlock = 300
+full_open_top_tier_weight = 1.0
+full_open_middle_weight_multiplier_vs_top = 1.25
+full_open_bottom_weight_multiplier_vs_middle = 1.0
 tier_bands = [{
 "id": "DRONE",
 "max_pct": 0.2,
@@ -96,6 +100,7 @@ tier_bands = [{
 apex_top_count = 5
 promotion_buffer = 0.005
 color_buffer = 0.002
+tier_demotion_grace_slots = 5
 color_quintiles = ["GREEN", "BLUE", "RED", "BLACK", "YELLOW"]
 mm_same_tier_priority = 25.0
 mm_same_color_priority = 10.0

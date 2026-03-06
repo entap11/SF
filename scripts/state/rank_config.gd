@@ -24,6 +24,12 @@ extends Resource
 @export var daily_decay_rate: float = 0.0075
 @export var wax_floor: float = 100.0
 
+# Tier unlock + distribution controls.
+@export var players_per_tier_to_unlock: int = 300
+@export var full_open_top_tier_weight: float = 1.0
+@export var full_open_middle_weight_multiplier_vs_top: float = 1.25
+@export var full_open_bottom_weight_multiplier_vs_middle: float = 1.0
+
 # Dynamic tiers by percentile.
 @export var tier_bands: Array[Dictionary] = [
 	{"id": "DRONE", "name": "Drone", "min_pct": 0.0000, "max_pct": 0.2000},
@@ -45,6 +51,7 @@ extends Resource
 @export var apex_top_count: int = 5
 @export var promotion_buffer: float = 0.005
 @export var color_buffer: float = 0.002
+@export var tier_demotion_grace_slots: int = 5
 
 # Color quintiles (no gameplay impact).
 @export var color_quintiles: Array[String] = ["GREEN", "BLUE", "RED", "BLACK", "YELLOW"]
@@ -85,6 +92,15 @@ func ordered_tier_ids() -> Array[String]:
 		out.append(tier_id)
 	return out
 
+func opened_tier_count(total_players: int) -> int:
+	var tiers: Array[String] = ordered_tier_ids()
+	if tiers.is_empty():
+		return 0
+	var unlock_size: int = maxi(1, players_per_tier_to_unlock)
+	var safe_total: int = maxi(1, total_players)
+	var opened: int = int(floor(float(safe_total) / float(unlock_size))) + 1
+	return clampi(opened, 1, tiers.size())
+
 func tier_band_by_id(tier_id: String) -> Dictionary:
 	var target: String = tier_id.strip_edges().to_upper()
 	for band_any in tier_bands:
@@ -107,21 +123,50 @@ func tier_min_percentile(tier_id: String) -> float:
 	var band: Dictionary = tier_band_by_id(tier_id)
 	return clampf(float(band.get("min_pct", 0.0)), 0.0, 1.0)
 
+func tier_min_percentile_for_population(tier_id: String, total_players: int) -> float:
+	var target: String = tier_id.strip_edges().to_upper()
+	var bands: Array[Dictionary] = tier_percentile_bands(total_players)
+	for band in bands:
+		if str(band.get("id", "")).strip_edges().to_upper() != target:
+			continue
+		return clampf(float(band.get("min_pct", 0.0)), 0.0, 1.0)
+	return 0.0
+
+func is_tier_open(tier_id: String, total_players: int) -> bool:
+	var target: String = tier_id.strip_edges().to_upper()
+	if target == "":
+		return false
+	var bands: Array[Dictionary] = tier_percentile_bands(total_players)
+	for band in bands:
+		if str(band.get("id", "")).strip_edges().to_upper() == target:
+			return true
+	return false
+
+func tier_percentile_bands(total_players: int) -> Array[Dictionary]:
+	var all_tiers: Array[String] = ordered_tier_ids()
+	var out: Array[Dictionary] = []
+	if all_tiers.is_empty():
+		return out
+	var open_count: int = opened_tier_count(total_players)
+	var active_tiers: Array[String] = []
+	for i in range(mini(open_count, all_tiers.size())):
+		active_tiers.append(all_tiers[i])
+	if active_tiers.is_empty():
+		return out
+	if active_tiers.size() < all_tiers.size():
+		return _build_even_bands(active_tiers)
+	return _build_full_open_bands(active_tiers)
+
 func resolve_tier_for_percentile(percentile: float, rank_position: int, total_players: int) -> String:
 	var p: float = clampf(percentile, 0.0, 1.0)
-	var safe_rank: int = maxi(1, rank_position)
+	var _safe_rank: int = maxi(1, rank_position)
 	var safe_total: int = maxi(1, total_players)
-	var tiers: Array[String] = ordered_tier_ids()
-	if apex_top_count > 0 and safe_rank <= apex_top_count and tiers.has("COW_KILLER"):
-		return "COW_KILLER"
-	for band_any in tier_bands:
-		if typeof(band_any) != TYPE_DICTIONARY:
-			continue
-		var band: Dictionary = band_any as Dictionary
+	var bands: Array[Dictionary] = tier_percentile_bands(safe_total)
+	if bands.is_empty():
+		return "DRONE"
+	for band in bands:
 		var tier_id: String = str(band.get("id", "")).strip_edges().to_upper()
-		if tier_id == "":
-			continue
-		if tier_id == "COW_KILLER":
+		if tier_id.is_empty():
 			continue
 		var min_pct: float = clampf(float(band.get("min_pct", 0.0)), 0.0, 1.0)
 		var max_pct: float = clampf(float(band.get("max_pct", 1.0)), 0.0, 1.0)
@@ -131,10 +176,57 @@ func resolve_tier_for_percentile(percentile: float, rank_position: int, total_pl
 
 func resolve_color_for_percentile(tier_id: String, percentile: float) -> String:
 	var colors: Array[String] = normalized_color_quintiles()
-	var band: Dictionary = tier_band_by_id(tier_id)
-	var min_pct: float = clampf(float(band.get("min_pct", 0.0)), 0.0, 1.0)
-	var max_pct: float = clampf(float(band.get("max_pct", 1.0)), 0.0, 1.0)
-	var span: float = maxf(0.0001, max_pct - min_pct)
-	var local: float = clampf((clampf(percentile, 0.0, 1.0) - min_pct) / span, 0.0, 0.999999)
-	var color_index: int = clampi(int(floor(local * float(colors.size()))), 0, colors.size() - 1)
+	var _tier_id: String = tier_id
+	var p: float = clampf(percentile, 0.0, 1.0)
+	var color_index: int = clampi(int(floor(p * float(colors.size()))), 0, colors.size() - 1)
 	return colors[color_index]
+
+func _build_even_bands(active_tiers: Array[String]) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if active_tiers.is_empty():
+		return out
+	var step: float = 1.0 / float(active_tiers.size())
+	for i in range(active_tiers.size()):
+		var min_pct: float = step * float(i)
+		var max_pct: float = step * float(i + 1)
+		if i == active_tiers.size() - 1:
+			max_pct = 1.0
+		out.append({
+			"id": active_tiers[i],
+			"min_pct": min_pct,
+			"max_pct": max_pct
+		})
+	return out
+
+func _build_full_open_bands(active_tiers: Array[String]) -> Array[Dictionary]:
+	if active_tiers.size() < 11:
+		return _build_even_bands(active_tiers)
+	var out: Array[Dictionary] = []
+	var top_weight: float = maxf(0.0001, full_open_top_tier_weight)
+	var middle_weight: float = top_weight * maxf(0.0001, full_open_middle_weight_multiplier_vs_top)
+	var bottom_weight: float = middle_weight * maxf(0.0001, full_open_bottom_weight_multiplier_vs_middle)
+	var weights: Array[float] = []
+	var total_weight: float = 0.0
+	for i in range(active_tiers.size()):
+		var w: float = middle_weight
+		if i < 5:
+			w = bottom_weight
+		elif i >= active_tiers.size() - 5:
+			w = top_weight
+		weights.append(w)
+		total_weight += w
+	if total_weight <= 0.0:
+		return _build_even_bands(active_tiers)
+	var cursor: float = 0.0
+	for i in range(active_tiers.size()):
+		var min_pct: float = cursor
+		cursor += weights[i] / total_weight
+		var max_pct: float = cursor
+		if i == active_tiers.size() - 1:
+			max_pct = 1.0
+		out.append({
+			"id": active_tiers[i],
+			"min_pct": min_pct,
+			"max_pct": max_pct
+		})
+	return out

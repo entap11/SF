@@ -37,6 +37,12 @@ window/stretch/aspect="keep_width"
 window/size/window_width=1080
 window/size/window_height=1920
 
+[swarmfront/rank]
+
+backend_url="http://127.0.0.1:8790/v1/rank"
+backend_token=""
+backend_timeout_sec=2.0
+
 [rendering]
 
 environment/defaults/default_clear_color=Color(0.168627, 0.168627, 0.168627, 1)

@@ -34,26 +34,64 @@ func find_candidates(
 		var wax_delta: float = absf(candidate_wax - requester_wax)
 		if wax_delta > wax_tolerance:
 			continue
-		var score: float = 100.0 - (wax_delta / maxf(1.0, wax_tolerance)) * 40.0
-		if str(candidate_record.get("tier_id", "DRONE")) == requester_tier:
-			score += config.mm_same_tier_priority
-		if str(candidate_record.get("color_id", "GREEN")) == requester_color:
-			score += config.mm_same_color_priority
+		var candidate_tier: String = str(candidate_record.get("tier_id", "DRONE"))
+		var candidate_color: String = str(candidate_record.get("color_id", "GREEN"))
+		var tier_distance: int = _tier_distance(config, requester_tier, candidate_tier)
+		var color_distance: int = _color_distance(config, requester_color, candidate_color)
+		var score: float = 10000.0
+		score -= float(tier_distance) * 1000.0
+		score -= float(color_distance) * 100.0
+		score -= wax_delta
 		rows.append({
 			"player_id": candidate_id,
 			"display_name": str(candidate_record.get("display_name", candidate_id)),
 			"wax_score": candidate_wax,
 			"wax_delta": wax_delta,
-			"tier_id": str(candidate_record.get("tier_id", "DRONE")),
-			"color_id": str(candidate_record.get("color_id", "GREEN")),
+			"tier_id": candidate_tier,
+			"color_id": candidate_color,
+			"tier_distance": tier_distance,
+			"color_distance": color_distance,
 			"wait_seconds": wait_seconds,
 			"score": score
 		})
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var sa: float = float(a.get("score", 0.0))
-		var sb: float = float(b.get("score", 0.0))
-		if is_equal_approx(sa, sb):
-			return str(a.get("player_id", "")) < str(b.get("player_id", ""))
-		return sa > sb
+		var a_tier_distance: int = int(a.get("tier_distance", 99999))
+		var b_tier_distance: int = int(b.get("tier_distance", 99999))
+		if a_tier_distance != b_tier_distance:
+			return a_tier_distance < b_tier_distance
+		var a_color_distance: int = int(a.get("color_distance", 99999))
+		var b_color_distance: int = int(b.get("color_distance", 99999))
+		if a_color_distance != b_color_distance:
+			return a_color_distance < b_color_distance
+		var a_wax_delta: float = float(a.get("wax_delta", 999999.0))
+		var b_wax_delta: float = float(b.get("wax_delta", 999999.0))
+		if not is_equal_approx(a_wax_delta, b_wax_delta):
+			return a_wax_delta < b_wax_delta
+		var a_wait: float = float(a.get("wait_seconds", 0.0))
+		var b_wait: float = float(b.get("wait_seconds", 0.0))
+		if not is_equal_approx(a_wait, b_wait):
+			return a_wait > b_wait
+		return str(a.get("player_id", "")) < str(b.get("player_id", ""))
 	)
 	return rows
+
+func _tier_distance(config: RankConfigScript, requester_tier: String, candidate_tier: String) -> int:
+	var requester_idx: int = config.tier_index(requester_tier)
+	var candidate_idx: int = config.tier_index(candidate_tier)
+	if requester_idx < 0 or candidate_idx < 0:
+		return 99999
+	return absi(candidate_idx - requester_idx)
+
+func _color_distance(config: RankConfigScript, requester_color: String, candidate_color: String) -> int:
+	var colors: Array[String] = config.normalized_color_quintiles()
+	var requester_idx: int = _index_of(colors, requester_color.strip_edges().to_upper())
+	var candidate_idx: int = _index_of(colors, candidate_color.strip_edges().to_upper())
+	if requester_idx < 0 or candidate_idx < 0:
+		return 99999
+	return absi(candidate_idx - requester_idx)
+
+func _index_of(items: Array[String], value: String) -> int:
+	for i in range(items.size()):
+		if items[i] == value:
+			return i
+	return -1

@@ -19,6 +19,12 @@ pip3 install pillow numpy
 ```
 
 ### Run
+Start the rank Postgres once (if not already running):
+
+```bash
+cd tools/rank-service && docker compose up -d
+```
+
 From repo root:
 
 ```
@@ -31,3 +37,26 @@ The script prints:
 - `wrote=<path>`
 
 Re-running is safe and idempotent.
+
+## run_with_rank_service.sh
+
+Starts the dedicated rank service and then launches Godot so local boots use central rank state.
+
+### Run
+From repo root:
+
+```bash
+./tools/run_with_rank_service.sh
+```
+
+Optional arguments are forwarded to `godot`, for example:
+
+```bash
+./tools/run_with_rank_service.sh --headless -s tools/rank_system_smoke_test.gd
+```
+
+If Postgres is elsewhere, set `RANK_DATABASE_URL` when launching:
+
+```bash
+RANK_DATABASE_URL=postgres://user:pass@host:5432/swarmfront_rank ./tools/run_with_rank_service.sh
+```

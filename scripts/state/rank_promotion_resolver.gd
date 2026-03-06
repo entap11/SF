@@ -34,7 +34,7 @@ func resolve_player(
 			current_tier,
 			target_tier,
 			percentile,
-			rank_position,
+			total_players,
 			config,
 			tiers
 		)
@@ -89,7 +89,7 @@ func _resolve_demotion_tier(
 		current_tier: String,
 		target_tier: String,
 		percentile: float,
-		rank_position: int,
+		total_players: int,
 		config: RankConfigScript,
 		tiers: Array[String]
 	) -> String:
@@ -101,13 +101,20 @@ func _resolve_demotion_tier(
 		idx_target = 0
 
 	var idx: int = idx_current
-	if current_tier == "COW_KILLER" and not (config.apex_top_count > 0 and rank_position <= config.apex_top_count):
-		idx = maxi(0, idx - 1)
-
 	while idx > idx_target:
 		var current_id: String = tiers[idx]
-		var min_pct: float = config.tier_min_percentile(current_id)
+		if not config.is_tier_open(current_id, total_players):
+			idx -= 1
+			continue
+		var min_pct: float = config.tier_min_percentile_for_population(current_id, total_players)
+		var grace_slots: int = maxi(0, config.tier_demotion_grace_slots)
+		var percentile_step: float = 1.0
+		if total_players > 1:
+			percentile_step = 1.0 / float(total_players - 1)
+		var demotion_grace_pct: float = percentile_step * float(grace_slots)
 		var demotion_floor: float = min_pct - config.promotion_buffer
+		if grace_slots > 0:
+			demotion_floor = min_pct - demotion_grace_pct
 		if percentile < demotion_floor:
 			idx -= 1
 			continue
@@ -139,19 +146,12 @@ func _resolve_color(
 	if idx_target > idx_current:
 		return target_color
 
-	var local_tier_pct: float = _local_percentile_within_tier(config, resolved_tier, percentile)
+	var global_pct: float = clampf(percentile, 0.0, 1.0)
 	var step: float = 1.0 / float(maxi(1, colors.size()))
 	var current_color_start: float = float(idx_current) * step
-	if local_tier_pct < (current_color_start - config.color_buffer):
+	if global_pct < (current_color_start - config.color_buffer):
 		return target_color
 	return current_color
-
-func _local_percentile_within_tier(config: RankConfigScript, tier_id: String, percentile: float) -> float:
-	var band: Dictionary = config.tier_band_by_id(tier_id)
-	var min_pct: float = clampf(float(band.get("min_pct", 0.0)), 0.0, 1.0)
-	var max_pct: float = clampf(float(band.get("max_pct", 1.0)), 0.0, 1.0)
-	var span: float = maxf(0.0001, max_pct - min_pct)
-	return clampf((clampf(percentile, 0.0, 1.0) - min_pct) / span, 0.0, 1.0)
 
 func _index_of(items: Array[String], value: String) -> int:
 	for i in range(items.size()):

@@ -17,6 +17,10 @@ Thumbs.db
 # Local tools
 tools/analytics/.env
 tools/analytics/node_modules/
+tools/rank-service/.env
+tools/rank-service/node_modules/
+tools/rank-service/var/
+tools/rank-service/dist/
 
 # Local Godot import noise
 assets/sprites/sf_skin_v1/barracks.PNG.import

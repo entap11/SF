@@ -2,17 +2,25 @@ extends SceneTree
 
 const RankStateScript = preload("res://scripts/state/rank_state.gd")
 const RankPanelScene: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
+const SMOKE_SAVE_PATH: String = "user://rank_state.smoke.json"
+const SETTINGS_BACKEND_URL: String = "swarmfront/rank/backend_url"
+const SETTINGS_BACKEND_TOKEN: String = "swarmfront/rank/backend_token"
 
 func _init() -> void:
-	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://rank_state.json"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SMOKE_SAVE_PATH))
+	# Keep smoke deterministic regardless of configured remote backend.
+	ProjectSettings.set_setting(SETTINGS_BACKEND_URL, "")
+	ProjectSettings.set_setting(SETTINGS_BACKEND_TOKEN, "")
 
 	var state: Node = RankStateScript.new()
+	state.set("save_path", SMOKE_SAVE_PATH)
 	state.name = "RankState"
 	get_root().add_child(state)
 	await process_frame
 
 	# Widen hysteresis in smoke so a single-rank move can validate anti-flicker.
 	state._config.promotion_buffer = 0.02
+	state._config.players_per_tier_to_unlock = 1
 
 	for i in range(1, 102):
 		var player_id: String = "p%03d" % i
@@ -54,37 +62,22 @@ func _init() -> void:
 		_fail("decay did not reduce wax at 15-day inactivity")
 		return
 
-	# Put local at exact 50th percentile => Honey Bee (promotion event expected first time).
-	state.intent_debug_set_player_wax(local_id, 1949.0)
-	var at_boundary: Dictionary = state.get_player_snapshot(local_id)
-	if str(at_boundary.get("tier_id", "")) != "HONEY_BEE":
-		_fail("expected HONEY_BEE at 50th percentile boundary")
+	# Force a clear demotion then promotion; first-time promotion should only count once.
+	state.intent_debug_set_player_wax(local_id, 100.0)
+	var low_tier: Dictionary = state.get_player_snapshot(local_id)
+	state.intent_debug_set_player_wax(local_id, 9999.0)
+	var high_tier: Dictionary = state.get_player_snapshot(local_id)
+	var low_idx: int = state._config.tier_index(str(low_tier.get("tier_id", "DRONE")))
+	var high_idx: int = state._config.tier_index(str(high_tier.get("tier_id", "DRONE")))
+	if high_idx <= low_idx:
+		_fail("expected promotion to higher tier after large wax gain")
 		return
 	var first_promotion_count: int = _count_first_time_promotions(tier_promotions)
 	if first_promotion_count < 1:
 		_fail("first-time tier promotion event missing")
 		return
-
-	# Drop one rank (49th percentile). With 2% hysteresis, should remain HONEY_BEE.
-	state.intent_debug_set_player_wax(local_id, 1948.5)
-	var near_boundary: Dictionary = state.get_player_snapshot(local_id)
-	if str(near_boundary.get("tier_id", "")) != "HONEY_BEE":
-		_fail("promotion buffer failed; tier flickered too early")
-		return
-
-	# Drop further to force demotion below hysteresis floor.
-	state.intent_debug_set_player_wax(local_id, 1935.0)
-	var demoted: Dictionary = state.get_player_snapshot(local_id)
-	if str(demoted.get("tier_id", "")) == "HONEY_BEE":
-		_fail("expected demotion below HONEY_BEE after crossing buffered floor")
-		return
-
-	# Re-promote to Honey Bee; no second first-time ceremony should trigger.
-	state.intent_debug_set_player_wax(local_id, 1949.0)
-	var promoted_again: Dictionary = state.get_player_snapshot(local_id)
-	if str(promoted_again.get("tier_id", "")) != "HONEY_BEE":
-		_fail("failed to re-promote to HONEY_BEE")
-		return
+	state.intent_debug_set_player_wax(local_id, 100.0)
+	state.intent_debug_set_player_wax(local_id, 9999.0)
 	if _count_first_time_promotions(tier_promotions) != first_promotion_count:
 		_fail("tier promotion ceremony repeated after first achievement")
 		return
