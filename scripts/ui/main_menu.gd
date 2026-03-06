@@ -19,9 +19,9 @@ const HONEY_WIDGET_PANEL_HEIGHT: float = 200.0
 const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
 const HONEY_WIDGET_TOP_OFFSET: float = 10.0
 const TIER_WIDGET_LEFT_MARGIN: float = 8.0
-const TIER_WIDGET_TOP_OFFSET: float = 8.0
-const TIER_WIDGET_PANEL_WIDTH: float = 166.0
-const TIER_WIDGET_PANEL_HEIGHT: float = 58.0
+const TIER_WIDGET_TOP_OFFSET: float = 10.0
+const TIER_WIDGET_PANEL_WIDTH: float = 272.0
+const TIER_WIDGET_PANEL_HEIGHT: float = 200.0
 const MM_BACKGROUND_Y_SHIFT: float = 36.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
@@ -34,7 +34,7 @@ const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
 
 const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
 const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
-const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/atlas_free_roll_font.tres"
+const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/free_roll_display_v2_font.tres"
 const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
@@ -1208,34 +1208,34 @@ func _load_fonts() -> void:
 	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
 
 func _style_labels() -> void:
-	_apply_font($TopBar/RankLabel, _font_regular, 16)
+	_apply_display_label($TopBar/RankLabel, 16, _font_regular, 16)
 	if _tier_widget != null and _tier_widget.has_method("apply_label_fonts"):
-		_tier_widget.call("apply_label_fonts", _font_semibold, 8)
-	_apply_font($TopBar/HoneyLabel, _font_regular, 16)
+		_tier_widget.call("apply_label_fonts", _font_semibold, _scaled_ui_font_size(8))
+	_apply_display_label($TopBar/HoneyLabel, 16, _font_regular, 16)
 	_apply_honey_label_shader($TopBar/HoneyLabel)
 	if _honey_widget != null and _honey_widget.has_method("apply_label_font"):
 		_honey_widget.call("apply_label_font", _font_regular, _scaled_ui_font_size(17))
-	_apply_font($DashPanel/DashTopBar/DashRankLabel, _font_regular, 16)
-	_apply_font($DashPanel/DashTopBar/DashHoneyLabel, _font_regular, 17)
+	_apply_display_label($DashPanel/DashTopBar/DashRankLabel, 16, _font_regular, 16)
+	_apply_display_label($DashPanel/DashTopBar/DashHoneyLabel, 17, _font_regular, 17)
 	_apply_honey_label_shader($DashPanel/DashTopBar/DashHoneyLabel)
 	if brand_title_label != null:
 		if not _apply_free_roll_atlas_font(brand_title_label, 17):
 			_apply_font(brand_title_label, _font_semibold, 19)
 		_apply_swarmfront_title_shader(brand_title_label)
-	_apply_font($HeroPanel/HeroVBox/HeroTitle, _font_semibold, 24)
+	_apply_display_label($HeroPanel/HeroVBox/HeroTitle, 22, _font_semibold, 24)
 	_apply_font($HeroPanel/HeroVBox/HeroSub, _font_regular, 16)
-	_apply_font($DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader, _font_semibold, 18)
-	_apply_font($DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesHeader, _font_semibold, 18)
+	_apply_display_label($DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader, 16, _font_semibold, 18)
+	_apply_display_label($DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesHeader, 16, _font_semibold, 18)
 	for i in range(1, 6):
 		var row_path := "DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow%d" % i
 		_apply_font(get_node("%s/MatchTitle" % row_path), _font_regular, 15)
 		_apply_font(get_node("%s/MatchResult" % row_path), _font_semibold, 14)
 		_apply_font(get_node("%s/MatchEff" % row_path), _font_regular, 14)
-	_apply_font($DashPanel/DashStatsPanel/StatsVBox/StatsTitle, _font_semibold, 20)
-	_apply_font($DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisTitle, _font_semibold, 20)
-	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplayTitle, _font_semibold, 20)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsTitle, _font_semibold, 20)
-	_apply_font($DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesTitle, _font_semibold, 20)
+	_apply_display_label($DashPanel/DashStatsPanel/StatsVBox/StatsTitle, 18, _font_semibold, 20)
+	_apply_display_label($DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisTitle, 18, _font_semibold, 20)
+	_apply_display_label($DashPanel/DashReplayPanel/ReplayVBox/ReplayTitle, 18, _font_semibold, 20)
+	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsTitle, 18, _font_semibold, 20)
+	_apply_display_label($DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashStatsPanel/StatsVBox/StatsSub, _font_regular, 14)
 	_apply_font($DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisSub, _font_regular, 14)
 	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplaySub, _font_regular, 14)
@@ -1249,25 +1249,25 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayInfoPanel/ReplayInfoVBox/ReplayInfoHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayNote, _font_regular, 12)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsLoadoutHeader, _font_semibold, 14)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryHeader, _font_semibold, 14)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailHeader, _font_semibold, 14)
+	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsLoadoutHeader, 12, _font_semibold, 14)
+	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryHeader, 12, _font_semibold, 14)
+	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailHeader, 12, _font_semibold, 14)
 	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailName, _font_semibold, 14)
 	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailDesc, _font_regular, 13)
 	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailMeta, _font_regular, 12)
 	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsFooter, _font_regular, 12)
-	_apply_font(buffs_mode_vs_button, _font_semibold, 12)
-	_apply_font(buffs_mode_async_button, _font_semibold, 12)
-	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveTitle, _font_semibold, 20)
+	_apply_display_label(buffs_mode_vs_button, 12, _font_semibold, 12)
+	_apply_display_label(buffs_mode_async_button, 12, _font_semibold, 12)
+	_apply_display_label($DashPanel/DashHivePanel/HiveVBox/HiveTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveSub, _font_regular, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter, _font_regular, 12)
-	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreTitle, _font_semibold, 20)
+	_apply_display_label($DashPanel/DashStorePanel/StoreVBox/StoreTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreSub, _font_regular, 14)
-	_apply_font($DashPanel/DashSettingsPanel/SettingsVBox/SettingsTitle, _font_semibold, 24)
+	_apply_display_label($DashPanel/DashSettingsPanel/SettingsVBox/SettingsTitle, 20, _font_semibold, 24)
 	_apply_font($DashPanel/DashSettingsPanel/SettingsVBox/SettingsSub, _font_regular, 16)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox/StoreLandingHeader, _font_semibold, 14)
 	_apply_font(store_category_header, _font_semibold, 16)
@@ -1275,7 +1275,7 @@ func _style_labels() -> void:
 	_apply_font(store_prefs_label, _font_regular, 13)
 	_apply_font(store_category_back, _font_regular, 12)
 	_apply_font(store_prefs_toggle, _font_regular, 12)
-	_apply_font($AsyncPanel/AsyncVBox/AsyncTitle, _font_semibold, 20)
+	_apply_display_label($AsyncPanel/AsyncVBox/AsyncTitle, 18, _font_semibold, 20)
 	_apply_font($AsyncPanel/AsyncVBox/AsyncSub, _font_regular, 14)
 	_apply_font($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueHeader, _font_semibold, 14)
 	_apply_font($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardHeader, _font_semibold, 14)
@@ -1284,13 +1284,13 @@ func _style_labels() -> void:
 	_apply_font($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsSub, _font_regular, 13)
 	_apply_font($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncRulesHeader, _font_semibold, 14)
 	_apply_font($AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncFooter, _font_regular, 12)
-	_apply_font($AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyTitle, _font_semibold, 20)
+	_apply_display_label($AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyTitle, 18, _font_semibold, 20)
 	_apply_font($AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklySub, _font_regular, 14)
 	_apply_font($AsyncPanel/AsyncWeeklyPanel/WeeklyVBox/WeeklyBody/WeeklyBodyVBox/WeeklyListHeader, _font_semibold, 14)
-	_apply_font($AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyTitle, _font_semibold, 20)
+	_apply_display_label($AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyTitle, 18, _font_semibold, 20)
 	_apply_font($AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlySub, _font_regular, 14)
 	_apply_font($AsyncPanel/AsyncMonthlyPanel/MonthlyVBox/MonthlyBody/MonthlyBodyVBox/MonthlyListHeader, _font_semibold, 14)
-	_apply_font($AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyTitle, _font_semibold, 20)
+	_apply_display_label($AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyTitle, 18, _font_semibold, 20)
 	_apply_font($AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlySub, _font_regular, 14)
 	_apply_font($AsyncPanel/AsyncYearlyPanel/YearlyVBox/YearlyBody/YearlyBodyVBox/YearlyListHeader, _font_semibold, 14)
 	for label_path in [
@@ -1339,7 +1339,7 @@ func _style_labels() -> void:
 	for button in buffs_library_buttons:
 		_apply_font(button, _font_regular, 12)
 	for button in buffs_detail_buttons:
-		_apply_font(button, _font_regular, 12)
+		_apply_display_label(button, 11, _font_regular, 12)
 	for button in hive_action_buttons:
 		_apply_font(button, _font_regular, 12)
 	for button in async_action_buttons:
@@ -1826,6 +1826,12 @@ func _apply_font(node: Control, font: Font, size: int) -> void:
 		return
 	node.add_theme_font_override("font", font)
 	node.add_theme_font_size_override("font_size", _scaled_ui_font_size(size))
+
+func _apply_display_label(node: Control, atlas_size: int, fallback_font: Font, fallback_size: int) -> void:
+	if node == null:
+		return
+	if not _apply_free_roll_atlas_font(node, atlas_size):
+		_apply_font(node, fallback_font, fallback_size)
 
 func _text_uses_free_roll_charset(text: String) -> bool:
 	var source := text.to_upper()
@@ -3542,7 +3548,7 @@ func _ensure_buffs_category_tabs() -> void:
 		button.text = _buff_filter_label(filter_id)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size = Vector2(0, 34)
-		_apply_font(button, _font_semibold, 11)
+		_apply_display_label(button, 11, _font_semibold, 11)
 		var press_cb: Callable = Callable(self, "_set_buff_category_filter").bind(filter_id)
 		button.pressed.connect(press_cb)
 		row.add_child(button)
@@ -3593,7 +3599,7 @@ func _ensure_buffs_library_nav() -> void:
 		var header: Label = Label.new()
 		header.text = tier_id.to_upper()
 		tier_vbox.add_child(header)
-		_apply_font(header, _font_semibold, 12)
+		_apply_display_label(header, 11, _font_semibold, 12)
 		var tier_scroll: ScrollContainer = ScrollContainer.new()
 		tier_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tier_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -3804,9 +3810,11 @@ func _refresh_buffs_library_buttons() -> void:
 	for tier_id in BUFF_LIBRARY_TIERS:
 		var header: Label = _buff_library_tier_headers[tier_id] as Label
 		if header != null:
-			header.text = "%s (%d)" % [tier_id.to_upper(), int(counts.get(tier_id, 0))]
+			header.text = tier_id.to_upper()
+			_apply_display_label(header, 11, _font_semibold, 12)
 	if buffs_library_header != null:
-		buffs_library_header.text = "BUFF STORE (%d) [%s]  TYPE: %s" % [visible_total, _buff_active_mode.to_upper(), _buff_filter_label(_buff_category_filter)]
+		buffs_library_header.text = "BUFF STORE %s %s" % [_buff_active_mode.to_upper(), _buff_filter_label(_buff_category_filter)]
+		_apply_display_label(buffs_library_header, 12, _font_semibold, 14)
 
 func _refresh_buffs_owned_ui() -> void:
 	if _buff_owned_flow == null:
@@ -3854,10 +3862,8 @@ func _refresh_buffs_owned_ui() -> void:
 		_buff_owned_flow.add_child(button)
 		_buff_owned_buttons.append(button)
 	if _buff_owned_header_label != null:
-		if _buff_active_mode == BUFF_MODE_ASYNC:
-			_buff_owned_header_label.text = "OWNED (%d TYPES / %d TOTAL)" % [ordered_ids.size(), _buff_owned_ids.size()]
-		else:
-			_buff_owned_header_label.text = "OWNED (%d)" % _buff_owned_ids.size()
+		_buff_owned_header_label.text = "OWNED"
+		_apply_display_label(_buff_owned_header_label, 12, _font_semibold, 13)
 
 func _refresh_buffs_loadout_ui() -> void:
 	for idx in range(buffs_slot_buttons.size()):

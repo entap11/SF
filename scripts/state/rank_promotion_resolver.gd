@@ -57,6 +57,7 @@ func resolve_player(
 		current_tier,
 		current_color,
 		percentile,
+		total_players,
 		tier_promoted,
 		tier_demoted
 	)
@@ -127,11 +128,12 @@ func _resolve_color(
 		old_tier: String,
 		current_color: String,
 		percentile: float,
+		total_players: int,
 		tier_promoted: bool,
 		tier_demoted: bool
 	) -> String:
 	var colors: Array[String] = config.normalized_color_quintiles()
-	var target_color: String = config.resolve_color_for_percentile(resolved_tier, percentile)
+	var target_color: String = config.resolve_color_for_tier_progress(resolved_tier, total_players)
 	if tier_promoted or tier_demoted or resolved_tier != old_tier:
 		return target_color
 

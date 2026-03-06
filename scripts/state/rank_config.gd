@@ -111,6 +111,22 @@ func tier_band_by_id(tier_id: String) -> Dictionary:
 			return band
 	return {}
 
+func tier_name(tier_id: String) -> String:
+	var band: Dictionary = tier_band_by_id(tier_id)
+	var name: String = str(band.get("name", "")).strip_edges()
+	if name != "":
+		return name
+	var raw: String = tier_id.strip_edges().replace("_", " ").to_lower()
+	if raw == "":
+		return "Drone"
+	var words: PackedStringArray = raw.split(" ", false)
+	var titled: PackedStringArray = PackedStringArray()
+	for word in words:
+		if word == "":
+			continue
+		titled.append(word.substr(0, 1).to_upper() + word.substr(1))
+	return " ".join(titled)
+
 func tier_index(tier_id: String) -> int:
 	var tiers: Array[String] = ordered_tier_ids()
 	var target: String = tier_id.strip_edges().to_upper()
@@ -180,6 +196,24 @@ func resolve_color_for_percentile(tier_id: String, percentile: float) -> String:
 	var p: float = clampf(percentile, 0.0, 1.0)
 	var color_index: int = clampi(int(floor(p * float(colors.size()))), 0, colors.size() - 1)
 	return colors[color_index]
+
+func resolve_color_for_tier_progress(tier_id: String, total_players: int) -> String:
+	var colors: Array[String] = normalized_color_quintiles()
+	if colors.is_empty():
+		return "GREEN"
+	var open_count: int = opened_tier_count(total_players)
+	if open_count <= 1:
+		return colors[0]
+	var tier_idx: int = tier_index(tier_id)
+	if tier_idx < 0:
+		return colors[0]
+	var clamped_tier_idx: int = clampi(tier_idx, 0, maxi(0, open_count - 1))
+	if open_count <= colors.size():
+		return colors[clamped_tier_idx]
+	var scaled_index: int = int(floor(
+		(float(clamped_tier_idx) / float(maxi(1, open_count - 1))) * float(colors.size() - 1)
+	))
+	return colors[clampi(scaled_index, 0, colors.size() - 1)]
 
 func _build_even_bands(active_tiers: Array[String]) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
