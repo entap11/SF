@@ -68,18 +68,15 @@ func intent_register_player(
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
-	var transport := _call_transport("register_player", {
+	var payload: Dictionary = {
 		"player_id": clean_id,
 		"display_name": display_name,
 		"region": region,
 		"friends": friends
-	})
-	if bool(transport.get("handled", false)):
-		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
-		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
-			_save_state()
-			_emit_changed()
-		return remote_result
+	}
+	var transport_result := _handle_transport_write("register_player", payload)
+	if bool(transport_result.get("handled", false)):
+		return transport_result.get("result", {}) as Dictionary
 	var existing: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	var now_unix: int = _now_unix()
 	if existing.is_empty():
@@ -108,16 +105,13 @@ func intent_set_player_friends(player_id: String, friends: Array) -> Dictionary:
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
-	var transport := _call_transport("set_player_friends", {
+	var payload: Dictionary = {
 		"player_id": clean_id,
 		"friends": friends
-	})
-	if bool(transport.get("handled", false)):
-		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
-		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
-			_save_state()
-			_emit_changed()
-		return remote_result
+	}
+	var transport_result := _handle_transport_write("set_player_friends", payload)
+	if bool(transport_result.get("handled", false)):
+		return transport_result.get("result", {}) as Dictionary
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	if record.is_empty():
 		return {"ok": false, "reason": "player_not_found"}
@@ -131,16 +125,13 @@ func intent_set_player_region(player_id: String, region: String) -> Dictionary:
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
-	var transport := _call_transport("set_player_region", {
+	var payload: Dictionary = {
 		"player_id": clean_id,
 		"region": region
-	})
-	if bool(transport.get("handled", false)):
-		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
-		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
-			_save_state()
-			_emit_changed()
-		return remote_result
+	}
+	var transport_result := _handle_transport_write("set_player_region", payload)
+	if bool(transport_result.get("handled", false)):
+		return transport_result.get("result", {}) as Dictionary
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	if record.is_empty():
 		return {"ok": false, "reason": "player_not_found"}
@@ -163,19 +154,16 @@ func intent_record_match_result(
 		return {"ok": false, "reason": "missing_player_ids"}
 	if p1 == p2:
 		return {"ok": false, "reason": "same_player_ids"}
-	var transport := _call_transport("record_match_result", {
+	var payload: Dictionary = {
 		"player_id": p1,
 		"opponent_id": p2,
 		"did_player_win": did_player_win,
 		"mode_name": mode_name,
 		"metadata": metadata
-	})
-	if bool(transport.get("handled", false)):
-		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
-		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
-			_save_state()
-			_emit_changed()
-		return remote_result
+	}
+	var transport_result := _handle_transport_write("record_match_result", payload)
+	if bool(transport_result.get("handled", false)):
+		return transport_result.get("result", {}) as Dictionary
 	_ensure_player_exists(p1)
 	_ensure_player_exists(p2)
 
@@ -214,7 +202,7 @@ func intent_record_match_result(
 	_recompute_rankings(true)
 	_save_state()
 
-	var payload: Dictionary = {
+	var event_payload: Dictionary = {
 		"type": "wax_match_resolved",
 		"mode": mode_key,
 		"winner": p1 if did_player_win else p2,
@@ -227,8 +215,8 @@ func intent_record_match_result(
 		"opponent_wax_after": float((_players_by_id.get(p2, {}) as Dictionary).get("wax_score", opponent_wax_before)),
 		"metadata": metadata
 	}
-	rank_event.emit(payload)
-	SFLog.info("RANK_EVENT", payload)
+	rank_event.emit(event_payload)
+	SFLog.info("RANK_EVENT", event_payload)
 	_emit_changed()
 	return {
 		"ok": true,
@@ -237,13 +225,9 @@ func intent_record_match_result(
 	}
 
 func intent_apply_decay_tick() -> Dictionary:
-	var transport := _call_transport("apply_decay_tick", {})
-	if bool(transport.get("handled", false)):
-		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
-		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
-			_save_state()
-			_emit_changed()
-		return remote_result
+	var transport_result := _handle_transport_write("apply_decay_tick", {})
+	if bool(transport_result.get("handled", false)):
+		return transport_result.get("result", {}) as Dictionary
 	var now_unix: int = _now_unix()
 	var applied: int = _apply_decay_all(now_unix)
 	if applied > 0:
@@ -256,16 +240,13 @@ func intent_debug_set_player_wax(player_id: String, wax_score: float) -> Diction
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
-	var transport := _call_transport("debug_set_player_wax", {
+	var payload: Dictionary = {
 		"player_id": clean_id,
 		"wax_score": wax_score
-	})
-	if bool(transport.get("handled", false)):
-		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
-		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
-			_save_state()
-			_emit_changed()
-		return remote_result
+	}
+	var transport_result := _handle_transport_write("debug_set_player_wax", payload)
+	if bool(transport_result.get("handled", false)):
+		return transport_result.get("result", {}) as Dictionary
 	_ensure_player_exists(clean_id)
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	record["wax_score"] = maxf(_config.wax_floor, wax_score)
@@ -279,16 +260,13 @@ func intent_debug_set_last_active(player_id: String, last_active_unix: int) -> D
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
-	var transport := _call_transport("debug_set_last_active", {
+	var payload: Dictionary = {
 		"player_id": clean_id,
 		"last_active_unix": last_active_unix
-	})
-	if bool(transport.get("handled", false)):
-		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
-		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
-			_save_state()
-			_emit_changed()
-		return remote_result
+	}
+	var transport_result := _handle_transport_write("debug_set_last_active", payload)
+	if bool(transport_result.get("handled", false)):
+		return transport_result.get("result", {}) as Dictionary
 	_ensure_player_exists(clean_id)
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	record["last_active_unix"] = maxi(0, last_active_unix)
@@ -509,6 +487,26 @@ func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 			}, "", 3000)
 		return {"handled": false}
 	return {"handled": true, "result": result}
+
+func _handle_transport_write(action: String, payload: Dictionary) -> Dictionary:
+	var transport := _call_transport(action, payload)
+	if bool(transport.get("handled", false)):
+		var remote_result: Dictionary = transport.get("result", {}) as Dictionary
+		if bool(remote_result.get("ok", false)) and _cache_remote_write_result(remote_result):
+			_save_state()
+			_emit_changed()
+		return {"handled": true, "result": remote_result}
+	if is_authoritative_transport_online():
+		return {
+			"handled": true,
+			"result": {
+				"ok": false,
+				"reason": "rank_backend_unavailable",
+				"transport_error": true,
+				"action": action
+			}
+		}
+	return {"handled": false}
 
 func _refresh_from_backend_internal(emit_changed: bool) -> bool:
 	var transport := _call_transport("get_snapshot", {"local_player_id": _resolve_local_player_id()})

@@ -55,7 +55,7 @@ export class RankStore {
   }
 
   async read<T>(reader: (state: RankState) => T): Promise<T> {
-    const state = await this.withClient((client) => this.loadState(client));
+    const state = await this.withClient((client) => this.loadState(client, false));
     return reader(state);
   }
 
@@ -73,7 +73,7 @@ export class RankStore {
         await client.query("BEGIN");
         await client.query("SELECT pg_advisory_xact_lock($1)", [WRITE_LOCK_KEY]);
 
-        const before = await this.loadState(client);
+        const before = await this.loadState(client, true);
         const next = this.cloneState(before);
         const result = await writer(next);
         await this.persistStateDiff(client, before, next);
@@ -141,7 +141,7 @@ export class RankStore {
     return "";
   }
 
-  private async loadState(client: PoolClient): Promise<RankState> {
+  private async loadState(client: PoolClient, includeProcessedEvents: boolean): Promise<RankState> {
     const state: RankState = {
       local_player_id: "",
       players_by_id: {},
@@ -191,11 +191,13 @@ export class RankStore {
       });
     }
 
-    const events = await client.query<ProcessedEventRow>(
-      "SELECT dedupe_key, processed_unix FROM rank_processed_events"
-    );
-    for (const row of events.rows) {
-      state.processed_events[row.dedupe_key] = Math.max(0, Math.trunc(this.toNumber(row.processed_unix)));
+    if (includeProcessedEvents) {
+      const events = await client.query<ProcessedEventRow>(
+        "SELECT dedupe_key, processed_unix FROM rank_processed_events"
+      );
+      for (const row of events.rows) {
+        state.processed_events[row.dedupe_key] = Math.max(0, Math.trunc(this.toNumber(row.processed_unix)));
+      }
     }
 
     return state;

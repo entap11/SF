@@ -558,6 +558,9 @@ function applyTierOverflowPromotionSmoothing(
     }
     const tierId = tiers[tierIndex];
     const nextTierId = tiers[tierIndex + 1];
+    if (!isTierOpen(nextTierId, sortedIds.length)) {
+      continue;
+    }
     const tierTarget = Math.max(0, targetTierCounts[tierId] ?? 0);
 
     // Overflow in a full tier bubbles upward by promoting the top edge.

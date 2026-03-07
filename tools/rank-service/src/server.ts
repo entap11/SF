@@ -35,7 +35,34 @@ function toNumberValue(value: unknown, fallback = 0): number {
 }
 
 function toBooleanValue(value: unknown): boolean {
-  return Boolean(value);
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  const normalized = toStringValue(value).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (["true", "1", "yes", "y", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "0", "no", "n", "off"].includes(normalized)) {
+    return false;
+  }
+  return false;
+}
+
+function redactDatabaseUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.host || "unknown-host";
+    const database = parsed.pathname.replace(/^\/+/, "") || "unknown-db";
+    return `${parsed.protocol}//${host}/${database}`;
+  } catch {
+    return "configured";
+  }
 }
 
 function unauthorized(res: Response): void {
@@ -448,7 +475,7 @@ async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(`rank service running on ${config.bindHost}:${config.port}`);
     // eslint-disable-next-line no-console
-    console.log(`database url: ${config.databaseUrl}`);
+    console.log(`database: ${redactDatabaseUrl(config.databaseUrl)}`);
     // eslint-disable-next-line no-console
     console.log(`legacy import path: ${config.legacyStatePath}`);
   });
