@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { Pool, PoolClient } from "pg";
 import { normalizeLoadedState, normalizePlayerRecord } from "./logic.js";
 import { runMigrations } from "./db/migrate.js";
-import type { PlayerRecord, RankState } from "./types.js";
+import type { PlayerRecord, RankAuditEvent, RankAuditEventInput, RankState, RankWriteContext } from "./types.js";
 
 const META_LOCAL_PLAYER_ID = "local_player_id";
 const WRITE_LOCK_KEY = 934_771_112;
@@ -26,6 +26,21 @@ interface PlayerRow {
 interface ProcessedEventRow {
   dedupe_key: string;
   processed_unix: number | string;
+}
+
+interface AuditEventRow {
+  id: number | string;
+  event_type: string;
+  player_id: string;
+  related_player_id: string;
+  payload: unknown;
+  created_at: Date | string;
+}
+
+interface TierColorCountRow {
+  tier_id: string;
+  color_id: string;
+  player_count: number | string;
 }
 
 export class RankStore {
@@ -59,7 +74,7 @@ export class RankStore {
     return reader(state);
   }
 
-  async write<T>(writer: (state: RankState) => T | Promise<T>): Promise<T> {
+  async write<T>(writer: (state: RankState, context: RankWriteContext) => T | Promise<T>): Promise<T> {
     let resolveResult: (value: T | PromiseLike<T>) => void;
     let rejectResult: (reason?: unknown) => void;
     const resultPromise = new Promise<T>((resolve, reject) => {
@@ -75,8 +90,27 @@ export class RankStore {
 
         const before = await this.loadState(client, true);
         const next = this.cloneState(before);
-        const result = await writer(next);
+        const auditEvents: RankAuditEventInput[] = [];
+        const context: RankWriteContext = {
+          recordAuditEvent: (event: RankAuditEventInput) => {
+            if (!event || typeof event.event_type !== "string") {
+              return;
+            }
+            const eventType = event.event_type.trim();
+            if (!eventType) {
+              return;
+            }
+            auditEvents.push({
+              event_type: eventType,
+              player_id: String(event.player_id ?? "").trim(),
+              related_player_id: String(event.related_player_id ?? "").trim(),
+              payload: this.toRecord(event.payload)
+            });
+          }
+        };
+        const result = await writer(next, context);
         await this.persistStateDiff(client, before, next);
+        await this.persistAuditEvents(client, auditEvents);
 
         await client.query("COMMIT");
         resolveResult(result);
@@ -120,6 +154,13 @@ export class RankStore {
   private toNumber(value: unknown, fallback = 0): number {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private toRecord(value: unknown): Record<string, unknown> {
+    if (typeof value === "object" && value != null && !Array.isArray(value)) {
+      return { ...(value as Record<string, unknown>) };
+    }
+    return {};
   }
 
   private toLocalPlayerId(value: unknown): string {
@@ -334,6 +375,96 @@ export class RankStore {
         [dedupeKey, Math.trunc(nextUnix)]
       );
     }
+  }
+
+  private async persistAuditEvents(client: PoolClient, events: RankAuditEventInput[]): Promise<void> {
+    for (const event of events) {
+      await client.query(
+        `
+          INSERT INTO rank_audit_events (event_type, player_id, related_player_id, payload)
+          VALUES ($1, $2, $3, $4::jsonb)
+        `,
+        [
+          event.event_type.trim(),
+          String(event.player_id ?? "").trim(),
+          String(event.related_player_id ?? "").trim(),
+          JSON.stringify(this.toRecord(event.payload))
+        ]
+      );
+    }
+  }
+
+  async readServiceStats(): Promise<{
+    player_count: number;
+    processed_event_count: number;
+    audit_event_count: number;
+  }> {
+    return this.withClient(async (client) => {
+      const playerCount = await client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM rank_players");
+      const processedCount = await client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM rank_processed_events");
+      const auditCount = await client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM rank_audit_events");
+      return {
+        player_count: Math.max(0, Math.trunc(this.toNumber(playerCount.rows[0]?.count))),
+        processed_event_count: Math.max(0, Math.trunc(this.toNumber(processedCount.rows[0]?.count))),
+        audit_event_count: Math.max(0, Math.trunc(this.toNumber(auditCount.rows[0]?.count)))
+      };
+    });
+  }
+
+  async readTierColorCounts(): Promise<Array<{ tier_id: string; color_id: string; player_count: number }>> {
+    return this.withClient(async (client) => {
+      const result = await client.query<TierColorCountRow>(
+        `
+          SELECT tier_id, color_id, COUNT(*)::text AS player_count
+          FROM rank_players
+          GROUP BY tier_id, color_id
+        `
+      );
+      return result.rows.map((row) => ({
+        tier_id: row.tier_id,
+        color_id: row.color_id,
+        player_count: Math.max(0, Math.trunc(this.toNumber(row.player_count)))
+      }));
+    });
+  }
+
+  async readAuditTrail(limit: number, playerId = "", eventType = ""): Promise<RankAuditEvent[]> {
+    return this.withClient(async (client) => {
+      const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
+      const clauses: string[] = [];
+      const values: Array<string | number> = [];
+      let idx = 1;
+      if (playerId.trim()) {
+        clauses.push(`(player_id = $${idx} OR related_player_id = $${idx})`);
+        values.push(playerId.trim());
+        idx += 1;
+      }
+      if (eventType.trim()) {
+        clauses.push(`event_type = $${idx}`);
+        values.push(eventType.trim());
+        idx += 1;
+      }
+      values.push(safeLimit);
+      const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+      const result = await client.query<AuditEventRow>(
+        `
+          SELECT id, event_type, player_id, related_player_id, payload, created_at
+          FROM rank_audit_events
+          ${where}
+          ORDER BY created_at DESC, id DESC
+          LIMIT $${idx}
+        `,
+        values
+      );
+      return result.rows.map((row) => ({
+        id: Math.max(0, Math.trunc(this.toNumber(row.id))),
+        event_type: row.event_type,
+        player_id: row.player_id ?? "",
+        related_player_id: row.related_player_id ?? "",
+        payload: this.toRecord(row.payload),
+        created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? "")
+      }));
+    });
   }
 
   private async importLegacyStateIfNeeded(): Promise<void> {

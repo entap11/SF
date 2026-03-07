@@ -12,6 +12,7 @@ This contract matches client transport in:
 - Method: `POST`
 - Content-Type: `application/json`
 - Route shape: `POST <base_url>/<action>`
+- Admin routes: authenticated `GET/POST /v1/admin/*`
 
 Examples:
 - `POST https://rank-backend.example/v1/get_snapshot`
@@ -58,6 +59,12 @@ Recommended full state shape:
 ```
 
 ## Actions
+
+## Canonical Player IDs
+
+- Beta/staging backend should use stable profile IDs in the shape `u_<12 hex chars>`.
+- Bot seats may use `bot_<6 digits>`.
+- When canonical ID enforcement is enabled on the service, rank-changing writes with any other ID shape are rejected.
 
 ### `get_snapshot`
 Request:
@@ -231,7 +238,8 @@ For progression writes (`record_match_result`), include:
 
 ## Fallback Behavior (client)
 
-- Network/transport failure: client falls back to local rank state.
+- Network/transport failure with backend configured: rank-changing writes fail closed with `reason=rank_backend_unavailable`.
+- No configured backend: client can still run local-only rank state for smoke/dev flows.
 - Application error (`ok=false`): client treats as handled and returns error upstream.
 
 ## Real-Time Expectation
@@ -239,3 +247,13 @@ For progression writes (`record_match_result`), include:
 - Rank-changing actions (especially `record_match_result`) must apply wax/tier/color/rank updates before the HTTP response is returned.
 - No delayed reconciliation window for promotions/demotions.
 - Demotion smoothing uses slot-based grace (default 5 pass-through positions), and full-tier overflow can bubble upward by promoting the top edge into adjacent higher tiers.
+
+## Admin Endpoints
+
+- `GET /health/details`
+- `GET /v1/admin/players/:playerId`
+- `GET /v1/admin/tier-counts`
+- `GET /v1/admin/audit?limit=50&player_id=u_...&event_type=rank_state_changed`
+- `POST /v1/admin/recompute`
+
+All admin endpoints use the same bearer-token gate as the rank action route when `RANK_API_TOKEN` is configured.

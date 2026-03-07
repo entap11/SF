@@ -65,7 +65,7 @@ func intent_register_player(
 		region: String = "",
 		friends: Array = []
 	) -> Dictionary:
-	var clean_id: String = player_id.strip_edges()
+	var clean_id: String = _normalize_local_write_player_id(player_id)
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
 	var payload: Dictionary = {
@@ -102,7 +102,7 @@ func intent_register_player(
 	return {"ok": true, "player": get_player_snapshot(clean_id)}
 
 func intent_set_player_friends(player_id: String, friends: Array) -> Dictionary:
-	var clean_id: String = player_id.strip_edges()
+	var clean_id: String = _normalize_local_write_player_id(player_id)
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
 	var payload: Dictionary = {
@@ -122,7 +122,7 @@ func intent_set_player_friends(player_id: String, friends: Array) -> Dictionary:
 	return {"ok": true}
 
 func intent_set_player_region(player_id: String, region: String) -> Dictionary:
-	var clean_id: String = player_id.strip_edges()
+	var clean_id: String = _normalize_local_write_player_id(player_id)
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
 	var payload: Dictionary = {
@@ -148,7 +148,7 @@ func intent_record_match_result(
 		mode_name: String,
 		metadata: Dictionary = {}
 	) -> Dictionary:
-	var p1: String = player_id.strip_edges()
+	var p1: String = _normalize_local_write_player_id(player_id)
 	var p2: String = opponent_id.strip_edges()
 	if p1 == "" or p2 == "":
 		return {"ok": false, "reason": "missing_player_ids"}
@@ -237,7 +237,7 @@ func intent_apply_decay_tick() -> Dictionary:
 	return {"ok": true, "players_decayed": applied}
 
 func intent_debug_set_player_wax(player_id: String, wax_score: float) -> Dictionary:
-	var clean_id: String = player_id.strip_edges()
+	var clean_id: String = _normalize_local_write_player_id(player_id)
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
 	var payload: Dictionary = {
@@ -257,7 +257,7 @@ func intent_debug_set_player_wax(player_id: String, wax_score: float) -> Diction
 	return {"ok": true, "player": get_player_snapshot(clean_id)}
 
 func intent_debug_set_last_active(player_id: String, last_active_unix: int) -> Dictionary:
-	var clean_id: String = player_id.strip_edges()
+	var clean_id: String = _normalize_local_write_player_id(player_id)
 	if clean_id == "":
 		return {"ok": false, "reason": "missing_player_id"}
 	var payload: Dictionary = {
@@ -544,7 +544,10 @@ func _apply_remote_state_payload(payload: Dictionary) -> bool:
 		var record: Dictionary = record_any as Dictionary
 		_players_by_id[player_id] = _normalize_player_record(player_id, record)
 	var remote_local_id: String = str(state.get("local_player_id", _local_player_id)).strip_edges()
-	if not remote_local_id.is_empty():
+	var profile_user_id: String = _profile_user_id()
+	if not profile_user_id.is_empty():
+		_local_player_id = profile_user_id
+	elif not remote_local_id.is_empty():
 		_local_player_id = remote_local_id
 	_prune_smoke_fixture_players_if_present()
 	_sorted_player_ids = _percentile_calculator.sort_player_ids_desc(_players_by_id)
@@ -641,15 +644,11 @@ func _resolved_save_path() -> String:
 	return clean
 
 func _bootstrap_local_player() -> void:
-	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
-	if profile_manager != null:
-		if profile_manager.has_method("ensure_loaded"):
-			profile_manager.call("ensure_loaded")
-		if profile_manager.has_method("get_user_id"):
-			_local_player_id = str(profile_manager.call("get_user_id"))
+	_local_player_id = _profile_user_id()
 	if _local_player_id.strip_edges() == "":
 		_local_player_id = "local_player"
 	var display_name: String = _local_player_id
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
 	if profile_manager != null and profile_manager.has_method("get_display_name"):
 		display_name = str(profile_manager.call("get_display_name"))
 	_ensure_player_exists(_local_player_id, display_name)
@@ -795,6 +794,10 @@ func _compute_tier_rank_for_player(player_id: String, tier_id: String) -> int:
 	return 0
 
 func _resolve_local_player_id() -> String:
+	var profile_user_id: String = _profile_user_id()
+	if profile_user_id != "":
+		_local_player_id = profile_user_id
+		return _local_player_id
 	if _local_player_id.strip_edges() != "":
 		return _local_player_id
 	if _players_by_id.has("local_player"):
@@ -805,6 +808,25 @@ func _resolve_local_player_id() -> String:
 		return _local_player_id
 	_local_player_id = "local_player"
 	return _local_player_id
+
+func _profile_user_id() -> String:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return ""
+	if profile_manager.has_method("ensure_loaded"):
+		profile_manager.call("ensure_loaded")
+	if not profile_manager.has_method("get_user_id"):
+		return ""
+	return str(profile_manager.call("get_user_id")).strip_edges()
+
+func _normalize_local_write_player_id(player_id: String) -> String:
+	var clean_id: String = player_id.strip_edges()
+	var stable_local_id: String = _resolve_local_player_id()
+	if is_authoritative_transport_online() and stable_local_id != "":
+		return stable_local_id
+	if clean_id == "" and stable_local_id != "":
+		return stable_local_id
+	return clean_id
 
 func _display_name_or_default(display_name: String, fallback_id: String) -> String:
 	var clean: String = display_name.strip_edges()

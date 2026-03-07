@@ -63,6 +63,8 @@ export const config: RankServiceConfig = {
   legacyStatePath: process.env.RANK_STATE_PATH?.trim()
     ? path.resolve(process.cwd(), process.env.RANK_STATE_PATH.trim())
     : DEFAULT_LEGACY_STATE_PATH,
+  enforceCanonicalPlayerIds: parseBoolean(process.env.RANK_ENFORCE_CANONICAL_PLAYER_IDS, true),
+  allowDebugActions: parseBoolean(process.env.RANK_ENABLE_DEBUG_ACTIONS, false),
   rank: {
     baseGain: parseFloatValue(process.env.RANK_BASE_GAIN, 100.0),
     opponentStrengthExponent: parseFloatValue(process.env.RANK_OPPONENT_STRENGTH_EXPONENT, 0.6),

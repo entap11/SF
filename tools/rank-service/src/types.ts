@@ -38,6 +38,8 @@ export interface RankServiceConfig {
   apiToken: string;
   databaseUrl: string;
   legacyStatePath: string;
+  enforceCanonicalPlayerIds: boolean;
+  allowDebugActions: boolean;
   rank: RankRuntimeConfig;
 }
 
@@ -79,4 +81,24 @@ export interface MatchCandidateRow {
   color_distance: number;
   wait_seconds: number;
   score: number;
+}
+
+export interface RankAuditEventInput {
+  event_type: string;
+  player_id?: string;
+  related_player_id?: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface RankAuditEvent {
+  id: number;
+  event_type: string;
+  player_id: string;
+  related_player_id: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RankWriteContext {
+  recordAuditEvent: (event: RankAuditEventInput) => void;
 }

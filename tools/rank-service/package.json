@@ -7,7 +7,8 @@
     "dev": "tsx watch src/server.ts",
     "start": "node --enable-source-maps dist/server.js",
     "build": "tsc -p tsconfig.json",
-    "migrate": "tsx src/cli/migrate.ts"
+    "migrate": "tsx src/cli/migrate.ts",
+    "simulate:beta": "DATABASE_URL=postgres://sim:sim@127.0.0.1:5432/sim tsx src/cli/beta-sim.ts"
   },
   "dependencies": {
     "dotenv": "^16.5.0",
