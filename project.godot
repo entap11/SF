@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.2")
 OpsState="*res://scripts/ops/ops_state.gd"
 ContestState="*res://scripts/state/contest_state.gd"
 ProfileManager="*res://scripts/profile/profile_manager.gd"
+HoneyProgressionState="*res://scripts/state/honey_progression_state.gd"
 SwarmPassState="*res://scripts/state/swarm_pass_state.gd"
 BattlePassState="*res://scripts/state/battle_pass_state.gd"
 AchievementService="*res://scripts/achievements/achievement_service.gd"
