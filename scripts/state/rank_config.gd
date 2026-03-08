@@ -3,20 +3,44 @@ extends Resource
 
 @export var enabled: bool = true
 
-# Wax gain formula controls.
+# Starting wax for new players.
 @export var base_gain: float = 100.0
+
+# Legacy relative-gain knobs kept for compatibility; beta wax uses explicit tables below.
 @export var opponent_strength_exponent: float = 0.6
 @export var opponent_strength_min: float = 0.6
 @export var opponent_strength_max: float = 1.6
 @export var losses_subtract_wax: bool = true
 @export var loss_scale: float = 0.55
 
-# Mode modifiers.
+# Explicit beta wax payouts.
+@export var free_pvp_win_wax: float = 10.0
+@export var free_pvp_loss_wax: float = 4.0
+@export var money_pvp_tier_1_win_wax: float = 12.0
+@export var money_pvp_tier_1_loss_wax: float = 5.0
+@export var money_pvp_tier_2_win_wax: float = 16.0
+@export var money_pvp_tier_2_loss_wax: float = 7.0
+@export var money_pvp_tier_3_win_wax: float = 20.0
+@export var money_pvp_tier_3_loss_wax: float = 9.0
+@export var small_contest_first_wax: float = 3.0
+@export var small_contest_second_wax: float = 1.0
+@export var small_contest_third_wax: float = 0.0
+@export var daily_contest_first_wax: float = 5.0
+@export var daily_contest_second_wax: float = 2.0
+@export var daily_contest_third_wax: float = 1.0
+@export var weekly_contest_first_wax: float = 10.0
+@export var weekly_contest_second_wax: float = 5.0
+@export var weekly_contest_third_wax: float = 2.0
+@export var monthly_contest_first_wax: float = 20.0
+@export var monthly_contest_second_wax: float = 10.0
+@export var monthly_contest_third_wax: float = 5.0
+
+# Legacy mode modifiers retained for compatibility; beta wax ignores them.
 @export var mode_modifiers: Dictionary = {
-	"STANDARD": 1.0,
-	"TOURNAMENT": 1.5,
 	"MONEY_MATCH": 2.0,
-	"STEROIDS_LEAGUE": 3.0
+	"STANDARD": 1.0,
+	"STEROIDS_LEAGUE": 3.0,
+	"TOURNAMENT": 1.5
 }
 
 # Decay controls.
@@ -68,6 +92,57 @@ extends Resource
 func normalized_mode_modifier(mode_name: String) -> float:
 	var key: String = mode_name.strip_edges().to_upper()
 	return float(mode_modifiers.get(key, 1.0))
+
+func match_win_wax(mode_name: String, money_tier: int = 0) -> float:
+	var mode_key: String = mode_name.strip_edges().to_upper()
+	if _is_money_mode(mode_key):
+		match clampi(money_tier, 1, 3):
+			1:
+				return maxf(0.0, money_pvp_tier_1_win_wax)
+			2:
+				return maxf(0.0, money_pvp_tier_2_win_wax)
+			3:
+				return maxf(0.0, money_pvp_tier_3_win_wax)
+	return maxf(0.0, free_pvp_win_wax)
+
+func match_loss_wax(mode_name: String, money_tier: int = 0) -> float:
+	if not losses_subtract_wax:
+		return 0.0
+	var mode_key: String = mode_name.strip_edges().to_upper()
+	if _is_money_mode(mode_key):
+		match clampi(money_tier, 1, 3):
+			1:
+				return maxf(0.0, money_pvp_tier_1_loss_wax)
+			2:
+				return maxf(0.0, money_pvp_tier_2_loss_wax)
+			3:
+				return maxf(0.0, money_pvp_tier_3_loss_wax)
+	return maxf(0.0, free_pvp_loss_wax)
+
+func contest_placement_wax(contest_scope: String, placement: int) -> float:
+	match contest_scope.strip_edges().to_upper():
+		"MONTHLY":
+			return _placement_wax(placement, monthly_contest_first_wax, monthly_contest_second_wax, monthly_contest_third_wax)
+		"WEEKLY":
+			return _placement_wax(placement, weekly_contest_first_wax, weekly_contest_second_wax, weekly_contest_third_wax)
+		"DAILY":
+			return _placement_wax(placement, daily_contest_first_wax, daily_contest_second_wax, daily_contest_third_wax)
+		_:
+			return _placement_wax(placement, small_contest_first_wax, small_contest_second_wax, small_contest_third_wax)
+
+func _placement_wax(placement: int, first_place: float, second_place: float, third_place: float) -> float:
+	match maxi(1, placement):
+		1:
+			return maxf(0.0, first_place)
+		2:
+			return maxf(0.0, second_place)
+		3:
+			return maxf(0.0, third_place)
+		_:
+			return 0.0
+
+func _is_money_mode(mode_name: String) -> bool:
+	return mode_name == "MONEY_MATCH" or mode_name == "MONEY" or mode_name == "PAID_PVP"
 
 func normalized_color_quintiles() -> Array[String]:
 	var out: Array[String] = []

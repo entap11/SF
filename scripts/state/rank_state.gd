@@ -146,7 +146,8 @@ func intent_record_match_result(
 		opponent_id: String,
 		did_player_win: bool,
 		mode_name: String,
-		metadata: Dictionary = {}
+		metadata: Dictionary = {},
+		money_tier: int = 0
 	) -> Dictionary:
 	var p1: String = _normalize_local_write_player_id(player_id)
 	var p2: String = opponent_id.strip_edges()
@@ -159,7 +160,8 @@ func intent_record_match_result(
 		"opponent_id": p2,
 		"did_player_win": did_player_win,
 		"mode_name": mode_name,
-		"metadata": metadata
+		"metadata": metadata,
+		"money_tier": money_tier
 	}
 	var transport_result := _handle_transport_write("record_match_result", payload)
 	if bool(transport_result.get("handled", false)):
@@ -179,10 +181,11 @@ func intent_record_match_result(
 	if mode_key == "":
 		mode_key = "STANDARD"
 
-	var player_gain: float = _wax_calculator.compute_gain(player_wax_before, opponent_wax_before, mode_key)
-	var opponent_gain: float = _wax_calculator.compute_gain(opponent_wax_before, player_wax_before, mode_key)
-	var player_loss: float = _wax_calculator.compute_loss(player_wax_before, opponent_wax_before, mode_key)
-	var opponent_loss: float = _wax_calculator.compute_loss(opponent_wax_before, player_wax_before, mode_key)
+	var resolved_money_tier: int = maxi(0, money_tier)
+	var player_gain: float = _wax_calculator.compute_gain(player_wax_before, opponent_wax_before, mode_key, resolved_money_tier)
+	var opponent_gain: float = _wax_calculator.compute_gain(opponent_wax_before, player_wax_before, mode_key, resolved_money_tier)
+	var player_loss: float = _wax_calculator.compute_loss(player_wax_before, opponent_wax_before, mode_key, resolved_money_tier)
+	var opponent_loss: float = _wax_calculator.compute_loss(opponent_wax_before, player_wax_before, mode_key, resolved_money_tier)
 
 	if did_player_win:
 		player_record["wax_score"] = player_wax_before + player_gain
@@ -209,6 +212,7 @@ func intent_record_match_result(
 		"loser": p2 if did_player_win else p1,
 		"player_id": p1,
 		"opponent_id": p2,
+		"money_tier": resolved_money_tier,
 		"player_wax_before": player_wax_before,
 		"player_wax_after": float((_players_by_id.get(p1, {}) as Dictionary).get("wax_score", player_wax_before)),
 		"opponent_wax_before": opponent_wax_before,
@@ -222,6 +226,62 @@ func intent_record_match_result(
 		"ok": true,
 		"player": get_player_snapshot(p1),
 		"opponent": get_player_snapshot(p2)
+	}
+
+func intent_record_contest_result(
+		player_id: String,
+		contest_scope: String,
+		placement: int,
+		metadata: Dictionary = {}
+	) -> Dictionary:
+	var clean_id: String = _normalize_local_write_player_id(player_id)
+	if clean_id == "":
+		return {"ok": false, "reason": "missing_player_id"}
+	var payload: Dictionary = {
+		"player_id": clean_id,
+		"contest_scope": contest_scope,
+		"placement": placement,
+		"metadata": metadata
+	}
+	var transport_result := _handle_transport_write("record_contest_result", payload)
+	if bool(transport_result.get("handled", false)):
+		return transport_result.get("result", {}) as Dictionary
+	_ensure_player_exists(clean_id)
+
+	var now_unix: int = _now_unix()
+	_apply_decay_all(now_unix)
+
+	var player_record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
+	var wax_before: float = float(player_record.get("wax_score", 0.0))
+	var normalized_scope: String = contest_scope.strip_edges().to_upper()
+	var wax_bonus: float = _wax_calculator.compute_contest_bonus(normalized_scope, placement)
+	if wax_bonus <= 0.0:
+		return {"ok": true, "awarded": false, "player": get_player_snapshot(clean_id)}
+
+	player_record["wax_score"] = wax_before + wax_bonus
+	player_record["last_active_unix"] = now_unix
+	player_record["last_decay_day"] = int(floor(float(now_unix) / float(DAY_SECONDS)))
+	_players_by_id[clean_id] = _normalize_player_record(clean_id, player_record)
+	_recompute_rankings(true)
+	_save_state()
+
+	var event_payload: Dictionary = {
+		"type": "wax_contest_resolved",
+		"player_id": clean_id,
+		"contest_scope": normalized_scope,
+		"placement": maxi(1, placement),
+		"wax_before": wax_before,
+		"wax_after": float((_players_by_id.get(clean_id, {}) as Dictionary).get("wax_score", wax_before)),
+		"wax_bonus": wax_bonus,
+		"metadata": metadata
+	}
+	rank_event.emit(event_payload)
+	SFLog.info("RANK_EVENT", event_payload)
+	_emit_changed()
+	return {
+		"ok": true,
+		"awarded": true,
+		"player": get_player_snapshot(clean_id)
 	}
 
 func intent_apply_decay_tick() -> Dictionary:

@@ -4,6 +4,7 @@ import { pool } from "./db/pool.js";
 import {
   applyDecayAll,
   buildLeaderboardView,
+  computeContestPlacementWax,
   computeGain,
   computeLoss,
   ensurePlayerExists,
@@ -590,6 +591,7 @@ async function main(): Promise<void> {
           const didPlayerWin = toBooleanValue(payload.did_player_win);
           const modeName = toStringValue(payload.mode_name).toUpperCase() || "STANDARD";
           const metadata = isRecord(payload.metadata) ? payload.metadata : {};
+          const moneyTier = Math.max(0, Math.trunc(toNumberValue(payload.money_tier, toNumberValue(metadata.money_tier, 0))));
           const eventId = toStringValue(metadata.event_id);
 
           const result = await store.write((state, context) => {
@@ -618,10 +620,10 @@ async function main(): Promise<void> {
             const playerWaxBefore = player.wax_score;
             const opponentWaxBefore = opponent.wax_score;
 
-            const playerGain = computeGain(playerWaxBefore, opponentWaxBefore, modeName);
-            const opponentGain = computeGain(opponentWaxBefore, playerWaxBefore, modeName);
-            const playerLoss = computeLoss(playerWaxBefore, opponentWaxBefore, modeName);
-            const opponentLoss = computeLoss(opponentWaxBefore, playerWaxBefore, modeName);
+            const playerGain = computeGain(playerWaxBefore, opponentWaxBefore, modeName, moneyTier);
+            const opponentGain = computeGain(opponentWaxBefore, playerWaxBefore, modeName, moneyTier);
+            const playerLoss = computeLoss(playerWaxBefore, opponentWaxBefore, modeName, moneyTier);
+            const opponentLoss = computeLoss(opponentWaxBefore, playerWaxBefore, modeName, moneyTier);
 
             if (didPlayerWin) {
               player.wax_score = playerWaxBefore + playerGain;
@@ -654,6 +656,7 @@ async function main(): Promise<void> {
               payload: {
                 did_player_win: didPlayerWin,
                 mode_name: modeName,
+                money_tier: moneyTier,
                 event_id: eventId,
                 player_wax_before: playerWaxBefore,
                 player_wax_after: state.players_by_id[playerId].wax_score,
@@ -664,12 +667,14 @@ async function main(): Promise<void> {
             recordRankChangeAudit(context.recordAuditEvent, "rank_state_changed", playerBefore, state.players_by_id[playerId], {
               reason: "match_result",
               mode_name: modeName,
+              money_tier: moneyTier,
               did_player_win: didPlayerWin,
               event_id: eventId
             }, opponentId);
             recordRankChangeAudit(context.recordAuditEvent, "rank_state_changed", opponentBefore, state.players_by_id[opponentId], {
               reason: "match_result",
               mode_name: modeName,
+              money_tier: moneyTier,
               did_player_win: !didPlayerWin,
               event_id: eventId
             }, playerId);
@@ -678,6 +683,95 @@ async function main(): Promise<void> {
               ok: true,
               player: playerSnapshot(state.players_by_id[playerId]),
               opponent: playerSnapshot(state.players_by_id[opponentId]),
+              snapshot: stateSnapshot(state)
+            };
+          });
+
+          res.json(result);
+          return;
+        }
+
+        case "record_contest_result": {
+          const playerId = toStringValue(payload.player_id);
+          if (!playerId) {
+            res.status(400).json({ ok: false, err: "missing_player_id" });
+            return;
+          }
+          if (!requireCanonicalHumanPlayerId(res, playerId, "player_id")) {
+            return;
+          }
+
+          const metadata = isRecord(payload.metadata) ? payload.metadata : {};
+          const contestScope = toStringValue(payload.contest_scope).toUpperCase();
+          const placement = Math.max(1, Math.trunc(toNumberValue(payload.placement, 0)));
+          const eventId = toStringValue(metadata.event_id);
+
+          const result = await store.write((state, context) => {
+            if (eventId) {
+              const dedupeKey = `${playerId}:${eventId}`;
+              if (state.processed_events[dedupeKey]) {
+                return {
+                  ok: true,
+                  duplicate: true,
+                  player: playerSnapshot(state.players_by_id[playerId])
+                };
+              }
+            }
+
+            ensurePlayerExists(state, playerId, playerId);
+            const playerBefore = state.players_by_id[playerId] ? { ...state.players_by_id[playerId] } : undefined;
+
+            const unixNow = nowUnix();
+            applyDecayAll(state, unixNow);
+
+            const player = state.players_by_id[playerId];
+            const waxBefore = player.wax_score;
+            const waxBonus = computeContestPlacementWax(contestScope, placement);
+
+            if (waxBonus <= 0) {
+              return {
+                ok: true,
+                awarded: false,
+                player: playerSnapshot(state.players_by_id[playerId]),
+                snapshot: stateSnapshot(state)
+              };
+            }
+
+            player.wax_score = waxBefore + waxBonus;
+            player.last_active_unix = unixNow;
+            player.last_decay_day = Math.floor(unixNow / 86_400);
+            state.players_by_id[playerId] = normalizePlayerRecord(playerId, player, unixNow);
+
+            recomputeRankings(state);
+
+            if (eventId) {
+              const dedupeKey = `${playerId}:${eventId}`;
+              state.processed_events[dedupeKey] = unixNow;
+              pruneProcessedEvents(state);
+            }
+            context.recordAuditEvent({
+              event_type: "contest_result_recorded",
+              player_id: playerId,
+              payload: {
+                contest_scope: contestScope,
+                placement,
+                event_id: eventId,
+                wax_before: waxBefore,
+                wax_after: state.players_by_id[playerId].wax_score,
+                wax_bonus: waxBonus
+              }
+            });
+            recordRankChangeAudit(context.recordAuditEvent, "rank_state_changed", playerBefore, state.players_by_id[playerId], {
+              reason: "contest_result",
+              contest_scope: contestScope,
+              placement,
+              event_id: eventId
+            });
+
+            return {
+              ok: true,
+              awarded: true,
+              player: playerSnapshot(state.players_by_id[playerId]),
               snapshot: stateSnapshot(state)
             };
           });

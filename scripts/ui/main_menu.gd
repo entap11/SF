@@ -808,7 +808,7 @@ const STORE_SKUS := [
 		"category": "BattlePass",
 		"subcategory": "Season",
 		"title": "Premium Track",
-		"description": "Unlocks premium seasonal rewards.",
+		"description": "Premium rewards, +20% nectar, and one extra side-quest path.",
 		"price_real": "$9.99",
 		"entitlements": ["battle_pass_premium"]
 	},
@@ -817,7 +817,7 @@ const STORE_SKUS := [
 		"category": "BattlePass",
 		"subcategory": "Season",
 		"title": "Elite Track",
-		"description": "Premium track plus tier skips and elite cosmetics.",
+		"description": "Premium rewards, +30% nectar, two extra side-quest paths, and elite prestige access.",
 		"price_real": "$19.99",
 		"entitlements": ["battle_pass_elite"]
 	},

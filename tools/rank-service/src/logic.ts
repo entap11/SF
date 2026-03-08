@@ -251,6 +251,21 @@ export function newPlayerRecord(playerId: string, displayName: string, region: s
   };
 }
 
+function isMoneyMode(modeName: string): boolean {
+  const normalized = modeName.trim().toUpperCase();
+  return normalized === "MONEY_MATCH" || normalized === "MONEY" || normalized === "PAID_PVP";
+}
+
+function normalizedMoneyTier(value: number): number {
+  if (value <= 1) {
+    return 1;
+  }
+  if (value === 2) {
+    return 2;
+  }
+  return 3;
+}
+
 export function ensurePlayerExists(state: RankState, playerId: string, displayName = ""): void {
   const cleanId = normalizeId(playerId);
   if (!cleanId || state.players_by_id[cleanId]) {
@@ -260,22 +275,63 @@ export function ensurePlayerExists(state: RankState, playerId: string, displayNa
   state.players_by_id[cleanId] = newPlayerRecord(cleanId, displayName || cleanId, config.rank.defaultRegion, unixNow, []);
 }
 
-export function computeGain(playerWax: number, opponentWax: number, modeName: string): number {
-  const safePlayer = Math.max(playerWax, 1.0);
-  const safeOpponent = Math.max(opponentWax, 1.0);
-  const ratio = safeOpponent / safePlayer;
-  let modifier = Math.pow(ratio, config.rank.opponentStrengthExponent);
-  modifier = clamp(modifier, config.rank.opponentStrengthMin, config.rank.opponentStrengthMax);
-  const modeModifier = config.rank.modeModifiers[modeName.trim().toUpperCase()] ?? 1.0;
-  return Math.max(0, config.rank.baseGain * modifier * modeModifier);
+export function computeGain(_playerWax: number, _opponentWax: number, modeName: string, moneyTier = 0): number {
+  if (isMoneyMode(modeName)) {
+    switch (normalizedMoneyTier(moneyTier)) {
+      case 1:
+        return Math.max(0, config.rank.moneyPvpTier1WinWax);
+      case 2:
+        return Math.max(0, config.rank.moneyPvpTier2WinWax);
+      default:
+        return Math.max(0, config.rank.moneyPvpTier3WinWax);
+    }
+  }
+  return Math.max(0, config.rank.freePvpWinWax);
 }
 
-export function computeLoss(playerWax: number, opponentWax: number, modeName: string): number {
+export function computeLoss(_playerWax: number, _opponentWax: number, modeName: string, moneyTier = 0): number {
   if (!config.rank.lossesSubtractWax) {
     return 0;
   }
-  const baseLoss = computeGain(playerWax, opponentWax, modeName);
-  return Math.max(0, baseLoss * Math.max(0, config.rank.lossScale));
+  if (isMoneyMode(modeName)) {
+    switch (normalizedMoneyTier(moneyTier)) {
+      case 1:
+        return Math.max(0, config.rank.moneyPvpTier1LossWax);
+      case 2:
+        return Math.max(0, config.rank.moneyPvpTier2LossWax);
+      default:
+        return Math.max(0, config.rank.moneyPvpTier3LossWax);
+    }
+  }
+  return Math.max(0, config.rank.freePvpLossWax);
+}
+
+export function computeContestPlacementWax(contestScope: string, placement: number): number {
+  const scope = contestScope.trim().toUpperCase();
+  const safePlacement = Math.max(1, Math.trunc(placement));
+  const placementValue = (first: number, second: number, third: number): number => {
+    if (safePlacement === 1) {
+      return Math.max(0, first);
+    }
+    if (safePlacement === 2) {
+      return Math.max(0, second);
+    }
+    if (safePlacement === 3) {
+      return Math.max(0, third);
+    }
+    return 0;
+  };
+
+  switch (scope) {
+    case "MONTHLY":
+      return placementValue(config.rank.monthlyContestFirstWax, config.rank.monthlyContestSecondWax, config.rank.monthlyContestThirdWax);
+    case "WEEKLY":
+      return placementValue(config.rank.weeklyContestFirstWax, config.rank.weeklyContestSecondWax, config.rank.weeklyContestThirdWax);
+    case "DAILY":
+      return placementValue(config.rank.dailyContestFirstWax, config.rank.dailyContestSecondWax, config.rank.dailyContestThirdWax);
+    default:
+      return placementValue(config.rank.smallContestFirstWax, config.rank.smallContestSecondWax, config.rank.smallContestThirdWax);
+  }
 }
 
 function applyDecay(record: PlayerRecord, unixNow: number): boolean {

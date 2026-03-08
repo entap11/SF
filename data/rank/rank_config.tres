@@ -8,6 +8,26 @@ opponent_strength_min = 0.6
 opponent_strength_max = 1.6
 losses_subtract_wax = true
 loss_scale = 0.55
+free_pvp_win_wax = 10.0
+free_pvp_loss_wax = 4.0
+money_pvp_tier_1_win_wax = 12.0
+money_pvp_tier_1_loss_wax = 5.0
+money_pvp_tier_2_win_wax = 16.0
+money_pvp_tier_2_loss_wax = 7.0
+money_pvp_tier_3_win_wax = 20.0
+money_pvp_tier_3_loss_wax = 9.0
+small_contest_first_wax = 3.0
+small_contest_second_wax = 1.0
+small_contest_third_wax = 0.0
+daily_contest_first_wax = 5.0
+daily_contest_second_wax = 2.0
+daily_contest_third_wax = 1.0
+weekly_contest_first_wax = 10.0
+weekly_contest_second_wax = 5.0
+weekly_contest_third_wax = 2.0
+monthly_contest_first_wax = 20.0
+monthly_contest_second_wax = 10.0
+monthly_contest_third_wax = 5.0
 mode_modifiers = {
 "MONEY_MATCH": 2.0,
 "STANDARD": 1.0,

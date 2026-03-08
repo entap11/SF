@@ -88,10 +88,10 @@ function main(): void {
 
     const playerWaxBefore = player.wax_score;
     const opponentWaxBefore = opponent.wax_score;
-    const playerGain = computeGain(playerWaxBefore, opponentWaxBefore, "STANDARD");
-    const opponentGain = computeGain(opponentWaxBefore, playerWaxBefore, "STANDARD");
-    const playerLoss = computeLoss(playerWaxBefore, opponentWaxBefore, "STANDARD");
-    const opponentLoss = computeLoss(opponentWaxBefore, playerWaxBefore, "STANDARD");
+    const playerGain = computeGain(playerWaxBefore, opponentWaxBefore, "STANDARD", 0);
+    const opponentGain = computeGain(opponentWaxBefore, playerWaxBefore, "STANDARD", 0);
+    const playerLoss = computeLoss(playerWaxBefore, opponentWaxBefore, "STANDARD", 0);
+    const opponentLoss = computeLoss(opponentWaxBefore, playerWaxBefore, "STANDARD", 0);
 
     if (didPlayerWin) {
       player.wax_score = playerWaxBefore + playerGain;

@@ -9,7 +9,7 @@ signal battle_pass_event(event: Dictionary)
 
 const CONFIG_PATH: String = "res://data/battle_pass/battle_pass_config.json"
 const SAVE_PATH: String = "user://battle_pass_state.json"
-const SAVE_SCHEMA_VERSION: int = 1
+const SAVE_SCHEMA_VERSION: int = 2
 const TRACK_FREE: String = "free"
 const TRACK_PREMIUM: String = "premium"
 const TRACK_ELITE: String = "elite"
@@ -30,6 +30,8 @@ var _elite_owned: bool = false
 var _claimed_rewards: Dictionary = {}
 var _scarcity_claims_by_level: Dictionary = {}
 var _scarcity_feature_enabled: bool = false
+var _season_prestige_base_slots: int = 0
+var _season_prestige_caps_by_level: Dictionary = {}
 
 var _veteran_start_applied: bool = false
 var _veteran_rewards_unlocked: bool = true
@@ -55,7 +57,9 @@ func _ready() -> void:
 	_wallet = _rewards.normalize_wallet({})
 	_inventory = _rewards.normalize_inventory({})
 	_load_state()
+	_refresh_entitlements_from_profile()
 	_roll_season_if_needed()
+	_ensure_prestige_state_initialized()
 	_ensure_quest_state_initialized()
 	_recalculate_level_from_xp()
 	_refresh_veteran_unlock_state()
@@ -64,6 +68,7 @@ func _ready() -> void:
 func get_snapshot() -> Dictionary:
 	var total_levels: int = _config.get_total_levels()
 	var visible_cap: int = _config.get_visible_cap_for_entitlements(_premium_owned, _elite_owned)
+	var side_quest_paths: int = _available_quest_path_count()
 	var next_level: int = mini(total_levels, _battle_pass_level + 1)
 	var current_level_start_xp: int = _config.get_xp_required_to_reach_level(_battle_pass_level)
 	var current_level_xp_cost: int = _config.get_level_xp_required(_battle_pass_level)
@@ -89,6 +94,7 @@ func get_snapshot() -> Dictionary:
 		"progress_ratio": progress_ratio,
 		"total_levels": total_levels,
 		"visible_level_cap": visible_cap,
+		"side_quest_paths_available": side_quest_paths,
 		"premium_owned": _premium_owned,
 		"elite_owned": _elite_owned,
 		"veteran_start_applied": _veteran_start_applied,
@@ -98,12 +104,21 @@ func get_snapshot() -> Dictionary:
 		"veteran_lock_active": veteran_lock_active,
 		"veteran_lock_notice": veteran_notice,
 		"scarcity_feature_enabled": _scarcity_feature_enabled,
+		"prestige_pool_base_slots": _season_prestige_base_slots,
+		"prestige_projection": _config.get_prestige_projection_details(),
 		"rows": _build_level_rows(visible_cap),
 		"wallet": _wallet.duplicate(true),
 		"inventory": _inventory.duplicate(true),
 		"quests": _build_quest_rows(),
 		"quest_bonuses": _build_quest_bonus_rows()
 	}
+
+func sync_entitlements_from_profile() -> Dictionary:
+	var changed: bool = _refresh_entitlements_from_profile()
+	if changed:
+		_save_state()
+		_emit_state_changed()
+	return {"ok": true, "premium_owned": _premium_owned, "elite_owned": _elite_owned, "changed": changed}
 
 func intent_set_pass_entitlements(premium_owned: bool, elite_owned: bool) -> Dictionary:
 	var next_elite: bool = elite_owned
@@ -161,63 +176,171 @@ func intent_award_nectar_xp(source_name: String, nectar_xp: int, metadata: Dicti
 	var safe_xp: int = maxi(0, nectar_xp)
 	if safe_xp <= 0:
 		return {"ok": false, "reason": "xp_zero"}
-	var previous_level: int = _battle_pass_level
-	_battle_pass_xp = maxi(0, _battle_pass_xp + safe_xp)
-	_recalculate_level_from_xp()
-	var gained_levels: int = maxi(0, _battle_pass_level - previous_level)
-	if gained_levels > 0:
-		var quest_meta: Dictionary = metadata.duplicate(true)
-		quest_meta["source"] = source_name
-		_apply_quest_progress("level_gain", gained_levels, quest_meta)
-	_refresh_veteran_unlock_state()
-	_claim_ready_quest_bonuses()
-	_save_state()
-	_emit_event("xp_awarded", {
-		"source": source_name,
-		"xp_awarded": safe_xp,
-		"previous_level": previous_level,
-		"current_level": _battle_pass_level,
-		"metadata": metadata
-	})
-	_emit_state_changed()
+	return _apply_nectar_xp_award(source_name, safe_xp, metadata, true)
+
+func intent_record_async_completion(mode_id: String, map_count: int, paid_entry: bool, metadata: Dictionary = {}) -> Dictionary:
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing"}
+	var safe_map_count: int = maxi(1, map_count)
+	var xp_total: int = _config.get_async_completion_xp(safe_map_count, paid_entry)
+	if xp_total <= 0:
+		return {"ok": false, "reason": "xp_zero", "event_id": event_id}
+	var reserved: Dictionary = _reserve_award_event(event_id)
+	if not bool(reserved.get("ok", false)):
+		return reserved
+	var xp_meta: Dictionary = metadata.duplicate(true)
+	xp_meta["mode_id"] = mode_id.strip_edges().to_upper()
+	xp_meta["map_count"] = safe_map_count
+	xp_meta["paid_entry"] = paid_entry
+	xp_meta["event_id"] = event_id
+	var changed: bool = _apply_quest_progress("async_match_completed", 1, xp_meta)
+	if paid_entry:
+		changed = _apply_quest_progress("money_async_played", 1, xp_meta) or changed
+	var xp_result: Dictionary = _apply_nectar_xp_award("async_completion", xp_total, xp_meta, true)
+	if not bool(xp_result.get("ok", false)):
+		return xp_result
+	if changed:
+		_save_state()
+		_emit_state_changed()
 	return {
 		"ok": true,
-		"xp_awarded": safe_xp,
-		"battle_pass_level": _battle_pass_level,
-		"gained_levels": gained_levels
+		"event_id": event_id,
+		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"battle_pass_level": _battle_pass_level
+	}
+
+func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_tier: int = 0, did_win: bool = false, metadata: Dictionary = {}) -> Dictionary:
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing"}
+	var xp_total: int = _config.get_pvp_completion_xp(paid_entry, money_tier, did_win)
+	if xp_total <= 0:
+		return {"ok": false, "reason": "xp_zero", "event_id": event_id}
+	var reserved: Dictionary = _reserve_award_event(event_id)
+	if not bool(reserved.get("ok", false)):
+		return reserved
+	var xp_meta: Dictionary = metadata.duplicate(true)
+	xp_meta["mode_id"] = pvp_mode_id.strip_edges().to_upper()
+	xp_meta["paid_entry"] = paid_entry
+	xp_meta["money_tier"] = money_tier
+	xp_meta["did_win"] = did_win
+	xp_meta["event_id"] = event_id
+	var changed: bool = _apply_quest_progress("pvp_match_completed", 1, xp_meta)
+	if paid_entry:
+		changed = _apply_quest_progress("money_match_played", 1, xp_meta) or changed
+	if did_win:
+		changed = _apply_quest_progress("pvp_win", 1, xp_meta) or changed
+	var xp_result: Dictionary = _apply_nectar_xp_award("pvp_completion", xp_total, xp_meta, true)
+	if not bool(xp_result.get("ok", false)):
+		return xp_result
+	if changed:
+		_save_state()
+		_emit_state_changed()
+	return {
+		"ok": true,
+		"event_id": event_id,
+		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"battle_pass_level": _battle_pass_level
+	}
+
+func intent_record_tournament_participation(metadata: Dictionary = {}) -> Dictionary:
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing"}
+	var xp_total: int = _config.get_tournament_participation_xp()
+	if xp_total <= 0:
+		return {"ok": false, "reason": "xp_zero", "event_id": event_id}
+	var reserved: Dictionary = _reserve_award_event(event_id)
+	if not bool(reserved.get("ok", false)):
+		return reserved
+	var xp_meta: Dictionary = metadata.duplicate(true)
+	xp_meta["event_id"] = event_id
+	var changed: bool = _apply_quest_progress("tournament_played", 1, xp_meta)
+	var xp_result: Dictionary = _apply_nectar_xp_award("tournament_participation", xp_total, xp_meta, true)
+	if not bool(xp_result.get("ok", false)):
+		return xp_result
+	if changed:
+		_save_state()
+		_emit_state_changed()
+	return {
+		"ok": true,
+		"event_id": event_id,
+		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"battle_pass_level": _battle_pass_level
+	}
+
+func intent_record_tournament_placement(placement: int, metadata: Dictionary = {}) -> Dictionary:
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing"}
+	var safe_placement: int = maxi(1, placement)
+	var xp_total: int = _config.get_tournament_placement_xp(safe_placement)
+	if xp_total <= 0:
+		return {"ok": false, "reason": "xp_zero", "event_id": event_id}
+	var reserved: Dictionary = _reserve_award_event(event_id)
+	if not bool(reserved.get("ok", false)):
+		return reserved
+	var xp_meta: Dictionary = metadata.duplicate(true)
+	xp_meta["placement"] = safe_placement
+	xp_meta["event_id"] = event_id
+	var changed: bool = false
+	if safe_placement <= 3:
+		changed = _apply_quest_progress("tournament_top3", 1, xp_meta)
+	var xp_result: Dictionary = _apply_nectar_xp_award("tournament_placement", xp_total, xp_meta, true)
+	if not bool(xp_result.get("ok", false)):
+		return xp_result
+	if changed:
+		_save_state()
+		_emit_state_changed()
+	return {
+		"ok": true,
+		"event_id": event_id,
+		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"battle_pass_level": _battle_pass_level
+	}
+
+func intent_record_contest_result(scope: String, placement: int, metadata: Dictionary = {}) -> Dictionary:
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing"}
+	var clean_scope: String = scope.strip_edges().to_upper()
+	var safe_placement: int = maxi(1, placement)
+	var xp_total: int = _config.get_contest_result_xp(clean_scope, safe_placement)
+	if xp_total <= 0:
+		return {"ok": false, "reason": "xp_zero", "event_id": event_id}
+	var reserved: Dictionary = _reserve_award_event(event_id)
+	if not bool(reserved.get("ok", false)):
+		return reserved
+	var xp_meta: Dictionary = metadata.duplicate(true)
+	xp_meta["scope"] = clean_scope
+	xp_meta["placement"] = safe_placement
+	xp_meta["event_id"] = event_id
+	var changed: bool = false
+	if safe_placement <= 3:
+		changed = _apply_quest_progress("contest_top3", 1, xp_meta)
+	var xp_result: Dictionary = _apply_nectar_xp_award("contest_result", xp_total, xp_meta, true)
+	if not bool(xp_result.get("ok", false)):
+		return xp_result
+	if changed:
+		_save_state()
+		_emit_state_changed()
+	return {
+		"ok": true,
+		"event_id": event_id,
+		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"battle_pass_level": _battle_pass_level
 	}
 
 func intent_award_match_completion(match_id: String, won: bool, is_money_match: bool, metadata: Dictionary = {}) -> Dictionary:
 	var clean_match_id: String = match_id.strip_edges()
 	if clean_match_id.is_empty():
 		return {"ok": false, "reason": "match_id_missing"}
-	if _awarded_match_ids.has(clean_match_id):
-		return {"ok": false, "reason": "match_already_awarded", "match_id": clean_match_id}
-	_awarded_match_ids[clean_match_id] = true
-	_awarded_match_order.append(clean_match_id)
-	_prune_award_dedupe()
-	var xp_total: int = _config.get_xp_award("match_completion")
-	if won:
-		xp_total += _config.get_xp_award("win_bonus")
-	if is_money_match:
-		xp_total += _config.get_xp_award("money_match_bonus")
 	var xp_meta: Dictionary = metadata.duplicate(true)
-	xp_meta["match_id"] = clean_match_id
-	xp_meta["won"] = won
-	xp_meta["money_match"] = is_money_match
-	var xp_result: Dictionary = intent_award_nectar_xp("match_completion", xp_total, xp_meta)
-	if not bool(xp_result.get("ok", false)):
-		return xp_result
-	if is_money_match:
-		_apply_quest_progress("money_match_played", 1, xp_meta)
-	_save_state()
-	_emit_state_changed()
-	return {
-		"ok": true,
-		"match_id": clean_match_id,
-		"xp_awarded": xp_total,
-		"battle_pass_level": _battle_pass_level
-	}
+	xp_meta["event_id"] = clean_match_id
+	var money_tier: int = maxi(0, int(xp_meta.get("money_tier", 1 if is_money_match else 0)))
+	var mode_id: String = str(xp_meta.get("mode_id", xp_meta.get("pvp_mode_id", "1V1"))).strip_edges()
+	return intent_record_pvp_completion(mode_id, is_money_match, money_tier, won, xp_meta)
 
 func intent_record_quest_progress(event_key: String, amount: int = 1, metadata: Dictionary = {}) -> Dictionary:
 	var clean_event: String = event_key.strip_edges().to_lower()
@@ -243,6 +366,8 @@ func intent_claim_quest_reward(quest_id: String) -> Dictionary:
 	var quest_def: Dictionary = _config.get_quest_definition(clean_id)
 	if quest_def.is_empty():
 		return {"ok": false, "reason": "quest_missing"}
+	if not _quest_path_available(quest_def):
+		return {"ok": false, "reason": "quest_path_locked"}
 	if bool(_quest_claimed.get(clean_id, false)):
 		return {"ok": false, "reason": "quest_already_claimed"}
 	var target: int = maxi(1, int(quest_def.get("target", 1)))
@@ -342,7 +467,7 @@ func _validate_claim(level: int, track_slot: String, preview: bool) -> Dictionar
 		return {"ok": false, "reason": "veteran_lock_active", "unlock_level": _veteran_unlock_level}
 	if _config.is_post_100_level(level) and _scarcity_feature_enabled and clean_track != TRACK_FREE:
 		var level_key: String = str(level)
-		var cap: int = _config.get_scarcity_cap(level)
+		var cap: int = _prestige_cap_for_level(level)
 		var used: int = maxi(0, int(_scarcity_claims_by_level.get(level_key, 0)))
 		var remaining: int = cap - used
 		if cap >= 0 and remaining <= 0:
@@ -357,20 +482,19 @@ func _build_level_rows(visible_cap: int) -> Array[Dictionary]:
 		var level_def: Dictionary = _config.get_level(level)
 		if level_def.is_empty():
 			continue
-		var row: Dictionary = {
+		rows.append({
 			"level": level,
 			"unlocked": level <= _battle_pass_level,
 			"is_post_100": _config.is_post_100_level(level),
 			"xp_required": _config.get_level_xp_required(level),
-			"scarcity_cap": _config.get_scarcity_cap(level),
+			"scarcity_cap": _prestige_cap_for_level(level),
 			"scarcity_remaining": _scarcity_remaining(level),
 			"tracks": {
 				TRACK_FREE: _build_track_state(level, TRACK_FREE),
 				TRACK_PREMIUM: _build_track_state(level, TRACK_PREMIUM),
 				TRACK_ELITE: _build_track_state(level, TRACK_ELITE)
 			}
-		}
-		rows.append(row)
+		})
 	return rows
 
 func _build_track_state(level: int, track_slot: String) -> Dictionary:
@@ -389,7 +513,7 @@ func _build_track_state(level: int, track_slot: String) -> Dictionary:
 	}
 
 func _scarcity_remaining(level: int) -> int:
-	var cap: int = _config.get_scarcity_cap(level)
+	var cap: int = _prestige_cap_for_level(level)
 	if cap < 0:
 		return -1
 	var used: int = maxi(0, int(_scarcity_claims_by_level.get(str(level), 0)))
@@ -402,6 +526,8 @@ func _build_quest_rows() -> Array[Dictionary]:
 		if typeof(quest_any) != TYPE_DICTIONARY:
 			continue
 		var quest_def: Dictionary = quest_any as Dictionary
+		if not _quest_path_available(quest_def):
+			continue
 		var quest_id: String = str(quest_def.get("id", "")).strip_edges()
 		if quest_id.is_empty():
 			continue
@@ -409,6 +535,7 @@ func _build_quest_rows() -> Array[Dictionary]:
 		var progress: int = maxi(0, int(_quest_progress.get(quest_id, 0)))
 		rows.append({
 			"id": quest_id,
+			"path_index": _quest_path_index(quest_def),
 			"event_key": str(quest_def.get("event_key", "")),
 			"target": target,
 			"progress": mini(target, progress),
@@ -425,6 +552,8 @@ func _build_quest_bonus_rows() -> Array[Dictionary]:
 		if typeof(bonus_any) != TYPE_DICTIONARY:
 			continue
 		var bonus_def: Dictionary = bonus_any as Dictionary
+		if not _quest_path_available(bonus_def):
+			continue
 		var bonus_id: String = str(bonus_def.get("id", "")).strip_edges()
 		if bonus_id.is_empty():
 			continue
@@ -438,6 +567,7 @@ func _build_quest_bonus_rows() -> Array[Dictionary]:
 				break
 		rows.append({
 			"id": bonus_id,
+			"path_index": _quest_path_index(bonus_def),
 			"required_quests": required.duplicate(true),
 			"claimed": bool(_quest_bonus_claimed.get(bonus_id, false)),
 			"ready_to_claim": all_complete and not bool(_quest_bonus_claimed.get(bonus_id, false))
@@ -482,6 +612,8 @@ func _claim_ready_quest_bonuses() -> void:
 		if typeof(bonus_any) != TYPE_DICTIONARY:
 			continue
 		var bonus_def: Dictionary = bonus_any as Dictionary
+		if not _quest_path_available(bonus_def):
+			continue
 		var bonus_id: String = str(bonus_def.get("id", "")).strip_edges()
 		if bonus_id.is_empty():
 			continue
@@ -591,6 +723,8 @@ func _roll_season_if_needed() -> void:
 	_elite_owned = false
 	_claimed_rewards.clear()
 	_scarcity_claims_by_level.clear()
+	_season_prestige_base_slots = _config.compute_projected_prestige_pool_base()
+	_season_prestige_caps_by_level = _config.build_prestige_caps(_season_prestige_base_slots)
 	_veteran_start_applied = false
 	_veteran_rewards_unlocked = true
 	_veteran_start_level = 1
@@ -601,7 +735,7 @@ func _roll_season_if_needed() -> void:
 	_quest_bonus_claimed.clear()
 	_ensure_quest_state_initialized()
 	_save_state()
-	_emit_event("season_reset", {"season_id": _current_season_id})
+	_emit_event("season_reset", {"season_id": _current_season_id, "prestige_pool_base_slots": _season_prestige_base_slots})
 
 func _load_state() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -630,6 +764,8 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 		"claimed_rewards": {},
 		"scarcity_claims_by_level": {},
 		"scarcity_feature_enabled": bool(raw.get("scarcity_feature_enabled", _config.get_scarcity_feature_default_enabled())),
+		"season_prestige_base_slots": maxi(0, int(raw.get("season_prestige_base_slots", 0))),
+		"season_prestige_caps_by_level": {},
 		"veteran_start_applied": bool(raw.get("veteran_start_applied", false)),
 		"veteran_rewards_unlocked": bool(raw.get("veteran_rewards_unlocked", true)),
 		"veteran_start_level": maxi(1, int(raw.get("veteran_start_level", 1))),
@@ -648,6 +784,9 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 	var scarcity_any: Variant = raw.get("scarcity_claims_by_level", {})
 	if typeof(scarcity_any) == TYPE_DICTIONARY:
 		out["scarcity_claims_by_level"] = (scarcity_any as Dictionary).duplicate(true)
+	var prestige_caps_any: Variant = raw.get("season_prestige_caps_by_level", {})
+	if typeof(prestige_caps_any) == TYPE_DICTIONARY:
+		out["season_prestige_caps_by_level"] = (prestige_caps_any as Dictionary).duplicate(true)
 	var wallet_any: Variant = raw.get("wallet", {})
 	if typeof(wallet_any) == TYPE_DICTIONARY:
 		out["wallet"] = (wallet_any as Dictionary).duplicate(true)
@@ -683,6 +822,9 @@ func _apply_loaded_state(state: Dictionary) -> void:
 	var scarcity_any: Variant = state.get("scarcity_claims_by_level", {})
 	_scarcity_claims_by_level = (scarcity_any as Dictionary).duplicate(true) if typeof(scarcity_any) == TYPE_DICTIONARY else {}
 	_scarcity_feature_enabled = bool(state.get("scarcity_feature_enabled", _config.get_scarcity_feature_default_enabled()))
+	_season_prestige_base_slots = maxi(0, int(state.get("season_prestige_base_slots", 0)))
+	var prestige_caps_any: Variant = state.get("season_prestige_caps_by_level", {})
+	_season_prestige_caps_by_level = (prestige_caps_any as Dictionary).duplicate(true) if typeof(prestige_caps_any) == TYPE_DICTIONARY else {}
 	_veteran_start_applied = bool(state.get("veteran_start_applied", false))
 	_veteran_rewards_unlocked = bool(state.get("veteran_rewards_unlocked", true))
 	_veteran_start_level = maxi(1, int(state.get("veteran_start_level", 1)))
@@ -728,6 +870,8 @@ func _save_state() -> void:
 		"claimed_rewards": _claimed_rewards,
 		"scarcity_claims_by_level": _scarcity_claims_by_level,
 		"scarcity_feature_enabled": _scarcity_feature_enabled,
+		"season_prestige_base_slots": _season_prestige_base_slots,
+		"season_prestige_caps_by_level": _season_prestige_caps_by_level,
 		"veteran_start_applied": _veteran_start_applied,
 		"veteran_rewards_unlocked": _veteran_rewards_unlocked,
 		"veteran_start_level": _veteran_start_level,
@@ -760,6 +904,122 @@ func _emit_event(event_type: String, payload: Dictionary) -> void:
 	event["type"] = event_type
 	battle_pass_event.emit(event)
 	SFLog.info("BATTLE_PASS_EVENT", event)
+
+func debug_reset_state() -> void:
+	_current_season_id = _config.get_season_id()
+	_battle_pass_xp = 0
+	_battle_pass_level = 1
+	_premium_owned = false
+	_elite_owned = false
+	_claimed_rewards.clear()
+	_scarcity_claims_by_level.clear()
+	_season_prestige_base_slots = _config.compute_projected_prestige_pool_base()
+	_season_prestige_caps_by_level = _config.build_prestige_caps(_season_prestige_base_slots)
+	_veteran_start_applied = false
+	_veteran_rewards_unlocked = true
+	_veteran_start_level = 1
+	_veteran_unlock_level = _config.get_veteran_unlock_level()
+	_wallet = _rewards.normalize_wallet({})
+	_inventory = _rewards.normalize_inventory({})
+	_awarded_match_ids.clear()
+	_awarded_match_order.clear()
+	_quest_progress.clear()
+	_quest_claimed.clear()
+	_quest_bonus_claimed.clear()
+	_ensure_quest_state_initialized()
+	_save_state()
+	_emit_state_changed()
+
+func _apply_nectar_xp_award(source_name: String, nectar_xp: int, metadata: Dictionary, apply_entitlement_bonus: bool) -> Dictionary:
+	var safe_xp: int = maxi(0, nectar_xp)
+	if safe_xp <= 0:
+		return {"ok": false, "reason": "xp_zero"}
+	var previous_level: int = _battle_pass_level
+	var multiplier: float = 1.0
+	if apply_entitlement_bonus:
+		multiplier = _config.get_nectar_multiplier_for_entitlements(_premium_owned, _elite_owned)
+	var final_xp: int = maxi(1, int(round(float(safe_xp) * multiplier)))
+	_battle_pass_xp = maxi(0, _battle_pass_xp + final_xp)
+	_recalculate_level_from_xp()
+	var gained_levels: int = maxi(0, _battle_pass_level - previous_level)
+	if gained_levels > 0:
+		var quest_meta: Dictionary = metadata.duplicate(true)
+		quest_meta["source"] = source_name
+		_apply_quest_progress("level_gain", gained_levels, quest_meta)
+	_refresh_veteran_unlock_state()
+	_claim_ready_quest_bonuses()
+	_save_state()
+	_emit_event("xp_awarded", {
+		"source": source_name,
+		"xp_awarded": final_xp,
+		"base_xp": safe_xp,
+		"xp_multiplier": multiplier,
+		"previous_level": previous_level,
+		"current_level": _battle_pass_level,
+		"metadata": metadata
+	})
+	_emit_state_changed()
+	return {
+		"ok": true,
+		"xp_awarded": final_xp,
+		"base_xp": safe_xp,
+		"xp_multiplier": multiplier,
+		"battle_pass_level": _battle_pass_level,
+		"gained_levels": gained_levels
+	}
+
+func _reserve_award_event(event_id: String) -> Dictionary:
+	var clean_event_id: String = event_id.strip_edges()
+	if clean_event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing"}
+	if _awarded_match_ids.has(clean_event_id):
+		return {"ok": false, "reason": "event_already_awarded", "event_id": clean_event_id}
+	_awarded_match_ids[clean_event_id] = true
+	_awarded_match_order.append(clean_event_id)
+	_prune_award_dedupe()
+	return {"ok": true, "event_id": clean_event_id}
+
+func _refresh_entitlements_from_profile() -> bool:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null or not profile_manager.has_method("get_store_entitlements"):
+		return false
+	var entitlements_any: Variant = profile_manager.call("get_store_entitlements")
+	if typeof(entitlements_any) != TYPE_DICTIONARY:
+		return false
+	var entitlements: Dictionary = entitlements_any as Dictionary
+	var next_elite: bool = bool(entitlements.get("battle_pass_elite", false))
+	var next_premium: bool = bool(entitlements.get("battle_pass_premium", false)) or next_elite
+	var changed: bool = next_premium != _premium_owned or next_elite != _elite_owned
+	_premium_owned = next_premium
+	_elite_owned = next_elite
+	return changed
+
+func _ensure_prestige_state_initialized() -> void:
+	if _season_prestige_base_slots > 0 and not _season_prestige_caps_by_level.is_empty():
+		return
+	_season_prestige_base_slots = _config.compute_projected_prestige_pool_base()
+	_season_prestige_caps_by_level = _config.build_prestige_caps(_season_prestige_base_slots)
+
+func _prestige_cap_for_level(level: int) -> int:
+	if not _config.is_post_100_level(level):
+		return -1
+	var level_key: String = str(level)
+	if _season_prestige_caps_by_level.has(level_key):
+		return maxi(1, int(_season_prestige_caps_by_level.get(level_key, -1)))
+	if _season_prestige_base_slots <= 0:
+		_ensure_prestige_state_initialized()
+	if _season_prestige_caps_by_level.has(level_key):
+		return maxi(1, int(_season_prestige_caps_by_level.get(level_key, -1)))
+	return _config.get_scarcity_cap(level)
+
+func _available_quest_path_count() -> int:
+	return _config.get_side_quest_path_count_for_entitlements(_premium_owned, _elite_owned)
+
+func _quest_path_index(definition: Dictionary) -> int:
+	return maxi(0, int(definition.get("path_index", 0)))
+
+func _quest_path_available(definition: Dictionary) -> bool:
+	return _quest_path_index(definition) < _available_quest_path_count()
 
 func _ensure_bp_level_achievements() -> void:
 	var achievement_service: Node = get_node_or_null("/root/AchievementService")

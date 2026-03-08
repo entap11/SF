@@ -2,7 +2,7 @@ class_name BattlePassConfig
 extends RefCounted
 
 const DEFAULT_CONFIG_PATH: String = "res://data/battle_pass/battle_pass_config.json"
-const SCHEMA_VERSION_CURRENT: int = 1
+const SCHEMA_VERSION_CURRENT: int = 2
 
 const TRACK_FREE: String = "free"
 const TRACK_PREMIUM: String = "premium"
@@ -14,6 +14,7 @@ const REWARD_BUFF: String = "buff"
 const REWARD_COSMETIC: String = "cosmetic"
 const REWARD_ACCESS_TICKET: String = "access_ticket"
 
+const BASE_VISIBLE_MAX_LEVEL: int = 100
 const POST_100_PREMIUM_MAX_LEVEL: int = 110
 const POST_100_ELITE_MAX_LEVEL: int = 120
 
@@ -45,7 +46,7 @@ func get_season_end_unix() -> int:
 	return int(_config.get("end_time_unix", 0))
 
 func get_total_levels() -> int:
-	return int(_config.get("total_levels", 100))
+	return int(_config.get("total_levels", POST_100_ELITE_MAX_LEVEL))
 
 func get_level(level: int) -> Dictionary:
 	var level_key: String = str(level)
@@ -127,10 +128,10 @@ func compute_veteran_start_grant(flags: Dictionary) -> int:
 	return total
 
 func get_scarcity_feature_default_enabled() -> bool:
-	return bool(_config.get("scarcity_feature_default_enabled", false))
+	return bool(_config.get("scarcity_feature_default_enabled", true))
 
 func is_post_100_level(level: int) -> bool:
-	return level > 100
+	return level > BASE_VISIBLE_MAX_LEVEL
 
 func get_scarcity_cap(level: int) -> int:
 	var level_def: Dictionary = get_level(level)
@@ -143,7 +144,31 @@ func get_visible_cap_for_entitlements(premium_owned: bool, elite_owned: bool) ->
 		return POST_100_ELITE_MAX_LEVEL
 	if premium_owned:
 		return POST_100_PREMIUM_MAX_LEVEL
-	return 100
+	return BASE_VISIBLE_MAX_LEVEL
+
+func get_nectar_multiplier_for_entitlements(premium_owned: bool, elite_owned: bool) -> float:
+	var progression: Dictionary = _progression_settings()
+	var ent_any: Variant = progression.get("entitlement_multipliers", {})
+	if typeof(ent_any) != TYPE_DICTIONARY:
+		return 1.0
+	var ent: Dictionary = ent_any as Dictionary
+	if elite_owned:
+		return maxf(1.0, float(ent.get(TRACK_ELITE, 1.30)))
+	if premium_owned:
+		return maxf(1.0, float(ent.get(TRACK_PREMIUM, 1.20)))
+	return maxf(1.0, float(ent.get(TRACK_FREE, 1.0)))
+
+func get_side_quest_path_count_for_entitlements(premium_owned: bool, elite_owned: bool) -> int:
+	var progression: Dictionary = _progression_settings()
+	var paths_any: Variant = progression.get("side_quest_paths", {})
+	if typeof(paths_any) != TYPE_DICTIONARY:
+		return 1
+	var paths: Dictionary = paths_any as Dictionary
+	if elite_owned:
+		return maxi(1, int(paths.get(TRACK_ELITE, 3)))
+	if premium_owned:
+		return maxi(1, int(paths.get(TRACK_PREMIUM, 2)))
+	return maxi(1, int(paths.get(TRACK_FREE, 1)))
 
 func get_xp_award(source_name: String) -> int:
 	var xp_awards_any: Variant = _config.get("xp_awards", {})
@@ -152,6 +177,73 @@ func get_xp_award(source_name: String) -> int:
 	var xp_awards: Dictionary = xp_awards_any as Dictionary
 	var key: String = source_name.strip_edges().to_lower()
 	return maxi(0, int(xp_awards.get(key, 0)))
+
+func get_async_completion_xp(map_count: int, paid_entry: bool) -> int:
+	var mode_xp: Dictionary = _mode_xp_settings()
+	var async_any: Variant = mode_xp.get("async_completion", {})
+	if typeof(async_any) != TYPE_DICTIONARY:
+		return 0
+	var async_xp: Dictionary = async_any as Dictionary
+	var branch_key: String = "paid" if paid_entry else "free"
+	var branch_any: Variant = async_xp.get(branch_key, {})
+	if typeof(branch_any) != TYPE_DICTIONARY:
+		return 0
+	var branch: Dictionary = branch_any as Dictionary
+	var key: String = str(maxi(1, map_count))
+	if branch.has(key):
+		return maxi(0, int(branch.get(key, 0)))
+	return maxi(0, int(branch.get("default", 0)))
+
+func get_pvp_completion_xp(paid_entry: bool, money_tier: int, did_win: bool) -> int:
+	var mode_xp: Dictionary = _mode_xp_settings()
+	var pvp_any: Variant = mode_xp.get("pvp", {})
+	if typeof(pvp_any) != TYPE_DICTIONARY:
+		return 0
+	var pvp: Dictionary = pvp_any as Dictionary
+	if not paid_entry:
+		var free_any: Variant = pvp.get("free", {})
+		if typeof(free_any) != TYPE_DICTIONARY:
+			return 0
+		var free: Dictionary = free_any as Dictionary
+		var total: int = maxi(0, int(free.get("completion", 0)))
+		if did_win:
+			total += maxi(0, int(free.get("win_bonus", 0)))
+		return total
+	var money_any: Variant = pvp.get("money", {})
+	if typeof(money_any) != TYPE_DICTIONARY:
+		return 0
+	var money: Dictionary = money_any as Dictionary
+	var tier_any: Variant = money.get(str(maxi(1, money_tier)), {})
+	if typeof(tier_any) != TYPE_DICTIONARY:
+		return 0
+	var tier: Dictionary = tier_any as Dictionary
+	var xp_total: int = maxi(0, int(tier.get("completion", 0)))
+	if did_win:
+		xp_total += maxi(0, int(tier.get("win_bonus", 0)))
+	return xp_total
+
+func get_tournament_participation_xp() -> int:
+	var tournament: Dictionary = _tournament_settings()
+	return maxi(0, int(tournament.get("participation", 0)))
+
+func get_tournament_placement_xp(placement: int) -> int:
+	var tournament: Dictionary = _tournament_settings()
+	var placements_any: Variant = tournament.get("placement", {})
+	if typeof(placements_any) != TYPE_DICTIONARY:
+		return 0
+	return maxi(0, int((placements_any as Dictionary).get(str(maxi(1, placement)), 0)))
+
+func get_contest_result_xp(scope: String, placement: int) -> int:
+	var mode_xp: Dictionary = _mode_xp_settings()
+	var contest_any: Variant = mode_xp.get("contest", {})
+	if typeof(contest_any) != TYPE_DICTIONARY:
+		return 0
+	var contest: Dictionary = contest_any as Dictionary
+	var clean_scope: String = scope.strip_edges().to_lower()
+	var scope_any: Variant = contest.get(clean_scope, contest.get("default", {}))
+	if typeof(scope_any) != TYPE_DICTIONARY:
+		return 0
+	return maxi(0, int((scope_any as Dictionary).get(str(maxi(1, placement)), 0)))
 
 func get_dau_access_ticket_rate(dau: int) -> float:
 	var tier: Dictionary = get_dau_tier(dau)
@@ -194,6 +286,74 @@ func get_quest_bonus_definitions() -> Array:
 	if typeof(bonuses_any) != TYPE_ARRAY:
 		return []
 	return (bonuses_any as Array).duplicate(true)
+
+func get_prestige_pool_settings() -> Dictionary:
+	var progression: Dictionary = _progression_settings()
+	var prestige_any: Variant = progression.get("prestige_pool", {})
+	if typeof(prestige_any) != TYPE_DICTIONARY:
+		return {}
+	return (prestige_any as Dictionary).duplicate(true)
+
+func get_prestige_projection_details() -> Dictionary:
+	var settings: Dictionary = get_prestige_pool_settings()
+	if settings.is_empty():
+		return {}
+	var seed_base: int = maxi(1, int(settings.get("seed_base_slots", 500)))
+	var previous_finishers: int = maxi(0, int(settings.get("previous_level_100_finishers", 0)))
+	var previous_active: float = maxf(0.0, float(settings.get("previous_season_starting_active", 0)))
+	var projected_active: float = maxf(0.0, float(settings.get("projected_season_starting_active", 0)))
+	var growth_factor: float = maxf(0.1, float(settings.get("growth_multiplier_override", 1.0)))
+	if previous_active > 0.0 and projected_active > 0.0:
+		growth_factor = maxf(0.1, projected_active / previous_active)
+	var entry_rate: float = clampf(float(settings.get("entry_rate", 0.40)), 0.01, 1.0)
+	var projected_qualified: int = previous_finishers
+	if previous_finishers > 0:
+		projected_qualified = maxi(1, int(round(float(previous_finishers) * growth_factor)))
+	var base_slots: int = compute_projected_prestige_pool_base()
+	return {
+		"seed_base_slots": seed_base,
+		"previous_level_100_finishers": previous_finishers,
+		"previous_season_starting_active": int(previous_active),
+		"projected_season_starting_active": int(projected_active),
+		"growth_factor": growth_factor,
+		"entry_rate": entry_rate,
+		"projected_level_100_finishers": projected_qualified,
+		"projected_prestige_pool_base": base_slots
+	}
+
+func compute_projected_prestige_pool_base() -> int:
+	var settings: Dictionary = get_prestige_pool_settings()
+	if settings.is_empty():
+		return 500
+	var seed_base: int = maxi(1, int(settings.get("seed_base_slots", 500)))
+	var previous_finishers: int = maxi(0, int(settings.get("previous_level_100_finishers", 0)))
+	if previous_finishers <= 0:
+		return seed_base
+	var growth_factor: float = maxf(0.1, float(settings.get("growth_multiplier_override", 1.0)))
+	var previous_active: float = maxf(0.0, float(settings.get("previous_season_starting_active", 0)))
+	var projected_active: float = maxf(0.0, float(settings.get("projected_season_starting_active", 0)))
+	if previous_active > 0.0 and projected_active > 0.0:
+		growth_factor = maxf(0.1, projected_active / previous_active)
+	var entry_rate: float = clampf(float(settings.get("entry_rate", 0.40)), 0.01, 1.0)
+	var projected: int = int(round(float(previous_finishers) * growth_factor * entry_rate))
+	var min_slots: int = maxi(1, int(settings.get("min_slots_per_level", 10)))
+	return maxi(min_slots, projected)
+
+func build_prestige_caps(base_slots: int) -> Dictionary:
+	var caps: Dictionary = {}
+	for level in range(BASE_VISIBLE_MAX_LEVEL + 1, POST_100_ELITE_MAX_LEVEL + 1):
+		caps[str(level)] = compute_prestige_cap_for_level(level, base_slots)
+	return caps
+
+func compute_prestige_cap_for_level(level: int, base_slots: int) -> int:
+	if not is_post_100_level(level):
+		return -1
+	var settings: Dictionary = get_prestige_pool_settings()
+	var safe_base: int = maxi(1, base_slots)
+	var decay: float = clampf(float(settings.get("decay", 0.90)), 0.10, 0.99)
+	var min_slots: int = maxi(1, int(settings.get("min_slots_per_level", 10)))
+	var post_offset: int = level - (BASE_VISIBLE_MAX_LEVEL + 1)
+	return maxi(min_slots, int(round(float(safe_base) * pow(decay, float(post_offset)))))
 
 func _load_json_config(config_path: String) -> Dictionary:
 	if not FileAccess.file_exists(config_path):
@@ -253,38 +413,114 @@ func _reindex_quests() -> void:
 			continue
 		_quests_by_id[quest_id] = quest_def.duplicate(true)
 
+func _progression_settings() -> Dictionary:
+	var progression_any: Variant = _config.get("progression", {})
+	if typeof(progression_any) != TYPE_DICTIONARY:
+		return {}
+	return progression_any as Dictionary
+
+func _mode_xp_settings() -> Dictionary:
+	var progression: Dictionary = _progression_settings()
+	var mode_any: Variant = progression.get("mode_xp", {})
+	if typeof(mode_any) != TYPE_DICTIONARY:
+		return {}
+	return mode_any as Dictionary
+
+func _tournament_settings() -> Dictionary:
+	var mode_xp: Dictionary = _mode_xp_settings()
+	var tournament_any: Variant = mode_xp.get("tournament", {})
+	if typeof(tournament_any) != TYPE_DICTIONARY:
+		return {}
+	return tournament_any as Dictionary
+
 func _build_default_config() -> Dictionary:
 	var now_unix: int = int(Time.get_unix_time_from_system())
 	var season_start_unix: int = now_unix
 	var season_end_unix: int = season_start_unix + (60 * 60 * 24 * 90)
+	var progression: Dictionary = {
+		"xp_curve": {
+			"bands": [
+				{"from": 1, "to": 10, "xp_required": 50},
+				{"from": 11, "to": 25, "xp_required": 65},
+				{"from": 26, "to": 50, "xp_required": 80},
+				{"from": 51, "to": 75, "xp_required": 100},
+				{"from": 76, "to": 90, "xp_required": 125},
+				{"from": 91, "to": 100, "xp_required": 220},
+				{"from": 101, "to": 110, "xp_required": 250},
+				{"from": 111, "to": 120, "xp_required": 275}
+			]
+		},
+		"entitlement_multipliers": {
+			TRACK_FREE: 1.0,
+			TRACK_PREMIUM: 1.20,
+			TRACK_ELITE: 1.30
+		},
+		"side_quest_paths": {
+			TRACK_FREE: 1,
+			TRACK_PREMIUM: 2,
+			TRACK_ELITE: 3
+		},
+		"mode_xp": {
+			"async_completion": {
+				"free": {"3": 18, "5": 22, "default": 18},
+				"paid": {"3": 24, "5": 30, "default": 24}
+			},
+			"pvp": {
+				"free": {"completion": 20, "win_bonus": 4},
+				"money": {
+					"1": {"completion": 24, "win_bonus": 4},
+					"2": {"completion": 30, "win_bonus": 5},
+					"3": {"completion": 36, "win_bonus": 6}
+				}
+			},
+			"tournament": {
+				"participation": 35,
+				"placement": {"1": 25, "2": 12, "3": 6}
+			},
+			"contest": {
+				"daily": {"1": 15, "2": 8, "3": 4},
+				"weekly": {"1": 30, "2": 15, "3": 8},
+				"monthly": {"1": 60, "2": 30, "3": 15},
+				"default": {"1": 25, "2": 12, "3": 6}
+			}
+		},
+		"prestige_pool": {
+			"seed_base_slots": 500,
+			"entry_rate": 0.40,
+			"decay": 0.90,
+			"min_slots_per_level": 10,
+			"previous_level_100_finishers": 1250,
+			"previous_season_starting_active": 5000,
+			"projected_season_starting_active": 5000,
+			"growth_multiplier_override": 1.0
+		}
+	}
 	var levels: Array = []
-	var scarcity_base: int = 500
-	var scarcity_decay: float = 0.90
 	for level in range(1, POST_100_ELITE_MAX_LEVEL + 1):
-		var level_def: Dictionary = _build_default_level(level, scarcity_base, scarcity_decay)
-		levels.append(level_def)
+		levels.append(_build_default_level(level, progression))
 	var config: Dictionary = {
 		"schema_version": SCHEMA_VERSION_CURRENT,
 		"season_id": "tf_beta_s1",
 		"start_time_unix": season_start_unix,
 		"end_time_unix": season_end_unix,
 		"total_levels": POST_100_ELITE_MAX_LEVEL,
-		"scarcity_feature_default_enabled": false,
+		"scarcity_feature_default_enabled": true,
 		"cadence_rules": {
 			"digit_1": REWARD_HONEY,
 			"digit_7": REWARD_BUFF,
 			"digit_0": REWARD_ACCESS_TICKET
 		},
+		"progression": progression,
 		"levels": levels,
 		"veteran_start": {
 			"claim_unlock_level": 10,
 			"opt_out_allowed": true,
 			"grants": {
-				"member_this_season": 120,
-				"member_last_season": 110,
-				"played_every_mode_last_season": 130,
-				"money_async_last_season": 90,
-				"money_vs_last_season": 110
+				"member_this_season": 40,
+				"member_last_season": 40,
+				"played_every_mode_last_season": 50,
+				"money_async_last_season": 35,
+				"money_vs_last_season": 35
 			}
 		},
 		"dau_scaling": {
@@ -295,49 +531,84 @@ func _build_default_config() -> Dictionary:
 			]
 		},
 		"xp_awards": {
-			"match_completion": 24,
-			"win_bonus": 8,
-			"money_match_bonus": 16,
 			"capture_tower": 3
 		},
 		"quests": [
-			{"id": "weekly_gain_5_levels", "event_key": "level_gain", "target": 5, "xp_reward": 120, "reward": {"reward_type": REWARD_NONE}},
-			{"id": "weekly_win_3_async_tournaments", "event_key": "async_tournament_win", "target": 3, "xp_reward": 140, "reward": {"reward_type": REWARD_NONE}},
-			{"id": "weekly_play_1_money_match", "event_key": "money_match_played", "target": 1, "xp_reward": 90, "reward": {"reward_type": REWARD_NONE}},
-			{"id": "weekly_capture_15_towers", "event_key": "capture_tower", "target": 15, "xp_reward": 110, "reward": {"reward_type": REWARD_NONE}}
+			{"id": "weekly_gain_5_levels", "path_index": 0, "event_key": "level_gain", "target": 5, "xp_reward": 120, "reward": {"reward_type": REWARD_NONE}},
+			{"id": "weekly_play_3_pvp_matches", "path_index": 0, "event_key": "pvp_match_completed", "target": 3, "xp_reward": 90, "reward": {"reward_type": REWARD_NONE}},
+			{"id": "weekly_play_1_money_match", "path_index": 0, "event_key": "money_match_played", "target": 1, "xp_reward": 90, "reward": {"reward_type": REWARD_NONE}},
+			{"id": "weekly_capture_15_towers", "path_index": 0, "event_key": "capture_tower", "target": 15, "xp_reward": 110, "reward": {"reward_type": REWARD_NONE}},
+			{"id": "premium_path_complete_5_async", "path_index": 1, "event_key": "async_match_completed", "target": 5, "xp_reward": 95, "reward": {"reward_type": REWARD_HONEY, "quantity": 25}},
+			{"id": "premium_path_win_3_pvp", "path_index": 1, "event_key": "pvp_win", "target": 3, "xp_reward": 105, "reward": {"reward_type": REWARD_ACCESS_TICKET, "quantity": 1}},
+			{"id": "elite_path_play_2_money_async", "path_index": 2, "event_key": "money_async_played", "target": 2, "xp_reward": 120, "reward": {"reward_type": REWARD_HONEY, "quantity": 40}},
+			{"id": "elite_path_place_top3_contest", "path_index": 2, "event_key": "contest_top3", "target": 1, "xp_reward": 130, "reward": {"reward_type": REWARD_COSMETIC, "cosmetic_id": "bp_elite_contest_crown", "quantity": 1}}
 		],
 		"quest_bonuses": [
 			{
 				"id": "weekly_combo_bonus",
+				"path_index": 0,
 				"required_quests": ["weekly_gain_5_levels", "weekly_play_1_money_match", "weekly_capture_15_towers"],
 				"reward": {"reward_type": REWARD_COSMETIC, "cosmetic_id": "bp_weekly_combo_badge", "quantity": 1},
 				"xp_reward": 80
+			},
+			{
+				"id": "premium_side_path_bonus",
+				"path_index": 1,
+				"required_quests": ["premium_path_complete_5_async", "premium_path_win_3_pvp"],
+				"reward": {"reward_type": REWARD_COSMETIC, "cosmetic_id": "bp_premium_side_path_mark", "quantity": 1},
+				"xp_reward": 70
+			},
+			{
+				"id": "elite_side_path_bonus",
+				"path_index": 2,
+				"required_quests": ["elite_path_play_2_money_async", "elite_path_place_top3_contest"],
+				"reward": {"reward_type": REWARD_ACCESS_TICKET, "quantity": 2},
+				"xp_reward": 90
 			}
 		]
 	}
 	return config
 
-func _build_default_level(level: int, scarcity_base: int, scarcity_decay: float) -> Dictionary:
-	var xp_required: int = 100
+func _build_default_level(level: int, progression: Dictionary) -> Dictionary:
+	var xp_required: int = _xp_required_for_level(level, progression)
 	var tracks: Dictionary = {
 		TRACK_FREE: _build_default_track_reward(level, TRACK_FREE),
 		TRACK_PREMIUM: _build_default_track_reward(level, TRACK_PREMIUM),
 		TRACK_ELITE: _build_default_track_reward(level, TRACK_ELITE)
 	}
 	var scarcity_cap: int = -1
-	if level > 100:
-		var post_offset: int = level - 101
-		scarcity_cap = maxi(1, int(round(float(scarcity_base) * pow(scarcity_decay, float(post_offset)))))
+	if level > BASE_VISIBLE_MAX_LEVEL:
+		var prestige_any: Variant = progression.get("prestige_pool", {})
+		var prestige: Dictionary = prestige_any as Dictionary if typeof(prestige_any) == TYPE_DICTIONARY else {}
+		scarcity_cap = compute_prestige_cap_for_level(level, maxi(1, int(prestige.get("seed_base_slots", 500))))
 		if level > POST_100_PREMIUM_MAX_LEVEL:
 			tracks[TRACK_PREMIUM] = {"reward_type": REWARD_NONE}
 		tracks[TRACK_FREE] = {"reward_type": REWARD_NONE}
-	var level_def: Dictionary = {
+	return {
 		"level": level,
 		"xp_required": xp_required,
 		"tracks": tracks,
 		"scarcity_cap": scarcity_cap
 	}
-	return level_def
+
+func _xp_required_for_level(level: int, progression: Dictionary) -> int:
+	var xp_curve_any: Variant = progression.get("xp_curve", {})
+	if typeof(xp_curve_any) != TYPE_DICTIONARY:
+		return 100
+	var xp_curve: Dictionary = xp_curve_any as Dictionary
+	var bands_any: Variant = xp_curve.get("bands", [])
+	if typeof(bands_any) != TYPE_ARRAY:
+		return 100
+	for band_any in bands_any as Array:
+		if typeof(band_any) != TYPE_DICTIONARY:
+			continue
+		var band: Dictionary = band_any as Dictionary
+		var band_from: int = maxi(1, int(band.get("from", 1)))
+		var band_to: int = maxi(band_from, int(band.get("to", band_from)))
+		if level < band_from or level > band_to:
+			continue
+		return maxi(1, int(band.get("xp_required", 100)))
+	return 100
 
 func _build_default_track_reward(level: int, track_slot: String) -> Dictionary:
 	var digit: int = level % 10
@@ -357,7 +628,7 @@ func _build_default_track_reward(level: int, track_slot: String) -> Dictionary:
 			buff_id = "buff_tower_fire_rate_classic"
 		reward = {"reward_type": REWARD_BUFF, "buff_id": buff_id, "quantity": 1}
 	elif digit == 0:
-		if level > 100 and track_slot == TRACK_FREE:
+		if level > BASE_VISIBLE_MAX_LEVEL and track_slot == TRACK_FREE:
 			reward = {"reward_type": REWARD_NONE}
 		else:
 			var ticket_qty: int = 1

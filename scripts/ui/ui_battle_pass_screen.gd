@@ -123,7 +123,10 @@ func _on_state_changed(snapshot: Dictionary) -> void:
 		var season_id: String = str(snapshot.get("season_id", "season"))
 		var remaining_sec: int = int(snapshot.get("season_seconds_remaining", 0))
 		var remaining_days: int = int(floor(float(remaining_sec) / 86400.0))
-		season_label.text = "Season %s · %dd left" % [season_id, remaining_days]
+		var projection_any: Variant = snapshot.get("prestige_projection", {})
+		var projection: Dictionary = projection_any as Dictionary if typeof(projection_any) == TYPE_DICTIONARY else {}
+		var growth_factor: float = float(projection.get("growth_factor", 1.0))
+		season_label.text = "Season %s · %dd left · Prestige growth x%.2f" % [season_id, remaining_days, growth_factor]
 
 	if summary_label != null:
 		var level: int = int(snapshot.get("battle_pass_level", 1))
@@ -131,10 +134,14 @@ func _on_state_changed(snapshot: Dictionary) -> void:
 		var progress_ratio: float = float(snapshot.get("progress_ratio", 0.0))
 		var premium_owned: bool = bool(snapshot.get("premium_owned", false))
 		var elite_owned: bool = bool(snapshot.get("elite_owned", false))
-		summary_label.text = "Level %d/%d · Progress %.0f%% · Premium %s · Elite %s" % [
+		var side_quest_paths: int = int(snapshot.get("side_quest_paths_available", 1))
+		var prestige_pool_base: int = int(snapshot.get("prestige_pool_base_slots", 0))
+		summary_label.text = "Level %d/%d · Progress %.0f%% · Paths %d · Prestige %d · Premium %s · Elite %s" % [
 			level,
 			total_levels,
 			progress_ratio * 100.0,
+			side_quest_paths,
+			prestige_pool_base,
 			"YES" if premium_owned else "NO",
 			"YES" if elite_owned else "NO"
 		]
@@ -199,10 +206,11 @@ func _render_quests(quests: Array, bonuses: Array) -> String:
 			continue
 		var quest: Dictionary = quest_any as Dictionary
 		var quest_id: String = str(quest.get("id", "quest"))
+		var path_index: int = int(quest.get("path_index", 0)) + 1
 		var progress: int = int(quest.get("progress", 0))
 		var target: int = int(quest.get("target", 1))
 		var claimed: bool = bool(quest.get("claimed", false))
-		lines.append("- %s [%d/%d] %s" % [quest_id, progress, target, "CLAIMED" if claimed else "OPEN"])
+		lines.append("- P%d %s [%d/%d] %s" % [path_index, quest_id, progress, target, "CLAIMED" if claimed else "OPEN"])
 	if not bonuses.is_empty():
 		lines.append("Bonuses")
 		for bonus_any in bonuses:
@@ -210,10 +218,11 @@ func _render_quests(quests: Array, bonuses: Array) -> String:
 				continue
 			var bonus: Dictionary = bonus_any as Dictionary
 			var bonus_id: String = str(bonus.get("id", "bonus"))
+			var bonus_path_index: int = int(bonus.get("path_index", 0)) + 1
 			var claimed_bonus: bool = bool(bonus.get("claimed", false))
 			var ready_bonus: bool = bool(bonus.get("ready_to_claim", false))
 			var status: String = "CLAIMED" if claimed_bonus else ("READY" if ready_bonus else "LOCKED")
-			lines.append("- %s [%s]" % [bonus_id, status])
+			lines.append("- P%d %s [%s]" % [bonus_path_index, bonus_id, status])
 	return "\n".join(lines)
 
 func _track_badge(track_state: Dictionary) -> String:

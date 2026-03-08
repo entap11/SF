@@ -48,8 +48,47 @@ func _init() -> void:
 		_fail("match result intent failed")
 		return
 	var after_match: Dictionary = state.get_player_snapshot(local_id)
-	if float(after_match.get("wax_score", 0.0)) <= wax_before:
-		_fail("wax did not increase after win")
+	if not is_equal_approx(float(after_match.get("wax_score", 0.0)), wax_before + 10.0):
+		_fail("free pvp win should add exactly 10 wax")
+		return
+
+	var opponent_after_win: Dictionary = state.get_player_snapshot("p090")
+	var opponent_wax_after_win: float = float(opponent_after_win.get("wax_score", 0.0))
+	var loss_result: Dictionary = state.intent_record_match_result(local_id, "p090", false, "STANDARD", {})
+	if not bool(loss_result.get("ok", false)):
+		_fail("free pvp loss intent failed")
+		return
+	var after_loss: Dictionary = state.get_player_snapshot(local_id)
+	if not is_equal_approx(float(after_loss.get("wax_score", 0.0)), float(after_match.get("wax_score", 0.0)) - 4.0):
+		_fail("free pvp loss should subtract exactly 4 wax")
+		return
+	var opponent_after_loss: Dictionary = state.get_player_snapshot("p090")
+	if not is_equal_approx(float(opponent_after_loss.get("wax_score", 0.0)), opponent_wax_after_win + 10.0):
+		_fail("winner should gain exactly 10 wax in free pvp")
+		return
+
+	state.intent_debug_set_player_wax(local_id, 500.0)
+	state.intent_debug_set_player_wax("p090", 500.0)
+	var money_result: Dictionary = state.intent_record_match_result(local_id, "p090", true, "MONEY_MATCH", {}, 3)
+	if not bool(money_result.get("ok", false)):
+		_fail("money match result intent failed")
+		return
+	var after_money: Dictionary = state.get_player_snapshot(local_id)
+	var opponent_after_money: Dictionary = state.get_player_snapshot("p090")
+	if not is_equal_approx(float(after_money.get("wax_score", 0.0)), 520.0):
+		_fail("money tier 3 win should add exactly 20 wax")
+		return
+	if not is_equal_approx(float(opponent_after_money.get("wax_score", 0.0)), 491.0):
+		_fail("money tier 3 loss should subtract exactly 9 wax")
+		return
+
+	var contest_result: Dictionary = state.intent_record_contest_result(local_id, "WEEKLY", 1, {})
+	if not bool(contest_result.get("ok", false)):
+		_fail("contest result intent failed")
+		return
+	var after_contest: Dictionary = state.get_player_snapshot(local_id)
+	if not is_equal_approx(float(after_contest.get("wax_score", 0.0)), 530.0):
+		_fail("weekly contest first should add exactly 10 wax")
 		return
 
 	# Decay starts after 14 days; verify at day 15.
