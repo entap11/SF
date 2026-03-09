@@ -32,6 +32,7 @@ const SOAK_DEFAULT_ROUND_SECONDS: int = 300
 const SOAK_DEFAULT_PAIR_COUNT: int = 2
 const SOAK_DEFAULT_REAPPLY_MS: int = 1000
 const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
+const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each.json"
 const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
 const BUFF_SIDE_STRIP_WIDTH_PX: float = 92.0
@@ -72,6 +73,7 @@ const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 @export var map_list_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/MapList")
 @export var select_map_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/SelectMapButton")
 @export var tutorial_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TutorialButton")
+@export var ctf_bot_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/CtfBotButton")
 @export var team_mode_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TeamModeButton")
 @export var play_selected_button_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerButtonsRow/PlaySelectedButton")
 @export var picker_back_button_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerButtonsRow/PickerBackButton")
@@ -89,6 +91,7 @@ const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 @onready var _map_list: ItemList = get_node_or_null(map_list_path) as ItemList
 @onready var _select_map_button: Button = get_node_or_null(select_map_button_path) as Button
 @onready var _tutorial_button: Button = get_node_or_null(tutorial_button_path) as Button
+@onready var _ctf_bot_button: Button = get_node_or_null(ctf_bot_button_path) as Button
 @onready var _team_mode_button: Button = get_node_or_null(team_mode_button_path) as Button
 @onready var _play_selected_button: Button = get_node_or_null(play_selected_button_path) as Button
 @onready var _picker_back_button: Button = get_node_or_null(picker_back_button_path) as Button
@@ -213,6 +216,7 @@ func _ready() -> void:
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 030: before_resolve_map_picker_ui_nodes")
 	_resolve_map_picker_ui_nodes()
 	_resolve_tutorial_ui_node()
+	_resolve_ctf_bot_ui_node()
 	_resolve_team_mode_ui_node()
 	_resolve_dev_map_loader()
 	_resolve_buff_ui_nodes()
@@ -412,6 +416,15 @@ func _resolve_tutorial_ui_node() -> void:
 	if _tutorial_button != null and not _tutorial_button.pressed.is_connected(_on_tutorial_pressed):
 		_tutorial_button.pressed.connect(_on_tutorial_pressed)
 
+func _resolve_ctf_bot_ui_node() -> void:
+	_ctf_bot_button = get_node_or_null(ctf_bot_button_path) as Button
+	SFLog.info("CTF_BOT_UI_RESOLVE", {
+		"ctf_bot_button_np": str(ctf_bot_button_path),
+		"ctf_bot_button": _diag_resolve(_ctf_bot_button)
+	})
+	if _ctf_bot_button != null and not _ctf_bot_button.pressed.is_connected(_on_ctf_bot_pressed):
+		_ctf_bot_button.pressed.connect(_on_ctf_bot_pressed)
+
 func _resolve_team_mode_ui_node() -> void:
 	_team_mode_button = get_node_or_null(team_mode_button_path) as Button
 	SFLog.info("TEAM_MODE_UI_RESOLVE", {
@@ -463,6 +476,10 @@ func _apply_dev_menu_fonts() -> void:
 		_tutorial_button.custom_minimum_size.y = maxf(_tutorial_button.custom_minimum_size.y, 78.0)
 		if not _apply_free_roll_atlas_font(_tutorial_button, 40):
 			_apply_font(_tutorial_button, _font_regular, 28)
+	if _ctf_bot_button != null:
+		_ctf_bot_button.custom_minimum_size.y = maxf(_ctf_bot_button.custom_minimum_size.y, 78.0)
+		if not _apply_free_roll_atlas_font(_ctf_bot_button, 40):
+			_apply_font(_ctf_bot_button, _font_regular, 28)
 	if _play_selected_button != null:
 		_play_selected_button.custom_minimum_size.y = maxf(_play_selected_button.custom_minimum_size.y, 78.0)
 		if not _apply_free_roll_atlas_font(_play_selected_button, 40):
@@ -529,6 +546,8 @@ func _log_dev_menu_font_state() -> void:
 		targets.append(_select_map_button)
 	if _tutorial_button != null:
 		targets.append(_tutorial_button)
+	if _ctf_bot_button != null:
+		targets.append(_ctf_bot_button)
 	if _team_mode_button != null:
 		targets.append(_team_mode_button)
 	if back_button != null:
@@ -1019,6 +1038,20 @@ func _on_tutorial_pressed() -> void:
 	SFLog.info("TUTORIAL_SANDBOX_LAUNCH", {"map_path": map_path, "mode": _team_mode_ui})
 	_apply_map_then_start(map_path)
 
+func _on_ctf_bot_pressed() -> void:
+	var map_path: String = _resolve_ctf_bot_map_path()
+	if map_path.is_empty():
+		SFLog.error("CTF_BOT_LAUNCH_NO_MAP", {})
+		return
+	_prepare_ctf_bot_tree_meta(map_path)
+	_set_team_mode_ui("ffa")
+	SFLog.info("CTF_BOT_LAUNCH", {
+		"map_path": map_path,
+		"mode": "HIDDEN_CAPTURE_FLAG",
+		"free_roll": true
+	})
+	_apply_map_then_start(map_path)
+
 func _prepare_tutorial_section3_sandbox_profile() -> void:
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
 	if profile_manager == null:
@@ -1045,6 +1078,53 @@ func _resolve_tutorial_sandbox_map_path() -> String:
 	if _selected_map_path != "" and ResourceLoader.exists(_selected_map_path):
 		return _selected_map_path
 	return ""
+
+func _resolve_ctf_bot_map_path() -> String:
+	if FileAccess.file_exists(CTF_BOT_STAGE_MAP_PATH):
+		return CTF_BOT_STAGE_MAP_PATH
+	return ""
+
+func _prepare_ctf_bot_tree_meta(map_path: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
+	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
+	if local_name.strip_edges().is_empty():
+		local_name = "You"
+	tree.set_meta("start_game", true)
+	tree.set_meta("vs_mode", "HIDDEN_CAPTURE_FLAG")
+	tree.set_meta("vs_price_usd", 0)
+	tree.set_meta("vs_free_roll", true)
+	tree.set_meta("vs_assigned_players", [local_name, "CPU"])
+	tree.set_meta("vs_open_slots", 0)
+	tree.set_meta("vs_required_players", 2)
+	tree.set_meta("vs_sync_start", true)
+	tree.set_meta("vs_sync_join_sec", 0)
+	tree.set_meta("vs_window_sec", 0)
+	tree.set_meta("vs_window_started_unix", 0)
+	tree.set_meta("vs_window_deadline_unix", 0)
+	tree.set_meta("vs_stage_map_paths", [map_path])
+	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
+	tree.set_meta("vs_handshake_session_id", "")
+	tree.set_meta("vs_handshake_role", "host")
+	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_local_profile", {
+		"uid": local_uid,
+		"display_name": local_name
+	})
+	tree.set_meta("vs_remote_profile", {
+		"uid": "",
+		"display_name": "CPU",
+		"is_cpu": true
+	})
+	tree.set_meta("ctf_flag_selection_mode", "player_select")
+	tree.set_meta("ctf_player_select_pct", 100)
+	tree.set_meta("ctf_randomize_flag_hive", true)
+	tree.set_meta("ctf_hidden_flag", true)
+	tree.set_meta("ctf_flag_move_count_max", 1)
+	tree.set_meta("ctf_flag_move_reveals", true)
 
 func _open_main_menu() -> void:
 	if main_menu_scene_path.is_empty():

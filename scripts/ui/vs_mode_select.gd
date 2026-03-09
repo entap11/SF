@@ -15,13 +15,26 @@ const MODES := [
 ]
 const MAP_COUNTS := [3, 5]
 const PRICES := [1, 5, 10, 20]
+const CTF_PLAYER_SELECT_PCTS := [0, 25, 35, 50, 100]
+const CTF_FLAG_MOVE_COUNTS := [0, 1, 2]
 
 @onready var title_label: Label = $Panel/VBox/Header/Title
 @onready var back_button: Button = $Panel/VBox/Header/Back
+@onready var map_row: VBoxContainer = $Panel/VBox/MapRow
 @onready var mode_label: Label = $Panel/VBox/ModeRow/ModeLabel
 @onready var mode_buttons: HBoxContainer = $Panel/VBox/ModeRow/ModeButtons
 @onready var map_label: Label = $Panel/VBox/MapRow/MapLabel
 @onready var map_buttons: HBoxContainer = $Panel/VBox/MapRow/MapButtons
+@onready var ctf_settings_row: VBoxContainer = $Panel/VBox/CtfSettingsRow
+@onready var ctf_label: Label = $Panel/VBox/CtfSettingsRow/CtfLabel
+@onready var ctf_select_row: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfSelectRow
+@onready var ctf_select_prompt: Label = $Panel/VBox/CtfSettingsRow/CtfSelectRow/CtfSelectPrompt
+@onready var ctf_select_buttons: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfSelectRow/CtfSelectButtons
+@onready var ctf_move_prompt: Label = $Panel/VBox/CtfSettingsRow/CtfMoveRow/CtfMovePrompt
+@onready var ctf_move_buttons: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfMoveRow/CtfMoveButtons
+@onready var ctf_reveal_row: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfRevealRow
+@onready var ctf_reveal_prompt: Label = $Panel/VBox/CtfSettingsRow/CtfRevealRow/CtfRevealPrompt
+@onready var ctf_reveal_buttons: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfRevealRow/CtfRevealButtons
 @onready var price_label: Label = $Panel/VBox/PriceRow/PriceLabel
 @onready var price_buttons: HBoxContainer = $Panel/VBox/PriceRow/PriceButtons
 @onready var summary_label: Label = $Panel/VBox/Summary
@@ -30,6 +43,9 @@ const PRICES := [1, 5, 10, 20]
 var _mode_buttons: Dictionary = {}
 var _map_buttons: Dictionary = {}
 var _price_buttons: Dictionary = {}
+var _ctf_select_pct_buttons: Dictionary = {}
+var _ctf_move_count_buttons: Dictionary = {}
+var _ctf_reveal_buttons: Dictionary = {}
 var _font_regular: Font
 var _font_semibold: Font
 var _font_free_roll_atlas: Font
@@ -37,6 +53,9 @@ var _font_free_roll_atlas: Font
 var _selected_mode := "STAGE_RACE"
 var _selected_map_count := 3
 var _selected_price := 1
+var _selected_ctf_player_select_pct := 35
+var _selected_ctf_flag_move_count_max := 1
+var _selected_ctf_flag_move_reveals := true
 var _free_roll := false
 var _entry_lock := "any" # "any", "free_only", "paid_only"
 
@@ -60,11 +79,20 @@ func _build_buttons() -> void:
 		child.queue_free()
 	for child in map_buttons.get_children():
 		child.queue_free()
+	for child in ctf_select_buttons.get_children():
+		child.queue_free()
+	for child in ctf_move_buttons.get_children():
+		child.queue_free()
+	for child in ctf_reveal_buttons.get_children():
+		child.queue_free()
 	for child in price_buttons.get_children():
 		child.queue_free()
 	_mode_buttons.clear()
 	_map_buttons.clear()
 	_price_buttons.clear()
+	_ctf_select_pct_buttons.clear()
+	_ctf_move_count_buttons.clear()
+	_ctf_reveal_buttons.clear()
 
 	var mode_group := ButtonGroup.new()
 	for entry in MODES:
@@ -91,6 +119,39 @@ func _build_buttons() -> void:
 		button.pressed.connect(func(): _select_map_count(count))
 		map_buttons.add_child(button)
 		_map_buttons[count] = button
+
+	var ctf_select_group := ButtonGroup.new()
+	for pct in CTF_PLAYER_SELECT_PCTS:
+		var button := Button.new()
+		button.text = "%d%% Pick" % int(pct)
+		_apply_font(button, _font_regular, 13)
+		button.toggle_mode = true
+		button.button_group = ctf_select_group
+		button.pressed.connect(Callable(self, "_select_ctf_player_select_pct").bind(int(pct)))
+		ctf_select_buttons.add_child(button)
+		_ctf_select_pct_buttons[int(pct)] = button
+
+	var ctf_move_group := ButtonGroup.new()
+	for move_count in CTF_FLAG_MOVE_COUNTS:
+		var button := Button.new()
+		button.text = "%d" % int(move_count)
+		_apply_font(button, _font_regular, 13)
+		button.toggle_mode = true
+		button.button_group = ctf_move_group
+		button.pressed.connect(Callable(self, "_select_ctf_move_count").bind(int(move_count)))
+		ctf_move_buttons.add_child(button)
+		_ctf_move_count_buttons[int(move_count)] = button
+
+	var ctf_reveal_group := ButtonGroup.new()
+	for reveal_on_move in [true, false]:
+		var button := Button.new()
+		button.text = "Reveal" if bool(reveal_on_move) else "Hidden"
+		_apply_font(button, _font_regular, 13)
+		button.toggle_mode = true
+		button.button_group = ctf_reveal_group
+		button.pressed.connect(Callable(self, "_select_ctf_reveal_on_move").bind(bool(reveal_on_move)))
+		ctf_reveal_buttons.add_child(button)
+		_ctf_reveal_buttons[bool(reveal_on_move)] = button
 
 	var price_group := ButtonGroup.new()
 	if _entry_lock != "free_only":
@@ -123,26 +184,71 @@ func _build_buttons() -> void:
 		_select_price(PRICES[0])
 	else:
 		_select_price(_selected_price)
+	_sync_button_states()
 
 func _select_mode(mode_id: String) -> void:
 	_selected_mode = mode_id
 	if _is_capture_flag_mode(mode_id):
 		_selected_map_count = 1
-	map_label.visible = not _is_capture_flag_mode(mode_id)
-	map_buttons.visible = not _is_capture_flag_mode(mode_id)
+	if _selected_mode == "HIDDEN_CAPTURE_FLAG":
+		_selected_ctf_player_select_pct = 100
+		_selected_ctf_flag_move_reveals = true
+	map_row.visible = not _is_capture_flag_mode(mode_id)
+	ctf_settings_row.visible = _is_capture_flag_mode(mode_id)
+	ctf_select_row.visible = _selected_mode != "HIDDEN_CAPTURE_FLAG"
+	ctf_reveal_row.visible = _selected_mode != "HIDDEN_CAPTURE_FLAG"
+	_sync_button_states()
 	_refresh_summary()
 
 func _select_map_count(count: int) -> void:
 	_selected_map_count = count
+	_sync_button_states()
 	_refresh_summary()
 
 func _select_price(price: int) -> void:
 	_selected_price = price
 	_free_roll = price <= 0
+	_sync_button_states()
+	_refresh_summary()
+
+func _select_ctf_player_select_pct(pct: int) -> void:
+	if _selected_mode == "HIDDEN_CAPTURE_FLAG":
+		_selected_ctf_player_select_pct = 100
+		_sync_button_states()
+		_refresh_summary()
+		return
+	_selected_ctf_player_select_pct = clampi(pct, 0, 100)
+	_sync_button_states()
+	_refresh_summary()
+
+func _select_ctf_move_count(move_count: int) -> void:
+	_selected_ctf_flag_move_count_max = maxi(0, move_count)
+	_sync_button_states()
+	_refresh_summary()
+
+func _select_ctf_reveal_on_move(reveal_on_move: bool) -> void:
+	if _selected_mode == "HIDDEN_CAPTURE_FLAG":
+		_selected_ctf_flag_move_reveals = true
+		_sync_button_states()
+		_refresh_summary()
+		return
+	_selected_ctf_flag_move_reveals = reveal_on_move
+	_sync_button_states()
 	_refresh_summary()
 
 func _refresh_summary() -> void:
 	var price_text := "Free Roll" if _free_roll else "$%d Entry" % _selected_price
+	if _is_capture_flag_mode(_selected_mode):
+		var reveal_text := "Reveal on Move" if _selected_ctf_flag_move_reveals else "Keep Hidden"
+		var selection_text := "Player Picks Flag" if _selected_mode == "HIDDEN_CAPTURE_FLAG" else "%d%% Player Pick" % _selected_ctf_player_select_pct
+		summary_label.text = "%s | %s | %d Moves | %s | %s" % [
+			_mode_label(_selected_mode),
+			selection_text,
+			_selected_ctf_flag_move_count_max,
+			reveal_text,
+			price_text
+		]
+		return
 	summary_label.text = "%s | %d Maps | %s" % [_mode_label(_selected_mode), _selected_map_count, price_text]
 
 func _mode_label(mode_id: String) -> String:
@@ -156,7 +262,14 @@ func _is_capture_flag_mode(mode_id: String) -> bool:
 
 func _on_confirm_pressed() -> void:
 	var lobby := preload("res://scenes/ui/VsLobby.tscn").instantiate()
-	lobby.configure(_selected_mode, _selected_map_count, _selected_price, _free_roll)
+	var options: Dictionary = {}
+	if _is_capture_flag_mode(_selected_mode):
+		options["ctf_flag_selection_mode"] = "player_select" if _selected_mode == "HIDDEN_CAPTURE_FLAG" else "weighted"
+		options["ctf_player_select_pct"] = 100 if _selected_mode == "HIDDEN_CAPTURE_FLAG" else _selected_ctf_player_select_pct
+		options["ctf_randomize_flag_hive"] = true
+		options["ctf_flag_move_count_max"] = _selected_ctf_flag_move_count_max
+		options["ctf_flag_move_reveals"] = true if _selected_mode == "HIDDEN_CAPTURE_FLAG" else _selected_ctf_flag_move_reveals
+	lobby.configure(_selected_mode, _selected_map_count, _selected_price, _free_roll, options)
 	lobby.closed.connect(func():
 		lobby.queue_free()
 		visible = true
@@ -177,6 +290,10 @@ func _apply_static_fonts() -> void:
 	_apply_font(back_button, _font_regular, 14)
 	_apply_font(mode_label, _font_semibold, 14)
 	_apply_font(map_label, _font_semibold, 14)
+	_apply_font(ctf_label, _font_semibold, 14)
+	_apply_font(ctf_select_prompt, _font_regular, 13)
+	_apply_font(ctf_move_prompt, _font_regular, 13)
+	_apply_font(ctf_reveal_prompt, _font_regular, 13)
 	_apply_font(price_label, _font_semibold, 14)
 	_apply_font(summary_label, _font_regular, 14)
 	_apply_font(confirm_button, _font_semibold, 14)
@@ -215,3 +332,29 @@ func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
 	node.add_theme_font_override("font", _font_free_roll_atlas)
 	node.add_theme_font_size_override("font_size", maxi(1, size))
 	return true
+
+func _sync_button_states() -> void:
+	for mode_id in _mode_buttons.keys():
+		var button := _mode_buttons.get(mode_id) as BaseButton
+		if button != null:
+			button.button_pressed = str(mode_id) == _selected_mode
+	for count in _map_buttons.keys():
+		var button := _map_buttons.get(count) as BaseButton
+		if button != null:
+			button.button_pressed = int(count) == _selected_map_count
+	for price in _price_buttons.keys():
+		var button := _price_buttons.get(price) as BaseButton
+		if button != null:
+			button.button_pressed = int(price) == _selected_price
+	for pct in _ctf_select_pct_buttons.keys():
+		var button := _ctf_select_pct_buttons.get(pct) as BaseButton
+		if button != null:
+			button.button_pressed = int(pct) == _selected_ctf_player_select_pct
+	for move_count in _ctf_move_count_buttons.keys():
+		var button := _ctf_move_count_buttons.get(move_count) as BaseButton
+		if button != null:
+			button.button_pressed = int(move_count) == _selected_ctf_flag_move_count_max
+	for reveal_key in _ctf_reveal_buttons.keys():
+		var button := _ctf_reveal_buttons.get(reveal_key) as BaseButton
+		if button != null:
+			button.button_pressed = bool(reveal_key) == _selected_ctf_flag_move_reveals

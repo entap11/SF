@@ -6,10 +6,12 @@ signal hive_hovered(hive_id: int, global_pos: Vector2)
 signal hive_unhovered(hive_id: int)
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const HiveVisual := preload("res://scripts/hive/hive_visual.gd")
 const SELECTOR_PULSE_SHADER := preload("res://shaders/selector_pulse.gdshader")
 const SELECTOR_SMALL_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_small.tres"
 const SELECTOR_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_medium.tres"
 const SELECTOR_LARGE_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_large.tres"
+const FLAG_BADGE_FONT_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
 
 const SELECTOR_STATE_INACTIVE := 0
 const SELECTOR_STATE_HOVER := 1
@@ -72,7 +74,8 @@ var _selector_mat: ShaderMaterial = null
 var _selector_state: int = SELECTOR_STATE_INACTIVE
 var _last_kind: String = ""
 var _sim_events: Node = null
-var _flag_badge: Label = null
+var _flag_badge: Panel = null
+var _flag_badge_label: Label = null
 
 static func lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return center_world + Vector2(0.0, -LANE_ANCHOR_Y_PX)
@@ -217,18 +220,24 @@ func apply_render(owner_id_in: int, power_in: int, radius_in: float, color: Colo
 	_update_flag_badge_layout()
 
 func set_capture_flag_marker(visible: bool, flag_owner_id: int = 0, hidden: bool = false) -> void:
-	var badge: Label = _ensure_flag_badge()
+	var badge: Panel = _ensure_flag_badge()
 	if badge == null:
 		return
 	badge.visible = visible
 	if not visible:
+		badge.scale = Vector2.ONE
+		_update_fallback_process()
 		return
-	badge.text = "FLAG"
-	badge.modulate = Color(1.0, 0.92, 0.35, 1.0)
-	badge.tooltip_text = "Hidden Flag" if hidden else "Flag Hive"
+	var accent: Color = HiveVisual._team_color_for_player(flag_owner_id) if flag_owner_id > 0 else Color(1.0, 0.92, 0.35, 1.0)
+	_style_flag_badge(accent)
+	if _flag_badge_label != null:
+		_flag_badge_label.text = "FLAG"
+	var tooltip_text: String = "Hidden Flag" if hidden else "Flag Hive"
 	if flag_owner_id > 0:
-		badge.tooltip_text += " P%d" % flag_owner_id
+		tooltip_text += " P%d" % flag_owner_id
+	badge.tooltip_text = tooltip_text
 	_update_flag_badge_layout()
+	_update_fallback_process()
 
 func set_selected(on: bool, color: Color) -> void:
 	_selected = on
@@ -246,11 +255,15 @@ func set_activated(on: bool) -> void:
 	_activated = on
 	_refresh_selector_state()
 	_update_selector_visual()
+	_update_fallback_process()
 
 func _process(delta: float) -> void:
-	if not (_selected or _hovered):
+	if not (_selected or _hovered or _activated or (_flag_badge != null and _flag_badge.visible)):
 		return
 	_sel_t += delta * 3.0
+	if _flag_badge != null and _flag_badge.visible:
+		var badge_pulse: float = 1.0 + (0.045 * (0.5 + 0.5 * sin(_sel_t * 1.4)))
+		_flag_badge.scale = Vector2(badge_pulse, badge_pulse)
 	queue_redraw()
 
 func _draw() -> void:
@@ -322,26 +335,61 @@ func _get_sim_events() -> Node:
 	_sim_events = tree.get_first_node_in_group("sim_events")
 	return _sim_events
 
-func _ensure_flag_badge() -> Label:
+func _style_flag_badge(accent: Color) -> void:
+	if _flag_badge == null or not is_instance_valid(_flag_badge):
+		return
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.03, 0.05, 0.09, 0.94)
+	panel_style.border_color = accent.lightened(0.12)
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel_style.corner_radius_top_left = 10
+	panel_style.corner_radius_top_right = 10
+	panel_style.corner_radius_bottom_left = 10
+	panel_style.corner_radius_bottom_right = 10
+	panel_style.shadow_color = Color(0.0, 0.0, 0.0, 0.45)
+	panel_style.shadow_size = 3
+	_flag_badge.add_theme_stylebox_override("panel", panel_style)
+	if _flag_badge_label != null:
+		_flag_badge_label.add_theme_color_override("font_color", accent.lightened(0.20))
+
+func _ensure_flag_badge() -> Panel:
 	if _flag_badge != null and is_instance_valid(_flag_badge):
 		return _flag_badge
-	var badge := Label.new()
+	var badge := Panel.new()
 	badge.name = "FlagBadge"
 	badge.visible = false
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	badge.size = Vector2(72.0, 20.0)
+	badge.size = Vector2(82.0, 28.0)
+	badge.pivot_offset = badge.size * 0.5
 	add_child(badge)
+	var label := Label.new()
+	label.name = "FlagText"
+	label.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.text = "FLAG"
+	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("outline_size", 3)
+	if ResourceLoader.exists(FLAG_BADGE_FONT_PATH):
+		var badge_font: Resource = load(FLAG_BADGE_FONT_PATH)
+		if badge_font is Font:
+			label.add_theme_font_override("font", badge_font as Font)
+	badge.add_child(label)
 	_flag_badge = badge
+	_flag_badge_label = label
+	_style_flag_badge(Color(1.0, 0.92, 0.35, 1.0))
 	_update_flag_badge_layout()
 	return _flag_badge
 
 func _update_flag_badge_layout() -> void:
 	if _flag_badge == null or not is_instance_valid(_flag_badge):
 		return
-	var y_offset: float = -maxf(radius_px, MIN_RENDER_RADIUS_PX) - 30.0
-	_flag_badge.position = Vector2(-36.0, y_offset)
+	var y_offset: float = -maxf(radius_px, MIN_RENDER_RADIUS_PX) - 34.0
+	_flag_badge.position = Vector2(maxf(12.0, radius_px * 0.55), y_offset)
 
 func _ensure_selector_sprite() -> void:
 	if _selector_sprite != null and is_instance_valid(_selector_sprite):
@@ -461,7 +509,7 @@ func _apply_selector_shader_state(state: int) -> void:
 
 func _update_fallback_process() -> void:
 	var needs_fallback := _selector_sprite == null or _selector_sprite.texture == null
-	set_process(needs_fallback and (_selected or _hovered))
+	set_process((needs_fallback and (_selected or _hovered or _activated)) or (_flag_badge != null and _flag_badge.visible))
 
 func _on_mouse_entered() -> void:
 	_hovered = true

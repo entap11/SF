@@ -44,6 +44,33 @@ text = "Map Count"
 
 [node name="MapButtons" type="HBoxContainer" parent="Panel/VBox/MapRow"]
 
+[node name="CtfSettingsRow" type="VBoxContainer" parent="Panel/VBox"]
+visible = false
+
+[node name="CtfLabel" type="Label" parent="Panel/VBox/CtfSettingsRow"]
+text = "CTF Setup"
+
+[node name="CtfSelectRow" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
+
+[node name="CtfSelectPrompt" type="Label" parent="Panel/VBox/CtfSettingsRow/CtfSelectRow"]
+text = "Player Pick"
+
+[node name="CtfSelectButtons" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow/CtfSelectRow"]
+
+[node name="CtfMoveRow" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
+
+[node name="CtfMovePrompt" type="Label" parent="Panel/VBox/CtfSettingsRow/CtfMoveRow"]
+text = "Flag Moves"
+
+[node name="CtfMoveButtons" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow/CtfMoveRow"]
+
+[node name="CtfRevealRow" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
+
+[node name="CtfRevealPrompt" type="Label" parent="Panel/VBox/CtfSettingsRow/CtfRevealRow"]
+text = "Move Reveal"
+
+[node name="CtfRevealButtons" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow/CtfRevealRow"]
+
 [node name="PriceRow" type="VBoxContainer" parent="Panel/VBox"]
 
 [node name="PriceLabel" type="Label" parent="Panel/VBox/PriceRow"]

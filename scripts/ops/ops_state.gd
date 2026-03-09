@@ -103,6 +103,7 @@ var _remote_replication_apply_depth: int = 0
 var victory_mode: String = VICTORY_MODE_CONQUEST
 var victory_rules: Dictionary = {}
 var capture_flag_state: Dictionary = {}
+var _capture_flag_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func get_state() -> GameState:
 	return state
@@ -393,12 +394,39 @@ func is_capture_flag_mode() -> bool:
 	return get_victory_mode() == VICTORY_MODE_CAPTURE_FLAG
 
 func configure_capture_flag_mode(options: Dictionary = {}) -> Dictionary:
+	var hidden_flag: bool = bool(options.get("hidden_flag", false))
+	if int(options.get("flag_selection_seed", 0)) != 0:
+		_capture_flag_rng.seed = int(options.get("flag_selection_seed", 0))
+	else:
+		_capture_flag_rng.randomize()
+	var default_selection_mode: String = "player_select" if hidden_flag else "auto_random"
+	var selection_mode: String = str(options.get("flag_selection_mode", default_selection_mode)).strip_edges().to_lower()
+	var player_select_pct: int = clampi(int(options.get("flag_selection_player_select_pct", 100 if hidden_flag else 0)), 0, 100)
+	if hidden_flag:
+		selection_mode = "player_select"
+		player_select_pct = 100
+	if selection_mode == "weighted" or selection_mode == "percent":
+		if player_select_pct >= 100:
+			selection_mode = "player_select"
+		elif player_select_pct <= 0:
+			selection_mode = "auto_random"
+		else:
+			var roll: int = _capture_flag_rng.randi_range(1, 100)
+			selection_mode = "player_select" if roll <= player_select_pct else "auto_random"
+			options["flag_selection_roll"] = roll
 	var rules: Dictionary = {
-		"hidden_flag": bool(options.get("hidden_flag", false)),
+		"hidden_flag": hidden_flag,
 		"fog_of_war_enabled": bool(options.get("fog_of_war_enabled", false)),
 		"flag_move_count_max": maxi(0, int(options.get("flag_move_count_max", 0))),
 		"flag_move_reveals": bool(options.get("flag_move_reveals", true)),
-		"flag_move_production_lock_sec": maxf(0.0, float(options.get("flag_move_production_lock_sec", 0.0)))
+		"flag_move_production_lock_sec": maxf(0.0, float(options.get("flag_move_production_lock_sec", 0.0))),
+		"flag_selection_mode": selection_mode,
+		"flag_selection_player_select_pct": player_select_pct,
+		"flag_selection_random_mirrored": bool(options.get("flag_selection_random_mirrored", true)),
+		"flag_selection_owner_id": clampi(int(options.get("flag_selection_owner_id", 1)), 1, 4),
+		"flag_selection_pending": false,
+		"flag_selection_roll": int(options.get("flag_selection_roll", 0)),
+		"flag_selection_seed": int(options.get("flag_selection_seed", 0))
 	}
 	set_victory_mode(VICTORY_MODE_CAPTURE_FLAG, rules)
 	if state != null:
@@ -421,6 +449,159 @@ func get_capture_flag_hive_id(owner_id: int) -> int:
 	var flag_state: Dictionary = get_capture_flag_for_owner(owner_id)
 	return int(flag_state.get("hive_id", 0))
 
+func is_capture_flag_selection_pending(owner_id: int = 0) -> bool:
+	if not is_capture_flag_mode():
+		return false
+	if not bool(victory_rules.get("flag_selection_pending", false)):
+		return false
+	if owner_id <= 0:
+		return true
+	return int(victory_rules.get("flag_selection_owner_id", 0)) == int(owner_id)
+
+func auto_complete_capture_flag_selection(owner_id: int = 0) -> Dictionary:
+	if not is_capture_flag_mode():
+		return {"ok": false, "reason": "victory_mode_not_capture_flag"}
+	if not is_capture_flag_selection_pending():
+		return {"ok": false, "reason": "selection_not_pending"}
+	var selection_owner_id: int = int(victory_rules.get("flag_selection_owner_id", 0))
+	if owner_id > 0:
+		selection_owner_id = owner_id
+	if selection_owner_id <= 0:
+		selection_owner_id = 1
+	var owners: Array[int] = _active_human_owners_from_state()
+	var assigned: Dictionary = {}
+	if owners.size() == 2:
+		var fallback_pair: Dictionary = {}
+		if bool(victory_rules.get("hidden_flag", false)):
+			fallback_pair = _auto_capture_flag_hidden_pair_for_owners(owners)
+		else:
+			fallback_pair = _auto_capture_flag_pair_for_owners(
+				owners,
+				bool(victory_rules.get("flag_selection_random_mirrored", true))
+			)
+		for owner_any in fallback_pair.keys():
+			var resolved_owner_id: int = int(owner_any)
+			var hive_id: int = int(fallback_pair.get(owner_any, 0))
+			if hive_id <= 0:
+				continue
+			var result: Dictionary = set_capture_flag_hive(resolved_owner_id, hive_id, {
+				"auto_assigned": true,
+				"timeout_auto_selected": true,
+				"mirrored_pair": not bool(victory_rules.get("hidden_flag", false)),
+				"balanced_pair": bool(victory_rules.get("hidden_flag", false)),
+				"selection_timeout_owner_id": selection_owner_id
+			})
+			if bool(result.get("ok", false)):
+				assigned[resolved_owner_id] = int(result.get("hive_id", 0))
+	else:
+		var hive_id_single: int = _auto_capture_flag_hive_for_owner(selection_owner_id)
+		if hive_id_single > 0:
+			var single_result: Dictionary = set_capture_flag_hive(selection_owner_id, hive_id_single, {
+				"auto_assigned": true,
+				"timeout_auto_selected": true,
+				"selection_timeout_owner_id": selection_owner_id
+			})
+			if bool(single_result.get("ok", false)):
+				assigned[selection_owner_id] = int(single_result.get("hive_id", 0))
+	if assigned.is_empty():
+		return {"ok": false, "reason": "selection_timeout_unresolved", "owner_id": selection_owner_id}
+	victory_rules["flag_selection_pending"] = false
+	SFLog.info("CAPTURE_FLAG_SELECTION_TIMEOUT", {
+		"owner_id": selection_owner_id,
+		"assigned": assigned
+	})
+	return {"ok": true, "assigned": assigned.duplicate(true), "owner_id": selection_owner_id}
+
+func request_capture_flag_selection(owner_id: int, hive_id: int) -> Dictionary:
+	if not is_capture_flag_mode():
+		return {"ok": false, "reason": "victory_mode_not_capture_flag"}
+	var selection_owner_id: int = int(victory_rules.get("flag_selection_owner_id", 0))
+	if selection_owner_id > 0 and owner_id != selection_owner_id:
+		return {"ok": false, "reason": "selection_owner_mismatch", "owner_id": owner_id, "selection_owner_id": selection_owner_id}
+	if not is_capture_flag_selection_pending(owner_id):
+		return {"ok": false, "reason": "selection_not_pending", "owner_id": owner_id}
+	var owners: Array[int] = _active_human_owners_from_state()
+	var assigned: Dictionary = {}
+	if owners.size() == 2:
+		var other_owner_id: int = int(owners[0]) if int(owners[1]) == owner_id else int(owners[1])
+		var other_hive_id: int = 0
+		if bool(victory_rules.get("hidden_flag", false)):
+			other_hive_id = _balanced_hidden_capture_flag_partner_for_hive(owner_id, hive_id, other_owner_id)
+			if other_hive_id <= 0:
+				return {"ok": false, "reason": "balanced_hive_not_found", "owner_id": owner_id, "hive_id": hive_id}
+		else:
+			other_hive_id = _mirrored_capture_flag_partner_for_hive(owner_id, hive_id, other_owner_id)
+			if other_hive_id <= 0:
+				return {"ok": false, "reason": "mirrored_hive_not_found", "owner_id": owner_id, "hive_id": hive_id}
+		var primary_result: Dictionary = set_capture_flag_hive(owner_id, hive_id, {
+			"auto_assigned": false,
+			"player_selected": true,
+			"mirrored_pair": not bool(victory_rules.get("hidden_flag", false)),
+			"balanced_pair": bool(victory_rules.get("hidden_flag", false))
+		})
+		if not bool(primary_result.get("ok", false)):
+			return primary_result
+		var mirror_result: Dictionary = set_capture_flag_hive(other_owner_id, other_hive_id, {
+			"auto_assigned": false,
+			"player_selected": false,
+			"mirrored_pair": not bool(victory_rules.get("hidden_flag", false)),
+			"balanced_pair": bool(victory_rules.get("hidden_flag", false)),
+			"mirrored_from_owner_id": owner_id,
+			"mirrored_from_hive_id": int(hive_id)
+		})
+		if not bool(mirror_result.get("ok", false)):
+			return mirror_result
+		assigned[owner_id] = int(primary_result.get("hive_id", 0))
+		assigned[other_owner_id] = int(mirror_result.get("hive_id", 0))
+	else:
+		var single_result: Dictionary = set_capture_flag_hive(owner_id, hive_id, {
+			"auto_assigned": false,
+			"player_selected": true
+		})
+		if not bool(single_result.get("ok", false)):
+			return single_result
+		assigned[owner_id] = int(single_result.get("hive_id", 0))
+	victory_rules["flag_selection_pending"] = false
+	return {"ok": true, "assigned": assigned.duplicate(true)}
+
+func request_capture_flag_move(owner_id: int, hive_id: int) -> Dictionary:
+	if not is_capture_flag_mode():
+		return {"ok": false, "reason": "victory_mode_not_capture_flag"}
+	if not bool(victory_rules.get("hidden_flag", false)):
+		return {"ok": false, "reason": "flag_move_disabled_for_standard_ctf"}
+	if match_phase != MatchPhase.RUNNING:
+		return {"ok": false, "reason": "match_not_running"}
+	var owner_flag: Dictionary = capture_flag_state.get(owner_id, {}) as Dictionary
+	if owner_flag.is_empty():
+		return {"ok": false, "reason": "flag_not_assigned", "owner_id": owner_id}
+	var current_hive_id: int = int(owner_flag.get("hive_id", 0))
+	if hive_id == current_hive_id:
+		return {"ok": false, "reason": "flag_already_on_hive", "hive_id": hive_id}
+	var moves_remaining: int = int(owner_flag.get("moves_remaining", int(victory_rules.get("flag_move_count_max", 0))))
+	if moves_remaining <= 0:
+		return {"ok": false, "reason": "no_moves_remaining", "owner_id": owner_id}
+	var set_result: Dictionary = set_capture_flag_hive(owner_id, hive_id, {
+		"auto_assigned": false,
+		"player_selected": false,
+		"revealed_to_all": bool(victory_rules.get("flag_move_reveals", true)),
+		"moved": true,
+		"moved_from_hive_id": current_hive_id,
+		"moved_at_unix": int(Time.get_unix_time_from_system()),
+		"moves_used": int(owner_flag.get("moves_used", 0)) + 1,
+		"moves_remaining": moves_remaining - 1,
+		"production_lock_until_unix": int(Time.get_unix_time_from_system() + int(ceil(float(victory_rules.get("flag_move_production_lock_sec", 0.0)))))
+	})
+	if not bool(set_result.get("ok", false)):
+		return set_result
+	SFLog.info("CAPTURE_FLAG_MOVED", {
+		"owner_id": owner_id,
+		"from_hive_id": current_hive_id,
+		"to_hive_id": hive_id,
+		"moves_remaining": moves_remaining - 1,
+		"revealed_to_all": bool(victory_rules.get("flag_move_reveals", true))
+	})
+	return set_result
+
 func set_capture_flag_hive(owner_id: int, hive_id: int, metadata: Dictionary = {}) -> Dictionary:
 	if not is_capture_flag_mode():
 		return {"ok": false, "reason": "victory_mode_not_capture_flag"}
@@ -438,14 +619,17 @@ func set_capture_flag_hive(owner_id: int, hive_id: int, metadata: Dictionary = {
 			"owner_id": seat_id,
 			"actual_owner_id": int(hive.owner_id)
 		}
+	var existing_flag: Dictionary = capture_flag_state.get(seat_id, {}) as Dictionary
 	var flag_entry: Dictionary = {
 		"owner_id": seat_id,
 		"hive_id": int(hive_id),
 		"hidden": bool(victory_rules.get("hidden_flag", false)),
 		"revealed_to_all": bool(metadata.get("revealed_to_all", false)),
-		"moves_remaining": maxi(0, int(victory_rules.get("flag_move_count_max", 0))),
+		"moves_remaining": int(metadata.get("moves_remaining", existing_flag.get("moves_remaining", maxi(0, int(victory_rules.get("flag_move_count_max", 0)))))),
 		"assigned_at_unix": int(Time.get_unix_time_from_system())
 	}
+	if not existing_flag.is_empty():
+		flag_entry["assigned_at_unix"] = int(existing_flag.get("assigned_at_unix", flag_entry.get("assigned_at_unix", 0)))
 	for key_any in metadata.keys():
 		flag_entry[str(key_any)] = metadata.get(key_any)
 	capture_flag_state[seat_id] = flag_entry
@@ -462,10 +646,29 @@ func auto_assign_capture_flags(flag_hives_any: Variant = {}, map_data_any: Varia
 	var explicit: Dictionary = _normalize_capture_flag_assignments(flag_hives_any)
 	if explicit.is_empty() and typeof(map_data_any) == TYPE_DICTIONARY:
 		explicit = _normalize_capture_flag_assignments((map_data_any as Dictionary).get("ctf_flag_hives", {}))
+	if bool(victory_rules.get("hidden_flag", false)) and str(victory_rules.get("flag_selection_mode", "")).strip_edges().to_lower() == "player_select":
+		explicit.clear()
+	capture_flag_state.clear()
 	var assigned: Dictionary = {}
 	var owners: Array[int] = _active_human_owners_from_state()
+	if explicit.is_empty() and str(victory_rules.get("flag_selection_mode", "auto_random")) == "player_select":
+		victory_rules["flag_selection_pending"] = true
+		return {
+			"ok": true,
+			"assigned": {},
+			"pending_selection": true,
+			"owner_id": int(victory_rules.get("flag_selection_owner_id", 0))
+		}
+	victory_rules["flag_selection_pending"] = false
 	if explicit.is_empty() and owners.size() == 2:
-		var mirrored_assignments: Dictionary = _auto_capture_flag_pair_for_owners(owners)
+		var mirrored_assignments: Dictionary = {}
+		if bool(victory_rules.get("hidden_flag", false)):
+			mirrored_assignments = _auto_capture_flag_hidden_pair_for_owners(owners)
+		else:
+			mirrored_assignments = _auto_capture_flag_pair_for_owners(
+				owners,
+				bool(victory_rules.get("flag_selection_random_mirrored", true))
+			)
 		for owner_any in mirrored_assignments.keys():
 			var owner_id: int = int(owner_any)
 			var hive_id: int = int(mirrored_assignments.get(owner_any, 0))
@@ -473,7 +676,8 @@ func auto_assign_capture_flags(flag_hives_any: Variant = {}, map_data_any: Varia
 				continue
 			var set_pair_result: Dictionary = set_capture_flag_hive(owner_id, hive_id, {
 				"auto_assigned": true,
-				"mirrored_pair": true
+				"mirrored_pair": not bool(victory_rules.get("hidden_flag", false)),
+				"balanced_pair": bool(victory_rules.get("hidden_flag", false))
 			})
 			if bool(set_pair_result.get("ok", false)):
 				assigned[owner_id] = int(set_pair_result.get("hive_id", 0))
@@ -566,12 +770,101 @@ func _auto_capture_flag_hive_for_owner(owner_id: int) -> int:
 			best_hive_id = int(hive.id)
 	return best_hive_id
 
-func _auto_capture_flag_pair_for_owners(owners: Array[int]) -> Dictionary:
+func _auto_capture_flag_pair_for_owners(owners: Array[int], randomize: bool = false) -> Dictionary:
 	var out: Dictionary = {}
-	if state == null or owners.size() != 2:
+	if owners.size() != 2:
+		return out
+	var candidates: Array[Dictionary] = _capture_flag_pair_candidates(int(owners[0]), int(owners[1]))
+	if candidates.is_empty():
+		return out
+	var chosen_pair: Dictionary = {}
+	if randomize:
+		var pool: Array[Dictionary] = []
+		for candidate in candidates:
+			var symmetry_error: float = float(candidate.get("symmetry_error", INF))
+			var radial_error: float = float(candidate.get("radial_error", INF))
+			if symmetry_error <= 0.001 and radial_error <= 0.001:
+				pool.append(candidate)
+		if pool.is_empty():
+			for i in range(mini(candidates.size(), 4)):
+				pool.append(candidates[i])
+		var pick_index: int = _capture_flag_rng.randi_range(0, maxi(pool.size() - 1, 0))
+		chosen_pair = (pool[pick_index].get("pair", {}) as Dictionary).duplicate(true)
+	else:
+		chosen_pair = (candidates[0].get("pair", {}) as Dictionary).duplicate(true)
+	return chosen_pair
+
+func _auto_capture_flag_hidden_pair_for_owners(owners: Array[int]) -> Dictionary:
+	var out: Dictionary = {}
+	if owners.size() != 2:
 		return out
 	var owner_a: int = int(owners[0])
 	var owner_b: int = int(owners[1])
+	var candidates: Array[Dictionary] = _balanced_hidden_capture_flag_pair_candidates(owner_a, owner_b)
+	if candidates.is_empty():
+		return _auto_capture_flag_pair_for_owners(owners, true)
+	var chosen: Dictionary = _pick_balanced_hidden_capture_flag_pair(candidates)
+	if chosen.is_empty():
+		return out
+	return (chosen.get("pair", {}) as Dictionary).duplicate(true)
+
+func _mirrored_capture_flag_partner_for_hive(source_owner_id: int, source_hive_id: int, target_owner_id: int) -> int:
+	var candidates: Array[Dictionary] = _capture_flag_pair_candidates(source_owner_id, target_owner_id, source_hive_id)
+	if candidates.is_empty():
+		return 0
+	var pair: Dictionary = candidates[0].get("pair", {}) as Dictionary
+	return int(pair.get(target_owner_id, 0))
+
+func _balanced_hidden_capture_flag_partner_for_hive(source_owner_id: int, source_hive_id: int, target_owner_id: int) -> int:
+	var candidates: Array[Dictionary] = _balanced_hidden_capture_flag_pair_candidates(source_owner_id, target_owner_id, source_hive_id)
+	if candidates.is_empty():
+		return _mirrored_capture_flag_partner_for_hive(source_owner_id, source_hive_id, target_owner_id)
+	var pair: Dictionary = _pick_balanced_hidden_capture_flag_pair(candidates).get("pair", {}) as Dictionary
+	return int(pair.get(target_owner_id, 0))
+
+func _balanced_hidden_capture_flag_pair_candidates(owner_a: int, owner_b: int, preferred_owner_a_hive_id: int = 0) -> Array[Dictionary]:
+	var candidates: Array[Dictionary] = _capture_flag_pair_candidates(owner_a, owner_b, preferred_owner_a_hive_id)
+	if candidates.is_empty():
+		return candidates
+	var filtered: Array[Dictionary] = []
+	for candidate in candidates:
+		if float(candidate.get("symmetry_error", 0.0)) > 0.001:
+			filtered.append(candidate)
+	if filtered.is_empty():
+		filtered = candidates.duplicate(true)
+	filtered.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_radial: float = float(a.get("radial_error", INF))
+		var b_radial: float = float(b.get("radial_error", INF))
+		if not is_equal_approx(a_radial, b_radial):
+			return a_radial < b_radial
+		var a_outward: float = float(a.get("outward", 0.0))
+		var b_outward: float = float(b.get("outward", 0.0))
+		if not is_equal_approx(a_outward, b_outward):
+			return a_outward > b_outward
+		return float(a.get("symmetry_error", 0.0)) > float(b.get("symmetry_error", 0.0))
+	)
+	return filtered
+
+func _pick_balanced_hidden_capture_flag_pair(candidates: Array[Dictionary]) -> Dictionary:
+	if candidates.is_empty():
+		return {}
+	var pool: Array[Dictionary] = []
+	var best_radial: float = float(candidates[0].get("radial_error", INF))
+	for candidate in candidates:
+		if float(candidate.get("radial_error", INF)) <= best_radial + 0.001:
+			pool.append(candidate)
+	if pool.is_empty():
+		for i in range(mini(candidates.size(), 4)):
+			pool.append(candidates[i])
+	var pick_index: int = _capture_flag_rng.randi_range(0, maxi(pool.size() - 1, 0))
+	return (pool[pick_index] as Dictionary).duplicate(true)
+
+func _capture_flag_pair_candidates(owner_a: int, owner_b: int, preferred_owner_a_hive_id: int = 0) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if state == null:
+		return out
+	var owner_a_id: int = int(owner_a)
+	var owner_b_id: int = int(owner_b)
 	var hives_a: Array[HiveData] = []
 	var hives_b: Array[HiveData] = []
 	for hive_any in state.hives:
@@ -579,17 +872,16 @@ func _auto_capture_flag_pair_for_owners(owners: Array[int]) -> Dictionary:
 		if hive == null:
 			continue
 		var owner_id: int = int(hive.owner_id)
-		if owner_id == owner_a:
+		if owner_id == owner_a_id:
 			hives_a.append(hive)
-		elif owner_id == owner_b:
+		elif owner_id == owner_b_id:
 			hives_b.append(hive)
 	if hives_a.is_empty() or hives_b.is_empty():
 		return out
 	var center: Vector2 = _capture_flag_map_center()
-	var best_pair: Dictionary = {}
-	var best_score: float = INF
-	var best_outward: float = -INF
 	for hive_a in hives_a:
+		if preferred_owner_a_hive_id > 0 and int(hive_a.id) != preferred_owner_a_hive_id:
+			continue
 		var pos_a: Vector2 = Vector2(float(hive_a.grid_pos.x), float(hive_a.grid_pos.y))
 		var mirror_a: Vector2 = (center * 2.0) - pos_a
 		var dist_a: float = pos_a.distance_squared_to(center)
@@ -600,16 +892,24 @@ func _auto_capture_flag_pair_for_owners(owners: Array[int]) -> Dictionary:
 			var radial_error: float = absf(dist_a - dist_b)
 			var score: float = symmetry_error + (radial_error * 0.10)
 			var outward: float = minf(dist_a, dist_b)
-			if score < best_score - 0.0001 or (is_equal_approx(score, best_score) and outward > best_outward):
-				best_score = score
-				best_outward = outward
-				best_pair = {
-					owner_a: int(hive_a.id),
-					owner_b: int(hive_b.id)
-				}
-	if best_pair.is_empty():
-		return out
-	return best_pair.duplicate(true)
+			out.append({
+				"pair": {
+					owner_a_id: int(hive_a.id),
+					owner_b_id: int(hive_b.id)
+				},
+				"score": score,
+				"symmetry_error": symmetry_error,
+				"radial_error": radial_error,
+				"outward": outward
+			})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_score: float = float(a.get("score", INF))
+		var b_score: float = float(b.get("score", INF))
+		if not is_equal_approx(a_score, b_score):
+			return a_score < b_score
+		return float(a.get("outward", 0.0)) > float(b.get("outward", 0.0))
+	)
+	return out
 
 func _capture_flag_map_center() -> Vector2:
 	if state == null or state.hives.is_empty():

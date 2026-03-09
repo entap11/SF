@@ -10,7 +10,8 @@ const SANDBOX_ALLOWED_MAP_IDS: Array[String] = [
 	"MAP_nomansland__SN6__1p",
 	"MAP_nomansland__GBASE__1p",
 	"MAP_nomansland__GBASE__BR2__TR2__1p",
-	"MAP_nomansland__GBASE__TB__1p"
+	"MAP_nomansland__GBASE__TB__1p",
+	"MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each"
 ]
 const ALLOWED_MODES: Array[String] = ["1p", "2p", "3p", "4p"]
 

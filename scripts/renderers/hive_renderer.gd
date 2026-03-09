@@ -449,6 +449,8 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 				int(hd.get("capture_flag_owner_id", 0)),
 				bool(hd.get("capture_flag_hidden", false))
 			)
+		if node.has_method("set_activated"):
+			node.call("set_activated", bool(hd.get("capture_flag_move_target", false)))
 		if node.has_method("set_selected"):
 			node.call("set_selected", id == _selected_hive_id, _selected_color)
 		if spawned:

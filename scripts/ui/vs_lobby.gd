@@ -21,6 +21,15 @@ const DEBUG_AUTO_FILL_SEC := 5
 const SHELL_SCENE_PATH := "res://scenes/Shell.tscn"
 const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako", "Drift", "Pax"]
 const DEFAULT_STAGE_MAP_IDS: Array[String] = ["MAP_TEST"]
+const CTF_STAGE_MAP_IDS: Array[String] = [
+	"MAP_nomansland__SBASE__1p",
+	"MAP_nomansland__SN6__1p",
+	"MAP_nomansland__GBASE__1p",
+	"MAP_nomansland__GBASE__BR2__TR2__1p",
+	"MAP_nomansland__GBASE__TB__1p"
+]
+const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
+const CTF_FLAG_MOVE_COUNT_MAX_DEFAULT: int = 1
 
 @onready var title_label: Label = $Panel/VBox/Header/Title
 @onready var back_button: Button = $Panel/VBox/Header/Back
@@ -569,6 +578,17 @@ func _start_match() -> void:
 	tree.set_meta("vs_remote_profile", _remote_profile_for_tree())
 	for key in _context_meta.keys():
 		tree.set_meta(key, _context_meta[key])
+	if _mode == "CAPTURE_FLAG" or _mode == "HIDDEN_CAPTURE_FLAG":
+		if not tree.has_meta("ctf_flag_selection_mode"):
+			tree.set_meta("ctf_flag_selection_mode", "player_select" if _mode == "HIDDEN_CAPTURE_FLAG" else "weighted")
+		if not tree.has_meta("ctf_player_select_pct"):
+			tree.set_meta("ctf_player_select_pct", 100 if _mode == "HIDDEN_CAPTURE_FLAG" else CTF_PLAYER_SELECT_PCT_DEFAULT)
+		if not tree.has_meta("ctf_randomize_flag_hive"):
+			tree.set_meta("ctf_randomize_flag_hive", true)
+		if not tree.has_meta("ctf_flag_move_count_max"):
+			tree.set_meta("ctf_flag_move_count_max", CTF_FLAG_MOVE_COUNT_MAX_DEFAULT)
+		if not tree.has_meta("ctf_flag_move_reveals"):
+			tree.set_meta("ctf_flag_move_reveals", true)
 	if _mode == "MISS_N_OUT":
 		tree.set_meta("miss_n_out_local_player_id", _local_name)
 		tree.set_meta("miss_n_out_eliminated", false)
@@ -823,6 +843,16 @@ func _sync_join_row_visibility() -> void:
 
 func _resolve_stage_map_paths() -> Array[String]:
 	var resolved: Array[String] = []
+	if _mode == "CAPTURE_FLAG" or _mode == "HIDDEN_CAPTURE_FLAG":
+		for map_id_any in CTF_STAGE_MAP_IDS:
+			var ctf_map_path: String = _resolve_map_path(str(map_id_any))
+			if ctf_map_path.is_empty():
+				continue
+			if resolved.has(ctf_map_path):
+				continue
+			resolved.append(ctf_map_path)
+			if resolved.size() >= _map_count:
+				return resolved
 	var ids: PackedStringArray = _context_map_ids()
 	for map_id in ids:
 		var map_path: String = _resolve_map_path(map_id)

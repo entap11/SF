@@ -107,9 +107,14 @@ const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/Po
 const SHELL_OUTCOME_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/OutcomeOverlay"
 const SHELL_WIN_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/WinOverlay"
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
+const CTF_MOVE_BUTTON_NAME: StringName = &"CaptureFlagMoveButton"
+const CTF_MOVE_BUTTON_FONT_PATH: String = "res://assets/fonts/free_roll_display_v2_font.tres"
+const CTF_MOVE_BUTTON_FALLBACK_FONT_PATH: String = "res://assets/fonts/ChakraPetch-SemiBold.ttf"
 const VS_MODE_STAGE_RACE: String = "STAGE_RACE"
 const VS_MODE_CAPTURE_FLAG: String = "CAPTURE_FLAG"
 const VS_MODE_HIDDEN_CAPTURE_FLAG: String = "HIDDEN_CAPTURE_FLAG"
+const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
+const CTF_SELECTION_GRACE_MS: int = 5000
 const TREE_META_VS_MODE: String = "vs_mode"
 const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
@@ -221,6 +226,10 @@ var _prematch_record_p4: Label = null
 var _prematch_record_h2h: Label = null
 var _prematch_record_teams: Label = null
 var _prematch_record_team_arrows: Label = null
+var _prematch_ctf_panel: Panel = null
+var _prematch_ctf_title: Label = null
+var _prematch_ctf_body: Label = null
+var _ctf_move_button: Button = null
 var _controls_hint_controller: ArenaControlsHintController = ArenaControlsHintController.new()
 var _tutorial_section1_controller: ArenaTutorialSection1Controller = ArenaTutorialSection1Controller.new()
 var _tutorial_section2_controller: ArenaTutorialSection2Controller = ArenaTutorialSection2Controller.new()
@@ -235,6 +244,8 @@ var _prematch_ui_bind_logged: bool = false
 var _prematch_ui_state_logged: bool = false
 var _postmatch_ui_missing_logged: bool = false
 var _match_started: bool = false
+var _ctf_click_consumed: bool = false
+var _ctf_move_armed: bool = false
 var _match_records: MatchRecordsStore = MatchRecordsStore.new()
 var _match_record_committed: bool = false
 var _legacy_tick_fenced_logged: bool = false
@@ -941,6 +952,8 @@ func _begin_prematch() -> void:
 	var prematch_dur_ms: int = OpsState.prematch_duration_ms
 	if prematch_dur_ms <= 0:
 		prematch_dur_ms = OpsState.PREMATCH_DURATION_MS
+	if _capture_flag_selection_pending_for_local():
+		prematch_dur_ms += CTF_SELECTION_GRACE_MS
 	_prematch_remaining_ms_f = float(prematch_dur_ms)
 	OpsState.sim_mutate("Arena._begin_prematch", func() -> void:
 		_audit_ops_write("match_phase", "Arena._begin_prematch")
@@ -996,13 +1009,18 @@ func _configure_special_victory_mode() -> void:
 			OpsState.call("set_victory_mode", "conquest", {})
 		)
 		return
+	var hidden_ctf: bool = vs_mode == VS_MODE_HIDDEN_CAPTURE_FLAG
 	var options: Dictionary = {
-		"hidden_flag": vs_mode == VS_MODE_HIDDEN_CAPTURE_FLAG,
+		"hidden_flag": hidden_ctf,
 		"fog_of_war_enabled": _tree_meta_bool("ctf_fog_of_war_enabled", false),
 		"flag_move_count_max": maxi(0, int(_tree_meta_value("ctf_flag_move_count_max", 0))),
-		"flag_move_reveals": _tree_meta_bool("ctf_flag_move_reveals", true),
+		"flag_move_reveals": true if hidden_ctf else _tree_meta_bool("ctf_flag_move_reveals", true),
 		"flag_move_production_lock_sec": maxf(0.0, float(_tree_meta_value("ctf_flag_move_production_lock_sec", 0.0))),
-		"flag_hives": _tree_meta_value("ctf_flag_hives", current_map_data.get("ctf_flag_hives", {})),
+		"flag_selection_mode": "player_select" if hidden_ctf else str(_tree_meta_value("ctf_flag_selection_mode", "weighted")).strip_edges().to_lower(),
+		"flag_selection_player_select_pct": 100 if hidden_ctf else clampi(int(_tree_meta_value("ctf_player_select_pct", CTF_PLAYER_SELECT_PCT_DEFAULT)), 0, 100),
+		"flag_selection_random_mirrored": _tree_meta_bool("ctf_randomize_flag_hive", true),
+		"flag_selection_owner_id": _resolve_local_owner_id(),
+		"flag_hives": {} if hidden_ctf else _tree_meta_value("ctf_flag_hives", current_map_data.get("ctf_flag_hives", {})),
 		"map_data": current_map_data.duplicate(true)
 	}
 	if tree != null and tree.has_meta("ctf_hidden_flag"):
@@ -1238,6 +1256,54 @@ func _ensure_prematch_ui() -> void:
 	_style_prematch_record_label(h2h)
 	_style_prematch_team_label(teams)
 	_style_prematch_team_arrow_label(team_arrows)
+	var ctf_panel := _prematch_overlay.get_node_or_null("CaptureFlagPanel") as Panel
+	if ctf_panel == null:
+		ctf_panel = Panel.new()
+		ctf_panel.name = "CaptureFlagPanel"
+		_prematch_overlay.add_child(ctf_panel)
+	ctf_panel.visible = false
+	ctf_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ctf_panel.z_as_relative = false
+	ctf_panel.z_index = 1001
+	var ctf_panel_style: StyleBoxFlat = StyleBoxFlat.new()
+	ctf_panel_style.bg_color = Color(0.03, 0.05, 0.08, 0.84)
+	ctf_panel_style.border_color = Color(0.90, 0.76, 0.24, 0.88)
+	ctf_panel_style.border_width_left = 1
+	ctf_panel_style.border_width_top = 1
+	ctf_panel_style.border_width_right = 1
+	ctf_panel_style.border_width_bottom = 1
+	ctf_panel_style.corner_radius_top_left = 10
+	ctf_panel_style.corner_radius_top_right = 10
+	ctf_panel_style.corner_radius_bottom_left = 10
+	ctf_panel_style.corner_radius_bottom_right = 10
+	ctf_panel.add_theme_stylebox_override("panel", ctf_panel_style)
+	var ctf_vbox := ctf_panel.get_node_or_null("VBox") as VBoxContainer
+	if ctf_vbox == null:
+		ctf_vbox = VBoxContainer.new()
+		ctf_vbox.name = "VBox"
+		ctf_panel.add_child(ctf_vbox)
+	ctf_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	ctf_vbox.offset_left = 12.0
+	ctf_vbox.offset_top = 10.0
+	ctf_vbox.offset_right = -12.0
+	ctf_vbox.offset_bottom = -10.0
+	ctf_vbox.add_theme_constant_override("separation", 6)
+	var ctf_title := ctf_vbox.get_node_or_null("Title") as Label
+	if ctf_title == null:
+		ctf_title = Label.new()
+		ctf_title.name = "Title"
+		ctf_vbox.add_child(ctf_title)
+	var ctf_body := ctf_vbox.get_node_or_null("Body") as Label
+	if ctf_body == null:
+		ctf_body = Label.new()
+		ctf_body.name = "Body"
+		ctf_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		ctf_vbox.add_child(ctf_body)
+	ctf_title.add_theme_font_size_override("font_size", 21)
+	ctf_title.add_theme_color_override("font_color", Color(1.0, 0.90, 0.38, 1.0))
+	ctf_body.add_theme_font_size_override("font_size", 16)
+	ctf_body.add_theme_color_override("font_color", Color(0.94, 0.96, 0.99, 1.0))
+	_layout_capture_flag_instruction_panel(ctf_panel)
 	_prematch_records_panel = records
 	_prematch_record_p1 = p1
 	_prematch_record_p2 = p2
@@ -1246,6 +1312,9 @@ func _ensure_prematch_ui() -> void:
 	_prematch_record_h2h = h2h
 	_prematch_record_teams = teams
 	_prematch_record_team_arrows = team_arrows
+	_prematch_ctf_panel = ctf_panel
+	_prematch_ctf_title = ctf_title
+	_prematch_ctf_body = ctf_body
 	if not _prematch_ui_bind_logged:
 		_prematch_ui_bind_logged = true
 		SFLog.info("PREMATCH_UI_BIND", {
@@ -1293,6 +1362,186 @@ func _layout_prematch_records_panel(records: Control) -> void:
 	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX
 	records.position = Vector2((vr.size.x - PREMATCH_RECORDS_WIDTH_PX) * 0.5, panel_top)
 	records.size = Vector2(PREMATCH_RECORDS_WIDTH_PX, PREMATCH_RECORDS_HEIGHT_PX)
+
+func _layout_capture_flag_instruction_panel(panel: Control = null) -> void:
+	var target: Control = panel if panel != null else _prematch_ctf_panel
+	if target == null:
+		return
+	var vr := get_viewport().get_visible_rect()
+	var top_inset: float = _ui_top_inset_px()
+	var width: float = 540.0
+	var height: float = 146.0
+	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX + PREMATCH_RECORDS_HEIGHT_PX + 16.0
+	target.position = Vector2((vr.size.x - width) * 0.5, panel_top)
+	target.size = Vector2(width, height)
+
+func _load_ctf_move_button_font() -> Font:
+	if ResourceLoader.exists(CTF_MOVE_BUTTON_FONT_PATH):
+		var atlas_font: Resource = load(CTF_MOVE_BUTTON_FONT_PATH)
+		if atlas_font is Font:
+			return atlas_font as Font
+	if ResourceLoader.exists(CTF_MOVE_BUTTON_FALLBACK_FONT_PATH):
+		var fallback_font: Resource = load(CTF_MOVE_BUTTON_FALLBACK_FONT_PATH)
+		if fallback_font is Font:
+			return fallback_font as Font
+	return ThemeDB.fallback_font
+
+func _ensure_capture_flag_move_button() -> Button:
+	if _ctf_move_button != null and is_instance_valid(_ctf_move_button):
+		return _ctf_move_button
+	var top_buffer: Control = _resolve_top_buffer_background() as Control
+	if top_buffer == null:
+		return null
+	var existing: Button = top_buffer.get_node_or_null(String(CTF_MOVE_BUTTON_NAME)) as Button
+	if existing != null:
+		_ctf_move_button = existing
+	else:
+		var button := Button.new()
+		button.name = String(CTF_MOVE_BUTTON_NAME)
+		button.visible = false
+		button.focus_mode = Control.FOCUS_NONE
+		button.mouse_filter = Control.MOUSE_FILTER_STOP
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		button.anchor_left = 0.5
+		button.anchor_right = 0.5
+		button.anchor_top = 0.0
+		button.anchor_bottom = 0.0
+		button.offset_left = -116.0
+		button.offset_right = 116.0
+		button.offset_top = 148.0
+		button.offset_bottom = 190.0
+		button.custom_minimum_size = Vector2(232.0, 42.0)
+		button.add_theme_font_size_override("font_size", 20)
+		var button_font: Font = _load_ctf_move_button_font()
+		if button_font != null:
+			button.add_theme_font_override("font", button_font)
+		button.add_theme_color_override("font_color", Color(0.98, 0.94, 0.74, 1.0))
+		button.add_theme_color_override("font_hover_color", Color(1.0, 0.98, 0.86, 1.0))
+		button.add_theme_color_override("font_pressed_color", Color(1.0, 0.98, 0.86, 1.0))
+		button.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
+		button.add_theme_constant_override("outline_size", 2)
+		top_buffer.add_child(button)
+		_ctf_move_button = button
+	if not _ctf_move_button.pressed.is_connected(_on_capture_flag_move_button_pressed):
+		_ctf_move_button.pressed.connect(_on_capture_flag_move_button_pressed)
+	_layout_capture_flag_move_button()
+	return _ctf_move_button
+
+func _layout_capture_flag_move_button() -> void:
+	var button: Button = _ensure_capture_flag_move_button()
+	var top_buffer: Control = _resolve_top_buffer_background() as Control
+	if button == null or top_buffer == null:
+		return
+	var width: float = 232.0
+	var height: float = 42.0
+	var target_top: float = 148.0
+	if power_bar != null and is_instance_valid(power_bar) and power_bar.is_inside_tree():
+		var power_rect: Rect2 = power_bar.get_global_rect()
+		var top_rect: Rect2 = top_buffer.get_global_rect()
+		target_top = (power_rect.position.y + power_rect.size.y + 8.0) - top_rect.position.y
+	var max_top: float = maxf(92.0, top_buffer.size.y - height - 10.0)
+	target_top = clampf(target_top, 92.0, max_top)
+	button.offset_left = -width * 0.5
+	button.offset_right = width * 0.5
+	button.offset_top = target_top
+	button.offset_bottom = target_top + height
+
+func _apply_capture_flag_move_button_style(button: Button, armed: bool) -> void:
+	if button == null:
+		return
+	var idle_fill: Color = Color(0.05, 0.08, 0.12, 0.9)
+	var idle_border: Color = Color(0.93, 0.78, 0.28, 0.92)
+	var armed_fill: Color = Color(0.16, 0.08, 0.08, 0.94)
+	var armed_border: Color = Color(1.0, 0.42, 0.22, 0.98)
+	var fill: Color = armed_fill if armed else idle_fill
+	var border: Color = armed_border if armed else idle_border
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = fill
+	normal.border_color = border
+	normal.border_width_left = 2
+	normal.border_width_top = 2
+	normal.border_width_right = 2
+	normal.border_width_bottom = 2
+	normal.corner_radius_top_left = 16
+	normal.corner_radius_top_right = 16
+	normal.corner_radius_bottom_left = 16
+	normal.corner_radius_bottom_right = 16
+	normal.shadow_color = Color(0.0, 0.0, 0.0, 0.35)
+	normal.shadow_size = 4
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = fill.lightened(0.08)
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = fill.darkened(0.08)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("focus", hover)
+	button.add_theme_stylebox_override("disabled", normal)
+
+func _set_capture_flag_move_armed(armed: bool) -> void:
+	if _ctf_move_armed == armed:
+		_refresh_capture_flag_move_button()
+		return
+	_ctf_move_armed = armed
+	mark_render_dirty("ctf_flag_move_arm")
+	_push_render_model()
+	_refresh_capture_flag_move_button()
+
+func _refresh_capture_flag_move_button() -> void:
+	var button: Button = _ensure_capture_flag_move_button()
+	if button == null or OpsState == null:
+		return
+	_layout_capture_flag_move_button()
+	var local_owner_id: int = _resolve_local_owner_id()
+	var flag_state: Dictionary = {}
+	if OpsState.has_method("get_capture_flag_for_owner"):
+		flag_state = OpsState.call("get_capture_flag_for_owner", local_owner_id) as Dictionary
+	var show_button: bool = (
+		OpsState.has_method("is_capture_flag_mode")
+		and bool(OpsState.call("is_capture_flag_mode"))
+		and _hidden_capture_flag_enabled()
+		and int(OpsState.match_phase) == int(OpsState.MatchPhase.RUNNING)
+		and not flag_state.is_empty()
+		and int(flag_state.get("moves_remaining", 0)) > 0
+	)
+	if not show_button and _ctf_move_armed:
+		_ctf_move_armed = false
+		mark_render_dirty("ctf_flag_move_arm_hide")
+		_push_render_model()
+	button.visible = show_button
+	button.disabled = not show_button
+	if not show_button:
+		return
+	button.text = "CANCEL MOVE" if _ctf_move_armed else "MOVE FLAG"
+	button.tooltip_text = "Choose a new owned hive for your flag. Moving reveals it."
+	_apply_capture_flag_move_button_style(button, _ctf_move_armed)
+
+func _on_capture_flag_move_button_pressed() -> void:
+	if OpsState == null or not OpsState.has_method("is_capture_flag_mode"):
+		return
+	if not bool(OpsState.call("is_capture_flag_mode")):
+		return
+	if not _hidden_capture_flag_enabled():
+		return
+	if int(OpsState.match_phase) != int(OpsState.MatchPhase.RUNNING):
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	var flag_state: Dictionary = {}
+	if OpsState.has_method("get_capture_flag_for_owner"):
+		flag_state = OpsState.call("get_capture_flag_for_owner", local_owner_id) as Dictionary
+	if flag_state.is_empty():
+		return
+	if int(flag_state.get("moves_remaining", 0)) <= 0:
+		_show_capture_flag_toast("NO FLAG MOVES LEFT", 1000.0)
+		_refresh_capture_flag_move_button()
+		return
+	if _ctf_move_armed:
+		_set_capture_flag_move_armed(false)
+		_show_capture_flag_toast("FLAG MOVE CANCELED", 900.0)
+		return
+	_clear_selection()
+	_set_capture_flag_move_armed(true)
+	_show_capture_flag_toast("SELECT A NEW OWNED HIVE", 1300.0)
 
 func _ensure_prematch_record_label(vbox: VBoxContainer, name: String) -> Label:
 	if vbox == null:
@@ -1393,6 +1642,7 @@ func _show_prematch_ui() -> void:
 			})
 		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
 	_refresh_prematch_records()
+	_refresh_capture_flag_prematch_prompt()
 	if _prematch_records_panel != null:
 		_layout_prematch_records_panel(_prematch_records_panel)
 		_prematch_records_panel.visible = true
@@ -1711,9 +1961,20 @@ func _update_prematch_flow(delta: float) -> void:
 	OpsState.sim_mutate("Arena._update_prematch_flow", func() -> void:
 		OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._update_prematch_flow")
 	)
+	if _capture_flag_selection_pending_for_local() and _prematch_remaining_ms_f <= 0.0:
+		var timeout_result: Dictionary = OpsState.call("auto_complete_capture_flag_selection", _resolve_local_owner_id()) as Dictionary
+		if bool(timeout_result.get("ok", false)):
+			mark_render_dirty("ctf_flag_select_timeout")
+			_show_capture_flag_toast("FLAG HIVE AUTO-ASSIGNED", 1450.0)
+		else:
+			SFLog.warn("CAPTURE_FLAG_SELECTION_TIMEOUT_FAILED", timeout_result)
 	var sec_left: int = 0
 	if _prematch_remaining_ms_f > 0.0:
 		sec_left = int(ceil(_prematch_remaining_ms_f / 1000.0))
+	if _prematch_countdown_label != null:
+		_prematch_countdown_label.text = str(sec_left)
+		_prematch_countdown_label.visible = true
+	_refresh_capture_flag_prematch_prompt()
 	if sec_left != _prematch_last_sec:
 		_prematch_last_sec = sec_left
 		SFLog.info("PREMATCH_TICK", {
@@ -1752,6 +2013,13 @@ func _fade_prematch_countdown() -> void:
 	tween.finished.connect(_finish_prematch)
 
 func _finish_prematch() -> void:
+	if _capture_flag_selection_pending_for_local():
+		var timeout_result: Dictionary = OpsState.call("auto_complete_capture_flag_selection", _resolve_local_owner_id()) as Dictionary
+		if bool(timeout_result.get("ok", false)):
+			mark_render_dirty("ctf_flag_select_timeout_finish")
+		else:
+			_refresh_capture_flag_prematch_prompt()
+			return
 	OpsState.sim_mutate("Arena._finish_prematch", func() -> void:
 		OpsState.set_prematch_remaining_ms(0, "Arena._finish_prematch")
 		_audit_ops_write("match_phase", "Arena._finish_prematch")
@@ -2018,6 +2286,117 @@ func _resolve_local_owner_id() -> int:
 			if seat >= 1 and seat <= 4:
 				return seat
 	return 1
+
+func _capture_flag_selection_pending_for_local() -> bool:
+	if OpsState == null or not OpsState.has_method("is_capture_flag_selection_pending"):
+		return false
+	return bool(OpsState.call("is_capture_flag_selection_pending", _resolve_local_owner_id()))
+
+func _hidden_capture_flag_enabled() -> bool:
+	if OpsState == null or not OpsState.has_method("get_victory_rules"):
+		return false
+	var rules_any: Variant = OpsState.call("get_victory_rules")
+	if typeof(rules_any) != TYPE_DICTIONARY:
+		return false
+	var rules: Dictionary = rules_any as Dictionary
+	return bool(rules.get("hidden_flag", false))
+
+func _refresh_capture_flag_prematch_prompt() -> void:
+	if _prematch_ctf_panel == null or _prematch_ctf_title == null or _prematch_ctf_body == null:
+		return
+	var ctf_enabled: bool = OpsState != null and OpsState.has_method("is_capture_flag_mode") and bool(OpsState.call("is_capture_flag_mode"))
+	if not ctf_enabled or OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
+		_prematch_ctf_panel.visible = false
+		return
+	_layout_capture_flag_instruction_panel(_prematch_ctf_panel)
+	_prematch_ctf_panel.visible = true
+	var sec_left: int = maxi(0, int(ceil(_prematch_remaining_ms_f / 1000.0)))
+	var hidden_mode: bool = _hidden_capture_flag_enabled()
+	if _capture_flag_selection_pending_for_local():
+		_prematch_ctf_title.text = "SELECT YOUR FLAG HIVE"
+		if hidden_mode:
+			_prematch_ctf_body.text = "Tap one of your own hives to hide your flag.\nIf you do not choose in %ds, the game will assign balanced fallback hives without mirroring.\nLater: tap MOVE FLAG under the power bar, then click a new owned hive. Moving reveals it." % sec_left
+		else:
+			_prematch_ctf_body.text = "Tap one of your own hives to lock your flag.\nIf you do not choose in %ds, the game will assign a mirrored fallback pair.\nBoth sides will know the flag locations in this mode." % sec_left
+	else:
+		_prematch_ctf_title.text = "FLAG HIVE LOCKED"
+		if hidden_mode:
+			_prematch_ctf_body.text = "Protect the hive marked FLAG.\nDuring the match: tap MOVE FLAG under the power bar, then click a new owned hive.\nMoving reveals it."
+		else:
+			_prematch_ctf_body.text = "Protect the hive marked FLAG.\nThis is standard CTF, so flag movement is disabled."
+
+func _show_capture_flag_toast(message: String, duration_ms: float = 1400.0) -> void:
+	if tie_toast == null:
+		return
+	tie_toast.text = message
+	tie_toast.visible = true
+	tie_toast_ms = maxf(0.0, duration_ms)
+
+func _clear_capture_flag_move_arm() -> void:
+	_set_capture_flag_move_armed(false)
+
+func _try_handle_capture_flag_press(local_pos: Vector2, button_index: int) -> bool:
+	if api == null or state == null or OpsState == null:
+		return false
+	if not OpsState.has_method("is_capture_flag_mode") or not bool(OpsState.call("is_capture_flag_mode")):
+		return false
+	if button_index != MOUSE_BUTTON_LEFT:
+		return false
+	var local_owner_id: int = _resolve_local_owner_id()
+	var hive_id: int = api.pick_hive_id_local(local_pos)
+	if int(OpsState.match_phase) == int(OpsState.MatchPhase.PREMATCH):
+		if not _capture_flag_selection_pending_for_local():
+			return false
+		if hive_id <= 0:
+			_show_capture_flag_toast("SELECT ONE OF YOUR HIVES", 1000.0)
+			return true
+		var hive_pre: HiveData = state.find_hive_by_id(hive_id)
+		if hive_pre == null or int(hive_pre.owner_id) != local_owner_id:
+			_show_capture_flag_toast("SELECT ONE OF YOUR HIVES", 1000.0)
+			return true
+		var select_result: Dictionary = OpsState.call("request_capture_flag_selection", local_owner_id, hive_id) as Dictionary
+		if bool(select_result.get("ok", false)):
+			_refresh_capture_flag_prematch_prompt()
+			_show_capture_flag_toast("FLAG HIVE LOCKED", 1100.0)
+			mark_render_dirty("ctf_flag_select")
+		else:
+			_show_capture_flag_toast("FLAG SELECT FAILED", 1000.0)
+		return true
+	if int(OpsState.match_phase) != int(OpsState.MatchPhase.RUNNING):
+		return false
+	var flag_state: Dictionary = OpsState.call("get_capture_flag_for_owner", local_owner_id) as Dictionary
+	if flag_state.is_empty():
+		return false
+	if not _hidden_capture_flag_enabled():
+		_clear_capture_flag_move_arm()
+		return false
+	var current_flag_hive_id: int = int(flag_state.get("hive_id", 0))
+	var moves_remaining: int = int(flag_state.get("moves_remaining", 0))
+	if _ctf_move_armed:
+		if hive_id <= 0:
+			_show_capture_flag_toast("SELECT A NEW OWNED HIVE", 900.0)
+			return true
+		var move_target: HiveData = state.find_hive_by_id(hive_id)
+		if move_target == null or int(move_target.owner_id) != local_owner_id:
+			_show_capture_flag_toast("MOVE TO YOUR OWN HIVE", 1000.0)
+			return true
+		if int(move_target.id) == current_flag_hive_id:
+			_show_capture_flag_toast("SELECT A DIFFERENT OWNED HIVE", 1000.0)
+			return true
+		var move_result: Dictionary = OpsState.call("request_capture_flag_move", local_owner_id, int(move_target.id)) as Dictionary
+		_set_capture_flag_move_armed(false)
+		if bool(move_result.get("ok", false)):
+			_clear_selection()
+			mark_render_dirty("ctf_flag_move")
+			_push_render_model()
+			_show_capture_flag_toast("FLAG MOVED AND REVEALED", 1500.0)
+		else:
+			_show_capture_flag_toast("FLAG MOVE FAILED", 1000.0)
+		return true
+	if moves_remaining <= 0:
+		_clear_capture_flag_move_arm()
+		return false
+	return false
 
 func _update_power_bar_from_state(reason: String) -> void:
 	# UI observes OpsState; no sim-driven UI mutations.
@@ -3268,6 +3647,7 @@ func _tick_arena_runtime(delta: float) -> void:
 	_update_win_overlay()
 	_update_selection_hud()
 	_update_buff_ui()
+	_refresh_capture_flag_move_button()
 	if _tutorial_section1_controller != null and state != null:
 		_tutorial_section1_controller.tick(state, _resolve_local_owner_id())
 	if _tutorial_section2_controller != null and state != null:
@@ -4407,8 +4787,10 @@ func export_render_model() -> Dictionary:
 	var capture_flag_view: Dictionary = {"enabled": false}
 	var capture_flag_by_hive_id: Dictionary = {}
 	var cell_px: float = float(_cell_px())
+	var local_owner_id: int = _resolve_local_owner_id()
+	var local_flag_hive_id: int = 0
 	if OpsState != null and OpsState.has_method("build_capture_flag_view"):
-		capture_flag_view = OpsState.call("build_capture_flag_view", _resolve_local_owner_id()) as Dictionary
+		capture_flag_view = OpsState.call("build_capture_flag_view", local_owner_id) as Dictionary
 		var flags: Array = capture_flag_view.get("flags", []) as Array
 		for flag_any in flags:
 			if typeof(flag_any) != TYPE_DICTIONARY:
@@ -4424,6 +4806,9 @@ func export_render_model() -> Dictionary:
 				"hidden": bool(flag_entry.get("hidden", false)),
 				"visible_to_viewer": bool(flag_entry.get("visible_to_viewer", false))
 			}
+	if _ctf_move_armed and OpsState != null and OpsState.has_method("get_capture_flag_for_owner"):
+		var local_flag_state: Dictionary = OpsState.call("get_capture_flag_for_owner", local_owner_id) as Dictionary
+		local_flag_hive_id = int(local_flag_state.get("hive_id", 0))
 	if state != null:
 		for hive in state.hives:
 			var h: HiveData = hive
@@ -4454,6 +4839,8 @@ func export_render_model() -> Dictionary:
 				hd["is_capture_flag"] = true
 				hd["capture_flag_owner_id"] = int(flag_view.get("owner_id", 0))
 				hd["capture_flag_hidden"] = bool(flag_view.get("hidden", false))
+			if _ctf_move_armed and int(h.owner_id) == local_owner_id and int(h.id) != local_flag_hive_id:
+				hd["capture_flag_move_target"] = true
 			out_hives.append(hd)
 			out_hives_by_id[int(h.id)] = hd
 	var out_lanes: Array[Dictionary] = []
@@ -5579,6 +5966,8 @@ func _reset_sim_state() -> void:
 	_prematch_final_fit_requested = false
 	_prematch_ui_state_logged = false
 	_match_started = false
+	_ctf_click_consumed = false
+	_ctf_move_armed = false
 	_telemetry_active = false
 	_post_match_analysis_summary.clear()
 	_post_match_telemetry_path = ""
@@ -5593,6 +5982,7 @@ func _reset_sim_state() -> void:
 	if tie_toast != null:
 		tie_toast.visible = false
 	tie_toast_ms = 0.0
+	_refresh_capture_flag_move_button()
 
 func _seed_game_rng() -> void:
 	if DEV_STATE_CHECKS:
@@ -5761,6 +6151,18 @@ func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, i
 	var lane_hit: LaneData = api.pick_lane(local_pos)
 	var lane_id: int = lane_hit.id if lane_hit != null else -1
 	var ev_type: String = "motion" if is_motion else ("press" if pressed else "release")
+	if ev_type == "press":
+		if _try_handle_capture_flag_press(local_pos, button_index):
+			_ctf_click_consumed = true
+			return
+	elif ev_type == "release":
+		if _ctf_click_consumed:
+			_ctf_click_consumed = false
+			return
+		if _ctf_move_armed:
+			return
+	elif ev_type == "motion" and _ctf_move_armed:
+		return
 	if not is_motion:
 		SFLog.allow_tag("INPUT_POINTER_EVENT")
 		SFLog.warn("INPUT_POINTER_EVENT", {
@@ -9160,6 +9562,9 @@ func _lane_length_px(a: HiveData, b: HiveData) -> float:
 	return _cell_center(a.grid_pos).distance_to(_cell_center(b.grid_pos))
 
 func _handle_press(local_pos: Vector2, dev_pid: int = -1, button_index: int = MOUSE_BUTTON_LEFT) -> void:
+	if _try_handle_capture_flag_press(local_pos, button_index):
+		_ctf_click_consumed = true
+		return
 	if input_system == null or api == null:
 		return
 	input_system.handle_press(local_pos, dev_pid, api, button_index)
@@ -9170,17 +9575,26 @@ func _handle_press_impl(local_pos: Vector2, dev_pid: int = -1, button_index: int
 	input_system.handle_press(local_pos, dev_pid, api, button_index)
 
 func _handle_release(local_pos: Vector2, dev_pid: int = -1) -> void:
+	if _ctf_click_consumed:
+		_ctf_click_consumed = false
+		return
+	if _ctf_move_armed:
+		return
 	if input_system == null or api == null:
 		return
 	input_system.handle_release(local_pos, dev_pid, api)
 
 func _handle_drag(local_pos: Vector2) -> void:
+	if _ctf_move_armed:
+		return
 	if input_system == null or api == null:
 		return
 	input_system.handle_drag(local_pos, api)
 
 func _handle_tap(hive_id: int, dev_pid: int = -1) -> void:
 	SFLog.trace("HIVE_TAPPED", {"hive_id": hive_id})
+	if _ctf_move_armed:
+		return
 	if input_system == null or api == null:
 		return
 	input_system.handle_tap(hive_id, dev_pid, api)
