@@ -442,6 +442,13 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 			node.call("apply_render", owner_id, pwr, radius, color, POWER_LABEL_FONT_SIZE, kind)
 		else:
 			node.set("owner_id", owner_id)
+		if node.has_method("set_capture_flag_marker"):
+			node.call(
+				"set_capture_flag_marker",
+				bool(hd.get("is_capture_flag", false)),
+				int(hd.get("capture_flag_owner_id", 0)),
+				bool(hd.get("capture_flag_hidden", false))
+			)
 		if node.has_method("set_selected"):
 			node.call("set_selected", id == _selected_hive_id, _selected_color)
 		if spawned:

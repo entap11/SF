@@ -83,6 +83,8 @@ func get_debug_snapshot() -> Dictionary:
 	return _last_snapshot.duplicate(true)
 
 func _build_snapshot(state_ref: GameState) -> Dictionary:
+	if _is_capture_flag_mode():
+		return _build_capture_flag_snapshot(state_ref)
 	var contestable_total := 0
 	var neutral_count := 0
 	var npc_count := 0
@@ -149,6 +151,82 @@ func _build_snapshot(state_ref: GameState) -> Dictionary:
 		"winner_id": winner_id,
 		"reason": reason,
 		"win_reason": win_reason,
+		"hash": snapshot_hash
+	}
+
+func _build_capture_flag_snapshot(state_ref: GameState) -> Dictionary:
+	var flags_state: Dictionary = {}
+	if ops_state != null and ops_state.has_method("get_capture_flag_state"):
+		flags_state = ops_state.call("get_capture_flag_state") as Dictionary
+	var flags_by_owner: Dictionary = flags_state.get("flags_by_owner", {}) as Dictionary
+	var owned_by_team: Dictionary = {}
+	var contestable_total := 0
+	var hives: Array = []
+	var hives_by_id: Dictionary = state_ref.hive_by_id if state_ref != null else {}
+	if hives_by_id.size() > 0:
+		hives = hives_by_id.values()
+	else:
+		hives = state_ref.hives
+	for h in hives:
+		if h == null:
+			continue
+		var kind_norm := _normalized_kind(_hive_kind(h))
+		if not CONTESTABLE_KIND.has(kind_norm):
+			continue
+		if _is_npc_hive(h, kind_norm):
+			continue
+		contestable_total += 1
+		var oid := _hive_owner_id(h)
+		if oid <= 0:
+			continue
+		var team_id: int = _team_for_owner_seat(oid)
+		if team_id > 0:
+			owned_by_team[team_id] = int(owned_by_team.get(team_id, 0)) + 1
+
+	var winner_id := 0
+	var flag_capture_owner_id := 0
+	var captured_flag_owner_id := 0
+	var reasons: Array[String] = []
+	var flag_parts: Array[String] = []
+	var owners: Array = flags_by_owner.keys()
+	owners.sort()
+	for owner_any in owners:
+		var owner_id: int = int(owner_any)
+		var flag_entry: Dictionary = flags_by_owner.get(owner_any, {}) as Dictionary
+		var hive_id: int = int(flag_entry.get("hive_id", 0))
+		var hive: HiveData = state_ref.find_hive_by_id(hive_id)
+		var actual_owner_id: int = int(hive.owner_id) if hive != null else 0
+		flag_parts.append("%d:%d>%d" % [owner_id, hive_id, actual_owner_id])
+		if actual_owner_id <= 0 or actual_owner_id == owner_id:
+			continue
+		flag_capture_owner_id = actual_owner_id
+		captured_flag_owner_id = owner_id
+		winner_id = _team_for_owner_seat(actual_owner_id)
+		reasons.append("%d_by_%d" % [owner_id, actual_owner_id])
+		break
+
+	var reason := "waiting_for_flag_capture"
+	var win_reason := ""
+	if winner_id > 0:
+		reason = "flag_capture"
+		win_reason = "flag_capture"
+	var snapshot_hash := "capture_flag|%d|%s|%s" % [
+		winner_id,
+		_counts_key(owned_by_team),
+		",".join(flag_parts)
+	]
+	return {
+		"victory_mode": "capture_flag",
+		"contestable_total": contestable_total,
+		"contestable_neutral_count": 0,
+		"contestable_npc_count": 0,
+		"owned_by_team": owned_by_team,
+		"winner_candidate": winner_id,
+		"winner_id": winner_id,
+		"reason": reason,
+		"win_reason": win_reason,
+		"flag_capture_owner_id": flag_capture_owner_id,
+		"captured_flag_owner_id": captured_flag_owner_id,
 		"hash": snapshot_hash
 	}
 
@@ -221,3 +299,8 @@ func _team_for_owner_seat(owner_id: int) -> int:
 		if team_id > 0:
 			return team_id
 	return seat_id
+
+func _is_capture_flag_mode() -> bool:
+	if ops_state == null or not ops_state.has_method("get_victory_mode"):
+		return false
+	return str(ops_state.call("get_victory_mode")).strip_edges().to_lower() == "capture_flag"

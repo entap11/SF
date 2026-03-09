@@ -47,6 +47,8 @@ var _awarded_match_order: Array[String] = []
 var _quest_progress: Dictionary = {}
 var _quest_claimed: Dictionary = {}
 var _quest_bonus_claimed: Dictionary = {}
+var _access_ticket_entry_claims: Dictionary = {}
+var _exclusive_event_prize_claims: Dictionary = {}
 
 func _ready() -> void:
 	SFLog.allow_tag("BATTLE_PASS_EVENT")
@@ -106,9 +108,15 @@ func get_snapshot() -> Dictionary:
 		"scarcity_feature_enabled": _scarcity_feature_enabled,
 		"prestige_pool_base_slots": _season_prestige_base_slots,
 		"prestige_projection": _config.get_prestige_projection_details(),
+		"reward_summary": _config.get_reward_summary(),
+		"reward_targets": _config.get_reward_targets(),
+		"quest_reward_summary": _config.get_quest_reward_summary(),
+		"progression_sink_summary": _config.get_progression_sink_summary(),
 		"rows": _build_level_rows(visible_cap),
 		"wallet": _wallet.duplicate(true),
 		"inventory": _inventory.duplicate(true),
+		"access_ticket_entry_claim_count": _access_ticket_entry_claims.size(),
+		"exclusive_event_prize_claim_count": _exclusive_event_prize_claims.size(),
 		"quests": _build_quest_rows(),
 		"quest_bonuses": _build_quest_bonus_rows()
 	}
@@ -330,6 +338,163 @@ func intent_record_contest_result(scope: String, placement: int, metadata: Dicti
 		"event_id": event_id,
 		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
 		"battle_pass_level": _battle_pass_level
+	}
+
+func get_access_ticket_balance() -> int:
+	return maxi(0, int(_inventory.get("access_tickets", 0)))
+
+func preview_access_ticket_entry(entry_kind: String, entry_id: String, quantity: int = 1) -> Dictionary:
+	var clean_kind: String = entry_kind.strip_edges().to_lower()
+	var clean_id: String = entry_id.strip_edges()
+	var safe_quantity: int = maxi(1, quantity)
+	if clean_kind.is_empty() or clean_id.is_empty():
+		return {"ok": false, "reason": "entry_key_missing"}
+	var balance: int = get_access_ticket_balance()
+	var key: String = _access_ticket_entry_key(clean_kind, clean_id)
+	var already_authorized: bool = _access_ticket_entry_claims.has(key)
+	return {
+		"ok": true,
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"ticket_cost": safe_quantity,
+		"ticket_balance": balance,
+		"already_authorized": already_authorized,
+		"can_authorize": already_authorized or balance >= safe_quantity
+	}
+
+func preview_exclusive_event_entry(entry_kind: String, entry_id: String, quantity: int = 1, prize_rewards: Array = []) -> Dictionary:
+	var preview: Dictionary = preview_access_ticket_entry(entry_kind, entry_id, quantity)
+	if not bool(preview.get("ok", false)):
+		return preview
+	preview["prize_rewards"] = _normalize_reward_array(prize_rewards)
+	return preview
+
+func intent_authorize_access_ticket_entry(entry_kind: String, entry_id: String, quantity: int = 1, metadata: Dictionary = {}) -> Dictionary:
+	var preview: Dictionary = preview_access_ticket_entry(entry_kind, entry_id, quantity)
+	if not bool(preview.get("ok", false)):
+		return preview
+	var clean_kind: String = str(preview.get("entry_kind", ""))
+	var clean_id: String = str(preview.get("entry_id", ""))
+	var safe_quantity: int = int(preview.get("ticket_cost", 1))
+	var key: String = _access_ticket_entry_key(clean_kind, clean_id)
+	if bool(preview.get("already_authorized", false)):
+		return {
+			"ok": true,
+			"entry_kind": clean_kind,
+			"entry_id": clean_id,
+			"ticket_cost": safe_quantity,
+			"already_authorized": true,
+			"ticket_balance": get_access_ticket_balance()
+		}
+	if not bool(preview.get("can_authorize", false)):
+		return {
+			"ok": false,
+			"reason": "insufficient_access_tickets",
+			"ticket_cost": safe_quantity,
+			"ticket_balance": int(preview.get("ticket_balance", 0))
+		}
+	_inventory["access_tickets"] = get_access_ticket_balance() - safe_quantity
+	_access_ticket_entry_claims[key] = {
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"ticket_cost": safe_quantity,
+		"authorized_at_unix": int(Time.get_unix_time_from_system()),
+		"metadata": metadata.duplicate(true)
+	}
+	_save_state()
+	_emit_event("access_ticket_entry_authorized", {
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"ticket_cost": safe_quantity
+	})
+	_emit_state_changed()
+	return {
+		"ok": true,
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"ticket_cost": safe_quantity,
+		"ticket_balance": get_access_ticket_balance()
+	}
+
+func intent_authorize_exclusive_event_entry(entry_kind: String, entry_id: String, quantity: int = 1, metadata: Dictionary = {}) -> Dictionary:
+	return intent_authorize_access_ticket_entry(entry_kind, entry_id, quantity, metadata)
+
+func intent_refund_access_ticket_entry(entry_kind: String, entry_id: String, reason: String = "entry_refund") -> Dictionary:
+	var clean_kind: String = entry_kind.strip_edges().to_lower()
+	var clean_id: String = entry_id.strip_edges()
+	if clean_kind.is_empty() or clean_id.is_empty():
+		return {"ok": false, "reason": "entry_key_missing"}
+	var key: String = _access_ticket_entry_key(clean_kind, clean_id)
+	if not _access_ticket_entry_claims.has(key):
+		return {"ok": false, "reason": "entry_not_authorized"}
+	var claim: Dictionary = _access_ticket_entry_claims.get(key, {}) as Dictionary
+	var ticket_cost: int = maxi(1, int(claim.get("ticket_cost", 1)))
+	_access_ticket_entry_claims.erase(key)
+	_inventory["access_tickets"] = get_access_ticket_balance() + ticket_cost
+	_save_state()
+	_emit_event("access_ticket_entry_refunded", {
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"ticket_cost": ticket_cost,
+		"reason": reason
+	})
+	_emit_state_changed()
+	return {
+		"ok": true,
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"ticket_cost": ticket_cost,
+		"ticket_balance": get_access_ticket_balance()
+	}
+
+func intent_refund_exclusive_event_entry(entry_kind: String, entry_id: String, reason: String = "entry_refund") -> Dictionary:
+	return intent_refund_access_ticket_entry(entry_kind, entry_id, reason)
+
+func intent_claim_exclusive_event_prizes(entry_kind: String, entry_id: String, prize_rewards: Array, metadata: Dictionary = {}) -> Dictionary:
+	var clean_kind: String = entry_kind.strip_edges().to_lower()
+	var clean_id: String = entry_id.strip_edges()
+	if clean_kind.is_empty() or clean_id.is_empty():
+		return {"ok": false, "reason": "entry_key_missing"}
+	var normalized_rewards: Array[Dictionary] = _normalize_reward_array(prize_rewards)
+	if normalized_rewards.is_empty():
+		return {"ok": false, "reason": "no_prize_rewards"}
+	var key: String = _exclusive_event_prize_key(clean_kind, clean_id)
+	if _exclusive_event_prize_claims.has(key):
+		return {
+			"ok": true,
+			"entry_kind": clean_kind,
+			"entry_id": clean_id,
+			"already_claimed": true,
+			"wallet": _wallet.duplicate(true),
+			"inventory": _inventory.duplicate(true)
+		}
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	var grant_result: Dictionary = _rewards.grant_rewards(normalized_rewards, _wallet, _inventory, profile_manager)
+	if not bool(grant_result.get("ok", false)):
+		return {"ok": false, "reason": "reward_batch_failed", "grant_result": grant_result}
+	_wallet = (grant_result.get("wallet", _wallet) as Dictionary).duplicate(true)
+	_inventory = (grant_result.get("inventory", _inventory) as Dictionary).duplicate(true)
+	_exclusive_event_prize_claims[key] = {
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"reward_count": normalized_rewards.size(),
+		"claimed_at_unix": int(Time.get_unix_time_from_system()),
+		"metadata": metadata.duplicate(true)
+	}
+	_save_state()
+	_emit_event("exclusive_event_prizes_claimed", {
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"reward_count": normalized_rewards.size()
+	})
+	_emit_state_changed()
+	return {
+		"ok": true,
+		"entry_kind": clean_kind,
+		"entry_id": clean_id,
+		"grants": (grant_result.get("grants", []) as Array).duplicate(true),
+		"wallet": _wallet.duplicate(true),
+		"inventory": _inventory.duplicate(true)
 	}
 
 func intent_award_match_completion(match_id: String, won: bool, is_money_match: bool, metadata: Dictionary = {}) -> Dictionary:
@@ -660,6 +825,20 @@ func _mark_claimed(level: int, track_slot: String) -> void:
 func _claim_key(level: int, track_slot: String) -> String:
 	return "%s|%d|%s" % [_current_season_id, level, track_slot]
 
+func _access_ticket_entry_key(entry_kind: String, entry_id: String) -> String:
+	return "%s|%s|%s" % [_current_season_id, entry_kind, entry_id]
+
+func _exclusive_event_prize_key(entry_kind: String, entry_id: String) -> String:
+	return "%s|%s|%s" % [_current_season_id, entry_kind, entry_id]
+
+func _normalize_reward_array(reward_defs: Array) -> Array[Dictionary]:
+	var normalized: Array[Dictionary] = []
+	for reward_any in reward_defs:
+		if typeof(reward_any) != TYPE_DICTIONARY:
+			continue
+		normalized.append((reward_any as Dictionary).duplicate(true))
+	return normalized
+
 func _is_veteran_pregrant_lock_active() -> bool:
 	return _is_veteran_reward_locked(_veteran_start_level)
 
@@ -776,7 +955,9 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 		"awarded_match_order": [],
 		"quest_progress": {},
 		"quest_claimed": {},
-		"quest_bonus_claimed": {}
+		"quest_bonus_claimed": {},
+		"access_ticket_entry_claims": {},
+		"exclusive_event_prize_claims": {}
 	}
 	var claimed_any: Variant = raw.get("claimed_rewards", {})
 	if typeof(claimed_any) == TYPE_DICTIONARY:
@@ -808,6 +989,12 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 	var quest_bonus_any: Variant = raw.get("quest_bonus_claimed", {})
 	if typeof(quest_bonus_any) == TYPE_DICTIONARY:
 		out["quest_bonus_claimed"] = (quest_bonus_any as Dictionary).duplicate(true)
+	var ticket_claims_any: Variant = raw.get("access_ticket_entry_claims", {})
+	if typeof(ticket_claims_any) == TYPE_DICTIONARY:
+		out["access_ticket_entry_claims"] = (ticket_claims_any as Dictionary).duplicate(true)
+	var prize_claims_any: Variant = raw.get("exclusive_event_prize_claims", {})
+	if typeof(prize_claims_any) == TYPE_DICTIONARY:
+		out["exclusive_event_prize_claims"] = (prize_claims_any as Dictionary).duplicate(true)
 	return out
 
 func _apply_loaded_state(state: Dictionary) -> void:
@@ -857,6 +1044,10 @@ func _apply_loaded_state(state: Dictionary) -> void:
 	var quest_bonus_any: Variant = state.get("quest_bonus_claimed", {})
 	if typeof(quest_bonus_any) == TYPE_DICTIONARY:
 		_quest_bonus_claimed = (quest_bonus_any as Dictionary).duplicate(true)
+	var ticket_claims_any: Variant = state.get("access_ticket_entry_claims", {})
+	_access_ticket_entry_claims = (ticket_claims_any as Dictionary).duplicate(true) if typeof(ticket_claims_any) == TYPE_DICTIONARY else {}
+	var prize_claims_any: Variant = state.get("exclusive_event_prize_claims", {})
+	_exclusive_event_prize_claims = (prize_claims_any as Dictionary).duplicate(true) if typeof(prize_claims_any) == TYPE_DICTIONARY else {}
 	_prune_award_dedupe()
 
 func _save_state() -> void:
@@ -882,7 +1073,9 @@ func _save_state() -> void:
 		"awarded_match_order": _awarded_match_order,
 		"quest_progress": _quest_progress,
 		"quest_claimed": _quest_claimed,
-		"quest_bonus_claimed": _quest_bonus_claimed
+		"quest_bonus_claimed": _quest_bonus_claimed,
+		"access_ticket_entry_claims": _access_ticket_entry_claims,
+		"exclusive_event_prize_claims": _exclusive_event_prize_claims
 	}
 	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -926,6 +1119,8 @@ func debug_reset_state() -> void:
 	_quest_progress.clear()
 	_quest_claimed.clear()
 	_quest_bonus_claimed.clear()
+	_access_ticket_entry_claims.clear()
+	_exclusive_event_prize_claims.clear()
 	_ensure_quest_state_initialized()
 	_save_state()
 	_emit_state_changed()

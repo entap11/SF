@@ -46,7 +46,15 @@ func _refresh() -> void:
 	time_label.text = _format_remaining(contest.end_ts)
 	cap_label.text = _cap_text(contest.buff_cap_per_map)
 	if contest_state != null:
+		var preview: Dictionary = contest_state.preview_entry_requirements(contest.id) as Dictionary if contest_state.has_method("preview_entry_requirements") else {}
 		enter_button.visible = not contest_state.is_entered(contest.id)
+		if bool(preview.get("requires_access_ticket", false)):
+			enter_button.text = "Enter (%d Ticket%s)" % [
+				int(preview.get("access_ticket_cost", 0)),
+				"" if int(preview.get("access_ticket_cost", 0)) == 1 else "s"
+			]
+		else:
+			enter_button.text = "Enter"
 	else:
 		enter_button.visible = false
 	_refresh_stage_race_summary()
@@ -82,7 +90,10 @@ func _on_enter_pressed() -> void:
 		return
 	if contest_state == null:
 		return
-	contest_state.enter_contest(contest.id)
+	if contest_state.has_method("intent_enter_contest"):
+		contest_state.call("intent_enter_contest", contest.id, {"source": "contest_hub"})
+	else:
+		contest_state.enter_contest(contest.id)
 	_refresh()
 
 func _on_play_map(map_id: String) -> void:
@@ -107,6 +118,11 @@ func _open_leaderboard(map_id: String) -> void:
 func _on_stage_race_play_pressed() -> void:
 	if contest == null or contest_state == null:
 		return
+	if contest_state.has_method("preview_entry_requirements"):
+		var preview: Dictionary = contest_state.call("preview_entry_requirements", contest.id) as Dictionary
+		if not bool(preview.get("already_entered", false)):
+			stage_race_summary_label.text = "Enter the contest first."
+			return
 	if not contest_state.has_method("build_stage_race_plan"):
 		stage_race_summary_label.text = "Stage Race planner unavailable."
 		return

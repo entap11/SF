@@ -52,6 +52,8 @@ enum MatchPhase {
 }
 const PREMATCH_DURATION_MS := 5000
 const PREMATCH_RECORDS_SHOW_MS := 3000
+const VICTORY_MODE_CONQUEST := "conquest"
+const VICTORY_MODE_CAPTURE_FLAG := "capture_flag"
 
 var match_phase: int = MatchPhase.PREMATCH
 var outcome: int = GameState.GameOutcome.NONE
@@ -98,6 +100,9 @@ var edge_cache_version: int = -1
 var blocked_wall_pairs: Array = []
 var bot_profiles: Dictionary = {}
 var _remote_replication_apply_depth: int = 0
+var victory_mode: String = VICTORY_MODE_CONQUEST
+var victory_rules: Dictionary = {}
+var capture_flag_state: Dictionary = {}
 
 func get_state() -> GameState:
 	return state
@@ -182,6 +187,9 @@ func reset_match_state() -> void:
 	match_roster.clear()
 	bot_profiles.clear()
 	_hud_snapshot = {}
+	victory_mode = VICTORY_MODE_CONQUEST
+	victory_rules = {}
+	capture_flag_state = {}
 
 func set_prematch_remaining_ms(value_ms: int, context: String = "") -> void:
 	var ctx: String = context
@@ -362,6 +370,261 @@ func get_team_for_seat(seat: int) -> int:
 			return team_id
 		return seat_id
 	return seat_id
+
+func set_victory_mode(mode: String, rules: Dictionary = {}) -> void:
+	var clean_mode: String = mode.strip_edges().to_lower()
+	if clean_mode.is_empty():
+		clean_mode = VICTORY_MODE_CONQUEST
+	victory_mode = clean_mode
+	victory_rules = rules.duplicate(true)
+	if victory_mode != VICTORY_MODE_CAPTURE_FLAG:
+		capture_flag_state = {}
+
+func get_victory_mode() -> String:
+	var clean_mode: String = victory_mode.strip_edges().to_lower()
+	if clean_mode.is_empty():
+		return VICTORY_MODE_CONQUEST
+	return clean_mode
+
+func get_victory_rules() -> Dictionary:
+	return victory_rules.duplicate(true)
+
+func is_capture_flag_mode() -> bool:
+	return get_victory_mode() == VICTORY_MODE_CAPTURE_FLAG
+
+func configure_capture_flag_mode(options: Dictionary = {}) -> Dictionary:
+	var rules: Dictionary = {
+		"hidden_flag": bool(options.get("hidden_flag", false)),
+		"fog_of_war_enabled": bool(options.get("fog_of_war_enabled", false)),
+		"flag_move_count_max": maxi(0, int(options.get("flag_move_count_max", 0))),
+		"flag_move_reveals": bool(options.get("flag_move_reveals", true)),
+		"flag_move_production_lock_sec": maxf(0.0, float(options.get("flag_move_production_lock_sec", 0.0)))
+	}
+	set_victory_mode(VICTORY_MODE_CAPTURE_FLAG, rules)
+	if state != null:
+		auto_assign_capture_flags(options.get("flag_hives", {}), options.get("map_data", {}))
+	return get_capture_flag_state()
+
+func get_capture_flag_state() -> Dictionary:
+	return {
+		"victory_mode": get_victory_mode(),
+		"rules": victory_rules.duplicate(true),
+		"flags_by_owner": capture_flag_state.duplicate(true)
+	}
+
+func get_capture_flag_for_owner(owner_id: int) -> Dictionary:
+	if not is_capture_flag_mode():
+		return {}
+	return (capture_flag_state.get(owner_id, {}) as Dictionary).duplicate(true)
+
+func get_capture_flag_hive_id(owner_id: int) -> int:
+	var flag_state: Dictionary = get_capture_flag_for_owner(owner_id)
+	return int(flag_state.get("hive_id", 0))
+
+func set_capture_flag_hive(owner_id: int, hive_id: int, metadata: Dictionary = {}) -> Dictionary:
+	if not is_capture_flag_mode():
+		return {"ok": false, "reason": "victory_mode_not_capture_flag"}
+	var seat_id: int = int(owner_id)
+	if seat_id < 1 or seat_id > 4:
+		return {"ok": false, "reason": "owner_invalid", "owner_id": owner_id}
+	var hive: HiveData = require_state().find_hive_by_id(int(hive_id))
+	if hive == null:
+		return {"ok": false, "reason": "hive_not_found", "hive_id": hive_id}
+	if int(hive.owner_id) != seat_id:
+		return {
+			"ok": false,
+			"reason": "hive_not_owned_by_owner",
+			"hive_id": hive_id,
+			"owner_id": seat_id,
+			"actual_owner_id": int(hive.owner_id)
+		}
+	var flag_entry: Dictionary = {
+		"owner_id": seat_id,
+		"hive_id": int(hive_id),
+		"hidden": bool(victory_rules.get("hidden_flag", false)),
+		"revealed_to_all": bool(metadata.get("revealed_to_all", false)),
+		"moves_remaining": maxi(0, int(victory_rules.get("flag_move_count_max", 0))),
+		"assigned_at_unix": int(Time.get_unix_time_from_system())
+	}
+	for key_any in metadata.keys():
+		flag_entry[str(key_any)] = metadata.get(key_any)
+	capture_flag_state[seat_id] = flag_entry
+	SFLog.info("CAPTURE_FLAG_ASSIGNED", {
+		"owner_id": seat_id,
+		"hive_id": int(hive_id),
+		"hidden": bool(flag_entry.get("hidden", false))
+	})
+	return {"ok": true, "owner_id": seat_id, "hive_id": int(hive_id), "flag": flag_entry.duplicate(true)}
+
+func auto_assign_capture_flags(flag_hives_any: Variant = {}, map_data_any: Variant = {}) -> Dictionary:
+	if not is_capture_flag_mode():
+		return {"ok": false, "reason": "victory_mode_not_capture_flag"}
+	var explicit: Dictionary = _normalize_capture_flag_assignments(flag_hives_any)
+	if explicit.is_empty() and typeof(map_data_any) == TYPE_DICTIONARY:
+		explicit = _normalize_capture_flag_assignments((map_data_any as Dictionary).get("ctf_flag_hives", {}))
+	var assigned: Dictionary = {}
+	var owners: Array[int] = _active_human_owners_from_state()
+	if explicit.is_empty() and owners.size() == 2:
+		var mirrored_assignments: Dictionary = _auto_capture_flag_pair_for_owners(owners)
+		for owner_any in mirrored_assignments.keys():
+			var owner_id: int = int(owner_any)
+			var hive_id: int = int(mirrored_assignments.get(owner_any, 0))
+			if hive_id <= 0:
+				continue
+			var set_pair_result: Dictionary = set_capture_flag_hive(owner_id, hive_id, {
+				"auto_assigned": true,
+				"mirrored_pair": true
+			})
+			if bool(set_pair_result.get("ok", false)):
+				assigned[owner_id] = int(set_pair_result.get("hive_id", 0))
+		if assigned.size() == owners.size():
+			return {"ok": true, "assigned": assigned.duplicate(true)}
+	for owner_id in owners:
+		var hive_id: int = int(explicit.get(owner_id, 0))
+		if hive_id <= 0:
+			hive_id = _auto_capture_flag_hive_for_owner(owner_id)
+		if hive_id <= 0:
+			continue
+		var set_result: Dictionary = set_capture_flag_hive(owner_id, hive_id, {"auto_assigned": true})
+		if bool(set_result.get("ok", false)):
+			assigned[owner_id] = int(set_result.get("hive_id", 0))
+	return {"ok": not assigned.is_empty(), "assigned": assigned.duplicate(true)}
+
+func build_capture_flag_view(viewer_owner_id: int = 0) -> Dictionary:
+	if not is_capture_flag_mode():
+		return {"enabled": false}
+	var flags: Array[Dictionary] = []
+	var owners: Array = capture_flag_state.keys()
+	owners.sort()
+	for owner_any in owners:
+		var owner_id: int = int(owner_any)
+		var entry: Dictionary = (capture_flag_state.get(owner_any, {}) as Dictionary).duplicate(true)
+		var hidden: bool = bool(entry.get("hidden", false))
+		var revealed_to_all: bool = bool(entry.get("revealed_to_all", false))
+		entry["visible_to_viewer"] = not hidden or revealed_to_all or owner_id == viewer_owner_id
+		entry["viewer_owner_id"] = viewer_owner_id
+		flags.append(entry)
+	return {
+		"enabled": true,
+		"victory_mode": VICTORY_MODE_CAPTURE_FLAG,
+		"rules": victory_rules.duplicate(true),
+		"flags": flags
+	}
+
+func _active_human_owners_from_state() -> Array[int]:
+	var owners: Array[int] = []
+	if state == null:
+		return owners
+	var seen: Dictionary = {}
+	for hive_any in state.hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		var owner_id: int = int(hive.owner_id)
+		if owner_id < 1 or owner_id > 4 or seen.has(owner_id):
+			continue
+		seen[owner_id] = true
+		owners.append(owner_id)
+	owners.sort()
+	return owners
+
+func _normalize_capture_flag_assignments(raw: Variant) -> Dictionary:
+	var out: Dictionary = {}
+	if typeof(raw) == TYPE_DICTIONARY:
+		for key_any in (raw as Dictionary).keys():
+			var owner_id: int = int(str(key_any))
+			var hive_id: int = int((raw as Dictionary).get(key_any, 0))
+			if owner_id < 1 or owner_id > 4 or hive_id <= 0:
+				continue
+			out[owner_id] = hive_id
+	elif typeof(raw) == TYPE_ARRAY:
+		for entry_any in raw as Array:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_any as Dictionary
+			var owner_id: int = int(entry.get("owner_id", 0))
+			var hive_id: int = int(entry.get("hive_id", 0))
+			if owner_id < 1 or owner_id > 4 or hive_id <= 0:
+				continue
+			out[owner_id] = hive_id
+	return out
+
+func _auto_capture_flag_hive_for_owner(owner_id: int) -> int:
+	if state == null:
+		return 0
+	var center: Vector2 = _capture_flag_map_center()
+	var best_hive_id: int = 0
+	var best_score: float = -INF
+	for hive_any in state.hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null or int(hive.owner_id) != int(owner_id):
+			continue
+		var gp: Vector2 = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+		var score: float = gp.distance_squared_to(center)
+		if score > best_score:
+			best_score = score
+			best_hive_id = int(hive.id)
+	return best_hive_id
+
+func _auto_capture_flag_pair_for_owners(owners: Array[int]) -> Dictionary:
+	var out: Dictionary = {}
+	if state == null or owners.size() != 2:
+		return out
+	var owner_a: int = int(owners[0])
+	var owner_b: int = int(owners[1])
+	var hives_a: Array[HiveData] = []
+	var hives_b: Array[HiveData] = []
+	for hive_any in state.hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		var owner_id: int = int(hive.owner_id)
+		if owner_id == owner_a:
+			hives_a.append(hive)
+		elif owner_id == owner_b:
+			hives_b.append(hive)
+	if hives_a.is_empty() or hives_b.is_empty():
+		return out
+	var center: Vector2 = _capture_flag_map_center()
+	var best_pair: Dictionary = {}
+	var best_score: float = INF
+	var best_outward: float = -INF
+	for hive_a in hives_a:
+		var pos_a: Vector2 = Vector2(float(hive_a.grid_pos.x), float(hive_a.grid_pos.y))
+		var mirror_a: Vector2 = (center * 2.0) - pos_a
+		var dist_a: float = pos_a.distance_squared_to(center)
+		for hive_b in hives_b:
+			var pos_b: Vector2 = Vector2(float(hive_b.grid_pos.x), float(hive_b.grid_pos.y))
+			var dist_b: float = pos_b.distance_squared_to(center)
+			var symmetry_error: float = mirror_a.distance_squared_to(pos_b)
+			var radial_error: float = absf(dist_a - dist_b)
+			var score: float = symmetry_error + (radial_error * 0.10)
+			var outward: float = minf(dist_a, dist_b)
+			if score < best_score - 0.0001 or (is_equal_approx(score, best_score) and outward > best_outward):
+				best_score = score
+				best_outward = outward
+				best_pair = {
+					owner_a: int(hive_a.id),
+					owner_b: int(hive_b.id)
+				}
+	if best_pair.is_empty():
+		return out
+	return best_pair.duplicate(true)
+
+func _capture_flag_map_center() -> Vector2:
+	if state == null or state.hives.is_empty():
+		return Vector2.ZERO
+	var sum: Vector2 = Vector2.ZERO
+	var count: int = 0
+	for hive_any in state.hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		sum += Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+		count += 1
+	if count <= 0:
+		return Vector2.ZERO
+	return sum / float(count)
 
 func are_allies(seat_a: int, seat_b: int) -> bool:
 	var a_id: int = int(seat_a)

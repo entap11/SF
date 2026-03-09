@@ -13,10 +13,14 @@ const REWARD_HONEY: String = "honey"
 const REWARD_BUFF: String = "buff"
 const REWARD_COSMETIC: String = "cosmetic"
 const REWARD_ACCESS_TICKET: String = "access_ticket"
+const REWARD_ANALYTICS_CREDIT: String = "analytics_credit"
+const REWARD_BUNDLE_TOKEN: String = "bundle_token"
+const REWARD_AD_FREE_DAYS: String = "ad_free_days"
 
 const BASE_VISIBLE_MAX_LEVEL: int = 100
 const POST_100_PREMIUM_MAX_LEVEL: int = 110
 const POST_100_ELITE_MAX_LEVEL: int = 120
+const PRESTIGE_START_LEVEL: int = BASE_VISIBLE_MAX_LEVEL + 1
 
 var _config: Dictionary = {}
 var _levels_by_number: Dictionary = {}
@@ -321,6 +325,58 @@ func get_prestige_projection_details() -> Dictionary:
 		"projected_prestige_pool_base": base_slots
 	}
 
+func get_reward_summary() -> Dictionary:
+	return {
+		TRACK_FREE: _summarize_track_rewards(TRACK_FREE, BASE_VISIBLE_MAX_LEVEL),
+		TRACK_PREMIUM: _summarize_track_rewards(TRACK_PREMIUM, POST_100_PREMIUM_MAX_LEVEL),
+		TRACK_ELITE: _summarize_track_rewards(TRACK_ELITE, POST_100_ELITE_MAX_LEVEL)
+	}
+
+func get_reward_targets() -> Dictionary:
+	var economy: Dictionary = _economy_targets()
+	var targets_any: Variant = economy.get("reward_targets", {})
+	if typeof(targets_any) != TYPE_DICTIONARY:
+		return {}
+	return (targets_any as Dictionary).duplicate(true)
+
+func get_quest_reward_summary() -> Dictionary:
+	var summary: Dictionary = {
+		TRACK_FREE: _empty_reward_summary_bucket(),
+		TRACK_PREMIUM: _empty_reward_summary_bucket(),
+		TRACK_ELITE: _empty_reward_summary_bucket()
+	}
+	for quest_any in get_quest_definitions():
+		if typeof(quest_any) != TYPE_DICTIONARY:
+			continue
+		var quest_def: Dictionary = quest_any as Dictionary
+		_accumulate_reward_summary(summary, _track_for_path_index(int(quest_def.get("path_index", 0))), quest_def.get("reward", {}))
+	for bonus_any in get_quest_bonus_definitions():
+		if typeof(bonus_any) != TYPE_DICTIONARY:
+			continue
+		var bonus_def: Dictionary = bonus_any as Dictionary
+		_accumulate_reward_summary(summary, _track_for_path_index(int(bonus_def.get("path_index", 0))), bonus_def.get("reward", {}))
+	return summary.duplicate(true)
+
+func get_progression_sink_summary() -> Dictionary:
+	var economy: Dictionary = _economy_targets()
+	var baseline_action_xp: int = maxi(1, int(economy.get("baseline_action_xp", 20)))
+	var milestone_levels_any: Variant = economy.get("sink_milestone_levels", [10, 50, 90, 100, 110, 120])
+	var levels: Array = milestone_levels_any as Array if typeof(milestone_levels_any) == TYPE_ARRAY else []
+	var out: Array[Dictionary] = []
+	for level_any in levels:
+		var level: int = clampi(int(level_any), 1, get_total_levels())
+		var total_xp: int = get_xp_required_to_reach_level(level)
+		out.append({
+			"level": level,
+			"xp_required": total_xp,
+			"baseline_action_xp": baseline_action_xp,
+			"baseline_actions": int(ceil(float(total_xp) / float(baseline_action_xp)))
+		})
+	return {
+		"baseline_action_xp": baseline_action_xp,
+		"milestones": out
+	}
+
 func compute_projected_prestige_pool_base() -> int:
 	var settings: Dictionary = get_prestige_pool_settings()
 	if settings.is_empty():
@@ -338,6 +394,66 @@ func compute_projected_prestige_pool_base() -> int:
 	var projected: int = int(round(float(previous_finishers) * growth_factor * entry_rate))
 	var min_slots: int = maxi(1, int(settings.get("min_slots_per_level", 10)))
 	return maxi(min_slots, projected)
+
+func _economy_targets() -> Dictionary:
+	var economy_any: Variant = _config.get("economy_targets", {})
+	if typeof(economy_any) != TYPE_DICTIONARY:
+		return {}
+	return economy_any as Dictionary
+
+func _summarize_track_rewards(track_slot: String, max_level: int) -> Dictionary:
+	var summary: Dictionary = _empty_reward_summary_bucket()
+	summary["levels"] = 0
+	summary["empty_levels"] = 0
+	for level in range(1, max_level + 1):
+		var reward_def: Dictionary = get_reward_slot(level, track_slot)
+		var reward_type: String = str(reward_def.get("reward_type", REWARD_NONE)).strip_edges().to_lower()
+		summary["levels"] = int(summary.get("levels", 0)) + 1
+		match reward_type:
+			REWARD_HONEY:
+				summary["honey"] = int(summary.get("honey", 0)) + maxi(0, int(reward_def.get("quantity", 0)))
+			REWARD_ACCESS_TICKET:
+				summary["access_tickets"] = int(summary.get("access_tickets", 0)) + maxi(0, int(reward_def.get("quantity", 0)))
+			REWARD_COSMETIC:
+				summary["cosmetics"] = int(summary.get("cosmetics", 0)) + 1
+			_:
+				summary["empty_levels"] = int(summary.get("empty_levels", 0)) + 1
+	return summary
+
+func _empty_reward_summary_bucket() -> Dictionary:
+	return {
+		"honey": 0,
+		"access_tickets": 0,
+		"cosmetics": 0
+	}
+
+func _accumulate_reward_summary(summary: Dictionary, track_slot: String, reward_def_any: Variant) -> void:
+	if typeof(reward_def_any) != TYPE_DICTIONARY:
+		return
+	if not summary.has(track_slot):
+		summary[track_slot] = _empty_reward_summary_bucket()
+	var bucket: Dictionary = summary.get(track_slot, {}) as Dictionary
+	var reward_def: Dictionary = reward_def_any as Dictionary
+	var reward_type: String = str(reward_def.get("reward_type", REWARD_NONE)).strip_edges().to_lower()
+	match reward_type:
+		REWARD_HONEY:
+			bucket["honey"] = int(bucket.get("honey", 0)) + maxi(0, int(reward_def.get("quantity", 0)))
+		REWARD_ACCESS_TICKET:
+			bucket["access_tickets"] = int(bucket.get("access_tickets", 0)) + maxi(0, int(reward_def.get("quantity", 0)))
+		REWARD_COSMETIC:
+			bucket["cosmetics"] = int(bucket.get("cosmetics", 0)) + 1
+		_:
+			pass
+	summary[track_slot] = bucket
+
+func _track_for_path_index(path_index: int) -> String:
+	match path_index:
+		1:
+			return TRACK_PREMIUM
+		2:
+			return TRACK_ELITE
+		_:
+			return TRACK_FREE
 
 func build_prestige_caps(base_slots: int) -> Dictionary:
 	var caps: Dictionary = {}
@@ -505,12 +621,16 @@ func _build_default_config() -> Dictionary:
 		"end_time_unix": season_end_unix,
 		"total_levels": POST_100_ELITE_MAX_LEVEL,
 		"scarcity_feature_default_enabled": true,
-		"cadence_rules": {
-			"digit_1": REWARD_HONEY,
-			"digit_7": REWARD_BUFF,
-			"digit_0": REWARD_ACCESS_TICKET
-		},
 		"progression": progression,
+		"economy_targets": {
+			"baseline_action_xp": 20,
+			"sink_milestone_levels": [10, 50, 90, 100, 110, 120],
+			"reward_targets": {
+				TRACK_FREE: {"honey": 328, "access_tickets": 5, "cosmetics": 6},
+				TRACK_PREMIUM: {"honey": 506, "access_tickets": 13, "cosmetics": 19},
+				TRACK_ELITE: {"honey": 826, "access_tickets": 26, "cosmetics": 26}
+			}
+		},
 		"levels": levels,
 		"veteran_start": {
 			"claim_unlock_level": 10,
@@ -572,9 +692,9 @@ func _build_default_config() -> Dictionary:
 func _build_default_level(level: int, progression: Dictionary) -> Dictionary:
 	var xp_required: int = _xp_required_for_level(level, progression)
 	var tracks: Dictionary = {
-		TRACK_FREE: _build_default_track_reward(level, TRACK_FREE),
-		TRACK_PREMIUM: _build_default_track_reward(level, TRACK_PREMIUM),
-		TRACK_ELITE: _build_default_track_reward(level, TRACK_ELITE)
+		TRACK_FREE: _build_track_reward(level, TRACK_FREE),
+		TRACK_PREMIUM: _build_track_reward(level, TRACK_PREMIUM),
+		TRACK_ELITE: _build_track_reward(level, TRACK_ELITE)
 	}
 	var scarcity_cap: int = -1
 	if level > BASE_VISIBLE_MAX_LEVEL:
@@ -610,32 +730,70 @@ func _xp_required_for_level(level: int, progression: Dictionary) -> int:
 		return maxi(1, int(band.get("xp_required", 100)))
 	return 100
 
-func _build_default_track_reward(level: int, track_slot: String) -> Dictionary:
-	var digit: int = level % 10
-	var reward: Dictionary = {"reward_type": REWARD_COSMETIC, "cosmetic_id": "bp_cosmetic_l%03d_%s" % [level, track_slot], "quantity": 1}
-	if digit == 1:
-		var honey_amount: int = 30
-		if track_slot == TRACK_PREMIUM:
-			honey_amount = 45
-		elif track_slot == TRACK_ELITE:
-			honey_amount = 60
-		reward = {"reward_type": REWARD_HONEY, "quantity": honey_amount}
-	elif digit == 7:
-		var buff_id: String = "buff_swarm_speed_classic"
-		if track_slot == TRACK_PREMIUM:
-			buff_id = "buff_hive_faster_production_classic"
-		elif track_slot == TRACK_ELITE:
-			buff_id = "buff_tower_fire_rate_classic"
-		reward = {"reward_type": REWARD_BUFF, "buff_id": buff_id, "quantity": 1}
-	elif digit == 0:
-		if level > BASE_VISIBLE_MAX_LEVEL and track_slot == TRACK_FREE:
-			reward = {"reward_type": REWARD_NONE}
-		else:
-			var ticket_qty: int = 1
-			if track_slot == TRACK_ELITE:
-				ticket_qty = 2
-			reward = {"reward_type": REWARD_ACCESS_TICKET, "quantity": ticket_qty}
-	else:
-		if track_slot == TRACK_FREE and digit % 2 == 0:
-			reward = {"reward_type": REWARD_HONEY, "quantity": 20}
-	return reward
+func _build_track_reward(level: int, track_slot: String) -> Dictionary:
+	if level > BASE_VISIBLE_MAX_LEVEL:
+		return _build_prestige_track_reward(level, track_slot)
+	return _build_core_track_reward(level, track_slot)
+
+func _build_core_track_reward(level: int, track_slot: String) -> Dictionary:
+	var slot: int = ((level - 1) % 10) + 1
+	var quarter: int = clampi(int((level - 1) / 25), 0, 3)
+	match track_slot:
+		TRACK_FREE:
+			if level in [15, 35, 55, 75, 95, 100]:
+				return _cosmetic_reward("bp_free_milestone_l%03d" % level)
+			if level in [10, 30, 50, 70, 90]:
+				return _ticket_reward(1)
+			if level in [20, 40, 60, 80]:
+				return _honey_reward(12 + quarter * 2)
+			if slot == 1 or slot == 4 or slot == 8:
+				return _honey_reward(6 + quarter * 2)
+			return _none_reward()
+		TRACK_PREMIUM:
+			if level in [25, 50, 75, 100]:
+				return _cosmetic_reward("bp_premium_headline_l%03d" % level)
+			if slot == 10:
+				return _ticket_reward(1)
+			if slot == 8:
+				return _cosmetic_reward("bp_premium_set_%02d_l%03d" % [quarter + 1, level])
+			return _honey_reward(5 + quarter)
+		TRACK_ELITE:
+			if level in [25, 50, 75, 100]:
+				return _ticket_reward(2)
+			if slot == 6:
+				return _ticket_reward(1)
+			if slot == 3 or slot == 8:
+				return _cosmetic_reward("bp_elite_set_%02d_l%03d" % [quarter + 1, level])
+			return _honey_reward(7 + quarter * 2)
+	return _none_reward()
+
+func _build_prestige_track_reward(level: int, track_slot: String) -> Dictionary:
+	var slot: int = ((level - PRESTIGE_START_LEVEL) % 10) + 1
+	match track_slot:
+		TRACK_FREE:
+			return _none_reward()
+		TRACK_PREMIUM:
+			if level > POST_100_PREMIUM_MAX_LEVEL:
+				return _none_reward()
+			if slot % 2 == 1:
+				return _cosmetic_reward("bp_premium_prestige_l%03d" % level)
+			return _ticket_reward(1)
+		TRACK_ELITE:
+			if slot == 2 or slot == 6:
+				return _ticket_reward(2)
+			if slot == 3 or slot == 8 or slot == 10:
+				return _cosmetic_reward("bp_elite_prestige_l%03d" % level)
+			return _honey_reward(14 + int((level - PRESTIGE_START_LEVEL) / 5) * 2)
+	return _none_reward()
+
+func _none_reward() -> Dictionary:
+	return {"reward_type": REWARD_NONE}
+
+func _honey_reward(quantity: int) -> Dictionary:
+	return {"reward_type": REWARD_HONEY, "quantity": maxi(1, quantity)}
+
+func _ticket_reward(quantity: int) -> Dictionary:
+	return {"reward_type": REWARD_ACCESS_TICKET, "quantity": maxi(1, quantity)}
+
+func _cosmetic_reward(cosmetic_id: String) -> Dictionary:
+	return {"reward_type": REWARD_COSMETIC, "cosmetic_id": cosmetic_id, "quantity": 1}

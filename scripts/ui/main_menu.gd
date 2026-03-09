@@ -236,14 +236,16 @@ var _tier_widget: Control = null
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList/AsyncLadderRace3,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList/AsyncLadderRace5,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList/AsyncLadderStage3,
-	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList/AsyncLadderStage5
+	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList/AsyncLadderStage5,
+	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList/AsyncLadderCaptureFlag
 ]
 @onready var async_free_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList/AsyncFreeMissNOut,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList/AsyncFreeRace3,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList/AsyncFreeRace5,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList/AsyncFreeStage3,
-	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList/AsyncFreeStage5
+	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList/AsyncFreeStage5,
+	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList/AsyncFreeCaptureFlag
 ]
 @onready var async_vbox: VBoxContainer = $AsyncPanel/AsyncVBox
 @onready var async_weekly_panel: Panel = $AsyncPanel/AsyncWeeklyPanel
@@ -1548,7 +1550,8 @@ func _wire_buttons() -> void:
 		"Ladder: Timed Race (3-map sync start)",
 		"Ladder: Timed Race (5-map sync start)",
 		"Ladder: 3 Map Stage Race",
-		"Ladder: 5 Map Stage Race"
+		"Ladder: 5 Map Stage Race",
+		"Ladder: Capture the Flag"
 	])
 	var ladder_count: int = int(min(async_ladder_buttons.size(), ladder_labels.size()))
 	for i in range(ladder_count):
@@ -1570,6 +1573,9 @@ func _wire_buttons() -> void:
 		if i == 4:
 			async_ladder_buttons[i].pressed.connect(func(): _on_async_stage_race_selected(5, false))
 			continue
+		if i == 5:
+			async_ladder_buttons[i].pressed.connect(func(): _on_async_capture_flag_selected(false))
+			continue
 		var label: String = ladder_labels[i]
 		async_ladder_buttons[i].pressed.connect(func(): _stub_action(label))
 	var free_labels: PackedStringArray = PackedStringArray([
@@ -1577,7 +1583,8 @@ func _wire_buttons() -> void:
 		"Free Play: Timed Race (3-map sync start)",
 		"Free Play: Timed Race (5-map sync start)",
 		"Free Play: 3 Map Stage Race",
-		"Free Play: 5 Map Stage Race"
+		"Free Play: 5 Map Stage Race",
+		"Free Play: Capture the Flag"
 	])
 	var free_count: int = int(min(async_free_buttons.size(), free_labels.size()))
 	for i in range(free_count):
@@ -1598,6 +1605,9 @@ func _wire_buttons() -> void:
 			continue
 		if i == 4:
 			async_free_buttons[i].pressed.connect(func(): _on_async_stage_race_selected(5, true))
+			continue
+		if i == 5:
+			async_free_buttons[i].pressed.connect(func(): _on_async_capture_flag_selected(true))
 			continue
 		var label: String = free_labels[i]
 		async_free_buttons[i].pressed.connect(func(): _stub_action(label))
@@ -4731,11 +4741,13 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	match_type_block.add_theme_constant_override("separation", cluster_spacing)
 	body.add_child(match_type_block)
 	_add_game_hub_section_header(match_type_block, "HUMAN MATCHES", "Live competitive matches", broadcast_free_roll)
-	var human_row := HBoxContainer.new()
-	human_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	human_row.add_theme_constant_override("separation", cluster_spacing)
+	var human_row := GridContainer.new()
+	human_row.columns = 3
+	human_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	human_row.add_theme_constant_override("h_separation", cluster_spacing)
+	human_row.add_theme_constant_override("v_separation", cluster_spacing)
 	match_type_block.add_child(human_row)
-	for mode_id in ["1V1", "2V2", "3P FFA", "4P FFA"]:
+	for mode_id in ["1V1", "CTF", "2V2", "3P FFA", "4P FFA"]:
 		var chosen_mode: String = mode_id
 		var button := Button.new()
 		button.custom_minimum_size = GAME_HUB_HUMAN_BUTTON_SIZE
@@ -4785,6 +4797,10 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	map_block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	map_block.add_theme_constant_override("separation", cluster_spacing)
 	body.add_child(map_block)
+	var one_map_items := [
+		{"label": "CAPTURE FLAG", "id": "CAPTURE_FLAG"}
+	]
+	_add_game_hub_map_group(map_block, "1 MAP", one_map_items, paid, selected_denom, broadcast_free_roll, lower_rows_scale)
 	var three_map_items := [
 		{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
 		{"label": "RACE", "id": "TIMED_RACE_3"},
@@ -5723,6 +5739,13 @@ func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 				_open_vs_mode_select_panel(true)
 				status_label.text = "Human 1v1 free roll selected."
 		return
+	if mode_id == "CTF":
+		var entry_usd: int = maxi(0, denomination)
+		if not paid:
+			entry_usd = 0
+		_open_async_vs_lobby("CAPTURE_FLAG", 1, not paid, entry_usd, {})
+		status_label.text = "Capture the Flag (%s)." % ("$%d entry" % entry_usd if paid else "free roll")
+		return
 	var lane := "paid" if paid else "free"
 	status_label.text = "Human %s (%s) selected. Queue wiring is next." % [mode_id, lane]
 
@@ -5784,6 +5807,8 @@ func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 			_on_async_miss_n_out_selected(not paid, 3)
 		"MISS_N_OUT_5":
 			_on_async_miss_n_out_selected(not paid, 5)
+		"CAPTURE_FLAG":
+			_on_async_capture_flag_selected(not paid)
 		_:
 			status_label.text = "Async mode unavailable."
 
@@ -6942,6 +6967,21 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 	lobby_options["map_ids"] = map_ids
 	status_label.text = "%s Miss-N-Out (%d maps, %d min window): %s | Eliminated players can continue for practice or return to lobby." % [track_label, resolved_map_count, int(window_sec / 60), ", ".join(map_labels)]
 	_open_async_vs_lobby("MISS_N_OUT", resolved_map_count, free_play, entry_usd, lobby_options)
+
+func _on_async_capture_flag_selected(free_play: bool) -> void:
+	var track_label: String = "Free Play" if free_play else "Ladder"
+	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	if not free_play:
+		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_capture_flag")
+		if not bool(charge.get("ok", false)):
+			return
+	var lobby_options: Dictionary = {
+		"start_players": ASYNC_WINDOW_START_PLAYERS,
+		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC,
+		"force_async_window": true
+	}
+	status_label.text = "%s Capture the Flag (1 map, %d min window)." % [track_label, int(ASYNC_STAGE_AND_MISS_WINDOW_SEC / 60)]
+	_open_async_vs_lobby("CAPTURE_FLAG", 1, free_play, entry_usd, lobby_options)
 
 func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")

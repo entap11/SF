@@ -25,12 +25,24 @@ func _init() -> void:
 
 	var snapshot: Dictionary = battle_pass_state.call("get_snapshot") as Dictionary
 	var projection: Dictionary = snapshot.get("prestige_projection", {}) as Dictionary
+	var reward_summary: Dictionary = snapshot.get("reward_summary", {}) as Dictionary
+	var quest_reward_summary: Dictionary = snapshot.get("quest_reward_summary", {}) as Dictionary
+	var free_summary: Dictionary = reward_summary.get("free", {}) as Dictionary
+	var sink_summary: Dictionary = snapshot.get("progression_sink_summary", {}) as Dictionary
 	_assert_eq(int(snapshot.get("side_quest_paths_available", 0)), 1, "free pass should expose one quest path")
 	_assert_eq(int(snapshot.get("visible_level_cap", 0)), 100, "free pass should cap at level 100")
 	_assert_eq(int(snapshot.get("prestige_pool_base_slots", 0)), 500, "season-start prestige pool should seed to 500")
 	_assert_eq(int(projection.get("projected_prestige_pool_base", 0)), 500, "prestige projection should match the seeded base")
 	_assert_eq((snapshot.get("quests", []) as Array).size(), 4, "free pass should expose only base quests")
 	_assert_eq((snapshot.get("quest_bonuses", []) as Array).size(), 1, "free pass should expose only base quest bonus")
+	_assert_eq(int(_baseline_actions_for_level(sink_summary, 90)), 387, "level 90 should take 387 baseline actions")
+	_assert_eq(int(_baseline_actions_for_level(sink_summary, 100)), 492, "level 100 should take 492 baseline actions")
+	_assert_eq(int(free_summary.get("access_tickets", 0)), 5, "free track should grant five total access tickets through level 100")
+	_assert_eq(int(free_summary.get("honey", 0)), 328, "free track honey total should match the tuned target")
+	var free_rows: Array = snapshot.get("rows", []) as Array
+	_assert_str_eq(_reward_type_for_row(free_rows, 10, "free"), "access_ticket", "free level 10 should grant an access ticket")
+	_assert_str_eq(_reward_type_for_row(free_rows, 15, "free"), "cosmetic", "free level 15 should be a milestone cosmetic")
+	_assert_str_eq(_reward_type_for_row(free_rows, 16, "free"), "none", "free level 16 should stay empty to preserve paid value")
 
 	for i in range(5):
 		_assert_ok(
@@ -73,9 +85,16 @@ func _init() -> void:
 	_assert_eq((snapshot.get("quests", []) as Array).size(), 6, "premium should expose six quests")
 	_assert_eq((snapshot.get("quest_bonuses", []) as Array).size(), 2, "premium should expose two quest bonuses")
 	var premium_rows: Array = snapshot.get("rows", []) as Array
+	_assert_eq(int((reward_summary.get("premium", {}) as Dictionary).get("honey", 0)), 506, "premium track honey total should match the tuned target")
+	_assert_eq(int((quest_reward_summary.get("premium", {}) as Dictionary).get("access_tickets", 0)), 1, "premium side quests should grant one ticket")
+	_assert_str_eq(_reward_type_for_row(premium_rows, 6, "premium"), "honey", "premium level 6 should stay honey in the tuned cadence")
+	_assert_str_eq(_reward_type_for_row(premium_rows, 10, "premium"), "access_ticket", "premium level 10 should grant a ticket")
+	_assert_str_eq(_reward_type_for_row(premium_rows, 25, "premium"), "cosmetic", "premium level 25 should be a headline cosmetic")
 	_assert_eq(int((premium_rows[100] as Dictionary).get("level", 0)), 101, "premium rows should include level 101")
 	_assert_eq(int((premium_rows[100] as Dictionary).get("scarcity_cap", 0)), 500, "level 101 should start with 500 prestige slots")
 	_assert_eq(int((premium_rows[101] as Dictionary).get("scarcity_cap", 0)), 450, "level 102 should decay to 450 slots")
+	_assert_str_eq(_reward_type_for_row(premium_rows, 101, "premium"), "cosmetic", "premium prestige should open with a cosmetic reward")
+	_assert_str_eq(_reward_type_for_row(premium_rows, 102, "premium"), "access_ticket", "premium prestige level 102 should grant a ticket")
 
 	battle_pass_state.call("debug_reset_state")
 	await process_frame
@@ -95,6 +114,11 @@ func _init() -> void:
 	_assert_eq(int(snapshot.get("visible_level_cap", 0)), 120, "elite should see level 120")
 	_assert_eq((snapshot.get("quests", []) as Array).size(), 8, "elite should expose all quest paths")
 	_assert_eq((snapshot.get("quest_bonuses", []) as Array).size(), 3, "elite should expose all quest bonuses")
+	var elite_rows: Array = snapshot.get("rows", []) as Array
+	_assert_eq(int((reward_summary.get("elite", {}) as Dictionary).get("access_tickets", 0)), 26, "elite track ticket total should match the tuned target")
+	_assert_eq(int((quest_reward_summary.get("elite", {}) as Dictionary).get("access_tickets", 0)), 2, "elite side quests should grant two extra tickets")
+	_assert_str_eq(_reward_type_for_row(elite_rows, 25, "elite"), "access_ticket", "elite level 25 should be a double-ticket milestone")
+	_assert_str_eq(_reward_type_for_row(elite_rows, 103, "elite"), "cosmetic", "elite prestige level 103 should be a prestige cosmetic")
 	var contest_result: Dictionary = battle_pass_state.call("intent_record_contest_result", "WEEKLY", 1, {"event_id": "weekly_contest_top1"}) as Dictionary
 	_assert_ok(contest_result, "weekly contest result")
 	_assert_eq(int(contest_result.get("xp_awarded", 0)), 39, "elite weekly contest win should award 39 nectar XP")
@@ -155,3 +179,32 @@ func _assert_true(value: bool, label: String) -> void:
 		return
 	push_error("BATTLE_PASS_SMOKE: %s" % label)
 	quit(1)
+
+func _assert_str_eq(actual: String, expected: String, label: String) -> void:
+	if actual == expected:
+		return
+	push_error("BATTLE_PASS_SMOKE: %s (expected %s, got %s)" % [label, expected, actual])
+	quit(1)
+
+func _reward_type_for_row(rows: Array, level: int, track_slot: String) -> String:
+	for row_any in rows:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if int(row.get("level", 0)) != level:
+			continue
+		var tracks: Dictionary = row.get("tracks", {}) as Dictionary
+		var track: Dictionary = tracks.get(track_slot, {}) as Dictionary
+		return str(track.get("reward_type", ""))
+	return ""
+
+func _baseline_actions_for_level(sink_summary: Dictionary, level: int) -> int:
+	var milestones: Array = sink_summary.get("milestones", []) as Array
+	for milestone_any in milestones:
+		if typeof(milestone_any) != TYPE_DICTIONARY:
+			continue
+		var milestone: Dictionary = milestone_any as Dictionary
+		if int(milestone.get("level", 0)) != level:
+			continue
+		return int(milestone.get("baseline_actions", 0))
+	return 0

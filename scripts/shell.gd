@@ -2125,6 +2125,17 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 	else:
 		fails += _mvp_smoke_fail("prematch_records_visible", {"path": MVP_SMOKE_RECORDS_PATH})
 
+	var sim_runner_node: Node = arena_node.get_node_or_null("SimRunner") if arena_node != null else null
+	var sim_stopped_during_prematch: bool = sim_runner_node != null and not bool(sim_runner_node.get("running"))
+	if sim_stopped_during_prematch:
+		passes += _mvp_smoke_pass("sim_stopped_during_prematch", {})
+	else:
+		fails += _mvp_smoke_fail("sim_stopped_during_prematch", {
+			"sim_runner_found": sim_runner_node != null,
+			"running": bool(sim_runner_node.get("running")) if sim_runner_node != null else null,
+			"phase": int(OpsState.match_phase)
+		})
+
 	var p1_label: Label = get_node_or_null(MVP_SMOKE_RECORD_P1_PATH) as Label
 	var p1_ok: bool = p1_label != null and not str(p1_label.text).strip_edges().is_empty()
 	if p1_ok:

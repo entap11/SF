@@ -8,6 +8,8 @@ const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/free_roll_display_v2_font
 const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 const MODES := [
 	{"id": "STAGE_RACE", "label": "Stage Race"},
+	{"id": "CAPTURE_FLAG", "label": "Capture the Flag"},
+	{"id": "HIDDEN_CAPTURE_FLAG", "label": "Hidden CTF"},
 	{"id": "TIMED_RACE", "label": "Timed Race"},
 	{"id": "MISS_N_OUT", "label": "Miss-N-Out"}
 ]
@@ -124,6 +126,10 @@ func _build_buttons() -> void:
 
 func _select_mode(mode_id: String) -> void:
 	_selected_mode = mode_id
+	if _is_capture_flag_mode(mode_id):
+		_selected_map_count = 1
+	map_label.visible = not _is_capture_flag_mode(mode_id)
+	map_buttons.visible = not _is_capture_flag_mode(mode_id)
 	_refresh_summary()
 
 func _select_map_count(count: int) -> void:
@@ -144,6 +150,9 @@ func _mode_label(mode_id: String) -> String:
 		if str(entry.get("id", "")) == mode_id:
 			return str(entry.get("label", mode_id))
 	return mode_id
+
+func _is_capture_flag_mode(mode_id: String) -> bool:
+	return mode_id == "CAPTURE_FLAG" or mode_id == "HIDDEN_CAPTURE_FLAG"
 
 func _on_confirm_pressed() -> void:
 	var lobby := preload("res://scenes/ui/VsLobby.tscn").instantiate()

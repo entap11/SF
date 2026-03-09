@@ -149,6 +149,125 @@ func enter_contest(contest_id: String) -> void:
 	player_entries[normalized_id] = int(Time.get_unix_time_from_system())
 	_save_entries()
 
+func preview_entry_requirements(contest_id: String) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	var ticket_cost: int = contest.get_access_ticket_cost() if contest.has_method("get_access_ticket_cost") else maxi(0, int(contest.access_ticket_cost))
+	var requires_ticket: bool = contest.requires_access_ticket() if contest.has_method("requires_access_ticket") else ticket_cost > 0
+	var preview: Dictionary = {
+		"ok": true,
+		"contest_id": normalized_id,
+		"already_entered": is_entered(normalized_id),
+		"requires_access_ticket": requires_ticket,
+		"access_ticket_cost": ticket_cost,
+		"entry_currency": "ACCESS_TICKET" if requires_ticket else str(contest.currency).to_upper(),
+		"entry_price": ticket_cost if requires_ticket else int(contest.price),
+		"prize_rewards": contest.prize_rewards.duplicate(true)
+	}
+	if requires_ticket:
+		var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
+		if battle_pass_state != null and battle_pass_state.has_method("preview_exclusive_event_entry"):
+			var ticket_preview: Dictionary = battle_pass_state.call("preview_exclusive_event_entry", "contest", normalized_id, ticket_cost, contest.prize_rewards) as Dictionary
+			preview["ticket_preview"] = ticket_preview
+			preview["can_enter"] = bool(ticket_preview.get("can_authorize", false))
+		elif battle_pass_state != null and battle_pass_state.has_method("preview_access_ticket_entry"):
+			var ticket_preview_legacy: Dictionary = battle_pass_state.call("preview_access_ticket_entry", "contest", normalized_id, ticket_cost) as Dictionary
+			preview["ticket_preview"] = ticket_preview_legacy
+			preview["can_enter"] = bool(ticket_preview_legacy.get("can_authorize", false))
+		else:
+			preview["ticket_preview"] = {"ok": false, "reason": "battle_pass_state_missing"}
+			preview["can_enter"] = false
+	else:
+		preview["can_enter"] = true
+	return preview
+
+func preview_prize_requirements(contest_id: String, placement: int) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	var rewards: Array[Dictionary] = contest.get_prize_rewards_for_placement(placement) if contest.has_method("get_prize_rewards_for_placement") else []
+	return {
+		"ok": true,
+		"contest_id": normalized_id,
+		"placement": maxi(1, placement),
+		"prize_rewards": rewards,
+		"has_prizes": not rewards.is_empty()
+	}
+
+func intent_claim_contest_prizes(contest_id: String, placement: int, metadata: Dictionary = {}) -> Dictionary:
+	var prize_preview: Dictionary = preview_prize_requirements(contest_id, placement)
+	if not bool(prize_preview.get("ok", false)):
+		return prize_preview
+	var rewards: Array = prize_preview.get("prize_rewards", []) as Array
+	if rewards.is_empty():
+		return {"ok": false, "reason": "no_prize_rewards", "contest_id": str(prize_preview.get("contest_id", ""))}
+	var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
+	if battle_pass_state == null:
+		return {"ok": false, "reason": "battle_pass_state_missing"}
+	var normalized_id: String = str(prize_preview.get("contest_id", ""))
+	var claim_metadata: Dictionary = metadata.duplicate(true)
+	claim_metadata["placement"] = maxi(1, placement)
+	if battle_pass_state.has_method("intent_claim_exclusive_event_prizes"):
+		return battle_pass_state.call("intent_claim_exclusive_event_prizes", "contest", normalized_id, rewards, claim_metadata) as Dictionary
+	return {"ok": false, "reason": "prize_claim_api_missing"}
+
+func intent_enter_contest(contest_id: String, metadata: Dictionary = {}) -> Dictionary:
+	var preview: Dictionary = preview_entry_requirements(contest_id)
+	if not bool(preview.get("ok", false)):
+		return preview
+	if bool(preview.get("already_entered", false)):
+		return {"ok": true, "contest_id": str(preview.get("contest_id", "")), "already_entered": true}
+	var normalized_id: String = str(preview.get("contest_id", ""))
+	if bool(preview.get("requires_access_ticket", false)):
+		var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
+		if battle_pass_state == null:
+			return {"ok": false, "reason": "battle_pass_state_missing"}
+		var ticket_cost: int = maxi(1, int(preview.get("access_ticket_cost", 1)))
+		var ticket_result: Dictionary = {}
+		if battle_pass_state.has_method("intent_authorize_exclusive_event_entry"):
+			ticket_result = battle_pass_state.call("intent_authorize_exclusive_event_entry", "contest", normalized_id, ticket_cost, metadata) as Dictionary
+		elif battle_pass_state.has_method("intent_authorize_access_ticket_entry"):
+			ticket_result = battle_pass_state.call("intent_authorize_access_ticket_entry", "contest", normalized_id, ticket_cost, metadata) as Dictionary
+		else:
+			return {"ok": false, "reason": "ticket_authorize_api_missing"}
+		if not bool(ticket_result.get("ok", false)):
+			return ticket_result
+		enter_contest(normalized_id)
+		return {"ok": true, "contest_id": normalized_id, "ticket_result": ticket_result}
+	enter_contest(normalized_id)
+	return {"ok": true, "contest_id": normalized_id}
+
+func intent_refund_contest_entry(contest_id: String, reason: String = "contest_entry_refund") -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if not player_entries.has(normalized_id):
+		return {"ok": false, "reason": "contest_not_entered", "contest_id": normalized_id}
+	var ticket_cost: int = contest.get_access_ticket_cost() if contest.has_method("get_access_ticket_cost") else maxi(0, int(contest.access_ticket_cost))
+	if ticket_cost > 0:
+		var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
+		if battle_pass_state == null:
+			return {"ok": false, "reason": "battle_pass_state_missing"}
+		var refund_result: Dictionary = {}
+		if battle_pass_state.has_method("intent_refund_exclusive_event_entry"):
+			refund_result = battle_pass_state.call("intent_refund_exclusive_event_entry", "contest", normalized_id, reason) as Dictionary
+		elif battle_pass_state.has_method("intent_refund_access_ticket_entry"):
+			refund_result = battle_pass_state.call("intent_refund_access_ticket_entry", "contest", normalized_id, reason) as Dictionary
+		else:
+			return {"ok": false, "reason": "ticket_refund_api_missing"}
+		if not bool(refund_result.get("ok", false)):
+			return refund_result
+		player_entries.erase(normalized_id)
+		_save_entries()
+		return {"ok": true, "contest_id": normalized_id, "refund_result": refund_result}
+	player_entries.erase(normalized_id)
+	_save_entries()
+	return {"ok": true, "contest_id": normalized_id, "refunded": false}
+
 func build_run_context(contest_id: String, map_id: String) -> Dictionary:
 	var normalized_id := normalize_contest_id(contest_id)
 	var contest: ContestDef = contests.get(normalized_id)
@@ -1001,6 +1120,10 @@ func _load_entries() -> void:
 		var normalized_id := normalize_contest_id(str(key))
 		normalized[normalized_id] = player_entries[key]
 	player_entries = normalized
+
+func debug_reset_entries() -> void:
+	player_entries.clear()
+	_save_entries()
 
 func _save_entries() -> void:
 	var f := FileAccess.open(ENTRY_SAVE_PATH, FileAccess.WRITE)

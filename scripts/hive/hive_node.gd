@@ -72,6 +72,7 @@ var _selector_mat: ShaderMaterial = null
 var _selector_state: int = SELECTOR_STATE_INACTIVE
 var _last_kind: String = ""
 var _sim_events: Node = null
+var _flag_badge: Label = null
 
 static func lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return center_world + Vector2(0.0, -LANE_ANCHOR_Y_PX)
@@ -157,6 +158,7 @@ func _ready() -> void:
 	_sync_collision()
 	_load_selector_textures()
 	_ensure_selector_sprite()
+	_ensure_flag_badge()
 	_refresh_selector_state()
 
 func _fit_pick_hitbox_to_sprite() -> void:
@@ -212,6 +214,21 @@ func apply_render(owner_id_in: int, power_in: int, radius_in: float, color: Colo
 	_update_selector_visual()
 	if _selected:
 		queue_redraw()
+	_update_flag_badge_layout()
+
+func set_capture_flag_marker(visible: bool, flag_owner_id: int = 0, hidden: bool = false) -> void:
+	var badge: Label = _ensure_flag_badge()
+	if badge == null:
+		return
+	badge.visible = visible
+	if not visible:
+		return
+	badge.text = "FLAG"
+	badge.modulate = Color(1.0, 0.92, 0.35, 1.0)
+	badge.tooltip_text = "Hidden Flag" if hidden else "Flag Hive"
+	if flag_owner_id > 0:
+		badge.tooltip_text += " P%d" % flag_owner_id
+	_update_flag_badge_layout()
 
 func set_selected(on: bool, color: Color) -> void:
 	_selected = on
@@ -304,6 +321,27 @@ func _get_sim_events() -> Node:
 		return null
 	_sim_events = tree.get_first_node_in_group("sim_events")
 	return _sim_events
+
+func _ensure_flag_badge() -> Label:
+	if _flag_badge != null and is_instance_valid(_flag_badge):
+		return _flag_badge
+	var badge := Label.new()
+	badge.name = "FlagBadge"
+	badge.visible = false
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	badge.size = Vector2(72.0, 20.0)
+	add_child(badge)
+	_flag_badge = badge
+	_update_flag_badge_layout()
+	return _flag_badge
+
+func _update_flag_badge_layout() -> void:
+	if _flag_badge == null or not is_instance_valid(_flag_badge):
+		return
+	var y_offset: float = -maxf(radius_px, MIN_RENDER_RADIUS_PX) - 30.0
+	_flag_badge.position = Vector2(-36.0, y_offset)
 
 func _ensure_selector_sprite() -> void:
 	if _selector_sprite != null and is_instance_valid(_selector_sprite):

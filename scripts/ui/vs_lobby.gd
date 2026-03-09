@@ -56,6 +56,7 @@ var _contest_window_open: bool = false
 var _local_joined: bool = false
 var _dev_min_players_override: bool = false
 var _context_meta: Dictionary = {}
+var _force_async_window: bool = false
 
 var _local_uid: String = ""
 var _local_name: String = "You"
@@ -73,6 +74,7 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	_map_count = map_count
 	_price_usd = price_usd
 	_free_roll = free_roll
+	_force_async_window = bool(options.get("force_async_window", false))
 	_window_sec = maxi(1, int(options.get("window_sec", ASYNC_WINDOW_COUNTDOWN_SEC)))
 	_sync_join_sec = maxi(1, int(options.get("sync_join_sec", SYNC_JOIN_COUNTDOWN_SEC)))
 	var start_players: int = int(options.get("start_players", _min_players()))
@@ -80,7 +82,7 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	_context_meta = {}
 	for key in options.keys():
 		match str(key):
-			"window_sec", "sync_join_sec", "start_players":
+			"window_sec", "sync_join_sec", "start_players", "force_async_window":
 				continue
 			_:
 				_context_meta[str(key)] = options[key]
@@ -627,6 +629,10 @@ func _mode_label(mode_id: String) -> String:
 	match mode_id:
 		"STAGE_RACE":
 			return "Stage Race"
+		"CAPTURE_FLAG":
+			return "Capture the Flag"
+		"HIDDEN_CAPTURE_FLAG":
+			return "Hidden CTF"
 		"TIMED_RACE", "RACE":
 			return "Timed Race"
 		"MISS_N_OUT":
@@ -645,6 +651,8 @@ func _on_back_pressed() -> void:
 	closed.emit()
 
 func _uses_async_window() -> bool:
+	if _force_async_window:
+		return true
 	return _mode == "STAGE_RACE" or _mode == "MISS_N_OUT"
 
 func _min_players() -> int:

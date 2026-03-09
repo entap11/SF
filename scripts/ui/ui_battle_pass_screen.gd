@@ -136,14 +136,21 @@ func _on_state_changed(snapshot: Dictionary) -> void:
 		var elite_owned: bool = bool(snapshot.get("elite_owned", false))
 		var side_quest_paths: int = int(snapshot.get("side_quest_paths_available", 1))
 		var prestige_pool_base: int = int(snapshot.get("prestige_pool_base_slots", 0))
-		summary_label.text = "Level %d/%d · Progress %.0f%% · Paths %d · Prestige %d · Premium %s · Elite %s" % [
+		var sink_summary_any: Variant = snapshot.get("progression_sink_summary", {})
+		var sink_summary: Dictionary = sink_summary_any as Dictionary if typeof(sink_summary_any) == TYPE_DICTIONARY else {}
+		var sink_milestones: Array = sink_summary.get("milestones", []) as Array
+		var l90_actions: int = _baseline_actions_for_level(sink_milestones, 90)
+		var l100_actions: int = _baseline_actions_for_level(sink_milestones, 100)
+		summary_label.text = "Level %d/%d · Progress %.0f%% · Paths %d · Prestige %d · Premium %s · Elite %s · L90 %dA · L100 %dA" % [
 			level,
 			total_levels,
 			progress_ratio * 100.0,
 			side_quest_paths,
 			prestige_pool_base,
 			"YES" if premium_owned else "NO",
-			"YES" if elite_owned else "NO"
+			"YES" if elite_owned else "NO",
+			l90_actions,
+			l100_actions
 		]
 
 	if veteran_label != null:
@@ -156,9 +163,47 @@ func _on_state_changed(snapshot: Dictionary) -> void:
 		var wallet: Dictionary = wallet_any as Dictionary if typeof(wallet_any) == TYPE_DICTIONARY else {}
 		var inventory_any: Variant = snapshot.get("inventory", {})
 		var inventory: Dictionary = inventory_any as Dictionary if typeof(inventory_any) == TYPE_DICTIONARY else {}
-		wallet_label.text = "Honey %d · Tickets %d" % [
+		var reward_summary_any: Variant = snapshot.get("reward_summary", {})
+		var reward_summary: Dictionary = reward_summary_any as Dictionary if typeof(reward_summary_any) == TYPE_DICTIONARY else {}
+		var reward_targets_any: Variant = snapshot.get("reward_targets", {})
+		var reward_targets: Dictionary = reward_targets_any as Dictionary if typeof(reward_targets_any) == TYPE_DICTIONARY else {}
+		var quest_summary_any: Variant = snapshot.get("quest_reward_summary", {})
+		var quest_summary: Dictionary = quest_summary_any as Dictionary if typeof(quest_summary_any) == TYPE_DICTIONARY else {}
+		var free_summary: Dictionary = reward_summary.get("free", {}) as Dictionary
+		var premium_summary: Dictionary = reward_summary.get("premium", {}) as Dictionary
+		var elite_summary: Dictionary = reward_summary.get("elite", {}) as Dictionary
+		var premium_quest_summary: Dictionary = quest_summary.get("premium", {}) as Dictionary
+		var elite_quest_summary: Dictionary = quest_summary.get("elite", {}) as Dictionary
+		var free_target: Dictionary = reward_targets.get("free", {}) as Dictionary
+		var premium_target: Dictionary = reward_targets.get("premium", {}) as Dictionary
+		var elite_target: Dictionary = reward_targets.get("elite", {}) as Dictionary
+		wallet_label.text = "Honey %d · Tickets %d\nActual H/T/C F %d/%d/%d · P %d/%d/%d · E %d/%d/%d\nTarget H/T/C F %d/%d/%d · P %d/%d/%d · E %d/%d/%d\nSide Quests P %d/%d/%d · E %d/%d/%d" % [
 			int(wallet.get("honey", 0)),
-			int(inventory.get("access_tickets", 0))
+			int(inventory.get("access_tickets", 0)),
+			int(free_summary.get("honey", 0)),
+			int(free_summary.get("access_tickets", 0)),
+			int(free_summary.get("cosmetics", 0)),
+			int(premium_summary.get("honey", 0)),
+			int(premium_summary.get("access_tickets", 0)),
+			int(premium_summary.get("cosmetics", 0)),
+			int(elite_summary.get("honey", 0)),
+			int(elite_summary.get("access_tickets", 0)),
+			int(elite_summary.get("cosmetics", 0)),
+			int(free_target.get("honey", 0)),
+			int(free_target.get("access_tickets", 0)),
+			int(free_target.get("cosmetics", 0)),
+			int(premium_target.get("honey", 0)),
+			int(premium_target.get("access_tickets", 0)),
+			int(premium_target.get("cosmetics", 0)),
+			int(elite_target.get("honey", 0)),
+			int(elite_target.get("access_tickets", 0)),
+			int(elite_target.get("cosmetics", 0)),
+			int(premium_quest_summary.get("honey", 0)),
+			int(premium_quest_summary.get("access_tickets", 0)),
+			int(premium_quest_summary.get("cosmetics", 0)),
+			int(elite_quest_summary.get("honey", 0)),
+			int(elite_quest_summary.get("access_tickets", 0)),
+			int(elite_quest_summary.get("cosmetics", 0))
 		]
 
 	if levels_text != null:
@@ -239,3 +284,13 @@ func _track_badge(track_state: Dictionary) -> String:
 	if reason.is_empty():
 		return "LCK"
 	return reason
+
+func _baseline_actions_for_level(milestones: Array, level: int) -> int:
+	for milestone_any in milestones:
+		if typeof(milestone_any) != TYPE_DICTIONARY:
+			continue
+		var milestone: Dictionary = milestone_any as Dictionary
+		if int(milestone.get("level", 0)) != level:
+			continue
+		return int(milestone.get("baseline_actions", 0))
+	return 0

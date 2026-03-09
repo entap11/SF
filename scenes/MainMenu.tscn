@@ -1713,6 +1713,10 @@ text = "3 Map Stage Race"
 layout_mode = 2
 text = "5 Map Stage Race"
 
+[node name="AsyncLadderCaptureFlag" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsList"]
+layout_mode = 2
+text = "Capture the Flag"
+
 [node name="AsyncResultsAction" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox"]
 layout_mode = 2
 text = "VIEW LADDER"
@@ -1767,6 +1771,10 @@ text = "3 Map Stage Race"
 [node name="AsyncFreeStage5" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
 layout_mode = 2
 text = "5 Map Stage Race"
+
+[node name="AsyncFreeCaptureFlag" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncFreeList"]
+layout_mode = 2
+text = "Capture the Flag"
 
 [node name="AsyncRulesAction" type="Button" parent="AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox"]
 layout_mode = 2

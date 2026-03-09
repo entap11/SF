@@ -108,6 +108,8 @@ const SHELL_OUTCOME_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/OutcomeOverla
 const SHELL_WIN_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/WinOverlay"
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const VS_MODE_STAGE_RACE: String = "STAGE_RACE"
+const VS_MODE_CAPTURE_FLAG: String = "CAPTURE_FLAG"
+const VS_MODE_HIDDEN_CAPTURE_FLAG: String = "HIDDEN_CAPTURE_FLAG"
 const TREE_META_VS_MODE: String = "vs_mode"
 const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
@@ -485,7 +487,8 @@ func _ready() -> void:
 		_init_barracks()
 		if state.hives != null:
 			set_process_unhandled_input(true)
-	_apply_autostart()
+	# Match startup must flow through prematch/bootstrap so roster and bot state exist
+	# before the simulation is allowed to run.
 	_ensure_timer_hud()
 	_start_match_flow()
 	_configure_grid_spec(grid_w, grid_h)
@@ -933,6 +936,7 @@ func _begin_prematch() -> void:
 		return
 	_ensure_match_roster()
 	_configure_vs_pvp_runtime()
+	_configure_special_victory_mode()
 	_match_started = false
 	var prematch_dur_ms: int = OpsState.prematch_duration_ms
 	if prematch_dur_ms <= 0:
@@ -978,6 +982,47 @@ func _configure_vs_pvp_runtime() -> void:
 		if _vs_pvp_runtime.has_method("get_local_seat"):
 			local_seat = clampi(int(_vs_pvp_runtime.call("get_local_seat")), 1, 4)
 		active_player_id = local_seat
+
+func _configure_special_victory_mode() -> void:
+	if OpsState == null or not OpsState.has_method("set_victory_mode"):
+		return
+	var tree: SceneTree = get_tree()
+	var vs_mode: String = ""
+	if tree != null and tree.has_meta(TREE_META_VS_MODE):
+		vs_mode = str(tree.get_meta(TREE_META_VS_MODE, "")).strip_edges().to_upper()
+	var is_capture_flag: bool = _is_capture_flag_vs_mode(vs_mode)
+	if not is_capture_flag:
+		OpsState.sim_mutate("Arena._configure_special_victory_mode", func() -> void:
+			OpsState.call("set_victory_mode", "conquest", {})
+		)
+		return
+	var options: Dictionary = {
+		"hidden_flag": vs_mode == VS_MODE_HIDDEN_CAPTURE_FLAG,
+		"fog_of_war_enabled": _tree_meta_bool("ctf_fog_of_war_enabled", false),
+		"flag_move_count_max": maxi(0, int(_tree_meta_value("ctf_flag_move_count_max", 0))),
+		"flag_move_reveals": _tree_meta_bool("ctf_flag_move_reveals", true),
+		"flag_move_production_lock_sec": maxf(0.0, float(_tree_meta_value("ctf_flag_move_production_lock_sec", 0.0))),
+		"flag_hives": _tree_meta_value("ctf_flag_hives", current_map_data.get("ctf_flag_hives", {})),
+		"map_data": current_map_data.duplicate(true)
+	}
+	if tree != null and tree.has_meta("ctf_hidden_flag"):
+		options["hidden_flag"] = _tree_meta_bool("ctf_hidden_flag", bool(options.get("hidden_flag", false)))
+	OpsState.sim_mutate("Arena._configure_special_victory_mode", func() -> void:
+		OpsState.call("configure_capture_flag_mode", options)
+	)
+
+func _is_capture_flag_vs_mode(mode: String) -> bool:
+	var clean_mode: String = mode.strip_edges().to_upper()
+	return clean_mode == VS_MODE_CAPTURE_FLAG or clean_mode == VS_MODE_HIDDEN_CAPTURE_FLAG
+
+func _tree_meta_value(key: String, fallback: Variant = null) -> Variant:
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta(key):
+		return fallback
+	return tree.get_meta(key, fallback)
+
+func _tree_meta_bool(key: String, fallback: bool) -> bool:
+	return bool(_tree_meta_value(key, fallback))
 
 func _pump_vs_pvp_runtime(delta: float) -> void:
 	if _vs_pvp_runtime == null or not _vs_pvp_runtime.has_method("is_active"):
@@ -2947,7 +2992,7 @@ func load_from_map(map_data: Dictionary) -> void:
 		current_map_name = current_map_path.get_file()
 	_log_map_spec(map_data)
 	_reset_sim_state()
-	_apply_autostart()
+	# Fresh map loads must re-enter prematch/bootstrap instead of eagerly starting sim.
 	_map_build_version += 1
 	on_map_built()
 	_render_dirty = true
@@ -3142,8 +3187,22 @@ func _apply_autostart() -> void:
 	if not autostart:
 		SFLog.info("SIM_AUTOSTART_SKIP", {"autostart": autostart})
 		return
+	if not _can_apply_autostart_now():
+		SFLog.info("SIM_AUTOSTART_DEFER", {
+			"phase": int(OpsState.match_phase) if OpsState != null else -1,
+			"input_locked": bool(OpsState.input_locked) if OpsState != null else false,
+			"match_started": _match_started
+		})
+		return
 	# autostart == true
 	sim_runner.set_running(true, "arena_apply_autostart_true")
+
+func _can_apply_autostart_now() -> bool:
+	if sim_runner == null or state == null or OpsState == null:
+		return false
+	if _match_started:
+		return true
+	return OpsState.match_phase == OpsState.MatchPhase.RUNNING and not bool(OpsState.input_locked)
 
 func start_sim() -> void:
 	if sim_runner == null:
@@ -4345,7 +4404,26 @@ func export_render_model() -> Dictionary:
 		return _render_model
 	var out_hives: Array[Dictionary] = []
 	var out_hives_by_id: Dictionary = {}
+	var capture_flag_view: Dictionary = {"enabled": false}
+	var capture_flag_by_hive_id: Dictionary = {}
 	var cell_px: float = float(_cell_px())
+	if OpsState != null and OpsState.has_method("build_capture_flag_view"):
+		capture_flag_view = OpsState.call("build_capture_flag_view", _resolve_local_owner_id()) as Dictionary
+		var flags: Array = capture_flag_view.get("flags", []) as Array
+		for flag_any in flags:
+			if typeof(flag_any) != TYPE_DICTIONARY:
+				continue
+			var flag_entry: Dictionary = flag_any as Dictionary
+			if not bool(flag_entry.get("visible_to_viewer", false)):
+				continue
+			var hive_id: int = int(flag_entry.get("hive_id", 0))
+			if hive_id <= 0:
+				continue
+			capture_flag_by_hive_id[hive_id] = {
+				"owner_id": int(flag_entry.get("owner_id", 0)),
+				"hidden": bool(flag_entry.get("hidden", false)),
+				"visible_to_viewer": bool(flag_entry.get("visible_to_viewer", false))
+			}
 	if state != null:
 		for hive in state.hives:
 			var h: HiveData = hive
@@ -4371,6 +4449,11 @@ func export_render_model() -> Dictionary:
 				"pwr": int(h.power),
 				"kind": String(h.kind)
 			}
+			if capture_flag_by_hive_id.has(int(h.id)):
+				var flag_view: Dictionary = capture_flag_by_hive_id[int(h.id)] as Dictionary
+				hd["is_capture_flag"] = true
+				hd["capture_flag_owner_id"] = int(flag_view.get("owner_id", 0))
+				hd["capture_flag_hidden"] = bool(flag_view.get("hidden", false))
 			out_hives.append(hd)
 			out_hives_by_id[int(h.id)] = hd
 	var out_lanes: Array[Dictionary] = []
@@ -4623,6 +4706,8 @@ func export_render_model() -> Dictionary:
 		"outcome_reason": str(OpsState.outcome_reason) if state != null else "",
 		"outcome_tick": int(OpsState.outcome_tick) if state != null else -1,
 		"winner_id": int(OpsState.winner_id) if state != null else 0,
+		"victory_mode": str(OpsState.get_victory_mode()) if state != null and OpsState != null and OpsState.has_method("get_victory_mode") else "conquest",
+		"capture_flag": capture_flag_view,
 		"match_time_remaining_sec": float(OpsState.match_time_remaining_sec) if state != null else 0.0,
 		"match_clock_running": bool(OpsState.match_clock_running) if state != null else false,
 		"selected_lane_id": int(sel.selected_lane_id) if sel != null else -1,
