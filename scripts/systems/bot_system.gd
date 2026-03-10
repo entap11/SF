@@ -100,7 +100,9 @@ func tick(_dt: float) -> void:
 				"ok": ok,
 				"reason": reason,
 				"score": float(decision.get("score", 0.0)),
-				"policy": str(decision.get("policy", "baseline_v1"))
+				"policy": str(decision.get("policy", "baseline_v2")),
+				"style": str(profile.get("style", profile.get("persona", ""))),
+				"tier": str(profile.get("tier", "medium"))
 			})
 			if ok:
 				var pair_cooldown_ms: int = maxi(250, int(profile.get("pair_intent_cooldown_ms", 1200)))

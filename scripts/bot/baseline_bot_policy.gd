@@ -10,6 +10,8 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 		return {}
 	if seat < 1 or seat > 4:
 		return {}
+	var style_id: String = str(profile.get("style", profile.get("persona", "balancer"))).strip_edges().to_lower()
+	var tier_id: String = str(profile.get("tier", "medium")).strip_edges().to_lower()
 	var team_by_seat: Dictionary = _normalized_team_map(profile.get("team_by_seat", {}))
 	var min_attack_power: int = maxi(1, int(profile.get("min_attack_power", 8)))
 	var min_feed_power: int = maxi(1, int(profile.get("min_feed_power", 11)))
@@ -19,6 +21,20 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	var feed_bias: float = clampf(float(profile.get("feed_bias", 0.22)), 0.0, 1.0)
 	var randomness: float = clampf(float(profile.get("randomness", 0.08)), 0.0, 0.5)
 	var prefer_neutral_bonus: float = clampf(float(profile.get("prefer_neutral_bonus", 0.5)), 0.0, 2.0)
+	var attack_distance_weight: float = clampf(float(profile.get("attack_distance_weight", 2.0)), 0.1, 8.0)
+	var feed_distance_weight: float = clampf(float(profile.get("feed_distance_weight", 1.6)), 0.1, 8.0)
+	var attack_power_diff_weight: float = clampf(float(profile.get("attack_power_diff_weight", 1.2)), 0.1, 5.0)
+	var feed_need_weight: float = clampf(float(profile.get("feed_need_weight", 1.3)), 0.1, 5.0)
+	var weak_target_bonus: float = clampf(float(profile.get("weak_target_bonus", 4.0)), 0.0, 20.0)
+	var strong_target_penalty: float = clampf(float(profile.get("strong_target_penalty", 6.0)), 0.0, 20.0)
+	var low_ally_power_bonus: float = clampf(float(profile.get("low_ally_power_bonus", 5.0)), 0.0, 20.0)
+	var enemy_owned_bonus: float = clampf(float(profile.get("enemy_owned_bonus", 2.5)), 0.0, 10.0)
+	var neutral_capture_bonus: float = clampf(float(profile.get("neutral_capture_bonus", 8.0)), 0.0, 20.0)
+	var swarm_distance_weight: float = clampf(float(profile.get("swarm_distance_weight", 1.2)), 0.1, 8.0)
+	var swarm_power_diff_weight: float = clampf(float(profile.get("swarm_power_diff_weight", 1.8)), 0.1, 6.0)
+	var swarm_low_power_bonus: float = clampf(float(profile.get("swarm_low_power_bonus", 6.0)), 0.0, 20.0)
+	var weak_target_threshold: int = maxi(1, int(profile.get("weak_target_threshold", 12)))
+	var swarm_frequency: float = clampf(float(profile.get("swarm_frequency", aggression * 0.60)), 0.0, 0.95)
 	var wall_segments: Array = []
 	if state_ref != null and state_ref.walls != null and not state_ref.walls.is_empty():
 		wall_segments = MAP_SCHEMA._wall_segments_from_walls(state_ref.walls)
@@ -58,13 +74,24 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 			var outgoing_active: bool = state_ref.is_outgoing_lane_active(src_id, dst_id)
 			if outgoing_active:
 				if allow_swarm and dst_owner > 0 and not dst_is_ally and src_power >= min_swarm_power:
-					var swarm_score: float = _score_swarm(src, dst, src_power, dst_power)
+					var swarm_score: float = _score_swarm(
+						src,
+						dst,
+						src_power,
+						dst_power,
+						swarm_distance_weight,
+						swarm_power_diff_weight,
+						swarm_low_power_bonus,
+						weak_target_threshold
+					)
 					swarm_candidates.append({
 						"src": src_id,
 						"dst": dst_id,
 						"intent": "swarm",
 						"score": swarm_score,
-						"policy": "baseline_v1"
+						"policy": "baseline_v2",
+						"style": style_id,
+						"tier": tier_id
 					})
 				continue
 
@@ -74,24 +101,54 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 			if dst_is_ally:
 				if src_power < min_feed_power:
 					continue
-				var feed_score: float = _score_feed(src, dst, src_power, dst_power, outgoing_budget, active_outgoing)
+				var feed_score: float = _score_feed(
+					src,
+					dst,
+					src_power,
+					dst_power,
+					outgoing_budget,
+					active_outgoing,
+					feed_distance_weight,
+					feed_need_weight,
+					low_ally_power_bonus,
+					weak_target_threshold
+				)
 				feed_candidates.append({
 					"src": src_id,
 					"dst": dst_id,
 					"intent": "feed",
 					"score": feed_score,
-					"policy": "baseline_v1"
+					"policy": "baseline_v2",
+					"style": style_id,
+					"tier": tier_id
 				})
 			else:
 				if src_power < min_attack_power:
 					continue
-				var attack_score: float = _score_attack(src, dst, src_power, dst_power, outgoing_budget, active_outgoing, prefer_neutral_bonus)
+				var attack_score: float = _score_attack(
+					src,
+					dst,
+					src_power,
+					dst_power,
+					outgoing_budget,
+					active_outgoing,
+					prefer_neutral_bonus,
+					attack_distance_weight,
+					attack_power_diff_weight,
+					weak_target_bonus,
+					strong_target_penalty,
+					enemy_owned_bonus,
+					neutral_capture_bonus,
+					weak_target_threshold
+				)
 				attack_candidates.append({
 					"src": src_id,
 					"dst": dst_id,
 					"intent": "attack",
 					"score": attack_score,
-					"policy": "baseline_v1"
+					"policy": "baseline_v2",
+					"style": style_id,
+					"tier": tier_id
 				})
 
 	attack_candidates.sort_custom(Callable(self, "_score_desc"))
@@ -103,7 +160,7 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	# If a lane is already active against an enemy, occasionally trigger a burst swarm.
 	if allow_swarm and not swarm_candidates.is_empty():
 		var swarm_roll: float = _deterministic_roll(int(state_ref.tick), seat, now_ms, 211)
-		var swarm_bias: float = clampf(aggression * 0.60, 0.0, 0.85)
+		var swarm_bias: float = clampf(swarm_frequency, 0.0, 0.90)
 		if swarm_roll <= swarm_bias:
 			var swarm_choice: Dictionary = swarm_candidates[0] as Dictionary
 			swarm_choice["seat"] = seat
@@ -141,19 +198,28 @@ func _score_attack(
 	dst_power: int,
 	outgoing_budget: int,
 	active_outgoing: int,
-	prefer_neutral_bonus: float
+	prefer_neutral_bonus: float,
+	attack_distance_weight: float,
+	attack_power_diff_weight: float,
+	weak_target_bonus: float,
+	strong_target_penalty: float,
+	enemy_owned_bonus: float,
+	neutral_capture_bonus: float,
+	weak_target_threshold: int
 ) -> float:
 	var dist: float = _grid_distance(src.grid_pos, dst.grid_pos)
 	var score: float = 100.0
-	score += float(src_power - dst_power) * 1.2
-	score -= dist * 2.0
+	score += float(src_power - dst_power) * attack_power_diff_weight
+	score -= dist * attack_distance_weight
 	score += float(outgoing_budget - active_outgoing) * 1.5
 	if int(dst.owner_id) <= 0:
-		score += 8.0 * prefer_neutral_bonus
+		score += neutral_capture_bonus * prefer_neutral_bonus
 	else:
-		score += 2.5
+		score += enemy_owned_bonus
+	if dst_power <= weak_target_threshold:
+		score += weak_target_bonus
 	if dst_power >= src_power:
-		score -= 6.0
+		score -= strong_target_penalty
 	return score
 
 func _score_feed(
@@ -162,25 +228,40 @@ func _score_feed(
 	src_power: int,
 	dst_power: int,
 	outgoing_budget: int,
-	active_outgoing: int
+	active_outgoing: int,
+	feed_distance_weight: float,
+	feed_need_weight: float,
+	low_ally_power_bonus: float,
+	weak_target_threshold: int
 ) -> float:
 	var dist: float = _grid_distance(src.grid_pos, dst.grid_pos)
 	var score: float = 60.0
-	score += float(DEFAULT_MAX_HIVE_POWER - dst_power) * 1.3
-	score -= dist * 1.5
+	score += float(DEFAULT_MAX_HIVE_POWER - dst_power) * feed_need_weight
+	score -= dist * feed_distance_weight
 	score += float(mini(src_power, 20)) * 0.2
 	score += float(outgoing_budget - active_outgoing) * 0.8
+	if dst_power <= weak_target_threshold:
+		score += low_ally_power_bonus
 	if dst_power >= DEFAULT_MAX_HIVE_POWER:
 		score -= 8.0
 	return score
 
-func _score_swarm(src: HiveData, dst: HiveData, src_power: int, dst_power: int) -> float:
+func _score_swarm(
+	src: HiveData,
+	dst: HiveData,
+	src_power: int,
+	dst_power: int,
+	swarm_distance_weight: float,
+	swarm_power_diff_weight: float,
+	swarm_low_power_bonus: float,
+	weak_target_threshold: int
+) -> float:
 	var dist: float = _grid_distance(src.grid_pos, dst.grid_pos)
 	var score: float = 85.0
-	score += float(src_power - dst_power) * 1.8
-	score -= dist * 1.2
-	if dst_power <= 12:
-		score += 6.0
+	score += float(src_power - dst_power) * swarm_power_diff_weight
+	score -= dist * swarm_distance_weight
+	if dst_power <= weak_target_threshold:
+		score += swarm_low_power_bonus
 	return score
 
 func _build_blocked_pair_lookup_from_profile(profile: Dictionary) -> Dictionary:

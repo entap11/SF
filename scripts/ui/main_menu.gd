@@ -3,10 +3,14 @@ extends Control
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
+const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
 const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPanel.tscn")
 const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePassPanel.tscn")
 const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
 const JUKEBOX_PANEL_SCENE: PackedScene = preload("res://scenes/ui/JukeboxPanel.tscn")
+const GARAGE_PANEL_SCENE: PackedScene = preload("res://scenes/ui/GaragePanel.tscn")
+const DASH_BUFFS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashBuffsHero.tscn")
+const DASH_ACHIEVEMENTS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashAchievementsHero.tscn")
 const HEX_SEAM_BACKGROUND_SCENE: PackedScene = preload("res://ui/backgrounds/HexSeamBackground.tscn")
 const MATCH_BACKGROUND_INLAY_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/match_background_inlay.png")
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
@@ -56,10 +60,13 @@ const UI_SURFACE_SWARM_PASS := "swarm_pass"
 const UI_SURFACE_BATTLE_PASS := "battle_pass"
 const UI_SURFACE_RANK := "rank"
 const UI_SURFACE_HIVE_DROPDOWN := "hive_dropdown"
+const DASH_HERO_TAB_GARAGE := "garage"
+const DASH_HERO_TAB_BUFFS := "buffs"
+const DASH_HERO_TAB_ACHIEVEMENTS := "achievements"
 const DASH_HEX_BUFFS_KEY := "ui.mm.buffs.normal"
 const DASH_HEX_STORE_KEY := "ui.mm.store.normal"
 const DASH_HEX_HIVE_KEY := "ui.mm.hive.normal"
-const DASH_HEX_JUKEBOX_KEY := "ui.mm.store.normal"
+const DASH_HEX_JUKEBOX_KEY := "ui.mm.jukebox.normal"
 const DASH_HEX_BASE_SIZE: Vector2 = Vector2(90.0, 64.0)
 const DASH_HEX_SIZE_SCALE: float = 1.38
 const DASH_HEX_CONTAINER_RIGHT_MARGIN: float = 8.0
@@ -73,6 +80,10 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 @onready var dash_main_background: Control = $DashPanel/HexSeamBackground
 @onready var dash_top_bar: Control = $DashPanel/DashTopBar
 @onready var dash_root: VBoxContainer = $DashPanel/DashRoot
+@onready var dash_tabs: HBoxContainer = $DashPanel/DashRoot/DashTabs
+@onready var dash_garage_tab: Button = $DashPanel/DashRoot/DashTabs/GarageTab
+@onready var dash_buffs_tab: Button = $DashPanel/DashRoot/DashTabs/BuffsTab
+@onready var dash_achievements_tab: Button = $DashPanel/DashRoot/DashTabs/AchievementsTab
 @onready var dash_hexes: VBoxContainer = $DashPanel/DashHexes
 @onready var dash_match_panel: Panel = $DashPanel/DashRoot/MatchHistoryPanel
 @onready var dash_badges_panel: Panel = $DashPanel/DashRoot/BadgesPanel
@@ -227,6 +238,10 @@ var _battle_pass_panel: Control = null
 var _rank_panel: Control = null
 var _jukebox_panel: Panel = null
 var _dash_hex_jukebox: HexButton = null
+var _dash_garage_panel: Control = null
+var _dash_buffs_hero: Control = null
+var _dash_achievements_hero: Control = null
+var _dash_active_tab: String = DASH_HERO_TAB_GARAGE
 var _honey_widget: Control = null
 var _tier_widget: Control = null
 @onready var async_action_buttons: Array = [
@@ -336,6 +351,7 @@ var _store_direct_mode: bool = false
 var _settings_direct_mode: bool = false
 var _buffs_direct_mode: bool = false
 var _hive_direct_mode: bool = false
+var _jukebox_direct_mode: bool = false
 var _hive_panel_tween: Tween = null
 var _player_profile := {
 	"tier_text": "Tier: Bronze",
@@ -959,6 +975,7 @@ func _ready() -> void:
 	_ensure_swarm_pass_panel()
 	_load_profile_commerce_state()
 	_bind_profile_honey_signal()
+	_bind_profile_dash_signals()
 	_apply_performance_pref_from_profile()
 	call_deferred("_init_dash_state")
 	_apply_player_profile(_player_profile)
@@ -1489,6 +1506,20 @@ func _style_buttons() -> void:
 	_style_button(store_prefs_toggle, Color(0.1, 0.11, 0.14), Color(0.4, 0.42, 0.5), Color(0.92, 0.92, 0.92))
 	_sync_buff_mode_tabs()
 	_style_dash_buttons()
+	_style_dash_top_tabs()
+
+func _style_dash_top_tabs() -> void:
+	if dash_tabs != null:
+		dash_tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+		dash_tabs.add_theme_constant_override("separation", 12)
+	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab]:
+		if button == null:
+			continue
+		button.toggle_mode = true
+		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		button.custom_minimum_size = Vector2(180.0, 44.0)
+		_apply_font(button, _font_semibold, 12)
+	_refresh_dash_top_tabs()
 
 func _style_panels() -> void:
 	_style_panel($HeroPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.8))
@@ -1540,6 +1571,15 @@ func _wire_buttons() -> void:
 		menu_unused_button.pressed.connect(_on_settings_pressed)
 	hive_button.pressed.connect(_open_hive_panel)
 	dash_tab.pressed.connect(_toggle_dash)
+	dash_garage_tab.pressed.connect(func() -> void:
+		_set_dash_top_tab(DASH_HERO_TAB_GARAGE)
+	)
+	dash_buffs_tab.pressed.connect(func() -> void:
+		_set_dash_top_tab(DASH_HERO_TAB_BUFFS)
+	)
+	dash_achievements_tab.pressed.connect(func() -> void:
+		_set_dash_top_tab(DASH_HERO_TAB_ACHIEVEMENTS)
+	)
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
 	dash_hex_store.pressed.connect(func(): _open_dash_panel(dash_store_panel))
 	dash_hex_hive.pressed.connect(func(): _open_dash_panel(dash_hive_panel))
@@ -1679,6 +1719,7 @@ func _set_hex_buttons() -> void:
 	dash_hex_buffs.sprite_key = DASH_HEX_BUFFS_KEY
 	var dash_hex_size: Vector2 = DASH_HEX_BASE_SIZE * DASH_HEX_SIZE_SCALE
 	if dash_hexes != null:
+		dash_hexes.visible = false
 		dash_hexes.offset_right = -DASH_HEX_CONTAINER_RIGHT_MARGIN
 		dash_hexes.offset_left = dash_hexes.offset_right - dash_hex_size.x - DASH_HEX_CONTAINER_EXTRA_WIDTH
 	dash_hex_buffs.custom_minimum_size = dash_hex_size
@@ -2027,12 +2068,32 @@ func _bind_profile_honey_signal() -> void:
 	if not ProfileManager.is_connected("honey_balance_changed", callback):
 		ProfileManager.connect("honey_balance_changed", callback)
 
+func _bind_profile_dash_signals() -> void:
+	if ProfileManager == null:
+		return
+	if ProfileManager.has_signal("garage_selection_changed"):
+		var garage_callback: Callable = Callable(self, "_on_profile_garage_selection_changed")
+		if not ProfileManager.is_connected("garage_selection_changed", garage_callback):
+			ProfileManager.connect("garage_selection_changed", garage_callback)
+	if ProfileManager.has_signal("achievement_granted"):
+		var achievement_callback: Callable = Callable(self, "_on_profile_achievement_granted")
+		if not ProfileManager.is_connected("achievement_granted", achievement_callback):
+			ProfileManager.connect("achievement_granted", achievement_callback)
+
 func _on_profile_honey_balance_changed(new_value: int, _delta: int, _reason: String) -> void:
 	var safe_value: int = maxi(0, new_value)
 	if safe_value == _current_honey_balance():
 		return
 	_player_profile["honey"] = safe_value
 	_apply_player_profile(_player_profile)
+
+func _on_profile_garage_selection_changed(_category_id: String, _item_id: String) -> void:
+	_refresh_dash_active_hero()
+
+func _on_profile_achievement_granted(_achievement_id: String) -> void:
+	_refresh_dash_achievement_preview()
+	_refresh_dash_account_snapshot()
+	_refresh_dash_active_hero()
 
 func _load_profile_commerce_state() -> void:
 	ProfileManager.ensure_loaded()
@@ -2056,6 +2117,7 @@ func _sync_entitlements_from_profile() -> void:
 		var entitlements_any: Variant = ProfileManager.call("get_store_entitlements")
 		if typeof(entitlements_any) == TYPE_DICTIONARY:
 			_store_owned_entitlements = (entitlements_any as Dictionary).duplicate(true)
+	_refresh_dash_hero_views()
 
 func _spend_honey(amount: int, reason: String) -> Dictionary:
 	if amount <= 0:
@@ -2104,6 +2166,8 @@ func _format_number(value: int) -> String:
 func _configure_dash_account_surfaces() -> void:
 	$DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader.text = "ACCOUNT SNAPSHOT"
 	$DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesHeader.text = "ACHIEVEMENTS"
+	_ensure_dash_tab_heroes()
+	_set_dash_top_tab(_dash_active_tab, true)
 	_apply_buffs_mode_copy()
 	$DashPanel/DashHivePanel/HiveVBox/HiveSub.text = "Hive profile + hive-earned achievements."
 	_refresh_hive_panel()
@@ -2119,6 +2183,96 @@ func _configure_dash_account_surfaces() -> void:
 	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesSub.text = "Progress meters are placeholder for live achievement hooks."
 	_refresh_dash_achievement_preview()
 	_refresh_dash_account_snapshot()
+
+func _ensure_dash_tab_heroes() -> void:
+	if dash_match_panel == null:
+		return
+	var match_center: Control = dash_match_panel.get_node_or_null("MatchCenter") as Control
+	if match_center != null:
+		match_center.visible = false
+	if dash_badges_panel != null:
+		dash_badges_panel.visible = false
+		dash_badges_panel.size_flags_stretch_ratio = 0.0
+	dash_match_panel.size_flags_stretch_ratio = 1.0
+	if _dash_garage_panel == null:
+		_dash_garage_panel = _instantiate_dash_hero(GARAGE_PANEL_SCENE, "GarageHero")
+	if _dash_buffs_hero == null:
+		_dash_buffs_hero = _instantiate_dash_hero(DASH_BUFFS_HERO_SCENE, "BuffsHero")
+	if _dash_achievements_hero == null:
+		_dash_achievements_hero = _instantiate_dash_hero(DASH_ACHIEVEMENTS_HERO_SCENE, "AchievementsHero")
+	_refresh_dash_hero_views()
+
+func _instantiate_dash_hero(scene: PackedScene, node_name: String) -> Control:
+	if dash_match_panel == null or scene == null:
+		return null
+	var hero_any: Node = scene.instantiate()
+	if not (hero_any is Control):
+		return null
+	var hero: Control = hero_any as Control
+	hero.name = node_name
+	hero.anchor_left = 0.0
+	hero.anchor_top = 0.0
+	hero.anchor_right = 1.0
+	hero.anchor_bottom = 1.0
+	hero.offset_left = 0.0
+	hero.offset_top = 0.0
+	hero.offset_right = 0.0
+	hero.offset_bottom = 0.0
+	hero.visible = false
+	dash_match_panel.add_child(hero)
+	return hero
+
+func _set_dash_top_tab(tab_id: String, force_refresh: bool = false) -> void:
+	var normalized_tab: String = tab_id.strip_edges().to_lower()
+	if normalized_tab != DASH_HERO_TAB_BUFFS and normalized_tab != DASH_HERO_TAB_ACHIEVEMENTS:
+		normalized_tab = DASH_HERO_TAB_GARAGE
+	if not force_refresh and normalized_tab == _dash_active_tab:
+		return
+	_dash_active_tab = normalized_tab
+	_ensure_dash_tab_heroes()
+	_refresh_dash_top_tabs()
+	_refresh_dash_active_hero()
+
+func _refresh_dash_top_tabs() -> void:
+	var active_garage: bool = _dash_active_tab == DASH_HERO_TAB_GARAGE
+	var active_buffs: bool = _dash_active_tab == DASH_HERO_TAB_BUFFS
+	var active_achievements: bool = _dash_active_tab == DASH_HERO_TAB_ACHIEVEMENTS
+	if dash_garage_tab != null:
+		dash_garage_tab.button_pressed = active_garage
+		_apply_dash_top_tab_style(dash_garage_tab, active_garage)
+	if dash_buffs_tab != null:
+		dash_buffs_tab.button_pressed = active_buffs
+		_apply_dash_top_tab_style(dash_buffs_tab, active_buffs)
+	if dash_achievements_tab != null:
+		dash_achievements_tab.button_pressed = active_achievements
+		_apply_dash_top_tab_style(dash_achievements_tab, active_achievements)
+
+func _apply_dash_top_tab_style(button: Button, selected: bool) -> void:
+	if button == null:
+		return
+	if selected:
+		_style_button(button, Color(0.19, 0.14, 0.08, 0.98), Color(0.93, 0.74, 0.31, 0.90), Color(0.99, 0.96, 0.88, 1.0))
+	else:
+		_style_button(button, Color(0.10, 0.11, 0.15, 0.96), Color(0.40, 0.43, 0.52, 0.78), Color(0.90, 0.93, 0.98, 1.0))
+
+func _refresh_dash_active_hero() -> void:
+	_ensure_dash_tab_heroes()
+	var target: Control = _dash_garage_panel
+	if _dash_active_tab == DASH_HERO_TAB_BUFFS:
+		target = _dash_buffs_hero
+	elif _dash_active_tab == DASH_HERO_TAB_ACHIEVEMENTS:
+		target = _dash_achievements_hero
+	for hero in [_dash_garage_panel, _dash_buffs_hero, _dash_achievements_hero]:
+		if hero == null:
+			continue
+		hero.visible = hero == target
+	if target != null and target.has_method("refresh_view"):
+		target.call("refresh_view")
+
+func _refresh_dash_hero_views() -> void:
+	for hero in [_dash_garage_panel, _dash_buffs_hero, _dash_achievements_hero]:
+		if hero != null and hero.has_method("refresh_view"):
+			hero.call("refresh_view")
 
 func _refresh_hive_panel() -> void:
 	if not is_inside_tree():
@@ -3720,6 +3874,7 @@ func _persist_buff_profile_state() -> void:
 	elif ProfileManager.has_method("set_buff_loadout_ids"):
 		ProfileManager.call("set_buff_loadout_ids", _buff_loadout_ids)
 	_refresh_dash_account_snapshot()
+	_refresh_dash_active_hero()
 
 func _fallback_buff_for_index(idx: int) -> String:
 	var defaults: Array[String] = [
@@ -6457,6 +6612,7 @@ func _close_top_level_windows(except_surface: String = "") -> void:
 		_buffs_direct_mode = false
 		_store_direct_mode = false
 		_settings_direct_mode = false
+		_jukebox_direct_mode = false
 		_set_dash_panel_store_passthrough(false)
 		_set_hive_panel_vertical_offset(0.0)
 		_hide_dash_panels()
@@ -6493,7 +6649,7 @@ func _set_dash_chrome_visible(visible: bool) -> void:
 	if dash_root != null:
 		dash_root.visible = visible
 	if dash_hexes != null:
-		dash_hexes.visible = visible
+		dash_hexes.visible = false
 	dash_tab.visible = visible
 
 func _set_dash_hidden_state() -> void:
@@ -6646,6 +6802,9 @@ func _on_dash_settings_close_pressed() -> void:
 func _toggle_dash() -> void:
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
+	if _jukebox_direct_mode:
+		_close_jukebox_panel()
+		return
 	if _buffs_direct_mode:
 		_close_buffs_panel_immediate()
 		_set_dash_hidden_state()
@@ -6693,6 +6852,9 @@ func _dash_stub_action(label: String) -> void:
 func _open_dash_panel(panel: Panel) -> void:
 	if panel == null:
 		return
+	if panel == _jukebox_panel:
+		_open_jukebox_panel()
+		return
 	_close_top_level_windows(UI_SURFACE_DASH)
 	_set_dash_chrome_visible(true)
 	_set_dash_panel_store_passthrough(panel == dash_store_panel)
@@ -6713,6 +6875,9 @@ func _open_dash_panel_from_menu(panel: Panel) -> void:
 
 func _close_dash_panel(panel: Panel) -> void:
 	if panel == null:
+		return
+	if panel == _jukebox_panel and _jukebox_direct_mode:
+		_close_jukebox_panel()
 		return
 	if panel == dash_store_panel:
 		_set_dash_panel_store_passthrough(false)
@@ -6757,7 +6922,7 @@ func _ensure_jukebox_panel() -> void:
 			dash_panel.add_child(_jukebox_panel)
 			if _jukebox_panel.has_signal("closed"):
 				_jukebox_panel.connect("closed", func() -> void:
-					_close_dash_panel(_jukebox_panel)
+					_close_jukebox_panel()
 				)
 			if _jukebox_panel.has_signal("play_requested"):
 				_jukebox_panel.connect("play_requested", Callable(self, "_on_jukebox_play_requested"))
@@ -6769,9 +6934,28 @@ func _ensure_jukebox_panel() -> void:
 		dash_hexes.add_child(_dash_hex_jukebox)
 		_dash_hex_jukebox.pressed.connect(func() -> void:
 			if _jukebox_panel != null:
-				_open_dash_panel(_jukebox_panel)
+				_open_jukebox_panel()
 		)
 		_set_hex_buttons()
+
+func _open_jukebox_panel() -> void:
+	if _jukebox_panel == null:
+		return
+	_close_top_level_windows(UI_SURFACE_DASH)
+	_jukebox_direct_mode = true
+	_hide_dash_panels()
+	_set_dash_chrome_visible(false)
+	_set_dash_panel_store_passthrough(false)
+	_set_dash_offsets(0.0)
+	dash_panel.visible = true
+	_jukebox_panel.visible = true
+	_dash_open = true
+
+func _close_jukebox_panel() -> void:
+	_jukebox_direct_mode = false
+	if _jukebox_panel != null:
+		_jukebox_panel.visible = false
+	_set_dash_hidden_state()
 
 func _on_jukebox_play_requested(map_path: String) -> void:
 	if map_path.strip_edges().is_empty():
@@ -6786,13 +6970,16 @@ func _open_jukebox_from_menu_button() -> void:
 	if _jukebox_panel == null:
 		status_label.text = "Jukebox unavailable."
 		return
-	_open_dash_panel(_jukebox_panel)
+	_open_jukebox_panel()
 	status_label.text = "Jukebox opened."
 
 func _launch_jukebox_map(map_path: String) -> bool:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return false
+	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
+	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
+	var map_id: String = MAP_REGISTRY.map_id_from_path(map_path)
 	var clear_keys: Array[String] = [
 		"open_map_picker_on_ready",
 		"vs_mode",
@@ -6819,15 +7006,37 @@ func _launch_jukebox_map(map_path: String) -> bool:
 		"ctf_randomize_flag_hive",
 		"ctf_hidden_flag",
 		"ctf_flag_move_count_max",
-		"ctf_flag_move_reveals"
+		"ctf_flag_move_reveals",
+		"jukebox_board_enabled",
+		"jukebox_map_path",
+		"jukebox_map_id",
+		"jukebox_board_period",
+		"jukebox_local_owner_id",
+		"jukebox_result_commit_signature",
+		"jukebox_easy_bot"
 	]
 	for key_any in clear_keys:
 		var key: String = str(key_any)
 		if tree.has_meta(key):
 			tree.remove_meta(key)
 	tree.set_meta("start_game", true)
+	tree.set_meta("vs_mode", "ASYNC_SINGLE_MAP_TIMED")
+	tree.set_meta("vs_price_usd", 0)
+	tree.set_meta("vs_free_roll", true)
+	tree.set_meta("vs_sync_start", false)
 	tree.set_meta("vs_stage_map_paths", [map_path])
 	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
+	tree.set_meta("vs_local_profile", {
+		"uid": local_uid,
+		"name": local_name
+	})
+	tree.set_meta("jukebox_board_enabled", true)
+	tree.set_meta("jukebox_map_path", map_path)
+	tree.set_meta("jukebox_map_id", map_id)
+	tree.set_meta("jukebox_board_period", "WEEKLY")
+	tree.set_meta("jukebox_local_owner_id", 1)
+	tree.set_meta("jukebox_easy_bot", true)
 	if OpsState != null and OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", "")
 	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
@@ -7434,6 +7643,7 @@ func _init_dash_state() -> void:
 	_settings_direct_mode = false
 	_buffs_direct_mode = false
 	_hive_direct_mode = false
+	_jukebox_direct_mode = false
 	if _hive_panel_tween != null and _hive_panel_tween.is_running():
 		_hive_panel_tween.kill()
 	_set_hive_panel_vertical_offset(0.0)

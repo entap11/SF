@@ -22,6 +22,14 @@ const MATCH_DURATION_MS_DEFAULT := 300000
 const MATCH_DURATION_MS_TEST := 70000
 const TEAM_MODE_2V2 := "2v2"
 const TEAM_MODE_FFA := "ffa"
+const BOT_STYLE_BALANCER := "balancer"
+const BOT_STYLE_TURTLE := "turtle"
+const BOT_STYLE_RAIDER := "raider"
+const BOT_STYLE_GREEDY := "greedy"
+const BOT_STYLE_SWARM_LORD := "swarm_lord"
+const BOT_TIER_EASY := "easy"
+const BOT_TIER_MEDIUM := "medium"
+const BOT_TIER_HARD := "hard"
 const AUTH_FENCE_LOG_INTERVAL_MS := 1000
 const AUTH_FENCE_ALLOWED_PREFIXES := [
 	"res://scripts/systems/",
@@ -235,75 +243,293 @@ func set_team_mode_override(mode: String) -> void:
 func get_team_mode_override() -> String:
 	return _normalize_team_mode(team_mode_override)
 
-func _default_bot_profile_for_seat(seat: int) -> Dictionary:
-	var profile: Dictionary = {
+func _normalize_bot_style(style: String) -> String:
+	var normalized: String = style.strip_edges().to_lower()
+	match normalized:
+		BOT_STYLE_TURTLE, BOT_STYLE_RAIDER, BOT_STYLE_GREEDY, BOT_STYLE_SWARM_LORD:
+			return normalized
+		_:
+			return BOT_STYLE_BALANCER
+
+func _normalize_bot_tier(tier: String) -> String:
+	var normalized: String = tier.strip_edges().to_lower()
+	match normalized:
+		BOT_TIER_EASY, BOT_TIER_HARD:
+			return normalized
+		_:
+			return BOT_TIER_MEDIUM
+
+func _default_bot_style_for_seat(seat: int) -> String:
+	match seat:
+		2:
+			return BOT_STYLE_RAIDER
+		3:
+			return BOT_STYLE_TURTLE
+		4:
+			return BOT_STYLE_GREEDY
+		_:
+			return BOT_STYLE_BALANCER
+
+func _base_bot_profile_for_seat(seat: int) -> Dictionary:
+	return {
 		"seat": seat,
 		"enabled": true,
-		"policy": "baseline_v1",
-		"persona": "balanced",
-		"think_interval_ms": 900,
-		"think_jitter_ms": 140,
-		"post_intent_delay_ms": 420,
-		"opening_delay_ms": 1800,
+		"policy": "baseline_v2",
+		"style": BOT_STYLE_BALANCER,
+		"persona": BOT_STYLE_BALANCER,
+		"tier": BOT_TIER_MEDIUM,
+		"think_interval_ms": 880,
+		"think_jitter_ms": 120,
+		"post_intent_delay_ms": 400,
+		"opening_delay_ms": 1600 + (maxi(0, seat - 1) * 120),
 		"opening_stagger_ms": 120,
-		"aggression": 0.62,
-		"feed_bias": 0.30,
+		"aggression": 0.58,
+		"feed_bias": 0.28,
 		"min_attack_power": 9,
 		"min_feed_power": 12,
 		"min_swarm_power": 17,
 		"allow_swarm": true,
 		"max_actions_per_tick": 1,
-		"prefer_neutral_bonus": 0.5,
-		"randomness": 0.08,
+		"prefer_neutral_bonus": 0.50,
+		"randomness": 0.06,
 		"retry_block_ms": 900,
 		"no_lane_retry_ms": 3200,
 		"pair_intent_cooldown_ms": 1300,
 		"global_intent_cooldown_ms": 1000,
 		"swarm_cooldown_ms": 1600,
-		"swarm_global_cooldown_ms": 3500
+		"swarm_global_cooldown_ms": 3500,
+		"attack_distance_weight": 2.0,
+		"feed_distance_weight": 1.6,
+		"attack_power_diff_weight": 1.2,
+		"feed_need_weight": 1.3,
+		"weak_target_bonus": 4.0,
+		"strong_target_penalty": 6.0,
+		"low_ally_power_bonus": 5.0,
+		"enemy_owned_bonus": 2.5,
+		"neutral_capture_bonus": 8.0,
+		"swarm_distance_weight": 1.2,
+		"swarm_power_diff_weight": 1.8,
+		"swarm_low_power_bonus": 6.0,
+		"weak_target_threshold": 12,
+		"swarm_frequency": 0.34
 	}
-	match seat:
-		2:
-			profile["persona"] = "striker"
-			profile["think_interval_ms"] = 980
-			profile["opening_delay_ms"] = 2000
-			profile["aggression"] = 0.67
-			profile["feed_bias"] = 0.24
-			profile["min_attack_power"] = 10
-			profile["min_swarm_power"] = 18
-			profile["randomness"] = 0.06
-		3:
-			profile["persona"] = "builder"
-			profile["think_interval_ms"] = 1100
-			profile["think_jitter_ms"] = 160
-			profile["opening_delay_ms"] = 2200
-			profile["aggression"] = 0.52
-			profile["feed_bias"] = 0.38
-			profile["min_attack_power"] = 10
-			profile["min_feed_power"] = 11
-			profile["min_swarm_power"] = 19
-			profile["prefer_neutral_bonus"] = 0.80
-			profile["randomness"] = 0.10
-		4:
-			profile["persona"] = "raider"
-			profile["think_interval_ms"] = 1050
-			profile["think_jitter_ms"] = 170
-			profile["opening_delay_ms"] = 2400
-			profile["aggression"] = 0.70
-			profile["feed_bias"] = 0.20
-			profile["min_attack_power"] = 9
-			profile["min_feed_power"] = 13
-			profile["min_swarm_power"] = 17
-			profile["prefer_neutral_bonus"] = 0.35
-			profile["randomness"] = 0.12
+
+func _bot_style_patch(style: String) -> Dictionary:
+	var normalized_style: String = _normalize_bot_style(style)
+	match normalized_style:
+		BOT_STYLE_TURTLE:
+			return {
+				"style": BOT_STYLE_TURTLE,
+				"persona": BOT_STYLE_TURTLE,
+				"think_interval_ms": 1260,
+				"think_jitter_ms": 150,
+				"post_intent_delay_ms": 560,
+				"opening_delay_ms": 2400,
+				"aggression": 0.32,
+				"feed_bias": 0.62,
+				"min_attack_power": 12,
+				"min_feed_power": 10,
+				"min_swarm_power": 21,
+				"allow_swarm": false,
+				"prefer_neutral_bonus": 0.15,
+				"randomness": 0.05,
+				"pair_intent_cooldown_ms": 1700,
+				"global_intent_cooldown_ms": 1300,
+				"attack_distance_weight": 2.6,
+				"feed_distance_weight": 1.1,
+				"attack_power_diff_weight": 0.95,
+				"feed_need_weight": 1.65,
+				"weak_target_bonus": 2.0,
+				"strong_target_penalty": 9.0,
+				"low_ally_power_bonus": 8.0,
+				"enemy_owned_bonus": 1.0,
+				"neutral_capture_bonus": 4.0,
+				"swarm_frequency": 0.08
+			}
+		BOT_STYLE_RAIDER:
+			return {
+				"style": BOT_STYLE_RAIDER,
+				"persona": BOT_STYLE_RAIDER,
+				"think_interval_ms": 720,
+				"think_jitter_ms": 90,
+				"post_intent_delay_ms": 260,
+				"opening_delay_ms": 1250,
+				"aggression": 0.82,
+				"feed_bias": 0.12,
+				"min_attack_power": 7,
+				"min_feed_power": 14,
+				"min_swarm_power": 16,
+				"allow_swarm": true,
+				"prefer_neutral_bonus": 0.20,
+				"randomness": 0.07,
+				"retry_block_ms": 700,
+				"no_lane_retry_ms": 2500,
+				"pair_intent_cooldown_ms": 900,
+				"global_intent_cooldown_ms": 700,
+				"attack_distance_weight": 1.3,
+				"feed_distance_weight": 1.9,
+				"attack_power_diff_weight": 1.5,
+				"feed_need_weight": 1.0,
+				"weak_target_bonus": 10.0,
+				"strong_target_penalty": 4.0,
+				"low_ally_power_bonus": 2.0,
+				"enemy_owned_bonus": 4.0,
+				"neutral_capture_bonus": 4.0,
+				"swarm_distance_weight": 1.0,
+				"swarm_power_diff_weight": 2.0,
+				"swarm_low_power_bonus": 10.0,
+				"swarm_frequency": 0.45
+			}
+		BOT_STYLE_GREEDY:
+			return {
+				"style": BOT_STYLE_GREEDY,
+				"persona": BOT_STYLE_GREEDY,
+				"think_interval_ms": 760,
+				"think_jitter_ms": 150,
+				"post_intent_delay_ms": 300,
+				"opening_delay_ms": 1200,
+				"aggression": 0.57,
+				"feed_bias": 0.18,
+				"min_attack_power": 8,
+				"min_feed_power": 13,
+				"min_swarm_power": 20,
+				"allow_swarm": false,
+				"prefer_neutral_bonus": 1.35,
+				"randomness": 0.16,
+				"attack_distance_weight": 1.9,
+				"feed_distance_weight": 1.9,
+				"attack_power_diff_weight": 1.0,
+				"feed_need_weight": 1.0,
+				"weak_target_bonus": 3.0,
+				"strong_target_penalty": 7.0,
+				"low_ally_power_bonus": 1.0,
+				"enemy_owned_bonus": 1.5,
+				"neutral_capture_bonus": 10.0,
+				"swarm_frequency": 0.05
+			}
+		BOT_STYLE_SWARM_LORD:
+			return {
+				"style": BOT_STYLE_SWARM_LORD,
+				"persona": BOT_STYLE_SWARM_LORD,
+				"think_interval_ms": 780,
+				"think_jitter_ms": 100,
+				"post_intent_delay_ms": 260,
+				"opening_delay_ms": 1400,
+				"aggression": 0.88,
+				"feed_bias": 0.10,
+				"min_attack_power": 8,
+				"min_feed_power": 14,
+				"min_swarm_power": 13,
+				"allow_swarm": true,
+				"prefer_neutral_bonus": 0.25,
+				"randomness": 0.08,
+				"retry_block_ms": 650,
+				"no_lane_retry_ms": 2200,
+				"pair_intent_cooldown_ms": 800,
+				"global_intent_cooldown_ms": 650,
+				"swarm_cooldown_ms": 900,
+				"swarm_global_cooldown_ms": 1800,
+				"attack_distance_weight": 1.6,
+				"feed_distance_weight": 2.0,
+				"attack_power_diff_weight": 1.3,
+				"feed_need_weight": 0.95,
+				"weak_target_bonus": 7.0,
+				"strong_target_penalty": 5.0,
+				"low_ally_power_bonus": 2.0,
+				"enemy_owned_bonus": 3.0,
+				"neutral_capture_bonus": 3.0,
+				"swarm_distance_weight": 0.9,
+				"swarm_power_diff_weight": 2.3,
+				"swarm_low_power_bonus": 12.0,
+				"weak_target_threshold": 14,
+				"swarm_frequency": 0.72
+			}
+		_:
+			return {
+				"style": BOT_STYLE_BALANCER,
+				"persona": BOT_STYLE_BALANCER
+			}
+
+func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
+	var normalized_tier: String = _normalize_bot_tier(tier)
+	profile["tier"] = normalized_tier
+	match normalized_tier:
+		BOT_TIER_EASY:
+			profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + 360
+			profile["think_jitter_ms"] = int(profile.get("think_jitter_ms", 120)) + 80
+			profile["post_intent_delay_ms"] = int(profile.get("post_intent_delay_ms", 400)) + 240
+			profile["opening_delay_ms"] = int(profile.get("opening_delay_ms", 1600)) + 1400
+			profile["aggression"] = clampf(float(profile.get("aggression", 0.5)) - 0.12, 0.0, 1.0)
+			profile["feed_bias"] = clampf(float(profile.get("feed_bias", 0.3)) + 0.04, 0.0, 1.0)
+			profile["randomness"] = clampf(float(profile.get("randomness", 0.08)) + 0.08, 0.0, 0.5)
+			profile["min_attack_power"] = int(profile.get("min_attack_power", 9)) + 3
+			profile["min_feed_power"] = int(profile.get("min_feed_power", 12)) + 2
+			profile["min_swarm_power"] = int(profile.get("min_swarm_power", 17)) + 4
+			profile["retry_block_ms"] = int(profile.get("retry_block_ms", 900)) + 500
+			profile["no_lane_retry_ms"] = int(profile.get("no_lane_retry_ms", 3200)) + 1200
+			profile["pair_intent_cooldown_ms"] = int(profile.get("pair_intent_cooldown_ms", 1300)) + 650
+			profile["global_intent_cooldown_ms"] = int(profile.get("global_intent_cooldown_ms", 1000)) + 600
+			profile["swarm_cooldown_ms"] = int(profile.get("swarm_cooldown_ms", 1600)) + 1000
+			profile["swarm_global_cooldown_ms"] = int(profile.get("swarm_global_cooldown_ms", 3500)) + 1800
+			profile["swarm_frequency"] = clampf(float(profile.get("swarm_frequency", 0.34)) - 0.18, 0.0, 1.0)
+		BOT_TIER_HARD:
+			profile["think_interval_ms"] = maxi(180, int(profile.get("think_interval_ms", 900)) - 180)
+			profile["think_jitter_ms"] = maxi(0, int(profile.get("think_jitter_ms", 120)) - 30)
+			profile["post_intent_delay_ms"] = maxi(0, int(profile.get("post_intent_delay_ms", 400)) - 120)
+			profile["opening_delay_ms"] = maxi(0, int(profile.get("opening_delay_ms", 1600)) - 350)
+			profile["aggression"] = clampf(float(profile.get("aggression", 0.5)) + 0.08, 0.0, 1.0)
+			profile["feed_bias"] = clampf(float(profile.get("feed_bias", 0.3)) - 0.03, 0.0, 1.0)
+			profile["randomness"] = clampf(float(profile.get("randomness", 0.08)) - 0.04, 0.0, 0.5)
+			profile["min_attack_power"] = maxi(1, int(profile.get("min_attack_power", 9)) - 1)
+			profile["min_feed_power"] = maxi(1, int(profile.get("min_feed_power", 12)) - 1)
+			profile["min_swarm_power"] = maxi(1, int(profile.get("min_swarm_power", 17)) - 2)
+			profile["retry_block_ms"] = maxi(200, int(profile.get("retry_block_ms", 900)) - 150)
+			profile["no_lane_retry_ms"] = maxi(600, int(profile.get("no_lane_retry_ms", 3200)) - 500)
+			profile["pair_intent_cooldown_ms"] = maxi(300, int(profile.get("pair_intent_cooldown_ms", 1300)) - 220)
+			profile["global_intent_cooldown_ms"] = maxi(250, int(profile.get("global_intent_cooldown_ms", 1000)) - 180)
+			profile["swarm_cooldown_ms"] = maxi(250, int(profile.get("swarm_cooldown_ms", 1600)) - 220)
+			profile["swarm_global_cooldown_ms"] = maxi(500, int(profile.get("swarm_global_cooldown_ms", 3500)) - 500)
+			profile["swarm_frequency"] = clampf(float(profile.get("swarm_frequency", 0.34)) + 0.10, 0.0, 1.0)
+		_:
+			pass
+	if normalized_tier == BOT_TIER_HARD and float(profile.get("aggression", 0.0)) >= 0.80:
+		profile["max_actions_per_tick"] = maxi(int(profile.get("max_actions_per_tick", 1)), 2)
+
+func _build_bot_profile_for_seat(seat: int, style: String, tier: String) -> Dictionary:
+	var profile: Dictionary = _base_bot_profile_for_seat(seat)
+	var normalized_style: String = _normalize_bot_style(style)
+	var normalized_tier: String = _normalize_bot_tier(tier)
+	var style_patch: Dictionary = _bot_style_patch(normalized_style)
+	for key_any in style_patch.keys():
+		profile[key_any] = style_patch.get(key_any)
+	_apply_bot_tier(profile, normalized_tier)
+	profile["seat"] = seat
+	profile["style"] = normalized_style
+	profile["persona"] = normalized_style
+	profile["tier"] = normalized_tier
 	return profile
 
+func _default_bot_profile_for_seat(seat: int) -> Dictionary:
+	return _build_bot_profile_for_seat(seat, _default_bot_style_for_seat(seat), BOT_TIER_MEDIUM)
+
 func _merge_bot_profile(seat: int, patch: Dictionary) -> Dictionary:
-	var merged: Dictionary = _default_bot_profile_for_seat(seat)
+	var requested_style: String = _default_bot_style_for_seat(seat)
+	var requested_tier: String = BOT_TIER_MEDIUM
+	if patch != null:
+		if patch.has("style"):
+			requested_style = _normalize_bot_style(str(patch.get("style", requested_style)))
+		elif patch.has("persona"):
+			requested_style = _normalize_bot_style(str(patch.get("persona", requested_style)))
+		if patch.has("tier"):
+			requested_tier = _normalize_bot_tier(str(patch.get("tier", requested_tier)))
+	var merged: Dictionary = _build_bot_profile_for_seat(seat, requested_style, requested_tier)
 	if patch != null:
 		for key_any in patch.keys():
 			merged[key_any] = patch.get(key_any)
 	merged["seat"] = seat
+	merged["style"] = _normalize_bot_style(str(merged.get("style", merged.get("persona", requested_style))))
+	merged["persona"] = str(merged.get("style", requested_style))
+	merged["tier"] = _normalize_bot_tier(str(merged.get("tier", requested_tier)))
 	return merged
 
 func ensure_bot_profiles_from_roster() -> void:

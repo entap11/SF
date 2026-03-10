@@ -3,6 +3,7 @@ extends Node
 signal honey_balance_changed(new_value: int, delta: int, reason: String)
 signal achievement_granted(achievement_id: String)
 signal powerbar_theme_changed(theme_id: String)
+signal garage_selection_changed(category_id: String, item_id: String)
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
@@ -19,6 +20,7 @@ const PROFILE_KEY_ADMIN_DASHBOARD_USERNAME: String = "admin_dashboard_username"
 const PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD: String = "admin_dashboard_password"
 const PROFILE_KEY_UNLOCKED_ACHIEVEMENTS: String = "unlocked_achievements"
 const PROFILE_KEY_POWERBAR_THEME: String = "cosmetic_powerbar_theme"
+const PROFILE_KEY_GARAGE_SELECTIONS: String = "garage_selections"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player "
@@ -96,6 +98,7 @@ var _honey_balance: int = DEFAULT_HONEY_BALANCE
 var _store_entitlements: Dictionary = {}
 var _unlocked_achievements: Dictionary = {}
 var _powerbar_theme: String = POWERBAR_THEME_BASE
+var _garage_selections: Dictionary = {}
 var _gpu_vfx_enabled: bool = true
 var _audio_enabled: bool = true
 var _sfx_enabled: bool = true
@@ -170,6 +173,7 @@ func ensure_loaded() -> void:
 		_store_entitlements = _sanitize_store_entitlements(cfg.get_value(PROFILE_SECTION, "store_entitlements", {}))
 		_unlocked_achievements = _sanitize_unlocked_achievements(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_UNLOCKED_ACHIEVEMENTS, {}))
 		_powerbar_theme = _sanitize_powerbar_theme(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_POWERBAR_THEME, POWERBAR_THEME_BASE)))
+		_garage_selections = _sanitize_garage_selections(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GARAGE_SELECTIONS, {}))
 
 	var created: bool = false
 	if _user_id.is_empty():
@@ -200,6 +204,7 @@ func ensure_loaded() -> void:
 		_store_entitlements = {}
 		_unlocked_achievements = {}
 		_powerbar_theme = POWERBAR_THEME_BASE
+		_garage_selections = _default_garage_selections()
 		_ensure_mode_maps()
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 		created = true
@@ -281,6 +286,10 @@ func ensure_loaded() -> void:
 		var cleaned_theme: String = _sanitize_powerbar_theme(_powerbar_theme)
 		if cleaned_theme != _powerbar_theme:
 			_powerbar_theme = cleaned_theme
+			updated = true
+		var cleaned_garage: Dictionary = _sanitize_garage_selections(_garage_selections)
+		if cleaned_garage != _garage_selections:
+			_garage_selections = cleaned_garage
 			updated = true
 		if _ensure_mode_maps():
 			updated = true
@@ -839,6 +848,40 @@ func set_powerbar_theme(theme_id: String) -> bool:
 	powerbar_theme_changed.emit(_powerbar_theme)
 	return true
 
+func get_garage_selections() -> Dictionary:
+	ensure_loaded()
+	return _garage_selections.duplicate(true)
+
+func get_garage_selection(category_id: String) -> String:
+	ensure_loaded()
+	var defaults: Dictionary = _default_garage_selections()
+	var clean_category: String = str(category_id).strip_edges().to_lower()
+	if not defaults.has(clean_category):
+		return ""
+	return str(_garage_selections.get(clean_category, defaults.get(clean_category, "")))
+
+func set_garage_selection(category_id: String, item_id: String) -> bool:
+	ensure_loaded()
+	var defaults: Dictionary = _default_garage_selections()
+	var clean_category: String = str(category_id).strip_edges().to_lower()
+	var clean_item: String = str(item_id).strip_edges()
+	if clean_item == "":
+		return false
+	if not defaults.has(clean_category):
+		return false
+	var current_item: String = str(_garage_selections.get(clean_category, defaults.get(clean_category, "")))
+	if current_item == clean_item:
+		return false
+	_garage_selections[clean_category] = clean_item
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_GARAGE_SELECTION_SET", {
+		"user_id": _user_id,
+		"category_id": clean_category,
+		"item_id": clean_item
+	})
+	garage_selection_changed.emit(clean_category, clean_item)
+	return true
+
 func grant_store_entitlements(flags: Array, reason: String = "") -> Dictionary:
 	ensure_loaded()
 	var granted: Array[String] = []
@@ -914,6 +957,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "store_entitlements", _store_entitlements)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_UNLOCKED_ACHIEVEMENTS, _unlocked_achievements)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_POWERBAR_THEME, _powerbar_theme)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GARAGE_SELECTIONS, _garage_selections)
 	var err: int = cfg.save(PROFILE_PATH)
 	SFLog.info("PROFILE_BOOT_TRACE_SAVE", {
 		"path": PROFILE_PATH,
@@ -1157,6 +1201,31 @@ func _sanitize_powerbar_theme(theme_id: String) -> String:
 			return POWERBAR_THEME_UPGRADED_BOIL
 		_:
 			return POWERBAR_THEME_BASE
+
+func _default_garage_selections() -> Dictionary:
+	return {
+		"units": "unit_field_issue",
+		"hives": "hive_classic",
+		"lanes": "lane_classic",
+		"floors": "floor_standard",
+		"vfx": "vfx_ion_pop"
+	}
+
+func _sanitize_garage_selections(raw: Variant) -> Dictionary:
+	var defaults: Dictionary = _default_garage_selections()
+	var out: Dictionary = defaults.duplicate(true)
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	var source: Dictionary = raw as Dictionary
+	for category_any in source.keys():
+		var clean_category: String = str(category_any).strip_edges().to_lower()
+		if not defaults.has(clean_category):
+			continue
+		var clean_item: String = str(source.get(category_any, "")).strip_edges()
+		if clean_item == "":
+			continue
+		out[clean_category] = clean_item
+	return out
 
 func _normalize_buff_mode(mode: String) -> String:
 	if mode.strip_edges().to_lower() == BUFF_MODE_ASYNC:

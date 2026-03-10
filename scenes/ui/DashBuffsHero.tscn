@@ -1,0 +1,147 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/dash_buffs_hero.gd" id="1"]
+
+[node name="DashBuffsHero" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 14.0
+offset_top = 14.0
+offset_right = -14.0
+offset_bottom = -14.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 12
+
+[node name="Header" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Title" type="Label" parent="VBox/Header"]
+layout_mode = 2
+text = "BUFFS"
+
+[node name="Sub" type="Label" parent="VBox/Header"]
+layout_mode = 2
+autowrap_mode = 3
+text = "Buffs hero"
+
+[node name="ModeTabs" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PvpTab" type="Button" parent="VBox/ModeTabs"]
+layout_mode = 2
+toggle_mode = true
+text = "PVP"
+
+[node name="TimePuzzleTab" type="Button" parent="VBox/ModeTabs"]
+layout_mode = 2
+toggle_mode = true
+text = "TIME PUZZLES"
+
+[node name="Body" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="TopRow" type="HBoxContainer" parent="VBox/Body"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="SnapshotPanel" type="Panel" parent="VBox/Body/TopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="SnapshotVBox" type="VBoxContainer" parent="VBox/Body/TopRow/SnapshotPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="SnapshotHeader" type="Label" parent="VBox/Body/TopRow/SnapshotPanel/SnapshotVBox"]
+layout_mode = 2
+text = "LOADOUT SNAPSHOT"
+
+[node name="SnapshotSub" type="Label" parent="VBox/Body/TopRow/SnapshotPanel/SnapshotVBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = "Snapshot"
+
+[node name="SlotsList" type="VBoxContainer" parent="VBox/Body/TopRow/SnapshotPanel/SnapshotVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="LibraryPanel" type="Panel" parent="VBox/Body/TopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="LibraryVBox" type="VBoxContainer" parent="VBox/Body/TopRow/LibraryPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="LibraryHeader" type="Label" parent="VBox/Body/TopRow/LibraryPanel/LibraryVBox"]
+layout_mode = 2
+text = "BUFF LIBRARY"
+
+[node name="LibrarySub" type="Label" parent="VBox/Body/TopRow/LibraryPanel/LibraryVBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = "Library"
+
+[node name="CategoryList" type="VBoxContainer" parent="VBox/Body/TopRow/LibraryPanel/LibraryVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="FooterPanel" type="Panel" parent="VBox/Body"]
+custom_minimum_size = Vector2(0, 96)
+layout_mode = 2
+
+[node name="FooterVBox" type="VBoxContainer" parent="VBox/Body/FooterPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="FooterText" type="Label" parent="VBox/Body/FooterPanel/FooterVBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = "Footer"

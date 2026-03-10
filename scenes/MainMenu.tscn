@@ -223,10 +223,10 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "JUKEBOX"
 script = ExtResource("4")
-bg_key_normal = "ui.mm.store.normal"
-bg_key_hover = "ui.mm.store.hover"
-bg_key_pressed = "ui.mm.store.pressed"
-bg_key_disabled = "ui.mm.store.disabled"
+bg_key_normal = "ui.mm.jukebox.normal"
+bg_key_hover = "ui.mm.jukebox.hover"
+bg_key_pressed = "ui.mm.jukebox.pressed"
+bg_key_disabled = "ui.mm.jukebox.disabled"
 
 [node name="SettingsButton" type="Button" parent="BottomBar/MenuButtons/RightButtons"]
 visible = false
@@ -300,6 +300,33 @@ offset_right = -16.0
 offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="DashTabs" type="HBoxContainer" parent="DashPanel/DashRoot"]
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 12
+
+[node name="GarageTab" type="Button" parent="DashPanel/DashRoot/DashTabs"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+toggle_mode = true
+text = "GARAGE"
+
+[node name="BuffsTab" type="Button" parent="DashPanel/DashRoot/DashTabs"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+toggle_mode = true
+text = "BUFFS"
+
+[node name="AchievementsTab" type="Button" parent="DashPanel/DashRoot/DashTabs"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+toggle_mode = true
+text = "ACHIEVEMENTS"
 
 [node name="MatchHistoryPanel" type="Panel" parent="DashPanel/DashRoot"]
 layout_mode = 2
@@ -506,6 +533,7 @@ layout_mode = 2
 text = "Hiveguard"
 
 [node name="DashHexes" type="VBoxContainer" parent="DashPanel"]
+visible = false
 layout_mode = 0
 anchor_left = 1.0
 anchor_top = 0.5
