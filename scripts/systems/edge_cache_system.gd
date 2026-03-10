@@ -168,6 +168,7 @@ func rebuild_edge_cache(state: Object) -> void:
 	var edges_before: int = 0
 	var edges_after: int = 0
 	var blocked_lanes: int = 0
+	var blocked_occlusion_count: int = 0
 	var blocked_pairs_set: Dictionary = {}
 	var blocked_pairs: Array = []
 	for lane_any in gs.lanes:
@@ -204,6 +205,10 @@ func rebuild_edge_cache(state: Object) -> void:
 					blocked_pairs_set[key] = true
 					blocked_pairs.append(Vector2i(lo, hi))
 				continue
+		if not gs.can_connect(src_id, dst_id):
+			blocked_occlusion_count += 1
+			blocked_lanes += 1
+			continue
 		var src_center_world: Vector2 = gs.hive_world_pos_by_id(src_id)
 		var dst_center_world: Vector2 = gs.hive_world_pos_by_id(dst_id)
 		var src_radius: float = maxf(0.0, float(src_hive.radius_px))
@@ -251,5 +256,6 @@ func rebuild_edge_cache(state: Object) -> void:
 		"edges_after": edges_after,
 		"walls_count": walls_count,
 		"blocked_edge_count": blocked_edge_count,
-		"blocked_lanes": blocked_lanes
+		"blocked_lanes": blocked_lanes,
+		"blocked_occlusion_count": blocked_occlusion_count
 	})

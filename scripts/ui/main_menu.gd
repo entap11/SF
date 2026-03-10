@@ -2,9 +2,11 @@ extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPanel.tscn")
 const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePassPanel.tscn")
 const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
+const JUKEBOX_PANEL_SCENE: PackedScene = preload("res://scenes/ui/JukeboxPanel.tscn")
 const HEX_SEAM_BACKGROUND_SCENE: PackedScene = preload("res://ui/backgrounds/HexSeamBackground.tscn")
 const MATCH_BACKGROUND_INLAY_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/match_background_inlay.png")
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
@@ -57,6 +59,7 @@ const UI_SURFACE_HIVE_DROPDOWN := "hive_dropdown"
 const DASH_HEX_BUFFS_KEY := "ui.mm.buffs.normal"
 const DASH_HEX_STORE_KEY := "ui.mm.store.normal"
 const DASH_HEX_HIVE_KEY := "ui.mm.hive.normal"
+const DASH_HEX_JUKEBOX_KEY := "ui.mm.store.normal"
 const DASH_HEX_BASE_SIZE: Vector2 = Vector2(90.0, 64.0)
 const DASH_HEX_SIZE_SCALE: float = 1.38
 const DASH_HEX_CONTAINER_RIGHT_MARGIN: float = 8.0
@@ -222,6 +225,8 @@ var _async_stage_section: Panel = null
 var _swarm_pass_panel: Control = null
 var _battle_pass_panel: Control = null
 var _rank_panel: Control = null
+var _jukebox_panel: Panel = null
+var _dash_hex_jukebox: HexButton = null
 var _honey_widget: Control = null
 var _tier_widget: Control = null
 @onready var async_action_buttons: Array = [
@@ -301,6 +306,7 @@ var _tier_widget: Control = null
 @onready var menu_free_roll_button: Button = $BottomBar/MenuButtons/LeftButtons/StoreButton
 @onready var menu_cash_button: Button = $BottomBar/MenuButtons/PlayButton
 @onready var menu_battle_pass_button: Button = $BottomBar/MenuButtons/RightButtons/ClanButton
+@onready var menu_jukebox_button: Button = $BottomBar/MenuButtons/RightButtons/JukeboxButton
 @onready var menu_unused_button: Button = $BottomBar/MenuButtons/RightButtons/SettingsButton
 @onready var status_label: Label = $BottomBar/StatusLabel
 @onready var bottom_bar: Control = $BottomBar
@@ -438,6 +444,8 @@ const STORE_CATEGORY_SKIN_BY_ID: Dictionary = {
 }
 const HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
 	"1V1": "res://assets/sprites/sf_skin_v1/1v1.png",
+	"CTF": "res://assets/sprites/sf_skin_v1/capture_the_flag.png",
+	"HIDDEN CTF": "res://assets/sprites/sf_skin_v1/hidden_flag.png",
 	"2V2": "res://assets/sprites/sf_skin_v1/2v2.png",
 	"3P FFA": "res://assets/sprites/sf_skin_v1/3_player.png",
 	"4P FFA": "res://assets/sprites/sf_skin_v1/4p_ffa.png"
@@ -448,10 +456,18 @@ const ASYNC_CYCLE_SKIN_BY_LABEL: Dictionary = {
 	"SEASON": "res://assets/sprites/sf_skin_v1/season.png"
 }
 const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
+	"CAPTURE FLAG": "res://assets/sprites/sf_skin_v1/capture_the_flag.png",
+	"HIDDEN FLAG": "res://assets/sprites/sf_skin_v1/hidden_flag.png",
 	"STAGE RACE": "res://assets/sprites/sf_skin_v1/Stage_Race.png",
 	"RACE": "res://assets/sprites/sf_skin_v1/Race.png",
 	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png"
 }
+const HIDDEN_CTF_MAP_IDS: Array[String] = [
+	"res://maps/_future/nomansland/MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each.json"
+]
+const DIRECT_CTF_MAP_IDS: Array[String] = [
+	"res://maps/nomansland/MAP_nomansland__SBASE__1p.json"
+]
 const BOTTOM_NAV_BUTTON_SCALE: float = 2.925
 const BOTTOM_NAV_HEIGHT_SCALE: float = 1.2
 const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(38.0, 56.0)
@@ -928,6 +944,7 @@ func _ready() -> void:
 	_start_entry_hub_skin_prewarm()
 	_ensure_async_stage_contest_section()
 	_wire_buttons()
+	_ensure_jukebox_panel()
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
 	if not get_viewport().size_changed.is_connected(_apply_background_art_direction):
@@ -1428,14 +1445,15 @@ func _style_buttons() -> void:
 		menu_store_button,
 		menu_buffs_button,
 		menu_free_roll_button,
-		menu_battle_pass_button
+		menu_battle_pass_button,
+		menu_jukebox_button
 	]:
 		_apply_font(button, _font_regular, 14)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
 	_apply_free_roll_atlas_font(menu_free_roll_button, 14)
 	if menu_unused_button != null:
-		menu_unused_button.visible = true
-		menu_unused_button.text = "Settings"
+		menu_unused_button.visible = false
+		menu_unused_button.text = "SETTINGS"
 		_apply_font(menu_unused_button, _font_regular, 14)
 		_style_button(menu_unused_button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
 	for button in replay_controls_buttons:
@@ -1517,6 +1535,7 @@ func _wire_buttons() -> void:
 	menu_free_roll_button.pressed.connect(_open_free_roll_split)
 	menu_cash_button.pressed.connect(_open_cash_split)
 	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
+	menu_jukebox_button.pressed.connect(_open_jukebox_from_menu_button)
 	if menu_unused_button != null:
 		menu_unused_button.pressed.connect(_on_settings_pressed)
 	hive_button.pressed.connect(_open_hive_panel)
@@ -1685,6 +1704,17 @@ func _set_hex_buttons() -> void:
 	dash_hex_hive.custom_minimum_size = dash_hex_size
 	_apply_black_key_to_hex_button(dash_hex_hive)
 	dash_hex_hive.queue_redraw()
+	if _dash_hex_jukebox != null:
+		_dash_hex_jukebox.text = "JUKE"
+		_dash_hex_jukebox.font = _font_semibold
+		_dash_hex_jukebox.font_size = _scaled_ui_font_size(14)
+		_dash_hex_jukebox.fill_color = Color(0.16, 0.16, 0.2)
+		_dash_hex_jukebox.border_color = Color(0.7, 0.72, 0.8)
+		_dash_hex_jukebox.text_color = Color(0.92, 0.94, 0.98)
+		_dash_hex_jukebox.sprite_key = DASH_HEX_JUKEBOX_KEY
+		_dash_hex_jukebox.custom_minimum_size = dash_hex_size
+		_apply_black_key_to_hex_button(_dash_hex_jukebox)
+		_dash_hex_jukebox.queue_redraw()
 
 func _apply_black_key_to_hex_button(button: HexButton) -> void:
 	if button == null:
@@ -4747,7 +4777,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	human_row.add_theme_constant_override("h_separation", cluster_spacing)
 	human_row.add_theme_constant_override("v_separation", cluster_spacing)
 	match_type_block.add_child(human_row)
-	for mode_id in ["1V1", "CTF", "2V2", "3P FFA", "4P FFA"]:
+	for mode_id in ["1V1", "CTF", "HIDDEN CTF", "2V2", "3P FFA", "4P FFA"]:
 		var chosen_mode: String = mode_id
 		var button := Button.new()
 		button.custom_minimum_size = GAME_HUB_HUMAN_BUTTON_SIZE
@@ -4798,7 +4828,8 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	map_block.add_theme_constant_override("separation", cluster_spacing)
 	body.add_child(map_block)
 	var one_map_items := [
-		{"label": "CAPTURE FLAG", "id": "CAPTURE_FLAG"}
+		{"label": "CAPTURE FLAG", "id": "CAPTURE_FLAG"},
+		{"label": "HIDDEN FLAG", "id": "HIDDEN_CAPTURE_FLAG"}
 	]
 	_add_game_hub_map_group(map_block, "1 MAP", one_map_items, paid, selected_denom, broadcast_free_roll, lower_rows_scale)
 	var three_map_items := [
@@ -5726,9 +5757,9 @@ func _resolve_game_hub_overlay_size(paid: bool) -> Vector2:
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
 		return
-	_close_entry_route_modal()
-	get_tree().set_meta("requested_human_mode", mode_id)
 	if mode_id == "1V1":
+		_close_entry_route_modal()
+		get_tree().set_meta("requested_human_mode", mode_id)
 		if paid:
 			_open_vs_mode_select_panel(false)
 			status_label.text = "Human 1v1 selected at $%d." % denomination
@@ -5743,9 +5774,18 @@ func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 		var entry_usd: int = maxi(0, denomination)
 		if not paid:
 			entry_usd = 0
-		_open_async_vs_lobby("CAPTURE_FLAG", 1, not paid, entry_usd, {})
-		status_label.text = "Capture the Flag (%s)." % ("$%d entry" % entry_usd if paid else "free roll")
+		if _launch_direct_capture_flag("CAPTURE_FLAG", not paid, entry_usd):
+			_close_entry_route_modal()
 		return
+	if mode_id == "HIDDEN CTF":
+		var hidden_entry_usd: int = maxi(0, denomination)
+		if not paid:
+			hidden_entry_usd = 0
+		if _launch_direct_capture_flag("HIDDEN_CAPTURE_FLAG", not paid, hidden_entry_usd):
+			_close_entry_route_modal()
+		return
+	_close_entry_route_modal()
+	get_tree().set_meta("requested_human_mode", mode_id)
 	var lane := "paid" if paid else "free"
 	status_label.text = "Human %s (%s) selected. Queue wiring is next." % [mode_id, lane]
 
@@ -5764,6 +5804,16 @@ func _open_shell_map_picker_from_free_roll() -> bool:
 
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
+		return
+	if mode_id == "CAPTURE_FLAG":
+		_apply_async_entry_amount(paid, denomination)
+		if _on_async_capture_flag_selected(not paid):
+			_close_entry_route_modal()
+		return
+	if mode_id == "HIDDEN_CAPTURE_FLAG":
+		_apply_async_entry_amount(paid, denomination)
+		if _on_async_hidden_capture_flag_selected(not paid):
+			_close_entry_route_modal()
 		return
 	_close_entry_route_modal()
 	_apply_async_entry_amount(paid, denomination)
@@ -5807,8 +5857,6 @@ func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 			_on_async_miss_n_out_selected(not paid, 3)
 		"MISS_N_OUT_5":
 			_on_async_miss_n_out_selected(not paid, 5)
-		"CAPTURE_FLAG":
-			_on_async_capture_flag_selected(not paid)
 		_:
 			status_label.text = "Async mode unavailable."
 
@@ -5838,11 +5886,13 @@ func _open_async_entry_selector(free_roll: bool) -> void:
 		_open_async_paid_menu()
 		status_label.text = "Async paid-contest selector opened."
 
-func _open_vs_mode_select_panel(free_roll: bool) -> void:
+func _open_vs_mode_select_panel(free_roll: bool, preset_mode: String = "") -> void:
 	_close_top_level_windows(UI_SURFACE_PLAY_MODE)
 	var panel := preload("res://scenes/ui/VsModeSelect.tscn").instantiate()
 	if panel.has_method("configure_entry"):
 		panel.call("configure_entry", free_roll)
+	if not preset_mode.is_empty() and panel.has_method("configure_preset_mode"):
+		panel.call("configure_preset_mode", preset_mode)
 	panel.closed.connect(func(): panel.queue_free())
 	add_child(panel)
 
@@ -6682,8 +6732,108 @@ func _set_dash_panel_store_passthrough(enabled: bool) -> void:
 		_style_panel(dash_panel, DASH_PANEL_BG_COLOR, DASH_PANEL_BORDER_COLOR)
 
 func _hide_dash_panels() -> void:
-	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full]:
+	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full, _jukebox_panel]:
+		if panel == null:
+			continue
 		panel.visible = false
+
+func _ensure_jukebox_panel() -> void:
+	if dash_panel == null:
+		return
+	if _jukebox_panel == null and JUKEBOX_PANEL_SCENE != null:
+		var panel_any: Node = JUKEBOX_PANEL_SCENE.instantiate()
+		if panel_any is Panel:
+			_jukebox_panel = panel_any as Panel
+			_jukebox_panel.name = "DashJukeboxPanel"
+			_jukebox_panel.anchor_left = 0.0
+			_jukebox_panel.anchor_top = 0.0
+			_jukebox_panel.anchor_right = 1.0
+			_jukebox_panel.anchor_bottom = 1.0
+			_jukebox_panel.offset_left = 0.0
+			_jukebox_panel.offset_top = 0.0
+			_jukebox_panel.offset_right = 0.0
+			_jukebox_panel.offset_bottom = 0.0
+			_jukebox_panel.visible = false
+			dash_panel.add_child(_jukebox_panel)
+			if _jukebox_panel.has_signal("closed"):
+				_jukebox_panel.connect("closed", func() -> void:
+					_close_dash_panel(_jukebox_panel)
+				)
+			if _jukebox_panel.has_signal("play_requested"):
+				_jukebox_panel.connect("play_requested", Callable(self, "_on_jukebox_play_requested"))
+	if dash_hexes == null:
+		return
+	if _dash_hex_jukebox == null:
+		_dash_hex_jukebox = HexButton.new()
+		_dash_hex_jukebox.name = "DashJukebox"
+		dash_hexes.add_child(_dash_hex_jukebox)
+		_dash_hex_jukebox.pressed.connect(func() -> void:
+			if _jukebox_panel != null:
+				_open_dash_panel(_jukebox_panel)
+		)
+		_set_hex_buttons()
+
+func _on_jukebox_play_requested(map_path: String) -> void:
+	if map_path.strip_edges().is_empty():
+		status_label.text = "No map selected."
+		return
+	if _launch_jukebox_map(map_path):
+		status_label.text = "Jukebox map starting..."
+	else:
+		status_label.text = "Jukebox launch failed."
+
+func _open_jukebox_from_menu_button() -> void:
+	if _jukebox_panel == null:
+		status_label.text = "Jukebox unavailable."
+		return
+	_open_dash_panel(_jukebox_panel)
+	status_label.text = "Jukebox opened."
+
+func _launch_jukebox_map(map_path: String) -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var clear_keys: Array[String] = [
+		"open_map_picker_on_ready",
+		"vs_mode",
+		"vs_price_usd",
+		"vs_free_roll",
+		"vs_assigned_players",
+		"vs_open_slots",
+		"vs_required_players",
+		"vs_sync_start",
+		"vs_sync_join_sec",
+		"vs_window_sec",
+		"vs_window_started_unix",
+		"vs_window_deadline_unix",
+		"vs_stage_map_paths",
+		"vs_stage_current_index",
+		"vs_stage_round_results",
+		"vs_handshake_session_id",
+		"vs_handshake_role",
+		"vs_handshake_invite_code",
+		"vs_local_profile",
+		"vs_remote_profile",
+		"ctf_flag_selection_mode",
+		"ctf_player_select_pct",
+		"ctf_randomize_flag_hive",
+		"ctf_hidden_flag",
+		"ctf_flag_move_count_max",
+		"ctf_flag_move_reveals"
+	]
+	for key_any in clear_keys:
+		var key: String = str(key_any)
+		if tree.has_meta(key):
+			tree.remove_meta(key)
+	tree.set_meta("start_game", true)
+	tree.set_meta("vs_stage_map_paths", [map_path])
+	tree.set_meta("vs_stage_current_index", 0)
+	if OpsState != null and OpsState.has_method("set_team_mode_override"):
+		OpsState.call("set_team_mode_override", "")
+	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
+	if err != OK:
+		return false
+	return true
 
 func _open_async_panel() -> void:
 	if async_panel == null:
@@ -6968,20 +7118,121 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 	status_label.text = "%s Miss-N-Out (%d maps, %d min window): %s | Eliminated players can continue for practice or return to lobby." % [track_label, resolved_map_count, int(window_sec / 60), ", ".join(map_labels)]
 	_open_async_vs_lobby("MISS_N_OUT", resolved_map_count, free_play, entry_usd, lobby_options)
 
-func _on_async_capture_flag_selected(free_play: bool) -> void:
+func _on_async_capture_flag_selected(free_play: bool) -> bool:
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
 	if not free_play:
 		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_capture_flag")
 		if not bool(charge.get("ok", false)):
-			return
-	var lobby_options: Dictionary = {
-		"start_players": ASYNC_WINDOW_START_PLAYERS,
-		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC,
-		"force_async_window": true
+			return false
+	if not _launch_direct_capture_flag("CAPTURE_FLAG", free_play, entry_usd):
+		return false
+	status_label.text = "%s Capture the Flag starting..." % track_label
+	return true
+
+func _on_async_hidden_capture_flag_selected(free_play: bool) -> bool:
+	var track_label: String = "Free Play" if free_play else "Ladder"
+	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	if not free_play:
+		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_hidden_capture_flag")
+		if not bool(charge.get("ok", false)):
+			return false
+	if not _launch_direct_capture_flag("HIDDEN_CAPTURE_FLAG", free_play, entry_usd):
+		return false
+	status_label.text = "%s Hidden Flag starting..." % track_label
+	return true
+
+func _hidden_capture_flag_lobby_options(force_async_window: bool) -> Dictionary:
+	var options: Dictionary = {
+		"ctf_flag_selection_mode": "player_select",
+		"ctf_player_select_pct": 100,
+		"ctf_flag_move_count_max": 1,
+		"ctf_flag_move_reveals": true,
+		"map_ids": HIDDEN_CTF_MAP_IDS
 	}
-	status_label.text = "%s Capture the Flag (1 map, %d min window)." % [track_label, int(ASYNC_STAGE_AND_MISS_WINDOW_SEC / 60)]
-	_open_async_vs_lobby("CAPTURE_FLAG", 1, free_play, entry_usd, lobby_options)
+	if force_async_window:
+		options["start_players"] = ASYNC_WINDOW_START_PLAYERS
+		options["window_sec"] = ASYNC_STAGE_AND_MISS_WINDOW_SEC
+		options["force_async_window"] = true
+	return options
+
+func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: int) -> bool:
+	var map_path: String = _resolve_direct_capture_flag_map_path(mode_id)
+	if map_path.is_empty():
+		status_label.text = "No valid CTF map found."
+		SFLog.warn("DIRECT_CTF_MAP_RESOLVE_FAILED", {
+			"mode": mode_id,
+			"candidates": HIDDEN_CTF_MAP_IDS if mode_id == "HIDDEN_CAPTURE_FLAG" else DIRECT_CTF_MAP_IDS
+		})
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		status_label.text = "Could not start CTF."
+		return false
+	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
+	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
+	if local_name.strip_edges().is_empty():
+		local_name = "You"
+	var hidden_mode: bool = mode_id == "HIDDEN_CAPTURE_FLAG"
+	tree.set_meta("start_game", true)
+	tree.set_meta("vs_mode", mode_id)
+	tree.set_meta("vs_price_usd", maxi(0, entry_usd))
+	tree.set_meta("vs_free_roll", free_roll)
+	tree.set_meta("vs_assigned_players", [local_name, "CPU"])
+	tree.set_meta("vs_open_slots", 0)
+	tree.set_meta("vs_required_players", 2)
+	tree.set_meta("vs_sync_start", true)
+	tree.set_meta("vs_sync_join_sec", 0)
+	tree.set_meta("vs_window_sec", 0)
+	tree.set_meta("vs_window_started_unix", 0)
+	tree.set_meta("vs_window_deadline_unix", 0)
+	tree.set_meta("vs_stage_map_paths", [map_path])
+	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
+	tree.set_meta("vs_handshake_session_id", "")
+	tree.set_meta("vs_handshake_role", "host")
+	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_local_profile", {
+		"uid": local_uid,
+		"display_name": local_name
+	})
+	tree.set_meta("vs_remote_profile", {
+		"uid": "bot_ctf_direct",
+		"display_name": "CPU",
+		"is_cpu": true
+	})
+	tree.set_meta("ctf_flag_selection_mode", "player_select" if hidden_mode else "weighted")
+	tree.set_meta("ctf_player_select_pct", 100 if hidden_mode else 35)
+	tree.set_meta("ctf_randomize_flag_hive", true)
+	tree.set_meta("ctf_hidden_flag", hidden_mode)
+	tree.set_meta("ctf_flag_move_count_max", 1 if hidden_mode else 0)
+	tree.set_meta("ctf_flag_move_reveals", true)
+	if OpsState != null and OpsState.has_method("set_team_mode_override"):
+		OpsState.call("set_team_mode_override", "ffa")
+	SFLog.info("DIRECT_CTF_LAUNCH", {
+		"mode": mode_id,
+		"map_path": map_path,
+		"free_roll": free_roll,
+		"entry_usd": int(entry_usd)
+	})
+	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
+	if err != OK:
+		status_label.text = "CTF launch failed."
+		SFLog.warn("DIRECT_CTF_LAUNCH_FAILED", {"mode": mode_id, "error_code": int(err), "map_path": map_path})
+		return false
+	status_label.text = "%s starting..." % ("Hidden CTF" if hidden_mode else "Capture the Flag")
+	return true
+
+func _resolve_direct_capture_flag_map_path(mode_id: String) -> String:
+	var map_ids: Array[String] = HIDDEN_CTF_MAP_IDS if mode_id == "HIDDEN_CAPTURE_FLAG" else DIRECT_CTF_MAP_IDS
+	for map_id in map_ids:
+		var map_path: String = MAP_LOADER._resolve_map_path(map_id)
+		if map_path.is_empty():
+			continue
+		if not FileAccess.file_exists(map_path):
+			continue
+		return map_path
+	return ""
 
 func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")

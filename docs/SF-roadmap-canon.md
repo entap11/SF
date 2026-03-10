@@ -238,3 +238,11 @@ Tests:
 - Determinism > spectacle
 - Skill > spend
 - Expression > power
+
+## Working v1 Order (2026-03-09)
+- Detailed working list: `docs/v1_launch_worklist_2026-03-09.md`
+- Current recommended order:
+  - Gameplay safety rails
+  - Next game type(s)
+  - Battle pass and economy finalization
+  - Contest and tournament layer

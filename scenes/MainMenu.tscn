@@ -218,6 +218,16 @@ bg_key_hover = "ui.mm.battle_pass.hover"
 bg_key_pressed = "ui.mm.battle_pass.pressed"
 bg_key_disabled = "ui.mm.battle_pass.disabled"
 
+[node name="JukeboxButton" type="Button" parent="BottomBar/MenuButtons/RightButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "JUKEBOX"
+script = ExtResource("4")
+bg_key_normal = "ui.mm.store.normal"
+bg_key_hover = "ui.mm.store.hover"
+bg_key_pressed = "ui.mm.store.pressed"
+bg_key_disabled = "ui.mm.store.disabled"
+
 [node name="SettingsButton" type="Button" parent="BottomBar/MenuButtons/RightButtons"]
 visible = false
 layout_mode = 2

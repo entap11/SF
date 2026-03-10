@@ -9,11 +9,13 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
+const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 
 const HIVE_DIAMETER_PX := HiveGeometry.BASE_DIAMETER_PX
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
 const HIVE_LANE_RADIUS_PX := HIVE_RADIUS_PX
 const HIVE_BLOCK_RADIUS_PX := HIVE_RADIUS_PX
+const LANE_OCCLUSION_PAD_PX := 7.0
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC
 const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
@@ -330,6 +332,7 @@ func load_from_map_dict(map: Dictionary) -> void:
 	SFLog.info("STATE_BARRACKS_SET", {"count": barracks_out.size(), "sample": barracks_sample})
 
 	rebuild_indexes()
+	_prune_lane_candidates_by_occlusion()
 
 func seed_starting_power_if_missing(default_power: int) -> void:
 	for hive in hives:
@@ -347,9 +350,12 @@ func can_connect(a_id: int, b_id: int) -> bool:
 	var b := get_hive(b_id)
 	if a == null or b == null:
 		return false
-	if _is_segment_blocked_by_walls(a, b):
+	var lane_segment: Dictionary = _lane_segment_world(a, b)
+	var seg_a: Vector2 = lane_segment.get("a", _hive_world_pos(a))
+	var seg_b: Vector2 = lane_segment.get("b", _hive_world_pos(b))
+	if _is_segment_blocked_by_walls(seg_a, seg_b):
 		return false
-	return not is_segment_blocked(_hive_world_pos(a), _hive_world_pos(b), a_id, b_id)
+	return not is_segment_blocked(seg_a, seg_b, a_id, b_id)
 
 func is_segment_blocked(a: Vector2, b: Vector2, a_id: int, b_id: int) -> bool:
 	for h in hives:
@@ -424,25 +430,77 @@ func _grid_cell_size_px() -> float:
 
 func _hive_block_radius(hive: HiveData) -> float:
 	if hive == null:
-		return HIVE_BLOCK_RADIUS_PX
+		return HIVE_BLOCK_RADIUS_PX + LANE_OCCLUSION_PAD_PX
 	var radius: float = float(hive.radius_px)
 	if radius <= 0.0:
 		radius = MapSchema.hive_radius_px_for_kind(str(hive.kind), _grid_cell_size_px())
 	if radius <= 0.0:
 		radius = HIVE_BLOCK_RADIUS_PX
-	return HiveGeometry.lane_occlusion_radius_px(maxf(HIVE_BLOCK_RADIUS_PX, radius))
+	return HiveGeometry.lane_occlusion_radius_px(maxf(HIVE_BLOCK_RADIUS_PX, radius)) + LANE_OCCLUSION_PAD_PX
 
-func _is_segment_blocked_by_walls(a_hive: HiveData, b_hive: HiveData) -> bool:
+func _lane_segment_world(a_hive: HiveData, b_hive: HiveData) -> Dictionary:
 	if a_hive == null or b_hive == null:
-		return false
+		return {}
+	var a_center: Vector2 = _hive_world_pos(a_hive)
+	var b_center: Vector2 = _hive_world_pos(b_hive)
+	return HiveNodeScript.lane_anchor_pair_world(
+		a_center,
+		b_center,
+		null,
+		maxf(0.0, float(a_hive.radius_px)),
+		maxf(0.0, float(b_hive.radius_px))
+	)
+
+func _wall_segments_world() -> Array:
 	if walls.is_empty():
-		return false
+		return []
+	var world_segments: Array = []
 	var wall_segments: Array = MapSchema._wall_segments_from_walls(walls)
+	for seg_any in wall_segments:
+		if typeof(seg_any) != TYPE_DICTIONARY:
+			continue
+		var seg: Dictionary = seg_any as Dictionary
+		var a_any: Variant = seg.get("a", null)
+		var b_any: Variant = seg.get("b", null)
+		if not (a_any is Vector2 and b_any is Vector2):
+			continue
+		world_segments.append({
+			"a": _grid_coord_to_world(a_any as Vector2),
+			"b": _grid_coord_to_world(b_any as Vector2)
+		})
+	return world_segments
+
+func _is_segment_blocked_by_walls(a_world: Vector2, b_world: Vector2) -> bool:
+	var wall_segments: Array = _wall_segments_world()
 	if wall_segments.is_empty():
 		return false
-	var a_grid: Vector2 = _hive_render_grid_pos(a_hive)
-	var b_grid: Vector2 = _hive_render_grid_pos(b_hive)
-	return MapSchema._segment_intersects_any_wall(a_grid, b_grid, wall_segments)
+	return MapSchema._segment_intersects_any_wall(a_world, b_world, wall_segments)
+
+func _prune_lane_candidates_by_occlusion() -> void:
+	if lane_candidates.is_empty():
+		return
+	var filtered: Array = []
+	var removed: int = 0
+	for lane_any in lane_candidates:
+		if typeof(lane_any) != TYPE_DICTIONARY:
+			filtered.append(lane_any)
+			continue
+		var lane: Dictionary = lane_any as Dictionary
+		var a_id: int = int(lane.get("a_id", lane.get("from", 0)))
+		var b_id: int = int(lane.get("b_id", lane.get("to", 0)))
+		if a_id <= 0 or b_id <= 0 or a_id == b_id:
+			removed += 1
+			continue
+		if not can_connect(a_id, b_id):
+			removed += 1
+			continue
+		filtered.append(lane.duplicate(true))
+	lane_candidates = filtered
+	if removed > 0:
+		SFLog.info("LANE_CANDIDATES_PRUNED", {
+			"removed": removed,
+			"remaining": lane_candidates.size()
+		})
 
 func hive_world_pos_by_id(hive_id: int) -> Vector2:
 	var hive := find_hive_by_id(hive_id)

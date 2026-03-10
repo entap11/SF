@@ -35,6 +35,11 @@ const HIVE_COLOR_SAT_BOOST: float = 1.22
 const HIVE_COLOR_VAL_BOOST: float = 1.12
 const HIVE_RING_SCALE: float = 0.85
 const HIVE_LABEL_SCALE_COMP: bool = true
+const LANE_OCCLUDER_COLOR := Color(0.10, 0.09, 0.08, 0.96)
+const LANE_OCCLUDER_WIDTH_RATIO: float = 0.54
+const LANE_OCCLUDER_HEIGHT_RATIO: float = 0.40
+const LANE_OCCLUDER_Y_RATIO: float = 0.08
+const LANE_OCCLUDER_POINTS: int = 24
 const POWER_LABEL_OFFSET := Vector2(-10.0, -30.0)
 const POWER_LABEL_SCALE := 0.5
 const POWER_LABEL_FONT_SIZE := 20
@@ -53,6 +58,7 @@ var _sprite_key: String = ""
 var _sprite_scale: float = 1.0
 var _sprite_offset: Vector2 = Vector2.ZERO
 var _sprite: Sprite2D = null
+var _lane_occluder: Polygon2D = null
 var _shader_mat: ShaderMaterial = null
 var _npc_shader_mat: ShaderMaterial = null
 var _power_label_holder: Node2D = null
@@ -71,6 +77,7 @@ var _power_label_state := ""
 static var _scale_logged: bool = false
 
 func _ready() -> void:
+	_ensure_lane_occluder()
 	_ensure_sprite()
 	_ensure_shader_material()
 	_base_scale = scale * HIVE_VISUAL_SCALE
@@ -343,6 +350,37 @@ func _ensure_sprite() -> void:
 	add_child(sprite)
 	_sprite = sprite
 
+func _ensure_lane_occluder() -> void:
+	if _lane_occluder != null and is_instance_valid(_lane_occluder):
+		return
+	var existing := get_node_or_null("LaneOccluder")
+	if existing is Polygon2D:
+		_lane_occluder = existing as Polygon2D
+	else:
+		var poly := Polygon2D.new()
+		poly.name = "LaneOccluder"
+		poly.z_index = -2
+		poly.color = LANE_OCCLUDER_COLOR
+		add_child(poly)
+		_lane_occluder = poly
+
+func _update_lane_occluder() -> void:
+	_ensure_lane_occluder()
+	if _lane_occluder == null or not is_instance_valid(_lane_occluder):
+		return
+	if _tex == null:
+		_lane_occluder.visible = false
+		return
+	var width: float = maxf(20.0, _current_size.x * LANE_OCCLUDER_WIDTH_RATIO)
+	var height: float = maxf(16.0, _current_size.y * LANE_OCCLUDER_HEIGHT_RATIO)
+	var points: PackedVector2Array = PackedVector2Array()
+	for i in range(LANE_OCCLUDER_POINTS):
+		var angle: float = (TAU * float(i)) / float(LANE_OCCLUDER_POINTS)
+		points.append(Vector2(cos(angle) * width * 0.5, sin(angle) * height * 0.5))
+	_lane_occluder.polygon = points
+	_lane_occluder.position = _sprite_offset + Vector2(0.0, (_current_size.y * LANE_OCCLUDER_Y_RATIO))
+	_lane_occluder.visible = true
+
 func _ensure_shader_material() -> void:
 	if _shader_mat == null:
 		_shader_mat = ShaderMaterial.new()
@@ -473,6 +511,7 @@ func _apply_sprite() -> void:
 		_sprite.scale = Vector2(_current_size.x / tex_size.x, _current_size.y / tex_size.y)
 	else:
 		_sprite.scale = Vector2.ONE
+	_update_lane_occluder()
 
 func _hive_tex_debug(tex: Texture2D, key: String, scale: float, offset: Vector2) -> String:
 	var region_enabled := false

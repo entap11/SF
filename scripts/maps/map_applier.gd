@@ -411,7 +411,7 @@ static func _apply_profile_to_roster_entry(roster: Array, seat: int, profile: Di
 	if not display_name.is_empty():
 		entry["display_name"] = display_name
 	entry["is_local"] = is_local
-	entry["is_cpu"] = false
+	entry["is_cpu"] = bool(profile.get("is_cpu", false))
 	entry["active"] = active_seats.has(seat)
 	roster[index] = entry
 

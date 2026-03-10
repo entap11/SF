@@ -66,6 +66,19 @@ func configure_entry(free_roll: bool) -> void:
 	if not _price_buttons.is_empty():
 		_build_buttons()
 
+func configure_preset_mode(mode_id: String) -> void:
+	var normalized: String = mode_id.strip_edges().to_upper()
+	if normalized.is_empty():
+		return
+	_selected_mode = normalized
+	if _is_capture_flag_mode(_selected_mode):
+		_selected_map_count = 1
+	if _selected_mode == "HIDDEN_CAPTURE_FLAG":
+		_selected_ctf_player_select_pct = 100
+		_selected_ctf_flag_move_reveals = true
+	if is_node_ready() and not _mode_buttons.is_empty():
+		_select_mode(_selected_mode)
+
 func _ready() -> void:
 	_load_fonts()
 	_apply_static_fonts()

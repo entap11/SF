@@ -1115,7 +1115,7 @@ func _prepare_ctf_bot_tree_meta(map_path: String) -> void:
 		"display_name": local_name
 	})
 	tree.set_meta("vs_remote_profile", {
-		"uid": "",
+		"uid": "bot_ctf_hidden",
 		"display_name": "CPU",
 		"is_cpu": true
 	})
