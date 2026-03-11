@@ -350,12 +350,20 @@ func can_connect(a_id: int, b_id: int) -> bool:
 	var b := get_hive(b_id)
 	if a == null or b == null:
 		return false
+	var center_a: Vector2 = _hive_world_pos(a)
+	var center_b: Vector2 = _hive_world_pos(b)
 	var lane_segment: Dictionary = _lane_segment_world(a, b)
-	var seg_a: Vector2 = lane_segment.get("a", _hive_world_pos(a))
-	var seg_b: Vector2 = lane_segment.get("b", _hive_world_pos(b))
+	var seg_a: Vector2 = lane_segment.get("a", center_a)
+	var seg_b: Vector2 = lane_segment.get("b", center_b)
 	if _is_segment_blocked_by_walls(seg_a, seg_b):
 		return false
-	return not is_segment_blocked(seg_a, seg_b, a_id, b_id)
+	if _is_segment_blocked_by_walls(center_a, center_b):
+		return false
+	if is_segment_blocked(seg_a, seg_b, a_id, b_id):
+		return false
+	# Use a conservative centerline pass as a second guard so runtime
+	# lane creation cannot slip through a hive body due to anchor bias.
+	return not is_segment_blocked(center_a, center_b, a_id, b_id)
 
 func is_segment_blocked(a: Vector2, b: Vector2, a_id: int, b_id: int) -> bool:
 	for h in hives:
@@ -905,7 +913,8 @@ func map_lane_between(a_id: int, b_id: int) -> int:
 func tick_unintended_power(dt_ms: float) -> void:
 	if dt_ms <= 0.0 or hives.is_empty():
 		return
-	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH:
+	var ops_state: Node = _ops_state()
+	if ops_state != null and int(ops_state.get("match_phase")) == 0:
 		_passive_accum_ms = 0.0
 		return
 	if not _passive_config_logged:
@@ -914,7 +923,7 @@ func tick_unintended_power(dt_ms: float) -> void:
 			"chill_ms": PASSIVE_CHILL_MS,
 			"ms_per_power": PASSIVE_MS_PER_POWER
 		})
-	if int(OpsState.match_elapsed_ms) < PASSIVE_CHILL_MS:
+	if ops_state != null and int(ops_state.get("match_elapsed_ms")) < PASSIVE_CHILL_MS:
 		_passive_accum_ms = 0.0
 		return
 	_passive_accum_ms += dt_ms
@@ -966,6 +975,12 @@ func _apply_passive_tick(inc: int, ticks_fired: int) -> void:
 				"id": int(sample_h.id),
 				"outgoing_active_count": outgoing_active_count(int(sample_h.id))
 			})
+
+func _ops_state() -> Node:
+	var main_loop: MainLoop = Engine.get_main_loop()
+	if not (main_loop is SceneTree):
+		return null
+	return (main_loop as SceneTree).get_root().get_node_or_null("/root/OpsState")
 
 func _normalized_hive_kind(kind: String) -> String:
 	var key := kind.strip_edges().to_lower()

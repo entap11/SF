@@ -2,6 +2,7 @@ extends Node
 
 signal run_requested(context: Dictionary)
 
+const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const CONTESTS_DIR := "res://data/contests"
 const LEADERBOARDS_DIR := "res://data/leaderboards"
 const ENTRY_SAVE_PATH := "user://contest_entries.json"
@@ -13,7 +14,13 @@ const TIMED_GAME_MIN_PLAYERS := 5
 const TIMED_GAME_MAX_PLAYERS := 10
 const TIMED_GAME_DEFAULT_LIMIT_MS := 30 * 60 * 1000
 const TIMED_GAME_MAIN_LEADERBOARD_THRESHOLD := 0.5
-const DEFAULT_STAGE_RACE_MAP_IDS := ["tp_map_01", "tp_map_02", "tp_map_03", "tp_map_04", "tp_map_05"]
+const DEFAULT_STAGE_RACE_MAP_IDS := [
+	"MAP_nomansland__SBASE__1p",
+	"MAP_nomansland__SN6__1p",
+	"MAP_nomansland__GBASE__1p",
+	"MAP_nomansland__GBASE__BR2__TR2__1p",
+	"MAP_nomansland__GBASE__TB__1p"
+]
 const TIMED_RACE_DEFAULT_MAP_COUNT := TIMED_GAME_MAP_COUNT_3
 const TIMED_RACE_SUPPORTED_MAP_COUNTS: Array[int] = TIMED_GAME_SUPPORTED_MAP_COUNTS
 const TIMED_RACE_MIN_PLAYERS := 5
@@ -100,12 +107,28 @@ func load_contests() -> void:
 			contest.mode = "STAGE_RACE"
 		if contest.map_ids.is_empty():
 			contest.map_ids = PackedStringArray(DEFAULT_STAGE_RACE_MAP_IDS)
+		else:
+			contest.map_ids = _sanitize_stage_map_ids(contest.map_ids)
+			if contest.map_ids.is_empty():
+				contest.map_ids = PackedStringArray(DEFAULT_STAGE_RACE_MAP_IDS)
 		if contest.name.is_empty():
 			contest.name = "%s Stage Race — $%d" % [contest.scope, contest.price]
 		contests[normalized_id] = contest
 
 func get_contest(contest_id: String) -> ContestDef:
 	return contests.get(normalize_contest_id(contest_id))
+
+func _sanitize_stage_map_ids(map_ids: PackedStringArray) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	for map_id_any in map_ids:
+		var map_id: String = str(map_id_any).strip_edges()
+		if map_id.is_empty():
+			continue
+		var resolved: String = MAP_LOADER._resolve_map_path(map_id)
+		if resolved.is_empty():
+			continue
+		out.append(map_id)
+	return out
 
 func get_contests_by_scope(scope: String) -> Array[ContestDef]:
 	var result: Array[ContestDef] = []

@@ -3,9 +3,11 @@ class_name JukeboxState
 
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
+const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
 
 const PERIOD_LABELS: Array[String] = ["WEEKLY", "MONTHLY", "SEASON", "ALL TIME"]
 const CATEGORY_ORDER: Array[String] = ["FEATURED", "CTF", "HIDDEN", "NOMANSLAND"]
+const DEFAULT_BOARD_MODE: String = "ASYNC_SINGLE_MAP_TIMED"
 const DIRECT_CTF_MAP_PATHS: Array[String] = [
 	"res://maps/nomansland/MAP_nomansland__SBASE__1p.json"
 ]
@@ -20,10 +22,12 @@ const FEATURED_MAP_PATHS: Array[String] = [
 	"res://maps/nomansland/MAP_nomansland__GBASE__TB__1p.json",
 	"res://maps/_future/nomansland/MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each.json"
 ]
+const HERO_FALLBACK_PREVIEW_PATH: String = "res://assets/sprites/sf_skin_v1/map_jukebox.png"
 
 var _map_entries: Array[Dictionary] = []
 var _entries_by_path: Dictionary = {}
 var _categories: Array[String] = ["ALL"]
+var _leaderboard_store: RefCounted = JukeboxLeaderboardStoreScript.new()
 
 func refresh() -> void:
 	_map_entries.clear()
@@ -50,6 +54,7 @@ func refresh() -> void:
 			"map_id": map_id,
 			"title": map_title(map_id, data),
 			"hero_title": hero_title(map_id, normalized),
+			"preview_path": preview_path(data),
 			"category": primary_category(path, normalized),
 			"filters": category_filters(path, normalized),
 			"meta": map_meta_text(data, normalized),
@@ -108,7 +113,52 @@ func board_snapshot(map_path: String, period: String, limit: int = 50) -> Dictio
 		refresh()
 	var selected: Dictionary = _entries_by_path.get(map_path, {})
 	var map_id: String = str(selected.get("map_id", ""))
-	return _build_stub_board(map_id, period, maxi(1, limit))
+	if map_id.is_empty():
+		return {
+			"entries": [],
+			"your_rank": 0,
+			"your_best_ms": 0
+		}
+	var requester_id: String = ""
+	var requester_handle: String = ""
+	if ProfileManager != null:
+		if ProfileManager.has_method("get_user_id"):
+			requester_id = str(ProfileManager.get_user_id()).strip_edges()
+		if ProfileManager.has_method("get_display_name"):
+			requester_handle = str(ProfileManager.get_display_name()).strip_edges()
+	if _leaderboard_store != null and _leaderboard_store.has_method("reload"):
+		_leaderboard_store.call("reload")
+	return _leaderboard_store.get_board_snapshot(
+		map_id,
+		_board_mode_for_entry(selected),
+		period,
+		requester_id,
+		requester_handle,
+		maxi(1, limit)
+	)
+
+func player_map_summary(map_path: String, player_id: String, player_handle: String = "", period: String = "ALL TIME") -> Dictionary:
+	if _map_entries.is_empty():
+		refresh()
+	var selected: Dictionary = _entries_by_path.get(map_path, {})
+	var map_id: String = str(selected.get("map_id", ""))
+	if map_id.is_empty():
+		return {
+			"player_id": player_id.strip_edges(),
+			"best_time_ms": 0,
+			"run_count": 0,
+			"latest_time_ms": 0,
+			"period": period.strip_edges().to_upper()
+		}
+	if _leaderboard_store != null and _leaderboard_store.has_method("reload"):
+		_leaderboard_store.call("reload")
+	return _leaderboard_store.get_player_map_summary(
+		map_id,
+		_board_mode_for_entry(selected),
+		player_id,
+		player_handle,
+		period
+	)
 
 func owner_counts(data: Dictionary) -> Dictionary:
 	var counts: Dictionary = {}
@@ -201,45 +251,11 @@ func map_desc_text(data: Dictionary, normalized: Dictionary) -> String:
 		tag_text = "DUEL"
 	return "%s map scaffold. Start pattern: %s. Best fit right now: %s." % [family, start, tag_text]
 
-func _build_stub_board(map_id: String, period: String, top_limit: int) -> Dictionary:
-	var rng := RandomNumberGenerator.new()
-	var seed_text: String = "%s|%s" % [map_id, period]
-	rng.seed = int(seed_text.hash())
-	var handles: Array[String] = [
-		"SwarmDaddy", "HiveLaw", "BeeLine", "LaneLord", "WaxOn", "NectarKid", "HoneyBadger",
-		"RushMint", "QueenStrat", "MapGrind", "BuzzKill", "Drone47", "TopRail", "SplitPush",
-		"BotCheck", "FlagRunner", "GhostLine", "ApexHive", "TempoBee", "GridSmith"
-	]
-	var current_handle: String = "You"
-	if ProfileManager != null and ProfileManager.has_method("get_display_name"):
-		current_handle = str(ProfileManager.get_display_name()).strip_edges()
-	if current_handle.is_empty():
-		current_handle = "You"
-	var base_ms: int = 76000 + int(abs(seed_text.hash()) % 22000)
-	var user_rank: int = clampi(12 + int(abs((seed_text + "|you").hash()) % 34), 1, top_limit)
-	var out: Array[Dictionary] = []
-	for i in range(top_limit):
-		var rank: int = i + 1
-		var handle: String = handles[i % handles.size()]
-		handle += "%02d" % int((i * 7 + abs(seed_text.hash())) % 97)
-		if rank == user_rank:
-			handle = current_handle
-		var jitter: int = int(rng.randi_range(20, 260))
-		var time_ms: int = base_ms + i * 410 + jitter
-		var badge: String = ""
-		if rank <= 5:
-			badge = "TOP %d" % rank
-		elif rank <= 10:
-			badge = "TOP 10"
-		out.append({
-			"rank": rank,
-			"handle": handle,
-			"time_ms": time_ms,
-			"badge": badge
-		})
-	var your_best_ms: int = int((out[user_rank - 1] as Dictionary).get("time_ms", base_ms))
-	return {
-		"entries": out,
-		"your_rank": user_rank,
-		"your_best_ms": your_best_ms
-	}
+func preview_path(data: Dictionary) -> String:
+	var raw: String = str(data.get("preview_path", "")).strip_edges()
+	if not raw.is_empty() and ResourceLoader.exists(raw):
+		return raw
+	return HERO_FALLBACK_PREVIEW_PATH
+
+func _board_mode_for_entry(entry: Dictionary) -> String:
+	return str(entry.get("board_mode", DEFAULT_BOARD_MODE)).strip_edges().to_upper()

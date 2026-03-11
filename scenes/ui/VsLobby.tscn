@@ -21,8 +21,10 @@ offset_left = 12.0
 offset_top = 12.0
 offset_right = -12.0
 offset_bottom = -12.0
+theme_override_constants/separation = 10
 
 [node name="Header" type="HBoxContainer" parent="Panel/VBox"]
+theme_override_constants/separation = 12
 
 [node name="Title" type="Label" parent="Panel/VBox/Header"]
 text = "VS Lobby"
@@ -34,15 +36,35 @@ text = "Back"
 text = "Summary"
 
 [node name="Buttons" type="HBoxContainer" parent="Panel/VBox"]
+theme_override_constants/separation = 12
 
 [node name="QuickMatch" type="Button" parent="Panel/VBox/Buttons"]
+custom_minimum_size = Vector2(180, 46)
 text = "Quick Match"
 
 [node name="SmsInvite" type="Button" parent="Panel/VBox/Buttons"]
+custom_minimum_size = Vector2(180, 46)
 text = "VS via SMS"
 
 [node name="DevMinOverride" type="Button" parent="Panel/VBox/Buttons"]
+custom_minimum_size = Vector2(200, 46)
 text = "DEV: Min=1 OFF"
+
+[node name="DevBotRow" type="HBoxContainer" parent="Panel/VBox"]
+visible = false
+theme_override_constants/separation = 12
+
+[node name="DevBotLabel" type="Label" parent="Panel/VBox/DevBotRow"]
+custom_minimum_size = Vector2(110, 42)
+text = "DEV CPU"
+
+[node name="DevBotStyle" type="OptionButton" parent="Panel/VBox/DevBotRow"]
+custom_minimum_size = Vector2(240, 42)
+size_flags_horizontal = 3
+
+[node name="DevBotTier" type="OptionButton" parent="Panel/VBox/DevBotRow"]
+custom_minimum_size = Vector2(180, 42)
+size_flags_horizontal = 3
 
 [node name="Status" type="Label" parent="Panel/VBox"]
 text = "Status"
@@ -54,12 +76,15 @@ text = "Assigned: You\nOpen slots: 0"
 text = "Invite"
 
 [node name="JoinRow" type="HBoxContainer" parent="Panel/VBox"]
+theme_override_constants/separation = 10
 
 [node name="JoinCode" type="LineEdit" parent="Panel/VBox/JoinRow"]
+custom_minimum_size = Vector2(0, 42)
 size_flags_horizontal = 3
 placeholder_text = "Enter invite code"
 
 [node name="JoinButton" type="Button" parent="Panel/VBox/JoinRow"]
+custom_minimum_size = Vector2(120, 42)
 text = "Join"
 
 [node name="Countdown" type="Label" parent="Panel/VBox"]

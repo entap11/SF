@@ -74,8 +74,16 @@ func is_built() -> bool:
 func is_established(front_t: float = -1.0) -> bool:
 	var t := front_t
 	if t < 0.0:
-		t = float(OpsState.lane_front_by_lane_id.get(id, 0.0))
+		var ops_state: Node = _ops_state()
+		if ops_state != null:
+			t = float((ops_state.get("lane_front_by_lane_id") as Dictionary).get(id, 0.0))
 	return t >= 0.999
+
+func _ops_state() -> Node:
+	var main_loop: MainLoop = Engine.get_main_loop()
+	if not (main_loop is SceneTree):
+		return null
+	return (main_loop as SceneTree).get_root().get_node_or_null("/root/OpsState")
 
 func _init_segments() -> void:
 	a_seg.resize(SEGMENTS)

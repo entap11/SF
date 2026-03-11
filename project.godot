@@ -27,6 +27,7 @@ AchievementService="*res://scripts/achievements/achievement_service.gd"
 EconomyBuffState="*res://scripts/state/economy_buff_state.gd"
 RankState="*res://scripts/state/rank_state.gd"
 RankRuntimeAwards="*res://scripts/state/rank_runtime_awards.gd"
+JukeboxRuntime="*res://scripts/state/jukebox_runtime.gd"
 VsHandshake="*res://scripts/state/vs_handshake_state.gd"
 VsPvpRuntime="*res://scripts/state/vs_pvp_runtime.gd"
 Gamebot="*res://scripts/autoload/game_boot.gd"
@@ -40,12 +41,12 @@ window/stretch/aspect="keep_width"
 window/size/window_width=1080
 window/size/window_height=1920
 
-[swarmfront/rank]
-
-backend_url="http://127.0.0.1:8790/v1/rank"
-backend_token=""
-backend_timeout_sec=2.0
-
 [rendering]
 
 environment/defaults/default_clear_color=Color(0.168627, 0.168627, 0.168627, 1)
+
+[swarmfront]
+
+rank/backend_url="http://127.0.0.1:8790/v1/rank"
+rank/backend_token=""
+rank/backend_timeout_sec=2.0

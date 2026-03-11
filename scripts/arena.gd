@@ -10,6 +10,7 @@ const ARENA_MARKER := "ARENA_MARKER_2026-01-14_A"
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const MapApplier := preload("res://scripts/maps/map_applier.gd")
+const MapRegistry := preload("res://scripts/maps/map_registry.gd")
 const WallRenderer := preload("res://scripts/renderers/wall_renderer.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
@@ -20,6 +21,7 @@ const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
 const MatchTelemetryModelScript := preload("res://scripts/state/match_telemetry_model.gd")
 const MatchTelemetryCollectorScript := preload("res://scripts/state/match_telemetry_collector.gd")
 const MatchAnalyzerScript := preload("res://scripts/state/match_analyzer.gd")
+const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaTutorialSection1Controller := preload("res://scripts/arena_helpers/tutorial_section1_controller.gd")
 const ArenaTutorialSection2Controller := preload("res://scripts/arena_helpers/tutorial_section2_controller.gd")
@@ -118,6 +120,16 @@ const CTF_SELECTION_GRACE_MS: int = 5000
 const TREE_META_VS_MODE: String = "vs_mode"
 const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
+const MAP_RECORD_MODE_ID: String = "ASYNC_SINGLE_MAP_TIMED"
+const JUKEBOX_META_ENABLED: String = "jukebox_board_enabled"
+const JUKEBOX_META_MAP_PATH: String = "jukebox_map_path"
+const JUKEBOX_META_MAP_ID: String = "jukebox_map_id"
+const JUKEBOX_META_PERIOD: String = "jukebox_board_period"
+const JUKEBOX_META_LOCAL_OWNER_ID: String = "jukebox_local_owner_id"
+const JUKEBOX_META_RESULT_SIGNATURE: String = "jukebox_result_commit_signature"
+const JUKEBOX_META_EASY_BOT: String = "jukebox_easy_bot"
+const TREE_META_VS_CPU_STYLE: String = "vs_cpu_style"
+const TREE_META_VS_CPU_TIER: String = "vs_cpu_tier"
 const TREE_META_VS_STAGE_ROUND_RESULTS: String = "vs_stage_round_results"
 const COUNTDOWN_DEBUG_SCRIPT: Script = preload("res://scripts/ui/prematch_countdown_view.gd")
 const TOUCH_MOUSE_SUPPRESS_MS: int = 120
@@ -214,6 +226,7 @@ var _timer_ready_logged: bool = false
 var _cam_probe_accum: float = 0.0
 var _world_viewport_cache: ArenaWorldViewportCache = ArenaWorldViewportCache.new()
 var _stage_runtime_flow: ArenaStageRuntimeFlow = ArenaStageRuntimeFlow.new()
+var _jukebox_leaderboard_store: RefCounted = JukeboxLeaderboardStoreScript.new()
 var _prematch_team_ui_formatter: ArenaPrematchTeamUiFormatter = ArenaPrematchTeamUiFormatter.new()
 var _input_bridge_utils: ArenaInputBridgeUtils = ArenaInputBridgeUtils.new()
 var _prematch_overlay: Control = null
@@ -501,7 +514,6 @@ func _ready() -> void:
 	# Match startup must flow through prematch/bootstrap so roster and bot state exist
 	# before the simulation is allowed to run.
 	_ensure_timer_hud()
-	_start_match_flow()
 	_configure_grid_spec(grid_w, grid_h)
 	_map_bounds_size = Vector2.ZERO
 	var arena_scale: Vector2 = global_transform.get_scale()
@@ -513,6 +525,7 @@ func _ready() -> void:
 	call_deferred("_debug_camera", "ready")
 	call_deferred("_debug_scan_cameras")
 	call_deferred("_debug_canvas_space")
+	call_deferred("_start_match_flow_deferred")
 	_log_fit_state("ready")
 	mark_render_dirty("ready")
 	_dump_map_like_nodes("after_clear_ready")
@@ -595,8 +608,19 @@ func _start_match_flow() -> void:
 		_apply_tutorial_low_pressure_scenario()
 		if _controls_hint_controller != null:
 			_controls_hint_controller.hide(false)
+	elif _is_jukebox_easy_bot_mode():
+		_apply_jukebox_easy_bot_profile()
+	elif _has_vs_cpu_bot_override():
+		_apply_vs_cpu_bot_override()
 	elif _controls_hint_controller != null:
 		_controls_hint_controller.maybe_show_once(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
+
+func _start_match_flow_deferred() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not is_inside_tree():
+		return
+	_start_match_flow()
 
 func _apply_tutorial_low_pressure_scenario() -> void:
 	if OpsState == null or not OpsState.has_method("set_bot_profile"):
@@ -612,6 +636,77 @@ func _apply_tutorial_low_pressure_scenario() -> void:
 			"aggression": 0.0
 		})
 	SFLog.info("TUTORIAL_LOW_PRESSURE_SCENARIO", {"local_owner_id": local_owner_id})
+
+func _is_jukebox_easy_bot_mode() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	return bool(tree.get_meta(JUKEBOX_META_EASY_BOT, false))
+
+func _has_vs_cpu_bot_override() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	return tree.has_meta(TREE_META_VS_CPU_STYLE) or tree.has_meta(TREE_META_VS_CPU_TIER)
+
+func _apply_vs_cpu_bot_override() -> void:
+	if OpsState == null or not OpsState.has_method("set_bot_profile"):
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var style: String = str(tree.get_meta(TREE_META_VS_CPU_STYLE, "")).strip_edges().to_lower()
+	var tier: String = str(tree.get_meta(TREE_META_VS_CPU_TIER, "")).strip_edges().to_lower()
+	if style.is_empty() and tier.is_empty():
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	var patch: Dictionary = {}
+	if not style.is_empty():
+		patch["style"] = style
+	if not tier.is_empty():
+		patch["tier"] = tier
+	for seat in [1, 2, 3, 4]:
+		var seat_id: int = int(seat)
+		if seat_id == local_owner_id:
+			continue
+		OpsState.call("set_bot_profile", seat_id, patch)
+	SFLog.info("ASYNC_CPU_BOT_OVERRIDE", {
+		"local_owner_id": local_owner_id,
+		"style": style,
+		"tier": tier
+	})
+
+func _apply_jukebox_easy_bot_profile() -> void:
+	if OpsState == null or not OpsState.has_method("set_bot_profile"):
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	for seat in [1, 2, 3, 4]:
+		var seat_id: int = int(seat)
+		if seat_id == local_owner_id:
+			continue
+		OpsState.call("set_bot_profile", seat_id, {
+			"think_interval_ms": 3400,
+			"think_jitter_ms": 700,
+			"post_intent_delay_ms": 1800,
+			"opening_delay_ms": 6500,
+			"opening_stagger_ms": 500,
+			"aggression": 0.16,
+			"feed_bias": 0.18,
+			"min_attack_power": 18,
+			"min_feed_power": 20,
+			"min_swarm_power": 999,
+			"allow_swarm": false,
+			"max_actions_per_tick": 1,
+			"prefer_neutral_bonus": 0.10,
+			"randomness": 0.18,
+			"retry_block_ms": 1800,
+			"no_lane_retry_ms": 5200,
+			"pair_intent_cooldown_ms": 3600,
+			"global_intent_cooldown_ms": 2600,
+			"swarm_cooldown_ms": 999999,
+			"swarm_global_cooldown_ms": 999999
+		})
+	SFLog.info("JUKEBOX_EASY_BOT_PROFILE", {"local_owner_id": local_owner_id})
 
 func _resolve_top_hud_root() -> Node:
 	var top_hud_root: Node = get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopHudRoot")
@@ -2702,6 +2797,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	end_reason = reason
 	_commit_match_records(winner_id_in)
 	_finalize_match_telemetry_session(winner_id_in)
+	_maybe_record_jukebox_result(winner_id_in, reason)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
@@ -2736,6 +2832,91 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	if sim_runner != null:
 		sim_runner.log_pause_snapshot("arena_show_outcome")
 	mark_render_dirty("match_end")
+
+func _maybe_record_jukebox_result(winner_id_in: int, reason: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var local_owner_id: int = clampi(int(tree.get_meta(JUKEBOX_META_LOCAL_OWNER_ID, 1)), 1, 4)
+	if winner_id_in <= 0 or winner_id_in != local_owner_id:
+		return
+	var elapsed_ms: int = maxi(0, int(OpsState.match_elapsed_ms))
+	if elapsed_ms <= 0:
+		return
+	var map_id: String = _resolve_jukebox_map_id(tree)
+	if map_id.is_empty():
+		return
+	var identity: Dictionary = _resolve_jukebox_local_identity(tree)
+	var player_id: String = str(identity.get("player_id", "")).strip_edges()
+	if player_id.is_empty():
+		return
+	var result_signature: String = "%s|%s|%d|%d|%s" % [map_id, player_id, elapsed_ms, winner_id_in, reason.strip_edges()]
+	if str(tree.get_meta(JUKEBOX_META_RESULT_SIGNATURE, "")).strip_edges() == result_signature:
+		return
+	var result: Dictionary = _jukebox_leaderboard_store.record_run_all_periods(
+		map_id,
+		MAP_RECORD_MODE_ID,
+		{
+			"player_id": player_id,
+			"handle": str(identity.get("handle", "You")).strip_edges(),
+			"best_time_ms": elapsed_ms,
+			"updated_at": int(Time.get_unix_time_from_system()),
+			"source": "jukebox_run"
+		}
+	)
+	if bool(result.get("ok", false)):
+		tree.set_meta(JUKEBOX_META_RESULT_SIGNATURE, result_signature)
+		SFLog.info("JUKEBOX_RESULT_RECORDED", {
+			"map_id": map_id,
+			"mode_id": MAP_RECORD_MODE_ID,
+			"source_mode": str(tree.get_meta(TREE_META_VS_MODE, "")).strip_edges().to_upper(),
+			"period": _resolve_jukebox_period(tree),
+			"periods_updated": result.get("periods_updated", []),
+			"player_id": player_id,
+			"winner_id": winner_id_in,
+			"reason": reason,
+			"elapsed_ms": elapsed_ms,
+			"updated": bool(result.get("updated", false))
+		})
+
+func _resolve_jukebox_map_id(tree: SceneTree) -> String:
+	var map_id: String = str(tree.get_meta(JUKEBOX_META_MAP_ID, "")).strip_edges()
+	if not map_id.is_empty():
+		return map_id
+	var map_path: String = str(tree.get_meta(JUKEBOX_META_MAP_PATH, "")).strip_edges()
+	if map_path.is_empty():
+		var stage_maps_any: Variant = tree.get_meta(TREE_META_VS_STAGE_MAP_PATHS, [])
+		if typeof(stage_maps_any) == TYPE_ARRAY:
+			var stage_maps: Array = stage_maps_any as Array
+			var stage_index: int = clampi(int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)), 0, maxi(stage_maps.size() - 1, 0))
+			if stage_index >= 0 and stage_index < stage_maps.size():
+				map_path = str(stage_maps[stage_index]).strip_edges()
+	if map_path.is_empty():
+		return ""
+	return MapRegistry.map_id_from_path(map_path)
+
+func _resolve_jukebox_period(tree: SceneTree) -> String:
+	var period: String = str(tree.get_meta(JUKEBOX_META_PERIOD, "WEEKLY")).strip_edges().to_upper()
+	return period if not period.is_empty() else "WEEKLY"
+
+func _resolve_jukebox_local_identity(tree: SceneTree) -> Dictionary:
+	var player_id: String = ""
+	var handle: String = ""
+	var local_profile_any: Variant = tree.get_meta("vs_local_profile", {})
+	if typeof(local_profile_any) == TYPE_DICTIONARY:
+		var local_profile: Dictionary = local_profile_any as Dictionary
+		player_id = str(local_profile.get("uid", local_profile.get("player_id", ""))).strip_edges()
+		handle = str(local_profile.get("name", local_profile.get("handle", ""))).strip_edges()
+	if player_id.is_empty() and ProfileManager != null and ProfileManager.has_method("get_user_id"):
+		player_id = str(ProfileManager.get_user_id()).strip_edges()
+	if handle.is_empty() and ProfileManager != null and ProfileManager.has_method("get_display_name"):
+		handle = str(ProfileManager.get_display_name()).strip_edges()
+	if handle.is_empty():
+		handle = "You"
+	return {
+		"player_id": player_id,
+		"handle": handle
+	}
 
 func _on_post_match_action(action: String) -> void:
 	if action == "rematch_vote" and not _is_stage_race_runtime_mode():
@@ -4301,10 +4482,11 @@ func _resolve_camera_fit_bounds_world() -> Rect2:
 	return _resolve_camera_fit_bounds_world_with_source().get("bounds", Rect2()) as Rect2
 
 func _resolve_camera_fit_bounds_world_with_source() -> Dictionary:
-	var node_positions: Array[Vector2] = _collect_fit_node_positions_world()
-	var node_bounds: Rect2 = _bounds_from_positions_world(node_positions)
-	if node_bounds.size.x > 1.0 and node_bounds.size.y > 1.0:
-		return {"bounds": node_bounds, "source": "nodes"}
+	if use_node_bounds_camfit:
+		var node_positions: Array[Vector2] = _collect_fit_node_positions_world()
+		var node_bounds: Rect2 = _bounds_from_positions_world(node_positions)
+		if node_bounds.size.x > 1.0 and node_bounds.size.y > 1.0:
+			return {"bounds": node_bounds, "source": "nodes"}
 	var map_bounds: Rect2 = _map_world_bounds()
 	if map_bounds.size.x > 1.0 and map_bounds.size.y > 1.0:
 		return {"bounds": map_bounds, "source": "map"}
@@ -10057,44 +10239,14 @@ func _is_los_clear(a_id: int, b_id: int) -> bool:
 	var key: String = _los_cache_key(a_id, b_id)
 	if los_cache.has(key):
 		return bool(los_cache[key])
-	var a: HiveData = _find_hive_by_id(a_id)
-	var b: HiveData = _find_hive_by_id(b_id)
-	if a == null or b == null:
+	if state == null:
 		los_cache[key] = false
 		return false
-	var walls_v: Variant = state.walls
-	if typeof(walls_v) == TYPE_ARRAY:
-		var wall_segments: Array = MapSchema._wall_segments_from_walls(walls_v as Array)
-		if not wall_segments.is_empty():
-			var a_grid: Vector2 = _hive_render_grid_pos(a)
-			var b_grid: Vector2 = _hive_render_grid_pos(b)
-			if MapSchema._segment_intersects_any_wall(a_grid, b_grid, wall_segments):
-				los_cache[key] = false
-				return false
-	var a_pos: Vector2 = _grid_coord_to_world(_hive_render_grid_pos(a))
-	var b_pos: Vector2 = _grid_coord_to_world(_hive_render_grid_pos(b))
-	for hive in state.hives:
-		if hive.id == a_id or hive.id == b_id:
-			continue
-		var center: Vector2 = _grid_coord_to_world(_hive_render_grid_pos(hive))
-		var hive_radius_px: float = float(hive.radius_px)
-		if hive_radius_px <= 0.0:
-			hive_radius_px = HIVE_RADIUS_PX
-		var block_radius_px: float = _hive_lane_occlusion_radius_px(hive_radius_px)
-		var min_x: float = min(a_pos.x, b_pos.x) - block_radius_px
-		var max_x: float = max(a_pos.x, b_pos.x) + block_radius_px
-		var min_y: float = min(a_pos.y, b_pos.y) - block_radius_px
-		var max_y: float = max(a_pos.y, b_pos.y) + block_radius_px
-		if center.x < min_x or center.x > max_x or center.y < min_y or center.y > max_y:
-			continue
-		var dist: float = _distance_point_to_segment(center, a_pos, b_pos)
-		if dist <= block_radius_px:
-			if LOS_DEBUG:
-				dbg("SF: LOS blocked %d->%d by hive %d" % [a_id, b_id, hive.id])
-			los_cache[key] = false
-			return false
-	los_cache[key] = true
-	return true
+	# Keep Arena's legacy lane-build path aligned with the authoritative
+	# occlusion logic used by input validation and OpsState runtime lanes.
+	var can_connect: bool = state.can_connect(a_id, b_id)
+	los_cache[key] = can_connect
+	return can_connect
 
 func _hive_id_at_point(local_pos: Vector2) -> int:
 	if state == null:

@@ -19,49 +19,14 @@ offset_left = 18.0
 offset_top = 18.0
 offset_right = -18.0
 offset_bottom = -18.0
-
-[node name="Header" type="VBoxContainer" parent="VBox"]
-
-[node name="Title" type="Label" parent="VBox/Header"]
-text = "MAP JUKEBOX"
-
-[node name="Sub" type="Label" parent="VBox/Header"]
-text = "Pick a map."
-
-[node name="CategoryTabs" type="HBoxContainer" parent="VBox"]
-theme_override_constants/separation = 8
-
-[node name="Body" type="HBoxContainer" parent="VBox"]
-size_flags_vertical = 3
 theme_override_constants/separation = 14
 
-[node name="MapListPanel" type="Panel" parent="VBox/Body"]
-custom_minimum_size = Vector2(320, 0)
+[node name="SelectorPanel" type="Panel" parent="VBox"]
+custom_minimum_size = Vector2(0, 190)
 size_flags_vertical = 3
+size_flags_stretch_ratio = 0.28
 
-[node name="MapListVBox" type="VBoxContainer" parent="VBox/Body/MapListPanel"]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = -12.0
-
-[node name="MapCount" type="Label" parent="VBox/Body/MapListPanel/MapListVBox"]
-text = "0 maps"
-
-[node name="MapScroll" type="ScrollContainer" parent="VBox/Body/MapListPanel/MapListVBox"]
-size_flags_vertical = 3
-
-[node name="MapList" type="VBoxContainer" parent="VBox/Body/MapListPanel/MapListVBox/MapScroll"]
-size_flags_horizontal = 3
-
-[node name="DetailPanel" type="Panel" parent="VBox/Body"]
-size_flags_horizontal = 3
-size_flags_vertical = 3
-
-[node name="DetailVBox" type="VBoxContainer" parent="VBox/Body/DetailPanel"]
+[node name="SelectorVBox" type="VBoxContainer" parent="VBox/SelectorPanel"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -69,54 +34,161 @@ offset_left = 14.0
 offset_top = 14.0
 offset_right = -14.0
 offset_bottom = -14.0
+theme_override_constants/separation = 10
 
-[node name="SelectedTitle" type="Label" parent="VBox/Body/DetailPanel/DetailVBox"]
-text = "Map"
+[node name="Header" type="VBoxContainer" parent="VBox/SelectorPanel/SelectorVBox"]
 
-[node name="SelectedMeta" type="Label" parent="VBox/Body/DetailPanel/DetailVBox"]
-text = "Meta"
+[node name="Title" type="Label" parent="VBox/SelectorPanel/SelectorVBox/Header"]
+text = "MAP JUKEBOX"
 
-[node name="SelectedDesc" type="Label" parent="VBox/Body/DetailPanel/DetailVBox"]
-autowrap_mode = 3
-text = "Description"
+[node name="Sub" type="Label" parent="VBox/SelectorPanel/SelectorVBox/Header"]
+text = "Pick a map."
 
-[node name="PeriodTabs" type="HBoxContainer" parent="VBox/Body/DetailPanel/DetailVBox"]
+[node name="CategoryTabs" type="HBoxContainer" parent="VBox/SelectorPanel/SelectorVBox"]
 theme_override_constants/separation = 8
 
-[node name="LeaderboardPanel" type="Panel" parent="VBox/Body/DetailPanel/DetailVBox"]
-size_flags_vertical = 3
+[node name="SelectorMetaRow" type="HBoxContainer" parent="VBox/SelectorPanel/SelectorVBox"]
+theme_override_constants/separation = 10
 
-[node name="LeaderboardVBox" type="VBoxContainer" parent="VBox/Body/DetailPanel/DetailVBox/LeaderboardPanel"]
+[node name="MapCount" type="Label" parent="VBox/SelectorPanel/SelectorVBox/SelectorMetaRow"]
+text = "0 maps"
+
+[node name="MapHint" type="Label" parent="VBox/SelectorPanel/SelectorVBox/SelectorMetaRow"]
+size_flags_horizontal = 3
+horizontal_alignment = 2
+text = "1-5 / 5"
+
+[node name="MapSelectorRows" type="VBoxContainer" parent="VBox/SelectorPanel/SelectorVBox"]
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+
+[node name="MapTopRow" type="HBoxContainer" parent="VBox/SelectorPanel/SelectorVBox/MapSelectorRows"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="MapBottomRow" type="HBoxContainer" parent="VBox/SelectorPanel/SelectorVBox/MapSelectorRows"]
+alignment = 1
+theme_override_constants/separation = 10
+
+[node name="MapLeft" type="Button" parent="VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow"]
+custom_minimum_size = Vector2(92, 92)
+text = "LEFT"
+
+[node name="MapBottomCards" type="HBoxContainer" parent="VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow"]
+theme_override_constants/separation = 10
+
+[node name="MapRight" type="Button" parent="VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow"]
+custom_minimum_size = Vector2(92, 92)
+text = "RIGHT"
+
+[node name="HeroPanel" type="Panel" parent="VBox"]
+custom_minimum_size = Vector2(0, 240)
+size_flags_vertical = 3
+size_flags_stretch_ratio = 0.40
+
+[node name="HeroVBox" type="VBoxContainer" parent="VBox/HeroPanel"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 10.0
-offset_top = 10.0
-offset_right = -10.0
-offset_bottom = -10.0
-
-[node name="LeaderboardScroll" type="ScrollContainer" parent="VBox/Body/DetailPanel/DetailVBox/LeaderboardPanel/LeaderboardVBox"]
-size_flags_vertical = 3
-
-[node name="LeaderboardList" type="VBoxContainer" parent="VBox/Body/DetailPanel/DetailVBox/LeaderboardPanel/LeaderboardVBox/LeaderboardScroll"]
-size_flags_horizontal = 3
-
-[node name="YourBest" type="Label" parent="VBox/Body/DetailPanel/DetailVBox/LeaderboardPanel/LeaderboardVBox"]
-text = "Your best: --"
-
-[node name="BadgeNote" type="Label" parent="VBox/Body/DetailPanel/DetailVBox/LeaderboardPanel/LeaderboardVBox"]
-autowrap_mode = 3
-text = "Badge note"
-
-[node name="Footer" type="HBoxContainer" parent="VBox"]
-alignment = 2
+offset_left = 14.0
+offset_top = 14.0
+offset_right = -14.0
+offset_bottom = -14.0
 theme_override_constants/separation = 10
 
-[node name="PlayButton" type="Button" parent="VBox/Footer"]
+[node name="SelectedTitle" type="Label" parent="VBox/HeroPanel/HeroVBox"]
+text = "Map"
+
+[node name="HeroPreviewPanel" type="Panel" parent="VBox/HeroPanel/HeroVBox"]
+custom_minimum_size = Vector2(0, 240)
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="HeroPreview" type="TextureRect" parent="VBox/HeroPanel/HeroVBox/HeroPreviewPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+stretch_mode = 5
+
+[node name="HeroPreviewBadge" type="Label" parent="VBox/HeroPanel/HeroVBox/HeroPreviewPanel"]
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 18.0
+offset_top = 16.0
+offset_right = -18.0
+offset_bottom = 40.0
+text = "MAP PREVIEW"
+
+[node name="SelectedMeta" type="Label" parent="VBox/HeroPanel/HeroVBox"]
+text = "Meta"
+
+[node name="MapBest" type="Label" parent="VBox/HeroPanel/HeroVBox"]
+text = "Map PB: --"
+
+[node name="SelectedDesc" type="Label" parent="VBox/HeroPanel/HeroVBox"]
+custom_minimum_size = Vector2(0, 44)
+autowrap_mode = 3
+text = "Description"
+
+[node name="HeroActions" type="HBoxContainer" parent="VBox/HeroPanel/HeroVBox"]
+theme_override_constants/separation = 10
+
+[node name="PlayButton" type="Button" parent="VBox/HeroPanel/HeroVBox/HeroActions"]
 text = "PLAY MAP"
 
-[node name="ScoutButton" type="Button" parent="VBox/Footer"]
+[node name="ScoutButton" type="Button" parent="VBox/HeroPanel/HeroVBox/HeroActions"]
 text = "SCOUT TOP RUN"
 
-[node name="CloseButton" type="Button" parent="VBox/Footer"]
+[node name="CloseButton" type="Button" parent="VBox/HeroPanel/HeroVBox/HeroActions"]
 text = "CLOSE"
+
+[node name="LeaderboardPanel" type="Panel" parent="VBox"]
+custom_minimum_size = Vector2(0, 260)
+size_flags_vertical = 3
+size_flags_stretch_ratio = 0.32
+
+[node name="LeaderboardVBox" type="VBoxContainer" parent="VBox/LeaderboardPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 14.0
+offset_top = 14.0
+offset_right = -14.0
+offset_bottom = -14.0
+theme_override_constants/separation = 10
+
+[node name="PeriodTabs" type="HBoxContainer" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
+theme_override_constants/separation = 8
+
+[node name="LeaderboardScroll" type="ScrollContainer" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
+size_flags_vertical = 3
+
+[node name="LeaderboardList" type="VBoxContainer" parent="VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardScroll"]
+size_flags_horizontal = 3
+
+[node name="LeaderboardNav" type="HBoxContainer" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
+alignment = 1
+theme_override_constants/separation = 10
+
+[node name="LeaderboardUp" type="Button" parent="VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav"]
+custom_minimum_size = Vector2(76, 52)
+text = "UP"
+
+[node name="LeaderboardPage" type="Label" parent="VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav"]
+text = "1-20 / 20"
+horizontal_alignment = 1
+
+[node name="LeaderboardDown" type="Button" parent="VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav"]
+custom_minimum_size = Vector2(76, 52)
+text = "DOWN"
+
+[node name="YourBest" type="Label" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
+text = "Your best: --"
+
+[node name="BadgeNote" type="Label" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
+autowrap_mode = 3
+text = "Badge note"

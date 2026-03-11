@@ -1,6 +1,7 @@
 extends RefCounted
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
 const SCHEMA_ID := "swarmfront.map.v1.xy"
 const CANON_GRID_W := 18
 const CANON_GRID_H := 28
@@ -8,6 +9,7 @@ const DEFAULT_CELL_SIZE := 64.0
 const OCCLUSION_RADIUS_MAX := 0.45
 const OCCLUSION_EPS := 0.0001
 const DEFAULT_SYMMETRY_MODE := "mirror_x"
+const LANE_OCCLUSION_PAD_PX := 7.0
 const HIVE_RADIUS_RATIO_BY_KIND := {
 	"hive": 0.42,
 	"npc": 0.42,
@@ -382,18 +384,30 @@ static func _segment_distance_t(p: Vector2, a: Vector2, b: Vector2) -> Vector2:
 	var closest: Vector2 = a + ab * t_clamped
 	return Vector2(p.distance_to(closest), t)
 
-static func _segment_occluded(a: Vector2, b: Vector2, hives: Array, a_id: int, b_id: int, radius: float) -> bool:
+static func _hive_lane_occlusion_radius_grid(hive: Dictionary, cell_size: float = DEFAULT_CELL_SIZE) -> float:
+	var resolved_cell_size: float = maxf(1.0, cell_size)
+	var radius_px: float = float(hive.get("radius_px", hive.get("radius", 0.0)))
+	if radius_px <= 0.0:
+		radius_px = hive_radius_px_for_kind(str(hive.get("kind", "Hive")), resolved_cell_size)
+	if radius_px <= 0.0:
+		radius_px = HiveGeometry.BASE_RADIUS_PX
+	var blocker_px: float = HiveGeometry.lane_occlusion_radius_px(maxf(HiveGeometry.BASE_RADIUS_PX, radius_px)) + LANE_OCCLUSION_PAD_PX
+	return blocker_px / resolved_cell_size
+
+static func _segment_occluded(a: Vector2, b: Vector2, hives: Array, a_id: int, b_id: int, cell_size: float = DEFAULT_CELL_SIZE) -> bool:
 	for hive in hives:
 		if typeof(hive) != TYPE_DICTIONARY:
 			continue
-		var hive_id := int(hive.get("id", 0))
+		var hive_dict: Dictionary = hive as Dictionary
+		var hive_id := int(hive_dict.get("id", 0))
 		if hive_id == a_id or hive_id == b_id:
 			continue
-		var p: Vector2 = hive.get("pos", Vector2.ZERO)
+		var p: Vector2 = hive_dict.get("pos", Vector2.ZERO)
 		var dt := _segment_distance_t(p, a, b)
 		var dist := dt.x
 		var t := dt.y
-		if t > OCCLUSION_EPS and t < 1.0 - OCCLUSION_EPS and dist <= radius:
+		var blocker_radius: float = maxf(OCCLUSION_RADIUS_MAX, _hive_lane_occlusion_radius_grid(hive_dict, cell_size))
+		if t > OCCLUSION_EPS and t < 1.0 - OCCLUSION_EPS and dist <= blocker_radius:
 			return true
 	return false
 
@@ -470,6 +484,13 @@ static func _compute_components(hive_ids: Array, lanes: Array) -> Dictionary:
 	return {"comp_of": comp_of, "components": components}
 
 static func _auto_generate_lanes(hives: Array, grid_w: int, grid_h: int, config: Dictionary) -> Dictionary:
+	var cell_size: float = DEFAULT_CELL_SIZE
+	var grid_cfg: Variant = config.get("grid", null)
+	if typeof(grid_cfg) == TYPE_DICTIONARY:
+		var grid_dict: Dictionary = grid_cfg as Dictionary
+		var cell_v: Variant = grid_dict.get("cell_size", null)
+		if cell_v != null:
+			cell_size = maxf(1.0, float(cell_v))
 	var hive_points: Array = []
 	var hive_ids: Array = []
 	var id_to_pos: Dictionary = {}
@@ -481,7 +502,12 @@ static func _auto_generate_lanes(hives: Array, grid_w: int, grid_h: int, config:
 		var hive_id := int(hive.get("id", 0))
 		var gp: Array = hive.get("grid_pos", [0, 0])
 		var pos := Vector2(float(gp[0]), float(gp[1]))
-		hive_points.append({"id": hive_id, "pos": pos})
+		hive_points.append({
+			"id": hive_id,
+			"pos": pos,
+			"kind": str(hive.get("kind", "Hive")),
+			"radius_px": float(hive.get("radius_px", hive.get("radius", 0.0)))
+		})
 		hive_ids.append(hive_id)
 		id_to_pos[hive_id] = pos
 		pos_to_id["%d,%d" % [int(pos.x), int(pos.y)]] = hive_id
@@ -515,7 +541,7 @@ static func _auto_generate_lanes(hives: Array, grid_w: int, grid_h: int, config:
 			var b_pos: Vector2 = b.get("pos", Vector2.ZERO)
 			if not wall_segments.is_empty() and _segment_intersects_any_wall(a_pos, b_pos, wall_segments):
 				continue
-			if _segment_occluded(a_pos, b_pos, hive_points, a_id, b_id, OCCLUSION_RADIUS_MAX):
+			if _segment_occluded(a_pos, b_pos, hive_points, a_id, b_id, cell_size):
 				continue
 			var key := _lane_key(a_id, b_id)
 			candidate_set[key] = true

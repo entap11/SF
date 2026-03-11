@@ -511,6 +511,10 @@ func _update_visibility_from_state() -> void:
 	var should_show: bool = (phase != int(OpsState.MatchPhase.PREMATCH)) or (prematch_ms <= 0)
 	if visible != should_show:
 		visible = should_show
+	if should_show and modulate.a < 0.99:
+		modulate.a = 1.0
+	elif not should_show and modulate.a > 0.01:
+		modulate.a = 0.0
 	var vis_i: int = int(visible)
 	if _powerbar_last_visible_logged != vis_i:
 		_powerbar_last_visible_logged = vis_i

@@ -10,7 +10,16 @@ const RUNTIME_STD_GRID_W := 18
 const RUNTIME_STD_GRID_H := 28
 const FORCE_RUNTIME_STD_GRID := true
 static func list_maps() -> Array[String]:
-	return MAP_REGISTRY.list_map_paths()
+	var out: Array[String] = []
+	for path_any in MAP_REGISTRY.list_map_paths():
+		var path: String = str(path_any).strip_edges()
+		if path.is_empty():
+			continue
+		var map_id: String = MAP_REGISTRY.map_id_from_path(path).strip_edges().to_upper()
+		if map_id == "MAP_TEST":
+			continue
+		out.append(path)
+	return out
 
 static func load_map(path_or_id: String) -> Dictionary:
 	var resolved: String = _resolve_map_path(path_or_id)

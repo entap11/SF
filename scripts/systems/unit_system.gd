@@ -379,8 +379,10 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 			if kill > 0:
 				_adjust_lane_pressure(int(lane_id), true, -kill)
 				_adjust_lane_pressure(int(lane_id), false, -kill)
-				OpsState.add_units_killed(a_owner, kill)
-				OpsState.add_units_killed(b_owner, kill)
+				var ops_state: Node = _ops_state()
+				if ops_state != null:
+					ops_state.call("add_units_killed", a_owner, kill)
+					ops_state.call("add_units_killed", b_owner, kill)
 				_telemetry_record_collision(
 					int(round(float(now_us) / 1000.0)),
 					int(lane_id),
@@ -653,8 +655,9 @@ func _are_allied_owners(owner_a: int, owner_b: int) -> bool:
 		return true
 	if a_id <= 0 or b_id <= 0:
 		return false
-	if OpsState != null and OpsState.has_method("are_allies"):
-		return bool(OpsState.call("are_allies", a_id, b_id))
+	var ops_state: Node = _ops_state()
+	if ops_state != null and ops_state.has_method("are_allies"):
+		return bool(ops_state.call("are_allies", a_id, b_id))
 	return a_id == b_id
 
 func _apply_unit_arrival(unit: Dictionary) -> void:
@@ -680,7 +683,9 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	if amount > 0 and not skip_pressure:
 		var from_is_a := _unit_dir(unit) >= 0
 		_adjust_lane_pressure(int(unit.get("lane_id", -1)), from_is_a, -amount)
-	OpsState.add_units_landed(owner_id, amount)
+	var ops_state: Node = _ops_state()
+	if ops_state != null:
+		ops_state.call("add_units_landed", owner_id, amount)
 	var before_owner := int(hive.owner_id)
 	var before_power := int(hive.power)
 	var friendly_arrival: bool = _are_allied_owners(before_owner, owner_id)
@@ -1203,7 +1208,9 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 		if amount > 0:
 			var from_is_a := _unit_dir(unit) >= 0
 			_adjust_lane_pressure(int(unit.get("lane_id", -1)), from_is_a, -amount)
-			OpsState.add_units_killed(tower_owner_id, amount)
+			var ops_state: Node = _ops_state()
+			if ops_state != null:
+				ops_state.call("add_units_killed", tower_owner_id, amount)
 		return _remove_unit(victim_unit_id, "tower_hit")
 	return false
 
@@ -1216,13 +1223,14 @@ func _edge_points(from_hive: HiveData, to_hive: HiveData, lane_id: int = -1) -> 
 	var from_id: int = int(from_hive.id)
 	var to_id: int = int(to_hive.id)
 	var edge_any: Variant = null
-	if OpsState != null and OpsState.has_method("get_edge_for_lane_key"):
+	var ops_state: Node = _ops_state()
+	if ops_state != null and ops_state.has_method("get_edge_for_lane_key"):
 		if from_id > 0 and to_id > 0:
-			edge_any = OpsState.get_edge_for_lane_key("%d->%d" % [from_id, to_id])
+			edge_any = ops_state.call("get_edge_for_lane_key", "%d->%d" % [from_id, to_id])
 		if edge_any == null and lane_id > 0:
-			edge_any = OpsState.get_edge_for_lane_key(lane_id)
+			edge_any = ops_state.call("get_edge_for_lane_key", lane_id)
 			if edge_any == null:
-				edge_any = OpsState.get_edge_for_lane_key(str(lane_id))
+				edge_any = ops_state.call("get_edge_for_lane_key", str(lane_id))
 	if edge_any != null:
 		var start_edge: Vector2 = Vector2.ZERO
 		var end_edge: Vector2 = Vector2.ZERO
@@ -1564,7 +1572,16 @@ func _lane_established(lane: LaneData, from_is_a: bool, lane_len: float) -> bool
 	return true
 
 func _lane_front_t(lane_id: int) -> float:
-	return float(OpsState.lane_front_by_lane_id.get(lane_id, 0.0))
+	var ops_state: Node = _ops_state()
+	if ops_state == null:
+		return 0.0
+	return float((ops_state.get("lane_front_by_lane_id") as Dictionary).get(lane_id, 0.0))
+
+func _ops_state() -> Node:
+	var main_loop: MainLoop = Engine.get_main_loop()
+	if not (main_loop is SceneTree):
+		return null
+	return (main_loop as SceneTree).get_root().get_node_or_null("/root/OpsState")
 
 func _log_unit_gate_blocked(lane_id: int, src_id: int, dst_id: int, intent: String, build_t: float) -> void:
 	var now_ms := Time.get_ticks_msec()

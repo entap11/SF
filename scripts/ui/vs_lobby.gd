@@ -19,8 +19,12 @@ const SMS_TIMEOUT_SEC := 120
 const QUICK_SEARCH_TIMEOUT_SEC := 45
 const DEBUG_AUTO_FILL_SEC := 5
 const SHELL_SCENE_PATH := "res://scenes/Shell.tscn"
+const TREE_META_VS_CPU_STYLE := "vs_cpu_style"
+const TREE_META_VS_CPU_TIER := "vs_cpu_tier"
+const DEV_BOT_STYLE_OPTIONS: Array[String] = ["Default", "Balancer", "Turtle", "Raider", "Greedy", "Swarm Lord"]
+const DEV_BOT_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Hard"]
 const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako", "Drift", "Pax"]
-const DEFAULT_STAGE_MAP_IDS: Array[String] = ["MAP_TEST"]
+const DEFAULT_STAGE_MAP_IDS: Array[String] = []
 const CTF_STAGE_MAP_IDS: Array[String] = [
 	"MAP_nomansland__SBASE__1p",
 	"MAP_nomansland__SN6__1p",
@@ -37,6 +41,10 @@ const CTF_FLAG_MOVE_COUNT_MAX_DEFAULT: int = 1
 @onready var quick_button: Button = $Panel/VBox/Buttons/QuickMatch
 @onready var sms_button: Button = $Panel/VBox/Buttons/SmsInvite
 @onready var dev_min_override_button: Button = $Panel/VBox/Buttons/DevMinOverride
+@onready var dev_bot_row: HBoxContainer = $Panel/VBox/DevBotRow
+@onready var dev_bot_label: Label = $Panel/VBox/DevBotRow/DevBotLabel
+@onready var dev_bot_style_option: OptionButton = $Panel/VBox/DevBotRow/DevBotStyle
+@onready var dev_bot_tier_option: OptionButton = $Panel/VBox/DevBotRow/DevBotTier
 @onready var status_label: Label = $Panel/VBox/Status
 @onready var slots_label: Label = $Panel/VBox/Slots
 @onready var invite_label: Label = $Panel/VBox/Invite
@@ -64,6 +72,8 @@ var _contest_deadline_unix: int = 0
 var _contest_window_open: bool = false
 var _local_joined: bool = false
 var _dev_min_players_override: bool = false
+var _dev_async_bot_style_override: String = ""
+var _dev_async_bot_tier_override: String = ""
 var _context_meta: Dictionary = {}
 var _force_async_window: bool = false
 
@@ -100,6 +110,7 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 		_sync_quick_button_text()
 		_sync_join_row_visibility()
 		_sync_dev_button_text()
+		_sync_dev_bot_controls()
 
 func _ready() -> void:
 	_load_fonts()
@@ -108,6 +119,10 @@ func _ready() -> void:
 	quick_button.pressed.connect(_on_quick_match)
 	sms_button.pressed.connect(_on_sms_invite)
 	dev_min_override_button.pressed.connect(_on_dev_min_override_pressed)
+	if dev_bot_style_option != null:
+		dev_bot_style_option.item_selected.connect(_on_dev_bot_style_selected)
+	if dev_bot_tier_option != null:
+		dev_bot_tier_option.item_selected.connect(_on_dev_bot_tier_selected)
 	join_button.pressed.connect(_on_join_pressed)
 	join_code.text_submitted.connect(func(_value: String) -> void:
 		_on_join_pressed()
@@ -125,12 +140,14 @@ func _ready() -> void:
 	invite_label.visible = false
 	_dev_min_players_override = false
 	dev_min_override_button.visible = OS.is_debug_build()
+	_setup_dev_bot_options()
 	_session_id = ""
 	_session_role = ""
 	_quick_ticket_id = ""
 	_search_elapsed_sec = 0
 	_debug_filled = false
 	_sync_dev_button_text()
+	_sync_dev_bot_controls()
 	_sync_quick_button_text()
 	_sync_join_row_visibility()
 	quick_button.disabled = false
@@ -139,7 +156,12 @@ func _ready() -> void:
 
 func _refresh_summary() -> void:
 	var price_text := "Free Roll" if _free_roll else "$%d Entry" % _price_usd
-	summary_label.text = "%s | %d Maps | %s" % [_mode_label(_mode), _map_count, price_text]
+	var summary_text: String = "%s | %d Maps | %s" % [_mode_label(_mode), _map_count, price_text]
+	if OS.is_debug_build() and _uses_async_window():
+		var style_label: String = "Default" if _dev_async_bot_style_override.is_empty() else _dev_async_bot_style_override.replace("_", " ").capitalize()
+		var tier_label: String = "Default" if _dev_async_bot_tier_override.is_empty() else _dev_async_bot_tier_override.capitalize()
+		summary_text += " | CPU %s / %s" % [style_label, tier_label]
+	summary_label.text = summary_text
 
 func _on_quick_match() -> void:
 	if _uses_async_window():
@@ -576,6 +598,7 @@ func _start_match() -> void:
 	tree.set_meta("vs_handshake_invite_code", _invite_code)
 	tree.set_meta("vs_local_profile", _local_profile())
 	tree.set_meta("vs_remote_profile", _remote_profile_for_tree())
+	_apply_dev_bot_overrides_to_tree(tree)
 	for key in _context_meta.keys():
 		tree.set_meta(key, _context_meta[key])
 	if _mode == "CAPTURE_FLAG" or _mode == "HIDDEN_CAPTURE_FLAG":
@@ -911,6 +934,82 @@ func _sync_dev_button_text() -> void:
 		return
 	dev_min_override_button.text = "DEV: Fill Opponent"
 
+func _setup_dev_bot_options() -> void:
+	if dev_bot_style_option != null and dev_bot_style_option.item_count == 0:
+		for label in DEV_BOT_STYLE_OPTIONS:
+			dev_bot_style_option.add_item(label)
+	if dev_bot_tier_option != null and dev_bot_tier_option.item_count == 0:
+		for label in DEV_BOT_TIER_OPTIONS:
+			dev_bot_tier_option.add_item(label)
+	if dev_bot_style_option != null:
+		dev_bot_style_option.selected = 0
+	if dev_bot_tier_option != null:
+		dev_bot_tier_option.selected = 0
+	_dev_async_bot_style_override = ""
+	_dev_async_bot_tier_override = ""
+
+func _sync_dev_bot_controls() -> void:
+	if dev_bot_row == null:
+		return
+	var show_row: bool = OS.is_debug_build() and _uses_async_window()
+	dev_bot_row.visible = show_row
+	if not show_row:
+		return
+	if dev_bot_style_option != null:
+		dev_bot_style_option.disabled = false
+	if dev_bot_tier_option != null:
+		dev_bot_tier_option.disabled = false
+
+func _on_dev_bot_style_selected(index: int) -> void:
+	_dev_async_bot_style_override = _dev_style_value_for_index(index)
+	_refresh_summary()
+	_status("Contest open" if _uses_async_window() and _local_joined else "Lobby idle")
+
+func _on_dev_bot_tier_selected(index: int) -> void:
+	_dev_async_bot_tier_override = _dev_tier_value_for_index(index)
+	_refresh_summary()
+	_status("Contest open" if _uses_async_window() and _local_joined else "Lobby idle")
+
+func _dev_style_value_for_index(index: int) -> String:
+	match index:
+		1:
+			return "balancer"
+		2:
+			return "turtle"
+		3:
+			return "raider"
+		4:
+			return "greedy"
+		5:
+			return "swarm_lord"
+		_:
+			return ""
+
+func _dev_tier_value_for_index(index: int) -> String:
+	match index:
+		1:
+			return "easy"
+		2:
+			return "medium"
+		3:
+			return "hard"
+		_:
+			return ""
+
+func _apply_dev_bot_overrides_to_tree(tree: SceneTree) -> void:
+	if tree == null:
+		return
+	if _dev_async_bot_style_override.is_empty():
+		if tree.has_meta(TREE_META_VS_CPU_STYLE):
+			tree.remove_meta(TREE_META_VS_CPU_STYLE)
+	else:
+		tree.set_meta(TREE_META_VS_CPU_STYLE, _dev_async_bot_style_override)
+	if _dev_async_bot_tier_override.is_empty():
+		if tree.has_meta(TREE_META_VS_CPU_TIER):
+			tree.remove_meta(TREE_META_VS_CPU_TIER)
+	else:
+		tree.set_meta(TREE_META_VS_CPU_TIER, _dev_async_bot_tier_override)
+
 func _update_countdown_label() -> void:
 	if _countdown_mode == "quick_search":
 		countdown_label.text = "Searching... %ds remaining" % maxi(_countdown_left, 0)
@@ -941,22 +1040,25 @@ func _load_fonts() -> void:
 	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
 
 func _apply_static_fonts() -> void:
-	_apply_free_roll_atlas_font(title_label, 20)
-	_apply_font(back_button, _font_regular, 14)
-	_apply_font(summary_label, _font_regular, 14)
+	_apply_free_roll_atlas_font(title_label, 24)
+	_apply_font(back_button, _font_regular, 16)
+	_apply_font(summary_label, _font_regular, 16)
 	_apply_quick_button_font()
-	_apply_free_roll_atlas_font(sms_button, 13)
-	_apply_font(dev_min_override_button, _font_regular, 12)
-	_apply_font(status_label, _font_regular, 13)
-	_apply_font(slots_label, _font_regular, 13)
-	_apply_font(invite_label, _font_regular, 13)
-	_apply_font(join_code, _font_regular, 13)
-	_apply_font(join_button, _font_regular, 13)
-	_apply_font(countdown_label, _font_semibold, 13)
+	_apply_free_roll_atlas_font(sms_button, 15)
+	_apply_font(dev_min_override_button, _font_regular, 14)
+	_apply_font(dev_bot_label, _font_semibold, 15)
+	_apply_font(dev_bot_style_option, _font_regular, 15)
+	_apply_font(dev_bot_tier_option, _font_regular, 15)
+	_apply_font(status_label, _font_regular, 15)
+	_apply_font(slots_label, _font_regular, 15)
+	_apply_font(invite_label, _font_regular, 15)
+	_apply_font(join_code, _font_regular, 15)
+	_apply_font(join_button, _font_regular, 15)
+	_apply_font(countdown_label, _font_semibold, 15)
 
 func _apply_quick_button_font() -> void:
-	if not _apply_free_roll_atlas_font(quick_button, 13):
-		_apply_font(quick_button, _font_semibold, 13)
+	if not _apply_free_roll_atlas_font(quick_button, 15):
+		_apply_font(quick_button, _font_semibold, 15)
 
 func _apply_font(node: Control, font: Font, size: int) -> void:
 	if node == null or font == null:

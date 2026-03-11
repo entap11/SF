@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/shell.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://bna4cmslnw2d1" path="res://scenes/ui/power_bar.tscn" id="2"]
-[ext_resource type="FontFile" path="res://assets/fonts/free_roll_display_v2_font.tres" id="3"]
+[ext_resource type="FontFile" uid="uid://ikgcviwmpgv0" path="res://assets/fonts/free_roll_display_v2_font.tres" id="3"]
 [ext_resource type="Script" path="res://scripts/ui/hud_freeze_guard.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/ui/hud_geometry_guard.gd" id="5"]
 [ext_resource type="Script" path="res://scripts/ui/opponent_buff_strip.gd" id="6"]
