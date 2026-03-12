@@ -508,7 +508,7 @@ func _process(delta: float) -> void:
 func _update_visibility_from_state() -> void:
 	var phase: int = int(OpsState.match_phase)
 	var prematch_ms: int = int(OpsState.prematch_remaining_ms)
-	var should_show: bool = (phase != int(OpsState.MatchPhase.PREMATCH)) or (prematch_ms <= 0)
+	var should_show: bool = (phase != int(OpsState.MatchPhase.PREMATCH)) or (prematch_ms <= 0) or _show_during_async_prematch()
 	if visible != should_show:
 		visible = should_show
 	if should_show and modulate.a < 0.99:
@@ -524,6 +524,21 @@ func _update_visibility_from_state() -> void:
 			"prematch_ms": prematch_ms,
 			"should_show": should_show
 		})
+
+func _show_during_async_prematch() -> bool:
+	if OpsState == null:
+		return false
+	if int(OpsState.match_phase) != int(OpsState.MatchPhase.PREMATCH):
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var mode: String = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+	match mode:
+		"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
+			return true
+		_:
+			return false
 
 func _sf_debug_dump(tag: String) -> void:
 	if not TRACE_POWER_BAR_DUMP:

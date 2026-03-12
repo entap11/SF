@@ -1867,8 +1867,21 @@ func _is_match_live() -> bool:
 	var phase: int = int(OpsState.match_phase)
 	var prematch_ms: int = int(OpsState.prematch_remaining_ms)
 	if phase == int(OpsState.MatchPhase.PREMATCH):
+		if _show_power_bar_during_async_prematch():
+			return true
 		return prematch_ms <= PREMATCH_POWERBAR_REVEAL_WINDOW_MS
 	return phase == int(OpsState.MatchPhase.RUNNING) and prematch_ms <= 0
+
+func _show_power_bar_during_async_prematch() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var mode: String = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+	match mode:
+		"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
+			return true
+		_:
+			return false
 
 func _maybe_start_soak_perf() -> bool:
 	var config: Dictionary = _parse_soak_perf_config(OS.get_cmdline_user_args())

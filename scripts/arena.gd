@@ -115,6 +115,7 @@ const CTF_MOVE_BUTTON_FALLBACK_FONT_PATH: String = "res://assets/fonts/ChakraPet
 const VS_MODE_STAGE_RACE: String = "STAGE_RACE"
 const VS_MODE_CAPTURE_FLAG: String = "CAPTURE_FLAG"
 const VS_MODE_HIDDEN_CAPTURE_FLAG: String = "HIDDEN_CAPTURE_FLAG"
+const VS_MODE_ASYNC_SINGLE_MAP_TIMED: String = "ASYNC_SINGLE_MAP_TIMED"
 const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
 const CTF_SELECTION_GRACE_MS: int = 5000
 const TREE_META_VS_MODE: String = "vs_mode"
@@ -137,6 +138,8 @@ const PREMATCH_RECORDS_WIDTH_PX: float = 520.0
 const PREMATCH_RECORDS_HEIGHT_PX: float = 168.0
 const PREMATCH_RECORDS_TOP_GAP_PX: float = 24.0
 const PREMATCH_RECORDS_FONT_SIZE: int = 17
+const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
+const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
 const PREMATCH_UI_CROSSFADE_MS: int = 350
 const MM_BACKGROUND_ART_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/mm_back_art.png")
 const MM_BACKGROUND_Y_SHIFT: float = 36.0
@@ -1454,9 +1457,10 @@ func _layout_prematch_records_panel(records: Control) -> void:
 		return
 	var vr: Rect2 = vp.get_visible_rect()
 	var top_inset: float = _ui_top_inset_px()
+	var panel_size: Vector2 = _prematch_records_panel_size()
 	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX
-	records.position = Vector2((vr.size.x - PREMATCH_RECORDS_WIDTH_PX) * 0.5, panel_top)
-	records.size = Vector2(PREMATCH_RECORDS_WIDTH_PX, PREMATCH_RECORDS_HEIGHT_PX)
+	records.position = Vector2((vr.size.x - panel_size.x) * 0.5, panel_top)
+	records.size = panel_size
 
 func _layout_capture_flag_instruction_panel(panel: Control = null) -> void:
 	var target: Control = panel if panel != null else _prematch_ctf_panel
@@ -1466,9 +1470,14 @@ func _layout_capture_flag_instruction_panel(panel: Control = null) -> void:
 	var top_inset: float = _ui_top_inset_px()
 	var width: float = 540.0
 	var height: float = 146.0
-	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX + PREMATCH_RECORDS_HEIGHT_PX + 16.0
+	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX + _prematch_records_panel_size().y + 16.0
 	target.position = Vector2((vr.size.x - width) * 0.5, panel_top)
 	target.size = Vector2(width, height)
+
+func _prematch_records_panel_size() -> Vector2:
+	if _uses_async_prematch_card():
+		return Vector2(ASYNC_PREMATCH_CARD_WIDTH_PX, ASYNC_PREMATCH_CARD_HEIGHT_PX)
+	return Vector2(PREMATCH_RECORDS_WIDTH_PX, PREMATCH_RECORDS_HEIGHT_PX)
 
 func _load_ctf_move_button_font() -> Font:
 	if ResourceLoader.exists(CTF_MOVE_BUTTON_FONT_PATH):
@@ -1736,6 +1745,7 @@ func _show_prematch_ui() -> void:
 				"type": _prematch_countdown_label.get_class()
 			})
 		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
+		_prematch_countdown_label.visible = not _uses_async_prematch_card()
 	_refresh_prematch_records()
 	_refresh_capture_flag_prematch_prompt()
 	if _prematch_records_panel != null:
@@ -1766,6 +1776,10 @@ func _show_prematch_ui() -> void:
 	})
 
 func _refresh_prematch_records() -> void:
+	_reset_prematch_record_styles()
+	if _uses_async_prematch_card():
+		_refresh_async_prematch_card()
+		return
 	if _prematch_record_teams != null:
 		_prematch_record_teams.text = _get_team_banner_line()
 	if _prematch_record_team_arrows != null:
@@ -1780,6 +1794,45 @@ func _refresh_prematch_records() -> void:
 		_prematch_record_p4.text = _get_player_record_line(4)
 	if _prematch_record_h2h != null:
 		_prematch_record_h2h.text = _get_h2h_record_line()
+
+func _reset_prematch_record_styles() -> void:
+	_style_prematch_team_label(_prematch_record_teams)
+	_style_prematch_team_arrow_label(_prematch_record_team_arrows)
+	for label in [_prematch_record_p1, _prematch_record_p2, _prematch_record_p3, _prematch_record_p4, _prematch_record_h2h]:
+		if label is Label:
+			_style_prematch_record_label(label as Label)
+	if _prematch_record_teams != null:
+		_prematch_record_teams.visible = true
+	if _prematch_record_team_arrows != null:
+		_prematch_record_team_arrows.visible = true
+	for label in [_prematch_record_p1, _prematch_record_p2, _prematch_record_p3, _prematch_record_p4, _prematch_record_h2h]:
+		if label is Label:
+			(label as Label).visible = true
+
+func _refresh_async_prematch_card() -> void:
+	var sec_left: int = maxi(0, int(ceil(_prematch_remaining_ms_f / 1000.0)))
+	if _prematch_record_teams != null:
+		_prematch_record_teams.add_theme_font_size_override("font_size", 28)
+		_prematch_record_teams.text = _async_prematch_mode_banner()
+	if _prematch_record_team_arrows != null:
+		_prematch_record_team_arrows.add_theme_font_size_override("font_size", 20)
+		_prematch_record_team_arrows.text = _async_prematch_round_line()
+	if _prematch_record_p1 != null:
+		_prematch_record_p1.add_theme_font_size_override("font_size", 18)
+		_prematch_record_p1.text = "Map: %s" % _async_prematch_map_title()
+	if _prematch_record_p2 != null:
+		_prematch_record_p2.add_theme_font_size_override("font_size", 18)
+		_prematch_record_p2.text = _async_prematch_bot_line()
+	if _prematch_record_p3 != null:
+		_prematch_record_p3.add_theme_font_size_override("font_size", 18)
+		_prematch_record_p3.text = _async_prematch_rule_line()
+	if _prematch_record_p4 != null:
+		_prematch_record_p4.add_theme_font_size_override("font_size", 18)
+		_prematch_record_p4.text = _async_prematch_track_line()
+	if _prematch_record_h2h != null:
+		_prematch_record_h2h.add_theme_font_size_override("font_size", 24)
+		_prematch_record_h2h.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
+		_prematch_record_h2h.text = "Starts in %d" % sec_left
 
 func _get_team_banner_line() -> String:
 	var local_seat: int = _resolve_local_owner_id()
@@ -1843,6 +1896,123 @@ func _get_h2h_record_line() -> String:
 	var p1_wins: int = int(h2h.get("a_wins", 0))
 	var p2_wins: int = int(h2h.get("b_wins", 0))
 	return "H2H: %s vs %s (%d-%d)" % [p1_name, p2_name, p1_wins, p2_wins]
+
+func _current_vs_mode() -> String:
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta(TREE_META_VS_MODE):
+		return ""
+	return str(tree.get_meta(TREE_META_VS_MODE, "")).strip_edges().to_upper()
+
+func _uses_async_prematch_card() -> bool:
+	match _current_vs_mode():
+		VS_MODE_STAGE_RACE, "TIMED_RACE", "MISS_N_OUT", VS_MODE_ASYNC_SINGLE_MAP_TIMED:
+			return true
+		_:
+			return false
+
+func _async_prematch_mode_banner() -> String:
+	match _current_vs_mode():
+		VS_MODE_ASYNC_SINGLE_MAP_TIMED:
+			return "MAP RUN"
+		"TIMED_RACE":
+			return "TIMED RACE"
+		"MISS_N_OUT":
+			return "MISS N OUT"
+		_:
+			return "STAGE RACE"
+
+func _async_prematch_round_line() -> String:
+	if _current_vs_mode() == VS_MODE_ASYNC_SINGLE_MAP_TIMED:
+		return "Single map run"
+	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
+	if stage_maps.is_empty():
+		return "Async run"
+	var tree: SceneTree = get_tree()
+	var round_index: int = 0
+	if tree != null:
+		round_index = clampi(int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)), 0, maxi(stage_maps.size() - 1, 0))
+	match _current_vs_mode():
+		"TIMED_RACE":
+			return "Map %d of %d" % [round_index + 1, stage_maps.size()]
+		"MISS_N_OUT":
+			return "Round %d of %d" % [round_index + 1, stage_maps.size()]
+		_:
+			return "Stage %d of %d" % [round_index + 1, stage_maps.size()]
+
+func _async_prematch_map_title() -> String:
+	var map_name: String = str(current_map_data.get("name", "")).strip_edges()
+	if not map_name.is_empty():
+		return map_name
+	var map_id: String = str(current_map_data.get("id", "")).strip_edges()
+	if not map_id.is_empty():
+		return _humanize_runtime_token(map_id.trim_prefix("MAP_"))
+	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
+	if not stage_maps.is_empty():
+		var tree: SceneTree = get_tree()
+		var round_index: int = 0
+		if tree != null:
+			round_index = clampi(int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)), 0, maxi(stage_maps.size() - 1, 0))
+		return _humanize_runtime_token(stage_maps[round_index].get_file().get_basename().trim_prefix("MAP_"))
+	return "Unknown Map"
+
+func _async_prematch_bot_line() -> String:
+	if OpsState != null and OpsState.has_method("get_bot_profile"):
+		for seat in range(1, 5):
+			var entry: Dictionary = _get_roster_entry_for_slot(seat)
+			if entry.is_empty() or not bool(entry.get("is_cpu", false)):
+				continue
+			var profile: Dictionary = OpsState.call("get_bot_profile", seat) as Dictionary
+			var style: String = _humanize_runtime_token(str(profile.get("style", profile.get("persona", ""))))
+			var tier: String = _humanize_runtime_token(str(profile.get("tier", "")))
+			if style.is_empty() and tier.is_empty() and _is_jukebox_easy_bot_mode():
+				return "CPU: Easy / Training"
+			if tier.is_empty():
+				tier = "Medium"
+			if style.is_empty():
+				style = "Balancer"
+			return "CPU: %s / %s" % [style, tier]
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		var style_id: String = _humanize_runtime_token(str(tree.get_meta(TREE_META_VS_CPU_STYLE, "")))
+		var tier_id: String = _humanize_runtime_token(str(tree.get_meta(TREE_META_VS_CPU_TIER, "")))
+		if not style_id.is_empty() or not tier_id.is_empty():
+			return "CPU: %s / %s" % [style_id if not style_id.is_empty() else "Balancer", tier_id if not tier_id.is_empty() else "Medium"]
+	if _is_jukebox_easy_bot_mode():
+		return "CPU: Easy / Training"
+	return "CPU: Field Opponent"
+
+func _async_prematch_rule_line() -> String:
+	match _current_vs_mode():
+		VS_MODE_ASYNC_SINGLE_MAP_TIMED:
+			return "Rule: set your best map time."
+		"TIMED_RACE":
+			return "Rule: finish first across the run."
+		"MISS_N_OUT":
+			return "Rule: one miss ends the run."
+		_:
+			return "Rule: win fast, total time matters."
+
+func _async_prematch_track_line() -> String:
+	var tree: SceneTree = get_tree()
+	if tree != null and bool(tree.get_meta("vs_free_roll", false)):
+		return "Track: Free Play"
+	return "Track: Ladder"
+
+func _humanize_runtime_token(value: String) -> String:
+	var clean: String = value.strip_edges().replace("res://", "").replace(".json", "")
+	if clean.is_empty():
+		return ""
+	var parts: PackedStringArray = clean.replace("__", "_").split("_", false)
+	var words: Array[String] = []
+	for part_any in parts:
+		var part: String = str(part_any).strip_edges()
+		if part.is_empty():
+			continue
+		if part.length() == 1:
+			words.append(part.to_upper())
+			continue
+		words.append(part.substr(0, 1).to_upper() + part.substr(1).to_lower())
+	return " ".join(words)
 
 func _record_key_for_roster_entry(entry: Dictionary) -> String:
 	if entry.is_empty():
@@ -2068,8 +2238,10 @@ func _update_prematch_flow(delta: float) -> void:
 		sec_left = int(ceil(_prematch_remaining_ms_f / 1000.0))
 	if _prematch_countdown_label != null:
 		_prematch_countdown_label.text = str(sec_left)
-		_prematch_countdown_label.visible = true
+		_prematch_countdown_label.visible = not _uses_async_prematch_card()
 	_refresh_capture_flag_prematch_prompt()
+	if _uses_async_prematch_card():
+		_refresh_prematch_records()
 	if sec_left != _prematch_last_sec:
 		_prematch_last_sec = sec_left
 		SFLog.info("PREMATCH_TICK", {

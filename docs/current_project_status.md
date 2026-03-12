@@ -1,6 +1,6 @@
 # Current Project Status
 
-Date: March 11, 2026
+Date: March 12, 2026
 
 ## Executive Summary
 
@@ -58,6 +58,14 @@ The next active pillar is bot depth for 1P async.
 - Camera fit was corrected so full-board map bounds are used unless node-bounds fit is explicitly enabled.
 - The `PowerBar` alpha/visibility path was corrected so it can actually appear once the match goes live.
 - Match flow start is now deferred by a couple of frames so async prematch is less likely to burn during shell boot.
+- Async prematch now has a dedicated mode card path instead of relying entirely on the default 1v1 countdown presentation.
+- The async prematch card now covers:
+  - `Stage Race`
+  - `Timed Race`
+  - `Miss N Out`
+  - direct Jukebox single-map runs
+- Async prematch keeps the `PowerBar` visible during those modes so the run starts with better gameplay context.
+- Jukebox easy-bot prematch labeling no longer falls back to misleading generic bot text.
 
 ## Current Product Read
 
@@ -74,7 +82,11 @@ The next active pillar is bot depth for 1P async.
 - Buffs dash surface is still a summary/scaffold rather than the final full editor.
 - Achievements/records schema is not fully defined yet.
 - Bot personality separation still needs tuning; early playtest read is that `balancer` and `raider` currently feel too similar.
-- Async Stage Race still likely needs a mode-specific intro/prematch presentation instead of relying entirely on the 1v1-style flow.
+- Async prematch presentation exists now, but the next pass should be UI/UX polish rather than more plumbing:
+  - layout
+  - spacing
+  - copy hierarchy
+  - overall readability / feel
 - Player-facing bot customization UI/UX is still intentionally unresolved beyond the current debug selectors.
 
 ## Important Future Note
@@ -91,14 +103,19 @@ That future work should include:
 
 ## Recommended Next Steps
 
-1. Tune bot separation, starting with `balancer` vs `raider`.
-2. Define a proper async intro surface for `Stage Race` and related 1P async modes.
+1. Spend the next work block on async prematch UI/UX polish, not new system plumbing.
+2. Tune bot separation, starting with `balancer` vs `raider`.
 3. Start capturing structured playtest perception notes so bot feel can be tuned against human-readable reports, not just telemetry.
 4. Return to garage only after art/content for the remaining categories exists.
 
 ## Verification Note
 
-Recent headless boots are passing parser/runtime initialization for this work.
-The current known non-zero exit remains the existing rank transport fallback:
+Validated on March 12, 2026:
+
+- `godot --headless --path . -s tools/map_record_stage_race_runtime_smoke_test.gd` passes.
+- `scripts/dev/run_mvp_smoke.sh` passes with `18` passes and `0` fails.
+- `godot --headless --path . --quit` still returns the known non-zero headless exit tied to the existing rank transport fallback.
+
+Known existing non-zero exit:
 
 RANK_TRANSPORT_FALLBACK
