@@ -24,7 +24,7 @@ const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
 const PASS_THROUGH_EMIT_RATE_MULT: float = 2.0
-const PASS_THROUGH_PIPELINE_MULT: float = 1.25
+const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 
 var state: GameState = null
@@ -254,7 +254,7 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 	_telemetry_record_unit_produced(int(from_hive.owner_id), int(unit.get("amount", 1)))
 	if SFLog.verbose_sim:
 		SFLog.info("UNIT_SPAWN", {
-			"iid": int(state.iid),
+			"iid": int(state.get_instance_id()),
 			"unit_id": unit_id,
 			"lane_id": int(lane.id),
 			"owner_id": int(from_hive.owner_id),

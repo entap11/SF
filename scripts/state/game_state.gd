@@ -24,6 +24,7 @@ const MATCH_DURATION_MS := 300000
 const DEFAULT_UNINTENDED_POWER_PER_SEC := 1.0
 const PASSIVE_CHILL_MS := 3000
 const PASSIVE_MS_PER_POWER: float = 3000.0
+const HIGH_POWER_IDLE_THRESHOLD := 25
 const AUTH_FENCE_LOG_INTERVAL_MS := 1000
 const AUTH_FENCE_ALLOWED_PREFIXES := [
 	"res://scripts/systems/",
@@ -69,6 +70,10 @@ var _sim_time_us: int = 0
 var hive_spawn_block_until_us: Dictionary = {}
 var tick: int = 0
 var _unintended_power_accum_by_hive: Dictionary = {}
+var _available_lane_unattended_ms_by_hive: Dictionary = {}
+var _max_available_lane_unattended_ms_by_hive: Dictionary = {}
+var _high_power_idle_ms_by_hive: Dictionary = {}
+var _max_high_power_idle_ms_by_hive: Dictionary = {}
 var _passive_accum_ms: float = 0.0
 var _passive_config_logged: bool = false
 var _outgoing_sample_log_ms: int = 0
@@ -158,6 +163,10 @@ func reset_map_only() -> void:
 	_lane_spawn_disabled_logged = false
 	tick = 0
 	_unintended_power_accum_by_hive.clear()
+	_available_lane_unattended_ms_by_hive.clear()
+	_max_available_lane_unattended_ms_by_hive.clear()
+	_high_power_idle_ms_by_hive.clear()
+	_max_high_power_idle_ms_by_hive.clear()
 	_passive_accum_ms = 0.0
 	_passive_config_logged = false
 	_outgoing_sample_log_ms = 0
@@ -914,7 +923,12 @@ func tick_unintended_power(dt_ms: float) -> void:
 	if dt_ms <= 0.0 or hives.is_empty():
 		return
 	var ops_state: Node = _ops_state()
-	if ops_state != null and int(ops_state.get("match_phase")) == 0:
+	var match_phase: int = int(ops_state.get("match_phase")) if ops_state != null else -1
+	if match_phase == 1:
+		_tick_execution_opportunity_metrics(dt_ms)
+	else:
+		_clear_execution_opportunity_streaks()
+	if ops_state != null and match_phase == 0:
 		_passive_accum_ms = 0.0
 		return
 	if not _passive_config_logged:
@@ -975,6 +989,92 @@ func _apply_passive_tick(inc: int, ticks_fired: int) -> void:
 				"id": int(sample_h.id),
 				"outgoing_active_count": outgoing_active_count(int(sample_h.id))
 			})
+
+func get_execution_metrics_for_hive(hive_id: int) -> Dictionary:
+	var hive: HiveData = find_hive_by_id(hive_id)
+	if hive == null:
+		return {
+			"hive_id": hive_id,
+			"owner_id": 0,
+			"power": 0,
+			"budget": 0,
+			"active_outgoing": 0,
+			"open_slots": 0,
+			"available_targets": 0,
+			"available_lane_unattended_ms": 0,
+			"max_available_lane_unattended_ms": 0,
+			"high_power_idle_ms": 0,
+			"max_high_power_idle_ms": 0
+		}
+	var power: int = int(hive.power)
+	var budget: int = int(lanes_allowed_for_power(power))
+	var active_outgoing: int = int(outgoing_active_count(hive_id))
+	var open_slots: int = maxi(0, budget - active_outgoing)
+	var available_targets: int = int(_available_lane_target_count(hive))
+	return {
+		"hive_id": hive_id,
+		"owner_id": int(hive.owner_id),
+		"power": power,
+		"budget": budget,
+		"active_outgoing": active_outgoing,
+		"open_slots": open_slots,
+		"available_targets": available_targets,
+		"available_lane_unattended_ms": int(round(float(_available_lane_unattended_ms_by_hive.get(hive_id, 0.0)))),
+		"max_available_lane_unattended_ms": int(round(float(_max_available_lane_unattended_ms_by_hive.get(hive_id, 0.0)))),
+		"high_power_idle_ms": int(round(float(_high_power_idle_ms_by_hive.get(hive_id, 0.0)))),
+		"max_high_power_idle_ms": int(round(float(_max_high_power_idle_ms_by_hive.get(hive_id, 0.0))))
+	}
+
+func _tick_execution_opportunity_metrics(dt_ms: float) -> void:
+	for hive_any in hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		if _is_npc_hive(hive):
+			continue
+		var hive_id: int = int(hive.id)
+		var metrics: Dictionary = get_execution_metrics_for_hive(hive_id)
+		var has_lane_opportunity: bool = int(metrics.get("open_slots", 0)) > 0 and int(metrics.get("available_targets", 0)) > 0
+		if has_lane_opportunity:
+			var unattended_ms: float = float(_available_lane_unattended_ms_by_hive.get(hive_id, 0.0)) + dt_ms
+			_available_lane_unattended_ms_by_hive[hive_id] = unattended_ms
+			_max_available_lane_unattended_ms_by_hive[hive_id] = maxf(float(_max_available_lane_unattended_ms_by_hive.get(hive_id, 0.0)), unattended_ms)
+		else:
+			_available_lane_unattended_ms_by_hive[hive_id] = 0.0
+		var has_high_power_idle: bool = has_lane_opportunity and int(metrics.get("power", 0)) >= HIGH_POWER_IDLE_THRESHOLD
+		if has_high_power_idle:
+			var idle_ms: float = float(_high_power_idle_ms_by_hive.get(hive_id, 0.0)) + dt_ms
+			_high_power_idle_ms_by_hive[hive_id] = idle_ms
+			_max_high_power_idle_ms_by_hive[hive_id] = maxf(float(_max_high_power_idle_ms_by_hive.get(hive_id, 0.0)), idle_ms)
+		else:
+			_high_power_idle_ms_by_hive[hive_id] = 0.0
+
+func _clear_execution_opportunity_streaks() -> void:
+	if _available_lane_unattended_ms_by_hive.is_empty() and _high_power_idle_ms_by_hive.is_empty():
+		return
+	for hive_id_any in _available_lane_unattended_ms_by_hive.keys():
+		_available_lane_unattended_ms_by_hive[hive_id_any] = 0.0
+	for hive_id_any in _high_power_idle_ms_by_hive.keys():
+		_high_power_idle_ms_by_hive[hive_id_any] = 0.0
+
+func _available_lane_target_count(hive: HiveData) -> int:
+	if hive == null or int(hive.owner_id) <= 0:
+		return 0
+	var source_id: int = int(hive.id)
+	var count: int = 0
+	for other_any in hives:
+		var other: HiveData = other_any as HiveData
+		if other == null:
+			continue
+		var other_id: int = int(other.id)
+		if other_id == source_id:
+			continue
+		if is_outgoing_lane_active(source_id, other_id):
+			continue
+		if not can_connect(source_id, other_id):
+			continue
+		count += 1
+	return count
 
 func _ops_state() -> Node:
 	var main_loop: MainLoop = Engine.get_main_loop()

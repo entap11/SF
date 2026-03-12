@@ -39,9 +39,19 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	var guard_feed_score_margin: float = clampf(float(profile.get("guard_feed_score_margin", 0.0)), 0.0, 40.0)
 	var prefer_enemy_owned_attacks: bool = bool(profile.get("prefer_enemy_owned_attacks", false))
 	var enemy_owned_attack_priority_bonus: float = clampf(float(profile.get("enemy_owned_attack_priority_bonus", 0.0)), 0.0, 40.0)
+	var attack_commit_margin: float = clampf(float(profile.get("attack_commit_margin", 0.0)), 0.0, 40.0)
+	var opening_enemy_home_penalty: float = clampf(float(profile.get("opening_enemy_home_penalty", 0.0)), 0.0, 80.0)
+	var opening_enemy_home_max_own_hives: int = maxi(0, int(profile.get("opening_enemy_home_max_own_hives", 0)))
+	var opening_enemy_home_max_enemy_hives: int = maxi(0, int(profile.get("opening_enemy_home_max_enemy_hives", 0)))
+	var early_enemy_core_penalty: float = clampf(float(profile.get("early_enemy_core_penalty", 0.0)), 0.0, 80.0)
+	var early_enemy_core_max_own_hives: int = maxi(0, int(profile.get("early_enemy_core_max_own_hives", 0)))
+	var early_enemy_core_max_enemy_hives: int = maxi(0, int(profile.get("early_enemy_core_max_enemy_hives", 0)))
+	var early_enemy_core_break_margin: int = maxi(0, int(profile.get("early_enemy_core_break_margin", 0)))
 	var wall_segments: Array = []
 	if state_ref != null and state_ref.walls != null and not state_ref.walls.is_empty():
 		wall_segments = MAP_SCHEMA._wall_segments_from_walls(state_ref.walls)
+	var owned_hive_count_by_owner: Dictionary = _owned_hive_counts_by_owner(state_ref.hives)
+	var own_hive_count: int = int(owned_hive_count_by_owner.get(seat, 0))
 
 	var blocked_pairs: Dictionary = _build_blocked_pair_lookup_from_profile(profile)
 	var attack_candidates: Array = []
@@ -136,6 +146,8 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					dst,
 					src_power,
 					dst_power,
+					own_hive_count,
+					int(owned_hive_count_by_owner.get(dst_owner, 0)),
 					outgoing_budget,
 					active_outgoing,
 					prefer_neutral_bonus,
@@ -145,7 +157,14 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					strong_target_penalty,
 					enemy_owned_bonus,
 					neutral_capture_bonus,
-					weak_target_threshold
+					weak_target_threshold,
+					opening_enemy_home_penalty,
+					opening_enemy_home_max_own_hives,
+					opening_enemy_home_max_enemy_hives,
+					early_enemy_core_penalty,
+					early_enemy_core_max_own_hives,
+					early_enemy_core_max_enemy_hives,
+					early_enemy_core_break_margin
 				)
 				attack_candidates.append({
 					"src": src_id,
@@ -185,9 +204,20 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	var enemy_attack_choice: Dictionary = _pick_enemy_owned_attack_candidate(attack_candidates)
 	if prefer_enemy_owned_attacks and not enemy_attack_choice.is_empty():
 		var best_feed_score: float = _best_candidate_score(feed_candidates)
-		if feed_candidates.is_empty() or float(enemy_attack_choice.get("score", 0.0)) + enemy_owned_attack_priority_bonus >= best_feed_score:
+		var best_attack_score: float = _best_candidate_score(attack_candidates)
+		var forced_enemy_attack_score: float = float(enemy_attack_choice.get("score", 0.0)) + enemy_owned_attack_priority_bonus
+		var enemy_attack_competes_with_best_attack: bool = forced_enemy_attack_score >= best_attack_score
+		if enemy_attack_competes_with_best_attack and (feed_candidates.is_empty() or forced_enemy_attack_score >= best_feed_score):
 			enemy_attack_choice["seat"] = seat
 			return enemy_attack_choice
+
+	if attack_commit_margin > 0.0 and not attack_candidates.is_empty():
+		var best_attack_score: float = _best_candidate_score(attack_candidates)
+		var best_feed_score: float = _best_candidate_score(feed_candidates)
+		if feed_candidates.is_empty() or best_attack_score >= best_feed_score + attack_commit_margin:
+			var committed_attack: Dictionary = attack_candidates[0] as Dictionary
+			committed_attack["seat"] = seat
+			return committed_attack
 
 	var attack_weight: float = clampf(aggression - (feed_bias * 0.5), 0.0, 1.0)
 	var choose_attack: bool = false
@@ -219,6 +249,8 @@ func _score_attack(
 	dst: HiveData,
 	src_power: int,
 	dst_power: int,
+	attacker_owned_hive_count: int,
+	defender_owned_hive_count: int,
 	outgoing_budget: int,
 	active_outgoing: int,
 	prefer_neutral_bonus: float,
@@ -228,7 +260,14 @@ func _score_attack(
 	strong_target_penalty: float,
 	enemy_owned_bonus: float,
 	neutral_capture_bonus: float,
-	weak_target_threshold: int
+	weak_target_threshold: int,
+	opening_enemy_home_penalty: float,
+	opening_enemy_home_max_own_hives: int,
+	opening_enemy_home_max_enemy_hives: int,
+	early_enemy_core_penalty: float,
+	early_enemy_core_max_own_hives: int,
+	early_enemy_core_max_enemy_hives: int,
+	early_enemy_core_break_margin: int
 ) -> float:
 	var dist: float = _grid_distance(src.grid_pos, dst.grid_pos)
 	var score: float = 100.0
@@ -243,6 +282,16 @@ func _score_attack(
 		score += weak_target_bonus
 	if dst_power >= src_power:
 		score -= strong_target_penalty
+	var power_margin: int = src_power - dst_power
+	if int(dst.owner_id) > 0 and power_margin < early_enemy_core_break_margin:
+		if opening_enemy_home_penalty > 0.0 \
+		and defender_owned_hive_count <= opening_enemy_home_max_enemy_hives \
+		and attacker_owned_hive_count <= opening_enemy_home_max_own_hives:
+			score -= opening_enemy_home_penalty
+		elif early_enemy_core_penalty > 0.0 \
+		and defender_owned_hive_count <= early_enemy_core_max_enemy_hives \
+		and attacker_owned_hive_count <= early_enemy_core_max_own_hives:
+			score -= early_enemy_core_penalty
 	return score
 
 func _score_feed(
@@ -390,3 +439,15 @@ func _grid_distance(a: Vector2i, b: Vector2i) -> float:
 	var av: Vector2 = Vector2(float(a.x), float(a.y))
 	var bv: Vector2 = Vector2(float(b.x), float(b.y))
 	return av.distance_to(bv)
+
+func _owned_hive_counts_by_owner(hives: Array) -> Dictionary:
+	var counts: Dictionary = {}
+	for hive_any in hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		var owner_id: int = int(hive.owner_id)
+		if owner_id <= 0:
+			continue
+		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
+	return counts

@@ -47,9 +47,11 @@ var _sim_mutate_depth: int = 0
 var _sim_mutate_tag_stack: Array[String] = []
 
 var state: GameState = null
+var current_map_id: String = ""
 var _state_serial: int = 0
 var _console_instance: Control = null
 var _bot_telemetry_store: RefCounted = BotTelemetryStoreScript.new()
+var _intent_log_match_id: String = ""
 
 # --- MATCH OUTCOME + CLOCK (authoritative) ---
 enum MatchPhase {
@@ -123,7 +125,7 @@ func require_state() -> GameState:
 func get_state_iid() -> int:
 	if state == null:
 		return 0
-	return int(state.iid)
+	return int(state.get_instance_id())
 
 func with_remote_replication_apply(callback: Callable) -> void:
 	_remote_replication_apply_depth += 1
@@ -199,6 +201,8 @@ func reset_match_state() -> void:
 	victory_mode = VICTORY_MODE_CONQUEST
 	victory_rules = {}
 	capture_flag_state = {}
+	_intent_log_match_id = ""
+	current_map_id = ""
 
 func set_prematch_remaining_ms(value_ms: int, context: String = "") -> void:
 	var ctx: String = context
@@ -325,39 +329,42 @@ func _bot_style_patch(style: String) -> Dictionary:
 			return {
 				"style": BOT_STYLE_TURTLE,
 				"persona": BOT_STYLE_TURTLE,
-				"think_interval_ms": 1260,
+				"think_interval_ms": 1280,
 				"think_jitter_ms": 150,
-				"post_intent_delay_ms": 560,
-				"opening_delay_ms": 2400,
-				"aggression": 0.32,
-				"feed_bias": 0.62,
-				"min_attack_power": 12,
+				"post_intent_delay_ms": 620,
+				"opening_delay_ms": 2050,
+				"aggression": 0.58,
+				"feed_bias": 0.28,
+				"min_attack_power": 8,
 				"min_feed_power": 10,
 				"min_swarm_power": 21,
 				"allow_swarm": false,
-				"prefer_neutral_bonus": 0.15,
+				"prefer_neutral_bonus": 0.82,
 				"randomness": 0.05,
-				"pair_intent_cooldown_ms": 1700,
-				"global_intent_cooldown_ms": 1300,
-				"attack_distance_weight": 2.6,
-				"feed_distance_weight": 1.1,
-				"attack_power_diff_weight": 0.95,
-				"feed_need_weight": 1.65,
-				"weak_target_bonus": 2.0,
-				"strong_target_penalty": 9.0,
-				"low_ally_power_bonus": 8.0,
-				"enemy_owned_bonus": 1.0,
-				"neutral_capture_bonus": 4.0,
+				"pair_intent_cooldown_ms": 1800,
+				"global_intent_cooldown_ms": 1450,
+				"attack_distance_weight": 2.0,
+				"feed_distance_weight": 1.45,
+				"attack_power_diff_weight": 1.15,
+				"feed_need_weight": 1.20,
+				"weak_target_bonus": 4.0,
+				"strong_target_penalty": 7.0,
+				"low_ally_power_bonus": 4.0,
+				"enemy_owned_bonus": 2.8,
+				"neutral_capture_bonus": 8.5,
+				"guard_ally_power_threshold": 10,
+				"guard_feed_score_margin": 4.0,
+				"attack_commit_margin": 0.0,
 				"swarm_frequency": 0.08
 			}
 		BOT_STYLE_RAIDER:
 			return {
 				"style": BOT_STYLE_RAIDER,
 				"persona": BOT_STYLE_RAIDER,
-				"think_interval_ms": 720,
-				"think_jitter_ms": 90,
-				"post_intent_delay_ms": 260,
-				"opening_delay_ms": 1250,
+				"think_interval_ms": 1080,
+				"think_jitter_ms": 140,
+				"post_intent_delay_ms": 640,
+				"opening_delay_ms": 1550,
 				"aggression": 0.82,
 				"feed_bias": 0.12,
 				"min_attack_power": 7,
@@ -368,8 +375,8 @@ func _bot_style_patch(style: String) -> Dictionary:
 				"randomness": 0.07,
 				"retry_block_ms": 700,
 				"no_lane_retry_ms": 2500,
-				"pair_intent_cooldown_ms": 900,
-				"global_intent_cooldown_ms": 700,
+				"pair_intent_cooldown_ms": 1500,
+				"global_intent_cooldown_ms": 1250,
 				"attack_distance_weight": 1.3,
 				"feed_distance_weight": 1.9,
 				"attack_power_diff_weight": 1.5,
@@ -454,12 +461,19 @@ func _bot_style_patch(style: String) -> Dictionary:
 			return {
 				"style": BOT_STYLE_BALANCER,
 				"persona": BOT_STYLE_BALANCER,
+				"think_interval_ms": 1180,
+				"think_jitter_ms": 150,
+				"post_intent_delay_ms": 680,
+				"opening_delay_ms": 1750,
+				"pair_intent_cooldown_ms": 1600,
+				"global_intent_cooldown_ms": 1300,
 				"guard_ally_power_threshold": 12,
 				"guard_feed_score_margin": 8.0
 			}
 
 func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
 	var normalized_tier: String = _normalize_bot_tier(tier)
+	var style_id: String = _normalize_bot_style(str(profile.get("style", profile.get("persona", ""))))
 	profile["tier"] = normalized_tier
 	match normalized_tier:
 		BOT_TIER_EASY:
@@ -480,6 +494,14 @@ func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
 			profile["swarm_cooldown_ms"] = int(profile.get("swarm_cooldown_ms", 1600)) + 1000
 			profile["swarm_global_cooldown_ms"] = int(profile.get("swarm_global_cooldown_ms", 3500)) + 1800
 			profile["swarm_frequency"] = clampf(float(profile.get("swarm_frequency", 0.34)) - 0.18, 0.0, 1.0)
+			if style_id == BOT_STYLE_RAIDER:
+				profile["opening_enemy_home_penalty"] = 0.0
+				profile["opening_enemy_home_max_own_hives"] = 0
+				profile["opening_enemy_home_max_enemy_hives"] = 0
+				profile["early_enemy_core_penalty"] = 0.0
+				profile["early_enemy_core_max_own_hives"] = 0
+				profile["early_enemy_core_max_enemy_hives"] = 0
+				profile["early_enemy_core_break_margin"] = 0
 		BOT_TIER_HARD:
 			profile["think_interval_ms"] = maxi(180, int(profile.get("think_interval_ms", 900)) - 180)
 			profile["think_jitter_ms"] = maxi(0, int(profile.get("think_jitter_ms", 120)) - 30)
@@ -498,8 +520,48 @@ func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
 			profile["swarm_cooldown_ms"] = maxi(250, int(profile.get("swarm_cooldown_ms", 1600)) - 220)
 			profile["swarm_global_cooldown_ms"] = maxi(500, int(profile.get("swarm_global_cooldown_ms", 3500)) - 500)
 			profile["swarm_frequency"] = clampf(float(profile.get("swarm_frequency", 0.34)) + 0.10, 0.0, 1.0)
+			if style_id == BOT_STYLE_RAIDER:
+				profile["opening_enemy_home_penalty"] = 34.0
+				profile["opening_enemy_home_max_own_hives"] = 2
+				profile["opening_enemy_home_max_enemy_hives"] = 1
+				profile["early_enemy_core_penalty"] = 12.0
+				profile["early_enemy_core_max_own_hives"] = 3
+				profile["early_enemy_core_max_enemy_hives"] = 2
+				profile["early_enemy_core_break_margin"] = 6
 		_:
-			pass
+			profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + 220
+			profile["think_jitter_ms"] = int(profile.get("think_jitter_ms", 120)) + 40
+			profile["post_intent_delay_ms"] = int(profile.get("post_intent_delay_ms", 400)) + 180
+			profile["opening_delay_ms"] = int(profile.get("opening_delay_ms", 1600)) + 500
+			profile["pair_intent_cooldown_ms"] = int(profile.get("pair_intent_cooldown_ms", 1300)) + 250
+			profile["global_intent_cooldown_ms"] = int(profile.get("global_intent_cooldown_ms", 1000)) + 250
+			profile["swarm_cooldown_ms"] = int(profile.get("swarm_cooldown_ms", 1600)) + 300
+			profile["swarm_global_cooldown_ms"] = int(profile.get("swarm_global_cooldown_ms", 3500)) + 400
+			if style_id == BOT_STYLE_RAIDER:
+				profile["opening_enemy_home_penalty"] = 42.0
+				profile["opening_enemy_home_max_own_hives"] = 2
+				profile["opening_enemy_home_max_enemy_hives"] = 1
+				profile["early_enemy_core_penalty"] = 16.0
+				profile["early_enemy_core_max_own_hives"] = 3
+				profile["early_enemy_core_max_enemy_hives"] = 2
+				profile["early_enemy_core_break_margin"] = 8
+	if normalized_tier == BOT_TIER_MEDIUM and style_id == BOT_STYLE_TURTLE:
+		profile["think_interval_ms"] = maxi(420, int(profile.get("think_interval_ms", 900)) - 120)
+		profile["post_intent_delay_ms"] = maxi(200, int(profile.get("post_intent_delay_ms", 400)) - 90)
+		profile["opening_delay_ms"] = maxi(700, int(profile.get("opening_delay_ms", 1600)) - 180)
+		profile["pair_intent_cooldown_ms"] = maxi(550, int(profile.get("pair_intent_cooldown_ms", 1300)) - 180)
+		profile["global_intent_cooldown_ms"] = maxi(500, int(profile.get("global_intent_cooldown_ms", 1000)) - 140)
+		profile["aggression"] = clampf(float(profile.get("aggression", 0.5)) + 0.05, 0.0, 1.0)
+		profile["feed_bias"] = clampf(float(profile.get("feed_bias", 0.3)) - 0.05, 0.0, 1.0)
+		profile["min_attack_power"] = maxi(1, int(profile.get("min_attack_power", 9)) - 1)
+		profile["attack_power_diff_weight"] = clampf(float(profile.get("attack_power_diff_weight", 1.2)) + 0.08, 0.1, 5.0)
+		profile["enemy_owned_bonus"] = clampf(float(profile.get("enemy_owned_bonus", 2.5)) + 0.8, 0.0, 10.0)
+		profile["neutral_capture_bonus"] = clampf(float(profile.get("neutral_capture_bonus", 8.0)) + 0.8, 0.0, 20.0)
+		profile["feed_need_weight"] = clampf(float(profile.get("feed_need_weight", 1.3)) - 0.12, 0.1, 5.0)
+		profile["low_ally_power_bonus"] = clampf(float(profile.get("low_ally_power_bonus", 5.0)) - 1.0, 0.0, 20.0)
+		profile["guard_ally_power_threshold"] = maxi(0, int(profile.get("guard_ally_power_threshold", 0)) - 1)
+		profile["guard_feed_score_margin"] = clampf(float(profile.get("guard_feed_score_margin", 0.0)) - 1.5, 0.0, 40.0)
+		profile["attack_commit_margin"] = clampf(float(profile.get("attack_commit_margin", 0.0)) + 3.0, 0.0, 40.0)
 	if normalized_tier == BOT_TIER_HARD and float(profile.get("aggression", 0.0)) >= 0.80:
 		profile["max_actions_per_tick"] = maxi(int(profile.get("max_actions_per_tick", 1)), 2)
 
@@ -1181,14 +1243,31 @@ func _record_intent_telemetry(
 	reason: String,
 	lane_id: int = -1,
 	src_owner_id: int = 0,
-	dst_owner_id: int = 0
+	dst_owner_id: int = 0,
+	source_exec_override: Dictionary = {}
 ) -> void:
 	if _bot_telemetry_store == null:
 		return
 	if not _bot_telemetry_store.has_method("record_intent"):
 		return
 	var st: GameState = state
+	var ctx: Dictionary = _intent_telemetry_context(src_owner_id, dst_owner_id)
+	var source_exec: Dictionary = source_exec_override.duplicate(true) if source_exec_override != null else {}
+	if source_exec.is_empty() and st != null and st.has_method("get_execution_metrics_for_hive"):
+		source_exec = st.call("get_execution_metrics_for_hive", src_hive_id)
 	var event: Dictionary = {
+		"match_id": str(ctx.get("match_id", "")),
+		"map_id": str(ctx.get("map_id", "")),
+		"match_type": str(ctx.get("match_type", "")),
+		"match_time_ms": int(ctx.get("match_time_ms", 0)),
+		"source_mode": str(ctx.get("source_mode", "")),
+		"contest_id": str(ctx.get("contest_id", "")),
+		"actor_label": str(ctx.get("actor_label", "")),
+		"actor_style": str(ctx.get("actor_style", "")),
+		"actor_tier": str(ctx.get("actor_tier", "")),
+		"target_label": str(ctx.get("target_label", "")),
+		"target_style": str(ctx.get("target_style", "")),
+		"target_tier": str(ctx.get("target_tier", "")),
 		"iid": int(st.get_instance_id()) if st != null else 0,
 		"phase": int(match_phase),
 		"tick": int(st.tick) if st != null else -1,
@@ -1201,9 +1280,132 @@ func _record_intent_telemetry(
 		"actor_id": src_owner_id,
 		"src_owner_id": src_owner_id,
 		"dst_owner_id": dst_owner_id,
-		"is_cpu_actor": _is_cpu_seat(src_owner_id)
+		"is_cpu_actor": _is_cpu_seat(src_owner_id),
+		"src_power": int(source_exec.get("power", 0)),
+		"src_budget": int(source_exec.get("budget", 0)),
+		"src_active_outgoing": int(source_exec.get("active_outgoing", 0)),
+		"src_open_slots": int(source_exec.get("open_slots", 0)),
+		"src_available_targets": int(source_exec.get("available_targets", 0)),
+		"src_available_lane_unattended_ms": int(source_exec.get("available_lane_unattended_ms", 0)),
+		"src_max_available_lane_unattended_ms": int(source_exec.get("max_available_lane_unattended_ms", 0)),
+		"src_high_power_idle_ms": int(source_exec.get("high_power_idle_ms", 0)),
+		"src_max_high_power_idle_ms": int(source_exec.get("max_high_power_idle_ms", 0))
 	}
 	_bot_telemetry_store.call("record_intent", event)
+
+func _intent_telemetry_context(src_owner_id: int, dst_owner_id: int) -> Dictionary:
+	var tree: SceneTree = _intent_telemetry_tree()
+	var source_mode: String = ""
+	var contest_id: String = ""
+	var free_roll: bool = false
+	var sync_start: bool = false
+	var remote_is_cpu: bool = false
+	if tree != null:
+		source_mode = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+		contest_id = str(tree.get_meta("contest_id", "")).strip_edges()
+		free_roll = bool(tree.get_meta("vs_free_roll", false))
+		sync_start = bool(tree.get_meta("vs_sync_start", false))
+		var remote_profile_any: Variant = tree.get_meta("vs_remote_profile", {})
+		if typeof(remote_profile_any) == TYPE_DICTIONARY:
+			remote_is_cpu = bool((remote_profile_any as Dictionary).get("is_cpu", false))
+	var match_type: String = "LOCAL"
+	if remote_is_cpu:
+		match_type = "BOT"
+	elif sync_start:
+		match_type = "VS"
+	elif not source_mode.is_empty():
+		match_type = "ASYNC"
+	var map_id: String = _resolve_intent_telemetry_map_id(tree)
+	var src_identity: Dictionary = _intent_telemetry_actor_identity(src_owner_id, tree)
+	var dst_identity: Dictionary = _intent_telemetry_actor_identity(dst_owner_id, tree)
+	return {
+		"match_id": _ensure_intent_log_match_id(match_type, map_id),
+		"map_id": map_id,
+		"match_type": match_type,
+		"match_time_ms": maxi(0, int(match_elapsed_ms)),
+		"source_mode": source_mode,
+		"contest_id": contest_id,
+		"free_roll": free_roll,
+		"actor_label": str(src_identity.get("label", "")),
+		"actor_style": str(src_identity.get("style", "")),
+		"actor_tier": str(src_identity.get("tier", "")),
+		"target_label": str(dst_identity.get("label", "")),
+		"target_style": str(dst_identity.get("style", "")),
+		"target_tier": str(dst_identity.get("tier", ""))
+	}
+
+func _intent_telemetry_tree() -> SceneTree:
+	var main_loop: MainLoop = Engine.get_main_loop()
+	if not (main_loop is SceneTree):
+		return null
+	return main_loop as SceneTree
+
+func _resolve_intent_telemetry_map_id(tree: SceneTree) -> String:
+	if not current_map_id.is_empty():
+		return current_map_id
+	if tree != null:
+		var jukebox_map_id: String = str(tree.get_meta("jukebox_map_id", "")).strip_edges()
+		if not jukebox_map_id.is_empty():
+			return jukebox_map_id
+		var stage_maps_any: Variant = tree.get_meta("vs_stage_map_paths", [])
+		if typeof(stage_maps_any) == TYPE_ARRAY:
+			var stage_maps: Array = stage_maps_any as Array
+			var stage_index: int = clampi(int(tree.get_meta("vs_stage_current_index", 0)), 0, maxi(stage_maps.size() - 1, 0))
+			if stage_index >= 0 and stage_index < stage_maps.size():
+				var path: String = str(stage_maps[stage_index]).strip_edges()
+				if not path.is_empty():
+					return path.get_file().get_basename().strip_edges()
+		var next_map_id: String = str(tree.get_meta("jukebox_map_path", "")).strip_edges()
+		if not next_map_id.is_empty():
+			return next_map_id.get_file().get_basename().strip_edges()
+	return "unknown_map"
+
+func _intent_telemetry_actor_identity(owner_id: int, tree: SceneTree) -> Dictionary:
+	var seat: int = int(owner_id)
+	if seat <= 0:
+		return {"label": "", "style": "", "tier": ""}
+	var profile: Dictionary = bot_profiles.get(seat, {}) as Dictionary
+	var label: String = "seat_%d" % seat
+	var style: String = str(profile.get("style", profile.get("persona", ""))).strip_edges()
+	var tier: String = str(profile.get("tier", "")).strip_edges()
+	var is_cpu: bool = _is_cpu_seat(seat)
+	if is_cpu:
+		if style.is_empty():
+			style = _default_bot_style_for_seat(seat)
+		if tier.is_empty():
+			tier = BOT_TIER_MEDIUM
+		label = "cpu_%s_%s_s%d" % [style, tier, seat]
+	else:
+		var local_name: String = ""
+		var remote_name: String = ""
+		if tree != null:
+			var local_profile_any: Variant = tree.get_meta("vs_local_profile", {})
+			if typeof(local_profile_any) == TYPE_DICTIONARY:
+				local_name = str((local_profile_any as Dictionary).get("name", (local_profile_any as Dictionary).get("handle", ""))).strip_edges()
+			var remote_profile_any: Variant = tree.get_meta("vs_remote_profile", {})
+			if typeof(remote_profile_any) == TYPE_DICTIONARY:
+				remote_name = str((remote_profile_any as Dictionary).get("name", (remote_profile_any as Dictionary).get("handle", ""))).strip_edges()
+		if seat == 1 and not local_name.is_empty():
+			label = local_name
+		elif seat != 1 and not remote_name.is_empty():
+			label = remote_name
+		else:
+			label = "human_s%d" % seat
+	return {
+		"label": label,
+		"style": style,
+		"tier": tier
+	}
+
+func _ensure_intent_log_match_id(match_type: String, map_id: String) -> String:
+	if not _intent_log_match_id.is_empty():
+		return _intent_log_match_id
+	var utc_ms: int = int(round(Time.get_unix_time_from_system() * 1000.0))
+	var clean_map: String = map_id.strip_edges()
+	if clean_map.is_empty():
+		clean_map = "unknown_map"
+	_intent_log_match_id = "intent_%d_%s_%s_i%d" % [utc_ms, clean_map, match_type.to_lower(), get_state_iid()]
+	return _intent_log_match_id
 
 func _vs_pvp_runtime() -> Node:
 	return get_node_or_null("/root/VsPvpRuntime")
@@ -1794,6 +1996,9 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 				"intent": resolved_intent
 			})
 
+	var pre_apply_source_exec: Dictionary = {}
+	if st.has_method("get_execution_metrics_for_hive"):
+		pre_apply_source_exec = st.call("get_execution_metrics_for_hive", src_hive_id)
 	_apply_lane_intent(lane, src_hive_id, dst_hive_id, enable, resolved_intent)
 	result["ok"] = true
 
@@ -1821,7 +2026,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		"",
 		int(result.get("lane_id", -1)),
 		telemetry_src_owner,
-		telemetry_dst_owner
+		telemetry_dst_owner,
+		pre_apply_source_exec
 	)
 	_maybe_replicate_lane_intent(src_hive_id, dst_hive_id, log_intent, telemetry_src_owner, telemetry_dst_owner)
 	emit_signal("lane_intent_changed", iid, int(lane.id))
@@ -1982,6 +2188,7 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 	})
 
 	var map_id := str(map_dict.get("map_id", map_dict.get("_id", map_dict.get("id", "UNKNOWN"))))
+	current_map_id = map_id
 	SFLog.info("OPS_STATE_CHANGED", {
 		"iid": int(new_state.get_instance_id()),
 		"map_id": map_id

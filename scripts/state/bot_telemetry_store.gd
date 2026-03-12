@@ -102,7 +102,13 @@ func _apply_intent_to_summary(entry: Dictionary) -> void:
 		"attack": 0,
 		"feed": 0,
 		"swarm": 0,
-		"last_reason": ""
+		"last_reason": "",
+		"budget_fail": 0,
+		"no_lane_fail": 0,
+		"max_src_available_lane_unattended_ms": 0,
+		"max_src_high_power_idle_ms": 0,
+		"last_src_available_targets": 0,
+		"last_src_open_slots": 0
 	})
 	actor["total"] = int(actor.get("total", 0)) + 1
 	if ok:
@@ -110,10 +116,25 @@ func _apply_intent_to_summary(entry: Dictionary) -> void:
 	else:
 		actor["failed"] = int(actor.get("failed", 0)) + 1
 		actor["last_reason"] = str(entry.get("reason", ""))
+		var fail_reason: String = str(entry.get("reason", ""))
+		if fail_reason == "budget":
+			actor["budget_fail"] = int(actor.get("budget_fail", 0)) + 1
+		elif fail_reason == "no_lane":
+			actor["no_lane_fail"] = int(actor.get("no_lane_fail", 0)) + 1
 	var intent_key: String = str(entry.get("intent", ""))
 	if intent_key.is_empty():
 		intent_key = "unknown"
 	actor[intent_key] = int(actor.get(intent_key, 0)) + 1
+	actor["max_src_available_lane_unattended_ms"] = maxi(
+		int(actor.get("max_src_available_lane_unattended_ms", 0)),
+		int(entry.get("src_available_lane_unattended_ms", 0))
+	)
+	actor["max_src_high_power_idle_ms"] = maxi(
+		int(actor.get("max_src_high_power_idle_ms", 0)),
+		int(entry.get("src_high_power_idle_ms", 0))
+	)
+	actor["last_src_available_targets"] = int(entry.get("src_available_targets", 0))
+	actor["last_src_open_slots"] = int(entry.get("src_open_slots", 0))
 	by_actor[actor_key] = actor
 	_summary["by_actor"] = by_actor
 	_summary_dirty = true

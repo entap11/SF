@@ -6,6 +6,8 @@ const OpsStateScript := preload("res://scripts/ops/ops_state.gd")
 func _init() -> void:
 	await process_frame
 	_test_balancer_and_raider_diverge_on_same_board()
+	_test_raider_skips_suicidal_home_opener()
+	_test_turtle_medium_pushes_when_shell_is_stable()
 	print("BOT_STYLE_SEPARATION_SMOKE: PASS")
 	quit(0)
 
@@ -42,6 +44,55 @@ func _test_balancer_and_raider_diverge_on_same_board() -> void:
 	var raider_intent: Dictionary = policy.choose_intent(state, 1, raider_profile, 0)
 	_assert_eq(str(raider_intent.get("intent", "")), "attack", "raider should pressure the enemy-owned hive")
 	_assert_eq(int(raider_intent.get("dst", 0)), 2, "raider should target the enemy-owned hive")
+	ops_state.free()
+
+func _test_raider_skips_suicidal_home_opener() -> void:
+	var state := GameState.new()
+	state.load_from_map_dict({
+		"hives": [
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "kind": "Hive", "power": 10},
+			{"id": 2, "x": 5, "y": 0, "owner_id": 2, "kind": "Hive", "power": 10},
+			{"id": 3, "x": 1, "y": 1, "owner_id": 0, "kind": "Hive", "power": 5},
+			{"id": 4, "x": 4, "y": 1, "owner_id": 0, "kind": "Hive", "power": 5}
+		],
+		"lane_candidates": [
+			{"a_id": 1, "b_id": 2},
+			{"a_id": 1, "b_id": 3},
+			{"a_id": 2, "b_id": 4}
+		]
+	})
+
+	var ops_state := OpsStateScript.new()
+	var policy := BaselineBotPolicyScript.new()
+	var raider_profile: Dictionary = ops_state.call("_build_bot_profile_for_seat", 1, "raider", "medium") as Dictionary
+	raider_profile["team_by_seat"] = {1: 1, 2: 2, 3: 3, 4: 4}
+	var raider_intent: Dictionary = policy.choose_intent(state, 1, raider_profile, 0)
+	_assert_eq(str(raider_intent.get("intent", "")), "attack", "raider should still open aggressively")
+	_assert_eq(int(raider_intent.get("dst", 0)), 3, "raider should take the edge neutral instead of home-harassing first")
+	ops_state.free()
+
+func _test_turtle_medium_pushes_when_shell_is_stable() -> void:
+	var state := GameState.new()
+	state.load_from_map_dict({
+		"hives": [
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "kind": "Hive", "power": 18},
+			{"id": 2, "x": 4, "y": 0, "owner_id": 2, "kind": "Hive", "power": 9},
+			{"id": 3, "x": 0, "y": 1, "owner_id": 3, "kind": "Hive", "power": 13},
+			{"id": 4, "x": 1, "y": 1, "owner_id": 0, "kind": "Hive", "power": 6}
+		],
+		"lane_candidates": [
+			{"a_id": 1, "b_id": 2},
+			{"a_id": 1, "b_id": 3},
+			{"a_id": 1, "b_id": 4}
+		]
+	})
+
+	var ops_state := OpsStateScript.new()
+	var policy := BaselineBotPolicyScript.new()
+	var turtle_profile: Dictionary = ops_state.call("_build_bot_profile_for_seat", 1, "turtle", "medium") as Dictionary
+	turtle_profile["team_by_seat"] = {1: 1, 2: 2, 3: 1, 4: 4}
+	var turtle_intent: Dictionary = policy.choose_intent(state, 1, turtle_profile, 0)
+	_assert_eq(str(turtle_intent.get("intent", "")), "attack", "turtle medium should push outward once its shell is stable")
 	ops_state.free()
 
 func _assert_eq(actual: Variant, expected: Variant, label: String) -> void:
