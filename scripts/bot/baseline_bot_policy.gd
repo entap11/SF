@@ -35,6 +35,10 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	var swarm_low_power_bonus: float = clampf(float(profile.get("swarm_low_power_bonus", 6.0)), 0.0, 20.0)
 	var weak_target_threshold: int = maxi(1, int(profile.get("weak_target_threshold", 12)))
 	var swarm_frequency: float = clampf(float(profile.get("swarm_frequency", aggression * 0.60)), 0.0, 0.95)
+	var guard_ally_power_threshold: int = maxi(0, int(profile.get("guard_ally_power_threshold", 0)))
+	var guard_feed_score_margin: float = clampf(float(profile.get("guard_feed_score_margin", 0.0)), 0.0, 40.0)
+	var prefer_enemy_owned_attacks: bool = bool(profile.get("prefer_enemy_owned_attacks", false))
+	var enemy_owned_attack_priority_bonus: float = clampf(float(profile.get("enemy_owned_attack_priority_bonus", 0.0)), 0.0, 40.0)
 	var wall_segments: Array = []
 	if state_ref != null and state_ref.walls != null and not state_ref.walls.is_empty():
 		wall_segments = MAP_SCHEMA._wall_segments_from_walls(state_ref.walls)
@@ -118,6 +122,8 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					"dst": dst_id,
 					"intent": "feed",
 					"score": feed_score,
+					"dst_owner": dst_owner,
+					"dst_power": dst_power,
 					"policy": "baseline_v2",
 					"style": style_id,
 					"tier": tier_id
@@ -146,6 +152,9 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					"dst": dst_id,
 					"intent": "attack",
 					"score": attack_score,
+					"dst_owner": dst_owner,
+					"dst_power": dst_power,
+					"enemy_owned": dst_owner > 0,
 					"policy": "baseline_v2",
 					"style": style_id,
 					"tier": tier_id
@@ -165,6 +174,20 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 			var swarm_choice: Dictionary = swarm_candidates[0] as Dictionary
 			swarm_choice["seat"] = seat
 			return swarm_choice
+
+	var guard_feed_choice: Dictionary = _pick_guard_feed_candidate(feed_candidates, guard_ally_power_threshold)
+	if not guard_feed_choice.is_empty():
+		var best_attack_score: float = _best_candidate_score(attack_candidates)
+		if attack_candidates.is_empty() or float(guard_feed_choice.get("score", 0.0)) + guard_feed_score_margin >= best_attack_score:
+			guard_feed_choice["seat"] = seat
+			return guard_feed_choice
+
+	var enemy_attack_choice: Dictionary = _pick_enemy_owned_attack_candidate(attack_candidates)
+	if prefer_enemy_owned_attacks and not enemy_attack_choice.is_empty():
+		var best_feed_score: float = _best_candidate_score(feed_candidates)
+		if feed_candidates.is_empty() or float(enemy_attack_choice.get("score", 0.0)) + enemy_owned_attack_priority_bonus >= best_feed_score:
+			enemy_attack_choice["seat"] = seat
+			return enemy_attack_choice
 
 	var attack_weight: float = clampf(aggression - (feed_bias * 0.5), 0.0, 1.0)
 	var choose_attack: bool = false
@@ -337,6 +360,31 @@ func _deterministic_roll(tick: int, seat: int, now_ms: int, salt: int) -> float:
 
 func _score_desc(a: Dictionary, b: Dictionary) -> bool:
 	return float(a.get("score", 0.0)) > float(b.get("score", 0.0))
+
+func _best_candidate_score(candidates: Array) -> float:
+	if candidates.is_empty():
+		return -INF
+	return float((candidates[0] as Dictionary).get("score", 0.0))
+
+func _pick_guard_feed_candidate(candidates: Array, guard_ally_power_threshold: int) -> Dictionary:
+	if guard_ally_power_threshold <= 0:
+		return {}
+	for candidate_any in candidates:
+		if typeof(candidate_any) != TYPE_DICTIONARY:
+			continue
+		var candidate: Dictionary = candidate_any as Dictionary
+		if int(candidate.get("dst_power", guard_ally_power_threshold + 1)) <= guard_ally_power_threshold:
+			return candidate
+	return {}
+
+func _pick_enemy_owned_attack_candidate(candidates: Array) -> Dictionary:
+	for candidate_any in candidates:
+		if typeof(candidate_any) != TYPE_DICTIONARY:
+			continue
+		var candidate: Dictionary = candidate_any as Dictionary
+		if bool(candidate.get("enemy_owned", false)):
+			return candidate
+	return {}
 
 func _grid_distance(a: Vector2i, b: Vector2i) -> float:
 	var av: Vector2 = Vector2(float(a.x), float(a.y))

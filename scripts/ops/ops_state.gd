@@ -311,7 +311,11 @@ func _base_bot_profile_for_seat(seat: int) -> Dictionary:
 		"swarm_power_diff_weight": 1.8,
 		"swarm_low_power_bonus": 6.0,
 		"weak_target_threshold": 12,
-		"swarm_frequency": 0.34
+		"swarm_frequency": 0.34,
+		"guard_ally_power_threshold": 0,
+		"guard_feed_score_margin": 0.0,
+		"prefer_enemy_owned_attacks": false,
+		"enemy_owned_attack_priority_bonus": 0.0
 	}
 
 func _bot_style_patch(style: String) -> Dictionary:
@@ -378,7 +382,9 @@ func _bot_style_patch(style: String) -> Dictionary:
 				"swarm_distance_weight": 1.0,
 				"swarm_power_diff_weight": 2.0,
 				"swarm_low_power_bonus": 10.0,
-				"swarm_frequency": 0.45
+				"swarm_frequency": 0.45,
+				"prefer_enemy_owned_attacks": true,
+				"enemy_owned_attack_priority_bonus": 12.0
 			}
 		BOT_STYLE_GREEDY:
 			return {
@@ -447,7 +453,9 @@ func _bot_style_patch(style: String) -> Dictionary:
 		_:
 			return {
 				"style": BOT_STYLE_BALANCER,
-				"persona": BOT_STYLE_BALANCER
+				"persona": BOT_STYLE_BALANCER,
+				"guard_ally_power_threshold": 12,
+				"guard_feed_score_margin": 8.0
 			}
 
 func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
