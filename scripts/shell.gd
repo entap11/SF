@@ -1,6 +1,7 @@
 extends Node
 const SHELL_PATCH_REV: String = "rev_2026_02_06_a"
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
@@ -35,6 +36,9 @@ const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each.json"
 const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
+const SHELL_STATUS_NEUTRAL: Color = Color(0.82, 0.86, 0.91, 0.95)
+const SHELL_STATUS_SUCCESS: Color = Color(0.84, 0.94, 0.78, 0.96)
+const SHELL_STATUS_ERROR: Color = Color(0.98, 0.74, 0.72, 0.98)
 const BUFF_SIDE_STRIP_WIDTH_PX: float = 92.0
 const BUFF_SIDE_STRIP_TARGET_HEIGHT_PX: float = 150.0
 const BUFF_SIDE_STRIP_GAP_PX: float = 16.0
@@ -59,10 +63,6 @@ const BUFF_PLAYER_STRIP_HEIGHT_PX: float = 120.0
 const BUFF_PLAYER_SLOT_SIZE_PX: float = 84.0
 const BUFF_PLAYER_SLOT_SEPARATION_PX: int = 24
 const PREMATCH_POWERBAR_REVEAL_WINDOW_MS: int = 350
-const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
-const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/free_roll_display_v2_font.tres"
-const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
@@ -84,9 +84,13 @@ const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 @onready var arena_root: CanvasItem = $ArenaRoot
 @onready var menu_panel: Control = $MenuRoot/MenuPanel
 @onready var menu_title: Label = $MenuRoot/MenuPanel/VBox/Title
+@onready var menu_subtitle_label: Label = $MenuRoot/MenuPanel/VBox/Subtitle
 @onready var dev_button: Button = $MenuRoot/MenuPanel/VBox/DevButton
+@onready var menu_status_label: Label = $MenuRoot/MenuPanel/VBox/StatusLabel
 @onready var back_button: Button = $MenuRoot/BackButton
 @onready var back_overlay: Control = $ArenaRoot/BackOverlay
+@onready var _picker_title_label: Label = $MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerTitle
+@onready var _picker_summary_label: Label = $MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerSummary
 @onready var _map_picker_panel: Control = get_node_or_null(map_picker_panel_path) as Control
 @onready var _map_list: ItemList = get_node_or_null(map_list_path) as ItemList
 @onready var _select_map_button: Button = get_node_or_null(select_map_button_path) as Button
@@ -118,7 +122,6 @@ var _team_mode_ui: String = "2v2"
 var _buff_ui_last_active_pid: int = 1
 var _font_regular: Font
 var _font_semibold: Font
-var _font_free_roll_atlas: Font
 var _startup_request_resolver: ShellStartupLaunchRequestResolver = ShellStartupLaunchRequestResolver.new()
 var _mvp_waiter: ShellMvpWaiter = ShellMvpWaiter.new()
 var _mvp_map_utils: ShellMvpMapUtils = ShellMvpMapUtils.new()
@@ -221,6 +224,7 @@ func _ready() -> void:
 	_resolve_dev_map_loader()
 	_resolve_buff_ui_nodes()
 	_apply_dev_menu_fonts()
+	_configure_shell_menu_ui()
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 040: after_resolve_map_picker_ui_nodes")
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 050: before_wire_map_picker_ui")
 	_safe_call("wire_map_picker_ui", Callable(self, "_wire_map_picker_ui"))
@@ -452,89 +456,136 @@ func _set_team_mode_ui(mode: String) -> void:
 		_apply_team_mode_button_font()
 	if OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", _team_mode_ui)
+	_refresh_shell_menu_status()
 	SFLog.info("TEAM_MODE_SELECTED", {"mode": _team_mode_ui})
 
 func _load_dev_menu_fonts() -> void:
-	_font_regular = load(FONT_REGULAR_PATH)
-	_font_semibold = load(FONT_SEMIBOLD_PATH)
-	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
 
 func _apply_dev_menu_fonts() -> void:
 	if menu_title != null:
-		if not _apply_free_roll_atlas_font(menu_title, 72):
-			_apply_font(menu_title, _font_semibold, 48)
+		_apply_font(menu_title, _font_semibold, 48)
+	if menu_subtitle_label != null:
+		_apply_font(menu_subtitle_label, _font_regular, 16)
 	if dev_button != null:
 		dev_button.custom_minimum_size.y = maxf(dev_button.custom_minimum_size.y, 78.0)
-	if dev_button != null:
-		if not _apply_free_roll_atlas_font(dev_button, 44):
-			_apply_font(dev_button, _font_semibold, 30)
+		_apply_font(dev_button, _font_semibold, 30)
+	if menu_status_label != null:
+		_apply_font(menu_status_label, _font_regular, 14)
 	if _select_map_button != null:
 		_select_map_button.custom_minimum_size.y = maxf(_select_map_button.custom_minimum_size.y, 78.0)
-		if not _apply_free_roll_atlas_font(_select_map_button, 40):
-			_apply_font(_select_map_button, _font_regular, 28)
+		_apply_font(_select_map_button, _font_regular, 28)
 	if _tutorial_button != null:
 		_tutorial_button.custom_minimum_size.y = maxf(_tutorial_button.custom_minimum_size.y, 78.0)
-		if not _apply_free_roll_atlas_font(_tutorial_button, 40):
-			_apply_font(_tutorial_button, _font_regular, 28)
+		_apply_font(_tutorial_button, _font_regular, 28)
 	if _ctf_bot_button != null:
 		_ctf_bot_button.custom_minimum_size.y = maxf(_ctf_bot_button.custom_minimum_size.y, 78.0)
-		if not _apply_free_roll_atlas_font(_ctf_bot_button, 40):
-			_apply_font(_ctf_bot_button, _font_regular, 28)
+		_apply_font(_ctf_bot_button, _font_regular, 28)
 	if _play_selected_button != null:
 		_play_selected_button.custom_minimum_size.y = maxf(_play_selected_button.custom_minimum_size.y, 78.0)
-		if not _apply_free_roll_atlas_font(_play_selected_button, 40):
-			_apply_font(_play_selected_button, _font_regular, 28)
+		_apply_font(_play_selected_button, _font_regular, 28)
 	if _picker_back_button != null:
 		_picker_back_button.custom_minimum_size.y = maxf(_picker_back_button.custom_minimum_size.y, 78.0)
-		if not _apply_free_roll_atlas_font(_picker_back_button, 40):
-			_apply_font(_picker_back_button, _font_regular, 28)
+		_apply_font(_picker_back_button, _font_regular, 28)
+	if _picker_title_label != null:
+		_apply_font(_picker_title_label, _font_semibold, 24)
+	if _picker_summary_label != null:
+		_apply_font(_picker_summary_label, _font_regular, 14)
 	if back_button != null:
 		back_button.custom_minimum_size.y = maxf(back_button.custom_minimum_size.y, 56.0)
-		if not _apply_free_roll_atlas_font(back_button, 26):
-			_apply_font(back_button, _font_regular, 18)
+		_apply_font(back_button, _font_regular, 18)
 	_apply_team_mode_button_font()
 	_log_dev_menu_font_state()
 
 func _apply_team_mode_button_font() -> void:
 	if _team_mode_button == null:
 		return
-	if not _apply_free_roll_atlas_font(_team_mode_button, 22):
-		_apply_font(_team_mode_button, _font_regular, 16)
+	_apply_font(_team_mode_button, _font_regular, 16)
 
 func _apply_font(node: Control, font: Font, size: int) -> void:
-	if node == null or font == null:
+	UITypography.apply_font(node, font, size)
+
+func _configure_shell_menu_ui() -> void:
+	if menu_title != null:
+		menu_title.text = "SWARMFRONT"
+	if menu_subtitle_label != null:
+		menu_subtitle_label.text = "Playable shell loop for direct map launch, tutorial sandbox checks, and handoff into the main menu."
+		menu_subtitle_label.add_theme_color_override("font_color", Color(0.92, 0.94, 0.97, 0.84))
+	if dev_button != null:
+		dev_button.text = "MAIN MENU"
+	if _select_map_button != null:
+		_select_map_button.text = "SELECT MAP"
+	if _tutorial_button != null:
+		_tutorial_button.text = "TUTORIAL"
+	if _ctf_bot_button != null:
+		_ctf_bot_button.text = "HIDDEN CTF BOT"
+	if _picker_title_label != null:
+		_picker_title_label.text = "SELECT PRACTICE MAP"
+		_picker_title_label.add_theme_color_override("font_color", Color(0.98, 0.98, 0.99, 0.98))
+	if _play_selected_button != null:
+		_play_selected_button.text = "LAUNCH MAP"
+	if _picker_back_button != null:
+		_picker_back_button.text = "BACK"
+	_refresh_picker_summary()
+	_refresh_play_selected_state()
+	_refresh_shell_menu_status()
+
+func _map_display_name(map_path: String) -> String:
+	var clean: String = map_path.strip_edges()
+	if clean.is_empty():
+		return "none"
+	return clean.get_file()
+
+func _shell_mode_label() -> String:
+	return "FFA" if _team_mode_ui == "ffa" else "2v2"
+
+func _shell_status_color(tone: String) -> Color:
+	match tone:
+		"success":
+			return SHELL_STATUS_SUCCESS
+		"error":
+			return SHELL_STATUS_ERROR
+		_:
+			return SHELL_STATUS_NEUTRAL
+
+func _set_shell_status(text: String, tone: String = "neutral") -> void:
+	if menu_status_label == null:
 		return
-	node.add_theme_font_override("font", font)
-	node.add_theme_font_size_override("font_size", maxi(1, size))
+	menu_status_label.text = text
+	menu_status_label.add_theme_color_override("font_color", _shell_status_color(tone))
 
-func _text_uses_free_roll_charset(text: String) -> bool:
-	var source := text.to_upper()
-	for i in source.length():
-		var ch := source.substr(i, 1)
-		if FONT_FREE_ROLL_SUPPORTED.find(ch) == -1:
-			return false
-	return true
+func _refresh_shell_menu_status() -> void:
+	if _selected_map_path.strip_edges().is_empty():
+		_set_shell_status("Team mode: %s. Select a map for direct launch, or use Tutorial / Hidden CTF for preset runs." % _shell_mode_label())
+		return
+	_set_shell_status("Selected map: %s. Team mode: %s. Return here to relaunch or swap maps." % [_map_display_name(_selected_map_path), _shell_mode_label()])
 
-func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
-	if node == null or _font_free_roll_atlas == null:
-		return false
-	var raw_text := ""
-	if node is Label:
-		raw_text = (node as Label).text
-	elif node is BaseButton:
-		raw_text = (node as BaseButton).text
-	if raw_text == "":
-		return false
-	var upper_text := raw_text.to_upper()
-	if not _text_uses_free_roll_charset(upper_text):
-		return false
-	if node is Label:
-		(node as Label).text = upper_text
-	elif node is BaseButton:
-		(node as BaseButton).text = upper_text
-	node.add_theme_font_override("font", _font_free_roll_atlas)
-	node.add_theme_font_size_override("font_size", maxi(1, size))
-	return true
+func _set_picker_summary(text: String, tone: String = "neutral") -> void:
+	if _picker_summary_label == null:
+		return
+	_picker_summary_label.text = text
+	_picker_summary_label.add_theme_color_override("font_color", _shell_status_color(tone))
+
+func _refresh_picker_summary() -> void:
+	if _map_list == null:
+		_set_picker_summary("Map list unavailable.", "error")
+		return
+	var count: int = _map_list.item_count
+	if count <= 0:
+		_set_picker_summary("No local maps found. Add or restore JSON maps before using direct launch.", "error")
+		return
+	var selected_path: String = _selected_map_path_from_ui()
+	if selected_path.strip_edges().is_empty():
+		_set_picker_summary("%d local maps found. Choose one to enable Launch Map." % count)
+		return
+	_set_picker_summary("%d local maps found. Current selection: %s." % [count, _map_display_name(selected_path)], "success")
+
+func _refresh_play_selected_state() -> void:
+	if _play_selected_button == null:
+		return
+	var has_selection: bool = not _selected_map_path_from_ui().strip_edges().is_empty()
+	_play_selected_button.disabled = not has_selection
 
 func _log_dev_menu_font_state() -> void:
 	var targets: Array[Control] = []
@@ -665,6 +716,9 @@ func _set_menu_state(in_menu: bool) -> void:
 	if back_overlay != null:
 		back_overlay.visible = not in_menu
 	_update_back_parent(not in_menu)
+	_refresh_back_button_state(in_menu)
+	_refresh_shell_menu_status()
+	_refresh_picker_summary()
 
 func _update_back_parent(in_game: bool) -> void:
 	if back_button == null:
@@ -685,6 +739,12 @@ func _position_back_button() -> void:
 	back_button.offset_right = 136.0
 	back_button.offset_bottom = 52.0
 
+func _refresh_back_button_state(in_menu: bool) -> void:
+	if back_button == null:
+		return
+	back_button.visible = not in_menu
+	back_button.text = "MENU"
+
 func _on_select_map_pressed() -> void:
 	SFLog.info("MAP_PICKER_OPEN", {})
 	_show_map_picker()
@@ -693,14 +753,20 @@ func _on_picker_back_pressed() -> void:
 	SFLog.info("MAP_PICKER_CLOSE", {})
 	if _map_picker_panel != null:
 		_map_picker_panel.visible = false
+	_refresh_shell_menu_status()
 
 func _on_play_selected_pressed() -> void:
 	var selected_now: String = _selected_map_path_from_ui()
 	if selected_now == "":
+		_refresh_play_selected_state()
+		_set_picker_summary("Choose a map before launching.", "error")
+		_set_shell_status("Direct launch blocked. No map is selected.", "error")
 		SFLog.error("MAP_PICKER_PLAY_NO_SELECTION", {})
 		return
 	var preflight: Dictionary = MAP_LOADER.load_map(selected_now)
 	if not bool(preflight.get("ok", false)):
+		_set_picker_summary("Selected map failed preflight: %s." % _map_display_name(selected_now), "error")
+		_set_shell_status("Map load failed for %s." % _map_display_name(selected_now), "error")
 		SFLog.warn("MAP_PICKER_PLAY_LOAD_FAIL_WARN", {
 			"path": selected_now,
 			"err": str(preflight.get("err", "unknown"))
@@ -720,10 +786,14 @@ func _on_play_selected_pressed() -> void:
 		else:
 			gamebot_boot.set("next_map_id", _selected_map_path)
 	if not FileAccess.file_exists(_selected_map_path):
+		_set_picker_summary("Selected map file is missing: %s." % _map_display_name(_selected_map_path), "error")
+		_set_shell_status("Map file missing for %s." % _map_display_name(_selected_map_path), "error")
 		SFLog.error("MAP_PICKER_PLAY_FILE_MISSING", {"path": _selected_map_path})
 		return
 	_pending_map_path = _selected_map_path
 	_pending_apply_tries = 0
+	_set_picker_summary("Launching %s..." % _map_display_name(_selected_map_path), "success")
+	_set_shell_status("Launching %s..." % _map_display_name(_selected_map_path), "success")
 	if _arena_instance != null:
 		SFLog.info("PENDING_MAP_APPLY_IMMEDIATE", {"path": _pending_map_path})
 		_apply_pending_map_if_ready()
@@ -772,6 +842,10 @@ func _show_map_picker() -> void:
 			selected_idx = 0
 		_map_list.select(selected_idx)
 		_on_map_item_selected(selected_idx)
+	else:
+		_refresh_play_selected_state()
+	_refresh_picker_summary()
+	_set_shell_status("Map picker open. Choose a local map for direct launch.", "neutral")
 
 func _scan_maps_into_list() -> void:
 	if _map_list == null:
@@ -791,6 +865,8 @@ func _scan_maps_into_list() -> void:
 		var idx: int = _map_list.item_count - 1
 		_map_list.set_item_metadata(idx, p)
 	_map_list.set_meta("paths", paths)
+	_refresh_picker_summary()
+	_refresh_play_selected_state()
 	SFLog.info("MAP_SCAN_DONE", {"count": paths.size()})
 
 func _on_map_item_selected(index: int) -> void:
@@ -813,6 +889,9 @@ func _on_map_item_selected(index: int) -> void:
 		SFLog.error("MAP_SELECTED_EMPTY", {"index": index})
 		return
 	_selected_map_path = map_path
+	_refresh_play_selected_state()
+	_refresh_picker_summary()
+	_refresh_shell_menu_status()
 	SFLog.info("MAP_PICKER_SELECTED", {"map_path": _selected_map_path})
 	if TRACE_SHELL_LOGS: print("MAP_PICKER_SELECTED_RAW", {"index": index, "path": _selected_map_path})
 
@@ -852,11 +931,13 @@ func _apply_map_then_start(map_path: String) -> void:
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 010", {"map_path": map_path})
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START_BEGIN", {"map_path": map_path})
 	if map_path == "":
+		_set_shell_status("Launch blocked. No map path resolved.", "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "empty_path"})
 		SFLog.error("APPLY_MAP_EMPTY_PATH", {})
 		SFLog.error("APPLY_MAP_BAIL_EMPTY_PATH", {})
 		return
 	if not FileAccess.file_exists(map_path):
+		_set_shell_status("Launch blocked. Map file missing: %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "file_missing"})
 		SFLog.error("APPLY_MAP_FILE_MISSING", {"path": map_path})
 		SFLog.error("APPLY_MAP_BAIL_FILE_MISSING", {"path": map_path})
@@ -873,15 +954,18 @@ func _apply_map_then_start(map_path: String) -> void:
 		call_deferred("_apply_pending_map_if_ready")
 		return
 	if not ResourceLoader.exists(map_path):
+		_set_shell_status("Launch blocked. Resource not found for %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "missing_resource"})
 		SFLog.error("MAP_PATH_NOT_FOUND", {"map_path": map_path})
 		SFLog.error("MAP_APPLY_FAIL", {"map_path": map_path, "err": "missing_resource"})
 		SFLog.error("APPLY_MAP_BAIL_MISSING_RESOURCE", {"map_path": map_path})
 		return
 	_selected_map_path = map_path
+	_set_shell_status("Launching %s..." % _map_display_name(map_path), "success")
 	SFLog.info("MAP_APPLY_REQUEST", {"map_path": map_path})
 	SFLog.info("MAP_APPLY_ENTRY", {"map_path": map_path})
 	if not _apply_map_direct_to_arena(map_path):
+		_set_shell_status("Launch failed while applying %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "direct_apply_failed"})
 		SFLog.error("MAP_APPLY_FAIL", {"map_path": map_path, "err": "direct_apply_failed"})
 		return
@@ -938,6 +1022,7 @@ func _verify_map_applied_and_start(map_path: String) -> void:
 	await get_tree().process_frame
 	var hive_count: int = _get_hive_count()
 	if hive_count <= 0:
+		_set_shell_status("Launch blocked. %s produced no hives." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "no_hives_after_apply"})
 		SFLog.error("START_BLOCKED_NO_HIVES", {"map_path": map_path})
 		_stop_game()
@@ -946,6 +1031,7 @@ func _verify_map_applied_and_start(map_path: String) -> void:
 	SFLog.info("MAP_PICKER_HIDE", {"map_path": map_path})
 	if _map_picker_panel != null:
 		_map_picker_panel.visible = false
+	_refresh_shell_menu_status()
 
 func _get_hive_count() -> int:
 	if _arena_instance != null and _arena_instance.has_method("get_hive_count"):
@@ -1027,24 +1113,33 @@ func _stop_game() -> void:
 	_dev_loader = null
 	_set_menu_state(true)
 	_sync_buff_ui()
+	_set_shell_status("Returned to shell. Selected map: %s." % _map_display_name(_selected_map_path), "success")
 
 func _on_dev_pressed() -> void:
+	_set_shell_status("Opening main menu...", "success")
 	_open_main_menu()
 
 func _on_tutorial_pressed() -> void:
 	_set_team_mode_ui("2v2")
 	_prepare_tutorial_section3_sandbox_profile()
 	var map_path: String = _resolve_tutorial_sandbox_map_path()
+	if map_path.is_empty():
+		_set_shell_status("Tutorial sandbox map is unavailable.", "error")
+		SFLog.error("TUTORIAL_SANDBOX_LAUNCH_NO_MAP", {})
+		return
+	_set_shell_status("Launching tutorial sandbox on %s..." % _map_display_name(map_path), "success")
 	SFLog.info("TUTORIAL_SANDBOX_LAUNCH", {"map_path": map_path, "mode": _team_mode_ui})
 	_apply_map_then_start(map_path)
 
 func _on_ctf_bot_pressed() -> void:
 	var map_path: String = _resolve_ctf_bot_map_path()
 	if map_path.is_empty():
+		_set_shell_status("Hidden CTF bot map is unavailable.", "error")
 		SFLog.error("CTF_BOT_LAUNCH_NO_MAP", {})
 		return
 	_prepare_ctf_bot_tree_meta(map_path)
 	_set_team_mode_ui("ffa")
+	_set_shell_status("Launching Hidden CTF bot on %s..." % _map_display_name(map_path), "success")
 	SFLog.info("CTF_BOT_LAUNCH", {
 		"map_path": map_path,
 		"mode": "HIDDEN_CAPTURE_FLAG",
@@ -1128,9 +1223,11 @@ func _prepare_ctf_bot_tree_meta(map_path: String) -> void:
 
 func _open_main_menu() -> void:
 	if main_menu_scene_path.is_empty():
+		_set_shell_status("Main menu scene path is empty.", "error")
 		return
 	var err := get_tree().change_scene_to_file(main_menu_scene_path)
 	if err != OK:
+		_set_shell_status("Failed to open main menu.", "error")
 		if SFLog.LOGGING_ENABLED:
 			push_error("SHELL: failed to open main menu: %s" % main_menu_scene_path)
 
@@ -2204,7 +2301,14 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 		"win_map": win_map_path
 	})
 
-	_apply_map_then_start(map_path)
+	var menu_flow_result: Dictionary = await _mvp_run_shell_menu_flow_check(map_path)
+	passes += int(menu_flow_result.get("passes", 0))
+	fails += int(menu_flow_result.get("fails", 0))
+	if not bool(menu_flow_result.get("launched", false)):
+		var summary_status_early: String = "pass" if fails == 0 else "fail"
+		SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": summary_status_early})
+		get_tree().quit(1)
+		return
 
 	var arena_node: Node = await _mvp_wait_for_node(MVP_SMOKE_ARENA_PATH, boot_timeout_ms)
 	if arena_node != null:
@@ -2291,11 +2395,100 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 	passes += int(end_flow_result.get("passes", 0))
 	fails += int(end_flow_result.get("fails", 0))
 
+	var expected_return_map: String = win_map_path if not win_map_path.is_empty() else map_path
+	var return_flow_result: Dictionary = await _mvp_run_shell_return_flow_check(expected_return_map)
+	passes += int(return_flow_result.get("passes", 0))
+	fails += int(return_flow_result.get("fails", 0))
+
 	var summary_status: String = "pass" if fails == 0 else "fail"
 	SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": summary_status})
+	get_tree().quit(1 if fails > 0 else 0)
+
+func _mvp_run_shell_menu_flow_check(map_path: String) -> Dictionary:
+	var result: Dictionary = {"passes": 0, "fails": 0, "launched": false}
+	var menu_visible: bool = menu_root != null and menu_root.visible and menu_panel != null and menu_panel.visible
+	if menu_visible and (back_button == null or not back_button.visible):
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_menu_visible_on_boot", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_menu_visible_on_boot", {
+			"menu_root": menu_root.visible if menu_root != null else null,
+			"menu_panel": menu_panel.visible if menu_panel != null else null,
+			"back_button": back_button.visible if back_button != null else null
+		})
+	if _select_map_button == null:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_map_picker_button_present", {})
+		return result
+	result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_map_picker_button_present", {})
+	_select_map_button.emit_signal("pressed")
+	await get_tree().process_frame
+	var picker_visible: bool = _map_picker_panel != null and _map_picker_panel.visible
+	if picker_visible:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_map_picker_opens", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_map_picker_opens", {})
+		return result
+	var map_count: int = _map_list.item_count if _map_list != null else 0
+	if map_count > 0:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_map_picker_lists_maps", {"count": map_count})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_map_picker_lists_maps", {"count": map_count})
+		return result
+	var selected_idx: int = _find_map_index_by_path(map_path)
+	if selected_idx >= 0:
+		_map_list.select(selected_idx)
+		_on_map_item_selected(selected_idx)
+		await get_tree().process_frame
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_map_picker_selects_target_map", {"map": map_path})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_map_picker_selects_target_map", {"map": map_path})
+		return result
+	var play_enabled: bool = _play_selected_button != null and not _play_selected_button.disabled
+	if play_enabled:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_launch_button_enabled_after_selection", {"map": map_path})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_launch_button_enabled_after_selection", {"map": map_path})
+		return result
+	_play_selected_button.emit_signal("pressed")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	result["launched"] = true
+	result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_launch_button_starts_flow", {"map": map_path})
+	return result
+
+func _mvp_run_shell_return_flow_check(expected_map_path: String) -> Dictionary:
+	var result: Dictionary = {"passes": 0, "fails": 0}
 	_stop_game()
 	await get_tree().process_frame
-	get_tree().quit(1 if fails > 0 else 0)
+	await get_tree().process_frame
+	var menu_visible: bool = menu_root != null and menu_root.visible and menu_panel != null and menu_panel.visible
+	var arena_hidden: bool = arena_root == null or not arena_root.visible
+	if menu_visible and arena_hidden:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_return_restores_menu", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_restores_menu", {
+			"menu_root": menu_root.visible if menu_root != null else null,
+			"menu_panel": menu_panel.visible if menu_panel != null else null,
+			"arena_root": arena_root.visible if arena_root != null else null
+		})
+	var picker_hidden: bool = _map_picker_panel == null or not _map_picker_panel.visible
+	if picker_hidden:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_return_hides_map_picker", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_hides_map_picker", {})
+	var selected_persisted: bool = expected_map_path.is_empty() or _selected_map_path == expected_map_path
+	if selected_persisted:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_return_preserves_selected_map", {"map": _selected_map_path})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_preserves_selected_map", {
+			"expected": expected_map_path,
+			"actual": _selected_map_path
+		})
+	var back_hidden: bool = back_button == null or not back_button.visible
+	if back_hidden:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_return_hides_back_button", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_hides_back_button", {"visible": back_button.visible if back_button != null else null})
+	return result
 
 func _mvp_pick_default_map() -> String:
 	var maps: Array[String] = _mvp_list_json_maps()
