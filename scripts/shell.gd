@@ -63,6 +63,13 @@ const BUFF_PLAYER_STRIP_HEIGHT_PX: float = 120.0
 const BUFF_PLAYER_SLOT_SIZE_PX: float = 84.0
 const BUFF_PLAYER_SLOT_SEPARATION_PX: int = 24
 const PREMATCH_POWERBAR_REVEAL_WINDOW_MS: int = 350
+const SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
+const SHELL_ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
+const SHELL_ASYNC_PREMATCH_TOP_GAP_PX: float = 24.0
+const SHELL_WORLD_VIEWPORT_LEFT_INSET_PX: float = 48.0
+const SHELL_WORLD_VIEWPORT_RIGHT_INSET_PX: float = 48.0
+const SHELL_WORLD_VIEWPORT_TOP_INSET_PX: float = 60.0
+const SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX: float = 40.0
 
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
@@ -125,6 +132,16 @@ var _font_semibold: Font
 var _startup_request_resolver: ShellStartupLaunchRequestResolver = ShellStartupLaunchRequestResolver.new()
 var _mvp_waiter: ShellMvpWaiter = ShellMvpWaiter.new()
 var _mvp_map_utils: ShellMvpMapUtils = ShellMvpMapUtils.new()
+var _shell_prematch_overlay: Control = null
+var _shell_prematch_countdown_label: Label = null
+var _shell_prematch_records_panel: Control = null
+var _shell_prematch_record_teams: Label = null
+var _shell_prematch_record_team_arrows: Label = null
+var _shell_prematch_record_p1: Label = null
+var _shell_prematch_record_p2: Label = null
+var _shell_prematch_record_p3: Label = null
+var _shell_prematch_record_p4: Label = null
+var _shell_prematch_record_h2h: Label = null
 
 func _install_error_hooks() -> void:
 	if _err_conn_ready:
@@ -1069,6 +1086,7 @@ func _ensure_game_instance() -> void:
 	var wvp: Node = null
 	if world_layer != null:
 		wvp = world_layer.get_node_or_null("WorldViewportContainer")
+	_configure_shell_world_viewport_opening()
 	if TRACE_SHELL_LOGS: print("LAYER_ORDER hud=", hud_layer.layer if hud_layer != null else -1,
 		" world=", world_layer.layer if world_layer != null else -1,
 		" wvp=", str(wvp.get_path()) if wvp != null else "<null>"
@@ -1080,11 +1098,43 @@ func _enter_game() -> void:
 	if _arena_instance == null:
 		return
 	_set_menu_state(false)
+	if arena_root != null:
+		arena_root.modulate.a = 0.0
 	_ensure_vs_frame_visible()
 	call_deferred("_sync_power_bar_buffer_placement")
 	call_deferred("_sync_buff_ui")
+	call_deferred("_stabilize_shell_camera_presentation")
 	if _arena_instance.has_method("start_game"):
 		_arena_instance.call_deferred("start_game")
+
+func _stabilize_shell_camera_presentation() -> void:
+	if _arena_instance == null:
+		if arena_root != null:
+			arena_root.modulate.a = 1.0
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_configure_shell_world_viewport_opening()
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node != null and arena_node.has_method("apply_camera_fit"):
+		arena_node.call("apply_camera_fit", "shell_present")
+	await get_tree().process_frame
+	if arena_root != null:
+		arena_root.modulate.a = 1.0
+
+func _configure_shell_world_viewport_opening() -> void:
+	if _arena_instance == null:
+		return
+	var world_fit: Node = _arena_instance.get_node_or_null("WorldCanvasLayer/WorldViewportContainer")
+	if world_fit == null:
+		return
+	world_fit.set("inset_left_px", SHELL_WORLD_VIEWPORT_LEFT_INSET_PX)
+	world_fit.set("inset_right_px", SHELL_WORLD_VIEWPORT_RIGHT_INSET_PX)
+	world_fit.set("inset_top_px", SHELL_WORLD_VIEWPORT_TOP_INSET_PX)
+	world_fit.set("inset_bottom_px", SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX)
+	world_fit.set("top_overlap_px", 0.0)
+	if world_fit.has_method("_apply_layout"):
+		world_fit.call("_apply_layout")
 
 func _ensure_vs_frame_visible() -> void:
 	var hud_root: CanvasItem = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as CanvasItem
@@ -1111,6 +1161,8 @@ func _stop_game() -> void:
 		_arena_instance.queue_free()
 		_arena_instance = null
 	_dev_loader = null
+	if arena_root != null:
+		arena_root.modulate.a = 1.0
 	_set_menu_state(true)
 	_sync_buff_ui()
 	_set_shell_status("Returned to shell. Selected map: %s." % _map_display_name(_selected_map_path), "success")
@@ -1266,6 +1318,7 @@ func _on_viewport_size_changed() -> void:
 
 func _process(_delta: float) -> void:
 	_sync_buff_ui()
+	_sync_shell_async_prematch_overlay()
 	if _arena_instance == null:
 		return
 	_update_power_bar_visibility()
@@ -1339,14 +1392,22 @@ func _sync_buff_ui() -> void:
 	if _player_buff_strip == null:
 		return
 	if _arena_instance == null:
-		_set_buff_strip_visibility(false, false, false, false)
+		if _show_shell_async_prematch_buffers():
+			_show_buff_ui_placeholders()
+		else:
+			_set_buff_strip_visibility(false, false, false, false)
 		return
 	var arena_node: Node = _resolve_runtime_arena_node()
 	if arena_node == null or not arena_node.has_method("get_buff_ui_snapshot"):
-		_set_buff_strip_visibility(false, false, false, false)
+		if _show_shell_async_prematch_buffers():
+			_show_buff_ui_placeholders()
+		else:
+			_set_buff_strip_visibility(false, false, false, false)
 		return
 	var snap_v: Variant = arena_node.call("get_buff_ui_snapshot")
 	if typeof(snap_v) != TYPE_DICTIONARY:
+		if _show_shell_async_prematch_buffers():
+			_show_buff_ui_placeholders()
 		return
 	var snapshot: Dictionary = snap_v as Dictionary
 	if not bool(snapshot.get("buffs_enabled", false)):
@@ -1368,6 +1429,27 @@ func _sync_buff_ui() -> void:
 	var opponent_seats: Array = relation.get("opponents", [])
 	_sync_side_strip(_ally_buff_strip, players, ally_seats, _ally_strip_title(active_seats, ally_seats))
 	_sync_opponent_strips(players, opponent_seats, active_seats, ally_seats)
+	_layout_buff_strip_positions()
+
+func _show_buff_ui_placeholders() -> void:
+	if _player_buff_strip != null:
+		_player_buff_strip.visible = true
+		if _player_buff_strip.has_method("apply_snapshot"):
+			_player_buff_strip.call("apply_snapshot", {
+				"pid": _buff_ui_last_active_pid,
+				"slots_active": 3,
+				"slots": []
+			})
+	if _opponent_buff_strip != null:
+		_opponent_buff_strip.visible = true
+		if _opponent_buff_strip.has_method("set_visible_slot_count"):
+			_opponent_buff_strip.call("set_visible_slot_count", 3)
+		if _opponent_buff_strip.has_method("reset_slots"):
+			_opponent_buff_strip.call("reset_slots")
+	if _opponent_buff_strip_b != null:
+		_opponent_buff_strip_b.visible = false
+	if _ally_buff_strip != null:
+		_ally_buff_strip.visible = false
 	_layout_buff_strip_positions()
 
 func _set_buff_strip_visibility(player_visible: bool, opponent_visible: bool, opponent_b_visible: bool, ally_visible: bool) -> void:
@@ -1952,6 +2034,12 @@ func _update_power_bar_visibility() -> void:
 		return
 	var should_show: bool = _is_match_live()
 	power_bar.visible = should_show
+	if should_show and power_bar.modulate.a < 0.99:
+		power_bar.modulate.a = 1.0
+	elif not should_show and power_bar.modulate.a > 0.01:
+		power_bar.modulate.a = 0.0
+	if power_bar.has_method("_update_visibility_from_state"):
+		power_bar.call("_update_visibility_from_state")
 	if _last_power_bar_visible != int(should_show):
 		_last_power_bar_visible = int(should_show)
 		SFLog.info("POWERBAR_VISIBLE", {
@@ -1979,6 +2067,330 @@ func _show_power_bar_during_async_prematch() -> bool:
 			return true
 		_:
 			return false
+
+func _show_shell_async_prematch_buffers() -> bool:
+	return _show_power_bar_during_async_prematch()
+
+func _sync_shell_async_prematch_overlay() -> void:
+	var overlay: Control = _ensure_shell_async_prematch_overlay()
+	if overlay == null:
+		return
+	var should_show: bool = _show_shell_async_prematch_card()
+	overlay.visible = should_show
+	if not should_show:
+		return
+	_layout_shell_async_prematch_overlay()
+	var detail_lines: Array[String] = _shell_async_prematch_detail_lines()
+	if _shell_prematch_record_teams != null:
+		_shell_prematch_record_teams.text = _shell_async_prematch_mode_banner()
+	if _shell_prematch_record_team_arrows != null:
+		_shell_prematch_record_team_arrows.text = _shell_async_prematch_round_line()
+	if _shell_prematch_record_p1 != null:
+		_shell_prematch_record_p1.text = detail_lines[0] if detail_lines.size() > 0 else ""
+	if _shell_prematch_record_p2 != null:
+		_shell_prematch_record_p2.text = detail_lines[1] if detail_lines.size() > 1 else ""
+	if _shell_prematch_record_p3 != null:
+		_shell_prematch_record_p3.text = detail_lines[2] if detail_lines.size() > 2 else ""
+	if _shell_prematch_record_p4 != null:
+		_shell_prematch_record_p4.text = detail_lines[3] if detail_lines.size() > 3 else ""
+	if _shell_prematch_countdown_label != null:
+		var sec_left: int = 0
+		if OpsState != null:
+			sec_left = maxi(0, int(ceil(float(OpsState.prematch_remaining_ms) / 1000.0)))
+		_shell_prematch_countdown_label.text = str(sec_left)
+		_shell_prematch_countdown_label.visible = true
+	if _shell_prematch_record_h2h != null:
+		var sec_left: int = 0
+		if OpsState != null:
+			sec_left = maxi(0, int(ceil(float(OpsState.prematch_remaining_ms) / 1000.0)))
+		_shell_prematch_record_h2h.text = "Starts in %d" % sec_left
+
+func _show_shell_async_prematch_card() -> bool:
+	if _arena_instance == null or OpsState == null:
+		return false
+	if int(OpsState.match_phase) != int(OpsState.MatchPhase.PREMATCH):
+		return false
+	match _shell_async_mode_id():
+		"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
+			return true
+		_:
+			return false
+
+func _ensure_shell_async_prematch_overlay() -> Control:
+	if _shell_prematch_overlay != null and is_instance_valid(_shell_prematch_overlay):
+		return _shell_prematch_overlay
+	var hud_root: Control = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as Control
+	if hud_root == null:
+		return null
+	var overlay: Control = hud_root.get_node_or_null("PreMatchOverlay") as Control
+	if overlay == null:
+		overlay = Control.new()
+		overlay.name = "PreMatchOverlay"
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud_root.add_child(overlay)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.offset_left = 0.0
+	overlay.offset_top = 0.0
+	overlay.offset_right = 0.0
+	overlay.offset_bottom = 0.0
+	overlay.z_as_relative = false
+	overlay.z_index = 3000
+	overlay.modulate = Color(1, 1, 1, 1)
+	_shell_prematch_overlay = overlay
+
+	var countdown: Label = overlay.get_node_or_null("CountdownLabel") as Label
+	if countdown == null:
+		countdown = Label.new()
+		countdown.name = "CountdownLabel"
+		countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		countdown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		countdown.anchor_left = 0.5
+		countdown.anchor_right = 0.5
+		countdown.anchor_top = 0.0
+		countdown.anchor_bottom = 0.0
+		countdown.offset_left = -40.0
+		countdown.offset_right = 40.0
+		countdown.offset_top = 20.0
+		countdown.offset_bottom = 60.0
+		overlay.add_child(countdown)
+	_style_shell_prematch_countdown(countdown)
+	_shell_prematch_countdown_label = countdown
+
+	var records: Control = overlay.get_node_or_null("RecordsPanel") as Control
+	if records == null:
+		records = Control.new()
+		records.name = "RecordsPanel"
+		overlay.add_child(records)
+	records.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	records.z_as_relative = false
+	records.z_index = 3001
+	_shell_prematch_records_panel = records
+
+	var records_bg: Panel = records.get_node_or_null("RecordsBg") as Panel
+	if records_bg == null:
+		records_bg = Panel.new()
+		records_bg.name = "RecordsBg"
+		records.add_child(records_bg)
+	records_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	records_bg.offset_left = 0.0
+	records_bg.offset_top = 0.0
+	records_bg.offset_right = 0.0
+	records_bg.offset_bottom = 0.0
+	var panel_style: StyleBoxFlat = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.02, 0.04, 0.08, 0.58)
+	panel_style.border_color = Color(0.62, 0.70, 0.82, 0.92)
+	panel_style.border_width_left = 1
+	panel_style.border_width_top = 1
+	panel_style.border_width_right = 1
+	panel_style.border_width_bottom = 1
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	records_bg.add_theme_stylebox_override("panel", panel_style)
+
+	var records_vbox: VBoxContainer = records_bg.get_node_or_null("RecordsVBox") as VBoxContainer
+	if records_vbox == null:
+		records_vbox = VBoxContainer.new()
+		records_vbox.name = "RecordsVBox"
+		records_bg.add_child(records_vbox)
+	records_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	records_vbox.offset_left = 10.0
+	records_vbox.offset_top = 8.0
+	records_vbox.offset_right = -10.0
+	records_vbox.offset_bottom = -8.0
+	records_vbox.add_theme_constant_override("separation", 2)
+
+	_shell_prematch_record_teams = _ensure_shell_prematch_label(records_vbox, "RecordTeams")
+	_shell_prematch_record_team_arrows = _ensure_shell_prematch_label(records_vbox, "RecordTeamArrows")
+	_shell_prematch_record_p1 = _ensure_shell_prematch_label(records_vbox, "RecordP1")
+	_shell_prematch_record_p2 = _ensure_shell_prematch_label(records_vbox, "RecordP2")
+	_shell_prematch_record_p3 = _ensure_shell_prematch_label(records_vbox, "RecordP3")
+	_shell_prematch_record_p4 = _ensure_shell_prematch_label(records_vbox, "RecordP4")
+	_shell_prematch_record_h2h = _ensure_shell_prematch_label(records_vbox, "RecordH2H")
+	records_vbox.move_child(_shell_prematch_record_teams, 0)
+	records_vbox.move_child(_shell_prematch_record_team_arrows, 1)
+	_style_shell_prematch_labels()
+	return overlay
+
+func _ensure_shell_prematch_label(vbox: VBoxContainer, name: String) -> Label:
+	var label: Label = vbox.get_node_or_null(name) as Label
+	if label == null:
+		label = Label.new()
+		label.name = name
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		vbox.add_child(label)
+	return label
+
+func _style_shell_prematch_labels() -> void:
+	for label_any in [_shell_prematch_record_p1, _shell_prematch_record_p2, _shell_prematch_record_p3, _shell_prematch_record_p4, _shell_prematch_record_h2h]:
+		var label: Label = label_any as Label
+		if label == null:
+			continue
+		label.add_theme_font_size_override("font_size", 18)
+		label.add_theme_color_override("font_color", Color(0.97, 0.99, 1.0, 1.0))
+		label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+		label.add_theme_constant_override("outline_size", 2)
+	if _shell_prematch_record_teams != null:
+		_shell_prematch_record_teams.add_theme_font_size_override("font_size", 28)
+		_shell_prematch_record_teams.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
+		_shell_prematch_record_teams.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+		_shell_prematch_record_teams.add_theme_constant_override("outline_size", 2)
+	if _shell_prematch_record_team_arrows != null:
+		_shell_prematch_record_team_arrows.add_theme_font_size_override("font_size", 20)
+		_shell_prematch_record_team_arrows.add_theme_color_override("font_color", Color(0.82, 0.92, 1.0, 0.92))
+		_shell_prematch_record_team_arrows.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+		_shell_prematch_record_team_arrows.add_theme_constant_override("outline_size", 2)
+	if _shell_prematch_record_h2h != null:
+		_shell_prematch_record_h2h.add_theme_font_size_override("font_size", 24)
+		_shell_prematch_record_h2h.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
+
+func _style_shell_prematch_countdown(label: Label) -> void:
+	if label == null:
+		return
+	label.add_theme_font_size_override("font_size", 64)
+	label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("outline_size", 3)
+
+func _layout_shell_async_prematch_overlay() -> void:
+	if _shell_prematch_records_panel == null:
+		return
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var visible_rect: Rect2 = vp.get_visible_rect()
+	var top_buffer: Control = get_node_or_null(SHELL_TOP_BUFFER_PATH) as Control
+	var top_inset: float = 0.0
+	if top_buffer != null:
+		top_inset = maxf(0.0, top_buffer.get_global_rect().size.y)
+	_shell_prematch_records_panel.position = Vector2(
+		(visible_rect.size.x - SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX) * 0.5,
+		top_inset + SHELL_ASYNC_PREMATCH_TOP_GAP_PX
+	)
+	_shell_prematch_records_panel.size = Vector2(
+		SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX,
+		SHELL_ASYNC_PREMATCH_CARD_HEIGHT_PX
+	)
+
+func _shell_async_mode_id() -> String:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return ""
+	return str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+
+func _shell_async_prematch_mode_banner() -> String:
+	match _shell_async_mode_id():
+		"ASYNC_SINGLE_MAP_TIMED":
+			return "MAP RUN"
+		"TIMED_RACE":
+			return "TIMED RACE"
+		"MISS_N_OUT":
+			return "MISS N OUT"
+		_:
+			return "STAGE RACE"
+
+func _shell_async_prematch_round_line() -> String:
+	var stage_maps: Array[String] = _shell_stage_map_paths()
+	if _shell_async_mode_id() == "ASYNC_SINGLE_MAP_TIMED":
+		return "Single map run"
+	if stage_maps.is_empty():
+		return "Async run"
+	var tree: SceneTree = get_tree()
+	var round_index: int = 0
+	if tree != null:
+		round_index = clampi(int(tree.get_meta("vs_stage_current_index", 0)), 0, maxi(stage_maps.size() - 1, 0))
+	match _shell_async_mode_id():
+		"TIMED_RACE":
+			return "Map %d of %d" % [round_index + 1, stage_maps.size()]
+		"MISS_N_OUT":
+			return "Round %d of %d" % [round_index + 1, stage_maps.size()]
+		_:
+			return "Stage %d of %d" % [round_index + 1, stage_maps.size()]
+
+func _shell_async_prematch_detail_lines() -> Array[String]:
+	var stage_count: int = maxi(1, _shell_stage_map_paths().size())
+	match _shell_async_mode_id():
+		"ASYNC_SINGLE_MAP_TIMED":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"One map, one clock. Push a clean run from the opening tap.",
+				"Best finish time wins. %s" % _shell_async_bot_line(),
+				_shell_async_track_line()
+			]
+		"TIMED_RACE":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Multiple maps in sequence. The run stays live between stages.",
+				"Fastest total clear wins. %s" % _shell_async_bot_line(),
+				_shell_async_track_line()
+			]
+		"MISS_N_OUT":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Clear each stage in order. One failed map ends the full run.",
+				"Survive the set, then sort by time. %s" % _shell_async_bot_line(),
+				_shell_async_track_line()
+			]
+		_:
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"%d stages back to back. Clear this map, then roll into the next one." % stage_count,
+				"Fastest total run wins. %s" % _shell_async_bot_line(),
+				_shell_async_track_line()
+			]
+
+func _shell_stage_map_paths() -> Array[String]:
+	var result: Array[String] = []
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return result
+	var stage_maps_any: Variant = tree.get_meta("vs_stage_map_paths", [])
+	if typeof(stage_maps_any) != TYPE_ARRAY:
+		return result
+	for path_any in stage_maps_any as Array:
+		var path: String = str(path_any).strip_edges()
+		if not path.is_empty():
+			result.append(path)
+	return result
+
+func _shell_async_map_title() -> String:
+	var tree: SceneTree = get_tree()
+	var map_path: String = ""
+	if tree != null:
+		map_path = _resolve_stage_map_from_tree_meta(tree)
+	if map_path.is_empty():
+		map_path = _selected_map_path
+	return _map_display_name(map_path)
+
+func _shell_async_bot_line() -> String:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return "Opponent: CPU"
+	var roster_any: Variant = tree.get_meta("vs_assigned_players", [])
+	if typeof(roster_any) != TYPE_ARRAY:
+		return "Opponent: CPU"
+	var roster: Array = roster_any as Array
+	if roster.size() <= 1:
+		return "Opponent: CPU"
+	var opponents: Array[String] = []
+	for idx in range(1, roster.size()):
+		var name: String = str(roster[idx]).strip_edges()
+		if not name.is_empty():
+			opponents.append(name)
+	if opponents.is_empty():
+		return "Opponent: CPU"
+	return "Opponents: %s" % ", ".join(opponents)
+
+func _shell_async_track_line() -> String:
+	var stage_maps: Array[String] = _shell_stage_map_paths()
+	if stage_maps.is_empty():
+		return "Track: pending"
+	var labels: Array[String] = []
+	for path in stage_maps:
+		labels.append(_map_display_name(path))
+	return "Track: %s" % " -> ".join(labels)
 
 func _maybe_start_soak_perf() -> bool:
 	var config: Dictionary = _parse_soak_perf_config(OS.get_cmdline_user_args())

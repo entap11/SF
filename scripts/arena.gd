@@ -105,6 +105,13 @@ const SHELL_HUD_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer"
 const SHELL_HUD_ROOT_PATH: String = SHELL_HUD_LAYER_PATH + "/HUDRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_HUD_LAYER_PATH + "/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground"
 const SHELL_BOTTOM_BUFFER_PATH: String = SHELL_HUD_LAYER_PATH + "/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground"
+const SHELL_PLAYER_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/BuffSlotsStrip"
+const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStrip"
+const SHELL_OPPONENT_BUFF_STRIP_B_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStripB"
+const SHELL_ALLY_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/AllyBuffStrip"
+const SHELL_SIDE_UI_INSET_PX: float = 48.0
+const SHELL_BOTTOM_UI_GAP_PX: float = 4.0
+const SHELL_CAMFIT_BIAS_Y_PX: float = 30.0
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
 const SHELL_OUTCOME_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/OutcomeOverlay"
 const SHELL_WIN_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/WinOverlay"
@@ -232,6 +239,7 @@ var _stage_runtime_flow: ArenaStageRuntimeFlow = ArenaStageRuntimeFlow.new()
 var _jukebox_leaderboard_store: RefCounted = JukeboxLeaderboardStoreScript.new()
 var _prematch_team_ui_formatter: ArenaPrematchTeamUiFormatter = ArenaPrematchTeamUiFormatter.new()
 var _input_bridge_utils: ArenaInputBridgeUtils = ArenaInputBridgeUtils.new()
+var _camera_fit_viewport_override_px: Vector2 = Vector2.ZERO
 var _prematch_overlay: Control = null
 var _prematch_countdown_label: Label = null
 var _prematch_records_panel: Control = null
@@ -476,7 +484,6 @@ func _ready() -> void:
 	})
 	SFLog.trace("CURRENT CAMERA", {"camera": get_viewport().get_camera_2d()})
 	await get_tree().process_frame
-	apply_camera_fit_next_frame("ready")
 	var cam := $Camera2D
 	var vcam := get_viewport().get_camera_2d()
 	SFLog.trace("ARENA CAM", {"arena_cam": cam, "viewport_cam": vcam})
@@ -968,6 +975,8 @@ func _ui_top_inset_px() -> float:
 func _ui_vertical_insets_px() -> Dictionary:
 	var tree: SceneTree = get_tree()
 	var world_container: Control = _world_viewport_cache.resolve_container(tree) if _world_viewport_cache != null else null
+	if get_node_or_null(SHELL_HUD_ROOT_PATH) != null:
+		return {"top": 0.0, "bottom": 0.0}
 	if world_container == null:
 		return {"top": _ui_top_inset_px(), "bottom": 0.0}
 	var container_rect: Rect2 = world_container.get_global_rect()
@@ -1006,6 +1015,34 @@ func _ui_vertical_insets_px() -> Dictionary:
 		"top": top_inset,
 		"bottom": bottom_inset
 	}
+
+func _shell_bottom_ui_inset_px(world_container: Control) -> float:
+	if world_container == null:
+		return 0.0
+	var container_rect: Rect2 = world_container.get_global_rect()
+	if container_rect.size.y <= 0.0:
+		return 0.0
+	var container_bottom: float = container_rect.position.y + container_rect.size.y
+	var bottom_inset: float = 0.0
+	for path in [
+		SHELL_PLAYER_BUFF_STRIP_PATH,
+		SHELL_OPPONENT_BUFF_STRIP_PATH,
+		SHELL_OPPONENT_BUFF_STRIP_B_PATH,
+		SHELL_ALLY_BUFF_STRIP_PATH
+	]:
+		var overlay: Control = get_node_or_null(path) as Control
+		if overlay == null or not overlay.visible:
+			continue
+		var overlay_rect: Rect2 = overlay.get_global_rect()
+		if not overlay_rect.intersects(container_rect):
+			continue
+		var overlap: Rect2 = overlay_rect.intersection(container_rect)
+		if overlap.size.y <= 0.0:
+			continue
+		var overlap_top: float = overlap.position.y
+		bottom_inset = maxf(bottom_inset, container_bottom - overlap_top + SHELL_BOTTOM_UI_GAP_PX)
+	var max_inset: float = maxf(0.0, container_rect.size.y - 1.0)
+	return clampf(bottom_inset, 0.0, max_inset)
 
 func _is_dev_or_editor_context() -> bool:
 	if Engine.is_editor_hint():
@@ -1074,7 +1111,6 @@ func _begin_prematch() -> void:
 	_prematch_final_fit_requested = false
 	_power_bar_reveal_started = false
 	_show_prematch_ui()
-	apply_camera_fit_next_frame("prematch_begin")
 	if sim_runner != null:
 		sim_runner.set_running(false, "prematch_hold")
 	SFLog.info("PREMATCH_START", {
@@ -1745,7 +1781,7 @@ func _show_prematch_ui() -> void:
 				"type": _prematch_countdown_label.get_class()
 			})
 		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
-		_prematch_countdown_label.visible = not _uses_async_prematch_card()
+		_prematch_countdown_label.visible = true
 	_refresh_prematch_records()
 	_refresh_capture_flag_prematch_prompt()
 	if _prematch_records_panel != null:
@@ -1811,6 +1847,7 @@ func _reset_prematch_record_styles() -> void:
 
 func _refresh_async_prematch_card() -> void:
 	var sec_left: int = maxi(0, int(ceil(_prematch_remaining_ms_f / 1000.0)))
+	var detail_lines: Array[String] = _async_prematch_detail_lines()
 	if _prematch_record_teams != null:
 		_prematch_record_teams.add_theme_font_size_override("font_size", 28)
 		_prematch_record_teams.text = _async_prematch_mode_banner()
@@ -1819,20 +1856,52 @@ func _refresh_async_prematch_card() -> void:
 		_prematch_record_team_arrows.text = _async_prematch_round_line()
 	if _prematch_record_p1 != null:
 		_prematch_record_p1.add_theme_font_size_override("font_size", 18)
-		_prematch_record_p1.text = "Map: %s" % _async_prematch_map_title()
+		_prematch_record_p1.text = detail_lines[0] if detail_lines.size() > 0 else ""
 	if _prematch_record_p2 != null:
 		_prematch_record_p2.add_theme_font_size_override("font_size", 18)
-		_prematch_record_p2.text = _async_prematch_bot_line()
+		_prematch_record_p2.text = detail_lines[1] if detail_lines.size() > 1 else ""
 	if _prematch_record_p3 != null:
 		_prematch_record_p3.add_theme_font_size_override("font_size", 18)
-		_prematch_record_p3.text = _async_prematch_rule_line()
+		_prematch_record_p3.text = detail_lines[2] if detail_lines.size() > 2 else ""
 	if _prematch_record_p4 != null:
 		_prematch_record_p4.add_theme_font_size_override("font_size", 18)
-		_prematch_record_p4.text = _async_prematch_track_line()
+		_prematch_record_p4.text = detail_lines[3] if detail_lines.size() > 3 else ""
 	if _prematch_record_h2h != null:
 		_prematch_record_h2h.add_theme_font_size_override("font_size", 24)
 		_prematch_record_h2h.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
 		_prematch_record_h2h.text = "Starts in %d" % sec_left
+
+func _async_prematch_detail_lines() -> Array[String]:
+	var stage_count: int = maxi(1, _get_stage_map_paths_runtime().size())
+	match _current_vs_mode():
+		VS_MODE_ASYNC_SINGLE_MAP_TIMED:
+			return [
+				"Map: %s" % _async_prematch_map_title(),
+				"One map, one clock. Push a clean run from the opening tap.",
+				"Best finish time wins. %s" % _async_prematch_bot_line(),
+				_async_prematch_track_line()
+			]
+		"TIMED_RACE":
+			return [
+				"Map: %s" % _async_prematch_map_title(),
+				"Multiple maps in sequence. The run stays live between stages.",
+				"Fastest total clear wins. %s" % _async_prematch_bot_line(),
+				_async_prematch_track_line()
+			]
+		"MISS_N_OUT":
+			return [
+				"Map: %s" % _async_prematch_map_title(),
+				"Clear each stage in order. One failed map ends the full run.",
+				"Survive the set, then sort by time. %s" % _async_prematch_bot_line(),
+				_async_prematch_track_line()
+			]
+		_:
+			return [
+				"Map: %s" % _async_prematch_map_title(),
+				"%d stages back to back. Clear this map, then roll into the next one." % stage_count,
+				"Fastest total run wins. %s" % _async_prematch_bot_line(),
+				_async_prematch_track_line()
+			]
 
 func _get_team_banner_line() -> String:
 	var local_seat: int = _resolve_local_owner_id()
@@ -2238,7 +2307,7 @@ func _update_prematch_flow(delta: float) -> void:
 		sec_left = int(ceil(_prematch_remaining_ms_f / 1000.0))
 	if _prematch_countdown_label != null:
 		_prematch_countdown_label.text = str(sec_left)
-		_prematch_countdown_label.visible = not _uses_async_prematch_card()
+		_prematch_countdown_label.visible = true
 	_refresh_capture_flag_prematch_prompt()
 	if _uses_async_prematch_card():
 		_refresh_prematch_records()
@@ -2254,7 +2323,6 @@ func _update_prematch_flow(delta: float) -> void:
 	# Apply one final fit during prematch so RUNNING does not need a visible camera correction.
 	if _prematch_remaining_ms_f <= float(PREMATCH_UI_CROSSFADE_MS) and not _prematch_final_fit_requested:
 		_prematch_final_fit_requested = true
-		apply_camera_fit_next_frame("prematch_final")
 	if _prematch_remaining_ms_f <= 0.0 and not _prematch_countdown_faded:
 		_prematch_countdown_faded = true
 		_fade_prematch_countdown()
@@ -3468,7 +3536,6 @@ func _on_viewport_size_changed() -> void:
 	_camera_transition_lock_frames = 0
 	_apply_map_mm_background_art_layout()
 	_resize_world_viewport()
-	apply_camera_fit_next_frame("viewport_size_changed")
 	_center_match_timer()
 	if _prematch_records_panel != null and _prematch_records_panel.visible:
 		_layout_prematch_records_panel(_prematch_records_panel)
@@ -3485,12 +3552,11 @@ func _resize_world_viewport() -> void:
 	var new_w: int = max(1, int(target.x))
 	var new_h: int = max(1, int(target.y))
 	var new_size: Vector2i = Vector2i(new_w, new_h)
-	sv.size = new_size
 	SFLog.info("WVP_RESIZE", {
 		"wvc_path": str(wvc.get_path()),
 		"container_size": wvc.size,
 		"sv_old": old_size,
-		"sv_new": sv.size
+		"sv_new": new_size
 	})
 
 func _ensure_playfield_outline() -> PlayfieldOutline:
@@ -3805,7 +3871,6 @@ func notify_map_built() -> void:
 	_fit_serial += 1
 	_fit_applied_serial = -1
 	_camera_fit_signature_last = ""
-	apply_camera_fit_next_frame("notify_map_built")
 
 func on_map_built() -> void:
 	if _map_built_version == _map_build_version:
@@ -3823,7 +3888,6 @@ func on_map_built() -> void:
 	mark_render_dirty("map_built")
 	_debug_map_bounds("map_built")
 	_debug_camera("map_built")
-	apply_camera_fit_next_frame("pregame_map_built")
 
 func fitcam_once() -> void:
 	apply_camera_fit_next_frame("fitcam_once")
@@ -4446,6 +4510,8 @@ func _compute_fit_zoom_for_mode(viewport_size: Vector2, margin: float, fit_mode:
 func _visible_camera_viewport_size(camera_node: Camera2D) -> Vector2:
 	if camera_node == null:
 		return Vector2.ZERO
+	if _camera_fit_viewport_override_px.x > 1.0 and _camera_fit_viewport_override_px.y > 1.0:
+		return _camera_fit_viewport_override_px
 	var out: Vector2 = Vector2.ZERO
 	var vp: Viewport = camera_node.get_viewport()
 	if vp != null:
@@ -4695,7 +4761,16 @@ func _camera_fit_signature(
 		cam_fit_reserved_bottom_px
 	]
 
+func _camera_fit_reason_allowed(reason: String) -> bool:
+	match reason:
+		"shell_present", "shell_map_apply", "main_map_build", "dev_map_loader_load", "map_builder_node_build", "fitcam_once":
+			return true
+		_:
+			return false
+
 func apply_camera_fit_next_frame(reason: String = "") -> void:
+	if not _camera_fit_reason_allowed(reason):
+		return
 	_allow_camfit_log_tags()
 	_camera_fit_request_serial += 1
 	SFLog.warn("CAMFIT_DEFER_REQUEST", {
@@ -4721,6 +4796,8 @@ func _apply_camera_fit_deferred(reason: String, request_serial: int) -> void:
 	apply_camera_fit(reason)
 
 func apply_camera_fit(reason: String = "") -> bool:
+	if not _camera_fit_reason_allowed(reason):
+		return false
 	_allow_camfit_log_tags()
 	var cam: Camera2D = camera if camera != null else $Camera2D
 	if cam == null:
@@ -4868,6 +4945,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 	if not cam_fit_lock_map_edges_to_container and cam_fit_reserved_bottom_px > 0.0:
 		fit_bottom_px = cam_fit_reserved_bottom_px
 	if cam_fit_mode == FIT_HEIGHT:
+		_camera_fit_viewport_override_px = visible_vp_size
 		var bounds_for_height: Rect2 = map_bounds
 		if bounds_for_height.size.x <= 1.0 or bounds_for_height.size.y <= 1.0:
 			bounds_for_height = arena_rect
@@ -4887,6 +4965,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 			fit_bias_x_px,
 			fit_bias_y_px
 		)
+		_camera_fit_viewport_override_px = Vector2.ZERO
 		if bool(hfit.get("ok", false)):
 			var z_h: float = float(hfit.get("z", 1.0))
 			var zoom_target_h: Vector2 = hfit.get("zoom", Vector2.ONE) as Vector2

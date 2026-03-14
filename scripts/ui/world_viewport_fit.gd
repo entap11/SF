@@ -83,8 +83,8 @@ func _apply_layout() -> void:
 		var w: int = max(1, int(container_size.x))
 		var h: int = max(1, int(container_size.y))
 		sv_size = Vector2i(w, h)
-		if sv.size != sv_size:
-			sv.size = sv_size
+		# With SubViewportContainer.stretch enabled, the container owns the viewport size.
+		# Writing sv.size here just produces warnings and adds another hidden resize path.
 
 	if show_debug_outline:
 		if _debug_outline == null or not is_instance_valid(_debug_outline):

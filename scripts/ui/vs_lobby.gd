@@ -640,10 +640,11 @@ func _start_match() -> void:
 		var ops_state: Node = get_node_or_null("/root/OpsState")
 		if ops_state != null and ops_state.has_method("set_team_mode_override"):
 			ops_state.call("set_team_mode_override", "ffa")
-	if _mode == "MISS_N_OUT":
-		tree.change_scene_to_file(SHELL_SCENE_PATH)
-	else:
-		tree.change_scene_to_file("res://scenes/Main.tscn")
+		match _mode:
+			"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
+				tree.change_scene_to_file(SHELL_SCENE_PATH)
+			_:
+				tree.change_scene_to_file("res://scenes/Main.tscn")
 
 func _remote_profile_for_tree() -> Dictionary:
 	if _session_id.is_empty() or _handshake() == null:

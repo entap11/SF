@@ -506,9 +506,21 @@ func _process(delta: float) -> void:
 	_update_visibility_from_state()
 
 func _update_visibility_from_state() -> void:
-	var phase: int = int(OpsState.match_phase)
-	var prematch_ms: int = int(OpsState.prematch_remaining_ms)
-	var should_show: bool = (phase != int(OpsState.MatchPhase.PREMATCH)) or (prematch_ms <= 0) or _show_during_async_prematch()
+	var ops_state: Node = _resolve_ops_state_node()
+	if ops_state == null:
+		var should_show_without_ops: bool = _shell_arena_is_visible() and _async_mode_wants_visibility()
+		if visible != should_show_without_ops:
+			visible = should_show_without_ops
+		if should_show_without_ops and modulate.a < 0.99:
+			modulate.a = 1.0
+		elif not should_show_without_ops and modulate.a > 0.01:
+			modulate.a = 0.0
+		return
+	var phase: int = int(ops_state.get("match_phase"))
+	var prematch_ms: int = int(ops_state.get("prematch_remaining_ms"))
+	var match_phase_enum: Variant = ops_state.get("MatchPhase")
+	var prematch_phase: int = int(match_phase_enum.PREMATCH) if match_phase_enum != null else 0
+	var should_show: bool = (phase != prematch_phase) or (prematch_ms <= 0) or _show_during_async_prematch()
 	if visible != should_show:
 		visible = should_show
 	if should_show and modulate.a < 0.99:
@@ -526,10 +538,35 @@ func _update_visibility_from_state() -> void:
 		})
 
 func _show_during_async_prematch() -> bool:
-	if OpsState == null:
+	var ops_state: Node = _resolve_ops_state_node()
+	if ops_state == null:
+		return _async_mode_wants_visibility()
+	var match_phase_enum: Variant = ops_state.get("MatchPhase")
+	var prematch_phase: int = int(match_phase_enum.PREMATCH) if match_phase_enum != null else 0
+	if int(ops_state.get("match_phase")) != prematch_phase:
 		return false
-	if int(OpsState.match_phase) != int(OpsState.MatchPhase.PREMATCH):
+	return _async_mode_wants_visibility()
+
+func _resolve_ops_state_node() -> Node:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	var root: Window = tree.get_root()
+	if root == null:
+		return null
+	return root.get_node_or_null("/root/OpsState")
+
+func _shell_arena_is_visible() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
 		return false
+	var root: Window = tree.get_root()
+	if root == null:
+		return false
+	var arena_root: CanvasItem = root.get_node_or_null("/root/Shell/ArenaRoot") as CanvasItem
+	return arena_root != null and arena_root.visible
+
+func _async_mode_wants_visibility() -> bool:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return false
