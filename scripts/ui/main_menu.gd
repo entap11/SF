@@ -244,6 +244,7 @@ var _dash_achievements_hero: Control = null
 var _dash_active_tab: String = DASH_HERO_TAB_GARAGE
 var _honey_widget: Control = null
 var _tier_widget: Control = null
+var _game_hub_live_refresh_pending: bool = false
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -514,7 +515,20 @@ const GAME_HUB_CANCEL_BUTTON_SIZE: Vector2 = Vector2(236.0, 82.0)
 const GAME_HUB_FREE_TOP_ROW_SCALE: float = 1.75
 const GAME_HUB_FREE_LOWER_ROWS_SCALE: float = 1.35
 const GAME_HUB_CONTENT_SHIFT_X: float = -20.0
+const GAME_HUB_FREE_CENTER_BIAS_X: float = 0.0
+const GAME_HUB_FREE_CENTER_TRACK_RIGHT_INSET: float = 84.0
+const GAME_HUB_FREE_BUTTON_TRACK_RIGHT_INSET: float = 96.0
+const GAME_HUB_FREE_LAYOUT_VERSION: int = 6
 const GAME_HUB_CONTENT_TOP_PADDING_PX: float = 24.0
+const GAME_HUB_FREE_CONTENT_TOP_PADDING_PX: float = 42.0
+const GAME_HUB_FREE_BODY_SEPARATION: int = 14
+const GAME_HUB_FREE_CLUSTER_SPACING: int = 10
+const GAME_HUB_FREE_TRIPLE_ROW_SCALE: float = 0.88
+const GAME_HUB_FREE_TRIPLE_ROW_SEPARATION: int = 4
+const GAME_HUB_FREE_TRIPLE_ROW_SHIFT_X: float = 56.0
+const GAME_HUB_FREE_SECTION_SPACER_PX: float = 14.0
+const GAME_HUB_FREE_MAP_GROUP_SPACER_PX: float = 12.0
+const GAME_HUB_FREE_BOTTOM_SPACER_PX: float = 20.0
 const GAME_HUB_SECTION_HEADER_COLOR: Color = Color8(201, 204, 214, 255)
 const GAME_HUB_SECTION_SUBTEXT_COLOR: Color = Color(0.86, 0.88, 0.92, 0.60)
 const GAME_HUB_BLOCK_LABEL_COLOR: Color = Color(0.82, 0.85, 0.90, 0.78)
@@ -948,6 +962,7 @@ const STORE_SKUS := [
 ]
 
 func _ready() -> void:
+	set_process(true)
 	_load_fonts()
 	_apply_background_art_direction()
 	_ensure_tier_widget()
@@ -982,7 +997,39 @@ func _ready() -> void:
 	status_label.text = "Ready"
 	_bind_onboarding_gate()
 
+func _process(_delta: float) -> void:
+	_refresh_open_free_roll_game_hub_if_stale()
+
+func _refresh_open_free_roll_game_hub_if_stale() -> void:
+	if _game_hub_live_refresh_pending:
+		return
+	if _entry_route_modal == null or not is_instance_valid(_entry_route_modal):
+		return
+	var title_label: Label = _entry_route_modal.get_node_or_null("EntryScroll/EntryBody/EntryTitle") as Label
+	if title_label == null:
+		return
+	if title_label.text.strip_edges().to_upper() != "FREE ROLL":
+		return
+	var current_version: int = int(_entry_route_modal.get_meta("sf_free_layout_version", -1))
+	if current_version == GAME_HUB_FREE_LAYOUT_VERSION:
+		return
+	_game_hub_live_refresh_pending = true
+	call_deferred("_rebuild_open_free_roll_game_hub")
+
+func _rebuild_open_free_roll_game_hub() -> void:
+	_game_hub_live_refresh_pending = false
+	if _entry_route_modal == null or not is_instance_valid(_entry_route_modal):
+		return
+	var title_label: Label = _entry_route_modal.get_node_or_null("EntryScroll/EntryBody/EntryTitle") as Label
+	if title_label == null:
+		return
+	if title_label.text.strip_edges().to_upper() != "FREE ROLL":
+		return
+	_close_entry_route_modal()
+	_open_game_hub(false, 0)
+
 func _input(event: InputEvent) -> void:
+	_refresh_open_free_roll_game_hub_if_stale()
 	if _buff_drag_state.is_empty():
 		return
 	if event is InputEventMouseMotion:
@@ -4903,35 +4950,54 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var extra_bottom: float = minf(GAME_HUB_OVERLAY_EXTRA_BOTTOM_PX, remaining_down_space)
 	panel.offset_bottom += extra_bottom
 	var broadcast_free_roll: bool = true
+	var title_center_track_right_inset_px: float = GAME_HUB_FREE_CENTER_TRACK_RIGHT_INSET if not paid else 0.0
 	_apply_game_hub_panel_fx(panel)
-	_apply_game_hub_title_treatment(panel, title)
+	_apply_game_hub_title_treatment(panel, title, title_center_track_right_inset_px)
+	if not paid:
+		panel.set_meta("sf_free_layout_version", GAME_HUB_FREE_LAYOUT_VERSION)
 	var body: VBoxContainer = _entry_overlay_body(panel)
 	if body == null:
 		return
 	var top_row_scale: float = 1.0
 	var lower_rows_scale: float = 1.0
+	var centered_content_bias_x: float = 0.0
+	var section_label_rebound_x: float = 0.0
+	var button_track_right_inset_px: float = 0.0
+	var content_top_padding_px: float = GAME_HUB_CONTENT_TOP_PADDING_PX
+	var body_separation: int = 8
+	var cluster_spacing: int = 6
 	if not paid:
 		top_row_scale = GAME_HUB_FREE_TOP_ROW_SCALE
 		lower_rows_scale = GAME_HUB_FREE_LOWER_ROWS_SCALE
-	body.offset_top += extra_top + GAME_HUB_CONTENT_TOP_PADDING_PX
-	body.offset_left += GAME_HUB_CONTENT_SHIFT_X
-	body.offset_right += GAME_HUB_CONTENT_SHIFT_X
-	body.add_theme_constant_override("separation", 8 if paid else 7)
-	var cluster_spacing: int = 6 if paid else 5
+		centered_content_bias_x = GAME_HUB_FREE_CENTER_BIAS_X
+		section_label_rebound_x = -centered_content_bias_x
+		button_track_right_inset_px = GAME_HUB_FREE_BUTTON_TRACK_RIGHT_INSET
+		content_top_padding_px = GAME_HUB_FREE_CONTENT_TOP_PADDING_PX
+		body_separation = GAME_HUB_FREE_BODY_SEPARATION
+		cluster_spacing = GAME_HUB_FREE_CLUSTER_SPACING
+	body.offset_top += extra_top + content_top_padding_px
+	body.offset_left += GAME_HUB_CONTENT_SHIFT_X + centered_content_bias_x
+	body.offset_right += GAME_HUB_CONTENT_SHIFT_X + centered_content_bias_x
+	body.add_theme_constant_override("separation", body_separation)
 	if paid:
 		_build_money_games_division_layer(body, panel, broadcast_free_roll)
-	_add_game_hub_block_label(body, "MATCH TYPE", broadcast_free_roll)
+	_add_game_hub_block_label(body, "MATCH TYPE", broadcast_free_roll, section_label_rebound_x)
 	var match_type_block := VBoxContainer.new()
 	match_type_block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	match_type_block.add_theme_constant_override("separation", cluster_spacing)
 	body.add_child(match_type_block)
-	_add_game_hub_section_header(match_type_block, "HUMAN MATCHES", "Live competitive matches", broadcast_free_roll)
+	_add_game_hub_section_header(match_type_block, "HUMAN MATCHES", "Live competitive matches", broadcast_free_roll, section_label_rebound_x)
+	var human_row_host: Control = _make_game_hub_center_track(match_type_block, button_track_right_inset_px)
+	var human_row_wrap := HBoxContainer.new()
+	human_row_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	human_row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
+	human_row_host.add_child(human_row_wrap)
 	var human_row := GridContainer.new()
 	human_row.columns = 3
 	human_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	human_row.add_theme_constant_override("h_separation", cluster_spacing)
 	human_row.add_theme_constant_override("v_separation", cluster_spacing)
-	match_type_block.add_child(human_row)
+	human_row_wrap.add_child(human_row)
 	for mode_id in ["1V1", "CTF", "HIDDEN CTF", "2V2", "3P FFA", "4P FFA"]:
 		var chosen_mode: String = mode_id
 		var button := Button.new()
@@ -4944,16 +5010,24 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		_apply_human_mode_skin_to_button(button, chosen_mode, paid, selected_denom)
 		_tune_game_hub_human_button(button, top_row_scale)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
-	_add_game_hub_section_header(match_type_block, "TIME PUZZLES", "Race against time & ranking", broadcast_free_roll)
+	if not paid:
+		_add_game_hub_spacer(match_type_block, GAME_HUB_FREE_SECTION_SPACER_PX)
+	_add_game_hub_section_header(match_type_block, "TIME PUZZLES", "Race against time & ranking", broadcast_free_roll, section_label_rebound_x)
+	var cycle_row_host: Control = _make_game_hub_center_track(match_type_block, button_track_right_inset_px)
 	var cycle_row_wrap := HBoxContainer.new()
 	cycle_row_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cycle_row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
-	match_type_block.add_child(cycle_row_wrap)
+	cycle_row_host.add_child(cycle_row_wrap)
 	var cycle_row := GridContainer.new()
 	cycle_row.columns = 3
 	cycle_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	cycle_row.add_theme_constant_override("h_separation", 6)
-	cycle_row.add_theme_constant_override("v_separation", 6)
+	var cycle_row_separation: int = cluster_spacing
+	var cycle_button_scale: float = lower_rows_scale
+	if not paid:
+		cycle_row_separation = GAME_HUB_FREE_TRIPLE_ROW_SEPARATION
+		cycle_button_scale *= GAME_HUB_FREE_TRIPLE_ROW_SCALE
+	cycle_row.add_theme_constant_override("h_separation", cycle_row_separation)
+	cycle_row.add_theme_constant_override("v_separation", cluster_spacing)
 	cycle_row_wrap.add_child(cycle_row)
 	var cycle_items := [
 		{"label": "WEEKLY", "id": "WEEKLY"},
@@ -4973,11 +5047,13 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
 		cycle_row.add_child(button)
 		_apply_async_cycle_skin_to_button(button, label, paid, selected_denom)
-		_tune_game_hub_cycle_button(button, lower_rows_scale)
+		_tune_game_hub_cycle_button(button, cycle_button_scale)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
+	if not paid:
+		_add_game_hub_spacer(body, GAME_HUB_FREE_SECTION_SPACER_PX)
 	_add_game_hub_block_divider(body, broadcast_free_roll)
 	_add_game_hub_spacer(body, GAME_HUB_BLOCK_SPACING_PX if paid else GAME_HUB_BLOCK_SPACING_FREE_PX)
-	_add_game_hub_block_label(body, "MAP CONFIG", broadcast_free_roll)
+	_add_game_hub_block_label(body, "MAP CONFIG", broadcast_free_roll, section_label_rebound_x)
 	var map_block := VBoxContainer.new()
 	map_block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	map_block.add_theme_constant_override("separation", cluster_spacing)
@@ -4986,23 +5062,30 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		{"label": "CAPTURE FLAG", "id": "CAPTURE_FLAG"},
 		{"label": "HIDDEN FLAG", "id": "HIDDEN_CAPTURE_FLAG"}
 	]
-	_add_game_hub_map_group(map_block, "1 MAP", one_map_items, paid, selected_denom, broadcast_free_roll, lower_rows_scale)
+	_add_game_hub_map_group(map_block, "1 MAP", one_map_items, paid, selected_denom, not paid, broadcast_free_roll, lower_rows_scale, section_label_rebound_x, button_track_right_inset_px)
+	if not paid:
+		_add_game_hub_spacer(map_block, GAME_HUB_FREE_MAP_GROUP_SPACER_PX)
 	var three_map_items := [
 		{"label": "STAGE RACE", "id": "STAGE_RACE_3"},
 		{"label": "RACE", "id": "TIMED_RACE_3"},
 		{"label": "MISS N OUT", "id": "MISS_N_OUT_3"}
 	]
-	_add_game_hub_map_group(map_block, "3 MAP", three_map_items, paid, selected_denom, broadcast_free_roll, lower_rows_scale)
+	_add_game_hub_map_group(map_block, "3 MAP", three_map_items, paid, selected_denom, not paid, broadcast_free_roll, lower_rows_scale, section_label_rebound_x, button_track_right_inset_px)
+	if not paid:
+		_add_game_hub_spacer(map_block, GAME_HUB_FREE_MAP_GROUP_SPACER_PX)
 	var five_map_items := [
 		{"label": "STAGE RACE", "id": "STAGE_RACE_5"},
 		{"label": "RACE", "id": "TIMED_RACE_5"},
 		{"label": "MISS N OUT", "id": "MISS_N_OUT_5"}
 	]
-	_add_game_hub_map_group(map_block, "5 MAP", five_map_items, paid, selected_denom, broadcast_free_roll, lower_rows_scale)
+	_add_game_hub_map_group(map_block, "5 MAP", five_map_items, paid, selected_denom, not paid, broadcast_free_roll, lower_rows_scale, section_label_rebound_x, button_track_right_inset_px)
+	if not paid:
+		_add_game_hub_spacer(body, GAME_HUB_FREE_BOTTOM_SPACER_PX)
+	var cancel_row_host: Control = _make_game_hub_center_track(body, button_track_right_inset_px)
 	var cancel_row := HBoxContainer.new()
 	cancel_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cancel_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	body.add_child(cancel_row)
+	cancel_row_host.add_child(cancel_row)
 	var cancel := Button.new()
 	cancel.text = "CANCEL"
 	cancel.pressed.connect(_close_entry_route_modal)
@@ -5037,9 +5120,37 @@ func _tune_game_hub_cycle_button(button: Button, size_scale: float = 1.0) -> voi
 	button.custom_minimum_size = _scaled_game_hub_size(GAME_HUB_CYCLE_BUTTON_SIZE, size_scale)
 	button.set("icon_max_width", _scaled_game_hub_icon_width(GAME_HUB_CYCLE_ICON_MAX_WIDTH, size_scale))
 
-func _add_game_hub_block_label(parent: VBoxContainer, text_value: String, subdued: bool = false) -> void:
+func _apply_game_hub_center_track_shift(track: MarginContainer, shift_x_px: float) -> void:
+	if track == null:
+		return
+	track.add_theme_constant_override("margin_left", int(round(-shift_x_px)))
+	track.add_theme_constant_override("margin_right", int(round(shift_x_px)))
+
+func _make_game_hub_center_track(parent: Control, right_inset_px: float = 0.0) -> Control:
+	if parent == null or is_zero_approx(right_inset_px):
+		return parent
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_game_hub_center_track_shift(margin, right_inset_px)
+	parent.add_child(margin)
+	return margin
+
+func _make_game_hub_label_container(parent: Control, rebound_x: float = 0.0) -> Control:
+	if parent == null or is_zero_approx(rebound_x):
+		return parent
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if rebound_x > 0.0:
+		margin.add_theme_constant_override("margin_left", int(round(rebound_x)))
+	elif rebound_x < 0.0:
+		margin.add_theme_constant_override("margin_right", int(round(-rebound_x)))
+	parent.add_child(margin)
+	return margin
+
+func _add_game_hub_block_label(parent: VBoxContainer, text_value: String, subdued: bool = false, rebound_x: float = 0.0) -> void:
 	if parent == null:
 		return
+	var container: Control = _make_game_hub_label_container(parent, rebound_x)
 	var label := Label.new()
 	label.text = text_value.strip_edges().to_upper()
 	var label_color: Color = GAME_HUB_BLOCK_LABEL_COLOR
@@ -5049,12 +5160,17 @@ func _add_game_hub_block_label(parent: VBoxContainer, text_value: String, subdue
 	label.add_theme_constant_override("outline_size", 0)
 	if subdued:
 		label.add_theme_constant_override("font_spacing", 1)
-	parent.add_child(label)
+	container.add_child(label)
 	_apply_font(label, _font_regular if subdued else _font_semibold, 11)
 
-func _add_game_hub_section_header(parent: VBoxContainer, heading: String, subtext: String = "", subdued: bool = false) -> void:
+func _add_game_hub_section_header(parent: VBoxContainer, heading: String, subtext: String = "", subdued: bool = false, rebound_x: float = 0.0) -> void:
 	if parent == null:
 		return
+	var container: Control = _make_game_hub_label_container(parent, rebound_x)
+	var section := VBoxContainer.new()
+	section.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	section.add_theme_constant_override("separation", 0)
+	container.add_child(section)
 	var heading_label := Label.new()
 	heading_label.text = heading.strip_edges().to_upper()
 	var heading_color: Color = GAME_HUB_SECTION_HEADER_COLOR
@@ -5064,7 +5180,7 @@ func _add_game_hub_section_header(parent: VBoxContainer, heading: String, subtex
 	heading_label.add_theme_constant_override("outline_size", 0)
 	if subdued:
 		heading_label.add_theme_constant_override("font_spacing", 1)
-	parent.add_child(heading_label)
+	section.add_child(heading_label)
 	_apply_font(heading_label, _font_regular if subdued else _font_semibold, 13)
 	if subtext.is_empty():
 		return
@@ -5075,7 +5191,7 @@ func _add_game_hub_section_header(parent: VBoxContainer, heading: String, subtex
 		subtext_color = Color(subtext_color.r, subtext_color.g, subtext_color.b, 0.66)
 	subtext_label.add_theme_color_override("font_color", subtext_color)
 	subtext_label.add_theme_constant_override("outline_size", 0)
-	parent.add_child(subtext_label)
+	section.add_child(subtext_label)
 	_apply_font(subtext_label, _font_regular, 12 if subdued else 11)
 
 func _add_game_hub_block_divider(parent: VBoxContainer, subdued: bool = false) -> void:
@@ -5484,21 +5600,32 @@ func _add_game_hub_map_group(
 		items: Array,
 		paid: bool,
 		selected_denom: int,
+		free_layout: bool = false,
 		broadcast_free_roll: bool = false,
-		size_scale: float = 1.0
+		size_scale: float = 1.0,
+		rebound_x: float = 0.0,
+		center_track_right_inset_px: float = 0.0
 	) -> void:
 	if parent == null:
 		return
-	_add_game_hub_section_header(parent, heading, "", broadcast_free_roll)
+	_add_game_hub_section_header(parent, heading, "", broadcast_free_roll, rebound_x)
+	var row_host: Control = _make_game_hub_center_track(parent, center_track_right_inset_px)
 	var row_wrap := HBoxContainer.new()
 	row_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
-	parent.add_child(row_wrap)
+	row_host.add_child(row_wrap)
 	var row := GridContainer.new()
 	row.columns = 3
 	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	row.add_theme_constant_override("h_separation", 6)
-	row.add_theme_constant_override("v_separation", 6)
+	var row_separation: int = 6
+	var row_button_scale: float = size_scale
+	if free_layout:
+		row_separation = 10
+		if items.size() >= 3:
+			row_separation = GAME_HUB_FREE_TRIPLE_ROW_SEPARATION
+			row_button_scale *= GAME_HUB_FREE_TRIPLE_ROW_SCALE
+	row.add_theme_constant_override("h_separation", row_separation)
+	row.add_theme_constant_override("v_separation", row_separation)
 	row_wrap.add_child(row)
 	for item_any in items:
 		if typeof(item_any) != TYPE_DICTIONARY:
@@ -5517,7 +5644,7 @@ func _add_game_hub_map_group(
 			button.pressed.connect(func(): _on_async_mode_selected(chosen_mode_id, false, 0))
 		row.add_child(button)
 		_apply_async_mode_skin_to_button(button, label, paid, _money_games_selected_tier if paid else selected_denom)
-		_compact_game_hub_async_mode_button(button, size_scale)
+		_compact_game_hub_async_mode_button(button, row_button_scale)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 
 func _style_game_hub_cancel_button(button: Button, size_scale: float = 1.0) -> void:
@@ -5838,7 +5965,7 @@ func _build_game_hub_radial_texture(colors: PackedColorArray, offsets: PackedFlo
 	texture.gradient = gradient
 	return texture
 
-func _apply_game_hub_title_treatment(panel: Panel, title: String) -> void:
+func _apply_game_hub_title_treatment(panel: Panel, title: String, center_track_right_inset_px: float = 0.0) -> void:
 	if panel == null:
 		return
 	if title.strip_edges().to_upper() != "FREE ROLL":
@@ -5846,6 +5973,34 @@ func _apply_game_hub_title_treatment(panel: Panel, title: String) -> void:
 	var title_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntryTitle") as Label
 	if title_label == null:
 		return
+	var subtitle_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntrySubtitle") as Label
+	var body: VBoxContainer = panel.get_node_or_null("EntryScroll/EntryBody") as VBoxContainer
+	if body != null and center_track_right_inset_px > 0.0:
+		var header_track: MarginContainer = body.get_node_or_null("FreeRollHeaderTrack") as MarginContainer
+		var header_box: VBoxContainer = null
+		if header_track == null:
+			header_track = MarginContainer.new()
+			header_track.name = "FreeRollHeaderTrack"
+			header_track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_apply_game_hub_center_track_shift(header_track, center_track_right_inset_px)
+			header_box = VBoxContainer.new()
+			header_box.name = "FreeRollHeaderVBox"
+			header_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			header_box.add_theme_constant_override("separation", 0)
+			if title_label.get_parent() != null:
+				title_label.get_parent().remove_child(title_label)
+			if subtitle_label != null and subtitle_label.get_parent() != null:
+				subtitle_label.get_parent().remove_child(subtitle_label)
+			body.add_child(header_track)
+			body.move_child(header_track, 0)
+			header_track.add_child(header_box)
+			header_box.add_child(title_label)
+			if subtitle_label != null:
+				header_box.add_child(subtitle_label)
+		else:
+			header_box = header_track.get_node_or_null("FreeRollHeaderVBox") as VBoxContainer
+			if header_box != null:
+				_apply_game_hub_center_track_shift(header_track, center_track_right_inset_px)
 	if not _apply_free_roll_atlas_font(title_label, 22):
 		_apply_font(title_label, _font_semibold, 20)
 	title_label.add_theme_color_override("font_color", Color(0.995, 0.997, 1.0, 1.0))
@@ -5853,11 +6008,9 @@ func _apply_game_hub_title_treatment(panel: Panel, title: String) -> void:
 	title_label.add_theme_color_override("font_outline_color", Color(GAME_HUB_TITLE_OUTLINE_COLOR.r, GAME_HUB_TITLE_OUTLINE_COLOR.g, GAME_HUB_TITLE_OUTLINE_COLOR.b, 0.08))
 	title_label.add_theme_constant_override("font_spacing", 1)
 	_apply_free_roll_title_micro_gradient(title_label)
-	var subtitle_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntrySubtitle") as Label
 	if subtitle_label != null:
 		_apply_font(subtitle_label, _font_regular, 13)
 		subtitle_label.add_theme_color_override("font_color", Color(0.86, 0.89, 0.94, 0.88))
-	var body: VBoxContainer = panel.get_node_or_null("EntryScroll/EntryBody") as VBoxContainer
 	if body != null:
 		body.add_theme_constant_override("separation", 8)
 
