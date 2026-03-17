@@ -3,8 +3,7 @@ class_name DashBuffsHero
 
 const BuffCatalog := preload("res://scripts/state/buff_catalog.gd")
 
-const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const BUFF_MODE_VS: String = "vs"
 const BUFF_MODE_ASYNC: String = "async"
 
@@ -42,10 +41,8 @@ func refresh_view() -> void:
 	_refresh_footer()
 
 func _load_fonts() -> void:
-	if ResourceLoader.exists(FONT_REGULAR_PATH):
-		_font_regular = load(FONT_REGULAR_PATH) as Font
-	if ResourceLoader.exists(FONT_SEMIBOLD_PATH):
-		_font_semibold = load(FONT_SEMIBOLD_PATH) as Font
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
 
 func _style_ui() -> void:
 	title_label.text = "BUFFS"
@@ -158,11 +155,7 @@ func _mode_owned_ids() -> Array[String]:
 	return out
 
 func _apply_font(control: Control, font: Font, size: int) -> void:
-	if control == null:
-		return
-	if font != null:
-		control.add_theme_font_override("font", font)
-	control.add_theme_font_size_override("font_size", maxi(1, size))
+	UITypography.apply_font(control, font, size)
 
 func _style_button(button: Button, fill: Color, border: Color, text_color: Color) -> void:
 	if button == null:

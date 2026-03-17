@@ -1,13 +1,10 @@
 extends Control
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
 signal closed
 
-const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
-const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/free_roll_display_v2_font.tres"
-const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 const BASE_MIN_PLAYERS := 5
 const BASE_MAX_PLAYERS := 10
 const MISS_N_OUT_MIN_PLAYERS := 4
@@ -157,10 +154,6 @@ func _ready() -> void:
 func _refresh_summary() -> void:
 	var price_text := "Free Roll" if _free_roll else "$%d Entry" % _price_usd
 	var summary_text: String = "%s | %d Maps | %s" % [_mode_label(_mode), _map_count, price_text]
-	if OS.is_debug_build() and _uses_async_window():
-		var style_label: String = "Default" if _dev_async_bot_style_override.is_empty() else _dev_async_bot_style_override.replace("_", " ").capitalize()
-		var tier_label: String = "Default" if _dev_async_bot_tier_override.is_empty() else _dev_async_bot_tier_override.capitalize()
-		summary_text += " | CPU %s / %s" % [style_label, tier_label]
 	summary_label.text = summary_text
 
 func _on_quick_match() -> void:
@@ -952,7 +945,7 @@ func _setup_dev_bot_options() -> void:
 func _sync_dev_bot_controls() -> void:
 	if dev_bot_row == null:
 		return
-	var show_row: bool = OS.is_debug_build() and _uses_async_window()
+	var show_row: bool = false
 	dev_bot_row.visible = show_row
 	if not show_row:
 		return
@@ -1036,9 +1029,9 @@ func _format_duration(total_seconds: int) -> String:
 	return "%02d:%02d" % [minutes, seconds]
 
 func _load_fonts() -> void:
-	_font_regular = load(FONT_REGULAR_PATH)
-	_font_semibold = load(FONT_SEMIBOLD_PATH)
-	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
+	_font_free_roll_atlas = UITypography.free_roll_font()
 
 func _apply_static_fonts() -> void:
 	_apply_free_roll_atlas_font(title_label, 24)
@@ -1062,36 +1055,7 @@ func _apply_quick_button_font() -> void:
 		_apply_font(quick_button, _font_semibold, 15)
 
 func _apply_font(node: Control, font: Font, size: int) -> void:
-	if node == null or font == null:
-		return
-	node.add_theme_font_override("font", font)
-	node.add_theme_font_size_override("font_size", maxi(1, size))
-
-func _text_uses_free_roll_charset(text: String) -> bool:
-	var source := text.to_upper()
-	for i in source.length():
-		var ch := source.substr(i, 1)
-		if FONT_FREE_ROLL_SUPPORTED.find(ch) == -1:
-			return false
-	return true
+	UITypography.apply_font(node, font, size)
 
 func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
-	if node == null or _font_free_roll_atlas == null:
-		return false
-	var raw_text := ""
-	if node is Label:
-		raw_text = (node as Label).text
-	elif node is BaseButton:
-		raw_text = (node as BaseButton).text
-	if raw_text == "":
-		return false
-	var upper_text := raw_text.to_upper()
-	if not _text_uses_free_roll_charset(upper_text):
-		return false
-	if node is Label:
-		(node as Label).text = upper_text
-	elif node is BaseButton:
-		(node as BaseButton).text = upper_text
-	node.add_theme_font_override("font", _font_free_roll_atlas)
-	node.add_theme_font_size_override("font_size", maxi(1, size))
-	return true
+	return UITypography.apply_free_roll_atlas_font(node, size)

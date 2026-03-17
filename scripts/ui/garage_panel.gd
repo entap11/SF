@@ -2,9 +2,7 @@ extends Control
 class_name GaragePanel
 
 const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
-
-const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const CATEGORY_ORDER: Array[String] = ["units", "hives", "lanes", "power_bars", "floors", "vfx"]
 const PREVIEW_BADGE_TEXT: String = "GARAGE HERO"
 const BUFF_MODE_VS: String = "vs"
@@ -73,10 +71,8 @@ func refresh_view() -> void:
 	_refresh_buff_mode_tabs()
 
 func _load_fonts() -> void:
-	if ResourceLoader.exists(FONT_REGULAR_PATH):
-		_font_regular = load(FONT_REGULAR_PATH) as Font
-	if ResourceLoader.exists(FONT_SEMIBOLD_PATH):
-		_font_semibold = load(FONT_SEMIBOLD_PATH) as Font
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
 
 func _bind_profile_signals() -> void:
 	if ProfileManager == null:
@@ -618,11 +614,7 @@ func _on_profile_garage_selection_changed(_category_id: String, _item_id: String
 	refresh_view()
 
 func _apply_font(control: Control, font: Font, size: int) -> void:
-	if control == null:
-		return
-	if font != null:
-		control.add_theme_font_override("font", font)
-	control.add_theme_font_size_override("font_size", maxi(1, size))
+	UITypography.apply_font(control, font, size)
 
 func _style_button(button: Button, fill: Color, border: Color, text_color: Color) -> void:
 	if button == null:

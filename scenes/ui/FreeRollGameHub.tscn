@@ -1,0 +1,278 @@
+[gd_scene format=3 uid="uid://c1xov7gg022fg"]
+
+[node name="FreeRollGameHub" type="Panel"]
+clip_contents = true
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -490.0
+offset_top = -660.0
+offset_right = 490.0
+offset_bottom = 680.0
+
+[node name="EntryScroll" type="ScrollContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 2
+
+[node name="EntryBody" type="VBoxContainer" parent="EntryScroll"]
+custom_minimum_size = Vector2(948, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 14
+
+[node name="EntryTitle" type="Label" parent="EntryScroll/EntryBody"]
+layout_mode = 2
+text = "FREE ROLL"
+horizontal_alignment = 1
+
+[node name="EntrySubtitle" type="Label" parent="EntryScroll/EntryBody"]
+layout_mode = 2
+text = "Select mode and route."
+horizontal_alignment = 1
+
+[node name="EntryCanvas" type="Control" parent="EntryScroll/EntryBody"]
+custom_minimum_size = Vector2(940, 1120)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="MatchTypeLabel" type="Label" parent="EntryScroll/EntryBody/EntryCanvas"]
+layout_mode = 0
+offset_left = 445.0
+offset_top = 20.0
+offset_right = 633.0
+offset_bottom = 43.0
+text = "MATCH TYPE"
+
+[node name="HumanMatchesHeading" type="Label" parent="EntryScroll/EntryBody/EntryCanvas"]
+layout_mode = 0
+offset_left = 32.0
+offset_top = 58.0
+offset_right = 240.0
+offset_bottom = 80.0
+text = "HUMAN MATCHES"
+
+[node name="Human1v1Button" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(172, 72)
+layout_mode = 0
+offset_left = 32.0
+offset_top = 102.0
+offset_right = 204.0
+offset_bottom = 174.0
+scale = Vector2(2.25, 2.25)
+text = "1V1"
+
+[node name="HumanCtfButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(172, 72)
+layout_mode = 0
+offset_left = 294.0
+offset_top = 98.0
+offset_right = 466.0
+offset_bottom = 170.0
+scale = Vector2(2.25, 2.25)
+text = "CTF"
+
+[node name="HumanHiddenCtfButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(172, 72)
+layout_mode = 0
+offset_left = 583.0
+offset_top = 104.0
+offset_right = 755.0
+offset_bottom = 176.0
+scale = Vector2(2.25, 2.25)
+text = "HIDDEN CTF"
+
+[node name="Human2v2Button" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(172, 72)
+layout_mode = 0
+offset_left = 95.0
+offset_top = 233.0
+offset_right = 267.0
+offset_bottom = 305.0
+scale = Vector2(1.3, 1.3)
+text = "2V2"
+
+[node name="Human3pFfaButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(172, 72)
+layout_mode = 0
+offset_left = 384.0
+offset_top = 229.0
+offset_right = 556.0
+offset_bottom = 301.0
+scale = Vector2(1.3, 1.3)
+text = "3P FFA"
+
+[node name="Human4pFfaButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(172, 72)
+layout_mode = 0
+offset_left = 675.0
+offset_top = 235.0
+offset_right = 847.0
+offset_bottom = 307.0
+scale = Vector2(1.3, 1.3)
+text = "4P FFA"
+
+[node name="TimePuzzlesHeading" type="Label" parent="EntryScroll/EntryBody/EntryCanvas"]
+layout_mode = 0
+offset_left = 445.0
+offset_top = 347.0
+offset_right = 641.0
+offset_bottom = 370.0
+text = "TIME PUZZLES"
+
+[node name="TimePuzzlesSubtext" type="Label" parent="EntryScroll/EntryBody/EntryCanvas"]
+layout_mode = 0
+offset_left = 407.0
+offset_top = 385.0
+offset_right = 695.0
+offset_bottom = 408.0
+text = "Race against time & ranking"
+
+[node name="WeeklyButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(286, 108)
+layout_mode = 0
+offset_left = 106.0
+offset_top = 435.0
+offset_right = 392.0
+offset_bottom = 543.0
+scale = Vector2(0.75, 0.75)
+text = "WEEKLY"
+
+[node name="MonthlyButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(286, 108)
+layout_mode = 0
+offset_left = 395.0
+offset_top = 439.0
+offset_right = 681.0
+offset_bottom = 547.0
+scale = Vector2(0.75, 0.75)
+text = "MONTHLY"
+
+[node name="SeasonButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(286, 108)
+layout_mode = 0
+offset_left = 679.0
+offset_top = 439.0
+offset_right = 965.0
+offset_bottom = 547.0
+scale = Vector2(0.75, 0.75)
+text = "SEASON"
+
+[node name="MapConfigDivider" type="ColorRect" parent="EntryScroll/EntryBody/EntryCanvas"]
+layout_mode = 0
+offset_left = 32.0
+offset_top = 540.0
+offset_right = 908.0
+offset_bottom = 541.0
+
+[node name="OneMapHeading" type="Label" parent="EntryScroll/EntryBody/EntryCanvas"]
+layout_mode = 0
+offset_left = 37.0
+offset_top = 561.0
+offset_right = 145.0
+offset_bottom = 584.0
+text = "1 MAP"
+
+[node name="CaptureFlagButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 223.0
+offset_top = 595.0
+offset_right = 459.0
+offset_bottom = 677.0
+text = "CAPTURE FLAG"
+
+[node name="HiddenFlagButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 542.0
+offset_top = 595.0
+offset_right = 778.0
+offset_bottom = 677.0
+text = "HIDDEN FLAG"
+
+[node name="ThreeMapHeading" type="Label" parent="EntryScroll/EntryBody/EntryCanvas"]
+layout_mode = 0
+offset_left = 38.0
+offset_top = 695.0
+offset_right = 146.0
+offset_bottom = 718.0
+text = "3 MAP"
+
+[node name="StageRace3Button" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 95.0
+offset_top = 728.0
+offset_right = 331.0
+offset_bottom = 810.0
+text = "STAGE RACE"
+
+[node name="TimedRace3Button" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 386.0
+offset_top = 729.0
+offset_right = 622.0
+offset_bottom = 811.0
+text = "RACE"
+
+[node name="MissNOut3Button" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 679.0
+offset_top = 729.0
+offset_right = 915.0
+offset_bottom = 811.0
+text = "MISS N OUT"
+
+[node name="FiveMapHeading" type="Label" parent="EntryScroll/EntryBody/EntryCanvas"]
+layout_mode = 0
+offset_left = 33.0
+offset_top = 842.0
+offset_right = 141.0
+offset_bottom = 865.0
+text = "5 MAP"
+
+[node name="StageRace5Button" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 102.0
+offset_top = 874.0
+offset_right = 338.0
+offset_bottom = 956.0
+text = "STAGE RACE"
+
+[node name="TimedRace5Button" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 389.0
+offset_top = 872.0
+offset_right = 625.0
+offset_bottom = 954.0
+text = "RACE"
+
+[node name="MissNOut5Button" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 684.0
+offset_top = 873.0
+offset_right = 920.0
+offset_bottom = 955.0
+text = "MISS N OUT"
+
+[node name="CancelButton" type="Button" parent="EntryScroll/EntryBody/EntryCanvas"]
+custom_minimum_size = Vector2(236, 82)
+layout_mode = 0
+offset_left = 372.0
+offset_top = 1043.0
+offset_right = 608.0
+offset_bottom = 1125.0
+text = "CANCEL"

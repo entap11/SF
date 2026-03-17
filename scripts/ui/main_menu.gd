@@ -9,9 +9,11 @@ const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePass
 const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
 const JUKEBOX_PANEL_SCENE: PackedScene = preload("res://scenes/ui/JukeboxPanel.tscn")
 const GARAGE_PANEL_SCENE: PackedScene = preload("res://scenes/ui/GaragePanel.tscn")
+const FREE_ROLL_GAME_HUB_SCENE: PackedScene = preload("res://scenes/ui/FreeRollGameHub.tscn")
 const DASH_BUFFS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashBuffsHero.tscn")
 const DASH_ACHIEVEMENTS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashAchievementsHero.tscn")
 const HEX_SEAM_BACKGROUND_SCENE: PackedScene = preload("res://ui/backgrounds/HexSeamBackground.tscn")
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MATCH_BACKGROUND_INLAY_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/match_background_inlay.png")
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
 const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
@@ -38,10 +40,6 @@ const MM_HERO_PANEL_ANCHOR_RIGHT: float = 0.86
 const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
 const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
 
-const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
-const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/free_roll_display_v2_font.tres"
-const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
 const HIVE_BUTTON_SCALE: float = 1.5
@@ -1286,9 +1284,9 @@ func _on_onboarding_done() -> void:
 	onboarding_overlay.visible = false
 
 func _load_fonts() -> void:
-	_font_regular = load(FONT_REGULAR_PATH)
-	_font_semibold = load(FONT_SEMIBOLD_PATH)
-	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
+	_font_free_roll_atlas = UITypography.free_roll_font()
 
 func _style_labels() -> void:
 	_apply_display_label($TopBar/RankLabel, 16, _font_regular, 16)
@@ -1950,45 +1948,13 @@ func _scaled_ui_font_size(size: int) -> int:
 	return maxi(1, int(round(float(size) * UI_TEXT_SCALE)))
 
 func _apply_font(node: Control, font: Font, size: int) -> void:
-	if node == null or font == null:
-		return
-	node.add_theme_font_override("font", font)
-	node.add_theme_font_size_override("font_size", _scaled_ui_font_size(size))
+	UITypography.apply_font(node, font, size, UI_TEXT_SCALE)
 
 func _apply_display_label(node: Control, atlas_size: int, fallback_font: Font, fallback_size: int) -> void:
-	if node == null:
-		return
-	if not _apply_free_roll_atlas_font(node, atlas_size):
-		_apply_font(node, fallback_font, fallback_size)
-
-func _text_uses_free_roll_charset(text: String) -> bool:
-	var source := text.to_upper()
-	for i in source.length():
-		var ch := source.substr(i, 1)
-		if FONT_FREE_ROLL_SUPPORTED.find(ch) == -1:
-			return false
-	return true
+	UITypography.apply_display_label(node, atlas_size, fallback_font, fallback_size, UI_TEXT_SCALE)
 
 func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
-	if node == null or _font_free_roll_atlas == null:
-		return false
-	var raw_text := ""
-	if node is Label:
-		raw_text = (node as Label).text
-	elif node is BaseButton:
-		raw_text = (node as BaseButton).text
-	if raw_text == "":
-		return false
-	var upper_text := raw_text.to_upper()
-	if not _text_uses_free_roll_charset(upper_text):
-		return false
-	if node is Label:
-		(node as Label).text = upper_text
-	elif node is BaseButton:
-		(node as BaseButton).text = upper_text
-	node.add_theme_font_override("font", _font_free_roll_atlas)
-	node.add_theme_font_size_override("font_size", _scaled_ui_font_size(size))
-	return true
+	return UITypography.apply_free_roll_atlas_font(node, size, UI_TEXT_SCALE)
 
 func _apply_honey_label_shader(label: Label) -> void:
 	if label == null or HONEY_TEXT_SHADER == null:
@@ -2947,7 +2913,7 @@ func _human_mode_skin_for_mode(mode_id: String) -> Texture2D:
 	_human_mode_skin_cache[cache_key] = null
 	return null
 
-func _apply_human_mode_skin_to_button(button: Button, mode_id: String, paid: bool, denomination: int) -> void:
+func _apply_human_mode_skin_to_button(button: Button, mode_id: String, paid: bool, denomination: int, preserve_layout: bool = false) -> void:
 	if button == null:
 		return
 	var label_text: String = "%s  $%d" % [mode_id, denomination] if paid else mode_id
@@ -2960,9 +2926,12 @@ func _apply_human_mode_skin_to_button(button: Button, mode_id: String, paid: boo
 		return
 	button.icon = tex
 	button.text = ""
-	button.custom_minimum_size = Vector2(144.0, 64.0)
+	if not preserve_layout:
+		button.custom_minimum_size = Vector2(144.0, 64.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	if preserve_layout:
+		_set_layout_driven_icon_width(button, GAME_HUB_HUMAN_ICON_MAX_WIDTH)
 	button.add_theme_constant_override("h_separation", 0)
 	_style_usd_sprite_button(button, true)
 
@@ -3058,7 +3027,7 @@ func _async_cycle_skin_for_label(label: String) -> Texture2D:
 	_async_cycle_skin_cache[cache_key] = null
 	return null
 
-func _apply_async_cycle_skin_to_button(button: Button, label: String, paid: bool, denomination: int) -> void:
+func _apply_async_cycle_skin_to_button(button: Button, label: String, paid: bool, denomination: int, preserve_layout: bool = false) -> void:
 	if button == null:
 		return
 	var label_text: String = "%s  $%d" % [label, denomination] if paid else label
@@ -3071,14 +3040,18 @@ func _apply_async_cycle_skin_to_button(button: Button, label: String, paid: bool
 		return
 	button.icon = tex
 	button.text = ""
-	button.custom_minimum_size = Vector2(256.0, 96.0)
+	if not preserve_layout:
+		button.custom_minimum_size = Vector2(256.0, 96.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
-	button.set("icon_max_width", 240)
+	if preserve_layout:
+		_set_layout_driven_icon_width(button, GAME_HUB_CYCLE_ICON_MAX_WIDTH)
+	else:
+		button.set("icon_max_width", 240)
 	button.add_theme_constant_override("h_separation", 0)
 	_style_usd_sprite_button(button, true)
 
-func _apply_async_mode_skin_to_button(button: Button, label: String, paid: bool, denomination: int) -> void:
+func _apply_async_mode_skin_to_button(button: Button, label: String, paid: bool, denomination: int, preserve_layout: bool = false) -> void:
 	if button == null:
 		return
 	var label_text: String = "%s  $%d" % [label, denomination] if paid else label
@@ -3091,10 +3064,14 @@ func _apply_async_mode_skin_to_button(button: Button, label: String, paid: bool,
 		return
 	button.icon = tex
 	button.text = ""
-	button.custom_minimum_size = Vector2(352.0, 112.0)
+	if not preserve_layout:
+		button.custom_minimum_size = Vector2(352.0, 112.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
-	button.set("icon_max_width", 336)
+	if preserve_layout:
+		_set_layout_driven_icon_width(button, GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH)
+	else:
+		button.set("icon_max_width", 336)
 	button.add_theme_constant_override("h_separation", 0)
 	_style_usd_sprite_button(button, true)
 
@@ -4932,6 +4909,9 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var selected_denom: int = denomination
 	if paid and selected_denom <= 0:
 		selected_denom = _default_money_denomination()
+	if not paid:
+		_open_free_roll_game_hub(selected_denom)
+		return
 	var title := "MONEY GAMES" if paid else "FREE ROLL"
 	var subtitle := "Select mode and route."
 	if paid:
@@ -4953,8 +4933,6 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var title_center_track_right_inset_px: float = GAME_HUB_FREE_CENTER_TRACK_RIGHT_INSET if not paid else 0.0
 	_apply_game_hub_panel_fx(panel)
 	_apply_game_hub_title_treatment(panel, title, title_center_track_right_inset_px)
-	if not paid:
-		panel.set_meta("sf_free_layout_version", GAME_HUB_FREE_LAYOUT_VERSION)
 	var body: VBoxContainer = _entry_overlay_body(panel)
 	if body == null:
 		return
@@ -4966,15 +4944,6 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var content_top_padding_px: float = GAME_HUB_CONTENT_TOP_PADDING_PX
 	var body_separation: int = 8
 	var cluster_spacing: int = 6
-	if not paid:
-		top_row_scale = GAME_HUB_FREE_TOP_ROW_SCALE
-		lower_rows_scale = GAME_HUB_FREE_LOWER_ROWS_SCALE
-		centered_content_bias_x = GAME_HUB_FREE_CENTER_BIAS_X
-		section_label_rebound_x = -centered_content_bias_x
-		button_track_right_inset_px = GAME_HUB_FREE_BUTTON_TRACK_RIGHT_INSET
-		content_top_padding_px = GAME_HUB_FREE_CONTENT_TOP_PADDING_PX
-		body_separation = GAME_HUB_FREE_BODY_SEPARATION
-		cluster_spacing = GAME_HUB_FREE_CLUSTER_SPACING
 	body.offset_top += extra_top + content_top_padding_px
 	body.offset_left += GAME_HUB_CONTENT_SHIFT_X + centered_content_bias_x
 	body.offset_right += GAME_HUB_CONTENT_SHIFT_X + centered_content_bias_x
@@ -5094,6 +5063,131 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	_configure_game_hub_option_button(cancel, broadcast_free_roll)
 	_entry_route_modal = panel
 
+func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
+	var panel_any: Node = FREE_ROLL_GAME_HUB_SCENE.instantiate()
+	var panel: Panel = panel_any as Panel
+	if panel == null:
+		return
+	var overlay_size: Vector2 = _resolve_game_hub_overlay_size(false)
+	panel = _configure_entry_overlay_panel(panel, "FREE ROLL", "Select mode and route.", overlay_size, true)
+	if panel == null:
+		return
+	panel.set_meta("sf_scene_owned_layout", true)
+	_apply_game_hub_panel_fx(panel)
+	_apply_game_hub_title_treatment(panel, "FREE ROLL", GAME_HUB_FREE_CENTER_TRACK_RIGHT_INSET)
+	panel.set_meta("sf_free_layout_version", GAME_HUB_FREE_LAYOUT_VERSION)
+	_configure_free_roll_game_hub_scene(panel, selected_denom)
+	_entry_route_modal = panel
+
+func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> void:
+	if panel == null:
+		return
+	_style_free_roll_game_hub_scene(panel)
+	var broadcast_free_roll: bool = true
+	var human_defs: Array[Dictionary] = [
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/Human1v1Button"), "mode": "1V1"},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/HumanCtfButton"), "mode": "CTF"},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/HumanHiddenCtfButton"), "mode": "HIDDEN CTF"},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/Human2v2Button"), "mode": "2V2"},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/Human3pFfaButton"), "mode": "3P FFA"},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/Human4pFfaButton"), "mode": "4P FFA"}
+	]
+	for def in human_defs:
+		var button: Button = panel.get_node_or_null(def.get("path", NodePath(""))) as Button
+		var mode_id: String = str(def.get("mode", ""))
+		if button == null or mode_id.is_empty():
+			continue
+		button.pressed.connect(func() -> void:
+			_on_human_mode_selected(mode_id, false, selected_denom)
+		)
+		_apply_human_mode_skin_to_button(button, mode_id, false, selected_denom, true)
+		_configure_game_hub_option_button(button, broadcast_free_roll)
+	var cycle_defs: Array[Dictionary] = [
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/WeeklyButton"), "label": "WEEKLY", "mode": "WEEKLY"},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/MonthlyButton"), "label": "MONTHLY", "mode": "MONTHLY"},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/SeasonButton"), "label": "SEASON", "mode": "YEARLY"}
+	]
+	for def in cycle_defs:
+		var button: Button = panel.get_node_or_null(def.get("path", NodePath(""))) as Button
+		var label: String = str(def.get("label", ""))
+		var mode_id: String = str(def.get("mode", ""))
+		if button == null or mode_id.is_empty():
+			continue
+		button.pressed.connect(func() -> void:
+			_on_async_mode_selected(mode_id, false, 0)
+		)
+		_apply_async_cycle_skin_to_button(button, label, false, selected_denom, true)
+		_configure_game_hub_option_button(button, broadcast_free_roll)
+	var map_defs: Array[Dictionary] = [
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/CaptureFlagButton"), "label": "CAPTURE FLAG", "mode": "CAPTURE_FLAG", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/HiddenFlagButton"), "label": "HIDDEN FLAG", "mode": "HIDDEN_CAPTURE_FLAG", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/StageRace3Button"), "label": "STAGE RACE", "mode": "STAGE_RACE_3", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/TimedRace3Button"), "label": "RACE", "mode": "TIMED_RACE_3", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/MissNOut3Button"), "label": "MISS N OUT", "mode": "MISS_N_OUT_3", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/StageRace5Button"), "label": "STAGE RACE", "mode": "STAGE_RACE_5", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/TimedRace5Button"), "label": "RACE", "mode": "TIMED_RACE_5", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/MissNOut5Button"), "label": "MISS N OUT", "mode": "MISS_N_OUT_5", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE}
+	]
+	for def in map_defs:
+		var button: Button = panel.get_node_or_null(def.get("path", NodePath(""))) as Button
+		var label: String = str(def.get("label", ""))
+		var mode_id: String = str(def.get("mode", ""))
+		if button == null or mode_id.is_empty():
+			continue
+		button.pressed.connect(func() -> void:
+			_on_async_mode_selected(mode_id, false, 0)
+		)
+		_apply_async_mode_skin_to_button(button, label, false, selected_denom, true)
+		_configure_game_hub_option_button(button, broadcast_free_roll)
+	var cancel: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/CancelButton") as Button
+	if cancel != null:
+		cancel.pressed.connect(_close_entry_route_modal)
+		_style_game_hub_cancel_button(cancel, GAME_HUB_FREE_LOWER_ROWS_SCALE, true)
+		_configure_game_hub_option_button(cancel, broadcast_free_roll)
+
+func _style_free_roll_game_hub_scene(panel: Panel) -> void:
+	if panel == null:
+		return
+	var block_labels: Array[String] = [
+		"EntryScroll/EntryBody/EntryCanvas/MatchTypeLabel",
+		"EntryScroll/EntryBody/EntryCanvas/MapConfigLabel"
+	]
+	for path in block_labels:
+		var label: Label = panel.get_node_or_null(path) as Label
+		if label == null:
+			continue
+		label.add_theme_color_override("font_color", GAME_HUB_BLOCK_LABEL_COLOR)
+		label.add_theme_constant_override("outline_size", 0)
+		_apply_font(label, _font_semibold, 11)
+	var section_heading_paths: Array[String] = [
+		"EntryScroll/EntryBody/EntryCanvas/HumanMatchesHeading",
+		"EntryScroll/EntryBody/EntryCanvas/TimePuzzlesHeading",
+		"EntryScroll/EntryBody/EntryCanvas/OneMapHeading",
+		"EntryScroll/EntryBody/EntryCanvas/ThreeMapHeading",
+		"EntryScroll/EntryBody/EntryCanvas/FiveMapHeading"
+	]
+	for path in section_heading_paths:
+		var label: Label = panel.get_node_or_null(path) as Label
+		if label == null:
+			continue
+		label.add_theme_color_override("font_color", GAME_HUB_SECTION_HEADER_COLOR)
+		label.add_theme_constant_override("outline_size", 0)
+		_apply_font(label, _font_semibold, 13)
+	var subtext_paths: Array[String] = [
+		"EntryScroll/EntryBody/EntryCanvas/HumanMatchesSubtext",
+		"EntryScroll/EntryBody/EntryCanvas/TimePuzzlesSubtext"
+	]
+	for path in subtext_paths:
+		var label: Label = panel.get_node_or_null(path) as Label
+		if label == null:
+			continue
+		label.add_theme_color_override("font_color", GAME_HUB_SECTION_SUBTEXT_COLOR)
+		label.add_theme_constant_override("outline_size", 0)
+		_apply_font(label, _font_regular, 11)
+	var divider: ColorRect = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/MapConfigDivider") as ColorRect
+	if divider != null:
+		divider.color = GAME_HUB_DIVIDER_COLOR
+
 func _scaled_game_hub_size(base_size: Vector2, size_scale: float) -> Vector2:
 	var scale: float = maxf(0.1, size_scale)
 	return Vector2(round(base_size.x * scale), round(base_size.y * scale))
@@ -5101,6 +5195,36 @@ func _scaled_game_hub_size(base_size: Vector2, size_scale: float) -> Vector2:
 func _scaled_game_hub_icon_width(base_width: int, size_scale: float) -> int:
 	var scale: float = maxf(0.1, size_scale)
 	return maxi(1, int(round(float(base_width) * scale)))
+
+func _button_authored_width(button: Button) -> float:
+	if button == null:
+		return 0.0
+	var width: float = maxf(button.custom_minimum_size.x, button.size.x)
+	if button.layout_mode == 0:
+		width = maxf(width, button.offset_right - button.offset_left)
+	return width
+
+func _set_layout_driven_icon_width(button: Button, fallback_width: int, width_ratio: float = 0.96) -> void:
+	if button == null:
+		return
+	var authored_width: float = _button_authored_width(button)
+	if authored_width <= 1.0:
+		button.set("icon_max_width", fallback_width)
+		return
+	var resolved_ratio: float = clampf(width_ratio, 0.1, 1.0)
+	button.set("icon_max_width", maxi(1, int(round(authored_width * resolved_ratio))))
+
+func _game_hub_base_scale(button: Button) -> Vector2:
+	if button == null:
+		return Vector2.ONE
+	var base_any: Variant = button.get_meta("sf_game_hub_base_scale", Vector2.ONE)
+	if typeof(base_any) == TYPE_VECTOR2:
+		return base_any as Vector2
+	return Vector2.ONE
+
+func _game_hub_scaled_target(button: Button, multiplier: float) -> Vector2:
+	var base_scale: Vector2 = _game_hub_base_scale(button)
+	return Vector2(base_scale.x * multiplier, base_scale.y * multiplier)
 
 func _compact_game_hub_async_mode_button(button: Button, size_scale: float = 1.0) -> void:
 	if button == null:
@@ -5647,20 +5771,25 @@ func _add_game_hub_map_group(
 		_compact_game_hub_async_mode_button(button, row_button_scale)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 
-func _style_game_hub_cancel_button(button: Button, size_scale: float = 1.0) -> void:
+func _style_game_hub_cancel_button(button: Button, size_scale: float = 1.0, preserve_layout: bool = false) -> void:
 	if button == null:
 		return
 	var scaled_size: Vector2 = _scaled_game_hub_size(GAME_HUB_CANCEL_BUTTON_SIZE, size_scale)
 	button.set_meta("sf_cancel_skin", true)
 	button.set_meta("sf_close_skin", false)
 	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	button.custom_minimum_size = scaled_size
+	if not preserve_layout:
+		button.custom_minimum_size = scaled_size
 	button.set_meta("sf_cancel_skin_min_w", scaled_size.x)
 	button.set_meta("sf_cancel_skin_min_h", scaled_size.y)
 	_apply_font(button, _font_regular, 12)
 	_style_button(button, Color(0.15, 0.16, 0.19, 0.72), Color(0.28, 0.30, 0.34, 0.26), Color(0.74, 0.77, 0.82))
-	button.custom_minimum_size = scaled_size
-	button.set("icon_max_width", _scaled_game_hub_icon_width(GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH, size_scale))
+	if not preserve_layout:
+		button.custom_minimum_size = scaled_size
+	if preserve_layout:
+		_set_layout_driven_icon_width(button, GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH)
+	else:
+		button.set("icon_max_width", _scaled_game_hub_icon_width(GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH, size_scale))
 
 func _configure_game_hub_option_button(button: Button, broadcast_mode: bool = false) -> void:
 	if button == null:
@@ -5669,6 +5798,7 @@ func _configure_game_hub_option_button(button: Button, broadcast_mode: bool = fa
 		return
 	button.set_meta("sf_game_hub_motion", true)
 	button.set_meta("sf_game_hub_base_modulate", button.modulate)
+	button.set_meta("sf_game_hub_base_scale", button.scale)
 	button.set_meta("sf_game_hub_hovered", false)
 	button.set_meta("sf_game_hub_pressed", false)
 	button.clip_contents = true
@@ -5783,7 +5913,7 @@ func _set_game_hub_option_hover_state(
 	if button.is_inside_tree():
 		tween = button.create_tween()
 	if broadcast_mode:
-		var target_scale := Vector2(1.024, 1.024) if hovered else Vector2.ONE
+		var target_scale := _game_hub_scaled_target(button, 1.024) if hovered else _game_hub_base_scale(button)
 		var target_shell_alpha: float = 0.0
 		var target_glow_alpha: float = 0.10 if hovered else 0.0
 		var target_edge_alpha: float = 0.0
@@ -5832,7 +5962,7 @@ func _set_game_hub_option_pressed_state(
 		return
 	button.set_meta("sf_game_hub_pressed", pressed)
 	if not broadcast_mode:
-		button.scale = Vector2(0.986, 0.986) if pressed else Vector2.ONE
+		button.scale = _game_hub_scaled_target(button, 0.986) if pressed else _game_hub_base_scale(button)
 		return
 	if edge == null or shell_tone == null or inner_glow == null:
 		return
@@ -5840,17 +5970,17 @@ func _set_game_hub_option_pressed_state(
 		return
 	var hovered_any: Variant = button.get_meta("sf_game_hub_hovered", false)
 	var hovered: bool = bool(hovered_any)
-	var target_scale: Vector2 = Vector2.ONE
+	var target_scale: Vector2 = _game_hub_base_scale(button)
 	var target_shell_alpha: float = 0.0
 	var target_glow_alpha: float = 0.0
 	var target_edge_alpha: float = 0.0
 	if pressed:
-		target_scale = Vector2(1.012, 1.012)
+		target_scale = _game_hub_scaled_target(button, 1.012)
 		target_shell_alpha = 0.0
 		target_glow_alpha = 0.13
 		target_edge_alpha = 0.0
 	elif hovered:
-		target_scale = Vector2(1.024, 1.024)
+		target_scale = _game_hub_scaled_target(button, 1.024)
 		target_shell_alpha = 0.0
 		target_glow_alpha = 0.10
 		target_edge_alpha = 0.0
@@ -5975,7 +6105,8 @@ func _apply_game_hub_title_treatment(panel: Panel, title: String, center_track_r
 		return
 	var subtitle_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntrySubtitle") as Label
 	var body: VBoxContainer = panel.get_node_or_null("EntryScroll/EntryBody") as VBoxContainer
-	if body != null and center_track_right_inset_px > 0.0:
+	var scene_owned_layout: bool = bool(panel.get_meta("sf_scene_owned_layout", false))
+	if body != null and center_track_right_inset_px > 0.0 and not scene_owned_layout:
 		var header_track: MarginContainer = body.get_node_or_null("FreeRollHeaderTrack") as MarginContainer
 		var header_box: VBoxContainer = null
 		if header_track == null:
@@ -6011,7 +6142,7 @@ func _apply_game_hub_title_treatment(panel: Panel, title: String, center_track_r
 	if subtitle_label != null:
 		_apply_font(subtitle_label, _font_regular, 13)
 		subtitle_label.add_theme_color_override("font_color", Color(0.86, 0.89, 0.94, 0.88))
-	if body != null:
+	if body != null and not scene_owned_layout:
 		body.add_theme_constant_override("separation", 8)
 
 func _apply_free_roll_title_micro_gradient(title_label: Label) -> void:
@@ -6204,70 +6335,95 @@ func _open_vs_mode_select_panel(free_roll: bool, preset_mode: String = "") -> vo
 	panel.closed.connect(func(): panel.queue_free())
 	add_child(panel)
 
-func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vector2(480, 220)) -> Panel:
-	_close_entry_route_modal()
+func _resolve_entry_overlay_size(size: Vector2) -> Vector2:
 	var viewport_size: Vector2 = get_viewport_rect().size
 	var max_size := Vector2(
 		maxf(320.0, viewport_size.x - 64.0),
 		maxf(240.0, viewport_size.y - 64.0)
 	)
-	var resolved_size := Vector2(
+	return Vector2(
 		minf(size.x, max_size.x),
 		minf(size.y, max_size.y)
 	)
-	var panel := Panel.new()
+
+func _configure_entry_overlay_panel(panel: Panel, title: String, subtitle: String, size: Vector2 = Vector2(480, 220), preserve_scene_layout: bool = false) -> Panel:
+	if panel == null:
+		return null
+	_close_entry_route_modal()
+	var resolved_size: Vector2 = _resolve_entry_overlay_size(size)
 	panel.name = "EntryRouteModal"
-	panel.layout_mode = 0
 	panel.clip_contents = true
-	panel.anchor_left = 0.5
-	panel.anchor_top = 0.5
-	panel.anchor_right = 0.5
-	panel.anchor_bottom = 0.5
-	panel.offset_left = -resolved_size.x * 0.5
-	panel.offset_top = -resolved_size.y * 0.5
-	panel.offset_right = resolved_size.x * 0.5
-	panel.offset_bottom = resolved_size.y * 0.5
+	if not preserve_scene_layout:
+		panel.layout_mode = 0
+		panel.anchor_left = 0.5
+		panel.anchor_top = 0.5
+		panel.anchor_right = 0.5
+		panel.anchor_bottom = 0.5
+		panel.offset_left = -resolved_size.x * 0.5
+		panel.offset_top = -resolved_size.y * 0.5
+		panel.offset_right = resolved_size.x * 0.5
+		panel.offset_bottom = resolved_size.y * 0.5
 	panel.z_index = 200
 	panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	_build_entry_overlay_background_layers(panel, resolved_size)
-	var scroll := ScrollContainer.new()
-	scroll.name = "EntryScroll"
-	scroll.layout_mode = 1
-	scroll.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	scroll.offset_left = 0.0
-	scroll.offset_top = 0.0
-	scroll.offset_right = 0.0
-	scroll.offset_bottom = 0.0
+
+	var scroll: ScrollContainer = panel.get_node_or_null("EntryScroll") as ScrollContainer
+	if scroll == null:
+		scroll = ScrollContainer.new()
+		scroll.name = "EntryScroll"
+		panel.add_child(scroll)
+	if not preserve_scene_layout:
+		scroll.layout_mode = 1
+		scroll.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		scroll.offset_left = 0.0
+		scroll.offset_top = 0.0
+		scroll.offset_right = 0.0
+		scroll.offset_bottom = 0.0
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	scroll.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	panel.add_child(scroll)
-	var vbox := VBoxContainer.new()
-	vbox.name = "EntryBody"
-	vbox.layout_mode = 0
-	vbox.anchor_right = 1.0
-	vbox.offset_left = 16.0
-	vbox.offset_top = 16.0
-	vbox.offset_right = -16.0
-	vbox.custom_minimum_size = Vector2(maxf(resolved_size.x - 32.0, 280.0), 0.0)
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 10)
-	scroll.add_child(vbox)
-	var title_label := Label.new()
-	title_label.name = "EntryTitle"
+
+	var body: VBoxContainer = _entry_overlay_body(panel)
+	if body == null:
+		body = VBoxContainer.new()
+		body.name = "EntryBody"
+		scroll.add_child(body)
+	if not preserve_scene_layout:
+		body.layout_mode = 0
+		body.anchor_right = 1.0
+		body.offset_left = 16.0
+		body.offset_top = 16.0
+		body.offset_right = -16.0
+		body.custom_minimum_size = Vector2(maxf(resolved_size.x - 32.0, 280.0), 0.0)
+		body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		body.add_theme_constant_override("separation", 10)
+
+	var title_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntryTitle") as Label
+	if title_label == null:
+		title_label = Label.new()
+		title_label.name = "EntryTitle"
+		body.add_child(title_label)
 	title_label.text = title
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title_label)
-	var subtitle_label := Label.new()
-	subtitle_label.name = "EntrySubtitle"
+
+	var subtitle_label: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntrySubtitle") as Label
+	if subtitle_label == null:
+		subtitle_label = Label.new()
+		subtitle_label.name = "EntrySubtitle"
+		body.add_child(subtitle_label)
 	subtitle_label.text = subtitle
 	subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(subtitle_label)
-	add_child(panel)
+
+	if panel.get_parent() != self:
+		add_child(panel)
 	_style_panel(panel, Color(0.06, 0.07, 0.1, 0.98), Color(0.45, 0.48, 0.58, 0.8))
 	_apply_font(title_label, _font_semibold, 18)
 	_apply_font(subtitle_label, _font_regular, 13)
 	return panel
+
+func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vector2(480, 220)) -> Panel:
+	var panel := Panel.new()
+	return _configure_entry_overlay_panel(panel, title, subtitle, size)
 
 func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2, use_default_inlay_shift: bool = true) -> void:
 	if panel == null:
@@ -7110,11 +7266,11 @@ func _close_jukebox_panel() -> void:
 		_jukebox_panel.visible = false
 	_set_dash_hidden_state()
 
-func _on_jukebox_play_requested(map_path: String) -> void:
+func _on_jukebox_play_requested(map_path: String, cpu_style: String = "", cpu_tier: String = "") -> void:
 	if map_path.strip_edges().is_empty():
 		status_label.text = "No map selected."
 		return
-	if _launch_jukebox_map(map_path):
+	if _launch_jukebox_map(map_path, cpu_style, cpu_tier):
 		status_label.text = "Jukebox map starting..."
 	else:
 		status_label.text = "Jukebox launch failed."
@@ -7126,13 +7282,15 @@ func _open_jukebox_from_menu_button() -> void:
 	_open_jukebox_panel()
 	status_label.text = "Jukebox opened."
 
-func _launch_jukebox_map(map_path: String) -> bool:
+func _launch_jukebox_map(map_path: String, cpu_style: String = "", cpu_tier: String = "") -> bool:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return false
 	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
 	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
 	var map_id: String = MAP_REGISTRY.map_id_from_path(map_path)
+	var clean_cpu_style: String = cpu_style.strip_edges().to_lower()
+	var clean_cpu_tier: String = cpu_tier.strip_edges().to_lower()
 	var clear_keys: Array[String] = [
 		"open_map_picker_on_ready",
 		"vs_mode",
@@ -7154,6 +7312,8 @@ func _launch_jukebox_map(map_path: String) -> bool:
 		"vs_handshake_invite_code",
 		"vs_local_profile",
 		"vs_remote_profile",
+		"vs_cpu_style",
+		"vs_cpu_tier",
 		"ctf_flag_selection_mode",
 		"ctf_player_select_pct",
 		"ctf_randomize_flag_hive",
@@ -7184,12 +7344,17 @@ func _launch_jukebox_map(map_path: String) -> bool:
 		"uid": local_uid,
 		"name": local_name
 	})
+	if not clean_cpu_style.is_empty():
+		tree.set_meta("vs_cpu_style", clean_cpu_style)
+	if not clean_cpu_tier.is_empty():
+		tree.set_meta("vs_cpu_tier", clean_cpu_tier)
 	tree.set_meta("jukebox_board_enabled", true)
 	tree.set_meta("jukebox_map_path", map_path)
 	tree.set_meta("jukebox_map_id", map_id)
 	tree.set_meta("jukebox_board_period", "WEEKLY")
 	tree.set_meta("jukebox_local_owner_id", 1)
-	tree.set_meta("jukebox_easy_bot", true)
+	if clean_cpu_style.is_empty() and clean_cpu_tier.is_empty():
+		tree.set_meta("jukebox_easy_bot", true)
 	if OpsState != null and OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", "")
 	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)

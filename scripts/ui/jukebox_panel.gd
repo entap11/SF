@@ -2,8 +2,7 @@ extends Panel
 class_name JukeboxPanel
 
 const JukeboxStateScript := preload("res://scripts/state/jukebox_state.gd")
-const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/up_down_chevron.png"
 const SIDE_CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/Left_right_chevrons.png"
 const PAGE_SIZE: int = 7
@@ -14,9 +13,11 @@ const SELECTOR_CARD_FONT_SIZE: int = 18
 const LEADERBOARD_HEADER_FONT_SIZE: int = 22
 const LEADERBOARD_ROW_FONT_SIZE: int = 24
 const LEADERBOARD_BADGE_FONT_SIZE: int = 22
+const CPU_STYLE_OPTIONS: Array[String] = ["Default", "Balancer", "Turtle", "Raider", "Greedy", "Swarm Lord"]
+const CPU_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Hard"]
 
 signal closed
-signal play_requested(map_path: String)
+signal play_requested(map_path: String, cpu_style: String, cpu_tier: String)
 
 const TOP_LIMIT: int = 50
 
@@ -38,6 +39,12 @@ const TOP_LIMIT: int = 50
 @onready var play_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/PlayButton
 @onready var scout_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/ScoutButton
 @onready var close_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/CloseButton
+@onready var cpu_title_label: Label = $VBox/CpuPanel/CpuVBox/CpuHeader/CpuTitle
+@onready var cpu_summary_label: Label = $VBox/CpuPanel/CpuVBox/CpuHeader/CpuSummary
+@onready var cpu_style_option: OptionButton = $VBox/CpuPanel/CpuVBox/CpuRow/CpuStyle
+@onready var cpu_tier_option: OptionButton = $VBox/CpuPanel/CpuVBox/CpuRow/CpuTier
+@onready var cpu_detail_title_label: Label = $VBox/CpuPanel/CpuVBox/CpuDetailTitle
+@onready var cpu_detail_body_label: Label = $VBox/CpuPanel/CpuVBox/CpuDetailBody
 @onready var period_tabs: HBoxContainer = $VBox/LeaderboardPanel/LeaderboardVBox/PeriodTabs
 @onready var leaderboard_list: VBoxContainer = $VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardScroll/LeaderboardList
 @onready var leaderboard_nav: HBoxContainer = $VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav
@@ -58,13 +65,18 @@ var _selected_period: String = "WEEKLY"
 var _selected_map_path: String = ""
 var _map_offset: int = 0
 var _leaderboard_offset: int = 0
+var _selected_cpu_style: String = ""
+var _selected_cpu_tier: String = ""
+var _hover_cpu_style: String = ""
+var _hover_cpu_tier: String = ""
 
 func _ready() -> void:
 	visible = false
 	_load_fonts()
-	_style_controls()
 	title_label.text = "MAP JUKEBOX"
-	sub_label.text = "Browse maps across the top, inspect the hero panel, then chase records below."
+	sub_label.text = "BROWSE MAPS  CHASE RECORDS"
+	scout_button.text = "SCOUT TOP RUN PREMIUM SOON"
+	_style_controls()
 	play_button.pressed.connect(_on_play_pressed)
 	scout_button.pressed.connect(_on_scout_pressed)
 	close_button.pressed.connect(func() -> void: closed.emit())
@@ -72,18 +84,74 @@ func _ready() -> void:
 	map_right_button.pressed.connect(_on_map_right_pressed)
 	leaderboard_up_button.pressed.connect(_on_leaderboard_up_pressed)
 	leaderboard_down_button.pressed.connect(_on_leaderboard_down_pressed)
+	_setup_cpu_options()
 	_jukebox_state.refresh()
 	_category_labels = _jukebox_state.categories()
 	_build_category_tabs()
 	_build_period_tabs()
 	_refresh_map_list()
 	_select_first_visible_map()
+	_refresh_cpu_hint()
+
+func _setup_cpu_options() -> void:
+	if cpu_style_option != null and cpu_style_option.item_count == 0:
+		for label in CPU_STYLE_OPTIONS:
+			cpu_style_option.add_item(label)
+		cpu_style_option.item_selected.connect(_on_cpu_style_selected)
+		cpu_style_option.selected = 0
+		_wire_option_popup(cpu_style_option, true)
+	if cpu_tier_option != null and cpu_tier_option.item_count == 0:
+		for label in CPU_TIER_OPTIONS:
+			cpu_tier_option.add_item(label)
+		cpu_tier_option.item_selected.connect(_on_cpu_tier_selected)
+		cpu_tier_option.selected = 0
+		_wire_option_popup(cpu_tier_option, false)
+	_selected_cpu_style = ""
+	_selected_cpu_tier = ""
+	_hover_cpu_style = ""
+	_hover_cpu_tier = ""
+	_apply_option_tooltips()
+
+func _wire_option_popup(option: OptionButton, is_style: bool) -> void:
+	if option == null:
+		return
+	var popup: PopupMenu = option.get_popup()
+	if popup == null:
+		return
+	if popup.has_signal("id_focused"):
+		var focus_cb: Callable = Callable(self, "_on_style_popup_item_focused") if is_style else Callable(self, "_on_tier_popup_item_focused")
+		if not popup.is_connected("id_focused", focus_cb):
+			popup.connect("id_focused", focus_cb)
+	if popup.has_signal("popup_hide"):
+		var hide_cb: Callable = Callable(self, "_on_cpu_popup_hide")
+		if not popup.is_connected("popup_hide", hide_cb):
+			popup.connect("popup_hide", hide_cb)
+
+func _apply_option_tooltips() -> void:
+	_apply_style_tooltips()
+	_apply_tier_tooltips()
+
+func _apply_style_tooltips() -> void:
+	if cpu_style_option == null:
+		return
+	var popup: PopupMenu = cpu_style_option.get_popup()
+	if popup == null:
+		return
+	for i in range(cpu_style_option.item_count):
+		popup.set_item_tooltip(i, _style_hover_text(_cpu_style_value_for_index(i)))
+
+func _apply_tier_tooltips() -> void:
+	if cpu_tier_option == null:
+		return
+	var popup: PopupMenu = cpu_tier_option.get_popup()
+	if popup == null:
+		return
+	for i in range(cpu_tier_option.item_count):
+		popup.set_item_tooltip(i, _tier_hover_text(_cpu_tier_value_for_index(i)))
 
 func _load_fonts() -> void:
-	if ResourceLoader.exists(FONT_REGULAR_PATH):
-		_font_regular = load(FONT_REGULAR_PATH) as Font
-	if ResourceLoader.exists(FONT_SEMIBOLD_PATH):
-		_font_semibold = load(FONT_SEMIBOLD_PATH) as Font
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
 	if ResourceLoader.exists(CHEVRON_TEXTURE_PATH):
 		_chevron_texture = load(CHEVRON_TEXTURE_PATH) as Texture2D
 	if ResourceLoader.exists(SIDE_CHEVRON_TEXTURE_PATH):
@@ -98,6 +166,12 @@ func _style_controls() -> void:
 	_apply_font(selected_title_label, _font_semibold, 20)
 	_apply_font(selected_meta_label, _font_regular, 13)
 	_apply_font(selected_desc_label, _font_regular, 12)
+	_apply_font(cpu_title_label, _font_semibold, 13)
+	_apply_font(cpu_summary_label, _font_regular, 11)
+	_apply_font(cpu_style_option, _font_regular, 12)
+	_apply_font(cpu_tier_option, _font_regular, 12)
+	_apply_font(cpu_detail_title_label, _font_semibold, 12)
+	_apply_font(cpu_detail_body_label, _font_regular, 11)
 	_apply_font(leaderboard_page_label, _font_semibold, 22)
 	_apply_font(your_best_label, _font_semibold, 24)
 	_apply_font(map_best_label, _font_regular, 12)
@@ -114,10 +188,13 @@ func _style_controls() -> void:
 		_style_button(button)
 		_style_nav_button(button)
 	scout_button.disabled = true
-	scout_button.text = "SCOUT TOP RUN (PREMIUM SOON)"
 	badge_note_label.text = "Top 5 badge ownership is live-scarcity: lose the spot, lose the badge."
 	hero_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	hero_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	if cpu_summary_label != null:
+		cpu_summary_label.modulate = Color(0.83, 0.90, 0.96, 0.92)
+	if cpu_detail_body_label != null:
+		cpu_detail_body_label.modulate = Color(0.88, 0.90, 0.94, 0.92)
 	_apply_nav_icons()
 	_apply_selector_nav_icons()
 
@@ -181,6 +258,7 @@ func _refresh_map_list() -> void:
 		child.queue_free()
 	var visible_entries: Array[Dictionary] = _visible_map_entries()
 	map_count_label.text = "%d maps in %s" % [visible_entries.size(), _selected_category]
+	_apply_font(map_count_label, _font_regular, SELECTOR_META_FONT_SIZE)
 	var max_offset: int = maxi(0, visible_entries.size() - MAP_WINDOW_SIZE)
 	_map_offset = clampi(_map_offset, 0, max_offset)
 	var end_index: int = mini(_map_offset + MAP_WINDOW_SIZE, visible_entries.size())
@@ -190,7 +268,10 @@ func _refresh_map_list() -> void:
 		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		row.toggle_mode = true
 		row.button_pressed = str(entry.get("path", "")) == _selected_map_path
-		row.text = "%s\n%s" % [str(entry.get("title", "")), str(entry.get("hero_title", ""))]
+		row.text = "%s\n%s" % [
+			_stylized_display_text(str(entry.get("title", ""))),
+			_stylized_display_text(str(entry.get("hero_title", "")))
+		]
 		row.tooltip_text = "%s\n%s" % [str(entry.get("meta", "")), str(entry.get("desc", ""))]
 		row.custom_minimum_size = Vector2(300.0, 116.0)
 		row.pressed.connect(func() -> void:
@@ -212,7 +293,8 @@ func _select_first_visible_map() -> void:
 	if visible_entries.is_empty():
 		_selected_map_path = ""
 		_map_offset = 0
-		selected_title_label.text = "No maps"
+		selected_title_label.text = "NO MAPS"
+		_apply_font(selected_title_label, _font_semibold, 20)
 		selected_meta_label.text = ""
 		selected_desc_label.text = "No map entries are available in this category."
 		_refresh_leaderboard()
@@ -232,11 +314,13 @@ func _select_map(map_path: String) -> void:
 	_selected_map_path = map_path
 	_leaderboard_offset = 0
 	var selected: Dictionary = _entry_by_path(map_path)
-	selected_title_label.text = str(selected.get("title", "Map"))
-	selected_meta_label.text = "%s  |  %s" % [
+	selected_title_label.text = _stylized_display_text(str(selected.get("title", "Map")))
+	_apply_font(selected_title_label, _font_semibold, 20)
+	selected_meta_label.text = _stylized_display_text("%s %s" % [
 		str(selected.get("hero_title", "")),
 		str(selected.get("meta", ""))
-	]
+	])
+	_apply_font(selected_meta_label, _font_regular, 13)
 	selected_desc_label.text = str(selected.get("desc", ""))
 	_refresh_hero_preview(selected)
 	play_button.disabled = _selected_map_path.is_empty()
@@ -351,9 +435,11 @@ func _refresh_hero_preview(selected: Dictionary) -> void:
 	if not preview_path.is_empty() and ResourceLoader.exists(preview_path):
 		hero_preview.texture = load(preview_path) as Texture2D
 		hero_preview_badge.text = "MAP PREVIEW"
+		_apply_font(hero_preview_badge, _font_semibold, 11)
 		return
 	hero_preview.texture = null
 	hero_preview_badge.text = "PREVIEW COMING SOON"
+	_apply_font(hero_preview_badge, _font_semibold, 11)
 
 func _refresh_map_nav(total_entries: int) -> void:
 	var safe_total: int = maxi(0, total_entries)
@@ -397,7 +483,169 @@ func _on_map_right_pressed() -> void:
 func _on_play_pressed() -> void:
 	if _selected_map_path.is_empty():
 		return
-	play_requested.emit(_selected_map_path)
+	play_requested.emit(_selected_map_path, _selected_cpu_style, _selected_cpu_tier)
+
+func _on_cpu_style_selected(index: int) -> void:
+	_selected_cpu_style = _cpu_style_value_for_index(index)
+	_refresh_cpu_hint()
+	_refresh_cpu_detail()
+
+func _on_cpu_tier_selected(index: int) -> void:
+	_selected_cpu_tier = _cpu_tier_value_for_index(index)
+	_refresh_cpu_hint()
+	_refresh_cpu_detail()
+
+func _on_style_popup_item_focused(index: int) -> void:
+	_hover_cpu_style = _cpu_style_value_for_index(index)
+	_refresh_cpu_detail()
+
+func _on_tier_popup_item_focused(index: int) -> void:
+	_hover_cpu_tier = _cpu_tier_value_for_index(index)
+	_refresh_cpu_detail()
+
+func _on_cpu_popup_hide() -> void:
+	_hover_cpu_style = ""
+	_hover_cpu_tier = ""
+	_refresh_cpu_detail()
+
+func _refresh_cpu_hint() -> void:
+	if cpu_summary_label == null:
+		return
+	var style_label: String = "Easy"
+	var tier_label: String = "Training"
+	if not _selected_cpu_style.is_empty():
+		style_label = _humanize_token(_selected_cpu_style)
+	if not _selected_cpu_tier.is_empty():
+		tier_label = _humanize_token(_selected_cpu_tier)
+	if _selected_cpu_style.is_empty() and _selected_cpu_tier.is_empty():
+		cpu_summary_label.text = "DEFAULT EASY TRAINING"
+		_apply_font(cpu_summary_label, _font_regular, 11)
+		return
+	cpu_summary_label.text = _stylized_display_text("%s %s" % [style_label, tier_label])
+	_apply_font(cpu_summary_label, _font_regular, 11)
+
+func _refresh_cpu_detail() -> void:
+	if cpu_detail_title_label == null or cpu_detail_body_label == null:
+		return
+	var preview_style: String = _hover_cpu_style if not _hover_cpu_style.is_empty() else _selected_cpu_style
+	var preview_tier: String = _hover_cpu_tier if not _hover_cpu_tier.is_empty() else _selected_cpu_tier
+	var using_hover: bool = not _hover_cpu_style.is_empty() or not _hover_cpu_tier.is_empty()
+	if preview_style.is_empty() and preview_tier.is_empty():
+		cpu_detail_title_label.text = "TRAINING BOT"
+		_apply_font(cpu_detail_title_label, _font_semibold, 12)
+		cpu_detail_body_label.text = "Slow, forgiving starter bot for Jukebox runs.\nStats: think 3400ms, aggression 16%%, feed bias 18%%, min attack 18, swarm OFF."
+		return
+	var title_parts: Array[String] = []
+	if not preview_style.is_empty():
+		title_parts.append(_humanize_token(preview_style))
+	if not preview_tier.is_empty():
+		title_parts.append(_humanize_token(preview_tier))
+	cpu_detail_title_label.text = _stylized_display_text(" ".join(title_parts))
+	_apply_font(cpu_detail_title_label, _font_semibold, 12)
+	var lines: Array[String] = []
+	if using_hover:
+		lines.append("Previewing hovered option.")
+	if not preview_style.is_empty():
+		lines.append(_style_hover_text(preview_style))
+	if not preview_tier.is_empty():
+		lines.append(_tier_hover_text(preview_tier))
+	var profile: Dictionary = _preview_bot_profile(preview_style, preview_tier)
+	var stats_line: String = _profile_stats_line(profile)
+	if not stats_line.is_empty():
+		lines.append(stats_line)
+	cpu_detail_body_label.text = "\n".join(lines)
+
+func _stylized_display_text(text: String) -> String:
+	var sanitized: String = UITypography.sanitize_for_stylized(text)
+	if sanitized.is_empty():
+		return text.to_upper()
+	return sanitized
+
+func _preview_bot_profile(style: String, tier: String) -> Dictionary:
+	var ops_state: Node = get_node_or_null("/root/OpsState")
+	if ops_state != null and ops_state.has_method("_build_bot_profile_for_seat"):
+		return ops_state.call(
+			"_build_bot_profile_for_seat",
+			2,
+			style if not style.is_empty() else "balancer",
+			tier if not tier.is_empty() else "medium"
+		) as Dictionary
+	return {}
+
+func _profile_stats_line(profile: Dictionary) -> String:
+	if profile.is_empty():
+		return ""
+	var think_ms: int = int(profile.get("think_interval_ms", 0))
+	var aggression_pct: int = int(round(float(profile.get("aggression", 0.0)) * 100.0))
+	var feed_bias_pct: int = int(round(float(profile.get("feed_bias", 0.0)) * 100.0))
+	var min_attack: int = int(profile.get("min_attack_power", 0))
+	var swarm: String = "ON" if bool(profile.get("allow_swarm", false)) else "OFF"
+	return "Stats: think %dms, aggression %d%%, feed bias %d%%, min attack %d, swarm %s." % [think_ms, aggression_pct, feed_bias_pct, min_attack, swarm]
+
+func _cpu_style_value_for_index(index: int) -> String:
+	match index:
+		1:
+			return "balancer"
+		2:
+			return "turtle"
+		3:
+			return "raider"
+		4:
+			return "greedy"
+		5:
+			return "swarm_lord"
+		_:
+			return ""
+
+func _cpu_tier_value_for_index(index: int) -> String:
+	match index:
+		1:
+			return "easy"
+		2:
+			return "medium"
+		3:
+			return "hard"
+		_:
+			return ""
+
+func _style_hover_text(style: String) -> String:
+	match style:
+		"turtle":
+			return "Turtle prefers safe growth, values stable expansion, and swarms rarely."
+		"raider":
+			return "Raider pressures early, values weak enemy hives, and leans hard into attacks."
+		"greedy":
+			return "Greedy races neutrals and expansion tempo, with lighter commitment to direct fights."
+		"swarm_lord":
+			return "Swarm Lord is the most explosive profile, with frequent burst follow-ups and high pressure."
+		"balancer":
+			return "Balancer is the most even-handed style, mixing feeding and attacks without extreme bias."
+		_:
+			return "Default uses the Jukebox training bot unless you also choose an override."
+
+func _tier_hover_text(tier: String) -> String:
+	match tier:
+		"easy":
+			return "Easy reacts slowly, attacks later, and leaves more room for mistakes."
+		"hard":
+			return "Hard reacts faster, commits earlier, and trims hesitation across the whole profile."
+		"medium":
+			return "Medium keeps the style readable without turning it into a full training bot."
+		_:
+			return "Default keeps the Jukebox training difficulty unless another override is selected."
+
+func _humanize_token(value: String) -> String:
+	var clean: String = value.strip_edges().replace("_", " ")
+	if clean.is_empty():
+		return ""
+	var parts: PackedStringArray = clean.split(" ", false)
+	var words: Array[String] = []
+	for part_any in parts:
+		var part: String = str(part_any).strip_edges()
+		if part.is_empty():
+			continue
+		words.append(part.substr(0, 1).to_upper() + part.substr(1).to_lower())
+	return " ".join(words)
 
 func _on_scout_pressed() -> void:
 	# Intentionally parked until replay + analytics tier logic is live.
@@ -411,10 +659,7 @@ func _format_time_ms(value: int) -> String:
 	return "%02d:%02d.%03d" % [minutes, seconds, millis]
 
 func _apply_font(control: Control, font: Font, size: int) -> void:
-	if control == null or font == null:
-		return
-	control.add_theme_font_override("font", font)
-	control.add_theme_font_size_override("font_size", size)
+	UITypography.apply_font(control, font, size)
 
 func _style_nav_button(button: Button) -> void:
 	if button == null:

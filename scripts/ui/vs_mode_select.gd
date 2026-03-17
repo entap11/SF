@@ -2,10 +2,7 @@ extends Control
 
 signal closed
 
-const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
-const FONT_FREE_ROLL_ATLAS_PATH := "res://assets/fonts/free_roll_display_v2_font.tres"
-const FONT_FREE_ROLL_SUPPORTED := " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MODES := [
 	{"id": "STAGE_RACE", "label": "Stage Race"},
 	{"id": "CAPTURE_FLAG", "label": "Capture the Flag"},
@@ -294,9 +291,9 @@ func _on_back_pressed() -> void:
 	closed.emit()
 
 func _load_fonts() -> void:
-	_font_regular = load(FONT_REGULAR_PATH)
-	_font_semibold = load(FONT_SEMIBOLD_PATH)
-	_font_free_roll_atlas = load(FONT_FREE_ROLL_ATLAS_PATH)
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
+	_font_free_roll_atlas = UITypography.free_roll_font()
 
 func _apply_static_fonts() -> void:
 	_apply_free_roll_atlas_font(title_label, 20)
@@ -312,39 +309,10 @@ func _apply_static_fonts() -> void:
 	_apply_font(confirm_button, _font_semibold, 14)
 
 func _apply_font(node: Control, font: Font, size: int) -> void:
-	if node == null or font == null:
-		return
-	node.add_theme_font_override("font", font)
-	node.add_theme_font_size_override("font_size", maxi(1, size))
-
-func _text_uses_free_roll_charset(text: String) -> bool:
-	var source := text.to_upper()
-	for i in source.length():
-		var ch := source.substr(i, 1)
-		if FONT_FREE_ROLL_SUPPORTED.find(ch) == -1:
-			return false
-	return true
+	UITypography.apply_font(node, font, size)
 
 func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
-	if node == null or _font_free_roll_atlas == null:
-		return false
-	var raw_text := ""
-	if node is Label:
-		raw_text = (node as Label).text
-	elif node is BaseButton:
-		raw_text = (node as BaseButton).text
-	if raw_text == "":
-		return false
-	var upper_text := raw_text.to_upper()
-	if not _text_uses_free_roll_charset(upper_text):
-		return false
-	if node is Label:
-		(node as Label).text = upper_text
-	elif node is BaseButton:
-		(node as BaseButton).text = upper_text
-	node.add_theme_font_override("font", _font_free_roll_atlas)
-	node.add_theme_font_size_override("font_size", maxi(1, size))
-	return true
+	return UITypography.apply_free_roll_atlas_font(node, size)
 
 func _sync_button_states() -> void:
 	for mode_id in _mode_buttons.keys():

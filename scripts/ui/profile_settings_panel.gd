@@ -2,6 +2,7 @@ class_name ProfileSettingsPanel
 extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
 const MIN_HANDLE_LEN: int = 3
 const MAX_HANDLE_LEN: int = 20
@@ -13,8 +14,6 @@ const POWERBAR_THEME_BASE: String = "base"
 const POWERBAR_THEME_UPGRADED: String = "upgraded"
 const POWERBAR_THEME_UPGRADED_DYNAMIC: String = "upgraded_dynamic"
 const POWERBAR_THEME_UPGRADED_BOIL: String = "upgraded_boil"
-const FONT_REGULAR_PATH: String = "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH: String = "res://assets/fonts/ChakraPetch-SemiBold.ttf"
 const ADMIN_DASHBOARD_URL_DEFAULT: String = "http://127.0.0.1:8787/dashboard"
 const ADMIN_DASHBOARD_USERNAME_DEFAULT: String = "Mattballou"
 const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = "$warmFr0nt"
@@ -486,20 +485,11 @@ func _apply_readability_layout() -> void:
 	rename_policy_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 func _load_fonts() -> void:
-	if ResourceLoader.exists(FONT_REGULAR_PATH):
-		var regular_any: Variant = load(FONT_REGULAR_PATH)
-		if regular_any is Font:
-			_font_regular = regular_any as Font
-	if ResourceLoader.exists(FONT_SEMIBOLD_PATH):
-		var semibold_any: Variant = load(FONT_SEMIBOLD_PATH)
-		if semibold_any is Font:
-			_font_semibold = semibold_any as Font
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
 
 func _apply_font(control: Control, font: Font, size: int) -> void:
-	if control == null or font == null:
-		return
-	control.add_theme_font_override("font", font)
-	control.add_theme_font_size_override("font_size", size)
+	UITypography.apply_font(control, font, size)
 
 func _set_control_min_height(control: Control, min_height: float) -> void:
 	if control == null:

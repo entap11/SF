@@ -1,8 +1,7 @@
 extends Control
 class_name DashAchievementsHero
 
-const FONT_REGULAR_PATH := "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
 const FUTURE_TRACKS := [
 	"Async records and map mastery boards",
@@ -35,10 +34,8 @@ func refresh_view() -> void:
 	_refresh_footer()
 
 func _load_fonts() -> void:
-	if ResourceLoader.exists(FONT_REGULAR_PATH):
-		_font_regular = load(FONT_REGULAR_PATH) as Font
-	if ResourceLoader.exists(FONT_SEMIBOLD_PATH):
-		_font_semibold = load(FONT_SEMIBOLD_PATH) as Font
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
 
 func _style_ui() -> void:
 	title_label.text = "ACHIEVEMENTS"
@@ -96,11 +93,7 @@ func apply_regular(control: Control) -> void:
 	_apply_font(control, _font_regular, 12)
 
 func _apply_font(control: Control, font: Font, size: int) -> void:
-	if control == null:
-		return
-	if font != null:
-		control.add_theme_font_override("font", font)
-	control.add_theme_font_size_override("font_size", maxi(1, size))
+	UITypography.apply_font(control, font, size)
 
 func _style_panel(panel: Control, fill: Color, border: Color) -> void:
 	if panel == null:
