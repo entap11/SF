@@ -253,6 +253,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+metadata/_edit_use_anchors_ = true
 
 [node name="TopBufferBackground" type="TextureRect" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"]
 texture_repeat = 1

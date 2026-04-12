@@ -13,13 +13,11 @@ const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 
-const BASE_MS := 1000.0
+const BASE_MS := 1100.0
 const PER_POWER_MS := 2.0
-const BONUS_10_MS := 2.0
-const BONUS_25_MS := 2.0
 const MIN_MS := 250.0
 const MAX_SPAWNS_PER_TICK := 5
-const UNIT_RADIUS_PX := 0.0
+const UNIT_RADIUS_PX := 24.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
@@ -337,7 +335,9 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 				break
 			var a_t := float(a.get("t", 0.0))
 			var b_t := float(b.get("t", 0.0))
-			if a_t < b_t:
+			var center_gap_px: float = maxf(0.0, (b_t - a_t) * lane_len)
+			var collision_contact_gap_px: float = UNIT_RADIUS_PX * 2.0
+			if center_gap_px > collision_contact_gap_px:
 				break
 			var a_owner := int(a.get("owner_id", 0))
 			var b_owner := int(b.get("owner_id", 0))
@@ -1628,7 +1628,7 @@ func _log_lane_cap_blocked(lane_id: int, src_id: int, dst_id: int, side: String,
 
 func _spawn_interval_ms_for_power(power: int) -> int:
 	var p := maxi(1, power)
-	return maxi(50, 1000 - (p - 1) * 2)
+	return maxi(50, 1100 - (p - 1) * 2)
 
 func _spawn_ids() -> Dictionary:
 	var ids: Dictionary = {}

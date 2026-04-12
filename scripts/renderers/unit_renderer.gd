@@ -38,7 +38,7 @@ var _unit_sprite_logged := false
 const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
 const UNIT_RENDER_SCALE: float = 2.4
-const UNIT_SPRITE_FORWARD_DEG: float = 45.0
+const UNIT_SPRITE_FORWARD_DEG: float = 90.0
 const UNIT_TRAVEL_T_EPS: float = 0.02
 const DBG_UNITS: bool = false
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
@@ -66,6 +66,18 @@ const BOBBLE_AMP_MIN_PX: float = 2.0
 const BOBBLE_AMP_MAX_PX: float = 6.0
 const BOBBLE_OMEGA: float = 8.0
 const BOBBLE_Y_CLAMP_PX: float = 6.0
+const BOBBLE_RATE_MIN: float = 0.78
+const BOBBLE_RATE_MAX: float = 1.28
+const BOBBLE_SECONDARY_SCALE_MIN: float = 0.18
+const BOBBLE_SECONDARY_SCALE_MAX: float = 0.42
+const BOBBLE_SECONDARY_OMEGA_RATIO: float = 0.61
+const BOBBLE_ELEVATION_AMP_MIN_PX: float = 0.8
+const BOBBLE_ELEVATION_AMP_MAX_PX: float = 2.4
+const BOBBLE_ELEVATION_RATE_MIN: float = 0.72
+const BOBBLE_ELEVATION_RATE_MAX: float = 1.34
+const BOBBLE_ELEVATION_SECONDARY_SCALE_MIN: float = 0.16
+const BOBBLE_ELEVATION_SECONDARY_SCALE_MAX: float = 0.36
+const BOBBLE_ELEVATION_Y_CLAMP_PX: float = 4.0
 const SIM_DT_SEC_DEFAULT: float = 0.1
 const BUTTER_INTERP_DELAY_TICKS: float = 0.75
 const SAMPLE_T_EPS: float = 0.001
@@ -96,7 +108,8 @@ const PRUNE_AFTER_TICKS: int = 2
 @export var bee_clip_entrance_plane_offset_px: float = 14.0
 @export var bee_clip_collision_lead_px: float = 120.0
 @export var bee_clip_collision_snap_on_prime: bool = true
-@export var bee_clip_collision_first_contact_cut_max: float = 0.30
+@export var bee_clip_collision_first_contact_cut_max: float = 0.08
+@export var bee_clip_collision_length_scale: float = 0.50
 @export var bee_clip_collision_plane_offset_px: float = 32.0
 @export var bee_clip_collision_prime_nose_bias_px: float = 56.0
 @export var bee_clip_collision_missing_speed_cap_px_s: float = 180.0
@@ -1108,7 +1121,7 @@ func _prime_bee_collision_clip_override(unit_id: int, impact_world: Vector2, tra
 		controller.call("reset")
 	if controller.has_method("set_first_contact_snap"):
 		controller.call("set_first_contact_snap", bee_clip_collision_snap_on_prime, bee_clip_collision_first_contact_cut_max)
-	var visual_len_px: float = _compute_bee_visual_length_px(sprite)
+	var visual_len_px: float = _compute_bee_visual_length_px_scaled(sprite, bee_clip_collision_length_scale)
 	var nose_contact_offset_px: float = bee_clip_nose_offset_px + (visual_len_px * 0.5)
 	if bee_clip_collision_prime_nose_bias_px > 0.0:
 		var prime_nose_world: Vector2 = node.global_position + (safe_dir * nose_contact_offset_px)
@@ -2221,6 +2234,9 @@ func _bee_clip_local_cut_dir() -> Vector2:
 	return base_dir.normalized()
 
 func _compute_bee_visual_length_px(sprite: Sprite2D) -> float:
+	return _compute_bee_visual_length_px_scaled(sprite, bee_clip_length_scale)
+
+func _compute_bee_visual_length_px_scaled(sprite: Sprite2D, length_scale: float) -> float:
 	if bee_clip_visual_length_px_override > 0.0:
 		return bee_clip_visual_length_px_override
 	if sprite == null or sprite.texture == null:
@@ -2234,7 +2250,7 @@ func _compute_bee_visual_length_px(sprite: Sprite2D) -> float:
 	if scale_y <= 0.000001:
 		scale_y = 1.0
 	var base_len: float = maxf(tex_width * scale_x, tex_height * scale_y)
-	var scaled_len: float = base_len * maxf(0.1, bee_clip_length_scale)
+	var scaled_len: float = base_len * maxf(0.1, length_scale)
 	return maxf(1.0, maxf(bee_clip_min_visual_length_px, scaled_len))
 
 func _ensure_bee_clip_controller(unit_id: int, sprite: Sprite2D) -> RefCounted:
@@ -2352,7 +2368,8 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 		if boundary_plane_v is Vector2:
 			entrance_point_world = boundary_plane_v as Vector2
 
-	var bee_length_px: float = _compute_bee_visual_length_px(sprite)
+	var clip_length_scale: float = bee_clip_collision_length_scale if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)) else bee_clip_length_scale
+	var bee_length_px: float = _compute_bee_visual_length_px_scaled(sprite, clip_length_scale)
 	var speed_px_s: float = _estimate_unit_visual_speed_px_s(unit_id)
 	if speed_px_s <= 0.0:
 		speed_px_s = bee_clip_missing_speed_fallback_px_s
@@ -2994,6 +3011,7 @@ func _render_units(now_us: int) -> void:
 		return
 	var settle_active: bool = _post_match_settle_is_active(now_us)
 	var hive_by_id: Dictionary = _build_hive_by_id()
+	var sim_time_s: float = float(model.get("sim_time_s", 0.0))
 	var ids: Array = unit_nodes_by_id.keys()
 	if AUDIT_RENDER:
 		_audit_draw_ops += ids.size()
@@ -3013,6 +3031,8 @@ func _render_units(now_us: int) -> void:
 			var state: Dictionary = state_any as Dictionary
 			if bool(state.get("just_spawned", false)):
 				var spawn_pos: Vector2 = state.get("curr_pos", node.position)
+				if not unit_data.is_empty():
+					spawn_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
 				node.position = spawn_pos
 				node.rotation = float(state.get("curr_rot", node.rotation))
 				state["render_pos"] = spawn_pos
@@ -3027,7 +3047,10 @@ func _render_units(now_us: int) -> void:
 				if bool(settle_pose.get("ok", false)):
 					var settle_pos_v: Variant = settle_pose.get("pos", node.position)
 					if settle_pos_v is Vector2:
-						node.position = settle_pos_v as Vector2
+						var settle_pos: Vector2 = settle_pos_v as Vector2
+						if not unit_data.is_empty():
+							settle_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
+						node.position = settle_pos
 					node.rotation = float(settle_pose.get("rot", float(state.get("curr_rot", node.rotation))))
 					state["render_pos"] = node.position
 					_unit_visual_by_id[unit_id] = state
@@ -3043,6 +3066,8 @@ func _render_units(now_us: int) -> void:
 			var prev_pos: Vector2 = state.get("prev_pos", node.position)
 			var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
 			var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)
+			if not unit_data.is_empty():
+				render_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
 			node.position = render_pos
 			var prev_rot: float = float(state.get("prev_rot", node.rotation))
 			var curr_rot: float = float(state.get("curr_rot", prev_rot))
@@ -3394,9 +3419,16 @@ func _unit_bobble_offset(ud: Dictionary, hive_by_id: Dictionary, sim_time_s: flo
 	var normal: Vector2 = Vector2(-dir.y, dir.x)
 	var phase: float = _unit_phase(unit_id)
 	var amp: float = _unit_amp(unit_id)
-	var offset: float = sin(BOBBLE_OMEGA * sim_time_s + phase) * amp
+	var omega: float = BOBBLE_OMEGA * _unit_bobble_rate(unit_id)
+	var primary: float = sin(omega * sim_time_s + phase) * amp
+	var secondary_phase: float = _unit_phase(unit_id * 17 + 11)
+	var secondary_amp: float = amp * _unit_bobble_secondary_scale(unit_id)
+	var secondary: float = sin((omega * BOBBLE_SECONDARY_OMEGA_RATIO) * sim_time_s + secondary_phase) * secondary_amp
+	var offset: float = primary + secondary
 	var off: Vector2 = normal * offset
 	off.y = clampf(off.y, -BOBBLE_Y_CLAMP_PX, BOBBLE_Y_CLAMP_PX)
+	off.y += _unit_elevation_bobble_px(unit_id, sim_time_s)
+	off.y = clampf(off.y, -BOBBLE_Y_CLAMP_PX - BOBBLE_ELEVATION_Y_CLAMP_PX, BOBBLE_Y_CLAMP_PX + BOBBLE_ELEVATION_Y_CLAMP_PX)
 	return off
 
 func _unit_lane_dir(ud: Dictionary, hive_by_id: Dictionary) -> Vector2:
@@ -3471,6 +3503,41 @@ func _unit_amp(unit_id: int) -> float:
 	var h := _hash_unit_id(unit_id * 31 + 7)
 	var frac := float((h >> 8) % 10000) / 10000.0
 	return lerpf(BOBBLE_AMP_MIN_PX, BOBBLE_AMP_MAX_PX, frac)
+
+func _unit_bobble_rate(unit_id: int) -> float:
+	var h := _hash_unit_id(unit_id * 67 + 19)
+	var frac := float((h >> 5) % 10000) / 10000.0
+	return lerpf(BOBBLE_RATE_MIN, BOBBLE_RATE_MAX, frac)
+
+func _unit_bobble_secondary_scale(unit_id: int) -> float:
+	var h := _hash_unit_id(unit_id * 97 + 23)
+	var frac := float((h >> 3) % 10000) / 10000.0
+	return lerpf(BOBBLE_SECONDARY_SCALE_MIN, BOBBLE_SECONDARY_SCALE_MAX, frac)
+
+func _unit_elevation_bobble_px(unit_id: int, sim_time_s: float) -> float:
+	var amp: float = _unit_elevation_amp(unit_id)
+	var omega: float = BOBBLE_OMEGA * _unit_elevation_rate(unit_id)
+	var phase: float = _unit_phase(unit_id * 41 + 29)
+	var primary: float = sin(omega * sim_time_s + phase) * amp
+	var secondary_phase: float = _unit_phase(unit_id * 53 + 31)
+	var secondary_amp: float = amp * _unit_elevation_secondary_scale(unit_id)
+	var secondary: float = sin((omega * BOBBLE_SECONDARY_OMEGA_RATIO) * sim_time_s + secondary_phase) * secondary_amp
+	return clampf(primary + secondary, -BOBBLE_ELEVATION_Y_CLAMP_PX, BOBBLE_ELEVATION_Y_CLAMP_PX)
+
+func _unit_elevation_amp(unit_id: int) -> float:
+	var h := _hash_unit_id(unit_id * 71 + 37)
+	var frac := float((h >> 6) % 10000) / 10000.0
+	return lerpf(BOBBLE_ELEVATION_AMP_MIN_PX, BOBBLE_ELEVATION_AMP_MAX_PX, frac)
+
+func _unit_elevation_rate(unit_id: int) -> float:
+	var h := _hash_unit_id(unit_id * 83 + 41)
+	var frac := float((h >> 4) % 10000) / 10000.0
+	return lerpf(BOBBLE_ELEVATION_RATE_MIN, BOBBLE_ELEVATION_RATE_MAX, frac)
+
+func _unit_elevation_secondary_scale(unit_id: int) -> float:
+	var h := _hash_unit_id(unit_id * 109 + 47)
+	var frac := float((h >> 2) % 10000) / 10000.0
+	return lerpf(BOBBLE_ELEVATION_SECONDARY_SCALE_MIN, BOBBLE_ELEVATION_SECONDARY_SCALE_MAX, frac)
 
 func _hash_unit_id(unit_id: int) -> int:
 	var x := int(unit_id)

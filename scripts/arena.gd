@@ -40,7 +40,7 @@ const GRID_DEBUG := false
 const RENDER_DEBUG := false
 const LANE_ESTABLISH_MS := 2400.0
 const UNIT_TRAVEL_MS := 4800.0
-const SPAWN_BASE_MS := 1200.0
+const SPAWN_BASE_MS := 1100.0
 const SPAWN_PER_POWER_MS := 2.0
 const SPAWN_MIN_MS := 250.0
 const FIRST_UNIT_OFFSET_MS := 2.0
@@ -48,11 +48,9 @@ const SPIKE_PX := 48.0
 const LANE_EDGE_T := 0.18
 const DEBUG_COLLISION_ONLY := true
 const DASH_GAP_PX := 6.0
-const BASE_MS := 1000.0
+const BASE_MS := 1100.0
 const PER_POWER_MS := 2.0
 const START_POWER := 10
-const BONUS_10_MS := 2.0
-const BONUS_25_MS := 2.0
 const IDLE_GROWTH_MS := 1500.0
 const CAPTURE_SHOCK_MS := 3000.0
 const SWARM_SHOCK_MS := 3000.0
@@ -9920,17 +9918,12 @@ func _send_rate(hive: HiveData, is_sending: bool) -> float:
 	return 1.0 / interval_sec
 
 func _interval_ms(power: int) -> float:
-	var bonus: float = 0.0
-	if power >= 10:
-		bonus += BONUS_10_MS
-	if power >= 25:
-		bonus += BONUS_25_MS
-	var value: float = BASE_MS - ((power - 1) * PER_POWER_MS) - bonus
+	var value: float = BASE_MS - ((power - 1) * PER_POWER_MS)
 	return maxf(200.0, value)
 
 func _spawn_interval_ms_for_power(power: int) -> int:
 	var p := maxi(1, power)
-	return maxi(50, 1000 - (p - 1) * 2)
+	return maxi(50, 1100 - (p - 1) * 2)
 
 func _hive_spawn_interval_ms(hive: HiveData) -> float:
 	var base: float = _interval_ms(hive.power)
