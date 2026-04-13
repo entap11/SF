@@ -371,6 +371,7 @@ func _get_player_snapshot_local(player_id: String) -> Dictionary:
 	}
 
 func get_local_rank_view(filter_name: String = "GLOBAL", limit: int = 25) -> Dictionary:
+	var config: RankConfigScript = _runtime_config()
 	var requester_id: String = _resolve_local_player_id()
 	var transport := _call_transport("get_local_rank_view", {
 		"filter_name": filter_name,
@@ -393,13 +394,14 @@ func get_local_rank_view(filter_name: String = "GLOBAL", limit: int = 25) -> Dic
 		requester_id,
 		filter_name,
 		limit,
-		_config
+		config
 	)
 	board["local_player_id"] = requester_id
 	board["player"] = _get_player_snapshot_local(requester_id)
 	return board
 
 func get_leaderboard_snapshot(requester_id: String, filter_name: String = "GLOBAL", limit: int = 25) -> Dictionary:
+	var config: RankConfigScript = _runtime_config()
 	var transport := _call_transport("get_leaderboard_snapshot", {
 		"requester_id": requester_id,
 		"filter_name": filter_name,
@@ -421,10 +423,11 @@ func get_leaderboard_snapshot(requester_id: String, filter_name: String = "GLOBA
 		requester_id,
 		filter_name,
 		limit,
-		_config
-)
+		config
+	)
 
 func find_match_candidates(requester_id: String, queue_entries: Array) -> Array[Dictionary]:
+	var config: RankConfigScript = _runtime_config()
 	var transport := _call_transport("find_match_candidates", {
 		"requester_id": requester_id,
 		"queue_entries": queue_entries
@@ -440,19 +443,21 @@ func find_match_candidates(requester_id: String, queue_entries: Array) -> Array[
 						continue
 					rows_out.append((row_any as Dictionary).duplicate(true))
 				return rows_out
-	return _matchmaker.find_candidates(_players_by_id, requester_id, queue_entries, _config)
+	return _matchmaker.find_candidates(_players_by_id, requester_id, queue_entries, config)
 
 func get_snapshot() -> Dictionary:
+	var config: RankConfigScript = _runtime_config()
 	return {
 		"local_player_id": _resolve_local_player_id(),
 		"player_count": _players_by_id.size(),
 		"top_players": _top_rows(10),
-		"config_enabled": _config.enabled,
+		"config_enabled": config.enabled,
 		"transport_mode": _transport_mode,
 		"authoritative_online": is_authoritative_transport_online()
 	}
 
 func get_local_tier_badge() -> Dictionary:
+	var config: RankConfigScript = _runtime_config()
 	var player_id: String = _resolve_local_player_id()
 	var record: Dictionary = _players_by_id.get(player_id, {}) as Dictionary
 	if record.is_empty():
@@ -462,7 +467,7 @@ func get_local_tier_badge() -> Dictionary:
 			"tier_id": "DRONE"
 		}
 	var tier_id: String = str(record.get("tier_id", "DRONE")).strip_edges().to_upper()
-	var tier_index_zero: int = _config.tier_index(tier_id)
+	var tier_index_zero: int = config.tier_index(tier_id)
 	var tier_index_one: int = tier_index_zero + 1 if tier_index_zero >= 0 else 0
 	var tier_rank: int = _compute_tier_rank_for_player(player_id, tier_id)
 	return {
@@ -528,6 +533,13 @@ func _configured_backend_timeout_sec() -> float:
 	if ProjectSettings.has_setting(SETTINGS_BACKEND_TIMEOUT_SEC):
 		return maxf(0.1, float(ProjectSettings.get_setting(SETTINGS_BACKEND_TIMEOUT_SEC, DEFAULT_BACKEND_TIMEOUT_SEC)))
 	return DEFAULT_BACKEND_TIMEOUT_SEC
+
+func _runtime_config() -> RankConfigScript:
+	if _config == null:
+		_load_config()
+	if _config == null:
+		_config = RankConfigScript.new()
+	return _config
 
 func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 	if _transport_http == null or not _transport_http.configured():
