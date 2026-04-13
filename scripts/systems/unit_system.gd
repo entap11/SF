@@ -13,15 +13,15 @@ const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 
-const BASE_MS := 1100.0
-const PER_POWER_MS := 2.0
-const MIN_MS := 250.0
+const BASE_MS := SimTuning.BASE_SPAWN_MS
+const PER_POWER_MS := SimTuning.PER_POWER_MS
+const MIN_MS := SimTuning.MIN_SPAWN_MS
 const MAX_SPAWNS_PER_TICK := 5
 const UNIT_RADIUS_PX := 24.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
-const PASS_THROUGH_EMIT_RATE_MULT: float = 2.0
+const PASS_THROUGH_EMIT_RATE_MULT: float = 0.5
 const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 
@@ -693,12 +693,9 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	if friendly_arrival and before_owner > 0:
 		pass_owner = before_owner
 	var arrive_source: String = str(unit.get("arrive_source", "unit_system"))
-	if _sim_events != null and arrive_source != "recall":
-		var impact_kind: String = "feed"
-		var impact_intensity: float = 0.6
-		if not friendly_arrival:
-			impact_kind = "attack"
-			impact_intensity = 1.0
+	if _sim_events != null and arrive_source != "recall" and not friendly_arrival:
+		var impact_kind: String = "attack"
+		var impact_intensity: float = 1.0
 		var impact_pos: Vector2 = _arrival_impact_world_pos(unit, to_id)
 		var impact_dir: Vector2 = _arrival_impact_dir(unit)
 		var impact_lane_id: int = int(unit.get("lane_id", -1))
@@ -1628,7 +1625,7 @@ func _log_lane_cap_blocked(lane_id: int, src_id: int, dst_id: int, side: String,
 
 func _spawn_interval_ms_for_power(power: int) -> int:
 	var p := maxi(1, power)
-	return maxi(50, 1100 - (p - 1) * 2)
+	return maxi(int(MIN_MS), int(BASE_MS) - (p - 1) * int(PER_POWER_MS))
 
 func _spawn_ids() -> Dictionary:
 	var ids: Dictionary = {}

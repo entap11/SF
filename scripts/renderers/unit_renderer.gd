@@ -2581,8 +2581,10 @@ func _update_unit_sprite(
 		if AUDIT_RENDER:
 			_audit_modulate_sets += 1
 		sprite.self_modulate = team_color
+	var key_params: Dictionary = _unit_colorkey_params(sprite_key, owner_id, registry)
+	var needs_colorkey_material: bool = bool(key_params.get("enabled", false))
 	var has_resource_path: bool = not tex.resource_path.is_empty()
-	if has_resource_path:
+	if has_resource_path or needs_colorkey_material:
 		var mat: ShaderMaterial = _ensure_unit_colorkey_material(sprite, sprite_key, registry, owner_id, unit_id)
 		if mat != null and sprite.material != mat:
 			if AUDIT_RENDER:

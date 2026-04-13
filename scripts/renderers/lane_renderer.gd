@@ -35,11 +35,12 @@ const AUDIT_RENDER: bool = true
 
 const LANE_LOG_INTERVAL_MS := 1000
 const LANE_FLASH_DEFAULT_MS := 250
-const LANE_FLASH_WIDTH := 4.5
+const LANE_FLASH_WIDTH := 3.5
 const LANE_FLASH_COLOR := Color(1.0, 0.9, 0.35, 0.9)
 const LANE_INACTIVE_COLOR := Color(1.0, 1.0, 1.0, 0.18)
 const LANE_CONTESTED_COLOR := Color(1.0, 1.0, 1.0, 0.9)
-const LANE_ACTIVE_ALPHA := 0.9
+const LANE_ACTIVE_ALPHA := 0.78
+const LANE_FRIENDLY_ALPHA := 0.42
 const LANE_SEGMENT_KEY := "lane.segment"
 const LANE_CONNECTOR_KEY := "lane.connector"
 const LANE_TEX_KEY := "lane.mvp"
@@ -51,8 +52,8 @@ const LANE_MAX_SEGMENTS := 64
 const LANE_Z_INDEX := -5
 const LANE_CONNECTOR_AT_ENDPOINTS := false
 # --- Lane sprite sizing ---
-const LANE_THICKNESS_PX := 2.0
-const LANE_WIDTH_PX := 14.0
+const LANE_THICKNESS_PX := 0.96
+const LANE_WIDTH_PX := 6.3
 const LANE_MIN_LEN_PX := 6.0
 const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
@@ -133,10 +134,37 @@ func _lane_color_for_hive(hive_id: int) -> Color:
 		var hive: HiveData = state.find_hive_by_id(hive_id)
 		if hive != null:
 			owner_id = int(hive.owner_id)
-	return _owner_color(owner_id)
+	return _lane_color_for_owner(owner_id)
 
 func _owner_color(owner_id: int) -> Color:
 	return HiveRenderer._owner_color(owner_id)
+
+func _are_allied_lane_owners(owner_a: int, owner_b: int) -> bool:
+	var a_id: int = int(owner_a)
+	var b_id: int = int(owner_b)
+	if a_id <= 0 or b_id <= 0:
+		return false
+	if OpsState != null and OpsState.has_method("are_allies"):
+		return bool(OpsState.call("are_allies", a_id, b_id))
+	return a_id == b_id
+
+func _lane_send_alpha(src_owner: int, dst_owner: int) -> float:
+	if _are_allied_lane_owners(src_owner, dst_owner):
+		return LANE_FRIENDLY_ALPHA
+	return LANE_ACTIVE_ALPHA
+
+func _lane_color_for_owner(owner_id: int) -> Color:
+	match owner_id:
+		1:
+			return Color8(148, 118, 30, 255) # brighter mustard
+		2:
+			return Color8(156, 34, 42, 255) # brighter oxblood
+		3:
+			return Color8(24, 44, 30, 255) # dark camo green
+		4:
+			return Color8(20, 34, 72, 255) # near navy
+		_:
+			return Color(0.22, 0.22, 0.24, 0.55)
 
 func _hive_world_pos(hive_id: int) -> Variant:
 	var anchor_local_any: Variant = _hive_local_pos_for_lane(hive_id)
@@ -1514,8 +1542,8 @@ func _update_lane_visuals(delta: float) -> void:
 		var a_pos: Vector2 = ep.get("a", a_anchor)
 		var b_pos: Vector2 = ep.get("b", b_anchor)
 		_log_lane_endpoints_once(lane_id, ep)
-		var color_a: Color = _with_alpha(_lane_color_for_hive(a_id), LANE_ACTIVE_ALPHA)
-		var color_b: Color = _with_alpha(_lane_color_for_hive(b_id), LANE_ACTIVE_ALPHA)
+		var color_a: Color = _with_alpha(_lane_color_for_hive(a_id), _lane_send_alpha(_owner_id_for_lane(a_id, model), _owner_id_for_lane(b_id, model)))
+		var color_b: Color = _with_alpha(_lane_color_for_hive(b_id), _lane_send_alpha(_owner_id_for_lane(b_id, model), _owner_id_for_lane(a_id, model)))
 		var lane_basis_dir: Vector2 = b_pos - a_pos
 		if send_a and send_b:
 			var front_t: float = clampf(float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)), 0.0, 1.0)
@@ -1952,9 +1980,9 @@ func _resolve_lane_color(a_id: int, b_id: int, send_a: bool, send_b: bool, rm: D
 		if to_hive_ref != null:
 			owner_b = _owner_id_from_hive_ref(to_hive_ref)
 	if send_a and not send_b:
-		return _with_alpha(HiveRenderer._owner_color(owner_a), LANE_ACTIVE_ALPHA)
+		return _with_alpha(_lane_color_for_owner(owner_a), _lane_send_alpha(owner_a, owner_b))
 	if send_b and not send_a:
-		return _with_alpha(HiveRenderer._owner_color(owner_b), LANE_ACTIVE_ALPHA)
+		return _with_alpha(_lane_color_for_owner(owner_b), _lane_send_alpha(owner_b, owner_a))
 	if send_a and send_b:
 		return LANE_CONTESTED_COLOR
 	return LANE_INACTIVE_COLOR

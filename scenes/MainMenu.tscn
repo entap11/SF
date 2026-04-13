@@ -209,9 +209,9 @@ layout_mode = 0
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -210.0
-offset_top = 58.0
+offset_top = 108.0
 offset_right = 210.0
-offset_bottom = 88.0
+offset_bottom = 138.0
 text = "SWARMFRONT"
 horizontal_alignment = 1
 vertical_alignment = 1
@@ -1234,13 +1234,41 @@ offset_bottom = -24.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="HiveTitle" type="Label" parent="DashPanel/DashHivePanel/HiveVBox"]
+[node name="HiveHeaderPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox"]
+layout_mode = 2
+
+[node name="HiveHeaderVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 14.0
+offset_right = -16.0
+offset_bottom = -14.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HiveTitle" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox"]
 layout_mode = 2
 text = "HIVE / CLAN"
 
-[node name="HiveSub" type="Label" parent="DashPanel/DashHivePanel/HiveVBox"]
+[node name="HiveSub" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox"]
 layout_mode = 2
 text = "Clan hub (stub)"
+
+[node name="HiveMetricsRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox"]
+layout_mode = 2
+
+[node name="HiveHoneyLabel" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "HIVE HONEY: 0"
+
+[node name="HiveTotalHoneyLabel" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "TOTAL HIVE HONEY: 0"
 
 [node name="HiveBody" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox"]
 layout_mode = 2
@@ -1260,11 +1288,12 @@ grow_vertical = 2
 
 [node name="HiveTopRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
 layout_mode = 2
-size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 180)
 
 [node name="HiveOverviewPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow"]
 layout_mode = 2
 size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 180)
 
 [node name="HiveOverviewVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel"]
 layout_mode = 1
@@ -1301,6 +1330,7 @@ text = "Members: 12"
 [node name="HiveRosterPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow"]
 layout_mode = 2
 size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 180)
 
 [node name="HiveRosterVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel"]
 layout_mode = 1
@@ -1338,11 +1368,12 @@ text = "Sable — Core"
 layout_mode = 2
 text = "Ivy — Scout"
 
-[node name="HiveActivityPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow"]
+[node name="HiveActivityPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
 layout_mode = 2
-size_flags_horizontal = 3
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 164)
 
-[node name="HiveActivityVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel"]
+[node name="HiveActivityVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -1354,24 +1385,26 @@ offset_bottom = -12.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="HiveActivityHeader" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox"]
+[node name="HiveActivityHeader" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox"]
 layout_mode = 2
 text = "CLAN ACTIVITY"
 
-[node name="HiveActivity1" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox"]
+[node name="HiveActivity1" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox"]
 layout_mode = 2
 text = "Last win: 2h ago"
 
-[node name="HiveActivity2" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox"]
+[node name="HiveActivity2" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox"]
 layout_mode = 2
 text = "New member joined"
 
-[node name="HiveActivity3" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox"]
+[node name="HiveActivity3" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox"]
 layout_mode = 2
 text = "Quest progress: 3/5"
 
 [node name="HiveActionsPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
 layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 204)
 
 [node name="HiveActionsVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel"]
 layout_mode = 1
@@ -1388,6 +1421,22 @@ grow_vertical = 2
 [node name="HiveActionsHeader" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
 layout_mode = 2
 text = "CLAN ACTIONS"
+
+[node name="HiveCommsList" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="HiveComm1" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
+layout_mode = 2
+text = "Hive-only comms placeholder"
+
+[node name="HiveComm2" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
+layout_mode = 2
+text = "Pinned message placeholder"
+
+[node name="HiveComm3" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
+layout_mode = 2
+text = "Recent coordination note"
 
 [node name="HiveActionsRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
 layout_mode = 2

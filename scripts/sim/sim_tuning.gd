@@ -8,7 +8,7 @@ extends RefCounted
 const UNIT_TRAVEL_MS := 4800.0
 const UNIT_SPEED_PX_PER_SEC := 160.0
 const LANE_ESTABLISH_MS := 2400.0
-const BASE_SPAWN_MS := 1000.0
+const BASE_SPAWN_MS := 1500.0
 const PER_POWER_MS := 2.0
 const MIN_SPAWN_MS := 200.0
 const PRESSURE_PER_SPAWN := 1.0

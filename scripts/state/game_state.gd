@@ -1470,7 +1470,7 @@ func _clear_all_outgoing_from(hive_id: int) -> void:
 
 func _spawn_ms_for_hive(power: int) -> int:
 	var p: int = int(maxi(1, power))
-	return maxi(50, 1000 - (p - 1) * 2)
+	return maxi(int(SimTuning.MIN_SPAWN_MS), int(SimTuning.BASE_SPAWN_MS) - (p - 1) * int(SimTuning.PER_POWER_MS))
 
 func _pressure_per_spawn() -> float:
 	return float(SimTuning.PRESSURE_PER_SPAWN)

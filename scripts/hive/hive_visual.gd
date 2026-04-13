@@ -24,21 +24,18 @@ const TIER_4_MIN_POWER := 50
 const SMALL_MAX_POWER := 9
 const MED_MAX_POWER := 24
 const LARGE_MAX_POWER := 50
-const HEIGHT_MED_SCALE := 1.10
-const HEIGHT_LARGE_SCALE := 1.20
-const HEIGHT_MAX_SCALE := 1.30
-const HIVE_VISUAL_SCALE: float = 1.15
-const HIVE_SIZE_TEST_MULT: float = 1.5
-const HIVE_WIDTH_MULT: float = 0.90
-const HIVE_HEIGHT_MULT: float = 1.28
+const HEIGHT_MED_SCALE := 1.18
+const HEIGHT_LARGE_SCALE := 1.34
+const HEIGHT_MAX_SCALE := 1.50
+const HIVE_VISUAL_SCALE: float = 1.22
 const HIVE_COLOR_SAT_BOOST: float = 1.22
 const HIVE_COLOR_VAL_BOOST: float = 1.12
 const HIVE_RING_SCALE: float = 0.85
 const HIVE_LABEL_SCALE_COMP: bool = true
 const LANE_OCCLUDER_COLOR := Color(0.10, 0.09, 0.08, 0.96)
-const LANE_OCCLUDER_WIDTH_RATIO: float = 0.54
-const LANE_OCCLUDER_HEIGHT_RATIO: float = 0.40
-const LANE_OCCLUDER_Y_RATIO: float = 0.08
+const LANE_OCCLUDER_WIDTH_RATIO: float = 0.68
+const LANE_OCCLUDER_HEIGHT_RATIO: float = 0.52
+const LANE_OCCLUDER_Y_RATIO: float = 0.12
 const LANE_OCCLUDER_POINTS: int = 24
 const POWER_LABEL_OFFSET := Vector2(-10.0, -30.0)
 const POWER_LABEL_SCALE := 0.5
@@ -162,7 +159,7 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 func _draw() -> void:
 	SFLog.log_once("HIVEVIS_DRAW", "HiveVisual._draw ran", SFLog.Level.INFO)
 	if _tex == null:
-		draw_circle(Vector2.ZERO, radius_px * HIVE_SIZE_TEST_MULT, _power_color)
+		draw_circle(Vector2.ZERO, radius_px, _power_color)
 	var font: Font = ThemeDB.fallback_font
 	if font == null:
 		return
@@ -501,16 +498,20 @@ func _apply_sprite() -> void:
 	_sprite.position = _sprite_offset
 	if _tex == null:
 		return
-	var legacy_size := Vector2(radius_px * 2.0, radius_px * 2.0) * _sprite_scale
-	var width := (base_width_px if base_width_px > 0.0 else legacy_size.x) * HIVE_WIDTH_MULT * HIVE_SIZE_TEST_MULT
-	var base_height := height_small_px if height_small_px > 0.0 else legacy_size.y
-	var height := _height_for_tier(base_height, _resolve_tier(power)) * HIVE_HEIGHT_MULT * HIVE_SIZE_TEST_MULT
-	_current_size = Vector2(width, height)
 	var tex_size := Vector2(float(_tex.get_width()), float(_tex.get_height()))
-	if tex_size.x > 0.0 and tex_size.y > 0.0:
-		_sprite.scale = Vector2(_current_size.x / tex_size.x, _current_size.y / tex_size.y)
-	else:
+	if tex_size.x <= 0.0 or tex_size.y <= 0.0:
+		_current_size = Vector2.ZERO
 		_sprite.scale = Vector2.ONE
+		_update_lane_occluder()
+		return
+	var base_diameter := radius_px * 2.0 * _sprite_scale
+	var target_height := _height_for_tier(
+		height_small_px if height_small_px > 0.0 else base_diameter,
+		_resolve_tier(power)
+	)
+	var uniform_scale := target_height / tex_size.y
+	_current_size = tex_size * uniform_scale
+	_sprite.scale = Vector2.ONE * uniform_scale
 	_update_lane_occluder()
 
 func _hive_tex_debug(tex: Texture2D, key: String, scale: float, offset: Vector2) -> String:

@@ -8,6 +8,9 @@ uniform float b_max = 0.30;
 uniform float r_max = 0.85;
 uniform float g_max = 0.80;
 uniform float b_soft = 0.10;
+uniform float detail_preserve = 0.86;
+uniform float colorize_strength = 0.78;
+uniform float additive_glow = 0.22;
 
 void fragment() {
 	vec4 tex = texture(TEXTURE, UV);
@@ -22,9 +25,12 @@ void fragment() {
 	float nb = 1.0 - smoothstep(b_soft, b_max, tex.b);
 	float mask = y1 * y2 * nb;
 
-	// Recolor glow pixels
-	vec3 glow = team_color.rgb * mix(lum, bright, 0.6) * glow_strength;
-
-	vec3 out_rgb = mix(tex.rgb, glow, mask);
+	// Neutralize the source yellow first, then tint it so red does not collapse to orange.
+	float energy = mix(lum, bright, 0.72);
+	vec3 neutral_glow = mix(tex.rgb, vec3(energy), 0.88);
+	vec3 preserved = mix(neutral_glow, neutral_glow * team_color.rgb, colorize_strength);
+	vec3 emissive = team_color.rgb * energy * glow_strength;
+	vec3 lit = mix(tex.rgb, preserved, mask * detail_preserve);
+	vec3 out_rgb = lit + (emissive * mask * additive_glow);
 	COLOR = vec4(out_rgb, tex.a);
 }

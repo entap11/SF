@@ -44,11 +44,13 @@ var _current_honey: int = -1
 var _gain_budget: int = 0
 var _queued_drips: int = 0
 var _cooldown_remaining: float = 0.0
+var _boot_drip_pending: bool = false
 
 var _drip_pool: Array[HoneyDrip] = []
 var _drip_active: Array[HoneyDrip] = []
 
 func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	_resolve_nodes()
 	if not resized.is_connected(_on_resized):
 		resized.connect(_on_resized)
@@ -58,16 +60,27 @@ func _ready() -> void:
 	_sync_initial_honey()
 	if not visibility_changed.is_connected(_on_visibility_changed):
 		visibility_changed.connect(_on_visibility_changed)
-	_emit_boot_brand_drip_if_needed()
+	_boot_drip_pending = emit_boot_brand_drip and not _boot_drip_emitted
+	call_deferred("_emit_boot_brand_drip_if_needed")
 	set_process(true)
 
 func _process(delta: float) -> void:
 	if _cooldown_remaining > 0.0:
 		_cooldown_remaining = maxf(0.0, _cooldown_remaining - delta)
+	if _boot_drip_pending:
+		_emit_boot_brand_drip_if_needed()
 	if not visible and not spawn_when_hidden:
 		return
 	_enqueue_drips_from_budget()
 	_try_spawn_queued_drip()
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mouse_event: InputEventMouseButton = event as InputEventMouseButton
+		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
+			if _is_point_inside_honey_origin(get_global_mouse_position()):
+				_spawn_drip_now(true)
+				accept_event()
 
 func apply_label_font(font: Font, size: int) -> void:
 	if font == null:
@@ -184,10 +197,8 @@ func _try_spawn_queued_drip() -> void:
 		return
 	if _cooldown_remaining > 0.0:
 		return
-	var drip: HoneyDrip = _acquire_drip()
-	if drip == null:
+	if not _spawn_drip_now():
 		return
-	drip.reset(_resolve_drip_spawn_position())
 	_queued_drips -= 1
 	_cooldown_remaining = drip_cooldown_sec
 
@@ -201,6 +212,137 @@ func _resolve_drip_spawn_position() -> Vector2:
 		var label_rect: Rect2 = _honey_value_label.get_global_rect()
 		return label_rect.position + Vector2(label_rect.size.x - 16.0, label_rect.size.y - 4.0)
 	return global_position
+
+func _build_drip_path() -> Dictionary:
+	var fallback: Vector2 = _resolve_drip_spawn_position()
+	var anchor: Vector2 = fallback
+	var surface: Vector2 = fallback + Vector2(0.0, 28.0)
+	var pool: Vector2 = surface
+	var spill: Vector2 = surface + Vector2(10.0, 20.0)
+	var surface_width: float = 26.0
+	var digit_center: Vector2 = pool
+	var digit_size: Vector2 = Vector2(20.0, 32.0)
+	if _honey_value_label != null:
+		var digit_rect: Rect2 = _resolve_last_digit_rect(_honey_value_label)
+		digit_center = digit_rect.get_center()
+		digit_size = digit_rect.size
+		var surface_y: float = digit_rect.position.y + maxf(6.0, digit_rect.size.y * 0.12)
+		anchor = Vector2(digit_center.x, surface_y - maxf(30.0, digit_rect.size.y * 0.62))
+		surface = Vector2(digit_center.x, surface_y)
+		pool = Vector2(digit_center.x, surface_y + maxf(2.0, digit_rect.size.y * 0.04))
+		spill = Vector2(
+			digit_rect.end.x + maxf(4.0, digit_rect.size.x * 0.12),
+			pool.y + maxf(6.0, digit_rect.size.y * 0.18)
+		)
+		surface_width = maxf(20.0, digit_rect.size.x * 1.25)
+	var spawn: Vector2 = anchor + Vector2(randf_range(-0.35, 0.35), 3.0)
+	var viewport_bottom: float = get_viewport_rect().size.y + 84.0
+	return {
+		"spawn": spawn,
+		"anchor": anchor,
+		"surface": surface,
+		"pool": pool,
+		"spill": spill,
+		"surface_width": surface_width,
+		"digit_center": digit_center,
+		"digit_size": digit_size,
+		"viewport_bottom": viewport_bottom,
+	}
+
+func _spawn_drip_now(force: bool = false) -> bool:
+	if not force and not visible and not spawn_when_hidden:
+		return false
+	var drip: HoneyDrip = _acquire_drip()
+	if drip == null:
+		return false
+	var drip_path: Dictionary = _build_drip_path()
+	drip.reset(drip_path)
+	_cooldown_remaining = maxf(_cooldown_remaining, drip_cooldown_sec)
+	return true
+
+func _is_point_inside_honey_origin(global_point: Vector2) -> bool:
+	if _honey_prefix_label == null:
+		return false
+	var prefix_rect: Rect2 = _resolve_label_text_rect(_honey_prefix_label)
+	var hit_rect: Rect2 = prefix_rect.grow_individual(6.0, 6.0, 10.0, 10.0)
+	return hit_rect.has_point(global_point)
+
+func _resolve_label_text_rect(label: Label) -> Rect2:
+	if label == null:
+		return Rect2()
+	var label_rect: Rect2 = _resolve_label_rect_in_viewport(label)
+	var font: Font = label.get_theme_font("font")
+	if font == null or label.text.is_empty():
+		return _viewport_rect_to_display_rect(label_rect)
+	var font_size: int = maxi(1, label.get_theme_font_size("font_size"))
+	var text_size: Vector2 = font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var text_pos: Vector2 = label_rect.position
+	match label.horizontal_alignment:
+		HORIZONTAL_ALIGNMENT_CENTER:
+			text_pos.x += (label_rect.size.x - text_size.x) * 0.5
+		HORIZONTAL_ALIGNMENT_RIGHT:
+			text_pos.x += label_rect.size.x - text_size.x
+		_:
+			pass
+	match label.vertical_alignment:
+		VERTICAL_ALIGNMENT_CENTER:
+			text_pos.y += (label_rect.size.y - text_size.y) * 0.5
+		VERTICAL_ALIGNMENT_BOTTOM:
+			text_pos.y += label_rect.size.y - text_size.y
+		_:
+			pass
+	return _viewport_rect_to_display_rect(Rect2(text_pos, text_size))
+
+func _resolve_label_rect_in_viewport(label: Label) -> Rect2:
+	if label == null:
+		return Rect2()
+	return label.get_global_rect()
+
+func _viewport_rect_to_display_rect(rect: Rect2) -> Rect2:
+	if _honey_display == null or _honey_viewport == null:
+		return rect
+	var display_rect: Rect2 = _honey_display.get_global_rect()
+	var viewport_size: Vector2 = Vector2(_honey_viewport.size)
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		return rect
+	var scale_vec: Vector2 = Vector2(
+		display_rect.size.x / viewport_size.x,
+		display_rect.size.y / viewport_size.y
+	)
+	return Rect2(
+		display_rect.position + Vector2(rect.position.x * scale_vec.x, rect.position.y * scale_vec.y),
+		Vector2(rect.size.x * scale_vec.x, rect.size.y * scale_vec.y)
+	)
+
+func _measure_label_text(label: Label, text: String) -> Vector2:
+	if label == null:
+		return Vector2.ZERO
+	var font: Font = label.get_theme_font("font")
+	if font == null:
+		return Vector2.ZERO
+	var safe_text: String = text if not text.is_empty() else "0"
+	var font_size: int = maxi(1, label.get_theme_font_size("font_size"))
+	return font.get_string_size(safe_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+
+func _last_rendered_digit(text: String) -> String:
+	for idx in range(text.length() - 1, -1, -1):
+		var ch: String = text.substr(idx, 1)
+		var code: int = ch.unicode_at(0)
+		if code >= 48 and code <= 57:
+			return ch
+	return "0"
+
+func _resolve_last_digit_rect(label: Label) -> Rect2:
+	if label == null:
+		return Rect2()
+	var text_rect: Rect2 = _resolve_label_text_rect(label)
+	if text_rect.size.x <= 0.0 or text_rect.size.y <= 0.0:
+		return text_rect
+	var digit_size: Vector2 = _measure_label_text(label, _last_rendered_digit(label.text))
+	return Rect2(
+		Vector2(text_rect.end.x - digit_size.x, text_rect.position.y),
+		Vector2(digit_size.x, text_rect.size.y)
+	)
 
 func _prewarm_drip_pool() -> void:
 	for idx in range(maxi(0, drip_prewarm_count)):
@@ -240,18 +382,38 @@ func _release_drip(drip: HoneyDrip) -> void:
 		_drip_pool.append(drip)
 
 func _emit_boot_brand_drip_if_needed() -> void:
-	if not emit_boot_brand_drip:
+	if not _boot_drip_pending or not emit_boot_brand_drip:
 		return
 	if _boot_drip_emitted:
+		_boot_drip_pending = false
 		return
-	if not visible and not spawn_when_hidden:
+	if not _is_boot_drip_ready():
 		return
-	var drip: HoneyDrip = _acquire_drip()
-	if drip == null:
+	if not _spawn_drip_now():
 		return
 	_boot_drip_emitted = true
-	drip.reset(_resolve_drip_spawn_position())
-	_cooldown_remaining = maxf(_cooldown_remaining, drip_cooldown_sec)
+	_boot_drip_pending = false
+
+func _is_boot_drip_ready() -> bool:
+	if not is_inside_tree():
+		return false
+	if not spawn_when_hidden and not is_visible_in_tree():
+		return false
+	var resolved_size: Vector2 = size
+	if resolved_size.x < 2.0 or resolved_size.y < 2.0:
+		resolved_size = custom_minimum_size
+	if resolved_size.x < 2.0 or resolved_size.y < 2.0:
+		return false
+	if _honey_value_label == null:
+		return false
+	var value_rect: Rect2 = _resolve_label_text_rect(_honey_value_label)
+	if value_rect.size.x < 4.0 or value_rect.size.y < 4.0:
+		return false
+	if _honey_prefix_label != null:
+		var prefix_rect: Rect2 = _resolve_label_text_rect(_honey_prefix_label)
+		if prefix_rect.size.x < 4.0 or prefix_rect.size.y < 4.0:
+			return false
+	return true
 
 func _on_visibility_changed() -> void:
 	if visible:

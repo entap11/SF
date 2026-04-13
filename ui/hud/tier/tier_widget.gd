@@ -1,6 +1,9 @@
 extends Control
 class_name TierWidget
 
+signal tier_pressed()
+signal rank_pressed()
+
 const HERO_BLOCK_FONT: Font = preload("res://assets/fonts/ChakraPetch-SemiBold.ttf")
 const DISPLAY_ATLAS_FONT_PATH: String = "res://assets/fonts/free_roll_display_v2_font.tres"
 const DISPLAY_ATLAS_SUPPORTED: String = " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
@@ -13,6 +16,9 @@ const DEFAULT_WIDGET_HEIGHT: float = 200.0
 @export var rank_state_path: NodePath = NodePath("/root/RankState")
 @export var rank_config_path: String = "res://data/rank/rank_config.tres"
 @export var plate_path: NodePath = NodePath("Plate")
+@export var row_path: NodePath = NodePath("Row")
+@export var tier_column_path: NodePath = NodePath("Row/TierColumn")
+@export var rank_column_path: NodePath = NodePath("Row/RankColumn")
 @export var tier_title_label_path: NodePath = NodePath("Row/TierColumn/TierTitle")
 @export var tier_value_label_path: NodePath = NodePath("Row/TierColumn/TierValue")
 @export var tier_name_label_path: NodePath = NodePath("Row/TierColumn/TierName")
@@ -24,6 +30,9 @@ const DEFAULT_WIDGET_HEIGHT: float = 200.0
 
 var _rank_state: Node = null
 var _plate: Panel = null
+var _row: HBoxContainer = null
+var _tier_column: Control = null
+var _rank_column: Control = null
 var _tier_title_label: Label = null
 var _tier_value_label: Label = null
 var _tier_name_label: Label = null
@@ -46,6 +55,8 @@ var _material_base_inlay: Array[float] = []
 var _sweep_tween: Tween = null
 
 func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_resolve_nodes()
 	_configure_plate()
 	_load_display_atlas_font()
@@ -131,6 +142,9 @@ func _text_uses_display_charset(text: String) -> bool:
 
 func _resolve_nodes() -> void:
 	_plate = get_node_or_null(plate_path) as Panel
+	_row = get_node_or_null(row_path) as HBoxContainer
+	_tier_column = get_node_or_null(tier_column_path) as Control
+	_rank_column = get_node_or_null(rank_column_path) as Control
 	_tier_title_label = get_node_or_null(tier_title_label_path) as Label
 	_tier_value_label = get_node_or_null(tier_value_label_path) as Label
 	_tier_name_label = get_node_or_null(tier_name_label_path) as Label
@@ -414,6 +428,27 @@ func _resolve_tier_name(tier_id: String) -> String:
 	if cfg_any.has_method("tier_name"):
 		return str(cfg_any.call("tier_name", tier_id))
 	return tier_id.strip_edges().replace("_", " ").capitalize()
+
+func _gui_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mouse_event: InputEventMouseButton = event as InputEventMouseButton
+	if mouse_event.button_index != MOUSE_BUTTON_LEFT or not mouse_event.pressed:
+		return
+	var global_pos: Vector2 = get_global_mouse_position()
+	if _rank_column != null and _rank_column.get_global_rect().has_point(global_pos):
+		rank_pressed.emit()
+		accept_event()
+		return
+	if _tier_column != null and _tier_column.get_global_rect().has_point(global_pos):
+		tier_pressed.emit()
+		accept_event()
+		return
+	if mouse_event.position.x >= size.x * 0.5:
+		rank_pressed.emit()
+	else:
+		tier_pressed.emit()
+	accept_event()
 
 func _play_rankup_sweep() -> void:
 	if _sweep_tween != null and _sweep_tween.is_running():

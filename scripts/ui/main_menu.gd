@@ -57,6 +57,7 @@ const UI_SURFACE_TIME_PUZZLE := "time_puzzle"
 const UI_SURFACE_SWARM_PASS := "swarm_pass"
 const UI_SURFACE_BATTLE_PASS := "battle_pass"
 const UI_SURFACE_RANK := "rank"
+const UI_SURFACE_RANK_CONTEXT := "rank_context"
 const UI_SURFACE_HIVE_DROPDOWN := "hive_dropdown"
 const DASH_HERO_TAB_GARAGE := "garage"
 const DASH_HERO_TAB_BUFFS := "buffs"
@@ -234,6 +235,7 @@ var _async_stage_section: Panel = null
 var _swarm_pass_panel: Control = null
 var _battle_pass_panel: Control = null
 var _rank_panel: Control = null
+var _rank_context_panel: Panel = null
 var _jukebox_panel: Panel = null
 var _dash_hex_jukebox: HexButton = null
 var _dash_garage_panel: Control = null
@@ -367,25 +369,28 @@ var _hive_panel_profile := {
 	"member_rank_within_hive": 7,
 	"office_title": "Quartermaster",
 	"ecosystem_rank": 148,
+	"member_since_text": "Member for 26d",
 	"hive_honey": 12480,
 	"hive_honey_total": 982400,
 	"honey_score": 12480,
 	"wax_score": 940,
 	"season_name": "Season 01: Founding Swarm",
 	"season_reset_text": "Resets in 12d 04h",
+	"members": [
+		"Mason | Queen | H19,200",
+		"Sable | Soldier | H12,400",
+		"Nora | Soldier | H9,880",
+		"... +8 more members"
+	],
 	"messages": [
 		"Leader: Push Hive Quests before reset.",
-		"Officer: Ladder sync tonight at 9pm.",
-		"New member approved: WaspRider."
+		"Soldiers: Tournament routing at 9pm.",
+		"Welcome WaspRider to the hive."
 	],
 	"achievements": [
-		"Keystone Circuit I",
-		"Season Relay I",
-		"Wax Guard II",
 		"Hive Lift-Off",
-		"Lane Integrity II",
-		"Twin Tower Break",
-		"Barracks Lockdown"
+		"Season Relay I",
+		"Wax Guard II"
 	]
 }
 var _stats_tier := "FREE"
@@ -491,7 +496,7 @@ const BOTTOM_NAV_OUTER_PADDING: float = 8.0
 const BOTTOM_NAV_GROUP_SEPARATION: int = 6
 const BOTTOM_NAV_BUTTON_SEPARATION: int = 4
 const HIVE_DROPDOWN_WIDTH: float = 420.0
-const HIVE_DROPDOWN_HEIGHT: float = 248.0
+const HIVE_DROPDOWN_HEIGHT: float = 300.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
 const HIVE_PULLDOWN_DURATION: float = 0.24
 const GAME_HUB_OVERLAY_TARGET_WIDTH: float = 980.0
@@ -665,6 +670,8 @@ var _store_category_skin_material: ShaderMaterial = null
 var _hive_dropdown_panel: Panel = null
 var _hive_dropdown_tween: Tween = null
 var _hive_dropdown_open: bool = false
+var _hive_create_dialog: ConfirmationDialog = null
+var _hive_create_name_input: LineEdit = null
 var _entry_overlay_inlay_rotated_texture: Texture2D = null
 var _entry_overlay_inlay_cropped_texture: Texture2D = null
 var _entry_overlay_inlay_rotated_cropped_texture: Texture2D = null
@@ -994,6 +1001,10 @@ func _ready() -> void:
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
 	_bind_onboarding_gate()
+	if HiveClanState != null and HiveClanState.has_signal("hive_clan_state_changed"):
+		if not HiveClanState.hive_clan_state_changed.is_connected(_on_hive_clan_state_changed):
+			HiveClanState.hive_clan_state_changed.connect(_on_hive_clan_state_changed)
+	_sync_hive_panel_profile_from_hive_state()
 
 func _process(_delta: float) -> void:
 	_refresh_open_free_roll_game_hub_if_stale()
@@ -1300,8 +1311,8 @@ func _style_labels() -> void:
 	_apply_display_label($DashPanel/DashTopBar/DashHoneyLabel, 17, _font_regular, 17)
 	_apply_honey_label_shader($DashPanel/DashTopBar/DashHoneyLabel)
 	if brand_title_label != null:
-		if not _apply_free_roll_atlas_font(brand_title_label, 17):
-			_apply_font(brand_title_label, _font_semibold, 19)
+		if not _apply_free_roll_atlas_font(brand_title_label, 21):
+			_apply_font(brand_title_label, _font_semibold, 24)
 		_apply_swarmfront_title_shader(brand_title_label)
 	_apply_display_label($HeroPanel/HeroVBox/HeroTitle, 22, _font_semibold, 24)
 	_apply_font($HeroPanel/HeroVBox/HeroSub, _font_regular, 16)
@@ -1339,12 +1350,17 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsFooter, _font_regular, 12)
 	_apply_display_label(buffs_mode_vs_button, 12, _font_semibold, 12)
 	_apply_display_label(buffs_mode_async_button, 12, _font_semibold, 12)
-	_apply_display_label($DashPanel/DashHivePanel/HiveVBox/HiveTitle, 18, _font_semibold, 20)
-	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveSub, _font_regular, 14)
+	_apply_display_label($DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveTitle, 18, _font_semibold, 20)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub, _font_regular, 13)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveHoneyLabel, _font_semibold, 14)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveTotalHoneyLabel, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader, _font_semibold, 14)
-	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader, _font_semibold, 14)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsHeader, _font_semibold, 14)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1, _font_regular, 13)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2, _font_regular, 13)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3, _font_regular, 13)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter, _font_regular, 12)
 	_apply_display_label($DashPanel/DashStorePanel/StoreVBox/StoreTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreSub, _font_regular, 14)
@@ -1404,9 +1420,12 @@ func _style_labels() -> void:
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember2",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember3",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember4",
-		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity1",
-		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity2",
-		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity3"
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3"
 	]:
 		_apply_font(get_node(label_path), _font_regular, 13)
 	for label in replay_info_lines:
@@ -1444,7 +1463,33 @@ func _style_labels() -> void:
 	if buffs_body_vbox != null:
 		buffs_body_vbox.add_theme_constant_override("separation", 12)
 	var hive_body_vbox: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox
-	hive_body_vbox.add_theme_constant_override("separation", 12)
+	hive_body_vbox.add_theme_constant_override("separation", 16)
+	var hive_vbox: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox
+	hive_vbox.add_theme_constant_override("separation", 14)
+	var hive_header_vbox: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox
+	hive_header_vbox.add_theme_constant_override("separation", 6)
+	var hive_metrics_row: HBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow
+	hive_metrics_row.add_theme_constant_override("separation", 12)
+	var hive_top_row: HBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow
+	hive_top_row.add_theme_constant_override("separation", 14)
+	var hive_roster_list: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList
+	hive_roster_list.add_theme_constant_override("separation", 6)
+	var hive_comms_list: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList
+	hive_comms_list.add_theme_constant_override("separation", 8)
+	for label in [
+		$DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3
+	]:
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var store_body_vbox: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox
 	store_body_vbox.add_theme_constant_override("separation", 12)
 	var settings_vbox: VBoxContainer = $DashPanel/DashSettingsPanel/SettingsVBox
@@ -1583,10 +1628,11 @@ func _style_panels() -> void:
 	_style_panel($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel, Color(0.08, 0.09, 0.12, 0.94), Color(0.42, 0.44, 0.52, 0.72))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashStorePanel/StoreVBox/StoreBody, STORE_PANEL_BG_COLOR, STORE_PANEL_BORDER_COLOR)
 	_style_panel(store_landing_panel, STORE_LANDING_BG_COLOR, STORE_LANDING_BORDER_COLOR)
@@ -1614,7 +1660,7 @@ func _wire_buttons() -> void:
 	menu_jukebox_button.pressed.connect(_open_jukebox_from_menu_button)
 	if menu_unused_button != null:
 		menu_unused_button.pressed.connect(_on_settings_pressed)
-	hive_button.pressed.connect(_open_hive_panel)
+	hive_button.pressed.connect(_toggle_hive_dropdown)
 	dash_tab.pressed.connect(_toggle_dash)
 	dash_garage_tab.pressed.connect(func() -> void:
 		_set_dash_top_tab(DASH_HERO_TAB_GARAGE)
@@ -1864,6 +1910,13 @@ func _ensure_hive_dropdown() -> void:
 	body.add_child(sub)
 	_apply_font(sub, _font_regular, 12)
 
+	var create_hive_button: Button = Button.new()
+	create_hive_button.text = "CREATE HIVE"
+	create_hive_button.pressed.connect(func(): _on_hive_dropdown_action("create"))
+	body.add_child(create_hive_button)
+	_apply_font(create_hive_button, _font_regular, 13)
+	_style_button(create_hive_button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+
 	var open_hive_button: Button = Button.new()
 	open_hive_button.text = "OPEN HIVE DASHBOARD"
 	open_hive_button.pressed.connect(func(): _on_hive_dropdown_action("dashboard"))
@@ -1902,6 +1955,8 @@ func _ensure_hive_dropdown() -> void:
 func _on_hive_dropdown_action(action: String) -> void:
 	_set_hive_dropdown_open(false)
 	match action:
+		"create":
+			_open_hive_create_dialog()
 		"dashboard":
 			_open_dash_panel_from_menu(dash_hive_panel)
 		"chat":
@@ -1943,6 +1998,184 @@ func _hide_hive_dropdown_immediate() -> void:
 		_hive_dropdown_set_top(_hive_dropdown_closed_top())
 		_hive_dropdown_panel.visible = false
 	_hive_dropdown_open = false
+
+func _ensure_hive_create_dialog() -> void:
+	if _hive_create_dialog != null and is_instance_valid(_hive_create_dialog):
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "HiveCreateDialog"
+	dialog.title = "Create Hive"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(420, 170)
+	add_child(dialog)
+	_hive_create_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveCreateVBox"
+	body.custom_minimum_size = Vector2(360.0, 92.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var desc := Label.new()
+	desc.text = "Name your hive. You can only create a limited number of hives per time window."
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(desc)
+	_apply_font(desc, _font_regular, 12)
+
+	var name_input := LineEdit.new()
+	name_input.placeholder_text = "Enter hive name"
+	name_input.max_length = 24
+	body.add_child(name_input)
+	_apply_font(name_input, _font_regular, 14)
+	_hive_create_name_input = name_input
+
+	dialog.get_ok_button().text = "CREATE"
+	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	if dialog.get_cancel_button() != null:
+		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.confirmed.is_connected(_submit_hive_create):
+		dialog.confirmed.connect(_submit_hive_create)
+	if not name_input.text_submitted.is_connected(_on_hive_create_name_submitted):
+		name_input.text_submitted.connect(_on_hive_create_name_submitted)
+
+func _open_hive_create_dialog() -> void:
+	_ensure_hive_create_dialog()
+	if _hive_create_dialog == null:
+		return
+	if HiveClanState != null and HiveClanState.has_method("get_player_membership"):
+		var membership: Dictionary = HiveClanState.call("get_player_membership") as Dictionary
+		if not membership.is_empty():
+			status_label.text = "Already in hive: %s." % str(membership.get("hive_name", ""))
+			_open_dash_panel_from_menu(dash_hive_panel)
+			return
+	if _hive_create_name_input != null:
+		_hive_create_name_input.text = ""
+	_hive_create_dialog.popup_centered()
+	if _hive_create_name_input != null:
+		_hive_create_name_input.grab_focus()
+
+func _on_hive_create_name_submitted(_text: String) -> void:
+	_submit_hive_create()
+
+func _submit_hive_create() -> void:
+	if HiveClanState == null or not HiveClanState.has_method("intent_create_hive"):
+		status_label.text = "Hive system unavailable."
+		return
+	var hive_name: String = ""
+	if _hive_create_name_input != null:
+		hive_name = _hive_create_name_input.text.strip_edges()
+	var result: Dictionary = HiveClanState.call("intent_create_hive", hive_name) as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"player_already_in_hive":
+				var membership: Dictionary = result.get("membership", {}) as Dictionary
+				status_label.text = "Already in hive: %s." % str(membership.get("hive_name", ""))
+				_open_dash_panel_from_menu(dash_hive_panel)
+			"hive_create_limit_reached":
+				status_label.text = "Hive creation limit reached for now."
+			"invalid_hive_name":
+				status_label.text = "Enter a valid hive name."
+			_:
+				status_label.text = "Could not create hive."
+		return
+	_sync_hive_panel_profile_from_hive_state()
+	if _hive_create_dialog != null:
+		_hive_create_dialog.hide()
+	if _hive_create_name_input != null:
+		_hive_create_name_input.text = ""
+	var hive: Dictionary = result.get("hive", {}) as Dictionary
+	status_label.text = "Hive created: %s." % str(hive.get("name", ""))
+	_open_dash_panel_from_menu(dash_hive_panel)
+
+func _on_hive_clan_state_changed(_snapshot: Dictionary) -> void:
+	_sync_hive_panel_profile_from_hive_state()
+
+func _sync_hive_panel_profile_from_hive_state() -> void:
+	if HiveClanState == null:
+		return
+	if not HiveClanState.has_method("get_player_membership") or not HiveClanState.has_method("get_hive_snapshot"):
+		return
+	var membership: Dictionary = HiveClanState.call("get_player_membership") as Dictionary
+	if membership.is_empty():
+		return
+	var hive_id: String = str(membership.get("hive_id", ""))
+	if hive_id.is_empty():
+		return
+	var hive: Dictionary = HiveClanState.call("get_hive_snapshot", hive_id) as Dictionary
+	if hive.is_empty():
+		return
+	var members_any: Variant = hive.get("members", [])
+	var member_lines: Array[String] = []
+	var local_player_id: String = ""
+	if ProfileManager != null and ProfileManager.has_method("get_user_id"):
+		local_player_id = str(ProfileManager.call("get_user_id"))
+	var joined_at_unix: int = 0
+	var local_rank: int = 1
+	var member_idx: int = 0
+	if typeof(members_any) == TYPE_ARRAY:
+		for member_any in members_any as Array:
+			if typeof(member_any) != TYPE_DICTIONARY:
+				continue
+			var member: Dictionary = member_any as Dictionary
+			member_lines.append("%s | %s | H%s" % [
+				str(member.get("display_name", "Player")),
+				_role_label(str(member.get("role", "member"))),
+				_format_number(int(member.get("honey_contributed", 0)))
+			])
+			member_idx += 1
+			if str(member.get("player_id", "")) == local_player_id:
+				joined_at_unix = int(member.get("joined_at_unix", 0))
+				local_rank = member_idx
+	var office_title: String = _role_label(str(membership.get("role", "member")))
+	_hive_panel_profile["name"] = str(hive.get("name", "My Hive"))
+	_hive_panel_profile["member_role"] = office_title
+	_hive_panel_profile["office_title"] = office_title
+	_hive_panel_profile["member_rank_within_hive"] = local_rank
+	_hive_panel_profile["member_since_text"] = _format_hive_membership_age(joined_at_unix)
+	_hive_panel_profile["ecosystem_rank"] = maxi(1, int(hive.get("rank_points", 1)))
+	_hive_panel_profile["hive_honey"] = int(membership.get("honey_contributed", 0))
+	_hive_panel_profile["hive_honey_total"] = int(hive.get("total_honey_contributed", 0))
+	_hive_panel_profile["honey_score"] = int(hive.get("hive_honey_strength", 0))
+	_hive_panel_profile["members"] = member_lines
+	_hive_panel_profile["messages"] = [
+		"Hive-only channel coming online.",
+		"Invites, planning, and tournament calls will live here.",
+		"Moderation stays scoped to your hive."
+	]
+	_hive_panel_profile["achievements"] = [
+		"Founding Hive: %s" % str(hive.get("name", "My Hive")),
+		"Rank Points: %s" % _format_number(int(hive.get("rank_points", 0))),
+		"Members: %d/%d" % [int(hive.get("member_count", 0)), int(hive.get("member_limit", 14))]
+	]
+	_refresh_hive_panel()
+
+func _role_label(role: String) -> String:
+	match role.strip_edges().to_lower():
+		"queen":
+			return "Queen"
+		"soldier":
+			return "Soldier"
+		_:
+			return "Member"
+
+func _format_hive_membership_age(joined_at_unix: int) -> String:
+	var safe_joined_at: int = maxi(0, joined_at_unix)
+	if safe_joined_at <= 0:
+		return "Member since today"
+	var elapsed_sec: int = maxi(0, int(Time.get_unix_time_from_system()) - safe_joined_at)
+	var days: int = int(elapsed_sec / 86400)
+	if days >= 1:
+		return "Member for %dd" % days
+	var hours: int = int(elapsed_sec / 3600)
+	if hours >= 1:
+		return "Member for %dh" % hours
+	var minutes: int = int(elapsed_sec / 60)
+	if minutes >= 1:
+		return "Member for %dm" % minutes
+	return "Member since now"
 
 func _scaled_ui_font_size(size: int) -> int:
 	return maxi(1, int(round(float(size) * UI_TEXT_SCALE)))
@@ -2066,11 +2299,19 @@ func _ensure_tier_widget() -> void:
 	widget_control.grow_horizontal = Control.GROW_DIRECTION_END
 	widget_control.grow_vertical = Control.GROW_DIRECTION_END
 	widget_control.custom_minimum_size = Vector2(TIER_WIDGET_PANEL_WIDTH, TIER_WIDGET_PANEL_HEIGHT)
-	widget_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	widget_control.mouse_filter = Control.MOUSE_FILTER_STOP
 	top_bar.add_child(widget_control)
 	top_bar.move_child(widget_control, legacy_rank_label.get_index() + 1)
 	legacy_rank_label.visible = false
 	_tier_widget = widget_control
+	if _tier_widget.has_signal("tier_pressed"):
+		var tier_pressed_cb: Callable = Callable(self, "_on_tier_widget_tier_pressed")
+		if not _tier_widget.is_connected("tier_pressed", tier_pressed_cb):
+			_tier_widget.connect("tier_pressed", tier_pressed_cb)
+	if _tier_widget.has_signal("rank_pressed"):
+		var rank_pressed_cb: Callable = Callable(self, "_on_tier_widget_rank_pressed")
+		if not _tier_widget.is_connected("rank_pressed", rank_pressed_cb):
+			_tier_widget.connect("rank_pressed", rank_pressed_cb)
 
 func _bind_profile_honey_signal() -> void:
 	if ProfileManager == null:
@@ -2182,9 +2423,9 @@ func _configure_dash_account_surfaces() -> void:
 	_ensure_dash_tab_heroes()
 	_set_dash_top_tab(_dash_active_tab, true)
 	_apply_buffs_mode_copy()
-	$DashPanel/DashHivePanel/HiveVBox/HiveSub.text = "Hive profile + hive-earned achievements."
+	$DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub.text = "Membership, trophy case, and hive-only comms."
 	_refresh_hive_panel()
-	var action_texts: Array[String] = ["HIVE CHAT (SOON)", "HIVE LADDER (SOON)", "HIVE QUESTS (SOON)"]
+	var action_texts: Array[String] = ["CHAT (SOON)", "PINNED (SOON)", "MOD TOOLS (SOON)"]
 	for idx in range(hive_action_buttons.size()):
 		var button: Button = hive_action_buttons[idx] as Button
 		if button == null:
@@ -2296,14 +2537,22 @@ func _refresh_hive_panel() -> void:
 	var member_rank_within_hive: int = maxi(1, int(_hive_panel_profile.get("member_rank_within_hive", 1)))
 	var office_title: String = str(_hive_panel_profile.get("office_title", "None"))
 	var ecosystem_rank: int = maxi(1, int(_hive_panel_profile.get("ecosystem_rank", 1)))
+	var member_since_text: String = str(_hive_panel_profile.get("member_since_text", "Member since today"))
 	var hive_honey: int = maxi(0, int(_hive_panel_profile.get("hive_honey", 0)))
 	var hive_honey_total: int = maxi(0, int(_hive_panel_profile.get("hive_honey_total", 0)))
 	var season_name: String = str(_hive_panel_profile.get("season_name", "Season TBD"))
 	var season_reset_text: String = str(_hive_panel_profile.get("season_reset_text", "Reset timer TBD"))
+	var members_any: Variant = _hive_panel_profile.get("members", [])
 	var messages_any: Variant = _hive_panel_profile.get("messages", [])
 	var achievements_any: Variant = _hive_panel_profile.get("achievements", [])
 	var achievements: Array[String] = []
 	var messages: Array[String] = []
+	var members: Array[String] = []
+	if typeof(members_any) == TYPE_ARRAY:
+		for member_v in members_any as Array:
+			var member_line: String = str(member_v).strip_edges()
+			if member_line != "":
+				members.append(member_line)
 	if typeof(messages_any) == TYPE_ARRAY:
 		for msg_v in messages_any as Array:
 			var msg: String = str(msg_v).strip_edges()
@@ -2314,19 +2563,26 @@ func _refresh_hive_panel() -> void:
 			var ach: String = str(ach_v).strip_edges()
 			if ach != "":
 				achievements.append(ach)
-	var hive_title_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveTitle
-	var hive_sub_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveSub
+	var hive_title_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveTitle
+	var hive_sub_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub
+	var hive_honey_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveHoneyLabel
+	var hive_total_honey_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveTotalHoneyLabel
 	hive_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	hive_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	hive_title_label.text = "HIVE HONEY: %s" % _format_number(hive_honey)
-	hive_sub_label.text = "TOTAL HIVE HONEY: %s" % _format_number(hive_honey_total)
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "HIVE PROFILE"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Hive: %s" % hive_name
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "My Hive Rank: #%d | Office: %s" % [member_rank_within_hive, office_title]
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Ecosystem Rank: #%d" % ecosystem_rank
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Tier: %s | Role: %s | %s" % [hive_tier, member_role, season_name]
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "MESSAGES"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "HIVE ACHIEVEMENTS"
+	hive_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	hive_honey_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	hive_total_honey_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hive_title_label.text = hive_name.to_upper()
+	hive_sub_label.text = "%s | %s | Hive Rank #%d" % [member_role, member_since_text, member_rank_within_hive]
+	hive_honey_label.text = "HIVE HONEY: %s" % _format_number(hive_honey)
+	hive_total_honey_label.text = "TOTAL HIVE HONEY: %s" % _format_number(hive_honey_total)
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "MY MEMBERSHIP"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Title: %s" % office_title
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Time in Hive: %s" % member_since_text
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Hive Rank: #%d" % member_rank_within_hive
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Tier %s | Rank Pts %s" % [hive_tier, _format_number(ecosystem_rank)]
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "HIVE MEMBERS %d/14" % members.size()
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "TROPHY CASE"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsHeader.text = "HIVE COMMS"
 	var roster_labels: Array[Label] = [
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember1,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember2,
@@ -2334,21 +2590,37 @@ func _refresh_hive_panel() -> void:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember4
 	]
 	var activity_labels: Array[Label] = [
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity1,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity2,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveActivityPanel/HiveActivityVBox/HiveActivity3
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3
+	]
+	var comm_labels: Array[Label] = [
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3
 	]
 	for i in range(roster_labels.size()):
-		if i < messages.size():
-			roster_labels[i].text = messages[i]
+		if i < roster_labels.size() - 1 and i < members.size():
+			roster_labels[i].text = members[i]
+		elif i == roster_labels.size() - 1 and members.size() > roster_labels.size():
+			roster_labels[i].text = "... +%d more members" % (members.size() - (roster_labels.size() - 1))
+		elif i < members.size():
+			roster_labels[i].text = members[i]
+		elif i == 0:
+			roster_labels[i].text = "No hive members yet"
 		else:
-			roster_labels[i].text = "No hive message"
+			roster_labels[i].text = ""
 	for i in range(activity_labels.size()):
 		if i < achievements.size():
 			activity_labels[i].text = achievements[i]
 		else:
-			activity_labels[i].text = "No hive achievement"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "Hive panel: profile + messages + achievements. %s." % season_reset_text
+			activity_labels[i].text = "No trophy case item yet"
+	for i in range(comm_labels.size()):
+		if i < messages.size():
+			comm_labels[i].text = messages[i]
+		else:
+			comm_labels[i].text = "No hive comms yet"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Hive-only comms stay inside the hive." % season_reset_text
 
 func _refresh_dash_achievement_preview() -> void:
 	var active_count := 0
@@ -4834,6 +5106,308 @@ func _close_rank_panel() -> void:
 		return
 	_rank_panel.visible = false
 
+func _on_tier_widget_rank_pressed() -> void:
+	_open_rank_neighbors_popup()
+
+func _on_tier_widget_tier_pressed() -> void:
+	_open_tier_roster_popup()
+
+func _ensure_rank_context_panel() -> void:
+	if _rank_context_panel != null and is_instance_valid(_rank_context_panel):
+		return
+	var panel_size: Vector2 = _resolve_entry_overlay_size(Vector2(760.0, 780.0))
+	var panel := Panel.new()
+	panel.name = "RankContextPanel"
+	panel.layout_mode = 0
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -panel_size.x * 0.5
+	panel.offset_top = -panel_size.y * 0.5
+	panel.offset_right = panel_size.x * 0.5
+	panel.offset_bottom = panel_size.y * 0.5
+	panel.clip_contents = true
+	panel.z_index = 210
+	panel.visible = false
+	add_child(panel)
+	_rank_context_panel = panel
+	_style_panel(panel, Color(0.05, 0.06, 0.09, 0.985), Color(0.95, 0.77, 0.28, 0.76))
+	_build_entry_overlay_background_layers(panel, panel_size)
+
+	var root := MarginContainer.new()
+	root.name = "Root"
+	root.layout_mode = 1
+	root.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	root.offset_left = 22.0
+	root.offset_top = 18.0
+	root.offset_right = -22.0
+	root.offset_bottom = -18.0
+	panel.add_child(root)
+
+	var vbox := VBoxContainer.new()
+	vbox.name = "VBox"
+	vbox.add_theme_constant_override("separation", 10)
+	root.add_child(vbox)
+
+	var header := HBoxContainer.new()
+	header.name = "Header"
+	header.add_theme_constant_override("separation", 10)
+	vbox.add_child(header)
+
+	var title_box := VBoxContainer.new()
+	title_box.name = "TitleBox"
+	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_box.add_theme_constant_override("separation", 4)
+	header.add_child(title_box)
+
+	var title := Label.new()
+	title.name = "Title"
+	title.text = "RANK CONTEXT"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	title_box.add_child(title)
+	_apply_font(title, _font_semibold, 18)
+
+	var subtitle := Label.new()
+	subtitle.name = "Subtitle"
+	subtitle.text = "Context ladder"
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_box.add_child(subtitle)
+	_apply_font(subtitle, _font_regular, 12)
+	subtitle.add_theme_color_override("font_color", Color(0.86, 0.88, 0.92, 0.74))
+
+	var close_button := Button.new()
+	close_button.name = "CloseButton"
+	close_button.text = "CLOSE"
+	close_button.custom_minimum_size = Vector2(120.0, 44.0)
+	close_button.pressed.connect(_close_rank_context_panel)
+	header.add_child(close_button)
+	_apply_font(close_button, _font_semibold, 12)
+	_style_button(close_button, Color(0.13, 0.14, 0.18, 0.96), Color(0.56, 0.47, 0.23, 0.88), Color(0.98, 0.96, 0.91, 1.0))
+
+	var summary := Label.new()
+	summary.name = "Summary"
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(summary)
+	_apply_font(summary, _font_regular, 13)
+	summary.add_theme_color_override("font_color", Color(0.95, 0.93, 0.86, 0.96))
+
+	var content := RichTextLabel.new()
+	content.name = "Content"
+	content.bbcode_enabled = true
+	content.fit_content = false
+	content.scroll_active = true
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.selection_enabled = false
+	content.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	vbox.add_child(content)
+	_apply_font(content, _font_regular, 13)
+
+	var footer := Label.new()
+	footer.name = "Footer"
+	footer.text = "Click Rank for your nearby ladder. Click Tier for everyone in your current tier."
+	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(footer)
+	_apply_font(footer, _font_regular, 11)
+	footer.add_theme_color_override("font_color", Color(0.80, 0.83, 0.88, 0.62))
+
+func _open_rank_neighbors_popup() -> void:
+	var view: Dictionary = _global_rank_view()
+	var rows_any: Variant = view.get("rows", [])
+	if typeof(rows_any) != TYPE_ARRAY:
+		_present_rank_context(
+			"RANK NEIGHBORHOOD",
+			"Global ladder context is unavailable right now.",
+			"RankState did not return a usable leaderboard snapshot.",
+			"[color=#f2c96a]No leaderboard rows available.[/color]"
+		)
+		return
+	var rows: Array = rows_any as Array
+	var local_player_id: String = str(view.get("local_player_id", "")).strip_edges()
+	var local_context: Dictionary = view.get("local_context", {}) as Dictionary
+	var local_index: int = -1
+	for i in range(rows.size()):
+		var row: Dictionary = rows[i] as Dictionary
+		if str(row.get("player_id", "")).strip_edges() == local_player_id:
+			local_index = i
+			break
+	if local_index < 0 and not rows.is_empty():
+		local_index = 0
+	var start_index: int = maxi(0, local_index - 10)
+	var end_index: int = mini(rows.size(), local_index + 11)
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("[color=#f2c96a]GLOBAL   PLAYER   WAX   TIER[/color]")
+	var focus_line: int = -1
+	for i in range(start_index, end_index):
+		var row: Dictionary = rows[i] as Dictionary
+		var is_local: bool = i == local_index
+		if is_local:
+			focus_line = lines.size()
+		lines.append(_rank_context_line(row, is_local))
+	var tier_name: String = _rank_context_tier_name(str(local_context.get("tier_id", "DRONE")))
+	var gap_to_next: float = float(local_context.get("wax_gap_to_next_player", 0.0))
+	var rank_position: int = int(local_context.get("rank_position", 0))
+	var summary: String = "You are #%d overall in %s with %s wax." % [
+		rank_position,
+		tier_name,
+		_format_wax_value(float(local_context.get("wax_score", 0.0)))
+	]
+	if gap_to_next > 0.0:
+		summary += " %.1f wax to the next player ahead." % gap_to_next
+	else:
+		summary += " You currently hold the top spot in this snapshot."
+	_present_rank_context(
+		"RANK NEIGHBORHOOD",
+		"Ten places ahead and ten behind, centered on your current global rank.",
+		summary,
+		"\n".join(lines),
+		focus_line
+	)
+
+func _open_tier_roster_popup() -> void:
+	var view: Dictionary = _global_rank_view()
+	var rows_any: Variant = view.get("rows", [])
+	var local_context: Dictionary = view.get("local_context", {}) as Dictionary
+	if typeof(rows_any) != TYPE_ARRAY:
+		_present_rank_context(
+			"TIER ROSTER",
+			"Tier roster is unavailable right now.",
+			"RankState did not return a usable leaderboard snapshot.",
+			"[color=#f2c96a]No leaderboard rows available.[/color]"
+		)
+		return
+	var rows: Array = rows_any as Array
+	var local_player_id: String = str(view.get("local_player_id", "")).strip_edges()
+	var local_tier_id: String = str(local_context.get("tier_id", "DRONE")).strip_edges().to_upper()
+	var badge: Dictionary = _local_tier_badge()
+	var tier_rows: Array[Dictionary] = []
+	var local_tier_index: int = -1
+	for row_any in rows:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("tier_id", "")).strip_edges().to_upper() != local_tier_id:
+			continue
+		if str(row.get("player_id", "")).strip_edges() == local_player_id:
+			local_tier_index = tier_rows.size()
+		tier_rows.append(row)
+	var tier_name: String = _rank_context_tier_name(local_tier_id)
+	var tier_index: int = int(badge.get("tier_index", 0))
+	var tier_rank: int = int(badge.get("tier_rank", maxi(1, local_tier_index + 1)))
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("[color=#f2c96a]TIER   GLOBAL   PLAYER   WAX[/color]")
+	var focus_line: int = -1
+	for i in range(tier_rows.size()):
+		var row: Dictionary = tier_rows[i]
+		var is_local: bool = i == local_tier_index
+		if is_local:
+			focus_line = lines.size()
+		lines.append(_tier_context_line(row, i + 1, is_local))
+	var summary: String = "Tier %d: %s. You are #%d in-tier out of %d players, sitting #%d globally." % [
+		tier_index,
+		tier_name,
+		tier_rank,
+		tier_rows.size(),
+		int(local_context.get("rank_position", 0))
+	]
+	_present_rank_context(
+		"TIER %d · %s" % [tier_index, tier_name.to_upper()],
+		"Scrollable roster for everyone currently sharing your tier. Your row is highlighted.",
+		summary,
+		"\n".join(lines),
+		focus_line
+	)
+
+func _present_rank_context(title_text: String, subtitle_text: String, summary_text: String, body_bbcode: String, focus_line: int = -1) -> void:
+	_ensure_rank_context_panel()
+	if _rank_context_panel == null:
+		return
+	_close_top_level_windows(UI_SURFACE_RANK_CONTEXT)
+	var title: Label = _rank_context_panel.get_node_or_null("Root/VBox/Header/TitleBox/Title") as Label
+	var subtitle: Label = _rank_context_panel.get_node_or_null("Root/VBox/Header/TitleBox/Subtitle") as Label
+	var summary: Label = _rank_context_panel.get_node_or_null("Root/VBox/Summary") as Label
+	var content: RichTextLabel = _rank_context_panel.get_node_or_null("Root/VBox/Content") as RichTextLabel
+	if title != null:
+		title.text = title_text
+	if subtitle != null:
+		subtitle.text = subtitle_text
+	if summary != null:
+		summary.text = summary_text
+	if content != null:
+		content.clear()
+		content.text = ""
+		content.append_text(body_bbcode)
+		content.scroll_to_line(0)
+		if focus_line >= 0:
+			content.call_deferred("scroll_to_line", focus_line)
+	_rank_context_panel.visible = true
+	_rank_context_panel.move_to_front()
+
+func _close_rank_context_panel() -> void:
+	if _rank_context_panel == null:
+		return
+	_rank_context_panel.visible = false
+
+func _global_rank_view() -> Dictionary:
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	if rank_state == null or not rank_state.has_method("get_local_rank_view"):
+		return {}
+	var view_any: Variant = rank_state.call("get_local_rank_view", "GLOBAL", 100000)
+	if typeof(view_any) != TYPE_DICTIONARY:
+		return {}
+	return (view_any as Dictionary).duplicate(true)
+
+func _local_tier_badge() -> Dictionary:
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	if rank_state == null or not rank_state.has_method("get_local_tier_badge"):
+		return {}
+	var badge_any: Variant = rank_state.call("get_local_tier_badge")
+	if typeof(badge_any) != TYPE_DICTIONARY:
+		return {}
+	return (badge_any as Dictionary).duplicate(true)
+
+func _rank_context_line(row: Dictionary, highlight: bool) -> String:
+	var text: String = "#%d  %s  %s wax  %s" % [
+		int(row.get("rank_global", row.get("rank_position", 0))),
+		_bbcode_escape(str(row.get("display_name", "Player"))),
+		_format_wax_value(float(row.get("wax_score", 0.0))),
+		_bbcode_escape(_rank_context_tier_name(str(row.get("tier_id", "DRONE"))).to_upper())
+	]
+	return _rank_context_markup(text, highlight)
+
+func _tier_context_line(row: Dictionary, tier_rank: int, highlight: bool) -> String:
+	var text: String = "T#%d  G#%d  %s  %s wax" % [
+		tier_rank,
+		int(row.get("rank_global", row.get("rank_position", 0))),
+		_bbcode_escape(str(row.get("display_name", "Player"))),
+		_format_wax_value(float(row.get("wax_score", 0.0)))
+	]
+	return _rank_context_markup(text, highlight)
+
+func _rank_context_markup(text: String, highlight: bool) -> String:
+	if highlight:
+		return "[bgcolor=#4a320d][color=#ffe38a]%s  [YOU][/color][/bgcolor]" % text
+	return "[color=#e9ebef]%s[/color]" % text
+
+func _rank_context_tier_name(tier_id: String) -> String:
+	var raw: String = tier_id.strip_edges().to_lower()
+	if raw.is_empty():
+		return "Drone"
+	var words: PackedStringArray = raw.replace("_", " ").split(" ", false)
+	var titled: PackedStringArray = PackedStringArray()
+	for word in words:
+		if word.is_empty():
+			continue
+		titled.append(word.substr(0, 1).to_upper() + word.substr(1))
+	return " ".join(titled)
+
+func _format_wax_value(value: float) -> String:
+	return "%.1f" % value
+
+func _bbcode_escape(text: String) -> String:
+	return text.replace("[", "\\[").replace("]", "\\]")
+
 func _wallet_balance_usd() -> int:
 	return int(_wallet_profile.get("balance_usd", 0))
 
@@ -6940,6 +7514,8 @@ func _close_top_level_windows(except_surface: String = "") -> void:
 		_battle_pass_panel.visible = false
 	if except_surface != UI_SURFACE_RANK and _rank_panel != null:
 		_rank_panel.visible = false
+	if except_surface != UI_SURFACE_RANK_CONTEXT and _rank_context_panel != null:
+		_rank_context_panel.visible = false
 
 func _open_play_mode_select() -> void:
 	_close_top_level_windows(UI_SURFACE_PLAY_MODE)

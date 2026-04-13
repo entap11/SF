@@ -40,16 +40,16 @@ const GRID_DEBUG := false
 const RENDER_DEBUG := false
 const LANE_ESTABLISH_MS := 2400.0
 const UNIT_TRAVEL_MS := 4800.0
-const SPAWN_BASE_MS := 1100.0
-const SPAWN_PER_POWER_MS := 2.0
-const SPAWN_MIN_MS := 250.0
+const SPAWN_BASE_MS := SimTuning.BASE_SPAWN_MS
+const SPAWN_PER_POWER_MS := SimTuning.PER_POWER_MS
+const SPAWN_MIN_MS := SimTuning.MIN_SPAWN_MS
 const FIRST_UNIT_OFFSET_MS := 2.0
 const SPIKE_PX := 48.0
 const LANE_EDGE_T := 0.18
 const DEBUG_COLLISION_ONLY := true
 const DASH_GAP_PX := 6.0
-const BASE_MS := 1100.0
-const PER_POWER_MS := 2.0
+const BASE_MS := SimTuning.BASE_SPAWN_MS
+const PER_POWER_MS := SimTuning.PER_POWER_MS
 const START_POWER := 10
 const IDLE_GROWTH_MS := 1500.0
 const CAPTURE_SHOCK_MS := 3000.0
@@ -814,10 +814,10 @@ func _build_outcome_overlay() -> OutcomeOverlay:
 	panel.anchor_top = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -200.0
-	panel.offset_top = -240.0
-	panel.offset_right = 200.0
-	panel.offset_bottom = 240.0
+	panel.offset_left = -240.0
+	panel.offset_top = -320.0
+	panel.offset_right = 240.0
+	panel.offset_bottom = 320.0
 	overlay.add_child(panel)
 
 	var vbox: VBoxContainer = VBoxContainer.new()
@@ -9919,11 +9919,11 @@ func _send_rate(hive: HiveData, is_sending: bool) -> float:
 
 func _interval_ms(power: int) -> float:
 	var value: float = BASE_MS - ((power - 1) * PER_POWER_MS)
-	return maxf(200.0, value)
+	return maxf(SPAWN_MIN_MS, value)
 
 func _spawn_interval_ms_for_power(power: int) -> int:
 	var p := maxi(1, power)
-	return maxi(50, 1100 - (p - 1) * 2)
+	return maxi(int(SPAWN_MIN_MS), int(SPAWN_BASE_MS) - (p - 1) * int(SPAWN_PER_POWER_MS))
 
 func _hive_spawn_interval_ms(hive: HiveData) -> float:
 	var base: float = _interval_ms(hive.power)
