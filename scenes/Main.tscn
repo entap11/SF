@@ -208,10 +208,10 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -200.0
-offset_top = -240.0
-offset_right = 200.0
-offset_bottom = 240.0
+offset_left = -220.0
+offset_top = -340.0
+offset_right = 220.0
+offset_bottom = 340.0
 
 [node name="VBox" type="VBoxContainer" parent="UI/OutcomeOverlay/Panel"]
 layout_mode = 0

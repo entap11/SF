@@ -10,6 +10,9 @@ const OVERCOMMIT_WINDOW_S: float = 5.0
 const OVERCOMMIT_RATIO: float = 0.70
 const SWING_WINDOW_S: float = 10.0
 const SWING_STEP_MS: int = 1000
+const EARLY_WINDOW_MS: int = 90000
+const REACTION_RESPONSE_WINDOW_MS: int = 12000
+const REACTION_THREAT_COOLDOWN_MS: int = 4000
 
 var _model: Variant = MatchTelemetryModelScript.new()
 var _active_player_ids: Array[int] = []
@@ -20,13 +23,32 @@ var _end_utc_ms: int = 0
 var _total_swarm_collisions: int = 0
 
 var _units_produced_by_player: Dictionary = {}
+var _barracks_units_produced_by_player: Dictionary = {}
+var _swarms_sent_by_player: Dictionary = {}
+var _meaningful_actions_by_player: Dictionary = {}
+var _lane_reversals_by_player: Dictionary = {}
+var _units_arrived_friendly_hive_by_player: Dictionary = {}
+var _units_arrived_enemy_hive_by_player: Dictionary = {}
+var _units_arrived_npc_hive_by_player: Dictionary = {}
 var _idle_time_s_by_player: Dictionary = {}
 var _last_production_seen_by_player: Dictionary = {}
 var _last_production_change_ms_by_player: Dictionary = {}
 var _units_lost_by_player: Dictionary = {}
+var _tower_units_killed_by_player: Dictionary = {}
 var _hive_damage_dealt_by_player: Dictionary = {}
 var _hive_damage_taken_by_player: Dictionary = {}
 var _lane_control_time_s_by_player: Dictionary = {}
+var _tower_control_time_s_by_player: Dictionary = {}
+var _barracks_control_time_s_by_player: Dictionary = {}
+var _active_lane_slots_time_s_by_player: Dictionary = {}
+var _lane_budget_slots_time_s_by_player: Dictionary = {}
+var _fully_utilized_lane_time_s_by_player: Dictionary = {}
+var _underutilized_lane_time_s_by_player: Dictionary = {}
+var _early_active_lane_slots_time_s_by_player: Dictionary = {}
+var _early_lane_budget_slots_time_s_by_player: Dictionary = {}
+var _board_control_area_by_player: Dictionary = {}
+var _board_control_peak_share_by_player: Dictionary = {}
+var _early_board_control_area_by_player: Dictionary = {}
 var _overcommit_events_by_player: Dictionary = {}
 var _overcommit_window_s_by_player: Dictionary = {}
 var _overcommit_active_by_player: Dictionary = {}
@@ -49,13 +71,32 @@ func reset() -> void:
 	_end_utc_ms = 0
 	_total_swarm_collisions = 0
 	_units_produced_by_player.clear()
+	_barracks_units_produced_by_player.clear()
+	_swarms_sent_by_player.clear()
+	_meaningful_actions_by_player.clear()
+	_lane_reversals_by_player.clear()
+	_units_arrived_friendly_hive_by_player.clear()
+	_units_arrived_enemy_hive_by_player.clear()
+	_units_arrived_npc_hive_by_player.clear()
 	_idle_time_s_by_player.clear()
 	_last_production_seen_by_player.clear()
 	_last_production_change_ms_by_player.clear()
 	_units_lost_by_player.clear()
+	_tower_units_killed_by_player.clear()
 	_hive_damage_dealt_by_player.clear()
 	_hive_damage_taken_by_player.clear()
 	_lane_control_time_s_by_player.clear()
+	_tower_control_time_s_by_player.clear()
+	_barracks_control_time_s_by_player.clear()
+	_active_lane_slots_time_s_by_player.clear()
+	_lane_budget_slots_time_s_by_player.clear()
+	_fully_utilized_lane_time_s_by_player.clear()
+	_underutilized_lane_time_s_by_player.clear()
+	_early_active_lane_slots_time_s_by_player.clear()
+	_early_lane_budget_slots_time_s_by_player.clear()
+	_board_control_area_by_player.clear()
+	_board_control_peak_share_by_player.clear()
+	_early_board_control_area_by_player.clear()
 	_overcommit_events_by_player.clear()
 	_overcommit_window_s_by_player.clear()
 	_overcommit_active_by_player.clear()
@@ -71,7 +112,8 @@ func begin_match(
 	map_id: String,
 	match_type: int,
 	player_ids: Array[int],
-	start_utc_ms: int
+	start_utc_ms: int,
+	metadata_overrides: Dictionary = {}
 ) -> void:
 	reset()
 	if not _ensure_model():
@@ -79,7 +121,7 @@ func begin_match(
 	_started = true
 	_start_utc_ms = maxi(0, start_utc_ms)
 	_active_player_ids = _sanitize_player_ids(player_ids)
-	_model.metadata = {
+	var metadata: Dictionary = {
 		"match_id": match_id,
 		"season_id": season_id,
 		"map_id": map_id,
@@ -89,32 +131,60 @@ func begin_match(
 		"winner_player_id": 0,
 		"duration_s": 0.0
 	}
+	for key_any in metadata_overrides.keys():
+		metadata[key_any] = metadata_overrides.get(key_any)
+	_model.metadata = metadata
 	for player_id in _active_player_ids:
 		_units_produced_by_player[player_id] = 0
+		_barracks_units_produced_by_player[player_id] = 0
+		_swarms_sent_by_player[player_id] = 0
+		_meaningful_actions_by_player[player_id] = 0
+		_lane_reversals_by_player[player_id] = 0
+		_units_arrived_friendly_hive_by_player[player_id] = 0
+		_units_arrived_enemy_hive_by_player[player_id] = 0
+		_units_arrived_npc_hive_by_player[player_id] = 0
 		_idle_time_s_by_player[player_id] = 0.0
 		_last_production_seen_by_player[player_id] = 0
 		_last_production_change_ms_by_player[player_id] = 0
 		_units_lost_by_player[player_id] = 0
+		_tower_units_killed_by_player[player_id] = 0
 		_hive_damage_dealt_by_player[player_id] = 0
 		_hive_damage_taken_by_player[player_id] = 0
 		_lane_control_time_s_by_player[player_id] = 0.0
+		_tower_control_time_s_by_player[player_id] = 0.0
+		_barracks_control_time_s_by_player[player_id] = 0.0
+		_active_lane_slots_time_s_by_player[player_id] = 0.0
+		_lane_budget_slots_time_s_by_player[player_id] = 0.0
+		_fully_utilized_lane_time_s_by_player[player_id] = 0.0
+		_underutilized_lane_time_s_by_player[player_id] = 0.0
+		_early_active_lane_slots_time_s_by_player[player_id] = 0.0
+		_early_lane_budget_slots_time_s_by_player[player_id] = 0.0
+		_board_control_area_by_player[player_id] = 0.0
+		_board_control_peak_share_by_player[player_id] = 0.0
+		_early_board_control_area_by_player[player_id] = 0.0
 		_overcommit_events_by_player[player_id] = 0
 		_overcommit_window_s_by_player[player_id] = 0.0
 		_overcommit_active_by_player[player_id] = false
 
-func record_unit_produced(t_ms: int, player_id: int, count: int = 1) -> void:
+func record_unit_produced(t_ms: int, player_id: int, count: int = 1, source: String = "lane") -> void:
 	if not is_active():
 		return
 	if player_id <= 0 or count <= 0:
 		return
 	_ensure_player_slot(player_id)
-	var current: int = int(_units_produced_by_player.get(player_id, 0))
-	_units_produced_by_player[player_id] = current + count
+	var source_name: String = source.strip_edges().to_lower()
+	var counts_as_production: bool = source_name != "pass_through" and source_name != "recall"
+	if counts_as_production:
+		var current: int = int(_units_produced_by_player.get(player_id, 0))
+		_units_produced_by_player[player_id] = current + count
+	if source_name == "barracks":
+		_barracks_units_produced_by_player[player_id] = int(_barracks_units_produced_by_player.get(player_id, 0)) + count
 	_model.events.append({
 		"e": int(MatchTelemetryModelScript.EVENT_PRODUCTION),
 		"t": maxi(0, t_ms),
 		"p": player_id,
-		"c": count
+		"c": count,
+		"src": source_name
 	})
 
 func record_collision_event(
@@ -187,6 +257,7 @@ func record_buff_activation(
 	if player_id <= 0:
 		return
 	_ensure_player_slot(player_id)
+	_meaningful_actions_by_player[player_id] = int(_meaningful_actions_by_player.get(player_id, 0)) + 1
 	_model.events.append({
 		"e": int(MatchTelemetryModelScript.EVENT_BUFF_ACTIVATION),
 		"t": maxi(0, t_ms),
@@ -206,6 +277,87 @@ func record_buff_activation(
 		"base_ul": int(_units_lost_by_player.get(player_id, 0))
 	})
 
+func record_action_event(t_ms: int, player_id: int, kind: String, payload: Dictionary = {}) -> void:
+	if not is_active():
+		return
+	if player_id <= 0:
+		return
+	var clean_kind: String = kind.strip_edges().to_lower()
+	if clean_kind == "":
+		return
+	_ensure_player_slot(player_id)
+	if clean_kind == "swarm_send":
+		_swarms_sent_by_player[player_id] = int(_swarms_sent_by_player.get(player_id, 0)) + 1
+	if clean_kind == "lane_reverse":
+		_lane_reversals_by_player[player_id] = int(_lane_reversals_by_player.get(player_id, 0)) + 1
+	if _counts_as_meaningful_action(clean_kind):
+		_meaningful_actions_by_player[player_id] = int(_meaningful_actions_by_player.get(player_id, 0)) + 1
+	var event_row: Dictionary = {
+		"e": int(MatchTelemetryModelScript.EVENT_ACTION),
+		"t": maxi(0, t_ms),
+		"p": player_id,
+		"k": clean_kind
+	}
+	for key_any in payload.keys():
+		event_row[key_any] = payload.get(key_any)
+	_model.events.append(event_row)
+
+func record_unit_arrival(
+	t_ms: int,
+	player_id: int,
+	target_hive_id: int,
+	target_owner_before: int,
+	target_owner_after: int,
+	relation: String,
+	arrive_source: String,
+	amount: int
+) -> void:
+	if not is_active():
+		return
+	if player_id <= 0 or amount <= 0:
+		return
+	_ensure_player_slot(player_id)
+	var clean_relation: String = relation.strip_edges().to_lower()
+	var clean_source: String = arrive_source.strip_edges().to_lower()
+	var count_as_landing: bool = clean_source != "recall"
+	if count_as_landing:
+		match clean_relation:
+			"friendly":
+				_units_arrived_friendly_hive_by_player[player_id] = int(_units_arrived_friendly_hive_by_player.get(player_id, 0)) + amount
+			"enemy":
+				_units_arrived_enemy_hive_by_player[player_id] = int(_units_arrived_enemy_hive_by_player.get(player_id, 0)) + amount
+			"npc":
+				_units_arrived_npc_hive_by_player[player_id] = int(_units_arrived_npc_hive_by_player.get(player_id, 0)) + amount
+			_:
+				pass
+	_model.events.append({
+		"e": int(MatchTelemetryModelScript.EVENT_ARRIVAL),
+		"t": maxi(0, t_ms),
+		"p": player_id,
+		"h": target_hive_id,
+		"bo": target_owner_before,
+		"ao": target_owner_after,
+		"rel": clean_relation,
+		"src": clean_source,
+		"c": amount
+	})
+
+func record_tower_kill(t_ms: int, player_id: int, tower_id: int, victim_owner_id: int, count: int = 1) -> void:
+	if not is_active():
+		return
+	if player_id <= 0 or count <= 0:
+		return
+	_ensure_player_slot(player_id)
+	_tower_units_killed_by_player[player_id] = int(_tower_units_killed_by_player.get(player_id, 0)) + count
+	_model.events.append({
+		"e": int(MatchTelemetryModelScript.EVENT_TOWER_KILL),
+		"t": maxi(0, t_ms),
+		"p": player_id,
+		"tower_id": tower_id,
+		"victim_owner": victim_owner_id,
+		"c": count
+	})
+
 func sample_state(now_ms: int, dt_s: float, state: GameState) -> void:
 	if not is_active():
 		return
@@ -215,10 +367,14 @@ func sample_state(now_ms: int, dt_s: float, state: GameState) -> void:
 	if sample_dt_s <= 0.0:
 		return
 	var sample_now_ms: int = maxi(0, now_ms)
+	var early_dt_s: float = _early_window_overlap_s(sample_now_ms, sample_dt_s)
 	_expire_buff_windows(sample_now_ms)
 	var owned_hive_counts: Dictionary = _owned_hive_counts(state)
 	_sample_production_idle(sample_now_ms, sample_dt_s, owned_hive_counts)
 	_sample_lane_control(sample_dt_s, state)
+	_sample_structure_control(sample_dt_s, state)
+	_sample_open_budget(sample_dt_s, state, early_dt_s)
+	_sample_board_control(sample_dt_s, state, early_dt_s)
 	_sample_overcommit(sample_dt_s, state)
 
 func finalize_match(winner_player_id: int, end_utc_ms: int) -> Variant:
@@ -278,46 +434,430 @@ func load_from_user(match_id: String) -> Variant:
 func _build_metrics(duration_s: float) -> Dictionary:
 	var players: Array[int] = _active_player_ids.duplicate()
 	players.sort()
+	var sorted_events: Array[Dictionary] = _sorted_events_by_time()
+	var reaction: Dictionary = _compute_reaction_metrics(players, sorted_events)
+	var early_window_s: float = minf(duration_s, float(EARLY_WINDOW_MS) / 1000.0)
+	var winner_player_id: int = int(_model.metadata.get("winner_player_id", 0))
 	var produced: Array = []
+	var units_sent: Array = []
+	var barracks_produced: Array = []
+	var won_match: Array = []
+	var lost_match: Array = []
+	var swarms_sent: Array = []
+	var meaningful_actions: Array = []
+	var meaningful_apm: Array = []
+	var lane_reversals: Array = []
+	var arrived_friendly: Array = []
+	var arrived_enemy: Array = []
+	var arrived_npc: Array = []
+	var arrived_hostile: Array = []
 	var idle_time: Array = []
 	var avg_rate: Array = []
+	var avg_interval: Array = []
 	var lost: Array = []
+	var wasted_in_collisions: Array = []
+	var tower_kills: Array = []
 	var damage_dealt: Array = []
 	var damage_taken: Array = []
 	var lane_control: Array = []
+	var tower_control: Array = []
+	var barracks_control: Array = []
+	var active_lane_slots: Array = []
+	var lane_budget_slots: Array = []
+	var lane_budget_utilization: Array = []
+	var lane_waste_pct: Array = []
+	var fully_utilized_lane_time: Array = []
+	var underutilized_lane_time: Array = []
+	var board_control_area: Array = []
+	var avg_board_control_share: Array = []
+	var board_control_peak_share: Array = []
+	var reaction_time_s: Array = []
+	var reaction_samples: Array = []
+	var early_apm: Array = []
+	var early_open_budget_utilization: Array = []
+	var early_board_control_share: Array = []
+	var early_activity_score: Array = []
 	var overcommit: Array = []
 	var player_index: Dictionary = {}
 	for i in range(players.size()):
 		var player_id: int = players[i]
 		player_index[str(player_id)] = i
 		var produced_count: int = int(_units_produced_by_player.get(player_id, 0))
+		var hostile_arrivals_count: int = int(_units_arrived_enemy_hive_by_player.get(player_id, 0)) + int(_units_arrived_npc_hive_by_player.get(player_id, 0))
+		var barracks_count: int = int(_barracks_units_produced_by_player.get(player_id, 0))
+		var swarm_count: int = int(_swarms_sent_by_player.get(player_id, 0))
+		var meaningful_count: int = int(_meaningful_actions_by_player.get(player_id, 0))
 		var idle_value: float = float(_idle_time_s_by_player.get(player_id, 0.0))
 		var avg_value: float = 0.0
+		var avg_interval_value: float = 0.0
+		var meaningful_apm_value: float = 0.0
+		var active_lane_slots_value: float = float(_active_lane_slots_time_s_by_player.get(player_id, 0.0))
+		var lane_budget_slots_value: float = float(_lane_budget_slots_time_s_by_player.get(player_id, 0.0))
+		var board_control_area_value: float = float(_board_control_area_by_player.get(player_id, 0.0))
+		var avg_board_control_share_value: float = 0.0
+		var lane_budget_utilization_value: float = 0.0
+		var lane_waste_value: float = 0.0
+		var early_open_budget_value: float = 0.0
+		var early_apm_value: float = 0.0
+		var early_board_share_value: float = 0.0
+		var reaction_time_value: float = float((reaction.get("median_by_player", {}) as Dictionary).get(player_id, 0.0))
+		var reaction_sample_value: int = int((reaction.get("samples_by_player", {}) as Dictionary).get(player_id, 0))
+		var early_reaction_time_value: float = float((reaction.get("early_median_by_player", {}) as Dictionary).get(player_id, 0.0))
+		var early_reaction_sample_value: int = int((reaction.get("early_samples_by_player", {}) as Dictionary).get(player_id, 0))
 		if duration_s > 0.0:
 			avg_value = float(produced_count) / duration_s
+			avg_interval_value = duration_s / float(produced_count) if produced_count > 0 else 0.0
+			meaningful_apm_value = (float(meaningful_count) * 60.0) / duration_s
+			avg_board_control_share_value = board_control_area_value / duration_s
+		if lane_budget_slots_value > 0.0:
+			lane_budget_utilization_value = active_lane_slots_value / lane_budget_slots_value
+		var lane_budget_active_time: float = float(_fully_utilized_lane_time_s_by_player.get(player_id, 0.0)) + float(_underutilized_lane_time_s_by_player.get(player_id, 0.0))
+		if lane_budget_active_time > 0.0:
+			lane_waste_value = float(_underutilized_lane_time_s_by_player.get(player_id, 0.0)) / lane_budget_active_time
+		var early_budget_slots_value: float = float(_early_lane_budget_slots_time_s_by_player.get(player_id, 0.0))
+		var early_active_slots_value: float = float(_early_active_lane_slots_time_s_by_player.get(player_id, 0.0))
+		if early_budget_slots_value > 0.0:
+			early_open_budget_value = early_active_slots_value / early_budget_slots_value
+		if early_window_s > 0.0:
+			var early_meaningful_count: int = _count_meaningful_actions_in_window(player_id, sorted_events, EARLY_WINDOW_MS)
+			early_apm_value = (float(early_meaningful_count) * 60.0) / early_window_s
+			early_board_share_value = float(_early_board_control_area_by_player.get(player_id, 0.0)) / early_window_s
 		produced.append(produced_count)
+		units_sent.append(produced_count)
+		won_match.append(1 if winner_player_id > 0 and winner_player_id == player_id else 0)
+		lost_match.append(1 if winner_player_id > 0 and winner_player_id != player_id else 0)
+		barracks_produced.append(barracks_count)
+		swarms_sent.append(swarm_count)
+		meaningful_actions.append(meaningful_count)
+		meaningful_apm.append(meaningful_apm_value)
+		lane_reversals.append(int(_lane_reversals_by_player.get(player_id, 0)))
+		arrived_friendly.append(int(_units_arrived_friendly_hive_by_player.get(player_id, 0)))
+		arrived_enemy.append(int(_units_arrived_enemy_hive_by_player.get(player_id, 0)))
+		arrived_npc.append(int(_units_arrived_npc_hive_by_player.get(player_id, 0)))
+		arrived_hostile.append(hostile_arrivals_count)
 		idle_time.append(idle_value)
 		avg_rate.append(avg_value)
+		avg_interval.append(avg_interval_value)
 		lost.append(int(_units_lost_by_player.get(player_id, 0)))
+		wasted_in_collisions.append(int(_units_lost_by_player.get(player_id, 0)))
+		tower_kills.append(int(_tower_units_killed_by_player.get(player_id, 0)))
 		damage_dealt.append(int(_hive_damage_dealt_by_player.get(player_id, 0)))
 		damage_taken.append(int(_hive_damage_taken_by_player.get(player_id, 0)))
 		lane_control.append(float(_lane_control_time_s_by_player.get(player_id, 0.0)))
+		tower_control.append(float(_tower_control_time_s_by_player.get(player_id, 0.0)))
+		barracks_control.append(float(_barracks_control_time_s_by_player.get(player_id, 0.0)))
+		active_lane_slots.append(active_lane_slots_value)
+		lane_budget_slots.append(lane_budget_slots_value)
+		lane_budget_utilization.append(lane_budget_utilization_value)
+		lane_waste_pct.append(lane_waste_value)
+		fully_utilized_lane_time.append(float(_fully_utilized_lane_time_s_by_player.get(player_id, 0.0)))
+		underutilized_lane_time.append(float(_underutilized_lane_time_s_by_player.get(player_id, 0.0)))
+		board_control_area.append(board_control_area_value)
+		avg_board_control_share.append(avg_board_control_share_value)
+		board_control_peak_share.append(float(_board_control_peak_share_by_player.get(player_id, 0.0)))
+		reaction_time_s.append(reaction_time_value)
+		reaction_samples.append(reaction_sample_value)
+		early_apm.append(early_apm_value)
+		early_open_budget_utilization.append(early_open_budget_value)
+		early_board_control_share.append(early_board_share_value)
+		early_activity_score.append(
+			_compute_early_game_activity_score(
+				player_id,
+				sorted_events,
+				early_window_s,
+				early_open_budget_value,
+				early_apm_value,
+				early_board_share_value,
+				early_reaction_time_value,
+				early_reaction_sample_value
+			)
+		)
 		overcommit.append(int(_overcommit_events_by_player.get(player_id, 0)))
 	var swing_moment_ms: int = _compute_swing_moment_ms(duration_s)
+	var production_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(produced)
+	var barracks_production_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(barracks_produced)
+	var tower_kills_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(tower_kills)
+	var enemy_hive_landings_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(arrived_enemy)
+	var hostile_hive_landings_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(arrived_hostile)
+	var tower_control_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(tower_control)
+	var barracks_control_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(barracks_control)
+	var active_lane_slots_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(active_lane_slots)
+	var lane_budget_utilization_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(lane_budget_utilization)
+	var fully_utilized_lane_time_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(fully_utilized_lane_time)
+	var underutilized_lane_time_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(underutilized_lane_time)
 	return {
 		"players": players,
 		"player_index": player_index,
+		"won_match_by_player": won_match,
+		"lost_match_by_player": lost_match,
 		"total_units_produced_by_player": produced,
+		"units_sent_by_player": units_sent,
+		"barracks_units_produced_by_player": barracks_produced,
+		"total_swarms_sent_by_player": swarms_sent,
+		"meaningful_actions_by_player": meaningful_actions,
+		"meaningful_actions_per_min_by_player": meaningful_apm,
+		"lane_reversals_by_player": lane_reversals,
+		"units_arrived_friendly_hive_by_player": arrived_friendly,
+		"units_arrived_enemy_hive_by_player": arrived_enemy,
+		"units_arrived_npc_hive_by_player": arrived_npc,
+		"units_arrived_hostile_hive_by_player": arrived_hostile,
 		"production_idle_time_s_by_player": idle_time,
 		"average_production_rate_by_player": avg_rate,
+		"average_unit_production_interval_s_by_player": avg_interval,
 		"total_swarm_collisions": _total_swarm_collisions,
 		"total_units_lost_by_player": lost,
+		"units_wasted_in_collisions_by_player": wasted_in_collisions,
+		"tower_units_killed_by_player": tower_kills,
 		"hive_damage_dealt_by_player": damage_dealt,
 		"hive_damage_taken_by_player": damage_taken,
 		"lane_control_time_s_by_player": lane_control,
+		"tower_control_time_s_by_player": tower_control,
+		"barracks_control_time_s_by_player": barracks_control,
+		"active_lane_slots_time_s_by_player": active_lane_slots,
+		"lane_budget_slots_time_s_by_player": lane_budget_slots,
+		"lane_budget_utilization_pct_by_player": lane_budget_utilization,
+		"lane_waste_pct_by_player": lane_waste_pct,
+		"fully_utilized_lane_time_s_by_player": fully_utilized_lane_time,
+		"underutilized_lane_time_s_by_player": underutilized_lane_time,
+		"board_control_area_by_player": board_control_area,
+		"average_board_control_share_by_player": avg_board_control_share,
+		"board_control_peak_share_by_player": board_control_peak_share,
+		"production_ratio_vs_top_opponent_by_player": production_ratio_vs_top_opponent,
+		"barracks_production_ratio_vs_top_opponent_by_player": barracks_production_ratio_vs_top_opponent,
+		"tower_kills_ratio_vs_top_opponent_by_player": tower_kills_ratio_vs_top_opponent,
+		"enemy_hive_landings_ratio_vs_top_opponent_by_player": enemy_hive_landings_ratio_vs_top_opponent,
+		"hostile_hive_landings_ratio_vs_top_opponent_by_player": hostile_hive_landings_ratio_vs_top_opponent,
+		"tower_control_time_ratio_vs_top_opponent_by_player": tower_control_ratio_vs_top_opponent,
+		"barracks_control_time_ratio_vs_top_opponent_by_player": barracks_control_ratio_vs_top_opponent,
+		"active_lane_slots_time_ratio_vs_top_opponent_by_player": active_lane_slots_ratio_vs_top_opponent,
+		"lane_budget_utilization_ratio_vs_top_opponent_by_player": lane_budget_utilization_ratio_vs_top_opponent,
+		"fully_utilized_lane_time_ratio_vs_top_opponent_by_player": fully_utilized_lane_time_ratio_vs_top_opponent,
+		"underutilized_lane_time_ratio_vs_top_opponent_by_player": underutilized_lane_time_ratio_vs_top_opponent,
+		"reaction_time_s_by_player": reaction_time_s,
+		"reaction_time_samples_by_player": reaction_samples,
+		"early_meaningful_actions_per_min_by_player": early_apm,
+		"early_open_budget_utilization_pct_by_player": early_open_budget_utilization,
+		"early_board_control_share_by_player": early_board_control_share,
+		"early_game_activity_score_by_player": early_activity_score,
 		"overcommit_events_by_player": overcommit,
 		"swing_moment_ms": swing_moment_ms
 	}
+
+func _sorted_events_by_time() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for event in _model.events:
+		out.append(event.duplicate(true))
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ta: int = int(a.get("t", 0))
+		var tb: int = int(b.get("t", 0))
+		if ta != tb:
+			return ta < tb
+		return int(a.get("e", 0)) < int(b.get("e", 0))
+	)
+	return out
+
+func _ratio_vs_top_opponent_array(values: Array) -> Array:
+	var out: Array = []
+	for i in range(values.size()):
+		var own_value: float = float(values[i])
+		var opponent_top: float = 0.0
+		for j in range(values.size()):
+			if i == j:
+				continue
+			opponent_top = maxf(opponent_top, float(values[j]))
+		if opponent_top <= 0.0:
+			out.append(0.0)
+		else:
+			out.append(own_value / opponent_top)
+	return out
+
+func _compute_reaction_metrics(players: Array[int], sorted_events: Array[Dictionary]) -> Dictionary:
+	var response_events_by_player: Dictionary = {}
+	var overall_delays_by_player: Dictionary = {}
+	var early_delays_by_player: Dictionary = {}
+	var last_threat_ms_by_player: Dictionary = {}
+	for player_id in players:
+		response_events_by_player[player_id] = []
+		overall_delays_by_player[player_id] = []
+		early_delays_by_player[player_id] = []
+		last_threat_ms_by_player[player_id] = -999999999
+	for event in sorted_events:
+		if not _event_is_response_candidate(event):
+			continue
+		var player_id: int = int(event.get("p", 0))
+		if player_id <= 0:
+			continue
+		var response_events: Array = response_events_by_player.get(player_id, []) as Array
+		response_events.append({
+			"t": int(event.get("t", 0)),
+			"e": int(event.get("e", 0))
+		})
+		response_events_by_player[player_id] = response_events
+	for event in sorted_events:
+		var threat_target_player_id: int = _event_threat_target_player_id(event)
+		if threat_target_player_id <= 0:
+			continue
+		var threat_time_ms: int = int(event.get("t", 0))
+		var last_threat_ms: int = int(last_threat_ms_by_player.get(threat_target_player_id, -999999999))
+		if threat_time_ms - last_threat_ms < REACTION_THREAT_COOLDOWN_MS:
+			continue
+		last_threat_ms_by_player[threat_target_player_id] = threat_time_ms
+		var delay_ms: int = _first_response_delay_ms(response_events_by_player.get(threat_target_player_id, []) as Array, threat_time_ms)
+		if delay_ms < 0:
+			continue
+		var delay_s: float = float(delay_ms) / 1000.0
+		var overall_delays: Array = overall_delays_by_player.get(threat_target_player_id, []) as Array
+		overall_delays.append(delay_s)
+		overall_delays_by_player[threat_target_player_id] = overall_delays
+		if threat_time_ms <= EARLY_WINDOW_MS:
+			var early_delays: Array = early_delays_by_player.get(threat_target_player_id, []) as Array
+			early_delays.append(delay_s)
+			early_delays_by_player[threat_target_player_id] = early_delays
+	var median_by_player: Dictionary = {}
+	var samples_by_player: Dictionary = {}
+	var early_median_by_player: Dictionary = {}
+	var early_samples_by_player: Dictionary = {}
+	for player_id in players:
+		var overall_values: Array = overall_delays_by_player.get(player_id, []) as Array
+		var early_values: Array = early_delays_by_player.get(player_id, []) as Array
+		median_by_player[player_id] = _median_float_array(overall_values)
+		samples_by_player[player_id] = overall_values.size()
+		early_median_by_player[player_id] = _median_float_array(early_values)
+		early_samples_by_player[player_id] = early_values.size()
+	return {
+		"median_by_player": median_by_player,
+		"samples_by_player": samples_by_player,
+		"early_median_by_player": early_median_by_player,
+		"early_samples_by_player": early_samples_by_player
+	}
+
+func _event_is_response_candidate(event: Dictionary) -> bool:
+	var event_type: int = int(event.get("e", -1))
+	if event_type == int(MatchTelemetryModelScript.EVENT_BUFF_ACTIVATION):
+		return true
+	if event_type != int(MatchTelemetryModelScript.EVENT_ACTION):
+		return false
+	var kind: String = str(event.get("k", "")).strip_edges().to_lower()
+	match kind:
+		"swarm_send", "lane_open_attack", "lane_open_feed", "lane_disable", "lane_retract", "lane_reverse", "barracks_route":
+			return true
+		_:
+			return false
+
+func _event_threat_target_player_id(event: Dictionary) -> int:
+	var event_type: int = int(event.get("e", -1))
+	if event_type == int(MatchTelemetryModelScript.EVENT_ACTION):
+		var kind: String = str(event.get("k", "")).strip_edges().to_lower()
+		if kind == "swarm_send" or kind == "lane_open_attack":
+			var target_player_id: int = int(event.get("dst_owner", 0))
+			var source_player_id: int = int(event.get("p", 0))
+			if target_player_id > 0 and target_player_id != source_player_id:
+				return target_player_id
+	elif event_type == int(MatchTelemetryModelScript.EVENT_HIVE_DAMAGE):
+		var defender_player_id: int = int(event.get("def", 0))
+		var attacker_player_id: int = int(event.get("atk", 0))
+		if defender_player_id > 0 and defender_player_id != attacker_player_id:
+			return defender_player_id
+	return 0
+
+func _first_response_delay_ms(response_events: Array, threat_time_ms: int) -> int:
+	for response_any in response_events:
+		if typeof(response_any) != TYPE_DICTIONARY:
+			continue
+		var response_event: Dictionary = response_any as Dictionary
+		var response_time_ms: int = int(response_event.get("t", -1))
+		if response_time_ms <= threat_time_ms:
+			continue
+		var delay_ms: int = response_time_ms - threat_time_ms
+		if delay_ms <= REACTION_RESPONSE_WINDOW_MS:
+			return delay_ms
+		break
+	return -1
+
+func _median_float_array(values: Array) -> float:
+	if values.is_empty():
+		return 0.0
+	var sorted_values: Array = values.duplicate()
+	sorted_values.sort()
+	var middle_index: int = sorted_values.size() / 2
+	if sorted_values.size() % 2 == 1:
+		return float(sorted_values[middle_index])
+	return (float(sorted_values[middle_index - 1]) + float(sorted_values[middle_index])) * 0.5
+
+func _count_meaningful_actions_in_window(player_id: int, sorted_events: Array[Dictionary], max_time_ms: int) -> int:
+	var count: int = 0
+	for event in sorted_events:
+		var event_time_ms: int = int(event.get("t", 0))
+		if event_time_ms > max_time_ms:
+			break
+		var event_player_id: int = int(event.get("p", 0))
+		if event_player_id != player_id:
+			continue
+		var event_type: int = int(event.get("e", -1))
+		if event_type == int(MatchTelemetryModelScript.EVENT_BUFF_ACTIVATION):
+			count += 1
+			continue
+		if event_type != int(MatchTelemetryModelScript.EVENT_ACTION):
+			continue
+		if _counts_as_meaningful_action(str(event.get("k", ""))):
+			count += 1
+	return count
+
+func _compute_early_game_activity_score(
+	player_id: int,
+	sorted_events: Array[Dictionary],
+	early_window_s: float,
+	early_open_budget_utilization: float,
+	early_apm: float,
+	early_board_share: float,
+	early_reaction_s: float,
+	early_reaction_samples: int
+) -> int:
+	if early_window_s <= 0.0:
+		return 1
+	var early_window_ms: int = int(round(early_window_s * 1000.0))
+	var first_open_ms: int = -1
+	var second_open_ms: int = -1
+	var first_swarm_ms: int = -1
+	var opened_lane_ids: Dictionary = {}
+	for event in sorted_events:
+		var event_time_ms: int = int(event.get("t", 0))
+		if event_time_ms > early_window_ms:
+			break
+		if int(event.get("p", 0)) != player_id:
+			continue
+		if int(event.get("e", -1)) != int(MatchTelemetryModelScript.EVENT_ACTION):
+			continue
+		var kind: String = str(event.get("k", "")).strip_edges().to_lower()
+		if first_swarm_ms < 0 and kind == "swarm_send":
+			first_swarm_ms = event_time_ms
+		if kind != "lane_open_attack" and kind != "lane_open_feed":
+			continue
+		var lane_id: int = int(event.get("lane_id", -1))
+		if lane_id <= 0 or opened_lane_ids.has(lane_id):
+			continue
+		opened_lane_ids[lane_id] = true
+		if first_open_ms < 0:
+			first_open_ms = event_time_ms
+		elif second_open_ms < 0:
+			second_open_ms = event_time_ms
+	var score: float = 0.0
+	score += _inverse_time_score(first_open_ms, 20000) * 16.0
+	score += _inverse_time_score(second_open_ms, 45000) * 12.0
+	score += _inverse_time_score(first_swarm_ms, 30000) * 16.0
+	score += clampf(early_apm / 10.0, 0.0, 1.0) * 18.0
+	score += clampf(early_open_budget_utilization / 0.72, 0.0, 1.0) * 18.0
+	score += clampf(early_board_share / 0.55, 0.0, 1.0) * 10.0
+	if early_reaction_samples > 0:
+		score += clampf(1.0 - (early_reaction_s / 8.0), 0.0, 1.0) * 10.0
+	else:
+		score += 5.0
+	return clampi(int(round(score)), 1, 100)
+
+func _inverse_time_score(event_time_ms: int, target_time_ms: int) -> float:
+	if event_time_ms < 0 or target_time_ms <= 0:
+		return 0.0
+	return clampf(1.0 - (float(event_time_ms) / float(target_time_ms)), 0.0, 1.0)
 
 func _sample_production_idle(now_ms: int, dt_s: float, owned_hive_counts: Dictionary) -> void:
 	var idle_gap_ms: int = int(round(IDLE_GAP_S * 1000.0))
@@ -368,6 +908,85 @@ func _sample_lane_control(dt_s: float, state: GameState) -> void:
 	if leader_id > 0 and not tied:
 		_ensure_player_slot(leader_id)
 		_lane_control_time_s_by_player[leader_id] = float(_lane_control_time_s_by_player.get(leader_id, 0.0)) + dt_s
+
+func _sample_structure_control(dt_s: float, state: GameState) -> void:
+	for tower_any in state.towers:
+		if typeof(tower_any) != TYPE_DICTIONARY:
+			continue
+		var tower: Dictionary = tower_any as Dictionary
+		if not bool(tower.get("active", false)):
+			continue
+		var owner_id: int = int(tower.get("owner_id", 0))
+		if owner_id <= 0:
+			continue
+		_ensure_player_slot(owner_id)
+		_tower_control_time_s_by_player[owner_id] = float(_tower_control_time_s_by_player.get(owner_id, 0.0)) + dt_s
+	for barracks_any in state.barracks:
+		if typeof(barracks_any) != TYPE_DICTIONARY:
+			continue
+		var barracks: Dictionary = barracks_any as Dictionary
+		if not bool(barracks.get("active", false)):
+			continue
+		var owner_id: int = int(barracks.get("owner_id", 0))
+		if owner_id <= 0:
+			continue
+		_ensure_player_slot(owner_id)
+		_barracks_control_time_s_by_player[owner_id] = float(_barracks_control_time_s_by_player.get(owner_id, 0.0)) + dt_s
+
+func _sample_open_budget(dt_s: float, state: GameState, early_dt_s: float = 0.0) -> void:
+	var budget_by_player: Dictionary = {}
+	var active_by_player: Dictionary = {}
+	for hive_any in state.hives:
+		if not (hive_any is HiveData):
+			continue
+		var hive: HiveData = hive_any as HiveData
+		var owner_id: int = int(hive.owner_id)
+		if owner_id <= 0:
+			continue
+		_ensure_player_slot(owner_id)
+		var metrics: Dictionary = state.get_execution_metrics_for_hive(int(hive.id))
+		var budget: int = maxi(0, int(metrics.get("budget", 0)))
+		var active_outgoing: int = maxi(0, int(metrics.get("active_outgoing", 0)))
+		budget_by_player[owner_id] = int(budget_by_player.get(owner_id, 0)) + budget
+		active_by_player[owner_id] = int(active_by_player.get(owner_id, 0)) + active_outgoing
+		_lane_budget_slots_time_s_by_player[owner_id] = float(_lane_budget_slots_time_s_by_player.get(owner_id, 0.0)) + (float(budget) * dt_s)
+		_active_lane_slots_time_s_by_player[owner_id] = float(_active_lane_slots_time_s_by_player.get(owner_id, 0.0)) + (float(active_outgoing) * dt_s)
+		if early_dt_s > 0.0:
+			_early_lane_budget_slots_time_s_by_player[owner_id] = float(_early_lane_budget_slots_time_s_by_player.get(owner_id, 0.0)) + (float(budget) * early_dt_s)
+			_early_active_lane_slots_time_s_by_player[owner_id] = float(_early_active_lane_slots_time_s_by_player.get(owner_id, 0.0)) + (float(active_outgoing) * early_dt_s)
+	for player_id_any in budget_by_player.keys():
+		var player_id: int = int(player_id_any)
+		var total_budget: int = maxi(0, int(budget_by_player.get(player_id, 0)))
+		var total_active: int = maxi(0, int(active_by_player.get(player_id, 0)))
+		if total_budget <= 0:
+			continue
+		if total_active >= total_budget:
+			_fully_utilized_lane_time_s_by_player[player_id] = float(_fully_utilized_lane_time_s_by_player.get(player_id, 0.0)) + dt_s
+		else:
+			_underutilized_lane_time_s_by_player[player_id] = float(_underutilized_lane_time_s_by_player.get(player_id, 0.0)) + dt_s
+
+func _sample_board_control(dt_s: float, state: GameState, early_dt_s: float = 0.0) -> void:
+	var power_by_player: Dictionary = {}
+	var total_power: float = 0.0
+	for hive_any in state.hives:
+		if not (hive_any is HiveData):
+			continue
+		var hive: HiveData = hive_any as HiveData
+		var owner_id: int = int(hive.owner_id)
+		if owner_id <= 0:
+			continue
+		_ensure_player_slot(owner_id)
+		var power: float = maxf(0.0, float(hive.power))
+		power_by_player[owner_id] = float(power_by_player.get(owner_id, 0.0)) + power
+		total_power += power
+	if total_power <= 0.0:
+		return
+	for player_id in _active_player_ids:
+		var share: float = float(power_by_player.get(player_id, 0.0)) / total_power
+		_board_control_area_by_player[player_id] = float(_board_control_area_by_player.get(player_id, 0.0)) + (share * dt_s)
+		_board_control_peak_share_by_player[player_id] = maxf(float(_board_control_peak_share_by_player.get(player_id, 0.0)), share)
+		if early_dt_s > 0.0:
+			_early_board_control_area_by_player[player_id] = float(_early_board_control_area_by_player.get(player_id, 0.0)) + (share * early_dt_s)
 
 func _sample_overcommit(dt_s: float, state: GameState) -> void:
 	var lane_pressure_by_player: Dictionary = {}
@@ -494,6 +1113,20 @@ func _ensure_player_slot(player_id: int) -> void:
 		_active_player_ids.sort()
 	if not _units_produced_by_player.has(player_id):
 		_units_produced_by_player[player_id] = 0
+	if not _barracks_units_produced_by_player.has(player_id):
+		_barracks_units_produced_by_player[player_id] = 0
+	if not _swarms_sent_by_player.has(player_id):
+		_swarms_sent_by_player[player_id] = 0
+	if not _meaningful_actions_by_player.has(player_id):
+		_meaningful_actions_by_player[player_id] = 0
+	if not _lane_reversals_by_player.has(player_id):
+		_lane_reversals_by_player[player_id] = 0
+	if not _units_arrived_friendly_hive_by_player.has(player_id):
+		_units_arrived_friendly_hive_by_player[player_id] = 0
+	if not _units_arrived_enemy_hive_by_player.has(player_id):
+		_units_arrived_enemy_hive_by_player[player_id] = 0
+	if not _units_arrived_npc_hive_by_player.has(player_id):
+		_units_arrived_npc_hive_by_player[player_id] = 0
 	if not _idle_time_s_by_player.has(player_id):
 		_idle_time_s_by_player[player_id] = 0.0
 	if not _last_production_seen_by_player.has(player_id):
@@ -502,18 +1135,59 @@ func _ensure_player_slot(player_id: int) -> void:
 		_last_production_change_ms_by_player[player_id] = 0
 	if not _units_lost_by_player.has(player_id):
 		_units_lost_by_player[player_id] = 0
+	if not _tower_units_killed_by_player.has(player_id):
+		_tower_units_killed_by_player[player_id] = 0
 	if not _hive_damage_dealt_by_player.has(player_id):
 		_hive_damage_dealt_by_player[player_id] = 0
 	if not _hive_damage_taken_by_player.has(player_id):
 		_hive_damage_taken_by_player[player_id] = 0
 	if not _lane_control_time_s_by_player.has(player_id):
 		_lane_control_time_s_by_player[player_id] = 0.0
+	if not _tower_control_time_s_by_player.has(player_id):
+		_tower_control_time_s_by_player[player_id] = 0.0
+	if not _barracks_control_time_s_by_player.has(player_id):
+		_barracks_control_time_s_by_player[player_id] = 0.0
+	if not _active_lane_slots_time_s_by_player.has(player_id):
+		_active_lane_slots_time_s_by_player[player_id] = 0.0
+	if not _lane_budget_slots_time_s_by_player.has(player_id):
+		_lane_budget_slots_time_s_by_player[player_id] = 0.0
+	if not _fully_utilized_lane_time_s_by_player.has(player_id):
+		_fully_utilized_lane_time_s_by_player[player_id] = 0.0
+	if not _underutilized_lane_time_s_by_player.has(player_id):
+		_underutilized_lane_time_s_by_player[player_id] = 0.0
+	if not _early_active_lane_slots_time_s_by_player.has(player_id):
+		_early_active_lane_slots_time_s_by_player[player_id] = 0.0
+	if not _early_lane_budget_slots_time_s_by_player.has(player_id):
+		_early_lane_budget_slots_time_s_by_player[player_id] = 0.0
+	if not _board_control_area_by_player.has(player_id):
+		_board_control_area_by_player[player_id] = 0.0
+	if not _board_control_peak_share_by_player.has(player_id):
+		_board_control_peak_share_by_player[player_id] = 0.0
+	if not _early_board_control_area_by_player.has(player_id):
+		_early_board_control_area_by_player[player_id] = 0.0
 	if not _overcommit_events_by_player.has(player_id):
 		_overcommit_events_by_player[player_id] = 0
 	if not _overcommit_window_s_by_player.has(player_id):
 		_overcommit_window_s_by_player[player_id] = 0.0
 	if not _overcommit_active_by_player.has(player_id):
 		_overcommit_active_by_player[player_id] = false
+
+func _counts_as_meaningful_action(kind: String) -> bool:
+	match kind:
+		"swarm_send", "lane_open_attack", "lane_open_feed", "lane_disable", "lane_retract", "barracks_route":
+			return true
+		_:
+			return false
+
+func _early_window_overlap_s(now_ms: int, dt_s: float) -> float:
+	if dt_s <= 0.0:
+		return 0.0
+	var dt_ms: int = maxi(0, int(round(dt_s * 1000.0)))
+	var window_start_ms: int = maxi(0, now_ms - dt_ms)
+	var overlap_start_ms: int = maxi(0, window_start_ms)
+	var overlap_end_ms: int = mini(EARLY_WINDOW_MS, now_ms)
+	var overlap_ms: int = maxi(0, overlap_end_ms - overlap_start_ms)
+	return float(overlap_ms) / 1000.0
 
 func _sanitize_player_ids(player_ids: Array[int]) -> Array[int]:
 	var out: Array[int] = []

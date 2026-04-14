@@ -2410,6 +2410,8 @@ func _begin_match_telemetry_session(reason: String) -> void:
 		_match_telemetry_collector.call("reset")
 	if _match_telemetry_collector == null or not _match_telemetry_collector.has_method("begin_match"):
 		return
+	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
+		OpsState.call("set_match_telemetry_collector", _match_telemetry_collector)
 	var player_ids: Array[int] = _record_active_seats()
 	if player_ids.is_empty():
 		var owners_seen: Dictionary = {}
@@ -2433,6 +2435,7 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	var map_id: String = _resolve_telemetry_map_id()
 	var match_type: int = _resolve_telemetry_match_type()
 	var start_utc_ms: int = _telemetry_utc_ms_now()
+	var metadata_overrides: Dictionary = _resolve_telemetry_metadata_overrides(player_ids, match_type, reason)
 	_match_telemetry_collector.call(
 		"begin_match",
 		match_id,
@@ -2440,7 +2443,8 @@ func _begin_match_telemetry_session(reason: String) -> void:
 		map_id,
 		match_type,
 		player_ids,
-		start_utc_ms
+		start_utc_ms,
+		metadata_overrides
 	)
 	var active_any: Variant = false
 	if _match_telemetry_collector.has_method("is_active"):
@@ -2448,6 +2452,8 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	_telemetry_active = bool(active_any)
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
 		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
+	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
+		OpsState.call("set_match_telemetry_collector", _match_telemetry_collector)
 	SFLog.info("TELEMETRY_BEGIN", {
 		"match_id": match_id,
 		"season_id": season_id,
@@ -2555,6 +2561,115 @@ func _resolve_telemetry_match_type() -> int:
 	if active_count >= 2:
 		return int(MatchTelemetryModelScript.MATCH_TYPE_BOT)
 	return int(MatchTelemetryModelScript.MATCH_TYPE_ASYNC)
+
+func _resolve_telemetry_metadata_overrides(player_ids: Array[int], _match_type: int, reason: String) -> Dictionary:
+	var players: Array[Dictionary] = _resolve_telemetry_player_snapshots(player_ids)
+	var local_player_id: String = ""
+	var opponent_player_ids: Array[String] = []
+	for player in players:
+		if bool(player.get("is_local", false)):
+			local_player_id = str(player.get("player_id", "")).strip_edges()
+			continue
+		var opponent_player_id: String = str(player.get("player_id", "")).strip_edges()
+		if opponent_player_id.is_empty():
+			continue
+		opponent_player_ids.append(opponent_player_id)
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	var rank_transport_mode: String = ""
+	var rank_authoritative_online: bool = false
+	if rank_state != null:
+		if rank_state.has_method("get_transport_mode"):
+			rank_transport_mode = str(rank_state.call("get_transport_mode")).strip_edges()
+		if rank_state.has_method("is_authoritative_transport_online"):
+			rank_authoritative_online = bool(rank_state.call("is_authoritative_transport_online"))
+	return {
+		"vs_mode": _current_vs_mode(),
+		"start_reason": reason.strip_edges(),
+		"local_player_id": local_player_id,
+		"opponent_player_ids": opponent_player_ids,
+		"players": players,
+		"rank_transport_mode": rank_transport_mode,
+		"rank_authoritative_online": rank_authoritative_online
+	}
+
+func _resolve_telemetry_player_snapshots(player_ids: Array[int]) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var local_profile: Dictionary = _telemetry_tree_profile("vs_local_profile")
+	var remote_profile: Dictionary = _telemetry_tree_profile("vs_remote_profile")
+	for seat in player_ids:
+		var entry: Dictionary = _get_roster_entry_for_slot(seat)
+		var is_local: bool = bool(entry.get("is_local", false))
+		var is_cpu: bool = bool(entry.get("is_cpu", false))
+		var player_id: String = str(entry.get("uid", "")).strip_edges()
+		var display_name: String = str(entry.get("display_name", "")).strip_edges()
+		var profile_hint: Dictionary = local_profile if is_local else remote_profile
+		if player_id.is_empty():
+			player_id = _telemetry_profile_player_id(profile_hint)
+		if display_name.is_empty():
+			display_name = _telemetry_profile_display_name(profile_hint)
+		if display_name.is_empty():
+			display_name = _display_name_for_seat(seat, player_id, is_cpu)
+		var snapshot: Dictionary = {
+			"seat": seat,
+			"player_id": player_id,
+			"display_name": display_name,
+			"is_local": is_local,
+			"is_cpu": is_cpu,
+			"active": bool(entry.get("active", true))
+		}
+		if is_cpu and OpsState != null and OpsState.has_method("get_bot_profile"):
+			var bot_profile_any: Variant = OpsState.call("get_bot_profile", seat)
+			if typeof(bot_profile_any) == TYPE_DICTIONARY:
+				var bot_profile: Dictionary = bot_profile_any as Dictionary
+				snapshot["bot_style"] = str(bot_profile.get("style", bot_profile.get("persona", ""))).strip_edges()
+				snapshot["bot_tier"] = str(bot_profile.get("tier", "")).strip_edges()
+		var rank_snapshot: Dictionary = _telemetry_rank_snapshot_for_player_id(player_id)
+		if not rank_snapshot.is_empty():
+			snapshot["rank_position"] = int(rank_snapshot.get("rank_position", 0))
+			snapshot["tier_id"] = str(rank_snapshot.get("tier_id", "")).strip_edges()
+			snapshot["percentile"] = float(rank_snapshot.get("percentile", 0.0))
+			snapshot["wax_score"] = float(rank_snapshot.get("wax_score", 0.0))
+			snapshot["rank_region"] = str(rank_snapshot.get("region", "")).strip_edges()
+			snapshot["rank_snapshot_source"] = "rank_state"
+		out.append(snapshot)
+	return out
+
+func _telemetry_rank_snapshot_for_player_id(player_id: String) -> Dictionary:
+	var clean_player_id: String = player_id.strip_edges()
+	if clean_player_id.is_empty():
+		return {}
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	if rank_state == null or not rank_state.has_method("get_player_snapshot"):
+		return {}
+	var snapshot_any: Variant = rank_state.call("get_player_snapshot", clean_player_id)
+	if typeof(snapshot_any) != TYPE_DICTIONARY:
+		return {}
+	return (snapshot_any as Dictionary).duplicate(true)
+
+func _telemetry_tree_profile(meta_key: String) -> Dictionary:
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta(meta_key):
+		return {}
+	var profile_any: Variant = tree.get_meta(meta_key, {})
+	if typeof(profile_any) != TYPE_DICTIONARY:
+		return {}
+	return (profile_any as Dictionary).duplicate(true)
+
+func _telemetry_profile_player_id(profile: Dictionary) -> String:
+	if profile.is_empty():
+		return ""
+	var player_id: String = str(profile.get("uid", profile.get("player_id", ""))).strip_edges()
+	if not player_id.is_empty():
+		return player_id
+	return ""
+
+func _telemetry_profile_display_name(profile: Dictionary) -> String:
+	if profile.is_empty():
+		return ""
+	var display_name: String = str(profile.get("display_name", profile.get("name", profile.get("handle", "")))).strip_edges()
+	if not display_name.is_empty():
+		return display_name
+	return ""
 
 func _bind_powerbar_signals() -> void:
 	# UI observes OpsState; no sim-driven UI mutations.
@@ -2768,6 +2883,8 @@ func _init_systems() -> void:
 		unit_system.set_sim_events(sim_events)
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
 		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
+	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
+		OpsState.call("set_match_telemetry_collector", _match_telemetry_collector)
 	if barracks_system != null:
 		if not barracks_system.barracks_activated.is_connected(_on_barracks_activated):
 			barracks_system.barracks_activated.connect(_on_barracks_activated)
@@ -2797,6 +2914,8 @@ func _ensure_sim_runner() -> void:
 	swarm_system = sim_runner.swarm_system if sim_runner != null else null
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
 		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
+	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
+		OpsState.call("set_match_telemetry_collector", _match_telemetry_collector)
 
 func _ensure_sim_events() -> void:
 	if sim_events != null and is_instance_valid(sim_events):
@@ -3465,6 +3584,8 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	_post_match_telemetry_path = ""
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
 		_match_telemetry_collector.call("reset")
+	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
+		OpsState.call("set_match_telemetry_collector", _match_telemetry_collector)
 	if outcome_overlay != null and outcome_overlay.has_method("clear_post_match_summary"):
 		outcome_overlay.call("clear_post_match_summary")
 	if api != null:

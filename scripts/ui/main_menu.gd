@@ -385,13 +385,16 @@ var _hive_panel_profile := {
 	"messages": [
 		"Leader: Push Hive Quests before reset.",
 		"Soldiers: Tournament routing at 9pm.",
-		"Welcome WaspRider to the hive."
+		"Welcome WaspRider to the hive.",
+		"Pending invites: 2 | Governance inbox: 1"
 	],
 	"achievements": [
 		"Hive Lift-Off",
 		"Season Relay I",
-		"Wax Guard II"
-	]
+		"Wax Guard II",
+		"Founded Jan 15 | Avg service 26d"
+	],
+	"member_records": []
 }
 var _stats_tier := "FREE"
 var _current_match_index := 0
@@ -496,7 +499,7 @@ const BOTTOM_NAV_OUTER_PADDING: float = 8.0
 const BOTTOM_NAV_GROUP_SEPARATION: int = 6
 const BOTTOM_NAV_BUTTON_SEPARATION: int = 4
 const HIVE_DROPDOWN_WIDTH: float = 420.0
-const HIVE_DROPDOWN_HEIGHT: float = 300.0
+const HIVE_DROPDOWN_HEIGHT: float = 424.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
 const HIVE_PULLDOWN_DURATION: float = 0.24
 const GAME_HUB_OVERLAY_TARGET_WIDTH: float = 980.0
@@ -672,6 +675,32 @@ var _hive_dropdown_tween: Tween = null
 var _hive_dropdown_open: bool = false
 var _hive_create_dialog: ConfirmationDialog = null
 var _hive_create_name_input: LineEdit = null
+var _hive_invite_dialog: ConfirmationDialog = null
+var _hive_invite_list: ItemList = null
+var _hive_invite_meta_label: Label = null
+var _hive_pending_dialog: AcceptDialog = null
+var _hive_pending_list: ItemList = null
+var _hive_pending_meta_label: Label = null
+var _hive_leave_dialog: ConfirmationDialog = null
+var _hive_leave_desc_label: Label = null
+var _hive_browse_dialog: ConfirmationDialog = null
+var _hive_browse_list: ItemList = null
+var _hive_browse_meta_label: Label = null
+var _hive_my_invites_dialog: AcceptDialog = null
+var _hive_my_invites_list: ItemList = null
+var _hive_my_invites_meta_label: Label = null
+var _hive_applications_dialog: AcceptDialog = null
+var _hive_applications_list: ItemList = null
+var _hive_applications_meta_label: Label = null
+var _hive_member_actions_dialog: AcceptDialog = null
+var _hive_member_actions_list: ItemList = null
+var _hive_member_actions_meta_label: Label = null
+var _hive_member_actions_detail_label: Label = null
+var _hive_member_actions_promote_button: Button = null
+var _hive_member_actions_vote_promote_button: Button = null
+var _hive_member_actions_discipline_button: Button = null
+var _hive_member_actions_leadership_vote_button: Button = null
+var _hive_member_actions_remove_button: Button = null
 var _entry_overlay_inlay_rotated_texture: Texture2D = null
 var _entry_overlay_inlay_cropped_texture: Texture2D = null
 var _entry_overlay_inlay_rotated_cropped_texture: Texture2D = null
@@ -1681,6 +1710,12 @@ func _wire_buttons() -> void:
 	dash_replay_close.pressed.connect(func(): _close_dash_panel(dash_replay_panel))
 	dash_buffs_close.pressed.connect(_on_dash_buffs_close_pressed)
 	dash_hive_close.pressed.connect(_on_dash_hive_close_pressed)
+	if hive_action_buttons.size() >= 1:
+		hive_action_buttons[0].pressed.connect(_open_hive_invite_dialog)
+	if hive_action_buttons.size() >= 2:
+		hive_action_buttons[1].pressed.connect(_open_hive_pending_dialog)
+	if hive_action_buttons.size() >= 3:
+		hive_action_buttons[2].pressed.connect(_open_hive_leave_dialog)
 	dash_store_close.pressed.connect(_on_dash_store_close_pressed)
 	dash_settings_close.pressed.connect(_on_dash_settings_close_pressed)
 	dash_badges_close.pressed.connect(func(): _close_dash_panel(dash_badges_panel_full))
@@ -1917,6 +1952,34 @@ func _ensure_hive_dropdown() -> void:
 	_apply_font(create_hive_button, _font_regular, 13)
 	_style_button(create_hive_button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
 
+	var browse_hive_button: Button = Button.new()
+	browse_hive_button.text = "BROWSE HIVES"
+	browse_hive_button.pressed.connect(func(): _on_hive_dropdown_action("browse"))
+	body.add_child(browse_hive_button)
+	_apply_font(browse_hive_button, _font_regular, 13)
+	_style_button(browse_hive_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+	var my_invites_button: Button = Button.new()
+	my_invites_button.text = "MY INVITES"
+	my_invites_button.pressed.connect(func(): _on_hive_dropdown_action("my_invites"))
+	body.add_child(my_invites_button)
+	_apply_font(my_invites_button, _font_regular, 13)
+	_style_button(my_invites_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+	var applications_button: Button = Button.new()
+	applications_button.text = "APPLICATIONS"
+	applications_button.pressed.connect(func(): _on_hive_dropdown_action("applications"))
+	body.add_child(applications_button)
+	_apply_font(applications_button, _font_regular, 13)
+	_style_button(applications_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+	var member_actions_button: Button = Button.new()
+	member_actions_button.text = "MEMBER ACTIONS"
+	member_actions_button.pressed.connect(func(): _on_hive_dropdown_action("member_actions"))
+	body.add_child(member_actions_button)
+	_apply_font(member_actions_button, _font_regular, 13)
+	_style_button(member_actions_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
 	var open_hive_button: Button = Button.new()
 	open_hive_button.text = "OPEN HIVE DASHBOARD"
 	open_hive_button.pressed.connect(func(): _on_hive_dropdown_action("dashboard"))
@@ -1957,10 +2020,18 @@ func _on_hive_dropdown_action(action: String) -> void:
 	match action:
 		"create":
 			_open_hive_create_dialog()
+		"browse":
+			_open_hive_browse_dialog()
+		"my_invites":
+			_open_hive_my_invites_dialog()
+		"applications":
+			_open_hive_applications_dialog()
+		"member_actions":
+			_open_hive_member_actions_dialog()
 		"dashboard":
 			_open_dash_panel_from_menu(dash_hive_panel)
 		"chat":
-			_stub_action("Hive Chat")
+			_open_hive_comms_access()
 		"ladder":
 			_stub_action("Hive Ladder")
 		"quests":
@@ -2090,8 +2161,1117 @@ func _submit_hive_create() -> void:
 	status_label.text = "Hive created: %s." % str(hive.get("name", ""))
 	_open_dash_panel_from_menu(dash_hive_panel)
 
+func _ensure_hive_invite_dialog() -> void:
+	if _hive_invite_dialog != null and is_instance_valid(_hive_invite_dialog):
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "HiveInviteDialog"
+	dialog.title = "Invite Player"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(520, 420)
+	add_child(dialog)
+	_hive_invite_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveInviteVBox"
+	body.custom_minimum_size = Vector2(460.0, 320.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var desc := Label.new()
+	desc.text = "Select a player who is not currently in a hive. Recent-opponent invites will plug into this same flow once the match UI passes the player id."
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(desc)
+	_apply_font(desc, _font_regular, 12)
+
+	var meta := Label.new()
+	meta.text = "Loading players..."
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(meta)
+	_apply_font(meta, _font_regular, 11)
+	_hive_invite_meta_label = meta
+
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(460.0, 230.0)
+	list.select_mode = ItemList.SELECT_SINGLE
+	list.allow_reselect = true
+	body.add_child(list)
+	_apply_font(list, _font_regular, 12)
+	_hive_invite_list = list
+
+	dialog.get_ok_button().text = "SEND INVITE"
+	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	if dialog.get_cancel_button() != null:
+		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.confirmed.is_connected(_submit_hive_invite):
+		dialog.confirmed.connect(_submit_hive_invite)
+
+func _refresh_hive_invite_dialog() -> void:
+	if _hive_invite_list == null or _hive_invite_meta_label == null:
+		return
+	_hive_invite_list.clear()
+	var hive_id: String = _current_hive_id()
+	if hive_id.is_empty():
+		_hive_invite_meta_label.text = "Join or create a hive first."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("get_players_without_hive"):
+		_hive_invite_meta_label.text = "Hive discovery unavailable."
+		return
+	var players: Array = HiveClanState.call("get_players_without_hive", 50) as Array
+	_hive_invite_meta_label.text = "Free agents available: %d" % players.size()
+	for player_any in players:
+		if typeof(player_any) != TYPE_DICTIONARY:
+			continue
+		var player: Dictionary = player_any as Dictionary
+		var label: String = "%s | #%d | %s" % [
+			str(player.get("display_name", "Player")),
+			int(player.get("rank_global", 0)),
+			str(player.get("tier_id", "DRONE"))
+		]
+		_hive_invite_list.add_item(label)
+		var idx: int = _hive_invite_list.get_item_count() - 1
+		_hive_invite_list.set_item_metadata(idx, player.duplicate(true))
+	if players.is_empty():
+		_hive_invite_meta_label.text = "No available players outside a hive right now."
+
+func _open_hive_invite_dialog() -> void:
+	_ensure_hive_invite_dialog()
+	_refresh_hive_invite_dialog()
+	if _hive_invite_dialog == null:
+		return
+	_hive_invite_dialog.popup_centered()
+
+func _submit_hive_invite() -> void:
+	if _hive_invite_list == null:
+		return
+	var selected: PackedInt32Array = _hive_invite_list.get_selected_items()
+	if selected.is_empty():
+		status_label.text = "Select a player to invite."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_invite_player"):
+		status_label.text = "Hive invite system unavailable."
+		return
+	var metadata: Variant = _hive_invite_list.get_item_metadata(selected[0])
+	if typeof(metadata) != TYPE_DICTIONARY:
+		status_label.text = "Selected player is invalid."
+		return
+	var player: Dictionary = metadata as Dictionary
+	var hive_id: String = _current_hive_id()
+	if hive_id.is_empty():
+		status_label.text = "No active hive found."
+		return
+	var result: Dictionary = HiveClanState.call(
+		"intent_invite_player",
+		hive_id,
+		str(player.get("player_id", "")),
+		str(player.get("display_name", "")),
+		"member",
+		""
+	) as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"invite_already_pending":
+				status_label.text = "Invite already pending."
+			"application_already_pending":
+				status_label.text = "Player already applied to this hive."
+			"target_already_in_hive":
+				status_label.text = "Player already joined a hive."
+			"hive_member_limit_reached":
+				status_label.text = "Hive member limit reached."
+			"forbidden":
+				status_label.text = "Only queen or soldiers can send invites."
+			_:
+				status_label.text = "Could not send invite."
+		_refresh_hive_invite_dialog()
+		return
+	var invite: Dictionary = result.get("invite", {}) as Dictionary
+	status_label.text = "Invite sent to %s. Expires in 48h." % str(invite.get("target_display_name", "player"))
+	if _hive_invite_dialog != null:
+		_hive_invite_dialog.hide()
+	_refresh_hive_pending_dialog()
+
+func _ensure_hive_pending_dialog() -> void:
+	if _hive_pending_dialog != null and is_instance_valid(_hive_pending_dialog):
+		return
+	var dialog := AcceptDialog.new()
+	dialog.name = "HivePendingDialog"
+	dialog.title = "Pending Hive Invites"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(560, 420)
+	add_child(dialog)
+	_hive_pending_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HivePendingVBox"
+	body.custom_minimum_size = Vector2(500.0, 320.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var meta := Label.new()
+	meta.text = "Loading pending invites..."
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(meta)
+	_apply_font(meta, _font_regular, 12)
+	_hive_pending_meta_label = meta
+
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(500.0, 250.0)
+	list.select_mode = ItemList.SELECT_SINGLE
+	list.allow_reselect = true
+	body.add_child(list)
+	_apply_font(list, _font_regular, 12)
+	_hive_pending_list = list
+
+	dialog.get_ok_button().text = "CLOSE"
+	_apply_font(dialog.get_ok_button(), _font_regular, 12)
+	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+func _refresh_hive_pending_dialog() -> void:
+	if _hive_pending_list == null or _hive_pending_meta_label == null:
+		return
+	_hive_pending_list.clear()
+	var hive_id: String = _current_hive_id()
+	if hive_id.is_empty():
+		_hive_pending_meta_label.text = "No active hive found."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("get_hive_invites"):
+		_hive_pending_meta_label.text = "Pending invites unavailable."
+		return
+	var invites: Array = HiveClanState.call("get_hive_invites", hive_id, "pending") as Array
+	_hive_pending_meta_label.text = "Pending invites: %d" % invites.size()
+	for invite_any in invites:
+		if typeof(invite_any) != TYPE_DICTIONARY:
+			continue
+		var invite: Dictionary = invite_any as Dictionary
+		var expires_at_unix: int = int(invite.get("expires_at_unix", 0))
+		var hours_left: int = maxi(0, int(ceil(float(expires_at_unix - Time.get_unix_time_from_system()) / 3600.0)))
+		var label: String = "%s | invited by %s | expires in %dh" % [
+			str(invite.get("target_display_name", "Player")),
+			str(invite.get("created_by_display_name", "Leader")),
+			hours_left
+		]
+		_hive_pending_list.add_item(label)
+		var idx: int = _hive_pending_list.get_item_count() - 1
+		_hive_pending_list.set_item_metadata(idx, invite.duplicate(true))
+	if invites.is_empty():
+		_hive_pending_meta_label.text = "No pending invites right now."
+
+func _open_hive_pending_dialog() -> void:
+	_ensure_hive_pending_dialog()
+	_refresh_hive_pending_dialog()
+	if _hive_pending_dialog == null:
+		return
+	_hive_pending_dialog.popup_centered()
+
+func _ensure_hive_leave_dialog() -> void:
+	if _hive_leave_dialog != null and is_instance_valid(_hive_leave_dialog):
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "HiveLeaveDialog"
+	dialog.title = "Leave Hive"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(500, 220)
+	add_child(dialog)
+	_hive_leave_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveLeaveVBox"
+	body.custom_minimum_size = Vector2(420.0, 120.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var desc := Label.new()
+	desc.text = "Leaving your hive starts a 24 hour timer. You can join a different hive after it elapses, but you cannot rejoin this same hive for 7 days."
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(desc)
+	_apply_font(desc, _font_regular, 12)
+	_hive_leave_desc_label = desc
+
+	dialog.get_ok_button().text = "START 24H LEAVE"
+	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	_style_button(dialog.get_ok_button(), Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
+	if dialog.get_cancel_button() != null:
+		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.confirmed.is_connected(_submit_hive_leave):
+		dialog.confirmed.connect(_submit_hive_leave)
+
+func _open_hive_leave_dialog() -> void:
+	var membership: Dictionary = _current_hive_membership()
+	if membership.is_empty():
+		status_label.text = "Join a hive first."
+		return
+	var leave_request: Dictionary = membership.get("leave_request", {}) as Dictionary
+	if not leave_request.is_empty():
+		status_label.text = "Leave already pending. Unlocks in %s." % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
+		return
+	_ensure_hive_leave_dialog()
+	if _hive_leave_desc_label != null:
+		_hive_leave_desc_label.text = "Leave %s? This starts a 24 hour timer. After it completes, you can join a different hive, but this same hive is locked for 7 days." % str(membership.get("hive_name", "your hive"))
+	if _hive_leave_dialog != null:
+		_hive_leave_dialog.popup_centered()
+
+func _submit_hive_leave() -> void:
+	if HiveClanState == null or not HiveClanState.has_method("intent_request_leave_hive"):
+		status_label.text = "Hive leave system unavailable."
+		return
+	var result: Dictionary = HiveClanState.call("intent_request_leave_hive") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"leave_already_pending":
+				var leave_request: Dictionary = result.get("leave_request", {}) as Dictionary
+				status_label.text = "Leave already pending. Unlocks in %s." % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
+			"player_not_in_hive":
+				status_label.text = "You are not currently in a hive."
+			_:
+				status_label.text = "Could not start hive leave."
+		return
+	var leave_request: Dictionary = result.get("leave_request", {}) as Dictionary
+	status_label.text = "Leave started. You can join another hive in %s." % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
+	if _hive_leave_dialog != null:
+		_hive_leave_dialog.hide()
+
+func _ensure_hive_browse_dialog() -> void:
+	if _hive_browse_dialog != null and is_instance_valid(_hive_browse_dialog):
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "HiveBrowseDialog"
+	dialog.title = "Browse Hives"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(560, 460)
+	add_child(dialog)
+	_hive_browse_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveBrowseVBox"
+	body.custom_minimum_size = Vector2(500.0, 340.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var meta := Label.new()
+	meta.text = "Browse active hives and apply to join."
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(meta)
+	_apply_font(meta, _font_regular, 12)
+	_hive_browse_meta_label = meta
+
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(500.0, 270.0)
+	list.select_mode = ItemList.SELECT_SINGLE
+	list.allow_reselect = true
+	body.add_child(list)
+	_apply_font(list, _font_regular, 12)
+	_hive_browse_list = list
+
+	dialog.get_ok_button().text = "APPLY"
+	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	if dialog.get_cancel_button() != null:
+		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.confirmed.is_connected(_submit_hive_application):
+		dialog.confirmed.connect(_submit_hive_application)
+
+func _refresh_hive_browse_dialog() -> void:
+	if _hive_browse_list == null or _hive_browse_meta_label == null:
+		return
+	_hive_browse_list.clear()
+	if HiveClanState == null or not HiveClanState.has_method("get_browseable_hives"):
+		_hive_browse_meta_label.text = "Hive browsing unavailable."
+		return
+	var membership: Dictionary = _current_hive_membership()
+	if not membership.is_empty():
+		_hive_browse_meta_label.text = "Leave your current hive before applying elsewhere."
+	else:
+		_hive_browse_meta_label.text = "Browse active hives and apply to join."
+	var hives: Array = HiveClanState.call("get_browseable_hives") as Array
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		var state_text: String = "Apply"
+		if not bool(hive.get("pending_invite", {}).is_empty()):
+			state_text = "Invite pending"
+		elif not bool(hive.get("pending_application", {}).is_empty()):
+			state_text = "Application pending"
+		elif int(hive.get("blocked_until_unix", 0)) > int(Time.get_unix_time_from_system()):
+			state_text = "Rejoin locked"
+		elif not bool(hive.get("can_apply", false)):
+			state_text = "Unavailable"
+		elif not bool(hive.get("expired_invite", {}).is_empty()):
+			state_text = "Expired invite -> apply"
+		var label: String = "%s | %d/%d | Rank Pts %s | %s" % [
+			str(hive.get("name", "Hive")),
+			int(hive.get("member_count", 0)),
+			int(hive.get("member_limit", 14)),
+			_format_number(int(hive.get("rank_points", 0))),
+			state_text
+		]
+		_hive_browse_list.add_item(label)
+		var idx: int = _hive_browse_list.get_item_count() - 1
+		_hive_browse_list.set_item_metadata(idx, hive.duplicate(true))
+
+func _open_hive_browse_dialog() -> void:
+	_ensure_hive_browse_dialog()
+	_refresh_hive_browse_dialog()
+	if _hive_browse_dialog == null:
+		return
+	_hive_browse_dialog.popup_centered()
+
+func _open_hive_comms_access() -> void:
+	if HiveClanState == null or not HiveClanState.has_method("get_hive_comms_access_for_player"):
+		status_label.text = "Hive comms unavailable."
+		return
+	var access_list: Array = HiveClanState.call("get_hive_comms_access_for_player") as Array
+	if access_list.is_empty():
+		status_label.text = "No hive comms access yet."
+		return
+	_sync_hive_panel_profile_from_hive_state()
+	_open_dash_panel_from_menu(dash_hive_panel)
+
+func _submit_hive_application() -> void:
+	if _hive_browse_list == null:
+		return
+	var selected: PackedInt32Array = _hive_browse_list.get_selected_items()
+	if selected.is_empty():
+		status_label.text = "Select a hive to apply to."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_apply_to_hive"):
+		status_label.text = "Hive application system unavailable."
+		return
+	var metadata: Variant = _hive_browse_list.get_item_metadata(selected[0])
+	if typeof(metadata) != TYPE_DICTIONARY:
+		status_label.text = "Selected hive is invalid."
+		return
+	var hive: Dictionary = metadata as Dictionary
+	if not bool(hive.get("can_apply", false)):
+		status_label.text = "You cannot apply to that hive right now."
+		return
+	var result: Dictionary = HiveClanState.call("intent_apply_to_hive", str(hive.get("hive_id", "")), "", "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"player_already_in_hive":
+				status_label.text = "Leave your current hive before applying."
+			"application_already_pending":
+				status_label.text = "Application already pending."
+			"invite_already_pending":
+				status_label.text = "You already have an invite from that hive."
+			"rejoin_cooldown_active":
+				status_label.text = "You cannot rejoin that hive yet."
+			"hive_member_limit_reached":
+				status_label.text = "That hive is full."
+			_:
+				status_label.text = "Could not submit hive application."
+		_refresh_hive_browse_dialog()
+		return
+	status_label.text = "Application sent to %s." % str(hive.get("name", "that hive"))
+	if _hive_browse_dialog != null:
+		_hive_browse_dialog.hide()
+
+func _ensure_hive_my_invites_dialog() -> void:
+	if _hive_my_invites_dialog != null and is_instance_valid(_hive_my_invites_dialog):
+		return
+	var dialog := AcceptDialog.new()
+	dialog.name = "HiveMyInvitesDialog"
+	dialog.title = "My Hive Invites"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(620, 480)
+	add_child(dialog)
+	_hive_my_invites_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveMyInvitesVBox"
+	body.custom_minimum_size = Vector2(560.0, 360.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var meta := Label.new()
+	meta.text = "Review active invites, expired invites, and re-apply paths."
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(meta)
+	_apply_font(meta, _font_regular, 12)
+	_hive_my_invites_meta_label = meta
+
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(560.0, 290.0)
+	list.select_mode = ItemList.SELECT_SINGLE
+	list.allow_reselect = true
+	body.add_child(list)
+	_apply_font(list, _font_regular, 12)
+	_hive_my_invites_list = list
+
+	var accept_button: Button = dialog.add_button("ACCEPT", false, "accept")
+	_apply_font(accept_button, _font_semibold, 12)
+	_style_button(accept_button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	var decline_button: Button = dialog.add_button("DECLINE", false, "decline")
+	_apply_font(decline_button, _font_regular, 12)
+	_style_button(decline_button, Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
+	var apply_button: Button = dialog.add_button("APPLY", false, "apply")
+	_apply_font(apply_button, _font_regular, 12)
+	_style_button(apply_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	dialog.get_ok_button().text = "CLOSE"
+	_apply_font(dialog.get_ok_button(), _font_regular, 12)
+	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.custom_action.is_connected(_on_hive_my_invites_action):
+		dialog.custom_action.connect(_on_hive_my_invites_action)
+
+func _refresh_hive_my_invites_dialog() -> void:
+	if _hive_my_invites_list == null or _hive_my_invites_meta_label == null:
+		return
+	_hive_my_invites_list.clear()
+	if HiveClanState == null or not HiveClanState.has_method("get_visible_invites_for_player"):
+		_hive_my_invites_meta_label.text = "Hive invites unavailable."
+		return
+	var invites: Array = HiveClanState.call("get_visible_invites_for_player") as Array
+	_hive_my_invites_meta_label.text = "Invites linked to your player: %d" % invites.size()
+	for invite_any in invites:
+		if typeof(invite_any) != TYPE_DICTIONARY:
+			continue
+		var invite: Dictionary = invite_any as Dictionary
+		var status_text: String = str(invite.get("status", "pending")).capitalize()
+		if str(invite.get("status", "")) == "pending":
+			var hours_left: int = maxi(0, int(ceil(float(int(invite.get("expires_at_unix", 0)) - Time.get_unix_time_from_system()) / 3600.0)))
+			status_text = "Pending • %dh left" % hours_left
+		elif bool(invite.get("can_apply", false)):
+			status_text = "Expired • Apply available"
+		var label: String = "%s | invited by %s | %s" % [
+			str(invite.get("hive_name", "Hive")),
+			str(invite.get("created_by_display_name", "Leader")),
+			status_text
+		]
+		_hive_my_invites_list.add_item(label)
+		var idx: int = _hive_my_invites_list.get_item_count() - 1
+		_hive_my_invites_list.set_item_metadata(idx, invite.duplicate(true))
+	if invites.is_empty():
+		_hive_my_invites_meta_label.text = "No hive invites yet."
+
+func _open_hive_my_invites_dialog() -> void:
+	_ensure_hive_my_invites_dialog()
+	_refresh_hive_my_invites_dialog()
+	if _hive_my_invites_dialog == null:
+		return
+	_hive_my_invites_dialog.popup_centered()
+
+func _on_hive_my_invites_action(action: StringName) -> void:
+	if _hive_my_invites_list == null:
+		return
+	var selected: PackedInt32Array = _hive_my_invites_list.get_selected_items()
+	if selected.is_empty():
+		status_label.text = "Select an invite first."
+		return
+	var metadata: Variant = _hive_my_invites_list.get_item_metadata(selected[0])
+	if typeof(metadata) != TYPE_DICTIONARY:
+		status_label.text = "Selected invite is invalid."
+		return
+	var invite: Dictionary = metadata as Dictionary
+	if HiveClanState == null:
+		status_label.text = "Hive system unavailable."
+		return
+	match String(action):
+		"accept":
+			if not HiveClanState.has_method("intent_accept_invite"):
+				status_label.text = "Invite accept unavailable."
+				return
+			var accept_result: Dictionary = HiveClanState.call("intent_accept_invite", str(invite.get("invite_id", "")), "", "") as Dictionary
+			if not bool(accept_result.get("ok", false)):
+				var accept_reason: String = str(accept_result.get("reason", "unknown"))
+				match accept_reason:
+					"player_already_in_hive":
+						status_label.text = "Leave your current hive first."
+					"rejoin_cooldown_active":
+						status_label.text = "You cannot rejoin that hive yet."
+					"hive_member_limit_reached":
+						status_label.text = "That hive is full."
+					"invite_not_pending":
+						status_label.text = "That invite is no longer active."
+					_:
+						status_label.text = "Could not accept invite."
+				_refresh_hive_my_invites_dialog()
+				return
+			status_label.text = "Joined %s." % str(invite.get("hive_name", "the hive"))
+			if _hive_my_invites_dialog != null:
+				_hive_my_invites_dialog.hide()
+			_open_dash_panel_from_menu(dash_hive_panel)
+		"decline":
+			if not HiveClanState.has_method("intent_decline_invite"):
+				status_label.text = "Invite decline unavailable."
+				return
+			var decline_result: Dictionary = HiveClanState.call("intent_decline_invite", str(invite.get("invite_id", "")), "") as Dictionary
+			if not bool(decline_result.get("ok", false)):
+				status_label.text = "Could not decline invite."
+				_refresh_hive_my_invites_dialog()
+				return
+			status_label.text = "Invite declined."
+			_refresh_hive_my_invites_dialog()
+		"apply":
+			if not bool(invite.get("can_apply", false)):
+				status_label.text = "That invite cannot be converted into an application right now."
+				return
+			if not HiveClanState.has_method("intent_apply_to_hive"):
+				status_label.text = "Hive application system unavailable."
+				return
+			var apply_result: Dictionary = HiveClanState.call("intent_apply_to_hive", str(invite.get("hive_id", "")), "", "") as Dictionary
+			if not bool(apply_result.get("ok", false)):
+				status_label.text = "Could not apply to that hive."
+				_refresh_hive_my_invites_dialog()
+				return
+			status_label.text = "Application sent to %s." % str(invite.get("hive_name", "that hive"))
+			_refresh_hive_my_invites_dialog()
+		_:
+			pass
+
+func _ensure_hive_applications_dialog() -> void:
+	if _hive_applications_dialog != null and is_instance_valid(_hive_applications_dialog):
+		return
+	var dialog := AcceptDialog.new()
+	dialog.name = "HiveApplicationsDialog"
+	dialog.title = "Hive Applications"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(620, 460)
+	add_child(dialog)
+	_hive_applications_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveApplicationsVBox"
+	body.custom_minimum_size = Vector2(560.0, 340.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var meta := Label.new()
+	meta.text = "Review incoming applications to your hive."
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(meta)
+	_apply_font(meta, _font_regular, 12)
+	_hive_applications_meta_label = meta
+
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(560.0, 270.0)
+	list.select_mode = ItemList.SELECT_SINGLE
+	list.allow_reselect = true
+	body.add_child(list)
+	_apply_font(list, _font_regular, 12)
+	_hive_applications_list = list
+
+	var approve_button: Button = dialog.add_button("APPROVE", false, "approve")
+	_apply_font(approve_button, _font_semibold, 12)
+	_style_button(approve_button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	var decline_button: Button = dialog.add_button("DECLINE", false, "decline")
+	_apply_font(decline_button, _font_regular, 12)
+	_style_button(decline_button, Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
+	dialog.get_ok_button().text = "CLOSE"
+	_apply_font(dialog.get_ok_button(), _font_regular, 12)
+	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.custom_action.is_connected(_on_hive_applications_action):
+		dialog.custom_action.connect(_on_hive_applications_action)
+
+func _refresh_hive_applications_dialog() -> void:
+	if _hive_applications_list == null or _hive_applications_meta_label == null:
+		return
+	_hive_applications_list.clear()
+	if HiveClanState == null or not HiveClanState.has_method("get_received_applications_for_player"):
+		_hive_applications_meta_label.text = "Hive application review unavailable."
+		return
+	var applications: Array = HiveClanState.call("get_received_applications_for_player") as Array
+	_hive_applications_meta_label.text = "Applications awaiting review: %d" % applications.size()
+	for application_any in applications:
+		if typeof(application_any) != TYPE_DICTIONARY:
+			continue
+		var application: Dictionary = application_any as Dictionary
+		var age_hours: int = maxi(0, int(ceil(float(Time.get_unix_time_from_system() - int(application.get("created_at_unix", 0))) / 3600.0)))
+		var label: String = "%s | %s | submitted %dh ago" % [
+			str(application.get("player_display_name", "Player")),
+			str(application.get("hive_name", "Hive")),
+			age_hours
+		]
+		_hive_applications_list.add_item(label)
+		var idx: int = _hive_applications_list.get_item_count() - 1
+		_hive_applications_list.set_item_metadata(idx, application.duplicate(true))
+	if applications.is_empty():
+		_hive_applications_meta_label.text = "No pending applications right now."
+
+func _open_hive_applications_dialog() -> void:
+	_ensure_hive_applications_dialog()
+	_refresh_hive_applications_dialog()
+	if _hive_applications_dialog == null:
+		return
+	_hive_applications_dialog.popup_centered()
+
+func _on_hive_applications_action(action: StringName) -> void:
+	if _hive_applications_list == null:
+		return
+	var selected: PackedInt32Array = _hive_applications_list.get_selected_items()
+	if selected.is_empty():
+		status_label.text = "Select an application first."
+		return
+	var metadata: Variant = _hive_applications_list.get_item_metadata(selected[0])
+	if typeof(metadata) != TYPE_DICTIONARY:
+		status_label.text = "Selected application is invalid."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_review_application"):
+		status_label.text = "Hive application review unavailable."
+		return
+	var application: Dictionary = metadata as Dictionary
+	var approve: bool = String(action) == "approve"
+	var result: Dictionary = HiveClanState.call("intent_review_application", str(application.get("application_id", "")), approve, "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"forbidden":
+				status_label.text = "Only queen or soldiers can review applications."
+			"hive_member_limit_reached":
+				status_label.text = "Hive member limit reached."
+			"player_already_in_hive":
+				status_label.text = "Applicant already joined a hive."
+			_:
+				status_label.text = "Could not review application."
+		_refresh_hive_applications_dialog()
+		return
+	status_label.text = "%s %s." % [
+		str(application.get("player_display_name", "Applicant")),
+		"approved" if approve else "declined"
+	]
+	_refresh_hive_applications_dialog()
+
+func _ensure_hive_member_actions_dialog() -> void:
+	if _hive_member_actions_dialog != null and is_instance_valid(_hive_member_actions_dialog):
+		return
+	var dialog := AcceptDialog.new()
+	dialog.name = "HiveMemberActionsDialog"
+	dialog.title = "Member Actions"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(720, 520)
+	add_child(dialog)
+	_hive_member_actions_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveMemberActionsVBox"
+	body.custom_minimum_size = Vector2(640.0, 380.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var meta := Label.new()
+	meta.text = "Select a hive member to manage."
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(meta)
+	_apply_font(meta, _font_regular, 12)
+	_hive_member_actions_meta_label = meta
+
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(640.0, 240.0)
+	list.select_mode = ItemList.SELECT_SINGLE
+	list.allow_reselect = true
+	body.add_child(list)
+	_apply_font(list, _font_regular, 12)
+	_hive_member_actions_list = list
+	if not list.item_selected.is_connected(_on_hive_member_actions_selection_changed):
+		list.item_selected.connect(_on_hive_member_actions_selection_changed)
+
+	var detail := Label.new()
+	detail.text = "Choose a player to see available governance actions."
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(detail)
+	_apply_font(detail, _font_regular, 11)
+	_hive_member_actions_detail_label = detail
+
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override("separation", 8)
+	body.add_child(action_row)
+
+	var promote_button := Button.new()
+	promote_button.text = "PROMOTE SOLDIER"
+	promote_button.disabled = true
+	promote_button.pressed.connect(_on_hive_member_actions_promote_direct_pressed)
+	action_row.add_child(promote_button)
+	_apply_font(promote_button, _font_semibold, 12)
+	_style_button(promote_button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	_hive_member_actions_promote_button = promote_button
+
+	var vote_promote_button := Button.new()
+	vote_promote_button.text = "VOTE PROMOTE"
+	vote_promote_button.disabled = true
+	vote_promote_button.pressed.connect(_on_hive_member_actions_vote_promote_pressed)
+	action_row.add_child(vote_promote_button)
+	_apply_font(vote_promote_button, _font_regular, 12)
+	_style_button(vote_promote_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	_hive_member_actions_vote_promote_button = vote_promote_button
+
+	var discipline_button := Button.new()
+	discipline_button.text = "DISCIPLINE VOTE"
+	discipline_button.disabled = true
+	discipline_button.pressed.connect(_on_hive_member_actions_discipline_pressed)
+	action_row.add_child(discipline_button)
+	_apply_font(discipline_button, _font_regular, 12)
+	_style_button(discipline_button, Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
+	_hive_member_actions_discipline_button = discipline_button
+
+	var leadership_button := Button.new()
+	leadership_button.text = "HIVE VOTE REMOVE"
+	leadership_button.disabled = true
+	leadership_button.pressed.connect(_on_hive_member_actions_leadership_vote_pressed)
+	action_row.add_child(leadership_button)
+	_apply_font(leadership_button, _font_regular, 12)
+	_style_button(leadership_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	_hive_member_actions_leadership_vote_button = leadership_button
+
+	var remove_button := Button.new()
+	remove_button.text = "REMOVE PLAYER"
+	remove_button.disabled = true
+	remove_button.pressed.connect(_on_hive_member_actions_remove_member_pressed)
+	action_row.add_child(remove_button)
+	_apply_font(remove_button, _font_regular, 12)
+	_style_button(remove_button, Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
+	_hive_member_actions_remove_button = remove_button
+
+	dialog.get_ok_button().text = "CLOSE"
+	_apply_font(dialog.get_ok_button(), _font_regular, 12)
+	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+func _open_hive_member_actions_dialog() -> void:
+	var membership: Dictionary = _current_hive_membership()
+	if membership.is_empty():
+		status_label.text = "Join a hive first."
+		return
+	_ensure_hive_member_actions_dialog()
+	_refresh_hive_member_actions_dialog()
+	if _hive_member_actions_dialog == null:
+		return
+	_hive_member_actions_dialog.popup_centered()
+
+func _refresh_hive_member_actions_dialog() -> void:
+	if _hive_member_actions_list == null or _hive_member_actions_meta_label == null:
+		return
+	_hive_member_actions_list.clear()
+	var membership: Dictionary = _current_hive_membership()
+	if membership.is_empty():
+		_hive_member_actions_meta_label.text = "Join a hive first."
+		_refresh_hive_member_action_buttons()
+		return
+	if HiveClanState == null or not HiveClanState.has_method("get_hive_snapshot"):
+		_hive_member_actions_meta_label.text = "Hive member actions unavailable."
+		_refresh_hive_member_action_buttons()
+		return
+	var hive: Dictionary = HiveClanState.call("get_hive_snapshot", str(membership.get("hive_id", ""))) as Dictionary
+	var members_any: Variant = hive.get("members", [])
+	var local_role: String = _role_label(str(membership.get("role", "member")))
+	var pending_governance_count: int = 0
+	if HiveClanState.has_method("get_pending_governance_actions_for_player"):
+		var pending_governance: Array = HiveClanState.call("get_pending_governance_actions_for_player") as Array
+		pending_governance_count = pending_governance.size()
+	var count: int = 0
+	if typeof(members_any) == TYPE_ARRAY:
+		for member_any in members_any as Array:
+			if typeof(member_any) != TYPE_DICTIONARY:
+				continue
+			var member: Dictionary = member_any as Dictionary
+			var rank_position: int = int(member.get("rank_position", 0))
+			var rank_text: String = "#%d" % rank_position if rank_position > 0 else "Unranked"
+			var label: String = "%s | %s | %s | H%s" % [
+				str(member.get("display_name", "Player")),
+				_role_label(str(member.get("role", "member"))),
+				rank_text,
+				_format_number(int(member.get("honey_contributed", 0)))
+			]
+			_hive_member_actions_list.add_item(label)
+			var idx: int = _hive_member_actions_list.get_item_count() - 1
+			_hive_member_actions_list.set_item_metadata(idx, member.duplicate(true))
+			count += 1
+	_hive_member_actions_meta_label.text = "Hive members: %d | Your role: %s | Pending votes: %d" % [count, local_role, pending_governance_count]
+	if count > 0:
+		_hive_member_actions_list.select(0)
+	_refresh_hive_member_action_buttons()
+
+func _on_hive_member_actions_selection_changed(_index: int) -> void:
+	_refresh_hive_member_action_buttons()
+
+func _refresh_hive_member_action_buttons() -> void:
+	if _hive_member_actions_detail_label == null:
+		return
+	var context: Dictionary = _current_hive_member_action_context()
+	_hive_member_actions_detail_label.text = str(context.get("detail_text", "Choose a player to see available governance actions."))
+	if _hive_member_actions_promote_button != null:
+		_hive_member_actions_promote_button.text = "PROMOTE SOLDIER"
+		_hive_member_actions_promote_button.disabled = not bool(context.get("can_direct_promote", false))
+	if _hive_member_actions_vote_promote_button != null:
+		_hive_member_actions_vote_promote_button.text = "VOTE PROMOTE"
+		_hive_member_actions_vote_promote_button.disabled = not bool(context.get("can_vote_promote", false))
+	if _hive_member_actions_discipline_button != null:
+		_hive_member_actions_discipline_button.text = str(context.get("discipline_label", "DISCIPLINE VOTE"))
+		_hive_member_actions_discipline_button.disabled = not bool(context.get("can_discipline", false))
+	if _hive_member_actions_leadership_vote_button != null:
+		_hive_member_actions_leadership_vote_button.text = "HIVE VOTE REMOVE"
+		_hive_member_actions_leadership_vote_button.disabled = not bool(context.get("can_leadership_remove", false))
+	if _hive_member_actions_remove_button != null:
+		_hive_member_actions_remove_button.text = "REMOVE PLAYER"
+		_hive_member_actions_remove_button.disabled = not bool(context.get("can_remove_member", false))
+
+func _current_hive_member_action_context() -> Dictionary:
+	if _hive_member_actions_list == null:
+		return {"detail_text": "Choose a player to see available governance actions."}
+	var selected: PackedInt32Array = _hive_member_actions_list.get_selected_items()
+	if selected.is_empty():
+		return {"detail_text": "Choose a player to see available governance actions."}
+	var metadata: Variant = _hive_member_actions_list.get_item_metadata(selected[0])
+	if typeof(metadata) != TYPE_DICTIONARY:
+		return {"detail_text": "Selected member is invalid."}
+	var member: Dictionary = metadata as Dictionary
+	var membership: Dictionary = _current_hive_membership()
+	if membership.is_empty():
+		return {"detail_text": "Join a hive first."}
+	if HiveClanState == null or not HiveClanState.has_method("get_hive_snapshot"):
+		return {"detail_text": "Hive authority unavailable."}
+	var hive: Dictionary = HiveClanState.call("get_hive_snapshot", str(membership.get("hive_id", ""))) as Dictionary
+	var local_player_id: String = str(membership.get("player_id", ""))
+	var local_role: String = str(membership.get("role", "member")).strip_edges().to_lower()
+	var target_player_id: String = str(member.get("player_id", ""))
+	var target_role: String = str(member.get("role", "member")).strip_edges().to_lower()
+	var target_name: String = str(member.get("display_name", "Player"))
+	var rank_position: int = int(member.get("rank_position", 0))
+	var rank_text: String = "#%d" % rank_position if rank_position > 0 else "Unranked"
+	var last_seen_text: String = _format_hive_membership_age(int(member.get("last_seen_at_unix", int(member.get("joined_at_unix", 0)))))
+	var detail_lines: Array[String] = [
+		"%s | %s | %s | H%s" % [
+			target_name,
+			_role_label(target_role),
+			rank_text,
+			_format_number(int(member.get("honey_contributed", 0)))
+		],
+		"Joined %s" % _format_hive_membership_age(int(member.get("joined_at_unix", 0))),
+		"Last seen %s" % last_seen_text
+	]
+	var target_is_self: bool = target_player_id == local_player_id
+	var can_direct_promote: bool = local_role == "queen" and target_role == "member" and not target_is_self
+	var can_vote_promote: bool = target_role == "member" and not target_is_self
+	var can_discipline: bool = false
+	var discipline_label: String = "DISCIPLINE VOTE"
+	if target_role == "queen":
+		can_discipline = local_role == "soldier" and not target_is_self
+		discipline_label = "VOTE REMOVE QUEEN"
+	elif target_role == "soldier":
+		can_discipline = (local_role == "queen" or local_role == "soldier") and not target_is_self
+		discipline_label = "VOTE DEMOTE SOLDIER"
+	var can_leadership_remove: bool = (target_role == "queen" or target_role == "soldier") and not target_is_self and int(hive.get("member_count", 0)) >= 10
+	var can_remove_member: bool = local_role == "queen" and target_role == "member" and not target_is_self
+	var promotion_votes: Dictionary = _find_hive_vote_snapshot(hive.get("soldier_promotion_votes", []), target_player_id) if target_role == "member" else {}
+	if not promotion_votes.is_empty():
+		detail_lines.append("Promotion votes: %d/%d" % [int((promotion_votes.get("voter_ids", []) as Array).size()), int(promotion_votes.get("votes_needed", 0))])
+	var leadership_votes: Dictionary = _find_hive_vote_snapshot(hive.get("leadership_removal_votes", []), target_player_id) if target_role == "queen" or target_role == "soldier" else {}
+	if not leadership_votes.is_empty():
+		detail_lines.append("Hive removal votes: %d/%d" % [int((leadership_votes.get("voter_ids", []) as Array).size()), int(leadership_votes.get("votes_needed", 0))])
+	if target_role == "queen":
+		var queen_vote: Dictionary = hive.get("queen_removal_vote", {}) as Dictionary
+		if str(queen_vote.get("queen_player_id", "")) == target_player_id:
+			detail_lines.append("Soldier queen-removal votes: %d/%d" % [int((queen_vote.get("voter_ids", []) as Array).size()), int(queen_vote.get("votes_needed", 0))])
+	elif target_role == "soldier":
+		var demotion_vote: Dictionary = _find_hive_vote_snapshot(hive.get("soldier_demotion_votes", []), target_player_id)
+		if not demotion_vote.is_empty():
+			detail_lines.append("Queen+soldier demotion votes: %d/2" % int((demotion_vote.get("voter_ids", []) as Array).size()))
+	return {
+		"target_player_id": target_player_id,
+		"target_name": target_name,
+		"target_role": target_role,
+		"can_direct_promote": can_direct_promote,
+		"can_vote_promote": can_vote_promote,
+		"can_discipline": can_discipline,
+		"discipline_label": discipline_label,
+		"can_leadership_remove": can_leadership_remove,
+		"can_remove_member": can_remove_member,
+		"detail_text": "\n".join(detail_lines)
+	}
+
+func _find_hive_vote_snapshot(votes_any: Variant, target_player_id: String) -> Dictionary:
+	if typeof(votes_any) != TYPE_ARRAY:
+		return {}
+	for vote_any in votes_any as Array:
+		if typeof(vote_any) != TYPE_DICTIONARY:
+			continue
+		var vote: Dictionary = vote_any as Dictionary
+		if str(vote.get("target_player_id", "")) == target_player_id:
+			return vote
+	return {}
+
+func _on_hive_member_actions_promote_direct_pressed() -> void:
+	var context: Dictionary = _current_hive_member_action_context()
+	if not bool(context.get("can_direct_promote", false)):
+		status_label.text = "Direct promotion is not available for this selection."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_set_soldier"):
+		status_label.text = "Hive member actions unavailable."
+		return
+	var hive_id: String = _current_hive_id()
+	var result: Dictionary = HiveClanState.call("intent_set_soldier", hive_id, str(context.get("target_player_id", "")), true, "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"forbidden":
+				status_label.text = "Only the queen can directly promote soldiers."
+			"soldier_limit_reached":
+				status_label.text = "Soldier slots are full."
+			_:
+				status_label.text = "Could not promote member."
+		_refresh_hive_member_actions_dialog()
+		return
+	status_label.text = "%s promoted to Soldier." % str(context.get("target_name", "Member"))
+	_refresh_hive_member_actions_dialog()
+
+func _on_hive_member_actions_vote_promote_pressed() -> void:
+	var context: Dictionary = _current_hive_member_action_context()
+	if not bool(context.get("can_vote_promote", false)):
+		status_label.text = "Promotion vote is not available for this selection."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_vote_promote_soldier"):
+		status_label.text = "Hive promotion voting unavailable."
+		return
+	var hive_id: String = _current_hive_id()
+	var result: Dictionary = HiveClanState.call("intent_vote_promote_soldier", hive_id, str(context.get("target_player_id", "")), "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"soldier_limit_reached":
+				status_label.text = "Soldier slots are full."
+			"target_already_leadership":
+				status_label.text = "Player is already in leadership."
+			_:
+				status_label.text = "Could not cast promotion vote."
+		_refresh_hive_member_actions_dialog()
+		return
+	if bool(result.get("promoted", false)):
+		status_label.text = "%s promoted to Soldier." % str(context.get("target_name", "Member"))
+	else:
+		var vote: Dictionary = result.get("vote", {}) as Dictionary
+		status_label.text = "Promotion vote cast for %s (%d/%d)." % [
+			str(context.get("target_name", "Member")),
+			int((vote.get("voter_ids", []) as Array).size()),
+			int(vote.get("votes_needed", 0))
+		]
+	_refresh_hive_member_actions_dialog()
+
+func _on_hive_member_actions_discipline_pressed() -> void:
+	var context: Dictionary = _current_hive_member_action_context()
+	if not bool(context.get("can_discipline", false)):
+		status_label.text = "Discipline vote is not available for this selection."
+		return
+	if HiveClanState == null:
+		status_label.text = "Hive discipline voting unavailable."
+		return
+	var hive_id: String = _current_hive_id()
+	var target_role: String = str(context.get("target_role", ""))
+	if target_role == "queen":
+		if not HiveClanState.has_method("intent_vote_remove_queen"):
+			status_label.text = "Queen removal voting unavailable."
+			return
+		var queen_result: Dictionary = HiveClanState.call("intent_vote_remove_queen", hive_id, "") as Dictionary
+		if not bool(queen_result.get("ok", false)):
+			status_label.text = "Could not cast queen-removal vote."
+			_refresh_hive_member_actions_dialog()
+			return
+		if bool(queen_result.get("queen_removed", false)):
+			status_label.text = "Queen removed by soldier vote."
+		else:
+			var queen_vote: Dictionary = queen_result.get("vote", {}) as Dictionary
+			status_label.text = "Queen-removal vote cast (%d/%d)." % [
+				int((queen_vote.get("voter_ids", []) as Array).size()),
+				int(queen_vote.get("votes_needed", 0))
+			]
+		_refresh_hive_member_actions_dialog()
+		return
+	if not HiveClanState.has_method("intent_vote_demote_soldier"):
+		status_label.text = "Soldier demotion voting unavailable."
+		return
+	var result: Dictionary = HiveClanState.call("intent_vote_demote_soldier", hive_id, str(context.get("target_player_id", "")), "") as Dictionary
+	if not bool(result.get("ok", false)):
+		status_label.text = "Could not cast soldier demotion vote."
+		_refresh_hive_member_actions_dialog()
+		return
+	if bool(result.get("demoted", false)):
+		status_label.text = "%s demoted to Member." % str(context.get("target_name", "Soldier"))
+	else:
+		var vote: Dictionary = result.get("vote", {}) as Dictionary
+		status_label.text = "Demotion vote cast for %s (%d/2)." % [
+			str(context.get("target_name", "Soldier")),
+			int((vote.get("voter_ids", []) as Array).size())
+		]
+	_refresh_hive_member_actions_dialog()
+
+func _on_hive_member_actions_leadership_vote_pressed() -> void:
+	var context: Dictionary = _current_hive_member_action_context()
+	if not bool(context.get("can_leadership_remove", false)):
+		status_label.text = "Hive leadership vote is not available for this selection."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_vote_remove_leadership"):
+		status_label.text = "Hive-wide leadership vote unavailable."
+		return
+	var hive_id: String = _current_hive_id()
+	var result: Dictionary = HiveClanState.call("intent_vote_remove_leadership", hive_id, str(context.get("target_player_id", "")), "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"not_enough_members_for_leadership_vote":
+				status_label.text = "Need at least 10 hive members for a hive-wide leadership vote."
+			_:
+				status_label.text = "Could not cast hive-wide leadership vote."
+		_refresh_hive_member_actions_dialog()
+		return
+	if bool(result.get("removed", false)):
+		status_label.text = "%s removed from leadership." % str(context.get("target_name", "Leader"))
+	else:
+		var vote: Dictionary = result.get("vote", {}) as Dictionary
+		status_label.text = "Hive-wide removal vote cast for %s (%d/%d)." % [
+			str(context.get("target_name", "Leader")),
+			int((vote.get("voter_ids", []) as Array).size()),
+			int(vote.get("votes_needed", 0))
+		]
+	_refresh_hive_member_actions_dialog()
+
+func _on_hive_member_actions_remove_member_pressed() -> void:
+	var context: Dictionary = _current_hive_member_action_context()
+	if not bool(context.get("can_remove_member", false)):
+		status_label.text = "Remove player is not available for this selection."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_remove_member"):
+		status_label.text = "Member removal unavailable."
+		return
+	var hive_id: String = _current_hive_id()
+	var result: Dictionary = HiveClanState.call("intent_remove_member", hive_id, str(context.get("target_player_id", "")), "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"forbidden":
+				status_label.text = "Only the queen can remove a regular member."
+			"target_not_removable_member":
+				status_label.text = "Leadership must be handled through governance votes."
+			_:
+				status_label.text = "Could not remove player."
+		_refresh_hive_member_actions_dialog()
+		return
+	status_label.text = "%s removed from the hive. Same-hive rejoin locked for 7d." % str(context.get("target_name", "Member"))
+	_refresh_hive_member_actions_dialog()
+
+func _check_hive_governance_inbox() -> void:
+	if HiveClanState == null or not HiveClanState.has_method("get_pending_governance_actions_for_player"):
+		return
+	var pending_actions: Array = HiveClanState.call("get_pending_governance_actions_for_player") as Array
+	if pending_actions.is_empty():
+		return
+	status_label.text = "Hive governance vote pending. Resolve it before continuing."
+	_open_dash_panel_from_menu(dash_hive_panel)
+	if _hive_member_actions_dialog == null or not _hive_member_actions_dialog.visible:
+		_open_hive_member_actions_dialog()
+
 func _on_hive_clan_state_changed(_snapshot: Dictionary) -> void:
 	_sync_hive_panel_profile_from_hive_state()
+	_refresh_hive_panel_action_state()
+	_refresh_hive_invite_dialog()
+	_refresh_hive_pending_dialog()
+	_refresh_hive_browse_dialog()
+	_refresh_hive_my_invites_dialog()
+	_refresh_hive_applications_dialog()
+	_refresh_hive_member_actions_dialog()
+	_check_hive_governance_inbox()
 
 func _sync_hive_panel_profile_from_hive_state() -> void:
 	if HiveClanState == null:
@@ -2099,12 +3279,28 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 	if not HiveClanState.has_method("get_player_membership") or not HiveClanState.has_method("get_hive_snapshot"):
 		return
 	var membership: Dictionary = HiveClanState.call("get_player_membership") as Dictionary
-	if membership.is_empty():
-		return
 	var hive_id: String = str(membership.get("hive_id", ""))
-	if hive_id.is_empty():
-		return
-	var hive: Dictionary = HiveClanState.call("get_hive_snapshot", hive_id) as Dictionary
+	var hive: Dictionary = {}
+	var access_type: String = "member"
+	var invite_access: Dictionary = {}
+	if membership.is_empty():
+		if not HiveClanState.has_method("get_hive_comms_access_for_player"):
+			return
+		var access_list: Array = HiveClanState.call("get_hive_comms_access_for_player") as Array
+		if access_list.is_empty():
+			return
+		var first_access_any: Variant = access_list[0]
+		if typeof(first_access_any) != TYPE_DICTIONARY:
+			return
+		var first_access: Dictionary = first_access_any as Dictionary
+		access_type = str(first_access.get("access_type", "invite"))
+		hive = first_access.get("hive", {}) as Dictionary
+		invite_access = first_access.get("invite", {}) as Dictionary
+		hive_id = str(hive.get("hive_id", ""))
+	else:
+		if hive_id.is_empty():
+			return
+		hive = HiveClanState.call("get_hive_snapshot", hive_id) as Dictionary
 	if hive.is_empty():
 		return
 	var members_any: Variant = hive.get("members", [])
@@ -2115,14 +3311,22 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 	var joined_at_unix: int = 0
 	var local_rank: int = 1
 	var member_idx: int = 0
+	var pending_governance_count: int = 0
+	var can_spend_hive_honey: bool = bool(membership.get("can_spend_hive_honey", false))
+	if HiveClanState.has_method("get_pending_governance_actions_for_player"):
+		var pending_governance: Array = HiveClanState.call("get_pending_governance_actions_for_player") as Array
+		pending_governance_count = pending_governance.size()
 	if typeof(members_any) == TYPE_ARRAY:
 		for member_any in members_any as Array:
 			if typeof(member_any) != TYPE_DICTIONARY:
 				continue
 			var member: Dictionary = member_any as Dictionary
-			member_lines.append("%s | %s | H%s" % [
+			var rank_position: int = int(member.get("rank_position", 0))
+			var rank_text: String = "#%d" % rank_position if rank_position > 0 else "Unranked"
+			member_lines.append("%s  %s  %s  H%s" % [
+				rank_text,
 				str(member.get("display_name", "Player")),
-				_role_label(str(member.get("role", "member"))),
+				_role_label(str(member.get("role", "member"))).to_upper(),
 				_format_number(int(member.get("honey_contributed", 0)))
 			])
 			member_idx += 1
@@ -2130,27 +3334,127 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 				joined_at_unix = int(member.get("joined_at_unix", 0))
 				local_rank = member_idx
 	var office_title: String = _role_label(str(membership.get("role", "member")))
+	if membership.is_empty():
+		office_title = "Invite Access"
 	_hive_panel_profile["name"] = str(hive.get("name", "My Hive"))
-	_hive_panel_profile["member_role"] = office_title
+	_hive_panel_profile["member_role"] = office_title if access_type == "member" else "Invited"
 	_hive_panel_profile["office_title"] = office_title
-	_hive_panel_profile["member_rank_within_hive"] = local_rank
-	_hive_panel_profile["member_since_text"] = _format_hive_membership_age(joined_at_unix)
+	_hive_panel_profile["member_rank_within_hive"] = local_rank if access_type == "member" else 0
+	_hive_panel_profile["member_since_text"] = _format_hive_membership_age(joined_at_unix) if access_type == "member" else "Invite expires in %s" % _format_time_remaining(int(invite_access.get("expires_at_unix", 0)))
 	_hive_panel_profile["ecosystem_rank"] = maxi(1, int(hive.get("rank_points", 1)))
-	_hive_panel_profile["hive_honey"] = int(membership.get("honey_contributed", 0))
+	_hive_panel_profile["hive_honey"] = int(membership.get("honey_contributed", 0)) if access_type == "member" else 0
 	_hive_panel_profile["hive_honey_total"] = int(hive.get("total_honey_contributed", 0))
 	_hive_panel_profile["honey_score"] = int(hive.get("hive_honey_strength", 0))
 	_hive_panel_profile["members"] = member_lines
-	_hive_panel_profile["messages"] = [
-		"Hive-only channel coming online.",
-		"Invites, planning, and tournament calls will live here.",
-		"Moderation stays scoped to your hive."
-	]
+	_hive_panel_profile["member_records"] = members_any if typeof(members_any) == TYPE_ARRAY else []
+	_hive_panel_profile["hive_id"] = hive_id
+	_hive_panel_profile["leave_request"] = membership.get("leave_request", {}) if access_type == "member" else {}
+	_hive_panel_profile["invite_only"] = access_type != "member"
+	_hive_panel_profile["pending_governance_count"] = pending_governance_count
+	_hive_panel_profile["can_spend_hive_honey"] = can_spend_hive_honey
+	var role_key: String = str(membership.get("role", "member")).strip_edges().to_lower()
+	var can_manage_invites: bool = access_type == "member" and (role_key == "queen" or role_key == "soldier")
+	var pending_count: int = 0
+	var received_application_count: int = 0
+	var visible_invite_count: int = 0
+	if access_type == "member" and HiveClanState.has_method("get_hive_invites"):
+		var pending_invites: Array = HiveClanState.call("get_hive_invites", hive_id, "pending") as Array
+		pending_count = pending_invites.size()
+	if access_type == "member" and HiveClanState.has_method("get_received_applications_for_player"):
+		var received_applications: Array = HiveClanState.call("get_received_applications_for_player") as Array
+		received_application_count = received_applications.size()
+	if HiveClanState.has_method("get_visible_invites_for_player"):
+		var visible_invites: Array = HiveClanState.call("get_visible_invites_for_player") as Array
+		visible_invite_count = visible_invites.size()
+	_hive_panel_profile["can_manage_invites"] = can_manage_invites
+	_hive_panel_profile["pending_invite_count"] = pending_count
+	_hive_panel_profile["received_application_count"] = received_application_count
+	_hive_panel_profile["visible_invite_count"] = visible_invite_count
+	var comms_lines: Array[String] = []
+	if access_type == "member":
+		comms_lines.append("Pending invites: %d | Applications: %d" % [pending_count, received_application_count])
+		comms_lines.append("Governance inbox: %d pending vote(s)" % pending_governance_count)
+		comms_lines.append("Hive-only coordination and moderation stay scoped here.")
+		comms_lines.append("Chat history and pinned notes will land in this section.")
+	else:
+		comms_lines.append("Invite access active for this hive.")
+		comms_lines.append("Invite expires in %s." % _format_time_remaining(int(invite_access.get("expires_at_unix", 0))))
+		comms_lines.append("You can view and participate in hive comms while invited.")
+		comms_lines.append("Formal membership unlocks roster actions and honey tracking.")
+	_hive_panel_profile["messages"] = comms_lines
+	var created_at_unix: int = int(hive.get("created_at_unix", 0))
+	var seasonal_best_finish: int = int(hive.get("seasonal_best_finish", 0))
+	var best_finish_text: String = "#%d" % seasonal_best_finish if seasonal_best_finish > 0 else "Unplaced"
+	var earned_milestones_any: Variant = hive.get("honey_earned_milestones", [])
+	var spent_milestones_any: Variant = hive.get("honey_spent_milestones", [])
+	var earned_milestones: Array[String] = []
+	var spent_milestones: Array[String] = []
+	if typeof(earned_milestones_any) == TYPE_ARRAY:
+		for entry_any in earned_milestones_any as Array:
+			var entry: String = str(entry_any).strip_edges()
+			if entry != "":
+				earned_milestones.append(entry)
+	if typeof(spent_milestones_any) == TYPE_ARRAY:
+		for entry_any in spent_milestones_any as Array:
+			var entry: String = str(entry_any).strip_edges()
+			if entry != "":
+				spent_milestones.append(entry)
+	var milestone_summary: String = "No honey milestones unlocked yet"
+	if not earned_milestones.is_empty() or not spent_milestones.is_empty():
+		var milestone_parts: Array[String] = []
+		if not earned_milestones.is_empty():
+			milestone_parts.append("Earned: %s" % earned_milestones[earned_milestones.size() - 1])
+		if not spent_milestones.is_empty():
+			milestone_parts.append("Spent: %s" % spent_milestones[spent_milestones.size() - 1])
+		milestone_summary = " | ".join(milestone_parts)
 	_hive_panel_profile["achievements"] = [
-		"Founding Hive: %s" % str(hive.get("name", "My Hive")),
-		"Rank Points: %s" % _format_number(int(hive.get("rank_points", 0))),
-		"Members: %d/%d" % [int(hive.get("member_count", 0)), int(hive.get("member_limit", 14))]
+		"Founded %s | Avg service %dd" % [_format_calendar_date(created_at_unix), int(hive.get("avg_member_service_days", 0))],
+		"Tournament wins %d | Hive titles %d" % [int(hive.get("tournament_wins", 0)), int(hive.get("hive_championships", 0))],
+		"Best season finish: %s" % best_finish_text,
+		milestone_summary
 	]
 	_refresh_hive_panel()
+
+func _current_hive_id() -> String:
+	if HiveClanState == null or not HiveClanState.has_method("get_player_membership"):
+		return ""
+	var membership: Dictionary = HiveClanState.call("get_player_membership") as Dictionary
+	return str(membership.get("hive_id", ""))
+
+func _current_hive_membership() -> Dictionary:
+	if HiveClanState == null or not HiveClanState.has_method("get_player_membership"):
+		return {}
+	return HiveClanState.call("get_player_membership") as Dictionary
+
+func _refresh_hive_panel_action_state() -> void:
+	if hive_action_buttons.is_empty():
+		return
+	var can_manage_invites: bool = bool(_hive_panel_profile.get("can_manage_invites", false))
+	var pending_invite_count: int = maxi(0, int(_hive_panel_profile.get("pending_invite_count", 0)))
+	var leave_request: Dictionary = _hive_panel_profile.get("leave_request", {}) as Dictionary
+	var invite_only: bool = bool(_hive_panel_profile.get("invite_only", false))
+	if hive_action_buttons.size() >= 1:
+		var invite_button: Button = hive_action_buttons[0] as Button
+		if invite_button != null:
+			invite_button.text = "INVITE PLAYER"
+			invite_button.disabled = invite_only or not can_manage_invites
+	if hive_action_buttons.size() >= 2:
+		var pending_button: Button = hive_action_buttons[1] as Button
+		if pending_button != null:
+			pending_button.text = "PENDING (%d)" % pending_invite_count
+			pending_button.disabled = invite_only or not can_manage_invites
+	if hive_action_buttons.size() >= 3:
+		var leave_button: Button = hive_action_buttons[2] as Button
+		if leave_button != null:
+			if invite_only:
+				leave_button.text = "INVITED ACCESS"
+				leave_button.disabled = true
+			elif leave_request.is_empty():
+				leave_button.text = "LEAVE HIVE"
+				leave_button.disabled = false
+			else:
+				leave_button.text = "LEAVING (%s)" % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
+				leave_button.disabled = true
 
 func _role_label(role: String) -> String:
 	match role.strip_edges().to_lower():
@@ -2176,6 +3480,27 @@ func _format_hive_membership_age(joined_at_unix: int) -> String:
 	if minutes >= 1:
 		return "Member for %dm" % minutes
 	return "Member since now"
+
+func _format_time_remaining(target_unix: int) -> String:
+	var remaining_sec: int = maxi(0, target_unix - int(Time.get_unix_time_from_system()))
+	var days: int = int(remaining_sec / 86400)
+	if days >= 1:
+		var hours_remainder: int = int((remaining_sec % 86400) / 3600)
+		return "%dd %dh" % [days, hours_remainder]
+	var hours: int = int(remaining_sec / 3600)
+	if hours >= 1:
+		var minutes_remainder: int = int((remaining_sec % 3600) / 60)
+		return "%dh %dm" % [hours, minutes_remainder]
+	var minutes: int = maxi(1, int(ceil(float(remaining_sec) / 60.0)))
+	return "%dm" % minutes
+
+func _format_calendar_date(unix_time: int) -> String:
+	if unix_time <= 0:
+		return "today"
+	var dt: Dictionary = Time.get_datetime_dict_from_unix_time(unix_time)
+	var month_names: Array[String] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+	var month_index: int = clampi(int(dt.get("month", 1)) - 1, 0, month_names.size() - 1)
+	return "%s %d, %d" % [month_names[month_index], int(dt.get("day", 1)), int(dt.get("year", 1970))]
 
 func _scaled_ui_font_size(size: int) -> int:
 	return maxi(1, int(round(float(size) * UI_TEXT_SCALE)))
@@ -2425,14 +3750,14 @@ func _configure_dash_account_surfaces() -> void:
 	_apply_buffs_mode_copy()
 	$DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub.text = "Membership, trophy case, and hive-only comms."
 	_refresh_hive_panel()
-	var action_texts: Array[String] = ["CHAT (SOON)", "PINNED (SOON)", "MOD TOOLS (SOON)"]
+	var action_texts: Array[String] = ["INVITE PLAYER", "PENDING INVITES", "LEAVE HIVE (SOON)"]
 	for idx in range(hive_action_buttons.size()):
 		var button: Button = hive_action_buttons[idx] as Button
 		if button == null:
 			continue
-		button.disabled = true
 		if idx >= 0 and idx < action_texts.size():
 			button.text = action_texts[idx]
+		button.disabled = idx == 2
 	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesTitle.text = "ACHIEVEMENTS"
 	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesSub.text = "Progress meters are placeholder for live achievement hooks."
 	_refresh_dash_achievement_preview()
@@ -2540,8 +3865,12 @@ func _refresh_hive_panel() -> void:
 	var member_since_text: String = str(_hive_panel_profile.get("member_since_text", "Member since today"))
 	var hive_honey: int = maxi(0, int(_hive_panel_profile.get("hive_honey", 0)))
 	var hive_honey_total: int = maxi(0, int(_hive_panel_profile.get("hive_honey_total", 0)))
+	var pending_governance_count: int = maxi(0, int(_hive_panel_profile.get("pending_governance_count", 0)))
+	var can_spend_hive_honey: bool = bool(_hive_panel_profile.get("can_spend_hive_honey", false))
 	var season_name: String = str(_hive_panel_profile.get("season_name", "Season TBD"))
 	var season_reset_text: String = str(_hive_panel_profile.get("season_reset_text", "Reset timer TBD"))
+	var leave_request: Dictionary = _hive_panel_profile.get("leave_request", {}) as Dictionary
+	var invite_only: bool = bool(_hive_panel_profile.get("invite_only", false))
 	var members_any: Variant = _hive_panel_profile.get("members", [])
 	var messages_any: Variant = _hive_panel_profile.get("messages", [])
 	var achievements_any: Variant = _hive_panel_profile.get("achievements", [])
@@ -2573,13 +3902,15 @@ func _refresh_hive_panel() -> void:
 	hive_total_honey_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hive_title_label.text = hive_name.to_upper()
 	hive_sub_label.text = "%s | %s | Hive Rank #%d" % [member_role, member_since_text, member_rank_within_hive]
+	if not leave_request.is_empty():
+		hive_sub_label.text += " | Leaving in %s" % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
 	hive_honey_label.text = "HIVE HONEY: %s" % _format_number(hive_honey)
 	hive_total_honey_label.text = "TOTAL HIVE HONEY: %s" % _format_number(hive_honey_total)
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "MY MEMBERSHIP"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Title: %s" % office_title
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Time in Hive: %s" % member_since_text
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Hive Rank: #%d" % member_rank_within_hive
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Tier %s | Rank Pts %s" % [hive_tier, _format_number(ecosystem_rank)]
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Leadership: %s" % office_title
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Time in hive: %s" % member_since_text
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Roster rank: #%d" % member_rank_within_hive if not invite_only else "Hive status: Invite access"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Tier %s | Rank pts %s | Spend %s | Votes %d" % [hive_tier, _format_number(ecosystem_rank), "Yes" if can_spend_hive_honey else "No", pending_governance_count]
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "HIVE MEMBERS %d/14" % members.size()
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "TROPHY CASE"
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsHeader.text = "HIVE COMMS"
@@ -2587,17 +3918,23 @@ func _refresh_hive_panel() -> void:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember1,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember2,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember3,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember4
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember4,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember5,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember6,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember7,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember8
 	]
 	var activity_labels: Array[Label] = [
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity4
 	]
 	var comm_labels: Array[Label] = [
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm4
 	]
 	for i in range(roster_labels.size()):
 		if i < roster_labels.size() - 1 and i < members.size():
@@ -2620,7 +3957,13 @@ func _refresh_hive_panel() -> void:
 			comm_labels[i].text = messages[i]
 		else:
 			comm_labels[i].text = "No hive comms yet"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Hive-only comms stay inside the hive." % season_reset_text
+	if invite_only:
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Invite access active for hive comms." % season_reset_text
+	elif leave_request.is_empty():
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Hive-only comms stay inside the hive." % season_reset_text
+	else:
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "Leave pending: joins unlock in %s | Same hive locked for 7d after exit." % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
+	_refresh_hive_panel_action_state()
 
 func _refresh_dash_achievement_preview() -> void:
 	var active_count := 0

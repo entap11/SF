@@ -249,7 +249,7 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		"pos": pos
 	}
 	unit_id_counter += 1
-	_telemetry_record_unit_produced(int(from_hive.owner_id), int(unit.get("amount", 1)))
+	_telemetry_record_unit_produced(int(from_hive.owner_id), int(unit.get("amount", 1)), "lane")
 	if SFLog.verbose_sim:
 		SFLog.info("UNIT_SPAWN", {
 			"iid": int(state.get_instance_id()),
@@ -735,6 +735,16 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 			hive.power = clampi(int(hive.power), 1, SimTuning.MAX_POWER)
 	var after_owner := int(hive.owner_id)
 	var after_power := int(hive.power)
+	var arrival_relation: String = "friendly" if friendly_arrival else ("npc" if before_owner <= 0 else "enemy")
+	_telemetry_record_unit_arrival(
+		owner_id,
+		to_id,
+		before_owner,
+		after_owner,
+		arrival_relation,
+		arrive_source,
+		amount
+	)
 	if before_owner != after_owner:
 		SFLog.warn("HIVE_FLIP", {
 			"hive_id": to_id,
@@ -1208,6 +1218,7 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 			var ops_state: Node = _ops_state()
 			if ops_state != null:
 				ops_state.call("add_units_killed", tower_owner_id, amount)
+			_telemetry_record_tower_kill(tower_owner_id, source_tower_id, int(unit.get("owner_id", 0)), amount)
 		return _remove_unit(victim_unit_id, "tower_hit")
 	return false
 
@@ -1390,14 +1401,17 @@ func spawn_unit(unit: Dictionary) -> void:
 		unit["t"] = 1.0
 	unit = _ensure_unit_edges(unit)
 	unit = _update_unit_pos_from_t(unit)
-	_telemetry_record_unit_produced(int(unit.get("owner_id", 0)), int(unit.get("amount", 1)))
+	var production_source: String = str(unit.get("arrive_source", "lane")).strip_edges().to_lower()
+	if production_source == "":
+		production_source = "lane"
+	_telemetry_record_unit_produced(int(unit.get("owner_id", 0)), int(unit.get("amount", 1)), production_source)
 	units.append(unit)
 	_sync_units_to_state()
 
 func _telemetry_match_ms() -> int:
 	return maxi(0, int(round(float(sim_time_us) / 1000.0)))
 
-func _telemetry_record_unit_produced(player_id: int, count: int) -> void:
+func _telemetry_record_unit_produced(player_id: int, count: int, source: String = "lane") -> void:
 	if _match_telemetry_collector == null:
 		return
 	if not _match_telemetry_collector.has_method("record_unit_produced"):
@@ -1406,7 +1420,7 @@ func _telemetry_record_unit_produced(player_id: int, count: int) -> void:
 	var safe_count: int = maxi(0, count)
 	if safe_player_id <= 0 or safe_count <= 0:
 		return
-	_match_telemetry_collector.call("record_unit_produced", _telemetry_match_ms(), safe_player_id, safe_count)
+	_match_telemetry_collector.call("record_unit_produced", _telemetry_match_ms(), safe_player_id, safe_count, source)
 
 func _telemetry_record_collision(
 	t_ms: int,
@@ -1448,6 +1462,53 @@ func _telemetry_record_hive_damage(attacker_id: int, defender_id: int, damage_am
 		maxi(0, attacker_id),
 		maxi(0, defender_id),
 		safe_damage
+	)
+
+func _telemetry_record_unit_arrival(
+	player_id: int,
+	target_hive_id: int,
+	target_owner_before: int,
+	target_owner_after: int,
+	relation: String,
+	arrive_source: String,
+	amount: int
+) -> void:
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_unit_arrival"):
+		return
+	var safe_player_id: int = maxi(0, player_id)
+	var safe_amount: int = maxi(0, amount)
+	if safe_player_id <= 0 or safe_amount <= 0:
+		return
+	_match_telemetry_collector.call(
+		"record_unit_arrival",
+		_telemetry_match_ms(),
+		safe_player_id,
+		target_hive_id,
+		target_owner_before,
+		target_owner_after,
+		relation,
+		arrive_source,
+		safe_amount
+	)
+
+func _telemetry_record_tower_kill(player_id: int, tower_id: int, victim_owner_id: int, count: int) -> void:
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_tower_kill"):
+		return
+	var safe_player_id: int = maxi(0, player_id)
+	var safe_count: int = maxi(0, count)
+	if safe_player_id <= 0 or safe_count <= 0:
+		return
+	_match_telemetry_collector.call(
+		"record_tower_kill",
+		_telemetry_match_ms(),
+		safe_player_id,
+		tower_id,
+		victim_owner_id,
+		safe_count
 	)
 
 func export_units_render() -> Array:

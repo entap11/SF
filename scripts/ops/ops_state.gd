@@ -51,6 +51,7 @@ var current_map_id: String = ""
 var _state_serial: int = 0
 var _console_instance: Control = null
 var _bot_telemetry_store: RefCounted = BotTelemetryStoreScript.new()
+var _match_telemetry_collector: RefCounted = null
 var _intent_log_match_id: String = ""
 
 # --- MATCH OUTCOME + CLOCK (authoritative) ---
@@ -117,6 +118,9 @@ var _capture_flag_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func get_state() -> GameState:
 	return state
+
+func set_match_telemetry_collector(collector: RefCounted) -> void:
+	_match_telemetry_collector = collector
 
 func require_state() -> GameState:
 	assert(state != null, "OpsState.state is null. State must be created explicitly via reset_state_from_map().")
@@ -1434,6 +1438,27 @@ func _maybe_replicate_barracks_route(barracks_id: int, route_hive_ids: Array, ow
 		return
 	runtime.call("record_local_barracks_route", barracks_id, route_hive_ids, owner_id)
 
+func _telemetry_match_ms() -> int:
+	if state == null:
+		return 0
+	return maxi(0, int(round(float(state._sim_time_us) / 1000.0)))
+
+func _record_match_action_event(player_id: int, kind: String, payload: Dictionary = {}) -> void:
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_action_event"):
+		return
+	var safe_player_id: int = maxi(0, player_id)
+	if safe_player_id <= 0:
+		return
+	_match_telemetry_collector.call(
+		"record_action_event",
+		_telemetry_match_ms(),
+		safe_player_id,
+		kind,
+		payload
+	)
+
 func begin_match_end(winner: int, reason: String, linger_ms: int = 1500) -> void:
 	if match_phase != MatchPhase.RUNNING:
 		return
@@ -1715,6 +1740,10 @@ func request_barracks_route(barracks_id: int, route_hive_ids: Array, player_id: 
 	barracks_data["preferred_targets"] = route.duplicate()
 	barracks_data["rr_index"] = 0
 	SFLog.info("BARRACKS_ROUTE_SET", {"id": barracks_id, "route": route})
+	_record_match_action_event(owner_id, "barracks_route", {
+		"barracks_id": barracks_id,
+		"route_hive_ids": route.duplicate()
+	})
 	_maybe_replicate_barracks_route(barracks_id, route, owner_id)
 	return true
 
@@ -1874,6 +1903,13 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			telemetry_src_owner,
 			telemetry_dst_owner
 		)
+		_record_match_action_event(telemetry_src_owner, "swarm_send", {
+			"lane_id": int(result.get("lane_id", -1)),
+			"src": src_hive_id,
+			"dst": dst_hive_id,
+			"src_owner": telemetry_src_owner,
+			"dst_owner": telemetry_dst_owner
+		})
 		return result
 	var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
 	if lane_index == -1 and intent != "none":
@@ -1886,6 +1922,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		return result
 	var lane: LaneData = st.lanes[lane_index]
 	result["lane_id"] = int(lane.id)
+	var pre_send_a: bool = bool(lane.send_a)
+	var pre_send_b: bool = bool(lane.send_b)
 
 	var src_hive: HiveData = st.find_hive_by_id(src_hive_id)
 	var dst_hive: HiveData = st.find_hive_by_id(dst_hive_id)
@@ -2001,6 +2039,14 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		pre_apply_source_exec = st.call("get_execution_metrics_for_hive", src_hive_id)
 	_apply_lane_intent(lane, src_hive_id, dst_hive_id, enable, resolved_intent)
 	result["ok"] = true
+	var opened_new_lane: bool = enable and not already_active
+	var disabled_lane: bool = (not enable) and already_active
+	var reversed_lane: bool = false
+	if enable:
+		if src_hive_id == int(lane.a_id):
+			reversed_lane = pre_send_b
+		elif src_hive_id == int(lane.b_id):
+			reversed_lane = pre_send_a
 
 	var log_intent := resolved_intent if enable else "none"
 	var iid := int(st.get_instance_id())
@@ -2029,6 +2075,31 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		telemetry_dst_owner,
 		pre_apply_source_exec
 	)
+	if opened_new_lane:
+		_record_match_action_event(telemetry_src_owner, "lane_open_%s" % resolved_intent, {
+			"lane_id": int(lane.id),
+			"src": src_hive_id,
+			"dst": dst_hive_id,
+			"src_owner": telemetry_src_owner,
+			"dst_owner": telemetry_dst_owner
+		})
+	if disabled_lane:
+		_record_match_action_event(telemetry_src_owner, "lane_disable", {
+			"lane_id": int(lane.id),
+			"src": src_hive_id,
+			"dst": dst_hive_id,
+			"src_owner": telemetry_src_owner,
+			"dst_owner": telemetry_dst_owner
+		})
+	if reversed_lane:
+		_record_match_action_event(telemetry_src_owner, "lane_reverse", {
+			"lane_id": int(lane.id),
+			"src": src_hive_id,
+			"dst": dst_hive_id,
+			"src_owner": telemetry_src_owner,
+			"dst_owner": telemetry_dst_owner,
+			"intent": resolved_intent
+		})
 	_maybe_replicate_lane_intent(src_hive_id, dst_hive_id, log_intent, telemetry_src_owner, telemetry_dst_owner)
 	emit_signal("lane_intent_changed", iid, int(lane.id))
 	emit_signal("lanes_changed", iid)
@@ -2125,6 +2196,12 @@ func retract_lane(from_id: int, to_id: int, owner_id: int) -> void:
 		"lane_id": int(lane.id),
 		"from_id": from_id,
 		"to_id": to_id,
+		"owner_id": owner_id
+	})
+	_record_match_action_event(owner_id, "lane_retract", {
+		"lane_id": int(lane.id),
+		"src": from_id,
+		"dst": to_id,
 		"owner_id": owner_id
 	})
 	_maybe_replicate_lane_retract(from_id, to_id, owner_id)

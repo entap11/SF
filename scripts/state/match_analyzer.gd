@@ -42,8 +42,14 @@ func analyze(telemetry: Variant, focus_player_id: int) -> Dictionary:
 	var damage_dealt: int = _metric_value_int(metrics, "hive_damage_dealt_by_player", focus_index)
 	var damage_taken: int = _metric_value_int(metrics, "hive_damage_taken_by_player", focus_index)
 	var lane_control_s: float = _metric_value_float(metrics, "lane_control_time_s_by_player", focus_index)
+	var meaningful_apm: float = _metric_value_float(metrics, "meaningful_actions_per_min_by_player", focus_index)
+	var open_budget_utilization: float = _metric_value_float(metrics, "lane_budget_utilization_pct_by_player", focus_index)
+	var reaction_time_s: float = _metric_value_float(metrics, "reaction_time_s_by_player", focus_index)
+	var reaction_samples: int = _metric_value_int(metrics, "reaction_time_samples_by_player", focus_index)
+	var early_activity_score: int = _metric_value_int(metrics, "early_game_activity_score_by_player", focus_index)
 	var opponent_index: int = _top_opponent_index(metrics, focus_index)
 	var opponent_control_s: float = _metric_value_float(metrics, "lane_control_time_s_by_player", opponent_index)
+	var opponent_open_budget_utilization: float = _metric_value_float(metrics, "lane_budget_utilization_pct_by_player", opponent_index)
 
 	var insights: Array[String] = []
 	if overcommit_count >= 2:
@@ -64,6 +70,10 @@ func analyze(telemetry: Variant, focus_player_id: int) -> Dictionary:
 
 	if opponent_index >= 0 and opponent_control_s > 0.0 and lane_control_s < opponent_control_s * (1.0 - CONTROL_GAP_RATIO):
 		insights.append("Opponent controlled the map longer; contest towers/barracks earlier.")
+	if reaction_samples > 0 and reaction_time_s >= 6.0:
+		insights.append("Threat response lagged at %.1fs on average; react earlier when pressure starts." % reaction_time_s)
+	if opponent_index >= 0 and opponent_open_budget_utilization > 0.0 and open_budget_utilization < opponent_open_budget_utilization * (1.0 - CONTROL_GAP_RATIO):
+		insights.append("You left more lanes idle than your opponent; spend your open budget faster.")
 
 	if insights.size() < MIN_INSIGHTS:
 		if idle_ratio <= IDLE_RATIO_THRESHOLD:
@@ -80,10 +90,12 @@ func analyze(telemetry: Variant, focus_player_id: int) -> Dictionary:
 	var key_stats: Array[Dictionary] = []
 	key_stats.append({"label": "Duration", "value": _format_duration(duration_s)})
 	key_stats.append({"label": "Units Produced", "value": str(produced_count)})
-	key_stats.append({"label": "Idle Production", "value": "%d%%" % int(round(idle_ratio * 100.0))})
+	key_stats.append({"label": "Meaningful APM", "value": "%.1f" % meaningful_apm})
+	key_stats.append({"label": "Open Budget", "value": "%d%%" % int(round(open_budget_utilization * 100.0))})
+	key_stats.append({"label": "Reaction Time", "value": "%.1fs" % reaction_time_s if reaction_samples > 0 else "N/A"})
+	key_stats.append({"label": "Early Activity", "value": str(early_activity_score)})
 	key_stats.append({"label": "Hive Damage (Dealt/Taken)", "value": "%d / %d" % [damage_dealt, damage_taken]})
-	key_stats.append({"label": "Lane Control Time", "value": "%.1fs" % lane_control_s})
-	key_stats.append({"label": "Overcommit Events", "value": str(overcommit_count)})
+	key_stats.append({"label": "Idle Production", "value": "%d%%" % int(round(idle_ratio * 100.0))})
 
 	return {
 		"focus_player_id": focus_player,

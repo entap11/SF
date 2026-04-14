@@ -1,7 +1,7 @@
 class_name MatchTelemetryModel
 extends RefCounted
 
-const SCHEMA_VERSION: int = 1
+const SCHEMA_VERSION: int = 3
 const SELF_SCRIPT_PATH: String = "res://scripts/state/match_telemetry_model.gd"
 
 const MATCH_TYPE_VS: int = 0
@@ -12,6 +12,9 @@ const EVENT_PRODUCTION: int = 1
 const EVENT_COLLISION: int = 2
 const EVENT_HIVE_DAMAGE: int = 3
 const EVENT_BUFF_ACTIVATION: int = 4
+const EVENT_ACTION: int = 5
+const EVENT_ARRIVAL: int = 6
+const EVENT_TOWER_KILL: int = 7
 
 var schema_version: int = SCHEMA_VERSION
 var metadata: Dictionary = {}
@@ -60,15 +63,21 @@ static func migrate_payload(payload: Dictionary) -> Dictionary:
 	var version: int = int(out.get("schema_version", 0))
 	if version <= 0:
 		version = 1
-	out["schema_version"] = version
+	out["schema_version"] = maxi(version, SCHEMA_VERSION)
 	if not out.has("metadata") or typeof(out.get("metadata", null)) != TYPE_DICTIONARY:
 		out["metadata"] = _default_metadata()
+	else:
+		out["metadata"] = _merge_defaults(out.get("metadata", {}), _default_metadata())
 	if not out.has("events") or typeof(out.get("events", null)) != TYPE_ARRAY:
 		out["events"] = []
 	if not out.has("metrics") or typeof(out.get("metrics", null)) != TYPE_DICTIONARY:
 		out["metrics"] = _default_metrics()
+	else:
+		out["metrics"] = _merge_defaults(out.get("metrics", {}), _default_metrics())
 	if not out.has("analysis_summary") or typeof(out.get("analysis_summary", null)) != TYPE_DICTIONARY:
 		out["analysis_summary"] = _default_analysis_summary()
+	else:
+		out["analysis_summary"] = _merge_defaults(out.get("analysis_summary", {}), _default_analysis_summary())
 	return out
 
 static func _default_metadata() -> Dictionary:
@@ -80,21 +89,71 @@ static func _default_metadata() -> Dictionary:
 		"start_utc_ms": 0,
 		"end_utc_ms": 0,
 		"winner_player_id": 0,
-		"duration_s": 0.0
+		"duration_s": 0.0,
+		"vs_mode": "",
+		"start_reason": "",
+		"local_player_id": "",
+		"opponent_player_ids": [],
+		"players": [],
+		"rank_transport_mode": "",
+		"rank_authoritative_online": false
 	}
 
 static func _default_metrics() -> Dictionary:
 	return {
 		"players": [],
 		"player_index": {},
+		"won_match_by_player": [],
+		"lost_match_by_player": [],
 		"total_units_produced_by_player": [],
+		"units_sent_by_player": [],
+		"barracks_units_produced_by_player": [],
+		"total_swarms_sent_by_player": [],
+		"meaningful_actions_by_player": [],
+		"meaningful_actions_per_min_by_player": [],
+		"lane_reversals_by_player": [],
+		"units_arrived_friendly_hive_by_player": [],
+		"units_arrived_enemy_hive_by_player": [],
+		"units_arrived_npc_hive_by_player": [],
+		"units_arrived_hostile_hive_by_player": [],
 		"production_idle_time_s_by_player": [],
 		"average_production_rate_by_player": [],
+		"average_unit_production_interval_s_by_player": [],
 		"total_swarm_collisions": 0,
 		"total_units_lost_by_player": [],
+		"units_wasted_in_collisions_by_player": [],
+		"tower_units_killed_by_player": [],
 		"hive_damage_dealt_by_player": [],
 		"hive_damage_taken_by_player": [],
 		"lane_control_time_s_by_player": [],
+		"tower_control_time_s_by_player": [],
+		"barracks_control_time_s_by_player": [],
+		"active_lane_slots_time_s_by_player": [],
+		"lane_budget_slots_time_s_by_player": [],
+		"lane_budget_utilization_pct_by_player": [],
+		"lane_waste_pct_by_player": [],
+		"fully_utilized_lane_time_s_by_player": [],
+		"underutilized_lane_time_s_by_player": [],
+		"board_control_area_by_player": [],
+		"average_board_control_share_by_player": [],
+		"board_control_peak_share_by_player": [],
+		"production_ratio_vs_top_opponent_by_player": [],
+		"barracks_production_ratio_vs_top_opponent_by_player": [],
+		"tower_kills_ratio_vs_top_opponent_by_player": [],
+		"enemy_hive_landings_ratio_vs_top_opponent_by_player": [],
+		"hostile_hive_landings_ratio_vs_top_opponent_by_player": [],
+		"tower_control_time_ratio_vs_top_opponent_by_player": [],
+		"barracks_control_time_ratio_vs_top_opponent_by_player": [],
+		"active_lane_slots_time_ratio_vs_top_opponent_by_player": [],
+		"lane_budget_utilization_ratio_vs_top_opponent_by_player": [],
+		"fully_utilized_lane_time_ratio_vs_top_opponent_by_player": [],
+		"underutilized_lane_time_ratio_vs_top_opponent_by_player": [],
+		"reaction_time_s_by_player": [],
+		"reaction_time_samples_by_player": [],
+		"early_meaningful_actions_per_min_by_player": [],
+		"early_open_budget_utilization_pct_by_player": [],
+		"early_board_control_share_by_player": [],
+		"early_game_activity_score_by_player": [],
 		"overcommit_events_by_player": [],
 		"swing_moment_ms": 0
 	}
@@ -124,5 +183,11 @@ static func _normalize_event_array(raw: Variant) -> Array[Dictionary]:
 
 static func _normalize_dictionary(raw: Variant, fallback: Dictionary) -> Dictionary:
 	if typeof(raw) == TYPE_DICTIONARY:
-		return (raw as Dictionary).duplicate(true)
+		return _merge_defaults(raw as Dictionary, fallback)
 	return fallback.duplicate(true)
+
+static func _merge_defaults(raw: Dictionary, defaults: Dictionary) -> Dictionary:
+	var merged: Dictionary = defaults.duplicate(true)
+	for key_any in raw.keys():
+		merged[key_any] = raw.get(key_any)
+	return merged
