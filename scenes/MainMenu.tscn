@@ -1332,7 +1332,7 @@ text = "Members: 12"
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_stretch_ratio = 1.18
-custom_minimum_size = Vector2(0, 236)
+custom_minimum_size = Vector2(0, 280)
 
 [node name="HiveRosterVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel"]
 layout_mode = 1
@@ -1354,36 +1354,44 @@ text = "ROSTER"
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="HiveMember1" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+[node name="HiveMember1" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
+flat = true
 text = "Mason — Captain"
 
-[node name="HiveMember2" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+[node name="HiveMember2" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
+flat = true
 text = "Nora — Core"
 
-[node name="HiveMember3" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+[node name="HiveMember3" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
+flat = true
 text = "Sable — Core"
 
-[node name="HiveMember4" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+[node name="HiveMember4" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
+flat = true
 text = "Ivy — Scout"
 
-[node name="HiveMember5" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+[node name="HiveMember5" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
+flat = true
 text = ""
 
-[node name="HiveMember6" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+[node name="HiveMember6" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
+flat = true
 text = ""
 
-[node name="HiveMember7" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+[node name="HiveMember7" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
+flat = true
 text = ""
 
-[node name="HiveMember8" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
+[node name="HiveMember8" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
+flat = true
 text = ""
 
 [node name="HiveActivityPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
@@ -1426,7 +1434,7 @@ text = ""
 [node name="HiveActionsPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
 layout_mode = 2
 size_flags_vertical = 3
-custom_minimum_size = Vector2(0, 232)
+custom_minimum_size = Vector2(0, 272)
 
 [node name="HiveActionsVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel"]
 layout_mode = 1
@@ -1443,6 +1451,10 @@ grow_vertical = 2
 [node name="HiveActionsHeader" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
 layout_mode = 2
 text = "CLAN ACTIONS"
+
+[node name="HivePinnedNotice" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
+layout_mode = 2
+text = "No pinned notice."
 
 [node name="HiveCommsList" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
 layout_mode = 2
@@ -1467,17 +1479,25 @@ text = ""
 [node name="HiveActionsRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
 layout_mode = 2
 
+[node name="HivePostMessage" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
+layout_mode = 2
+text = "POST"
+
+[node name="HivePinNotice" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
+layout_mode = 2
+text = "PIN NOTICE"
+
 [node name="HiveChat" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
 layout_mode = 2
-text = "CHAT"
+text = "INVITE"
 
 [node name="HiveLadder" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
 layout_mode = 2
-text = "LADDER"
+text = "PENDING"
 
 [node name="HiveQuests" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
 layout_mode = 2
-text = "QUESTS"
+text = "LEAVE"
 
 [node name="HiveFooter" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
 layout_mode = 2

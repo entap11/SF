@@ -6,7 +6,7 @@ signal hive_clan_state_changed(snapshot: Dictionary)
 signal hive_clan_event(event: Dictionary)
 
 const SAVE_PATH: String = "user://hive_clan_state.json"
-const SAVE_SCHEMA_VERSION: int = 3
+const SAVE_SCHEMA_VERSION: int = 4
 const ROLE_QUEEN: String = "queen"
 const ROLE_SOLDIER: String = "soldier"
 const ROLE_MEMBER: String = "member"
@@ -31,6 +31,12 @@ const REJOIN_SAME_HIVE_COOLDOWN_SEC: int = 7 * 24 * 60 * 60
 const APPLICATION_STATUS_PENDING: String = "pending"
 const APPLICATION_STATUS_ACCEPTED: String = "accepted"
 const APPLICATION_STATUS_DECLINED: String = "declined"
+const HIVE_FEED_LIMIT: int = 24
+const HIVE_COMMS_POST_MAX_LEN: int = 180
+const HIVE_PINNED_NOTICE_MAX_LEN: int = 220
+const HIVE_RANK_TOURNAMENT_WIN_BONUS: int = 250
+const HIVE_RANK_CHAMPIONSHIP_BONUS: int = 1000
+const HIVE_RANK_BEST_SEASON_CAP: int = 100
 
 var _save_schema_version: int = SAVE_SCHEMA_VERSION
 var _hives_by_id: Dictionary = {}
@@ -380,6 +386,75 @@ func get_hive_comms_access_for_player(player_id: String = "") -> Array[Dictionar
 		})
 	return out
 
+func intent_post_hive_message(hive_id: String, message_text: String, player_id: String = "") -> Dictionary:
+	_refresh_runtime_state()
+	var resolved_player_id: String = _resolve_player_id(player_id)
+	var resolved_hive_id: String = str(hive_id).strip_edges()
+	var sanitized_message: String = _sanitize_comms_text(message_text, HIVE_COMMS_POST_MAX_LEN)
+	if resolved_player_id.is_empty():
+		return {"ok": false, "reason": "missing_player_id"}
+	if resolved_hive_id.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	if sanitized_message == "":
+		return {"ok": false, "reason": "invalid_message"}
+	var access: Dictionary = _comms_access_for_hive(resolved_player_id, resolved_hive_id)
+	if access.is_empty():
+		return {"ok": false, "reason": "forbidden"}
+	var hive: Dictionary = _hives_by_id.get(resolved_hive_id, {}) as Dictionary
+	if hive.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	_emit_event({
+		"type": "hive_message_posted",
+		"hive_id": resolved_hive_id,
+		"player_id": resolved_player_id,
+		"message": sanitized_message,
+		"access_type": str(access.get("access_type", "member"))
+	})
+	var updated_hive: Dictionary = _hives_by_id.get(resolved_hive_id, hive) as Dictionary
+	return {
+		"ok": true,
+		"hive": _build_hive_snapshot(updated_hive),
+		"message": sanitized_message
+	}
+
+func intent_set_pinned_notice(hive_id: String, notice_text: String, player_id: String = "") -> Dictionary:
+	_refresh_runtime_state()
+	var resolved_player_id: String = _resolve_player_id(player_id)
+	var resolved_hive_id: String = str(hive_id).strip_edges()
+	var sanitized_notice: String = _sanitize_comms_text(notice_text, HIVE_PINNED_NOTICE_MAX_LEN)
+	if resolved_player_id.is_empty():
+		return {"ok": false, "reason": "missing_player_id"}
+	if resolved_hive_id.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	var hive: Dictionary = _hives_by_id.get(resolved_hive_id, {}) as Dictionary
+	if hive.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	var actor_role: String = _role_for_player(hive, resolved_player_id)
+	if actor_role != ROLE_QUEEN and actor_role != ROLE_SOLDIER:
+		return {"ok": false, "reason": "forbidden"}
+	if sanitized_notice == "":
+		hive["pinned_notice"] = {}
+	else:
+		hive["pinned_notice"] = {
+			"message": sanitized_notice,
+			"updated_at_unix": _now_unix(),
+			"updated_by_player_id": resolved_player_id
+		}
+	_hives_by_id[resolved_hive_id] = hive
+	_save_state()
+	_emit_event({
+		"type": "hive_pinned_notice_updated",
+		"hive_id": resolved_hive_id,
+		"player_id": resolved_player_id,
+		"message": sanitized_notice
+	})
+	var updated_hive: Dictionary = _hives_by_id.get(resolved_hive_id, hive) as Dictionary
+	return {
+		"ok": true,
+		"hive": _build_hive_snapshot(updated_hive),
+		"cleared": sanitized_notice == ""
+	}
+
 func intent_create_hive(hive_name: String) -> Dictionary:
 	_refresh_runtime_state()
 	var player_id: String = _local_player_id()
@@ -402,6 +477,7 @@ func intent_create_hive(hive_name: String) -> Dictionary:
 		"created_at_unix": now_unix,
 		"created_by_player_id": player_id,
 		"members": {player_id: queen_member},
+		"pinned_notice": {},
 		"soldier_demotion_votes": {},
 		"queen_removal_vote": {},
 		"leadership_removal_votes": {},
@@ -410,6 +486,7 @@ func intent_create_hive(hive_name: String) -> Dictionary:
 		"hive_championships": 0,
 		"seasonal_best_finish": 0,
 		"total_honey_spent": 0,
+		"feed_entries": [],
 		"total_honey_contributed": 0,
 		"hive_honey_strength": 0
 	}
@@ -1104,6 +1181,7 @@ func _emit_changed() -> void:
 	hive_clan_state_changed.emit(get_snapshot())
 
 func _emit_event(event: Dictionary) -> void:
+	_record_hive_feed_event(event)
 	hive_clan_event.emit(event)
 	SFLog.info("HIVE_CLAN_EVENT", event)
 	_emit_changed()
@@ -1169,6 +1247,10 @@ func _sorted_hive_snapshots() -> Array[Dictionary]:
 	for hive_any in _hives_by_id.values():
 		out.append(_build_hive_snapshot(hive_any as Dictionary))
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var rank_a: int = int(a.get("rank_points", 0))
+		var rank_b: int = int(b.get("rank_points", 0))
+		if rank_a != rank_b:
+			return rank_a > rank_b
 		return int(a.get("total_honey_contributed", 0)) > int(b.get("total_honey_contributed", 0))
 	)
 	return out
@@ -1205,6 +1287,9 @@ func _build_hive_snapshot(hive: Dictionary) -> Dictionary:
 			return honey_a > honey_b
 		return str(a.get("display_name", "")) < str(b.get("display_name", ""))
 	)
+	var trophy_records: Array[Dictionary] = _build_trophy_records(hive)
+	var feed_entries: Array[Dictionary] = _build_feed_snapshots(hive)
+	var rank_breakdown: Dictionary = _build_hive_rank_breakdown(hive)
 	return {
 		"hive_id": str(hive.get("hive_id", "")),
 		"name": str(hive.get("name", "")),
@@ -1223,13 +1308,154 @@ func _build_hive_snapshot(hive: Dictionary) -> Dictionary:
 		"hive_championships": int(hive.get("hive_championships", 0)),
 		"seasonal_best_finish": int(hive.get("seasonal_best_finish", 0)),
 		"avg_member_service_days": _compute_avg_member_service_days(hive),
+		"trophy_records": trophy_records,
+		"pinned_notice": _sanitize_pinned_notice(hive.get("pinned_notice", {})),
+		"feed_entries": feed_entries,
 		"honey_earned_milestones": _build_honey_earned_milestones(int(hive.get("total_honey_contributed", 0))),
 		"honey_spent_milestones": _build_honey_spent_milestones(int(hive.get("total_honey_spent", 0))),
 		"total_honey_contributed": int(hive.get("total_honey_contributed", 0)),
 		"total_honey_spent": int(hive.get("total_honey_spent", 0)),
 		"hive_honey_strength": int(hive.get("hive_honey_strength", 0)),
-		"rank_points": _compute_hive_rank_points(hive)
+		"rank_points": int(rank_breakdown.get("total", 0)),
+		"rank_breakdown": rank_breakdown
 	}
+
+func _record_hive_feed_event(event: Dictionary) -> void:
+	var hive_id: String = str(event.get("hive_id", "")).strip_edges()
+	if hive_id.is_empty():
+		return
+	var hive: Dictionary = _hives_by_id.get(hive_id, {}) as Dictionary
+	if hive.is_empty():
+		return
+	var message: String = _feed_message_for_event(hive, event)
+	if message == "":
+		return
+	var feed_any: Variant = hive.get("feed_entries", [])
+	var feed_entries: Array = feed_any.duplicate(true) if typeof(feed_any) == TYPE_ARRAY else []
+	feed_entries.append({
+		"created_at_unix": _now_unix(),
+		"message": message,
+		"type": str(event.get("type", "system"))
+	})
+	while feed_entries.size() > HIVE_FEED_LIMIT:
+		feed_entries.remove_at(0)
+	hive["feed_entries"] = feed_entries
+	_hives_by_id[hive_id] = hive
+	_save_state()
+
+func _feed_message_for_event(hive: Dictionary, event: Dictionary) -> String:
+	var event_type: String = str(event.get("type", "")).strip_edges().to_lower()
+	match event_type:
+		"hive_created":
+			return "%s founded the hive." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_invite_created":
+			return "%s invited %s." % [
+				_display_name_from_hive_or_profile(hive, str(event.get("created_by_player_id", ""))),
+				_display_name_from_hive_or_profile(hive, str(event.get("target_player_id", "")))
+			]
+		"hive_invite_accepted":
+			return "%s accepted a hive invite." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_invite_declined":
+			return "%s declined a hive invite." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_application_created":
+			return "%s applied to join the hive." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_application_accepted":
+			return "%s was approved to join the hive." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_application_declined":
+			return "%s's application was declined." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_role_changed":
+			return "%s was promoted to %s." % [
+				_display_name_from_hive_or_profile(hive, str(event.get("target_player_id", ""))),
+				_role_title(str(event.get("role", ROLE_MEMBER)))
+			]
+		"hive_soldier_promoted":
+			return "%s became a Soldier." % _display_name_from_hive_or_profile(hive, str(event.get("target_player_id", "")))
+		"hive_soldier_demoted":
+			return "%s was returned to Member." % _display_name_from_hive_or_profile(hive, str(event.get("target_player_id", "")))
+		"hive_queen_removed":
+			return "Queen removed. %s now leads the hive." % _display_name_from_hive_or_profile(hive, str(event.get("new_queen_player_id", "")))
+		"hive_leadership_removed_by_hive_vote":
+			return "%s was removed from leadership by hive vote." % _display_name_from_hive_or_profile(hive, str(event.get("target_player_id", "")))
+		"hive_leave_requested":
+			return "%s scheduled a hive departure." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_leave_cancelled":
+			return "%s cancelled a pending departure." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_leave_finalized":
+			return "%s left the hive." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_member_removed":
+			return "%s was removed from the hive." % _display_name_from_hive_or_profile(hive, str(event.get("target_player_id", "")))
+		"hive_honey_recorded":
+			return "%s contributed %s honey." % [
+				_display_name_from_hive_or_profile(hive, str(event.get("player_id", ""))),
+				_format_honey_threshold(int(event.get("honey_amount", 0)))
+			]
+		"hive_pinned_notice_updated":
+			if str(event.get("message", "")).strip_edges() == "":
+				return "%s cleared the pinned notice." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+			return "%s updated the pinned notice." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_message_posted":
+			return "%s: %s" % [
+				_display_name_from_hive_or_profile(hive, str(event.get("player_id", ""))),
+				str(event.get("message", "")).strip_edges()
+			]
+	return ""
+
+func _sanitize_comms_text(text: String, max_len: int) -> String:
+	var compact: String = text.replace("\r", "\n")
+	var lines: PackedStringArray = compact.split("\n", false)
+	var cleaned_lines: Array[String] = []
+	for line in lines:
+		var trimmed: String = String(line).strip_edges()
+		if trimmed == "":
+			continue
+		cleaned_lines.append(trimmed)
+	var joined: String = "\n".join(cleaned_lines).strip_edges()
+	if joined.length() > max_len:
+		joined = joined.substr(0, max_len).strip_edges()
+	return joined
+
+func _comms_access_for_hive(player_id: String, hive_id: String) -> Dictionary:
+	var resolved_player_id: String = _resolve_player_id(player_id)
+	var resolved_hive_id: String = str(hive_id).strip_edges()
+	if resolved_player_id.is_empty() or resolved_hive_id.is_empty():
+		return {}
+	var membership: Dictionary = get_player_membership(resolved_player_id)
+	if not membership.is_empty() and str(membership.get("hive_id", "")) == resolved_hive_id:
+		return {
+			"access_type": "member",
+			"hive_id": resolved_hive_id,
+			"membership": membership
+		}
+	for invite_any in get_pending_invites_for_player(resolved_player_id):
+		if typeof(invite_any) != TYPE_DICTIONARY:
+			continue
+		var invite: Dictionary = invite_any as Dictionary
+		if str(invite.get("hive_id", "")) != resolved_hive_id:
+			continue
+		return {
+			"access_type": "invite",
+			"hive_id": resolved_hive_id,
+			"invite": invite.duplicate(true)
+		}
+	return {}
+
+func _display_name_from_hive_or_profile(hive: Dictionary, player_id: String) -> String:
+	var clean_player_id: String = _sanitize_player_id(player_id)
+	if clean_player_id == "":
+		return "Player"
+	var member: Dictionary = _member_for_player(hive, clean_player_id)
+	if not member.is_empty():
+		return str(member.get("display_name", "Player"))
+	return _display_name_for_player(clean_player_id)
+
+func _role_title(role: String) -> String:
+	match role.strip_edges().to_lower():
+		ROLE_QUEEN:
+			return "Queen"
+		ROLE_SOLDIER:
+			return "Soldier"
+		_:
+			return "Member"
 
 func _build_invite_snapshot(invite: Dictionary, viewer_player_id: String = "") -> Dictionary:
 	var hive_id: String = str(invite.get("hive_id", ""))
@@ -1300,6 +1526,7 @@ func _sanitize_hive(raw: Dictionary) -> Dictionary:
 		"created_at_unix": maxi(0, int(raw.get("created_at_unix", 0))),
 		"created_by_player_id": _sanitize_player_id(str(raw.get("created_by_player_id", ""))),
 		"members": members_out,
+		"pinned_notice": _sanitize_pinned_notice(raw.get("pinned_notice", {})),
 		"soldier_demotion_votes": _sanitize_soldier_demotion_votes(raw.get("soldier_demotion_votes", {})),
 		"queen_removal_vote": _sanitize_vote_map(raw.get("queen_removal_vote", {})),
 		"leadership_removal_votes": _sanitize_leadership_removal_votes(raw.get("leadership_removal_votes", {})),
@@ -1308,6 +1535,7 @@ func _sanitize_hive(raw: Dictionary) -> Dictionary:
 		"hive_championships": maxi(0, int(raw.get("hive_championships", 0))),
 		"seasonal_best_finish": maxi(0, int(raw.get("seasonal_best_finish", 0))),
 		"total_honey_spent": maxi(0, int(raw.get("total_honey_spent", 0))),
+		"feed_entries": _sanitize_feed_entries(raw.get("feed_entries", [])),
 		"total_honey_contributed": maxi(0, int(raw.get("total_honey_contributed", 0))),
 		"hive_honey_strength": maxi(0, int(raw.get("hive_honey_strength", 0)))
 	}
@@ -1384,6 +1612,39 @@ func _sanitize_member(raw: Dictionary) -> Dictionary:
 		"last_honey_reason": str(raw.get("last_honey_reason", "")),
 		"last_honey_at_unix": maxi(0, int(raw.get("last_honey_at_unix", 0)))
 	}
+
+func _sanitize_pinned_notice(raw_any: Variant) -> Dictionary:
+	if typeof(raw_any) != TYPE_DICTIONARY:
+		return {}
+	var raw: Dictionary = raw_any as Dictionary
+	var message: String = _sanitize_comms_text(str(raw.get("message", "")), HIVE_PINNED_NOTICE_MAX_LEN)
+	if message == "":
+		return {}
+	return {
+		"message": message,
+		"updated_at_unix": maxi(0, int(raw.get("updated_at_unix", 0))),
+		"updated_by_player_id": _sanitize_player_id(str(raw.get("updated_by_player_id", "")))
+	}
+
+func _sanitize_feed_entries(raw_any: Variant) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if typeof(raw_any) != TYPE_ARRAY:
+		return out
+	for entry_any in raw_any as Array:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry_raw: Dictionary = entry_any as Dictionary
+		var message: String = str(entry_raw.get("message", "")).strip_edges()
+		if message == "":
+			continue
+		out.append({
+			"created_at_unix": maxi(0, int(entry_raw.get("created_at_unix", 0))),
+			"message": message,
+			"type": str(entry_raw.get("type", "system")).strip_edges().to_lower()
+		})
+	if out.size() > HIVE_FEED_LIMIT:
+		out = out.slice(out.size() - HIVE_FEED_LIMIT, out.size())
+	return out
 
 func _sanitize_leave_requests(raw_any: Variant) -> Dictionary:
 	var out: Dictionary = {}
@@ -1469,11 +1730,26 @@ func _recompute_hive_metrics(hive: Dictionary) -> void:
 	hive["hive_honey_strength"] = total_honey
 
 func _compute_hive_rank_points(hive: Dictionary) -> int:
+	return int(_build_hive_rank_breakdown(hive).get("total", 0))
+
+func _build_hive_rank_breakdown(hive: Dictionary) -> Dictionary:
 	var total_points: int = 0
 	var members: Dictionary = hive.get("members", {}) as Dictionary
 	for player_id_any in members.keys():
 		total_points += _compute_member_rank_points(str(player_id_any))
-	return total_points
+	var tournament_points: int = int(hive.get("tournament_wins", 0)) * HIVE_RANK_TOURNAMENT_WIN_BONUS
+	var championship_points: int = int(hive.get("hive_championships", 0)) * HIVE_RANK_CHAMPIONSHIP_BONUS
+	var seasonal_best_finish: int = int(hive.get("seasonal_best_finish", 0))
+	var seasonal_points: int = 0
+	if seasonal_best_finish > 0:
+		seasonal_points = maxi(0, HIVE_RANK_BEST_SEASON_CAP - seasonal_best_finish + 1)
+	return {
+		"members": total_points,
+		"tournaments": tournament_points,
+		"championships": championship_points,
+		"seasonal_best": seasonal_points,
+		"total": total_points + tournament_points + championship_points + seasonal_points
+	}
 
 func _compute_avg_member_service_days(hive: Dictionary) -> int:
 	var members: Dictionary = hive.get("members", {}) as Dictionary
@@ -1507,12 +1783,84 @@ func _build_honey_spent_milestones(total_honey_spent: int) -> Array[String]:
 			out.append("%s spent" % _format_honey_threshold(threshold))
 	return out
 
+func _build_trophy_records(hive: Dictionary) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var created_at_unix: int = int(hive.get("created_at_unix", 0))
+	out.append({
+		"title": "Founding Hive",
+		"detail": "Founded %s" % _format_calendar_date(created_at_unix),
+		"kind": "founding"
+	})
+	out.append({
+		"title": "Member Service",
+		"detail": "Avg service %dd" % _compute_avg_member_service_days(hive),
+		"kind": "service"
+	})
+	out.append({
+		"title": "Tournament Wins",
+		"detail": "%d recorded" % int(hive.get("tournament_wins", 0)),
+		"kind": "tournament"
+	})
+	out.append({
+		"title": "Hive Championships",
+		"detail": "%d titles" % int(hive.get("hive_championships", 0)),
+		"kind": "championship"
+	})
+	var seasonal_best_finish: int = int(hive.get("seasonal_best_finish", 0))
+	out.append({
+		"title": "Best Seasonal Finish",
+		"detail": "#%d" % seasonal_best_finish if seasonal_best_finish > 0 else "Unplaced",
+		"kind": "season"
+	})
+	var earned_milestones: Array[String] = _build_honey_earned_milestones(int(hive.get("total_honey_contributed", 0)))
+	if not earned_milestones.is_empty():
+		out.append({
+			"title": "Honey Earned",
+			"detail": earned_milestones[earned_milestones.size() - 1],
+			"kind": "earned"
+		})
+	var spent_milestones: Array[String] = _build_honey_spent_milestones(int(hive.get("total_honey_spent", 0)))
+	if not spent_milestones.is_empty():
+		out.append({
+			"title": "Honey Spent",
+			"detail": spent_milestones[spent_milestones.size() - 1],
+			"kind": "spent"
+		})
+	return out
+
+func _build_feed_snapshots(hive: Dictionary) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var feed_any: Variant = hive.get("feed_entries", [])
+	if typeof(feed_any) != TYPE_ARRAY:
+		return out
+	for entry_any in feed_any as Array:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		out.append({
+			"created_at_unix": int(entry.get("created_at_unix", 0)),
+			"message": str(entry.get("message", "")),
+			"type": str(entry.get("type", "system"))
+		})
+	return out
+
 func _format_honey_threshold(amount: int) -> String:
 	if amount >= 1000000:
 		return "%dM Honey" % int(amount / 1000000)
 	if amount >= 1000:
 		return "%dK Honey" % int(amount / 1000)
 	return "%d Honey" % amount
+
+func _format_calendar_date(unix_time: int) -> String:
+	if unix_time <= 0:
+		return "Unknown"
+	var dt: Dictionary = Time.get_datetime_dict_from_unix_time(unix_time)
+	var year: int = int(dt.get("year", 0))
+	var month: int = int(dt.get("month", 0))
+	var day: int = int(dt.get("day", 0))
+	if year <= 0 or month <= 0 or day <= 0:
+		return "Unknown"
+	return "%04d-%02d-%02d" % [year, month, day]
 
 func _compute_member_rank_points(player_id: String) -> int:
 	if RankState == null:

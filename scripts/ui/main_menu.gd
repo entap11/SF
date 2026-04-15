@@ -221,6 +221,8 @@ const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 	$DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailButtons/BuffRemove
 ]
 @onready var hive_action_buttons: Array = [
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow/HivePostMessage,
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow/HivePinNotice,
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow/HiveChat,
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow/HiveLadder,
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow/HiveQuests
@@ -701,6 +703,13 @@ var _hive_member_actions_vote_promote_button: Button = null
 var _hive_member_actions_discipline_button: Button = null
 var _hive_member_actions_leadership_vote_button: Button = null
 var _hive_member_actions_remove_button: Button = null
+var _hive_remove_member_dialog: ConfirmationDialog = null
+var _hive_remove_member_desc_label: Label = null
+var _hive_remove_member_target: Dictionary = {}
+var _hive_post_dialog: ConfirmationDialog = null
+var _hive_post_input: TextEdit = null
+var _hive_pin_dialog: ConfirmationDialog = null
+var _hive_pin_input: TextEdit = null
 var _entry_overlay_inlay_rotated_texture: Texture2D = null
 var _entry_overlay_inlay_cropped_texture: Texture2D = null
 var _entry_overlay_inlay_rotated_cropped_texture: Texture2D = null
@@ -1387,9 +1396,11 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsHeader, _font_semibold, 14)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HivePinnedNotice, _font_regular, 12)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1, _font_regular, 13)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2, _font_regular, 13)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3, _font_regular, 13)
+	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm4, _font_regular, 13)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter, _font_regular, 12)
 	_apply_display_label($DashPanel/DashStorePanel/StoreVBox/StoreTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreSub, _font_regular, 14)
@@ -1449,12 +1460,18 @@ func _style_labels() -> void:
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember2",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember3",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember4",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember5",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember6",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember7",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember8",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity4",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1",
 		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2",
-		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3"
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm4"
 	]:
 		_apply_font(get_node(label_path), _font_regular, 13)
 	for label in replay_info_lines:
@@ -1514,11 +1531,14 @@ func _style_labels() -> void:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HivePinnedNotice,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3,
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm4
 	]:
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size = Vector2(0.0, 42.0)
 	var store_body_vbox: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox
 	store_body_vbox.add_theme_constant_override("separation", 12)
 	var settings_vbox: VBoxContainer = $DashPanel/DashSettingsPanel/SettingsVBox
@@ -1711,11 +1731,15 @@ func _wire_buttons() -> void:
 	dash_buffs_close.pressed.connect(_on_dash_buffs_close_pressed)
 	dash_hive_close.pressed.connect(_on_dash_hive_close_pressed)
 	if hive_action_buttons.size() >= 1:
-		hive_action_buttons[0].pressed.connect(_open_hive_invite_dialog)
+		hive_action_buttons[0].pressed.connect(_open_hive_post_dialog)
 	if hive_action_buttons.size() >= 2:
-		hive_action_buttons[1].pressed.connect(_open_hive_pending_dialog)
+		hive_action_buttons[1].pressed.connect(_open_hive_pin_dialog)
 	if hive_action_buttons.size() >= 3:
-		hive_action_buttons[2].pressed.connect(_open_hive_leave_dialog)
+		hive_action_buttons[2].pressed.connect(_open_hive_invite_dialog)
+	if hive_action_buttons.size() >= 4:
+		hive_action_buttons[3].pressed.connect(_open_hive_pending_dialog)
+	if hive_action_buttons.size() >= 5:
+		hive_action_buttons[4].pressed.connect(_open_hive_leave_dialog)
 	dash_store_close.pressed.connect(_on_dash_store_close_pressed)
 	dash_settings_close.pressed.connect(_on_dash_settings_close_pressed)
 	dash_badges_close.pressed.connect(func(): _close_dash_panel(dash_badges_panel_full))
@@ -2070,6 +2094,39 @@ func _hide_hive_dropdown_immediate() -> void:
 		_hive_dropdown_panel.visible = false
 	_hive_dropdown_open = false
 
+func _close_hive_dialogs_to_main_menu() -> void:
+	for dialog in [
+		_hive_create_dialog,
+		_hive_invite_dialog,
+		_hive_pending_dialog,
+		_hive_leave_dialog,
+		_hive_browse_dialog,
+		_hive_my_invites_dialog,
+		_hive_applications_dialog,
+		_hive_member_actions_dialog,
+		_hive_remove_member_dialog,
+		_hive_post_dialog,
+		_hive_pin_dialog
+	]:
+		if dialog != null and is_instance_valid(dialog):
+			dialog.hide()
+	_hive_remove_member_target = {}
+	_on_dash_hive_close_pressed()
+
+func _on_hive_dialog_custom_action(action: StringName) -> void:
+	if String(action) != "main_menu":
+		return
+	_close_hive_dialogs_to_main_menu()
+
+func _wire_hive_dialog_main_menu(dialog: AcceptDialog) -> void:
+	if dialog == null:
+		return
+	var main_menu_button: Button = dialog.add_button("MAIN MENU", false, "main_menu")
+	_apply_font(main_menu_button, _font_regular, 12)
+	_style_button(main_menu_button, Color(0.12, 0.13, 0.16), Color(0.48, 0.50, 0.58), Color(0.96, 0.96, 0.96))
+	if not dialog.custom_action.is_connected(_on_hive_dialog_custom_action):
+		dialog.custom_action.connect(_on_hive_dialog_custom_action)
+
 func _ensure_hive_create_dialog() -> void:
 	if _hive_create_dialog != null and is_instance_valid(_hive_create_dialog):
 		return
@@ -2103,7 +2160,9 @@ func _ensure_hive_create_dialog() -> void:
 	dialog.get_ok_button().text = "CREATE"
 	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
 	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	_wire_hive_dialog_main_menu(dialog)
 	if dialog.get_cancel_button() != null:
+		dialog.get_cancel_button().text = "CLOSE"
 		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
 		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	if not dialog.confirmed.is_connected(_submit_hive_create):
@@ -2202,7 +2261,9 @@ func _ensure_hive_invite_dialog() -> void:
 	dialog.get_ok_button().text = "SEND INVITE"
 	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
 	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	_wire_hive_dialog_main_menu(dialog)
 	if dialog.get_cancel_button() != null:
+		dialog.get_cancel_button().text = "CLOSE"
 		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
 		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	if not dialog.confirmed.is_connected(_submit_hive_invite):
@@ -2325,6 +2386,7 @@ func _ensure_hive_pending_dialog() -> void:
 	_apply_font(list, _font_regular, 12)
 	_hive_pending_list = list
 
+	_wire_hive_dialog_main_menu(dialog)
 	dialog.get_ok_button().text = "CLOSE"
 	_apply_font(dialog.get_ok_button(), _font_regular, 12)
 	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
@@ -2393,7 +2455,9 @@ func _ensure_hive_leave_dialog() -> void:
 	dialog.get_ok_button().text = "START 24H LEAVE"
 	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
 	_style_button(dialog.get_ok_button(), Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
+	_wire_hive_dialog_main_menu(dialog)
 	if dialog.get_cancel_button() != null:
+		dialog.get_cancel_button().text = "CLOSE"
 		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
 		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	if not dialog.confirmed.is_connected(_submit_hive_leave):
@@ -2435,6 +2499,228 @@ func _submit_hive_leave() -> void:
 	if _hive_leave_dialog != null:
 		_hive_leave_dialog.hide()
 
+func _ensure_hive_remove_member_dialog() -> void:
+	if _hive_remove_member_dialog != null and is_instance_valid(_hive_remove_member_dialog):
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "HiveRemoveMemberDialog"
+	dialog.title = "Remove Player"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(520, 220)
+	add_child(dialog)
+	_hive_remove_member_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveRemoveMemberVBox"
+	body.custom_minimum_size = Vector2(440.0, 120.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var desc := Label.new()
+	desc.text = "Removing a member immediately ejects them from the hive and blocks rejoining this same hive for 7 days."
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(desc)
+	_apply_font(desc, _font_regular, 12)
+	_hive_remove_member_desc_label = desc
+
+	dialog.get_ok_button().text = "REMOVE MEMBER"
+	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	_style_button(dialog.get_ok_button(), Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
+	_wire_hive_dialog_main_menu(dialog)
+	if dialog.get_cancel_button() != null:
+		dialog.get_cancel_button().text = "CLOSE"
+		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.confirmed.is_connected(_submit_hive_remove_member):
+		dialog.confirmed.connect(_submit_hive_remove_member)
+
+func _ensure_hive_post_dialog() -> void:
+	if _hive_post_dialog != null and is_instance_valid(_hive_post_dialog):
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "HivePostDialog"
+	dialog.title = "Post To Hive"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(560, 300)
+	add_child(dialog)
+	_hive_post_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HivePostVBox"
+	body.custom_minimum_size = Vector2(480.0, 180.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var desc := Label.new()
+	desc.text = "Post a hive-only message. Members and invited players can post here."
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(desc)
+	_apply_font(desc, _font_regular, 12)
+
+	var input := TextEdit.new()
+	input.custom_minimum_size = Vector2(480.0, 120.0)
+	input.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	body.add_child(input)
+	_apply_font(input, _font_regular, 13)
+	_hive_post_input = input
+
+	dialog.get_ok_button().text = "POST"
+	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	_wire_hive_dialog_main_menu(dialog)
+	if dialog.get_cancel_button() != null:
+		dialog.get_cancel_button().text = "CLOSE"
+		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.confirmed.is_connected(_submit_hive_post):
+		dialog.confirmed.connect(_submit_hive_post)
+
+func _open_hive_post_dialog() -> void:
+	if not bool(_hive_panel_profile.get("can_post_hive_comms", false)):
+		status_label.text = "Hive posting is not available."
+		return
+	_ensure_hive_post_dialog()
+	if _hive_post_input != null:
+		_hive_post_input.text = ""
+	if _hive_post_dialog != null:
+		_hive_post_dialog.popup_centered()
+	if _hive_post_input != null:
+		_hive_post_input.grab_focus()
+
+func _submit_hive_post() -> void:
+	if HiveClanState == null or not HiveClanState.has_method("intent_post_hive_message"):
+		status_label.text = "Hive posting unavailable."
+		return
+	var hive_id: String = str(_hive_panel_profile.get("hive_id", ""))
+	var message_text: String = ""
+	if _hive_post_input != null:
+		message_text = _hive_post_input.text
+	var result: Dictionary = HiveClanState.call("intent_post_hive_message", hive_id, message_text, "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"invalid_message":
+				status_label.text = "Enter a hive message first."
+			"forbidden":
+				status_label.text = "You do not have hive comms access."
+			_:
+				status_label.text = "Could not post hive message."
+		return
+	status_label.text = "Posted to hive comms."
+	if _hive_post_dialog != null:
+		_hive_post_dialog.hide()
+	if _hive_post_input != null:
+		_hive_post_input.text = ""
+
+func _ensure_hive_pin_dialog() -> void:
+	if _hive_pin_dialog != null and is_instance_valid(_hive_pin_dialog):
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "HivePinDialog"
+	dialog.title = "Pin Hive Notice"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(560, 320)
+	add_child(dialog)
+	_hive_pin_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HivePinVBox"
+	body.custom_minimum_size = Vector2(480.0, 200.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var desc := Label.new()
+	desc.text = "Set the pinned notice shown at the top of hive comms. Leave it blank to clear."
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(desc)
+	_apply_font(desc, _font_regular, 12)
+
+	var input := TextEdit.new()
+	input.custom_minimum_size = Vector2(480.0, 130.0)
+	input.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	body.add_child(input)
+	_apply_font(input, _font_regular, 13)
+	_hive_pin_input = input
+
+	dialog.get_ok_button().text = "SAVE NOTICE"
+	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	_wire_hive_dialog_main_menu(dialog)
+	if dialog.get_cancel_button() != null:
+		dialog.get_cancel_button().text = "CLOSE"
+		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	if not dialog.confirmed.is_connected(_submit_hive_pin_notice):
+		dialog.confirmed.connect(_submit_hive_pin_notice)
+
+func _open_hive_pin_dialog() -> void:
+	if not bool(_hive_panel_profile.get("can_pin_hive_notice", false)):
+		status_label.text = "Only hive leadership can pin a notice."
+		return
+	_ensure_hive_pin_dialog()
+	if _hive_pin_input != null:
+		_hive_pin_input.text = str(_hive_panel_profile.get("pinned_notice_message", ""))
+	if _hive_pin_dialog != null:
+		_hive_pin_dialog.popup_centered()
+	if _hive_pin_input != null:
+		_hive_pin_input.grab_focus()
+
+func _submit_hive_pin_notice() -> void:
+	if HiveClanState == null or not HiveClanState.has_method("intent_set_pinned_notice"):
+		status_label.text = "Pinned notice unavailable."
+		return
+	var hive_id: String = str(_hive_panel_profile.get("hive_id", ""))
+	var notice_text: String = ""
+	if _hive_pin_input != null:
+		notice_text = _hive_pin_input.text
+	var result: Dictionary = HiveClanState.call("intent_set_pinned_notice", hive_id, notice_text, "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"forbidden":
+				status_label.text = "Only the queen or soldiers can pin a notice."
+			_:
+				status_label.text = "Could not update pinned notice."
+		return
+	status_label.text = "Pinned notice updated." if not bool(result.get("cleared", false)) else "Pinned notice cleared."
+	if _hive_pin_dialog != null:
+		_hive_pin_dialog.hide()
+
+func _open_hive_remove_member_dialog(context: Dictionary) -> void:
+	_ensure_hive_remove_member_dialog()
+	_hive_remove_member_target = context.duplicate(true)
+	if _hive_remove_member_desc_label != null:
+		_hive_remove_member_desc_label.text = "Remove %s from the hive? This takes effect immediately. They can join another hive right away, but cannot rejoin this same hive for 7 days." % str(context.get("target_name", "this member"))
+	if _hive_remove_member_dialog != null:
+		_hive_remove_member_dialog.popup_centered()
+
+func _submit_hive_remove_member() -> void:
+	var context: Dictionary = _hive_remove_member_target.duplicate(true)
+	if context.is_empty():
+		status_label.text = "No member selected for removal."
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_remove_member"):
+		status_label.text = "Member removal unavailable."
+		return
+	var hive_id: String = _current_hive_id()
+	var result: Dictionary = HiveClanState.call("intent_remove_member", hive_id, str(context.get("target_player_id", "")), "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"forbidden":
+				status_label.text = "Only the queen can remove a regular member."
+			"target_not_removable_member":
+				status_label.text = "Leadership must be handled through governance votes."
+			_:
+				status_label.text = "Could not remove player."
+		_refresh_hive_member_actions_dialog()
+		return
+	status_label.text = "%s removed from the hive. Same-hive rejoin locked for 7d." % str(context.get("target_name", "Member"))
+	_hive_remove_member_target = {}
+	if _hive_remove_member_dialog != null:
+		_hive_remove_member_dialog.hide()
+	_refresh_hive_member_actions_dialog()
+
 func _ensure_hive_browse_dialog() -> void:
 	if _hive_browse_dialog != null and is_instance_valid(_hive_browse_dialog):
 		return
@@ -2470,7 +2756,9 @@ func _ensure_hive_browse_dialog() -> void:
 	dialog.get_ok_button().text = "APPLY"
 	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
 	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	_wire_hive_dialog_main_menu(dialog)
 	if dialog.get_cancel_button() != null:
+		dialog.get_cancel_button().text = "CLOSE"
 		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
 		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	if not dialog.confirmed.is_connected(_submit_hive_application):
@@ -2614,6 +2902,7 @@ func _ensure_hive_my_invites_dialog() -> void:
 	var apply_button: Button = dialog.add_button("APPLY", false, "apply")
 	_apply_font(apply_button, _font_regular, 12)
 	_style_button(apply_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	_wire_hive_dialog_main_menu(dialog)
 	dialog.get_ok_button().text = "CLOSE"
 	_apply_font(dialog.get_ok_button(), _font_regular, 12)
 	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
@@ -2763,6 +3052,7 @@ func _ensure_hive_applications_dialog() -> void:
 	var decline_button: Button = dialog.add_button("DECLINE", false, "decline")
 	_apply_font(decline_button, _font_regular, 12)
 	_style_button(decline_button, Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
+	_wire_hive_dialog_main_menu(dialog)
 	dialog.get_ok_button().text = "CLOSE"
 	_apply_font(dialog.get_ok_button(), _font_regular, 12)
 	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
@@ -2927,6 +3217,7 @@ func _ensure_hive_member_actions_dialog() -> void:
 	_style_button(remove_button, Color(0.18, 0.08, 0.08), Color(0.82, 0.34, 0.28), Color(0.98, 0.92, 0.90))
 	_hive_member_actions_remove_button = remove_button
 
+	_wire_hive_dialog_main_menu(dialog)
 	dialog.get_ok_button().text = "CLOSE"
 	_apply_font(dialog.get_ok_button(), _font_regular, 12)
 	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
@@ -2941,6 +3232,72 @@ func _open_hive_member_actions_dialog() -> void:
 	if _hive_member_actions_dialog == null:
 		return
 	_hive_member_actions_dialog.popup_centered()
+
+func _open_hive_member_actions_dialog_for_player(player_id: String) -> void:
+	var target_player_id: String = str(player_id).strip_edges()
+	if target_player_id == "":
+		return
+	_open_hive_member_actions_dialog()
+	if _hive_member_actions_list == null:
+		return
+	for idx in range(_hive_member_actions_list.item_count):
+		var metadata: Variant = _hive_member_actions_list.get_item_metadata(idx)
+		if typeof(metadata) != TYPE_DICTIONARY:
+			continue
+		var member: Dictionary = metadata as Dictionary
+		if str(member.get("player_id", "")) != target_player_id:
+			continue
+		_hive_member_actions_list.select(idx)
+		_refresh_hive_member_action_buttons()
+		return
+
+func _hive_roster_buttons() -> Array[Button]:
+	var out: Array[Button] = []
+	for path in [
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember1",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember2",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember3",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember4",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember5",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember6",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember7",
+		"DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember8"
+	]:
+		var button: Button = get_node_or_null(path) as Button
+		if button != null:
+			out.append(button)
+	return out
+
+func _ensure_hive_roster_button_bindings() -> void:
+	var buttons: Array[Button] = _hive_roster_buttons()
+	for idx in range(buttons.size()):
+		var button: Button = buttons[idx]
+		if button == null:
+			continue
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.flat = true
+		button.focus_mode = Control.FOCUS_NONE
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0.0, 50.0)
+		_style_button(button, Color(0.09, 0.10, 0.13, 0.18), Color(0.28, 0.31, 0.38, 0.28), Color(0.93, 0.94, 0.97, 1.0))
+		var callable := Callable(self, "_on_hive_roster_row_pressed").bind(idx)
+		if not button.pressed.is_connected(callable):
+			button.pressed.connect(callable)
+
+func _on_hive_roster_row_pressed(index: int) -> void:
+	var buttons: Array[Button] = _hive_roster_buttons()
+	if index < 0 or index >= buttons.size():
+		return
+	var button: Button = buttons[index]
+	if button == null:
+		return
+	if bool(button.get_meta("open_member_actions", false)):
+		_open_hive_member_actions_dialog()
+		return
+	var member_record: Dictionary = button.get_meta("member_record", {}) as Dictionary
+	if member_record.is_empty():
+		return
+	_open_hive_member_actions_dialog_for_player(str(member_record.get("player_id", "")))
 
 func _refresh_hive_member_actions_dialog() -> void:
 	if _hive_member_actions_list == null or _hive_member_actions_meta_label == null:
@@ -3232,24 +3589,7 @@ func _on_hive_member_actions_remove_member_pressed() -> void:
 	if not bool(context.get("can_remove_member", false)):
 		status_label.text = "Remove player is not available for this selection."
 		return
-	if HiveClanState == null or not HiveClanState.has_method("intent_remove_member"):
-		status_label.text = "Member removal unavailable."
-		return
-	var hive_id: String = _current_hive_id()
-	var result: Dictionary = HiveClanState.call("intent_remove_member", hive_id, str(context.get("target_player_id", "")), "") as Dictionary
-	if not bool(result.get("ok", false)):
-		var reason: String = str(result.get("reason", "unknown"))
-		match reason:
-			"forbidden":
-				status_label.text = "Only the queen can remove a regular member."
-			"target_not_removable_member":
-				status_label.text = "Leadership must be handled through governance votes."
-			_:
-				status_label.text = "Could not remove player."
-		_refresh_hive_member_actions_dialog()
-		return
-	status_label.text = "%s removed from the hive. Same-hive rejoin locked for 7d." % str(context.get("target_name", "Member"))
-	_refresh_hive_member_actions_dialog()
+	_open_hive_remove_member_dialog(context)
 
 func _check_hive_governance_inbox() -> void:
 	if HiveClanState == null or not HiveClanState.has_method("get_pending_governance_actions_for_player"):
@@ -3323,11 +3663,13 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 			var member: Dictionary = member_any as Dictionary
 			var rank_position: int = int(member.get("rank_position", 0))
 			var rank_text: String = "#%d" % rank_position if rank_position > 0 else "Unranked"
-			member_lines.append("%s  %s  %s  H%s" % [
+			var last_seen_compact: String = _format_hive_presence_compact(int(member.get("last_seen_at_unix", int(member.get("joined_at_unix", 0)))))
+			member_lines.append("%s  %s  %s  H%s  %s" % [
 				rank_text,
 				str(member.get("display_name", "Player")),
 				_role_label(str(member.get("role", "member"))).to_upper(),
-				_format_number(int(member.get("honey_contributed", 0)))
+				_format_number(int(member.get("honey_contributed", 0))),
+				last_seen_compact
 			])
 			member_idx += 1
 			if str(member.get("player_id", "")) == local_player_id:
@@ -3352,8 +3694,11 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 	_hive_panel_profile["invite_only"] = access_type != "member"
 	_hive_panel_profile["pending_governance_count"] = pending_governance_count
 	_hive_panel_profile["can_spend_hive_honey"] = can_spend_hive_honey
+	_hive_panel_profile["rank_breakdown"] = hive.get("rank_breakdown", {})
 	var role_key: String = str(membership.get("role", "member")).strip_edges().to_lower()
 	var can_manage_invites: bool = access_type == "member" and (role_key == "queen" or role_key == "soldier")
+	var can_post_hive_comms: bool = access_type == "member" or access_type == "invite"
+	var can_pin_hive_notice: bool = access_type == "member" and (role_key == "queen" or role_key == "soldier")
 	var pending_count: int = 0
 	var received_application_count: int = 0
 	var visible_invite_count: int = 0
@@ -3367,21 +3712,44 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 		var visible_invites: Array = HiveClanState.call("get_visible_invites_for_player") as Array
 		visible_invite_count = visible_invites.size()
 	_hive_panel_profile["can_manage_invites"] = can_manage_invites
+	_hive_panel_profile["can_post_hive_comms"] = can_post_hive_comms
+	_hive_panel_profile["can_pin_hive_notice"] = can_pin_hive_notice
 	_hive_panel_profile["pending_invite_count"] = pending_count
 	_hive_panel_profile["received_application_count"] = received_application_count
 	_hive_panel_profile["visible_invite_count"] = visible_invite_count
-	var comms_lines: Array[String] = []
-	if access_type == "member":
-		comms_lines.append("Pending invites: %d | Applications: %d" % [pending_count, received_application_count])
-		comms_lines.append("Governance inbox: %d pending vote(s)" % pending_governance_count)
-		comms_lines.append("Hive-only coordination and moderation stay scoped here.")
-		comms_lines.append("Chat history and pinned notes will land in this section.")
+	var pinned_notice: Dictionary = hive.get("pinned_notice", {}) as Dictionary
+	_hive_panel_profile["pinned_notice_message"] = str(pinned_notice.get("message", "")).strip_edges()
+	if pinned_notice.is_empty():
+		_hive_panel_profile["pinned_notice_meta"] = ""
 	else:
-		comms_lines.append("Invite access active for this hive.")
-		comms_lines.append("Invite expires in %s." % _format_time_remaining(int(invite_access.get("expires_at_unix", 0))))
-		comms_lines.append("You can view and participate in hive comms while invited.")
-		comms_lines.append("Formal membership unlocks roster actions and honey tracking.")
+		_hive_panel_profile["pinned_notice_meta"] = "Updated %s" % _format_hive_feed_age(int(pinned_notice.get("updated_at_unix", 0)))
+	var comms_lines: Array[String] = []
+	var comm_records: Array[Dictionary] = []
+	var feed_entries_any: Variant = hive.get("feed_entries", [])
+	if typeof(feed_entries_any) == TYPE_ARRAY:
+		for feed_any in feed_entries_any as Array:
+			if typeof(feed_any) != TYPE_DICTIONARY:
+				continue
+			var feed: Dictionary = feed_any as Dictionary
+			var message: String = str(feed.get("message", "")).strip_edges()
+			if message == "":
+				continue
+			comm_records.append(feed.duplicate(true))
+	if access_type == "member":
+		if comm_records.is_empty():
+			comms_lines.append("Pending invites: %d | Applications: %d" % [pending_count, received_application_count])
+			comms_lines.append("Governance inbox: %d pending vote(s)" % pending_governance_count)
+			comms_lines.append("Hive-only coordination and moderation stay scoped here.")
+			comms_lines.append("Chat history and pinned notes will land in this section.")
+	else:
+		if comm_records.is_empty():
+			comms_lines.clear()
+			comms_lines.append("Invite access active for this hive.")
+			comms_lines.append("Invite expires in %s." % _format_time_remaining(int(invite_access.get("expires_at_unix", 0))))
+			comms_lines.append("You can view and participate in hive comms while invited.")
+			comms_lines.append("Formal membership unlocks roster actions and honey tracking.")
 	_hive_panel_profile["messages"] = comms_lines
+	_hive_panel_profile["message_records"] = comm_records
 	var created_at_unix: int = int(hive.get("created_at_unix", 0))
 	var seasonal_best_finish: int = int(hive.get("seasonal_best_finish", 0))
 	var best_finish_text: String = "#%d" % seasonal_best_finish if seasonal_best_finish > 0 else "Unplaced"
@@ -3399,20 +3767,39 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 			var entry: String = str(entry_any).strip_edges()
 			if entry != "":
 				spent_milestones.append(entry)
-	var milestone_summary: String = "No honey milestones unlocked yet"
-	if not earned_milestones.is_empty() or not spent_milestones.is_empty():
-		var milestone_parts: Array[String] = []
-		if not earned_milestones.is_empty():
-			milestone_parts.append("Earned: %s" % earned_milestones[earned_milestones.size() - 1])
-		if not spent_milestones.is_empty():
-			milestone_parts.append("Spent: %s" % spent_milestones[spent_milestones.size() - 1])
-		milestone_summary = " | ".join(milestone_parts)
-	_hive_panel_profile["achievements"] = [
-		"Founded %s | Avg service %dd" % [_format_calendar_date(created_at_unix), int(hive.get("avg_member_service_days", 0))],
-		"Tournament wins %d | Hive titles %d" % [int(hive.get("tournament_wins", 0)), int(hive.get("hive_championships", 0))],
-		"Best season finish: %s" % best_finish_text,
-		milestone_summary
-	]
+	var achievement_lines: Array[String] = []
+	var trophy_records_any: Variant = hive.get("trophy_records", [])
+	if typeof(trophy_records_any) == TYPE_ARRAY:
+		for trophy_any in trophy_records_any as Array:
+			if typeof(trophy_any) != TYPE_DICTIONARY:
+				continue
+			var trophy: Dictionary = trophy_any as Dictionary
+			var title: String = str(trophy.get("title", "")).strip_edges()
+			var detail: String = str(trophy.get("detail", "")).strip_edges()
+			if title == "" and detail == "":
+				continue
+			if detail == "":
+				achievement_lines.append(title)
+			elif title == "":
+				achievement_lines.append(detail)
+			else:
+				achievement_lines.append("%s | %s" % [title, detail])
+	var rank_breakdown: Dictionary = hive.get("rank_breakdown", {}) as Dictionary
+	achievement_lines.append("Hive rank %s = Members %s + Tournaments %s + Titles %s + Season %s" % [
+		_format_number(int(rank_breakdown.get("total", 0))),
+		_format_number(int(rank_breakdown.get("members", 0))),
+		_format_number(int(rank_breakdown.get("tournaments", 0))),
+		_format_number(int(rank_breakdown.get("championships", 0))),
+		_format_number(int(rank_breakdown.get("seasonal_best", 0)))
+	])
+	if achievement_lines.is_empty():
+		achievement_lines = [
+			"Founded %s | Avg service %dd" % [_format_calendar_date(created_at_unix), int(hive.get("avg_member_service_days", 0))],
+			"Tournament wins %d | Hive titles %d" % [int(hive.get("tournament_wins", 0)), int(hive.get("hive_championships", 0))],
+			"Best season finish: %s" % best_finish_text,
+			"No honey milestones unlocked yet" if earned_milestones.is_empty() and spent_milestones.is_empty() else "Milestones active"
+		]
+	_hive_panel_profile["achievements"] = achievement_lines
 	_refresh_hive_panel()
 
 func _current_hive_id() -> String:
@@ -3430,21 +3817,33 @@ func _refresh_hive_panel_action_state() -> void:
 	if hive_action_buttons.is_empty():
 		return
 	var can_manage_invites: bool = bool(_hive_panel_profile.get("can_manage_invites", false))
+	var can_post_hive_comms: bool = bool(_hive_panel_profile.get("can_post_hive_comms", false))
+	var can_pin_hive_notice: bool = bool(_hive_panel_profile.get("can_pin_hive_notice", false))
 	var pending_invite_count: int = maxi(0, int(_hive_panel_profile.get("pending_invite_count", 0)))
 	var leave_request: Dictionary = _hive_panel_profile.get("leave_request", {}) as Dictionary
 	var invite_only: bool = bool(_hive_panel_profile.get("invite_only", false))
 	if hive_action_buttons.size() >= 1:
-		var invite_button: Button = hive_action_buttons[0] as Button
+		var post_button: Button = hive_action_buttons[0] as Button
+		if post_button != null:
+			post_button.text = "POST"
+			post_button.disabled = not can_post_hive_comms
+	if hive_action_buttons.size() >= 2:
+		var pin_button: Button = hive_action_buttons[1] as Button
+		if pin_button != null:
+			pin_button.text = "PIN NOTICE"
+			pin_button.disabled = not can_pin_hive_notice
+	if hive_action_buttons.size() >= 3:
+		var invite_button: Button = hive_action_buttons[2] as Button
 		if invite_button != null:
 			invite_button.text = "INVITE PLAYER"
 			invite_button.disabled = invite_only or not can_manage_invites
-	if hive_action_buttons.size() >= 2:
-		var pending_button: Button = hive_action_buttons[1] as Button
+	if hive_action_buttons.size() >= 4:
+		var pending_button: Button = hive_action_buttons[3] as Button
 		if pending_button != null:
 			pending_button.text = "PENDING (%d)" % pending_invite_count
 			pending_button.disabled = invite_only or not can_manage_invites
-	if hive_action_buttons.size() >= 3:
-		var leave_button: Button = hive_action_buttons[2] as Button
+	if hive_action_buttons.size() >= 5:
+		var leave_button: Button = hive_action_buttons[4] as Button
 		if leave_button != null:
 			if invite_only:
 				leave_button.text = "INVITED ACCESS"
@@ -3493,6 +3892,143 @@ func _format_time_remaining(target_unix: int) -> String:
 		return "%dh %dm" % [hours, minutes_remainder]
 	var minutes: int = maxi(1, int(ceil(float(remaining_sec) / 60.0)))
 	return "%dm" % minutes
+
+func _format_hive_presence_compact(last_seen_unix: int) -> String:
+	var safe_last_seen: int = maxi(0, last_seen_unix)
+	if safe_last_seen <= 0:
+		return "seen: ?"
+	var elapsed_sec: int = maxi(0, int(Time.get_unix_time_from_system()) - safe_last_seen)
+	var days: int = int(elapsed_sec / 86400)
+	if days >= 1:
+		return "seen %dd" % days
+	var hours: int = int(elapsed_sec / 3600)
+	if hours >= 1:
+		return "seen %dh" % hours
+	var minutes: int = int(elapsed_sec / 60)
+	if minutes >= 1:
+		return "seen %dm" % minutes
+	return "seen now"
+
+func _format_hive_join_compact(joined_at_unix: int) -> String:
+	var safe_joined_at: int = maxi(0, joined_at_unix)
+	if safe_joined_at <= 0:
+		return "joined ?"
+	var elapsed_sec: int = maxi(0, int(Time.get_unix_time_from_system()) - safe_joined_at)
+	var days: int = int(elapsed_sec / 86400)
+	if days >= 1:
+		return "joined %dd" % days
+	var hours: int = int(elapsed_sec / 3600)
+	if hours >= 1:
+		return "joined %dh" % hours
+	var minutes: int = int(elapsed_sec / 60)
+	if minutes >= 1:
+		return "joined %dm" % minutes
+	return "joined now"
+
+func _format_hive_feed_age(created_at_unix: int) -> String:
+	var safe_created_at: int = maxi(0, created_at_unix)
+	if safe_created_at <= 0:
+		return "now"
+	var elapsed_sec: int = maxi(0, int(Time.get_unix_time_from_system()) - safe_created_at)
+	var days: int = int(elapsed_sec / 86400)
+	if days >= 7:
+		return _format_calendar_date(safe_created_at)
+	if days >= 1:
+		return "%dd ago" % days
+	var hours: int = int(elapsed_sec / 3600)
+	if hours >= 1:
+		return "%dh ago" % hours
+	var minutes: int = int(elapsed_sec / 60)
+	if minutes >= 1:
+		return "%dm ago" % minutes
+	return "now"
+
+func _hive_feed_type_label(feed_type: String) -> String:
+	match feed_type.strip_edges().to_lower():
+		"hive_created":
+			return "FOUNDING"
+		"hive_invite_created", "hive_invite_accepted", "hive_invite_declined":
+			return "INVITE"
+		"hive_application_created", "hive_application_accepted", "hive_application_declined":
+			return "APPLICATION"
+		"hive_role_changed", "hive_soldier_promoted", "hive_soldier_demoted":
+			return "ROLE"
+		"hive_queen_removed", "hive_queen_removal_vote_cast", "hive_leadership_removed_by_hive_vote", "hive_leadership_removal_vote_cast":
+			return "GOVERNANCE"
+		"hive_leave_requested", "hive_leave_cancelled", "hive_leave_finalized", "hive_member_removed":
+			return "ROSTER"
+		"hive_honey_recorded":
+			return "HONEY"
+		_:
+			return "HIVE"
+
+func _build_hive_feed_row_text(feed: Dictionary) -> String:
+	var message: String = str(feed.get("message", "")).strip_edges()
+	if message == "":
+		return ""
+	var header: String = "[%s]  %s" % [
+		_hive_feed_type_label(str(feed.get("type", "system"))),
+		_format_hive_feed_age(int(feed.get("created_at_unix", 0)))
+	]
+	return "%s\n%s" % [header, message]
+
+func _build_hive_roster_button_text(member: Dictionary, is_local: bool) -> String:
+	var name: String = str(member.get("display_name", "Player"))
+	var role_key: String = str(member.get("role", "member")).strip_edges().to_lower()
+	var role_text: String = _role_label(role_key).to_upper()
+	var rank_position: int = int(member.get("rank_position", 0))
+	var rank_text: String = "RANK #%d" % rank_position if rank_position > 0 else "RANK --"
+	var honey_text: String = "HONEY %s" % _format_number(int(member.get("honey_contributed", 0)))
+	var role_badge: String = "[%s]" % role_text
+	if role_key == "queen":
+		role_badge = "[QUEEN]"
+	elif role_key == "soldier":
+		role_badge = "[SOLDIER]"
+	var primary: String = "%s  %s  %s" % [role_badge, name, rank_text]
+	if is_local:
+		primary += "  [YOU]"
+	var secondary: String = "%s  |  %s  |  %s" % [
+		honey_text,
+		_format_hive_join_compact(int(member.get("joined_at_unix", 0))),
+		_format_hive_presence_compact(int(member.get("last_seen_at_unix", int(member.get("joined_at_unix", 0)))))
+	]
+	return "%s\n%s" % [primary, secondary]
+
+func _build_hive_roster_button_tooltip(member: Dictionary) -> String:
+	var rank_position: int = int(member.get("rank_position", 0))
+	var rank_text: String = "#%d" % rank_position if rank_position > 0 else "Unranked"
+	return "%s\nRole: %s\nGlobal rank: %s\nHoney contributed: %s\n%s\nLast seen %s" % [
+		str(member.get("display_name", "Player")),
+		_role_label(str(member.get("role", "member"))),
+		rank_text,
+		_format_number(int(member.get("honey_contributed", 0))),
+		_format_hive_membership_age(int(member.get("joined_at_unix", 0))),
+		_format_hive_presence_compact(int(member.get("last_seen_at_unix", int(member.get("joined_at_unix", 0)))))
+	]
+
+func _apply_hive_roster_button_style(button: Button, role: String, is_local: bool) -> void:
+	if button == null:
+		return
+	var bg: Color
+	var border: Color
+	var text_color: Color
+	match role.strip_edges().to_lower():
+		"queen":
+			bg = Color(0.19, 0.15, 0.06, 0.52)
+			border = Color(0.94, 0.76, 0.30, 0.78)
+			text_color = Color(0.99, 0.96, 0.87, 1.0)
+		"soldier":
+			bg = Color(0.11, 0.13, 0.18, 0.42)
+			border = Color(0.60, 0.68, 0.90, 0.60)
+			text_color = Color(0.92, 0.94, 0.99, 1.0)
+		_:
+			bg = Color(0.09, 0.10, 0.13, 0.28)
+			border = Color(0.34, 0.38, 0.46, 0.34)
+			text_color = Color(0.92, 0.94, 0.97, 1.0)
+	if is_local:
+		bg = bg.lerp(Color(0.16, 0.18, 0.24, 0.50), 0.45)
+		border = border.lerp(Color(0.86, 0.90, 0.98, 0.80), 0.50)
+	_style_button(button, bg, border, text_color)
 
 func _format_calendar_date(unix_time: int) -> String:
 	if unix_time <= 0:
@@ -3856,6 +4392,7 @@ func _refresh_dash_hero_views() -> void:
 func _refresh_hive_panel() -> void:
 	if not is_inside_tree():
 		return
+	_ensure_hive_roster_button_bindings()
 	var hive_name: String = str(_hive_panel_profile.get("name", "TBD Hive"))
 	var hive_tier: String = str(_hive_panel_profile.get("tier", "TBD"))
 	var member_role: String = str(_hive_panel_profile.get("member_role", "Member"))
@@ -3867,21 +4404,18 @@ func _refresh_hive_panel() -> void:
 	var hive_honey_total: int = maxi(0, int(_hive_panel_profile.get("hive_honey_total", 0)))
 	var pending_governance_count: int = maxi(0, int(_hive_panel_profile.get("pending_governance_count", 0)))
 	var can_spend_hive_honey: bool = bool(_hive_panel_profile.get("can_spend_hive_honey", false))
+	var pinned_notice_message: String = str(_hive_panel_profile.get("pinned_notice_message", "")).strip_edges()
+	var pinned_notice_meta: String = str(_hive_panel_profile.get("pinned_notice_meta", "")).strip_edges()
 	var season_name: String = str(_hive_panel_profile.get("season_name", "Season TBD"))
 	var season_reset_text: String = str(_hive_panel_profile.get("season_reset_text", "Reset timer TBD"))
 	var leave_request: Dictionary = _hive_panel_profile.get("leave_request", {}) as Dictionary
 	var invite_only: bool = bool(_hive_panel_profile.get("invite_only", false))
-	var members_any: Variant = _hive_panel_profile.get("members", [])
 	var messages_any: Variant = _hive_panel_profile.get("messages", [])
+	var message_records_any: Variant = _hive_panel_profile.get("message_records", [])
 	var achievements_any: Variant = _hive_panel_profile.get("achievements", [])
 	var achievements: Array[String] = []
 	var messages: Array[String] = []
-	var members: Array[String] = []
-	if typeof(members_any) == TYPE_ARRAY:
-		for member_v in members_any as Array:
-			var member_line: String = str(member_v).strip_edges()
-			if member_line != "":
-				members.append(member_line)
+	var message_records: Array = message_records_any if typeof(message_records_any) == TYPE_ARRAY else []
 	if typeof(messages_any) == TYPE_ARRAY:
 		for msg_v in messages_any as Array:
 			var msg: String = str(msg_v).strip_edges()
@@ -3896,6 +4430,7 @@ func _refresh_hive_panel() -> void:
 	var hive_sub_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub
 	var hive_honey_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveHoneyLabel
 	var hive_total_honey_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveTotalHoneyLabel
+	var hive_pinned_notice_label: Label = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HivePinnedNotice
 	hive_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	hive_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	hive_honey_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -3911,19 +4446,22 @@ func _refresh_hive_panel() -> void:
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Time in hive: %s" % member_since_text
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Roster rank: #%d" % member_rank_within_hive if not invite_only else "Hive status: Invite access"
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Tier %s | Rank pts %s | Spend %s | Votes %d" % [hive_tier, _format_number(ecosystem_rank), "Yes" if can_spend_hive_honey else "No", pending_governance_count]
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "HIVE MEMBERS %d/14" % members.size()
+	var roster_buttons: Array[Button] = _hive_roster_buttons()
+	var member_records_any: Variant = _hive_panel_profile.get("member_records", [])
+	var member_records: Array = member_records_any if typeof(member_records_any) == TYPE_ARRAY else []
+	var visible_member_slots: int = maxi(0, roster_buttons.size() - 1)
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "HIVE MEMBERS %d/14" % member_records.size()
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "TROPHY CASE"
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsHeader.text = "HIVE COMMS"
-	var roster_labels: Array[Label] = [
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember1,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember2,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember3,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember4,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember5,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember6,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember7,
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList/HiveMember8
-	]
+	if pinned_notice_message == "":
+		hive_pinned_notice_label.text = "PINNED NOTICE\nNo pinned notice."
+	else:
+		hive_pinned_notice_label.text = "PINNED NOTICE\n%s" % pinned_notice_message
+		if pinned_notice_meta != "":
+			hive_pinned_notice_label.text += "\n%s" % pinned_notice_meta
+	var local_player_id: String = ""
+	if ProfileManager != null and ProfileManager.has_method("get_user_id"):
+		local_player_id = str(ProfileManager.call("get_user_id"))
 	var activity_labels: Array[Label] = [
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2,
@@ -3936,24 +4474,43 @@ func _refresh_hive_panel() -> void:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3,
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm4
 	]
-	for i in range(roster_labels.size()):
-		if i < roster_labels.size() - 1 and i < members.size():
-			roster_labels[i].text = members[i]
-		elif i == roster_labels.size() - 1 and members.size() > roster_labels.size():
-			roster_labels[i].text = "... +%d more members" % (members.size() - (roster_labels.size() - 1))
-		elif i < members.size():
-			roster_labels[i].text = members[i]
+	for i in range(roster_buttons.size()):
+		var roster_button: Button = roster_buttons[i]
+		if roster_button == null:
+			continue
+		roster_button.set_meta("member_record", {})
+		roster_button.set_meta("open_member_actions", false)
+		roster_button.tooltip_text = ""
+		if i < visible_member_slots and i < member_records.size() and typeof(member_records[i]) == TYPE_DICTIONARY:
+			var member_record: Dictionary = (member_records[i] as Dictionary).duplicate(true)
+			roster_button.text = _build_hive_roster_button_text(member_record, str(member_record.get("player_id", "")) == local_player_id)
+			roster_button.disabled = false
+			roster_button.tooltip_text = _build_hive_roster_button_tooltip(member_record)
+			roster_button.set_meta("member_record", member_record)
+			_apply_hive_roster_button_style(roster_button, str(member_record.get("role", "member")), str(member_record.get("player_id", "")) == local_player_id)
+		elif i == visible_member_slots and member_records.size() > visible_member_slots:
+			roster_button.text = "+%d more members\nOpen full member actions list" % (member_records.size() - visible_member_slots)
+			roster_button.disabled = false
+			roster_button.set_meta("open_member_actions", true)
+			roster_button.tooltip_text = "Open the full hive member actions list."
+			_style_button(roster_button, Color(0.08, 0.09, 0.12, 0.24), Color(0.32, 0.36, 0.44, 0.34), Color(0.90, 0.93, 0.98, 1.0))
 		elif i == 0:
-			roster_labels[i].text = "No hive members yet"
+			roster_button.text = "No hive members yet"
+			roster_button.disabled = true
+			_style_button(roster_button, Color(0.09, 0.10, 0.13, 0.14), Color(0.24, 0.26, 0.32, 0.18), Color(0.70, 0.73, 0.78, 1.0))
 		else:
-			roster_labels[i].text = ""
+			roster_button.text = ""
+			roster_button.disabled = true
+			_style_button(roster_button, Color(0.09, 0.10, 0.13, 0.14), Color(0.24, 0.26, 0.32, 0.18), Color(0.70, 0.73, 0.78, 1.0))
 	for i in range(activity_labels.size()):
 		if i < achievements.size():
 			activity_labels[i].text = achievements[i]
 		else:
 			activity_labels[i].text = "No trophy case item yet"
 	for i in range(comm_labels.size()):
-		if i < messages.size():
+		if i < message_records.size() and typeof(message_records[i]) == TYPE_DICTIONARY:
+			comm_labels[i].text = _build_hive_feed_row_text(message_records[i] as Dictionary)
+		elif i < messages.size():
 			comm_labels[i].text = messages[i]
 		else:
 			comm_labels[i].text = "No hive comms yet"
