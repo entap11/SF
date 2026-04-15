@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "migrate": "tsx src/cli/migrate.ts",
     "rollup": "tsx src/cli/rollup.ts",
-    "create-admin-user": "tsx src/cli/create_admin_user.ts"
+    "create-admin-user": "tsx src/cli/create_admin_user.ts",
+    "test:highlights": "tsx src/highlights/highlight_engine.test.ts"
   },
   "dependencies": {
     "basic-auth": "^2.0.1",

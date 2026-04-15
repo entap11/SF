@@ -51,10 +51,11 @@ async function handleBatch(req, res) {
     const validEvents = [];
     const indexedResults = [];
     for (let i = 0; i < rawEvents.length; i += 1) {
-        const normalized = enrichCountry(rawEvents[i], req);
+        const rawEvent = rawEvents[i];
+        const normalized = enrichCountry(rawEvent, req);
         const parsed = parseEventEnvelope(normalized);
         if (!parsed.ok) {
-            const maybeEventId = isRecord(rawEvents[i]) && typeof rawEvents[i].event_id === "string" ? rawEvents[i].event_id : null;
+            const maybeEventId = isRecord(rawEvent) && typeof rawEvent.event_id === "string" ? rawEvent.event_id : null;
             indexedResults.push({
                 index: i,
                 result: {
