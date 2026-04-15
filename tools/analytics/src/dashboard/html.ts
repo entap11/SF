@@ -65,7 +65,7 @@ export function table(headers: string[], rows: string[][]): string {
   const bodyHtml = rows
     .map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`)
     .join("");
-  return `<table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`;
+  return `<div class="table-wrap"><table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
 }
 
 export function layout(title: string, activePath: string, range: DateRange, body: string): string {
@@ -90,8 +90,11 @@ export function layout(title: string, activePath: string, range: DateRange, body
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>${esc(title)}</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; margin: 0; background: #0f1420; color: #eef3ff; }
-    header { padding: 16px 20px; border-bottom: 1px solid #2a3248; background: #151d2d; position: sticky; top: 0; }
+    :root { color-scheme: dark; }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; margin: 0; background: #0f1420; color: #eef3ff; overflow-y: auto; }
+    header { padding: 16px 20px; border-bottom: 1px solid #2a3248; background: #151d2d; position: sticky; top: 0; z-index: 10; }
     h1 { margin: 0 0 10px 0; font-size: 20px; }
     nav a { color: #9fb3d6; margin-right: 12px; text-decoration: none; font-weight: 600; }
     nav a.active { color: #fff; }
@@ -99,13 +102,31 @@ export function layout(title: string, activePath: string, range: DateRange, body
     input, button { border-radius: 6px; border: 1px solid #32415f; background: #111a2b; color: #eef3ff; padding: 6px 10px; }
     button { cursor: pointer; background: #204b8a; border-color: #3568b5; }
     main { padding: 20px; }
+    .page {
+      width: min(100%, 1440px);
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      min-width: 0;
+    }
     .cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 18px; }
     .card { border: 1px solid #2a3248; border-radius: 10px; background: #151d2d; padding: 10px 12px; }
     .card .label { font-size: 12px; color: #9fb3d6; }
     .card .value { font-size: 22px; font-weight: 700; margin-top: 6px; }
     section { margin-top: 18px; }
     section h2 { margin: 0 0 8px 0; font-size: 16px; }
-    table { width: 100%; border-collapse: collapse; border: 1px solid #2a3248; border-radius: 8px; overflow: hidden; }
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid #2a3248;
+      border-radius: 8px;
+      background: #151d2d;
+    }
+    table {
+      width: 100%;
+      min-width: 640px;
+      border-collapse: collapse;
+    }
     th, td { padding: 8px 10px; border-bottom: 1px solid #2a3248; text-align: left; font-size: 13px; }
     th { background: #1d2740; color: #cad7ef; }
     tr:last-child td { border-bottom: none; }
@@ -123,7 +144,9 @@ export function layout(title: string, activePath: string, range: DateRange, body
     </form>
   </header>
   <main>
-    ${body}
+    <div class=\"page\">
+      ${body}
+    </div>
   </main>
 </body>
 </html>`;

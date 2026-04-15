@@ -22,6 +22,7 @@ const HIVE_NAME_MAX_LEN: int = 24
 const MAX_SOLDIERS: int = 3
 const MAX_HIVE_MEMBERS: int = 14
 const MIN_LEADERSHIP_REMOVAL_VOTES: int = 9
+const GOVERNANCE_VOTE_WINDOW_SEC: int = 48 * 60 * 60
 const VOTE_ABSTAIN_INACTIVE_SEC: int = 7 * 24 * 60 * 60
 const HIVE_CREATE_LIMIT_COUNT: int = 1
 const HIVE_CREATE_LIMIT_WINDOW_SEC: int = 7 * 24 * 60 * 60
@@ -34,9 +35,21 @@ const APPLICATION_STATUS_DECLINED: String = "declined"
 const HIVE_FEED_LIMIT: int = 24
 const HIVE_COMMS_POST_MAX_LEN: int = 180
 const HIVE_PINNED_NOTICE_MAX_LEN: int = 220
+const HIVE_ABOUT_MAX_LEN: int = 300
+const HIVE_ABOUT_UPDATE_COOLDOWN_SEC: int = 24 * 60 * 60
 const HIVE_RANK_TOURNAMENT_WIN_BONUS: int = 250
 const HIVE_RANK_CHAMPIONSHIP_BONUS: int = 1000
 const HIVE_RANK_BEST_SEASON_CAP: int = 100
+const INVITE_OFFER_BUNDLES: Array[Dictionary] = [
+	{"bundle_id": "starter", "title": "Starter Honey Gift", "honey_cost": 250, "detail": "Small welcome gift attached to the invite."},
+	{"bundle_id": "rally", "title": "Rally Honey Gift", "honey_cost": 750, "detail": "Mid-tier recruiting offer for active players."},
+	{"bundle_id": "elite", "title": "Elite Honey Gift", "honey_cost": 1500, "detail": "High-value offer for top targets."}
+]
+const HIVE_TOURNAMENT_ENTRIES: Array[Dictionary] = [
+	{"tournament_id": "weekly_hive_skirmish", "title": "Weekly Hive Skirmish", "honey_cost": 1000, "detail": "Low-risk weekly bracket for active hives."},
+	{"tournament_id": "monthly_hive_cup", "title": "Monthly Hive Cup", "honey_cost": 3500, "detail": "Monthly team event with larger hive rank upside."},
+	{"tournament_id": "seasonal_royal_gauntlet", "title": "Seasonal Royal Gauntlet", "honey_cost": 9000, "detail": "High-cost seasonal run for serious teams."}
+]
 
 var _save_schema_version: int = SAVE_SCHEMA_VERSION
 var _hives_by_id: Dictionary = {}
@@ -47,6 +60,7 @@ var _pending_leave_by_player_id: Dictionary = {}
 var _rejoin_cooldowns_by_player_id: Dictionary = {}
 var _hive_creation_history_by_player_id: Dictionary = {}
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var save_path: String = SAVE_PATH
 
 func _ready() -> void:
 	SFLog.allow_tag("HIVE_CLAN_STATE")
@@ -179,10 +193,11 @@ func get_browseable_hives(player_id: String = "") -> Array[Dictionary]:
 func get_players_without_hive(limit: int = 50) -> Array[Dictionary]:
 	_refresh_runtime_state()
 	var out: Array[Dictionary] = []
-	if RankState == null or not RankState.has_method("get_leaderboard_snapshot"):
+	var rank_state: Node = _rank_state()
+	if rank_state == null or not rank_state.has_method("get_leaderboard_snapshot"):
 		return out
 	var local_player_id: String = _local_player_id()
-	var board: Dictionary = RankState.call("get_leaderboard_snapshot", local_player_id, "GLOBAL", maxi(limit * 4, 100)) as Dictionary
+	var board: Dictionary = rank_state.call("get_leaderboard_snapshot", local_player_id, "GLOBAL", maxi(limit * 4, 100)) as Dictionary
 	var rows_any: Variant = board.get("rows", [])
 	if typeof(rows_any) != TYPE_ARRAY:
 		return out
@@ -267,6 +282,12 @@ func get_hive_invites(hive_id: String, status_filter: String = "") -> Array[Dict
 		return int(a.get("created_at_unix", 0)) > int(b.get("created_at_unix", 0))
 	)
 	return out
+
+func get_invite_offer_bundles() -> Array[Dictionary]:
+	return INVITE_OFFER_BUNDLES.duplicate(true)
+
+func get_hive_tournament_entries() -> Array[Dictionary]:
+	return HIVE_TOURNAMENT_ENTRIES.duplicate(true)
 
 func get_pending_governance_actions_for_player(player_id: String = "") -> Array[Dictionary]:
 	_refresh_runtime_state()
@@ -455,6 +476,62 @@ func intent_set_pinned_notice(hive_id: String, notice_text: String, player_id: S
 		"cleared": sanitized_notice == ""
 	}
 
+func intent_set_hive_about(hive_id: String, about_text: String, player_id: String = "") -> Dictionary:
+	_refresh_runtime_state()
+	var resolved_player_id: String = _resolve_player_id(player_id)
+	var resolved_hive_id: String = str(hive_id).strip_edges()
+	var sanitized_about: String = _sanitize_comms_text(about_text, HIVE_ABOUT_MAX_LEN)
+	if resolved_player_id.is_empty():
+		return {"ok": false, "reason": "missing_player_id"}
+	if resolved_hive_id.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	var hive: Dictionary = _hives_by_id.get(resolved_hive_id, {}) as Dictionary
+	if hive.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	var actor_role: String = _role_for_player(hive, resolved_player_id)
+	if actor_role != ROLE_QUEEN:
+		return {"ok": false, "reason": "forbidden"}
+	var current_about: Dictionary = _sanitize_hive_about_profile(hive.get("about_profile", {}))
+	var current_message: String = str(current_about.get("message", "")).strip_edges()
+	var updated_at_unix: int = int(current_about.get("updated_at_unix", 0))
+	var now_unix: int = _now_unix()
+	if sanitized_about == current_message:
+		return {
+			"ok": true,
+			"hive": _build_hive_snapshot(hive),
+			"unchanged": true,
+			"next_edit_at_unix": updated_at_unix + HIVE_ABOUT_UPDATE_COOLDOWN_SEC if updated_at_unix > 0 else 0
+		}
+	if updated_at_unix > 0 and updated_at_unix + HIVE_ABOUT_UPDATE_COOLDOWN_SEC > now_unix:
+		return {
+			"ok": false,
+			"reason": "update_cooldown",
+			"next_edit_at_unix": updated_at_unix + HIVE_ABOUT_UPDATE_COOLDOWN_SEC
+		}
+	if sanitized_about == "":
+		hive["about_profile"] = {}
+	else:
+		hive["about_profile"] = {
+			"message": sanitized_about,
+			"updated_at_unix": now_unix,
+			"updated_by_player_id": resolved_player_id
+		}
+	_hives_by_id[resolved_hive_id] = hive
+	_save_state()
+	_emit_event({
+		"type": "hive_about_updated",
+		"hive_id": resolved_hive_id,
+		"player_id": resolved_player_id,
+		"message": sanitized_about
+	})
+	var updated_hive: Dictionary = _hives_by_id.get(resolved_hive_id, hive) as Dictionary
+	return {
+		"ok": true,
+		"hive": _build_hive_snapshot(updated_hive),
+		"cleared": sanitized_about == "",
+		"next_edit_at_unix": now_unix + HIVE_ABOUT_UPDATE_COOLDOWN_SEC if sanitized_about != "" else 0
+	}
+
 func intent_create_hive(hive_name: String) -> Dictionary:
 	_refresh_runtime_state()
 	var player_id: String = _local_player_id()
@@ -474,14 +551,16 @@ func intent_create_hive(hive_name: String) -> Dictionary:
 	var hive: Dictionary = {
 		"hive_id": hive_id,
 		"name": clean_name,
-		"created_at_unix": now_unix,
-		"created_by_player_id": player_id,
-		"members": {player_id: queen_member},
-		"pinned_notice": {},
-		"soldier_demotion_votes": {},
-		"queen_removal_vote": {},
-		"leadership_removal_votes": {},
-		"soldier_promotion_votes": {},
+			"created_at_unix": now_unix,
+			"created_by_player_id": player_id,
+			"members": {player_id: queen_member},
+			"pinned_notice": {},
+			"about_profile": {},
+			"soldier_demotion_votes": {},
+			"queen_removal_vote": {},
+			"queen_removal_vote_started_at_unix": 0,
+			"leadership_removal_votes": {},
+			"soldier_promotion_votes": {},
 		"tournament_wins": 0,
 		"hive_championships": 0,
 		"seasonal_best_finish": 0,
@@ -504,7 +583,7 @@ func intent_create_hive(hive_name: String) -> Dictionary:
 	_emit_event(event)
 	return {"ok": true, "hive": _build_hive_snapshot(hive)}
 
-func intent_invite_player(hive_id: String, target_player_id: String, target_display_name: String = "", role: String = ROLE_MEMBER, invited_by_player_id: String = "") -> Dictionary:
+func intent_invite_player(hive_id: String, target_player_id: String, target_display_name: String = "", role: String = ROLE_MEMBER, invited_by_player_id: String = "", offer_bundle_id: String = "") -> Dictionary:
 	_refresh_runtime_state()
 	var actor_id: String = _resolve_player_id(invited_by_player_id)
 	var target_id: String = _sanitize_player_id(target_player_id)
@@ -526,6 +605,9 @@ func intent_invite_player(hive_id: String, target_player_id: String, target_disp
 		return {"ok": false, "reason": "invite_already_pending"}
 	if _find_pending_application_id(hive_id, target_id) != "":
 		return {"ok": false, "reason": "application_already_pending"}
+	var offer_bundle: Dictionary = _invite_offer_bundle_for_id(offer_bundle_id)
+	if not offer_bundle_id.strip_edges().is_empty() and offer_bundle.is_empty():
+		return {"ok": false, "reason": "invalid_offer_bundle"}
 	var invite_id: String = _next_id(INVITE_ID_PREFIX)
 	var now_unix: int = _now_unix()
 	var invite: Dictionary = {
@@ -539,7 +621,8 @@ func intent_invite_player(hive_id: String, target_player_id: String, target_disp
 		"status": INVITE_STATUS_PENDING,
 		"created_at_unix": now_unix,
 		"expires_at_unix": now_unix + INVITE_EXPIRY_SEC,
-		"responded_at_unix": 0
+		"responded_at_unix": 0,
+		"offer_bundle": offer_bundle
 	}
 	_invites_by_id[invite_id] = invite
 	_save_state()
@@ -857,6 +940,8 @@ func intent_vote_remove_queen(hive_id: String, actor_player_id: String = "") -> 
 	if queen_id.is_empty():
 		return {"ok": false, "reason": "queen_not_found"}
 	var votes_by_player_id: Dictionary = hive.get("queen_removal_vote", {}) as Dictionary
+	if votes_by_player_id.is_empty():
+		hive["queen_removal_vote_started_at_unix"] = _now_unix()
 	votes_by_player_id[actor_id] = true
 	hive["queen_removal_vote"] = votes_by_player_id
 	if _count_valid_queen_removal_votes(hive) >= MAX_SOLDIERS:
@@ -866,7 +951,7 @@ func intent_vote_remove_queen(hive_id: String, actor_player_id: String = "") -> 
 			return {"ok": false, "reason": "queen_not_found"}
 		queen_member["role"] = ROLE_MEMBER
 		members[queen_id] = queen_member
-		var new_queen_id: String = _highest_honey_soldier_player_id(hive)
+		var new_queen_id: String = _senior_soldier_player_id(hive)
 		if new_queen_id.is_empty():
 			new_queen_id = actor_id
 		var new_queen_member: Dictionary = members.get(new_queen_id, {}) as Dictionary
@@ -876,6 +961,7 @@ func intent_vote_remove_queen(hive_id: String, actor_player_id: String = "") -> 
 		members[new_queen_id] = new_queen_member
 		hive["members"] = members
 		hive["queen_removal_vote"] = {}
+		hive["queen_removal_vote_started_at_unix"] = 0
 		hive["soldier_demotion_votes"] = {}
 		_recompute_hive_metrics(hive)
 		_hives_by_id[hive_id] = hive
@@ -965,6 +1051,48 @@ func intent_vote_promote_soldier(hive_id: String, target_player_id: String, acto
 		"hive": _build_hive_snapshot(hive),
 		"promoted": false,
 		"vote": _build_soldier_promotion_vote_snapshot(hive, target_id)
+	}
+
+func intent_apply_for_soldier(hive_id: String, player_id: String = "") -> Dictionary:
+	_refresh_runtime_state()
+	var actor_id: String = _resolve_player_id(player_id)
+	if actor_id.is_empty():
+		return {"ok": false, "reason": "missing_player_id"}
+	var hive: Dictionary = _hives_by_id.get(hive_id, {}) as Dictionary
+	if hive.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	var members: Dictionary = hive.get("members", {}) as Dictionary
+	var member: Dictionary = members.get(actor_id, {}) as Dictionary
+	if member.is_empty():
+		return {"ok": false, "reason": "forbidden"}
+	if str(member.get("role", ROLE_MEMBER)) != ROLE_MEMBER:
+		return {"ok": false, "reason": "already_leadership"}
+	if _count_role(hive, ROLE_SOLDIER) >= MAX_SOLDIERS:
+		return {"ok": false, "reason": "soldier_limit_reached", "limit": MAX_SOLDIERS}
+	var promotion_votes: Dictionary = hive.get("soldier_promotion_votes", {}) as Dictionary
+	var vote_record: Dictionary = promotion_votes.get(actor_id, {}) as Dictionary
+	if vote_record.is_empty():
+		vote_record = {
+			"target_player_id": actor_id,
+			"created_at_unix": _now_unix(),
+			"votes_by_player_id": {},
+			"applied_by_player_id": actor_id
+		}
+	else:
+		vote_record["applied_by_player_id"] = actor_id
+	promotion_votes[actor_id] = vote_record
+	hive["soldier_promotion_votes"] = promotion_votes
+	_hives_by_id[hive_id] = hive
+	_save_state()
+	_emit_event({
+		"type": "hive_soldier_application_created",
+		"hive_id": hive_id,
+		"target_player_id": actor_id
+	})
+	return {
+		"ok": true,
+		"hive": _build_hive_snapshot(hive),
+		"vote": _build_soldier_promotion_vote_snapshot(hive, actor_id)
 	}
 
 func intent_vote_remove_leadership(hive_id: String, target_player_id: String, actor_player_id: String = "") -> Dictionary:
@@ -1187,7 +1315,7 @@ func _emit_event(event: Dictionary) -> void:
 	_emit_changed()
 
 func _load_state() -> void:
-	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var file: FileAccess = FileAccess.open(save_path, FileAccess.READ)
 	if file == null:
 		return
 	var parsed_any: Variant = JSON.parse_string(file.get_as_text())
@@ -1213,7 +1341,7 @@ func _save_state() -> void:
 		"rejoin_cooldowns_by_player_id": _rejoin_cooldowns_by_player_id,
 		"hive_creation_history_by_player_id": _hive_creation_history_by_player_id
 	}
-	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var file: FileAccess = FileAccess.open(save_path, FileAccess.WRITE)
 	if file == null:
 		return
 	file.store_string(JSON.stringify(payload, "\t"))
@@ -1261,7 +1389,8 @@ func _build_hive_snapshot(hive: Dictionary) -> Dictionary:
 	for member_any in members.values():
 		var member: Dictionary = member_any as Dictionary
 		var player_id: String = str(member.get("player_id", ""))
-		var player_snapshot: Dictionary = RankState.call("get_player_snapshot", player_id) as Dictionary if RankState != null and RankState.has_method("get_player_snapshot") else {}
+		var rank_state: Node = _rank_state()
+		var player_snapshot: Dictionary = rank_state.call("get_player_snapshot", player_id) as Dictionary if rank_state != null and rank_state.has_method("get_player_snapshot") else {}
 		members_out.append({
 			"player_id": player_id,
 			"display_name": str(member.get("display_name", "")),
@@ -1270,7 +1399,8 @@ func _build_hive_snapshot(hive: Dictionary) -> Dictionary:
 			"last_seen_at_unix": int(member.get("last_seen_at_unix", int(member.get("joined_at_unix", 0)))),
 			"honey_contributed": int(member.get("honey_contributed", 0)),
 			"rank_position": int(player_snapshot.get("rank_position", 0)),
-			"tier_id": str(player_snapshot.get("tier_id", "DRONE"))
+			"tier_id": str(player_snapshot.get("tier_id", "DRONE")),
+			"wax_score": float(player_snapshot.get("wax_score", 0.0))
 		})
 	members_out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var rank_a: int = int(a.get("rank_position", 0))
@@ -1307,10 +1437,11 @@ func _build_hive_snapshot(hive: Dictionary) -> Dictionary:
 		"tournament_wins": int(hive.get("tournament_wins", 0)),
 		"hive_championships": int(hive.get("hive_championships", 0)),
 		"seasonal_best_finish": int(hive.get("seasonal_best_finish", 0)),
-		"avg_member_service_days": _compute_avg_member_service_days(hive),
-		"trophy_records": trophy_records,
-		"pinned_notice": _sanitize_pinned_notice(hive.get("pinned_notice", {})),
-		"feed_entries": feed_entries,
+			"avg_member_service_days": _compute_avg_member_service_days(hive),
+			"trophy_records": trophy_records,
+			"pinned_notice": _sanitize_pinned_notice(hive.get("pinned_notice", {})),
+			"about_profile": _sanitize_hive_about_profile(hive.get("about_profile", {})),
+			"feed_entries": feed_entries,
 		"honey_earned_milestones": _build_honey_earned_milestones(int(hive.get("total_honey_contributed", 0))),
 		"honey_spent_milestones": _build_honey_spent_milestones(int(hive.get("total_honey_spent", 0))),
 		"total_honey_contributed": int(hive.get("total_honey_contributed", 0)),
@@ -1370,6 +1501,8 @@ func _feed_message_for_event(hive: Dictionary, event: Dictionary) -> String:
 			]
 		"hive_soldier_promoted":
 			return "%s became a Soldier." % _display_name_from_hive_or_profile(hive, str(event.get("target_player_id", "")))
+		"hive_soldier_application_created":
+			return "%s applied to become a Soldier." % _display_name_from_hive_or_profile(hive, str(event.get("target_player_id", "")))
 		"hive_soldier_demoted":
 			return "%s was returned to Member." % _display_name_from_hive_or_profile(hive, str(event.get("target_player_id", "")))
 		"hive_queen_removed":
@@ -1393,6 +1526,10 @@ func _feed_message_for_event(hive: Dictionary, event: Dictionary) -> String:
 			if str(event.get("message", "")).strip_edges() == "":
 				return "%s cleared the pinned notice." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
 			return "%s updated the pinned notice." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+		"hive_about_updated":
+			if str(event.get("message", "")).strip_edges() == "":
+				return "%s cleared the hive profile." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
+			return "%s updated the hive profile." % _display_name_from_hive_or_profile(hive, str(event.get("player_id", "")))
 		"hive_message_posted":
 			return "%s: %s" % [
 				_display_name_from_hive_or_profile(hive, str(event.get("player_id", ""))),
@@ -1476,10 +1613,11 @@ func _build_invite_snapshot(invite: Dictionary, viewer_player_id: String = "") -
 		"created_at_unix": int(invite.get("created_at_unix", 0)),
 		"expires_at_unix": int(invite.get("expires_at_unix", 0)),
 		"expired": status == INVITE_STATUS_EXPIRED,
-		"blocked_until_unix": blocked_until_unix,
-		"can_apply": status == INVITE_STATUS_EXPIRED and not _player_has_hive(resolved_viewer_id) and blocked_until_unix <= _now_unix(),
-		"responded_at_unix": int(invite.get("responded_at_unix", 0))
-	}
+			"blocked_until_unix": blocked_until_unix,
+			"can_apply": status == INVITE_STATUS_EXPIRED and not _player_has_hive(resolved_viewer_id) and blocked_until_unix <= _now_unix(),
+			"responded_at_unix": int(invite.get("responded_at_unix", 0)),
+			"offer_bundle": (invite.get("offer_bundle", {}) as Dictionary).duplicate(true)
+		}
 
 func _build_application_snapshot(application: Dictionary) -> Dictionary:
 	var hive_id: String = str(application.get("hive_id", ""))
@@ -1523,13 +1661,15 @@ func _sanitize_hive(raw: Dictionary) -> Dictionary:
 	var hive: Dictionary = {
 		"hive_id": hive_id,
 		"name": _sanitize_hive_name(str(raw.get("name", ""))),
-		"created_at_unix": maxi(0, int(raw.get("created_at_unix", 0))),
-		"created_by_player_id": _sanitize_player_id(str(raw.get("created_by_player_id", ""))),
-		"members": members_out,
-		"pinned_notice": _sanitize_pinned_notice(raw.get("pinned_notice", {})),
-		"soldier_demotion_votes": _sanitize_soldier_demotion_votes(raw.get("soldier_demotion_votes", {})),
-		"queen_removal_vote": _sanitize_vote_map(raw.get("queen_removal_vote", {})),
-		"leadership_removal_votes": _sanitize_leadership_removal_votes(raw.get("leadership_removal_votes", {})),
+			"created_at_unix": maxi(0, int(raw.get("created_at_unix", 0))),
+			"created_by_player_id": _sanitize_player_id(str(raw.get("created_by_player_id", ""))),
+			"members": members_out,
+			"pinned_notice": _sanitize_pinned_notice(raw.get("pinned_notice", {})),
+			"about_profile": _sanitize_hive_about_profile(raw.get("about_profile", {})),
+			"soldier_demotion_votes": _sanitize_soldier_demotion_votes(raw.get("soldier_demotion_votes", {})),
+			"queen_removal_vote": _sanitize_vote_map(raw.get("queen_removal_vote", {})),
+			"queen_removal_vote_started_at_unix": maxi(0, int(raw.get("queen_removal_vote_started_at_unix", 0))),
+			"leadership_removal_votes": _sanitize_leadership_removal_votes(raw.get("leadership_removal_votes", {})),
 		"soldier_promotion_votes": _sanitize_soldier_promotion_votes(raw.get("soldier_promotion_votes", {})),
 		"tournament_wins": maxi(0, int(raw.get("tournament_wins", 0))),
 		"hive_championships": maxi(0, int(raw.get("hive_championships", 0))),
@@ -1570,9 +1710,37 @@ func _sanitize_invite(raw: Dictionary) -> Dictionary:
 		"created_by_display_name": _sanitize_display_name(str(raw.get("created_by_display_name", ""))),
 		"role": _sanitize_role(str(raw.get("role", ROLE_MEMBER))),
 		"status": status,
-		"created_at_unix": created_at_unix,
-		"expires_at_unix": expires_at_unix,
-		"responded_at_unix": maxi(0, int(raw.get("responded_at_unix", 0)))
+			"created_at_unix": created_at_unix,
+			"expires_at_unix": expires_at_unix,
+			"responded_at_unix": maxi(0, int(raw.get("responded_at_unix", 0))),
+			"offer_bundle": _sanitize_invite_offer_bundle(raw.get("offer_bundle", {}))
+		}
+
+func _invite_offer_bundle_for_id(bundle_id: String) -> Dictionary:
+	var target_id: String = bundle_id.strip_edges().to_lower()
+	if target_id.is_empty():
+		return {}
+	for bundle_any in INVITE_OFFER_BUNDLES:
+		var bundle: Dictionary = bundle_any as Dictionary
+		if str(bundle.get("bundle_id", "")).strip_edges().to_lower() == target_id:
+			return bundle.duplicate(true)
+	return {}
+
+func _sanitize_invite_offer_bundle(raw_any: Variant) -> Dictionary:
+	if typeof(raw_any) != TYPE_DICTIONARY:
+		return {}
+	var raw: Dictionary = raw_any as Dictionary
+	var bundle_id: String = str(raw.get("bundle_id", "")).strip_edges().to_lower()
+	var catalog_bundle: Dictionary = _invite_offer_bundle_for_id(bundle_id)
+	if not catalog_bundle.is_empty():
+		return catalog_bundle
+	if bundle_id.is_empty():
+		return {}
+	return {
+		"bundle_id": bundle_id,
+		"title": str(raw.get("title", "Honey Gift")).strip_edges(),
+		"honey_cost": maxi(0, int(raw.get("honey_cost", 0))),
+		"detail": str(raw.get("detail", "")).strip_edges()
 	}
 
 func _sanitize_applications(raw_any: Variant) -> Dictionary:
@@ -1624,6 +1792,20 @@ func _sanitize_pinned_notice(raw_any: Variant) -> Dictionary:
 		"message": message,
 		"updated_at_unix": maxi(0, int(raw.get("updated_at_unix", 0))),
 		"updated_by_player_id": _sanitize_player_id(str(raw.get("updated_by_player_id", "")))
+	}
+
+func _sanitize_hive_about_profile(raw_any: Variant) -> Dictionary:
+	if typeof(raw_any) != TYPE_DICTIONARY:
+		return {}
+	var raw: Dictionary = raw_any as Dictionary
+	var message: String = _sanitize_comms_text(str(raw.get("message", "")), HIVE_ABOUT_MAX_LEN)
+	if message == "":
+		return {}
+	return {
+		"message": message,
+		"updated_at_unix": maxi(0, int(raw.get("updated_at_unix", 0))),
+		"updated_by_player_id": _sanitize_player_id(str(raw.get("updated_by_player_id", ""))),
+		"next_edit_at_unix": maxi(0, int(raw.get("updated_at_unix", 0))) + HIVE_ABOUT_UPDATE_COOLDOWN_SEC if maxi(0, int(raw.get("updated_at_unix", 0))) > 0 else 0
 	}
 
 func _sanitize_feed_entries(raw_any: Variant) -> Array[Dictionary]:
@@ -1863,15 +2045,16 @@ func _format_calendar_date(unix_time: int) -> String:
 	return "%04d-%02d-%02d" % [year, month, day]
 
 func _compute_member_rank_points(player_id: String) -> int:
-	if RankState == null:
+	var rank_state: Node = _rank_state()
+	if rank_state == null:
 		return 0
-	if not RankState.has_method("get_player_snapshot") or not RankState.has_method("get_snapshot"):
+	if not rank_state.has_method("get_player_snapshot") or not rank_state.has_method("get_snapshot"):
 		return 0
-	var rank_snapshot: Dictionary = RankState.call("get_snapshot") as Dictionary
+	var rank_snapshot: Dictionary = rank_state.call("get_snapshot") as Dictionary
 	var player_count: int = maxi(0, int(rank_snapshot.get("player_count", 0)))
 	if player_count <= 0:
 		return 0
-	var player_snapshot: Dictionary = RankState.call("get_player_snapshot", player_id) as Dictionary
+	var player_snapshot: Dictionary = rank_state.call("get_player_snapshot", player_id) as Dictionary
 	if player_snapshot.is_empty():
 		return 0
 	var rank_position: int = maxi(0, int(player_snapshot.get("rank_position", 0)))
@@ -1927,16 +2110,19 @@ func _first_role_player_id(hive: Dictionary, role: String) -> String:
 		return ""
 	return player_ids[0]
 
-func _highest_honey_soldier_player_id(hive: Dictionary) -> String:
+func _senior_soldier_player_id(hive: Dictionary) -> String:
 	var members: Dictionary = hive.get("members", {}) as Dictionary
 	var best_player_id: String = ""
+	var best_joined_at: int = 0
 	var best_honey: int = -1
 	for member_any in members.values():
 		var member: Dictionary = member_any as Dictionary
 		if str(member.get("role", ROLE_MEMBER)) != ROLE_SOLDIER:
 			continue
+		var joined_at: int = int(member.get("joined_at_unix", 0))
 		var honey: int = int(member.get("honey_contributed", 0))
-		if honey > best_honey:
+		if best_player_id.is_empty() or (joined_at > 0 and (best_joined_at <= 0 or joined_at < best_joined_at)) or (joined_at == best_joined_at and honey > best_honey):
+			best_joined_at = joined_at
 			best_honey = honey
 			best_player_id = str(member.get("player_id", ""))
 	return best_player_id
@@ -2021,7 +2207,9 @@ func _build_soldier_demotion_vote_snapshot(hive: Dictionary, target_player_id: S
 	voter_ids.sort()
 	return {
 		"target_player_id": target_player_id,
+		"applied_by_player_id": _sanitize_player_id(str(vote_record.get("applied_by_player_id", ""))),
 		"created_at_unix": int(vote_record.get("created_at_unix", 0)),
+		"expires_at_unix": int(vote_record.get("created_at_unix", 0)) + GOVERNANCE_VOTE_WINDOW_SEC if int(vote_record.get("created_at_unix", 0)) > 0 else 0,
 		"voter_ids": voter_ids,
 		"ready_to_demote": _has_queen_and_supporting_soldier_vote(hive, vote_record, target_player_id)
 	}
@@ -2035,8 +2223,11 @@ func _build_queen_removal_vote_snapshot(hive: Dictionary) -> Dictionary:
 			continue
 		voter_ids.append(voter_id)
 	voter_ids.sort()
+	var created_at_unix: int = int(hive.get("queen_removal_vote_started_at_unix", 0))
 	return {
 		"queen_player_id": _first_role_player_id(hive, ROLE_QUEEN),
+		"created_at_unix": created_at_unix,
+		"expires_at_unix": created_at_unix + GOVERNANCE_VOTE_WINDOW_SEC if created_at_unix > 0 else 0,
 		"voter_ids": voter_ids,
 		"votes_needed": MAX_SOLDIERS,
 		"ready_to_remove": _count_valid_queen_removal_votes(hive) >= MAX_SOLDIERS
@@ -2071,6 +2262,7 @@ func _build_leadership_removal_vote_snapshot(hive: Dictionary, target_player_id:
 		"target_player_id": target_player_id,
 		"target_role": str(vote_record.get("target_role", "")),
 		"created_at_unix": int(vote_record.get("created_at_unix", 0)),
+		"expires_at_unix": int(vote_record.get("created_at_unix", 0)) + GOVERNANCE_VOTE_WINDOW_SEC if int(vote_record.get("created_at_unix", 0)) > 0 else 0,
 		"voter_ids": voter_ids,
 		"votes_needed": maxi(MIN_LEADERSHIP_REMOVAL_VOTES, eligible_voters.size()),
 		"ready_to_remove": _has_unanimous_leadership_removal_vote(hive, vote_record, target_player_id)
@@ -2104,6 +2296,7 @@ func _build_soldier_promotion_vote_snapshot(hive: Dictionary, target_player_id: 
 	return {
 		"target_player_id": target_player_id,
 		"created_at_unix": int(vote_record.get("created_at_unix", 0)),
+		"expires_at_unix": int(vote_record.get("created_at_unix", 0)) + GOVERNANCE_VOTE_WINDOW_SEC if int(vote_record.get("created_at_unix", 0)) > 0 else 0,
 		"voter_ids": voter_ids,
 		"votes_needed": _promotion_majority_threshold(eligible_voters.size()),
 		"ready_to_promote": _has_majority_promotion_vote(hive, vote_record, target_player_id)
@@ -2214,6 +2407,8 @@ func _clear_governance_state_for_player(hive: Dictionary, player_id: String) -> 
 	if queen_removal_vote.has(target_id):
 		queen_removal_vote.erase(target_id)
 	hive["queen_removal_vote"] = queen_removal_vote
+	if queen_removal_vote.is_empty():
+		hive["queen_removal_vote_started_at_unix"] = 0
 	var leadership_removal_votes: Dictionary = hive.get("leadership_removal_votes", {}) as Dictionary
 	leadership_removal_votes.erase(target_id)
 	for vote_target_any in leadership_removal_votes.keys():
@@ -2329,6 +2524,7 @@ func _rejoin_block_until(player_id: String, hive_id: String) -> int:
 func _refresh_runtime_state() -> void:
 	_process_expired_invites()
 	_process_pending_leaves()
+	_process_expired_governance_votes()
 	_process_inactive_vote_abstentions()
 
 func _process_expired_invites() -> void:
@@ -2369,6 +2565,57 @@ func _process_pending_leaves() -> void:
 	_save_state()
 	_emit_changed()
 
+func _process_expired_governance_votes() -> void:
+	if _hives_by_id.is_empty():
+		return
+	var now_unix: int = _now_unix()
+	var changed: bool = false
+	for hive_id_any in _hives_by_id.keys():
+		var hive_id: String = str(hive_id_any)
+		var hive: Dictionary = _hives_by_id.get(hive_id, {}) as Dictionary
+		if hive.is_empty():
+			continue
+		if _strip_expired_votes_from_hive(hive, now_unix):
+			_hives_by_id[hive_id] = hive
+			changed = true
+	if changed:
+		_save_state()
+
+func _strip_expired_votes_from_hive(hive: Dictionary, now_unix: int) -> bool:
+	var changed: bool = false
+	var queen_removal_vote: Dictionary = hive.get("queen_removal_vote", {}) as Dictionary
+	if queen_removal_vote.is_empty():
+		if int(hive.get("queen_removal_vote_started_at_unix", 0)) != 0:
+			hive["queen_removal_vote_started_at_unix"] = 0
+			changed = true
+	else:
+		var queen_started_at: int = int(hive.get("queen_removal_vote_started_at_unix", 0))
+		if queen_started_at <= 0:
+			hive["queen_removal_vote_started_at_unix"] = now_unix
+			changed = true
+		elif queen_started_at + GOVERNANCE_VOTE_WINDOW_SEC <= now_unix:
+			hive["queen_removal_vote"] = {}
+			hive["queen_removal_vote_started_at_unix"] = 0
+			changed = true
+	for key in ["soldier_demotion_votes", "leadership_removal_votes", "soldier_promotion_votes"]:
+		var vote_map: Dictionary = hive.get(key, {}) as Dictionary
+		var remove_targets: Array[String] = []
+		for target_any in vote_map.keys():
+			var target_id: String = str(target_any)
+			var vote_record: Dictionary = vote_map.get(target_id, {}) as Dictionary
+			var created_at_unix: int = int(vote_record.get("created_at_unix", 0))
+			if created_at_unix <= 0:
+				vote_record["created_at_unix"] = now_unix
+				vote_map[target_id] = vote_record
+				changed = true
+			elif created_at_unix + GOVERNANCE_VOTE_WINDOW_SEC <= now_unix:
+				remove_targets.append(target_id)
+		for target_id in remove_targets:
+			vote_map.erase(target_id)
+			changed = true
+		hive[key] = vote_map
+	return changed
+
 func _process_inactive_vote_abstentions() -> void:
 	if _hives_by_id.is_empty():
 		return
@@ -2402,6 +2649,9 @@ func _strip_inactive_votes_from_hive(hive: Dictionary) -> bool:
 			queen_removal_vote.erase(player_id)
 			changed = true
 	hive["queen_removal_vote"] = queen_removal_vote
+	if queen_removal_vote.is_empty() and int(hive.get("queen_removal_vote_started_at_unix", 0)) != 0:
+		hive["queen_removal_vote_started_at_unix"] = 0
+		changed = true
 	for key in ["soldier_demotion_votes", "leadership_removal_votes", "soldier_promotion_votes"]:
 		var vote_map: Dictionary = hive.get(key, {}) as Dictionary
 		for target_any in vote_map.keys():
@@ -2505,6 +2755,7 @@ func _sanitize_soldier_demotion_votes(raw_any: Variant) -> Dictionary:
 		var vote_record_raw: Dictionary = raw.get(target_id_any, {}) as Dictionary
 		out[target_id] = {
 			"target_player_id": target_id,
+			"applied_by_player_id": _sanitize_player_id(str(vote_record_raw.get("applied_by_player_id", ""))),
 			"created_at_unix": maxi(0, int(vote_record_raw.get("created_at_unix", 0))),
 			"votes_by_player_id": _sanitize_vote_map(vote_record_raw.get("votes_by_player_id", {}))
 		}
@@ -2564,9 +2815,16 @@ func _resolve_player_id(player_id: String) -> String:
 		return clean_id
 	return _local_player_id()
 
+func _rank_state() -> Node:
+	return get_node_or_null("/root/RankState")
+
+func _profile_manager() -> Node:
+	return get_node_or_null("/root/ProfileManager")
+
 func _local_player_id() -> String:
-	if ProfileManager != null and ProfileManager.has_method("get_user_id"):
-		return _sanitize_player_id(str(ProfileManager.call("get_user_id")))
+	var profile_manager: Node = _profile_manager()
+	if profile_manager != null and profile_manager.has_method("get_user_id"):
+		return _sanitize_player_id(str(profile_manager.call("get_user_id")))
 	return ""
 
 func _display_name_for_player(player_id: String, fallback: String = "") -> String:
@@ -2574,10 +2832,11 @@ func _display_name_for_player(player_id: String, fallback: String = "") -> Strin
 	var clean_fallback: String = _sanitize_display_name(fallback)
 	if clean_player_id.is_empty():
 		return clean_fallback
-	if ProfileManager != null and ProfileManager.has_method("get_user_id"):
-		var local_player_id: String = str(ProfileManager.call("get_user_id"))
-		if clean_player_id == local_player_id and ProfileManager.has_method("get_display_name"):
-			return _sanitize_display_name(str(ProfileManager.call("get_display_name")))
+	var profile_manager: Node = _profile_manager()
+	if profile_manager != null and profile_manager.has_method("get_user_id"):
+		var local_player_id: String = str(profile_manager.call("get_user_id"))
+		if clean_player_id == local_player_id and profile_manager.has_method("get_display_name"):
+			return _sanitize_display_name(str(profile_manager.call("get_display_name")))
 	if not clean_fallback.is_empty():
 		return clean_fallback
 	var suffix: String = clean_player_id

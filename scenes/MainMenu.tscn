@@ -1499,6 +1499,10 @@ text = "PENDING"
 layout_mode = 2
 text = "LEAVE"
 
+[node name="HiveAbout" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
+layout_mode = 2
+text = "ABOUT"
+
 [node name="HiveFooter" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
 layout_mode = 2
 text = "Clan features are stubbed for v1."

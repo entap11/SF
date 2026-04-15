@@ -4,6 +4,7 @@ extends RefCounted
 const MAP_ROOT: String = "res://maps"
 const SKIP_DIR_TOKENS: Array[String] = ["/_legacy", "/templates", "/_future"]
 const SANDBOX_ENABLED: bool = true
+const SANDBOX_ENV_VAR: String = "SF_MAP_SANDBOX"
 const SANDBOX_ALLOWED_MAP_IDS: Array[String] = [
 	"MAP_TEST",
 	"MAP_nomansland__SBASE__1p",
@@ -47,7 +48,7 @@ static func is_map_path_allowed(path: String) -> bool:
 	return is_map_id_allowed(map_id_from_path(path))
 
 static func is_map_id_allowed(map_id: String) -> bool:
-	if not SANDBOX_ENABLED:
+	if not _is_sandbox_enabled():
 		return true
 	var normalized: String = map_id_from_input(map_id).to_upper()
 	for allow_any in SANDBOX_ALLOWED_MAP_IDS:
@@ -213,3 +214,15 @@ static func _should_skip_dir(path: String) -> bool:
 static func _is_map_candidate_path(path: String) -> bool:
 	var map_id: String = map_id_from_path(path)
 	return map_id.begins_with("MAP_")
+
+static func _is_sandbox_enabled() -> bool:
+	if not SANDBOX_ENABLED:
+		return false
+	var override_raw: String = OS.get_environment(SANDBOX_ENV_VAR).strip_edges().to_lower()
+	if override_raw.is_empty():
+		return true
+	match override_raw:
+		"0", "false", "off", "disable", "disabled", "all":
+			return false
+		_:
+			return true
