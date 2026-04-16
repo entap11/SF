@@ -1462,15 +1462,15 @@ size_flags_vertical = 3
 
 [node name="HiveComm1" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
 layout_mode = 2
-text = "Hive-only comms placeholder"
+text = "No hive comms yet"
 
 [node name="HiveComm2" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
 layout_mode = 2
-text = "Pinned message placeholder"
+text = "Pinned notices appear here"
 
 [node name="HiveComm3" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
 layout_mode = 2
-text = "Recent coordination note"
+text = "Recent hive posts appear here"
 
 [node name="HiveComm4" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
 layout_mode = 2

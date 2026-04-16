@@ -389,7 +389,7 @@ const HIVE_PANEL_PROFILE_DEFAULT := {
 		"... +8 more members"
 	],
 	"messages": [
-		"Leader: Push Hive Quests before reset.",
+		"Leader: Tournament check-in closes in 2d.",
 		"Soldiers: Tournament routing at 9pm.",
 		"Welcome WaspRider to the hive.",
 		"Pending invites: 2 | Governance inbox: 1"
@@ -404,11 +404,14 @@ const HIVE_PANEL_PROFILE_DEFAULT := {
 	"browse_hives": [],
 	"selected_hive": {},
 	"selected_hive_id": "",
-	"visible_invites": [],
-	"pending_applications": [],
-	"local_rank_position": 0,
-	"local_tier_id": "DRONE",
-	"local_wax_score": 0.0,
+		"visible_invites": [],
+		"pending_applications": [],
+		"tournament_entries": {},
+		"tournament_dashboard": {},
+		"tournament_status_line": "",
+		"local_rank_position": 0,
+		"local_tier_id": "DRONE",
+		"local_wax_score": 0.0,
 	"local_display_name": "Player",
 	"local_honey": 0
 }
@@ -731,9 +734,16 @@ var _hive_pin_input: TextEdit = null
 var _hive_about_dialog: ConfirmationDialog = null
 var _hive_about_input: TextEdit = null
 var _hive_about_desc_label: Label = null
+var _hive_rankings_dialog: AcceptDialog = null
+var _hive_rankings_list: ItemList = null
+var _hive_rankings_meta_label: Label = null
 var _hive_tournaments_dialog: AcceptDialog = null
 var _hive_tournaments_list: ItemList = null
 var _hive_tournaments_meta_label: Label = null
+var _hive_tournaments_detail_label: Label = null
+var _hive_tournaments_enter_button: Button = null
+var _hive_tournaments_launch_button: Button = null
+var _announced_hive_tournament_round_id: String = ""
 var _entry_overlay_inlay_rotated_texture: Texture2D = null
 var _entry_overlay_inlay_cropped_texture: Texture2D = null
 var _entry_overlay_inlay_rotated_cropped_texture: Texture2D = null
@@ -2038,18 +2048,11 @@ func _ensure_hive_dropdown() -> void:
 	_style_button(chat_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 
 	var ladder_button: Button = Button.new()
-	ladder_button.text = "HIVE LADDER"
+	ladder_button.text = "HIVE RANKINGS"
 	ladder_button.pressed.connect(func(): _on_hive_dropdown_action("ladder"))
 	body.add_child(ladder_button)
 	_apply_font(ladder_button, _font_regular, 13)
 	_style_button(ladder_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
-
-	var quests_button: Button = Button.new()
-	quests_button.text = "HIVE QUESTS"
-	quests_button.pressed.connect(func(): _on_hive_dropdown_action("quests"))
-	body.add_child(quests_button)
-	_apply_font(quests_button, _font_regular, 13)
-	_style_button(quests_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 
 	var close_button: Button = Button.new()
 	close_button.text = "CLOSE"
@@ -2076,9 +2079,7 @@ func _on_hive_dropdown_action(action: String) -> void:
 		"chat":
 			_open_hive_comms_access()
 		"ladder":
-			_stub_action("Hive Ladder")
-		"quests":
-			_stub_action("Hive Quests")
+			_open_hive_rankings_dialog()
 		_:
 			pass
 
@@ -2127,6 +2128,7 @@ func _close_hive_dialogs_to_main_menu() -> void:
 			_hive_post_dialog,
 			_hive_pin_dialog,
 			_hive_about_dialog,
+			_hive_rankings_dialog,
 			_hive_tournaments_dialog
 		]:
 		if dialog != null and is_instance_valid(dialog):
@@ -2542,6 +2544,89 @@ func _submit_hive_soldier_application() -> void:
 	status_label.text = "Soldier application submitted. Leadership vote expires in %s." % _format_time_remaining(int(vote.get("expires_at_unix", 0)))
 	_sync_hive_panel_profile_from_hive_state()
 
+func _ensure_hive_rankings_dialog() -> void:
+	if _hive_rankings_dialog != null and is_instance_valid(_hive_rankings_dialog):
+		return
+	var dialog := AcceptDialog.new()
+	dialog.name = "HiveRankingsDialog"
+	dialog.title = "Hive Rankings"
+	dialog.exclusive = true
+	dialog.min_size = Vector2i(640, 440)
+	add_child(dialog)
+	_hive_rankings_dialog = dialog
+
+	var body := VBoxContainer.new()
+	body.name = "HiveRankingsVBox"
+	body.custom_minimum_size = Vector2(580.0, 340.0)
+	body.add_theme_constant_override("separation", 10)
+	dialog.add_child(body)
+
+	var meta := Label.new()
+	meta.text = "Ranking hives by member strength, tournament wins, titles, and seasonal finish."
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(meta)
+	_apply_font(meta, _font_regular, 12)
+	_hive_rankings_meta_label = meta
+
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(580.0, 270.0)
+	list.select_mode = ItemList.SELECT_SINGLE
+	list.allow_reselect = true
+	body.add_child(list)
+	_apply_font(list, _font_regular, 12)
+	_hive_rankings_list = list
+
+	_wire_hive_dialog_main_menu(dialog)
+	dialog.get_ok_button().text = "CLOSE"
+	_apply_font(dialog.get_ok_button(), _font_regular, 12)
+	_style_button(dialog.get_ok_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+
+func _refresh_hive_rankings_dialog() -> void:
+	if _hive_rankings_list == null or _hive_rankings_meta_label == null:
+		return
+	_hive_rankings_list.clear()
+	if HiveClanState == null or not HiveClanState.has_method("get_browseable_hives"):
+		_hive_rankings_meta_label.text = "Hive rankings unavailable."
+		return
+	var membership: Dictionary = _current_hive_membership()
+	var current_hive_id: String = str(membership.get("hive_id", ""))
+	var hives: Array = HiveClanState.call("get_browseable_hives") as Array
+	var rank_position: int = 1
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		var marker: String = "  YOU" if str(hive.get("hive_id", "")) == current_hive_id else ""
+		var rank_breakdown: Dictionary = hive.get("rank_breakdown", {}) as Dictionary
+		var label: String = "#%d | %s | %d/%d | Rank %s | T %d | Titles %d%s" % [
+			rank_position,
+			str(hive.get("name", "Hive")),
+			int(hive.get("member_count", 0)),
+			int(hive.get("member_limit", 14)),
+			_format_number(int(hive.get("rank_points", 0))),
+			int(hive.get("tournament_wins", 0)),
+			int(hive.get("hive_championships", 0)),
+			marker
+		]
+		var multiplier: float = float(rank_breakdown.get("multiplier", 1.0))
+		if multiplier > 1.001:
+			label += " | x%0.2f" % multiplier
+		_hive_rankings_list.add_item(label)
+		var idx: int = _hive_rankings_list.get_item_count() - 1
+		_hive_rankings_list.set_item_metadata(idx, hive.duplicate(true))
+		rank_position += 1
+	if _hive_rankings_list.item_count > 0:
+		_hive_rankings_meta_label.text = "Ranking hives by member rank totals multiplied by permanent trophy bonuses. Current hive marked when applicable."
+	else:
+		_hive_rankings_meta_label.text = "No hives ranked yet."
+
+func _open_hive_rankings_dialog() -> void:
+	_ensure_hive_rankings_dialog()
+	_refresh_hive_rankings_dialog()
+	if _hive_rankings_dialog == null:
+		return
+	_hive_rankings_dialog.popup_centered()
+
 func _ensure_hive_tournaments_dialog() -> void:
 	if _hive_tournaments_dialog != null and is_instance_valid(_hive_tournaments_dialog):
 		return
@@ -2549,13 +2634,13 @@ func _ensure_hive_tournaments_dialog() -> void:
 	dialog.name = "HiveTournamentsDialog"
 	dialog.title = "Hive Tournaments"
 	dialog.exclusive = true
-	dialog.min_size = Vector2i(620, 420)
+	dialog.min_size = Vector2i(720, 620)
 	add_child(dialog)
 	_hive_tournaments_dialog = dialog
 
 	var body := VBoxContainer.new()
 	body.name = "HiveTournamentsVBox"
-	body.custom_minimum_size = Vector2(560.0, 320.0)
+	body.custom_minimum_size = Vector2(660.0, 500.0)
 	body.add_theme_constant_override("separation", 10)
 	dialog.add_child(body)
 
@@ -2567,16 +2652,33 @@ func _ensure_hive_tournaments_dialog() -> void:
 	_hive_tournaments_meta_label = meta
 
 	var list := ItemList.new()
-	list.custom_minimum_size = Vector2(560.0, 250.0)
+	list.custom_minimum_size = Vector2(660.0, 220.0)
 	list.select_mode = ItemList.SELECT_SINGLE
 	list.allow_reselect = true
 	body.add_child(list)
 	_apply_font(list, _font_regular, 12)
+	if not list.item_selected.is_connected(_on_hive_tournaments_item_selected):
+		list.item_selected.connect(_on_hive_tournaments_item_selected)
 	_hive_tournaments_list = list
+
+	var detail := Label.new()
+	detail.name = "HiveTournamentDetail"
+	detail.custom_minimum_size = Vector2(660.0, 190.0)
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	detail.text = "Select a tournament to view bracket status."
+	body.add_child(detail)
+	_apply_font(detail, _font_regular, 12)
+	_hive_tournaments_detail_label = detail
 
 	var enter_button: Button = dialog.add_button("ENTER", false, "enter")
 	_apply_font(enter_button, _font_semibold, 12)
 	_style_button(enter_button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	_hive_tournaments_enter_button = enter_button
+	var launch_button: Button = dialog.add_button("START RUN", false, "launch")
+	_apply_font(launch_button, _font_semibold, 12)
+	_style_button(launch_button, Color(0.08, 0.16, 0.12), Color(0.36, 0.76, 0.54), Color(0.94, 0.99, 0.96))
+	_hive_tournaments_launch_button = launch_button
 	_wire_hive_dialog_main_menu(dialog)
 	dialog.get_ok_button().text = "CLOSE"
 	_apply_font(dialog.get_ok_button(), _font_regular, 12)
@@ -2589,27 +2691,78 @@ func _refresh_hive_tournaments_dialog() -> void:
 		return
 	_hive_tournaments_list.clear()
 	var hive_honey: int = int(_hive_panel_profile.get("honey_score", 0))
+	var tournament_entries: Dictionary = _hive_panel_profile.get("tournament_entries", {}) as Dictionary
+	var hive_id: String = _current_hive_id()
+	var local_assignment: Dictionary = _local_hive_tournament_assignment()
 	var entries: Array = HiveClanState.call("get_hive_tournament_entries") as Array if HiveClanState != null and HiveClanState.has_method("get_hive_tournament_entries") else []
-	_hive_tournaments_meta_label.text = "Available hive honey: %s | Queen-only entry controls." % _format_number(hive_honey)
+	var role_key: String = _current_hive_role_key()
+	if not local_assignment.is_empty():
+		_hive_tournaments_meta_label.text = "Tournament run assigned. Submit by %s before entering any other queue." % _format_calendar_date(int(local_assignment.get("deadline_unix", 0)))
+	elif role_key == "queen":
+		_hive_tournaments_meta_label.text = "Available hive honey: %s | Queen entry controls are active." % _format_number(hive_honey)
+	else:
+		_hive_tournaments_meta_label.text = "Available hive honey: %s | View tournament status here. Queens enter; assigned players launch." % _format_number(hive_honey)
 	for entry_any in entries:
 		if typeof(entry_any) != TYPE_DICTIONARY:
 			continue
 		var entry: Dictionary = entry_any as Dictionary
+		var tournament_id: String = str(entry.get("tournament_id", ""))
+		var active_entry: Dictionary = tournament_entries.get(tournament_id, {}) as Dictionary
+		var dashboard: Dictionary = HiveClanState.call("get_hive_tournament_dashboard", hive_id, tournament_id, "") as Dictionary if HiveClanState != null and HiveClanState.has_method("get_hive_tournament_dashboard") and not hive_id.is_empty() else {}
 		var cost: int = int(entry.get("honey_cost", 0))
+		var queue_status: String = str(active_entry.get("queue_status", ""))
+		var local_for_entry: bool = str(local_assignment.get("tournament_id", "")) == tournament_id
+		var state_text: String = ""
+		if local_for_entry:
+			state_text = "Your Run"
+		elif not dashboard.is_empty() and str(dashboard.get("queue_status", "")) == "active":
+			var dashboard_round_number: int = maxi(1, int(dashboard.get("current_round_number", 1)))
+			var dashboard_rounds_total: int = maxi(1, int(dashboard.get("rounds_total", 1)))
+			var opponent_hive_name: String = str(dashboard.get("opponent_hive_name", "")).strip_edges()
+			if opponent_hive_name != "":
+				state_text = "R%d/%d vs %s" % [dashboard_round_number, dashboard_rounds_total, opponent_hive_name]
+			else:
+				state_text = "Round %d/%d" % [dashboard_round_number, dashboard_rounds_total]
+		elif queue_status == "active":
+			state_text = "In Progress"
+		elif queue_status == "queued":
+			if not dashboard.is_empty():
+				state_text = "Queued %d/%d" % [
+					maxi(1, int(dashboard.get("queue_position", 1))),
+					maxi(1, int(dashboard.get("queue_size", 1)))
+				]
+			else:
+				state_text = "Awaiting Opponent"
+		elif queue_status == "resolved" or queue_status == "forfeit":
+			state_text = "Resolved"
+		else:
+			state_text = "Ready" if hive_honey >= cost else "Need %s more" % _format_number(cost - hive_honey)
 		var label: String = "%s | Honey %s | %s" % [
 			str(entry.get("title", "Hive Tournament")),
 			_format_number(cost),
-			"Ready" if hive_honey >= cost else "Need %s more" % _format_number(cost - hive_honey)
+			state_text
 		]
 		_hive_tournaments_list.add_item(label)
 		var idx: int = _hive_tournaments_list.get_item_count() - 1
-		_hive_tournaments_list.set_item_metadata(idx, entry.duplicate(true))
+		var entry_with_state: Dictionary = entry.duplicate(true)
+		if not active_entry.is_empty():
+			entry_with_state["active_entry"] = active_entry.duplicate(true)
+		if not dashboard.is_empty():
+			entry_with_state["dashboard"] = dashboard.duplicate(true)
+		if local_for_entry:
+			entry_with_state["local_assignment"] = local_assignment.duplicate(true)
+		_hive_tournaments_list.set_item_metadata(idx, entry_with_state)
+		if local_for_entry:
+			_hive_tournaments_list.select(idx)
+	if _hive_tournaments_list.get_item_count() > 0 and _hive_tournaments_list.get_selected_items().is_empty():
+		_hive_tournaments_list.select(0)
 	if entries.is_empty():
 		_hive_tournaments_meta_label.text = "No hive tournaments configured yet."
+	_sync_hive_tournaments_dialog_selection()
 
 func _open_hive_tournaments_dialog() -> void:
-	if _current_hive_role_key() != "queen":
-		status_label.text = "Only the queen can enter hive tournaments."
+	if _current_hive_id().is_empty():
+		status_label.text = "Join a hive to view tournaments."
 		return
 	_ensure_hive_tournaments_dialog()
 	_refresh_hive_tournaments_dialog()
@@ -2618,8 +2771,6 @@ func _open_hive_tournaments_dialog() -> void:
 	_hive_tournaments_dialog.popup_centered()
 
 func _on_hive_tournaments_action(action: StringName) -> void:
-	if String(action) != "enter":
-		return
 	if _hive_tournaments_list == null:
 		return
 	var selected: PackedInt32Array = _hive_tournaments_list.get_selected_items()
@@ -2631,7 +2782,374 @@ func _on_hive_tournaments_action(action: StringName) -> void:
 		status_label.text = "Selected tournament is invalid."
 		return
 	var entry: Dictionary = metadata as Dictionary
-	status_label.text = "%s entry hook is ready for the tournament backend." % str(entry.get("title", "Hive Tournament"))
+	if String(action) == "launch":
+		var assignment: Dictionary = entry.get("local_assignment", {}) as Dictionary
+		if assignment.is_empty():
+			status_label.text = "No active tournament run is assigned."
+			return
+		if _launch_local_hive_tournament_run(assignment):
+			if _hive_tournaments_dialog != null:
+				_hive_tournaments_dialog.hide()
+		else:
+			status_label.text = "Tournament launch failed."
+		return
+	if String(action) != "enter":
+		return
+	if not (entry.get("active_entry", {}) as Dictionary).is_empty():
+		status_label.text = "%s is already entered." % str(entry.get("title", "Hive Tournament"))
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_enter_hive_tournament"):
+		status_label.text = "Hive tournament entry unavailable."
+		return
+	var hive_id: String = _current_hive_id()
+	if hive_id.is_empty():
+		status_label.text = "No active hive found."
+		return
+	var result: Dictionary = HiveClanState.call("intent_enter_hive_tournament", hive_id, str(entry.get("tournament_id", "")), "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"forbidden":
+				status_label.text = "Only the queen can enter hive tournaments."
+			"tournament_not_found":
+				status_label.text = "Selected tournament is invalid."
+			"tournament_already_entered":
+				status_label.text = "%s is already entered." % str(entry.get("title", "Hive Tournament"))
+			"insufficient_hive_honey":
+				status_label.text = "Not enough hive honey for %s." % str(entry.get("title", "Hive Tournament"))
+			"insufficient_hive_members":
+				status_label.text = "Hive tournaments require 7 members."
+			"active_round_in_progress":
+				status_label.text = "Finish the current hive tournament round before entering another."
+			_:
+				status_label.text = "Could not enter hive tournament."
+		_refresh_hive_tournaments_dialog()
+		return
+	var entered: Dictionary = result.get("entry", {}) as Dictionary
+	var queue_status: String = str(entered.get("queue_status", "queued"))
+	status_label.text = "Entered %s for %s hive honey. %s" % [
+		str(entered.get("title", entry.get("title", "Hive Tournament"))),
+		_format_number(int(entered.get("honey_cost", entry.get("honey_cost", 0)))),
+		"Round started." if queue_status == "active" else "Waiting for an opponent."
+	]
+	_sync_hive_panel_profile_from_hive_state()
+	_refresh_hive_tournaments_dialog()
+
+func _on_hive_tournaments_item_selected(_index: int) -> void:
+	_sync_hive_tournaments_dialog_selection()
+
+func _sync_hive_tournaments_dialog_selection() -> void:
+	_update_hive_tournaments_dialog_buttons()
+	_refresh_hive_tournaments_detail()
+
+func _update_hive_tournaments_dialog_buttons() -> void:
+	var selected_entry: Dictionary = {}
+	if _hive_tournaments_list != null:
+		var selected: PackedInt32Array = _hive_tournaments_list.get_selected_items()
+		if not selected.is_empty():
+			var metadata: Variant = _hive_tournaments_list.get_item_metadata(selected[0])
+			if typeof(metadata) == TYPE_DICTIONARY:
+				selected_entry = metadata as Dictionary
+	var active_entry: Dictionary = selected_entry.get("active_entry", {}) as Dictionary
+	var local_assignment: Dictionary = selected_entry.get("local_assignment", {}) as Dictionary
+	var hive_honey: int = int(_hive_panel_profile.get("honey_score", 0))
+	var honey_cost: int = int(selected_entry.get("honey_cost", 0))
+	var can_enter: bool = not selected_entry.is_empty()
+	can_enter = can_enter and _current_hive_role_key() == "queen"
+	can_enter = can_enter and active_entry.is_empty()
+	can_enter = can_enter and honey_cost > 0 and hive_honey >= honey_cost
+	if _hive_tournaments_enter_button != null:
+		_hive_tournaments_enter_button.disabled = not can_enter
+	if _hive_tournaments_launch_button != null:
+		_hive_tournaments_launch_button.disabled = local_assignment.is_empty()
+		_hive_tournaments_launch_button.visible = not local_assignment.is_empty()
+
+func _refresh_hive_tournaments_detail() -> void:
+	if _hive_tournaments_detail_label == null:
+		return
+	var selected_entry: Dictionary = {}
+	if _hive_tournaments_list != null:
+		var selected: PackedInt32Array = _hive_tournaments_list.get_selected_items()
+		if not selected.is_empty():
+			var metadata: Variant = _hive_tournaments_list.get_item_metadata(selected[0])
+			if typeof(metadata) == TYPE_DICTIONARY:
+				selected_entry = metadata as Dictionary
+	if selected_entry.is_empty():
+		_hive_tournaments_detail_label.text = "Select a tournament to view bracket status."
+		return
+	var dashboard: Dictionary = selected_entry.get("dashboard", {}) as Dictionary
+	_hive_tournaments_detail_label.text = _build_hive_tournament_dashboard_text(dashboard, selected_entry)
+
+func _build_hive_tournament_dashboard_text(dashboard: Dictionary, entry: Dictionary) -> String:
+	var title: String = str(entry.get("title", dashboard.get("title", "Hive Tournament"))).strip_edges()
+	var lines: Array[String] = []
+	lines.append(title)
+	var queue_status: String = str(dashboard.get("queue_status", entry.get("queue_status", ""))).strip_edges().to_lower()
+	var rounds_total: int = maxi(1, int(dashboard.get("rounds_total", entry.get("rounds_total", 1))))
+	var current_round_number: int = maxi(0, int(dashboard.get("current_round_number", entry.get("current_round_number", 0))))
+	var field_size: int = maxi(2, int(dashboard.get("field_size", entry.get("field_size", 2))))
+	if queue_status == "active":
+		var opponent_hive_name: String = str(dashboard.get("opponent_hive_name", "")).strip_edges()
+		var roster_size: int = maxi(1, int(dashboard.get("roster_size", 7)))
+		lines.append("Bracket round %d/%d | Field %d" % [maxi(1, current_round_number), rounds_total, field_size])
+		if opponent_hive_name != "":
+			lines.append("Opponent hive: %s" % opponent_hive_name)
+		lines.append("Finished: %d/%d | Opponent finished: %d/%d" % [
+			int(dashboard.get("hive_completed_count", 0)),
+			roster_size,
+			int(dashboard.get("opponent_completed_count", 0)),
+			roster_size
+		])
+		var replace_deadline_unix: int = int(dashboard.get("replace_deadline_unix", 0))
+		var deadline_unix: int = int(dashboard.get("deadline_unix", 0))
+		if replace_deadline_unix > int(Time.get_unix_time_from_system()):
+			lines.append("Replacement check-in window: %s" % _format_time_remaining(replace_deadline_unix))
+		if deadline_unix > 0:
+			lines.append("Submission deadline: %s" % _format_time_remaining(deadline_unix))
+		var slot_matchups_any: Variant = dashboard.get("slot_matchups", [])
+		if typeof(slot_matchups_any) == TYPE_ARRAY and not (slot_matchups_any as Array).is_empty():
+			lines.append("")
+			lines.append("Slot matchups")
+			for matchup_any in slot_matchups_any as Array:
+				if typeof(matchup_any) != TYPE_DICTIONARY:
+					continue
+				var matchup: Dictionary = matchup_any as Dictionary
+				lines.append("%d. %s [%s] vs %s [%s]" % [
+					int(matchup.get("slot_number", 0)),
+					_format_hive_tournament_slot_name(str(matchup.get("display_name", "")), bool(matchup.get("is_local_player", false))),
+					_format_hive_tournament_slot_status(
+						str(matchup.get("status", "")),
+						int(matchup.get("checked_in_at_unix", 0)),
+						int(matchup.get("submitted_at_unix", 0))
+					),
+					str(matchup.get("opponent_display_name", "TBD")).strip_edges(),
+					_format_hive_tournament_slot_status(
+						str(matchup.get("opponent_status", "")),
+						0,
+						int(matchup.get("opponent_submitted_at_unix", 0))
+					)
+				])
+	elif queue_status == "queued":
+		lines.append("Queued for %d-hive bracket" % field_size)
+		lines.append("Queue position: %d of %d" % [
+			maxi(1, int(dashboard.get("queue_position", 1))),
+			maxi(1, int(dashboard.get("queue_size", 1)))
+		])
+		var queued_at_unix: int = int(dashboard.get("queued_at_unix", 0))
+		if queued_at_unix > 0:
+			lines.append("Queued %s" % _format_hive_feed_age(queued_at_unix))
+	elif queue_status == "resolved" or queue_status == "forfeit":
+		var last_result: Dictionary = dashboard.get("last_result", {}) as Dictionary
+		var winner_hive_id: String = str(last_result.get("winner_hive_id", "")).strip_edges()
+		var current_hive_id: String = _current_hive_id()
+		if winner_hive_id == current_hive_id:
+			lines.append("Latest result: Won")
+		elif winner_hive_id != "":
+			lines.append("Latest result: Lost")
+		else:
+			lines.append("Latest result: Resolved")
+		var resolution_reason: String = str(last_result.get("resolution_reason", "")).strip_edges().replace("_", " ")
+		if resolution_reason != "":
+			lines.append("Resolution: %s" % resolution_reason.capitalize())
+	else:
+		lines.append("Field %d | Bracket round %d/%d" % [field_size, maxi(1, current_round_number), rounds_total])
+		lines.append("Awaiting next round to be generated.")
+	var detail: String = str(entry.get("detail", dashboard.get("detail", ""))).strip_edges()
+	if detail != "":
+		lines.append("")
+		lines.append(detail)
+	return "\n".join(lines)
+
+func _format_hive_tournament_slot_name(display_name: String, is_local_player: bool) -> String:
+	var clean_name: String = display_name.strip_edges()
+	if clean_name == "":
+		clean_name = "TBD"
+	return "%s (YOU)" % clean_name if is_local_player else clean_name
+
+func _format_hive_tournament_slot_status(status: String, checked_in_at_unix: int = 0, submitted_at_unix: int = 0) -> String:
+	var clean_status: String = status.strip_edges().to_lower()
+	match clean_status:
+		"submitted":
+			return "Done"
+		"assigned":
+			return "Checked In" if checked_in_at_unix > 0 or submitted_at_unix > 0 else "Pending Login"
+		_:
+			return clean_status.capitalize() if clean_status != "" else "Pending"
+
+func _build_hive_tournament_status_line(dashboard: Dictionary) -> String:
+	if dashboard.is_empty():
+		return ""
+	var queue_status: String = str(dashboard.get("queue_status", "")).strip_edges().to_lower()
+	var title: String = str(dashboard.get("title", "Hive Tournament")).strip_edges()
+	match queue_status:
+		"active":
+			var opponent_hive_name: String = str(dashboard.get("opponent_hive_name", "")).strip_edges()
+			var round_number: int = maxi(1, int(dashboard.get("current_round_number", 1)))
+			var rounds_total: int = maxi(1, int(dashboard.get("rounds_total", 1)))
+			var roster_size: int = maxi(1, int(dashboard.get("roster_size", 7)))
+			var headline: String = "%s R%d/%d" % [title, round_number, rounds_total]
+			if opponent_hive_name != "":
+				headline += " vs %s" % opponent_hive_name
+			headline += " | %d/%d in" % [
+				int(dashboard.get("hive_completed_count", 0)),
+				roster_size
+			]
+			var deadline_unix: int = int(dashboard.get("deadline_unix", 0))
+			if deadline_unix > int(Time.get_unix_time_from_system()):
+				headline += " | %s left" % _format_time_remaining(deadline_unix)
+			return headline
+		"queued":
+			return "%s queued | %d-hive bracket | Queue %d/%d" % [
+				title,
+				maxi(2, int(dashboard.get("field_size", 2))),
+				maxi(1, int(dashboard.get("queue_position", 1))),
+				maxi(1, int(dashboard.get("queue_size", 1)))
+			]
+		"resolved", "forfeit":
+			var last_result: Dictionary = dashboard.get("last_result", {}) as Dictionary
+			var winner_hive_id: String = str(last_result.get("winner_hive_id", "")).strip_edges()
+			var current_hive_id: String = _current_hive_id()
+			if winner_hive_id == current_hive_id:
+				return "%s complete | Won bracket" % title
+			elif winner_hive_id != "":
+				return "%s complete | Bracket ended" % title
+			return "%s complete" % title
+		_:
+			return ""
+
+func _local_hive_tournament_assignment() -> Dictionary:
+	if HiveClanState == null or not HiveClanState.has_method("get_player_active_tournament_assignment"):
+		return {}
+	return HiveClanState.call("get_player_active_tournament_assignment") as Dictionary
+
+func _launch_local_hive_tournament_run(assignment: Dictionary = {}) -> bool:
+	var active_assignment: Dictionary = assignment.duplicate(true)
+	if active_assignment.is_empty():
+		active_assignment = _local_hive_tournament_assignment()
+	if active_assignment.is_empty():
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var map_paths_any: Variant = active_assignment.get("map_paths", [])
+	if typeof(map_paths_any) != TYPE_ARRAY:
+		return false
+	var map_paths: Array = map_paths_any as Array
+	if map_paths.is_empty():
+		return false
+	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
+	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
+	if local_name.strip_edges().is_empty():
+		local_name = "You"
+	_clear_direct_match_launch_tree_metas()
+	tree.set_meta("start_game", true)
+	tree.set_meta("vs_mode", "STAGE_RACE")
+	tree.set_meta("vs_price_usd", 0)
+	tree.set_meta("vs_free_roll", true)
+	tree.set_meta("vs_assigned_players", [local_name])
+	tree.set_meta("vs_open_slots", 0)
+	tree.set_meta("vs_required_players", 1)
+	tree.set_meta("vs_sync_start", false)
+	tree.set_meta("vs_sync_join_sec", 0)
+	tree.set_meta("vs_window_sec", 0)
+	tree.set_meta("vs_window_started_unix", 0)
+	tree.set_meta("vs_window_deadline_unix", 0)
+	tree.set_meta("vs_stage_map_paths", map_paths.duplicate(true))
+	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
+	tree.set_meta("vs_handshake_session_id", "")
+	tree.set_meta("vs_handshake_role", "host")
+	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_local_profile", {
+		"uid": local_uid,
+		"display_name": local_name
+	})
+	tree.set_meta("hive_tournament_round_id", str(active_assignment.get("round_id", "")))
+	tree.set_meta("hive_tournament_tournament_id", str(active_assignment.get("tournament_id", "")))
+	tree.set_meta("hive_tournament_hive_id", str(active_assignment.get("hive_id", "")))
+	tree.set_meta("hive_tournament_player_id", local_uid)
+	tree.set_meta("hive_tournament_slot_index", int(active_assignment.get("slot_index", 0)))
+	tree.set_meta("hive_tournament_opponent_hive_id", str(active_assignment.get("opponent_hive_id", "")))
+	tree.set_meta("hive_tournament_opponent_player_id", str(active_assignment.get("opponent_player_id", "")))
+	tree.set_meta("hive_tournament_submission_recorded", false)
+	if OpsState != null and OpsState.has_method("set_team_mode_override"):
+		OpsState.call("set_team_mode_override", "ffa")
+	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
+	if err != OK:
+		return false
+	status_label.text = "%s tournament run starting..." % str(active_assignment.get("title", "Hive Tournament"))
+	return true
+
+func _clear_direct_match_launch_tree_metas() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var clear_keys: Array[String] = [
+		"open_map_picker_on_ready",
+		"vs_mode",
+		"vs_price_usd",
+		"vs_free_roll",
+		"vs_assigned_players",
+		"vs_open_slots",
+		"vs_required_players",
+		"vs_sync_start",
+		"vs_sync_join_sec",
+		"vs_window_sec",
+		"vs_window_started_unix",
+		"vs_window_deadline_unix",
+		"vs_stage_map_paths",
+		"vs_stage_current_index",
+		"vs_stage_round_results",
+		"vs_handshake_session_id",
+		"vs_handshake_role",
+		"vs_handshake_invite_code",
+		"vs_local_profile",
+		"vs_remote_profile",
+		"vs_cpu_style",
+		"vs_cpu_tier",
+		"ctf_flag_selection_mode",
+		"ctf_player_select_pct",
+		"ctf_randomize_flag_hive",
+		"ctf_hidden_flag",
+		"ctf_flag_move_count_max",
+		"ctf_flag_move_reveals",
+		"jukebox_board_enabled",
+		"jukebox_map_path",
+		"jukebox_map_id",
+		"jukebox_board_period",
+		"jukebox_local_owner_id",
+		"jukebox_result_commit_signature",
+		"jukebox_easy_bot",
+		"hive_tournament_round_id",
+		"hive_tournament_tournament_id",
+		"hive_tournament_hive_id",
+		"hive_tournament_player_id",
+		"hive_tournament_slot_index",
+		"hive_tournament_opponent_hive_id",
+		"hive_tournament_opponent_player_id",
+		"hive_tournament_submission_recorded"
+	]
+	for key_any in clear_keys:
+		var key: String = str(key_any)
+		if tree.has_meta(key):
+			tree.remove_meta(key)
+
+func _block_for_active_hive_tournament(queue_label: String) -> bool:
+	var assignment: Dictionary = _local_hive_tournament_assignment()
+	if assignment.is_empty():
+		if queue_label.is_empty():
+			_announced_hive_tournament_round_id = ""
+		return false
+	var round_id: String = str(assignment.get("round_id", ""))
+	if queue_label.is_empty():
+		if _announced_hive_tournament_round_id != round_id:
+			_announced_hive_tournament_round_id = round_id
+			status_label.text = "Hive tournament run assigned. Finish it before entering other queues."
+		return true
+	status_label.text = "Finish your hive tournament run before entering %s." % queue_label
+	if _hive_tournaments_dialog != null and not _hive_tournaments_dialog.visible:
+		_open_hive_tournaments_dialog()
+	return true
 
 func _ensure_hive_pending_dialog() -> void:
 	if _hive_pending_dialog != null and is_instance_valid(_hive_pending_dialog):
@@ -4000,7 +4518,10 @@ func _on_hive_clan_state_changed(_snapshot: Dictionary) -> void:
 	_refresh_hive_my_invites_dialog()
 	_refresh_hive_applications_dialog()
 	_refresh_hive_member_actions_dialog()
+	_refresh_hive_rankings_dialog()
+	_refresh_hive_tournaments_dialog()
 	_check_hive_governance_inbox()
+	_block_for_active_hive_tournament("")
 
 func _sync_hive_panel_profile_from_hive_state() -> void:
 	_hive_panel_profile = HIVE_PANEL_PROFILE_DEFAULT.duplicate(true)
@@ -4131,6 +4652,10 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 	_hive_panel_profile["pending_invite_count"] = pending_count
 	_hive_panel_profile["received_application_count"] = received_application_count
 	_hive_panel_profile["visible_invite_count"] = visible_invites.size()
+	_hive_panel_profile["tournament_entries"] = (hive.get("tournament_entries", {}) as Dictionary).duplicate(true)
+	var tournament_dashboard: Dictionary = HiveClanState.call("get_hive_tournament_dashboard", hive_id, "", local_player_id) as Dictionary if HiveClanState.has_method("get_hive_tournament_dashboard") else {}
+	_hive_panel_profile["tournament_dashboard"] = tournament_dashboard.duplicate(true)
+	_hive_panel_profile["tournament_status_line"] = _build_hive_tournament_status_line(tournament_dashboard)
 	var pinned_notice: Dictionary = hive.get("pinned_notice", {}) as Dictionary
 	_hive_panel_profile["pinned_notice_message"] = str(pinned_notice.get("message", "")).strip_edges()
 	if pinned_notice.is_empty():
@@ -4157,7 +4682,7 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 		comms_lines.append("Pending invites: %d | Applications: %d" % [pending_count, received_application_count])
 		comms_lines.append("Governance inbox: %d pending vote(s)" % pending_governance_count)
 		comms_lines.append("Hive-only coordination and moderation stay scoped here.")
-		comms_lines.append("Chat history and pinned notes will land in this section.")
+		comms_lines.append("Pinned notices and recent hive posts appear here.")
 	_hive_panel_profile["messages"] = comms_lines
 	_hive_panel_profile["message_records"] = comm_records
 	var created_at_unix: int = int(hive.get("created_at_unix", 0))
@@ -4195,12 +4720,13 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 			else:
 				achievement_lines.append("%s | %s" % [title, detail])
 	var rank_breakdown: Dictionary = hive.get("rank_breakdown", {}) as Dictionary
-	achievement_lines.append("Hive rank %s = Members %s + Tournaments %s + Titles %s + Season %s" % [
+	achievement_lines.append("Hive rank %s = Members %s x %0.2f (%d award%s, +%s)" % [
 		_format_number(int(rank_breakdown.get("total", 0))),
 		_format_number(int(rank_breakdown.get("members", 0))),
-		_format_number(int(rank_breakdown.get("tournaments", 0))),
-		_format_number(int(rank_breakdown.get("championships", 0))),
-		_format_number(int(rank_breakdown.get("seasonal_best", 0)))
+		float(rank_breakdown.get("multiplier", 1.0)),
+		int(rank_breakdown.get("awards", 0)),
+		"" if int(rank_breakdown.get("awards", 0)) == 1 else "s",
+		_format_number(int(rank_breakdown.get("permanent_bonus", 0)))
 	])
 	if achievement_lines.is_empty():
 		achievement_lines = [
@@ -4693,8 +5219,10 @@ func _hive_feed_type_label(feed_type: String) -> String:
 			return "GOVERNANCE"
 		"hive_leave_requested", "hive_leave_cancelled", "hive_leave_finalized", "hive_member_removed":
 			return "ROSTER"
-		"hive_honey_recorded":
+		"hive_honey_recorded", "hive_tournament_entered":
 			return "HONEY"
+		"hive_tournament_round_started", "hive_tournament_run_submitted", "hive_tournament_round_resolved", "hive_tournament_bracket_won":
+			return "TOURNAMENT"
 		_:
 			return "HIVE"
 
@@ -5142,6 +5670,7 @@ func _refresh_hive_panel() -> void:
 	var season_reset_text: String = str(_hive_panel_profile.get("season_reset_text", "Reset timer TBD"))
 	var leave_request: Dictionary = _hive_panel_profile.get("leave_request", {}) as Dictionary
 	var invite_only: bool = bool(_hive_panel_profile.get("invite_only", false))
+	var tournament_status_line: String = str(_hive_panel_profile.get("tournament_status_line", "")).strip_edges()
 	var messages_any: Variant = _hive_panel_profile.get("messages", [])
 	var message_records_any: Variant = _hive_panel_profile.get("message_records", [])
 	var achievements_any: Variant = _hive_panel_profile.get("achievements", [])
@@ -5249,7 +5778,10 @@ func _refresh_hive_panel() -> void:
 	if invite_only:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Invite access active for hive comms." % season_reset_text
 	elif leave_request.is_empty():
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Hive-only comms stay inside the hive." % season_reset_text
+		if tournament_status_line != "":
+			$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | %s" % [tournament_status_line, season_reset_text]
+		else:
+			$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Hive-only comms stay inside the hive." % season_reset_text
 	else:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "Leave pending: joins unlock in %s | Same hive locked for 7d after exit." % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
 	_refresh_hive_panel_action_state()
@@ -5303,7 +5835,7 @@ func _refresh_hive_candidate_panel() -> void:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "No hive selected yet."
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Browse current hives or create your own."
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Invites: %d | Applications: %d" % [visible_invites.size(), pending_applications.size()]
-		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Leadership messages and requirements land in the next pass."
+		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Browse a hive to inspect its roster, accomplishments, and current feed."
 		hive_pinned_notice_label.text = "HIVE PREVIEW\nPick a hive to inspect its activity, accomplishments, and recruitment posture."
 		for label in activity_labels:
 			label.text = "No hive selected."
@@ -5367,6 +5899,12 @@ func _refresh_hive_candidate_panel() -> void:
 			if title == "" and detail == "":
 				continue
 			achievement_lines.append(title if detail == "" else "%s | %s" % [title, detail])
+	var selected_rank_breakdown: Dictionary = selected_hive.get("rank_breakdown", {}) as Dictionary
+	achievement_lines.append("Hive rank %s = Members %s x %0.2f" % [
+		_format_number(int(selected_rank_breakdown.get("total", 0))),
+		_format_number(int(selected_rank_breakdown.get("members", 0))),
+		float(selected_rank_breakdown.get("multiplier", 1.0))
+	])
 	if achievement_lines.is_empty():
 		achievement_lines = [
 			"Founded %s" % _format_calendar_date(int(selected_hive.get("created_at_unix", 0))),
@@ -9604,6 +10142,8 @@ func _resolve_game_hub_overlay_size(paid: bool) -> Vector2:
 	)
 
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
+	if _block_for_active_hive_tournament("human matches"):
+		return
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
 		return
 	if mode_id == "1V1":
@@ -9652,6 +10192,8 @@ func _open_shell_map_picker_from_free_roll() -> bool:
 	return false
 
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
 		return
 	if mode_id == "CAPTURE_FLAG":
@@ -9719,6 +10261,8 @@ func _apply_async_entry_amount(paid: bool, denomination: int) -> void:
 		_async_buyins[key] = amount
 
 func _open_human_entry_selector(free_roll: bool) -> void:
+	if _block_for_active_hive_tournament("human matches"):
+		return
 	_open_vs_mode_select_panel(free_roll)
 	if free_roll:
 		status_label.text = "Human free-play selector opened."
@@ -9726,6 +10270,8 @@ func _open_human_entry_selector(free_roll: bool) -> void:
 		status_label.text = "Human paid-match selector opened."
 
 func _open_async_entry_selector(free_roll: bool) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
 	_close_entry_route_modal()
 	_open_async_panel()
 	if free_roll:
@@ -11010,6 +11556,8 @@ func _on_async_play_pressed(mode: String) -> void:
 	_stub_action("%s entry $%d confirmed (charged, balance $%d)" % [mode.capitalize(), amount, int(charge.get("remaining_usd", _wallet_balance_usd()))])
 
 func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var map_count_requested: int = maxi(1, requested_map_count)
@@ -11058,6 +11606,8 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 	_open_async_vs_lobby("MISS_N_OUT", resolved_map_count, free_play, entry_usd, lobby_options)
 
 func _on_async_capture_flag_selected(free_play: bool) -> bool:
+	if _block_for_active_hive_tournament("async matches"):
+		return false
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
 	if not free_play:
@@ -11070,6 +11620,8 @@ func _on_async_capture_flag_selected(free_play: bool) -> bool:
 	return true
 
 func _on_async_hidden_capture_flag_selected(free_play: bool) -> bool:
+	if _block_for_active_hive_tournament("async matches"):
+		return false
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
 	if not free_play:
@@ -11174,6 +11726,8 @@ func _resolve_direct_capture_flag_map_path(mode_id: String) -> String:
 	return ""
 
 func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
@@ -11220,6 +11774,8 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
 
 func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()

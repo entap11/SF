@@ -992,9 +992,6 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	# Design rule: maps do not author active lanes.
 	# Keep topology as candidates only; runtime intents instantiate active lanes.
 	model["lanes"] = []
-	if (model.get("lanes", []) as Array).is_empty():
-		if SFLog.LOGGING_ENABLED:
-			push_warning("Loaded map has 0 active lanes. Spawns will be blocked unless lanes are created.")
 	model["towers"] = towers
 	model["barracks"] = barracks
 	model["walls"] = walls

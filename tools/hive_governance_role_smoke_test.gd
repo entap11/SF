@@ -19,7 +19,9 @@ func _init() -> void:
 		"p2": _member("p2", "Soldier One", "soldier", now_unix - 4000, 900),
 		"p3": _member("p3", "Soldier Two", "soldier", now_unix - 3000, 800),
 		"p4": _member("p4", "Soldier Three", "soldier", now_unix - 2000, 700),
-		"p5": _member("p5", "Member Five", "member", now_unix - 1000, 600)
+		"p5": _member("p5", "Member Five", "member", now_unix - 1000, 600),
+		"p6": _member("p6", "Member Six", "member", now_unix - 900, 0),
+		"p7": _member("p7", "Member Seven", "member", now_unix - 800, 0)
 	}
 	state.set("_hives_by_id", {
 		hive_id: {
@@ -74,6 +76,73 @@ func _init() -> void:
 	_assert_true(bundles.size() >= 3, "invite offers should expose at least three bundles")
 	var tournaments: Array = state.call("get_hive_tournament_entries") as Array
 	_assert_true(tournaments.size() >= 3, "queen tournament list should expose hive honey costs")
+	var enter_tournament: Dictionary = state.call("intent_enter_hive_tournament", hive_id, "weekly_hive_skirmish", "p3") as Dictionary
+	_assert_true(bool(enter_tournament.get("ok", false)), "queen should enter a hive tournament")
+	var entered_hive: Dictionary = enter_tournament.get("hive", {}) as Dictionary
+	_assert_eq(int(entered_hive.get("hive_honey_strength", 0)), 3200, "hive tournament entry should deduct hive honey strength")
+	var duplicate_tournament: Dictionary = state.call("intent_enter_hive_tournament", hive_id, "weekly_hive_skirmish", "p3") as Dictionary
+	_assert_true(not bool(duplicate_tournament.get("ok", false)) and str(duplicate_tournament.get("reason", "")) == "tournament_already_entered", "same hive tournament should not charge twice")
+
+	var archive_hives: Dictionary = state.get("_hives_by_id") as Dictionary
+	archive_hives["h_archive"] = {
+		"hive_id": "h_archive",
+		"name": "Archive Hive",
+		"created_at_unix": now_unix - 7200,
+		"created_by_player_id": "archive_q",
+		"members": {
+			"archive_q": _member("archive_q", "Archive Queen", "queen", now_unix - 7200, 50)
+		},
+		"pinned_notice": {},
+		"about_profile": {},
+		"soldier_demotion_votes": {},
+		"queen_removal_vote": {},
+		"queen_removal_vote_started_at_unix": 0,
+		"leadership_removal_votes": {},
+		"soldier_promotion_votes": {},
+		"tournament_entries": {},
+		"tournament_wins": 1,
+		"hive_championships": 0,
+		"seasonal_best_finish": 0,
+		"award_records": [{
+			"award_id": "hwa_archive",
+			"title": "Weekly Hive Skirmish Champion Trophy",
+			"detail": "Won recently",
+			"award_type": "trophy",
+			"tournament_id": "weekly_hive_skirmish",
+			"tournament_title": "Weekly Hive Skirmish",
+			"rank_multiplier_bps": 100,
+			"awarded_at_unix": now_unix - 60,
+			"owner_kind": "hive",
+			"owner_hive_id": "h_archive",
+			"owner_hive_name": "Archive Hive",
+			"source_hive_id": "h_archive",
+			"source_hive_name": "Archive Hive",
+			"archived_at_unix": 0,
+			"bracket_id": "htb_archive",
+			"round_id": "htr_archive"
+		}],
+		"total_honey_spent": 0,
+		"feed_entries": [],
+		"total_honey_contributed": 50,
+		"hive_honey_strength": 50
+	}
+	state.set("_hives_by_id", archive_hives)
+	state.call("_reindex_memberships")
+	state.set("_pending_leave_by_player_id", {
+		"archive_q": {
+			"player_id": "archive_q",
+			"hive_id": "h_archive",
+			"requested_at_unix": now_unix - 20,
+			"effective_at_unix": now_unix - 10
+		}
+	})
+	state.call("_finalize_leave_for_player", "archive_q", now_unix)
+	var post_archive_hives: Dictionary = state.get("_hives_by_id") as Dictionary
+	_assert_true(not post_archive_hives.has("h_archive"), "defunct hive should be removed after final member leaves")
+	var company_trophy_case: Array = state.call("get_company_trophy_case") as Array
+	_assert_eq(company_trophy_case.size(), 1, "defunct hive awards should move into the company trophy case")
+	var archived_award: Dictionary = company_trophy_case[0] as Dictionary
+	_assert_eq(str(archived_award.get("source_hive_name", "")), "Archive Hive", "company trophy case should retain original hive provenance")
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 	print("HIVE_GOVERNANCE_ROLE_SMOKE: PASS")
