@@ -21,7 +21,9 @@ const UNIT_RADIUS_PX := 24.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
-const PASS_THROUGH_EMIT_RATE_MULT: float = 0.5
+const PASS_THROUGH_EMIT_RATE_LARGE_MAP_MULT: float = 0.6
+const PASS_THROUGH_EMIT_RATE_MEDIUM_MAP_MULT: float = 0.8
+const PASS_THROUGH_EMIT_RATE_SMALL_MAP_MULT: float = 1.0
 const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 
@@ -932,7 +934,15 @@ func _pass_through_emit_rate_units_per_sec(hive: HiveData) -> float:
 		return 0.0
 	var single_interval_ms: float = float(_spawn_interval_ms_for_power(int(hive.power)))
 	var single_rate: float = 1000.0 / maxf(1.0, single_interval_ms)
-	return maxf(0.0, single_rate * PASS_THROUGH_EMIT_RATE_MULT)
+	return maxf(0.0, single_rate * _pass_through_emit_rate_multiplier())
+
+func _pass_through_emit_rate_multiplier() -> float:
+	var hive_count: int = state.hives.size() if state != null and state.hives != null else 0
+	if hive_count > 0 and hive_count < 12:
+		return PASS_THROUGH_EMIT_RATE_SMALL_MAP_MULT
+	if hive_count >= 12 and hive_count <= 15:
+		return PASS_THROUGH_EMIT_RATE_MEDIUM_MAP_MULT
+	return PASS_THROUGH_EMIT_RATE_LARGE_MAP_MULT
 
 func _pass_through_pipeline_cap_units(hive: HiveData, emit_rate_units_per_sec: float) -> int:
 	if hive == null or emit_rate_units_per_sec <= 0.0:

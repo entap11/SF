@@ -1,5 +1,6 @@
 extends Control
 class_name StageRaceLeaderboardPanel
+const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 
 signal closed
 
@@ -37,7 +38,7 @@ func _build_map_tabs() -> void:
 		var map_id: String = map_ids[i]
 		var button := Button.new()
 		button.toggle_mode = true
-		button.text = "Map %d" % (i + 1)
+		button.text = MAP_REGISTRY.public_map_display_name_for_id(map_id)
 		button.pressed.connect(func(): _select_map(map_id))
 		map_tabs.add_child(button)
 		_map_tab_buttons[map_id] = button
@@ -108,12 +109,13 @@ func _refresh_map_entries() -> void:
 	var rows: Array = []
 	if contest_state.has_method("get_stage_race_map_leaderboard"):
 		rows = contest_state.call("get_stage_race_map_leaderboard", contest_id, _selected_map_id, 25) as Array
+	var public_name: String = MAP_REGISTRY.public_map_display_name_for_id(_selected_map_id)
 	if rows.is_empty():
-		summary_label.text = "Map %s: no results yet." % _selected_map_id
+		summary_label.text = "%s: no results yet." % public_name
 		_add_empty_row("No map results yet.")
 		return
-	summary_label.text = "Map %s lead: %s  %s" % [
-		_selected_map_id,
+	summary_label.text = "%s lead: %s  %s" % [
+		public_name,
 		str((rows[0] as Dictionary).get("player_name", "Player")),
 		_format_time_ms(int((rows[0] as Dictionary).get("time_ms", 0)))
 	]

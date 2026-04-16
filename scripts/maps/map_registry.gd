@@ -2,19 +2,112 @@ class_name MapRegistry
 extends RefCounted
 
 const MAP_ROOT: String = "res://maps"
-const SKIP_DIR_TOKENS: Array[String] = ["/_legacy", "/templates", "/_future"]
+const SKIP_DIR_TOKENS: Array[String] = ["/_legacy", "/templates"]
 const SANDBOX_ENABLED: bool = true
 const SANDBOX_ENV_VAR: String = "SF_MAP_SANDBOX"
 const SANDBOX_ALLOWED_MAP_IDS: Array[String] = [
-	"MAP_TEST",
+	"MAP_TEST"
+]
+const PUBLIC_NOMANSLAND_SEQUENCE_IDS: Array[String] = [
 	"MAP_nomansland__SBASE__1p",
 	"MAP_nomansland__SN6__1p",
 	"MAP_nomansland__GBASE__1p",
 	"MAP_nomansland__GBASE__BR2__TR2__1p",
 	"MAP_nomansland__GBASE__TB__1p",
-	"MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each"
+	"MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each",
+	"MAP_nomansland__SBASE__1p__start_v01_base_corners",
+	"MAP_nomansland__SBASE__1p__start_v02_top2_vs_bottom2",
+	"MAP_nomansland__SBASE__1p__start_v03_top3_vs_bottom3",
+	"MAP_nomansland__SBASE__1p__start_v04_full_side_spines",
+	"MAP_nomansland__SBASE__1p__start_v05_top_segment_spines",
+	"MAP_nomansland__SBASE__1p__start_v06_center_spine_split_2v2",
+	"MAP_nomansland__SBASE__1p__start_v07_side_corners_2each",
+	"MAP_nomansland__SBASE__1p__start_v08_diagonal_corners_2each",
+	"MAP_nomansland__SBASE__1p__start_v09_center_adjacent_c3_vs_c4",
+	"MAP_nomansland__SBASE__1p__start_v10_center_adjacent_c2_vs_c3",
+	"MAP_nomansland__SBASE__1p__start_v11_corners_plus_spine_ends",
+	"MAP_nomansland__SBASE__1p__start_v13_midline_2each",
+	"MAP_nomansland__SBASE__1p__start_v14_rot90_top_segments_vs_bottom_segments",
+	"MAP_nomansland__SBASE__1p__start_v15_center_trio_split",
+	"MAP_nomansland__SBASE__1p__start_v16_full_spine_split",
+	"MAP_nomansland__SBASE__1p__start_v17_alternating_spine",
+	"MAP_nomansland__SBASE__1p__npc04",
+	"MAP_nomansland__SBASE__1p__npc05",
+	"MAP_nomansland__SBASE__1p__npc05__B",
+	"MAP_nomansland__SBASE__1p__npc05__T",
+	"MAP_nomansland__SBASE__1p__npc05__TB",
+	"MAP_nomansland__SBASE__1p__npc06",
+	"MAP_nomansland__SBASE__1p__npc06__B",
+	"MAP_nomansland__SBASE__1p__npc06__T",
+	"MAP_nomansland__SBASE__1p__npc06__TB",
+	"MAP_nomansland__SBASE__1p__npc08",
+	"MAP_nomansland__SBASE__1p__npc_center_heavy",
+	"MAP_nomansland__SBASE__1p__npc_center_heavy__B",
+	"MAP_nomansland__SBASE__1p__npc_center_heavy__T",
+	"MAP_nomansland__SBASE__1p__npc_center_heavy__TB",
+	"MAP_nomansland__SBASE__1p__npc_rails_heavy",
+	"MAP_nomansland__SBASE__1p__npc_wave_pressure",
+	"MAP_nomansland__SBASE__1p__npc_wave_pressure__B",
+	"MAP_nomansland__SBASE__1p__npc_wave_pressure__T",
+	"MAP_nomansland__SBASE__1p__npc_wave_pressure__TB",
+	"MAP_nomansland__545__v01_top2_sides__1p",
+	"MAP_nomansland__545__v02_all_sides_owned__1p",
+	"MAP_nomansland__545__v03_top_half_vs_bottom_half__1p",
+	"MAP_nomansland__545__v04_top_corners_vs_bottom_corners__1p",
+	"MAP_nomansland__545__v05_diagonal_TL_vs_BR__1p",
+	"MAP_nomansland__545__v06_diagonal_BL_vs_TR__1p",
+	"MAP_nomansland__545__v07_top_spine_vs_bottom_spine__1p",
+	"MAP_nomansland__545__v08_spine_knife_fight__1p",
+	"MAP_nomansland__545__v09_triad_top_vs_bottom__1p",
+	"MAP_nomansland__545__v10_side_ladders_no_corners__1p",
+	"MAP_nomansland__545__v11_outer_vs_inner__1p",
+	"MAP_nomansland__545__v12_cross_spine_anchors__1p",
+	"MAP_nomansland__545__v13_top3_each__1p",
+	"MAP_nomansland__545__v14_bottom3_each__1p",
+	"MAP_nomansland__545__v15_spine_ends_duel__1p",
+	"MAP_nomansland__545__v16_spine_mid_duel_only__1p",
+	"MAP_nomansland__545__v17_four_corners_only__1p",
+	"MAP_nomansland__545__v18_two_hubs_each__1p"
 ]
 const ALLOWED_MODES: Array[String] = ["1p", "2p", "3p", "4p"]
+const PUBLIC_MAP_ALIASES: Dictionary = {
+	"MAP_nomansland__SBASE__1p": {
+		"public_name": "nomansland",
+		"family": "nomansland",
+		"sequence": 1,
+		"status": "active"
+	},
+	"MAP_nomansland__SN6__1p": {
+		"public_name": "nomansland2",
+		"family": "nomansland",
+		"sequence": 2,
+		"status": "active"
+	},
+	"MAP_nomansland__GBASE__1p": {
+		"public_name": "nomansland3",
+		"family": "nomansland",
+		"sequence": 3,
+		"status": "active"
+	},
+	"MAP_nomansland__GBASE__BR2__TR2__1p": {
+		"public_name": "nomansland4",
+		"family": "nomansland",
+		"sequence": 4,
+		"status": "active"
+	},
+	"MAP_nomansland__GBASE__TB__1p": {
+		"public_name": "nomansland5",
+		"family": "nomansland",
+		"sequence": 5,
+		"status": "active"
+	},
+	"MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each": {
+		"public_name": "nomansland6",
+		"family": "nomansland",
+		"sequence": 6,
+		"status": "active"
+	}
+}
 
 static func list_map_paths() -> Array[String]:
 	var out: Array[String] = []
@@ -44,6 +137,100 @@ static func map_id_from_input(path_or_id: String) -> String:
 		return file_name.get_basename().strip_edges()
 	return file_name.strip_edges()
 
+static func public_map_display_name_for_path(path: String) -> String:
+	return public_map_display_name_for_id(map_id_from_path(path))
+
+static func public_map_display_name_for_id(map_id: String) -> String:
+	var raw_id: String = map_id_from_input(map_id)
+	if raw_id.is_empty():
+		return ""
+	var alias: Dictionary = public_map_alias_entry_for_id(raw_id)
+	var public_name: String = str(alias.get("public_name", "")).strip_edges()
+	if not public_name.is_empty():
+		return public_name
+	return _fallback_public_map_name(raw_id)
+
+static func public_map_sort_key_for_path(path: String) -> String:
+	return public_map_sort_key_for_id(map_id_from_path(path))
+
+static func public_map_sort_key_for_id(map_id: String) -> String:
+	var raw_id: String = map_id_from_input(map_id)
+	var alias: Dictionary = public_map_alias_entry_for_id(raw_id)
+	var family: String = str(alias.get("family", "")).strip_edges().to_lower()
+	if family.is_empty():
+		family = _public_family_from_id(raw_id)
+	var sequence: int = int(alias.get("sequence", 999999))
+	return "%s:%06d:%s" % [family, sequence, raw_id]
+
+static func public_map_alias_entry_for_id(map_id: String) -> Dictionary:
+	var raw_id: String = map_id_from_input(map_id)
+	if raw_id.is_empty():
+		return {}
+	var sequence_entry: Dictionary = _public_nomansland_sequence_alias_for_id(raw_id)
+	if not sequence_entry.is_empty():
+		return sequence_entry
+	var candidates: Array[String] = [raw_id]
+	var normalized: Dictionary = normalize_map_id(raw_id)
+	if bool(normalized.get("ok", false)):
+		var canonical_id: String = str(normalized.get("id", "")).strip_edges()
+		if not canonical_id.is_empty() and not candidates.has(canonical_id):
+			candidates.append(canonical_id)
+	for key_any in PUBLIC_MAP_ALIASES.keys():
+		var key: String = str(key_any)
+		for candidate in candidates:
+			if key.to_upper() == candidate.to_upper():
+				var entry: Dictionary = PUBLIC_MAP_ALIASES[key] as Dictionary
+				var out: Dictionary = entry.duplicate(true)
+				out["map_id"] = key
+				return out
+	return {}
+
+static func has_public_map_alias_for_id(map_id: String) -> bool:
+	return not public_map_alias_entry_for_id(map_id).is_empty()
+
+static func registered_public_map_aliases() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var seen: Dictionary = {}
+	for i in range(PUBLIC_NOMANSLAND_SEQUENCE_IDS.size()):
+		var key: String = str(PUBLIC_NOMANSLAND_SEQUENCE_IDS[i])
+		var row: Dictionary = _make_public_nomansland_sequence_alias(key, i + 1)
+		out.append(row)
+		seen[key.to_upper()] = true
+	for key_any in PUBLIC_MAP_ALIASES.keys():
+		var key: String = str(key_any)
+		if seen.has(key.to_upper()):
+			continue
+		var entry: Dictionary = PUBLIC_MAP_ALIASES[key] as Dictionary
+		var row: Dictionary = entry.duplicate(true)
+		row["map_id"] = key
+		out.append(row)
+		seen[key.to_upper()] = true
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var family_a: String = str(a.get("family", "")).to_lower()
+		var family_b: String = str(b.get("family", "")).to_lower()
+		if family_a == family_b:
+			return int(a.get("sequence", 0)) < int(b.get("sequence", 0))
+		return family_a < family_b
+	)
+	return out
+
+static func _public_nomansland_sequence_alias_for_id(map_id: String) -> Dictionary:
+	var raw_id: String = map_id_from_input(map_id)
+	for i in range(PUBLIC_NOMANSLAND_SEQUENCE_IDS.size()):
+		var key: String = str(PUBLIC_NOMANSLAND_SEQUENCE_IDS[i])
+		if key.to_upper() == raw_id.to_upper():
+			return _make_public_nomansland_sequence_alias(key, i + 1)
+	return {}
+
+static func _make_public_nomansland_sequence_alias(map_id: String, sequence: int) -> Dictionary:
+	return {
+		"map_id": map_id,
+		"public_name": "nomansland" if sequence <= 1 else "nomansland%d" % sequence,
+		"family": "nomansland",
+		"sequence": sequence,
+		"status": "active"
+	}
+
 static func is_map_path_allowed(path: String) -> bool:
 	return is_map_id_allowed(map_id_from_path(path))
 
@@ -54,6 +241,8 @@ static func is_map_id_allowed(map_id: String) -> bool:
 	for allow_any in SANDBOX_ALLOWED_MAP_IDS:
 		if normalized == str(allow_any).to_upper():
 			return true
+	if has_public_map_alias_for_id(normalized):
+		return true
 	return false
 
 static func normalize_map_id(map_id: String) -> Dictionary:
@@ -179,6 +368,27 @@ static func _is_digits(text: String) -> bool:
 		if c < 48 or c > 57:
 			return false
 	return true
+
+static func _fallback_public_map_name(raw_id: String) -> String:
+	var family: String = _public_family_from_id(raw_id)
+	if not family.is_empty():
+		return family
+	var body: String = raw_id.trim_prefix("MAP_").strip_edges()
+	if body.is_empty():
+		return raw_id
+	return body.replace("__", " ").replace("_", " ").strip_edges().to_lower()
+
+static func _public_family_from_id(raw_id: String) -> String:
+	var normalized: Dictionary = normalize_map_id(raw_id)
+	if bool(normalized.get("ok", false)):
+		return str(normalized.get("family", "")).strip_edges().to_lower()
+	var clean: String = map_id_from_input(raw_id)
+	if clean.begins_with("MAP_"):
+		var body: String = clean.trim_prefix("MAP_")
+		var tokens: PackedStringArray = body.split("__", false)
+		if tokens.size() > 0:
+			return str(tokens[0]).strip_edges().to_lower()
+	return ""
 
 static func _collect_json_map_files(dir_path: String, out: Array[String]) -> void:
 	var dir: DirAccess = DirAccess.open(dir_path)

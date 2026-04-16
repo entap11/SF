@@ -5,6 +5,62 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const TAU := PI * 2.0
 const EPS := 0.000001
 
+static func complete_control_ids_from_seed(
+	hives: Array,
+	center: Vector2,
+	seed_ids: Array,
+	required_count: int = 3
+) -> Dictionary:
+	var target_count: int = maxi(1, required_count)
+	var entries: Array = _hive_distance_entries(hives, center)
+	if entries.is_empty():
+		return {"ids": [], "source": "no_hives"}
+	var id_seen: Dictionary = {}
+	var ids: Array = []
+	for seed_any in seed_ids:
+		var seed_id: int = int(seed_any)
+		if seed_id <= 0 or id_seen.has(seed_id):
+			continue
+		if not _entries_contain_id(entries, seed_id):
+			continue
+		id_seen[seed_id] = true
+		ids.append(seed_id)
+	if ids.size() >= target_count:
+		return {"ids": ids, "source": "seed"}
+	entries.sort_custom(Callable(StructureControlSolver, "_nearest_entry_less"))
+	for entry_any in entries:
+		if ids.size() >= target_count:
+			break
+		var entry: Dictionary = entry_any as Dictionary
+		var hive_id: int = int(entry.get("id", -1))
+		if hive_id <= 0 or id_seen.has(hive_id):
+			continue
+		id_seen[hive_id] = true
+		ids.append(hive_id)
+	return {"ids": ids, "source": "seed_completed"}
+
+static func pick_centroid_cluster(
+	hives: Array,
+	center: Vector2,
+	required_count: int = 3,
+	candidate_limit: int = 8
+) -> Dictionary:
+	var target_count: int = maxi(1, required_count)
+	var entries: Array = _hive_distance_entries(hives, center)
+	if entries.size() < target_count:
+		return {"ids": [], "source": "too_few_hives"}
+	entries.sort_custom(Callable(StructureControlSolver, "_nearest_entry_less"))
+	var candidates: Array = entries.slice(0, mini(entries.size(), maxi(target_count, candidate_limit)))
+	var best: Dictionary = {
+		"ids": [],
+		"centroid_d2": INF,
+		"sum_d2": INF,
+		"max_d2": INF
+	}
+	_search_centroid_cluster(candidates, target_count, 0, [], center, best)
+	best["source"] = "centroid_cluster"
+	return best
+
 static func pick_min_enclosing_cycle(
 	adj_lanes: Array,
 	hive_positions: Dictionary,
@@ -178,6 +234,107 @@ static func _candidate_lanes_from_set(
 
 static func _nearest_entry_less(a: Dictionary, b: Dictionary) -> bool:
 	return float(a.get("d2", 0.0)) < float(b.get("d2", 0.0))
+
+static func _hive_distance_entries(hives: Array, center: Vector2) -> Array:
+	var entries: Array = []
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		var hive_id: int = int(hive.get("id", -1))
+		if hive_id <= 0:
+			continue
+		var pos_v: Variant = hive.get("pos", null)
+		if not (pos_v is Vector2):
+			continue
+		var pos: Vector2 = pos_v as Vector2
+		entries.append({
+			"id": hive_id,
+			"pos": pos,
+			"d2": pos.distance_squared_to(center)
+		})
+	return entries
+
+static func _entries_contain_id(entries: Array, hive_id: int) -> bool:
+	for entry_any in entries:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		if int(entry.get("id", -1)) == hive_id:
+			return true
+	return false
+
+static func _search_centroid_cluster(
+	candidates: Array,
+	target_count: int,
+	start_index: int,
+	current: Array,
+	center: Vector2,
+	best: Dictionary
+) -> void:
+	if current.size() == target_count:
+		_eval_centroid_cluster(current, center, best)
+		return
+	if start_index >= candidates.size():
+		return
+	if current.size() + (candidates.size() - start_index) < target_count:
+		return
+	for i in range(start_index, candidates.size()):
+		current.append(candidates[i])
+		_search_centroid_cluster(candidates, target_count, i + 1, current, center, best)
+		current.pop_back()
+
+static func _eval_centroid_cluster(current: Array, center: Vector2, best: Dictionary) -> void:
+	var ids: Array = []
+	var centroid: Vector2 = Vector2.ZERO
+	var sum_d2: float = 0.0
+	var max_d2: float = 0.0
+	for entry_any in current:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var hive_id: int = int(entry.get("id", -1))
+		if hive_id <= 0:
+			continue
+		ids.append(hive_id)
+		centroid += entry.get("pos", Vector2.ZERO)
+		var d2: float = float(entry.get("d2", 0.0))
+		sum_d2 += d2
+		max_d2 = maxf(max_d2, d2)
+	if ids.size() != current.size() or ids.is_empty():
+		return
+	centroid /= float(ids.size())
+	var centroid_d2: float = centroid.distance_squared_to(center)
+	if _centroid_cluster_less(ids, centroid_d2, sum_d2, max_d2, best):
+		best["ids"] = ids
+		best["centroid_d2"] = centroid_d2
+		best["sum_d2"] = sum_d2
+		best["max_d2"] = max_d2
+
+static func _centroid_cluster_less(ids: Array, centroid_d2: float, sum_d2: float, max_d2: float, best: Dictionary) -> bool:
+	var best_ids: Array = best.get("ids", []) as Array
+	if best_ids.is_empty():
+		return true
+	var best_centroid: float = float(best.get("centroid_d2", INF))
+	if not is_equal_approx(centroid_d2, best_centroid):
+		return centroid_d2 < best_centroid
+	var best_sum: float = float(best.get("sum_d2", INF))
+	if not is_equal_approx(sum_d2, best_sum):
+		return sum_d2 < best_sum
+	var best_max: float = float(best.get("max_d2", INF))
+	if not is_equal_approx(max_d2, best_max):
+		return max_d2 < best_max
+	return _ids_lex_less(ids, best_ids)
+
+static func _ids_lex_less(a: Array, b: Array) -> bool:
+	var n: int = mini(a.size(), b.size())
+	for i in range(n):
+		var ai: int = int(a[i])
+		var bi: int = int(b[i])
+		if ai == bi:
+			continue
+		return ai < bi
+	return a.size() < b.size()
 
 static func _log_nearest_set(structure_type: String, structure_id: int, n: int, ids: Array) -> void:
 	var event := _log_event_name(structure_type, "NEAREST_SET")

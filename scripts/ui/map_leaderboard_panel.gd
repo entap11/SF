@@ -1,6 +1,7 @@
 extends Control
 class_name MapLeaderboardPanel
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 
 signal closed
 
@@ -20,7 +21,7 @@ func _ready() -> void:
 	_refresh()
 
 func _refresh() -> void:
-	title_label.text = "Leaderboard: %s" % map_id
+	title_label.text = "Leaderboard: %s" % MAP_REGISTRY.public_map_display_name_for_id(map_id)
 	for child in list_box.get_children():
 		child.queue_free()
 	if contest_state == null:

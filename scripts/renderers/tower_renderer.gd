@@ -15,7 +15,7 @@ const TOWER_TEX_MEDIUM: Texture2D = preload("res://assets/sprites/sf_skin_v1/tow
 const TOWER_TEX_LARGE: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_large.tres")
 
 const TOWER_SPIKE_PX: float = 8.0
-const TOWER_VISUAL_SCALE: float = 8.75
+const TOWER_VISUAL_SCALE: float = 6.55
 const TOWER_PITCH_SCALE_X: float = 1.1
 const TOWER_PITCH_SCALE_Y: float = 1.6
 const TOWER_BASE_LIFT_RATIO: float = 0.36
@@ -26,6 +26,7 @@ const TOWER_LIGHT_FROM_COLOR: Color = Color(1.0, 0.8235, 0.0, 1.0)
 const TOWER_SIZE_MULT_T1: float = 1.0
 const TOWER_SIZE_MULT_T2: float = 1.14
 const TOWER_SIZE_MULT_T3_PLUS: float = 1.30
+const DRAW_TOWER_DEBUG_LABELS: bool = false
 
 var model: Dictionary = {}
 var towers: Array = []
@@ -82,6 +83,13 @@ func _process(_delta: float) -> void:
 	_update_tower_labels()
 
 func _update_tower_labels() -> void:
+	if not DRAW_TOWER_DEBUG_LABELS:
+		for key in _tower_labels.keys():
+			var debug_label: Label = _tower_labels[key]
+			if debug_label != null:
+				debug_label.queue_free()
+		_tower_labels.clear()
+		return
 	if towers.is_empty():
 		for key in _tower_labels.keys():
 			var label: Label = _tower_labels[key]
@@ -222,7 +230,7 @@ func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegi
 		tex = registry.get_tex(key)
 		scale = registry.get_scale(key)
 		offset = registry.get_offset(key)
-	var tier_tex: Texture2D = _tower_texture_for_tier(tier, state_key, owner_key, registry)
+	var tier_tex: Texture2D = _tower_texture_for_tier(tier, state_key, owner_key, registry, tex == null)
 	if tier_tex != null:
 		tex = tier_tex
 	sprite.texture = tex
@@ -243,11 +251,13 @@ func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegi
 		sprite.position = pos
 		sprite.visible = false
 
-func _tower_texture_for_tier(tier: int, state_key: String, owner_key: String, registry: SpriteRegistry) -> Texture2D:
+func _tower_texture_for_tier(tier: int, state_key: String, owner_key: String, registry: SpriteRegistry, allow_legacy_fallback: bool = true) -> Texture2D:
 	if registry != null:
 		var tier_key: String = "tower.%s.t%d.%s" % [state_key, _visual_tier_bucket(tier), owner_key]
 		if registry.has_tex(tier_key):
 			return registry.get_tex(tier_key)
+	if not allow_legacy_fallback:
+		return null
 	match _visual_tier_bucket(tier):
 		1:
 			return TOWER_TEX_SMALL

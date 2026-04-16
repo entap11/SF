@@ -2040,19 +2040,16 @@ func _async_prematch_round_line() -> String:
 			return "Stage %d of %d" % [round_index + 1, stage_maps.size()]
 
 func _async_prematch_map_title() -> String:
-	var map_name: String = str(current_map_data.get("name", "")).strip_edges()
-	if not map_name.is_empty():
-		return map_name
 	var map_id: String = str(current_map_data.get("id", "")).strip_edges()
 	if not map_id.is_empty():
-		return _humanize_runtime_token(map_id.trim_prefix("MAP_"))
+		return MapRegistry.public_map_display_name_for_id(map_id)
 	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
 	if not stage_maps.is_empty():
 		var tree: SceneTree = get_tree()
 		var round_index: int = 0
 		if tree != null:
 			round_index = clampi(int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)), 0, maxi(stage_maps.size() - 1, 0))
-		return _humanize_runtime_token(stage_maps[round_index].get_file().get_basename().trim_prefix("MAP_"))
+		return MapRegistry.public_map_display_name_for_path(stage_maps[round_index])
 	return "Unknown Map"
 
 func _async_prematch_bot_line() -> String:
@@ -5560,11 +5557,18 @@ func export_render_model() -> Dictionary:
 		if typeof(control_v) == TYPE_ARRAY:
 			for hive_id_v in control_v as Array:
 				control_ids.append(int(hive_id_v))
+		var authored_pos_px: Vector2 = pos_px
+		pos_px = _structure_control_centroid_pos(control_ids, authored_pos_px, out_hives_by_id)
 		out_towers.append({
 			"id": tower_id,
 			"grid_pos": gp,
+			"world_pos": pos_px,
 			"pos_px": pos_px,
+			"authored_pos_px": authored_pos_px,
 			"owner_id": int(td.get("owner_id", 0)),
+			"active": bool(td.get("active", false)),
+			"is_controlled": bool(td.get("is_controlled", false)),
+			"tier": int(td.get("tier", 1)),
 			"control_hive_ids": control_ids
 		})
 	SFLog.log_on_change_payload("RENDER_MODEL_TOWERS", out_towers.size(), {"count": out_towers.size()})
@@ -5598,12 +5602,18 @@ func export_render_model() -> Dictionary:
 		if typeof(req_v) == TYPE_ARRAY:
 			for req_any in req_v as Array:
 				req_ids.append(int(req_any))
+		var authored_pos_px: Vector2 = pos_px
+		pos_px = _structure_control_centroid_pos(control_ids, authored_pos_px, out_hives_by_id)
 		out_barracks.append({
 			"id": barracks_id,
 			"grid_pos": gp_b,
 			"world_pos": pos_px,
 			"pos_px": pos_px,
+			"authored_pos_px": authored_pos_px,
 			"owner_id": int(bd.get("owner_id", 0)),
+			"active": bool(bd.get("active", false)),
+			"is_controlled": bool(bd.get("is_controlled", false)),
+			"tier": int(bd.get("tier", 1)),
 			"control_hive_ids": control_ids,
 			"required_hive_ids": req_ids
 		})
@@ -5969,6 +5979,27 @@ func _push_render_model() -> void:
 		barracks_r.queue_redraw()
 	if floor_influence_system != null:
 		floor_influence_system.apply_render_model(rm)
+
+func _structure_control_centroid_pos(control_ids: Array, fallback_pos: Vector2, hives_by_id: Dictionary) -> Vector2:
+	if control_ids.is_empty():
+		return fallback_pos
+	var sum: Vector2 = Vector2.ZERO
+	var count: int = 0
+	for hive_id_v in control_ids:
+		var hive_id: int = int(hive_id_v)
+		var hive_any: Variant = hives_by_id.get(hive_id, {})
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		var pos_v: Variant = hive.get("pos", hive.get("world_pos", null))
+		if not (pos_v is Vector2):
+			continue
+		var hive_pos: Vector2 = pos_v as Vector2
+		sum += hive_pos
+		count += 1
+	if count <= 0:
+		return fallback_pos
+	return sum / float(count)
 
 func _queue_event(event: Dictionary) -> void:
 	events.append(event)

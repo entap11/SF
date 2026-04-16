@@ -33,8 +33,8 @@
   ],
 
   "towers": [
-	{ "id": 1, "x": 5,  "y": 9,  "control_hive_ids": [2, 11], "owner_id": 0 },
-	{ "id": 2, "x": 13, "y": 18, "control_hive_ids": [9, 14], "owner_id": 0 }
+	{ "id": 1, "x": 5,  "y": 9,  "control_hive_ids": [2, 11, 12], "owner_id": 0 },
+	{ "id": 2, "x": 13, "y": 18, "control_hive_ids": [9, 14, 13], "owner_id": 0 }
   ],
 
   "barracks": [

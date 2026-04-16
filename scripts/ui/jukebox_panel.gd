@@ -268,11 +268,8 @@ func _refresh_map_list() -> void:
 		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		row.toggle_mode = true
 		row.button_pressed = str(entry.get("path", "")) == _selected_map_path
-		row.text = "%s\n%s" % [
-			_stylized_display_text(str(entry.get("title", ""))),
-			_stylized_display_text(str(entry.get("hero_title", "")))
-		]
-		row.tooltip_text = "%s\n%s" % [str(entry.get("meta", "")), str(entry.get("desc", ""))]
+		row.text = _map_card_text(entry)
+		row.tooltip_text = str(entry.get("title", ""))
 		row.custom_minimum_size = Vector2(300.0, 116.0)
 		row.pressed.connect(func() -> void:
 			_select_map(str(entry.get("path", "")))
@@ -316,12 +313,9 @@ func _select_map(map_path: String) -> void:
 	var selected: Dictionary = _entry_by_path(map_path)
 	selected_title_label.text = _stylized_display_text(str(selected.get("title", "Map")))
 	_apply_font(selected_title_label, _font_semibold, 20)
-	selected_meta_label.text = _stylized_display_text("%s %s" % [
-		str(selected.get("hero_title", "")),
-		str(selected.get("meta", ""))
-	])
+	selected_meta_label.text = ""
 	_apply_font(selected_meta_label, _font_regular, 13)
-	selected_desc_label.text = str(selected.get("desc", ""))
+	selected_desc_label.text = ""
 	_refresh_hero_preview(selected)
 	play_button.disabled = _selected_map_path.is_empty()
 	_refresh_map_list()
@@ -560,6 +554,9 @@ func _stylized_display_text(text: String) -> String:
 	if sanitized.is_empty():
 		return text.to_upper()
 	return sanitized
+
+func _map_card_text(entry: Dictionary) -> String:
+	return _stylized_display_text(str(entry.get("title", "")))
 
 func _preview_bot_profile(style: String, tier: String) -> Dictionary:
 	var ops_state: Node = get_node_or_null("/root/OpsState")

@@ -9,6 +9,7 @@ const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
+const TEAM_GLOW_RECOLOR_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const BeeClipControllerScript := preload("res://scripts/vfx/bee_clip_controller.gd")
 const BEE_CLIP_SHADER := preload("res://shaders/BeeClip.gdshader")
 
@@ -25,6 +26,7 @@ var _swarm_texture: Texture2D = null
 var _sprite_registry: SpriteRegistry = null
 var _colorkey_materials: Dictionary = {}
 var _unit_material_by_sprite: Dictionary = {}
+var _neutral_unit_material_by_sprite: Dictionary = {}
 var _unit_team_color_logged: Dictionary = {}
 var _unit_tint_target_logged: Dictionary = {}
 var _unit_material_cleared_logged: Dictionary = {}
@@ -628,7 +630,7 @@ func _prewarm_unit_assets() -> void:
 				if res is Texture2D:
 					tex = res as Texture2D
 		var owner_id: int = _owner_id_from_unit_sprite_key(sprite_key)
-		var mat: ShaderMaterial = _get_unit_colorkey_material(sprite_key, owner_id, registry)
+		var mat: ShaderMaterial = _get_unit_material(sprite_key, owner_id, registry)
 		if prewarm_sprite != null:
 			prewarm_sprite.texture = tex
 			prewarm_sprite.material = mat
@@ -2575,7 +2577,7 @@ func _update_unit_sprite(
 	# Order: texture -> material -> self_modulate
 	if sprite.texture == null or sprite.texture != tex:
 		sprite.texture = tex
-	var team_color: Color = _owner_color(owner_id)
+	var team_color: Color = _unit_modulate_color(owner_id)
 	team_color.a = UNIT_COLOR.a
 	if _color_changed(sprite.self_modulate, team_color):
 		if AUDIT_RENDER:
@@ -2583,8 +2585,9 @@ func _update_unit_sprite(
 		sprite.self_modulate = team_color
 	var key_params: Dictionary = _unit_colorkey_params(sprite_key, owner_id, registry)
 	var needs_colorkey_material: bool = bool(key_params.get("enabled", false))
+	var needs_neutral_recolor: bool = owner_id <= 0
 	var has_resource_path: bool = not tex.resource_path.is_empty()
-	if has_resource_path or needs_colorkey_material:
+	if needs_neutral_recolor or has_resource_path or needs_colorkey_material:
 		var mat: ShaderMaterial = _ensure_unit_colorkey_material(sprite, sprite_key, registry, owner_id, unit_id)
 		if mat != null and sprite.material != mat:
 			if AUDIT_RENDER:
@@ -3190,6 +3193,26 @@ func _get_unit_colorkey_material(sprite_key: String, owner_id: int, registry: Sp
 	_unit_material_by_sprite[key] = mat
 	return mat
 
+func _get_neutral_unit_material(sprite_key: String, owner_id: int, _registry: SpriteRegistry) -> ShaderMaterial:
+	var key := "%s|%d|neutral_recolor" % [sprite_key, owner_id]
+	if _neutral_unit_material_by_sprite.has(key):
+		return _neutral_unit_material_by_sprite[key]
+	_audit_mark_rebuild("neutral_unit_recolor_material_cache_miss")
+	var mat := ShaderMaterial.new()
+	mat.shader = TEAM_GLOW_RECOLOR_SHADER
+	var npc_color: Color = _owner_color(0)
+	_mat_set(mat, "team_color", npc_color)
+	_mat_set(mat, "glow_strength", 0.35)
+	_mat_set(mat, "colorize_strength", 0.92)
+	_mat_set(mat, "additive_glow", 0.0)
+	_neutral_unit_material_by_sprite[key] = mat
+	return mat
+
+func _get_unit_material(sprite_key: String, owner_id: int, registry: SpriteRegistry) -> ShaderMaterial:
+	if owner_id <= 0:
+		return _get_neutral_unit_material(sprite_key, owner_id, registry)
+	return _get_unit_colorkey_material(sprite_key, owner_id, registry)
+
 func _ensure_unit_colorkey_material(
 	sprite: Sprite2D,
 	sprite_key: String,
@@ -3199,7 +3222,7 @@ func _ensure_unit_colorkey_material(
 ) -> ShaderMaterial:
 	if sprite == null:
 		return null
-	var mat: ShaderMaterial = _get_unit_colorkey_material(sprite_key, owner_id, registry)
+	var mat: ShaderMaterial = _get_unit_material(sprite_key, owner_id, registry)
 	if mat == null:
 		return null
 	if unit_id > 0:
@@ -3550,6 +3573,11 @@ func _hash_unit_id(unit_id: int) -> int:
 
 func _owner_color(owner_id: int) -> Color:
 	return HiveRenderer._owner_color(owner_id)
+
+func _unit_modulate_color(owner_id: int) -> Color:
+	if owner_id <= 0:
+		return Color(1.0, 1.0, 1.0, UNIT_COLOR.a)
+	return _owner_color(owner_id)
 
 func _unit_owner_id(u: Variant, hive_by_id: Dictionary) -> int:
 	if typeof(u) != TYPE_DICTIONARY:

@@ -264,8 +264,7 @@ func _draw_control_links(pos: Vector2, bd: Dictionary, _base_color: Color, hives
 		draw_circle(hive_pos, CONTROL_LINK_NODE_RADIUS_PX, link_color)
 
 func _barracks_anchor_pos(bd: Dictionary, _hives_by_id: Dictionary) -> Vector2:
-	# Authoritative placement: map-authored grid_pos/x/y only.
-	# This keeps barracks exactly on the intended intersection tiles.
+	# Render model position is authoritative and may be centroid-adjusted from control hives.
 	return _barracks_world_pos(bd)
 
 func _barracks_world_pos(bd: Dictionary) -> Vector2:

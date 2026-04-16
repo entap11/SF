@@ -11592,7 +11592,7 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
 	var map_labels: Array[String] = []
 	for map_id_v in map_ids:
-		map_labels.append(str(map_id_v))
+		map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(str(map_id_v)))
 	var resolved_map_count: int = int(plan.get("map_count", map_count_requested))
 	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
 	lobby_options["window_sec"] = window_sec
@@ -11761,7 +11761,7 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
 	var map_labels: Array[String] = []
 	for map_id_v in map_ids:
-		map_labels.append(str(map_id_v))
+		map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(str(map_id_v)))
 	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
 	lobby_options["window_sec"] = window_sec
 	lobby_options["contest_id"] = contest_id
@@ -11809,7 +11809,7 @@ func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
 	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
 	var map_labels: Array[String] = []
 	for map_id_v in map_ids:
-		map_labels.append(str(map_id_v))
+		map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(str(map_id_v)))
 	lobby_options["sync_join_sec"] = maxi(1, int(plan.get("start_countdown_sec", ASYNC_TIMED_RACE_SYNC_JOIN_SEC)))
 	lobby_options["contest_id"] = contest_id
 	var timed_scope: String = str(contest.get("scope"))

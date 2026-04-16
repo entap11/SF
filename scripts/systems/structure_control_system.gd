@@ -23,7 +23,7 @@ func bind_state(state_ref: GameState) -> void:
 func tick(_dt: float) -> void:
 	if state == null:
 		return
-	if OpsState.has_outcome():
+	if _ops_has_outcome():
 		return
 	_refresh_structure_index()
 	_eval_structures(state.towers, "tower")
@@ -145,3 +145,18 @@ func _update_structure_owner_index(structure: Dictionary, structure_type: String
 	state.structure_owner_by_node_id[node_id] = owner_id
 	if state.tower_owner_by_node_id != null:
 		state.tower_owner_by_node_id[node_id] = owner_id
+
+func _ops_has_outcome() -> bool:
+	var ops_state: Node = _ops_state()
+	if ops_state == null or not ops_state.has_method("has_outcome"):
+		return false
+	return bool(ops_state.call("has_outcome"))
+
+func _ops_state() -> Node:
+	var loop: MainLoop = Engine.get_main_loop()
+	if loop == null or not (loop is SceneTree):
+		return null
+	var tree: SceneTree = loop as SceneTree
+	if tree.root == null:
+		return null
+	return tree.root.get_node_or_null("/root/OpsState")

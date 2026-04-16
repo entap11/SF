@@ -10,7 +10,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/onboarding/onboarding_panel.tscn" id="8"]
 [ext_resource type="PackedScene" path="res://ui/backgrounds/HexSeamBackground.tscn" id="9"]
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_tv85m"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_lejjn"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -27,7 +27,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_hug70"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_rpia4"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -44,7 +44,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_7oj73"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_awdsh"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -61,7 +61,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_yms0d"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_yh86a"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -78,7 +78,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_3je45"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ec0v6"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -95,7 +95,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_gss2o"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_q4ex6"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -144,7 +144,7 @@ texture = ExtResource("5")
 stretch_mode = 5
 
 [node name="MainHexSeamBackground" parent="." instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_tv85m")
+material = SubResource("ShaderMaterial_lejjn")
 layout_mode = 1
 
 [node name="PlatformDimmer" type="ColorRect" parent="."]
@@ -352,7 +352,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 
 [node name="HexSeamBackground" parent="DashPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_hug70")
+material = SubResource("ShaderMaterial_rpia4")
 layout_mode = 1
 
 [node name="DashTopBar" type="Control" parent="DashPanel"]
@@ -1010,7 +1010,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashBuffsPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_7oj73")
+material = SubResource("ShaderMaterial_awdsh")
 layout_mode = 1
 
 [node name="BuffsVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel"]
@@ -1219,7 +1219,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashHivePanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_yms0d")
+material = SubResource("ShaderMaterial_yh86a")
 layout_mode = 1
 
 [node name="HiveVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel"]
@@ -1287,14 +1287,14 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HiveTopRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
-layout_mode = 2
 custom_minimum_size = Vector2(0, 236)
+layout_mode = 2
 
 [node name="HiveOverviewPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow"]
+custom_minimum_size = Vector2(0, 236)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_stretch_ratio = 0.92
-custom_minimum_size = Vector2(0, 236)
 
 [node name="HiveOverviewVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel"]
 layout_mode = 1
@@ -1329,10 +1329,10 @@ layout_mode = 2
 text = "Members: 12"
 
 [node name="HiveRosterPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow"]
+custom_minimum_size = Vector2(0, 280)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_stretch_ratio = 1.18
-custom_minimum_size = Vector2(0, 280)
 
 [node name="HiveRosterVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel"]
 layout_mode = 1
@@ -1356,48 +1356,44 @@ size_flags_vertical = 3
 
 [node name="HiveMember1" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
-flat = true
 text = "Mason — Captain"
+flat = true
 
 [node name="HiveMember2" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
-flat = true
 text = "Nora — Core"
+flat = true
 
 [node name="HiveMember3" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
-flat = true
 text = "Sable — Core"
+flat = true
 
 [node name="HiveMember4" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
-flat = true
 text = "Ivy — Scout"
+flat = true
 
 [node name="HiveMember5" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
 flat = true
-text = ""
 
 [node name="HiveMember6" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
 flat = true
-text = ""
 
 [node name="HiveMember7" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
 flat = true
-text = ""
 
 [node name="HiveMember8" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList"]
 layout_mode = 2
 flat = true
-text = ""
 
 [node name="HiveActivityPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
+custom_minimum_size = Vector2(0, 188)
 layout_mode = 2
 size_flags_vertical = 3
-custom_minimum_size = Vector2(0, 188)
 
 [node name="HiveActivityVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel"]
 layout_mode = 1
@@ -1429,12 +1425,11 @@ text = "Quest progress: 3/5"
 
 [node name="HiveActivity4" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox"]
 layout_mode = 2
-text = ""
 
 [node name="HiveActionsPanel" type="Panel" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
+custom_minimum_size = Vector2(0, 272)
 layout_mode = 2
 size_flags_vertical = 3
-custom_minimum_size = Vector2(0, 272)
 
 [node name="HiveActionsVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel"]
 layout_mode = 1
@@ -1474,7 +1469,6 @@ text = "Recent hive posts appear here"
 
 [node name="HiveComm4" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
 layout_mode = 2
-text = ""
 
 [node name="HiveActionsRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
 layout_mode = 2
@@ -1521,7 +1515,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashStorePanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_3je45")
+material = SubResource("ShaderMaterial_ec0v6")
 layout_mode = 1
 
 [node name="StoreVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel"]
@@ -2319,7 +2313,7 @@ layout_mode = 2
 mouse_filter = 1
 
 [node name="HexSeamBackground" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_gss2o")
+material = SubResource("ShaderMaterial_q4ex6")
 layout_mode = 1
 
 [node name="OverlayVBox" type="VBoxContainer" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel"]

@@ -5,6 +5,7 @@ extends Node2D
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
+const StructureControlIndicator := preload("res://scripts/renderers/structure_control_indicator.gd")
 const NPC_CIRCUIT_COLOR: Color = Color(0.55, 0.50, 0.70, 1.0)
 const CIRCUIT_SURFACE_COLOR: Color = Color(0.84, 0.90, 1.0, 1.0)
 const CIRCUIT_TRENCH_COLOR: Color = Color(0.06, 0.09, 0.13, 1.0)
@@ -80,10 +81,7 @@ func _draw() -> void:
 	if _barracks.is_empty():
 		return
 
-	var traces_drawn: int = 0
-	var sample_a: Vector2 = Vector2.ZERO
-	var sample_b: Vector2 = Vector2.ZERO
-	var has_sample: bool = false
+	var segments_drawn: int = 0
 	for b_any in _barracks:
 		if typeof(b_any) != TYPE_DICTIONARY:
 			continue
@@ -91,33 +89,17 @@ func _draw() -> void:
 
 		var barracks_pos_v: Variant = b.get("world_pos", b.get("pos_px", b.get("pos", Vector2.ZERO)))
 		var barracks_pos: Vector2 = barracks_pos_v as Vector2 if barracks_pos_v is Vector2 else Vector2.ZERO
-		var control_ids_v: Variant = b.get("control_hive_ids", b.get("required_hive_ids", []))
-		if typeof(control_ids_v) != TYPE_ARRAY:
-			continue
-
-		for hid_v in control_ids_v as Array:
-			var hid: int = int(hid_v)
-			var hinfo: Dictionary = _hives_by_id.get(hid, {})
-			if hinfo.is_empty():
-				continue
-
-			var hive_pos: Vector2 = hinfo.get("world_pos", Vector2.ZERO)
-			var owner_id: int = int(hinfo.get("owner_id", 0))
-			var trim: Dictionary = _trim_segment(barracks_pos, hive_pos, shorten_px)
-			var a2: Vector2 = trim.get("a", barracks_pos)
-			var b2: Vector2 = trim.get("b", hive_pos)
-			_draw_embedded_trace(a2, b2, owner_id)
-			traces_drawn += 1
-			if not has_sample:
-				has_sample = true
-				sample_a = a2
-				sample_b = b2
+		segments_drawn += StructureControlIndicator.draw_control_collar(
+			self,
+			barracks_pos,
+			b,
+			_hives_by_id,
+			"barracks"
+		)
 	SFLog.warn("CIRCUIT_GLOW_DRAW", {
 		"type": "barracks",
-		"traces": traces_drawn,
+		"segments": segments_drawn,
 		"barracks": _barracks.size(),
-		"sample_a": sample_a if has_sample else null,
-		"sample_b": sample_b if has_sample else null,
 		"z_index": z_index,
 		"blend_additive": glow_blend_additive
 	}, "", 5000)

@@ -19,7 +19,17 @@ static func list_maps() -> Array[String]:
 		if map_id == "MAP_TEST":
 			continue
 		out.append(path)
+	out.sort_custom(func(a: String, b: String) -> bool:
+		return MAP_REGISTRY.public_map_sort_key_for_path(a) < MAP_REGISTRY.public_map_sort_key_for_path(b)
+	)
 	return out
+
+static func display_name_for_map(path_or_id: String) -> String:
+	if path_or_id.strip_edges().is_empty():
+		return ""
+	if path_or_id.begins_with("res://"):
+		return MAP_REGISTRY.public_map_display_name_for_path(path_or_id)
+	return MAP_REGISTRY.public_map_display_name_for_id(path_or_id)
 
 static func load_map(path_or_id: String) -> Dictionary:
 	var resolved: String = _resolve_map_path(path_or_id)

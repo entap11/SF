@@ -59,9 +59,9 @@ func set_structure_selector(selector: TowerSystem) -> void:
 func tick(_dt: float) -> void:
 	if state == null:
 		return
-	if OpsState.has_outcome():
+	if _ops_has_outcome():
 		return
-	if OpsState.match_over:
+	if _ops_match_over():
 		if not _spawn_disabled_logged:
 			_spawn_disabled_logged = true
 			SFLog.info("SPAWN_DISABLED", {"system": "barracks"})
@@ -124,8 +124,11 @@ func _ensure_barracks_control_ids() -> void:
 		if req.is_empty() and not control.is_empty():
 			b["required_hive_ids"] = control.duplicate()
 			req = b["required_hive_ids"]
-		if control.is_empty():
-			var computed: Array = _barracks_adjacent_control_ids(b)
+		if control.size() < BARRACKS_MIN_REQ:
+			var seed_ids: Array = control.duplicate()
+			if seed_ids.is_empty():
+				seed_ids = req.duplicate()
+			var computed: Array = _barracks_adjacent_control_ids(b, seed_ids)
 			if computed.size() >= BARRACKS_MIN_REQ:
 				if req.is_empty():
 					b["required_hive_ids"] = computed
@@ -243,7 +246,7 @@ func _log_lane_eval(kind: String, structure_id: int, lane_label: String, dist: f
 		"is_adj": is_adj
 	})
 
-func _barracks_adjacent_control_ids(barracks_data: Dictionary) -> Array:
+func _barracks_adjacent_control_ids(barracks_data: Dictionary, seed_ids: Array = []) -> Array:
 	if state == null:
 		return []
 	var barracks_id: int = int(barracks_data.get("id", -1))
@@ -268,6 +271,25 @@ func _barracks_adjacent_control_ids(barracks_data: Dictionary) -> Array:
 			"id": hive_id,
 			"pos": state.hive_world_pos_by_id(hive_id)
 		})
+	if not seed_ids.is_empty():
+		var completed: Dictionary = StructureControlSolver.complete_control_ids_from_seed(
+			hive_entries,
+			center,
+			seed_ids,
+			BARRACKS_MIN_REQ
+		)
+		var completed_ids: Array = completed.get("ids", [])
+		if completed_ids.size() >= BARRACKS_MIN_REQ:
+			return completed_ids
+	var centroid_pick: Dictionary = StructureControlSolver.pick_centroid_cluster(
+		hive_entries,
+		center,
+		BARRACKS_MIN_REQ,
+		MAX_HIVES_OUT
+	)
+	var centroid_ids: Array = centroid_pick.get("ids", [])
+	if centroid_ids.size() >= BARRACKS_MIN_REQ:
+		return centroid_ids
 	var picked: Dictionary = StructureControlSolver.pick_min_enclosing_cycle_from_nearest(
 		hive_entries,
 		lanes_src,
@@ -855,7 +877,9 @@ func _hive_tier(power: int) -> int:
 	return 1
 
 func _barracks_center_pos(barracks_data: Dictionary) -> Vector2:
-	var required_v: Variant = barracks_data.get("required_hive_ids", [])
+	var required_v: Variant = barracks_data.get("control_hive_ids", barracks_data.get("required_hive_ids", []))
+	if typeof(required_v) != TYPE_ARRAY or (required_v as Array).is_empty():
+		required_v = barracks_data.get("required_hive_ids", [])
 	if typeof(required_v) != TYPE_ARRAY or (required_v as Array).is_empty():
 		return _cell_center(_barracks_grid_pos(barracks_data))
 	var sum := Vector2.ZERO
@@ -922,3 +946,24 @@ func _spawn_barracks_unit(barracks_data: Dictionary, target_id: int, owner_id: i
 		"amount": int(unit.get("amount", 1))
 	})
 	unit_system.spawn_unit(unit)
+
+func _ops_has_outcome() -> bool:
+	var ops_state: Node = _ops_state()
+	if ops_state == null or not ops_state.has_method("has_outcome"):
+		return false
+	return bool(ops_state.call("has_outcome"))
+
+func _ops_match_over() -> bool:
+	var ops_state: Node = _ops_state()
+	if ops_state == null:
+		return false
+	return bool(ops_state.get("match_over"))
+
+func _ops_state() -> Node:
+	var loop: MainLoop = Engine.get_main_loop()
+	if loop == null or not (loop is SceneTree):
+		return null
+	var tree: SceneTree = loop as SceneTree
+	if tree.root == null:
+		return null
+	return tree.root.get_node_or_null("/root/OpsState")

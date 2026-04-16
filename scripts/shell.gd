@@ -4,6 +4,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
+const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/startup_launch_request_resolver.gd")
 const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
@@ -555,7 +556,7 @@ func _map_display_name(map_path: String) -> String:
 	var clean: String = map_path.strip_edges()
 	if clean.is_empty():
 		return "none"
-	return clean.get_file()
+	return MAP_REGISTRY.public_map_display_name_for_path(clean)
 
 func _shell_mode_label() -> String:
 	return "FFA" if _team_mode_ui == "ffa" else "2v2"
@@ -879,9 +880,8 @@ func _scan_maps_into_list() -> void:
 		if path.is_empty():
 			continue
 		paths.append(path)
-	paths.sort()
 	for p in paths:
-		_map_list.add_item(p.get_file())
+		_map_list.add_item(_map_display_name(p))
 		var idx: int = _map_list.item_count - 1
 		_map_list.set_item_metadata(idx, p)
 	_map_list.set_meta("paths", paths)

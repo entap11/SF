@@ -49,16 +49,19 @@ func refresh() -> void:
 		if map_id == "MAP_TEST":
 			continue
 		var normalized: Dictionary = MAP_REGISTRY.normalize_map_id(map_id)
+		var public_title: String = MAP_REGISTRY.public_map_display_name_for_id(map_id)
 		var entry: Dictionary = {
 			"path": path,
 			"map_id": map_id,
-			"title": map_title(map_id, data),
-			"hero_title": hero_title(map_id, normalized),
+			"title": public_title,
+			"hero_title": "",
 			"preview_path": preview_path(data),
 			"category": primary_category(path, normalized),
 			"filters": category_filters(path, normalized),
-			"meta": map_meta_text(data, normalized),
-			"desc": map_desc_text(data, normalized),
+			"meta": "",
+			"desc": "",
+			"sort_key": MAP_REGISTRY.public_map_sort_key_for_id(map_id),
+			"public_alias_status": str(MAP_REGISTRY.public_map_alias_entry_for_id(map_id).get("status", "unlisted")),
 			"owner_counts": owner_counts(data),
 			"supports_ctf": supports_ctf(path, normalized),
 			"supports_hidden_ctf": supports_hidden_ctf(path, normalized)
@@ -71,7 +74,7 @@ func refresh() -> void:
 				continue
 			category_seen[filter] = true
 	_map_entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return str(a.get("title", "")) < str(b.get("title", ""))
+		return str(a.get("sort_key", "")) < str(b.get("sort_key", ""))
 	)
 	for label in CATEGORY_ORDER:
 		if bool(category_seen.get(label, false)):
@@ -121,11 +124,12 @@ func board_snapshot(map_path: String, period: String, limit: int = 50) -> Dictio
 		}
 	var requester_id: String = ""
 	var requester_handle: String = ""
-	if ProfileManager != null:
-		if ProfileManager.has_method("get_user_id"):
-			requester_id = str(ProfileManager.get_user_id()).strip_edges()
-		if ProfileManager.has_method("get_display_name"):
-			requester_handle = str(ProfileManager.get_display_name()).strip_edges()
+	var profile_manager: Node = _profile_manager()
+	if profile_manager != null:
+		if profile_manager.has_method("get_user_id"):
+			requester_id = str(profile_manager.call("get_user_id")).strip_edges()
+		if profile_manager.has_method("get_display_name"):
+			requester_handle = str(profile_manager.call("get_display_name")).strip_edges()
 	if _leaderboard_store != null and _leaderboard_store.has_method("reload"):
 		_leaderboard_store.call("reload")
 	return _leaderboard_store.get_board_snapshot(
@@ -201,11 +205,6 @@ func category_filters(path: String, normalized: Dictionary) -> Array[String]:
 		out.append(family)
 	return out
 
-func hero_title(map_id: String, normalized: Dictionary) -> String:
-	var family: String = str(normalized.get("family", "map")).capitalize()
-	var start: String = str(normalized.get("start", "starter")).replace("_", " ").capitalize()
-	return "%s / %s" % [family, start]
-
 func map_title(map_id: String, data: Dictionary) -> String:
 	var raw_name: String = str(data.get("name", "")).strip_edges()
 	if not raw_name.is_empty():
@@ -220,37 +219,6 @@ func map_title(map_id: String, data: Dictionary) -> String:
 		pretty.append(clean)
 	return " / ".join(pretty)
 
-func map_meta_text(data: Dictionary, normalized: Dictionary) -> String:
-	var grid_w: int = int(data.get("grid_w", data.get("width", 0)))
-	var grid_h: int = int(data.get("grid_h", data.get("height", 0)))
-	var counts: Dictionary = owner_counts(data)
-	var family: String = str(normalized.get("family", "map")).capitalize()
-	var start: String = str(normalized.get("start", "START"))
-	var mode: String = str(normalized.get("mode", "1p")).to_upper()
-	return "%s | %s | %s | %dx%d | P1:%d P2:%d N:%d" % [
-		family,
-		start,
-		mode,
-		grid_w,
-		grid_h,
-		int(counts.get(1, 0)),
-		int(counts.get(2, 0)),
-		int(counts.get(0, 0))
-	]
-
-func map_desc_text(data: Dictionary, normalized: Dictionary) -> String:
-	var family: String = str(normalized.get("family", "map")).capitalize()
-	var start: String = str(normalized.get("start", "START"))
-	var tags: Array[String] = []
-	if supports_ctf("", normalized):
-		tags.append("CTF")
-	if supports_hidden_ctf("", normalized):
-		tags.append("HIDDEN FLAG")
-	var tag_text: String = ", ".join(tags)
-	if tag_text.is_empty():
-		tag_text = "DUEL"
-	return "%s map scaffold. Start pattern: %s. Best fit right now: %s." % [family, start, tag_text]
-
 func preview_path(data: Dictionary) -> String:
 	var raw: String = str(data.get("preview_path", "")).strip_edges()
 	if not raw.is_empty() and ResourceLoader.exists(raw):
@@ -259,3 +227,12 @@ func preview_path(data: Dictionary) -> String:
 
 func _board_mode_for_entry(entry: Dictionary) -> String:
 	return str(entry.get("board_mode", DEFAULT_BOARD_MODE)).strip_edges().to_upper()
+
+func _profile_manager() -> Node:
+	var loop: MainLoop = Engine.get_main_loop()
+	if loop == null or not (loop is SceneTree):
+		return null
+	var tree: SceneTree = loop as SceneTree
+	if tree.root == null:
+		return null
+	return tree.root.get_node_or_null("/root/ProfileManager")

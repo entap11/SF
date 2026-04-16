@@ -114,7 +114,7 @@ func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
 		Image.FORMAT_RGBA8, Image.FORMAT_RGBAF,
 		Image.FORMAT_RGBAH
 	]
-	if has_alpha and not colorkey_enabled:
+	if has_alpha and not colorkey_enabled and not auto_key_white:
 		_tex_alpha_cache[key] = tex
 		return tex
 

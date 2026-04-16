@@ -80,7 +80,10 @@ func init_from_map(map_model: Dictionary) -> void:
 		var t_grid_pos := Vector2i(int(t_pos[0]), int(t_pos[1]))
 		var temp: Dictionary = td.duplicate(true)
 		temp["grid_pos"] = t_grid_pos
-		var control_ids: Array = _tower_adjacent_control_ids(temp)
+		var existing_ids: Array = _existing_control_ids(temp)
+		var control_ids: Array = existing_ids.duplicate()
+		if control_ids.size() < BARRACKS_MIN_REQ:
+			control_ids = _tower_adjacent_control_ids(temp, existing_ids)
 		var t_computed: Array = control_ids.duplicate()
 		structure_sets.append(t_computed)
 		if t_computed.size() >= BARRACKS_MIN_REQ:
@@ -113,7 +116,7 @@ func compute_required_hives_for_structure(pos: Vector2i, required: Array, existi
 func tick(dt: float, unit_system: UnitSystem) -> void:
 	if state == null:
 		return
-	if OpsState.has_outcome():
+	if _ops_has_outcome():
 		return
 	# If we bound before state.towers was populated, recover here.
 	if (towers.is_empty() or (state.towers != null and state.towers.size() != towers.size())) and state.towers != null and state.towers.size() > 0:
@@ -359,6 +362,12 @@ func _log_no_target(
 		})
 
 func _tower_center_pos(tower_data: Dictionary) -> Vector2:
+	var control_ids: Array = StructureControlSystem.control_ids_for(tower_data)
+	if not control_ids.is_empty():
+		return _structure_center_for_required(control_ids, _tower_authored_center_pos(tower_data))
+	return _tower_authored_center_pos(tower_data)
+
+func _tower_authored_center_pos(tower_data: Dictionary) -> Vector2:
 	var gp_v: Variant = tower_data.get("grid_pos", null)
 	if gp_v is Vector2i:
 		return _cell_center(gp_v as Vector2i)
@@ -366,20 +375,7 @@ func _tower_center_pos(tower_data: Dictionary) -> Vector2:
 		var gp_arr: Array = gp_v as Array
 		if gp_arr.size() >= 2:
 			return _cell_center(Vector2i(int(gp_arr[0]), int(gp_arr[1])))
-	var required: Array = tower_data.get("required_hive_ids", [])
-	if required.is_empty():
-		return _cell_center(tower_data.get("grid_pos", Vector2i.ZERO))
-	var sum := Vector2.ZERO
-	var count := 0
-	for hive_id_v in required:
-		var hive: HiveData = state.find_hive_by_id(int(hive_id_v))
-		if hive == null:
-			continue
-		sum += _cell_center(hive.grid_pos)
-		count += 1
-	if count == 0:
-		return _cell_center(tower_data.get("grid_pos", Vector2i.ZERO))
-	return sum / float(count)
+	return _cell_center(tower_data.get("grid_pos", Vector2i.ZERO))
 
 func _unit_position(unit: Dictionary) -> Vector2:
 	var pos_v: Variant = unit.get("pos")
@@ -471,7 +467,10 @@ func _ensure_tower_fields(td: Dictionary) -> void:
 	var tower_id: int = int(td.get("id", -1))
 	if not td.has("node_id"):
 		td["node_id"] = tower_id
-	var control_ids: Array = _tower_adjacent_control_ids(td)
+	var existing_ids: Array = _existing_control_ids(td)
+	var control_ids: Array = existing_ids.duplicate()
+	if control_ids.size() < BARRACKS_MIN_REQ:
+		control_ids = _tower_adjacent_control_ids(td, existing_ids)
 	td["control_hive_ids"] = control_ids
 	td["required_hive_ids"] = control_ids.duplicate()
 	if not td.has("active"):
@@ -482,7 +481,7 @@ func _ensure_tower_fields(td: Dictionary) -> void:
 	if not td.has("shot_accum_ms"):
 		td["shot_accum_ms"] = 0.0
 
-func _tower_adjacent_control_ids(tower_data: Dictionary) -> Array:
+func _tower_adjacent_control_ids(tower_data: Dictionary, seed_ids: Array = []) -> Array:
 	if state == null:
 		return []
 	var tower_id: int = int(tower_data.get("id", -1))
@@ -507,6 +506,25 @@ func _tower_adjacent_control_ids(tower_data: Dictionary) -> Array:
 			"id": hive_id,
 			"pos": state.hive_world_pos_by_id(hive_id)
 		})
+	if not seed_ids.is_empty():
+		var completed: Dictionary = StructureControlSolver.complete_control_ids_from_seed(
+			hive_entries,
+			center,
+			seed_ids,
+			BARRACKS_MIN_REQ
+		)
+		var completed_ids: Array = completed.get("ids", [])
+		if completed_ids.size() >= BARRACKS_MIN_REQ:
+			return completed_ids
+	var centroid_pick: Dictionary = StructureControlSolver.pick_centroid_cluster(
+		hive_entries,
+		center,
+		BARRACKS_MIN_REQ,
+		STRUCTURE_CANDIDATE_MAX
+	)
+	var centroid_ids: Array = centroid_pick.get("ids", [])
+	if centroid_ids.size() >= BARRACKS_MIN_REQ:
+		return centroid_ids
 	var picked: Dictionary = StructureControlSolver.pick_min_enclosing_cycle_from_nearest(
 		hive_entries,
 		lanes_src,
@@ -518,6 +536,25 @@ func _tower_adjacent_control_ids(tower_data: Dictionary) -> Array:
 		MAX_CYCLE_LEN
 	)
 	return picked.get("ids", [])
+
+func _existing_control_ids(structure_data: Dictionary) -> Array:
+	var out: Array = []
+	var seen: Dictionary = {}
+	for source_key in ["control_hive_ids", "required_hive_ids"]:
+		var ids_v: Variant = structure_data.get(source_key, [])
+		if typeof(ids_v) != TYPE_ARRAY:
+			continue
+		for id_v in ids_v as Array:
+			var hive_id: int = int(id_v)
+			if hive_id <= 0 or seen.has(hive_id):
+				continue
+			if state != null and state.find_hive_by_id(hive_id) == null:
+				continue
+			seen[hive_id] = true
+			out.append(hive_id)
+		if not out.is_empty():
+			return out
+	return out
 
 func _tower_control_center(tower_data: Dictionary) -> Vector2:
 	var gp_v: Variant = tower_data.get("grid_pos", null)
@@ -812,3 +849,18 @@ func _barracks_entry_less(a: Dictionary, b: Dictionary) -> bool:
 	if ad2 == bd2:
 		return int(a["id"]) < int(b["id"])
 	return ad2 < bd2
+
+func _ops_has_outcome() -> bool:
+	var ops_state: Node = _ops_state()
+	if ops_state == null or not ops_state.has_method("has_outcome"):
+		return false
+	return bool(ops_state.call("has_outcome"))
+
+func _ops_state() -> Node:
+	var loop: MainLoop = Engine.get_main_loop()
+	if loop == null or not (loop is SceneTree):
+		return null
+	var tree: SceneTree = loop as SceneTree
+	if tree.root == null:
+		return null
+	return tree.root.get_node_or_null("/root/OpsState")

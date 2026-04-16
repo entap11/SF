@@ -1,6 +1,7 @@
 extends Control
 class_name ContestHub
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const STAGE_RACE_START_PLAYERS := 5
 
 signal closed
@@ -69,7 +70,7 @@ func _build_maps() -> void:
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var map_button := Button.new()
-		map_button.text = map_id
+		map_button.text = MAP_REGISTRY.public_map_display_name_for_id(map_id)
 		map_button.pressed.connect(func(): _open_leaderboard(map_id))
 		var score_label := Label.new()
 		var best_score := 0
