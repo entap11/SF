@@ -634,16 +634,49 @@ func _apply_tutorial_low_pressure_scenario() -> void:
 	if OpsState == null or not OpsState.has_method("set_bot_profile"):
 		return
 	var local_owner_id: int = _resolve_local_owner_id()
+	var team_by_seat: Dictionary = {}
+	if OpsState.has_method("get_team_by_seat_snapshot"):
+		var team_snapshot_any: Variant = OpsState.call("get_team_by_seat_snapshot")
+		if typeof(team_snapshot_any) == TYPE_DICTIONARY:
+			team_by_seat = (team_snapshot_any as Dictionary).duplicate(true)
+	var local_team_id: int = int(team_by_seat.get(local_owner_id, local_owner_id))
 	for seat in [1, 2, 3, 4]:
 		var seat_id: int = int(seat)
 		if seat_id == local_owner_id:
 			continue
+		var seat_team_id: int = int(team_by_seat.get(seat_id, seat_id))
+		var is_ally: bool = seat_team_id == local_team_id
+		if is_ally:
+			OpsState.call("set_bot_profile", seat_id, {
+				"enabled": false,
+				"opening_delay_ms": 999999,
+				"aggression": 0.0
+			})
+			continue
 		OpsState.call("set_bot_profile", seat_id, {
-			"enabled": false,
-			"opening_delay_ms": 999999,
-			"aggression": 0.0
+			"enabled": true,
+			"style": "turtle",
+			"persona": "turtle",
+			"tier": "easy",
+			"opening_delay_ms": 7000,
+			"think_interval_ms": 3200,
+			"think_jitter_ms": 900,
+			"post_intent_delay_ms": 1400,
+			"global_intent_cooldown_ms": 2800,
+			"pair_intent_cooldown_ms": 3600,
+			"min_attack_power": 14,
+			"min_feed_power": 16,
+			"min_swarm_power": 99,
+			"allow_swarm": false,
+			"aggression": 0.28,
+			"feed_bias": 0.36,
+			"randomness": 0.14
 		})
-	SFLog.info("TUTORIAL_LOW_PRESSURE_SCENARIO", {"local_owner_id": local_owner_id})
+	SFLog.info("TUTORIAL_LOW_PRESSURE_SCENARIO", {
+		"local_owner_id": local_owner_id,
+		"local_team_id": local_team_id,
+		"enemy_profile": "turtle/easy"
+	})
 
 func _is_jukebox_easy_bot_mode() -> bool:
 	var tree: SceneTree = get_tree()

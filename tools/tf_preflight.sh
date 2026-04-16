@@ -68,6 +68,7 @@ if [[ -x "$GODOT_BIN" ]]; then
   run_smoke "res://tools/economy_buff_smoke_test.gd" "Economy/Buff smoke"
   run_smoke "res://tools/swarm_pass_smoke_test.gd" "SwarmPass smoke"
   run_smoke "res://tools/rank_system_smoke_test.gd" "Rank smoke"
+  run_smoke "res://tools/tutorial_flow_smoke_test.gd" "Tutorial flow smoke"
 fi
 
 if [[ "$FAILURES" -eq 0 ]]; then
@@ -77,4 +78,3 @@ fi
 
 fail "TestFlight preflight has $FAILURES blocker(s)"
 exit 1
-

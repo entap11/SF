@@ -19,6 +19,7 @@ var _body_label: Label = null
 var _status_label: Label = null
 var _continue_button: Button = null
 var _skip_button: Button = null
+var _body_tween: Tween = null
 
 var _active: bool = false
 var _current_step: String = STEP_0_INTRO
@@ -56,6 +57,7 @@ func ensure_overlay(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: 
 		_continue_button.pressed.connect(_on_continue_pressed)
 	if _skip_button != null and not _skip_button.pressed.is_connected(_on_skip_pressed):
 		_skip_button.pressed.connect(_on_skip_pressed)
+	_style_overlay_nodes()
 
 func start_if_needed(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: Callable, local_owner_id: int, state: GameState) -> bool:
 	var profile_manager: Object = _get_profile_manager()
@@ -337,7 +339,7 @@ func _refresh_overlay_copy() -> void:
 	if _status_label != null:
 		_status_label.text = _status_text_for_step(_current_step)
 	if _body_label != null:
-		_body_label.text = _body_text_for_step(_current_step)
+		_set_body_text_typewriter(_body_text_for_step(_current_step))
 	if _continue_button != null:
 		_continue_button.visible = _current_step == STEP_0_INTRO
 		_continue_button.disabled = _current_step != STEP_0_INTRO
@@ -409,13 +411,13 @@ func _build_overlay() -> Control:
 	var panel: Panel = Panel.new()
 	panel.name = "Panel"
 	panel.anchor_left = 0.5
-	panel.anchor_top = 0.0
+	panel.anchor_top = 0.08
 	panel.anchor_right = 0.5
-	panel.anchor_bottom = 0.0
-	panel.offset_left = -280.0
-	panel.offset_top = 24.0
-	panel.offset_right = 280.0
-	panel.offset_bottom = 236.0
+	panel.anchor_bottom = 0.08
+	panel.offset_left = -420.0
+	panel.offset_top = 0.0
+	panel.offset_right = 420.0
+	panel.offset_bottom = 390.0
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.add_child(panel)
 
@@ -427,7 +429,7 @@ func _build_overlay() -> Control:
 	vbox.offset_top = 16.0
 	vbox.offset_right = -16.0
 	vbox.offset_bottom = -16.0
-	vbox.add_theme_constant_override("separation", 10)
+	vbox.add_theme_constant_override("separation", 14)
 	panel.add_child(vbox)
 
 	var title: Label = Label.new()
@@ -445,6 +447,7 @@ func _build_overlay() -> Control:
 	var body: Label = Label.new()
 	body.name = "Body"
 	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.text = ""
@@ -459,14 +462,76 @@ func _build_overlay() -> Control:
 	var continue_button: Button = Button.new()
 	continue_button.name = "ContinueButton"
 	continue_button.text = "Continue"
+	continue_button.custom_minimum_size = Vector2(170, 64)
 	buttons.add_child(continue_button)
 
 	var skip_button: Button = Button.new()
 	skip_button.name = "SkipButton"
 	skip_button.text = "Skip"
+	skip_button.custom_minimum_size = Vector2(130, 64)
 	buttons.add_child(skip_button)
 
 	return overlay
+
+func _style_overlay_nodes() -> void:
+	if _overlay == null or not is_instance_valid(_overlay):
+		return
+	var panel: Panel = _overlay.get_node_or_null("Panel") as Panel
+	if panel != null:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.02, 0.025, 0.03, 0.94)
+		style.border_color = Color(1.0, 0.78, 0.22, 0.98)
+		style.border_width_left = 3
+		style.border_width_top = 3
+		style.border_width_right = 3
+		style.border_width_bottom = 3
+		style.corner_radius_top_left = 8
+		style.corner_radius_top_right = 8
+		style.corner_radius_bottom_left = 8
+		style.corner_radius_bottom_right = 8
+		panel.add_theme_stylebox_override("panel", style)
+	if _title_label != null:
+		_title_label.add_theme_font_size_override("font_size", 34)
+		_title_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.72, 1.0))
+		_title_label.add_theme_constant_override("outline_size", 3)
+		_title_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+	if _status_label != null:
+		_status_label.add_theme_font_size_override("font_size", 26)
+		_status_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.22, 1.0))
+		_status_label.add_theme_constant_override("outline_size", 2)
+		_status_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+	if _body_label != null:
+		_body_label.add_theme_font_size_override("font_size", 32)
+		_body_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
+		_body_label.add_theme_constant_override("outline_size", 3)
+		_body_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.88))
+	for button in [_continue_button, _skip_button]:
+		if button == null:
+			continue
+		button.add_theme_font_size_override("font_size", 26)
+
+func _set_body_text_typewriter(text: String) -> void:
+	if _body_label == null:
+		return
+	if _body_tween != null and _body_tween.is_valid():
+		_body_tween.kill()
+	_body_label.text = text
+	_body_label.visible_characters = 0
+	var tree := _scene_tree()
+	if tree == null:
+		_body_label.visible_characters = -1
+		return
+	var char_count: int = maxi(1, text.length())
+	var duration: float = clampf(float(char_count) * 0.022, 0.35, 1.75)
+	_body_tween = tree.create_tween()
+	_body_tween.bind_node(_body_label)
+	_body_tween.tween_property(_body_label, "visible_characters", char_count, duration)
+
+func _scene_tree() -> SceneTree:
+	var loop: MainLoop = Engine.get_main_loop()
+	if loop is SceneTree:
+		return loop as SceneTree
+	return null
 
 func _get_profile_manager() -> Object:
 	var loop: MainLoop = Engine.get_main_loop()

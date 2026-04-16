@@ -567,6 +567,36 @@ func mark_tutorial_section3_skipped() -> void:
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_TUTORIAL_SECTION3_SKIPPED", {"user_id": _user_id})
 
+func prepare_tutorial_section1_sandbox() -> void:
+	ensure_loaded()
+	_onboarding_complete = true
+	_controls_hint_seen = true
+	_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_IN_PROGRESS
+	_tutorial_section1_step = TUTORIAL_SECTION1_STEP_0_INTRO
+	_tutorial_section2_unlocked = false
+	_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_NOT_STARTED
+	_tutorial_section2_step = TUTORIAL_SECTION2_STEP_0_INTRO
+	_tutorial_section3_unlocked = false
+	_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_NOT_STARTED
+	_tutorial_section3_step = TUTORIAL_SECTION3_STEP_0_INTRO
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION1_SANDBOX_PREPARED", {"user_id": _user_id})
+
+func prepare_tutorial_section2_sandbox() -> void:
+	ensure_loaded()
+	_onboarding_complete = true
+	_controls_hint_seen = true
+	_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_COMPLETED
+	_tutorial_section1_step = TUTORIAL_SECTION1_STEP_COMPLETED
+	_tutorial_section2_unlocked = true
+	_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_IN_PROGRESS
+	_tutorial_section2_step = TUTORIAL_SECTION2_STEP_0_INTRO
+	_tutorial_section3_unlocked = false
+	_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_NOT_STARTED
+	_tutorial_section3_step = TUTORIAL_SECTION3_STEP_0_INTRO
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_SECTION2_SANDBOX_PREPARED", {"user_id": _user_id})
+
 func prepare_tutorial_section3_sandbox() -> void:
 	ensure_loaded()
 	_onboarding_complete = true

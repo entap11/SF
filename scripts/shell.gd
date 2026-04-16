@@ -36,6 +36,9 @@ const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each.json"
 const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
+const TUTORIAL_SECTION1_ID: String = "section1"
+const TUTORIAL_SECTION2_ID: String = "section2"
+const TUTORIAL_SECTION3_ID: String = "section3"
 const SHELL_STATUS_NEUTRAL: Color = Color(0.82, 0.86, 0.91, 0.95)
 const SHELL_STATUS_SUCCESS: Color = Color(0.84, 0.94, 0.78, 0.96)
 const SHELL_STATUS_ERROR: Color = Color(0.98, 0.74, 0.72, 0.98)
@@ -1173,14 +1176,18 @@ func _on_dev_pressed() -> void:
 
 func _on_tutorial_pressed() -> void:
 	_set_team_mode_ui("2v2")
-	_prepare_tutorial_section3_sandbox_profile()
+	var tutorial_section: String = _prepare_next_tutorial_sandbox_profile()
 	var map_path: String = _resolve_tutorial_sandbox_map_path()
 	if map_path.is_empty():
 		_set_shell_status("Tutorial sandbox map is unavailable.", "error")
 		SFLog.error("TUTORIAL_SANDBOX_LAUNCH_NO_MAP", {})
 		return
-	_set_shell_status("Launching tutorial sandbox on %s..." % _map_display_name(map_path), "success")
-	SFLog.info("TUTORIAL_SANDBOX_LAUNCH", {"map_path": map_path, "mode": _team_mode_ui})
+	_set_shell_status("Launching tutorial %s on %s..." % [_tutorial_section_display_name(tutorial_section), _map_display_name(map_path)], "success")
+	SFLog.info("TUTORIAL_SANDBOX_LAUNCH", {
+		"map_path": map_path,
+		"mode": _team_mode_ui,
+		"section": tutorial_section
+	})
 	_apply_map_then_start(map_path)
 
 func _on_ctf_bot_pressed() -> void:
@@ -1199,12 +1206,60 @@ func _on_ctf_bot_pressed() -> void:
 	})
 	_apply_map_then_start(map_path)
 
-func _prepare_tutorial_section3_sandbox_profile() -> void:
+func _prepare_next_tutorial_sandbox_profile() -> String:
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
 	if profile_manager == null:
-		return
-	if profile_manager.has_method("prepare_tutorial_section3_sandbox"):
-		profile_manager.call("prepare_tutorial_section3_sandbox")
+		return TUTORIAL_SECTION1_ID
+	var section: String = _next_tutorial_section_for_profile(profile_manager)
+	match section:
+		TUTORIAL_SECTION1_ID:
+			if profile_manager.has_method("prepare_tutorial_section1_sandbox"):
+				profile_manager.call("prepare_tutorial_section1_sandbox")
+				return section
+		TUTORIAL_SECTION2_ID:
+			if profile_manager.has_method("prepare_tutorial_section2_sandbox"):
+				profile_manager.call("prepare_tutorial_section2_sandbox")
+				return section
+		TUTORIAL_SECTION3_ID:
+			if profile_manager.has_method("prepare_tutorial_section3_sandbox"):
+				profile_manager.call("prepare_tutorial_section3_sandbox")
+				return section
+	_prepare_tutorial_section3_sandbox_profile_fallback(profile_manager)
+	return TUTORIAL_SECTION3_ID
+
+func _next_tutorial_section_for_profile(profile_manager: Node) -> String:
+	if profile_manager == null:
+		return TUTORIAL_SECTION1_ID
+	var s1_status: String = ""
+	var s2_status: String = ""
+	var s3_status: String = ""
+	if profile_manager.has_method("get_tutorial_section1_status"):
+		s1_status = str(profile_manager.call("get_tutorial_section1_status")).strip_edges().to_lower()
+	if profile_manager.has_method("get_tutorial_section2_status"):
+		s2_status = str(profile_manager.call("get_tutorial_section2_status")).strip_edges().to_lower()
+	if profile_manager.has_method("get_tutorial_section3_status"):
+		s3_status = str(profile_manager.call("get_tutorial_section3_status")).strip_edges().to_lower()
+	if s1_status != "completed" and s1_status != "skipped":
+		return TUTORIAL_SECTION1_ID
+	if s2_status != "completed" and s2_status != "skipped":
+		return TUTORIAL_SECTION2_ID
+	if s3_status != "completed" and s3_status != "skipped":
+		return TUTORIAL_SECTION3_ID
+	return TUTORIAL_SECTION1_ID
+
+func _tutorial_section_display_name(section: String) -> String:
+	match section:
+		TUTORIAL_SECTION1_ID:
+			return "Section 1"
+		TUTORIAL_SECTION2_ID:
+			return "Section 2"
+		TUTORIAL_SECTION3_ID:
+			return "Section 3"
+		_:
+			return "sandbox"
+
+func _prepare_tutorial_section3_sandbox_profile_fallback(profile_manager: Node) -> void:
+	if profile_manager == null:
 		return
 	if profile_manager.has_method("mark_onboarding_complete"):
 		profile_manager.call("mark_onboarding_complete")
