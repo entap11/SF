@@ -34,6 +34,7 @@ var _post_match_summary_panel: Control = null
 
 const OVERLAY_MODE_REMATCH: String = "rematch"
 const OVERLAY_MODE_STAGE_ROUND: String = "stage_round"
+const OVERLAY_MODE_TUTORIAL_COMPLETE: String = "tutorial_complete"
 
 func _ready() -> void:
 	_force_fullscreen_anchors()
@@ -114,6 +115,36 @@ func show_stage_round_outcome(data: Dictionary) -> void:
 	_log_show_state()
 	call_deferred("_log_layout_after_frame")
 
+func show_tutorial_complete(winner_id: int, reason: String, player_id: int) -> void:
+	_overlay_mode = OVERLAY_MODE_TUTORIAL_COMPLETE
+	_stage_next_action = "main_menu"
+	_stage_next_available = false
+	_stage_status_text = ""
+	SFLog.info("OUTCOME_OVERLAY_TUTORIAL_SHOW_CALL", {
+		"iid": int(get_instance_id()),
+		"inside_tree": is_inside_tree(),
+		"path": str(get_path()) if is_inside_tree() else "<detached>"
+	})
+	_force_fullscreen_anchors()
+	_ensure_outcome_layer()
+	local_player_id = maxi(1, player_id)
+	_action_taken = false
+	clear_post_match_summary()
+	visible = true
+	panel.visible = true
+	show()
+	if get_parent() != null:
+		get_parent().move_child(self, get_parent().get_child_count() - 1)
+	modulate = Color(1, 1, 1, 1)
+	self_modulate = Color(1, 1, 1, 1)
+	panel.modulate = Color(1, 1, 1, 1)
+	panel.self_modulate = Color(1, 1, 1, 1)
+	_apply_tutorial_complete_outcome(winner_id, reason)
+	set_process(true)
+	exit_button.grab_focus()
+	_log_show_state()
+	call_deferred("_log_layout_after_frame")
+
 func hide_overlay() -> void:
 	clear_post_match_summary()
 	visible = false
@@ -169,6 +200,8 @@ func _process(_delta: float) -> void:
 	_update_status()
 
 func _apply_outcome(winner_id: int, reason: String, record_text: String, h2h_text: String) -> void:
+	_set_standard_rows_visible(true)
+	rematch_button.visible = true
 	title_label.text = "REMATCH?"
 	if winner_id == 0:
 		result_label.text = "DRAW"
@@ -185,6 +218,8 @@ func _apply_outcome(winner_id: int, reason: String, record_text: String, h2h_tex
 	_update_status()
 
 func _apply_stage_round_outcome(data: Dictionary) -> void:
+	_set_standard_rows_visible(true)
+	rematch_button.visible = true
 	var round_number: int = maxi(1, int(data.get("round_number", 1)))
 	var total_rounds: int = maxi(round_number, int(data.get("total_rounds", round_number)))
 	var winner_id: int = int(data.get("winner_id", 0))
@@ -221,6 +256,41 @@ func _apply_stage_round_outcome(data: Dictionary) -> void:
 	exit_button.text = exit_label
 	_update_status()
 
+func _apply_tutorial_complete_outcome(winner_id: int, reason: String) -> void:
+	_set_standard_rows_visible(false)
+	title_label.text = "TUTORIAL COMPLETE"
+	if winner_id == local_player_id:
+		result_label.text = "YOU WON"
+	elif winner_id == 0:
+		result_label.text = "MATCH COMPLETE"
+	else:
+		result_label.text = "MATCH COMPLETE"
+	reason_label.visible = true
+	reason_label.text = "Section 2 is unlocked."
+	record_label.visible = true
+	record_label.text = "Head back to the main menu when you're ready."
+	h2h_label.text = ""
+	stats_header.text = ""
+	stat_max_power.text = ""
+	stat_units_killed.text = ""
+	stat_units_landed.text = ""
+	countdown_label.text = ""
+	rematch_button.visible = false
+	rematch_button.disabled = true
+	exit_button.text = "MAIN MENU"
+	exit_button.custom_minimum_size = Vector2(maxf(exit_button.custom_minimum_size.x, 220.0), maxf(exit_button.custom_minimum_size.y, 72.0))
+	_update_status()
+
+func _set_standard_rows_visible(show_rows: bool) -> void:
+	reason_label.visible = true
+	record_label.visible = true
+	h2h_label.visible = show_rows
+	stats_header.visible = show_rows
+	stat_max_power.visible = show_rows
+	stat_units_killed.visible = show_rows
+	stat_units_landed.visible = show_rows
+	countdown_label.visible = show_rows
+
 func _update_stat_labels() -> void:
 	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
 		return
@@ -249,6 +319,9 @@ func _update_countdown_label() -> void:
 	countdown_label.text = "Rematch window: 0:%02d" % sec
 
 func _update_status() -> void:
+	if _overlay_mode == OVERLAY_MODE_TUTORIAL_COMPLETE:
+		status_label.text = "Ready for the next lesson."
+		return
 	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
 		if _action_taken:
 			status_label.text = "Loading next round..."

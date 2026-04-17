@@ -1176,7 +1176,7 @@ func _on_dev_pressed() -> void:
 
 func _on_tutorial_pressed() -> void:
 	_set_team_mode_ui("2v2")
-	var tutorial_section: String = _prepare_next_tutorial_sandbox_profile()
+	var tutorial_section: String = _prepare_tutorial_section1_sandbox_profile()
 	var map_path: String = _resolve_tutorial_sandbox_map_path()
 	if map_path.is_empty():
 		_set_shell_status("Tutorial sandbox map is unavailable.", "error")
@@ -1189,6 +1189,15 @@ func _on_tutorial_pressed() -> void:
 		"section": tutorial_section
 	})
 	_apply_map_then_start(map_path)
+
+func _prepare_tutorial_section1_sandbox_profile() -> String:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return TUTORIAL_SECTION1_ID
+	if profile_manager.has_method("prepare_tutorial_section1_sandbox"):
+		profile_manager.call("prepare_tutorial_section1_sandbox")
+		return TUTORIAL_SECTION1_ID
+	return _prepare_next_tutorial_sandbox_profile()
 
 func _on_ctf_bot_pressed() -> void:
 	var map_path: String = _resolve_ctf_bot_map_path()

@@ -51,9 +51,11 @@ func _test_section1_authoritative_flow() -> void:
 	profile_manager.call("prepare_tutorial_section1_sandbox")
 	var state: GameState = _make_lane_state([
 		{"id": 1, "owner_id": 1},
-		{"id": 2, "owner_id": 0}
+		{"id": 2, "owner_id": 0},
+		{"id": 3, "owner_id": 2}
 	], [
-		LaneData.new(1, 1, 2, 0, false, false)
+		LaneData.new(1, 1, 2, 0, false, false),
+		LaneData.new(2, 2, 3, 0, false, false)
 	])
 	_set_ops_state(state)
 
@@ -62,21 +64,32 @@ func _test_section1_authoritative_flow() -> void:
 		controller.start_if_needed(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"), 1, state),
 		"section1 should start"
 	)
-	_press_overlay_button("TutorialSection1Overlay", "ContinueButton")
-	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_1_attack_lane", "section1 continue should advance to attack step")
+	state.selection.selected_hive_id = 1
+	controller.tick(state, 1)
+	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_1_attack_lane", "section1 selecting hive should advance to attack step")
 
 	var lane: LaneData = state.lanes[0] as LaneData
 	lane.send_a = true
 	_emit_lane_changed(1, state)
-	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_2_retract_lane", "section1 attack should advance to retract step")
-
-	lane.send_a = false
-	_emit_lane_changed(1, state)
-	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_3_capture_hive", "section1 retract should advance to capture step")
+	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_2_retract_lane", "section1 first attack should advance to expansion step")
 
 	var target: HiveData = state.find_hive_by_id(2)
 	target.owner_id = 1
+	var enemy_lane: LaneData = state.lanes[1] as LaneData
+	enemy_lane.send_a = true
+	_emit_lane_changed(2, state)
+	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_3_capture_hive", "section1 enemy pressure should advance to enemy step")
+
+	var enemy_hive: HiveData = state.find_hive_by_id(3)
+	enemy_hive.power = 5
 	controller.tick(state, 1)
+	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_4_swarm_finish", "section1 final low enemy should advance to swarm step")
+
+	state.swarm_requests.append({"src": 2, "dst": 3})
+	controller.tick(state, 1)
+	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_4_swarm_finish", "section1 swarm request should keep final step until match end")
+
+	controller.on_match_ended()
 	_assert_eq(str(profile_manager.call("get_tutorial_section1_status")), "completed", "section1 capture should complete section")
 	_assert_true(bool(profile_manager.call("is_tutorial_section2_unlocked")), "section1 completion should unlock section2")
 
@@ -145,6 +158,7 @@ func _test_section3_authoritative_flow() -> void:
 
 func _make_lane_state(hive_specs: Array, lanes: Array) -> GameState:
 	var state: GameState = GameState.new()
+	state.selection = SelectionState.new()
 	for spec_any in hive_specs:
 		var spec: Dictionary = spec_any as Dictionary
 		state.hives.append(HiveData.new(

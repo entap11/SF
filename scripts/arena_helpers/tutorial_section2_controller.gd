@@ -12,6 +12,9 @@ const STEP_2_RETRACT_LANE: String = "step_2_retract_lane"
 const STEP_3_REDIRECT_LANE: String = "step_3_redirect_lane"
 const STEP_COMPLETED: String = "completed"
 const STEP_SKIPPED: String = "skipped"
+const TYPEWRITER_WORDS_PER_MINUTE: float = 120.0
+const TYPEWRITER_CHARS_PER_WORD: float = 5.0
+const TYPEWRITER_MIN_DURATION_SEC: float = 0.5
 
 var _overlay: Control = null
 var _title_label: Label = null
@@ -489,7 +492,8 @@ func _set_body_text_typewriter(text: String) -> void:
 		_body_label.visible_characters = -1
 		return
 	var char_count: int = maxi(1, text.length())
-	var duration: float = clampf(float(char_count) * 0.022, 0.35, 1.75)
+	var chars_per_second: float = (TYPEWRITER_WORDS_PER_MINUTE * TYPEWRITER_CHARS_PER_WORD) / 60.0
+	var duration: float = maxf(float(char_count) / chars_per_second, TYPEWRITER_MIN_DURATION_SEC)
 	_body_tween = tree.create_tween()
 	_body_tween.bind_node(_body_label)
 	_body_tween.tween_property(_body_label, "visible_characters", char_count, duration)

@@ -596,7 +596,10 @@ func _start_match_flow() -> void:
 			Callable(self, "_resolve_hud_root"),
 			Callable(self, "_force_fullscreen_anchors"),
 			_resolve_local_owner_id(),
-			state
+			state,
+			Callable(self, "_pause_tutorial_message_sim"),
+			Callable(self, "_resume_tutorial_message_sim"),
+			Callable(self, "_tutorial_hive_screen_pos")
 		)
 	if not tutorial_active and _tutorial_section2_controller != null:
 		tutorial_active = _tutorial_section2_controller.start_if_needed(
@@ -2424,9 +2427,44 @@ func _start_match_sim(reason: String) -> void:
 		iid = int(sim_runner.bound_iid)
 		sim_runner.set_running(true, reason)
 		sim_runner.log_pause_snapshot("arena_match_start")
+	if _tutorial_section1_controller != null:
+		_tutorial_section1_controller.apply_reading_pause()
 	if floor_influence_system != null:
 		floor_influence_system.notify_match_started()
 	SFLog.info("MATCH_STARTED", {"iid": iid, "reason": reason})
+
+func _pause_tutorial_message_sim() -> void:
+	if sim_runner == null:
+		return
+	if sim_runner.running:
+		sim_runner.set_running(false, "tutorial_message_pause")
+		sim_runner.log_pause_snapshot("tutorial_message_pause")
+
+func _resume_tutorial_message_sim() -> void:
+	if sim_runner == null or OpsState == null:
+		return
+	if not _match_started:
+		return
+	if OpsState.match_phase != OpsState.MatchPhase.RUNNING or bool(OpsState.input_locked) or OpsState.is_ending_or_ended():
+		return
+	if not sim_runner.running:
+		sim_runner.set_running(true, "tutorial_message_resume")
+		sim_runner.log_pause_snapshot("tutorial_message_resume")
+
+func _tutorial_hive_screen_pos(hive_id: int) -> Vector2:
+	if state == null or hive_id <= 0:
+		return Vector2(-9999.0, -9999.0)
+	var hive: HiveData = state.find_hive_by_id(hive_id)
+	if hive == null:
+		return Vector2(-9999.0, -9999.0)
+	var local_pos: Vector2 = _cell_center(hive.grid_pos)
+	var world_pos: Vector2 = local_pos
+	if map_root != null:
+		world_pos = map_root.to_global(local_pos)
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return world_pos
+	return vp.get_canvas_transform() * world_pos
 
 func _begin_match_telemetry_session(reason: String) -> void:
 	_telemetry_active = false
@@ -3191,6 +3229,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	if _controls_hint_controller != null:
 		_controls_hint_controller.hide(false)
+	var tutorial_section1_ended: bool = _tutorial_section1_controller != null and _tutorial_section1_controller.is_active()
 	if _tutorial_section1_controller != null:
 		_tutorial_section1_controller.on_match_ended()
 	if _tutorial_section2_controller != null:
@@ -3211,8 +3250,11 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 		var record_slot: int = clampi(active_player_id, 1, 4)
 		var record_text: String = _get_player_record_line(record_slot)
 		var h2h_text: String = _get_h2h_record_line()
-		outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
-		if outcome_overlay.has_method("set_post_match_summary"):
+		if tutorial_section1_ended and outcome_overlay.has_method("show_tutorial_complete"):
+			outcome_overlay.call("show_tutorial_complete", winner_id_in, reason, active_player_id)
+		else:
+			outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
+		if not tutorial_section1_ended and outcome_overlay.has_method("set_post_match_summary"):
 			outcome_overlay.call("set_post_match_summary", _post_match_analysis_summary, winner_id_in, active_player_id)
 	else:
 		SFLog.warn("POSTMATCH_UI_MISSING", {"kind": "outcome_overlay"})
@@ -10208,6 +10250,8 @@ func _handle_tap(hive_id: int, dev_pid: int = -1) -> void:
 		return
 	if input_system == null or api == null:
 		return
+	if _tutorial_section1_controller != null and state != null:
+		_tutorial_section1_controller.on_hive_clicked(hive_id, state, _resolve_local_owner_id())
 	input_system.handle_tap(hive_id, dev_pid, api)
 
 func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int = -1, pid: int = -1) -> bool:
