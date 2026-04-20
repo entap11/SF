@@ -39,6 +39,7 @@ const TUTORIAL_SECTION1_STEP_0_INTRO: String = "step_0_intro"
 const TUTORIAL_SECTION1_STEP_1_ATTACK_LANE: String = "step_1_attack_lane"
 const TUTORIAL_SECTION1_STEP_2_RETRACT_LANE: String = "step_2_retract_lane"
 const TUTORIAL_SECTION1_STEP_3_CAPTURE_HIVE: String = "step_3_capture_hive"
+const TUTORIAL_SECTION1_STEP_4_BUFF: String = "step_4_buff"
 const TUTORIAL_SECTION1_STEP_4_SWARM_FINISH: String = "step_4_swarm_finish"
 const TUTORIAL_SECTION1_STEP_COMPLETED: String = "completed"
 const TUTORIAL_SECTION1_STEP_SKIPPED: String = "skipped"
@@ -1050,6 +1051,8 @@ func _sanitize_tutorial_section1_step(step_name: String) -> String:
 		return TUTORIAL_SECTION1_STEP_2_RETRACT_LANE
 	if cleaned == TUTORIAL_SECTION1_STEP_3_CAPTURE_HIVE:
 		return TUTORIAL_SECTION1_STEP_3_CAPTURE_HIVE
+	if cleaned == TUTORIAL_SECTION1_STEP_4_BUFF:
+		return TUTORIAL_SECTION1_STEP_4_BUFF
 	if cleaned == TUTORIAL_SECTION1_STEP_4_SWARM_FINISH:
 		return TUTORIAL_SECTION1_STEP_4_SWARM_FINISH
 	if cleaned == TUTORIAL_SECTION1_STEP_COMPLETED:

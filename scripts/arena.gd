@@ -599,7 +599,9 @@ func _start_match_flow() -> void:
 			state,
 			Callable(self, "_pause_tutorial_message_sim"),
 			Callable(self, "_resume_tutorial_message_sim"),
-			Callable(self, "_tutorial_hive_screen_pos")
+			Callable(self, "_tutorial_hive_screen_pos"),
+			Callable(self, "_tutorial_buff_screen_pos"),
+			Callable(self, "get_buff_ui_snapshot")
 		)
 	if not tutorial_active and _tutorial_section2_controller != null:
 		tutorial_active = _tutorial_section2_controller.start_if_needed(
@@ -2465,6 +2467,42 @@ func _tutorial_hive_screen_pos(hive_id: int) -> Vector2:
 	if vp == null:
 		return world_pos
 	return vp.get_canvas_transform() * world_pos
+
+func _tutorial_buff_screen_pos() -> Vector2:
+	var buff_strip: Control = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
+	if buff_strip == null:
+		return Vector2(-9999.0, -9999.0)
+	var slot_index: int = _tutorial_first_ready_buff_slot_index()
+	var slot: Control = buff_strip.get_node_or_null("Center/SlotsRow/BuffSlot%d" % (slot_index + 1)) as Control
+	if slot == null:
+		return Vector2(-9999.0, -9999.0)
+	var rect: Rect2 = slot.get_global_rect()
+	return rect.position + (rect.size * 0.5)
+
+func _tutorial_first_ready_buff_slot_index() -> int:
+	var snapshot: Dictionary = get_buff_ui_snapshot()
+	var players_v: Variant = snapshot.get("players", {})
+	if typeof(players_v) != TYPE_DICTIONARY:
+		return 0
+	var players: Dictionary = players_v as Dictionary
+	var player_v: Variant = players.get(_resolve_local_owner_id(), {})
+	if typeof(player_v) != TYPE_DICTIONARY:
+		player_v = players.get(str(_resolve_local_owner_id()), {})
+	if typeof(player_v) != TYPE_DICTIONARY:
+		return 0
+	var slots_v: Variant = (player_v as Dictionary).get("slots", [])
+	if typeof(slots_v) != TYPE_ARRAY:
+		return 0
+	for slot_any in slots_v as Array:
+		if typeof(slot_any) != TYPE_DICTIONARY:
+			continue
+		var slot_data: Dictionary = slot_any as Dictionary
+		if bool(slot_data.get("locked", true)):
+			continue
+		if bool(slot_data.get("active", false)) or bool(slot_data.get("consumed", false)):
+			continue
+		return clampi(int(slot_data.get("index", 0)), 0, 2)
+	return 0
 
 func _begin_match_telemetry_session(reason: String) -> void:
 	_telemetry_active = false

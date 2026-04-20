@@ -10,6 +10,7 @@ const STEP_0_INTRO: String = "step_0_intro"
 const STEP_1_ATTACK_LANE: String = "step_1_attack_lane"
 const STEP_2_RETRACT_LANE: String = "step_2_retract_lane"
 const STEP_3_CAPTURE_HIVE: String = "step_3_capture_hive"
+const STEP_4_BUFF: String = "step_4_buff"
 const STEP_4_SWARM_FINISH: String = "step_4_swarm_finish"
 const STEP_COMPLETED: String = "completed"
 const STEP_SKIPPED: String = "skipped"
@@ -28,6 +29,7 @@ var _skip_button: Button = null
 var _arrow_line: Line2D = null
 var _arrow_head: Polygon2D = null
 var _target_ring: Line2D = null
+var _dim_rects: Array = []
 var _body_tween: Tween = null
 
 var _active: bool = false
@@ -38,11 +40,14 @@ var _baseline_owned_hives: int = 0
 var _starting_hive_id: int = -1
 var _first_target_hive_id: int = -1
 var _swarm_target_hive_id: int = -1
+var _swarm_finish_launched: bool = false
 var _signal_bound: bool = false
 var _auto_hide_generation: int = 0
 var _pause_sim_cb: Callable = Callable()
 var _resume_sim_cb: Callable = Callable()
 var _hive_screen_pos_cb: Callable = Callable()
+var _buff_screen_pos_cb: Callable = Callable()
+var _buff_snapshot_cb: Callable = Callable()
 
 func ensure_overlay(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: Callable) -> void:
 	if _overlay != null and is_instance_valid(_overlay):
@@ -72,13 +77,19 @@ func ensure_overlay(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: 
 	_arrow_line = overlay.get_node_or_null("ArrowLine") as Line2D
 	_arrow_head = overlay.get_node_or_null("ArrowHead") as Polygon2D
 	_target_ring = overlay.get_node_or_null("TargetRing") as Line2D
+	_dim_rects = [
+		overlay.get_node_or_null("DimTop"),
+		overlay.get_node_or_null("DimBottom"),
+		overlay.get_node_or_null("DimLeft"),
+		overlay.get_node_or_null("DimRight")
+	]
 	if _continue_button != null and not _continue_button.pressed.is_connected(_on_continue_pressed):
 		_continue_button.pressed.connect(_on_continue_pressed)
 	if _skip_button != null and not _skip_button.pressed.is_connected(_on_skip_pressed):
 		_skip_button.pressed.connect(_on_skip_pressed)
 	_style_overlay_nodes()
 
-func start_if_needed(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: Callable, local_owner_id: int, state: GameState, pause_sim_cb: Callable = Callable(), resume_sim_cb: Callable = Callable(), hive_screen_pos_cb: Callable = Callable()) -> bool:
+func start_if_needed(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: Callable, local_owner_id: int, state: GameState, pause_sim_cb: Callable = Callable(), resume_sim_cb: Callable = Callable(), hive_screen_pos_cb: Callable = Callable(), buff_screen_pos_cb: Callable = Callable(), buff_snapshot_cb: Callable = Callable()) -> bool:
 	var profile_manager: Object = _get_profile_manager()
 	if profile_manager == null:
 		hide(true)
@@ -111,9 +122,12 @@ func start_if_needed(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb:
 	_starting_hive_id = _selected_local_hive_id(state, _local_owner_id)
 	_first_target_hive_id = -1
 	_swarm_target_hive_id = -1
+	_swarm_finish_launched = false
 	_pause_sim_cb = pause_sim_cb
 	_resume_sim_cb = resume_sim_cb
 	_hive_screen_pos_cb = hive_screen_pos_cb
+	_buff_screen_pos_cb = buff_screen_pos_cb
+	_buff_snapshot_cb = buff_snapshot_cb
 	_active = true
 	_bind_signal_once()
 	_refresh_overlay_copy()
@@ -163,7 +177,7 @@ func hide(mark_inactive: bool = true) -> void:
 		_unbind_signal()
 
 func on_match_ended() -> void:
-	if _active:
+	if _active and _swarm_finish_launched:
 		_complete_section()
 	hide(true)
 
@@ -190,10 +204,15 @@ func tick(state: GameState, local_owner_id: int) -> void:
 		var low_enemy_id: int = _last_enemy_hive_low_power_id(state)
 		if low_enemy_id > 0:
 			_swarm_target_hive_id = low_enemy_id
+			_advance_to_step(STEP_4_BUFF)
+			return
+	if _current_step == STEP_4_BUFF:
+		if _has_local_buff_used():
 			_advance_to_step(STEP_4_SWARM_FINISH)
 			return
 	if _current_step == STEP_4_SWARM_FINISH:
 		if _has_local_swarm_request_for_target(state):
+			_swarm_finish_launched = true
 			hide(false)
 
 func _on_lane_intent_changed(_iid: int, lane_id: int) -> void:
@@ -222,6 +241,7 @@ func _on_lane_intent_changed(_iid: int, lane_id: int) -> void:
 			return
 	if _current_step == STEP_4_SWARM_FINISH:
 		if _has_local_swarm_request_for_target(state):
+			_swarm_finish_launched = true
 			hide(false)
 
 func _advance_to_step(step_name: String) -> void:
@@ -406,6 +426,36 @@ func _has_local_swarm_request_for_target(state: GameState) -> bool:
 			return true
 	return false
 
+func _has_local_buff_used() -> bool:
+	if not _buff_snapshot_cb.is_valid():
+		return false
+	var snapshot_v: Variant = _buff_snapshot_cb.call()
+	if typeof(snapshot_v) != TYPE_DICTIONARY:
+		return false
+	var snapshot: Dictionary = snapshot_v as Dictionary
+	if not bool(snapshot.get("buffs_enabled", false)):
+		return false
+	var players_v: Variant = snapshot.get("players", {})
+	if typeof(players_v) != TYPE_DICTIONARY:
+		return false
+	var players: Dictionary = players_v as Dictionary
+	var player_v: Variant = players.get(_local_owner_id, {})
+	if typeof(player_v) != TYPE_DICTIONARY:
+		player_v = players.get(str(_local_owner_id), {})
+	if typeof(player_v) != TYPE_DICTIONARY:
+		return false
+	var player_data: Dictionary = player_v as Dictionary
+	var slots_v: Variant = player_data.get("slots", [])
+	if typeof(slots_v) != TYPE_ARRAY:
+		return false
+	for slot_any in slots_v as Array:
+		if typeof(slot_any) != TYPE_DICTIONARY:
+			continue
+		var slot: Dictionary = slot_any as Dictionary
+		if bool(slot.get("active", false)) or bool(slot.get("consumed", false)):
+			return true
+	return false
+
 func _count_owned_hives(state: GameState, owner_id: int) -> int:
 	if state == null or owner_id <= 0:
 		return 0
@@ -482,30 +532,34 @@ func _refresh_overlay_copy() -> void:
 func _status_text_for_step(step_name: String) -> String:
 	match step_name:
 		STEP_0_INTRO:
-			return "Objective 1/3: Select Your Hive"
+			return "Objective 1/5: Select Your Hive"
 		STEP_1_ATTACK_LANE:
-			return "Objective 2/3: Learn Units"
+			return "Objective 2/5: Attack The NPC Hive"
 		STEP_2_RETRACT_LANE:
-			return "Objective 2/3: Capture Hives"
+			return "Objective 3/5: Flip The Hive"
 		STEP_3_CAPTURE_HIVE:
-			return "Objective 3/3: Attack Enemy Hives"
+			return "Objective 4/5: Break The Standoff"
+		STEP_4_BUFF:
+			return "Objective 4.5/5: Use A Buff"
 		STEP_4_SWARM_FINISH:
-			return "Final Objective: Use Swarm"
+			return "Objective 5/5: Use Swarm"
 		_:
 			return ""
 
 func _body_text_for_step(step_name: String) -> String:
 	match step_name:
 		STEP_0_INTRO:
-			return "Objective 1: Select your hive."
+			return "Selecting your hive is pretty simple. Tap it. It should glow or have a selector ring around it."
 		STEP_1_ATTACK_LANE:
-			return "This is your starting hive. It produces units to attack your opponents, and your enemy hives are what you need to control in order to win the game.\n\nHives allow for 1, 2, or 3 attack lanes, depending on hive strength and size.\n\nNow attack the NPC hive directly below your start hive."
+			return "OK, great work. Now it's time to attack.\n\nWith your hive selected, tap the NPC hive right below."
 		STEP_2_RETRACT_LANE:
-			return "Great! Now you are attacking a hive. Once you get its value to 0, it will flip to your control, which lets you produce more units and make more attacks.\n\nTake as many hives as you can. I'll check in on you in a bit."
+			return "OK great, you are now attacking that NPC hive and will quickly flip it to your side.\n\nOnce you do, you will be able to attack enemies from it, and feed friendly hives.\n\nHives with 9 power or less get one lane. Hives with 10-24 power get two lanes. Hives with 25 power or more get three lanes."
 		STEP_3_CAPTURE_HIVE:
-			return "Great, it's time to attack. If you haven't already, attack an enemy hive. This should prompt the enemy hive to oppose the attack.\n\nSee how the units cancel each other out? This will happen indefinitely unless one hive gets much more powerful and sends units faster, or you attack from a different hive and increase the pressure.\n\nIt looks like you have a handle on this game. Go ahead and finish him off!"
+			return "OK, you can see that the NPC hive is now yours. Attack as you see fit.\n\nWhen you attack the opponent, they will counterattack and send units your way. Oncoming units cancel each other out.\n\nThat standoff can last indefinitely until you attack from a second hive, grow your hive power so it creates units faster, or both."
+		STEP_4_BUFF:
+			return "OK, next, you'll want to know how to gain an edge using your buffs.\n\nSee that glowing buff at the bottom of your screen? Tap and drag that buff anywhere on the screen.\n\nIf it's a buff that affects a single hive or lane, drop it on the lane or hive you want to get the advantage. Otherwise, anywhere on the screen is fine."
 		STEP_4_SWARM_FINISH:
-			return "One enemy hive is almost finished.\n\nNow use Swarm to break the final defense.\n\nDouble-tap your active attack lane near the enemy hive to send a burst of units. The match will resume when you launch it."
+			return "OK, now there is one more thing you need to know.\n\nIf you want to bypass the units defending a hive, you can, by initiating a swarm.\n\nDouble-tap the lane your hive is using to attack the enemy. See? Slides right by oncoming units, but be careful, because there is a cost to that power."
 		_:
 			return ""
 
@@ -527,6 +581,8 @@ func _sanitize_step(step_name: String) -> String:
 		return STEP_2_RETRACT_LANE
 	if cleaned == STEP_3_CAPTURE_HIVE:
 		return STEP_3_CAPTURE_HIVE
+	if cleaned == STEP_4_BUFF:
+		return STEP_4_BUFF
 	if cleaned == STEP_4_SWARM_FINISH:
 		return STEP_4_SWARM_FINISH
 	if cleaned == STEP_COMPLETED:
@@ -576,6 +632,7 @@ func _build_overlay() -> Control:
 
 	var panel: Panel = Panel.new()
 	panel.name = "Panel"
+	panel.z_index = 20
 	panel.anchor_left = 0.5
 	panel.anchor_top = 0.08
 	panel.anchor_right = 0.5
@@ -586,6 +643,17 @@ func _build_overlay() -> Control:
 	panel.offset_bottom = 390.0
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(panel)
+
+	_dim_rects.clear()
+	for dim_name in ["DimTop", "DimBottom", "DimLeft", "DimRight"]:
+		var dim_rect: ColorRect = ColorRect.new()
+		dim_rect.name = dim_name
+		dim_rect.visible = false
+		dim_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		dim_rect.color = Color(0.0, 0.0, 0.0, 0.58)
+		dim_rect.z_index = 2
+		overlay.add_child(dim_rect)
+		_dim_rects.append(dim_rect)
 
 	var vbox: VBoxContainer = VBoxContainer.new()
 	vbox.name = "VBox"
@@ -756,11 +824,7 @@ func _refresh_arrow() -> void:
 		return
 	if _arrow_line == null or _arrow_head == null:
 		return
-	var target_hive_id: int = _arrow_target_hive_id()
-	if target_hive_id <= 0 or not _hive_screen_pos_cb.is_valid():
-		_hide_arrow()
-		return
-	var target_v: Variant = _hive_screen_pos_cb.call(target_hive_id)
+	var target_v: Variant = _arrow_target_screen_pos()
 	if not (target_v is Vector2):
 		_hide_arrow()
 		return
@@ -785,8 +849,12 @@ func _refresh_arrow() -> void:
 	_arrow_line.points = PackedVector2Array([start, target])
 	_update_arrow_head(start, target)
 	if _target_ring != null:
+		var pulse: float = 0.5 + (0.5 * sin(float(Time.get_ticks_msec()) / 180.0))
 		_target_ring.visible = true
-		_target_ring.points = _ring_points(target, 42.0)
+		_target_ring.width = 5.0 + pulse * 3.0
+		_target_ring.default_color = Color(1.0, 0.9, 0.16, 0.72 + pulse * 0.26)
+		_target_ring.points = _ring_points(target, 42.0 + pulse * 4.0)
+	_update_dim_to_target(target, viewport_size, 62.0)
 
 func _hide_arrow() -> void:
 	if _arrow_line != null:
@@ -795,15 +863,101 @@ func _hide_arrow() -> void:
 		_arrow_head.visible = false
 	if _target_ring != null:
 		_target_ring.visible = false
+	_hide_dim()
+
+func _update_dim_to_target(target: Vector2, viewport_size: Vector2, radius: float) -> void:
+	if _dim_rects.is_empty():
+		return
+	var left: float = clampf(target.x - radius, 0.0, viewport_size.x)
+	var right: float = clampf(target.x + radius, 0.0, viewport_size.x)
+	var top: float = clampf(target.y - radius, 0.0, viewport_size.y)
+	var bottom: float = clampf(target.y + radius, 0.0, viewport_size.y)
+	_set_dim_rect(0, Rect2(Vector2.ZERO, Vector2(viewport_size.x, top)))
+	_set_dim_rect(1, Rect2(Vector2(0.0, bottom), Vector2(viewport_size.x, maxf(0.0, viewport_size.y - bottom))))
+	_set_dim_rect(2, Rect2(Vector2(0.0, top), Vector2(left, maxf(0.0, bottom - top))))
+	_set_dim_rect(3, Rect2(Vector2(right, top), Vector2(maxf(0.0, viewport_size.x - right), maxf(0.0, bottom - top))))
+
+func _set_dim_rect(index: int, rect: Rect2) -> void:
+	if index < 0 or index >= _dim_rects.size():
+		return
+	var dim_rect: ColorRect = _dim_rects[index] as ColorRect
+	if dim_rect == null:
+		return
+	dim_rect.visible = rect.size.x > 0.0 and rect.size.y > 0.0
+	dim_rect.position = rect.position
+	dim_rect.size = rect.size
+
+func _hide_dim() -> void:
+	for rect_any in _dim_rects:
+		var dim_rect: ColorRect = rect_any as ColorRect
+		if dim_rect != null:
+			dim_rect.visible = false
 
 func _arrow_target_hive_id() -> int:
 	if _current_step == STEP_0_INTRO:
 		return _first_local_hive_id(_last_state)
+	if _current_step == STEP_1_ATTACK_LANE:
+		var source_id: int = _starting_hive_id
+		if source_id <= 0:
+			source_id = _selected_local_hive_id(_last_state, _local_owner_id)
+		return _first_attack_target_hive_id(_last_state, source_id)
 	if _current_step == STEP_4_SWARM_FINISH:
 		if _swarm_target_hive_id > 0:
 			return _swarm_target_hive_id
 		return _last_enemy_hive_low_power_id(_last_state)
 	return -1
+
+func _arrow_target_screen_pos() -> Variant:
+	if _current_step == STEP_4_BUFF:
+		if not _buff_screen_pos_cb.is_valid():
+			return null
+		return _buff_screen_pos_cb.call()
+	var target_hive_id: int = _arrow_target_hive_id()
+	if target_hive_id <= 0 or not _hive_screen_pos_cb.is_valid():
+		return null
+	return _hive_screen_pos_cb.call(target_hive_id)
+
+func _first_attack_target_hive_id(state: GameState, source_id: int) -> int:
+	if state == null or source_id <= 0:
+		return -1
+	var source_hive: HiveData = state.find_hive_by_id(source_id)
+	if source_hive == null:
+		return -1
+	var best_id: int = -1
+	var best_score: float = INF
+	var source_pos: Vector2 = source_hive.render_grid_pos
+	for lane_any in state.lanes:
+		if lane_any == null:
+			continue
+		var other_id: int = -1
+		if lane_any is LaneData:
+			var lane: LaneData = lane_any as LaneData
+			if int(lane.a_id) == source_id:
+				other_id = int(lane.b_id)
+			elif int(lane.b_id) == source_id:
+				other_id = int(lane.a_id)
+		elif typeof(lane_any) == TYPE_DICTIONARY:
+			var lane_dict: Dictionary = lane_any as Dictionary
+			if int(lane_dict.get("a_id", -1)) == source_id:
+				other_id = int(lane_dict.get("b_id", -1))
+			elif int(lane_dict.get("b_id", -1)) == source_id:
+				other_id = int(lane_dict.get("a_id", -1))
+		if other_id <= 0:
+			continue
+		var hive: HiveData = state.find_hive_by_id(other_id)
+		if hive == null:
+			continue
+		var owner_id: int = int(hive.owner_id)
+		if owner_id > 0 and _are_allies(_local_owner_id, owner_id):
+			continue
+		var hive_pos: Vector2 = hive.render_grid_pos
+		var below_bonus: float = -1000.0 if hive_pos.y > source_pos.y else 0.0
+		var neutral_bonus: float = -100.0 if owner_id <= 0 else 0.0
+		var score: float = below_bonus + neutral_bonus + source_pos.distance_squared_to(hive_pos)
+		if score < best_score:
+			best_score = score
+			best_id = other_id
+	return best_id
 
 func _first_local_hive_id(state: GameState) -> int:
 	if state == null:

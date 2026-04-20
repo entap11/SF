@@ -9,6 +9,7 @@ const PROFILE_PATH: String = "user://profile.cfg"
 var _hud_root: Control = null
 var _profile_backup_exists: bool = false
 var _profile_backup_text: String = ""
+var _tutorial_buff_used: bool = false
 
 func _init() -> void:
 	await process_frame
@@ -58,10 +59,11 @@ func _test_section1_authoritative_flow() -> void:
 		LaneData.new(2, 2, 3, 0, false, false)
 	])
 	_set_ops_state(state)
+	_tutorial_buff_used = false
 
 	var controller = Section1Script.new()
 	_assert_true(
-		controller.start_if_needed(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"), 1, state),
+		controller.start_if_needed(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"), 1, state, Callable(), Callable(), Callable(), Callable(), Callable(self, "_tutorial_buff_snapshot")),
 		"section1 should start"
 	)
 	state.selection.selected_hive_id = 1
@@ -83,8 +85,21 @@ func _test_section1_authoritative_flow() -> void:
 	var enemy_hive: HiveData = state.find_hive_by_id(3)
 	enemy_hive.power = 5
 	controller.tick(state, 1)
-	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_4_swarm_finish", "section1 final low enemy should advance to swarm step")
+	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_4_buff", "section1 final low enemy should advance to buff step")
 
+	_tutorial_buff_used = true
+	controller.tick(state, 1)
+	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_4_swarm_finish", "section1 buff use should advance to swarm step")
+
+	controller.on_match_ended()
+	_assert_eq(str(profile_manager.call("get_tutorial_section1_status")), "in_progress", "section1 should not complete before final swarm")
+	_assert_true(not bool(profile_manager.call("is_tutorial_section2_unlocked")), "section1 should not unlock section2 before final swarm")
+
+	controller = Section1Script.new()
+	_assert_true(
+		controller.start_if_needed(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"), 1, state, Callable(), Callable(), Callable(), Callable(), Callable(self, "_tutorial_buff_snapshot")),
+		"section1 should resume final swarm step"
+	)
 	state.swarm_requests.append({"src": 2, "dst": 3})
 	controller.tick(state, 1)
 	_assert_eq(str(profile_manager.call("get_tutorial_section1_step")), "step_4_swarm_finish", "section1 swarm request should keep final step until match end")
@@ -194,6 +209,19 @@ func _force_fullscreen_anchors(control: Control) -> void:
 		return
 	control.anchor_right = 1.0
 	control.anchor_bottom = 1.0
+
+func _tutorial_buff_snapshot() -> Dictionary:
+	return {
+		"buffs_enabled": true,
+		"players": {
+			1: {
+				"slots": [
+					{"index": 0, "locked": false, "active": _tutorial_buff_used, "consumed": false},
+					{"index": 1, "locked": false, "active": false, "consumed": false}
+				]
+			}
+		}
+	}
 
 func _seed_profile_base() -> void:
 	var profile_manager: Node = _profile_manager()
