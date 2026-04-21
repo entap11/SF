@@ -134,6 +134,7 @@ const JUKEBOX_META_PERIOD: String = "jukebox_board_period"
 const JUKEBOX_META_LOCAL_OWNER_ID: String = "jukebox_local_owner_id"
 const JUKEBOX_META_RESULT_SIGNATURE: String = "jukebox_result_commit_signature"
 const JUKEBOX_META_EASY_BOT: String = "jukebox_easy_bot"
+const TREE_META_TUTORIAL_ACTIVE: String = "tutorial_launch_active"
 const TREE_META_VS_CPU_STYLE: String = "vs_cpu_style"
 const TREE_META_VS_CPU_TIER: String = "vs_cpu_tier"
 const TREE_META_VS_STAGE_ROUND_RESULTS: String = "vs_stage_round_results"
@@ -591,7 +592,8 @@ func _start_match_flow() -> void:
 		_controls_hint_controller.ensure_overlay(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
 	_begin_prematch()
 	var tutorial_active: bool = false
-	if _tutorial_section1_controller != null:
+	var tutorial_launch_active: bool = _is_tutorial_launch_active()
+	if tutorial_launch_active and _tutorial_section1_controller != null:
 		tutorial_active = _tutorial_section1_controller.start_if_needed(
 			Callable(self, "_resolve_hud_root"),
 			Callable(self, "_force_fullscreen_anchors"),
@@ -603,14 +605,14 @@ func _start_match_flow() -> void:
 			Callable(self, "_tutorial_buff_screen_pos"),
 			Callable(self, "get_buff_ui_snapshot")
 		)
-	if not tutorial_active and _tutorial_section2_controller != null:
+	if tutorial_launch_active and not tutorial_active and _tutorial_section2_controller != null:
 		tutorial_active = _tutorial_section2_controller.start_if_needed(
 			Callable(self, "_resolve_hud_root"),
 			Callable(self, "_force_fullscreen_anchors"),
 			_resolve_local_owner_id(),
 			state
 		)
-	if not tutorial_active and _tutorial_section3_controller != null:
+	if tutorial_launch_active and not tutorial_active and _tutorial_section3_controller != null:
 		tutorial_active = _tutorial_section3_controller.start_if_needed(
 			Callable(self, "_resolve_hud_root"),
 			Callable(self, "_force_fullscreen_anchors"),
@@ -623,6 +625,12 @@ func _start_match_flow() -> void:
 			_controls_hint_controller.hide(false)
 	elif _is_jukebox_easy_bot_mode():
 		_apply_jukebox_easy_bot_profile()
+
+func _is_tutorial_launch_active() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	return bool(tree.get_meta(TREE_META_TUTORIAL_ACTIVE, false))
 	elif _has_vs_cpu_bot_override():
 		_apply_vs_cpu_bot_override()
 	elif _controls_hint_controller != null:

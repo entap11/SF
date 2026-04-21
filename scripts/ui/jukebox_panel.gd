@@ -467,11 +467,11 @@ func _on_leaderboard_down_pressed() -> void:
 	_refresh_leaderboard()
 
 func _on_map_left_pressed() -> void:
-	_map_offset = maxi(0, _map_offset - 1)
+	_map_offset = maxi(0, _map_offset - MAP_WINDOW_SIZE)
 	_refresh_map_list()
 
 func _on_map_right_pressed() -> void:
-	_map_offset += 1
+	_map_offset += MAP_WINDOW_SIZE
 	_refresh_map_list()
 
 func _on_play_pressed() -> void:

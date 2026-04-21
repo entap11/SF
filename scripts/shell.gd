@@ -40,6 +40,8 @@ const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x1
 const TUTORIAL_SECTION1_ID: String = "section1"
 const TUTORIAL_SECTION2_ID: String = "section2"
 const TUTORIAL_SECTION3_ID: String = "section3"
+const TREE_META_TUTORIAL_ACTIVE: String = "tutorial_launch_active"
+const TREE_META_TUTORIAL_SECTION: String = "tutorial_launch_section"
 const SHELL_STATUS_NEUTRAL: Color = Color(0.82, 0.86, 0.91, 0.95)
 const SHELL_STATUS_SUCCESS: Color = Color(0.84, 0.94, 0.78, 0.96)
 const SHELL_STATUS_ERROR: Color = Color(0.98, 0.74, 0.72, 0.98)
@@ -947,7 +949,7 @@ func _find_map_index_by_path(map_path: String) -> int:
 			return i
 	return -1
 
-func _apply_map_then_start(map_path: String) -> void:
+func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> void:
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 010", {"map_path": map_path})
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START_BEGIN", {"map_path": map_path})
 	if map_path == "":
@@ -966,19 +968,24 @@ func _apply_map_then_start(map_path: String) -> void:
 		"arena_instance_null": (_arena_instance == null),
 		"arena_instance": str(_arena_instance) if _arena_instance != null else "<null>"
 	})
-	if _arena_instance == null:
-		SFLog.info("APPLY_MAP_THEN_START_DEFERRED_NO_ARENA", {"map_path": map_path})
-		_pending_map_path = map_path
-		_pending_apply_tries = 0
-		_start_game()
-		call_deferred("_apply_pending_map_if_ready")
-		return
 	if not ResourceLoader.exists(map_path):
 		_set_shell_status("Launch blocked. Resource not found for %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "missing_resource"})
 		SFLog.error("MAP_PATH_NOT_FOUND", {"map_path": map_path})
 		SFLog.error("MAP_APPLY_FAIL", {"map_path": map_path, "err": "missing_resource"})
 		SFLog.error("APPLY_MAP_BAIL_MISSING_RESOURCE", {"map_path": map_path})
+		return
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		var clean_tutorial_section: String = tutorial_section.strip_edges()
+		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
+		tree.set_meta(TREE_META_TUTORIAL_SECTION, clean_tutorial_section)
+	if _arena_instance == null:
+		SFLog.info("APPLY_MAP_THEN_START_DEFERRED_NO_ARENA", {"map_path": map_path})
+		_pending_map_path = map_path
+		_pending_apply_tries = 0
+		_start_game()
+		call_deferred("_apply_pending_map_if_ready")
 		return
 	_selected_map_path = map_path
 	_set_shell_status("Launching %s..." % _map_display_name(map_path), "success")
@@ -1188,7 +1195,7 @@ func _on_tutorial_pressed() -> void:
 		"mode": _team_mode_ui,
 		"section": tutorial_section
 	})
-	_apply_map_then_start(map_path)
+	_apply_map_then_start(map_path, tutorial_section)
 
 func _prepare_tutorial_section1_sandbox_profile() -> String:
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")

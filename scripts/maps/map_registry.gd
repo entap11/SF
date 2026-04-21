@@ -106,6 +106,12 @@ const PUBLIC_MAP_ALIASES: Dictionary = {
 		"family": "nomansland",
 		"sequence": 6,
 		"status": "active"
+	},
+	"MAP_nomansland__SBASE__1p__midrails_v01": {
+		"public_name": "nomansland_midrails1",
+		"family": "nomansland",
+		"sequence": 61,
+		"status": "active"
 	}
 }
 
