@@ -487,6 +487,12 @@ func try_activate_buff_slot(pid: int, slot_index: int) -> void:
 	_arena._try_activate_buff_slot(pid, slot_index)
 	mark_render_dirty("buff")
 
+func notify_wall_blocked_attempt(src_hive_id: int, dst_hive_id: int, intent: String = "attack") -> void:
+	if _arena == null:
+		return
+	if _arena.has_method("notify_wall_blocked_attempt"):
+		_arena.call("notify_wall_blocked_attempt", src_hive_id, dst_hive_id, intent)
+
 func issue_command(cmd: Dictionary) -> bool:
 	if _arena == null:
 		return false

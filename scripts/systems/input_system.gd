@@ -8,6 +8,7 @@ extends RefCounted
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const InputEventUtils := preload("res://scripts/systems/input_helpers/input_event_utils.gd")
+const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 
 const DOUBLE_TAP_MS := 250
 const DOUBLE_TAP_DIST_PX := 12.0
@@ -1504,6 +1505,7 @@ func _issue_intent(from_id: int, to_id: int, player_id: int, dev_pid: int, arena
 				"intent": "feed",
 				"reason": str(result.get("reason", "unknown"))
 			})
+			_maybe_notify_wall_blocked_attempt(from_id, to_id, "feed", arena_api)
 		return
 	var result := OpsState.apply_lane_intent(from_id, to_id, "attack")
 	if bool(result.get("ok", false)):
@@ -1517,6 +1519,7 @@ func _issue_intent(from_id: int, to_id: int, player_id: int, dev_pid: int, arena
 			"intent": "attack",
 			"reason": str(result.get("reason", "unknown"))
 		})
+		_maybe_notify_wall_blocked_attempt(from_id, to_id, "attack", arena_api)
 
 func _issue_swarm_intent(from_id: int, to_id: int, player_id: int) -> bool:
 	var result := OpsState.apply_lane_intent(from_id, to_id, "swarm")
@@ -1525,6 +1528,30 @@ func _issue_swarm_intent(from_id: int, to_id: int, player_id: int) -> bool:
 		SFLog.info("INPUT_INTENT", {"player_id": player_id, "src": from_id, "dst": to_id, "intent": "swarm"})
 		SFLog.info("LANE_SWARM_INTENT", {"src": from_id, "dst": to_id, "player_id": player_id})
 	return ok
+
+func _maybe_notify_wall_blocked_attempt(from_id: int, to_id: int, intent: String, arena_api: ArenaAPI) -> void:
+	if arena_api == null:
+		return
+	if not _is_route_blocked_by_wall(from_id, to_id, arena_api):
+		return
+	arena_api.notify_wall_blocked_attempt(from_id, to_id, intent)
+
+func _is_route_blocked_by_wall(from_id: int, to_id: int, arena_api: ArenaAPI) -> bool:
+	if arena_api == null:
+		return false
+	var st: GameState = arena_api.get_state()
+	if st == null or st.walls == null or st.walls.is_empty():
+		return false
+	var src_hive: HiveData = arena_api.find_hive_by_id(from_id)
+	var dst_hive: HiveData = arena_api.find_hive_by_id(to_id)
+	if src_hive == null or dst_hive == null:
+		return false
+	var wall_segments: Array = MAP_SCHEMA._wall_segments_from_walls(st.walls)
+	if wall_segments.is_empty():
+		return false
+	var a_grid: Vector2 = Vector2(float(src_hive.grid_pos.x), float(src_hive.grid_pos.y))
+	var b_grid: Vector2 = Vector2(float(dst_hive.grid_pos.x), float(dst_hive.grid_pos.y))
+	return MAP_SCHEMA._segment_intersects_any_wall(a_grid, b_grid, wall_segments)
 
 func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_api: ArenaAPI) -> bool:
 	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)

@@ -625,16 +625,16 @@ func _start_match_flow() -> void:
 			_controls_hint_controller.hide(false)
 	elif _is_jukebox_easy_bot_mode():
 		_apply_jukebox_easy_bot_profile()
+	elif _has_vs_cpu_bot_override():
+		_apply_vs_cpu_bot_override()
+	elif _controls_hint_controller != null:
+		_controls_hint_controller.maybe_show_once(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
 
 func _is_tutorial_launch_active() -> bool:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return false
 	return bool(tree.get_meta(TREE_META_TUTORIAL_ACTIVE, false))
-	elif _has_vs_cpu_bot_override():
-		_apply_vs_cpu_bot_override()
-	elif _controls_hint_controller != null:
-		_controls_hint_controller.maybe_show_once(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
 
 func _start_match_flow_deferred() -> void:
 	await get_tree().process_frame
@@ -4301,6 +4301,8 @@ func _tick_arena_runtime(delta: float) -> void:
 	_update_win_overlay()
 	_update_selection_hud()
 	_update_buff_ui()
+	if wall_renderer != null and is_instance_valid(wall_renderer):
+		wall_renderer.tick_visuals(delta)
 	_refresh_capture_flag_move_button()
 	if _tutorial_section1_controller != null and state != null:
 		_tutorial_section1_controller.tick(state, _resolve_local_owner_id())
@@ -5966,6 +5968,22 @@ func _sync_wall_renderer(hive_nodes_by_id: Dictionary) -> void:
 		"map_root_pos": map_root.position if map_root != null else null
 	}, "", 5000)
 	wall_renderer.set_wall_pairs(pairs, hive_pos_by_id)
+
+func notify_wall_blocked_attempt(src_hive_id: int, dst_hive_id: int, intent: String = "attack") -> void:
+	if wall_renderer == null or not is_instance_valid(wall_renderer):
+		return
+	if state == null:
+		return
+	var src_hive: HiveData = state.find_hive_by_id(src_hive_id)
+	var dst_hive: HiveData = state.find_hive_by_id(dst_hive_id)
+	if src_hive == null or dst_hive == null:
+		return
+	var src_pos: Vector2 = _grid_coord_to_world(src_hive.render_grid_pos if is_finite(src_hive.render_grid_pos.x) and is_finite(src_hive.render_grid_pos.y) else Vector2(float(src_hive.grid_pos.x), float(src_hive.grid_pos.y)))
+	var dst_pos: Vector2 = _grid_coord_to_world(dst_hive.render_grid_pos if is_finite(dst_hive.render_grid_pos.x) and is_finite(dst_hive.render_grid_pos.y) else Vector2(float(dst_hive.grid_pos.x), float(dst_hive.grid_pos.y)))
+	if map_root != null:
+		src_pos = map_root.to_global(src_pos)
+		dst_pos = map_root.to_global(dst_pos)
+	wall_renderer.notify_blocked_attempt_path(wall_renderer.to_local(src_pos), wall_renderer.to_local(dst_pos), intent)
 
 func _push_render_model() -> void:
 	var rm: Dictionary = export_render_model()
