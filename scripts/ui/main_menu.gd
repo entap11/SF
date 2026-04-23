@@ -243,6 +243,8 @@ var _rank_panel: Control = null
 var _rank_context_panel: Panel = null
 var _jukebox_panel: Panel = null
 var _dash_hex_jukebox: HexButton = null
+const TREE_META_REOPEN_JUKEBOX_ON_READY: String = "reopen_jukebox_on_ready"
+const TREE_META_REOPEN_JUKEBOX_STATE: String = "reopen_jukebox_state"
 var _dash_garage_panel: Control = null
 var _dash_buffs_hero: Control = null
 var _dash_achievements_hero: Control = null
@@ -1070,6 +1072,7 @@ func _ready() -> void:
 	_bind_profile_dash_signals()
 	_apply_performance_pref_from_profile()
 	call_deferred("_init_dash_state")
+	call_deferred("_apply_pending_jukebox_reopen_request")
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
 	_bind_onboarding_gate()
@@ -1077,6 +1080,25 @@ func _ready() -> void:
 		if not HiveClanState.hive_clan_state_changed.is_connected(_on_hive_clan_state_changed):
 			HiveClanState.hive_clan_state_changed.connect(_on_hive_clan_state_changed)
 	_sync_hive_panel_profile_from_hive_state()
+
+func _apply_pending_jukebox_reopen_request() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var should_reopen: bool = bool(tree.get_meta(TREE_META_REOPEN_JUKEBOX_ON_READY, false))
+	var restore_state: Dictionary = {}
+	var restore_any: Variant = tree.get_meta(TREE_META_REOPEN_JUKEBOX_STATE, {})
+	if typeof(restore_any) == TYPE_DICTIONARY:
+		restore_state = restore_any as Dictionary
+	if tree.has_meta(TREE_META_REOPEN_JUKEBOX_ON_READY):
+		tree.remove_meta(TREE_META_REOPEN_JUKEBOX_ON_READY)
+	if tree.has_meta(TREE_META_REOPEN_JUKEBOX_STATE):
+		tree.remove_meta(TREE_META_REOPEN_JUKEBOX_STATE)
+	if not should_reopen:
+		return
+	_open_jukebox_panel()
+	if _jukebox_panel != null and _jukebox_panel.has_method("restore_runtime_state"):
+		_jukebox_panel.call("restore_runtime_state", restore_state)
 
 func _process(_delta: float) -> void:
 	_refresh_open_free_roll_game_hub_if_stale()

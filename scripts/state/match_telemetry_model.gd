@@ -1,7 +1,7 @@
 class_name MatchTelemetryModel
 extends RefCounted
 
-const SCHEMA_VERSION: int = 3
+const SCHEMA_VERSION: int = 4
 const SELF_SCRIPT_PATH: String = "res://scripts/state/match_telemetry_model.gd"
 
 const MATCH_TYPE_VS: int = 0
@@ -15,12 +15,14 @@ const EVENT_BUFF_ACTIVATION: int = 4
 const EVENT_ACTION: int = 5
 const EVENT_ARRIVAL: int = 6
 const EVENT_TOWER_KILL: int = 7
+const EVENT_UNIT_DEATH: int = 8
 
 var schema_version: int = SCHEMA_VERSION
 var metadata: Dictionary = {}
 var events: Array[Dictionary] = []
 var metrics: Dictionary = {}
 var analysis_summary: Dictionary = {}
+var totals: Dictionary = {}
 
 func _init() -> void:
 	reset()
@@ -31,6 +33,7 @@ func reset() -> void:
 	events.clear()
 	metrics = _default_metrics()
 	analysis_summary = _default_analysis_summary()
+	totals = _default_totals()
 
 func to_dict() -> Dictionary:
 	return {
@@ -38,7 +41,8 @@ func to_dict() -> Dictionary:
 		"metadata": metadata.duplicate(true),
 		"events": _duplicate_event_array(events),
 		"metrics": metrics.duplicate(true),
-		"analysis_summary": analysis_summary.duplicate(true)
+		"analysis_summary": analysis_summary.duplicate(true),
+		"totals": totals.duplicate(true)
 	}
 
 static func from_dict(payload: Dictionary) -> Variant:
@@ -54,6 +58,7 @@ static func from_dict(payload: Dictionary) -> Variant:
 	model.events = _normalize_event_array(normalized.get("events", []))
 	model.metrics = _normalize_dictionary(normalized.get("metrics", {}), _default_metrics())
 	model.analysis_summary = _normalize_dictionary(normalized.get("analysis_summary", {}), _default_analysis_summary())
+	model.totals = _normalize_dictionary(normalized.get("totals", {}), _default_totals())
 	return model
 
 static func migrate_payload(payload: Dictionary) -> Dictionary:
@@ -78,6 +83,10 @@ static func migrate_payload(payload: Dictionary) -> Dictionary:
 		out["analysis_summary"] = _default_analysis_summary()
 	else:
 		out["analysis_summary"] = _merge_defaults(out.get("analysis_summary", {}), _default_analysis_summary())
+	if not out.has("totals") or typeof(out.get("totals", null)) != TYPE_DICTIONARY:
+		out["totals"] = _default_totals()
+	else:
+		out["totals"] = _merge_defaults(out.get("totals", {}), _default_totals())
 	return out
 
 static func _default_metadata() -> Dictionary:
@@ -163,6 +172,19 @@ static func _default_analysis_summary() -> Dictionary:
 		"focus_player_id": 0,
 		"insights": [],
 		"key_stats": []
+	}
+
+static func _default_totals() -> Dictionary:
+	return {
+		"event_count": 0,
+		"player_ids": [],
+		"unit_spawn_by_player": {},
+		"unit_land_friendly_by_player": {},
+		"unit_land_enemy_by_player": {},
+		"unit_land_npc_by_player": {},
+		"tower_kills_by_player": {},
+		"unit_deaths_by_victim_player": {},
+		"unit_deaths_by_killer_player": {}
 	}
 
 static func _duplicate_event_array(source: Array[Dictionary]) -> Array:

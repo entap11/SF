@@ -40,6 +40,9 @@ var _unit_sprite_logged := false
 const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
 const UNIT_RENDER_SCALE: float = 2.4
+const UNIT_VISUAL_SCALE_MULT: float = 0.80
+const UNIT_OUTLINE_SCALE_MULT: float = 1.32
+const UNIT_OUTLINE_COLOR: Color = Color(0.02, 0.02, 0.03, 0.98)
 const UNIT_SPRITE_FORWARD_DEG: float = 90.0
 const UNIT_TRAVEL_T_EPS: float = 0.02
 const DBG_UNITS: bool = false
@@ -181,6 +184,7 @@ var _post_match_settle_active: bool = false
 var _post_match_settle_until_us: int = 0
 var _post_match_extrap_sec: float = BUTTER_MAX_EXTRAP_SEC
 var _bee_clip_by_unit_id: Dictionary = {}
+var _bee_clip_outline_by_unit_id: Dictionary = {}
 var _bee_clip_plane_override_by_unit_id: Dictionary = {}
 var _bee_clip_last_debug_log_ms: int = 0
 var _bee_clip_last_world_pos_by_unit_id: Dictionary = {}
@@ -307,6 +311,7 @@ func _tracked_unit_id_for_node(node: Node2D) -> int:
 func _create_unit_render_node() -> Node2D:
 	var node: Node2D = Node2D.new()
 	node.z_index = 0
+	_ensure_unit_outline_sprite(node)
 	_ensure_unit_sprite(node)
 	return node
 
@@ -376,6 +381,7 @@ func _pool_release(node: Node2D) -> void:
 		_unit_style_sig_by_id.erase(unit_id)
 		_diag_visual_phase_by_id.erase(unit_id)
 		_bee_clip_by_unit_id.erase(unit_id)
+		_bee_clip_outline_by_unit_id.erase(unit_id)
 		_bee_clip_plane_override_by_unit_id.erase(unit_id)
 		_bee_clip_last_world_pos_by_unit_id.erase(unit_id)
 		_bee_clip_last_update_us_by_unit_id.erase(unit_id)
@@ -401,6 +407,15 @@ func _pool_release(node: Node2D) -> void:
 			_audit_modulate_sets += 1
 		sprite.self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 		sprite.visible = false
+	var outline_sprite: Sprite2D = node.get_node_or_null("UnitOutlineSprite") as Sprite2D
+	if outline_sprite != null:
+		outline_sprite.texture = null
+		outline_sprite.material = null
+		outline_sprite.position = Vector2.ZERO
+		outline_sprite.scale = Vector2.ONE
+		outline_sprite.rotation = 0.0
+		outline_sprite.self_modulate = Color(1.0, 1.0, 1.0, 1.0)
+		outline_sprite.visible = false
 	if not _assert_not_freed(node):
 		return
 	node.visible = false
@@ -2222,6 +2237,19 @@ func _ensure_unit_sprite(node: Node2D) -> Sprite2D:
 		sprite = Sprite2D.new()
 		sprite.name = "UnitSprite"
 		node.add_child(sprite)
+	sprite.z_index = 0
+	sprite.centered = true
+	sprite.offset = Vector2.ZERO
+	sprite.position = Vector2.ZERO
+	return sprite
+
+func _ensure_unit_outline_sprite(node: Node2D) -> Sprite2D:
+	var sprite: Sprite2D = node.get_node_or_null("UnitOutlineSprite") as Sprite2D
+	if sprite == null:
+		sprite = Sprite2D.new()
+		sprite.name = "UnitOutlineSprite"
+		node.add_child(sprite)
+	sprite.z_index = -1
 	sprite.centered = true
 	sprite.offset = Vector2.ZERO
 	sprite.position = Vector2.ZERO
@@ -2245,8 +2273,8 @@ func _compute_bee_visual_length_px_scaled(sprite: Sprite2D, length_scale: float)
 		return maxf(1.0, bee_clip_min_visual_length_px)
 	var tex_width: float = float(sprite.texture.get_width())
 	var tex_height: float = float(sprite.texture.get_height())
-	var scale_x: float = absf(sprite.global_scale.x)
-	var scale_y: float = absf(sprite.global_scale.y)
+	var scale_x: float = absf(sprite.global_scale.x) / UNIT_VISUAL_SCALE_MULT
+	var scale_y: float = absf(sprite.global_scale.y) / UNIT_VISUAL_SCALE_MULT
 	if scale_x <= 0.000001:
 		scale_x = 1.0
 	if scale_y <= 0.000001:
@@ -2255,17 +2283,23 @@ func _compute_bee_visual_length_px_scaled(sprite: Sprite2D, length_scale: float)
 	var scaled_len: float = base_len * maxf(0.1, length_scale)
 	return maxf(1.0, maxf(bee_clip_min_visual_length_px, scaled_len))
 
-func _ensure_bee_clip_controller(unit_id: int, sprite: Sprite2D) -> RefCounted:
+func _ensure_bee_clip_controller_from_store(store: Dictionary, unit_id: int, sprite: Sprite2D, clip_shader: Shader) -> RefCounted:
 	if unit_id <= 0 or sprite == null:
 		return null
-	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
+	var controller: RefCounted = store.get(unit_id, null) as RefCounted
 	if controller == null:
 		controller = BeeClipControllerScript.new()
-		_bee_clip_by_unit_id[unit_id] = controller
+		store[unit_id] = controller
 	if controller != null and controller.has_method("configure_sprite"):
-		controller.call("configure_sprite", sprite, BEE_CLIP_SHADER)
+		controller.call("configure_sprite", sprite, clip_shader)
 		controller.call("set_local_cut_dir", _bee_clip_local_cut_dir())
 	return controller
+
+func _ensure_bee_clip_controller(unit_id: int, sprite: Sprite2D) -> RefCounted:
+	return _ensure_bee_clip_controller_from_store(_bee_clip_by_unit_id, unit_id, sprite, BEE_CLIP_SHADER)
+
+func _ensure_bee_clip_outline_controller(unit_id: int, sprite: Sprite2D) -> RefCounted:
+	return _ensure_bee_clip_controller_from_store(_bee_clip_outline_by_unit_id, unit_id, sprite, BEE_CLIP_SHADER)
 
 func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_by_id: Dictionary) -> void:
 	if not bee_clip_enabled:
@@ -2273,8 +2307,10 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 	if unit_id <= 0 or node == null:
 		return
 	var sprite: Sprite2D = _ensure_unit_sprite(node)
+	var outline_sprite: Sprite2D = _ensure_unit_outline_sprite(node)
 	var controller: RefCounted = _ensure_bee_clip_controller(unit_id, sprite)
-	if controller == null:
+	var outline_controller: RefCounted = _ensure_bee_clip_outline_controller(unit_id, outline_sprite)
+	if controller == null or outline_controller == null:
 		return
 	var owner_id: int = _unit_owner_id(ud, hive_by_id)
 	var registry: SpriteRegistry = _get_sprite_registry()
@@ -2286,6 +2322,8 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 	var key_softness: float = float(key_params.get("softness", 0.10))
 	if controller.has_method("set_colorkey"):
 		controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
+	if outline_controller.has_method("set_colorkey"):
+		outline_controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
 
 	var entrance_point_world: Vector2 = Vector2.ZERO
 	var travel_dir_world: Vector2 = Vector2.RIGHT
@@ -2363,6 +2401,8 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 	if not have_plane:
 		if controller.has_method("reset"):
 			controller.call("reset")
+		if outline_controller.has_method("reset"):
+			outline_controller.call("reset")
 		return
 	if not has_override_plane:
 		var to_hive_id_for_plane: int = int(ud.get("to_id", -1))
@@ -2386,12 +2426,20 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 	_bee_clip_lane_id_by_unit_id[unit_id] = int(ud.get("lane_id", -1))
 	controller.call("set_plane", entrance_point_world, travel_dir_world)
 	controller.call("set_visual_length_px", bee_length_px)
+	outline_controller.call("set_plane", entrance_point_world, travel_dir_world)
+	outline_controller.call("set_visual_length_px", bee_length_px)
 	var cut_value_now: float = float(controller.call(
 		"update_from_world_position",
 		node.global_position,
 		nose_contact_offset_px,
 		_bee_clip_plane_offset_for_unit(unit_id)
 	))
+	outline_controller.call(
+		"update_from_world_position",
+		node.global_position,
+		nose_contact_offset_px,
+		_bee_clip_plane_offset_for_unit(unit_id)
+	)
 	if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)):
 		_log_collision_clip_state(unit_id, "live", controller, node, {
 			"entrance_point_world": entrance_point_world,
@@ -2445,6 +2493,7 @@ func _update_bee_clip_for_missing_unit(unit_id: int, node: Node2D, now_us: int) 
 	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
 	if controller == null:
 		return
+	var outline_controller: RefCounted = _bee_clip_outline_by_unit_id.get(unit_id, null) as RefCounted
 	var dir_any: Variant = _bee_clip_travel_dir_world_by_unit_id.get(unit_id, null)
 	if not (dir_any is Vector2):
 		return
@@ -2468,15 +2517,26 @@ func _update_bee_clip_for_missing_unit(unit_id: int, node: Node2D, now_us: int) 
 	var entrance_any: Variant = _bee_clip_entrance_world_by_unit_id.get(unit_id, null)
 	if entrance_any is Vector2:
 		controller.call("set_plane", entrance_any as Vector2, travel_dir_world)
+		if outline_controller != null:
+			outline_controller.call("set_plane", entrance_any as Vector2, travel_dir_world)
 	var visual_len_px: float = float(_bee_clip_visual_len_by_unit_id.get(unit_id, bee_clip_min_visual_length_px))
 	var nose_contact_offset_px: float = bee_clip_nose_offset_px + (visual_len_px * 0.5)
 	controller.call("set_visual_length_px", visual_len_px)
+	if outline_controller != null:
+		outline_controller.call("set_visual_length_px", visual_len_px)
 	var cut_value_now: float = float(controller.call(
 		"update_from_world_position",
 		world_pos,
 		nose_contact_offset_px,
 		_bee_clip_plane_offset_for_unit(unit_id)
 	))
+	if outline_controller != null:
+		outline_controller.call(
+			"update_from_world_position",
+			world_pos,
+			nose_contact_offset_px,
+			_bee_clip_plane_offset_for_unit(unit_id)
+		)
 	if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)):
 		_log_collision_clip_state(unit_id, "missing", controller, node, {
 			"world_pos": world_pos,
@@ -2532,6 +2592,7 @@ func _update_unit_sprite(
 	var owner_id: int = owner_id_override if owner_id_override >= 0 else _unit_owner_id(ud, hive_by_id)
 	var unit_id := int(node.get_meta("unit_id", -1))
 	var sprite := _ensure_unit_sprite(node)
+	var outline_sprite: Sprite2D = _ensure_unit_outline_sprite(node)
 	if sprite == null:
 		return
 	var tex: Texture2D = null
@@ -2570,6 +2631,8 @@ func _update_unit_sprite(
 	if tex == null:
 		node.visible = false
 		sprite.visible = false
+		if outline_sprite != null:
+			outline_sprite.visible = false
 		return
 	var resolved_path := tex.resource_path
 	if resolved_path.is_empty():
@@ -2642,15 +2705,27 @@ func _update_unit_sprite(
 	sprite.centered = true
 	sprite.offset = Vector2.ZERO
 	sprite.position = Vector2.ZERO
+	if outline_sprite != null:
+		outline_sprite.centered = true
+		outline_sprite.offset = Vector2.ZERO
+		outline_sprite.position = Vector2.ZERO
+		outline_sprite.texture = tex
+		outline_sprite.material = null
+		outline_sprite.self_modulate = UNIT_OUTLINE_COLOR
 	var tex_size := tex.get_size()
 	if tex_size.x > 0.0 and tex_size.y > 0.0:
-		var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
-		sprite.scale = Vector2(size_px / tex_size.x, size_px / tex_size.y)
+		var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE * UNIT_VISUAL_SCALE_MULT
+		var sprite_scale: Vector2 = Vector2(size_px / tex_size.x, size_px / tex_size.y)
+		sprite.scale = sprite_scale
+		if outline_sprite != null:
+			outline_sprite.scale = sprite_scale * UNIT_OUTLINE_SCALE_MULT
 	if apply_orientation:
 		var lane_id: int = int(ud.get("lane_id", 0))
 		_apply_unit_orientation(node, sprite, ud, hive_by_id, unit_id, owner_id, lane_id)
 	node.visible = true
 	sprite.visible = not debug_draw_units
+	if outline_sprite != null:
+		outline_sprite.visible = not debug_draw_units
 
 func _apply_debug_force_top_z() -> void:
 	if debug_force_top_z == _last_force_top_z:

@@ -6,7 +6,7 @@ const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
 
 const PERIOD_LABELS: Array[String] = ["WEEKLY", "MONTHLY", "SEASON", "ALL TIME"]
-const CATEGORY_ORDER: Array[String] = ["FEATURED", "CTF", "HIDDEN", "NOMANSLAND"]
+const CATEGORY_ORDER: Array[String] = ["FEATURED", "CTF", "HIDDEN", "FFA", "STRATEGY", "TEMPO", "REACTION", "NOMANSLAND", "DELTA"]
 const DEFAULT_BOARD_MODE: String = "ASYNC_SINGLE_MAP_TIMED"
 const DIRECT_CTF_MAP_PATHS: Array[String] = [
 	"res://maps/nomansland/MAP_nomansland__SBASE__1p.json"
@@ -50,14 +50,22 @@ func refresh() -> void:
 			continue
 		var normalized: Dictionary = MAP_REGISTRY.normalize_map_id(map_id)
 		var public_title: String = MAP_REGISTRY.public_map_display_name_for_id(map_id)
+		var playstyle_tags: Array[String] = _entry_playstyle_tags(data, normalized)
 		var entry: Dictionary = {
 			"path": path,
 			"map_id": map_id,
 			"title": public_title,
 			"hero_title": "",
+			"map_family": _entry_map_family(data, normalized),
+			"display_family": _entry_display_family(data, normalized),
+			"player_buckets": _entry_player_buckets(data, normalized),
+			"playstyle_tags": playstyle_tags,
+			"season_tags": _entry_string_array(data, "season_tags"),
+			"rotation": _entry_rotation(data),
+			"async_bot_count": _entry_async_bot_count(data, normalized),
 			"preview_path": preview_path(data),
 			"category": primary_category(path, normalized),
-			"filters": category_filters(path, normalized),
+			"filters": category_filters(path, normalized, playstyle_tags),
 			"meta": "",
 			"desc": "",
 			"sort_key": MAP_REGISTRY.public_map_sort_key_for_id(map_id),
@@ -76,6 +84,7 @@ func refresh() -> void:
 	_map_entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return str(a.get("sort_key", "")) < str(b.get("sort_key", ""))
 	)
+	_ensure_unique_titles()
 	for label in CATEGORY_ORDER:
 		if bool(category_seen.get(label, false)):
 			_categories.append(label)
@@ -190,7 +199,7 @@ func primary_category(path: String, normalized: Dictionary) -> String:
 	var family: String = str(normalized.get("family", "other")).to_upper()
 	return family if not family.is_empty() else "OTHER"
 
-func category_filters(path: String, normalized: Dictionary) -> Array[String]:
+func category_filters(path: String, normalized: Dictionary, playstyle_tags: Array[String] = []) -> Array[String]:
 	var out: Array[String] = []
 	out.append("ALL")
 	var category: String = primary_category(path, normalized)
@@ -203,6 +212,12 @@ func category_filters(path: String, normalized: Dictionary) -> Array[String]:
 	var family: String = str(normalized.get("family", "")).to_upper()
 	if not family.is_empty() and not out.has(family):
 		out.append(family)
+	for tag_any in playstyle_tags:
+		var tag: String = str(tag_any).strip_edges().to_upper()
+		if tag.is_empty():
+			continue
+		if not out.has(tag):
+			out.append(tag)
 	return out
 
 func map_title(map_id: String, data: Dictionary) -> String:
@@ -219,11 +234,127 @@ func map_title(map_id: String, data: Dictionary) -> String:
 		pretty.append(clean)
 	return " / ".join(pretty)
 
+func _entry_map_family(data: Dictionary, normalized: Dictionary) -> String:
+	var family: String = str(data.get("family", normalized.get("family", ""))).strip_edges().to_lower()
+	if not family.is_empty():
+		return family
+	return str(normalized.get("family", "")).strip_edges().to_lower()
+
+func _entry_display_family(data: Dictionary, normalized: Dictionary) -> String:
+	var display_family: String = str(data.get("display_family", "")).strip_edges()
+	if not display_family.is_empty():
+		return display_family
+	var family: String = _entry_map_family(data, normalized)
+	if family.is_empty():
+		return ""
+	return family.capitalize()
+
+func _entry_string_array(data: Dictionary, key: String) -> Array[String]:
+	var out: Array[String] = []
+	var values_v: Variant = data.get(key, [])
+	if typeof(values_v) != TYPE_ARRAY:
+		return out
+	for value_any in values_v as Array:
+		var value: String = str(value_any).strip_edges().to_upper()
+		if value.is_empty():
+			continue
+		if not out.has(value):
+			out.append(value)
+	return out
+
+func _entry_playstyle_tags(data: Dictionary, normalized: Dictionary) -> Array[String]:
+	var out: Array[String] = _entry_string_array(data, "playstyle_tags")
+	if out.is_empty():
+		out = _entry_string_array(data, "game_types")
+	if out.is_empty():
+		out.append_array(_family_default_playstyle_tags(_entry_map_family(data, normalized)))
+	for tag in out.duplicate():
+		var clean: String = str(tag).strip_edges().to_upper()
+		if clean.is_empty():
+			out.erase(tag)
+			continue
+		if clean != tag:
+			out.erase(tag)
+			if not out.has(clean):
+				out.append(clean)
+	return out
+
+func _family_default_playstyle_tags(family: String) -> Array[String]:
+	match family.strip_edges().to_lower():
+		"nomansland":
+			return ["FFA", "STRATEGY"]
+		"delta":
+			return ["FFA", "STRATEGY"]
+		_:
+			return []
+
+func _entry_player_buckets(data: Dictionary, normalized: Dictionary) -> Array[String]:
+	var buckets: Array[String] = _entry_string_array(data, "player_buckets")
+	if buckets.is_empty():
+		buckets = _entry_string_array(data, "player_modes")
+	var mode: String = str(data.get("mode", normalized.get("mode", ""))).strip_edges().to_upper()
+	if buckets.is_empty() and not mode.is_empty():
+		buckets.append(mode)
+	return buckets
+
+func _entry_rotation(data: Dictionary) -> Dictionary:
+	var rotation_v: Variant = data.get("rotation", {})
+	if typeof(rotation_v) != TYPE_DICTIONARY:
+		return {}
+	return (rotation_v as Dictionary).duplicate(true)
+
+func _entry_async_bot_count(data: Dictionary, normalized: Dictionary) -> int:
+	var explicit_count: int = int(data.get("async_bot_count", -1))
+	if explicit_count >= 0:
+		return explicit_count
+	var buckets: Array[String] = _entry_player_buckets(data, normalized)
+	var max_players: int = 0
+	for bucket in buckets:
+		var clean: String = bucket.strip_edges().to_upper()
+		if clean.ends_with("P"):
+			clean = clean.left(clean.length() - 1)
+		if clean.is_valid_int():
+			max_players = maxi(max_players, int(clean))
+	return maxi(0, max_players - 1)
+
 func preview_path(data: Dictionary) -> String:
 	var raw: String = str(data.get("preview_path", "")).strip_edges()
 	if not raw.is_empty() and ResourceLoader.exists(raw):
 		return raw
 	return HERO_FALLBACK_PREVIEW_PATH
+
+func _ensure_unique_titles() -> void:
+	var used_titles: Dictionary = {}
+	var duplicate_counts: Dictionary = {}
+	for index in range(_map_entries.size()):
+		var entry: Dictionary = _map_entries[index]
+		var base_title: String = str(entry.get("title", "")).strip_edges()
+		var map_id: String = str(entry.get("map_id", "")).strip_edges()
+		if base_title.is_empty():
+			base_title = MAP_REGISTRY.fallback_public_map_display_name_for_id(map_id)
+		var title_key: String = base_title.to_lower()
+		var resolved_title: String = base_title
+		if used_titles.has(title_key):
+			var fallback_title: String = MAP_REGISTRY.fallback_public_map_display_name_for_id(map_id).strip_edges()
+			var fallback_key: String = fallback_title.to_lower()
+			if not fallback_title.is_empty() and not used_titles.has(fallback_key):
+				resolved_title = fallback_title
+			else:
+				var next_index: int = int(duplicate_counts.get(title_key, 1)) + 1
+				duplicate_counts[title_key] = next_index
+				resolved_title = "%s_%d" % [base_title, next_index]
+				while used_titles.has(resolved_title.to_lower()):
+					next_index += 1
+					duplicate_counts[title_key] = next_index
+					resolved_title = "%s_%d" % [base_title, next_index]
+		else:
+			duplicate_counts[title_key] = 1
+		used_titles[resolved_title.to_lower()] = true
+		entry["title"] = resolved_title
+		_map_entries[index] = entry
+		var path: String = str(entry.get("path", ""))
+		if not path.is_empty():
+			_entries_by_path[path] = entry
 
 func _board_mode_for_entry(entry: Dictionary) -> String:
 	return str(entry.get("board_mode", DEFAULT_BOARD_MODE)).strip_edges().to_upper()

@@ -468,8 +468,8 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 						b_travel_dir
 					)
 					var death_intensity: float = clampf(float(kill) * 0.55, 0.7, 2.0)
-					_emit_unit_death_event(a, "collision", death_intensity, impact, lane_dir)
-					_emit_unit_death_event(b, "collision", death_intensity, impact, lane_dir)
+					_emit_unit_death_event(a, "collision", death_intensity, impact, lane_dir, 0, kill)
+					_emit_unit_death_event(b, "collision", death_intensity, impact, lane_dir, 0, kill)
 				if debug_collisions:
 					SFLog.info("UNIT_COLLISION_PRE", {
 						"lane_id": lane_id,
@@ -1059,12 +1059,18 @@ func _emit_unit_death_event(
 	reason: String,
 	intensity: float = 1.0,
 	pos_hint: Variant = null,
-	dir_hint: Variant = null
+	dir_hint: Variant = null,
+	killer_player_id: int = 0,
+	death_count_override: int = -1
 ) -> void:
-	if _sim_events == null:
-		return
 	var owner_id: int = int(unit.get("owner_id", 0))
 	if owner_id <= 0:
+		return
+	var death_count: int = maxi(1, int(unit.get("amount", 1)))
+	if death_count_override > 0:
+		death_count = death_count_override
+	_telemetry_record_unit_death(owner_id, killer_player_id, reason, death_count)
+	if _sim_events == null:
 		return
 	var world_pos: Vector2 = _unit_world_pos(unit)
 	if pos_hint is Vector2:
@@ -1076,7 +1082,7 @@ func _emit_unit_death_event(
 			lane_dir = hint_dir.normalized()
 	var lane_id: int = int(unit.get("lane_id", -1))
 	var unit_id: int = int(unit.get("id", -1))
-	var amount: int = maxi(1, int(unit.get("amount", 1)))
+	var amount: int = death_count
 	var vfx_intensity: float = clampf(maxf(intensity, float(amount) * 0.35), 0.5, 2.0)
 	_sim_events.emit_signal(
 		"unit_death",
@@ -1229,7 +1235,7 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 			if ops_state != null:
 				ops_state.call("add_units_killed", tower_owner_id, amount)
 			_telemetry_record_tower_kill(tower_owner_id, source_tower_id, int(unit.get("owner_id", 0)), amount)
-		return _remove_unit(victim_unit_id, "tower_hit")
+		return _remove_unit(victim_unit_id, "tower_hit", tower_owner_id, 1.0, hit_pos, Vector2.ZERO)
 	return false
 
 func _lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
@@ -1350,12 +1356,19 @@ func _units_set_signature() -> int:
 	sig = (sig * 31 + xor_ids) & 0x7fffffff
 	return sig
 
-func _remove_unit(unit_id: int, reason: String) -> bool:
+func _remove_unit(
+	unit_id: int,
+	reason: String,
+	killer_player_id: int = 0,
+	intensity: float = 1.0,
+	pos_hint: Variant = null,
+	dir_hint: Variant = null
+) -> bool:
 	for i in range(units.size()):
 		var unit: Dictionary = units[i] as Dictionary
 		if int(unit.get("id", -1)) != unit_id:
 			continue
-		_emit_unit_death_event(unit, reason)
+		_emit_unit_death_event(unit, reason, intensity, pos_hint, dir_hint, killer_player_id)
 		units.remove_at(i)
 		_sync_units_to_state()
 		if SFLog.verbose_sim:
@@ -1518,6 +1531,25 @@ func _telemetry_record_tower_kill(player_id: int, tower_id: int, victim_owner_id
 		safe_player_id,
 		tower_id,
 		victim_owner_id,
+		safe_count
+	)
+
+func _telemetry_record_unit_death(victim_player_id: int, killer_player_id: int, cause: String, count: int) -> void:
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_unit_death"):
+		return
+	var safe_victim_player_id: int = maxi(0, victim_player_id)
+	var safe_killer_player_id: int = maxi(0, killer_player_id)
+	var safe_count: int = maxi(0, count)
+	if safe_victim_player_id <= 0 or safe_count <= 0:
+		return
+	_match_telemetry_collector.call(
+		"record_unit_death",
+		_telemetry_match_ms(),
+		safe_victim_player_id,
+		safe_killer_player_id,
+		cause,
 		safe_count
 	)
 

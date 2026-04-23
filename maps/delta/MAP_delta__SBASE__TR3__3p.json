@@ -1,0 +1,48 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_delta__SBASE__TR3__3p",
+  "name": "Delta",
+  "family": "delta",
+  "display_family": "Delta",
+  "mode": "3p",
+  "player_buckets": ["3P"],
+  "playstyle_tags": ["FFA", "STRATEGY"],
+  "async_bot_count": 2,
+  "rotation": {
+    "status": "development",
+    "seasonal_pool": "delta"
+  },
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+
+  "defaults": {
+    "player_start_power": 10,
+    "npc_start_power": 5
+  },
+
+  "nodes": [
+    { "id": "p1h1", "pos": { "x": 1,  "y": 22 }, "owner": "P1",  "kind": "hive" },
+    { "id": "n1",   "pos": { "x": 5,  "y": 22 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n2",   "pos": { "x": 13, "y": 22 }, "owner": "NPC", "kind": "hive" },
+    { "id": "p3h1", "pos": { "x": 17, "y": 22 }, "owner": "P3",  "kind": "hive" },
+
+    { "id": "n3",   "pos": { "x": 4,   "y": 16.5 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n4",   "pos": { "x": 9,   "y": 16.5 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n5",   "pos": { "x": 14,  "y": 16.5 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "n6",   "pos": { "x": 6.5, "y": 11.0 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n7",   "pos": { "x": 11.5,"y": 11.0 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "p2h1", "pos": { "x": 9,  "y": 6  }, "owner": "P2",  "kind": "hive" }
+  ],
+
+  "towers": [
+    { "id": 1, "x": 6,  "y": 18.5, "control_hive_ids": [2, 5, 6], "owner_id": 0 },
+    { "id": 2, "x": 9,  "y": 13, "control_hive_ids": [6, 8, 9], "owner_id": 0 },
+    { "id": 3, "x": 12, "y": 18.5, "control_hive_ids": [3, 6, 7], "owner_id": 0 }
+  ],
+
+  "occluders": {
+    "walls": [],
+    "blocks_los": []
+  }
+}

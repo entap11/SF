@@ -27,7 +27,8 @@ const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := 1.18
 const HEIGHT_LARGE_SCALE := 1.34
 const HEIGHT_MAX_SCALE := 1.50
-const HIVE_VISUAL_SCALE: float = 1.22
+const HIVE_VISUAL_SCALE: float = 1.525
+const HIVE_HEIGHT_SCALE: float = 1.10
 const HIVE_COLOR_SAT_BOOST: float = 1.22
 const HIVE_COLOR_VAL_BOOST: float = 1.12
 const HIVE_RING_SCALE: float = 0.85
@@ -480,13 +481,13 @@ func _height_for_tier(base_height: float, tier: int) -> float:
 	var max_h := height_max_px if height_max_px > 0.0 else base_height * HEIGHT_MAX_SCALE
 	match tier:
 		4:
-			return max_h
+			return max_h * HIVE_HEIGHT_SCALE
 		3:
-			return large_h
+			return large_h * HIVE_HEIGHT_SCALE
 		2:
-			return med_h
+			return med_h * HIVE_HEIGHT_SCALE
 		_:
-			return small_h
+			return small_h * HIVE_HEIGHT_SCALE
 
 func _apply_sprite() -> void:
 	_ensure_sprite()

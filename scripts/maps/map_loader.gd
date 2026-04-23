@@ -166,6 +166,48 @@ static func _resolve_map_path(path_or_id: String) -> String:
 			return path
 	return ""
 
+static func _meta_string_array(source: Dictionary, key: String) -> Array[String]:
+	var out: Array[String] = []
+	var values_v: Variant = source.get(key, null)
+	if typeof(values_v) != TYPE_ARRAY:
+		return out
+	for value_any in values_v as Array:
+		var value: String = str(value_any).strip_edges()
+		if value.is_empty():
+			continue
+		var normalized: String = value.to_upper()
+		if not out.has(normalized):
+			out.append(normalized)
+	return out
+
+static func _playstyle_tags_from_source(source: Dictionary) -> Array[String]:
+	var tags: Array[String] = _meta_string_array(source, "playstyle_tags")
+	if not tags.is_empty():
+		return tags
+	return _meta_string_array(source, "game_types")
+
+static func _meta_rotation_dict(source: Dictionary) -> Dictionary:
+	var rotation_v: Variant = source.get("rotation", {})
+	if typeof(rotation_v) != TYPE_DICTIONARY:
+		return {}
+	return (rotation_v as Dictionary).duplicate(true)
+
+static func _infer_async_bot_count(player_buckets: Array[String], mode: String) -> int:
+	var max_players: int = 0
+	for bucket in player_buckets:
+		var clean: String = bucket.strip_edges().to_upper()
+		if clean.ends_with("P"):
+			clean = clean.left(clean.length() - 1)
+		if clean.is_valid_int():
+			max_players = maxi(max_players, int(clean))
+	if max_players <= 0:
+		var mode_clean: String = mode.strip_edges().to_upper()
+		if mode_clean.ends_with("P"):
+			mode_clean = mode_clean.left(mode_clean.length() - 1)
+		if mode_clean.is_valid_int():
+			max_players = int(mode_clean)
+	return maxi(0, max_players - 1)
+
 static func _is_dev_runner() -> bool:
 	var loop := Engine.get_main_loop()
 	if loop == null or not (loop is SceneTree):
@@ -726,6 +768,14 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		"_schema": "swarmfront.map.v1.model",
 		"id": str(data.get("id", path.get_file().get_basename())),
 		"name": str(data.get("name", path.get_file().get_basename())),
+		"family": str(data.get("family", "")).strip_edges().to_lower(),
+		"display_family": str(data.get("display_family", data.get("family", ""))).strip_edges(),
+		"mode": str(data.get("mode", "")).strip_edges().to_lower(),
+		"player_buckets": [],
+		"playstyle_tags": [],
+		"season_tags": [],
+		"rotation": {},
+		"async_bot_count": 0,
 		"grid_w": w,
 		"grid_h": h,
 		"hives": [],
@@ -750,6 +800,15 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	var next_tower_id: int = 1
 	var next_barracks_id: int = 1
 	var next_spawn_id: int = 1
+	var player_buckets: Array[String] = _meta_string_array(data, "player_buckets")
+	if player_buckets.is_empty():
+		player_buckets = _meta_string_array(data, "player_modes")
+	var mode: String = str(model.get("mode", "")).strip_edges().to_lower()
+	if player_buckets.is_empty() and not mode.is_empty():
+		player_buckets.append(mode.to_upper())
+	var playstyle_tags: Array[String] = _playstyle_tags_from_source(data)
+	var season_tags: Array[String] = _meta_string_array(data, "season_tags")
+	var rotation: Dictionary = _meta_rotation_dict(data)
 
 	for i in range(ents.size()):
 		var e_v: Variant = ents[i]
@@ -1006,6 +1065,11 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	model["barracks"] = barracks
 	model["walls"] = walls
 	model["spawns"] = spawns
+	model["player_buckets"] = player_buckets
+	model["playstyle_tags"] = playstyle_tags
+	model["season_tags"] = season_tags
+	model["rotation"] = rotation
+	model["async_bot_count"] = _infer_async_bot_count(player_buckets, mode)
 
 	var npc_count := 0
 	for hive_any in hives:

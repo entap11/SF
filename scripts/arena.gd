@@ -134,6 +134,8 @@ const JUKEBOX_META_PERIOD: String = "jukebox_board_period"
 const JUKEBOX_META_LOCAL_OWNER_ID: String = "jukebox_local_owner_id"
 const JUKEBOX_META_RESULT_SIGNATURE: String = "jukebox_result_commit_signature"
 const JUKEBOX_META_EASY_BOT: String = "jukebox_easy_bot"
+const TREE_META_REOPEN_JUKEBOX_ON_READY: String = "reopen_jukebox_on_ready"
+const TREE_META_REOPEN_JUKEBOX_STATE: String = "reopen_jukebox_state"
 const TREE_META_TUTORIAL_ACTIVE: String = "tutorial_launch_active"
 const TREE_META_VS_CPU_STYLE: String = "vs_cpu_style"
 const TREE_META_VS_CPU_TIER: String = "vs_cpu_tier"
@@ -427,6 +429,7 @@ var _hb_max_phys_ms: float = 0.0
 var _hb_sum_phys_ms: float = 0.0
 var _vs_pvp_runtime: Node = null
 var floor_influence_system: ArenaFloorInfluenceSystem = null
+var _jukebox_back_button: Button = null
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
@@ -497,6 +500,7 @@ func _ready() -> void:
 		outcome_overlay.post_match_action.connect(_on_post_match_action)
 	sel = SelectionState.new()
 	_init_systems()
+	_ensure_jukebox_back_button()
 	_prewarm_render_assets()
 	SFLog.info("SIM_PIPELINE_ACTIVE", {
 		"pipeline": "SimRunner",
@@ -696,6 +700,76 @@ func _is_jukebox_easy_bot_mode() -> bool:
 	if tree == null:
 		return false
 	return bool(tree.get_meta(JUKEBOX_META_EASY_BOT, false))
+
+func _is_jukebox_run() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	return bool(tree.get_meta(JUKEBOX_META_ENABLED, false))
+
+func _ensure_jukebox_back_button() -> void:
+	if _jukebox_back_button != null and is_instance_valid(_jukebox_back_button):
+		_jukebox_back_button.visible = _is_jukebox_run()
+		return
+	var bottom_buffer: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as Control
+	if bottom_buffer == null:
+		return
+	var button: Button = bottom_buffer.get_node_or_null("JukeboxBackButton") as Button
+	if button == null:
+		button = Button.new()
+		button.name = "JukeboxBackButton"
+		button.text = "BACK TO JUKEBOX"
+		button.custom_minimum_size = Vector2(196.0, 44.0)
+		button.anchor_left = 0.5
+		button.anchor_top = 1.0
+		button.anchor_right = 0.5
+		button.anchor_bottom = 1.0
+		button.offset_left = -98.0
+		button.offset_top = -58.0
+		button.offset_right = 98.0
+		button.offset_bottom = -14.0
+		button.mouse_filter = Control.MOUSE_FILTER_STOP
+		button.z_as_relative = false
+		button.z_index = 3002
+		bottom_buffer.add_child(button)
+	if not button.pressed.is_connected(_on_jukebox_back_pressed):
+		button.pressed.connect(_on_jukebox_back_pressed)
+	button.visible = _is_jukebox_run()
+	_jukebox_back_button = button
+
+func _capture_jukebox_restore_state() -> Dictionary:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return {}
+	var map_path: String = str(tree.get_meta(JUKEBOX_META_MAP_PATH, "")).strip_edges()
+	var period: String = str(tree.get_meta(JUKEBOX_META_PERIOD, "WEEKLY")).strip_edges().to_upper()
+	var cpu_style: String = str(tree.get_meta(TREE_META_VS_CPU_STYLE, "")).strip_edges().to_lower()
+	var cpu_tier: String = str(tree.get_meta(TREE_META_VS_CPU_TIER, "")).strip_edges().to_lower()
+	return {
+		"selected_map_path": map_path,
+		"selected_period": period,
+		"cpu_style": cpu_style,
+		"cpu_tier": cpu_tier
+	}
+
+func _on_jukebox_back_pressed() -> void:
+	_return_to_jukebox()
+
+func _return_to_jukebox() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	if outcome_overlay != null:
+		outcome_overlay.hide_overlay()
+	if sim_runner != null:
+		sim_runner.log_pause_snapshot("arena_return_to_jukebox")
+	tree.set_meta(TREE_META_REOPEN_JUKEBOX_ON_READY, true)
+	tree.set_meta(TREE_META_REOPEN_JUKEBOX_STATE, _capture_jukebox_restore_state())
+	var current_scene: Node = tree.current_scene
+	if current_scene != null and current_scene.has_method("_open_main_menu"):
+		current_scene.call("_open_main_menu")
+		return
+	tree.change_scene_to_file("res://scenes/MainMenu.tscn")
 
 func _has_vs_cpu_bot_override() -> bool:
 	var tree: SceneTree = get_tree()
@@ -10053,6 +10127,9 @@ func _update_idle_growth(dt: float) -> void:
 			hive.idle_accum_ms = 0.0
 			continue
 		if hive.shock_ms > 0.0:
+			hive.idle_accum_ms = 0.0
+			continue
+		if _has_incoming_enemy_intent(hive.id, hive.owner_id):
 			hive.idle_accum_ms = 0.0
 			continue
 		if _active_outgoing_intent_count(hive.id) == 0:

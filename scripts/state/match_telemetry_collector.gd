@@ -35,6 +35,8 @@ var _last_production_seen_by_player: Dictionary = {}
 var _last_production_change_ms_by_player: Dictionary = {}
 var _units_lost_by_player: Dictionary = {}
 var _tower_units_killed_by_player: Dictionary = {}
+var _unit_deaths_by_victim_player: Dictionary = {}
+var _unit_deaths_by_killer_player: Dictionary = {}
 var _hive_damage_dealt_by_player: Dictionary = {}
 var _hive_damage_taken_by_player: Dictionary = {}
 var _lane_control_time_s_by_player: Dictionary = {}
@@ -83,6 +85,8 @@ func reset() -> void:
 	_last_production_change_ms_by_player.clear()
 	_units_lost_by_player.clear()
 	_tower_units_killed_by_player.clear()
+	_unit_deaths_by_victim_player.clear()
+	_unit_deaths_by_killer_player.clear()
 	_hive_damage_dealt_by_player.clear()
 	_hive_damage_taken_by_player.clear()
 	_lane_control_time_s_by_player.clear()
@@ -148,6 +152,8 @@ func begin_match(
 		_last_production_change_ms_by_player[player_id] = 0
 		_units_lost_by_player[player_id] = 0
 		_tower_units_killed_by_player[player_id] = 0
+		_unit_deaths_by_victim_player[player_id] = 0
+		_unit_deaths_by_killer_player[player_id] = 0
 		_hive_damage_dealt_by_player[player_id] = 0
 		_hive_damage_taken_by_player[player_id] = 0
 		_lane_control_time_s_by_player[player_id] = 0.0
@@ -180,6 +186,7 @@ func record_unit_produced(t_ms: int, player_id: int, count: int = 1, source: Str
 	if source_name == "barracks":
 		_barracks_units_produced_by_player[player_id] = int(_barracks_units_produced_by_player.get(player_id, 0)) + count
 	_model.events.append({
+		"name": "UNIT_SPAWN",
 		"e": int(MatchTelemetryModelScript.EVENT_PRODUCTION),
 		"t": maxi(0, t_ms),
 		"p": player_id,
@@ -331,6 +338,7 @@ func record_unit_arrival(
 			_:
 				pass
 	_model.events.append({
+		"name": "UNIT_LAND",
 		"e": int(MatchTelemetryModelScript.EVENT_ARRIVAL),
 		"t": maxi(0, t_ms),
 		"p": player_id,
@@ -340,6 +348,35 @@ func record_unit_arrival(
 		"rel": clean_relation,
 		"src": clean_source,
 		"c": amount
+	})
+
+func record_unit_death(
+	t_ms: int,
+	victim_player_id: int,
+	killer_player_id: int,
+	cause: String,
+	count: int = 1
+) -> void:
+	if not is_active():
+		return
+	var safe_victim_player_id: int = maxi(0, victim_player_id)
+	var safe_killer_player_id: int = maxi(0, killer_player_id)
+	var safe_count: int = maxi(0, count)
+	if safe_victim_player_id <= 0 or safe_count <= 0:
+		return
+	_ensure_player_slot(safe_victim_player_id)
+	_unit_deaths_by_victim_player[safe_victim_player_id] = int(_unit_deaths_by_victim_player.get(safe_victim_player_id, 0)) + safe_count
+	if safe_killer_player_id > 0:
+		_ensure_player_slot(safe_killer_player_id)
+		_unit_deaths_by_killer_player[safe_killer_player_id] = int(_unit_deaths_by_killer_player.get(safe_killer_player_id, 0)) + safe_count
+	_model.events.append({
+		"name": "UNIT_DEATH",
+		"e": int(MatchTelemetryModelScript.EVENT_UNIT_DEATH),
+		"t": maxi(0, t_ms),
+		"vp": safe_victim_player_id,
+		"kp": safe_killer_player_id,
+		"cause": cause.strip_edges().to_lower(),
+		"c": safe_count
 	})
 
 func record_tower_kill(t_ms: int, player_id: int, tower_id: int, victim_owner_id: int, count: int = 1) -> void:
@@ -391,7 +428,29 @@ func finalize_match(winner_player_id: int, end_utc_ms: int) -> Variant:
 	_model.metadata["winner_player_id"] = winner_player_id
 	_model.metadata["duration_s"] = duration_s
 	_model.metrics = _build_metrics(duration_s)
+	_model.totals = _build_totals()
 	return _model
+
+func _build_totals() -> Dictionary:
+	var players: Array[int] = _active_player_ids.duplicate()
+	players.sort()
+	return {
+		"event_count": _model.events.size(),
+		"player_ids": players,
+		"unit_spawn_by_player": _dict_by_player(players, _units_produced_by_player),
+		"unit_land_friendly_by_player": _dict_by_player(players, _units_arrived_friendly_hive_by_player),
+		"unit_land_enemy_by_player": _dict_by_player(players, _units_arrived_enemy_hive_by_player),
+		"unit_land_npc_by_player": _dict_by_player(players, _units_arrived_npc_hive_by_player),
+		"tower_kills_by_player": _dict_by_player(players, _tower_units_killed_by_player),
+		"unit_deaths_by_victim_player": _dict_by_player(players, _unit_deaths_by_victim_player),
+		"unit_deaths_by_killer_player": _dict_by_player(players, _unit_deaths_by_killer_player)
+	}
+
+func _dict_by_player(players: Array[int], source: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for player_id in players:
+		out[str(player_id)] = source.get(player_id, 0)
+	return out
 
 func attach_analysis_summary(summary: Dictionary) -> void:
 	_model.analysis_summary = summary.duplicate(true)

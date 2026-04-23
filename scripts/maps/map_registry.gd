@@ -108,9 +108,29 @@ const PUBLIC_MAP_ALIASES: Dictionary = {
 		"status": "active"
 	},
 	"MAP_nomansland__SBASE__1p__midrails_v01": {
-		"public_name": "nomansland_midrails1",
+		"public_name": "nomansland656-midrails1",
 		"family": "nomansland",
+		"style": "656",
+		"style_sequence": 61,
 		"sequence": 61,
+		"status": "active"
+	},
+	"MAP_delta__SBASE__3p": {
+		"public_name": "delta",
+		"family": "delta",
+		"sequence": 1,
+		"status": "active"
+	},
+	"MAP_delta__SBASE__BR3__3p": {
+		"public_name": "delta1",
+		"family": "delta",
+		"sequence": 2,
+		"status": "active"
+	},
+	"MAP_delta__SBASE__TR3__3p": {
+		"public_name": "delta2",
+		"family": "delta",
+		"sequence": 3,
 		"status": "active"
 	}
 }
@@ -156,6 +176,22 @@ static func public_map_display_name_for_id(map_id: String) -> String:
 		return public_name
 	return _fallback_public_map_name(raw_id)
 
+static func fallback_public_map_display_name_for_id(map_id: String) -> String:
+	var raw_id: String = map_id_from_input(map_id)
+	if raw_id.is_empty():
+		return ""
+	return _fallback_public_map_name(raw_id)
+
+static func public_map_style_for_id(map_id: String) -> String:
+	var raw_id: String = map_id_from_input(map_id)
+	if raw_id.is_empty():
+		return ""
+	var alias: Dictionary = public_map_alias_entry_for_id(raw_id)
+	var style: String = str(alias.get("style", "")).strip_edges().to_lower()
+	if not style.is_empty():
+		return style
+	return _nomansland_public_style_for_id(raw_id)
+
 static func public_map_sort_key_for_path(path: String) -> String:
 	return public_map_sort_key_for_id(map_id_from_path(path))
 
@@ -165,8 +201,12 @@ static func public_map_sort_key_for_id(map_id: String) -> String:
 	var family: String = str(alias.get("family", "")).strip_edges().to_lower()
 	if family.is_empty():
 		family = _public_family_from_id(raw_id)
-	var sequence: int = int(alias.get("sequence", 999999))
-	return "%s:%06d:%s" % [family, sequence, raw_id]
+	var style: String = str(alias.get("style", "")).strip_edges().to_lower()
+	if style.is_empty():
+		style = public_map_style_for_id(raw_id)
+	var style_rank: int = _public_style_sort_rank(family, style)
+	var sequence: int = int(alias.get("style_sequence", alias.get("sequence", 999999)))
+	return "%s:%03d:%s:%06d:%s" % [family, style_rank, style, sequence, raw_id]
 
 static func public_map_alias_entry_for_id(map_id: String) -> Dictionary:
 	var raw_id: String = map_id_from_input(map_id)
@@ -199,7 +239,7 @@ static func registered_public_map_aliases() -> Array[Dictionary]:
 	var seen: Dictionary = {}
 	for i in range(PUBLIC_NOMANSLAND_SEQUENCE_IDS.size()):
 		var key: String = str(PUBLIC_NOMANSLAND_SEQUENCE_IDS[i])
-		var row: Dictionary = _make_public_nomansland_sequence_alias(key, i + 1)
+		var row: Dictionary = _public_nomansland_sequence_alias_for_id(key)
 		out.append(row)
 		seen[key.to_upper()] = true
 	for key_any in PUBLIC_MAP_ALIASES.keys():
@@ -215,25 +255,37 @@ static func registered_public_map_aliases() -> Array[Dictionary]:
 		var family_a: String = str(a.get("family", "")).to_lower()
 		var family_b: String = str(b.get("family", "")).to_lower()
 		if family_a == family_b:
-			return int(a.get("sequence", 0)) < int(b.get("sequence", 0))
+			var style_a: String = str(a.get("style", "")).to_lower()
+			var style_b: String = str(b.get("style", "")).to_lower()
+			var style_rank_a: int = _public_style_sort_rank(family_a, style_a)
+			var style_rank_b: int = _public_style_sort_rank(family_b, style_b)
+			if style_rank_a == style_rank_b:
+				return int(a.get("style_sequence", a.get("sequence", 0))) < int(b.get("style_sequence", b.get("sequence", 0)))
+			return style_rank_a < style_rank_b
 		return family_a < family_b
 	)
 	return out
 
 static func _public_nomansland_sequence_alias_for_id(map_id: String) -> Dictionary:
 	var raw_id: String = map_id_from_input(map_id)
+	var style: String = _nomansland_public_style_for_id(raw_id)
+	var style_sequence: int = 0
 	for i in range(PUBLIC_NOMANSLAND_SEQUENCE_IDS.size()):
 		var key: String = str(PUBLIC_NOMANSLAND_SEQUENCE_IDS[i])
+		if _nomansland_public_style_for_id(key) == style:
+			style_sequence += 1
 		if key.to_upper() == raw_id.to_upper():
-			return _make_public_nomansland_sequence_alias(key, i + 1)
+			return _make_public_nomansland_sequence_alias(key, style, style_sequence)
 	return {}
 
-static func _make_public_nomansland_sequence_alias(map_id: String, sequence: int) -> Dictionary:
+static func _make_public_nomansland_sequence_alias(map_id: String, style: String, style_sequence: int) -> Dictionary:
 	return {
 		"map_id": map_id,
-		"public_name": "nomansland" if sequence <= 1 else "nomansland%d" % sequence,
+		"public_name": "nomansland%s-%d" % [style, style_sequence],
 		"family": "nomansland",
-		"sequence": sequence,
+		"style": style,
+		"style_sequence": style_sequence,
+		"sequence": style_sequence,
 		"status": "active"
 	}
 
@@ -376,13 +428,145 @@ static func _is_digits(text: String) -> bool:
 	return true
 
 static func _fallback_public_map_name(raw_id: String) -> String:
-	var family: String = _public_family_from_id(raw_id)
-	if not family.is_empty():
-		return family
-	var body: String = raw_id.trim_prefix("MAP_").strip_edges()
+	var clean_id: String = map_id_from_input(raw_id)
+	var body: String = clean_id.trim_prefix("MAP_").strip_edges()
 	if body.is_empty():
-		return raw_id
-	return body.replace("__", " ").replace("_", " ").strip_edges().to_lower()
+		return clean_id.to_lower()
+	var family: String = _public_family_from_id(raw_id)
+	if family == "nomansland":
+		var style: String = _nomansland_public_style_for_id(raw_id)
+		if not style.is_empty():
+			var nomansland_name: String = _fallback_nomansland_public_map_name(clean_id, style)
+			if not nomansland_name.is_empty():
+				return nomansland_name
+	var tokens: PackedStringArray = body.split("__", false)
+	if tokens.is_empty():
+		return body.replace("__", "_").replace(" ", "").strip_edges().to_lower()
+	family = str(tokens[0]).strip_edges().to_lower()
+	if family.is_empty():
+		family = _public_family_from_id(raw_id)
+	if family.is_empty():
+		family = "map"
+	var suffix_tokens: Array[String] = []
+	for token_any in tokens:
+		var raw_token: String = str(token_any)
+		var fallback_token: String = _fallback_public_name_token(raw_token)
+		if fallback_token.is_empty():
+			continue
+		if fallback_token == family:
+			continue
+		suffix_tokens.append(fallback_token)
+	if suffix_tokens.is_empty():
+		return family
+	return "%s_%s" % [family, "_".join(suffix_tokens)]
+
+static func _fallback_public_name_token(raw_token: String) -> String:
+	var token: String = raw_token.strip_edges().to_lower()
+	if token.is_empty():
+		return ""
+	if token == "map":
+		return ""
+	if ALLOWED_MODES.has(token):
+		return ""
+	if token == "sbase":
+		return ""
+	if token == "gbase":
+		return ""
+	if token.begins_with("start_v"):
+		var start_digits: String = _leading_digits(token.substr(7))
+		if not start_digits.is_empty():
+			return "v%s" % start_digits
+	if token.begins_with("v"):
+		var version_digits: String = _leading_digits(token.substr(1))
+		if not version_digits.is_empty():
+			return "v%s" % version_digits
+	if token.begins_with("sn") and _is_digits(token.substr(2)):
+		return token
+	var cleaned: String = ""
+	var last_was_separator: bool = false
+	for i in range(token.length()):
+		var codepoint: int = token.unicode_at(i)
+		var is_digit: bool = codepoint >= 48 and codepoint <= 57
+		var is_lower_alpha: bool = codepoint >= 97 and codepoint <= 122
+		if is_digit or is_lower_alpha:
+			cleaned += char(codepoint)
+			last_was_separator = false
+			continue
+		if codepoint == 95:
+			if last_was_separator:
+				continue
+			cleaned += "_"
+			last_was_separator = true
+	return cleaned.strip_edges().trim_suffix("_")
+
+static func _leading_digits(text: String) -> String:
+	var digits: String = ""
+	for i in range(text.length()):
+		var codepoint: int = text.unicode_at(i)
+		if codepoint < 48 or codepoint > 57:
+			break
+		digits += char(codepoint)
+	return digits
+
+static func _nomansland_public_style_for_id(raw_id: String) -> String:
+	var clean_id: String = map_id_from_input(raw_id).to_lower()
+	if clean_id.is_empty() or not clean_id.begins_with("map_nomansland__"):
+		return ""
+	if clean_id.contains("__545__"):
+		return "545"
+	return "656"
+
+static func _public_style_sort_rank(family: String, style: String) -> int:
+	if family != "nomansland":
+		return 999
+	match style:
+		"656":
+			return 1
+		"545":
+			return 2
+		_:
+			return 999
+
+static func _fallback_nomansland_public_map_name(clean_id: String, style: String) -> String:
+	var tokens: PackedStringArray = clean_id.trim_prefix("MAP_").split("__", false)
+	if tokens.is_empty():
+		return ""
+	var base_id: String = clean_id
+	var suffix_tokens: Array[String] = []
+	if style == "545":
+		if tokens.size() >= 4:
+			base_id = "MAP_%s__%s__%s__%s" % [tokens[0], tokens[1], tokens[2], tokens[tokens.size() - 1]]
+			for i in range(3, tokens.size() - 1):
+				suffix_tokens.append(_fallback_public_name_token(str(tokens[i])))
+	elif tokens.size() >= 4 and str(tokens[2]).to_lower() == "1p":
+		base_id = "MAP_%s__%s__%s__%s" % [tokens[0], tokens[1], tokens[2], tokens[3]]
+		for i in range(4, tokens.size()):
+			suffix_tokens.append(_fallback_public_name_token(str(tokens[i])))
+	var style_sequence: int = _public_nomansland_style_sequence_for_id(base_id, style)
+	var suffix_parts: Array[String] = []
+	for token_any in suffix_tokens:
+		var token: String = str(token_any).strip_edges().to_lower()
+		if token.is_empty():
+			continue
+		suffix_parts.append(token)
+	var base_name: String = "nomansland%s" % style
+	if style_sequence > 0:
+		base_name = "%s-%d" % [base_name, style_sequence]
+	if suffix_parts.is_empty():
+		return base_name
+	return "%s-%s" % [base_name, "-".join(suffix_parts)]
+
+static func _public_nomansland_style_sequence_for_id(map_id: String, style: String) -> int:
+	var raw_id: String = map_id_from_input(map_id)
+	var sequence: int = 0
+	for key_any in PUBLIC_NOMANSLAND_SEQUENCE_IDS:
+		var key: String = str(key_any)
+		if _nomansland_public_style_for_id(key) != style:
+			continue
+		sequence += 1
+		if key.to_upper() == raw_id.to_upper():
+			return sequence
+	return 0
 
 static func _public_family_from_id(raw_id: String) -> String:
 	var normalized: Dictionary = normalize_map_id(raw_id)

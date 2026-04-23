@@ -93,6 +93,80 @@ func _ready() -> void:
 	_select_first_visible_map()
 	_refresh_cpu_hint()
 
+func capture_runtime_state() -> Dictionary:
+	return {
+		"selected_category": _selected_category,
+		"selected_period": _selected_period,
+		"selected_map_path": _selected_map_path,
+		"map_offset": _map_offset,
+		"leaderboard_offset": _leaderboard_offset,
+		"cpu_style": _selected_cpu_style,
+		"cpu_tier": _selected_cpu_tier
+	}
+
+func restore_runtime_state(snapshot: Dictionary) -> void:
+	if snapshot.is_empty():
+		return
+	var target_map_path: String = str(snapshot.get("selected_map_path", "")).strip_edges()
+	var target_category: String = str(snapshot.get("selected_category", "")).strip_edges().to_upper()
+	if not target_map_path.is_empty():
+		var resolved_category: String = _find_category_for_map_path(target_map_path)
+		if not resolved_category.is_empty():
+			target_category = resolved_category
+	if not target_category.is_empty() and _category_labels.has(target_category):
+		_selected_category = target_category
+	var target_period: String = str(snapshot.get("selected_period", "")).strip_edges().to_upper()
+	if not target_period.is_empty() and _jukebox_state.PERIOD_LABELS.has(target_period):
+		_selected_period = target_period
+	var category_entries: Array[Dictionary] = _visible_map_entries()
+	var max_offset: int = maxi(0, category_entries.size() - MAP_WINDOW_SIZE)
+	_map_offset = clampi(int(snapshot.get("map_offset", _map_offset)), 0, max_offset)
+	_leaderboard_offset = maxi(0, int(snapshot.get("leaderboard_offset", 0)))
+	var cpu_style: String = str(snapshot.get("cpu_style", "")).strip_edges().to_lower()
+	var cpu_tier: String = str(snapshot.get("cpu_tier", "")).strip_edges().to_lower()
+	_apply_cpu_selection(cpu_style, cpu_tier)
+	_refresh_category_tab_state()
+	_refresh_period_tab_state()
+	_refresh_map_list()
+	if not target_map_path.is_empty():
+		_selected_map_path = target_map_path
+	_select_first_visible_map()
+	_refresh_cpu_hint()
+	_refresh_cpu_detail()
+
+func _find_category_for_map_path(map_path: String) -> String:
+	if map_path.is_empty():
+		return ""
+	for category_any in _category_labels:
+		var category: String = str(category_any)
+		var entries: Array[Dictionary] = _jukebox_state.catalog(category)
+		for entry in entries:
+			if str(entry.get("path", "")) == map_path:
+				return category
+	return ""
+
+func _apply_cpu_selection(style: String, tier: String) -> void:
+	_selected_cpu_style = style
+	_selected_cpu_tier = tier
+	_hover_cpu_style = ""
+	_hover_cpu_tier = ""
+	if cpu_style_option != null:
+		cpu_style_option.selected = _cpu_style_index_for_value(style)
+	if cpu_tier_option != null:
+		cpu_tier_option.selected = _cpu_tier_index_for_value(tier)
+
+func _cpu_style_index_for_value(style: String) -> int:
+	for i in range(cpu_style_option.item_count):
+		if _cpu_style_value_for_index(i) == style:
+			return i
+	return 0
+
+func _cpu_tier_index_for_value(tier: String) -> int:
+	for i in range(cpu_tier_option.item_count):
+		if _cpu_tier_value_for_index(i) == tier:
+			return i
+	return 0
+
 func _setup_cpu_options() -> void:
 	if cpu_style_option != null and cpu_style_option.item_count == 0:
 		for label in CPU_STYLE_OPTIONS:
@@ -443,8 +517,9 @@ func _refresh_map_nav(total_entries: int) -> void:
 		start_index = _map_offset + 1
 		end_index = mini(_map_offset + MAP_WINDOW_SIZE, safe_total)
 	map_hint_label.text = "%d-%d / %d" % [start_index, end_index, safe_total]
-	map_left_button.disabled = _map_offset <= 0
-	map_right_button.disabled = (_map_offset + MAP_WINDOW_SIZE) >= safe_total
+	var has_multiple_pages: bool = safe_total > MAP_WINDOW_SIZE
+	map_left_button.disabled = not has_multiple_pages
+	map_right_button.disabled = not has_multiple_pages
 
 func _refresh_leaderboard_nav(total_entries: int) -> void:
 	var safe_total: int = maxi(0, total_entries)
@@ -467,12 +542,29 @@ func _on_leaderboard_down_pressed() -> void:
 	_refresh_leaderboard()
 
 func _on_map_left_pressed() -> void:
-	_map_offset = maxi(0, _map_offset - MAP_WINDOW_SIZE)
+	var total_entries: int = _visible_map_entries().size()
+	var last_offset: int = _last_map_page_offset(total_entries)
+	if total_entries <= MAP_WINDOW_SIZE:
+		_map_offset = 0
+	elif _map_offset <= 0:
+		_map_offset = last_offset
+	else:
+		_map_offset = maxi(0, _map_offset - MAP_WINDOW_SIZE)
 	_refresh_map_list()
 
 func _on_map_right_pressed() -> void:
-	_map_offset += MAP_WINDOW_SIZE
+	var total_entries: int = _visible_map_entries().size()
+	var last_offset: int = _last_map_page_offset(total_entries)
+	if total_entries <= MAP_WINDOW_SIZE:
+		_map_offset = 0
+	elif _map_offset >= last_offset:
+		_map_offset = 0
+	else:
+		_map_offset += MAP_WINDOW_SIZE
 	_refresh_map_list()
+
+func _last_map_page_offset(total_entries: int) -> int:
+	return maxi(0, total_entries - MAP_WINDOW_SIZE)
 
 func _on_play_pressed() -> void:
 	if _selected_map_path.is_empty():
@@ -550,10 +642,12 @@ func _refresh_cpu_detail() -> void:
 	cpu_detail_body_label.text = "\n".join(lines)
 
 func _stylized_display_text(text: String) -> String:
-	var sanitized: String = UITypography.sanitize_for_stylized(text)
-	if sanitized.is_empty():
+	var display_text: String = text.strip_edges().to_upper().replace("_", " ")
+	while display_text.contains("  "):
+		display_text = display_text.replace("  ", " ")
+	if display_text.is_empty():
 		return text.to_upper()
-	return sanitized
+	return display_text
 
 func _map_card_text(entry: Dictionary) -> String:
 	return _stylized_display_text(str(entry.get("title", "")))

@@ -11,36 +11,62 @@ func _init() -> void:
 	_expect_display(
 		failures,
 		"MAP_nomansland__SBASE__1p",
-		"nomansland"
+		"nomansland656-1"
 	)
 	_expect_display(
 		failures,
 		"MAP_nomansland__SN6__1p",
-		"nomansland2"
+		"nomansland656-2"
 	)
 	_expect_display(
 		failures,
 		"MAP_nomansland__GBASE__1p",
-		"nomansland3"
+		"nomansland656-3"
 	)
 	_expect_display(
 		failures,
 		"MAP_nomansland__GBASE__BR2__TR2__1p",
-		"nomansland4"
+		"nomansland656-4"
 	)
 	_expect_display(
 		failures,
 		"MAP_nomansland__GBASE__TB__1p",
-		"nomansland5"
+		"nomansland656-5"
 	)
 	_expect_display(
 		failures,
 		"MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each",
-		"nomansland6"
+		"nomansland656-6"
+	)
+	_expect_display(
+		failures,
+		"MAP_nomansland__545__v01_top2_sides__1p",
+		"nomansland545-1"
+	)
+	_expect_display(
+		failures,
+		"MAP_nomansland__545__v01_top2_sides__B__1p",
+		"nomansland545-1-b"
+	)
+	_expect_display(
+		failures,
+		"MAP_delta__SBASE__3p",
+		"delta"
+	)
+	_expect_display(
+		failures,
+		"MAP_delta__SBASE__BR3__3p",
+		"delta1"
+	)
+	_expect_display(
+		failures,
+		"MAP_delta__SBASE__TR3__3p",
+		"delta2"
 	)
 	_check_alias_uniqueness(failures)
 	_check_catalog_alias_coverage(failures)
 	_check_jukebox_public_titles(failures)
+	_check_jukebox_playstyle_tags(failures)
 
 	if not failures.is_empty():
 		for failure in failures:
@@ -63,13 +89,14 @@ func _check_alias_uniqueness(failures: Array[String]) -> void:
 	for entry in MAP_REGISTRY.registered_public_map_aliases():
 		var public_name: String = str(entry.get("public_name", "")).strip_edges()
 		var family: String = str(entry.get("family", "")).strip_edges().to_lower()
-		var sequence: int = int(entry.get("sequence", 0))
+		var style: String = str(entry.get("style", "")).strip_edges().to_lower()
+		var sequence: int = int(entry.get("style_sequence", entry.get("sequence", 0)))
 		if public_name.is_empty():
 			failures.append("empty public name for %s" % str(entry.get("map_id", "")))
 		if bool(names_seen.get(public_name, false)):
 			failures.append("duplicate public name: %s" % public_name)
 		names_seen[public_name] = true
-		var family_sequence_key: String = "%s:%d" % [family, sequence]
+		var family_sequence_key: String = "%s:%s:%d" % [family, style, sequence]
 		if bool(family_sequences_seen.get(family_sequence_key, false)):
 			failures.append("duplicate public sequence: %s" % family_sequence_key)
 		family_sequences_seen[family_sequence_key] = true
@@ -89,12 +116,17 @@ func _check_jukebox_public_titles(failures: Array[String]) -> void:
 		failures.append("jukebox catalog is empty")
 		return
 	var title_sequence: Array[String] = []
+	var seen_titles: Dictionary = {}
 	for entry in entries:
 		var map_id: String = str(entry.get("map_id", ""))
 		var title: String = str(entry.get("title", ""))
 		var expected: String = MAP_REGISTRY.public_map_display_name_for_id(map_id)
 		if title != expected:
 			failures.append("jukebox title mismatch for %s: expected %s got %s" % [map_id, expected, title])
+		var title_key: String = title.to_lower()
+		if seen_titles.has(title_key):
+			failures.append("jukebox duplicate title: %s" % title)
+		seen_titles[title_key] = true
 		if _looks_internal(title):
 			failures.append("jukebox title leaks internal naming: %s" % title)
 		if not str(entry.get("hero_title", "")).strip_edges().is_empty():
@@ -105,16 +137,40 @@ func _check_jukebox_public_titles(failures: Array[String]) -> void:
 			failures.append("jukebox description should be empty for %s: %s" % [map_id, str(entry.get("desc", ""))])
 		title_sequence.append(title)
 	var expected_prefix: Array[String] = [
-		"nomansland",
-		"nomansland2",
-		"nomansland3",
-		"nomansland4",
-		"nomansland5",
-		"nomansland6"
+		"delta",
+		"delta1",
+		"delta2",
+		"nomansland656-1",
+		"nomansland656-2",
+		"nomansland656-3",
+		"nomansland656-4",
+		"nomansland656-5",
+		"nomansland656-6"
 	]
 	for i in range(mini(expected_prefix.size(), title_sequence.size())):
 		if title_sequence[i] != expected_prefix[i]:
 			failures.append("jukebox sort mismatch at %d: expected %s got %s" % [i, expected_prefix[i], title_sequence[i]])
+
+func _check_jukebox_playstyle_tags(failures: Array[String]) -> void:
+	var jukebox_state = JukeboxStateScript.new()
+	jukebox_state.refresh()
+	var nomansland_entries: Array[Dictionary] = jukebox_state.catalog("NOMANSLAND")
+	if nomansland_entries.is_empty():
+		failures.append("jukebox nomansland catalog is empty")
+		return
+	var first_entry: Dictionary = nomansland_entries[0]
+	var playstyle_tags: Array = first_entry.get("playstyle_tags", []) as Array
+	if not playstyle_tags.has("FFA") or not playstyle_tags.has("STRATEGY"):
+		failures.append("nomansland playstyle tags missing FFA/STRATEGY: %s" % str(playstyle_tags))
+	var ffa_entries: Array[Dictionary] = jukebox_state.catalog("FFA")
+	if ffa_entries.is_empty():
+		failures.append("jukebox FFA catalog is empty")
+	var strategy_entries: Array[Dictionary] = jukebox_state.catalog("STRATEGY")
+	if strategy_entries.is_empty():
+		failures.append("jukebox STRATEGY catalog is empty")
+	var delta_entries: Array[Dictionary] = jukebox_state.catalog("DELTA")
+	if delta_entries.size() < 3:
+		failures.append("jukebox DELTA catalog expected at least 3 entries, got %d" % delta_entries.size())
 
 func _looks_internal(text: String) -> bool:
 	var upper: String = text.to_upper()
