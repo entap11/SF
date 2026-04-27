@@ -49,7 +49,8 @@ const LANE_SEGMENT_TARGET_PX := 40.0
 const LANE_SEGMENT_SCALE := 1.0
 const LANE_CONNECTOR_SCALE := 0.75
 const LANE_MAX_SEGMENTS := 64
-const LANE_Z_INDEX := -5
+const LANE_FRIENDLY_Z_INDEX := -5
+const LANE_HOSTILE_Z_INDEX := -3
 const LANE_CONNECTOR_AT_ENDPOINTS := false
 # --- Lane sprite sizing ---
 const LANE_THICKNESS_PX := 0.96
@@ -1069,7 +1070,7 @@ func _ensure_drag_preview_sprite() -> void:
 	else:
 		var sprite: Sprite2D = _create_lane_sprite_node()
 		sprite.name = "DragPreviewLane"
-		sprite.z_index = LANE_Z_INDEX + 1
+		sprite.z_index = LANE_HOSTILE_Z_INDEX + 1
 		add_child(sprite)
 		_drag_preview_sprite = sprite
 	if _drag_preview_sprite != null:
@@ -1493,7 +1494,7 @@ func _create_lane_sprite_node() -> Sprite2D:
 	var sprite: Sprite2D = Sprite2D.new()
 	sprite.texture = _lane_tex
 	sprite.centered = true
-	sprite.z_index = LANE_Z_INDEX
+	sprite.z_index = LANE_FRIENDLY_Z_INDEX
 	sprite.material = _get_lane_band_material()
 	sprite.visible = false
 	return sprite
@@ -1545,6 +1546,9 @@ func _update_lane_visuals(delta: float) -> void:
 		var color_a: Color = _with_alpha(_lane_color_for_hive(a_id), _lane_send_alpha(_owner_id_for_lane(a_id, model), _owner_id_for_lane(b_id, model)))
 		var color_b: Color = _with_alpha(_lane_color_for_hive(b_id), _lane_send_alpha(_owner_id_for_lane(b_id, model), _owner_id_for_lane(a_id, model)))
 		var lane_basis_dir: Vector2 = b_pos - a_pos
+		var lane_z_index: int = _lane_visual_z_index(send_a, send_b, a_id, b_id)
+		sprite_a.z_index = lane_z_index
+		sprite_b.z_index = lane_z_index
 		if send_a and send_b:
 			var front_t: float = clampf(float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)), 0.0, 1.0)
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
@@ -1703,6 +1707,32 @@ func _apply_lane_sprite_visual(
 			"y_scale": scale_y,
 			"tex_size": [sprite.texture.get_width(), sprite.texture.get_height()]
 		})
+
+func _local_lane_owner_id() -> int:
+	if arena != null:
+		var owner_any: Variant = arena.get("active_player_id")
+		if typeof(owner_any) == TYPE_INT:
+			return clampi(int(owner_any), 1, 4)
+	return 1
+
+func _lane_sender_is_hostile_to_local(owner_id: int) -> bool:
+	var sender_owner: int = int(owner_id)
+	if sender_owner <= 0:
+		return false
+	var local_owner: int = _local_lane_owner_id()
+	if sender_owner == local_owner:
+		return false
+	return not _are_allied_lane_owners(sender_owner, local_owner)
+
+func _lane_visual_z_index(send_a: bool, send_b: bool, a_id: int, b_id: int) -> int:
+	var owner_a: int = _owner_id_for_lane(a_id, model)
+	var owner_b: int = _owner_id_for_lane(b_id, model)
+	var hostile: bool = false
+	if send_a:
+		hostile = hostile or _lane_sender_is_hostile_to_local(owner_a)
+	if send_b:
+		hostile = hostile or _lane_sender_is_hostile_to_local(owner_b)
+	return LANE_HOSTILE_Z_INDEX if hostile else LANE_FRIENDLY_Z_INDEX
 
 func _log_lane_endpoints_once(lane_id: int, ep: Dictionary) -> void:
 	if lane_id <= 0:

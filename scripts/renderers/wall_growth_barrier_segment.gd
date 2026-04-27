@@ -31,8 +31,9 @@ const FEEDER_HALF_WIDTH_PX: float = 3.4
 const FEEDER_ATTACH_OFFSET_PX: float = 16.0
 const FEEDER_DROP_PX: float = 11.0
 
-const CONTACT_SHADOW_COLOR: Color = Color(0.02, 0.02, 0.03, 0.22)
-const BODY_SHADOW_COLOR: Color = Color(0.04, 0.04, 0.05, 0.17)
+const CONTACT_SHADOW_COLOR: Color = Color(0.02, 0.02, 0.03, 0.30)
+const BODY_SHADOW_COLOR: Color = Color(0.04, 0.04, 0.05, 0.23)
+const SHADOW_WORLD_OFFSET_PX := Vector2(10.0, -4.8)
 const ROOT_SEAT_COLOR: Color = Color(0.12, 0.12, 0.13, 0.92)
 const ROOT_RIM_COLOR: Color = Color(0.18, 0.18, 0.20, 0.84)
 const FEEDER_TRACE_COLOR: Color = Color(0.18, 0.18, 0.20, 0.42)
@@ -78,6 +79,7 @@ func _ready() -> void:
 	_apply_layer_depth()
 	_configure_materials()
 	_rebuild_geometry()
+	_apply_shadow_offset()
 	_apply_visual_state()
 
 func set_segment(a: Vector2, b: Vector2) -> void:
@@ -87,6 +89,7 @@ func set_segment(a: Vector2, b: Vector2) -> void:
 	position = center
 	rotation = delta.angle()
 	_rebuild_geometry()
+	_apply_shadow_offset()
 	_apply_visual_state()
 
 func set_heat(v: float) -> void:
@@ -116,6 +119,11 @@ func _apply_layer_depth() -> void:
 	_body_layer.z_index = BODY_Z_INDEX
 	_fx_layer.z_as_relative = false
 	_fx_layer.z_index = FX_Z_INDEX
+
+func _apply_shadow_offset() -> void:
+	if _shadow_layer == null:
+		return
+	_shadow_layer.position = SHADOW_WORLD_OFFSET_PX.rotated(-rotation)
 
 func _configure_materials() -> void:
 	_body_material = ShaderMaterial.new()

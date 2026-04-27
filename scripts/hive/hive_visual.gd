@@ -3,6 +3,7 @@ extends Node2D
 const P1_TEXT_COLOR := Color(0.0, 0.0, 0.0)
 const P2_TEXT_COLOR := Color(1.0, 1.0, 1.0)
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const VisualShadow := preload("res://scripts/renderers/visual_shadow.gd")
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader")
@@ -17,6 +18,11 @@ const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader
 @export var height_large_px: float = 0.0
 @export var height_max_px: float = 0.0
 @export var debug_tier_changes := false
+@export var shadow_offset: Vector2 = Vector2(8.0, 10.0)
+@export_range(0.0, 1.0, 0.01) var shadow_alpha: float = 0.30
+@export var shadow_scale_x: float = 1.14
+@export var shadow_scale_y: float = 0.46
+@export var shadow_z_offset: int = -4
 
 const TIER_2_MIN_POWER := 10
 const TIER_3_MIN_POWER := 25
@@ -38,6 +44,10 @@ const LANE_OCCLUDER_WIDTH_RATIO: float = 0.68
 const LANE_OCCLUDER_HEIGHT_RATIO: float = 0.52
 const LANE_OCCLUDER_Y_RATIO: float = 0.12
 const LANE_OCCLUDER_POINTS: int = 24
+const SHADOW_CONTACT_OFFSET_MULT: float = 0.45
+const SHADOW_CONTACT_ALPHA_MULT: float = 0.62
+const SHADOW_CONTACT_SCALE_X_MULT: float = 0.84
+const SHADOW_CONTACT_SCALE_Y_MULT: float = 0.70
 const POWER_LABEL_OFFSET := Vector2(-10.0, -30.0)
 const POWER_LABEL_SCALE := 0.5
 const POWER_LABEL_FONT_SIZE := 20
@@ -56,6 +66,8 @@ var _sprite_key: String = ""
 var _sprite_scale: float = 1.0
 var _sprite_offset: Vector2 = Vector2.ZERO
 var _sprite: Sprite2D = null
+var _ground_shadow: VisualShadow = null
+var _contact_shadow: VisualShadow = null
 var _lane_occluder: Polygon2D = null
 var _shader_mat: ShaderMaterial = null
 var _npc_shader_mat: ShaderMaterial = null
@@ -75,6 +87,7 @@ var _power_label_state := ""
 static var _scale_logged: bool = false
 
 func _ready() -> void:
+	_ensure_shadows()
 	_ensure_lane_occluder()
 	_ensure_sprite()
 	_ensure_shader_material()
@@ -348,6 +361,50 @@ func _ensure_sprite() -> void:
 	add_child(sprite)
 	_sprite = sprite
 
+func _ensure_shadows() -> void:
+	if _ground_shadow == null or not is_instance_valid(_ground_shadow):
+		_ground_shadow = _ensure_shadow_sprite("GroundShadow")
+	if _contact_shadow == null or not is_instance_valid(_contact_shadow):
+		_contact_shadow = _ensure_shadow_sprite("ContactShadow")
+
+func _ensure_shadow_sprite(node_name: String) -> VisualShadow:
+	var existing: Node = get_node_or_null(node_name)
+	if existing is VisualShadow:
+		return existing as VisualShadow
+	if existing != null:
+		remove_child(existing)
+		existing.queue_free()
+	var shadow: VisualShadow = VisualShadow.new()
+	shadow.name = node_name
+	shadow.centered = true
+	shadow.z_index = shadow_z_offset
+	shadow.visible = false
+	add_child(shadow)
+	return shadow
+
+func _update_hive_shadows() -> void:
+	_ensure_shadows()
+	if (_ground_shadow == null or not is_instance_valid(_ground_shadow)
+		or _contact_shadow == null or not is_instance_valid(_contact_shadow)):
+		return
+	if _sprite == null or not is_instance_valid(_sprite) or _tex == null:
+		_ground_shadow.visible = false
+		_contact_shadow.visible = false
+		return
+	var projected_scale: Vector2 = Vector2(shadow_scale_x, shadow_scale_y)
+	var contact_scale: Vector2 = Vector2(
+		shadow_scale_x * SHADOW_CONTACT_SCALE_X_MULT,
+		shadow_scale_y * SHADOW_CONTACT_SCALE_Y_MULT
+	)
+	_ground_shadow.sync_from_sprite(_sprite, shadow_offset, projected_scale, shadow_alpha, shadow_z_offset)
+	_contact_shadow.sync_from_sprite(
+		_sprite,
+		shadow_offset * SHADOW_CONTACT_OFFSET_MULT,
+		contact_scale,
+		shadow_alpha * SHADOW_CONTACT_ALPHA_MULT,
+		shadow_z_offset + 1
+	)
+
 func _ensure_lane_occluder() -> void:
 	if _lane_occluder != null and is_instance_valid(_lane_occluder):
 		return
@@ -368,6 +425,10 @@ func _update_lane_occluder() -> void:
 		return
 	if _tex == null:
 		_lane_occluder.visible = false
+		if _ground_shadow != null:
+			_ground_shadow.visible = false
+		if _contact_shadow != null:
+			_contact_shadow.visible = false
 		return
 	var width: float = maxf(20.0, _current_size.x * LANE_OCCLUDER_WIDTH_RATIO)
 	var height: float = maxf(16.0, _current_size.y * LANE_OCCLUDER_HEIGHT_RATIO)
@@ -378,6 +439,7 @@ func _update_lane_occluder() -> void:
 	_lane_occluder.polygon = points
 	_lane_occluder.position = _sprite_offset + Vector2(0.0, (_current_size.y * LANE_OCCLUDER_Y_RATIO))
 	_lane_occluder.visible = true
+	_update_hive_shadows()
 
 func _ensure_shader_material() -> void:
 	if _shader_mat == null:
@@ -498,6 +560,11 @@ func _apply_sprite() -> void:
 	_sprite.visible = _tex != null
 	_sprite.position = _sprite_offset
 	if _tex == null:
+		_current_size = Vector2.ONE * maxf(20.0, radius_px * 2.0)
+		_sprite.scale = Vector2.ONE
+		if _lane_occluder != null:
+			_lane_occluder.visible = false
+		_update_hive_shadows()
 		return
 	var tex_size := Vector2(float(_tex.get_width()), float(_tex.get_height()))
 	if tex_size.x <= 0.0 or tex_size.y <= 0.0:
