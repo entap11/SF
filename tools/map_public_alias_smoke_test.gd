@@ -50,6 +50,11 @@ func _init() -> void:
 	)
 	_expect_display(
 		failures,
+		"MAP_nomansland__323__v01_corners_midline_spine__1p",
+		"nomansland323-1"
+	)
+	_expect_display(
+		failures,
 		"MAP_delta__SBASE__3p",
 		"delta"
 	)

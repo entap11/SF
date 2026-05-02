@@ -39,7 +39,7 @@ var _unit_sprite_logged := false
 
 const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
-const UNIT_RENDER_SCALE: float = 2.4
+const UNIT_RENDER_SCALE: float = 1.44
 const UNIT_VISUAL_SCALE_MULT: float = 0.80
 const UNIT_OUTLINE_SCALE_MULT: float = 1.32
 const UNIT_OUTLINE_COLOR: Color = Color(0.02, 0.02, 0.03, 0.98)

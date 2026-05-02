@@ -67,7 +67,8 @@ const PUBLIC_NOMANSLAND_SEQUENCE_IDS: Array[String] = [
 	"MAP_nomansland__545__v15_spine_ends_duel__1p",
 	"MAP_nomansland__545__v16_spine_mid_duel_only__1p",
 	"MAP_nomansland__545__v17_four_corners_only__1p",
-	"MAP_nomansland__545__v18_two_hubs_each__1p"
+	"MAP_nomansland__545__v18_two_hubs_each__1p",
+	"MAP_nomansland__323__v01_corners_midline_spine__1p"
 ]
 const ALLOWED_MODES: Array[String] = ["1p", "2p", "3p", "4p"]
 const PUBLIC_MAP_ALIASES: Dictionary = {
@@ -512,6 +513,8 @@ static func _nomansland_public_style_for_id(raw_id: String) -> String:
 	var clean_id: String = map_id_from_input(raw_id).to_lower()
 	if clean_id.is_empty() or not clean_id.begins_with("map_nomansland__"):
 		return ""
+	if clean_id.contains("__323__"):
+		return "323"
 	if clean_id.contains("__545__"):
 		return "545"
 	return "656"
@@ -524,6 +527,8 @@ static func _public_style_sort_rank(family: String, style: String) -> int:
 			return 1
 		"545":
 			return 2
+		"323":
+			return 3
 		_:
 			return 999
 
@@ -533,7 +538,7 @@ static func _fallback_nomansland_public_map_name(clean_id: String, style: String
 		return ""
 	var base_id: String = clean_id
 	var suffix_tokens: Array[String] = []
-	if style == "545":
+	if style == "545" or style == "323":
 		if tokens.size() >= 4:
 			base_id = "MAP_%s__%s__%s__%s" % [tokens[0], tokens[1], tokens[2], tokens[tokens.size() - 1]]
 			for i in range(3, tokens.size() - 1):

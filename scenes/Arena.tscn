@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://bi1epiw4to48u"]
+[gd_scene load_steps=16 format=3 uid="uid://bi1epiw4to48u"]
 
 [ext_resource type="Script" path="res://scripts/arena.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/renderers/lane_renderer.gd" id="2"]
@@ -10,8 +10,7 @@
 [ext_resource type="Script" path="res://scripts/renderers/barracks_renderer.gd" id="8"]
 [ext_resource type="Script" path="res://scripts/renderers/barracks_ground_glow_renderer.gd" id="9"]
 [ext_resource type="Script" path="res://scripts/renderers/floor_renderer.gd" id="10"]
-[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/arena_floor.PNG" id="11"]
-[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/floor_sprite_final.jpg" id="12"]
+[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/dark_floor.png" id="11"]
 [ext_resource type="Script" path="res://scripts/systems/sim_runner.gd" id="13"]
 [ext_resource type="Script" path="res://scripts/sim/sim_events.gd" id="14"]
 [ext_resource type="Script" path="res://scripts/renderers/wall_renderer.gd" id="15"]
@@ -34,13 +33,13 @@ layer = -100
 z_index = -20
 script = ExtResource("10")
 floor_texture = ExtResource("11")
-overlay_texture = ExtResource("12")
 
 [node name="BaseFloor" type="Sprite2D" parent="MapRoot/FloorRenderer"]
 centered = true
 z_index = 0
 
 [node name="FloorOverlay" type="Sprite2D" parent="MapRoot/FloorRenderer"]
+visible = false
 centered = true
 z_index = 1
 
