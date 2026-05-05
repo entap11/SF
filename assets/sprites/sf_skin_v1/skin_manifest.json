@@ -65,63 +65,63 @@
     "ui.mm.settings.pressed": "res://assets/sprites/sf_skin_v1/settings_final.png",
     "ui.mm.settings.disabled": "res://assets/sprites/sf_skin_v1/settings_final.png",
     "hive.small.neutral": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_small_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.small.p1": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_small_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.small.p2": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_small_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.small.p3": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_small_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.small.p4": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_small_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_small_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.med.neutral": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_medium_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.med.p1": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_medium_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.med.p2": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_medium_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.med.p3": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_medium_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.med.p4": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_medium_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_medium_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.large.neutral": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.large.p1": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.large.p2": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.large.p3": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_no_indicators_cropped.png",
       "scale": 1.95
     },
     "hive.large.p4": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_lanes_cropped.png",
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_no_indicators_cropped.png",
       "scale": 1.95
     },
     "lane.mvp": "res://assets/sprites/sf_skin_v1/lane_mvp.png",

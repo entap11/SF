@@ -8,6 +8,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader")
 const CORE_ENERGY_SHADER := preload("res://shaders/hive_core_energy.gdshader")
+const POWER_LABEL_FONT := preload("res://assets/fonts/ChakraPetch-SemiBold.ttf")
 @export var debug_show_kind_label := false
 @export var debug_tint_log := false
 @export var show_hive_ids: bool = OS.is_debug_build()
@@ -67,18 +68,26 @@ const SHADOW_CONTACT_ALPHA_MULT: float = 0.62
 const SHADOW_CONTACT_SCALE_X_MULT: float = 0.84
 const SHADOW_CONTACT_SCALE_Y_MULT: float = 0.70
 const POWER_LABEL_OFFSET := Vector2(0.0, -42.0)
+const POWER_LABEL_TOP_GAP_PX: float = 8.0
 const POWER_LABEL_SCALE := 0.58
-const POWER_LABEL_FONT_SIZE := 22
-const POWER_BADGE_PAD := Vector2(5.0, 2.0)
-const POWER_BADGE_BG := Color(0.0, 0.0, 0.0, 0.0)
+const POWER_LABEL_FONT_SIZE := 34
+const POWER_BADGE_PAD := Vector2(6.0, 2.0)
+const POWER_LABEL_FILL_COLOR := Color(1.0, 0.90, 0.48, 1.0)
+const POWER_LABEL_STROKE_COLOR := Color(0.0, 0.0, 0.0, 0.96)
+const POWER_LABEL_INVISIBLE_FILL := Color(1.0, 1.0, 1.0, 0.01)
+const POWER_LABEL_ACCENT_ALPHA: float = 0.72
+const POWER_BADGE_BG := Color(0.035, 0.040, 0.055, 0.96)
+const POWER_BADGE_BORDER_ALPHA: float = 0.82
+const POWER_BADGE_CORNER_RADIUS: int = 7
 const POWER_PROJECTION_RING_Y: float = 20.0
 const POWER_PROJECTION_BEAM_ALPHA: float = 0.18
 const POWER_PROJECTION_PULSE_ALPHA: float = 0.07
 const LANE_BUDGET_DEFAULT_SLOTS: int = 3
-const LANE_BUDGET_PIP_RADIUS: float = 3.8
-const LANE_BUDGET_PIP_INNER_RADIUS: float = 2.7
-const LANE_BUDGET_PIP_SPACING: float = 9.2
-const LANE_BUDGET_Y_RATIO: float = -0.31
+const LANE_BUDGET_PIP_RADIUS: float = 6.2
+const LANE_BUDGET_PIP_INNER_RADIUS: float = 4.7
+const LANE_BUDGET_PIP_SPACING: float = 13.4
+const LANE_BUDGET_Y_RATIO: float = -0.23
+const LANE_BUDGET_THREE_OUTER_LIFT: float = 2.4
 const GROUND_GLOW_POINTS: int = 32
 const GROUND_GLOW_Y_RATIO: float = 0.27
 const GROUND_GLOW_W_RATIO: float = 0.92
@@ -143,6 +152,8 @@ var _npc_shader_mat: ShaderMaterial = null
 var _power_label_holder: Node2D = null
 var _power_badge: Control = null
 var _power_backing: PanelContainer = null
+var _power_accent_label: Label = null
+var _power_stroke_label: Label = null
 var _power_label: Label = null
 var _power_projector_ring: Polygon2D = null
 var _power_projector_beam: Polygon2D = null
@@ -297,6 +308,8 @@ func set_lane_budget(used: int, max_budget: int) -> void:
 	_lane_budget_used = mini(next_used, maxi(next_max, next_used))
 	_lane_budget_max = next_max
 	_update_lane_budget_indicators()
+	_ensure_lane_ports()
+	_update_phase3_layout()
 	_update_phase3_polish()
 
 func set_owner_color(color: Color) -> void:
@@ -379,9 +392,7 @@ func _process(delta: float) -> void:
 	var state_flicker: float = under_attack_flicker_strength if _activity_state == ACTIVITY_UNDER_ATTACK else 0.0
 	var subtle_noise: float = 0.5 + (0.5 * sin((_fx_t * 13.7) + (float(owner_id) * 0.71)))
 	if _power_label_holder != null and is_instance_valid(_power_label_holder):
-		var base_offset: Vector2 = POWER_LABEL_OFFSET
-		if power_label_offset_override != Vector2.INF:
-			base_offset = power_label_offset_override
+		var base_offset: Vector2 = _power_label_offset()
 		var bob_y: float = sin(_fx_t * 2.2) * 0.8
 		_power_label_holder.position = base_offset + Vector2(0.0, bob_y)
 		var alpha: float = 0.88 + (projection_flicker_strength * (0.5 + 0.5 * sin(_fx_t * 7.3)))
@@ -418,6 +429,7 @@ func _ensure_power_label() -> void:
 				var existing := _power_backing.get_node_or_null("PowerLabel")
 				if existing is Label:
 					_power_label = existing as Label
+					_ensure_power_label_aux_layers()
 					_apply_power_label_settings()
 					var existing_id := _power_label_holder.get_node_or_null("HiveIdLabel")
 					if existing_id is Label:
@@ -449,6 +461,7 @@ func _ensure_power_label() -> void:
 		_power_badge.add_child(new_backing)
 		_power_backing = new_backing
 		_style_power_backing()
+	_ensure_power_label_aux_layers()
 	var label := Label.new()
 	label.name = "PowerLabel"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -461,12 +474,50 @@ func _ensure_power_label() -> void:
 	_ensure_hive_id_label()
 	_ensure_power_projection_fx()
 
+func _ensure_power_label_aux_layers() -> void:
+	if _power_backing == null or not is_instance_valid(_power_backing):
+		return
+	if _power_accent_label == null or not is_instance_valid(_power_accent_label):
+		var existing_accent := _power_backing.get_node_or_null("PowerLabelAccent")
+		if existing_accent is Label:
+			_power_accent_label = existing_accent as Label
+		else:
+			_power_accent_label = _create_power_label_layer("PowerLabelAccent", 0)
+	if _power_stroke_label == null or not is_instance_valid(_power_stroke_label):
+		var existing_stroke := _power_backing.get_node_or_null("PowerLabelStroke")
+		if existing_stroke is Label:
+			_power_stroke_label = existing_stroke as Label
+		else:
+			_power_stroke_label = _create_power_label_layer("PowerLabelStroke", 1)
+
+func _create_power_label_layer(layer_name: String, z: int) -> Label:
+	var label := Label.new()
+	label.name = layer_name
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.z_index = z
+	_power_backing.add_child(label)
+	return label
+
 func _style_power_backing() -> void:
 	if _power_backing == null or not is_instance_valid(_power_backing):
 		return
+	var accent: Color = _owner_accent_color()
+	accent.a = POWER_BADGE_BORDER_ALPHA
 	var style: StyleBoxFlat = StyleBoxFlat.new()
 	style.bg_color = POWER_BADGE_BG
-	style.border_color = Color(1.0, 1.0, 1.0, 0.0)
+	style.border_color = accent
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = POWER_BADGE_CORNER_RADIUS
+	style.corner_radius_top_right = POWER_BADGE_CORNER_RADIUS
+	style.corner_radius_bottom_left = POWER_BADGE_CORNER_RADIUS
+	style.corner_radius_bottom_right = POWER_BADGE_CORNER_RADIUS
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.40)
+	style.shadow_size = 3
 	style.content_margin_left = POWER_BADGE_PAD.x
 	style.content_margin_right = POWER_BADGE_PAD.x
 	style.content_margin_top = POWER_BADGE_PAD.y
@@ -476,14 +527,24 @@ func _style_power_backing() -> void:
 func _apply_power_label_settings() -> void:
 	if _power_label == null or not is_instance_valid(_power_label):
 		return
+	_ensure_power_label_aux_layers()
+	_apply_power_layer_settings(_power_accent_label, POWER_LABEL_INVISIBLE_FILL, Color(1.0, 1.0, 1.0, POWER_LABEL_ACCENT_ALPHA), 5, 0)
+	_apply_power_layer_settings(_power_stroke_label, POWER_LABEL_INVISIBLE_FILL, POWER_LABEL_STROKE_COLOR, 3, 0)
+	_apply_power_layer_settings(_power_label, POWER_LABEL_FILL_COLOR, Color(0.0, 0.0, 0.0, 0.0), 0, 0)
+
+func _apply_power_layer_settings(label: Label, fill_color: Color, outline_color: Color, outline_size: int, shadow_size: int) -> void:
+	if label == null or not is_instance_valid(label):
+		return
 	var settings: LabelSettings = LabelSettings.new()
+	settings.font = POWER_LABEL_FONT
 	settings.font_size = POWER_LABEL_FONT_SIZE
-	settings.outline_size = 3
-	settings.outline_color = Color(0.0, 0.0, 0.0, 0.92)
-	settings.shadow_size = 4
-	settings.shadow_color = Color(0.0, 0.0, 0.0, 0.75)
-	settings.shadow_offset = Vector2(0.0, 1.0)
-	_power_label.label_settings = settings
+	settings.font_color = fill_color
+	settings.outline_size = outline_size
+	settings.outline_color = outline_color
+	settings.shadow_size = shadow_size
+	settings.shadow_color = Color(0.0, 0.0, 0.0, 0.0)
+	settings.shadow_offset = Vector2.ZERO
+	label.label_settings = settings
 
 func _apply_label_scale_comp() -> void:
 	if not HIVE_LABEL_SCALE_COMP:
@@ -540,26 +601,38 @@ func _update_power_label(owner_id_value: int, power_value: int, snap: bool = fal
 		return
 	_power_label_state = next_state
 	var team_color: Color = _team_color_for_player(owner_id_value)
+	if owner_id_value > 0:
+		team_color = _boost_team_color(team_color)
 	team_color.a = 1.0
+	var accent_color: Color = team_color.lerp(Color.WHITE, 0.10)
+	accent_color.a = POWER_LABEL_ACCENT_ALPHA
 	_power_label.text = str(power_value)
-	var label_color: Color = team_color.lerp(Color(1.0, 1.0, 1.0), 0.72)
-	label_color.a = 1.0
-	_power_label.modulate = label_color
-	if _power_label.label_settings != null:
-		_power_label.label_settings.font_color = label_color
-		_power_label.label_settings.shadow_color = team_color.darkened(0.55)
+	_ensure_power_label_aux_layers()
+	_style_power_backing()
+	if _power_accent_label != null and is_instance_valid(_power_accent_label):
+		_power_accent_label.text = _power_label.text
+	if _power_stroke_label != null and is_instance_valid(_power_stroke_label):
+		_power_stroke_label.text = _power_label.text
+	_apply_power_layer_settings(_power_accent_label, POWER_LABEL_INVISIBLE_FILL, accent_color, 5, 0)
+	_apply_power_layer_settings(_power_stroke_label, POWER_LABEL_INVISIBLE_FILL, POWER_LABEL_STROKE_COLOR, 3, 0)
+	_apply_power_layer_settings(_power_label, POWER_LABEL_FILL_COLOR, Color(0.0, 0.0, 0.0, 0.0), 0, 0)
+	_power_label.modulate = Color.WHITE
+	if _power_accent_label != null and is_instance_valid(_power_accent_label):
+		_power_accent_label.modulate = Color.WHITE
+	if _power_stroke_label != null and is_instance_valid(_power_stroke_label):
+		_power_stroke_label.modulate = Color.WHITE
+	_power_label.custom_minimum_size = Vector2.ZERO
 	var label_size := _power_label.get_minimum_size()
-	_power_label.custom_minimum_size = label_size
-	_power_label.pivot_offset = label_size * 0.5
-	_power_label.position = Vector2.ZERO
+	_layout_power_label_layer(_power_accent_label, label_size)
+	_layout_power_label_layer(_power_stroke_label, label_size)
+	_layout_power_label_layer(_power_label, label_size)
 	_power_badge.scale = Vector2.ONE * POWER_LABEL_SCALE
 	if _power_backing != null and is_instance_valid(_power_backing):
 		_power_backing.custom_minimum_size = label_size + (POWER_BADGE_PAD * 2.0)
 		_power_backing.size = _power_backing.custom_minimum_size
 		_power_badge.size = _power_backing.size
-	var off := POWER_LABEL_OFFSET
-	if power_label_offset_override != Vector2.INF:
-		off = power_label_offset_override
+		_power_badge.position = -(_power_badge.size * POWER_LABEL_SCALE * 0.5)
+	var off := _power_label_offset()
 	_power_label_holder.position = off
 	_update_projection_tint()
 	if snap:
@@ -571,9 +644,24 @@ func _update_power_label(owner_id_value: int, power_value: int, snap: bool = fal
 			"owner_id": owner_id_value,
 			"power": power_value,
 			"label_text": _power_label.text,
-			"offset": POWER_LABEL_OFFSET,
+			"offset": off,
 			"label_global": _power_label.global_position
 		})
+
+func _layout_power_label_layer(label: Label, label_size: Vector2) -> void:
+	if label == null or not is_instance_valid(label):
+		return
+	label.custom_minimum_size = label_size
+	label.size = label_size
+	label.pivot_offset = label_size * 0.5
+	label.position = Vector2.ZERO
+
+func _power_label_offset() -> Vector2:
+	if power_label_offset_override != Vector2.INF:
+		return power_label_offset_override
+	if _current_size.y <= 0.0:
+		return POWER_LABEL_OFFSET
+	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - POWER_LABEL_TOP_GAP_PX)
 
 func _ensure_power_projection_fx() -> void:
 	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
@@ -697,12 +785,13 @@ func _create_ring_line(node_name: String, z_value: int, width: float, parent_nod
 func _ensure_lane_ports() -> void:
 	if _lane_port_layer == null or not is_instance_valid(_lane_port_layer):
 		return
-	if _lane_port_nodes.size() == LANE_PORT_COUNT:
+	var port_count: int = _lane_budget_display_slot_count()
+	if _lane_port_nodes.size() == port_count:
 		return
 	for child in _lane_port_layer.get_children():
 		child.queue_free()
 	_lane_port_nodes.clear()
-	for i in range(LANE_PORT_COUNT):
+	for i in range(port_count):
 		var outline: Line2D = _create_ring_line("LanePortOutline_%d" % i, 0, 1.2, _lane_port_layer)
 		var fill: Polygon2D = Polygon2D.new()
 		fill.name = "LanePortFill_%d" % i
@@ -740,7 +829,7 @@ func _update_phase3_layout() -> void:
 	# Generic ports until lane endpoint angles are exported to render_model.
 	var port_y: float = _sprite_offset.y + (_current_size.y * LANE_PORT_Y_RATIO)
 	var spacing: float = maxf(8.0, _current_size.x * LANE_PORT_SPACING_RATIO)
-	var center_offset: float = (float(LANE_PORT_COUNT) - 1.0) * 0.5
+	var center_offset: float = (float(_lane_port_nodes.size()) - 1.0) * 0.5
 	for i in range(_lane_port_nodes.size()):
 		var entry: Dictionary = _lane_port_nodes[i]
 		var port_pos: Vector2 = Vector2((float(i) - center_offset) * spacing, port_y)
@@ -795,7 +884,7 @@ func _update_phase3_polish() -> void:
 func _update_lane_port_colors(pulse_t: float) -> void:
 	var accent: Color = _owner_accent_color()
 	var neutral_mul: float = 0.55 if owner_id <= 0 else 1.0
-	var active_count: int = clampi(_lane_budget_used, 0, LANE_PORT_COUNT)
+	var active_count: int = clampi(_lane_budget_used, 0, _lane_port_nodes.size())
 	var activity_out: bool = _activity_state == ACTIVITY_ATTACKING
 	var activity_in: bool = _activity_state == ACTIVITY_FEEDING
 	var stress: bool = _activity_state == ACTIVITY_UNDER_ATTACK
@@ -1032,20 +1121,16 @@ func _ensure_lane_budget_layer() -> void:
 func _update_lane_budget_indicators() -> void:
 	if _lane_budget_layer == null or not is_instance_valid(_lane_budget_layer):
 		return
-	var slot_count: int = maxi(LANE_BUDGET_DEFAULT_SLOTS, _lane_budget_max)
+	var slot_count: int = _lane_budget_display_slot_count()
 	if slot_count != _lane_budget_pips.size():
 		for child in _lane_budget_layer.get_children():
 			child.queue_free()
 		_lane_budget_pips.clear()
 		for i in range(slot_count):
-			var outline: Polygon2D = Polygon2D.new()
-			outline.name = "BudgetPipOutline_%d" % i
-			outline.z_index = 0
-			outline.polygon = _hex_points(LANE_BUDGET_PIP_RADIUS)
-			_lane_budget_layer.add_child(outline)
+			var outline: Line2D = _create_ring_line("BudgetPipOutline_%d" % i, 1, 1.5, _lane_budget_layer)
 			var fill: Polygon2D = Polygon2D.new()
 			fill.name = "BudgetPipFill_%d" % i
-			fill.z_index = 1
+			fill.z_index = 0
 			fill.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
 			_lane_budget_layer.add_child(fill)
 			_lane_budget_pips.append({"outline": outline, "fill": fill})
@@ -1053,40 +1138,64 @@ func _update_lane_budget_indicators() -> void:
 	if _current_size == Vector2.ZERO:
 		layer_y = -18.0
 	_lane_budget_layer.position = Vector2(0.0, layer_y)
-	var center: float = (float(slot_count) - 1.0) * 0.5
-	var owner_fill: Color = _team_color_for_player(owner_id)
-	if owner_id <= 0:
-		owner_fill = Color(0.78, 0.80, 0.84, 1.0)
+	var owner_fill: Color = _owner_accent_color()
+	if owner_id > 0:
+		owner_fill = _team_color_for_player(owner_id)
+		owner_fill = _boost_team_color(owner_fill)
+	owner_fill.a = 1.0
 	for i in range(slot_count):
 		var entry: Dictionary = _lane_budget_pips[i]
-		var outline_poly: Polygon2D = entry.get("outline", null) as Polygon2D
+		var outline_line: Line2D = entry.get("outline", null) as Line2D
 		var fill_poly: Polygon2D = entry.get("fill", null) as Polygon2D
-		var x: float = (float(i) - center) * LANE_BUDGET_PIP_SPACING
-		var arc_y: float = absf(float(i) - center) * 0.8
-		var pip_pos: Vector2 = Vector2(x, arc_y)
-		if outline_poly != null and is_instance_valid(outline_poly):
-			outline_poly.position = pip_pos
+		var pip_pos: Vector2 = _lane_budget_pip_position(slot_count, i)
+		if outline_line != null and is_instance_valid(outline_line):
+			outline_line.position = pip_pos
+			outline_line.points = _hex_points(LANE_BUDGET_PIP_RADIUS)
 		if fill_poly != null and is_instance_valid(fill_poly):
 			fill_poly.position = pip_pos
+			fill_poly.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
 		var is_used: bool = i < _lane_budget_used
 		var is_available: bool = i < _lane_budget_max
-		var outline_color: Color = Color(0.88, 0.92, 1.0, 0.36)
-		var fill_color: Color = Color(0.88, 0.92, 1.0, 0.24)
+		var outline_color: Color = Color(0.78, 0.82, 0.86, 0.70)
+		var fill_color: Color = owner_fill
 		if is_used:
-			outline_color = owner_fill.lerp(Color.WHITE, 0.22)
-			outline_color.a = 0.86
-			fill_color = owner_fill
-			fill_color.a = 0.82
+			outline_color = Color(0.96, 0.98, 1.0, 0.94)
+			fill_color = Color(0.0, 0.0, 0.0, 0.0)
 		elif is_available:
-			outline_color = Color(0.94, 0.98, 1.0, 0.56)
-			fill_color = Color(0.94, 0.98, 1.0, 0.30)
+			outline_color = owner_fill.lerp(Color.WHITE, 0.44)
+			outline_color.a = 0.98
+			fill_color = owner_fill
+			fill_color.a = 1.0
 		else:
 			outline_color = Color(0.65, 0.68, 0.74, 0.22)
 			fill_color = Color(0.0, 0.0, 0.0, 0.0)
-		if outline_poly != null and is_instance_valid(outline_poly):
-			outline_poly.color = outline_color
+		if outline_line != null and is_instance_valid(outline_line):
+			outline_line.default_color = outline_color
+			outline_line.visible = not is_available or is_used
 		if fill_poly != null and is_instance_valid(fill_poly):
 			fill_poly.color = fill_color
+			fill_poly.visible = is_available and not is_used
+
+func _lane_budget_pip_position(slot_count: int, slot_index: int) -> Vector2:
+	match slot_count:
+		1:
+			return Vector2.ZERO
+		2:
+			var side: float = -0.5 if slot_index == 0 else 0.5
+			return Vector2(side * LANE_BUDGET_PIP_SPACING, 0.0)
+		3:
+			match slot_index:
+				0:
+					return Vector2(-LANE_BUDGET_PIP_SPACING, -LANE_BUDGET_THREE_OUTER_LIFT)
+				1:
+					return Vector2(0.0, 0.0)
+				_:
+					return Vector2(LANE_BUDGET_PIP_SPACING, -LANE_BUDGET_THREE_OUTER_LIFT)
+	var center: float = (float(slot_count) - 1.0) * 0.5
+	return Vector2((float(slot_index) - center) * LANE_BUDGET_PIP_SPACING, 0.0)
+
+func _lane_budget_display_slot_count() -> int:
+	return clampi(_lane_budget_max, 1, LANE_BUDGET_DEFAULT_SLOTS)
 
 func _ellipse_points(rx: float, ry: float, count: int) -> PackedVector2Array:
 	var points: PackedVector2Array = PackedVector2Array()
