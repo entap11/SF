@@ -1987,6 +1987,21 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		)
 		return result
 
+	if enable and resolved_intent != "none" and not st.can_connect(src_hive_id, dst_hive_id):
+		result["reason"] = "blocked"
+		_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, resolved_intent)
+		_record_intent_telemetry(
+			src_hive_id,
+			dst_hive_id,
+			resolved_intent,
+			false,
+			str(result.get("reason", "")),
+			int(result.get("lane_id", -1)),
+			telemetry_src_owner,
+			telemetry_dst_owner
+		)
+		return result
+
 	if enable and resolved_intent != "none":
 		if resolved_intent == "feed" and not same_team:
 			result["reason"] = "ownership"

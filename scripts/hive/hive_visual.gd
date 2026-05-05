@@ -7,6 +7,7 @@ const VisualShadow := preload("res://scripts/renderers/visual_shadow.gd")
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader")
+const CORE_ENERGY_SHADER := preload("res://shaders/hive_core_energy.gdshader")
 @export var debug_show_kind_label := false
 @export var debug_tint_log := false
 @export var show_hive_ids: bool = OS.is_debug_build()
@@ -23,6 +24,23 @@ const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader
 @export var shadow_scale_x: float = 1.14
 @export var shadow_scale_y: float = 0.46
 @export var shadow_z_offset: int = -4
+@export var core_scroll_speed: float = 0.18
+@export_range(0.0, 1.0, 0.01) var core_pulse_strength: float = 0.16
+@export_range(0.0, 2.0, 0.01) var core_glow_strength: float = 0.68
+@export_range(0.0, 1.0, 0.01) var core_tint_strength: float = 0.88
+@export_range(0.0, 1.5, 0.01) var activity_pulse_strength: float = 0.28
+@export_range(0.0, 1.5, 0.01) var power_change_flash_strength: float = 0.42
+@export var core_offset_ratio: Vector2 = Vector2(0.0, -0.08)
+@export var core_size_ratio: Vector2 = Vector2(0.33, 0.27)
+@export_range(0.0, 1.0, 0.01) var base_shadow_strength: float = 0.34
+@export var base_shadow_scale: Vector2 = Vector2(1.18, 0.50)
+@export_range(0.0, 1.5, 0.01) var ground_glow_strength: float = 1.0
+@export_range(0.0, 1.5, 0.01) var owner_accent_strength: float = 0.82
+@export_range(0.0, 1.5, 0.01) var selected_highlight_strength: float = 1.0
+@export_range(0.0, 1.5, 0.01) var lane_port_pulse_strength: float = 0.75
+@export_range(0.0, 1.5, 0.01) var under_attack_flicker_strength: float = 0.62
+@export_range(0.0, 2.0, 0.01) var max_power_glow_strength: float = 1.2
+@export_range(0.0, 1.0, 0.01) var projection_flicker_strength: float = 0.07
 
 const TIER_2_MIN_POWER := 10
 const TIER_3_MIN_POWER := 25
@@ -33,8 +51,8 @@ const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := 1.18
 const HEIGHT_LARGE_SCALE := 1.34
 const HEIGHT_MAX_SCALE := 1.50
-const HIVE_VISUAL_SCALE: float = 1.525
-const HIVE_HEIGHT_SCALE: float = 1.10
+const HIVE_VISUAL_SCALE: float = 1.60
+const HIVE_HEIGHT_SCALE: float = 1.14
 const HIVE_COLOR_SAT_BOOST: float = 1.22
 const HIVE_COLOR_VAL_BOOST: float = 1.12
 const HIVE_RING_SCALE: float = 0.85
@@ -48,11 +66,41 @@ const SHADOW_CONTACT_OFFSET_MULT: float = 0.45
 const SHADOW_CONTACT_ALPHA_MULT: float = 0.62
 const SHADOW_CONTACT_SCALE_X_MULT: float = 0.84
 const SHADOW_CONTACT_SCALE_Y_MULT: float = 0.70
-const POWER_LABEL_OFFSET := Vector2(-10.0, -30.0)
-const POWER_LABEL_SCALE := 0.5
-const POWER_LABEL_FONT_SIZE := 20
-const POWER_BADGE_PAD := Vector2(6.0, 3.0)
-const POWER_BADGE_BG := Color(0.05, 0.05, 0.06, 0.65)
+const POWER_LABEL_OFFSET := Vector2(0.0, -42.0)
+const POWER_LABEL_SCALE := 0.58
+const POWER_LABEL_FONT_SIZE := 22
+const POWER_BADGE_PAD := Vector2(5.0, 2.0)
+const POWER_BADGE_BG := Color(0.0, 0.0, 0.0, 0.0)
+const POWER_PROJECTION_RING_Y: float = 20.0
+const POWER_PROJECTION_BEAM_ALPHA: float = 0.18
+const POWER_PROJECTION_PULSE_ALPHA: float = 0.07
+const LANE_BUDGET_DEFAULT_SLOTS: int = 3
+const LANE_BUDGET_PIP_RADIUS: float = 3.8
+const LANE_BUDGET_PIP_INNER_RADIUS: float = 2.7
+const LANE_BUDGET_PIP_SPACING: float = 9.2
+const LANE_BUDGET_Y_RATIO: float = -0.31
+const GROUND_GLOW_POINTS: int = 32
+const GROUND_GLOW_Y_RATIO: float = 0.27
+const GROUND_GLOW_W_RATIO: float = 0.92
+const GROUND_GLOW_H_RATIO: float = 0.24
+const FLOOR_CONTACT_Y_RATIO: float = 0.31
+const FLOOR_CONTACT_W_RATIO: float = 0.78
+const FLOOR_CONTACT_H_RATIO: float = 0.18
+const BASE_ACCENT_Y_RATIO: float = 0.13
+const BASE_ACCENT_W_RATIO: float = 0.68
+const BASE_ACCENT_H_RATIO: float = 0.18
+const SELECTED_RING_Y_RATIO: float = 0.09
+const SELECTED_RING_W_RATIO: float = 0.84
+const SELECTED_RING_H_RATIO: float = 0.34
+const LANE_PORT_COUNT: int = 3
+const LANE_PORT_Y_RATIO: float = 0.20
+const LANE_PORT_SPACING_RATIO: float = 0.18
+const LANE_PORT_RADIUS: float = 3.4
+const ACTIVITY_IDLE: String = "idle"
+const ACTIVITY_FEEDING: String = "feeding"
+const ACTIVITY_ATTACKING: String = "attacking"
+const ACTIVITY_UNDER_ATTACK: String = "under_attack"
+const ACTIVITY_MAX_POWER: String = "max_power"
 @export var power_label_offset_override := Vector2.INF
 
 var radius_px: float = 18.0
@@ -65,9 +113,30 @@ var _tex: Texture2D = null
 var _sprite_key: String = ""
 var _sprite_scale: float = 1.0
 var _sprite_offset: Vector2 = Vector2.ZERO
+var _shadow_layer: Node2D = null
+var _ground_glow_layer: Node2D = null
+var _base_sprite_layer: Node2D = null
+var _core_energy_layer: Node2D = null
+var _core_glow_layer: Node2D = null
+var _lane_budget_layer: Node2D = null
+var _power_projection: Node2D = null
+var _fx_layer: Node2D = null
+var _lane_port_layer: Node2D = null
 var _sprite: Sprite2D = null
 var _ground_shadow: VisualShadow = null
 var _contact_shadow: VisualShadow = null
+var _core_energy_poly: Polygon2D = null
+var _core_glow_poly: Polygon2D = null
+var _core_crown_glow: Polygon2D = null
+var _core_energy_mat: ShaderMaterial = null
+var _core_glow_mat: ShaderMaterial = null
+var _ground_glow_outer: Polygon2D = null
+var _ground_glow_core: Polygon2D = null
+var _floor_contact_ring: Line2D = null
+var _floor_reactor_spill: Polygon2D = null
+var _owner_accent_ring: Line2D = null
+var _selected_highlight_ring: Line2D = null
+var _lane_port_nodes: Array[Dictionary] = []
 var _lane_occluder: Polygon2D = null
 var _shader_mat: ShaderMaterial = null
 var _npc_shader_mat: ShaderMaterial = null
@@ -75,29 +144,63 @@ var _power_label_holder: Node2D = null
 var _power_badge: Control = null
 var _power_backing: PanelContainer = null
 var _power_label: Label = null
+var _power_projector_ring: Polygon2D = null
+var _power_projector_beam: Polygon2D = null
 var _hive_id_label: Label = null
+var _lane_budget_pips: Array[Dictionary] = []
+var _lane_budget_used: int = 0
+var _lane_budget_max: int = LANE_BUDGET_DEFAULT_SLOTS
+var _activity_state: String = "idle"
 var _current_size: Vector2 = Vector2.ZERO
 var _base_scale: Vector2 = Vector2.ONE
+var _projection_base_scale: Vector2 = Vector2.ONE
 var _visual_tier: int = -1
 var _last_radius_px: float = -1.0
 var _power_color: Color = Color(1.0, 1.0, 1.0, 1.0)
 var _tint_logged := false
 var _power_label_logged: Dictionary = {}
 var _power_label_state := ""
+var _power_snap_tween: Tween = null
+var _fx_t: float = 0.0
+var _has_configured: bool = false
+var _core_flash: float = 0.0
+var _core_surge: float = 0.0
+var _core_flicker: float = 0.0
+var _last_power_delta: int = 0
+var _selected_visual: bool = false
+var _selected_visual_color: Color = Color.WHITE
 static var _scale_logged: bool = false
 
 func _ready() -> void:
+	_ensure_presentation_layers()
 	_ensure_shadows()
 	_ensure_lane_occluder()
+	_ensure_core_layers()
+	_ensure_ground_glow()
+	_ensure_phase3_polish()
+	_ensure_lane_budget_layer()
 	_ensure_sprite()
 	_ensure_shader_material()
+	_ensure_power_label()
 	_base_scale = scale * HIVE_VISUAL_SCALE
+	_projection_base_scale = _power_label_holder.scale if _power_label_holder != null else Vector2.ONE
+	set_process(true)
 	if not _scale_logged:
 		_scale_logged = true
 		SFLog.info("HIVE_VISUAL_SCALE_SET", {"scale": HIVE_VISUAL_SCALE, "ring_scale": HIVE_RING_SCALE})
 
-func configure(owner_id_value: int, color: Color, radius: float, power_value: int, font_size_value: int, kind_value: String = "Hive") -> void:
+func configure(
+	owner_id_value: int,
+	color: Color,
+	radius: float,
+	power_value: int,
+	font_size_value: int,
+	kind_value: String = "Hive",
+	lane_budget_used: int = 0,
+	lane_budget_max: int = LANE_BUDGET_DEFAULT_SLOTS
+) -> void:
 	scale = _base_scale
+	var previous_power: int = power
 	owner_id = owner_id_value
 	owner_color = color
 	radius_px = radius
@@ -166,9 +269,87 @@ func configure(owner_id_value: int, color: Color, radius: float, power_value: in
 				SFLog.Level.INFO
 			)
 		_apply_sprite()
+	var should_respond: bool = _has_configured and previous_power != power
 	_apply_tint(owner_id, power)
-	_update_power_label(owner_id, power)
+	_update_power_label(owner_id, power, should_respond)
+	if should_respond:
+		_trigger_core_power_response(power - previous_power)
+	set_lane_budget(lane_budget_used, lane_budget_max)
+	set_activity_state(_activity_state)
+	_has_configured = true
 	queue_redraw()
+
+func set_power(value: int) -> void:
+	if power == value:
+		return
+	var previous_power: int = power
+	power = value
+	_apply_tint(owner_id, power)
+	_update_power_label(owner_id, power, previous_power != power)
+	_trigger_core_power_response(power - previous_power)
+	queue_redraw()
+
+func set_lane_budget(used: int, max_budget: int) -> void:
+	var next_used: int = maxi(0, int(used))
+	var next_max: int = maxi(0, int(max_budget))
+	if next_used == _lane_budget_used and next_max == _lane_budget_max:
+		return
+	_lane_budget_used = mini(next_used, maxi(next_max, next_used))
+	_lane_budget_max = next_max
+	_update_lane_budget_indicators()
+	_update_phase3_polish()
+
+func set_owner_color(color: Color) -> void:
+	owner_color = color
+	_update_lane_budget_indicators()
+	_update_projection_tint()
+	_update_ground_glow()
+	_update_core_materials()
+	_update_phase3_polish()
+
+func set_activity_state(state: String) -> void:
+	# Presentation-only input. TODO: feed this from render_model when authoritative
+	# attacking/feeding/under-attack state is exported; never infer it here.
+	var next_state: String = _sanitize_activity_state(state)
+	if next_state == _activity_state:
+		return
+	_activity_state = next_state
+	_update_core_materials()
+	_update_phase3_polish()
+
+func set_selected_visual(on: bool, color: Color = Color.WHITE) -> void:
+	_selected_visual = on
+	_selected_visual_color = color
+	_update_phase3_polish()
+
+func preview_state_idle() -> void:
+	if not _preview_helpers_allowed():
+		return
+	set_selected_visual(false)
+	set_activity_state(ACTIVITY_IDLE)
+
+func preview_state_attacking() -> void:
+	if not _preview_helpers_allowed():
+		return
+	set_activity_state(ACTIVITY_ATTACKING)
+
+func preview_state_feeding() -> void:
+	if not _preview_helpers_allowed():
+		return
+	set_activity_state(ACTIVITY_FEEDING)
+
+func preview_state_under_attack() -> void:
+	if not _preview_helpers_allowed():
+		return
+	set_activity_state(ACTIVITY_UNDER_ATTACK)
+
+func preview_state_selected() -> void:
+	if not _preview_helpers_allowed():
+		return
+	set_selected_visual(true, Color.WHITE)
+
+func _preview_helpers_allowed() -> bool:
+	return OS.is_debug_build() or Engine.is_editor_hint()
 
 func _draw() -> void:
 	SFLog.log_once("HIVEVIS_DRAW", "HiveVisual._draw ran", SFLog.Level.INFO)
@@ -190,13 +371,42 @@ func _draw() -> void:
 		var kind_pos := pos + Vector2(0.0, font_size * 1.2)
 		draw_string(font, kind_pos, hive_kind, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
+func _process(delta: float) -> void:
+	_fx_t += delta
+	_core_flash = maxf(0.0, _core_flash - (delta * 2.8))
+	_core_surge = move_toward(_core_surge, 0.0, delta * 3.2)
+	_core_flicker = maxf(0.0, _core_flicker - (delta * 4.4))
+	var state_flicker: float = under_attack_flicker_strength if _activity_state == ACTIVITY_UNDER_ATTACK else 0.0
+	var subtle_noise: float = 0.5 + (0.5 * sin((_fx_t * 13.7) + (float(owner_id) * 0.71)))
+	if _power_label_holder != null and is_instance_valid(_power_label_holder):
+		var base_offset: Vector2 = POWER_LABEL_OFFSET
+		if power_label_offset_override != Vector2.INF:
+			base_offset = power_label_offset_override
+		var bob_y: float = sin(_fx_t * 2.2) * 0.8
+		_power_label_holder.position = base_offset + Vector2(0.0, bob_y)
+		var alpha: float = 0.88 + (projection_flicker_strength * (0.5 + 0.5 * sin(_fx_t * 7.3)))
+		alpha -= state_flicker * 0.05 * subtle_noise
+		_power_label_holder.modulate.a = clampf(alpha, 0.72, 1.0)
+	if _power_projector_beam != null and is_instance_valid(_power_projector_beam):
+		var beam_color: Color = _projection_color()
+		beam_color.a = POWER_PROJECTION_BEAM_ALPHA + (projection_flicker_strength * 0.55 * (0.5 + 0.5 * sin(_fx_t * 5.1)))
+		_power_projector_beam.color = beam_color
+	_update_core_materials()
+	_update_phase3_motion()
+
 func _ensure_power_label() -> void:
 	if _power_label != null and is_instance_valid(_power_label):
 		_ensure_hive_id_label()
+		_ensure_power_projection_fx()
 		return
-	var holder := get_node_or_null("PowerLabelHolder")
+	_ensure_presentation_layers()
+	var holder: Node = get_node_or_null("PowerProjection")
+	if holder == null:
+		holder = get_node_or_null("PowerLabelHolder")
 	if holder is Node2D:
 		_power_label_holder = holder as Node2D
+		_power_label_holder.name = "PowerProjection"
+		_power_label_holder.z_index = 20
 		_apply_label_scale_comp()
 		var badge := _power_label_holder.get_node_or_null("PowerBadge")
 		if badge is Control:
@@ -204,16 +414,19 @@ func _ensure_power_label() -> void:
 			var backing := _power_badge.get_node_or_null("Backing")
 			if backing is PanelContainer:
 				_power_backing = backing as PanelContainer
+				_style_power_backing()
 				var existing := _power_backing.get_node_or_null("PowerLabel")
 				if existing is Label:
 					_power_label = existing as Label
+					_apply_power_label_settings()
 					var existing_id := _power_label_holder.get_node_or_null("HiveIdLabel")
 					if existing_id is Label:
 						_hive_id_label = existing_id as Label
+					_ensure_power_projection_fx()
 					return
 	if _power_label_holder == null:
 		var new_holder := Node2D.new()
-		new_holder.name = "PowerLabelHolder"
+		new_holder.name = "PowerProjection"
 		new_holder.z_index = 20
 		add_child(new_holder)
 		_power_label_holder = new_holder
@@ -233,36 +446,44 @@ func _ensure_power_label() -> void:
 		new_backing.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		new_backing.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		new_backing.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var style := StyleBoxFlat.new()
-		style.bg_color = POWER_BADGE_BG
-		style.corner_radius_top_left = 6
-		style.corner_radius_top_right = 6
-		style.corner_radius_bottom_left = 6
-		style.corner_radius_bottom_right = 6
-		style.content_margin_left = POWER_BADGE_PAD.x
-		style.content_margin_right = POWER_BADGE_PAD.x
-		style.content_margin_top = POWER_BADGE_PAD.y
-		style.content_margin_bottom = POWER_BADGE_PAD.y
-		new_backing.add_theme_stylebox_override("panel", style)
 		_power_badge.add_child(new_backing)
 		_power_backing = new_backing
+		_style_power_backing()
 	var label := Label.new()
 	label.name = "PowerLabel"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.z_index = 1
-	var settings := LabelSettings.new()
-	settings.font_size = POWER_LABEL_FONT_SIZE
-	settings.outline_size = 1
-	settings.outline_color = Color(0.0, 0.0, 0.0, 0.8)
-	settings.shadow_size = 2
-	settings.shadow_color = Color(0.0, 0.0, 0.0, 0.6)
-	settings.shadow_offset = Vector2(1.0, 1.0)
-	label.label_settings = settings
 	_power_backing.add_child(label)
 	_power_label = label
+	_apply_power_label_settings()
 	_ensure_hive_id_label()
+	_ensure_power_projection_fx()
+
+func _style_power_backing() -> void:
+	if _power_backing == null or not is_instance_valid(_power_backing):
+		return
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = POWER_BADGE_BG
+	style.border_color = Color(1.0, 1.0, 1.0, 0.0)
+	style.content_margin_left = POWER_BADGE_PAD.x
+	style.content_margin_right = POWER_BADGE_PAD.x
+	style.content_margin_top = POWER_BADGE_PAD.y
+	style.content_margin_bottom = POWER_BADGE_PAD.y
+	_power_backing.add_theme_stylebox_override("panel", style)
+
+func _apply_power_label_settings() -> void:
+	if _power_label == null or not is_instance_valid(_power_label):
+		return
+	var settings: LabelSettings = LabelSettings.new()
+	settings.font_size = POWER_LABEL_FONT_SIZE
+	settings.outline_size = 3
+	settings.outline_color = Color(0.0, 0.0, 0.0, 0.92)
+	settings.shadow_size = 4
+	settings.shadow_color = Color(0.0, 0.0, 0.0, 0.75)
+	settings.shadow_offset = Vector2(0.0, 1.0)
+	_power_label.label_settings = settings
 
 func _apply_label_scale_comp() -> void:
 	if not HIVE_LABEL_SCALE_COMP:
@@ -271,6 +492,7 @@ func _apply_label_scale_comp() -> void:
 		return
 	var comp := clampf(1.0 / HIVE_VISUAL_SCALE, 1.1, 1.35)
 	_power_label_holder.scale = Vector2.ONE * comp
+	_projection_base_scale = _power_label_holder.scale
 
 func _ensure_hive_id_label() -> void:
 	if _power_label_holder == null:
@@ -299,7 +521,7 @@ func _ensure_hive_id_label() -> void:
 	_power_label_holder.add_child(id_label)
 	_hive_id_label = id_label
 
-func _update_power_label(owner_id_value: int, power_value: int) -> void:
+func _update_power_label(owner_id_value: int, power_value: int, snap: bool = false) -> void:
 	_ensure_power_label()
 	if _power_label == null or not is_instance_valid(_power_label) or _power_label_holder == null or _power_badge == null:
 		return
@@ -317,12 +539,15 @@ func _update_power_label(owner_id_value: int, power_value: int) -> void:
 	if next_state == _power_label_state:
 		return
 	_power_label_state = next_state
-	var team_color := _team_color_for_player(owner_id_value)
+	var team_color: Color = _team_color_for_player(owner_id_value)
 	team_color.a = 1.0
 	_power_label.text = str(power_value)
-	var label_color: Color = team_color.lerp(Color(1.0, 1.0, 1.0), 0.65)
+	var label_color: Color = team_color.lerp(Color(1.0, 1.0, 1.0), 0.72)
 	label_color.a = 1.0
 	_power_label.modulate = label_color
+	if _power_label.label_settings != null:
+		_power_label.label_settings.font_color = label_color
+		_power_label.label_settings.shadow_color = team_color.darkened(0.55)
 	var label_size := _power_label.get_minimum_size()
 	_power_label.custom_minimum_size = label_size
 	_power_label.pivot_offset = label_size * 0.5
@@ -336,6 +561,9 @@ func _update_power_label(owner_id_value: int, power_value: int) -> void:
 	if power_label_offset_override != Vector2.INF:
 		off = power_label_offset_override
 	_power_label_holder.position = off
+	_update_projection_tint()
+	if snap:
+		_play_power_snap()
 	if not _power_label_logged.has(hive_id):
 		_power_label_logged[hive_id] = true
 		SFLog.info("HIVE_POWER_LABEL", {
@@ -347,30 +575,587 @@ func _update_power_label(owner_id_value: int, power_value: int) -> void:
 			"label_global": _power_label.global_position
 		})
 
+func _ensure_power_projection_fx() -> void:
+	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
+		return
+	if _power_projector_beam == null or not is_instance_valid(_power_projector_beam):
+		var beam: Polygon2D = Polygon2D.new()
+		beam.name = "ProjectionBeam"
+		beam.z_index = -2
+		beam.polygon = PackedVector2Array([
+			Vector2(-13.0, POWER_PROJECTION_RING_Y),
+			Vector2(13.0, POWER_PROJECTION_RING_Y),
+			Vector2(8.0, 4.0),
+			Vector2(-8.0, 4.0)
+		])
+		_power_label_holder.add_child(beam)
+		_power_projector_beam = beam
+	if _power_projector_ring == null or not is_instance_valid(_power_projector_ring):
+		var ring: Polygon2D = Polygon2D.new()
+		ring.name = "ProjectorRing"
+		ring.z_index = -1
+		ring.polygon = _ellipse_points(18.0, 4.0, 28)
+		ring.position = Vector2(0.0, POWER_PROJECTION_RING_Y)
+		_power_label_holder.add_child(ring)
+		_power_projector_ring = ring
+	_update_projection_tint()
+
+func _update_projection_tint() -> void:
+	var projection: Color = _projection_color()
+	if _power_projector_ring != null and is_instance_valid(_power_projector_ring):
+		var ring_color: Color = projection
+		ring_color.a = 0.32
+		_power_projector_ring.color = ring_color
+	if _power_projector_beam != null and is_instance_valid(_power_projector_beam):
+		var beam_color: Color = projection
+		beam_color.a = POWER_PROJECTION_BEAM_ALPHA
+		_power_projector_beam.color = beam_color
+
+func _projection_color() -> Color:
+	var team_color: Color = _team_color_for_player(owner_id)
+	if owner_id <= 0:
+		team_color = Color(0.82, 0.84, 0.88, 1.0)
+	return team_color.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.45)
+
+func _play_power_snap() -> void:
+	if _power_badge == null or not is_instance_valid(_power_badge):
+		return
+	if _power_snap_tween != null:
+		_power_snap_tween.kill()
+	_power_badge.scale = Vector2.ONE * (POWER_LABEL_SCALE * 1.14)
+	if _power_projector_ring != null and is_instance_valid(_power_projector_ring):
+		_power_projector_ring.scale = Vector2(1.18, 1.18)
+	_power_snap_tween = create_tween()
+	_power_snap_tween.set_trans(Tween.TRANS_SINE)
+	_power_snap_tween.set_ease(Tween.EASE_OUT)
+	_power_snap_tween.tween_property(_power_badge, "scale", Vector2.ONE * POWER_LABEL_SCALE, 0.16)
+	if _power_projector_ring != null and is_instance_valid(_power_projector_ring):
+		_power_snap_tween.parallel().tween_property(_power_projector_ring, "scale", Vector2.ONE, 0.18)
+
+func _ensure_presentation_layers() -> void:
+	_shadow_layer = _ensure_child_layer("ShadowLayer", -8)
+	_ground_glow_layer = _ensure_child_layer("GroundGlowLayer", -6)
+	_base_sprite_layer = _ensure_child_layer("BaseSpriteLayer", -1)
+	_core_energy_layer = _ensure_child_layer("CoreEnergyLayer", 4)
+	_core_glow_layer = _ensure_child_layer("CoreGlowLayer", 5)
+	_lane_budget_layer = _ensure_child_layer("LaneBudgetIndicators", 12)
+	_fx_layer = _ensure_child_layer("FxLayer", 18)
+	_lane_port_layer = _ensure_child_layer("LanePortLayer", 10)
+	var projection_node: Node = get_node_or_null("PowerProjection")
+	if projection_node == null:
+		projection_node = get_node_or_null("PowerLabelHolder")
+	if projection_node is Node2D:
+		_power_projection = projection_node as Node2D
+		_power_projection.name = "PowerProjection"
+		_power_projection.z_index = 20
+
+func _ensure_child_layer(layer_name: String, z_value: int) -> Node2D:
+	var existing: Node = get_node_or_null(layer_name)
+	if existing is Node2D:
+		var existing_layer: Node2D = existing as Node2D
+		existing_layer.z_index = z_value
+		return existing_layer
+	var layer: Node2D = Node2D.new()
+	layer.name = layer_name
+	layer.z_index = z_value
+	add_child(layer)
+	return layer
+
+func _ensure_phase3_polish() -> void:
+	_ensure_presentation_layers()
+	if _ground_glow_layer != null and is_instance_valid(_ground_glow_layer):
+		if _floor_reactor_spill == null or not is_instance_valid(_floor_reactor_spill):
+			var spill: Polygon2D = Polygon2D.new()
+			spill.name = "FloorReactorSpill"
+			spill.z_index = 2
+			_ground_glow_layer.add_child(spill)
+			_floor_reactor_spill = spill
+		if _floor_contact_ring == null or not is_instance_valid(_floor_contact_ring):
+			_floor_contact_ring = _create_ring_line("FloorContactRing", 3, 1.4, _ground_glow_layer)
+	if _fx_layer != null and is_instance_valid(_fx_layer):
+		if _owner_accent_ring == null or not is_instance_valid(_owner_accent_ring):
+			_owner_accent_ring = _create_ring_line("OwnerAccentRing", 0, 1.6, _fx_layer)
+		if _selected_highlight_ring == null or not is_instance_valid(_selected_highlight_ring):
+			_selected_highlight_ring = _create_ring_line("SelectedHighlightRing", 2, 2.2, _fx_layer)
+	if _lane_port_layer != null and is_instance_valid(_lane_port_layer):
+		_ensure_lane_ports()
+	_update_phase3_layout()
+	_update_phase3_polish()
+
+func _create_ring_line(node_name: String, z_value: int, width: float, parent_node: Node) -> Line2D:
+	var line: Line2D = Line2D.new()
+	line.name = node_name
+	line.z_index = z_value
+	line.width = width
+	line.closed = true
+	line.joint_mode = Line2D.LINE_JOINT_ROUND
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	parent_node.add_child(line)
+	return line
+
+func _ensure_lane_ports() -> void:
+	if _lane_port_layer == null or not is_instance_valid(_lane_port_layer):
+		return
+	if _lane_port_nodes.size() == LANE_PORT_COUNT:
+		return
+	for child in _lane_port_layer.get_children():
+		child.queue_free()
+	_lane_port_nodes.clear()
+	for i in range(LANE_PORT_COUNT):
+		var outline: Line2D = _create_ring_line("LanePortOutline_%d" % i, 0, 1.2, _lane_port_layer)
+		var fill: Polygon2D = Polygon2D.new()
+		fill.name = "LanePortFill_%d" % i
+		fill.z_index = 1
+		fill.polygon = _hex_points(LANE_PORT_RADIUS)
+		_lane_port_layer.add_child(fill)
+		_lane_port_nodes.append({"outline": outline, "fill": fill})
+
+func _update_phase3_layout() -> void:
+	if _current_size == Vector2.ZERO:
+		return
+	var floor_pos: Vector2 = _sprite_offset + Vector2(0.0, _current_size.y * FLOOR_CONTACT_Y_RATIO)
+	var floor_rx: float = maxf(10.0, _current_size.x * FLOOR_CONTACT_W_RATIO * 0.5)
+	var floor_ry: float = maxf(4.0, _current_size.y * FLOOR_CONTACT_H_RATIO * 0.5)
+	if _floor_contact_ring != null and is_instance_valid(_floor_contact_ring):
+		_floor_contact_ring.position = floor_pos
+		_floor_contact_ring.points = _ellipse_points(floor_rx, floor_ry, 40)
+	if _floor_reactor_spill != null and is_instance_valid(_floor_reactor_spill):
+		_floor_reactor_spill.position = floor_pos + Vector2(0.0, -1.0)
+		_floor_reactor_spill.polygon = _ellipse_points(floor_rx * 0.72, floor_ry * 0.72, 32)
+	var accent_pos: Vector2 = _sprite_offset + Vector2(0.0, _current_size.y * BASE_ACCENT_Y_RATIO)
+	var accent_rx: float = maxf(8.0, _current_size.x * BASE_ACCENT_W_RATIO * 0.5)
+	var accent_ry: float = maxf(3.0, _current_size.y * BASE_ACCENT_H_RATIO * 0.5)
+	if _owner_accent_ring != null and is_instance_valid(_owner_accent_ring):
+		_owner_accent_ring.position = accent_pos
+		_owner_accent_ring.points = _ellipse_points(accent_rx, accent_ry, 36)
+	var selected_pos: Vector2 = _sprite_offset + Vector2(0.0, _current_size.y * SELECTED_RING_Y_RATIO)
+	if _selected_highlight_ring != null and is_instance_valid(_selected_highlight_ring):
+		_selected_highlight_ring.position = selected_pos
+		_selected_highlight_ring.points = _ellipse_points(
+			maxf(10.0, _current_size.x * SELECTED_RING_W_RATIO * 0.5),
+			maxf(5.0, _current_size.y * SELECTED_RING_H_RATIO * 0.5),
+			44
+		)
+	# Generic ports until lane endpoint angles are exported to render_model.
+	var port_y: float = _sprite_offset.y + (_current_size.y * LANE_PORT_Y_RATIO)
+	var spacing: float = maxf(8.0, _current_size.x * LANE_PORT_SPACING_RATIO)
+	var center_offset: float = (float(LANE_PORT_COUNT) - 1.0) * 0.5
+	for i in range(_lane_port_nodes.size()):
+		var entry: Dictionary = _lane_port_nodes[i]
+		var port_pos: Vector2 = Vector2((float(i) - center_offset) * spacing, port_y)
+		var outline: Line2D = entry.get("outline", null) as Line2D
+		var fill: Polygon2D = entry.get("fill", null) as Polygon2D
+		if outline != null and is_instance_valid(outline):
+			outline.position = port_pos
+			outline.points = _hex_points(LANE_PORT_RADIUS + 1.6)
+		if fill != null and is_instance_valid(fill):
+			fill.position = port_pos
+			fill.polygon = _hex_points(LANE_PORT_RADIUS)
+
+func _update_phase3_motion() -> void:
+	if _current_size == Vector2.ZERO:
+		return
+	var selected_wave: float = 0.5 + (0.5 * sin(_fx_t * 3.1))
+	var port_wave: float = 0.5 + (0.5 * sin(_fx_t * 4.8))
+	if _selected_highlight_ring != null and is_instance_valid(_selected_highlight_ring):
+		var selected_color: Color = _selected_visual_color.lerp(Color.WHITE, 0.65)
+		selected_color.a = (0.30 + (selected_wave * 0.24)) * selected_highlight_strength if _selected_visual else 0.0
+		_selected_highlight_ring.default_color = selected_color
+	_update_lane_port_colors(port_wave)
+
+func _update_phase3_polish() -> void:
+	if _current_size == Vector2.ZERO:
+		return
+	var accent: Color = _owner_accent_color()
+	var neutral_mul: float = 0.55 if owner_id <= 0 else 1.0
+	var activity: Dictionary = _activity_profile(_activity_state)
+	var max_power_mul: float = max_power_glow_strength if _activity_state == ACTIVITY_MAX_POWER or power >= LARGE_MAX_POWER else 1.0
+	if _floor_contact_ring != null and is_instance_valid(_floor_contact_ring):
+		var contact_color: Color = accent
+		contact_color.a = 0.18 * owner_accent_strength * ground_glow_strength * neutral_mul
+		_floor_contact_ring.default_color = contact_color
+	if _floor_reactor_spill != null and is_instance_valid(_floor_reactor_spill):
+		var spill_color: Color = accent
+		spill_color.a = 0.10 * ground_glow_strength * owner_accent_strength * max_power_mul * neutral_mul
+		_floor_reactor_spill.color = spill_color
+	if _owner_accent_ring != null and is_instance_valid(_owner_accent_ring):
+		var ring_color: Color = accent
+		ring_color.a = 0.28 * owner_accent_strength * max_power_mul * neutral_mul
+		_owner_accent_ring.default_color = ring_color
+	if _selected_highlight_ring != null and is_instance_valid(_selected_highlight_ring):
+		_selected_highlight_ring.visible = selected_highlight_strength > 0.0
+	var crown_boost: float = float(activity.get("crown", 0.0))
+	if _core_crown_glow != null and is_instance_valid(_core_crown_glow) and crown_boost <= 0.0:
+		var crown_color: Color = accent
+		crown_color.a = 0.05 * owner_accent_strength * neutral_mul
+		_core_crown_glow.color = crown_color
+	_update_lane_port_colors(0.5)
+
+func _update_lane_port_colors(pulse_t: float) -> void:
+	var accent: Color = _owner_accent_color()
+	var neutral_mul: float = 0.55 if owner_id <= 0 else 1.0
+	var active_count: int = clampi(_lane_budget_used, 0, LANE_PORT_COUNT)
+	var activity_out: bool = _activity_state == ACTIVITY_ATTACKING
+	var activity_in: bool = _activity_state == ACTIVITY_FEEDING
+	var stress: bool = _activity_state == ACTIVITY_UNDER_ATTACK
+	for i in range(_lane_port_nodes.size()):
+		var entry: Dictionary = _lane_port_nodes[i]
+		var outline: Line2D = entry.get("outline", null) as Line2D
+		var fill: Polygon2D = entry.get("fill", null) as Polygon2D
+		var is_active: bool = i < active_count
+		var pulse: float = pulse_t * lane_port_pulse_strength
+		var alpha_base: float = 0.15
+		if is_active:
+			alpha_base = 0.46 + (pulse * 0.20)
+		elif i < _lane_budget_max:
+			alpha_base = 0.24 + (pulse * 0.08)
+		if activity_out and is_active:
+			alpha_base += 0.18 * lane_port_pulse_strength
+		if activity_in:
+			alpha_base += 0.10 * lane_port_pulse_strength
+		if stress:
+			alpha_base *= 0.72 + (0.28 * sin(_fx_t * 34.0))
+		var outline_color: Color = accent.lerp(Color.WHITE, 0.28)
+		outline_color.a = clampf(alpha_base * owner_accent_strength * neutral_mul, 0.0, 0.95)
+		var fill_color: Color = accent
+		fill_color.a = clampf((alpha_base * 0.58) * owner_accent_strength * neutral_mul, 0.0, 0.80)
+		if outline != null and is_instance_valid(outline):
+			outline.default_color = outline_color
+		if fill != null and is_instance_valid(fill):
+			fill.color = fill_color
+
+func _owner_accent_color() -> Color:
+	if owner_id <= 0:
+		return Color(0.62, 0.68, 0.76, 1.0)
+	return _boost_team_color(_team_color_for_player(owner_id)).lerp(Color.WHITE, 0.10)
+
+func _ensure_core_layers() -> void:
+	_ensure_presentation_layers()
+	if _core_energy_layer == null or not is_instance_valid(_core_energy_layer):
+		return
+	if _core_energy_mat == null:
+		_core_energy_mat = ShaderMaterial.new()
+		_core_energy_mat.shader = CORE_ENERGY_SHADER
+	if _core_glow_mat == null:
+		_core_glow_mat = ShaderMaterial.new()
+		_core_glow_mat.shader = CORE_ENERGY_SHADER
+	if _core_energy_poly == null or not is_instance_valid(_core_energy_poly):
+		var energy_poly: Polygon2D = Polygon2D.new()
+		energy_poly.name = "CoreEnergy"
+		energy_poly.z_index = 0
+		energy_poly.material = _core_energy_mat
+		_core_energy_layer.add_child(energy_poly)
+		_core_energy_poly = energy_poly
+	if _core_glow_poly == null or not is_instance_valid(_core_glow_poly):
+		var glow_poly: Polygon2D = Polygon2D.new()
+		glow_poly.name = "CoreGlow"
+		glow_poly.z_index = 0
+		glow_poly.material = _core_glow_mat
+		_core_glow_layer.add_child(glow_poly)
+		_core_glow_poly = glow_poly
+	if _core_crown_glow == null or not is_instance_valid(_core_crown_glow):
+		var crown_poly: Polygon2D = Polygon2D.new()
+		crown_poly.name = "CrownGlow"
+		crown_poly.z_index = 1
+		_core_glow_layer.add_child(crown_poly)
+		_core_crown_glow = crown_poly
+	_update_core_layout()
+	_update_core_materials()
+
+func _update_core_layout() -> void:
+	if _current_size == Vector2.ZERO:
+		if _core_energy_layer != null:
+			_core_energy_layer.visible = false
+		if _core_glow_layer != null:
+			_core_glow_layer.visible = false
+		return
+	if _core_energy_layer != null:
+		_core_energy_layer.visible = true
+	if _core_glow_layer != null:
+		_core_glow_layer.visible = true
+	var core_rx: float = maxf(5.0, _current_size.x * core_size_ratio.x * 0.5)
+	var core_ry: float = maxf(4.0, _current_size.y * core_size_ratio.y * 0.5)
+	var core_pos: Vector2 = _sprite_offset + Vector2(
+		_current_size.x * core_offset_ratio.x,
+		_current_size.y * core_offset_ratio.y
+	)
+	if _core_energy_poly != null and is_instance_valid(_core_energy_poly):
+		_core_energy_poly.position = core_pos
+		_core_energy_poly.polygon = _ellipse_points(core_rx, core_ry, 28)
+		_core_energy_poly.uv = _ellipse_uv_points(28)
+	if _core_glow_poly != null and is_instance_valid(_core_glow_poly):
+		_core_glow_poly.position = core_pos
+		_core_glow_poly.polygon = _ellipse_points(core_rx * 1.42, core_ry * 1.28, 32)
+		_core_glow_poly.uv = _ellipse_uv_points(32)
+	if _core_crown_glow != null and is_instance_valid(_core_crown_glow):
+		_core_crown_glow.position = _sprite_offset + Vector2(0.0, _current_size.y * -0.34)
+		_core_crown_glow.polygon = _ellipse_points(core_rx * 1.35, maxf(3.0, core_ry * 0.28), 28)
+		_core_crown_glow.uv = _ellipse_uv_points(28)
+	_update_core_materials()
+
+func _update_core_materials() -> void:
+	if _core_energy_mat == null and _core_glow_mat == null:
+		return
+	var activity: Dictionary = _activity_profile(_activity_state)
+	var activity_amount: float = float(activity.get("pulse", 0.0)) * activity_pulse_strength
+	var glow_mul: float = float(activity.get("glow_mul", 1.0))
+	var scroll_mul: float = float(activity.get("scroll_mul", 1.0))
+	var flicker_extra: float = float(activity.get("flicker", 0.0))
+	var crown_alpha: float = float(activity.get("crown", 0.0))
+	var tint: Color = _core_color()
+	var power_t: float = clampf(float(power) / float(LARGE_MAX_POWER), 0.0, 1.0)
+	var neutral_alpha_mul: float = 0.74 if owner_id <= 0 else 1.0
+	var stress_flicker: float = maxf(_core_flicker, flicker_extra)
+	if _activity_state == ACTIVITY_UNDER_ATTACK:
+		stress_flicker = maxf(stress_flicker, under_attack_flicker_strength)
+	var max_power_mul: float = max_power_glow_strength if _activity_state == ACTIVITY_MAX_POWER or power >= LARGE_MAX_POWER else 1.0
+	if _core_energy_mat != null:
+		_core_energy_mat.set_shader_parameter("core_color", tint)
+		_core_energy_mat.set_shader_parameter("scroll_speed", core_scroll_speed * scroll_mul)
+		_core_energy_mat.set_shader_parameter("pulse_strength", core_pulse_strength)
+		_core_energy_mat.set_shader_parameter("glow_strength", core_glow_strength * glow_mul * max_power_mul)
+		_core_energy_mat.set_shader_parameter("tint_strength", core_tint_strength)
+		_core_energy_mat.set_shader_parameter("activity_pulse", activity_amount + (power_t * 0.08))
+		_core_energy_mat.set_shader_parameter("power_flash", _core_flash)
+		_core_energy_mat.set_shader_parameter("surge", _core_surge)
+		_core_energy_mat.set_shader_parameter("flicker", stress_flicker)
+		_core_energy_mat.set_shader_parameter("alpha_scale", 0.88 * neutral_alpha_mul)
+	if _core_glow_mat != null:
+		_core_glow_mat.set_shader_parameter("core_color", tint.lerp(Color.WHITE, 0.18))
+		_core_glow_mat.set_shader_parameter("scroll_speed", core_scroll_speed * 0.42 * scroll_mul)
+		_core_glow_mat.set_shader_parameter("pulse_strength", core_pulse_strength * 0.72)
+		_core_glow_mat.set_shader_parameter("glow_strength", core_glow_strength * 1.15 * glow_mul * max_power_mul)
+		_core_glow_mat.set_shader_parameter("tint_strength", core_tint_strength * 0.72)
+		_core_glow_mat.set_shader_parameter("activity_pulse", activity_amount * 0.66)
+		_core_glow_mat.set_shader_parameter("power_flash", _core_flash * 0.70)
+		_core_glow_mat.set_shader_parameter("surge", _core_surge * 0.60)
+		_core_glow_mat.set_shader_parameter("flicker", stress_flicker * 0.45)
+		_core_glow_mat.set_shader_parameter("alpha_scale", 0.34 * neutral_alpha_mul)
+	if _core_glow_layer != null and is_instance_valid(_core_glow_layer):
+		var pop_scale: float = 1.0 + (_core_flash * 0.055)
+		_core_glow_layer.scale = Vector2(pop_scale, pop_scale)
+	if _core_crown_glow != null and is_instance_valid(_core_crown_glow):
+		var crown_color: Color = tint.lerp(Color.WHITE, 0.20)
+		crown_color.a = clampf((crown_alpha + (_core_flash * 0.22)) * neutral_alpha_mul, 0.0, 0.48)
+		_core_crown_glow.color = crown_color
+
+func _activity_profile(state: String) -> Dictionary:
+	match state:
+		ACTIVITY_FEEDING:
+			return {"pulse": 0.42, "glow_mul": 1.18, "scroll_mul": 0.86, "flicker": 0.0, "crown": 0.10}
+		ACTIVITY_ATTACKING:
+			return {"pulse": 0.58, "glow_mul": 1.28, "scroll_mul": 1.55, "flicker": 0.0, "crown": 0.16}
+		ACTIVITY_UNDER_ATTACK:
+			return {"pulse": 0.34, "glow_mul": 1.08, "scroll_mul": 1.16, "flicker": 0.34, "crown": 0.08}
+		ACTIVITY_MAX_POWER:
+			return {"pulse": 0.32, "glow_mul": 1.42, "scroll_mul": 0.78, "flicker": 0.0, "crown": 0.34}
+		_:
+			return {"pulse": 0.0, "glow_mul": 1.0, "scroll_mul": 1.0, "flicker": 0.0, "crown": 0.04}
+
+func _sanitize_activity_state(state: String) -> String:
+	match state:
+		ACTIVITY_FEEDING, ACTIVITY_ATTACKING, ACTIVITY_UNDER_ATTACK, ACTIVITY_MAX_POWER:
+			return state
+		_:
+			return ACTIVITY_IDLE
+
+func _core_color() -> Color:
+	var team_color: Color = _team_color_for_player(owner_id)
+	if owner_id <= 0:
+		team_color = Color(0.78, 0.84, 0.92, 1.0)
+	else:
+		team_color = _boost_team_color(team_color)
+	return team_color.lerp(Color.WHITE, 0.18)
+
+func _trigger_core_power_response(power_delta: int) -> void:
+	if power_delta == 0:
+		return
+	_last_power_delta = power_delta
+	_core_flash = maxf(_core_flash, power_change_flash_strength)
+	if power_delta > 0:
+		_core_surge = maxf(_core_surge, 1.0)
+	else:
+		_core_surge = minf(_core_surge, -0.58)
+		_core_flicker = maxf(_core_flicker, power_change_flash_strength * 0.74)
+	_update_core_materials()
+
+func _ensure_ground_glow() -> void:
+	_ensure_presentation_layers()
+	if _ground_glow_layer == null or not is_instance_valid(_ground_glow_layer):
+		return
+	if _ground_glow_outer == null or not is_instance_valid(_ground_glow_outer):
+		var outer: Polygon2D = Polygon2D.new()
+		outer.name = "GroundGlowOuter"
+		outer.z_index = 0
+		_ground_glow_layer.add_child(outer)
+		_ground_glow_outer = outer
+	if _ground_glow_core == null or not is_instance_valid(_ground_glow_core):
+		var core: Polygon2D = Polygon2D.new()
+		core.name = "GroundGlowCore"
+		core.z_index = 1
+		_ground_glow_layer.add_child(core)
+		_ground_glow_core = core
+	_update_ground_glow()
+
+func _update_ground_glow() -> void:
+	if _ground_glow_layer == null or not is_instance_valid(_ground_glow_layer):
+		return
+	if _tex == null or _current_size == Vector2.ZERO:
+		_ground_glow_layer.visible = false
+		return
+	_ground_glow_layer.visible = true
+	var glow_color: Color = _team_color_for_player(owner_id)
+	if owner_id <= 0:
+		glow_color = Color(0.78, 0.80, 0.84, 1.0)
+	var width: float = maxf(22.0, _current_size.x * GROUND_GLOW_W_RATIO)
+	var height: float = maxf(8.0, _current_size.y * GROUND_GLOW_H_RATIO)
+	var glow_pos: Vector2 = _sprite_offset + Vector2(0.0, _current_size.y * GROUND_GLOW_Y_RATIO)
+	if _ground_glow_outer != null and is_instance_valid(_ground_glow_outer):
+		_ground_glow_outer.position = glow_pos
+		_ground_glow_outer.polygon = _ellipse_points(width * 0.5, height * 0.5, GROUND_GLOW_POINTS)
+		var outer_color: Color = glow_color
+		outer_color.a = (0.16 if owner_id > 0 else 0.08) * ground_glow_strength
+		_ground_glow_outer.color = outer_color
+	if _ground_glow_core != null and is_instance_valid(_ground_glow_core):
+		_ground_glow_core.position = glow_pos + Vector2(0.0, -1.0)
+		_ground_glow_core.polygon = _ellipse_points(width * 0.31, height * 0.30, GROUND_GLOW_POINTS)
+		var core_color: Color = glow_color.lerp(Color.WHITE, 0.25)
+		core_color.a = (0.26 if owner_id > 0 else 0.12) * ground_glow_strength
+		_ground_glow_core.color = core_color
+	_update_phase3_polish()
+
+func _ensure_lane_budget_layer() -> void:
+	_ensure_presentation_layers()
+	_update_lane_budget_indicators()
+
+func _update_lane_budget_indicators() -> void:
+	if _lane_budget_layer == null or not is_instance_valid(_lane_budget_layer):
+		return
+	var slot_count: int = maxi(LANE_BUDGET_DEFAULT_SLOTS, _lane_budget_max)
+	if slot_count != _lane_budget_pips.size():
+		for child in _lane_budget_layer.get_children():
+			child.queue_free()
+		_lane_budget_pips.clear()
+		for i in range(slot_count):
+			var outline: Polygon2D = Polygon2D.new()
+			outline.name = "BudgetPipOutline_%d" % i
+			outline.z_index = 0
+			outline.polygon = _hex_points(LANE_BUDGET_PIP_RADIUS)
+			_lane_budget_layer.add_child(outline)
+			var fill: Polygon2D = Polygon2D.new()
+			fill.name = "BudgetPipFill_%d" % i
+			fill.z_index = 1
+			fill.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
+			_lane_budget_layer.add_child(fill)
+			_lane_budget_pips.append({"outline": outline, "fill": fill})
+	var layer_y: float = _sprite_offset.y + (_current_size.y * LANE_BUDGET_Y_RATIO)
+	if _current_size == Vector2.ZERO:
+		layer_y = -18.0
+	_lane_budget_layer.position = Vector2(0.0, layer_y)
+	var center: float = (float(slot_count) - 1.0) * 0.5
+	var owner_fill: Color = _team_color_for_player(owner_id)
+	if owner_id <= 0:
+		owner_fill = Color(0.78, 0.80, 0.84, 1.0)
+	for i in range(slot_count):
+		var entry: Dictionary = _lane_budget_pips[i]
+		var outline_poly: Polygon2D = entry.get("outline", null) as Polygon2D
+		var fill_poly: Polygon2D = entry.get("fill", null) as Polygon2D
+		var x: float = (float(i) - center) * LANE_BUDGET_PIP_SPACING
+		var arc_y: float = absf(float(i) - center) * 0.8
+		var pip_pos: Vector2 = Vector2(x, arc_y)
+		if outline_poly != null and is_instance_valid(outline_poly):
+			outline_poly.position = pip_pos
+		if fill_poly != null and is_instance_valid(fill_poly):
+			fill_poly.position = pip_pos
+		var is_used: bool = i < _lane_budget_used
+		var is_available: bool = i < _lane_budget_max
+		var outline_color: Color = Color(0.88, 0.92, 1.0, 0.36)
+		var fill_color: Color = Color(0.88, 0.92, 1.0, 0.24)
+		if is_used:
+			outline_color = owner_fill.lerp(Color.WHITE, 0.22)
+			outline_color.a = 0.86
+			fill_color = owner_fill
+			fill_color.a = 0.82
+		elif is_available:
+			outline_color = Color(0.94, 0.98, 1.0, 0.56)
+			fill_color = Color(0.94, 0.98, 1.0, 0.30)
+		else:
+			outline_color = Color(0.65, 0.68, 0.74, 0.22)
+			fill_color = Color(0.0, 0.0, 0.0, 0.0)
+		if outline_poly != null and is_instance_valid(outline_poly):
+			outline_poly.color = outline_color
+		if fill_poly != null and is_instance_valid(fill_poly):
+			fill_poly.color = fill_color
+
+func _ellipse_points(rx: float, ry: float, count: int) -> PackedVector2Array:
+	var points: PackedVector2Array = PackedVector2Array()
+	var safe_count: int = maxi(8, count)
+	for i in range(safe_count):
+		var angle: float = (TAU * float(i)) / float(safe_count)
+		points.append(Vector2(cos(angle) * rx, sin(angle) * ry))
+	return points
+
+func _ellipse_uv_points(count: int) -> PackedVector2Array:
+	var points: PackedVector2Array = PackedVector2Array()
+	var safe_count: int = maxi(8, count)
+	for i in range(safe_count):
+		var angle: float = (TAU * float(i)) / float(safe_count)
+		points.append(Vector2((cos(angle) * 0.5) + 0.5, (sin(angle) * 0.5) + 0.5))
+	return points
+
+func _hex_points(radius: float) -> PackedVector2Array:
+	var points: PackedVector2Array = PackedVector2Array()
+	for i in range(6):
+		var angle: float = (TAU * float(i)) / 6.0 + (PI * 0.5)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
+	return points
+
 func _ensure_sprite() -> void:
 	if _sprite != null and is_instance_valid(_sprite):
 		return
-	var existing := get_node_or_null("HiveSprite")
+	_ensure_presentation_layers()
+	var existing: Node = get_node_or_null("BaseSprite")
+	if existing == null:
+		existing = get_node_or_null("HiveSprite")
+	if existing == null and _base_sprite_layer != null:
+		existing = _base_sprite_layer.get_node_or_null("BaseSprite")
+	if existing == null and _base_sprite_layer != null:
+		existing = _base_sprite_layer.get_node_or_null("HiveSprite")
 	if existing is Sprite2D:
 		_sprite = existing as Sprite2D
+		_sprite.name = "BaseSprite"
+		if _base_sprite_layer != null and _sprite.get_parent() != _base_sprite_layer:
+			_sprite.reparent(_base_sprite_layer, true)
 		return
-	var sprite := Sprite2D.new()
-	sprite.name = "HiveSprite"
+	var sprite: Sprite2D = Sprite2D.new()
+	sprite.name = "BaseSprite"
 	sprite.centered = true
 	sprite.z_index = -1
-	add_child(sprite)
+	if _base_sprite_layer != null:
+		_base_sprite_layer.add_child(sprite)
+	else:
+		add_child(sprite)
 	_sprite = sprite
 
 func _ensure_shadows() -> void:
+	_ensure_presentation_layers()
 	if _ground_shadow == null or not is_instance_valid(_ground_shadow):
 		_ground_shadow = _ensure_shadow_sprite("GroundShadow")
 	if _contact_shadow == null or not is_instance_valid(_contact_shadow):
 		_contact_shadow = _ensure_shadow_sprite("ContactShadow")
 
 func _ensure_shadow_sprite(node_name: String) -> VisualShadow:
-	var existing: Node = get_node_or_null(node_name)
+	var existing: Node = null
+	if _shadow_layer != null:
+		existing = _shadow_layer.get_node_or_null(node_name)
+	if existing == null:
+		existing = get_node_or_null(node_name)
 	if existing is VisualShadow:
-		return existing as VisualShadow
+		var shadow_existing: VisualShadow = existing as VisualShadow
+		if _shadow_layer != null and shadow_existing.get_parent() != _shadow_layer:
+			shadow_existing.reparent(_shadow_layer, true)
+		return shadow_existing
 	if existing != null:
 		remove_child(existing)
 		existing.queue_free()
@@ -379,7 +1164,10 @@ func _ensure_shadow_sprite(node_name: String) -> VisualShadow:
 	shadow.centered = true
 	shadow.z_index = shadow_z_offset
 	shadow.visible = false
-	add_child(shadow)
+	if _shadow_layer != null:
+		_shadow_layer.add_child(shadow)
+	else:
+		add_child(shadow)
 	return shadow
 
 func _update_hive_shadows() -> void:
@@ -391,17 +1179,17 @@ func _update_hive_shadows() -> void:
 		_ground_shadow.visible = false
 		_contact_shadow.visible = false
 		return
-	var projected_scale: Vector2 = Vector2(shadow_scale_x, shadow_scale_y)
+	var projected_scale: Vector2 = Vector2(shadow_scale_x * base_shadow_scale.x, shadow_scale_y * base_shadow_scale.y)
 	var contact_scale: Vector2 = Vector2(
-		shadow_scale_x * SHADOW_CONTACT_SCALE_X_MULT,
-		shadow_scale_y * SHADOW_CONTACT_SCALE_Y_MULT
+		shadow_scale_x * base_shadow_scale.x * SHADOW_CONTACT_SCALE_X_MULT,
+		shadow_scale_y * base_shadow_scale.y * SHADOW_CONTACT_SCALE_Y_MULT
 	)
-	_ground_shadow.sync_from_sprite(_sprite, shadow_offset, projected_scale, shadow_alpha, shadow_z_offset)
+	_ground_shadow.sync_from_sprite(_sprite, shadow_offset, projected_scale, base_shadow_strength, shadow_z_offset)
 	_contact_shadow.sync_from_sprite(
 		_sprite,
 		shadow_offset * SHADOW_CONTACT_OFFSET_MULT,
 		contact_scale,
-		shadow_alpha * SHADOW_CONTACT_ALPHA_MULT,
+		base_shadow_strength * SHADOW_CONTACT_ALPHA_MULT,
 		shadow_z_offset + 1
 	)
 
@@ -423,23 +1211,19 @@ func _update_lane_occluder() -> void:
 	_ensure_lane_occluder()
 	if _lane_occluder == null or not is_instance_valid(_lane_occluder):
 		return
+	# The broad occluder was intended to hide lane art below the hive, but the
+	# premium layer stack made it read as a black disk over the hive art.
+	_lane_occluder.visible = false
 	if _tex == null:
-		_lane_occluder.visible = false
 		if _ground_shadow != null:
 			_ground_shadow.visible = false
 		if _contact_shadow != null:
 			_contact_shadow.visible = false
+		if _ground_glow_layer != null:
+			_ground_glow_layer.visible = false
 		return
-	var width: float = maxf(20.0, _current_size.x * LANE_OCCLUDER_WIDTH_RATIO)
-	var height: float = maxf(16.0, _current_size.y * LANE_OCCLUDER_HEIGHT_RATIO)
-	var points: PackedVector2Array = PackedVector2Array()
-	for i in range(LANE_OCCLUDER_POINTS):
-		var angle: float = (TAU * float(i)) / float(LANE_OCCLUDER_POINTS)
-		points.append(Vector2(cos(angle) * width * 0.5, sin(angle) * height * 0.5))
-	_lane_occluder.polygon = points
-	_lane_occluder.position = _sprite_offset + Vector2(0.0, (_current_size.y * LANE_OCCLUDER_Y_RATIO))
-	_lane_occluder.visible = true
 	_update_hive_shadows()
+	_update_ground_glow()
 
 func _ensure_shader_material() -> void:
 	if _shader_mat == null:
@@ -530,6 +1314,10 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 	if _shader_mat != null and not is_neutral_owner:
 		_shader_mat.set_shader_parameter("team_color", team_color)
 		_shader_mat.set_shader_parameter("glow_strength", lerp(0.6, 1.0, t))
+	_update_projection_tint()
+	_update_lane_budget_indicators()
+	_update_ground_glow()
+	_update_core_materials()
 
 func _boost_team_color(in_color: Color) -> Color:
 	var boosted_s: float = clampf(in_color.s * HIVE_COLOR_SAT_BOOST, 0.0, 1.0)
@@ -565,12 +1353,19 @@ func _apply_sprite() -> void:
 		if _lane_occluder != null:
 			_lane_occluder.visible = false
 		_update_hive_shadows()
+		_update_core_layout()
+		_update_ground_glow()
+		_update_phase3_layout()
+		_update_lane_budget_indicators()
 		return
 	var tex_size := Vector2(float(_tex.get_width()), float(_tex.get_height()))
 	if tex_size.x <= 0.0 or tex_size.y <= 0.0:
 		_current_size = Vector2.ZERO
 		_sprite.scale = Vector2.ONE
+		_update_core_layout()
 		_update_lane_occluder()
+		_update_phase3_layout()
+		_update_lane_budget_indicators()
 		return
 	var base_diameter := radius_px * 2.0 * _sprite_scale
 	var target_height := _height_for_tier(
@@ -580,7 +1375,10 @@ func _apply_sprite() -> void:
 	var uniform_scale := target_height / tex_size.y
 	_current_size = tex_size * uniform_scale
 	_sprite.scale = Vector2.ONE * uniform_scale
+	_update_core_layout()
 	_update_lane_occluder()
+	_update_phase3_layout()
+	_update_lane_budget_indicators()
 
 func _hive_tex_debug(tex: Texture2D, key: String, scale: float, offset: Vector2) -> String:
 	var region_enabled := false

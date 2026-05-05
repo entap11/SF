@@ -9,6 +9,7 @@ func _init() -> void:
 	_test_wall_occlusion_prunes_candidates()
 	_test_auto_lane_generation_blocks_near_miss_crossing()
 	_test_gbase_runtime_pair_is_blocked()
+	_test_existing_invalid_lane_cannot_be_enabled()
 	print("LANE_OCCLUSION_SMOKE: PASS")
 	quit(0)
 
@@ -66,6 +67,25 @@ func _test_gbase_runtime_pair_is_blocked() -> void:
 	var state := GameState.new()
 	state.load_from_map_dict(loaded.get("data", {}) as Dictionary)
 	_assert_true(not state.can_connect(2, 10), "GBASE pair 2->10 should be occluded by center hives")
+
+func _test_existing_invalid_lane_cannot_be_enabled() -> void:
+	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")
+	_assert_true(ops_state != null, "OpsState autoload should exist")
+	var map_dict := {
+		"hives": [
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 50, "kind": "Hive"},
+			{"id": 2, "x": 4, "y": 0, "owner_id": 2, "power": 10, "kind": "Hive"},
+			{"id": 3, "x": 2, "y": 0, "owner_id": 0, "power": 10, "kind": "Hive"}
+		]
+	}
+	var state: GameState = ops_state.call("reset_state_from_map", map_dict)
+	ops_state.set("match_phase", 1)
+	state.lanes.append(LaneData.new(101, 1, 2, 1, false, false))
+	state.rebuild_indexes()
+	var result: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack")
+	_assert_true(not bool(result.get("ok", false)), "existing invalid lane should not be enabled")
+	_assert_eq(int(result.get("lane_id", -1)), 101, "existing invalid lane should be identified")
+	_assert_true(str(result.get("reason", "")) == "blocked", "existing invalid lane should report blocked")
 
 func _candidate_count(candidates: Array) -> int:
 	return candidates.size()

@@ -5578,6 +5578,8 @@ func export_render_model() -> Dictionary:
 				"radius_px": radius_px,
 				"owner_id": int(h.owner_id),
 				"pwr": int(h.power),
+				"lane_budget_used": int(state.outgoing_active_count(int(h.id))),
+				"lane_budget_max": int(state.lanes_allowed_for_power(int(h.power))),
 				"kind": String(h.kind)
 			}
 			if capture_flag_by_hive_id.has(int(h.id)):

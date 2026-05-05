@@ -167,10 +167,14 @@ func _ready() -> void:
 func _fit_pick_hitbox_to_sprite() -> void:
 	if pick_shape == null:
 		return
-	var sprite := get_node_or_null("Visual/HiveSprite")
+	var sprite: Node = get_node_or_null("Visual/BaseSpriteLayer/BaseSprite")
+	if sprite == null:
+		sprite = get_node_or_null("Visual/BaseSprite")
+	if sprite == null:
+		sprite = get_node_or_null("Visual/HiveSprite")
 	if sprite == null or not (sprite is Sprite2D):
 		return
-	var s := sprite as Sprite2D
+	var s: Sprite2D = sprite as Sprite2D
 	if s.texture == null:
 		return
 	var tex := s.texture
@@ -188,7 +192,16 @@ func _fit_pick_hitbox_to_sprite() -> void:
 	pick_shape.disabled = false
 	SFLog.log_once("HIVE_PICK_BOX", "HIVE_PICK_BOX fitted", SFLog.Level.INFO)
 
-func apply_render(owner_id_in: int, power_in: int, radius_in: float, color: Color, font_size: int, kind: String = "Hive") -> void:
+func apply_render(
+	owner_id_in: int,
+	power_in: int,
+	radius_in: float,
+	color: Color,
+	font_size: int,
+	kind: String = "Hive",
+	lane_budget_used: int = 0,
+	lane_budget_max: int = 3
+) -> void:
 	SFLog.log_once(
 		"HIVENODE_APPLY_RENDER",
 		"HiveNode.apply_render called (sample): id=%s owner=%s power=%s kind=%s" % [str(hive_id), str(owner_id_in), str(power_in), str(kind)],
@@ -205,7 +218,7 @@ func apply_render(owner_id_in: int, power_in: int, radius_in: float, color: Colo
 			sim_events.emit_signal("hive_kind_changed", hive_id, owner_id, global_position, prev_kind, kind)
 	_sync_collision()
 	if visual != null and visual.has_method("configure"):
-		visual.call("configure", owner_id, color, radius_px, power, font_size, kind)
+		visual.call("configure", owner_id, color, radius_px, power, font_size, kind, lane_budget_used, lane_budget_max)
 	if visual is CanvasItem:
 		var ci := visual as CanvasItem
 		if ci.has_method("set_self_modulate"):
@@ -242,6 +255,8 @@ func set_capture_flag_marker(visible: bool, flag_owner_id: int = 0, hidden: bool
 func set_selected(on: bool, color: Color) -> void:
 	_selected = on
 	_sel_color = color
+	if visual != null and visual.has_method("set_selected_visual"):
+		visual.call("set_selected_visual", on, color)
 	if not _selected:
 		_sel_t = 0.0
 	_refresh_selector_state()

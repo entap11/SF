@@ -422,6 +422,9 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 			owner_id = int(hd.get("owner_id"))
 		node.owner_id = owner_id
 		var pwr: int = int(hd.get("pwr", hd.get("power", 0)))
+		var budget_state: Dictionary = _lane_budget_for_hive(id, pwr, hd)
+		var lane_budget_used: int = int(budget_state.get("used", 0))
+		var lane_budget_max: int = int(budget_state.get("max", 3))
 		var radius: float = cell * 0.42
 		if arena != null:
 			var radius_v: Variant = (arena as Node).get("HIVE_RADIUS_PX")
@@ -439,7 +442,7 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 				"color": color
 			})
 		if node.has_method("apply_render"):
-			node.call("apply_render", owner_id, pwr, radius, color, POWER_LABEL_FONT_SIZE, kind)
+			node.call("apply_render", owner_id, pwr, radius, color, POWER_LABEL_FONT_SIZE, kind, lane_budget_used, lane_budget_max)
 		else:
 			node.set("owner_id", owner_id)
 		if node.has_method("set_capture_flag_marker"):
@@ -484,6 +487,50 @@ func _resolve_hive_id(raw: Variant) -> int:
 	if s.is_valid_int():
 		return int(s)
 	return 0
+
+func _lane_budget_for_hive(hive_id: int, power: int, hd: Dictionary) -> Dictionary:
+	var max_budget: int = int(hd.get("lane_budget_max", hd.get("budget", -1)))
+	var used_budget: int = int(hd.get("lane_budget_used", hd.get("active_outgoing", -1)))
+	if max_budget < 0:
+		if state != null and state.has_method("lanes_allowed_for_power"):
+			max_budget = int(state.call("lanes_allowed_for_power", power))
+		else:
+			max_budget = _fallback_lanes_allowed_for_power(power)
+	if used_budget < 0:
+		if state != null and state.has_method("outgoing_active_count"):
+			used_budget = int(state.call("outgoing_active_count", hive_id))
+		elif state != null and state.has_method("count_active_outgoing"):
+			used_budget = int(state.call("count_active_outgoing", hive_id))
+		else:
+			used_budget = _count_active_outgoing_from_model(hive_id)
+	return {
+		"used": maxi(0, used_budget),
+		"max": maxi(0, max_budget)
+	}
+
+func _fallback_lanes_allowed_for_power(power: int) -> int:
+	if power <= 9:
+		return 1
+	if power <= 24:
+		return 2
+	return 3
+
+func _count_active_outgoing_from_model(hive_id: int) -> int:
+	var lanes_v: Variant = model.get("lanes", [])
+	if typeof(lanes_v) != TYPE_ARRAY:
+		return 0
+	var count: int = 0
+	for lane_v in lanes_v as Array:
+		if typeof(lane_v) != TYPE_DICTIONARY:
+			continue
+		var lane: Dictionary = lane_v as Dictionary
+		var a_id: int = int(lane.get("a_id", -1))
+		var b_id: int = int(lane.get("b_id", -1))
+		if a_id == hive_id and bool(lane.get("send_a", false)):
+			count += 1
+		if b_id == hive_id and bool(lane.get("send_b", false)):
+			count += 1
+	return count
 
 func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color, kind: String, power: int = 0) -> void:
 	var visual_radius := radius * float(HiveVisual.HIVE_VISUAL_SCALE)

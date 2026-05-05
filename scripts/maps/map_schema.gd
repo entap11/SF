@@ -9,7 +9,9 @@ const DEFAULT_CELL_SIZE := 64.0
 const OCCLUSION_RADIUS_MAX := 0.45
 const OCCLUSION_EPS := 0.0001
 const DEFAULT_SYMMETRY_MODE := "mirror_x"
-const LANE_OCCLUSION_PAD_PX := 7.0
+const HIVE_VISUAL_BLOCK_RADIUS_SCALE := 1.60
+const LANE_BODY_HALF_WIDTH_PX := 40.0
+const LANE_OCCLUSION_PAD_PX := 8.0
 const HIVE_RADIUS_RATIO_BY_KIND := {
 	"hive": 0.42,
 	"npc": 0.42,
@@ -399,7 +401,8 @@ static func _hive_lane_occlusion_radius_grid(hive: Dictionary, cell_size: float 
 		radius_px = hive_radius_px_for_kind(str(hive.get("kind", "Hive")), resolved_cell_size)
 	if radius_px <= 0.0:
 		radius_px = HiveGeometry.BASE_RADIUS_PX
-	var blocker_px: float = HiveGeometry.lane_occlusion_radius_px(maxf(HiveGeometry.BASE_RADIUS_PX, radius_px)) + LANE_OCCLUSION_PAD_PX
+	var visual_radius_px: float = maxf(HiveGeometry.BASE_RADIUS_PX, radius_px) * HIVE_VISUAL_BLOCK_RADIUS_SCALE
+	var blocker_px: float = HiveGeometry.lane_occlusion_radius_px(visual_radius_px) + LANE_BODY_HALF_WIDTH_PX + LANE_OCCLUSION_PAD_PX
 	return blocker_px / resolved_cell_size
 
 static func _segment_occluded(a: Vector2, b: Vector2, hives: Array, a_id: int, b_id: int, cell_size: float = DEFAULT_CELL_SIZE) -> bool:

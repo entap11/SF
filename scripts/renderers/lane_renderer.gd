@@ -39,13 +39,13 @@ const LANE_FLASH_WIDTH := 3.5
 const LANE_FLASH_COLOR := Color(1.0, 0.9, 0.35, 0.9)
 const LANE_INACTIVE_COLOR := Color(1.0, 1.0, 1.0, 0.036)
 const LANE_CONTESTED_COLOR := Color(1.0, 1.0, 1.0, 0.18)
-const LANE_ACTIVE_ALPHA := 0.78
-const LANE_FRIENDLY_ALPHA := 0.42
+const LANE_ACTIVE_ALPHA := 1.0
+const LANE_FRIENDLY_ALPHA := 0.78
 const LANE_SEGMENT_KEY := "lane.segment"
 const LANE_CONNECTOR_KEY := "lane.connector"
-const LANE_TEX_KEY := "lane.mvp"
-const LANE_FALLBACK_PATH := "res://assets/sprites/sf_skin_v1/lane_mvp.png"
-const LANE_SEGMENT_TARGET_PX := 40.0
+const LANE_TEX_KEY := "lane.points"
+const LANE_FALLBACK_PATH := "res://assets/sprites/sf_skin_v1/lane_points_tile.png"
+const LANE_SEGMENT_TARGET_PX := 56.0
 const LANE_SEGMENT_SCALE := 1.0
 const LANE_CONNECTOR_SCALE := 0.75
 const LANE_MAX_SEGMENTS := 64
@@ -155,17 +155,9 @@ func _lane_send_alpha(src_owner: int, dst_owner: int) -> float:
 	return LANE_ACTIVE_ALPHA
 
 func _lane_color_for_owner(owner_id: int) -> Color:
-	match owner_id:
-		1:
-			return Color8(148, 118, 30, 255) # brighter mustard
-		2:
-			return Color8(156, 34, 42, 255) # brighter oxblood
-		3:
-			return Color8(24, 44, 30, 255) # dark camo green
-		4:
-			return Color8(20, 34, 72, 255) # near navy
-		_:
-			return Color(0.22, 0.22, 0.24, 0.55)
+	if owner_id > 0:
+		return HiveRenderer._owner_color(owner_id)
+	return Color(0.22, 0.22, 0.24, 0.55)
 
 func _hive_world_pos(hive_id: int) -> Variant:
 	var anchor_local_any: Variant = _hive_local_pos_for_lane(hive_id)
@@ -1019,14 +1011,13 @@ func _grid_to_world_center(x: float, y: float, cell_size: float) -> Vector2:
 func _load_lane_textures() -> void:
 	var tex: Texture2D = null
 	var tex_path: String = ""
-	if ResourceLoader.exists(LANE_FALLBACK_PATH):
+	var registry := SpriteRegistry.get_instance()
+	if registry != null:
+		tex = _unwrap_atlas(registry.get_tex(LANE_TEX_KEY))
+		tex_path = registry.get_tex_path(LANE_TEX_KEY)
+	if tex == null and ResourceLoader.exists(LANE_FALLBACK_PATH):
 		tex = ResourceLoader.load(LANE_FALLBACK_PATH) as Texture2D
 		tex_path = LANE_FALLBACK_PATH
-	if tex == null:
-		var registry := SpriteRegistry.get_instance()
-		if registry != null:
-			tex = _unwrap_atlas(registry.get_tex(LANE_TEX_KEY))
-			tex_path = registry.get_tex_path(LANE_TEX_KEY)
 	if tex != null and not _lane_tex_logged:
 		_lane_tex_logged = true
 		SFLog.info("LANE_TEX_RESOLVE_OK", {
@@ -1134,10 +1125,14 @@ func _get_lane_band_material() -> ShaderMaterial:
 		return _lane_band_material
 	var mat := ShaderMaterial.new()
 	mat.shader = LANE_BAND_SHADER
-	mat.set_shader_parameter("band", 0.18)
-	mat.set_shader_parameter("feather", 0.10)
+	mat.set_shader_parameter("band", 0.94)
+	mat.set_shader_parameter("feather", 0.04)
+	mat.set_shader_parameter("team_saturation", 1.35)
+	mat.set_shader_parameter("lane_brightness", 1.55)
+	mat.set_shader_parameter("highlight_boost", 0.85)
+	mat.set_shader_parameter("glow_boost", 0.55)
 	if AUDIT_RENDER:
-		_audit_mat_sets += 2
+		_audit_mat_sets += 6
 	_lane_band_material = mat
 	return mat
 
@@ -1553,14 +1548,13 @@ func _update_lane_visuals(delta: float) -> void:
 			var front_t: float = clampf(float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)), 0.0, 1.0)
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
-			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
-			# Keep B segment orientation aligned with lane basis so both halves stitch cleanly.
-			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
+			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, target_px, unit_body_px, lane_basis_dir, true)
+			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir, false)
 		elif send_a:
-			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, target_px, unit_body_px, lane_basis_dir)
+			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, target_px, unit_body_px, lane_basis_dir, true)
 			sprite_b.visible = false
 		elif send_b:
-			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir)
+			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir, false)
 			sprite_a.visible = false
 		else:
 			sprite_a.visible = false
@@ -1642,7 +1636,8 @@ func _apply_lane_sprite_visual(
 	lane_id: int,
 	target_thickness_px: float,
 	unit_body_px: float,
-	lane_basis_dir: Vector2 = Vector2.ZERO
+	lane_basis_dir: Vector2 = Vector2.ZERO,
+	points_toward_end: bool = true
 ) -> void:
 	if sprite == null or sprite.texture == null:
 		return
@@ -1678,6 +1673,7 @@ func _apply_lane_sprite_visual(
 	sprite.visible = true
 	sprite.position = mid_pos
 	sprite.rotation = visual_dir.angle()
+	sprite.flip_h = not points_toward_end
 	sprite.scale = Vector2(scale_x, scale_y)
 	sprite.modulate = color
 	if lane_id == 9 and not _lane_align_logged:
@@ -1976,19 +1972,21 @@ func _draw_lane_colored(start: Vector2, end: Vector2, a_id: int, b_id: int, send
 		var mid := start.lerp(end, t_front)
 		var color_a := _resolve_lane_color(a_id, b_id, true, false, rm, lane)
 		var color_b := _resolve_lane_color(a_id, b_id, false, true, rm, lane)
-		_draw_lane_textured_segment(start, mid, color_a)
-		_draw_lane_textured_segment(mid, end, color_b)
+		_draw_lane_textured_segment(start, mid, color_a, LANE_WIDTH_PX, true)
+		_draw_lane_textured_segment(mid, end, color_b, LANE_WIDTH_PX, false)
 		return
 	var color := _resolve_lane_color(a_id, b_id, send_a, send_b, rm, lane)
-	_draw_lane_textured_segment(start, end, color)
+	_draw_lane_textured_segment(start, end, color, LANE_WIDTH_PX, not send_b)
 
-func _draw_lane_textured_segment(start: Vector2, end: Vector2, color: Color, lane_width: float = LANE_WIDTH_PX) -> void:
+func _draw_lane_textured_segment(start: Vector2, end: Vector2, color: Color, lane_width: float = LANE_WIDTH_PX, points_toward_end: bool = true) -> void:
 	var dir: Vector2 = end - start
 	var len := dir.length()
 	if len <= 0.01:
 		return
 	var mid := (start + end) * 0.5
 	var ang := dir.angle()
+	if not points_toward_end:
+		ang += PI
 	draw_set_transform(mid, ang, Vector2.ONE)
 	draw_texture_rect(
 		_lane_tex,

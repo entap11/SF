@@ -2,6 +2,10 @@ shader_type canvas_item;
 
 uniform float band = 0.18;   // 0.05..0.35  (thickness of visible center)
 uniform float feather = 0.10; // 0..0.25     (soft edge)
+uniform float team_saturation = 1.35;
+uniform float lane_brightness = 1.55;
+uniform float highlight_boost = 0.85;
+uniform float glow_boost = 0.55;
 
 void fragment() {
     vec4 c = texture(TEXTURE, UV);
@@ -16,9 +20,15 @@ void fragment() {
     // Smooth alpha: 1 in center, fades out toward edges
     float a = 1.0 - smoothstep(half_band, half_band + feather, d);
 
-    // Keep lane texture detail but tint by team color so contested lanes can
-    // clearly show both sides (yellow/green/etc.) using sprite.modulate.
+    // Keep lane texture detail, but let the lane read as the owning team color
+    // instead of the source purple art.
     float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-    vec3 recolor = tint.rgb * mix(0.35, 1.0, lum);
+    vec3 gray = vec3(dot(tint.rgb, vec3(0.299, 0.587, 0.114)));
+    vec3 team = mix(gray, tint.rgb, team_saturation);
+    vec3 base = team * mix(0.52, lane_brightness, smoothstep(0.08, 0.72, lum));
+    vec3 highlights = mix(team, vec3(1.0), 0.35) * smoothstep(0.48, 0.96, lum) * highlight_boost;
+    float edge_glow = smoothstep(0.02, 0.34, c.a) * (1.0 - smoothstep(0.42, 0.95, d));
+    vec3 glow = team * edge_glow * glow_boost;
+    vec3 recolor = base + highlights + glow;
     COLOR = vec4(recolor, c.a * a * tint.a);
 }

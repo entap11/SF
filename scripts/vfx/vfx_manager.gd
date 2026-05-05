@@ -36,6 +36,11 @@ const DISABLE_VFX: bool = false
 const IONPOP_MAX_ACTIVE: int = 24
 const IONPOP_PRELOAD_COUNT: int = 32
 const IONPOP_COLLISION_HALF_LEN_PX: float = 10.0
+const COLLISION_SPARK_LIFE: float = 0.10
+const COLLISION_SPARK_LEN_MIN_PX: float = 18.0
+const COLLISION_SPARK_LEN_MAX_PX: float = 34.0
+const COLLISION_SPARK_CORE_WIDTH_PX: float = 1.8
+const COLLISION_SPARK_GLOW_WIDTH_PX: float = 5.5
 const HIVE_IONPOP_THROTTLE_MS: int = 150
 const AUTO_GPU_VFX_DISABLE_ENABLED: bool = true
 const AUTO_GPU_VFX_DISABLE_FPS: float = 24.0
@@ -369,6 +374,7 @@ func _on_unit_collision(
 ) -> void:
 	if not _vfx_enabled():
 		return
+	_spawn_collision_spark(world_pos, lane_dir, owner_a, owner_b, intensity, lane_id)
 	_spawn_collision_vfx(world_pos, lane_dir, owner_a, owner_b, intensity, lane_id)
 	_spawn_collision_ionpop(world_pos, lane_dir)
 # TODO: Reuse CollisionVfx for hive impact events (enemy/friendly) when those render events are wired.
@@ -489,6 +495,45 @@ func _spawn_collision_ionpop(world_pos: Vector2, lane_dir: Vector2) -> void:
 	var from_pos: Vector2 = world_pos - (axis * IONPOP_COLLISION_HALF_LEN_PX)
 	var to_pos: Vector2 = world_pos + (axis * IONPOP_COLLISION_HALF_LEN_PX)
 	_ion_pop_pool.call("spawn_ionpop", from_pos, to_pos)
+
+func _spawn_collision_spark(world_pos: Vector2, lane_dir: Vector2, owner_a: int, owner_b: int, intensity: float, lane_id: int) -> void:
+	var axis: Vector2 = lane_dir
+	if axis.length_squared() <= 0.000001:
+		axis = Vector2.RIGHT
+	else:
+		axis = axis.normalized()
+	var slash_dir: Vector2 = Vector2(-axis.y, axis.x)
+	var angle_offset: float = 0.24 if (lane_id % 2) == 0 else -0.24
+	slash_dir = slash_dir.rotated(angle_offset).normalized()
+	var n: float = clampf(intensity / 2.0, 0.0, 1.0)
+	var half_len: float = lerpf(COLLISION_SPARK_LEN_MIN_PX, COLLISION_SPARK_LEN_MAX_PX, n) * 0.5
+	var from_pos: Vector2 = world_pos - slash_dir * half_len
+	var to_pos: Vector2 = world_pos + slash_dir * half_len
+	var team_blend: Color = _owner_color(owner_a).lerp(_owner_color(owner_b), 0.5)
+	var core_color: Color = team_blend.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.62)
+	var glow_color: Color = team_blend.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.35)
+	glow_color.a = 0.45
+	_spawn_spark_line(from_pos, to_pos, glow_color, COLLISION_SPARK_GLOW_WIDTH_PX, COLLISION_SPARK_LIFE)
+	_spawn_spark_line(from_pos, to_pos, core_color, COLLISION_SPARK_CORE_WIDTH_PX, COLLISION_SPARK_LIFE * 0.85)
+
+func _spawn_spark_line(from_pos: Vector2, to_pos: Vector2, color: Color, width_px: float, life_s: float) -> void:
+	var line := Line2D.new()
+	line.width = width_px
+	line.default_color = color
+	line.points = PackedVector2Array([from_pos, to_pos])
+	line.z_index = Z_INDEX_VFX + 2
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	var mat := CanvasItemMaterial.new()
+	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	line.material = mat
+	add_child(line)
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(line, "modulate:a", 0.0, maxf(0.02, life_s))
+	tween.parallel().tween_property(line, "width", 0.0, maxf(0.02, life_s))
+	tween.tween_callback(Callable(line, "queue_free"))
 
 func _spawn_hive_ionpop(hive_id: int, from_pos: Vector2, hive_pos: Vector2) -> void:
 	if _ion_pop_pool == null or not _ion_pop_pool.has_method("spawn_ionpop"):

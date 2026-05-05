@@ -15,7 +15,9 @@ const HIVE_DIAMETER_PX := HiveGeometry.BASE_DIAMETER_PX
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
 const HIVE_LANE_RADIUS_PX := HIVE_RADIUS_PX
 const HIVE_BLOCK_RADIUS_PX := HIVE_RADIUS_PX
-const LANE_OCCLUSION_PAD_PX := 7.0
+const HIVE_VISUAL_BLOCK_RADIUS_SCALE := 1.60
+const LANE_BODY_HALF_WIDTH_PX := 40.0
+const LANE_OCCLUSION_PAD_PX := 8.0
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC
 const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
@@ -447,13 +449,14 @@ func _grid_cell_size_px() -> float:
 
 func _hive_block_radius(hive: HiveData) -> float:
 	if hive == null:
-		return HIVE_BLOCK_RADIUS_PX + LANE_OCCLUSION_PAD_PX
+		return (HIVE_BLOCK_RADIUS_PX * HIVE_VISUAL_BLOCK_RADIUS_SCALE) + LANE_BODY_HALF_WIDTH_PX + LANE_OCCLUSION_PAD_PX
 	var radius: float = float(hive.radius_px)
 	if radius <= 0.0:
 		radius = MapSchema.hive_radius_px_for_kind(str(hive.kind), _grid_cell_size_px())
 	if radius <= 0.0:
 		radius = HIVE_BLOCK_RADIUS_PX
-	return HiveGeometry.lane_occlusion_radius_px(maxf(HIVE_BLOCK_RADIUS_PX, radius)) + LANE_OCCLUSION_PAD_PX
+	var visual_radius: float = maxf(HIVE_BLOCK_RADIUS_PX, radius) * HIVE_VISUAL_BLOCK_RADIUS_SCALE
+	return HiveGeometry.lane_occlusion_radius_px(visual_radius) + LANE_BODY_HALF_WIDTH_PX + LANE_OCCLUSION_PAD_PX
 
 func _lane_segment_world(a_hive: HiveData, b_hive: HiveData) -> Dictionary:
 	if a_hive == null or b_hive == null:
