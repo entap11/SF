@@ -5,6 +5,7 @@ const HANDSHAKE_SCRIPT := preload("res://scripts/state/vs_handshake_state.gd")
 const ENV_BACKEND_URL: String = "SF_VS_BACKEND_URL"
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
+const SETTINGS_FORCE_RELEASE_GUARD_FOR_SMOKE: String = "swarmfront/vs/force_release_guard_for_smoke"
 
 var _failed: bool = false
 
@@ -13,6 +14,9 @@ func _initialize() -> void:
 	quit(1 if _failed else 0)
 
 func _run() -> void:
+	if _has_arg("--vs-smoke-release-guard"):
+		await _run_release_guard_smoke()
+		return
 	var backend_url: String = _arg_value("--vs-smoke-backend-url=")
 	if not backend_url.is_empty():
 		ProjectSettings.set_setting(SETTINGS_BACKEND_URL, backend_url)
@@ -43,7 +47,14 @@ func _run() -> void:
 	var guest_uid: String = "smoke_guest_%d" % stamp
 	var host_profile: Dictionary = {"uid": host_uid, "display_name": "SmokeHost"}
 	var guest_profile: Dictionary = {"uid": guest_uid, "display_name": "SmokeGuest"}
-	var context: Dictionary = {"mode": "PVP", "map_count": 1, "price_usd": 0, "free_roll": true}
+	var agreed_stage_map: String = "res://maps/json/MAP_TEST_8x12.json"
+	var context: Dictionary = {
+		"mode": "PVP",
+		"map_count": 1,
+		"price_usd": 0,
+		"free_roll": true,
+		"stage_map_paths": [agreed_stage_map]
+	}
 
 	var invite: Dictionary = handshake.call("create_invite", host_profile, context) as Dictionary
 	_expect(bool(invite.get("ok", false)), "create_invite failed", invite)
@@ -58,6 +69,7 @@ func _run() -> void:
 
 	var join_result: Dictionary = handshake.call("join_invite", invite_code, guest_profile) as Dictionary
 	_expect(bool(join_result.get("ok", false)), "join_invite failed", join_result)
+	_expect(_session_stage_map(join_result) == agreed_stage_map, "joined session did not preserve stage map context", join_result)
 
 	var host_ready: Dictionary = handshake.call("set_ready", session_id, host_uid, true) as Dictionary
 	var guest_ready: Dictionary = handshake.call("set_ready", session_id, guest_uid, true) as Dictionary
@@ -71,6 +83,7 @@ func _run() -> void:
 
 	var start_result: Dictionary = handshake.call("start_session", session_id, host_uid) as Dictionary
 	_expect(bool(start_result.get("ok", false)), "start_session failed", start_result)
+	_expect(_session_stage_map(start_result) == agreed_stage_map, "started session did not preserve stage map context", start_result)
 
 	var host_lane_cmd: Dictionary = {
 		"kind": "lane_intent",
@@ -121,6 +134,39 @@ func _run() -> void:
 			"host_events": host_events.size()
 		})
 
+func _run_release_guard_smoke() -> void:
+	var blocked_backend_url: String = _arg_value("--vs-smoke-backend-url=")
+	if blocked_backend_url.is_empty():
+		blocked_backend_url = "http://127.0.0.1:8799/v1"
+	ProjectSettings.set_setting(SETTINGS_BACKEND_URL, blocked_backend_url)
+	ProjectSettings.set_setting(SETTINGS_BACKEND_TIMEOUT_SEC, 0.1)
+	ProjectSettings.set_setting(SETTINGS_FORCE_RELEASE_GUARD_FOR_SMOKE, true)
+	_print_step("release_guard", "validating fake multiplayer refusal", {"url": blocked_backend_url})
+
+	var handshake: Node = HANDSHAKE_SCRIPT.new()
+	root.add_child(handshake)
+	await process_frame
+
+	var blocker: String = ""
+	if handshake.has_method("get_authoritative_transport_blocker"):
+		blocker = str(handshake.call("get_authoritative_transport_blocker"))
+	_expect(not blocker.strip_edges().is_empty(), "release guard should expose a user-facing blocker", {"blocker": blocker})
+	_expect(not bool(handshake.call("is_authoritative_transport_online")), "release guard should not treat fake/local backend as authoritative", {
+		"transport_mode": str(handshake.get_transport_mode()) if handshake.has_method("get_transport_mode") else str(handshake.get("_transport_mode"))
+	})
+
+	var result: Dictionary = handshake.call("create_invite", {"uid": "release_guard_host", "display_name": "Host"}, {
+		"mode": "PVP",
+		"map_count": 1,
+		"price_usd": 0,
+		"free_roll": true
+	}) as Dictionary
+	_expect(not bool(result.get("ok", false)), "release guard must refuse fake create_invite", result)
+	_expect(bool(result.get("transport_error", false)), "release guard refusal should be a transport error", result)
+	_expect(str(result.get("session_id", "")).is_empty(), "release guard must not create local session", result)
+	if not _failed:
+		_print_step("result", "PASS", {"blocker": blocker, "transport_mode": str(handshake.call("get_transport_mode"))})
+
 func _contains_command_from_uid(events: Array, uid: String, kind: String) -> bool:
 	for e_any in events:
 		if typeof(e_any) != TYPE_DICTIONARY:
@@ -134,6 +180,23 @@ func _contains_command_from_uid(events: Array, uid: String, kind: String) -> boo
 		if str((command_any as Dictionary).get("kind", "")) == kind:
 			return true
 	return false
+
+func _session_stage_map(result: Dictionary) -> String:
+	var session_any: Variant = result.get("session", {})
+	if typeof(session_any) != TYPE_DICTIONARY:
+		return ""
+	var session: Dictionary = session_any as Dictionary
+	var context_any: Variant = session.get("context", {})
+	if typeof(context_any) != TYPE_DICTIONARY:
+		return ""
+	var context: Dictionary = context_any as Dictionary
+	var paths_any: Variant = context.get("stage_map_paths", [])
+	if typeof(paths_any) != TYPE_ARRAY:
+		return ""
+	var paths: Array = paths_any as Array
+	if paths.is_empty():
+		return ""
+	return str(paths[0])
 
 func _expect(condition: bool, message: String, details: Variant = null) -> void:
 	if condition:
@@ -157,3 +220,9 @@ func _arg_value(prefix: String) -> String:
 			continue
 		return value.substr(prefix.length()).strip_edges()
 	return ""
+
+func _has_arg(flag: String) -> bool:
+	for arg in OS.get_cmdline_args():
+		if str(arg) == flag:
+			return true
+	return false

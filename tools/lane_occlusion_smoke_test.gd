@@ -11,6 +11,7 @@ func _init() -> void:
 	_test_auto_lane_generation_blocks_near_miss_crossing()
 	_test_gbase_runtime_pair_is_blocked()
 	_test_delta_lane_topology_survives_power_growth()
+	_test_delta_h2_h8_is_connectable()
 	_test_existing_invalid_lane_cannot_be_enabled()
 	print("LANE_OCCLUSION_SMOKE: PASS")
 	quit(0)
@@ -99,6 +100,14 @@ func _test_delta_lane_topology_survives_power_growth() -> void:
 	_assert_true(blocker != null, "Delta blocker hive should exist")
 	blocker.power = 50
 	_assert_true(state.can_connect(6, 4), "Delta H6->H4 should not become blocked when nearby hives power up")
+
+func _test_delta_h2_h8_is_connectable() -> void:
+	var loaded: Dictionary = MAP_LOADER.load_map("res://maps/delta/MAP_delta__SBASE__3p.json")
+	_assert_true(bool(loaded.get("ok", false)), "Delta map should load for H2-H8 lane regression")
+	var state := GameState.new()
+	state.load_from_map_dict(loaded.get("data", {}) as Dictionary)
+	_assert_true(state.can_connect(2, 8), "Delta H2->H8 should be connectable with narrowed lanes")
+	_assert_true(state.can_connect(8, 2), "Delta H8->H2 should be connectable with narrowed lanes")
 
 func _test_existing_invalid_lane_cannot_be_enabled() -> void:
 	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")

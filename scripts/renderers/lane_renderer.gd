@@ -23,9 +23,9 @@ const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 @export var show_lane_candidates_while_running: bool = false
 @export var show_lane_sprites: bool = true
 @export var debug_draw_endpoints: bool = false
-@export var lane_thickness_mode: int = 0
-@export var lane_thickness_px: float = 72.0
-@export var lane_vs_unit_ratio: float = 0.85
+@export var lane_thickness_mode: int = 1
+@export var lane_thickness_px: float = 60.0
+@export var lane_vs_unit_ratio: float = 1.0
 @export var lane_start_cap_trim_px: float = 18.0
 @export var lane_end_cap_trim_px: float = 18.0
 

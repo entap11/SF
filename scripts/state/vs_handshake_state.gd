@@ -14,6 +14,7 @@ const ENV_BACKEND_TOKEN: String = "SF_VS_BACKEND_TOKEN"
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
+const SETTINGS_FORCE_RELEASE_GUARD_FOR_SMOKE: String = "swarmfront/vs/force_release_guard_for_smoke"
 const DEFAULT_BACKEND_TIMEOUT_SEC: float = 2.0
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -24,16 +25,26 @@ var _intent_streams: Dictionary = {}
 var _transport_http: VsHandshakeTransportHttp = null
 var _transport_mode: String = "local"
 var _transport_error_logged: bool = false
+var _transport_config_blocker: String = ""
+var _last_transport_error: Dictionary = {}
 
 func _ready() -> void:
 	_rng.randomize()
 	_configure_transport()
 
 func _configure_transport() -> void:
+	_transport_config_blocker = ""
 	var backend_url: String = _configured_backend_url()
 	if backend_url.is_empty():
 		_transport_http = null
 		_transport_mode = "local"
+		return
+	_transport_config_blocker = _release_backend_url_blocker(backend_url)
+	if _release_requires_authoritative_transport() and not _transport_config_blocker.is_empty():
+		_transport_http = null
+		_transport_mode = "invalid"
+		SFLog.allow_tag("VS_TRANSPORT_CONFIG")
+		SFLog.warn("VS_TRANSPORT_CONFIG", {"mode": _transport_mode, "url": backend_url, "blocker": _transport_config_blocker})
 		return
 	_transport_http = VsHandshakeTransportHttp.new()
 	_transport_http.configure(
@@ -49,7 +60,20 @@ func get_transport_mode() -> String:
 	return _transport_mode
 
 func is_authoritative_transport_online() -> bool:
-	return _transport_mode == "http" and _transport_http != null and _transport_http.configured()
+	return _transport_mode == "http" and _transport_http != null and _transport_http.configured() and _transport_config_blocker.is_empty()
+
+func get_authoritative_transport_blocker() -> String:
+	var backend_url: String = _configured_backend_url()
+	if backend_url.is_empty():
+		return "Online VS backend is not configured for this build."
+	if not _transport_config_blocker.is_empty():
+		return _transport_config_blocker
+	if not is_authoritative_transport_online():
+		return "Online VS backend is not available."
+	return ""
+
+func get_last_transport_error() -> Dictionary:
+	return _last_transport_error.duplicate(true)
 
 func get_beta_runtime_flags() -> Dictionary:
 	var remote_online: bool = is_authoritative_transport_online()
@@ -84,12 +108,24 @@ func _configured_backend_timeout_sec() -> float:
 
 func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 	if _transport_http == null or not _transport_http.configured():
+		if _release_requires_authoritative_transport():
+			var blocker: String = get_authoritative_transport_blocker()
+			var result: Dictionary = {
+				"ok": false,
+				"transport_error": true,
+				"err": "authoritative_transport_required",
+				"message": blocker
+			}
+			_last_transport_error = result.duplicate(true)
+			return {"handled": true, "result": result}
 		return {"handled": false}
 	var result: Dictionary = _transport_http.call_action(action, payload)
 	if bool(result.get("ok", false)):
 		_transport_error_logged = false
+		_last_transport_error = {}
 		return {"handled": true, "result": result}
 	if bool(result.get("transport_error", false)):
+		_last_transport_error = result.duplicate(true)
 		if not _transport_error_logged:
 			_transport_error_logged = true
 			SFLog.allow_tag("VS_TRANSPORT_FALLBACK")
@@ -98,6 +134,8 @@ func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 				"err": str(result.get("err", "transport_error")),
 				"mode": _transport_mode
 			}, "", 3000)
+		if not OS.is_debug_build():
+			return {"handled": true, "result": result}
 		return {"handled": false}
 	return {"handled": true, "result": result}
 
@@ -197,7 +235,8 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 			"ready": false,
 			"ticket_id": str(other.get("id", ""))
 		}
-		var session: Dictionary = _new_session(host, context, "quick")
+		var other_context: Dictionary = other.get("context", {}) as Dictionary
+		var session: Dictionary = _new_session(host, other_context, "quick")
 		session["guest"] = {
 			"uid": uid,
 			"display_name": str(player.get("display_name", "Player 2")),
@@ -580,10 +619,112 @@ func _session_refresh_status(session: Dictionary) -> void:
 	session["status"] = "matched"
 
 func _contexts_compatible(a: Dictionary, b: Dictionary) -> bool:
-	return str(a.get("mode", "")) == str(b.get("mode", "")) \
-		and int(a.get("map_count", 0)) == int(b.get("map_count", 0)) \
-		and int(a.get("price_usd", 0)) == int(b.get("price_usd", 0)) \
-		and bool(a.get("free_roll", false)) == bool(b.get("free_roll", false))
+	if str(a.get("mode", "")) != str(b.get("mode", "")):
+		return false
+	if int(a.get("map_count", 0)) != int(b.get("map_count", 0)):
+		return false
+	if int(a.get("price_usd", 0)) != int(b.get("price_usd", 0)):
+		return false
+	if bool(a.get("free_roll", false)) != bool(b.get("free_roll", false)):
+		return false
+	for key in ["map_ids", "stage_map_paths", "contest_id", "contest_scope"]:
+		if not _context_value_matches(a, b, key):
+			return false
+	return true
+
+func _context_value_matches(a: Dictionary, b: Dictionary, key: String) -> bool:
+	var a_has: bool = a.has(key)
+	var b_has: bool = b.has(key)
+	if a_has != b_has:
+		return false
+	if not a_has:
+		return true
+	var a_value: Variant = a.get(key)
+	var b_value: Variant = b.get(key)
+	if typeof(a_value) == TYPE_ARRAY or typeof(a_value) == TYPE_PACKED_STRING_ARRAY \
+	or typeof(b_value) == TYPE_ARRAY or typeof(b_value) == TYPE_PACKED_STRING_ARRAY:
+		return _context_string_list(a_value) == _context_string_list(b_value)
+	return str(a_value) == str(b_value)
+
+func _context_string_list(value: Variant) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	if typeof(value) == TYPE_PACKED_STRING_ARRAY:
+		for item in value as PackedStringArray:
+			out.append(str(item))
+		return out
+	if typeof(value) == TYPE_ARRAY:
+		for item in value as Array:
+			out.append(str(item))
+		return out
+	out.append(str(value))
+	return out
+
+func _release_requires_authoritative_transport() -> bool:
+	if bool(ProjectSettings.get_setting(SETTINGS_FORCE_RELEASE_GUARD_FOR_SMOKE, false)):
+		return true
+	return not OS.is_debug_build()
+
+func _release_backend_url_blocker(url: String) -> String:
+	var trimmed: String = url.strip_edges()
+	if trimmed.is_empty():
+		return "Online VS backend is not configured for this build."
+	var lower: String = trimmed.to_lower()
+	if not lower.begins_with("https://"):
+		return "Online VS backend must use HTTPS for TestFlight."
+	var host: String = _host_from_url(lower)
+	if host.is_empty():
+		return "Online VS backend URL is invalid."
+	if _is_localhost(host):
+		return "Online VS backend points at this device; TestFlight needs a deployed HTTPS backend."
+	if _is_private_ipv4(host):
+		return "Online VS backend points at a private/local IP; TestFlight needs a deployed HTTPS backend."
+	return ""
+
+func _host_from_url(url: String) -> String:
+	var remainder: String = url
+	if remainder.begins_with("https://"):
+		remainder = remainder.substr(8)
+	elif remainder.begins_with("http://"):
+		remainder = remainder.substr(7)
+	var slash_idx: int = remainder.find("/")
+	if slash_idx >= 0:
+		remainder = remainder.substr(0, slash_idx)
+	if remainder.begins_with("["):
+		var bracket_idx: int = remainder.find("]")
+		if bracket_idx > 0:
+			return remainder.substr(1, bracket_idx - 1)
+	var colon_idx: int = remainder.rfind(":")
+	if colon_idx > 0:
+		remainder = remainder.substr(0, colon_idx)
+	return remainder.strip_edges()
+
+func _is_localhost(host: String) -> bool:
+	var clean: String = host.strip_edges().to_lower()
+	return clean == "localhost" \
+		or clean == "::1" \
+		or clean == "0.0.0.0" \
+		or clean.begins_with("127.") \
+		or clean.ends_with(".local")
+
+func _is_private_ipv4(host: String) -> bool:
+	var parts: PackedStringArray = host.split(".")
+	if parts.size() != 4:
+		return false
+	var nums: Array[int] = []
+	for part in parts:
+		if not part.is_valid_int():
+			return false
+		var n: int = int(part)
+		if n < 0 or n > 255:
+			return false
+		nums.append(n)
+	if int(nums[0]) == 10:
+		return true
+	if int(nums[0]) == 192 and int(nums[1]) == 168:
+		return true
+	if int(nums[0]) == 172 and int(nums[1]) >= 16 and int(nums[1]) <= 31:
+		return true
+	return false
 
 func _normalize_profile(profile: Dictionary) -> Dictionary:
 	var uid: String = str(profile.get("uid", "")).strip_edges()

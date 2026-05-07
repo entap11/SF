@@ -75,6 +75,7 @@ const POWER_LABEL_OFFSET := Vector2(0.0, -42.0)
 const POWER_LABEL_TOP_GAP_PX: float = 8.0
 const POWER_LABEL_SCALE := 0.58
 const POWER_LABEL_FONT_SIZE := 34
+const POWER_LABEL_LOCAL_NUDGE := Vector2(0.0, -10.0)
 const POWER_BADGE_PAD := Vector2(6.0, 2.0)
 const POWER_LABEL_FILL_COLOR := Color(0.0, 0.0, 0.0, 1.0)
 const POWER_LABEL_STROKE_COLOR := Color(0.0, 0.0, 0.0, 0.96)
@@ -92,6 +93,8 @@ const POWER_HOLOGRAM_MIN_SIZE := Vector2(56.0, 52.0)
 const POWER_HOLOGRAM_SLOT_GROW := Vector2(8.0, 4.0)
 const POWER_HOLOGRAM_BASE_RISE: float = 7.0
 const POWER_HOLOGRAM_SLOT_RISE: float = 1.0
+const POWER_PROJECTION_LAYOUT_NUDGE := Vector2(0.0, 40.0)
+const POWER_PROJECTION_SOURCE_NUDGE_Y: float = 40.0
 const POWER_PROJECTION_SMALL_SIZE := Vector2(58.0, 72.0)
 const POWER_PROJECTION_MEDIUM_SIZE := Vector2(74.0, 84.0)
 const POWER_PROJECTION_LARGE_SIZE := Vector2(92.0, 92.0)
@@ -102,6 +105,9 @@ const LANE_BUDGET_PIP_SPACING: float = 17.0
 const LANE_BUDGET_LABEL_SIDE_GAP: float = 12.0
 const LANE_BUDGET_LABEL_TOP_GAP: float = 15.0
 const LANE_BUDGET_THREE_TOP_LIFT: float = 13.0
+const LANE_BUDGET_SINGLE_POS := Vector2(0.0, -31.0)
+const LANE_BUDGET_LOBE_POS := Vector2(15.0, -28.0)
+const LANE_BUDGET_CENTER_POS := Vector2(0.0, -36.0)
 const GROUND_GLOW_POINTS: int = 32
 const GROUND_GLOW_Y_RATIO: float = 0.27
 const GROUND_GLOW_W_RATIO: float = 0.92
@@ -663,7 +669,7 @@ func _update_power_label(owner_id_value: int, power_value: int, snap: bool = fal
 		_power_backing.custom_minimum_size = label_size + (POWER_BADGE_PAD * 2.0)
 		_power_backing.size = _power_backing.custom_minimum_size
 		_power_badge.size = _power_backing.size
-		_power_badge.position = -(_power_badge.size * POWER_LABEL_SCALE * 0.5)
+		_power_badge.position = -(_power_badge.size * POWER_LABEL_SCALE * 0.5) + POWER_LABEL_LOCAL_NUDGE
 	var off := _power_label_offset()
 	_power_label_holder.position = off
 	_update_power_projection_layout()
@@ -697,7 +703,7 @@ func _power_label_offset() -> Vector2:
 		return POWER_LABEL_OFFSET
 	var slot_count: int = _lane_budget_display_slot_count()
 	var rise: float = POWER_HOLOGRAM_BASE_RISE + (float(slot_count - 1) * POWER_HOLOGRAM_SLOT_RISE)
-	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - rise)
+	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - rise) + POWER_PROJECTION_LAYOUT_NUDGE
 
 func _ensure_power_projection_fx() -> void:
 	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
@@ -745,9 +751,9 @@ func _create_power_projection_poly(poly_name: String, z: int) -> Polygon2D:
 func _update_power_projection_layout() -> void:
 	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
 		return
-	var slot_count: int = _lane_budget_display_slot_count()
-	var texture: Texture2D = _power_projection_texture(slot_count)
-	var target_size: Vector2 = _power_projection_target_size(slot_count)
+	var projection_tier: int = _power_projection_visual_tier()
+	var texture: Texture2D = _power_projection_texture(projection_tier)
+	var target_size: Vector2 = _power_projection_target_size(projection_tier)
 	if texture == null or target_size == Vector2.ZERO:
 		return
 	var tex_size: Vector2 = texture.get_size()
@@ -756,7 +762,7 @@ func _update_power_projection_layout() -> void:
 	var source_y: float = target_size.y * 0.5
 	if _current_size.y > 0.0:
 		var hive_top_y: float = _sprite_offset.y - (_current_size.y * 0.5)
-		source_y = hive_top_y - _power_label_offset().y + 1.0
+		source_y = hive_top_y - _power_label_offset().y + 1.0 + POWER_PROJECTION_SOURCE_NUDGE_Y
 	var sprite_scale: Vector2 = target_size / tex_size
 	var sprite_position := Vector2(0.0, source_y - (target_size.y * 0.5))
 	_power_projection_sprite_base_scale = sprite_scale
@@ -783,11 +789,7 @@ func _power_hologram_size(label_size: Vector2, slot_count: int) -> Vector2:
 	var height: float = label_size.y + top_extra + (POWER_HOLOGRAM_PAD.y * 2.0) + (slot_extra * POWER_HOLOGRAM_SLOT_GROW.y)
 	return Vector2(maxf(POWER_HOLOGRAM_MIN_SIZE.x, width), maxf(POWER_HOLOGRAM_MIN_SIZE.y, height))
 
-func _power_projection_texture(slot_count: int) -> Texture2D:
-	if slot_count >= 3:
-		if _light_projection_large_texture == null:
-			_light_projection_large_texture = _load_projection_texture(LIGHT_PROJECTION_LARGE_PATH)
-		return _light_projection_large_texture
+func _power_projection_texture(projection_tier: int) -> Texture2D:
 	if _light_projection_medium_texture == null:
 		_light_projection_medium_texture = _load_projection_texture(LIGHT_PROJECTION_MEDIUM_PATH)
 	return _light_projection_medium_texture
@@ -800,14 +802,17 @@ func _load_projection_texture(path: String) -> Texture2D:
 		return null
 	return ImageTexture.create_from_image(image)
 
-func _power_projection_target_size(slot_count: int) -> Vector2:
-	match slot_count:
+func _power_projection_target_size(projection_tier: int) -> Vector2:
+	match projection_tier:
 		1:
 			return POWER_PROJECTION_SMALL_SIZE
-		2:
+		2, 3:
 			return POWER_PROJECTION_MEDIUM_SIZE
 		_:
 			return POWER_PROJECTION_LARGE_SIZE
+
+func _power_projection_visual_tier() -> int:
+	return clampi(_visual_tier_for_power(power), 1, 3)
 
 func _update_projection_tint() -> void:
 	var projection: Color = _projection_color()
@@ -1322,23 +1327,21 @@ func _lane_budget_reference_label_size() -> Vector2:
 	return Vector2(26.0, 22.0)
 
 func _lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vector2) -> Vector2:
-	var side_x: float = (label_size.x * 0.5) + LANE_BUDGET_LABEL_SIDE_GAP
-	var top_y: float = -((label_size.y * 0.5) + LANE_BUDGET_LABEL_TOP_GAP)
-	var fan_y: float = top_y + 3.0
 	match slot_count:
 		1:
-			return Vector2(0.0, top_y)
+			return LANE_BUDGET_SINGLE_POS
 		2:
 			var side: float = -1.0 if slot_index == 0 else 1.0
-			return Vector2(side * side_x, fan_y)
+			return Vector2(side * LANE_BUDGET_LOBE_POS.x, LANE_BUDGET_LOBE_POS.y)
 		3:
 			match slot_index:
 				0:
-					return Vector2(-side_x, fan_y)
+					return Vector2(-LANE_BUDGET_LOBE_POS.x, LANE_BUDGET_LOBE_POS.y)
 				1:
-					return Vector2(side_x, fan_y)
+					return Vector2(LANE_BUDGET_LOBE_POS.x, LANE_BUDGET_LOBE_POS.y)
 				_:
-					return Vector2(0.0, top_y - LANE_BUDGET_THREE_TOP_LIFT)
+					return LANE_BUDGET_CENTER_POS
+	var top_y: float = -((label_size.y * 0.5) + LANE_BUDGET_LABEL_TOP_GAP)
 	var center: float = (float(slot_count) - 1.0) * 0.5
 	return Vector2((float(slot_index) - center) * LANE_BUDGET_PIP_SPACING, top_y)
 

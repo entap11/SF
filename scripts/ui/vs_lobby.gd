@@ -81,6 +81,7 @@ var _session_role: String = ""
 var _quick_ticket_id: String = ""
 var _search_elapsed_sec: int = 0
 var _debug_filled: bool = false
+var _launching_match: bool = false
 var _font_regular: Font
 var _font_semibold: Font
 var _font_free_roll_atlas: Font
@@ -167,6 +168,8 @@ func _on_quick_match() -> void:
 			return
 		status_label.text = "Contest window closed."
 		return
+	if not _sync_transport_ready():
+		return
 	if _handshake() == null:
 		_start_sync_countdown_flow()
 		return
@@ -188,6 +191,8 @@ func _on_sms_invite() -> void:
 		invite_label.visible = true
 		_join_async_contest(true)
 		return
+	if not _sync_transport_ready():
+		return
 	var handshake: Node = _handshake()
 	if handshake == null:
 		status_label.text = "Handshake service unavailable."
@@ -196,7 +201,7 @@ func _on_sms_invite() -> void:
 	_leave_session(false)
 	var result: Dictionary = handshake.call("create_invite", _local_profile(), _handshake_context()) as Dictionary
 	if not bool(result.get("ok", false)):
-		status_label.text = "Could not create invite (%s)." % str(result.get("err", "unknown"))
+		status_label.text = _handshake_failure_text("Could not create invite", result)
 		return
 	_session_id = str(result.get("session_id", ""))
 	_invite_code = str(result.get("invite_code", ""))
@@ -211,6 +216,8 @@ func _on_sms_invite() -> void:
 func _on_join_pressed() -> void:
 	if _uses_async_window():
 		return
+	if not _sync_transport_ready():
+		return
 	var handshake: Node = _handshake()
 	if handshake == null:
 		status_label.text = "Handshake service unavailable."
@@ -223,12 +230,14 @@ func _on_join_pressed() -> void:
 	_leave_session(false)
 	var result: Dictionary = handshake.call("join_invite", code, _local_profile()) as Dictionary
 	if not bool(result.get("ok", false)):
-		status_label.text = "Join failed (%s)." % str(result.get("err", "unknown"))
+		status_label.text = _handshake_failure_text("Join failed", result)
 		return
 	_session_id = str(result.get("session_id", ""))
 	_session_role = "guest"
 	_invite_code = code
 	_local_joined = true
+	var joined_session: Dictionary = result.get("session", {}) as Dictionary
+	_apply_session_context(joined_session)
 	invite_label.visible = false
 	_start_handshake_poll()
 	_refresh_sync_session_ui()
@@ -241,11 +250,13 @@ func _begin_quick_search() -> void:
 	_leave_session(false)
 	var result: Dictionary = handshake.call("enqueue_quick_match", _local_profile(), _handshake_context()) as Dictionary
 	if not bool(result.get("ok", false)):
-		status_label.text = "Quick queue failed (%s)." % str(result.get("err", "unknown"))
+		status_label.text = _handshake_failure_text("Quick queue failed", result)
 		return
 	if bool(result.get("matched", false)):
 		_session_id = str(result.get("session_id", ""))
 		_session_role = "guest"
+		var matched_session: Dictionary = result.get("session", {}) as Dictionary
+		_apply_session_context(matched_session)
 		_start_handshake_poll()
 		_refresh_sync_session_ui()
 		return
@@ -273,13 +284,17 @@ func _toggle_ready_or_start() -> void:
 		return
 	var session: Dictionary = handshake.call("get_session", _session_id) as Dictionary
 	if session.is_empty():
-		status_label.text = "Session no longer available."
+		var transport_error: Dictionary = _last_handshake_transport_error(handshake)
+		if not transport_error.is_empty():
+			status_label.text = _handshake_failure_text("Online VS backend unreachable", transport_error)
+		else:
+			status_label.text = "Session no longer available."
 		_leave_session(false)
 		return
 	var local_ready: bool = _is_local_ready(session)
 	var result: Dictionary = handshake.call("set_ready", _session_id, _local_uid, not local_ready) as Dictionary
 	if not bool(result.get("ok", false)):
-		status_label.text = "Could not update ready (%s)." % str(result.get("err", "unknown"))
+		status_label.text = _handshake_failure_text("Could not update ready", result)
 		return
 	_refresh_sync_session_ui()
 
@@ -315,9 +330,14 @@ func _refresh_sync_session_ui() -> void:
 		return
 	var session: Dictionary = handshake.call("get_session", _session_id) as Dictionary
 	if session.is_empty():
-		status_label.text = "Session ended."
+		var transport_error: Dictionary = _last_handshake_transport_error(handshake)
+		if not transport_error.is_empty():
+			status_label.text = _handshake_failure_text("Online VS backend unreachable", transport_error)
+		else:
+			status_label.text = "Session ended."
 		_leave_session(false)
 		return
+	_apply_session_context(session)
 	var host: Dictionary = session.get("host", {}) as Dictionary
 	var guest: Dictionary = session.get("guest", {}) as Dictionary
 	var host_name: String = str(host.get("display_name", "Player 1"))
@@ -342,6 +362,7 @@ func _refresh_sync_session_ui() -> void:
 			_status("Both ready. Waiting for host")
 	elif status == "started":
 		_status("Match starting")
+		_start_match(true)
 	else:
 		_status("Lobby")
 	if _session_role == "host" and not _invite_code.is_empty() and guest_name.is_empty():
@@ -389,12 +410,18 @@ func _leave_session(with_service_call: bool) -> void:
 	_sync_join_row_visibility()
 
 func _handshake_context() -> Dictionary:
-	return {
+	var context: Dictionary = {
 		"mode": _mode,
 		"map_count": _map_count,
 		"price_usd": _price_usd,
 		"free_roll": _free_roll
 	}
+	for key in _context_meta.keys():
+		context[str(key)] = _context_meta[key]
+	var stage_map_paths: Array[String] = _resolve_stage_map_paths()
+	if not stage_map_paths.is_empty():
+		context["stage_map_paths"] = stage_map_paths
+	return context
 
 func _local_profile() -> Dictionary:
 	return {
@@ -500,6 +527,7 @@ func _poll_quick_search() -> void:
 		_session_id = str(poll.get("session_id", ""))
 		_quick_ticket_id = ""
 		var session: Dictionary = poll.get("session", {}) as Dictionary
+		_apply_session_context(session)
 		_session_role = _role_for_local_player(session)
 		_countdown_mode = "handshake_poll"
 		countdown_timer.start(1.0)
@@ -512,6 +540,7 @@ func _poll_quick_search() -> void:
 			_session_id = str(fill_result.get("session_id", ""))
 			_quick_ticket_id = ""
 			var filled_session: Dictionary = fill_result.get("session", {}) as Dictionary
+			_apply_session_context(filled_session)
 			_session_role = _role_for_local_player(filled_session)
 			_countdown_mode = "handshake_poll"
 			countdown_timer.start(1.0)
@@ -545,22 +574,35 @@ func _on_timeout_tick() -> void:
 		return
 	countdown_label.text = "Lobby expires in %ds" % _timeout_left
 
-func _start_match() -> void:
+func _start_match(session_already_started: bool = false) -> void:
+	if _launching_match:
+		return
 	if _uses_async_window() and not _contest_window_open:
 		status_label.text = "Contest window closed."
 		return
 	if not _uses_async_window():
+		if not _sync_transport_ready():
+			return
 		if _session_id.is_empty() and _handshake() != null:
 			status_label.text = "Create or join a PvP session first."
 			return
-		if _handshake() != null:
+		if _handshake() != null and not session_already_started:
 			var start_result: Dictionary = _handshake().call("start_session", _session_id, _local_uid) as Dictionary
 			if not bool(start_result.get("ok", false)):
-				status_label.text = "Both players must ready up; host starts the match."
+				if bool(start_result.get("transport_error", false)):
+					status_label.text = _handshake_failure_text("Online VS backend unreachable", start_result)
+				else:
+					status_label.text = "Both players must ready up; host starts the match."
 				return
+			var started_session: Dictionary = start_result.get("session", {}) as Dictionary
+			_apply_session_context(started_session)
 	var price_text := "FREE" if _free_roll else "$%d" % _price_usd
 	var stage_map_paths: Array[String] = _resolve_stage_map_paths()
 	var first_stage_map: String = stage_map_paths[0] if not stage_map_paths.is_empty() else ""
+	if first_stage_map.is_empty():
+		status_label.text = "No valid stage map found."
+		return
+	_launching_match = true
 	status_label.text = "Match starting..."
 	if SFLog.LOGGING_ENABLED:
 		print("VS RUN", {
@@ -611,17 +653,11 @@ func _start_match() -> void:
 		tree.set_meta("miss_n_out_notice", "")
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("_apply_map_then_start"):
-		if first_stage_map.is_empty():
-			status_label.text = "No valid stage map found."
-			return
 		var ops_state: Node = get_node_or_null("/root/OpsState")
 		if ops_state != null and ops_state.has_method("set_team_mode_override"):
 			ops_state.call("set_team_mode_override", "ffa")
 		shell.call("_apply_map_then_start", first_stage_map)
 		closed.emit()
-		return
-	if _mode == "STAGE_RACE" and first_stage_map.is_empty():
-		status_label.text = "No valid stage map found."
 		return
 	var gamebot: Node = get_node_or_null("/root/Gamebot")
 	if gamebot != null and not first_stage_map.is_empty():
@@ -661,6 +697,62 @@ func _remote_profile_for_tree() -> Dictionary:
 		"uid": uid,
 		"display_name": str(remote.get("display_name", "Player 2"))
 	}
+
+func _apply_session_context(session: Dictionary) -> void:
+	if session.is_empty():
+		return
+	var context_any: Variant = session.get("context", {})
+	if typeof(context_any) != TYPE_DICTIONARY:
+		return
+	var context: Dictionary = context_any as Dictionary
+	var mode: String = str(context.get("mode", _mode)).strip_edges()
+	if not mode.is_empty():
+		_mode = mode
+	_map_count = maxi(1, int(context.get("map_count", _map_count)))
+	_price_usd = maxi(0, int(context.get("price_usd", _price_usd)))
+	_free_roll = bool(context.get("free_roll", _free_roll))
+	for key in context.keys():
+		match str(key):
+			"mode", "map_count", "price_usd", "free_roll":
+				continue
+			_:
+				_context_meta[str(key)] = context[key]
+	_refresh_summary()
+
+func _sync_transport_ready() -> bool:
+	var handshake: Node = _handshake()
+	if handshake == null:
+		status_label.text = "Handshake service unavailable."
+		return false
+	if OS.is_debug_build():
+		return true
+	if handshake.has_method("is_authoritative_transport_online") and bool(handshake.call("is_authoritative_transport_online")):
+		return true
+	if handshake.has_method("get_authoritative_transport_blocker"):
+		var blocker: String = str(handshake.call("get_authoritative_transport_blocker")).strip_edges()
+		status_label.text = blocker if not blocker.is_empty() else "Online VS backend is not available."
+	else:
+		status_label.text = "Online VS backend is not configured for this build."
+	return false
+
+func _last_handshake_transport_error(handshake: Node) -> Dictionary:
+	if handshake == null or not handshake.has_method("get_last_transport_error"):
+		return {}
+	var error_any: Variant = handshake.call("get_last_transport_error")
+	if typeof(error_any) != TYPE_DICTIONARY:
+		return {}
+	var error: Dictionary = error_any as Dictionary
+	if bool(error.get("transport_error", false)):
+		return error
+	return {}
+
+func _handshake_failure_text(prefix: String, result: Dictionary) -> String:
+	if bool(result.get("transport_error", false)):
+		var message: String = str(result.get("message", "")).strip_edges()
+		if not message.is_empty():
+			return "%s. %s" % [prefix, message]
+		return "%s. Check your connection and try again (%s)." % [prefix, str(result.get("err", "network_error"))]
+	return "%s (%s)." % [prefix, str(result.get("err", "unknown"))]
 
 func _mode_label(mode_id: String) -> String:
 	match mode_id:
@@ -860,6 +952,16 @@ func _sync_join_row_visibility() -> void:
 
 func _resolve_stage_map_paths() -> Array[String]:
 	var resolved: Array[String] = []
+	var stage_paths_any: Variant = _context_meta.get("stage_map_paths", [])
+	if typeof(stage_paths_any) == TYPE_ARRAY:
+		for path_any in stage_paths_any as Array:
+			var path: String = str(path_any).strip_edges()
+			if path.is_empty() or resolved.has(path):
+				continue
+			if FileAccess.file_exists(path):
+				resolved.append(path)
+			if resolved.size() >= _map_count:
+				return resolved
 	if _mode == "CAPTURE_FLAG" or _mode == "HIDDEN_CAPTURE_FLAG":
 		for map_id_any in CTF_STAGE_MAP_IDS:
 			var ctf_map_path: String = _resolve_map_path(str(map_id_any))

@@ -49,6 +49,7 @@ const BUFF_SIDE_STRIP_WIDTH_PX: float = 92.0
 const BUFF_SIDE_STRIP_TARGET_HEIGHT_PX: float = 150.0
 const BUFF_SIDE_STRIP_GAP_PX: float = 16.0
 const BUFF_SIDE_STRIP_MARGIN_PX: float = 12.0
+const BUFF_SIDE_STRIP_LIFT_PX: float = 45.0
 const BUFF_SIDE_SLOT_SIZE_PX: float = 42.0
 const BUFF_SIDE_SLOT_SEPARATION_PX: int = 4
 const BUFF_SIDE_TITLE_FONT_SIZE: int = 12
@@ -66,6 +67,7 @@ const BUFF_OPP_SLOT_MAX_PX: float = 72.0
 const BUFF_OPP_ROW_SIDE_PAD_PX: float = 8.0
 const BUFF_PLAYER_STRIP_WIDTH_PX: float = 420.0
 const BUFF_PLAYER_STRIP_HEIGHT_PX: float = 120.0
+const BUFF_PLAYER_STRIP_LIFT_PX: float = 45.0
 const BUFF_PLAYER_SLOT_SIZE_PX: float = 84.0
 const BUFF_PLAYER_SLOT_SEPARATION_PX: int = 24
 const PREMATCH_POWERBAR_REVEAL_WINDOW_MS: int = 350
@@ -1575,7 +1577,7 @@ func _layout_player_strip_inside_bottom_buffer() -> void:
 	var target_height: float = minf(BUFF_PLAYER_STRIP_HEIGHT_PX, maxf(96.0, parent_rect.size.y - (BUFF_SIDE_STRIP_MARGIN_PX * 2.0)))
 	var target_pos: Vector2 = Vector2(
 		parent_rect.end.x - target_width - BUFF_SIDE_STRIP_MARGIN_PX,
-		parent_rect.end.y - target_height - BUFF_SIDE_STRIP_MARGIN_PX
+		parent_rect.end.y - target_height - BUFF_SIDE_STRIP_MARGIN_PX - BUFF_PLAYER_STRIP_LIFT_PX
 	)
 	_set_control_global_rect(player_strip, Rect2(target_pos, Vector2(target_width, target_height)))
 	player_strip.z_as_relative = false
@@ -1624,7 +1626,7 @@ func _layout_side_strips_inside_bottom_buffer() -> void:
 	var strip_size: Vector2 = _resolved_opponent_strip_size(parent_rect, max_width_left, strip_h)
 	var base_x: float = minf(left_bound, max_right - strip_size.x)
 	base_x = maxf(left_bound, base_x)
-	var base_y: float = parent_rect.end.y - strip_size.y - BUFF_SIDE_STRIP_MARGIN_PX
+	var base_y: float = parent_rect.end.y - strip_size.y - BUFF_SIDE_STRIP_MARGIN_PX - BUFF_SIDE_STRIP_LIFT_PX
 
 	for i in range(left_strips.size()):
 		var strip: Control = left_strips[i]
@@ -1639,7 +1641,7 @@ func _layout_side_strips_inside_bottom_buffer() -> void:
 		var ally_strip: Control = _ally_buff_strip as Control
 		var ally_size: Vector2 = _resolved_side_strip_size(parent_rect)
 		var right_x: float = parent_rect.end.x - ally_size.x - BUFF_SIDE_STRIP_MARGIN_PX
-		var y: float = parent_rect.end.y - ally_size.y - BUFF_SIDE_STRIP_MARGIN_PX
+		var y: float = parent_rect.end.y - ally_size.y - BUFF_SIDE_STRIP_MARGIN_PX - BUFF_SIDE_STRIP_LIFT_PX
 		_compact_side_strip(ally_strip)
 		_set_control_global_rect(ally_strip, Rect2(Vector2(right_x, y), ally_size))
 		ally_strip.z_as_relative = false

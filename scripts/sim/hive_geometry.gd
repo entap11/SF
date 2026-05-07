@@ -7,7 +7,7 @@ const BASE_RADIUS_PX: float = BASE_DIAMETER_PX * 0.5
 
 # Keep LOS occlusion coupled to rendered hive size: changing base radius changes occlusion.
 const LANE_OCCLUSION_RADIUS_SCALE: float = 1.0
-const DEFAULT_LANE_BODY_HALF_WIDTH_PX: float = 36.0
+const DEFAULT_LANE_BODY_HALF_WIDTH_PX: float = 28.0
 const DEFAULT_LANE_OCCLUSION_PAD_PX: float = 8.0
 const TIER_2_MIN_POWER := 10
 const TIER_3_MIN_POWER := 25

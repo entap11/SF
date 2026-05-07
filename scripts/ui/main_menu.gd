@@ -14,6 +14,8 @@ const DASH_BUFFS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashBuffsHer
 const DASH_ACHIEVEMENTS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashAchievementsHero.tscn")
 const HEX_SEAM_BACKGROUND_SCENE: PackedScene = preload("res://ui/backgrounds/HexSeamBackground.tscn")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
+const MatchTelemetryModelScript = preload("res://scripts/state/match_telemetry_model.gd")
+const MatchAnalyzerScript = preload("res://scripts/state/match_analyzer.gd")
 const MATCH_BACKGROUND_INLAY_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/match_background_inlay.png")
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
 const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
@@ -39,6 +41,7 @@ const MM_HERO_PANEL_ANCHOR_LEFT: float = 0.14
 const MM_HERO_PANEL_ANCHOR_RIGHT: float = 0.86
 const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
 const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
+const MATCH_REPLAY_SAVE_DIR: String = "user://matches"
 
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
@@ -252,6 +255,11 @@ var _dash_active_tab: String = DASH_HERO_TAB_GARAGE
 var _honey_widget: Control = null
 var _tier_widget: Control = null
 var _game_hub_live_refresh_pending: bool = false
+var _latest_replay_data: Dictionary = {}
+var _last_replay_data: Dictionary = {}
+var _last_replay_cursor_index: int = 0
+var _last_replay_speed_index: int = 0
+var _last_replay_is_playing: bool = false
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -1061,6 +1069,7 @@ func _ready() -> void:
 		get_viewport().size_changed.connect(_apply_background_art_direction)
 	_set_hex_buttons()
 	_load_match_history()
+	_refresh_home_replay_hint()
 	_build_store_landing()
 	_init_buffs_ui()
 	_apply_surface_hex_background_presets()
@@ -1779,6 +1788,19 @@ func _wire_buttons() -> void:
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
 	dash_hex_store.pressed.connect(func(): _open_dash_panel(dash_store_panel))
 	dash_hex_hive.pressed.connect(func(): _open_dash_panel(dash_hive_panel))
+	if hero_panel != null:
+		hero_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		hero_panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		hero_panel.tooltip_text = "Open last match replay"
+		if not hero_panel.gui_input.is_connected(_on_last_match_replay_hero_gui_input):
+			hero_panel.gui_input.connect(_on_last_match_replay_hero_gui_input)
+	for idx in range(replay_controls_buttons.size()):
+		var replay_button: Button = replay_controls_buttons[idx] as Button
+		if replay_button == null:
+			continue
+		var replay_control_cb: Callable = Callable(self, "_on_replay_control_pressed").bind(idx)
+		if not replay_button.pressed.is_connected(replay_control_cb):
+			replay_button.pressed.connect(replay_control_cb)
 	_wire_match_rows()
 	_wire_badges()
 	dash_stats_close.pressed.connect(func(): _close_dash_panel(dash_stats_panel))
@@ -8250,6 +8272,297 @@ func _sku_already_owned(sku: Dictionary) -> bool:
 			return false
 	return true
 
+func _on_last_match_replay_hero_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mouse_event: InputEventMouseButton = event as InputEventMouseButton
+		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
+			_open_latest_match_replay()
+			accept_event()
+
+func _open_latest_match_replay() -> void:
+	_refresh_latest_match_replay_cache()
+	if _latest_replay_data.is_empty():
+		var empty_data: Dictionary = _empty_saved_replay_data()
+		_last_replay_data = empty_data.duplicate(true)
+		dash_replay_sub.text = "No saved match replay yet"
+		_apply_replay_data(empty_data)
+		_open_dash_panel(dash_replay_panel)
+		status_label.text = "Play a match to create the first replay."
+		return
+	_current_match_index = 0
+	dash_replay_sub.text = "Replay breakdown - %s" % str(_latest_replay_data.get("title", "Last Match"))
+	_apply_replay_data(_latest_replay_data)
+	_open_dash_panel(dash_replay_panel)
+	status_label.text = "Loaded latest saved match replay."
+
+func _refresh_home_replay_hint() -> void:
+	if _latest_replay_data.is_empty():
+		_refresh_latest_match_replay_cache()
+	if hero_title_label != null:
+		hero_title_label.text = "Last Match Replay"
+	if hero_sub_label == null:
+		return
+	if _latest_replay_data.is_empty():
+		hero_sub_label.text = "Play a match to unlock replay + analysis"
+		return
+	var map_name: String = str(_latest_replay_data.get("map", "Unknown Map"))
+	var duration: String = str(_latest_replay_data.get("duration", "--:--"))
+	var result: String = str(_latest_replay_data.get("result", "-"))
+	hero_sub_label.text = "%s | %s | %s" % [result, map_name, duration]
+
+func _refresh_latest_match_replay_cache() -> bool:
+	_latest_replay_data = _load_latest_saved_match_replay_data()
+	return not _latest_replay_data.is_empty()
+
+func _load_latest_saved_match_replay_data() -> Dictionary:
+	var latest_path: String = _latest_saved_match_replay_path()
+	if latest_path.is_empty():
+		return {}
+	var payload: Dictionary = _load_match_replay_payload(latest_path)
+	if payload.is_empty():
+		return {}
+	return _build_replay_data_from_telemetry_payload(payload, latest_path)
+
+func _latest_saved_match_replay_path() -> String:
+	var dir: DirAccess = DirAccess.open(MATCH_REPLAY_SAVE_DIR)
+	if dir == null:
+		return ""
+	var latest_path: String = ""
+	var latest_mtime: int = -1
+	dir.list_dir_begin()
+	while true:
+		var file_name: String = dir.get_next()
+		if file_name == "":
+			break
+		if dir.current_is_dir():
+			continue
+		if not file_name.to_lower().ends_with(".json"):
+			continue
+		var path: String = "%s/%s" % [MATCH_REPLAY_SAVE_DIR, file_name]
+		var modified_time: int = int(FileAccess.get_modified_time(path))
+		if latest_path.is_empty() or modified_time > latest_mtime:
+			latest_path = path
+			latest_mtime = modified_time
+	dir.list_dir_end()
+	return latest_path
+
+func _load_match_replay_payload(path: String) -> Dictionary:
+	if path.strip_edges().is_empty() or not FileAccess.file_exists(path):
+		return {}
+	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return {}
+	var parser: JSON = JSON.new()
+	var err: int = parser.parse(file.get_as_text())
+	if err != OK or typeof(parser.data) != TYPE_DICTIONARY:
+		return {}
+	return parser.data as Dictionary
+
+func _build_replay_data_from_telemetry_payload(payload: Dictionary, source_path: String) -> Dictionary:
+	var model: Variant = MatchTelemetryModelScript.from_dict(payload)
+	if model == null:
+		return {}
+	var metadata: Dictionary = _telemetry_object_dictionary(model, "metadata")
+	var metrics: Dictionary = _telemetry_object_dictionary(model, "metrics")
+	var analysis_summary: Dictionary = _telemetry_object_dictionary(model, "analysis_summary")
+	var events: Array = _telemetry_object_events(model)
+	var focus_player_id: int = _telemetry_focus_player_id(metadata, metrics)
+	if analysis_summary.is_empty():
+		var analyzer: Variant = MatchAnalyzerScript.new()
+		if analyzer != null and analyzer.has_method("analyze"):
+			var summary_any: Variant = analyzer.call("analyze", model, focus_player_id)
+			if typeof(summary_any) == TYPE_DICTIONARY:
+				analysis_summary = summary_any as Dictionary
+	var result: String = _telemetry_result_label(metadata, focus_player_id)
+	var title: String = _telemetry_title(metadata, result)
+	return {
+		"title": title,
+		"result": result,
+		"eff": _telemetry_efficiency_label(analysis_summary, metrics),
+		"mode": _telemetry_mode_label(metadata),
+		"map": _present_replay_token(str(metadata.get("map_id", "Unknown Map"))),
+		"duration": _format_replay_duration(float(metadata.get("duration_s", 0.0))),
+		"timeline": _telemetry_timeline(events, metadata),
+		"analysis": _telemetry_analysis_lines(analysis_summary),
+		"source_path": source_path,
+		"is_saved_telemetry": true
+	}
+
+func _telemetry_object_dictionary(model: Variant, field_name: String) -> Dictionary:
+	if not (model is Object):
+		return {}
+	var value_any: Variant = (model as Object).get(field_name)
+	if typeof(value_any) != TYPE_DICTIONARY:
+		return {}
+	return (value_any as Dictionary).duplicate(true)
+
+func _telemetry_object_events(model: Variant) -> Array:
+	var out: Array = []
+	if not (model is Object):
+		return out
+	var events_any: Variant = (model as Object).get("events")
+	if typeof(events_any) != TYPE_ARRAY:
+		return out
+	for event_any in events_any as Array:
+		if typeof(event_any) == TYPE_DICTIONARY:
+			out.append((event_any as Dictionary).duplicate(true))
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("t", 0)) < int(b.get("t", 0))
+	)
+	return out
+
+func _telemetry_focus_player_id(metadata: Dictionary, metrics: Dictionary) -> int:
+	var players_any: Variant = metadata.get("players", [])
+	if typeof(players_any) == TYPE_ARRAY:
+		for player_any in players_any as Array:
+			if typeof(player_any) != TYPE_DICTIONARY:
+				continue
+			var player: Dictionary = player_any as Dictionary
+			if bool(player.get("is_local", false)):
+				return int(player.get("seat", 0))
+	var metric_players_any: Variant = metrics.get("players", [])
+	if typeof(metric_players_any) == TYPE_ARRAY and not (metric_players_any as Array).is_empty():
+		return int((metric_players_any as Array)[0])
+	return 1
+
+func _telemetry_result_label(metadata: Dictionary, focus_player_id: int) -> String:
+	var winner_player_id: int = int(metadata.get("winner_player_id", 0))
+	if winner_player_id <= 0:
+		return "-"
+	return "W" if winner_player_id == focus_player_id else "L"
+
+func _telemetry_title(metadata: Dictionary, result: String) -> String:
+	var result_word: String = "Replay"
+	if result == "W":
+		result_word = "Win"
+	elif result == "L":
+		result_word = "Loss"
+	return "%s - %s" % [result_word, _present_replay_token(str(metadata.get("map_id", "Last Match")))]
+
+func _telemetry_efficiency_label(analysis_summary: Dictionary, metrics: Dictionary) -> String:
+	var key_stats_any: Variant = analysis_summary.get("key_stats", [])
+	if typeof(key_stats_any) == TYPE_ARRAY:
+		for stat_any in key_stats_any as Array:
+			if typeof(stat_any) != TYPE_DICTIONARY:
+				continue
+			var stat: Dictionary = stat_any as Dictionary
+			if str(stat.get("label", "")) == "Meaningful APM":
+				return "APM %s" % str(stat.get("value", "--"))
+	var swing_ms: int = int(metrics.get("swing_moment_ms", 0))
+	if swing_ms > 0:
+		return "Swing %s" % _format_replay_time(swing_ms)
+	return "HE --"
+
+func _telemetry_mode_label(metadata: Dictionary) -> String:
+	var vs_mode: String = str(metadata.get("vs_mode", "")).strip_edges()
+	if vs_mode != "":
+		return _present_replay_token(vs_mode)
+	var match_type: int = int(metadata.get("match_type", 0))
+	if match_type == int(MatchTelemetryModelScript.MATCH_TYPE_ASYNC):
+		return "Async"
+	if match_type == int(MatchTelemetryModelScript.MATCH_TYPE_BOT):
+		return "Bot Match"
+	return "VS"
+
+func _telemetry_timeline(events: Array, metadata: Dictionary) -> Array:
+	var timeline: Array = []
+	for event_any in events:
+		if typeof(event_any) != TYPE_DICTIONARY:
+			continue
+		var event: Dictionary = event_any as Dictionary
+		var label: String = _telemetry_event_label(event)
+		if label.is_empty():
+			continue
+		timeline.append({
+			"t": _format_replay_time(int(event.get("t", 0))),
+			"event": label
+		})
+		if timeline.size() >= 4:
+			break
+	if timeline.is_empty():
+		timeline.append({"t": "00:00", "event": "Match started"})
+	var duration_s: float = float(metadata.get("duration_s", 0.0))
+	var winner_player_id: int = int(metadata.get("winner_player_id", 0))
+	if timeline.size() < 4 and duration_s > 0.0:
+		var finish_event: String = "Match ended"
+		if winner_player_id > 0:
+			finish_event = "Player %d won" % winner_player_id
+		timeline.append({"t": _format_replay_duration(duration_s), "event": finish_event})
+	return timeline
+
+func _telemetry_event_label(event: Dictionary) -> String:
+	var event_type: int = int(event.get("e", -1))
+	if event_type == int(MatchTelemetryModelScript.EVENT_HIVE_DAMAGE):
+		return "P%d hit P%d hive for %d" % [
+			int(event.get("atk", 0)),
+			int(event.get("def", 0)),
+			int(event.get("dmg", 0))
+		]
+	if event_type == int(MatchTelemetryModelScript.EVENT_BUFF_ACTIVATION):
+		return "P%d used %s" % [
+			int(event.get("p", 0)),
+			_present_replay_token(str(event.get("id", "buff")))
+		]
+	if event_type == int(MatchTelemetryModelScript.EVENT_ARRIVAL):
+		var before_owner: int = int(event.get("bo", 0))
+		var after_owner: int = int(event.get("ao", before_owner))
+		if after_owner > 0 and after_owner != before_owner:
+			return "P%d flipped Hive %d" % [after_owner, int(event.get("h", 0))]
+		return ""
+	if event_type == int(MatchTelemetryModelScript.EVENT_ACTION):
+		var kind: String = str(event.get("k", "")).strip_edges()
+		if kind == "swarm_send":
+			return "P%d sent a swarm" % int(event.get("p", 0))
+		if kind == "lane_reverse":
+			return "P%d reversed a lane" % int(event.get("p", 0))
+		return ""
+	if event_type == int(MatchTelemetryModelScript.EVENT_TOWER_KILL):
+		return "Tower %d picked off %d" % [int(event.get("tower_id", 0)), int(event.get("c", 0))]
+	return ""
+
+func _telemetry_analysis_lines(analysis_summary: Dictionary) -> Array:
+	var out: Array = []
+	var insights_any: Variant = analysis_summary.get("insights", [])
+	if typeof(insights_any) == TYPE_ARRAY:
+		for insight_any in insights_any as Array:
+			var insight: String = str(insight_any).strip_edges()
+			if insight == "":
+				continue
+			out.append(insight)
+			if out.size() >= 5:
+				break
+	return out
+
+func _empty_saved_replay_data() -> Dictionary:
+	return {
+		"title": "No Saved Match",
+		"result": "-",
+		"eff": "HE --",
+		"mode": "--",
+		"map": "--",
+		"duration": "--:--",
+		"timeline": [
+			{"t": "--:--", "event": "No saved replay found"}
+		],
+		"analysis": [],
+		"is_saved_telemetry": false
+	}
+
+func _present_replay_token(value: String) -> String:
+	var clean: String = value.get_file().get_basename().replace("_", " ").replace("-", " ").strip_edges()
+	if clean.is_empty():
+		return "Unknown"
+	return clean.capitalize()
+
+func _format_replay_duration(duration_s: float) -> String:
+	return _format_replay_time(int(round(maxf(0.0, duration_s) * 1000.0)))
+
+func _format_replay_time(time_ms: int) -> String:
+	var total_s: int = int(round(float(maxi(0, time_ms)) / 1000.0))
+	var minutes: int = int(total_s / 60)
+	var seconds: int = total_s % 60
+	return "%02d:%02d" % [minutes, seconds]
+
 func _on_store_sku_pressed(sku: Dictionary) -> void:
 	var title: String = str(sku.get("title", "Item"))
 	var sku_id: String = str(sku.get("id", "")).strip_edges()
@@ -8316,6 +8629,7 @@ func _clear_store_buttons() -> void:
 	_store_sku_buttons.clear()
 
 func _load_match_history() -> void:
+	_refresh_latest_match_replay_cache()
 	for i in range(1, 6):
 		var row_path := "DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchList/MatchRow%d" % i
 		var match_data := _get_match_data(i - 1)
@@ -8332,6 +8646,8 @@ func _load_match_history() -> void:
 	_apply_replay_data(first_match)
 
 func _get_match_data(index: int) -> Dictionary:
+	if index == 0 and not _latest_replay_data.is_empty():
+		return _latest_replay_data
 	if MATCH_HISTORY.is_empty():
 		return {}
 	if index < 0 or index >= MATCH_HISTORY.size():
@@ -8355,6 +8671,9 @@ func _apply_analysis_lines(match_data: Dictionary) -> void:
 			label.text = ""
 
 func _apply_replay_data(match_data: Dictionary) -> void:
+	_last_replay_data = match_data.duplicate(true)
+	_last_replay_cursor_index = 0
+	_last_replay_is_playing = false
 	var mode: String = str(match_data.get("mode", "4P Rumble"))
 	var map_name: String = str(match_data.get("map", "Map A"))
 	var duration: String = str(match_data.get("duration", "3:12"))
@@ -8372,6 +8691,7 @@ func _apply_replay_data(match_data: Dictionary) -> void:
 		else:
 			time_label.text = ""
 			event_label.text = ""
+	_update_replay_controls_state()
 
 func _open_match_stats(match_index: int) -> void:
 	_current_match_index = match_index
@@ -8388,11 +8708,52 @@ func _open_match_analysis(match_index: int) -> void:
 	_open_dash_panel(dash_analysis_panel)
 
 func _open_match_replay(match_index: int) -> void:
+	if match_index == 0:
+		_refresh_latest_match_replay_cache()
 	_current_match_index = match_index
 	var match_data := _get_match_data(match_index)
 	dash_replay_sub.text = "Replay breakdown — %s" % match_data.get("title", "Match")
 	_apply_replay_data(match_data)
 	_open_dash_panel(dash_replay_panel)
+
+func _on_replay_control_pressed(control_index: int) -> void:
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	if _last_replay_data.is_empty() or timeline.is_empty():
+		status_label.text = "No replay loaded."
+		return
+	match control_index:
+		0:
+			_last_replay_is_playing = true
+			status_label.text = "Replay playing from %s." % _replay_cursor_time()
+		1:
+			_last_replay_is_playing = false
+			status_label.text = "Replay paused at %s." % _replay_cursor_time()
+		2:
+			_last_replay_is_playing = false
+			_last_replay_cursor_index = mini(_last_replay_cursor_index + 1, timeline.size() - 1)
+			status_label.text = "Replay stepped to %s." % _replay_cursor_time()
+		3:
+			_last_replay_speed_index = (_last_replay_speed_index + 1) % 3
+			var speed_labels: Array[String] = ["1x", "2x", "4x"]
+			status_label.text = "Replay speed %s." % speed_labels[_last_replay_speed_index]
+		_:
+			pass
+
+func _replay_cursor_time() -> String:
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	if timeline.is_empty():
+		return "--:--"
+	_last_replay_cursor_index = clampi(_last_replay_cursor_index, 0, timeline.size() - 1)
+	var entry_any: Variant = timeline[_last_replay_cursor_index]
+	if typeof(entry_any) != TYPE_DICTIONARY:
+		return "--:--"
+	return str((entry_any as Dictionary).get("t", "--:--"))
+
+func _update_replay_controls_state() -> void:
+	var has_replay: bool = bool(_last_replay_data.get("is_saved_telemetry", true))
+	for button_any in replay_controls_buttons:
+		if button_any is Button:
+			(button_any as Button).disabled = not has_replay
 
 func _on_play_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/VSMenu.tscn")

@@ -4,7 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 GODOT_BIN="/Applications/Godot.app/Contents/MacOS/Godot"
 EXPORT_PRESET_FILE="$ROOT_DIR/export_presets.cfg"
-IOS_TEMPLATE="$HOME/Library/Application Support/Godot/export_templates/4.2.2.stable/ios.zip"
+GODOT_VERSION="4.2.stable"
+if [[ -x "$GODOT_BIN" ]]; then
+  GODOT_VERSION="$("$GODOT_BIN" --version | head -n 1 | sed -E 's/^([0-9]+\.[0-9]+\.stable).*/\1/')"
+fi
+IOS_TEMPLATE="$HOME/Library/Application Support/Godot/export_templates/$GODOT_VERSION/ios.zip"
 
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1"; }
@@ -55,7 +59,8 @@ fi
 run_smoke() {
   local script_path="$1"
   local label="$2"
-  if "$GODOT_BIN" --headless --path "$ROOT_DIR" --script "$script_path" >/tmp/sf_tf_preflight.log 2>&1; then
+  shift 2
+  if "$GODOT_BIN" --headless --path "$ROOT_DIR" --script "$script_path" "$@" >/tmp/sf_tf_preflight.log 2>&1; then
     pass "$label"
   else
     fail "$label"
@@ -64,7 +69,29 @@ run_smoke() {
   fi
 }
 
+VS_BACKEND_URL=""
+if [[ -f "$ROOT_DIR/project.godot" ]]; then
+  VS_BACKEND_URL="$(rg -n '^vs/backend_url=' "$ROOT_DIR/project.godot" | sed -E 's/.*=\"(.*)\"/\1/' | head -n 1 || true)"
+  if [[ -z "$VS_BACKEND_URL" ]]; then
+    fail "VS backend URL is empty; TestFlight two-device PvP will fail closed"
+    FAILURES=$((FAILURES + 1))
+  elif [[ "$VS_BACKEND_URL" == http://127.* || "$VS_BACKEND_URL" == http://localhost* || "$VS_BACKEND_URL" == http://0.0.0.0* ]]; then
+    fail "VS backend URL is local-only ($VS_BACKEND_URL)"
+    FAILURES=$((FAILURES + 1))
+  elif [[ "$VS_BACKEND_URL" != https://* ]]; then
+    fail "VS backend URL must be HTTPS for iOS/TestFlight ($VS_BACKEND_URL)"
+    FAILURES=$((FAILURES + 1))
+  else
+    pass "VS backend URL is release-shaped ($VS_BACKEND_URL)"
+  fi
+fi
+
 if [[ -x "$GODOT_BIN" ]]; then
+  run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS debug local PvP smoke"
+  run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS release guard refuses fake multiplayer" "--vs-smoke-release-guard"
+  if [[ -n "$VS_BACKEND_URL" && "$VS_BACKEND_URL" == https://* ]]; then
+    run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS configured backend PvP smoke" "--vs-smoke-backend-url=$VS_BACKEND_URL"
+  fi
   run_smoke "res://tools/economy_buff_smoke_test.gd" "Economy/Buff smoke"
   run_smoke "res://tools/swarm_pass_smoke_test.gd" "SwarmPass smoke"
   run_smoke "res://tools/rank_system_smoke_test.gd" "Rank smoke"
