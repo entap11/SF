@@ -24,7 +24,7 @@ const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 @export var show_lane_sprites: bool = true
 @export var debug_draw_endpoints: bool = false
 @export var lane_thickness_mode: int = 0
-@export var lane_thickness_px: float = 80.0
+@export var lane_thickness_px: float = 72.0
 @export var lane_vs_unit_ratio: float = 0.85
 @export var lane_start_cap_trim_px: float = 18.0
 @export var lane_end_cap_trim_px: float = 18.0
@@ -54,7 +54,7 @@ const LANE_HOSTILE_Z_INDEX := -3
 const LANE_CONNECTOR_AT_ENDPOINTS := false
 # --- Lane sprite sizing ---
 const LANE_THICKNESS_PX := 2.0
-const LANE_WIDTH_PX := 14.0
+const LANE_WIDTH_PX := 12.6
 const LANE_MIN_LEN_PX := 6.0
 const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
@@ -1131,8 +1131,12 @@ func _get_lane_band_material() -> ShaderMaterial:
 	mat.set_shader_parameter("lane_brightness", 1.55)
 	mat.set_shader_parameter("highlight_boost", 0.85)
 	mat.set_shader_parameter("glow_boost", 0.55)
+	mat.set_shader_parameter("ink_luma_floor", 0.20)
+	mat.set_shader_parameter("ink_luma_full", 0.52)
+	mat.set_shader_parameter("ink_chroma_floor", 0.10)
+	mat.set_shader_parameter("ink_chroma_full", 0.30)
 	if AUDIT_RENDER:
-		_audit_mat_sets += 6
+		_audit_mat_sets += 10
 	_lane_band_material = mat
 	return mat
 

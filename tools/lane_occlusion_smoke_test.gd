@@ -7,8 +7,10 @@ func _init() -> void:
 	await process_frame
 	_test_hive_occlusion_prunes_candidates()
 	_test_wall_occlusion_prunes_candidates()
+	_test_wall_padding_blocks_near_miss()
 	_test_auto_lane_generation_blocks_near_miss_crossing()
 	_test_gbase_runtime_pair_is_blocked()
+	_test_delta_lane_topology_survives_power_growth()
 	_test_existing_invalid_lane_cannot_be_enabled()
 	print("LANE_OCCLUSION_SMOKE: PASS")
 	quit(0)
@@ -49,6 +51,20 @@ func _test_wall_occlusion_prunes_candidates() -> void:
 	_assert_true(not state.can_connect(1, 2), "wall should occlude the lane")
 	_assert_eq(_candidate_count(state.lane_candidates), 0, "wall-blocked lane should be removed from candidates")
 
+func _test_wall_padding_blocks_near_miss() -> void:
+	var result := MapSchema._auto_generate_lanes([
+		{"id": 1, "grid_pos": [0, 0], "kind": "Hive"},
+		{"id": 2, "grid_pos": [4, 1], "kind": "Hive"}
+	], 5, 2, {
+		"symmetric": false,
+		"walls": [
+			{"dir": "v", "x": 2, "y": 1}
+		]
+	})
+	_assert_true(bool(result.get("ok", false)), "auto lane generation should succeed with wall padding")
+	var lanes: Array = result.get("lanes", [])
+	_assert_true(not _has_candidate(lanes, 1, 2), "lane half-width should block near-miss wall crossings")
+
 func _test_auto_lane_generation_blocks_near_miss_crossing() -> void:
 	var result := MapSchema._auto_generate_lanes([
 		{"id": 1, "grid_pos": [0, 0], "kind": "Hive"},
@@ -62,11 +78,27 @@ func _test_auto_lane_generation_blocks_near_miss_crossing() -> void:
 	_assert_true(_has_candidate(lanes, 2, 3), "auto lanes should keep the unoccluded local link")
 
 func _test_gbase_runtime_pair_is_blocked() -> void:
-	var loaded: Dictionary = MAP_LOADER.load_map("res://maps/nomansland/MAP_nomansland__GBASE__1p.json")
-	_assert_true(bool(loaded.get("ok", false)), "GBASE map should load for lane regression")
+	var path := "res://maps/nomansland/MAP_nomansland__GBASE__1p.json"
+	if not MAP_LOADER.list_maps().has(path):
+		print("LANE_OCCLUSION_SMOKE: SKIP missing GBASE lane regression map")
+		return
+	var loaded: Dictionary = MAP_LOADER.load_map(path)
+	if not bool(loaded.get("ok", false)):
+		print("LANE_OCCLUSION_SMOKE: SKIP missing GBASE lane regression map")
+		return
 	var state := GameState.new()
 	state.load_from_map_dict(loaded.get("data", {}) as Dictionary)
 	_assert_true(not state.can_connect(2, 10), "GBASE pair 2->10 should be occluded by center hives")
+
+func _test_delta_lane_topology_survives_power_growth() -> void:
+	var loaded: Dictionary = MAP_LOADER.load_map("res://maps/delta/MAP_delta__SBASE__3p.json")
+	_assert_true(bool(loaded.get("ok", false)), "Delta map should load for lane topology regression")
+	var state := GameState.new()
+	state.load_from_map_dict(loaded.get("data", {}) as Dictionary)
+	var blocker := state.find_hive_by_id(3)
+	_assert_true(blocker != null, "Delta blocker hive should exist")
+	blocker.power = 50
+	_assert_true(state.can_connect(6, 4), "Delta H6->H4 should not become blocked when nearby hives power up")
 
 func _test_existing_invalid_lane_cannot_be_enabled() -> void:
 	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")

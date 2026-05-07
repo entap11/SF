@@ -9,18 +9,18 @@ const PERIOD_LABELS: Array[String] = ["WEEKLY", "MONTHLY", "SEASON", "ALL TIME"]
 const CATEGORY_ORDER: Array[String] = ["FEATURED", "CTF", "HIDDEN", "FFA", "STRATEGY", "TEMPO", "REACTION", "NOMANSLAND", "DELTA"]
 const DEFAULT_BOARD_MODE: String = "ASYNC_SINGLE_MAP_TIMED"
 const DIRECT_CTF_MAP_PATHS: Array[String] = [
-	"res://maps/nomansland/MAP_nomansland__SBASE__1p.json"
+	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 ]
 const HIDDEN_CTF_MAP_PATHS: Array[String] = [
-	"res://maps/_future/nomansland/MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each.json"
+	"res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__1p.json"
 ]
 const FEATURED_MAP_PATHS: Array[String] = [
-	"res://maps/nomansland/MAP_nomansland__SBASE__1p.json",
-	"res://maps/nomansland/MAP_nomansland__SN6__1p.json",
-	"res://maps/nomansland/MAP_nomansland__GBASE__1p.json",
-	"res://maps/nomansland/MAP_nomansland__GBASE__BR2__TR2__1p.json",
-	"res://maps/nomansland/MAP_nomansland__GBASE__TB__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each.json"
+	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json",
+	"res://maps/_future/nomansland/MAP_nomansland__545__v02_all_sides_owned__1p.json",
+	"res://maps/_future/nomansland/MAP_nomansland__545__v03_top_half_vs_bottom_half__1p.json",
+	"res://maps/_future/nomansland/MAP_nomansland__545__v04_top_corners_vs_bottom_corners__1p.json",
+	"res://maps/_future/nomansland/MAP_nomansland__545__v05_diagonal_TL_vs_BR__1p.json",
+	"res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__1p.json"
 ]
 const HERO_FALLBACK_PREVIEW_PATH: String = "res://assets/sprites/sf_skin_v1/map_jukebox.png"
 
@@ -184,7 +184,7 @@ func owner_counts(data: Dictionary) -> Dictionary:
 	return counts
 
 func supports_ctf(path: String, normalized: Dictionary) -> bool:
-	var family: String = str(normalized.get("family", "")).to_lower()
+	var family: String = _map_family_for_path(path, normalized)
 	return family == "nomansland" or DIRECT_CTF_MAP_PATHS.has(path)
 
 func supports_hidden_ctf(path: String, normalized: Dictionary) -> bool:
@@ -196,7 +196,7 @@ func supports_hidden_ctf(path: String, normalized: Dictionary) -> bool:
 func primary_category(path: String, normalized: Dictionary) -> String:
 	if FEATURED_MAP_PATHS.has(path):
 		return "FEATURED"
-	var family: String = str(normalized.get("family", "other")).to_upper()
+	var family: String = _map_family_for_path(path, normalized).to_upper()
 	return family if not family.is_empty() else "OTHER"
 
 func category_filters(path: String, normalized: Dictionary, playstyle_tags: Array[String] = []) -> Array[String]:
@@ -209,7 +209,7 @@ func category_filters(path: String, normalized: Dictionary, playstyle_tags: Arra
 		out.append("CTF")
 	if supports_hidden_ctf(path, normalized) and not out.has("HIDDEN"):
 		out.append("HIDDEN")
-	var family: String = str(normalized.get("family", "")).to_upper()
+	var family: String = _map_family_for_path(path, normalized).to_upper()
 	if not family.is_empty() and not out.has(family):
 		out.append(family)
 	for tag_any in playstyle_tags:
@@ -219,6 +219,21 @@ func category_filters(path: String, normalized: Dictionary, playstyle_tags: Arra
 		if not out.has(tag):
 			out.append(tag)
 	return out
+
+func _map_family_for_path(path: String, normalized: Dictionary) -> String:
+	var family: String = str(normalized.get("family", "")).strip_edges().to_lower()
+	if not family.is_empty():
+		return family
+	var map_id: String = MAP_REGISTRY.map_id_from_path(path)
+	var alias: Dictionary = MAP_REGISTRY.public_map_alias_entry_for_id(map_id)
+	family = str(alias.get("family", "")).strip_edges().to_lower()
+	if not family.is_empty():
+		return family
+	if map_id.to_lower().begins_with("map_nomansland__") or path.to_lower().contains("/nomansland/"):
+		return "nomansland"
+	if map_id.to_lower().begins_with("map_delta__") or path.to_lower().contains("/delta/"):
+		return "delta"
+	return ""
 
 func map_title(map_id: String, data: Dictionary) -> String:
 	var raw_name: String = str(data.get("name", "")).strip_edges()

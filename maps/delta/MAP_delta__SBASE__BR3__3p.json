@@ -21,8 +21,8 @@
 
   "nodes": [
     { "id": "p1h1", "pos": { "x": 1,  "y": 22 }, "owner": "P1",  "kind": "hive" },
-    { "id": "n1",   "pos": { "x": 5,  "y": 22 }, "owner": "NPC", "kind": "hive" },
-    { "id": "n2",   "pos": { "x": 13, "y": 22 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n1",   "pos": { "x": 6,  "y": 22 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n2",   "pos": { "x": 12, "y": 22 }, "owner": "NPC", "kind": "hive" },
     { "id": "p3h1", "pos": { "x": 17, "y": 22 }, "owner": "P3",  "kind": "hive" },
 
     { "id": "n3",   "pos": { "x": 4,   "y": 16.5 }, "owner": "NPC", "kind": "hive" },

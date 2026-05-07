@@ -9,6 +9,8 @@ const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader")
 const CORE_ENERGY_SHADER := preload("res://shaders/hive_core_energy.gdshader")
 const POWER_LABEL_FONT := preload("res://assets/fonts/ChakraPetch-SemiBold.ttf")
+const LIGHT_PROJECTION_LARGE_PATH := "res://assets/sprites/sf_skin_v1/light_projection.png"
+const LIGHT_PROJECTION_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/light_projection_medium.png"
 @export var debug_show_kind_label := false
 @export var debug_tint_log := false
 @export var show_hive_ids: bool = OS.is_debug_build()
@@ -42,6 +44,8 @@ const POWER_LABEL_FONT := preload("res://assets/fonts/ChakraPetch-SemiBold.ttf")
 @export_range(0.0, 1.5, 0.01) var under_attack_flicker_strength: float = 0.62
 @export_range(0.0, 2.0, 0.01) var max_power_glow_strength: float = 1.2
 @export_range(0.0, 1.0, 0.01) var projection_flicker_strength: float = 0.07
+@export_range(0.0, 0.35, 0.01) var hive_sprite_pulse_strength: float = 0.18
+@export_range(0.0, 8.0, 0.01) var hive_sprite_pulse_speed: float = 2.65
 
 const TIER_2_MIN_POWER := 10
 const TIER_3_MIN_POWER := 25
@@ -72,22 +76,32 @@ const POWER_LABEL_TOP_GAP_PX: float = 8.0
 const POWER_LABEL_SCALE := 0.58
 const POWER_LABEL_FONT_SIZE := 34
 const POWER_BADGE_PAD := Vector2(6.0, 2.0)
-const POWER_LABEL_FILL_COLOR := Color(1.0, 0.90, 0.48, 1.0)
+const POWER_LABEL_FILL_COLOR := Color(0.0, 0.0, 0.0, 1.0)
 const POWER_LABEL_STROKE_COLOR := Color(0.0, 0.0, 0.0, 0.96)
 const POWER_LABEL_INVISIBLE_FILL := Color(1.0, 1.0, 1.0, 0.01)
-const POWER_LABEL_ACCENT_ALPHA: float = 0.72
-const POWER_BADGE_BG := Color(0.035, 0.040, 0.055, 0.96)
-const POWER_BADGE_BORDER_ALPHA: float = 0.82
+const POWER_LABEL_ACCENT_ALPHA: float = 0.0
+const POWER_BADGE_BG := Color(0.0, 0.0, 0.0, 0.0)
+const POWER_BADGE_BORDER_ALPHA: float = 0.0
 const POWER_BADGE_CORNER_RADIUS: int = 7
 const POWER_PROJECTION_RING_Y: float = 20.0
 const POWER_PROJECTION_BEAM_ALPHA: float = 0.18
 const POWER_PROJECTION_PULSE_ALPHA: float = 0.07
+const POWER_HOLOGRAM_PAD := Vector2(15.0, 12.0)
+const POWER_HOLOGRAM_FRAY_PX: float = 13.0
+const POWER_HOLOGRAM_MIN_SIZE := Vector2(56.0, 52.0)
+const POWER_HOLOGRAM_SLOT_GROW := Vector2(8.0, 4.0)
+const POWER_HOLOGRAM_BASE_RISE: float = 7.0
+const POWER_HOLOGRAM_SLOT_RISE: float = 1.0
+const POWER_PROJECTION_SMALL_SIZE := Vector2(58.0, 72.0)
+const POWER_PROJECTION_MEDIUM_SIZE := Vector2(74.0, 84.0)
+const POWER_PROJECTION_LARGE_SIZE := Vector2(92.0, 92.0)
 const LANE_BUDGET_DEFAULT_SLOTS: int = 3
 const LANE_BUDGET_PIP_RADIUS: float = 6.2
 const LANE_BUDGET_PIP_INNER_RADIUS: float = 4.7
-const LANE_BUDGET_PIP_SPACING: float = 13.4
-const LANE_BUDGET_Y_RATIO: float = -0.23
-const LANE_BUDGET_THREE_OUTER_LIFT: float = 2.4
+const LANE_BUDGET_PIP_SPACING: float = 17.0
+const LANE_BUDGET_LABEL_SIDE_GAP: float = 12.0
+const LANE_BUDGET_LABEL_TOP_GAP: float = 15.0
+const LANE_BUDGET_THREE_TOP_LIFT: float = 13.0
 const GROUND_GLOW_POINTS: int = 32
 const GROUND_GLOW_Y_RATIO: float = 0.27
 const GROUND_GLOW_W_RATIO: float = 0.92
@@ -155,8 +169,18 @@ var _power_backing: PanelContainer = null
 var _power_accent_label: Label = null
 var _power_stroke_label: Label = null
 var _power_label: Label = null
+var _power_projector_panel: Polygon2D = null
+var _power_projector_fray_top: Polygon2D = null
+var _power_projector_fray_bottom: Polygon2D = null
+var _power_projector_fray_left: Polygon2D = null
+var _power_projector_fray_right: Polygon2D = null
 var _power_projector_ring: Polygon2D = null
 var _power_projector_beam: Polygon2D = null
+var _power_projection_sprite: Sprite2D = null
+var _power_projection_shimmer: Sprite2D = null
+var _power_projection_sprite_base_scale: Vector2 = Vector2.ONE
+var _light_projection_large_texture: Texture2D = null
+var _light_projection_medium_texture: Texture2D = null
 var _hive_id_label: Label = null
 var _lane_budget_pips: Array[Dictionary] = []
 var _lane_budget_used: int = 0
@@ -394,14 +418,22 @@ func _process(delta: float) -> void:
 	if _power_label_holder != null and is_instance_valid(_power_label_holder):
 		var base_offset: Vector2 = _power_label_offset()
 		var bob_y: float = sin(_fx_t * 2.2) * 0.8
-		_power_label_holder.position = base_offset + Vector2(0.0, bob_y)
-		var alpha: float = 0.88 + (projection_flicker_strength * (0.5 + 0.5 * sin(_fx_t * 7.3)))
-		alpha -= state_flicker * 0.05 * subtle_noise
-		_power_label_holder.modulate.a = clampf(alpha, 0.72, 1.0)
+		var label_pos: Vector2 = base_offset + Vector2(0.0, bob_y)
+		_power_label_holder.position = label_pos
+		if _lane_budget_layer != null and is_instance_valid(_lane_budget_layer):
+			_lane_budget_layer.position = label_pos
+		_power_label_holder.modulate.a = 1.0
 	if _power_projector_beam != null and is_instance_valid(_power_projector_beam):
 		var beam_color: Color = _projection_color()
-		beam_color.a = POWER_PROJECTION_BEAM_ALPHA + (projection_flicker_strength * 0.55 * (0.5 + 0.5 * sin(_fx_t * 5.1)))
+		beam_color.a = POWER_PROJECTION_BEAM_ALPHA + 0.10 + (projection_flicker_strength * 0.55 * (0.5 + 0.5 * sin(_fx_t * 5.1)))
 		_power_projector_beam.color = beam_color
+	if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
+		var projection_alpha: float = 0.86 + (projection_flicker_strength * 0.45 * (0.5 + 0.5 * sin(_fx_t * 4.7)))
+		_power_projection_sprite.modulate.a = clampf(projection_alpha, 0.78, 0.96)
+	if _power_projection_shimmer != null and is_instance_valid(_power_projection_shimmer):
+		var shimmer_alpha: float = 0.10 + (0.11 * (0.5 + 0.5 * sin((_fx_t * 6.8) + 1.3)))
+		_power_projection_shimmer.modulate.a = shimmer_alpha
+		_power_projection_shimmer.position.y = (_power_projection_sprite.position.y if _power_projection_sprite != null else 0.0) - (sin(_fx_t * 3.2) * 1.6)
 	_update_core_materials()
 	_update_phase3_motion()
 
@@ -508,16 +540,16 @@ func _style_power_backing() -> void:
 	var style: StyleBoxFlat = StyleBoxFlat.new()
 	style.bg_color = POWER_BADGE_BG
 	style.border_color = accent
-	style.border_width_left = 1
-	style.border_width_top = 1
-	style.border_width_right = 1
-	style.border_width_bottom = 1
+	style.border_width_left = 0
+	style.border_width_top = 0
+	style.border_width_right = 0
+	style.border_width_bottom = 0
 	style.corner_radius_top_left = POWER_BADGE_CORNER_RADIUS
 	style.corner_radius_top_right = POWER_BADGE_CORNER_RADIUS
 	style.corner_radius_bottom_left = POWER_BADGE_CORNER_RADIUS
 	style.corner_radius_bottom_right = POWER_BADGE_CORNER_RADIUS
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.40)
-	style.shadow_size = 3
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.0)
+	style.shadow_size = 0
 	style.content_margin_left = POWER_BADGE_PAD.x
 	style.content_margin_right = POWER_BADGE_PAD.x
 	style.content_margin_top = POWER_BADGE_PAD.y
@@ -634,6 +666,8 @@ func _update_power_label(owner_id_value: int, power_value: int, snap: bool = fal
 		_power_badge.position = -(_power_badge.size * POWER_LABEL_SCALE * 0.5)
 	var off := _power_label_offset()
 	_power_label_holder.position = off
+	_update_power_projection_layout()
+	_update_lane_budget_indicators()
 	_update_projection_tint()
 	if snap:
 		_play_power_snap()
@@ -661,49 +695,152 @@ func _power_label_offset() -> Vector2:
 		return power_label_offset_override
 	if _current_size.y <= 0.0:
 		return POWER_LABEL_OFFSET
-	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - POWER_LABEL_TOP_GAP_PX)
+	var slot_count: int = _lane_budget_display_slot_count()
+	var rise: float = POWER_HOLOGRAM_BASE_RISE + (float(slot_count - 1) * POWER_HOLOGRAM_SLOT_RISE)
+	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - rise)
 
 func _ensure_power_projection_fx() -> void:
 	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
 		return
-	if _power_projector_beam == null or not is_instance_valid(_power_projector_beam):
-		var beam: Polygon2D = Polygon2D.new()
-		beam.name = "ProjectionBeam"
-		beam.z_index = -2
-		beam.polygon = PackedVector2Array([
-			Vector2(-13.0, POWER_PROJECTION_RING_Y),
-			Vector2(13.0, POWER_PROJECTION_RING_Y),
-			Vector2(8.0, 4.0),
-			Vector2(-8.0, 4.0)
-		])
-		_power_label_holder.add_child(beam)
-		_power_projector_beam = beam
-	if _power_projector_ring == null or not is_instance_valid(_power_projector_ring):
-		var ring: Polygon2D = Polygon2D.new()
-		ring.name = "ProjectorRing"
-		ring.z_index = -1
-		ring.polygon = _ellipse_points(18.0, 4.0, 28)
-		ring.position = Vector2(0.0, POWER_PROJECTION_RING_Y)
-		_power_label_holder.add_child(ring)
-		_power_projector_ring = ring
+	_remove_power_projection_poly("ProjectionPanel")
+	_remove_power_projection_poly("ProjectionFrayTop")
+	_remove_power_projection_poly("ProjectionFrayBottom")
+	_remove_power_projection_poly("ProjectionFrayLeft")
+	_remove_power_projection_poly("ProjectionFrayRight")
+	_remove_power_projection_poly("ProjectionBeam")
+	_remove_power_projection_poly("ProjectorRing")
+	if _power_projection_sprite == null or not is_instance_valid(_power_projection_sprite):
+		var projection_sprite := Sprite2D.new()
+		projection_sprite.name = "ProjectionSprite"
+		projection_sprite.centered = true
+		projection_sprite.z_index = -7
+		projection_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		_power_label_holder.add_child(projection_sprite)
+		_power_projection_sprite = projection_sprite
+	if _power_projection_shimmer == null or not is_instance_valid(_power_projection_shimmer):
+		var shimmer_sprite := Sprite2D.new()
+		shimmer_sprite.name = "ProjectionShimmer"
+		shimmer_sprite.centered = true
+		shimmer_sprite.z_index = -6
+		shimmer_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		_power_label_holder.add_child(shimmer_sprite)
+		_power_projection_shimmer = shimmer_sprite
+	_update_power_projection_layout()
 	_update_projection_tint()
+
+func _remove_power_projection_poly(node_name: String) -> void:
+	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
+		return
+	var node := _power_label_holder.get_node_or_null(node_name)
+	if node != null:
+		node.queue_free()
+
+func _create_power_projection_poly(poly_name: String, z: int) -> Polygon2D:
+	var poly := Polygon2D.new()
+	poly.name = poly_name
+	poly.z_index = z
+	_power_label_holder.add_child(poly)
+	return poly
+
+func _update_power_projection_layout() -> void:
+	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
+		return
+	var slot_count: int = _lane_budget_display_slot_count()
+	var texture: Texture2D = _power_projection_texture(slot_count)
+	var target_size: Vector2 = _power_projection_target_size(slot_count)
+	if texture == null or target_size == Vector2.ZERO:
+		return
+	var tex_size: Vector2 = texture.get_size()
+	if tex_size == Vector2.ZERO:
+		return
+	var source_y: float = target_size.y * 0.5
+	if _current_size.y > 0.0:
+		var hive_top_y: float = _sprite_offset.y - (_current_size.y * 0.5)
+		source_y = hive_top_y - _power_label_offset().y + 1.0
+	var sprite_scale: Vector2 = target_size / tex_size
+	var sprite_position := Vector2(0.0, source_y - (target_size.y * 0.5))
+	_power_projection_sprite_base_scale = sprite_scale
+	if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
+		_power_projection_sprite.texture = texture
+		_power_projection_sprite.scale = sprite_scale
+		_power_projection_sprite.position = sprite_position
+	if _power_projection_shimmer != null and is_instance_valid(_power_projection_shimmer):
+		_power_projection_shimmer.texture = texture
+		_power_projection_shimmer.scale = sprite_scale * Vector2(1.018, 0.992)
+		_power_projection_shimmer.position = sprite_position
+
+func _power_hologram_size(label_size: Vector2, slot_count: int) -> Vector2:
+	var slot_extra: float = float(maxi(0, slot_count - 1))
+	var side_width: float = 0.0
+	if slot_count >= 2:
+		side_width = (((label_size.x * 0.5) + LANE_BUDGET_LABEL_SIDE_GAP + LANE_BUDGET_PIP_RADIUS) * 2.0)
+	var top_extra: float = 0.0
+	if slot_count == 1:
+		top_extra = LANE_BUDGET_LABEL_TOP_GAP + (LANE_BUDGET_PIP_RADIUS * 2.0)
+	elif slot_count >= 3:
+		top_extra = LANE_BUDGET_LABEL_TOP_GAP + LANE_BUDGET_THREE_TOP_LIFT + (LANE_BUDGET_PIP_RADIUS * 2.0)
+	var width: float = maxf(label_size.x, side_width) + (POWER_HOLOGRAM_PAD.x * 2.0) + (slot_extra * POWER_HOLOGRAM_SLOT_GROW.x)
+	var height: float = label_size.y + top_extra + (POWER_HOLOGRAM_PAD.y * 2.0) + (slot_extra * POWER_HOLOGRAM_SLOT_GROW.y)
+	return Vector2(maxf(POWER_HOLOGRAM_MIN_SIZE.x, width), maxf(POWER_HOLOGRAM_MIN_SIZE.y, height))
+
+func _power_projection_texture(slot_count: int) -> Texture2D:
+	if slot_count >= 3:
+		if _light_projection_large_texture == null:
+			_light_projection_large_texture = _load_projection_texture(LIGHT_PROJECTION_LARGE_PATH)
+		return _light_projection_large_texture
+	if _light_projection_medium_texture == null:
+		_light_projection_medium_texture = _load_projection_texture(LIGHT_PROJECTION_MEDIUM_PATH)
+	return _light_projection_medium_texture
+
+func _load_projection_texture(path: String) -> Texture2D:
+	var image := Image.new()
+	var err := image.load(path)
+	if err != OK:
+		SFLog.warn("HIVE_POWER_PROJECTION_LOAD_FAILED", {"path": path, "err": err})
+		return null
+	return ImageTexture.create_from_image(image)
+
+func _power_projection_target_size(slot_count: int) -> Vector2:
+	match slot_count:
+		1:
+			return POWER_PROJECTION_SMALL_SIZE
+		2:
+			return POWER_PROJECTION_MEDIUM_SIZE
+		_:
+			return POWER_PROJECTION_LARGE_SIZE
 
 func _update_projection_tint() -> void:
 	var projection: Color = _projection_color()
+	if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
+		var sprite_color := Color(1.0, 1.0, 1.0, 1.0)
+		sprite_color.a = 0.88
+		_power_projection_sprite.modulate = sprite_color
+	if _power_projection_shimmer != null and is_instance_valid(_power_projection_shimmer):
+		var shimmer_color := Color(1.0, 0.98, 0.76, 0.16)
+		_power_projection_shimmer.modulate = shimmer_color
+	if _power_projector_panel != null and is_instance_valid(_power_projector_panel):
+		var panel_color: Color = projection
+		panel_color.a = 0.86
+		_power_projector_panel.color = panel_color
+	var fray_color: Color = projection
+	fray_color.a = 0.28
+	for fray_poly in [_power_projector_fray_top, _power_projector_fray_bottom, _power_projector_fray_left, _power_projector_fray_right]:
+		if fray_poly != null and is_instance_valid(fray_poly):
+			fray_poly.color = fray_color
 	if _power_projector_ring != null and is_instance_valid(_power_projector_ring):
 		var ring_color: Color = projection
-		ring_color.a = 0.32
+		ring_color.a = 0.48
 		_power_projector_ring.color = ring_color
 	if _power_projector_beam != null and is_instance_valid(_power_projector_beam):
 		var beam_color: Color = projection
-		beam_color.a = POWER_PROJECTION_BEAM_ALPHA
+		beam_color.a = POWER_PROJECTION_BEAM_ALPHA + 0.16
 		_power_projector_beam.color = beam_color
 
 func _projection_color() -> Color:
 	var team_color: Color = _team_color_for_player(owner_id)
 	if owner_id <= 0:
 		team_color = Color(0.82, 0.84, 0.88, 1.0)
-	return team_color.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.45)
+	return team_color.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.24)
 
 func _play_power_snap() -> void:
 	if _power_badge == null or not is_instance_valid(_power_badge):
@@ -717,6 +854,12 @@ func _play_power_snap() -> void:
 	_power_snap_tween.set_trans(Tween.TRANS_SINE)
 	_power_snap_tween.set_ease(Tween.EASE_OUT)
 	_power_snap_tween.tween_property(_power_badge, "scale", Vector2.ONE * POWER_LABEL_SCALE, 0.16)
+	if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
+		_power_projection_sprite.scale = _power_projection_sprite_base_scale * 1.06
+		_power_snap_tween.parallel().tween_property(_power_projection_sprite, "scale", _power_projection_sprite_base_scale, 0.18)
+	if _power_projection_shimmer != null and is_instance_valid(_power_projection_shimmer):
+		_power_projection_shimmer.scale = _power_projection_sprite_base_scale * Vector2(1.08, 1.02)
+		_power_snap_tween.parallel().tween_property(_power_projection_shimmer, "scale", _power_projection_sprite_base_scale * Vector2(1.018, 0.992), 0.20)
 	if _power_projector_ring != null and is_instance_valid(_power_projector_ring):
 		_power_snap_tween.parallel().tween_property(_power_projector_ring, "scale", Vector2.ONE, 0.18)
 
@@ -726,7 +869,7 @@ func _ensure_presentation_layers() -> void:
 	_base_sprite_layer = _ensure_child_layer("BaseSpriteLayer", -1)
 	_core_energy_layer = _ensure_child_layer("CoreEnergyLayer", 4)
 	_core_glow_layer = _ensure_child_layer("CoreGlowLayer", 5)
-	_lane_budget_layer = _ensure_child_layer("LaneBudgetIndicators", 12)
+	_lane_budget_layer = _ensure_child_layer("LaneBudgetIndicators", 24)
 	_fx_layer = _ensure_child_layer("FxLayer", 18)
 	_lane_port_layer = _ensure_child_layer("LanePortLayer", 10)
 	var projection_node: Node = get_node_or_null("PowerProjection")
@@ -1134,20 +1277,15 @@ func _update_lane_budget_indicators() -> void:
 			fill.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
 			_lane_budget_layer.add_child(fill)
 			_lane_budget_pips.append({"outline": outline, "fill": fill})
-	var layer_y: float = _sprite_offset.y + (_current_size.y * LANE_BUDGET_Y_RATIO)
-	if _current_size == Vector2.ZERO:
-		layer_y = -18.0
-	_lane_budget_layer.position = Vector2(0.0, layer_y)
-	var owner_fill: Color = _owner_accent_color()
-	if owner_id > 0:
-		owner_fill = _team_color_for_player(owner_id)
-		owner_fill = _boost_team_color(owner_fill)
-	owner_fill.a = 1.0
+	var label_size: Vector2 = _lane_budget_reference_label_size()
+	_lane_budget_layer.position = _power_label_offset()
+	_update_power_projection_layout()
+	var indicator_color := Color(0.0, 0.0, 0.0, 1.0)
 	for i in range(slot_count):
 		var entry: Dictionary = _lane_budget_pips[i]
 		var outline_line: Line2D = entry.get("outline", null) as Line2D
 		var fill_poly: Polygon2D = entry.get("fill", null) as Polygon2D
-		var pip_pos: Vector2 = _lane_budget_pip_position(slot_count, i)
+		var pip_pos: Vector2 = _lane_budget_pip_position(slot_count, i, label_size)
 		if outline_line != null and is_instance_valid(outline_line):
 			outline_line.position = pip_pos
 			outline_line.points = _hex_points(LANE_BUDGET_PIP_RADIUS)
@@ -1156,43 +1294,53 @@ func _update_lane_budget_indicators() -> void:
 			fill_poly.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
 		var is_used: bool = i < _lane_budget_used
 		var is_available: bool = i < _lane_budget_max
-		var outline_color: Color = Color(0.78, 0.82, 0.86, 0.70)
-		var fill_color: Color = owner_fill
+		var outline_color: Color = Color(0.0, 0.0, 0.0, 0.30)
+		var fill_color: Color = Color(0.0, 0.0, 0.0, 0.0)
 		if is_used:
-			outline_color = Color(0.96, 0.98, 1.0, 0.94)
+			outline_color = Color(0.0, 0.0, 0.0, 0.94)
 			fill_color = Color(0.0, 0.0, 0.0, 0.0)
 		elif is_available:
-			outline_color = owner_fill.lerp(Color.WHITE, 0.44)
-			outline_color.a = 0.98
-			fill_color = owner_fill
-			fill_color.a = 1.0
+			outline_color = indicator_color
+			fill_color = indicator_color
 		else:
-			outline_color = Color(0.65, 0.68, 0.74, 0.22)
+			outline_color = Color(0.0, 0.0, 0.0, 0.20)
 			fill_color = Color(0.0, 0.0, 0.0, 0.0)
 		if outline_line != null and is_instance_valid(outline_line):
 			outline_line.default_color = outline_color
-			outline_line.visible = not is_available or is_used
+			outline_line.visible = true
 		if fill_poly != null and is_instance_valid(fill_poly):
 			fill_poly.color = fill_color
 			fill_poly.visible = is_available and not is_used
 
-func _lane_budget_pip_position(slot_count: int, slot_index: int) -> Vector2:
+func _lane_budget_reference_label_size() -> Vector2:
+	if _power_badge != null and is_instance_valid(_power_badge) and _power_badge.size != Vector2.ZERO:
+		return _power_badge.size * POWER_LABEL_SCALE
+	if _power_label != null and is_instance_valid(_power_label):
+		var min_size: Vector2 = _power_label.get_minimum_size()
+		if min_size != Vector2.ZERO:
+			return (min_size + (POWER_BADGE_PAD * 2.0)) * POWER_LABEL_SCALE
+	return Vector2(26.0, 22.0)
+
+func _lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vector2) -> Vector2:
+	var side_x: float = (label_size.x * 0.5) + LANE_BUDGET_LABEL_SIDE_GAP
+	var top_y: float = -((label_size.y * 0.5) + LANE_BUDGET_LABEL_TOP_GAP)
+	var fan_y: float = top_y + 3.0
 	match slot_count:
 		1:
-			return Vector2.ZERO
+			return Vector2(0.0, top_y)
 		2:
-			var side: float = -0.5 if slot_index == 0 else 0.5
-			return Vector2(side * LANE_BUDGET_PIP_SPACING, 0.0)
+			var side: float = -1.0 if slot_index == 0 else 1.0
+			return Vector2(side * side_x, fan_y)
 		3:
 			match slot_index:
 				0:
-					return Vector2(-LANE_BUDGET_PIP_SPACING, -LANE_BUDGET_THREE_OUTER_LIFT)
+					return Vector2(-side_x, fan_y)
 				1:
-					return Vector2(0.0, 0.0)
+					return Vector2(side_x, fan_y)
 				_:
-					return Vector2(LANE_BUDGET_PIP_SPACING, -LANE_BUDGET_THREE_OUTER_LIFT)
+					return Vector2(0.0, top_y - LANE_BUDGET_THREE_TOP_LIFT)
 	var center: float = (float(slot_count) - 1.0) * 0.5
-	return Vector2((float(slot_index) - center) * LANE_BUDGET_PIP_SPACING, 0.0)
+	return Vector2((float(slot_index) - center) * LANE_BUDGET_PIP_SPACING, top_y)
 
 func _lane_budget_display_slot_count() -> int:
 	return clampi(_lane_budget_max, 1, LANE_BUDGET_DEFAULT_SLOTS)
@@ -1423,10 +1571,26 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 	if _shader_mat != null and not is_neutral_owner:
 		_shader_mat.set_shader_parameter("team_color", team_color)
 		_shader_mat.set_shader_parameter("glow_strength", lerp(0.6, 1.0, t))
+		_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength)
+		_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed)
+		_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())
+	if _npc_shader_mat != null and is_neutral_owner:
+		_npc_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength * 0.42)
+		_npc_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed * 0.82)
+		_npc_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())
 	_update_projection_tint()
 	_update_lane_budget_indicators()
 	_update_ground_glow()
 	_update_core_materials()
+
+func _hive_sprite_pulse_phase() -> float:
+	var hive_id_value: int = 0
+	var parent := get_parent()
+	if parent != null and parent.has_method("get"):
+		var id_v: Variant = parent.get("hive_id")
+		if id_v != null:
+			hive_id_value = int(id_v)
+	return (float(hive_id_value) * 0.73) + (float(owner_id) * 1.19)
 
 func _boost_team_color(in_color: Color) -> Color:
 	var boosted_s: float = clampf(in_color.s * HIVE_COLOR_SAT_BOOST, 0.0, 1.0)

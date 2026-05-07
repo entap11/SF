@@ -19,15 +19,15 @@ const SHELL_SCENE_PATH := "res://scenes/Shell.tscn"
 const TREE_META_VS_CPU_STYLE := "vs_cpu_style"
 const TREE_META_VS_CPU_TIER := "vs_cpu_tier"
 const DEV_BOT_STYLE_OPTIONS: Array[String] = ["Default", "Balancer", "Turtle", "Raider", "Greedy", "Swarm Lord"]
-const DEV_BOT_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Hard"]
+const DEV_BOT_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Expert"]
 const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako", "Drift", "Pax"]
 const DEFAULT_STAGE_MAP_IDS: Array[String] = []
 const CTF_STAGE_MAP_IDS: Array[String] = [
-	"MAP_nomansland__SBASE__1p",
-	"MAP_nomansland__SN6__1p",
-	"MAP_nomansland__GBASE__1p",
-	"MAP_nomansland__GBASE__BR2__TR2__1p",
-	"MAP_nomansland__GBASE__TB__1p"
+	"MAP_nomansland__545__v01_top2_sides__1p",
+	"MAP_nomansland__545__v02_all_sides_owned__1p",
+	"MAP_nomansland__545__v03_top_half_vs_bottom_half__1p",
+	"MAP_nomansland__545__v04_top_corners_vs_bottom_corners__1p",
+	"MAP_nomansland__545__v05_diagonal_TL_vs_BR__1p"
 ]
 const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
 const CTF_FLAG_MOVE_COUNT_MAX_DEFAULT: int = 1

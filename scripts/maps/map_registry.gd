@@ -8,6 +8,9 @@ const SANDBOX_ENV_VAR: String = "SF_MAP_SANDBOX"
 const SANDBOX_ALLOWED_MAP_IDS: Array[String] = [
 	"MAP_TEST"
 ]
+const SANDBOXED_PUBLIC_STYLES: Dictionary = {
+	"nomansland": ["656"]
+}
 const PUBLIC_NOMANSLAND_SEQUENCE_IDS: Array[String] = [
 	"MAP_nomansland__SBASE__1p",
 	"MAP_nomansland__SN6__1p",
@@ -215,6 +218,8 @@ static func public_map_alias_entry_for_id(map_id: String) -> Dictionary:
 		return {}
 	var sequence_entry: Dictionary = _public_nomansland_sequence_alias_for_id(raw_id)
 	if not sequence_entry.is_empty():
+		if _is_public_alias_sandboxed(sequence_entry):
+			return {}
 		return sequence_entry
 	var candidates: Array[String] = [raw_id]
 	var normalized: Dictionary = normalize_map_id(raw_id)
@@ -229,6 +234,8 @@ static func public_map_alias_entry_for_id(map_id: String) -> Dictionary:
 				var entry: Dictionary = PUBLIC_MAP_ALIASES[key] as Dictionary
 				var out: Dictionary = entry.duplicate(true)
 				out["map_id"] = key
+				if _is_public_alias_sandboxed(out):
+					return {}
 				return out
 	return {}
 
@@ -241,6 +248,8 @@ static func registered_public_map_aliases() -> Array[Dictionary]:
 	for i in range(PUBLIC_NOMANSLAND_SEQUENCE_IDS.size()):
 		var key: String = str(PUBLIC_NOMANSLAND_SEQUENCE_IDS[i])
 		var row: Dictionary = _public_nomansland_sequence_alias_for_id(key)
+		if _is_public_alias_sandboxed(row):
+			continue
 		out.append(row)
 		seen[key.to_upper()] = true
 	for key_any in PUBLIC_MAP_ALIASES.keys():
@@ -250,6 +259,8 @@ static func registered_public_map_aliases() -> Array[Dictionary]:
 		var entry: Dictionary = PUBLIC_MAP_ALIASES[key] as Dictionary
 		var row: Dictionary = entry.duplicate(true)
 		row["map_id"] = key
+		if _is_public_alias_sandboxed(row):
+			continue
 		out.append(row)
 		seen[key.to_upper()] = true
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
@@ -266,6 +277,27 @@ static func registered_public_map_aliases() -> Array[Dictionary]:
 		return family_a < family_b
 	)
 	return out
+
+static func _is_public_alias_sandboxed(alias: Dictionary) -> bool:
+	if not _is_sandbox_enabled():
+		return false
+	if alias.is_empty():
+		return false
+	var family: String = str(alias.get("family", "")).strip_edges().to_lower()
+	var style: String = str(alias.get("style", "")).strip_edges().to_lower()
+	if family.is_empty():
+		return false
+	if style.is_empty():
+		style = _nomansland_public_style_for_id(str(alias.get("map_id", ""))) if family == "nomansland" else ""
+	if style.is_empty():
+		return false
+	var sandboxed_any: Variant = SANDBOXED_PUBLIC_STYLES.get(family, [])
+	if typeof(sandboxed_any) != TYPE_ARRAY:
+		return false
+	for style_any in sandboxed_any as Array:
+		if style == str(style_any).strip_edges().to_lower():
+			return true
+	return false
 
 static func _public_nomansland_sequence_alias_for_id(map_id: String) -> Dictionary:
 	var raw_id: String = map_id_from_input(map_id)

@@ -509,10 +509,10 @@ const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
 	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png"
 }
 const HIDDEN_CTF_MAP_IDS: Array[String] = [
-	"res://maps/_future/nomansland/MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each.json"
+	"res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__1p.json"
 ]
 const DIRECT_CTF_MAP_IDS: Array[String] = [
-	"res://maps/nomansland/MAP_nomansland__SBASE__1p.json"
+	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 ]
 const BOTTOM_NAV_BUTTON_SCALE: float = 2.925
 const BOTTOM_NAV_HEIGHT_SCALE: float = 1.2
@@ -11592,6 +11592,18 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
 	}
+	if free_play:
+		var free_map_ids: PackedStringArray = _free_roll_random_map_ids("MISS_N_OUT", map_count_requested)
+		if free_map_ids.is_empty():
+			status_label.text = "No Free Roll maps available for Miss-N-Out."
+			return
+		var free_map_labels: Array[String] = []
+		for free_map_id in free_map_ids:
+			free_map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(free_map_id))
+		lobby_options["map_ids"] = free_map_ids
+		status_label.text = "%s Miss-N-Out (%d maps, randomized): %s" % [track_label, free_map_ids.size(), ", ".join(free_map_labels)]
+		_open_async_vs_lobby("MISS_N_OUT", free_map_ids.size(), free_play, entry_usd, lobby_options)
+		return
 	if contest_state == null:
 		status_label.text = "%s Miss-N-Out (%d maps, fallback lobby config)" % [track_label, map_count_requested]
 		_open_async_vs_lobby("MISS_N_OUT", map_count_requested, free_play, entry_usd, lobby_options)
@@ -11670,7 +11682,7 @@ func _hidden_capture_flag_lobby_options(force_async_window: bool) -> Dictionary:
 	return options
 
 func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: int) -> bool:
-	var map_path: String = _resolve_direct_capture_flag_map_path(mode_id)
+	var map_path: String = _resolve_direct_capture_flag_map_path(mode_id, free_roll)
 	if map_path.is_empty():
 		status_label.text = "No valid CTF map found."
 		SFLog.warn("DIRECT_CTF_MAP_RESOLVE_FAILED", {
@@ -11736,7 +11748,11 @@ func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: in
 	status_label.text = "%s starting..." % ("Hidden CTF" if hidden_mode else "Capture the Flag")
 	return true
 
-func _resolve_direct_capture_flag_map_path(mode_id: String) -> String:
+func _resolve_direct_capture_flag_map_path(mode_id: String, free_roll: bool = false) -> String:
+	if free_roll:
+		var random_paths: Array[String] = _free_roll_random_map_paths(mode_id, 1)
+		if not random_paths.is_empty():
+			return random_paths[0]
 	var map_ids: Array[String] = HIDDEN_CTF_MAP_IDS if mode_id == "HIDDEN_CAPTURE_FLAG" else DIRECT_CTF_MAP_IDS
 	for map_id in map_ids:
 		var map_path: String = MAP_LOADER._resolve_map_path(map_id)
@@ -11746,6 +11762,103 @@ func _resolve_direct_capture_flag_map_path(mode_id: String) -> String:
 			continue
 		return map_path
 	return ""
+
+func _free_roll_random_map_ids(mode_id: String, map_count: int) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	for path in _free_roll_random_map_paths(mode_id, map_count):
+		var map_id: String = MAP_REGISTRY.map_id_from_path(path)
+		if not map_id.is_empty():
+			out.append(map_id)
+	return out
+
+func _free_roll_random_map_paths(mode_id: String, map_count: int) -> Array[String]:
+	var requested_count: int = maxi(1, map_count)
+	var pool: Array[String] = _free_roll_candidate_map_paths(mode_id)
+	var picked: Array[String] = []
+	if pool.is_empty():
+		return picked
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	while picked.size() < requested_count and not pool.is_empty():
+		var idx: int = rng.randi_range(0, pool.size() - 1)
+		picked.append(str(pool[idx]))
+		pool.remove_at(idx)
+	return picked
+
+func _free_roll_candidate_map_paths(mode_id: String) -> Array[String]:
+	var allowed_modes: Array[String] = _free_roll_map_modes_for_game(mode_id)
+	var out: Array[String] = []
+	for path_any in MAP_LOADER.list_maps():
+		var path: String = str(path_any).strip_edges()
+		if path.is_empty():
+			continue
+		if not _free_roll_map_path_matches_modes(path, allowed_modes):
+			continue
+		if _free_roll_requires_hidden_ctf_starts(mode_id) and not _map_has_hidden_ctf_start_depth(path):
+			continue
+		out.append(path)
+	return out
+
+func _free_roll_map_mode_for_game(mode_id: String) -> String:
+	var modes: Array[String] = _free_roll_map_modes_for_game(mode_id)
+	if modes.is_empty():
+		return ""
+	return modes[0]
+
+func _free_roll_map_modes_for_game(mode_id: String) -> Array[String]:
+	var clean_mode: String = mode_id.strip_edges().to_upper()
+	match clean_mode:
+		"CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG":
+			return ["1p", "2p", "4p"]
+		"3P FFA":
+			return ["3p"]
+		"4P FFA":
+			return ["4p"]
+		"2V2":
+			return ["4p"]
+		_:
+			return ["1p"]
+
+func _free_roll_map_path_matches_modes(path: String, allowed_modes: Array[String]) -> bool:
+	if allowed_modes.is_empty():
+		return true
+	var map_id: String = MAP_REGISTRY.map_id_from_path(path).strip_edges().to_lower()
+	if map_id.is_empty():
+		return false
+	for mode_any in allowed_modes:
+		var mode: String = str(mode_any).strip_edges().to_lower()
+		if mode.is_empty():
+			continue
+		if map_id.ends_with("__%s" % mode):
+			return true
+	return false
+
+func _free_roll_requires_hidden_ctf_starts(mode_id: String) -> bool:
+	return mode_id.strip_edges().to_upper() == "HIDDEN_CAPTURE_FLAG"
+
+func _map_has_hidden_ctf_start_depth(path: String) -> bool:
+	var loaded: Dictionary = MAP_LOADER.load_map(path)
+	if not bool(loaded.get("ok", false)):
+		return false
+	var model: Dictionary = loaded.get("data", {}) as Dictionary
+	var hives_v: Variant = model.get("hives", [])
+	if typeof(hives_v) != TYPE_ARRAY:
+		return false
+	var owned_counts: Dictionary = {}
+	for hive_any in hives_v as Array:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		var owner_id: int = int(hive.get("owner_id", hive.get("owner", 0)))
+		if owner_id <= 0:
+			continue
+		owned_counts[owner_id] = int(owned_counts.get(owner_id, 0)) + 1
+	if owned_counts.size() < 2:
+		return false
+	for owner_any in owned_counts.keys():
+		if int(owned_counts.get(owner_any, 0)) < 2:
+			return false
+	return true
 
 func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	if _block_for_active_hive_tournament("async matches"):
@@ -11761,6 +11874,18 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
 	}
+	if free_play:
+		var free_map_ids: PackedStringArray = _free_roll_random_map_ids("STAGE_RACE", map_count)
+		if free_map_ids.is_empty():
+			status_label.text = "No Free Roll maps available for Stage Race."
+			return
+		var free_map_labels: Array[String] = []
+		for free_map_id in free_map_ids:
+			free_map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(free_map_id))
+		lobby_options["map_ids"] = free_map_ids
+		status_label.text = "%s Stage Race (%d maps, randomized): %s" % [track_label, free_map_ids.size(), ", ".join(free_map_labels)]
+		_open_async_vs_lobby("STAGE_RACE", free_map_ids.size(), free_play, entry_usd, lobby_options)
+		return
 	if contest_state == null:
 		status_label.text = "%s Stage Race (%d maps, fallback lobby config)." % [track_label, map_count]
 		_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
@@ -11809,6 +11934,18 @@ func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"sync_join_sec": ASYNC_TIMED_RACE_SYNC_JOIN_SEC
 	}
+	if free_play:
+		var free_map_ids: PackedStringArray = _free_roll_random_map_ids("TIMED_RACE", map_count)
+		if free_map_ids.is_empty():
+			status_label.text = "No Free Roll maps available for Race."
+			return
+		var free_map_labels: Array[String] = []
+		for free_map_id in free_map_ids:
+			free_map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(free_map_id))
+		lobby_options["map_ids"] = free_map_ids
+		status_label.text = "%s Timed Race (%d maps, randomized): %s" % [track_label, free_map_ids.size(), ", ".join(free_map_labels)]
+		_open_async_vs_lobby("TIMED_RACE", free_map_ids.size(), free_play, entry_usd, lobby_options)
+		return
 	if contest_state == null:
 		status_label.text = "%s Timed Race (%d maps, fallback lobby config)." % [track_label, map_count]
 		_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)

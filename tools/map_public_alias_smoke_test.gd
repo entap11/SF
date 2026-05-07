@@ -8,35 +8,29 @@ func _init() -> void:
 	await process_frame
 
 	var failures: Array[String] = []
-	_expect_display(
+	_expect_sandboxed(
 		failures,
-		"MAP_nomansland__SBASE__1p",
-		"nomansland656-1"
+		"MAP_nomansland__SBASE__1p"
 	)
-	_expect_display(
+	_expect_sandboxed(
 		failures,
-		"MAP_nomansland__SN6__1p",
-		"nomansland656-2"
+		"MAP_nomansland__SN6__1p"
 	)
-	_expect_display(
+	_expect_sandboxed(
 		failures,
-		"MAP_nomansland__GBASE__1p",
-		"nomansland656-3"
+		"MAP_nomansland__GBASE__1p"
 	)
-	_expect_display(
+	_expect_sandboxed(
 		failures,
-		"MAP_nomansland__GBASE__BR2__TR2__1p",
-		"nomansland656-4"
+		"MAP_nomansland__GBASE__BR2__TR2__1p"
 	)
-	_expect_display(
+	_expect_sandboxed(
 		failures,
-		"MAP_nomansland__GBASE__TB__1p",
-		"nomansland656-5"
+		"MAP_nomansland__GBASE__TB__1p"
 	)
-	_expect_display(
+	_expect_sandboxed(
 		failures,
-		"MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each",
-		"nomansland656-6"
+		"MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each"
 	)
 	_expect_display(
 		failures,
@@ -87,6 +81,12 @@ func _expect_display(failures: Array[String], map_id: String, expected: String) 
 	var actual: String = MAP_REGISTRY.public_map_display_name_for_id(map_id)
 	if actual != expected:
 		failures.append("expected %s -> %s, got %s" % [map_id, expected, actual])
+
+func _expect_sandboxed(failures: Array[String], map_id: String) -> void:
+	if MAP_REGISTRY.has_public_map_alias_for_id(map_id):
+		failures.append("expected sandboxed map to have no public alias: %s" % map_id)
+	if MAP_REGISTRY.is_map_id_allowed(map_id):
+		failures.append("expected sandboxed map to be disallowed: %s" % map_id)
 
 func _check_alias_uniqueness(failures: Array[String]) -> void:
 	var names_seen: Dictionary = {}
@@ -145,12 +145,12 @@ func _check_jukebox_public_titles(failures: Array[String]) -> void:
 		"delta",
 		"delta1",
 		"delta2",
-		"nomansland656-1",
-		"nomansland656-2",
-		"nomansland656-3",
-		"nomansland656-4",
-		"nomansland656-5",
-		"nomansland656-6"
+		"nomansland545-1",
+		"nomansland545-2",
+		"nomansland545-3",
+		"nomansland545-4",
+		"nomansland545-5",
+		"nomansland545-6"
 	]
 	for i in range(mini(expected_prefix.size(), title_sequence.size())):
 		if title_sequence[i] != expected_prefix[i]:

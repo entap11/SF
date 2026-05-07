@@ -15,11 +15,11 @@ const TIMED_GAME_MAX_PLAYERS := 10
 const TIMED_GAME_DEFAULT_LIMIT_MS := 30 * 60 * 1000
 const TIMED_GAME_MAIN_LEADERBOARD_THRESHOLD := 0.5
 const DEFAULT_STAGE_RACE_MAP_IDS := [
-	"MAP_nomansland__SBASE__1p",
-	"MAP_nomansland__SN6__1p",
-	"MAP_nomansland__GBASE__1p",
-	"MAP_nomansland__GBASE__BR2__TR2__1p",
-	"MAP_nomansland__GBASE__TB__1p"
+	"MAP_nomansland__545__v01_top2_sides__1p",
+	"MAP_nomansland__545__v02_all_sides_owned__1p",
+	"MAP_nomansland__545__v03_top_half_vs_bottom_half__1p",
+	"MAP_nomansland__545__v04_top_corners_vs_bottom_corners__1p",
+	"MAP_nomansland__545__v05_diagonal_TL_vs_BR__1p"
 ]
 const TIMED_RACE_DEFAULT_MAP_COUNT := TIMED_GAME_MAP_COUNT_3
 const TIMED_RACE_SUPPORTED_MAP_COUNTS: Array[int] = TIMED_GAME_SUPPORTED_MAP_COUNTS

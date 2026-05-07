@@ -2,6 +2,7 @@ extends Node
 class_name LaneSystem
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
 
 signal lane_created(lane: Dictionary)
 signal lane_updated(lane: Dictionary)
@@ -11,7 +12,8 @@ const LANE_BUILD_MS := 500
 const LANE_FRONT_SPEED := 0.35
 const LANE_CONTEST_RETURN_SPEED := 1.25
 const LANE_ESTABLISH_EPS := 0.999
-const LANE_BODY_HALF_WIDTH_PX := 40.0
+const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
+const LANE_OCCLUSION_PAD_PX := HiveGeometry.DEFAULT_LANE_OCCLUSION_PAD_PX
 
 var lanes: Dictionary = {} # key "lo:hi" -> Dictionary lane_d (render/intent view)
 var blockers: Array = []   # [{pos:Vector2, r:float, id:int}]
@@ -506,7 +508,7 @@ func _can_connect_segment(a_id: int, b_id: int, a_pos: Vector2, b_pos: Vector2) 
 			if blk_id == a_id or blk_id == b_id:
 				continue
 		var c: Vector2 = blk.get("pos", Vector2.ZERO)
-		var r: float = float(blk.get("r", 0.0)) + LANE_BODY_HALF_WIDTH_PX
+		var r: float = float(blk.get("r", 0.0)) + LANE_BODY_HALF_WIDTH_PX + LANE_OCCLUSION_PAD_PX
 		var closest := Geometry2D.get_closest_point_to_segment(c, a_pos, b_pos)
 		if c.distance_to(closest) <= r:
 			return false

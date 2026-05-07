@@ -14,7 +14,7 @@ const LEADERBOARD_HEADER_FONT_SIZE: int = 22
 const LEADERBOARD_ROW_FONT_SIZE: int = 24
 const LEADERBOARD_BADGE_FONT_SIZE: int = 22
 const CPU_STYLE_OPTIONS: Array[String] = ["Default", "Balancer", "Turtle", "Raider", "Greedy", "Swarm Lord"]
-const CPU_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Hard"]
+const CPU_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Expert"]
 
 signal closed
 signal play_requested(map_path: String, cpu_style: String, cpu_tier: String)
@@ -719,9 +719,9 @@ func _tier_hover_text(tier: String) -> String:
 		"easy":
 			return "Easy reacts slowly, attacks later, and leaves more room for mistakes."
 		"hard":
-			return "Hard reacts faster, commits earlier, and trims hesitation across the whole profile."
+			return "Expert uses the old Medium strength: sharp enough to punish mistakes, but no longer above that playtest target."
 		"medium":
-			return "Medium keeps the style readable without turning it into a full training bot."
+			return "Medium sits between the old Easy and old Medium tiers."
 		_:
 			return "Default keeps the Jukebox training difficulty unless another override is selected."
 

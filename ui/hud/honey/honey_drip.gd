@@ -222,14 +222,13 @@ func _draw_drop_body(center: Vector2, size_state: Vector2, body_color: Color, ed
 
 func _draw_pool_shape(pool_progress: float, body_color: Color, edge_color: Color, core_color: Color, highlight_color: Color, shadow_color: Color) -> void:
 	var eased: float = _ease_in_out_cubic(pool_progress)
-	var left_radius_x: float = lerpf(base_radius * 0.18, maxf(base_radius * 0.28, _surface_width * 0.10), eased)
-	var right_radius_x: float = lerpf(base_radius * 0.46, maxf(base_radius * 0.92, _surface_width * 0.42), eased)
-	var pool_radius_y: float = lerpf(base_radius * 0.82, base_radius * 0.38, eased)
-	var pool_center: Vector2 = Vector2(right_radius_x * 0.06, 0.0)
-	_draw_digit_wrap(eased, false, body_color, edge_color, core_color, highlight_color, shadow_color)
-	_draw_pool_base(pool_center, left_radius_x, right_radius_x, pool_radius_y, body_color, edge_color, core_color, highlight_color, shadow_color)
-	var mound_size: Vector2 = Vector2(lerpf(0.82, 0.60, eased), lerpf(1.10, 0.86, eased))
-	_draw_drop_body(pool_center + Vector2(left_radius_x * 0.10, -pool_radius_y * 0.52), mound_size, Color(body_color.r, body_color.g, body_color.b, 0.94), edge_color, core_color, highlight_color, Color(shadow_color.r, shadow_color.g, shadow_color.b, shadow_color.a * 0.55))
+	var pool_radius_x: float = lerpf(base_radius * 0.44, maxf(base_radius * 0.70, _surface_width * 0.22), eased)
+	var pool_radius_y: float = lerpf(base_radius * 0.34, base_radius * 0.18, eased)
+	var pool_center: Vector2 = Vector2(lerpf(0.0, pool_radius_x * 0.10, eased), base_radius * 0.16)
+	_draw_pool_base(pool_center, pool_radius_x * 0.72, pool_radius_x, pool_radius_y, body_color, edge_color, core_color, highlight_color, shadow_color)
+	var mound_size: Vector2 = Vector2(lerpf(0.70, 0.50, eased), lerpf(1.22, 0.94, eased))
+	var mound_center: Vector2 = pool_center + Vector2(0.0, lerpf(-base_radius * 0.52, -base_radius * 0.34, eased))
+	_draw_drop_body(mound_center, mound_size, Color(body_color.r, body_color.g, body_color.b, 0.95), edge_color, core_color, highlight_color, Color(shadow_color.r, shadow_color.g, shadow_color.b, shadow_color.a * 0.48))
 
 func _draw_pool_spill_shape(spill_progress: float, body_color: Color, edge_color: Color, core_color: Color, highlight_color: Color, shadow_color: Color) -> void:
 	var spill_geom: Dictionary = _sample_spill_geometry(spill_progress)
@@ -240,21 +239,20 @@ func _draw_pool_spill_shape(spill_progress: float, body_color: Color, edge_color
 	var pool_offset: Vector2 = spill_geom.get("pool_offset", Vector2.ZERO)
 	var lip_origin: Vector2 = spill_geom.get("lip_origin", Vector2.ZERO)
 	var drip_tip: Vector2 = spill_geom.get("drip_tip", Vector2.ZERO)
-	_draw_digit_wrap(eased, true, body_color, edge_color, core_color, highlight_color, shadow_color)
 	_draw_pool_base(pool_offset, left_radius_x, right_radius_x, pool_radius_y, body_color, edge_color, core_color, highlight_color, shadow_color)
-	_draw_connected_flow(lip_origin, drip_tip, eased, true, body_color, edge_color, core_color, highlight_color, shadow_color)
+	_draw_hanging_drop(lip_origin, drip_tip, eased, body_color, edge_color, core_color, highlight_color, shadow_color)
 
 func _sample_spill_geometry(spill_progress: float) -> Dictionary:
 	var eased: float = _ease_in_out_cubic(spill_progress)
-	var left_radius_x: float = lerpf(maxf(base_radius * 0.28, _surface_width * 0.10), maxf(base_radius * 0.20, _surface_width * 0.08), eased)
-	var right_radius_x: float = lerpf(maxf(base_radius * 0.92, _surface_width * 0.42), maxf(base_radius * 1.14, _surface_width * 0.54), eased)
-	var pool_radius_y: float = lerpf(base_radius * 0.38, base_radius * 0.30, eased)
-	var pool_offset: Vector2 = Vector2(lerpf(right_radius_x * 0.06, right_radius_x * 0.18, eased), lerpf(0.0, base_radius * 0.04, eased))
+	var left_radius_x: float = lerpf(maxf(base_radius * 0.36, _surface_width * 0.14), maxf(base_radius * 0.26, _surface_width * 0.10), eased)
+	var right_radius_x: float = lerpf(maxf(base_radius * 0.70, _surface_width * 0.24), maxf(base_radius * 0.92, _surface_width * 0.34), eased)
+	var pool_radius_y: float = lerpf(base_radius * 0.22, base_radius * 0.16, eased)
+	var pool_offset: Vector2 = Vector2(lerpf(right_radius_x * 0.04, right_radius_x * 0.14, eased), lerpf(base_radius * 0.12, base_radius * 0.20, eased))
 	var spill_target: Vector2 = (_spill_point - _pool_center) - pool_offset
-	var lip_origin: Vector2 = pool_offset + Vector2(right_radius_x * 0.34, pool_radius_y * 0.04)
+	var lip_origin: Vector2 = pool_offset + Vector2(right_radius_x * 0.52, pool_radius_y * 0.04)
 	var downward_progress: float = eased
 	var outward_progress: float = pow(eased, 1.85)
-	var pull_depth: float = lerpf(0.0, maxf(base_radius * 1.05, _digit_size.y * 0.34), eased)
+	var pull_depth: float = lerpf(0.0, maxf(base_radius * 0.92, _digit_size.y * 0.28), eased)
 	var drip_tip: Vector2 = Vector2(
 		lerpf(lip_origin.x + 1.0, spill_target.x, outward_progress),
 		lerpf(lip_origin.y + 1.0, spill_target.y + pull_depth, downward_progress)
@@ -300,6 +298,32 @@ func _draw_connected_flow(anchor: Vector2, tip: Vector2, progress: float, draw_t
 	draw_polyline(shoulder_outline, Color(edge_color.r, edge_color.g, edge_color.b, edge_color.a * 0.72), 1.0, true)
 	if draw_tip_blob:
 		_draw_stream_end(tip, progress, body_color, edge_color, core_color, highlight_color, shadow_color)
+
+func _draw_hanging_drop(anchor: Vector2, tip: Vector2, progress: float, body_color: Color, edge_color: Color, core_color: Color, highlight_color: Color, shadow_color: Color) -> void:
+	var eased: float = _ease_in_out_cubic(progress)
+	var segment: Vector2 = tip - anchor
+	if segment.length() < 1.0:
+		return
+	var dir: Vector2 = segment.normalized()
+	var normal: Vector2 = Vector2(-dir.y, dir.x)
+	var neck_top_width: float = lerpf(ribbon_width * 0.28, ribbon_width * 0.16, eased)
+	var neck_bottom_width: float = lerpf(ribbon_width * 0.22, ribbon_width * 0.10, eased)
+	var bulb_center: Vector2 = anchor.lerp(tip, lerpf(0.42, 0.78, eased))
+	var bulb_size: Vector2 = Vector2(lerpf(0.48, 0.58, eased), lerpf(0.78, 1.12, eased))
+	var bulb_top: Vector2 = bulb_center - (dir * base_radius * bulb_size.y * 0.76)
+	var strand_points: PackedVector2Array = PackedVector2Array([
+		anchor - (normal * neck_top_width),
+		anchor + (normal * neck_top_width),
+		bulb_top + (normal * neck_bottom_width),
+		bulb_top - (normal * neck_bottom_width),
+	])
+	var strand_shadow: PackedVector2Array = _offset_polygon(strand_points, Vector2(0.9, 1.7))
+	draw_colored_polygon(strand_shadow, Color(shadow_color.r, shadow_color.g, shadow_color.b, shadow_color.a * 0.78))
+	draw_colored_polygon(strand_points, Color(body_color.r, body_color.g, body_color.b, body_color.a * 0.94))
+	var strand_outline: PackedVector2Array = strand_points.duplicate()
+	strand_outline.append(strand_points[0])
+	draw_polyline(strand_outline, Color(edge_color.r, edge_color.g, edge_color.b, edge_color.a * 0.56), 1.1, true)
+	_draw_drop_body(bulb_center, bulb_size, body_color, edge_color, core_color, highlight_color, Color(shadow_color.r, shadow_color.g, shadow_color.b, shadow_color.a * 0.86))
 
 func _draw_fall_pull(anchor_local: Vector2, drop_top_local: Vector2, progress: float, body_color: Color, edge_color: Color, core_color: Color, highlight_color: Color, shadow_color: Color) -> void:
 	var eased: float = _ease_in_out_cubic(progress)
@@ -403,22 +427,19 @@ func _draw_ribbon(anchor: Vector2, drop_top: Vector2, width: float, fill_color: 
 	draw_circle(anchor, start_width, Color(fill_color.r, fill_color.g, fill_color.b, fill_color.a * 0.96))
 
 func _build_drop_polygon(radius_x: float, radius_y: float) -> PackedVector2Array:
-	return PackedVector2Array([
-		Vector2(0.0, -radius_y * 1.34),
-		Vector2(-radius_x * 0.24, -radius_y * 1.05),
-		Vector2(-radius_x * 0.56, -radius_y * 0.70),
-		Vector2(-radius_x * 0.82, -radius_y * 0.08),
-		Vector2(-radius_x * 0.92, radius_y * 0.34),
-		Vector2(-radius_x * 0.70, radius_y * 0.90),
-		Vector2(-radius_x * 0.28, radius_y * 1.30),
-		Vector2(0.0, radius_y * 1.44),
-		Vector2(radius_x * 0.28, radius_y * 1.30),
-		Vector2(radius_x * 0.70, radius_y * 0.90),
-		Vector2(radius_x * 0.92, radius_y * 0.34),
-		Vector2(radius_x * 0.82, -radius_y * 0.08),
-		Vector2(radius_x * 0.56, -radius_y * 0.70),
-		Vector2(radius_x * 0.24, -radius_y * 1.05),
-	])
+	var out: PackedVector2Array = PackedVector2Array()
+	var count: int = 28
+	for idx in range(count):
+		var angle: float = -PI * 0.5 + (TAU * float(idx) / float(count))
+		var y_unit: float = sin(angle)
+		var pear: float = lerpf(0.34, 1.0, clampf((y_unit + 1.0) * 0.5, 0.0, 1.0))
+		var pinch: float = 1.0 - maxf(0.0, -y_unit) * 0.52
+		var width: float = radius_x * pear * pinch
+		var y: float = y_unit * radius_y * 1.34
+		if y_unit > 0.55:
+			y += (y_unit - 0.55) * radius_y * 0.34
+		out.append(Vector2(cos(angle) * width, y))
+	return out
 
 func _build_ellipse_polygon(center: Vector2, radius: Vector2, points_count: int) -> PackedVector2Array:
 	var out: PackedVector2Array = PackedVector2Array()

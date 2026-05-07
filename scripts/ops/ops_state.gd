@@ -264,6 +264,8 @@ func _normalize_bot_tier(tier: String) -> String:
 	match normalized:
 		BOT_TIER_EASY, BOT_TIER_HARD:
 			return normalized
+		"expert":
+			return BOT_TIER_HARD
 		_:
 			return BOT_TIER_MEDIUM
 
@@ -481,23 +483,23 @@ func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
 	profile["tier"] = normalized_tier
 	match normalized_tier:
 		BOT_TIER_EASY:
-			profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + 360
-			profile["think_jitter_ms"] = int(profile.get("think_jitter_ms", 120)) + 80
-			profile["post_intent_delay_ms"] = int(profile.get("post_intent_delay_ms", 400)) + 240
-			profile["opening_delay_ms"] = int(profile.get("opening_delay_ms", 1600)) + 1400
-			profile["aggression"] = clampf(float(profile.get("aggression", 0.5)) - 0.12, 0.0, 1.0)
-			profile["feed_bias"] = clampf(float(profile.get("feed_bias", 0.3)) + 0.04, 0.0, 1.0)
-			profile["randomness"] = clampf(float(profile.get("randomness", 0.08)) + 0.08, 0.0, 0.5)
-			profile["min_attack_power"] = int(profile.get("min_attack_power", 9)) + 3
-			profile["min_feed_power"] = int(profile.get("min_feed_power", 12)) + 2
-			profile["min_swarm_power"] = int(profile.get("min_swarm_power", 17)) + 4
-			profile["retry_block_ms"] = int(profile.get("retry_block_ms", 900)) + 500
-			profile["no_lane_retry_ms"] = int(profile.get("no_lane_retry_ms", 3200)) + 1200
-			profile["pair_intent_cooldown_ms"] = int(profile.get("pair_intent_cooldown_ms", 1300)) + 650
-			profile["global_intent_cooldown_ms"] = int(profile.get("global_intent_cooldown_ms", 1000)) + 600
-			profile["swarm_cooldown_ms"] = int(profile.get("swarm_cooldown_ms", 1600)) + 1000
-			profile["swarm_global_cooldown_ms"] = int(profile.get("swarm_global_cooldown_ms", 3500)) + 1800
-			profile["swarm_frequency"] = clampf(float(profile.get("swarm_frequency", 0.34)) - 0.18, 0.0, 1.0)
+			profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + 450
+			profile["think_jitter_ms"] = int(profile.get("think_jitter_ms", 120)) + 100
+			profile["post_intent_delay_ms"] = int(profile.get("post_intent_delay_ms", 400)) + 300
+			profile["opening_delay_ms"] = int(profile.get("opening_delay_ms", 1600)) + 1700
+			profile["aggression"] = clampf(float(profile.get("aggression", 0.5)) - 0.16, 0.0, 1.0)
+			profile["feed_bias"] = clampf(float(profile.get("feed_bias", 0.3)) + 0.06, 0.0, 1.0)
+			profile["randomness"] = clampf(float(profile.get("randomness", 0.08)) + 0.10, 0.0, 0.5)
+			profile["min_attack_power"] = int(profile.get("min_attack_power", 9)) + 4
+			profile["min_feed_power"] = int(profile.get("min_feed_power", 12)) + 3
+			profile["min_swarm_power"] = int(profile.get("min_swarm_power", 17)) + 5
+			profile["retry_block_ms"] = int(profile.get("retry_block_ms", 900)) + 650
+			profile["no_lane_retry_ms"] = int(profile.get("no_lane_retry_ms", 3200)) + 1500
+			profile["pair_intent_cooldown_ms"] = int(profile.get("pair_intent_cooldown_ms", 1300)) + 850
+			profile["global_intent_cooldown_ms"] = int(profile.get("global_intent_cooldown_ms", 1000)) + 800
+			profile["swarm_cooldown_ms"] = int(profile.get("swarm_cooldown_ms", 1600)) + 1200
+			profile["swarm_global_cooldown_ms"] = int(profile.get("swarm_global_cooldown_ms", 3500)) + 2200
+			profile["swarm_frequency"] = clampf(float(profile.get("swarm_frequency", 0.34)) - 0.22, 0.0, 1.0)
 			if style_id == BOT_STYLE_RAIDER:
 				profile["opening_enemy_home_penalty"] = 0.0
 				profile["opening_enemy_home_max_own_hives"] = 0
@@ -507,32 +509,7 @@ func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
 				profile["early_enemy_core_max_enemy_hives"] = 0
 				profile["early_enemy_core_break_margin"] = 0
 		BOT_TIER_HARD:
-			profile["think_interval_ms"] = maxi(180, int(profile.get("think_interval_ms", 900)) - 180)
-			profile["think_jitter_ms"] = maxi(0, int(profile.get("think_jitter_ms", 120)) - 30)
-			profile["post_intent_delay_ms"] = maxi(0, int(profile.get("post_intent_delay_ms", 400)) - 120)
-			profile["opening_delay_ms"] = maxi(0, int(profile.get("opening_delay_ms", 1600)) - 350)
-			profile["aggression"] = clampf(float(profile.get("aggression", 0.5)) + 0.08, 0.0, 1.0)
-			profile["feed_bias"] = clampf(float(profile.get("feed_bias", 0.3)) - 0.03, 0.0, 1.0)
-			profile["randomness"] = clampf(float(profile.get("randomness", 0.08)) - 0.04, 0.0, 0.5)
-			profile["min_attack_power"] = maxi(1, int(profile.get("min_attack_power", 9)) - 1)
-			profile["min_feed_power"] = maxi(1, int(profile.get("min_feed_power", 12)) - 1)
-			profile["min_swarm_power"] = maxi(1, int(profile.get("min_swarm_power", 17)) - 2)
-			profile["retry_block_ms"] = maxi(200, int(profile.get("retry_block_ms", 900)) - 150)
-			profile["no_lane_retry_ms"] = maxi(600, int(profile.get("no_lane_retry_ms", 3200)) - 500)
-			profile["pair_intent_cooldown_ms"] = maxi(300, int(profile.get("pair_intent_cooldown_ms", 1300)) - 220)
-			profile["global_intent_cooldown_ms"] = maxi(250, int(profile.get("global_intent_cooldown_ms", 1000)) - 180)
-			profile["swarm_cooldown_ms"] = maxi(250, int(profile.get("swarm_cooldown_ms", 1600)) - 220)
-			profile["swarm_global_cooldown_ms"] = maxi(500, int(profile.get("swarm_global_cooldown_ms", 3500)) - 500)
-			profile["swarm_frequency"] = clampf(float(profile.get("swarm_frequency", 0.34)) + 0.10, 0.0, 1.0)
-			if style_id == BOT_STYLE_RAIDER:
-				profile["opening_enemy_home_penalty"] = 34.0
-				profile["opening_enemy_home_max_own_hives"] = 2
-				profile["opening_enemy_home_max_enemy_hives"] = 1
-				profile["early_enemy_core_penalty"] = 12.0
-				profile["early_enemy_core_max_own_hives"] = 3
-				profile["early_enemy_core_max_enemy_hives"] = 2
-				profile["early_enemy_core_break_margin"] = 6
-		_:
+			# Current playtest read: previous Medium is the right Expert target.
 			profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + 220
 			profile["think_jitter_ms"] = int(profile.get("think_jitter_ms", 120)) + 40
 			profile["post_intent_delay_ms"] = int(profile.get("post_intent_delay_ms", 400)) + 180
@@ -549,7 +526,33 @@ func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
 				profile["early_enemy_core_max_own_hives"] = 3
 				profile["early_enemy_core_max_enemy_hives"] = 2
 				profile["early_enemy_core_break_margin"] = 8
-	if normalized_tier == BOT_TIER_MEDIUM and style_id == BOT_STYLE_TURTLE:
+		_:
+			profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + 290
+			profile["think_jitter_ms"] = int(profile.get("think_jitter_ms", 120)) + 60
+			profile["post_intent_delay_ms"] = int(profile.get("post_intent_delay_ms", 400)) + 210
+			profile["opening_delay_ms"] = int(profile.get("opening_delay_ms", 1600)) + 950
+			profile["aggression"] = clampf(float(profile.get("aggression", 0.5)) - 0.06, 0.0, 1.0)
+			profile["feed_bias"] = clampf(float(profile.get("feed_bias", 0.3)) + 0.02, 0.0, 1.0)
+			profile["randomness"] = clampf(float(profile.get("randomness", 0.08)) + 0.04, 0.0, 0.5)
+			profile["min_attack_power"] = int(profile.get("min_attack_power", 9)) + 2
+			profile["min_feed_power"] = int(profile.get("min_feed_power", 12)) + 1
+			profile["min_swarm_power"] = int(profile.get("min_swarm_power", 17)) + 2
+			profile["retry_block_ms"] = int(profile.get("retry_block_ms", 900)) + 250
+			profile["no_lane_retry_ms"] = int(profile.get("no_lane_retry_ms", 3200)) + 600
+			profile["pair_intent_cooldown_ms"] = int(profile.get("pair_intent_cooldown_ms", 1300)) + 450
+			profile["global_intent_cooldown_ms"] = int(profile.get("global_intent_cooldown_ms", 1000)) + 425
+			profile["swarm_cooldown_ms"] = int(profile.get("swarm_cooldown_ms", 1600)) + 650
+			profile["swarm_global_cooldown_ms"] = int(profile.get("swarm_global_cooldown_ms", 3500)) + 1100
+			profile["swarm_frequency"] = clampf(float(profile.get("swarm_frequency", 0.34)) - 0.09, 0.0, 1.0)
+			if style_id == BOT_STYLE_RAIDER:
+				profile["opening_enemy_home_penalty"] = 21.0
+				profile["opening_enemy_home_max_own_hives"] = 2
+				profile["opening_enemy_home_max_enemy_hives"] = 1
+				profile["early_enemy_core_penalty"] = 8.0
+				profile["early_enemy_core_max_own_hives"] = 3
+				profile["early_enemy_core_max_enemy_hives"] = 2
+				profile["early_enemy_core_break_margin"] = 4
+	if normalized_tier == BOT_TIER_HARD and style_id == BOT_STYLE_TURTLE:
 		profile["think_interval_ms"] = maxi(420, int(profile.get("think_interval_ms", 900)) - 120)
 		profile["post_intent_delay_ms"] = maxi(200, int(profile.get("post_intent_delay_ms", 400)) - 90)
 		profile["opening_delay_ms"] = maxi(700, int(profile.get("opening_delay_ms", 1600)) - 180)
@@ -566,8 +569,6 @@ func _apply_bot_tier(profile: Dictionary, tier: String) -> void:
 		profile["guard_ally_power_threshold"] = maxi(0, int(profile.get("guard_ally_power_threshold", 0)) - 1)
 		profile["guard_feed_score_margin"] = clampf(float(profile.get("guard_feed_score_margin", 0.0)) - 1.5, 0.0, 40.0)
 		profile["attack_commit_margin"] = clampf(float(profile.get("attack_commit_margin", 0.0)) + 3.0, 0.0, 40.0)
-	if normalized_tier == BOT_TIER_HARD and float(profile.get("aggression", 0.0)) >= 0.80:
-		profile["max_actions_per_tick"] = maxi(int(profile.get("max_actions_per_tick", 1)), 2)
 
 func _build_bot_profile_for_seat(seat: int, style: String, tier: String) -> Dictionary:
 	var profile: Dictionary = _base_bot_profile_for_seat(seat)

@@ -2,7 +2,7 @@ extends SceneTree
 
 const JukeboxLeaderboardStoreScript = preload("res://scripts/state/jukebox_leaderboard_store.gd")
 const SMOKE_SAVE_PATH: String = "user://jukebox_leaderboard_v1.smoke.json"
-const MAP_ID: String = "MAP_nomansland__SBASE__1p"
+const MAP_ID: String = "MAP_nomansland__545__v01_top2_sides__1p"
 const MODE: String = "ASYNC_SINGLE_MAP_TIMED"
 const PERIOD: String = "WEEKLY"
 const PLAYER_ID: String = "smoke_player"

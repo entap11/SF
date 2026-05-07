@@ -21,9 +21,10 @@ const UNIT_RADIUS_PX := 24.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
-const PASS_THROUGH_EMIT_RATE_LARGE_MAP_MULT: float = 0.6
-const PASS_THROUGH_EMIT_RATE_MEDIUM_MAP_MULT: float = 0.8
-const PASS_THROUGH_EMIT_RATE_SMALL_MAP_MULT: float = 1.0
+const PASS_THROUGH_VISIBLE_UNITS_SOFT_CAP: int = 200
+const PASS_THROUGH_VISIBLE_UNITS_HARD_CAP: int = 230
+const PASS_THROUGH_THROTTLE_SOFT_MULT: float = 0.9
+const PASS_THROUGH_THROTTLE_HARD_MULT: float = 0.8
 const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 
@@ -791,6 +792,16 @@ func _pass_through_arrival(hive: HiveData, owner_id: int, payload: int) -> void:
 	var key: int = _pass_through_key(int(hive.id), owner_id)
 	var prev_queue: int = int(_pass_through_queue_by_key.get(key, 0))
 	_pass_through_queue_by_key[key] = prev_queue + payload
+	if prev_queue <= 0:
+		_prime_pass_through_emit_credit(key, hive)
+
+func _prime_pass_through_emit_credit(key: int, hive: HiveData) -> void:
+	var emit_rate: float = _pass_through_emit_rate_units_per_sec(hive)
+	if emit_rate <= 0.0:
+		return
+	var first_unit_credit_ms: float = 1000.0 / emit_rate
+	var prev_accum_ms: float = float(_pass_through_emit_accum_ms_by_key.get(key, 0.0))
+	_pass_through_emit_accum_ms_by_key[key] = maxf(prev_accum_ms, first_unit_credit_ms)
 
 func _pass_through_targets(hive: HiveData) -> Array:
 	var outgoing: Array = []
@@ -858,6 +869,7 @@ func _drain_pass_through_queues(dt: float) -> void:
 	var dt_ms: float = maxf(0.0, dt * 1000.0)
 	var keys: Array = _pass_through_queue_by_key.keys()
 	keys.sort()
+	var inflight_by_key: Dictionary = _pass_through_inflight_counts_by_key()
 	for key_any in keys:
 		var key: int = int(key_any)
 		var queued: int = int(_pass_through_queue_by_key.get(key, 0))
@@ -886,7 +898,7 @@ func _drain_pass_through_queues(dt: float) -> void:
 		if releasable_by_rate <= 0:
 			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
 			continue
-		var inflight_now: int = _pass_through_inflight_count(hive_id, owner_id)
+		var inflight_now: int = int(inflight_by_key.get(key, 0))
 		var pipeline_cap: int = _pass_through_pipeline_cap_units(hive, emit_rate)
 		var pipeline_room: int = maxi(0, pipeline_cap - inflight_now)
 		var release_count: int = mini(mini(queued, releasable_by_rate), pipeline_room)
@@ -937,12 +949,15 @@ func _pass_through_emit_rate_units_per_sec(hive: HiveData) -> float:
 	return maxf(0.0, single_rate * _pass_through_emit_rate_multiplier())
 
 func _pass_through_emit_rate_multiplier() -> float:
-	var hive_count: int = state.hives.size() if state != null and state.hives != null else 0
-	if hive_count > 0 and hive_count < 12:
-		return PASS_THROUGH_EMIT_RATE_SMALL_MAP_MULT
-	if hive_count >= 12 and hive_count <= 15:
-		return PASS_THROUGH_EMIT_RATE_MEDIUM_MAP_MULT
-	return PASS_THROUGH_EMIT_RATE_LARGE_MAP_MULT
+	var visible_units: int = _visible_unit_count()
+	if visible_units <= PASS_THROUGH_VISIBLE_UNITS_SOFT_CAP:
+		return 1.0
+	if visible_units <= PASS_THROUGH_VISIBLE_UNITS_HARD_CAP:
+		return PASS_THROUGH_THROTTLE_SOFT_MULT
+	return PASS_THROUGH_THROTTLE_HARD_MULT
+
+func _visible_unit_count() -> int:
+	return maxi(0, units.size())
 
 func _pass_through_pipeline_cap_units(hive: HiveData, emit_rate_units_per_sec: float) -> int:
 	if hive == null or emit_rate_units_per_sec <= 0.0:
@@ -977,22 +992,21 @@ func _pass_through_avg_travel_time_sec(hive: HiveData) -> float:
 		return 0.0
 	return travel_sum_s / float(valid_count)
 
-func _pass_through_inflight_count(hive_id: int, owner_id: int) -> int:
-	if hive_id <= 0 or owner_id <= 0:
-		return 0
-	var count: int = 0
+func _pass_through_inflight_counts_by_key() -> Dictionary:
+	var counts: Dictionary = {}
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
 			continue
 		var unit: Dictionary = unit_any as Dictionary
 		if str(unit.get("arrive_source", "")) != "pass_through":
 			continue
-		if int(unit.get("from_id", -1)) != hive_id:
+		var hive_id: int = int(unit.get("from_id", -1))
+		var owner_id: int = int(unit.get("owner_id", 0))
+		if hive_id <= 0 or owner_id <= 0:
 			continue
-		if int(unit.get("owner_id", 0)) != owner_id:
-			continue
-		count += 1
-	return count
+		var key: int = _pass_through_key(hive_id, owner_id)
+		counts[key] = int(counts.get(key, 0)) + 1
+	return counts
 
 func _log_pass_through_congested_once_per_sec(key: int, hive_id: int, owner_id: int, queued: int, inflight_now: int, pipeline_cap: int) -> void:
 	var now_ms: int = Time.get_ticks_msec()

@@ -4,10 +4,13 @@ class_name EdgeCacheSystem
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
+const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
+const MapSchema := preload("res://scripts/maps/map_schema.gd")
 
 @export var lane_start_cap_trim_px: float = 18.0
 @export var lane_end_cap_trim_px: float = 18.0
 const LANE_CAP_TRIM_RADIUS_RATIO: float = 0.45
+const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
 
 var _last_sig: String = ""
 
@@ -81,17 +84,8 @@ func _seg_intersects(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool:
 	var u := ac.cross(ab) / denom
 	return t >= 0.0 and t <= 1.0 and u >= 0.0 and u <= 1.0
 
-func _segment_intersects_any_wall(a: Vector2, b: Vector2, wall_segments: Array) -> bool:
-	for seg_any in wall_segments:
-		if typeof(seg_any) != TYPE_DICTIONARY:
-			continue
-		var seg: Dictionary = seg_any as Dictionary
-		var wa: Variant = seg.get("a", null)
-		var wb: Variant = seg.get("b", null)
-		if wa is Vector2 and wb is Vector2:
-			if _seg_intersects(a, b, wa as Vector2, wb as Vector2):
-				return true
-	return false
+func _segment_intersects_any_wall(a: Vector2, b: Vector2, wall_segments: Array, padding: float = 0.0) -> bool:
+	return MapSchema._segment_intersects_any_wall(a, b, wall_segments, padding)
 
 func _lane_pair_key(src_id: int, dst_id: int) -> String:
 	return "%d->%d" % [src_id, dst_id]
@@ -149,6 +143,18 @@ func _resolve_game_state(obj: Object) -> GameState:
 			return st_any as GameState
 	return null
 
+func _grid_cell_size_px(gs: GameState) -> float:
+	if gs == null:
+		return 64.0
+	var spec: Object = gs.grid_spec
+	if spec != null:
+		var cell_v: Variant = spec.get("cell_size")
+		if cell_v != null:
+			var cell: float = float(cell_v)
+			if cell > 0.0:
+				return cell
+	return 64.0
+
 func rebuild_edge_cache(state: Object) -> void:
 	var ops_state: Object = _resolve_ops_state(state)
 	var gs: GameState = _resolve_game_state(state)
@@ -163,6 +169,7 @@ func rebuild_edge_cache(state: Object) -> void:
 	var cache: Dictionary = {}
 	var walls: Array = _walls_from_state(gs)
 	var wall_segments: Array = _wall_segments_from_walls(walls)
+	var wall_padding_grid: float = LANE_BODY_HALF_WIDTH_PX / maxf(1.0, _grid_cell_size_px(gs))
 	var walls_count: int = walls.size()
 	var blocked_edge_count: int = 0
 	var edges_before: int = 0
@@ -195,7 +202,7 @@ func rebuild_edge_cache(state: Object) -> void:
 		if not wall_segments.is_empty():
 			var a_grid := Vector2(float(src_hive.grid_pos.x), float(src_hive.grid_pos.y))
 			var b_grid := Vector2(float(dst_hive.grid_pos.x), float(dst_hive.grid_pos.y))
-			if _segment_intersects_any_wall(a_grid, b_grid, wall_segments):
+			if _segment_intersects_any_wall(a_grid, b_grid, wall_segments, wall_padding_grid):
 				blocked_edge_count += 1
 				blocked_lanes += 1
 				var lo := mini(src_id, dst_id)

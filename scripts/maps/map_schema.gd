@@ -9,9 +9,9 @@ const DEFAULT_CELL_SIZE := 64.0
 const OCCLUSION_RADIUS_MAX := 0.45
 const OCCLUSION_EPS := 0.0001
 const DEFAULT_SYMMETRY_MODE := "mirror_x"
-const HIVE_VISUAL_BLOCK_RADIUS_SCALE := 1.60
-const LANE_BODY_HALF_WIDTH_PX := 40.0
-const LANE_OCCLUSION_PAD_PX := 8.0
+const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
+const LANE_OCCLUSION_PAD_PX := HiveGeometry.DEFAULT_LANE_OCCLUSION_PAD_PX
+const LANE_OCCLUSION_STABLE_HIVE_POWER := HiveGeometry.TIER_3_MIN_POWER
 const HIVE_RADIUS_RATIO_BY_KIND := {
 	"hive": 0.42,
 	"npc": 0.42,
@@ -137,7 +137,28 @@ static func _seg_intersects(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> b
 	var u := ac.cross(ab) / denom
 	return t >= 0.0 and t <= 1.0 and u >= 0.0 and u <= 1.0
 
-static func _segment_intersects_any_wall(a: Vector2, b: Vector2, wall_segments: Array) -> bool:
+static func _point_segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab: Vector2 = b - a
+	var ab_len_sq: float = ab.length_squared()
+	if ab_len_sq <= 0.000001:
+		return p.distance_to(a)
+	var t: float = clampf((p - a).dot(ab) / ab_len_sq, 0.0, 1.0)
+	return p.distance_to(a + (ab * t))
+
+static func _seg_intersects_padded(a: Vector2, b: Vector2, c: Vector2, d: Vector2, padding: float) -> bool:
+	if _seg_intersects(a, b, c, d):
+		return true
+	if padding <= 0.0:
+		return false
+	var pad: float = maxf(0.0, padding)
+	return (
+		_point_segment_distance(a, c, d) <= pad
+		or _point_segment_distance(b, c, d) <= pad
+		or _point_segment_distance(c, a, b) <= pad
+		or _point_segment_distance(d, a, b) <= pad
+	)
+
+static func _segment_intersects_any_wall(a: Vector2, b: Vector2, wall_segments: Array, padding: float = 0.0) -> bool:
 	for seg_any in wall_segments:
 		if typeof(seg_any) != TYPE_DICTIONARY:
 			continue
@@ -145,7 +166,7 @@ static func _segment_intersects_any_wall(a: Vector2, b: Vector2, wall_segments: 
 		var wa: Variant = seg.get("a", null)
 		var wb: Variant = seg.get("b", null)
 		if wa is Vector2 and wb is Vector2:
-			if _seg_intersects(a, b, wa as Vector2, wb as Vector2):
+			if _seg_intersects_padded(a, b, wa as Vector2, wb as Vector2, padding):
 				return true
 	return false
 
@@ -401,8 +422,7 @@ static func _hive_lane_occlusion_radius_grid(hive: Dictionary, cell_size: float 
 		radius_px = hive_radius_px_for_kind(str(hive.get("kind", "Hive")), resolved_cell_size)
 	if radius_px <= 0.0:
 		radius_px = HiveGeometry.BASE_RADIUS_PX
-	var visual_radius_px: float = maxf(HiveGeometry.BASE_RADIUS_PX, radius_px) * HIVE_VISUAL_BLOCK_RADIUS_SCALE
-	var blocker_px: float = HiveGeometry.lane_occlusion_radius_px(visual_radius_px) + LANE_BODY_HALF_WIDTH_PX + LANE_OCCLUSION_PAD_PX
+	var blocker_px: float = HiveGeometry.lane_block_radius_px(radius_px, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
 	return blocker_px / resolved_cell_size
 
 static func _segment_occluded(a: Vector2, b: Vector2, hives: Array, a_id: int, b_id: int, cell_size: float = DEFAULT_CELL_SIZE) -> bool:
@@ -517,6 +537,7 @@ static func _auto_generate_lanes(hives: Array, grid_w: int, grid_h: int, config:
 			"id": hive_id,
 			"pos": pos,
 			"kind": str(hive.get("kind", "Hive")),
+			"power": int(hive.get("pwr", hive.get("power", 0))),
 			"radius_px": float(hive.get("radius_px", hive.get("radius", 0.0)))
 		})
 		hive_ids.append(hive_id)
@@ -532,6 +553,7 @@ static func _auto_generate_lanes(hives: Array, grid_w: int, grid_h: int, config:
 	if config.has("entities"):
 		walls.append_array(_walls_from_entities(config.get("entities", [])))
 	var wall_segments: Array = _wall_segments_from_walls(walls)
+	var wall_padding_grid: float = LANE_BODY_HALF_WIDTH_PX / maxf(1.0, cell_size)
 
 	var symmetry_cfg := _resolve_symmetry_config(config)
 	var enforce_symmetry := bool(symmetry_cfg.get("enforce", false))
@@ -550,7 +572,7 @@ static func _auto_generate_lanes(hives: Array, grid_w: int, grid_h: int, config:
 			var b: Dictionary = hive_points[j]
 			var b_id := int(b.get("id", 0))
 			var b_pos: Vector2 = b.get("pos", Vector2.ZERO)
-			if not wall_segments.is_empty() and _segment_intersects_any_wall(a_pos, b_pos, wall_segments):
+			if not wall_segments.is_empty() and _segment_intersects_any_wall(a_pos, b_pos, wall_segments, wall_padding_grid):
 				continue
 			if _segment_occluded(a_pos, b_pos, hive_points, a_id, b_id, cell_size):
 				continue

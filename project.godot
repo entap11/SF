@@ -44,6 +44,7 @@ window/size/window_height=1920
 
 [rendering]
 
+textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.168627, 0.168627, 0.168627, 1)
 
 [swarmfront]

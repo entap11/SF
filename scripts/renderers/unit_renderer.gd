@@ -41,14 +41,19 @@ const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
 const UNIT_RENDER_SCALE: float = 1.44
 const UNIT_VISUAL_SCALE_MULT: float = 0.80
+const UNIT_OUTLINE_ENABLED: bool = true
 const UNIT_OUTLINE_SCALE_MULT: float = 1.32
 const UNIT_OUTLINE_COLOR: Color = Color(0.02, 0.02, 0.03, 0.98)
 const UNIT_SPRITE_FORWARD_DEG: float = 90.0
 const UNIT_TRAVEL_T_EPS: float = 0.02
+const HIVE_REAR_APPROACH_Y_MIN: float = 0.12
+const HIVE_REAR_OCCLUSION_ENTRY_PAD_PX: float = 2.0
+const HIVE_REAR_OCCLUSION_Z_INDEX: int = -2
+const HIVE_UNIT_DEFAULT_Z_INDEX: int = 0
 const DBG_UNITS: bool = false
 const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
-const UNIT_COLOR := Color(1.0, 1.0, 1.0, 0.9)
+const UNIT_COLOR := Color(1.0, 1.0, 1.0, 1.0)
 const DEBUG_HIVE1_CROSS := false
 const UNIT_LOG_INTERVAL_MS := 1000
 const UNIT_BOUNDS_LOG_INTERVAL_MS := 1000
@@ -96,6 +101,7 @@ const USE_UNIT_POOL: bool = true
 const UNIT_POOL_SIZE_PER_TEAM: int = 64
 const UNIT_POOL_OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
 const PRUNE_AFTER_TICKS: int = 2
+const PASS_THROUGH_VISUAL_WARM_PX: float = 7.0
 
 @export var debug_unit_logs: bool = false
 @export var debug_unit_owner_labels: bool = false
@@ -230,6 +236,18 @@ func _try_bind_sim_events() -> void:
 	if not _sim_events.is_connected("unit_collision", Callable(self, "_on_sim_unit_collision")):
 		_sim_events.connect("unit_collision", Callable(self, "_on_sim_unit_collision"))
 
+func set_sim_events(sim_events: Node) -> void:
+	if _sim_events == sim_events:
+		_try_bind_sim_events()
+		return
+	var previous_events: Node = _sim_events
+	if previous_events != null and is_instance_valid(previous_events):
+		var collision_cb := Callable(self, "_on_sim_unit_collision")
+		if previous_events.is_connected("unit_collision", collision_cb):
+			previous_events.disconnect("unit_collision", collision_cb)
+	_sim_events = sim_events
+	_try_bind_sim_events()
+
 func begin_post_match_settle(duration_sec: float = 0.75, extrap_sec: float = 0.40) -> void:
 	var safe_duration_sec: float = maxf(0.0, duration_sec)
 	var safe_extrap_sec: float = maxf(BUTTER_MAX_EXTRAP_SEC, extrap_sec)
@@ -310,7 +328,7 @@ func _tracked_unit_id_for_node(node: Node2D) -> int:
 
 func _create_unit_render_node() -> Node2D:
 	var node: Node2D = Node2D.new()
-	node.z_index = 0
+	_reset_unit_hive_occlusion_depth(node)
 	_ensure_unit_outline_sprite(node)
 	_ensure_unit_sprite(node)
 	return node
@@ -419,6 +437,9 @@ func _pool_release(node: Node2D) -> void:
 	if not _assert_not_freed(node):
 		return
 	node.visible = false
+	if not _assert_not_freed(node):
+		return
+	_reset_unit_hive_occlusion_depth(node)
 	if not _assert_not_freed(node):
 		return
 	node.position = Vector2.ZERO
@@ -1251,7 +1272,7 @@ func _sync_unit_nodes(units: Array) -> Dictionary:
 				continue
 			node.name = "Unit_%d" % unit_id
 			node.set_meta("unit_id", unit_id)
-			node.z_index = 0
+			_reset_unit_hive_occlusion_depth(node)
 			unit_nodes_by_id[unit_id] = node
 			_unit_in_use[unit_id] = node
 			_audit_mark_rebuild("unit_node_create")
@@ -1409,7 +1430,7 @@ func _update_unit_nodes_positions(units: Array) -> Dictionary:
 		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
 		if typeof(state_any) == TYPE_DICTIONARY:
 			var state: Dictionary = state_any as Dictionary
-			if bool(state.get("just_spawned", false)):
+			if bool(state.get("just_spawned", false)) or bool(state.get("warm_spawned", false)):
 				var curr_pos_v: Variant = state.get("curr_pos", null)
 				if curr_pos_v is Vector2:
 					node.position = curr_pos_v as Vector2
@@ -1476,20 +1497,34 @@ func _ingest_unit_sample(
 	if typeof(existing_any) == TYPE_DICTIONARY:
 		entry = existing_any as Dictionary
 	if entry.is_empty():
-		entry["prev_pos"] = sample_pos
+		var warm_start: bool = str(ud.get("arrive_source", "")).strip_edges().to_lower() == "pass_through" and bool(endpoints.get("ok", false))
+		var prev_pos: Vector2 = sample_pos
+		var prev_t: float = target_t
+		var prev_sim_us: int = sample_sim_us
+		var prev_wall_us: int = sample_wall_us
+		if warm_start:
+			prev_pos = sample_pos - (sample_dir_norm * PASS_THROUGH_VISUAL_WARM_PX)
+			var lane_len_px: float = maxf(1.0, a_pos.distance_to(b_pos))
+			var warm_t_step: float = minf(0.20, PASS_THROUGH_VISUAL_WARM_PX / lane_len_px)
+			prev_t = clampf(target_t - (float(_unit_travel_sign(ud)) * warm_t_step), 0.0, 1.0)
+			var warm_us: int = int(round(maxf(0.001, sim_dt_sec) * 1000000.0))
+			prev_sim_us = sample_sim_us - warm_us
+			prev_wall_us = sample_wall_us - warm_us
+		entry["prev_pos"] = prev_pos
 		entry["curr_pos"] = sample_pos
-		entry["prev_t"] = target_t
+		entry["prev_t"] = prev_t
 		entry["curr_t"] = target_t
-		entry["prev_time_us"] = sample_sim_us
+		entry["prev_time_us"] = prev_sim_us
 		entry["curr_time_us"] = sample_sim_us
-		entry["prev_sim_us"] = sample_sim_us
+		entry["prev_sim_us"] = prev_sim_us
 		entry["curr_sim_us"] = sample_sim_us
-		entry["prev_wall_us"] = sample_wall_us
+		entry["prev_wall_us"] = prev_wall_us
 		entry["curr_wall_us"] = sample_wall_us
 		entry["prev_rot"] = sample_rot
 		entry["curr_rot"] = sample_rot
 		entry["render_pos"] = sample_pos
-		entry["just_spawned"] = true
+		entry["just_spawned"] = not warm_start
+		entry["warm_spawned"] = warm_start
 	else:
 		var curr_pos: Vector2 = entry.get("curr_pos", sample_pos)
 		entry["prev_pos"] = curr_pos
@@ -1561,6 +1596,12 @@ func _target_hive_boundary_world(to_hive_id: int, hive_by_id: Dictionary, travel
 	if not (center_any is Vector2):
 		return null
 	var center_world: Vector2 = center_any as Vector2
+	var radius_px: float = _target_hive_radius_px(to_hive_id, hive_by_id)
+	if _is_rear_hive_approach(dir):
+		return center_world + (dir * radius_px)
+	return center_world - (dir * radius_px)
+
+func _target_hive_radius_px(to_hive_id: int, hive_by_id: Dictionary) -> float:
 	var radius_px: float = 18.0
 	var hive_data_any: Variant = hive_by_id.get(to_hive_id, null)
 	if typeof(hive_data_any) == TYPE_DICTIONARY:
@@ -1579,7 +1620,44 @@ func _target_hive_boundary_world(to_hive_id: int, hive_by_id: Dictionary, travel
 				var resolved_radius: float = float(radius_any)
 				if resolved_radius > 0.0:
 					radius_px = resolved_radius
-	return center_world - (dir * radius_px)
+	return radius_px
+
+func _is_rear_hive_approach(travel_dir_world: Vector2) -> bool:
+	if travel_dir_world.length_squared() <= 0.000001:
+		return false
+	var dir: Vector2 = travel_dir_world.normalized()
+	return dir.y < -HIVE_REAR_APPROACH_Y_MIN
+
+func _reset_unit_hive_occlusion_depth(node: Node2D) -> void:
+	if node == null:
+		return
+	node.z_as_relative = true
+	node.z_index = HIVE_UNIT_DEFAULT_Z_INDEX
+
+func _update_target_hive_occlusion_depth(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, travel_dir_world: Vector2) -> void:
+	if node == null:
+		return
+	if not _is_rear_hive_approach(travel_dir_world):
+		_reset_unit_hive_occlusion_depth(node)
+		return
+	var to_hive_id: int = int(ud.get("to_id", -1))
+	if to_hive_id <= 0:
+		_reset_unit_hive_occlusion_depth(node)
+		return
+	var center_any: Variant = _hive_world_pos(to_hive_id, hive_by_id)
+	if not (center_any is Vector2):
+		_reset_unit_hive_occlusion_depth(node)
+		return
+	var dir: Vector2 = travel_dir_world.normalized()
+	var center_world: Vector2 = center_any as Vector2
+	var radius_px: float = _target_hive_radius_px(to_hive_id, hive_by_id)
+	var along_to_target: float = (node.global_position - center_world).dot(dir)
+	var has_reached_front_shell: bool = along_to_target >= (-radius_px - HIVE_REAR_OCCLUSION_ENTRY_PAD_PX)
+	if has_reached_front_shell:
+		node.z_as_relative = false
+		node.z_index = HIVE_REAR_OCCLUSION_Z_INDEX
+	else:
+		_reset_unit_hive_occlusion_depth(node)
 
 func _unit_visual_normal_from_endpoints(endpoints: Dictionary, a_pos: Vector2, b_pos: Vector2) -> Vector2:
 	var normal_any: Variant = endpoints.get("normal", Vector2.ZERO)
@@ -2403,12 +2481,16 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 			controller.call("reset")
 		if outline_controller.has_method("reset"):
 			outline_controller.call("reset")
+		_reset_unit_hive_occlusion_depth(node)
 		return
 	if not has_override_plane:
 		var to_hive_id_for_plane: int = int(ud.get("to_id", -1))
 		var boundary_plane_v: Variant = _target_hive_boundary_world(to_hive_id_for_plane, hive_by_id, travel_dir_world)
 		if boundary_plane_v is Vector2:
 			entrance_point_world = boundary_plane_v as Vector2
+		_update_target_hive_occlusion_depth(node, ud, hive_by_id, travel_dir_world)
+	else:
+		_reset_unit_hive_occlusion_depth(node)
 
 	var clip_length_scale: float = bee_clip_collision_length_scale if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)) else bee_clip_length_scale
 	var bee_length_px: float = _compute_bee_visual_length_px_scaled(sprite, clip_length_scale)
@@ -2709,23 +2791,23 @@ func _update_unit_sprite(
 		outline_sprite.centered = true
 		outline_sprite.offset = Vector2.ZERO
 		outline_sprite.position = Vector2.ZERO
-		outline_sprite.texture = tex
+		outline_sprite.texture = tex if UNIT_OUTLINE_ENABLED else null
 		outline_sprite.material = null
-		outline_sprite.self_modulate = UNIT_OUTLINE_COLOR
+		outline_sprite.self_modulate = UNIT_OUTLINE_COLOR if UNIT_OUTLINE_ENABLED else Color(1.0, 1.0, 1.0, 0.0)
 	var tex_size := tex.get_size()
 	if tex_size.x > 0.0 and tex_size.y > 0.0:
 		var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE * UNIT_VISUAL_SCALE_MULT
 		var sprite_scale: Vector2 = Vector2(size_px / tex_size.x, size_px / tex_size.y)
 		sprite.scale = sprite_scale
 		if outline_sprite != null:
-			outline_sprite.scale = sprite_scale * UNIT_OUTLINE_SCALE_MULT
+			outline_sprite.scale = sprite_scale * UNIT_OUTLINE_SCALE_MULT if UNIT_OUTLINE_ENABLED else Vector2.ONE
 	if apply_orientation:
 		var lane_id: int = int(ud.get("lane_id", 0))
 		_apply_unit_orientation(node, sprite, ud, hive_by_id, unit_id, owner_id, lane_id)
 	node.visible = true
 	sprite.visible = not debug_draw_units
 	if outline_sprite != null:
-		outline_sprite.visible = not debug_draw_units
+		outline_sprite.visible = UNIT_OUTLINE_ENABLED and not debug_draw_units
 
 func _apply_debug_force_top_z() -> void:
 	if debug_force_top_z == _last_force_top_z:
@@ -3117,6 +3199,7 @@ func _render_units(now_us: int) -> void:
 				node.rotation = float(state.get("curr_rot", node.rotation))
 				state["render_pos"] = spawn_pos
 				state["just_spawned"] = false
+				state["warm_spawned"] = false
 				_unit_visual_by_id[unit_id] = state
 				if not unit_data.is_empty():
 					_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
@@ -3133,6 +3216,7 @@ func _render_units(now_us: int) -> void:
 						node.position = settle_pos
 					node.rotation = float(settle_pose.get("rot", float(state.get("curr_rot", node.rotation))))
 					state["render_pos"] = node.position
+					state["warm_spawned"] = false
 					_unit_visual_by_id[unit_id] = state
 					if not unit_data.is_empty():
 						_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
@@ -3153,6 +3237,7 @@ func _render_units(now_us: int) -> void:
 			var curr_rot: float = float(state.get("curr_rot", prev_rot))
 			node.rotation = lerp_angle(prev_rot, curr_rot, alpha)
 			state["render_pos"] = render_pos
+			state["warm_spawned"] = false
 			_unit_visual_by_id[unit_id] = state
 			if not unit_data.is_empty():
 				_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
@@ -3264,7 +3349,23 @@ func _get_unit_colorkey_material(sprite_key: String, owner_id: int, registry: Sp
 		}),
 		SFLog.Level.INFO
 	)
-	var mat := _get_colorkey_material(ck_color, ck_threshold, ck_softness)
+	var mat := ShaderMaterial.new()
+	mat.shader = COLORKEY_SHADER
+	_mat_set(mat, "key_color", ck_color)
+	_mat_set(mat, "threshold", ck_threshold)
+	_mat_set(mat, "softness", ck_softness)
+	_mat_set(mat, "outline_color", Color(0.0, 0.0, 0.0, 0.96))
+	_mat_set(mat, "outline_px", 1.8)
+	_mat_set(mat, "outline_strength", 1.0)
+	_mat_set(mat, "inner_outline_strength", 0.78)
+	var glow_color: Color = _owner_color(owner_id).lightened(0.18)
+	glow_color.a = 1.0
+	_mat_set(mat, "glow_color", glow_color)
+	_mat_set(mat, "glow_strength", 0.72)
+	_mat_set(mat, "glow_luma_floor", 0.04)
+	_mat_set(mat, "glow_pulse_strength", 0.18)
+	_mat_set(mat, "glow_pulse_speed", 5.2)
+	_mat_set(mat, "glow_pulse_phase", float(owner_id) * 1.37)
 	_unit_material_by_sprite[key] = mat
 	return mat
 

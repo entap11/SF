@@ -15,9 +15,9 @@ const HIVE_DIAMETER_PX := HiveGeometry.BASE_DIAMETER_PX
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
 const HIVE_LANE_RADIUS_PX := HIVE_RADIUS_PX
 const HIVE_BLOCK_RADIUS_PX := HIVE_RADIUS_PX
-const HIVE_VISUAL_BLOCK_RADIUS_SCALE := 1.60
-const LANE_BODY_HALF_WIDTH_PX := 40.0
-const LANE_OCCLUSION_PAD_PX := 8.0
+const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
+const LANE_OCCLUSION_PAD_PX := HiveGeometry.DEFAULT_LANE_OCCLUSION_PAD_PX
+const LANE_OCCLUSION_STABLE_HIVE_POWER := HiveGeometry.TIER_3_MIN_POWER
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC
 const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
@@ -404,10 +404,13 @@ func find_lane_by_id(lane_id: int) -> Variant:
 
 func _segment_hits_circle(a: Vector2, b: Vector2, c: Vector2, r: float) -> bool:
 	var ab := b - a
-	var t := 0.0
 	var denom := ab.length_squared()
-	if denom > 0.0:
-		t = clampf((c - a).dot(ab) / denom, 0.0, 1.0)
+	if denom <= 0.0:
+		return false
+	var raw_t: float = (c - a).dot(ab) / denom
+	if raw_t <= MapSchema.OCCLUSION_EPS or raw_t >= 1.0 - MapSchema.OCCLUSION_EPS:
+		return false
+	var t := clampf(raw_t, 0.0, 1.0)
 	var p := a + ab * t
 	return p.distance_squared_to(c) <= r * r
 
@@ -449,14 +452,15 @@ func _grid_cell_size_px() -> float:
 
 func _hive_block_radius(hive: HiveData) -> float:
 	if hive == null:
-		return (HIVE_BLOCK_RADIUS_PX * HIVE_VISUAL_BLOCK_RADIUS_SCALE) + LANE_BODY_HALF_WIDTH_PX + LANE_OCCLUSION_PAD_PX
+		return HiveGeometry.lane_block_radius_px(HIVE_BLOCK_RADIUS_PX, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
 	var radius: float = float(hive.radius_px)
 	if radius <= 0.0:
 		radius = MapSchema.hive_radius_px_for_kind(str(hive.kind), _grid_cell_size_px())
 	if radius <= 0.0:
 		radius = HIVE_BLOCK_RADIUS_PX
-	var visual_radius: float = maxf(HIVE_BLOCK_RADIUS_PX, radius) * HIVE_VISUAL_BLOCK_RADIUS_SCALE
-	return HiveGeometry.lane_occlusion_radius_px(visual_radius) + LANE_BODY_HALF_WIDTH_PX + LANE_OCCLUSION_PAD_PX
+	# Lane topology must stay deterministic through a match. Reserve the large
+	# hive footprint up front so growth cannot invalidate an existing edge.
+	return HiveGeometry.lane_block_radius_px(radius, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
 
 func _lane_segment_world(a_hive: HiveData, b_hive: HiveData) -> Dictionary:
 	if a_hive == null or b_hive == null:
@@ -494,7 +498,7 @@ func _is_segment_blocked_by_walls(a_world: Vector2, b_world: Vector2) -> bool:
 	var wall_segments: Array = _wall_segments_world()
 	if wall_segments.is_empty():
 		return false
-	return MapSchema._segment_intersects_any_wall(a_world, b_world, wall_segments)
+	return MapSchema._segment_intersects_any_wall(a_world, b_world, wall_segments, LANE_BODY_HALF_WIDTH_PX)
 
 func _prune_lane_candidates_by_occlusion() -> void:
 	if lane_candidates.is_empty():

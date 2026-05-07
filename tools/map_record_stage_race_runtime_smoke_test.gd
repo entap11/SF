@@ -6,8 +6,8 @@ class FakeSimRunner:
 
 const JukeboxLeaderboardStoreScript = preload("res://scripts/state/jukebox_leaderboard_store.gd")
 const SMOKE_SAVE_PATH: String = "user://map_record_stage_race_runtime.smoke.json"
-const MAP_PATH: String = "res://maps/nomansland/MAP_nomansland__GBASE__1p.json"
-const MAP_ID: String = "MAP_nomansland__GBASE__1p"
+const MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
+const MAP_ID: String = "MAP_nomansland__545__v01_top2_sides__1p"
 const BOARD_MODE: String = "ASYNC_SINGLE_MAP_TIMED"
 const PLAYER_ID: String = "stage_smoke_player"
 const PLAYER_HANDLE: String = "Stage Smoke"
@@ -28,7 +28,7 @@ func _init() -> void:
 	var tree: SceneTree = self
 	tree.set_meta("vs_mode", "STAGE_RACE")
 	tree.set_meta("vs_sync_start", false)
-	tree.set_meta("vs_stage_map_paths", [MAP_PATH, "res://maps/nomansland/MAP_nomansland__SBASE__1p.json"])
+	tree.set_meta("vs_stage_map_paths", [MAP_PATH, "res://maps/_future/nomansland/MAP_nomansland__545__v02_all_sides_owned__1p.json"])
 	tree.set_meta("vs_stage_current_index", 0)
 	tree.set_meta("vs_local_profile", {
 		"uid": PLAYER_ID,

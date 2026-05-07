@@ -276,6 +276,9 @@ func _try_bind() -> void:
 func _vfx_enabled() -> bool:
 	return not DISABLE_VFX and _gpu_vfx_enabled
 
+func _basic_vfx_enabled() -> bool:
+	return not DISABLE_VFX
+
 func _sync_gpu_vfx_pref() -> void:
 	var env_disable_auto: String = OS.get_environment("SF_DISABLE_GPU_VFX_AUTO_FALLBACK").strip_edges().to_lower()
 	_auto_gpu_vfx_disable_enabled = not (env_disable_auto == "1" or env_disable_auto == "true" or env_disable_auto == "yes")
@@ -372,9 +375,11 @@ func _on_unit_collision(
 	_unit_a_travel_dir: Vector2 = Vector2.ZERO,
 	_unit_b_travel_dir: Vector2 = Vector2.ZERO
 ) -> void:
-	if not _vfx_enabled():
+	if not _basic_vfx_enabled():
 		return
 	_spawn_collision_spark(world_pos, lane_dir, owner_a, owner_b, intensity, lane_id)
+	if not _vfx_enabled():
+		return
 	_spawn_collision_vfx(world_pos, lane_dir, owner_a, owner_b, intensity, lane_id)
 	_spawn_collision_ionpop(world_pos, lane_dir)
 # TODO: Reuse CollisionVfx for hive impact events (enemy/friendly) when those render events are wired.

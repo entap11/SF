@@ -3069,6 +3069,8 @@ func _init_systems() -> void:
 			tower_system.set_sim_events(sim_events)
 	if unit_system != null and sim_events != null and unit_system.has_method("set_sim_events"):
 		unit_system.set_sim_events(sim_events)
+	if unit_renderer != null and sim_events != null and unit_renderer.has_method("set_sim_events"):
+		unit_renderer.call("set_sim_events", sim_events)
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
 		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
 	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
@@ -3187,6 +3189,8 @@ func _ensure_unit_renderer() -> void:
 		else:
 			unit_renderer = null
 	if unit_renderer != null:
+		if sim_events != null and unit_renderer.has_method("set_sim_events"):
+			unit_renderer.call("set_sim_events", sim_events)
 		if TRACE_ARENA_PRINTS:
 			print("UNIT_PARENT:", unit_renderer.get_path())
 
@@ -3212,6 +3216,7 @@ func _ensure_vfx_manager() -> void:
 				"target_parent": str(pools_parent.get_path()),
 				"node_path": str(vfx_manager.get_path())
 			})
+		_configure_vfx_manager()
 		return
 	var pools_root: Node = _ensure_pools_root()
 
@@ -3239,6 +3244,11 @@ func _ensure_vfx_manager() -> void:
 			"target_parent": str(pools_root.get_path()),
 			"node_path": str(vfx_manager.get_path())
 		})
+	_configure_vfx_manager()
+
+func _configure_vfx_manager() -> void:
+	if vfx_manager == null or not is_instance_valid(vfx_manager):
+		return
 	if sim_events != null and vfx_manager.has_method("set_sim_events"):
 		vfx_manager.set_sim_events(sim_events)
 	if vfx_manager != null and vfx_manager.has_method("set_gpu_vfx_enabled"):
@@ -3716,8 +3726,8 @@ func _hive_render_grid_pos(hive: HiveData) -> Vector2:
 		render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
 	return render_gp
 
-func _hive_lane_occlusion_radius_px(radius_px: float = HIVE_RADIUS_PX) -> float:
-	return HiveGeometry.lane_occlusion_radius_px(maxf(1.0, radius_px))
+func _hive_lane_occlusion_radius_px(radius_px: float = HIVE_RADIUS_PX, power: int = 0) -> float:
+	return HiveGeometry.hive_visual_footprint_radius_px(maxf(1.0, radius_px), power)
 
 func _sync_lane_system_blockers() -> void:
 	if lane_system == null:
@@ -3734,10 +3744,15 @@ func _sync_lane_system_blockers() -> void:
 				var radius_v: Variant = node.get("radius_px")
 				if radius_v != null:
 					radius_px = float(radius_v)
+			var power_px: int = 0
+			if node.has_method("get"):
+				var power_v: Variant = node.get("power")
+				if power_v != null:
+					power_px = int(power_v)
 			hive_list.append({
 				"id": int(key),
 				"pos": node.position,
-				"radius_px": _hive_lane_occlusion_radius_px(radius_px)
+				"radius_px": _hive_lane_occlusion_radius_px(radius_px, power_px)
 			})
 	if hive_list.is_empty() and state != null:
 		for hive in state.hives:
@@ -3748,7 +3763,7 @@ func _sync_lane_system_blockers() -> void:
 			hive_list.append({
 				"id": int(hive.id),
 				"pos": _grid_coord_to_world(render_gp),
-				"radius_px": _hive_lane_occlusion_radius_px(radius_px)
+				"radius_px": _hive_lane_occlusion_radius_px(radius_px, int(hive.power))
 			})
 	if hive_list.is_empty():
 		return
