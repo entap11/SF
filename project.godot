@@ -52,6 +52,6 @@ environment/defaults/default_clear_color=Color(0.168627, 0.168627, 0.168627, 1)
 rank/backend_url=""
 rank/backend_token=""
 rank/backend_timeout_sec=2.0
-vs/backend_url=""
+vs/backend_url="https://sf-zr2m.onrender.com/v1"
 vs/backend_token=""
 vs/backend_timeout_sec=2.0
