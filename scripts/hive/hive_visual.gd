@@ -73,9 +73,10 @@ const SHADOW_CONTACT_SCALE_X_MULT: float = 0.84
 const SHADOW_CONTACT_SCALE_Y_MULT: float = 0.70
 const POWER_LABEL_OFFSET := Vector2(0.0, -42.0)
 const POWER_LABEL_TOP_GAP_PX: float = 8.0
-const POWER_LABEL_SCALE := 0.58
-const POWER_LABEL_FONT_SIZE := 34
+const POWER_LABEL_SCALE := 0.50
+const POWER_LABEL_FONT_SIZE := 28
 const POWER_LABEL_LOCAL_NUDGE := Vector2(0.0, -10.0)
+const FLAT_TOP_POWER_LABEL_LOCAL_NUDGE := Vector2(0.0, -1.0)
 const POWER_BADGE_PAD := Vector2(6.0, 2.0)
 const POWER_LABEL_FILL_COLOR := Color(0.0, 0.0, 0.0, 1.0)
 const POWER_LABEL_STROKE_COLOR := Color(0.0, 0.0, 0.0, 0.96)
@@ -95,12 +96,15 @@ const POWER_HOLOGRAM_BASE_RISE: float = 7.0
 const POWER_HOLOGRAM_SLOT_RISE: float = 1.0
 const POWER_PROJECTION_LAYOUT_NUDGE := Vector2(0.0, 40.0)
 const POWER_PROJECTION_SOURCE_NUDGE_Y: float = 40.0
+const FLAT_TOP_LABEL_Y_RATIO: float = -0.345
+const FLAT_TOP_PIP_Y: float = 20.0
+const FLAT_TOP_PIP_SPACING: float = 9.5
 const POWER_PROJECTION_SMALL_SIZE := Vector2(58.0, 72.0)
 const POWER_PROJECTION_MEDIUM_SIZE := Vector2(74.0, 84.0)
 const POWER_PROJECTION_LARGE_SIZE := Vector2(92.0, 92.0)
 const LANE_BUDGET_DEFAULT_SLOTS: int = 3
-const LANE_BUDGET_PIP_RADIUS: float = 6.2
-const LANE_BUDGET_PIP_INNER_RADIUS: float = 4.7
+const LANE_BUDGET_PIP_RADIUS: float = 4.0
+const LANE_BUDGET_PIP_INNER_RADIUS: float = 2.7
 const LANE_BUDGET_PIP_SPACING: float = 17.0
 const LANE_BUDGET_LABEL_SIDE_GAP: float = 12.0
 const LANE_BUDGET_LABEL_TOP_GAP: float = 15.0
@@ -108,6 +112,7 @@ const LANE_BUDGET_THREE_TOP_LIFT: float = 13.0
 const LANE_BUDGET_SINGLE_POS := Vector2(0.0, -31.0)
 const LANE_BUDGET_LOBE_POS := Vector2(15.0, -28.0)
 const LANE_BUDGET_CENTER_POS := Vector2(0.0, -36.0)
+const LANE_BUDGET_PIP_COLOR := Color(0.0, 0.0, 0.0, 1.0)
 const GROUND_GLOW_POINTS: int = 32
 const GROUND_GLOW_Y_RATIO: float = 0.27
 const GROUND_GLOW_W_RATIO: float = 0.92
@@ -130,6 +135,7 @@ const ACTIVITY_FEEDING: String = "feeding"
 const ACTIVITY_ATTACKING: String = "attacking"
 const ACTIVITY_UNDER_ATTACK: String = "under_attack"
 const ACTIVITY_MAX_POWER: String = "max_power"
+const NPC_HIVE_COLOR := Color(0.52, 0.47, 0.82, 1.0)
 @export var power_label_offset_override := Vector2.INF
 
 var radius_px: float = 18.0
@@ -185,6 +191,8 @@ var _power_projector_beam: Polygon2D = null
 var _power_projection_sprite: Sprite2D = null
 var _power_projection_shimmer: Sprite2D = null
 var _power_projection_sprite_base_scale: Vector2 = Vector2.ONE
+var _projection_shader_mat: ShaderMaterial = null
+var _projection_shimmer_shader_mat: ShaderMaterial = null
 var _light_projection_large_texture: Texture2D = null
 var _light_projection_medium_texture: Texture2D = null
 var _hive_id_label: Label = null
@@ -436,9 +444,11 @@ func _process(delta: float) -> void:
 	if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
 		var projection_alpha: float = 0.86 + (projection_flicker_strength * 0.45 * (0.5 + 0.5 * sin(_fx_t * 4.7)))
 		_power_projection_sprite.modulate.a = clampf(projection_alpha, 0.78, 0.96)
+		_set_projection_shader_alpha(_projection_shader_mat, _power_projection_sprite.modulate.a)
 	if _power_projection_shimmer != null and is_instance_valid(_power_projection_shimmer):
 		var shimmer_alpha: float = 0.10 + (0.11 * (0.5 + 0.5 * sin((_fx_t * 6.8) + 1.3)))
 		_power_projection_shimmer.modulate.a = shimmer_alpha
+		_set_projection_shader_alpha(_projection_shimmer_shader_mat, shimmer_alpha)
 		_power_projection_shimmer.position.y = (_power_projection_sprite.position.y if _power_projection_sprite != null else 0.0) - (sin(_fx_t * 3.2) * 1.6)
 	_update_core_materials()
 	_update_phase3_motion()
@@ -669,7 +679,7 @@ func _update_power_label(owner_id_value: int, power_value: int, snap: bool = fal
 		_power_backing.custom_minimum_size = label_size + (POWER_BADGE_PAD * 2.0)
 		_power_backing.size = _power_backing.custom_minimum_size
 		_power_badge.size = _power_backing.size
-		_power_badge.position = -(_power_badge.size * POWER_LABEL_SCALE * 0.5) + POWER_LABEL_LOCAL_NUDGE
+		_power_badge.position = -(_power_badge.size * POWER_LABEL_SCALE * 0.5) + _power_label_local_nudge()
 	var off := _power_label_offset()
 	_power_label_holder.position = off
 	_update_power_projection_layout()
@@ -696,11 +706,18 @@ func _layout_power_label_layer(label: Label, label_size: Vector2) -> void:
 	label.pivot_offset = label_size * 0.5
 	label.position = Vector2.ZERO
 
+func _power_label_local_nudge() -> Vector2:
+	if _uses_flat_top_label_layout():
+		return FLAT_TOP_POWER_LABEL_LOCAL_NUDGE
+	return POWER_LABEL_LOCAL_NUDGE
+
 func _power_label_offset() -> Vector2:
 	if power_label_offset_override != Vector2.INF:
 		return power_label_offset_override
 	if _current_size.y <= 0.0:
 		return POWER_LABEL_OFFSET
+	if _uses_flat_top_label_layout():
+		return _sprite_offset + Vector2(0.0, _current_size.y * FLAT_TOP_LABEL_Y_RATIO)
 	var slot_count: int = _lane_budget_display_slot_count()
 	var rise: float = POWER_HOLOGRAM_BASE_RISE + (float(slot_count - 1) * POWER_HOLOGRAM_SLOT_RISE)
 	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - rise) + POWER_PROJECTION_LAYOUT_NUDGE
@@ -731,6 +748,7 @@ func _ensure_power_projection_fx() -> void:
 		shimmer_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 		_power_label_holder.add_child(shimmer_sprite)
 		_power_projection_shimmer = shimmer_sprite
+	_ensure_projection_shader_material()
 	_update_power_projection_layout()
 	_update_projection_tint()
 
@@ -751,6 +769,12 @@ func _create_power_projection_poly(poly_name: String, z: int) -> Polygon2D:
 func _update_power_projection_layout() -> void:
 	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
 		return
+	if _uses_flat_top_label_layout():
+		if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
+			_power_projection_sprite.visible = false
+		if _power_projection_shimmer != null and is_instance_valid(_power_projection_shimmer):
+			_power_projection_shimmer.visible = false
+		return
 	var projection_tier: int = _power_projection_visual_tier()
 	var texture: Texture2D = _power_projection_texture(projection_tier)
 	var target_size: Vector2 = _power_projection_target_size(projection_tier)
@@ -767,10 +791,12 @@ func _update_power_projection_layout() -> void:
 	var sprite_position := Vector2(0.0, source_y - (target_size.y * 0.5))
 	_power_projection_sprite_base_scale = sprite_scale
 	if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
+		_power_projection_sprite.visible = true
 		_power_projection_sprite.texture = texture
 		_power_projection_sprite.scale = sprite_scale
 		_power_projection_sprite.position = sprite_position
 	if _power_projection_shimmer != null and is_instance_valid(_power_projection_shimmer):
+		_power_projection_shimmer.visible = true
 		_power_projection_shimmer.texture = texture
 		_power_projection_shimmer.scale = sprite_scale * Vector2(1.018, 0.992)
 		_power_projection_shimmer.position = sprite_position
@@ -795,12 +821,10 @@ func _power_projection_texture(projection_tier: int) -> Texture2D:
 	return _light_projection_medium_texture
 
 func _load_projection_texture(path: String) -> Texture2D:
-	var image := Image.new()
-	var err := image.load(path)
-	if err != OK:
-		SFLog.warn("HIVE_POWER_PROJECTION_LOAD_FAILED", {"path": path, "err": err})
-		return null
-	return ImageTexture.create_from_image(image)
+	var texture: Texture2D = ResourceLoader.load(path) as Texture2D
+	if texture == null:
+		SFLog.warn("HIVE_POWER_PROJECTION_LOAD_FAILED", {"path": path})
+	return texture
 
 func _power_projection_target_size(projection_tier: int) -> Vector2:
 	match projection_tier:
@@ -815,6 +839,7 @@ func _power_projection_visual_tier() -> int:
 	return clampi(_visual_tier_for_power(power), 1, 3)
 
 func _update_projection_tint() -> void:
+	_ensure_projection_shader_material()
 	var projection: Color = _projection_color()
 	if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
 		var sprite_color := Color(1.0, 1.0, 1.0, 1.0)
@@ -840,11 +865,60 @@ func _update_projection_tint() -> void:
 		var beam_color: Color = projection
 		beam_color.a = POWER_PROJECTION_BEAM_ALPHA + 0.16
 		_power_projector_beam.color = beam_color
+	if _projection_shader_mat != null:
+		_configure_projection_shader(_projection_shader_mat, projection, _power_projection_sprite.modulate.a if _power_projection_sprite != null else 0.88)
+	if _projection_shimmer_shader_mat != null:
+		_configure_projection_shader(_projection_shimmer_shader_mat, projection, _power_projection_shimmer.modulate.a if _power_projection_shimmer != null else 0.16)
+
+func _ensure_projection_shader_material() -> void:
+	if _projection_shader_mat == null:
+		_projection_shader_mat = ShaderMaterial.new()
+		_projection_shader_mat.shader = TEAM_GLOW_SHADER
+	if _projection_shimmer_shader_mat == null:
+		_projection_shimmer_shader_mat = ShaderMaterial.new()
+		_projection_shimmer_shader_mat.shader = TEAM_GLOW_SHADER
+	if _power_projection_sprite != null and is_instance_valid(_power_projection_sprite):
+		_power_projection_sprite.material = _projection_shader_mat
+	if _power_projection_shimmer != null and is_instance_valid(_power_projection_shimmer):
+		_power_projection_shimmer.material = _projection_shimmer_shader_mat
+
+func _configure_projection_shader(mat: ShaderMaterial, color: Color, alpha: float) -> void:
+	if mat == null:
+		return
+	mat.set_shader_parameter("team_color", color)
+	if owner_id <= 0:
+		mat.set_shader_parameter("glow_strength", 0.82)
+		mat.set_shader_parameter("colorize_strength", 1.0)
+		mat.set_shader_parameter("detail_preserve", 1.0)
+		mat.set_shader_parameter("additive_glow", 0.04)
+		mat.set_shader_parameter("r_min", 0.20)
+		mat.set_shader_parameter("g_min", 0.16)
+		mat.set_shader_parameter("r_max", 0.55)
+		mat.set_shader_parameter("g_max", 0.50)
+		mat.set_shader_parameter("b_soft", 0.24)
+		mat.set_shader_parameter("b_max", 0.64)
+	else:
+		mat.set_shader_parameter("glow_strength", 0.96)
+		mat.set_shader_parameter("colorize_strength", 0.90)
+		mat.set_shader_parameter("detail_preserve", 0.86)
+		mat.set_shader_parameter("additive_glow", 0.14)
+		mat.set_shader_parameter("r_min", 0.55)
+		mat.set_shader_parameter("g_min", 0.45)
+		mat.set_shader_parameter("r_max", 0.85)
+		mat.set_shader_parameter("g_max", 0.80)
+		mat.set_shader_parameter("b_soft", 0.10)
+		mat.set_shader_parameter("b_max", 0.30)
+	_set_projection_shader_alpha(mat, alpha)
+
+func _set_projection_shader_alpha(mat: ShaderMaterial, alpha: float) -> void:
+	if mat == null:
+		return
+	mat.set_shader_parameter("global_alpha", clampf(alpha, 0.0, 1.0))
 
 func _projection_color() -> Color:
 	var team_color: Color = _team_color_for_player(owner_id)
 	if owner_id <= 0:
-		team_color = Color(0.82, 0.84, 0.88, 1.0)
+		return NPC_HIVE_COLOR.lerp(Color.WHITE, 0.10)
 	return team_color.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.24)
 
 func _play_power_snap() -> void:
@@ -1064,7 +1138,7 @@ func _update_lane_port_colors(pulse_t: float) -> void:
 
 func _owner_accent_color() -> Color:
 	if owner_id <= 0:
-		return Color(0.62, 0.68, 0.76, 1.0)
+		return NPC_HIVE_COLOR.lerp(Color.WHITE, 0.18)
 	return _boost_team_color(_team_color_for_player(owner_id)).lerp(Color.WHITE, 0.10)
 
 func _ensure_core_layers() -> void:
@@ -1200,7 +1274,7 @@ func _sanitize_activity_state(state: String) -> String:
 func _core_color() -> Color:
 	var team_color: Color = _team_color_for_player(owner_id)
 	if owner_id <= 0:
-		team_color = Color(0.78, 0.84, 0.92, 1.0)
+		team_color = NPC_HIVE_COLOR
 	else:
 		team_color = _boost_team_color(team_color)
 	return team_color.lerp(Color.WHITE, 0.18)
@@ -1244,7 +1318,7 @@ func _update_ground_glow() -> void:
 	_ground_glow_layer.visible = true
 	var glow_color: Color = _team_color_for_player(owner_id)
 	if owner_id <= 0:
-		glow_color = Color(0.78, 0.80, 0.84, 1.0)
+		glow_color = NPC_HIVE_COLOR
 	var width: float = maxf(22.0, _current_size.x * GROUND_GLOW_W_RATIO)
 	var height: float = maxf(8.0, _current_size.y * GROUND_GLOW_H_RATIO)
 	var glow_pos: Vector2 = _sprite_offset + Vector2(0.0, _current_size.y * GROUND_GLOW_Y_RATIO)
@@ -1285,7 +1359,7 @@ func _update_lane_budget_indicators() -> void:
 	var label_size: Vector2 = _lane_budget_reference_label_size()
 	_lane_budget_layer.position = _power_label_offset()
 	_update_power_projection_layout()
-	var indicator_color := Color(0.0, 0.0, 0.0, 1.0)
+	var indicator_color: Color = LANE_BUDGET_PIP_COLOR
 	for i in range(slot_count):
 		var entry: Dictionary = _lane_budget_pips[i]
 		var outline_line: Line2D = entry.get("outline", null) as Line2D
@@ -1302,11 +1376,14 @@ func _update_lane_budget_indicators() -> void:
 		var outline_color: Color = Color(0.0, 0.0, 0.0, 0.30)
 		var fill_color: Color = Color(0.0, 0.0, 0.0, 0.0)
 		if is_used:
-			outline_color = Color(0.0, 0.0, 0.0, 0.94)
+			outline_color = indicator_color
+			outline_color.a = 0.96
 			fill_color = Color(0.0, 0.0, 0.0, 0.0)
 		elif is_available:
 			outline_color = indicator_color
+			outline_color.a = 0.96
 			fill_color = indicator_color
+			fill_color.a = 0.88
 		else:
 			outline_color = Color(0.0, 0.0, 0.0, 0.20)
 			fill_color = Color(0.0, 0.0, 0.0, 0.0)
@@ -1327,6 +1404,9 @@ func _lane_budget_reference_label_size() -> Vector2:
 	return Vector2(26.0, 22.0)
 
 func _lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vector2) -> Vector2:
+	if _uses_flat_top_label_layout():
+		var center: float = (float(slot_count) - 1.0) * 0.5
+		return Vector2((float(slot_index) - center) * FLAT_TOP_PIP_SPACING, FLAT_TOP_PIP_Y)
 	match slot_count:
 		1:
 			return LANE_BUDGET_SINGLE_POS
@@ -1347,6 +1427,14 @@ func _lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vec
 
 func _lane_budget_display_slot_count() -> int:
 	return clampi(_lane_budget_max, 1, LANE_BUDGET_DEFAULT_SLOTS)
+
+func _uses_flat_top_label_layout() -> bool:
+	if not _sprite_key.begins_with("hive."):
+		return false
+	var registry := SpriteRegistry.get_instance()
+	if registry == null:
+		return false
+	return registry.get_tex_path(_sprite_key).get_file().to_lower().contains("flatop")
 
 func _ellipse_points(rx: float, ry: float, count: int) -> PackedVector2Array:
 	var points: PackedVector2Array = PackedVector2Array()
@@ -1502,7 +1590,7 @@ func _ensure_npc_shader_material() -> void:
 func _resolve_tier(power_value: int) -> int:
 	return _visual_tier_for_power(power_value)
 
-func _visual_tier_for_power(power_value: int) -> int:
+static func visual_tier_for_power_value(power_value: int) -> int:
 	if power_value <= 0:
 		return 1
 	if power_value <= SMALL_MAX_POWER:
@@ -1511,7 +1599,10 @@ func _visual_tier_for_power(power_value: int) -> int:
 		return 2
 	return 3
 
-func _tier_key_for_tier(tier: int) -> String:
+static func tier_key_for_power_value(power_value: int) -> String:
+	return SpriteRegistry.hive_power_tier_key(power_value)
+
+static func tier_key_for_tier_value(tier: int) -> String:
 	match tier:
 		2:
 			return "med"
@@ -1519,6 +1610,12 @@ func _tier_key_for_tier(tier: int) -> String:
 			return "large"
 		_:
 			return "small"
+
+func _visual_tier_for_power(power_value: int) -> int:
+	return visual_tier_for_power_value(power_value)
+
+func _tier_key_for_tier(tier: int) -> String:
+	return tier_key_for_tier_value(tier)
 
 static func _team_color_for_player(player_id: int) -> Color:
 	match player_id:
@@ -1531,7 +1628,7 @@ static func _team_color_for_player(player_id: int) -> Color:
 		4:
 			return Color8(30, 136, 229)
 		_:
-			return Color8(224, 224, 224)
+			return NPC_HIVE_COLOR
 
 func _apply_tint(owner_id_value: int, power_value: int) -> void:
 	_ensure_shader_material()
@@ -1578,6 +1675,8 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 		_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed)
 		_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())
 	if _npc_shader_mat != null and is_neutral_owner:
+		_npc_shader_mat.set_shader_parameter("npc_tint", NPC_HIVE_COLOR)
+		_npc_shader_mat.set_shader_parameter("tint_strength", 0.88)
 		_npc_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength * 0.42)
 		_npc_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed * 0.82)
 		_npc_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())

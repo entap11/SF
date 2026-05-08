@@ -78,7 +78,6 @@ const SHELL_WORLD_VIEWPORT_LEFT_INSET_PX: float = 48.0
 const SHELL_WORLD_VIEWPORT_RIGHT_INSET_PX: float = 48.0
 const SHELL_WORLD_VIEWPORT_TOP_INSET_PX: float = 60.0
 const SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX: float = 40.0
-
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
 @export var show_dev_map_loader_in_game := true

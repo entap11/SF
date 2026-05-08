@@ -537,13 +537,7 @@ func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color,
 	var tex: Texture2D = null
 	var registry := _get_sprite_registry()
 	if registry != null:
-		var kind_key := SpriteRegistry.hive_kind_key(kind)
-		if power >= 1 and power <= 9:
-			kind_key = "small"
-		var key := "hive.%s.%s" % [
-			kind_key,
-			SpriteRegistry.owner_key(owner_id)
-		]
+		var key := SpriteRegistry.hive_sprite_key(owner_id, kind, power)
 		tex = registry.get_tex(key)
 	if tex != null:
 		var size := Vector2(visual_radius * 2.0, visual_radius * 2.0)

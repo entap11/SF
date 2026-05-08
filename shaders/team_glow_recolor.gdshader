@@ -14,6 +14,7 @@ uniform float additive_glow = 0.22;
 uniform float pulse_strength = 0.0;
 uniform float pulse_speed = 2.4;
 uniform float pulse_phase = 0.0;
+uniform float global_alpha = 1.0;
 
 void fragment() {
 	vec4 tex = texture(TEXTURE, UV);
@@ -38,5 +39,5 @@ void fragment() {
 	vec3 emissive = team_color.rgb * energy * glow_strength;
 	vec3 lit = mix(tex.rgb, preserved, mask * detail_preserve);
 	vec3 out_rgb = (lit * body_pulse) + (emissive * mask * additive_glow * glow_pulse);
-	COLOR = vec4(out_rgb, tex.a);
+	COLOR = vec4(out_rgb, tex.a * global_alpha);
 }

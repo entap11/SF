@@ -4,6 +4,8 @@ extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const DEFAULT_MANIFEST_PATH := "res://assets/sprites/sf_skin_v1/skin_manifest.json"
+const HIVE_SMALL_MAX_POWER := 9
+const HIVE_MED_MAX_POWER := 24
 
 static var _instance: SpriteRegistry = null
 
@@ -47,6 +49,27 @@ static func hive_kind_key(kind: String) -> String:
 	if normalized.is_empty():
 		return "hive"
 	return normalized
+
+static func hive_power_tier_key(power: int) -> String:
+	if power <= HIVE_SMALL_MAX_POWER:
+		return "small"
+	if power <= HIVE_MED_MAX_POWER:
+		return "med"
+	return "large"
+
+static func hive_sprite_key(owner_id: int, kind: String, power: int = 0) -> String:
+	return "hive.%s.%s" % [
+		hive_visual_kind_key(kind, power),
+		owner_key(owner_id)
+	]
+
+static func hive_visual_kind_key(kind: String, power: int = 0) -> String:
+	if power > 0:
+		return hive_power_tier_key(power)
+	var kind_key := hive_kind_key(kind)
+	if kind_key == "med" or kind_key == "large":
+		return kind_key
+	return "small"
 
 static func key_from_path(path: String) -> String:
 	var base := path.get_file().get_basename()

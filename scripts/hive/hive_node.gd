@@ -22,6 +22,9 @@ const SELECTOR_STATE_ACTIVATED := 3
 const LANE_ANCHOR_Y_PX: float = -24.0
 const LANE_ANCHOR_LEFT_EXTRA_Y_PX: float = 1.0
 const LANE_ANCHOR_RIGHT_EXTRA_Y_PX: float = 0.0
+const LANE_SHELL_RADIUS_X_MULT: float = 1.55
+const LANE_SHELL_RADIUS_Y_TOP_MULT: float = 1.08
+const LANE_SHELL_RADIUS_Y_BOTTOM_MULT: float = 0.92
 
 @export var hive_id: int = -1
 @export var owner_id: int = 0
@@ -80,6 +83,21 @@ var _flag_badge_label: Label = null
 static func lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return center_world + Vector2(0.0, -LANE_ANCHOR_Y_PX)
 
+static func lane_shell_anchor_world(center_world: Vector2, outward_dir: Vector2, radius_px: float) -> Vector2:
+	var dir: Vector2 = outward_dir
+	if dir.length_squared() <= 0.000001:
+		return lane_anchor_world_from_center(center_world)
+	dir = dir.normalized()
+	if radius_px <= 0.0:
+		return lane_anchor_world_from_center(center_world)
+	var rx: float = maxf(1.0, radius_px * LANE_SHELL_RADIUS_X_MULT)
+	var ry_mult: float = LANE_SHELL_RADIUS_Y_BOTTOM_MULT if dir.y >= 0.0 else LANE_SHELL_RADIUS_Y_TOP_MULT
+	var ry: float = maxf(1.0, radius_px * ry_mult)
+	var denom: float = sqrt((dir.x * dir.x) / (rx * rx) + (dir.y * dir.y) / (ry * ry))
+	if denom <= 0.000001:
+		return center_world
+	return center_world + (dir / denom)
+
 static func lane_anchor_pair_world(
 	a_center_world: Vector2,
 	b_center_world: Vector2,
@@ -89,12 +107,15 @@ static func lane_anchor_pair_world(
 	_src_global_xform: Variant = null,
 	_dst_global_xform: Variant = null
 ) -> Dictionary:
-	var a_anchor: Vector2 = lane_anchor_world_from_center(a_center_world)
-	var b_anchor: Vector2 = lane_anchor_world_from_center(b_center_world)
-	var side_weight: float = 1.0
 	var lane_vec: Vector2 = b_center_world - a_center_world
+	var center_dir: Vector2 = Vector2.ZERO
 	if lane_vec.length_squared() > 0.000001:
-		side_weight = absf(lane_vec.normalized().x)
+		center_dir = lane_vec.normalized()
+	var a_anchor: Vector2 = lane_shell_anchor_world(a_center_world, center_dir, _src_radius_px)
+	var b_anchor: Vector2 = lane_shell_anchor_world(b_center_world, -center_dir, _dst_radius_px)
+	var side_weight: float = 1.0
+	if center_dir.length_squared() > 0.000001:
+		side_weight = absf(center_dir.x)
 	var left_extra: float = LANE_ANCHOR_LEFT_EXTRA_Y_PX * side_weight
 	var right_extra: float = LANE_ANCHOR_RIGHT_EXTRA_Y_PX * side_weight
 	if a_center_world.x <= b_center_world.x:

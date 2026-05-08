@@ -48,6 +48,7 @@ const UNIT_SPRITE_FORWARD_DEG: float = 90.0
 const UNIT_TRAVEL_T_EPS: float = 0.02
 const HIVE_REAR_APPROACH_Y_MIN: float = 0.12
 const HIVE_REAR_OCCLUSION_ENTRY_PAD_PX: float = 2.0
+const HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX: float = 24.0
 const HIVE_REAR_OCCLUSION_Z_INDEX: int = -2
 const HIVE_UNIT_DEFAULT_Z_INDEX: int = 0
 const DBG_UNITS: bool = false
@@ -1592,14 +1593,26 @@ func _target_hive_boundary_world(to_hive_id: int, hive_by_id: Dictionary, travel
 	if dir.length_squared() <= 0.000001:
 		return null
 	dir = dir.normalized()
-	var center_any: Variant = _hive_world_pos(to_hive_id, hive_by_id)
+	return _hive_shell_contact_world(to_hive_id, hive_by_id, -dir)
+
+func _hive_shell_contact_world(hive_id: int, hive_by_id: Dictionary, outward_dir: Vector2) -> Variant:
+	if hive_id <= 0:
+		return null
+	var center_any: Variant = _hive_world_pos(hive_id, hive_by_id)
 	if not (center_any is Vector2):
 		return null
 	var center_world: Vector2 = center_any as Vector2
-	var radius_px: float = _target_hive_radius_px(to_hive_id, hive_by_id)
-	if _is_rear_hive_approach(dir):
-		return center_world + (dir * radius_px)
-	return center_world - (dir * radius_px)
+	var radius_px: float = _target_hive_radius_px(hive_id, hive_by_id)
+	return HiveNodeScript.lane_shell_anchor_world(center_world, outward_dir, radius_px)
+
+func _hive_shell_contact_local(hive_id: int, hive_by_id: Dictionary, outward_dir: Vector2) -> Variant:
+	var shell_world_v: Variant = _hive_shell_contact_world(hive_id, hive_by_id, outward_dir)
+	if not (shell_world_v is Vector2):
+		return null
+	var shell_world: Vector2 = shell_world_v as Vector2
+	if _unit_space == "global":
+		return shell_world
+	return to_local(shell_world)
 
 func _target_hive_radius_px(to_hive_id: int, hive_by_id: Dictionary) -> float:
 	var radius_px: float = 18.0
@@ -1628,6 +1641,12 @@ func _is_rear_hive_approach(travel_dir_world: Vector2) -> bool:
 	var dir: Vector2 = travel_dir_world.normalized()
 	return dir.y < -HIVE_REAR_APPROACH_Y_MIN
 
+func _is_back_hive_approach(travel_dir_world: Vector2) -> bool:
+	if travel_dir_world.length_squared() <= 0.000001:
+		return false
+	var dir: Vector2 = travel_dir_world.normalized()
+	return dir.y > HIVE_REAR_APPROACH_Y_MIN
+
 func _reset_unit_hive_occlusion_depth(node: Node2D) -> void:
 	if node == null:
 		return
@@ -1637,23 +1656,25 @@ func _reset_unit_hive_occlusion_depth(node: Node2D) -> void:
 func _update_target_hive_occlusion_depth(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, travel_dir_world: Vector2) -> void:
 	if node == null:
 		return
-	if not _is_rear_hive_approach(travel_dir_world):
+	if travel_dir_world.length_squared() <= 0.000001:
 		_reset_unit_hive_occlusion_depth(node)
 		return
 	var to_hive_id: int = int(ud.get("to_id", -1))
 	if to_hive_id <= 0:
 		_reset_unit_hive_occlusion_depth(node)
 		return
-	var center_any: Variant = _hive_world_pos(to_hive_id, hive_by_id)
-	if not (center_any is Vector2):
+	var dir: Vector2 = travel_dir_world.normalized()
+	var boundary_v: Variant = _target_hive_boundary_world(to_hive_id, hive_by_id, dir)
+	if not (boundary_v is Vector2):
 		_reset_unit_hive_occlusion_depth(node)
 		return
-	var dir: Vector2 = travel_dir_world.normalized()
-	var center_world: Vector2 = center_any as Vector2
-	var radius_px: float = _target_hive_radius_px(to_hive_id, hive_by_id)
-	var along_to_target: float = (node.global_position - center_world).dot(dir)
-	var has_reached_front_shell: bool = along_to_target >= (-radius_px - HIVE_REAR_OCCLUSION_ENTRY_PAD_PX)
-	if has_reached_front_shell:
+	if not _is_back_hive_approach(dir):
+		_reset_unit_hive_occlusion_depth(node)
+		return
+	var boundary_world: Vector2 = boundary_v as Vector2
+	var along_to_back_shell: float = (node.global_position - boundary_world).dot(dir)
+	var has_reached_back_shell: bool = along_to_back_shell >= -HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX
+	if has_reached_back_shell:
 		node.z_as_relative = false
 		node.z_index = HIVE_REAR_OCCLUSION_Z_INDEX
 	else:
@@ -1734,18 +1755,20 @@ func _unit_path_endpoints_map_local(
 				"end": trimmed.get("end_world", _to_world_pos(end_space)),
 				"normal": trimmed.get("normal", Vector2.ZERO)
 			}, "", 250)
-			return {
+			var trimmed_out: Dictionary = {
 				"ok": true,
 				"a": start_space,
 				"b": end_space,
 				"normal": trimmed.get("normal", Vector2.ZERO)
 			}
+			return _apply_hive_back_skin_unit_endpoints(trimmed_out, from_id, to_id, hive_by_id)
 		var axis: Vector2 = to_pos - from_pos
 		var normal: Vector2 = Vector2.ZERO
 		if axis.length_squared() > 0.000001:
 			var dir: Vector2 = axis.normalized()
 			normal = Vector2(-dir.y, dir.x)
-		return {"ok": true, "a": from_pos, "b": to_pos, "normal": normal}
+		var pos_out: Dictionary = {"ok": true, "a": from_pos, "b": to_pos, "normal": normal}
+		return _apply_hive_back_skin_unit_endpoints(pos_out, from_id, to_id, hive_by_id)
 	return {"ok": false, "a": Vector2.ZERO, "b": Vector2.ZERO}
 
 func _edge_geo_from_cache(lane_id: int, from_id: int, to_id: int) -> Variant:
@@ -1886,6 +1909,37 @@ func _lane_geometry_for_endpoints(a: Vector2, b: Vector2) -> Dictionary:
 		"normal": normal_world,
 		"len": len_world
 	}
+
+func _apply_hive_back_skin_unit_endpoints(out_geo: Dictionary, from_id: int, to_id: int, hive_by_id: Dictionary) -> Dictionary:
+	if not bool(out_geo.get("ok", false)):
+		return out_geo
+	if from_id <= 0 or to_id <= 0:
+		return out_geo
+	var a_local: Vector2 = out_geo.get("a", Vector2.ZERO)
+	var b_local: Vector2 = out_geo.get("b", Vector2.ZERO)
+	var lane_axis_world: Vector2 = _to_world_pos(b_local) - _to_world_pos(a_local)
+	if lane_axis_world.length_squared() <= 0.000001:
+		return out_geo
+	lane_axis_world = lane_axis_world.normalized()
+	var start_v: Variant = _hive_shell_contact_local(from_id, hive_by_id, lane_axis_world)
+	var end_v: Variant = _hive_shell_contact_local(to_id, hive_by_id, -lane_axis_world)
+	if not (start_v is Vector2) or not (end_v is Vector2):
+		return out_geo
+	var start_local: Vector2 = start_v as Vector2
+	var end_local: Vector2 = end_v as Vector2
+	var adjusted_axis: Vector2 = end_local - start_local
+	if adjusted_axis.length_squared() <= 0.000001:
+		return out_geo
+	var adjusted_dir: Vector2 = adjusted_axis.normalized()
+	out_geo["a"] = start_local
+	out_geo["b"] = end_local
+	out_geo["a_world"] = _to_world_pos(start_local)
+	out_geo["b_world"] = _to_world_pos(end_local)
+	out_geo["start_world"] = out_geo["a_world"]
+	out_geo["end_world"] = out_geo["b_world"]
+	out_geo["normal"] = Vector2(-adjusted_dir.y, adjusted_dir.x)
+	out_geo["_unit_shell_endpoints"] = true
+	return out_geo
 
 func _maybe_log_unit_baseline_audit(
 	unit_id: int,
@@ -2086,6 +2140,7 @@ func _lane_endpoints_map_local_from_hive_ids(
 				"_fallback_path": "",
 				"_shared_anchor_used": shared_anchor_used
 			}
+			out_geo = _apply_hive_back_skin_unit_endpoints(out_geo, from_id, to_id, hive_by_id)
 			endpoint_cache_dict[key] = out_geo
 			_maybe_log_unit_baseline_audit(
 				unit_id,
@@ -2192,6 +2247,7 @@ func _lane_endpoints_map_local_from_hive_ids(
 		"_fallback_path": fallback_path,
 		"_shared_anchor_used": shared_anchor_used
 	}
+	out_fallback = _apply_hive_back_skin_unit_endpoints(out_fallback, from_id, to_id, hive_by_id)
 	endpoint_cache_dict[key] = out_fallback
 	_maybe_log_unit_baseline_audit(
 		unit_id,
