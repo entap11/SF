@@ -19,6 +19,11 @@ uniform float ion_edge_floor : hint_range(0.0, 1.0) = 0.28;
 uniform vec4 ion_core_color : source_color = vec4(1.0, 0.97, 0.95, 1.0);
 uniform vec4 ion_edge_color : source_color = vec4(1.0, 0.80, 0.76, 1.0);
 
+uniform float source_reveal_enabled = 0.0;
+uniform float source_reveal : hint_range(0.0, 1.0) = 1.0;
+uniform vec2 source_reveal_dir = vec2(1.0, 0.0);
+uniform float source_reveal_softness : hint_range(0.001, 0.30) = 0.045;
+
 void fragment() {
 	vec4 tex = texture(TEXTURE, UV);
 	float alpha = tex.a;
@@ -38,6 +43,24 @@ void fragment() {
 		dir = dir / dir_len;
 	}
 	float proj = dot(p, dir); // approx -1..+1 along forward axis
+
+	if (source_reveal_enabled > 0.5) {
+		vec2 reveal_dir = source_reveal_dir;
+		float reveal_dir_len = length(reveal_dir);
+		if (reveal_dir_len < 0.0001) {
+			reveal_dir = vec2(1.0, 0.0);
+		} else {
+			reveal_dir = reveal_dir / reveal_dir_len;
+		}
+		float reveal_proj = dot(p, reveal_dir);
+		float reveal_threshold = mix(0.94, -1.08, clamp(source_reveal, 0.0, 1.0));
+		float reveal_mask = smoothstep(
+			reveal_threshold - source_reveal_softness,
+			reveal_threshold + source_reveal_softness,
+			reveal_proj
+		);
+		col.a *= reveal_mask;
+	}
 
 	// cut=0 => threshold=+1 (clip nothing), cut=1 => threshold=-1 (clip everything)
 	float threshold = mix(1.0, -1.0, clamp(cut, 0.0, 1.0));

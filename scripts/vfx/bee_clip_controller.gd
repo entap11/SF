@@ -7,6 +7,10 @@ const KEY_COLOR_PARAM: StringName = &"key_color"
 const KEY_THRESHOLD_PARAM: StringName = &"key_threshold"
 const KEY_SOFTNESS_PARAM: StringName = &"key_softness"
 const KEY_ENABLED_PARAM: StringName = &"key_enabled"
+const SOURCE_REVEAL_ENABLED_PARAM: StringName = &"source_reveal_enabled"
+const SOURCE_REVEAL_PARAM: StringName = &"source_reveal"
+const SOURCE_REVEAL_DIR_PARAM: StringName = &"source_reveal_dir"
+const SOURCE_REVEAL_SOFTNESS_PARAM: StringName = &"source_reveal_softness"
 const FULL_CUT_EPS: float = 0.999
 
 var distance_to_plane_px: float = 0.0
@@ -45,6 +49,10 @@ func configure_sprite(sprite: Sprite2D, clip_shader: Shader) -> void:
 	_material.set_shader_parameter(KEY_THRESHOLD_PARAM, 0.28)
 	_material.set_shader_parameter(KEY_SOFTNESS_PARAM, 0.10)
 	_material.set_shader_parameter(KEY_ENABLED_PARAM, 0.0)
+	_material.set_shader_parameter(SOURCE_REVEAL_ENABLED_PARAM, 0.0)
+	_material.set_shader_parameter(SOURCE_REVEAL_PARAM, 1.0)
+	_material.set_shader_parameter(SOURCE_REVEAL_DIR_PARAM, Vector2.RIGHT)
+	_material.set_shader_parameter(SOURCE_REVEAL_SOFTNESS_PARAM, 0.045)
 	_sprite.material = _material
 
 func set_plane(entrance_point_world: Vector2, travel_dir_world: Vector2) -> void:
@@ -81,6 +89,19 @@ func set_colorkey(enabled: bool, key_color: Color, threshold: float, softness: f
 	_material.set_shader_parameter(KEY_COLOR_PARAM, key_color)
 	_material.set_shader_parameter(KEY_THRESHOLD_PARAM, threshold)
 	_material.set_shader_parameter(KEY_SOFTNESS_PARAM, softness)
+
+func set_source_reveal(enabled: bool, reveal: float, reveal_dir: Vector2, softness: float = 0.045) -> void:
+	if _material == null:
+		return
+	var safe_dir: Vector2 = reveal_dir
+	if safe_dir.length_squared() <= 0.000001:
+		safe_dir = Vector2.RIGHT
+	else:
+		safe_dir = safe_dir.normalized()
+	_material.set_shader_parameter(SOURCE_REVEAL_ENABLED_PARAM, 1.0 if enabled else 0.0)
+	_material.set_shader_parameter(SOURCE_REVEAL_PARAM, clampf(reveal, 0.0, 1.0))
+	_material.set_shader_parameter(SOURCE_REVEAL_DIR_PARAM, safe_dir)
+	_material.set_shader_parameter(SOURCE_REVEAL_SOFTNESS_PARAM, clampf(softness, 0.001, 0.30))
 
 func update_from_world_position(
 	bee_world_position: Vector2,
@@ -138,3 +159,5 @@ func reset() -> void:
 	if _material != null:
 		_material.set_shader_parameter(CUT_PARAM, 0.0)
 		_material.set_shader_parameter(CUT_DIR_PARAM, _local_cut_dir)
+		_material.set_shader_parameter(SOURCE_REVEAL_ENABLED_PARAM, 0.0)
+		_material.set_shader_parameter(SOURCE_REVEAL_PARAM, 1.0)

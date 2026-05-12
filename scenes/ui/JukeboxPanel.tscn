@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/jukebox_panel.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/play.png" id="2"]
 
 [node name="JukeboxPanel" type="Panel"]
 visible = false
@@ -22,9 +23,9 @@ offset_bottom = -18.0
 theme_override_constants/separation = 14
 
 [node name="SelectorPanel" type="Panel" parent="VBox"]
-custom_minimum_size = Vector2(0, 190)
+custom_minimum_size = Vector2(0, 290)
 size_flags_vertical = 3
-size_flags_stretch_ratio = 0.28
+size_flags_stretch_ratio = 0.34
 
 [node name="SelectorVBox" type="VBoxContainer" parent="VBox/SelectorPanel"]
 anchors_preset = 15
@@ -81,6 +82,15 @@ theme_override_constants/separation = 10
 custom_minimum_size = Vector2(92, 92)
 text = "RIGHT"
 
+[node name="PlayButton" type="Button" parent="VBox/SelectorPanel/SelectorVBox"]
+custom_minimum_size = Vector2(0, 104)
+size_flags_horizontal = 3
+tooltip_text = "Play selected map"
+flat = true
+icon = ExtResource("2")
+expand_icon = true
+icon_alignment = 1
+
 [node name="CpuPanel" type="Panel" parent="VBox"]
 custom_minimum_size = Vector2(0, 136)
 
@@ -124,9 +134,9 @@ autowrap_mode = 3
 text = "Bot detail"
 
 [node name="HeroPanel" type="Panel" parent="VBox"]
-custom_minimum_size = Vector2(0, 240)
+custom_minimum_size = Vector2(0, 220)
 size_flags_vertical = 3
-size_flags_stretch_ratio = 0.36
+size_flags_stretch_ratio = 0.31
 
 [node name="HeroVBox" type="VBoxContainer" parent="VBox/HeroPanel"]
 anchors_preset = 15
@@ -178,9 +188,6 @@ text = "Description"
 
 [node name="HeroActions" type="HBoxContainer" parent="VBox/HeroPanel/HeroVBox"]
 theme_override_constants/separation = 10
-
-[node name="PlayButton" type="Button" parent="VBox/HeroPanel/HeroVBox/HeroActions"]
-text = "PLAY MAP"
 
 [node name="ScoutButton" type="Button" parent="VBox/HeroPanel/HeroVBox/HeroActions"]
 text = "SCOUT TOP RUN"

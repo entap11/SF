@@ -1038,6 +1038,9 @@ func _log_pass_through_congested_once_per_sec(key: int, hive_id: int, owner_id: 
 	})
 
 func _arrival_impact_world_pos(unit: Dictionary, to_hive_id: int) -> Vector2:
+	var boundary_v: Variant = _arrival_target_shell_world(unit, to_hive_id)
+	if boundary_v is Vector2:
+		return boundary_v as Vector2
 	var pos_any: Variant = unit.get("pos", null)
 	if pos_any is Vector2:
 		return pos_any as Vector2
@@ -1045,6 +1048,18 @@ func _arrival_impact_world_pos(unit: Dictionary, to_hive_id: int) -> Vector2:
 		var hive_center: Vector2 = state.hive_world_pos_by_id(to_hive_id)
 		return _lane_anchor_world_from_center(hive_center)
 	return Vector2.ZERO
+
+func _arrival_target_shell_world(unit: Dictionary, to_hive_id: int) -> Variant:
+	if state == null or to_hive_id <= 0:
+		return null
+	var to_hive: HiveData = state.find_hive_by_id(to_hive_id)
+	if to_hive == null:
+		return null
+	var travel_dir: Vector2 = _arrival_impact_dir(unit)
+	if travel_dir.length_squared() <= 0.000001:
+		return null
+	var hive_center: Vector2 = state.hive_world_pos_by_id(to_hive_id)
+	return HiveNodeScript.lane_shell_anchor_world(hive_center, -travel_dir.normalized(), float(to_hive.radius_px))
 
 func _arrival_impact_dir(unit: Dictionary) -> Vector2:
 	var from_any: Variant = unit.get("from_pos", null)
@@ -1305,6 +1320,10 @@ func _edge_points(from_hive: HiveData, to_hive: HiveData, lane_id: int = -1) -> 
 			var swap: Vector2 = start_edge
 			start_edge = end_edge
 			end_edge = swap
+		var skinned_edge: Array = _skin_edge_points_to_hive_shell(start_edge, end_edge, from_hive, to_hive)
+		if not skinned_edge.is_empty():
+			start_edge = skinned_edge[0]
+			end_edge = skinned_edge[1]
 		if start_edge.distance_to(end_edge) < EDGE_MIN_DIST_PX:
 			end_edge = start_edge
 		return [start_edge, end_edge]
@@ -1330,9 +1349,26 @@ func _edge_points(from_hive: HiveData, to_hive: HiveData, lane_id: int = -1) -> 
 		end_trim = minf(end_trim, trim_cap)
 		start_edge += lane_dir * start_trim
 		end_edge -= lane_dir * end_trim
+	var fallback_skinned_edge: Array = _skin_edge_points_to_hive_shell(start_edge, end_edge, from_hive, to_hive)
+	if not fallback_skinned_edge.is_empty():
+		start_edge = fallback_skinned_edge[0]
+		end_edge = fallback_skinned_edge[1]
 	if start_edge.distance_to(end_edge) < EDGE_MIN_DIST_PX:
 		end_edge = start_edge
 	return [start_edge, end_edge]
+
+func _skin_edge_points_to_hive_shell(start_edge: Vector2, end_edge: Vector2, from_hive: HiveData, to_hive: HiveData) -> Array:
+	if from_hive == null or to_hive == null:
+		return []
+	var axis: Vector2 = end_edge - start_edge
+	if axis.length_squared() <= 0.000001:
+		return []
+	axis = axis.normalized()
+	var from_center: Vector2 = state.hive_world_pos_by_id(int(from_hive.id)) if state != null else start_edge
+	var to_center: Vector2 = state.hive_world_pos_by_id(int(to_hive.id)) if state != null else end_edge
+	var start_shell: Vector2 = HiveNodeScript.lane_shell_anchor_world(from_center, axis, float(from_hive.radius_px))
+	var end_shell: Vector2 = HiveNodeScript.lane_shell_anchor_world(to_center, -axis, float(to_hive.radius_px))
+	return [start_shell, end_shell]
 
 func _ensure_unit_edges(unit: Dictionary) -> Dictionary:
 	if state == null:

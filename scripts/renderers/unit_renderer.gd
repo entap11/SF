@@ -51,7 +51,7 @@ const UNIT_TRAVEL_T_EPS: float = 0.02
 const HIVE_REAR_APPROACH_Y_MIN: float = 0.12
 const HIVE_REAR_OCCLUSION_ENTRY_PAD_PX: float = 2.0
 const HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX: float = 24.0
-const HIVE_SOURCE_OCCLUSION_EXIT_PAD_PX: float = 18.0
+const HIVE_SOURCE_OCCLUSION_EXIT_PAD_PX: float = 56.0
 const HIVE_REAR_OCCLUSION_Z_INDEX: int = -2
 const HIVE_UNIT_DEFAULT_Z_INDEX: int = 0
 const DBG_UNITS: bool = false
@@ -105,6 +105,15 @@ const UNIT_POOL_SIZE_PER_TEAM: int = 64
 const UNIT_POOL_OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
 const PRUNE_AFTER_TICKS: int = 2
 const PASS_THROUGH_VISUAL_WARM_PX: float = 7.0
+const UNIT_EMERGENCE_DISTANCE_PX: float = 96.0
+const UNIT_EMERGENCE_DURATION_US: int = 320000
+const UNIT_EMERGENCE_HOLD_US: int = 0
+const UNIT_SPAWN_VISUAL_WARM_PX: float = 28.0
+const UNIT_EMERGENCE_MIN_AXIS_SCALE: float = 0.16
+const UNIT_EMERGENCE_FULL_EPS: float = 0.995
+const UNIT_EMERGENCE_REVEAL_SOFTNESS: float = 0.045
+const UNIT_BASE_SCALE_META: StringName = &"unit_base_scale"
+const UNIT_OUTLINE_BASE_SCALE_META: StringName = &"unit_outline_base_scale"
 
 @export var debug_unit_logs: bool = false
 @export var debug_unit_owner_labels: bool = false
@@ -136,6 +145,7 @@ const PASS_THROUGH_VISUAL_WARM_PX: float = 7.0
 @export var bee_clip_missing_speed_fallback_px_s: float = 220.0
 @export var bee_clip_hold_missing_until_clipped: bool = true
 @export var bee_clip_missing_hold_max_ticks: int = 14
+@export var unit_emergence_enabled: bool = true
 
 var _unit_space: String = "local"
 var _unit_space_logged: bool = false
@@ -451,6 +461,8 @@ func _pool_release(node: Node2D) -> void:
 		sprite.position = Vector2.ZERO
 		sprite.scale = Vector2.ONE
 		sprite.rotation = 0.0
+		if sprite.has_meta(UNIT_BASE_SCALE_META):
+			sprite.remove_meta(UNIT_BASE_SCALE_META)
 		if AUDIT_RENDER:
 			_audit_modulate_sets += 1
 		sprite.self_modulate = Color(1.0, 1.0, 1.0, 1.0)
@@ -462,6 +474,8 @@ func _pool_release(node: Node2D) -> void:
 		outline_sprite.position = Vector2.ZERO
 		outline_sprite.scale = Vector2.ONE
 		outline_sprite.rotation = 0.0
+		if outline_sprite.has_meta(UNIT_OUTLINE_BASE_SCALE_META):
+			outline_sprite.remove_meta(UNIT_OUTLINE_BASE_SCALE_META)
 		outline_sprite.self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 		outline_sprite.visible = false
 	if not _assert_not_freed(node):
@@ -1633,15 +1647,18 @@ func _ingest_unit_sample(
 	if typeof(existing_any) == TYPE_DICTIONARY:
 		entry = existing_any as Dictionary
 	if entry.is_empty():
-		var warm_start: bool = str(ud.get("arrive_source", "")).strip_edges().to_lower() == "pass_through" and bool(endpoints.get("ok", false))
+		var arrive_source: String = str(ud.get("arrive_source", "")).strip_edges().to_lower()
+		var warm_start: bool = arrive_source == "pass_through" and bool(endpoints.get("ok", false))
+		var emergence_start: bool = not warm_start and bool(endpoints.get("ok", false))
 		var prev_pos: Vector2 = sample_pos
 		var prev_t: float = target_t
 		var prev_sim_us: int = sample_sim_us
 		var prev_wall_us: int = sample_wall_us
-		if warm_start:
-			prev_pos = sample_pos - (sample_dir_norm * PASS_THROUGH_VISUAL_WARM_PX)
+		if warm_start or emergence_start:
+			var warm_px: float = PASS_THROUGH_VISUAL_WARM_PX if warm_start else UNIT_SPAWN_VISUAL_WARM_PX
+			prev_pos = sample_pos - (sample_dir_norm * warm_px)
 			var lane_len_px: float = maxf(1.0, a_pos.distance_to(b_pos))
-			var warm_t_step: float = minf(0.20, PASS_THROUGH_VISUAL_WARM_PX / lane_len_px)
+			var warm_t_step: float = minf(0.20, warm_px / lane_len_px)
 			prev_t = clampf(target_t - (float(_unit_travel_sign(ud)) * warm_t_step), 0.0, 1.0)
 			var warm_us: int = int(round(maxf(0.001, sim_dt_sec) * 1000000.0))
 			prev_sim_us = sample_sim_us - warm_us
@@ -1659,8 +1676,10 @@ func _ingest_unit_sample(
 		entry["prev_rot"] = sample_rot
 		entry["curr_rot"] = sample_rot
 		entry["render_pos"] = sample_pos
-		entry["just_spawned"] = not warm_start
-		entry["warm_spawned"] = warm_start
+		entry["spawn_wall_us"] = sample_wall_us
+		entry["spawn_sim_us"] = sample_sim_us
+		entry["just_spawned"] = false
+		entry["warm_spawned"] = warm_start or emergence_start
 	else:
 		var curr_pos: Vector2 = entry.get("curr_pos", sample_pos)
 		entry["prev_pos"] = curr_pos
@@ -1783,13 +1802,22 @@ func _is_back_hive_approach(travel_dir_world: Vector2) -> bool:
 	return dir.y > HIVE_REAR_APPROACH_Y_MIN
 
 func _unit_source_hive_id(ud: Dictionary) -> int:
-	var from_id: int = int(ud.get("from_id", ud.get("src_id", ud.get("source_id", -1))))
+	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", ud.get("src_id", ud.get("source_id", -1)))))
 	if from_id > 0:
 		return from_id
 	var sign: int = _unit_travel_sign(ud)
 	if sign >= 0:
 		return int(ud.get("a_id", -1))
 	return int(ud.get("b_id", -1))
+
+func _unit_target_hive_id(ud: Dictionary) -> int:
+	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", ud.get("dst_id", ud.get("target_id", -1)))))
+	if to_id > 0:
+		return to_id
+	var sign: int = _unit_travel_sign(ud)
+	if sign >= 0:
+		return int(ud.get("b_id", -1))
+	return int(ud.get("a_id", -1))
 
 func _reset_unit_hive_occlusion_depth(node: Node2D) -> void:
 	if node == null:
@@ -1803,13 +1831,122 @@ func _set_unit_hive_occlusion_depth(node: Node2D) -> void:
 	node.z_as_relative = false
 	node.z_index = HIVE_REAR_OCCLUSION_Z_INDEX
 
+func _unit_emergence_reveal(ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> float:
+	if not unit_emergence_enabled or ud.is_empty():
+		return 1.0
+	if _unit_hive_occlusion_active(ud, hive_by_id, render_pos, dir_local):
+		return 1.0
+	if str(ud.get("arrive_source", "")).strip_edges().to_lower() == "pass_through":
+		return 1.0
+	var source_hive_id: int = _unit_source_hive_id(ud)
+	if source_hive_id <= 0:
+		return 1.0
+	var travel_dir_world: Vector2 = _to_world_dir(dir_local)
+	if travel_dir_world.length_squared() <= 0.000001:
+		return 1.0
+	travel_dir_world = travel_dir_world.normalized()
+	var source_boundary_v: Variant = _hive_shell_contact_world(source_hive_id, hive_by_id, travel_dir_world)
+	if not (source_boundary_v is Vector2):
+		return 1.0
+	var render_world: Vector2 = _to_world_pos(render_pos)
+	var source_boundary_world: Vector2 = source_boundary_v as Vector2
+	var traveled_from_shell_px: float = (render_world - source_boundary_world).dot(travel_dir_world)
+	var distance_t: float = clampf(traveled_from_shell_px / maxf(1.0, UNIT_EMERGENCE_DISTANCE_PX), 0.0, 1.0)
+	var distance_reveal: float = distance_t * distance_t * (3.0 - (2.0 * distance_t))
+	var time_reveal: float = 1.0
+	var unit_id: int = int(ud.get("id", -1))
+	if unit_id > 0:
+		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+		if typeof(state_any) == TYPE_DICTIONARY:
+			var state: Dictionary = state_any as Dictionary
+			var spawn_wall_us: int = int(state.get("spawn_wall_us", 0))
+			if spawn_wall_us > 0:
+				var elapsed_us: int = maxi(0, Time.get_ticks_usec() - spawn_wall_us - UNIT_EMERGENCE_HOLD_US)
+				var time_t: float = clampf(float(elapsed_us) / float(maxi(1, UNIT_EMERGENCE_DURATION_US)), 0.0, 1.0)
+				time_reveal = time_t * time_t * (3.0 - (2.0 * time_t))
+	return minf(distance_reveal, time_reveal)
+
+func _unit_emergence_axis_scale(reveal: float) -> float:
+	return lerpf(UNIT_EMERGENCE_MIN_AXIS_SCALE, 1.0, clampf(reveal, 0.0, 1.0))
+
+func _apply_unit_emergence_visuals(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> void:
+	if node == null:
+		return
+	var reveal: float = _unit_emergence_reveal(ud, hive_by_id, render_pos, dir_local)
+	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
+	var outline_sprite: Sprite2D = node.get_node_or_null("UnitOutlineSprite") as Sprite2D
+	if sprite != null:
+		sprite.scale = _sprite_base_scale(sprite, UNIT_BASE_SCALE_META)
+		sprite.position = Vector2.ZERO
+	if outline_sprite != null:
+		outline_sprite.scale = _sprite_base_scale(outline_sprite, UNIT_OUTLINE_BASE_SCALE_META)
+		outline_sprite.position = Vector2.ZERO
+	var unit_id: int = int(node.get_meta("unit_id", -1))
+	if unit_id <= 0:
+		return
+	var reveal_enabled: bool = reveal < UNIT_EMERGENCE_FULL_EPS
+	var reveal_dir: Vector2 = _bee_clip_local_cut_dir()
+	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
+	if controller != null and controller.has_method("set_source_reveal"):
+		controller.call("set_source_reveal", reveal_enabled, reveal, reveal_dir, UNIT_EMERGENCE_REVEAL_SOFTNESS)
+	var outline_controller: RefCounted = _bee_clip_outline_by_unit_id.get(unit_id, null) as RefCounted
+	if outline_controller != null and outline_controller.has_method("set_source_reveal"):
+		outline_controller.call("set_source_reveal", reveal_enabled, reveal, reveal_dir, UNIT_EMERGENCE_REVEAL_SOFTNESS)
+
+func _unit_hive_occlusion_active(ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> bool:
+	if not unit_emergence_enabled or ud.is_empty():
+		return false
+	var travel_dir_world: Vector2 = _to_world_dir(dir_local)
+	if travel_dir_world.length_squared() <= 0.000001:
+		return false
+	travel_dir_world = travel_dir_world.normalized()
+	var render_world: Vector2 = _to_world_pos(render_pos)
+	if _is_rear_hive_approach(travel_dir_world):
+		var source_hive_id: int = _unit_source_hive_id(ud)
+		if source_hive_id <= 0:
+			return false
+		var source_boundary_v: Variant = _hive_shell_contact_world(source_hive_id, hive_by_id, travel_dir_world)
+		if not (source_boundary_v is Vector2):
+			return false
+		var source_boundary_world: Vector2 = source_boundary_v as Vector2
+		var traveled_from_source_px: float = (render_world - source_boundary_world).dot(travel_dir_world)
+		return traveled_from_source_px <= UNIT_EMERGENCE_DISTANCE_PX
+	if _is_back_hive_approach(travel_dir_world):
+		var to_hive_id: int = _unit_target_hive_id(ud)
+		if to_hive_id <= 0:
+			return false
+		var target_boundary_v: Variant = _target_hive_boundary_world(to_hive_id, hive_by_id, travel_dir_world)
+		if not (target_boundary_v is Vector2):
+			return false
+		var target_boundary_world: Vector2 = target_boundary_v as Vector2
+		var remaining_to_target_px: float = (target_boundary_world - render_world).dot(travel_dir_world)
+		return remaining_to_target_px <= UNIT_EMERGENCE_DISTANCE_PX
+	return false
+
+func _unit_directional_hive_hide(ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> bool:
+	return false
+
+func _apply_unit_directional_visibility(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> void:
+	if node == null:
+		return
+	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
+	if sprite != null:
+		sprite.visible = not debug_draw_units
+	var outline_sprite: Sprite2D = node.get_node_or_null("UnitOutlineSprite") as Sprite2D
+	if outline_sprite != null:
+		outline_sprite.visible = UNIT_OUTLINE_ENABLED and not debug_draw_units
+
 func _update_target_hive_occlusion_depth(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, travel_dir_world: Vector2) -> void:
 	if node == null:
 		return
 	if travel_dir_world.length_squared() <= 0.000001:
 		_reset_unit_hive_occlusion_depth(node)
 		return
-	var to_hive_id: int = int(ud.get("to_id", -1))
+	var render_pos: Vector2 = node.global_position if _unit_space == "global" else to_local(node.global_position)
+	if _unit_hive_occlusion_active(ud, hive_by_id, render_pos, _to_local_dir(travel_dir_world)):
+		_set_unit_hive_occlusion_depth(node)
+		return
+	var to_hive_id: int = _unit_target_hive_id(ud)
 	if to_hive_id <= 0:
 		_reset_unit_hive_occlusion_depth(node)
 		return
@@ -1877,8 +2014,8 @@ func _unit_path_endpoints_map_local(
 	var lane_id: int = _resolve_id(ud.get("lane_id", 0))
 	var a_id: int = _resolve_id(ud.get("a_id", 0))
 	var b_id: int = _resolve_id(ud.get("b_id", 0))
-	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
-	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
+	var from_id: int = _unit_source_hive_id(ud)
+	var to_id: int = _unit_target_hive_id(ud)
 	# Sim uses canonical lane endpoints (a_id->b_id) and encodes travel direction in dir/t.
 	# Rendering against from_id/to_id can invert one side and create "phantom" collisions.
 	if a_id > 0 and b_id > 0:
@@ -2543,6 +2680,32 @@ func _ensure_unit_outline_sprite(node: Node2D) -> Sprite2D:
 	sprite.position = Vector2.ZERO
 	return sprite
 
+func _sprite_base_scale(sprite: Sprite2D, meta_key: StringName) -> Vector2:
+	if sprite == null:
+		return Vector2.ONE
+	var base_any: Variant = sprite.get_meta(meta_key, null)
+	if base_any is Vector2:
+		return base_any as Vector2
+	return sprite.scale
+
+func _remember_unit_base_scales(sprite: Sprite2D, outline_sprite: Sprite2D) -> void:
+	if sprite != null:
+		sprite.set_meta(UNIT_BASE_SCALE_META, sprite.scale)
+	if outline_sprite != null:
+		outline_sprite.set_meta(UNIT_OUTLINE_BASE_SCALE_META, outline_sprite.scale)
+
+func _reset_unit_emergence_visuals(node: Node2D) -> void:
+	if node == null:
+		return
+	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
+	if sprite != null:
+		sprite.scale = _sprite_base_scale(sprite, UNIT_BASE_SCALE_META)
+		sprite.position = Vector2.ZERO
+	var outline_sprite: Sprite2D = node.get_node_or_null("UnitOutlineSprite") as Sprite2D
+	if outline_sprite != null:
+		outline_sprite.scale = _sprite_base_scale(outline_sprite, UNIT_OUTLINE_BASE_SCALE_META)
+		outline_sprite.position = Vector2.ZERO
+
 func _bee_clip_local_cut_dir() -> Vector2:
 	var base_dir: Vector2 = Vector2.RIGHT.rotated(deg_to_rad(-UNIT_SPRITE_FORWARD_DEG))
 	if bee_clip_flip_forward_axis:
@@ -2694,7 +2857,7 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 		_reset_unit_hive_occlusion_depth(node)
 		return
 	if not has_override_plane:
-		var to_hive_id_for_plane: int = int(ud.get("to_id", -1))
+		var to_hive_id_for_plane: int = _unit_target_hive_id(ud)
 		var boundary_plane_v: Variant = _target_hive_boundary_world(to_hive_id_for_plane, hive_by_id, travel_dir_world)
 		if boundary_plane_v is Vector2:
 			entrance_point_world = boundary_plane_v as Vector2
@@ -2714,7 +2877,7 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 	_bee_clip_speed_px_s_by_unit_id[unit_id] = speed_px_s
 	_bee_clip_entrance_world_by_unit_id[unit_id] = entrance_point_world
 	_bee_clip_visual_len_by_unit_id[unit_id] = bee_length_px
-	_bee_clip_to_hive_id_by_unit_id[unit_id] = int(ud.get("to_id", -1))
+	_bee_clip_to_hive_id_by_unit_id[unit_id] = _unit_target_hive_id(ud)
 	_bee_clip_lane_id_by_unit_id[unit_id] = int(ud.get("lane_id", -1))
 	controller.call("set_plane", entrance_point_world, travel_dir_world)
 	controller.call("set_visual_length_px", bee_length_px)
@@ -2739,7 +2902,7 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 			"cut_value_now": cut_value_now
 		})
 	if bool(controller.call("consume_full_clip_transition")):
-		var to_hive_id: int = int(ud.get("to_id", -1))
+		var to_hive_id: int = _unit_target_hive_id(ud)
 		var lane_id: int = int(ud.get("lane_id", -1))
 		emit_signal("bee_clip_absorb_ready", unit_id, to_hive_id, lane_id, cut_value_now)
 	if bee_clip_debug_logs:
@@ -3011,6 +3174,7 @@ func _update_unit_sprite(
 		sprite.scale = sprite_scale
 		if outline_sprite != null:
 			outline_sprite.scale = sprite_scale * UNIT_OUTLINE_SCALE_MULT if UNIT_OUTLINE_ENABLED else Vector2.ONE
+		_remember_unit_base_scales(sprite, outline_sprite)
 	if apply_orientation:
 		var lane_id: int = int(ud.get("lane_id", 0))
 		_apply_unit_orientation(node, sprite, ud, hive_by_id, unit_id, owner_id, lane_id)
@@ -3445,11 +3609,12 @@ func _ensure_unit_multimesh_batch(owner_id: int, layer: String, outline: bool, r
 		var tex: Texture2D = _unit_batch_texture(owner_id, registry)
 		node.texture = tex
 		node.material = _unit_batch_material(owner_id, registry, outline)
-		node.z_index = _unit_batch_z_index(layer, outline)
 		node.visible = tex != null
 		batch["texture"] = tex
 		batch["scale"] = _unit_batch_scale(owner_id, registry, tex, outline)
 		batch["style_sig"] = style_sig
+	node.z_as_relative = layer != "rear"
+	node.z_index = _unit_batch_z_index(layer, outline)
 	_unit_multimesh_batches[key] = batch
 	return batch
 
@@ -3489,7 +3654,17 @@ func _finalize_unit_multimesh_counts() -> void:
 		if node != null and is_instance_valid(node):
 			node.visible = count > 0 and node.texture != null
 
-func _submit_unit_multimesh_instance(owner_id: int, layer: String, pos: Vector2, rot: float, outline: bool, registry: SpriteRegistry) -> void:
+func _submit_unit_multimesh_instance(
+	owner_id: int,
+	layer: String,
+	pos: Vector2,
+	rot: float,
+	outline: bool,
+	registry: SpriteRegistry,
+	ud: Dictionary = {},
+	hive_by_id: Dictionary = {},
+	dir_local: Vector2 = Vector2.RIGHT
+) -> void:
 	var batch: Dictionary = _ensure_unit_multimesh_batch(owner_id, layer, outline, registry)
 	var mm: MultiMesh = batch.get("multimesh", null) as MultiMesh
 	var tex: Texture2D = batch.get("texture", null) as Texture2D
@@ -3498,7 +3673,25 @@ func _submit_unit_multimesh_instance(owner_id: int, layer: String, pos: Vector2,
 	var idx: int = int(batch.get("count", 0))
 	_ensure_unit_batch_capacity(batch, idx + 1)
 	var scale: Vector2 = batch.get("scale", Vector2.ONE)
-	var tr: Transform2D = Transform2D(rot, pos)
+	var adjusted_pos: Vector2 = pos
+	var reveal: float = _unit_emergence_reveal(ud, hive_by_id, pos, dir_local)
+	if reveal < UNIT_EMERGENCE_FULL_EPS:
+		var axis_scale: float = _unit_emergence_axis_scale(reveal)
+		var forward_local: Vector2 = _bee_clip_local_cut_dir()
+		var dir_n: Vector2 = dir_local
+		if dir_n.length_squared() <= 0.000001:
+			dir_n = Vector2.RIGHT
+		else:
+			dir_n = dir_n.normalized()
+		if absf(forward_local.x) > absf(forward_local.y):
+			var half_len_x: float = float(tex.get_width()) * absf(scale.x) * 0.5
+			scale.x *= axis_scale
+			adjusted_pos += dir_n * half_len_x * (1.0 - axis_scale)
+		else:
+			var half_len_y: float = float(tex.get_height()) * absf(scale.y) * 0.5
+			scale.y *= axis_scale
+			adjusted_pos += dir_n * half_len_y * (1.0 - axis_scale)
+	var tr: Transform2D = Transform2D(rot, adjusted_pos)
 	tr.x *= scale.x
 	tr.y *= scale.y
 	mm.set_instance_transform_2d(idx, tr)
@@ -3510,19 +3703,32 @@ func _submit_unit_multimesh_instance(owner_id: int, layer: String, pos: Vector2,
 func _unit_batch_layer(ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> String:
 	if ud.is_empty():
 		return "main"
+	if _unit_hive_occlusion_active(ud, hive_by_id, render_pos, dir_local):
+		return "rear"
 	var travel_dir_world: Vector2 = _to_world_dir(dir_local)
-	if travel_dir_world.length_squared() <= 0.000001 or not _is_back_hive_approach(travel_dir_world):
+	if travel_dir_world.length_squared() <= 0.000001:
 		return "main"
-	var to_hive_id: int = int(ud.get("to_id", -1))
-	if to_hive_id <= 0:
-		return "main"
-	var boundary_v: Variant = _target_hive_boundary_world(to_hive_id, hive_by_id, travel_dir_world.normalized())
-	if not (boundary_v is Vector2):
-		return "main"
-	var boundary_world: Vector2 = boundary_v as Vector2
+	travel_dir_world = travel_dir_world.normalized()
 	var render_world: Vector2 = _to_world_pos(render_pos)
-	var along_to_back_shell: float = (render_world - boundary_world).dot(travel_dir_world.normalized())
-	return "rear" if along_to_back_shell >= -HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX else "main"
+	if _is_back_hive_approach(travel_dir_world):
+		var to_hive_id: int = _unit_target_hive_id(ud)
+		if to_hive_id > 0:
+			var boundary_v: Variant = _target_hive_boundary_world(to_hive_id, hive_by_id, travel_dir_world)
+			if boundary_v is Vector2:
+				var boundary_world: Vector2 = boundary_v as Vector2
+				var along_to_back_shell: float = (render_world - boundary_world).dot(travel_dir_world)
+				if along_to_back_shell >= -HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX:
+					return "rear"
+	if _is_rear_hive_approach(travel_dir_world):
+		var source_hive_id: int = _unit_source_hive_id(ud)
+		if source_hive_id > 0:
+			var source_boundary_v: Variant = _hive_shell_contact_world(source_hive_id, hive_by_id, travel_dir_world)
+			if source_boundary_v is Vector2:
+				var source_boundary_world: Vector2 = source_boundary_v as Vector2
+				var along_from_source_shell: float = (render_world - source_boundary_world).dot(travel_dir_world)
+				if along_from_source_shell <= HIVE_SOURCE_OCCLUSION_EXIT_PAD_PX:
+					return "rear"
+	return "main"
 
 func _render_pose_for_unit(unit_id: int, unit_data: Dictionary, state: Dictionary, hive_by_id: Dictionary, sim_time_s: float, now_us: int, settle_active: bool) -> Dictionary:
 	if bool(state.get("just_spawned", false)):
@@ -3603,9 +3809,9 @@ func _render_units_batched(now_us: int) -> void:
 		var owner_id: int = _unit_owner_id(unit_data, hive_by_id)
 		var layer: String = _unit_batch_layer(unit_data, hive_by_id, pos, dir_local)
 		if UNIT_OUTLINE_ENABLED and not debug_draw_units:
-			_submit_unit_multimesh_instance(owner_id, layer, pos, rot, true, registry)
+			_submit_unit_multimesh_instance(owner_id, layer, pos, rot, true, registry, unit_data, hive_by_id, dir_local)
 		if not debug_draw_units:
-			_submit_unit_multimesh_instance(owner_id, layer, pos, rot, false, registry)
+			_submit_unit_multimesh_instance(owner_id, layer, pos, rot, false, registry, unit_data, hive_by_id, dir_local)
 	_finalize_unit_multimesh_counts()
 
 func _render_units(now_us: int) -> void:
@@ -3635,7 +3841,8 @@ func _render_units(now_us: int) -> void:
 		if typeof(state_any) == TYPE_DICTIONARY:
 			var state: Dictionary = state_any as Dictionary
 			if bool(state.get("just_spawned", false)):
-				var spawn_pos: Vector2 = state.get("curr_pos", node.position)
+				var spawn_base_pos: Vector2 = state.get("curr_pos", node.position)
+				var spawn_pos: Vector2 = spawn_base_pos
 				if not unit_data.is_empty():
 					spawn_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
 				node.position = spawn_pos
@@ -3644,16 +3851,22 @@ func _render_units(now_us: int) -> void:
 				state["just_spawned"] = false
 				state["warm_spawned"] = false
 				_unit_visual_by_id[unit_id] = state
+				var spawn_dir: Vector2 = state.get("dir", Vector2.RIGHT)
+				_reset_unit_emergence_visuals(node)
 				if not unit_data.is_empty():
 					_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
+					_apply_unit_emergence_visuals(node, unit_data, hive_by_id, spawn_base_pos, spawn_dir)
+					_apply_unit_directional_visibility(node, unit_data, hive_by_id, spawn_base_pos, spawn_dir)
 				continue
 			var alpha: float = _render_alpha_for_state(state, now_us, settle_active)
 			if settle_active and alpha > 1.0:
 				var settle_pose: Dictionary = _render_settle_projected_pose(unit_id, state, alpha)
 				if bool(settle_pose.get("ok", false)):
 					var settle_pos_v: Variant = settle_pose.get("pos", node.position)
+					var settle_base_pos: Vector2 = node.position
 					if settle_pos_v is Vector2:
 						var settle_pos: Vector2 = settle_pos_v as Vector2
+						settle_base_pos = settle_pos
 						if not unit_data.is_empty():
 							settle_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
 						node.position = settle_pos
@@ -3661,8 +3874,12 @@ func _render_units(now_us: int) -> void:
 					state["render_pos"] = node.position
 					state["warm_spawned"] = false
 					_unit_visual_by_id[unit_id] = state
+					var settle_dir: Vector2 = state.get("dir", Vector2.RIGHT)
+					_reset_unit_emergence_visuals(node)
 					if not unit_data.is_empty():
 						_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
+						_apply_unit_emergence_visuals(node, unit_data, hive_by_id, settle_base_pos, settle_dir)
+						_apply_unit_directional_visibility(node, unit_data, hive_by_id, settle_base_pos, settle_dir)
 					continue
 			if alpha > 1.0:
 				if not settle_active:
@@ -3672,7 +3889,8 @@ func _render_units(now_us: int) -> void:
 						alpha = 1.0
 			var prev_pos: Vector2 = state.get("prev_pos", node.position)
 			var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
-			var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)
+			var render_base_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)
+			var render_pos: Vector2 = render_base_pos
 			if not unit_data.is_empty():
 				render_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
 			node.position = render_pos
@@ -3682,8 +3900,12 @@ func _render_units(now_us: int) -> void:
 			state["render_pos"] = render_pos
 			state["warm_spawned"] = false
 			_unit_visual_by_id[unit_id] = state
+			var render_dir: Vector2 = state.get("dir", Vector2.RIGHT)
+			_reset_unit_emergence_visuals(node)
 			if not unit_data.is_empty():
 				_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
+				_apply_unit_emergence_visuals(node, unit_data, hive_by_id, render_base_pos, render_dir)
+				_apply_unit_directional_visibility(node, unit_data, hive_by_id, render_base_pos, render_dir)
 			else:
 				_update_bee_clip_for_missing_unit(unit_id, node, now_us)
 
@@ -4110,8 +4332,8 @@ func _unit_travel_sign(ud: Dictionary) -> int:
 	var dir_i: int = int(ud.get("dir", 0))
 	if dir_i != 0:
 		return 1 if dir_i > 0 else -1
-	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", 0)))
-	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", 0)))
+	var from_id: int = _resolve_id(ud.get("from_id", ud.get("from", ud.get("src_id", ud.get("source_id", -1)))))
+	var to_id: int = _resolve_id(ud.get("to_id", ud.get("to", ud.get("dst_id", ud.get("target_id", -1)))))
 	var a_id: int = _resolve_id(ud.get("a_id", 0))
 	var b_id: int = _resolve_id(ud.get("b_id", 0))
 	if from_id > 0 and to_id > 0 and a_id > 0 and b_id > 0:
@@ -4205,7 +4427,7 @@ func _unit_owner_id(u: Variant, hive_by_id: Dictionary) -> int:
 	var owner_id := int(ud.get("owner_id", 0))
 	if owner_id > 0:
 		return owner_id
-	var from_id := _resolve_id(ud.get("from_id", ud.get("a_id", 0)))
+	var from_id := _unit_source_hive_id(ud)
 	if from_id > 0:
 		return _hive_owner(from_id, hive_by_id)
 	return 0
@@ -4283,6 +4505,16 @@ func _to_world_dir(dir: Vector2) -> Vector2:
 	if world_vec.length_squared() <= 0.000001:
 		return dir.normalized()
 	return world_vec.normalized()
+
+func _to_local_dir(dir: Vector2) -> Vector2:
+	if dir.length_squared() <= 0.000001:
+		return Vector2.ZERO
+	if _unit_space == "global":
+		return dir.normalized()
+	var local_vec: Vector2 = global_transform.affine_inverse().basis_xform(dir)
+	if local_vec.length_squared() <= 0.000001:
+		return dir.normalized()
+	return local_vec.normalized()
 
 func _resolve_id(raw: Variant) -> int:
 	if raw is int:

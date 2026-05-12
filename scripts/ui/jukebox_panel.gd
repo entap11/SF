@@ -5,6 +5,7 @@ const JukeboxStateScript := preload("res://scripts/state/jukebox_state.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/up_down_chevron.png"
 const SIDE_CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/Left_right_chevrons.png"
+const PLAY_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/play.png"
 const PAGE_SIZE: int = 7
 const MAP_WINDOW_SIZE: int = 5
 const SELECTOR_META_FONT_SIZE: int = 18
@@ -36,7 +37,7 @@ const TOP_LIMIT: int = 50
 @onready var selected_meta_label: Label = $VBox/HeroPanel/HeroVBox/SelectedMeta
 @onready var selected_desc_label: Label = $VBox/HeroPanel/HeroVBox/SelectedDesc
 @onready var map_best_label: Label = $VBox/HeroPanel/HeroVBox/MapBest
-@onready var play_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/PlayButton
+@onready var play_button: Button = $VBox/SelectorPanel/SelectorVBox/PlayButton
 @onready var scout_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/ScoutButton
 @onready var close_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/CloseButton
 @onready var cpu_title_label: Label = $VBox/CpuPanel/CpuVBox/CpuHeader/CpuTitle
@@ -58,6 +59,7 @@ var _font_regular: Font = null
 var _font_semibold: Font = null
 var _chevron_texture: Texture2D = null
 var _side_chevron_texture: Texture2D = null
+var _play_texture: Texture2D = null
 var _jukebox_state = JukeboxStateScript.new()
 var _category_labels: Array[String] = ["ALL"]
 var _selected_category: String = "ALL"
@@ -230,6 +232,8 @@ func _load_fonts() -> void:
 		_chevron_texture = load(CHEVRON_TEXTURE_PATH) as Texture2D
 	if ResourceLoader.exists(SIDE_CHEVRON_TEXTURE_PATH):
 		_side_chevron_texture = load(SIDE_CHEVRON_TEXTURE_PATH) as Texture2D
+	if ResourceLoader.exists(PLAY_TEXTURE_PATH):
+		_play_texture = load(PLAY_TEXTURE_PATH) as Texture2D
 
 func _style_controls() -> void:
 	_apply_font(title_label, _font_semibold, 24)
@@ -250,7 +254,10 @@ func _style_controls() -> void:
 	_apply_font(your_best_label, _font_semibold, 24)
 	_apply_font(map_best_label, _font_regular, 12)
 	_apply_font(badge_note_label, _font_regular, 18)
-	for button in [play_button, scout_button, close_button]:
+	_apply_font(play_button, _font_semibold, 13)
+	_style_button(play_button)
+	_style_play_button()
+	for button in [scout_button, close_button]:
 		_apply_font(button, _font_semibold, 13)
 		_style_button(button)
 	for button in [map_left_button, map_right_button]:
@@ -485,11 +492,12 @@ func _refresh_map_best() -> void:
 		return
 	var player_id: String = ""
 	var player_handle: String = ""
-	if ProfileManager != null:
-		if ProfileManager.has_method("get_user_id"):
-			player_id = str(ProfileManager.get_user_id()).strip_edges()
-		if ProfileManager.has_method("get_display_name"):
-			player_handle = str(ProfileManager.get_display_name()).strip_edges()
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager != null:
+		if profile_manager.has_method("get_user_id"):
+			player_id = str(profile_manager.call("get_user_id")).strip_edges()
+		if profile_manager.has_method("get_display_name"):
+			player_handle = str(profile_manager.call("get_display_name")).strip_edges()
 	var summary: Dictionary = _jukebox_state.player_map_summary(_selected_map_path, player_id, player_handle, "ALL TIME")
 	var best_time_ms: int = int(summary.get("best_time_ms", 0))
 	var run_count: int = int(summary.get("run_count", 0))
@@ -765,6 +773,19 @@ func _style_selector_nav_button(button: Button) -> void:
 	button.custom_minimum_size = Vector2(92.0, 92.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+
+func _style_play_button() -> void:
+	if play_button == null:
+		return
+	play_button.custom_minimum_size = Vector2(0.0, 104.0)
+	play_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	play_button.text = ""
+	play_button.tooltip_text = "Play selected map"
+	play_button.flat = true
+	if _play_texture != null:
+		play_button.icon = _play_texture
+	play_button.set("expand_icon", true)
+	play_button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
 
 func _apply_nav_icons() -> void:
 	if _chevron_texture == null:
