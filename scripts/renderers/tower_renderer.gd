@@ -9,6 +9,7 @@ extends Node2D
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const VisualShadow := preload("res://scripts/renderers/visual_shadow.gd")
 const TOWER_TEX_SMALL: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_small.tres")
 const TOWER_TEX_MEDIUM: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_medium.tres")
 const TOWER_TEX_LARGE: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_large.tres")
@@ -27,6 +28,14 @@ const TOWER_SIZE_MULT_T1: float = 1.0
 const TOWER_SIZE_MULT_T2: float = 1.14
 const TOWER_SIZE_MULT_T3_PLUS: float = 1.30
 const DRAW_TOWER_DEBUG_LABELS: bool = false
+const TOWER_SHADOW_OFFSET: Vector2 = Vector2(10.0, -6.0)
+const TOWER_SHADOW_SCALE: Vector2 = Vector2(1.08, 0.44)
+const TOWER_SHADOW_ALPHA: float = 0.30
+const TOWER_CONTACT_SHADOW_OFFSET_MULT: float = 0.45
+const TOWER_CONTACT_SHADOW_SCALE: Vector2 = Vector2(0.82, 0.30)
+const TOWER_CONTACT_SHADOW_ALPHA: float = 0.18
+const TOWER_SHADOW_Z_INDEX: int = TOWER_SPRITE_Z_INDEX - 2
+const TOWER_CONTACT_SHADOW_Z_INDEX: int = TOWER_SPRITE_Z_INDEX - 1
 
 var model: Dictionary = {}
 var towers: Array = []
@@ -35,6 +44,8 @@ var _logged_tower_ids: Dictionary = {}
 var _sprite_registry: SpriteRegistry = null
 var _tower_labels: Dictionary = {}
 var _tower_sprites_by_id: Dictionary = {}
+var _tower_shadows_by_id: Dictionary = {}
+var _tower_contact_shadows_by_id: Dictionary = {}
 var _structure_control_system: Object = null
 
 func _ready() -> void:
@@ -183,6 +194,7 @@ func _sync_tower_sprites() -> void:
 			if sprite != null:
 				sprite.queue_free()
 		_tower_sprites_by_id.clear()
+		_clear_tower_shadows()
 		return
 
 	var keep: Dictionary = {}
@@ -205,6 +217,7 @@ func _sync_tower_sprites() -> void:
 			add_child(sprite)
 			_tower_sprites_by_id[tower_id] = sprite
 		_update_tower_sprite(sprite, td, registry)
+		_update_tower_shadow(tower_id, sprite)
 		_apply_tower_owner_visual(tower_id, int(td.get("owner_id", 0)))
 
 	for key in _tower_sprites_by_id.keys():
@@ -213,6 +226,7 @@ func _sync_tower_sprites() -> void:
 			if sprite != null:
 				sprite.queue_free()
 			_tower_sprites_by_id.erase(key)
+			_free_tower_shadow(key)
 
 func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegistry) -> void:
 	var pos: Vector2 = _tower_world_pos(td)
@@ -250,6 +264,51 @@ func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegi
 	else:
 		sprite.position = pos
 		sprite.visible = false
+
+func _ensure_tower_shadow(store: Dictionary, tower_id: int, node_name: String) -> VisualShadow:
+	var shadow: VisualShadow = store.get(tower_id, null) as VisualShadow
+	if shadow != null and is_instance_valid(shadow):
+		return shadow
+	shadow = VisualShadow.new()
+	shadow.name = "%s_%d" % [node_name, tower_id]
+	shadow.centered = true
+	shadow.visible = false
+	add_child(shadow)
+	store[tower_id] = shadow
+	return shadow
+
+func _update_tower_shadow(tower_id: int, sprite: Sprite2D) -> void:
+	var ground_shadow: VisualShadow = _ensure_tower_shadow(_tower_shadows_by_id, tower_id, "TowerShadow")
+	var contact_shadow: VisualShadow = _ensure_tower_shadow(_tower_contact_shadows_by_id, tower_id, "TowerContactShadow")
+	if sprite == null or not is_instance_valid(sprite) or not sprite.visible or sprite.texture == null:
+		ground_shadow.visible = false
+		contact_shadow.visible = false
+		return
+	ground_shadow.sync_from_sprite(
+		sprite,
+		TOWER_SHADOW_OFFSET,
+		TOWER_SHADOW_SCALE,
+		TOWER_SHADOW_ALPHA,
+		TOWER_SHADOW_Z_INDEX
+	)
+	contact_shadow.sync_from_sprite(
+		sprite,
+		TOWER_SHADOW_OFFSET * TOWER_CONTACT_SHADOW_OFFSET_MULT,
+		TOWER_CONTACT_SHADOW_SCALE,
+		TOWER_CONTACT_SHADOW_ALPHA,
+		TOWER_CONTACT_SHADOW_Z_INDEX
+	)
+
+func _free_tower_shadow(tower_id: Variant) -> void:
+	for store in [_tower_shadows_by_id, _tower_contact_shadows_by_id]:
+		var shadow: VisualShadow = store.get(tower_id, null) as VisualShadow
+		if shadow != null and is_instance_valid(shadow):
+			shadow.queue_free()
+		store.erase(tower_id)
+
+func _clear_tower_shadows() -> void:
+	for key in _tower_shadows_by_id.keys().duplicate():
+		_free_tower_shadow(key)
 
 func _tower_texture_for_tier(tier: int, state_key: String, owner_key: String, registry: SpriteRegistry, allow_legacy_fallback: bool = true) -> Texture2D:
 	if registry != null:

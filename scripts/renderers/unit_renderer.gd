@@ -51,6 +51,7 @@ const UNIT_TRAVEL_T_EPS: float = 0.02
 const HIVE_REAR_APPROACH_Y_MIN: float = 0.12
 const HIVE_REAR_OCCLUSION_ENTRY_PAD_PX: float = 2.0
 const HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX: float = 24.0
+const HIVE_SOURCE_OCCLUSION_EXIT_PAD_PX: float = 18.0
 const HIVE_REAR_OCCLUSION_Z_INDEX: int = -2
 const HIVE_UNIT_DEFAULT_Z_INDEX: int = 0
 const DBG_UNITS: bool = false
@@ -1781,11 +1782,26 @@ func _is_back_hive_approach(travel_dir_world: Vector2) -> bool:
 	var dir: Vector2 = travel_dir_world.normalized()
 	return dir.y > HIVE_REAR_APPROACH_Y_MIN
 
+func _unit_source_hive_id(ud: Dictionary) -> int:
+	var from_id: int = int(ud.get("from_id", ud.get("src_id", ud.get("source_id", -1))))
+	if from_id > 0:
+		return from_id
+	var sign: int = _unit_travel_sign(ud)
+	if sign >= 0:
+		return int(ud.get("a_id", -1))
+	return int(ud.get("b_id", -1))
+
 func _reset_unit_hive_occlusion_depth(node: Node2D) -> void:
 	if node == null:
 		return
 	node.z_as_relative = true
 	node.z_index = HIVE_UNIT_DEFAULT_Z_INDEX
+
+func _set_unit_hive_occlusion_depth(node: Node2D) -> void:
+	if node == null:
+		return
+	node.z_as_relative = false
+	node.z_index = HIVE_REAR_OCCLUSION_Z_INDEX
 
 func _update_target_hive_occlusion_depth(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, travel_dir_world: Vector2) -> void:
 	if node == null:
@@ -1799,20 +1815,24 @@ func _update_target_hive_occlusion_depth(node: Node2D, ud: Dictionary, hive_by_i
 		return
 	var dir: Vector2 = travel_dir_world.normalized()
 	var boundary_v: Variant = _target_hive_boundary_world(to_hive_id, hive_by_id, dir)
-	if not (boundary_v is Vector2):
-		_reset_unit_hive_occlusion_depth(node)
-		return
-	if not _is_back_hive_approach(dir):
-		_reset_unit_hive_occlusion_depth(node)
-		return
-	var boundary_world: Vector2 = boundary_v as Vector2
-	var along_to_back_shell: float = (node.global_position - boundary_world).dot(dir)
-	var has_reached_back_shell: bool = along_to_back_shell >= -HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX
-	if has_reached_back_shell:
-		node.z_as_relative = false
-		node.z_index = HIVE_REAR_OCCLUSION_Z_INDEX
-	else:
-		_reset_unit_hive_occlusion_depth(node)
+	if boundary_v is Vector2 and _is_back_hive_approach(dir):
+		var boundary_world: Vector2 = boundary_v as Vector2
+		var along_to_back_shell: float = (node.global_position - boundary_world).dot(dir)
+		var has_reached_back_shell: bool = along_to_back_shell >= -HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX
+		if has_reached_back_shell:
+			_set_unit_hive_occlusion_depth(node)
+			return
+	var source_hive_id: int = _unit_source_hive_id(ud)
+	if source_hive_id > 0 and _is_rear_hive_approach(dir):
+		var source_boundary_v: Variant = _hive_shell_contact_world(source_hive_id, hive_by_id, dir)
+		if source_boundary_v is Vector2:
+			var source_boundary_world: Vector2 = source_boundary_v as Vector2
+			var along_from_source_shell: float = (node.global_position - source_boundary_world).dot(dir)
+			var still_clearing_source_top: bool = along_from_source_shell <= HIVE_SOURCE_OCCLUSION_EXIT_PAD_PX
+			if still_clearing_source_top:
+				_set_unit_hive_occlusion_depth(node)
+				return
+	_reset_unit_hive_occlusion_depth(node)
 
 func _unit_visual_normal_from_endpoints(endpoints: Dictionary, a_pos: Vector2, b_pos: Vector2) -> Vector2:
 	var normal_any: Variant = endpoints.get("normal", Vector2.ZERO)

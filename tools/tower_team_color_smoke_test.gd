@@ -42,6 +42,14 @@ func _init() -> void:
 		var expected: Color = TeamVisualsScript.owner_color(owner_id)
 		_assert_true(_colors_close(to_color, expected), "tower owner %d should project its team color" % owner_id)
 		_assert_true(float(mat.get_shader_parameter("white_strength")) >= 0.99, "tower owner %d should colorize white tower pixels" % owner_id)
+		var shadow: Sprite2D = renderer.get_node_or_null("TowerShadow_%d" % owner_id) as Sprite2D
+		var contact_shadow: Sprite2D = renderer.get_node_or_null("TowerContactShadow_%d" % owner_id) as Sprite2D
+		_assert_true(shadow != null and shadow.visible, "tower owner %d should have a visible cast shadow" % owner_id)
+		_assert_true(contact_shadow != null and contact_shadow.visible, "tower owner %d should have a visible contact shadow" % owner_id)
+		if shadow != null:
+			_assert_true(shadow.texture == sprite.texture, "tower owner %d shadow should reuse tower texture silhouette" % owner_id)
+			_assert_true(shadow.z_index < sprite.z_index, "tower owner %d shadow should render behind tower" % owner_id)
+			_assert_true(shadow.position.x > sprite.position.x and shadow.position.y < sprite.position.y, "tower owner %d shadow should project upper right" % owner_id)
 
 	if _failed:
 		quit(1)
