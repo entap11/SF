@@ -17,6 +17,7 @@ var _meta_by_key: Dictionary = {}
 var _missing_keys: Dictionary = {}
 var _missing_keys_order: Array[String] = []
 var _tex_alpha_cache: Dictionary = {}
+var _hive_textures_prewarmed: bool = false
 
 static func get_instance() -> SpriteRegistry:
 	if _instance != null:
@@ -109,13 +110,29 @@ func get_tex(key: String) -> Texture2D:
 		_textures_by_key[key] = tex
 	return tex
 
+func prewarm_hive_textures() -> void:
+	if _hive_textures_prewarmed:
+		return
+	_hive_textures_prewarmed = true
+	_ensure_loaded()
+	var start_us: int = Time.get_ticks_usec()
+	var loaded_count: int = 0
+	for tier_key in ["small", "med", "large"]:
+		for owner_key_value in ["neutral", "p1", "p2", "p3", "p4"]:
+			var key := "hive.%s.%s" % [tier_key, owner_key_value]
+			if get_tex(key) != null:
+				loaded_count += 1
+	SFLog.info("SPRITE_REGISTRY_HIVE_PREWARM", {
+		"keys": loaded_count,
+		"alpha_cache_entries": _tex_alpha_cache.size(),
+		"ms": float(Time.get_ticks_usec() - start_us) / 1000.0
+	})
+
 func get_tex_path(key: String) -> String:
 	_ensure_loaded()
 	return str(_paths_by_key.get(key, ""))
 
 func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
-	if _tex_alpha_cache.has(key):
-		return _tex_alpha_cache[key]
 	if tex == null:
 		_tex_alpha_cache[key] = null
 		return null
@@ -123,13 +140,16 @@ func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
 	var colorkey: Dictionary = get_colorkey(key)
 	var colorkey_enabled: bool = bool(colorkey.get("enabled", false))
 	var auto_key_white: bool = _should_auto_key_white(key)
+	var cache_key: String = _alpha_cache_key(tex, key, colorkey, auto_key_white)
+	if _tex_alpha_cache.has(cache_key):
+		return _tex_alpha_cache[cache_key]
 	if not colorkey_enabled and not auto_key_white:
-		_tex_alpha_cache[key] = tex
+		_tex_alpha_cache[cache_key] = tex
 		return tex
 
 	var img: Image = tex.get_image()
 	if img == null:
-		_tex_alpha_cache[key] = tex
+		_tex_alpha_cache[cache_key] = tex
 		return tex
 
 	var fmt: int = img.get_format()
@@ -138,7 +158,7 @@ func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
 		Image.FORMAT_RGBAH
 	]
 	if has_alpha and not colorkey_enabled and not auto_key_white:
-		_tex_alpha_cache[key] = tex
+		_tex_alpha_cache[cache_key] = tex
 		return tex
 
 	img.convert(Image.FORMAT_RGBA8)
@@ -183,8 +203,33 @@ func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
 			"threshold": threshold,
 			"softness": softness
 		}, "", 0)
-	_tex_alpha_cache[key] = itex
+	_tex_alpha_cache[cache_key] = itex
 	return itex
+
+func _alpha_cache_key(tex: Texture2D, key: String, colorkey: Dictionary, auto_key_white: bool) -> String:
+	var source_key: String = str(_paths_by_key.get(key, ""))
+	if source_key.is_empty() and tex.resource_path != "":
+		source_key = tex.resource_path
+	if tex is AtlasTexture:
+		var atlas_tex := tex as AtlasTexture
+		var atlas_path := ""
+		if atlas_tex.atlas != null:
+			atlas_path = atlas_tex.atlas.resource_path
+		source_key = "%s|atlas=%s|region=%s" % [
+			source_key,
+			atlas_path,
+			str(atlas_tex.region)
+		]
+	return "%s|size=%dx%d|auto=%s|ck=%s|color=%s|threshold=%.5f|softness=%.5f" % [
+		source_key,
+		tex.get_width(),
+		tex.get_height(),
+		str(auto_key_white),
+		str(bool(colorkey.get("enabled", false))),
+		str(colorkey.get("color", Color(0.0, 0.0, 0.0, 1.0))),
+		float(colorkey.get("threshold", 0.28)),
+		float(colorkey.get("softness", 0.10))
+	]
 
 func _should_auto_key_white(key: String) -> bool:
 	if key.begins_with("unit."):
@@ -205,6 +250,8 @@ func _load_manifest(path: String) -> void:
 	_textures_by_key.clear()
 	_paths_by_key.clear()
 	_meta_by_key.clear()
+	_tex_alpha_cache.clear()
+	_hive_textures_prewarmed = false
 	_missing_keys.clear()
 	_missing_keys_order.clear()
 	if not FileAccess.file_exists(path):

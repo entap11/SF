@@ -42,6 +42,7 @@ func setup(state_ref: Object, sel_ref: Object, arena_ref: Node2D) -> void:
 	_dirty = true
 	_last_render_version = -1
 	_connect_selection_signal()
+	call_deferred("_prewarm_hive_sprite_cache")
 	queue_redraw()
 
 func set_model(m: Dictionary) -> void:
@@ -558,6 +559,12 @@ func _get_sprite_registry() -> SpriteRegistry:
 	if _sprite_registry == null:
 		_sprite_registry = SpriteRegistry.get_instance()
 	return _sprite_registry
+
+func _prewarm_hive_sprite_cache() -> void:
+	var registry := _get_sprite_registry()
+	if registry == null:
+		return
+	registry.prewarm_hive_textures()
 
 func _grid_to_world(gx: float, gy: float, cell: float) -> Vector2:
 	var cell_px := cell
