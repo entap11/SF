@@ -23,6 +23,7 @@ var _last_model_units_count: int = -1
 var _last_live_nodes_count: int = -1
 var swarm_nodes_by_id: Dictionary = {}
 var unit_nodes_by_id: Dictionary = {}
+var _unit_multimesh_batches: Dictionary = {}
 var _swarm_texture: Texture2D = null
 var _sprite_registry: SpriteRegistry = null
 var _colorkey_materials: Dictionary = {}
@@ -109,6 +110,7 @@ const PASS_THROUGH_VISUAL_WARM_PX: float = 7.0
 @export var debug_draw_units: bool = false
 @export var debug_force_top_z: bool = false
 @export var debug_force_big_radius_px: float = 10.0
+@export var use_multimesh_units: bool = true
 @export var sim_dt_sec: float = SIM_DT_SEC_DEFAULT
 @export var lane_start_cap_trim_px: float = 18.0
 @export var lane_end_cap_trim_px: float = 18.0
@@ -223,7 +225,10 @@ func _ready() -> void:
 		SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
 	if bee_clip_collision_debug_logs:
 		SFLog.allow_tag("BEE_CLIP_COLLISION_DBG")
-	_pool_build()
+	if use_multimesh_units:
+		_release_unit_pool_nodes()
+	else:
+		_pool_build()
 	_apply_debug_force_top_z()
 	_prewarm_unit_assets()
 	_try_bind_sim_events()
@@ -341,6 +346,8 @@ func _create_unit_render_node() -> Node2D:
 	return node
 
 func _pool_build() -> void:
+	if use_multimesh_units:
+		return
 	if not USE_UNIT_POOL:
 		return
 	if not _unit_pool.is_empty():
@@ -357,6 +364,33 @@ func _pool_build() -> void:
 		add_child(node)
 		_unit_pool.append(node)
 		_pooled_nodes[node] = true
+
+func _release_unit_pool_nodes() -> void:
+	for node_any in _unit_pool:
+		var node: Node = node_any as Node
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+	_unit_pool.clear()
+	for node_any in _pooled_nodes.keys():
+		var node: Node = node_any as Node
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+	_pooled_nodes.clear()
+
+func _clear_bee_clip_state(unit_id: int) -> void:
+	_bee_clip_by_unit_id.erase(unit_id)
+	_bee_clip_outline_by_unit_id.erase(unit_id)
+	_bee_clip_plane_override_by_unit_id.erase(unit_id)
+	_bee_clip_last_world_pos_by_unit_id.erase(unit_id)
+	_bee_clip_last_update_us_by_unit_id.erase(unit_id)
+	_bee_clip_travel_dir_world_by_unit_id.erase(unit_id)
+	_bee_clip_speed_px_s_by_unit_id.erase(unit_id)
+	_bee_clip_entrance_world_by_unit_id.erase(unit_id)
+	_bee_clip_visual_len_by_unit_id.erase(unit_id)
+	_bee_clip_to_hive_id_by_unit_id.erase(unit_id)
+	_bee_clip_lane_id_by_unit_id.erase(unit_id)
+	_bee_clip_collision_active_by_unit_id.erase(unit_id)
+	_bee_clip_collision_last_log_ms_by_unit_id.erase(unit_id)
 
 func _pool_acquire() -> Node2D:
 	if not USE_UNIT_POOL:
@@ -405,19 +439,7 @@ func _pool_release(node: Node2D) -> void:
 		_unit_samples_by_id.erase(unit_id)
 		_unit_style_sig_by_id.erase(unit_id)
 		_diag_visual_phase_by_id.erase(unit_id)
-		_bee_clip_by_unit_id.erase(unit_id)
-		_bee_clip_outline_by_unit_id.erase(unit_id)
-		_bee_clip_plane_override_by_unit_id.erase(unit_id)
-		_bee_clip_last_world_pos_by_unit_id.erase(unit_id)
-		_bee_clip_last_update_us_by_unit_id.erase(unit_id)
-		_bee_clip_travel_dir_world_by_unit_id.erase(unit_id)
-		_bee_clip_speed_px_s_by_unit_id.erase(unit_id)
-		_bee_clip_entrance_world_by_unit_id.erase(unit_id)
-		_bee_clip_visual_len_by_unit_id.erase(unit_id)
-		_bee_clip_to_hive_id_by_unit_id.erase(unit_id)
-		_bee_clip_lane_id_by_unit_id.erase(unit_id)
-		_bee_clip_collision_active_by_unit_id.erase(unit_id)
-		_bee_clip_collision_last_log_ms_by_unit_id.erase(unit_id)
+		_clear_bee_clip_state(unit_id)
 	node.set_meta("unit_id", -1)
 	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
 	if sprite != null:
@@ -470,6 +492,8 @@ func _pool_release(node: Node2D) -> void:
 		push_error("UnitRenderer: queue_free forbidden for unit render nodes")
 
 func prewarm_pool() -> void:
+	if use_multimesh_units:
+		return
 	_pool_build()
 	if not USE_UNIT_POOL:
 		return
@@ -548,8 +572,8 @@ func bind_units(snapshot: Array, units_version: int, sim_time_us: int) -> void:
 			"units": snapshot.size()
 		}, 250)
 	var reconcile_t0_us: int = Time.get_ticks_usec()
-	var sync_profile: Dictionary = _sync_unit_nodes(snapshot)
-	var update_profile: Dictionary = _update_unit_nodes_positions(snapshot)
+	var sync_profile: Dictionary = _sync_unit_records(snapshot) if use_multimesh_units else _sync_unit_nodes(snapshot)
+	var update_profile: Dictionary = _update_unit_records_positions(snapshot) if use_multimesh_units else _update_unit_nodes_positions(snapshot)
 	var reconcile_total_us: int = int(Time.get_ticks_usec() - reconcile_t0_us)
 	_log_reconcile_profile(snapshot, sync_profile, update_profile, reconcile_total_us, "bind_units")
 	_sync_swarm_nodes()
@@ -578,8 +602,8 @@ func set_units_snapshot(snapshot: Array, sim_time_us: int) -> void:
 			"units": snapshot.size()
 		}, 250)
 	var reconcile_t0_us: int = Time.get_ticks_usec()
-	var sync_profile: Dictionary = _sync_unit_nodes(snapshot)
-	var update_profile: Dictionary = _update_unit_nodes_positions(snapshot)
+	var sync_profile: Dictionary = _sync_unit_records(snapshot) if use_multimesh_units else _sync_unit_nodes(snapshot)
+	var update_profile: Dictionary = _update_unit_records_positions(snapshot) if use_multimesh_units else _update_unit_nodes_positions(snapshot)
 	var reconcile_total_us: int = int(Time.get_ticks_usec() - reconcile_t0_us)
 	_log_reconcile_profile(snapshot, sync_profile, update_profile, reconcile_total_us, "set_units_snapshot")
 	_sync_swarm_nodes()
@@ -1043,6 +1067,7 @@ func clear_all() -> void:
 	_bee_clip_collision_last_log_ms_by_unit_id.clear()
 	_clear_swarm_nodes()
 	_clear_unit_nodes()
+	_clear_unit_multimesh_batches()
 	_request_redraw()
 
 func set_bee_clip_plane_override(unit_id: int, entrance_point_world: Vector2, travel_dir_world: Vector2) -> void:
@@ -1250,6 +1275,94 @@ func _should_delay_prune_for_bee_clip(unit_id: int, missing_ticks: int) -> bool:
 	var cut_value_now: float = float(controller.get("cut_value"))
 	return cut_value_now < 0.995
 
+func _sync_unit_records(units: Array) -> Dictionary:
+	var profile: Dictionary = {
+		"scan_us": 0,
+		"create_us": 0,
+		"create_n": 0,
+		"stale_us": 0,
+		"prune_us": 0,
+		"prune_n": 0,
+		"group_scan_us": 0,
+		"group_scan_n": 0,
+		"total_us": 0
+	}
+	var total_t0_us: int = Time.get_ticks_usec()
+	if not unit_nodes_by_id.is_empty():
+		_clear_unit_nodes()
+	var seen_ids: Dictionary = {}
+	var scan_t0_us: int = Time.get_ticks_usec()
+	for unit_any in units:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var ud: Dictionary = unit_any as Dictionary
+		var unit_id: int = int(ud.get("id", -1))
+		if unit_id <= 0:
+			continue
+		seen_ids[unit_id] = true
+		_unit_missing_ticks.erase(unit_id)
+		_unit_data_by_id[unit_id] = ud
+	profile["scan_us"] = int(Time.get_ticks_usec() - scan_t0_us)
+	var prune_t0_us: int = Time.get_ticks_usec()
+	for existing_id_any in _unit_data_by_id.keys():
+		var existing_id: int = int(existing_id_any)
+		if seen_ids.has(existing_id):
+			continue
+		_unit_data_by_id.erase(existing_id)
+		_unit_missing_ticks.erase(existing_id)
+		_unit_visual_by_id.erase(existing_id)
+		_unit_samples_by_id.erase(existing_id)
+		_unit_style_sig_by_id.erase(existing_id)
+		_diag_visual_phase_by_id.erase(existing_id)
+		_clear_bee_clip_state(existing_id)
+		profile["prune_n"] = int(profile.get("prune_n", 0)) + 1
+	profile["prune_us"] = int(Time.get_ticks_usec() - prune_t0_us)
+	var model_count: int = units.size()
+	if model_count != _last_model_units_count or _last_live_nodes_count != 0:
+		_last_model_units_count = model_count
+		_last_live_nodes_count = 0
+		if SFLog.verbose_sim:
+			SFLog.throttled_info("UNIT_RENDER_COUNTS", {
+				"model_units": units.size(),
+				"live_nodes": 0,
+				"batch_mode": true
+			}, 500)
+	profile["total_us"] = int(Time.get_ticks_usec() - total_t0_us)
+	return profile
+
+func _update_unit_records_positions(units: Array) -> Dictionary:
+	var profile: Dictionary = {
+		"hive_lookup_us": 0,
+		"endpoint_eval_us": 0,
+		"group_scan_us": 0,
+		"group_scan_n": 0,
+		"total_us": 0
+	}
+	var total_t0_us: int = Time.get_ticks_usec()
+	if units.is_empty():
+		profile["total_us"] = int(Time.get_ticks_usec() - total_t0_us)
+		return profile
+	var hive_lookup_t0_us: int = Time.get_ticks_usec()
+	var hive_by_id: Dictionary = _build_hive_by_id()
+	profile["hive_lookup_us"] = int(Time.get_ticks_usec() - hive_lookup_t0_us)
+	var endpoint_cache: Dictionary = _cached_lane_endpoints
+	var hive_anchor_cache: Dictionary = _cached_hive_anchor_info
+	var sample_sim_us: int = int(round(float(model.get("sim_time_s", 0.0)) * 1000000.0))
+	var endpoint_t0_us: int = Time.get_ticks_usec()
+	for unit_any in units:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var ud: Dictionary = unit_any as Dictionary
+		var unit_id: int = int(ud.get("id", -1))
+		if unit_id <= 0:
+			continue
+		var owner_id: int = _unit_owner_id(ud, hive_by_id)
+		_unit_style_sig_by_id[unit_id] = _unit_style_sig(owner_id)
+		_ingest_unit_sample(ud, hive_by_id, unit_id, endpoint_cache, hive_anchor_cache, sample_sim_us)
+	profile["endpoint_eval_us"] = int(Time.get_ticks_usec() - endpoint_t0_us)
+	profile["total_us"] = int(Time.get_ticks_usec() - total_t0_us)
+	return profile
+
 func _sync_unit_nodes(units: Array) -> Dictionary:
 	var profile: Dictionary = {
 		"scan_us": 0,
@@ -1388,6 +1501,14 @@ func _clear_unit_nodes() -> void:
 	_bee_clip_lane_id_by_unit_id.clear()
 	_bee_clip_collision_active_by_unit_id.clear()
 	_bee_clip_collision_last_log_ms_by_unit_id.clear()
+
+func _clear_unit_multimesh_batches() -> void:
+	for key_any in _unit_multimesh_batches.keys():
+		var batch: Dictionary = _unit_multimesh_batches[key_any] as Dictionary
+		var node: Node = batch.get("node", null) as Node
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+	_unit_multimesh_batches.clear()
 
 func _unit_style_global_sig() -> int:
 	var draw_bit: int = 1 if debug_draw_units else 0
@@ -3237,7 +3358,240 @@ func _render_settle_projected_pose(unit_id: int, state: Dictionary, alpha: float
 		"rot": rot
 	}
 
+func _unit_batch_key(owner_id: int, layer: String, outline: bool) -> String:
+	return "%d|%s|%s" % [owner_id, layer, "outline" if outline else "fill"]
+
+func _unit_batch_z_index(layer: String, outline: bool) -> int:
+	var base_z: int = HIVE_REAR_OCCLUSION_Z_INDEX if layer == "rear" else HIVE_UNIT_DEFAULT_Z_INDEX
+	return base_z - 1 if outline else base_z
+
+func _unit_batch_texture(owner_id: int, registry: SpriteRegistry) -> Texture2D:
+	if registry == null:
+		return null
+	var sprite_key: String = "unit.%s" % SpriteRegistry.owner_key(owner_id)
+	var tex: Texture2D = registry.get_tex(sprite_key)
+	if tex == null and sprite_key != "unit.neutral":
+		tex = registry.get_tex("unit.neutral")
+	return tex
+
+func _unit_batch_scale(owner_id: int, registry: SpriteRegistry, tex: Texture2D, outline: bool) -> Vector2:
+	if tex == null:
+		return Vector2.ONE
+	var sprite_key: String = "unit.%s" % SpriteRegistry.owner_key(owner_id)
+	var sprite_scale: float = registry.get_scale(sprite_key) if registry != null else 1.0
+	if sprite_scale <= 0.0:
+		sprite_scale = 1.0
+	var tex_size: Vector2 = tex.get_size()
+	if tex_size.x <= 0.0 or tex_size.y <= 0.0:
+		return Vector2.ONE
+	var size_px: float = debug_force_big_radius_px * 2.0 * sprite_scale * UNIT_RENDER_SCALE * UNIT_VISUAL_SCALE_MULT
+	var out: Vector2 = Vector2(size_px / tex_size.x, size_px / tex_size.y)
+	if outline and UNIT_OUTLINE_ENABLED:
+		out *= UNIT_OUTLINE_SCALE_MULT
+	return out
+
+func _unit_batch_material(owner_id: int, registry: SpriteRegistry, outline: bool) -> ShaderMaterial:
+	if outline:
+		return null
+	var sprite_key: String = "unit.%s" % SpriteRegistry.owner_key(owner_id)
+	return _get_unit_material(sprite_key, owner_id, registry)
+
+func _ensure_unit_multimesh_batch(owner_id: int, layer: String, outline: bool, registry: SpriteRegistry) -> Dictionary:
+	var key: String = _unit_batch_key(owner_id, layer, outline)
+	var batch: Dictionary = {}
+	var existing_any: Variant = _unit_multimesh_batches.get(key, null)
+	if typeof(existing_any) == TYPE_DICTIONARY:
+		batch = existing_any as Dictionary
+	var node: MultiMeshInstance2D = batch.get("node", null) as MultiMeshInstance2D
+	var mm: MultiMesh = batch.get("multimesh", null) as MultiMesh
+	var created: bool = false
+	if node == null or not is_instance_valid(node) or mm == null:
+		node = MultiMeshInstance2D.new()
+		node.name = "UnitBatch_%s_%s_%s" % [SpriteRegistry.owner_key(owner_id), layer, "outline" if outline else "fill"]
+		node.z_as_relative = true
+		add_child(node)
+		mm = MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_2D
+		mm.use_colors = true
+		mm.instance_count = 0
+		node.multimesh = mm
+		batch["node"] = node
+		batch["multimesh"] = mm
+		batch["capacity"] = 0
+		batch["count"] = 0
+		created = true
+	var style_sig: int = _unit_style_sig(owner_id) * 10 + (1 if outline else 0)
+	if created or int(batch.get("style_sig", -2147483648)) != style_sig or node.texture == null:
+		var tex: Texture2D = _unit_batch_texture(owner_id, registry)
+		node.texture = tex
+		node.material = _unit_batch_material(owner_id, registry, outline)
+		node.z_index = _unit_batch_z_index(layer, outline)
+		node.visible = tex != null
+		batch["texture"] = tex
+		batch["scale"] = _unit_batch_scale(owner_id, registry, tex, outline)
+		batch["style_sig"] = style_sig
+	_unit_multimesh_batches[key] = batch
+	return batch
+
+func _ensure_unit_batch_capacity(batch: Dictionary, needed: int) -> void:
+	var mm: MultiMesh = batch.get("multimesh", null) as MultiMesh
+	if mm == null:
+		return
+	var capacity: int = int(batch.get("capacity", 0))
+	if needed <= capacity:
+		return
+	var next_capacity: int = maxi(8, capacity)
+	while next_capacity < needed:
+		next_capacity *= 2
+	mm.instance_count = next_capacity
+	mm.visible_instance_count = int(batch.get("count", 0))
+	batch["capacity"] = next_capacity
+
+func _reset_unit_multimesh_counts() -> void:
+	for key_any in _unit_multimesh_batches.keys():
+		var batch: Dictionary = _unit_multimesh_batches[key_any] as Dictionary
+		batch["count"] = 0
+		var mm: MultiMesh = batch.get("multimesh", null) as MultiMesh
+		if mm != null:
+			mm.visible_instance_count = 0
+		var node: MultiMeshInstance2D = batch.get("node", null) as MultiMeshInstance2D
+		if node != null and is_instance_valid(node):
+			node.visible = false
+
+func _finalize_unit_multimesh_counts() -> void:
+	for key_any in _unit_multimesh_batches.keys():
+		var batch: Dictionary = _unit_multimesh_batches[key_any] as Dictionary
+		var count: int = int(batch.get("count", 0))
+		var mm: MultiMesh = batch.get("multimesh", null) as MultiMesh
+		if mm != null:
+			mm.visible_instance_count = count
+		var node: MultiMeshInstance2D = batch.get("node", null) as MultiMeshInstance2D
+		if node != null and is_instance_valid(node):
+			node.visible = count > 0 and node.texture != null
+
+func _submit_unit_multimesh_instance(owner_id: int, layer: String, pos: Vector2, rot: float, outline: bool, registry: SpriteRegistry) -> void:
+	var batch: Dictionary = _ensure_unit_multimesh_batch(owner_id, layer, outline, registry)
+	var mm: MultiMesh = batch.get("multimesh", null) as MultiMesh
+	var tex: Texture2D = batch.get("texture", null) as Texture2D
+	if mm == null or tex == null:
+		return
+	var idx: int = int(batch.get("count", 0))
+	_ensure_unit_batch_capacity(batch, idx + 1)
+	var scale: Vector2 = batch.get("scale", Vector2.ONE)
+	var tr: Transform2D = Transform2D(rot, pos)
+	tr.x *= scale.x
+	tr.y *= scale.y
+	mm.set_instance_transform_2d(idx, tr)
+	var color: Color = UNIT_OUTLINE_COLOR if outline else _unit_modulate_color(owner_id)
+	color.a = UNIT_OUTLINE_COLOR.a if outline else UNIT_COLOR.a
+	mm.set_instance_color(idx, color)
+	batch["count"] = idx + 1
+
+func _unit_batch_layer(ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> String:
+	if ud.is_empty():
+		return "main"
+	var travel_dir_world: Vector2 = _to_world_dir(dir_local)
+	if travel_dir_world.length_squared() <= 0.000001 or not _is_back_hive_approach(travel_dir_world):
+		return "main"
+	var to_hive_id: int = int(ud.get("to_id", -1))
+	if to_hive_id <= 0:
+		return "main"
+	var boundary_v: Variant = _target_hive_boundary_world(to_hive_id, hive_by_id, travel_dir_world.normalized())
+	if not (boundary_v is Vector2):
+		return "main"
+	var boundary_world: Vector2 = boundary_v as Vector2
+	var render_world: Vector2 = _to_world_pos(render_pos)
+	var along_to_back_shell: float = (render_world - boundary_world).dot(travel_dir_world.normalized())
+	return "rear" if along_to_back_shell >= -HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX else "main"
+
+func _render_pose_for_unit(unit_id: int, unit_data: Dictionary, state: Dictionary, hive_by_id: Dictionary, sim_time_s: float, now_us: int, settle_active: bool) -> Dictionary:
+	if bool(state.get("just_spawned", false)):
+		var spawn_pos: Vector2 = state.get("curr_pos", Vector2.ZERO)
+		if not unit_data.is_empty():
+			spawn_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
+		var spawn_rot: float = float(state.get("curr_rot", 0.0))
+		var spawn_dir: Vector2 = state.get("dir", Vector2.RIGHT)
+		state["render_pos"] = spawn_pos
+		state["just_spawned"] = false
+		state["warm_spawned"] = false
+		_unit_visual_by_id[unit_id] = state
+		return {"ok": true, "pos": spawn_pos, "rot": spawn_rot, "dir": spawn_dir}
+	var alpha: float = _render_alpha_for_state(state, now_us, settle_active)
+	if settle_active and alpha > 1.0:
+		var settle_pose: Dictionary = _render_settle_projected_pose(unit_id, state, alpha)
+		if bool(settle_pose.get("ok", false)):
+			var settle_pos_v: Variant = settle_pose.get("pos", Vector2.ZERO)
+			var settle_pos: Vector2 = settle_pos_v as Vector2 if settle_pos_v is Vector2 else Vector2.ZERO
+			if not unit_data.is_empty():
+				settle_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
+			var settle_rot: float = float(settle_pose.get("rot", float(state.get("curr_rot", 0.0))))
+			var settle_dir: Vector2 = state.get("dir", Vector2.RIGHT)
+			state["render_pos"] = settle_pos
+			state["warm_spawned"] = false
+			_unit_visual_by_id[unit_id] = state
+			return {"ok": true, "pos": settle_pos, "rot": settle_rot, "dir": settle_dir}
+	if alpha > 1.0:
+		if not settle_active:
+			var curr_t: float = float(state.get("curr_t", 0.5))
+			if curr_t <= 0.05 or curr_t >= 0.95:
+				alpha = 1.0
+	var prev_pos: Vector2 = state.get("prev_pos", Vector2.ZERO)
+	var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
+	var render_pos: Vector2 = prev_pos.lerp(curr_pos, alpha)
+	if not unit_data.is_empty():
+		render_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
+	var prev_rot: float = float(state.get("prev_rot", 0.0))
+	var curr_rot: float = float(state.get("curr_rot", prev_rot))
+	var render_rot: float = lerp_angle(prev_rot, curr_rot, alpha)
+	var prev_dir: Vector2 = state.get("dir", Vector2.RIGHT)
+	state["render_pos"] = render_pos
+	state["warm_spawned"] = false
+	_unit_visual_by_id[unit_id] = state
+	return {"ok": true, "pos": render_pos, "rot": render_rot, "dir": prev_dir}
+
+func _render_units_batched(now_us: int) -> void:
+	_reset_unit_multimesh_counts()
+	if _unit_visual_by_id.is_empty():
+		_finalize_unit_multimesh_counts()
+		return
+	var registry: SpriteRegistry = _get_sprite_registry()
+	if registry == null:
+		_finalize_unit_multimesh_counts()
+		return
+	var settle_active: bool = _post_match_settle_is_active(now_us)
+	var hive_by_id: Dictionary = _build_hive_by_id()
+	var sim_time_s: float = float(model.get("sim_time_s", 0.0))
+	var ids: Array = _unit_visual_by_id.keys()
+	if AUDIT_RENDER:
+		_audit_draw_ops += ids.size()
+	for id_any in ids:
+		var unit_id: int = int(id_any)
+		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+		if typeof(state_any) != TYPE_DICTIONARY:
+			continue
+		var state: Dictionary = state_any as Dictionary
+		var unit_any: Variant = _unit_data_by_id.get(unit_id, null)
+		var unit_data: Dictionary = {}
+		if typeof(unit_any) == TYPE_DICTIONARY:
+			unit_data = unit_any as Dictionary
+		var pose: Dictionary = _render_pose_for_unit(unit_id, unit_data, state, hive_by_id, sim_time_s, now_us, settle_active)
+		if not bool(pose.get("ok", false)):
+			continue
+		var pos: Vector2 = pose.get("pos", Vector2.ZERO)
+		var rot: float = float(pose.get("rot", 0.0))
+		var dir_local: Vector2 = pose.get("dir", Vector2.RIGHT)
+		var owner_id: int = _unit_owner_id(unit_data, hive_by_id)
+		var layer: String = _unit_batch_layer(unit_data, hive_by_id, pos, dir_local)
+		if UNIT_OUTLINE_ENABLED and not debug_draw_units:
+			_submit_unit_multimesh_instance(owner_id, layer, pos, rot, true, registry)
+		if not debug_draw_units:
+			_submit_unit_multimesh_instance(owner_id, layer, pos, rot, false, registry)
+	_finalize_unit_multimesh_counts()
+
 func _render_units(now_us: int) -> void:
+	if use_multimesh_units:
+		_render_units_batched(now_us)
+		return
 	if _unit_visual_by_id.is_empty():
 		return
 	var settle_active: bool = _post_match_settle_is_active(now_us)
