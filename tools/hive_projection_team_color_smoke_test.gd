@@ -2,6 +2,7 @@ extends SceneTree
 
 const HiveVisualScript := preload("res://scripts/hive/hive_visual.gd")
 const SpriteRegistryScript := preload("res://scripts/renderers/sprite_registry.gd")
+const TeamVisualsScript := preload("res://scripts/renderers/team_visuals.gd")
 
 var _failed: bool = false
 
@@ -9,7 +10,7 @@ func _init() -> void:
 	await process_frame
 
 	var owner_id: int = 2
-	var visual: Node2D = await _configured_visual(owner_id, 12, 0, 3)
+	var visual: Node2D = await _configured_visual(owner_id, 12, 0, 2)
 
 	var projection_sprite: Sprite2D = visual.get_node_or_null("PowerProjection/ProjectionSprite") as Sprite2D
 	_assert_true(projection_sprite != null, "projection sprite should exist")
@@ -17,6 +18,12 @@ func _init() -> void:
 	_assert_true(not projection_sprite.visible, "medium flat-top hive should not show old projection sprite")
 	var medium_sprite: Sprite2D = visual.get_node_or_null("BaseSpriteLayer/BaseSprite") as Sprite2D
 	_assert_true(medium_sprite != null and medium_sprite.texture != null, "medium flat-top hive texture should load")
+	_assert_true(medium_sprite.material is ShaderMaterial, "medium owned flat-top hive should use team glow shader")
+	if medium_sprite.material is ShaderMaterial:
+		var medium_mat: ShaderMaterial = medium_sprite.material as ShaderMaterial
+		var white_strength_v: Variant = medium_mat.get_shader_parameter("white_strength")
+		var white_strength: float = white_strength_v if typeof(white_strength_v) == TYPE_FLOAT or typeof(white_strength_v) == TYPE_INT else 0.0
+		_assert_true(white_strength > 0.9, "medium team shader should colorize white flat-top pixels")
 	_assert_true(str(visual.get("_sprite_key")) == "hive.med.p2", "power 12 should resolve to medium hive sprite")
 	_assert_true(_registry_path_matches("hive.med.p2", "res://assets/sprites/sf_skin_v1/hive_medium_flatop.png"), "medium hive should use flat-top asset")
 	_assert_true(SpriteRegistryScript.hive_sprite_key(2, "Hive", 12) == "hive.med.p2", "renderer fallback should use medium tier for player medium")
@@ -26,13 +33,23 @@ func _init() -> void:
 	_assert_true(_is_black(pip_fill.color), "available P2 pip should be black")
 	_assert_true(pip_fill.color.a > 0.5, "available P2 pip should be visible")
 
-	var small_visual: Node2D = await _configured_visual(1, 5, 0, 3)
+	var small_visual: Node2D = await _configured_visual(1, 5, 0, 1)
 	var small_sprite: Sprite2D = small_visual.get_node_or_null("BaseSpriteLayer/BaseSprite") as Sprite2D
 	_assert_true(small_sprite != null and small_sprite.texture != null, "small flat-top hive texture should load")
+	_assert_true(small_sprite.material is ShaderMaterial, "small owned flat-top hive should use team glow shader")
 	_assert_true(str(small_visual.get("_sprite_key")) == "hive.small.p1", "power 5 should resolve to small hive sprite")
 	_assert_true(_registry_path_matches("hive.small.p1", "res://assets/sprites/sf_skin_v1/hive_small_flatop.png"), "small hive should use flat-top asset")
 	var small_projection: Sprite2D = small_visual.get_node_or_null("PowerProjection/ProjectionSprite") as Sprite2D
 	_assert_true(small_projection != null and not small_projection.visible, "small flat-top hive should not show old projection sprite")
+	var small_pip_fill: Polygon2D = small_visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_0") as Polygon2D
+	_assert_true(small_pip_fill != null, "small lane budget pip should exist")
+	_assert_true(small_pip_fill.position.x > 8.0, "small flat-top pip should clear the power number")
+	_assert_true(small_pip_fill.visible and small_pip_fill.color.a > 0.5, "small lane budget pip should be visible")
+
+	var medium_second_pip: Polygon2D = visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_1") as Polygon2D
+	_assert_true(medium_second_pip != null, "medium second lane budget pip should exist")
+	_assert_true(absf(medium_second_pip.position.x - pip_fill.position.x) >= 24.0, "medium flat-top pips should clear the power number")
+	_assert_true(pip_fill.visible and medium_second_pip.visible, "medium lane budget pips should be visible")
 
 	var spent_visual: Node2D = await _configured_visual(owner_id, 50, 3, 3)
 	var large_sprite: Sprite2D = spent_visual.get_node_or_null("BaseSpriteLayer/BaseSprite") as Sprite2D
@@ -78,7 +95,7 @@ func _configured_visual(owner_id: int, power: int, lane_budget_used: int, lane_b
 	visual.call(
 		"configure",
 		owner_id,
-		HiveVisualScript._team_color_for_player(owner_id),
+		TeamVisualsScript.owner_color(owner_id),
 		24.0,
 		power,
 		14,

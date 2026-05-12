@@ -7,8 +7,7 @@ class_name TowerRenderer
 extends Node2D
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
-const BarracksRenderer := preload("res://scripts/renderers/barracks_renderer.gd")
-const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const TOWER_TEX_SMALL: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_small.tres")
 const TOWER_TEX_MEDIUM: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_medium.tres")
@@ -23,6 +22,7 @@ const TOWER_SPRITE_Z_INDEX: int = 2
 const LOG_INTERVAL_MS: int = 1000
 const TOWER_LIGHT_SWAP_SHADER_PATH: String = "res://assets/shaders/sf_color_swap.gdshader"
 const TOWER_LIGHT_FROM_COLOR: Color = Color(1.0, 0.8235, 0.0, 1.0)
+const TOWER_LIGHT_WHITE_STRENGTH: float = 1.0
 const TOWER_SIZE_MULT_T1: float = 1.0
 const TOWER_SIZE_MULT_T2: float = 1.14
 const TOWER_SIZE_MULT_T3_PLUS: float = 1.30
@@ -71,7 +71,7 @@ func _draw() -> void:
 		var sprite: Sprite2D = _tower_sprites_by_id.get(tower_id, null)
 		var has_tex: bool = sprite != null and sprite.visible and sprite.texture != null
 		if not has_tex:
-			var color: Color = HiveRenderer._owner_color(owner_id)
+			var color: Color = _owner_color(owner_id)
 			color.a = 0.9
 			var fallback_h: float = TOWER_SPIKE_PX * TOWER_VISUAL_SCALE * TOWER_PITCH_SCALE_Y
 			var tip: Vector2 = pos + Vector2(0.0, -fallback_h)
@@ -299,9 +299,9 @@ func _apply_tower_owner_visual(tower_id: int, owner_id: int) -> void:
 		mat = ShaderMaterial.new()
 		mat.shader = shader
 		mat.set_shader_parameter("from_color", TOWER_LIGHT_FROM_COLOR)
+		TeamVisuals.apply_white_projection_params(mat, TOWER_LIGHT_WHITE_STRENGTH)
 		sprite.material = mat
-	var to_col: Color = BarracksRenderer.NPC_ACCENT_COLOR
-	to_col = _tower_light_color(owner_id)
+	var to_col: Color = _tower_light_color(owner_id)
 	mat.set_shader_parameter("to_color", to_col)
 	SFLog.info("TOWER_LIGHTS_COLOR", {"tower_id": tower_id, "owner_id": owner_id})
 
@@ -318,16 +318,19 @@ func _on_structure_owner_changed(
 
 func _tower_light_color(owner_id: int) -> Color:
 	if owner_id <= 0:
-		return BarracksRenderer.NPC_ACCENT_COLOR
+		return TeamVisuals.STRUCTURE_NPC_ACCENT_COLOR
 	if owner_id >= 1 and owner_id <= 4:
-		return HiveRenderer._owner_color(owner_id)
+		return TeamVisuals.owner_color(owner_id)
 	SFLog.log_once(
 		"UNKNOWN_OWNER_ID:%d" % owner_id,
 		"UNKNOWN_OWNER_ID",
 		SFLog.Level.WARN,
 		{"owner_id": owner_id}
 	)
-	return BarracksRenderer.NPC_ACCENT_COLOR
+	return TeamVisuals.STRUCTURE_NPC_ACCENT_COLOR
+
+func _owner_color(owner_id: int) -> Color:
+	return TeamVisuals.structure_accent_color(owner_id)
 
 func _bind_structure_control_system() -> void:
 	if _structure_control_system != null and is_instance_valid(_structure_control_system):

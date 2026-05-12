@@ -11,13 +11,26 @@ uniform float b_soft = 0.10;
 uniform float detail_preserve = 0.86;
 uniform float colorize_strength = 0.78;
 uniform float additive_glow = 0.22;
+uniform float white_sat_max = 0.32;
+uniform float white_val_min = 0.56;
+uniform float white_strength = 0.95;
 uniform float pulse_strength = 0.0;
 uniform float pulse_speed = 2.4;
 uniform float pulse_phase = 0.0;
 uniform float global_alpha = 1.0;
 
+vec3 rgb2hsv(vec3 c) {
+	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+	vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+	vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+	float d = q.x - min(q.w, q.y);
+	float e = 1e-10;
+	return vec3(abs(q.z + (q.w - q.y) / ((6.0 * d) + e)), d / (q.x + e), q.x);
+}
+
 void fragment() {
 	vec4 tex = texture(TEXTURE, UV);
+	vec3 hsv = rgb2hsv(tex.rgb);
 
 	// Basic luminance/brightness
 	float lum = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
@@ -27,7 +40,11 @@ void fragment() {
 	float y1 = smoothstep(r_min, r_max, tex.r);
 	float y2 = smoothstep(g_min, g_max, tex.g);
 	float nb = 1.0 - smoothstep(b_soft, b_max, tex.b);
-	float mask = y1 * y2 * nb;
+	float yellow_mask = y1 * y2 * nb;
+	float white_sat_gate = 1.0 - smoothstep(white_sat_max - 0.08, white_sat_max + 0.08, hsv.y);
+	float white_val_gate = smoothstep(white_val_min - 0.08, white_val_min + 0.08, hsv.z);
+	float white_mask = white_sat_gate * white_val_gate * white_strength;
+	float mask = clamp(max(yellow_mask, white_mask), 0.0, 1.0);
 
 	// Neutralize the source yellow first, then tint it so red does not collapse to orange.
 	float energy = mix(lum, bright, 0.72);

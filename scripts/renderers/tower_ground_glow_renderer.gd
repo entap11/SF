@@ -4,7 +4,7 @@ class_name TowerGroundGlowRenderer
 extends Node2D
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
-const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const StructureControlIndicator := preload("res://scripts/renderers/structure_control_indicator.gd")
 const NPC_CIRCUIT_COLOR: Color = Color(0.55, 0.50, 0.70, 1.0)
 const CIRCUIT_SURFACE_COLOR: Color = Color(0.84, 0.90, 1.0, 1.0)
@@ -107,7 +107,7 @@ func _draw() -> void:
 func _owner_color(owner_id: int) -> Color:
 	if owner_id <= 0:
 		return NPC_CIRCUIT_COLOR
-	return HiveRenderer._owner_color(owner_id)
+	return TeamVisuals.owner_color(owner_id)
 
 func _trim_segment(a: Vector2, b: Vector2, shorten: float) -> Dictionary:
 	var dir: Vector2 = b - a

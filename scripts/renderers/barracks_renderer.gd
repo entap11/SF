@@ -6,7 +6,7 @@ class_name BarracksRenderer
 extends Node2D
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
-const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const BARRACKS_ACCENT_SHADER := preload("res://assets/shaders/barracks_accent_recolor.gdshader")
 
@@ -92,7 +92,7 @@ func _draw() -> void:
 			selected_pos = pos
 			selected_found = true
 			ring_owner_id = owner_id
-		var color: Color = HiveRenderer._owner_color(owner_id)
+		var color: Color = TeamVisuals.owner_color(owner_id)
 		color.a = 0.9
 		if DRAW_CONTROL_LINKS:
 			_draw_control_links(pos, bd, color, hives_by_id)
@@ -133,7 +133,7 @@ func _draw() -> void:
 				var ring_rect := Rect2(pos - ring_size * 0.5, ring_size)
 				draw_texture_rect(_selector_tex, ring_rect, false)
 			else:
-				var ring_color: Color = HiveRenderer._owner_color(owner_id)
+				var ring_color: Color = TeamVisuals.owner_color(owner_id)
 				ring_color.a = 0.9
 				draw_arc(pos, draw_size_px * 0.9 + 4.0, 0.0, TAU, 32, ring_color, 2.0)
 	var targets_v: Variant = model.get("barracks_select_targets", [])
@@ -142,7 +142,7 @@ func _draw() -> void:
 	var targets: Array = targets_v as Array
 	if targets.is_empty():
 		return
-	var ring_color: Color = HiveRenderer._owner_color(ring_owner_id)
+	var ring_color: Color = TeamVisuals.owner_color(ring_owner_id)
 	ring_color.a = 0.85
 	var font: Font = ThemeDB.fallback_font
 	var idx := 1
@@ -288,7 +288,7 @@ func _barracks_accent_color(owner_id: int) -> Color:
 	if owner_id <= 0:
 		return NPC_ACCENT_COLOR
 	if owner_id >= 1 and owner_id <= 4:
-		return HiveRenderer._owner_color(owner_id)
+		return TeamVisuals.owner_color(owner_id)
 	SFLog.log_once(
 		"UNKNOWN_OWNER_ID:%d" % owner_id,
 		"UNKNOWN_OWNER_ID",
@@ -300,7 +300,7 @@ func _barracks_accent_color(owner_id: int) -> Color:
 func _circuit_link_color(owner_id: int, alpha_value: float) -> Color:
 	var color: Color = NPC_ACCENT_COLOR
 	if owner_id > 0:
-		color = HiveRenderer._owner_color(owner_id)
+		color = TeamVisuals.owner_color(owner_id)
 	color.a = alpha_value
 	return color
 

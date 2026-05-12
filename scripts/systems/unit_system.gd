@@ -17,6 +17,14 @@ const BASE_MS := SimTuning.BASE_SPAWN_MS
 const PER_POWER_MS := SimTuning.PER_POWER_MS
 const MIN_MS := SimTuning.MIN_SPAWN_MS
 const MAX_SPAWNS_PER_TICK := 5
+const ENABLE_MAX_SPAWNS_PER_TICK := false
+const ENABLE_LANE_HARD_CAP := false
+const ENABLE_LANE_ESTABLISH_SPAWN_GATE := false
+const ENABLE_SPAWN_SOURCE_FILTER := false
+const ENABLE_PASS_THROUGH_RATE_THROTTLE := false
+const ENABLE_PASS_THROUGH_PIPELINE_CAP := false
+const ENABLE_PASS_THROUGH_POWER_GATE := true
+const ENABLE_PASS_THROUGH_EMIT_RATE_CAP := false
 const UNIT_RADIUS_PX := 24.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
@@ -195,9 +203,9 @@ func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive:
 	var interval_ms := _spawn_interval_ms_for_power(int(from_hive.power))
 	var lane_cap := _lane_hard_cap_units(_lane_length(lane))
 	var spawned := 0
-	while accum >= interval_ms and spawned < MAX_SPAWNS_PER_TICK:
+	while accum >= interval_ms and (not ENABLE_MAX_SPAWNS_PER_TICK or spawned < MAX_SPAWNS_PER_TICK):
 		var pressure := _lane_side_pressure(lane, from_is_a)
-		if pressure >= float(lane_cap):
+		if ENABLE_LANE_HARD_CAP and pressure >= float(lane_cap):
 			accum = minf(accum, interval_ms)
 			_log_lane_cap_blocked(
 				lane_id,
@@ -718,12 +726,12 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		var before_power_same_owner: int = int(hive.power)
 		var raw_after: int = before_power_same_owner + amount
 		hive.power = min(SimTuning.MAX_POWER, raw_after)
-		if before_power_same_owner >= SimTuning.MAX_POWER:
-			_pass_through_arrival(hive, pass_owner, amount)
+		if not ENABLE_PASS_THROUGH_POWER_GATE:
+			if arrive_source != "recall":
+				_pass_through_arrival(hive, pass_owner, amount)
 		else:
-			var overflow: int = maxi(0, raw_after - SimTuning.MAX_POWER)
-			if overflow > 0:
-				_pass_through_arrival(hive, pass_owner, overflow)
+			if before_power_same_owner >= SimTuning.MAX_POWER and arrive_source != "recall":
+				_pass_through_arrival(hive, pass_owner, amount)
 	else:
 		var applied_damage: int = mini(maxi(0, before_power), maxi(0, amount))
 		hive.power -= amount
@@ -886,21 +894,23 @@ func _drain_pass_through_queues(dt: float) -> void:
 			_pass_through_emit_accum_ms_by_key.erase(key)
 			_pass_through_last_log_ms_by_key.erase(key)
 			continue
-		if int(hive.power) < int(SimTuning.MAX_POWER):
+		if ENABLE_PASS_THROUGH_POWER_GATE and int(hive.power) < int(SimTuning.MAX_POWER):
 			continue
 		var targets: Array = _pass_through_targets(hive)
 		if targets.is_empty():
 			continue
 		var emit_rate: float = _pass_through_emit_rate_units_per_sec(hive)
 		var emit_accum_ms: float = float(_pass_through_emit_accum_ms_by_key.get(key, 0.0))
-		emit_accum_ms += dt_ms
-		var releasable_by_rate: int = int(floor((emit_accum_ms / 1000.0) * emit_rate))
+		var releasable_by_rate: int = queued
+		if ENABLE_PASS_THROUGH_EMIT_RATE_CAP:
+			emit_accum_ms += dt_ms
+			releasable_by_rate = int(floor((emit_accum_ms / 1000.0) * emit_rate))
 		if releasable_by_rate <= 0:
 			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
 			continue
 		var inflight_now: int = int(inflight_by_key.get(key, 0))
 		var pipeline_cap: int = _pass_through_pipeline_cap_units(hive, emit_rate)
-		var pipeline_room: int = maxi(0, pipeline_cap - inflight_now)
+		var pipeline_room: int = maxi(0, pipeline_cap - inflight_now) if ENABLE_PASS_THROUGH_PIPELINE_CAP else queued
 		var release_count: int = mini(mini(queued, releasable_by_rate), pipeline_room)
 		if release_count <= 0:
 			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
@@ -923,7 +933,10 @@ func _drain_pass_through_queues(dt: float) -> void:
 			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
 			continue
 		queued -= released
-		emit_accum_ms = maxf(0.0, emit_accum_ms - (float(released) * (1000.0 / emit_rate)))
+		if ENABLE_PASS_THROUGH_EMIT_RATE_CAP and emit_rate > 0.0:
+			emit_accum_ms = maxf(0.0, emit_accum_ms - (float(released) * (1000.0 / emit_rate)))
+		else:
+			emit_accum_ms = 0.0
 		_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
 		if queued > 0:
 			_pass_through_queue_by_key[key] = queued
@@ -949,6 +962,8 @@ func _pass_through_emit_rate_units_per_sec(hive: HiveData) -> float:
 	return maxf(0.0, single_rate * _pass_through_emit_rate_multiplier())
 
 func _pass_through_emit_rate_multiplier() -> float:
+	if not ENABLE_PASS_THROUGH_RATE_THROTTLE:
+		return 1.0
 	var visible_units: int = _visible_unit_count()
 	if visible_units <= PASS_THROUGH_VISIBLE_UNITS_SOFT_CAP:
 		return 1.0
@@ -1394,7 +1409,7 @@ func spawn_unit(unit: Dictionary) -> void:
 	if state == null:
 		return
 	var lane_id := int(unit.get("lane_id", -1))
-	if lane_id > 0:
+	if lane_id > 0 and ENABLE_LANE_ESTABLISH_SPAWN_GATE:
 		var established := false
 		var build_t := 0.0
 		var lane_any = state.find_lane_by_id(lane_id)
@@ -1677,6 +1692,8 @@ func _lane_side_pressure(lane: LaneData, from_is_a: bool) -> float:
 func _lane_established(lane: LaneData, from_is_a: bool, lane_len: float) -> bool:
 	if lane_len <= 0.0:
 		return false
+	if not ENABLE_LANE_ESTABLISH_SPAWN_GATE:
+		return true
 	if from_is_a:
 		if bool(lane.establish_a) and float(lane.build_t) < 0.999:
 			return false
@@ -1757,6 +1774,8 @@ func _spawn_ids() -> Dictionary:
 	return ids
 
 func _spawn_allowed(spawn_ids: Dictionary, hive_id: int) -> bool:
+	if not ENABLE_SPAWN_SOURCE_FILTER:
+		return true
 	if spawn_ids.is_empty():
 		return true
 	return spawn_ids.has(hive_id)

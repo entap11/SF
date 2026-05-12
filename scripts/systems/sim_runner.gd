@@ -81,11 +81,11 @@ func _ready() -> void:
 	SFLog.allow_tag("WIN_FALLBACK_LIVE_NO_PLAYER_HIVES")
 	SFLog.allow_tag("WIN_FALLBACK_DIRECT_SINGLE_ALIVE")
 	SFLog.allow_tag("WIN_FALLBACK_DIRECT_NO_PLAYER_HIVES")
-	SFLog.allow_tag("WIN_TICK_SNAPSHOT")
 	SFLog.allow_tag("WIN_DECLARED")
 	SFLog.allow_tag("MATCH_ENDED_EMIT")
 	SFLog.allow_tag("BOT_INTENT")
 	if debug_sim_tick_log:
+		SFLog.allow_tag("WIN_TICK_SNAPSHOT")
 		SFLog.allow_tag("SIM_TICK")
 		SFLog.allow_tag("SIM_TICK_COST")
 		SFLog.allow_tag("SIM_TICK_PHASE")
@@ -1041,6 +1041,8 @@ func _empty_team_owned_counts() -> Dictionary:
 	return owned_by_team
 
 func _log_win_tick_snapshot(now_ms: int, live_snapshot: Dictionary, direct_snapshot: Dictionary) -> void:
+	if not debug_sim_tick_log:
+		return
 	const WIN_TICK_LOG_INTERVAL_MS := 750
 	var live_owned: Dictionary = Dictionary(live_snapshot.get("owned_by_team", {}))
 	var direct_owned: Dictionary = Dictionary(direct_snapshot.get("owned_by_team", {}))

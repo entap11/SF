@@ -6,7 +6,7 @@ signal hive_hovered(hive_id: int, global_pos: Vector2)
 signal hive_unhovered(hive_id: int)
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
-const HiveVisual := preload("res://scripts/hive/hive_visual.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const SELECTOR_PULSE_SHADER := preload("res://shaders/selector_pulse.gdshader")
 const SELECTOR_SMALL_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_small.tres"
 const SELECTOR_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_medium.tres"
@@ -262,7 +262,7 @@ func set_capture_flag_marker(visible: bool, flag_owner_id: int = 0, hidden: bool
 		badge.scale = Vector2.ONE
 		_update_fallback_process()
 		return
-	var accent: Color = HiveVisual._team_color_for_player(flag_owner_id) if flag_owner_id > 0 else Color(1.0, 0.92, 0.35, 1.0)
+	var accent: Color = TeamVisuals.owner_color(flag_owner_id) if flag_owner_id > 0 else Color(1.0, 0.92, 0.35, 1.0)
 	_style_flag_badge(accent)
 	if _flag_badge_label != null:
 		_flag_badge_label.text = "FLAG"

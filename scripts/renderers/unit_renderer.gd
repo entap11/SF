@@ -8,6 +8,7 @@ const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const TEAM_GLOW_RECOLOR_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const BeeClipControllerScript := preload("res://scripts/vfx/bee_clip_controller.gd")
@@ -52,7 +53,6 @@ const HIVE_BACK_SHELL_OCCLUSION_ENTRY_PAD_PX: float = 24.0
 const HIVE_REAR_OCCLUSION_Z_INDEX: int = -2
 const HIVE_UNIT_DEFAULT_Z_INDEX: int = 0
 const DBG_UNITS: bool = false
-const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 const UNIT_COLOR := Color(1.0, 1.0, 1.0, 1.0)
 const DEBUG_HIVE1_CROSS := false
@@ -207,25 +207,30 @@ var _bee_clip_collision_last_log_ms_by_unit_id: Dictionary = {}
 var _sim_events: Node = null
 
 func _ready() -> void:
-	SFLog.allow_tag("RENDER_AUDIT_UNITS")
-	SFLog.allow_tag("RENDER_AUDIT_UNITS_TOP_MAT_KEYS")
-	SFLog.allow_tag("RENDER_AUDIT_UNITS_REBUILDS")
-	SFLog.allow_tag("UNIT_RENDER_REBUILD")
-	SFLog.allow_tag("UNIT_BASELINE_AUDIT")
-	SFLog.allow_tag("UNIT_DEATH_FRAME_MS")
-	SFLog.allow_tag("UNIT_RECONCILE_SLOW")
-	SFLog.allow_tag("UNIT_HIVE_LOOKUP_BUILD_MS")
-	SFLog.allow_tag("UNIT_EDGE_BIND")
-	SFLog.allow_tag("UNIT_ENDPOINT_SPIKE")
-	SFLog.allow_tag("UNIT_ENDPOINT_CACHE_INVALIDATE")
-	SFLog.allow_tag("UNIT_ENDPOINT_PERF_SUMMARY")
-	SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
-	SFLog.allow_tag("BEE_CLIP_COLLISION_DBG")
+	if _unit_profile_logs_enabled():
+		SFLog.allow_tag("RENDER_AUDIT_UNITS")
+		SFLog.allow_tag("RENDER_AUDIT_UNITS_TOP_MAT_KEYS")
+		SFLog.allow_tag("RENDER_AUDIT_UNITS_REBUILDS")
+		SFLog.allow_tag("UNIT_RENDER_REBUILD")
+		SFLog.allow_tag("UNIT_BASELINE_AUDIT")
+		SFLog.allow_tag("UNIT_DEATH_FRAME_MS")
+		SFLog.allow_tag("UNIT_RECONCILE_SLOW")
+		SFLog.allow_tag("UNIT_HIVE_LOOKUP_BUILD_MS")
+		SFLog.allow_tag("UNIT_EDGE_BIND")
+		SFLog.allow_tag("UNIT_ENDPOINT_SPIKE")
+		SFLog.allow_tag("UNIT_ENDPOINT_CACHE_INVALIDATE")
+		SFLog.allow_tag("UNIT_ENDPOINT_PERF_SUMMARY")
+		SFLog.allow_tag("HIVE_NODES_SET_SKIPPED")
+	if bee_clip_collision_debug_logs:
+		SFLog.allow_tag("BEE_CLIP_COLLISION_DBG")
 	_pool_build()
 	_apply_debug_force_top_z()
 	_prewarm_unit_assets()
 	_try_bind_sim_events()
 	_request_redraw()
+
+func _unit_profile_logs_enabled() -> bool:
+	return debug_unit_logs or AUDIT_RENDER
 
 func _try_bind_sim_events() -> void:
 	if _sim_events == null or not is_instance_valid(_sim_events):
@@ -296,10 +301,11 @@ func _invalidate_endpoint_caches(reason: String = "unspecified") -> void:
 	_cached_hive_anchor_info.clear()
 	_cached_lane_endpoints.clear()
 	_lane_endpoint_prewarm_sig = -1
-	SFLog.info("UNIT_ENDPOINT_CACHE_INVALIDATE", {
-		"reason": reason,
-		"caller": _endpoint_invalidate_caller_hint()
-	})
+	if _unit_profile_logs_enabled():
+		SFLog.info("UNIT_ENDPOINT_CACHE_INVALIDATE", {
+			"reason": reason,
+			"caller": _endpoint_invalidate_caller_hint()
+		})
 
 func _now_sec() -> float:
 	return float(Time.get_ticks_usec()) / 1000000.0
@@ -737,6 +743,8 @@ func _prewarm_active_lane_endpoints() -> void:
 	_lane_endpoint_prewarm_sig = sig
 
 func _endpoint_perf_maybe_flush(now_ms: int) -> void:
+	if not _unit_profile_logs_enabled():
+		return
 	if _endpoint_perf_window_start_ms <= 0:
 		_endpoint_perf_window_start_ms = now_ms
 		return
@@ -760,6 +768,8 @@ func _endpoint_perf_maybe_flush(now_ms: int) -> void:
 	_endpoint_perf_spike_count = 0
 
 func _endpoint_perf_record(eval_ms: float, cache_hit: bool, spike: bool) -> void:
+	if not _unit_profile_logs_enabled():
+		return
 	var now_ms: int = Time.get_ticks_msec()
 	if _endpoint_perf_window_start_ms <= 0:
 		_endpoint_perf_window_start_ms = now_ms
@@ -773,6 +783,8 @@ func _endpoint_perf_record(eval_ms: float, cache_hit: bool, spike: bool) -> void
 	_endpoint_perf_maybe_flush(now_ms)
 
 func _maybe_log_endpoint_spike(trace: Dictionary, endpoint_eval_ms: float, total_ms: float) -> void:
+	if not _unit_profile_logs_enabled():
+		return
 	var now_ms: int = Time.get_ticks_msec()
 	if _endpoint_spike_last_ms > 0 and now_ms - _endpoint_spike_last_ms < UNIT_ENDPOINT_SPIKE_LOG_INTERVAL_MS:
 		return
@@ -826,7 +838,8 @@ func _log_reconcile_profile(
 	var culprit_ms: float = float(max_step.get("ms", 0.0))
 	var now_ms: int = Time.get_ticks_msec()
 	var endpoint_eval_ms: float = float(step_ms.get("endpoint_eval", 0.0))
-	if endpoint_eval_ms > 10.0 or total_ms > 16.0:
+	var should_log_profile: bool = _unit_profile_logs_enabled()
+	if should_log_profile and (endpoint_eval_ms > 10.0 or total_ms > 16.0):
 		var spike_trace: Dictionary = _last_endpoint_trace.duplicate()
 		if spike_trace.is_empty():
 			spike_trace = {
@@ -858,7 +871,7 @@ func _log_reconcile_profile(
 			or extra_ms >= UNIT_DEATH_LOG_MIN_EXTRA_MS
 			or total_ms >= UNIT_DEATH_LOG_MIN_TOTAL_MS
 		)
-		if should_log_death_frame and now_ms - _death_reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
+		if should_log_profile and should_log_death_frame and now_ms - _death_reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
 			_death_reconcile_last_log_ms = now_ms
 			SFLog.warn("UNIT_DEATH_FRAME_MS", {
 				"source": source,
@@ -880,7 +893,7 @@ func _log_reconcile_profile(
 				"create_count": int(sync_profile.get("create_n", 0)),
 				"prune_count": int(sync_profile.get("prune_n", 0))
 			})
-	elif total_ms >= UNIT_RECONCILE_SLOW_MS and now_ms - _reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
+	elif should_log_profile and total_ms >= UNIT_RECONCILE_SLOW_MS and now_ms - _reconcile_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
 		_reconcile_last_log_ms = now_ms
 		SFLog.warn("UNIT_RECONCILE_SLOW", {
 			"source": source,
@@ -922,7 +935,7 @@ func set_hive_snapshot(hives: Array, force_rebuild: bool = false) -> void:
 	_audit_mark_rebuild("hive_lookup_build")
 	var dt_ms: float = _us_to_ms(int(Time.get_ticks_usec() - t0_us))
 	var now_ms: int = Time.get_ticks_msec()
-	if dt_ms >= 1.0 and now_ms - _hive_lookup_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
+	if _unit_profile_logs_enabled() and dt_ms >= 1.0 and now_ms - _hive_lookup_last_log_ms >= UNIT_RECONCILE_LOG_INTERVAL_MS:
 		_hive_lookup_last_log_ms = now_ms
 		SFLog.warn("UNIT_HIVE_LOOKUP_BUILD_MS", {
 			"hives": count,
@@ -3804,7 +3817,7 @@ func _hash_unit_id(unit_id: int) -> int:
 	return x & 0x7fffffff
 
 func _owner_color(owner_id: int) -> Color:
-	return HiveRenderer._owner_color(owner_id)
+	return TeamVisuals.owner_color(owner_id)
 
 func _unit_modulate_color(owner_id: int) -> Color:
 	if owner_id <= 0:

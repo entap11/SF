@@ -6,6 +6,9 @@ uniform float hue_thresh = 0.10;      // widen/narrow match
 uniform float sat_min = 0.35;         // ignore low-sat grays
 uniform float val_min = 0.35;         // ignore dark pixels
 uniform float softness = 0.08;        // edge feather
+uniform float white_sat_max = 0.28;   // include bright neutral tower pixels
+uniform float white_val_min = 0.58;
+uniform float white_strength = 1.0;
 
 vec3 rgb2hsv(vec3 c) {
     vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
@@ -28,10 +31,16 @@ void fragment() {
     float sat_gate = smoothstep(sat_min, sat_min + softness, hsv.y);
     float val_gate = smoothstep(val_min, val_min + softness, hsv.z);
 
-    float m = hue_match * sat_gate * val_gate;
+    float color_match = hue_match * sat_gate * val_gate;
+    float white_sat_gate = 1.0 - smoothstep(white_sat_max - softness, white_sat_max + softness, hsv.y);
+    float white_val_gate = smoothstep(white_val_min - softness, white_val_min + softness, hsv.z);
+    float white_match = white_sat_gate * white_val_gate * white_strength;
+    float m = clamp(max(color_match, white_match), 0.0, 1.0);
 
-    // swap hue toward target but preserve original alpha + some brightness feel
-    vec3 out_rgb = mix(tex.rgb, to_color.rgb, m);
+    // Recolor the projection/body while retaining source luminance detail.
+    float lum = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
+    vec3 recolor = to_color.rgb * mix(0.48, 1.18, lum);
+    vec3 out_rgb = mix(tex.rgb, recolor, m);
 
     COLOR = vec4(out_rgb, tex.a);
 }

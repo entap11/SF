@@ -2,7 +2,7 @@ class_name VfxManager
 extends Node2D
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
-const HiveRenderer := preload("res://scripts/renderers/hive_renderer.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const IonPopScene: PackedScene = preload("res://scenes/vfx/ion_pop.tscn")
 const VfxPoolScript := preload("res://scripts/vfx/vfx_pool.gd")
@@ -464,7 +464,7 @@ func _on_hive_kind_changed(hive_id: int, owner_id: int, world_pos: Vector2, prev
 	_spawn_ring(world_pos, UPGRADE_RING_RADIUS, _owner_color(owner_id), UPGRADE_RING_LIFE)
 
 func _owner_color(owner_id: int) -> Color:
-	return HiveRenderer._owner_color(owner_id)
+	return TeamVisuals.owner_color(owner_id)
 
 func _spawn_tracer(from_pos: Vector2, to_pos: Vector2, owner_id: int) -> void:
 	var line := Line2D.new()

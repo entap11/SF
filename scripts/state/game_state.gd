@@ -21,6 +21,10 @@ const LANE_OCCLUSION_STABLE_HIVE_POWER := HiveGeometry.TIER_3_MIN_POWER
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC
 const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
+const ENABLE_LANE_HARD_CAP := false
+const ENABLE_LANE_ESTABLISH_SPAWN_GATE := false
+const ENABLE_HIVE_SPAWN_SHOCK_BLOCK := false
+const ENABLE_OUTGOING_LANE_BUDGET := true
 const DEFAULT_CELL_SIZE := 64.0
 const MATCH_DURATION_MS := 300000
 const DEFAULT_UNINTENDED_POWER_PER_SEC := 1.0
@@ -850,6 +854,8 @@ func intent_is_on(from_id: int, to_id: int) -> bool:
 	return false
 
 func lanes_allowed_for_power(power: int) -> int:
+	if not ENABLE_OUTGOING_LANE_BUDGET:
+		return 999
 	if power <= 9:
 		return 1
 	if power <= 24:
@@ -1222,15 +1228,15 @@ func _accumulate_lane_pressure(
 		lane.spawn_accum_a_ms = 0.0
 		lane.spawn_accum_b_ms = 0.0
 		return
+
 	if lane.send_a and not lane.retract_a:
-		if lane.establish_a and lane.build_t < 0.999:
+		if ENABLE_LANE_ESTABLISH_SPAWN_GATE and lane.establish_a and lane.build_t < 0.999:
 			lane.spawn_accum_a_ms = 0.0
 			_log_spawn_block(lane, "A", "BUILD")
 		else:
 			if a_hive != null and a_hive.owner_id > 0:
-				# Swarm shock: block outgoing spawns for a short window.
 				var block_until_us: int = int(hive_spawn_block_until_us.get(int(a_hive.id), 0))
-				if _sim_time_us < block_until_us:
+				if ENABLE_HIVE_SPAWN_SHOCK_BLOCK and _sim_time_us < block_until_us:
 					lane.spawn_accum_a_ms = 0.0
 					_log_spawn_block(lane, "A", "SHOCK")
 				else:
@@ -1239,7 +1245,7 @@ func _accumulate_lane_pressure(
 					var lane_cap_a: float = _lane_hard_cap_units(lane_len)
 					var spawned_any := false
 					while lane.spawn_accum_a_ms >= spawn_ms:
-						if lane.a_pressure >= lane_cap_a:
+						if ENABLE_LANE_HARD_CAP and lane.a_pressure >= lane_cap_a:
 							lane.spawn_accum_a_ms = minf(lane.spawn_accum_a_ms, spawn_ms)
 							_log_spawn_block(lane, "A", "LANE_CAP")
 							break
@@ -1268,14 +1274,13 @@ func _accumulate_lane_pressure(
 		lane.spawn_accum_a_ms = 0.0
 
 	if lane.send_b and not lane.retract_b:
-		if lane.establish_b and lane.build_t < 0.999:
+		if ENABLE_LANE_ESTABLISH_SPAWN_GATE and lane.establish_b and lane.build_t < 0.999:
 			lane.spawn_accum_b_ms = 0.0
 			_log_spawn_block(lane, "B", "BUILD")
 		else:
 			if b_hive != null and b_hive.owner_id > 0:
-				# Swarm shock: block outgoing spawns for a short window.
 				var block_until_us_b: int = int(hive_spawn_block_until_us.get(int(b_hive.id), 0))
-				if _sim_time_us < block_until_us_b:
+				if ENABLE_HIVE_SPAWN_SHOCK_BLOCK and _sim_time_us < block_until_us_b:
 					lane.spawn_accum_b_ms = 0.0
 					_log_spawn_block(lane, "B", "SHOCK")
 				else:
@@ -1284,7 +1289,7 @@ func _accumulate_lane_pressure(
 					var lane_cap_b: float = _lane_hard_cap_units(lane_len)
 					var spawned_any := false
 					while lane.spawn_accum_b_ms >= spawn_ms:
-						if lane.b_pressure >= lane_cap_b:
+						if ENABLE_LANE_HARD_CAP and lane.b_pressure >= lane_cap_b:
 							lane.spawn_accum_b_ms = minf(lane.spawn_accum_b_ms, spawn_ms)
 							_log_spawn_block(lane, "B", "LANE_CAP")
 							break

@@ -12,6 +12,7 @@ const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const LANE_BAND_SHADER := preload("res://shaders/lane_band.gdshader")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
@@ -138,7 +139,7 @@ func _lane_color_for_hive(hive_id: int) -> Color:
 	return _lane_color_for_owner(owner_id)
 
 func _owner_color(owner_id: int) -> Color:
-	return HiveRenderer._owner_color(owner_id)
+	return TeamVisuals.owner_color(owner_id)
 
 func _are_allied_lane_owners(owner_a: int, owner_b: int) -> bool:
 	var a_id: int = int(owner_a)
@@ -156,7 +157,7 @@ func _lane_send_alpha(src_owner: int, dst_owner: int) -> float:
 
 func _lane_color_for_owner(owner_id: int) -> Color:
 	if owner_id > 0:
-		return HiveRenderer._owner_color(owner_id)
+		return TeamVisuals.owner_color(owner_id)
 	return Color(0.22, 0.22, 0.24, 0.55)
 
 func _hive_world_pos(hive_id: int) -> Variant:

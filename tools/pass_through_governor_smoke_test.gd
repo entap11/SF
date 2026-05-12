@@ -10,9 +10,9 @@ func _init() -> void:
 	var failures: Array[String] = []
 	_expect_multiplier(failures, 0, 1.0)
 	_expect_multiplier(failures, 200, 1.0)
-	_expect_multiplier(failures, 201, 0.9)
-	_expect_multiplier(failures, 230, 0.9)
-	_expect_multiplier(failures, 231, 0.8)
+	_expect_multiplier(failures, 201, 1.0)
+	_expect_multiplier(failures, 230, 1.0)
+	_expect_multiplier(failures, 231, 1.0)
 
 	if not failures.is_empty():
 		for failure in failures:

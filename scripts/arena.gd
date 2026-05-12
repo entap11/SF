@@ -70,6 +70,13 @@ const MAX_FRAME_DT := 0.25
 const MAX_STEPS_PER_FRAME := 8
 const MAX_ACCUM_DT := 1.0
 const MAX_SPAWNS_PER_TICK := 5
+const ENABLE_MAX_SPAWNS_PER_TICK := false
+const ENABLE_LANE_ESTABLISH_SPAWN_GATE := false
+const ENABLE_SPAWN_SOURCE_FILTER := false
+const ENABLE_HIVE_SPAWN_SHOCK_BLOCK := false
+const ENABLE_PASS_THROUGH_POWER_GATE := true
+const ENABLE_PASS_THROUGH_SHOCK_GATE := false
+const ENABLE_OUTGOING_LANE_BUDGET := true
 const DEBRIS_LIFE := 4.0
 const DEBRIS_DRIFT := 30.0
 const DEBRIS_DAMP := 0.90
@@ -7109,7 +7116,7 @@ func _toggle_lane(from_id: String, to_id: String) -> void:
 		if str(ld.get("from", "")) == from_id and str(ld.get("to", "")) == to_id:
 			found_index = i
 			break
-	if found_index == -1 and out_count >= MAX_OUT_LANES:
+	if ENABLE_OUTGOING_LANE_BUDGET and found_index == -1 and out_count >= MAX_OUT_LANES:
 		SFLog.trace("LANE: blocked (cap)", {"from": from_id, "cap": MAX_OUT_LANES})
 		return
 	if found_index >= 0:
@@ -7763,13 +7770,13 @@ func _spawn_units(dt: float) -> void:
 			stats["skip_other"] = int(stats["skip_other"]) + 1
 			continue
 		if lane.send_a:
-			if not spawn_ids.is_empty() and not spawn_ids.has(a.id):
+			if ENABLE_SPAWN_SOURCE_FILTER and not spawn_ids.is_empty() and not spawn_ids.has(a.id):
 				stats["skip_other"] = int(stats["skip_other"]) + 1
 			else:
 				var spawned_a := _spawn_lane_units(lane, a, b, dt_ms, true, stats)
 				stats["did_spawn"] = int(stats["did_spawn"]) + spawned_a
 		if lane.send_b:
-			if not spawn_ids.is_empty() and not spawn_ids.has(b.id):
+			if ENABLE_SPAWN_SOURCE_FILTER and not spawn_ids.is_empty() and not spawn_ids.has(b.id):
 				stats["skip_other"] = int(stats["skip_other"]) + 1
 			else:
 				var spawned_b := _spawn_lane_units(lane, b, a, dt_ms, false, stats)
@@ -7790,7 +7797,7 @@ func _spawn_lane_units(lane: LaneData, from_hive: HiveData, to_hive: HiveData, d
 		_maybe_log_spawnfail(from_hive, "owner_zero")
 		stats["skip_other"] = int(stats["skip_other"]) + 1
 		return 0
-	if from_hive.shock_ms > 0.0:
+	if ENABLE_HIVE_SPAWN_SHOCK_BLOCK and from_hive.shock_ms > 0.0:
 		if from_is_a:
 			lane.spawn_accum_a_ms = 0.0
 		else:
@@ -7800,7 +7807,7 @@ func _spawn_lane_units(lane: LaneData, from_hive: HiveData, to_hive: HiveData, d
 		return 0
 	var lane_len_dbg: float = _lane_length_px(from_hive, to_hive)
 	var stream_dbg: float = lane.a_stream_len if from_is_a else lane.b_stream_len
-	if not _lane_ready_for_send(lane, from_hive.id):
+	if ENABLE_LANE_ESTABLISH_SPAWN_GATE and not _lane_ready_for_send(lane, from_hive.id):
 		_maybe_log_spawnfail(from_hive, "lane_ready", "lane_len=%.1f stream=%.1f" % [
 			lane_len_dbg,
 			stream_dbg
@@ -7811,7 +7818,7 @@ func _spawn_lane_units(lane: LaneData, from_hive: HiveData, to_hive: HiveData, d
 	var accum: float = lane.spawn_accum_a_ms if from_is_a else lane.spawn_accum_b_ms
 	accum += dt_ms
 	var spawned := 0
-	while accum >= interval_ms and spawned < MAX_SPAWNS_PER_TICK:
+	while accum >= interval_ms and (not ENABLE_MAX_SPAWNS_PER_TICK or spawned < MAX_SPAWNS_PER_TICK):
 		_spawn_unit(from_hive.id, to_hive.id, from_hive.owner_id, lane.id, true)
 		accum -= interval_ms
 		spawned += 1
@@ -10091,9 +10098,10 @@ func _apply_unit_arrival(unit_owner: int, hive: HiveData, from_id: int = -1, lan
 	if friendly_arrival and prev_owner > 0:
 		pass_owner = prev_owner
 	if friendly_arrival:
+		var prev_power: int = int(hive.power)
 		if hive.power < 50:
 			hive.power += 1
-		elif hive.shock_ms <= 0.0:
+		if (not ENABLE_PASS_THROUGH_POWER_GATE or prev_power >= 50) and (not ENABLE_PASS_THROUGH_SHOCK_GATE or hive.shock_ms <= 0.0) and reason != "recall":
 			_pass_through(hive, pass_owner)
 		return
 	if hive.power > 1:
@@ -10676,7 +10684,7 @@ func _set_intent(from_id: int, to_id: int, enable: bool, skip_budget: bool = fal
 			return
 		if _intent_is_on(from_id, to_id):
 			return
-		if not skip_budget and state != null:
+		if ENABLE_OUTGOING_LANE_BUDGET and not skip_budget and state != null:
 			var budget := state.lanes_allowed_for_power(int(from_hive.power))
 			var active := state.count_active_outgoing(from_id)
 			if active >= budget:
@@ -10768,7 +10776,7 @@ func _set_intent_dev(from_id: int, to_id: int, enable: bool) -> void:
 			return
 		if _intent_is_on(from_id, to_id):
 			return
-		if state != null:
+		if ENABLE_OUTGOING_LANE_BUDGET and state != null:
 			var budget := state.lanes_allowed_for_power(int(from_hive.power))
 			var active := state.count_active_outgoing(from_id)
 			if active >= budget:

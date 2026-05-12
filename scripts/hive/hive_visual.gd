@@ -2,6 +2,7 @@ extends Node2D
 
 const P1_TEXT_COLOR := Color(0.0, 0.0, 0.0)
 const P2_TEXT_COLOR := Color(1.0, 1.0, 1.0)
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const VisualShadow := preload("res://scripts/renderers/visual_shadow.gd")
 const SFLog := preload("res://scripts/util/sf_log.gd")
@@ -98,6 +99,8 @@ const POWER_PROJECTION_LAYOUT_NUDGE := Vector2(0.0, 40.0)
 const POWER_PROJECTION_SOURCE_NUDGE_Y: float = 40.0
 const FLAT_TOP_LABEL_Y_RATIO: float = -0.345
 const FLAT_TOP_PIP_Y: float = 20.0
+const FLAT_TOP_SMALL_PIP_Y: float = 6.0
+const FLAT_TOP_MED_PIP_Y: float = 8.0
 const FLAT_TOP_PIP_SPACING: float = 9.5
 const POWER_PROJECTION_SMALL_SIZE := Vector2(58.0, 72.0)
 const POWER_PROJECTION_MEDIUM_SIZE := Vector2(74.0, 84.0)
@@ -135,7 +138,7 @@ const ACTIVITY_FEEDING: String = "feeding"
 const ACTIVITY_ATTACKING: String = "attacking"
 const ACTIVITY_UNDER_ATTACK: String = "under_attack"
 const ACTIVITY_MAX_POWER: String = "max_power"
-const NPC_HIVE_COLOR := Color(0.52, 0.47, 0.82, 1.0)
+const NPC_HIVE_COLOR := TeamVisuals.NPC_COLOR
 @export var power_label_offset_override := Vector2.INF
 
 var radius_px: float = 18.0
@@ -1346,6 +1349,7 @@ func _update_lane_budget_indicators() -> void:
 	var slot_count: int = _lane_budget_display_slot_count()
 	if slot_count != _lane_budget_pips.size():
 		for child in _lane_budget_layer.get_children():
+			_lane_budget_layer.remove_child(child)
 			child.queue_free()
 		_lane_budget_pips.clear()
 		for i in range(slot_count):
@@ -1405,8 +1409,7 @@ func _lane_budget_reference_label_size() -> Vector2:
 
 func _lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vector2) -> Vector2:
 	if _uses_flat_top_label_layout():
-		var center: float = (float(slot_count) - 1.0) * 0.5
-		return Vector2((float(slot_index) - center) * FLAT_TOP_PIP_SPACING, FLAT_TOP_PIP_Y)
+		return _flat_top_lane_budget_pip_position(slot_count, slot_index, label_size)
 	match slot_count:
 		1:
 			return LANE_BUDGET_SINGLE_POS
@@ -1424,6 +1427,19 @@ func _lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vec
 	var top_y: float = -((label_size.y * 0.5) + LANE_BUDGET_LABEL_TOP_GAP)
 	var center: float = (float(slot_count) - 1.0) * 0.5
 	return Vector2((float(slot_index) - center) * LANE_BUDGET_PIP_SPACING, top_y)
+
+func _flat_top_lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vector2) -> Vector2:
+	var center: float = (float(slot_count) - 1.0) * 0.5
+	var tier: int = _resolve_tier(power)
+	if tier <= 1:
+		if slot_count == 1:
+			return Vector2((label_size.x * 0.5) + 10.0, FLAT_TOP_SMALL_PIP_Y)
+		var small_spacing: float = maxf(22.0, label_size.x + 10.0)
+		return Vector2((float(slot_index) - center) * small_spacing, FLAT_TOP_SMALL_PIP_Y)
+	if tier == 2:
+		var med_spacing: float = maxf(28.0, label_size.x + 12.0)
+		return Vector2((float(slot_index) - center) * med_spacing, FLAT_TOP_MED_PIP_Y)
+	return Vector2((float(slot_index) - center) * FLAT_TOP_PIP_SPACING, FLAT_TOP_PIP_Y)
 
 func _lane_budget_display_slot_count() -> int:
 	return clampi(_lane_budget_max, 1, LANE_BUDGET_DEFAULT_SLOTS)
@@ -1618,17 +1634,7 @@ func _tier_key_for_tier(tier: int) -> String:
 	return tier_key_for_tier_value(tier)
 
 static func _team_color_for_player(player_id: int) -> Color:
-	match player_id:
-		1:
-			return Color8(255, 210, 0)
-		2:
-			return Color8(229, 57, 53)
-		3:
-			return Color(0.2, 1.0, 0.35, 1.0)
-		4:
-			return Color8(30, 136, 229)
-		_:
-			return NPC_HIVE_COLOR
+	return TeamVisuals.owner_color(player_id)
 
 func _apply_tint(owner_id_value: int, power_value: int) -> void:
 	_ensure_shader_material()
@@ -1671,6 +1677,7 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 	if _shader_mat != null and not is_neutral_owner:
 		_shader_mat.set_shader_parameter("team_color", team_color)
 		_shader_mat.set_shader_parameter("glow_strength", lerp(0.6, 1.0, t))
+		TeamVisuals.apply_white_projection_params(_shader_mat)
 		_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength)
 		_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed)
 		_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())

@@ -1,6 +1,7 @@
 class_name StructureControlIndicator
 extends RefCounted
 
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const NPC_CIRCUIT_COLOR: Color = Color(0.55, 0.50, 0.70, 1.0)
 const METAL_DARK: Color = Color(0.025, 0.028, 0.034, 0.76)
 const METAL_MID: Color = Color(0.42, 0.45, 0.50, 0.78)
@@ -235,14 +236,6 @@ static func _structure_locked(structure: Dictionary, entries: Array) -> bool:
 	return int(structure.get("owner_id", owner_id)) == owner_id
 
 static func _owner_color(owner_id: int) -> Color:
-	match owner_id:
-		1:
-			return Color8(255, 210, 0)
-		2:
-			return Color8(229, 57, 53)
-		3:
-			return Color(0.2, 1.0, 0.35, 1.0)
-		4:
-			return Color8(30, 136, 229)
-		_:
-			return NPC_CIRCUIT_COLOR
+	if owner_id <= 0:
+		return NPC_CIRCUIT_COLOR
+	return TeamVisuals.owner_color(owner_id)

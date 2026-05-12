@@ -5,7 +5,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const HiveNodeScene := preload("res://scenes/hive/HiveNode.tscn")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
-const HiveVisual := preload("res://scripts/hive/hive_visual.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 
 var state: Object
 var sel: Object
@@ -18,6 +18,7 @@ const POWER_LABEL_COLOR := Color(1.0, 1.0, 1.0)
 const P1_TEXT_COLOR := Color(0.0, 0.0, 0.0)
 const P2_TEXT_COLOR := Color(1.0, 1.0, 1.0)
 const HIVE_COLOR_LOG_LIMIT := 10
+const HIVE_FALLBACK_VISUAL_SCALE: float = 1.60
 
 @export var cell_px: float = 64.0
 @export var animations_enabled := true
@@ -149,7 +150,7 @@ func _apply_selection(selected_id: int) -> void:
 		node.call("set_selected", hid == selected_id, color)
 
 static func _team_color_for_player(player_id: int) -> Color:
-	return HiveVisual._team_color_for_player(player_id)
+	return TeamVisuals.owner_color(player_id)
 
 static func _owner_color(owner_id: int) -> Color:
 	return _team_color_for_player(owner_id)
@@ -230,7 +231,7 @@ func _draw() -> void:
 
 func _draw_model() -> void:
 	if arena != null:
-		if SFLog.LOGGING_ENABLED:
+		if SFLog.LOGGING_ENABLED and SFLog.verbose_sim:
 			print("HIVE: arena_ref=", arena)
 		_last_render_version = arena.render_version
 
@@ -295,7 +296,7 @@ func _draw_state() -> void:
 	if state == null or arena == null:
 		return
 
-	if SFLog.LOGGING_ENABLED:
+	if SFLog.LOGGING_ENABLED and SFLog.verbose_sim:
 		print("HIVE: arena_ref=", arena)
 	_last_render_version = arena.render_version
 
@@ -533,7 +534,7 @@ func _count_active_outgoing_from_model(hive_id: int) -> int:
 	return count
 
 func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color, kind: String, power: int = 0) -> void:
-	var visual_radius := radius * float(HiveVisual.HIVE_VISUAL_SCALE)
+	var visual_radius := radius * HIVE_FALLBACK_VISUAL_SCALE
 	var tex: Texture2D = null
 	var registry := _get_sprite_registry()
 	if registry != null:
@@ -542,9 +543,16 @@ func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color,
 	if tex != null:
 		var size := Vector2(visual_radius * 2.0, visual_radius * 2.0)
 		var rect := Rect2(pos - size * 0.5, size)
-		draw_texture_rect(tex, rect, false)
+		draw_texture_rect(tex, rect, false, _fallback_sprite_tint(owner_id))
 	else:
 		draw_circle(pos, visual_radius, color)
+
+func _fallback_sprite_tint(owner_id: int) -> Color:
+	if owner_id <= 0:
+		return TeamVisuals.NPC_COLOR
+	var tint: Color = TeamVisuals.owner_color(owner_id)
+	tint.a = 1.0
+	return tint
 
 func _get_sprite_registry() -> SpriteRegistry:
 	if _sprite_registry == null:
