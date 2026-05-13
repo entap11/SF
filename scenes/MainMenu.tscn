@@ -10,7 +10,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/onboarding/onboarding_panel.tscn" id="8"]
 [ext_resource type="PackedScene" path="res://ui/backgrounds/HexSeamBackground.tscn" id="9"]
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_nj2j4"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ul6oo"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -27,7 +27,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_5m486"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_bi0no"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -44,7 +44,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_32dma"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_4a215"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -61,7 +61,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_bbun3"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_qooko"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -78,7 +78,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_d1he3"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_v44ec"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -95,7 +95,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_xagx5"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_3kuxf"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -144,7 +144,7 @@ texture = ExtResource("5")
 stretch_mode = 5
 
 [node name="MainHexSeamBackground" parent="." instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_nj2j4")
+material = SubResource("ShaderMaterial_ul6oo")
 layout_mode = 1
 
 [node name="PlatformDimmer" type="ColorRect" parent="."]
@@ -352,7 +352,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 
 [node name="HexSeamBackground" parent="DashPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_5m486")
+material = SubResource("ShaderMaterial_bi0no")
 layout_mode = 1
 
 [node name="DashTopBar" type="Control" parent="DashPanel"]
@@ -1010,7 +1010,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashBuffsPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_32dma")
+material = SubResource("ShaderMaterial_4a215")
 layout_mode = 1
 
 [node name="BuffsVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel"]
@@ -1219,7 +1219,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashHivePanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_bbun3")
+material = SubResource("ShaderMaterial_qooko")
 layout_mode = 1
 
 [node name="HiveVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel"]
@@ -1515,7 +1515,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashStorePanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_d1he3")
+material = SubResource("ShaderMaterial_v44ec")
 layout_mode = 1
 
 [node name="StoreVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel"]
@@ -2313,7 +2313,7 @@ layout_mode = 2
 mouse_filter = 1
 
 [node name="HexSeamBackground" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_xagx5")
+material = SubResource("ShaderMaterial_3kuxf")
 layout_mode = 1
 
 [node name="OverlayVBox" type="VBoxContainer" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel"]

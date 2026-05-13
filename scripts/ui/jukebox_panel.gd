@@ -10,7 +10,7 @@ const PAGE_SIZE: int = 7
 const MAP_WINDOW_SIZE: int = 5
 const SELECTOR_META_FONT_SIZE: int = 18
 const SELECTOR_TAB_FONT_SIZE: int = 16
-const SELECTOR_CARD_FONT_SIZE: int = 18
+const SELECTOR_CARD_FONT_SIZE: int = 24
 const LEADERBOARD_HEADER_FONT_SIZE: int = 22
 const LEADERBOARD_ROW_FONT_SIZE: int = 24
 const LEADERBOARD_BADGE_FONT_SIZE: int = 22
@@ -38,6 +38,7 @@ const TOP_LIMIT: int = 50
 @onready var selected_desc_label: Label = $VBox/HeroPanel/HeroVBox/SelectedDesc
 @onready var map_best_label: Label = $VBox/HeroPanel/HeroVBox/MapBest
 @onready var play_button: Button = $VBox/SelectorPanel/SelectorVBox/PlayButton
+@onready var play_sprite: TextureRect = $VBox/SelectorPanel/SelectorVBox/PlayButton/PlaySprite
 @onready var scout_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/ScoutButton
 @onready var close_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/CloseButton
 @onready var cpu_title_label: Label = $VBox/CpuPanel/CpuVBox/CpuHeader/CpuTitle
@@ -241,9 +242,9 @@ func _style_controls() -> void:
 	_apply_font(map_count_label, _font_regular, SELECTOR_META_FONT_SIZE)
 	_apply_font(map_hint_label, _font_regular, SELECTOR_META_FONT_SIZE - 1)
 	_apply_font(hero_preview_badge, _font_semibold, 11)
-	_apply_font(selected_title_label, _font_semibold, 20)
-	_apply_font(selected_meta_label, _font_regular, 13)
-	_apply_font(selected_desc_label, _font_regular, 12)
+	_apply_font(selected_title_label, _font_semibold, 24)
+	_apply_font(selected_meta_label, _font_semibold, 16)
+	_apply_font(selected_desc_label, _font_regular, 14)
 	_apply_font(cpu_title_label, _font_semibold, 13)
 	_apply_font(cpu_summary_label, _font_regular, 11)
 	_apply_font(cpu_style_option, _font_regular, 12)
@@ -257,9 +258,12 @@ func _style_controls() -> void:
 	_apply_font(play_button, _font_semibold, 13)
 	_style_button(play_button)
 	_style_play_button()
-	for button in [scout_button, close_button]:
-		_apply_font(button, _font_semibold, 13)
-		_style_button(button)
+	if scout_button != null:
+		scout_button.visible = false
+	if close_button != null:
+		_apply_font(close_button, _font_semibold, 12)
+		_style_button(close_button)
+		close_button.custom_minimum_size = Vector2(150.0, 38.0)
 	for button in [map_left_button, map_right_button]:
 		_apply_font(button, _font_semibold, 11)
 		_style_button(button)
@@ -393,9 +397,9 @@ func _select_map(map_path: String) -> void:
 	_leaderboard_offset = 0
 	var selected: Dictionary = _entry_by_path(map_path)
 	selected_title_label.text = _stylized_display_text(str(selected.get("title", "Map")))
-	_apply_font(selected_title_label, _font_semibold, 20)
+	_apply_font(selected_title_label, _font_semibold, 24)
 	selected_meta_label.text = ""
-	_apply_font(selected_meta_label, _font_regular, 13)
+	_apply_font(selected_meta_label, _font_semibold, 16)
 	selected_desc_label.text = ""
 	_refresh_hero_preview(selected)
 	play_button.disabled = _selected_map_path.is_empty()
@@ -777,15 +781,18 @@ func _style_selector_nav_button(button: Button) -> void:
 func _style_play_button() -> void:
 	if play_button == null:
 		return
-	play_button.custom_minimum_size = Vector2(0.0, 104.0)
-	play_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	play_button.custom_minimum_size = Vector2(620.0, 150.0)
+	play_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	play_button.text = ""
 	play_button.tooltip_text = "Play selected map"
 	play_button.flat = true
-	if _play_texture != null:
-		play_button.icon = _play_texture
-	play_button.set("expand_icon", true)
-	play_button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	play_button.icon = null
+	if play_sprite != null:
+		if play_sprite.texture == null and _play_texture != null:
+			play_sprite.texture = _play_texture
+		play_sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		play_sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		play_sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 
 func _apply_nav_icons() -> void:
 	if _chevron_texture == null:

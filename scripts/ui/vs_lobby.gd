@@ -14,12 +14,14 @@ const ASYNC_WINDOW_COUNTDOWN_SEC := 30 * 60
 const ASYNC_SLOT_FILL_EVERY_SEC := 15
 const SMS_TIMEOUT_SEC := 120
 const QUICK_SEARCH_TIMEOUT_SEC := 45
-const DEBUG_AUTO_FILL_SEC := 5
+const STANDARD_BOT_FILL_PROMPT_SEC := 20
 const SHELL_SCENE_PATH := "res://scenes/Shell.tscn"
 const TREE_META_VS_CPU_STYLE := "vs_cpu_style"
 const TREE_META_VS_CPU_TIER := "vs_cpu_tier"
 const DEV_BOT_STYLE_OPTIONS: Array[String] = ["Default", "Balancer", "Turtle", "Raider", "Greedy", "Swarm Lord"]
 const DEV_BOT_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Expert"]
+const STANDARD_BOT_NAMES: Array[String] = ["Rival", "Atlas", "Nova", "Rook", "Kite"]
+const STANDARD_BOT_STYLES: Array[String] = ["balancer", "turtle", "raider", "greedy", "swarm_lord"]
 const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako", "Drift", "Pax"]
 const DEFAULT_STAGE_MAP_IDS: Array[String] = []
 const CTF_STAGE_MAP_IDS: Array[String] = [
@@ -81,6 +83,12 @@ var _session_role: String = ""
 var _quick_ticket_id: String = ""
 var _search_elapsed_sec: int = 0
 var _debug_filled: bool = false
+var _bot_fill_prompt_shown: bool = false
+var _bot_fill_dialog: ConfirmationDialog = null
+var _bot_filled_match: bool = false
+var _bot_remote_profile: Dictionary = {}
+var _standard_bot_style: String = ""
+var _standard_bot_tier: String = ""
 var _launching_match: bool = false
 var _font_regular: Font
 var _font_semibold: Font
@@ -91,6 +99,11 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	_map_count = map_count
 	_price_usd = price_usd
 	_free_roll = free_roll
+	_bot_fill_prompt_shown = false
+	_bot_filled_match = false
+	_bot_remote_profile = {}
+	_standard_bot_style = ""
+	_standard_bot_tier = ""
 	_force_async_window = bool(options.get("force_async_window", false))
 	_window_sec = maxi(1, int(options.get("window_sec", ASYNC_WINDOW_COUNTDOWN_SEC)))
 	_sync_join_sec = maxi(1, int(options.get("sync_join_sec", SYNC_JOIN_COUNTDOWN_SEC)))
@@ -144,6 +157,11 @@ func _ready() -> void:
 	_quick_ticket_id = ""
 	_search_elapsed_sec = 0
 	_debug_filled = false
+	_bot_fill_prompt_shown = false
+	_bot_filled_match = false
+	_bot_remote_profile = {}
+	_standard_bot_style = ""
+	_standard_bot_tier = ""
 	_sync_dev_button_text()
 	_sync_dev_bot_controls()
 	_sync_quick_button_text()
@@ -167,6 +185,9 @@ func _on_quick_match() -> void:
 			_start_match()
 			return
 		status_label.text = "Contest window closed."
+		return
+	if _bot_filled_match:
+		_start_match()
 		return
 	if not _sync_transport_ready():
 		return
@@ -197,6 +218,11 @@ func _on_sms_invite() -> void:
 	if handshake == null:
 		status_label.text = "Handshake service unavailable."
 		return
+	_bot_fill_prompt_shown = false
+	_bot_filled_match = false
+	_bot_remote_profile = {}
+	_standard_bot_style = ""
+	_standard_bot_tier = ""
 	_cancel_quick_ticket()
 	_leave_session(false)
 	var result: Dictionary = handshake.call("create_invite", _local_profile(), _handshake_context()) as Dictionary
@@ -247,6 +273,11 @@ func _begin_quick_search() -> void:
 	if handshake == null:
 		status_label.text = "Handshake service unavailable."
 		return
+	_bot_fill_prompt_shown = false
+	_bot_filled_match = false
+	_bot_remote_profile = {}
+	_standard_bot_style = ""
+	_standard_bot_tier = ""
 	_leave_session(false)
 	var result: Dictionary = handshake.call("enqueue_quick_match", _local_profile(), _handshake_context()) as Dictionary
 	if not bool(result.get("ok", false)):
@@ -310,6 +341,7 @@ func _can_start_sync_match() -> bool:
 
 func _start_handshake_poll() -> void:
 	_countdown_mode = "handshake_poll"
+	_search_elapsed_sec = 0
 	countdown_timer.start(1.0)
 	_sync_join_row_visibility()
 	_sync_quick_button_text()
@@ -383,6 +415,7 @@ func _cancel_quick_ticket() -> void:
 	_quick_ticket_id = ""
 	_search_elapsed_sec = 0
 	_debug_filled = false
+	_bot_fill_prompt_shown = false
 	if _countdown_mode == "quick_search":
 		countdown_timer.stop()
 		_countdown_mode = ""
@@ -401,6 +434,7 @@ func _leave_session(with_service_call: bool) -> void:
 	_session_id = ""
 	_session_role = ""
 	_invite_code = ""
+	_bot_fill_prompt_shown = false
 	invite_label.visible = false
 	if _countdown_mode == "handshake_poll":
 		countdown_timer.stop()
@@ -481,9 +515,13 @@ func _on_countdown_tick() -> void:
 				_cancel_quick_ticket()
 				status_label.text = "No opponent found."
 				return
+			_maybe_show_standard_bot_fill_prompt()
 			_update_countdown_label()
 		return
 	if _countdown_mode == "handshake_poll":
+		if _session_waiting_for_guest():
+			_search_elapsed_sec += 1
+			_maybe_show_standard_bot_fill_prompt()
 		_refresh_sync_session_ui()
 		return
 	_countdown_left -= 1
@@ -533,18 +571,143 @@ func _poll_quick_search() -> void:
 		countdown_timer.start(1.0)
 		_refresh_sync_session_ui()
 		return
-	if OS.is_debug_build() and not _debug_filled and _search_elapsed_sec >= DEBUG_AUTO_FILL_SEC and handshake.has_method("debug_fill_quick_match"):
-		_debug_filled = true
-		var fill_result: Dictionary = handshake.call("debug_fill_quick_match", _quick_ticket_id, "Rival") as Dictionary
-		if bool(fill_result.get("ok", false)):
-			_session_id = str(fill_result.get("session_id", ""))
-			_quick_ticket_id = ""
-			var filled_session: Dictionary = fill_result.get("session", {}) as Dictionary
-			_apply_session_context(filled_session)
-			_session_role = _role_for_local_player(filled_session)
-			_countdown_mode = "handshake_poll"
-			countdown_timer.start(1.0)
-			_refresh_sync_session_ui()
+
+func _maybe_show_standard_bot_fill_prompt() -> void:
+	if not _can_offer_standard_bot_fill():
+		return
+	if _bot_fill_prompt_shown or _bot_filled_match:
+		return
+	if _search_elapsed_sec < STANDARD_BOT_FILL_PROMPT_SEC:
+		return
+	if not _is_waiting_for_human_opponent():
+		return
+	_bot_fill_prompt_shown = true
+	_show_standard_bot_fill_dialog()
+
+func _can_offer_standard_bot_fill() -> bool:
+	if not _free_roll:
+		return false
+	if _uses_async_window():
+		return false
+	return true
+
+func _is_waiting_for_human_opponent() -> bool:
+	if not _quick_ticket_id.is_empty():
+		return true
+	return _session_waiting_for_guest()
+
+func _session_waiting_for_guest() -> bool:
+	if _session_id.is_empty() or _session_role != "host":
+		return false
+	var handshake: Node = _handshake()
+	if handshake == null:
+		return false
+	var session: Dictionary = handshake.call("get_session", _session_id) as Dictionary
+	if session.is_empty():
+		return false
+	var guest: Dictionary = session.get("guest", {}) as Dictionary
+	if not str(guest.get("uid", "")).strip_edges().is_empty():
+		return false
+	return str(session.get("status", "waiting")) == "waiting"
+
+func _show_standard_bot_fill_dialog() -> void:
+	var dialog: ConfirmationDialog = _ensure_standard_bot_fill_dialog()
+	if dialog == null:
+		return
+	dialog.dialog_text = "No human opponent found yet.\n\nDo you want to fill any open seat with a standard bot?"
+	dialog.popup_centered()
+
+func _ensure_standard_bot_fill_dialog() -> ConfirmationDialog:
+	if _bot_fill_dialog != null and is_instance_valid(_bot_fill_dialog):
+		return _bot_fill_dialog
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Fill Open Seat?"
+	dialog.dialog_text = "Do you want to fill any open seat with a standard bot?"
+	dialog.exclusive = false
+	add_child(dialog)
+	dialog.get_ok_button().text = "Use Bot"
+	dialog.get_cancel_button().text = "Keep Waiting"
+	dialog.confirmed.connect(_on_standard_bot_fill_confirmed)
+	_bot_fill_dialog = dialog
+	return _bot_fill_dialog
+
+func _on_standard_bot_fill_confirmed() -> void:
+	if not _can_offer_standard_bot_fill():
+		return
+	if not _is_waiting_for_human_opponent():
+		return
+	_fill_open_seat_with_standard_bot()
+
+func _fill_open_seat_with_standard_bot() -> void:
+	var bot_profile: Dictionary = _random_standard_bot_profile()
+	var handshake: Node = _handshake()
+	if handshake != null:
+		if not _quick_ticket_id.is_empty() and handshake.has_method("debug_fill_quick_match"):
+			var fill_result: Dictionary = handshake.call("debug_fill_quick_match", _quick_ticket_id, str(bot_profile.get("display_name", "Rival"))) as Dictionary
+			if bool(fill_result.get("ok", false)):
+				_apply_bot_fill_session(fill_result, bot_profile)
+				return
+		if _session_waiting_for_guest() and handshake.has_method("debug_fill_session"):
+			var session_fill: Dictionary = handshake.call("debug_fill_session", _session_id, str(bot_profile.get("display_name", "Rival"))) as Dictionary
+			if bool(session_fill.get("ok", false)):
+				var session: Dictionary = session_fill.get("session", {}) as Dictionary
+				var guest: Dictionary = session.get("guest", {}) as Dictionary
+				var guest_uid: String = str(guest.get("uid", "")).strip_edges()
+				if not guest_uid.is_empty() and handshake.has_method("set_ready"):
+					handshake.call("set_ready", _session_id, guest_uid, true)
+					session = handshake.call("get_session", _session_id) as Dictionary
+				_apply_session_context(session)
+				_bot_remote_profile = bot_profile.duplicate(true)
+				_standard_bot_style = str(bot_profile.get("style", "balancer"))
+				_standard_bot_tier = str(bot_profile.get("tier", "medium"))
+				_refresh_sync_session_ui()
+				return
+	_start_local_standard_bot_match(bot_profile)
+
+func _apply_bot_fill_session(fill_result: Dictionary, bot_profile: Dictionary) -> void:
+	_session_id = str(fill_result.get("session_id", ""))
+	_quick_ticket_id = ""
+	var session: Dictionary = fill_result.get("session", {}) as Dictionary
+	_apply_session_context(session)
+	_session_role = _role_for_local_player(session)
+	_bot_remote_profile = bot_profile.duplicate(true)
+	_standard_bot_style = str(bot_profile.get("style", "balancer"))
+	_standard_bot_tier = str(bot_profile.get("tier", "medium"))
+	_countdown_mode = "handshake_poll"
+	countdown_timer.start(1.0)
+	_refresh_sync_session_ui()
+
+func _start_local_standard_bot_match(bot_profile: Dictionary) -> void:
+	if not _quick_ticket_id.is_empty():
+		_cancel_quick_ticket()
+	_session_id = ""
+	_session_role = "host"
+	_quick_ticket_id = ""
+	_countdown_mode = ""
+	countdown_timer.stop()
+	_bot_filled_match = true
+	_bot_remote_profile = bot_profile.duplicate(true)
+	_standard_bot_style = str(bot_profile.get("style", "balancer"))
+	_standard_bot_tier = str(bot_profile.get("tier", "medium"))
+	_assigned_players = [_local_name, str(bot_profile.get("display_name", "Rival"))]
+	invite_label.visible = false
+	_update_countdown_label()
+	_sync_quick_button_text()
+	_sync_join_row_visibility()
+	_status("Bot ready")
+
+func _random_standard_bot_profile() -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var name: String = STANDARD_BOT_NAMES[rng.randi_range(0, STANDARD_BOT_NAMES.size() - 1)]
+	var style: String = STANDARD_BOT_STYLES[rng.randi_range(0, STANDARD_BOT_STYLES.size() - 1)]
+	return {
+		"uid": "standard_bot_%d" % Time.get_ticks_msec(),
+		"display_name": name,
+		"is_cpu": true,
+		"style": style,
+		"tier": "medium"
+	}
 
 func _role_for_local_player(session: Dictionary) -> String:
 	var host: Dictionary = session.get("host", {}) as Dictionary
@@ -580,7 +743,7 @@ func _start_match(session_already_started: bool = false) -> void:
 	if _uses_async_window() and not _contest_window_open:
 		status_label.text = "Contest window closed."
 		return
-	if not _uses_async_window():
+	if not _uses_async_window() and not _bot_filled_match:
 		if not _sync_transport_ready():
 			return
 		if _session_id.is_empty() and _handshake() != null:
@@ -653,9 +816,7 @@ func _start_match(session_already_started: bool = false) -> void:
 		tree.set_meta("miss_n_out_notice", "")
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("_apply_map_then_start"):
-		var ops_state: Node = get_node_or_null("/root/OpsState")
-		if ops_state != null and ops_state.has_method("set_team_mode_override"):
-			ops_state.call("set_team_mode_override", "ffa")
+		_apply_team_mode_override_for_match()
 		shell.call("_apply_map_then_start", first_stage_map)
 		closed.emit()
 		return
@@ -666,9 +827,7 @@ func _start_match(session_already_started: bool = false) -> void:
 		else:
 			gamebot.set("next_map_id", first_stage_map)
 	if _mode == "STAGE_RACE":
-		var ops_state: Node = get_node_or_null("/root/OpsState")
-		if ops_state != null and ops_state.has_method("set_team_mode_override"):
-			ops_state.call("set_team_mode_override", "ffa")
+		_apply_team_mode_override_for_match()
 		match _mode:
 			"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
 				tree.change_scene_to_file(SHELL_SCENE_PATH)
@@ -676,6 +835,8 @@ func _start_match(session_already_started: bool = false) -> void:
 				tree.change_scene_to_file("res://scenes/Main.tscn")
 
 func _remote_profile_for_tree() -> Dictionary:
+	if _bot_filled_match and not _bot_remote_profile.is_empty():
+		return _bot_remote_profile.duplicate(true)
 	if _session_id.is_empty() or _handshake() == null:
 		return {}
 	var session: Dictionary = _handshake().call("get_session", _session_id) as Dictionary
@@ -693,9 +854,11 @@ func _remote_profile_for_tree() -> Dictionary:
 	var uid: String = str(remote.get("uid", "")).strip_edges()
 	if uid.is_empty():
 		return {}
+	var is_cpu: bool = uid.begins_with("bot_") or uid.begins_with("standard_bot_")
 	return {
 		"uid": uid,
-		"display_name": str(remote.get("display_name", "Player 2"))
+		"display_name": str(remote.get("display_name", "Player 2")),
+		"is_cpu": is_cpu
 	}
 
 func _apply_session_context(session: Dictionary) -> void:
@@ -756,6 +919,14 @@ func _handshake_failure_text(prefix: String, result: Dictionary) -> String:
 
 func _mode_label(mode_id: String) -> String:
 	match mode_id:
+		"1V1":
+			return "1v1"
+		"2V2":
+			return "2v2"
+		"3P FFA":
+			return "3P FFA"
+		"4P FFA":
+			return "4P FFA"
 		"STAGE_RACE":
 			return "Stage Race"
 		"CAPTURE_FLAG":
@@ -768,6 +939,27 @@ func _mode_label(mode_id: String) -> String:
 			return "Miss-N-Out"
 		_:
 			return mode_id
+
+func _apply_team_mode_override_for_match() -> void:
+	var ops_state: Node = get_node_or_null("/root/OpsState")
+	if ops_state == null or not ops_state.has_method("set_team_mode_override"):
+		return
+	var override: String = _team_mode_override_for_match()
+	if override.is_empty():
+		return
+	ops_state.call("set_team_mode_override", override)
+
+func _team_mode_override_for_match() -> String:
+	var context_override: String = str(_context_meta.get("team_mode_override", "")).strip_edges().to_lower()
+	if context_override == "ffa" or context_override == "2v2":
+		return context_override
+	match _mode:
+		"2V2":
+			return "2v2"
+		"3P FFA", "4P FFA", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
+			return "ffa"
+		_:
+			return ""
 
 func _generate_invite_code() -> String:
 	var seed := int(Time.get_unix_time_from_system())
@@ -840,6 +1032,9 @@ func _effective_required_players() -> int:
 	return 2
 
 func _on_dev_min_override_pressed() -> void:
+	if not _free_roll:
+		status_label.text = "Bot fill is unavailable for money games."
+		return
 	if not _uses_async_window():
 		_dev_fill_sync_opponent()
 		return
@@ -907,6 +1102,11 @@ func _sync_quick_button_text() -> void:
 		quick_button.disabled = false
 		_apply_quick_button_font()
 		return
+	if _bot_filled_match:
+		quick_button.text = "Start Match"
+		quick_button.disabled = false
+		_apply_quick_button_font()
+		return
 	if _session_id.is_empty():
 		quick_button.text = "Quick Match"
 		quick_button.disabled = false
@@ -946,6 +1146,9 @@ func _sync_join_row_visibility() -> void:
 	if join_row == null:
 		return
 	if _uses_async_window():
+		join_row.visible = false
+		return
+	if _bot_filled_match:
 		join_row.visible = false
 		return
 	join_row.visible = _session_id.is_empty() and _quick_ticket_id.is_empty()
@@ -1025,6 +1228,11 @@ func _resolve_map_path(map_id: String) -> String:
 func _sync_dev_button_text() -> void:
 	if dev_min_override_button == null:
 		return
+	if not _free_roll:
+		dev_min_override_button.text = "Human Only"
+		dev_min_override_button.disabled = true
+		return
+	dev_min_override_button.disabled = false
 	if _uses_async_window():
 		dev_min_override_button.text = "DEV: Min=1 ON" if _dev_min_players_override else "DEV: Min=1 OFF"
 		return
@@ -1095,16 +1303,22 @@ func _dev_tier_value_for_index(index: int) -> String:
 func _apply_dev_bot_overrides_to_tree(tree: SceneTree) -> void:
 	if tree == null:
 		return
-	if _dev_async_bot_style_override.is_empty():
+	var style_override: String = _dev_async_bot_style_override
+	if style_override.is_empty():
+		style_override = _standard_bot_style
+	var tier_override: String = _dev_async_bot_tier_override
+	if tier_override.is_empty():
+		tier_override = _standard_bot_tier
+	if style_override.is_empty():
 		if tree.has_meta(TREE_META_VS_CPU_STYLE):
 			tree.remove_meta(TREE_META_VS_CPU_STYLE)
 	else:
-		tree.set_meta(TREE_META_VS_CPU_STYLE, _dev_async_bot_style_override)
-	if _dev_async_bot_tier_override.is_empty():
+		tree.set_meta(TREE_META_VS_CPU_STYLE, style_override)
+	if tier_override.is_empty():
 		if tree.has_meta(TREE_META_VS_CPU_TIER):
 			tree.remove_meta(TREE_META_VS_CPU_TIER)
 	else:
-		tree.set_meta(TREE_META_VS_CPU_TIER, _dev_async_bot_tier_override)
+		tree.set_meta(TREE_META_VS_CPU_TIER, tier_override)
 
 func _update_countdown_label() -> void:
 	if _countdown_mode == "quick_search":

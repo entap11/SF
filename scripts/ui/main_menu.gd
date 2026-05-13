@@ -267,6 +267,7 @@ var _last_replay_data: Dictionary = {}
 var _last_replay_cursor_index: int = 0
 var _last_replay_speed_index: int = 0
 var _last_replay_is_playing: bool = false
+var _last_replay_playback_serial: int = 0
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -1099,6 +1100,7 @@ func _ready() -> void:
 		if not HiveClanState.hive_clan_state_changed.is_connected(_on_hive_clan_state_changed):
 			HiveClanState.hive_clan_state_changed.connect(_on_hive_clan_state_changed)
 	_sync_hive_panel_profile_from_hive_state()
+	call_deferred("_auto_start_latest_match_replay")
 
 func _apply_pending_jukebox_reopen_request() -> void:
 	var tree: SceneTree = get_tree()
@@ -1802,7 +1804,7 @@ func _wire_buttons() -> void:
 	if hero_panel != null:
 		hero_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		hero_panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		hero_panel.tooltip_text = "Open last match replay"
+		hero_panel.tooltip_text = "Play last match replay"
 		if not hero_panel.gui_input.is_connected(_on_last_match_replay_hero_gui_input):
 			hero_panel.gui_input.connect(_on_last_match_replay_hero_gui_input)
 	for idx in range(replay_controls_buttons.size()):
@@ -8334,10 +8336,10 @@ func _on_last_match_replay_hero_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mouse_event: InputEventMouseButton = event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
-			_open_latest_match_replay()
+			_open_latest_match_replay(true)
 			accept_event()
 
-func _open_latest_match_replay() -> void:
+func _open_latest_match_replay(auto_play: bool = false) -> void:
 	_refresh_latest_match_replay_cache()
 	if _latest_replay_data.is_empty():
 		var empty_data: Dictionary = _empty_saved_replay_data()
@@ -8351,7 +8353,24 @@ func _open_latest_match_replay() -> void:
 	dash_replay_sub.text = "Replay breakdown - %s" % str(_latest_replay_data.get("title", "Last Match"))
 	_apply_replay_data(_latest_replay_data)
 	_open_dash_panel(dash_replay_panel)
-	status_label.text = "Loaded latest saved match replay."
+	if auto_play:
+		_start_replay_playback("Playing latest saved match replay.")
+	else:
+		status_label.text = "Loaded latest saved match replay."
+
+func _auto_start_latest_match_replay() -> void:
+	if not is_inside_tree():
+		return
+	var tree: SceneTree = get_tree()
+	if tree != null and bool(tree.get_meta(TREE_META_REOPEN_JUKEBOX_ON_READY, false)):
+		return
+	if _jukebox_panel != null and _jukebox_panel.visible:
+		return
+	if onboarding_overlay != null and onboarding_overlay.visible:
+		return
+	if not _refresh_latest_match_replay_cache():
+		return
+	_open_latest_match_replay(true)
 
 func _refresh_home_replay_hint() -> void:
 	if _latest_replay_data.is_empty():
@@ -8732,6 +8751,7 @@ func _apply_replay_data(match_data: Dictionary) -> void:
 	_last_replay_data = match_data.duplicate(true)
 	_last_replay_cursor_index = 0
 	_last_replay_is_playing = false
+	_last_replay_playback_serial += 1
 	var mode: String = str(match_data.get("mode", "4P Rumble"))
 	var map_name: String = str(match_data.get("map", "Map A"))
 	var duration: String = str(match_data.get("duration", "3:12"))
@@ -8750,6 +8770,7 @@ func _apply_replay_data(match_data: Dictionary) -> void:
 			time_label.text = ""
 			event_label.text = ""
 	_update_replay_controls_state()
+	_update_replay_playback_view()
 
 func _open_match_stats(match_index: int) -> void:
 	_current_match_index = match_index
@@ -8781,21 +8802,94 @@ func _on_replay_control_pressed(control_index: int) -> void:
 		return
 	match control_index:
 		0:
-			_last_replay_is_playing = true
-			status_label.text = "Replay playing from %s." % _replay_cursor_time()
+			_start_replay_playback("Replay playing from %s." % _replay_cursor_time())
 		1:
-			_last_replay_is_playing = false
+			_stop_replay_playback()
 			status_label.text = "Replay paused at %s." % _replay_cursor_time()
 		2:
-			_last_replay_is_playing = false
-			_last_replay_cursor_index = mini(_last_replay_cursor_index + 1, timeline.size() - 1)
+			_stop_replay_playback()
+			_step_replay_cursor(1)
 			status_label.text = "Replay stepped to %s." % _replay_cursor_time()
 		3:
 			_last_replay_speed_index = (_last_replay_speed_index + 1) % 3
 			var speed_labels: Array[String] = ["1x", "2x", "4x"]
 			status_label.text = "Replay speed %s." % speed_labels[_last_replay_speed_index]
+			if _last_replay_is_playing:
+				_last_replay_playback_serial += 1
+				_schedule_replay_tick()
 		_:
 			pass
+
+func _start_replay_playback(status_text: String) -> void:
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	if _last_replay_data.is_empty() or timeline.is_empty():
+		status_label.text = "No replay loaded."
+		return
+	_last_replay_is_playing = true
+	_last_replay_playback_serial += 1
+	_update_replay_playback_view()
+	status_label.text = status_text
+	_schedule_replay_tick()
+
+func _stop_replay_playback() -> void:
+	_last_replay_is_playing = false
+	_last_replay_playback_serial += 1
+	_update_replay_playback_view()
+
+func _step_replay_cursor(delta: int) -> void:
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	if timeline.is_empty():
+		_last_replay_cursor_index = 0
+		_update_replay_playback_view()
+		return
+	_last_replay_cursor_index = clampi(_last_replay_cursor_index + delta, 0, timeline.size() - 1)
+	_update_replay_playback_view()
+
+func _schedule_replay_tick() -> void:
+	if not _last_replay_is_playing:
+		return
+	var serial: int = _last_replay_playback_serial
+	var delay_sec: float = _replay_tick_delay_sec()
+	get_tree().create_timer(delay_sec).timeout.connect(func() -> void:
+		_advance_replay_tick(serial)
+	)
+
+func _advance_replay_tick(serial: int) -> void:
+	if serial != _last_replay_playback_serial or not _last_replay_is_playing:
+		return
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	if timeline.is_empty():
+		_stop_replay_playback()
+		status_label.text = "Replay ended."
+		return
+	if _last_replay_cursor_index >= timeline.size() - 1:
+		_last_replay_is_playing = false
+		_last_replay_playback_serial += 1
+		_update_replay_playback_view()
+		status_label.text = "Replay ended at %s." % _replay_cursor_time()
+		return
+	_step_replay_cursor(1)
+	status_label.text = "Replay playing from %s." % _replay_cursor_time()
+	_schedule_replay_tick()
+
+func _replay_tick_delay_sec() -> float:
+	match _last_replay_speed_index:
+		1:
+			return 0.42
+		2:
+			return 0.22
+		_:
+			return 0.72
+
+func _update_replay_playback_view() -> void:
+	for i in range(replay_timeline_times.size()):
+		var is_cursor: bool = i == _last_replay_cursor_index
+		var alpha: float = 1.0 if is_cursor else 0.72
+		var color: Color = Color(1.0, 0.84, 0.24, 1.0) if is_cursor else Color(0.86, 0.90, 0.95, alpha)
+		if i < replay_timeline_times.size() and replay_timeline_times[i] is Label:
+			(replay_timeline_times[i] as Label).modulate = color
+		if i < replay_timeline_events.size() and replay_timeline_events[i] is Label:
+			(replay_timeline_events[i] as Label).modulate = color
 
 func _replay_cursor_time() -> String:
 	var timeline: Array = _last_replay_data.get("timeline", [])
@@ -10587,18 +10681,19 @@ func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 		return
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
 		return
-	if mode_id == "1V1":
+	if _is_direct_pvp_human_mode(mode_id):
 		_close_entry_route_modal()
 		get_tree().set_meta("requested_human_mode", mode_id)
+		var pvp_entry_usd: int = maxi(0, denomination)
 		if paid:
-			_open_vs_mode_select_panel(false)
-			status_label.text = "Human 1v1 selected at $%d." % denomination
+			pvp_entry_usd = maxi(1, pvp_entry_usd)
 		else:
-			if _open_shell_map_picker_from_free_roll():
-				status_label.text = "Human 1v1 free roll selected. Map picker opened."
-			else:
-				_open_vs_mode_select_panel(true)
-				status_label.text = "Human 1v1 free roll selected."
+			pvp_entry_usd = 0
+		_open_human_pvp_lobby(mode_id, not paid, pvp_entry_usd)
+		if paid:
+			status_label.text = "Human %s selected at $%d. PvP lobby opened." % [mode_id, pvp_entry_usd]
+		else:
+			status_label.text = "Human %s free roll selected. PvP lobby opened." % mode_id
 		return
 	if mode_id == "CTF":
 		var entry_usd: int = maxi(0, denomination)
@@ -10618,6 +10713,48 @@ func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 	get_tree().set_meta("requested_human_mode", mode_id)
 	var lane := "paid" if paid else "free"
 	status_label.text = "Human %s (%s) selected. Queue wiring is next." % [mode_id, lane]
+
+func _is_direct_pvp_human_mode(mode_id: String) -> bool:
+	var clean_mode: String = mode_id.strip_edges().to_upper()
+	return clean_mode == "1V1" or clean_mode == "2V2" or clean_mode == "3P FFA" or clean_mode == "4P FFA"
+
+func _open_human_pvp_lobby(mode_id: String, free_play: bool, entry_usd: int) -> void:
+	var lobby_options: Dictionary = _human_pvp_lobby_options(mode_id)
+	_open_async_vs_lobby(mode_id, 1, free_play, maxi(0, entry_usd), lobby_options)
+
+func _human_pvp_lobby_options(mode_id: String) -> Dictionary:
+	var lobby_options: Dictionary = {
+		"human_pvp": true,
+		"start_players": 2,
+		"map_ids": _human_pvp_map_ids(mode_id)
+	}
+	var team_override: String = _human_pvp_team_mode_override(mode_id)
+	if not team_override.is_empty():
+		lobby_options["team_mode_override"] = team_override
+	return lobby_options
+
+func _human_pvp_map_ids(mode_id: String) -> PackedStringArray:
+	var random_ids: PackedStringArray = _free_roll_random_map_ids(mode_id, 1)
+	if not random_ids.is_empty():
+		return random_ids
+	var fallback: PackedStringArray = PackedStringArray()
+	match mode_id.strip_edges().to_upper():
+		"3P FFA":
+			fallback.append("MAP_delta__SBASE__3p")
+		"2V2", "4P FFA":
+			fallback.append("CROSS_4P_8x14")
+		_:
+			fallback.append("MAP_nomansland__545__v01_top2_sides__1p")
+	return fallback
+
+func _human_pvp_team_mode_override(mode_id: String) -> String:
+	match mode_id.strip_edges().to_upper():
+		"2V2":
+			return "2v2"
+		"3P FFA", "4P FFA":
+			return "ffa"
+		_:
+			return ""
 
 func _open_shell_map_picker_from_free_roll() -> bool:
 	var tree: SceneTree = get_tree()

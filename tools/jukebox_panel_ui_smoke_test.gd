@@ -22,11 +22,17 @@ func _init() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: stale hero play button still present")
 		quit(1)
 		return
-	if play_button.icon == null:
-		push_error("JUKEBOX_PANEL_UI_SMOKE: play sprite not applied")
+	var play_sprite_any: Node = play_button.get_node_or_null("PlaySprite")
+	if not (play_sprite_any is TextureRect):
+		push_error("JUKEBOX_PANEL_UI_SMOKE: play sprite node missing")
 		quit(1)
 		return
-	if play_button.custom_minimum_size.y < 100.0:
+	var play_sprite: TextureRect = play_sprite_any as TextureRect
+	if play_sprite.texture == null:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: play sprite texture not applied")
+		quit(1)
+		return
+	if play_button.custom_minimum_size.y < 140.0:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: play button is too small")
 		quit(1)
 		return

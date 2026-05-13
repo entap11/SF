@@ -2617,61 +2617,50 @@ func _soak_pick_duel_pairs(max_pairs: int) -> Array:
 	if st == null:
 		return []
 	var candidates: Array = []
-	for lane_any in st.lanes:
-		if not (lane_any is LaneData):
+	for src_any in st.hives:
+		if not (src_any is HiveData):
 			continue
-		var lane: LaneData = lane_any as LaneData
-		var a_hive: HiveData = st.find_hive_by_id(int(lane.a_id))
-		var b_hive: HiveData = st.find_hive_by_id(int(lane.b_id))
-		if a_hive == null or b_hive == null:
+		var src_hive: HiveData = src_any as HiveData
+		var src_owner: int = int(src_hive.owner_id)
+		if src_owner <= 0:
 			continue
-		var a_owner: int = int(a_hive.owner_id)
-		var b_owner: int = int(b_hive.owner_id)
-		if a_owner <= 0 or b_owner <= 0 or a_owner == b_owner:
-			continue
-		var a_pos: Vector2 = st.hive_world_pos_by_id(int(a_hive.id))
-		var b_pos: Vector2 = st.hive_world_pos_by_id(int(b_hive.id))
-		candidates.append({
-			"src": int(a_hive.id),
-			"dst": int(b_hive.id),
-			"len": a_pos.distance_to(b_pos)
-		})
-	if candidates.is_empty():
-		for i in range(st.hives.size()):
-			var a_any: Variant = st.hives[i]
-			if not (a_any is HiveData):
+		for dst_any in st.hives:
+			if not (dst_any is HiveData):
 				continue
-			var a_hive: HiveData = a_any as HiveData
-			var a_owner: int = int(a_hive.owner_id)
-			if a_owner <= 0:
+			var dst_hive: HiveData = dst_any as HiveData
+			var dst_id: int = int(dst_hive.id)
+			var src_id: int = int(src_hive.id)
+			if src_id == dst_id:
 				continue
-			for j in range(i + 1, st.hives.size()):
-				var b_any: Variant = st.hives[j]
-				if not (b_any is HiveData):
-					continue
-				var b_hive: HiveData = b_any as HiveData
-				var b_owner: int = int(b_hive.owner_id)
-				if b_owner <= 0 or b_owner == a_owner:
-					continue
-				var a_pos_fb: Vector2 = st.hive_world_pos_by_id(int(a_hive.id))
-				var b_pos_fb: Vector2 = st.hive_world_pos_by_id(int(b_hive.id))
-				candidates.append({
-					"src": int(a_hive.id),
-					"dst": int(b_hive.id),
-					"len": a_pos_fb.distance_to(b_pos_fb)
-				})
+			var dst_owner: int = int(dst_hive.owner_id)
+			if dst_owner == src_owner:
+				continue
+			if not st.can_connect(src_id, dst_id):
+				continue
+			var src_pos: Vector2 = st.hive_world_pos_by_id(src_id)
+			var dst_pos: Vector2 = st.hive_world_pos_by_id(dst_id)
+			candidates.append({
+				"src": src_id,
+				"dst": dst_id,
+				"len": src_pos.distance_to(dst_pos),
+				"src_budget": int(st.lanes_allowed_for_power(int(src_hive.power)))
+			})
 	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return float(a.get("len", 0.0)) > float(b.get("len", 0.0))
 	)
 	var pairs: Array = []
+	var picked_by_src: Dictionary = {}
 	for c_any in candidates:
 		if pairs.size() >= max_pairs:
 			break
 		var c: Dictionary = c_any as Dictionary
-		pairs.append({
-			"src": int(c.get("src", -1)),
-			"dst": int(c.get("dst", -1))
-		})
+		var src: int = int(c.get("src", -1))
+		var src_budget: int = maxi(1, int(c.get("src_budget", 1)))
+		var picked: int = int(picked_by_src.get(src, 0))
+		if picked >= src_budget:
+			continue
+		pairs.append({"src": src, "dst": int(c.get("dst", -1))})
+		picked_by_src[src] = picked + 1
 	return pairs
 
 func _soak_ensure_pairs_active(pairs: Array) -> bool:
@@ -2693,10 +2682,13 @@ func _soak_ensure_pairs_active(pairs: Array) -> bool:
 			continue
 		var src_owner: int = int(src_hive.owner_id)
 		var dst_owner: int = int(dst_hive.owner_id)
-		if src_owner <= 0 or dst_owner <= 0 or src_owner == dst_owner:
+		if src_owner <= 0 or src_owner == dst_owner:
+			continue
+		if not st.can_connect(src, dst):
 			continue
 		_soak_ensure_attack_intent(src, dst, st)
-		_soak_ensure_attack_intent(dst, src, st)
+		if dst_owner > 0:
+			_soak_ensure_attack_intent(dst, src, st)
 		kept += 1
 	return kept > 0
 
