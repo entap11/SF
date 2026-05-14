@@ -9,6 +9,7 @@ const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/startup_launch_request_resolver.gd")
 const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
 const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
+const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
 const SHELL_BUFFER_ROOT_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
@@ -89,6 +90,7 @@ const SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX: float = 40.0
 @export var tutorial_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TutorialButton")
 @export var ctf_bot_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/CtfBotButton")
 @export var team_mode_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TeamModeButton")
+@export var telemetry_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TelemetryButton")
 @export var play_selected_button_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerButtonsRow/PlaySelectedButton")
 @export var picker_back_button_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerButtonsRow/PickerBackButton")
 @export var dev_map_loader_path: NodePath = NodePath("DevMapLoader")
@@ -111,6 +113,7 @@ const SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX: float = 40.0
 @onready var _tutorial_button: Button = get_node_or_null(tutorial_button_path) as Button
 @onready var _ctf_bot_button: Button = get_node_or_null(ctf_bot_button_path) as Button
 @onready var _team_mode_button: Button = get_node_or_null(team_mode_button_path) as Button
+@onready var _telemetry_button: Button = get_node_or_null(telemetry_button_path) as Button
 @onready var _play_selected_button: Button = get_node_or_null(play_selected_button_path) as Button
 @onready var _picker_back_button: Button = get_node_or_null(picker_back_button_path) as Button
 @onready var _player_buff_strip: Control = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
@@ -149,6 +152,7 @@ var _shell_prematch_record_p2: Label = null
 var _shell_prematch_record_p3: Label = null
 var _shell_prematch_record_p4: Label = null
 var _shell_prematch_record_h2h: Label = null
+var _telemetry_dashboard_panel: Control = null
 
 func _install_error_hooks() -> void:
 	if _err_conn_ready:
@@ -245,6 +249,7 @@ func _ready() -> void:
 	_resolve_tutorial_ui_node()
 	_resolve_ctf_bot_ui_node()
 	_resolve_team_mode_ui_node()
+	_resolve_telemetry_ui_node()
 	_resolve_dev_map_loader()
 	_resolve_buff_ui_nodes()
 	_apply_dev_menu_fonts()
@@ -466,6 +471,15 @@ func _resolve_team_mode_ui_node() -> void:
 		mode_from_ops = str(OpsState.call("get_team_mode_override"))
 	_set_team_mode_ui(mode_from_ops)
 
+func _resolve_telemetry_ui_node() -> void:
+	_telemetry_button = get_node_or_null(telemetry_button_path) as Button
+	SFLog.info("TELEMETRY_UI_RESOLVE", {
+		"telemetry_button_np": str(telemetry_button_path),
+		"telemetry_button": _diag_resolve(_telemetry_button)
+	})
+	if _telemetry_button != null and not _telemetry_button.pressed.is_connected(_on_telemetry_pressed):
+		_telemetry_button.pressed.connect(_on_telemetry_pressed)
+
 func _on_team_mode_pressed() -> void:
 	var next_mode: String = "ffa" if _team_mode_ui == "2v2" else "2v2"
 	_set_team_mode_ui(next_mode)
@@ -506,6 +520,9 @@ func _apply_dev_menu_fonts() -> void:
 	if _ctf_bot_button != null:
 		_ctf_bot_button.custom_minimum_size.y = maxf(_ctf_bot_button.custom_minimum_size.y, 78.0)
 		_apply_font(_ctf_bot_button, _font_regular, 28)
+	if _telemetry_button != null:
+		_telemetry_button.custom_minimum_size.y = maxf(_telemetry_button.custom_minimum_size.y, 78.0)
+		_apply_font(_telemetry_button, _font_regular, 28)
 	if _play_selected_button != null:
 		_play_selected_button.custom_minimum_size.y = maxf(_play_selected_button.custom_minimum_size.y, 78.0)
 		_apply_font(_play_selected_button, _font_regular, 28)
@@ -544,6 +561,8 @@ func _configure_shell_menu_ui() -> void:
 		_tutorial_button.text = "TUTORIAL"
 	if _ctf_bot_button != null:
 		_ctf_bot_button.text = "HIDDEN CTF BOT"
+	if _telemetry_button != null:
+		_telemetry_button.text = "TELEMETRY"
 	if _picker_title_label != null:
 		_picker_title_label.text = "SELECT PRACTICE MAP"
 		_picker_title_label.add_theme_color_override("font_color", Color(0.98, 0.98, 0.99, 0.98))
@@ -772,6 +791,48 @@ func _refresh_back_button_state(in_menu: bool) -> void:
 func _on_select_map_pressed() -> void:
 	SFLog.info("MAP_PICKER_OPEN", {})
 	_show_map_picker()
+
+func _on_telemetry_pressed() -> void:
+	SFLog.info("TELEMETRY_DASHBOARD_OPEN", {})
+	_open_telemetry_dashboard()
+
+func _open_telemetry_dashboard() -> void:
+	if _telemetry_dashboard_panel != null and is_instance_valid(_telemetry_dashboard_panel):
+		_telemetry_dashboard_panel.visible = true
+		if _telemetry_dashboard_panel.has_method("refresh_data"):
+			_telemetry_dashboard_panel.call("refresh_data", false)
+		return
+	var parent: Control = menu_root
+	if parent == null:
+		parent = get_node_or_null("MenuRoot") as Control
+	if parent == null:
+		_set_shell_status("Telemetry dashboard unavailable.", "error")
+		return
+	var panel_any: Variant = TelemetryDashboardPanelScript.new()
+	if not (panel_any is Control):
+		_set_shell_status("Telemetry dashboard failed to load.", "error")
+		return
+	var panel: Control = panel_any as Control
+	panel.name = "TelemetryDashboardPanel"
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	panel.offset_left = 36.0
+	panel.offset_top = 36.0
+	panel.offset_right = -36.0
+	panel.offset_bottom = -36.0
+	parent.add_child(panel)
+	_telemetry_dashboard_panel = panel
+	if panel.has_signal("close_requested"):
+		var close_call: Callable = Callable(self, "_close_telemetry_dashboard")
+		if not panel.is_connected("close_requested", close_call):
+			panel.connect("close_requested", close_call)
+	if panel.has_method("refresh_data"):
+		panel.call("refresh_data", false)
+
+func _close_telemetry_dashboard() -> void:
+	if _telemetry_dashboard_panel == null or not is_instance_valid(_telemetry_dashboard_panel):
+		_telemetry_dashboard_panel = null
+		return
+	_telemetry_dashboard_panel.visible = false
 
 func _on_picker_back_pressed() -> void:
 	SFLog.info("MAP_PICKER_CLOSE", {})

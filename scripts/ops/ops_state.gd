@@ -1297,6 +1297,31 @@ func _record_intent_telemetry(
 		"src_max_high_power_idle_ms": int(source_exec.get("max_high_power_idle_ms", 0))
 	}
 	_bot_telemetry_store.call("record_intent", event)
+	_record_match_intent_event(
+		src_owner_id,
+		src_hive_id,
+		dst_hive_id,
+		intent,
+		ok,
+		reason,
+		lane_id,
+		{
+			"src_owner": src_owner_id,
+			"dst_owner": dst_owner_id,
+			"phase": int(match_phase),
+			"tick": int(st.tick) if st != null else -1,
+			"source_mode": str(ctx.get("source_mode", "")),
+			"match_type": str(ctx.get("match_type", "")),
+			"is_cpu_actor": _is_cpu_seat(src_owner_id),
+			"src_power": int(source_exec.get("power", 0)),
+			"src_budget": int(source_exec.get("budget", 0)),
+			"src_active_outgoing": int(source_exec.get("active_outgoing", 0)),
+			"src_open_slots": int(source_exec.get("open_slots", 0)),
+			"src_available_targets": int(source_exec.get("available_targets", 0)),
+			"src_available_lane_unattended_ms": int(source_exec.get("available_lane_unattended_ms", 0)),
+			"src_high_power_idle_ms": int(source_exec.get("high_power_idle_ms", 0))
+		}
+	)
 
 func _intent_telemetry_context(src_owner_id: int, dst_owner_id: int) -> Dictionary:
 	var tree: SceneTree = _intent_telemetry_tree()
@@ -1458,6 +1483,36 @@ func _record_match_action_event(player_id: int, kind: String, payload: Dictionar
 		safe_player_id,
 		kind,
 		payload
+	)
+
+func _record_match_intent_event(
+	player_id: int,
+	src_hive_id: int,
+	dst_hive_id: int,
+	intent: String,
+	ok: bool,
+	reason: String,
+	lane_id: int,
+	context: Dictionary = {}
+) -> void:
+	if _match_telemetry_collector == null:
+		return
+	if not _match_telemetry_collector.has_method("record_intent_event"):
+		return
+	var safe_player_id: int = maxi(0, player_id)
+	if safe_player_id <= 0:
+		return
+	_match_telemetry_collector.call(
+		"record_intent_event",
+		_telemetry_match_ms(),
+		safe_player_id,
+		src_hive_id,
+		dst_hive_id,
+		intent,
+		ok,
+		reason,
+		lane_id,
+		context
 	)
 
 func begin_match_end(winner: int, reason: String, linger_ms: int = 1500) -> void:

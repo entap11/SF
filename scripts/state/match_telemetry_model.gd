@@ -1,7 +1,7 @@
 class_name MatchTelemetryModel
 extends RefCounted
 
-const SCHEMA_VERSION: int = 4
+const SCHEMA_VERSION: int = 5
 const SELF_SCRIPT_PATH: String = "res://scripts/state/match_telemetry_model.gd"
 
 const MATCH_TYPE_VS: int = 0
@@ -16,6 +16,7 @@ const EVENT_ACTION: int = 5
 const EVENT_ARRIVAL: int = 6
 const EVENT_TOWER_KILL: int = 7
 const EVENT_UNIT_DEATH: int = 8
+const EVENT_INTENT: int = 9
 
 var schema_version: int = SCHEMA_VERSION
 var metadata: Dictionary = {}
@@ -164,6 +165,13 @@ static func _default_metrics() -> Dictionary:
 		"early_board_control_share_by_player": [],
 		"early_game_activity_score_by_player": [],
 		"overcommit_events_by_player": [],
+		"intent_total_by_player": [],
+		"intent_success_by_player": [],
+		"intent_fail_by_player": [],
+		"intent_budget_fail_by_player": [],
+		"intent_no_lane_fail_by_player": [],
+		"style_features_by_player": [],
+		"bot_profile_knobs_by_player": [],
 		"swing_moment_ms": 0
 	}
 
@@ -184,7 +192,9 @@ static func _default_totals() -> Dictionary:
 		"unit_land_npc_by_player": {},
 		"tower_kills_by_player": {},
 		"unit_deaths_by_victim_player": {},
-		"unit_deaths_by_killer_player": {}
+		"unit_deaths_by_killer_player": {},
+		"intent_total_by_player": {},
+		"intent_fail_by_player": {}
 	}
 
 static func _duplicate_event_array(source: Array[Dictionary]) -> Array:

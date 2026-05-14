@@ -23,6 +23,7 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		if SFLog.LOGGING_ENABLED:
 			push_error("MAP APPLY FAIL: map is empty")
 		return
+	d = _adapt_map_for_vs_mode(d)
 	if _is_dev_runner():
 		_dev_seed_lanes_and_spawns(d)
 
@@ -251,6 +252,9 @@ static func _is_runtime_non_dev_context() -> bool:
 	return tree.get_root().get_node_or_null("DevMapRunner") == null
 
 static func _infer_active_seats_from_map(map_dict: Dictionary) -> Array:
+	var vs_mode_seats: Array = _active_seats_from_vs_mode()
+	if not vs_mode_seats.is_empty():
+		return vs_mode_seats
 	var declared: Array = _active_seats_from_declared_mode(map_dict)
 	if not declared.is_empty():
 		return declared
@@ -276,6 +280,122 @@ static func _infer_active_seats_from_map(map_dict: Dictionary) -> Array:
 			seats.insert(0, 1)
 	seats.sort()
 	return seats
+
+static func _active_seats_from_vs_mode() -> Array:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null or not tree.has_meta("vs_mode"):
+		return []
+	var mode: String = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+	match mode:
+		"2V2", "4P FFA":
+			return [1, 2, 3, 4]
+		"3P FFA":
+			return [1, 2, 3]
+		_:
+			return []
+
+static func _adapt_map_for_vs_mode(map_dict: Dictionary) -> Dictionary:
+	var mode: String = _vs_mode()
+	if mode != "2V2" and mode != "4P FFA":
+		return map_dict
+	if _mode_from_map_descriptor(map_dict) != "1p":
+		return map_dict
+	var hives_v: Variant = map_dict.get("hives", [])
+	if typeof(hives_v) != TYPE_ARRAY:
+		return map_dict
+	var out: Dictionary = map_dict.duplicate(true)
+	var hives: Array = out.get("hives", []) as Array
+	var changed: bool = false
+	changed = _ensure_hive_for_multiplayer_seat(hives, 1, 3, true) or changed
+	changed = _ensure_hive_for_multiplayer_seat(hives, 2, 4, false) or changed
+	if changed:
+		out["hives"] = hives
+		SFLog.info("MAP_APPLIER_MULTIPLAYER_OWNER_SPLIT", {
+			"map_id": str(out.get("map_id", out.get("_id", out.get("id", "UNKNOWN")))),
+			"vs_mode": mode,
+			"owner_counts": _owner_counts_for_hives(hives)
+		})
+	return out
+
+static func _ensure_hive_for_multiplayer_seat(hives: Array, source_owner: int, target_owner: int, prefer_lower_y: bool) -> bool:
+	if _hive_count_for_owner(hives, target_owner) > 0:
+		return false
+	var source_hives: Array = _hives_for_owner(hives, source_owner)
+	if source_hives.size() > 1:
+		source_hives.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return _hive_y(a) < _hive_y(b)
+		)
+		var selected: Dictionary = source_hives[source_hives.size() - 1] if prefer_lower_y else source_hives[0]
+		selected["owner_id"] = target_owner
+		return true
+	var neutral: Dictionary = _best_neutral_hive_for_split(hives, source_hives, prefer_lower_y)
+	if neutral.is_empty():
+		return false
+	neutral["owner_id"] = target_owner
+	return true
+
+static func _best_neutral_hive_for_split(hives: Array, source_hives: Array, prefer_lower_y: bool) -> Dictionary:
+	var source_x: float = 0.0
+	var source_y: float = 0.0
+	if not source_hives.is_empty():
+		var source: Dictionary = source_hives[0] as Dictionary
+		source_x = _hive_x(source)
+		source_y = _hive_y(source)
+	else:
+		source_x = 0.0
+		source_y = 0.0
+	var target_y: float = source_y + (8.0 if prefer_lower_y else -8.0)
+	var best: Dictionary = {}
+	var best_score: float = INF
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		if int(hive.get("owner_id", 0)) != 0:
+			continue
+		var score: float = absf(_hive_x(hive) - source_x) * 4.0 + absf(_hive_y(hive) - target_y)
+		if score < best_score:
+			best_score = score
+			best = hive
+	return best
+
+static func _hives_for_owner(hives: Array, owner: int) -> Array:
+	var out: Array = []
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		if int(hive.get("owner_id", 0)) == owner:
+			out.append(hive)
+	return out
+
+static func _hive_count_for_owner(hives: Array, owner: int) -> int:
+	return _hives_for_owner(hives, owner).size()
+
+static func _owner_counts_for_hives(hives: Array) -> Dictionary:
+	var counts: Dictionary = {}
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var owner: int = int((hive_any as Dictionary).get("owner_id", 0))
+		counts[owner] = int(counts.get(owner, 0)) + 1
+	return counts
+
+static func _hive_x(hive: Dictionary) -> float:
+	if hive.has("x"):
+		return float(hive.get("x", 0.0))
+	var grid_pos: Variant = hive.get("grid_pos", [])
+	if typeof(grid_pos) == TYPE_ARRAY and (grid_pos as Array).size() >= 1:
+		return float((grid_pos as Array)[0])
+	return 0.0
+
+static func _hive_y(hive: Dictionary) -> float:
+	if hive.has("y"):
+		return float(hive.get("y", 0.0))
+	var grid_pos: Variant = hive.get("grid_pos", [])
+	if typeof(grid_pos) == TYPE_ARRAY and (grid_pos as Array).size() >= 2:
+		return float((grid_pos as Array)[1])
+	return 0.0
 
 static func _active_seats_from_declared_mode(map_dict: Dictionary) -> Array:
 	var mode: String = _mode_from_map_descriptor(map_dict)
@@ -303,6 +423,12 @@ static func _mode_from_map_descriptor(map_dict: Dictionary) -> String:
 	if map_id.ends_with("__4p"):
 		return "4p"
 	return ""
+
+static func _vs_mode() -> String:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null or not tree.has_meta("vs_mode"):
+		return ""
+	return str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
 
 static func _resolve_local_seat(roster: Array) -> int:
 	for entry_any in roster:

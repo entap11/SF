@@ -1,7 +1,7 @@
 extends RefCounted
 class_name VsHandshakeTransportHttp
 
-const DEFAULT_TIMEOUT_SEC: float = 2.0
+const DEFAULT_TIMEOUT_SEC: float = 30.0
 
 var _base_url: String = ""
 var _timeout_sec: float = DEFAULT_TIMEOUT_SEC

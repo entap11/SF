@@ -154,6 +154,10 @@ func set_post_match_summary(summary: Dictionary, winner_id: int, player_id: int)
 	_ensure_post_match_summary_panel()
 	if _post_match_summary_panel == null:
 		return
+	if _overlay_mode == OVERLAY_MODE_REMATCH:
+		if _post_match_summary_panel.has_method("clear_summary"):
+			_post_match_summary_panel.call("clear_summary")
+		return
 	if summary.is_empty():
 		if _post_match_summary_panel.has_method("clear_summary"):
 			_post_match_summary_panel.call("clear_summary")
@@ -199,21 +203,23 @@ func _process(_delta: float) -> void:
 	_update_countdown_label()
 	_update_status()
 
-func _apply_outcome(winner_id: int, reason: String, record_text: String, h2h_text: String) -> void:
-	_set_standard_rows_visible(true)
+func _apply_outcome(winner_id: int, reason: String, _record_text: String, _h2h_text: String) -> void:
+	_set_standard_rows_visible(false)
+	countdown_label.visible = true
 	rematch_button.visible = true
-	title_label.text = "REMATCH?"
-	if winner_id == 0:
-		result_label.text = "DRAW"
-	else:
-		result_label.text = "PLAYER %d WINS" % winner_id
-	var local_lost: bool = winner_id > 0 and winner_id != local_player_id
-	exit_button.text = "BACK TO LOBBY" if local_lost else "MAIN MENU"
-	reason_label.text = "How: %s" % _present_reason(reason)
-	record_label.text = record_text if not record_text.is_empty() else "Record: 0-0"
-	h2h_label.text = h2h_text if not h2h_text.is_empty() else "H2H: 0-0"
-	stats_header.text = "Match Stats"
-	_update_stat_labels()
+	rematch_button.disabled = false
+	rematch_button.text = "REMATCH"
+	exit_button.text = "MAIN MENU"
+	title_label.text = "GAME OVER"
+	result_label.text = _simple_result_text(winner_id)
+	reason_label.text = _simple_reason_text(reason)
+	record_label.visible = false
+	record_label.text = ""
+	h2h_label.text = ""
+	stats_header.text = ""
+	stat_max_power.text = ""
+	stat_units_killed.text = ""
+	stat_units_landed.text = ""
 	_update_countdown_label()
 	_update_status()
 
@@ -294,7 +300,8 @@ func _set_standard_rows_visible(show_rows: bool) -> void:
 func _update_stat_labels() -> void:
 	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
 		return
-	var stats_by_team: Dictionary = OpsState.stats_by_team
+	var ops_state: Node = _ops_state()
+	var stats_by_team: Dictionary = ops_state.get("stats_by_team") if ops_state != null else {}
 	var team_stats: Dictionary = stats_by_team.get(local_player_id, {})
 	var max_power: int = int(team_stats.get("max_total_hive_power", 0))
 	var killed: int = int(team_stats.get("units_killed", 0))
@@ -307,16 +314,17 @@ func _update_countdown_label() -> void:
 	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
 		countdown_label.text = ""
 		return
-	var deadline_ms: int = int(OpsState.rematch_deadline_ms)
+	var ops_state: Node = _ops_state()
+	var deadline_ms: int = int(ops_state.get("rematch_deadline_ms")) if ops_state != null else 0
 	if deadline_ms <= 0:
 		countdown_label.text = ""
 		return
 	var remaining_ms: int = maxi(0, deadline_ms - Time.get_ticks_msec())
 	if remaining_ms <= 0:
-		countdown_label.text = "Rematch window expired"
+		countdown_label.text = ""
 		return
 	var sec: int = int(ceil(float(remaining_ms) / 1000.0))
-	countdown_label.text = "Rematch window: 0:%02d" % sec
+	countdown_label.text = "Rematch available for %ds" % sec
 
 func _update_status() -> void:
 	if _overlay_mode == OVERLAY_MODE_TUTORIAL_COMPLETE:
@@ -331,24 +339,25 @@ func _update_status() -> void:
 			return
 		status_label.text = "Ready for next round?"
 		return
-	var votes: Dictionary = OpsState.rematch_votes
+	var ops_state: Node = _ops_state()
+	var votes: Dictionary = ops_state.get("rematch_votes") if ops_state != null else {}
 	var local_voted: bool = votes.has(local_player_id)
-	var post_action: String = str(OpsState.post_end_action)
+	var post_action: String = str(ops_state.get("post_end_action")) if ops_state != null else ""
 	var window_open: bool = _is_rematch_window_open()
 	rematch_button.disabled = local_voted or post_action != "" or not window_open
 	if post_action == "rematch":
-		status_label.text = "Rematch locked. Restarting..."
+		status_label.text = "Starting rematch..."
 		return
 	if post_action == "main_menu":
-		status_label.text = "Rematch window expired."
+		status_label.text = "Returning to menu..."
 		return
 	if not window_open:
-		status_label.text = "Rematch window expired. Choose Main Menu."
+		status_label.text = "Rematch expired."
 		return
 	if local_voted:
-		status_label.text = "Vote sent. Waiting on opponent..."
+		status_label.text = "Waiting for opponent..."
 		return
-	status_label.text = "Rematch votes: %d/2" % int(votes.size())
+	status_label.text = "Play again?"
 
 func _on_rematch_pressed() -> void:
 	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
@@ -376,6 +385,32 @@ func _present_reason(reason: String) -> String:
 			return "domination"
 		_:
 			return normalized
+
+func _simple_result_text(winner_id: int) -> String:
+	if winner_id == 0:
+		return "Draw"
+	if winner_id == local_player_id:
+		return "You won"
+	return "You lost"
+
+func _simple_reason_text(reason: String) -> String:
+	var presented: String = _present_reason(reason)
+	if presented.is_empty():
+		return ""
+	if presented == "time":
+		return "Time ran out."
+	if presented == "domination":
+		return "Win by domination."
+	return "Win by %s." % presented
+
+func _ops_state() -> Node:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	var root_node: Window = tree.root
+	if root_node == null:
+		return null
+	return root_node.get_node_or_null("OpsState")
 
 func _log_show_state() -> void:
 	var layer := -999
@@ -517,7 +552,8 @@ func _nearest_canvas_layer() -> CanvasLayer:
 	return null
 
 func _is_rematch_window_open() -> bool:
-	var deadline_ms: int = int(OpsState.rematch_deadline_ms)
+	var ops_state: Node = _ops_state()
+	var deadline_ms: int = int(ops_state.get("rematch_deadline_ms")) if ops_state != null else 0
 	if deadline_ms <= 0:
 		return true
 	return Time.get_ticks_msec() <= deadline_ms

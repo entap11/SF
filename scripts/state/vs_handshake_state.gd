@@ -15,7 +15,7 @@ const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
 const SETTINGS_FORCE_RELEASE_GUARD_FOR_SMOKE: String = "swarmfront/vs/force_release_guard_for_smoke"
-const DEFAULT_BACKEND_TIMEOUT_SEC: float = 2.0
+const DEFAULT_BACKEND_TIMEOUT_SEC: float = 30.0
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _sessions: Dictionary = {}
@@ -134,9 +134,7 @@ func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 				"err": str(result.get("err", "transport_error")),
 				"mode": _transport_mode
 			}, "", 3000)
-		if not OS.is_debug_build():
-			return {"handled": true, "result": result}
-		return {"handled": false}
+		return {"handled": true, "result": result}
 	return {"handled": true, "result": result}
 
 func create_invite(profile: Dictionary, context: Dictionary = {}) -> Dictionary:

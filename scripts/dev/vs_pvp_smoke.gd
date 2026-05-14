@@ -20,9 +20,11 @@ func _run() -> void:
 	var backend_url: String = _arg_value("--vs-smoke-backend-url=")
 	if not backend_url.is_empty():
 		ProjectSettings.set_setting(SETTINGS_BACKEND_URL, backend_url)
-		ProjectSettings.set_setting(SETTINGS_BACKEND_TIMEOUT_SEC, 0.25)
+		ProjectSettings.set_setting(SETTINGS_BACKEND_TIMEOUT_SEC, 30.0)
 	else:
 		backend_url = OS.get_environment(ENV_BACKEND_URL).strip_edges()
+		if backend_url.is_empty() and ProjectSettings.has_setting(SETTINGS_BACKEND_URL):
+			backend_url = str(ProjectSettings.get_setting(SETTINGS_BACKEND_URL, "")).strip_edges()
 	if backend_url.is_empty():
 		_print_step("backend", "no backend configured, validating local fallback")
 	else:

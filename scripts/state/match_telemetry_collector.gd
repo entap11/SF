@@ -54,6 +54,11 @@ var _early_board_control_area_by_player: Dictionary = {}
 var _overcommit_events_by_player: Dictionary = {}
 var _overcommit_window_s_by_player: Dictionary = {}
 var _overcommit_active_by_player: Dictionary = {}
+var _intent_total_by_player: Dictionary = {}
+var _intent_success_by_player: Dictionary = {}
+var _intent_fail_by_player: Dictionary = {}
+var _intent_budget_fail_by_player: Dictionary = {}
+var _intent_no_lane_fail_by_player: Dictionary = {}
 
 var _damage_events: Array[Dictionary] = []
 var _buff_windows: Array[Dictionary] = []
@@ -104,6 +109,11 @@ func reset() -> void:
 	_overcommit_events_by_player.clear()
 	_overcommit_window_s_by_player.clear()
 	_overcommit_active_by_player.clear()
+	_intent_total_by_player.clear()
+	_intent_success_by_player.clear()
+	_intent_fail_by_player.clear()
+	_intent_budget_fail_by_player.clear()
+	_intent_no_lane_fail_by_player.clear()
 	_damage_events.clear()
 	_buff_windows.clear()
 
@@ -171,6 +181,11 @@ func begin_match(
 		_overcommit_events_by_player[player_id] = 0
 		_overcommit_window_s_by_player[player_id] = 0.0
 		_overcommit_active_by_player[player_id] = false
+		_intent_total_by_player[player_id] = 0
+		_intent_success_by_player[player_id] = 0
+		_intent_fail_by_player[player_id] = 0
+		_intent_budget_fail_by_player[player_id] = 0
+		_intent_no_lane_fail_by_player[player_id] = 0
 
 func record_unit_produced(t_ms: int, player_id: int, count: int = 1, source: String = "lane") -> void:
 	if not is_active():
@@ -309,6 +324,50 @@ func record_action_event(t_ms: int, player_id: int, kind: String, payload: Dicti
 		event_row[key_any] = payload.get(key_any)
 	_model.events.append(event_row)
 
+func record_intent_event(
+	t_ms: int,
+	player_id: int,
+	src_hive_id: int,
+	dst_hive_id: int,
+	intent: String,
+	ok: bool,
+	reason: String = "",
+	lane_id: int = -1,
+	context: Dictionary = {}
+) -> void:
+	if not is_active():
+		return
+	if player_id <= 0:
+		return
+	var clean_intent: String = intent.strip_edges().to_lower()
+	if clean_intent.is_empty():
+		clean_intent = "unknown"
+	var clean_reason: String = reason.strip_edges().to_lower()
+	_ensure_player_slot(player_id)
+	_intent_total_by_player[player_id] = int(_intent_total_by_player.get(player_id, 0)) + 1
+	if ok:
+		_intent_success_by_player[player_id] = int(_intent_success_by_player.get(player_id, 0)) + 1
+	else:
+		_intent_fail_by_player[player_id] = int(_intent_fail_by_player.get(player_id, 0)) + 1
+		if clean_reason == "budget":
+			_intent_budget_fail_by_player[player_id] = int(_intent_budget_fail_by_player.get(player_id, 0)) + 1
+		elif clean_reason == "no_lane":
+			_intent_no_lane_fail_by_player[player_id] = int(_intent_no_lane_fail_by_player.get(player_id, 0)) + 1
+	var event_row: Dictionary = {
+		"e": int(MatchTelemetryModelScript.EVENT_INTENT),
+		"t": maxi(0, t_ms),
+		"p": player_id,
+		"src": src_hive_id,
+		"dst": dst_hive_id,
+		"intent": clean_intent,
+		"ok": ok,
+		"reason": clean_reason,
+		"lane_id": lane_id
+	}
+	for key_any in context.keys():
+		event_row[key_any] = context.get(key_any)
+	_model.events.append(event_row)
+
 func record_unit_arrival(
 	t_ms: int,
 	player_id: int,
@@ -443,7 +502,9 @@ func _build_totals() -> Dictionary:
 		"unit_land_npc_by_player": _dict_by_player(players, _units_arrived_npc_hive_by_player),
 		"tower_kills_by_player": _dict_by_player(players, _tower_units_killed_by_player),
 		"unit_deaths_by_victim_player": _dict_by_player(players, _unit_deaths_by_victim_player),
-		"unit_deaths_by_killer_player": _dict_by_player(players, _unit_deaths_by_killer_player)
+		"unit_deaths_by_killer_player": _dict_by_player(players, _unit_deaths_by_killer_player),
+		"intent_total_by_player": _dict_by_player(players, _intent_total_by_player),
+		"intent_fail_by_player": _dict_by_player(players, _intent_fail_by_player)
 	}
 
 func _dict_by_player(players: Array[int], source: Dictionary) -> Dictionary:
@@ -537,6 +598,13 @@ func _build_metrics(duration_s: float) -> Dictionary:
 	var early_board_control_share: Array = []
 	var early_activity_score: Array = []
 	var overcommit: Array = []
+	var intent_total: Array = []
+	var intent_success: Array = []
+	var intent_fail: Array = []
+	var intent_budget_fail: Array = []
+	var intent_no_lane_fail: Array = []
+	var style_features: Array = []
+	var bot_profile_knobs: Array = []
 	var player_index: Dictionary = {}
 	for i in range(players.size()):
 		var player_id: int = players[i]
@@ -563,6 +631,13 @@ func _build_metrics(duration_s: float) -> Dictionary:
 		var reaction_sample_value: int = int((reaction.get("samples_by_player", {}) as Dictionary).get(player_id, 0))
 		var early_reaction_time_value: float = float((reaction.get("early_median_by_player", {}) as Dictionary).get(player_id, 0.0))
 		var early_reaction_sample_value: int = int((reaction.get("early_samples_by_player", {}) as Dictionary).get(player_id, 0))
+		var lane_reversal_count: int = int(_lane_reversals_by_player.get(player_id, 0))
+		var overcommit_count: int = int(_overcommit_events_by_player.get(player_id, 0))
+		var intent_total_count: int = int(_intent_total_by_player.get(player_id, 0))
+		var intent_success_count: int = int(_intent_success_by_player.get(player_id, 0))
+		var intent_fail_count: int = int(_intent_fail_by_player.get(player_id, 0))
+		var intent_budget_fail_count: int = int(_intent_budget_fail_by_player.get(player_id, 0))
+		var intent_no_lane_fail_count: int = int(_intent_no_lane_fail_by_player.get(player_id, 0))
 		if duration_s > 0.0:
 			avg_value = float(produced_count) / duration_s
 			avg_interval_value = duration_s / float(produced_count) if produced_count > 0 else 0.0
@@ -589,7 +664,7 @@ func _build_metrics(duration_s: float) -> Dictionary:
 		swarms_sent.append(swarm_count)
 		meaningful_actions.append(meaningful_count)
 		meaningful_apm.append(meaningful_apm_value)
-		lane_reversals.append(int(_lane_reversals_by_player.get(player_id, 0)))
+		lane_reversals.append(lane_reversal_count)
 		arrived_friendly.append(int(_units_arrived_friendly_hive_by_player.get(player_id, 0)))
 		arrived_enemy.append(int(_units_arrived_enemy_hive_by_player.get(player_id, 0)))
 		arrived_npc.append(int(_units_arrived_npc_hive_by_player.get(player_id, 0)))
@@ -631,7 +706,37 @@ func _build_metrics(duration_s: float) -> Dictionary:
 				early_reaction_sample_value
 			)
 		)
-		overcommit.append(int(_overcommit_events_by_player.get(player_id, 0)))
+		overcommit.append(overcommit_count)
+		intent_total.append(intent_total_count)
+		intent_success.append(intent_success_count)
+		intent_fail.append(intent_fail_count)
+		intent_budget_fail.append(intent_budget_fail_count)
+		intent_no_lane_fail.append(intent_no_lane_fail_count)
+		var player_style_features: Dictionary = _build_style_features_for_player(
+			duration_s,
+			meaningful_apm_value,
+			lane_reversal_count,
+			swarm_count,
+			hostile_arrivals_count,
+			int(_hive_damage_dealt_by_player.get(player_id, 0)),
+			int(_hive_damage_taken_by_player.get(player_id, 0)),
+			lane_budget_utilization_value,
+			lane_waste_value,
+			avg_board_control_share_value,
+			float(_board_control_peak_share_by_player.get(player_id, 0.0)),
+			reaction_time_value,
+			reaction_sample_value,
+			overcommit_count,
+			intent_total_count,
+			intent_fail_count,
+			intent_budget_fail_count,
+			intent_no_lane_fail_count,
+			early_apm_value,
+			early_open_budget_value,
+			early_board_share_value
+		)
+		style_features.append(player_style_features)
+		bot_profile_knobs.append(_build_bot_profile_knobs_from_style(player_style_features, reaction_time_value, reaction_sample_value))
 	var swing_moment_ms: int = _compute_swing_moment_ms(duration_s)
 	var production_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(produced)
 	var barracks_production_ratio_vs_top_opponent: Array = _ratio_vs_top_opponent_array(barracks_produced)
@@ -699,7 +804,88 @@ func _build_metrics(duration_s: float) -> Dictionary:
 		"early_board_control_share_by_player": early_board_control_share,
 		"early_game_activity_score_by_player": early_activity_score,
 		"overcommit_events_by_player": overcommit,
+		"intent_total_by_player": intent_total,
+		"intent_success_by_player": intent_success,
+		"intent_fail_by_player": intent_fail,
+		"intent_budget_fail_by_player": intent_budget_fail,
+		"intent_no_lane_fail_by_player": intent_no_lane_fail,
+		"style_features_by_player": style_features,
+		"bot_profile_knobs_by_player": bot_profile_knobs,
 		"swing_moment_ms": swing_moment_ms
+	}
+
+func _build_style_features_for_player(
+	duration_s: float,
+	meaningful_apm: float,
+	lane_reversals: int,
+	swarms_sent: int,
+	hostile_arrivals: int,
+	hive_damage_dealt: int,
+	hive_damage_taken: int,
+	lane_budget_utilization: float,
+	lane_waste: float,
+	average_board_control_share: float,
+	board_control_peak_share: float,
+	reaction_time_s: float,
+	reaction_samples: int,
+	overcommit_events: int,
+	intent_total: int,
+	intent_fail: int,
+	intent_budget_fail: int,
+	intent_no_lane_fail: int,
+	early_apm: float,
+	early_open_budget_utilization: float,
+	early_board_control_share: float
+) -> Dictionary:
+	var minutes: float = maxf(duration_s / 60.0, 0.25)
+	var swarm_rate: float = float(swarms_sent) / minutes
+	var hostile_arrival_rate: float = float(hostile_arrivals) / minutes
+	var reversal_rate: float = float(lane_reversals) / minutes
+	var overcommit_rate: float = float(overcommit_events) / minutes
+	var intent_fail_rate: float = float(intent_fail) / float(maxi(intent_total, 1))
+	var budget_fail_rate: float = float(intent_budget_fail) / float(maxi(intent_total, 1))
+	var no_lane_fail_rate: float = float(intent_no_lane_fail) / float(maxi(intent_total, 1))
+	var damage_pressure_ratio: float = float(hive_damage_dealt + 1) / float(hive_damage_taken + 1)
+	var reaction_speed: float = 0.5
+	if reaction_samples > 0:
+		reaction_speed = clampf(1.0 - (reaction_time_s / 8.0), 0.0, 1.0)
+	var aggression: float = clampf((swarm_rate / 4.0) * 0.34 + (hostile_arrival_rate / 12.0) * 0.26 + (float(hive_damage_dealt) / 80.0) * 0.22 + clampf(damage_pressure_ratio / 2.0, 0.0, 1.0) * 0.18, 0.0, 1.0)
+	var defense_bias: float = clampf((float(hive_damage_taken) / 80.0) * 0.28 + reaction_speed * 0.25 + (1.0 - lane_waste) * 0.2 + (float(intent_budget_fail) / 5.0) * 0.12 + (1.0 - minf(aggression, 1.0)) * 0.15, 0.0, 1.0)
+	var expansion_bias: float = clampf(early_board_control_share * 0.38 + average_board_control_share * 0.28 + board_control_peak_share * 0.2 + early_open_budget_utilization * 0.14, 0.0, 1.0)
+	var lane_efficiency: float = clampf(lane_budget_utilization * 0.46 + (1.0 - lane_waste) * 0.34 + (1.0 - budget_fail_rate) * 0.2, 0.0, 1.0)
+	var risk_tolerance: float = clampf(aggression * 0.36 + expansion_bias * 0.26 + (overcommit_rate / 2.5) * 0.2 + budget_fail_rate * 0.1 + no_lane_fail_rate * 0.08, 0.0, 1.0)
+	var volatility: float = clampf((reversal_rate / 6.0) * 0.35 + intent_fail_rate * 0.25 + (overcommit_rate / 2.0) * 0.2 + (meaningful_apm / 18.0) * 0.1 + (early_apm / 18.0) * 0.1, 0.0, 1.0)
+	var swarm_preference: float = clampf(swarm_rate / 5.0, 0.0, 1.0)
+	var tempo: float = clampf(meaningful_apm / 16.0, 0.0, 1.0)
+	return {
+		"aggression": aggression,
+		"defense_bias": defense_bias,
+		"expansion_bias": expansion_bias,
+		"reaction_speed": reaction_speed,
+		"lane_efficiency": lane_efficiency,
+		"risk_tolerance": risk_tolerance,
+		"volatility_under_pressure": volatility,
+		"swarm_preference": swarm_preference,
+		"tempo": tempo,
+		"intent_fail_rate": intent_fail_rate,
+		"budget_fail_rate": budget_fail_rate,
+		"no_lane_fail_rate": no_lane_fail_rate
+	}
+
+func _build_bot_profile_knobs_from_style(style: Dictionary, reaction_time_s: float, reaction_samples: int) -> Dictionary:
+	var reaction_delay_s: float = 2.5
+	if reaction_samples > 0:
+		reaction_delay_s = clampf(reaction_time_s, 0.25, 8.0)
+	return {
+		"aggression": float(style.get("aggression", 0.0)),
+		"defense_bias": float(style.get("defense_bias", 0.0)),
+		"expansion_bias": float(style.get("expansion_bias", 0.0)),
+		"reaction_delay_s": reaction_delay_s,
+		"lane_budget_target": clampf(float(style.get("lane_efficiency", 0.0)), 0.15, 1.0),
+		"risk_tolerance": float(style.get("risk_tolerance", 0.0)),
+		"swarm_preference": float(style.get("swarm_preference", 0.0)),
+		"volatility": float(style.get("volatility_under_pressure", 0.0)),
+		"tempo": float(style.get("tempo", 0.0))
 	}
 
 func _sorted_events_by_time() -> Array[Dictionary]:
@@ -1230,6 +1416,16 @@ func _ensure_player_slot(player_id: int) -> void:
 		_overcommit_window_s_by_player[player_id] = 0.0
 	if not _overcommit_active_by_player.has(player_id):
 		_overcommit_active_by_player[player_id] = false
+	if not _intent_total_by_player.has(player_id):
+		_intent_total_by_player[player_id] = 0
+	if not _intent_success_by_player.has(player_id):
+		_intent_success_by_player[player_id] = 0
+	if not _intent_fail_by_player.has(player_id):
+		_intent_fail_by_player[player_id] = 0
+	if not _intent_budget_fail_by_player.has(player_id):
+		_intent_budget_fail_by_player[player_id] = 0
+	if not _intent_no_lane_fail_by_player.has(player_id):
+		_intent_no_lane_fail_by_player[player_id] = 0
 
 func _counts_as_meaningful_action(kind: String) -> bool:
 	match kind:

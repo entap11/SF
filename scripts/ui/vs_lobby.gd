@@ -749,6 +749,8 @@ func _start_match(session_already_started: bool = false) -> void:
 		if _session_id.is_empty() and _handshake() != null:
 			status_label.text = "Create or join a PvP session first."
 			return
+		if not _money_game_has_required_humans():
+			return
 		if _handshake() != null and not session_already_started:
 			var start_result: Dictionary = _handshake().call("start_session", _session_id, _local_uid) as Dictionary
 			if not bool(start_result.get("ok", false)):
@@ -887,7 +889,7 @@ func _sync_transport_ready() -> bool:
 	if handshake == null:
 		status_label.text = "Handshake service unavailable."
 		return false
-	if OS.is_debug_build():
+	if OS.is_debug_build() and not bool(_context_meta.get("human_pvp", false)):
 		return true
 	if handshake.has_method("is_authoritative_transport_online") and bool(handshake.call("is_authoritative_transport_online")):
 		return true
@@ -1030,6 +1032,52 @@ func _effective_required_players() -> int:
 	if _uses_async_window():
 		return _required_players
 	return 2
+
+func _money_game_has_required_humans() -> bool:
+	if _free_roll:
+		return true
+	var required: int = _required_human_players_for_mode()
+	if required <= 2:
+		return true
+	var humans: int = _current_session_human_count()
+	if humans >= required:
+		return true
+	status_label.text = "%s money games require %d human players. Current PvP handshake has %d." % [
+		_mode_label(_mode),
+		required,
+		humans
+	]
+	return false
+
+func _required_human_players_for_mode() -> int:
+	match _mode.strip_edges().to_upper():
+		"2V2", "4P FFA":
+			return 4
+		"3P FFA":
+			return 3
+		_:
+			return 2
+
+func _current_session_human_count() -> int:
+	if _session_id.is_empty():
+		return _assigned_players.size()
+	var handshake: Node = _handshake()
+	if handshake == null:
+		return _assigned_players.size()
+	var session: Dictionary = handshake.call("get_session", _session_id) as Dictionary
+	if session.is_empty():
+		return _assigned_players.size()
+	var count: int = 0
+	for key in ["host", "guest"]:
+		var profile_any: Variant = session.get(key, {})
+		if typeof(profile_any) != TYPE_DICTIONARY:
+			continue
+		var profile: Dictionary = profile_any as Dictionary
+		var uid: String = str(profile.get("uid", "")).strip_edges()
+		if uid.is_empty() or uid.begins_with("bot_") or uid.begins_with("standard_bot_"):
+			continue
+		count += 1
+	return count
 
 func _on_dev_min_override_pressed() -> void:
 	if not _free_roll:

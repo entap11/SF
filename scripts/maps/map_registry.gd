@@ -6,8 +6,7 @@ const SKIP_DIR_TOKENS: Array[String] = ["/_legacy", "/templates"]
 const SANDBOX_ENABLED: bool = true
 const SANDBOX_ENV_VAR: String = "SF_MAP_SANDBOX"
 const SANDBOX_ALLOWED_MAP_IDS: Array[String] = [
-	"MAP_TEST",
-	"CROSS_4P_8x14"
+	"MAP_TEST"
 ]
 const SANDBOXED_PUBLIC_STYLES: Dictionary = {
 	"nomansland": ["656"]
@@ -651,7 +650,7 @@ static func _should_skip_dir(path: String) -> bool:
 
 static func _is_map_candidate_path(path: String) -> bool:
 	var map_id: String = map_id_from_path(path)
-	return map_id.begins_with("MAP_") or SANDBOX_ALLOWED_MAP_IDS.has(map_id)
+	return map_id.begins_with("MAP_")
 
 static func _is_sandbox_enabled() -> bool:
 	if not SANDBOX_ENABLED:

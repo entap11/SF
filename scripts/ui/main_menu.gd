@@ -10741,8 +10741,6 @@ func _human_pvp_map_ids(mode_id: String) -> PackedStringArray:
 	match mode_id.strip_edges().to_upper():
 		"3P FFA":
 			fallback.append("MAP_delta__SBASE__3p")
-		"2V2", "4P FFA":
-			fallback.append("CROSS_4P_8x14")
 		_:
 			fallback.append("MAP_nomansland__545__v01_top2_sides__1p")
 	return fallback
@@ -12369,9 +12367,9 @@ func _free_roll_map_modes_for_game(mode_id: String) -> Array[String]:
 		"3P FFA":
 			return ["3p"]
 		"4P FFA":
-			return ["4p"]
+			return ["1p"]
 		"2V2":
-			return ["4p"]
+			return ["1p"]
 		_:
 			return ["1p"]
 

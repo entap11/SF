@@ -21,6 +21,7 @@ const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
 const MatchTelemetryModelScript := preload("res://scripts/state/match_telemetry_model.gd")
 const MatchTelemetryCollectorScript := preload("res://scripts/state/match_telemetry_collector.gd")
 const MatchAnalyzerScript := preload("res://scripts/state/match_analyzer.gd")
+const PlayerTelemetryProfileStoreScript := preload("res://scripts/state/player_telemetry_profile_store.gd")
 const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaTutorialSection1Controller := preload("res://scripts/arena_helpers/tutorial_section1_controller.gd")
@@ -380,6 +381,7 @@ const RUNTIME_SUPPORTED_BUFF_EFFECT_TYPES: Dictionary = {
 var current_map_data: Dictionary = {}
 var _match_telemetry_collector: Variant = MatchTelemetryCollectorScript.new()
 var _match_analyzer: Variant = MatchAnalyzerScript.new()
+var _player_telemetry_profiles: Variant = PlayerTelemetryProfileStoreScript.new()
 var _post_match_analysis_summary: Dictionary = {}
 var _post_match_telemetry_path: String = ""
 var _telemetry_active: bool = false
@@ -2685,11 +2687,18 @@ func _finalize_match_telemetry_session(winner_id_in: int) -> void:
 	else:
 		_post_match_telemetry_path = ""
 		SFLog.warn("TELEMETRY_SAVE_FAILED", save_result)
+	var profile_result: Dictionary = {}
+	if _player_telemetry_profiles != null and _player_telemetry_profiles.has_method("update_from_match"):
+		var profile_result_any: Variant = _player_telemetry_profiles.call("update_from_match", telemetry_model)
+		profile_result = profile_result_any as Dictionary if typeof(profile_result_any) == TYPE_DICTIONARY else {}
+		if not bool(profile_result.get("ok", false)):
+			SFLog.warn("PLAYER_TELEMETRY_PROFILE_UPDATE_FAILED", profile_result)
 	_telemetry_active = false
 	SFLog.info("TELEMETRY_FINALIZE", {
 		"winner_id": winner_id_in,
 		"summary_insights": int(_post_match_analysis_summary.get("insights", []).size()),
-		"save_path": _post_match_telemetry_path
+		"save_path": _post_match_telemetry_path,
+		"profile_updated_player_ids": profile_result.get("updated_player_ids", [])
 	})
 
 func _telemetry_utc_ms_now() -> int:

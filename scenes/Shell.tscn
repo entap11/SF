@@ -52,9 +52,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -320.0
-offset_top = -260.0
+offset_top = -330.0
 offset_right = 320.0
-offset_bottom = 260.0
+offset_bottom = 330.0
 
 [node name="VBox" type="VBoxContainer" parent="MenuRoot/MenuPanel"]
 layout_mode = 1
@@ -124,6 +124,14 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Mode: 2v2"
+
+[node name="TelemetryButton" type="Button" parent="MenuRoot/MenuPanel/VBox/ButtonsRow"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_fonts/font = ExtResource("3")
+theme_override_font_sizes/font_size = 20
+text = "TELEMETRY"
 
 [node name="StatusLabel" type="Label" parent="MenuRoot/MenuPanel/VBox"]
 layout_mode = 2
