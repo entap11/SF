@@ -21,11 +21,6 @@ const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget
 const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
 const HONEY_TEXT_SHADER: Shader = preload("res://ui/hud/honey/honey_text_honeycomb.gdshader")
 const SWARMFRONT_TITLE_SHADER: Shader = preload("res://ui/main_menu/swarmfront_title_forged.gdshader")
-const DEFAULT_BRAND_BANNER_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/signage_banner_yellow_red.tres"
-const BRAND_BANNER_TOP_PX: float = 104.0
-const BRAND_BANNER_WIDTH_MIN_PX: float = 300.0
-const BRAND_BANNER_WIDTH_MAX_PX: float = 390.0
-const BRAND_BANNER_VIEWPORT_WIDTH_RATIO: float = 0.82
 const TOP_CHROME_SAFE_FALLBACK_PX: float = 72.0
 const TOP_CHROME_SAFE_MAX_PX: float = 96.0
 const TOP_BAR_BASE_HEIGHT_PX: float = 90.0
@@ -45,7 +40,7 @@ const TIER_WIDGET_LEFT_MARGIN: float = 8.0
 const TIER_WIDGET_TOP_OFFSET: float = 10.0
 const TIER_WIDGET_PANEL_WIDTH: float = 272.0
 const TIER_WIDGET_PANEL_HEIGHT: float = 200.0
-const MM_BACKGROUND_Y_SHIFT: float = 36.0
+const MM_BACKGROUND_Y_SHIFT: float = -500.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -89,8 +84,6 @@ const DASH_HEX_CONTAINER_EXTRA_WIDTH: float = 16.0
 const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 const HIVE_VIEW_MEMBER := "member"
 const HIVE_VIEW_CANDIDATE := "candidate"
-
-@export_file("*.tres", "*.png") var brand_banner_texture_path: String = DEFAULT_BRAND_BANNER_TEXTURE_PATH
 
 @onready var top_bar: Control = $TopBar
 @onready var hive_button: HexButton = $TopBar/HiveButton
@@ -380,7 +373,6 @@ var _dash_tab_closed_right := 0.0
 var _dash_tab_open_left := 0.0
 var _dash_tab_open_right := 0.0
 var _dash_tween: Tween
-var _brand_banner_texture_rect: TextureRect = null
 var _store_direct_mode: bool = false
 var _settings_direct_mode: bool = false
 var _buffs_direct_mode: bool = false
@@ -1086,8 +1078,6 @@ func _ready() -> void:
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
 	if not get_viewport().size_changed.is_connected(_apply_background_art_direction):
 		get_viewport().size_changed.connect(_apply_background_art_direction)
-	if not get_viewport().size_changed.is_connected(_layout_brand_banner):
-		get_viewport().size_changed.connect(_layout_brand_banner)
 	if not get_viewport().size_changed.is_connected(_apply_top_safe_area_layout):
 		get_viewport().size_changed.connect(_apply_top_safe_area_layout)
 	_set_hex_buttons()
@@ -1442,7 +1432,7 @@ func _style_labels() -> void:
 		if not _apply_free_roll_atlas_font(brand_title_label, 21):
 			_apply_font(brand_title_label, _font_semibold, 24)
 		_apply_swarmfront_title_shader(brand_title_label)
-		_ensure_brand_banner()
+		_suppress_legacy_brand_banner()
 	_apply_display_label($HeroPanel/HeroVBox/HeroTitle, 22, _font_semibold, 24)
 	_apply_font($HeroPanel/HeroVBox/HeroSub, _font_regular, 16)
 	_apply_display_label($DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader, 16, _font_semibold, 18)
@@ -5427,25 +5417,12 @@ func _apply_swarmfront_title_shader(label: Label) -> void:
 	mat.set_shader_parameter("wall_spill_strength", 0.22)
 	mat.set_shader_parameter("bevel_strength", 0.24)
 
-func _ensure_brand_banner() -> void:
-	if brand_title_label == null:
-		return
-	var banner_texture: Texture2D = load(brand_banner_texture_path) as Texture2D
-	if banner_texture == null:
-		brand_title_label.visible = true
-		return
-	if _brand_banner_texture_rect == null or not is_instance_valid(_brand_banner_texture_rect):
-		_brand_banner_texture_rect = TextureRect.new()
-		_brand_banner_texture_rect.name = "BrandBanner"
-		_brand_banner_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_brand_banner_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		_brand_banner_texture_rect.z_index = 100
-		add_child(_brand_banner_texture_rect)
-	_brand_banner_texture_rect.texture = banner_texture
-	_brand_banner_texture_rect.visible = true
-	brand_title_label.visible = false
-	_layout_brand_banner()
-	call_deferred("_layout_brand_banner")
+func _suppress_legacy_brand_banner() -> void:
+	var existing_banner: Node = get_node_or_null("BrandBanner")
+	if existing_banner != null:
+		existing_banner.queue_free()
+	if brand_title_label != null:
+		brand_title_label.visible = false
 
 func _top_safe_area_inset_px() -> float:
 	var viewport_size: Vector2 = get_viewport_rect().size
@@ -5500,7 +5477,6 @@ func _apply_top_safe_area_layout() -> void:
 			_jukebox_panel.call("set_content_top_offset", usable_top)
 		elif _jukebox_panel.has_method("set_top_safe_inset"):
 			_jukebox_panel.call("set_top_safe_inset", usable_top)
-	_layout_brand_banner()
 
 func _apply_main_menu_surface_top(control: Control, usable_top: float) -> void:
 	if control == null:
@@ -5521,34 +5497,6 @@ func _apply_hero_panel_usable_top(usable_top: float) -> void:
 	var viewport_height: float = get_viewport_rect().size.y
 	var anchored_top: float = viewport_height * hero_panel.anchor_top
 	hero_panel.offset_top = maxf(0.0, usable_top - anchored_top)
-
-func _layout_brand_banner() -> void:
-	if _brand_banner_texture_rect == null or not is_instance_valid(_brand_banner_texture_rect):
-		return
-	if brand_title_label == null:
-		return
-	var banner_texture: Texture2D = _brand_banner_texture_rect.texture
-	if banner_texture == null:
-		return
-	var viewport_size: Vector2 = get_viewport_rect().size
-	var texture_size: Vector2 = banner_texture.get_size()
-	var aspect: float = texture_size.x / maxf(1.0, texture_size.y)
-	var target_width: float = clampf(
-		viewport_size.x * BRAND_BANNER_VIEWPORT_WIDTH_RATIO,
-		BRAND_BANNER_WIDTH_MIN_PX,
-		BRAND_BANNER_WIDTH_MAX_PX
-	)
-	var target_height: float = target_width / maxf(0.01, aspect)
-	var center_x: float = viewport_size.x * 0.5
-	_brand_banner_texture_rect.anchor_left = 0.0
-	_brand_banner_texture_rect.anchor_right = 0.0
-	_brand_banner_texture_rect.anchor_top = 0.0
-	_brand_banner_texture_rect.anchor_bottom = 0.0
-	_brand_banner_texture_rect.offset_left = center_x - target_width * 0.5
-	_brand_banner_texture_rect.offset_right = center_x + target_width * 0.5
-	var top_y: float = BRAND_BANNER_TOP_PX + _top_safe_area_inset_px()
-	_brand_banner_texture_rect.offset_top = top_y
-	_brand_banner_texture_rect.offset_bottom = top_y + target_height
 
 func _apply_player_profile(profile: Dictionary) -> void:
 	var tier_text := str(profile.get("tier_text", "Tier: Bronze"))
