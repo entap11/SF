@@ -16,6 +16,7 @@ const LEADERBOARD_ROW_FONT_SIZE: int = 24
 const LEADERBOARD_BADGE_FONT_SIZE: int = 22
 const CPU_STYLE_OPTIONS: Array[String] = ["Default", "Balancer", "Turtle", "Raider", "Greedy", "Swarm Lord"]
 const CPU_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Expert"]
+const BASE_CONTENT_MARGIN_TOP: float = 18.0
 
 signal closed
 signal play_requested(map_path: String, cpu_style: String, cpu_tier: String)
@@ -55,6 +56,8 @@ const TOP_LIMIT: int = 50
 @onready var leaderboard_down_button: Button = $VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav/LeaderboardDown
 @onready var your_best_label: Label = $VBox/LeaderboardPanel/LeaderboardVBox/YourBest
 @onready var badge_note_label: Label = $VBox/LeaderboardPanel/LeaderboardVBox/BadgeNote
+@onready var footer_close_button: Button = $VBox/FooterCloseButton
+@onready var root_vbox: VBoxContainer = $VBox
 
 var _font_regular: Font = null
 var _font_semibold: Font = null
@@ -83,6 +86,7 @@ func _ready() -> void:
 	play_button.pressed.connect(_on_play_pressed)
 	scout_button.pressed.connect(_on_scout_pressed)
 	close_button.pressed.connect(func() -> void: closed.emit())
+	footer_close_button.pressed.connect(func() -> void: closed.emit())
 	map_left_button.pressed.connect(_on_map_left_pressed)
 	map_right_button.pressed.connect(_on_map_right_pressed)
 	leaderboard_up_button.pressed.connect(_on_leaderboard_up_pressed)
@@ -264,6 +268,10 @@ func _style_controls() -> void:
 		_apply_font(close_button, _font_semibold, 12)
 		_style_button(close_button)
 		close_button.custom_minimum_size = Vector2(150.0, 38.0)
+	if footer_close_button != null:
+		_apply_font(footer_close_button, _font_semibold, 14)
+		_style_button(footer_close_button)
+		footer_close_button.custom_minimum_size = Vector2(240.0, 52.0)
 	for button in [map_left_button, map_right_button]:
 		_apply_font(button, _font_semibold, 11)
 		_style_button(button)
@@ -282,6 +290,11 @@ func _style_controls() -> void:
 		cpu_detail_body_label.modulate = Color(0.88, 0.90, 0.94, 0.92)
 	_apply_nav_icons()
 	_apply_selector_nav_icons()
+
+func set_top_safe_inset(inset_px: float) -> void:
+	if root_vbox == null:
+		return
+	root_vbox.offset_top = BASE_CONTENT_MARGIN_TOP + maxf(0.0, inset_px)
 
 func _build_category_tabs() -> void:
 	for child in category_tabs.get_children():

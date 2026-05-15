@@ -256,3 +256,8 @@ text = "Your best: --"
 [node name="BadgeNote" type="Label" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
 autowrap_mode = 3
 text = "Badge note"
+
+[node name="FooterCloseButton" type="Button" parent="VBox"]
+custom_minimum_size = Vector2(240, 52)
+size_flags_horizontal = 4
+text = "CLOSE"

@@ -758,6 +758,8 @@ func _set_menu_state(in_menu: bool) -> void:
 		_map_picker_panel.visible = false
 	if back_overlay != null:
 		back_overlay.visible = not in_menu
+	if in_menu:
+		_hide_vs_frame()
 	_update_back_parent(not in_menu)
 	_refresh_back_button_state(in_menu)
 	_refresh_shell_menu_status()
@@ -1219,6 +1221,23 @@ func _ensure_vs_frame_visible() -> void:
 		if node == null:
 			continue
 		node.visible = true
+
+func _hide_vs_frame() -> void:
+	var buffer_layer: CanvasItem = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer") as CanvasItem
+	var buffer_root: CanvasItem = get_node_or_null(SHELL_BUFFER_ROOT_PATH) as CanvasItem
+	var top_buffer: CanvasItem = get_node_or_null(SHELL_TOP_BUFFER_PATH) as CanvasItem
+	var bottom_buffer: CanvasItem = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as CanvasItem
+	for node_any in [buffer_layer, buffer_root, top_buffer, bottom_buffer]:
+		var node: CanvasItem = node_any as CanvasItem
+		if node == null:
+			continue
+		node.visible = false
+	var power_bar: CanvasItem = get_node_or_null(SHELL_POWER_BAR_PATH) as CanvasItem
+	if power_bar != null:
+		power_bar.visible = false
+	_set_buff_strip_visibility(false, false, false, false)
+	if _shell_prematch_overlay != null and is_instance_valid(_shell_prematch_overlay):
+		_shell_prematch_overlay.visible = false
 
 func _start_game() -> void:
 	_ensure_game_instance()
@@ -2191,6 +2210,8 @@ func _is_match_live() -> bool:
 	return phase == int(OpsState.MatchPhase.RUNNING) and prematch_ms <= 0
 
 func _show_power_bar_during_async_prematch() -> bool:
+	if _arena_instance == null:
+		return false
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return false

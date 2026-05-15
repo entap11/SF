@@ -9,6 +9,7 @@ extends Node2D
 @export var floor_texture: Texture2D = null
 @export var overlay_texture: Texture2D = null
 @export var margin_px: float = 0.0
+@export var vertical_overscan_px: float = 0.0
 @export var origin_px: Vector2 = Vector2.ZERO
 
 var _size_px: Vector2 = Vector2.ZERO
@@ -42,7 +43,11 @@ func _draw() -> void:
 	if _size_px.x <= 0.0 or _size_px.y <= 0.0:
 		return
 	var margin: float = maxf(0.0, margin_px)
-	var rect: Rect2 = Rect2(origin_px - Vector2(margin, margin), _size_px + Vector2(margin * 2.0, margin * 2.0))
+	var vertical_overscan: float = maxf(0.0, vertical_overscan_px)
+	var rect: Rect2 = Rect2(
+		origin_px - Vector2(margin, vertical_overscan),
+		_size_px + Vector2(margin * 2.0, vertical_overscan * 2.0)
+	)
 	if floor_texture != null:
 		draw_texture_rect(floor_texture, rect, false)
 	else:
@@ -73,7 +78,8 @@ func _apply_floor_layout() -> void:
 	if not base_ok or not overlay_ok:
 		return
 	var margin: float = maxf(0.0, margin_px)
-	var size: Vector2 = _size_px + Vector2(margin * 2.0, margin * 2.0)
+	var vertical_overscan: float = maxf(0.0, vertical_overscan_px)
+	var size: Vector2 = _size_px + Vector2(margin * 2.0, vertical_overscan * 2.0)
 	var center: Vector2 = origin_px + Vector2(_size_px.x * 0.5, _size_px.y * 0.5)
 	_base_floor.position = center
 	_overlay_floor.position = center

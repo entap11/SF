@@ -1312,9 +1312,11 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 	if selection.drag_active and selection.drag_moved and selection.drag_start_hive_id > 0:
 		var start_id: int = selection.drag_start_hive_id
 		if end_id > 0 and end_id != start_id:
-			_apply_hive_to_hive_action(start_id, end_id, player_id, player_id, arena_api)
-			# Keep drag behavior consistent with tap: clear source selection after issuing.
-			_clear_selected_for_player(arena_api, player_id)
+			var drag_result: Dictionary = _apply_hive_to_hive_action(start_id, end_id, player_id, player_id, arena_api)
+			if _should_keep_source_selected_after_intent(start_id, player_id, arena_api, drag_result):
+				_set_selected_for_player(arena_api, player_id, start_id)
+			else:
+				_clear_selected_for_player(arena_api, player_id)
 		reset_drag()
 		_queue_lane_preview_redraw(arena_api)
 		arena_api.mark_render_dirty("input_release")
@@ -1418,10 +1420,11 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 		clear_tap_state()
 		return
 	if prev_selected_id != -1 and prev_selected_id != clicked_id:
-		_apply_hive_to_hive_action(prev_selected_id, clicked_id, player_id, dev_pid, arena_api)
-		# Keep legacy hive-node path consistent with pointer path:
-		# do not retain selection after an issued intent.
-		_clear_selected_for_player(arena_api, player_id)
+		var tap_result: Dictionary = _apply_hive_to_hive_action(prev_selected_id, clicked_id, player_id, dev_pid, arena_api)
+		if _should_keep_source_selected_after_intent(prev_selected_id, player_id, arena_api, tap_result):
+			_set_selected_for_player(arena_api, player_id, prev_selected_id)
+		else:
+			_clear_selected_for_player(arena_api, player_id)
 		clear_tap_state()
 		return
 	if clicked_owned:
@@ -1459,13 +1462,20 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 	arena_api.dbg("SF: Cell selected %d,%d" % [selection.selected_cell.x, selection.selected_cell.y])
 	clear_tap_state()
 
-func _apply_hive_to_hive_action(from_id: int, to_id: int, player_id: int, dev_pid: int, arena_api: ArenaAPI) -> void:
+func _apply_hive_to_hive_action(from_id: int, to_id: int, player_id: int, dev_pid: int, arena_api: ArenaAPI) -> Dictionary:
+	var rejected: Dictionary = {
+		"ok": false,
+		"src": from_id,
+		"dst": to_id,
+		"reason": "invalid"
+	}
 	if from_id <= 0 or to_id <= 0 or from_id == to_id:
-		return
+		return rejected
 	var from_hive: HiveData = arena_api.find_hive_by_id(from_id)
 	var to_hive: HiveData = arena_api.find_hive_by_id(to_id)
 	if from_hive == null or to_hive == null:
-		return
+		rejected["reason"] = "missing_hive"
+		return rejected
 	var from_owned: bool = from_hive.owner_id == player_id
 	var to_owned: bool = to_hive.owner_id == player_id
 	if from_owned:
@@ -1480,14 +1490,23 @@ func _apply_hive_to_hive_action(from_id: int, to_id: int, player_id: int, dev_pi
 		# Src->dst tap/drag should establish intent, not trigger swarm.
 		# Swarm remains available through explicit lane double-tap.
 		if lane_active:
-			return
-		_issue_intent(from_id, to_id, player_id, dev_pid, arena_api)
-		return
+			rejected["reason"] = "lane_active"
+			return rejected
+		return _issue_intent(from_id, to_id, player_id, dev_pid, arena_api)
 	if not from_owned and to_owned:
 		if arena_api.intent_is_on(to_id, from_id):
 			arena_api.retract_lane(to_id, from_id, player_id)
+			return {
+				"ok": true,
+				"src": to_id,
+				"dst": from_id,
+				"intent": "none",
+				"reason": ""
+			}
+	rejected["reason"] = "ownership"
+	return rejected
 
-func _issue_intent(from_id: int, to_id: int, player_id: int, dev_pid: int, arena_api: ArenaAPI) -> void:
+func _issue_intent(from_id: int, to_id: int, player_id: int, dev_pid: int, arena_api: ArenaAPI) -> Dictionary:
 	SFLog.allow_tag("INPUT_INTENT_REJECTED")
 	var src_owner := int(arena_api.get_hive_owner_id(from_id))
 	var dst_owner := int(arena_api.get_hive_owner_id(to_id))
@@ -1506,7 +1525,7 @@ func _issue_intent(from_id: int, to_id: int, player_id: int, dev_pid: int, arena
 				"reason": str(result.get("reason", "unknown"))
 			})
 			_maybe_notify_wall_blocked_attempt(from_id, to_id, "feed", arena_api)
-		return
+		return result
 	var result := OpsState.apply_lane_intent(from_id, to_id, "attack")
 	if bool(result.get("ok", false)):
 		SFLog.info("INPUT_INTENT", {"player_id": player_id, "src": from_id, "dst": to_id, "intent": "attack"})
@@ -1520,6 +1539,21 @@ func _issue_intent(from_id: int, to_id: int, player_id: int, dev_pid: int, arena
 			"reason": str(result.get("reason", "unknown"))
 		})
 		_maybe_notify_wall_blocked_attempt(from_id, to_id, "attack", arena_api)
+	return result
+
+func _should_keep_source_selected_after_intent(source_id: int, player_id: int, arena_api: ArenaAPI, intent_result: Dictionary) -> bool:
+	if player_id != 1 or source_id <= 0 or arena_api == null:
+		return false
+	if not bool(intent_result.get("ok", false)):
+		return false
+	var state: GameState = arena_api.get_state()
+	if state == null:
+		return false
+	var source_hive: HiveData = state.find_hive_by_id(source_id)
+	if source_hive == null or int(source_hive.owner_id) != player_id:
+		return false
+	var metrics: Dictionary = state.get_execution_metrics_for_hive(source_id)
+	return int(metrics.get("open_slots", 0)) > 0 and int(metrics.get("available_targets", 0)) > 0
 
 func _issue_swarm_intent(from_id: int, to_id: int, player_id: int) -> bool:
 	var result := OpsState.apply_lane_intent(from_id, to_id, "swarm")

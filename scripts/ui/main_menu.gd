@@ -26,6 +26,11 @@ const BRAND_BANNER_TOP_PX: float = 104.0
 const BRAND_BANNER_WIDTH_MIN_PX: float = 300.0
 const BRAND_BANNER_WIDTH_MAX_PX: float = 390.0
 const BRAND_BANNER_VIEWPORT_WIDTH_RATIO: float = 0.82
+const TOP_CHROME_SAFE_FALLBACK_PX: float = 72.0
+const TOP_CHROME_SAFE_MAX_PX: float = 96.0
+const TOP_BAR_BASE_HEIGHT_PX: float = 90.0
+const DASH_TOP_BAR_BASE_HEIGHT_PX: float = 64.0
+const DASH_ROOT_BASE_TOP_PX: float = 72.0
 const HONEY_FONT_COLOR: Color = Color(0.97, 0.73, 0.19, 1.0)
 const HONEY_OUTLINE_COLOR: Color = Color(0.20, 0.09, 0.01, 0.98)
 const HONEY_SHADOW_COLOR: Color = Color(0.10, 0.04, 0.01, 0.88)
@@ -84,6 +89,7 @@ const HIVE_VIEW_CANDIDATE := "candidate"
 
 @export_file("*.tres", "*.png") var brand_banner_texture_path: String = DEFAULT_BRAND_BANNER_TEXTURE_PATH
 
+@onready var top_bar: Control = $TopBar
 @onready var hive_button: HexButton = $TopBar/HiveButton
 @onready var brand_title_label: Label = $TopBar/BrandTitle
 @onready var dash_tab: HexButton = $DashTab
@@ -377,6 +383,7 @@ var _settings_direct_mode: bool = false
 var _buffs_direct_mode: bool = false
 var _hive_direct_mode: bool = false
 var _jukebox_direct_mode: bool = false
+var _replay_direct_mode: bool = false
 var _hive_panel_tween: Tween = null
 var _player_profile := {
 	"tier_text": "Tier: Bronze",
@@ -1078,7 +1085,10 @@ func _ready() -> void:
 		get_viewport().size_changed.connect(_apply_background_art_direction)
 	if not get_viewport().size_changed.is_connected(_layout_brand_banner):
 		get_viewport().size_changed.connect(_layout_brand_banner)
+	if not get_viewport().size_changed.is_connected(_apply_top_safe_area_layout):
+		get_viewport().size_changed.connect(_apply_top_safe_area_layout)
 	_set_hex_buttons()
+	_apply_top_safe_area_layout()
 	_load_match_history()
 	_refresh_home_replay_hint()
 	_build_store_landing()
@@ -2004,7 +2014,8 @@ func _apply_black_key_to_hex_button(button: HexButton) -> void:
 	skin_tex.material = _bottom_nav_skin_shader_material()
 
 func _hive_dropdown_open_top() -> float:
-	return hive_button.offset_bottom + HIVE_DROPDOWN_TOP_GAP
+	var top_offset: float = top_bar.offset_top if top_bar != null else 0.0
+	return top_offset + hive_button.offset_bottom + HIVE_DROPDOWN_TOP_GAP
 
 func _hive_dropdown_closed_top() -> float:
 	return -HIVE_DROPDOWN_HEIGHT - 12.0
@@ -5433,6 +5444,34 @@ func _ensure_brand_banner() -> void:
 	_layout_brand_banner()
 	call_deferred("_layout_brand_banner")
 
+func _top_safe_area_inset_px() -> float:
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var inset: float = 0.0
+	var safe_rect: Rect2i = DisplayServer.get_display_safe_area()
+	if safe_rect.position.y > 0:
+		var window_size: Vector2i = DisplayServer.window_get_size()
+		var scale_y: float = 1.0
+		if window_size.y > 0:
+			scale_y = viewport_size.y / float(window_size.y)
+		inset = float(safe_rect.position.y) * scale_y
+	if inset <= 0.0 and OS.get_name() == "iOS":
+		inset = TOP_CHROME_SAFE_FALLBACK_PX
+	return clampf(ceilf(inset), 0.0, TOP_CHROME_SAFE_MAX_PX)
+
+func _apply_top_safe_area_layout() -> void:
+	var inset: float = _top_safe_area_inset_px()
+	if top_bar != null:
+		top_bar.offset_top = inset
+		top_bar.offset_bottom = inset + TOP_BAR_BASE_HEIGHT_PX
+	if dash_top_bar != null:
+		dash_top_bar.offset_top = inset
+		dash_top_bar.offset_bottom = inset + DASH_TOP_BAR_BASE_HEIGHT_PX
+	if dash_root != null:
+		dash_root.offset_top = inset + DASH_ROOT_BASE_TOP_PX
+	if _jukebox_panel != null and _jukebox_panel.has_method("set_top_safe_inset"):
+		_jukebox_panel.call("set_top_safe_inset", inset)
+	_layout_brand_banner()
+
 func _layout_brand_banner() -> void:
 	if _brand_banner_texture_rect == null or not is_instance_valid(_brand_banner_texture_rect):
 		return
@@ -5457,8 +5496,9 @@ func _layout_brand_banner() -> void:
 	_brand_banner_texture_rect.anchor_bottom = 0.0
 	_brand_banner_texture_rect.offset_left = center_x - target_width * 0.5
 	_brand_banner_texture_rect.offset_right = center_x + target_width * 0.5
-	_brand_banner_texture_rect.offset_top = BRAND_BANNER_TOP_PX
-	_brand_banner_texture_rect.offset_bottom = BRAND_BANNER_TOP_PX + target_height
+	var top_y: float = BRAND_BANNER_TOP_PX + _top_safe_area_inset_px()
+	_brand_banner_texture_rect.offset_top = top_y
+	_brand_banner_texture_rect.offset_bottom = top_y + target_height
 
 func _apply_player_profile(profile: Dictionary) -> void:
 	var tier_text := str(profile.get("tier_text", "Tier: Bronze"))
@@ -8341,6 +8381,7 @@ func _on_last_match_replay_hero_gui_input(event: InputEvent) -> void:
 
 func _open_latest_match_replay(auto_play: bool = false) -> void:
 	_refresh_latest_match_replay_cache()
+	_replay_direct_mode = true
 	if _latest_replay_data.is_empty():
 		var empty_data: Dictionary = _empty_saved_replay_data()
 		_last_replay_data = empty_data.duplicate(true)
@@ -8787,6 +8828,7 @@ func _open_match_analysis(match_index: int) -> void:
 	_open_dash_panel(dash_analysis_panel)
 
 func _open_match_replay(match_index: int) -> void:
+	_replay_direct_mode = false
 	if match_index == 0:
 		_refresh_latest_match_replay_cache()
 	_current_match_index = match_index
@@ -11454,6 +11496,7 @@ func _close_top_level_windows(except_surface: String = "") -> void:
 		_store_direct_mode = false
 		_settings_direct_mode = false
 		_jukebox_direct_mode = false
+		_replay_direct_mode = false
 		_set_dash_panel_store_passthrough(false)
 		_set_hive_panel_vertical_offset(0.0)
 		_hide_dash_panels()
@@ -11500,6 +11543,7 @@ func _set_dash_hidden_state() -> void:
 	_set_dash_offsets(_dash_hidden_x)
 	dash_panel.visible = false
 	_dash_open = false
+	_replay_direct_mode = false
 
 func _hive_panel_hidden_top() -> float:
 	var hidden_height: float = get_viewport_rect().size.y
@@ -11645,6 +11689,9 @@ func _on_dash_settings_close_pressed() -> void:
 func _toggle_dash() -> void:
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
+	if _replay_direct_mode:
+		_close_direct_replay_panel()
+		return
 	if _jukebox_direct_mode:
 		_close_jukebox_panel()
 		return
@@ -11719,12 +11766,23 @@ func _open_dash_panel_from_menu(panel: Panel) -> void:
 func _close_dash_panel(panel: Panel) -> void:
 	if panel == null:
 		return
+	if panel == dash_replay_panel and _replay_direct_mode:
+		_close_direct_replay_panel()
+		return
 	if panel == _jukebox_panel and _jukebox_direct_mode:
 		_close_jukebox_panel()
 		return
 	if panel == dash_store_panel:
 		_set_dash_panel_store_passthrough(false)
 	panel.visible = false
+
+func _close_direct_replay_panel() -> void:
+	_stop_replay_playback()
+	_replay_direct_mode = false
+	if dash_replay_panel != null:
+		dash_replay_panel.visible = false
+	_hide_dash_panels()
+	_set_dash_hidden_state()
 
 func _set_dash_panel_store_passthrough(enabled: bool) -> void:
 	if dash_panel == null:
@@ -11763,6 +11821,8 @@ func _ensure_jukebox_panel() -> void:
 			_jukebox_panel.offset_bottom = 0.0
 			_jukebox_panel.visible = false
 			dash_panel.add_child(_jukebox_panel)
+			if _jukebox_panel.has_method("set_top_safe_inset"):
+				_jukebox_panel.call("set_top_safe_inset", _top_safe_area_inset_px())
 			if _jukebox_panel.has_signal("closed"):
 				_jukebox_panel.connect("closed", func() -> void:
 					_close_jukebox_panel()
@@ -12643,6 +12703,7 @@ func _init_dash_state() -> void:
 	_buffs_direct_mode = false
 	_hive_direct_mode = false
 	_jukebox_direct_mode = false
+	_replay_direct_mode = false
 	if _hive_panel_tween != null and _hive_panel_tween.is_running():
 		_hive_panel_tween.kill()
 	_set_hive_panel_vertical_offset(0.0)
