@@ -292,9 +292,12 @@ func _style_controls() -> void:
 	_apply_selector_nav_icons()
 
 func set_top_safe_inset(inset_px: float) -> void:
+	set_content_top_offset(inset_px)
+
+func set_content_top_offset(top_px: float) -> void:
 	if root_vbox == null:
 		return
-	root_vbox.offset_top = BASE_CONTENT_MARGIN_TOP + maxf(0.0, inset_px)
+	root_vbox.offset_top = BASE_CONTENT_MARGIN_TOP + maxf(0.0, top_px)
 
 func _build_category_tabs() -> void:
 	for child in category_tabs.get_children():

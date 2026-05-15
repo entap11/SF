@@ -31,6 +31,9 @@ const TOP_CHROME_SAFE_MAX_PX: float = 96.0
 const TOP_BAR_BASE_HEIGHT_PX: float = 90.0
 const DASH_TOP_BAR_BASE_HEIGHT_PX: float = 64.0
 const DASH_ROOT_BASE_TOP_PX: float = 72.0
+const MAIN_USABLE_TOP_GAP_PX: float = 12.0
+const MAIN_MENU_SURFACE_SIDE_MARGIN_PX: float = 24.0
+const MAIN_MENU_SURFACE_BOTTOM_MARGIN_PX: float = 24.0
 const HONEY_FONT_COLOR: Color = Color(0.97, 0.73, 0.19, 1.0)
 const HONEY_OUTLINE_COLOR: Color = Color(0.20, 0.09, 0.01, 0.98)
 const HONEY_SHADOW_COLOR: Color = Color(0.10, 0.04, 0.01, 0.88)
@@ -2015,7 +2018,7 @@ func _apply_black_key_to_hex_button(button: HexButton) -> void:
 
 func _hive_dropdown_open_top() -> float:
 	var top_offset: float = top_bar.offset_top if top_bar != null else 0.0
-	return top_offset + hive_button.offset_bottom + HIVE_DROPDOWN_TOP_GAP
+	return maxf(_main_usable_top_px(), top_offset + hive_button.offset_bottom + HIVE_DROPDOWN_TOP_GAP)
 
 func _hive_dropdown_closed_top() -> float:
 	return -HIVE_DROPDOWN_HEIGHT - 12.0
@@ -5458,6 +5461,25 @@ func _top_safe_area_inset_px() -> float:
 		inset = TOP_CHROME_SAFE_FALLBACK_PX
 	return clampf(ceilf(inset), 0.0, TOP_CHROME_SAFE_MAX_PX)
 
+func _visible_control_bottom_px(control: Control) -> float:
+	if control == null or not is_instance_valid(control) or not control.visible:
+		return 0.0
+	var rect: Rect2 = control.get_global_rect()
+	return rect.position.y + rect.size.y
+
+func _main_top_chrome_bottom_px() -> float:
+	var inset: float = _top_safe_area_inset_px()
+	var bottom: float = inset
+	if top_bar != null:
+		bottom = maxf(bottom, top_bar.offset_top + TOP_BAR_BASE_HEIGHT_PX)
+	for control in [_tier_widget, _honey_widget, hive_button, brand_title_label]:
+		if control is Control:
+			bottom = maxf(bottom, _visible_control_bottom_px(control as Control))
+	return ceilf(bottom)
+
+func _main_usable_top_px() -> float:
+	return ceilf(_main_top_chrome_bottom_px() + MAIN_USABLE_TOP_GAP_PX)
+
 func _apply_top_safe_area_layout() -> void:
 	var inset: float = _top_safe_area_inset_px()
 	if top_bar != null:
@@ -5466,11 +5488,39 @@ func _apply_top_safe_area_layout() -> void:
 	if dash_top_bar != null:
 		dash_top_bar.offset_top = inset
 		dash_top_bar.offset_bottom = inset + DASH_TOP_BAR_BASE_HEIGHT_PX
+	var usable_top: float = _main_usable_top_px()
 	if dash_root != null:
-		dash_root.offset_top = inset + DASH_ROOT_BASE_TOP_PX
-	if _jukebox_panel != null and _jukebox_panel.has_method("set_top_safe_inset"):
-		_jukebox_panel.call("set_top_safe_inset", inset)
+		dash_root.offset_top = usable_top
+	_apply_main_menu_surface_top(async_vbox, usable_top)
+	for panel in [async_weekly_panel, async_monthly_panel, async_yearly_panel]:
+		_apply_main_menu_surface_panel(panel as Control, usable_top)
+	_apply_hero_panel_usable_top(usable_top)
+	if _jukebox_panel != null:
+		if _jukebox_panel.has_method("set_content_top_offset"):
+			_jukebox_panel.call("set_content_top_offset", usable_top)
+		elif _jukebox_panel.has_method("set_top_safe_inset"):
+			_jukebox_panel.call("set_top_safe_inset", usable_top)
 	_layout_brand_banner()
+
+func _apply_main_menu_surface_top(control: Control, usable_top: float) -> void:
+	if control == null:
+		return
+	control.offset_top = usable_top
+
+func _apply_main_menu_surface_panel(control: Control, usable_top: float) -> void:
+	if control == null:
+		return
+	control.offset_left = MAIN_MENU_SURFACE_SIDE_MARGIN_PX
+	control.offset_top = usable_top
+	control.offset_right = -MAIN_MENU_SURFACE_SIDE_MARGIN_PX
+	control.offset_bottom = -MAIN_MENU_SURFACE_BOTTOM_MARGIN_PX
+
+func _apply_hero_panel_usable_top(usable_top: float) -> void:
+	if hero_panel == null:
+		return
+	var viewport_height: float = get_viewport_rect().size.y
+	var anchored_top: float = viewport_height * hero_panel.anchor_top
+	hero_panel.offset_top = maxf(0.0, usable_top - anchored_top)
 
 func _layout_brand_banner() -> void:
 	if _brand_banner_texture_rect == null or not is_instance_valid(_brand_banner_texture_rect):
@@ -11821,8 +11871,10 @@ func _ensure_jukebox_panel() -> void:
 			_jukebox_panel.offset_bottom = 0.0
 			_jukebox_panel.visible = false
 			dash_panel.add_child(_jukebox_panel)
-			if _jukebox_panel.has_method("set_top_safe_inset"):
-				_jukebox_panel.call("set_top_safe_inset", _top_safe_area_inset_px())
+			if _jukebox_panel.has_method("set_content_top_offset"):
+				_jukebox_panel.call("set_content_top_offset", _main_usable_top_px())
+			elif _jukebox_panel.has_method("set_top_safe_inset"):
+				_jukebox_panel.call("set_top_safe_inset", _main_usable_top_px())
 			if _jukebox_panel.has_signal("closed"):
 				_jukebox_panel.connect("closed", func() -> void:
 					_close_jukebox_panel()
