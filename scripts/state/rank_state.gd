@@ -360,6 +360,7 @@ func _get_player_snapshot_local(player_id: String) -> Dictionary:
 		"player_id": clean_id,
 		"display_name": str(record.get("display_name", clean_id)),
 		"region": str(record.get("region", "GLOBAL")),
+		"friends": (record.get("friends", []) as Array).duplicate(),
 		"wax_score": float(record.get("wax_score", 0.0)),
 		"last_active_unix": int(record.get("last_active_unix", 0)),
 		"rank_position": int(record.get("rank_position", 0)),
@@ -654,7 +655,7 @@ func _upsert_remote_player(player_any: Variant) -> bool:
 	merged["rank_position"] = int(player.get("rank_position", merged.get("rank_position", 0)))
 	merged["percentile"] = float(player.get("percentile", merged.get("percentile", 0.0)))
 	merged["promotion_history"] = _safe_dictionary(player.get("promotion_history", merged.get("promotion_history", {})))
-	var friends_any: Variant = merged.get("friends", [])
+	var friends_any: Variant = player.get("friends", merged.get("friends", []))
 	var friends_array: Array = []
 	if typeof(friends_any) == TYPE_ARRAY:
 		friends_array = friends_any as Array

@@ -5613,6 +5613,10 @@ func export_render_model() -> Dictionary:
 				"lane_budget_max": int(state.lanes_allowed_for_power(int(h.power))),
 				"kind": String(h.kind)
 			}
+			var swarm_cooldown_remaining_ms: int = int(OpsState.get_swarm_cooldown_remaining_ms(int(h.id))) if OpsState != null and OpsState.has_method("get_swarm_cooldown_remaining_ms") else 0
+			if swarm_cooldown_remaining_ms > 0:
+				hd["swarm_cooldown_remaining_ms"] = swarm_cooldown_remaining_ms
+				hd["swarm_cooldown_total_ms"] = int(OpsState.get_swarm_cooldown_total_ms()) if OpsState != null and OpsState.has_method("get_swarm_cooldown_total_ms") else 5000
 			if capture_flag_by_hive_id.has(int(h.id)):
 				var flag_view: Dictionary = capture_flag_by_hive_id[int(h.id)] as Dictionary
 				hd["is_capture_flag"] = true

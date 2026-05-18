@@ -22,6 +22,8 @@ var _sessions: Dictionary = {}
 var _invite_to_session: Dictionary = {}
 var _queue: Array[Dictionary] = []
 var _intent_streams: Dictionary = {}
+var _presence_by_uid: Dictionary = {}
+var _friend_invites: Dictionary = {}
 var _transport_http: VsHandshakeTransportHttp = null
 var _transport_mode: String = "local"
 var _transport_error_logged: bool = false
@@ -197,7 +199,7 @@ func join_invite(invite_code: String, profile: Dictionary) -> Dictionary:
 		"display_name": str(guest.get("display_name", "Player 2")),
 		"ready": bool(existing_guest.get("ready", false))
 	}
-	_session_refresh_status(session)
+	_mark_session_started(session)
 	_sessions[session_id] = session
 	_emit_session_changed(session_id)
 	return {"ok": true, "session_id": session_id, "session": _dup_session(session)}
@@ -241,7 +243,7 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 			"ready": false,
 			"ticket_id": ""
 		}
-		_session_refresh_status(session)
+		_mark_session_started(session)
 		var session_id: String = str(session.get("id", ""))
 		_sessions[session_id] = session
 		_invite_to_session[str(session.get("invite_code", ""))] = session_id
@@ -324,6 +326,12 @@ func cancel_quick_match(ticket_id: String, uid: String = "") -> Dictionary:
 	return {"ok": false, "err": "ticket_not_found"}
 
 func debug_fill_quick_match(ticket_id: String, bot_name: String = "Rival") -> Dictionary:
+	var transport := _call_transport("debug_fill_quick_match", {
+		"ticket_id": ticket_id,
+		"bot_name": bot_name
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
 	_prune()
 	var tid: String = ticket_id.strip_edges()
 	if tid.is_empty():
@@ -345,7 +353,7 @@ func debug_fill_quick_match(ticket_id: String, bot_name: String = "Rival") -> Di
 			"display_name": bot_name,
 			"ready": true
 		}
-		_session_refresh_status(session)
+		_mark_session_started(session)
 		var session_id: String = str(session.get("id", ""))
 		_sessions[session_id] = session
 		_invite_to_session[str(session.get("invite_code", ""))] = session_id
@@ -356,6 +364,12 @@ func debug_fill_quick_match(ticket_id: String, bot_name: String = "Rival") -> Di
 	return {"ok": false, "err": "ticket_not_found"}
 
 func debug_fill_session(session_id: String, bot_name: String = "Rival") -> Dictionary:
+	var transport := _call_transport("debug_fill_session", {
+		"session_id": session_id,
+		"bot_name": bot_name
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
 	_prune()
 	var sid: String = session_id.strip_edges()
 	if sid.is_empty() or not _sessions.has(sid):
@@ -368,7 +382,7 @@ func debug_fill_session(session_id: String, bot_name: String = "Rival") -> Dicti
 			"display_name": bot_name,
 			"ready": false
 		}
-	_session_refresh_status(session)
+	_mark_session_started(session)
 	_sessions[sid] = session
 	_emit_session_changed(sid)
 	return {"ok": true, "session_id": sid, "session": _dup_session(session)}
@@ -436,7 +450,7 @@ func can_start(session_id: String, uid: String) -> bool:
 	if sid.is_empty() or player_uid.is_empty() or not _sessions.has(sid):
 		return false
 	var session: Dictionary = _sessions.get(sid, {}) as Dictionary
-	if str(session.get("status", "")) != "ready":
+	if not ["matched", "ready", "started"].has(str(session.get("status", ""))):
 		return false
 	var host: Dictionary = session.get("host", {}) as Dictionary
 	return str(host.get("uid", "")) == player_uid
@@ -453,8 +467,7 @@ func start_session(session_id: String, uid: String) -> Dictionary:
 	if not can_start(sid, uid):
 		return {"ok": false, "err": "not_ready_or_not_host"}
 	var session: Dictionary = _sessions.get(sid, {}) as Dictionary
-	session["status"] = "started"
-	session["started_unix"] = int(Time.get_unix_time_from_system())
+	_mark_session_started(session)
 	_sessions[sid] = session
 	_emit_session_changed(sid)
 	return {"ok": true, "session": _dup_session(session)}
@@ -486,6 +499,137 @@ func leave_session(session_id: String, uid: String) -> Dictionary:
 		_emit_session_changed(sid)
 		return {"ok": true, "closed": false, "session": _dup_session(session)}
 	return {"ok": false, "err": "player_not_in_session"}
+
+func heartbeat(profile: Dictionary) -> Dictionary:
+	var transport := _call_transport("heartbeat", {"profile": profile})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	var player: Dictionary = _normalize_profile(profile)
+	if player.is_empty():
+		return {"ok": false, "err": "invalid_profile"}
+	var uid: String = str(player.get("uid", "")).strip_edges()
+	var presence: Dictionary = {
+		"uid": uid,
+		"display_name": str(player.get("display_name", uid)),
+		"last_seen_unix": int(Time.get_unix_time_from_system())
+	}
+	_presence_by_uid[uid] = presence
+	return {"ok": true, "presence": presence.duplicate(true)}
+
+func list_online_friends(uid: String, friends: Array) -> Dictionary:
+	var transport := _call_transport("list_online_friends", {
+		"uid": uid,
+		"friends": friends
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	_prune()
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	var out: Array = []
+	for friend_any in friends:
+		var friend_id: String = str(friend_any).strip_edges()
+		if friend_id.is_empty() or friend_id == uid:
+			continue
+		var presence: Dictionary = _presence_by_uid.get(friend_id, {}) as Dictionary
+		if presence.is_empty():
+			continue
+		if now_unix - int(presence.get("last_seen_unix", 0)) > QUEUE_TTL_SEC * 2:
+			continue
+		out.append(presence.duplicate(true))
+	return {"ok": true, "online": out}
+
+func create_friend_invite(profile: Dictionary, target_uid: String, context: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("create_friend_invite", {
+		"profile": profile,
+		"target_uid": target_uid,
+		"context": context
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	_prune()
+	var host: Dictionary = _normalize_profile(profile)
+	var clean_target: String = target_uid.strip_edges()
+	if host.is_empty():
+		return {"ok": false, "err": "invalid_profile"}
+	if clean_target.is_empty() or clean_target == str(host.get("uid", "")):
+		return {"ok": false, "err": "invalid_target"}
+	var session: Dictionary = _new_session(host, context, "invite")
+	var session_id: String = str(session.get("id", ""))
+	_sessions[session_id] = session
+	_invite_to_session[str(session.get("invite_code", ""))] = session_id
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	var invite: Dictionary = {
+		"id": _next_friend_invite_id(),
+		"from_uid": str(host.get("uid", "")),
+		"from_name": str(host.get("display_name", "Player 1")),
+		"target_uid": clean_target,
+		"session_id": session_id,
+		"context": context.duplicate(true),
+		"created_unix": now_unix,
+		"expires_unix": now_unix + SESSION_TTL_SEC,
+		"status": "pending"
+	}
+	_friend_invites[str(invite.get("id", ""))] = invite
+	_emit_session_changed(session_id)
+	return {"ok": true, "invite": invite.duplicate(true), "session_id": session_id, "session": _dup_session(session)}
+
+func poll_friend_invites(uid: String) -> Dictionary:
+	var transport := _call_transport("poll_friend_invites", {"uid": uid})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	_prune()
+	var clean_uid: String = uid.strip_edges()
+	if clean_uid.is_empty():
+		return {"ok": false, "err": "invalid_uid"}
+	var out: Array = []
+	for invite_any in _friend_invites.values():
+		var invite: Dictionary = invite_any as Dictionary
+		if str(invite.get("target_uid", "")) != clean_uid:
+			continue
+		if str(invite.get("status", "")) != "pending":
+			continue
+		out.append(invite.duplicate(true))
+	return {"ok": true, "invites": out}
+
+func respond_friend_invite(invite_id: String, profile: Dictionary, accept: bool) -> Dictionary:
+	var transport := _call_transport("respond_friend_invite", {
+		"invite_id": invite_id,
+		"profile": profile,
+		"accept": accept
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	_prune()
+	var clean_id: String = invite_id.strip_edges()
+	if clean_id.is_empty() or not _friend_invites.has(clean_id):
+		return {"ok": false, "err": "invite_not_found"}
+	var invite: Dictionary = _friend_invites.get(clean_id, {}) as Dictionary
+	if str(invite.get("status", "")) != "pending":
+		return {"ok": false, "err": "invite_not_found"}
+	var guest: Dictionary = _normalize_profile(profile)
+	if guest.is_empty() or str(guest.get("uid", "")) != str(invite.get("target_uid", "")):
+		return {"ok": false, "err": "invalid_profile"}
+	if not accept:
+		invite["status"] = "rejected"
+		_friend_invites[clean_id] = invite
+		return {"ok": true, "accepted": false}
+	var session_id: String = str(invite.get("session_id", ""))
+	var session: Dictionary = _sessions.get(session_id, {}) as Dictionary
+	if session.is_empty() or not _is_session_live(session):
+		invite["status"] = "expired"
+		_friend_invites[clean_id] = invite
+		return {"ok": false, "err": "session_not_found"}
+	session["guest"] = {
+		"uid": str(guest.get("uid", "")),
+		"display_name": str(guest.get("display_name", "Player 2")),
+		"ready": false
+	}
+	_mark_session_started(session)
+	_sessions[session_id] = session
+	invite["status"] = "accepted"
+	_friend_invites[clean_id] = invite
+	_emit_session_changed(session_id)
+	return {"ok": true, "accepted": true, "session_id": session_id, "session": _dup_session(session)}
 
 func publish_intent(session_id: String, uid: String, command: Dictionary) -> Dictionary:
 	var transport := _call_transport("publish_intent", {
@@ -615,6 +759,10 @@ func _session_refresh_status(session: Dictionary) -> void:
 		session["status"] = "ready"
 		return
 	session["status"] = "matched"
+
+func _mark_session_started(session: Dictionary) -> void:
+	session["status"] = "started"
+	session["started_unix"] = int(Time.get_unix_time_from_system())
 
 func _contexts_compatible(a: Dictionary, b: Dictionary) -> bool:
 	if str(a.get("mode", "")) != str(b.get("mode", "")):
@@ -788,6 +936,13 @@ func _next_invite_code() -> String:
 			return code
 	return "VS%05d" % int(int(Time.get_unix_time_from_system()) % 100000)
 
+func _next_friend_invite_id() -> String:
+	for _i in range(64):
+		var iid: String = "FI%08d" % int(_rng.randi() % 100000000)
+		if not _friend_invites.has(iid):
+			return iid
+	return "FI%08d" % int(Time.get_ticks_msec() % 100000000)
+
 func _next_bot_uid() -> String:
 	return "bot_%06d" % int(_rng.randi() % 1000000)
 
@@ -813,4 +968,18 @@ func _prune() -> void:
 			remove_ids.append(sid)
 	for sid in remove_ids:
 		_close_session_internal(sid, "expired")
+	var stale_presence: Array[String] = []
+	for uid_any in _presence_by_uid.keys():
+		var uid: String = str(uid_any)
+		var presence: Dictionary = _presence_by_uid.get(uid, {}) as Dictionary
+		if now_unix - int(presence.get("last_seen_unix", 0)) > QUEUE_TTL_SEC * 2:
+			stale_presence.append(uid)
+	for uid in stale_presence:
+		_presence_by_uid.erase(uid)
+	for invite_id_any in _friend_invites.keys():
+		var invite_id: String = str(invite_id_any)
+		var invite: Dictionary = _friend_invites.get(invite_id, {}) as Dictionary
+		if str(invite.get("status", "")) == "pending" and now_unix > int(invite.get("expires_unix", 0)):
+			invite["status"] = "expired"
+			_friend_invites[invite_id] = invite
 	emit_signal("queue_changed", _queue.size())

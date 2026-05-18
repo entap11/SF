@@ -456,6 +456,12 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 			)
 		if node.has_method("set_activated"):
 			node.call("set_activated", bool(hd.get("capture_flag_move_target", false)))
+		if node.has_method("set_swarm_cooldown"):
+			node.call(
+				"set_swarm_cooldown",
+				int(hd.get("swarm_cooldown_remaining_ms", 0)),
+				int(hd.get("swarm_cooldown_total_ms", 5000))
+			)
 		if node.has_method("set_selected"):
 			node.call("set_selected", id == _selected_hive_id, _selected_color)
 		if spawned:

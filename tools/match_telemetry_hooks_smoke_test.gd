@@ -29,6 +29,15 @@ func _initialize() -> void:
 	collector.record_intent_event(1200, 1, 11, 12, "attack", true, "", 7, {"src_power": 24, "src_budget": 2, "src_open_slots": 1})
 	collector.record_hive_damage(1500, 1, 2, 5)
 	collector.record_intent_event(4000, 2, 17, 99, "attack", false, "budget", -1, {"src_power": 10, "src_budget": 1, "src_open_slots": 0})
+	var replay_state := GameState.new()
+	replay_state.hives = [
+		HiveData.new(1, Vector2i(0, 0), 1, 24, "Hive"),
+		HiveData.new(2, Vector2i(4, 0), 2, 10, "Hive")
+	]
+	replay_state.lane_candidates = [{"a_id": 1, "b_id": 2}]
+	replay_state.lanes = [LaneData.new(7, 1, 2, 1, true, false)]
+	replay_state.units_by_lane["_all"] = [{"lane_id": 7, "owner_id": 1, "t": 0.35, "amount": 2}]
+	collector.sample_state(500, 0.5, replay_state)
 	var model: Variant = collector.finalize_match(1, 60000)
 	if model == null:
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: missing model")
@@ -53,8 +62,13 @@ func _initialize() -> void:
 	var events: Array = events_any as Array
 	var totals: Dictionary = totals_any as Dictionary
 	var metrics: Dictionary = metrics_any as Dictionary
+	var replay: Dictionary = payload.get("replay", {})
 	if int(payload.get("schema_version", 0)) != int(MatchTelemetryModelScript.SCHEMA_VERSION):
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: bad schema %s" % str(payload.get("schema_version", 0)))
+		quit(1)
+		return
+	if typeof(replay) != TYPE_DICTIONARY or (replay.get("frames", []) as Array).is_empty():
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: replay frames missing %s" % str(replay))
 		quit(1)
 		return
 	if events.size() < 3:

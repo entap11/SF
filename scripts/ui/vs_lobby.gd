@@ -22,7 +22,13 @@ const DEV_BOT_STYLE_OPTIONS: Array[String] = ["Default", "Balancer", "Turtle", "
 const DEV_BOT_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Expert"]
 const STANDARD_BOT_NAMES: Array[String] = ["Rival", "Atlas", "Nova", "Rook", "Kite"]
 const STANDARD_BOT_STYLES: Array[String] = ["balancer", "turtle", "raider", "greedy", "swarm_lord"]
+const DEV_FILL_BOT_NAME := "Turtle Bot"
+const DEV_FILL_BOT_STYLE := "turtle"
+const DEV_FILL_BOT_TIER := "medium"
 const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako", "Drift", "Pax"]
+const POPUP_BASE_SIZE: Vector2 = Vector2(980.0, 760.0)
+const POPUP_MARGIN: float = 32.0
+const READABLE_FONT_SCALE: int = 3
 const DEFAULT_STAGE_MAP_IDS: Array[String] = []
 const CTF_STAGE_MAP_IDS: Array[String] = [
 	"MAP_nomansland__545__v01_top2_sides__1p",
@@ -35,6 +41,8 @@ const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
 const CTF_FLAG_MOVE_COUNT_MAX_DEFAULT: int = 1
 
 @onready var title_label: Label = $Panel/VBox/Header/Title
+@onready var popup_panel: Panel = $Panel
+@onready var popup_vbox: VBoxContainer = $Panel/VBox
 @onready var back_button: Button = $Panel/VBox/Header/Back
 @onready var summary_label: Label = $Panel/VBox/Summary
 @onready var quick_button: Button = $Panel/VBox/Buttons/QuickMatch
@@ -125,7 +133,10 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 
 func _ready() -> void:
 	_load_fonts()
+	_layout_popup_panel()
 	_apply_static_fonts()
+	if not get_viewport().size_changed.is_connected(_layout_popup_panel):
+		get_viewport().size_changed.connect(_layout_popup_panel)
 	back_button.pressed.connect(_on_back_pressed)
 	quick_button.pressed.connect(_on_quick_match)
 	sms_button.pressed.connect(_on_sms_invite)
@@ -149,6 +160,8 @@ func _ready() -> void:
 	_contest_window_open = false
 	_invite_code = ""
 	invite_label.visible = false
+	sms_button.visible = false
+	join_row.visible = false
 	_dev_min_players_override = false
 	dev_min_override_button.visible = OS.is_debug_build()
 	_setup_dev_bot_options()
@@ -169,6 +182,67 @@ func _ready() -> void:
 	quick_button.disabled = false
 	_refresh_summary()
 	_status("Lobby idle")
+
+func configure_existing_session(session_id: String, role: String, session: Dictionary, invite_code: String = "") -> void:
+	_session_id = session_id.strip_edges()
+	_session_role = role.strip_edges().to_lower()
+	_invite_code = invite_code.strip_edges()
+	_quick_ticket_id = ""
+	_countdown_mode = ""
+	_local_joined = true
+	_bot_fill_prompt_shown = false
+	_bot_filled_match = false
+	if _local_uid.strip_edges().is_empty():
+		_local_uid = ProfileManager.get_user_id() if ProfileManager != null else "local"
+	if _local_name.strip_edges().is_empty() or _local_name == "You":
+		_local_name = ProfileManager.get_display_name() if ProfileManager != null else "You"
+	_apply_session_context(session)
+	_start_handshake_poll()
+	_refresh_sync_session_ui()
+
+func begin_friend_invite(target_uid: String, target_name: String) -> void:
+	if not _sync_transport_ready():
+		return
+	var handshake: Node = _handshake()
+	if handshake == null or not handshake.has_method("create_friend_invite"):
+		status_label.text = "Friend invites unavailable."
+		return
+	_cancel_quick_ticket()
+	_leave_session(false)
+	var result: Dictionary = handshake.call("create_friend_invite", _local_profile(), target_uid, _handshake_context()) as Dictionary
+	if not bool(result.get("ok", false)):
+		status_label.text = _handshake_failure_text("Invite failed", result)
+		return
+	_session_id = str(result.get("session_id", ""))
+	_session_role = "host"
+	_local_joined = true
+	var session: Dictionary = result.get("session", {}) as Dictionary
+	_apply_session_context(session)
+	invite_label.visible = false
+	_start_handshake_poll()
+	status_label.text = "Invite sent to %s." % target_name
+	_refresh_sync_session_ui()
+
+func accept_friend_invite(invite: Dictionary) -> void:
+	if not _sync_transport_ready():
+		return
+	var handshake: Node = _handshake()
+	if handshake == null or not handshake.has_method("respond_friend_invite"):
+		status_label.text = "Friend invites unavailable."
+		return
+	var invite_id: String = str(invite.get("id", "")).strip_edges()
+	var result: Dictionary = handshake.call("respond_friend_invite", invite_id, _local_profile(), true) as Dictionary
+	if not bool(result.get("ok", false)):
+		status_label.text = _handshake_failure_text("Accept failed", result)
+		return
+	_session_id = str(result.get("session_id", ""))
+	_session_role = "guest"
+	_local_joined = true
+	var session: Dictionary = result.get("session", {}) as Dictionary
+	_apply_session_context(session)
+	invite_label.visible = false
+	_start_handshake_poll()
+	_refresh_sync_session_ui()
 
 func _refresh_summary() -> void:
 	var price_text := "Free Roll" if _free_roll else "$%d Entry" % _price_usd
@@ -201,7 +275,7 @@ func _on_quick_match() -> void:
 	if _session_id.is_empty():
 		_begin_quick_search()
 		return
-	_toggle_ready_or_start()
+	_status("Match starting")
 
 func _on_sms_invite() -> void:
 	if _uses_async_window():
@@ -386,7 +460,11 @@ func _refresh_sync_session_ui() -> void:
 		else:
 			_status("Joined lobby")
 	elif status == "matched":
-		_status("Opponent connected")
+		_status("Opponent connected. Starting")
+		if _session_role == "host":
+			var start_result: Dictionary = handshake.call("start_session", _session_id, _local_uid) as Dictionary
+			if bool(start_result.get("ok", false)):
+				_apply_session_context(start_result.get("session", {}) as Dictionary)
 	elif status == "ready":
 		if _can_start_sync_match():
 			_status("Both ready. Host can start")
@@ -399,7 +477,7 @@ func _refresh_sync_session_ui() -> void:
 		_status("Lobby")
 	if _session_role == "host" and not _invite_code.is_empty() and guest_name.is_empty():
 		invite_label.text = "Invite code: %s\nLink: sf://vs/%s" % [_invite_code, _invite_code]
-		invite_label.visible = true
+		invite_label.visible = false
 	else:
 		invite_label.visible = false
 	_sync_quick_button_text()
@@ -828,13 +906,12 @@ func _start_match(session_already_started: bool = false) -> void:
 			gamebot.call("set_vs", first_stage_map)
 		else:
 			gamebot.set("next_map_id", first_stage_map)
-	if _mode == "STAGE_RACE":
-		_apply_team_mode_override_for_match()
-		match _mode:
-			"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
-				tree.change_scene_to_file(SHELL_SCENE_PATH)
-			_:
-				tree.change_scene_to_file("res://scenes/Main.tscn")
+	_apply_team_mode_override_for_match()
+	match _mode:
+		"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
+			tree.change_scene_to_file(SHELL_SCENE_PATH)
+		_:
+			tree.change_scene_to_file("res://scenes/Main.tscn")
 
 func _remote_profile_for_tree() -> Dictionary:
 	if _bot_filled_match and not _bot_remote_profile.is_empty():
@@ -1103,22 +1180,27 @@ func _dev_fill_sync_opponent() -> void:
 	if handshake == null:
 		status_label.text = "Handshake service unavailable."
 		return
+	var bot_profile: Dictionary = _dev_fill_bot_profile()
 	if not _quick_ticket_id.is_empty() and handshake.has_method("debug_fill_quick_match"):
-		var quick_fill: Dictionary = handshake.call("debug_fill_quick_match", _quick_ticket_id, "Rival") as Dictionary
+		var quick_fill: Dictionary = handshake.call("debug_fill_quick_match", _quick_ticket_id, str(bot_profile.get("display_name", DEV_FILL_BOT_NAME))) as Dictionary
 		if bool(quick_fill.get("ok", false)):
-			_session_id = str(quick_fill.get("session_id", ""))
-			_quick_ticket_id = ""
-			var session: Dictionary = quick_fill.get("session", {}) as Dictionary
-			_session_role = _role_for_local_player(session)
-			_start_handshake_poll()
-			_refresh_sync_session_ui()
+			_apply_bot_fill_session(quick_fill, bot_profile)
 			return
+		status_label.text = _handshake_failure_text("Bot fill failed", quick_fill)
+		return
 	if _session_id.is_empty():
 		status_label.text = "Create an invite or quick queue first."
 		return
 	if handshake.has_method("debug_fill_session"):
-		handshake.call("debug_fill_session", _session_id, "Rival")
+		var session_fill: Dictionary = handshake.call("debug_fill_session", _session_id, str(bot_profile.get("display_name", DEV_FILL_BOT_NAME))) as Dictionary
+		if not bool(session_fill.get("ok", false)):
+			status_label.text = _handshake_failure_text("Bot fill failed", session_fill)
+			return
 	var session: Dictionary = handshake.call("get_session", _session_id) as Dictionary
+	_apply_session_context(session)
+	_bot_remote_profile = bot_profile.duplicate(true)
+	_standard_bot_style = str(bot_profile.get("style", DEV_FILL_BOT_STYLE))
+	_standard_bot_tier = str(bot_profile.get("tier", DEV_FILL_BOT_TIER))
 	var host: Dictionary = session.get("host", {}) as Dictionary
 	var guest: Dictionary = session.get("guest", {}) as Dictionary
 	var remote_uid: String = ""
@@ -1129,6 +1211,15 @@ func _dev_fill_sync_opponent() -> void:
 	if not remote_uid.is_empty():
 		handshake.call("set_ready", _session_id, remote_uid, true)
 	_refresh_sync_session_ui()
+
+func _dev_fill_bot_profile() -> Dictionary:
+	return {
+		"uid": "standard_bot_%d" % Time.get_ticks_msec(),
+		"display_name": DEV_FILL_BOT_NAME,
+		"is_cpu": true,
+		"style": DEV_FILL_BOT_STYLE,
+		"tier": DEV_FILL_BOT_TIER
+	}
 
 func _sync_quick_button_text() -> void:
 	if quick_button == null:
@@ -1156,7 +1247,7 @@ func _sync_quick_button_text() -> void:
 		_apply_quick_button_font()
 		return
 	if _session_id.is_empty():
-		quick_button.text = "Quick Match"
+		quick_button.text = "Find Match"
 		quick_button.disabled = false
 		_apply_quick_button_font()
 		return
@@ -1181,25 +1272,14 @@ func _sync_quick_button_text() -> void:
 		quick_button.disabled = true
 		_apply_quick_button_font()
 		return
-	if _is_local_ready(session):
-		quick_button.text = "Unready"
-		quick_button.disabled = false
-		_apply_quick_button_font()
-		return
-	quick_button.text = "Ready Up"
-	quick_button.disabled = false
+	quick_button.text = "Starting..."
+	quick_button.disabled = true
 	_apply_quick_button_font()
 
 func _sync_join_row_visibility() -> void:
 	if join_row == null:
 		return
-	if _uses_async_window():
-		join_row.visible = false
-		return
-	if _bot_filled_match:
-		join_row.visible = false
-		return
-	join_row.visible = _session_id.is_empty() and _quick_ticket_id.is_empty()
+	join_row.visible = false
 
 func _resolve_stage_map_paths() -> Array[String]:
 	var resolved: Array[String] = []
@@ -1284,7 +1364,7 @@ func _sync_dev_button_text() -> void:
 	if _uses_async_window():
 		dev_min_override_button.text = "DEV: Min=1 ON" if _dev_min_players_override else "DEV: Min=1 OFF"
 		return
-	dev_min_override_button.text = "DEV: Fill Opponent"
+	dev_min_override_button.text = "DEV: Fill Turtle Bot"
 
 func _setup_dev_bot_options() -> void:
 	if dev_bot_style_option != null and dev_bot_style_option.item_count == 0:
@@ -1398,25 +1478,69 @@ func _load_fonts() -> void:
 	_font_free_roll_atlas = UITypography.free_roll_font()
 
 func _apply_static_fonts() -> void:
-	_apply_free_roll_atlas_font(title_label, 24)
-	_apply_font(back_button, _font_regular, 16)
-	_apply_font(summary_label, _font_regular, 16)
+	_apply_free_roll_atlas_font(title_label, _readable_size(24))
+	_apply_font(back_button, _font_regular, _readable_size(16))
+	_apply_font(summary_label, _font_regular, _readable_size(16))
 	_apply_quick_button_font()
-	_apply_free_roll_atlas_font(sms_button, 15)
-	_apply_font(dev_min_override_button, _font_regular, 14)
-	_apply_font(dev_bot_label, _font_semibold, 15)
-	_apply_font(dev_bot_style_option, _font_regular, 15)
-	_apply_font(dev_bot_tier_option, _font_regular, 15)
-	_apply_font(status_label, _font_regular, 15)
-	_apply_font(slots_label, _font_regular, 15)
-	_apply_font(invite_label, _font_regular, 15)
-	_apply_font(join_code, _font_regular, 15)
-	_apply_font(join_button, _font_regular, 15)
-	_apply_font(countdown_label, _font_semibold, 15)
+	_apply_free_roll_atlas_font(sms_button, _readable_size(15))
+	_apply_font(dev_min_override_button, _font_regular, _readable_size(14))
+	_apply_font(dev_bot_label, _font_semibold, _readable_size(15))
+	_apply_font(dev_bot_style_option, _font_regular, _readable_size(15))
+	_apply_font(dev_bot_tier_option, _font_regular, _readable_size(15))
+	_apply_font(status_label, _font_regular, _readable_size(15))
+	_apply_font(slots_label, _font_regular, _readable_size(15))
+	_apply_font(invite_label, _font_regular, _readable_size(15))
+	_apply_font(join_code, _font_regular, _readable_size(15))
+	_apply_font(join_button, _font_regular, _readable_size(15))
+	_apply_font(countdown_label, _font_semibold, _readable_size(15))
+	_enable_large_text_wrapping()
 
 func _apply_quick_button_font() -> void:
-	if not _apply_free_roll_atlas_font(quick_button, 15):
-		_apply_font(quick_button, _font_semibold, 15)
+	if not _apply_free_roll_atlas_font(quick_button, _readable_size(15)):
+		_apply_font(quick_button, _font_semibold, _readable_size(15))
+
+func _layout_popup_panel() -> void:
+	if popup_panel == null:
+		return
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var target_size := Vector2(
+		minf(POPUP_BASE_SIZE.x, maxf(320.0, viewport_size.x - POPUP_MARGIN * 2.0)),
+		minf(POPUP_BASE_SIZE.y, maxf(280.0, viewport_size.y - POPUP_MARGIN * 2.0))
+	)
+	popup_panel.anchor_left = 0.5
+	popup_panel.anchor_top = 0.5
+	popup_panel.anchor_right = 0.5
+	popup_panel.anchor_bottom = 0.5
+	popup_panel.offset_left = -target_size.x * 0.5
+	popup_panel.offset_top = -target_size.y * 0.5
+	popup_panel.offset_right = target_size.x * 0.5
+	popup_panel.offset_bottom = target_size.y * 0.5
+	popup_panel.custom_minimum_size = target_size
+	if popup_vbox != null:
+		popup_vbox.offset_left = 28.0
+		popup_vbox.offset_top = 28.0
+		popup_vbox.offset_right = -28.0
+		popup_vbox.offset_bottom = -28.0
+		popup_vbox.add_theme_constant_override("separation", 20)
+	if quick_button != null:
+		quick_button.custom_minimum_size = Vector2(280.0, 92.0)
+	if back_button != null:
+		back_button.custom_minimum_size = Vector2(180.0, 78.0)
+	if dev_min_override_button != null:
+		dev_min_override_button.custom_minimum_size = Vector2(260.0, 78.0)
+
+func _enable_large_text_wrapping() -> void:
+	for label_any in [summary_label, status_label, slots_label, invite_label, countdown_label]:
+		var label: Label = label_any as Label
+		if label == null:
+			continue
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.clip_text = false
+	if title_label != null:
+		title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+func _readable_size(base_size: int) -> int:
+	return base_size * READABLE_FONT_SCALE
 
 func _apply_font(node: Control, font: Font, size: int) -> void:
 	UITypography.apply_font(node, font, size)

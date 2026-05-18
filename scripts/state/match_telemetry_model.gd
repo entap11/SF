@@ -1,7 +1,7 @@
 class_name MatchTelemetryModel
 extends RefCounted
 
-const SCHEMA_VERSION: int = 5
+const SCHEMA_VERSION: int = 6
 const SELF_SCRIPT_PATH: String = "res://scripts/state/match_telemetry_model.gd"
 
 const MATCH_TYPE_VS: int = 0
@@ -24,6 +24,7 @@ var events: Array[Dictionary] = []
 var metrics: Dictionary = {}
 var analysis_summary: Dictionary = {}
 var totals: Dictionary = {}
+var replay: Dictionary = {}
 
 func _init() -> void:
 	reset()
@@ -35,6 +36,7 @@ func reset() -> void:
 	metrics = _default_metrics()
 	analysis_summary = _default_analysis_summary()
 	totals = _default_totals()
+	replay = _default_replay()
 
 func to_dict() -> Dictionary:
 	return {
@@ -43,7 +45,8 @@ func to_dict() -> Dictionary:
 		"events": _duplicate_event_array(events),
 		"metrics": metrics.duplicate(true),
 		"analysis_summary": analysis_summary.duplicate(true),
-		"totals": totals.duplicate(true)
+		"totals": totals.duplicate(true),
+		"replay": replay.duplicate(true)
 	}
 
 static func from_dict(payload: Dictionary) -> Variant:
@@ -60,6 +63,7 @@ static func from_dict(payload: Dictionary) -> Variant:
 	model.metrics = _normalize_dictionary(normalized.get("metrics", {}), _default_metrics())
 	model.analysis_summary = _normalize_dictionary(normalized.get("analysis_summary", {}), _default_analysis_summary())
 	model.totals = _normalize_dictionary(normalized.get("totals", {}), _default_totals())
+	model.replay = _normalize_dictionary(normalized.get("replay", {}), _default_replay())
 	return model
 
 static func migrate_payload(payload: Dictionary) -> Dictionary:
@@ -88,6 +92,10 @@ static func migrate_payload(payload: Dictionary) -> Dictionary:
 		out["totals"] = _default_totals()
 	else:
 		out["totals"] = _merge_defaults(out.get("totals", {}), _default_totals())
+	if not out.has("replay") or typeof(out.get("replay", null)) != TYPE_DICTIONARY:
+		out["replay"] = _default_replay()
+	else:
+		out["replay"] = _merge_defaults(out.get("replay", {}), _default_replay())
 	return out
 
 static func _default_metadata() -> Dictionary:
@@ -195,6 +203,15 @@ static func _default_totals() -> Dictionary:
 		"unit_deaths_by_killer_player": {},
 		"intent_total_by_player": {},
 		"intent_fail_by_player": {}
+	}
+
+static func _default_replay() -> Dictionary:
+	return {
+		"schema_version": 1,
+		"sample_ms": 500,
+		"duration_ms": 0,
+		"map": {},
+		"frames": []
 	}
 
 static func _duplicate_event_array(source: Array[Dictionary]) -> Array:

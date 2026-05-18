@@ -64,18 +64,8 @@ async function main(): Promise<void> {
 
     const joined = await post(baseUrl, "join_invite", { invite_code: inviteCode, profile: guest });
     expect(String(joined.session_id) === sessionId, "joined wrong session", joined);
-
-    await post(baseUrl, "set_ready", { session_id: sessionId, uid: host.uid, ready: true });
-    await post(baseUrl, "set_ready", { session_id: sessionId, uid: guest.uid, ready: true });
-
-    const hostCanStart = await post(baseUrl, "can_start", { session_id: sessionId, uid: host.uid });
-    const guestCanStart = await post(baseUrl, "can_start", { session_id: sessionId, uid: guest.uid });
-    expect(hostCanStart.can_start === true, "host should be able to start", hostCanStart);
-    expect(guestCanStart.can_start === false, "guest should not be able to start", guestCanStart);
-
-    const started = await post(baseUrl, "start_session", { session_id: sessionId, uid: host.uid });
-    const startedSession = started.session as JsonRecord;
-    expect(startedSession.status === "started", "session did not start", started);
+    const joinedSession = joined.session as JsonRecord;
+    expect(joinedSession.status === "started", "joined session did not auto-start", joined);
 
     const hostPublish = await post(baseUrl, "publish_intent", {
       session_id: sessionId,
@@ -102,8 +92,34 @@ async function main(): Promise<void> {
     expect(q1.matched === false && String(q1.ticket_id ?? "").length > 0, "first quick ticket failed", q1);
     const q2 = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "q2", display_name: "Q2" }, context });
     expect(q2.matched === true && String(q2.session_id ?? "").length > 0, "second quick match failed", q2);
+    expect((q2.session as JsonRecord).status === "started", "quick match did not auto-start", q2);
     const qPoll = await post(baseUrl, "poll_quick_match", { ticket_id: String(q1.ticket_id) });
     expect(qPoll.matched === true && qPoll.session_id === q2.session_id, "quick poll did not find match", qPoll);
+
+    const devQuick = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "dev_q", display_name: "Dev Q" }, context });
+    const devFill = await post(baseUrl, "debug_fill_quick_match", {
+      ticket_id: String(devQuick.ticket_id),
+      bot_name: "Turtle Bot"
+    });
+    expect((devFill.session as JsonRecord).status === "started", "debug quick fill did not auto-start", devFill);
+    expect(((devFill.session as JsonRecord).guest as JsonRecord).display_name === "Turtle Bot", "debug quick fill used wrong bot", devFill);
+
+    await post(baseUrl, "heartbeat", { profile: { uid: "friend_a", display_name: "Friend A" } });
+    const online = await post(baseUrl, "list_online_friends", { uid: "friend_b", friends: ["friend_a"] });
+    expect(Array.isArray(online.online) && (online.online as JsonRecord[]).length === 1, "online friend missing", online);
+    const friendInvite = await post(baseUrl, "create_friend_invite", {
+      profile: { uid: "friend_a", display_name: "Friend A" },
+      target_uid: "friend_b",
+      context
+    });
+    const pending = await post(baseUrl, "poll_friend_invites", { uid: "friend_b" });
+    expect(Array.isArray(pending.invites) && (pending.invites as JsonRecord[]).length === 1, "friend invite missing", pending);
+    const accepted = await post(baseUrl, "respond_friend_invite", {
+      invite_id: String((friendInvite.invite as JsonRecord).id),
+      profile: { uid: "friend_b", display_name: "Friend B" },
+      accept: true
+    });
+    expect((accepted.session as JsonRecord).status === "started", "friend invite did not auto-start", accepted);
 
     const cancel = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "cancel_me", display_name: "Cancel" }, context });
     await post(baseUrl, "cancel_quick_match", { ticket_id: String(cancel.ticket_id), uid: "cancel_me" });

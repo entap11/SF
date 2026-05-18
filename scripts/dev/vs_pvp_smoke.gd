@@ -72,20 +72,7 @@ func _run() -> void:
 	var join_result: Dictionary = handshake.call("join_invite", invite_code, guest_profile) as Dictionary
 	_expect(bool(join_result.get("ok", false)), "join_invite failed", join_result)
 	_expect(_session_stage_map(join_result) == agreed_stage_map, "joined session did not preserve stage map context", join_result)
-
-	var host_ready: Dictionary = handshake.call("set_ready", session_id, host_uid, true) as Dictionary
-	var guest_ready: Dictionary = handshake.call("set_ready", session_id, guest_uid, true) as Dictionary
-	_expect(bool(host_ready.get("ok", false)), "host ready failed", host_ready)
-	_expect(bool(guest_ready.get("ok", false)), "guest ready failed", guest_ready)
-
-	var host_can_start: bool = bool(handshake.call("can_start", session_id, host_uid))
-	var guest_can_start: bool = bool(handshake.call("can_start", session_id, guest_uid))
-	_expect(host_can_start, "host should be allowed to start", {"session_id": session_id})
-	_expect(not guest_can_start, "guest should not be allowed to start", {"session_id": session_id})
-
-	var start_result: Dictionary = handshake.call("start_session", session_id, host_uid) as Dictionary
-	_expect(bool(start_result.get("ok", false)), "start_session failed", start_result)
-	_expect(_session_stage_map(start_result) == agreed_stage_map, "started session did not preserve stage map context", start_result)
+	_expect(_session_status(join_result) == "started", "joined session did not auto-start", join_result)
 
 	var host_lane_cmd: Dictionary = {
 		"kind": "lane_intent",
@@ -199,6 +186,12 @@ func _session_stage_map(result: Dictionary) -> String:
 	if paths.is_empty():
 		return ""
 	return str(paths[0])
+
+func _session_status(result: Dictionary) -> String:
+	var session_any: Variant = result.get("session", {})
+	if typeof(session_any) != TYPE_DICTIONARY:
+		return ""
+	return str((session_any as Dictionary).get("status", ""))
 
 func _expect(condition: bool, message: String, details: Variant = null) -> void:
 	if condition:

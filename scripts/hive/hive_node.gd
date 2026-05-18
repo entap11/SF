@@ -60,6 +60,8 @@ const SELECTOR_BASE_ALPHA := 0.85
 const SELECTOR_TIER_2_MIN_POWER := 10
 const SELECTOR_TIER_3_MIN_POWER := 25
 const SELECTOR_TIER_4_MIN_POWER := 50
+const SWARM_COOLDOWN_SHAKE_PX := 2.8
+const SWARM_COOLDOWN_SHAKE_HZ := 24.0
 
 @onready var visual: Node2D = $Visual
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
@@ -79,6 +81,9 @@ var _last_kind: String = ""
 var _sim_events: Node = null
 var _flag_badge: Panel = null
 var _flag_badge_label: Label = null
+var _visual_rest_position: Vector2 = Vector2.ZERO
+var _swarm_cooldown_until_msec: int = 0
+var _swarm_cooldown_total_ms: int = 5000
 
 static func lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return center_world + Vector2(0.0, -LANE_ANCHOR_Y_PX)
@@ -167,6 +172,8 @@ func _ready() -> void:
 	input_pickable = true
 	monitoring = true
 	set_process(false)
+	if visual != null:
+		_visual_rest_position = visual.position
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
 	_fit_pick_hitbox_to_sprite()
@@ -293,16 +300,43 @@ func set_activated(on: bool) -> void:
 	_update_selector_visual()
 	_update_fallback_process()
 
+func set_swarm_cooldown(remaining_ms: int, total_ms: int = 5000) -> void:
+	var safe_remaining: int = maxi(0, remaining_ms)
+	_swarm_cooldown_total_ms = maxi(1, total_ms)
+	if safe_remaining <= 0:
+		if _swarm_cooldown_until_msec != 0 and visual != null:
+			visual.position = _visual_rest_position
+		_swarm_cooldown_until_msec = 0
+		_update_fallback_process()
+		queue_redraw()
+		return
+	_swarm_cooldown_until_msec = Time.get_ticks_msec() + safe_remaining
+	_update_fallback_process()
+	queue_redraw()
+
 func _process(delta: float) -> void:
-	if not (_selected or _hovered or _activated or (_flag_badge != null and _flag_badge.visible)):
+	var cooldown_active: bool = _swarm_cooldown_active()
+	if not (_selected or _hovered or _activated or (_flag_badge != null and _flag_badge.visible) or cooldown_active):
 		return
 	_sel_t += delta * 3.0
+	if visual != null:
+		if cooldown_active:
+			var t_sec: float = float(Time.get_ticks_msec()) / 1000.0
+			var x: float = sin(t_sec * TAU * SWARM_COOLDOWN_SHAKE_HZ) * SWARM_COOLDOWN_SHAKE_PX
+			var y: float = sin(t_sec * TAU * (SWARM_COOLDOWN_SHAKE_HZ * 0.47)) * (SWARM_COOLDOWN_SHAKE_PX * 0.35)
+			visual.position = _visual_rest_position + Vector2(x, y)
+		elif visual.position != _visual_rest_position:
+			visual.position = _visual_rest_position
+			_update_fallback_process()
 	if _flag_badge != null and _flag_badge.visible:
 		var badge_pulse: float = 1.0 + (0.045 * (0.5 + 0.5 * sin(_sel_t * 1.4)))
 		_flag_badge.scale = Vector2(badge_pulse, badge_pulse)
 	queue_redraw()
 
 func _draw() -> void:
+	var cooldown_active: bool = _swarm_cooldown_active()
+	if cooldown_active:
+		_draw_swarm_cooldown_ring()
 	if _selector_state == SELECTOR_STATE_INACTIVE:
 		return
 	if _selector_sprite != null and _selector_sprite.texture != null:
@@ -321,6 +355,19 @@ func _draw() -> void:
 		var a := float(i) / float(SEL_SEG) * TAU
 		pts.append(Vector2(cos(a), sin(a)) * r + offset)
 	draw_polyline(pts, c, SEL_W, true)
+
+func _draw_swarm_cooldown_ring() -> void:
+	var remaining_ms: int = _swarm_cooldown_remaining_ms()
+	if remaining_ms <= 0:
+		return
+	var progress: float = clampf(float(remaining_ms) / float(maxi(1, _swarm_cooldown_total_ms)), 0.0, 1.0)
+	var r: float = radius_px + 12.0
+	var start_angle: float = -PI * 0.5
+	var end_angle: float = start_angle + TAU * progress
+	var pulse_alpha: float = 0.25 + 0.20 * (0.5 + 0.5 * sin(_sel_t * 5.0))
+	draw_circle(Vector2.ZERO, r + 3.0, Color(1.0, 0.72, 0.20, pulse_alpha))
+	draw_arc(Vector2.ZERO, r, 0.0, TAU, 64, Color(0.05, 0.06, 0.08, 0.65), 5.0)
+	draw_arc(Vector2.ZERO, r, start_angle, end_angle, 64, Color(1.0, 0.78, 0.24, 0.95), 5.0)
 
 func _input_event(viewport: Viewport, event: InputEvent, _shape_idx: int) -> void:
 	if event is InputEventMouseButton:
@@ -543,9 +590,17 @@ func _apply_selector_shader_state(state: int) -> void:
 	_selector_mat.set_shader_parameter("glow_boost", boost)
 	_selector_mat.set_shader_parameter("base_alpha", SELECTOR_BASE_ALPHA)
 
+func _swarm_cooldown_remaining_ms() -> int:
+	if _swarm_cooldown_until_msec <= 0:
+		return 0
+	return maxi(0, _swarm_cooldown_until_msec - Time.get_ticks_msec())
+
+func _swarm_cooldown_active() -> bool:
+	return _swarm_cooldown_remaining_ms() > 0
+
 func _update_fallback_process() -> void:
 	var needs_fallback := _selector_sprite == null or _selector_sprite.texture == null
-	set_process((needs_fallback and (_selected or _hovered or _activated)) or (_flag_badge != null and _flag_badge.visible))
+	set_process((needs_fallback and (_selected or _hovered or _activated)) or (_flag_badge != null and _flag_badge.visible) or _swarm_cooldown_active())
 
 func _on_mouse_entered() -> void:
 	_hovered = true

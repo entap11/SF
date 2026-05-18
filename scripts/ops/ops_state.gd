@@ -30,6 +30,7 @@ const BOT_STYLE_SWARM_LORD := "swarm_lord"
 const BOT_TIER_EASY := "easy"
 const BOT_TIER_MEDIUM := "medium"
 const BOT_TIER_HARD := "hard"
+const SWARM_COOLDOWN_MS := 5000
 const AUTH_FENCE_LOG_INTERVAL_MS := 1000
 const AUTH_FENCE_ALLOWED_PREFIXES := [
 	"res://scripts/systems/",
@@ -1469,6 +1470,23 @@ func _telemetry_match_ms() -> int:
 		return 0
 	return maxi(0, int(round(float(state._sim_time_us) / 1000.0)))
 
+func get_swarm_cooldown_total_ms() -> int:
+	return SWARM_COOLDOWN_MS
+
+func get_swarm_cooldown_remaining_ms(src_hive_id: int) -> int:
+	if state == null or src_hive_id <= 0:
+		return 0
+	return _swarm_cooldown_remaining_ms(state, src_hive_id)
+
+func _swarm_cooldown_remaining_ms(st: GameState, src_hive_id: int) -> int:
+	if st == null or src_hive_id <= 0:
+		return 0
+	var until_us: int = int(st.swarm_cooldown_until_us.get(src_hive_id, 0))
+	var now_us: int = int(st._sim_time_us)
+	if until_us <= now_us:
+		return 0
+	return int(ceil(float(until_us - now_us) / 1000.0))
+
 func _record_match_action_event(player_id: int, kind: String, payload: Dictionary = {}) -> void:
 	if _match_telemetry_collector == null:
 		return
@@ -1932,23 +1950,68 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		return result
 	if intent == "swarm":
 		var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
-		if lane_index != -1:
-			var lane_any: Variant = st.lanes[lane_index]
-			if lane_any is LaneData:
-				result["lane_id"] = int((lane_any as LaneData).id)
-			elif lane_any is Dictionary:
-				result["lane_id"] = int((lane_any as Dictionary).get("lane_id", (lane_any as Dictionary).get("id", -1)))
-		if st.swarm_requests == null:
-			st.swarm_requests = []
-		st.swarm_requests.append({"src": src_hive_id, "dst": dst_hive_id})
-		result["ok"] = true
+		if lane_index == -1:
+			result["reason"] = "no_lane"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
+			return result
+		var lane_any: Variant = st.lanes[lane_index]
+		if not (lane_any is LaneData):
+			result["reason"] = "no_lane"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
+			return result
+		var swarm_lane := lane_any as LaneData
+		result["lane_id"] = int(swarm_lane.id)
+		var from_is_a: bool = false
+		if src_hive_id == int(swarm_lane.a_id) and dst_hive_id == int(swarm_lane.b_id):
+			from_is_a = true
+		elif src_hive_id == int(swarm_lane.b_id) and dst_hive_id == int(swarm_lane.a_id):
+			from_is_a = false
+		else:
+			result["reason"] = "no_lane"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
+			return result
 		var swarm_src: HiveData = st.find_hive_by_id(src_hive_id)
 		var swarm_dst: HiveData = st.find_hive_by_id(dst_hive_id)
 		if swarm_src != null:
 			telemetry_src_owner = int(swarm_src.owner_id)
 		if swarm_dst != null:
 			telemetry_dst_owner = int(swarm_dst.owner_id)
-		SFLog.info("INTENT_SWARM", {"src": src_hive_id, "dst": dst_hive_id})
+		if swarm_src == null or swarm_dst == null:
+			result["reason"] = "missing_hive"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
+			return result
+		if int(swarm_src.owner_id) <= 0:
+			result["reason"] = "src_owner"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
+			return result
+		var send_enabled: bool = bool(swarm_lane.send_a if from_is_a else swarm_lane.send_b)
+		if not send_enabled:
+			result["reason"] = "not_enabled"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
+			return result
+		if int(swarm_src.power) <= 1:
+			result["reason"] = "no_power"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
+			return result
+		var cooldown_remaining_ms: int = _swarm_cooldown_remaining_ms(st, src_hive_id)
+		if cooldown_remaining_ms > 0:
+			result["reason"] = "cooldown"
+			result["cooldown_remaining_ms"] = cooldown_remaining_ms
+			SFLog.info("SWARM_COOLDOWN_BLOCK", {
+				"src": src_hive_id,
+				"dst": dst_hive_id,
+				"remaining_ms": cooldown_remaining_ms
+			})
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
+			return result
+		var now_us: int = int(st._sim_time_us)
+		st.swarm_cooldown_until_us[src_hive_id] = now_us + (SWARM_COOLDOWN_MS * 1000)
+		if st.swarm_requests == null:
+			st.swarm_requests = []
+		st.swarm_requests.append({"src": src_hive_id, "dst": dst_hive_id})
+		result["ok"] = true
+		result["cooldown_ms"] = SWARM_COOLDOWN_MS
+		SFLog.info("INTENT_SWARM", {"src": src_hive_id, "dst": dst_hive_id, "cooldown_ms": SWARM_COOLDOWN_MS})
 		_record_intent_telemetry(
 			src_hive_id,
 			dst_hive_id,
@@ -2018,11 +2081,9 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"src_owner": src_owner,
 			"dst_owner": dst_owner
 		})
-	var enable := true
-	if resolved_intent == "none":
-		enable = false
-	else:
-		enable = not st.intent_is_on(src_hive_id, dst_hive_id)
+	# Route intents are idempotent commands. Repeating attack/feed should keep
+	# the lane open; explicit retract/none is the only command that closes it.
+	var enable := resolved_intent != "none"
 
 	var power: int = int(src_hive.power)
 	var budget: int = int(st.lanes_allowed_for_power(power))

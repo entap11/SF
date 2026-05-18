@@ -13,6 +13,8 @@ func _init() -> void:
 	_test_delta_lane_topology_survives_power_growth()
 	_test_delta_h2_h8_is_connectable()
 	_test_existing_invalid_lane_cannot_be_enabled()
+	_test_lane_intent_repeats_are_idempotent()
+	_test_swarm_cooldown_blocks_same_source()
 	print("LANE_OCCLUSION_SMOKE: PASS")
 	quit(0)
 
@@ -127,6 +129,59 @@ func _test_existing_invalid_lane_cannot_be_enabled() -> void:
 	_assert_true(not bool(result.get("ok", false)), "existing invalid lane should not be enabled")
 	_assert_eq(int(result.get("lane_id", -1)), 101, "existing invalid lane should be identified")
 	_assert_true(str(result.get("reason", "")) == "blocked", "existing invalid lane should report blocked")
+
+func _test_lane_intent_repeats_are_idempotent() -> void:
+	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")
+	_assert_true(ops_state != null, "OpsState autoload should exist")
+	var map_dict := {
+		"hives": [
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 50, "kind": "Hive"},
+			{"id": 2, "x": 4, "y": 0, "owner_id": 2, "power": 10, "kind": "Hive"},
+			{"id": 3, "x": 0, "y": 4, "owner_id": 2, "power": 10, "kind": "Hive"}
+		],
+		"lane_candidates": [
+			{"a_id": 1, "b_id": 2},
+			{"a_id": 1, "b_id": 3}
+		]
+	}
+	var state: GameState = ops_state.call("reset_state_from_map", map_dict)
+	ops_state.set("match_phase", 1)
+	var first: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack")
+	_assert_true(bool(first.get("ok", false)), "first attack route should open")
+	var repeat: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack")
+	_assert_true(bool(repeat.get("ok", false)), "repeated attack route should remain accepted")
+	_assert_true(state.intent_is_on(1, 2), "repeated attack route should not toggle off")
+	var second: Dictionary = ops_state.call("apply_lane_intent", 1, 3, "attack")
+	_assert_true(bool(second.get("ok", false)), "second outgoing route should open within budget")
+	_assert_true(state.intent_is_on(1, 2), "opening second route should not switch off first route")
+	_assert_true(state.intent_is_on(1, 3), "second route should be active")
+
+func _test_swarm_cooldown_blocks_same_source() -> void:
+	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")
+	_assert_true(ops_state != null, "OpsState autoload should exist")
+	var map_dict := {
+		"hives": [
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 50, "kind": "Hive"},
+			{"id": 2, "x": 4, "y": 0, "owner_id": 2, "power": 10, "kind": "Hive"}
+		],
+		"lane_candidates": [
+			{"a_id": 1, "b_id": 2}
+		]
+	}
+	var state: GameState = ops_state.call("reset_state_from_map", map_dict)
+	ops_state.set("match_phase", 1)
+	var open_result: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack")
+	_assert_true(bool(open_result.get("ok", false)), "attack route should open before swarm")
+	var first_swarm: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "swarm")
+	_assert_true(bool(first_swarm.get("ok", false)), "first swarm should be accepted")
+	var second_swarm: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "swarm")
+	_assert_true(not bool(second_swarm.get("ok", false)), "second same-source swarm should be blocked")
+	_assert_true(str(second_swarm.get("reason", "")) == "cooldown", "second same-source swarm should report cooldown")
+	_assert_true(int(state.swarm_requests.size()) == 1, "cooldown should not enqueue duplicate swarm")
+	state.set("_sim_time_us", int(state.get("_sim_time_us")) + 5000000)
+	var third_swarm: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "swarm")
+	_assert_true(bool(third_swarm.get("ok", false)), "same-source swarm should be accepted after cooldown")
+	_assert_true(int(state.swarm_requests.size()) == 2, "post-cooldown swarm should enqueue")
 
 func _candidate_count(candidates: Array) -> int:
 	return candidates.size()

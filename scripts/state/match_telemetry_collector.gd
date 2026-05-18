@@ -13,6 +13,8 @@ const SWING_STEP_MS: int = 1000
 const EARLY_WINDOW_MS: int = 90000
 const REACTION_RESPONSE_WINDOW_MS: int = 12000
 const REACTION_THREAT_COOLDOWN_MS: int = 4000
+const REPLAY_SAMPLE_INTERVAL_MS: int = 500
+const REPLAY_MAX_UNITS_PER_FRAME: int = 220
 
 var _model: Variant = MatchTelemetryModelScript.new()
 var _active_player_ids: Array[int] = []
@@ -62,6 +64,9 @@ var _intent_no_lane_fail_by_player: Dictionary = {}
 
 var _damage_events: Array[Dictionary] = []
 var _buff_windows: Array[Dictionary] = []
+var _replay_frames: Array[Dictionary] = []
+var _replay_map: Dictionary = {}
+var _replay_last_sample_ms: int = -999999
 
 func _ensure_model() -> bool:
 	if _model == null:
@@ -116,6 +121,9 @@ func reset() -> void:
 	_intent_no_lane_fail_by_player.clear()
 	_damage_events.clear()
 	_buff_windows.clear()
+	_replay_frames.clear()
+	_replay_map.clear()
+	_replay_last_sample_ms = -999999
 
 func is_active() -> bool:
 	return _started and not _finalized
@@ -463,6 +471,7 @@ func sample_state(now_ms: int, dt_s: float, state: GameState) -> void:
 	if sample_dt_s <= 0.0:
 		return
 	var sample_now_ms: int = maxi(0, now_ms)
+	_sample_replay_frame(sample_now_ms, state)
 	var early_dt_s: float = _early_window_overlap_s(sample_now_ms, sample_dt_s)
 	_expire_buff_windows(sample_now_ms)
 	var owned_hive_counts: Dictionary = _owned_hive_counts(state)
@@ -488,7 +497,127 @@ func finalize_match(winner_player_id: int, end_utc_ms: int) -> Variant:
 	_model.metadata["duration_s"] = duration_s
 	_model.metrics = _build_metrics(duration_s)
 	_model.totals = _build_totals()
+	_model.replay = _build_replay_payload(duration_ms)
 	return _model
+
+func _sample_replay_frame(t_ms: int, state: GameState) -> void:
+	if state == null:
+		return
+	if _replay_map.is_empty():
+		_replay_map = _build_replay_map(state)
+	if not _replay_frames.is_empty() and t_ms - _replay_last_sample_ms < REPLAY_SAMPLE_INTERVAL_MS:
+		return
+	_replay_last_sample_ms = t_ms
+	_replay_frames.append(_build_replay_frame(t_ms, state))
+
+func _build_replay_payload(duration_ms: int) -> Dictionary:
+	return {
+		"schema_version": 1,
+		"sample_ms": REPLAY_SAMPLE_INTERVAL_MS,
+		"duration_ms": maxi(0, duration_ms),
+		"map": _replay_map.duplicate(true),
+		"frames": _replay_frames.duplicate(true)
+	}
+
+func _build_replay_map(state: GameState) -> Dictionary:
+	var hives: Array = []
+	for hive in state.hives:
+		if not (hive is HiveData):
+			continue
+		var h := hive as HiveData
+		hives.append([
+			int(h.id),
+			float(h.render_grid_pos.x),
+			float(h.render_grid_pos.y),
+			str(h.kind),
+			float(h.radius_px)
+		])
+	var towers: Array = []
+	for tower_any in state.towers:
+		if typeof(tower_any) != TYPE_DICTIONARY:
+			continue
+		var tower: Dictionary = tower_any as Dictionary
+		var gp: Vector2i = tower.get("grid_pos", Vector2i.ZERO) as Vector2i
+		towers.append([int(tower.get("id", -1)), float(gp.x), float(gp.y), int(tower.get("owner_id", 0))])
+	var barracks: Array = []
+	for barracks_any in state.barracks:
+		if typeof(barracks_any) != TYPE_DICTIONARY:
+			continue
+		var barracks_data: Dictionary = barracks_any as Dictionary
+		var gp_b: Vector2i = barracks_data.get("grid_pos", Vector2i.ZERO) as Vector2i
+		barracks.append([int(barracks_data.get("id", -1)), float(gp_b.x), float(gp_b.y), int(barracks_data.get("owner_id", 0))])
+	var candidates: Array = []
+	for lane_any in state.lane_candidates:
+		if typeof(lane_any) != TYPE_DICTIONARY:
+			continue
+		var lane: Dictionary = lane_any as Dictionary
+		var a_id: int = int(lane.get("a_id", lane.get("from", -1)))
+		var b_id: int = int(lane.get("b_id", lane.get("to", -1)))
+		if a_id > 0 and b_id > 0:
+			candidates.append([a_id, b_id])
+	return {
+		"hives": hives,
+		"towers": towers,
+		"barracks": barracks,
+		"lane_candidates": candidates
+	}
+
+func _build_replay_frame(t_ms: int, state: GameState) -> Dictionary:
+	return {
+		"t": maxi(0, t_ms),
+		"h": _replay_hive_rows(state),
+		"l": _replay_lane_rows(state),
+		"u": _replay_unit_rows(state)
+	}
+
+func _replay_hive_rows(state: GameState) -> Array:
+	var out: Array = []
+	for hive in state.hives:
+		if not (hive is HiveData):
+			continue
+		var h := hive as HiveData
+		out.append([int(h.id), int(h.owner_id), int(h.power)])
+	return out
+
+func _replay_lane_rows(state: GameState) -> Array:
+	var out: Array = []
+	for lane_any in state.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane := lane_any as LaneData
+		out.append([
+			int(lane.id),
+			int(lane.a_id),
+			int(lane.b_id),
+			1 if bool(lane.send_a) else 0,
+			1 if bool(lane.send_b) else 0,
+			float(lane.build_t)
+		])
+	return out
+
+func _replay_unit_rows(state: GameState) -> Array:
+	var out: Array = []
+	var units_any: Variant = state.units_by_lane.get("_all", [])
+	if typeof(units_any) != TYPE_ARRAY:
+		return out
+	var units: Array = units_any as Array
+	var limit: int = mini(units.size(), REPLAY_MAX_UNITS_PER_FRAME)
+	for i in range(limit):
+		var unit_any: Variant = units[i]
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var unit: Dictionary = unit_any as Dictionary
+		var lane_id: int = int(unit.get("lane_id", -1))
+		var owner_id: int = int(unit.get("owner_id", 0))
+		if lane_id <= 0 or owner_id <= 0:
+			continue
+		out.append([
+			lane_id,
+			owner_id,
+			snappedf(clampf(float(unit.get("t", 0.0)), 0.0, 1.0), 0.001),
+			maxi(1, int(unit.get("amount", 1)))
+		])
+	return out
 
 func _build_totals() -> Dictionary:
 	var players: Array[int] = _active_player_ids.duplicate()

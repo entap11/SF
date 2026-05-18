@@ -16,6 +16,7 @@ const HEX_SEAM_BACKGROUND_SCENE: PackedScene = preload("res://ui/backgrounds/Hex
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MatchTelemetryModelScript = preload("res://scripts/state/match_telemetry_model.gd")
 const MatchAnalyzerScript = preload("res://scripts/state/match_analyzer.gd")
+const MatchReplayMapViewScript = preload("res://scripts/ui/match_replay_map_view.gd")
 const MATCH_BACKGROUND_INLAY_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/match_background_inlay.png")
 const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
 const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
@@ -73,6 +74,7 @@ const UI_SURFACE_HIVE_DROPDOWN := "hive_dropdown"
 const DASH_HERO_TAB_GARAGE := "garage"
 const DASH_HERO_TAB_BUFFS := "buffs"
 const DASH_HERO_TAB_ACHIEVEMENTS := "achievements"
+const DASH_HERO_TAB_FRIENDS := "friends"
 const DASH_HEX_BUFFS_KEY := "ui.mm.buffs.normal"
 const DASH_HEX_STORE_KEY := "ui.mm.store.normal"
 const DASH_HEX_HIVE_KEY := "ui.mm.hive.normal"
@@ -260,6 +262,12 @@ const TREE_META_REOPEN_JUKEBOX_STATE: String = "reopen_jukebox_state"
 var _dash_garage_panel: Control = null
 var _dash_buffs_hero: Control = null
 var _dash_achievements_hero: Control = null
+var _dash_friends_panel: Control = null
+var _dash_friends_tab: Button = null
+var _friends_list_vbox: VBoxContainer = null
+var _friends_empty_label: Label = null
+var _friend_presence_timer: Timer = null
+var _pending_friend_invite: Dictionary = {}
 var _dash_active_tab: String = DASH_HERO_TAB_GARAGE
 var _honey_widget: Control = null
 var _tier_widget: Control = null
@@ -270,6 +278,13 @@ var _last_replay_cursor_index: int = 0
 var _last_replay_speed_index: int = 0
 var _last_replay_is_playing: bool = false
 var _last_replay_playback_serial: int = 0
+var _home_replay_panel: Panel = null
+var _home_replay_progress: ProgressBar = null
+var _home_replay_time_label: Label = null
+var _home_replay_rows: Array = []
+var _home_replay_buttons: Array = []
+var _home_replay_map_view: Control = null
+var _dash_replay_map_view: Control = null
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -1066,6 +1081,7 @@ func _ready() -> void:
 	_ensure_tier_widget()
 	_ensure_honey_widget()
 	_style_labels()
+	_ensure_friends_tab()
 	_style_buttons()
 	_apply_bottom_nav_sprite_presentation()
 	_apply_bottom_nav_layout()
@@ -1082,6 +1098,8 @@ func _ready() -> void:
 		get_viewport().size_changed.connect(_apply_top_safe_area_layout)
 	_set_hex_buttons()
 	_apply_top_safe_area_layout()
+	_ensure_home_replay_player()
+	_ensure_dash_replay_map_view()
 	_load_match_history()
 	_refresh_home_replay_hint()
 	_build_store_landing()
@@ -1103,7 +1121,8 @@ func _ready() -> void:
 		if not HiveClanState.hive_clan_state_changed.is_connected(_on_hive_clan_state_changed):
 			HiveClanState.hive_clan_state_changed.connect(_on_hive_clan_state_changed)
 	_sync_hive_panel_profile_from_hive_state()
-	call_deferred("_auto_start_latest_match_replay")
+	_start_friend_presence_poll()
+	call_deferred("_auto_start_home_replay")
 
 func _apply_pending_jukebox_reopen_request() -> void:
 	var tree: SceneTree = get_tree()
@@ -1729,10 +1748,11 @@ func _style_buttons() -> void:
 	_style_dash_top_tabs()
 
 func _style_dash_top_tabs() -> void:
+	_ensure_friends_tab()
 	if dash_tabs != null:
 		dash_tabs.alignment = BoxContainer.ALIGNMENT_CENTER
 		dash_tabs.add_theme_constant_override("separation", 12)
-	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab]:
+	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_friends_tab]:
 		if button == null:
 			continue
 		button.toggle_mode = true
@@ -1807,7 +1827,7 @@ func _wire_buttons() -> void:
 	if hero_panel != null:
 		hero_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		hero_panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		hero_panel.tooltip_text = "Play last match replay"
+		hero_panel.tooltip_text = "Play or pause last match replay"
 		if not hero_panel.gui_input.is_connected(_on_last_match_replay_hero_gui_input):
 			hero_panel.gui_input.connect(_on_last_match_replay_hero_gui_input)
 	for idx in range(replay_controls_buttons.size()):
@@ -5714,6 +5734,8 @@ func _ensure_dash_tab_heroes() -> void:
 		_dash_buffs_hero = _instantiate_dash_hero(DASH_BUFFS_HERO_SCENE, "BuffsHero")
 	if _dash_achievements_hero == null:
 		_dash_achievements_hero = _instantiate_dash_hero(DASH_ACHIEVEMENTS_HERO_SCENE, "AchievementsHero")
+	if _dash_friends_panel == null:
+		_dash_friends_panel = _build_friends_panel()
 	_refresh_dash_hero_views()
 
 func _instantiate_dash_hero(scene: PackedScene, node_name: String) -> Control:
@@ -5736,9 +5758,263 @@ func _instantiate_dash_hero(scene: PackedScene, node_name: String) -> Control:
 	dash_match_panel.add_child(hero)
 	return hero
 
+func _ensure_friends_tab() -> void:
+	if dash_tabs == null:
+		return
+	if _dash_friends_tab != null and is_instance_valid(_dash_friends_tab):
+		return
+	var button := Button.new()
+	button.name = "FriendsTab"
+	button.text = "FRIENDS"
+	button.toggle_mode = true
+	button.custom_minimum_size = Vector2(180.0, 44.0)
+	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	button.pressed.connect(func() -> void:
+		_set_dash_top_tab(DASH_HERO_TAB_FRIENDS)
+	)
+	dash_tabs.add_child(button)
+	_dash_friends_tab = button
+
+func _build_friends_panel() -> Control:
+	if dash_match_panel == null:
+		return null
+	var panel := Panel.new()
+	panel.name = "FriendsPanel"
+	panel.anchor_left = 0.0
+	panel.anchor_top = 0.0
+	panel.anchor_right = 1.0
+	panel.anchor_bottom = 1.0
+	panel.offset_left = 0.0
+	panel.offset_top = 0.0
+	panel.offset_right = 0.0
+	panel.offset_bottom = 0.0
+	panel.visible = false
+	_style_panel(panel, Color(0.07, 0.08, 0.1, 0.92), Color(0.35, 0.36, 0.44, 0.6))
+	dash_match_panel.add_child(panel)
+
+	var root := VBoxContainer.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	root.offset_left = 24.0
+	root.offset_top = 24.0
+	root.offset_right = -24.0
+	root.offset_bottom = -24.0
+	root.add_theme_constant_override("separation", 14)
+	panel.add_child(root)
+
+	var title := Label.new()
+	title.text = "FRIENDS"
+	root.add_child(title)
+	_apply_font(title, _font_semibold, 18)
+
+	_friends_empty_label = Label.new()
+	_friends_empty_label.text = "No online friends found."
+	_friends_empty_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	root.add_child(_friends_empty_label)
+	_apply_font(_friends_empty_label, _font_regular, 13)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(scroll)
+
+	_friends_list_vbox = VBoxContainer.new()
+	_friends_list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_friends_list_vbox.add_theme_constant_override("separation", 10)
+	scroll.add_child(_friends_list_vbox)
+	_refresh_friends_panel()
+	return panel
+
+func _refresh_friends_panel() -> void:
+	if _friends_list_vbox == null:
+		return
+	for child in _friends_list_vbox.get_children():
+		child.queue_free()
+	var friends: Array = _online_friends()
+	if _friends_empty_label != null:
+		_friends_empty_label.visible = friends.is_empty()
+	for friend_any in friends:
+		if typeof(friend_any) != TYPE_DICTIONARY:
+			continue
+		var friend: Dictionary = friend_any as Dictionary
+		var row := HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_theme_constant_override("separation", 12)
+		_friends_list_vbox.add_child(row)
+
+		var label := Label.new()
+		label.text = str(friend.get("display_name", friend.get("uid", "Friend")))
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(label)
+		_apply_font(label, _font_regular, 15)
+
+		var invite_button := Button.new()
+		invite_button.text = "INVITE"
+		invite_button.custom_minimum_size = Vector2(150.0, 44.0)
+		row.add_child(invite_button)
+		_apply_font(invite_button, _font_semibold, 13)
+		_style_button(invite_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
+		invite_button.pressed.connect(func() -> void:
+			_invite_online_friend(friend)
+		)
+
+func _online_friends() -> Array:
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("list_online_friends"):
+		return []
+	var friend_ids: Array = _local_friend_ids()
+	if friend_ids.is_empty():
+		return []
+	var result: Dictionary = handshake.call("list_online_friends", _local_user_id(), friend_ids) as Dictionary
+	if not bool(result.get("ok", false)):
+		return []
+	var online_any: Variant = result.get("online", [])
+	if typeof(online_any) == TYPE_ARRAY:
+		return online_any as Array
+	return []
+
+func _local_friend_ids() -> Array:
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	if rank_state == null or not rank_state.has_method("get_player_snapshot"):
+		return []
+	var player: Dictionary = rank_state.call("get_player_snapshot", _local_user_id()) as Dictionary
+	var friends_any: Variant = player.get("friends", [])
+	if typeof(friends_any) != TYPE_ARRAY:
+		return []
+	var out: Array = []
+	for friend_any in friends_any as Array:
+		var friend_id: String = str(friend_any).strip_edges()
+		if friend_id.is_empty() or friend_id == _local_user_id() or out.has(friend_id):
+			continue
+		out.append(friend_id)
+	return out
+
+func _local_user_id() -> String:
+	return ProfileManager.get_user_id() if ProfileManager != null else "local"
+
+func _local_display_name() -> String:
+	var display_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
+	return display_name if not display_name.strip_edges().is_empty() else "You"
+
+func _local_vs_profile() -> Dictionary:
+	return {
+		"uid": _local_user_id(),
+		"display_name": _local_display_name()
+	}
+
+func _default_friend_vs_options() -> Dictionary:
+	return {
+		"human_pvp": true
+	}
+
+func _invite_online_friend(friend: Dictionary) -> void:
+	var friend_uid: String = str(friend.get("uid", "")).strip_edges()
+	if friend_uid.is_empty():
+		status_label.text = "Friend unavailable."
+		return
+	_close_top_level_windows(UI_SURFACE_VS_LOBBY)
+	if _vs_lobby == null:
+		_vs_lobby = preload("res://scenes/ui/VsLobby.tscn").instantiate()
+		_vs_lobby.closed.connect(func():
+			_vs_lobby.queue_free()
+			_vs_lobby = null
+		)
+		add_child(_vs_lobby)
+	if _vs_lobby.has_method("configure"):
+		_vs_lobby.call("configure", "1V1", 1, 0, true, _default_friend_vs_options())
+	_vs_lobby.visible = true
+	if _vs_lobby.has_method("begin_friend_invite"):
+		_vs_lobby.call("begin_friend_invite", friend_uid, str(friend.get("display_name", "Friend")))
+	status_label.text = "Friend invite sent."
+
+func _start_friend_presence_poll() -> void:
+	if _friend_presence_timer != null and is_instance_valid(_friend_presence_timer):
+		return
+	_friend_presence_timer = Timer.new()
+	_friend_presence_timer.name = "FriendPresenceTimer"
+	_friend_presence_timer.wait_time = 3.0
+	_friend_presence_timer.one_shot = false
+	_friend_presence_timer.timeout.connect(_poll_friend_presence)
+	add_child(_friend_presence_timer)
+	_friend_presence_timer.start()
+	call_deferred("_poll_friend_presence")
+
+func _poll_friend_presence() -> void:
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null:
+		return
+	if handshake.has_method("heartbeat"):
+		handshake.call("heartbeat", _local_vs_profile())
+	if _dash_active_tab == DASH_HERO_TAB_FRIENDS and _dash_friends_panel != null and _dash_friends_panel.visible:
+		_refresh_friends_panel()
+	if handshake.has_method("poll_friend_invites"):
+		var result: Dictionary = handshake.call("poll_friend_invites", _local_user_id()) as Dictionary
+		if not bool(result.get("ok", false)):
+			return
+		var invites_any: Variant = result.get("invites", [])
+		if typeof(invites_any) != TYPE_ARRAY:
+			return
+		for invite_any in invites_any as Array:
+			if typeof(invite_any) != TYPE_DICTIONARY:
+				continue
+			var invite: Dictionary = invite_any as Dictionary
+			if _pending_friend_invite.is_empty():
+				_show_friend_invite_dialog(invite)
+			return
+
+func _show_friend_invite_dialog(invite: Dictionary) -> void:
+	_pending_friend_invite = invite.duplicate(true)
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Game Invite"
+	dialog.dialog_text = "%s invited you to a match." % str(invite.get("from_name", "A friend"))
+	dialog.exclusive = false
+	add_child(dialog)
+	dialog.get_ok_button().text = "Accept"
+	dialog.get_cancel_button().text = "Reject"
+	dialog.confirmed.connect(func() -> void:
+		_respond_to_pending_friend_invite(true)
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(func() -> void:
+		_respond_to_pending_friend_invite(false)
+		dialog.queue_free()
+	)
+	dialog.popup_centered(Vector2i(520, 260))
+
+func _respond_to_pending_friend_invite(accept: bool) -> void:
+	if _pending_friend_invite.is_empty():
+		return
+	var invite: Dictionary = _pending_friend_invite.duplicate(true)
+	_pending_friend_invite = {}
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("respond_friend_invite"):
+		return
+	var result: Dictionary = handshake.call("respond_friend_invite", str(invite.get("id", "")), _local_vs_profile(), accept) as Dictionary
+	if not accept:
+		status_label.text = "Invite declined."
+		return
+	if not bool(result.get("ok", false)):
+		status_label.text = "Invite accept failed."
+		return
+	_open_vs_lobby_from_friend_response(result)
+
+func _open_vs_lobby_from_friend_response(result: Dictionary) -> void:
+	_close_top_level_windows(UI_SURFACE_VS_LOBBY)
+	if _vs_lobby == null:
+		_vs_lobby = preload("res://scenes/ui/VsLobby.tscn").instantiate()
+		_vs_lobby.closed.connect(func():
+			_vs_lobby.queue_free()
+			_vs_lobby = null
+		)
+		add_child(_vs_lobby)
+	var session: Dictionary = result.get("session", {}) as Dictionary
+	if _vs_lobby.has_method("configure_existing_session"):
+		_vs_lobby.call("configure_existing_session", str(result.get("session_id", "")), "guest", session, "")
+	_vs_lobby.visible = true
+	status_label.text = "Friend match accepted."
+
 func _set_dash_top_tab(tab_id: String, force_refresh: bool = false) -> void:
 	var normalized_tab: String = tab_id.strip_edges().to_lower()
-	if normalized_tab != DASH_HERO_TAB_BUFFS and normalized_tab != DASH_HERO_TAB_ACHIEVEMENTS:
+	if normalized_tab != DASH_HERO_TAB_BUFFS and normalized_tab != DASH_HERO_TAB_ACHIEVEMENTS and normalized_tab != DASH_HERO_TAB_FRIENDS:
 		normalized_tab = DASH_HERO_TAB_GARAGE
 	if not force_refresh and normalized_tab == _dash_active_tab:
 		return
@@ -5751,6 +6027,7 @@ func _refresh_dash_top_tabs() -> void:
 	var active_garage: bool = _dash_active_tab == DASH_HERO_TAB_GARAGE
 	var active_buffs: bool = _dash_active_tab == DASH_HERO_TAB_BUFFS
 	var active_achievements: bool = _dash_active_tab == DASH_HERO_TAB_ACHIEVEMENTS
+	var active_friends: bool = _dash_active_tab == DASH_HERO_TAB_FRIENDS
 	if dash_garage_tab != null:
 		dash_garage_tab.button_pressed = active_garage
 		_apply_dash_top_tab_style(dash_garage_tab, active_garage)
@@ -5760,6 +6037,9 @@ func _refresh_dash_top_tabs() -> void:
 	if dash_achievements_tab != null:
 		dash_achievements_tab.button_pressed = active_achievements
 		_apply_dash_top_tab_style(dash_achievements_tab, active_achievements)
+	if _dash_friends_tab != null:
+		_dash_friends_tab.button_pressed = active_friends
+		_apply_dash_top_tab_style(_dash_friends_tab, active_friends)
 
 func _apply_dash_top_tab_style(button: Button, selected: bool) -> void:
 	if button == null:
@@ -5776,15 +6056,19 @@ func _refresh_dash_active_hero() -> void:
 		target = _dash_buffs_hero
 	elif _dash_active_tab == DASH_HERO_TAB_ACHIEVEMENTS:
 		target = _dash_achievements_hero
-	for hero in [_dash_garage_panel, _dash_buffs_hero, _dash_achievements_hero]:
+	elif _dash_active_tab == DASH_HERO_TAB_FRIENDS:
+		target = _dash_friends_panel
+	for hero in [_dash_garage_panel, _dash_buffs_hero, _dash_achievements_hero, _dash_friends_panel]:
 		if hero == null:
 			continue
 		hero.visible = hero == target
 	if target != null and target.has_method("refresh_view"):
 		target.call("refresh_view")
+	if target == _dash_friends_panel:
+		_refresh_friends_panel()
 
 func _refresh_dash_hero_views() -> void:
-	for hero in [_dash_garage_panel, _dash_buffs_hero, _dash_achievements_hero]:
+	for hero in [_dash_garage_panel, _dash_buffs_hero, _dash_achievements_hero, _dash_friends_panel]:
 		if hero != null and hero.has_method("refresh_view"):
 			hero.call("refresh_view")
 
@@ -8374,42 +8658,147 @@ func _on_last_match_replay_hero_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mouse_event: InputEventMouseButton = event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
-			_open_latest_match_replay(true)
+			if _last_replay_is_playing:
+				_on_replay_control_pressed(1)
+			else:
+				_on_replay_control_pressed(0)
 			accept_event()
+
+func _ensure_home_replay_player() -> void:
+	if hero_vbox == null:
+		return
+	if _home_replay_panel != null and is_instance_valid(_home_replay_panel):
+		return
+	_home_replay_panel = Panel.new()
+	_home_replay_panel.name = "HomeReplayPlayer"
+	_home_replay_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_home_replay_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_home_replay_panel.custom_minimum_size = Vector2(0.0, 210.0)
+	hero_vbox.add_child(_home_replay_panel)
+	_style_panel(_home_replay_panel, Color(0.06, 0.07, 0.09, 0.78), Color(0.54, 0.50, 0.34, 0.72))
+
+	var vbox := VBoxContainer.new()
+	vbox.name = "ReplayVBox"
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	vbox.offset_left = 16.0
+	vbox.offset_top = 12.0
+	vbox.offset_right = -16.0
+	vbox.offset_bottom = -12.0
+	vbox.add_theme_constant_override("separation", 8)
+	_home_replay_panel.add_child(vbox)
+
+	_home_replay_map_view = MatchReplayMapViewScript.new()
+	_home_replay_map_view.name = "ReplayMapView"
+	_home_replay_map_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_home_replay_map_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_home_replay_map_view.custom_minimum_size = Vector2(0.0, 180.0)
+	vbox.add_child(_home_replay_map_view)
+
+	_home_replay_progress = ProgressBar.new()
+	_home_replay_progress.name = "ReplayProgress"
+	_home_replay_progress.min_value = 0.0
+	_home_replay_progress.max_value = 1.0
+	_home_replay_progress.value = 0.0
+	_home_replay_progress.show_percentage = false
+	_home_replay_progress.custom_minimum_size = Vector2(0.0, 18.0)
+	vbox.add_child(_home_replay_progress)
+
+	_home_replay_time_label = Label.new()
+	_home_replay_time_label.name = "ReplayTime"
+	_home_replay_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_home_replay_time_label.text = "--:--"
+	vbox.add_child(_home_replay_time_label)
+	_apply_font(_home_replay_time_label, _font_semibold, 16)
+	_home_replay_time_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.34, 1.0))
+
+	_home_replay_rows.clear()
+	for i in range(4):
+		var row := HBoxContainer.new()
+		row.name = "ReplayEvent%d" % (i + 1)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.visible = false
+		row.add_theme_constant_override("separation", 10)
+		vbox.add_child(row)
+		var time_label := Label.new()
+		time_label.custom_minimum_size = Vector2(66.0, 0.0)
+		time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(time_label)
+		_apply_font(time_label, _font_semibold, 14)
+		var event_label := Label.new()
+		event_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		event_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		row.add_child(event_label)
+		_apply_font(event_label, _font_regular, 14)
+		_home_replay_rows.append({"row": row, "time": time_label, "event": event_label})
+
+	var controls := HBoxContainer.new()
+	controls.name = "ReplayControls"
+	controls.alignment = BoxContainer.ALIGNMENT_CENTER
+	controls.add_theme_constant_override("separation", 10)
+	vbox.add_child(controls)
+	var labels: Array[String] = ["Play", "Pause", "Step", "Speed"]
+	_home_replay_buttons.clear()
+	for idx in range(labels.size()):
+		var button := Button.new()
+		button.text = labels[idx]
+		button.custom_minimum_size = Vector2(92.0, 38.0)
+		controls.add_child(button)
+		_apply_font(button, _font_semibold, 13)
+		_style_button(button, Color(0.10, 0.11, 0.14), Color(0.45, 0.43, 0.30), Color(0.95, 0.92, 0.80))
+		button.pressed.connect(Callable(self, "_on_replay_control_pressed").bind(idx))
+		_home_replay_buttons.append(button)
+
+func _ensure_dash_replay_map_view() -> void:
+	var timeline_vbox := get_node_or_null("DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox") as VBoxContainer
+	if timeline_vbox == null:
+		return
+	if _dash_replay_map_view != null and is_instance_valid(_dash_replay_map_view):
+		return
+	_dash_replay_map_view = MatchReplayMapViewScript.new()
+	_dash_replay_map_view.name = "ReplayMapView"
+	_dash_replay_map_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dash_replay_map_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_dash_replay_map_view.custom_minimum_size = Vector2(0.0, 360.0)
+	timeline_vbox.add_child(_dash_replay_map_view)
+	timeline_vbox.move_child(_dash_replay_map_view, 1)
+	var header := get_node_or_null("DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineHeader") as Label
+	if header != null:
+		header.text = "MATCH MAP"
+	for label_any in replay_timeline_times:
+		if label_any is Label and (label_any as Label).get_parent() is Control:
+			((label_any as Label).get_parent() as Control).visible = false
+	var note := get_node_or_null("DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayNote") as Label
+	if note != null:
+		note.text = "Saved visual replay frames from the most recent match."
+
+func _auto_start_home_replay() -> void:
+	if not is_inside_tree():
+		return
+	if onboarding_overlay != null and onboarding_overlay.visible:
+		return
+	if _last_replay_data.is_empty():
+		return
+	if not bool(_last_replay_data.get("is_saved_telemetry", true)):
+		return
+	_start_replay_playback("Playing latest saved match replay.")
 
 func _open_latest_match_replay(auto_play: bool = false) -> void:
 	_refresh_latest_match_replay_cache()
-	_replay_direct_mode = true
+	_replay_direct_mode = false
 	if _latest_replay_data.is_empty():
 		var empty_data: Dictionary = _empty_saved_replay_data()
 		_last_replay_data = empty_data.duplicate(true)
 		dash_replay_sub.text = "No saved match replay yet"
 		_apply_replay_data(empty_data)
-		_open_dash_panel(dash_replay_panel)
 		status_label.text = "Play a match to create the first replay."
 		return
 	_current_match_index = 0
-	dash_replay_sub.text = "Replay breakdown - %s" % str(_latest_replay_data.get("title", "Last Match"))
+	dash_replay_sub.text = "Replay - %s" % str(_latest_replay_data.get("title", "Last Match"))
 	_apply_replay_data(_latest_replay_data)
-	_open_dash_panel(dash_replay_panel)
 	if auto_play:
 		_start_replay_playback("Playing latest saved match replay.")
 	else:
 		status_label.text = "Loaded latest saved match replay."
-
-func _auto_start_latest_match_replay() -> void:
-	if not is_inside_tree():
-		return
-	var tree: SceneTree = get_tree()
-	if tree != null and bool(tree.get_meta(TREE_META_REOPEN_JUKEBOX_ON_READY, false)):
-		return
-	if _jukebox_panel != null and _jukebox_panel.visible:
-		return
-	if onboarding_overlay != null and onboarding_overlay.visible:
-		return
-	if not _refresh_latest_match_replay_cache():
-		return
-	_open_latest_match_replay(true)
 
 func _refresh_home_replay_hint() -> void:
 	if _latest_replay_data.is_empty():
@@ -8419,7 +8808,7 @@ func _refresh_home_replay_hint() -> void:
 	if hero_sub_label == null:
 		return
 	if _latest_replay_data.is_empty():
-		hero_sub_label.text = "Play a match to unlock replay + analysis"
+		hero_sub_label.text = "Play a match to save a replay here"
 		return
 	var map_name: String = str(_latest_replay_data.get("map", "Unknown Map"))
 	var duration: String = str(_latest_replay_data.get("duration", "--:--"))
@@ -8481,6 +8870,7 @@ func _build_replay_data_from_telemetry_payload(payload: Dictionary, source_path:
 	var metadata: Dictionary = _telemetry_object_dictionary(model, "metadata")
 	var metrics: Dictionary = _telemetry_object_dictionary(model, "metrics")
 	var analysis_summary: Dictionary = _telemetry_object_dictionary(model, "analysis_summary")
+	var visual_replay: Dictionary = _telemetry_object_dictionary(model, "replay")
 	var events: Array = _telemetry_object_events(model)
 	var focus_player_id: int = _telemetry_focus_player_id(metadata, metrics)
 	if analysis_summary.is_empty():
@@ -8498,7 +8888,8 @@ func _build_replay_data_from_telemetry_payload(payload: Dictionary, source_path:
 		"mode": _telemetry_mode_label(metadata),
 		"map": _present_replay_token(str(metadata.get("map_id", "Unknown Map"))),
 		"duration": _format_replay_duration(float(metadata.get("duration_s", 0.0))),
-		"timeline": _telemetry_timeline(events, metadata),
+		"timeline": _telemetry_timeline(events, metadata, visual_replay),
+		"visual_replay": visual_replay,
 		"analysis": _telemetry_analysis_lines(analysis_summary),
 		"source_path": source_path,
 		"is_saved_telemetry": true
@@ -8580,8 +8971,8 @@ func _telemetry_mode_label(metadata: Dictionary) -> String:
 		return "Bot Match"
 	return "VS"
 
-func _telemetry_timeline(events: Array, metadata: Dictionary) -> Array:
-	var timeline: Array = []
+func _telemetry_timeline(events: Array, metadata: Dictionary, visual_replay: Dictionary = {}) -> Array:
+	var timeline: Array = [{"t_ms": 0, "t": "00:00", "event": "Match started", "frame_index": 0}]
 	for event_any in events:
 		if typeof(event_any) != TYPE_DICTIONARY:
 			continue
@@ -8589,52 +8980,171 @@ func _telemetry_timeline(events: Array, metadata: Dictionary) -> Array:
 		var label: String = _telemetry_event_label(event)
 		if label.is_empty():
 			continue
+		var t_ms: int = maxi(0, int(event.get("t", 0)))
 		timeline.append({
-			"t": _format_replay_time(int(event.get("t", 0))),
-			"event": label
+			"t_ms": t_ms,
+			"t": _format_replay_time(t_ms),
+			"event": label,
+			"frame_index": _frame_index_for_replay_time(visual_replay, t_ms)
 		})
-		if timeline.size() >= 4:
-			break
-	if timeline.is_empty():
-		timeline.append({"t": "00:00", "event": "Match started"})
+	timeline.append_array(_telemetry_replay_control_flow_events(visual_replay))
+	timeline.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var at: int = int(a.get("t_ms", 0))
+		var bt: int = int(b.get("t_ms", 0))
+		if at == bt:
+			return str(a.get("event", "")) < str(b.get("event", ""))
+		return at < bt
+	)
+	timeline = _dedupe_replay_timeline(timeline)
 	var duration_s: float = float(metadata.get("duration_s", 0.0))
 	var winner_player_id: int = int(metadata.get("winner_player_id", 0))
-	if timeline.size() < 4 and duration_s > 0.0:
+	if duration_s > 0.0:
 		var finish_event: String = "Match ended"
 		if winner_player_id > 0:
 			finish_event = "Player %d won" % winner_player_id
-		timeline.append({"t": _format_replay_duration(duration_s), "event": finish_event})
+		var finish_ms: int = int(round(duration_s * 1000.0))
+		timeline.append({
+			"t_ms": finish_ms,
+			"t": _format_replay_duration(duration_s),
+			"event": finish_event,
+			"frame_index": _frame_index_for_replay_time(visual_replay, finish_ms)
+		})
+	if timeline.size() > 28:
+		timeline = _thin_replay_timeline(timeline, 28)
 	return timeline
 
 func _telemetry_event_label(event: Dictionary) -> String:
 	var event_type: int = int(event.get("e", -1))
-	if event_type == int(MatchTelemetryModelScript.EVENT_HIVE_DAMAGE):
-		return "P%d hit P%d hive for %d" % [
-			int(event.get("atk", 0)),
-			int(event.get("def", 0)),
-			int(event.get("dmg", 0))
-		]
+	if event_type == int(MatchTelemetryModelScript.EVENT_INTENT):
+		return ""
+	if event_type == int(MatchTelemetryModelScript.EVENT_COLLISION):
+		return ""
 	if event_type == int(MatchTelemetryModelScript.EVENT_BUFF_ACTIVATION):
-		return "P%d used %s" % [
-			int(event.get("p", 0)),
-			_present_replay_token(str(event.get("id", "buff")))
-		]
+		return ""
 	if event_type == int(MatchTelemetryModelScript.EVENT_ARRIVAL):
 		var before_owner: int = int(event.get("bo", 0))
 		var after_owner: int = int(event.get("ao", before_owner))
 		if after_owner > 0 and after_owner != before_owner:
-			return "P%d flipped Hive %d" % [after_owner, int(event.get("h", 0))]
+			var verb := "claimed" if before_owner <= 0 else "took"
+			return "P%d %s H%d" % [after_owner, verb, int(event.get("h", 0))]
 		return ""
 	if event_type == int(MatchTelemetryModelScript.EVENT_ACTION):
 		var kind: String = str(event.get("k", "")).strip_edges()
-		if kind == "swarm_send":
-			return "P%d sent a swarm" % int(event.get("p", 0))
+		if kind.begins_with("lane_open_"):
+			return "P%d opened %s H%d -> H%d" % [
+				int(event.get("p", 0)),
+				_present_replay_token(kind.trim_prefix("lane_open_")),
+				int(event.get("src", 0)),
+				int(event.get("dst", 0))
+			]
 		if kind == "lane_reverse":
-			return "P%d reversed a lane" % int(event.get("p", 0))
+			return "P%d reversed H%d -> H%d" % [
+				int(event.get("p", 0)),
+				int(event.get("src", 0)),
+				int(event.get("dst", 0))
+			]
 		return ""
 	if event_type == int(MatchTelemetryModelScript.EVENT_TOWER_KILL):
-		return "Tower %d picked off %d" % [int(event.get("tower_id", 0)), int(event.get("c", 0))]
+		return ""
 	return ""
+
+func _telemetry_replay_control_flow_events(visual_replay: Dictionary) -> Array:
+	var out: Array = []
+	var frames_any: Variant = visual_replay.get("frames", [])
+	if typeof(frames_any) != TYPE_ARRAY:
+		return out
+	var peak_by_player: Dictionary = {}
+	for frame_index in range((frames_any as Array).size()):
+		var frame_any: Variant = (frames_any as Array)[frame_index]
+		if typeof(frame_any) != TYPE_DICTIONARY:
+			continue
+		var frame: Dictionary = frame_any as Dictionary
+		var counts: Dictionary = _replay_hive_counts_by_owner(frame)
+		for player_any in counts.keys():
+			var player_id: int = int(player_any)
+			if player_id <= 0:
+				continue
+			var count: int = int(counts.get(player_any, 0))
+			var previous_peak: int = int(peak_by_player.get(player_id, count))
+			if not peak_by_player.has(player_id):
+				peak_by_player[player_id] = count
+				continue
+			if count > previous_peak:
+				peak_by_player[player_id] = count
+				var t_ms: int = maxi(0, int(frame.get("t", 0)))
+				out.append({
+					"t_ms": t_ms,
+					"t": _format_replay_time(t_ms),
+					"event": "P%d reached %d hives" % [player_id, count],
+					"frame_index": frame_index,
+					"priority": 1
+				})
+	return out
+
+func _replay_hive_counts_by_owner(frame: Dictionary) -> Dictionary:
+	var counts: Dictionary = {}
+	var hives_any: Variant = frame.get("h", [])
+	if typeof(hives_any) != TYPE_ARRAY:
+		return counts
+	for hive_any in hives_any as Array:
+		if typeof(hive_any) != TYPE_ARRAY:
+			continue
+		var row: Array = hive_any as Array
+		if row.size() < 2:
+			continue
+		var owner_id: int = int(row[1])
+		if owner_id <= 0:
+			continue
+		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
+	return counts
+
+func _dedupe_replay_timeline(timeline: Array) -> Array:
+	var out: Array = []
+	var seen: Dictionary = {}
+	for entry_any in timeline:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var key := "%d|%s" % [int(entry.get("t_ms", 0)), str(entry.get("event", ""))]
+		if seen.has(key):
+			continue
+		seen[key] = true
+		out.append(entry)
+	return out
+
+func _thin_replay_timeline(timeline: Array, max_count: int) -> Array:
+	if timeline.size() <= max_count:
+		return timeline
+	var head: Dictionary = timeline.front() as Dictionary
+	var tail: Dictionary = timeline.back() as Dictionary
+	var middle: Array = timeline.slice(1, timeline.size() - 1)
+	var step: float = float(middle.size()) / float(maxi(1, max_count - 2))
+	var thinned: Array = [head]
+	var cursor := 0.0
+	while thinned.size() < max_count - 1 and int(round(cursor)) < middle.size():
+		thinned.append(middle[int(round(cursor))])
+		cursor += step
+	thinned.append(tail)
+	return _dedupe_replay_timeline(thinned)
+
+func _frame_index_for_replay_time(visual_replay: Dictionary, t_ms: int) -> int:
+	var frames_any: Variant = visual_replay.get("frames", [])
+	if typeof(frames_any) != TYPE_ARRAY:
+		return 0
+	var frames: Array = frames_any as Array
+	if frames.is_empty():
+		return 0
+	var best_index := 0
+	var best_delta := 2147483647
+	for i in range(frames.size()):
+		var frame_any: Variant = frames[i]
+		if typeof(frame_any) != TYPE_DICTIONARY:
+			continue
+		var delta: int = absi(int((frame_any as Dictionary).get("t", 0)) - t_ms)
+		if delta < best_delta:
+			best_delta = delta
+			best_index = i
+	return best_index
 
 func _telemetry_analysis_lines(analysis_summary: Dictionary) -> Array:
 	var out: Array = []
@@ -8660,6 +9170,7 @@ func _empty_saved_replay_data() -> Dictionary:
 		"timeline": [
 			{"t": "--:--", "event": "No saved replay found"}
 		],
+		"visual_replay": {},
 		"analysis": [],
 		"is_saved_telemetry": false
 	}
@@ -8756,14 +9267,16 @@ func _load_match_history() -> void:
 	var first_match := _get_match_data(_current_match_index)
 	dash_stats_sub.text = "Match: %s" % first_match.get("title", "Match")
 	dash_analysis_sub.text = "AI analysis with timestamps — %s" % first_match.get("title", "Match")
-	dash_replay_sub.text = "Replay breakdown — %s" % first_match.get("title", "Match")
+	dash_replay_sub.text = "Replay — %s" % first_match.get("title", "Match")
 	_set_stats_tier(_stats_tier)
 	_apply_analysis_lines(first_match)
 	_apply_replay_data(first_match)
 
 func _get_match_data(index: int) -> Dictionary:
-	if index == 0 and not _latest_replay_data.is_empty():
-		return _latest_replay_data
+	if index == 0:
+		if not _latest_replay_data.is_empty():
+			return _latest_replay_data
+		return _empty_saved_replay_data()
 	if MATCH_HISTORY.is_empty():
 		return {}
 	if index < 0 or index >= MATCH_HISTORY.size():
@@ -8791,6 +9304,7 @@ func _apply_replay_data(match_data: Dictionary) -> void:
 	_last_replay_cursor_index = 0
 	_last_replay_is_playing = false
 	_last_replay_playback_serial += 1
+	_apply_visual_replay_to_views()
 	var mode: String = str(match_data.get("mode", "4P Rumble"))
 	var map_name: String = str(match_data.get("map", "Map A"))
 	var duration: String = str(match_data.get("duration", "3:12"))
@@ -8810,6 +9324,14 @@ func _apply_replay_data(match_data: Dictionary) -> void:
 			event_label.text = ""
 	_update_replay_controls_state()
 	_update_replay_playback_view()
+	_update_home_replay_from_data()
+
+func _apply_visual_replay_to_views() -> void:
+	var replay_data: Dictionary = _visual_replay_data()
+	if _home_replay_map_view != null and _home_replay_map_view.has_method("set_replay_data"):
+		_home_replay_map_view.call("set_replay_data", replay_data)
+	if _dash_replay_map_view != null and _dash_replay_map_view.has_method("set_replay_data"):
+		_dash_replay_map_view.call("set_replay_data", replay_data)
 
 func _open_match_stats(match_index: int) -> void:
 	_current_match_index = match_index
@@ -8831,13 +9353,13 @@ func _open_match_replay(match_index: int) -> void:
 		_refresh_latest_match_replay_cache()
 	_current_match_index = match_index
 	var match_data := _get_match_data(match_index)
-	dash_replay_sub.text = "Replay breakdown — %s" % match_data.get("title", "Match")
+	dash_replay_sub.text = "Replay — %s" % match_data.get("title", "Match")
 	_apply_replay_data(match_data)
 	_open_dash_panel(dash_replay_panel)
 
 func _on_replay_control_pressed(control_index: int) -> void:
 	var timeline: Array = _last_replay_data.get("timeline", [])
-	if _last_replay_data.is_empty() or timeline.is_empty():
+	if _last_replay_data.is_empty() or (timeline.is_empty() and _replay_sequence_count() <= 0):
 		status_label.text = "No replay loaded."
 		return
 	match control_index:
@@ -8862,7 +9384,7 @@ func _on_replay_control_pressed(control_index: int) -> void:
 
 func _start_replay_playback(status_text: String) -> void:
 	var timeline: Array = _last_replay_data.get("timeline", [])
-	if _last_replay_data.is_empty() or timeline.is_empty():
+	if _last_replay_data.is_empty() or (timeline.is_empty() and _replay_sequence_count() <= 0):
 		status_label.text = "No replay loaded."
 		return
 	_last_replay_is_playing = true
@@ -8877,12 +9399,12 @@ func _stop_replay_playback() -> void:
 	_update_replay_playback_view()
 
 func _step_replay_cursor(delta: int) -> void:
-	var timeline: Array = _last_replay_data.get("timeline", [])
-	if timeline.is_empty():
+	var count: int = _replay_sequence_count()
+	if count <= 0:
 		_last_replay_cursor_index = 0
 		_update_replay_playback_view()
 		return
-	_last_replay_cursor_index = clampi(_last_replay_cursor_index + delta, 0, timeline.size() - 1)
+	_last_replay_cursor_index = clampi(_last_replay_cursor_index + delta, 0, count - 1)
 	_update_replay_playback_view()
 
 func _schedule_replay_tick() -> void:
@@ -8897,12 +9419,12 @@ func _schedule_replay_tick() -> void:
 func _advance_replay_tick(serial: int) -> void:
 	if serial != _last_replay_playback_serial or not _last_replay_is_playing:
 		return
-	var timeline: Array = _last_replay_data.get("timeline", [])
-	if timeline.is_empty():
+	var count: int = _replay_sequence_count()
+	if count <= 0:
 		_stop_replay_playback()
 		status_label.text = "Replay ended."
 		return
-	if _last_replay_cursor_index >= timeline.size() - 1:
+	if _last_replay_cursor_index >= count - 1:
 		_last_replay_is_playing = false
 		_last_replay_playback_serial += 1
 		_update_replay_playback_view()
@@ -8922,6 +9444,11 @@ func _replay_tick_delay_sec() -> float:
 			return 0.72
 
 func _update_replay_playback_view() -> void:
+	var frame_index: int = _visual_frame_index_for_cursor()
+	if _home_replay_map_view != null and _home_replay_map_view.has_method("set_frame_index"):
+		_home_replay_map_view.call("set_frame_index", frame_index)
+	if _dash_replay_map_view != null and _dash_replay_map_view.has_method("set_frame_index"):
+		_dash_replay_map_view.call("set_frame_index", frame_index)
 	for i in range(replay_timeline_times.size()):
 		var is_cursor: bool = i == _last_replay_cursor_index
 		var alpha: float = 1.0 if is_cursor else 0.72
@@ -8930,8 +9457,58 @@ func _update_replay_playback_view() -> void:
 			(replay_timeline_times[i] as Label).modulate = color
 		if i < replay_timeline_events.size() and replay_timeline_events[i] is Label:
 			(replay_timeline_events[i] as Label).modulate = color
+	_update_home_replay_playback_view()
+
+func _update_home_replay_from_data() -> void:
+	if _home_replay_panel == null:
+		return
+	if _home_replay_time_label != null:
+		_home_replay_time_label.text = _replay_cursor_time()
+	_update_home_replay_playback_view()
+
+func _update_home_replay_playback_view() -> void:
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	var row_count: int = _home_replay_rows.size()
+	var max_start: int = maxi(0, timeline.size() - row_count)
+	var visible_start: int = clampi(_last_replay_cursor_index - 1, 0, max_start)
+	if _home_replay_progress != null:
+		var count: int = _replay_sequence_count()
+		if count <= 1:
+			_home_replay_progress.value = 0.0
+		else:
+			_home_replay_progress.value = float(_last_replay_cursor_index) / float(count - 1)
+	if _home_replay_time_label != null:
+		_home_replay_time_label.text = _replay_cursor_time()
+	for i in range(row_count):
+		var row_data: Dictionary = _home_replay_rows[i] as Dictionary
+		var row: Control = row_data.get("row", null) as Control
+		var time_label: Label = row_data.get("time", null) as Label
+		var event_label: Label = row_data.get("event", null) as Label
+		var event_index: int = visible_start + i
+		if event_index < timeline.size() and typeof(timeline[event_index]) == TYPE_DICTIONARY:
+			var entry: Dictionary = timeline[event_index] as Dictionary
+			if time_label != null:
+				time_label.text = str(entry.get("t", "--:--"))
+			if event_label != null:
+				event_label.text = str(entry.get("event", "Event"))
+		else:
+			if time_label != null:
+				time_label.text = ""
+			if event_label != null:
+				event_label.text = ""
+		var is_cursor: bool = event_index == _last_replay_cursor_index
+		var color: Color = Color(1.0, 0.86, 0.32, 1.0) if is_cursor else Color(0.82, 0.88, 0.94, 0.76)
+		if row != null:
+			row.modulate = Color(1.0, 1.0, 1.0, 1.0) if is_cursor else Color(1.0, 1.0, 1.0, 0.82)
+		if time_label != null:
+			time_label.add_theme_color_override("font_color", color)
+		if event_label != null:
+			event_label.add_theme_color_override("font_color", color)
 
 func _replay_cursor_time() -> String:
+	var visual_time_ms: int = _visual_replay_time_for_cursor()
+	if visual_time_ms >= 0:
+		return _format_replay_time(visual_time_ms)
 	var timeline: Array = _last_replay_data.get("timeline", [])
 	if timeline.is_empty():
 		return "--:--"
@@ -8941,9 +9518,60 @@ func _replay_cursor_time() -> String:
 		return "--:--"
 	return str((entry_any as Dictionary).get("t", "--:--"))
 
+func _visual_replay_data() -> Dictionary:
+	var replay_any: Variant = _last_replay_data.get("visual_replay", {})
+	if typeof(replay_any) != TYPE_DICTIONARY:
+		return {}
+	return replay_any as Dictionary
+
+func _visual_replay_frames() -> Array:
+	var replay_data: Dictionary = _visual_replay_data()
+	var frames_any: Variant = replay_data.get("frames", [])
+	if typeof(frames_any) != TYPE_ARRAY:
+		return []
+	return frames_any as Array
+
+func _replay_sequence_count() -> int:
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	if not timeline.is_empty():
+		return timeline.size()
+	return _visual_replay_frames().size()
+
+func _visual_frame_index_for_cursor() -> int:
+	var frames: Array = _visual_replay_frames()
+	if frames.is_empty():
+		return 0
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	if not timeline.is_empty():
+		var entry_any: Variant = timeline[clampi(_last_replay_cursor_index, 0, timeline.size() - 1)]
+		if typeof(entry_any) == TYPE_DICTIONARY:
+			var entry: Dictionary = entry_any as Dictionary
+			if entry.has("frame_index"):
+				return clampi(int(entry.get("frame_index", 0)), 0, frames.size() - 1)
+			if entry.has("t_ms"):
+				return _frame_index_for_replay_time(_visual_replay_data(), int(entry.get("t_ms", 0)))
+	return clampi(_last_replay_cursor_index, 0, frames.size() - 1)
+
+func _visual_replay_time_for_cursor() -> int:
+	var timeline: Array = _last_replay_data.get("timeline", [])
+	if not timeline.is_empty():
+		var entry_any: Variant = timeline[clampi(_last_replay_cursor_index, 0, timeline.size() - 1)]
+		if typeof(entry_any) == TYPE_DICTIONARY and (entry_any as Dictionary).has("t_ms"):
+			return int((entry_any as Dictionary).get("t_ms", -1))
+	var frames: Array = _visual_replay_frames()
+	if frames.is_empty():
+		return -1
+	var frame: Variant = frames[clampi(_last_replay_cursor_index, 0, frames.size() - 1)]
+	if typeof(frame) != TYPE_DICTIONARY:
+		return -1
+	return int((frame as Dictionary).get("t", -1))
+
 func _update_replay_controls_state() -> void:
 	var has_replay: bool = bool(_last_replay_data.get("is_saved_telemetry", true))
 	for button_any in replay_controls_buttons:
+		if button_any is Button:
+			(button_any as Button).disabled = not has_replay
+	for button_any in _home_replay_buttons:
 		if button_any is Button:
 			(button_any as Button).disabled = not has_replay
 
@@ -11796,7 +12424,7 @@ func _set_dash_panel_store_passthrough(enabled: bool) -> void:
 		_style_panel(dash_panel, DASH_PANEL_BG_COLOR, DASH_PANEL_BORDER_COLOR)
 
 func _hide_dash_panels() -> void:
-	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full, _jukebox_panel]:
+	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full, _jukebox_panel, _dash_friends_panel]:
 		if panel == null:
 			continue
 		panel.visible = false

@@ -21,6 +21,7 @@ const STRUCTURE_PICK_BIAS := 0.95
 const LONG_PRESS_MS := 400
 const LONG_PRESS_MOVE_PX := 12.0
 const DRAG_HOVER_EXTRA_PX := 22.0
+const DEST_HIVE_ASSIST_SCALE := 1.2
 const ENABLE_ROUTE_LANE_FLASH := true
 const ROUTE_LANE_FLASH_MS := 250
 
@@ -201,6 +202,9 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	var local_pos: Vector2 = ev.get("local_pos", Vector2.ZERO)
 	var hive_id: int = int(ev.get("hive_id", -1))
 	var lane_id: int = int(ev.get("lane_id", -1))
+	if event_type == "press" or event_type == "release":
+		var actor_id := _player_id_from_button(button_index, arena_api, dev_pid)
+		hive_id = _pick_hive_id_with_destination_assist(local_pos, hive_id, actor_id, arena_api)
 	SFLog.log_once("input_path_pointer", "INPUT_PATH: handle_pointer_event", SFLog.Level.INFO)
 	match event_type:
 		"press":
@@ -215,7 +219,8 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 func handle_press(local_pos: Vector2, dev_pid: int, arena_api: ArenaAPI, button_index: int = MOUSE_BUTTON_LEFT) -> void:
 	if selection == null or arena_api == null:
 		return
-	var hive_id: int = _hover_hive_id
+	var actor_id := _player_id_from_button(button_index, arena_api, dev_pid)
+	var hive_id: int = _pick_hive_id_with_destination_assist(local_pos, _hover_hive_id, actor_id, arena_api)
 	var lane: LaneData = arena_api.pick_lane(local_pos)
 	var lane_id: int = lane.id if lane != null else -1
 	_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index)
@@ -223,7 +228,7 @@ func handle_press(local_pos: Vector2, dev_pid: int, arena_api: ArenaAPI, button_
 func handle_release(local_pos: Vector2, dev_pid: int, arena_api: ArenaAPI) -> void:
 	if selection == null or arena_api == null:
 		return
-	var hive_id: int = _hover_hive_id
+	var hive_id: int = _pick_hive_id_with_destination_assist(local_pos, _hover_hive_id, dev_pid, arena_api)
 	var lane: LaneData = arena_api.pick_lane(local_pos)
 	var lane_id: int = lane.id if lane != null else -1
 	_handle_release(local_pos, hive_id, lane_id, dev_pid, arena_api, MOUSE_BUTTON_LEFT)
@@ -519,6 +524,9 @@ func _pick_drag_hover_hive_id(local_pos: Vector2, arena_api: ArenaAPI) -> int:
 	var direct_id: int = arena_api.pick_hive_id_local(local_pos)
 	if direct_id > 0:
 		return direct_id
+	var assisted_id: int = _pick_assisted_destination_hive_id(local_pos, selection.drag_start_hive_id, arena_api)
+	if assisted_id > 0:
+		return assisted_id
 	var nearest: Dictionary = arena_api.get_nearest_hive_local(local_pos)
 	var nearest_id: int = int(nearest.get("id", -1))
 	if nearest_id <= 0:
@@ -530,6 +538,55 @@ func _pick_drag_hover_hive_id(local_pos: Vector2, arena_api: ArenaAPI) -> int:
 	if dist <= snap_radius:
 		return nearest_id
 	return -1
+
+func _pick_hive_id_with_destination_assist(local_pos: Vector2, base_hive_id: int, player_id: int, arena_api: ArenaAPI, selected_override_id: int = -1) -> int:
+	if base_hive_id > 0:
+		return base_hive_id
+	if arena_api == null:
+		return base_hive_id
+	var resolved_player_id := player_id
+	if resolved_player_id <= 0:
+		resolved_player_id = _get_active_pid(arena_api)
+	var selected_id := selected_override_id
+	if selected_id <= 0:
+		selected_id = _get_selected_for_player(resolved_player_id)
+	if selected_id <= 0:
+		return base_hive_id
+	var selected_hive: HiveData = arena_api.find_hive_by_id(selected_id)
+	if selected_hive == null or int(selected_hive.owner_id) != resolved_player_id:
+		return base_hive_id
+	var assisted_id := _pick_assisted_destination_hive_id(local_pos, selected_id, arena_api)
+	return assisted_id if assisted_id > 0 else base_hive_id
+
+func _pick_assisted_destination_hive_id(local_pos: Vector2, selected_id: int, arena_api: ArenaAPI) -> int:
+	if selected_id <= 0 or arena_api == null:
+		return -1
+	var st: GameState = arena_api.get_state()
+	if st == null or st.hives == null:
+		return -1
+	var radius: float = maxf(1.0, arena_api.get_hive_radius_px()) * DEST_HIVE_ASSIST_SCALE
+	var best_id := -1
+	var best_dist := INF
+	var hr := arena_api.get_hive_renderer()
+	for hive in st.hives:
+		if hive == null:
+			continue
+		var hid: int = int(hive.id)
+		if hid <= 0 or hid == selected_id:
+			continue
+		var center := Vector2.INF
+		if hr != null and hr.has_method("get_hive_center_local"):
+			center = hr.get_hive_center_local(hid)
+		if center == Vector2.INF:
+			var render_gp: Vector2 = hive.render_grid_pos
+			if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+				render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+			center = arena_api.grid_to_world(Vector2i(roundi(render_gp.x), roundi(render_gp.y)))
+		var dist: float = center.distance_to(local_pos)
+		if dist <= radius and dist < best_dist:
+			best_id = hid
+			best_dist = dist
+	return best_id
 
 func _queue_lane_preview_redraw(arena_api: ArenaAPI) -> void:
 	var lane_renderer: Object = _get_lane_renderer(arena_api)
@@ -1225,20 +1282,20 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 	_last_tap_pos = local_pos
 	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
 	var player_id: int = actor_id
+	var hive_owner := -1
+	var hive_friendly := false
 	if hive_id > 0:
-		var hive_owner := -1
-		var friendly := false
 		var hive: HiveData = arena_api.find_hive_by_id(hive_id)
 		if hive != null:
 			hive_owner = int(hive.owner_id)
-			friendly = hive_owner == player_id
+			hive_friendly = hive_owner == player_id
 		SFLog.info("HIVE_CLICK_DEBUG", {
 			"hive_id": hive_id,
 			"hive_owner_id": hive_owner,
 			"player_id": player_id,
 			"dev_pid": dev_pid,
 			"active_pid": arena_api.get_active_player_id(),
-			"friendly": friendly
+			"friendly": hive_friendly
 		})
 	if hive_id <= 0:
 		_press_candidate_barracks_id = _pick_barracks_at_world(world_pos, arena_api)
@@ -1256,6 +1313,9 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		return
 	if is_double:
 		if _handle_lane_double_tap(local_pos, actor_id, player_id, arena_api):
+			_clear_selected_for_player(arena_api, player_id)
+			clear_tap_state()
+			_press_consumed = true
 			_handling_click = false
 			return
 	if hive_id > 0:
@@ -1308,7 +1368,14 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 	var player_id: int = _press_player_id
 	if player_id <= 0:
 		player_id = dev_pid if dev_pid != -1 else arena_api.get_active_player_id()
-	var end_id: int = arena_api.pick_hive_id_local(local_pos)
+	var end_base_id: int = arena_api.pick_hive_id_local(local_pos)
+	var end_id: int = _pick_hive_id_with_destination_assist(
+		local_pos,
+		end_base_id,
+		player_id,
+		arena_api,
+		selection.drag_start_hive_id
+	)
 	if selection.drag_active and selection.drag_moved and selection.drag_start_hive_id > 0:
 		var start_id: int = selection.drag_start_hive_id
 		if end_id > 0 and end_id != start_id:
@@ -1386,40 +1453,28 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 	var clicked_owned: bool = hive.owner_id == player_id
 	var clicked_ally: bool = _are_allied_seats(player_id, hive.owner_id)
 	if enemy_first_id > 0:
-		var friendly_id := -1
-		var has_lane := false
-		var action := "noop"
-		if clicked_owned:
-			friendly_id = clicked_id
-			has_lane = arena_api.is_outgoing_lane_active(clicked_id, enemy_first_id)
-			if has_lane:
-				action = "retract"
-				arena_api.retract_lane(clicked_id, enemy_first_id, player_id)
-			_set_selected_for_player(arena_api, player_id, clicked_id)
-			if player_id == 1:
-				selection.selected_cell = arena_api.cell_from_point(local_pos)
-		else:
-			_clear_enemy_first_visual(arena_api, player_id)
-		SFLog.info("ENEMY_FIRST_RESOLVE", {
-			"enemy_id": enemy_first_id,
-			"friendly_id": friendly_id,
-			"has_lane": has_lane,
-			"action": action
-		})
 		_clear_enemy_first_for_player(player_id)
+		_clear_enemy_first_visual(arena_api, player_id)
+		SFLog.info("ENEMY_FIRST_CLEAR", {"enemy_id": enemy_first_id, "reason": "enemy_unselectable"})
 		clear_tap_state()
-		return
-	if int(hive.owner_id) > 0 and not clicked_ally and (prev_selected_id <= 0 or prev_selected_id == clicked_id):
-		_set_enemy_first_for_player(player_id, clicked_id)
-		SFLog.info("ENEMY_FIRST_ARM", {"enemy_id": clicked_id})
-		_clear_selected_for_player(arena_api, player_id)
-		_set_enemy_first_visual(arena_api, clicked_id, player_id)
-		clear_tap_state()
-		return
 	if prev_selected_id != -1 and prev_selected_id != clicked_id:
 		_apply_hive_to_hive_action(prev_selected_id, clicked_id, player_id, dev_pid, arena_api)
 		_clear_selected_for_player(arena_api, player_id)
 		clear_tap_state()
+		return
+	if prev_selected_id > 0 and prev_selected_id == clicked_id:
+		_clear_selected_for_player(arena_api, player_id)
+		clear_tap_state()
+		return
+	if not clicked_owned:
+		_clear_selected_for_player(arena_api, player_id)
+		clear_tap_state()
+		SFLog.info("HIVE_CLICK_UNSELECTABLE", {
+			"hive_id": clicked_id,
+			"owner_id": int(hive.owner_id),
+			"player_id": player_id,
+			"ally": clicked_ally
+		})
 		return
 	if clicked_owned:
 		_set_selected_for_player(arena_api, player_id, clicked_id)
@@ -1618,7 +1673,8 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_a
 		return false
 	if arena_api.intent_is_on(src_id, dst_id):
 		SFLog.info("LANE_DBL_SWARM", {"lane_id": lane_id, "src": src_id, "dst": dst_id})
-		return _issue_swarm_intent(src_id, dst_id, player_id)
+		_issue_swarm_intent(src_id, dst_id, player_id)
+		return true
 	return false
 
 func _lane_side_for_tap(lane: LaneData, mode: String, tap_f: float) -> String:
