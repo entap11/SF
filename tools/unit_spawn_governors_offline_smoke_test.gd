@@ -7,6 +7,7 @@ func _init() -> void:
 	_test_pass_through_governors_offline()
 	_test_friendly_arrivals_absorb_below_max_power()
 	_test_friendly_arrival_that_maxes_hive_does_not_pass_through()
+	_test_shocked_hive_absorbs_friendly_arrivals_without_power()
 	_test_outgoing_lane_budget_restored()
 	print("UNIT_SPAWN_GOVERNORS_OFFLINE_SMOKE: PASS")
 	quit(0)
@@ -109,6 +110,43 @@ func _test_friendly_arrival_that_maxes_hive_does_not_pass_through() -> void:
 			forwarded += 1
 	_assert_true(forwarded == 0, "friendly arrival that maxes a hive should still be absorbed")
 	_assert_true(int((state.hives[1] as HiveData).power) == 50, "friendly arrival should fill the hive to max")
+
+func _test_shocked_hive_absorbs_friendly_arrivals_without_power() -> void:
+	var state := GameState.new()
+	var shocked_hive := HiveData.new(6, Vector2i(5, 0), 1, 3, "Hive")
+	shocked_hive.shock_ms = 1200.0
+	state.hives = [
+		HiveData.new(5, Vector2i(0, 0), 1, 50, "Hive"),
+		shocked_hive,
+		HiveData.new(7, Vector2i(10, 0), 0, 1, "Hive")
+	]
+	state.lanes = [
+		LaneData.new(1, 6, 7, 1, true, false)
+	]
+	state.rebuild_indexes()
+	var unit_system := UnitSystem.new()
+	unit_system.bind_state(state)
+	for i in range(3):
+		unit_system.call("_apply_unit_arrival", {
+			"id": 200 + i,
+			"from_id": 5,
+			"to_id": 6,
+			"owner_id": 1,
+			"amount": 1,
+			"lane_id": 99,
+			"a_id": 5,
+			"b_id": 6,
+			"dir": 1,
+			"skip_pressure": true
+		})
+	unit_system.tick(0.1)
+	var forwarded := 0
+	for unit_any in unit_system.export_units_render():
+		var unit: Dictionary = unit_any as Dictionary
+		if int(unit.get("from_id", -1)) == 6 and int(unit.get("to_id", -1)) == 7 and str(unit.get("arrive_source", "")) == "pass_through":
+			forwarded += 1
+	_assert_true(forwarded == 0, "friendly arrivals into a shocked hive should not pass through")
+	_assert_true(int(shocked_hive.power) == 3, "friendly arrivals into a shocked hive should not increase power")
 
 func _test_outgoing_lane_budget_restored() -> void:
 	var state := GameState.new()

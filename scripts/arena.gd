@@ -10112,9 +10112,9 @@ func _apply_unit_arrival(unit_owner: int, hive: HiveData, from_id: int = -1, lan
 		pass_owner = prev_owner
 	if friendly_arrival:
 		var prev_power: int = int(hive.power)
-		if hive.power < 50:
+		if hive.shock_ms <= 0.0 and hive.power < 50:
 			hive.power += 1
-		if (not ENABLE_PASS_THROUGH_POWER_GATE or prev_power >= 50) and (not ENABLE_PASS_THROUGH_SHOCK_GATE or hive.shock_ms <= 0.0) and reason != "recall":
+		if hive.shock_ms <= 0.0 and (not ENABLE_PASS_THROUGH_POWER_GATE or prev_power >= 50) and reason != "recall":
 			_pass_through(hive, pass_owner)
 		return
 	if hive.power > 1:

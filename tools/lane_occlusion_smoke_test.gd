@@ -14,6 +14,8 @@ func _init() -> void:
 	_test_delta_h2_h8_is_connectable()
 	_test_existing_invalid_lane_cannot_be_enabled()
 	_test_lane_intent_repeats_are_idempotent()
+	_test_lane_budget_block_preserves_existing_routes()
+	_test_friendly_feed_reverse_replaces_only_same_friendly_lane()
 	_test_swarm_cooldown_blocks_same_source()
 	print("LANE_OCCLUSION_SMOKE: PASS")
 	quit(0)
@@ -155,6 +157,59 @@ func _test_lane_intent_repeats_are_idempotent() -> void:
 	_assert_true(bool(second.get("ok", false)), "second outgoing route should open within budget")
 	_assert_true(state.intent_is_on(1, 2), "opening second route should not switch off first route")
 	_assert_true(state.intent_is_on(1, 3), "second route should be active")
+
+func _test_lane_budget_block_preserves_existing_routes() -> void:
+	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")
+	_assert_true(ops_state != null, "OpsState autoload should exist")
+	var map_dict := {
+		"hives": [
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 13, "kind": "Hive"},
+			{"id": 2, "x": 4, "y": 0, "owner_id": 2, "power": 10, "kind": "Hive"},
+			{"id": 3, "x": 0, "y": 4, "owner_id": 2, "power": 10, "kind": "Hive"},
+			{"id": 4, "x": 4, "y": 4, "owner_id": 2, "power": 10, "kind": "Hive"}
+		],
+		"lane_candidates": [
+			{"a_id": 1, "b_id": 2},
+			{"a_id": 1, "b_id": 3},
+			{"a_id": 1, "b_id": 4}
+		]
+	}
+	var state: GameState = ops_state.call("reset_state_from_map", map_dict)
+	ops_state.set("match_phase", 1)
+	var first: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack")
+	_assert_true(bool(first.get("ok", false)), "first route should open")
+	var second: Dictionary = ops_state.call("apply_lane_intent", 1, 3, "attack")
+	_assert_true(bool(second.get("ok", false)), "second route should open at two-lane budget")
+	var third: Dictionary = ops_state.call("apply_lane_intent", 1, 4, "attack")
+	_assert_true(not bool(third.get("ok", false)), "third route should be blocked by source budget")
+	_assert_true(str(third.get("reason", "")) == "budget", "third route should report budget")
+	_assert_true(state.intent_is_on(1, 2), "budget block should not replace first route")
+	_assert_true(state.intent_is_on(1, 3), "budget block should not replace second route")
+	_assert_true(not state.intent_is_on(1, 4), "budget block should not open third route")
+	_assert_eq(state.lane_index_between(1, 4), -1, "budget block should not create an inactive runtime lane")
+	_assert_eq(state.swarm_requests.size(), 0, "route creation should not enqueue swarms")
+
+func _test_friendly_feed_reverse_replaces_only_same_friendly_lane() -> void:
+	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")
+	_assert_true(ops_state != null, "OpsState autoload should exist")
+	var map_dict := {
+		"hives": [
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 13, "kind": "Hive"},
+			{"id": 2, "x": 4, "y": 0, "owner_id": 1, "power": 13, "kind": "Hive"}
+		],
+		"lane_candidates": [
+			{"a_id": 1, "b_id": 2}
+		]
+	}
+	var state: GameState = ops_state.call("reset_state_from_map", map_dict)
+	ops_state.set("match_phase", 1)
+	var first_feed: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "feed")
+	_assert_true(bool(first_feed.get("ok", false)), "friendly feed route should open")
+	_assert_true(state.intent_is_on(1, 2), "friendly feed should send from first source")
+	var reverse_feed: Dictionary = ops_state.call("apply_lane_intent", 2, 1, "feed")
+	_assert_true(bool(reverse_feed.get("ok", false)), "friendly reverse feed should be accepted")
+	_assert_true(not state.intent_is_on(1, 2), "friendly reverse should replace the opposite direction on the same lane")
+	_assert_true(state.intent_is_on(2, 1), "friendly reverse should activate the new source direction")
 
 func _test_swarm_cooldown_blocks_same_source() -> void:
 	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")

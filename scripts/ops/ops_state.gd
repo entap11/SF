@@ -2032,6 +2032,32 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		return result
 	var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
 	if lane_index == -1 and intent != "none":
+		var budget_src_hive: HiveData = st.find_hive_by_id(src_hive_id)
+		if budget_src_hive == null:
+			result["reason"] = "missing_hive"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
+			return result
+		var pre_budget: int = int(st.lanes_allowed_for_power(int(budget_src_hive.power)))
+		var pre_active: int = int(st.count_active_outgoing(src_hive_id))
+		if pre_active >= pre_budget:
+			SFLog.info("LANE_BUDGET_BLOCK", {
+				"src": src_hive_id,
+				"dst": dst_hive_id,
+				"power": int(budget_src_hive.power),
+				"active": pre_active,
+				"budget": pre_budget,
+				"runtime_lane_created": false
+			})
+			result["reason"] = "budget"
+			_record_intent_telemetry(
+				src_hive_id,
+				dst_hive_id,
+				intent,
+				false,
+				str(result.get("reason", "")),
+				int(result.get("lane_id", -1))
+			)
+			return result
 		lane_index = _ensure_runtime_lane(st, src_hive_id, dst_hive_id, intent)
 	if lane_index == -1:
 		if intent != "none":
@@ -2169,7 +2195,30 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	var pre_apply_source_exec: Dictionary = {}
 	if st.has_method("get_execution_metrics_for_hive"):
 		pre_apply_source_exec = st.call("get_execution_metrics_for_hive", src_hive_id)
+	var pre_source_targets: Dictionary = _active_outgoing_targets(st, src_hive_id)
+	var pre_lane_directions: Array = _lane_direction_snapshot(st)
 	_apply_lane_intent(lane, src_hive_id, dst_hive_id, enable, resolved_intent)
+	if enable and resolved_intent != "none" and _lost_source_outgoing_target(st, src_hive_id, dst_hive_id, pre_source_targets):
+		_restore_lane_direction_snapshot(st, pre_lane_directions)
+		result["reason"] = "implicit_replace_blocked"
+		result["ok"] = false
+		SFLog.warn("LANE_REPLACE_BLOCKED", {
+			"src": src_hive_id,
+			"dst": dst_hive_id,
+			"intent": resolved_intent,
+			"pre_targets": pre_source_targets.keys()
+		})
+		_record_intent_telemetry(
+			src_hive_id,
+			dst_hive_id,
+			resolved_intent,
+			false,
+			str(result.get("reason", "")),
+			int(result.get("lane_id", -1)),
+			telemetry_src_owner,
+			telemetry_dst_owner
+		)
+		return result
 	result["ok"] = true
 	var opened_new_lane: bool = enable and not already_active
 	var disabled_lane: bool = (not enable) and already_active
@@ -2237,6 +2286,75 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	emit_signal("lanes_changed", iid)
 	return result
 
+
+func _active_outgoing_targets(st: GameState, src_hive_id: int) -> Dictionary:
+	var targets: Dictionary = {}
+	if st == null:
+		return targets
+	for lane_any in st.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane := lane_any as LaneData
+		if int(lane.a_id) == src_hive_id and bool(lane.send_a):
+			targets[int(lane.b_id)] = true
+		elif int(lane.b_id) == src_hive_id and bool(lane.send_b):
+			targets[int(lane.a_id)] = true
+	return targets
+
+func _lost_source_outgoing_target(st: GameState, src_hive_id: int, dst_hive_id: int, pre_targets: Dictionary) -> bool:
+	if pre_targets.is_empty():
+		return false
+	var current_targets: Dictionary = _active_outgoing_targets(st, src_hive_id)
+	for target_any in pre_targets.keys():
+		var target_id: int = int(target_any)
+		if target_id == dst_hive_id:
+			continue
+		if not bool(current_targets.get(target_id, false)):
+			return true
+	return false
+
+func _lane_direction_snapshot(st: GameState) -> Array:
+	var snapshot: Array = []
+	if st == null:
+		return snapshot
+	for lane_any in st.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane := lane_any as LaneData
+		snapshot.append({
+			"id": int(lane.id),
+			"send_a": bool(lane.send_a),
+			"send_b": bool(lane.send_b),
+			"dir": int(lane.dir),
+			"establish_a": bool(lane.establish_a),
+			"establish_b": bool(lane.establish_b),
+			"retract_a": bool(lane.retract_a),
+			"retract_b": bool(lane.retract_b)
+		})
+	return snapshot
+
+func _restore_lane_direction_snapshot(st: GameState, snapshot: Array) -> void:
+	if st == null:
+		return
+	var by_id: Dictionary = {}
+	for entry_any in snapshot:
+		if typeof(entry_any) == TYPE_DICTIONARY:
+			var entry: Dictionary = entry_any as Dictionary
+			by_id[int(entry.get("id", -1))] = entry
+	for lane_any in st.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane := lane_any as LaneData
+		var entry: Dictionary = by_id.get(int(lane.id), {}) as Dictionary
+		if entry.is_empty():
+			continue
+		lane.send_a = bool(entry.get("send_a", false))
+		lane.send_b = bool(entry.get("send_b", false))
+		lane.dir = int(entry.get("dir", lane.dir))
+		lane.establish_a = bool(entry.get("establish_a", false))
+		lane.establish_b = bool(entry.get("establish_b", false))
+		lane.retract_a = bool(entry.get("retract_a", false))
+		lane.retract_b = bool(entry.get("retract_b", false))
 
 func _apply_lane_intent(lane: LaneData, src_id: int, dst_id: int, enable: bool, intent: String) -> void:
 	var st: GameState = require_state()

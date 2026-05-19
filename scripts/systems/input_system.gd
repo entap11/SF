@@ -26,8 +26,9 @@ const ENABLE_ROUTE_LANE_FLASH := true
 const ROUTE_LANE_FLASH_MS := 250
 
 var selection: SelectionState = null
-var _last_tap_time_ms: int = 0
-var _last_tap_pos: Vector2 = Vector2.ZERO
+var _last_lane_tap_time_ms: int = -999999
+var _last_lane_tap_pos: Vector2 = Vector2.ZERO
+var _last_lane_tap_id: int = -1
 var _last_click_ms: int = -999999
 var _last_click_world: Vector2 = Vector2.ZERO
 var _handling_click: bool = false
@@ -251,6 +252,22 @@ func clear_tap_state() -> void:
 	if selection == null:
 		return
 	selection.clear_tap_state()
+
+func _reset_lane_tap_state() -> void:
+	_last_lane_tap_time_ms = -999999
+	_last_lane_tap_pos = Vector2.ZERO
+	_last_lane_tap_id = -1
+
+func _record_lane_tap(lane_id: int, local_pos: Vector2) -> void:
+	_last_lane_tap_time_ms = Time.get_ticks_msec()
+	_last_lane_tap_pos = local_pos
+	_last_lane_tap_id = lane_id
+
+func _is_lane_double_tap(lane_id: int, local_pos: Vector2) -> bool:
+	if lane_id <= 0 or lane_id != _last_lane_tap_id:
+		return false
+	var now_ms: int = Time.get_ticks_msec()
+	return (now_ms - _last_lane_tap_time_ms) <= DOUBLE_TAP_MS and _last_lane_tap_pos.distance_to(local_pos) <= DOUBLE_TAP_DIST_PX
 
 func clear_selection() -> void:
 	if selection == null:
@@ -1276,10 +1293,6 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 	else:
 		if SFLog.LOGGING_ENABLED:
 			print("HIVE: arena is NULL at click time")
-	var now_ms: int = Time.get_ticks_msec()
-	var is_double: bool = (now_ms - _last_tap_time_ms) <= DOUBLE_TAP_MS and _last_tap_pos.distance_to(local_pos) <= DOUBLE_TAP_DIST_PX
-	_last_tap_time_ms = now_ms
-	_last_tap_pos = local_pos
 	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
 	var player_id: int = actor_id
 	var hive_owner := -1
@@ -1311,14 +1324,8 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		reset_drag()
 		_handling_click = false
 		return
-	if is_double:
-		if _handle_lane_double_tap(local_pos, actor_id, player_id, arena_api):
-			_clear_selected_for_player(arena_api, player_id)
-			clear_tap_state()
-			_press_consumed = true
-			_handling_click = false
-			return
 	if hive_id > 0:
+		_reset_lane_tap_state()
 		var hive: HiveData = arena_api.find_hive_by_id(hive_id)
 		if hive == null:
 			reset_drag()
@@ -1380,7 +1387,8 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		var start_id: int = selection.drag_start_hive_id
 		if end_id > 0 and end_id != start_id:
 			_apply_hive_to_hive_action(start_id, end_id, player_id, player_id, arena_api)
-			_clear_selected_for_player(arena_api, player_id)
+		_clear_selected_for_player(arena_api, player_id)
+		_reset_lane_tap_state()
 		reset_drag()
 		_queue_lane_preview_redraw(arena_api)
 		arena_api.mark_render_dirty("input_release")
@@ -1443,6 +1451,7 @@ func _handle_tap(hive_id: int, dev_pid: int, arena_api: ArenaAPI) -> void:
 func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, dev_pid: int, arena_api: ArenaAPI, local_pos: Vector2) -> void:
 	if selected_barracks_id != -1:
 		return
+	_reset_lane_tap_state()
 	var hive: HiveData = arena_api.find_hive_by_id(clicked_id)
 	if hive == null:
 		clear_tap_state()
@@ -1500,11 +1509,20 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 	if lane_id != -1:
 		var lane: LaneData = arena_api.find_lane_by_id(lane_id)
 		if lane != null:
+			if _is_lane_double_tap(lane.id, local_pos):
+				_reset_lane_tap_state()
+				if _handle_lane_double_tap(local_pos, player_id, player_id, arena_api):
+					_clear_selected_for_player(arena_api, player_id)
+					selection.selected_lane_id = -1
+					clear_tap_state()
+					return
+			_record_lane_tap(lane.id, local_pos)
 			_clear_selected_for_player(arena_api, player_id)
 			selection.selected_lane_id = lane.id
 			selection.selected_cell = arena_api.cell_from_point(local_pos)
 			arena_api.dbg("SF: Lane selected id=%d a=%d b=%d dir=%d" % [lane.id, lane.a_id, lane.b_id, lane.dir])
 			return
+	_reset_lane_tap_state()
 	_clear_selected_for_player(arena_api, player_id)
 	selection.selected_lane_id = -1
 	selection.selected_cell = arena_api.cell_from_point(local_pos)

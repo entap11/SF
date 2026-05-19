@@ -724,14 +724,15 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		)
 	if friendly_arrival:
 		var before_power_same_owner: int = int(hive.power)
-		var raw_after: int = before_power_same_owner + amount
-		hive.power = min(SimTuning.MAX_POWER, raw_after)
-		if not ENABLE_PASS_THROUGH_POWER_GATE:
-			if arrive_source != "recall":
-				_pass_through_arrival(hive, pass_owner, amount)
-		else:
-			if before_power_same_owner >= SimTuning.MAX_POWER and arrive_source != "recall":
-				_pass_through_arrival(hive, pass_owner, amount)
+		if float(hive.shock_ms) <= 0.0:
+			var raw_after: int = before_power_same_owner + amount
+			hive.power = min(SimTuning.MAX_POWER, raw_after)
+			if not ENABLE_PASS_THROUGH_POWER_GATE:
+				if arrive_source != "recall":
+					_pass_through_arrival(hive, pass_owner, amount)
+			else:
+				if before_power_same_owner >= SimTuning.MAX_POWER and arrive_source != "recall":
+					_pass_through_arrival(hive, pass_owner, amount)
 	else:
 		var applied_damage: int = mini(maxi(0, before_power), maxi(0, amount))
 		hive.power -= amount
