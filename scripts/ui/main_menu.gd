@@ -51,6 +51,7 @@ const MM_HERO_PANEL_ANCHOR_RIGHT: float = 0.86
 const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
 const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
 const MATCH_REPLAY_SAVE_DIR: String = "user://matches"
+const MM_BOOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/mm_base_drop.wav"
 
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
@@ -257,6 +258,7 @@ var _rank_panel: Control = null
 var _rank_context_panel: Panel = null
 var _jukebox_panel: Panel = null
 var _dash_hex_jukebox: HexButton = null
+var _mm_boot_sound_player: AudioStreamPlayer = null
 const TREE_META_REOPEN_JUKEBOX_ON_READY: String = "reopen_jukebox_on_ready"
 const TREE_META_REOPEN_JUKEBOX_STATE: String = "reopen_jukebox_state"
 var _dash_garage_panel: Control = null
@@ -1122,7 +1124,31 @@ func _ready() -> void:
 			HiveClanState.hive_clan_state_changed.connect(_on_hive_clan_state_changed)
 	_sync_hive_panel_profile_from_hive_state()
 	_start_friend_presence_poll()
+	call_deferred("_play_mm_boot_sound")
 	call_deferred("_auto_start_home_replay")
+
+func _play_mm_boot_sound() -> void:
+	if not _is_menu_boot_sfx_enabled():
+		return
+	var stream: AudioStream = load(MM_BOOT_SOUND_PATH) as AudioStream
+	if stream == null:
+		push_warning("MM_BOOT_SOUND_MISSING: " + MM_BOOT_SOUND_PATH)
+		return
+	if _mm_boot_sound_player == null:
+		_mm_boot_sound_player = AudioStreamPlayer.new()
+		_mm_boot_sound_player.name = "MMBootSoundPlayer"
+		add_child(_mm_boot_sound_player)
+	_mm_boot_sound_player.stream = stream
+	_mm_boot_sound_player.play()
+
+func _is_menu_boot_sfx_enabled() -> bool:
+	if ProfileManager == null:
+		return true
+	if ProfileManager.has_method("is_audio_enabled") and not bool(ProfileManager.call("is_audio_enabled")):
+		return false
+	if ProfileManager.has_method("is_sfx_enabled") and not bool(ProfileManager.call("is_sfx_enabled")):
+		return false
+	return true
 
 func _apply_pending_jukebox_reopen_request() -> void:
 	var tree: SceneTree = get_tree()
