@@ -54,10 +54,15 @@ func _ready() -> void:
 	_load_state()
 	_bootstrap_local_player()
 	_configure_transport()
-	if not _refresh_from_backend_internal(false):
-		_recompute_rankings(false)
+	_recompute_rankings(false)
 	_save_state()
 	_emit_changed()
+	call_deferred("_refresh_from_backend_after_boot")
+
+func _refresh_from_backend_after_boot() -> void:
+	if _refresh_from_backend_internal(true):
+		return
+	_recompute_rankings(true)
 
 func intent_register_player(
 		player_id: String,

@@ -142,6 +142,8 @@ var _font_semibold: Font
 var _startup_request_resolver: ShellStartupLaunchRequestResolver = ShellStartupLaunchRequestResolver.new()
 var _mvp_waiter: ShellMvpWaiter = ShellMvpWaiter.new()
 var _mvp_map_utils: ShellMvpMapUtils = ShellMvpMapUtils.new()
+var _main_menu_preload_requested: bool = false
+var _main_menu_preloaded_scene: PackedScene = null
 var _shell_prematch_overlay: Control = null
 var _shell_prematch_countdown_label: Label = null
 var _shell_prematch_records_panel: Control = null
@@ -232,6 +234,7 @@ func _ready() -> void:
 		"name": name
 	})
 	set_process(true)
+	_request_main_menu_preload()
 	if SFLog.LOGGING_ENABLED:
 		if TRACE_SHELL_LOGS: print("MAIN FLAGS: start_in_menu=", start_in_menu,
 		" enable_dev_map_loader=", enable_dev_map_loader,
@@ -1429,11 +1432,39 @@ func _open_main_menu() -> void:
 	if main_menu_scene_path.is_empty():
 		_set_shell_status("Main menu scene path is empty.", "error")
 		return
-	var err := get_tree().change_scene_to_file(main_menu_scene_path)
+	var preloaded_scene: PackedScene = _get_preloaded_main_menu_scene()
+	var err: Error = get_tree().change_scene_to_packed(preloaded_scene) if preloaded_scene != null else get_tree().change_scene_to_file(main_menu_scene_path)
 	if err != OK:
 		_set_shell_status("Failed to open main menu.", "error")
 		if SFLog.LOGGING_ENABLED:
 			push_error("SHELL: failed to open main menu: %s" % main_menu_scene_path)
+
+func _request_main_menu_preload() -> void:
+	if _main_menu_preload_requested or _main_menu_preloaded_scene != null:
+		return
+	if OS.has_feature("server") or DisplayServer.get_name() == "headless":
+		return
+	var path: String = main_menu_scene_path.strip_edges()
+	if path.is_empty():
+		return
+	_main_menu_preload_requested = true
+	var err: Error = ResourceLoader.load_threaded_request(path, "PackedScene")
+	if err != OK and err != ERR_BUSY:
+		_main_menu_preload_requested = false
+
+func _get_preloaded_main_menu_scene() -> PackedScene:
+	if _main_menu_preloaded_scene != null:
+		return _main_menu_preloaded_scene
+	if not _main_menu_preload_requested:
+		_request_main_menu_preload()
+	if not _main_menu_preload_requested:
+		return null
+	var status: int = ResourceLoader.load_threaded_get_status(main_menu_scene_path)
+	if status != ResourceLoader.THREAD_LOAD_LOADED:
+		return null
+	var loaded: Resource = ResourceLoader.load_threaded_get(main_menu_scene_path)
+	_main_menu_preloaded_scene = loaded as PackedScene
+	return _main_menu_preloaded_scene
 
 func _show_dev_panel(show: bool) -> void:
 	if TRACE_SHELL_LOGS: print("DEV_LOADER_SHOW_CALL ", {

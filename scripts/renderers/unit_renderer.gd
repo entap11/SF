@@ -13,6 +13,7 @@ const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const TEAM_GLOW_RECOLOR_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const BeeClipControllerScript := preload("res://scripts/vfx/bee_clip_controller.gd")
 const BEE_CLIP_SHADER := preload("res://shaders/BeeClip.gdshader")
+const SwarmBeeRenderer := preload("res://scripts/renderers/swarm_bee_renderer.gd")
 
 var model: Dictionary = {}
 var hive_nodes_by_id: Dictionary = {}
@@ -24,7 +25,6 @@ var _last_live_nodes_count: int = -1
 var swarm_nodes_by_id: Dictionary = {}
 var unit_nodes_by_id: Dictionary = {}
 var _unit_multimesh_batches: Dictionary = {}
-var _swarm_texture: Texture2D = null
 var _sprite_registry: SpriteRegistry = null
 var _colorkey_materials: Dictionary = {}
 var _unit_material_by_sprite: Dictionary = {}
@@ -70,11 +70,13 @@ const UNIT_DEATH_LOG_MIN_DEATHS: int = 3
 const UNIT_ENDPOINT_SPIKE_LOG_INTERVAL_MS: int = 500
 const UNIT_ENDPOINT_PERF_WINDOW_MS: int = 2000
 const UNIT_ENDPOINT_PROFILE_CACHE_HITS: bool = false
-const SWARM_SCALE_MULT: float = 15.0
-const SWARM_LABEL_FONT_SIZE: int = 12
-const SWARM_LABEL_SIZE: Vector2 = Vector2(48.0, 20.0)
-const SWARM_TEXTURE_SIZE: int = 32
-const SWARM_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/swarm.png"
+const SWARM_ABSORB_VISUAL_ENABLED: bool = true
+const SWARM_ABSORB_RADIUS_PX: float = 110.0
+const SWARM_ABSORB_CORE_RADIUS_PX: float = 24.0
+const SWARM_ABSORB_HALO_RADIUS_PX: float = 30.0
+const SWARM_ABSORB_MAX_PULL: float = 0.92
+const SWARM_ABSORB_MIN_SCALE: float = 0.36
+const SWARM_ABSORB_MIN_ALPHA: float = 0.18
 const BOBBLE_AMP_MIN_PX: float = 2.0
 const BOBBLE_AMP_MAX_PX: float = 6.0
 const BOBBLE_OMEGA: float = 8.0
@@ -3845,9 +3847,9 @@ func _render_units(now_us: int) -> void:
 				var spawn_pos: Vector2 = spawn_base_pos
 				if not unit_data.is_empty():
 					spawn_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
-				node.position = spawn_pos
+				node.position = _apply_swarm_absorb_visual(node, unit_id, unit_data, spawn_pos, hive_by_id)
 				node.rotation = float(state.get("curr_rot", node.rotation))
-				state["render_pos"] = spawn_pos
+				state["render_pos"] = node.position
 				state["just_spawned"] = false
 				state["warm_spawned"] = false
 				_unit_visual_by_id[unit_id] = state
@@ -3869,7 +3871,7 @@ func _render_units(now_us: int) -> void:
 						settle_base_pos = settle_pos
 						if not unit_data.is_empty():
 							settle_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
-						node.position = settle_pos
+						node.position = _apply_swarm_absorb_visual(node, unit_id, unit_data, settle_pos, hive_by_id)
 					node.rotation = float(settle_pose.get("rot", float(state.get("curr_rot", node.rotation))))
 					state["render_pos"] = node.position
 					state["warm_spawned"] = false
@@ -3893,11 +3895,11 @@ func _render_units(now_us: int) -> void:
 			var render_pos: Vector2 = render_base_pos
 			if not unit_data.is_empty():
 				render_pos += _unit_bobble_offset(unit_data, hive_by_id, sim_time_s)
-			node.position = render_pos
+			node.position = _apply_swarm_absorb_visual(node, unit_id, unit_data, render_pos, hive_by_id)
 			var prev_rot: float = float(state.get("prev_rot", node.rotation))
 			var curr_rot: float = float(state.get("curr_rot", prev_rot))
 			node.rotation = lerp_angle(prev_rot, curr_rot, alpha)
-			state["render_pos"] = render_pos
+			state["render_pos"] = node.position
 			state["warm_spawned"] = false
 			_unit_visual_by_id[unit_id] = state
 			var render_dir: Vector2 = state.get("dir", Vector2.RIGHT)
@@ -3908,6 +3910,71 @@ func _render_units(now_us: int) -> void:
 				_apply_unit_directional_visibility(node, unit_data, hive_by_id, render_base_pos, render_dir)
 			else:
 				_update_bee_clip_for_missing_unit(unit_id, node, now_us)
+
+func _apply_swarm_absorb_visual(node: Node2D, unit_id: int, unit_data: Dictionary, render_pos: Vector2, hive_by_id: Dictionary) -> Vector2:
+	if node == null:
+		return render_pos
+	node.scale = Vector2.ONE
+	node.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	if not SWARM_ABSORB_VISUAL_ENABLED or unit_data.is_empty() or swarm_nodes_by_id.is_empty():
+		return render_pos
+	var absorb: Dictionary = _nearest_swarm_absorb_target(unit_id, unit_data, render_pos, hive_by_id)
+	if absorb.is_empty():
+		return render_pos
+	var dist: float = float(absorb.get("dist", SWARM_ABSORB_RADIUS_PX))
+	var raw_t: float = clampf(1.0 - ((dist - SWARM_ABSORB_CORE_RADIUS_PX) / maxf(1.0, SWARM_ABSORB_RADIUS_PX - SWARM_ABSORB_CORE_RADIUS_PX)), 0.0, 1.0)
+	var pull_t: float = raw_t * raw_t * (3.0 - 2.0 * raw_t)
+	var target_pos: Vector2 = absorb.get("pos", render_pos)
+	node.scale = Vector2.ONE * lerpf(1.0, SWARM_ABSORB_MIN_SCALE, pull_t)
+	node.modulate = Color(1.0, 1.0, 1.0, lerpf(1.0, SWARM_ABSORB_MIN_ALPHA, pull_t))
+	var pulled_pos: Vector2 = render_pos.lerp(target_pos, minf(SWARM_ABSORB_MAX_PULL, pull_t))
+	if unit_id > 0:
+		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+		if typeof(state_any) == TYPE_DICTIONARY:
+			var state: Dictionary = state_any as Dictionary
+			state["swarm_absorb_t"] = pull_t
+			state["swarm_absorb_target"] = target_pos
+			_unit_visual_by_id[unit_id] = state
+	return pulled_pos
+
+func _nearest_swarm_absorb_target(unit_id: int, unit_data: Dictionary, render_pos: Vector2, hive_by_id: Dictionary) -> Dictionary:
+	var unit_lane_id: int = int(unit_data.get("lane_id", -1))
+	if unit_lane_id <= 0:
+		return {}
+	var unit_owner_id: int = _unit_owner_id(unit_data, hive_by_id)
+	var swarms_v: Variant = model.get("swarms", [])
+	if typeof(swarms_v) != TYPE_ARRAY:
+		return {}
+	var best: Dictionary = {}
+	var best_dist: float = SWARM_ABSORB_RADIUS_PX
+	for swarm_any in swarms_v as Array:
+		if typeof(swarm_any) != TYPE_DICTIONARY:
+			continue
+		var sd: Dictionary = swarm_any as Dictionary
+		var swarm_id: int = int(sd.get("swarm_id", sd.get("id", -1)))
+		if swarm_id <= 0:
+			continue
+		if int(sd.get("lane_id", -1)) != unit_lane_id:
+			continue
+		var swarm_owner_id: int = int(sd.get("owner_id", 0))
+		if unit_owner_id > 0 and swarm_owner_id > 0 and swarm_owner_id != unit_owner_id:
+			continue
+		var swarm_node: Node2D = swarm_nodes_by_id.get(swarm_id, null)
+		if swarm_node == null or not is_instance_valid(swarm_node):
+			continue
+		var swarm_pos: Vector2 = swarm_node.position
+		var to_unit: Vector2 = render_pos - swarm_pos
+		var dist: float = to_unit.length()
+		if dist > best_dist:
+			continue
+		var halo_dir: Vector2 = to_unit.normalized() if dist > 0.001 else Vector2.RIGHT.rotated(float(unit_id % 360) * TAU / 360.0)
+		best_dist = dist
+		best = {
+			"pos": swarm_pos + halo_dir * SWARM_ABSORB_HALO_RADIUS_PX,
+			"dist": dist,
+			"swarm_id": swarm_id
+		}
+	return best
 
 func _draw() -> void:
 	if not debug_draw_units:
@@ -4144,7 +4211,7 @@ func _sync_swarm_nodes() -> void:
 			var init_count: int = int(sd.get("count", 0))
 			node.set_meta("count", init_count)
 			SFLog.info("SWARM_VIS_CREATE", {"swarm_id": swarm_id, "count": init_count})
-		_update_swarm_node(node, sd, pos, swarm_radius)
+		_update_swarm_node(node, sd, pos, swarm_radius, hive_by_id)
 		seen[swarm_id] = true
 
 	var existing_ids: Array = swarm_nodes_by_id.keys()
@@ -4160,54 +4227,42 @@ func _create_swarm_node(swarm_id: int, swarm_radius: float) -> Node2D:
 	var root := Node2D.new()
 	root.name = "Swarm_%d" % swarm_id
 	root.z_index = 10
-	root.scale = Vector2(SWARM_SCALE_MULT, SWARM_SCALE_MULT)
-	var sprite := Sprite2D.new()
-	sprite.name = "Sprite"
-	sprite.centered = true
-	sprite.texture = _ensure_swarm_texture()
-	var tex: Texture2D = sprite.texture
-	if tex != null:
-		var tex_w: float = float(tex.get_width())
-		if tex_w > 0.0:
-			var scale_val: float = (swarm_radius * 2.0) / tex_w
-			sprite.scale = Vector2(scale_val, scale_val)
-	root.add_child(sprite)
-	var label := Label.new()
-	label.name = "Label"
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.size = SWARM_LABEL_SIZE
-	label.position = -SWARM_LABEL_SIZE * 0.5
-	label.add_theme_font_size_override("font_size", SWARM_LABEL_FONT_SIZE)
-	label.z_index = 1
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(label)
+	root.set_meta("swarm_radius", swarm_radius)
+	var renderer: Node2D = SwarmBeeRenderer.new()
+	renderer.name = "SwarmBeeRenderer"
+	root.add_child(renderer)
 	return root
 
-func _update_swarm_node(node: Node2D, sd: Dictionary, pos: Vector2, swarm_radius: float) -> void:
+func _update_swarm_node(node: Node2D, sd: Dictionary, pos: Vector2, swarm_radius: float, hive_by_id: Dictionary) -> void:
 	node.position = pos
+	node.set_meta("swarm_radius", swarm_radius)
 	var owner_id: int = int(sd.get("owner_id", 0))
 	var color: Color = _owner_color(owner_id)
 	color.a = UNIT_COLOR.a
-	var sprite := node.get_node_or_null("Sprite") as Sprite2D
-	if sprite != null:
-		sprite.modulate = color
-		var tex: Texture2D = _ensure_swarm_texture()
-		if sprite.texture != tex:
-			sprite.texture = tex
-		if tex != null:
-			var tex_w: float = float(tex.get_width())
-			if tex_w > 0.0:
-				var scale_val: float = (swarm_radius * 2.0) / tex_w
-				sprite.scale = Vector2(scale_val, scale_val)
-	var label := node.get_node_or_null("Label") as Label
-	if label != null:
-		var count: int = int(sd.get("count", 0))
-		var last_count: int = int(node.get_meta("count", -1))
-		if count != last_count:
-			node.set_meta("count", count)
-			SFLog.info("SWARM_VIS_COUNT", {"swarm_id": int(sd.get("swarm_id", sd.get("id", -1))), "count": count})
-		label.text = str(count)
+	var count: int = int(sd.get("count", 0))
+	var last_count: int = int(node.get_meta("count", -1))
+	if count != last_count:
+		node.set_meta("count", count)
+		SFLog.info("SWARM_VIS_COUNT", {"swarm_id": int(sd.get("swarm_id", sd.get("id", -1))), "count": count})
+	var renderer := node.get_node_or_null("SwarmBeeRenderer")
+	if renderer != null:
+		if renderer.has_method("set_swarm_power"):
+			renderer.call("set_swarm_power", count)
+		if renderer.has_method("set_team_color"):
+			renderer.call("set_team_color", color)
+		if renderer.has_method("set_target_direction"):
+			renderer.call("set_target_direction", _swarm_target_direction(sd, pos, hive_by_id))
+
+func _swarm_target_direction(sd: Dictionary, pos: Vector2, hive_by_id: Dictionary) -> Vector2:
+	var dst_id: int = int(sd.get("dst", sd.get("to_id", 0)))
+	if dst_id > 0:
+		var dst_pos_v: Variant = _hive_pos(dst_id, hive_by_id)
+		if dst_pos_v is Vector2:
+			var to_dst: Vector2 = (dst_pos_v as Vector2) - pos
+			if to_dst.length_squared() > 0.000001:
+				return to_dst.normalized()
+	var side: String = str(sd.get("side", "A"))
+	return Vector2.RIGHT if side != "B" else Vector2.LEFT
 
 func _clear_swarm_nodes() -> void:
 	var ids: Array = swarm_nodes_by_id.keys()
@@ -4217,30 +4272,6 @@ func _clear_swarm_nodes() -> void:
 			node.queue_free()
 			SFLog.info("SWARM_VIS_FREE", {"swarm_id": int(swarm_id)})
 	swarm_nodes_by_id.clear()
-
-func _ensure_swarm_texture() -> Texture2D:
-	if _swarm_texture != null:
-		return _swarm_texture
-	var loaded: Resource = load(SWARM_TEXTURE_PATH)
-	if loaded is Texture2D:
-		_swarm_texture = loaded as Texture2D
-		return _swarm_texture
-	SFLog.warn("SWARM_TEXTURE_FALLBACK", {"path": SWARM_TEXTURE_PATH})
-	var size: int = SWARM_TEXTURE_SIZE
-	var img: Image = Image.create(size, size, false, Image.FORMAT_RGBA8)
-	img.fill(Color(1, 1, 1, 0))
-	var center: Vector2 = Vector2(float(size) * 0.5, float(size) * 0.5)
-	var radius: float = float(size) * 0.5
-	var radius_sq: float = radius * radius
-	for y in range(size):
-		var fy: float = float(y) + 0.5 - center.y
-		for x in range(size):
-			var fx: float = float(x) + 0.5 - center.x
-			if (fx * fx + fy * fy) <= radius_sq:
-				img.set_pixel(x, y, Color(1, 1, 1, 1))
-	var tex: Texture2D = ImageTexture.create_from_image(img)
-	_swarm_texture = tex
-	return _swarm_texture
 
 func _unit_pos(u: Variant, hive_by_id: Dictionary) -> Array:
 	if typeof(u) == TYPE_DICTIONARY:

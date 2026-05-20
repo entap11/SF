@@ -24,7 +24,7 @@ func _ready() -> void:
 	if not store_save_path.strip_edges().is_empty():
 		_leaderboard_store.save_path = store_save_path.strip_edges()
 	_connect_tree_signals()
-	_scan_for_sim_runner()
+	call_deferred("_scan_for_sim_runner")
 
 func debug_set_store_save_path(path: String) -> void:
 	store_save_path = path.strip_edges()

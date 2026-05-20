@@ -11,7 +11,7 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 func _ready() -> void:
 	SFLog.allow_tag("BATTLE_PASS_RUNTIME_AWARD")
 	_connect_tree_signals()
-	_scan_for_sim_runner()
+	call_deferred("_scan_for_sim_runner")
 	call_deferred("_sync_tree_contest_reward")
 
 func sync_contest_nectar_rewards(contest_id: String, contest_scope: String = "", map_count: int = 5) -> Dictionary:

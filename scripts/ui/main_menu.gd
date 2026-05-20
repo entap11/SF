@@ -4,24 +4,24 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
-const SWARM_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/SwarmPassPanel.tscn")
-const BATTLE_PASS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/BattlePassPanel.tscn")
-const RANK_PANEL_SCENE: PackedScene = preload("res://scenes/ui/RankPanel.tscn")
-const JUKEBOX_PANEL_SCENE: PackedScene = preload("res://scenes/ui/JukeboxPanel.tscn")
-const GARAGE_PANEL_SCENE: PackedScene = preload("res://scenes/ui/GaragePanel.tscn")
-const FREE_ROLL_GAME_HUB_SCENE: PackedScene = preload("res://scenes/ui/FreeRollGameHub.tscn")
-const DASH_BUFFS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashBuffsHero.tscn")
-const DASH_ACHIEVEMENTS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashAchievementsHero.tscn")
-const HEX_SEAM_BACKGROUND_SCENE: PackedScene = preload("res://ui/backgrounds/HexSeamBackground.tscn")
+const SWARM_PASS_PANEL_SCENE_PATH: String = "res://scenes/ui/SwarmPassPanel.tscn"
+const BATTLE_PASS_PANEL_SCENE_PATH: String = "res://scenes/ui/BattlePassPanel.tscn"
+const RANK_PANEL_SCENE_PATH: String = "res://scenes/ui/RankPanel.tscn"
+const JUKEBOX_PANEL_SCENE_PATH: String = "res://scenes/ui/JukeboxPanel.tscn"
+const GARAGE_PANEL_SCENE_PATH: String = "res://scenes/ui/GaragePanel.tscn"
+const FREE_ROLL_GAME_HUB_SCENE_PATH: String = "res://scenes/ui/FreeRollGameHub.tscn"
+const DASH_BUFFS_HERO_SCENE_PATH: String = "res://scenes/ui/DashBuffsHero.tscn"
+const DASH_ACHIEVEMENTS_HERO_SCENE_PATH: String = "res://scenes/ui/DashAchievementsHero.tscn"
+const HEX_SEAM_BACKGROUND_SCENE_PATH: String = "res://ui/backgrounds/HexSeamBackground.tscn"
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MatchTelemetryModelScript = preload("res://scripts/state/match_telemetry_model.gd")
 const MatchAnalyzerScript = preload("res://scripts/state/match_analyzer.gd")
 const MatchReplayMapViewScript = preload("res://scripts/ui/match_replay_map_view.gd")
-const MATCH_BACKGROUND_INLAY_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/match_background_inlay.png")
-const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
-const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
-const HONEY_TEXT_SHADER: Shader = preload("res://ui/hud/honey/honey_text_honeycomb.gdshader")
-const SWARMFRONT_TITLE_SHADER: Shader = preload("res://ui/main_menu/swarmfront_title_forged.gdshader")
+const MATCH_BACKGROUND_INLAY_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/match_background_inlay.png"
+const HONEY_WIDGET_SCENE_PATH: String = "res://ui/hud/honey/honey_widget.tscn"
+const TIER_WIDGET_SCENE_PATH: String = "res://ui/hud/tier/tier_widget.tscn"
+const HONEY_TEXT_SHADER_PATH: String = "res://ui/hud/honey/honey_text_honeycomb.gdshader"
+const SWARMFRONT_TITLE_SHADER_PATH: String = "res://ui/main_menu/swarmfront_title_forged.gdshader"
 const TOP_CHROME_SAFE_FALLBACK_PX: float = 72.0
 const TOP_CHROME_SAFE_MAX_PX: float = 96.0
 const TOP_BAR_BASE_HEIGHT_PX: float = 90.0
@@ -287,6 +287,10 @@ var _home_replay_rows: Array = []
 var _home_replay_buttons: Array = []
 var _home_replay_map_view: Control = null
 var _dash_replay_map_view: Control = null
+var _packed_scene_cache: Dictionary = {}
+var _match_background_inlay_texture: Texture2D = null
+var _honey_text_shader: Shader = null
+var _swarmfront_title_shader: Shader = null
 @onready var async_action_buttons: Array = [
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncQueuePanel/AsyncQueueVBox/AsyncQueueAction,
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncLeaderboardPanel/AsyncLeaderboardVBox/AsyncLeaderboardAction,
@@ -1091,7 +1095,6 @@ func _ready() -> void:
 	_start_entry_hub_skin_prewarm()
 	_ensure_async_stage_contest_section()
 	_wire_buttons()
-	_ensure_jukebox_panel()
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
 	if not get_viewport().size_changed.is_connected(_apply_background_art_direction):
@@ -1101,20 +1104,16 @@ func _ready() -> void:
 	_set_hex_buttons()
 	_apply_top_safe_area_layout()
 	_ensure_home_replay_player()
-	_ensure_dash_replay_map_view()
-	_load_match_history()
-	_refresh_home_replay_hint()
 	_build_store_landing()
 	_init_buffs_ui()
 	_apply_surface_hex_background_presets()
 	call_deferred("_prime_store_free_roll_skin")
-	_configure_dash_account_surfaces()
-	_ensure_swarm_pass_panel()
 	_load_profile_commerce_state()
 	_bind_profile_honey_signal()
 	_bind_profile_dash_signals()
 	_apply_performance_pref_from_profile()
 	call_deferred("_init_dash_state")
+	call_deferred("_finish_noncritical_menu_boot")
 	call_deferred("_apply_pending_jukebox_reopen_request")
 	_apply_player_profile(_player_profile)
 	status_label.text = "Ready"
@@ -1126,6 +1125,45 @@ func _ready() -> void:
 	_start_friend_presence_poll()
 	call_deferred("_play_mm_boot_sound")
 	call_deferred("_auto_start_home_replay")
+
+func _finish_noncritical_menu_boot() -> void:
+	_ensure_dash_replay_map_view()
+	_load_match_history()
+	_refresh_home_replay_hint()
+	_configure_dash_account_surfaces()
+
+func _load_packed_scene(path: String) -> PackedScene:
+	var clean_path: String = path.strip_edges()
+	if clean_path.is_empty():
+		return null
+	if _packed_scene_cache.has(clean_path):
+		return _packed_scene_cache[clean_path] as PackedScene
+	var loaded: Resource = load(clean_path)
+	var scene: PackedScene = loaded as PackedScene
+	if scene != null:
+		_packed_scene_cache[clean_path] = scene
+	return scene
+
+func _match_background_inlay() -> Texture2D:
+	if _match_background_inlay_texture != null:
+		return _match_background_inlay_texture
+	var loaded: Resource = load(MATCH_BACKGROUND_INLAY_TEXTURE_PATH)
+	_match_background_inlay_texture = loaded as Texture2D
+	return _match_background_inlay_texture
+
+func _load_shader(path: String) -> Shader:
+	var loaded: Resource = load(path)
+	return loaded as Shader
+
+func _honey_text_shader_resource() -> Shader:
+	if _honey_text_shader == null:
+		_honey_text_shader = _load_shader(HONEY_TEXT_SHADER_PATH)
+	return _honey_text_shader
+
+func _swarmfront_title_shader_resource() -> Shader:
+	if _swarmfront_title_shader == null:
+		_swarmfront_title_shader = _load_shader(SWARMFRONT_TITLE_SHADER_PATH)
+	return _swarmfront_title_shader
 
 func _play_mm_boot_sound() -> void:
 	if not _is_menu_boot_sfx_enabled():
@@ -1401,7 +1439,7 @@ func _ensure_embedded_hex_background(host_panel: Control, preset_name: StringNam
 	if host_panel.has_node("HexSeamBackground"):
 		background = host_panel.get_node("HexSeamBackground") as Control
 	else:
-		var background_node: Node = HEX_SEAM_BACKGROUND_SCENE.instantiate()
+		var background_node: Node = _load_packed_scene(HEX_SEAM_BACKGROUND_SCENE_PATH).instantiate()
 		background = background_node as Control
 		if background != null:
 			background.name = "HexSeamBackground"
@@ -5422,12 +5460,13 @@ func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
 	return UITypography.apply_free_roll_atlas_font(node, size, UI_TEXT_SCALE)
 
 func _apply_honey_label_shader(label: Label) -> void:
-	if label == null or HONEY_TEXT_SHADER == null:
+	var shader: Shader = _honey_text_shader_resource()
+	if label == null or shader == null:
 		return
 	var mat: ShaderMaterial = label.material as ShaderMaterial
-	if mat == null or mat.shader == null or mat.shader.resource_path != HONEY_TEXT_SHADER.resource_path:
+	if mat == null or mat.shader == null or mat.shader != shader:
 		mat = ShaderMaterial.new()
-		mat.shader = HONEY_TEXT_SHADER
+		mat.shader = shader
 	else:
 		mat = mat.duplicate() as ShaderMaterial
 	label.material = mat
@@ -5439,7 +5478,8 @@ func _apply_honey_label_shader(label: Label) -> void:
 	label.add_theme_constant_override("shadow_offset_y", 2)
 
 func _apply_swarmfront_title_shader(label: Label) -> void:
-	if label == null or SWARMFRONT_TITLE_SHADER == null:
+	var shader: Shader = _swarmfront_title_shader_resource()
+	if label == null or shader == null:
 		return
 	label.text = "SWARMFRONT"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -5451,9 +5491,9 @@ func _apply_swarmfront_title_shader(label: Label) -> void:
 	label.add_theme_constant_override("shadow_offset_x", 0)
 	label.add_theme_constant_override("shadow_offset_y", 0)
 	var mat: ShaderMaterial = label.material as ShaderMaterial
-	if mat == null or mat.shader == null or mat.shader.resource_path != SWARMFRONT_TITLE_SHADER.resource_path:
+	if mat == null or mat.shader == null or mat.shader != shader:
 		mat = ShaderMaterial.new()
-		mat.shader = SWARMFRONT_TITLE_SHADER
+		mat.shader = shader
 	else:
 		mat = mat.duplicate() as ShaderMaterial
 	label.material = mat
@@ -5563,7 +5603,7 @@ func _ensure_honey_widget() -> void:
 	var legacy_honey_label: Label = $TopBar/HoneyLabel
 	if top_bar == null or legacy_honey_label == null:
 		return
-	var widget_any: Variant = HONEY_WIDGET_SCENE.instantiate()
+	var widget_any: Variant = _load_packed_scene(HONEY_WIDGET_SCENE_PATH).instantiate()
 	var widget_control: Control = widget_any as Control
 	if widget_control == null:
 		return
@@ -5595,7 +5635,7 @@ func _ensure_tier_widget() -> void:
 	var legacy_rank_label: Label = $TopBar/RankLabel
 	if top_bar == null or legacy_rank_label == null:
 		return
-	var widget_any: Variant = TIER_WIDGET_SCENE.instantiate()
+	var widget_any: Variant = _load_packed_scene(TIER_WIDGET_SCENE_PATH).instantiate()
 	var widget_control: Control = widget_any as Control
 	if widget_control == null:
 		return
@@ -5755,11 +5795,11 @@ func _ensure_dash_tab_heroes() -> void:
 		dash_badges_panel.size_flags_stretch_ratio = 0.0
 	dash_match_panel.size_flags_stretch_ratio = 1.0
 	if _dash_garage_panel == null:
-		_dash_garage_panel = _instantiate_dash_hero(GARAGE_PANEL_SCENE, "GarageHero")
+		_dash_garage_panel = _instantiate_dash_hero(_load_packed_scene(GARAGE_PANEL_SCENE_PATH), "GarageHero")
 	if _dash_buffs_hero == null:
-		_dash_buffs_hero = _instantiate_dash_hero(DASH_BUFFS_HERO_SCENE, "BuffsHero")
+		_dash_buffs_hero = _instantiate_dash_hero(_load_packed_scene(DASH_BUFFS_HERO_SCENE_PATH), "BuffsHero")
 	if _dash_achievements_hero == null:
-		_dash_achievements_hero = _instantiate_dash_hero(DASH_ACHIEVEMENTS_HERO_SCENE, "AchievementsHero")
+		_dash_achievements_hero = _instantiate_dash_hero(_load_packed_scene(DASH_ACHIEVEMENTS_HERO_SCENE_PATH), "AchievementsHero")
 	if _dash_friends_panel == null:
 		_dash_friends_panel = _build_friends_panel()
 	_refresh_dash_hero_views()
@@ -9640,7 +9680,7 @@ func _on_rank_pressed() -> void:
 func _ensure_swarm_pass_panel() -> void:
 	if _swarm_pass_panel != null and is_instance_valid(_swarm_pass_panel):
 		return
-	var panel_instance_any: Variant = SWARM_PASS_PANEL_SCENE.instantiate()
+	var panel_instance_any: Variant = _load_packed_scene(SWARM_PASS_PANEL_SCENE_PATH).instantiate()
 	if panel_instance_any is Control:
 		_swarm_pass_panel = panel_instance_any as Control
 		add_child(_swarm_pass_panel)
@@ -9664,7 +9704,7 @@ func _close_swarm_pass_panel() -> void:
 func _ensure_battle_pass_panel() -> void:
 	if _battle_pass_panel != null and is_instance_valid(_battle_pass_panel):
 		return
-	var panel_instance_any: Variant = BATTLE_PASS_PANEL_SCENE.instantiate()
+	var panel_instance_any: Variant = _load_packed_scene(BATTLE_PASS_PANEL_SCENE_PATH).instantiate()
 	if panel_instance_any is Control:
 		_battle_pass_panel = panel_instance_any as Control
 		add_child(_battle_pass_panel)
@@ -9688,7 +9728,7 @@ func _close_battle_pass_panel() -> void:
 func _ensure_rank_panel() -> void:
 	if _rank_panel != null and is_instance_valid(_rank_panel):
 		return
-	var panel_instance_any: Variant = RANK_PANEL_SCENE.instantiate()
+	var panel_instance_any: Variant = _load_packed_scene(RANK_PANEL_SCENE_PATH).instantiate()
 	if panel_instance_any is Control:
 		_rank_panel = panel_instance_any as Control
 		add_child(_rank_panel)
@@ -10241,7 +10281,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	_entry_route_modal = panel
 
 func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
-	var panel_any: Node = FREE_ROLL_GAME_HUB_SCENE.instantiate()
+	var panel_any: Node = _load_packed_scene(FREE_ROLL_GAME_HUB_SCENE_PATH).instantiate()
 	var panel: Panel = panel_any as Panel
 	if panel == null:
 		return
@@ -11705,7 +11745,7 @@ func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2
 	panel.add_child(frame_inlay)
 	panel.move_child(frame_inlay, 2)
 
-	var popup_bg_node: Node = HEX_SEAM_BACKGROUND_SCENE.instantiate()
+	var popup_bg_node: Node = _load_packed_scene(HEX_SEAM_BACKGROUND_SCENE_PATH).instantiate()
 	var popup_bg: Control = popup_bg_node as Control
 	if popup_bg == null:
 		return
@@ -11722,23 +11762,23 @@ func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2
 		color_rect.color = Color(1.0, 1.0, 1.0, ENTRY_OVERLAY_MIDFIELD_ALPHA)
 
 func _get_entry_overlay_inlay_texture_for_size(target_size: Vector2) -> Texture2D:
-	if MATCH_BACKGROUND_INLAY_TEXTURE == null:
+	if _match_background_inlay() == null:
 		return null
-	var source_size: Vector2 = MATCH_BACKGROUND_INLAY_TEXTURE.get_size()
+	var source_size: Vector2 = _match_background_inlay().get_size()
 	if source_size.x <= 1.0 or source_size.y <= 1.0:
-		return MATCH_BACKGROUND_INLAY_TEXTURE
+		return _match_background_inlay()
 	# Broadcast inlay is authored in landscape; force rotated source for portrait-first game UI.
 	var rotated: Texture2D = _get_entry_overlay_rotated_inlay_texture()
 	if rotated == null:
-		return _get_entry_overlay_cropped_inlay_texture(MATCH_BACKGROUND_INLAY_TEXTURE, false)
+		return _get_entry_overlay_cropped_inlay_texture(_match_background_inlay(), false)
 	return _get_entry_overlay_cropped_inlay_texture(rotated, true)
 
 func _get_entry_overlay_rotated_inlay_texture() -> Texture2D:
 	if _entry_overlay_inlay_rotated_texture != null:
 		return _entry_overlay_inlay_rotated_texture
-	if MATCH_BACKGROUND_INLAY_TEXTURE == null:
+	if _match_background_inlay() == null:
 		return null
-	var base_image: Image = MATCH_BACKGROUND_INLAY_TEXTURE.get_image()
+	var base_image: Image = _match_background_inlay().get_image()
 	if base_image == null:
 		return null
 	var rotated_image: Image = _rotate_image_clockwise(base_image)
@@ -12458,8 +12498,8 @@ func _hide_dash_panels() -> void:
 func _ensure_jukebox_panel() -> void:
 	if dash_panel == null:
 		return
-	if _jukebox_panel == null and JUKEBOX_PANEL_SCENE != null:
-		var panel_any: Node = JUKEBOX_PANEL_SCENE.instantiate()
+	if _jukebox_panel == null and _load_packed_scene(JUKEBOX_PANEL_SCENE_PATH) != null:
+		var panel_any: Node = _load_packed_scene(JUKEBOX_PANEL_SCENE_PATH).instantiate()
 		if panel_any is Panel:
 			_jukebox_panel = panel_any as Panel
 			_jukebox_panel.name = "DashJukeboxPanel"
@@ -12490,12 +12530,13 @@ func _ensure_jukebox_panel() -> void:
 		_dash_hex_jukebox.name = "DashJukebox"
 		dash_hexes.add_child(_dash_hex_jukebox)
 		_dash_hex_jukebox.pressed.connect(func() -> void:
-			if _jukebox_panel != null:
-				_open_jukebox_panel()
+			_open_jukebox_panel()
 		)
 		_set_hex_buttons()
 
 func _open_jukebox_panel() -> void:
+	if _jukebox_panel == null:
+		_ensure_jukebox_panel()
 	if _jukebox_panel == null:
 		return
 	_close_top_level_windows(UI_SURFACE_DASH)
@@ -12525,8 +12566,10 @@ func _on_jukebox_play_requested(map_path: String, cpu_style: String = "", cpu_ti
 
 func _open_jukebox_from_menu_button() -> void:
 	if _jukebox_panel == null:
-		status_label.text = "Jukebox unavailable."
-		return
+		_ensure_jukebox_panel()
+		if _jukebox_panel == null:
+			status_label.text = "Jukebox unavailable."
+			return
 	_open_jukebox_panel()
 	status_label.text = "Jukebox opened."
 

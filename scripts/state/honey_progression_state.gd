@@ -62,7 +62,7 @@ func _ready() -> void:
 	_roll_week_if_needed()
 	_flush_pending_profile_honey("honey_progression_boot")
 	_connect_tree_signals()
-	_scan_for_sim_runner()
+	call_deferred("_scan_for_sim_runner")
 	SFLog.info("HONEY_STATE", {
 		"weekly_cycle_key": _weekly_cycle_key,
 		"pending_profile_tenths": _pending_profile_honey_tenths,

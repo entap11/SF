@@ -97,7 +97,7 @@ func _ready() -> void:
 	_refresh_runtime_state()
 	_bootstrap_local_profile()
 	_connect_tree_signals()
-	_scan_for_sim_runner()
+	call_deferred("_scan_for_sim_runner")
 	_emit_changed()
 
 func get_snapshot() -> Dictionary:
