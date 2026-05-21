@@ -1285,7 +1285,8 @@ func _play_prematch_countdown_sfx() -> void:
 		return
 	var stream: AudioStream = load(PREMATCH_COUNTDOWN_SOUND_PATH) as AudioStream
 	if stream == null:
-		push_warning("PREMATCH_COUNTDOWN_SOUND_MISSING: " + PREMATCH_COUNTDOWN_SOUND_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_warning("PREMATCH_COUNTDOWN_SOUND_MISSING: " + PREMATCH_COUNTDOWN_SOUND_PATH)
 		return
 	if _prematch_countdown_sfx_player == null or not is_instance_valid(_prematch_countdown_sfx_player):
 		_prematch_countdown_sfx_player = AudioStreamPlayer.new()
@@ -1319,7 +1320,8 @@ func _play_tower_shot_sfx() -> void:
 	if _tower_shot_sfx_stream == null:
 		_tower_shot_sfx_stream = load(TOWER_SHOT_SOUND_PATH) as AudioStream
 	if _tower_shot_sfx_stream == null:
-		push_warning("TOWER_SHOT_SOUND_MISSING: " + TOWER_SHOT_SOUND_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_warning("TOWER_SHOT_SOUND_MISSING: " + TOWER_SHOT_SOUND_PATH)
 		return
 	var player := AudioStreamPlayer.new()
 	player.name = "TowerShotSfxPlayer"
@@ -1337,7 +1339,8 @@ func _play_swarm_sfx() -> void:
 	if _swarm_sfx_stream == null:
 		_swarm_sfx_stream = load(SWARM_SOUND_PATH) as AudioStream
 	if _swarm_sfx_stream == null:
-		push_warning("SWARM_SOUND_MISSING: " + SWARM_SOUND_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_warning("SWARM_SOUND_MISSING: " + SWARM_SOUND_PATH)
 		return
 	var player := AudioStreamPlayer.new()
 	player.name = "SwarmSfxPlayer"
@@ -1361,7 +1364,8 @@ func _play_lose_hive_sfx() -> void:
 	if _lose_hive_sfx_stream == null:
 		_lose_hive_sfx_stream = load(LOSE_HIVE_SOUND_PATH) as AudioStream
 	if _lose_hive_sfx_stream == null:
-		push_warning("LOSE_HIVE_SOUND_MISSING: " + LOSE_HIVE_SOUND_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_warning("LOSE_HIVE_SOUND_MISSING: " + LOSE_HIVE_SOUND_PATH)
 		return
 	var player := AudioStreamPlayer.new()
 	player.name = "LoseHiveSfxPlayer"
@@ -1376,7 +1380,8 @@ func _play_win_hive_sfx() -> void:
 	if _win_hive_sfx_stream == null:
 		_win_hive_sfx_stream = load(WIN_HIVE_SOUND_PATH) as AudioStream
 	if _win_hive_sfx_stream == null:
-		push_warning("WIN_HIVE_SOUND_MISSING: " + WIN_HIVE_SOUND_PATH)
+		if SFLog.LOGGING_ENABLED:
+			push_warning("WIN_HIVE_SOUND_MISSING: " + WIN_HIVE_SOUND_PATH)
 		return
 	var player := AudioStreamPlayer.new()
 	player.name = "WinHiveSfxPlayer"
@@ -1402,7 +1407,8 @@ func _play_post_match_song(winner_id_in: int) -> void:
 	var song_path: String = WIN_SONG_PATH if winner_id_in == local_owner_id else _next_loss_song_path()
 	var stream: AudioStream = load(song_path) as AudioStream
 	if stream == null:
-		push_warning("POST_MATCH_SONG_MISSING: " + song_path)
+		if SFLog.LOGGING_ENABLED:
+			push_warning("POST_MATCH_SONG_MISSING: " + song_path)
 		return
 	if _post_match_song_player == null or not is_instance_valid(_post_match_song_player):
 		_post_match_song_player = AudioStreamPlayer.new()
@@ -4790,7 +4796,7 @@ func _maybe_log_frame_hitch(delta: float) -> void:
 	if not DBG_HITCH:
 		return
 	var dt_ms: float = delta * 1000.0
-	if dt_ms > HITCH_MS:
+	if SFLog.LOGGING_ENABLED and dt_ms > HITCH_MS:
 		print("HITCH dt_ms=", snappedf(dt_ms, 0.1))
 
 func dbg_mark_event(label: String) -> void:
@@ -5676,7 +5682,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 	cam.make_current()
 	cam.global_position = center
 	cam.zoom = zoom_target
-	if abs(cam.zoom.x - zoom_target.x) > 0.0001:
+	if SFLog.LOGGING_ENABLED and abs(cam.zoom.x - zoom_target.x) > 0.0001:
 		push_error("CAMFIT: zoom not applied")
 	cam.force_update_scroll()
 	SFLog.throttle("camfit_applied", 1.0, "CAMFIT applied", SFLog.Level.TRACE)
@@ -5718,7 +5724,8 @@ func _sf_camfit_late_probe(cam: Camera2D, expected: Vector2) -> void:
 	if TRACE_ARENA_PRINTS:
 		print("CAMFIT_LATE: expected_zoom=", expected, " actual_zoom=", cam.zoom, " changed=", changed)
 	if changed:
-		push_warning("CAMFIT_LATE: zoom changed cam=%s" % _node_path_for_log(cam))
+		if SFLog.LOGGING_ENABLED:
+			push_warning("CAMFIT_LATE: zoom changed cam=%s" % _node_path_for_log(cam))
 
 func _node_path_for_log(node: Node) -> String:
 	if node == null:
@@ -6436,7 +6443,8 @@ func _push_render_model() -> void:
 			unit_r.call("bind_hives", hives_arr, hives_version)
 		if unit_r.has_method("bind_units") and not freeze_unit_bind:
 			unit_r.call("bind_units", units_arr, units_version, sim_time_us_out)
-		unit_r.queue_redraw()
+		if bool(unit_r.get("debug_draw_units")):
+			unit_r.queue_redraw()
 	if not hive_nodes_by_id.is_empty() and (lane_r != null or unit_r != null):
 		_maybe_push_hive_nodes_to_renderers(lane_r, unit_r, hive_nodes_by_id, hives_version_render)
 	if tower_r != null:

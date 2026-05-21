@@ -78,7 +78,8 @@ func setup(_sim_tuning: SimTuning = null) -> void:
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
-	SFLog.allow_tag("HIVE_FLIP")
+	if SFLog.verbose_sim:
+		SFLog.allow_tag("HIVE_FLIP")
 	units.clear()
 	units_set_version = 0
 	_last_units_set_count = -1
@@ -760,12 +761,13 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		amount
 	)
 	if before_owner != after_owner:
-		SFLog.warn("HIVE_FLIP", {
-			"hive_id": to_id,
-			"from": before_owner,
-			"to": after_owner,
-			"after_power": after_power
-		})
+		if SFLog.verbose_sim:
+			SFLog.warn("HIVE_FLIP", {
+				"hive_id": to_id,
+				"from": before_owner,
+				"to": after_owner,
+				"after_power": after_power
+			})
 		if _sim_events != null and _sim_events.has_signal("hive_owner_changed"):
 			_sim_events.emit_signal(
 				"hive_owner_changed",

@@ -41,7 +41,8 @@ func sync_reflection_from_sprite(
 	projected_scale: Vector2,
 	alpha: float,
 	z_index_value: int,
-	reflection_tint: Color = Color(0.72, 0.64, 0.95, 1.0)
+	reflection_tint: Color = Color(0.72, 0.64, 0.95, 1.0),
+	reflection_material: Material = null
 ) -> void:
 	if source == null or not is_instance_valid(source) or source.texture == null:
 		visible = false
@@ -64,7 +65,7 @@ func sync_reflection_from_sprite(
 		source.scale.y * -maxf(0.01, absf(projected_scale.y))
 	)
 	z_index = z_index_value
-	material = source.material
+	material = reflection_material if reflection_material != null else source.material
 	self_modulate = Color(
 		reflection_tint.r,
 		reflection_tint.g,

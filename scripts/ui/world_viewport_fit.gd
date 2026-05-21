@@ -1,6 +1,8 @@
 class_name WorldViewportFit
 extends SubViewportContainer
 
+const SFLog = preload("res://scripts/util/sf_log.gd")
+
 @export var world_viewport_path: NodePath = NodePath("WorldViewport")
 
 # Insets (px). These define the play-surface box relative to the window.
@@ -21,7 +23,7 @@ var root_viewport: Viewport = null
 var _debug_outline: ColorRect = null
 
 func _ready() -> void:
-	if debug_print:
+	if debug_print and SFLog.LOGGING_ENABLED:
 		print("WVF_READY:", get_path())
 	root_viewport = get_viewport()
 	_apply_layout()
@@ -112,7 +114,7 @@ func _apply_layout() -> void:
 		_debug_outline.queue_free()
 		_debug_outline = null
 
-	if debug_print:
+	if debug_print and SFLog.LOGGING_ENABLED:
 		print(
 			"WVF_LAYOUT:",
 			get_path(),
@@ -125,11 +127,11 @@ func _apply_layout() -> void:
 			" offs=",
 			offs
 		)
-	if debug_print:
+	if debug_print and SFLog.LOGGING_ENABLED:
 		call_deferred("_wvf_post_audit", vp_visible, container_size)
 
 func _wvf_post_audit(vp_sz: Vector2, intended_container: Vector2) -> void:
-	if not debug_print:
+	if not debug_print or not SFLog.LOGGING_ENABLED:
 		return
 	var world_viewport_container: Control = self
 	var subviewport_container: SubViewportContainer = self

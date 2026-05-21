@@ -186,6 +186,7 @@ var _lane_port_nodes: Array[Dictionary] = []
 var _lane_occluder: Polygon2D = null
 var _shader_mat: ShaderMaterial = null
 var _npc_shader_mat: ShaderMaterial = null
+var _npc_reflection_mat: ShaderMaterial = null
 var _power_label_holder: Node2D = null
 var _power_badge: Control = null
 var _power_backing: PanelContainer = null
@@ -1556,13 +1557,15 @@ func _update_hive_shadows() -> void:
 	var reflection_offset: Vector2 = Vector2(0.0, _current_size.y * FLOOR_REFLECTION_Y_RATIO)
 	var contact_offset: Vector2 = Vector2(0.0, _current_size.y * FLOOR_REFLECTION_CONTACT_Y_RATIO)
 	var neutral_mul: float = 0.66 if owner_id <= 0 else 1.0
+	var reflection_material: Material = _npc_reflection_material() if owner_id <= 0 else null
 	_ground_shadow.sync_reflection_from_sprite(
 		_sprite,
 		reflection_offset,
 		FLOOR_REFLECTION_SCALE,
 		FLOOR_REFLECTION_ALPHA * base_shadow_strength * neutral_mul,
 		shadow_z_offset,
-		FLOOR_REFLECTION_TINT
+		FLOOR_REFLECTION_TINT,
+		reflection_material
 	)
 	_contact_shadow.sync_reflection_from_sprite(
 		_sprite,
@@ -1570,7 +1573,8 @@ func _update_hive_shadows() -> void:
 		FLOOR_REFLECTION_CONTACT_SCALE,
 		FLOOR_REFLECTION_CONTACT_ALPHA * base_shadow_strength * neutral_mul,
 		shadow_z_offset + 1,
-		FLOOR_REFLECTION_TINT.lerp(Color.WHITE, 0.14)
+		FLOOR_REFLECTION_TINT.lerp(Color.WHITE, 0.14),
+		reflection_material
 	)
 
 func _ensure_lane_occluder() -> void:
@@ -1616,8 +1620,56 @@ func _ensure_npc_shader_material() -> void:
 	if _npc_shader_mat == null:
 		_npc_shader_mat = ShaderMaterial.new()
 		_npc_shader_mat.shader = NPC_GRAYSCALE_SHADER
+	_configure_npc_shader_material(
+		_npc_shader_mat,
+		NPC_HIVE_COLOR,
+		1.02,
+		0.88,
+		0.34,
+		0.18,
+		0.42,
+		0.82
+	)
 	if _sprite != null and is_instance_valid(_sprite):
 		_sprite.material = _npc_shader_mat
+
+func _npc_reflection_material() -> ShaderMaterial:
+	if _npc_reflection_mat == null:
+		_npc_reflection_mat = ShaderMaterial.new()
+		_npc_reflection_mat.shader = NPC_GRAYSCALE_SHADER
+	_configure_npc_shader_material(
+		_npc_reflection_mat,
+		NPC_HIVE_COLOR.lerp(Color.WHITE, 0.08),
+		0.88,
+		0.92,
+		0.0,
+		0.0,
+		0.0,
+		0.0
+	)
+	return _npc_reflection_mat
+
+func _configure_npc_shader_material(
+	mat: ShaderMaterial,
+	tint: Color,
+	brightness_value: float,
+	tint_strength_value: float,
+	glow_strength_value: float,
+	additive_glow_value: float,
+	pulse_strength_mult: float,
+	pulse_speed_mult: float
+) -> void:
+	if mat == null:
+		return
+	mat.set_shader_parameter("npc_tint", tint)
+	mat.set_shader_parameter("contrast", 1.05)
+	mat.set_shader_parameter("brightness", brightness_value)
+	mat.set_shader_parameter("tint_strength", tint_strength_value)
+	mat.set_shader_parameter("glow_strength", glow_strength_value)
+	mat.set_shader_parameter("additive_glow", additive_glow_value)
+	mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength * pulse_strength_mult)
+	mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed * pulse_speed_mult)
+	mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())
 
 func _resolve_tier(power_value: int) -> int:
 	return _visual_tier_for_power(power_value)

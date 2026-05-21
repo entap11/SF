@@ -371,7 +371,8 @@ func refresh_theme(force: bool = false) -> void:
 	_apply_theme_material(_current_theme_id)
 	_apply_base_size()
 	_apply_theme_fill_uniform()
-	print("Loaded powerbar theme: %s (players=%d)" % [_current_theme_id, _current_theme_player_count])
+	if SFLog.LOGGING_ENABLED:
+		print("Loaded powerbar theme: %s (players=%d)" % [_current_theme_id, _current_theme_player_count])
 
 func _active_theme_player_count() -> int:
 	var count: int = _active_seats.size()
@@ -579,6 +580,8 @@ func _async_mode_wants_visibility() -> bool:
 
 func _sf_debug_dump(tag: String) -> void:
 	if not TRACE_POWER_BAR_DUMP:
+		return
+	if not SFLog.LOGGING_ENABLED:
 		return
 	var parent_node: Node = get_parent()
 	var parent_path: String = "<none>"

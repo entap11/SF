@@ -1404,15 +1404,16 @@ func _flush_rebuild() -> void:
 	if sig == _last_sig:
 		return
 	_last_sig = sig
-	SFLog.info("LANE_RENDER_REBUILD", {
-		"reason": _rebuild_req_reason,
-		"lanes": _lane_nodes_by_key.size()
-	})
-	SFLog.info("EDGE_VISUAL_OFFSETS", {
-		"lane_normal_px": EdgeVisual.LANE_NORMAL_OFFSET_PX,
-		"unit_normal_px": EdgeVisual.UNIT_NORMAL_OFFSET_PX,
-		"unit_lift_y_px": EdgeVisual.UNIT_LIFT_Y_PX
-	}, "", 250)
+	if AUDIT_RENDER or DEBUG_LANES:
+		SFLog.info("LANE_RENDER_REBUILD", {
+			"reason": _rebuild_req_reason,
+			"lanes": _lane_nodes_by_key.size()
+		})
+		SFLog.info("EDGE_VISUAL_OFFSETS", {
+			"lane_normal_px": EdgeVisual.LANE_NORMAL_OFFSET_PX,
+			"unit_normal_px": EdgeVisual.UNIT_NORMAL_OFFSET_PX,
+			"unit_lift_y_px": EdgeVisual.UNIT_LIFT_Y_PX
+		}, "", 250)
 	_rebuild_lane_sprites_now()
 
 func _compute_active_lane_signature() -> String:

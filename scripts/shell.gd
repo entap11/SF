@@ -2618,7 +2618,9 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 	return config
 
 func _run_soak_perf(config: Dictionary) -> void:
+	var prev_logging_enabled: bool = SFLog.LOGGING_ENABLED
 	var prev_log_level: int = int(SFLog.LOG_LEVEL)
+	SFLog.force_enable(true)
 	SFLog.LOG_LEVEL = SFLog.Level.INFO
 	SFLog.allow_tag("SOAK_START")
 	SFLog.allow_tag("SOAK_ROUND_START")
@@ -2638,6 +2640,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 	if map_path == "":
 		SFLog.warn("SOAK_ERROR", {"reason": "no_map_available"})
 		SFLog.LOG_LEVEL = prev_log_level
+		SFLog.force_enable(prev_logging_enabled)
 		get_tree().quit(1)
 		return
 	var soak_seconds: int = int(config.get("seconds", SOAK_DEFAULT_SECONDS))
@@ -2657,6 +2660,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 	if not boot_running_ok:
 		SFLog.warn("SOAK_ERROR", {"round": 0, "reason": "initial_match_not_running"})
 		SFLog.LOG_LEVEL = prev_log_level
+		SFLog.force_enable(prev_logging_enabled)
 		get_tree().quit(1)
 		return
 	if profile_sim:
@@ -2687,6 +2691,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 		"elapsed_s": snapped(float(elapsed_ms) / 1000.0, 0.1)
 	})
 	SFLog.LOG_LEVEL = prev_log_level
+	SFLog.force_enable(prev_logging_enabled)
 	_stop_game()
 	await get_tree().process_frame
 	get_tree().quit(1 if failed_rounds > 0 else 0)

@@ -25,6 +25,7 @@ func _initialize() -> void:
 	await _run()
 
 func _configure_logging() -> void:
+	SFLog.force_enable(true)
 	SFLog.allow_tag("SOAK_START")
 	SFLog.allow_tag("SOAK_ROUND_START")
 	SFLog.allow_tag("SOAK_ROUND_INTENTS")

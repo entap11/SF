@@ -31,7 +31,8 @@ func ensure_bp_level_achievements(bp_level: int) -> void:
 	var granted: bool = bool(profile_manager.call("grant_achievement", ACH_BP_LEVEL_1))
 	if not granted:
 		return
-	print("Granted ACH_BP_LEVEL_1")
+	if SFLog.LOGGING_ENABLED:
+		print("Granted ACH_BP_LEVEL_1")
 	_apply_phase2_theme_if_needed(profile_manager)
 
 func _apply_phase2_theme_if_needed(profile_manager: Node) -> void:
@@ -45,7 +46,8 @@ func _apply_phase2_theme_if_needed(profile_manager: Node) -> void:
 			return
 	var desired_theme: String = _resolve_unlock_theme(profile_manager)
 	profile_manager.call("set_powerbar_theme", desired_theme)
-	print("PowerBar theme set to %s" % desired_theme)
+	if SFLog.LOGGING_ENABLED:
+		print("PowerBar theme set to %s" % desired_theme)
 
 func _resolve_unlock_theme(profile_manager: Node) -> String:
 	if not profile_manager.has_method("get_performance_mode"):

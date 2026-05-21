@@ -1,7 +1,9 @@
 extends RefCounted
 class_name SFLog
 
-static var LOGGING_ENABLED: bool = OS.has_feature("editor") or OS.has_feature("server")
+# Runtime logging is opt-in. This keeps editor/beta gameplay silent unless a
+# tool explicitly calls force_enable(), which avoids console I/O hitches.
+static var LOGGING_ENABLED: bool = false
 
 enum Level { ERROR, WARN, INFO, DEBUG, TRACE, NONE }
 
@@ -38,6 +40,8 @@ static func force_enable(enabled: bool = true) -> void:
 	LOGGING_ENABLED = enabled
 
 static func flush() -> void:
+	if not LOGGING_ENABLED:
+		return
 	print("")
 
 static func mark_event(label: String) -> void:
