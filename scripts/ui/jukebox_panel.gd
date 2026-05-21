@@ -6,6 +6,7 @@ const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/up_down_chevron.png"
 const SIDE_CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/Left_right_chevrons.png"
 const PLAY_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/play.png"
+const SWARMFRONT_TITLE_SHADER_PATH := "res://ui/main_menu/swarmfront_title_forged.gdshader"
 const PAGE_SIZE: int = 7
 const MAP_WINDOW_SIZE: int = 5
 const SELECTOR_META_FONT_SIZE: int = 18
@@ -14,15 +15,24 @@ const SELECTOR_CARD_FONT_SIZE: int = 24
 const LEADERBOARD_HEADER_FONT_SIZE: int = 22
 const LEADERBOARD_ROW_FONT_SIZE: int = 24
 const LEADERBOARD_BADGE_FONT_SIZE: int = 22
-const CPU_STYLE_OPTIONS: Array[String] = ["Default", "Balancer", "Turtle", "Raider", "Greedy", "Swarm Lord"]
-const CPU_TIER_OPTIONS: Array[String] = ["Default", "Easy", "Medium", "Expert"]
 const BASE_CONTENT_MARGIN_TOP: float = 18.0
+const CATEGORY_TAB_MIN_WIDTH: float = 72.0
+const CATEGORY_TAB_MAX_WIDTH: float = 132.0
+const PERIOD_TAB_MIN_WIDTH: float = 78.0
+const PERIOD_TAB_MAX_WIDTH: float = 110.0
+const MAP_CARD_MIN_WIDTH: float = 92.0
+const MAP_CARD_MAX_WIDTH: float = 300.0
+const PLAY_BUTTON_MIN_WIDTH: float = 260.0
+const PLAY_BUTTON_MAX_WIDTH: float = 620.0
+const SELECTOR_NAV_MIN_WIDTH: float = 56.0
+const SELECTOR_NAV_MAX_WIDTH: float = 92.0
 
 signal closed
 signal play_requested(map_path: String, cpu_style: String, cpu_tier: String)
 
 const TOP_LIMIT: int = 50
 
+@onready var brand_banner_label: Label = get_node_or_null("VBox/BrandBanner") as Label
 @onready var title_label: Label = $VBox/SelectorPanel/SelectorVBox/Header/Title
 @onready var sub_label: Label = $VBox/SelectorPanel/SelectorVBox/Header/Sub
 @onready var category_tabs: HBoxContainer = $VBox/SelectorPanel/SelectorVBox/CategoryTabs
@@ -42,12 +52,7 @@ const TOP_LIMIT: int = 50
 @onready var play_sprite: TextureRect = $VBox/SelectorPanel/SelectorVBox/PlayButton/PlaySprite
 @onready var scout_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/ScoutButton
 @onready var close_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/CloseButton
-@onready var cpu_title_label: Label = $VBox/CpuPanel/CpuVBox/CpuHeader/CpuTitle
-@onready var cpu_summary_label: Label = $VBox/CpuPanel/CpuVBox/CpuHeader/CpuSummary
-@onready var cpu_style_option: OptionButton = $VBox/CpuPanel/CpuVBox/CpuRow/CpuStyle
-@onready var cpu_tier_option: OptionButton = $VBox/CpuPanel/CpuVBox/CpuRow/CpuTier
-@onready var cpu_detail_title_label: Label = $VBox/CpuPanel/CpuVBox/CpuDetailTitle
-@onready var cpu_detail_body_label: Label = $VBox/CpuPanel/CpuVBox/CpuDetailBody
+@onready var cpu_panel: Panel = $VBox/CpuPanel
 @onready var period_tabs: HBoxContainer = $VBox/LeaderboardPanel/LeaderboardVBox/PeriodTabs
 @onready var leaderboard_list: VBoxContainer = $VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardScroll/LeaderboardList
 @onready var leaderboard_nav: HBoxContainer = $VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav
@@ -61,6 +66,7 @@ const TOP_LIMIT: int = 50
 
 var _font_regular: Font = null
 var _font_semibold: Font = null
+var _swarmfront_title_shader: Shader = null
 var _chevron_texture: Texture2D = null
 var _side_chevron_texture: Texture2D = null
 var _play_texture: Texture2D = null
@@ -71,13 +77,11 @@ var _selected_period: String = "WEEKLY"
 var _selected_map_path: String = ""
 var _map_offset: int = 0
 var _leaderboard_offset: int = 0
-var _selected_cpu_style: String = ""
-var _selected_cpu_tier: String = ""
-var _hover_cpu_style: String = ""
-var _hover_cpu_tier: String = ""
 
 func _ready() -> void:
 	visible = false
+	resized.connect(_on_panel_resized)
+	_wrap_category_tabs_for_scroll()
 	_load_fonts()
 	title_label.text = "MAP JUKEBOX"
 	sub_label.text = "BROWSE MAPS  CHASE RECORDS"
@@ -91,14 +95,41 @@ func _ready() -> void:
 	map_right_button.pressed.connect(_on_map_right_pressed)
 	leaderboard_up_button.pressed.connect(_on_leaderboard_up_pressed)
 	leaderboard_down_button.pressed.connect(_on_leaderboard_down_pressed)
-	_setup_cpu_options()
 	_jukebox_state.refresh()
 	_category_labels = _jukebox_state.categories()
 	_build_category_tabs()
 	_build_period_tabs()
 	_refresh_map_list()
 	_select_first_visible_map()
-	_refresh_cpu_hint()
+
+func _on_panel_resized() -> void:
+	_apply_responsive_layout()
+
+func _apply_responsive_layout() -> void:
+	_refresh_selector_nav_widths()
+	_refresh_category_tab_widths()
+	_refresh_period_tab_widths()
+	_refresh_play_button_width()
+	_refresh_map_card_widths()
+
+func _wrap_category_tabs_for_scroll() -> void:
+	if category_tabs == null or category_tabs.get_parent() == null:
+		return
+	if category_tabs.get_parent() is ScrollContainer:
+		return
+	var parent: Node = category_tabs.get_parent()
+	var insert_index: int = category_tabs.get_index()
+	parent.remove_child(category_tabs)
+	var scroll := ScrollContainer.new()
+	scroll.name = "CategoryTabsScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(0.0, 48.0)
+	parent.add_child(scroll)
+	parent.move_child(scroll, insert_index)
+	scroll.add_child(category_tabs)
+	category_tabs.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 
 func capture_runtime_state() -> Dictionary:
 	return {
@@ -106,9 +137,7 @@ func capture_runtime_state() -> Dictionary:
 		"selected_period": _selected_period,
 		"selected_map_path": _selected_map_path,
 		"map_offset": _map_offset,
-		"leaderboard_offset": _leaderboard_offset,
-		"cpu_style": _selected_cpu_style,
-		"cpu_tier": _selected_cpu_tier
+		"leaderboard_offset": _leaderboard_offset
 	}
 
 func restore_runtime_state(snapshot: Dictionary) -> void:
@@ -129,17 +158,12 @@ func restore_runtime_state(snapshot: Dictionary) -> void:
 	var max_offset: int = maxi(0, category_entries.size() - MAP_WINDOW_SIZE)
 	_map_offset = clampi(int(snapshot.get("map_offset", _map_offset)), 0, max_offset)
 	_leaderboard_offset = maxi(0, int(snapshot.get("leaderboard_offset", 0)))
-	var cpu_style: String = str(snapshot.get("cpu_style", "")).strip_edges().to_lower()
-	var cpu_tier: String = str(snapshot.get("cpu_tier", "")).strip_edges().to_lower()
-	_apply_cpu_selection(cpu_style, cpu_tier)
 	_refresh_category_tab_state()
 	_refresh_period_tab_state()
 	_refresh_map_list()
 	if not target_map_path.is_empty():
 		_selected_map_path = target_map_path
 	_select_first_visible_map()
-	_refresh_cpu_hint()
-	_refresh_cpu_detail()
 
 func _find_category_for_map_path(map_path: String) -> String:
 	if map_path.is_empty():
@@ -152,84 +176,6 @@ func _find_category_for_map_path(map_path: String) -> String:
 				return category
 	return ""
 
-func _apply_cpu_selection(style: String, tier: String) -> void:
-	_selected_cpu_style = style
-	_selected_cpu_tier = tier
-	_hover_cpu_style = ""
-	_hover_cpu_tier = ""
-	if cpu_style_option != null:
-		cpu_style_option.selected = _cpu_style_index_for_value(style)
-	if cpu_tier_option != null:
-		cpu_tier_option.selected = _cpu_tier_index_for_value(tier)
-
-func _cpu_style_index_for_value(style: String) -> int:
-	for i in range(cpu_style_option.item_count):
-		if _cpu_style_value_for_index(i) == style:
-			return i
-	return 0
-
-func _cpu_tier_index_for_value(tier: String) -> int:
-	for i in range(cpu_tier_option.item_count):
-		if _cpu_tier_value_for_index(i) == tier:
-			return i
-	return 0
-
-func _setup_cpu_options() -> void:
-	if cpu_style_option != null and cpu_style_option.item_count == 0:
-		for label in CPU_STYLE_OPTIONS:
-			cpu_style_option.add_item(label)
-		cpu_style_option.item_selected.connect(_on_cpu_style_selected)
-		cpu_style_option.selected = 0
-		_wire_option_popup(cpu_style_option, true)
-	if cpu_tier_option != null and cpu_tier_option.item_count == 0:
-		for label in CPU_TIER_OPTIONS:
-			cpu_tier_option.add_item(label)
-		cpu_tier_option.item_selected.connect(_on_cpu_tier_selected)
-		cpu_tier_option.selected = 0
-		_wire_option_popup(cpu_tier_option, false)
-	_selected_cpu_style = ""
-	_selected_cpu_tier = ""
-	_hover_cpu_style = ""
-	_hover_cpu_tier = ""
-	_apply_option_tooltips()
-
-func _wire_option_popup(option: OptionButton, is_style: bool) -> void:
-	if option == null:
-		return
-	var popup: PopupMenu = option.get_popup()
-	if popup == null:
-		return
-	if popup.has_signal("id_focused"):
-		var focus_cb: Callable = Callable(self, "_on_style_popup_item_focused") if is_style else Callable(self, "_on_tier_popup_item_focused")
-		if not popup.is_connected("id_focused", focus_cb):
-			popup.connect("id_focused", focus_cb)
-	if popup.has_signal("popup_hide"):
-		var hide_cb: Callable = Callable(self, "_on_cpu_popup_hide")
-		if not popup.is_connected("popup_hide", hide_cb):
-			popup.connect("popup_hide", hide_cb)
-
-func _apply_option_tooltips() -> void:
-	_apply_style_tooltips()
-	_apply_tier_tooltips()
-
-func _apply_style_tooltips() -> void:
-	if cpu_style_option == null:
-		return
-	var popup: PopupMenu = cpu_style_option.get_popup()
-	if popup == null:
-		return
-	for i in range(cpu_style_option.item_count):
-		popup.set_item_tooltip(i, _style_hover_text(_cpu_style_value_for_index(i)))
-
-func _apply_tier_tooltips() -> void:
-	if cpu_tier_option == null:
-		return
-	var popup: PopupMenu = cpu_tier_option.get_popup()
-	if popup == null:
-		return
-	for i in range(cpu_tier_option.item_count):
-		popup.set_item_tooltip(i, _tier_hover_text(_cpu_tier_value_for_index(i)))
-
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()
 	_font_semibold = UITypography.semibold_font()
@@ -240,7 +186,28 @@ func _load_fonts() -> void:
 	if ResourceLoader.exists(PLAY_TEXTURE_PATH):
 		_play_texture = load(PLAY_TEXTURE_PATH) as Texture2D
 
+func _ensure_swarmfront_banner() -> void:
+	if root_vbox == null:
+		return
+	if brand_banner_label != null and is_instance_valid(brand_banner_label):
+		return
+	var existing: Label = root_vbox.get_node_or_null("BrandBanner") as Label
+	if existing != null:
+		brand_banner_label = existing
+		return
+	var label := Label.new()
+	label.name = "BrandBanner"
+	label.custom_minimum_size = Vector2(0.0, 88.0)
+	label.text = "SWARMFRONT"
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	root_vbox.add_child(label)
+	root_vbox.move_child(label, 0)
+	brand_banner_label = label
+
 func _style_controls() -> void:
+	_ensure_swarmfront_banner()
+	_apply_swarmfront_banner_style()
 	_apply_font(title_label, _font_semibold, 24)
 	_apply_font(sub_label, _font_regular, 16)
 	_apply_font(map_count_label, _font_regular, SELECTOR_META_FONT_SIZE)
@@ -249,12 +216,9 @@ func _style_controls() -> void:
 	_apply_font(selected_title_label, _font_semibold, 24)
 	_apply_font(selected_meta_label, _font_semibold, 16)
 	_apply_font(selected_desc_label, _font_regular, 14)
-	_apply_font(cpu_title_label, _font_semibold, 13)
-	_apply_font(cpu_summary_label, _font_regular, 11)
-	_apply_font(cpu_style_option, _font_regular, 12)
-	_apply_font(cpu_tier_option, _font_regular, 12)
-	_apply_font(cpu_detail_title_label, _font_semibold, 12)
-	_apply_font(cpu_detail_body_label, _font_regular, 11)
+	if cpu_panel != null:
+		cpu_panel.visible = false
+		cpu_panel.custom_minimum_size = Vector2.ZERO
 	_apply_font(leaderboard_page_label, _font_semibold, 22)
 	_apply_font(your_best_label, _font_semibold, 24)
 	_apply_font(map_best_label, _font_regular, 12)
@@ -284,12 +248,43 @@ func _style_controls() -> void:
 	badge_note_label.text = "Top 5 badge ownership is live-scarcity: lose the spot, lose the badge."
 	hero_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	hero_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	if cpu_summary_label != null:
-		cpu_summary_label.modulate = Color(0.83, 0.90, 0.96, 0.92)
-	if cpu_detail_body_label != null:
-		cpu_detail_body_label.modulate = Color(0.88, 0.90, 0.94, 0.92)
 	_apply_nav_icons()
 	_apply_selector_nav_icons()
+
+func _swarmfront_title_shader_resource() -> Shader:
+	if _swarmfront_title_shader == null and ResourceLoader.exists(SWARMFRONT_TITLE_SHADER_PATH):
+		_swarmfront_title_shader = load(SWARMFRONT_TITLE_SHADER_PATH) as Shader
+	return _swarmfront_title_shader
+
+func _apply_swarmfront_banner_style() -> void:
+	if brand_banner_label == null:
+		return
+	brand_banner_label.text = "SWARMFRONT"
+	brand_banner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	brand_banner_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if not UITypography.apply_free_roll_atlas_font(brand_banner_label, 34):
+		_apply_font(brand_banner_label, _font_semibold, 38)
+	brand_banner_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
+	brand_banner_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.0))
+	brand_banner_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.0))
+	brand_banner_label.add_theme_constant_override("outline_size", 0)
+	brand_banner_label.add_theme_constant_override("shadow_offset_x", 0)
+	brand_banner_label.add_theme_constant_override("shadow_offset_y", 0)
+	var shader: Shader = _swarmfront_title_shader_resource()
+	if shader == null:
+		return
+	var mat: ShaderMaterial = brand_banner_label.material as ShaderMaterial
+	if mat == null or mat.shader == null or mat.shader != shader:
+		mat = ShaderMaterial.new()
+		mat.shader = shader
+	else:
+		mat = mat.duplicate() as ShaderMaterial
+	brand_banner_label.material = mat
+	mat.set_shader_parameter("backlight_color", Color(1.0, 0.831, 0.0, 1.0))
+	mat.set_shader_parameter("halo_core_strength", 1.15)
+	mat.set_shader_parameter("halo_outer_strength", 0.58)
+	mat.set_shader_parameter("wall_spill_strength", 0.22)
+	mat.set_shader_parameter("bevel_strength", 0.24)
 
 func set_top_safe_inset(inset_px: float) -> void:
 	set_content_top_offset(inset_px)
@@ -303,21 +298,24 @@ func _build_category_tabs() -> void:
 	for child in category_tabs.get_children():
 		child.queue_free()
 	for label in _category_labels:
+		var category_label: String = str(label)
 		var button := Button.new()
-		button.text = label
+		button.text = category_label
 		button.toggle_mode = true
-		button.button_pressed = label == _selected_category
-		button.custom_minimum_size = Vector2(132.0, 44.0)
-		button.pressed.connect(func() -> void:
-			_selected_category = label
-			_map_offset = 0
-			_refresh_category_tab_state()
-			_refresh_map_list()
-			_select_first_visible_map()
-		)
+		button.button_pressed = category_label == _selected_category
+		button.custom_minimum_size = Vector2(_category_tab_width(), 44.0)
+		button.pressed.connect(Callable(self, "_on_category_tab_pressed").bind(category_label))
 		category_tabs.add_child(button)
 		_apply_font(button, _font_semibold, SELECTOR_TAB_FONT_SIZE)
 		_style_button(button)
+	_refresh_category_tab_widths()
+
+func _on_category_tab_pressed(category_label: String) -> void:
+	_selected_category = category_label
+	_map_offset = 0
+	_refresh_category_tab_state()
+	_refresh_map_list()
+	_select_first_visible_map()
 
 func _refresh_category_tab_state() -> void:
 	for child in category_tabs.get_children():
@@ -330,20 +328,23 @@ func _build_period_tabs() -> void:
 	for child in period_tabs.get_children():
 		child.queue_free()
 	for label in _jukebox_state.PERIOD_LABELS:
+		var period_label: String = str(label)
 		var button := Button.new()
-		button.text = label
+		button.text = period_label
 		button.toggle_mode = true
-		button.button_pressed = label == _selected_period
-		button.custom_minimum_size = Vector2(110.0, 34.0)
-		button.pressed.connect(func() -> void:
-			_selected_period = label
-			_leaderboard_offset = 0
-			_refresh_period_tab_state()
-			_refresh_leaderboard()
-		)
+		button.button_pressed = period_label == _selected_period
+		button.custom_minimum_size = Vector2(_period_tab_width(), 34.0)
+		button.pressed.connect(Callable(self, "_on_period_tab_pressed").bind(period_label))
 		period_tabs.add_child(button)
 		_apply_font(button, _font_semibold, 12)
 		_style_button(button)
+	_refresh_period_tab_widths()
+
+func _on_period_tab_pressed(period_label: String) -> void:
+	_selected_period = period_label
+	_leaderboard_offset = 0
+	_refresh_period_tab_state()
+	_refresh_leaderboard()
 
 func _refresh_period_tab_state() -> void:
 	for child in period_tabs.get_children():
@@ -363,23 +364,28 @@ func _refresh_map_list() -> void:
 	var max_offset: int = maxi(0, visible_entries.size() - MAP_WINDOW_SIZE)
 	_map_offset = clampi(_map_offset, 0, max_offset)
 	var end_index: int = mini(_map_offset + MAP_WINDOW_SIZE, visible_entries.size())
+	var top_card_width: float = _top_map_card_width()
+	var bottom_card_width: float = _bottom_map_card_width()
+	var card_font_size: int = _map_card_font_size(top_card_width)
 	for entry_index in range(_map_offset, end_index):
 		var entry: Dictionary = visible_entries[entry_index]
+		var map_path: String = str(entry.get("path", ""))
 		var row := Button.new()
 		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		row.toggle_mode = true
-		row.button_pressed = str(entry.get("path", "")) == _selected_map_path
+		row.button_pressed = map_path == _selected_map_path
 		row.text = _map_card_text(entry)
 		row.tooltip_text = str(entry.get("title", ""))
-		row.custom_minimum_size = Vector2(300.0, 116.0)
-		row.pressed.connect(func() -> void:
-			_select_map(str(entry.get("path", "")))
+		row.custom_minimum_size = Vector2(
+			top_card_width if (entry_index - _map_offset) < 3 else bottom_card_width,
+			116.0
 		)
+		row.pressed.connect(Callable(self, "_select_map").bind(map_path))
 		if (entry_index - _map_offset) < 3:
 			map_top_row.add_child(row)
 		else:
 			map_bottom_cards.add_child(row)
-		_apply_font(row, _font_semibold, SELECTOR_CARD_FONT_SIZE)
+		_apply_font(row, _font_semibold, card_font_size)
 		_style_button(row)
 	_refresh_map_nav(visible_entries.size())
 
@@ -465,6 +471,17 @@ func _refresh_leaderboard() -> void:
 	var total_entries: int = entries.size()
 	var max_offset: int = maxi(0, total_entries - PAGE_SIZE)
 	_leaderboard_offset = clampi(_leaderboard_offset, 0, max_offset)
+	if total_entries <= 0:
+		var empty := Label.new()
+		empty.text = "No recorded runs for this map yet."
+		empty.custom_minimum_size = Vector2(0.0, 58.0)
+		empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		leaderboard_list.add_child(empty)
+		_apply_font(empty, _font_regular, LEADERBOARD_ROW_FONT_SIZE)
+		_refresh_leaderboard_nav(0)
+		your_best_label.text = "Your best: --"
+		_refresh_map_best()
+		return
 	var end_index: int = mini(_leaderboard_offset + PAGE_SIZE, total_entries)
 	for entry_index in range(_leaderboard_offset, end_index):
 		var entry_any: Variant = entries[entry_index]
@@ -597,77 +614,7 @@ func _last_map_page_offset(total_entries: int) -> int:
 func _on_play_pressed() -> void:
 	if _selected_map_path.is_empty():
 		return
-	play_requested.emit(_selected_map_path, _selected_cpu_style, _selected_cpu_tier)
-
-func _on_cpu_style_selected(index: int) -> void:
-	_selected_cpu_style = _cpu_style_value_for_index(index)
-	_refresh_cpu_hint()
-	_refresh_cpu_detail()
-
-func _on_cpu_tier_selected(index: int) -> void:
-	_selected_cpu_tier = _cpu_tier_value_for_index(index)
-	_refresh_cpu_hint()
-	_refresh_cpu_detail()
-
-func _on_style_popup_item_focused(index: int) -> void:
-	_hover_cpu_style = _cpu_style_value_for_index(index)
-	_refresh_cpu_detail()
-
-func _on_tier_popup_item_focused(index: int) -> void:
-	_hover_cpu_tier = _cpu_tier_value_for_index(index)
-	_refresh_cpu_detail()
-
-func _on_cpu_popup_hide() -> void:
-	_hover_cpu_style = ""
-	_hover_cpu_tier = ""
-	_refresh_cpu_detail()
-
-func _refresh_cpu_hint() -> void:
-	if cpu_summary_label == null:
-		return
-	var style_label: String = "Easy"
-	var tier_label: String = "Training"
-	if not _selected_cpu_style.is_empty():
-		style_label = _humanize_token(_selected_cpu_style)
-	if not _selected_cpu_tier.is_empty():
-		tier_label = _humanize_token(_selected_cpu_tier)
-	if _selected_cpu_style.is_empty() and _selected_cpu_tier.is_empty():
-		cpu_summary_label.text = "DEFAULT EASY TRAINING"
-		_apply_font(cpu_summary_label, _font_regular, 11)
-		return
-	cpu_summary_label.text = _stylized_display_text("%s %s" % [style_label, tier_label])
-	_apply_font(cpu_summary_label, _font_regular, 11)
-
-func _refresh_cpu_detail() -> void:
-	if cpu_detail_title_label == null or cpu_detail_body_label == null:
-		return
-	var preview_style: String = _hover_cpu_style if not _hover_cpu_style.is_empty() else _selected_cpu_style
-	var preview_tier: String = _hover_cpu_tier if not _hover_cpu_tier.is_empty() else _selected_cpu_tier
-	var using_hover: bool = not _hover_cpu_style.is_empty() or not _hover_cpu_tier.is_empty()
-	if preview_style.is_empty() and preview_tier.is_empty():
-		cpu_detail_title_label.text = "TRAINING BOT"
-		_apply_font(cpu_detail_title_label, _font_semibold, 12)
-		cpu_detail_body_label.text = "Slow, forgiving starter bot for Jukebox runs.\nStats: think 3400ms, aggression 16%%, feed bias 18%%, min attack 18, swarm OFF."
-		return
-	var title_parts: Array[String] = []
-	if not preview_style.is_empty():
-		title_parts.append(_humanize_token(preview_style))
-	if not preview_tier.is_empty():
-		title_parts.append(_humanize_token(preview_tier))
-	cpu_detail_title_label.text = _stylized_display_text(" ".join(title_parts))
-	_apply_font(cpu_detail_title_label, _font_semibold, 12)
-	var lines: Array[String] = []
-	if using_hover:
-		lines.append("Previewing hovered option.")
-	if not preview_style.is_empty():
-		lines.append(_style_hover_text(preview_style))
-	if not preview_tier.is_empty():
-		lines.append(_tier_hover_text(preview_tier))
-	var profile: Dictionary = _preview_bot_profile(preview_style, preview_tier)
-	var stats_line: String = _profile_stats_line(profile)
-	if not stats_line.is_empty():
-		lines.append(stats_line)
-	cpu_detail_body_label.text = "\n".join(lines)
+	play_requested.emit(_selected_map_path, "", "")
 
 func _stylized_display_text(text: String) -> String:
 	var display_text: String = text.strip_edges().to_upper().replace("_", " ")
@@ -679,79 +626,6 @@ func _stylized_display_text(text: String) -> String:
 
 func _map_card_text(entry: Dictionary) -> String:
 	return _stylized_display_text(str(entry.get("title", "")))
-
-func _preview_bot_profile(style: String, tier: String) -> Dictionary:
-	var ops_state: Node = get_node_or_null("/root/OpsState")
-	if ops_state != null and ops_state.has_method("_build_bot_profile_for_seat"):
-		return ops_state.call(
-			"_build_bot_profile_for_seat",
-			2,
-			style if not style.is_empty() else "balancer",
-			tier if not tier.is_empty() else "medium"
-		) as Dictionary
-	return {}
-
-func _profile_stats_line(profile: Dictionary) -> String:
-	if profile.is_empty():
-		return ""
-	var think_ms: int = int(profile.get("think_interval_ms", 0))
-	var aggression_pct: int = int(round(float(profile.get("aggression", 0.0)) * 100.0))
-	var feed_bias_pct: int = int(round(float(profile.get("feed_bias", 0.0)) * 100.0))
-	var min_attack: int = int(profile.get("min_attack_power", 0))
-	var swarm: String = "ON" if bool(profile.get("allow_swarm", false)) else "OFF"
-	return "Stats: think %dms, aggression %d%%, feed bias %d%%, min attack %d, swarm %s." % [think_ms, aggression_pct, feed_bias_pct, min_attack, swarm]
-
-func _cpu_style_value_for_index(index: int) -> String:
-	match index:
-		1:
-			return "balancer"
-		2:
-			return "turtle"
-		3:
-			return "raider"
-		4:
-			return "greedy"
-		5:
-			return "swarm_lord"
-		_:
-			return ""
-
-func _cpu_tier_value_for_index(index: int) -> String:
-	match index:
-		1:
-			return "easy"
-		2:
-			return "medium"
-		3:
-			return "hard"
-		_:
-			return ""
-
-func _style_hover_text(style: String) -> String:
-	match style:
-		"turtle":
-			return "Turtle prefers safe growth, values stable expansion, and swarms rarely."
-		"raider":
-			return "Raider pressures early, values weak enemy hives, and leans hard into attacks."
-		"greedy":
-			return "Greedy races neutrals and expansion tempo, with lighter commitment to direct fights."
-		"swarm_lord":
-			return "Swarm Lord is the most explosive profile, with frequent burst follow-ups and high pressure."
-		"balancer":
-			return "Balancer is the most even-handed style, mixing feeding and attacks without extreme bias."
-		_:
-			return "Default uses the Jukebox training bot unless you also choose an override."
-
-func _tier_hover_text(tier: String) -> String:
-	match tier:
-		"easy":
-			return "Easy reacts slowly, attacks later, and leaves more room for mistakes."
-		"hard":
-			return "Expert uses the old Medium strength: sharp enough to punish mistakes, but no longer above that playtest target."
-		"medium":
-			return "Medium sits between the old Easy and old Medium tiers."
-		_:
-			return "Default keeps the Jukebox training difficulty unless another override is selected."
 
 func _humanize_token(value: String) -> String:
 	var clean: String = value.strip_edges().replace("_", " ")
@@ -790,14 +664,14 @@ func _style_nav_button(button: Button) -> void:
 func _style_selector_nav_button(button: Button) -> void:
 	if button == null:
 		return
-	button.custom_minimum_size = Vector2(92.0, 92.0)
+	button.custom_minimum_size = Vector2(_selector_nav_width(), 92.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
 
 func _style_play_button() -> void:
 	if play_button == null:
 		return
-	play_button.custom_minimum_size = Vector2(620.0, 150.0)
+	play_button.custom_minimum_size = Vector2(_play_button_width(), 150.0)
 	play_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	play_button.text = ""
 	play_button.tooltip_text = "Play selected map"
@@ -809,6 +683,95 @@ func _style_play_button() -> void:
 		play_sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		play_sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		play_sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+
+func _content_width() -> float:
+	var width: float = size.x
+	if root_vbox != null and root_vbox.size.x > 0.0:
+		width = root_vbox.size.x
+	if width <= 0.0:
+		var viewport: Viewport = get_viewport()
+		if viewport != null:
+			width = viewport.get_visible_rect().size.x
+	return maxf(1.0, width - 56.0)
+
+func _category_tab_width() -> float:
+	var count: int = maxi(1, _category_labels.size())
+	var separation: float = 8.0
+	var available: float = _content_width() - separation * float(maxi(0, count - 1))
+	return clampf(floor(available / float(count)), CATEGORY_TAB_MIN_WIDTH, CATEGORY_TAB_MAX_WIDTH)
+
+func _period_tab_width() -> float:
+	var count: int = maxi(1, _jukebox_state.PERIOD_LABELS.size())
+	var separation: float = 8.0
+	var available: float = _content_width() - separation * float(maxi(0, count - 1))
+	return clampf(floor(available / float(count)), PERIOD_TAB_MIN_WIDTH, PERIOD_TAB_MAX_WIDTH)
+
+func _top_map_card_width() -> float:
+	var available: float = _content_width()
+	var separation: float = 10.0
+	return clampf(floor((available - separation * 2.0) / 3.0), MAP_CARD_MIN_WIDTH, MAP_CARD_MAX_WIDTH)
+
+func _bottom_map_card_width() -> float:
+	var available: float = _content_width()
+	var nav_width: float = _selector_nav_width() * 2.0
+	var row_separation: float = 20.0
+	var card_separation: float = 10.0
+	return clampf(floor((available - nav_width - row_separation - card_separation) / 2.0), MAP_CARD_MIN_WIDTH, MAP_CARD_MAX_WIDTH)
+
+func _selector_nav_width() -> float:
+	var available: float = _content_width()
+	return clampf(floor(available * 0.14), SELECTOR_NAV_MIN_WIDTH, SELECTOR_NAV_MAX_WIDTH)
+
+func _play_button_width() -> float:
+	return clampf(_content_width(), PLAY_BUTTON_MIN_WIDTH, PLAY_BUTTON_MAX_WIDTH)
+
+func _map_card_font_size(card_width: float) -> int:
+	if card_width < 120.0:
+		return 14
+	if card_width < 170.0:
+		return 16
+	if card_width < 230.0:
+		return 20
+	return SELECTOR_CARD_FONT_SIZE
+
+func _refresh_category_tab_widths() -> void:
+	if category_tabs == null:
+		return
+	var width: float = _category_tab_width()
+	for child in category_tabs.get_children():
+		if child is Control:
+			(child as Control).custom_minimum_size.x = width
+
+func _refresh_period_tab_widths() -> void:
+	if period_tabs == null:
+		return
+	var width: float = _period_tab_width()
+	for child in period_tabs.get_children():
+		if child is Control:
+			(child as Control).custom_minimum_size.x = width
+
+func _refresh_play_button_width() -> void:
+	if play_button != null:
+		play_button.custom_minimum_size.x = _play_button_width()
+
+func _refresh_selector_nav_widths() -> void:
+	var width: float = _selector_nav_width()
+	for button in [map_left_button, map_right_button]:
+		if button != null:
+			button.custom_minimum_size.x = width
+
+func _refresh_map_card_widths() -> void:
+	var top_width: float = _top_map_card_width()
+	var bottom_width: float = _bottom_map_card_width()
+	var font_size: int = _map_card_font_size(top_width)
+	for child in map_top_row.get_children():
+		if child is Control:
+			(child as Control).custom_minimum_size.x = top_width
+			_apply_font(child as Control, _font_semibold, font_size)
+	for child in map_bottom_cards.get_children():
+		if child is Control:
+			(child as Control).custom_minimum_size.x = bottom_width
+			_apply_font(child as Control, _font_semibold, _map_card_font_size(bottom_width))
 
 func _apply_nav_icons() -> void:
 	if _chevron_texture == null:

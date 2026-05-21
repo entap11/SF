@@ -27,7 +27,19 @@ func _init() -> void:
 	floor_renderer.add_child(overlay_floor)
 
 	await process_frame
+	floor_renderer.margin_px = 32.0
+	floor_renderer.vertical_overscan_px = 16.0
 	floor_renderer.configure(8, 12, 64.0, Vector2.ZERO)
+	var active_bounds: Rect2 = floor_renderer.get_floor_bounds_rect()
+	var visual_bounds: Rect2 = floor_renderer.get_visual_floor_bounds_rect()
+	if active_bounds != Rect2(Vector2.ZERO, Vector2(512.0, 768.0)):
+		push_error("FLOOR_INFLUENCE_SMOKE: active bounds changed unexpectedly %s" % str(active_bounds))
+		quit(1)
+		return
+	if visual_bounds != Rect2(Vector2(-32.0, -16.0), Vector2(576.0, 800.0)):
+		push_error("FLOOR_INFLUENCE_SMOKE: visual bounds changed unexpectedly %s" % str(visual_bounds))
+		quit(1)
+		return
 
 	var influence_system: Node = InfluenceSystemScript.new()
 	influence_system.name = "ArenaFloorInfluenceSystem"

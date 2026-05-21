@@ -170,9 +170,10 @@ func _check_jukebox_playstyle_tags(failures: Array[String]) -> void:
 	var ffa_entries: Array[Dictionary] = jukebox_state.catalog("FFA")
 	if ffa_entries.is_empty():
 		failures.append("jukebox FFA catalog is empty")
-	var strategy_entries: Array[Dictionary] = jukebox_state.catalog("STRATEGY")
-	if strategy_entries.is_empty():
-		failures.append("jukebox STRATEGY catalog is empty")
+	for internal_category in ["STRATEGY", "TEMPO", "REACTION", "GREED", "GREEDY"]:
+		var internal_entries: Array[Dictionary] = jukebox_state.catalog(internal_category)
+		if not internal_entries.is_empty():
+			failures.append("jukebox internal category should not be player-facing: %s" % internal_category)
 	var delta_entries: Array[Dictionary] = jukebox_state.catalog("DELTA")
 	if delta_entries.size() < 3:
 		failures.append("jukebox DELTA catalog expected at least 3 entries, got %d" % delta_entries.size())

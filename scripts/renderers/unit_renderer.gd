@@ -5,6 +5,7 @@ signal bee_clip_absorb_ready(unit_id: int, to_hive_id: int, lane_id: int, cut_va
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
@@ -102,6 +103,7 @@ const DBG_BUTTER_LOG_INTERVAL_MS: int = 1000
 const DBG_FORCE_CONSTANT_VISUAL_MOTION: bool = false
 const DBG_VISUAL_SPEED: float = 0.35
 const AUDIT_RENDER: bool = false
+const PROCESS_HEARTBEAT_MS: int = 1000
 const USE_UNIT_POOL: bool = true
 const UNIT_POOL_SIZE_PER_TEAM: int = 64
 const UNIT_POOL_OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
@@ -220,8 +222,13 @@ var _bee_clip_lane_id_by_unit_id: Dictionary = {}
 var _bee_clip_collision_active_by_unit_id: Dictionary = {}
 var _bee_clip_collision_last_log_ms_by_unit_id: Dictionary = {}
 var _sim_events: Node = null
+var _process_hb_last_ms: int = 0
+var _process_hb_frames: int = 0
+var _process_hb_max_ms: float = 0.0
+var _process_hb_sum_ms: float = 0.0
 
 func _ready() -> void:
+	SFLog.allow_tag("RENDER_PROCESS_HEARTBEAT")
 	if _unit_profile_logs_enabled():
 		SFLog.allow_tag("RENDER_AUDIT_UNITS")
 		SFLog.allow_tag("RENDER_AUDIT_UNITS_TOP_MAT_KEYS")
@@ -706,15 +713,16 @@ func _prewarm_unit_assets() -> void:
 		prewarm_sprite = _ensure_unit_sprite(prewarm_node)
 	var keys: Array[String] = ["unit.neutral", "unit.p1", "unit.p2", "unit.p3", "unit.p4"]
 	for sprite_key in keys:
-		var tex: Texture2D = registry.get_tex(sprite_key)
+		var owner_id: int = _owner_id_from_unit_sprite_key(sprite_key)
+		var resolved: Dictionary = CosmeticThemeDB.resolve_unit_sprite(owner_id, registry)
+		var tex: Texture2D = resolved.get("texture", null) as Texture2D
 		if tex == null:
 			var tex_path: String = registry.get_tex_path(sprite_key)
 			if not tex_path.is_empty():
 				var res: Resource = ResourceLoader.load(tex_path)
 				if res is Texture2D:
 					tex = res as Texture2D
-		var owner_id: int = _owner_id_from_unit_sprite_key(sprite_key)
-		var mat: ShaderMaterial = _get_unit_material(sprite_key, owner_id, registry)
+		var mat: ShaderMaterial = _get_unit_material(str(resolved.get("key", sprite_key)), owner_id, registry)
 		if prewarm_sprite != null:
 			prewarm_sprite.texture = tex
 			prewarm_sprite.material = mat
@@ -1533,7 +1541,7 @@ func _unit_style_global_sig() -> int:
 	return draw_bit * 100000 + radius_bucket
 
 func _unit_style_sig(owner_id: int) -> int:
-	return owner_id * 1000000 + _unit_style_global_sig()
+	return owner_id * 1000000 + CosmeticThemeDB.garage_selection_token("units") + _unit_style_global_sig()
 
 func _update_unit_nodes_positions(units: Array) -> Dictionary:
 	var profile: Dictionary = {
@@ -3052,15 +3060,12 @@ func _update_unit_sprite(
 	var outline_sprite: Sprite2D = _ensure_unit_outline_sprite(node)
 	if sprite == null:
 		return
-	var tex: Texture2D = null
-	var tex_path := ""
+	var resolved_sprite: Dictionary = CosmeticThemeDB.resolve_unit_sprite(owner_id, registry)
+	var tex: Texture2D = resolved_sprite.get("texture", null) as Texture2D
+	var tex_path := str(resolved_sprite.get("path", ""))
 	var scale := 1.0
-	var sprite_key := ""
-	if registry != null:
-		sprite_key = "unit.%s" % SpriteRegistry.owner_key(owner_id)
-		tex = registry.get_tex(sprite_key)
-		tex_path = registry.get_tex_path(sprite_key)
-		scale = registry.get_scale(sprite_key)
+	var sprite_key := str(resolved_sprite.get("key", "unit.%s" % SpriteRegistry.owner_key(owner_id)))
+	scale = float(resolved_sprite.get("scale", 1.0))
 	if tex == null and not tex_path.is_empty():
 		var fallback_res := ResourceLoader.load(tex_path)
 		if fallback_res is Texture2D:
@@ -3274,6 +3279,7 @@ func _camera_rect_in_unit_space() -> Rect2:
 	return Rect2(Vector2(min_x, min_y), Vector2(max_x - min_x, max_y - min_y))
 
 func _process(delta: float) -> void:
+	var process_t0_us: int = Time.get_ticks_usec()
 	if _sim_events == null or not is_instance_valid(_sim_events):
 		_try_bind_sim_events()
 	_apply_debug_force_top_z()
@@ -3288,6 +3294,30 @@ func _process(delta: float) -> void:
 		_pending_redraw = false
 		queue_redraw()
 	_audit_render_maybe_flush()
+	_record_process_heartbeat(process_t0_us, now_ms)
+
+func _record_process_heartbeat(process_t0_us: int, now_ms: int) -> void:
+	var process_ms: float = float(Time.get_ticks_usec() - process_t0_us) / 1000.0
+	_process_hb_frames += 1
+	_process_hb_sum_ms += process_ms
+	if process_ms > _process_hb_max_ms:
+		_process_hb_max_ms = process_ms
+	if _process_hb_last_ms <= 0:
+		_process_hb_last_ms = now_ms
+		return
+	if now_ms - _process_hb_last_ms < PROCESS_HEARTBEAT_MS:
+		return
+	var avg_ms: float = _process_hb_sum_ms / float(maxi(1, _process_hb_frames))
+	SFLog.info("RENDER_PROCESS_HEARTBEAT", {
+		"renderer": "unit",
+		"frames": _process_hb_frames,
+		"max_process_ms": snapped(_process_hb_max_ms, 0.1),
+		"avg_process_ms": snapped(avg_ms, 0.1)
+	})
+	_process_hb_last_ms = now_ms
+	_process_hb_frames = 0
+	_process_hb_max_ms = 0.0
+	_process_hb_sum_ms = 0.0
 
 func _audit_render_maybe_flush() -> void:
 	if not AUDIT_RENDER:
@@ -3552,19 +3582,18 @@ func _unit_batch_z_index(layer: String, outline: bool) -> int:
 	return base_z - 1 if outline else base_z
 
 func _unit_batch_texture(owner_id: int, registry: SpriteRegistry) -> Texture2D:
-	if registry == null:
-		return null
-	var sprite_key: String = "unit.%s" % SpriteRegistry.owner_key(owner_id)
-	var tex: Texture2D = registry.get_tex(sprite_key)
-	if tex == null and sprite_key != "unit.neutral":
+	var resolved: Dictionary = CosmeticThemeDB.resolve_unit_sprite(owner_id, registry)
+	var tex: Texture2D = resolved.get("texture", null) as Texture2D
+	var sprite_key: String = str(resolved.get("key", "unit.%s" % SpriteRegistry.owner_key(owner_id)))
+	if tex == null and registry != null and sprite_key != "unit.neutral":
 		tex = registry.get_tex("unit.neutral")
 	return tex
 
 func _unit_batch_scale(owner_id: int, registry: SpriteRegistry, tex: Texture2D, outline: bool) -> Vector2:
 	if tex == null:
 		return Vector2.ONE
-	var sprite_key: String = "unit.%s" % SpriteRegistry.owner_key(owner_id)
-	var sprite_scale: float = registry.get_scale(sprite_key) if registry != null else 1.0
+	var resolved: Dictionary = CosmeticThemeDB.resolve_unit_sprite(owner_id, registry)
+	var sprite_scale: float = float(resolved.get("scale", 1.0))
 	if sprite_scale <= 0.0:
 		sprite_scale = 1.0
 	var tex_size: Vector2 = tex.get_size()
@@ -3579,7 +3608,8 @@ func _unit_batch_scale(owner_id: int, registry: SpriteRegistry, tex: Texture2D, 
 func _unit_batch_material(owner_id: int, registry: SpriteRegistry, outline: bool) -> ShaderMaterial:
 	if outline:
 		return null
-	var sprite_key: String = "unit.%s" % SpriteRegistry.owner_key(owner_id)
+	var resolved: Dictionary = CosmeticThemeDB.resolve_unit_sprite(owner_id, registry)
+	var sprite_key: String = str(resolved.get("key", "unit.%s" % SpriteRegistry.owner_key(owner_id)))
 	return _get_unit_material(sprite_key, owner_id, registry)
 
 func _ensure_unit_multimesh_batch(owner_id: int, layer: String, outline: bool, registry: SpriteRegistry) -> Dictionary:
@@ -4093,10 +4123,10 @@ func _get_unit_colorkey_material(sprite_key: String, owner_id: int, registry: Sp
 	var glow_color: Color = _owner_color(owner_id).lightened(0.18)
 	glow_color.a = 1.0
 	_mat_set(mat, "glow_color", glow_color)
-	_mat_set(mat, "glow_strength", 0.72)
-	_mat_set(mat, "glow_luma_floor", 0.04)
-	_mat_set(mat, "glow_pulse_strength", 0.18)
-	_mat_set(mat, "glow_pulse_speed", 5.2)
+	_mat_set(mat, "glow_strength", 1.08)
+	_mat_set(mat, "glow_luma_floor", 0.02)
+	_mat_set(mat, "glow_pulse_strength", 0.30)
+	_mat_set(mat, "glow_pulse_speed", 5.6)
 	_mat_set(mat, "glow_pulse_phase", float(owner_id) * 1.37)
 	_unit_material_by_sprite[key] = mat
 	return mat
@@ -4110,9 +4140,9 @@ func _get_neutral_unit_material(sprite_key: String, owner_id: int, _registry: Sp
 	mat.shader = TEAM_GLOW_RECOLOR_SHADER
 	var npc_color: Color = _owner_color(0)
 	_mat_set(mat, "team_color", npc_color)
-	_mat_set(mat, "glow_strength", 0.35)
+	_mat_set(mat, "glow_strength", 0.62)
 	_mat_set(mat, "colorize_strength", 0.92)
-	_mat_set(mat, "additive_glow", 0.0)
+	_mat_set(mat, "additive_glow", 0.12)
 	_neutral_unit_material_by_sprite[key] = mat
 	return mat
 

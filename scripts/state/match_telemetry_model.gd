@@ -25,6 +25,7 @@ var metrics: Dictionary = {}
 var analysis_summary: Dictionary = {}
 var totals: Dictionary = {}
 var replay: Dictionary = {}
+var video_replay: Dictionary = {}
 
 func _init() -> void:
 	reset()
@@ -37,6 +38,7 @@ func reset() -> void:
 	analysis_summary = _default_analysis_summary()
 	totals = _default_totals()
 	replay = _default_replay()
+	video_replay = _default_video_replay()
 
 func to_dict() -> Dictionary:
 	return {
@@ -46,7 +48,8 @@ func to_dict() -> Dictionary:
 		"metrics": metrics.duplicate(true),
 		"analysis_summary": analysis_summary.duplicate(true),
 		"totals": totals.duplicate(true),
-		"replay": replay.duplicate(true)
+		"replay": replay.duplicate(true),
+		"video_replay": video_replay.duplicate(true)
 	}
 
 static func from_dict(payload: Dictionary) -> Variant:
@@ -64,6 +67,7 @@ static func from_dict(payload: Dictionary) -> Variant:
 	model.analysis_summary = _normalize_dictionary(normalized.get("analysis_summary", {}), _default_analysis_summary())
 	model.totals = _normalize_dictionary(normalized.get("totals", {}), _default_totals())
 	model.replay = _normalize_dictionary(normalized.get("replay", {}), _default_replay())
+	model.video_replay = _normalize_dictionary(normalized.get("video_replay", {}), _default_video_replay())
 	return model
 
 static func migrate_payload(payload: Dictionary) -> Dictionary:
@@ -96,6 +100,10 @@ static func migrate_payload(payload: Dictionary) -> Dictionary:
 		out["replay"] = _default_replay()
 	else:
 		out["replay"] = _merge_defaults(out.get("replay", {}), _default_replay())
+	if not out.has("video_replay") or typeof(out.get("video_replay", null)) != TYPE_DICTIONARY:
+		out["video_replay"] = _default_video_replay()
+	else:
+		out["video_replay"] = _merge_defaults(out.get("video_replay", {}), _default_video_replay())
 	return out
 
 static func _default_metadata() -> Dictionary:
@@ -212,6 +220,30 @@ static func _default_replay() -> Dictionary:
 		"duration_ms": 0,
 		"map": {},
 		"frames": []
+	}
+
+static func _default_video_replay() -> Dictionary:
+	return {
+		"schema_version": 1,
+		"render_mode": "actual_arena_scene",
+		"deterministic": true,
+		"map_path": "",
+		"map_data": {},
+		"input_events": [],
+		"player_loadouts": {},
+		"cosmetics": {},
+		"clip_windows": [],
+		"cta": {
+			"text_overlay": "Tap the link to play Swarmfront",
+			"link_url": "",
+			"safe_area": "bottom"
+		},
+		"export": {
+			"width": 1080,
+			"height": 1920,
+			"fps": 30,
+			"format": "mp4"
+		}
 	}
 
 static func _duplicate_event_array(source: Array[Dictionary]) -> Array:

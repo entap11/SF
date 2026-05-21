@@ -735,6 +735,8 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 					_pass_through_arrival(hive, pass_owner, amount)
 	else:
 		var applied_damage: int = mini(maxi(0, before_power), maxi(0, amount))
+		if before_owner > 0 and applied_damage > 0 and arrive_source != "recall" and state.has_method("mark_hive_attacked_for_passive_suppression"):
+			state.call("mark_hive_attacked_for_passive_suppression", int(hive.id))
 		hive.power -= amount
 		if owner_id > 0 and before_owner > 0 and applied_damage > 0:
 			_telemetry_record_hive_damage(owner_id, before_owner, applied_damage)
@@ -764,6 +766,14 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 			"to": after_owner,
 			"after_power": after_power
 		})
+		if _sim_events != null and _sim_events.has_signal("hive_owner_changed"):
+			_sim_events.emit_signal(
+				"hive_owner_changed",
+				to_id,
+				before_owner,
+				after_owner,
+				state.hive_world_pos_by_id(to_id)
+			)
 		if win_system != null and win_system.has_method("notify_hive_owner_changed"):
 			win_system.notify_hive_owner_changed()
 		elif state.has_method("evaluate_full_control_win"):

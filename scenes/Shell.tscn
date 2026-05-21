@@ -280,9 +280,9 @@ stretch_mode = 2
 layout_mode = 1
 anchors_preset = 0
 offset_left = 195.0
-offset_top = 39.0
+offset_top = 89.0
 offset_right = 1195.0
-offset_bottom = 159.0
+offset_bottom = 209.0
 mouse_filter = 2
 
 [node name="PowerBar" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor" instance=ExtResource("2")]

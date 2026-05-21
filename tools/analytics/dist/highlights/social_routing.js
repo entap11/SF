@@ -33,6 +33,13 @@ export function buildSocialJobs(payload, config = defaultHighlightConfig) {
                 replay_id: payload.match.replay_id,
                 payload: {
                     content: payload.message_templates.discord.content,
+                    video_url: payload.highlight_video.video_url,
+                    video_status: payload.highlight_video.status,
+                    cta_text: payload.acquisition_link.cta_text,
+                    acquisition_url: payload.acquisition_link.universal_url,
+                    app_deep_link: payload.acquisition_link.app_deep_link,
+                    app_store_url_ios: payload.acquisition_link.app_store_url_ios,
+                    app_store_url_android: payload.acquisition_link.app_store_url_android,
                     embeds: [
                         {
                             title: payload.message_templates.discord.embed_title,
@@ -52,8 +59,12 @@ export function buildSocialJobs(payload, config = defaultHighlightConfig) {
                 replay_id: payload.match.replay_id,
                 payload: {
                     text: payload.message_templates.x.text,
+                    video_url: payload.highlight_video.video_url,
+                    video_status: payload.highlight_video.status,
                     image_url: payload.share_card.output.image_url,
-                    canonical_url: payload.replay_link.canonical_url
+                    canonical_url: payload.replay_link.canonical_url,
+                    acquisition_url: payload.acquisition_link.universal_url,
+                    app_deep_link: payload.acquisition_link.app_deep_link
                 }
             });
         }
@@ -67,6 +78,12 @@ export function buildSocialJobs(payload, config = defaultHighlightConfig) {
                     title: payload.share_card.title,
                     subtitle: payload.share_card.subtitle,
                     canonical_url: payload.replay_link.canonical_url,
+                    video_url: payload.highlight_video.video_url,
+                    video_status: payload.highlight_video.status,
+                    acquisition_url: payload.acquisition_link.universal_url,
+                    app_deep_link: payload.acquisition_link.app_deep_link,
+                    app_store_url_ios: payload.acquisition_link.app_store_url_ios,
+                    app_store_url_android: payload.acquisition_link.app_store_url_android,
                     badges: payload.share_card.badges_to_render
                 }
             });

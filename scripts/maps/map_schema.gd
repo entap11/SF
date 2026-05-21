@@ -756,6 +756,7 @@ static func build_internal_map(human: Dictionary) -> Dictionary:
 		"lanes": lanes,
 		"towers": towers,
 		"barracks": barracks,
+		"structure_slots": source.get("structure_slots", []),
 		"walls": source.get("walls", []),
 		"spawns": spawns
 	}
@@ -966,5 +967,51 @@ static func validate_map(d: Dictionary) -> Dictionary:
 				errors.append("duplicate lane: " + key)
 			else:
 				lane_keys[key] = true
+
+	var structure_slots_v: Variant = d.get("structure_slots", [])
+	if typeof(structure_slots_v) != TYPE_ARRAY:
+		errors.append("structure_slots must be an Array if present")
+	else:
+		var slot_ids: Dictionary = {}
+		for slot_any in structure_slots_v as Array:
+			if typeof(slot_any) != TYPE_DICTIONARY:
+				errors.append("structure slot entry must be Dictionary")
+				continue
+			var slot: Dictionary = slot_any as Dictionary
+			var slot_id: String = str(slot.get("id", ""))
+			if slot_id.is_empty():
+				errors.append("structure slot missing id")
+			elif slot_ids.has(slot_id):
+				errors.append("duplicate structure slot id: " + slot_id)
+			else:
+				slot_ids[slot_id] = true
+			var gp_v: Variant = slot.get("grid_pos", null)
+			var sx_v: Variant = slot.get("x", null)
+			var sy_v: Variant = slot.get("y", null)
+			if typeof(gp_v) == TYPE_ARRAY:
+				var gp: Array = gp_v as Array
+				if gp.size() >= 2:
+					sx_v = gp[0]
+					sy_v = gp[1]
+			if (typeof(sx_v) != TYPE_INT and typeof(sx_v) != TYPE_FLOAT) or (typeof(sy_v) != TYPE_INT and typeof(sy_v) != TYPE_FLOAT):
+				errors.append("structure slot missing grid position (id=" + slot_id + ")")
+				continue
+			var sx: int = int(round(float(sx_v)))
+			var sy: int = int(round(float(sy_v)))
+			if grid_w > 0 and (sx < 0 or sx >= grid_w):
+				errors.append("structure slot x out of bounds (id=" + slot_id + ")")
+			if grid_h > 0 and (sy < 0 or sy >= grid_h):
+				errors.append("structure slot y out of bounds (id=" + slot_id + ")")
+			var allowed_v: Variant = slot.get("allowed", ["tower", "barracks"])
+			if typeof(allowed_v) != TYPE_ARRAY:
+				errors.append("structure slot allowed must be an Array (id=" + slot_id + ")")
+			else:
+				var allowed: Array = allowed_v as Array
+				if allowed.is_empty():
+					errors.append("structure slot allowed must not be empty (id=" + slot_id + ")")
+				for kind_any in allowed:
+					var kind: String = str(kind_any).strip_edges().to_lower()
+					if kind != "tower" and kind != "barracks":
+						errors.append("structure slot allowed has invalid kind '%s' (id=%s)" % [kind, slot_id])
 
 	return {"ok": errors.is_empty(), "errors": errors}

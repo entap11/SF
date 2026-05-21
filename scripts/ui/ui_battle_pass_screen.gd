@@ -1,28 +1,61 @@
 extends Panel
 
 signal close_requested()
+signal store_requested()
+
+const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 
 @export var battle_pass_state_path: NodePath = NodePath("/root/BattlePassState")
-@export var season_label_path: NodePath = NodePath("Root/VBox/Season")
-@export var summary_label_path: NodePath = NodePath("Root/VBox/Summary")
-@export var veteran_label_path: NodePath = NodePath("Root/VBox/Veteran")
-@export var wallet_label_path: NodePath = NodePath("Root/VBox/Wallet")
-@export var levels_text_path: NodePath = NodePath("Root/VBox/LevelsScroll/LevelsText")
-@export var quests_text_path: NodePath = NodePath("Root/VBox/QuestsScroll/QuestsText")
-@export var premium_button_path: NodePath = NodePath("Root/VBox/Actions/PremiumButton")
-@export var elite_button_path: NodePath = NodePath("Root/VBox/Actions/EliteButton")
-@export var claim_current_button_path: NodePath = NodePath("Root/VBox/Actions/ClaimCurrentButton")
-@export var claim_all_button_path: NodePath = NodePath("Root/VBox/Actions/ClaimAllButton")
-@export var veteran_start_button_path: NodePath = NodePath("Root/VBox/Actions/VeteranStartButton")
-@export var veteran_opt_out_button_path: NodePath = NodePath("Root/VBox/Actions/VeteranOptOutButton")
-@export var close_button_path: NodePath = NodePath("Root/VBox/Actions/CloseButton")
+
+const OFFSHOOT_TRACKS: Array[String] = ["premium", "elite"]
+const LEVEL_RANGES: Array[Dictionary] = [
+	{"label": "1-25", "level": 1},
+	{"label": "26-50", "level": 26},
+	{"label": "51-75", "level": 51},
+	{"label": "76-100", "level": 76}
+]
+const PANEL_BG: Color = Color(0.035, 0.038, 0.046, 0.94)
+const PANEL_BORDER: Color = Color(0.95, 0.75, 0.26, 0.28)
+const SECTION_BG: Color = Color(0.055, 0.06, 0.073, 0.82)
+const CARD_BG: Color = Color(0.075, 0.080, 0.095, 0.90)
+const CARD_BORDER: Color = Color(0.42, 0.36, 0.20, 0.62)
+const TRACK_BG: Color = Color(0.035, 0.038, 0.046, 0.72)
+const TRACK_BORDER: Color = Color(0.35, 0.35, 0.42, 0.45)
+const GOLD: Color = Color(1.0, 0.82, 0.28, 1.0)
+const MUTED: Color = Color(0.75, 0.78, 0.84, 0.78)
+const GOOD: Color = Color(0.56, 0.88, 0.58, 1.0)
+const LOCKED: Color = Color(0.52, 0.55, 0.62, 0.82)
+const CLOSE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/Close.png"
 
 var _state: Node = null
 var _last_snapshot: Dictionary = {}
+var _texture_cache: Dictionary = {}
+var _level_cards: Dictionary = {}
+var _close_skin_cache: Texture2D = null
+var _close_skin_loaded: bool = false
+
+var _root: MarginContainer = null
+var _season_label: Label = null
+var _summary_label: Label = null
+var _wallet_label: Label = null
+var _veteran_label: Label = null
+var _event_label: Label = null
+var _progress_title_label: Label = null
+var _progress_bar: ProgressBar = null
+var _levels_scroll: ScrollContainer = null
+var _cards_vbox: VBoxContainer = null
+var _range_bar: HBoxContainer = null
+var _premium_button: Button = null
+var _elite_button: Button = null
+var _claim_current_button: Button = null
+var _claim_all_button: Button = null
+var _veteran_start_button: Button = null
+var _veteran_opt_out_button: Button = null
+var _close_button: Button = null
 
 func _ready() -> void:
+	_build_layout()
 	_bind_state()
-	_connect_buttons()
 	_refresh_from_state()
 
 func _exit_tree() -> void:
@@ -33,6 +66,217 @@ func _exit_tree() -> void:
 	if _state.has_signal("battle_pass_event") and _state.battle_pass_event.is_connected(_on_pass_event):
 		_state.battle_pass_event.disconnect(_on_pass_event)
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED:
+		call_deferred("_refresh_card_sizes")
+
+func _build_layout() -> void:
+	for child in get_children():
+		remove_child(child)
+		child.queue_free()
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	add_theme_stylebox_override("panel", _style(PANEL_BG, PANEL_BORDER, 2, 8))
+
+	_root = MarginContainer.new()
+	_root.name = "Root"
+	_root.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	_root.add_theme_constant_override("margin_left", 24)
+	_root.add_theme_constant_override("margin_top", 24)
+	_root.add_theme_constant_override("margin_right", 24)
+	_root.add_theme_constant_override("margin_bottom", 24)
+	add_child(_root)
+
+	var vbox := VBoxContainer.new()
+	vbox.name = "VBox"
+	vbox.add_theme_constant_override("separation", 12)
+	_root.add_child(vbox)
+
+	vbox.add_child(_build_header())
+	vbox.add_child(_build_actions())
+
+	_veteran_label = Label.new()
+	_veteran_label.visible = false
+	_veteran_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_veteran_label.add_theme_color_override("font_color", GOLD)
+	vbox.add_child(_veteran_label)
+
+	var body := Panel.new()
+	body.name = "LevelsBody"
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_stylebox_override("panel", _style(Color(0.02, 0.022, 0.028, 0.52), Color(0.95, 0.77, 0.28, 0.14), 1, 6))
+	vbox.add_child(body)
+
+	var body_margin := MarginContainer.new()
+	body_margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	body_margin.add_theme_constant_override("margin_left", 14)
+	body_margin.add_theme_constant_override("margin_top", 14)
+	body_margin.add_theme_constant_override("margin_right", 14)
+	body_margin.add_theme_constant_override("margin_bottom", 14)
+	body.add_child(body_margin)
+
+	_levels_scroll = ScrollContainer.new()
+	_levels_scroll.name = "LevelsScroll"
+	_levels_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_levels_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_levels_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_levels_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	body_margin.add_child(_levels_scroll)
+
+	_cards_vbox = VBoxContainer.new()
+	_cards_vbox.name = "Cards"
+	_cards_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_cards_vbox.add_theme_constant_override("separation", 14)
+	_levels_scroll.add_child(_cards_vbox)
+
+	vbox.add_child(_build_range_bar())
+
+	_event_label = Label.new()
+	_event_label.name = "EventLog"
+	_event_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_event_label.add_theme_color_override("font_color", MUTED)
+	vbox.add_child(_event_label)
+
+	vbox.add_child(_build_footer_close())
+
+func _build_header() -> Control:
+	var header := Panel.new()
+	header.name = "Header"
+	header.custom_minimum_size = Vector2(0.0, 142.0)
+	header.add_theme_stylebox_override("panel", _style(SECTION_BG, Color(0.95, 0.77, 0.28, 0.22), 1, 6))
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 14)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 14)
+	header.add_child(margin)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	margin.add_child(row)
+
+	var text_col := VBoxContainer.new()
+	text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_col.add_theme_constant_override("separation", 4)
+	row.add_child(text_col)
+
+	var title := Label.new()
+	title.text = "BATTLE PASS"
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(0.98, 0.98, 1.0, 1.0))
+	text_col.add_child(title)
+
+	_season_label = Label.new()
+	_season_label.add_theme_color_override("font_color", GOLD)
+	text_col.add_child(_season_label)
+
+	_summary_label = Label.new()
+	_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_summary_label.add_theme_color_override("font_color", Color(0.9, 0.92, 0.96, 0.95))
+	text_col.add_child(_summary_label)
+
+	_wallet_label = Label.new()
+	_wallet_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_wallet_label.add_theme_color_override("font_color", MUTED)
+	text_col.add_child(_wallet_label)
+
+	var progress_col := VBoxContainer.new()
+	progress_col.custom_minimum_size = Vector2(230.0, 0.0)
+	progress_col.add_theme_constant_override("separation", 8)
+	row.add_child(progress_col)
+
+	_progress_title_label = Label.new()
+	_progress_title_label.text = "NECTAR"
+	_progress_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_progress_title_label.add_theme_color_override("font_color", GOLD)
+	progress_col.add_child(_progress_title_label)
+
+	_progress_bar = ProgressBar.new()
+	_progress_bar.min_value = 0.0
+	_progress_bar.max_value = 100.0
+	_progress_bar.show_percentage = true
+	_progress_bar.custom_minimum_size = Vector2(0.0, 30.0)
+	progress_col.add_child(_progress_bar)
+
+	return header
+
+func _build_actions() -> Control:
+	var row := HBoxContainer.new()
+	row.name = "Actions"
+	row.add_theme_constant_override("separation", 8)
+	_premium_button = _make_button("Buy Premium")
+	_elite_button = _make_button("Buy Elite")
+	_claim_current_button = _make_button("Claim Current")
+	_claim_all_button = _make_button("Claim All")
+	_veteran_start_button = _make_button("Veteran Start")
+	_veteran_opt_out_button = _make_button("Veteran Opt-Out")
+	for button in [_premium_button, _elite_button, _claim_current_button, _claim_all_button, _veteran_start_button, _veteran_opt_out_button]:
+		row.add_child(button)
+	_premium_button.pressed.connect(func() -> void:
+		store_requested.emit()
+	)
+	_elite_button.pressed.connect(func() -> void:
+		store_requested.emit()
+	)
+	_claim_current_button.pressed.connect(func() -> void:
+		_claim_track(int(_last_snapshot.get("battle_pass_level", 1)), "free")
+	)
+	_claim_all_button.pressed.connect(func() -> void:
+		_call_state("intent_claim_all_available", [])
+	)
+	_veteran_start_button.pressed.connect(func() -> void:
+		var flags: Dictionary = {
+			"member_this_season": true,
+			"member_last_season": true,
+			"played_every_mode_last_season": true,
+			"money_async_last_season": true,
+			"money_vs_last_season": true
+		}
+		_call_state("intent_apply_veteran_start", [flags, false])
+	)
+	_veteran_opt_out_button.pressed.connect(func() -> void:
+		_call_state("intent_apply_veteran_start", [{}, true])
+	)
+	return row
+
+func _build_footer_close() -> Control:
+	var row := HBoxContainer.new()
+	row.name = "FooterClose"
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_close_button = _make_close_button()
+	_close_button.pressed.connect(func() -> void:
+		close_requested.emit()
+	)
+	row.add_child(_close_button)
+	return row
+
+func _build_range_bar() -> Control:
+	var panel := Panel.new()
+	panel.name = "LevelRangeBar"
+	panel.custom_minimum_size = Vector2(0.0, 58.0)
+	panel.add_theme_stylebox_override("panel", _style(SECTION_BG, Color(0.95, 0.77, 0.28, 0.20), 1, 6))
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	panel.add_child(margin)
+	_range_bar = HBoxContainer.new()
+	_range_bar.alignment = BoxContainer.ALIGNMENT_CENTER
+	_range_bar.add_theme_constant_override("separation", 10)
+	margin.add_child(_range_bar)
+	for range_def in LEVEL_RANGES:
+		var button := _make_button(str(range_def.get("label", "")))
+		button.custom_minimum_size = Vector2(132.0, 40.0)
+		var level: int = int(range_def.get("level", 1))
+		button.pressed.connect(func() -> void:
+			_scroll_to_level(level)
+		)
+		_range_bar.add_child(button)
+	return panel
+
 func _bind_state() -> void:
 	_state = get_node_or_null(battle_pass_state_path)
 	if _state == null:
@@ -42,255 +286,503 @@ func _bind_state() -> void:
 	if _state.has_signal("battle_pass_event") and not _state.battle_pass_event.is_connected(_on_pass_event):
 		_state.battle_pass_event.connect(_on_pass_event)
 
-func _connect_buttons() -> void:
-	var premium_button: Button = get_node_or_null(premium_button_path) as Button
-	var elite_button: Button = get_node_or_null(elite_button_path) as Button
-	var claim_current_button: Button = get_node_or_null(claim_current_button_path) as Button
-	var claim_all_button: Button = get_node_or_null(claim_all_button_path) as Button
-	var veteran_start_button: Button = get_node_or_null(veteran_start_button_path) as Button
-	var veteran_opt_out_button: Button = get_node_or_null(veteran_opt_out_button_path) as Button
-	var close_button: Button = get_node_or_null(close_button_path) as Button
-
-	if premium_button != null:
-		premium_button.pressed.connect(func() -> void:
-			if _state == null or not _state.has_method("intent_set_pass_entitlements"):
-				return
-			_state.call("intent_set_pass_entitlements", true, false)
-		)
-	if elite_button != null:
-		elite_button.pressed.connect(func() -> void:
-			if _state == null or not _state.has_method("intent_set_pass_entitlements"):
-				return
-			_state.call("intent_set_pass_entitlements", true, true)
-		)
-	if claim_current_button != null:
-		claim_current_button.pressed.connect(func() -> void:
-			if _state == null or not _state.has_method("intent_claim_reward"):
-				return
-			var level: int = int(_last_snapshot.get("battle_pass_level", 1))
-			_state.call("intent_claim_reward", level, "free")
-		)
-	if claim_all_button != null:
-		claim_all_button.pressed.connect(func() -> void:
-			if _state == null or not _state.has_method("intent_claim_all_available"):
-				return
-			_state.call("intent_claim_all_available")
-		)
-	if veteran_start_button != null:
-		veteran_start_button.pressed.connect(func() -> void:
-			if _state == null or not _state.has_method("intent_apply_veteran_start"):
-				return
-			var flags: Dictionary = {
-				"member_this_season": true,
-				"member_last_season": true,
-				"played_every_mode_last_season": true,
-				"money_async_last_season": true,
-				"money_vs_last_season": true
-			}
-			_state.call("intent_apply_veteran_start", flags, false)
-		)
-	if veteran_opt_out_button != null:
-		veteran_opt_out_button.pressed.connect(func() -> void:
-			if _state == null or not _state.has_method("intent_apply_veteran_start"):
-				return
-			_state.call("intent_apply_veteran_start", {}, true)
-		)
-	if close_button != null:
-		close_button.pressed.connect(func() -> void:
-			close_requested.emit()
-		)
-
 func _refresh_from_state() -> void:
-	if _state == null:
+	if _state == null or not _state.has_method("get_snapshot"):
 		return
-	if _state.has_method("get_snapshot"):
-		var snapshot_any: Variant = _state.call("get_snapshot")
-		if typeof(snapshot_any) == TYPE_DICTIONARY:
-			_on_state_changed(snapshot_any as Dictionary)
+	var snapshot_any: Variant = _state.call("get_snapshot")
+	if typeof(snapshot_any) == TYPE_DICTIONARY:
+		_on_state_changed(snapshot_any as Dictionary)
 
 func _on_state_changed(snapshot: Dictionary) -> void:
 	_last_snapshot = snapshot.duplicate(true)
-	var season_label: Label = get_node_or_null(season_label_path) as Label
-	var summary_label: Label = get_node_or_null(summary_label_path) as Label
-	var veteran_label: Label = get_node_or_null(veteran_label_path) as Label
-	var wallet_label: Label = get_node_or_null(wallet_label_path) as Label
-	var levels_text: RichTextLabel = get_node_or_null(levels_text_path) as RichTextLabel
-	var quests_text: RichTextLabel = get_node_or_null(quests_text_path) as RichTextLabel
-	var premium_button: Button = get_node_or_null(premium_button_path) as Button
-	var elite_button: Button = get_node_or_null(elite_button_path) as Button
+	_render_summary(snapshot)
+	_render_level_cards(snapshot.get("rows", []) as Array)
+	_update_action_state(snapshot)
+	call_deferred("_refresh_card_sizes")
 
-	if season_label != null:
-		var season_id: String = str(snapshot.get("season_id", "season"))
-		var remaining_sec: int = int(snapshot.get("season_seconds_remaining", 0))
-		var remaining_days: int = int(floor(float(remaining_sec) / 86400.0))
-		var projection_any: Variant = snapshot.get("prestige_projection", {})
-		var projection: Dictionary = projection_any as Dictionary if typeof(projection_any) == TYPE_DICTIONARY else {}
-		var growth_factor: float = float(projection.get("growth_factor", 1.0))
-		season_label.text = "Season %s · %dd left · Prestige growth x%.2f" % [season_id, remaining_days, growth_factor]
+func _render_summary(snapshot: Dictionary) -> void:
+	var season_id: String = str(snapshot.get("season_id", "season"))
+	var remaining_days: int = int(floor(float(int(snapshot.get("season_seconds_remaining", 0))) / 86400.0))
+	var projection_any: Variant = snapshot.get("prestige_projection", {})
+	var projection: Dictionary = projection_any as Dictionary if typeof(projection_any) == TYPE_DICTIONARY else {}
+	var growth_factor: float = float(projection.get("growth_factor", 1.0))
+	_season_label.text = "Season %s | %dd left | Prestige growth x%.2f" % [season_id, remaining_days, growth_factor]
 
-	if summary_label != null:
-		var level: int = int(snapshot.get("battle_pass_level", 1))
-		var total_levels: int = int(snapshot.get("total_levels", 120))
-		var progress_ratio: float = float(snapshot.get("progress_ratio", 0.0))
-		var premium_owned: bool = bool(snapshot.get("premium_owned", false))
-		var elite_owned: bool = bool(snapshot.get("elite_owned", false))
-		var side_quest_paths: int = int(snapshot.get("side_quest_paths_available", 1))
-		var prestige_pool_base: int = int(snapshot.get("prestige_pool_base_slots", 0))
-		var sink_summary_any: Variant = snapshot.get("progression_sink_summary", {})
-		var sink_summary: Dictionary = sink_summary_any as Dictionary if typeof(sink_summary_any) == TYPE_DICTIONARY else {}
-		var sink_milestones: Array = sink_summary.get("milestones", []) as Array
-		var l90_actions: int = _baseline_actions_for_level(sink_milestones, 90)
-		var l100_actions: int = _baseline_actions_for_level(sink_milestones, 100)
-		summary_label.text = "Level %d/%d · Progress %.0f%% · Paths %d · Prestige %d · Premium %s · Elite %s · L90 %dA · L100 %dA" % [
-			level,
-			total_levels,
-			progress_ratio * 100.0,
-			side_quest_paths,
-			prestige_pool_base,
-			"YES" if premium_owned else "NO",
-			"YES" if elite_owned else "NO",
-			l90_actions,
-			l100_actions
-		]
+	var level: int = int(snapshot.get("battle_pass_level", 1))
+	var total_levels: int = int(snapshot.get("total_levels", 120))
+	var next_level: int = int(snapshot.get("next_level", mini(total_levels, level + 1)))
+	var total_nectar: int = int(snapshot.get("battle_pass_xp", 0))
+	var nectar_into_level: int = int(snapshot.get("xp_into_level", 0))
+	var nectar_for_level: int = int(snapshot.get("xp_for_level", 0))
+	var nectar_needed: int = maxi(0, nectar_for_level - nectar_into_level)
+	var progress_ratio: float = clampf(float(snapshot.get("progress_ratio", 0.0)), 0.0, 1.0)
+	var side_quest_paths: int = int(snapshot.get("side_quest_paths_available", 1))
+	var premium_owned: bool = bool(snapshot.get("premium_owned", false))
+	var elite_owned: bool = bool(snapshot.get("elite_owned", false))
+	var speed_text: String = "Elite speed x1.30" if elite_owned else ("Premium speed x1.20" if premium_owned else "Base speed x1.00")
+	_summary_label.text = "Level %d/%d | %s | Paths %d | Premium %s | Elite %s" % [
+		level,
+		total_levels,
+		speed_text,
+		side_quest_paths,
+		"YES" if premium_owned else "NO",
+		"YES" if elite_owned else "NO"
+	]
 
-	if veteran_label != null:
-		var lock_notice: String = str(snapshot.get("veteran_lock_notice", ""))
-		veteran_label.text = lock_notice
-		veteran_label.visible = not lock_notice.is_empty()
+	var wallet_any: Variant = snapshot.get("wallet", {})
+	var wallet: Dictionary = wallet_any as Dictionary if typeof(wallet_any) == TYPE_DICTIONARY else {}
+	var inventory_any: Variant = snapshot.get("inventory", {})
+	var inventory: Dictionary = inventory_any as Dictionary if typeof(inventory_any) == TYPE_DICTIONARY else {}
+	_wallet_label.text = "Nectar %d total | Need %d for Level %d | Current level %d/%d | Honey %d | Tickets %d" % [
+		total_nectar,
+		nectar_needed,
+		next_level,
+		nectar_into_level,
+		nectar_for_level,
+		int(wallet.get("honey", 0)),
+		int(inventory.get("access_tickets", 0))
+	]
+	if _progress_title_label != null:
+		_progress_title_label.text = "NECTAR %d / %d" % [nectar_into_level, nectar_for_level]
+	_progress_bar.value = progress_ratio * 100.0
 
-	if wallet_label != null:
-		var wallet_any: Variant = snapshot.get("wallet", {})
-		var wallet: Dictionary = wallet_any as Dictionary if typeof(wallet_any) == TYPE_DICTIONARY else {}
-		var inventory_any: Variant = snapshot.get("inventory", {})
-		var inventory: Dictionary = inventory_any as Dictionary if typeof(inventory_any) == TYPE_DICTIONARY else {}
-		var reward_summary_any: Variant = snapshot.get("reward_summary", {})
-		var reward_summary: Dictionary = reward_summary_any as Dictionary if typeof(reward_summary_any) == TYPE_DICTIONARY else {}
-		var reward_targets_any: Variant = snapshot.get("reward_targets", {})
-		var reward_targets: Dictionary = reward_targets_any as Dictionary if typeof(reward_targets_any) == TYPE_DICTIONARY else {}
-		var quest_summary_any: Variant = snapshot.get("quest_reward_summary", {})
-		var quest_summary: Dictionary = quest_summary_any as Dictionary if typeof(quest_summary_any) == TYPE_DICTIONARY else {}
-		var free_summary: Dictionary = reward_summary.get("free", {}) as Dictionary
-		var premium_summary: Dictionary = reward_summary.get("premium", {}) as Dictionary
-		var elite_summary: Dictionary = reward_summary.get("elite", {}) as Dictionary
-		var premium_quest_summary: Dictionary = quest_summary.get("premium", {}) as Dictionary
-		var elite_quest_summary: Dictionary = quest_summary.get("elite", {}) as Dictionary
-		var free_target: Dictionary = reward_targets.get("free", {}) as Dictionary
-		var premium_target: Dictionary = reward_targets.get("premium", {}) as Dictionary
-		var elite_target: Dictionary = reward_targets.get("elite", {}) as Dictionary
-		wallet_label.text = "Honey %d · Tickets %d\nActual H/T/C F %d/%d/%d · P %d/%d/%d · E %d/%d/%d\nTarget H/T/C F %d/%d/%d · P %d/%d/%d · E %d/%d/%d\nSide Quests P %d/%d/%d · E %d/%d/%d" % [
-			int(wallet.get("honey", 0)),
-			int(inventory.get("access_tickets", 0)),
-			int(free_summary.get("honey", 0)),
-			int(free_summary.get("access_tickets", 0)),
-			int(free_summary.get("cosmetics", 0)),
-			int(premium_summary.get("honey", 0)),
-			int(premium_summary.get("access_tickets", 0)),
-			int(premium_summary.get("cosmetics", 0)),
-			int(elite_summary.get("honey", 0)),
-			int(elite_summary.get("access_tickets", 0)),
-			int(elite_summary.get("cosmetics", 0)),
-			int(free_target.get("honey", 0)),
-			int(free_target.get("access_tickets", 0)),
-			int(free_target.get("cosmetics", 0)),
-			int(premium_target.get("honey", 0)),
-			int(premium_target.get("access_tickets", 0)),
-			int(premium_target.get("cosmetics", 0)),
-			int(elite_target.get("honey", 0)),
-			int(elite_target.get("access_tickets", 0)),
-			int(elite_target.get("cosmetics", 0)),
-			int(premium_quest_summary.get("honey", 0)),
-			int(premium_quest_summary.get("access_tickets", 0)),
-			int(premium_quest_summary.get("cosmetics", 0)),
-			int(elite_quest_summary.get("honey", 0)),
-			int(elite_quest_summary.get("access_tickets", 0)),
-			int(elite_quest_summary.get("cosmetics", 0))
-		]
+	var lock_notice: String = str(snapshot.get("veteran_lock_notice", ""))
+	_veteran_label.text = lock_notice
+	_veteran_label.visible = not lock_notice.is_empty()
 
-	if levels_text != null:
-		levels_text.text = _render_levels(snapshot.get("rows", []) as Array)
-
-	if quests_text != null:
-		quests_text.text = _render_quests(snapshot.get("quests", []) as Array, snapshot.get("quest_bonuses", []) as Array)
-
-	if premium_button != null:
-		premium_button.disabled = bool(snapshot.get("premium_owned", false))
-	if elite_button != null:
-		elite_button.disabled = bool(snapshot.get("elite_owned", false))
-
-func _on_pass_event(_event: Dictionary) -> void:
-	# State-driven UI: this hook only triggers a full re-render from authoritative snapshot.
-	_refresh_from_state()
-
-func _render_levels(rows: Array) -> String:
-	var lines: PackedStringArray = PackedStringArray()
+func _render_level_cards(rows: Array) -> void:
+	if _cards_vbox == null:
+		return
+	for child in _cards_vbox.get_children():
+		_cards_vbox.remove_child(child)
+		child.queue_free()
+	_level_cards.clear()
+	var cumulative_nectar: int = 0
 	for row_any in rows:
 		if typeof(row_any) != TYPE_DICTIONARY:
 			continue
 		var row: Dictionary = row_any as Dictionary
-		var level: int = int(row.get("level", 0))
-		var scarcity_remaining: int = int(row.get("scarcity_remaining", -1))
-		var tracks_any: Variant = row.get("tracks", {})
-		var tracks: Dictionary = tracks_any as Dictionary if typeof(tracks_any) == TYPE_DICTIONARY else {}
-		var free_state: Dictionary = tracks.get("free", {}) as Dictionary
-		var premium_state: Dictionary = tracks.get("premium", {}) as Dictionary
-		var elite_state: Dictionary = tracks.get("elite", {}) as Dictionary
-		var free_badge: String = _track_badge(free_state)
-		var premium_badge: String = _track_badge(premium_state)
-		var elite_badge: String = _track_badge(elite_state)
-		var scarcity_text: String = ""
-		if scarcity_remaining >= 0:
-			scarcity_text = " | Slots %d" % scarcity_remaining
-		lines.append("L%03d | F:%s P:%s E:%s%s" % [level, free_badge, premium_badge, elite_badge, scarcity_text])
-	return "\n".join(lines)
+		row["unlock_nectar"] = cumulative_nectar
+		var card := _build_level_card(row)
+		_cards_vbox.add_child(card)
+		_level_cards[int(row.get("level", 0))] = card
+		cumulative_nectar += maxi(0, int(row.get("xp_required", 0)))
 
-func _render_quests(quests: Array, bonuses: Array) -> String:
-	var lines: PackedStringArray = PackedStringArray()
-	lines.append("Quests")
-	for quest_any in quests:
-		if typeof(quest_any) != TYPE_DICTIONARY:
+func _build_level_card(row: Dictionary) -> Panel:
+	var level: int = int(row.get("level", 0))
+	var unlocked: bool = bool(row.get("unlocked", false))
+	var card := Panel.new()
+	card.name = "Level%03d" % level
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("panel", _style(CARD_BG, CARD_BORDER if unlocked else Color(0.35, 0.36, 0.44, 0.52), 1, 6))
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	card.add_child(margin)
+
+	var row_box := HBoxContainer.new()
+	row_box.add_theme_constant_override("separation", 14)
+	margin.add_child(row_box)
+
+	var meta := VBoxContainer.new()
+	meta.custom_minimum_size = Vector2(172.0, 0.0)
+	meta.add_theme_constant_override("separation", 6)
+	row_box.add_child(meta)
+
+	var level_label := Label.new()
+	level_label.text = "LEVEL %03d" % level
+	level_label.add_theme_font_size_override("font_size", 20)
+	level_label.add_theme_color_override("font_color", GOLD if unlocked else LOCKED)
+	meta.add_child(level_label)
+
+	var xp_label := Label.new()
+	xp_label.text = "Unlock total: %d nectar\nLevel cost: %d nectar" % [
+		int(row.get("unlock_nectar", 0)),
+		int(row.get("xp_required", 0))
+	]
+	xp_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	xp_label.add_theme_color_override("font_color", Color(0.9, 0.92, 0.96, 0.88))
+	meta.add_child(xp_label)
+
+	var status := Label.new()
+	status.text = "OPEN" if unlocked else "LOCKED"
+	status.add_theme_color_override("font_color", GOOD if unlocked else LOCKED)
+	meta.add_child(status)
+
+	var scarcity_remaining: int = int(row.get("scarcity_remaining", -1))
+	if scarcity_remaining >= 0:
+		var scarcity := Label.new()
+		scarcity.text = "Prestige slots: %d" % scarcity_remaining
+		scarcity.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		scarcity.add_theme_color_override("font_color", GOLD)
+		meta.add_child(scarcity)
+
+	var tracks_any: Variant = row.get("tracks", {})
+	var tracks: Dictionary = tracks_any as Dictionary if typeof(tracks_any) == TYPE_DICTIONARY else {}
+	var reward_col := VBoxContainer.new()
+	reward_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	reward_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	reward_col.add_theme_constant_override("separation", 10)
+	row_box.add_child(reward_col)
+
+	var main_track_slot: String = "free"
+	var main_state: Dictionary = tracks.get(main_track_slot, {}) as Dictionary
+	if level > 100 and _reward_is_empty(main_state.get("reward", {}) as Dictionary):
+		main_track_slot = _first_nonempty_offshoot_track(tracks)
+		main_state = tracks.get(main_track_slot, {}) as Dictionary
+	reward_col.add_child(_build_main_reward_card(level, main_track_slot, main_state))
+
+	var offshoots := HBoxContainer.new()
+	offshoots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	offshoots.add_theme_constant_override("separation", 10)
+	reward_col.add_child(offshoots)
+	for track in OFFSHOOT_TRACKS:
+		var track_state: Dictionary = tracks.get(track, {}) as Dictionary
+		if _reward_is_empty(track_state.get("reward", {}) as Dictionary):
 			continue
-		var quest: Dictionary = quest_any as Dictionary
-		var quest_id: String = str(quest.get("id", "quest"))
-		var path_index: int = int(quest.get("path_index", 0)) + 1
-		var progress: int = int(quest.get("progress", 0))
-		var target: int = int(quest.get("target", 1))
-		var claimed: bool = bool(quest.get("claimed", false))
-		lines.append("- P%d %s [%d/%d] %s" % [path_index, quest_id, progress, target, "CLAIMED" if claimed else "OPEN"])
-	if not bonuses.is_empty():
-		lines.append("Bonuses")
-		for bonus_any in bonuses:
-			if typeof(bonus_any) != TYPE_DICTIONARY:
+		offshoots.add_child(_build_offshoot_card(level, track, track_state))
+	return card
+
+func _build_main_reward_card(level: int, track: String, track_state: Dictionary) -> Panel:
+	var panel: Panel = _build_reward_card(level, "MAIN TRACK", track, track_state, true)
+	panel.custom_minimum_size = Vector2(0.0, 112.0)
+	return panel
+
+func _build_offshoot_card(level: int, track: String, track_state: Dictionary) -> Panel:
+	var panel: Panel = _build_reward_card(level, "%s OFFSHOOT" % track.to_upper(), track, track_state, false)
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.custom_minimum_size = Vector2(0.0, 96.0)
+	return panel
+
+func _build_reward_card(level: int, label_text: String, track: String, track_state: Dictionary, main_track: bool) -> Panel:
+	var reward_any: Variant = track_state.get("reward", {})
+	var reward: Dictionary = reward_any as Dictionary if typeof(reward_any) == TYPE_DICTIONARY else {}
+	var claimable: bool = bool(track_state.get("claimable", false))
+	var claimed: bool = bool(track_state.get("claimed", false))
+	var locked_reason: String = str(track_state.get("locked_reason", ""))
+	var track_panel := Panel.new()
+	track_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	track_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	track_panel.add_theme_stylebox_override("panel", _style(TRACK_BG, _reward_border_color(label_text, claimable, claimed), 1, 5))
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	track_panel.add_child(margin)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	margin.add_child(box)
+
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	box.add_child(top)
+
+	var icon := TextureRect.new()
+	icon.custom_minimum_size = Vector2(64.0, 64.0)
+	icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture = _reward_texture(reward)
+	top.add_child(icon)
+
+	var text_col := VBoxContainer.new()
+	text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_col.add_theme_constant_override("separation", 2)
+	top.add_child(text_col)
+
+	var track_label := Label.new()
+	track_label.text = label_text
+	track_label.add_theme_color_override("font_color", GOLD if main_track else _offshoot_title_color(label_text))
+	text_col.add_child(track_label)
+
+	var reward_label := Label.new()
+	reward_label.text = _reward_title(reward)
+	reward_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	reward_label.add_theme_color_override("font_color", Color(0.94, 0.95, 0.98, 0.96))
+	text_col.add_child(reward_label)
+
+	var status_label := Label.new()
+	status_label.text = _track_status_text(claimable, claimed, locked_reason)
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status_label.add_theme_color_override("font_color", GOOD if claimable else (GOLD if claimed else LOCKED))
+	box.add_child(status_label)
+
+	var claim_button := _make_button("Claim")
+	claim_button.custom_minimum_size = Vector2(0.0, 34.0)
+	claim_button.disabled = not claimable
+	claim_button.pressed.connect(func() -> void:
+		_claim_track(level, track)
+	)
+	box.add_child(claim_button)
+	return track_panel
+
+func _update_action_state(snapshot: Dictionary) -> void:
+	if _premium_button != null:
+		var premium_owned: bool = bool(snapshot.get("premium_owned", false))
+		_premium_button.text = "Premium Owned" if premium_owned else "Buy Premium"
+		_premium_button.disabled = premium_owned
+	if _elite_button != null:
+		var elite_owned: bool = bool(snapshot.get("elite_owned", false))
+		_elite_button.text = "Elite Owned" if elite_owned else "Buy Elite"
+		_elite_button.disabled = elite_owned
+
+func _claim_track(level: int, track: String) -> void:
+	_call_state("intent_claim_reward", [level, track])
+
+func _call_state(method_name: String, args: Array) -> void:
+	if _state == null or not _state.has_method(method_name):
+		return
+	var result: Variant = _state.callv(method_name, args)
+	if typeof(result) == TYPE_DICTIONARY:
+		var result_dict: Dictionary = result as Dictionary
+		if bool(result_dict.get("ok", false)):
+			_event_label.text = "%s: ok" % method_name
+		else:
+			_event_label.text = "%s: %s" % [method_name, str(result_dict.get("reason", "blocked"))]
+
+func _on_pass_event(event: Dictionary) -> void:
+	_event_label.text = "Last event: %s" % str(event.get("type", "event"))
+	_refresh_from_state()
+
+func _scroll_to_level(level: int) -> void:
+	call_deferred("_ensure_level_card_visible", level)
+
+func _ensure_level_card_visible(level: int) -> void:
+	if _levels_scroll == null or not _level_cards.has(level):
+		return
+	var card: Control = _level_cards.get(level) as Control
+	if card != null:
+		_levels_scroll.ensure_control_visible(card)
+
+func _refresh_card_sizes() -> void:
+	if _levels_scroll == null or _cards_vbox == null:
+		return
+	var available: float = maxf(240.0, _levels_scroll.size.y)
+	var card_height: float = clampf((available - 28.0) / 3.0, 240.0, 620.0)
+	for child in _cards_vbox.get_children():
+		if child is Control:
+			(child as Control).custom_minimum_size = Vector2(0.0, card_height)
+
+func _reward_title(reward: Dictionary) -> String:
+	var reward_type: String = str(reward.get("reward_type", "none")).strip_edges().to_lower()
+	var quantity: int = maxi(1, int(reward.get("quantity", 1)))
+	match reward_type:
+		"honey":
+			return "%d Honey" % quantity
+		"access_ticket":
+			return "%d Access Ticket%s" % [quantity, "" if quantity == 1 else "s"]
+		"cosmetic":
+			return _titleize_id(str(reward.get("cosmetic_id", "Cosmetic")))
+		"buff":
+			var buff_id: String = str(reward.get("buff_id", ""))
+			var buff: Dictionary = BuffCatalog.get_buff(buff_id)
+			return str(buff.get("name", _titleize_id(buff_id)))
+		"analytics_credit":
+			return "%d Analytics Credit%s" % [quantity, "" if quantity == 1 else "s"]
+		"bundle_token":
+			return "%d Bundle Token%s" % [quantity, "" if quantity == 1 else "s"]
+		"ad_free_days":
+			return "%d Ad-Free Day%s" % [quantity, "" if quantity == 1 else "s"]
+		_:
+			return "No prize"
+
+func _track_status_text(claimable: bool, claimed: bool, locked_reason: String) -> String:
+	if claimed:
+		return "Claimed"
+	if claimable:
+		return "Ready to claim"
+	if locked_reason.is_empty() or locked_reason == "no_reward_for_track":
+		return "No claim available"
+	return _titleize_id(locked_reason)
+
+func _reward_texture(reward: Dictionary) -> Texture2D:
+	var reward_type: String = str(reward.get("reward_type", "none")).strip_edges().to_lower()
+	if reward_type == "buff":
+		var buff: Dictionary = BuffCatalog.get_buff(str(reward.get("buff_id", "")))
+		var icon_path: String = str(buff.get("icon_path", ""))
+		if not icon_path.is_empty():
+			return _load_texture(icon_path)
+	if reward_type == "honey":
+		return _load_texture("res://assets/sprites/sf_skin_v1/honey_letters.png")
+	if reward_type == "access_ticket":
+		return _load_texture("res://assets/sprites/sf_skin_v1/battle_pass.png")
+	if reward_type == "cosmetic":
+		return _load_texture("res://assets/sprites/sf_skin_v1/skins_alpha.png")
+	if reward_type == "analytics_credit":
+		return _load_texture("res://assets/sprites/sf_skin_v1/Analyticsii.png")
+	if reward_type == "bundle_token":
+		return _load_texture("res://assets/sprites/sf_skin_v1/Bundles.png")
+	if reward_type == "ad_free_days":
+		return _load_texture("res://assets/sprites/sf_skin_v1/Premium.png")
+	return _load_texture("res://assets/sprites/sf_skin_v1/Lock.png")
+
+func _load_texture(path: String) -> Texture2D:
+	if _texture_cache.has(path):
+		return _texture_cache.get(path) as Texture2D
+	var tex: Texture2D = null
+	if ResourceLoader.exists(path):
+		tex = load(path) as Texture2D
+	_texture_cache[path] = tex
+	return tex
+
+func _reward_is_empty(reward: Dictionary) -> bool:
+	return reward.is_empty() or str(reward.get("reward_type", "none")).strip_edges().to_lower() == "none"
+
+func _first_nonempty_offshoot_track(tracks: Dictionary) -> String:
+	for track in OFFSHOOT_TRACKS:
+		var track_state: Dictionary = tracks.get(track, {}) as Dictionary
+		var reward: Dictionary = track_state.get("reward", {}) as Dictionary
+		if not _reward_is_empty(reward):
+			return track
+	return "free"
+
+func _reward_border_color(label_text: String, claimable: bool, claimed: bool) -> Color:
+	if claimable:
+		return Color(0.55, 0.88, 0.48, 0.80)
+	if claimed:
+		return Color(0.95, 0.77, 0.28, 0.64)
+	var clean_label: String = label_text.to_lower()
+	if clean_label.find("elite") >= 0:
+		return Color(0.62, 0.48, 0.95, 0.46)
+	if clean_label.find("premium") >= 0:
+		return Color(0.95, 0.77, 0.28, 0.42)
+	return TRACK_BORDER
+
+func _offshoot_title_color(label_text: String) -> Color:
+	var clean_label: String = label_text.to_lower()
+	if clean_label.find("elite") >= 0:
+		return Color(0.78, 0.66, 1.0, 1.0)
+	if clean_label.find("premium") >= 0:
+		return GOLD
+	return Color(0.88, 0.92, 1.0, 1.0)
+
+func _titleize_id(raw: String) -> String:
+	var text: String = raw.strip_edges().replace("_", " ").replace("-", " ")
+	if text.is_empty():
+		return "Reward"
+	var parts: PackedStringArray = text.split(" ", false)
+	var out: PackedStringArray = PackedStringArray()
+	for part in parts:
+		if part.length() <= 1:
+			out.append(part.to_upper())
+		else:
+			out.append(part.substr(0, 1).to_upper() + part.substr(1).to_lower())
+	return " ".join(out)
+
+func _make_button(text: String) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size = Vector2(0.0, 38.0)
+	button.add_theme_stylebox_override("normal", _style(Color(0.10, 0.105, 0.12, 0.86), Color(0.95, 0.77, 0.28, 0.30), 1, 5))
+	button.add_theme_stylebox_override("hover", _style(Color(0.15, 0.14, 0.12, 0.92), Color(0.95, 0.80, 0.36, 0.58), 1, 5))
+	button.add_theme_stylebox_override("pressed", _style(Color(0.06, 0.06, 0.07, 0.96), Color(0.95, 0.77, 0.28, 0.72), 1, 5))
+	button.add_theme_color_override("font_color", Color(0.94, 0.95, 0.98, 1.0))
+	button.add_theme_color_override("font_disabled_color", Color(0.56, 0.58, 0.64, 0.72))
+	return button
+
+func _make_close_button() -> Button:
+	var button := Button.new()
+	button.name = "CloseButton"
+	button.tooltip_text = "CLOSE"
+	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	button.custom_minimum_size = Vector2(330.0, 140.0)
+	var tex: Texture2D = _close_skin_texture()
+	if tex == null:
+		button.text = "Close"
+		button.custom_minimum_size = Vector2(180.0, 44.0)
+		button.add_theme_stylebox_override("normal", _style(Color(0.10, 0.105, 0.12, 0.86), Color(0.95, 0.77, 0.28, 0.30), 1, 5))
+		button.add_theme_stylebox_override("hover", _style(Color(0.15, 0.14, 0.12, 0.92), Color(0.95, 0.80, 0.36, 0.58), 1, 5))
+		button.add_theme_stylebox_override("pressed", _style(Color(0.06, 0.06, 0.07, 0.96), Color(0.95, 0.77, 0.28, 0.72), 1, 5))
+		button.add_theme_color_override("font_color", Color(0.94, 0.95, 0.98, 1.0))
+		return button
+	button.icon = tex
+	button.text = ""
+	button.set("expand_icon", true)
+	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+	button.add_theme_constant_override("h_separation", 0)
+	_style_sprite_button(button)
+	return button
+
+func _close_skin_texture() -> Texture2D:
+	if _close_skin_loaded:
+		return _close_skin_cache
+	_close_skin_loaded = true
+	if not ResourceLoader.exists(CLOSE_SKIN_PATH):
+		return null
+	var loaded_any: Variant = load(CLOSE_SKIN_PATH)
+	if loaded_any is Texture2D:
+		_close_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D, 512, 256)
+	return _close_skin_cache
+
+func _style_sprite_button(button: Button) -> void:
+	var clear_style := StyleBoxEmpty.new()
+	button.flat = true
+	button.add_theme_stylebox_override("normal", clear_style)
+	button.add_theme_stylebox_override("hover", clear_style)
+	button.add_theme_stylebox_override("pressed", clear_style)
+	button.add_theme_stylebox_override("focus", clear_style)
+	button.add_theme_stylebox_override("disabled", clear_style)
+	button.add_theme_color_override("font_color", Color(1, 1, 1, 0))
+	button.add_theme_color_override("font_hover_color", Color(1, 1, 1, 0))
+	button.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0))
+
+func _key_black_to_alpha_texture(source_tex: Texture2D, max_width: int = 512, max_height: int = 256) -> Texture2D:
+	if source_tex == null:
+		return null
+	var source_image: Image = source_tex.get_image()
+	if source_image == null or source_image.is_empty():
+		return source_tex
+	source_image.convert(Image.FORMAT_RGBA8)
+	var width: int = source_image.get_width()
+	var height: int = source_image.get_height()
+	var can_resize: bool = max_width > 0 and max_height > 0
+	if can_resize and (width > max_width or height > max_height):
+		var width_scale: float = float(max_width) / float(width)
+		var height_scale: float = float(max_height) / float(height)
+		var resize_scale: float = minf(width_scale, height_scale)
+		var target_w: int = maxi(1, int(round(float(width) * resize_scale)))
+		var target_h: int = maxi(1, int(round(float(height) * resize_scale)))
+		source_image.resize(target_w, target_h, Image.INTERPOLATE_LANCZOS)
+		width = source_image.get_width()
+		height = source_image.get_height()
+	for y in range(height):
+		for x in range(width):
+			var px: Color = source_image.get_pixel(x, y)
+			if px.a <= 0.0:
 				continue
-			var bonus: Dictionary = bonus_any as Dictionary
-			var bonus_id: String = str(bonus.get("id", "bonus"))
-			var bonus_path_index: int = int(bonus.get("path_index", 0)) + 1
-			var claimed_bonus: bool = bool(bonus.get("claimed", false))
-			var ready_bonus: bool = bool(bonus.get("ready_to_claim", false))
-			var status: String = "CLAIMED" if claimed_bonus else ("READY" if ready_bonus else "LOCKED")
-			lines.append("- P%d %s [%s]" % [bonus_path_index, bonus_id, status])
-	return "\n".join(lines)
+			var max_v: float = max(px.r, max(px.g, px.b))
+			var min_v: float = min(px.r, min(px.g, px.b))
+			var sat: float = max_v - min_v
+			if max_v <= 0.03:
+				px.a = 0.0
+			elif max_v < 0.14 and sat < 0.20:
+				var t: float = clamp((max_v - 0.03) / 0.11, 0.0, 1.0)
+				px.a *= t
+			source_image.set_pixel(x, y, px)
+	return ImageTexture.create_from_image(source_image)
 
-func _track_badge(track_state: Dictionary) -> String:
-	if track_state.is_empty():
-		return "--"
-	if bool(track_state.get("claimed", false)):
-		return "CLM"
-	if bool(track_state.get("claimable", false)):
-		return "NOW"
-	var reward_type: String = str(track_state.get("reward_type", "none"))
-	if reward_type == "none":
-		return "--"
-	var reason: String = str(track_state.get("locked_reason", ""))
-	if reason.is_empty():
-		return "LCK"
-	return reason
-
-func _baseline_actions_for_level(milestones: Array, level: int) -> int:
-	for milestone_any in milestones:
-		if typeof(milestone_any) != TYPE_DICTIONARY:
-			continue
-		var milestone: Dictionary = milestone_any as Dictionary
-		if int(milestone.get("level", 0)) != level:
-			continue
-		return int(milestone.get("baseline_actions", 0))
-	return 0
+func _style(bg: Color, border: Color, border_width: int = 1, radius: int = 6) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = bg
+	style.border_color = border
+	style.border_width_left = border_width
+	style.border_width_top = border_width
+	style.border_width_right = border_width
+	style.border_width_bottom = border_width
+	style.corner_radius_top_left = radius
+	style.corner_radius_top_right = radius
+	style.corner_radius_bottom_left = radius
+	style.corner_radius_bottom_right = radius
+	style.content_margin_left = 10
+	style.content_margin_top = 8
+	style.content_margin_right = 10
+	style.content_margin_bottom = 8
+	return style

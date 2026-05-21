@@ -5,7 +5,7 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
 const MIN_HANDLE_LEN: int = 3
-const MAX_HANDLE_LEN: int = 20
+const MAX_HANDLE_LEN: int = 16
 const DEV_ALLOW_UID_EDIT: bool = false
 const PERF_MODE_QUALITY: String = "quality"
 const PERF_MODE_BALANCED: String = "balanced"
@@ -114,6 +114,34 @@ func _refresh_options() -> void:
 func _refresh_display_name() -> void:
 	var name_value: String = ProfileManager.get_display_name()
 	display_name_input.text = name_value
+	_refresh_rename_policy()
+
+func _refresh_rename_policy(message: String = "") -> void:
+	if rename_policy_label == null:
+		return
+	if not message.is_empty():
+		rename_policy_label.text = message
+		return
+	if not ProfileManager.has_method("get_handle_policy_snapshot"):
+		rename_policy_label.text = "Choose a handle. Letters, numbers, underscore."
+		return
+	var snapshot: Dictionary = ProfileManager.call("get_handle_policy_snapshot") as Dictionary
+	if not bool(snapshot.get("handle_chosen", false)):
+		rename_policy_label.text = "Choose your first handle. Letters, numbers, underscore. Founder and offensive names are reserved."
+		return
+	if bool(snapshot.get("handle_locked", false)):
+		rename_policy_label.text = "Handle changes are locked for this account."
+		return
+	if bool(snapshot.get("free_change_available", false)):
+		rename_policy_label.text = "One free handle change is available. Paid renames cannot bypass reserved or prohibited names."
+		return
+	rename_policy_label.text = "Free handle changes are available once per year. Next free change: %s. Paid rename flow can unlock an earlier change." % _format_policy_date(int(snapshot.get("next_free_change_unix", 0)))
+
+func _format_policy_date(unix_time: int) -> String:
+	if unix_time <= 0:
+		return "not scheduled"
+	var dt: Dictionary = Time.get_datetime_dict_from_unix_time(unix_time)
+	return "%04d-%02d-%02d" % [int(dt.get("year", 0)), int(dt.get("month", 0)), int(dt.get("day", 0))]
 
 func _refresh_user_id() -> void:
 	var uid: String = ProfileManager.get_user_id()
@@ -249,7 +277,9 @@ func _on_rename_confirmed() -> void:
 		_refresh_options()
 		return
 	var active_id: String = ProfileManager.get_active_profile_id()
-	ProfileManager.rename_profile(active_id, new_handle)
+	var ok: bool = ProfileManager.rename_profile(active_id, new_handle)
+	if not ok:
+		_refresh_rename_policy("Handle change rejected. Check the policy text below.")
 	_refresh_options()
 
 func _on_delete_pressed() -> void:
@@ -264,10 +294,14 @@ func _on_display_name_focus_exited() -> void:
 	_apply_display_name()
 
 func _apply_display_name() -> void:
-	var current_name: String = ProfileManager.get_display_name()
-	ProfileManager.set_display_name(display_name_input.text)
+	var attempted: String = display_name_input.text
+	var result: Dictionary = ProfileManager.request_handle_change(attempted, false, "settings")
 	var updated_name: String = ProfileManager.get_display_name()
 	display_name_input.text = updated_name
+	if bool(result.get("ok", false)):
+		_refresh_rename_policy()
+	else:
+		_refresh_rename_policy(str(result.get("message", "Handle change rejected.")))
 	_refresh_options()
 
 func _on_set_user_id_pressed() -> void:

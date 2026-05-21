@@ -1,6 +1,7 @@
 extends Control
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
+const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
 signal closed
@@ -530,9 +531,9 @@ func _handshake_context() -> Dictionary:
 	}
 	for key in _context_meta.keys():
 		context[str(key)] = _context_meta[key]
-	var stage_map_paths: Array[String] = _resolve_stage_map_paths()
-	if not stage_map_paths.is_empty():
-		context["stage_map_paths"] = stage_map_paths
+	var explicit_stage_map_paths: Array[String] = _explicit_stage_map_paths()
+	if not explicit_stage_map_paths.is_empty():
+		context["stage_map_paths"] = explicit_stage_map_paths
 	return context
 
 func _local_profile() -> Dictionary:
@@ -557,15 +558,32 @@ func _start_sync_countdown_flow() -> void:
 func _status(label: String) -> void:
 	var assigned: int = _assigned_players.size()
 	var max_players: int = _max_players()
+	var randomizer_note: String = _match_randomizer_status_text()
 	if _uses_async_window():
 		var start_players: int = _effective_required_players()
 		var open_slots: int = maxi(max_players - assigned, 0)
 		status_label.text = "%s: %d/%d assigned (window opens at %d)." % [label, assigned, max_players, start_players]
+		if not randomizer_note.is_empty():
+			status_label.text += " " + randomizer_note
 		slots_label.text = "Assigned: %s\nOpen slots: %d" % [", ".join(_assigned_players), open_slots]
 		return
 	var sync_open_slots: int = maxi(2 - assigned, 0)
 	status_label.text = "%s: %d/2 connected." % [label, assigned]
+	if not randomizer_note.is_empty():
+		status_label.text += " " + randomizer_note
 	slots_label.text = "Assigned: %s\nOpen slots: %d" % [", ".join(_assigned_players), sync_open_slots]
+
+func _match_randomizer_status_text() -> String:
+	var payload_v: Variant = _context_meta.get(MatchSetupRandomizer.CONTEXT_KEY, {})
+	if typeof(payload_v) != TYPE_DICTIONARY:
+		return ""
+	var payload: Dictionary = payload_v as Dictionary
+	if not bool(payload.get("hit", false)):
+		return ""
+	var description: String = str(payload.get("description", "")).strip_edges()
+	if description.is_empty():
+		description = MatchSetupRandomizer.description(payload)
+	return description
 
 func _start_countdown(seconds: int) -> void:
 	_countdown_left = seconds
@@ -876,6 +894,8 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("vs_handshake_invite_code", _invite_code)
 	tree.set_meta("vs_local_profile", _local_profile())
 	tree.set_meta("vs_remote_profile", _remote_profile_for_tree())
+	if _context_meta.has(MatchSetupRandomizer.CONTEXT_KEY):
+		tree.set_meta(MatchSetupRandomizer.TREE_META_KEY, _context_meta[MatchSetupRandomizer.CONTEXT_KEY])
 	_apply_dev_bot_overrides_to_tree(tree)
 	for key in _context_meta.keys():
 		tree.set_meta(key, _context_meta[key])
@@ -1283,16 +1303,9 @@ func _sync_join_row_visibility() -> void:
 
 func _resolve_stage_map_paths() -> Array[String]:
 	var resolved: Array[String] = []
-	var stage_paths_any: Variant = _context_meta.get("stage_map_paths", [])
-	if typeof(stage_paths_any) == TYPE_ARRAY:
-		for path_any in stage_paths_any as Array:
-			var path: String = str(path_any).strip_edges()
-			if path.is_empty() or resolved.has(path):
-				continue
-			if FileAccess.file_exists(path):
-				resolved.append(path)
-			if resolved.size() >= _map_count:
-				return resolved
+	resolved.append_array(_explicit_stage_map_paths())
+	if resolved.size() >= _map_count:
+		return resolved
 	if _mode == "CAPTURE_FLAG" or _mode == "HIDDEN_CAPTURE_FLAG":
 		for map_id_any in CTF_STAGE_MAP_IDS:
 			var ctf_map_path: String = _resolve_map_path(str(map_id_any))
@@ -1321,6 +1334,14 @@ func _resolve_stage_map_paths() -> Array[String]:
 		resolved.append(fallback_path)
 		if resolved.size() >= _map_count:
 			return resolved
+	for map_path in _candidate_stage_map_paths_for_mode(_mode):
+		if map_path.is_empty():
+			continue
+		if resolved.has(map_path):
+			continue
+		resolved.append(map_path)
+		if resolved.size() >= _map_count:
+			return resolved
 	for map_path_any in MAP_LOADER.list_maps():
 		var map_path: String = str(map_path_any)
 		if map_path.is_empty():
@@ -1331,6 +1352,68 @@ func _resolve_stage_map_paths() -> Array[String]:
 		if resolved.size() >= _map_count:
 			return resolved
 	return resolved
+
+func _explicit_stage_map_paths() -> Array[String]:
+	var resolved: Array[String] = []
+	var stage_paths_any: Variant = _context_meta.get("stage_map_paths", [])
+	if typeof(stage_paths_any) != TYPE_ARRAY:
+		return resolved
+	for path_any in stage_paths_any as Array:
+		var path: String = str(path_any).strip_edges()
+		if path.is_empty() or resolved.has(path):
+			continue
+		if FileAccess.file_exists(path):
+			resolved.append(path)
+		if resolved.size() >= _map_count:
+			return resolved
+	return resolved
+
+func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
+	var out: Array[String] = []
+	var required_buckets: Array[String] = _map_buckets_for_mode(mode)
+	for path_any in MAP_LOADER.list_maps():
+		var path: String = str(path_any).strip_edges()
+		if path.is_empty():
+			continue
+		var loaded: Dictionary = MAP_LOADER.load_map(path)
+		if not bool(loaded.get("ok", false)):
+			continue
+		var data: Dictionary = loaded.get("data", {}) as Dictionary
+		if _map_data_matches_buckets(data, required_buckets):
+			out.append(path)
+	return out
+
+func _map_buckets_for_mode(mode: String) -> Array[String]:
+	match mode.strip_edges().to_upper():
+		"2V2":
+			return ["2V2"]
+		"4P FFA":
+			return ["4P_FFA", "4P FFA"]
+		"3P FFA":
+			return ["3P_FFA", "3P FFA"]
+		"CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG":
+			return ["1P", "2P", "4P", "CTF"]
+		_:
+			return ["1V1", "1P", "2P"]
+
+func _map_data_matches_buckets(data: Dictionary, required_buckets: Array[String]) -> bool:
+	var buckets_v: Variant = data.get("player_buckets", [])
+	var buckets: Array[String] = []
+	if typeof(buckets_v) == TYPE_ARRAY:
+		for bucket_any in buckets_v as Array:
+			var bucket: String = _normalize_map_bucket(str(bucket_any))
+			if not bucket.is_empty():
+				buckets.append(bucket)
+	var mode_bucket: String = _normalize_map_bucket(str(data.get("mode", "")))
+	if not mode_bucket.is_empty():
+		buckets.append(mode_bucket)
+	for required_any in required_buckets:
+		if buckets.has(_normalize_map_bucket(str(required_any))):
+			return true
+	return false
+
+func _normalize_map_bucket(value: String) -> String:
+	return value.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
 
 func _context_map_ids() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()

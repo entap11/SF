@@ -30,6 +30,7 @@ var _slots: Array[Panel] = []
 var _name_labels: Array[Label] = []
 var _meta_labels: Array[Label] = []
 var _state_labels: Array[Label] = []
+var _icon_rects: Array[TextureRect] = []
 var _fill_overlays: Array[Panel] = []
 var _countdown_labels: Array[Label] = []
 var _slot_snapshots: Array[Dictionary] = []
@@ -137,8 +138,23 @@ func _ensure_slot_labels() -> void:
 	_name_labels.clear()
 	_meta_labels.clear()
 	_state_labels.clear()
+	_icon_rects.clear()
 	for idx in range(_slots.size()):
 		var slot: Panel = _slots[idx]
+		var icon_rect: TextureRect = slot.get_node_or_null("BuffIcon") as TextureRect
+		if icon_rect == null:
+			icon_rect = TextureRect.new()
+			icon_rect.name = "BuffIcon"
+			icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			icon_rect.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+			icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			icon_rect.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+			icon_rect.offset_left = 6.0
+			icon_rect.offset_top = 6.0
+			icon_rect.offset_right = -6.0
+			icon_rect.offset_bottom = -6.0
+			slot.add_child(icon_rect)
+		slot.move_child(icon_rect, 0)
 		var vbox: VBoxContainer = slot.get_node_or_null("SlotText") as VBoxContainer
 		if vbox == null:
 			vbox = VBoxContainer.new()
@@ -179,6 +195,7 @@ func _ensure_slot_labels() -> void:
 			state_label.add_theme_font_size_override("font_size", 12)
 			state_label.modulate = Color(0.96, 0.96, 0.96, 0.92)
 			vbox.add_child(state_label)
+		_icon_rects.append(icon_rect)
 		_name_labels.append(name_label)
 		_meta_labels.append(meta_label)
 		_state_labels.append(state_label)
@@ -330,17 +347,20 @@ func _apply_slot_visual(slot_index: int, slot_data: Dictionary) -> void:
 	var meta_text: String = tier_text
 	var tint: Color = SLOT_READY_COLOR
 	var show_detail_labels: bool = true
+	var show_icon: bool = not locked
 	var active_fill_pct: float = 0.0
 	var countdown_text: String = ""
 	if locked:
 		state_text = "LOCKED"
 		meta_text = "OVERTIME"
 		tint = SLOT_LOCKED_COLOR
+		show_icon = false
 	elif active:
 		state_text = "ACTIVE"
 		meta_text = ""
 		tint = SLOT_ACTIVE_COLOR
 		show_detail_labels = false
+		show_icon = true
 		remaining_ms = _active_remaining_ms(slot_index, slot_data)
 		var tier_key: String = tier_text.to_lower()
 		var duration_ms: int = int(TIER_DURATION_MS.get(tier_key, TIER_DURATION_MS["classic"]))
@@ -351,6 +371,7 @@ func _apply_slot_visual(slot_index: int, slot_data: Dictionary) -> void:
 		meta_text = "SPENT"
 		tint = SLOT_USED_COLOR
 	_slots[slot_index].self_modulate = tint
+	_set_slot_icon(slot_index, str(slot_data.get("icon_path", "")), show_icon)
 	_set_slot_active_fill(slot_index, active_fill_pct, _team_color_for_pid(_snapshot_pid))
 	_set_slot_countdown(slot_index, countdown_text, active)
 	if slot_index >= 0 and slot_index < _name_labels.size():
@@ -410,6 +431,24 @@ func _set_slot_countdown(slot_index: int, text: String, visible: bool) -> void:
 		return
 	label.visible = visible
 	label.text = text
+
+func _set_slot_icon(slot_index: int, icon_path: String, visible: bool) -> void:
+	if slot_index < 0 or slot_index >= _icon_rects.size():
+		return
+	var icon_rect: TextureRect = _icon_rects[slot_index]
+	if icon_rect == null:
+		return
+	icon_rect.visible = false
+	icon_rect.texture = null
+	if not visible:
+		return
+	var clean_path: String = icon_path.strip_edges()
+	if clean_path == "":
+		return
+	var tex: Resource = ResourceLoader.load(clean_path)
+	if tex is Texture2D:
+		icon_rect.texture = tex as Texture2D
+		icon_rect.visible = true
 
 func _team_color_for_pid(pid: int) -> Color:
 	match int(pid):

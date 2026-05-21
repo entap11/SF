@@ -505,6 +505,7 @@ static func _normalize_model_to_runtime_grid(model_in: Dictionary, path: String)
 	out["hives"] = _normalize_grid_entry_array(out.get("hives", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
 	out["towers"] = _normalize_grid_entry_array(out.get("towers", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
 	out["barracks"] = _normalize_grid_entry_array(out.get("barracks", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
+	out["structure_slots"] = _normalize_grid_entry_array(out.get("structure_slots", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
 	out["entities"] = _normalize_grid_entry_array(out.get("entities", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
 	out["nodes"] = _normalize_grid_entry_array(out.get("nodes", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
 	out["walls"] = _normalize_wall_entry_array(out.get("walls", []), src_w, src_h, RUNTIME_STD_GRID_W, RUNTIME_STD_GRID_H)
@@ -783,6 +784,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		"lane_candidates": [],
 		"towers": [],
 		"barracks": [],
+		"structure_slots": [],
 		"walls": [],
 		"spawns": []
 	}
@@ -898,7 +900,9 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 				"grid_pos": [x_i, y_i],
 				"required_hive_ids": req,
 				"control_hive_ids": control_ids,
-				"owner_id": owner_id
+				"owner_id": owner_id,
+				"power": maxi(0, _as_int(e.get("power", 0), 0)),
+				"current_power": maxi(0, _as_int(e.get("current_power", e.get("power", 0)), 0))
 			})
 		elif kind == "barracks":
 			var barracks_id: int = _as_int(e.get("id", next_barracks_id), next_barracks_id)
@@ -919,7 +923,9 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 				"grid_pos": [x_i, y_i],
 				"required_hive_ids": req,
 				"control_hive_ids": control_ids,
-				"owner_id": owner_id
+				"owner_id": owner_id,
+				"power": maxi(0, _as_int(e.get("power", 0), 0)),
+				"current_power": maxi(0, _as_int(e.get("current_power", e.get("power", 0)), 0))
 			})
 		elif kind == "spawn":
 			var spawn_id: int = _as_int(e.get("id", next_spawn_id), next_spawn_id)
@@ -1063,6 +1069,10 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	model["lanes"] = []
 	model["towers"] = towers
 	model["barracks"] = barracks
+	var structure_slots: Array = _structure_slots_from_source(data, id_map, w, h)
+	if structure_slots.is_empty():
+		structure_slots = _default_structure_slots_for_model(model)
+	model["structure_slots"] = structure_slots
 	model["walls"] = walls
 	model["spawns"] = spawns
 	model["player_buckets"] = player_buckets
@@ -1092,6 +1102,89 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	])
 	return model
 
+static func _structure_slots_from_source(data: Dictionary, id_map: Dictionary, grid_w: int, grid_h: int) -> Array:
+	var slots_v: Variant = data.get("structure_slots", [])
+	var slots: Array = []
+	if typeof(slots_v) != TYPE_ARRAY:
+		return slots
+	var next_slot_id: int = 1
+	for slot_any in slots_v as Array:
+		if typeof(slot_any) != TYPE_DICTIONARY:
+			continue
+		var slot: Dictionary = slot_any as Dictionary
+		var pos: Vector2 = _extract_xy_pairf(slot.get("pos", slot))
+		if pos.x < 0.0 or pos.y < 0.0:
+			continue
+		var x: int = int(round(pos.x))
+		var y: int = int(round(pos.y))
+		if x < 0 or y < 0 or x >= grid_w or y >= grid_h:
+			continue
+		var slot_id: String = str(slot.get("id", "slot_%d" % next_slot_id)).strip_edges()
+		if slot_id.is_empty():
+			slot_id = "slot_%d" % next_slot_id
+		next_slot_id += 1
+		var out: Dictionary = {
+			"id": slot_id,
+			"grid_pos": [x, y],
+			"allowed": _structure_slot_allowed(slot.get("allowed", slot.get("kinds", ["tower", "barracks"])))
+		}
+		var req_ids: Array = _resolve_hive_id_list(slot.get("required_hive_ids", []), id_map)
+		if not req_ids.is_empty():
+			out["required_hive_ids"] = req_ids
+		var control_ids: Array = _resolve_hive_id_list(slot.get("control_hive_ids", []), id_map)
+		if not control_ids.is_empty():
+			out["control_hive_ids"] = control_ids
+		var owner_id: int = _as_int(slot.get("owner_id", 0), 0)
+		if owner_id > 0:
+			out["owner_id"] = owner_id
+		slots.append(out)
+	return slots
+
+static func _structure_slot_allowed(allowed_v: Variant) -> Array:
+	var allowed: Array = []
+	if typeof(allowed_v) == TYPE_ARRAY:
+		for kind_any in allowed_v as Array:
+			var kind: String = str(kind_any).strip_edges().to_lower()
+			if (kind == "tower" or kind == "barracks") and not allowed.has(kind):
+				allowed.append(kind)
+	var single: String = str(allowed_v).strip_edges().to_lower()
+	if allowed.is_empty() and (single == "tower" or single == "barracks"):
+		allowed.append(single)
+	if allowed.is_empty():
+		allowed = ["tower", "barracks"]
+	return allowed
+
+static func _resolve_hive_id_list(values_v: Variant, id_map: Dictionary) -> Array:
+	var out: Array = []
+	if typeof(values_v) != TYPE_ARRAY:
+		return out
+	for value_any in values_v as Array:
+		var hive_id: int = 0
+		if value_any is int:
+			hive_id = int(value_any)
+		else:
+			var key: String = str(value_any)
+			if key.is_valid_int():
+				hive_id = int(key)
+			elif id_map.has(key):
+				hive_id = int(id_map.get(key, 0))
+		if hive_id > 0 and not out.has(hive_id):
+			out.append(hive_id)
+	return out
+
+static func _default_structure_slots_for_model(model: Dictionary) -> Array:
+	var family: String = str(model.get("family", "")).strip_edges().to_lower()
+	var mode: String = str(model.get("mode", "")).strip_edges().to_lower()
+	var map_id: String = str(model.get("id", "")).strip_edges().to_lower()
+	if family != "nomansland" or mode != "1p":
+		return []
+	if not map_id.contains("__545__") and not map_id.contains("__323__") and not map_id.contains("__444__"):
+		return []
+	return [
+		{"id": "structure_slot_a", "grid_pos": [5, 13], "allowed": ["tower", "barracks"]},
+		{"id": "structure_slot_b", "grid_pos": [13, 14], "allowed": ["tower", "barracks"]}
+	]
+
 static func _count_array(v: Variant) -> int:
 	return (v as Array).size() if typeof(v) == TYPE_ARRAY else 0
 
@@ -1101,9 +1194,10 @@ static func _log_map_summary(map_id: String, schema_id: String, grid_w: int, gri
 	var lanes_count: int = _count_array(model.get("lanes", []))
 	var towers_count: int = _count_array(model.get("towers", []))
 	var barracks_count: int = _count_array(model.get("barracks", []))
+	var structure_slots_count: int = _count_array(model.get("structure_slots", []))
 	var npc_count: int = _count_array(model.get("npc", []))
 	var bounds: String = "grid=(0,0)-(%d,%d)" % [maxi(grid_w - 1, 0), maxi(grid_h - 1, 0)]
-	SFLog.info("MAP_LOAD_SUMMARY: map_id=%s schema=%s grid=%dx%d world_px=(%d,%d) counts={hives:%d, lanes:%d, towers:%d, barracks:%d, npc:%d} bounds=%s" % [
+	SFLog.info("MAP_LOAD_SUMMARY: map_id=%s schema=%s grid=%dx%d world_px=(%d,%d) counts={hives:%d, lanes:%d, towers:%d, barracks:%d, structure_slots:%d, npc:%d} bounds=%s" % [
 		map_id,
 		schema_id,
 		grid_w,
@@ -1114,6 +1208,7 @@ static func _log_map_summary(map_id: String, schema_id: String, grid_w: int, gri
 		lanes_count,
 		towers_count,
 		barracks_count,
+		structure_slots_count,
 		npc_count,
 		bounds
 	])

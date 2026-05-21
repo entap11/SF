@@ -122,6 +122,11 @@ export const defaultHighlightConfig: HighlightConfig = {
     fallbackUrlIos: "https://apps.apple.com/app/idXXXXXXXXX",
     fallbackUrlAndroid: "https://play.google.com/store/apps/details?id=com.swarmfront.app"
   },
+  acquisitionLinks: {
+    basePlayUrl: "https://swarmfront.com/play",
+    campaign: "social_highlight",
+    ctaText: "Tap the link to play Swarmfront"
+  },
   render: {
     assetBaseUrl: "https://swarmfront.com/assets/highlights",
     templateKey: "match_highlight_v1",
@@ -130,5 +135,11 @@ export const defaultHighlightConfig: HighlightConfig = {
     badgeStyleKey: "sf_badges_v1",
     outputWidth: 1200,
     outputHeight: 630
+  },
+  video: {
+    assetBaseUrl: "https://swarmfront.com/assets/highlights/video",
+    outputWidth: 1080,
+    outputHeight: 1920,
+    defaultClipSeconds: 30
   }
 };

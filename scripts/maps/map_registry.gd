@@ -71,7 +71,11 @@ const PUBLIC_NOMANSLAND_SEQUENCE_IDS: Array[String] = [
 	"MAP_nomansland__545__v16_spine_mid_duel_only__1p",
 	"MAP_nomansland__545__v17_four_corners_only__1p",
 	"MAP_nomansland__545__v18_two_hubs_each__1p",
-	"MAP_nomansland__323__v01_corners_midline_spine__1p"
+	"MAP_nomansland__323__v01_corners_midline_spine__1p",
+	"MAP_nomansland__323__v02_side_pairs__1p",
+	"MAP_nomansland__323__v03_opposing_corners__1p",
+	"MAP_nomansland__323__v04_center_axis__1p",
+	"MAP_nomansland__444__v01_pinched_spine__1p"
 ]
 const ALLOWED_MODES: Array[String] = ["1p", "2p", "3p", "4p"]
 const PUBLIC_MAP_ALIASES: Dictionary = {
@@ -547,6 +551,8 @@ static func _nomansland_public_style_for_id(raw_id: String) -> String:
 		return ""
 	if clean_id.contains("__323__"):
 		return "323"
+	if clean_id.contains("__444__"):
+		return "444"
 	if clean_id.contains("__545__"):
 		return "545"
 	return "656"
@@ -561,6 +567,8 @@ static func _public_style_sort_rank(family: String, style: String) -> int:
 			return 2
 		"323":
 			return 3
+		"444":
+			return 4
 		_:
 			return 999
 

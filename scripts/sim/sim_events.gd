@@ -2,6 +2,8 @@ extends Node
 
 signal tower_fire(tower_id: int, owner_id: int, tier: int, tower_pos: Vector2, target_unit_id: int, target_pos: Vector2)
 signal tower_hit(tower_id: int, owner_id: int, tier: int, tower_pos: Vector2, target_unit_id: int, hit_pos: Vector2)
+signal swarm_spawned(swarm_id: int, owner_id: int, from_id: int, to_id: int, lane_id: int, world_pos: Vector2)
+signal hive_owner_changed(hive_id: int, prev_owner: int, next_owner: int, world_pos: Vector2)
 signal unit_collision(
 	world_pos: Vector2,
 	lane_dir: Vector2,

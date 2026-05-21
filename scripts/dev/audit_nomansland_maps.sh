@@ -173,6 +173,25 @@ for file in "${files[@]}"; do
 		fail "${file}: duplicate node ids"
 	fi
 
+	if [[ "${id}" == *"__323__"* || "${id}" == *"__444__"* ]]; then
+		slot_count="$(json_get "${file}" '(.structure_slots // []) | length')" || slot_count="0"
+		if [[ "${slot_count}" -le 0 ]]; then
+			fail "${file}: 323/444 maps must author structure_slots for randomized tower/barracks placement"
+		fi
+		slot_dupe_ok="$(json_get "${file}" '((.structure_slots // []) | map(.id) | length) == ((.structure_slots // []) | map(.id) | unique | length)')" || slot_dupe_ok="false"
+		if [[ "${slot_dupe_ok}" != "true" ]]; then
+			fail "${file}: duplicate structure slot ids"
+		fi
+		slot_allowed_ok="$(json_get "${file}" 'all((.structure_slots // [])[]; ((.allowed // []) | length) > 0 and all((.allowed // [])[]; . == "tower" or . == "barracks"))')" || slot_allowed_ok="false"
+		if [[ "${slot_allowed_ok}" != "true" ]]; then
+			fail "${file}: structure_slots allowed must contain only tower/barracks"
+		fi
+		slot_collision_count="$(json_get "${file}" '[.nodes[] as $n | (.structure_slots // [])[] as $s | ($s.pos.x // $s.grid_pos[0]) as $sx | ($s.pos.y // $s.grid_pos[1]) as $sy | select(($sx == $n.pos.x) and ($sy == $n.pos.y))] | length')" || slot_collision_count="1"
+		if [[ "${slot_collision_count}" != "0" ]]; then
+			fail "${file}: structure_slots must not occupy hive node cells"
+		fi
+	fi
+
 	actual_sorted="$(json_get "${file}" '[.nodes[].id] | sort | @json')"
 	left_count="$(json_get "${file}" '[.nodes[] | select(.id|test("^l[0-9]+$"))] | length')"
 	right_count="$(json_get "${file}" '[.nodes[] | select(.id|test("^r[0-9]+$"))] | length')"

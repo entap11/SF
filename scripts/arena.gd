@@ -163,6 +163,19 @@ const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 const MAP_MM_BACKGROUND_NODE_NAME: StringName = &"MMBackgroundArt"
+const PREMATCH_COUNTDOWN_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_prematch_countdown.wav"
+const TOWER_SHOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_tower_shot.wav"
+const SWARM_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_swarm.wav"
+const LOSE_HIVE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_lose_hive.wav"
+const WIN_HIVE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/win_hive.wav"
+const WIN_HIVE_SOUND_START_SEC: float = 0.246
+const WIN_HIVE_SOUND_END_SEC: float = 0.925
+const WIN_SONG_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/win_song.mp3"
+const LOSE_SONG_PATHS: Array[String] = [
+	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song.wav",
+	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song2.wav",
+	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song3.wav"
+]
 
 var state: GameState
 var sel: SelectionState
@@ -170,6 +183,14 @@ var api: ArenaAPI
 var input_system: InputSystem
 var debug_system: DebugSystem
 var audio_system: AudioSystem
+var _prematch_countdown_sfx_player: AudioStreamPlayer = null
+var _tower_shot_sfx_counts: Dictionary = {}
+var _tower_shot_sfx_stream: AudioStream = null
+var _swarm_sfx_stream: AudioStream = null
+var _lose_hive_sfx_stream: AudioStream = null
+var _win_hive_sfx_stream: AudioStream = null
+var _post_match_song_player: AudioStreamPlayer = null
+var _post_match_loss_song_index: int = 0
 var lane_system: LaneSystem
 var unit_system: UnitSystem = null
 var tower_system: TowerSystem = null
@@ -305,6 +326,7 @@ var _map_mm_background_art: TextureRect = null
 @export var cam_fit_wide_map_min_grid_w: int = 12
 @export var cam_fit_mode: int = FIT_HEIGHT # 0=contain(min), 1=fit_width, 2=fit_height
 @export var cam_fit_lock_map_edges_to_container: bool = true
+@export var floor_side_visual_projection_px: float = 96.0 # visual-only side floor/camera padding; does not expand active grid
 @export var grid_coord_render_offset: float = 0.0 # 0.0 = authored coords map directly to world; 0.5 = cell-center indexing
 @export var overtime_start_ms: float = OVERTIME_START_MS
 @export var draw_arena_rect_debug := false
@@ -433,6 +455,9 @@ var _hb_last_ms: int = 0
 var _hb_frames: int = 0
 var _hb_max_frame_ms: float = 0.0
 var _hb_sum_frame_ms: float = 0.0
+var _hb_max_process_ms: float = 0.0
+var _hb_sum_process_ms: float = 0.0
+var _hb_max_engine_process_ms: float = 0.0
 var _hb_phys: int = 0
 var _hb_max_phys_ms: float = 0.0
 var _hb_sum_phys_ms: float = 0.0
@@ -460,13 +485,13 @@ func _ready() -> void:
 	add_to_group("Arena")
 	_configure_map_hex_background()
 	self.scale = Vector2.ONE
-	SFLog.info("POWER_BAR_REF", {"exists": power_bar != null, "path": power_bar.get_path() if power_bar != null else "<null>"})
+	SFLog.info("POWER_BAR_REF", {"exists": power_bar != null, "path": _node_path_for_log(power_bar)})
 	if power_bar == null:
 		power_bar = _resolve_power_bar_node()
 	if power_bar == null:
 		SFLog.error("POWER_BAR_BIND_FAIL", {"path": SHELL_POWER_BAR_PATH})
 	else:
-		SFLog.info("POWER_BAR_BOUND", {"path": power_bar.get_path(), "inside_tree": power_bar.is_inside_tree()})
+		SFLog.info("POWER_BAR_BOUND", {"path": _node_path_for_log(power_bar), "inside_tree": power_bar.is_inside_tree()})
 	var dmr := get_node_or_null("/root/DevMapRunner")
 	if dmr:
 		for c in dmr.get_children():
@@ -476,13 +501,13 @@ func _ready() -> void:
 				continue
 			if c is CanvasItem:
 				(c as CanvasItem).visible = false
-				SFLog.trace("HIDING", {"path": c.get_path(), "type": c.get_class()})
+				SFLog.trace("HIDING", {"path": _node_path_for_log(c), "type": c.get_class()})
 	RenderingServer.set_default_clear_color(Color(0.168627, 0.168627, 0.168627, 1))
-	SFLog.trace("ARENA PATH", {"path": get_path()})
+	SFLog.trace("ARENA PATH", {"path": _node_path_for_log(self)})
 	SFLog.trace("ARENA COUNT", {"count": get_tree().get_nodes_in_group("Arena").size()})
 	SFLog.trace("\n=== ROOT CHILDREN ===")
 	for c in get_tree().root.get_children():
-		SFLog.trace(" - ", {"path": c.get_path(), "type": c.get_class()})
+		SFLog.trace(" - ", {"path": _node_path_for_log(c), "type": c.get_class()})
 	clear_map_render()
 	$MapRoot/HiveRenderer.visible = true
 	$MapRoot/LaneRenderer.visible = true
@@ -822,28 +847,38 @@ func _apply_jukebox_easy_bot_profile() -> void:
 		if seat_id == local_owner_id:
 			continue
 		OpsState.call("set_bot_profile", seat_id, {
-			"think_interval_ms": 3400,
-			"think_jitter_ms": 700,
-			"post_intent_delay_ms": 1800,
-			"opening_delay_ms": 6500,
-			"opening_stagger_ms": 500,
-			"aggression": 0.16,
-			"feed_bias": 0.18,
-			"min_attack_power": 18,
-			"min_feed_power": 20,
-			"min_swarm_power": 999,
-			"allow_swarm": false,
+			"style": "balancer",
+			"persona": "balancer",
+			"tier": "medium",
+			"think_interval_ms": 2300,
+			"think_jitter_ms": 220,
+			"post_intent_delay_ms": 935,
+			"opening_delay_ms": 3825,
+			"opening_stagger_ms": 360,
+			"aggression": 0.47,
+			"feed_bias": 0.32,
+			"min_attack_power": 12,
+			"min_feed_power": 14,
+			"min_swarm_power": 21,
+			"allow_swarm": true,
 			"max_actions_per_tick": 1,
-			"prefer_neutral_bonus": 0.10,
-			"randomness": 0.18,
-			"retry_block_ms": 1800,
-			"no_lane_retry_ms": 5200,
-			"pair_intent_cooldown_ms": 3600,
-			"global_intent_cooldown_ms": 2600,
-			"swarm_cooldown_ms": 999999,
-			"swarm_global_cooldown_ms": 999999
+			"prefer_neutral_bonus": 0.50,
+			"randomness": 0.12,
+			"retry_block_ms": 1350,
+			"no_lane_retry_ms": 4250,
+			"pair_intent_cooldown_ms": 2250,
+			"global_intent_cooldown_ms": 1900,
+			"swarm_cooldown_ms": 2525,
+			"swarm_global_cooldown_ms": 5150,
+			"swarm_frequency": 0.18,
+			"guard_ally_power_threshold": 12,
+			"guard_feed_score_margin": 8.0
 		})
-	SFLog.info("JUKEBOX_EASY_BOT_PROFILE", {"local_owner_id": local_owner_id})
+	SFLog.info("JUKEBOX_FIXED_BOT_PROFILE", {
+		"local_owner_id": local_owner_id,
+		"style": "balancer",
+		"tier": "medium"
+	})
 
 func _resolve_top_hud_root() -> Node:
 	var top_hud_root: Node = get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopHudRoot")
@@ -883,8 +918,8 @@ func _ensure_post_match_ui() -> void:
 	if ui_ready:
 		if _postmatch_ui_missing_logged:
 			SFLog.warn("POSTMATCH_UI_RECOVERED", {
-				"outcome_path": str(outcome_overlay.get_path()),
-				"win_path": str(win_overlay.get_path())
+				"outcome_path": _node_path_for_log(outcome_overlay),
+				"win_path": _node_path_for_log(win_overlay)
 			})
 		_postmatch_ui_missing_logged = false
 		return
@@ -1232,6 +1267,7 @@ func _begin_prematch() -> void:
 		"phase": int(OpsState.match_phase),
 		"ms": int(OpsState.prematch_remaining_ms)
 	})
+	_play_prematch_countdown_sfx()
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
@@ -1243,6 +1279,149 @@ func _begin_prematch() -> void:
 	SFLog.info("PREMATCH_START", {
 		"duration_s": int(round(float(OpsState.prematch_duration_ms) / 1000.0))
 	})
+
+func _play_prematch_countdown_sfx() -> void:
+	if not _is_game_sfx_enabled():
+		return
+	var stream: AudioStream = load(PREMATCH_COUNTDOWN_SOUND_PATH) as AudioStream
+	if stream == null:
+		push_warning("PREMATCH_COUNTDOWN_SOUND_MISSING: " + PREMATCH_COUNTDOWN_SOUND_PATH)
+		return
+	if _prematch_countdown_sfx_player == null or not is_instance_valid(_prematch_countdown_sfx_player):
+		_prematch_countdown_sfx_player = AudioStreamPlayer.new()
+		_prematch_countdown_sfx_player.name = "PrematchCountdownSfxPlayer"
+		add_child(_prematch_countdown_sfx_player)
+	_prematch_countdown_sfx_player.stop()
+	_prematch_countdown_sfx_player.stream = stream
+	_prematch_countdown_sfx_player.play()
+
+func _is_game_sfx_enabled() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null or tree.root == null:
+		return true
+	var profile_manager: Node = tree.root.get_node_or_null("/root/ProfileManager")
+	if profile_manager != null and profile_manager.has_method("is_sfx_enabled"):
+		return bool(profile_manager.call("is_sfx_enabled"))
+	return true
+
+func _on_tower_fire_for_sfx(tower_id: int, _owner_id: int, _tier: int, _tower_pos: Vector2, _target_unit_id: int, _target_pos: Vector2) -> void:
+	if tower_id <= 0:
+		return
+	var shot_count: int = int(_tower_shot_sfx_counts.get(tower_id, 0)) + 1
+	_tower_shot_sfx_counts[tower_id] = shot_count
+	if shot_count != 1 and (shot_count - 1) % 5 != 0:
+		return
+	_play_tower_shot_sfx()
+
+func _play_tower_shot_sfx() -> void:
+	if not _is_game_sfx_enabled():
+		return
+	if _tower_shot_sfx_stream == null:
+		_tower_shot_sfx_stream = load(TOWER_SHOT_SOUND_PATH) as AudioStream
+	if _tower_shot_sfx_stream == null:
+		push_warning("TOWER_SHOT_SOUND_MISSING: " + TOWER_SHOT_SOUND_PATH)
+		return
+	var player := AudioStreamPlayer.new()
+	player.name = "TowerShotSfxPlayer"
+	player.stream = _tower_shot_sfx_stream
+	player.finished.connect(Callable(player, "queue_free"))
+	add_child(player)
+	player.play()
+
+func _on_swarm_spawned_for_sfx(_swarm_id: int, _owner_id: int, _from_id: int, _to_id: int, _lane_id: int, _world_pos: Vector2) -> void:
+	_play_swarm_sfx()
+
+func _play_swarm_sfx() -> void:
+	if not _is_game_sfx_enabled():
+		return
+	if _swarm_sfx_stream == null:
+		_swarm_sfx_stream = load(SWARM_SOUND_PATH) as AudioStream
+	if _swarm_sfx_stream == null:
+		push_warning("SWARM_SOUND_MISSING: " + SWARM_SOUND_PATH)
+		return
+	var player := AudioStreamPlayer.new()
+	player.name = "SwarmSfxPlayer"
+	player.stream = _swarm_sfx_stream
+	player.finished.connect(Callable(player, "queue_free"))
+	add_child(player)
+	player.play()
+
+func _on_hive_owner_changed_for_sfx(_hive_id: int, prev_owner: int, next_owner: int, _world_pos: Vector2) -> void:
+	var local_owner_id: int = _resolve_local_owner_id()
+	if local_owner_id <= 0:
+		return
+	if prev_owner == local_owner_id and next_owner != local_owner_id:
+		_play_lose_hive_sfx()
+	elif next_owner == local_owner_id and prev_owner > 0 and prev_owner != local_owner_id:
+		_play_win_hive_sfx()
+
+func _play_lose_hive_sfx() -> void:
+	if not _is_game_sfx_enabled():
+		return
+	if _lose_hive_sfx_stream == null:
+		_lose_hive_sfx_stream = load(LOSE_HIVE_SOUND_PATH) as AudioStream
+	if _lose_hive_sfx_stream == null:
+		push_warning("LOSE_HIVE_SOUND_MISSING: " + LOSE_HIVE_SOUND_PATH)
+		return
+	var player := AudioStreamPlayer.new()
+	player.name = "LoseHiveSfxPlayer"
+	player.stream = _lose_hive_sfx_stream
+	player.finished.connect(Callable(player, "queue_free"))
+	add_child(player)
+	player.play()
+
+func _play_win_hive_sfx() -> void:
+	if not _is_game_sfx_enabled():
+		return
+	if _win_hive_sfx_stream == null:
+		_win_hive_sfx_stream = load(WIN_HIVE_SOUND_PATH) as AudioStream
+	if _win_hive_sfx_stream == null:
+		push_warning("WIN_HIVE_SOUND_MISSING: " + WIN_HIVE_SOUND_PATH)
+		return
+	var player := AudioStreamPlayer.new()
+	player.name = "WinHiveSfxPlayer"
+	player.stream = _win_hive_sfx_stream
+	player.finished.connect(Callable(player, "queue_free"))
+	add_child(player)
+	var clip_duration: float = maxf(0.0, WIN_HIVE_SOUND_END_SEC - WIN_HIVE_SOUND_START_SEC)
+	player.play(WIN_HIVE_SOUND_START_SEC)
+	if clip_duration > 0.0:
+		var timer: SceneTreeTimer = get_tree().create_timer(clip_duration)
+		timer.timeout.connect(func() -> void:
+			if is_instance_valid(player):
+				player.stop()
+				player.queue_free()
+		)
+
+func _play_post_match_song(winner_id_in: int) -> void:
+	if not _is_game_sfx_enabled():
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	if local_owner_id <= 0 or winner_id_in <= 0:
+		return
+	var song_path: String = WIN_SONG_PATH if winner_id_in == local_owner_id else _next_loss_song_path()
+	var stream: AudioStream = load(song_path) as AudioStream
+	if stream == null:
+		push_warning("POST_MATCH_SONG_MISSING: " + song_path)
+		return
+	if _post_match_song_player == null or not is_instance_valid(_post_match_song_player):
+		_post_match_song_player = AudioStreamPlayer.new()
+		_post_match_song_player.name = "PostMatchSongPlayer"
+		add_child(_post_match_song_player)
+	_post_match_song_player.stop()
+	_post_match_song_player.stream = stream
+	_post_match_song_player.play()
+
+func _next_loss_song_path() -> String:
+	if LOSE_SONG_PATHS.is_empty():
+		return ""
+	var idx: int = _post_match_loss_song_index % LOSE_SONG_PATHS.size()
+	_post_match_loss_song_index += 1
+	return LOSE_SONG_PATHS[idx]
+
+func _stop_post_match_song() -> void:
+	if _post_match_song_player != null and is_instance_valid(_post_match_song_player):
+		_post_match_song_player.stop()
 
 func _configure_vs_pvp_runtime() -> void:
 	_vs_pvp_runtime = get_node_or_null("/root/VsPvpRuntime")
@@ -1579,9 +1758,9 @@ func _ensure_prematch_ui() -> void:
 	if not _prematch_ui_bind_logged:
 		_prematch_ui_bind_logged = true
 		SFLog.info("PREMATCH_UI_BIND", {
-			"overlay_path": str(_prematch_overlay.get_path()),
-			"countdown_path": str(_prematch_countdown_label.get_path()) if _prematch_countdown_label != null else "<null>",
-			"records_path": str(_prematch_records_panel.get_path()) if _prematch_records_panel != null else "<null>",
+			"overlay_path": _node_path_for_log(_prematch_overlay),
+			"countdown_path": _node_path_for_log(_prematch_countdown_label),
+			"records_path": _node_path_for_log(_prematch_records_panel),
 			"inside_tree": _prematch_overlay.is_inside_tree()
 		})
 	_ensure_prematch_on_top()
@@ -1904,7 +2083,7 @@ func _show_prematch_ui() -> void:
 		_prematch_countdown_label.text = str(start_sec)
 		if Engine.is_editor_hint() == false:
 			SFLog.info("CLOCK_NODE_PATH", {
-				"path": _prematch_countdown_label.get_path(),
+				"path": _node_path_for_log(_prematch_countdown_label),
 				"type": _prematch_countdown_label.get_class()
 			})
 		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
@@ -1916,7 +2095,7 @@ func _show_prematch_ui() -> void:
 		_prematch_records_panel.visible = true
 		_prematch_records_panel.modulate = Color(1, 1, 1, 1)
 		SFLog.warn("PREMATCH_UI_VIS", {
-			"records_path": str(_prematch_records_panel.get_path()),
+			"records_path": _node_path_for_log(_prematch_records_panel),
 			"records_visible": _prematch_records_panel.visible,
 			"records_pos": _prematch_records_panel.global_position,
 			"records_size": _prematch_records_panel.size,
@@ -1928,7 +2107,7 @@ func _show_prematch_ui() -> void:
 			"record_h2h": _prematch_record_h2h.text if _prematch_record_h2h != null else "<null>",
 			"record_teams": _prematch_record_teams.text if _prematch_record_teams != null else "<null>",
 			"record_team_links": _prematch_record_team_arrows.text if _prematch_record_team_arrows != null else "<null>",
-			"overlay_path": str(_prematch_overlay.get_path()),
+			"overlay_path": _node_path_for_log(_prematch_overlay),
 			"overlay_visible": _prematch_overlay.visible,
 			"overlay_z": _prematch_overlay.z_index
 		}, "", 250)
@@ -2158,7 +2337,7 @@ func _async_prematch_bot_line() -> String:
 			var style: String = _humanize_runtime_token(str(profile.get("style", profile.get("persona", ""))))
 			var tier: String = _humanize_runtime_token(str(profile.get("tier", "")))
 			if style.is_empty() and tier.is_empty() and _is_jukebox_easy_bot_mode():
-				return "CPU: Easy / Training"
+				return "CPU: Balancer / Jukebox"
 			if tier.is_empty():
 				tier = "Medium"
 			if style.is_empty():
@@ -2171,7 +2350,7 @@ func _async_prematch_bot_line() -> String:
 		if not style_id.is_empty() or not tier_id.is_empty():
 			return "CPU: %s / %s" % [style_id if not style_id.is_empty() else "Balancer", tier_id if not tier_id.is_empty() else "Medium"]
 	if _is_jukebox_easy_bot_mode():
-		return "CPU: Easy / Training"
+		return "CPU: Balancer / Jukebox"
 	return "CPU: Field Opponent"
 
 func _async_prematch_rule_line() -> String:
@@ -2789,12 +2968,37 @@ func _resolve_telemetry_metadata_overrides(player_ids: Array[int], _match_type: 
 	return {
 		"vs_mode": _current_vs_mode(),
 		"start_reason": reason.strip_edges(),
+		"map_path": current_map_path,
+		"map_data": current_map_data.duplicate(true),
 		"local_player_id": local_player_id,
 		"opponent_player_ids": opponent_player_ids,
 		"players": players,
+		"player_loadouts": _resolve_telemetry_player_loadouts(player_ids),
+		"cosmetics": _resolve_telemetry_cosmetics(),
 		"rank_transport_mode": rank_transport_mode,
 		"rank_authoritative_online": rank_authoritative_online
 	}
+
+func _resolve_telemetry_player_loadouts(player_ids: Array[int]) -> Dictionary:
+	var out: Dictionary = {}
+	for player_id in player_ids:
+		out[str(player_id)] = {
+			"buffs": _default_buff_loadout(player_id)
+		}
+	return out
+
+func _resolve_telemetry_cosmetics() -> Dictionary:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return {}
+	var out: Dictionary = {}
+	if profile_manager.has_method("get_garage_selections"):
+		var selections_any: Variant = profile_manager.call("get_garage_selections")
+		if typeof(selections_any) == TYPE_DICTIONARY:
+			out["garage_selections"] = (selections_any as Dictionary).duplicate(true)
+	if profile_manager.has_method("get_powerbar_theme"):
+		out["powerbar_theme"] = str(profile_manager.call("get_powerbar_theme"))
+	return out
 
 func _resolve_telemetry_player_snapshots(player_ids: Array[int]) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
@@ -3069,6 +3273,7 @@ func _init_systems() -> void:
 	if sim_runner != null:
 		lane_system = sim_runner.get_lane_system()
 		tower_system = sim_runner.get_tower_system()
+		swarm_system = sim_runner.swarm_system
 		barracks_system = sim_runner.get_barracks_system()
 	if lane_system != null:
 		if not lane_system.lane_created.is_connected(_on_lane_system_changed):
@@ -3083,6 +3288,8 @@ func _init_systems() -> void:
 		tower_system.set_buff_mod_provider(Callable(self, "_buff_mod"))
 		if sim_events != null and tower_system.has_method("set_sim_events"):
 			tower_system.set_sim_events(sim_events)
+	if swarm_system != null and sim_events != null and swarm_system.has_method("set_sim_events"):
+		swarm_system.set_sim_events(sim_events)
 	if unit_system != null and sim_events != null and unit_system.has_method("set_sim_events"):
 		unit_system.set_sim_events(sim_events)
 	if unit_renderer != null and sim_events != null and unit_renderer.has_method("set_sim_events"):
@@ -3118,6 +3325,8 @@ func _ensure_sim_runner() -> void:
 		sim_runner.post_match_action.connect(_on_post_match_action)
 	unit_system = sim_runner.unit_system if sim_runner != null else null
 	swarm_system = sim_runner.swarm_system if sim_runner != null else null
+	if swarm_system != null and sim_events != null and swarm_system.has_method("set_sim_events"):
+		swarm_system.set_sim_events(sim_events)
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
 		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
 	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
@@ -3125,14 +3334,44 @@ func _ensure_sim_runner() -> void:
 
 func _ensure_sim_events() -> void:
 	if sim_events != null and is_instance_valid(sim_events):
+		_wire_tower_shot_sfx()
+		_wire_swarm_sfx()
+		_wire_hive_owner_sfx()
 		return
 	var existing := get_node_or_null("SimEvents")
 	if existing is SimEvents:
 		sim_events = existing as SimEvents
+		_wire_tower_shot_sfx()
+		_wire_swarm_sfx()
+		_wire_hive_owner_sfx()
 		return
 	sim_events = SimEvents.new()
 	sim_events.name = "SimEvents"
 	add_child(sim_events)
+	_wire_tower_shot_sfx()
+	_wire_swarm_sfx()
+	_wire_hive_owner_sfx()
+
+func _wire_tower_shot_sfx() -> void:
+	if sim_events == null or not is_instance_valid(sim_events):
+		return
+	var cb := Callable(self, "_on_tower_fire_for_sfx")
+	if not sim_events.is_connected("tower_fire", cb):
+		sim_events.connect("tower_fire", cb)
+
+func _wire_swarm_sfx() -> void:
+	if sim_events == null or not is_instance_valid(sim_events):
+		return
+	var cb := Callable(self, "_on_swarm_spawned_for_sfx")
+	if not sim_events.is_connected("swarm_spawned", cb):
+		sim_events.connect("swarm_spawned", cb)
+
+func _wire_hive_owner_sfx() -> void:
+	if sim_events == null or not is_instance_valid(sim_events):
+		return
+	var cb := Callable(self, "_on_hive_owner_changed_for_sfx")
+	if not sim_events.is_connected("hive_owner_changed", cb):
+		sim_events.connect("hive_owner_changed", cb)
 
 func _ensure_pools_root() -> Node:
 	var pools_root: Node = get_node_or_null("PoolsRoot")
@@ -3208,7 +3447,7 @@ func _ensure_unit_renderer() -> void:
 		if sim_events != null and unit_renderer.has_method("set_sim_events"):
 			unit_renderer.call("set_sim_events", sim_events)
 		if TRACE_ARENA_PRINTS:
-			print("UNIT_PARENT:", unit_renderer.get_path())
+			print("UNIT_PARENT:", _node_path_for_log(unit_renderer))
 
 func _ensure_wall_renderer() -> void:
 	if wall_renderer != null and is_instance_valid(wall_renderer):
@@ -3229,8 +3468,8 @@ func _ensure_vfx_manager() -> void:
 			vfx_manager.reparent(pools_parent)
 			SFLog.allow_tag("VFX_REPARENT")
 			SFLog.warn("VFX_REPARENT", {
-				"target_parent": str(pools_parent.get_path()),
-				"node_path": str(vfx_manager.get_path())
+				"target_parent": _node_path_for_log(pools_parent),
+				"node_path": _node_path_for_log(vfx_manager)
 			})
 		_configure_vfx_manager()
 		return
@@ -3252,13 +3491,13 @@ func _ensure_vfx_manager() -> void:
 			vfx_manager.name = "VfxManager"
 			pools_root.add_child(vfx_manager)
 	if TRACE_ARENA_PRINTS:
-		print("VFX_PARENT:", vfx_manager.get_path())
+		print("VFX_PARENT:", _node_path_for_log(vfx_manager))
 	if vfx_manager != null and vfx_manager.get_parent() != pools_root:
 		vfx_manager.reparent(pools_root)
 		SFLog.allow_tag("VFX_REPARENT")
 		SFLog.warn("VFX_REPARENT", {
-			"target_parent": str(pools_root.get_path()),
-			"node_path": str(vfx_manager.get_path())
+			"target_parent": _node_path_for_log(pools_root),
+			"node_path": _node_path_for_log(vfx_manager)
 		})
 	_configure_vfx_manager()
 
@@ -3369,6 +3608,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	_commit_match_records(winner_id_in)
 	_finalize_match_telemetry_session(winner_id_in)
 	_maybe_record_jukebox_result(winner_id_in, reason)
+	_play_post_match_song(winner_id_in)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
@@ -3895,7 +4135,7 @@ func _resize_world_viewport() -> void:
 	var new_h: int = max(1, int(target.y))
 	var new_size: Vector2i = Vector2i(new_w, new_h)
 	SFLog.info("WVP_RESIZE", {
-		"wvc_path": str(wvc.get_path()),
+		"wvc_path": _node_path_for_log(wvc),
 		"container_size": wvc.size,
 		"sv_old": old_size,
 		"sv_new": new_size
@@ -3943,6 +4183,7 @@ func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 	if floor_influence_system == null:
 		_ensure_floor_influence_system()
 	if floor_renderer != null:
+		floor_renderer.margin_px = maxf(0.0, floor_side_visual_projection_px)
 		floor_renderer.configure(grid_w, grid_h, cell_px, origin)
 	if floor_influence_system != null and floor_renderer != null:
 		floor_influence_system.configure_floor_bounds(floor_renderer.get_floor_bounds_rect())
@@ -4352,9 +4593,13 @@ func start_sim() -> void:
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
+	var process_t0_us: int = Time.get_ticks_usec()
 	_maybe_debug_camera_probe(delta)
-	_tick_arena_heartbeat(delta)
+	_hb_record_frame(delta)
+	_maybe_log_frame_hitch(delta)
 	_tick_arena_runtime(delta)
+	_hb_record_process_cost(process_t0_us)
+	_hb_maybe_flush()
 
 func _maybe_debug_camera_probe(delta: float) -> void:
 	if not debug_cam_probe:
@@ -4477,6 +4722,15 @@ func _hb_record_frame(delta: float) -> void:
 	if frame_ms > _hb_max_frame_ms:
 		_hb_max_frame_ms = frame_ms
 
+func _hb_record_process_cost(process_t0_us: int) -> void:
+	var process_ms: float = float(Time.get_ticks_usec() - process_t0_us) / 1000.0
+	_hb_sum_process_ms += process_ms
+	if process_ms > _hb_max_process_ms:
+		_hb_max_process_ms = process_ms
+	var engine_process_ms: float = float(Performance.get_monitor(Performance.TIME_PROCESS)) * 1000.0
+	if engine_process_ms > _hb_max_engine_process_ms:
+		_hb_max_engine_process_ms = engine_process_ms
+
 func _hb_record_physics(delta: float) -> void:
 	var phys_ms: float = delta * 1000.0
 	_hb_phys += 1
@@ -4498,6 +4752,9 @@ func _hb_maybe_flush() -> void:
 	if frames > 0:
 		avg_frame_ms = _hb_sum_frame_ms / float(frames)
 		fps_est = (float(frames) * 1000.0) / float(window_ms)
+	var avg_process_ms: float = 0.0
+	if frames > 0:
+		avg_process_ms = _hb_sum_process_ms / float(frames)
 	var phys_ticks: int = _hb_phys
 	var avg_phys_ms: float = 0.0
 	if phys_ticks > 0:
@@ -4507,6 +4764,9 @@ func _hb_maybe_flush() -> void:
 		"fps": snapped(fps_est, 0.1),
 		"max_frame_ms": snapped(_hb_max_frame_ms, 0.1),
 		"avg_frame_ms": snapped(avg_frame_ms, 0.1),
+		"max_process_ms": snapped(_hb_max_process_ms, 0.1),
+		"avg_process_ms": snapped(avg_process_ms, 0.1),
+		"max_engine_process_ms": snapped(_hb_max_engine_process_ms, 0.1),
 		"physics_ticks": phys_ticks,
 		"max_physics_ms": snapped(_hb_max_phys_ms, 0.1),
 		"avg_physics_ms": snapped(avg_phys_ms, 0.1)
@@ -4515,6 +4775,9 @@ func _hb_maybe_flush() -> void:
 	_hb_frames = 0
 	_hb_max_frame_ms = 0.0
 	_hb_sum_frame_ms = 0.0
+	_hb_max_process_ms = 0.0
+	_hb_sum_process_ms = 0.0
+	_hb_max_engine_process_ms = 0.0
 	_hb_phys = 0
 	_hb_max_phys_ms = 0.0
 	_hb_sum_phys_ms = 0.0
@@ -4628,7 +4891,7 @@ func _debug_scan_cameras() -> void:
 	_scan_cameras(get_tree().root, cams)
 	SFLog.trace("CAMERA2D COUNT", {"count": cams.size()})
 	for c in cams:
-		SFLog.trace(" - ", {"path": c.get_path(), "current": c.is_current(), "enabled": c.enabled})
+		SFLog.trace(" - ", {"path": _node_path_for_log(c), "current": c.is_current(), "enabled": c.enabled})
 
 func _scan_cameras(node: Node, out: Array) -> void:
 	if node is Camera2D:
@@ -4644,9 +4907,9 @@ func _dump_map_like_nodes(tag: String) -> void:
 	_scan(get_tree().current_scene, suspects)
 	for n in suspects:
 		SFLog.trace("SUSPECT", {
-			"path": n.get_path(),
+			"path": _node_path_for_log(n),
 			"type": n.get_class(),
-			"parent": n.get_parent().get_path()
+			"parent": _node_path_for_log(n.get_parent())
 		})
 
 func _dump_map_renderers(tag: String) -> void:
@@ -4655,16 +4918,16 @@ func _dump_map_renderers(tag: String) -> void:
 	var arenas := root.find_children("Arena", "Node", true, false)
 	SFLog.trace("Arenas", {"count": arenas.size()})
 	for a in arenas:
-		SFLog.trace(" - ", {"path": a.get_path()})
+		SFLog.trace(" - ", {"path": _node_path_for_log(a)})
 	var map_roots := root.find_children("MapRoot", "Node", true, false)
 	SFLog.trace("MapRoots", {"count": map_roots.size()})
 	for m in map_roots:
-		SFLog.trace(" - ", {"path": m.get_path()})
+		SFLog.trace(" - ", {"path": _node_path_for_log(m)})
 	var hrs := root.find_children("HiveRenderer", "Node", true, false)
 	SFLog.trace("HiveRenderers", {"count": hrs.size()})
 	for h in hrs:
 		SFLog.trace(" - ", {
-			"path": h.get_path(),
+			"path": _node_path_for_log(h),
 			"vis": (h.visible if h is CanvasItem else "n/a"),
 			"children": h.get_child_count()
 		})
@@ -4672,7 +4935,7 @@ func _dump_map_renderers(tag: String) -> void:
 	SFLog.trace("LaneRenderers", {"count": lrs.size()})
 	for l in lrs:
 		SFLog.trace(" - ", {
-			"path": l.get_path(),
+			"path": _node_path_for_log(l),
 			"vis": (l.visible if l is CanvasItem else "n/a"),
 			"children": l.get_child_count()
 		})
@@ -4682,7 +4945,7 @@ func _dump_tree_with_scripts(path: String) -> void:
 	if root == null:
 		SFLog.trace("DUMP: node not found", {"path": path})
 		return
-	SFLog.trace("\n=== TREE DUMP ===", {"path": root.get_path()})
+	SFLog.trace("\n=== TREE DUMP ===", {"path": _node_path_for_log(root)})
 	_dump_node(root, 0)
 
 func _dump_node(n: Node, depth: int) -> void:
@@ -4690,7 +4953,7 @@ func _dump_node(n: Node, depth: int) -> void:
 	var s := ""
 	if n.get_script() != null:
 		s = " script=" + str(n.get_script().resource_path)
-	SFLog.trace(indent + "- ", {"path": n.get_path(), "type": n.get_class(), "script": s})
+	SFLog.trace(indent + "- ", {"path": _node_path_for_log(n), "type": n.get_class(), "script": s})
 	for c in n.get_children():
 		_dump_node(c, depth + 1)
 
@@ -4699,7 +4962,7 @@ func _list_canvasitems_with_scripts(path: String) -> void:
 	if root == null:
 		SFLog.trace("SCAN: node not found", {"path": path})
 		return
-	SFLog.trace("\n=== CANVASITEM SCAN ===", {"path": root.get_path()})
+	SFLog.trace("\n=== CANVASITEM SCAN ===", {"path": _node_path_for_log(root)})
 	var items := root.find_children("", "CanvasItem", true, false)
 	for it in items:
 		var ci := it as CanvasItem
@@ -4707,7 +4970,7 @@ func _list_canvasitems_with_scripts(path: String) -> void:
 		if it.get_script() != null:
 			sp = str(it.get_script().resource_path)
 		if sp != "":
-			SFLog.trace(" - ", {"path": it.get_path(), "type": it.get_class(), "vis": ci.visible, "script": sp})
+			SFLog.trace(" - ", {"path": _node_path_for_log(it), "type": it.get_class(), "vis": ci.visible, "script": sp})
 
 func _dump_viewports_and_textures() -> void:
 	SFLog.trace("\n=== VIEWPORT/TEXTURE DUMP ===")
@@ -4715,12 +4978,12 @@ func _dump_viewports_and_textures() -> void:
 	var svcs := root.find_children("", "SubViewportContainer", true, false)
 	SFLog.trace("SubViewportContainers", {"count": svcs.size()})
 	for c in svcs:
-		SFLog.trace(" - ", {"path": c.get_path()})
+		SFLog.trace(" - ", {"path": _node_path_for_log(c)})
 	var svs := root.find_children("", "SubViewport", true, false)
 	SFLog.trace("SubViewports", {"count": svs.size()})
 	for v in svs:
 		SFLog.trace(" - ", {
-			"path": v.get_path(),
+			"path": _node_path_for_log(v),
 			"update": v.render_target_update_mode,
 			"clear": v.render_target_clear_mode
 		})
@@ -4728,11 +4991,15 @@ func _dump_viewports_and_textures() -> void:
 	SFLog.trace("TextureRects", {"count": trs.size()})
 	for t in trs:
 		var tex: Texture2D = t.texture
-		SFLog.trace(" - ", {"path": t.get_path(), "tex": (tex.resource_path if tex else "null")})
+		SFLog.trace(" - ", {"path": _node_path_for_log(t), "tex": (tex.resource_path if tex else "null")})
 
 func _kill_foreign_renderers(keep_arena: Node) -> void:
+	if keep_arena == null or not keep_arena.is_inside_tree():
+		return
 	var keep_prefix := str(keep_arena.get_path())
 	for n in get_tree().root.find_children("HiveRenderer", "Node", true, false):
+		if n == null or not n.is_inside_tree():
+			continue
 		var p := str(n.get_path())
 		if not p.begins_with(keep_prefix):
 			SFLog.trace("KILL HiveRenderer", {"path": p})
@@ -4740,6 +5007,8 @@ func _kill_foreign_renderers(keep_arena: Node) -> void:
 				n.visible = false
 			n.queue_free()
 	for n in get_tree().root.find_children("LaneRenderer", "Node", true, false):
+		if n == null or not n.is_inside_tree():
+			continue
 		var p := str(n.get_path())
 		if not p.begins_with(keep_prefix):
 			SFLog.trace("KILL LaneRenderer", {"path": p})
@@ -4752,9 +5021,11 @@ func _debug_scan_names() -> void:
 	var root := get_tree().root
 	_scan(root, out)
 	for n in out:
-		SFLog.trace("FOUND", {"path": str(n.get_path()), "type": n.get_class()})
+		SFLog.trace("FOUND", {"path": _node_path_for_log(n), "type": n.get_class()})
 
 func _scan(n: Node, out: Array[Node]) -> void:
+	if n == null:
+		return
 	var cname := n.get_class()
 	if cname.find("Hive") != -1 or cname.find("Lane") != -1 or str(n.name).find("Hive") != -1 or str(n.name).find("Lane") != -1:
 		out.append(n)
@@ -5063,22 +5334,31 @@ func _resolve_playfield_rect_px() -> Rect2:
 func _resolve_camera_fit_bounds_world() -> Rect2:
 	return _resolve_camera_fit_bounds_world_with_source().get("bounds", Rect2()) as Rect2
 
+func _with_side_visual_projection(bounds: Rect2) -> Rect2:
+	var side_px: float = maxf(0.0, floor_side_visual_projection_px)
+	if side_px <= 0.0 or bounds.size.x <= 1.0 or bounds.size.y <= 1.0:
+		return bounds
+	return Rect2(
+		bounds.position - Vector2(side_px, 0.0),
+		bounds.size + Vector2(side_px * 2.0, 0.0)
+	)
+
 func _resolve_camera_fit_bounds_world_with_source() -> Dictionary:
 	if use_node_bounds_camfit:
 		var node_positions: Array[Vector2] = _collect_fit_node_positions_world()
 		var node_bounds: Rect2 = _bounds_from_positions_world(node_positions)
 		if node_bounds.size.x > 1.0 and node_bounds.size.y > 1.0:
-			return {"bounds": node_bounds, "source": "nodes"}
+			return {"bounds": _with_side_visual_projection(node_bounds), "source": "nodes_visual_side_projection"}
 	var map_bounds: Rect2 = _map_world_bounds()
 	if map_bounds.size.x > 1.0 and map_bounds.size.y > 1.0:
-		return {"bounds": map_bounds, "source": "map"}
+		return {"bounds": _with_side_visual_projection(map_bounds), "source": "map_visual_side_projection"}
 	if floor_renderer != null and floor_renderer.has_method("get_floor_bounds_rect"):
 		var floor_bounds_any: Variant = floor_renderer.call("get_floor_bounds_rect")
 		if floor_bounds_any is Rect2:
 			var floor_bounds: Rect2 = floor_bounds_any as Rect2
 			if floor_bounds.size.x > 1.0 and floor_bounds.size.y > 1.0:
-				return {"bounds": floor_bounds, "source": "floor"}
-	return {"bounds": _arena_rect(), "source": "arena"}
+				return {"bounds": _with_side_visual_projection(floor_bounds), "source": "floor_visual_side_projection"}
+	return {"bounds": _with_side_visual_projection(_arena_rect()), "source": "arena_visual_side_projection"}
 
 func _camera_fit_signature(
 	playfield_rect_px: Rect2,
@@ -5317,7 +5597,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 			call_deferred("_sf_camfit_late_probe", cam, zoom_target_h)
 			SFLog.info("CAMFIT", {
 				"tag": tag,
-				"cam_path": str(cam.get_path()),
+				"cam_path": _node_path_for_log(cam),
 				"cam_vp_size": cam_vp_size,
 				"visible_vp_size": visible_vp_size,
 				"safe_cam_vp_size": safe_cam_vp_size,
@@ -5401,7 +5681,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 	cam.force_update_scroll()
 	SFLog.throttle("camfit_applied", 1.0, "CAMFIT applied", SFLog.Level.TRACE)
 	if TRACE_ARENA_PRINTS:
-		print("CAMFIT_CAM_ID:", " path=", cam.get_path(), " rid=", cam.get_instance_id(), " current=", cam.is_current())
+		print("CAMFIT_CAM_ID:", " path=", _node_path_for_log(cam), " rid=", cam.get_instance_id(), " current=", cam.is_current())
 	call_deferred("_sf_camfit_late_probe", cam, zoom_target)
 	if TRACE_ARENA_PRINTS:
 		print(
@@ -5413,7 +5693,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 		)
 	SFLog.info("CAMFIT", {
 		"tag": tag,
-		"cam_path": str(cam.get_path()),
+		"cam_path": _node_path_for_log(cam),
 		"cam_vp_size": cam_vp_size,
 		"visible_vp_size": visible_vp_size,
 		"safe_cam_vp_size": safe_cam_vp_size,
@@ -5438,7 +5718,14 @@ func _sf_camfit_late_probe(cam: Camera2D, expected: Vector2) -> void:
 	if TRACE_ARENA_PRINTS:
 		print("CAMFIT_LATE: expected_zoom=", expected, " actual_zoom=", cam.zoom, " changed=", changed)
 	if changed:
-		push_warning("CAMFIT_LATE: zoom changed cam=%s" % str(cam.get_path()))
+		push_warning("CAMFIT_LATE: zoom changed cam=%s" % _node_path_for_log(cam))
+
+func _node_path_for_log(node: Node) -> String:
+	if node == null:
+		return "<null>"
+	if not node.is_inside_tree():
+		return "<detached:%s>" % str(node.name)
+	return str(node.get_path())
 
 func _nearest_canvas_layer(n: Node) -> CanvasLayer:
 	var p := n.get_parent()
@@ -6054,7 +6341,7 @@ func _sync_wall_renderer(hive_nodes_by_id: Dictionary) -> void:
 			"segments": segments.size(),
 			"sample_a": sample_seg.get("a", null),
 			"sample_b": sample_seg.get("b", null),
-			"wall_renderer_path": str(wall_renderer.get_path()),
+			"wall_renderer_path": _node_path_for_log(wall_renderer),
 			"wall_renderer_pos": wall_renderer.position,
 			"wall_renderer_visible": wall_renderer.visible,
 			"wall_renderer_z": wall_renderer.z_index,
@@ -6072,7 +6359,7 @@ func _sync_wall_renderer(hive_nodes_by_id: Dictionary) -> void:
 		"mode": "pairs",
 		"pairs": pairs.size(),
 		"hive_pos_count": hive_pos_by_id.size(),
-		"wall_renderer_path": str(wall_renderer.get_path()),
+		"wall_renderer_path": _node_path_for_log(wall_renderer),
 		"wall_renderer_pos": wall_renderer.position,
 		"wall_renderer_visible": wall_renderer.visible,
 		"wall_renderer_z": wall_renderer.z_index,
@@ -6563,6 +6850,7 @@ func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> D
 			"name": str(buff_def.get("name", buff_id)),
 			"tier": tier,
 			"category": str(buff_def.get("category", "unknown")),
+			"icon_path": str(buff_def.get("icon_path", "")),
 			"locked": i >= int(buff_state.slots_active),
 			"active": active,
 			"consumed": consumed,
@@ -6752,6 +7040,7 @@ func _reset_sim_state() -> void:
 	debris_id_counter = 1
 	tick_accum = 0.0
 	events.clear()
+	_tower_shot_sfx_counts.clear()
 	sim_time_us = 0
 	winner_id = -1
 	end_reason = ""
@@ -6760,6 +7049,7 @@ func _reset_sim_state() -> void:
 	_match_record_committed = false
 	_post_match_action_taken = false
 	_post_match_render_frozen = false
+	_stop_post_match_song()
 	_end_post_match_settle_if_supported()
 	hurry_mode = false
 	audio_hurry_pitch = 1.0
@@ -7373,7 +7663,7 @@ func _normalize_map_root() -> Rect2:
 			_map_bounds_missing_logged = true
 			SFLog.info("CAMFIT_NO_WORLD_BOUNDS", {
 				"reason": "normalize_map_root_empty",
-				"map_root": str(map_root.get_path()) if map_root != null else "<null>",
+				"map_root": _node_path_for_log(map_root),
 				"child_count": map_root.get_child_count() if map_root != null else 0
 			})
 		return Rect2(Vector2.ZERO, Vector2.ZERO)
@@ -7401,7 +7691,7 @@ func _map_world_bounds() -> Rect2:
 			_map_bounds_missing_logged = true
 			SFLog.info("CAMFIT_NO_WORLD_BOUNDS", {
 				"reason": "map_root_bounds_empty",
-				"map_root": str(map_root.get_path()),
+				"map_root": _node_path_for_log(map_root),
 				"child_count": map_root.get_child_count()
 			})
 		return Rect2()
@@ -9026,7 +9316,7 @@ func _update_timer_ui() -> void:
 			"in_overtime": OpsState.in_overtime,
 			"remaining_ms": int(_get_match_remaining_ms()),
 			"timer_label_ok": timer_label != null,
-			"timer_label_path": str(timer_label.get_path()) if timer_label != null else "<null>"
+			"timer_label_path": _node_path_for_log(timer_label)
 		})
 	if OpsState.timer_visible_started:
 		_update_timer_label()
@@ -9103,7 +9393,7 @@ func _ensure_timer_hud() -> void:
 			"font_after": font_after
 		})
 		SFLog.info("TIMER_LABEL_BIND", {
-			"path": str(timer_label.get_path()),
+			"path": _node_path_for_log(timer_label),
 			"inside_tree": timer_label.is_inside_tree(),
 			"visible": timer_label.visible,
 			"z_index": timer_label.z_index,
@@ -9182,7 +9472,7 @@ func _timer_node_info(node: CanvasItem) -> Dictionary:
 		size = control.size
 		font_size = _control_font_size(control)
 	return {
-		"path": str(node.get_path()),
+		"path": _node_path_for_log(node),
 		"class": node.get_class(),
 		"inside_tree": node.is_inside_tree(),
 		"visible_in_tree": node.is_visible_in_tree(),
@@ -9217,7 +9507,7 @@ func _update_timer_label() -> void:
 		}
 		SFLog.info("TIMER_UI_STATE", {
 			"label_null": timer_label == null,
-			"path": str(timer_label.get_path()) if timer_label != null else "<null>",
+			"path": _node_path_for_log(timer_label),
 			"inside_tree": timer_label.is_inside_tree() if timer_label != null else false,
 			"visible": timer_label.visible if timer_label != null else false,
 			"modulate_a": timer_label.modulate.a if timer_label != null else -1.0,
@@ -9260,13 +9550,13 @@ func _dump_timer_parent_chain(node: Node) -> Array:
 		if n is CanvasItem:
 			var ci := n as CanvasItem
 			out.append({
-				"path": str(ci.get_path()),
+				"path": _node_path_for_log(ci),
 				"visible": ci.visible,
 				"modulate_a": ci.modulate.a,
 				"self_modulate_a": ci.self_modulate.a
 			})
 		else:
-			out.append({"path": str(n.get_path()), "type": n.get_class()})
+			out.append({"path": _node_path_for_log(n), "type": n.get_class()})
 		n = n.get_parent()
 	return out
 
@@ -10474,6 +10764,7 @@ func _try_swarm(from_id: int, to_id: int, pid: int = -1) -> bool:
 	}
 	swarm_id_counter += 1
 	swarm_packets.append(packet)
+	_play_swarm_sfx()
 	_note_render_dirty()
 	if debug_swarms:
 		SFLog.info("SWARM_CREATE", {

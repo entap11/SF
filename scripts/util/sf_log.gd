@@ -227,8 +227,17 @@ static func _format_payload(msg: String, data: Dictionary) -> String:
 			var fps: float = float(data.get("fps", -1.0))
 			var max_frame_ms: float = float(data.get("max_frame_ms", -1.0))
 			var avg_frame_ms: float = float(data.get("avg_frame_ms", -1.0))
+			var max_process_ms: float = float(data.get("max_process_ms", -1.0))
+			var avg_process_ms: float = float(data.get("avg_process_ms", -1.0))
+			var max_engine_process_ms: float = float(data.get("max_engine_process_ms", -1.0))
 			var max_physics_ms: float = float(data.get("max_physics_ms", -1.0))
-			return "%s frames=%d fps=%.1f max_frame_ms=%.1f avg_frame_ms=%.1f max_physics_ms=%.1f" % [msg, frames, fps, max_frame_ms, avg_frame_ms, max_physics_ms]
+			return "%s frames=%d fps=%.1f max_frame_ms=%.1f avg_frame_ms=%.1f max_process_ms=%.1f avg_process_ms=%.1f max_engine_process_ms=%.1f max_physics_ms=%.1f" % [msg, frames, fps, max_frame_ms, avg_frame_ms, max_process_ms, avg_process_ms, max_engine_process_ms, max_physics_ms]
+		if msg == "RENDER_PROCESS_HEARTBEAT":
+			var renderer: String = str(data.get("renderer", ""))
+			var render_frames: int = int(data.get("frames", -1))
+			var render_max_process_ms: float = float(data.get("max_process_ms", -1.0))
+			var render_avg_process_ms: float = float(data.get("avg_process_ms", -1.0))
+			return "%s renderer=%s frames=%d max_process_ms=%.1f avg_process_ms=%.1f" % [msg, renderer, render_frames, render_max_process_ms, render_avg_process_ms]
 		if msg == "RENDER_AUDIT_UNITS":
 			var units: int = int(data.get("units", -1))
 			var unit_draw_ops: int = int(data.get("draw_ops", -1))

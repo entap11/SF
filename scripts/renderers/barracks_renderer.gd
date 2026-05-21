@@ -12,7 +12,7 @@ const BARRACKS_ACCENT_SHADER := preload("res://assets/shaders/barracks_accent_re
 
 const LOG_INTERVAL_MS: int = 1000
 const BARRACKS_SIZE_PX: float = 10.0
-const BARRACKS_VISUAL_SCALE: float = 1.05
+const BARRACKS_VISUAL_SCALE: float = 1.575
 const BARRACKS_PITCH_SCALE_X := 1.00
 const BARRACKS_PITCH_SCALE_Y := 0.88
 const BARRACKS_SELECTOR_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_large.tres"

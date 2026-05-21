@@ -4,6 +4,7 @@ const P1_TEXT_COLOR := Color(0.0, 0.0, 0.0)
 const P2_TEXT_COLOR := Color(1.0, 1.0, 1.0)
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const VisualShadow := preload("res://scripts/renderers/visual_shadow.gd")
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
@@ -72,6 +73,13 @@ const SHADOW_CONTACT_OFFSET_MULT: float = 0.45
 const SHADOW_CONTACT_ALPHA_MULT: float = 0.62
 const SHADOW_CONTACT_SCALE_X_MULT: float = 0.84
 const SHADOW_CONTACT_SCALE_Y_MULT: float = 0.70
+const FLOOR_REFLECTION_ALPHA: float = 0.42
+const FLOOR_REFLECTION_CONTACT_ALPHA: float = 0.26
+const FLOOR_REFLECTION_Y_RATIO: float = 0.42
+const FLOOR_REFLECTION_CONTACT_Y_RATIO: float = 0.30
+const FLOOR_REFLECTION_SCALE := Vector2(0.96, 0.42)
+const FLOOR_REFLECTION_CONTACT_SCALE := Vector2(0.78, 0.22)
+const FLOOR_REFLECTION_TINT := Color(0.72, 0.62, 0.98, 1.0)
 const POWER_LABEL_OFFSET := Vector2(0.0, -42.0)
 const POWER_LABEL_TOP_GAP_PX: float = 8.0
 const POWER_LABEL_SCALE := 0.50
@@ -276,8 +284,10 @@ func configure(
 		SFLog.Level.INFO
 	)
 	var registry := SpriteRegistry.get_instance()
-	var next_tex: Texture2D = registry.get_tex(key) if registry != null else null
-	var next_scale := registry.get_scale(key) if registry != null else 1.0
+	var resolved_sprite: Dictionary = CosmeticThemeDB.resolve_hive_sprite(owner_id, hive_kind, power, registry)
+	key = str(resolved_sprite.get("key", key))
+	var next_tex: Texture2D = resolved_sprite.get("texture", null) as Texture2D
+	var next_scale := float(resolved_sprite.get("scale", registry.get_scale(key) if registry != null else 1.0))
 	var next_offset := registry.get_offset(key) if registry != null else Vector2.ZERO
 	var tier_changed := desired_tier != _visual_tier
 	if tier_changed:
@@ -1543,18 +1553,24 @@ func _update_hive_shadows() -> void:
 		_ground_shadow.visible = false
 		_contact_shadow.visible = false
 		return
-	var projected_scale: Vector2 = Vector2(shadow_scale_x * base_shadow_scale.x, shadow_scale_y * base_shadow_scale.y)
-	var contact_scale: Vector2 = Vector2(
-		shadow_scale_x * base_shadow_scale.x * SHADOW_CONTACT_SCALE_X_MULT,
-		shadow_scale_y * base_shadow_scale.y * SHADOW_CONTACT_SCALE_Y_MULT
-	)
-	_ground_shadow.sync_from_sprite(_sprite, shadow_offset, projected_scale, base_shadow_strength, shadow_z_offset)
-	_contact_shadow.sync_from_sprite(
+	var reflection_offset: Vector2 = Vector2(0.0, _current_size.y * FLOOR_REFLECTION_Y_RATIO)
+	var contact_offset: Vector2 = Vector2(0.0, _current_size.y * FLOOR_REFLECTION_CONTACT_Y_RATIO)
+	var neutral_mul: float = 0.66 if owner_id <= 0 else 1.0
+	_ground_shadow.sync_reflection_from_sprite(
 		_sprite,
-		shadow_offset * SHADOW_CONTACT_OFFSET_MULT,
-		contact_scale,
-		base_shadow_strength * SHADOW_CONTACT_ALPHA_MULT,
-		shadow_z_offset + 1
+		reflection_offset,
+		FLOOR_REFLECTION_SCALE,
+		FLOOR_REFLECTION_ALPHA * base_shadow_strength * neutral_mul,
+		shadow_z_offset,
+		FLOOR_REFLECTION_TINT
+	)
+	_contact_shadow.sync_reflection_from_sprite(
+		_sprite,
+		contact_offset,
+		FLOOR_REFLECTION_CONTACT_SCALE,
+		FLOOR_REFLECTION_CONTACT_ALPHA * base_shadow_strength * neutral_mul,
+		shadow_z_offset + 1,
+		FLOOR_REFLECTION_TINT.lerp(Color.WHITE, 0.14)
 	)
 
 func _ensure_lane_occluder() -> void:
@@ -1676,14 +1692,19 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 			_sprite.modulate = Color(1.0, 1.0, 1.0, 1.0)
 	if _shader_mat != null and not is_neutral_owner:
 		_shader_mat.set_shader_parameter("team_color", team_color)
-		_shader_mat.set_shader_parameter("glow_strength", lerp(0.6, 1.0, t))
+		_shader_mat.set_shader_parameter("glow_strength", lerp(0.95, 1.62, t))
 		TeamVisuals.apply_white_projection_params(_shader_mat)
+		_shader_mat.set_shader_parameter("additive_glow", lerp(0.30, 0.48, t))
+		_shader_mat.set_shader_parameter("detail_preserve", 0.92)
 		_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength)
 		_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed)
 		_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())
 	if _npc_shader_mat != null and is_neutral_owner:
 		_npc_shader_mat.set_shader_parameter("npc_tint", NPC_HIVE_COLOR)
 		_npc_shader_mat.set_shader_parameter("tint_strength", 0.88)
+		_npc_shader_mat.set_shader_parameter("brightness", 1.02)
+		_npc_shader_mat.set_shader_parameter("glow_strength", 0.34)
+		_npc_shader_mat.set_shader_parameter("additive_glow", 0.18)
 		_npc_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength * 0.42)
 		_npc_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed * 0.82)
 		_npc_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())

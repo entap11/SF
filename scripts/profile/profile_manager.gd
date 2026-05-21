@@ -4,6 +4,7 @@ signal honey_balance_changed(new_value: int, delta: int, reason: String)
 signal achievement_granted(achievement_id: String)
 signal powerbar_theme_changed(theme_id: String)
 signal garage_selection_changed(category_id: String, item_id: String)
+signal social_destination_changed(destination_id: String, enabled: bool)
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
@@ -21,10 +22,14 @@ const PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD: String = "admin_dashboard_password"
 const PROFILE_KEY_UNLOCKED_ACHIEVEMENTS: String = "unlocked_achievements"
 const PROFILE_KEY_POWERBAR_THEME: String = "cosmetic_powerbar_theme"
 const PROFILE_KEY_GARAGE_SELECTIONS: String = "garage_selections"
+const PROFILE_KEY_SOCIAL_DESTINATIONS: String = "social_destinations"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player "
-const DISPLAY_NAME_MAX_LEN: int = 20
+const DISPLAY_NAME_MIN_LEN: int = 3
+const DISPLAY_NAME_MAX_LEN: int = 16
+const HANDLE_RENAME_COOLDOWN_SEC: int = 365 * 24 * 60 * 60
+const HANDLE_POLICY_VERSION: int = 1
 const BUFF_LOADOUT_SIZE: int = 3
 const BUFF_MODE_VS: String = "vs"
 const BUFF_MODE_ASYNC: String = "async"
@@ -92,6 +97,12 @@ var _tutorial_section3_step: String = TUTORIAL_SECTION3_STEP_0_INTRO
 var _user_id: String = ""
 var _display_name: String = ""
 var _created_at_unix: int = 0
+var _handle_chosen: bool = false
+var _handle_changed_at_unix: int = 0
+var _next_handle_change_unix: int = 0
+var _handle_change_count: int = 0
+var _handle_locked: bool = false
+var _handle_history: Array = []
 var _owned_buff_ids: Array[String] = []
 var _buff_loadout_ids: Array[String] = []
 var _owned_buff_ids_by_mode: Dictionary = {}
@@ -101,6 +112,7 @@ var _store_entitlements: Dictionary = {}
 var _unlocked_achievements: Dictionary = {}
 var _powerbar_theme: String = POWERBAR_THEME_BASE
 var _garage_selections: Dictionary = {}
+var _social_destinations: Dictionary = {}
 var _gpu_vfx_enabled: bool = true
 var _audio_enabled: bool = true
 var _sfx_enabled: bool = true
@@ -138,6 +150,12 @@ func ensure_loaded() -> void:
 		_display_name = str(cfg.get_value(PROFILE_SECTION, "display_name", ""))
 		_created_at_unix = int(cfg.get_value(PROFILE_SECTION, "created_at_unix", 0))
 		_onboarding_complete = bool(cfg.get_value(PROFILE_SECTION, "onboarding_complete", false))
+		_handle_chosen = bool(cfg.get_value(PROFILE_SECTION, "handle_chosen", _onboarding_complete))
+		_handle_changed_at_unix = int(cfg.get_value(PROFILE_SECTION, "handle_changed_at_unix", 0))
+		_next_handle_change_unix = int(cfg.get_value(PROFILE_SECTION, "next_handle_change_unix", 0))
+		_handle_change_count = maxi(0, int(cfg.get_value(PROFILE_SECTION, "handle_change_count", 0)))
+		_handle_locked = bool(cfg.get_value(PROFILE_SECTION, "handle_locked", false))
+		_handle_history = _sanitize_handle_history(cfg.get_value(PROFILE_SECTION, "handle_history", []))
 		_controls_hint_seen = bool(cfg.get_value(PROFILE_SECTION, "controls_hint_seen", false))
 		_tutorial_section1_status = _sanitize_tutorial_section1_status(
 			str(cfg.get_value(PROFILE_SECTION, "tutorial_section1_status", TUTORIAL_SECTION1_STATUS_NOT_STARTED))
@@ -176,12 +194,19 @@ func ensure_loaded() -> void:
 		_unlocked_achievements = _sanitize_unlocked_achievements(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_UNLOCKED_ACHIEVEMENTS, {}))
 		_powerbar_theme = _sanitize_powerbar_theme(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_POWERBAR_THEME, POWERBAR_THEME_BASE)))
 		_garage_selections = _sanitize_garage_selections(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GARAGE_SELECTIONS, {}))
+		_social_destinations = _sanitize_social_destinations(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_SOCIAL_DESTINATIONS, {}))
 
 	var created: bool = false
 	if _user_id.is_empty():
 		_user_id = _generate_user_id()
 		_created_at_unix = int(Time.get_unix_time_from_system())
 		_display_name = _default_display_name(_user_id)
+		_handle_chosen = false
+		_handle_changed_at_unix = 0
+		_next_handle_change_unix = 0
+		_handle_change_count = 0
+		_handle_locked = false
+		_handle_history = []
 		_onboarding_complete = false
 		_controls_hint_seen = false
 		_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_NOT_STARTED
@@ -207,6 +232,7 @@ func ensure_loaded() -> void:
 		_unlocked_achievements = {}
 		_powerbar_theme = POWERBAR_THEME_BASE
 		_garage_selections = _default_garage_selections()
+		_social_destinations = _default_social_destinations()
 		_ensure_mode_maps()
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 		created = true
@@ -220,6 +246,12 @@ func ensure_loaded() -> void:
 			updated = true
 		if _created_at_unix <= 0:
 			_created_at_unix = int(Time.get_unix_time_from_system())
+			updated = true
+		if _handle_changed_at_unix <= 0 and _handle_chosen:
+			_handle_changed_at_unix = _created_at_unix
+			updated = true
+		if _next_handle_change_unix <= 0 and _handle_chosen:
+			_next_handle_change_unix = _handle_changed_at_unix + HANDLE_RENAME_COOLDOWN_SEC
 			updated = true
 		var clean_mode: String = _sanitize_performance_mode(_performance_mode)
 		if clean_mode != _performance_mode:
@@ -292,6 +324,10 @@ func ensure_loaded() -> void:
 		var cleaned_garage: Dictionary = _sanitize_garage_selections(_garage_selections)
 		if cleaned_garage != _garage_selections:
 			_garage_selections = cleaned_garage
+			updated = true
+		var cleaned_social: Dictionary = _sanitize_social_destinations(_social_destinations)
+		if cleaned_social != _social_destinations:
+			_social_destinations = cleaned_social
 			updated = true
 		if _ensure_mode_maps():
 			updated = true
@@ -372,16 +408,96 @@ func get_handle(uid: String) -> String:
 	return ""
 
 func set_display_name(name: String) -> void:
+	request_handle_change(name, false, "settings")
+
+func request_paid_display_name_change(name: String, source: String = "paid_rename") -> Dictionary:
+	return request_handle_change(name, true, source)
+
+func request_handle_change(name: String, paid_override: bool = false, source: String = "settings") -> Dictionary:
 	ensure_loaded()
-	var cleaned: String = _sanitize_display_name(name, _user_id)
-	if cleaned == _display_name:
-		return
+	var raw_clean: String = name.strip_edges()
+	var validation: Dictionary = validate_handle_policy(raw_clean)
+	if not bool(validation.get("ok", false)):
+		SFLog.info("PROFILE_HANDLE_REJECTED", {
+			"user_id": _user_id,
+			"source": source,
+			"reason": str(validation.get("reason", "")),
+			"attempted": name
+		})
+		return validation
+	var cleaned: String = _sanitize_display_name(raw_clean, _user_id)
+	if cleaned == _display_name and _handle_chosen:
+		return {
+			"ok": true,
+			"changed": false,
+			"handle": _display_name,
+			"next_free_change_unix": _next_handle_change_unix
+		}
+	if _handle_locked:
+		return {
+			"ok": false,
+			"reason": "locked",
+			"message": "Handle changes are locked for this account."
+		}
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	var is_initial_pick: bool = not _handle_chosen
+	if not is_initial_pick and not paid_override and now_unix < _next_handle_change_unix:
+		return {
+			"ok": false,
+			"reason": "cooldown",
+			"message": "Free handle changes are available once per year.",
+			"next_free_change_unix": _next_handle_change_unix
+		}
+	var old_handle: String = _display_name
 	_display_name = cleaned
+	_handle_chosen = true
+	_handle_changed_at_unix = now_unix
+	if is_initial_pick or not paid_override:
+		_next_handle_change_unix = now_unix + HANDLE_RENAME_COOLDOWN_SEC
+	_handle_change_count += 1
+	_handle_history.append({
+		"old": old_handle,
+		"new": _display_name,
+		"changed_at_unix": now_unix,
+		"source": source,
+		"paid": paid_override,
+		"initial": is_initial_pick
+	})
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_DISPLAY_NAME_SET", {
 		"user_id": _user_id,
-		"display_name": _display_name
+		"display_name": _display_name,
+		"source": source,
+		"paid": paid_override,
+		"initial": is_initial_pick
 	})
+	return {
+		"ok": true,
+		"changed": true,
+		"handle": _display_name,
+		"next_free_change_unix": _next_handle_change_unix,
+		"initial": is_initial_pick,
+		"paid": paid_override
+	}
+
+func is_handle_chosen() -> bool:
+	ensure_loaded()
+	return _handle_chosen
+
+func get_handle_policy_snapshot() -> Dictionary:
+	ensure_loaded()
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	return {
+		"policy_version": HANDLE_POLICY_VERSION,
+		"handle_chosen": _handle_chosen,
+		"handle_locked": _handle_locked,
+		"handle_change_count": _handle_change_count,
+		"handle_changed_at_unix": _handle_changed_at_unix,
+		"next_free_change_unix": _next_handle_change_unix,
+		"free_change_available": (not _handle_chosen) or (not _handle_locked and now_unix >= _next_handle_change_unix),
+		"paid_change_available": _handle_chosen and not _handle_locked,
+		"cooldown_sec": HANDLE_RENAME_COOLDOWN_SEC
+	}
 
 func set_user_id(raw: String) -> bool:
 	ensure_loaded()
@@ -406,6 +522,9 @@ func set_user_id(raw: String) -> bool:
 func mark_onboarding_complete() -> void:
 	ensure_loaded()
 	if _onboarding_complete:
+		return
+	if not _handle_chosen:
+		SFLog.info("PROFILE_ONBOARDING_BLOCKED_NO_HANDLE", {"user_id": _user_id})
 		return
 	_onboarding_complete = true
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
@@ -914,6 +1033,35 @@ func set_garage_selection(category_id: String, item_id: String) -> bool:
 	garage_selection_changed.emit(clean_category, clean_item)
 	return true
 
+func get_social_destinations() -> Dictionary:
+	ensure_loaded()
+	return _social_destinations.duplicate(true)
+
+func is_social_destination_enabled(destination_id: String) -> bool:
+	ensure_loaded()
+	var clean_destination: String = str(destination_id).strip_edges().to_lower()
+	if not _default_social_destinations().has(clean_destination):
+		return false
+	return bool(_social_destinations.get(clean_destination, false))
+
+func set_social_destination_enabled(destination_id: String, enabled: bool) -> bool:
+	ensure_loaded()
+	var clean_destination: String = str(destination_id).strip_edges().to_lower()
+	if not _default_social_destinations().has(clean_destination):
+		return false
+	var current_enabled: bool = bool(_social_destinations.get(clean_destination, false))
+	if current_enabled == enabled:
+		return false
+	_social_destinations[clean_destination] = enabled
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_SOCIAL_DESTINATION_SET", {
+		"user_id": _user_id,
+		"destination_id": clean_destination,
+		"enabled": enabled
+	})
+	social_destination_changed.emit(clean_destination, enabled)
+	return true
+
 func grant_store_entitlements(flags: Array, reason: String = "") -> Dictionary:
 	ensure_loaded()
 	var granted: Array[String] = []
@@ -961,6 +1109,12 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	var cfg: ConfigFile = ConfigFile.new()
 	cfg.set_value(PROFILE_SECTION, "user_id", user_id)
 	cfg.set_value(PROFILE_SECTION, "display_name", display_name)
+	cfg.set_value(PROFILE_SECTION, "handle_chosen", _handle_chosen)
+	cfg.set_value(PROFILE_SECTION, "handle_changed_at_unix", _handle_changed_at_unix)
+	cfg.set_value(PROFILE_SECTION, "next_handle_change_unix", _next_handle_change_unix)
+	cfg.set_value(PROFILE_SECTION, "handle_change_count", _handle_change_count)
+	cfg.set_value(PROFILE_SECTION, "handle_locked", _handle_locked)
+	cfg.set_value(PROFILE_SECTION, "handle_history", _handle_history)
 	if created_at > 0:
 		cfg.set_value(PROFILE_SECTION, "created_at_unix", created_at)
 	cfg.set_value(PROFILE_SECTION, "onboarding_complete", onboarding_complete)
@@ -990,6 +1144,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_UNLOCKED_ACHIEVEMENTS, _unlocked_achievements)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_POWERBAR_THEME, _powerbar_theme)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GARAGE_SELECTIONS, _garage_selections)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_SOCIAL_DESTINATIONS, _social_destinations)
 	var err: int = cfg.save(PROFILE_PATH)
 	SFLog.info("PROFILE_BOOT_TRACE_SAVE", {
 		"path": PROFILE_PATH,
@@ -1026,6 +1181,104 @@ func _sanitize_display_name(name: String, user_id: String) -> String:
 	if cleaned.is_empty():
 		cleaned = _default_display_name(user_id)
 	return cleaned
+
+static func validate_handle_policy(raw_handle: String) -> Dictionary:
+	var handle: String = raw_handle.strip_edges()
+	if handle.length() < DISPLAY_NAME_MIN_LEN:
+		return _handle_reject("too_short", "Handle must be at least %d characters." % DISPLAY_NAME_MIN_LEN)
+	if handle.length() > DISPLAY_NAME_MAX_LEN:
+		return _handle_reject("too_long", "Handle must be %d characters or fewer." % DISPLAY_NAME_MAX_LEN)
+	for i in range(handle.length()):
+		var code: int = handle.unicode_at(i)
+		var allowed: bool = (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or (code >= 48 and code <= 57) or code == 95
+		if not allowed:
+			return _handle_reject("invalid_chars", "Use letters, numbers, and underscore only.")
+	var compact: String = _handle_policy_compact(handle)
+	var collapsed: String = _collapse_repeated_chars(compact)
+	if compact.begins_with("swarm") and (compact.contains("father") or compact.contains("daddy") or compact.contains("daddi") or compact.contains("dad")):
+		return _handle_reject("reserved_founder", "That handle is reserved.")
+	for protected_term in ["admin", "moderator", "mod", "support", "official", "developer", "devteam", "staff"]:
+		if compact == protected_term or compact.begins_with(protected_term + "_") or compact.ends_with("_" + protected_term):
+			return _handle_reject("reserved_staff", "That handle could be confused with staff.")
+	var hard_terms: Array[String] = [
+		"fuck", "fuk", "fck", "fvck", "shit", "cunt",
+		"rape", "rapist", "molest", "incest", "pedo", "pedophile",
+		"genocide", "holocaust", "nazi", "hitler",
+		"nigger", "nigga", "kike", "chink", "spic", "gook", "wetback", "faggot"
+	]
+	for term in hard_terms:
+		if compact.contains(term) or collapsed.contains(term):
+			return _handle_reject("prohibited_language", "That handle is not allowed.")
+	if compact.contains("jew"):
+		var charged_adjacent: Array[String] = ["fuck", "shit", "cunt", "rape", "gas", "oven", "nazi", "hitler", "genocide", "hate", "die", "kys"]
+		for term in charged_adjacent:
+			if compact.contains(term) or collapsed.contains(term):
+				return _handle_reject("protected_class_abuse", "That handle is not allowed.")
+	return {
+		"ok": true,
+		"handle": handle,
+		"normalized": compact
+	}
+
+static func _handle_reject(reason: String, message: String) -> Dictionary:
+	return {
+		"ok": false,
+		"reason": reason,
+		"message": message
+	}
+
+static func _handle_policy_compact(value: String) -> String:
+	var out: String = ""
+	var lower: String = value.strip_edges().to_lower()
+	for i in range(lower.length()):
+		var ch: String = lower.substr(i, 1)
+		match ch:
+			"@", "4":
+				out += "a"
+			"0":
+				out += "o"
+			"1", "!", "|":
+				out += "i"
+			"$", "5":
+				out += "s"
+			"3":
+				out += "e"
+			"7":
+				out += "t"
+			_:
+				var code: int = ch.unicode_at(0)
+				if (code >= 97 and code <= 122) or (code >= 48 and code <= 57):
+					out += ch
+	return out
+
+static func _collapse_repeated_chars(value: String) -> String:
+	var out: String = ""
+	var last: String = ""
+	for i in range(value.length()):
+		var ch: String = value.substr(i, 1)
+		if ch == last:
+			continue
+		out += ch
+		last = ch
+	return out
+
+func _sanitize_handle_history(values_v: Variant) -> Array:
+	var out: Array = []
+	if typeof(values_v) != TYPE_ARRAY:
+		return out
+	for item_v in values_v as Array:
+		if typeof(item_v) != TYPE_DICTIONARY:
+			continue
+		var item: Dictionary = item_v as Dictionary
+		out.append({
+			"old": _sanitize_display_name(str(item.get("old", "")), _user_id),
+			"new": _sanitize_display_name(str(item.get("new", "")), _user_id),
+			"changed_at_unix": int(item.get("changed_at_unix", 0)),
+			"source": str(item.get("source", "")),
+			"paid": bool(item.get("paid", false)),
+			"initial": bool(item.get("initial", false))
+		})
+	return out
 
 func _sanitize_performance_mode(mode: String) -> String:
 	var cleaned: String = mode.strip_edges().to_lower()
@@ -1263,6 +1516,28 @@ func _sanitize_garage_selections(raw: Variant) -> Dictionary:
 		out[clean_category] = clean_item
 	return out
 
+func _default_social_destinations() -> Dictionary:
+	return {
+		"discord": false,
+		"slack": false,
+		"instagram": false,
+		"tiktok": false,
+		"hive_feed": false
+	}
+
+func _sanitize_social_destinations(raw: Variant) -> Dictionary:
+	var defaults: Dictionary = _default_social_destinations()
+	var out: Dictionary = defaults.duplicate(true)
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	var source: Dictionary = raw as Dictionary
+	for destination_any in source.keys():
+		var clean_destination: String = str(destination_any).strip_edges().to_lower()
+		if not defaults.has(clean_destination):
+			continue
+		out[clean_destination] = bool(source.get(destination_any, false))
+	return out
+
 func _normalize_buff_mode(mode: String) -> String:
 	if mode.strip_edges().to_lower() == BUFF_MODE_ASYNC:
 		return BUFF_MODE_ASYNC
@@ -1490,8 +1765,8 @@ func rename_profile(profile_id: String, new_handle: String) -> bool:
 	ensure_loaded()
 	if profile_id != _user_id:
 		return false
-	set_display_name(new_handle)
-	return true
+	var result: Dictionary = request_handle_change(new_handle, false, "rename_dialog")
+	return bool(result.get("ok", false))
 
 func delete_profile(_profile_id: String) -> bool:
 	return false

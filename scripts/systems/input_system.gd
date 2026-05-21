@@ -660,6 +660,30 @@ func _pick_lane_hit(world_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
 		"dist": float(fallback.get("dist", INF))
 	}
 
+func _pick_lane_id_for_click(local_pos: Vector2, fallback_lane_id: int, arena_api: ArenaAPI) -> int:
+	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
+	var hit: Dictionary = _pick_lane_hit(world_pos, arena_api)
+	if bool(hit.get("hit", false)):
+		var hit_lane_id: int = int(hit.get("lane_id", -1))
+		if hit_lane_id > 0:
+			return hit_lane_id
+	if fallback_lane_id > 0:
+		return fallback_lane_id
+	var lane: LaneData = arena_api.pick_lane(local_pos) if arena_api != null else null
+	return int(lane.id) if lane != null else -1
+
+func _should_route_hive_click_to_lane(prev_selected_id: int, clicked_id: int, lane_id: int, player_id: int, arena_api: ArenaAPI) -> bool:
+	if clicked_id <= 0 or lane_id <= 0 or arena_api == null:
+		return false
+	if prev_selected_id > 0:
+		return false
+	if player_id != 1:
+		return false
+	var hive: HiveData = arena_api.find_hive_by_id(clicked_id)
+	if hive == null:
+		return false
+	return int(hive.owner_id) != player_id
+
 func _get_viewport_from_arena(arena_api: ArenaAPI) -> Viewport:
 	return InputEventUtils.get_viewport_from_arena(arena_api)
 
@@ -1383,6 +1407,7 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		arena_api,
 		selection.drag_start_hive_id
 	)
+	var release_lane_id: int = _pick_lane_id_for_click(local_pos, lane_id, arena_api)
 	if selection.drag_active and selection.drag_moved and selection.drag_start_hive_id > 0:
 		var start_id: int = selection.drag_start_hive_id
 		if end_id > 0 and end_id != start_id:
@@ -1394,9 +1419,17 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		arena_api.mark_render_dirty("input_release")
 		return
 	if _press_hive_id > 0:
-		_handle_click_hive(_press_prev_selected_id, _press_hive_id, player_id, player_id, arena_api, local_pos)
+		if _should_route_hive_click_to_lane(_press_prev_selected_id, _press_hive_id, release_lane_id, player_id, arena_api):
+			SFLog.info("HIVE_CLICK_LANE_FALLTHROUGH", {
+				"hive_id": _press_hive_id,
+				"lane_id": release_lane_id,
+				"player_id": player_id
+			})
+			_handle_click_ground(release_lane_id, local_pos, arena_api, player_id)
+		else:
+			_handle_click_hive(_press_prev_selected_id, _press_hive_id, player_id, player_id, arena_api, local_pos)
 	else:
-		_handle_click_ground(_press_lane_id, local_pos, arena_api, player_id)
+		_handle_click_ground(release_lane_id, local_pos, arena_api, player_id)
 	reset_drag()
 	_queue_lane_preview_redraw(arena_api)
 	arena_api.mark_render_dirty("input_release")

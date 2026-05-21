@@ -3,6 +3,8 @@ extends RefCounted
 
 const BuffDefinitions := preload("res://scripts/state/buff_definitions.gd")
 
+const BUFF_SPRITE_DIR: String = "res://assets/sprites/sf_skin_v1/buffs"
+
 static var _loaded: bool = false
 static var _by_id: Dictionary = {}
 static var _by_category: Dictionary = {}
@@ -57,10 +59,60 @@ static func _generated_entry(buff_def: Dictionary, tier_name: String) -> Diction
 		"target_type": str(buff_def.get("target_type", BuffDefinitions.TARGET_NONE)),
 		"tier": tier_name,
 		"duration_sec": BuffDefinitions.duration_seconds_for(str(buff_def.get("id", "")), tier_name),
+		"icon_path": icon_path_for(str(buff_def.get("id", "")), tier_name),
 		"effects": effects_arr,
 		"stacking": _stacking_default,
 		"price_tier": 1
 	}
+
+static func icon_path_for(canonical_id: String, tier_name: String) -> String:
+	var clean_id: String = canonical_id.strip_edges().to_upper()
+	var tier_suffix: String = _sprite_tier_suffix(tier_name)
+	var stems: PackedStringArray = _sprite_stems_for(clean_id)
+	for stem in stems:
+		var path: String = "%s/%s_%s.png" % [BUFF_SPRITE_DIR, stem, tier_suffix]
+		if ResourceLoader.exists(path):
+			return path
+	var fallback: String = "%s/tower_activated.PNG" % BUFF_SPRITE_DIR
+	if ResourceLoader.exists(fallback):
+		return fallback
+	return ""
+
+static func _sprite_tier_suffix(tier_name: String) -> String:
+	var normalized: String = BuffDefinitions.normalize_tier(tier_name)
+	if normalized == BuffDefinitions.TIER_PREMIUM:
+		return "prem"
+	if normalized == BuffDefinitions.TIER_ELITE:
+		return "elite"
+	return "classic"
+
+static func _sprite_stems_for(canonical_id: String) -> PackedStringArray:
+	match canonical_id:
+		BuffDefinitions.UNIT_SWARM_DAMAGE:
+			return PackedStringArray(["unit_lane_swarmdamage"])
+		BuffDefinitions.UNIT_HIVE_IMPACT_DAMAGE:
+			return PackedStringArray(["unit_global_2xdamage", "unit_lane_2xdamage"])
+		BuffDefinitions.UNIT_SPEED:
+			return PackedStringArray(["unit_lane_speed", "unit_global_speed"])
+		BuffDefinitions.HIVE_SINGLE_PRODUCTION_BOOST:
+			return PackedStringArray(["hive_lane_production", "hive_lane_produciton"])
+		BuffDefinitions.HIVE_GLOBAL_PRODUCTION_BOOST:
+			return PackedStringArray(["hive_global_production"])
+		BuffDefinitions.HIVE_SHIELD_SINGLE:
+			return PackedStringArray(["hive_lane_hiveshield", "hive_lane_hivedefense"])
+		BuffDefinitions.HIVE_SHIELD_GLOBAL:
+			return PackedStringArray(["hive_global_hivedefense"])
+		BuffDefinitions.HIVE_SHOCK_IMMUNITY:
+			return PackedStringArray(["hive_lane_hivedefense", "hive_global_hivedefense"])
+		BuffDefinitions.HIVE_SUPERCHARGE_QUEUE:
+			return PackedStringArray(["hive_global_production", "hive_lane_production"])
+		BuffDefinitions.LANE_FREEZE:
+			return PackedStringArray(["tower_rangeincrease_local"])
+		BuffDefinitions.LANE_STEAL:
+			return PackedStringArray(["tower_doubletap"])
+		BuffDefinitions.LANE_TREACHEROUS:
+			return PackedStringArray(["tower_doubletap"])
+	return PackedStringArray()
 
 static func _register_entry(entry: Dictionary) -> void:
 	var buff_id: String = str(entry.get("id", "")).strip_edges()

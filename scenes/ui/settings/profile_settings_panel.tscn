@@ -231,7 +231,8 @@ text = "Private admin dashboard. Use in-app credentials."
 
 [node name="RenamePolicyLabel" type="Label" parent="VBox"]
 layout_mode = 2
-text = "Display-name edits are free in dev. Paid rename flow ships in production."
+autowrap_mode = 3
+text = "One free handle change is available per year. Paid renames cannot bypass reserved or prohibited names."
 
 [node name="ButtonsRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2

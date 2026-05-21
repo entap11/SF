@@ -5,6 +5,8 @@
 extends RefCounted
 class_name MapApplier
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
+const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
 const TRACE_MAP_APPLY: bool = false
 
 static func apply_map(arena: Node2D, d: Dictionary) -> void:
@@ -24,6 +26,7 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 			push_error("MAP APPLY FAIL: map is empty")
 		return
 	d = _adapt_map_for_vs_mode(d)
+	d = MatchSetupRandomizer.apply_to_map_data(d, _match_randomizer_payload())
 	if _is_dev_runner():
 		_dev_seed_lanes_and_spawns(d)
 
@@ -296,6 +299,8 @@ static func _active_seats_from_vs_mode() -> Array:
 
 static func _adapt_map_for_vs_mode(map_dict: Dictionary) -> Dictionary:
 	var mode: String = _vs_mode()
+	if mode == "HIDDEN_CAPTURE_FLAG":
+		return _adapt_map_for_hidden_capture_flag(map_dict)
 	if mode != "2V2" and mode != "4P FFA":
 		return map_dict
 	if _mode_from_map_descriptor(map_dict) != "1p":
@@ -316,6 +321,61 @@ static func _adapt_map_for_vs_mode(map_dict: Dictionary) -> Dictionary:
 			"owner_counts": _owner_counts_for_hives(hives)
 		})
 	return out
+
+static func _adapt_map_for_hidden_capture_flag(map_dict: Dictionary) -> Dictionary:
+	var out: Dictionary = MapModeRules.apply_hidden_capture_flag_owner_split(map_dict, _hidden_ctf_allotment_options(map_dict))
+	SFLog.info("MAP_APPLIER_HIDDEN_CTF_OWNER_SPLIT", {
+		"map_id": str(out.get("map_id", out.get("_id", out.get("id", "UNKNOWN")))),
+		"owner_counts": out.get("hidden_ctf_owner_split", {}).get("owner_counts", {}),
+		"pattern": str(out.get("hidden_ctf_owner_split", {}).get("pattern", "")),
+		"seed": int(out.get("hidden_ctf_owner_split", {}).get("seed", 0))
+	})
+	return out
+
+static func _hidden_ctf_allotment_options(map_dict: Dictionary) -> Dictionary:
+	var options: Dictionary = {
+		"pattern": MapModeRules.HIDDEN_CTF_ALLOTMENT_ROLL,
+		"seed": 0
+	}
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return options
+	if tree.has_meta("hidden_ctf_allotment_pattern"):
+		options["pattern"] = str(tree.get_meta("hidden_ctf_allotment_pattern", MapModeRules.HIDDEN_CTF_ALLOTMENT_ROLL))
+	if tree.has_meta("hidden_ctf_allotment_seed"):
+		options["seed"] = int(tree.get_meta("hidden_ctf_allotment_seed", 0))
+	if int(options.get("seed", 0)) != 0:
+		return options
+	var session_source: String = "%s|%s|%s|%s" % [
+		str(tree.get_meta("vs_handshake_session_id", "")).strip_edges(),
+		str(tree.get_meta("vs_handshake_invite_code", "")).strip_edges(),
+		str(tree.get_meta("vs_stage_current_index", 0)),
+		str(map_dict.get("map_id", map_dict.get("_id", map_dict.get("id", "")))).strip_edges()
+	]
+	var seed: int = _stable_positive_hash(session_source)
+	if seed == 0:
+		seed = maxi(1, Time.get_ticks_msec())
+	options["seed"] = seed
+	tree.set_meta("hidden_ctf_allotment_seed", seed)
+	return options
+
+static func _stable_positive_hash(text: String) -> int:
+	var h: int = 17
+	for i in range(text.length()):
+		h = int((h * 31 + text.unicode_at(i)) % 2147483647)
+	return maxi(0, h)
+
+static func _match_randomizer_payload() -> Dictionary:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return {}
+	for key in [MatchSetupRandomizer.TREE_META_KEY, MatchSetupRandomizer.CONTEXT_KEY]:
+		if not tree.has_meta(key):
+			continue
+		var payload_v: Variant = tree.get_meta(key, {})
+		if typeof(payload_v) == TYPE_DICTIONARY:
+			return (payload_v as Dictionary).duplicate(true)
+	return {}
 
 static func _ensure_hive_for_multiplayer_seat(hives: Array, source_owner: int, target_owner: int, prefer_lower_y: bool) -> bool:
 	if _hive_count_for_owner(hives, target_owner) > 0:

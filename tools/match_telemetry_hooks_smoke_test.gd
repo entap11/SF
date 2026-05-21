@@ -16,6 +16,17 @@ func _initialize() -> void:
 		0,
 		{
 			"vs_mode": "1V1",
+			"map_path": "res://maps/test/MAP_TEST.json",
+			"map_data": {
+				"id": "MAP_TEST",
+				"grid_w": 4,
+				"grid_h": 2,
+				"hives": [
+					{"id": 1, "grid_pos": [0, 0], "owner_id": 1, "kind": "hive"},
+					{"id": 2, "grid_pos": [3, 0], "owner_id": 2, "kind": "hive"}
+				],
+				"lanes": [{"a_id": 1, "b_id": 2}]
+			},
 			"players": [
 				{"seat": 1, "player_id": "u_smoke_alpha", "display_name": "Alpha", "is_local": true, "is_cpu": false},
 				{"seat": 2, "player_id": "u_smoke_beta", "display_name": "Beta", "is_local": false, "is_cpu": false}
@@ -63,12 +74,25 @@ func _initialize() -> void:
 	var totals: Dictionary = totals_any as Dictionary
 	var metrics: Dictionary = metrics_any as Dictionary
 	var replay: Dictionary = payload.get("replay", {})
+	var video_replay: Dictionary = payload.get("video_replay", {})
 	if int(payload.get("schema_version", 0)) != int(MatchTelemetryModelScript.SCHEMA_VERSION):
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: bad schema %s" % str(payload.get("schema_version", 0)))
 		quit(1)
 		return
 	if typeof(replay) != TYPE_DICTIONARY or (replay.get("frames", []) as Array).is_empty():
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: replay frames missing %s" % str(replay))
+		quit(1)
+		return
+	if typeof(video_replay) != TYPE_DICTIONARY or str(video_replay.get("render_mode", "")) != "actual_arena_scene":
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: video replay package missing %s" % str(video_replay))
+		quit(1)
+		return
+	if ((video_replay.get("input_events", []) as Array).size() != 1):
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: video replay should keep only successful intents %s" % str(video_replay.get("input_events", [])))
+		quit(1)
+		return
+	if ((video_replay.get("map_data", {}) as Dictionary).is_empty()):
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: video replay map data missing")
 		quit(1)
 		return
 	if events.size() < 3:

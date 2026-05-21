@@ -39,20 +39,25 @@ Likely MVP-ready:
 - narrower lanes
 - throttle tuning
 - Delta and public No Man's Land map set direction
-- Hidden CTF map safety rule: multiple owned starting hives required
+- Hidden CTF map safety rule: no NPC hives in the live match; all hives are split evenly between P1/P2 by a small seeded allotment randomizer before hidden flags are selected
 
 Needs targeted validation:
 - perceptible hive pulse on device
 - pass-through smoothness under high unit counts
 - honey drip boot effect after latest shape pass
 - unit/lane/hive visual readability on small phones
-- 5-10 minute soak on the current public map pool
+- 5-10 minute device soak on the current public map pool
 
 ## Immediate Priority Order
 
 ### 1. Gameplay Soak And Lag Pass
 
 Goal: prove the current gameplay loop holds up under pressure.
+
+Status:
+- Headless soak gate now measures Arena script cost, lane/unit renderer script cost, and sim tick cost separately; raw headless frame delta is retained as info only because it reflects idle-loop pacing.
+- 30-second gate passes are green on the current public 545, 323, and Delta targets.
+- Execution-opportunity telemetry is throttled to avoid spending every sim tick scanning lane opportunities.
 
 Tasks:
 - Run repeated matches on the public 545, 323, and Delta pools.
@@ -70,9 +75,10 @@ Exit:
 Goal: stop invalid map/mode combinations before they reach play.
 
 Rules:
-- CTF can use any valid `1p`, `2p`, or `4p` map.
-- Hidden CTF can use only maps where each participating owner has multiple owned starting hives.
-- 3p maps are FFA-specific unless explicitly tagged otherwise later.
+- Free Roll should keep the available map catalog open, but filter by game type/topology.
+- 3P games can only use maps tagged or declared as `3p`.
+- 1v1, 2v2, 4P FFA, CTF, and Hidden CTF can use the shared non-3P map set; runtime ownership/start placement adapts the map for the selected game.
+- Hidden CTF can use only maps with an even hive count; the runtime Hidden CTF map state should contain no NPC hives and should assign hives evenly through a seeded allotment pattern such as left/right, top/bottom, diagonal, checkerboard, or shuffle.
 - 656 maps remain sandboxed unless deliberately reintroduced.
 
 Tasks:
@@ -83,6 +89,8 @@ Tasks:
 ### 3. Menu Cleanup
 
 Goal: make the product shell feel intentional enough for beta.
+
+Status: parked for now while map/mode rules, soak, and beta infrastructure are checked. Current read is that the main menus are working well enough to avoid more churn in this pass.
 
 Tasks:
 - Clean Free Roll game hub flow.
@@ -96,22 +104,23 @@ Exit:
 - no duplicated or misleading mode buttons
 - no stale debug wording in the main flow
 
-### 4. Map Pool Lock
+### 4. Map Type Lock
 
-Goal: lock a small, playable public pool instead of shipping every experiment.
+Goal: keep Free Roll broad while preventing invalid map/game-type combinations.
 
 Current direction:
-- Keep Delta maps public.
-- Keep selected No Man's Land 545 and 323 maps public.
-- Sandbox 656 maps.
+- Keep all currently available maps eligible for Free Roll when their map metadata/topology supports the selected game type.
+- Delta/3P maps are public for 3P games only.
+- No Man's Land and other non-3P maps remain usable across 1v1, 2v2, 4P FFA, CTF, and Hidden CTF, subject to mode-specific constraints such as Hidden CTF's even hive split.
+- 656 maps stay governed by the sandbox switch until deliberately reintroduced.
 
 Tasks:
-- Mark the first MVP public map pool explicitly.
-- Confirm CTF and Hidden CTF pools from that same set.
-- Remove or hide maps that create overwhelming starts.
+- Confirm every Free Roll mode uses map metadata/topology instead of filename suffix assumptions.
+- Confirm CTF and Hidden CTF filter from the shared non-3P set.
+- Add smoke coverage proving 3P modes only draw 3P maps and non-3P modes exclude 3P maps.
 
 Exit:
-- Free Roll only randomizes maps we actually want players to see.
+- Free Roll can randomize any available map that matches the selected game type.
 
 ### 5. Beta Packaging Gate
 

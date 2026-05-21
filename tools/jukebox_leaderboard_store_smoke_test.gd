@@ -16,10 +16,10 @@ func _init() -> void:
 	store.save_path = SMOKE_SAVE_PATH
 	store.debug_reset_state()
 
-	var seeded: Dictionary = store.get_board_snapshot(MAP_ID, MODE, PERIOD, PLAYER_ID, PLAYER_HANDLE, 50)
-	_assert_true(not (seeded.get("entries", []) as Array).is_empty(), "seeded board should not be empty")
-	_assert_eq(int(seeded.get("your_rank", 0)), 0, "seeded board should not fabricate a requester rank")
-	_assert_eq(int(seeded.get("your_best_ms", 0)), 0, "seeded board should not fabricate a requester time")
+	var empty: Dictionary = store.get_board_snapshot(MAP_ID, MODE, PERIOD, PLAYER_ID, PLAYER_HANDLE, 50)
+	_assert_eq((empty.get("entries", []) as Array).size(), 0, "new board should start empty")
+	_assert_eq(int(empty.get("your_rank", 0)), 0, "empty board should not fabricate a requester rank")
+	_assert_eq(int(empty.get("your_best_ms", 0)), 0, "empty board should not fabricate a requester time")
 
 	var improve: Dictionary = store.upsert_result(MAP_ID, MODE, PERIOD, {
 		"player_id": PLAYER_ID,
@@ -42,14 +42,14 @@ func _init() -> void:
 		"updated_at": now_unix + 1
 	})
 	_assert_true(bool(stale.get("ok", false)), "slower run should still be accepted")
-	_assert_true(bool(stale.get("updated", false)), "slower run should still append to the board")
+	_assert_true(bool(stale.get("updated", false)), "slower run should update board metadata")
 
 	var reloaded = JukeboxLeaderboardStoreScript.new()
 	reloaded.save_path = SMOKE_SAVE_PATH
 	var persisted: Dictionary = reloaded.get_board_snapshot(MAP_ID, MODE, PERIOD, PLAYER_ID, PLAYER_HANDLE, 50)
 	_assert_eq(int(persisted.get("your_rank", 0)), 1, "reloaded store should preserve rank")
 	_assert_eq(int(persisted.get("your_best_ms", 0)), 55123, "reloaded store should preserve best time")
-	_assert_eq(_count_player_rows(persisted.get("entries", []) as Array, PLAYER_ID), 2, "reloaded store should preserve multiple runs")
+	_assert_eq(_count_player_rows(persisted.get("entries", []) as Array, PLAYER_ID), 1, "reloaded store should preserve one best row per player")
 
 	print("JUKEBOX_LEADERBOARD_STORE_SMOKE: PASS")
 	quit(0)

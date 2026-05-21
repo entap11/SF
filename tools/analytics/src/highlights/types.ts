@@ -162,6 +162,35 @@ export interface ReplayLinkPayload {
   fallback_url_android: string;
 }
 
+export interface HighlightAcquisitionLink {
+  universal_url: string;
+  app_deep_link: string;
+  app_store_url_ios: string;
+  app_store_url_android: string;
+  desktop_fallback_url: string;
+  campaign: string;
+  cta_text: string;
+}
+
+export interface HighlightVideoCta {
+  text_overlay: string;
+  link_url: string;
+  safe_area: "bottom";
+}
+
+export interface HighlightVideoAsset {
+  source: "deterministic_replay_render";
+  status: "queued" | "rendered" | "skipped";
+  video_url: string;
+  poster_url: string;
+  duration_seconds: number;
+  width: number;
+  height: number;
+  format: "mp4";
+  retention_policy: "ephemeral_source_permanent_clip";
+  cta: HighlightVideoCta;
+}
+
 export interface HighlightPayload {
   schema_version: typeof HIGHLIGHT_SCHEMA_VERSION;
   system_rules: HighlightSystemRules;
@@ -176,7 +205,9 @@ export interface HighlightPayload {
     destinations: string[];
   };
   share_card: HighlightShareCard;
+  highlight_video: HighlightVideoAsset;
   replay_link: ReplayLinkPayload;
+  acquisition_link: HighlightAcquisitionLink;
   message_templates: {
     discord: {
       content: string;
@@ -240,6 +271,11 @@ export interface HighlightConfig {
     fallbackUrlIos: string;
     fallbackUrlAndroid: string;
   };
+  acquisitionLinks: {
+    basePlayUrl: string;
+    campaign: string;
+    ctaText: string;
+  };
   render: {
     assetBaseUrl: string;
     templateKey: string;
@@ -248,6 +284,12 @@ export interface HighlightConfig {
     badgeStyleKey: string;
     outputWidth: number;
     outputHeight: number;
+  };
+  video: {
+    assetBaseUrl: string;
+    outputWidth: number;
+    outputHeight: number;
+    defaultClipSeconds: number;
   };
 }
 

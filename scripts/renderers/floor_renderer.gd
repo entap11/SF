@@ -5,6 +5,8 @@
 class_name FloorRenderer
 extends Node2D
 
+const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
+
 @export var floor_color: Color = Color(0.9, 0.9, 0.92)
 @export var floor_texture: Texture2D = null
 @export var overlay_texture: Texture2D = null
@@ -27,6 +29,14 @@ func configure(grid_w: int, grid_h: int, cell_size: float, origin: Vector2 = Vec
 func get_floor_bounds_rect() -> Rect2:
 	return Rect2(origin_px, _size_px)
 
+func get_visual_floor_bounds_rect() -> Rect2:
+	var margin: float = maxf(0.0, margin_px)
+	var vertical_overscan: float = maxf(0.0, vertical_overscan_px)
+	return Rect2(
+		origin_px - Vector2(margin, vertical_overscan),
+		_size_px + Vector2(margin * 2.0, vertical_overscan * 2.0)
+	)
+
 func get_base_floor_sprite() -> Sprite2D:
 	if _base_floor != null and is_instance_valid(_base_floor):
 		return _base_floor
@@ -42,12 +52,7 @@ func _draw() -> void:
 		return
 	if _size_px.x <= 0.0 or _size_px.y <= 0.0:
 		return
-	var margin: float = maxf(0.0, margin_px)
-	var vertical_overscan: float = maxf(0.0, vertical_overscan_px)
-	var rect: Rect2 = Rect2(
-		origin_px - Vector2(margin, vertical_overscan),
-		_size_px + Vector2(margin * 2.0, vertical_overscan * 2.0)
-	)
+	var rect: Rect2 = get_visual_floor_bounds_rect()
 	if floor_texture != null:
 		draw_texture_rect(floor_texture, rect, false)
 	else:
@@ -61,6 +66,9 @@ func _ensure_floor_sprites() -> bool:
 	var overlay_ok := _overlay_floor != null and is_instance_valid(_overlay_floor)
 	if not base_ok or not overlay_ok:
 		return false
+	var selected_floor_texture: Texture2D = CosmeticThemeDB.get_selected_floor_texture()
+	if selected_floor_texture != null:
+		floor_texture = selected_floor_texture
 	if floor_texture == null and overlay_texture == null:
 		return false
 	_base_floor.texture = floor_texture
@@ -77,10 +85,9 @@ func _apply_floor_layout() -> void:
 	var overlay_ok := _overlay_floor != null and is_instance_valid(_overlay_floor)
 	if not base_ok or not overlay_ok:
 		return
-	var margin: float = maxf(0.0, margin_px)
-	var vertical_overscan: float = maxf(0.0, vertical_overscan_px)
-	var size: Vector2 = _size_px + Vector2(margin * 2.0, vertical_overscan * 2.0)
-	var center: Vector2 = origin_px + Vector2(_size_px.x * 0.5, _size_px.y * 0.5)
+	var visual_bounds: Rect2 = get_visual_floor_bounds_rect()
+	var size: Vector2 = visual_bounds.size
+	var center: Vector2 = visual_bounds.get_center()
 	_base_floor.position = center
 	_overlay_floor.position = center
 	if floor_texture != null:

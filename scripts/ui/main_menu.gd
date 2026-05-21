@@ -4,6 +4,7 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
+const MAP_MODE_RULES = preload("res://scripts/maps/map_mode_rules.gd")
 const SWARM_PASS_PANEL_SCENE_PATH: String = "res://scenes/ui/SwarmPassPanel.tscn"
 const BATTLE_PASS_PANEL_SCENE_PATH: String = "res://scenes/ui/BattlePassPanel.tscn"
 const RANK_PANEL_SCENE_PATH: String = "res://scenes/ui/RankPanel.tscn"
@@ -41,7 +42,7 @@ const TIER_WIDGET_LEFT_MARGIN: float = 8.0
 const TIER_WIDGET_TOP_OFFSET: float = 10.0
 const TIER_WIDGET_PANEL_WIDTH: float = 272.0
 const TIER_WIDGET_PANEL_HEIGHT: float = 200.0
-const MM_BACKGROUND_Y_SHIFT: float = -500.0
+const MM_BACKGROUND_Y_SHIFT: float = -680.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -51,7 +52,13 @@ const MM_HERO_PANEL_ANCHOR_RIGHT: float = 0.86
 const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
 const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
 const MATCH_REPLAY_SAVE_DIR: String = "user://matches"
-const MM_BOOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/mm_base_drop.wav"
+const MM_BOOT_SOUND_ENABLED: bool = false
+const MM_BOOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/mm_ambient.wav"
+const MM_BASE_DROP_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/mm_base_drop.mp3"
+const STORE_PURCHASE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/store_purchase.wav"
+const MATCHMAKER_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/matchmaker.wav"
+const JUKEBOX_PLAY_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/jukebox_play.wav"
+const BUFF_EQUIP_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/buff_equip.wav"
 
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
@@ -100,6 +107,7 @@ const HIVE_VIEW_CANDIDATE := "candidate"
 @onready var dash_garage_tab: Button = $DashPanel/DashRoot/DashTabs/GarageTab
 @onready var dash_buffs_tab: Button = $DashPanel/DashRoot/DashTabs/BuffsTab
 @onready var dash_achievements_tab: Button = $DashPanel/DashRoot/DashTabs/AchievementsTab
+@onready var dash_settings_tab: Button = $DashPanel/DashRoot/DashTabs/SettingsTab
 @onready var dash_hexes: VBoxContainer = $DashPanel/DashHexes
 @onready var dash_match_panel: Panel = $DashPanel/DashRoot/MatchHistoryPanel
 @onready var dash_badges_panel: Panel = $DashPanel/DashRoot/BadgesPanel
@@ -259,6 +267,8 @@ var _rank_context_panel: Panel = null
 var _jukebox_panel: Panel = null
 var _dash_hex_jukebox: HexButton = null
 var _mm_boot_sound_player: AudioStreamPlayer = null
+var _mm_boot_sound_started: bool = false
+var _menu_sfx_player: AudioStreamPlayer = null
 const TREE_META_REOPEN_JUKEBOX_ON_READY: String = "reopen_jukebox_on_ready"
 const TREE_META_REOPEN_JUKEBOX_STATE: String = "reopen_jukebox_state"
 var _dash_garage_panel: Control = null
@@ -394,6 +404,7 @@ var _dash_tab_closed_right := 0.0
 var _dash_tab_open_left := 0.0
 var _dash_tab_open_right := 0.0
 var _dash_tween: Tween
+var _main_art_shroud_active: bool = true
 var _store_direct_mode: bool = false
 var _settings_direct_mode: bool = false
 var _buffs_direct_mode: bool = false
@@ -524,9 +535,9 @@ const STORE_CATEGORY_SKIN_BY_ID: Dictionary = {
 	"BUNDLES": "res://assets/sprites/sf_skin_v1/Bundles.png",
 	"BATTLEPASS": "res://assets/sprites/sf_skin_v1/battle_pass.png",
 	"BUFFS": "res://assets/sprites/sf_skin_v1/Buffs_1.png",
-	"GAMEPLAYANALYSIS": "res://assets/sprites/sf_skin_v1/Analyticsii.png",
+	"GAMEPLAYANALYSIS": "res://assets/sprites/sf_skin_v1/game_analytics.png",
 	"SKINS": "res://assets/sprites/sf_skin_v1/skins_alpha.png",
-	"MERCH": "res://assets/sprites/sf_skin_v1/merch.png"
+	"MERCH": "res://assets/sprites/sf_skin_v1/merchii.png"
 }
 const HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
 	"1V1": "res://assets/sprites/sf_skin_v1/1v1.png",
@@ -562,7 +573,7 @@ const BOTTOM_NAV_OUTER_PADDING: float = 8.0
 const BOTTOM_NAV_GROUP_SEPARATION: int = 6
 const BOTTOM_NAV_BUTTON_SEPARATION: int = 4
 const HIVE_DROPDOWN_WIDTH: float = 420.0
-const HIVE_DROPDOWN_HEIGHT: float = 424.0
+const HIVE_DROPDOWN_HEIGHT: float = 292.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
 const HIVE_PULLDOWN_DURATION: float = 0.24
 const GAME_HUB_OVERLAY_TARGET_WIDTH: float = 980.0
@@ -574,6 +585,7 @@ const GAME_HUB_OVERLAY_FREE_MIN_HEIGHT: float = 700.0
 const GAME_HUB_OVERLAY_PAID_MIN_HEIGHT: float = 760.0
 const GAME_HUB_OVERLAY_EXTRA_BOTTOM_PX: float = 50.0
 const GAME_HUB_OVERLAY_EXTRA_TOP_PX: float = 30.0
+const GAME_HUB_OVERLAY_FREE_SHIFT_DOWN_PX: float = 36.0
 const GAME_HUB_HUMAN_BUTTON_SIZE: Vector2 = Vector2(172.0, 72.0)
 const GAME_HUB_HUMAN_ICON_MAX_WIDTH: int = 166
 const GAME_HUB_CYCLE_BUTTON_SIZE: Vector2 = Vector2(286.0, 108.0)
@@ -587,7 +599,7 @@ const GAME_HUB_CONTENT_SHIFT_X: float = -20.0
 const GAME_HUB_FREE_CENTER_BIAS_X: float = 0.0
 const GAME_HUB_FREE_CENTER_TRACK_RIGHT_INSET: float = 84.0
 const GAME_HUB_FREE_BUTTON_TRACK_RIGHT_INSET: float = 96.0
-const GAME_HUB_FREE_LAYOUT_VERSION: int = 6
+const GAME_HUB_FREE_LAYOUT_VERSION: int = 8
 const GAME_HUB_CONTENT_TOP_PADDING_PX: float = 24.0
 const GAME_HUB_FREE_CONTENT_TOP_PADDING_PX: float = 42.0
 const GAME_HUB_FREE_BODY_SEPARATION: int = 14
@@ -629,7 +641,7 @@ const STORE_INLAY_STRETCH_X_PX: float = 0.0
 const STORE_INLAY_STRETCH_Y_PX: float = 0.0
 const STORE_INLAY_TEXTURE_PAN_X_PX: float = 0.0
 const STORE_INLAY_TEXTURE_PAN_Y_PX: float = 0.0
-const STORE_HEADER_TOP_INSET: float = -116.0
+const STORE_HEADER_TOP_INSET: float = -104.0
 const STORE_HEADER_BOTTOM_INSET: float = 24.0
 const STORE_VBOX_SPACING: int = 10
 const STORE_CATEGORY_GRID_COLUMNS: int = 2
@@ -1123,6 +1135,7 @@ func _ready() -> void:
 			HiveClanState.hive_clan_state_changed.connect(_on_hive_clan_state_changed)
 	_sync_hive_panel_profile_from_hive_state()
 	_start_friend_presence_poll()
+	call_deferred("_sync_main_art_shroud")
 	call_deferred("_play_mm_boot_sound")
 	call_deferred("_auto_start_home_replay")
 
@@ -1166,7 +1179,11 @@ func _swarmfront_title_shader_resource() -> Shader:
 	return _swarmfront_title_shader
 
 func _play_mm_boot_sound() -> void:
-	if not _is_menu_boot_sfx_enabled():
+	if not MM_BOOT_SOUND_ENABLED:
+		return
+	if _mm_boot_sound_started:
+		return
+	if not _is_menu_sfx_enabled():
 		return
 	var stream: AudioStream = load(MM_BOOT_SOUND_PATH) as AudioStream
 	if stream == null:
@@ -1177,9 +1194,57 @@ func _play_mm_boot_sound() -> void:
 		_mm_boot_sound_player.name = "MMBootSoundPlayer"
 		add_child(_mm_boot_sound_player)
 	_mm_boot_sound_player.stream = stream
+	_mm_boot_sound_started = true
 	_mm_boot_sound_player.play()
 
+func _play_menu_sfx(sound_path: String, persist_on_scene_change: bool = false) -> void:
+	if not _is_menu_sfx_enabled():
+		return
+	var clean_path: String = sound_path.strip_edges()
+	if clean_path.is_empty():
+		return
+	var stream: AudioStream = load(clean_path) as AudioStream
+	if stream == null:
+		push_warning("MENU_SFX_MISSING: " + clean_path)
+		return
+	if persist_on_scene_change:
+		var tree: SceneTree = get_tree()
+		if tree == null or tree.root == null:
+			return
+		var transient_player := AudioStreamPlayer.new()
+		transient_player.name = "MenuTransientSfxPlayer"
+		transient_player.stream = stream
+		transient_player.finished.connect(Callable(transient_player, "queue_free"))
+		tree.root.add_child(transient_player)
+		transient_player.play()
+		return
+	if _menu_sfx_player == null or not is_instance_valid(_menu_sfx_player):
+		_menu_sfx_player = AudioStreamPlayer.new()
+		_menu_sfx_player.name = "MenuSfxPlayer"
+		add_child(_menu_sfx_player)
+	_menu_sfx_player.stop()
+	_menu_sfx_player.stream = stream
+	_menu_sfx_player.play()
+
+func _play_store_purchase_sfx() -> void:
+	_play_menu_sfx(STORE_PURCHASE_SOUND_PATH)
+
+func _play_mm_base_drop_sfx() -> void:
+	_play_menu_sfx(MM_BASE_DROP_SOUND_PATH)
+
+func _play_matchmaker_sfx() -> void:
+	_play_menu_sfx(MATCHMAKER_SOUND_PATH, true)
+
+func _play_jukebox_play_sfx() -> void:
+	_play_menu_sfx(JUKEBOX_PLAY_SOUND_PATH, true)
+
+func _play_buff_equip_sfx() -> void:
+	_play_menu_sfx(BUFF_EQUIP_SOUND_PATH)
+
 func _is_menu_boot_sfx_enabled() -> bool:
+	return _is_menu_sfx_enabled()
+
+func _is_menu_sfx_enabled() -> bool:
 	if ProfileManager == null:
 		return true
 	if ProfileManager.has_method("is_audio_enabled") and not bool(ProfileManager.call("is_audio_enabled")):
@@ -1208,7 +1273,45 @@ func _apply_pending_jukebox_reopen_request() -> void:
 		_jukebox_panel.call("restore_runtime_state", restore_state)
 
 func _process(_delta: float) -> void:
+	_sync_main_art_shroud()
 	_refresh_open_free_roll_game_hub_if_stale()
+
+func _sync_main_art_shroud() -> void:
+	var should_shroud: bool = _has_open_main_menu_surface()
+	if should_shroud == _main_art_shroud_active:
+		return
+	_main_art_shroud_active = should_shroud
+	if main_hex_background != null:
+		main_hex_background.visible = should_shroud
+	if platform_dimmer != null:
+		platform_dimmer.visible = should_shroud
+
+func _has_open_main_menu_surface() -> bool:
+	if onboarding_overlay != null and onboarding_overlay.visible:
+		return true
+	if dash_panel != null and dash_panel.visible:
+		return true
+	if async_panel != null and async_panel.visible:
+		return true
+	if _entry_route_modal != null and is_instance_valid(_entry_route_modal):
+		return true
+	if _hive_dropdown_open:
+		return true
+	if _play_mode_select != null and is_instance_valid(_play_mode_select) and _play_mode_select.visible:
+		return true
+	if _vs_lobby != null and is_instance_valid(_vs_lobby) and _vs_lobby.visible:
+		return true
+	if _time_puzzle_lobby != null and is_instance_valid(_time_puzzle_lobby) and _time_puzzle_lobby.visible:
+		return true
+	if _swarm_pass_panel != null and is_instance_valid(_swarm_pass_panel) and _swarm_pass_panel.visible:
+		return true
+	if _battle_pass_panel != null and is_instance_valid(_battle_pass_panel) and _battle_pass_panel.visible:
+		return true
+	if _rank_panel != null and is_instance_valid(_rank_panel) and _rank_panel.visible:
+		return true
+	if _rank_context_panel != null and is_instance_valid(_rank_context_panel) and _rank_context_panel.visible:
+		return true
+	return false
 
 func _refresh_open_free_roll_game_hub_if_stale() -> void:
 	if _game_hub_live_refresh_pending:
@@ -1816,7 +1919,7 @@ func _style_dash_top_tabs() -> void:
 	if dash_tabs != null:
 		dash_tabs.alignment = BoxContainer.ALIGNMENT_CENTER
 		dash_tabs.add_theme_constant_override("separation", 12)
-	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_friends_tab]:
+	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, dash_settings_tab, _dash_friends_tab]:
 		if button == null:
 			continue
 		button.toggle_mode = true
@@ -1884,6 +1987,9 @@ func _wire_buttons() -> void:
 	)
 	dash_achievements_tab.pressed.connect(func() -> void:
 		_set_dash_top_tab(DASH_HERO_TAB_ACHIEVEMENTS)
+	)
+	dash_settings_tab.pressed.connect(func() -> void:
+		_open_dash_panel(dash_settings_panel)
 	)
 	dash_hex_buffs.pressed.connect(func(): _open_dash_panel(dash_buffs_panel))
 	dash_hex_store.pressed.connect(func(): _open_dash_panel(dash_store_panel))
@@ -2131,76 +2237,51 @@ func _ensure_hive_dropdown() -> void:
 	body.add_theme_constant_override("separation", 8)
 	panel.add_child(body)
 
+	_rebuild_hive_dropdown_options(false)
+
+func _add_hive_dropdown_label(body: VBoxContainer, text: String, font_size: int, centered: bool = true) -> Label:
 	var title: Label = Label.new()
-	title.text = "HIVE MENU"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.text = text
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER if centered else HORIZONTAL_ALIGNMENT_LEFT
 	body.add_child(title)
-	_apply_font(title, _font_semibold, 16)
+	_apply_font(title, _font_semibold if font_size >= 16 else _font_regular, font_size)
+	return title
 
-	var sub: Label = Label.new()
-	sub.text = "Top pull-down. No side dash required."
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	body.add_child(sub)
-	_apply_font(sub, _font_regular, 12)
+func _add_hive_dropdown_button(body: VBoxContainer, text: String, action: String, primary: bool = false) -> Button:
+	var button: Button = Button.new()
+	button.text = text
+	button.custom_minimum_size = Vector2(0.0, 32.0)
+	button.pressed.connect(func(): _on_hive_dropdown_action(action))
+	body.add_child(button)
+	_apply_font(button, _font_regular, 13)
+	if primary:
+		_style_button(button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	else:
+		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	return button
 
-	var create_hive_button: Button = Button.new()
-	create_hive_button.text = "CREATE HIVE"
-	create_hive_button.pressed.connect(func(): _on_hive_dropdown_action("create"))
-	body.add_child(create_hive_button)
-	_apply_font(create_hive_button, _font_regular, 13)
-	_style_button(create_hive_button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
-
-	var browse_hive_button: Button = Button.new()
-	browse_hive_button.text = "BROWSE HIVES"
-	browse_hive_button.pressed.connect(func(): _on_hive_dropdown_action("browse"))
-	body.add_child(browse_hive_button)
-	_apply_font(browse_hive_button, _font_regular, 13)
-	_style_button(browse_hive_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
-
-	var my_invites_button: Button = Button.new()
-	my_invites_button.text = "MY INVITES"
-	my_invites_button.pressed.connect(func(): _on_hive_dropdown_action("my_invites"))
-	body.add_child(my_invites_button)
-	_apply_font(my_invites_button, _font_regular, 13)
-	_style_button(my_invites_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
-
-	var applications_button: Button = Button.new()
-	applications_button.text = "APPLICATIONS"
-	applications_button.pressed.connect(func(): _on_hive_dropdown_action("applications"))
-	body.add_child(applications_button)
-	_apply_font(applications_button, _font_regular, 13)
-	_style_button(applications_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
-
-	var member_actions_button: Button = Button.new()
-	member_actions_button.text = "MEMBER ACTIONS"
-	member_actions_button.pressed.connect(func(): _on_hive_dropdown_action("member_actions"))
-	body.add_child(member_actions_button)
-	_apply_font(member_actions_button, _font_regular, 13)
-	_style_button(member_actions_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
-
-	var open_hive_button: Button = Button.new()
-	open_hive_button.text = "OPEN HIVE DASHBOARD"
-	open_hive_button.pressed.connect(func(): _on_hive_dropdown_action("dashboard"))
-	body.add_child(open_hive_button)
-	_apply_font(open_hive_button, _font_regular, 13)
-	_style_button(open_hive_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
-
-	var chat_button: Button = Button.new()
-	chat_button.text = "HIVE CHAT"
-	chat_button.pressed.connect(func(): _on_hive_dropdown_action("chat"))
-	body.add_child(chat_button)
-	_apply_font(chat_button, _font_regular, 13)
-	_style_button(chat_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
-
-	var ladder_button: Button = Button.new()
-	ladder_button.text = "HIVE RANKINGS"
-	ladder_button.pressed.connect(func(): _on_hive_dropdown_action("ladder"))
-	body.add_child(ladder_button)
-	_apply_font(ladder_button, _font_regular, 13)
-	_style_button(ladder_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
-
+func _rebuild_hive_dropdown_options(is_member: bool = false) -> void:
+	if _hive_dropdown_panel == null:
+		return
+	var body: VBoxContainer = _hive_dropdown_panel.get_node_or_null("HiveDropdownVBox") as VBoxContainer
+	if body == null:
+		return
+	for child in body.get_children():
+		body.remove_child(child)
+		child.queue_free()
+	_add_hive_dropdown_label(body, "HIVE MENU", 16)
+	if is_member:
+		_add_hive_dropdown_label(body, "Opening your hive dashboard.", 12)
+		_add_hive_dropdown_button(body, "OPEN HIVE DASHBOARD", "dashboard", true)
+	else:
+		_add_hive_dropdown_label(body, "Join a hive or start your own.", 12)
+		_add_hive_dropdown_button(body, "CREATE A HIVE", "create", true)
+		_add_hive_dropdown_button(body, "BROWSE HIVES", "browse")
+		_add_hive_dropdown_button(body, "MY INVITES", "my_invites")
+		_add_hive_dropdown_button(body, "HIVE RANKINGS", "ladder")
 	var close_button: Button = Button.new()
 	close_button.text = "CLOSE"
+	close_button.custom_minimum_size = Vector2(0.0, 30.0)
 	close_button.pressed.connect(func(): _set_hive_dropdown_open(false))
 	body.add_child(close_button)
 	_apply_font(close_button, _font_regular, 12)
@@ -2228,6 +2309,64 @@ func _on_hive_dropdown_action(action: String) -> void:
 		_:
 			pass
 
+func _ensure_hive_dashboard_menu_row() -> HBoxContainer:
+	var header_vbox: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox
+	var existing: HBoxContainer = header_vbox.get_node_or_null("HiveDashboardMenuRow") as HBoxContainer
+	if existing != null:
+		return existing
+	var row: HBoxContainer = HBoxContainer.new()
+	row.name = "HiveDashboardMenuRow"
+	row.layout_mode = 2
+	row.add_theme_constant_override("separation", 8)
+	header_vbox.add_child(row)
+	_add_hive_dashboard_menu_button(row, "Applications", "applications")
+	_add_hive_dashboard_menu_button(row, "Member Actions", "member_actions")
+	_add_hive_dashboard_menu_button(row, "Hive Chat", "chat")
+	_add_hive_dashboard_menu_button(row, "Hive Rankings", "ladder")
+	return row
+
+func _add_hive_dashboard_menu_button(row: HBoxContainer, text: String, action: String) -> Button:
+	var button: Button = Button.new()
+	button.name = "%sButton" % text.replace(" ", "")
+	button.text = text.to_upper()
+	button.layout_mode = 2
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size = Vector2(0.0, 34.0)
+	button.set_meta("hive_dashboard_action", action)
+	button.pressed.connect(func(): _on_hive_dashboard_menu_action(action))
+	row.add_child(button)
+	_apply_font(button, _font_regular, 12)
+	_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	return button
+
+func _refresh_hive_dashboard_menu_row(member_view: bool) -> void:
+	var row: HBoxContainer = _ensure_hive_dashboard_menu_row()
+	row.visible = member_view
+	if not member_view:
+		return
+	var role_key: String = _current_hive_role_key()
+	var is_officer: bool = role_key == "queen" or role_key == "soldier"
+	for child in row.get_children():
+		var button: Button = child as Button
+		if button == null:
+			continue
+		var action: String = str(button.get_meta("hive_dashboard_action", ""))
+		button.visible = action != "applications" or is_officer
+		button.disabled = false
+
+func _on_hive_dashboard_menu_action(action: String) -> void:
+	match action:
+		"applications":
+			_open_hive_applications_dialog()
+		"member_actions":
+			_open_hive_member_actions_dialog()
+		"chat":
+			_open_hive_comms_access()
+		"ladder":
+			_open_hive_rankings_dialog()
+		_:
+			pass
+
 func _set_hive_dropdown_open(open: bool) -> void:
 	_ensure_hive_dropdown()
 	if _hive_dropdown_panel == null:
@@ -2237,6 +2376,7 @@ func _set_hive_dropdown_open(open: bool) -> void:
 	var target_top: float = _hive_dropdown_open_top() if open else _hive_dropdown_closed_top()
 	if open:
 		_close_top_level_windows(UI_SURFACE_HIVE_DROPDOWN)
+		_rebuild_hive_dropdown_options(_player_has_hive_membership())
 		_hive_dropdown_panel.visible = true
 	_hive_dropdown_tween = create_tween()
 	_hive_dropdown_tween.tween_property(_hive_dropdown_panel, "offset_top", target_top, 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
@@ -2249,6 +2389,12 @@ func _set_hive_dropdown_open(open: bool) -> void:
 	_hive_dropdown_open = open
 
 func _toggle_hive_dropdown() -> void:
+	if _player_has_hive_membership():
+		_hide_hive_dropdown_immediate()
+		_sync_hive_panel_profile_from_hive_state()
+		_open_hive_panel()
+		return
+	_play_mm_base_drop_sfx()
 	_set_hive_dropdown_open(not _hive_dropdown_open)
 
 func _hide_hive_dropdown_immediate() -> void:
@@ -4988,6 +5134,10 @@ func _current_hive_membership() -> Dictionary:
 		return {}
 	return HiveClanState.call("get_player_membership") as Dictionary
 
+func _player_has_hive_membership() -> bool:
+	var membership: Dictionary = _current_hive_membership()
+	return not str(membership.get("hive_id", "")).strip_edges().is_empty()
+
 func _current_hive_role_key() -> String:
 	var membership: Dictionary = _current_hive_membership()
 	return str(membership.get("role", "member")).strip_edges().to_lower()
@@ -5498,9 +5648,12 @@ func _apply_swarmfront_title_shader(label: Label) -> void:
 		mat = mat.duplicate() as ShaderMaterial
 	label.material = mat
 	mat.set_shader_parameter("backlight_color", Color(1.0, 0.831, 0.0, 1.0))
-	mat.set_shader_parameter("halo_core_strength", 1.15)
-	mat.set_shader_parameter("halo_outer_strength", 0.58)
-	mat.set_shader_parameter("wall_spill_strength", 0.22)
+	mat.set_shader_parameter("halo_core_strength", 1.28)
+	mat.set_shader_parameter("halo_outer_strength", 0.86)
+	mat.set_shader_parameter("halo_core_radius_px", 4.4)
+	mat.set_shader_parameter("halo_outer_radius_px", 15.0)
+	mat.set_shader_parameter("wall_spill_strength", 0.36)
+	mat.set_shader_parameter("wall_spill_shift_px", 9.0)
 	mat.set_shader_parameter("bevel_strength", 0.24)
 
 func _suppress_legacy_brand_banner() -> void:
@@ -6084,6 +6237,8 @@ func _set_dash_top_tab(tab_id: String, force_refresh: bool = false) -> void:
 		normalized_tab = DASH_HERO_TAB_GARAGE
 	if not force_refresh and normalized_tab == _dash_active_tab:
 		return
+	if not force_refresh:
+		_play_mm_base_drop_sfx()
 	_dash_active_tab = normalized_tab
 	_ensure_dash_tab_heroes()
 	_refresh_dash_top_tabs()
@@ -6106,6 +6261,10 @@ func _refresh_dash_top_tabs() -> void:
 	if _dash_friends_tab != null:
 		_dash_friends_tab.button_pressed = active_friends
 		_apply_dash_top_tab_style(_dash_friends_tab, active_friends)
+	if dash_settings_tab != null:
+		var active_settings: bool = dash_settings_panel != null and dash_settings_panel.visible
+		dash_settings_tab.button_pressed = active_settings
+		_apply_dash_top_tab_style(dash_settings_tab, active_settings)
 
 func _apply_dash_top_tab_style(button: Button, selected: bool) -> void:
 	if button == null:
@@ -6194,6 +6353,7 @@ func _refresh_hive_panel() -> void:
 		hive_sub_label.text += " | Leaving in %s" % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
 	hive_honey_label.text = "HIVE HONEY: %s" % _format_number(hive_honey)
 	hive_total_honey_label.text = "TOTAL HIVE HONEY: %s" % _format_number(hive_honey_total)
+	_refresh_hive_dashboard_menu_row(true)
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "MY MEMBERSHIP"
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Leadership: %s" % office_title
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Time in hive: %s" % member_since_text
@@ -6318,6 +6478,7 @@ func _refresh_hive_candidate_panel() -> void:
 	]
 	hive_honey_label.text = "YOUR HONEY: %s" % _format_number(local_honey)
 	hive_total_honey_label.text = "YOUR WAX: %s" % _format_number(int(round(local_wax_score)))
+	_refresh_hive_dashboard_menu_row(false)
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "SELECTED HIVE"
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "RECOMMENDED HIVES %d" % browse_hives.size()
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "HIVE ACCOMPLISHMENTS"
@@ -8104,6 +8265,7 @@ func _purchase_library_buffs(ids: Array[String]) -> Dictionary:
 	_refresh_buffs_owned_ui()
 	_refresh_buffs_library_buttons()
 	_update_buff_details()
+	_play_store_purchase_sfx()
 	return {
 		"ok": true,
 		"purchased_ids": purchase_ids.duplicate(),
@@ -8470,6 +8632,7 @@ func _drop_owned_to_loadout(buff_id: String, slot_index: int) -> void:
 		_buff_loadout_ids[slot_index] = buff_id
 		_persist_buff_profile_state()
 		_set_selected_buff(buff_id, "loadout", slot_index)
+		_play_buff_equip_sfx()
 		status_label.text = "Equipped to slot %d (Async stack)." % (slot_index + 1)
 		return
 	var existing_slot: int = _buff_loadout_ids.find(buff_id)
@@ -8482,6 +8645,7 @@ func _drop_owned_to_loadout(buff_id: String, slot_index: int) -> void:
 	_buff_loadout_ids[slot_index] = buff_id
 	_persist_buff_profile_state()
 	_set_selected_buff(buff_id, "loadout", slot_index)
+	_play_buff_equip_sfx()
 	status_label.text = "Equipped to slot %d." % (slot_index + 1)
 
 func _swap_loadout_slots(a: int, b: int) -> void:
@@ -8496,6 +8660,7 @@ func _swap_loadout_slots(a: int, b: int) -> void:
 	_buff_loadout_ids[b] = tmp
 	_persist_buff_profile_state()
 	_refresh_buffs_loadout_ui()
+	_play_buff_equip_sfx()
 	status_label.text = "Loadout slots swapped."
 
 func _slot_index_at_screen(screen_pos: Vector2) -> int:
@@ -9293,6 +9458,7 @@ func _on_store_sku_pressed(sku: Dictionary) -> void:
 			granted_count,
 			_current_honey_balance()
 		]
+		_play_store_purchase_sfx()
 		return
 	if sku.has("price_real"):
 		if not LOCAL_REAL_PURCHASES_ENABLED:
@@ -9310,6 +9476,7 @@ func _on_store_sku_pressed(sku: Dictionary) -> void:
 			str(sku.get("price_real", "")),
 			granted_local_count
 		]
+		_play_store_purchase_sfx()
 		return
 	status_label.text = "Store item has no recognized price: %s" % title
 
@@ -9645,15 +9812,18 @@ func _on_play_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/VSMenu.tscn")
 
 func _open_buffs_store() -> void:
+	_play_mm_base_drop_sfx()
 	_close_top_level_windows()
 	_open_buffs_panel()
 	status_label.text = "Buff store opened."
 
 func _open_free_roll_split() -> void:
+	_play_mm_base_drop_sfx()
 	_close_top_level_windows()
 	_open_game_hub(false, 0)
 
 func _open_cash_split() -> void:
+	_play_mm_base_drop_sfx()
 	_close_top_level_windows()
 	if _dev_bypass_cash_balance:
 		_open_game_hub(true, _default_money_denomination())
@@ -9664,6 +9834,7 @@ func _open_cash_split() -> void:
 	_open_game_hub(true, _default_money_denomination())
 
 func _on_battle_pass_pressed() -> void:
+	_play_mm_base_drop_sfx()
 	_close_top_level_windows()
 	_open_battle_pass_panel()
 	status_label.text = "Battle Pass opened."
@@ -9711,6 +9882,8 @@ func _ensure_battle_pass_panel() -> void:
 		_battle_pass_panel.visible = false
 		if _battle_pass_panel.has_signal("close_requested"):
 			_battle_pass_panel.connect("close_requested", Callable(self, "_close_battle_pass_panel"))
+		if _battle_pass_panel.has_signal("store_requested"):
+			_battle_pass_panel.connect("store_requested", Callable(self, "_on_battle_pass_store_requested"))
 
 func _open_battle_pass_panel() -> void:
 	_close_top_level_windows(UI_SURFACE_BATTLE_PASS)
@@ -9724,6 +9897,10 @@ func _close_battle_pass_panel() -> void:
 	if _battle_pass_panel == null:
 		return
 	_battle_pass_panel.visible = false
+
+func _on_battle_pass_store_requested() -> void:
+	_close_battle_pass_panel()
+	_open_storefront_panel()
 
 func _ensure_rank_panel() -> void:
 	if _rank_panel != null and is_instance_valid(_rank_panel):
@@ -10289,12 +10466,23 @@ func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
 	panel = _configure_entry_overlay_panel(panel, "FREE ROLL", "Select mode and route.", overlay_size, true)
 	if panel == null:
 		return
+	_shift_free_roll_overlay_down(panel)
 	panel.set_meta("sf_scene_owned_layout", true)
 	_apply_game_hub_panel_fx(panel)
 	_apply_game_hub_title_treatment(panel, "FREE ROLL", GAME_HUB_FREE_CENTER_TRACK_RIGHT_INSET)
 	panel.set_meta("sf_free_layout_version", GAME_HUB_FREE_LAYOUT_VERSION)
 	_configure_free_roll_game_hub_scene(panel, selected_denom)
 	_entry_route_modal = panel
+
+func _shift_free_roll_overlay_down(panel: Panel) -> void:
+	if panel == null:
+		return
+	var viewport_height: float = get_viewport_rect().size.y
+	var current_bottom: float = (viewport_height * 0.5) + panel.offset_bottom
+	var remaining_down_space: float = maxf(0.0, viewport_height - current_bottom - 8.0)
+	var shift_y: float = minf(GAME_HUB_OVERLAY_FREE_SHIFT_DOWN_PX, remaining_down_space)
+	panel.offset_top += shift_y
+	panel.offset_bottom += shift_y
 
 func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> void:
 	if panel == null:
@@ -10365,6 +10553,7 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 func _style_free_roll_game_hub_scene(panel: Panel) -> void:
 	if panel == null:
 		return
+	_layout_free_roll_game_hub_scene(panel)
 	var block_labels: Array[String] = [
 		"EntryScroll/EntryBody/EntryCanvas/MatchTypeLabel",
 		"EntryScroll/EntryBody/EntryCanvas/MapConfigLabel"
@@ -10375,7 +10564,7 @@ func _style_free_roll_game_hub_scene(panel: Panel) -> void:
 			continue
 		label.add_theme_color_override("font_color", GAME_HUB_BLOCK_LABEL_COLOR)
 		label.add_theme_constant_override("outline_size", 0)
-		_apply_font(label, _font_semibold, 11)
+		_apply_font(label, _font_semibold, 13)
 	var section_heading_paths: Array[String] = [
 		"EntryScroll/EntryBody/EntryCanvas/HumanMatchesHeading",
 		"EntryScroll/EntryBody/EntryCanvas/TimePuzzlesHeading",
@@ -10389,7 +10578,7 @@ func _style_free_roll_game_hub_scene(panel: Panel) -> void:
 			continue
 		label.add_theme_color_override("font_color", GAME_HUB_SECTION_HEADER_COLOR)
 		label.add_theme_constant_override("outline_size", 0)
-		_apply_font(label, _font_semibold, 13)
+		_apply_font(label, _font_semibold, 16)
 	var subtext_paths: Array[String] = [
 		"EntryScroll/EntryBody/EntryCanvas/HumanMatchesSubtext",
 		"EntryScroll/EntryBody/EntryCanvas/TimePuzzlesSubtext"
@@ -10400,10 +10589,176 @@ func _style_free_roll_game_hub_scene(panel: Panel) -> void:
 			continue
 		label.add_theme_color_override("font_color", GAME_HUB_SECTION_SUBTEXT_COLOR)
 		label.add_theme_constant_override("outline_size", 0)
-		_apply_font(label, _font_regular, 11)
+		_apply_font(label, _font_regular, 13)
 	var divider: ColorRect = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/MapConfigDivider") as ColorRect
 	if divider != null:
 		divider.color = GAME_HUB_DIVIDER_COLOR
+
+func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
+	var body: VBoxContainer = panel.get_node_or_null("EntryScroll/EntryBody") as VBoxContainer
+	var canvas: Control = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas") as Control
+	if body == null or canvas == null:
+		return
+	var panel_width: float = maxf(1.0, panel.offset_right - panel.offset_left)
+	var content_width: float = clampf(panel_width - 32.0, 320.0, 980.0)
+	body.custom_minimum_size = Vector2(content_width, 0.0)
+	body.add_theme_constant_override("separation", 12)
+	canvas.custom_minimum_size = Vector2(content_width, 1340.0)
+
+	var margin_x: float = 28.0
+	var y: float = 22.0
+	_place_free_roll_label(panel, "EntryScroll/EntryBody/EntryCanvas/MatchTypeLabel", margin_x, y, content_width - (margin_x * 2.0), 26.0, HORIZONTAL_ALIGNMENT_CENTER)
+	y += 42.0
+	_place_free_roll_label(panel, "EntryScroll/EntryBody/EntryCanvas/HumanMatchesHeading", margin_x, y, content_width - (margin_x * 2.0), 28.0, HORIZONTAL_ALIGNMENT_CENTER)
+	y += 40.0
+
+	var human_paths: Array[String] = [
+		"EntryScroll/EntryBody/EntryCanvas/Human1v1Button",
+		"EntryScroll/EntryBody/EntryCanvas/HumanCtfButton",
+		"EntryScroll/EntryBody/EntryCanvas/HumanHiddenCtfButton",
+		"EntryScroll/EntryBody/EntryCanvas/Human2v2Button",
+		"EntryScroll/EntryBody/EntryCanvas/Human3pFfaButton",
+		"EntryScroll/EntryBody/EntryCanvas/Human4pFfaButton"
+	]
+	var human_cols: int = 2 if content_width >= 700.0 else 1
+	var human_gap: float = 30.0 if human_cols == 2 else 0.0
+	var human_size := Vector2(
+		floor((content_width - (margin_x * 2.0) - (human_gap * float(human_cols - 1))) / float(human_cols)),
+		178.0
+	)
+	if human_cols == 1:
+		human_size.x = minf(520.0, content_width - (margin_x * 2.0))
+	else:
+		human_size.x = clampf(human_size.x, 390.0, 450.0)
+	y = _place_free_roll_button_grid(panel, human_paths, margin_x, y, content_width, human_cols, human_size, human_gap, 26.0)
+
+	y += 34.0
+	_place_free_roll_label(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesHeading", margin_x, y, content_width - (margin_x * 2.0), 28.0, HORIZONTAL_ALIGNMENT_CENTER)
+	y += 32.0
+	_place_free_roll_label(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesSubtext", margin_x, y, content_width - (margin_x * 2.0), 24.0, HORIZONTAL_ALIGNMENT_CENTER)
+	y += 44.0
+	var cycle_paths: Array[String] = [
+		"EntryScroll/EntryBody/EntryCanvas/WeeklyButton",
+		"EntryScroll/EntryBody/EntryCanvas/MonthlyButton",
+		"EntryScroll/EntryBody/EntryCanvas/SeasonButton"
+	]
+	var cycle_cols: int = 2 if content_width >= 760.0 else 1
+	var cycle_gap: float = 30.0 if cycle_cols == 2 else 0.0
+	var cycle_size := Vector2(
+		420.0 if cycle_cols == 2 else minf(520.0, content_width - (margin_x * 2.0)),
+		156.0 if cycle_cols == 2 else 168.0
+	)
+	y = _place_free_roll_button_grid(panel, cycle_paths, margin_x, y, content_width, cycle_cols, cycle_size, cycle_gap, 24.0)
+
+	y += 34.0
+	var divider: ColorRect = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/MapConfigDivider") as ColorRect
+	if divider != null:
+		divider.offset_left = margin_x
+		divider.offset_top = y
+		divider.offset_right = content_width - margin_x
+		divider.offset_bottom = y + 2.0
+	y += 26.0
+	_place_free_roll_label(panel, "EntryScroll/EntryBody/EntryCanvas/MapConfigLabel", margin_x, y, content_width - (margin_x * 2.0), 26.0, HORIZONTAL_ALIGNMENT_CENTER)
+	y += 44.0
+
+	_place_free_roll_label(panel, "EntryScroll/EntryBody/EntryCanvas/OneMapHeading", margin_x, y, 140.0, 26.0, HORIZONTAL_ALIGNMENT_LEFT)
+	y += 34.0
+	var one_map_paths: Array[String] = [
+		"EntryScroll/EntryBody/EntryCanvas/CaptureFlagButton",
+		"EntryScroll/EntryBody/EntryCanvas/HiddenFlagButton"
+	]
+	var one_map_cols: int = 2 if content_width >= 760.0 else 1
+	var one_map_size := Vector2(
+		420.0 if one_map_cols == 2 else minf(520.0, content_width - (margin_x * 2.0)),
+		150.0
+	)
+	y = _place_free_roll_button_grid(panel, one_map_paths, margin_x, y, content_width, one_map_cols, one_map_size, 34.0, 22.0)
+
+	y += 28.0
+	_place_free_roll_label(panel, "EntryScroll/EntryBody/EntryCanvas/ThreeMapHeading", margin_x, y, 140.0, 26.0, HORIZONTAL_ALIGNMENT_LEFT)
+	y += 34.0
+	var three_map_paths: Array[String] = [
+		"EntryScroll/EntryBody/EntryCanvas/StageRace3Button",
+		"EntryScroll/EntryBody/EntryCanvas/TimedRace3Button",
+		"EntryScroll/EntryBody/EntryCanvas/MissNOut3Button"
+	]
+	var map_cols: int = 2 if content_width >= 760.0 else 1
+	var map_gap: float = 30.0 if map_cols == 2 else 0.0
+	var map_size := Vector2(
+		floor((content_width - (margin_x * 2.0) - (map_gap * float(map_cols - 1))) / float(map_cols)),
+		144.0
+	)
+	if map_cols == 1:
+		map_size.x = minf(520.0, content_width - (margin_x * 2.0))
+	else:
+		map_size.x = clampf(map_size.x, 390.0, 440.0)
+	y = _place_free_roll_button_grid(panel, three_map_paths, margin_x, y, content_width, map_cols, map_size, map_gap, 22.0)
+
+	y += 28.0
+	_place_free_roll_label(panel, "EntryScroll/EntryBody/EntryCanvas/FiveMapHeading", margin_x, y, 140.0, 26.0, HORIZONTAL_ALIGNMENT_LEFT)
+	y += 34.0
+	var five_map_paths: Array[String] = [
+		"EntryScroll/EntryBody/EntryCanvas/StageRace5Button",
+		"EntryScroll/EntryBody/EntryCanvas/TimedRace5Button",
+		"EntryScroll/EntryBody/EntryCanvas/MissNOut5Button"
+	]
+	y = _place_free_roll_button_grid(panel, five_map_paths, margin_x, y, content_width, map_cols, map_size, map_gap, 22.0)
+
+	y += 64.0
+	var cancel_size := Vector2(minf(440.0, content_width - (margin_x * 2.0)), 146.0)
+	y = _place_free_roll_button_grid(panel, ["EntryScroll/EntryBody/EntryCanvas/CancelButton"], margin_x, y, content_width, 1, cancel_size, 0.0, 0.0)
+	canvas.custom_minimum_size = Vector2(content_width, y + 150.0)
+
+func _place_free_roll_label(panel: Panel, path: String, x: float, y: float, w: float, h: float, alignment: HorizontalAlignment) -> void:
+	var label: Label = panel.get_node_or_null(path) as Label
+	if label == null:
+		return
+	label.layout_mode = 0
+	label.offset_left = x
+	label.offset_top = y
+	label.offset_right = x + w
+	label.offset_bottom = y + h
+	label.horizontal_alignment = alignment
+
+func _place_free_roll_button_grid(
+		panel: Panel,
+		paths: Array[String],
+		margin_x: float,
+		start_y: float,
+		content_width: float,
+		columns: int,
+		button_size: Vector2,
+		gap_x: float,
+		gap_y: float
+	) -> float:
+	var resolved_columns: int = maxi(1, columns)
+	var y: float = start_y
+	for i in range(paths.size()):
+		var path: String = paths[i]
+		var button: Button = panel.get_node_or_null(path) as Button
+		if button == null:
+			continue
+		var col: int = i % resolved_columns
+		var row: int = int(floor(float(i) / float(resolved_columns)))
+		var remaining: int = paths.size() - (row * resolved_columns)
+		var row_items: int = mini(resolved_columns, maxi(1, remaining))
+		var row_width: float = (button_size.x * float(row_items)) + (gap_x * float(row_items - 1))
+		var row_left: float = floor((content_width - row_width) * 0.5)
+		row_left = maxf(margin_x, row_left)
+		var x: float = row_left + (float(col) * (button_size.x + gap_x))
+		y = start_y + (float(row) * (button_size.y + gap_y))
+		_place_free_roll_button(button, x, y, button_size)
+	var rows: int = int(ceil(float(paths.size()) / float(resolved_columns)))
+	return start_y + (float(maxi(0, rows)) * button_size.y) + (float(maxi(0, rows - 1)) * gap_y)
+
+func _place_free_roll_button(button: Button, x: float, y: float, size: Vector2) -> void:
+	button.layout_mode = 0
+	button.scale = Vector2.ONE
+	button.custom_minimum_size = size
+	button.offset_left = x
+	button.offset_top = y
+	button.offset_right = x + size.x
+	button.offset_bottom = y + size.y
 
 func _scaled_game_hub_size(base_size: Vector2, size_scale: float) -> Vector2:
 	var scale: float = maxf(0.1, size_scale)
@@ -11404,10 +11759,11 @@ func _resolve_game_hub_overlay_size(paid: bool) -> Vector2:
 	var target_height: float = GAME_HUB_OVERLAY_PAID_TARGET_HEIGHT if paid else GAME_HUB_OVERLAY_FREE_TARGET_HEIGHT
 	var min_height: float = GAME_HUB_OVERLAY_PAID_MIN_HEIGHT if paid else GAME_HUB_OVERLAY_FREE_MIN_HEIGHT
 	var max_width: float = maxf(360.0, viewport_size.x - (GAME_HUB_OVERLAY_VIEWPORT_MARGIN_X * 2.0))
-	var max_height: float = maxf(min_height, viewport_size.y - (GAME_HUB_OVERLAY_VIEWPORT_MARGIN_Y * 2.0))
+	var max_height: float = maxf(240.0, viewport_size.y - (GAME_HUB_OVERLAY_VIEWPORT_MARGIN_Y * 2.0))
+	var resolved_min_height: float = minf(min_height, max_height)
 	return Vector2(
 		minf(GAME_HUB_OVERLAY_TARGET_WIDTH, max_width),
-		clampf(target_height, min_height, max_height)
+		clampf(target_height, resolved_min_height, max_height)
 	)
 
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
@@ -11619,16 +11975,15 @@ func _configure_entry_overlay_panel(panel: Panel, title: String, subtitle: Strin
 	var resolved_size: Vector2 = _resolve_entry_overlay_size(size)
 	panel.name = "EntryRouteModal"
 	panel.clip_contents = true
-	if not preserve_scene_layout:
-		panel.layout_mode = 0
-		panel.anchor_left = 0.5
-		panel.anchor_top = 0.5
-		panel.anchor_right = 0.5
-		panel.anchor_bottom = 0.5
-		panel.offset_left = -resolved_size.x * 0.5
-		panel.offset_top = -resolved_size.y * 0.5
-		panel.offset_right = resolved_size.x * 0.5
-		panel.offset_bottom = resolved_size.y * 0.5
+	panel.layout_mode = 0
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -resolved_size.x * 0.5
+	panel.offset_top = -resolved_size.y * 0.5
+	panel.offset_right = resolved_size.x * 0.5
+	panel.offset_bottom = resolved_size.y * 0.5
 	panel.z_index = 200
 	panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	_build_entry_overlay_background_layers(panel, resolved_size)
@@ -12258,9 +12613,11 @@ func _close_hive_panel_immediate() -> void:
 		dash_hive_panel.visible = false
 
 func _open_hive_panel() -> void:
+	_play_mm_base_drop_sfx()
 	if _hive_direct_mode:
 		_close_hive_panel()
 		return
+	_sync_hive_panel_profile_from_hive_state()
 	_close_top_level_windows(UI_SURFACE_DASH)
 	_hive_direct_mode = true
 	_hide_dash_panels()
@@ -12325,6 +12682,7 @@ func _on_dash_buffs_close_pressed() -> void:
 	_close_buffs_panel()
 
 func _open_storefront_panel() -> void:
+	_play_mm_base_drop_sfx()
 	_close_top_level_windows()
 	_store_direct_mode = true
 	_hide_dash_panels()
@@ -12349,6 +12707,7 @@ func _close_storefront_panel() -> void:
 	_dash_open = false
 
 func _open_settings_panel() -> void:
+	_play_mm_base_drop_sfx()
 	_close_top_level_windows(UI_SURFACE_DASH)
 	_settings_direct_mode = true
 	_hide_dash_panels()
@@ -12379,6 +12738,7 @@ func _on_dash_settings_close_pressed() -> void:
 	_close_dash_panel(dash_settings_panel)
 
 func _toggle_dash() -> void:
+	_play_mm_base_drop_sfx()
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
 	if _replay_direct_mode:
@@ -12437,6 +12797,7 @@ func _open_dash_panel(panel: Panel) -> void:
 	if panel == _jukebox_panel:
 		_open_jukebox_panel()
 		return
+	_play_mm_base_drop_sfx()
 	_close_top_level_windows(UI_SURFACE_DASH)
 	_set_dash_chrome_visible(true)
 	_set_dash_panel_store_passthrough(panel == dash_store_panel)
@@ -12449,6 +12810,8 @@ func _open_dash_panel(panel: Panel) -> void:
 	_set_dash_offsets(0.0)
 	_dash_open = true
 	panel.visible = true
+	if panel == dash_settings_panel:
+		_refresh_dash_top_tabs()
 
 func _open_dash_panel_from_menu(panel: Panel) -> void:
 	_open_dash_panel(panel)
@@ -12467,6 +12830,8 @@ func _close_dash_panel(panel: Panel) -> void:
 	if panel == dash_store_panel:
 		_set_dash_panel_store_passthrough(false)
 	panel.visible = false
+	if panel == dash_settings_panel:
+		_refresh_dash_top_tabs()
 
 func _close_direct_replay_panel() -> void:
 	_stop_replay_playback()
@@ -12494,6 +12859,7 @@ func _hide_dash_panels() -> void:
 		if panel == null:
 			continue
 		panel.visible = false
+	_refresh_dash_top_tabs()
 
 func _ensure_jukebox_panel() -> void:
 	if dash_panel == null:
@@ -12539,6 +12905,7 @@ func _open_jukebox_panel() -> void:
 		_ensure_jukebox_panel()
 	if _jukebox_panel == null:
 		return
+	_play_mm_base_drop_sfx()
 	_close_top_level_windows(UI_SURFACE_DASH)
 	_jukebox_direct_mode = true
 	_hide_dash_panels()
@@ -12559,6 +12926,7 @@ func _on_jukebox_play_requested(map_path: String, cpu_style: String = "", cpu_ti
 	if map_path.strip_edges().is_empty():
 		status_label.text = "No map selected."
 		return
+	_play_jukebox_play_sfx()
 	if _launch_jukebox_map(map_path, cpu_style, cpu_tier):
 		status_label.text = "Jukebox map starting..."
 	else:
@@ -13043,6 +13411,9 @@ func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: in
 	tree.set_meta("ctf_hidden_flag", hidden_mode)
 	tree.set_meta("ctf_flag_move_count_max", 1 if hidden_mode else 0)
 	tree.set_meta("ctf_flag_move_reveals", true)
+	if hidden_mode:
+		tree.set_meta("hidden_ctf_allotment_pattern", "roll")
+		tree.set_meta("hidden_ctf_allotment_seed", maxi(1, Time.get_ticks_msec()))
 	if OpsState != null and OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", "ffa")
 	SFLog.info("DIRECT_CTF_LAUNCH", {
@@ -13051,6 +13422,7 @@ func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: in
 		"free_roll": free_roll,
 		"entry_usd": int(entry_usd)
 	})
+	_play_matchmaker_sfx()
 	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
 	if err != OK:
 		status_label.text = "CTF launch failed."
@@ -13070,6 +13442,8 @@ func _resolve_direct_capture_flag_map_path(mode_id: String, free_roll: bool = fa
 		if map_path.is_empty():
 			continue
 		if not FileAccess.file_exists(map_path):
+			continue
+		if _free_roll_requires_hidden_ctf_split(mode_id) and not _map_supports_hidden_ctf_split(map_path):
 			continue
 		return map_path
 	return ""
@@ -13097,79 +13471,34 @@ func _free_roll_random_map_paths(mode_id: String, map_count: int) -> Array[Strin
 	return picked
 
 func _free_roll_candidate_map_paths(mode_id: String) -> Array[String]:
-	var allowed_modes: Array[String] = _free_roll_map_modes_for_game(mode_id)
 	var out: Array[String] = []
 	for path_any in MAP_LOADER.list_maps():
 		var path: String = str(path_any).strip_edges()
 		if path.is_empty():
 			continue
-		if not _free_roll_map_path_matches_modes(path, allowed_modes):
-			continue
-		if _free_roll_requires_hidden_ctf_starts(mode_id) and not _map_has_hidden_ctf_start_depth(path):
+		if not _free_roll_map_path_supports_mode(path, mode_id):
 			continue
 		out.append(path)
 	return out
 
-func _free_roll_map_mode_for_game(mode_id: String) -> String:
-	var modes: Array[String] = _free_roll_map_modes_for_game(mode_id)
-	if modes.is_empty():
-		return ""
-	return modes[0]
-
-func _free_roll_map_modes_for_game(mode_id: String) -> Array[String]:
-	var clean_mode: String = mode_id.strip_edges().to_upper()
-	match clean_mode:
-		"CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG":
-			return ["1p", "2p", "4p"]
-		"3P FFA":
-			return ["3p"]
-		"4P FFA":
-			return ["1p"]
-		"2V2":
-			return ["1p"]
-		_:
-			return ["1p"]
-
-func _free_roll_map_path_matches_modes(path: String, allowed_modes: Array[String]) -> bool:
-	if allowed_modes.is_empty():
-		return true
-	var map_id: String = MAP_REGISTRY.map_id_from_path(path).strip_edges().to_lower()
-	if map_id.is_empty():
-		return false
-	for mode_any in allowed_modes:
-		var mode: String = str(mode_any).strip_edges().to_lower()
-		if mode.is_empty():
-			continue
-		if map_id.ends_with("__%s" % mode):
-			return true
-	return false
-
-func _free_roll_requires_hidden_ctf_starts(mode_id: String) -> bool:
-	return mode_id.strip_edges().to_upper() == "HIDDEN_CAPTURE_FLAG"
-
-func _map_has_hidden_ctf_start_depth(path: String) -> bool:
+func _free_roll_map_path_supports_mode(path: String, mode_id: String) -> bool:
 	var loaded: Dictionary = MAP_LOADER.load_map(path)
 	if not bool(loaded.get("ok", false)):
 		return false
 	var model: Dictionary = loaded.get("data", {}) as Dictionary
-	var hives_v: Variant = model.get("hives", [])
-	if typeof(hives_v) != TYPE_ARRAY:
+	var summary: Dictionary = MAP_MODE_RULES.map_supports_game_mode(model, mode_id)
+	return bool(summary.get("ok", false))
+
+func _free_roll_requires_hidden_ctf_split(mode_id: String) -> bool:
+	return mode_id.strip_edges().to_upper() == "HIDDEN_CAPTURE_FLAG"
+
+func _map_supports_hidden_ctf_split(path: String) -> bool:
+	var loaded: Dictionary = MAP_LOADER.load_map(path)
+	if not bool(loaded.get("ok", false)):
 		return false
-	var owned_counts: Dictionary = {}
-	for hive_any in hives_v as Array:
-		if typeof(hive_any) != TYPE_DICTIONARY:
-			continue
-		var hive: Dictionary = hive_any as Dictionary
-		var owner_id: int = int(hive.get("owner_id", hive.get("owner", 0)))
-		if owner_id <= 0:
-			continue
-		owned_counts[owner_id] = int(owned_counts.get(owner_id, 0)) + 1
-	if owned_counts.size() < 2:
-		return false
-	for owner_any in owned_counts.keys():
-		if int(owned_counts.get(owner_any, 0)) < 2:
-			return false
-	return true
+	var model: Dictionary = loaded.get("data", {}) as Dictionary
+	var summary: Dictionary = MAP_MODE_RULES.hidden_capture_flag_split_summary(model)
+	return bool(summary.get("ok", false))
 
 func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	if _block_for_active_hive_tournament("async matches"):
@@ -13294,6 +13623,7 @@ func _current_async_paid_entry_usd() -> int:
 	return maxi(1, _async_paid_entry_usd)
 
 func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> void:
+	_play_matchmaker_sfx()
 	_close_top_level_windows(UI_SURFACE_VS_LOBBY)
 	if _vs_lobby == null:
 		_vs_lobby = preload("res://scenes/ui/VsLobby.tscn").instantiate()

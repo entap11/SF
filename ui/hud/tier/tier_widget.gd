@@ -11,6 +11,7 @@ const HERO_YELLOW_TOP: Color = Color(0.90, 0.74, 0.09, 1.0)
 const HERO_YELLOW_BOTTOM: Color = Color(1.0, 0.831, 0.0, 1.0) # #FFD400
 const HERO_STROKE: Color = Color(0.44, 0.28, 0.05, 1.0)
 const HERO_GLOW: Color = Color(1.0, 0.80, 0.22, 1.0)
+const VALUE_CUTOUT_STROKE: Color = Color(0.0, 0.0, 0.0, 0.98)
 const DEFAULT_WIDGET_HEIGHT: float = 200.0
 
 @export var rank_state_path: NodePath = NodePath("/root/RankState")
@@ -103,7 +104,7 @@ func _apply_hero_font(font: Font, base_size: int) -> void:
 			continue
 		label.add_theme_font_override("font", font)
 		label.add_theme_font_size_override("font_size", value_size)
-		label.add_theme_constant_override("outline_size", 1)
+		label.add_theme_constant_override("outline_size", 5)
 		label.custom_minimum_size = Vector2(0.0, round(float(value_size) * 0.98))
 	if _tier_name_label != null:
 		_tier_name_label.add_theme_font_override("font", font)
@@ -186,9 +187,9 @@ func _apply_base_typography() -> void:
 	for label in [_tier_value_label, _rank_value_label]:
 		if label == null:
 			continue
-		label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
-		label.add_theme_color_override("font_outline_color", HERO_STROKE)
-		label.add_theme_color_override("font_shadow_color", Color(0.20, 0.10, 0.02, 0.42))
+		label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.0))
+		label.add_theme_color_override("font_outline_color", VALUE_CUTOUT_STROKE)
+		label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.0))
 		label.add_theme_constant_override("shadow_offset_x", 0)
 		label.add_theme_constant_override("shadow_offset_y", 0)
 	if _tier_name_label != null:
@@ -202,10 +203,21 @@ func _prepare_text_materials() -> void:
 	_text_materials.clear()
 	_material_base_inlay.clear()
 	_register_label_material(_tier_title_label)
-	_register_label_material(_tier_value_label)
 	_register_label_material(_rank_title_label)
-	_register_label_material(_rank_value_label)
+	_apply_value_cutout_style(_tier_value_label)
+	_apply_value_cutout_style(_rank_value_label)
 	_apply_sweep_state(-0.3, 0.0, 1.0)
+
+func _apply_value_cutout_style(label: Label) -> void:
+	if label == null:
+		return
+	label.material = null
+	label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.0))
+	label.add_theme_color_override("font_outline_color", VALUE_CUTOUT_STROKE)
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.0))
+	label.add_theme_constant_override("outline_size", 5)
+	label.add_theme_constant_override("shadow_offset_x", 0)
+	label.add_theme_constant_override("shadow_offset_y", 0)
 
 func _register_label_material(label: Label) -> void:
 	if label == null:
@@ -217,6 +229,7 @@ func _register_label_material(label: Label) -> void:
 	label.material = unique_mat
 	unique_mat.set_shader_parameter("top_color", HERO_YELLOW_TOP)
 	unique_mat.set_shader_parameter("bottom_color", HERO_YELLOW_BOTTOM)
+	unique_mat.set_shader_parameter("fill_alpha", 1.0)
 	unique_mat.set_shader_parameter("stroke_color", HERO_STROKE)
 	unique_mat.set_shader_parameter("stroke_width", 1.0)
 	unique_mat.set_shader_parameter("glow_color", HERO_GLOW)

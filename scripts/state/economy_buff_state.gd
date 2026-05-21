@@ -367,6 +367,7 @@ func get_player_snapshot(player_id: String) -> Dictionary:
 			"buff_id": buff_id,
 			"tier": EconomyBuffModelsScript.tier_name_from_buff(buff_def) if not buff_def.is_empty() else EconomyBuffModelsScript.TIER_CLASSIC,
 			"name": str(buff_def.get("name", buff_id)),
+			"icon_path": str(buff_def.get("icon_path", "")),
 			"activated": bool(activation_state.get(str(idx), false)),
 			"classic_locked": _is_classic_slot_locked(mode_rule, idx)
 		})
@@ -378,6 +379,7 @@ func get_player_snapshot(player_id: String) -> Dictionary:
 			"buff_id": standardized_buff_id,
 			"tier": EconomyBuffModelsScript.TIER_CLASSIC,
 			"name": str(BuffCatalog.get_buff(standardized_buff_id).get("name", standardized_buff_id)),
+			"icon_path": str(BuffCatalog.get_buff(standardized_buff_id).get("icon_path", "")),
 			"activated": bool(activation_state.get("0", false)),
 			"classic_locked": false
 		})

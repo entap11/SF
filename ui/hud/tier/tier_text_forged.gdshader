@@ -3,8 +3,9 @@ render_mode unshaded;
 
 uniform vec4 top_color : source_color = vec4(0.90, 0.74, 0.09, 1.0);
 uniform vec4 bottom_color : source_color = vec4(1.0, 0.831, 0.0, 1.0);
+uniform float fill_alpha : hint_range(0.0, 1.0) = 1.0;
 uniform vec4 stroke_color : source_color = vec4(0.44, 0.28, 0.05, 1.0);
-uniform float stroke_width : hint_range(0.5, 2.0) = 1.0;
+uniform float stroke_width : hint_range(0.5, 4.0) = 1.0;
 uniform vec4 glow_color : source_color = vec4(1.0, 0.80, 0.22, 1.0);
 uniform float glow_strength : hint_range(0.0, 0.8) = 0.22;
 uniform float glow_radius : hint_range(1.0, 4.0) = 2.3;
@@ -20,9 +21,6 @@ float sample_alpha(vec2 uv) {
 
 void fragment() {
 	float alpha = sample_alpha(UV);
-	if (alpha <= 0.001) {
-		discard;
-	}
 
 	vec2 texel = TEXTURE_PIXEL_SIZE;
 	vec2 stroke_step = texel * stroke_width;
@@ -49,6 +47,9 @@ void fragment() {
 	float g_dl = sample_alpha(UV + vec2(-glow_step.x, glow_step.y));
 	float glow_mask = max(max(max(g_r, g_l), max(g_d, g_u)), max(max(g_ur, g_ul), max(g_dr, g_dl)));
 	float glow = clamp(glow_mask - alpha, 0.0, 1.0) * glow_strength;
+	if (max(max(alpha, outline), glow) <= 0.001) {
+		discard;
+	}
 
 	float eroded = min(min(min(a_r, a_l), min(a_d, a_u)), min(min(a_ur, a_ul), min(a_dr, a_dl)));
 	float inner_edge = clamp(alpha - eroded, 0.0, 1.0);
@@ -72,10 +73,10 @@ void fragment() {
 	float sweep = exp(-pow(sweep_dist / max(sweep_width, 0.001), 2.0));
 	vec3 sweep_color = glow_color.rgb * (sweep * sweep_strength * 0.5);
 
-	vec3 final_rgb = fill * alpha;
+	vec3 final_rgb = fill * alpha * fill_alpha;
 	final_rgb += stroke_color.rgb * outline;
 	final_rgb += glow_color.rgb * glow;
-	final_rgb += sweep_color * alpha;
-	float final_alpha = clamp(alpha + outline + glow, 0.0, 1.0);
+	final_rgb += sweep_color * alpha * fill_alpha;
+	float final_alpha = clamp((alpha * fill_alpha) + outline + glow, 0.0, 1.0);
 	COLOR = vec4(final_rgb, final_alpha);
 }

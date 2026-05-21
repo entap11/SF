@@ -7,6 +7,8 @@ uniform float pulse_speed = 2.4;
 uniform float pulse_phase = 0.0;
 uniform vec4 npc_tint : source_color = vec4(0.52, 0.47, 0.82, 1.0);
 uniform float tint_strength = 0.88;
+uniform float glow_strength = 0.0;
+uniform float additive_glow = 0.0;
 
 void fragment() {
 	vec4 tex = texture(TEXTURE, UV);
@@ -15,5 +17,7 @@ void fragment() {
 	float body_pulse = 1.0 + (pulse_wave * 0.65);
 	float gray = clamp(((luma - 0.5) * contrast + 0.5) * brightness * body_pulse, 0.0, 1.0);
 	vec3 tint_mul = mix(vec3(1.0), npc_tint.rgb * 1.55, tint_strength);
-	COLOR = vec4(vec3(gray) * tint_mul, tex.a);
+	float glow_mask = smoothstep(0.28, 1.0, luma) * tex.a;
+	vec3 out_rgb = (vec3(gray) * tint_mul) + (npc_tint.rgb * glow_mask * glow_strength * additive_glow);
+	COLOR = vec4(out_rgb, tex.a);
 }

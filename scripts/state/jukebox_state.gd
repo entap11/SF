@@ -6,7 +6,8 @@ const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
 
 const PERIOD_LABELS: Array[String] = ["WEEKLY", "MONTHLY", "SEASON", "ALL TIME"]
-const CATEGORY_ORDER: Array[String] = ["FEATURED", "CTF", "HIDDEN", "FFA", "STRATEGY", "TEMPO", "REACTION", "NOMANSLAND", "DELTA"]
+const CATEGORY_ORDER: Array[String] = ["FEATURED", "CTF", "HIDDEN", "FFA", "NOMANSLAND", "DELTA"]
+const INTERNAL_CATEGORY_LABELS: Array[String] = ["STRATEGY", "TEMPO", "REACTION", "GREED", "GREEDY"]
 const DEFAULT_BOARD_MODE: String = "ASYNC_SINGLE_MAP_TIMED"
 const DIRECT_CTF_MAP_PATHS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
@@ -79,6 +80,8 @@ func refresh() -> void:
 		for filter_any in entry.get("filters", []):
 			var filter: String = str(filter_any)
 			if filter.is_empty():
+				continue
+			if _is_internal_category_label(filter):
 				continue
 			category_seen[filter] = true
 	_map_entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
@@ -199,26 +202,25 @@ func primary_category(path: String, normalized: Dictionary) -> String:
 	var family: String = _map_family_for_path(path, normalized).to_upper()
 	return family if not family.is_empty() else "OTHER"
 
-func category_filters(path: String, normalized: Dictionary, playstyle_tags: Array[String] = []) -> Array[String]:
+func category_filters(path: String, normalized: Dictionary, _playstyle_tags: Array[String] = []) -> Array[String]:
 	var out: Array[String] = []
 	out.append("ALL")
 	var category: String = primary_category(path, normalized)
-	if not out.has(category):
+	if not _is_internal_category_label(category) and not out.has(category):
 		out.append(category)
 	if supports_ctf(path, normalized) and not out.has("CTF"):
 		out.append("CTF")
 	if supports_hidden_ctf(path, normalized) and not out.has("HIDDEN"):
 		out.append("HIDDEN")
 	var family: String = _map_family_for_path(path, normalized).to_upper()
-	if not family.is_empty() and not out.has(family):
+	if (family == "NOMANSLAND" or family == "DELTA") and not out.has("FFA"):
+		out.append("FFA")
+	if not family.is_empty() and not _is_internal_category_label(family) and not out.has(family):
 		out.append(family)
-	for tag_any in playstyle_tags:
-		var tag: String = str(tag_any).strip_edges().to_upper()
-		if tag.is_empty():
-			continue
-		if not out.has(tag):
-			out.append(tag)
 	return out
+
+func _is_internal_category_label(label: String) -> bool:
+	return INTERNAL_CATEGORY_LABELS.has(label.strip_edges().to_upper())
 
 func _map_family_for_path(path: String, normalized: Dictionary) -> String:
 	var family: String = str(normalized.get("family", "")).strip_edges().to_lower()

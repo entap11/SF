@@ -5,6 +5,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const HiveNodeScene := preload("res://scenes/hive/HiveNode.tscn")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 
 var state: Object
@@ -545,8 +546,8 @@ func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color,
 	var tex: Texture2D = null
 	var registry := _get_sprite_registry()
 	if registry != null:
-		var key := SpriteRegistry.hive_sprite_key(owner_id, kind, power)
-		tex = registry.get_tex(key)
+		var resolved: Dictionary = CosmeticThemeDB.resolve_hive_sprite(owner_id, kind, power, registry)
+		tex = resolved.get("texture", null) as Texture2D
 	if tex != null:
 		var size := Vector2(visual_radius * 2.0, visual_radius * 2.0)
 		var rect := Rect2(pos - size * 0.5, size)

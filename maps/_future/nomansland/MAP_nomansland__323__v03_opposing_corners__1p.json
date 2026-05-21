@@ -1,0 +1,30 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_nomansland__323__v03_opposing_corners__1p",
+  "family": "nomansland",
+  "mode": "1p",
+  "player_buckets": ["1P", "2V2", "4P_FFA"],
+  "playstyle_tags": ["FFA", "STRATEGY", "REACTION"],
+  "season_tags": ["nomansland", "323"],
+  "rotation": { "status": "candidate", "weight": 1 },
+  "async_bot_count": 1,
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
+  "nodes": [
+    { "id": "p1h1", "pos": { "x": 1,  "y": 1  }, "owner": "P1",  "kind": "hive" },
+    { "id": "r1",   "pos": { "x": 17, "y": 1  }, "owner": "P2",  "kind": "hive" },
+    { "id": "c1",   "pos": { "x": 9,  "y": 7  }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "l2",   "pos": { "x": 1,  "y": 13 }, "owner": "NPC", "kind": "hive" },
+    { "id": "r2",   "pos": { "x": 17, "y": 13 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "l3",   "pos": { "x": 1,  "y": 26 }, "owner": "P2",  "kind": "hive" },
+    { "id": "p2h3", "pos": { "x": 17, "y": 26 }, "owner": "P1",  "kind": "hive" },
+    { "id": "c2",   "pos": { "x": 9,  "y": 20 }, "owner": "NPC", "kind": "hive" }
+  ],
+  "structure_slots": [
+    { "id": "structure_slot_a", "pos": { "x": 5,  "y": 13 }, "allowed": ["tower", "barracks"] },
+    { "id": "structure_slot_b", "pos": { "x": 13, "y": 14 }, "allowed": ["tower", "barracks"] }
+  ],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

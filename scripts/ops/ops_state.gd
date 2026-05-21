@@ -30,6 +30,7 @@ const BOT_STYLE_SWARM_LORD := "swarm_lord"
 const BOT_TIER_EASY := "easy"
 const BOT_TIER_MEDIUM := "medium"
 const BOT_TIER_HARD := "hard"
+const BOT_REACTION_DELAY_EXTRA_MS := 750
 const SWARM_COOLDOWN_MS := 5000
 const AUTH_FENCE_LOG_INTERVAL_MS := 1000
 const AUTH_FENCE_ALLOWED_PREFIXES := [
@@ -583,6 +584,8 @@ func _build_bot_profile_for_seat(seat: int, style: String, tier: String) -> Dict
 	profile["style"] = normalized_style
 	profile["persona"] = normalized_style
 	profile["tier"] = normalized_tier
+	profile["opening_delay_ms"] = int(profile.get("opening_delay_ms", 1600)) + BOT_REACTION_DELAY_EXTRA_MS
+	profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + BOT_REACTION_DELAY_EXTRA_MS
 	return profile
 
 func _default_bot_profile_for_seat(seat: int) -> Dictionary:

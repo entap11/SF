@@ -18,6 +18,7 @@ const EDGE_MIN_DIST_PX := 1.0
 var state: GameState = null
 var swarm_packets: Array = []
 var _next_swarm_id: int = 1
+var _sim_events: Node = null
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
@@ -25,6 +26,9 @@ func bind_state(state_ref: GameState) -> void:
 	_next_swarm_id = 1
 	if state != null:
 		state.swarm_packets = swarm_packets
+
+func set_sim_events(sim_events: Node) -> void:
+	_sim_events = sim_events
 
 func tick(dt: float, unit_system: UnitSystem) -> void:
 	if state == null:
@@ -124,6 +128,17 @@ func _spawn_swarm(src_id: int, dst_id: int) -> void:
 	}
 	_next_swarm_id += 1
 	swarm_packets.append(packet)
+	if _sim_events != null and _sim_events.has_signal("swarm_spawned"):
+		var spawn_pos: Vector2 = packet.get("pos", Vector2.ZERO)
+		_sim_events.emit_signal(
+			"swarm_spawned",
+			int(packet.get("id", -1)),
+			owner_id,
+			src_id,
+			dst_id,
+			int(lane.id),
+			spawn_pos
+		)
 	SFLog.info("SWARM_SPAWN", {
 		"swarm_id": int(packet.get("id", -1)),
 		"lane_id": int(lane.id),

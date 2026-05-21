@@ -30,6 +30,8 @@ const MATCH_DURATION_MS := 300000
 const DEFAULT_UNINTENDED_POWER_PER_SEC := 1.0
 const PASSIVE_CHILL_MS := 3000
 const PASSIVE_MS_PER_POWER: float = 3000.0
+const PASSIVE_ATTACK_SUPPRESS_MS := 20000
+const EXECUTION_METRICS_TICK_MS: float = 500.0
 const HIGH_POWER_IDLE_THRESHOLD := 25
 const AUTH_FENCE_LOG_INTERVAL_MS := 1000
 const AUTH_FENCE_ALLOWED_PREFIXES := [
@@ -77,11 +79,13 @@ var _sim_time_us: int = 0
 var hive_spawn_block_until_us: Dictionary = {}
 var tick: int = 0
 var _unintended_power_accum_by_hive: Dictionary = {}
+var passive_power_block_until_ms_by_hive: Dictionary = {}
 var _available_lane_unattended_ms_by_hive: Dictionary = {}
 var _max_available_lane_unattended_ms_by_hive: Dictionary = {}
 var _high_power_idle_ms_by_hive: Dictionary = {}
 var _max_high_power_idle_ms_by_hive: Dictionary = {}
 var _passive_accum_ms: float = 0.0
+var _execution_metrics_accum_ms: float = 0.0
 var _passive_config_logged: bool = false
 var _outgoing_sample_log_ms: int = 0
 
@@ -171,11 +175,13 @@ func reset_map_only() -> void:
 	_lane_spawn_disabled_logged = false
 	tick = 0
 	_unintended_power_accum_by_hive.clear()
+	passive_power_block_until_ms_by_hive.clear()
 	_available_lane_unattended_ms_by_hive.clear()
 	_max_available_lane_unattended_ms_by_hive.clear()
 	_high_power_idle_ms_by_hive.clear()
 	_max_high_power_idle_ms_by_hive.clear()
 	_passive_accum_ms = 0.0
+	_execution_metrics_accum_ms = 0.0
 	_passive_config_logged = false
 	_outgoing_sample_log_ms = 0
 	units_set_version = 0
@@ -295,7 +301,9 @@ func load_from_map_dict(map: Dictionary) -> void:
 				"grid_pos": gp,
 				"required_hive_ids": req_ids,
 				"control_hive_ids": control_ids,
-				"owner_id": int(td.get("owner_id", 0))
+				"owner_id": int(td.get("owner_id", 0)),
+				"power": int(td.get("power", 0)),
+				"current_power": int(td.get("current_power", td.get("power", 0)))
 			})
 	towers = towers_out
 	var tower_sample: Variant = towers_out[0] if towers_out.size() > 0 else null
@@ -342,7 +350,9 @@ func load_from_map_dict(map: Dictionary) -> void:
 				"route_hive_ids": [],
 				"route_mode": "round_robin",
 				"route_cursor": 0,
-				"owner_id": int(bd.get("owner_id", 0))
+				"owner_id": int(bd.get("owner_id", 0)),
+				"power": int(bd.get("power", 0)),
+				"current_power": int(bd.get("current_power", bd.get("power", 0)))
 			})
 	barracks = barracks_out
 	var barracks_sample: Variant = barracks_out[0] if barracks_out.size() > 0 else null
@@ -940,8 +950,12 @@ func tick_unintended_power(dt_ms: float) -> void:
 	var ops_state: Node = _ops_state()
 	var match_phase: int = int(ops_state.get("match_phase")) if ops_state != null else -1
 	if match_phase == 1:
-		_tick_execution_opportunity_metrics(dt_ms)
+		_execution_metrics_accum_ms += dt_ms
+		if _execution_metrics_accum_ms >= EXECUTION_METRICS_TICK_MS:
+			_tick_execution_opportunity_metrics(_execution_metrics_accum_ms)
+			_execution_metrics_accum_ms = 0.0
 	else:
+		_execution_metrics_accum_ms = 0.0
 		_clear_execution_opportunity_streaks()
 	if ops_state != null and match_phase == 0:
 		_passive_accum_ms = 0.0
@@ -965,12 +979,16 @@ func tick_unintended_power(dt_ms: float) -> void:
 func _apply_passive_tick(inc: int, ticks_fired: int) -> void:
 	var eligible_count: int = 0
 	var applied_count: int = 0
+	var attack_blocked_count: int = 0
 	var sample: Array = []
 	for hive in hives:
 		if hive == null:
 			continue
 		var hid: int = int(hive.id)
 		if _is_npc_hive(hive):
+			continue
+		if _is_passive_power_attack_blocked(hid):
+			attack_blocked_count += 1
 			continue
 		var outgoing: int = outgoing_active_count(hid)
 		if outgoing > 0:
@@ -993,6 +1011,7 @@ func _apply_passive_tick(inc: int, ticks_fired: int) -> void:
 		"ticks_fired": ticks_fired,
 		"eligible_count": eligible_count,
 		"applied_count": applied_count,
+		"attack_blocked_count": attack_blocked_count,
 		"sample": sample
 	})
 	var now_ms := Time.get_ticks_msec()
@@ -1004,6 +1023,35 @@ func _apply_passive_tick(inc: int, ticks_fired: int) -> void:
 				"id": int(sample_h.id),
 				"outgoing_active_count": outgoing_active_count(int(sample_h.id))
 			})
+
+func mark_hive_attacked_for_passive_suppression(hive_id: int, duration_ms: int = PASSIVE_ATTACK_SUPPRESS_MS) -> void:
+	if hive_id <= 0:
+		return
+	var now_ms: int = _passive_clock_ms()
+	var until_ms: int = now_ms + maxi(1, duration_ms)
+	var current_until: int = int(passive_power_block_until_ms_by_hive.get(hive_id, 0))
+	passive_power_block_until_ms_by_hive[hive_id] = maxi(current_until, until_ms)
+	SFLog.info("PASSIVE_ATTACK_SUPPRESSED", {
+		"hive_id": hive_id,
+		"until_ms": int(passive_power_block_until_ms_by_hive.get(hive_id, until_ms)),
+		"duration_ms": duration_ms
+	})
+
+func _is_passive_power_attack_blocked(hive_id: int) -> bool:
+	var until_ms: int = int(passive_power_block_until_ms_by_hive.get(hive_id, 0))
+	if until_ms <= 0:
+		return false
+	var now_ms: int = _passive_clock_ms()
+	if now_ms < until_ms:
+		return true
+	passive_power_block_until_ms_by_hive.erase(hive_id)
+	return false
+
+func _passive_clock_ms() -> int:
+	var ops_state: Node = _ops_state()
+	if ops_state != null:
+		return int(ops_state.get("match_elapsed_ms"))
+	return Time.get_ticks_msec()
 
 func get_execution_metrics_for_hive(hive_id: int) -> Dictionary:
 	var hive: HiveData = find_hive_by_id(hive_id)

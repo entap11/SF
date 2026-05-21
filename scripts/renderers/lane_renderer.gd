@@ -9,6 +9,7 @@ extends Node2D
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
+const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
@@ -32,7 +33,8 @@ const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 
 const DEBUG_LANES := false
 const USE_LANE_SPRITES := true
-const AUDIT_RENDER: bool = true
+const AUDIT_RENDER: bool = false
+const PROCESS_HEARTBEAT_MS: int = 1000
 
 const LANE_LOG_INTERVAL_MS := 1000
 const LANE_FLASH_DEFAULT_MS := 250
@@ -129,6 +131,10 @@ var _audit_last_ms: int = 0
 var _audit_draw_ops: int = 0
 var _audit_mat_sets: int = 0
 var _audit_rebuilds: int = 0
+var _process_hb_last_ms: int = 0
+var _process_hb_frames: int = 0
+var _process_hb_max_ms: float = 0.0
+var _process_hb_sum_ms: float = 0.0
 
 func _lane_color_for_hive(hive_id: int) -> Color:
 	var owner_id: int = 0
@@ -483,6 +489,7 @@ func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sp
 	return sprite
 
 func _ready() -> void:
+	SFLog.allow_tag("RENDER_PROCESS_HEARTBEAT")
 	SFLog.allow_tag("RENDER_AUDIT_LANES")
 	SFLog.allow_tag("LANE_ENDPOINTS")
 	SFLog.allow_tag("LANE_EDGE_BIND")
@@ -501,6 +508,7 @@ func _ready() -> void:
 	_request_rebuild("ready")
 
 func _process(delta: float) -> void:
+	var process_t0_us: int = Time.get_ticks_usec()
 	if USE_LANE_SPRITES and show_lane_sprites:
 		_update_lane_visuals(delta)
 		_update_drag_preview_sprite()
@@ -509,6 +517,31 @@ func _process(delta: float) -> void:
 	if not _debug_pick_dots.is_empty():
 		queue_redraw()
 	_audit_render_maybe_flush()
+	_record_process_heartbeat(process_t0_us)
+
+func _record_process_heartbeat(process_t0_us: int) -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	var process_ms: float = float(Time.get_ticks_usec() - process_t0_us) / 1000.0
+	_process_hb_frames += 1
+	_process_hb_sum_ms += process_ms
+	if process_ms > _process_hb_max_ms:
+		_process_hb_max_ms = process_ms
+	if _process_hb_last_ms <= 0:
+		_process_hb_last_ms = now_ms
+		return
+	if now_ms - _process_hb_last_ms < PROCESS_HEARTBEAT_MS:
+		return
+	var avg_ms: float = _process_hb_sum_ms / float(maxi(1, _process_hb_frames))
+	SFLog.info("RENDER_PROCESS_HEARTBEAT", {
+		"renderer": "lane",
+		"frames": _process_hb_frames,
+		"max_process_ms": snapped(_process_hb_max_ms, 0.1),
+		"avg_process_ms": snapped(avg_ms, 0.1)
+	})
+	_process_hb_last_ms = now_ms
+	_process_hb_frames = 0
+	_process_hb_max_ms = 0.0
+	_process_hb_sum_ms = 0.0
 
 func _audit_render_maybe_flush() -> void:
 	if not AUDIT_RENDER:
@@ -1012,17 +1045,21 @@ func _grid_to_world_center(x: float, y: float, cell_size: float) -> Vector2:
 func _load_lane_textures() -> void:
 	var tex: Texture2D = null
 	var tex_path: String = ""
+	var tex_key: String = LANE_TEX_KEY
 	var registry := SpriteRegistry.get_instance()
 	if registry != null:
-		tex = _unwrap_atlas(registry.get_tex(LANE_TEX_KEY))
-		tex_path = registry.get_tex_path(LANE_TEX_KEY)
+		var resolved: Dictionary = CosmeticThemeDB.resolve_lane_texture(registry)
+		tex = _unwrap_atlas(resolved.get("texture", null) as Texture2D)
+		tex_path = str(resolved.get("path", ""))
+		tex_key = str(resolved.get("key", LANE_TEX_KEY))
 	if tex == null and ResourceLoader.exists(LANE_FALLBACK_PATH):
 		tex = ResourceLoader.load(LANE_FALLBACK_PATH) as Texture2D
 		tex_path = LANE_FALLBACK_PATH
 	if tex != null and not _lane_tex_logged:
 		_lane_tex_logged = true
 		SFLog.info("LANE_TEX_RESOLVE_OK", {
-			"key": LANE_TEX_KEY,
+			"key": tex_key,
+			"selection": CosmeticThemeDB.get_garage_selection("lanes"),
 			"path": tex_path if tex_path != "" else tex.resource_path,
 			"w": tex.get_width(),
 			"h": tex.get_height(),
@@ -1619,6 +1656,8 @@ func _hive_radius_px_for_lane(hive_id: int) -> float:
 	return fallback_radius
 
 func _maybe_log_lane_sprite_coverage(length_px: float, segment_count: int, effective_seg_len: float) -> void:
+	if not AUDIT_RENDER:
+		return
 	if length_px <= LANE_SEGMENT_TARGET_PX:
 		return
 	var now_ms: int = Time.get_ticks_msec()

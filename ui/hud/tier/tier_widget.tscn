@@ -28,9 +28,9 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 2.0
-offset_top = 2.0
+offset_top = 14.0
 offset_right = -2.0
-offset_bottom = -2.0
+offset_bottom = 10.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
@@ -40,7 +40,7 @@ theme_override_constants/separation = 8
 [node name="TierColumn" type="VBoxContainer" parent="Row"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = -14
+theme_override_constants/separation = -30
 
 [node name="TierTitle" type="Label" parent="Row/TierColumn"]
 material = SubResource("ShaderMaterial_forged_text")
@@ -54,7 +54,6 @@ vertical_alignment = 0
 material = SubResource("ShaderMaterial_forged_text")
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_vertical = 3
 text = "2"
 horizontal_alignment = 1
 vertical_alignment = 0
@@ -83,7 +82,6 @@ vertical_alignment = 0
 material = SubResource("ShaderMaterial_forged_text")
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_vertical = 3
 text = "21"
 horizontal_alignment = 1
 vertical_alignment = 0

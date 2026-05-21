@@ -5,6 +5,9 @@ signal queue_changed(queue_size: int)
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const VsHandshakeTransportHttp := preload("res://scripts/state/vs_handshake_transport_http.gd")
+const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
+const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
+const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
 
 const SESSION_TTL_SEC: int = 15 * 60
 const QUEUE_TTL_SEC: int = 90
@@ -15,7 +18,9 @@ const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
 const SETTINGS_FORCE_RELEASE_GUARD_FOR_SMOKE: String = "swarmfront/vs/force_release_guard_for_smoke"
-const DEFAULT_BACKEND_TIMEOUT_SEC: float = 30.0
+const DEFAULT_BACKEND_TIMEOUT_SEC: float = 1.5
+const MAX_SYNC_BACKEND_TIMEOUT_SEC: float = 1.5
+const TRANSPORT_ERROR_BACKOFF_MS: int = 60000
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _sessions: Dictionary = {}
@@ -29,6 +34,7 @@ var _transport_mode: String = "local"
 var _transport_error_logged: bool = false
 var _transport_config_blocker: String = ""
 var _last_transport_error: Dictionary = {}
+var _transport_backoff_until_msec: int = 0
 
 func _ready() -> void:
 	_rng.randomize()
@@ -104,9 +110,10 @@ func _configured_backend_token() -> String:
 	return ""
 
 func _configured_backend_timeout_sec() -> float:
+	var configured_timeout: float = DEFAULT_BACKEND_TIMEOUT_SEC
 	if ProjectSettings.has_setting(SETTINGS_BACKEND_TIMEOUT_SEC):
-		return maxf(0.1, float(ProjectSettings.get_setting(SETTINGS_BACKEND_TIMEOUT_SEC, DEFAULT_BACKEND_TIMEOUT_SEC)))
-	return DEFAULT_BACKEND_TIMEOUT_SEC
+		configured_timeout = float(ProjectSettings.get_setting(SETTINGS_BACKEND_TIMEOUT_SEC, DEFAULT_BACKEND_TIMEOUT_SEC))
+	return clampf(configured_timeout, 0.1, MAX_SYNC_BACKEND_TIMEOUT_SEC)
 
 func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 	if _transport_http == null or not _transport_http.configured():
@@ -121,13 +128,26 @@ func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 			_last_transport_error = result.duplicate(true)
 			return {"handled": true, "result": result}
 		return {"handled": false}
+	var now_msec: int = Time.get_ticks_msec()
+	if _transport_backoff_until_msec > now_msec:
+		var backoff_result: Dictionary = _last_transport_error.duplicate(true)
+		if backoff_result.is_empty():
+			backoff_result = {
+				"ok": false,
+				"transport_error": true,
+				"err": "transport_backoff"
+			}
+		backoff_result["backoff_ms_remaining"] = _transport_backoff_until_msec - now_msec
+		return {"handled": true, "result": backoff_result}
 	var result: Dictionary = _transport_http.call_action(action, payload)
 	if bool(result.get("ok", false)):
 		_transport_error_logged = false
 		_last_transport_error = {}
+		_transport_backoff_until_msec = 0
 		return {"handled": true, "result": result}
 	if bool(result.get("transport_error", false)):
 		_last_transport_error = result.duplicate(true)
+		_transport_backoff_until_msec = Time.get_ticks_msec() + TRANSPORT_ERROR_BACKOFF_MS
 		if not _transport_error_logged:
 			_transport_error_logged = true
 			SFLog.allow_tag("VS_TRANSPORT_FALLBACK")
@@ -722,6 +742,7 @@ func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dict
 	var now_unix: int = int(Time.get_unix_time_from_system())
 	var session_id: String = _next_session_id()
 	var invite_code: String = _next_invite_code()
+	var session_context: Dictionary = _prepare_session_context(context)
 	var host_copy: Dictionary = {
 		"uid": str(host.get("uid", "")),
 		"display_name": str(host.get("display_name", "Player 1")),
@@ -733,7 +754,7 @@ func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dict
 		"id": session_id,
 		"invite_code": invite_code,
 		"source": source,
-		"context": context.duplicate(true),
+		"context": session_context,
 		"created_unix": now_unix,
 		"expires_unix": now_unix + SESSION_TTL_SEC,
 		"status": "waiting",
@@ -745,6 +766,116 @@ func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dict
 		},
 		"close_reason": ""
 	}
+
+func _prepare_session_context(context: Dictionary) -> Dictionary:
+	var out: Dictionary = context.duplicate(true)
+	if not _context_has_stage_maps(out):
+		var selected_maps: Array[String] = _select_stage_map_paths_for_context(out)
+		if not selected_maps.is_empty():
+			out["stage_map_paths"] = selected_maps
+	if not out.has(MatchSetupRandomizer.CONTEXT_KEY):
+		out[MatchSetupRandomizer.CONTEXT_KEY] = MatchSetupRandomizer.roll(_rng)
+	return out
+
+func _context_has_stage_maps(context: Dictionary) -> bool:
+	var paths_v: Variant = context.get("stage_map_paths", [])
+	if typeof(paths_v) != TYPE_ARRAY:
+		return false
+	for path_any in paths_v as Array:
+		var path: String = str(path_any).strip_edges()
+		if not path.is_empty() and FileAccess.file_exists(path):
+			return true
+	return false
+
+func _select_stage_map_paths_for_context(context: Dictionary) -> Array[String]:
+	var requested_count: int = maxi(1, int(context.get("map_count", 1)))
+	var picked: Array[String] = _stage_map_paths_from_map_ids(context, requested_count)
+	if picked.size() >= requested_count:
+		return picked
+	var mode: String = str(context.get("mode", "")).strip_edges().to_upper()
+	var pool: Array[String] = _candidate_stage_map_paths_for_mode(mode)
+	while picked.size() < requested_count and not pool.is_empty():
+		var idx: int = _rng.randi_range(0, pool.size() - 1)
+		var path: String = str(pool[idx])
+		if not picked.has(path):
+			picked.append(path)
+		pool.remove_at(idx)
+	return picked
+
+func _stage_map_paths_from_map_ids(context: Dictionary, requested_count: int) -> Array[String]:
+	var picked: Array[String] = []
+	var mode: String = str(context.get("mode", "")).strip_edges().to_upper()
+	var ids_v: Variant = context.get("map_ids", [])
+	var ids: Array = []
+	if typeof(ids_v) == TYPE_ARRAY:
+		ids = ids_v as Array
+	elif typeof(ids_v) == TYPE_PACKED_STRING_ARRAY:
+		for id_any in ids_v as PackedStringArray:
+			ids.append(str(id_any))
+	for id_any in ids:
+		var map_path: String = MAP_LOADER._resolve_map_path(str(id_any))
+		if map_path.is_empty() or picked.has(map_path):
+			continue
+		var loaded: Dictionary = MAP_LOADER.load_map(map_path)
+		if not bool(loaded.get("ok", false)):
+			continue
+		var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
+		if not bool(summary.get("ok", false)):
+			continue
+		picked.append(map_path)
+		if picked.size() >= requested_count:
+			break
+	return picked
+
+func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
+	var out: Array[String] = []
+	for path_any in MAP_LOADER.list_maps():
+		var path: String = str(path_any).strip_edges()
+		if path.is_empty():
+			continue
+		var result: Dictionary = MAP_LOADER.load_map(path)
+		if not bool(result.get("ok", false)):
+			continue
+		var data: Dictionary = result.get("data", {}) as Dictionary
+		var summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode)
+		if not bool(summary.get("ok", false)):
+			continue
+		out.append(path)
+	return out
+
+func _map_buckets_for_mode(mode: String) -> Array[String]:
+	match mode:
+		"2V2":
+			return ["2V2"]
+		"4P FFA":
+			return ["4P_FFA", "4P FFA"]
+		"3P FFA":
+			return ["3P_FFA", "3P FFA"]
+		"CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG":
+			return ["1P", "2P", "4P", "CTF"]
+		_:
+			return ["1V1", "1P", "2P"]
+
+func _map_data_matches_buckets(data: Dictionary, required_buckets: Array[String]) -> bool:
+	if required_buckets.is_empty():
+		return true
+	var buckets_v: Variant = data.get("player_buckets", [])
+	var buckets: Array[String] = []
+	if typeof(buckets_v) == TYPE_ARRAY:
+		for bucket_any in buckets_v as Array:
+			var normalized: String = _normalize_bucket(str(bucket_any))
+			if not normalized.is_empty():
+				buckets.append(normalized)
+	var mode: String = _normalize_bucket(str(data.get("mode", "")))
+	if not mode.is_empty():
+		buckets.append(mode)
+	for required in required_buckets:
+		if buckets.has(_normalize_bucket(required)):
+			return true
+	return false
+
+func _normalize_bucket(value: String) -> String:
+	return value.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
 
 func _session_refresh_status(session: Dictionary) -> void:
 	var host: Dictionary = session.get("host", {}) as Dictionary

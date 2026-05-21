@@ -15,6 +15,10 @@ const REACTION_RESPONSE_WINDOW_MS: int = 12000
 const REACTION_THREAT_COOLDOWN_MS: int = 4000
 const REPLAY_SAMPLE_INTERVAL_MS: int = 500
 const REPLAY_MAX_UNITS_PER_FRAME: int = 220
+const VIDEO_REPLAY_FPS: int = 30
+const VIDEO_REPLAY_WIDTH: int = 1080
+const VIDEO_REPLAY_HEIGHT: int = 1920
+const VIDEO_REPLAY_DEFAULT_CLIP_MS: int = 30000
 
 var _model: Variant = MatchTelemetryModelScript.new()
 var _active_player_ids: Array[int] = []
@@ -498,6 +502,7 @@ func finalize_match(winner_player_id: int, end_utc_ms: int) -> Variant:
 	_model.metrics = _build_metrics(duration_s)
 	_model.totals = _build_totals()
 	_model.replay = _build_replay_payload(duration_ms)
+	_model.video_replay = _build_video_replay_payload(duration_ms)
 	return _model
 
 func _sample_replay_frame(t_ms: int, state: GameState) -> void:
@@ -518,6 +523,70 @@ func _build_replay_payload(duration_ms: int) -> Dictionary:
 		"map": _replay_map.duplicate(true),
 		"frames": _replay_frames.duplicate(true)
 	}
+
+func _build_video_replay_payload(duration_ms: int) -> Dictionary:
+	var metadata: Dictionary = _model.metadata if typeof(_model.metadata) == TYPE_DICTIONARY else {}
+	var map_data: Dictionary = {}
+	var map_data_any: Variant = metadata.get("map_data", {})
+	if typeof(map_data_any) == TYPE_DICTIONARY:
+		map_data = (map_data_any as Dictionary).duplicate(true)
+	var input_events: Array = []
+	for event_any in _model.events:
+		if typeof(event_any) != TYPE_DICTIONARY:
+			continue
+		var event: Dictionary = event_any as Dictionary
+		if int(event.get("e", 0)) != int(MatchTelemetryModelScript.EVENT_INTENT):
+			continue
+		if not bool(event.get("ok", false)):
+			continue
+		var intent: String = str(event.get("intent", "")).strip_edges().to_lower()
+		if intent != "attack" and intent != "feed" and intent != "swarm" and intent != "none":
+			continue
+		input_events.append({
+			"t_ms": maxi(0, int(event.get("t", 0))),
+			"player_id": maxi(0, int(event.get("p", 0))),
+			"src_hive_id": int(event.get("src", -1)),
+			"dst_hive_id": int(event.get("dst", -1)),
+			"intent": intent
+		})
+	input_events.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("t_ms", 0)) < int(b.get("t_ms", 0))
+	)
+	var clip_duration_ms: int = mini(VIDEO_REPLAY_DEFAULT_CLIP_MS, maxi(0, duration_ms))
+	return {
+		"schema_version": 1,
+		"render_mode": "actual_arena_scene",
+		"deterministic": true,
+		"map_path": str(metadata.get("map_path", "")).strip_edges(),
+		"map_data": map_data,
+		"input_events": input_events,
+		"player_loadouts": _dictionary_from_metadata(metadata, "player_loadouts"),
+		"cosmetics": _dictionary_from_metadata(metadata, "cosmetics"),
+		"clip_windows": [
+			{
+				"start_ms": maxi(0, duration_ms - clip_duration_ms),
+				"duration_ms": clip_duration_ms,
+				"reason": "default_social_clip"
+			}
+		],
+		"cta": {
+			"text_overlay": "Tap the link to play Swarmfront",
+			"link_url": "",
+			"safe_area": "bottom"
+		},
+		"export": {
+			"width": VIDEO_REPLAY_WIDTH,
+			"height": VIDEO_REPLAY_HEIGHT,
+			"fps": VIDEO_REPLAY_FPS,
+			"format": "mp4"
+		}
+	}
+
+func _dictionary_from_metadata(metadata: Dictionary, key: String) -> Dictionary:
+	var value: Variant = metadata.get(key, {})
+	if typeof(value) == TYPE_DICTIONARY:
+		return (value as Dictionary).duplicate(true)
+	return {}
 
 func _build_replay_map(state: GameState) -> Dictionary:
 	var hives: Array = []

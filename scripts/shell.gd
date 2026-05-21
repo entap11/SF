@@ -1427,6 +1427,8 @@ func _prepare_ctf_bot_tree_meta(map_path: String) -> void:
 	tree.set_meta("ctf_hidden_flag", true)
 	tree.set_meta("ctf_flag_move_count_max", 1)
 	tree.set_meta("ctf_flag_move_reveals", true)
+	tree.set_meta("hidden_ctf_allotment_pattern", "roll")
+	tree.set_meta("hidden_ctf_allotment_seed", maxi(1, Time.get_ticks_msec()))
 
 func _open_main_menu() -> void:
 	if main_menu_scene_path.is_empty():
@@ -2592,7 +2594,8 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 		"round_seconds": SOAK_DEFAULT_ROUND_SECONDS,
 		"pairs": SOAK_DEFAULT_PAIR_COUNT,
 		"reapply_ms": SOAK_DEFAULT_REAPPLY_MS,
-		"start_timeout_ms": SOAK_DEFAULT_START_TIMEOUT_MS
+		"start_timeout_ms": SOAK_DEFAULT_START_TIMEOUT_MS,
+		"profile_sim": false
 	}
 	for arg_any in args:
 		var arg: String = str(arg_any)
@@ -2610,6 +2613,8 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 			config["reapply_ms"] = max(250, int(arg.trim_prefix("--soak-reapply-ms=")))
 		elif arg.begins_with("--soak-start-timeout-ms="):
 			config["start_timeout_ms"] = max(1000, int(arg.trim_prefix("--soak-start-timeout-ms=")))
+		elif arg == "--soak-sim-profile":
+			config["profile_sim"] = true
 	return config
 
 func _run_soak_perf(config: Dictionary) -> void:
@@ -2622,8 +2627,8 @@ func _run_soak_perf(config: Dictionary) -> void:
 	SFLog.allow_tag("SOAK_SUMMARY")
 	SFLog.allow_tag("SOAK_ERROR")
 	SFLog.allow_tag("ARENA_FRAME_HEARTBEAT")
+	SFLog.allow_tag("RENDER_PROCESS_HEARTBEAT")
 	SFLog.allow_tag("SIM_HEARTBEAT")
-	SFLog.allow_tag("SIM_TICK_COST")
 
 	var map_path: String = str(config.get("map_path", "")).strip_edges()
 	if map_path == "":
@@ -2640,6 +2645,11 @@ func _run_soak_perf(config: Dictionary) -> void:
 	var pair_count: int = int(config.get("pairs", SOAK_DEFAULT_PAIR_COUNT))
 	var reapply_ms: int = int(config.get("reapply_ms", SOAK_DEFAULT_REAPPLY_MS))
 	var start_timeout_ms: int = int(config.get("start_timeout_ms", SOAK_DEFAULT_START_TIMEOUT_MS))
+	var profile_sim: bool = bool(config.get("profile_sim", false))
+	if profile_sim:
+		SFLog.allow_tag("SIM_TICK_COST")
+		SFLog.allow_tag("SIM_TICK_PHASE")
+	get_tree().set_meta("soak_sim_profile", profile_sim)
 	_stop_game()
 	await get_tree().process_frame
 	_apply_map_then_start(map_path)
@@ -2649,6 +2659,8 @@ func _run_soak_perf(config: Dictionary) -> void:
 		SFLog.LOG_LEVEL = prev_log_level
 		get_tree().quit(1)
 		return
+	if profile_sim:
+		_soak_enable_sim_profiling()
 	_soak_disable_bots()
 
 	var soak_start_ms := Time.get_ticks_msec()
@@ -2697,6 +2709,8 @@ func _run_soak_perf_round(
 		if not running_ok:
 			SFLog.warn("SOAK_ERROR", {"round": round_index, "reason": "match_not_running"})
 			return false
+		if bool(get_tree().get_meta("soak_sim_profile", false)):
+			_soak_enable_sim_profiling()
 		_soak_disable_bots()
 	var pairs: Array = _soak_pick_duel_pairs(pair_count)
 	if pairs.is_empty():
@@ -2815,6 +2829,18 @@ func _soak_disable_bots() -> void:
 		return
 	for seat in [1, 2, 3, 4]:
 		OpsState.call("set_bot_profile", int(seat), {"enabled": false})
+
+func _soak_enable_sim_profiling() -> void:
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node == null:
+		return
+	var sim_runner_node: Node = arena_node.get_node_or_null("SimRunner")
+	if sim_runner_node == null:
+		return
+	sim_runner_node.set("debug_sim_tick_log", true)
+	SFLog.allow_tag("SIM_TICK")
+	SFLog.allow_tag("SIM_TICK_COST")
+	SFLog.allow_tag("SIM_TICK_PHASE")
 
 func _maybe_start_mvp_smoke() -> bool:
 	var config: Dictionary = _parse_mvp_smoke_config(OS.get_cmdline_user_args())

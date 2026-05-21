@@ -15,7 +15,7 @@ function contentFlagsFromScore(explicitFlags, excitementScore, config) {
     };
 }
 function buildMessageTemplates(payload) {
-    const link = payload.replay_link.canonical_url;
+    const link = payload.acquisition_link.universal_url;
     const title = payload.share_card.title;
     const subtitle = payload.share_card.subtitle;
     return {
@@ -26,7 +26,43 @@ function buildMessageTemplates(payload) {
             embed_url: link
         },
         x: {
-            text: `${title} in Swarmfront. Watch the replay: ${link}`
+            text: `${title} in Swarmfront. ${payload.acquisition_link.cta_text}: ${link}`
+        }
+    };
+}
+function buildAcquisitionLink(payload, config) {
+    const replayId = encodeURIComponent(payload.match.replay_id);
+    const matchId = encodeURIComponent(payload.match.match_id);
+    const campaign = encodeURIComponent(config.acquisitionLinks.campaign);
+    const universalUrl = `${config.acquisitionLinks.basePlayUrl}?replay=${replayId}&match=${matchId}&utm_source=social&utm_medium=highlight&utm_campaign=${campaign}`;
+    return {
+        universal_url: universalUrl,
+        app_deep_link: `${config.replayLinks.appScheme}/${replayId}?source=social_highlight`,
+        app_store_url_ios: config.replayLinks.fallbackUrlIos,
+        app_store_url_android: config.replayLinks.fallbackUrlAndroid,
+        desktop_fallback_url: payload.replay_link.canonical_url,
+        campaign: config.acquisitionLinks.campaign,
+        cta_text: config.acquisitionLinks.ctaText
+    };
+}
+function buildHighlightVideoAsset(payload, config) {
+    const safeMatchId = encodeURIComponent(payload.match.match_id);
+    const safeReplayId = encodeURIComponent(payload.match.replay_id);
+    const clipSeconds = Math.min(config.video.defaultClipSeconds, Math.max(1, payload.match.duration_seconds));
+    return {
+        source: "deterministic_replay_render",
+        status: payload.posting_rules.eligible_for_auto_post ? "queued" : "skipped",
+        video_url: `${config.video.assetBaseUrl}/${safeMatchId}/${safeReplayId}.mp4`,
+        poster_url: `${config.render.assetBaseUrl}/${safeReplayId}/og.png`,
+        duration_seconds: clipSeconds,
+        width: config.video.outputWidth,
+        height: config.video.outputHeight,
+        format: "mp4",
+        retention_policy: "ephemeral_source_permanent_clip",
+        cta: {
+            text_overlay: payload.acquisition_link.cta_text,
+            link_url: payload.acquisition_link.universal_url,
+            safe_area: "bottom"
         }
     };
 }
@@ -83,7 +119,32 @@ export function buildHighlightPayload(input, config = defaultHighlightConfig) {
                 format: "png"
             }
         },
+        highlight_video: {
+            source: "deterministic_replay_render",
+            status: "skipped",
+            video_url: "",
+            poster_url: "",
+            duration_seconds: 0,
+            width: config.video.outputWidth,
+            height: config.video.outputHeight,
+            format: "mp4",
+            retention_policy: "ephemeral_source_permanent_clip",
+            cta: {
+                text_overlay: config.acquisitionLinks.ctaText,
+                link_url: "",
+                safe_area: "bottom"
+            }
+        },
         replay_link: replayLink,
+        acquisition_link: {
+            universal_url: "",
+            app_deep_link: "",
+            app_store_url_ios: config.replayLinks.fallbackUrlIos,
+            app_store_url_android: config.replayLinks.fallbackUrlAndroid,
+            desktop_fallback_url: replayLink.canonical_url,
+            campaign: config.acquisitionLinks.campaign,
+            cta_text: config.acquisitionLinks.ctaText
+        },
         message_templates: {
             discord: {
                 content: "",
@@ -97,6 +158,8 @@ export function buildHighlightPayload(input, config = defaultHighlightConfig) {
         }
     };
     payload.share_card = buildShareStory(payload, config);
+    payload.acquisition_link = buildAcquisitionLink(payload, config);
+    payload.highlight_video = buildHighlightVideoAsset(payload, config);
     payload.message_templates = buildMessageTemplates(payload);
     payload.posting_rules.destinations = buildPostingDestinations(payload, config);
     return payload;

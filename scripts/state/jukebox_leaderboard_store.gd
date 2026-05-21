@@ -3,17 +3,10 @@ extends RefCounted
 
 const SAVE_PATH_DEFAULT: String = "user://jukebox_leaderboard_v1.json"
 const SCHEMA_V1: String = "swarmfront.jukebox_leaderboard.v1"
-const SEED_COMPETITOR_COUNT: int = 24
 const DEFAULT_MODE: String = "ASYNC_SINGLE_MAP_TIMED"
 const DEFAULT_PERIOD: String = "WEEKLY"
 const PERIOD_ALL_TIME: String = "ALL TIME"
 const PERIOD_LABELS: Array[String] = ["WEEKLY", "MONTHLY", "SEASON", "ALL TIME"]
-const SEED_HANDLES: Array[String] = [
-	"SwarmDaddy", "HiveLaw", "BeeLine", "LaneLord", "WaxOn", "NectarKid", "HoneyBadger",
-	"RushMint", "QueenStrat", "MapGrind", "BuzzKill", "Drone47", "TopRail", "SplitPush",
-	"BotCheck", "FlagRunner", "GhostLine", "ApexHive", "TempoBee", "GridSmith",
-	"LanePilot", "HoneyRush", "RailGuard", "MapScout", "HiveForge", "PathSniper"
-]
 
 var save_path: String = SAVE_PATH_DEFAULT
 
@@ -225,50 +218,36 @@ func _ensure_board(
 			"updated_at": int(Time.get_unix_time_from_system()),
 			"rows": []
 		}
-	if _seed_board(board, requester_id, requester_handle):
-		_store_board(board)
-		_save()
-	elif not _boards_by_key.has(board_key):
+	if requester_id.strip_edges() != "":
+		board["requester_id"] = _normalize_token(requester_id)
+		board["requester_handle"] = _sanitize_handle(requester_handle, requester_id)
+	if not _boards_by_key.has(board_key):
 		_store_board(board)
 	return board
 
-func _seed_board(board: Dictionary, requester_id: String, requester_handle: String) -> bool:
-	var rows: Array = board.get("rows", []) as Array
-	if not rows.is_empty():
-		return false
-	var map_id: String = str(board.get("map_id", ""))
-	var mode: String = str(board.get("mode", DEFAULT_MODE))
-	var period: String = str(board.get("period", DEFAULT_PERIOD))
-	var seed_text: String = "%s|%s|%s" % [map_id, mode, period]
-	var rng := RandomNumberGenerator.new()
-	rng.seed = int(seed_text.hash())
-	var now_unix: int = int(Time.get_unix_time_from_system())
-	var base_ms: int = 76000 + int(abs(seed_text.hash()) % 22000)
-	var user_rank_target: int = clampi(8 + int(abs((seed_text + "|you").hash()) % 16), 1, SEED_COMPETITOR_COUNT + 1)
-	for i in range(SEED_COMPETITOR_COUNT):
-		var rank: int = i + 1
-		var player_id: String = "seed_%s_%02d" % [_slug(seed_text), rank]
-		var handle_seed: String = SEED_HANDLES[i % SEED_HANDLES.size()]
-		var handle: String = "%s%02d" % [handle_seed, int((i * 7 + abs(seed_text.hash())) % 97)]
-		var time_ms: int = base_ms + i * 410 + int(rng.randi_range(20, 260))
-		rows.append({
-			"row_id": "seed_%02d" % rank,
-			"player_id": player_id,
-			"handle": handle,
-			"best_time_ms": time_ms,
-			"updated_at": now_unix - i,
-			"source": "seed"
-		})
-	board["rows"] = rows
-	board["updated_at"] = now_unix
-	return true
-
 func _sorted_rows(rows_any: Array) -> Array[Dictionary]:
-	var rows: Array[Dictionary] = []
+	var best_by_player: Dictionary = {}
 	for row_any in rows_any:
 		if typeof(row_any) != TYPE_DICTIONARY:
 			continue
-		rows.append(_normalize_row(row_any as Dictionary))
+		var row: Dictionary = _normalize_row(row_any as Dictionary)
+		var player_id: String = str(row.get("player_id", ""))
+		var time_ms: int = int(row.get("best_time_ms", 0))
+		if player_id.is_empty() or time_ms <= 0:
+			continue
+		var existing_any: Variant = best_by_player.get(player_id, null)
+		if typeof(existing_any) == TYPE_DICTIONARY:
+			var existing: Dictionary = existing_any as Dictionary
+			var existing_time: int = int(existing.get("best_time_ms", 0))
+			var existing_updated: int = int(existing.get("updated_at", 0))
+			if existing_time > 0 and existing_time < time_ms:
+				continue
+			if existing_time == time_ms and existing_updated >= int(row.get("updated_at", 0)):
+				continue
+		best_by_player[player_id] = row
+	var rows: Array[Dictionary] = []
+	for player_id_any in best_by_player.keys():
+		rows.append((best_by_player.get(player_id_any, {}) as Dictionary).duplicate(true))
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var a_time: int = int(a.get("best_time_ms", 0))
 		var b_time: int = int(b.get("best_time_ms", 0))
@@ -303,7 +282,7 @@ func _normalize_board(raw: Dictionary) -> Dictionary:
 			var normalized_row: Dictionary = _normalize_row(row_any as Dictionary)
 			if str(normalized_row.get("player_id", "")).is_empty():
 				continue
-			if str(normalized_row.get("source", "")).begins_with("seed_local"):
+			if str(normalized_row.get("source", "")).begins_with("seed"):
 				continue
 			rows.append(normalized_row)
 	elif typeof(raw.get("rows_by_player", null)) == TYPE_DICTIONARY:
@@ -314,7 +293,7 @@ func _normalize_board(raw: Dictionary) -> Dictionary:
 			var normalized_row: Dictionary = _normalize_row(row_any as Dictionary)
 			if str(normalized_row.get("player_id", "")).is_empty():
 				continue
-			if str(normalized_row.get("source", "")).begins_with("seed_local"):
+			if str(normalized_row.get("source", "")).begins_with("seed"):
 				continue
 			rows.append(normalized_row)
 	return {
@@ -419,13 +398,6 @@ func _sanitize_handle(raw_handle: String, fallback: String) -> String:
 func _resolve_updated_at(value: int) -> int:
 	return value if value > 0 else int(Time.get_unix_time_from_system())
 
-func _slug(raw: String) -> String:
-	var out: String = raw.to_lower()
-	out = out.replace("|", "_")
-	out = out.replace(" ", "_")
-	out = out.replace("/", "_")
-	return out
-
 func _append_result(clean_map_id: String, clean_mode: String, period: String, result: Dictionary, recorded_at: int) -> Dictionary:
 	var clean_period: String = _normalize_period(period)
 	var clean_player_id: String = _normalize_token(str(result.get("player_id", "")))
@@ -439,14 +411,32 @@ func _append_result(clean_map_id: String, clean_mode: String, period: String, re
 	var scope_id: String = _period_scope_id(clean_period, recorded_at)
 	var board: Dictionary = _ensure_board(clean_map_id, clean_mode, clean_period, "", "", scope_id)
 	var rows: Array = board.get("rows", []) as Array
-	rows.append({
+	var row: Dictionary = {
 		"row_id": "%s_%d_%d" % [clean_player_id, recorded_at, rows.size()],
 		"player_id": clean_player_id,
 		"handle": _sanitize_handle(str(result.get("handle", clean_player_id)), clean_player_id),
 		"best_time_ms": best_time_ms,
 		"updated_at": recorded_at,
 		"source": str(result.get("source", "run"))
-	})
+	}
+	var replaced: bool = false
+	for i in range(rows.size()):
+		if typeof(rows[i]) != TYPE_DICTIONARY:
+			continue
+		var existing: Dictionary = rows[i] as Dictionary
+		if str(existing.get("player_id", "")) != clean_player_id:
+			continue
+		var existing_time: int = maxi(0, int(existing.get("best_time_ms", existing.get("time_ms", 0))))
+		if existing_time <= 0 or best_time_ms < existing_time:
+			rows[i] = row
+		else:
+			existing["updated_at"] = maxi(int(existing.get("updated_at", 0)), recorded_at)
+			existing["handle"] = row.get("handle", existing.get("handle", clean_player_id))
+			rows[i] = existing
+		replaced = true
+		break
+	if not replaced:
+		rows.append(row)
 	board["rows"] = rows
 	board["updated_at"] = recorded_at
 	board["period_scope"] = scope_id
