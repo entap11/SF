@@ -389,6 +389,7 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 			a_amt -= kill
 			b_amt -= kill
 			if kill > 0:
+				_record_lane_visual_impact(int(lane_id), collision_t)
 				_adjust_lane_pressure(int(lane_id), true, -kill)
 				_adjust_lane_pressure(int(lane_id), false, -kill)
 				var ops_state: Node = _ops_state()
@@ -612,6 +613,17 @@ func _find_lane_by_id(lane_id: int) -> LaneData:
 				return ld
 	return null
 
+func _record_lane_visual_impact(lane_id: int, impact_t: float) -> void:
+	var lane := _find_lane_by_id(lane_id)
+	if lane == null:
+		return
+	var t: float = clampf(impact_t, 0.0, 1.0)
+	lane.last_impact_f = t
+	var ops_state: Node = _ops_state()
+	if ops_state != null:
+		var front_by_lane: Dictionary = ops_state.get("lane_front_by_lane_id") as Dictionary
+		front_by_lane[lane_id] = t
+
 func _adjust_lane_pressure(lane_id: int, from_is_a: bool, delta: int) -> void:
 	if state == null or delta == 0:
 		return
@@ -695,12 +707,16 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	if amount > 0 and not skip_pressure:
 		var from_is_a := _unit_dir(unit) >= 0
 		_adjust_lane_pressure(int(unit.get("lane_id", -1)), from_is_a, -amount)
-	var ops_state: Node = _ops_state()
-	if ops_state != null:
-		ops_state.call("add_units_landed", owner_id, amount)
 	var before_owner := int(hive.owner_id)
 	var before_power := int(hive.power)
 	var friendly_arrival: bool = _are_allied_owners(before_owner, owner_id)
+	var ops_state: Node = _ops_state()
+	if ops_state != null:
+		ops_state.call("add_units_landed", owner_id, amount)
+		if friendly_arrival and before_owner > 0:
+			ops_state.call("add_units_fed_friendly", owner_id, amount)
+		elif before_owner > 0:
+			ops_state.call("add_units_landed_enemy", owner_id, amount)
 	var pass_owner: int = owner_id if owner_id > 0 else before_owner
 	if friendly_arrival and before_owner > 0:
 		pass_owner = before_owner

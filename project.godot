@@ -56,4 +56,4 @@ rank/backend_token=""
 rank/backend_timeout_sec=2.0
 vs/backend_url="https://sf-zr2m.onrender.com/v1"
 vs/backend_token=""
-vs/backend_timeout_sec=1.5
+vs/backend_timeout_sec=6.0

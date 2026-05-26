@@ -7255,7 +7255,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var st := event as InputEventScreenTouch
 		var wp: Vector2 = _screen_to_world(st.position)
 		var lp: Vector2 = map_root.to_local(wp)
-		_send_pointer_event(st.pressed, MOUSE_BUTTON_LEFT, lp, false, wp, st.position)
+		_send_pointer_event(st.pressed, MOUSE_BUTTON_LEFT, lp, false, wp, st.position, true)
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventScreenDrag:
@@ -7263,7 +7263,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var sd := event as InputEventScreenDrag
 		var wp: Vector2 = _screen_to_world(sd.position)
 		var lp: Vector2 = map_root.to_local(wp)
-		_send_pointer_event(false, 0, lp, true, wp, sd.position)
+		_send_pointer_event(false, 0, lp, true, wp, sd.position, true)
 		return
 	input_system.handle_input(event, api)
 
@@ -7275,7 +7275,7 @@ func _pointer_local_from_screen(screen_pos: Vector2) -> Vector2:
 		screen_pos
 	)
 
-func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, is_motion: bool = false, world_pos: Vector2 = Vector2.ZERO, screen_pos: Vector2 = Vector2.ZERO) -> void:
+func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, is_motion: bool = false, world_pos: Vector2 = Vector2.ZERO, screen_pos: Vector2 = Vector2.ZERO, is_touch: bool = false) -> void:
 	var hive_id: int = api.pick_hive_id(world_pos)
 	if hive_id <= 0:
 		hive_id = api.hive_id_at_point(local_pos)
@@ -7310,6 +7310,7 @@ func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, i
 		"local_pos": local_pos,
 		"world_pos": world_pos,
 		"screen_pos": screen_pos,
+		"is_touch": is_touch,
 		"hive_id": hive_id,
 		"lane_id": lane_id
 	}

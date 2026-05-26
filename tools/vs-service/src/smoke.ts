@@ -1,5 +1,5 @@
 import http from "node:http";
-import { createApp } from "./server.js";
+import { bestQuickMatchCandidateForTest, createApp } from "./server.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -95,6 +95,46 @@ async function main(): Promise<void> {
     expect((q2.session as JsonRecord).status === "started", "quick match did not auto-start", q2);
     const qPoll = await post(baseUrl, "poll_quick_match", { ticket_id: String(q1.ticket_id) });
     expect(qPoll.matched === true && qPoll.session_id === q2.session_id, "quick poll did not find match", qPoll);
+
+    const rankedContext = {
+      ...context,
+      mode: "PVP_RANKED_SMOKE",
+      stage_map_paths: ["res://maps/json/MAP_TEST_RANKED_8x12.json"]
+    };
+    const rankedCandidate = bestQuickMatchCandidateForTest(
+      { uid: "rank_requester", display_name: "Requester", tier_id: "WORKER", rank_position: 100, wax_score: 1000 },
+      rankedContext,
+      [
+        { uid: "rank_far_tier", display_name: "Far Tier", context: rankedContext, tier_id: "QUEEN", rank_position: 10, wax_score: 1000, created_unix: 1 },
+        { uid: "rank_same_far", display_name: "Same Far", context: rankedContext, tier_id: "WORKER", rank_position: 900, wax_score: 1000, created_unix: 2 },
+        { uid: "rank_same_close", display_name: "Same Close", context: rankedContext, tier_id: "WORKER", rank_position: 110, wax_score: 1000, created_unix: 3 }
+      ]
+    );
+    expect(rankedCandidate?.uid === "rank_same_close", "ranked quick chose wrong candidate", rankedCandidate);
+
+    const humanPvpContextA = {
+      ...context,
+      mode: "PVP_HUMAN_CONTEXT_SMOKE",
+      human_pvp: true,
+      map_ids: ["MAP_A"]
+    };
+    const humanPvpContextB = {
+      ...context,
+      mode: "PVP_HUMAN_CONTEXT_SMOKE",
+      human_pvp: true,
+      map_ids: ["MAP_B"]
+    };
+    const humanPvpFirst = await post(baseUrl, "enqueue_quick_match", {
+      profile: { uid: "human_pvp_a", display_name: "Human A", tier_id: "WORKER", rank_position: 100 },
+      context: humanPvpContextA
+    });
+    const humanPvpSecond = await post(baseUrl, "enqueue_quick_match", {
+      profile: { uid: "human_pvp_b", display_name: "Human B", tier_id: "WORKER", rank_position: 101 },
+      context: humanPvpContextB
+    });
+    expect(humanPvpFirst.matched === false && humanPvpSecond.matched === true, "human PvP pregame context blocked match", humanPvpSecond);
+    await post(baseUrl, "leave_session", { session_id: String(humanPvpSecond.session_id), uid: "human_pvp_b" });
+    await post(baseUrl, "leave_session", { session_id: String(humanPvpSecond.session_id), uid: "human_pvp_a" });
 
     const devQuick = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "dev_q", display_name: "Dev Q" }, context });
     const devFill = await post(baseUrl, "debug_fill_quick_match", {

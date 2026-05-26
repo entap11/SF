@@ -1,6 +1,7 @@
 extends Control
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
+const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
@@ -14,7 +15,7 @@ const SYNC_JOIN_COUNTDOWN_SEC := 30
 const ASYNC_WINDOW_COUNTDOWN_SEC := 30 * 60
 const ASYNC_SLOT_FILL_EVERY_SEC := 15
 const SMS_TIMEOUT_SEC := 120
-const QUICK_SEARCH_TIMEOUT_SEC := 45
+const QUICK_SEARCH_TIMEOUT_SEC := 20
 const STANDARD_BOT_FILL_PROMPT_SEC := 20
 const SHELL_SCENE_PATH := "res://scenes/Shell.tscn"
 const TREE_META_VS_CPU_STYLE := "vs_cpu_style"
@@ -40,6 +41,7 @@ const CTF_STAGE_MAP_IDS: Array[String] = [
 ]
 const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
 const CTF_FLAG_MOVE_COUNT_MAX_DEFAULT: int = 1
+const BOT_FILL_JUKEBOX_BOARD_PERIOD: String = "WEEKLY"
 
 @onready var title_label: Label = $Panel/VBox/Header/Title
 @onready var popup_panel: Panel = $Panel
@@ -84,6 +86,7 @@ var _dev_async_bot_style_override: String = ""
 var _dev_async_bot_tier_override: String = ""
 var _context_meta: Dictionary = {}
 var _force_async_window: bool = false
+var _auto_start_quick_search: bool = false
 
 var _local_uid: String = ""
 var _local_name: String = "You"
@@ -114,6 +117,7 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	_standard_bot_style = ""
 	_standard_bot_tier = ""
 	_force_async_window = bool(options.get("force_async_window", false))
+	_auto_start_quick_search = bool(options.get("human_pvp", false)) and not _force_async_window
 	_window_sec = maxi(1, int(options.get("window_sec", ASYNC_WINDOW_COUNTDOWN_SEC)))
 	_sync_join_sec = maxi(1, int(options.get("sync_join_sec", SYNC_JOIN_COUNTDOWN_SEC)))
 	var start_players: int = int(options.get("start_players", _min_players()))
@@ -131,6 +135,8 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 		_sync_join_row_visibility()
 		_sync_dev_button_text()
 		_sync_dev_bot_controls()
+		if _auto_start_quick_search:
+			call_deferred("_begin_auto_quick_search")
 
 func _ready() -> void:
 	_load_fonts()
@@ -183,6 +189,15 @@ func _ready() -> void:
 	quick_button.disabled = false
 	_refresh_summary()
 	_status("Lobby idle")
+	if _auto_start_quick_search:
+		call_deferred("_begin_auto_quick_search")
+
+func _begin_auto_quick_search() -> void:
+	if not is_inside_tree():
+		return
+	if _uses_async_window() or not _session_id.is_empty() or not _quick_ticket_id.is_empty():
+		return
+	_begin_quick_search()
 
 func configure_existing_session(session_id: String, role: String, session: Dictionary, invite_code: String = "") -> void:
 	_session_id = session_id.strip_edges()
@@ -370,7 +385,7 @@ func _begin_quick_search() -> void:
 	_search_elapsed_sec = 0
 	_debug_filled = false
 	_countdown_mode = "quick_search"
-	_countdown_left = maxi(_sync_join_sec, QUICK_SEARCH_TIMEOUT_SEC)
+	_countdown_left = QUICK_SEARCH_TIMEOUT_SEC
 	countdown_timer.start(1.0)
 	invite_label.visible = false
 	_status("Searching quick match")
@@ -530,17 +545,39 @@ func _handshake_context() -> Dictionary:
 		"free_roll": _free_roll
 	}
 	for key in _context_meta.keys():
+		if _is_human_pvp_context() and _is_pregame_setup_key(str(key)):
+			continue
 		context[str(key)] = _context_meta[key]
 	var explicit_stage_map_paths: Array[String] = _explicit_stage_map_paths()
-	if not explicit_stage_map_paths.is_empty():
+	if not _is_human_pvp_context() and not explicit_stage_map_paths.is_empty():
 		context["stage_map_paths"] = explicit_stage_map_paths
 	return context
 
 func _local_profile() -> Dictionary:
-	return {
+	var profile: Dictionary = {
 		"uid": _local_uid,
 		"display_name": _local_name
 	}
+	var rank_payload: Dictionary = _local_rank_matchmaking_payload()
+	for key in rank_payload.keys():
+		profile[str(key)] = rank_payload[key]
+	return profile
+
+func _local_rank_matchmaking_payload() -> Dictionary:
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	if rank_state == null or _local_uid.strip_edges().is_empty():
+		return {}
+	if not rank_state.has_method("get_player_snapshot"):
+		return {}
+	var snapshot_any: Variant = rank_state.call("get_player_snapshot", _local_uid)
+	if typeof(snapshot_any) != TYPE_DICTIONARY:
+		return {}
+	var snapshot: Dictionary = snapshot_any as Dictionary
+	var out: Dictionary = {}
+	for key in ["tier_id", "rank_position", "wax_score", "color_id"]:
+		if snapshot.has(key):
+			out[key] = snapshot[key]
+	return out
 
 func _handshake() -> Node:
 	return get_node_or_null("/root/VsHandshake")
@@ -608,10 +645,16 @@ func _on_countdown_tick() -> void:
 		_poll_quick_search()
 		if _countdown_mode == "quick_search":
 			if _countdown_left <= 0:
-				_cancel_quick_ticket()
-				status_label.text = "No opponent found."
+				_become_open_host_after_search_timeout()
 				return
 			_maybe_show_standard_bot_fill_prompt()
+			_update_countdown_label()
+		return
+	if _countdown_mode == "open_host_poll":
+		_search_elapsed_sec += 1
+		_poll_quick_search()
+		if _countdown_mode == "open_host_poll":
+			_status("Open host")
 			_update_countdown_label()
 		return
 	if _countdown_mode == "handshake_poll":
@@ -667,6 +710,20 @@ func _poll_quick_search() -> void:
 		countdown_timer.start(1.0)
 		_refresh_sync_session_ui()
 		return
+
+func _become_open_host_after_search_timeout() -> void:
+	if _quick_ticket_id.is_empty():
+		_countdown_mode = ""
+		status_label.text = "No opponent found."
+		_update_countdown_label()
+		return
+	_countdown_mode = "open_host_poll"
+	_countdown_left = 0
+	countdown_timer.start(1.0)
+	_status("Open host")
+	_sync_quick_button_text()
+	_sync_join_row_visibility()
+	_update_countdown_label()
 
 func _maybe_show_standard_bot_fill_prompt() -> void:
 	if not _can_offer_standard_bot_fill():
@@ -753,6 +810,7 @@ func _fill_open_seat_with_standard_bot() -> void:
 					handshake.call("set_ready", _session_id, guest_uid, true)
 					session = handshake.call("get_session", _session_id) as Dictionary
 				_apply_session_context(session)
+				_bot_filled_match = true
 				_bot_remote_profile = bot_profile.duplicate(true)
 				_standard_bot_style = str(bot_profile.get("style", "balancer"))
 				_standard_bot_tier = str(bot_profile.get("tier", "medium"))
@@ -766,6 +824,7 @@ func _apply_bot_fill_session(fill_result: Dictionary, bot_profile: Dictionary) -
 	var session: Dictionary = fill_result.get("session", {}) as Dictionary
 	_apply_session_context(session)
 	_session_role = _role_for_local_player(session)
+	_bot_filled_match = true
 	_bot_remote_profile = bot_profile.duplicate(true)
 	_standard_bot_style = str(bot_profile.get("style", "balancer"))
 	_standard_bot_tier = str(bot_profile.get("tier", "medium"))
@@ -863,6 +922,13 @@ func _start_match(session_already_started: bool = false) -> void:
 	if first_stage_map.is_empty():
 		status_label.text = "No valid stage map found."
 		return
+	if _should_route_bot_fill_through_jukebox():
+		if _launch_bot_fill_jukebox_map(first_stage_map):
+			status_label.text = "Bot match starting..."
+			closed.emit()
+		else:
+			status_label.text = "Bot match launch failed."
+		return
 	_launching_match = true
 	status_label.text = "Match starting..."
 	if SFLog.LOGGING_ENABLED:
@@ -894,8 +960,9 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("vs_handshake_invite_code", _invite_code)
 	tree.set_meta("vs_local_profile", _local_profile())
 	tree.set_meta("vs_remote_profile", _remote_profile_for_tree())
-	if _context_meta.has(MatchSetupRandomizer.CONTEXT_KEY):
-		tree.set_meta(MatchSetupRandomizer.TREE_META_KEY, _context_meta[MatchSetupRandomizer.CONTEXT_KEY])
+	var randomizer_payload: Dictionary = _match_randomizer_payload_for_match()
+	if not randomizer_payload.is_empty():
+		tree.set_meta(MatchSetupRandomizer.TREE_META_KEY, randomizer_payload)
 	_apply_dev_bot_overrides_to_tree(tree)
 	for key in _context_meta.keys():
 		tree.set_meta(key, _context_meta[key])
@@ -932,6 +999,124 @@ func _start_match(session_already_started: bool = false) -> void:
 			tree.change_scene_to_file(SHELL_SCENE_PATH)
 		_:
 			tree.change_scene_to_file("res://scenes/Main.tscn")
+
+func _should_route_bot_fill_through_jukebox() -> bool:
+	if _uses_async_window() or not _free_roll:
+		return false
+	if _bot_filled_match:
+		return true
+	var remote: Dictionary = _remote_profile_for_tree()
+	return bool(remote.get("is_cpu", false))
+
+func _launch_bot_fill_jukebox_map(map_path: String) -> bool:
+	if not _prepare_bot_fill_jukebox_metadata(map_path):
+		return false
+	_launching_match = true
+	_apply_team_mode_override_for_match()
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
+	return err == OK
+
+func _prepare_bot_fill_jukebox_metadata(map_path: String) -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var clean_map_path: String = map_path.strip_edges()
+	if clean_map_path.is_empty() or not FileAccess.file_exists(clean_map_path):
+		return false
+	var bot_profile: Dictionary = _bot_remote_profile.duplicate(true)
+	if bot_profile.is_empty():
+		bot_profile = _random_standard_bot_profile()
+	var local_profile: Dictionary = _local_profile()
+	local_profile["name"] = _local_name
+	local_profile["display_name"] = _local_name
+	var map_id: String = MAP_REGISTRY.map_id_from_path(clean_map_path)
+	var cpu_style: String = str(bot_profile.get("style", _standard_bot_style)).strip_edges().to_lower()
+	var cpu_tier: String = str(bot_profile.get("tier", _standard_bot_tier)).strip_edges().to_lower()
+	for key in _bot_fill_jukebox_clear_keys():
+		if tree.has_meta(key):
+			tree.remove_meta(key)
+	tree.set_meta("start_game", true)
+	tree.set_meta("vs_mode", "ASYNC_SINGLE_MAP_TIMED")
+	tree.set_meta("vs_price_usd", 0)
+	tree.set_meta("vs_free_roll", true)
+	tree.set_meta("vs_assigned_players", [_local_name, str(bot_profile.get("display_name", "Rival"))])
+	tree.set_meta("vs_open_slots", 0)
+	tree.set_meta("vs_required_players", 2)
+	tree.set_meta("vs_sync_start", false)
+	tree.set_meta("vs_stage_map_paths", [clean_map_path])
+	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
+	tree.set_meta("vs_handshake_session_id", "")
+	tree.set_meta("vs_handshake_role", "")
+	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_local_profile", local_profile)
+	tree.set_meta("vs_remote_profile", bot_profile)
+	if not cpu_style.is_empty():
+		tree.set_meta(TREE_META_VS_CPU_STYLE, cpu_style)
+	if not cpu_tier.is_empty():
+		tree.set_meta(TREE_META_VS_CPU_TIER, cpu_tier)
+	var randomizer_payload: Dictionary = _bot_fill_randomizer_payload()
+	if not randomizer_payload.is_empty():
+		tree.set_meta(MatchSetupRandomizer.TREE_META_KEY, randomizer_payload)
+		tree.set_meta(MatchSetupRandomizer.CONTEXT_KEY, randomizer_payload)
+	tree.set_meta("jukebox_board_enabled", true)
+	tree.set_meta("jukebox_map_path", clean_map_path)
+	tree.set_meta("jukebox_map_id", map_id)
+	tree.set_meta("jukebox_board_period", BOT_FILL_JUKEBOX_BOARD_PERIOD)
+	tree.set_meta("jukebox_local_owner_id", 1)
+	return true
+
+func _bot_fill_randomizer_payload() -> Dictionary:
+	var payload_v: Variant = _context_meta.get(MatchSetupRandomizer.CONTEXT_KEY, {})
+	if typeof(payload_v) == TYPE_DICTIONARY:
+		return (payload_v as Dictionary).duplicate(true)
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	return MatchSetupRandomizer.roll(rng)
+
+func _bot_fill_jukebox_clear_keys() -> Array[String]:
+	return [
+		"open_map_picker_on_ready",
+		"vs_mode",
+		"vs_price_usd",
+		"vs_free_roll",
+		"vs_assigned_players",
+		"vs_open_slots",
+		"vs_required_players",
+		"vs_sync_start",
+		"vs_sync_join_sec",
+		"vs_window_sec",
+		"vs_window_started_unix",
+		"vs_window_deadline_unix",
+		"vs_stage_map_paths",
+		"vs_stage_current_index",
+		"vs_stage_round_results",
+		"vs_handshake_session_id",
+		"vs_handshake_role",
+		"vs_handshake_invite_code",
+		"vs_local_profile",
+		"vs_remote_profile",
+		"vs_cpu_style",
+		"vs_cpu_tier",
+		MatchSetupRandomizer.TREE_META_KEY,
+		MatchSetupRandomizer.CONTEXT_KEY,
+		"ctf_flag_selection_mode",
+		"ctf_player_select_pct",
+		"ctf_randomize_flag_hive",
+		"ctf_hidden_flag",
+		"ctf_flag_move_count_max",
+		"ctf_flag_move_reveals",
+		"jukebox_board_enabled",
+		"jukebox_map_path",
+		"jukebox_map_id",
+		"jukebox_board_period",
+		"jukebox_local_owner_id",
+		"jukebox_result_commit_signature",
+		"jukebox_easy_bot"
+	]
 
 func _remote_profile_for_tree() -> Dictionary:
 	if _bot_filled_match and not _bot_remote_profile.is_empty():
@@ -973,6 +1158,9 @@ func _apply_session_context(session: Dictionary) -> void:
 	_map_count = maxi(1, int(context.get("map_count", _map_count)))
 	_price_usd = maxi(0, int(context.get("price_usd", _price_usd)))
 	_free_roll = bool(context.get("free_roll", _free_roll))
+	if bool(context.get("human_pvp", _context_meta.get("human_pvp", false))):
+		for stale_key in ["map_ids", "stage_map_paths", MatchSetupRandomizer.CONTEXT_KEY]:
+			_context_meta.erase(stale_key)
 	for key in context.keys():
 		match str(key):
 			"mode", "map_count", "price_usd", "free_roll":
@@ -1257,7 +1445,7 @@ func _sync_quick_button_text() -> void:
 		_apply_quick_button_font()
 		return
 	if not _quick_ticket_id.is_empty():
-		quick_button.text = "Cancel Search"
+		quick_button.text = "Cancel Host" if _countdown_mode == "open_host_poll" else "Cancel Search"
 		quick_button.disabled = false
 		_apply_quick_button_font()
 		return
@@ -1301,6 +1489,12 @@ func _sync_join_row_visibility() -> void:
 		return
 	join_row.visible = false
 
+func _is_human_pvp_context() -> bool:
+	return bool(_context_meta.get("human_pvp", false))
+
+func _is_pregame_setup_key(key: String) -> bool:
+	return key == "map_ids" or key == "stage_map_paths" or key == MatchSetupRandomizer.CONTEXT_KEY
+
 func _resolve_stage_map_paths() -> Array[String]:
 	var resolved: Array[String] = []
 	resolved.append_array(_explicit_stage_map_paths())
@@ -1314,8 +1508,8 @@ func _resolve_stage_map_paths() -> Array[String]:
 			if resolved.has(ctf_map_path):
 				continue
 			resolved.append(ctf_map_path)
-			if resolved.size() >= _map_count:
-				return resolved
+		if resolved.size() >= _map_count:
+			return resolved
 	var ids: PackedStringArray = _context_map_ids()
 	for map_id in ids:
 		var map_path: String = _resolve_map_path(map_id)
@@ -1323,6 +1517,10 @@ func _resolve_stage_map_paths() -> Array[String]:
 			continue
 		if not resolved.has(map_path):
 			resolved.append(map_path)
+		if resolved.size() >= _map_count:
+			return resolved
+	if _is_human_pvp_context() and not _session_id.is_empty():
+		resolved.append_array(_session_seeded_candidate_stage_map_paths(resolved))
 		if resolved.size() >= _map_count:
 			return resolved
 	for map_id_any in DEFAULT_STAGE_MAP_IDS:
@@ -1352,6 +1550,40 @@ func _resolve_stage_map_paths() -> Array[String]:
 		if resolved.size() >= _map_count:
 			return resolved
 	return resolved
+
+func _session_seeded_candidate_stage_map_paths(existing: Array[String]) -> Array[String]:
+	var candidates: Array[String] = []
+	for map_path in _candidate_stage_map_paths_for_mode(_mode):
+		if map_path.is_empty() or existing.has(map_path) or candidates.has(map_path):
+			continue
+		candidates.append(map_path)
+	var picked: Array[String] = []
+	if candidates.is_empty():
+		return picked
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _session_seed("map")
+	while picked.size() + existing.size() < _map_count and not candidates.is_empty():
+		var idx: int = rng.randi_range(0, candidates.size() - 1)
+		picked.append(candidates[idx])
+		candidates.remove_at(idx)
+	return picked
+
+func _match_randomizer_payload_for_match() -> Dictionary:
+	var payload_v: Variant = _context_meta.get(MatchSetupRandomizer.CONTEXT_KEY, {})
+	if typeof(payload_v) == TYPE_DICTIONARY:
+		return (payload_v as Dictionary).duplicate(true)
+	if not _is_human_pvp_context() or _session_id.is_empty():
+		return {}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _session_seed("randomizer")
+	return MatchSetupRandomizer.roll(rng)
+
+func _session_seed(scope: String) -> int:
+	var source: String = "%s:%s:%s" % [_session_id, _mode, scope]
+	var value: int = source.hash()
+	if value < 0:
+		value = -value
+	return maxi(1, value)
 
 func _explicit_stage_map_paths() -> Array[String]:
 	var resolved: Array[String] = []
@@ -1534,6 +1766,9 @@ func _apply_dev_bot_overrides_to_tree(tree: SceneTree) -> void:
 func _update_countdown_label() -> void:
 	if _countdown_mode == "quick_search":
 		countdown_label.text = "Searching... %ds remaining" % maxi(_countdown_left, 0)
+		return
+	if _countdown_mode == "open_host_poll":
+		countdown_label.text = "Open host: waiting for next matching player"
 		return
 	if _countdown_mode == "sync_join":
 		countdown_label.text = "Sync start in %ds (%d/%d)" % [_countdown_left, _assigned_players.size(), _max_players()]

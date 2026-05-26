@@ -58,6 +58,7 @@ const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := 1.18
 const HEIGHT_LARGE_SCALE := 1.34
 const HEIGHT_MAX_SCALE := 1.50
+const FLOOR_REFLECTION_ENABLED: bool = false
 const HIVE_VISUAL_SCALE: float = 1.60
 const HIVE_HEIGHT_SCALE: float = 1.14
 const HIVE_COLOR_SAT_BOOST: float = 1.22
@@ -1515,10 +1516,27 @@ func _ensure_sprite() -> void:
 
 func _ensure_shadows() -> void:
 	_ensure_presentation_layers()
+	if not FLOOR_REFLECTION_ENABLED:
+		_hide_hive_reflection_nodes()
+		return
 	if _ground_shadow == null or not is_instance_valid(_ground_shadow):
 		_ground_shadow = _ensure_shadow_sprite("GroundShadow")
 	if _contact_shadow == null or not is_instance_valid(_contact_shadow):
 		_contact_shadow = _ensure_shadow_sprite("ContactShadow")
+
+func _hide_hive_reflection_nodes() -> void:
+	for node_name in ["GroundShadow", "ContactShadow"]:
+		var node: Node = null
+		if _shadow_layer != null and is_instance_valid(_shadow_layer):
+			node = _shadow_layer.get_node_or_null(node_name)
+		if node == null:
+			node = get_node_or_null(node_name)
+		if node is CanvasItem:
+			(node as CanvasItem).visible = false
+	if _ground_shadow != null and is_instance_valid(_ground_shadow):
+		_ground_shadow.visible = false
+	if _contact_shadow != null and is_instance_valid(_contact_shadow):
+		_contact_shadow.visible = false
 
 func _ensure_shadow_sprite(node_name: String) -> VisualShadow:
 	var existing: Node = null
@@ -1546,6 +1564,9 @@ func _ensure_shadow_sprite(node_name: String) -> VisualShadow:
 	return shadow
 
 func _update_hive_shadows() -> void:
+	if not FLOOR_REFLECTION_ENABLED:
+		_hide_hive_reflection_nodes()
+		return
 	_ensure_shadows()
 	if (_ground_shadow == null or not is_instance_valid(_ground_shadow)
 		or _contact_shadow == null or not is_instance_valid(_contact_shadow)):

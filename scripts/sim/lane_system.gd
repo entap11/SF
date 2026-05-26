@@ -11,6 +11,7 @@ signal lane_removed(lane_id: int)
 const LANE_BUILD_MS := 500
 const LANE_FRONT_SPEED := 0.35
 const LANE_CONTEST_RETURN_SPEED := 1.25
+const LANE_CONTEST_BUFFER_PX := 80.0
 const LANE_ESTABLISH_EPS := 0.999
 const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
 const LANE_OCCLUSION_PAD_PX := HiveGeometry.DEFAULT_LANE_OCCLUSION_PAD_PX
@@ -157,7 +158,7 @@ func enforce_caps_for_hive(hive_id: int, power: int) -> void:
 
 func toggle_intent(a_id: int, b_id: int) -> bool:
 	last_error_reason = ""
-	if state != null and OpsState.is_ending_or_ended():
+	if state != null and _ops_state_is_ending_or_ended():
 		last_error_reason = "match_over"
 		return false
 	if a_id <= 0 or b_id <= 0 or a_id == b_id:
@@ -216,7 +217,7 @@ func try_create_or_flip_intent(
 	_trg_owner: int,
 	_src_power: int
 ) -> bool:
-	if state != null and OpsState.is_ending_or_ended():
+	if state != null and _ops_state_is_ending_or_ended():
 		last_error_reason = "match_over"
 		return false
 	return toggle_intent(src_id, trg_id)
@@ -259,7 +260,7 @@ func retract_intent(src_id: int, lane_id: int) -> void:
 func _process(_delta: float) -> void:
 	if lanes.is_empty():
 		return
-	if state != null and OpsState.is_ending_or_ended():
+	if state != null and _ops_state_is_ending_or_ended():
 		return
 
 	var now := Time.get_ticks_msec()
@@ -294,7 +295,7 @@ func _process(_delta: float) -> void:
 func tick_lane_fronts(dt: float) -> void:
 	if state == null:
 		return
-	if OpsState.is_ending_or_ended():
+	if _ops_state_is_ending_or_ended():
 		return
 	if dt <= 0.0:
 		return
@@ -337,18 +338,20 @@ func tick_lane_fronts(dt: float) -> void:
 			send_b = bool(d.get("send_b", false))
 		if lane_id <= 0:
 			continue
-		var t: float = float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5))
+		var t: float = _lane_front_t(lane_id)
 		var dir := 0.0
 		if send_a and not send_b:
 			dir = 1.0
 		elif send_b and not send_a:
 			dir = -1.0
 		if send_a and send_b:
-			# When both sides are sending, keep the split centered for MVP readability.
-			t = move_toward(t, 0.5, LANE_CONTEST_RETURN_SPEED * dt)
+			var target_t: float = _contested_front_target_t(lane_any)
+			var bounds: Vector2 = _contested_front_bounds_t(lane_any)
+			target_t = clampf(target_t, bounds.x, bounds.y)
+			t = clampf(move_toward(t, target_t, LANE_CONTEST_RETURN_SPEED * dt), bounds.x, bounds.y)
 		elif dir != 0.0:
 			t = clampf(t + dir * LANE_FRONT_SPEED * dt, 0.05, 0.95)
-		OpsState.lane_front_by_lane_id[lane_id] = t
+		_set_lane_front_t(lane_id, t)
 		var was_established := bool(_established_by_lane_id.get(lane_id, false))
 		var now_established := t >= LANE_ESTABLISH_EPS
 		if now_established and not was_established:
@@ -374,12 +377,48 @@ func tick_lane_fronts(dt: float) -> void:
 		elif not now_established and was_established:
 			_established_by_lane_id[lane_id] = false
 
+func _contested_front_target_t(lane_any: Variant) -> float:
+	var last_impact: float = 0.5
+	if lane_any is LaneData:
+		var lane: LaneData = lane_any as LaneData
+		last_impact = clampf(float(lane.last_impact_f), 0.0, 1.0)
+	elif lane_any is Dictionary:
+		var d: Dictionary = lane_any as Dictionary
+		last_impact = clampf(float(d.get("last_impact_f", d.get("split_t", 0.5))), 0.0, 1.0)
+	return last_impact
+
+func _contested_front_bounds_t(lane_any: Variant) -> Vector2:
+	var lane_len: float = _lane_visual_length_px(lane_any)
+	if lane_len <= 0.001:
+		return Vector2(0.05, 0.95)
+	var buffer_t: float = clampf(LANE_CONTEST_BUFFER_PX / lane_len, 0.0, 0.45)
+	return Vector2(buffer_t, 1.0 - buffer_t)
+
+func _lane_visual_length_px(lane_any: Variant) -> float:
+	if state == null:
+		return 0.0
+	var a_id: int = -1
+	var b_id: int = -1
+	if lane_any is LaneData:
+		var lane: LaneData = lane_any as LaneData
+		a_id = int(lane.a_id)
+		b_id = int(lane.b_id)
+	elif lane_any is Dictionary:
+		var d: Dictionary = lane_any as Dictionary
+		a_id = int(d.get("a_id", -1))
+		b_id = int(d.get("b_id", -1))
+	if a_id <= 0 or b_id <= 0:
+		return 0.0
+	var a_pos: Vector2 = state.hive_world_pos_by_id(a_id)
+	var b_pos: Vector2 = state.hive_world_pos_by_id(b_id)
+	return a_pos.distance_to(b_pos)
+
 
 func _sync_to_state() -> void:
 	_sync_dirty = false
 	if state == null:
 		return
-	if OpsState.is_ending_or_ended():
+	if _ops_state_is_ending_or_ended():
 		return
 
 	# Build lookup of previous LaneData by canonical key.
@@ -443,7 +482,7 @@ func _sync_to_state() -> void:
 			float(lane.get("a_stream_len", (prev.a_stream_len if prev != null else 0.0))),
 			float(lane.get("b_stream_len", (prev.b_stream_len if prev != null else 0.0))),
 			float(lane.get("build_t", (prev.build_t if prev != null else 1.0))),
-			float(lane.get("split_t", (prev.last_impact_f if prev != null else 0.5))),
+			float(lane.get("last_impact_f", (prev.last_impact_f if prev != null else lane.get("split_t", 0.5)))),
 			bool(lane.get("establish_a", (prev.establish_a if prev != null else false))),
 			bool(lane.get("establish_b", (prev.establish_b if prev != null else false))),
 			int(lane.get("establish_t0_ms", (prev.establish_t0_ms if prev != null else 0))),
@@ -463,6 +502,32 @@ func _alloc_lane_id() -> int:
 	var lane_id := _next_lane_id
 	_next_lane_id += 1
 	return lane_id
+
+func _ops_state() -> Node:
+	var main_loop: MainLoop = Engine.get_main_loop()
+	if not (main_loop is SceneTree):
+		return null
+	return (main_loop as SceneTree).get_root().get_node_or_null("/root/OpsState")
+
+func _ops_state_is_ending_or_ended() -> bool:
+	var ops_state: Node = _ops_state()
+	if ops_state == null or not ops_state.has_method("is_ending_or_ended"):
+		return false
+	return bool(ops_state.call("is_ending_or_ended"))
+
+func _lane_front_t(lane_id: int) -> float:
+	var ops_state: Node = _ops_state()
+	if ops_state == null:
+		return 0.5
+	var front_by_lane: Dictionary = ops_state.get("lane_front_by_lane_id") as Dictionary
+	return float(front_by_lane.get(lane_id, 0.5))
+
+func _set_lane_front_t(lane_id: int, front_t: float) -> void:
+	var ops_state: Node = _ops_state()
+	if ops_state == null:
+		return
+	var front_by_lane: Dictionary = ops_state.get("lane_front_by_lane_id") as Dictionary
+	front_by_lane[lane_id] = front_t
 
 
 func _lane_key(a_id: int, b_id: int) -> String:

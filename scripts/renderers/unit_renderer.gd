@@ -134,12 +134,12 @@ const UNIT_OUTLINE_BASE_SCALE_META: StringName = &"unit_outline_base_scale"
 @export var bee_clip_min_visual_length_px: float = 24.0
 @export var bee_clip_nose_offset_px: float = 0.0
 @export var bee_clip_entrance_plane_offset_px: float = 14.0
-@export var bee_clip_collision_lead_px: float = 120.0
+@export var bee_clip_collision_lead_px: float = 0.0
 @export var bee_clip_collision_snap_on_prime: bool = true
 @export var bee_clip_collision_first_contact_cut_max: float = 0.08
 @export var bee_clip_collision_length_scale: float = 0.50
-@export var bee_clip_collision_plane_offset_px: float = 32.0
-@export var bee_clip_collision_prime_nose_bias_px: float = 56.0
+@export var bee_clip_collision_plane_offset_px: float = 16.0
+@export var bee_clip_collision_prime_nose_bias_px: float = 0.0
 @export var bee_clip_collision_missing_speed_cap_px_s: float = 180.0
 @export var bee_clip_collision_min_hold_ticks: int = 6
 @export var bee_clip_collision_debug_logs: bool = false
@@ -1208,7 +1208,6 @@ func _prime_bee_collision_clip_override(unit_id: int, impact_world: Vector2, tra
 			# If impact is behind, keep motion-aligned direction to avoid late flips.
 			if impact_ahead_px > 0.0 and safe_dir.dot(impact_dir) < 0.25:
 				safe_dir = impact_dir
-	var collision_plane_world: Vector2 = impact_world - (safe_dir * bee_clip_collision_lead_px)
 	_bee_clip_collision_active_by_unit_id[unit_id] = true
 	_bee_clip_lane_id_by_unit_id[unit_id] = lane_id
 	_bee_clip_last_update_us_by_unit_id[unit_id] = Time.get_ticks_usec()
@@ -1225,11 +1224,7 @@ func _prime_bee_collision_clip_override(unit_id: int, impact_world: Vector2, tra
 		controller.call("set_first_contact_snap", bee_clip_collision_snap_on_prime, bee_clip_collision_first_contact_cut_max)
 	var visual_len_px: float = _compute_bee_visual_length_px_scaled(sprite, bee_clip_collision_length_scale)
 	var nose_contact_offset_px: float = bee_clip_nose_offset_px + (visual_len_px * 0.5)
-	if bee_clip_collision_prime_nose_bias_px > 0.0:
-		var prime_nose_world: Vector2 = node.global_position + (safe_dir * nose_contact_offset_px)
-		var min_plane_world: Vector2 = prime_nose_world - (safe_dir * bee_clip_collision_prime_nose_bias_px)
-		if collision_plane_world.dot(safe_dir) > min_plane_world.dot(safe_dir):
-			collision_plane_world = min_plane_world
+	var collision_plane_world: Vector2 = impact_world + (safe_dir * _bee_clip_plane_offset_for_unit(unit_id))
 	set_bee_clip_plane_override(unit_id, collision_plane_world, safe_dir)
 	_bee_clip_visual_len_by_unit_id[unit_id] = visual_len_px
 	var speed_px_s: float = _estimate_unit_visual_speed_px_s(unit_id)
@@ -2074,12 +2069,15 @@ func _unit_path_endpoints_map_local(
 
 func _edge_geo_from_cache(lane_id: int, from_id: int, to_id: int) -> Variant:
 	var edge_any: Variant = null
+	var ops_state: Node = _ops_state()
+	if ops_state == null or not ops_state.has_method("get_edge_for_lane_key"):
+		return null
 	if lane_id > 0:
-		edge_any = OpsState.get_edge_for_lane_key(lane_id)
+		edge_any = ops_state.call("get_edge_for_lane_key", lane_id)
 		if edge_any == null:
-			edge_any = OpsState.get_edge_for_lane_key(str(lane_id))
+			edge_any = ops_state.call("get_edge_for_lane_key", str(lane_id))
 	if edge_any == null and from_id > 0 and to_id > 0:
-		edge_any = OpsState.get_edge_for_lane_key("%d->%d" % [from_id, to_id])
+		edge_any = ops_state.call("get_edge_for_lane_key", "%d->%d" % [from_id, to_id])
 	return edge_any
 
 func _edge_geo_to_unit_endpoints_local(edge_any: Variant, from_id: int, to_id: int) -> Dictionary:
@@ -2313,7 +2311,17 @@ func _lane_cache_key(lane_id: int, from_id: int, to_id: int) -> String:
 func _endpoint_cache_sig() -> int:
 	if _last_lane_sig >= 0:
 		return _last_lane_sig
-	return int(int(OpsState.edge_cache_version) * 131 + int(_hive_bind_version))
+	var edge_cache_version: int = 0
+	var ops_state: Node = _ops_state()
+	if ops_state != null:
+		edge_cache_version = int(ops_state.get("edge_cache_version"))
+	return int(edge_cache_version * 131 + int(_hive_bind_version))
+
+func _ops_state() -> Node:
+	var main_loop: MainLoop = Engine.get_main_loop()
+	if not (main_loop is SceneTree):
+		return null
+	return (main_loop as SceneTree).get_root().get_node_or_null("/root/OpsState")
 
 func _get_authoritative_endpoints_world(lane_id: int, from_id: int, to_id: int) -> Dictionary:
 	if _lane_renderer == null or not is_instance_valid(_lane_renderer):

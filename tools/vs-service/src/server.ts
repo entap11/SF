@@ -10,6 +10,10 @@ type Player = {
   display_name: string;
   ready: boolean;
   ticket_id?: string;
+  tier_id?: string;
+  rank_position?: number;
+  wax_score?: number;
+  color_id?: string;
 };
 
 type Session = {
@@ -32,6 +36,11 @@ type QueueTicket = {
   display_name: string;
   context: JsonRecord;
   created_unix: number;
+  last_seen_unix: number;
+  tier_id: string;
+  rank_position: number;
+  wax_score: number;
+  color_id: string;
 };
 
 type Presence = {
@@ -71,6 +80,27 @@ const queue: QueueTicket[] = [];
 const intentStreams = new Map<string, IntentStream>();
 const presenceByUid = new Map<string, Presence>();
 const friendInvites = new Map<string, FriendInvite>();
+const serviceBuild = process.env.RENDER_GIT_COMMIT
+  ?? process.env.SOURCE_VERSION
+  ?? process.env.npm_package_version
+  ?? "dev";
+const TIER_ORDER = [
+  "DRONE",
+  "WORKER",
+  "SOLDIER",
+  "HONEY_BEE",
+  "BUMBLEBEE",
+  "QUEEN",
+  "YELLOWJACKET",
+  "RED_WASP",
+  "HORNET",
+  "BALD_FACED_HORNET",
+  "KILLER_BEE",
+  "ASIAN_GIANT_HORNET",
+  "EXECUTIONER_WASP",
+  "SCORPION_WASP",
+  "COW_KILLER"
+];
 
 function nowUnix(): number {
   return Math.floor(Date.now() / 1000);
@@ -95,6 +125,21 @@ function boolValue(value: unknown): boolean {
   return ["1", "true", "yes", "on"].includes(normalized);
 }
 
+function numberValue(value: unknown, fallback = 0): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeTier(value: unknown): string {
+  const tier = stringValue(value).toUpperCase();
+  return tier || "DRONE";
+}
+
+function tierIndex(tierId: string): number {
+  const idx = TIER_ORDER.indexOf(normalizeTier(tierId));
+  return idx >= 0 ? idx : 99_999;
+}
+
 function normalizeProfile(value: unknown, fallbackName: string): Player | null {
   if (!isRecord(value)) {
     return null;
@@ -104,7 +149,15 @@ function normalizeProfile(value: unknown, fallbackName: string): Player | null {
     return null;
   }
   const displayName = stringValue(value.display_name) || fallbackName;
-  return { uid, display_name: displayName, ready: false };
+  return {
+    uid,
+    display_name: displayName,
+    ready: false,
+    tier_id: normalizeTier(value.tier_id),
+    rank_position: Math.max(0, Math.trunc(numberValue(value.rank_position, 0))),
+    wax_score: numberValue(value.wax_score, 0),
+    color_id: stringValue(value.color_id).toUpperCase() || "GREEN"
+  };
 }
 
 function cloneSession(session: Session): Session {
@@ -178,7 +231,16 @@ function newSession(host: Player, context: JsonRecord, source: "invite" | "quick
     created_unix: createdUnix,
     expires_unix: createdUnix + Math.max(1, config.sessionTtlSec),
     status: "waiting",
-    host: { uid: host.uid, display_name: host.display_name || "Player 1", ready: false, ticket_id: host.ticket_id },
+    host: {
+      uid: host.uid,
+      display_name: host.display_name || "Player 1",
+      ready: false,
+      ticket_id: host.ticket_id,
+      tier_id: host.tier_id,
+      rank_position: host.rank_position,
+      wax_score: host.wax_score,
+      color_id: host.color_id
+    },
     guest: { uid: "", display_name: "", ready: false },
     close_reason: ""
   };
@@ -228,7 +290,7 @@ function prune(): void {
     }
   }
   for (let i = queue.length - 1; i >= 0; i -= 1) {
-    if (now - queue[i].created_unix > config.queueTtlSec) {
+    if (now - queue[i].last_seen_unix > config.queueTtlSec) {
       queue.splice(i, 1);
     }
   }
@@ -274,7 +336,77 @@ function contextsCompatible(a: JsonRecord, b: JsonRecord): boolean {
   if (Boolean(a.free_roll ?? false) !== Boolean(b.free_roll ?? false)) {
     return false;
   }
-  return ["map_ids", "stage_map_paths", "contest_id", "contest_scope"].every((key) => contextValueMatches(a, b, key));
+  const keys = Boolean(a.human_pvp ?? false) || Boolean(b.human_pvp ?? false)
+    ? ["contest_id", "contest_scope"]
+    : ["map_ids", "stage_map_paths", "contest_id", "contest_scope"];
+  return keys.every((key) => contextValueMatches(a, b, key));
+}
+
+function matchScore(requester: Player, candidate: QueueTicket): [number, number, number, number] {
+  const requesterRank = Math.max(0, Math.trunc(numberValue(requester.rank_position, 0)));
+  const candidateRank = Math.max(0, Math.trunc(numberValue(candidate.rank_position, 0)));
+  const rankDelta = requesterRank > 0 && candidateRank > 0 ? Math.abs(requesterRank - candidateRank) : 999_999_999;
+  const waxDelta = Math.abs(numberValue(requester.wax_score, 0) - numberValue(candidate.wax_score, 0));
+  const tierDistance = Math.abs(tierIndex(String(requester.tier_id ?? "DRONE")) - tierIndex(candidate.tier_id));
+  return [tierDistance, rankDelta, waxDelta, candidate.created_unix];
+}
+
+function compareScore(a: [number, number, number, number], b: [number, number, number, number]): number {
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) {
+      return a[i] - b[i];
+    }
+  }
+  return 0;
+}
+
+function bestQuickMatchIndex(player: Player, context: JsonRecord): number {
+  let bestIndex = -1;
+  let bestScore: [number, number, number, number] | null = null;
+  for (let i = 0; i < queue.length; i += 1) {
+    const ticket = queue[i];
+    if (ticket.uid === player.uid || !contextsCompatible(context, ticket.context)) {
+      continue;
+    }
+    const score = matchScore(player, ticket);
+    if (bestScore == null || compareScore(score, bestScore) < 0) {
+      bestScore = score;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
+}
+
+export function bestQuickMatchCandidateForTest(playerValue: JsonRecord, context: JsonRecord, candidates: JsonRecord[]): JsonRecord | null {
+  const player = normalizeProfile(playerValue, "Player");
+  if (player == null) {
+    return null;
+  }
+  let bestCandidate: JsonRecord | null = null;
+  let bestScore: [number, number, number, number] | null = null;
+  for (const candidateValue of candidates) {
+    const candidate: QueueTicket = {
+      id: stringValue(candidateValue.id),
+      uid: stringValue(candidateValue.uid),
+      display_name: stringValue(candidateValue.display_name) || "Player",
+      context: isRecord(candidateValue.context) ? candidateValue.context : {},
+      created_unix: Math.max(0, Math.trunc(numberValue(candidateValue.created_unix, 0))),
+      last_seen_unix: Math.max(0, Math.trunc(numberValue(candidateValue.last_seen_unix, numberValue(candidateValue.created_unix, 0)))),
+      tier_id: normalizeTier(candidateValue.tier_id),
+      rank_position: Math.max(0, Math.trunc(numberValue(candidateValue.rank_position, 0))),
+      wax_score: numberValue(candidateValue.wax_score, 0),
+      color_id: stringValue(candidateValue.color_id).toUpperCase() || "GREEN"
+    };
+    if (candidate.uid === player.uid || !contextsCompatible(context, candidate.context)) {
+      continue;
+    }
+    const score = matchScore(player, candidate);
+    if (bestScore == null || compareScore(score, bestScore) < 0) {
+      bestCandidate = candidateValue;
+      bestScore = score;
+    }
+  }
+  return bestCandidate;
 }
 
 function ok(res: Response, body: JsonRecord = {}): void {
@@ -373,7 +505,15 @@ function joinInvite(req: Request, res: Response): void {
     return fail(res, "invite_full");
   }
   const existingReady = session.guest.ready;
-  session.guest = { uid: guest.uid, display_name: guest.display_name, ready: existingReady };
+  session.guest = {
+    uid: guest.uid,
+    display_name: guest.display_name,
+    ready: existingReady,
+    tier_id: guest.tier_id,
+    rank_position: guest.rank_position,
+    wax_score: guest.wax_score,
+    color_id: guest.color_id
+  };
   markSessionStarted(session);
   return ok(res, { session_id: session.id, session: cloneSession(session) });
 }
@@ -388,17 +528,30 @@ function enqueueQuickMatch(req: Request, res: Response): void {
   if (existing) {
     return ok(res, { matched: false, ticket_id: existing.id });
   }
-  const matchIndex = queue.findIndex((ticket) => ticket.uid !== player.uid && contextsCompatible(context, ticket.context));
+  const matchIndex = bestQuickMatchIndex(player, context);
   if (matchIndex >= 0) {
     const other = queue.splice(matchIndex, 1)[0];
     const host: Player = {
       uid: other.uid,
       display_name: other.display_name || "Player 1",
       ready: false,
-      ticket_id: other.id
+      ticket_id: other.id,
+      tier_id: other.tier_id,
+      rank_position: other.rank_position,
+      wax_score: other.wax_score,
+      color_id: other.color_id
     };
     const session = newSession(host, other.context, "quick");
-    session.guest = { uid: player.uid, display_name: player.display_name || "Player 2", ready: false, ticket_id: "" };
+    session.guest = {
+      uid: player.uid,
+      display_name: player.display_name || "Player 2",
+      ready: false,
+      ticket_id: "",
+      tier_id: player.tier_id,
+      rank_position: player.rank_position,
+      wax_score: player.wax_score,
+      color_id: player.color_id
+    };
     markSessionStarted(session);
     sessions.set(session.id, session);
     inviteToSession.set(session.invite_code, session.id);
@@ -409,7 +562,12 @@ function enqueueQuickMatch(req: Request, res: Response): void {
     uid: player.uid,
     display_name: player.display_name || "Player",
     context,
-    created_unix: nowUnix()
+    created_unix: nowUnix(),
+    last_seen_unix: nowUnix(),
+    tier_id: String(player.tier_id ?? "DRONE"),
+    rank_position: Number(player.rank_position ?? 0),
+    wax_score: Number(player.wax_score ?? 0),
+    color_id: String(player.color_id ?? "GREEN")
   };
   queue.push(ticket);
   return ok(res, { matched: false, ticket_id: ticket.id });
@@ -428,7 +586,9 @@ function pollQuickMatch(req: Request, res: Response): void {
       return ok(res, { matched: true, session_id: session.id, session: cloneSession(session) });
     }
   }
-  if (queue.some((ticket) => ticket.id === ticketId)) {
+  const waiting = queue.find((ticket) => ticket.id === ticketId);
+  if (waiting) {
+    waiting.last_seen_unix = nowUnix();
     return ok(res, { matched: false, ticket_id: ticketId });
   }
   return fail(res, "ticket_not_found", 404);
@@ -665,7 +825,15 @@ function respondFriendInvite(req: Request, res: Response): void {
     invite.status = "expired";
     return fail(res, "session_not_found", 404);
   }
-  session.guest = { uid: guest.uid, display_name: guest.display_name || "Player 2", ready: false };
+  session.guest = {
+    uid: guest.uid,
+    display_name: guest.display_name || "Player 2",
+    ready: false,
+    tier_id: guest.tier_id,
+    rank_position: guest.rank_position,
+    wax_score: guest.wax_score,
+    color_id: guest.color_id
+  };
   markSessionStarted(session);
   invite.status = "accepted";
   return ok(res, { accepted: true, session_id: session.id, session: cloneSession(session) });
@@ -736,6 +904,7 @@ export function createApp(): express.Express {
     prune();
     ok(res, {
       service: "swarmfront-vs-service",
+      build: serviceBuild,
       uptime_sec: nowUnix() - processStartUnix,
       sessions: sessions.size,
       queue: queue.length
@@ -745,6 +914,7 @@ export function createApp(): express.Express {
     prune();
     ok(res, {
       service: "swarmfront-vs-service",
+      build: serviceBuild,
       uptime_sec: nowUnix() - processStartUnix,
       sessions: sessions.size,
       queue: queue.length

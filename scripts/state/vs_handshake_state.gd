@@ -18,9 +18,28 @@ const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
 const SETTINGS_FORCE_RELEASE_GUARD_FOR_SMOKE: String = "swarmfront/vs/force_release_guard_for_smoke"
-const DEFAULT_BACKEND_TIMEOUT_SEC: float = 1.5
-const MAX_SYNC_BACKEND_TIMEOUT_SEC: float = 1.5
+const DEFAULT_BACKEND_TIMEOUT_SEC: float = 6.0
+const MAX_SYNC_BACKEND_TIMEOUT_SEC: float = 6.0
 const TRANSPORT_ERROR_BACKOFF_MS: int = 60000
+const DIAGNOSTIC_LOG_PATH: String = "user://vs_handshake_diagnostics.jsonl"
+const DIAGNOSTIC_MAX_PAYLOAD_CHARS: int = 1200
+const TIER_ORDER: Array[String] = [
+	"DRONE",
+	"WORKER",
+	"SOLDIER",
+	"HONEY_BEE",
+	"BUMBLEBEE",
+	"QUEEN",
+	"YELLOWJACKET",
+	"RED_WASP",
+	"HORNET",
+	"BALD_FACED_HORNET",
+	"KILLER_BEE",
+	"ASIAN_GIANT_HORNET",
+	"EXECUTIONER_WASP",
+	"SCORPION_WASP",
+	"COW_KILLER"
+]
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _sessions: Dictionary = {}
@@ -83,6 +102,9 @@ func get_authoritative_transport_blocker() -> String:
 func get_last_transport_error() -> Dictionary:
 	return _last_transport_error.duplicate(true)
 
+func get_diagnostic_log_path() -> String:
+	return ProjectSettings.globalize_path(DIAGNOSTIC_LOG_PATH)
+
 func get_beta_runtime_flags() -> Dictionary:
 	var remote_online: bool = is_authoritative_transport_online()
 	return {
@@ -126,6 +148,7 @@ func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 				"message": blocker
 			}
 			_last_transport_error = result.duplicate(true)
+			_record_diagnostic(action, payload, result, "blocked")
 			return {"handled": true, "result": result}
 		return {"handled": false}
 	var now_msec: int = Time.get_ticks_msec()
@@ -138,8 +161,10 @@ func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 				"err": "transport_backoff"
 			}
 		backoff_result["backoff_ms_remaining"] = _transport_backoff_until_msec - now_msec
+		_record_diagnostic(action, payload, backoff_result, "backoff")
 		return {"handled": true, "result": backoff_result}
 	var result: Dictionary = _transport_http.call_action(action, payload)
+	_record_diagnostic(action, payload, result, "http")
 	if bool(result.get("ok", false)):
 		_transport_error_logged = false
 		_last_transport_error = {}
@@ -243,17 +268,18 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 				"matched": false,
 				"ticket_id": str(ticket.get("id", ""))
 			}
-	for i in range(_queue.size()):
-		var other: Dictionary = _queue[i] as Dictionary
-		if str(other.get("uid", "")) == uid:
-			continue
-		if not _contexts_compatible(context, other.get("context", {}) as Dictionary):
-			continue
+	var match_index: int = _best_quick_match_index(player, context)
+	if match_index >= 0:
+		var other: Dictionary = _queue[match_index] as Dictionary
 		var host: Dictionary = {
 			"uid": str(other.get("uid", "")),
 			"display_name": str(other.get("display_name", "Player 1")),
 			"ready": false,
-			"ticket_id": str(other.get("id", ""))
+			"ticket_id": str(other.get("id", "")),
+			"tier_id": str(other.get("tier_id", "DRONE")),
+			"rank_position": int(other.get("rank_position", 0)),
+			"wax_score": float(other.get("wax_score", 0.0)),
+			"color_id": str(other.get("color_id", "GREEN"))
 		}
 		var other_context: Dictionary = other.get("context", {}) as Dictionary
 		var session: Dictionary = _new_session(host, other_context, "quick")
@@ -261,13 +287,17 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 			"uid": uid,
 			"display_name": str(player.get("display_name", "Player 2")),
 			"ready": false,
-			"ticket_id": ""
+			"ticket_id": "",
+			"tier_id": str(player.get("tier_id", "DRONE")),
+			"rank_position": int(player.get("rank_position", 0)),
+			"wax_score": float(player.get("wax_score", 0.0)),
+			"color_id": str(player.get("color_id", "GREEN"))
 		}
 		_mark_session_started(session)
 		var session_id: String = str(session.get("id", ""))
 		_sessions[session_id] = session
 		_invite_to_session[str(session.get("invite_code", ""))] = session_id
-		_queue.remove_at(i)
+		_queue.remove_at(match_index)
 		emit_signal("queue_changed", _queue.size())
 		_emit_session_changed(session_id)
 		return {
@@ -282,7 +312,12 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 		"uid": uid,
 		"display_name": str(player.get("display_name", "Player")),
 		"context": context.duplicate(true),
-		"created_unix": int(Time.get_unix_time_from_system())
+		"created_unix": int(Time.get_unix_time_from_system()),
+		"last_seen_unix": int(Time.get_unix_time_from_system()),
+		"tier_id": str(player.get("tier_id", "DRONE")),
+		"rank_position": int(player.get("rank_position", 0)),
+		"wax_score": float(player.get("wax_score", 0.0)),
+		"color_id": str(player.get("color_id", "GREEN"))
 	})
 	emit_signal("queue_changed", _queue.size())
 	return {
@@ -319,6 +354,7 @@ func poll_quick_match(ticket_id: String) -> Dictionary:
 		var ticket: Dictionary = ticket_any as Dictionary
 		if str(ticket.get("id", "")) != tid:
 			continue
+		ticket["last_seen_unix"] = int(Time.get_unix_time_from_system())
 		return {"ok": true, "matched": false, "ticket_id": tid}
 	return {"ok": false, "err": "ticket_not_found"}
 
@@ -746,7 +782,11 @@ func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dict
 	var host_copy: Dictionary = {
 		"uid": str(host.get("uid", "")),
 		"display_name": str(host.get("display_name", "Player 1")),
-		"ready": false
+		"ready": false,
+		"tier_id": str(host.get("tier_id", "DRONE")),
+		"rank_position": int(host.get("rank_position", 0)),
+		"wax_score": float(host.get("wax_score", 0.0)),
+		"color_id": str(host.get("color_id", "GREEN"))
 	}
 	if host.has("ticket_id"):
 		host_copy["ticket_id"] = str(host.get("ticket_id", ""))
@@ -904,10 +944,51 @@ func _contexts_compatible(a: Dictionary, b: Dictionary) -> bool:
 		return false
 	if bool(a.get("free_roll", false)) != bool(b.get("free_roll", false)):
 		return false
-	for key in ["map_ids", "stage_map_paths", "contest_id", "contest_scope"]:
+	var context_keys: Array[String] = ["map_ids", "stage_map_paths", "contest_id", "contest_scope"]
+	if bool(a.get("human_pvp", false)) or bool(b.get("human_pvp", false)):
+		context_keys = ["contest_id", "contest_scope"]
+	for key in context_keys:
 		if not _context_value_matches(a, b, key):
 			return false
 	return true
+
+func _best_quick_match_index(player: Dictionary, context: Dictionary) -> int:
+	var best_index: int = -1
+	var best_score: Array = []
+	for i in range(_queue.size()):
+		var ticket: Dictionary = _queue[i] as Dictionary
+		if str(ticket.get("uid", "")) == str(player.get("uid", "")):
+			continue
+		if not _contexts_compatible(context, ticket.get("context", {}) as Dictionary):
+			continue
+		var score: Array = _quick_match_score(player, ticket)
+		if best_index < 0 or _compare_match_score(score, best_score) < 0:
+			best_index = i
+			best_score = score
+	return best_index
+
+func _quick_match_score(player: Dictionary, ticket: Dictionary) -> Array:
+	var player_rank: int = maxi(0, int(player.get("rank_position", 0)))
+	var ticket_rank: int = maxi(0, int(ticket.get("rank_position", 0)))
+	var rank_delta: int = abs(player_rank - ticket_rank) if player_rank > 0 and ticket_rank > 0 else 999999999
+	var wax_delta: float = absf(float(player.get("wax_score", 0.0)) - float(ticket.get("wax_score", 0.0)))
+	var tier_delta: int = abs(_tier_index(str(player.get("tier_id", "DRONE"))) - _tier_index(str(ticket.get("tier_id", "DRONE"))))
+	return [tier_delta, rank_delta, wax_delta, int(ticket.get("created_unix", 0))]
+
+func _compare_match_score(a: Array, b: Array) -> int:
+	if b.is_empty():
+		return -1
+	var size: int = mini(a.size(), b.size())
+	for i in range(size):
+		if a[i] == b[i]:
+			continue
+		return -1 if a[i] < b[i] else 1
+	return 0
+
+func _tier_index(tier_id: String) -> int:
+	var clean: String = tier_id.strip_edges().to_upper()
+	var idx: int = TIER_ORDER.find(clean)
+	return idx if idx >= 0 else 99999
 
 func _context_value_matches(a: Dictionary, b: Dictionary, key: String) -> bool:
 	var a_has: bool = a.has(key)
@@ -1010,10 +1091,80 @@ func _normalize_profile(profile: Dictionary) -> Dictionary:
 	var display_name: String = str(profile.get("display_name", "")).strip_edges()
 	if display_name.is_empty():
 		display_name = "Player"
-	return {
+	var out: Dictionary = {
 		"uid": uid,
-		"display_name": display_name
+		"display_name": display_name,
+		"tier_id": str(profile.get("tier_id", "DRONE")).strip_edges().to_upper(),
+		"rank_position": maxi(0, int(profile.get("rank_position", 0))),
+		"wax_score": float(profile.get("wax_score", 0.0)),
+		"color_id": str(profile.get("color_id", "GREEN")).strip_edges().to_upper()
 	}
+	if str(out.get("tier_id", "")).is_empty():
+		out["tier_id"] = "DRONE"
+	if str(out.get("color_id", "")).is_empty():
+		out["color_id"] = "GREEN"
+	return out
+
+func _record_diagnostic(action: String, payload: Dictionary, result: Dictionary, source: String) -> void:
+	if not _should_record_diagnostic(action):
+		return
+	var profile_uid: String = ""
+	var profile_v: Variant = payload.get("profile", {})
+	if typeof(profile_v) == TYPE_DICTIONARY:
+		profile_uid = str((profile_v as Dictionary).get("uid", ""))
+	var context_v: Variant = payload.get("context", {})
+	var context_hash: int = 0
+	if typeof(context_v) == TYPE_DICTIONARY:
+		context_hash = JSON.stringify(context_v).hash()
+	var entry: Dictionary = {
+		"ts_unix": int(Time.get_unix_time_from_system()),
+		"ticks_ms": Time.get_ticks_msec(),
+		"source": source,
+		"transport_mode": _transport_mode,
+		"action": action,
+		"ok": bool(result.get("ok", false)),
+		"err": str(result.get("err", "")),
+		"message": str(result.get("message", "")),
+		"transport_error": bool(result.get("transport_error", false)),
+		"matched": bool(result.get("matched", false)),
+		"session_id": str(result.get("session_id", "")),
+		"ticket_id": str(result.get("ticket_id", "")),
+		"profile_uid": profile_uid,
+		"context_hash": context_hash,
+		"context": context_v
+	}
+	var text: String = JSON.stringify(entry)
+	if text.length() > DIAGNOSTIC_MAX_PAYLOAD_CHARS:
+		entry["context"] = "<trimmed>"
+		text = JSON.stringify(entry)
+	var mode: FileAccess.ModeFlags = FileAccess.WRITE
+	if FileAccess.file_exists(DIAGNOSTIC_LOG_PATH):
+		mode = FileAccess.READ_WRITE
+	var file: FileAccess = FileAccess.open(DIAGNOSTIC_LOG_PATH, mode)
+	if file == null:
+		return
+	if mode == FileAccess.READ_WRITE:
+		file.seek_end()
+	file.store_line(text)
+
+func _should_record_diagnostic(action: String) -> bool:
+	return [
+		"create_invite",
+		"join_invite",
+		"enqueue_quick_match",
+		"poll_quick_match",
+		"cancel_quick_match",
+		"debug_fill_quick_match",
+		"debug_fill_session",
+		"get_session",
+		"set_ready",
+		"can_start",
+		"start_session",
+		"create_friend_invite",
+		"poll_friend_invites",
+		"respond_friend_invite",
+		"list_online_friends"
+	].has(action)
 
 func _is_session_live(session: Dictionary) -> bool:
 	if session.is_empty():
@@ -1087,7 +1238,8 @@ func _prune() -> void:
 	var now_unix: int = int(Time.get_unix_time_from_system())
 	for i in range(_queue.size() - 1, -1, -1):
 		var ticket: Dictionary = _queue[i] as Dictionary
-		if now_unix - int(ticket.get("created_unix", 0)) > QUEUE_TTL_SEC:
+		var last_seen_unix: int = int(ticket.get("last_seen_unix", ticket.get("created_unix", 0)))
+		if now_unix - last_seen_unix > QUEUE_TTL_SEC:
 			_queue.remove_at(i)
 	var remove_ids: Array[String] = []
 	for sid_any in _sessions.keys():

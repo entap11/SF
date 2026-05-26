@@ -199,7 +199,8 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	var button_index: int = int(ev.get("button", MOUSE_BUTTON_LEFT))
 	if event_type != "motion" and not (button_index == MOUSE_BUTTON_LEFT or button_index == MOUSE_BUTTON_RIGHT):
 		return
-	var dev_pid: int = _dev_mouse_pid_from_button(button_index)
+	var is_touch: bool = bool(ev.get("is_touch", false))
+	var dev_pid: int = -1 if is_touch else _dev_mouse_pid_from_button(button_index)
 	var local_pos: Vector2 = ev.get("local_pos", Vector2.ZERO)
 	var hive_id: int = int(ev.get("hive_id", -1))
 	var lane_id: int = int(ev.get("lane_id", -1))
@@ -672,17 +673,39 @@ func _pick_lane_id_for_click(local_pos: Vector2, fallback_lane_id: int, arena_ap
 	var lane: LaneData = arena_api.pick_lane(local_pos) if arena_api != null else null
 	return int(lane.id) if lane != null else -1
 
-func _should_route_hive_click_to_lane(prev_selected_id: int, clicked_id: int, lane_id: int, player_id: int, arena_api: ArenaAPI) -> bool:
+func _should_route_hive_click_to_lane(prev_selected_id: int, clicked_id: int, lane_id: int, local_pos: Vector2, player_id: int, arena_api: ArenaAPI) -> bool:
 	if clicked_id <= 0 or lane_id <= 0 or arena_api == null:
 		return false
 	if prev_selected_id > 0:
 		return false
-	if player_id != 1:
-		return false
+	if _is_lane_double_tap(lane_id, local_pos):
+		return true
 	var hive: HiveData = arena_api.find_hive_by_id(clicked_id)
 	if hive == null:
 		return false
-	return int(hive.owner_id) != player_id
+	if int(hive.owner_id) != player_id:
+		return true
+	return _tap_is_outside_hive_core(clicked_id, local_pos, arena_api)
+
+func _tap_is_outside_hive_core(hive_id: int, local_pos: Vector2, arena_api: ArenaAPI) -> bool:
+	if arena_api == null:
+		return false
+	var hive: HiveData = arena_api.find_hive_by_id(hive_id)
+	if hive == null:
+		return false
+	var center: Vector2 = Vector2.INF
+	var hr := arena_api.get_hive_renderer()
+	if hr != null and hr.has_method("get_hive_center_local"):
+		center = hr.get_hive_center_local(hive_id)
+	if center == Vector2.INF:
+		var render_gp: Vector2 = hive.render_grid_pos
+		if not is_finite(render_gp.x) or not is_finite(render_gp.y):
+			render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
+		center = arena_api.grid_to_world(Vector2i(roundi(render_gp.x), roundi(render_gp.y)))
+	var core_radius: float = float(hive.radius_px)
+	if core_radius <= 0.0:
+		core_radius = maxf(1.0, arena_api.get_hive_radius_px() - 12.0)
+	return local_pos.distance_to(center) > core_radius
 
 func _get_viewport_from_arena(arena_api: ArenaAPI) -> Viewport:
 	return InputEventUtils.get_viewport_from_arena(arena_api)
@@ -1419,7 +1442,7 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		arena_api.mark_render_dirty("input_release")
 		return
 	if _press_hive_id > 0:
-		if _should_route_hive_click_to_lane(_press_prev_selected_id, _press_hive_id, release_lane_id, player_id, arena_api):
+		if _should_route_hive_click_to_lane(_press_prev_selected_id, _press_hive_id, release_lane_id, local_pos, player_id, arena_api):
 			SFLog.info("HIVE_CLICK_LANE_FALLTHROUGH", {
 				"hive_id": _press_hive_id,
 				"lane_id": release_lane_id,
@@ -1551,9 +1574,8 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 					return
 			_record_lane_tap(lane.id, local_pos)
 			_clear_selected_for_player(arena_api, player_id)
-			selection.selected_lane_id = lane.id
+			selection.selected_lane_id = -1
 			selection.selected_cell = arena_api.cell_from_point(local_pos)
-			arena_api.dbg("SF: Lane selected id=%d a=%d b=%d dir=%d" % [lane.id, lane.a_id, lane.b_id, lane.dir])
 			return
 	_reset_lane_tap_state()
 	_clear_selected_for_player(arena_api, player_id)

@@ -267,3 +267,7 @@ text = "Badge note"
 custom_minimum_size = Vector2(240, 52)
 size_flags_horizontal = 4
 text = "CLOSE"
+
+[node name="FooterSafeSpacer" type="Control" parent="VBox"]
+custom_minimum_size = Vector2(0, 50)
+mouse_filter = 2

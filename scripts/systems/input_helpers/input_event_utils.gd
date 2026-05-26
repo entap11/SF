@@ -2,6 +2,8 @@ class_name InputEventUtils
 extends RefCounted
 
 static func is_dev_mouse_override() -> bool:
+	if OS.has_feature("mobile"):
+		return false
 	return OS.is_debug_build() or Engine.is_editor_hint()
 
 static func dev_mouse_pid_from_button(button_index: int) -> int:

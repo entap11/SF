@@ -612,6 +612,10 @@ const GAME_HUB_FREE_TRIPLE_ROW_SHIFT_X: float = 56.0
 const GAME_HUB_FREE_SECTION_SPACER_PX: float = 14.0
 const GAME_HUB_FREE_MAP_GROUP_SPACER_PX: float = 12.0
 const GAME_HUB_FREE_BOTTOM_SPACER_PX: float = 20.0
+const GAME_HUB_TOUCH_LAYOUT_MAX_WIDTH: float = 1100.0
+const GAME_HUB_TOUCH_PAID_TOP_ROW_SCALE: float = 1.46
+const GAME_HUB_TOUCH_PAID_LOWER_ROWS_SCALE: float = 1.34
+const GAME_HUB_TOUCH_PAID_CLUSTER_SPACING: int = 14
 const GAME_HUB_SECTION_HEADER_COLOR: Color = Color8(201, 204, 214, 255)
 const GAME_HUB_SECTION_SUBTEXT_COLOR: Color = Color(0.86, 0.88, 0.92, 0.60)
 const GAME_HUB_BLOCK_LABEL_COLOR: Color = Color(0.82, 0.85, 0.90, 0.78)
@@ -10371,6 +10375,12 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var content_top_padding_px: float = GAME_HUB_CONTENT_TOP_PADDING_PX
 	var body_separation: int = 8
 	var cluster_spacing: int = 6
+	var touch_layout: bool = _use_game_hub_touch_layout()
+	if paid and touch_layout:
+		top_row_scale = GAME_HUB_TOUCH_PAID_TOP_ROW_SCALE
+		lower_rows_scale = GAME_HUB_TOUCH_PAID_LOWER_ROWS_SCALE
+		body_separation = 14
+		cluster_spacing = GAME_HUB_TOUCH_PAID_CLUSTER_SPACING
 	body.offset_top += extra_top + content_top_padding_px
 	body.offset_left += GAME_HUB_CONTENT_SHIFT_X + centered_content_bias_x
 	body.offset_right += GAME_HUB_CONTENT_SHIFT_X + centered_content_bias_x
@@ -10389,7 +10399,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	human_row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
 	human_row_host.add_child(human_row_wrap)
 	var human_row := GridContainer.new()
-	human_row.columns = 3
+	human_row.columns = 2 if paid and touch_layout else 3
 	human_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	human_row.add_theme_constant_override("h_separation", cluster_spacing)
 	human_row.add_theme_constant_override("v_separation", cluster_spacing)
@@ -10415,7 +10425,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	cycle_row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
 	cycle_row_host.add_child(cycle_row_wrap)
 	var cycle_row := GridContainer.new()
-	cycle_row.columns = 3
+	cycle_row.columns = 2 if paid and touch_layout else 3
 	cycle_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var cycle_row_separation: int = cluster_spacing
 	var cycle_button_scale: float = lower_rows_scale
@@ -10488,6 +10498,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	cancel_row.add_child(cancel)
 	_style_game_hub_cancel_button(cancel, lower_rows_scale)
 	_configure_game_hub_option_button(cancel, broadcast_free_roll)
+	_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 	_entry_route_modal = panel
 
 func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
@@ -10505,6 +10516,7 @@ func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
 	_apply_game_hub_title_treatment(panel, "FREE ROLL", GAME_HUB_FREE_CENTER_TRACK_RIGHT_INSET)
 	panel.set_meta("sf_free_layout_version", GAME_HUB_FREE_LAYOUT_VERSION)
 	_configure_free_roll_game_hub_scene(panel, selected_denom)
+	_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 	_entry_route_modal = panel
 
 func _shift_free_roll_overlay_down(panel: Panel) -> void:
@@ -11344,10 +11356,12 @@ func _add_game_hub_map_group(
 	row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
 	row_host.add_child(row_wrap)
 	var row := GridContainer.new()
-	row.columns = 3
+	row.columns = 2 if paid and _use_game_hub_touch_layout() else 3
 	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var row_separation: int = 6
 	var row_button_scale: float = size_scale
+	if paid and _use_game_hub_touch_layout():
+		row_separation = GAME_HUB_TOUCH_PAID_CLUSTER_SPACING
 	if free_layout:
 		row_separation = 10
 		if items.size() >= 3:
@@ -11799,6 +11813,45 @@ func _resolve_game_hub_overlay_size(paid: bool) -> Vector2:
 		clampf(target_height, resolved_min_height, max_height)
 	)
 
+func _use_game_hub_touch_layout() -> bool:
+	var viewport_size: Vector2 = get_viewport_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		return false
+	return viewport_size.y > viewport_size.x or viewport_size.x <= GAME_HUB_TOUCH_LAYOUT_MAX_WIDTH
+
+func _enable_touch_drag_scroll(scroll: ScrollContainer) -> void:
+	if scroll == null:
+		return
+	scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_bind_touch_drag_scroll_to_control(scroll, scroll)
+
+func _bind_touch_drag_scroll_to_control(control: Control, scroll: ScrollContainer) -> void:
+	if control == null or scroll == null:
+		return
+	if not control.has_meta("sf_touch_drag_scroll_bound"):
+		control.set_meta("sf_touch_drag_scroll_bound", true)
+		var callback := Callable(self, "_on_touch_drag_scroll_gui_input").bind(scroll)
+		if not control.gui_input.is_connected(callback):
+			control.gui_input.connect(callback)
+	for child in control.get_children():
+		if child is Control:
+			_bind_touch_drag_scroll_to_control(child as Control, scroll)
+
+func _on_touch_drag_scroll_gui_input(event: InputEvent, scroll: ScrollContainer) -> void:
+	if scroll == null:
+		return
+	var delta_y: float = 0.0
+	if event is InputEventScreenDrag:
+		delta_y = (event as InputEventScreenDrag).relative.y
+	elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		delta_y = (event as InputEventMouseMotion).relative.y
+	if is_zero_approx(delta_y):
+		return
+	scroll.scroll_vertical = maxi(0, scroll.scroll_vertical - int(round(delta_y)))
+	scroll.accept_event()
+
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("human matches"):
 		return
@@ -11849,7 +11902,7 @@ func _human_pvp_lobby_options(mode_id: String) -> Dictionary:
 	var lobby_options: Dictionary = {
 		"human_pvp": true,
 		"start_players": 2,
-		"map_ids": _human_pvp_map_ids(mode_id)
+		"pregame_setup": "session_seeded"
 	}
 	var team_override: String = _human_pvp_team_mode_override(mode_id)
 	if not team_override.is_empty():

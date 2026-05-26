@@ -19,6 +19,7 @@
 
 ## Governance Check (Single Authority)
 - Canonical governance is explicitly documented in:
+  - `docs/coding_governance.md`
   - `scripts/ops/ops_state.gd`
   - `scripts/arena.gd`
 - Ops mutations are generally fenced via `OpsState.sim_mutate(...)` + `audit_mutation(...)`.

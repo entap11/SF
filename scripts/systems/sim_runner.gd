@@ -684,7 +684,7 @@ func _check_match_win(now_ms: int) -> void:
 		var snapshot: Dictionary = _build_timeout_snapshot()
 		var owned: Dictionary = snapshot.get("owned_by_team", {})
 		var contestable_total: int = int(snapshot.get("contestable_total", 0))
-		var winner_id: int = _resolve_time_winner(owned)
+		var winner_id: int = _resolve_time_winner(snapshot)
 		var owned1: int = int(owned.get(1, 0))
 		var owned2: int = int(owned.get(2, 0))
 		_declare_time_win(winner_id, owned1, owned2, contestable_total)
@@ -799,6 +799,7 @@ func _get_match_remaining_ms() -> int:
 func _build_timeout_snapshot() -> Dictionary:
 	var contestable_total := 0
 	var owned_by_team: Dictionary = _empty_team_owned_counts()
+	var power_by_team: Dictionary = _empty_team_owned_counts()
 	var hives: Array = []
 	var hives_by_id: Dictionary = state_ref.hive_by_id if state_ref != null else {}
 	if hives_by_id.size() > 0:
@@ -821,9 +822,22 @@ func _build_timeout_snapshot() -> Dictionary:
 		if team_id <= 0:
 			continue
 		owned_by_team[team_id] = int(owned_by_team.get(team_id, 0)) + 1
+		power_by_team[team_id] = int(power_by_team.get(team_id, 0)) + _hive_power(h)
+	var enemy_landings_by_team: Dictionary = _empty_team_owned_counts()
+	var friendly_feed_by_team: Dictionary = _empty_team_owned_counts()
+	for team_any in OpsState.stats_by_team.keys():
+		var team_id: int = int(team_any)
+		if team_id <= 0:
+			continue
+		var stats: Dictionary = OpsState.stats_by_team.get(team_id, {}) as Dictionary
+		enemy_landings_by_team[team_id] = int(stats.get("units_landed_enemy", 0))
+		friendly_feed_by_team[team_id] = int(stats.get("units_fed_friendly", 0))
 	return {
 		"contestable_total": contestable_total,
-		"owned_by_team": owned_by_team
+		"owned_by_team": owned_by_team,
+		"power_by_team": power_by_team,
+		"enemy_landings_by_team": enemy_landings_by_team,
+		"friendly_feed_by_team": friendly_feed_by_team
 	}
 
 func _trigger_overtime(snapshot: Dictionary, remaining_ms: int, delta: float) -> void:
@@ -867,15 +881,49 @@ func _declare_time_win(winner_id: int, owned1: int, owned2: int, contestable_tot
 	OpsState.begin_match_end(winner_id, "time", OpsState.ending_linger_ms)
 	_start_end_sequence(winner_id)
 
-func _resolve_time_winner(owned_by_team: Dictionary) -> int:
+func _resolve_time_winner(snapshot: Dictionary) -> int:
+	var power_by_team: Dictionary = Dictionary(snapshot.get("power_by_team", {}))
+	var owned_by_team: Dictionary = Dictionary(snapshot.get("owned_by_team", {}))
+	var enemy_landings_by_team: Dictionary = Dictionary(snapshot.get("enemy_landings_by_team", {}))
+	var friendly_feed_by_team: Dictionary = Dictionary(snapshot.get("friendly_feed_by_team", {}))
+	var team_ids: Array = _timeout_team_ids([
+		power_by_team,
+		owned_by_team,
+		enemy_landings_by_team,
+		friendly_feed_by_team
+	])
+	var winner_id: int = _leader_for_metric(team_ids, power_by_team)
+	if winner_id > 0:
+		return winner_id
+	winner_id = _leader_for_metric(team_ids, owned_by_team)
+	if winner_id > 0:
+		return winner_id
+	winner_id = _leader_for_metric(team_ids, enemy_landings_by_team)
+	if winner_id > 0:
+		return winner_id
+	return _leader_for_metric(team_ids, friendly_feed_by_team)
+
+func _timeout_team_ids(metric_dicts: Array) -> Array:
+	var seen: Dictionary = {}
+	for metric_any in metric_dicts:
+		if typeof(metric_any) != TYPE_DICTIONARY:
+			continue
+		var metric: Dictionary = metric_any as Dictionary
+		for team_any in metric.keys():
+			var team_id: int = int(team_any)
+			if team_id > 0:
+				seen[team_id] = true
+	var ids: Array = seen.keys()
+	ids.sort()
+	return ids
+
+func _leader_for_metric(team_ids: Array, metric_by_team: Dictionary) -> int:
 	var best_id := 0
 	var best_count := -1
 	var tie := false
-	var team_ids: Array = owned_by_team.keys()
-	team_ids.sort()
 	for team_any in team_ids:
 		var team_id: int = int(team_any)
-		var count := int(owned_by_team.get(team_id, 0))
+		var count := int(metric_by_team.get(team_id, 0))
 		if count > best_count:
 			best_count = count
 			best_id = team_id
@@ -912,6 +960,12 @@ func _hive_owner_id(hv: Variant) -> int:
 		var hd: Dictionary = hv
 		return int(hd.get("owner_id", 0))
 	return int(hv.owner_id)
+
+func _hive_power(hv: Variant) -> int:
+	if typeof(hv) == TYPE_DICTIONARY:
+		var hd: Dictionary = hv
+		return int(hd.get("power", 0))
+	return int(hv.power)
 
 func _normalized_hive_kind(kind: String) -> String:
 	var key := kind.strip_edges().to_lower()

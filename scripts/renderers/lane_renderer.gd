@@ -72,6 +72,7 @@ const DRAG_PREVIEW_VALID_SNAP_GAIN: float = 1.75
 # Anchors are already lane-edge-biased; extra tuck visually shortens lanes too much.
 const LANE_TUCK_IN_PX: float = 0.0
 const LANE_CAP_TRIM_RADIUS_RATIO: float = 0.45
+const LANE_CONTEST_BUFFER_PX: float = 80.0
 const LANE_THICKNESS_MODE_MANUAL: int = 0
 const LANE_THICKNESS_MODE_MATCH_UNIT_RATIO: int = 1
 const UNIT_RENDER_SCALE_MATCH: float = 1.44
@@ -432,7 +433,7 @@ func _build_lane_segments(rm: Dictionary) -> Array:
 		return segs
 
 	# Contested: split at front_t.
-	var t: float = clamp(float(rm.get("front_t", 0.5)), 0.0, 1.0)
+	var t: float = _clamped_contested_front_t(p0, p1, float(rm.get("front_t", 0.5)))
 	var impact: Vector2 = p0.lerp(p1, t)
 
 	segs.append({"p0": p0, "p1": impact, "color": color_a})
@@ -447,6 +448,13 @@ func _lane_color_for_t(send_a: bool, send_b: bool, color_a: Color, color_b: Colo
 	if send_b:
 		return color_b
 	return LANE_INACTIVE_COLOR
+
+func _clamped_contested_front_t(start: Vector2, end: Vector2, front_t: float) -> float:
+	var lane_len: float = start.distance_to(end)
+	if lane_len <= 0.001:
+		return clampf(front_t, 0.05, 0.95)
+	var buffer_t: float = clampf(LANE_CONTEST_BUFFER_PX / lane_len, 0.0, 0.45)
+	return clampf(front_t, buffer_t, 1.0 - buffer_t)
 
 func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sprite2D:
 	if tex == null:
@@ -1588,7 +1596,7 @@ func _update_lane_visuals(delta: float) -> void:
 		sprite_a.z_index = lane_z_index
 		sprite_b.z_index = lane_z_index
 		if send_a and send_b:
-			var front_t: float = clampf(float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)), 0.0, 1.0)
+			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)))
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
 			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, target_px, unit_body_px, lane_basis_dir, true)
@@ -1829,7 +1837,7 @@ func _update_lane_sprite_tints() -> void:
 		var send_b: bool = bool(d.get("send_b", false))
 		var color_a: Color = _lane_color_for_hive(a_id)
 		var color_b: Color = _lane_color_for_hive(b_id)
-		var front_t: float = float(d.get("front_t", d.get("split_t", 0.5)))
+		var front_t: float = float(OpsState.lane_front_by_lane_id.get(lane_id, d.get("front_t", d.get("split_t", 0.5))))
 		var p0_any: Variant = hive_anchor_local_by_id.get(a_id, null)
 		var p1_any: Variant = hive_anchor_local_by_id.get(b_id, null)
 		if not (p0_any is Vector2 and p1_any is Vector2):
@@ -1838,6 +1846,8 @@ func _update_lane_sprite_tints() -> void:
 		var p1_local: Vector2 = p1_any as Vector2
 		var p0: Vector2 = to_global(p0_local)
 		var p1: Vector2 = to_global(p1_local)
+		if send_a and send_b:
+			front_t = _clamped_contested_front_t(p0, p1, front_t)
 		var dir: Vector2 = p1 - p0
 		var len_sq: float = dir.length_squared()
 		var entry: Dictionary = _lane_nodes_by_key[key]
@@ -2013,7 +2023,7 @@ func _draw_lane_colored(start: Vector2, end: Vector2, a_id: int, b_id: int, send
 		elif send_b and not send_a:
 			start = end.lerp(start, build_t)
 	if send_a and send_b:
-		var t_front: float = clamp(float(lane.get("front_t", 0.5)), 0.0, 1.0)
+		var t_front: float = _clamped_contested_front_t(start, end, float(lane.get("front_t", 0.5)))
 		var mid := start.lerp(end, t_front)
 		var color_a := _resolve_lane_color(a_id, b_id, true, false, rm, lane)
 		var color_b := _resolve_lane_color(a_id, b_id, false, true, rm, lane)

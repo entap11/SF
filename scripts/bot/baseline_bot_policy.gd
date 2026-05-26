@@ -13,6 +13,8 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	var style_id: String = str(profile.get("style", profile.get("persona", "balancer"))).strip_edges().to_lower()
 	var tier_id: String = str(profile.get("tier", "medium")).strip_edges().to_lower()
 	var team_by_seat: Dictionary = _normalized_team_map(profile.get("team_by_seat", {}))
+	var board_context: Dictionary = _board_context_for_seat(state_ref, seat, team_by_seat)
+	var decision_seed: int = int(profile.get("decision_seed", 0))
 	var min_attack_power: int = maxi(1, int(profile.get("min_attack_power", 8)))
 	var min_feed_power: int = maxi(1, int(profile.get("min_feed_power", 11)))
 	var min_swarm_power: int = maxi(1, int(profile.get("min_swarm_power", min_attack_power + 6)))
@@ -127,6 +129,15 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					low_ally_power_bonus,
 					weak_target_threshold
 				)
+				feed_score = _apply_feed_strategy_modifiers(
+					feed_score,
+					src,
+					dst,
+					state_ref,
+					profile,
+					now_ms,
+					board_context
+				)
 				feed_candidates.append({
 					"src": src_id,
 					"dst": dst_id,
@@ -166,6 +177,15 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					early_enemy_core_max_enemy_hives,
 					early_enemy_core_break_margin
 				)
+				attack_score = _apply_attack_strategy_modifiers(
+					attack_score,
+					src,
+					dst,
+					state_ref,
+					profile,
+					now_ms,
+					board_context
+				)
 				attack_candidates.append({
 					"src": src_id,
 					"dst": dst_id,
@@ -187,8 +207,8 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 
 	# If a lane is already active against an enemy, occasionally trigger a burst swarm.
 	if allow_swarm and not swarm_candidates.is_empty():
-		var swarm_roll: float = _deterministic_roll(int(state_ref.tick), seat, now_ms, 211)
-		var swarm_bias: float = clampf(swarm_frequency, 0.0, 0.90)
+		var swarm_roll: float = _deterministic_roll(int(state_ref.tick), seat, now_ms + decision_seed, 211)
+		var swarm_bias: float = clampf(swarm_frequency + _swarm_frequency_state_bonus(profile, now_ms, board_context), 0.0, 0.90)
 		if swarm_roll <= swarm_bias:
 			var swarm_choice: Dictionary = swarm_candidates[0] as Dictionary
 			swarm_choice["seat"] = seat
@@ -211,6 +231,16 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 			enemy_attack_choice["seat"] = seat
 			return enemy_attack_choice
 
+	var early_neutral_choice: Dictionary = _pick_neutral_attack_candidate(attack_candidates)
+	if not early_neutral_choice.is_empty() and now_ms < int(profile.get("early_neutral_capture_ms", 0)):
+		var best_feed_score: float = _best_candidate_score(feed_candidates)
+		var forced_neutral_score: float = float(early_neutral_choice.get("score", 0.0)) + float(profile.get("early_neutral_attack_bonus", 0.0))
+		forced_neutral_score += float(profile.get("early_neutral_complex_bonus", 0.0)) * float(board_context.get("board_complexity", 0.0))
+		forced_neutral_score += float(profile.get("early_neutral_compact_bonus", 0.0)) * float(board_context.get("compact_board", 1.0))
+		if feed_candidates.is_empty() or forced_neutral_score >= best_feed_score:
+			early_neutral_choice["seat"] = seat
+			return early_neutral_choice
+
 	if attack_commit_margin > 0.0 and not attack_candidates.is_empty():
 		var best_attack_score: float = _best_candidate_score(attack_candidates)
 		var best_feed_score: float = _best_candidate_score(feed_candidates)
@@ -226,8 +256,8 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	elif attack_candidates.is_empty() and not feed_candidates.is_empty():
 		choose_attack = false
 	else:
-		var roll: float = _deterministic_roll(int(state_ref.tick), seat, now_ms, 17)
-		choose_attack = roll <= attack_weight
+		var roll: float = _deterministic_roll(int(state_ref.tick), seat, now_ms + decision_seed, 17)
+		choose_attack = roll <= _state_adjusted_attack_weight(attack_weight, profile, now_ms, board_context)
 
 	var chosen_pool: Array = attack_candidates if choose_attack else feed_candidates
 	if chosen_pool.is_empty():
@@ -237,7 +267,7 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 
 	var pick_index: int = 0
 	if chosen_pool.size() > 1:
-		var roll_pick: float = _deterministic_roll(int(state_ref.tick), seat, now_ms, 73)
+		var roll_pick: float = _deterministic_roll(int(state_ref.tick), seat, now_ms + decision_seed, 73)
 		if roll_pick < randomness:
 			pick_index = 1
 	var chosen: Dictionary = chosen_pool[pick_index] as Dictionary
@@ -336,6 +366,156 @@ func _score_swarm(
 		score += swarm_low_power_bonus
 	return score
 
+func _apply_attack_strategy_modifiers(
+	base_score: float,
+	src: HiveData,
+	dst: HiveData,
+	state_ref: GameState,
+	profile: Dictionary,
+	now_ms: int,
+	board_context: Dictionary
+) -> float:
+	var score: float = base_score
+	var dst_owner: int = int(dst.owner_id)
+	var src_power: int = int(src.power)
+	var dst_power: int = int(dst.power)
+	var power_margin: int = src_power - dst_power
+	var board_complexity: float = float(board_context.get("board_complexity", 0.0))
+	var compact_board: float = float(board_context.get("compact_board", 1.0))
+	score += float(profile.get("complex_attack_score_bonus", 0.0)) * board_complexity
+	score += float(profile.get("compact_attack_score_bonus", 0.0)) * compact_board
+	if dst_owner <= 0:
+		score += float(profile.get("expansion_priority", 0.0)) * 8.0
+		score -= _grid_distance(src.grid_pos, dst.grid_pos) * float(profile.get("safe_expansion_distance_weight", 0.0))
+		score += float(profile.get("complex_expansion_bonus", 0.0)) * board_complexity
+		score += float(profile.get("compact_expansion_bonus", 0.0)) * compact_board
+	else:
+		score += float(profile.get("enemy_pressure_bias", 0.0)) * 8.0
+		score += float(profile.get("complex_enemy_pressure_bonus", 0.0)) * board_complexity
+		score += float(profile.get("compact_enemy_pressure_bonus", 0.0)) * compact_board
+		if now_ms < int(profile.get("early_patience_ms", 0)):
+			score -= float(profile.get("early_enemy_attack_penalty", 0.0))
+	var target_outgoing: int = int(state_ref.count_active_outgoing(int(dst.id)))
+	if target_outgoing > 0:
+		score += float(profile.get("exposed_target_bonus", 0.0)) * float(target_outgoing)
+	if dst_power <= int(profile.get("weak_target_threshold", 12)):
+		score += float(profile.get("isolation_bonus", 0.0))
+	if power_margin < 0:
+		var risk_tolerance: float = clampf(float(profile.get("risk_tolerance", 0.45)), 0.0, 1.0)
+		score += float(abs(power_margin)) * ((risk_tolerance * 1.5) - ((1.0 - risk_tolerance) * 2.0))
+	if src_power <= int(profile.get("min_attack_power", 8)) + 4:
+		score += float(profile.get("overcommit_bias", 0.0)) * 6.0
+		score -= float(profile.get("preserve_core_bias", 0.0)) * 5.0
+	if bool(board_context.get("ahead", false)):
+		score += float(profile.get("lead_attack_bonus", 0.0))
+	if bool(board_context.get("behind", false)):
+		score += float(profile.get("comeback_attack_bonus", 0.0))
+	return score
+
+func _apply_feed_strategy_modifiers(
+	base_score: float,
+	src: HiveData,
+	dst: HiveData,
+	state_ref: GameState,
+	profile: Dictionary,
+	now_ms: int,
+	board_context: Dictionary
+) -> float:
+	var score: float = base_score
+	var dst_power: int = int(dst.power)
+	var board_complexity: float = float(board_context.get("board_complexity", 0.0))
+	var compact_board: float = float(board_context.get("compact_board", 1.0))
+	score += float(profile.get("complex_feed_bonus", 0.0)) * board_complexity
+	score += float(profile.get("compact_feed_bonus", 0.0)) * compact_board
+	var low_threshold: int = int(profile.get("guard_ally_power_threshold", 0))
+	if low_threshold > 0 and dst_power <= low_threshold:
+		score += float(profile.get("defense_urgency", 0.0)) * 10.0
+	var dst_outgoing: int = int(state_ref.count_active_outgoing(int(dst.id)))
+	if dst_outgoing > 0:
+		score += float(profile.get("forward_reinforce_bias", 0.0)) * float(dst_outgoing)
+		if now_ms < int(profile.get("early_feed_shape_ms", 0)):
+			score += float(profile.get("early_forward_feed_bonus", 0.0)) * float(dst_outgoing)
+	elif now_ms < int(profile.get("early_feed_shape_ms", 0)):
+		score -= float(profile.get("early_backline_feed_penalty", 0.0))
+	if bool(board_context.get("behind", false)):
+		score += float(profile.get("comeback_feed_bonus", 0.0))
+	if bool(board_context.get("ahead", false)):
+		score -= float(profile.get("closeout_feed_reluctance", 0.0))
+	var reserve_after_feed: int = int(src.power) - int(profile.get("min_feed_power", 10))
+	if reserve_after_feed <= 3:
+		score -= float(profile.get("preserve_core_bias", 0.0)) * 4.0
+	return score
+
+func _state_adjusted_attack_weight(base_weight: float, profile: Dictionary, now_ms: int, board_context: Dictionary) -> float:
+	var weight: float = base_weight
+	var board_complexity: float = float(board_context.get("board_complexity", 0.0))
+	var compact_board: float = float(board_context.get("compact_board", 1.0))
+	weight += float(profile.get("complex_aggression_bonus", 0.0)) * board_complexity
+	weight += float(profile.get("compact_aggression_bonus", 0.0)) * compact_board
+	if now_ms < int(profile.get("early_patience_ms", 0)):
+		weight -= float(profile.get("early_attack_weight_penalty", 0.0))
+	if bool(board_context.get("ahead", false)):
+		weight += float(profile.get("lead_aggression_bonus", 0.0))
+	if bool(board_context.get("behind", false)):
+		weight += float(profile.get("comeback_aggression_bonus", 0.0))
+	return clampf(weight, 0.0, 1.0)
+
+func _swarm_frequency_state_bonus(profile: Dictionary, now_ms: int, board_context: Dictionary) -> float:
+	var bonus: float = 0.0
+	var board_complexity: float = float(board_context.get("board_complexity", 0.0))
+	var compact_board: float = float(board_context.get("compact_board", 1.0))
+	bonus += float(profile.get("complex_swarm_bonus", 0.0)) * board_complexity
+	bonus += float(profile.get("compact_swarm_bonus", 0.0)) * compact_board
+	if now_ms < int(profile.get("early_patience_ms", 0)):
+		bonus -= float(profile.get("early_swarm_penalty", 0.0))
+	if bool(board_context.get("ahead", false)):
+		bonus += float(profile.get("lead_swarm_bonus", 0.0))
+	if bool(board_context.get("behind", false)):
+		bonus += float(profile.get("comeback_swarm_bonus", 0.0))
+	return bonus
+
+func _board_context_for_seat(state_ref: GameState, seat: int, team_by_seat: Dictionary) -> Dictionary:
+	var own_team: int = _team_for_seat(team_by_seat, seat)
+	var own_hives: int = 0
+	var own_power: int = 0
+	var enemy_hives: int = 0
+	var enemy_power: int = 0
+	var total_hives: int = 0
+	var neutral_hives: int = 0
+	for hive_any in state_ref.hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		total_hives += 1
+		var owner_id: int = int(hive.owner_id)
+		if owner_id <= 0:
+			neutral_hives += 1
+			continue
+		var team_id: int = _team_for_seat(team_by_seat, owner_id)
+		if team_id == own_team:
+			own_hives += 1
+			own_power += int(hive.power)
+		else:
+			enemy_hives += 1
+			enemy_power += int(hive.power)
+	var hive_delta: int = own_hives - enemy_hives
+	var power_delta: int = own_power - enemy_power
+	var board_complexity: float = clampf(float(total_hives - 8) / 6.0, 0.0, 1.0)
+	return {
+		"own_hives": own_hives,
+		"enemy_hives": enemy_hives,
+		"own_power": own_power,
+		"enemy_power": enemy_power,
+		"total_hives": total_hives,
+		"neutral_hives": neutral_hives,
+		"board_complexity": board_complexity,
+		"compact_board": 1.0 - board_complexity,
+		"hive_delta": hive_delta,
+		"power_delta": power_delta,
+		"ahead": hive_delta >= 2 or power_delta >= 25,
+		"behind": hive_delta <= -2 or power_delta <= -25
+	}
+
 func _build_blocked_pair_lookup_from_profile(profile: Dictionary) -> Dictionary:
 	var lookup: Dictionary = {}
 	var raw_pairs: Variant = profile.get("blocked_wall_pairs", [])
@@ -432,6 +612,15 @@ func _pick_enemy_owned_attack_candidate(candidates: Array) -> Dictionary:
 			continue
 		var candidate: Dictionary = candidate_any as Dictionary
 		if bool(candidate.get("enemy_owned", false)):
+			return candidate
+	return {}
+
+func _pick_neutral_attack_candidate(candidates: Array) -> Dictionary:
+	for candidate_any in candidates:
+		if typeof(candidate_any) != TYPE_DICTIONARY:
+			continue
+		var candidate: Dictionary = candidate_any as Dictionary
+		if int(candidate.get("dst_owner", 0)) <= 0:
 			return candidate
 	return {}
 

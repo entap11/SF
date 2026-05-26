@@ -26,6 +26,8 @@ const PLAY_BUTTON_MIN_WIDTH: float = 260.0
 const PLAY_BUTTON_MAX_WIDTH: float = 620.0
 const SELECTOR_NAV_MIN_WIDTH: float = 56.0
 const SELECTOR_NAV_MAX_WIDTH: float = 92.0
+const TOUCH_LAYOUT_MAX_WIDTH: float = 1100.0
+const TOUCH_LAYOUT_FONT_SCALE: float = 1.16
 
 signal closed
 signal play_requested(map_path: String, cpu_style: String, cpu_tier: String)
@@ -208,40 +210,40 @@ func _ensure_swarmfront_banner() -> void:
 func _style_controls() -> void:
 	_ensure_swarmfront_banner()
 	_apply_swarmfront_banner_style()
-	_apply_font(title_label, _font_semibold, 24)
-	_apply_font(sub_label, _font_regular, 16)
-	_apply_font(map_count_label, _font_regular, SELECTOR_META_FONT_SIZE)
-	_apply_font(map_hint_label, _font_regular, SELECTOR_META_FONT_SIZE - 1)
-	_apply_font(hero_preview_badge, _font_semibold, 11)
-	_apply_font(selected_title_label, _font_semibold, 24)
-	_apply_font(selected_meta_label, _font_semibold, 16)
-	_apply_font(selected_desc_label, _font_regular, 14)
+	_apply_font(title_label, _font_semibold, _scaled_touch_font_size(24))
+	_apply_font(sub_label, _font_regular, _scaled_touch_font_size(16))
+	_apply_font(map_count_label, _font_regular, _scaled_touch_font_size(SELECTOR_META_FONT_SIZE))
+	_apply_font(map_hint_label, _font_regular, _scaled_touch_font_size(SELECTOR_META_FONT_SIZE - 1))
+	_apply_font(hero_preview_badge, _font_semibold, _scaled_touch_font_size(11))
+	_apply_font(selected_title_label, _font_semibold, _scaled_touch_font_size(24))
+	_apply_font(selected_meta_label, _font_semibold, _scaled_touch_font_size(16))
+	_apply_font(selected_desc_label, _font_regular, _scaled_touch_font_size(14))
 	if cpu_panel != null:
 		cpu_panel.visible = false
 		cpu_panel.custom_minimum_size = Vector2.ZERO
-	_apply_font(leaderboard_page_label, _font_semibold, 22)
-	_apply_font(your_best_label, _font_semibold, 24)
-	_apply_font(map_best_label, _font_regular, 12)
-	_apply_font(badge_note_label, _font_regular, 18)
-	_apply_font(play_button, _font_semibold, 13)
+	_apply_font(leaderboard_page_label, _font_semibold, _scaled_touch_font_size(22))
+	_apply_font(your_best_label, _font_semibold, _scaled_touch_font_size(24))
+	_apply_font(map_best_label, _font_regular, _scaled_touch_font_size(12))
+	_apply_font(badge_note_label, _font_regular, _scaled_touch_font_size(18))
+	_apply_font(play_button, _font_semibold, _scaled_touch_font_size(13))
 	_style_button(play_button)
 	_style_play_button()
 	if scout_button != null:
 		scout_button.visible = false
 	if close_button != null:
-		_apply_font(close_button, _font_semibold, 12)
+		_apply_font(close_button, _font_semibold, _scaled_touch_font_size(12))
 		_style_button(close_button)
-		close_button.custom_minimum_size = Vector2(150.0, 38.0)
+		close_button.custom_minimum_size = Vector2(176.0, 46.0) if _uses_touch_layout() else Vector2(150.0, 38.0)
 	if footer_close_button != null:
-		_apply_font(footer_close_button, _font_semibold, 14)
+		_apply_font(footer_close_button, _font_semibold, _scaled_touch_font_size(14))
 		_style_button(footer_close_button)
-		footer_close_button.custom_minimum_size = Vector2(240.0, 52.0)
+		footer_close_button.custom_minimum_size = Vector2(276.0, 62.0) if _uses_touch_layout() else Vector2(240.0, 52.0)
 	for button in [map_left_button, map_right_button]:
-		_apply_font(button, _font_semibold, 11)
+		_apply_font(button, _font_semibold, _scaled_touch_font_size(11))
 		_style_button(button)
 		_style_selector_nav_button(button)
 	for button in [leaderboard_up_button, leaderboard_down_button]:
-		_apply_font(button, _font_semibold, 11)
+		_apply_font(button, _font_semibold, _scaled_touch_font_size(11))
 		_style_button(button)
 		_style_nav_button(button)
 	scout_button.disabled = true
@@ -263,7 +265,7 @@ func _apply_swarmfront_banner_style() -> void:
 	brand_banner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	brand_banner_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if not UITypography.apply_free_roll_atlas_font(brand_banner_label, 34):
-		_apply_font(brand_banner_label, _font_semibold, 38)
+		_apply_font(brand_banner_label, _font_semibold, _scaled_touch_font_size(38))
 	brand_banner_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
 	brand_banner_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.0))
 	brand_banner_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.0))
@@ -306,7 +308,7 @@ func _build_category_tabs() -> void:
 		button.custom_minimum_size = Vector2(_category_tab_width(), 44.0)
 		button.pressed.connect(Callable(self, "_on_category_tab_pressed").bind(category_label))
 		category_tabs.add_child(button)
-		_apply_font(button, _font_semibold, SELECTOR_TAB_FONT_SIZE)
+		_apply_font(button, _font_semibold, _scaled_touch_font_size(SELECTOR_TAB_FONT_SIZE))
 		_style_button(button)
 	_refresh_category_tab_widths()
 
@@ -336,7 +338,7 @@ func _build_period_tabs() -> void:
 		button.custom_minimum_size = Vector2(_period_tab_width(), 34.0)
 		button.pressed.connect(Callable(self, "_on_period_tab_pressed").bind(period_label))
 		period_tabs.add_child(button)
-		_apply_font(button, _font_semibold, 12)
+		_apply_font(button, _font_semibold, _scaled_touch_font_size(12))
 		_style_button(button)
 	_refresh_period_tab_widths()
 
@@ -360,7 +362,7 @@ func _refresh_map_list() -> void:
 		child.queue_free()
 	var visible_entries: Array[Dictionary] = _visible_map_entries()
 	map_count_label.text = "%d maps in %s" % [visible_entries.size(), _selected_category]
-	_apply_font(map_count_label, _font_regular, SELECTOR_META_FONT_SIZE)
+	_apply_font(map_count_label, _font_regular, _scaled_touch_font_size(SELECTOR_META_FONT_SIZE))
 	var max_offset: int = maxi(0, visible_entries.size() - MAP_WINDOW_SIZE)
 	_map_offset = clampi(_map_offset, 0, max_offset)
 	var end_index: int = mini(_map_offset + MAP_WINDOW_SIZE, visible_entries.size())
@@ -378,14 +380,14 @@ func _refresh_map_list() -> void:
 		row.tooltip_text = str(entry.get("title", ""))
 		row.custom_minimum_size = Vector2(
 			top_card_width if (entry_index - _map_offset) < 3 else bottom_card_width,
-			116.0
+			136.0 if _uses_touch_layout() else 116.0
 		)
 		row.pressed.connect(Callable(self, "_select_map").bind(map_path))
 		if (entry_index - _map_offset) < 3:
 			map_top_row.add_child(row)
 		else:
 			map_bottom_cards.add_child(row)
-		_apply_font(row, _font_semibold, card_font_size)
+		_apply_font(row, _font_semibold, _scaled_touch_font_size(card_font_size))
 		_style_button(row)
 	_refresh_map_nav(visible_entries.size())
 
@@ -398,7 +400,7 @@ func _select_first_visible_map() -> void:
 		_selected_map_path = ""
 		_map_offset = 0
 		selected_title_label.text = "NO MAPS"
-		_apply_font(selected_title_label, _font_semibold, 20)
+		_apply_font(selected_title_label, _font_semibold, _scaled_touch_font_size(20))
 		selected_meta_label.text = ""
 		selected_desc_label.text = "No map entries are available in this category."
 		_refresh_leaderboard()
@@ -419,9 +421,9 @@ func _select_map(map_path: String) -> void:
 	_leaderboard_offset = 0
 	var selected: Dictionary = _entry_by_path(map_path)
 	selected_title_label.text = _stylized_display_text(str(selected.get("title", "Map")))
-	_apply_font(selected_title_label, _font_semibold, 24)
+	_apply_font(selected_title_label, _font_semibold, _scaled_touch_font_size(24))
 	selected_meta_label.text = ""
-	_apply_font(selected_meta_label, _font_semibold, 16)
+	_apply_font(selected_meta_label, _font_semibold, _scaled_touch_font_size(16))
 	selected_desc_label.text = ""
 	_refresh_hero_preview(selected)
 	play_button.disabled = _selected_map_path.is_empty()
@@ -443,29 +445,29 @@ func _refresh_leaderboard() -> void:
 	var board: Dictionary = _jukebox_state.board_snapshot(_selected_map_path, _selected_period, TOP_LIMIT)
 	var header := HBoxContainer.new()
 	header.add_theme_constant_override("separation", 18)
-	header.custom_minimum_size = Vector2(0.0, 42.0)
+	header.custom_minimum_size = Vector2(0.0, 50.0 if _uses_touch_layout() else 42.0)
 	var head_rank := Label.new()
 	head_rank.text = "RANK"
 	head_rank.custom_minimum_size = Vector2(88.0, 0.0)
 	header.add_child(head_rank)
-	_apply_font(head_rank, _font_semibold, LEADERBOARD_HEADER_FONT_SIZE)
+	_apply_font(head_rank, _font_semibold, _scaled_touch_font_size(LEADERBOARD_HEADER_FONT_SIZE))
 	var head_handle := Label.new()
 	head_handle.text = "HANDLE"
 	head_handle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(head_handle)
-	_apply_font(head_handle, _font_semibold, LEADERBOARD_HEADER_FONT_SIZE)
+	_apply_font(head_handle, _font_semibold, _scaled_touch_font_size(LEADERBOARD_HEADER_FONT_SIZE))
 	var head_badge := Label.new()
 	head_badge.text = "BADGE"
 	head_badge.custom_minimum_size = Vector2(132.0, 0.0)
 	head_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	header.add_child(head_badge)
-	_apply_font(head_badge, _font_semibold, LEADERBOARD_HEADER_FONT_SIZE)
+	_apply_font(head_badge, _font_semibold, _scaled_touch_font_size(LEADERBOARD_HEADER_FONT_SIZE))
 	var head_time := Label.new()
 	head_time.text = "TIME"
 	head_time.custom_minimum_size = Vector2(220.0, 0.0)
 	head_time.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	header.add_child(head_time)
-	_apply_font(head_time, _font_semibold, LEADERBOARD_HEADER_FONT_SIZE)
+	_apply_font(head_time, _font_semibold, _scaled_touch_font_size(LEADERBOARD_HEADER_FONT_SIZE))
 	leaderboard_list.add_child(header)
 	var entries: Array = board.get("entries", []) as Array
 	var total_entries: int = entries.size()
@@ -474,10 +476,10 @@ func _refresh_leaderboard() -> void:
 	if total_entries <= 0:
 		var empty := Label.new()
 		empty.text = "No recorded runs for this map yet."
-		empty.custom_minimum_size = Vector2(0.0, 58.0)
+		empty.custom_minimum_size = Vector2(0.0, 68.0 if _uses_touch_layout() else 58.0)
 		empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		leaderboard_list.add_child(empty)
-		_apply_font(empty, _font_regular, LEADERBOARD_ROW_FONT_SIZE)
+		_apply_font(empty, _font_regular, _scaled_touch_font_size(LEADERBOARD_ROW_FONT_SIZE))
 		_refresh_leaderboard_nav(0)
 		your_best_label.text = "Your best: --"
 		_refresh_map_best()
@@ -490,29 +492,29 @@ func _refresh_leaderboard() -> void:
 		var entry: Dictionary = entry_any as Dictionary
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 18)
-		row.custom_minimum_size = Vector2(0.0, 44.0)
+		row.custom_minimum_size = Vector2(0.0, 54.0 if _uses_touch_layout() else 44.0)
 		var rank_label := Label.new()
 		rank_label.text = "%02d" % int(entry.get("rank", 0))
 		rank_label.custom_minimum_size = Vector2(88.0, 0.0)
 		row.add_child(rank_label)
-		_apply_font(rank_label, _font_semibold, LEADERBOARD_ROW_FONT_SIZE)
+		_apply_font(rank_label, _font_semibold, _scaled_touch_font_size(LEADERBOARD_ROW_FONT_SIZE))
 		var handle_label := Label.new()
 		handle_label.text = str(entry.get("handle", "--"))
 		handle_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(handle_label)
-		_apply_font(handle_label, _font_regular, LEADERBOARD_ROW_FONT_SIZE)
+		_apply_font(handle_label, _font_regular, _scaled_touch_font_size(LEADERBOARD_ROW_FONT_SIZE))
 		var badge_label := Label.new()
 		badge_label.text = str(entry.get("badge", ""))
 		badge_label.custom_minimum_size = Vector2(132.0, 0.0)
 		badge_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		row.add_child(badge_label)
-		_apply_font(badge_label, _font_regular, LEADERBOARD_BADGE_FONT_SIZE)
+		_apply_font(badge_label, _font_regular, _scaled_touch_font_size(LEADERBOARD_BADGE_FONT_SIZE))
 		var time_label := Label.new()
 		time_label.text = _format_time_ms(int(entry.get("time_ms", 0)))
 		time_label.custom_minimum_size = Vector2(220.0, 0.0)
 		time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(time_label)
-		_apply_font(time_label, _font_semibold, LEADERBOARD_ROW_FONT_SIZE)
+		_apply_font(time_label, _font_semibold, _scaled_touch_font_size(LEADERBOARD_ROW_FONT_SIZE))
 		leaderboard_list.add_child(row)
 	_refresh_leaderboard_nav(total_entries)
 	var your_best_ms: int = int(board.get("your_best_ms", 0))
@@ -548,11 +550,11 @@ func _refresh_hero_preview(selected: Dictionary) -> void:
 	if not preview_path.is_empty() and ResourceLoader.exists(preview_path):
 		hero_preview.texture = load(preview_path) as Texture2D
 		hero_preview_badge.text = "MAP PREVIEW"
-		_apply_font(hero_preview_badge, _font_semibold, 11)
+		_apply_font(hero_preview_badge, _font_semibold, _scaled_touch_font_size(11))
 		return
 	hero_preview.texture = null
 	hero_preview_badge.text = "PREVIEW COMING SOON"
-	_apply_font(hero_preview_badge, _font_semibold, 11)
+	_apply_font(hero_preview_badge, _font_semibold, _scaled_touch_font_size(11))
 
 func _refresh_map_nav(total_entries: int) -> void:
 	var safe_total: int = maxi(0, total_entries)
@@ -654,24 +656,35 @@ func _format_time_ms(value: int) -> String:
 func _apply_font(control: Control, font: Font, size: int) -> void:
 	UITypography.apply_font(control, font, size)
 
+func _uses_touch_layout() -> bool:
+	var viewport_size: Vector2 = get_viewport_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		return false
+	return viewport_size.y > viewport_size.x or viewport_size.x <= TOUCH_LAYOUT_MAX_WIDTH
+
+func _scaled_touch_font_size(size_value: int) -> int:
+	if not _uses_touch_layout():
+		return size_value
+	return maxi(1, int(round(float(size_value) * TOUCH_LAYOUT_FONT_SCALE)))
+
 func _style_nav_button(button: Button) -> void:
 	if button == null:
 		return
-	button.custom_minimum_size = Vector2(76.0, 52.0)
+	button.custom_minimum_size = Vector2(88.0, 60.0) if _uses_touch_layout() else Vector2(76.0, 52.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
 
 func _style_selector_nav_button(button: Button) -> void:
 	if button == null:
 		return
-	button.custom_minimum_size = Vector2(_selector_nav_width(), 92.0)
+	button.custom_minimum_size = Vector2(_selector_nav_width(), 106.0 if _uses_touch_layout() else 92.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
 
 func _style_play_button() -> void:
 	if play_button == null:
 		return
-	play_button.custom_minimum_size = Vector2(_play_button_width(), 150.0)
+	play_button.custom_minimum_size = Vector2(_play_button_width(), 166.0 if _uses_touch_layout() else 150.0)
 	play_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	play_button.text = ""
 	play_button.tooltip_text = "Play selected map"
@@ -767,11 +780,13 @@ func _refresh_map_card_widths() -> void:
 	for child in map_top_row.get_children():
 		if child is Control:
 			(child as Control).custom_minimum_size.x = top_width
-			_apply_font(child as Control, _font_semibold, font_size)
+			(child as Control).custom_minimum_size.y = 136.0 if _uses_touch_layout() else 116.0
+			_apply_font(child as Control, _font_semibold, _scaled_touch_font_size(font_size))
 	for child in map_bottom_cards.get_children():
 		if child is Control:
 			(child as Control).custom_minimum_size.x = bottom_width
-			_apply_font(child as Control, _font_semibold, _map_card_font_size(bottom_width))
+			(child as Control).custom_minimum_size.y = 136.0 if _uses_touch_layout() else 116.0
+			_apply_font(child as Control, _font_semibold, _scaled_touch_font_size(_map_card_font_size(bottom_width)))
 
 func _apply_nav_icons() -> void:
 	if _chevron_texture == null:
