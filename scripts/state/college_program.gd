@@ -16,8 +16,11 @@ static func new_college_program(program_id: String, identity: Dictionary = {}) -
 		"colors": ScholasticTypesScript.sanitize_colors(identity.get("colors", []) as Array),
 		"logo_asset_id": ScholasticTypesScript.clean_text(str(identity.get("logo_asset_id", "")), 96),
 		"fight_song_asset_id": ScholasticTypesScript.clean_text(str(identity.get("fight_song_asset_id", "")), 96),
+		"program_type": ScholasticTypesScript.clean_text(str(identity.get("program_type", "COLLEGE")), 32).to_upper(),
 		"verification_status": str(identity.get("verification_status", ScholasticTypesScript.VERIFICATION_UNVERIFIED)).strip_edges().to_upper(),
 		"teams": [],
+		"membership_by_player_id": {},
+		"attested_player_ids_by_school_year": {},
 		"verified_coach_account_ids": [],
 		"verified_scout_account_ids": [],
 		"created_at_unix": int(identity.get("created_at_unix", 0)),
@@ -26,11 +29,13 @@ static func new_college_program(program_id: String, identity: Dictionary = {}) -
 
 static func merge_identity(program: Dictionary, identity: Dictionary) -> Dictionary:
 	var out: Dictionary = program.duplicate(true)
-	for key: String in ["university_name", "city", "state", "mascot_name", "logo_asset_id", "fight_song_asset_id", "verification_status"]:
+	for key: String in ["university_name", "city", "state", "mascot_name", "logo_asset_id", "fight_song_asset_id", "program_type", "verification_status"]:
 		if identity.has(key):
 			out[key] = ScholasticTypesScript.clean_text(str(identity.get(key, "")), 96)
 	if identity.has("state"):
 		out["state"] = str(out.get("state", "")).to_upper()
+	if identity.has("program_type"):
+		out["program_type"] = str(out.get("program_type", "")).to_upper()
 	if identity.has("colors"):
 		out["colors"] = ScholasticTypesScript.sanitize_colors(identity.get("colors", []) as Array)
 	return out

@@ -60,3 +60,25 @@ If Postgres is elsewhere, set `RANK_DATABASE_URL` when launching:
 ```bash
 RANK_DATABASE_URL=postgres://user:pass@host:5432/swarmfront_rank ./tools/run_with_rank_service.sh
 ```
+
+## scholastic-service
+
+Dedicated SFA/SFU backend for school/program affiliation, SFA hive review, complaints, tournaments, and audit events.
+
+Run locally:
+
+```bash
+cd tools/scholastic-service
+cp .env.example .env
+docker compose up -d
+npm install
+npm run migrate
+npm run dev
+```
+
+Policy smoke test:
+
+```bash
+cd tools/scholastic-service
+npm run smoke
+```

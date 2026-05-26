@@ -10,6 +10,8 @@ static func new_school_program(school_id: String, identity: Dictionary = {}) -> 
 	return {
 		"school_id": clean_id,
 		"school_name": ScholasticTypesScript.clean_text(str(identity.get("school_name", "")), 96),
+		"canonical_school_name": ScholasticTypesScript.clean_text(str(identity.get("canonical_school_name", "")), 96),
+		"public_school_name": ScholasticTypesScript.SCHOOL_PUBLIC_NAME_PENDING,
 		"city": ScholasticTypesScript.clean_text(str(identity.get("city", "")), 64),
 		"state": ScholasticTypesScript.clean_text(str(identity.get("state", "")), 32).to_upper(),
 		"mascot_name": ScholasticTypesScript.clean_text(str(identity.get("mascot_name", "")), 48),
@@ -17,19 +19,29 @@ static func new_school_program(school_id: String, identity: Dictionary = {}) -> 
 		"logo_asset_id": ScholasticTypesScript.clean_text(str(identity.get("logo_asset_id", "")), 96),
 		"fight_song_asset_id": ScholasticTypesScript.clean_text(str(identity.get("fight_song_asset_id", "")), 96),
 		"verification_status": str(identity.get("verification_status", ScholasticTypesScript.VERIFICATION_UNVERIFIED)).strip_edges().to_upper(),
+		"school_hive_review_status": str(identity.get("school_hive_review_status", ScholasticTypesScript.SCHOOL_HIVE_REVIEW_SELF_REPORTED)).strip_edges().to_upper(),
+		"review_school_year": ScholasticTypesScript.normalize_school_year(str(identity.get("review_school_year", ScholasticTypesScript.current_school_year()))),
+		"hive_bonus_eligible": false,
+		"hive_bonus_locked_reason": "pending_review",
+		"material_dispute_open": false,
+		"enrollment_complaints": [],
 		"teams": [],
 		"membership_by_player_id": {},
+		"attested_player_ids_by_school_year": {},
 		"created_at_unix": int(identity.get("created_at_unix", 0)),
 		"updated_at_unix": int(identity.get("updated_at_unix", 0))
 	}
 
 static func merge_identity(program: Dictionary, identity: Dictionary) -> Dictionary:
 	var out: Dictionary = program.duplicate(true)
-	for key: String in ["school_name", "city", "state", "mascot_name", "logo_asset_id", "fight_song_asset_id", "verification_status"]:
+	for key: String in ["school_name", "canonical_school_name", "city", "state", "mascot_name", "logo_asset_id", "fight_song_asset_id", "verification_status", "school_hive_review_status"]:
 		if identity.has(key):
 			out[key] = ScholasticTypesScript.clean_text(str(identity.get(key, "")), 96)
 	if identity.has("state"):
 		out["state"] = str(out.get("state", "")).to_upper()
 	if identity.has("colors"):
 		out["colors"] = ScholasticTypesScript.sanitize_colors(identity.get("colors", []) as Array)
+	if identity.has("review_school_year"):
+		out["review_school_year"] = ScholasticTypesScript.normalize_school_year(str(identity.get("review_school_year", "")))
+	out["public_school_name"] = ScholasticTypesScript.public_school_name(out)
 	return out

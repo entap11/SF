@@ -416,6 +416,13 @@ func request_paid_display_name_change(name: String, source: String = "paid_renam
 func request_handle_change(name: String, paid_override: bool = false, source: String = "settings") -> Dictionary:
 	ensure_loaded()
 	var raw_clean: String = name.strip_edges()
+	if raw_clean == _display_name.strip_edges() and _handle_chosen:
+		return {
+			"ok": true,
+			"changed": false,
+			"handle": _display_name,
+			"next_free_change_unix": _next_handle_change_unix
+		}
 	var validation: Dictionary = validate_handle_policy(raw_clean)
 	if not bool(validation.get("ok", false)):
 		SFLog.info("PROFILE_HANDLE_REJECTED", {

@@ -3,6 +3,7 @@
 .import/
 .export/
 export_presets.cfg
+export_presets.cfg-*
 
 # OS/editor
 .DS_Store
@@ -21,6 +22,8 @@ tools/rank-service/.env
 tools/rank-service/node_modules/
 tools/rank-service/var/
 tools/rank-service/dist/
+tools/scholastic-service/node_modules/
+tools/scholastic-service/dist/
 tools/vs-service/.env
 tools/vs-service/node_modules/
 tools/vs-service/dist/

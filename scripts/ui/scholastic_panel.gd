@@ -58,7 +58,10 @@ func _submit_school_placeholder_intent() -> void:
 		"state": "CA",
 		"mascot_name": "Stingers",
 		"colors": ["Gold", "Black"],
-		"verification_status": "PENDING"
+		"verification_status": "PENDING",
+		"attested_enrolled": true,
+		"school_year": "2026-2027",
+		"freshman_school_year": "2026-2027"
 	}
 	scholastic_intent_submitted.emit("intent_register_high_school", {"player_id": LOCAL_PLAYER_ID, "identity": identity})
 	var state_node: Node = _scholastic_state()
@@ -91,6 +94,8 @@ func _refresh_from_state() -> void:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("Display: %s" % str(profile.get("display_name", "")))
 	lines.append("SFA: %s" % str(sfa.get("is_user", false)))
+	lines.append("Status: %s" % str(sfa.get("eligibility_status", "")))
+	lines.append("School year: %s" % str(sfa.get("current_school_year_attested", "")))
 	lines.append("Team: %s slot %d" % [str(sfa.get("team_label", "")), int(sfa.get("roster_slot", -1))])
 	lines.append("DM/chat/voice: %s/%s/%s" % [str(comms.get("dm_enabled", false)), str(comms.get("in_game_chat_enabled", false)), str(comms.get("voice_enabled", false))])
 	lines.append("Real money prizes: %s" % str(money.get("can_win_real_money", false)))

@@ -98,11 +98,13 @@ const HIVE_VIEW_CANDIDATE := "candidate"
 @onready var top_bar: Control = $TopBar
 @onready var hive_button: HexButton = $TopBar/HiveButton
 @onready var brand_title_label: Label = $TopBar/BrandTitle
+@onready var welcome_handle_label: Label = $TopBar/WelcomeHandleLabel
 @onready var dash_tab: HexButton = $DashTab
 @onready var dash_panel: Panel = $DashPanel
 @onready var dash_main_background: Control = $DashPanel/HexSeamBackground
 @onready var dash_top_bar: Control = $DashPanel/DashTopBar
 @onready var dash_root: VBoxContainer = $DashPanel/DashRoot
+@onready var dash_handle_label: Label = $DashPanel/DashRoot/DashHandleLabel
 @onready var dash_tabs: HBoxContainer = $DashPanel/DashRoot/DashTabs
 @onready var dash_garage_tab: Button = $DashPanel/DashRoot/DashTabs/GarageTab
 @onready var dash_buffs_tab: Button = $DashPanel/DashRoot/DashTabs/BuffsTab
@@ -1128,6 +1130,7 @@ func _ready() -> void:
 	call_deferred("_finish_noncritical_menu_boot")
 	call_deferred("_apply_pending_jukebox_reopen_request")
 	_apply_player_profile(_player_profile)
+	_refresh_profile_handle_labels()
 	status_label.text = "Ready"
 	_bind_onboarding_gate()
 	if HiveClanState != null and HiveClanState.has_signal("hive_clan_state_changed"):
@@ -1275,6 +1278,7 @@ func _apply_pending_jukebox_reopen_request() -> void:
 func _process(_delta: float) -> void:
 	_sync_main_art_shroud()
 	_refresh_open_free_roll_game_hub_if_stale()
+	_refresh_profile_handle_labels()
 
 func _sync_main_art_shroud() -> void:
 	var should_shroud: bool = _has_open_main_menu_surface()
@@ -1619,6 +1623,18 @@ func _style_labels() -> void:
 			_apply_font(brand_title_label, _font_semibold, 24)
 		_apply_swarmfront_title_shader(brand_title_label)
 		_suppress_legacy_brand_banner()
+	if welcome_handle_label != null:
+		_apply_font(welcome_handle_label, _font_semibold, 16)
+		welcome_handle_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.45, 1.0))
+		welcome_handle_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.72))
+		welcome_handle_label.add_theme_constant_override("shadow_offset_x", 0)
+		welcome_handle_label.add_theme_constant_override("shadow_offset_y", 2)
+	if dash_handle_label != null:
+		_apply_font(dash_handle_label, _font_semibold, 18)
+		dash_handle_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.45, 1.0))
+		dash_handle_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.65))
+		dash_handle_label.add_theme_constant_override("shadow_offset_x", 0)
+		dash_handle_label.add_theme_constant_override("shadow_offset_y", 2)
 	_apply_display_label($HeroPanel/HeroVBox/HeroTitle, 22, _font_semibold, 24)
 	_apply_font($HeroPanel/HeroVBox/HeroSub, _font_regular, 16)
 	_apply_display_label($DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader, 16, _font_semibold, 18)
@@ -5747,7 +5763,24 @@ func _apply_player_profile(profile: Dictionary) -> void:
 		_honey_widget.call("set_honey_value", honey_value, "main_menu_profile_apply", false)
 	$DashPanel/DashTopBar/DashRankLabel.text = tier_text
 	$DashPanel/DashTopBar/DashHoneyLabel.text = honey_text
+	_refresh_profile_handle_labels()
 	_refresh_dash_account_snapshot()
+
+func _current_profile_handle() -> String:
+	if ProfileManager != null and ProfileManager.has_method("get_display_name"):
+		var handle: String = str(ProfileManager.call("get_display_name")).strip_edges()
+		if not handle.is_empty():
+			return handle
+	return "Player"
+
+func _refresh_profile_handle_labels() -> void:
+	var handle: String = _current_profile_handle()
+	if welcome_handle_label != null:
+		var welcome_text: String = "Welcome %s" % handle
+		if welcome_handle_label.text != welcome_text:
+			welcome_handle_label.text = welcome_text
+	if dash_handle_label != null and dash_handle_label.text != handle:
+		dash_handle_label.text = handle
 
 func _ensure_honey_widget() -> void:
 	if _honey_widget != null:

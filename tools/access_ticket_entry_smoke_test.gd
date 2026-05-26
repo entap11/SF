@@ -72,6 +72,16 @@ func _init() -> void:
 	_assert_eq(int(bundle_tokens.get("bundle_founders_pack_lite", 0)), 1, "contest prizes should grant a bundle token")
 	_assert_eq(int(inventory.get("ad_free_days", 0)), 3, "contest prizes should grant ad-free days")
 
+	var sfa_grant_result: Dictionary = battle_pass_state.call("intent_grant_analytics_credit", "analytics_pack_tier_1", 1, "sfa_student:smoke") as Dictionary
+	_assert_ok(sfa_grant_result, "SFA tier 1 analytics grant")
+	var sfa_duplicate_result: Dictionary = battle_pass_state.call("intent_grant_analytics_credit", "analytics_pack_tier_1", 1, "sfa_student:smoke") as Dictionary
+	_assert_ok(sfa_duplicate_result, "duplicate SFA tier 1 analytics grant")
+	_assert_true(bool(sfa_duplicate_result.get("already_claimed", false)), "duplicate SFA grant should be idempotent")
+	var sfa_snapshot: Dictionary = battle_pass_state.call("get_snapshot") as Dictionary
+	var sfa_inventory: Dictionary = sfa_snapshot.get("inventory", {}) as Dictionary
+	var sfa_analytics_credits: Dictionary = sfa_inventory.get("analytics_credits", {}) as Dictionary
+	_assert_eq(int(sfa_analytics_credits.get("analytics_pack_tier_1", 0)), 1, "SFA tier 1 analytics grant should not duplicate")
+
 	var duplicate_prize_result: Dictionary = contest_state.call("intent_claim_contest_prizes", contest.id, 1, {"source": "access_ticket_smoke_dup"}) as Dictionary
 	_assert_ok(duplicate_prize_result, "duplicate prize claim")
 	_assert_true(bool(duplicate_prize_result.get("already_claimed", false)), "duplicate prize claim should be idempotent")

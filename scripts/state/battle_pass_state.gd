@@ -343,6 +343,51 @@ func intent_record_contest_result(scope: String, placement: int, metadata: Dicti
 func get_access_ticket_balance() -> int:
 	return maxi(0, int(_inventory.get("access_tickets", 0)))
 
+func intent_grant_analytics_credit(package_id: String, quantity: int = 1, source_key: String = "") -> Dictionary:
+	var clean_package_id: String = package_id.strip_edges()
+	if clean_package_id.is_empty():
+		return {"ok": false, "reason": "missing_package_id"}
+	var safe_quantity: int = maxi(1, quantity)
+	var clean_source: String = source_key.strip_edges()
+	if clean_source.is_empty():
+		clean_source = "analytics_credit:%s" % clean_package_id
+	var claim_key: String = "analytics_credit|%s|%s" % [clean_package_id, clean_source]
+	if _exclusive_event_prize_claims.has(claim_key):
+		return {
+			"ok": true,
+			"already_claimed": true,
+			"package_id": clean_package_id,
+			"inventory": _inventory.duplicate(true)
+		}
+	var grant_result: Dictionary = _grant_reward({
+		"reward_type": "analytics_credit",
+		"package_id": clean_package_id,
+		"quantity": safe_quantity
+	})
+	if not bool(grant_result.get("ok", false)):
+		return grant_result
+	_exclusive_event_prize_claims[claim_key] = {
+		"entry_kind": "analytics_credit",
+		"entry_id": clean_package_id,
+		"source_key": clean_source,
+		"reward_count": 1,
+		"claimed_at_unix": int(Time.get_unix_time_from_system()),
+		"metadata": {"package_id": clean_package_id, "quantity": safe_quantity}
+	}
+	_save_state()
+	_emit_event("analytics_credit_granted", {
+		"package_id": clean_package_id,
+		"quantity": safe_quantity,
+		"source_key": clean_source
+	})
+	_emit_state_changed()
+	return {
+		"ok": true,
+		"package_id": clean_package_id,
+		"quantity": safe_quantity,
+		"inventory": _inventory.duplicate(true)
+	}
+
 func preview_access_ticket_entry(entry_kind: String, entry_id: String, quantity: int = 1) -> Dictionary:
 	var clean_kind: String = entry_kind.strip_edges().to_lower()
 	var clean_id: String = entry_id.strip_edges()

@@ -10,7 +10,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/onboarding/onboarding_panel.tscn" id="8"]
 [ext_resource type="PackedScene" path="res://ui/backgrounds/HexSeamBackground.tscn" id="9"]
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_uys1d"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_3jvqm"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -27,7 +27,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_u0cpc"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ynch7"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -44,7 +44,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_2j83w"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_uiaf5"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -61,7 +61,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_rfye6"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_g52k1"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -78,7 +78,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_d4ayn"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_7saj7"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -95,7 +95,7 @@ shader_parameter/flicker_amount = 0.01
 shader_parameter/hex_scale = 17.0
 shader_parameter/seed = 11.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_2myc3"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_mhf6o"]
 resource_local_to_scene = true
 shader = ExtResource("4_pwhrh")
 shader_parameter/base_color = Color(0.06, 0.055, 0.05, 0.58)
@@ -144,7 +144,7 @@ texture = ExtResource("5")
 stretch_mode = 5
 
 [node name="MainHexSeamBackground" parent="." instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_uys1d")
+material = SubResource("ShaderMaterial_3jvqm")
 layout_mode = 1
 
 [node name="PlatformDimmer" type="ColorRect" parent="."]
@@ -213,6 +213,18 @@ offset_top = 108.0
 offset_right = 210.0
 offset_bottom = 138.0
 text = "SWARMFRONT"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="WelcomeHandleLabel" type="Label" parent="TopBar"]
+layout_mode = 0
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -240.0
+offset_top = 140.0
+offset_right = 240.0
+offset_bottom = 168.0
+text = "Welcome Player"
 horizontal_alignment = 1
 vertical_alignment = 1
 
@@ -352,7 +364,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 
 [node name="HexSeamBackground" parent="DashPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_u0cpc")
+material = SubResource("ShaderMaterial_ynch7")
 layout_mode = 1
 
 [node name="DashTopBar" type="Control" parent="DashPanel"]
@@ -392,6 +404,13 @@ offset_right = -16.0
 offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="DashHandleLabel" type="Label" parent="DashPanel/DashRoot"]
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+text = "Player"
+horizontal_alignment = 1
+vertical_alignment = 1
 
 [node name="DashTabs" type="HBoxContainer" parent="DashPanel/DashRoot"]
 custom_minimum_size = Vector2(0, 64)
@@ -1016,7 +1035,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashBuffsPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_2j83w")
+material = SubResource("ShaderMaterial_uiaf5")
 layout_mode = 1
 
 [node name="BuffsVBox" type="VBoxContainer" parent="DashPanel/DashBuffsPanel"]
@@ -1225,7 +1244,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashHivePanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_rfye6")
+material = SubResource("ShaderMaterial_g52k1")
 layout_mode = 1
 
 [node name="HiveVBox" type="VBoxContainer" parent="DashPanel/DashHivePanel"]
@@ -1521,7 +1540,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="HexSeamBackground" parent="DashPanel/DashStorePanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_d4ayn")
+material = SubResource("ShaderMaterial_7saj7")
 layout_mode = 1
 
 [node name="StoreVBox" type="VBoxContainer" parent="DashPanel/DashStorePanel"]
@@ -2319,7 +2338,7 @@ layout_mode = 2
 mouse_filter = 1
 
 [node name="HexSeamBackground" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel" instance=ExtResource("9")]
-material = SubResource("ShaderMaterial_2myc3")
+material = SubResource("ShaderMaterial_mhf6o")
 layout_mode = 1
 
 [node name="OverlayVBox" type="VBoxContainer" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel"]
