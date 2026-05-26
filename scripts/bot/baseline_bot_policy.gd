@@ -15,7 +15,13 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	var team_by_seat: Dictionary = _normalized_team_map(profile.get("team_by_seat", {}))
 	var board_context: Dictionary = _board_context_for_seat(state_ref, seat, team_by_seat)
 	var decision_seed: int = int(profile.get("decision_seed", 0))
-	var min_attack_power: int = maxi(1, int(profile.get("min_attack_power", 8)))
+	var board_complexity: float = float(board_context.get("board_complexity", 0.0))
+	var compact_board: float = float(board_context.get("compact_board", 1.0))
+	var attack_power_adjustment: int = int(round(
+		float(profile.get("complex_min_attack_power_bonus", 0.0)) * board_complexity
+		+ float(profile.get("compact_min_attack_power_bonus", 0.0)) * compact_board
+	))
+	var min_attack_power: int = maxi(1, int(profile.get("min_attack_power", 8)) + attack_power_adjustment)
 	var min_feed_power: int = maxi(1, int(profile.get("min_feed_power", 11)))
 	var min_swarm_power: int = maxi(1, int(profile.get("min_swarm_power", min_attack_power + 6)))
 	var allow_swarm: bool = bool(profile.get("allow_swarm", true))
@@ -113,6 +119,16 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 
 			if active_outgoing >= outgoing_budget:
 				continue
+			if _should_sloppy_forget_extra_lane(
+				profile,
+				state_ref,
+				seat,
+				now_ms + decision_seed,
+				src_id,
+				active_outgoing,
+				outgoing_budget
+			):
+				continue
 
 			if dst_is_ally:
 				if src_power < min_feed_power:
@@ -204,6 +220,23 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 	swarm_candidates.sort_custom(Callable(self, "_score_desc"))
 	if attack_candidates.is_empty() and feed_candidates.is_empty() and swarm_candidates.is_empty():
 		return {}
+
+	if _sloppy_roll(profile, state_ref, seat, now_ms + decision_seed, 307, "sloppy_hesitation_rate"):
+		return {}
+
+	if not attack_candidates.is_empty():
+		if _sloppy_roll(profile, state_ref, seat, now_ms + decision_seed, 373, "sloppy_overextend_attack_rate"):
+			var sloppy_attack: Dictionary = _pick_weakest_candidate(attack_candidates)
+			sloppy_attack["seat"] = seat
+			sloppy_attack["sloppy"] = true
+			return sloppy_attack
+
+	if allow_swarm and not swarm_candidates.is_empty():
+		if _sloppy_roll(profile, state_ref, seat, now_ms + decision_seed, 419, "sloppy_bad_swarm_rate"):
+			var sloppy_swarm: Dictionary = _pick_weakest_candidate(swarm_candidates)
+			sloppy_swarm["seat"] = seat
+			sloppy_swarm["sloppy"] = true
+			return sloppy_swarm
 
 	# If a lane is already active against an enemy, occasionally trigger a burst swarm.
 	if allow_swarm and not swarm_candidates.is_empty():
@@ -623,6 +656,31 @@ func _pick_neutral_attack_candidate(candidates: Array) -> Dictionary:
 		if int(candidate.get("dst_owner", 0)) <= 0:
 			return candidate
 	return {}
+
+func _pick_weakest_candidate(candidates: Array) -> Dictionary:
+	if candidates.is_empty():
+		return {}
+	return candidates[candidates.size() - 1] as Dictionary
+
+func _should_sloppy_forget_extra_lane(
+		profile: Dictionary,
+		state_ref: GameState,
+		seat: int,
+		now_ms: int,
+		src_id: int,
+		active_outgoing: int,
+		outgoing_budget: int
+) -> bool:
+	if outgoing_budget < 3 or active_outgoing < 2:
+		return false
+	return _sloppy_roll(profile, state_ref, seat, now_ms + (src_id * 53), 521, "sloppy_extra_lane_forget_rate")
+
+func _sloppy_roll(profile: Dictionary, state_ref: GameState, seat: int, now_ms: int, salt: int, rate_key: String) -> bool:
+	var rate: float = clampf(float(profile.get(rate_key, 0.0)), 0.0, 0.20)
+	if rate <= 0.0 or state_ref == null:
+		return false
+	var roll: float = _deterministic_roll(int(state_ref.tick), seat, now_ms, salt)
+	return roll <= rate
 
 func _grid_distance(a: Vector2i, b: Vector2i) -> float:
 	var av: Vector2 = Vector2(float(a.x), float(a.y))

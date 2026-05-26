@@ -240,7 +240,7 @@ func _apply_performance_mode_setting() -> void:
 	var scale_factor: float = float(ProfileManager.call("get_content_scale_factor"))
 	var window_ref: Window = get_window()
 	if window_ref != null:
-		window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.0)
+		window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.1)
 
 func _set_uid_edit_enabled(enabled: bool) -> void:
 	user_id_input.visible = enabled

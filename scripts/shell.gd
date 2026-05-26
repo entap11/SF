@@ -234,6 +234,7 @@ func _ready() -> void:
 		"name": name
 	})
 	set_process(true)
+	_apply_content_scale_from_profile()
 	_request_main_menu_preload()
 	if SFLog.LOGGING_ENABLED:
 		if TRACE_SHELL_LOGS: print("MAIN FLAGS: start_in_menu=", start_in_menu,
@@ -1500,6 +1501,15 @@ func _on_viewport_size_changed() -> void:
 		return
 	call_deferred("_sync_power_bar_buffer_placement")
 	call_deferred("_layout_buff_strip_positions")
+
+func _apply_content_scale_from_profile() -> void:
+	if not ProfileManager.has_method("get_content_scale_factor"):
+		return
+	var window_ref: Window = get_window()
+	if window_ref == null:
+		return
+	var scale_factor: float = float(ProfileManager.call("get_content_scale_factor"))
+	window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.1)
 
 func _process(_delta: float) -> void:
 	_sync_buff_ui()

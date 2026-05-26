@@ -36,6 +36,7 @@ const BUFF_MODE_ASYNC: String = "async"
 const PERFORMANCE_MODE_QUALITY: String = "quality"
 const PERFORMANCE_MODE_BALANCED: String = "balanced"
 const PERFORMANCE_MODE_PERFORMANCE: String = "performance"
+const MOBILE_CONTENT_SCALE_MULTIPLIER: float = 1.10
 const TUTORIAL_SECTION1_STATUS_NOT_STARTED: String = "not_started"
 const TUTORIAL_SECTION1_STATUS_IN_PROGRESS: String = "in_progress"
 const TUTORIAL_SECTION1_STATUS_COMPLETED: String = "completed"
@@ -894,13 +895,22 @@ func set_admin_dashboard_credentials(username: String, password: String) -> void
 
 func get_content_scale_factor() -> float:
 	ensure_loaded()
+	var scale_factor: float = 1.0
 	match _performance_mode:
 		PERFORMANCE_MODE_PERFORMANCE:
-			return 0.8
+			scale_factor = 0.8
 		PERFORMANCE_MODE_BALANCED:
-			return 0.9
-		_:
-			return 1.0
+			scale_factor = 0.9
+	if _uses_mobile_content_scale():
+		scale_factor *= MOBILE_CONTENT_SCALE_MULTIPLIER
+	return scale_factor
+
+func _uses_mobile_content_scale() -> bool:
+	if OS.has_feature("mobile"):
+		return true
+	if OS.has_feature("ios") or OS.has_feature("android"):
+		return true
+	return OS.has_feature("web_ios") or OS.has_feature("web_android")
 
 func get_honey_balance() -> int:
 	ensure_loaded()
