@@ -441,6 +441,7 @@ var _last_export_log_ms: int = 0
 @export var debug_export_rm_log_interval_ms := 1000
 var _last_export_rm_log_ms := 0
 @export var debug_swarms := false
+@export var show_runtime_telemetry_overlay := true
 var _last_render_serial: int = -1
 var _last_rm_ms: int = 0
 const RM_REFRESH_HZ := 10.0
@@ -461,6 +462,9 @@ var _hb_max_engine_process_ms: float = 0.0
 var _hb_phys: int = 0
 var _hb_max_phys_ms: float = 0.0
 var _hb_sum_phys_ms: float = 0.0
+var _runtime_telemetry_overlay: PanelContainer = null
+var _runtime_telemetry_label: Label = null
+var _runtime_telemetry_last_update_ms: int = 0
 var _vs_pvp_runtime: Node = null
 var floor_influence_system: ArenaFloorInfluenceSystem = null
 var _jukebox_back_button: Button = null
@@ -470,6 +474,7 @@ func _ready() -> void:
 		return
 	_allow_camfit_log_tags()
 	SFLog.allow_tag("ARENA_FRAME_HEARTBEAT")
+	SFLog.allow_tag("RUNTIME_TELEMETRY")
 	SFLog.allow_tag("SIM_PIPELINE_ACTIVE")
 	SFLog.allow_tag("LEGACY_SIM_PATH_BLOCKED")
 	SFLog.allow_tag("MAP_APPLY_ONE_WAY_DOOR")
@@ -561,6 +566,7 @@ func _ready() -> void:
 	# Match startup must flow through prematch/bootstrap so roster and bot state exist
 	# before the simulation is allowed to run.
 	_ensure_timer_hud()
+	call_deferred("_ensure_runtime_telemetry_overlay")
 	_configure_grid_spec(grid_w, grid_h)
 	_map_bounds_size = Vector2.ZERO
 	var arena_scale: Vector2 = global_transform.get_scale()
@@ -2687,10 +2693,58 @@ func _prewarm_render_assets() -> void:
 	if _render_assets_prewarmed:
 		return
 	_render_assets_prewarmed = true
+	var prewarm_t0_us: int = Time.get_ticks_usec()
 	if unit_renderer != null and unit_renderer.has_method("prewarm_pool"):
 		unit_renderer.call("prewarm_pool")
 	if vfx_manager != null and vfx_manager.has_method("prewarm"):
 		vfx_manager.call("prewarm")
+	var duration_ms: float = float(Time.get_ticks_usec() - prewarm_t0_us) / 1000.0
+	_publish_pool_runtime_telemetry({"match_prewarm_duration_ms": snappedf(duration_ms, 0.01)})
+
+func _publish_pool_runtime_telemetry(extra: Dictionary = {}) -> void:
+	if OpsState == null or not OpsState.has_method("update_runtime_telemetry"):
+		return
+	var patch: Dictionary = _pool_runtime_telemetry_snapshot()
+	for key_any in extra.keys():
+		patch[key_any] = extra.get(key_any)
+	OpsState.call("update_runtime_telemetry", patch)
+
+func _pool_runtime_telemetry_snapshot() -> Dictionary:
+	var totals: Dictionary = {
+		"pool_hits": 0,
+		"pool_misses": 0,
+		"pool_expansions": 0,
+		"runtime_instantiates_avoided": 0,
+		"active_pooled_objects": 0,
+		"available_pooled_objects": 0,
+		"total_pooled_objects": 0,
+		"peak_pooled_objects": 0,
+		"match_prewarm_duration_ms": 0.0
+	}
+	for source_any in [unit_renderer, vfx_manager]:
+		var source: Object = source_any as Object
+		if source == null or not source.has_method("get_pool_telemetry_snapshot"):
+			continue
+		var snapshot_any: Variant = source.call("get_pool_telemetry_snapshot")
+		if typeof(snapshot_any) != TYPE_DICTIONARY:
+			continue
+		var snapshot: Dictionary = snapshot_any as Dictionary
+		for key in [
+			"pool_hits",
+			"pool_misses",
+			"pool_expansions",
+			"runtime_instantiates_avoided",
+			"active_pooled_objects",
+			"available_pooled_objects",
+			"total_pooled_objects",
+			"peak_pooled_objects"
+		]:
+			totals[key] = int(totals.get(key, 0)) + int(snapshot.get(key, 0))
+		totals["match_prewarm_duration_ms"] = maxf(
+			float(totals.get("match_prewarm_duration_ms", 0.0)),
+			float(snapshot.get("match_prewarm_duration_ms", 0.0))
+		)
+	return totals
 
 func _start_match_sim(reason: String) -> void:
 	if _match_started:
@@ -2864,10 +2918,12 @@ func _finalize_match_telemetry_session(winner_id_in: int) -> void:
 	if _match_telemetry_collector.has_method("attach_analysis_summary"):
 		_match_telemetry_collector.call("attach_analysis_summary", summary)
 	var save_result_any: Variant = {}
-	if _match_telemetry_collector.has_method("save_to_user"):
+	if _match_telemetry_collector.has_method("save_to_user_async"):
+		save_result_any = _match_telemetry_collector.call("save_to_user_async", telemetry_model)
+	elif _match_telemetry_collector.has_method("save_to_user"):
 		save_result_any = _match_telemetry_collector.call("save_to_user", telemetry_model)
 	var save_result: Dictionary = save_result_any as Dictionary if typeof(save_result_any) == TYPE_DICTIONARY else {}
-	if bool(save_result.get("ok", false)):
+	if bool(save_result.get("ok", false)) or bool(save_result.get("pending", false)):
 		_post_match_telemetry_path = str(save_result.get("path", ""))
 	else:
 		_post_match_telemetry_path = ""
@@ -2885,6 +2941,25 @@ func _finalize_match_telemetry_session(winner_id_in: int) -> void:
 		"save_path": _post_match_telemetry_path,
 		"profile_updated_player_ids": profile_result.get("updated_player_ids", [])
 	})
+
+func _poll_match_telemetry_async_save() -> void:
+	if _match_telemetry_collector == null or not _match_telemetry_collector.has_method("poll_async_save"):
+		return
+	var result_any: Variant = _match_telemetry_collector.call("poll_async_save")
+	if typeof(result_any) != TYPE_DICTIONARY:
+		return
+	var result: Dictionary = result_any as Dictionary
+	if result.is_empty():
+		return
+	if bool(result.get("ok", false)):
+		_post_match_telemetry_path = str(result.get("path", _post_match_telemetry_path))
+		if OpsState != null and OpsState.has_method("update_runtime_telemetry"):
+			OpsState.call("update_runtime_telemetry", {
+				"post_match_save_duration_ms": snappedf(float(result.get("duration_ms", 0.0)), 0.01)
+			})
+		SFLog.info("TELEMETRY_ASYNC_SAVE_DONE", {"save_path": _post_match_telemetry_path})
+	else:
+		SFLog.warn("TELEMETRY_SAVE_FAILED", result)
 
 func _telemetry_utc_ms_now() -> int:
 	return int(round(Time.get_unix_time_from_system() * 1000.0))
@@ -3568,6 +3643,9 @@ func _on_sim_ticked() -> void:
 	_update_buff_states()
 	if _telemetry_active and _match_telemetry_collector != null and state != null and _match_telemetry_collector.has_method("sample_state"):
 		_match_telemetry_collector.call("sample_state", int(_authoritative_sim_time_us() / 1000), TICK_DT, state)
+	if _telemetry_active and _match_telemetry_collector != null and _match_telemetry_collector.has_method("sample_runtime_perf"):
+		var runtime_snapshot: Dictionary = OpsState.call("get_runtime_telemetry_snapshot") if OpsState != null and OpsState.has_method("get_runtime_telemetry_snapshot") else {}
+		_match_telemetry_collector.call("sample_runtime_perf", int(_authoritative_sim_time_us() / 1000), runtime_snapshot)
 	mark_render_dirty("sim_tick")
 	# SimRunner already ticks at fixed cadence; pushing every sim tick avoids
 	# time-gate jitter (99ms/101ms skip pattern) that reads as sawtooth motion.
@@ -4604,6 +4682,7 @@ func _process(delta: float) -> void:
 	_hb_record_frame(delta)
 	_maybe_log_frame_hitch(delta)
 	_tick_arena_runtime(delta)
+	_poll_match_telemetry_async_save()
 	_hb_record_process_cost(process_t0_us)
 	_hb_maybe_flush()
 
@@ -4666,6 +4745,7 @@ func _tick_arena_runtime(delta: float) -> void:
 		_tutorial_section2_controller.tick(state, _resolve_local_owner_id())
 	if _tutorial_section3_controller != null and state != null:
 		_tutorial_section3_controller.tick(state, _resolve_local_owner_id())
+	_update_runtime_telemetry_overlay()
 
 func _arm_camera_transition_lock(reason: String) -> void:
 	var cam: Camera2D = camera if camera != null else $Camera2D
@@ -4777,6 +4857,7 @@ func _hb_maybe_flush() -> void:
 		"max_physics_ms": snapped(_hb_max_phys_ms, 0.1),
 		"avg_physics_ms": snapped(avg_phys_ms, 0.1)
 	})
+	_publish_frame_runtime_telemetry(frames, fps_est, avg_frame_ms, avg_process_ms, phys_ticks, avg_phys_ms, window_ms)
 	_hb_last_ms = now_ms
 	_hb_frames = 0
 	_hb_max_frame_ms = 0.0
@@ -4787,6 +4868,150 @@ func _hb_maybe_flush() -> void:
 	_hb_phys = 0
 	_hb_max_phys_ms = 0.0
 	_hb_sum_phys_ms = 0.0
+
+func _publish_frame_runtime_telemetry(
+	frames: int,
+	fps_est: float,
+	avg_frame_ms: float,
+	avg_process_ms: float,
+	phys_ticks: int,
+	avg_phys_ms: float,
+	window_ms: int
+) -> void:
+	if OpsState == null or not OpsState.has_method("update_runtime_telemetry"):
+		return
+	var phys_fps: float = 0.0
+	if window_ms > 0:
+		phys_fps = (float(phys_ticks) * 1000.0) / float(window_ms)
+	var patch: Dictionary = {
+		"local_fps": snappedf(fps_est, 0.1),
+		"local_frame_ms_avg": snappedf(avg_frame_ms, 0.1),
+		"local_frame_ms_max": snappedf(_hb_max_frame_ms, 0.1),
+		"local_process_ms_avg": snappedf(avg_process_ms, 0.1),
+		"local_process_ms_max": snappedf(_hb_max_process_ms, 0.1),
+		"local_physics_fps": snappedf(phys_fps, 0.1),
+		"local_physics_fixed_hz": float(Engine.physics_ticks_per_second),
+		"local_physics_ms_avg": snappedf(avg_phys_ms, 0.1),
+		"local_physics_ms_max": snappedf(_hb_max_phys_ms, 0.1),
+		"local_frame_count_window": frames
+	}
+	var pool_patch: Dictionary = _pool_runtime_telemetry_snapshot()
+	for key_any in pool_patch.keys():
+		patch[key_any] = pool_patch.get(key_any)
+	OpsState.call("update_runtime_telemetry", patch)
+
+func _runtime_telemetry_overlay_enabled() -> bool:
+	if not show_runtime_telemetry_overlay:
+		return false
+	if OS.is_debug_build() or get_node_or_null("/root/DevMapRunner") != null:
+		return true
+	return OS.get_environment("SF_RUNTIME_TELEMETRY_OVERLAY").strip_edges() == "1"
+
+func _ensure_runtime_telemetry_overlay() -> void:
+	if not _runtime_telemetry_overlay_enabled():
+		if _runtime_telemetry_overlay != null and is_instance_valid(_runtime_telemetry_overlay):
+			_runtime_telemetry_overlay.visible = false
+		return
+	if _runtime_telemetry_overlay != null and is_instance_valid(_runtime_telemetry_overlay):
+		_runtime_telemetry_overlay.visible = true
+		return
+	var parent: Control = _resolve_hud_root()
+	if parent == null:
+		return
+	var panel := PanelContainer.new()
+	panel.name = "RuntimeTelemetryOverlay"
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.custom_minimum_size = Vector2(390, 0)
+	panel.z_index = 1000
+	panel.anchor_left = 0.0
+	panel.anchor_top = 0.0
+	panel.anchor_right = 0.0
+	panel.anchor_bottom = 0.0
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.0, 0.0, 0.0, 0.64)
+	style.border_color = Color(1.0, 1.0, 1.0, 0.24)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	panel.add_theme_stylebox_override("panel", style)
+	parent.add_child(panel)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	panel.add_child(margin)
+	var label := Label.new()
+	label.name = "Metrics"
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_color_override("font_color", Color(0.92, 0.96, 1.0, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("outline_size", 2)
+	margin.add_child(label)
+	_runtime_telemetry_overlay = panel
+	_runtime_telemetry_label = label
+	_position_runtime_telemetry_overlay()
+	_update_runtime_telemetry_overlay(true)
+
+func _position_runtime_telemetry_overlay() -> void:
+	if _runtime_telemetry_overlay == null or not is_instance_valid(_runtime_telemetry_overlay):
+		return
+	var top_px: float = _ui_top_inset_px()
+	_runtime_telemetry_overlay.position = Vector2(12.0, top_px + 12.0)
+
+func _update_runtime_telemetry_overlay(force: bool = false) -> void:
+	if not _runtime_telemetry_overlay_enabled():
+		return
+	if _runtime_telemetry_overlay == null or not is_instance_valid(_runtime_telemetry_overlay) or _runtime_telemetry_label == null:
+		_ensure_runtime_telemetry_overlay()
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if not force and now_ms - _runtime_telemetry_last_update_ms < 250:
+		return
+	_runtime_telemetry_last_update_ms = now_ms
+	_position_runtime_telemetry_overlay()
+	var snapshot: Dictionary = OpsState.call("get_runtime_telemetry_snapshot") if OpsState != null and OpsState.has_method("get_runtime_telemetry_snapshot") else {}
+	_runtime_telemetry_label.text = _runtime_telemetry_text(snapshot)
+	_runtime_telemetry_overlay.visible = true
+
+func _runtime_telemetry_text(snapshot: Dictionary) -> String:
+	var waiting: bool = bool(snapshot.get("waiting_for_remote", false))
+	var wait_reason: String = str(snapshot.get("waiting_for_remote_reason", ""))
+	if wait_reason.is_empty():
+		wait_reason = "none"
+	return "\n".join([
+		"RUNTIME TELEMETRY",
+		"FPS %.1f | frame %.1f/%.1f ms" % [
+			float(snapshot.get("local_fps", 0.0)),
+			float(snapshot.get("local_frame_ms_avg", 0.0)),
+			float(snapshot.get("local_frame_ms_max", 0.0))
+		],
+		"Physics %.1f fps | fixed %.1f Hz" % [
+			float(snapshot.get("local_physics_fps", 0.0)),
+			float(snapshot.get("local_physics_fixed_hz", 0.0))
+		],
+		"Sim %.1f/%.1f Hz | %.2f ms | scale %.3f" % [
+			float(snapshot.get("local_sim_tick_rate_hz", 0.0)),
+			float(snapshot.get("local_sim_fixed_hz", 0.0)),
+			float(snapshot.get("sim_ms", 0.0)),
+			float(snapshot.get("sim_time_scale", 1.0))
+		],
+		"Accum sim delta %.1f ms" % float(snapshot.get("accumulated_sim_delta_ms", 0.0)),
+		"Server tick %.1f Hz | frame %.1f ms" % [
+			float(snapshot.get("server_tick_rate_hz", 0.0)),
+			float(snapshot.get("server_frametime_ms", 0.0))
+		],
+		"Snapshots %.1f/s | RTT %.1f ms" % [
+			float(snapshot.get("snapshot_receive_rate_hz", 0.0)),
+			float(snapshot.get("ping_rtt_ema_ms", snapshot.get("ping_rtt_ms", 0.0)))
+		],
+		"Packets tx %d | rx %d | drop %d" % [
+			int(snapshot.get("packet_tx", 0)),
+			int(snapshot.get("packet_rx", 0)),
+			int(snapshot.get("packet_dropped", 0))
+		],
+		"Waiting remote: %s (%s)" % ["YES" if waiting else "NO", wait_reason]
+	])
 
 func _update_power_bar(delta: float) -> void:
 	# UI observes OpsState; no sim-driven UI mutations.

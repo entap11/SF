@@ -73,11 +73,11 @@ z_index = 10
 material = SubResource("CanvasItemMaterial_1")
 texture = ExtResource("6")
 
-[node name="UnitRenderer" type="Node2D" parent="MapRoot"]
+[node name="PoolsRoot" type="Node2D" parent="."]
+
+[node name="UnitRenderer" type="Node2D" parent="PoolsRoot"]
 z_index = 2
 script = ExtResource("4")
-
-[node name="PoolsRoot" type="Node2D" parent="."]
 
 [node name="WallRenderer" type="Node2D" parent="."]
 z_index = -4

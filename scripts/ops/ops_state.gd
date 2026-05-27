@@ -108,6 +108,8 @@ var match_end_ms: int = 0
 var lane_front_by_lane_id: Dictionary = {} # lane_id -> front_t [0..1]
 var match_roster: Array = []
 var _hud_snapshot: Dictionary = {}
+var _runtime_telemetry_snapshot: Dictionary = {}
+var _runtime_telemetry_serial: int = 0
 var edge_cache: Dictionary = {}
 var edge_cache_version: int = -1
 var blocked_wall_pairs: Array = []
@@ -123,6 +125,69 @@ func get_state() -> GameState:
 
 func set_match_telemetry_collector(collector: RefCounted) -> void:
 	_match_telemetry_collector = collector
+
+func reset_runtime_telemetry() -> void:
+	_runtime_telemetry_snapshot = _default_runtime_telemetry_snapshot()
+	_runtime_telemetry_serial += 1
+
+func update_runtime_telemetry(patch: Dictionary) -> void:
+	if patch == null:
+		return
+	if _runtime_telemetry_snapshot.is_empty():
+		reset_runtime_telemetry()
+	for key_any in patch.keys():
+		_runtime_telemetry_snapshot[key_any] = patch.get(key_any)
+	_runtime_telemetry_snapshot["updated_ms"] = Time.get_ticks_msec()
+	_runtime_telemetry_serial += 1
+
+func get_runtime_telemetry_snapshot() -> Dictionary:
+	if _runtime_telemetry_snapshot.is_empty():
+		reset_runtime_telemetry()
+	var out: Dictionary = _runtime_telemetry_snapshot.duplicate(true)
+	out["serial"] = _runtime_telemetry_serial
+	return out
+
+func _default_runtime_telemetry_snapshot() -> Dictionary:
+	return {
+		"updated_ms": 0,
+		"transport_active": false,
+		"transport_mode": "local",
+		"local_fps": 0.0,
+		"local_frame_ms_avg": 0.0,
+		"local_frame_ms_max": 0.0,
+		"local_process_ms_avg": 0.0,
+		"local_process_ms_max": 0.0,
+		"local_physics_fps": 0.0,
+		"local_physics_fixed_hz": float(Engine.physics_ticks_per_second),
+		"local_sim_tick_rate_hz": 0.0,
+		"local_sim_fixed_hz": 0.0,
+		"sim_ms": 0.0,
+		"sim_ms_max": 0.0,
+		"sim_time_scale": 1.0,
+		"accumulated_sim_delta_ms": 0.0,
+		"server_tick_rate_hz": 0.0,
+		"server_frametime_ms": 0.0,
+		"snapshot_receive_rate_hz": 0.0,
+		"ping_rtt_ms": 0.0,
+		"ping_rtt_ema_ms": 0.0,
+		"packet_tx": 0,
+		"packet_rx": 0,
+		"packet_dropped": 0,
+		"intent_events_tx": 0,
+		"intent_events_rx": 0,
+		"waiting_for_remote": false,
+		"waiting_for_remote_reason": "not_lockstep",
+		"pool_hits": 0,
+		"pool_misses": 0,
+		"pool_expansions": 0,
+		"runtime_instantiates_avoided": 0,
+		"active_pooled_objects": 0,
+		"available_pooled_objects": 0,
+		"total_pooled_objects": 0,
+		"peak_pooled_objects": 0,
+		"match_prewarm_duration_ms": 0.0,
+		"post_match_save_duration_ms": 0.0
+	}
 
 func require_state() -> GameState:
 	assert(state != null, "OpsState.state is null. State must be created explicitly via reset_state_from_map().")
@@ -204,6 +269,7 @@ func reset_match_state() -> void:
 	match_roster.clear()
 	bot_profiles.clear()
 	_hud_snapshot = {}
+	reset_runtime_telemetry()
 	victory_mode = VICTORY_MODE_CONQUEST
 	victory_rules = {}
 	capture_flag_state = {}

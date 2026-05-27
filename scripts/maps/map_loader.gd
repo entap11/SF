@@ -9,6 +9,13 @@ const CANON_CELL_SIZE := 64
 const RUNTIME_STD_GRID_W := 18
 const RUNTIME_STD_GRID_H := 28
 const FORCE_RUNTIME_STD_GRID := true
+static var _dev_runner_hint_set: bool = false
+static var _dev_runner_hint: bool = false
+
+static func set_dev_runner_hint(enabled: bool) -> void:
+	_dev_runner_hint_set = true
+	_dev_runner_hint = enabled
+
 static func list_maps() -> Array[String]:
 	var out: Array[String] = []
 	for path_any in MAP_REGISTRY.list_map_paths():
@@ -209,6 +216,8 @@ static func _infer_async_bot_count(player_buckets: Array[String], mode: String) 
 	return maxi(0, max_players - 1)
 
 static func _is_dev_runner() -> bool:
+	if _dev_runner_hint_set:
+		return _dev_runner_hint
 	var loop := Engine.get_main_loop()
 	if loop == null or not (loop is SceneTree):
 		return false

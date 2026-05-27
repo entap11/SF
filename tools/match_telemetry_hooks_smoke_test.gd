@@ -49,6 +49,24 @@ func _initialize() -> void:
 	replay_state.lanes = [LaneData.new(7, 1, 2, 1, true, false)]
 	replay_state.units_by_lane["_all"] = [{"lane_id": 7, "owner_id": 1, "t": 0.35, "amount": 2}]
 	collector.sample_state(500, 0.5, replay_state)
+	collector.sample_runtime_perf(500, {
+		"local_fps": 59.5,
+		"local_physics_fps": 60.0,
+		"local_physics_fixed_hz": 60.0,
+		"local_sim_tick_rate_hz": 10.0,
+		"local_sim_fixed_hz": 10.0,
+		"server_tick_rate_hz": 0.0,
+		"snapshot_receive_rate_hz": 4.0,
+		"ping_rtt_ema_ms": 42.0,
+		"sim_ms": 1.25,
+		"sim_phase_hotspot": "lane_flow",
+		"sim_phase_hotspot_ms": 0.75,
+		"sim_phase_costs_ms": {"lane_flow": 0.75, "unit_system": 0.25},
+		"server_frametime_ms": 8.0,
+		"packet_tx": 10,
+		"packet_rx": 9,
+		"packet_dropped": 1
+	})
 	var model: Variant = collector.finalize_match(1, 60000)
 	if model == null:
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: missing model")
@@ -75,6 +93,7 @@ func _initialize() -> void:
 	var metrics: Dictionary = metrics_any as Dictionary
 	var replay: Dictionary = payload.get("replay", {})
 	var video_replay: Dictionary = payload.get("video_replay", {})
+	var runtime_perf: Dictionary = payload.get("runtime_perf", {})
 	if int(payload.get("schema_version", 0)) != int(MatchTelemetryModelScript.SCHEMA_VERSION):
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: bad schema %s" % str(payload.get("schema_version", 0)))
 		quit(1)
@@ -85,6 +104,19 @@ func _initialize() -> void:
 		return
 	if typeof(video_replay) != TYPE_DICTIONARY or str(video_replay.get("render_mode", "")) != "actual_arena_scene":
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: video replay package missing %s" % str(video_replay))
+		quit(1)
+		return
+	if typeof(runtime_perf) != TYPE_DICTIONARY or (runtime_perf.get("samples", []) as Array).is_empty():
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: runtime perf samples missing %s" % str(runtime_perf))
+		quit(1)
+		return
+	var runtime_summary: Dictionary = runtime_perf.get("summary", {}) as Dictionary
+	if int(runtime_summary.get("packet_dropped", 0)) != 1 or float(runtime_summary.get("avg_ping_rtt_ms", 0.0)) <= 0.0:
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: runtime perf summary bad %s" % str(runtime_summary))
+		quit(1)
+		return
+	if str(runtime_summary.get("worst_sim_phase", "")) != "lane_flow" or float(runtime_summary.get("max_sim_phase_ms", 0.0)) <= 0.0:
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: runtime phase summary bad %s" % str(runtime_summary))
 		quit(1)
 		return
 	if ((video_replay.get("input_events", []) as Array).size() != 1):
@@ -158,6 +190,16 @@ func _initialize() -> void:
 	var alpha_profile: Dictionary = profile_store.get_profile("u_smoke_alpha")
 	if alpha_profile.is_empty() or not alpha_profile.has("bot_profile_knobs"):
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: missing aggregate profile %s" % str(alpha_profile))
+		quit(1)
+		return
+	var async_save_start: Dictionary = collector.save_to_user_async(model)
+	if not bool(async_save_start.get("ok", false)) or str(async_save_start.get("path", "")).is_empty():
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: async save start failed %s" % str(async_save_start))
+		quit(1)
+		return
+	var async_save_done: Dictionary = collector.wait_for_async_save()
+	if not bool(async_save_done.get("ok", false)):
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: async save failed %s" % str(async_save_done))
 		quit(1)
 		return
 	print("MATCH_TELEMETRY_HOOKS_SMOKE: PASS")

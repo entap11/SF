@@ -14,6 +14,7 @@ const EARLY_WINDOW_MS: int = 90000
 const REACTION_RESPONSE_WINDOW_MS: int = 12000
 const REACTION_THREAT_COOLDOWN_MS: int = 4000
 const REPLAY_SAMPLE_INTERVAL_MS: int = 500
+const RUNTIME_PERF_SAMPLE_INTERVAL_MS: int = 1000
 const REPLAY_MAX_UNITS_PER_FRAME: int = 220
 const VIDEO_REPLAY_FPS: int = 30
 const VIDEO_REPLAY_WIDTH: int = 1080
@@ -71,6 +72,13 @@ var _buff_windows: Array[Dictionary] = []
 var _replay_frames: Array[Dictionary] = []
 var _replay_map: Dictionary = {}
 var _replay_last_sample_ms: int = -999999
+var _runtime_perf_samples: Array[Dictionary] = []
+var _runtime_perf_last_sample_ms: int = -999999
+var _save_thread: Thread = null
+var _save_inflight: bool = false
+var _save_generation: int = 0
+var _async_save_result: Dictionary = {}
+var _async_save_completed: bool = false
 
 func _ensure_model() -> bool:
 	if _model == null:
@@ -78,6 +86,7 @@ func _ensure_model() -> bool:
 	return _model != null
 
 func reset() -> void:
+	_finish_async_save(false)
 	if _ensure_model():
 		_model.reset()
 	_active_player_ids.clear()
@@ -128,6 +137,8 @@ func reset() -> void:
 	_replay_frames.clear()
 	_replay_map.clear()
 	_replay_last_sample_ms = -999999
+	_runtime_perf_samples.clear()
+	_runtime_perf_last_sample_ms = -999999
 
 func is_active() -> bool:
 	return _started and not _finalized
@@ -486,6 +497,17 @@ func sample_state(now_ms: int, dt_s: float, state: GameState) -> void:
 	_sample_board_control(sample_dt_s, state, early_dt_s)
 	_sample_overcommit(sample_dt_s, state)
 
+func sample_runtime_perf(t_ms: int, snapshot: Dictionary) -> void:
+	if not is_active():
+		return
+	if snapshot == null or snapshot.is_empty():
+		return
+	var sample_now_ms: int = maxi(0, t_ms)
+	if not _runtime_perf_samples.is_empty() and sample_now_ms - _runtime_perf_last_sample_ms < RUNTIME_PERF_SAMPLE_INTERVAL_MS:
+		return
+	_runtime_perf_last_sample_ms = sample_now_ms
+	_runtime_perf_samples.append(_compact_runtime_perf_sample(sample_now_ms, snapshot))
+
 func finalize_match(winner_player_id: int, end_utc_ms: int) -> Variant:
 	if not _started:
 		return _model
@@ -503,6 +525,7 @@ func finalize_match(winner_player_id: int, end_utc_ms: int) -> Variant:
 	_model.totals = _build_totals()
 	_model.replay = _build_replay_payload(duration_ms)
 	_model.video_replay = _build_video_replay_payload(duration_ms)
+	_model.runtime_perf = _build_runtime_perf_payload()
 	return _model
 
 func _sample_replay_frame(t_ms: int, state: GameState) -> void:
@@ -581,6 +604,134 @@ func _build_video_replay_payload(duration_ms: int) -> Dictionary:
 			"format": "mp4"
 		}
 	}
+
+func _build_runtime_perf_payload() -> Dictionary:
+	return {
+		"schema_version": 1,
+		"sample_ms": RUNTIME_PERF_SAMPLE_INTERVAL_MS,
+		"samples": _runtime_perf_samples.duplicate(true),
+		"summary": _build_runtime_perf_summary()
+	}
+
+func _build_runtime_perf_summary() -> Dictionary:
+	if _runtime_perf_samples.is_empty():
+		return {}
+	var last_sample: Dictionary = _runtime_perf_samples[_runtime_perf_samples.size() - 1]
+	return {
+		"samples": _runtime_perf_samples.size(),
+		"avg_local_fps": _avg_sample_key("fps"),
+		"min_local_fps": _min_sample_key("fps"),
+		"avg_ping_rtt_ms": _avg_sample_key("rtt"),
+		"max_ping_rtt_ms": _max_sample_key("rtt"),
+		"avg_sim_ms": _avg_sample_key("sim_ms"),
+		"max_sim_ms": _max_sample_key("sim_ms"),
+		"worst_sim_phase": _max_phase_name(),
+		"max_sim_phase_ms": _max_sample_key("phase_ms"),
+		"pool_hits": int(last_sample.get("pool_hits", 0)),
+		"pool_misses": int(last_sample.get("pool_misses", 0)),
+		"pool_expansions": int(last_sample.get("pool_expansions", 0)),
+		"runtime_instantiates_avoided": int(last_sample.get("pool_avoided", 0)),
+		"peak_pooled_objects": int(_max_sample_key("pool_peak")),
+		"match_prewarm_duration_ms": _max_sample_key("prewarm_ms"),
+		"post_match_save_duration_ms": _max_sample_key("save_ms"),
+		"avg_server_frametime_ms": _avg_sample_key("srv_ms"),
+		"max_server_frametime_ms": _max_sample_key("srv_ms"),
+		"avg_snapshot_receive_rate_hz": _avg_sample_key("snap_hz"),
+		"packet_tx": int(last_sample.get("tx", 0)),
+		"packet_rx": int(last_sample.get("rx", 0)),
+		"packet_dropped": int(last_sample.get("drop", 0))
+	}
+
+func _compact_runtime_perf_sample(t_ms: int, snapshot: Dictionary) -> Dictionary:
+	var phase_costs_any: Variant = snapshot.get("sim_phase_costs_ms", {})
+	var phase_costs: Dictionary = phase_costs_any as Dictionary if typeof(phase_costs_any) == TYPE_DICTIONARY else {}
+	return {
+		"t": maxi(0, t_ms),
+		"fps": snappedf(float(snapshot.get("local_fps", 0.0)), 0.1),
+		"phys_hz": snappedf(float(snapshot.get("local_physics_fps", 0.0)), 0.1),
+		"fixed_hz": snappedf(float(snapshot.get("local_physics_fixed_hz", 0.0)), 0.1),
+		"sim_hz": snappedf(float(snapshot.get("local_sim_tick_rate_hz", 0.0)), 0.1),
+		"sim_fixed_hz": snappedf(float(snapshot.get("local_sim_fixed_hz", 0.0)), 0.1),
+		"srv_hz": snappedf(float(snapshot.get("server_tick_rate_hz", 0.0)), 0.1),
+		"snap_hz": snappedf(float(snapshot.get("snapshot_receive_rate_hz", 0.0)), 0.1),
+		"rtt": snappedf(float(snapshot.get("ping_rtt_ema_ms", snapshot.get("ping_rtt_ms", 0.0))), 0.1),
+		"sim_ms": snappedf(float(snapshot.get("sim_ms", 0.0)), 0.01),
+		"phase": str(snapshot.get("sim_phase_hotspot", "")),
+		"phase_ms": snappedf(float(snapshot.get("sim_phase_hotspot_ms", 0.0)), 0.01),
+		"phase_costs": _compact_phase_costs(phase_costs),
+		"pool_hits": int(snapshot.get("pool_hits", 0)),
+		"pool_misses": int(snapshot.get("pool_misses", 0)),
+		"pool_expansions": int(snapshot.get("pool_expansions", 0)),
+		"pool_avoided": int(snapshot.get("runtime_instantiates_avoided", 0)),
+		"pool_active": int(snapshot.get("active_pooled_objects", 0)),
+		"pool_peak": int(snapshot.get("peak_pooled_objects", 0)),
+		"prewarm_ms": snappedf(float(snapshot.get("match_prewarm_duration_ms", 0.0)), 0.01),
+		"save_ms": snappedf(float(snapshot.get("post_match_save_duration_ms", 0.0)), 0.01),
+		"srv_ms": snappedf(float(snapshot.get("server_frametime_ms", 0.0)), 0.1),
+		"time_scale": snappedf(float(snapshot.get("sim_time_scale", 1.0)), 0.001),
+		"accum_ms": snappedf(float(snapshot.get("accumulated_sim_delta_ms", 0.0)), 0.1),
+		"tx": int(snapshot.get("packet_tx", 0)),
+		"rx": int(snapshot.get("packet_rx", 0)),
+		"drop": int(snapshot.get("packet_dropped", 0)),
+		"waiting": bool(snapshot.get("waiting_for_remote", false)),
+		"wait_reason": str(snapshot.get("waiting_for_remote_reason", ""))
+	}
+
+func _compact_phase_costs(source: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for key_any in source.keys():
+		var key: String = str(key_any).strip_edges()
+		if key.is_empty():
+			continue
+		out[key] = snappedf(float(source.get(key_any, 0.0)), 0.01)
+	return out
+
+func _avg_sample_key(key: String) -> float:
+	if _runtime_perf_samples.is_empty():
+		return 0.0
+	var sum: float = 0.0
+	var count: int = 0
+	for sample in _runtime_perf_samples:
+		if not sample.has(key):
+			continue
+		sum += float(sample.get(key, 0.0))
+		count += 1
+	return snappedf(sum / float(maxi(1, count)), 0.1)
+
+func _min_sample_key(key: String) -> float:
+	var found: bool = false
+	var value: float = 0.0
+	for sample in _runtime_perf_samples:
+		if not sample.has(key):
+			continue
+		var next_value: float = float(sample.get(key, 0.0))
+		if not found or next_value < value:
+			value = next_value
+			found = true
+	return snappedf(value, 0.1) if found else 0.0
+
+func _max_sample_key(key: String) -> float:
+	var found: bool = false
+	var value: float = 0.0
+	for sample in _runtime_perf_samples:
+		if not sample.has(key):
+			continue
+		var next_value: float = float(sample.get(key, 0.0))
+		if not found or next_value > value:
+			value = next_value
+			found = true
+	return snappedf(value, 0.1) if found else 0.0
+
+func _max_phase_name() -> String:
+	var max_value: float = 0.0
+	var phase_name: String = ""
+	for sample in _runtime_perf_samples:
+		var phase_ms: float = float(sample.get("phase_ms", 0.0))
+		if phase_ms <= max_value:
+			continue
+		max_value = phase_ms
+		phase_name = str(sample.get("phase", ""))
+	return phase_name
 
 func _dictionary_from_metadata(metadata: Dictionary, key: String) -> Dictionary:
 	var value: Variant = metadata.get(key, {})
@@ -729,6 +880,98 @@ func save_to_user(model_override: Variant = null) -> Dictionary:
 		return {"ok": false, "error": "open_failed", "path": save_path}
 	file.store_string(JSON.stringify(payload, "\t"))
 	return {"ok": true, "path": save_path}
+
+func save_to_user_async(model_override: Variant = null) -> Dictionary:
+	_finish_async_save(false)
+	if _save_inflight:
+		return {"ok": false, "pending": true, "error": "save_inflight"}
+	var model: Variant = _model if model_override == null else model_override
+	if model == null or not (model is Object) or not (model as Object).has_method("to_dict"):
+		return {"ok": false, "error": "invalid_model"}
+	var payload: Dictionary = (model as Object).call("to_dict") as Dictionary
+	var match_id: String = _sanitize_match_id(str((payload.get("metadata", {}) as Dictionary).get("match_id", "")))
+	if match_id.is_empty():
+		match_id = "match_%d" % int(Time.get_unix_time_from_system())
+	var save_path: String = "%s/%s.json" % [SAVE_DIR_PATH, match_id]
+	_save_generation += 1
+	_async_save_result.clear()
+	_async_save_completed = false
+	_save_inflight = true
+	_save_thread = Thread.new()
+	var generation: int = _save_generation
+	var err: Error = _save_thread.start(Callable(self, "_save_payload_thread").bind(payload, save_path, generation))
+	if err != OK:
+		_save_thread = null
+		_save_inflight = false
+		return {"ok": false, "error": "thread_start_failed", "code": err, "path": save_path}
+	return {"ok": true, "pending": true, "path": save_path}
+
+func poll_async_save() -> Dictionary:
+	_finish_async_save(false)
+	if not _async_save_completed:
+		return {}
+	_async_save_completed = false
+	return _async_save_result.duplicate(true)
+
+func wait_for_async_save() -> Dictionary:
+	_finish_async_save(true)
+	return _async_save_result.duplicate(true)
+
+func _finish_async_save(force_wait: bool) -> void:
+	if _save_thread == null:
+		_save_inflight = false
+		return
+	if _save_thread.is_alive():
+		if not force_wait:
+			return
+	var completed: Variant = _save_thread.wait_to_finish()
+	_save_thread = null
+	_save_inflight = false
+	if typeof(completed) != TYPE_DICTIONARY:
+		_async_save_result = {"ok": false, "error": "invalid_thread_result"}
+		_async_save_completed = true
+		return
+	var payload: Dictionary = completed as Dictionary
+	if int(payload.get("generation", -1)) != _save_generation:
+		return
+	var result_any: Variant = payload.get("result", {})
+	_async_save_result = result_any as Dictionary if typeof(result_any) == TYPE_DICTIONARY else {"ok": false, "error": "invalid_save_result"}
+	_async_save_completed = true
+
+func _save_payload_thread(payload: Dictionary, save_path: String, generation: int) -> Dictionary:
+	var save_t0_us: int = Time.get_ticks_usec()
+	var mk_err: int = DirAccess.make_dir_recursive_absolute(SAVE_DIR_PATH)
+	if mk_err != OK and mk_err != ERR_ALREADY_EXISTS:
+		return {
+			"generation": generation,
+			"result": {
+				"ok": false,
+				"error": "mkdir_failed",
+				"code": mk_err,
+				"path": save_path,
+				"duration_ms": snappedf(float(Time.get_ticks_usec() - save_t0_us) / 1000.0, 0.01)
+			}
+		}
+	var file: FileAccess = FileAccess.open(save_path, FileAccess.WRITE)
+	if file == null:
+		return {
+			"generation": generation,
+			"result": {
+				"ok": false,
+				"error": "open_failed",
+				"path": save_path,
+				"duration_ms": snappedf(float(Time.get_ticks_usec() - save_t0_us) / 1000.0, 0.01)
+			}
+		}
+	file.store_string(JSON.stringify(payload, "\t"))
+	return {
+		"generation": generation,
+		"result": {
+			"ok": true,
+			"path": save_path,
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - save_t0_us) / 1000.0, 0.01)
+		}
+	}
 
 func load_from_user(match_id: String) -> Variant:
 	var clean_id: String = _sanitize_match_id(match_id)

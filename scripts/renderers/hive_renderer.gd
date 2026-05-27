@@ -34,6 +34,9 @@ var _color_log_hive_ids: Dictionary = {}
 var _color_log_key := ""
 var _selected_hive_id: int = -1
 var _selected_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+var _drag_target_hive_id: int = -1
+var _drag_target_valid: bool = false
+var _drag_target_reason: String = ""
 var _sprite_registry: SpriteRegistry = null
 
 func setup(state_ref: Object, sel_ref: Object, arena_ref: Node2D) -> void:
@@ -110,6 +113,35 @@ func clear_selected_hive() -> void:
 		if n != null and n.has_method("set_selected"):
 			n.call("set_selected", false, Color.WHITE)
 	_selected_hive_id = -1
+
+func set_drag_target_hive(hive_id: int, valid: bool, reason: String = "") -> void:
+	if hive_id == _drag_target_hive_id and valid == _drag_target_valid and reason == _drag_target_reason:
+		return
+	_clear_drag_target_node()
+	_drag_target_hive_id = hive_id
+	_drag_target_valid = valid
+	_drag_target_reason = reason
+	_apply_drag_target_node()
+
+func clear_drag_target_hive() -> void:
+	_clear_drag_target_node()
+	_drag_target_hive_id = -1
+	_drag_target_valid = false
+	_drag_target_reason = ""
+
+func _clear_drag_target_node() -> void:
+	if _drag_target_hive_id <= 0:
+		return
+	var old := get_hive_node_by_id(_drag_target_hive_id)
+	if old != null and old.has_method("set_target_hint"):
+		old.call("set_target_hint", false, false)
+
+func _apply_drag_target_node() -> void:
+	if _drag_target_hive_id <= 0:
+		return
+	var node := get_hive_node_by_id(_drag_target_hive_id)
+	if node != null and node.has_method("set_target_hint"):
+		node.call("set_target_hint", true, _drag_target_valid)
 
 func _connect_selection_signal() -> void:
 	if arena == null:
@@ -465,6 +497,8 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 			)
 		if node.has_method("set_selected"):
 			node.call("set_selected", id == _selected_hive_id, _selected_color)
+		if node.has_method("set_target_hint"):
+			node.call("set_target_hint", id == _drag_target_hive_id, _drag_target_valid)
 		if spawned:
 			SFLog.trace("HIVE_SPAWN", {
 				"hive_id": id,
@@ -488,6 +522,9 @@ func _clear_hive_nodes() -> void:
 		if node != null:
 			node.queue_free()
 	hive_nodes_by_id.clear()
+	_drag_target_hive_id = -1
+	_drag_target_valid = false
+	_drag_target_reason = ""
 
 func _resolve_hive_id(raw: Variant) -> int:
 	if raw is int:

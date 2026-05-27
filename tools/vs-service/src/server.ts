@@ -410,7 +410,14 @@ export function bestQuickMatchCandidateForTest(playerValue: JsonRecord, context:
 }
 
 function ok(res: Response, body: JsonRecord = {}): void {
-  res.json({ ok: true, ...body });
+  const startedMs = typeof res.locals.startedMs === "number" ? res.locals.startedMs : Date.now();
+  res.json({
+    ok: true,
+    server_unix_ms: Date.now(),
+    server_frametime_ms: Math.max(0, Date.now() - startedMs),
+    server_tick_rate_hz: 0,
+    ...body
+  });
 }
 
 function fail(res: Response, err: string, status = 400, extra: JsonRecord = {}): void {
@@ -889,6 +896,7 @@ export function createApp(): express.Express {
   app.use(express.json({ limit: "256kb" }));
   app.use((req: Request, res: Response, next: NextFunction) => {
     const started = Date.now();
+    res.locals.startedMs = started;
     res.on("finish", () => {
       console.log(JSON.stringify({
         ts: new Date().toISOString(),

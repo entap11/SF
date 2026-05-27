@@ -64,9 +64,16 @@ var _bind_structures_scheduled: bool = false
 var _last_tick_us: int = 0
 var _hb_last_ms: int = 0
 var _hb_max_tick_ms: float = 0.0
+var _hb_phase_hotspot: String = ""
+var _hb_phase_hotspot_ms: float = 0.0
 var _hb_ticks: int = 0
+var _telemetry_sim_tick_rate_hz: float = 0.0
 var _last_win_tick_warn_ms: int = 0
 var _last_win_tick_sig: String = ""
+var _current_tick_phase_costs: Dictionary = {}
+var _last_tick_phase_costs: Dictionary = {}
+var _last_tick_hotspot_phase: String = ""
+var _last_tick_hotspot_ms: float = 0.0
 
 func _ready() -> void:
 	set_process(true)
@@ -170,6 +177,7 @@ func _set_running(value: bool, reason: String) -> void:
 	_hb_last_ms = 0
 	_hb_max_tick_ms = 0.0
 	_hb_ticks = 0
+	_telemetry_sim_tick_rate_hz = 0.0
 	_last_win_tick_warn_ms = 0
 	_last_win_tick_sig = ""
 	_log_run_state_change(reason, prev_running, running)
@@ -437,6 +445,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _tick(dt: float) -> void:
 	if state_ref == null:
 		return
+	_current_tick_phase_costs.clear()
 	var tick_t0_us: int = Time.get_ticks_usec()
 	_log_sim_tick()
 	var now_ms: int = Time.get_ticks_msec()
@@ -533,6 +542,7 @@ func _log_sim_tick() -> void:
 
 func _finalize_tick_profile(tick_t0_us: int) -> void:
 	var tick_ms: float = float(Time.get_ticks_usec() - tick_t0_us) / 1000.0
+	_finalize_phase_profile()
 	if debug_sim_tick_log and tick_ms >= 5.0:
 		SFLog.warn("SIM_TICK_COST", {"dt_ms": snapped(tick_ms, 0.1)})
 	var now_ms: int = Time.get_ticks_msec()
@@ -541,21 +551,64 @@ func _finalize_tick_profile(tick_t0_us: int) -> void:
 	_hb_ticks += 1
 	if tick_ms > _hb_max_tick_ms:
 		_hb_max_tick_ms = tick_ms
+	if _last_tick_hotspot_ms > _hb_phase_hotspot_ms:
+		_hb_phase_hotspot_ms = _last_tick_hotspot_ms
+		_hb_phase_hotspot = _last_tick_hotspot_phase
+	var max_tick_ms: float = _hb_max_tick_ms
 	if now_ms - _hb_last_ms >= 1000:
+		var window_ms: int = maxi(1, now_ms - _hb_last_ms)
+		_telemetry_sim_tick_rate_hz = (float(_hb_ticks) * 1000.0) / float(window_ms)
 		SFLog.info("SIM_HEARTBEAT", {
 			"ticks": _hb_ticks,
-			"max_tick_ms": snapped(_hb_max_tick_ms, 0.1)
+			"max_tick_ms": snapped(_hb_max_tick_ms, 0.1),
+			"hotspot_phase": _hb_phase_hotspot,
+			"hotspot_ms": snapped(_hb_phase_hotspot_ms, 0.1)
 		})
 		_hb_last_ms = now_ms
 		_hb_max_tick_ms = 0.0
+		_hb_phase_hotspot = ""
+		_hb_phase_hotspot_ms = 0.0
 		_hb_ticks = 0
+	_update_runtime_telemetry(tick_ms, max_tick_ms)
+
+func _update_runtime_telemetry(tick_ms: float, max_tick_ms: float) -> void:
+	if OpsState == null or not OpsState.has_method("update_runtime_telemetry"):
+		return
+	var fixed_hz: float = 0.0
+	if TICK_DT > 0.0:
+		fixed_hz = 1.0 / TICK_DT
+	OpsState.call("update_runtime_telemetry", {
+		"local_sim_fixed_hz": snappedf(fixed_hz, 0.01),
+		"local_sim_tick_rate_hz": snappedf(_telemetry_sim_tick_rate_hz, 0.1),
+		"sim_ms": snappedf(tick_ms, 0.01),
+		"sim_ms_max": snappedf(max_tick_ms, 0.1),
+		"sim_phase_hotspot": _last_tick_hotspot_phase,
+		"sim_phase_hotspot_ms": snappedf(_last_tick_hotspot_ms, 0.01),
+		"sim_phase_costs_ms": _last_tick_phase_costs.duplicate(true),
+		"sim_time_scale": snappedf(float(Engine.time_scale), 0.001),
+		"accumulated_sim_delta_ms": snappedf(_tick_accum * 1000.0, 0.1),
+		"sim_running": running
+	})
 
 func _timed_phase(label: String, f: Callable) -> void:
 	var t0: int = Time.get_ticks_usec()
 	f.call()
 	var dt_ms: float = float(Time.get_ticks_usec() - t0) / 1000.0
+	_current_tick_phase_costs[label] = snappedf(dt_ms, 0.01)
 	if debug_sim_tick_log and dt_ms >= 3.0:
 		SFLog.warn("SIM_TICK_PHASE", {"phase": label, "dt_ms": snapped(dt_ms, 0.1)})
+
+func _finalize_phase_profile() -> void:
+	_last_tick_phase_costs = _current_tick_phase_costs.duplicate(true)
+	_last_tick_hotspot_phase = ""
+	_last_tick_hotspot_ms = 0.0
+	for phase_any in _last_tick_phase_costs.keys():
+		var phase: String = str(phase_any)
+		var phase_ms: float = float(_last_tick_phase_costs.get(phase, 0.0))
+		if phase_ms <= _last_tick_hotspot_ms:
+			continue
+		_last_tick_hotspot_ms = phase_ms
+		_last_tick_hotspot_phase = phase
 
 func _tick_units_only(dt: float) -> void:
 	if unit_system != null:

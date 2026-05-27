@@ -163,6 +163,12 @@ var _diag_visual_phase_by_id: Dictionary = {}
 var _unit_pool: Array[Node2D] = []
 var _unit_in_use: Dictionary = {}
 var _pooled_nodes: Dictionary = {}
+var _pool_hits: int = 0
+var _pool_misses: int = 0
+var _pool_expansions: int = 0
+var _runtime_instantiates_avoided: int = 0
+var _pool_peak_active: int = 0
+var _pool_prewarm_duration_ms: float = 0.0
 var _audit_last_ms: int = 0
 var _audit_draw_ops: int = 0
 var _audit_mat_sets: int = 0
@@ -414,6 +420,7 @@ func _clear_bee_clip_state(unit_id: int) -> void:
 
 func _pool_acquire() -> Node2D:
 	if not USE_UNIT_POOL:
+		_pool_misses += 1
 		var direct_node: Node2D = _create_unit_render_node()
 		add_child(direct_node)
 		if not _assert_not_freed(direct_node):
@@ -421,12 +428,18 @@ func _pool_acquire() -> Node2D:
 		return direct_node
 	_pool_build()
 	if _unit_pool.is_empty():
+		_pool_misses += 1
+		_pool_expansions += 1
 		var node_extra: Node2D = _create_unit_render_node()
 		node_extra.name = "UnitPool_Extra"
 		add_child(node_extra)
 		if not _assert_not_freed(node_extra):
 			return null
 		_pool_release(node_extra)
+	if _unit_pool.is_empty():
+		return null
+	_pool_hits += 1
+	_runtime_instantiates_avoided += 1
 	var node: Node2D = _unit_pool.pop_back()
 	if not _assert_not_freed(node):
 		return null
@@ -439,6 +452,7 @@ func _pool_acquire() -> Node2D:
 	if not _assert_not_freed(node):
 		return null
 	node.process_mode = Node.PROCESS_MODE_INHERIT
+	_pool_peak_active = maxi(_pool_peak_active, _unit_in_use.size() + 1)
 	return node
 
 func _pool_release(node: Node2D) -> void:
@@ -495,7 +509,7 @@ func _pool_release(node: Node2D) -> void:
 	_reset_unit_hive_occlusion_depth(node)
 	if not _assert_not_freed(node):
 		return
-	node.position = Vector2.ZERO
+	node.position = UNIT_POOL_OFFSCREEN_POS
 	if not _assert_not_freed(node):
 		return
 	node.rotation = 0.0
@@ -518,6 +532,7 @@ func _pool_release(node: Node2D) -> void:
 func prewarm_pool() -> void:
 	if use_multimesh_units:
 		return
+	var prewarm_t0_us: int = Time.get_ticks_usec()
 	_pool_build()
 	if not USE_UNIT_POOL:
 		return
@@ -541,7 +556,25 @@ func prewarm_pool() -> void:
 						tex = res as Texture2D
 			sprite.texture = tex
 		sprite.visible = true
+	_pool_prewarm_duration_ms = float(Time.get_ticks_usec() - prewarm_t0_us) / 1000.0
 	call_deferred("_release_prewarm_unit_next_frame", node)
+
+func get_pool_telemetry_snapshot() -> Dictionary:
+	var active_count: int = _unit_in_use.size()
+	var available_count: int = _unit_pool.size()
+	var total_count: int = active_count + available_count
+	_pool_peak_active = maxi(_pool_peak_active, active_count)
+	return {
+		"pool_hits": _pool_hits,
+		"pool_misses": _pool_misses,
+		"pool_expansions": _pool_expansions,
+		"runtime_instantiates_avoided": _runtime_instantiates_avoided,
+		"active_pooled_objects": active_count,
+		"available_pooled_objects": available_count,
+		"total_pooled_objects": total_count,
+		"peak_pooled_objects": _pool_peak_active,
+		"match_prewarm_duration_ms": snappedf(_pool_prewarm_duration_ms, 0.01)
+	}
 
 func _release_prewarm_unit_next_frame(node: Node2D) -> void:
 	await get_tree().process_frame

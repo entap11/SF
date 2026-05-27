@@ -10,11 +10,13 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const InputEventUtils := preload("res://scripts/systems/input_helpers/input_event_utils.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 
-const DOUBLE_TAP_MS := 250
-const DOUBLE_TAP_DIST_PX := 12.0
-const CLICK_DBL_MS := 250
-const CLICK_DBL_DIST_PX := 14.0
-const LANE_PICK_RADIUS := 22.0
+const DOUBLE_TAP_MS := 360
+const DOUBLE_TAP_DIST_PX := 22.0
+const TOUCH_DOUBLE_TAP_MS := 460
+const TOUCH_DOUBLE_TAP_DIST_PX := 34.0
+const CLICK_DBL_MS := 300
+const CLICK_DBL_DIST_PX := 22.0
+const LANE_PICK_RADIUS := 30.0
 const BARRACKS_PICK_RADIUS_PX := 48.0
 const TOWER_PICK_RADIUS_PX := 40.0
 const STRUCTURE_PICK_BIAS := 0.95
@@ -47,6 +49,7 @@ var _press_prev_selected_lane_id: int = -1
 var _press_hive_id: int = -1
 var _press_lane_id: int = -1
 var _press_player_id: int = -1
+var _press_is_touch: bool = false
 var _hover_hive_id: int = -1
 var _selected_hive_id: int = -1 # P1 selection mirror
 var _selected_by_player: Dictionary = {1: -1, 2: -1}
@@ -106,12 +109,14 @@ func _clear_interaction_state() -> void:
 	_press_hive_id = -1
 	_press_lane_id = -1
 	_press_player_id = -1
+	_press_is_touch = false
 	_press_prev_selected_id = -1
 	_press_prev_selected_lane_id = -1
 	_dragging = false
 	_drag_src_id = -1
 	if _long_press_timer != null:
 		_long_press_timer = null
+	_clear_drag_target_visual(_last_arena_api)
 	if selection != null:
 		reset_drag()
 
@@ -210,7 +215,7 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	SFLog.log_once("input_path_pointer", "INPUT_PATH: handle_pointer_event", SFLog.Level.INFO)
 	match event_type:
 		"press":
-			_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index)
+			_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index, is_touch)
 		"motion":
 			_handle_drag(local_pos, hive_id, lane_id, arena_api)
 		"release":
@@ -264,11 +269,13 @@ func _record_lane_tap(lane_id: int, local_pos: Vector2) -> void:
 	_last_lane_tap_pos = local_pos
 	_last_lane_tap_id = lane_id
 
-func _is_lane_double_tap(lane_id: int, local_pos: Vector2) -> bool:
+func _is_lane_double_tap(lane_id: int, local_pos: Vector2, is_touch: bool = false) -> bool:
 	if lane_id <= 0 or lane_id != _last_lane_tap_id:
 		return false
 	var now_ms: int = Time.get_ticks_msec()
-	return (now_ms - _last_lane_tap_time_ms) <= DOUBLE_TAP_MS and _last_lane_tap_pos.distance_to(local_pos) <= DOUBLE_TAP_DIST_PX
+	var max_ms: int = TOUCH_DOUBLE_TAP_MS if is_touch else DOUBLE_TAP_MS
+	var max_dist: float = TOUCH_DOUBLE_TAP_DIST_PX if is_touch else DOUBLE_TAP_DIST_PX
+	return (now_ms - _last_lane_tap_time_ms) <= max_ms and _last_lane_tap_pos.distance_to(local_pos) <= max_dist
 
 func clear_selection() -> void:
 	if selection == null:
@@ -420,6 +427,32 @@ func _validate_target(src_id: int, dst_id: int, arena_api: ArenaAPI) -> Dictiona
 			"has_lane": false,
 			"lane_id": -1
 		}
+	if state != null:
+		var lane_index: int = state.lane_index_between(src_id, dst_id)
+		if lane_index == -1 or not state.is_outgoing_lane_active(src_id, dst_id):
+			var src_hive: HiveData = state.find_hive_by_id(src_id)
+			if src_hive == null:
+				return {
+					"ok": false,
+					"reason": "missing_hive",
+					"src_owner": src_owner,
+					"dst_owner": dst_owner,
+					"has_lane": false,
+					"lane_id": -1
+				}
+			var budget: int = int(state.lanes_allowed_for_power(int(src_hive.power)))
+			var active: int = int(state.count_active_outgoing(src_id))
+			if active >= budget:
+				return {
+					"ok": false,
+					"reason": "budget",
+					"src_owner": src_owner,
+					"dst_owner": dst_owner,
+					"has_lane": lane_index != -1,
+					"lane_id": -1,
+					"active": active,
+					"budget": budget
+				}
 	return {
 		"ok": true,
 		"reason": "",
@@ -611,6 +644,20 @@ func _queue_lane_preview_redraw(arena_api: ArenaAPI) -> void:
 	if lane_renderer is CanvasItem:
 		(lane_renderer as CanvasItem).queue_redraw()
 
+func _set_drag_target_visual(arena_api: ArenaAPI, hive_id: int, valid: bool, reason: String = "") -> void:
+	var hr := _get_hive_renderer(arena_api)
+	if hr == null:
+		return
+	if hive_id > 0 and hr.has_method("set_drag_target_hive"):
+		hr.call("set_drag_target_hive", hive_id, valid, reason)
+	elif hr.has_method("clear_drag_target_hive"):
+		hr.call("clear_drag_target_hive")
+
+func _clear_drag_target_visual(arena_api: ArenaAPI) -> void:
+	var hr := _get_hive_renderer(arena_api)
+	if hr != null and hr.has_method("clear_drag_target_hive"):
+		hr.call("clear_drag_target_hive")
+
 func _lane_pick_radius(arena_api: ArenaAPI) -> float:
 	var radius := LANE_PICK_RADIUS
 	if arena_api == null:
@@ -678,7 +725,7 @@ func _should_route_hive_click_to_lane(prev_selected_id: int, clicked_id: int, la
 		return false
 	if prev_selected_id > 0:
 		return false
-	if _is_lane_double_tap(lane_id, local_pos):
+	if _is_lane_double_tap(lane_id, local_pos, _press_is_touch):
 		return true
 	var hive: HiveData = arena_api.find_hive_by_id(clicked_id)
 	if hive == null:
@@ -1308,7 +1355,7 @@ func _is_dev_mouse_override() -> bool:
 func _dev_mouse_pid_from_button(button_index: int) -> int:
 	return InputEventUtils.dev_mouse_pid_from_button(button_index)
 
-func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, button_index: int) -> void:
+func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, button_index: int, is_touch: bool = false) -> void:
 	if _handling_click:
 		if SFLog.LOGGING_ENABLED:
 			print("HIVE: re-entrant click blocked")
@@ -1334,6 +1381,8 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 	_press_hive_id = hive_id
 	_press_lane_id = lane_id
 	_press_player_id = actor_id
+	_press_is_touch = is_touch
+	_clear_drag_target_visual(arena_api)
 	var arena: Node = arena_api._arena if arena_api != null else null
 	if arena != null:
 		arena._handle_tap(hive_id, -1)
@@ -1387,6 +1436,7 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		selection.drag_current_pos = local_pos
 		selection.drag_hover_hive_id = -1
 		selection.drag_hover_valid = false
+		selection.drag_hover_reason = ""
 		selection.last_vibe_target_id = -1
 		selection.drag_dev_pid = actor_id
 		if actor_id == 1 and friendly:
@@ -1400,6 +1450,7 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		selection.drag_start_owner_id = -1
 		selection.drag_hover_hive_id = -1
 		selection.drag_hover_valid = false
+		selection.drag_hover_reason = ""
 		selection.last_vibe_target_id = -1
 		selection.drag_dev_pid = actor_id
 	_handling_click = false
@@ -1436,6 +1487,7 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		if end_id > 0 and end_id != start_id:
 			_apply_hive_to_hive_action(start_id, end_id, player_id, player_id, arena_api)
 		_clear_selected_for_player(arena_api, player_id)
+		_clear_drag_target_visual(arena_api)
 		_reset_lane_tap_state()
 		reset_drag()
 		_queue_lane_preview_redraw(arena_api)
@@ -1453,6 +1505,7 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 			_handle_click_hive(_press_prev_selected_id, _press_hive_id, player_id, player_id, arena_api, local_pos)
 	else:
 		_handle_click_ground(release_lane_id, local_pos, arena_api, player_id)
+	_clear_drag_target_visual(arena_api)
 	reset_drag()
 	_queue_lane_preview_redraw(arena_api)
 	arena_api.mark_render_dirty("input_release")
@@ -1479,6 +1532,8 @@ func _handle_drag(local_pos: Vector2, _hive_id: int, _lane_id: int, arena_api: A
 		var validation: Dictionary = _validate_target(selection.drag_start_hive_id, hover_id, arena_api)
 		var hover_valid: bool = bool(validation.get("ok", false))
 		selection.drag_hover_valid = hover_valid
+		selection.drag_hover_reason = str(validation.get("reason", ""))
+		_set_drag_target_visual(arena_api, hover_id, hover_valid, selection.drag_hover_reason)
 		if hover_valid and arena_api.lane_exists_between(selection.drag_start_hive_id, hover_id):
 			if hover_id != selection.last_vibe_target_id:
 				Input.vibrate_handheld(30)
@@ -1488,6 +1543,8 @@ func _handle_drag(local_pos: Vector2, _hive_id: int, _lane_id: int, arena_api: A
 		return
 	selection.drag_hover_hive_id = -1
 	selection.drag_hover_valid = false
+	selection.drag_hover_reason = ""
+	_clear_drag_target_visual(arena_api)
 	selection.last_vibe_target_id = -1
 
 func _handle_tap(hive_id: int, dev_pid: int, arena_api: ArenaAPI) -> void:
@@ -1565,7 +1622,7 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 	if lane_id != -1:
 		var lane: LaneData = arena_api.find_lane_by_id(lane_id)
 		if lane != null:
-			if _is_lane_double_tap(lane.id, local_pos):
+			if _is_lane_double_tap(lane.id, local_pos, _press_is_touch):
 				_reset_lane_tap_state()
 				if _handle_lane_double_tap(local_pos, player_id, player_id, arena_api):
 					_clear_selected_for_player(arena_api, player_id)
@@ -1721,28 +1778,13 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_a
 		return false
 	var src_id: int = -1
 	var dst_id: int = -1
-	var src_is_a: bool = false
 	if lane.send_a and int(a.owner_id) == player_id:
 		src_id = int(a.id)
 		dst_id = int(b.id)
-		src_is_a = true
 	elif lane.send_b and int(b.owner_id) == player_id:
 		src_id = int(b.id)
 		dst_id = int(a.id)
-		src_is_a = false
 	if src_id <= 0 or dst_id <= 0:
-		return false
-	var a_pos: Vector2 = arena_api.cell_center(a.grid_pos)
-	var b_pos: Vector2 = arena_api.cell_center(b.grid_pos)
-	var src_pos: Vector2 = a_pos if src_is_a else b_pos
-	var dst_pos: Vector2 = b_pos if src_is_a else a_pos
-	var tap_is_src_half: bool = world_pos.distance_to(src_pos) <= world_pos.distance_to(dst_pos)
-	if tap_is_src_half:
-		if arena_api.intent_is_on(src_id, dst_id):
-			SFLog.info("LANE_DBL_RETRACT", {"lane_id": lane_id, "src": src_id, "dst": dst_id})
-			SFLog.info("LANE_RETRACT_INTENT", {"lane_id": lane_id, "src": src_id, "dst": dst_id, "player_id": player_id})
-			arena_api.retract_lane(src_id, dst_id, player_id)
-			return true
 		return false
 	if arena_api.intent_is_on(src_id, dst_id):
 		SFLog.info("LANE_DBL_SWARM", {"lane_id": lane_id, "src": src_id, "dst": dst_id})

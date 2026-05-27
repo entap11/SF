@@ -17,6 +17,8 @@ const SELECTOR_STATE_INACTIVE := 0
 const SELECTOR_STATE_HOVER := 1
 const SELECTOR_STATE_SELECTED := 2
 const SELECTOR_STATE_ACTIVATED := 3
+const SELECTOR_STATE_TARGET_VALID := 4
+const SELECTOR_STATE_TARGET_INVALID := 5
 # Edge trims define contact along the lane axis; this Y bias sets the visible
 # lane "height" on the hive plate.
 const LANE_ANCHOR_Y_PX: float = -24.0
@@ -34,8 +36,11 @@ var radius_px: float = 18.0
 var _selected := false
 var _hovered := false
 var _activated := false
+var _target_hint_active := false
+var _target_hint_valid := false
 var _sel_t := 0.0
 var _sel_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+var _selected_color: Color = Color(1.0, 1.0, 1.0, 1.0)
 const SEL_SEG := 48
 const SEL_W := 5.0
 const SEL_PAD := 6.0
@@ -56,7 +61,18 @@ const SELECTOR_ACTIVATED_PULSE_SPEED := 3.0
 const SELECTOR_ACTIVATED_PULSE_STRENGTH := 0.35
 const SELECTOR_ACTIVATED_GLOW_BOOST := 1.4
 const SELECTOR_ACTIVATED_SCALE := 1.04
+const SELECTOR_TARGET_VALID_PULSE_SPEED := 4.2
+const SELECTOR_TARGET_VALID_PULSE_STRENGTH := 0.45
+const SELECTOR_TARGET_VALID_GLOW_BOOST := 1.9
+const SELECTOR_TARGET_VALID_SCALE := 1.12
+const SELECTOR_TARGET_INVALID_PULSE_SPEED := 2.4
+const SELECTOR_TARGET_INVALID_PULSE_STRENGTH := 0.18
+const SELECTOR_TARGET_INVALID_GLOW_BOOST := 0.65
+const SELECTOR_TARGET_INVALID_SCALE := 1.04
 const SELECTOR_BASE_ALPHA := 0.85
+const SELECTOR_TARGET_VALID_ALPHA := 1.0
+const SELECTOR_TARGET_INVALID_ALPHA := 0.78
+const TARGET_INVALID_GREY := Color(0.62, 0.66, 0.70, 1.0)
 const SELECTOR_TIER_2_MIN_POWER := 10
 const SELECTOR_TIER_3_MIN_POWER := 25
 const SELECTOR_TIER_4_MIN_POWER := 50
@@ -282,13 +298,23 @@ func set_capture_flag_marker(visible: bool, flag_owner_id: int = 0, hidden: bool
 
 func set_selected(on: bool, color: Color) -> void:
 	_selected = on
-	_sel_color = color
-	if visual != null and visual.has_method("set_selected_visual"):
-		visual.call("set_selected_visual", on, color)
+	_selected_color = color
 	if not _selected:
 		_sel_t = 0.0
 	_refresh_selector_state()
 	_update_selector_visual()
+	_apply_visual_highlight()
+	_update_fallback_process()
+	queue_redraw()
+
+func set_target_hint(active: bool, valid: bool) -> void:
+	if _target_hint_active == active and _target_hint_valid == valid:
+		return
+	_target_hint_active = active
+	_target_hint_valid = valid
+	_refresh_selector_state()
+	_update_selector_visual()
+	_apply_visual_highlight()
 	_update_fallback_process()
 	queue_redraw()
 
@@ -298,6 +324,7 @@ func set_activated(on: bool) -> void:
 	_activated = on
 	_refresh_selector_state()
 	_update_selector_visual()
+	_apply_visual_highlight()
 	_update_fallback_process()
 
 func set_swarm_cooldown(remaining_ms: int, total_ms: int = 5000) -> void:
@@ -316,7 +343,7 @@ func set_swarm_cooldown(remaining_ms: int, total_ms: int = 5000) -> void:
 
 func _process(delta: float) -> void:
 	var cooldown_active: bool = _swarm_cooldown_active()
-	if not (_selected or _hovered or _activated or (_flag_badge != null and _flag_badge.visible) or cooldown_active):
+	if not (_selected or _hovered or _activated or _target_hint_active or (_flag_badge != null and _flag_badge.visible) or cooldown_active):
 		return
 	_sel_t += delta * 3.0
 	if visual != null:
@@ -347,8 +374,8 @@ func _draw() -> void:
 		r = ((cs as CollisionShape2D).shape as CircleShape2D).radius
 	r += SEL_PAD
 	var pulse := 0.6 + 0.4 * (0.5 + 0.5 * sin(_sel_t))
-	var c := _sel_color
-	c.a = pulse
+	var c := _selector_color_for_state(_selector_state)
+	c.a *= pulse
 	var pts := PackedVector2Array()
 	var offset := _selector_offset_for_power(power)
 	for i in range(SEL_SEG + 1):
@@ -511,7 +538,11 @@ func _selector_texture_for_power(power_value: int) -> Texture2D:
 	return _selector_tex_small
 
 func _refresh_selector_state() -> void:
-	if _activated:
+	if _target_hint_active and _target_hint_valid:
+		_selector_state = SELECTOR_STATE_TARGET_VALID
+	elif _target_hint_active:
+		_selector_state = SELECTOR_STATE_TARGET_INVALID
+	elif _activated:
 		_selector_state = SELECTOR_STATE_ACTIVATED
 	elif _selected:
 		_selector_state = SELECTOR_STATE_SELECTED
@@ -527,6 +558,7 @@ func _update_selector_visual() -> void:
 	_selector_sprite.texture = tex
 	_selector_sprite.visible = _selector_state != SELECTOR_STATE_INACTIVE and tex != null
 	_selector_sprite.position = _selector_offset_for_power(power)
+	_selector_sprite.modulate = _selector_color_for_state(_selector_state)
 	if tex == null:
 		return
 	var tex_w := float(tex.get_width())
@@ -553,6 +585,10 @@ func _selector_offset_for_power(power_value: int) -> Vector2:
 
 func _selector_scale_for_state(state: int) -> float:
 	match state:
+		SELECTOR_STATE_TARGET_VALID:
+			return SELECTOR_TARGET_VALID_SCALE
+		SELECTOR_STATE_TARGET_INVALID:
+			return SELECTOR_TARGET_INVALID_SCALE
 		SELECTOR_STATE_ACTIVATED:
 			return SELECTOR_ACTIVATED_SCALE
 		SELECTOR_STATE_SELECTED:
@@ -562,6 +598,17 @@ func _selector_scale_for_state(state: int) -> float:
 		_:
 			return 1.0
 
+func _selector_color_for_state(state: int) -> Color:
+	match state:
+		SELECTOR_STATE_TARGET_VALID:
+			return Color(1.0, 1.0, 1.0, SELECTOR_TARGET_VALID_ALPHA)
+		SELECTOR_STATE_TARGET_INVALID:
+			return Color(TARGET_INVALID_GREY.r, TARGET_INVALID_GREY.g, TARGET_INVALID_GREY.b, SELECTOR_TARGET_INVALID_ALPHA)
+		SELECTOR_STATE_SELECTED, SELECTOR_STATE_ACTIVATED:
+			return _selected_color
+		_:
+			return _sel_color
+
 func _apply_selector_shader_state(state: int) -> void:
 	if _selector_mat == null:
 		return
@@ -569,6 +616,14 @@ func _apply_selector_shader_state(state: int) -> void:
 	var strength := SELECTOR_HOVER_PULSE_STRENGTH
 	var boost := SELECTOR_HOVER_GLOW_BOOST
 	match state:
+		SELECTOR_STATE_TARGET_VALID:
+			speed = SELECTOR_TARGET_VALID_PULSE_SPEED
+			strength = SELECTOR_TARGET_VALID_PULSE_STRENGTH
+			boost = SELECTOR_TARGET_VALID_GLOW_BOOST
+		SELECTOR_STATE_TARGET_INVALID:
+			speed = SELECTOR_TARGET_INVALID_PULSE_SPEED
+			strength = SELECTOR_TARGET_INVALID_PULSE_STRENGTH
+			boost = SELECTOR_TARGET_INVALID_GLOW_BOOST
 		SELECTOR_STATE_ACTIVATED:
 			speed = SELECTOR_ACTIVATED_PULSE_SPEED
 			strength = SELECTOR_ACTIVATED_PULSE_STRENGTH
@@ -590,6 +645,15 @@ func _apply_selector_shader_state(state: int) -> void:
 	_selector_mat.set_shader_parameter("glow_boost", boost)
 	_selector_mat.set_shader_parameter("base_alpha", SELECTOR_BASE_ALPHA)
 
+func _apply_visual_highlight() -> void:
+	if visual == null or not visual.has_method("set_selected_visual"):
+		return
+	if _target_hint_active:
+		var target_color := Color.WHITE if _target_hint_valid else TARGET_INVALID_GREY
+		visual.call("set_selected_visual", true, target_color)
+		return
+	visual.call("set_selected_visual", _selected or _activated, _selected_color)
+
 func _swarm_cooldown_remaining_ms() -> int:
 	if _swarm_cooldown_until_msec <= 0:
 		return 0
@@ -600,7 +664,7 @@ func _swarm_cooldown_active() -> bool:
 
 func _update_fallback_process() -> void:
 	var needs_fallback := _selector_sprite == null or _selector_sprite.texture == null
-	set_process((needs_fallback and (_selected or _hovered or _activated)) or (_flag_badge != null and _flag_badge.visible) or _swarm_cooldown_active())
+	set_process((needs_fallback and (_selected or _hovered or _activated or _target_hint_active)) or (_flag_badge != null and _flag_badge.visible) or _swarm_cooldown_active())
 
 func _on_mouse_entered() -> void:
 	_hovered = true

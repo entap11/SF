@@ -2,6 +2,7 @@ extends Control
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
+const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
 const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
@@ -15,8 +16,8 @@ const SYNC_JOIN_COUNTDOWN_SEC := 30
 const ASYNC_WINDOW_COUNTDOWN_SEC := 30 * 60
 const ASYNC_SLOT_FILL_EVERY_SEC := 15
 const SMS_TIMEOUT_SEC := 120
-const QUICK_SEARCH_TIMEOUT_SEC := 20
-const STANDARD_BOT_FILL_PROMPT_SEC := 20
+const QUICK_SEARCH_TIMEOUT_SEC := 30
+const STANDARD_BOT_FILL_PROMPT_SEC := 30
 const SHELL_SCENE_PATH := "res://scenes/Shell.tscn"
 const TREE_META_VS_CPU_STYLE := "vs_cpu_style"
 const TREE_META_VS_CPU_TIER := "vs_cpu_tier"
@@ -31,6 +32,7 @@ const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako"
 const POPUP_BASE_SIZE: Vector2 = Vector2(980.0, 760.0)
 const POPUP_MARGIN: float = 32.0
 const READABLE_FONT_SCALE: int = 3
+const BOT_FILL_DIALOG_SIZE: Vector2i = Vector2i(720, 420)
 const DEFAULT_STAGE_MAP_IDS: Array[String] = []
 const CTF_STAGE_MAP_IDS: Array[String] = [
 	"MAP_nomansland__545__v01_top2_sides__1p",
@@ -646,6 +648,7 @@ func _on_countdown_tick() -> void:
 		if _countdown_mode == "quick_search":
 			if _countdown_left <= 0:
 				_become_open_host_after_search_timeout()
+				_maybe_show_standard_bot_fill_prompt()
 				return
 			_maybe_show_standard_bot_fill_prompt()
 			_update_countdown_label()
@@ -768,7 +771,8 @@ func _show_standard_bot_fill_dialog() -> void:
 	if dialog == null:
 		return
 	dialog.dialog_text = "No human opponent found yet.\n\nDo you want to fill any open seat with a standard bot?"
-	dialog.popup_centered()
+	_style_standard_bot_fill_dialog(dialog)
+	dialog.popup_centered(BOT_FILL_DIALOG_SIZE)
 
 func _ensure_standard_bot_fill_dialog() -> ConfirmationDialog:
 	if _bot_fill_dialog != null and is_instance_valid(_bot_fill_dialog):
@@ -780,9 +784,29 @@ func _ensure_standard_bot_fill_dialog() -> ConfirmationDialog:
 	add_child(dialog)
 	dialog.get_ok_button().text = "Use Bot"
 	dialog.get_cancel_button().text = "Keep Waiting"
+	_style_standard_bot_fill_dialog(dialog)
 	dialog.confirmed.connect(_on_standard_bot_fill_confirmed)
 	_bot_fill_dialog = dialog
 	return _bot_fill_dialog
+
+func _style_standard_bot_fill_dialog(dialog: ConfirmationDialog) -> void:
+	if dialog == null:
+		return
+	dialog.min_size = BOT_FILL_DIALOG_SIZE
+	_apply_font(dialog.get_ok_button(), _font_semibold, _readable_size(15))
+	_apply_font(dialog.get_cancel_button(), _font_regular, _readable_size(15))
+	for child in dialog.get_children():
+		_apply_dialog_font_recursive(child)
+
+func _apply_dialog_font_recursive(node: Node) -> void:
+	if node is Label:
+		var label: Label = node as Label
+		_apply_font(label, _font_regular, _readable_size(15))
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	elif node is Button:
+		_apply_font(node as Button, _font_regular, _readable_size(15))
+	for child in node.get_children():
+		_apply_dialog_font_recursive(child)
 
 func _on_standard_bot_fill_confirmed() -> void:
 	if not _can_offer_standard_bot_fill():
@@ -1515,6 +1539,8 @@ func _resolve_stage_map_paths() -> Array[String]:
 		var map_path: String = _resolve_map_path(map_id)
 		if map_path.is_empty():
 			continue
+		if not _map_path_supports_mode(map_path, _mode):
+			continue
 		if not resolved.has(map_path):
 			resolved.append(map_path)
 		if resolved.size() >= _map_count:
@@ -1545,6 +1571,8 @@ func _resolve_stage_map_paths() -> Array[String]:
 		if map_path.is_empty():
 			continue
 		if resolved.has(map_path):
+			continue
+		if not _map_path_supports_mode(map_path, _mode):
 			continue
 		resolved.append(map_path)
 		if resolved.size() >= _map_count:
@@ -1611,9 +1639,17 @@ func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
 		if not bool(loaded.get("ok", false)):
 			continue
 		var data: Dictionary = loaded.get("data", {}) as Dictionary
-		if _map_data_matches_buckets(data, required_buckets):
+		var summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode)
+		if bool(summary.get("ok", false)) and _map_data_matches_buckets(data, required_buckets):
 			out.append(path)
 	return out
+
+func _map_path_supports_mode(path: String, mode: String) -> bool:
+	var loaded: Dictionary = MAP_LOADER.load_map(path)
+	if not bool(loaded.get("ok", false)):
+		return false
+	var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
+	return bool(summary.get("ok", false))
 
 func _map_buckets_for_mode(mode: String) -> Array[String]:
 	match mode.strip_edges().to_upper():

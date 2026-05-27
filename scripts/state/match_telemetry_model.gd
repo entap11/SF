@@ -1,7 +1,7 @@
 class_name MatchTelemetryModel
 extends RefCounted
 
-const SCHEMA_VERSION: int = 6
+const SCHEMA_VERSION: int = 7
 const SELF_SCRIPT_PATH: String = "res://scripts/state/match_telemetry_model.gd"
 
 const MATCH_TYPE_VS: int = 0
@@ -26,6 +26,7 @@ var analysis_summary: Dictionary = {}
 var totals: Dictionary = {}
 var replay: Dictionary = {}
 var video_replay: Dictionary = {}
+var runtime_perf: Dictionary = {}
 
 func _init() -> void:
 	reset()
@@ -39,6 +40,7 @@ func reset() -> void:
 	totals = _default_totals()
 	replay = _default_replay()
 	video_replay = _default_video_replay()
+	runtime_perf = _default_runtime_perf()
 
 func to_dict() -> Dictionary:
 	return {
@@ -49,7 +51,8 @@ func to_dict() -> Dictionary:
 		"analysis_summary": analysis_summary.duplicate(true),
 		"totals": totals.duplicate(true),
 		"replay": replay.duplicate(true),
-		"video_replay": video_replay.duplicate(true)
+		"video_replay": video_replay.duplicate(true),
+		"runtime_perf": runtime_perf.duplicate(true)
 	}
 
 static func from_dict(payload: Dictionary) -> Variant:
@@ -68,6 +71,7 @@ static func from_dict(payload: Dictionary) -> Variant:
 	model.totals = _normalize_dictionary(normalized.get("totals", {}), _default_totals())
 	model.replay = _normalize_dictionary(normalized.get("replay", {}), _default_replay())
 	model.video_replay = _normalize_dictionary(normalized.get("video_replay", {}), _default_video_replay())
+	model.runtime_perf = _normalize_dictionary(normalized.get("runtime_perf", {}), _default_runtime_perf())
 	return model
 
 static func migrate_payload(payload: Dictionary) -> Dictionary:
@@ -104,6 +108,10 @@ static func migrate_payload(payload: Dictionary) -> Dictionary:
 		out["video_replay"] = _default_video_replay()
 	else:
 		out["video_replay"] = _merge_defaults(out.get("video_replay", {}), _default_video_replay())
+	if not out.has("runtime_perf") or typeof(out.get("runtime_perf", null)) != TYPE_DICTIONARY:
+		out["runtime_perf"] = _default_runtime_perf()
+	else:
+		out["runtime_perf"] = _merge_defaults(out.get("runtime_perf", {}), _default_runtime_perf())
 	return out
 
 static func _default_metadata() -> Dictionary:
@@ -244,6 +252,14 @@ static func _default_video_replay() -> Dictionary:
 			"fps": 30,
 			"format": "mp4"
 		}
+	}
+
+static func _default_runtime_perf() -> Dictionary:
+	return {
+		"schema_version": 1,
+		"sample_ms": 1000,
+		"samples": [],
+		"summary": {}
 	}
 
 static func _duplicate_event_array(source: Array[Dictionary]) -> Array:

@@ -144,6 +144,13 @@ var _mvp_waiter: ShellMvpWaiter = ShellMvpWaiter.new()
 var _mvp_map_utils: ShellMvpMapUtils = ShellMvpMapUtils.new()
 var _main_menu_preload_requested: bool = false
 var _main_menu_preloaded_scene: PackedScene = null
+var _match_scene_preload_requested: bool = false
+var _match_preloaded_scene: PackedScene = null
+var _map_prewarm_thread: Thread = null
+var _map_prewarm_inflight: bool = false
+var _map_prewarm_generation: int = 0
+var _map_prewarm_path: String = ""
+var _map_prewarm_result: Dictionary = {}
 var _shell_prematch_overlay: Control = null
 var _shell_prematch_countdown_label: Label = null
 var _shell_prematch_records_panel: Control = null
@@ -236,6 +243,7 @@ func _ready() -> void:
 	set_process(true)
 	_apply_content_scale_from_profile()
 	_request_main_menu_preload()
+	_request_match_scene_preload()
 	if SFLog.LOGGING_ENABLED:
 		if TRACE_SHELL_LOGS: print("MAIN FLAGS: start_in_menu=", start_in_menu,
 		" enable_dev_map_loader=", enable_dev_map_loader,
@@ -733,6 +741,8 @@ func _resolve_dev_map_loader_node() -> Node:
 
 func _exit_tree() -> void:
 	_shell_exit_count += 1
+	_map_prewarm_generation += 1
+	_finish_map_prewarm(true)
 	if TRACE_SHELL_LOGS: print("SHELL_LIFECYCLE exit #", _shell_exit_count, " iid=", _iid(self), " path=", _np(self))
 
 func _log_shell_buffer_boot() -> void:
@@ -1048,6 +1058,9 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		var clean_tutorial_section: String = tutorial_section.strip_edges()
 		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
 		tree.set_meta(TREE_META_TUTORIAL_SECTION, clean_tutorial_section)
+	_request_match_scene_preload()
+	_request_map_prewarm(map_path)
+	await _wait_for_launch_prewarm(map_path, 900)
 	if _arena_instance == null:
 		SFLog.info("APPLY_MAP_THEN_START_DEFERRED_NO_ARENA", {"map_path": map_path})
 		_pending_map_path = map_path
@@ -1093,7 +1106,9 @@ func _apply_map_direct_to_arena(map_path: String) -> bool:
 		SFLog.error("MAP_APPLY_DIRECT_NO_ARENA_NODE", {"map_path": map_path})
 		return false
 	var arena: Node2D = arena_node as Node2D
-	var result: Dictionary = MAP_LOADER.load_map(map_path)
+	var result: Dictionary = _map_prewarm_result_for_path(map_path)
+	if result.is_empty():
+		result = MAP_LOADER.load_map(map_path)
 	if not bool(result.get("ok", false)):
 		SFLog.warn("MAP_APPLY_DIRECT_LOAD_FAIL_WARN", {
 			"map_path": map_path,
@@ -1139,7 +1154,10 @@ func _get_hive_count() -> int:
 func _ensure_game_instance() -> void:
 	if _arena_instance != null:
 		return
-	var packed := load(game_scene_path) as PackedScene
+	_request_match_scene_preload()
+	var packed := _get_preloaded_match_scene()
+	if packed == null:
+		packed = load(game_scene_path) as PackedScene
 	if packed == null:
 		if SFLog.LOGGING_ENABLED:
 			push_error("SHELL: game_scene_path invalid: %s" % game_scene_path)
@@ -1469,6 +1487,107 @@ func _get_preloaded_main_menu_scene() -> PackedScene:
 	_main_menu_preloaded_scene = loaded as PackedScene
 	return _main_menu_preloaded_scene
 
+func _request_match_scene_preload() -> void:
+	if _match_scene_preload_requested or _match_preloaded_scene != null:
+		return
+	if OS.has_feature("server") or DisplayServer.get_name() == "headless":
+		return
+	var path: String = game_scene_path.strip_edges()
+	if path.is_empty():
+		return
+	_match_scene_preload_requested = true
+	var err: Error = ResourceLoader.load_threaded_request(path, "PackedScene")
+	if err != OK and err != ERR_BUSY:
+		_match_scene_preload_requested = false
+
+func _get_preloaded_match_scene() -> PackedScene:
+	if _match_preloaded_scene != null:
+		return _match_preloaded_scene
+	if not _match_scene_preload_requested:
+		_request_match_scene_preload()
+	if not _match_scene_preload_requested:
+		return null
+	var status: int = ResourceLoader.load_threaded_get_status(game_scene_path)
+	if status != ResourceLoader.THREAD_LOAD_LOADED:
+		return null
+	var loaded: Resource = ResourceLoader.load_threaded_get(game_scene_path)
+	_match_preloaded_scene = loaded as PackedScene
+	return _match_preloaded_scene
+
+func _request_map_prewarm(map_path: String) -> void:
+	var clean_path: String = map_path.strip_edges()
+	if clean_path.is_empty():
+		return
+	if OS.has_feature("server") or DisplayServer.get_name() == "headless":
+		return
+	_finish_map_prewarm(false)
+	if _map_prewarm_path == clean_path and bool(_map_prewarm_result.get("ok", false)):
+		return
+	if _map_prewarm_inflight:
+		return
+	MAP_LOADER.set_dev_runner_hint(get_node_or_null("/root/DevMapRunner") != null)
+	_map_prewarm_generation += 1
+	_map_prewarm_path = clean_path
+	_map_prewarm_result.clear()
+	_map_prewarm_inflight = true
+	_map_prewarm_thread = Thread.new()
+	var generation: int = _map_prewarm_generation
+	var err: Error = _map_prewarm_thread.start(Callable(self, "_map_prewarm_thread_main").bind(clean_path, generation))
+	if err != OK:
+		_map_prewarm_thread = null
+		_map_prewarm_inflight = false
+
+func _finish_map_prewarm(force_wait: bool) -> void:
+	if _map_prewarm_thread == null:
+		_map_prewarm_inflight = false
+		return
+	if _map_prewarm_thread.is_alive():
+		if not force_wait:
+			return
+	var completed: Variant = _map_prewarm_thread.wait_to_finish()
+	_map_prewarm_thread = null
+	_map_prewarm_inflight = false
+	if typeof(completed) != TYPE_DICTIONARY:
+		return
+	var payload: Dictionary = completed as Dictionary
+	if int(payload.get("generation", -1)) != _map_prewarm_generation:
+		return
+	_map_prewarm_path = str(payload.get("path", "")).strip_edges()
+	var result_any: Variant = payload.get("result", {})
+	_map_prewarm_result = result_any as Dictionary if typeof(result_any) == TYPE_DICTIONARY else {}
+	SFLog.info("MAP_PREWARM_DONE", {
+		"map_path": _map_prewarm_path,
+		"ok": bool(_map_prewarm_result.get("ok", false)),
+		"err": str(_map_prewarm_result.get("err", ""))
+	})
+
+func _map_prewarm_thread_main(map_path: String, generation: int) -> Dictionary:
+	return {
+		"generation": generation,
+		"path": map_path,
+		"result": MAP_LOADER.load_map(map_path)
+	}
+
+func _map_prewarm_result_for_path(map_path: String) -> Dictionary:
+	_finish_map_prewarm(false)
+	if _map_prewarm_path != map_path.strip_edges():
+		return {}
+	if not bool(_map_prewarm_result.get("ok", false)):
+		return {}
+	return _map_prewarm_result.duplicate(true)
+
+func _wait_for_launch_prewarm(map_path: String, timeout_ms: int) -> void:
+	var deadline_ms: int = Time.get_ticks_msec() + maxi(0, timeout_ms)
+	while Time.get_ticks_msec() <= deadline_ms:
+		_finish_map_prewarm(false)
+		var scene_ready: bool = _get_preloaded_match_scene() != null
+		var map_ready: bool = not _map_prewarm_result_for_path(map_path).is_empty()
+		if scene_ready and map_ready:
+			return
+		if not _map_prewarm_inflight and map_ready:
+			return
+		await get_tree().process_frame
+
 func _show_dev_panel(show: bool) -> void:
 	if TRACE_SHELL_LOGS: print("DEV_LOADER_SHOW_CALL ", {
 		"shell_iid": _iid(self),
@@ -1512,6 +1631,7 @@ func _apply_content_scale_from_profile() -> void:
 	window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.1)
 
 func _process(_delta: float) -> void:
+	_finish_map_prewarm(false)
 	_sync_buff_ui()
 	_sync_shell_async_prematch_overlay()
 	if _arena_instance == null:

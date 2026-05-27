@@ -31,6 +31,7 @@ const IMPACT_IONIZE_LEN_MAX := 22.0
 const USE_VFX_POOL: bool = true
 const VFX_POOL_COLLISION: int = 16
 const VFX_POOL_IMPACT: int = 32
+const LINE_POOL_PRELOAD_COUNT: int = 64
 const VFX_OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
 const DISABLE_VFX: bool = false
 const IONPOP_MAX_ACTIVE: int = 24
@@ -50,17 +51,27 @@ var _sim_events: Node = null
 var _prewarmed: bool = false
 var _pool_collision: Array[Node2D] = []
 var _pool_impact: Array[Node2D] = []
+var _line_pool: Array[Line2D] = []
+var _line_active: Dictionary = {}
+var _line_additive_material: CanvasItemMaterial = null
 var _ion_pop_pool: Node = null
 var _last_hive_ionpop_ms: Dictionary = {}
 var _gpu_vfx_enabled: bool = true
 var _auto_gpu_vfx_disable_enabled: bool = AUTO_GPU_VFX_DISABLE_ENABLED
 var _auto_gpu_vfx_disable_accum_sec: float = 0.0
 var _auto_gpu_vfx_disable_triggered: bool = false
+var _pool_hits: int = 0
+var _pool_misses: int = 0
+var _pool_expansions: int = 0
+var _runtime_instantiates_avoided: int = 0
+var _pool_peak_active: int = 0
+var _pool_prewarm_duration_ms: float = 0.0
 
 func _ready() -> void:
 	z_index = Z_INDEX_VFX
 	_sync_gpu_vfx_pref()
 	_vfx_pool_build()
+	_line_pool_build()
 	_ensure_ion_pop_pool()
 	_try_bind()
 
@@ -97,9 +108,12 @@ func prewarm() -> void:
 		return
 	if not _vfx_enabled():
 		return
+	var prewarm_t0_us: int = Time.get_ticks_usec()
 	_prewarmed = true
 	_vfx_pool_build()
+	_line_pool_build()
 	_ensure_ion_pop_pool()
+	_pool_prewarm_duration_ms = float(Time.get_ticks_usec() - prewarm_t0_us) / 1000.0
 	call_deferred("_prewarm_vfx_nodes")
 
 func _prewarm_vfx_nodes() -> void:
@@ -144,6 +158,88 @@ func _vfx_pool_build() -> void:
 			continue
 		add_child(collision_node)
 		_release_collision_node(collision_node)
+
+func _line_pool_build() -> void:
+	if not USE_VFX_POOL:
+		return
+	if not _line_pool.is_empty() or not _line_active.is_empty():
+		return
+	for i in range(LINE_POOL_PRELOAD_COUNT):
+		var line: Line2D = _create_line_node(i)
+		add_child(line)
+		_release_line_node(line)
+
+func _line_material_additive() -> CanvasItemMaterial:
+	if _line_additive_material == null:
+		_line_additive_material = CanvasItemMaterial.new()
+		_line_additive_material.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	return _line_additive_material
+
+func _create_line_node(pool_index: int) -> Line2D:
+	var line: Line2D = Line2D.new()
+	line.name = "LinePool_%d" % pool_index
+	line.visible = false
+	line.position = VFX_OFFSCREEN_POS
+	line.z_index = Z_INDEX_VFX
+	line.process_mode = Node.PROCESS_MODE_DISABLED
+	line.points = PackedVector2Array()
+	return line
+
+func _acquire_line_node(label: String = "LinePool_Extra") -> Line2D:
+	if not USE_VFX_POOL:
+		_pool_misses += 1
+		var direct_line: Line2D = _create_line_node(-1)
+		direct_line.name = label
+		add_child(direct_line)
+		direct_line.visible = true
+		direct_line.process_mode = Node.PROCESS_MODE_INHERIT
+		return direct_line
+	_line_pool_build()
+	if _line_pool.is_empty():
+		_pool_misses += 1
+		_pool_expansions += 1
+		var extra_line: Line2D = _create_line_node(-1)
+		extra_line.name = label
+		add_child(extra_line)
+		_release_line_node(extra_line)
+	if _line_pool.is_empty():
+		return null
+	_pool_hits += 1
+	_runtime_instantiates_avoided += 1
+	var line: Line2D = _line_pool.pop_back()
+	_line_active[line] = true
+	_pool_peak_active = maxi(_pool_peak_active, _active_vfx_count())
+	line.visible = true
+	line.process_mode = Node.PROCESS_MODE_INHERIT
+	line.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	return line
+
+func _release_line_node(line: Line2D) -> void:
+	if line == null:
+		return
+	_line_active.erase(line)
+	line.visible = false
+	line.position = VFX_OFFSCREEN_POS
+	line.rotation = 0.0
+	line.scale = Vector2.ONE
+	line.width = 0.0
+	line.default_color = Color(1.0, 1.0, 1.0, 1.0)
+	line.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	line.points = PackedVector2Array()
+	line.material = null
+	line.begin_cap_mode = Line2D.LINE_CAP_NONE
+	line.end_cap_mode = Line2D.LINE_CAP_NONE
+	line.process_mode = Node.PROCESS_MODE_DISABLED
+	if USE_VFX_POOL:
+		if not _line_pool.has(line):
+			_line_pool.append(line)
+	else:
+		line.queue_free()
+
+func _active_vfx_count() -> int:
+	var impact_active: int = maxi(0, VFX_POOL_IMPACT - _pool_impact.size())
+	var collision_active: int = maxi(0, VFX_POOL_COLLISION - _pool_collision.size())
+	return _line_active.size() + impact_active + collision_active
 
 func _create_impact_node(pool_index: int) -> Node2D:
 	if IMPACT_FLASH_SCENE == null:
@@ -194,6 +290,7 @@ func _acquire_impact_node() -> Node2D:
 	if not _vfx_enabled():
 		return null
 	if not USE_VFX_POOL:
+		_pool_misses += 1
 		var direct_node: Node2D = _create_impact_node(-1)
 		if direct_node != null:
 			add_child(direct_node)
@@ -202,13 +299,18 @@ func _acquire_impact_node() -> Node2D:
 		return direct_node
 	_vfx_pool_build()
 	if _pool_impact.is_empty():
+		_pool_misses += 1
+		_pool_expansions += 1
 		var extra_node: Node2D = _create_impact_node(-1)
 		if extra_node != null:
 			add_child(extra_node)
 			_release_impact_node(extra_node)
 	if _pool_impact.is_empty():
 		return null
+	_pool_hits += 1
+	_runtime_instantiates_avoided += 1
 	var node: Node2D = _pool_impact.pop_back()
+	_pool_peak_active = maxi(_pool_peak_active, _active_vfx_count())
 	node.visible = true
 	node.process_mode = Node.PROCESS_MODE_INHERIT
 	return node
@@ -217,6 +319,7 @@ func _acquire_collision_node() -> Node2D:
 	if not _vfx_enabled():
 		return null
 	if not USE_VFX_POOL:
+		_pool_misses += 1
 		var direct_node: Node2D = _create_collision_node(-1)
 		if direct_node != null:
 			add_child(direct_node)
@@ -225,13 +328,18 @@ func _acquire_collision_node() -> Node2D:
 		return direct_node
 	_vfx_pool_build()
 	if _pool_collision.is_empty():
+		_pool_misses += 1
+		_pool_expansions += 1
 		var extra_node: Node2D = _create_collision_node(-1)
 		if extra_node != null:
 			add_child(extra_node)
 			_release_collision_node(extra_node)
 	if _pool_collision.is_empty():
 		return null
+	_pool_hits += 1
+	_runtime_instantiates_avoided += 1
 	var node: Node2D = _pool_collision.pop_back()
+	_pool_peak_active = maxi(_pool_peak_active, _active_vfx_count())
 	node.visible = true
 	node.process_mode = Node.PROCESS_MODE_INHERIT
 	return node
@@ -303,6 +411,23 @@ func set_gpu_vfx_enabled(enabled: bool) -> void:
 		for node in _pool_impact:
 			_prepare_vfx_node(node)
 	_last_hive_ionpop_ms.clear()
+
+func get_pool_telemetry_snapshot() -> Dictionary:
+	var active_count: int = _active_vfx_count()
+	var available_count: int = _pool_impact.size() + _pool_collision.size() + _line_pool.size()
+	var total_count: int = active_count + available_count
+	_pool_peak_active = maxi(_pool_peak_active, active_count)
+	return {
+		"pool_hits": _pool_hits,
+		"pool_misses": _pool_misses,
+		"pool_expansions": _pool_expansions,
+		"runtime_instantiates_avoided": _runtime_instantiates_avoided,
+		"active_pooled_objects": active_count,
+		"available_pooled_objects": available_count,
+		"total_pooled_objects": total_count,
+		"peak_pooled_objects": _pool_peak_active,
+		"match_prewarm_duration_ms": snappedf(_pool_prewarm_duration_ms, 0.01)
+	}
 
 func _ensure_ion_pop_pool() -> void:
 	if _ion_pop_pool != null and is_instance_valid(_ion_pop_pool):
@@ -467,28 +592,30 @@ func _owner_color(owner_id: int) -> Color:
 	return TeamVisuals.owner_color(owner_id)
 
 func _spawn_tracer(from_pos: Vector2, to_pos: Vector2, owner_id: int) -> void:
-	var line := Line2D.new()
+	var line: Line2D = _acquire_line_node("TracerLine")
+	if line == null:
+		return
 	line.width = TRACER_WIDTH
 	line.default_color = _owner_color(owner_id)
 	line.points = PackedVector2Array([from_pos, to_pos])
 	line.z_index = Z_INDEX_VFX
-	add_child(line)
-	var tween := create_tween()
+	var tween: Tween = create_tween()
 	tween.tween_property(line, "modulate:a", 0.0, TRACER_LIFE)
 	tween.parallel().tween_property(line, "width", 0.0, TRACER_LIFE)
-	tween.tween_callback(Callable(line, "queue_free"))
+	tween.tween_callback(Callable(self, "_release_line_node").bind(line))
 
 func _spawn_ionize_line(from_pos: Vector2, to_pos: Vector2, owner_color: Color, intensity: float) -> void:
-	var line := Line2D.new()
+	var line: Line2D = _acquire_line_node("IonizeLine")
+	if line == null:
+		return
 	line.width = lerpf(1.6, 3.0, clampf(intensity / 2.2, 0.0, 1.0))
 	line.default_color = owner_color.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.45)
 	line.points = PackedVector2Array([from_pos, to_pos])
 	line.z_index = Z_INDEX_VFX + 1
-	add_child(line)
-	var tween := create_tween()
+	var tween: Tween = create_tween()
 	tween.tween_property(line, "modulate:a", 0.0, IMPACT_IONIZE_LINE_LIFE)
 	tween.parallel().tween_property(line, "width", 0.0, IMPACT_IONIZE_LINE_LIFE)
-	tween.tween_callback(Callable(line, "queue_free"))
+	tween.tween_callback(Callable(self, "_release_line_node").bind(line))
 
 func _spawn_collision_ionpop(world_pos: Vector2, lane_dir: Vector2) -> void:
 	if _ion_pop_pool == null or not _ion_pop_pool.has_method("spawn_ionpop"):
@@ -522,23 +649,22 @@ func _spawn_collision_spark(world_pos: Vector2, lane_dir: Vector2, owner_a: int,
 	_spawn_spark_line(from_pos, to_pos, core_color, COLLISION_SPARK_CORE_WIDTH_PX, COLLISION_SPARK_LIFE * 0.85)
 
 func _spawn_spark_line(from_pos: Vector2, to_pos: Vector2, color: Color, width_px: float, life_s: float) -> void:
-	var line := Line2D.new()
+	var line: Line2D = _acquire_line_node("SparkLine")
+	if line == null:
+		return
 	line.width = width_px
 	line.default_color = color
 	line.points = PackedVector2Array([from_pos, to_pos])
 	line.z_index = Z_INDEX_VFX + 2
 	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
 	line.end_cap_mode = Line2D.LINE_CAP_ROUND
-	var mat := CanvasItemMaterial.new()
-	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	line.material = mat
-	add_child(line)
-	var tween := create_tween()
+	line.material = _line_material_additive()
+	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_QUAD)
 	tween.set_ease(Tween.EASE_OUT)
 	tween.tween_property(line, "modulate:a", 0.0, maxf(0.02, life_s))
 	tween.parallel().tween_property(line, "width", 0.0, maxf(0.02, life_s))
-	tween.tween_callback(Callable(line, "queue_free"))
+	tween.tween_callback(Callable(self, "_release_line_node").bind(line))
 
 func _spawn_hive_ionpop(hive_id: int, from_pos: Vector2, hive_pos: Vector2) -> void:
 	if _ion_pop_pool == null or not _ion_pop_pool.has_method("spawn_ionpop"):
@@ -584,17 +710,18 @@ func _spike_len_for_tier(tier: int) -> float:
 func _spawn_ring(pos: Vector2, radius: float, color: Color, life: float) -> void:
 	if not ENABLE_RING_OVERLAYS:
 		return
-	var line := Line2D.new()
+	var line: Line2D = _acquire_line_node("RingLine")
+	if line == null:
+		return
 	line.width = 2.0
 	line.default_color = color
 	line.points = _ring_points(radius)
 	line.position = pos
 	line.z_index = Z_INDEX_VFX
-	add_child(line)
-	var tween := create_tween()
+	var tween: Tween = create_tween()
 	tween.tween_property(line, "modulate:a", 0.0, life)
 	tween.parallel().tween_property(line, "scale", Vector2.ONE * 1.4, life)
-	tween.tween_callback(Callable(line, "queue_free"))
+	tween.tween_callback(Callable(self, "_release_line_node").bind(line))
 
 func _spawn_collision_vfx(
 	world_pos: Vector2,

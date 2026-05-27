@@ -688,6 +688,7 @@ func respond_friend_invite(invite_id: String, profile: Dictionary, accept: bool)
 	return {"ok": true, "accepted": true, "session_id": session_id, "session": _dup_session(session)}
 
 func publish_intent(session_id: String, uid: String, command: Dictionary) -> Dictionary:
+	var start_ms: int = Time.get_ticks_msec()
 	var transport := _call_transport("publish_intent", {
 		"session_id": session_id,
 		"uid": uid,
@@ -723,9 +724,10 @@ func publish_intent(session_id: String, uid: String, command: Dictionary) -> Dic
 		events.remove_at(0)
 	stream["events"] = events
 	_intent_streams[sid] = stream
-	return {"ok": true, "seq": seq}
+	return _with_server_perf_meta({"ok": true, "seq": seq}, start_ms)
 
 func poll_intents(session_id: String, uid: String, after_seq: int = 0) -> Dictionary:
+	var start_ms: int = Time.get_ticks_msec()
 	var transport := _call_transport("poll_intents", {
 		"session_id": session_id,
 		"uid": uid,
@@ -745,10 +747,10 @@ func poll_intents(session_id: String, uid: String, after_seq: int = 0) -> Dictio
 		return {"ok": false, "err": "player_not_in_session"}
 	var stream: Dictionary = _intent_streams.get(sid, {}) as Dictionary
 	if stream.is_empty():
-		return {"ok": true, "events": [], "latest_seq": maxi(0, after_seq)}
+		return _with_server_perf_meta({"ok": true, "events": [], "latest_seq": maxi(0, after_seq)}, start_ms)
 	var events_any: Variant = stream.get("events", [])
 	if typeof(events_any) != TYPE_ARRAY:
-		return {"ok": true, "events": [], "latest_seq": maxi(0, after_seq)}
+		return _with_server_perf_meta({"ok": true, "events": [], "latest_seq": maxi(0, after_seq)}, start_ms)
 	var events: Array = events_any as Array
 	var out: Array = []
 	var latest_seq: int = maxi(0, after_seq)
@@ -762,7 +764,14 @@ func poll_intents(session_id: String, uid: String, after_seq: int = 0) -> Dictio
 		if seq <= after_seq:
 			continue
 		out.append(e.duplicate(true))
-	return {"ok": true, "events": out, "latest_seq": latest_seq}
+	return _with_server_perf_meta({"ok": true, "events": out, "latest_seq": latest_seq}, start_ms)
+
+func _with_server_perf_meta(result: Dictionary, start_ms: int) -> Dictionary:
+	var out: Dictionary = result.duplicate(true)
+	out["server_unix_ms"] = int(round(Time.get_unix_time_from_system() * 1000.0))
+	out["server_frametime_ms"] = maxi(0, Time.get_ticks_msec() - start_ms)
+	out["server_tick_rate_hz"] = 0.0
+	return out
 
 func _session_has_player_uid(session: Dictionary, uid: String) -> bool:
 	if session.is_empty():
