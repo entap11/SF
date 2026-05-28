@@ -13,8 +13,8 @@ const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
 const LANE_OCCLUSION_PAD_PX := HiveGeometry.DEFAULT_LANE_OCCLUSION_PAD_PX
 const LANE_OCCLUSION_STABLE_HIVE_POWER := HiveGeometry.TIER_3_MIN_POWER
 const HIVE_RADIUS_RATIO_BY_KIND := {
-	"hive": 0.42,
-	"npc": 0.42,
+	"hive": 0.504,
+	"npc": 0.504,
 	"tower": 0.22,
 	"barracks": 0.24
 }
@@ -371,6 +371,7 @@ static func _adapt_v1_xy_to_internal(human: Dictionary) -> Dictionary:
 			"season_tags": human.get("season_tags", []),
 			"rotation": human.get("rotation", {}),
 			"async_bot_count": int(human.get("async_bot_count", 0)),
+			"start_slots": human.get("start_slots", human.get("player_start_slots", [])),
 			"grid_w": grid_w,
 			"grid_h": grid_h,
 			"hives": hives,
@@ -750,6 +751,7 @@ static func build_internal_map(human: Dictionary) -> Dictionary:
 		"season_tags": source.get("season_tags", []),
 		"rotation": source.get("rotation", {}),
 		"async_bot_count": int(source.get("async_bot_count", 0)),
+		"start_slots": _convert_start_slots(source.get("start_slots", []), id_map),
 		"grid_w": grid_w,
 		"grid_h": grid_h,
 		"hives": hives,
@@ -813,6 +815,20 @@ static func _convert_lanes(lanes_raw: Variant, id_map: Dictionary) -> Array:
 			continue
 		lanes.append({"a_id": a_id, "b_id": b_id})
 	return lanes
+
+static func _convert_start_slots(slots_raw: Variant, id_map: Dictionary) -> Array:
+	var slots: Array = []
+	if typeof(slots_raw) != TYPE_ARRAY:
+		return slots
+	for slot_any in slots_raw as Array:
+		var raw_id: Variant = slot_any
+		if typeof(slot_any) == TYPE_DICTIONARY:
+			var slot: Dictionary = slot_any as Dictionary
+			raw_id = slot.get("hive_id", slot.get("id", slot.get("node_id", null)))
+		var hive_id := _resolve_hive_ref(raw_id, id_map)
+		if hive_id > 0 and not slots.has(hive_id):
+			slots.append(hive_id)
+	return slots
 
 static func _convert_structures(structures_raw: Variant, id_map: Dictionary) -> Array:
 	var structures: Array = []

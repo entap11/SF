@@ -32,6 +32,7 @@ const ArenaStageRuntimeFlow := preload("res://scripts/arena_helpers/stage_runtim
 const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
 const ArenaInputBridgeUtils := preload("res://scripts/arena_helpers/input_bridge_utils.gd")
 const ArenaFloorInfluenceSystem := preload("res://scripts/fx/arena_floor_influence_system.gd")
+const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const FORCE_DISABLE_FLOOR_INFLUENCE: bool = true
 
 const GRID_W := 18
@@ -60,7 +61,7 @@ const MAX_OUT_LANES := 2
 const DOT_RADIUS := 3.0
 const HIVE_DIAMETER_PX := HiveGeometry.BASE_DIAMETER_PX
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
-const HIVE_PICK_PADDING_PX := 12.0
+const HIVE_PICK_PADDING_PX := 14.4
 const HIVE_HIT_RADIUS_PX := HIVE_RADIUS_PX + HIVE_PICK_PADDING_PX
 const LANE_HIT_DIST_PX := 24.0
 const LANE_PICK_DIST_PX := 12.0
@@ -468,6 +469,7 @@ var _runtime_telemetry_last_update_ms: int = 0
 var _vs_pvp_runtime: Node = null
 var floor_influence_system: ArenaFloorInfluenceSystem = null
 var _jukebox_back_button: Button = null
+var _pvp_debug_overlay: Control = null
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
@@ -567,6 +569,7 @@ func _ready() -> void:
 	# before the simulation is allowed to run.
 	_ensure_timer_hud()
 	call_deferred("_ensure_runtime_telemetry_overlay")
+	call_deferred("_ensure_pvp_debug_overlay")
 	_configure_grid_spec(grid_w, grid_h)
 	_map_bounds_size = Vector2.ZERO
 	var arena_scale: Vector2 = global_transform.get_scale()
@@ -1503,7 +1506,9 @@ func _pump_vs_pvp_runtime(delta: float) -> void:
 		_vs_pvp_runtime.call("tick", delta)
 	if not _vs_pvp_runtime.has_method("consume_remote_commands"):
 		return
-	var commands_any: Variant = _vs_pvp_runtime.call("consume_remote_commands")
+	var st: GameState = OpsState.get_state() if OpsState != null else null
+	var target_tick: int = int(st.tick) + 1 if st != null else -1
+	var commands_any: Variant = _vs_pvp_runtime.call("consume_remote_commands", target_tick)
 	if typeof(commands_any) != TYPE_ARRAY:
 		return
 	_apply_remote_pvp_commands(commands_any as Array)
@@ -1517,6 +1522,9 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 	var remote_seat: int = 2
 	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("get_remote_seat"):
 		remote_seat = clampi(int(_vs_pvp_runtime.call("get_remote_seat")), 1, 4)
+	var local_seat: int = 1
+	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("get_local_seat"):
+		local_seat = clampi(int(_vs_pvp_runtime.call("get_local_seat")), 1, 4)
 	for cmd_any in commands:
 		if typeof(cmd_any) != TYPE_DICTIONARY:
 			continue
@@ -1536,12 +1544,15 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 					continue
 				var src_owner: int = int(src_hive.owner_id)
 				var sent_owner: int = int(cmd.get("src_owner", src_owner))
-				if src_owner != remote_seat or sent_owner != src_owner:
+				var sender_seat: int = int(cmd.get("sender_seat", sent_owner))
+				if not (sender_seat == local_seat or sender_seat == remote_seat):
+					continue
+				if src_owner != sender_seat or sent_owner != src_owner:
 					continue
 				OpsState.with_remote_replication_apply(func() -> void:
 					OpsState.apply_lane_intent(src, dst, intent)
 				)
-				mark_render_dirty("remote_lane_intent")
+				mark_render_dirty("vs_scheduled_lane_intent")
 			"lane_retract":
 				var from_id: int = int(cmd.get("from_id", -1))
 				var to_id: int = int(cmd.get("to_id", -1))
@@ -1554,12 +1565,15 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 				var actual_owner: int = int(from_hive.owner_id)
 				if owner_id <= 0:
 					owner_id = actual_owner
-				if owner_id != remote_seat or actual_owner != remote_seat:
+				var sender_seat: int = int(cmd.get("sender_seat", owner_id))
+				if not (sender_seat == local_seat or sender_seat == remote_seat):
+					continue
+				if owner_id != sender_seat or actual_owner != sender_seat:
 					continue
 				OpsState.with_remote_replication_apply(func() -> void:
 					OpsState.retract_lane(from_id, to_id, owner_id)
 				)
-				mark_render_dirty("remote_lane_retract")
+				mark_render_dirty("vs_scheduled_lane_retract")
 			"barracks_route":
 				var barracks_id: int = int(cmd.get("barracks_id", -1))
 				var route_any: Variant = cmd.get("route_hive_ids", [])
@@ -1569,12 +1583,15 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 					continue
 				if owner_for_route <= 0:
 					owner_for_route = remote_seat
-				if owner_for_route != remote_seat:
+				var sender_seat: int = int(cmd.get("sender_seat", owner_for_route))
+				if not (sender_seat == local_seat or sender_seat == remote_seat):
+					continue
+				if owner_for_route != sender_seat:
 					continue
 				OpsState.with_remote_replication_apply(func() -> void:
 					OpsState.request_barracks_route(barracks_id, route, owner_for_route)
 				)
-				mark_render_dirty("remote_barracks_route")
+				mark_render_dirty("vs_scheduled_barracks_route")
 			_:
 				continue
 
@@ -3646,6 +3663,14 @@ func _on_sim_ticked() -> void:
 	if _telemetry_active and _match_telemetry_collector != null and _match_telemetry_collector.has_method("sample_runtime_perf"):
 		var runtime_snapshot: Dictionary = OpsState.call("get_runtime_telemetry_snapshot") if OpsState != null and OpsState.has_method("get_runtime_telemetry_snapshot") else {}
 		_match_telemetry_collector.call("sample_runtime_perf", int(_authoritative_sim_time_us() / 1000), runtime_snapshot)
+	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("record_local_state_hash") and OpsState != null and state != null:
+		var state_hash: String = ""
+		if OpsState.has_method("get_pvp_debug_state_hash"):
+			state_hash = str(OpsState.call("get_pvp_debug_state_hash"))
+		elif OpsState.has_method("get_contract_state_hash"):
+			state_hash = str(OpsState.call("get_contract_state_hash"))
+		if not state_hash.is_empty():
+			_vs_pvp_runtime.call("record_local_state_hash", int(state.tick), state_hash)
 	mark_render_dirty("sim_tick")
 	# SimRunner already ticks at fixed cadence; pushing every sim tick avoids
 	# time-gate jitter (99ms/101ms skip pattern) that reads as sawtooth motion.
@@ -4959,6 +4984,55 @@ func _position_runtime_telemetry_overlay() -> void:
 	var top_px: float = _ui_top_inset_px()
 	_runtime_telemetry_overlay.position = Vector2(12.0, top_px + 12.0)
 
+func _ensure_pvp_debug_overlay() -> void:
+	if _pvp_debug_overlay != null and is_instance_valid(_pvp_debug_overlay):
+		return
+	var parent: Node = _resolve_pvp_debug_overlay_parent()
+	if parent == null:
+		return
+	var existing: Control = parent.get_node_or_null("PvpDebugOverlay") as Control
+	if existing != null:
+		_pvp_debug_overlay = existing
+		return
+	var overlay_any: Variant = PvpDebugOverlayScript.new()
+	if not (overlay_any is Control):
+		return
+	var overlay: Control = overlay_any as Control
+	overlay.name = "PvpDebugOverlay"
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.offset_left = 0.0
+	overlay.offset_top = 0.0
+	overlay.offset_right = 0.0
+	overlay.offset_bottom = 0.0
+	overlay.z_as_relative = false
+	overlay.z_index = 5000
+	parent.add_child(overlay)
+	_pvp_debug_overlay = overlay
+
+func _resolve_pvp_debug_overlay_parent() -> Node:
+	var hud_root: Control = _resolve_hud_root()
+	if hud_root != null:
+		return hud_root
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	var current_scene: Node = tree.current_scene
+	if current_scene != null:
+		var scene_hud: CanvasLayer = current_scene.get_node_or_null("HUDCanvasLayer") as CanvasLayer
+		if scene_hud != null:
+			return scene_hud
+		var scene_ui: CanvasLayer = current_scene.get_node_or_null("UI") as CanvasLayer
+		if scene_ui != null:
+			return scene_ui
+	var root: Window = tree.root
+	if root == null:
+		return null
+	var root_hud: CanvasLayer = root.get_node_or_null("HUDCanvasLayer") as CanvasLayer
+	if root_hud != null:
+		return root_hud
+	return null
+
 func _update_runtime_telemetry_overlay(force: bool = false) -> void:
 	if not _runtime_telemetry_overlay_enabled():
 		return
@@ -4979,6 +5053,9 @@ func _runtime_telemetry_text(snapshot: Dictionary) -> String:
 	var wait_reason: String = str(snapshot.get("waiting_for_remote_reason", ""))
 	if wait_reason.is_empty():
 		wait_reason = "none"
+	var contract_reason: String = str(snapshot.get("contract_last_violation_reason", ""))
+	if contract_reason.is_empty():
+		contract_reason = "none"
 	return "\n".join([
 		"RUNTIME TELEMETRY",
 		"FPS %.1f | frame %.1f/%.1f ms" % [
@@ -5009,6 +5086,17 @@ func _runtime_telemetry_text(snapshot: Dictionary) -> String:
 			int(snapshot.get("packet_tx", 0)),
 			int(snapshot.get("packet_rx", 0)),
 			int(snapshot.get("packet_dropped", 0))
+		],
+		"Contract lead %d | min %d | pending %d" % [
+			int(snapshot.get("contract_command_lead_ticks", -1)),
+			int(snapshot.get("contract_min_command_lead_ticks", -1)),
+			int(snapshot.get("contract_pending_commands", 0))
+		],
+		"Contract missed %d | hash %d | violations %d (%s)" % [
+			int(snapshot.get("contract_missed_scheduled_commands", 0)),
+			int(snapshot.get("contract_state_hash_mismatches", 0)),
+			int(snapshot.get("contract_violation_count", 0)),
+			contract_reason
 		],
 		"Waiting remote: %s (%s)" % ["YES" if waiting else "NO", wait_reason]
 	])
@@ -7438,6 +7526,9 @@ func _is_dev_mouse_override() -> bool:
 	return _input_bridge_utils.is_dev_mouse_override()
 
 func _dev_mouse_pid(event: InputEventMouseButton) -> int:
+	if _input_bridge_utils.is_dev_mouse_override() and event.button_index == MOUSE_BUTTON_LEFT:
+		if active_player_id >= 1 and active_player_id <= 4:
+			return active_player_id
 	return _input_bridge_utils.dev_mouse_pid(event)
 
 func _mouse_world_pos() -> Vector2:
@@ -7460,7 +7551,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
+		if _input_bridge_utils.is_player_pointer_button(mb.button_index):
 			var wp: Vector2 = _screen_to_world(mb.position)
 			var lp: Vector2 = map_root.to_local(wp)
 			_send_pointer_event(mb.pressed, mb.button_index, lp, false, wp, mb.position)
@@ -7564,7 +7655,7 @@ func _handle_model_drag(event: InputEvent) -> bool:
 		return false
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
-		var is_primary_click := (mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT)
+		var is_primary_click := _input_bridge_utils.is_player_pointer_button(mb.button_index)
 		if not is_primary_click:
 			return false
 		var wp: Vector2 = _screen_to_world(mb.position)

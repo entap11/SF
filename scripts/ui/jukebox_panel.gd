@@ -2,6 +2,8 @@ extends Panel
 class_name JukeboxPanel
 
 const JukeboxStateScript := preload("res://scripts/state/jukebox_state.gd")
+const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
+const MapSchematicPreviewScript := preload("res://scripts/ui/map_schematic_preview.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/up_down_chevron.png"
 const SIDE_CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/Left_right_chevrons.png"
@@ -16,16 +18,17 @@ const LEADERBOARD_HEADER_FONT_SIZE: int = 22
 const LEADERBOARD_ROW_FONT_SIZE: int = 24
 const LEADERBOARD_BADGE_FONT_SIZE: int = 22
 const BASE_CONTENT_MARGIN_TOP: float = 18.0
-const CATEGORY_TAB_MIN_WIDTH: float = 72.0
-const CATEGORY_TAB_MAX_WIDTH: float = 132.0
-const PERIOD_TAB_MIN_WIDTH: float = 78.0
-const PERIOD_TAB_MAX_WIDTH: float = 110.0
-const MAP_CARD_MIN_WIDTH: float = 92.0
-const MAP_CARD_MAX_WIDTH: float = 300.0
-const PLAY_BUTTON_MIN_WIDTH: float = 260.0
-const PLAY_BUTTON_MAX_WIDTH: float = 620.0
-const SELECTOR_NAV_MIN_WIDTH: float = 56.0
-const SELECTOR_NAV_MAX_WIDTH: float = 92.0
+const CATEGORY_TAB_MIN_WIDTH: float = 86.0
+const CATEGORY_TAB_MAX_WIDTH: float = 158.0
+const PERIOD_TAB_MIN_WIDTH: float = 94.0
+const PERIOD_TAB_MAX_WIDTH: float = 132.0
+const MAP_CARD_MIN_WIDTH: float = 110.0
+const MAP_CARD_MAX_WIDTH: float = 360.0
+const PLAY_BUTTON_MIN_WIDTH: float = 188.0
+const PLAY_BUTTON_MAX_WIDTH: float = 324.0
+const PLAY_BUTTON_HEIGHT: float = 74.0
+const SELECTOR_NAV_MIN_WIDTH: float = 67.0
+const SELECTOR_NAV_MAX_WIDTH: float = 110.0
 const TOUCH_LAYOUT_MAX_WIDTH: float = 1100.0
 const TOUCH_LAYOUT_FONT_SCALE: float = 1.16
 
@@ -45,6 +48,7 @@ const TOP_LIMIT: int = 50
 @onready var map_count_label: Label = $VBox/SelectorPanel/SelectorVBox/SelectorMetaRow/MapCount
 @onready var map_hint_label: Label = $VBox/SelectorPanel/SelectorVBox/SelectorMetaRow/MapHint
 @onready var hero_preview: TextureRect = $VBox/HeroPanel/HeroVBox/HeroPreviewPanel/HeroPreview
+@onready var hero_preview_panel: Panel = $VBox/HeroPanel/HeroVBox/HeroPreviewPanel
 @onready var hero_preview_badge: Label = $VBox/HeroPanel/HeroVBox/HeroPreviewPanel/HeroPreviewBadge
 @onready var selected_title_label: Label = $VBox/HeroPanel/HeroVBox/SelectedTitle
 @onready var selected_meta_label: Label = $VBox/HeroPanel/HeroVBox/SelectedMeta
@@ -79,6 +83,7 @@ var _selected_period: String = "WEEKLY"
 var _selected_map_path: String = ""
 var _map_offset: int = 0
 var _leaderboard_offset: int = 0
+var _map_schematic_preview: Control = null
 
 func _ready() -> void:
 	visible = false
@@ -228,16 +233,17 @@ func _style_controls() -> void:
 	_apply_font(play_button, _font_semibold, _scaled_touch_font_size(13))
 	_style_button(play_button)
 	_style_play_button()
+	_ensure_map_schematic_preview()
 	if scout_button != null:
 		scout_button.visible = false
 	if close_button != null:
 		_apply_font(close_button, _font_semibold, _scaled_touch_font_size(12))
 		_style_button(close_button)
-		close_button.custom_minimum_size = Vector2(176.0, 46.0) if _uses_touch_layout() else Vector2(150.0, 38.0)
+		close_button.custom_minimum_size = Vector2(211.0, 55.0) if _uses_touch_layout() else Vector2(180.0, 46.0)
 	if footer_close_button != null:
 		_apply_font(footer_close_button, _font_semibold, _scaled_touch_font_size(14))
 		_style_button(footer_close_button)
-		footer_close_button.custom_minimum_size = Vector2(276.0, 62.0) if _uses_touch_layout() else Vector2(240.0, 52.0)
+		footer_close_button.custom_minimum_size = Vector2(331.0, 74.0) if _uses_touch_layout() else Vector2(288.0, 62.0)
 	for button in [map_left_button, map_right_button]:
 		_apply_font(button, _font_semibold, _scaled_touch_font_size(11))
 		_style_button(button)
@@ -250,6 +256,8 @@ func _style_controls() -> void:
 	badge_note_label.text = "Top 5 badge ownership is live-scarcity: lose the spot, lose the badge."
 	hero_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	hero_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	if hero_preview_panel != null:
+		hero_preview_panel.custom_minimum_size = Vector2(0.0, 330.0 if _uses_touch_layout() else 292.0)
 	_apply_nav_icons()
 	_apply_selector_nav_icons()
 
@@ -305,7 +313,7 @@ func _build_category_tabs() -> void:
 		button.text = category_label
 		button.toggle_mode = true
 		button.button_pressed = category_label == _selected_category
-		button.custom_minimum_size = Vector2(_category_tab_width(), 44.0)
+		button.custom_minimum_size = Vector2(_category_tab_width(), 53.0)
 		button.pressed.connect(Callable(self, "_on_category_tab_pressed").bind(category_label))
 		category_tabs.add_child(button)
 		_apply_font(button, _font_semibold, _scaled_touch_font_size(SELECTOR_TAB_FONT_SIZE))
@@ -335,7 +343,7 @@ func _build_period_tabs() -> void:
 		button.text = period_label
 		button.toggle_mode = true
 		button.button_pressed = period_label == _selected_period
-		button.custom_minimum_size = Vector2(_period_tab_width(), 34.0)
+		button.custom_minimum_size = Vector2(_period_tab_width(), 41.0)
 		button.pressed.connect(Callable(self, "_on_period_tab_pressed").bind(period_label))
 		period_tabs.add_child(button)
 		_apply_font(button, _font_semibold, _scaled_touch_font_size(12))
@@ -361,6 +369,12 @@ func _refresh_map_list() -> void:
 	for child in map_bottom_cards.get_children():
 		child.queue_free()
 	var visible_entries: Array[Dictionary] = _visible_map_entries()
+	if _selected_map_path.is_empty() and not visible_entries.is_empty():
+		_selected_map_path = str(visible_entries[0].get("path", "")).strip_edges()
+	if not _selected_map_path.is_empty() and _entry_by_path(_selected_map_path).is_empty() and not visible_entries.is_empty():
+		_selected_map_path = str(visible_entries[0].get("path", "")).strip_edges()
+	if play_button != null:
+		play_button.disabled = _selected_map_path.is_empty()
 	map_count_label.text = "%d maps in %s" % [visible_entries.size(), _selected_category]
 	_apply_font(map_count_label, _font_regular, _scaled_touch_font_size(SELECTOR_META_FONT_SIZE))
 	var max_offset: int = maxi(0, visible_entries.size() - MAP_WINDOW_SIZE)
@@ -380,7 +394,7 @@ func _refresh_map_list() -> void:
 		row.tooltip_text = str(entry.get("title", ""))
 		row.custom_minimum_size = Vector2(
 			top_card_width if (entry_index - _map_offset) < 3 else bottom_card_width,
-			136.0 if _uses_touch_layout() else 116.0
+			163.0 if _uses_touch_layout() else 139.0
 		)
 		row.pressed.connect(Callable(self, "_select_map").bind(map_path))
 		if (entry_index - _map_offset) < 3:
@@ -403,6 +417,8 @@ func _select_first_visible_map() -> void:
 		_apply_font(selected_title_label, _font_semibold, _scaled_touch_font_size(20))
 		selected_meta_label.text = ""
 		selected_desc_label.text = "No map entries are available in this category."
+		if play_button != null:
+			play_button.disabled = true
 		_refresh_leaderboard()
 		return
 	if not _selected_map_path.is_empty():
@@ -545,14 +561,70 @@ func _refresh_map_best() -> void:
 		return
 	map_best_label.text = "Map PB: %s  |  %d runs" % [_format_time_ms(best_time_ms), run_count]
 
+func _ensure_map_schematic_preview() -> void:
+	if hero_preview_panel == null:
+		return
+	if _map_schematic_preview != null and is_instance_valid(_map_schematic_preview):
+		return
+	var existing: Control = hero_preview_panel.get_node_or_null("MapSchematicPreview") as Control
+	if existing != null:
+		_map_schematic_preview = existing
+		return
+	var preview: Control = MapSchematicPreviewScript.new() as Control
+	preview.name = "MapSchematicPreview"
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview.clip_contents = true
+	preview.set_anchors_preset(Control.PRESET_FULL_RECT)
+	preview.offset_left = 12.0
+	preview.offset_top = 12.0
+	preview.offset_right = -12.0
+	preview.offset_bottom = -12.0
+	preview.visible = false
+	hero_preview_panel.add_child(preview)
+	if hero_preview != null:
+		hero_preview_panel.move_child(preview, hero_preview.get_index() + 1)
+	_map_schematic_preview = preview
+
+func _apply_map_schematic_preview(map_path: String) -> bool:
+	if _map_schematic_preview == null or map_path.strip_edges().is_empty():
+		return false
+	var loaded: Dictionary = MAP_LOADER.load_map(map_path)
+	if not bool(loaded.get("ok", false)):
+		if _map_schematic_preview.has_method("clear_map_data"):
+			_map_schematic_preview.call("clear_map_data")
+		return false
+	var data: Dictionary = loaded.get("data", {}) as Dictionary
+	if data.is_empty():
+		return false
+	if _map_schematic_preview.has_method("set_map_data"):
+		_map_schematic_preview.call("set_map_data", data)
+	return true
+
 func _refresh_hero_preview(selected: Dictionary) -> void:
+	_ensure_map_schematic_preview()
+	var map_path: String = str(selected.get("path", "")).strip_edges()
+	if _apply_map_schematic_preview(map_path):
+		if hero_preview != null:
+			hero_preview.visible = false
+			hero_preview.texture = null
+		if _map_schematic_preview != null:
+			_map_schematic_preview.visible = true
+		hero_preview_badge.text = "MAP SCHEMATIC"
+		_apply_font(hero_preview_badge, _font_semibold, _scaled_touch_font_size(11))
+		return
 	var preview_path: String = str(selected.get("preview_path", "")).strip_edges()
 	if not preview_path.is_empty() and ResourceLoader.exists(preview_path):
+		if _map_schematic_preview != null:
+			_map_schematic_preview.visible = false
+		hero_preview.visible = true
 		hero_preview.texture = load(preview_path) as Texture2D
 		hero_preview_badge.text = "MAP PREVIEW"
 		_apply_font(hero_preview_badge, _font_semibold, _scaled_touch_font_size(11))
 		return
+	if _map_schematic_preview != null:
+		_map_schematic_preview.visible = false
 	hero_preview.texture = null
+	hero_preview.visible = true
 	hero_preview_badge.text = "PREVIEW COMING SOON"
 	_apply_font(hero_preview_badge, _font_semibold, _scaled_touch_font_size(11))
 
@@ -670,32 +742,44 @@ func _scaled_touch_font_size(size_value: int) -> int:
 func _style_nav_button(button: Button) -> void:
 	if button == null:
 		return
-	button.custom_minimum_size = Vector2(88.0, 60.0) if _uses_touch_layout() else Vector2(76.0, 52.0)
+	button.custom_minimum_size = Vector2(106.0, 72.0) if _uses_touch_layout() else Vector2(91.0, 62.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
 
 func _style_selector_nav_button(button: Button) -> void:
 	if button == null:
 		return
-	button.custom_minimum_size = Vector2(_selector_nav_width(), 106.0 if _uses_touch_layout() else 92.0)
+	button.custom_minimum_size = Vector2(_selector_nav_width(), 127.0 if _uses_touch_layout() else 110.0)
 	button.set("expand_icon", true)
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
 
 func _style_play_button() -> void:
 	if play_button == null:
 		return
-	play_button.custom_minimum_size = Vector2(_play_button_width(), 166.0 if _uses_touch_layout() else 150.0)
+	play_button.custom_minimum_size = Vector2(_play_button_width(), PLAY_BUTTON_HEIGHT)
 	play_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	play_button.text = ""
 	play_button.tooltip_text = "Play selected map"
 	play_button.flat = true
 	play_button.icon = null
+	play_button.modulate = Color.WHITE
+	play_button.self_modulate = Color.WHITE
+	var transparent := StyleBoxEmpty.new()
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		play_button.add_theme_stylebox_override(state, transparent)
 	if play_sprite != null:
 		if play_sprite.texture == null and _play_texture != null:
 			play_sprite.texture = _play_texture
+		play_sprite.modulate = Color.WHITE
+		play_sprite.self_modulate = Color.WHITE
 		play_sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		play_sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		play_sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		play_sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		play_sprite.set_anchors_preset(Control.PRESET_FULL_RECT)
+		play_sprite.offset_left = 0.0
+		play_sprite.offset_top = 0.0
+		play_sprite.offset_right = 0.0
+		play_sprite.offset_bottom = 0.0
 
 func _content_width() -> float:
 	var width: float = size.x
@@ -722,21 +806,25 @@ func _period_tab_width() -> float:
 func _top_map_card_width() -> float:
 	var available: float = _content_width()
 	var separation: float = 10.0
-	return clampf(floor((available - separation * 2.0) / 3.0), MAP_CARD_MIN_WIDTH, MAP_CARD_MAX_WIDTH)
+	var raw_width: float = floor((available - separation * 2.0) / 3.0)
+	var responsive_min: float = minf(MAP_CARD_MIN_WIDTH, raw_width)
+	return clampf(raw_width, responsive_min, MAP_CARD_MAX_WIDTH)
 
 func _bottom_map_card_width() -> float:
 	var available: float = _content_width()
 	var nav_width: float = _selector_nav_width() * 2.0
 	var row_separation: float = 20.0
 	var card_separation: float = 10.0
-	return clampf(floor((available - nav_width - row_separation - card_separation) / 2.0), MAP_CARD_MIN_WIDTH, MAP_CARD_MAX_WIDTH)
+	var raw_width: float = floor((available - nav_width - row_separation - card_separation) / 2.0)
+	var responsive_min: float = minf(MAP_CARD_MIN_WIDTH, raw_width)
+	return clampf(raw_width, responsive_min, MAP_CARD_MAX_WIDTH)
 
 func _selector_nav_width() -> float:
 	var available: float = _content_width()
 	return clampf(floor(available * 0.14), SELECTOR_NAV_MIN_WIDTH, SELECTOR_NAV_MAX_WIDTH)
 
 func _play_button_width() -> float:
-	return clampf(_content_width(), PLAY_BUTTON_MIN_WIDTH, PLAY_BUTTON_MAX_WIDTH)
+	return clampf(_content_width() * 0.64, PLAY_BUTTON_MIN_WIDTH, PLAY_BUTTON_MAX_WIDTH)
 
 func _map_card_font_size(card_width: float) -> int:
 	if card_width < 120.0:
@@ -765,7 +853,7 @@ func _refresh_period_tab_widths() -> void:
 
 func _refresh_play_button_width() -> void:
 	if play_button != null:
-		play_button.custom_minimum_size.x = _play_button_width()
+		play_button.custom_minimum_size = Vector2(_play_button_width(), PLAY_BUTTON_HEIGHT)
 
 func _refresh_selector_nav_widths() -> void:
 	var width: float = _selector_nav_width()
@@ -780,12 +868,12 @@ func _refresh_map_card_widths() -> void:
 	for child in map_top_row.get_children():
 		if child is Control:
 			(child as Control).custom_minimum_size.x = top_width
-			(child as Control).custom_minimum_size.y = 136.0 if _uses_touch_layout() else 116.0
+			(child as Control).custom_minimum_size.y = 163.0 if _uses_touch_layout() else 139.0
 			_apply_font(child as Control, _font_semibold, _scaled_touch_font_size(font_size))
 	for child in map_bottom_cards.get_children():
 		if child is Control:
 			(child as Control).custom_minimum_size.x = bottom_width
-			(child as Control).custom_minimum_size.y = 136.0 if _uses_touch_layout() else 116.0
+			(child as Control).custom_minimum_size.y = 163.0 if _uses_touch_layout() else 139.0
 			_apply_font(child as Control, _font_semibold, _scaled_touch_font_size(_map_card_font_size(bottom_width)))
 
 func _apply_nav_icons() -> void:

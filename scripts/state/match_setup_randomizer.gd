@@ -20,10 +20,12 @@ static func roll(rng: RandomNumberGenerator) -> Dictionary:
 	if rng == null:
 		rng = RandomNumberGenerator.new()
 		rng.randomize()
+	var seed: int = _positive_seed(rng.randi())
 	if rng.randf() > RANDOMIZER_CHANCE:
 		return {
 			"version": 1,
 			"hit": false,
+			"seed": seed,
 			"chance": RANDOMIZER_CHANCE,
 			"category_chance": CATEGORY_CHANCE,
 			"categories": {}
@@ -38,6 +40,7 @@ static func roll(rng: RandomNumberGenerator) -> Dictionary:
 	var payload: Dictionary = {
 		"version": 1,
 		"hit": true,
+		"seed": seed,
 		"chance": RANDOMIZER_CHANCE,
 		"category_chance": CATEGORY_CHANCE,
 		"categories": categories
@@ -70,6 +73,58 @@ static func description(payload: Dictionary) -> String:
 		return ""
 	return "Randomized: %s." % ", ".join(parts)
 
+static func apply_start_slots(map_data: Dictionary, payload: Dictionary, active_seats: Array) -> Dictionary:
+	if map_data.is_empty():
+		return map_data
+	var start_slots: Array = _start_slot_ids(map_data)
+	if start_slots.size() < 2:
+		return map_data
+	var seats: Array = _active_player_seats(active_seats)
+	if seats.is_empty():
+		return map_data
+	var out: Dictionary = map_data.duplicate(true)
+	var hives_v: Variant = out.get("hives", [])
+	if typeof(hives_v) != TYPE_ARRAY:
+		return map_data
+	var hives: Array = hives_v as Array
+	var hives_by_id: Dictionary = {}
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		hives_by_id[int(hive.get("id", 0))] = hive
+	var valid_slots: Array = []
+	for slot_id_any in start_slots:
+		var slot_id: int = int(slot_id_any)
+		if hives_by_id.has(slot_id) and not valid_slots.has(slot_id):
+			valid_slots.append(slot_id)
+	if valid_slots.size() < 2:
+		return map_data
+	for slot_id_any in valid_slots:
+		var hive: Dictionary = hives_by_id[int(slot_id_any)] as Dictionary
+		_set_hive_owner_id(hive, 0)
+	var seed: int = _payload_seed(payload)
+	if seed <= 0:
+		seed = _stable_positive_hash("%s|%s" % [str(out.get("id", out.get("map_id", ""))), str(seats)])
+	var shuffled_slots: Array = valid_slots.duplicate()
+	_shuffle_ints(shuffled_slots, seed)
+	var assign_count: int = mini(seats.size(), shuffled_slots.size())
+	var assignments: Array = []
+	for i in range(assign_count):
+		var hive_id: int = int(shuffled_slots[i])
+		var seat: int = int(seats[i])
+		var assigned_hive: Dictionary = hives_by_id[hive_id] as Dictionary
+		_set_hive_owner_id(assigned_hive, seat)
+		assignments.append({"seat": seat, "hive_id": hive_id})
+	out["hives"] = hives
+	out["start_slot_assignment"] = {
+		"seed": seed,
+		"active_seats": seats,
+		"assignments": assignments,
+		"start_slots": valid_slots
+	}
+	return out
+
 static func apply_to_map_data(map_data: Dictionary, payload: Dictionary) -> Dictionary:
 	if map_data.is_empty() or not bool(payload.get("hit", false)):
 		return map_data
@@ -95,6 +150,59 @@ static func _random_power_value(rng: RandomNumberGenerator) -> int:
 
 static func _random_structure_kind(rng: RandomNumberGenerator) -> String:
 	return STRUCTURE_KIND_VALUES[rng.randi_range(0, STRUCTURE_KIND_VALUES.size() - 1)]
+
+static func _positive_seed(value: int) -> int:
+	var out: int = abs(value)
+	if out == 0:
+		out = 1
+	return out
+
+static func _payload_seed(payload: Dictionary) -> int:
+	if payload.has("start_slot_seed"):
+		return _positive_seed(int(payload.get("start_slot_seed", 0)))
+	if payload.has("seed"):
+		return _positive_seed(int(payload.get("seed", 0)))
+	return 0
+
+static func _start_slot_ids(map_data: Dictionary) -> Array:
+	var slots_v: Variant = map_data.get("start_slots", [])
+	if typeof(slots_v) != TYPE_ARRAY:
+		return []
+	var out: Array = []
+	for slot_any in slots_v as Array:
+		var slot_id: int = int(slot_any)
+		if slot_id > 0 and not out.has(slot_id):
+			out.append(slot_id)
+	return out
+
+static func _active_player_seats(active_seats: Array) -> Array:
+	var seats: Array = []
+	for seat_any in active_seats:
+		var seat: int = int(seat_any)
+		if seat >= 1 and seat <= 4 and not seats.has(seat):
+			seats.append(seat)
+	seats.sort()
+	return seats
+
+static func _shuffle_ints(values: Array, seed: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _positive_seed(seed)
+	for i in range(values.size() - 1, 0, -1):
+		var j: int = rng.randi_range(0, i)
+		var tmp: Variant = values[i]
+		values[i] = values[j]
+		values[j] = tmp
+
+static func _stable_positive_hash(text: String) -> int:
+	var h: int = 17
+	for i in range(text.length()):
+		h = int((h * 31 + text.unicode_at(i)) % 2147483647)
+	return maxi(1, h)
+
+static func _set_hive_owner_id(hive: Dictionary, owner_id: int) -> void:
+	hive["owner_id"] = owner_id
+	if hive.has("owner"):
+		hive["owner"] = "P%d" % owner_id if owner_id > 0 else "NPC"
 
 static func _set_hive_power(map_data: Dictionary, player_owned: bool, power_raw: int) -> void:
 	var power: int = clampi(power_raw, 1, 50)

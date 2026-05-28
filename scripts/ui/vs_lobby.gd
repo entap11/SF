@@ -550,7 +550,7 @@ func _handshake_context() -> Dictionary:
 		if _is_human_pvp_context() and _is_pregame_setup_key(str(key)):
 			continue
 		context[str(key)] = _context_meta[key]
-	var explicit_stage_map_paths: Array[String] = _explicit_stage_map_paths()
+	var explicit_stage_map_paths: Array[String] = _explicit_stage_map_paths(_mode)
 	if not _is_human_pvp_context() and not explicit_stage_map_paths.is_empty():
 		context["stage_map_paths"] = explicit_stage_map_paths
 	return context
@@ -946,6 +946,11 @@ func _start_match(session_already_started: bool = false) -> void:
 	if first_stage_map.is_empty():
 		status_label.text = "No valid stage map found."
 		return
+	var launch_validation: Dictionary = _validate_stage_map_paths_for_launch(stage_map_paths, _mode)
+	if not bool(launch_validation.get("ok", false)):
+		status_label.text = "Map does not support this mode."
+		_report_map_mode_contract_violation(_mode, str(launch_validation.get("path", first_stage_map)), str(launch_validation.get("reason", "invalid_map_mode")))
+		return
 	if _should_route_bot_fill_through_jukebox():
 		if _launch_bot_fill_jukebox_map(first_stage_map):
 			status_label.text = "Bot match starting..."
@@ -1018,11 +1023,7 @@ func _start_match(session_already_started: bool = false) -> void:
 		else:
 			gamebot.set("next_map_id", first_stage_map)
 	_apply_team_mode_override_for_match()
-	match _mode:
-		"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
-			tree.change_scene_to_file(SHELL_SCENE_PATH)
-		_:
-			tree.change_scene_to_file("res://scenes/Main.tscn")
+	tree.change_scene_to_file(SHELL_SCENE_PATH)
 
 func _should_route_bot_fill_through_jukebox() -> bool:
 	if _uses_async_window() or not _free_roll:
@@ -1049,6 +1050,10 @@ func _prepare_bot_fill_jukebox_metadata(map_path: String) -> bool:
 		return false
 	var clean_map_path: String = map_path.strip_edges()
 	if clean_map_path.is_empty() or not FileAccess.file_exists(clean_map_path):
+		return false
+	var validation: Dictionary = _stage_map_path_supports_mode(clean_map_path, "ASYNC_SINGLE_MAP_TIMED")
+	if not bool(validation.get("ok", false)):
+		_report_map_mode_contract_violation("ASYNC_SINGLE_MAP_TIMED", clean_map_path, str(validation.get("reason", "invalid_map_mode")))
 		return false
 	var bot_profile: Dictionary = _bot_remote_profile.duplicate(true)
 	if bot_profile.is_empty():
@@ -1521,7 +1526,7 @@ func _is_pregame_setup_key(key: String) -> bool:
 
 func _resolve_stage_map_paths() -> Array[String]:
 	var resolved: Array[String] = []
-	resolved.append_array(_explicit_stage_map_paths())
+	resolved.append_array(_explicit_stage_map_paths(_mode))
 	if resolved.size() >= _map_count:
 		return resolved
 	if _mode == "CAPTURE_FLAG" or _mode == "HIDDEN_CAPTURE_FLAG":
@@ -1530,6 +1535,8 @@ func _resolve_stage_map_paths() -> Array[String]:
 			if ctf_map_path.is_empty():
 				continue
 			if resolved.has(ctf_map_path):
+				continue
+			if not bool(_stage_map_path_supports_mode(ctf_map_path, _mode).get("ok", false)):
 				continue
 			resolved.append(ctf_map_path)
 		if resolved.size() >= _map_count:
@@ -1554,6 +1561,8 @@ func _resolve_stage_map_paths() -> Array[String]:
 		if fallback_path.is_empty():
 			continue
 		if resolved.has(fallback_path):
+			continue
+		if not bool(_stage_map_path_supports_mode(fallback_path, _mode).get("ok", false)):
 			continue
 		resolved.append(fallback_path)
 		if resolved.size() >= _map_count:
@@ -1613,7 +1622,7 @@ func _session_seed(scope: String) -> int:
 		value = -value
 	return maxi(1, value)
 
-func _explicit_stage_map_paths() -> Array[String]:
+func _explicit_stage_map_paths(mode: String) -> Array[String]:
 	var resolved: Array[String] = []
 	var stage_paths_any: Variant = _context_meta.get("stage_map_paths", [])
 	if typeof(stage_paths_any) != TYPE_ARRAY:
@@ -1622,15 +1631,19 @@ func _explicit_stage_map_paths() -> Array[String]:
 		var path: String = str(path_any).strip_edges()
 		if path.is_empty() or resolved.has(path):
 			continue
-		if FileAccess.file_exists(path):
+		if not FileAccess.file_exists(path):
+			continue
+		var validation: Dictionary = _stage_map_path_supports_mode(path, mode)
+		if bool(validation.get("ok", false)):
 			resolved.append(path)
+		else:
+			_report_map_mode_contract_violation(mode, path, str(validation.get("reason", "invalid_map_mode")))
 		if resolved.size() >= _map_count:
 			return resolved
 	return resolved
 
 func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
 	var out: Array[String] = []
-	var required_buckets: Array[String] = _map_buckets_for_mode(mode)
 	for path_any in MAP_LOADER.list_maps():
 		var path: String = str(path_any).strip_edges()
 		if path.is_empty():
@@ -1640,16 +1653,50 @@ func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
 			continue
 		var data: Dictionary = loaded.get("data", {}) as Dictionary
 		var summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode)
-		if bool(summary.get("ok", false)) and _map_data_matches_buckets(data, required_buckets):
+		if bool(summary.get("ok", false)):
 			out.append(path)
 	return out
 
 func _map_path_supports_mode(path: String, mode: String) -> bool:
+	return bool(_stage_map_path_supports_mode(path, mode).get("ok", false))
+
+func _stage_map_path_supports_mode(path: String, mode: String) -> Dictionary:
 	var loaded: Dictionary = MAP_LOADER.load_map(path)
 	if not bool(loaded.get("ok", false)):
-		return false
+		return {
+			"ok": false,
+			"reason": str(loaded.get("err", "load_failed")),
+			"path": path
+		}
 	var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
-	return bool(summary.get("ok", false))
+	if not bool(summary.get("ok", false)):
+		summary["path"] = path
+		return summary
+	return {
+		"ok": true,
+		"reason": "",
+		"path": path
+	}
+
+func _validate_stage_map_paths_for_launch(paths: Array[String], mode: String) -> Dictionary:
+	if paths.is_empty():
+		return {"ok": false, "reason": "no_stage_maps", "path": ""}
+	for path in paths:
+		var validation: Dictionary = _stage_map_path_supports_mode(path, mode)
+		if not bool(validation.get("ok", false)):
+			return validation
+	return {"ok": true, "reason": "", "path": ""}
+
+func _report_map_mode_contract_violation(mode: String, path: String, reason: String) -> void:
+	var map_id: String = MAP_REGISTRY.map_id_from_path(path)
+	var payload: Dictionary = {
+		"mode": mode,
+		"map_path": path,
+		"map_id": map_id,
+		"reason": reason
+	}
+	SFLog.warn("MAP_MODE_CONTRACT_VIOLATION", payload)
+	push_error("MAP_MODE_CONTRACT_VIOLATION: mode=%s map=%s reason=%s" % [mode, map_id, reason])
 
 func _map_buckets_for_mode(mode: String) -> Array[String]:
 	match mode.strip_edges().to_upper():

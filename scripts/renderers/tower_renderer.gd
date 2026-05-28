@@ -15,7 +15,7 @@ const TOWER_TEX_MEDIUM: Texture2D = preload("res://assets/sprites/sf_skin_v1/tow
 const TOWER_TEX_LARGE: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_large.tres")
 
 const TOWER_SPIKE_PX: float = 8.0
-const TOWER_VISUAL_SCALE: float = 6.55
+const TOWER_VISUAL_SCALE: float = 7.86
 const TOWER_PITCH_SCALE_X: float = 1.1
 const TOWER_PITCH_SCALE_Y: float = 1.44
 const TOWER_BASE_LIFT_RATIO: float = 0.36

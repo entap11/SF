@@ -786,6 +786,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		"season_tags": [],
 		"rotation": {},
 		"async_bot_count": 0,
+		"start_slots": [],
 		"grid_w": w,
 		"grid_h": h,
 		"hives": [],
@@ -1082,6 +1083,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	if structure_slots.is_empty():
 		structure_slots = _default_structure_slots_for_model(model)
 	model["structure_slots"] = structure_slots
+	model["start_slots"] = _start_slots_from_source(data, id_map)
 	model["walls"] = walls
 	model["spawns"] = spawns
 	model["player_buckets"] = player_buckets
@@ -1180,6 +1182,29 @@ static func _resolve_hive_id_list(values_v: Variant, id_map: Dictionary) -> Arra
 		if hive_id > 0 and not out.has(hive_id):
 			out.append(hive_id)
 	return out
+
+static func _start_slots_from_source(data: Dictionary, id_map: Dictionary) -> Array:
+	var slots_v: Variant = data.get("start_slots", data.get("player_start_slots", []))
+	if typeof(slots_v) != TYPE_ARRAY:
+		return []
+	var slots: Array = []
+	for slot_any in slots_v as Array:
+		var raw_id: Variant = slot_any
+		if typeof(slot_any) == TYPE_DICTIONARY:
+			var slot: Dictionary = slot_any as Dictionary
+			raw_id = slot.get("hive_id", slot.get("id", slot.get("node_id", null)))
+		var hive_id: int = 0
+		if raw_id is int:
+			hive_id = int(raw_id)
+		else:
+			var key: String = str(raw_id).strip_edges()
+			if key.is_valid_int():
+				hive_id = int(key)
+			elif id_map.has(key):
+				hive_id = int(id_map.get(key, 0))
+		if hive_id > 0 and not slots.has(hive_id):
+			slots.append(hive_id)
+	return slots
 
 static func _default_structure_slots_for_model(model: Dictionary) -> Array:
 	var family: String = str(model.get("family", "")).strip_edges().to_lower()

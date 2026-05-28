@@ -818,23 +818,22 @@ func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dict
 
 func _prepare_session_context(context: Dictionary) -> Dictionary:
 	var out: Dictionary = context.duplicate(true)
-	if not _context_has_stage_maps(out):
+	var requested_count: int = maxi(1, int(out.get("map_count", 1)))
+	var stage_maps: Array[String] = _stage_map_paths_from_context_stage_paths(out, requested_count)
+	if stage_maps.is_empty():
 		var selected_maps: Array[String] = _select_stage_map_paths_for_context(out)
 		if not selected_maps.is_empty():
-			out["stage_map_paths"] = selected_maps
+			stage_maps = selected_maps
+	if not stage_maps.is_empty():
+		out["stage_map_paths"] = stage_maps
+	else:
+		out.erase("stage_map_paths")
 	if not out.has(MatchSetupRandomizer.CONTEXT_KEY):
 		out[MatchSetupRandomizer.CONTEXT_KEY] = MatchSetupRandomizer.roll(_rng)
 	return out
 
 func _context_has_stage_maps(context: Dictionary) -> bool:
-	var paths_v: Variant = context.get("stage_map_paths", [])
-	if typeof(paths_v) != TYPE_ARRAY:
-		return false
-	for path_any in paths_v as Array:
-		var path: String = str(path_any).strip_edges()
-		if not path.is_empty() and FileAccess.file_exists(path):
-			return true
-	return false
+	return not _stage_map_paths_from_context_stage_paths(context, 1).is_empty()
 
 func _select_stage_map_paths_for_context(context: Dictionary) -> Array[String]:
 	var requested_count: int = maxi(1, int(context.get("map_count", 1)))
@@ -876,6 +875,30 @@ func _stage_map_paths_from_map_ids(context: Dictionary, requested_count: int) ->
 			break
 	return picked
 
+func _stage_map_paths_from_context_stage_paths(context: Dictionary, requested_count: int) -> Array[String]:
+	var picked: Array[String] = []
+	var mode: String = str(context.get("mode", "")).strip_edges().to_upper()
+	var paths_v: Variant = context.get("stage_map_paths", [])
+	if typeof(paths_v) != TYPE_ARRAY:
+		return picked
+	for path_any in paths_v as Array:
+		var map_path: String = str(path_any).strip_edges()
+		if map_path.is_empty() or picked.has(map_path):
+			continue
+		if not FileAccess.file_exists(map_path):
+			continue
+		var loaded: Dictionary = MAP_LOADER.load_map(map_path)
+		if not bool(loaded.get("ok", false)):
+			continue
+		var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
+		if not bool(summary.get("ok", false)):
+			_report_map_mode_contract_violation(mode, map_path, str(summary.get("reason", "invalid_map_mode")))
+			continue
+		picked.append(map_path)
+		if picked.size() >= requested_count:
+			break
+	return picked
+
 func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
 	var out: Array[String] = []
 	for path_any in MAP_LOADER.list_maps():
@@ -891,6 +914,15 @@ func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
 			continue
 		out.append(path)
 	return out
+
+func _report_map_mode_contract_violation(mode: String, path: String, reason: String) -> void:
+	var payload: Dictionary = {
+		"mode": mode,
+		"map_path": path,
+		"reason": reason
+	}
+	SFLog.warn("MAP_MODE_CONTRACT_VIOLATION", payload)
+	push_error("MAP_MODE_CONTRACT_VIOLATION: mode=%s map=%s reason=%s" % [mode, path.get_file().get_basename(), reason])
 
 func _map_buckets_for_mode(mode: String) -> Array[String]:
 	match mode:

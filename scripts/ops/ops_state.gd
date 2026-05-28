@@ -123,6 +123,259 @@ var _capture_flag_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 func get_state() -> GameState:
 	return state
 
+func get_contract_state_hash() -> String:
+	return _build_contract_state_signature().sha256_text()
+
+func get_pvp_debug_state_hash() -> String:
+	return _build_pvp_debug_state_signature().sha256_text()
+
+func get_pvp_debug_state_signature() -> String:
+	return _build_pvp_debug_state_signature()
+
+func get_pvp_debug_state_snapshot() -> Dictionary:
+	var st: GameState = state
+	var snapshot: Dictionary = {
+		"map_id": current_map_id,
+		"players": _pvp_debug_player_rows(),
+		"hive_counts": {},
+		"active_lanes": [],
+		"swarms": [],
+		"hash": ""
+	}
+	if st == null:
+		snapshot["hash"] = get_pvp_debug_state_hash()
+		return snapshot
+	var hive_counts: Dictionary = {}
+	for hive_any in st.hives:
+		if not (hive_any is HiveData):
+			continue
+		var hive: HiveData = hive_any as HiveData
+		var owner_id: int = int(hive.owner_id)
+		hive_counts[owner_id] = int(hive_counts.get(owner_id, 0)) + 1
+	snapshot["hive_counts"] = hive_counts
+	var active_lanes: Array = []
+	for lane_any in st.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		if not bool(lane.send_a) and not bool(lane.send_b):
+			continue
+		active_lanes.append({
+			"lane_id": int(lane.id),
+			"a_id": int(lane.a_id),
+			"b_id": int(lane.b_id),
+			"send_a": bool(lane.send_a),
+			"send_b": bool(lane.send_b)
+		})
+	snapshot["active_lanes"] = active_lanes
+	var swarm_rows: Array = []
+	for swarm_any in st.swarm_packets:
+		if typeof(swarm_any) != TYPE_DICTIONARY:
+			continue
+		var swarm: Dictionary = swarm_any as Dictionary
+		swarm_rows.append({
+			"id": int(swarm.get("id", -1)),
+			"lane_id": int(swarm.get("lane_id", -1)),
+			"owner_id": int(swarm.get("owner_id", 0)),
+			"src": int(swarm.get("from_id", -1)),
+			"dst": int(swarm.get("to_id", -1)),
+			"count": int(swarm.get("count", 0)),
+			"t": _round_contract_float(float(swarm.get("t", 0.0)))
+		})
+	snapshot["swarms"] = swarm_rows
+	snapshot["hash"] = get_pvp_debug_state_hash()
+	return snapshot
+
+func _build_pvp_debug_state_signature() -> String:
+	var st: GameState = state
+	var parts: Array[String] = []
+	parts.append("map=%s" % current_map_id)
+	var player_rows: Array[String] = _pvp_debug_player_rows()
+	player_rows.sort()
+	parts.append("players=%s" % ",".join(player_rows))
+	if st == null:
+		parts.append("state=null")
+		return "|".join(parts)
+	var hive_rows: Array = []
+	var hive_counts: Dictionary = {}
+	for hive_any in st.hives:
+		if not (hive_any is HiveData):
+			continue
+		var hive: HiveData = hive_any as HiveData
+		var owner_id: int = int(hive.owner_id)
+		hive_counts[owner_id] = int(hive_counts.get(owner_id, 0)) + 1
+		hive_rows.append([
+			int(hive.id),
+			"h:%d:%d:%d" % [int(hive.id), owner_id, int(hive.power)]
+		])
+	hive_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
+	var owner_keys: Array = hive_counts.keys()
+	owner_keys.sort()
+	for owner_key in owner_keys:
+		parts.append("hc:%d:%d" % [int(owner_key), int(hive_counts.get(owner_key, 0))])
+	for hive_row_any in hive_rows:
+		var hive_row: Array = hive_row_any as Array
+		parts.append(str(hive_row[1]))
+	var lane_rows: Array = []
+	for lane_any in st.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		if not bool(lane.send_a) and not bool(lane.send_b):
+			continue
+		lane_rows.append([
+			int(lane.id),
+			"l:%d:%d:%d:%d:%d" % [
+				int(lane.id),
+				int(lane.a_id),
+				int(lane.b_id),
+				1 if bool(lane.send_a) else 0,
+				1 if bool(lane.send_b) else 0
+			]
+		])
+	lane_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
+	for lane_row_any in lane_rows:
+		var lane_row: Array = lane_row_any as Array
+		parts.append(str(lane_row[1]))
+	var swarm_rows: Array = []
+	for swarm_any in st.swarm_packets:
+		if typeof(swarm_any) != TYPE_DICTIONARY:
+			continue
+		var swarm: Dictionary = swarm_any as Dictionary
+		var swarm_id: int = int(swarm.get("id", -1))
+		swarm_rows.append([
+			swarm_id,
+			"s:%d:%d:%d:%d:%d:%d:%d" % [
+				swarm_id,
+				int(swarm.get("lane_id", -1)),
+				int(swarm.get("owner_id", 0)),
+				int(swarm.get("from_id", -1)),
+				int(swarm.get("to_id", -1)),
+				int(swarm.get("count", 0)),
+				_round_contract_float(float(swarm.get("t", 0.0)))
+			]
+		])
+	swarm_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
+	for swarm_row_any in swarm_rows:
+		var swarm_row: Array = swarm_row_any as Array
+		parts.append(str(swarm_row[1]))
+	return "|".join(parts)
+
+func _pvp_debug_player_rows() -> Array[String]:
+	var rows: Array[String] = []
+	for entry_any in match_roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		rows.append("%d:%s:%d" % [
+			int(entry.get("seat", 0)),
+			str(entry.get("uid", "")).strip_edges(),
+			1 if bool(entry.get("active", false)) else 0
+		])
+	return rows
+
+func _build_contract_state_signature() -> String:
+	var st: GameState = state
+	if st == null:
+		return "state:null"
+	var parts: Array[String] = []
+	parts.append("tick=%d" % int(st.tick))
+	parts.append("sim_us=%d" % int(st.get("_sim_time_us")))
+	parts.append("phase=%d" % int(match_phase))
+	parts.append("winner=%d" % int(winner_id))
+	var hive_rows: Array = []
+	for hive_any in st.hives:
+		if hive_any is HiveData:
+			var hive: HiveData = hive_any as HiveData
+			hive_rows.append([
+				int(hive.id),
+				"h:%d:%d:%d" % [int(hive.id), int(hive.owner_id), int(hive.power)]
+			])
+	hive_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
+	for row_any in hive_rows:
+		var row: Array = row_any as Array
+		parts.append(str(row[1]))
+	var lane_rows: Array = []
+	for lane_any in st.lanes:
+		if lane_any is LaneData:
+			var lane: LaneData = lane_any as LaneData
+			lane_rows.append([
+				int(lane.id),
+				"l:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
+					int(lane.id),
+					int(lane.a_id),
+					int(lane.b_id),
+					1 if bool(lane.send_a) else 0,
+					1 if bool(lane.send_b) else 0,
+					int(lane.dir),
+					_round_contract_float(float(lane.a_pressure)),
+					_round_contract_float(float(lane.b_pressure)),
+					_round_contract_float(float(lane.spawn_accum_a_ms)),
+					_round_contract_float(float(lane.spawn_accum_b_ms)),
+					_round_contract_float(float(lane.build_t)),
+					_round_contract_float(float(lane.a_stream_len + lane.b_stream_len))
+				]
+			])
+	lane_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
+	for row_any in lane_rows:
+		var row: Array = row_any as Array
+		parts.append(str(row[1]))
+	var unit_rows: Array = []
+	var unit_system: Object = st.unit_system
+	var units_any: Variant = unit_system.get("units") if unit_system != null else []
+	if typeof(units_any) == TYPE_ARRAY:
+		for unit_any in units_any as Array:
+			if typeof(unit_any) != TYPE_DICTIONARY:
+				continue
+			var unit: Dictionary = unit_any as Dictionary
+			var unit_id: int = int(unit.get("id", -1))
+			unit_rows.append([
+				unit_id,
+				"u:%d:%d:%d:%d:%d:%d:%d:%d" % [
+					unit_id,
+					int(unit.get("lane_id", -1)),
+					int(unit.get("owner_id", 0)),
+					int(unit.get("from_id", -1)),
+					int(unit.get("to_id", -1)),
+					int(unit.get("dir", 0)),
+					int(unit.get("amount", 0)),
+					_round_contract_float(float(unit.get("t", 0.0)))
+				]
+			])
+	unit_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
+	for row_any in unit_rows:
+		var row: Array = row_any as Array
+		parts.append(str(row[1]))
+	var swarm_rows: Array = []
+	for swarm_any in st.swarm_packets:
+		if typeof(swarm_any) != TYPE_DICTIONARY:
+			continue
+		var swarm: Dictionary = swarm_any as Dictionary
+		var swarm_id: int = int(swarm.get("id", -1))
+		swarm_rows.append([
+			swarm_id,
+			"s:%d:%d:%d:%d:%d:%d:%d" % [
+				swarm_id,
+				int(swarm.get("lane_id", -1)),
+				int(swarm.get("owner_id", 0)),
+				int(swarm.get("from_id", -1)),
+				int(swarm.get("to_id", -1)),
+				int(swarm.get("count", 0)),
+				_round_contract_float(float(swarm.get("t", 0.0)))
+			]
+		])
+	swarm_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
+	for row_any in swarm_rows:
+		var row: Array = row_any as Array
+		parts.append(str(row[1]))
+	return "|".join(parts)
+
+func _round_contract_float(value: float) -> int:
+	return int(round(value * 1000.0))
+
+func _sort_contract_row_by_id(a: Array, b: Array) -> bool:
+	return int(a[0]) < int(b[0])
+
 func set_match_telemetry_collector(collector: RefCounted) -> void:
 	_match_telemetry_collector = collector
 
@@ -175,6 +428,15 @@ func _default_runtime_telemetry_snapshot() -> Dictionary:
 		"packet_dropped": 0,
 		"intent_events_tx": 0,
 		"intent_events_rx": 0,
+		"contract_version": 0,
+		"contract_command_lead_ticks": -1,
+		"contract_min_command_lead_ticks": -1,
+		"contract_missed_scheduled_commands": 0,
+		"contract_state_hash_mismatches": 0,
+		"contract_violation_count": 0,
+		"contract_last_violation_reason": "",
+		"contract_report_path": "",
+		"contract_pending_commands": 0,
 		"waiting_for_remote": false,
 		"waiting_for_remote_reason": "not_lockstep",
 		"pool_hits": 0,
@@ -1536,6 +1798,7 @@ func _record_intent_telemetry(
 	dst_owner_id: int = 0,
 	source_exec_override: Dictionary = {}
 ) -> void:
+	_record_pvp_debug_intent_event(src_hive_id, dst_hive_id, intent, ok, reason, lane_id)
 	if _bot_telemetry_store == null:
 		return
 	if not _bot_telemetry_store.has_method("record_intent"):
@@ -1607,6 +1870,16 @@ func _record_intent_telemetry(
 			"src_high_power_idle_ms": int(source_exec.get("high_power_idle_ms", 0))
 		}
 	)
+
+func _record_pvp_debug_intent_event(src_hive_id: int, dst_hive_id: int, intent: String, ok: bool, reason: String, lane_id: int = -1) -> void:
+	var runtime: Node = _vs_pvp_runtime()
+	if runtime == null:
+		return
+	if not ok and not str(reason).strip_edges().is_empty() and runtime.has_method("record_debug_input_rejected"):
+		runtime.call("record_debug_input_rejected", src_hive_id, dst_hive_id, intent, reason, lane_id)
+		return
+	if ok and _remote_replication_apply_depth > 0 and runtime.has_method("record_debug_intent_applied"):
+		runtime.call("record_debug_intent_applied", src_hive_id, dst_hive_id, intent, lane_id)
 
 func _intent_telemetry_context(src_owner_id: int, dst_owner_id: int) -> Dictionary:
 	var tree: SceneTree = _intent_telemetry_tree()
@@ -1725,29 +1998,64 @@ func _ensure_intent_log_match_id(match_type: String, map_id: String) -> String:
 func _vs_pvp_runtime() -> Node:
 	return get_node_or_null("/root/VsPvpRuntime")
 
-func _maybe_replicate_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String, src_owner_id: int, dst_owner_id: int) -> void:
+func _maybe_replicate_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String, src_owner_id: int, dst_owner_id: int) -> bool:
 	if _remote_replication_apply_depth > 0:
-		return
+		return true
 	var runtime: Node = _vs_pvp_runtime()
 	if runtime == null or not runtime.has_method("record_local_lane_intent"):
-		return
-	runtime.call("record_local_lane_intent", src_hive_id, dst_hive_id, intent, src_owner_id, dst_owner_id)
+		return true
+	var result: Variant = runtime.call("record_local_lane_intent", src_hive_id, dst_hive_id, intent, src_owner_id, dst_owner_id)
+	return bool(result) if typeof(result) == TYPE_BOOL else true
 
-func _maybe_replicate_lane_retract(from_id: int, to_id: int, owner_id: int) -> void:
+func _maybe_replicate_lane_retract(from_id: int, to_id: int, owner_id: int) -> bool:
 	if _remote_replication_apply_depth > 0:
-		return
+		return true
 	var runtime: Node = _vs_pvp_runtime()
 	if runtime == null or not runtime.has_method("record_local_lane_retract"):
-		return
-	runtime.call("record_local_lane_retract", from_id, to_id, owner_id)
+		return true
+	var result: Variant = runtime.call("record_local_lane_retract", from_id, to_id, owner_id)
+	return bool(result) if typeof(result) == TYPE_BOOL else true
 
-func _maybe_replicate_barracks_route(barracks_id: int, route_hive_ids: Array, owner_id: int) -> void:
+func _maybe_replicate_barracks_route(barracks_id: int, route_hive_ids: Array, owner_id: int) -> bool:
 	if _remote_replication_apply_depth > 0:
-		return
+		return true
 	var runtime: Node = _vs_pvp_runtime()
 	if runtime == null or not runtime.has_method("record_local_barracks_route"):
-		return
-	runtime.call("record_local_barracks_route", barracks_id, route_hive_ids, owner_id)
+		return true
+	var result: Variant = runtime.call("record_local_barracks_route", barracks_id, route_hive_ids, owner_id)
+	return bool(result) if typeof(result) == TYPE_BOOL else true
+
+func _vs_runtime_is_active_for_local_owner(owner_id: int) -> bool:
+	if owner_id <= 0 or _remote_replication_apply_depth > 0:
+		return false
+	var runtime: Node = _vs_pvp_runtime()
+	if runtime == null or not runtime.has_method("is_active") or not runtime.has_method("get_local_seat"):
+		return false
+	if not bool(runtime.call("is_active")):
+		return false
+	return owner_id == int(runtime.call("get_local_seat"))
+
+func _schedule_vs_lane_intent_if_needed(st: GameState, src_hive_id: int, dst_hive_id: int, intent: String) -> Dictionary:
+	if st == null:
+		return {}
+	var src_hive: HiveData = st.find_hive_by_id(src_hive_id)
+	if src_hive == null:
+		return {}
+	var src_owner_id: int = int(src_hive.owner_id)
+	if not _vs_runtime_is_active_for_local_owner(src_owner_id):
+		return {}
+	var dst_hive: HiveData = st.find_hive_by_id(dst_hive_id)
+	var dst_owner_id: int = int(dst_hive.owner_id) if dst_hive != null else 0
+	var replicated: bool = _maybe_replicate_lane_intent(src_hive_id, dst_hive_id, intent, src_owner_id, dst_owner_id)
+	return {
+		"ok": replicated,
+		"reason": "" if replicated else "vs_contract",
+		"lane_id": -1,
+		"src": src_hive_id,
+		"dst": dst_hive_id,
+		"intent": intent,
+		"scheduled": replicated
+	}
 
 func _telemetry_match_ms() -> int:
 	if state == null:
@@ -2100,6 +2408,8 @@ func request_barracks_route(barracks_id: int, route_hive_ids: Array, player_id: 
 		return false
 	if player_id != -1 and owner_id != player_id:
 		return false
+	if _vs_runtime_is_active_for_local_owner(owner_id):
+		return _maybe_replicate_barracks_route(barracks_id, route_hive_ids, owner_id)
 	var allowed_ids: Array = _barracks_allowed_route_ids(st, barracks_data, owner_id)
 	if allowed_ids.is_empty():
 		return false
@@ -2254,6 +2564,9 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		_log_input_ignored_match_over("apply_lane_intent")
 		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
+	var scheduled_result: Dictionary = _schedule_vs_lane_intent_if_needed(st, src_hive_id, dst_hive_id, intent)
+	if not scheduled_result.is_empty():
+		return scheduled_result
 	if intent == "swarm":
 		var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
 		if lane_index == -1:
@@ -2335,6 +2648,7 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"src_owner": telemetry_src_owner,
 			"dst_owner": telemetry_dst_owner
 		})
+		_maybe_replicate_lane_intent(src_hive_id, dst_hive_id, intent, telemetry_src_owner, telemetry_dst_owner)
 		return result
 	var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
 	if lane_index == -1 and intent != "none":
@@ -2730,6 +3044,11 @@ func retract_lane(from_id: int, to_id: int, owner_id: int) -> void:
 	if lane_index == -1:
 		return
 	var lane: LaneData = st.lanes[lane_index]
+	var from_hive_for_schedule: HiveData = st.find_hive_by_id(from_id)
+	var schedule_owner_id: int = int(from_hive_for_schedule.owner_id) if from_hive_for_schedule != null else owner_id
+	if _vs_runtime_is_active_for_local_owner(schedule_owner_id):
+		_maybe_replicate_lane_retract(from_id, to_id, schedule_owner_id)
+		return
 	if from_id == int(lane.a_id):
 		lane.send_a = false
 		lane.retract_a = true

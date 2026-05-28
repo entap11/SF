@@ -31,6 +31,7 @@ var selection: SelectionState = null
 var _last_lane_tap_time_ms: int = -999999
 var _last_lane_tap_pos: Vector2 = Vector2.ZERO
 var _last_lane_tap_id: int = -1
+var _last_lane_tap_player_id: int = -1
 var _last_click_ms: int = -999999
 var _last_click_world: Vector2 = Vector2.ZERO
 var _handling_click: bool = false
@@ -52,8 +53,9 @@ var _press_player_id: int = -1
 var _press_is_touch: bool = false
 var _hover_hive_id: int = -1
 var _selected_hive_id: int = -1 # P1 selection mirror
-var _selected_by_player: Dictionary = {1: -1, 2: -1}
-var _enemy_first_by_player: Dictionary = {1: -1, 2: -1}
+var _selected_by_player: Dictionary = {1: -1, 2: -1, 3: -1, 4: -1}
+var _enemy_first_by_player: Dictionary = {1: -1, 2: -1, 3: -1, 4: -1}
+var _visual_selected_player_id: int = -1
 var selected_src_id: int = -1 # Friendly-only selection mirror (P1).
 var enemy_first_id: int = -1
 var _dragging: bool = false
@@ -77,8 +79,8 @@ func setup(selection_state: SelectionState) -> void:
 		selection = selection_state
 	else:
 		selection = SelectionState.new()
+	_ensure_player_selection_slots()
 	_selected_by_player[1] = selection.selected_hive_id if selection != null else -1
-	_selected_by_player[2] = -1
 	selected_src_id = int(_selected_by_player.get(1, -1))
 
 func set_lane_system(ls: LaneSystem) -> void:
@@ -202,10 +204,12 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	_last_arena_api = arena_api
 	var event_type: String = str(ev.get("type", ""))
 	var button_index: int = int(ev.get("button", MOUSE_BUTTON_LEFT))
-	if event_type != "motion" and not (button_index == MOUSE_BUTTON_LEFT or button_index == MOUSE_BUTTON_RIGHT):
+	if event_type != "motion" and not InputEventUtils.is_player_pointer_button(button_index):
 		return
 	var is_touch: bool = bool(ev.get("is_touch", false))
-	var dev_pid: int = -1 if is_touch else _dev_mouse_pid_from_button(button_index)
+	var dev_pid: int = -1
+	if not is_touch and button_index != MOUSE_BUTTON_LEFT:
+		dev_pid = _dev_mouse_pid_from_button(button_index)
 	var local_pos: Vector2 = ev.get("local_pos", Vector2.ZERO)
 	var hive_id: int = int(ev.get("hive_id", -1))
 	var lane_id: int = int(ev.get("lane_id", -1))
@@ -263,14 +267,18 @@ func _reset_lane_tap_state() -> void:
 	_last_lane_tap_time_ms = -999999
 	_last_lane_tap_pos = Vector2.ZERO
 	_last_lane_tap_id = -1
+	_last_lane_tap_player_id = -1
 
-func _record_lane_tap(lane_id: int, local_pos: Vector2) -> void:
+func _record_lane_tap(lane_id: int, local_pos: Vector2, player_id: int) -> void:
 	_last_lane_tap_time_ms = Time.get_ticks_msec()
 	_last_lane_tap_pos = local_pos
 	_last_lane_tap_id = lane_id
+	_last_lane_tap_player_id = player_id
 
-func _is_lane_double_tap(lane_id: int, local_pos: Vector2, is_touch: bool = false) -> bool:
+func _is_lane_double_tap(lane_id: int, local_pos: Vector2, player_id: int, is_touch: bool = false) -> bool:
 	if lane_id <= 0 or lane_id != _last_lane_tap_id:
+		return false
+	if player_id <= 0 or player_id != _last_lane_tap_player_id:
 		return false
 	var now_ms: int = Time.get_ticks_msec()
 	var max_ms: int = TOUCH_DOUBLE_TAP_MS if is_touch else DOUBLE_TAP_MS
@@ -282,10 +290,13 @@ func clear_selection() -> void:
 		return
 	selection.clear_selection()
 	_selected_hive_id = -1
-	_selected_by_player[1] = -1
+	for player_id in [1, 2, 3, 4]:
+		_selected_by_player[player_id] = -1
 	selected_src_id = -1
-	_enemy_first_by_player[1] = -1
+	for player_id in [1, 2, 3, 4]:
+		_enemy_first_by_player[player_id] = -1
 	enemy_first_id = -1
+	_visual_selected_player_id = -1
 
 func reset_drag() -> void:
 	if selection == null:
@@ -315,50 +326,62 @@ func _get_active_pid(arena_api: ArenaAPI) -> int:
 func _player_id_from_button(button_index: int, arena_api: ArenaAPI, dev_pid: int = -1) -> int:
 	return InputEventUtils.player_id_from_button(button_index, arena_api, dev_pid)
 
+func _ensure_player_selection_slots() -> void:
+	for player_id in [1, 2, 3, 4]:
+		if not _selected_by_player.has(player_id):
+			_selected_by_player[player_id] = -1
+		if not _enemy_first_by_player.has(player_id):
+			_enemy_first_by_player[player_id] = -1
+
 func _get_selected_for_player(player_id: int) -> int:
+	_ensure_player_selection_slots()
 	return int(_selected_by_player.get(player_id, -1))
 
 func _set_selected_for_player(arena_api: ArenaAPI, player_id: int, hive_id: int) -> void:
+	_ensure_player_selection_slots()
 	_selected_by_player[player_id] = hive_id
 	if player_id == 1:
 		_set_selected(arena_api, hive_id)
+		return
+	_set_selected_visual_for_player(arena_api, player_id, hive_id)
 
 func _clear_selected_for_player(arena_api: ArenaAPI, player_id: int) -> void:
+	_ensure_player_selection_slots()
 	var had_selection := int(_selected_by_player.get(player_id, -1)) > 0
 	_selected_by_player[player_id] = -1
 	if player_id == 1:
 		_clear_selected(arena_api)
 		return
+	if _visual_selected_player_id == player_id:
+		_clear_selected_visual(arena_api)
 	if had_selection:
 		SFLog.info("INPUT_DESELECT", {"player_id": player_id})
 
 func _get_enemy_first_for_player(player_id: int) -> int:
+	_ensure_player_selection_slots()
 	return int(_enemy_first_by_player.get(player_id, -1))
 
 func _set_enemy_first_for_player(player_id: int, hive_id: int) -> void:
+	_ensure_player_selection_slots()
 	_enemy_first_by_player[player_id] = hive_id
 	if player_id == 1:
 		enemy_first_id = hive_id
 
 func _clear_enemy_first_for_player(player_id: int) -> void:
+	_ensure_player_selection_slots()
 	_enemy_first_by_player[player_id] = -1
 	if player_id == 1:
 		enemy_first_id = -1
 
 func _set_enemy_first_visual(arena_api: ArenaAPI, hive_id: int, player_id: int) -> void:
-	if player_id != 1:
-		return
 	if selection != null:
 		selection.selected_hive_id = -1
 		selection.selected_lane_id = -1
-	var hr := _get_hive_renderer(arena_api)
-	if hr != null and hr.has_method("set_selected_hive"):
-		hr.call("set_selected_hive", hive_id, _owner_color(player_id))
+	_set_selected_visual_for_player(arena_api, player_id, hive_id)
 
 func _clear_enemy_first_visual(arena_api: ArenaAPI, player_id: int) -> void:
-	if player_id != 1:
-		return
-	_clear_selected(arena_api)
+	if _visual_selected_player_id == player_id:
+		_clear_selected_visual(arena_api)
 
 func _owner_color(owner_id: int) -> Color:
 	match owner_id:
@@ -513,8 +536,7 @@ func _set_selected(arena_api: ArenaAPI, hive_id: int) -> void:
 	var owner_id := 0
 	if hive_id > 0:
 		owner_id = arena_api.get_hive_owner_id(hive_id)
-		if hr != null and hr.has_method("set_selected_hive"):
-			hr.call("set_selected_hive", hive_id, _owner_color(owner_id))
+		_set_selected_visual_for_player(arena_api, owner_id, hive_id)
 		if changed:
 			SFLog.info("SELECT", {"src": hive_id})
 		return
@@ -528,15 +550,27 @@ func _clear_selected(arena_api: ArenaAPI) -> void:
 	if selection != null:
 		selection.selected_hive_id = -1
 		selection.selected_lane_id = -1
+	if _visual_selected_player_id == 1:
+		_clear_selected_visual(arena_api)
+	if had_selection:
+		SFLog.info("INPUT_DESELECT", {"player_id": 1})
+		SFLog.info("DESELECT", {})
+
+func _set_selected_visual_for_player(arena_api: ArenaAPI, player_id: int, hive_id: int) -> void:
+	var hr := _get_hive_renderer(arena_api)
+	if hr == null or not hr.has_method("set_selected_hive"):
+		return
+	_visual_selected_player_id = player_id
+	hr.call("set_selected_hive", hive_id, _owner_color(player_id))
+
+func _clear_selected_visual(arena_api: ArenaAPI) -> void:
 	var hr := _get_hive_renderer(arena_api)
 	if hr != null:
 		if hr.has_method("clear_selected_hive"):
 			hr.call("clear_selected_hive")
 		elif hr.has_method("set_selected_hive"):
 			hr.call("set_selected_hive", -1, _owner_color(0))
-	if had_selection:
-		SFLog.info("INPUT_DESELECT", {"player_id": 1})
-		SFLog.info("DESELECT", {})
+	_visual_selected_player_id = -1
 
 func _get_hive_renderer(arena_api: ArenaAPI) -> Object:
 	if arena_api == null:
@@ -725,7 +759,7 @@ func _should_route_hive_click_to_lane(prev_selected_id: int, clicked_id: int, la
 		return false
 	if prev_selected_id > 0:
 		return false
-	if _is_lane_double_tap(lane_id, local_pos, _press_is_touch):
+	if _is_lane_double_tap(lane_id, local_pos, player_id, _press_is_touch):
 		return true
 	var hive: HiveData = arena_api.find_hive_by_id(clicked_id)
 	if hive == null:
@@ -1361,7 +1395,7 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 			print("HIVE: re-entrant click blocked")
 		return
 	_handling_click = true
-	if not (button_index == MOUSE_BUTTON_LEFT or button_index == MOUSE_BUTTON_RIGHT):
+	if not InputEventUtils.is_player_pointer_button(button_index):
 		reset_drag()
 		_handling_click = false
 		return
@@ -1615,21 +1649,17 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 	if _get_enemy_first_for_player(player_id) > 0:
 		_clear_enemy_first_for_player(player_id)
 		_clear_enemy_first_visual(arena_api, player_id)
-	if player_id != 1:
-		_clear_selected_for_player(arena_api, player_id)
-		clear_tap_state()
-		return
 	if lane_id != -1:
 		var lane: LaneData = arena_api.find_lane_by_id(lane_id)
 		if lane != null:
-			if _is_lane_double_tap(lane.id, local_pos, _press_is_touch):
+			if _is_lane_double_tap(lane.id, local_pos, player_id, _press_is_touch):
 				_reset_lane_tap_state()
 				if _handle_lane_double_tap(local_pos, player_id, player_id, arena_api):
 					_clear_selected_for_player(arena_api, player_id)
 					selection.selected_lane_id = -1
 					clear_tap_state()
 					return
-			_record_lane_tap(lane.id, local_pos)
+			_record_lane_tap(lane.id, local_pos, player_id)
 			_clear_selected_for_player(arena_api, player_id)
 			selection.selected_lane_id = -1
 			selection.selected_cell = arena_api.cell_from_point(local_pos)
@@ -1659,18 +1689,15 @@ func _apply_hive_to_hive_action(from_id: int, to_id: int, player_id: int, dev_pi
 	var to_owned: bool = to_hive.owner_id == player_id
 	if from_owned:
 		var lane_active: bool = arena_api.is_outgoing_lane_active(from_id, to_id)
-		var action := "lane_active_noop" if lane_active else "establish"
+		var action := "swarm" if lane_active else "establish"
 		SFLog.info("SRC_DST_ACTION", {
 			"src": from_id,
 			"dst": to_id,
 			"lane_active": lane_active,
 			"action": action
 		})
-		# Src->dst tap/drag should establish intent, not trigger swarm.
-		# Swarm remains available through explicit lane double-tap.
 		if lane_active:
-			rejected["reason"] = "lane_active"
-			return rejected
+			return _issue_swarm_intent_result(from_id, to_id, player_id)
 		return _issue_intent(from_id, to_id, player_id, dev_pid, arena_api)
 	if not from_owned and to_owned:
 		if arena_api.intent_is_on(to_id, from_id):
@@ -1720,13 +1747,25 @@ func _issue_intent(from_id: int, to_id: int, player_id: int, dev_pid: int, arena
 		_maybe_notify_wall_blocked_attempt(from_id, to_id, "attack", arena_api)
 	return result
 
-func _issue_swarm_intent(from_id: int, to_id: int, player_id: int) -> bool:
+func _issue_swarm_intent_result(from_id: int, to_id: int, player_id: int) -> Dictionary:
 	var result := OpsState.apply_lane_intent(from_id, to_id, "swarm")
 	var ok := bool(result.get("ok", false))
 	if ok:
 		SFLog.info("INPUT_INTENT", {"player_id": player_id, "src": from_id, "dst": to_id, "intent": "swarm"})
 		SFLog.info("LANE_SWARM_INTENT", {"src": from_id, "dst": to_id, "player_id": player_id})
-	return ok
+	else:
+		SFLog.warn("INPUT_INTENT_REJECTED", {
+			"player_id": player_id,
+			"src": from_id,
+			"dst": to_id,
+			"intent": "swarm",
+			"reason": str(result.get("reason", "unknown"))
+		})
+	return result
+
+func _issue_swarm_intent(from_id: int, to_id: int, player_id: int) -> bool:
+	var result := _issue_swarm_intent_result(from_id, to_id, player_id)
+	return bool(result.get("ok", false))
 
 func _maybe_notify_wall_blocked_attempt(from_id: int, to_id: int, intent: String, arena_api: ArenaAPI) -> void:
 	if arena_api == null:

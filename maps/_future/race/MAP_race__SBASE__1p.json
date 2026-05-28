@@ -1,0 +1,54 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_race__SBASE__1p",
+  "name": "Race - Three Rails Bottom Four",
+  "family": "race",
+  "display_family": "Race",
+  "mode": "1p",
+  "player_buckets": ["1P", "2V2", "4P_FFA"],
+  "playstyle_tags": ["RACE", "STRATEGY"],
+  "season_tags": ["race"],
+  "rotation": { "status": "candidate", "weight": 1 },
+  "async_bot_count": 1,
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
+  "start_slots": ["p1h1", "p3h1", "p4h1", "p2h1"],
+  "nodes": [
+    { "id": "n01", "pos": { "x": 2,  "y": 2  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n02", "pos": { "x": 6,  "y": 2  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n03", "pos": { "x": 12, "y": 2  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n04", "pos": { "x": 16, "y": 2  }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "n05", "pos": { "x": 2,  "y": 9  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n06", "pos": { "x": 6,  "y": 9  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n07", "pos": { "x": 12, "y": 9  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n08", "pos": { "x": 16, "y": 9  }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "n09", "pos": { "x": 3,  "y": 15 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n10", "pos": { "x": 7,  "y": 15 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n11", "pos": { "x": 11, "y": 15 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n12", "pos": { "x": 15, "y": 15 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "n13", "pos": { "x": 4,  "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n14", "pos": { "x": 8,  "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n15", "pos": { "x": 10, "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n16", "pos": { "x": 14, "y": 24 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "p1h1", "pos": { "x": 2,  "y": 27 }, "owner": "P1", "kind": "hive" },
+    { "id": "p3h1", "pos": { "x": 6,  "y": 27 }, "owner": "P3", "kind": "hive" },
+    { "id": "p4h1", "pos": { "x": 12, "y": 27 }, "owner": "P4", "kind": "hive" },
+    { "id": "p2h1", "pos": { "x": 16, "y": 27 }, "owner": "P2", "kind": "hive" }
+  ],
+  "structure_slots": [
+    { "id": "structure_slot_left",  "pos": { "x": 3,  "y": 20 }, "allowed": ["tower", "barracks"] },
+    { "id": "structure_slot_mid_l", "pos": { "x": 7,  "y": 20 }, "allowed": ["tower", "barracks"] },
+    { "id": "structure_slot_mid_r", "pos": { "x": 11, "y": 20 }, "allowed": ["tower", "barracks"] },
+    { "id": "structure_slot_right", "pos": { "x": 15, "y": 20 }, "allowed": ["tower", "barracks"] }
+  ],
+  "walls": [
+    { "x1": 5.0,  "y1": 5.0, "x2": 5.0,  "y2": 28.0 },
+    { "x1": 9.0,  "y1": 5.0, "x2": 9.0,  "y2": 28.0 },
+    { "x1": 13.0, "y1": 5.0, "x2": 13.0, "y2": 28.0 }
+  ],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

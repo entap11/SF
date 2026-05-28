@@ -567,7 +567,7 @@ const HIDDEN_CTF_MAP_IDS: Array[String] = [
 const DIRECT_CTF_MAP_IDS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 ]
-const BOTTOM_NAV_BUTTON_SCALE: float = 2.925
+const BOTTOM_NAV_BUTTON_SCALE: float = 3.2175
 const BOTTOM_NAV_HEIGHT_SCALE: float = 1.2
 const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(38.0, 56.0)
 const BOTTOM_NAV_CENTER_STRETCH_RATIO: float = 1.2
@@ -578,9 +578,10 @@ const HIVE_DROPDOWN_WIDTH: float = 420.0
 const HIVE_DROPDOWN_HEIGHT: float = 292.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
 const HIVE_PULLDOWN_DURATION: float = 0.24
-const GAME_HUB_OVERLAY_TARGET_WIDTH: float = 980.0
-const GAME_HUB_OVERLAY_FREE_TARGET_HEIGHT: float = 1260.0
-const GAME_HUB_OVERLAY_PAID_TARGET_HEIGHT: float = 1040.0
+const GAME_MENU_BUTTON_SCALE: float = 1.2
+const GAME_HUB_OVERLAY_TARGET_WIDTH: float = 1176.0
+const GAME_HUB_OVERLAY_FREE_TARGET_HEIGHT: float = 1512.0
+const GAME_HUB_OVERLAY_PAID_TARGET_HEIGHT: float = 1248.0
 const GAME_HUB_OVERLAY_VIEWPORT_MARGIN_X: float = 24.0
 const GAME_HUB_OVERLAY_VIEWPORT_MARGIN_Y: float = 24.0
 const GAME_HUB_OVERLAY_FREE_MIN_HEIGHT: float = 700.0
@@ -588,20 +589,20 @@ const GAME_HUB_OVERLAY_PAID_MIN_HEIGHT: float = 760.0
 const GAME_HUB_OVERLAY_EXTRA_BOTTOM_PX: float = 50.0
 const GAME_HUB_OVERLAY_EXTRA_TOP_PX: float = 30.0
 const GAME_HUB_OVERLAY_FREE_SHIFT_DOWN_PX: float = 36.0
-const GAME_HUB_HUMAN_BUTTON_SIZE: Vector2 = Vector2(172.0, 72.0)
-const GAME_HUB_HUMAN_ICON_MAX_WIDTH: int = 166
-const GAME_HUB_CYCLE_BUTTON_SIZE: Vector2 = Vector2(286.0, 108.0)
-const GAME_HUB_CYCLE_ICON_MAX_WIDTH: int = 272
-const GAME_HUB_ASYNC_MODE_BUTTON_SIZE: Vector2 = Vector2(236.0, 82.0)
-const GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH: int = 224
-const GAME_HUB_CANCEL_BUTTON_SIZE: Vector2 = Vector2(236.0, 82.0)
+const GAME_HUB_HUMAN_BUTTON_SIZE: Vector2 = Vector2(206.0, 86.0)
+const GAME_HUB_HUMAN_ICON_MAX_WIDTH: int = 199
+const GAME_HUB_CYCLE_BUTTON_SIZE: Vector2 = Vector2(343.0, 130.0)
+const GAME_HUB_CYCLE_ICON_MAX_WIDTH: int = 326
+const GAME_HUB_ASYNC_MODE_BUTTON_SIZE: Vector2 = Vector2(283.0, 98.0)
+const GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH: int = 269
+const GAME_HUB_CANCEL_BUTTON_SIZE: Vector2 = Vector2(283.0, 98.0)
 const GAME_HUB_FREE_TOP_ROW_SCALE: float = 1.75
 const GAME_HUB_FREE_LOWER_ROWS_SCALE: float = 1.35
 const GAME_HUB_CONTENT_SHIFT_X: float = -20.0
 const GAME_HUB_FREE_CENTER_BIAS_X: float = 0.0
 const GAME_HUB_FREE_CENTER_TRACK_RIGHT_INSET: float = 84.0
 const GAME_HUB_FREE_BUTTON_TRACK_RIGHT_INSET: float = 96.0
-const GAME_HUB_FREE_LAYOUT_VERSION: int = 8
+const GAME_HUB_FREE_LAYOUT_VERSION: int = 9
 const GAME_HUB_CONTENT_TOP_PADDING_PX: float = 24.0
 const GAME_HUB_FREE_CONTENT_TOP_PADDING_PX: float = 42.0
 const GAME_HUB_FREE_BODY_SEPARATION: int = 14
@@ -701,8 +702,8 @@ const MONEY_ENTRY_ACTIVE_EDGE: Color = Color(0.96, 0.80, 0.34, 0.72)
 const MONEY_ENTRY_ACTIVE_BG: Color = Color(0.18, 0.15, 0.10, 0.95)
 const MONEY_ENTRY_INACTIVE_BG: Color = Color(0.11, 0.12, 0.16, 0.90)
 const MONEY_ENTRY_INACTIVE_EDGE: Color = Color(0.44, 0.46, 0.53, 0.52)
-const MONEY_DIVISION_TAB_SIZE: Vector2 = Vector2(186.0, 62.0)
-const MONEY_ENTRY_TIER_BUTTON_SIZE: Vector2 = Vector2(96.0, 38.0)
+const MONEY_DIVISION_TAB_SIZE: Vector2 = Vector2(223.0, 74.0)
+const MONEY_ENTRY_TIER_BUTTON_SIZE: Vector2 = Vector2(115.0, 46.0)
 const MONEY_DIVISION_LABEL_SIZE: int = 13
 const MONEY_DIVISION_LOCKED_LABEL_SIZE: int = 11
 const UI_TEXT_SCALE: float = 2.0
@@ -6900,7 +6901,8 @@ func _apply_bottom_nav_layout() -> void:
 		menu_store_button,
 		menu_buffs_button,
 		menu_free_roll_button,
-		menu_battle_pass_button
+		menu_battle_pass_button,
+		menu_jukebox_button
 	]
 	if menu_unused_button != null and menu_unused_button.visible:
 		side_buttons.append(menu_unused_button)
@@ -10645,7 +10647,7 @@ func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
 	if body == null or canvas == null:
 		return
 	var panel_width: float = maxf(1.0, panel.offset_right - panel.offset_left)
-	var content_width: float = clampf(panel_width - 32.0, 320.0, 980.0)
+	var content_width: float = clampf(panel_width - 32.0, 320.0, GAME_HUB_OVERLAY_TARGET_WIDTH)
 	body.custom_minimum_size = Vector2(content_width, 0.0)
 	body.add_theme_constant_override("separation", 12)
 	canvas.custom_minimum_size = Vector2(content_width, 1340.0)
@@ -10669,12 +10671,12 @@ func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
 	var human_gap: float = 30.0 if human_cols == 2 else 0.0
 	var human_size := Vector2(
 		floor((content_width - (margin_x * 2.0) - (human_gap * float(human_cols - 1))) / float(human_cols)),
-		178.0
+		round(178.0 * GAME_MENU_BUTTON_SCALE)
 	)
 	if human_cols == 1:
-		human_size.x = minf(520.0, content_width - (margin_x * 2.0))
+		human_size.x = minf(520.0 * GAME_MENU_BUTTON_SCALE, content_width - (margin_x * 2.0))
 	else:
-		human_size.x = clampf(human_size.x, 390.0, 450.0)
+		human_size.x = clampf(human_size.x, 390.0 * GAME_MENU_BUTTON_SCALE, 450.0 * GAME_MENU_BUTTON_SCALE)
 	y = _place_free_roll_button_grid(panel, human_paths, margin_x, y, content_width, human_cols, human_size, human_gap, 26.0)
 
 	y += 34.0
@@ -10690,8 +10692,8 @@ func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
 	var cycle_cols: int = 2 if content_width >= 760.0 else 1
 	var cycle_gap: float = 30.0 if cycle_cols == 2 else 0.0
 	var cycle_size := Vector2(
-		420.0 if cycle_cols == 2 else minf(520.0, content_width - (margin_x * 2.0)),
-		156.0 if cycle_cols == 2 else 168.0
+		420.0 * GAME_MENU_BUTTON_SCALE if cycle_cols == 2 else minf(520.0 * GAME_MENU_BUTTON_SCALE, content_width - (margin_x * 2.0)),
+		round((156.0 if cycle_cols == 2 else 168.0) * GAME_MENU_BUTTON_SCALE)
 	)
 	y = _place_free_roll_button_grid(panel, cycle_paths, margin_x, y, content_width, cycle_cols, cycle_size, cycle_gap, 24.0)
 
@@ -10714,8 +10716,8 @@ func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
 	]
 	var one_map_cols: int = 2 if content_width >= 760.0 else 1
 	var one_map_size := Vector2(
-		420.0 if one_map_cols == 2 else minf(520.0, content_width - (margin_x * 2.0)),
-		150.0
+		420.0 * GAME_MENU_BUTTON_SCALE if one_map_cols == 2 else minf(520.0 * GAME_MENU_BUTTON_SCALE, content_width - (margin_x * 2.0)),
+		round(150.0 * GAME_MENU_BUTTON_SCALE)
 	)
 	y = _place_free_roll_button_grid(panel, one_map_paths, margin_x, y, content_width, one_map_cols, one_map_size, 34.0, 22.0)
 
@@ -10731,12 +10733,12 @@ func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
 	var map_gap: float = 30.0 if map_cols == 2 else 0.0
 	var map_size := Vector2(
 		floor((content_width - (margin_x * 2.0) - (map_gap * float(map_cols - 1))) / float(map_cols)),
-		144.0
+		round(144.0 * GAME_MENU_BUTTON_SCALE)
 	)
 	if map_cols == 1:
-		map_size.x = minf(520.0, content_width - (margin_x * 2.0))
+		map_size.x = minf(520.0 * GAME_MENU_BUTTON_SCALE, content_width - (margin_x * 2.0))
 	else:
-		map_size.x = clampf(map_size.x, 390.0, 440.0)
+		map_size.x = clampf(map_size.x, 390.0 * GAME_MENU_BUTTON_SCALE, 440.0 * GAME_MENU_BUTTON_SCALE)
 	y = _place_free_roll_button_grid(panel, three_map_paths, margin_x, y, content_width, map_cols, map_size, map_gap, 22.0)
 
 	y += 28.0
@@ -10750,7 +10752,7 @@ func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
 	y = _place_free_roll_button_grid(panel, five_map_paths, margin_x, y, content_width, map_cols, map_size, map_gap, 22.0)
 
 	y += 64.0
-	var cancel_size := Vector2(minf(440.0, content_width - (margin_x * 2.0)), 146.0)
+	var cancel_size := Vector2(minf(440.0 * GAME_MENU_BUTTON_SCALE, content_width - (margin_x * 2.0)), round(146.0 * GAME_MENU_BUTTON_SCALE))
 	y = _place_free_roll_button_grid(panel, ["EntryScroll/EntryBody/EntryCanvas/CancelButton"], margin_x, y, content_width, 1, cancel_size, 0.0, 0.0)
 	canvas.custom_minimum_size = Vector2(content_width, y + 150.0)
 

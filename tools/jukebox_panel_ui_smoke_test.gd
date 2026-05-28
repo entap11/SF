@@ -45,7 +45,7 @@ func _init() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: play sprite texture not applied")
 		quit(1)
 		return
-	if play_button.custom_minimum_size.y < 140.0:
+	if play_button.custom_minimum_size.y < 120.0:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: play button is too small")
 		quit(1)
 		return

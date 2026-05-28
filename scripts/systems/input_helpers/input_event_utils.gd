@@ -1,32 +1,47 @@
 class_name InputEventUtils
 extends RefCounted
 
+const MOUSE_BUTTON_P4_PRIMARY: int = 8
+const MOUSE_BUTTON_P4_SECONDARY: int = 9
+
 static func is_dev_mouse_override() -> bool:
 	if OS.has_feature("mobile"):
 		return false
 	return OS.is_debug_build() or Engine.is_editor_hint()
 
-static func dev_mouse_pid_from_button(button_index: int) -> int:
-	if not is_dev_mouse_override():
-		return -1
+static func is_player_pointer_button(button_index: int) -> bool:
+	return player_id_for_dev_pointer_button(button_index) != -1
+
+static func player_id_for_dev_pointer_button(button_index: int) -> int:
 	if button_index == MOUSE_BUTTON_LEFT:
 		return 1
 	if button_index == MOUSE_BUTTON_RIGHT:
 		return 2
+	if button_index == MOUSE_BUTTON_MIDDLE:
+		return 3
+	if button_index == MOUSE_BUTTON_P4_PRIMARY or button_index == MOUSE_BUTTON_P4_SECONDARY:
+		return 4
 	return -1
+
+static func dev_mouse_pid_from_button(button_index: int) -> int:
+	if not is_dev_mouse_override():
+		return -1
+	return player_id_for_dev_pointer_button(button_index)
 
 static func player_id_from_button(button_index: int, arena_api: Object, dev_pid: int = -1) -> int:
 	if dev_pid != -1:
 		return dev_pid
-	if is_dev_mouse_override():
-		if button_index == MOUSE_BUTTON_LEFT:
-			return 1
-		if button_index == MOUSE_BUTTON_RIGHT:
-			return 2
+	var active_pid: int = -1
 	if arena_api != null and arena_api.has_method("get_active_player_id"):
-		var active_pid: int = int(arena_api.call("get_active_player_id"))
-		if active_pid >= 1 and active_pid <= 4:
+		active_pid = int(arena_api.call("get_active_player_id"))
+	if is_dev_mouse_override():
+		if button_index == MOUSE_BUTTON_LEFT and active_pid >= 1 and active_pid <= 4:
 			return active_pid
+		var pointer_pid: int = player_id_for_dev_pointer_button(button_index)
+		if pointer_pid != -1:
+			return pointer_pid
+	if active_pid >= 1 and active_pid <= 4:
+		return active_pid
 	return 1
 
 static func get_viewport_from_arena(arena_api: Object) -> Viewport:

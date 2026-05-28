@@ -2,7 +2,7 @@ class_name HiveGeometry
 extends RefCounted
 
 # Single source of truth for hive base geometry used by both visuals and LOS occlusion.
-const BASE_DIAMETER_PX: float = 54.0
+const BASE_DIAMETER_PX: float = 64.8
 const BASE_RADIUS_PX: float = BASE_DIAMETER_PX * 0.5
 
 # Keep LOS occlusion coupled to rendered hive size: changing base radius changes occlusion.

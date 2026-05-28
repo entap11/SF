@@ -35,7 +35,7 @@ horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="SelectorPanel" type="Panel" parent="VBox"]
-custom_minimum_size = Vector2(0, 350)
+custom_minimum_size = Vector2(0, 270)
 size_flags_vertical = 3
 size_flags_stretch_ratio = 0.4
 
@@ -95,7 +95,7 @@ custom_minimum_size = Vector2(92, 92)
 text = "RIGHT"
 
 [node name="PlayButton" type="Button" parent="VBox/SelectorPanel/SelectorVBox"]
-custom_minimum_size = Vector2(620, 150)
+custom_minimum_size = Vector2(324, 74)
 size_flags_horizontal = 4
 tooltip_text = "Play selected map"
 flat = true
@@ -155,9 +155,9 @@ autowrap_mode = 3
 text = "Bot detail"
 
 [node name="HeroPanel" type="Panel" parent="VBox"]
-custom_minimum_size = Vector2(0, 200)
+custom_minimum_size = Vector2(0, 320)
 size_flags_vertical = 3
-size_flags_stretch_ratio = 0.27
+size_flags_stretch_ratio = 0.48
 
 [node name="HeroVBox" type="VBoxContainer" parent="VBox/HeroPanel"]
 anchors_preset = 15
@@ -173,7 +173,7 @@ theme_override_constants/separation = 10
 text = "Map"
 
 [node name="HeroPreviewPanel" type="Panel" parent="VBox/HeroPanel/HeroVBox"]
-custom_minimum_size = Vector2(0, 200)
+custom_minimum_size = Vector2(0, 292)
 size_flags_horizontal = 3
 size_flags_vertical = 3
 

@@ -575,6 +575,12 @@ func _async_mode_wants_visibility() -> bool:
 	match mode:
 		"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
 			return true
+		"1V1", "2V2", "PVP":
+			return true
+		"3P FFA", "3P_FFA", "4P FFA", "4P_FFA":
+			return true
+		"CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG", "CTF", "HIDDEN CTF":
+			return true
 		_:
 			return false
 

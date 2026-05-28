@@ -8,8 +8,8 @@ const METAL_MID: Color = Color(0.42, 0.45, 0.50, 0.78)
 const METAL_EDGE: Color = Color(0.84, 0.88, 0.92, 0.56)
 const SHADOW: Color = Color(0.0, 0.0, 0.0, 0.58)
 
-const TOWER_RADIUS_PX: float = 22.0
-const BARRACKS_RADIUS_PX: float = 17.0
+const TOWER_RADIUS_PX: float = 26.4
+const BARRACKS_RADIUS_PX: float = 20.4
 const BACK_WIDTH_PX: float = 7.5
 const FACE_WIDTH_PX: float = 4.2
 const ACCENT_WIDTH_PX: float = 2.3

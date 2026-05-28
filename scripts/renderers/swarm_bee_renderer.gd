@@ -3,17 +3,17 @@ extends Node2D
 const BEE_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/mvp_unit2.png")
 
 const MAX_VISIBLE_BEES: int = 9
-const NUMBER_LABEL_SIZE: Vector2 = Vector2(78.0, 50.0)
-const NUMBER_FONT_SIZE: int = 32
-const BEE_SIZE_PX: float = 36.0
+const NUMBER_LABEL_SIZE: Vector2 = Vector2(93.6, 60.0)
+const NUMBER_FONT_SIZE: int = 38
+const BEE_SIZE_PX: float = 43.2
 const BEE_OUTLINE_SCALE_MULT: float = 1.32
 const BEE_OUTLINE_COLOR: Color = Color(0.02, 0.02, 0.03, 0.98)
 const BEE_GLOW_SCALE_MULT: float = 1.72
 const BEE_GLOW_ALPHA_MIN: float = 0.18
 const BEE_GLOW_ALPHA_MAX: float = 0.42
 const BEE_SPRITE_FORWARD_DEG: float = 90.0
-const ORBIT_RADIUS_MIN_PX: float = 24.0
-const ORBIT_RADIUS_MAX_PX: float = 34.0
+const ORBIT_RADIUS_MIN_PX: float = 28.8
+const ORBIT_RADIUS_MAX_PX: float = 40.8
 const ORBIT_SPEED_BASE: float = 1.85
 const ORBIT_SPEED_VARIANCE: float = 0.38
 const WOBBLE_AMPLITUDE_PX: float = 2.2

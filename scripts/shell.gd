@@ -6,10 +6,12 @@ const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
 const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/startup_launch_request_resolver.gd")
 const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
 const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
 const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
+const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const SHELL_BUFFER_ROOT_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
@@ -162,6 +164,7 @@ var _shell_prematch_record_p3: Label = null
 var _shell_prematch_record_p4: Label = null
 var _shell_prematch_record_h2h: Label = null
 var _telemetry_dashboard_panel: Control = null
+var _pvp_debug_overlay: Control = null
 
 func _install_error_hooks() -> void:
 	if _err_conn_ready:
@@ -270,6 +273,7 @@ func _ready() -> void:
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 050: before_wire_map_picker_ui")
 	_safe_call("wire_map_picker_ui", Callable(self, "_wire_map_picker_ui"))
 	_safe_call("wire_buff_ui", Callable(self, "_wire_buff_ui"))
+	_safe_call("ensure_pvp_debug_overlay", Callable(self, "_ensure_pvp_debug_overlay"))
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 060: after_wire_map_picker_ui")
 	if back_button != null:
 		if not back_button.pressed.is_connected(_on_back_pressed):
@@ -850,6 +854,33 @@ func _close_telemetry_dashboard() -> void:
 		return
 	_telemetry_dashboard_panel.visible = false
 
+func _ensure_pvp_debug_overlay() -> Control:
+	if _pvp_debug_overlay != null and is_instance_valid(_pvp_debug_overlay):
+		return _pvp_debug_overlay
+	var hud_root: Control = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as Control
+	if hud_root == null:
+		return null
+	var existing: Control = hud_root.get_node_or_null("PvpDebugOverlay") as Control
+	if existing != null:
+		_pvp_debug_overlay = existing
+		return _pvp_debug_overlay
+	var overlay_any: Variant = PvpDebugOverlayScript.new()
+	if not (overlay_any is Control):
+		return null
+	var overlay: Control = overlay_any as Control
+	overlay.name = "PvpDebugOverlay"
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.offset_left = 0.0
+	overlay.offset_top = 0.0
+	overlay.offset_right = 0.0
+	overlay.offset_bottom = 0.0
+	overlay.z_as_relative = false
+	overlay.z_index = 5000
+	hud_root.add_child(overlay)
+	_pvp_debug_overlay = overlay
+	return _pvp_debug_overlay
+
 func _on_picker_back_pressed() -> void:
 	SFLog.info("MAP_PICKER_CLOSE", {})
 	if _map_picker_panel != null:
@@ -1054,6 +1085,11 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		SFLog.error("APPLY_MAP_BAIL_MISSING_RESOURCE", {"map_path": map_path})
 		return
 	var tree: SceneTree = get_tree()
+	var mode_validation: Dictionary = _validate_launch_map_mode_contract(map_path, tree)
+	if not bool(mode_validation.get("ok", false)):
+		_set_shell_status("Launch blocked. %s does not support this mode." % _map_display_name(map_path), "error")
+		_report_map_mode_contract_violation(str(mode_validation.get("mode", "")), map_path, str(mode_validation.get("reason", "invalid_map_mode")))
+		return
 	if tree != null:
 		var clean_tutorial_section: String = tutorial_section.strip_edges()
 		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
@@ -1096,6 +1132,56 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 060_ACTION_RETURNED", {"action": "start_game"})
 	call_deferred("_verify_map_applied_and_start", map_path)
 	SFLog.info("APPLY_MAP_THEN_START_DONE", {"map_path": map_path})
+
+func _validate_launch_map_mode_contract(map_path: String, tree: SceneTree) -> Dictionary:
+	var mode: String = _launch_mode_for_map_contract(tree)
+	if _mode_uses_jukebox_map_catalog(mode, tree):
+		return {
+			"ok": true,
+			"mode": mode,
+			"reason": "jukebox_catalog"
+		}
+	var loaded: Dictionary = MAP_LOADER.load_map(map_path)
+	if not bool(loaded.get("ok", false)):
+		return {
+			"ok": false,
+			"mode": mode,
+			"reason": str(loaded.get("err", "load_failed"))
+		}
+	var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
+	summary["mode"] = mode
+	return summary
+
+func _mode_uses_jukebox_map_catalog(mode: String, tree: SceneTree) -> bool:
+	var clean_mode: String = mode.strip_edges().to_upper()
+	if clean_mode != "ASYNC_SINGLE_MAP_TIMED":
+		return false
+	if tree != null and bool(tree.get_meta("jukebox_board_enabled", false)):
+		return true
+	return false
+
+func _launch_mode_for_map_contract(tree: SceneTree) -> String:
+	if tree != null:
+		var mode: String = str(tree.get_meta("vs_mode", "")).strip_edges()
+		if not mode.is_empty():
+			return mode
+		var required_players: int = int(tree.get_meta("vs_required_players", 0))
+		if required_players == 3:
+			return "3P FFA"
+		if required_players == 4:
+			return "4P FFA"
+	return "1V1"
+
+func _report_map_mode_contract_violation(mode: String, path: String, reason: String) -> void:
+	var map_id: String = MAP_REGISTRY.map_id_from_path(path)
+	var payload: Dictionary = {
+		"mode": mode,
+		"map_path": path,
+		"map_id": map_id,
+		"reason": reason
+	}
+	SFLog.warn("MAP_MODE_CONTRACT_VIOLATION", payload)
+	push_error("MAP_MODE_CONTRACT_VIOLATION: mode=%s map=%s reason=%s" % [mode, map_id, reason])
 
 func _apply_map_direct_to_arena(map_path: String) -> bool:
 	if _arena_instance == null:
@@ -2367,26 +2453,51 @@ func _is_match_live() -> bool:
 	var phase: int = int(OpsState.match_phase)
 	var prematch_ms: int = int(OpsState.prematch_remaining_ms)
 	if phase == int(OpsState.MatchPhase.PREMATCH):
-		if _show_power_bar_during_async_prematch():
+		if _mode_shows_power_bar_during_prematch(_shell_match_mode_id()):
 			return true
 		return prematch_ms <= PREMATCH_POWERBAR_REVEAL_WINDOW_MS
 	return phase == int(OpsState.MatchPhase.RUNNING) and prematch_ms <= 0
 
 func _show_power_bar_during_async_prematch() -> bool:
-	if _arena_instance == null:
-		return false
+	return _mode_shows_power_bar_during_prematch(_shell_match_mode_id())
+
+func _show_shell_async_prematch_buffers() -> bool:
+	return _mode_shows_buff_placeholders_during_prematch(_shell_match_mode_id())
+
+func _shell_match_mode_id() -> String:
 	var tree: SceneTree = get_tree()
 	if tree == null:
-		return false
-	var mode: String = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
-	match mode:
-		"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
+		return ""
+	return str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+
+func _mode_uses_full_match_hud(mode_id: String) -> bool:
+	match mode_id.strip_edges().to_upper():
+		"ASYNC_SINGLE_MAP_TIMED", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT":
+			return true
+		"1V1", "2V2", "PVP":
+			return true
+		"3P FFA", "3P_FFA", "4P FFA", "4P_FFA":
+			return true
+		"CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG", "CTF", "HIDDEN CTF":
 			return true
 		_:
 			return false
 
-func _show_shell_async_prematch_buffers() -> bool:
-	return _show_power_bar_during_async_prematch()
+func _mode_shows_power_bar_during_prematch(mode_id: String) -> bool:
+	return _arena_instance != null and _mode_uses_full_match_hud(mode_id)
+
+func _mode_shows_buff_placeholders_during_prematch(mode_id: String) -> bool:
+	return _arena_instance != null and _mode_uses_full_match_hud(mode_id)
+
+func _mode_shows_shell_prematch_card(mode_id: String) -> bool:
+	return _arena_instance != null and _mode_uses_full_match_hud(mode_id)
+
+func _mode_uses_async_prematch_details(mode_id: String) -> bool:
+	match mode_id.strip_edges().to_upper():
+		"ASYNC_SINGLE_MAP_TIMED", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT":
+			return true
+		_:
+			return false
 
 func _sync_shell_async_prematch_overlay() -> void:
 	var overlay: Control = _ensure_shell_async_prematch_overlay()
@@ -2427,11 +2538,7 @@ func _show_shell_async_prematch_card() -> bool:
 		return false
 	if int(OpsState.match_phase) != int(OpsState.MatchPhase.PREMATCH):
 		return false
-	match _shell_async_mode_id():
-		"STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED":
-			return true
-		_:
-			return false
+	return _mode_shows_shell_prematch_card(_shell_match_mode_id())
 
 func _ensure_shell_async_prematch_overlay() -> Control:
 	if _shell_prematch_overlay != null and is_instance_valid(_shell_prematch_overlay):
@@ -2592,10 +2699,7 @@ func _layout_shell_async_prematch_overlay() -> void:
 	)
 
 func _shell_async_mode_id() -> String:
-	var tree: SceneTree = get_tree()
-	if tree == null:
-		return ""
-	return str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+	return _shell_match_mode_id()
 
 func _shell_async_prematch_mode_banner() -> String:
 	match _shell_async_mode_id():
@@ -2605,13 +2709,27 @@ func _shell_async_prematch_mode_banner() -> String:
 			return "TIMED RACE"
 		"MISS_N_OUT":
 			return "MISS N OUT"
+		"1V1", "PVP":
+			return "1V1"
+		"2V2":
+			return "2V2"
+		"3P FFA", "3P_FFA":
+			return "3P FFA"
+		"4P FFA", "4P_FFA":
+			return "4P FFA"
+		"CAPTURE_FLAG", "CTF":
+			return "CAPTURE THE FLAG"
+		"HIDDEN_CAPTURE_FLAG", "HIDDEN CTF":
+			return "HIDDEN CTF"
 		_:
-			return "STAGE RACE"
+			return "MATCH"
 
 func _shell_async_prematch_round_line() -> String:
 	var stage_maps: Array[String] = _shell_stage_map_paths()
 	if _shell_async_mode_id() == "ASYNC_SINGLE_MAP_TIMED":
 		return "Single map run"
+	if not _mode_uses_async_prematch_details(_shell_async_mode_id()):
+		return "Single map match"
 	if stage_maps.is_empty():
 		return "Async run"
 	var tree: SceneTree = get_tree()
@@ -2650,12 +2768,47 @@ func _shell_async_prematch_detail_lines() -> Array[String]:
 				"Survive the set, then sort by time. %s" % _shell_async_bot_line(),
 				_shell_async_track_line()
 			]
-		_:
+		"STAGE_RACE":
 			return [
 				"Map: %s" % _shell_async_map_title(),
 				"%d stages back to back. Clear this map, then roll into the next one." % stage_count,
 				"Fastest total run wins. %s" % _shell_async_bot_line(),
 				_shell_async_track_line()
+			]
+		"CAPTURE_FLAG", "CTF":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Find and break the enemy flag hive.",
+				"Power bar, buffs, and match countdown are active.",
+				"Protect your own flag while pushing lanes."
+			]
+		"HIDDEN_CAPTURE_FLAG", "HIDDEN CTF":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Lock your hidden flag hive before the match starts.",
+				"Power bar, buffs, and match countdown are active.",
+				"Moving the flag follows this match's rule settings."
+			]
+		"2V2":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Team match. Coordinate lane pressure and defense.",
+				"Power bar, buffs, and match countdown are active.",
+				"Shared control decides the map."
+			]
+		"3P FFA", "3P_FFA", "4P FFA", "4P_FFA":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Free-for-all match. Every seat plays for control.",
+				"Power bar, buffs, and match countdown are active.",
+				"Hold territory and collapse exposed hives."
+			]
+		_:
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Live multiplayer match.",
+				"Power bar, buffs, and match countdown are active.",
+				"Capture and hold the map."
 			]
 
 func _shell_stage_map_paths() -> Array[String]:
