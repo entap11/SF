@@ -10,6 +10,7 @@ const BATTLE_PASS_PANEL_SCENE_PATH: String = "res://scenes/ui/BattlePassPanel.ts
 const RANK_PANEL_SCENE_PATH: String = "res://scenes/ui/RankPanel.tscn"
 const JUKEBOX_PANEL_SCENE_PATH: String = "res://scenes/ui/JukeboxPanel.tscn"
 const GARAGE_PANEL_SCENE_PATH: String = "res://scenes/ui/GaragePanel.tscn"
+const SCHOLASTIC_PANEL_SCENE_PATH: String = "res://scenes/ui/ScholasticPanel.tscn"
 const FREE_ROLL_GAME_HUB_SCENE_PATH: String = "res://scenes/ui/FreeRollGameHub.tscn"
 const DASH_BUFFS_HERO_SCENE_PATH: String = "res://scenes/ui/DashBuffsHero.tscn"
 const DASH_ACHIEVEMENTS_HERO_SCENE_PATH: String = "res://scenes/ui/DashAchievementsHero.tscn"
@@ -83,6 +84,8 @@ const DASH_HERO_TAB_GARAGE := "garage"
 const DASH_HERO_TAB_BUFFS := "buffs"
 const DASH_HERO_TAB_ACHIEVEMENTS := "achievements"
 const DASH_HERO_TAB_FRIENDS := "friends"
+const SCHOLASTIC_SFU_MAX_AGE: int = 24
+const SCHOLASTIC_CTA_COOLDOWN_SEC: int = 5 * 60
 const DASH_HEX_BUFFS_KEY := "ui.mm.buffs.normal"
 const DASH_HEX_STORE_KEY := "ui.mm.store.normal"
 const DASH_HEX_HIVE_KEY := "ui.mm.hive.normal"
@@ -278,6 +281,11 @@ var _dash_buffs_hero: Control = null
 var _dash_achievements_hero: Control = null
 var _dash_friends_panel: Control = null
 var _dash_friends_tab: Button = null
+var _dash_scholastic_panel: Panel = null
+var _dash_scholastic_tab: Button = null
+var _scholastic_cta_dialog: ConfirmationDialog = null
+var _scholastic_cta_timer: Timer = null
+var _scholastic_last_cta_unix: int = 0
 var _friends_list_vbox: VBoxContainer = null
 var _friends_empty_label: Label = null
 var _friend_presence_timer: Timer = null
@@ -501,6 +509,12 @@ var _async_assigned_map := {
 }
 var _async_paid_entry_usd: int = 1
 var _async_track_mode: String = "select"
+var _tournament_track_mode: String = "free"
+var _tournament_browser_root: VBoxContainer = null
+var _tournament_free_tab: Button = null
+var _tournament_money_tab: Button = null
+var _tournament_list: VBoxContainer = null
+var _joined_tournaments: Dictionary = {}
 var _money_games_selected_division: String = "division_i"
 var _money_games_selected_tier: int = 1
 
@@ -511,6 +525,8 @@ const ASYNC_CONFIRM_WINDOW_MS := 900
 const ASYNC_TRACK_SELECT := "select"
 const ASYNC_TRACK_PAID := "paid"
 const ASYNC_TRACK_FREE := "free"
+const TOURNAMENT_TRACK_FREE := "free"
+const TOURNAMENT_TRACK_MONEY := "money"
 const ASYNC_STAGE_AND_MISS_WINDOW_SEC := 30 * 60
 const ASYNC_WINDOW_START_PLAYERS := 5
 const ASYNC_TIMED_RACE_SYNC_JOIN_SEC := 30
@@ -1107,6 +1123,7 @@ func _ready() -> void:
 	_ensure_honey_widget()
 	_style_labels()
 	_ensure_friends_tab()
+	_ensure_scholastic_dash_surface()
 	_style_buttons()
 	_apply_bottom_nav_sprite_presentation()
 	_apply_bottom_nav_layout()
@@ -1130,6 +1147,7 @@ func _ready() -> void:
 	_load_profile_commerce_state()
 	_bind_profile_honey_signal()
 	_bind_profile_dash_signals()
+	_bind_scholastic_dashboard_state()
 	_apply_performance_pref_from_profile()
 	call_deferred("_init_dash_state")
 	call_deferred("_finish_noncritical_menu_boot")
@@ -1143,6 +1161,7 @@ func _ready() -> void:
 			HiveClanState.hive_clan_state_changed.connect(_on_hive_clan_state_changed)
 	_sync_hive_panel_profile_from_hive_state()
 	_start_friend_presence_poll()
+	_start_scholastic_cta_timer()
 	call_deferred("_sync_main_art_shroud")
 	call_deferred("_play_mm_boot_sound")
 	call_deferred("_auto_start_home_replay")
@@ -1152,6 +1171,8 @@ func _finish_noncritical_menu_boot() -> void:
 	_load_match_history()
 	_refresh_home_replay_hint()
 	_configure_dash_account_surfaces()
+	_refresh_scholastic_dash_visibility()
+	_maybe_show_sfa_join_cta(true)
 
 func _load_packed_scene(path: String) -> PackedScene:
 	var clean_path: String = path.strip_edges()
@@ -1606,6 +1627,8 @@ func _apply_performance_pref_from_profile() -> void:
 
 func _on_onboarding_done() -> void:
 	onboarding_overlay.visible = false
+	_refresh_scholastic_dash_visibility()
+	_maybe_show_sfa_join_cta(true)
 
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()
@@ -1896,10 +1919,10 @@ func _style_buttons() -> void:
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
 	_apply_free_roll_atlas_font(menu_free_roll_button, 14)
 	if menu_unused_button != null:
-		menu_unused_button.visible = false
-		menu_unused_button.text = "SETTINGS"
+		menu_unused_button.visible = true
+		menu_unused_button.text = "TOURNAMENTS"
 		_apply_font(menu_unused_button, _font_regular, 14)
-		_style_button(menu_unused_button, Color(0.12, 0.13, 0.16), Color(0.35, 0.38, 0.45), Color(0.9, 0.9, 0.9))
+		_style_button(menu_unused_button, Color(0.12, 0.13, 0.16), Color(0.78, 0.62, 0.24), Color(0.96, 0.92, 0.80))
 	for button in replay_controls_buttons:
 		_apply_font(button, _font_regular, 12)
 		_style_button(button, Color(0.1, 0.11, 0.14), Color(0.4, 0.42, 0.5), Color(0.92, 0.92, 0.92))
@@ -1940,7 +1963,7 @@ func _style_dash_top_tabs() -> void:
 	if dash_tabs != null:
 		dash_tabs.alignment = BoxContainer.ALIGNMENT_CENTER
 		dash_tabs.add_theme_constant_override("separation", 12)
-	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, dash_settings_tab, _dash_friends_tab]:
+	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_scholastic_tab, dash_settings_tab, _dash_friends_tab]:
 		if button == null:
 			continue
 		button.toggle_mode = true
@@ -1997,7 +2020,7 @@ func _wire_buttons() -> void:
 	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
 	menu_jukebox_button.pressed.connect(_open_jukebox_from_menu_button)
 	if menu_unused_button != null:
-		menu_unused_button.pressed.connect(_on_settings_pressed)
+		menu_unused_button.pressed.connect(_open_tournament_panel)
 	hive_button.pressed.connect(_toggle_hive_dropdown)
 	dash_tab.pressed.connect(_toggle_dash)
 	dash_garage_tab.pressed.connect(func() -> void:
@@ -6032,6 +6055,160 @@ func _ensure_friends_tab() -> void:
 	dash_tabs.add_child(button)
 	_dash_friends_tab = button
 
+func _ensure_scholastic_dash_surface() -> void:
+	if dash_panel == null or dash_tabs == null:
+		return
+	if _dash_scholastic_tab == null or not is_instance_valid(_dash_scholastic_tab):
+		var button := Button.new()
+		button.name = "ScholasticTab"
+		button.text = "SFA / SFU"
+		button.toggle_mode = true
+		button.custom_minimum_size = Vector2(180.0, 44.0)
+		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		button.visible = false
+		button.pressed.connect(func() -> void:
+			if _dash_scholastic_panel != null:
+				_open_dash_panel(_dash_scholastic_panel)
+		)
+		var settings_index: int = dash_settings_tab.get_index() if dash_settings_tab != null else dash_tabs.get_child_count()
+		dash_tabs.add_child(button)
+		dash_tabs.move_child(button, settings_index)
+		_dash_scholastic_tab = button
+	if _dash_scholastic_panel == null or not is_instance_valid(_dash_scholastic_panel):
+		var scene: PackedScene = _load_packed_scene(SCHOLASTIC_PANEL_SCENE_PATH)
+		if scene == null:
+			return
+		var panel_any: Node = scene.instantiate()
+		if not (panel_any is Panel):
+			return
+		var panel: Panel = panel_any as Panel
+		panel.name = "DashScholasticPanel"
+		panel.anchor_left = 0.0
+		panel.anchor_top = 0.0
+		panel.anchor_right = 1.0
+		panel.anchor_bottom = 1.0
+		panel.offset_left = 0.0
+		panel.offset_top = 0.0
+		panel.offset_right = 0.0
+		panel.offset_bottom = 0.0
+		panel.visible = false
+		dash_panel.add_child(panel)
+		if panel.has_signal("close_requested"):
+			panel.connect("close_requested", func() -> void:
+				_close_dash_panel(panel)
+			)
+		if panel.has_signal("scholastic_intent_submitted"):
+			panel.connect("scholastic_intent_submitted", Callable(self, "_on_scholastic_intent_submitted"))
+		_style_panel(panel, Color(0.06, 0.07, 0.1, 0.98), Color(0.45, 0.48, 0.58, 0.8))
+		_dash_scholastic_panel = panel
+
+func _bind_scholastic_dashboard_state() -> void:
+	var state_node: Node = _scholastic_state()
+	if state_node == null or not state_node.has_signal("scholastic_state_changed"):
+		_refresh_scholastic_dash_visibility()
+		return
+	var callback: Callable = Callable(self, "_on_scholastic_state_changed")
+	if not state_node.is_connected("scholastic_state_changed", callback):
+		state_node.connect("scholastic_state_changed", callback)
+	_refresh_scholastic_dash_visibility()
+
+func _on_scholastic_state_changed(_snapshot: Dictionary) -> void:
+	_refresh_scholastic_dash_visibility()
+	_maybe_show_sfa_join_cta(false)
+
+func _refresh_scholastic_dash_visibility() -> void:
+	_ensure_scholastic_dash_surface()
+	var visible_for_age: bool = _is_scholastic_dash_age_eligible()
+	if _dash_scholastic_tab != null:
+		_dash_scholastic_tab.visible = visible_for_age
+	if not visible_for_age and _dash_scholastic_panel != null and _dash_scholastic_panel.visible:
+		_close_dash_panel(_dash_scholastic_panel)
+	_refresh_dash_top_tabs()
+
+func _is_scholastic_dash_age_eligible() -> bool:
+	var profile: Dictionary = _current_scholastic_profile()
+	if profile.is_empty():
+		return false
+	var age_years: int = int(profile.get("age_years", -1))
+	if age_years >= 0 and age_years < 18:
+		return true
+	if age_years >= 18 and age_years <= SCHOLASTIC_SFU_MAX_AGE:
+		return true
+	var sfa: Dictionary = profile.get("sfa", {}) as Dictionary
+	var sfu: Dictionary = profile.get("sfu", {}) as Dictionary
+	return bool(sfa.get("is_user", false)) or str(sfu.get("sfu_status", "")).strip_edges().to_upper() == "ACTIVE"
+
+func _start_scholastic_cta_timer() -> void:
+	if _scholastic_cta_timer != null and is_instance_valid(_scholastic_cta_timer):
+		return
+	_scholastic_cta_timer = Timer.new()
+	_scholastic_cta_timer.name = "ScholasticCtaTimer"
+	_scholastic_cta_timer.wait_time = float(SCHOLASTIC_CTA_COOLDOWN_SEC)
+	_scholastic_cta_timer.one_shot = false
+	_scholastic_cta_timer.timeout.connect(func() -> void:
+		_maybe_show_sfa_join_cta(false)
+	)
+	add_child(_scholastic_cta_timer)
+	_scholastic_cta_timer.start()
+
+func _maybe_show_sfa_join_cta(is_boot: bool) -> void:
+	if not _should_show_sfa_join_cta():
+		return
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	if not is_boot and now_unix - _scholastic_last_cta_unix < SCHOLASTIC_CTA_COOLDOWN_SEC:
+		return
+	if _scholastic_cta_dialog != null and is_instance_valid(_scholastic_cta_dialog) and _scholastic_cta_dialog.visible:
+		return
+	_scholastic_last_cta_unix = now_unix
+	_show_sfa_join_cta_dialog()
+
+func _should_show_sfa_join_cta() -> bool:
+	var profile: Dictionary = _current_scholastic_profile()
+	if profile.is_empty():
+		return false
+	var age_years: int = int(profile.get("age_years", -1))
+	if age_years < 0 or age_years >= 18:
+		return false
+	var sfa: Dictionary = profile.get("sfa", {}) as Dictionary
+	return bool(sfa.get("is_candidate", false)) and not bool(sfa.get("is_user", false))
+
+func _show_sfa_join_cta_dialog() -> void:
+	if _scholastic_cta_dialog != null and is_instance_valid(_scholastic_cta_dialog):
+		_scholastic_cta_dialog.queue_free()
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Join SFA"
+	dialog.dialog_text = "Add your high school, city, and state to join your SFA school hive."
+	dialog.exclusive = false
+	add_child(dialog)
+	dialog.get_ok_button().text = "Join SFA"
+	dialog.get_cancel_button().text = "Later"
+	dialog.confirmed.connect(func() -> void:
+		_open_scholastic_dash_from_cta()
+	)
+	dialog.canceled.connect(func() -> void:
+		_scholastic_last_cta_unix = int(Time.get_unix_time_from_system())
+	)
+	_scholastic_cta_dialog = dialog
+	dialog.popup_centered(Vector2i(520, 260))
+
+func _open_scholastic_dash_from_cta() -> void:
+	_ensure_scholastic_dash_surface()
+	_refresh_scholastic_dash_visibility()
+	if _dash_scholastic_panel != null:
+		_open_dash_panel(_dash_scholastic_panel)
+
+func _current_scholastic_profile() -> Dictionary:
+	var state_node: Node = _scholastic_state()
+	if state_node == null or not state_node.has_method("get_player_profile_snapshot"):
+		return {}
+	return state_node.call("get_player_profile_snapshot", _local_user_id()) as Dictionary
+
+func _scholastic_state() -> Node:
+	return get_node_or_null("/root/ScholasticState")
+
+func _on_scholastic_intent_submitted(_intent_name: String, _payload: Dictionary) -> void:
+	call_deferred("_refresh_scholastic_dash_visibility")
+
 func _build_friends_panel() -> Control:
 	if dash_match_panel == null:
 		return null
@@ -6299,6 +6476,10 @@ func _refresh_dash_top_tabs() -> void:
 	if _dash_friends_tab != null:
 		_dash_friends_tab.button_pressed = active_friends
 		_apply_dash_top_tab_style(_dash_friends_tab, active_friends)
+	if _dash_scholastic_tab != null:
+		var active_scholastic: bool = _dash_scholastic_panel != null and _dash_scholastic_panel.visible
+		_dash_scholastic_tab.button_pressed = active_scholastic
+		_apply_dash_top_tab_style(_dash_scholastic_tab, active_scholastic)
 	if dash_settings_tab != null:
 		var active_settings: bool = dash_settings_panel != null and dash_settings_panel.visible
 		dash_settings_tab.button_pressed = active_settings
@@ -12900,6 +13081,8 @@ func _open_dash_panel(panel: Panel) -> void:
 	panel.visible = true
 	if panel == dash_settings_panel:
 		_refresh_dash_top_tabs()
+	if panel == _dash_scholastic_panel:
+		_refresh_dash_top_tabs()
 
 func _open_dash_panel_from_menu(panel: Panel) -> void:
 	_open_dash_panel(panel)
@@ -12919,6 +13102,8 @@ func _close_dash_panel(panel: Panel) -> void:
 		_set_dash_panel_store_passthrough(false)
 	panel.visible = false
 	if panel == dash_settings_panel:
+		_refresh_dash_top_tabs()
+	if panel == _dash_scholastic_panel:
 		_refresh_dash_top_tabs()
 
 func _close_direct_replay_panel() -> void:
@@ -12943,7 +13128,7 @@ func _set_dash_panel_store_passthrough(enabled: bool) -> void:
 		_style_panel(dash_panel, DASH_PANEL_BG_COLOR, DASH_PANEL_BORDER_COLOR)
 
 func _hide_dash_panels() -> void:
-	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full, _jukebox_panel, _dash_friends_panel]:
+	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full, _jukebox_panel, _dash_friends_panel, _dash_scholastic_panel]:
 		if panel == null:
 			continue
 		panel.visible = false
@@ -13109,6 +13294,309 @@ func _launch_jukebox_map(map_path: String, cpu_style: String = "", cpu_tier: Str
 		return false
 	return true
 
+func _open_tournament_panel() -> void:
+	if async_panel == null:
+		return
+	_close_top_level_windows(UI_SURFACE_ASYNC)
+	async_panel.visible = true
+	_show_tournament_browser()
+	if status_label != null:
+		status_label.text = "Tournament lobby opened."
+
+func _show_tournament_browser() -> void:
+	_ensure_tournament_browser_ui()
+	if _tournament_browser_root == null:
+		return
+	if async_vbox != null:
+		async_vbox.visible = true
+	if async_weekly_panel != null:
+		async_weekly_panel.visible = false
+	if async_monthly_panel != null:
+		async_monthly_panel.visible = false
+	if async_yearly_panel != null:
+		async_yearly_panel.visible = false
+	if async_top_row != null:
+		async_top_row.visible = false
+	if async_bottom_row != null:
+		async_bottom_row.visible = false
+	if async_footer_label != null:
+		async_footer_label.visible = false
+	var title_label := get_node_or_null("AsyncPanel/AsyncVBox/AsyncTitle") as Label
+	if title_label != null:
+		title_label.text = "TOURNAMENTS"
+	if async_subtitle_label != null:
+		async_subtitle_label.text = "Browse scheduled Domination, CTF, and Hidden CTF events."
+	if _tournament_browser_root != null:
+		_tournament_browser_root.visible = true
+	_refresh_tournament_browser()
+
+func _ensure_tournament_browser_ui() -> void:
+	if _tournament_browser_root != null and is_instance_valid(_tournament_browser_root):
+		return
+	var body := get_node_or_null("AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox") as VBoxContainer
+	if body == null:
+		return
+	_tournament_browser_root = VBoxContainer.new()
+	_tournament_browser_root.name = "TournamentBrowser"
+	_tournament_browser_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tournament_browser_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_tournament_browser_root.add_theme_constant_override("separation", 14)
+	body.add_child(_tournament_browser_root)
+
+	var tab_row := HBoxContainer.new()
+	tab_row.name = "TournamentTabs"
+	tab_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tab_row.add_theme_constant_override("separation", 12)
+	_tournament_browser_root.add_child(tab_row)
+
+	_tournament_free_tab = Button.new()
+	_tournament_free_tab.name = "TournamentFreeTab"
+	_tournament_free_tab.text = "FREE PLAY"
+	_tournament_free_tab.toggle_mode = true
+	_tournament_free_tab.custom_minimum_size = Vector2(0.0, 64.0)
+	_tournament_free_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tournament_free_tab.pressed.connect(func() -> void:
+		_set_tournament_track(TOURNAMENT_TRACK_FREE)
+	)
+	tab_row.add_child(_tournament_free_tab)
+
+	_tournament_money_tab = Button.new()
+	_tournament_money_tab.name = "TournamentMoneyTab"
+	_tournament_money_tab.text = "$ ENTRIES"
+	_tournament_money_tab.toggle_mode = true
+	_tournament_money_tab.custom_minimum_size = Vector2(0.0, 64.0)
+	_tournament_money_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tournament_money_tab.pressed.connect(func() -> void:
+		_set_tournament_track(TOURNAMENT_TRACK_MONEY)
+	)
+	tab_row.add_child(_tournament_money_tab)
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "TournamentScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_tournament_browser_root.add_child(scroll)
+	_tournament_list = VBoxContainer.new()
+	_tournament_list.name = "TournamentList"
+	_tournament_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tournament_list.add_theme_constant_override("separation", 10)
+	scroll.add_child(_tournament_list)
+
+	var footer := Label.new()
+	footer.name = "TournamentFooter"
+	footer.text = "Rows auto-start when full or at their posted time."
+	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	footer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88, 0.68))
+	_apply_font(footer, _font_regular, 14)
+	_tournament_browser_root.add_child(footer)
+	_enable_touch_drag_scroll(scroll)
+
+func _set_tournament_track(track: String) -> void:
+	_tournament_track_mode = track if track == TOURNAMENT_TRACK_MONEY else TOURNAMENT_TRACK_FREE
+	_refresh_tournament_browser()
+
+func _refresh_tournament_browser() -> void:
+	if _tournament_list == null:
+		return
+	if _tournament_free_tab != null:
+		_tournament_free_tab.button_pressed = _tournament_track_mode == TOURNAMENT_TRACK_FREE
+		_style_tournament_tab(_tournament_free_tab, _tournament_track_mode == TOURNAMENT_TRACK_FREE)
+	if _tournament_money_tab != null:
+		_tournament_money_tab.button_pressed = _tournament_track_mode == TOURNAMENT_TRACK_MONEY
+		_style_tournament_tab(_tournament_money_tab, _tournament_track_mode == TOURNAMENT_TRACK_MONEY)
+	for child in _tournament_list.get_children():
+		child.queue_free()
+	for tournament_any in _tournament_defs():
+		var tournament: Dictionary = tournament_any as Dictionary
+		if str(tournament.get("track", TOURNAMENT_TRACK_FREE)) != _tournament_track_mode:
+			continue
+		_tournament_list.add_child(_build_tournament_row(tournament))
+
+func _tournament_defs() -> Array[Dictionary]:
+	return [
+		{
+			"id": "free_domination_weekend",
+			"track": TOURNAMENT_TRACK_FREE,
+			"name": "Weekend Domination",
+			"type": "DOMINATION",
+			"shape": "1v1",
+			"joined": 18,
+			"capacity": 32,
+			"start": "Full or 7:00 PM",
+			"stakes": "Free entry",
+			"rules": "Delta + No Man's Land pool | no buffs",
+			"entry_usd": 0
+		},
+		{
+			"id": "free_ctf_lunch",
+			"track": TOURNAMENT_TRACK_FREE,
+			"name": "CTF Lunch Bracket",
+			"type": "CTF",
+			"shape": "1v1",
+			"joined": 11,
+			"capacity": 24,
+			"start": "Full or 12:30 PM",
+			"stakes": "Free entry",
+			"rules": "Shared public map pool | buffs capped 1",
+			"entry_usd": 0
+		},
+		{
+			"id": "free_hidden_flag_open",
+			"track": TOURNAMENT_TRACK_FREE,
+			"name": "Hidden Flag Open",
+			"type": "HIDDEN CTF",
+			"shape": "1v1",
+			"joined": 6,
+			"capacity": 16,
+			"start": "Full or 8:30 PM",
+			"stakes": "Free entry",
+			"rules": "Even-hive maps only | hidden flag",
+			"entry_usd": 0
+		},
+		{
+			"id": "money_domination_five",
+			"track": TOURNAMENT_TRACK_MONEY,
+			"name": "Friday Domination $5",
+			"type": "DOMINATION",
+			"shape": "1v1",
+			"joined": 21,
+			"capacity": 32,
+			"start": "Full or 8:00 PM",
+			"stakes": "$5 entry | est. pool $120",
+			"rules": "No buffs | top 4 paid",
+			"entry_usd": 5
+		},
+		{
+			"id": "money_ctf_ten",
+			"track": TOURNAMENT_TRACK_MONEY,
+			"name": "Prime CTF $10",
+			"type": "CTF",
+			"shape": "1v1",
+			"joined": 9,
+			"capacity": 16,
+			"start": "Full or 9:00 PM",
+			"stakes": "$10 entry | est. pool $128",
+			"rules": "Direct flag mode | top 2 paid",
+			"entry_usd": 10
+		},
+		{
+			"id": "money_hidden_flag_three",
+			"track": TOURNAMENT_TRACK_MONEY,
+			"name": "Hidden Flag $3",
+			"type": "HIDDEN CTF",
+			"shape": "1v1",
+			"joined": 12,
+			"capacity": 24,
+			"start": "Full or 10:00 PM",
+			"stakes": "$3 entry | est. pool $54",
+			"rules": "Even-hive maps only | top 3 paid",
+			"entry_usd": 3
+		}
+	]
+
+func _build_tournament_row(tournament: Dictionary) -> Panel:
+	var row := Panel.new()
+	row.custom_minimum_size = Vector2(0.0, 118.0)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_panel(row, Color(0.075, 0.082, 0.108, 0.94), Color(0.42, 0.43, 0.50, 0.68))
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	row.add_child(margin)
+
+	var line := HBoxContainer.new()
+	line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	line.add_theme_constant_override("separation", 16)
+	margin.add_child(line)
+
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	info.add_theme_constant_override("separation", 6)
+	line.add_child(info)
+
+	var top := Label.new()
+	top.text = "%s    %s    %d/%d players" % [
+		str(tournament.get("name", "Tournament")),
+		str(tournament.get("type", "MODE")),
+		int(tournament.get("joined", 0)),
+		int(tournament.get("capacity", 0))
+	]
+	top.clip_text = true
+	_apply_font(top, _font_semibold, 19)
+	top.add_theme_color_override("font_color", Color(0.96, 0.94, 0.88, 1.0))
+	info.add_child(top)
+
+	var middle := Label.new()
+	middle.text = "Starts %s | %s" % [str(tournament.get("start", "when full")), str(tournament.get("shape", "1v1"))]
+	middle.clip_text = true
+	_apply_font(middle, _font_regular, 16)
+	middle.add_theme_color_override("font_color", Color(0.84, 0.87, 0.92, 0.86))
+	info.add_child(middle)
+
+	var bottom := Label.new()
+	bottom.text = "%s | %s" % [str(tournament.get("stakes", "Free entry")), str(tournament.get("rules", ""))]
+	bottom.clip_text = true
+	_apply_font(bottom, _font_regular, 15)
+	bottom.add_theme_color_override("font_color", Color(0.78, 0.80, 0.86, 0.74))
+	info.add_child(bottom)
+
+	var join_button := Button.new()
+	var tournament_id := str(tournament.get("id", ""))
+	var joined := bool(_joined_tournaments.get(tournament_id, false))
+	var full := int(tournament.get("joined", 0)) >= int(tournament.get("capacity", 1))
+	join_button.custom_minimum_size = Vector2(164.0, 84.0)
+	join_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if joined:
+		join_button.text = "ENTERED"
+		join_button.disabled = true
+	elif full:
+		join_button.text = "FULL"
+		join_button.disabled = true
+	else:
+		var entry_usd := int(tournament.get("entry_usd", 0))
+		join_button.text = "JOIN $%d" % entry_usd
+		if entry_usd <= 0:
+			join_button.text = "JOIN"
+		join_button.pressed.connect(func() -> void:
+			_on_tournament_join_pressed(tournament)
+		)
+	_apply_font(join_button, _font_semibold, 20)
+	_style_button(join_button, Color(0.18, 0.15, 0.08), Color(0.88, 0.68, 0.20), Color(1.0, 0.92, 0.58))
+	line.add_child(join_button)
+	return row
+
+func _style_tournament_tab(button: Button, active: bool) -> void:
+	if button == null:
+		return
+	_apply_font(button, _font_semibold, 20)
+	if active:
+		_style_button(button, Color(0.22, 0.18, 0.08), Color(0.90, 0.70, 0.22), Color(1.0, 0.92, 0.58))
+	else:
+		_style_button(button, Color(0.10, 0.11, 0.14), Color(0.42, 0.44, 0.52), Color(0.86, 0.88, 0.92))
+
+func _on_tournament_join_pressed(tournament: Dictionary) -> void:
+	var tournament_id := str(tournament.get("id", ""))
+	if tournament_id.is_empty():
+		return
+	var entry_usd := int(tournament.get("entry_usd", 0))
+	if entry_usd > 0:
+		var charge := _charge_paid_entry_usd(entry_usd, "tournament_entry")
+		if not bool(charge.get("ok", false)):
+			return
+	_joined_tournaments[tournament_id] = true
+	var type_label := str(tournament.get("type", "tournament"))
+	if status_label != null:
+		status_label.text = "Joined %s. Waiting for tournament start." % type_label
+	_refresh_tournament_browser()
+
 func _open_async_panel() -> void:
 	if async_panel == null:
 		return
@@ -13124,6 +13612,10 @@ func _close_async_panel() -> void:
 func _open_async_main() -> void:
 	if async_vbox != null:
 		async_vbox.visible = true
+	if _tournament_browser_root != null:
+		_tournament_browser_root.visible = false
+	if async_footer_label != null:
+		async_footer_label.visible = true
 	_hide_async_subpanels()
 	_show_async_track_select()
 

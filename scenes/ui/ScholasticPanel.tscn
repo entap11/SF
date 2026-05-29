@@ -3,15 +3,9 @@
 [ext_resource type="Script" path="res://scripts/ui/scholastic_panel.gd" id="1"]
 
 [node name="ScholasticPanel" type="Panel"]
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -340.0
-offset_top = -460.0
-offset_right = 340.0
-offset_bottom = 460.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1")
@@ -20,10 +14,10 @@ script = ExtResource("1")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 20.0
-offset_top = 20.0
-offset_right = -20.0
-offset_bottom = -20.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -38,34 +32,138 @@ text = "SFA / SFU"
 [node name="Status" type="Label" parent="Root/VBox"]
 layout_mode = 2
 text = "No scholastic profile yet."
+autowrap_mode = 3
 
-[node name="ButtonRow" type="HBoxContainer" parent="Root/VBox"]
+[node name="FormGrid" type="GridContainer" parent="Root/VBox"]
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 8
+columns = 2
+
+[node name="AgeLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "Age"
+
+[node name="AgeSpin" type="SpinBox" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 99.0
+value = 16.0
+
+[node name="SchoolNameLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "High school"
+
+[node name="SchoolNameInput" type="LineEdit" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "St. Mary's High School"
+
+[node name="SchoolCityLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "School city"
+
+[node name="SchoolCityInput" type="LineEdit" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Portland"
+
+[node name="SchoolStateLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "School state"
+
+[node name="SchoolStateInput" type="LineEdit" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "OR"
+max_length = 32
+
+[node name="SchoolYearLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "School year"
+
+[node name="SchoolYearInput" type="LineEdit" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "2026-2027"
+
+[node name="FreshmanYearLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "Freshman year"
+
+[node name="FreshmanYearInput" type="LineEdit" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "2026-2027"
+
+[node name="ProgramNameLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "SFU program"
+
+[node name="ProgramNameInput" type="LineEdit" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Oregon State University"
+
+[node name="ProgramCityLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "Program city"
+
+[node name="ProgramCityInput" type="LineEdit" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Corvallis"
+
+[node name="ProgramStateLabel" type="Label" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+text = "Program state"
+
+[node name="ProgramStateInput" type="LineEdit" parent="Root/VBox/FormGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "OR"
+max_length = 32
+
+[node name="ButtonRow" type="HFlowContainer" parent="Root/VBox"]
+layout_mode = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+
+[node name="AgeButton" type="Button" parent="Root/VBox/ButtonRow"]
+custom_minimum_size = Vector2(112, 44)
+layout_mode = 2
+text = "SAVE AGE"
 
 [node name="SFAButton" type="Button" parent="Root/VBox/ButtonRow"]
+custom_minimum_size = Vector2(112, 44)
 layout_mode = 2
-text = "SFA Age"
+text = "JOIN SFA"
 
-[node name="SchoolButton" type="Button" parent="Root/VBox/ButtonRow"]
+[node name="SFUButton" type="Button" parent="Root/VBox/ButtonRow"]
+custom_minimum_size = Vector2(112, 44)
 layout_mode = 2
-text = "School"
+text = "JOIN SFU"
 
 [node name="RecruitingButton" type="Button" parent="Root/VBox/ButtonRow"]
+custom_minimum_size = Vector2(112, 44)
 layout_mode = 2
-text = "Recruiting"
+text = "RECRUITING"
 
 [node name="CloseButton" type="Button" parent="Root/VBox/ButtonRow"]
+custom_minimum_size = Vector2(112, 44)
 layout_mode = 2
-text = "Close"
+text = "CLOSE"
 
 [node name="SummaryScroll" type="ScrollContainer" parent="Root/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
+horizontal_scroll_mode = 0
 
 [node name="SummaryText" type="RichTextLabel" parent="Root/VBox/SummaryScroll"]
-custom_minimum_size = Vector2(0, 620)
+custom_minimum_size = Vector2(0, 340)
 layout_mode = 2
+size_flags_horizontal = 3
 bbcode_enabled = false
 fit_content = false
 scroll_active = false

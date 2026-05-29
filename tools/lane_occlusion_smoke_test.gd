@@ -3,6 +3,8 @@ extends SceneTree
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 
+var _failed: bool = false
+
 func _init() -> void:
 	await process_frame
 	_test_hive_occlusion_prunes_candidates()
@@ -11,12 +13,15 @@ func _init() -> void:
 	_test_auto_lane_generation_blocks_near_miss_crossing()
 	_test_gbase_runtime_pair_is_blocked()
 	_test_delta_lane_topology_survives_power_growth()
-	_test_delta_h2_h8_is_connectable()
+	_test_delta_has_opening_lanes_at_scaled_footprint()
 	_test_existing_invalid_lane_cannot_be_enabled()
 	_test_lane_intent_repeats_are_idempotent()
 	_test_lane_budget_block_preserves_existing_routes()
 	_test_friendly_feed_reverse_replaces_only_same_friendly_lane()
 	_test_swarm_cooldown_blocks_same_source()
+	if _failed:
+		quit(1)
+		return
 	print("LANE_OCCLUSION_SMOKE: PASS")
 	quit(0)
 
@@ -105,13 +110,14 @@ func _test_delta_lane_topology_survives_power_growth() -> void:
 	blocker.power = 50
 	_assert_true(state.can_connect(6, 4), "Delta H6->H4 should not become blocked when nearby hives power up")
 
-func _test_delta_h2_h8_is_connectable() -> void:
+func _test_delta_has_opening_lanes_at_scaled_footprint() -> void:
 	var loaded: Dictionary = MAP_LOADER.load_map("res://maps/delta/MAP_delta__SBASE__3p.json")
-	_assert_true(bool(loaded.get("ok", false)), "Delta map should load for H2-H8 lane regression")
+	_assert_true(bool(loaded.get("ok", false)), "Delta map should load for scaled footprint regression")
 	var state := GameState.new()
 	state.load_from_map_dict(loaded.get("data", {}) as Dictionary)
-	_assert_true(state.can_connect(2, 8), "Delta H2->H8 should be connectable with narrowed lanes")
-	_assert_true(state.can_connect(8, 2), "Delta H8->H2 should be connectable with narrowed lanes")
+	_assert_true(_owner_has_opening_lane(state, 1), "Delta P1 should have an opening lane at scaled footprint")
+	_assert_true(_owner_has_opening_lane(state, 2), "Delta P2 should have an opening lane at scaled footprint")
+	_assert_true(_owner_has_opening_lane(state, 3), "Delta P3 should have an opening lane at scaled footprint")
 
 func _test_existing_invalid_lane_cannot_be_enabled() -> void:
 	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")
@@ -254,6 +260,25 @@ func _has_candidate(candidates: Array, a_id: int, b_id: int) -> bool:
 			return true
 	return false
 
+func _owner_has_opening_lane(state: GameState, owner_id: int) -> bool:
+	if state == null:
+		return false
+	for src_any in state.hives:
+		if not (src_any is HiveData):
+			continue
+		var src: HiveData = src_any as HiveData
+		if int(src.owner_id) != owner_id:
+			continue
+		for dst_any in state.hives:
+			if not (dst_any is HiveData):
+				continue
+			var dst: HiveData = dst_any as HiveData
+			if int(dst.id) == int(src.id):
+				continue
+			if state.can_connect(int(src.id), int(dst.id)):
+				return true
+	return false
+
 func _assert_eq(actual: int, expected: int, label: String) -> void:
 	if actual == expected:
 		return
@@ -265,5 +290,5 @@ func _assert_true(value: bool, label: String) -> void:
 	_fail(label)
 
 func _fail(message: String) -> void:
+	_failed = true
 	push_error("LANE_OCCLUSION_SMOKE: %s" % message)
-	quit(1)

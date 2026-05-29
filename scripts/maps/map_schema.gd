@@ -13,8 +13,8 @@ const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
 const LANE_OCCLUSION_PAD_PX := HiveGeometry.DEFAULT_LANE_OCCLUSION_PAD_PX
 const LANE_OCCLUSION_STABLE_HIVE_POWER := HiveGeometry.TIER_3_MIN_POWER
 const HIVE_RADIUS_RATIO_BY_KIND := {
-	"hive": 0.504,
-	"npc": 0.504,
+	"hive": HiveGeometry.DEFAULT_HIVE_RADIUS_RATIO,
+	"npc": HiveGeometry.DEFAULT_HIVE_RADIUS_RATIO,
 	"tower": 0.22,
 	"barracks": 0.24
 }
@@ -416,15 +416,31 @@ static func _segment_distance_t(p: Vector2, a: Vector2, b: Vector2) -> Vector2:
 	var closest: Vector2 = a + ab * t_clamped
 	return Vector2(p.distance_to(closest), t)
 
-static func _hive_lane_occlusion_radius_grid(hive: Dictionary, cell_size: float = DEFAULT_CELL_SIZE) -> float:
+static func _hive_lane_occlusion_extents_grid(hive: Dictionary, cell_size: float = DEFAULT_CELL_SIZE) -> Vector2:
 	var resolved_cell_size: float = maxf(1.0, cell_size)
 	var radius_px: float = float(hive.get("radius_px", hive.get("radius", 0.0)))
 	if radius_px <= 0.0:
 		radius_px = hive_radius_px_for_kind(str(hive.get("kind", "Hive")), resolved_cell_size)
 	if radius_px <= 0.0:
 		radius_px = HiveGeometry.BASE_RADIUS_PX
-	var blocker_px: float = HiveGeometry.lane_block_radius_px(radius_px, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
+	var blocker_px: Vector2 = HiveGeometry.lane_block_half_extents_px(radius_px, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
 	return blocker_px / resolved_cell_size
+
+static func _segment_hits_axis_aligned_ellipse(a: Vector2, b: Vector2, c: Vector2, extents: Vector2) -> bool:
+	var rx: float = maxf(0.001, extents.x)
+	var ry: float = maxf(0.001, extents.y)
+	var na := Vector2((a.x - c.x) / rx, (a.y - c.y) / ry)
+	var nb := Vector2((b.x - c.x) / rx, (b.y - c.y) / ry)
+	var ab := nb - na
+	var denom := ab.length_squared()
+	if denom <= 0.0:
+		return false
+	var raw_t: float = (-na).dot(ab) / denom
+	if raw_t <= OCCLUSION_EPS or raw_t >= 1.0 - OCCLUSION_EPS:
+		return false
+	var t := clampf(raw_t, 0.0, 1.0)
+	var p := na + ab * t
+	return p.length_squared() <= 1.0
 
 static func _segment_occluded(a: Vector2, b: Vector2, hives: Array, a_id: int, b_id: int, cell_size: float = DEFAULT_CELL_SIZE) -> bool:
 	for hive in hives:
@@ -435,11 +451,10 @@ static func _segment_occluded(a: Vector2, b: Vector2, hives: Array, a_id: int, b
 		if hive_id == a_id or hive_id == b_id:
 			continue
 		var p: Vector2 = hive_dict.get("pos", Vector2.ZERO)
-		var dt := _segment_distance_t(p, a, b)
-		var dist := dt.x
-		var t := dt.y
-		var blocker_radius: float = maxf(OCCLUSION_RADIUS_MAX, _hive_lane_occlusion_radius_grid(hive_dict, cell_size))
-		if t > OCCLUSION_EPS and t < 1.0 - OCCLUSION_EPS and dist <= blocker_radius:
+		var blocker_extents: Vector2 = _hive_lane_occlusion_extents_grid(hive_dict, cell_size)
+		blocker_extents.x = maxf(OCCLUSION_RADIUS_MAX, blocker_extents.x)
+		blocker_extents.y = maxf(OCCLUSION_RADIUS_MAX, blocker_extents.y)
+		if _segment_hits_axis_aligned_ellipse(a, b, p, blocker_extents):
 			return true
 	return false
 

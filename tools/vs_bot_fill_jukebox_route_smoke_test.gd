@@ -3,7 +3,7 @@ extends SceneTree
 const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 
 const VS_LOBBY_SCENE_PATH: String = "res://scenes/ui/VsLobby.tscn"
-const MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
+const MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 
 var _failed: bool = false
 

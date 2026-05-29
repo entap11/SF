@@ -6,6 +6,8 @@ Date: May 21, 2026
 
 Swarmfront Academy is a school-hive program. SFA eligibility requires a current high-school enrollment attestation. The player is responsible for attesting that they are enrolled at the selected school for the selected school year.
 
+SFA school identity must include school name, city, and state. The city/state pair disambiguates common high-school names such as repeated `St. Mary's` schools inside the same state.
+
 ## Eligibility Window
 
 SFA eligibility is capped at four school years from the declared freshman school year.

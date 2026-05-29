@@ -49,7 +49,7 @@ func _run() -> void:
 	var guest_uid: String = "smoke_guest_%d" % stamp
 	var host_profile: Dictionary = {"uid": host_uid, "display_name": "SmokeHost"}
 	var guest_profile: Dictionary = {"uid": guest_uid, "display_name": "SmokeGuest"}
-	var agreed_stage_map: String = "res://maps/json/MAP_TEST_8x12.json"
+	var agreed_stage_map: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 	var context: Dictionary = {
 		"mode": "PVP",
 		"map_count": 1,
@@ -115,6 +115,13 @@ func _run() -> void:
 	var leave_host: Dictionary = handshake.call("leave_session", session_id, host_uid) as Dictionary
 	_expect(bool(leave_host.get("ok", false)), "host leave_session failed", leave_host)
 
+	await _run_quick_match_smoke(handshake, context, stamp)
+	if _failed:
+		return
+	await _run_friend_invite_smoke(handshake, context, stamp)
+	if _failed:
+		return
+
 	if not _failed:
 		_print_step("result", "PASS", {
 			"session_id": session_id,
@@ -122,6 +129,61 @@ func _run() -> void:
 			"guest_events": guest_events.size(),
 			"host_events": host_events.size()
 		})
+
+func _run_quick_match_smoke(handshake: Node, context: Dictionary, stamp: int) -> void:
+	var p1_uid: String = "smoke_quick_a_%d" % stamp
+	var p2_uid: String = "smoke_quick_b_%d" % stamp
+	var p1: Dictionary = {"uid": p1_uid, "display_name": "QuickA", "tier_id": "WORKER", "rank_position": 100}
+	var p2: Dictionary = {"uid": p2_uid, "display_name": "QuickB", "tier_id": "WORKER", "rank_position": 101}
+	var first: Dictionary = handshake.call("enqueue_quick_match", p1, context) as Dictionary
+	_expect(bool(first.get("ok", false)), "quick enqueue first failed", first)
+	_expect(not bool(first.get("matched", false)), "quick first should wait for match", first)
+	var ticket_id: String = str(first.get("ticket_id", ""))
+	_expect(not ticket_id.is_empty(), "quick first ticket missing", first)
+	if _failed:
+		return
+	var second: Dictionary = handshake.call("enqueue_quick_match", p2, context) as Dictionary
+	_expect(bool(second.get("ok", false)), "quick enqueue second failed", second)
+	_expect(bool(second.get("matched", false)), "quick second did not match", second)
+	var quick_session_id: String = str(second.get("session_id", ""))
+	_expect(not quick_session_id.is_empty(), "quick session missing", second)
+	_expect(_session_status(second) == "started", "quick match did not auto-start", second)
+	var poll: Dictionary = handshake.call("poll_quick_match", ticket_id) as Dictionary
+	_expect(bool(poll.get("ok", false)), "quick poll failed", poll)
+	_expect(bool(poll.get("matched", false)), "quick poll did not resolve first ticket", poll)
+	_expect(str(poll.get("session_id", "")) == quick_session_id, "quick poll returned wrong session", poll)
+	if not quick_session_id.is_empty():
+		handshake.call("leave_session", quick_session_id, p2_uid)
+		handshake.call("leave_session", quick_session_id, p1_uid)
+
+func _run_friend_invite_smoke(handshake: Node, context: Dictionary, stamp: int) -> void:
+	var friend_a_uid: String = "smoke_friend_a_%d" % stamp
+	var friend_b_uid: String = "smoke_friend_b_%d" % stamp
+	var friend_a: Dictionary = {"uid": friend_a_uid, "display_name": "FriendA"}
+	var friend_b: Dictionary = {"uid": friend_b_uid, "display_name": "FriendB"}
+	var heartbeat: Dictionary = handshake.call("heartbeat", friend_a) as Dictionary
+	_expect(bool(heartbeat.get("ok", false)), "friend heartbeat failed", heartbeat)
+	var online: Dictionary = handshake.call("list_online_friends", friend_b_uid, [friend_a_uid]) as Dictionary
+	_expect(bool(online.get("ok", false)), "friend list failed", online)
+	var online_any: Variant = online.get("online", [])
+	_expect(typeof(online_any) == TYPE_ARRAY and (online_any as Array).size() == 1, "friend presence missing", online)
+	var invite: Dictionary = handshake.call("create_friend_invite", friend_a, friend_b_uid, context) as Dictionary
+	_expect(bool(invite.get("ok", false)), "create_friend_invite failed", invite)
+	var invite_dict: Dictionary = invite.get("invite", {}) as Dictionary
+	var invite_id: String = str(invite_dict.get("id", ""))
+	_expect(not invite_id.is_empty(), "friend invite id missing", invite)
+	var pending: Dictionary = handshake.call("poll_friend_invites", friend_b_uid) as Dictionary
+	_expect(bool(pending.get("ok", false)), "poll_friend_invites failed", pending)
+	var pending_any: Variant = pending.get("invites", [])
+	_expect(typeof(pending_any) == TYPE_ARRAY and (pending_any as Array).size() >= 1, "friend invite not visible to target", pending)
+	var accepted: Dictionary = handshake.call("respond_friend_invite", invite_id, friend_b, true) as Dictionary
+	_expect(bool(accepted.get("ok", false)), "respond_friend_invite accept failed", accepted)
+	_expect(bool(accepted.get("accepted", false)), "friend invite was not accepted", accepted)
+	_expect(_session_status(accepted) == "started", "friend invite did not auto-start", accepted)
+	var friend_session_id: String = str(accepted.get("session_id", ""))
+	if not friend_session_id.is_empty():
+		handshake.call("leave_session", friend_session_id, friend_b_uid)
+		handshake.call("leave_session", friend_session_id, friend_a_uid)
 
 func _run_release_guard_smoke() -> void:
 	var blocked_backend_url: String = _arg_value("--vs-smoke-backend-url=")

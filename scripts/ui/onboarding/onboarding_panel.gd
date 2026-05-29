@@ -7,6 +7,7 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 
 @onready var uid_value_label: Label = $VBox/UidRow/UidValueLabel
 @onready var display_name_input: LineEdit = $VBox/DisplayNameInput
+@onready var age_spin: SpinBox = $VBox/AgeSpin
 @onready var copy_uid_button: Button = $VBox/UidRow/CopyUidButton
 @onready var continue_button: Button = $VBox/ContinueButton
 
@@ -29,5 +30,12 @@ func _on_continue_pressed() -> void:
 	if not bool(result.get("ok", false)):
 		continue_button.text = str(result.get("message", "Choose a valid handle."))
 		return
+	_report_age_to_scholastic_state()
 	ProfileManager.mark_onboarding_complete()
 	onboarding_done.emit()
+
+func _report_age_to_scholastic_state() -> void:
+	var state_node: Node = get_node_or_null("/root/ScholasticState")
+	if state_node == null or not state_node.has_method("intent_report_age"):
+		return
+	state_node.call("intent_report_age", ProfileManager.get_user_id(), int(age_spin.value), ProfileManager.get_display_name())

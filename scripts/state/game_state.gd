@@ -396,8 +396,8 @@ func is_segment_blocked(a: Vector2, b: Vector2, a_id: int, b_id: int) -> bool:
 	for h in hives:
 		if h.id == a_id or h.id == b_id:
 			continue
-		var block_r: float = _hive_block_radius(h)
-		if _segment_hits_circle(a, b, _hive_world_pos(h), block_r):
+		var block_extents: Vector2 = _hive_block_extents(h)
+		if _segment_hits_axis_aligned_ellipse(a, b, _hive_world_pos(h), block_extents):
 			return true
 	return false
 
@@ -429,6 +429,22 @@ func _segment_hits_circle(a: Vector2, b: Vector2, c: Vector2, r: float) -> bool:
 	var t := clampf(raw_t, 0.0, 1.0)
 	var p := a + ab * t
 	return p.distance_squared_to(c) <= r * r
+
+func _segment_hits_axis_aligned_ellipse(a: Vector2, b: Vector2, c: Vector2, extents: Vector2) -> bool:
+	var rx: float = maxf(0.001, extents.x)
+	var ry: float = maxf(0.001, extents.y)
+	var na := Vector2((a.x - c.x) / rx, (a.y - c.y) / ry)
+	var nb := Vector2((b.x - c.x) / rx, (b.y - c.y) / ry)
+	var ab := nb - na
+	var denom := ab.length_squared()
+	if denom <= 0.0:
+		return false
+	var raw_t: float = (-na).dot(ab) / denom
+	if raw_t <= MapSchema.OCCLUSION_EPS or raw_t >= 1.0 - MapSchema.OCCLUSION_EPS:
+		return false
+	var t := clampf(raw_t, 0.0, 1.0)
+	var p := na + ab * t
+	return p.length_squared() <= 1.0
 
 func _hive_world_pos(hive: HiveData) -> Vector2:
 	return _grid_coord_to_world(_hive_render_grid_pos(hive))
@@ -477,6 +493,16 @@ func _hive_block_radius(hive: HiveData) -> float:
 	# Lane topology must stay deterministic through a match. Reserve the large
 	# hive footprint up front so growth cannot invalidate an existing edge.
 	return HiveGeometry.lane_block_radius_px(radius, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
+
+func _hive_block_extents(hive: HiveData) -> Vector2:
+	if hive == null:
+		return HiveGeometry.lane_block_half_extents_px(HIVE_BLOCK_RADIUS_PX, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
+	var radius: float = float(hive.radius_px)
+	if radius <= 0.0:
+		radius = MapSchema.hive_radius_px_for_kind(str(hive.kind), _grid_cell_size_px())
+	if radius <= 0.0:
+		radius = HIVE_BLOCK_RADIUS_PX
+	return HiveGeometry.lane_block_half_extents_px(radius, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
 
 func _lane_segment_world(a_hive: HiveData, b_hive: HiveData) -> Dictionary:
 	if a_hive == null or b_hive == null:

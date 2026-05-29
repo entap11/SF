@@ -96,6 +96,12 @@ static func load_map(path_or_id: String) -> Dictionary:
 			model = _normalize_model_to_runtime_grid(model, resolved)
 		var model_w: int = int(model.get("grid_w", width))
 		var model_h: int = int(model.get("grid_h", height))
+		var opening_validation: Dictionary = _validate_opening_lane_availability(model)
+		if not bool(opening_validation.get("ok", false)):
+			return _fail("opening_lane_unavailable path=%s failures=%s" % [
+				resolved,
+				str(opening_validation.get("failures", []))
+			])
 		_log_map_summary(resolved, schema_id, model_w, model_h, model)
 		return _ok(model)
 
@@ -128,6 +134,13 @@ static func load_map(path_or_id: String) -> Dictionary:
 			idx += 1
 		return _fail("validation_failed path=%s" % resolved)
 
+	var opening_validation: Dictionary = _validate_opening_lane_availability(normalized_data)
+	if not bool(opening_validation.get("ok", false)):
+		return _fail("opening_lane_unavailable path=%s failures=%s" % [
+			resolved,
+			str(opening_validation.get("failures", []))
+		])
+
 	_log_map_summary(resolved, schema_id, grid_w, grid_h, normalized_data)
 	return _ok(normalized_data)
 
@@ -146,6 +159,50 @@ static func _fail(err: String) -> Dictionary:
 		"data": {},
 		"err": err
 	}
+
+static func _validate_opening_lane_availability(model: Dictionary) -> Dictionary:
+	var state := GameState.new()
+	state.load_from_map_dict(model.duplicate(true))
+	var owners: Array[int] = []
+	var seen: Dictionary = {}
+	for hive_any in state.hives:
+		if not (hive_any is HiveData):
+			continue
+		var hive: HiveData = hive_any as HiveData
+		var owner_id: int = int(hive.owner_id)
+		if owner_id <= 0 or seen.has(owner_id):
+			continue
+		seen[owner_id] = true
+		owners.append(owner_id)
+	owners.sort()
+	var failures: Array = []
+	for owner_id in owners:
+		if not _owner_has_opening_lane(state, owner_id):
+			failures.append({"owner_id": owner_id, "reason": "no_opening_lane"})
+	return {"ok": failures.is_empty(), "failures": failures}
+
+static func _owner_has_opening_lane(state: GameState, owner_id: int) -> bool:
+	if state == null:
+		return false
+	for src_any in state.hives:
+		if not (src_any is HiveData):
+			continue
+		var src: HiveData = src_any as HiveData
+		if int(src.owner_id) != owner_id:
+			continue
+		if int(src.power) <= 0:
+			continue
+		if int(state.lanes_allowed_for_power(int(src.power))) <= 0:
+			continue
+		for dst_any in state.hives:
+			if not (dst_any is HiveData):
+				continue
+			var dst: HiveData = dst_any as HiveData
+			if int(dst.id) == int(src.id):
+				continue
+			if state.can_connect(int(src.id), int(dst.id)):
+				return true
+	return false
 
 static func _resolve_map_path(path_or_id: String) -> String:
 	var raw: String = path_or_id.strip_edges()

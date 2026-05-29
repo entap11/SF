@@ -64,6 +64,10 @@
     "ui.mm.settings.hover": "res://assets/sprites/sf_skin_v1/settings_final.png",
     "ui.mm.settings.pressed": "res://assets/sprites/sf_skin_v1/settings_final.png",
     "ui.mm.settings.disabled": "res://assets/sprites/sf_skin_v1/settings_final.png",
+    "ui.mm.tournaments.normal": "res://assets/sprites/sf_skin_v1/tournaments.png",
+    "ui.mm.tournaments.hover": "res://assets/sprites/sf_skin_v1/tournaments.png",
+    "ui.mm.tournaments.pressed": "res://assets/sprites/sf_skin_v1/tournaments.png",
+    "ui.mm.tournaments.disabled": "res://assets/sprites/sf_skin_v1/tournaments.png",
     "hive.small.neutral": {
       "path": "res://assets/sprites/sf_skin_v1/hive_small_flatop.png",
       "scale": 1.95,
