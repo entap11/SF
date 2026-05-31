@@ -261,8 +261,10 @@ const HIVE_VIEW_CANDIDATE := "candidate"
 var _store_category_buttons: Array = []
 var _store_sku_buttons: Array = []
 var _time_puzzle_lobby: TimePuzzleLobby = null
+var _time_puzzle_return_async_panel: bool = false
 var _play_mode_select: Control = null
 var _vs_lobby: Control = null
+var _vs_lobby_return_async_panel: bool = false
 var _entry_route_modal: Panel = null
 var _async_stage_section: Panel = null
 var _swarm_pass_panel: Control = null
@@ -294,6 +296,7 @@ var _dash_active_tab: String = DASH_HERO_TAB_GARAGE
 var _honey_widget: Control = null
 var _tier_widget: Control = null
 var _game_hub_live_refresh_pending: bool = false
+var _free_roll_press_block_until_msec: int = 0
 var _latest_replay_data: Dictionary = {}
 var _last_replay_data: Dictionary = {}
 var _last_replay_cursor_index: int = 0
@@ -545,6 +548,17 @@ const BUFF_PRICE_USD_BY_TIER: Dictionary = {
 	"premium": 0.35,
 	"elite": 0.50
 }
+const BUFF_UI_TITLE_FONT_SIZE: int = 25
+const BUFF_UI_BODY_FONT_SIZE: int = 18
+const BUFF_UI_HEADER_FONT_SIZE: int = 17
+const BUFF_UI_BUTTON_FONT_SIZE: int = 15
+const BUFF_UI_SMALL_FONT_SIZE: int = 14
+const BUFF_UI_MODE_BUTTON_HEIGHT: float = 48.0
+const BUFF_UI_SLOT_BUTTON_HEIGHT: float = 38.0
+const BUFF_UI_LIBRARY_BUTTON_HEIGHT: float = 38.0
+const BUFF_UI_LOADOUT_TOP_HEIGHT: float = 194.0
+const BUFF_UI_CART_HEIGHT: float = 232.0
+const BUFF_UI_CART_PANEL_HEIGHT: float = 188.0
 const USD_SKIN_DIR_PATH: String = "res://assets/sprites/sf_skin_v1"
 const USD_SKIN_FALLBACK_PATH: String = "res://assets/sprites/sf_skin_v1/$.png"
 const CANCEL_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/cancel.png"
@@ -595,6 +609,13 @@ const HIVE_DROPDOWN_HEIGHT: float = 292.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
 const HIVE_PULLDOWN_DURATION: float = 0.24
 const GAME_MENU_BUTTON_SCALE: float = 1.2
+const HIVE_CREATE_DIALOG_WIDTH: int = 760
+const HIVE_CREATE_DIALOG_HEIGHT: int = 360
+const HIVE_CREATE_DIALOG_MOBILE_MARGIN: int = 42
+const HIVE_TEXT_DIALOG_WIDTH: int = 800
+const HIVE_ABOUT_DIALOG_HEIGHT: int = 560
+const HIVE_DIALOG_BELOW_BANNER_TOP_RATIO: float = 0.23
+const HIVE_DIALOG_BELOW_BANNER_MIN_TOP: int = 360
 const GAME_HUB_OVERLAY_TARGET_WIDTH: float = 1176.0
 const GAME_HUB_OVERLAY_FREE_TARGET_HEIGHT: float = 1512.0
 const GAME_HUB_OVERLAY_PAID_TARGET_HEIGHT: float = 1248.0
@@ -633,6 +654,10 @@ const GAME_HUB_TOUCH_LAYOUT_MAX_WIDTH: float = 1100.0
 const GAME_HUB_TOUCH_PAID_TOP_ROW_SCALE: float = 1.46
 const GAME_HUB_TOUCH_PAID_LOWER_ROWS_SCALE: float = 1.34
 const GAME_HUB_TOUCH_PAID_CLUSTER_SPACING: int = 14
+const GAME_HUB_MONEY_TOP_ROW_SCALE: float = 1.48
+const GAME_HUB_MONEY_LOWER_ROWS_SCALE: float = 1.24
+const GAME_HUB_MONEY_BODY_SEPARATION: int = 12
+const GAME_HUB_MONEY_CLUSTER_SPACING: int = 14
 const GAME_HUB_SECTION_HEADER_COLOR: Color = Color8(201, 204, 214, 255)
 const GAME_HUB_SECTION_SUBTEXT_COLOR: Color = Color(0.86, 0.88, 0.92, 0.60)
 const GAME_HUB_BLOCK_LABEL_COLOR: Color = Color(0.82, 0.85, 0.90, 0.78)
@@ -643,9 +668,19 @@ const GAME_HUB_TITLE_OUTLINE_COLOR: Color = Color(1.0, 0.87, 0.56, 0.18)
 const GAME_HUB_HOVER_EDGE_COLOR: Color = Color(0.95, 0.80, 0.34, 0.72)
 const GAME_HUB_HOVER_BRIGHTNESS: float = 1.10
 const GAME_HUB_SWEEP_DURATION_SEC: float = 0.8
+const FREE_ROLL_SCENE_CANVAS_WIDTH: float = 864.0
+const FREE_ROLL_SCENE_CANVAS_HEIGHT: float = 2320.0
+const FREE_ROLL_HUMAN_BUTTON_SIZE: Vector2 = Vector2(360.0, 150.0)
+const FREE_ROLL_CYCLE_BUTTON_SIZE: Vector2 = Vector2(360.0, 142.0)
+const FREE_ROLL_ROUTE_BUTTON_SIZE: Vector2 = Vector2(360.0, 138.0)
+const FREE_ROLL_CANCEL_BUTTON_SIZE: Vector2 = Vector2(320.0, 116.0)
+const FREE_ROLL_PRESS_CANCEL_DRAG_PX: float = 16.0
+const FREE_ROLL_PRESS_CANCEL_HOLD_MS: int = 260
+const FREE_ROLL_PRESS_RELEASE_BLOCK_MS: int = 180
 const STORE_WINDOW_SCALE_X: float = 0.74
 const STORE_WINDOW_SCALE_Y: float = 0.62
 const STORE_WINDOW_INSET_BOTTOM: float = 14.0
+const STORE_WINDOW_SHIFT_DOWN_PX: float = 84.0
 const STORE_CLOSE_SKIN_MIN_WIDTH: float = 280.0
 const STORE_CLOSE_SKIN_MIN_HEIGHT: float = 104.0
 const DASH_PANEL_BG_COLOR: Color = Color(0.08, 0.09, 0.12, 0.95)
@@ -718,10 +753,14 @@ const MONEY_ENTRY_ACTIVE_EDGE: Color = Color(0.96, 0.80, 0.34, 0.72)
 const MONEY_ENTRY_ACTIVE_BG: Color = Color(0.18, 0.15, 0.10, 0.95)
 const MONEY_ENTRY_INACTIVE_BG: Color = Color(0.11, 0.12, 0.16, 0.90)
 const MONEY_ENTRY_INACTIVE_EDGE: Color = Color(0.44, 0.46, 0.53, 0.52)
-const MONEY_DIVISION_TAB_SIZE: Vector2 = Vector2(223.0, 74.0)
-const MONEY_ENTRY_TIER_BUTTON_SIZE: Vector2 = Vector2(115.0, 46.0)
-const MONEY_DIVISION_LABEL_SIZE: int = 13
-const MONEY_DIVISION_LOCKED_LABEL_SIZE: int = 11
+const MONEY_DIVISION_TAB_SIZE: Vector2 = Vector2(223.0, 82.0)
+const MONEY_ENTRY_TIER_BUTTON_SIZE: Vector2 = Vector2(128.0, 56.0)
+const MONEY_DIVISION_LABEL_SIZE: int = 16
+const MONEY_DIVISION_LOCKED_LABEL_SIZE: int = 13
+const MONEY_ENTRY_LABEL_SIZE: int = 17
+const MONEY_ENTRY_TIER_LABEL_SIZE: int = 16
+const MONEY_ARENA_LABEL_SIZE: int = 17
+const MONEY_ENTRY_FEE_LABEL_SIZE: int = 15
 const UI_TEXT_SCALE: float = 2.0
 
 var _buff_library_all: Array[Dictionary] = []
@@ -773,6 +812,7 @@ var _hive_dropdown_tween: Tween = null
 var _hive_dropdown_open: bool = false
 var _hive_create_dialog: ConfirmationDialog = null
 var _hive_create_name_input: LineEdit = null
+var _hive_create_done_button: Button = null
 var _hive_invite_dialog: ConfirmationDialog = null
 var _hive_invite_list: ItemList = null
 var _hive_invite_meta_label: Label = null
@@ -810,6 +850,7 @@ var _hive_pin_dialog: ConfirmationDialog = null
 var _hive_pin_input: TextEdit = null
 var _hive_about_dialog: ConfirmationDialog = null
 var _hive_about_input: TextEdit = null
+var _hive_about_done_button: Button = null
 var _hive_about_desc_label: Label = null
 var _hive_rankings_dialog: AcceptDialog = null
 var _hive_rankings_list: ItemList = null
@@ -1533,10 +1574,14 @@ func _apply_store_window_scale() -> void:
 	dash_store_panel.anchor_top = 0.5
 	dash_store_panel.anchor_right = 0.5
 	dash_store_panel.anchor_bottom = 0.5
+	var shift_down: float = minf(
+		STORE_WINDOW_SHIFT_DOWN_PX,
+		maxf(0.0, (panel_size.y - target_size.y) * 0.5 - STORE_WINDOW_INSET_BOTTOM)
+	)
 	dash_store_panel.offset_left = -target_size.x * 0.5
-	dash_store_panel.offset_top = -target_size.y * 0.5
+	dash_store_panel.offset_top = -target_size.y * 0.5 + shift_down
 	dash_store_panel.offset_right = target_size.x * 0.5
-	dash_store_panel.offset_bottom = target_size.y * 0.5
+	dash_store_panel.offset_bottom = target_size.y * 0.5 + shift_down
 	store_vbox.layout_mode = 1
 	store_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
 	store_vbox.offset_left = 24.0
@@ -1675,12 +1720,12 @@ func _style_labels() -> void:
 	_apply_display_label($DashPanel/DashStatsPanel/StatsVBox/StatsTitle, 18, _font_semibold, 20)
 	_apply_display_label($DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisTitle, 18, _font_semibold, 20)
 	_apply_display_label($DashPanel/DashReplayPanel/ReplayVBox/ReplayTitle, 18, _font_semibold, 20)
-	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsTitle, 18, _font_semibold, 20)
+	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsTitle, 22, _font_semibold, BUFF_UI_TITLE_FONT_SIZE)
 	_apply_display_label($DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashStatsPanel/StatsVBox/StatsSub, _font_regular, 14)
 	_apply_font($DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisSub, _font_regular, 14)
 	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplaySub, _font_regular, 14)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsSub, _font_regular, 14)
+	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsSub, _font_regular, BUFF_UI_BODY_FONT_SIZE)
 	_apply_font($DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesSub, _font_regular, 14)
 	_apply_font($DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox/AnalysisBodyHeader, _font_semibold, 14)
 	for i in range(1, 6):
@@ -1690,15 +1735,15 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTopRow/ReplayInfoPanel/ReplayInfoVBox/ReplayInfoHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayTimelinePanel/ReplayTimelineVBox/ReplayTimelineHeader, _font_semibold, 14)
 	_apply_font($DashPanel/DashReplayPanel/ReplayVBox/ReplayBody/ReplayBodyVBox/ReplayNote, _font_regular, 12)
-	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsLoadoutHeader, 12, _font_semibold, 14)
-	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryHeader, 12, _font_semibold, 14)
-	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailHeader, 12, _font_semibold, 14)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailName, _font_semibold, 14)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailDesc, _font_regular, 13)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailMeta, _font_regular, 12)
-	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsFooter, _font_regular, 12)
-	_apply_display_label(buffs_mode_vs_button, 12, _font_semibold, 12)
-	_apply_display_label(buffs_mode_async_button, 12, _font_semibold, 12)
+	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLoadoutPanel/BuffsLoadoutVBox/BuffsLoadoutHeader, 15, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
+	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsLibraryPanel/BuffsLibraryVBox/BuffsLibraryHeader, 15, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
+	_apply_display_label($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailHeader, 15, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
+	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailName, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
+	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailDesc, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
+	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsTopRow/BuffsDetailPanel/BuffsDetailVBox/BuffsDetailMeta, _font_regular, BUFF_UI_SMALL_FONT_SIZE)
+	_apply_font($DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffsFooter, _font_regular, BUFF_UI_BODY_FONT_SIZE)
+	_apply_display_label(buffs_mode_vs_button, 15, _font_semibold, BUFF_UI_BUTTON_FONT_SIZE)
+	_apply_display_label(buffs_mode_async_button, 15, _font_semibold, BUFF_UI_BUTTON_FONT_SIZE)
 	_apply_display_label($DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub, _font_regular, 13)
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveHoneyLabel, _font_semibold, 14)
@@ -1792,11 +1837,11 @@ func _style_labels() -> void:
 	for label in replay_timeline_events:
 		_apply_font(label, _font_regular, 12)
 	for button in buffs_slot_buttons:
-		_apply_font(button, _font_regular, 12)
+		_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 	for button in buffs_library_buttons:
-		_apply_font(button, _font_regular, 12)
+		_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 	for button in buffs_detail_buttons:
-		_apply_display_label(button, 11, _font_regular, 12)
+		_apply_display_label(button, 14, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 	for button in hive_action_buttons:
 		_apply_font(button, _font_regular, 12)
 	for button in async_action_buttons:
@@ -1818,7 +1863,7 @@ func _style_labels() -> void:
 	var analysis_vbox: VBoxContainer = $DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody/AnalysisBodyVBox
 	analysis_vbox.add_theme_constant_override("separation", 8)
 	if buffs_body_vbox != null:
-		buffs_body_vbox.add_theme_constant_override("separation", 12)
+		buffs_body_vbox.add_theme_constant_override("separation", 14)
 	var hive_body_vbox: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox
 	hive_body_vbox.add_theme_constant_override("separation", 16)
 	var hive_vbox: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox
@@ -2480,7 +2525,8 @@ func _wire_hive_dialog_main_menu(dialog: AcceptDialog) -> void:
 	if dialog == null:
 		return
 	var main_menu_button: Button = dialog.add_button("MAIN MENU", false, "main_menu")
-	_apply_font(main_menu_button, _font_regular, 12)
+	main_menu_button.custom_minimum_size = Vector2(178.0, 62.0)
+	_apply_font(main_menu_button, _font_regular, 16)
 	_style_button(main_menu_button, Color(0.12, 0.13, 0.16), Color(0.48, 0.50, 0.58), Color(0.96, 0.96, 0.96))
 	if not dialog.custom_action.is_connected(_on_hive_dialog_custom_action):
 		dialog.custom_action.connect(_on_hive_dialog_custom_action)
@@ -2488,45 +2534,170 @@ func _wire_hive_dialog_main_menu(dialog: AcceptDialog) -> void:
 func _ensure_hive_create_dialog() -> void:
 	if _hive_create_dialog != null and is_instance_valid(_hive_create_dialog):
 		return
-	var dialog := ConfirmationDialog.new()
+	var dialog: ConfirmationDialog = ConfirmationDialog.new()
 	dialog.name = "HiveCreateDialog"
 	dialog.title = "Create Hive"
 	dialog.exclusive = true
-	dialog.min_size = Vector2i(420, 170)
+	dialog.min_size = Vector2i(HIVE_CREATE_DIALOG_WIDTH, HIVE_CREATE_DIALOG_HEIGHT)
+	_style_hive_create_dialog(dialog)
 	add_child(dialog)
 	_hive_create_dialog = dialog
 
-	var body := VBoxContainer.new()
+	var body: VBoxContainer = VBoxContainer.new()
 	body.name = "HiveCreateVBox"
-	body.custom_minimum_size = Vector2(360.0, 92.0)
-	body.add_theme_constant_override("separation", 10)
+	body.custom_minimum_size = Vector2(680.0, 198.0)
+	body.add_theme_constant_override("separation", 18)
 	dialog.add_child(body)
 
-	var desc := Label.new()
+	var desc: Label = Label.new()
 	desc.text = "Name your hive. You can only create a limited number of hives per time window."
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(desc)
-	_apply_font(desc, _font_regular, 12)
+	_apply_font(desc, _font_regular, 21)
+	desc.add_theme_color_override("font_color", Color(0.92, 0.94, 0.98, 0.95))
 
-	var name_input := LineEdit.new()
+	var input_row: HBoxContainer = HBoxContainer.new()
+	input_row.name = "HiveCreateInputRow"
+	input_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	input_row.add_theme_constant_override("separation", 10)
+	body.add_child(input_row)
+
+	var name_input: LineEdit = LineEdit.new()
 	name_input.placeholder_text = "Enter hive name"
 	name_input.max_length = 24
-	body.add_child(name_input)
-	_apply_font(name_input, _font_regular, 14)
+	name_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_input.custom_minimum_size = Vector2(0.0, 76.0)
+	name_input.virtual_keyboard_enabled = true
+	input_row.add_child(name_input)
+	_apply_font(name_input, _font_regular, 27)
+	_style_hive_line_edit(name_input)
 	_hive_create_name_input = name_input
 
+	var done_button: Button = Button.new()
+	done_button.name = "HiveCreateDoneButton"
+	done_button.text = "DONE"
+	done_button.custom_minimum_size = Vector2(160.0, 76.0)
+	input_row.add_child(done_button)
+	_apply_font(done_button, _font_semibold, 17)
+	_style_button(done_button, Color(0.12, 0.13, 0.16), Color(0.64, 0.66, 0.76), Color(0.96, 0.96, 0.96))
+	_hive_create_done_button = done_button
+
 	dialog.get_ok_button().text = "CREATE"
-	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	dialog.get_ok_button().custom_minimum_size = Vector2(190.0, 64.0)
+	_apply_font(dialog.get_ok_button(), _font_semibold, 17)
 	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
 	_wire_hive_dialog_main_menu(dialog)
 	if dialog.get_cancel_button() != null:
 		dialog.get_cancel_button().text = "CLOSE"
-		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		dialog.get_cancel_button().custom_minimum_size = Vector2(178.0, 64.0)
+		_apply_font(dialog.get_cancel_button(), _font_regular, 17)
 		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	if not dialog.confirmed.is_connected(_submit_hive_create):
 		dialog.confirmed.connect(_submit_hive_create)
 	if not name_input.text_submitted.is_connected(_on_hive_create_name_submitted):
 		name_input.text_submitted.connect(_on_hive_create_name_submitted)
+	if not done_button.pressed.is_connected(_on_hive_create_done_pressed):
+		done_button.pressed.connect(_on_hive_create_done_pressed)
+
+func _style_hive_create_dialog(dialog: AcceptDialog) -> void:
+	if dialog == null:
+		return
+	var panel_style: StyleBoxFlat = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.045, 0.048, 0.060, 0.98)
+	panel_style.border_color = Color(0.92, 0.74, 0.26, 0.70)
+	panel_style.border_width_bottom = 2
+	panel_style.border_width_left = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_top = 2
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.content_margin_left = 30
+	panel_style.content_margin_right = 30
+	panel_style.content_margin_top = 28
+	panel_style.content_margin_bottom = 24
+	dialog.add_theme_stylebox_override("panel", panel_style)
+	dialog.add_theme_color_override("title_color", Color(0.98, 0.93, 0.80, 1.0))
+	if _font_semibold != null:
+		dialog.add_theme_font_override("title_font", _font_semibold)
+	dialog.add_theme_font_size_override("title_font_size", 20)
+
+func _style_hive_line_edit(input: LineEdit) -> void:
+	if input == null:
+		return
+	var normal: StyleBoxFlat = StyleBoxFlat.new()
+	normal.bg_color = Color(0.10, 0.11, 0.14, 0.96)
+	normal.border_color = Color(0.72, 0.74, 0.84, 0.88)
+	normal.border_width_bottom = 2
+	normal.border_width_left = 2
+	normal.border_width_right = 2
+	normal.border_width_top = 2
+	normal.corner_radius_bottom_left = 5
+	normal.corner_radius_bottom_right = 5
+	normal.corner_radius_top_left = 5
+	normal.corner_radius_top_right = 5
+	normal.content_margin_left = 18
+	normal.content_margin_right = 18
+	input.add_theme_stylebox_override("normal", normal)
+	input.add_theme_stylebox_override("focus", normal.duplicate())
+	input.add_theme_color_override("font_color", Color(0.96, 0.96, 0.96, 1.0))
+	input.add_theme_color_override("font_placeholder_color", Color(0.72, 0.74, 0.80, 0.70))
+
+func _style_hive_text_edit(input: TextEdit) -> void:
+	if input == null:
+		return
+	var normal: StyleBoxFlat = StyleBoxFlat.new()
+	normal.bg_color = Color(0.10, 0.11, 0.14, 0.96)
+	normal.border_color = Color(0.72, 0.74, 0.84, 0.88)
+	normal.border_width_bottom = 2
+	normal.border_width_left = 2
+	normal.border_width_right = 2
+	normal.border_width_top = 2
+	normal.corner_radius_bottom_left = 5
+	normal.corner_radius_bottom_right = 5
+	normal.corner_radius_top_left = 5
+	normal.corner_radius_top_right = 5
+	normal.content_margin_left = 18
+	normal.content_margin_right = 18
+	normal.content_margin_top = 16
+	normal.content_margin_bottom = 16
+	var focus: StyleBoxFlat = normal.duplicate()
+	focus.border_color = Color(0.92, 0.74, 0.26, 0.90)
+	input.add_theme_stylebox_override("normal", normal)
+	input.add_theme_stylebox_override("focus", focus)
+	input.add_theme_stylebox_override("read_only", normal.duplicate())
+	input.add_theme_color_override("font_color", Color(0.96, 0.96, 0.96, 1.0))
+	input.add_theme_color_override("font_readonly_color", Color(0.78, 0.80, 0.86, 0.76))
+
+func _hive_create_popup_size() -> Vector2i:
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var width: int = mini(HIVE_CREATE_DIALOG_WIDTH, maxi(360, int(viewport_size.x) - HIVE_CREATE_DIALOG_MOBILE_MARGIN * 2))
+	var height: int = HIVE_CREATE_DIALOG_HEIGHT
+	return Vector2i(width, height)
+
+func _hive_about_popup_size() -> Vector2i:
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var width: int = mini(HIVE_TEXT_DIALOG_WIDTH, maxi(380, int(viewport_size.x) - HIVE_CREATE_DIALOG_MOBILE_MARGIN * 2))
+	return Vector2i(width, HIVE_ABOUT_DIALOG_HEIGHT)
+
+func _popup_hive_dialog_below_banner(dialog: Window, popup_size: Vector2i) -> void:
+	if dialog == null:
+		return
+	dialog.popup_centered(popup_size)
+	call_deferred("_place_hive_dialog_below_banner", dialog, popup_size)
+
+func _place_hive_dialog_below_banner(dialog: Window, popup_size: Vector2i) -> void:
+	if dialog == null or not is_instance_valid(dialog) or not dialog.visible:
+		return
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var actual_size: Vector2i = dialog.size
+	if actual_size.x <= 0 or actual_size.y <= 0:
+		actual_size = popup_size
+	var x: int = maxi(0, int((viewport_size.x - float(actual_size.x)) * 0.5))
+	var desired_y: int = maxi(HIVE_DIALOG_BELOW_BANNER_MIN_TOP, int(viewport_size.y * HIVE_DIALOG_BELOW_BANNER_TOP_RATIO))
+	var max_y: int = maxi(0, int(viewport_size.y) - actual_size.y - 24)
+	dialog.position = Vector2i(x, mini(desired_y, max_y))
 
 func _open_hive_create_dialog() -> void:
 	_ensure_hive_create_dialog()
@@ -2540,11 +2711,25 @@ func _open_hive_create_dialog() -> void:
 			return
 	if _hive_create_name_input != null:
 		_hive_create_name_input.text = ""
-	_hive_create_dialog.popup_centered()
+	_popup_hive_dialog_below_banner(_hive_create_dialog, _hive_create_popup_size())
+	call_deferred("_focus_hive_create_name_input")
+
+func _focus_hive_create_name_input() -> void:
+	if _hive_create_dialog == null or not is_instance_valid(_hive_create_dialog):
+		return
+	if not _hive_create_dialog.visible:
+		return
+	if _hive_create_name_input == null:
+		return
+	_hive_create_name_input.grab_focus()
+
+func _on_hive_create_done_pressed() -> void:
 	if _hive_create_name_input != null:
-		_hive_create_name_input.grab_focus()
+		_hive_create_name_input.release_focus()
+	DisplayServer.virtual_keyboard_hide()
 
 func _on_hive_create_name_submitted(_text: String) -> void:
+	DisplayServer.virtual_keyboard_hide()
 	_submit_hive_create()
 
 func _submit_hive_create() -> void:
@@ -3824,44 +4009,65 @@ func _submit_hive_pin_notice() -> void:
 func _ensure_hive_about_dialog() -> void:
 	if _hive_about_dialog != null and is_instance_valid(_hive_about_dialog):
 		return
-	var dialog := ConfirmationDialog.new()
+	var dialog: ConfirmationDialog = ConfirmationDialog.new()
 	dialog.name = "HiveAboutDialog"
 	dialog.title = "About Our Hive"
 	dialog.exclusive = true
-	dialog.min_size = Vector2i(560, 360)
+	dialog.min_size = Vector2i(HIVE_TEXT_DIALOG_WIDTH, HIVE_ABOUT_DIALOG_HEIGHT)
+	_style_hive_create_dialog(dialog)
 	add_child(dialog)
 	_hive_about_dialog = dialog
 
-	var body := VBoxContainer.new()
+	var body: VBoxContainer = VBoxContainer.new()
 	body.name = "HiveAboutVBox"
-	body.custom_minimum_size = Vector2(500.0, 240.0)
-	body.add_theme_constant_override("separation", 10)
+	body.custom_minimum_size = Vector2(720.0, 420.0)
+	body.add_theme_constant_override("separation", 18)
 	dialog.add_child(body)
 
-	var desc := Label.new()
+	var desc: Label = Label.new()
 	desc.text = "Write the public recruiting message shown when players preview this hive. 300 character limit. Editable once every 24 hours."
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(desc)
-	_apply_font(desc, _font_regular, 12)
+	_apply_font(desc, _font_regular, 22)
+	desc.add_theme_color_override("font_color", Color(0.92, 0.94, 0.98, 0.95))
 	_hive_about_desc_label = desc
 
-	var input := TextEdit.new()
-	input.custom_minimum_size = Vector2(500.0, 150.0)
+	var input: TextEdit = TextEdit.new()
+	input.custom_minimum_size = Vector2(0.0, 270.0)
+	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	input.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	body.add_child(input)
-	_apply_font(input, _font_regular, 13)
+	_apply_font(input, _font_regular, 24)
+	_style_hive_text_edit(input)
 	_hive_about_input = input
 
+	var done_row: HBoxContainer = HBoxContainer.new()
+	done_row.name = "HiveAboutDoneRow"
+	done_row.alignment = BoxContainer.ALIGNMENT_END
+	body.add_child(done_row)
+	var done_button: Button = Button.new()
+	done_button.name = "HiveAboutDoneButton"
+	done_button.text = "DONE"
+	done_button.custom_minimum_size = Vector2(172.0, 64.0)
+	done_row.add_child(done_button)
+	_apply_font(done_button, _font_semibold, 17)
+	_style_button(done_button, Color(0.12, 0.13, 0.16), Color(0.64, 0.66, 0.76), Color(0.96, 0.96, 0.96))
+	_hive_about_done_button = done_button
+
 	dialog.get_ok_button().text = "SAVE ABOUT"
-	_apply_font(dialog.get_ok_button(), _font_semibold, 12)
+	dialog.get_ok_button().custom_minimum_size = Vector2(230.0, 64.0)
+	_apply_font(dialog.get_ok_button(), _font_semibold, 17)
 	_style_button(dialog.get_ok_button(), Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
 	_wire_hive_dialog_main_menu(dialog)
 	if dialog.get_cancel_button() != null:
 		dialog.get_cancel_button().text = "CLOSE"
-		_apply_font(dialog.get_cancel_button(), _font_regular, 12)
+		dialog.get_cancel_button().custom_minimum_size = Vector2(178.0, 64.0)
+		_apply_font(dialog.get_cancel_button(), _font_regular, 17)
 		_style_button(dialog.get_cancel_button(), Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	if not dialog.confirmed.is_connected(_submit_hive_about_message):
 		dialog.confirmed.connect(_submit_hive_about_message)
+	if not done_button.pressed.is_connected(_on_hive_about_done_pressed):
+		done_button.pressed.connect(_on_hive_about_done_pressed)
 
 func _open_hive_about_dialog() -> void:
 	if _current_hive_role_key() != "queen":
@@ -3883,9 +4089,23 @@ func _open_hive_about_dialog() -> void:
 			_hive_about_desc_label.text = "Write the public recruiting message shown when players preview this hive. 300 character limit. Editable once every 24 hours."
 	if _hive_about_dialog != null:
 		_hive_about_dialog.get_ok_button().disabled = locked
-		_hive_about_dialog.popup_centered()
+		_popup_hive_dialog_below_banner(_hive_about_dialog, _hive_about_popup_size())
 	if _hive_about_input != null and not locked:
-		_hive_about_input.grab_focus()
+		call_deferred("_focus_hive_about_input")
+
+func _focus_hive_about_input() -> void:
+	if _hive_about_dialog == null or not is_instance_valid(_hive_about_dialog):
+		return
+	if not _hive_about_dialog.visible:
+		return
+	if _hive_about_input == null:
+		return
+	_hive_about_input.grab_focus()
+
+func _on_hive_about_done_pressed() -> void:
+	if _hive_about_input != null:
+		_hive_about_input.release_focus()
+	DisplayServer.virtual_keyboard_hide()
 
 func _submit_hive_about_message() -> void:
 	if HiveClanState == null or not HiveClanState.has_method("intent_set_hive_about"):
@@ -3897,6 +4117,7 @@ func _submit_hive_about_message() -> void:
 		about_text = _hive_about_input.text
 	if about_text.length() > 300:
 		about_text = about_text.substr(0, 300)
+	DisplayServer.virtual_keyboard_hide()
 	var result: Dictionary = HiveClanState.call("intent_set_hive_about", hive_id, about_text, "") as Dictionary
 	if not bool(result.get("ok", false)):
 		var reason: String = str(result.get("reason", "unknown"))
@@ -6967,7 +7188,8 @@ func _bottom_nav_buttons() -> Array[Button]:
 		menu_buffs_button,
 		menu_free_roll_button,
 		menu_cash_button,
-		menu_battle_pass_button
+		menu_battle_pass_button,
+		menu_jukebox_button
 	]
 	if menu_unused_button != null:
 		buttons.append(menu_unused_button)
@@ -7046,6 +7268,15 @@ func _apply_bottom_nav_sprite_presentation() -> void:
 	for button in _bottom_nav_buttons():
 		if button == null:
 			continue
+		if button == menu_unused_button:
+			if button.has_node("SkinTex"):
+				var stale_skin: TextureRect = button.get_node("SkinTex") as TextureRect
+				if stale_skin != null:
+					stale_skin.visible = false
+			button.add_theme_color_override("font_color", Color(0.92, 0.92, 0.92, 1.0))
+			button.add_theme_color_override("font_hover_color", Color(1.0, 0.95, 0.72, 1.0))
+			button.add_theme_color_override("font_pressed_color", Color(1.0, 0.84, 0.36, 1.0))
+			continue
 		if (not button.has_node("SkinTex")) and button.has_method("apply_skin"):
 			button.call("apply_skin")
 		if not button.has_node("SkinTex"):
@@ -7077,7 +7308,7 @@ func _apply_bottom_nav_layout() -> void:
 	menu_left_buttons_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	menu_right_buttons_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	menu_left_buttons_row.size_flags_stretch_ratio = 3.0
-	menu_right_buttons_row.size_flags_stretch_ratio = 2.0
+	menu_right_buttons_row.size_flags_stretch_ratio = 3.0
 	var side_buttons: Array[Button] = [
 		menu_store_button,
 		menu_buffs_button,
@@ -7701,33 +7932,58 @@ func _wire_buffs_buttons() -> void:
 
 func _apply_buffs_panel_layout() -> void:
 	_ensure_buffs_loadout_top_panel()
+	var buffs_vbox: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox
+	if buffs_vbox != null:
+		buffs_vbox.add_theme_constant_override("separation", 14)
+	var body_inner: VBoxContainer = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox
+	if body_inner != null:
+		body_inner.offset_left = 18.0
+		body_inner.offset_top = 18.0
+		body_inner.offset_right = -18.0
+		body_inner.offset_bottom = -18.0
 	if buffs_top_row != null:
-		buffs_top_row.add_theme_constant_override("separation", 10)
+		buffs_top_row.add_theme_constant_override("separation", 12)
+	if buffs_mode_tabs != null:
+		buffs_mode_tabs.add_theme_constant_override("separation", 10)
+	for mode_button in [buffs_mode_vs_button, buffs_mode_async_button]:
+		if mode_button != null:
+			mode_button.custom_minimum_size = Vector2(0.0, BUFF_UI_MODE_BUTTON_HEIGHT)
 	if buffs_loadout_panel != null:
 		buffs_loadout_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		buffs_loadout_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		buffs_loadout_panel.size_flags_stretch_ratio = 1.0
+		buffs_loadout_panel.size_flags_stretch_ratio = 0.95
 	if buffs_loadout_vbox != null:
-		buffs_loadout_vbox.add_theme_constant_override("separation", 10)
+		buffs_loadout_vbox.offset_left = 14.0
+		buffs_loadout_vbox.offset_top = 14.0
+		buffs_loadout_vbox.offset_right = -14.0
+		buffs_loadout_vbox.offset_bottom = -14.0
+		buffs_loadout_vbox.add_theme_constant_override("separation", 12)
 	if buffs_slots_row != null:
 		buffs_slots_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		buffs_slots_row.size_flags_stretch_ratio = 1.0
+		buffs_slots_row.add_theme_constant_override("separation", 8)
 	if buffs_library_panel != null:
 		buffs_library_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		buffs_library_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		buffs_library_panel.size_flags_stretch_ratio = 1.35
+		buffs_library_panel.size_flags_stretch_ratio = 1.55
 	if buffs_library_vbox != null:
-		buffs_library_vbox.add_theme_constant_override("separation", 8)
+		buffs_library_vbox.offset_left = 14.0
+		buffs_library_vbox.offset_top = 14.0
+		buffs_library_vbox.offset_right = -14.0
+		buffs_library_vbox.offset_bottom = -14.0
+		buffs_library_vbox.add_theme_constant_override("separation", 10)
 	if buffs_detail_panel != null:
 		buffs_detail_panel.visible = false
 
 func _ensure_buffs_loadout_top_panel() -> void:
 	if _buff_loadout_top_panel != null and is_instance_valid(_buff_loadout_top_panel):
+		_buff_loadout_top_panel.custom_minimum_size = Vector2(0.0, BUFF_UI_LOADOUT_TOP_HEIGHT)
 		return
 	if buffs_loadout_vbox == null:
 		return
 	var existing: Panel = buffs_loadout_vbox.get_node_or_null("LoadoutTopPanel") as Panel
 	if existing != null:
+		existing.custom_minimum_size = Vector2(0.0, BUFF_UI_LOADOUT_TOP_HEIGHT)
 		_buff_loadout_top_panel = existing
 		return
 	var header: Label = buffs_loadout_vbox.get_node_or_null("BuffsLoadoutHeader") as Label
@@ -7740,17 +7996,17 @@ func _ensure_buffs_loadout_top_panel() -> void:
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	panel.size_flags_stretch_ratio = 1.1
-	panel.custom_minimum_size = Vector2(0, 154)
+	panel.custom_minimum_size = Vector2(0.0, BUFF_UI_LOADOUT_TOP_HEIGHT)
 	buffs_loadout_vbox.add_child(panel)
 	buffs_loadout_vbox.move_child(panel, 0)
 	var inner: VBoxContainer = VBoxContainer.new()
 	inner.name = "LoadoutTopVBox"
 	inner.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	inner.offset_left = 8.0
-	inner.offset_top = 8.0
-	inner.offset_right = -8.0
-	inner.offset_bottom = -8.0
-	inner.add_theme_constant_override("separation", 6)
+	inner.offset_left = 10.0
+	inner.offset_top = 10.0
+	inner.offset_right = -10.0
+	inner.offset_bottom = -10.0
+	inner.add_theme_constant_override("separation", 8)
 	panel.add_child(inner)
 	buffs_loadout_vbox.remove_child(header)
 	buffs_loadout_vbox.remove_child(buffs_slots_row)
@@ -7857,11 +8113,11 @@ func _ensure_buffs_owned_panel() -> void:
 	var owned_vbox: VBoxContainer = VBoxContainer.new()
 	owned_vbox.name = "OwnedVBox"
 	owned_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	owned_vbox.offset_left = 8.0
-	owned_vbox.offset_top = 8.0
-	owned_vbox.offset_right = -8.0
-	owned_vbox.offset_bottom = -8.0
-	owned_vbox.add_theme_constant_override("separation", 6)
+	owned_vbox.offset_left = 10.0
+	owned_vbox.offset_top = 10.0
+	owned_vbox.offset_right = -10.0
+	owned_vbox.offset_bottom = -10.0
+	owned_vbox.add_theme_constant_override("separation", 8)
 	panel.add_child(owned_vbox)
 	var header: Label = Label.new()
 	header.name = "OwnedHeader"
@@ -7876,7 +8132,7 @@ func _ensure_buffs_owned_panel() -> void:
 	var list: VBoxContainer = VBoxContainer.new()
 	list.name = "OwnedList"
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 4)
+	list.add_theme_constant_override("separation", 6)
 	scroll.add_child(list)
 	var empty_label: Label = Label.new()
 	empty_label.name = "OwnedEmpty"
@@ -7887,11 +8143,20 @@ func _ensure_buffs_owned_panel() -> void:
 	_buff_owned_empty_label = empty_label
 	_buff_owned_flow = list
 	_style_panel(panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	_apply_font(header, _font_semibold, 13)
-	_apply_font(empty_label, _font_regular, 12)
+	_apply_font(header, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
+	_apply_font(empty_label, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 
 func _ensure_buffs_cart_ui() -> void:
 	if _buff_cart_root != null and is_instance_valid(_buff_cart_root):
+		_buff_cart_root.custom_minimum_size = Vector2(0.0, BUFF_UI_CART_HEIGHT)
+		if _buff_cart_panel != null and is_instance_valid(_buff_cart_panel):
+			_buff_cart_panel.custom_minimum_size = Vector2(0.0, BUFF_UI_CART_PANEL_HEIGHT)
+		if _buff_cart_buy_button != null and is_instance_valid(_buff_cart_buy_button):
+			_buff_cart_buy_button.custom_minimum_size = Vector2(132.0, 40.0)
+			_apply_font(_buff_cart_buy_button, _font_semibold, BUFF_UI_BUTTON_FONT_SIZE)
+		if _buff_cart_clear_button != null and is_instance_valid(_buff_cart_clear_button):
+			_buff_cart_clear_button.custom_minimum_size = Vector2(118.0, 40.0)
+			_apply_font(_buff_cart_clear_button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 		_refresh_buffs_cart_ui()
 		return
 	if buffs_body_vbox == null:
@@ -7899,8 +8164,8 @@ func _ensure_buffs_cart_ui() -> void:
 	var root: VBoxContainer = VBoxContainer.new()
 	root.name = "BuffCartRoot"
 	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	root.custom_minimum_size = Vector2(0.0, 188.0)
-	root.add_theme_constant_override("separation", 6)
+	root.custom_minimum_size = Vector2(0.0, BUFF_UI_CART_HEIGHT)
+	root.add_theme_constant_override("separation", 8)
 	buffs_body_vbox.add_child(root)
 	var footer: Control = buffs_body_vbox.get_node_or_null("BuffsFooter") as Control
 	if footer != null:
@@ -7917,29 +8182,29 @@ func _ensure_buffs_cart_ui() -> void:
 	hint_label.name = "BuffCartHint"
 	hint_label.text = "CART: drag store buffs below this line to add them."
 	root.add_child(hint_label)
-	_apply_font(hint_label, _font_regular, 11)
+	_apply_font(hint_label, _font_regular, BUFF_UI_SMALL_FONT_SIZE)
 
 	var panel: Panel = Panel.new()
 	panel.name = "BuffCartPanel"
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	panel.custom_minimum_size = Vector2(0.0, 156.0)
+	panel.custom_minimum_size = Vector2(0.0, BUFF_UI_CART_PANEL_HEIGHT)
 	root.add_child(panel)
 	_style_panel(panel, Color(0.08, 0.09, 0.12, 0.92), Color(0.45, 0.48, 0.6, 0.8))
 
 	var panel_vbox: VBoxContainer = VBoxContainer.new()
 	panel_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	panel_vbox.offset_left = 10.0
-	panel_vbox.offset_top = 10.0
-	panel_vbox.offset_right = -10.0
-	panel_vbox.offset_bottom = -10.0
-	panel_vbox.add_theme_constant_override("separation", 6)
+	panel_vbox.offset_left = 12.0
+	panel_vbox.offset_top = 12.0
+	panel_vbox.offset_right = -12.0
+	panel_vbox.offset_bottom = -12.0
+	panel_vbox.add_theme_constant_override("separation", 8)
 	panel.add_child(panel_vbox)
 
 	var header: Label = Label.new()
 	header.text = "RUNNING TALLY"
 	panel_vbox.add_child(header)
-	_apply_font(header, _font_semibold, 12)
+	_apply_font(header, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
 
 	var rows_scroll: ScrollContainer = ScrollContainer.new()
 	rows_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -7950,13 +8215,13 @@ func _ensure_buffs_cart_ui() -> void:
 	var rows: VBoxContainer = VBoxContainer.new()
 	rows.name = "BuffCartRows"
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rows.add_theme_constant_override("separation", 4)
+	rows.add_theme_constant_override("separation", 6)
 	rows_scroll.add_child(rows)
 
 	var subtotal_row: HBoxContainer = HBoxContainer.new()
 	subtotal_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	subtotal_row.alignment = BoxContainer.ALIGNMENT_END
-	subtotal_row.add_theme_constant_override("separation", 8)
+	subtotal_row.add_theme_constant_override("separation", 10)
 	panel_vbox.add_child(subtotal_row)
 
 	var subtotal: Label = Label.new()
@@ -7964,22 +8229,22 @@ func _ensure_buffs_cart_ui() -> void:
 	subtotal.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	subtotal.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	subtotal_row.add_child(subtotal)
-	_apply_font(subtotal, _font_semibold, 12)
+	_apply_font(subtotal, _font_semibold, BUFF_UI_BUTTON_FONT_SIZE)
 
 	var clear_button: Button = Button.new()
 	clear_button.text = "CLEAR"
-	clear_button.custom_minimum_size = Vector2(94.0, 30.0)
+	clear_button.custom_minimum_size = Vector2(118.0, 40.0)
 	clear_button.pressed.connect(_on_buff_cart_clear_pressed)
 	subtotal_row.add_child(clear_button)
-	_apply_font(clear_button, _font_regular, 12)
+	_apply_font(clear_button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 	_style_button(clear_button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 
 	var buy_button: Button = Button.new()
 	buy_button.text = "BUY"
-	buy_button.custom_minimum_size = Vector2(106.0, 30.0)
+	buy_button.custom_minimum_size = Vector2(132.0, 40.0)
 	buy_button.pressed.connect(_on_buff_cart_buy_pressed)
 	subtotal_row.add_child(buy_button)
-	_apply_font(buy_button, _font_semibold, 12)
+	_apply_font(buy_button, _font_semibold, BUFF_UI_BUTTON_FONT_SIZE)
 	_style_button(buy_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
 
 	_buff_cart_root = root
@@ -8054,7 +8319,7 @@ func _refresh_buffs_cart_ui() -> void:
 		var line_total: float = unit_price * float(qty)
 		var row: HBoxContainer = HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_theme_constant_override("separation", 6)
+		row.add_theme_constant_override("separation", 8)
 		_buff_cart_rows.add_child(row)
 
 		var name_label: Label = Label.new()
@@ -8062,10 +8327,10 @@ func _refresh_buffs_cart_ui() -> void:
 		name_label.text = _buff_cart_display_name(buff, buff_id)
 		name_label.clip_text = true
 		row.add_child(name_label)
-		_apply_font(name_label, _font_regular, 11)
+		_apply_font(name_label, _font_regular, BUFF_UI_SMALL_FONT_SIZE)
 
 		var qty_spin: SpinBox = SpinBox.new()
-		qty_spin.custom_minimum_size = Vector2(72.0, 26.0)
+		qty_spin.custom_minimum_size = Vector2(90.0, 36.0)
 		qty_spin.min_value = 1.0
 		qty_spin.max_value = float(_buff_cart_max_qty_for_id(buff_id))
 		qty_spin.step = 1.0
@@ -8078,28 +8343,29 @@ func _refresh_buffs_cart_ui() -> void:
 		var qty_cb: Callable = Callable(self, "_on_buff_cart_qty_changed").bind(buff_id)
 		qty_spin.value_changed.connect(qty_cb)
 		row.add_child(qty_spin)
+		_apply_font(qty_spin, _font_regular, BUFF_UI_SMALL_FONT_SIZE)
 
 		var line_label: Label = Label.new()
-		line_label.custom_minimum_size = Vector2(84.0, 0.0)
+		line_label.custom_minimum_size = Vector2(104.0, 0.0)
 		line_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		line_label.text = "$%.2f" % line_total
 		row.add_child(line_label)
-		_apply_font(line_label, _font_regular, 11)
+		_apply_font(line_label, _font_regular, BUFF_UI_SMALL_FONT_SIZE)
 
 		var remove_button: Button = Button.new()
 		remove_button.text = "X"
-		remove_button.custom_minimum_size = Vector2(34.0, 26.0)
+		remove_button.custom_minimum_size = Vector2(44.0, 36.0)
 		var remove_cb: Callable = Callable(self, "_on_buff_cart_remove_pressed").bind(buff_id)
 		remove_button.pressed.connect(remove_cb)
 		row.add_child(remove_button)
-		_apply_font(remove_button, _font_semibold, 11)
+		_apply_font(remove_button, _font_semibold, BUFF_UI_SMALL_FONT_SIZE)
 		_style_button(remove_button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 
 	if buff_keys.is_empty():
 		var empty_label: Label = Label.new()
 		empty_label.text = "Cart empty. Drag buffs from Store into this cart area."
 		_buff_cart_rows.add_child(empty_label)
-		_apply_font(empty_label, _font_regular, 11)
+		_apply_font(empty_label, _font_regular, BUFF_UI_SMALL_FONT_SIZE)
 		_buff_cart_empty_label = empty_label
 	else:
 		_buff_cart_empty_label = null
@@ -8274,7 +8540,7 @@ func _ensure_buffs_category_tabs() -> void:
 	row.name = "BuffTypeTabs"
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.alignment = BoxContainer.ALIGNMENT_BEGIN
-	row.add_theme_constant_override("separation", 6)
+	row.add_theme_constant_override("separation", 8)
 	buffs_library_vbox.add_child(row)
 	if buffs_library_header != null:
 		buffs_library_vbox.move_child(row, buffs_library_header.get_index() + 1)
@@ -8284,8 +8550,8 @@ func _ensure_buffs_category_tabs() -> void:
 		var button: Button = Button.new()
 		button.text = _buff_filter_label(filter_id)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0, 34)
-		_apply_display_label(button, 11, _font_semibold, 11)
+		button.custom_minimum_size = Vector2(0, 44)
+		_apply_display_label(button, 14, _font_semibold, BUFF_UI_BUTTON_FONT_SIZE)
 		var press_cb: Callable = Callable(self, "_set_buff_category_filter").bind(filter_id)
 		button.pressed.connect(press_cb)
 		row.add_child(button)
@@ -8310,7 +8576,7 @@ func _ensure_buffs_library_nav() -> void:
 	tier_root.name = "BuffLibraryTierRoot"
 	tier_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tier_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	tier_root.add_theme_constant_override("separation", 8)
+	tier_root.add_theme_constant_override("separation", 10)
 	buffs_library_vbox.add_child(tier_root)
 	_buff_library_scroll = null
 	_buff_library_tier_root = tier_root
@@ -8327,26 +8593,26 @@ func _ensure_buffs_library_nav() -> void:
 		_ensure_embedded_hex_background(panel, StringName("dash"))
 		var tier_vbox: VBoxContainer = VBoxContainer.new()
 		tier_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-		tier_vbox.offset_left = 8.0
-		tier_vbox.offset_top = 8.0
-		tier_vbox.offset_right = -8.0
-		tier_vbox.offset_bottom = -8.0
-		tier_vbox.add_theme_constant_override("separation", 6)
+		tier_vbox.offset_left = 10.0
+		tier_vbox.offset_top = 10.0
+		tier_vbox.offset_right = -10.0
+		tier_vbox.offset_bottom = -10.0
+		tier_vbox.add_theme_constant_override("separation", 8)
 		panel.add_child(tier_vbox)
 		var header: Label = Label.new()
 		header.text = tier_id.to_upper()
 		tier_vbox.add_child(header)
-		_apply_display_label(header, 11, _font_semibold, 12)
+		_apply_display_label(header, 14, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
 		var tier_scroll: ScrollContainer = ScrollContainer.new()
 		tier_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tier_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		tier_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		tier_vbox.add_child(tier_scroll)
 		var grid: GridContainer = GridContainer.new()
-		grid.columns = 2
+		grid.columns = 1
 		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		grid.add_theme_constant_override("h_separation", 6)
-		grid.add_theme_constant_override("v_separation", 6)
+		grid.add_theme_constant_override("h_separation", 8)
+		grid.add_theme_constant_override("v_separation", 8)
 		tier_scroll.add_child(grid)
 		_buff_library_tier_grids[tier_id] = grid
 		_buff_library_tier_headers[tier_id] = header
@@ -8532,10 +8798,10 @@ func _refresh_buffs_library_buttons() -> void:
 			ownership_tag = " (OWNED)"
 		var button: Button = Button.new()
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0.0, 26.0)
+		button.custom_minimum_size = Vector2(0.0, BUFF_UI_LIBRARY_BUTTON_HEIGHT)
 		button.clip_text = true
 		button.text = "%s%s%s - $%.2f" % [selected_mark, str(buff.get("name", buff_id)), ownership_tag, price_usd]
-		_apply_font(button, _font_regular, 11)
+		_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 		var press_cb: Callable = Callable(self, "_on_buff_library_pressed_by_id").bind(buff_id)
 		if not button.pressed.is_connected(press_cb):
@@ -8550,10 +8816,10 @@ func _refresh_buffs_library_buttons() -> void:
 		var header: Label = _buff_library_tier_headers[tier_id] as Label
 		if header != null:
 			header.text = tier_id.to_upper()
-			_apply_display_label(header, 11, _font_semibold, 12)
+			_apply_display_label(header, 14, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
 	if buffs_library_header != null:
 		buffs_library_header.text = "BUFF STORE %s %s" % [_buff_active_mode.to_upper(), _buff_filter_label(_buff_category_filter)]
-		_apply_display_label(buffs_library_header, 12, _font_semibold, 14)
+		_apply_display_label(buffs_library_header, 15, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
 
 func _refresh_buffs_owned_ui() -> void:
 	if _buff_owned_flow == null:
@@ -8585,10 +8851,10 @@ func _refresh_buffs_owned_ui() -> void:
 		if owned_count > 1:
 			button.text = "%s x%d" % [button.text, owned_count]
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0.0, 28.0)
+		button.custom_minimum_size = Vector2(0.0, BUFF_UI_SLOT_BUTTON_HEIGHT)
 		button.clip_text = true
 		_style_button(button, Color(0.10, 0.11, 0.14), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
-		_apply_font(button, _font_regular, 11)
+		_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 		var selected: bool = _buff_selected_origin == "owned" and _buff_selected_id == buff_id
 		if selected:
 			button.text = "> " + button.text
@@ -8602,7 +8868,7 @@ func _refresh_buffs_owned_ui() -> void:
 		_buff_owned_buttons.append(button)
 	if _buff_owned_header_label != null:
 		_buff_owned_header_label.text = "OWNED"
-		_apply_display_label(_buff_owned_header_label, 12, _font_semibold, 13)
+		_apply_display_label(_buff_owned_header_label, 15, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
 
 func _refresh_buffs_loadout_ui() -> void:
 	for idx in range(buffs_slot_buttons.size()):
@@ -8610,7 +8876,8 @@ func _refresh_buffs_loadout_ui() -> void:
 		if button == null:
 			continue
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0.0, 28.0)
+		button.custom_minimum_size = Vector2(0.0, BUFF_UI_SLOT_BUTTON_HEIGHT)
+		_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 		button.clip_text = true
 		if idx >= BUFF_LOADOUT_SIZE:
 			button.visible = false
@@ -10059,6 +10326,9 @@ func _on_battle_pass_pressed() -> void:
 	_open_battle_pass_panel()
 	status_label.text = "Battle Pass opened."
 
+func _open_tournaments_from_menu_button() -> void:
+	_open_stage_race_tournament_lobby("WEEKLY")
+
 func _on_settings_pressed() -> void:
 	_close_top_level_windows()
 	_open_settings_panel()
@@ -10559,11 +10829,17 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	var body_separation: int = 8
 	var cluster_spacing: int = 6
 	var touch_layout: bool = _use_game_hub_touch_layout()
-	if paid and touch_layout:
-		top_row_scale = GAME_HUB_TOUCH_PAID_TOP_ROW_SCALE
-		lower_rows_scale = GAME_HUB_TOUCH_PAID_LOWER_ROWS_SCALE
-		body_separation = 14
-		cluster_spacing = GAME_HUB_TOUCH_PAID_CLUSTER_SPACING
+	if paid:
+		if touch_layout:
+			top_row_scale = GAME_HUB_TOUCH_PAID_TOP_ROW_SCALE
+			lower_rows_scale = GAME_HUB_TOUCH_PAID_LOWER_ROWS_SCALE
+			body_separation = 14
+			cluster_spacing = GAME_HUB_TOUCH_PAID_CLUSTER_SPACING
+		else:
+			top_row_scale = GAME_HUB_MONEY_TOP_ROW_SCALE
+			lower_rows_scale = GAME_HUB_MONEY_LOWER_ROWS_SCALE
+			body_separation = GAME_HUB_MONEY_BODY_SEPARATION
+			cluster_spacing = GAME_HUB_MONEY_CLUSTER_SPACING
 	body.offset_top += extra_top + content_top_padding_px
 	body.offset_left += GAME_HUB_CONTENT_SHIFT_X + centered_content_bias_x
 	body.offset_right += GAME_HUB_CONTENT_SHIFT_X + centered_content_bias_x
@@ -10693,6 +10969,7 @@ func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
 	panel = _configure_entry_overlay_panel(panel, "FREE ROLL", "Select mode and route.", overlay_size, true)
 	if panel == null:
 		return
+	_center_free_roll_scene_panel(panel, overlay_size)
 	_shift_free_roll_overlay_down(panel)
 	panel.set_meta("sf_scene_owned_layout", true)
 	_apply_game_hub_panel_fx(panel)
@@ -10712,9 +10989,34 @@ func _shift_free_roll_overlay_down(panel: Panel) -> void:
 	panel.offset_top += shift_y
 	panel.offset_bottom += shift_y
 
+func _center_free_roll_scene_panel(panel: Panel, overlay_size: Vector2) -> void:
+	if panel == null:
+		return
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var current_size: Vector2 = panel.size
+	if current_size.x <= 1.0:
+		current_size.x = panel.offset_right - panel.offset_left
+	if current_size.y <= 1.0:
+		current_size.y = panel.offset_bottom - panel.offset_top
+	var centered_size := Vector2(
+		minf(overlay_size.x, maxf(360.0, viewport_size.x - (GAME_HUB_OVERLAY_VIEWPORT_MARGIN_X * 2.0))),
+		minf(maxf(overlay_size.y, current_size.y), maxf(360.0, viewport_size.y - (GAME_HUB_OVERLAY_VIEWPORT_MARGIN_Y * 2.0)))
+	)
+	panel.layout_mode = 0
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -centered_size.x * 0.5
+	panel.offset_right = centered_size.x * 0.5
+	panel.offset_top = -centered_size.y * 0.5
+	panel.offset_bottom = centered_size.y * 0.5
+
 func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> void:
 	if panel == null:
 		return
+	_apply_free_roll_scene_layout(panel)
+	_install_free_roll_scroll_guard(panel)
 	_style_free_roll_game_hub_scene(panel)
 	var broadcast_free_roll: bool = true
 	var human_defs: Array[Dictionary] = [
@@ -10730,9 +11032,7 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		var mode_id: String = str(def.get("mode", ""))
 		if button == null or mode_id.is_empty():
 			continue
-		button.pressed.connect(func() -> void:
-			_on_human_mode_selected(mode_id, false, selected_denom)
-		)
+		_connect_free_roll_guarded_press(button, Callable(self, "_on_human_mode_selected").bind(mode_id, false, selected_denom))
 		_apply_human_mode_skin_to_button(button, mode_id, false, selected_denom, true)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	var cycle_defs: Array[Dictionary] = [
@@ -10746,9 +11046,7 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		var mode_id: String = str(def.get("mode", ""))
 		if button == null or mode_id.is_empty():
 			continue
-		button.pressed.connect(func() -> void:
-			_on_async_mode_selected(mode_id, false, 0)
-		)
+		_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
 		_apply_async_cycle_skin_to_button(button, label, false, selected_denom, true)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	var map_defs: Array[Dictionary] = [
@@ -10767,16 +11065,177 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		var mode_id: String = str(def.get("mode", ""))
 		if button == null or mode_id.is_empty():
 			continue
-		button.pressed.connect(func() -> void:
-			_on_async_mode_selected(mode_id, false, 0)
-		)
+		_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
 		_apply_async_mode_skin_to_button(button, label, false, selected_denom, true)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	var cancel: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/CancelButton") as Button
 	if cancel != null:
-		cancel.pressed.connect(_close_entry_route_modal)
+		_connect_free_roll_guarded_press(cancel, Callable(self, "_close_entry_route_modal"))
 		_style_game_hub_cancel_button(cancel, GAME_HUB_FREE_LOWER_ROWS_SCALE, true)
 		_configure_game_hub_option_button(cancel, broadcast_free_roll)
+
+func _apply_free_roll_scene_layout(panel: Panel) -> void:
+	if panel == null:
+		return
+	var body: VBoxContainer = panel.get_node_or_null("EntryScroll/EntryBody") as VBoxContainer
+	if body != null:
+		body.custom_minimum_size = Vector2(FREE_ROLL_SCENE_CANVAS_WIDTH, 0.0)
+		body.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		body.add_theme_constant_override("separation", 14)
+	var canvas: Control = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas") as Control
+	if canvas == null:
+		return
+	canvas.custom_minimum_size = Vector2(FREE_ROLL_SCENE_CANVAS_WIDTH, FREE_ROLL_SCENE_CANVAS_HEIGHT)
+	canvas.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MatchTypeLabel", 18.0, 28.0)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HumanMatchesHeading", 58.0, 34.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human1v1Button", 54.0, 110.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HumanCtfButton", 450.0, 110.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HumanHiddenCtfButton", 54.0, 286.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human2v2Button", 450.0, 286.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human3pFfaButton", 54.0, 462.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human4pFfaButton", 450.0, 462.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesHeading", 672.0, 34.0)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesSubtext", 708.0, 30.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/WeeklyButton", 54.0, 770.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MonthlyButton", 450.0, 770.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/SeasonButton", 252.0, 938.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
+	var divider: ColorRect = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/MapConfigDivider") as ColorRect
+	if divider != null:
+		_set_free_roll_control_rect(divider, 54.0, 1120.0, FREE_ROLL_SCENE_CANVAS_WIDTH - 108.0, 1.0)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MapConfigLabel", 1144.0, 28.0)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/OneMapHeading", 1188.0, 30.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CaptureFlagButton", 54.0, 1230.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HiddenFlagButton", 450.0, 1230.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/ThreeMapHeading", 1396.0, 30.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/StageRace3Button", 54.0, 1438.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimedRace3Button", 450.0, 1438.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MissNOut3Button", 252.0, 1600.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/FiveMapHeading", 1778.0, 30.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/StageRace5Button", 54.0, 1820.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimedRace5Button", 450.0, 1820.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MissNOut5Button", 252.0, 1982.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CancelButton", 272.0, 2160.0, FREE_ROLL_CANCEL_BUTTON_SIZE)
+
+func _set_free_roll_label_rect(panel: Panel, path: String, y: float, height: float) -> void:
+	var label: Label = panel.get_node_or_null(path) as Label
+	if label == null:
+		return
+	_set_free_roll_control_rect(label, 0.0, y, FREE_ROLL_SCENE_CANVAS_WIDTH, height)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+func _set_free_roll_button_rect(panel: Panel, path: String, x: float, y: float, size: Vector2) -> void:
+	var button: Button = panel.get_node_or_null(path) as Button
+	if button == null:
+		return
+	button.scale = Vector2.ONE
+	button.custom_minimum_size = size
+	_set_free_roll_control_rect(button, x, y, size.x, size.y)
+
+func _set_free_roll_control_rect(control: Control, x: float, y: float, width: float, height: float) -> void:
+	if control == null:
+		return
+	control.layout_mode = 0
+	control.anchor_left = 0.0
+	control.anchor_top = 0.0
+	control.anchor_right = 0.0
+	control.anchor_bottom = 0.0
+	control.offset_left = x
+	control.offset_top = y
+	control.offset_right = x + width
+	control.offset_bottom = y + height
+
+func _install_free_roll_scroll_guard(panel: Panel) -> void:
+	if panel == null:
+		return
+	var scroll: ScrollContainer = panel.get_node_or_null("EntryScroll") as ScrollContainer
+	if scroll == null or scroll.has_meta("sf_free_roll_scroll_guard"):
+		return
+	scroll.set_meta("sf_free_roll_scroll_guard", true)
+	scroll.gui_input.connect(_on_free_roll_scroll_gui_input)
+
+func _connect_free_roll_guarded_press(button: Button, action: Callable) -> void:
+	if button == null:
+		return
+	button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	if not button.has_meta("sf_free_roll_press_guard"):
+		button.set_meta("sf_free_roll_press_guard", true)
+		button.gui_input.connect(Callable(self, "_on_free_roll_button_gui_input").bind(button))
+		button.button_down.connect(Callable(self, "_on_free_roll_button_down").bind(button))
+		button.button_up.connect(Callable(self, "_on_free_roll_button_up").bind(button))
+	button.pressed.connect(func() -> void:
+		if _consume_free_roll_button_press(button):
+			action.call()
+	)
+
+func _on_free_roll_scroll_gui_input(event: InputEvent) -> void:
+	if event is InputEventScreenDrag:
+		_block_free_roll_press_release()
+	elif event is InputEventMouseMotion:
+		var mouse_motion := event as InputEventMouseMotion
+		if (mouse_motion.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			_block_free_roll_press_release()
+
+func _on_free_roll_button_down(button: Button) -> void:
+	if button == null:
+		return
+	button.set_meta("sf_free_roll_press_started_msec", Time.get_ticks_msec())
+	button.set_meta("sf_free_roll_press_start_pos", button.get_local_mouse_position())
+	button.set_meta("sf_free_roll_press_cancelled", false)
+
+func _on_free_roll_button_up(button: Button) -> void:
+	_finalize_free_roll_button_press(button)
+
+func _on_free_roll_button_gui_input(event: InputEvent, button: Button) -> void:
+	if button == null:
+		return
+	if event is InputEventMouseMotion:
+		var mouse_motion := event as InputEventMouseMotion
+		if (mouse_motion.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			_update_free_roll_button_drag_guard(button, mouse_motion.position)
+	elif event is InputEventScreenDrag:
+		var screen_drag := event as InputEventScreenDrag
+		_update_free_roll_button_drag_guard(button, screen_drag.position)
+	elif event is InputEventMouseButton:
+		var mouse_button := event as InputEventMouseButton
+		if mouse_button.button_index == MOUSE_BUTTON_LEFT and not mouse_button.pressed:
+			_finalize_free_roll_button_press(button)
+	elif event is InputEventScreenTouch:
+		var touch := event as InputEventScreenTouch
+		if not touch.pressed:
+			_finalize_free_roll_button_press(button)
+
+func _update_free_roll_button_drag_guard(button: Button, position: Vector2) -> void:
+	var start_any: Variant = button.get_meta("sf_free_roll_press_start_pos", position)
+	var start_pos: Vector2 = start_any if typeof(start_any) == TYPE_VECTOR2 else position
+	if start_pos.distance_to(position) < FREE_ROLL_PRESS_CANCEL_DRAG_PX:
+		return
+	button.set_meta("sf_free_roll_press_cancelled", true)
+	_block_free_roll_press_release()
+
+func _finalize_free_roll_button_press(button: Button) -> void:
+	if button == null:
+		return
+	var started_msec: int = int(button.get_meta("sf_free_roll_press_started_msec", Time.get_ticks_msec()))
+	if Time.get_ticks_msec() - started_msec >= FREE_ROLL_PRESS_CANCEL_HOLD_MS:
+		button.set_meta("sf_free_roll_press_cancelled", true)
+		_block_free_roll_press_release()
+
+func _block_free_roll_press_release() -> void:
+	_free_roll_press_block_until_msec = Time.get_ticks_msec() + FREE_ROLL_PRESS_RELEASE_BLOCK_MS
+
+func _consume_free_roll_button_press(button: Button) -> bool:
+	if button == null:
+		return false
+	var now: int = Time.get_ticks_msec()
+	var cancelled: bool = bool(button.get_meta("sf_free_roll_press_cancelled", false))
+	var started_msec: int = int(button.get_meta("sf_free_roll_press_started_msec", now))
+	if now - started_msec >= FREE_ROLL_PRESS_CANCEL_HOLD_MS:
+		cancelled = true
+	if now < _free_roll_press_block_until_msec:
+		cancelled = true
+	button.set_meta("sf_free_roll_press_cancelled", false)
+	return not cancelled
 
 func _style_free_roll_game_hub_scene(panel: Panel) -> void:
 	if panel == null:
@@ -11145,31 +11604,31 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	var tabs_row := HBoxContainer.new()
 	tabs_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tabs_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	tabs_row.add_theme_constant_override("separation", 10)
+	tabs_row.add_theme_constant_override("separation", 12)
 	body.add_child(tabs_row)
-	_add_game_hub_spacer(body, 4.0)
+	_add_game_hub_spacer(body, 8.0)
 	var entry_label := Label.new()
 	entry_label.text = "ENTRY TIER"
 	entry_label.add_theme_color_override("font_color", MONEY_ENTRY_LABEL_COLOR)
 	body.add_child(entry_label)
-	_apply_font(entry_label, _font_semibold, 13)
+	_apply_font(entry_label, _font_semibold, MONEY_ENTRY_LABEL_SIZE)
 	var tier_row := HBoxContainer.new()
 	tier_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tier_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	tier_row.add_theme_constant_override("separation", 10)
+	tier_row.add_theme_constant_override("separation", 14)
 	body.add_child(tier_row)
-	_add_game_hub_spacer(body, 4.0)
+	_add_game_hub_spacer(body, 8.0)
 	var division_arena_label := Label.new()
 	division_arena_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	division_arena_label.add_theme_color_override("font_color", GAME_HUB_SECTION_HEADER_COLOR)
 	body.add_child(division_arena_label)
-	_apply_font(division_arena_label, _font_semibold, 14)
+	_apply_font(division_arena_label, _font_semibold, MONEY_ARENA_LABEL_SIZE)
 	var entry_fee_label := Label.new()
 	entry_fee_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	entry_fee_label.add_theme_color_override("font_color", MONEY_ENTRY_LABEL_COLOR)
 	body.add_child(entry_fee_label)
-	_apply_font(entry_fee_label, _font_regular, 12)
-	_add_game_hub_spacer(body, 8.0)
+	_apply_font(entry_fee_label, _font_regular, MONEY_ENTRY_FEE_LABEL_SIZE)
+	_add_game_hub_spacer(body, 12.0)
 	var tab_buttons: Dictionary = {}
 	for division_id in MONEY_DIVISION_TAB_IDS:
 		var bound_division_id: String = division_id
@@ -11305,7 +11764,7 @@ func _rebuild_money_games_tier_row(
 					_on_money_games_tier_pressed(bound_tier, tier_row, division_arena_label, entry_fee_label)
 				)
 				tier_row.add_child(button)
-				_apply_font(button, _font_semibold, 12)
+				_apply_font(button, _font_semibold, MONEY_ENTRY_TIER_LABEL_SIZE)
 				_style_money_entry_tier_button(button, tier == _money_games_selected_tier)
 				_configure_game_hub_option_button(button, broadcast_mode)
 	if animate_swap and tier_row.is_inside_tree():
@@ -12126,6 +12585,17 @@ func _open_shell_map_picker_from_free_roll() -> bool:
 	SFLog.warn("FREE_ROLL_MAP_PICKER_ROUTE_FAILED", {"error_code": int(err)})
 	return false
 
+func _on_async_cycle_selected(scope: String, paid: bool, denomination: int) -> void:
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope.is_empty():
+		clean_scope = "WEEKLY"
+	_apply_async_entry_amount(paid, denomination)
+	_close_entry_route_modal()
+	if paid:
+		_open_stage_race_tournament_lobby(clean_scope)
+		return
+	_start_free_stage_race_contest(clean_scope)
+
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("async matches"):
 		return
@@ -12145,26 +12615,11 @@ func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 	_apply_async_entry_amount(paid, denomination)
 	match mode_id:
 		"WEEKLY":
-			_open_async_panel()
-			if paid:
-				_open_async_paid_menu()
-			else:
-				_open_async_free_menu()
-			_open_async_weekly()
+			_on_async_cycle_selected("WEEKLY", paid, denomination)
 		"MONTHLY":
-			_open_async_panel()
-			if paid:
-				_open_async_paid_menu()
-			else:
-				_open_async_free_menu()
-			_open_async_monthly()
+			_on_async_cycle_selected("MONTHLY", paid, denomination)
 		"YEARLY":
-			_open_async_panel()
-			if paid:
-				_open_async_paid_menu()
-			else:
-				_open_async_free_menu()
-			_open_async_yearly()
+			_on_async_cycle_selected("YEARLY", paid, denomination)
 		"STAGE_RACE":
 			_on_async_stage_race_selected(3, not paid)
 		"STAGE_RACE_3":
@@ -12662,6 +13117,7 @@ func _open_async_stage_contest_leaderboard(map_count: int) -> void:
 	body.add_child(close_button)
 	_apply_font(close_button, _font_regular, 13)
 	_style_button(close_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
+	_entry_route_modal = panel
 
 func _resolve_async_stage_contest_data(map_count: int) -> Dictionary:
 	var output: Dictionary = {
@@ -12770,10 +13226,12 @@ func _format_async_stage_total_time_ms(value_ms: int) -> String:
 	return "%02d:%02d.%03d" % [minutes, seconds, millis]
 
 func _close_entry_route_modal() -> void:
-	if _entry_route_modal == null:
-		return
-	if is_instance_valid(_entry_route_modal):
+	if _entry_route_modal != null and is_instance_valid(_entry_route_modal):
 		_entry_route_modal.queue_free()
+	else:
+		var orphaned_modal: Node = get_node_or_null("EntryRouteModal")
+		if orphaned_modal != null:
+			orphaned_modal.queue_free()
 	_entry_route_modal = null
 
 func _close_play_mode_select() -> void:
@@ -12789,6 +13247,7 @@ func _close_vs_lobby() -> void:
 	if is_instance_valid(_vs_lobby):
 		_vs_lobby.queue_free()
 	_vs_lobby = null
+	_vs_lobby_return_async_panel = false
 
 func _close_time_puzzle_lobby() -> void:
 	if _time_puzzle_lobby == null:
@@ -12796,6 +13255,7 @@ func _close_time_puzzle_lobby() -> void:
 	if is_instance_valid(_time_puzzle_lobby):
 		_time_puzzle_lobby.queue_free()
 	_time_puzzle_lobby = null
+	_time_puzzle_return_async_panel = false
 
 func _close_top_level_windows(except_surface: String = "") -> void:
 	if except_surface != UI_SURFACE_ENTRY:
@@ -12930,9 +13390,12 @@ func _open_buffs_panel() -> void:
 	dash_panel.visible = true
 	dash_buffs_panel.visible = true
 	_dash_open = true
+	_apply_buffs_panel_layout()
 	_ensure_buffs_cart_ui()
 	_sync_buff_mode_tabs()
 	_sync_buff_category_tabs()
+	_refresh_buffs_loadout_ui()
+	_refresh_buffs_owned_ui()
 	_refresh_buffs_library_buttons()
 	_refresh_buffs_cart_ui()
 
@@ -13726,15 +14189,57 @@ func _open_async_monthly() -> void:
 func _open_async_yearly() -> void:
 	_open_stage_race_tournament_lobby("YEARLY")
 
+func _start_free_stage_race_contest(scope: String, requested_map_count: int = 5) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope.is_empty():
+		clean_scope = "WEEKLY"
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state == null or not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_stage_race_plan"):
+		status_label.text = "%s Stage Race contest unavailable." % clean_scope.capitalize()
+		return
+	var contest: Variant = contest_state.call("get_contest_by_scope", clean_scope)
+	if contest == null:
+		status_label.text = "No %s Stage Race contest is posted yet." % clean_scope.capitalize()
+		return
+	var contest_id: String = str(contest.get("id")).strip_edges()
+	if contest_id.is_empty():
+		status_label.text = "%s Stage Race contest unavailable." % clean_scope.capitalize()
+		return
+	var map_count: int = maxi(1, requested_map_count)
+	var plan: Dictionary = contest_state.call("build_stage_race_plan", contest_id, map_count) as Dictionary
+	if not bool(plan.get("ok", false)):
+		status_label.text = "%s Stage Race contest unavailable." % clean_scope.capitalize()
+		return
+	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
+	if map_ids.is_empty():
+		status_label.text = "%s Stage Race contest has no maps." % clean_scope.capitalize()
+		return
+	var resolved_map_count: int = maxi(1, int(plan.get("map_count", map_ids.size())))
+	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
+	var lobby_options: Dictionary = {
+		"start_players": ASYNC_WINDOW_START_PLAYERS,
+		"window_sec": window_sec,
+		"contest_id": contest_id,
+		"contest_scope": clean_scope,
+		"map_ids": map_ids
+	}
+	status_label.text = "%s Stage Race contest starting..." % clean_scope.capitalize()
+	_open_async_vs_lobby("STAGE_RACE", resolved_map_count, true, 0, lobby_options)
+
 func _open_stage_race_tournament_lobby(scope: String) -> void:
+	var return_async_panel: bool = async_panel != null and async_panel.visible
 	_close_top_level_windows(UI_SURFACE_TIME_PUZZLE)
+	_time_puzzle_return_async_panel = return_async_panel
 	if _time_puzzle_lobby == null:
 		_time_puzzle_lobby = preload("res://scenes/ui/TimePuzzleLobby.tscn").instantiate()
 		_time_puzzle_lobby.closed.connect(func():
 			_time_puzzle_lobby.queue_free()
 			_time_puzzle_lobby = null
-			if async_panel != null:
+			if async_panel != null and _time_puzzle_return_async_panel:
 				async_panel.visible = true
+			_time_puzzle_return_async_panel = false
 		)
 		add_child(_time_puzzle_lobby)
 	_time_puzzle_lobby.set_scope(scope)
@@ -14203,15 +14708,18 @@ func _current_async_paid_entry_usd() -> int:
 	return maxi(1, _async_paid_entry_usd)
 
 func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> void:
+	var return_async_panel: bool = async_panel != null and async_panel.visible
 	_play_matchmaker_sfx()
 	_close_top_level_windows(UI_SURFACE_VS_LOBBY)
+	_vs_lobby_return_async_panel = return_async_panel
 	if _vs_lobby == null:
 		_vs_lobby = preload("res://scenes/ui/VsLobby.tscn").instantiate()
 		_vs_lobby.closed.connect(func():
 			_vs_lobby.queue_free()
 			_vs_lobby = null
-			if async_panel != null:
+			if async_panel != null and _vs_lobby_return_async_panel:
 				async_panel.visible = true
+			_vs_lobby_return_async_panel = false
 		)
 		add_child(_vs_lobby)
 	if _vs_lobby.has_method("configure"):

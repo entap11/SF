@@ -2,8 +2,9 @@ extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MissNOutBannerRuntime := preload("res://scripts/main_helpers/miss_n_out_banner_runtime.gd")
 const BetaRuntimeBannerRuntime := preload("res://scripts/main_helpers/beta_runtime_banner_runtime.gd")
+const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
+const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 
-const MAP_BUILDER_SCRIPT := preload("res://scenes/MapBuilder.gd")
 const SHELL_BUFFER_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer"
 const SHELL_BUFFER_ROOT_PATH: String = SHELL_BUFFER_LAYER_PATH + "/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
@@ -41,6 +42,11 @@ func _enter_tree() -> void:
 		return
 	var dml := get_node_or_null("UI/DevMapLoader")
 	if dml != null:
+		var gamebot: Node = get_node_or_null("/root/Gamebot")
+		var pending_map_id: String = str(gamebot.get("next_map_id")) if gamebot != null else ""
+		if not pending_map_id.strip_edges().is_empty():
+			dml.autoplay = false
+			return
 		# Only autoplay if you actually want the loader to be driving boot.
 		dml.autoplay = start_in_menu or show_dev_map_loader_in_game
 
@@ -69,7 +75,8 @@ func _ready() -> void:
 	if gamebot != null:
 		pending_map_id = str(gamebot.get("next_map_id"))
 		has_pending_map = not pending_map_id.is_empty()
-	if has_pending_map:
+	var embedded_in_shell: bool = _is_embedded_in_shell()
+	if has_pending_map and not embedded_in_shell:
 		start_in_menu = false
 		show_dev_map_loader_in_game = false
 
@@ -102,6 +109,8 @@ func _ready() -> void:
 
 	# Map load is explicit: either pending map from Gamebot or DevMapLoader selection.
 	if arena != null:
+		if embedded_in_shell:
+			return
 		if enable_dev_map_loader and _has_dev_map_loader() and not has_pending_map:
 			return
 
@@ -114,11 +123,12 @@ func _ready() -> void:
 
 		var map_path: String = pending_map_id
 
-		var builder := MAP_BUILDER_SCRIPT.new()
 		if arena.has_method("clear_map"):
 			arena.call("clear_map")
-			var ok := builder.build_into(arena, map_path)
-			if ok:
+			var load_result: Dictionary = MAP_LOADER.load_map(map_path)
+			if bool(load_result.get("ok", false)):
+				var model: Dictionary = load_result.get("data", {}) as Dictionary
+				MAP_APPLIER.apply_map(arena, model)
 				if arena.has_method("notify_map_built"):
 					arena.call("notify_map_built")
 				if arena.has_method("apply_camera_fit_next_frame"):
@@ -126,6 +136,11 @@ func _ready() -> void:
 				if has_pending_map and gamebot != null:
 					gamebot.set("next_map_id", "")
 					gamebot.set("next_mode", "")
+			else:
+				SFLog.warn("MAIN_MAP_LOAD_FAILED", {
+					"map_path": map_path,
+					"err": str(load_result.get("err", "unknown"))
+				})
 
 func _node_pos(n: Node) -> Variant:
 	if n == null:
@@ -189,6 +204,14 @@ func _log_ui_debug_once() -> void:
 
 func _has_dev_map_loader() -> bool:
 	return get_node_or_null("UI/DevMapLoader") != null or find_child("DevMapPicker", true, false) != null
+
+func _is_embedded_in_shell() -> bool:
+	var cursor: Node = get_parent()
+	while cursor != null:
+		if cursor.name == "Shell":
+			return true
+		cursor = cursor.get_parent()
+	return false
 
 func _log_top_buffer_layer_once() -> void:
 	var buffer_node: Node = get_node_or_null(SHELL_TOP_BUFFER_PATH)

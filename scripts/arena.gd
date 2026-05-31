@@ -23,6 +23,7 @@ const MatchTelemetryCollectorScript := preload("res://scripts/state/match_teleme
 const MatchAnalyzerScript := preload("res://scripts/state/match_analyzer.gd")
 const PlayerTelemetryProfileStoreScript := preload("res://scripts/state/player_telemetry_profile_store.gd")
 const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
+const TeamVisuals = preload("res://scripts/renderers/team_visuals.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaTutorialSection1Controller := preload("res://scripts/arena_helpers/tutorial_section1_controller.gd")
 const ArenaTutorialSection2Controller := preload("res://scripts/arena_helpers/tutorial_section2_controller.gd")
@@ -135,6 +136,7 @@ const CTF_SELECTION_GRACE_MS: int = 5000
 const TREE_META_VS_MODE: String = "vs_mode"
 const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
+const TREE_META_CONTEST_RESULT_SIGNATURE: String = "contest_result_commit_signature"
 const MAP_RECORD_MODE_ID: String = "ASYNC_SINGLE_MAP_TIMED"
 const JUKEBOX_META_ENABLED: String = "jukebox_board_enabled"
 const JUKEBOX_META_MAP_PATH: String = "jukebox_map_path"
@@ -158,6 +160,13 @@ const PREMATCH_RECORDS_FONT_SIZE: int = 17
 const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
 const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
 const PREMATCH_UI_CROSSFADE_MS: int = 350
+const PREMATCH_IDENTITY_CARD_SHOW_MS: int = 1350
+const PREMATCH_IDENTITY_CARD_FADE_SEC: float = 0.25
+const PREMATCH_HIVE_FOCUS_START_MS: int = 1550
+const PREMATCH_HIVE_PULSE_SEC: float = 0.42
+const PREMATCH_COUNTDOWN_RETURN_MS: int = 3000
+const PREMATCH_HIVE_FOCUS_ZOOM_MULT: float = 1.45
+const PREMATCH_TEAM_BUFFER_ALPHA: float = 0.22
 const MM_BACKGROUND_ART_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/mm_back_art.png")
 const MM_BACKGROUND_Y_SHIFT: float = 36.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
@@ -295,6 +304,14 @@ var _prematch_records_faded: bool = false
 var _prematch_countdown_faded: bool = false
 var _power_bar_reveal_started: bool = false
 var _prematch_final_fit_requested: bool = false
+var _prematch_identity_card: Control = null
+var _prematch_identity_card_faded: bool = false
+var _prematch_hive_focus_started: bool = false
+var _prematch_countdown_return_started: bool = false
+var _prematch_camera_tween: Tween = null
+var _prematch_pulse_root: Node2D = null
+var _prematch_gameplay_camera_position: Vector2 = Vector2.ZERO
+var _prematch_gameplay_camera_zoom: Vector2 = Vector2.ONE
 var _prematch_ui_bind_logged: bool = false
 var _prematch_ui_state_logged: bool = false
 var _postmatch_ui_missing_logged: bool = false
@@ -1133,6 +1150,12 @@ func _resolve_top_buffer_background() -> TextureRect:
 		return backdrop_buffer
 	return get_node_or_null(SHELL_HUD_LAYER_PATH + "/TopBufferBackground") as TextureRect
 
+func _resolve_bottom_buffer_background() -> TextureRect:
+	var backdrop_buffer: TextureRect = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as TextureRect
+	if backdrop_buffer != null:
+		return backdrop_buffer
+	return get_node_or_null(SHELL_HUD_LAYER_PATH + "/BottomBufferBackground") as TextureRect
+
 func _ui_top_inset_px() -> float:
 	var top_buffer: Control = _resolve_top_buffer_background() as Control
 	if top_buffer == null:
@@ -1281,7 +1304,12 @@ func _begin_prematch() -> void:
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
 	_prematch_final_fit_requested = false
+	_prematch_identity_card_faded = false
+	_prematch_hive_focus_started = false
+	_prematch_countdown_return_started = false
 	_power_bar_reveal_started = false
+	_clear_prematch_pulses()
+	_apply_team_orientation_buffers()
 	_show_prematch_ui()
 	if sim_runner != null:
 		sim_runner.set_running(false, "prematch_hold")
@@ -1784,6 +1812,7 @@ func _ensure_prematch_ui() -> void:
 	_prematch_ctf_panel = ctf_panel
 	_prematch_ctf_title = ctf_title
 	_prematch_ctf_body = ctf_body
+	_ensure_prematch_identity_card()
 	if not _prematch_ui_bind_logged:
 		_prematch_ui_bind_logged = true
 		SFLog.info("PREMATCH_UI_BIND", {
@@ -1819,6 +1848,738 @@ func _ensure_prematch_on_top() -> void:
 	_prematch_overlay.z_as_relative = false
 	_prematch_overlay.z_index = 2000
 	_prematch_overlay.top_level = false
+
+func _ensure_prematch_identity_card() -> void:
+	if _prematch_overlay == null:
+		return
+	var card: Panel = _prematch_overlay.get_node_or_null("IdentityCard") as Panel
+	if card == null:
+		card = Panel.new()
+		card.name = "IdentityCard"
+		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.z_as_relative = false
+		card.z_index = 1002
+		_prematch_overlay.add_child(card)
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = Color(0.02, 0.025, 0.035, 0.84)
+	style.border_color = Color(0.94, 0.88, 0.62, 0.72)
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.corner_radius_bottom_left = 8
+	style.corner_radius_bottom_right = 8
+	card.add_theme_stylebox_override("panel", style)
+	card.clip_contents = true
+	_prematch_identity_card = card
+
+	var top_wash: ColorRect = _ensure_identity_color_rect(card, "P1Wash")
+	top_wash.color = Color(1.0, 0.78, 0.12, 0.14)
+	var bottom_wash: ColorRect = _ensure_identity_color_rect(card, "P2Wash")
+	bottom_wash.color = Color(1.0, 0.12, 0.10, 0.14)
+	var divider: ColorRect = _ensure_identity_color_rect(card, "DiagonalDivider")
+	divider.color = Color(1.0, 0.94, 0.78, 0.86)
+	var quadrant_v: ColorRect = _ensure_identity_color_rect(card, "QuadrantDividerV")
+	quadrant_v.color = Color(1.0, 0.94, 0.78, 0.62)
+	var quadrant_h: ColorRect = _ensure_identity_color_rect(card, "QuadrantDividerH")
+	quadrant_h.color = Color(1.0, 0.94, 0.78, 0.62)
+	var team_vs_streak: ColorRect = _ensure_identity_color_rect(card, "TeamVsStreak")
+	team_vs_streak.color = Color(0.0, 0.0, 0.0, 0.82)
+	var p1_streak: ColorRect = _ensure_identity_color_rect(card, "P1Accent")
+	p1_streak.color = Color(1.0, 0.78, 0.08, 0.95)
+	var p2_streak: ColorRect = _ensure_identity_color_rect(card, "P2Accent")
+	p2_streak.color = Color(1.0, 0.16, 0.12, 0.95)
+	var p3_wash: ColorRect = _ensure_identity_color_rect(card, "P3Wash")
+	p3_wash.color = Color(0.2, 1.0, 0.35, 0.14)
+	var p3_streak: ColorRect = _ensure_identity_color_rect(card, "P3Accent")
+	p3_streak.color = Color(0.2, 1.0, 0.35, 0.95)
+	var p4_wash: ColorRect = _ensure_identity_color_rect(card, "P4Wash")
+	p4_wash.color = Color(0.12, 0.54, 0.96, 0.14)
+	var p4_streak: ColorRect = _ensure_identity_color_rect(card, "P4Accent")
+	p4_streak.color = Color(0.12, 0.54, 0.96, 0.95)
+
+	var p1_label: Label = _ensure_identity_label(card, "P1Label")
+	var p1_name: Label = _ensure_identity_label(card, "P1Name")
+	var p2_label: Label = _ensure_identity_label(card, "P2Label")
+	var p2_name: Label = _ensure_identity_label(card, "P2Name")
+	var p3_label: Label = _ensure_identity_label(card, "P3Label")
+	var p3_name: Label = _ensure_identity_label(card, "P3Name")
+	var p4_label: Label = _ensure_identity_label(card, "P4Label")
+	var p4_name: Label = _ensure_identity_label(card, "P4Name")
+	var vs_label: Label = _ensure_identity_label(card, "TeamVsLabel")
+	_style_identity_small_label(p1_label)
+	_style_identity_small_label(p2_label)
+	_style_identity_small_label(p3_label)
+	_style_identity_small_label(p4_label)
+	_style_identity_name_label(p1_name, HORIZONTAL_ALIGNMENT_LEFT)
+	_style_identity_name_label(p2_name, HORIZONTAL_ALIGNMENT_RIGHT)
+	_style_identity_name_label(p3_name, HORIZONTAL_ALIGNMENT_LEFT)
+	_style_identity_name_label(p4_name, HORIZONTAL_ALIGNMENT_LEFT)
+	_style_identity_vs_label(vs_label)
+	_layout_prematch_identity_card()
+
+func _ensure_identity_color_rect(parent: Control, node_name: String) -> ColorRect:
+	var rect: ColorRect = parent.get_node_or_null(node_name) as ColorRect
+	if rect == null:
+		rect = ColorRect.new()
+		rect.name = node_name
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		parent.add_child(rect)
+	return rect
+
+func _ensure_identity_label(parent: Control, node_name: String) -> Label:
+	var label: Label = parent.get_node_or_null(node_name) as Label
+	if label == null:
+		label = Label.new()
+		label.name = node_name
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		parent.add_child(label)
+	return label
+
+func _style_identity_small_label(label: Label) -> void:
+	if label == null:
+		return
+	label.add_theme_font_size_override("font_size", 19)
+	label.add_theme_color_override("font_color", Color(0.82, 0.88, 0.96, 0.96))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("outline_size", 2)
+
+func _style_identity_name_label(label: Label, align: HorizontalAlignment) -> void:
+	if label == null:
+		return
+	label.horizontal_alignment = align
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 34)
+	label.add_theme_color_override("font_color", Color(0.98, 0.99, 1.0, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("outline_size", 3)
+
+func _style_identity_vs_label(label: Label) -> void:
+	if label == null:
+		return
+	label.text = "VS."
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 36)
+	label.add_theme_color_override("font_color", Color(1.0, 0.96, 0.78, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("outline_size", 3)
+
+func _layout_prematch_identity_card() -> void:
+	if _prematch_identity_card == null:
+		return
+	var viewport: Viewport = get_viewport()
+	if viewport == null:
+		return
+	var viewport_rect: Rect2 = viewport.get_visible_rect()
+	var top_inset: float = _ui_top_inset_px()
+	var card_width: float = clampf(viewport_rect.size.x * 0.76, 360.0, 760.0)
+	var team_2v2: bool = _prematch_identity_uses_team_2v2()
+	var quadrant_4p: bool = _prematch_identity_uses_quadrant_4p()
+	var stacked_3p: bool = _prematch_identity_uses_stacked_3p()
+	var card_height: float = clampf(viewport_rect.size.y * (0.24 if (quadrant_4p or team_2v2) else (0.22 if stacked_3p else 0.18)), 280.0 if (quadrant_4p or team_2v2) else (250.0 if stacked_3p else 210.0), 380.0 if (quadrant_4p or team_2v2) else (360.0 if stacked_3p else 300.0))
+	var card_top: float = top_inset + maxf(24.0, viewport_rect.size.y * 0.08)
+	_prematch_identity_card.position = Vector2((viewport_rect.size.x - card_width) * 0.5, card_top)
+	_prematch_identity_card.size = Vector2(card_width, card_height)
+	if team_2v2:
+		_layout_prematch_identity_card_2v2(card_width, card_height)
+		return
+	if quadrant_4p:
+		_layout_prematch_identity_card_4p(card_width, card_height)
+		return
+	if stacked_3p:
+		_layout_prematch_identity_card_3p(card_width, card_height)
+		return
+
+	var p1_wash: ColorRect = _prematch_identity_card.get_node_or_null("P1Wash") as ColorRect
+	var p2_wash: ColorRect = _prematch_identity_card.get_node_or_null("P2Wash") as ColorRect
+	var p3_wash: ColorRect = _prematch_identity_card.get_node_or_null("P3Wash") as ColorRect
+	var p4_wash: ColorRect = _prematch_identity_card.get_node_or_null("P4Wash") as ColorRect
+	var divider: ColorRect = _prematch_identity_card.get_node_or_null("DiagonalDivider") as ColorRect
+	var quadrant_v: ColorRect = _prematch_identity_card.get_node_or_null("QuadrantDividerV") as ColorRect
+	var quadrant_h: ColorRect = _prematch_identity_card.get_node_or_null("QuadrantDividerH") as ColorRect
+	_set_team_vs_visible(false)
+	var p1_accent: ColorRect = _prematch_identity_card.get_node_or_null("P1Accent") as ColorRect
+	var p2_accent: ColorRect = _prematch_identity_card.get_node_or_null("P2Accent") as ColorRect
+	var p3_accent: ColorRect = _prematch_identity_card.get_node_or_null("P3Accent") as ColorRect
+	var p4_accent: ColorRect = _prematch_identity_card.get_node_or_null("P4Accent") as ColorRect
+	_set_identity_player_visible(3, false)
+	_set_identity_player_visible(4, false)
+	if quadrant_v != null:
+		quadrant_v.visible = false
+	if quadrant_h != null:
+		quadrant_h.visible = false
+	if p3_wash != null:
+		p3_wash.visible = false
+	if p3_accent != null:
+		p3_accent.visible = false
+	if p4_wash != null:
+		p4_wash.visible = false
+	if p4_accent != null:
+		p4_accent.visible = false
+	if p1_wash != null:
+		p1_wash.visible = true
+		p1_wash.position = Vector2.ZERO
+		p1_wash.size = Vector2(card_width, card_height * 0.55)
+	if p2_wash != null:
+		p2_wash.visible = true
+		p2_wash.position = Vector2(0.0, card_height * 0.45)
+		p2_wash.size = Vector2(card_width, card_height * 0.55)
+	if divider != null:
+		divider.visible = true
+		var diagonal_len: float = sqrt(card_width * card_width + card_height * card_height)
+		divider.size = Vector2(diagonal_len, 3.0)
+		divider.position = Vector2((card_width - diagonal_len) * 0.5, card_height * 0.5)
+		divider.pivot_offset = Vector2(diagonal_len * 0.5, 1.5)
+		divider.rotation = -atan2(card_height, card_width)
+	if p1_accent != null:
+		p1_accent.position = Vector2(24.0, 28.0)
+		p1_accent.size = Vector2(card_width * 0.42, 5.0)
+	if p2_accent != null:
+		p2_accent.position = Vector2(card_width * 0.58, card_height - 34.0)
+		p2_accent.size = Vector2(card_width * 0.36, 5.0)
+	var p1_label: Label = _prematch_identity_card.get_node_or_null("P1Label") as Label
+	var p1_name: Label = _prematch_identity_card.get_node_or_null("P1Name") as Label
+	var p2_label: Label = _prematch_identity_card.get_node_or_null("P2Label") as Label
+	var p2_name: Label = _prematch_identity_card.get_node_or_null("P2Name") as Label
+	if p1_label != null:
+		p1_label.visible = true
+		p1_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		p1_label.position = Vector2(28.0, 38.0)
+		p1_label.size = Vector2(card_width * 0.48, 28.0)
+	if p1_name != null:
+		p1_name.visible = true
+		p1_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		p1_name.position = Vector2(28.0, 66.0)
+		p1_name.size = Vector2(card_width * 0.56, 54.0)
+	if p2_label != null:
+		p2_label.visible = true
+		p2_label.position = Vector2(card_width * 0.48, card_height - 110.0)
+		p2_label.size = Vector2(card_width * 0.48 - 28.0, 28.0)
+		p2_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	if p2_name != null:
+		p2_name.visible = true
+		p2_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		p2_name.position = Vector2(card_width * 0.38, card_height - 82.0)
+		p2_name.size = Vector2(card_width * 0.58, 54.0)
+
+func _layout_prematch_identity_card_3p(card_width: float, card_height: float) -> void:
+	var divider: ColorRect = _prematch_identity_card.get_node_or_null("DiagonalDivider") as ColorRect
+	var quadrant_v: ColorRect = _prematch_identity_card.get_node_or_null("QuadrantDividerV") as ColorRect
+	var quadrant_h: ColorRect = _prematch_identity_card.get_node_or_null("QuadrantDividerH") as ColorRect
+	_set_team_vs_visible(false)
+	if divider != null:
+		divider.visible = false
+	if quadrant_v != null:
+		quadrant_v.visible = false
+	if quadrant_h != null:
+		quadrant_h.visible = false
+	_set_identity_player_visible(4, false)
+	var p4_wash: ColorRect = _prematch_identity_card.get_node_or_null("P4Wash") as ColorRect
+	var p4_accent: ColorRect = _prematch_identity_card.get_node_or_null("P4Accent") as ColorRect
+	if p4_wash != null:
+		p4_wash.visible = false
+	if p4_accent != null:
+		p4_accent.visible = false
+	var row_height: float = card_height / 3.0
+	for seat in range(1, 4):
+		_set_identity_player_visible(seat, true)
+		var wash: ColorRect = _prematch_identity_card.get_node_or_null("P%dWash" % seat) as ColorRect
+		var accent: ColorRect = _prematch_identity_card.get_node_or_null("P%dAccent" % seat) as ColorRect
+		var label: Label = _prematch_identity_card.get_node_or_null("P%dLabel" % seat) as Label
+		var name_label: Label = _prematch_identity_card.get_node_or_null("P%dName" % seat) as Label
+		var row_top: float = row_height * float(seat - 1)
+		if wash != null:
+			wash.visible = true
+			wash.position = Vector2(0.0, row_top)
+			wash.size = Vector2(card_width, row_height)
+		if accent != null:
+			accent.visible = true
+			accent.position = Vector2(24.0, row_top + 16.0)
+			accent.size = Vector2(card_width * 0.38, 5.0)
+		if label != null:
+			label.visible = true
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			label.position = Vector2(28.0, row_top + 25.0)
+			label.size = Vector2(card_width * 0.32, 24.0)
+		if name_label != null:
+			name_label.visible = true
+			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			name_label.position = Vector2(card_width * 0.34, row_top + 22.0)
+			name_label.size = Vector2(card_width * 0.58, row_height - 28.0)
+
+func _layout_prematch_identity_card_2v2(card_width: float, card_height: float) -> void:
+	var diagonal: ColorRect = _prematch_identity_card.get_node_or_null("DiagonalDivider") as ColorRect
+	var quadrant_v: ColorRect = _prematch_identity_card.get_node_or_null("QuadrantDividerV") as ColorRect
+	var quadrant_h: ColorRect = _prematch_identity_card.get_node_or_null("QuadrantDividerH") as ColorRect
+	if diagonal != null:
+		diagonal.visible = false
+	if quadrant_v != null:
+		quadrant_v.visible = true
+		quadrant_v.position = Vector2((card_width - 3.0) * 0.5, 0.0)
+		quadrant_v.size = Vector2(3.0, card_height)
+		quadrant_v.rotation = 0.0
+	if quadrant_h != null:
+		quadrant_h.visible = true
+		quadrant_h.position = Vector2(0.0, (card_height - 3.0) * 0.5)
+		quadrant_h.size = Vector2(card_width, 3.0)
+		quadrant_h.rotation = 0.0
+	_set_team_vs_visible(true)
+	var left_size: Vector2 = Vector2(card_width * 0.5, card_height * 0.5)
+	var right_size: Vector2 = Vector2(card_width * 0.5, card_height * 0.5)
+	for seat in range(1, 5):
+		_set_identity_player_visible(seat, true)
+		var quadrant_pos: Vector2 = Vector2.ZERO
+		var quadrant_size: Vector2 = left_size
+		if seat == 2:
+			quadrant_pos = Vector2(0.0, left_size.y)
+		elif seat == 3:
+			quadrant_pos = Vector2(card_width * 0.5, 0.0)
+			quadrant_size = right_size
+		elif seat == 4:
+			quadrant_pos = Vector2(card_width * 0.5, right_size.y)
+			quadrant_size = right_size
+		var wash: ColorRect = _prematch_identity_card.get_node_or_null("P%dWash" % seat) as ColorRect
+		var accent: ColorRect = _prematch_identity_card.get_node_or_null("P%dAccent" % seat) as ColorRect
+		var label: Label = _prematch_identity_card.get_node_or_null("P%dLabel" % seat) as Label
+		var name_label: Label = _prematch_identity_card.get_node_or_null("P%dName" % seat) as Label
+		if wash != null:
+			wash.visible = true
+			wash.position = quadrant_pos
+			wash.size = quadrant_size
+		if accent != null:
+			accent.visible = true
+			accent.position = quadrant_pos + Vector2(22.0, 20.0)
+			accent.size = Vector2(quadrant_size.x * 0.58, 5.0)
+		if label != null:
+			label.visible = true
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			label.position = quadrant_pos + Vector2(24.0, 34.0)
+			label.size = Vector2(quadrant_size.x - 48.0, 24.0)
+		if name_label != null:
+			name_label.visible = true
+			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			name_label.position = quadrant_pos + Vector2(24.0, 62.0)
+			name_label.size = Vector2(quadrant_size.x - 48.0, quadrant_size.y - 74.0)
+	var streak: ColorRect = _prematch_identity_card.get_node_or_null("TeamVsStreak") as ColorRect
+	if streak != null:
+		var left_width: float = card_width * 0.5
+		var diagonal_len: float = sqrt(left_width * left_width + card_height * card_height)
+		streak.size = Vector2(diagonal_len, 46.0)
+		streak.position = Vector2((left_width - diagonal_len) * 0.5, (card_height - 46.0) * 0.5)
+		streak.pivot_offset = Vector2(diagonal_len * 0.5, 23.0)
+		streak.rotation = -atan2(card_height, left_width)
+	var vs_label: Label = _prematch_identity_card.get_node_or_null("TeamVsLabel") as Label
+	if vs_label != null:
+		vs_label.position = Vector2((card_width * 0.25) - 54.0, (card_height * 0.5) - 28.0)
+		vs_label.size = Vector2(108.0, 56.0)
+
+func _layout_prematch_identity_card_4p(card_width: float, card_height: float) -> void:
+	var diagonal: ColorRect = _prematch_identity_card.get_node_or_null("DiagonalDivider") as ColorRect
+	var quadrant_v: ColorRect = _prematch_identity_card.get_node_or_null("QuadrantDividerV") as ColorRect
+	var quadrant_h: ColorRect = _prematch_identity_card.get_node_or_null("QuadrantDividerH") as ColorRect
+	_set_team_vs_visible(false)
+	if diagonal != null:
+		diagonal.visible = false
+	if quadrant_v != null:
+		quadrant_v.visible = true
+		quadrant_v.position = Vector2((card_width - 3.0) * 0.5, 0.0)
+		quadrant_v.size = Vector2(3.0, card_height)
+		quadrant_v.rotation = 0.0
+	if quadrant_h != null:
+		quadrant_h.visible = true
+		quadrant_h.position = Vector2(0.0, (card_height - 3.0) * 0.5)
+		quadrant_h.size = Vector2(card_width, 3.0)
+		quadrant_h.rotation = 0.0
+	var quadrant_size: Vector2 = Vector2(card_width * 0.5, card_height * 0.5)
+	for seat in range(1, 5):
+		_set_identity_player_visible(seat, true)
+		var col: int = (seat - 1) % 2
+		var row: int = int((seat - 1) / 2)
+		var quadrant_pos: Vector2 = Vector2(float(col) * quadrant_size.x, float(row) * quadrant_size.y)
+		var wash: ColorRect = _prematch_identity_card.get_node_or_null("P%dWash" % seat) as ColorRect
+		var accent: ColorRect = _prematch_identity_card.get_node_or_null("P%dAccent" % seat) as ColorRect
+		var label: Label = _prematch_identity_card.get_node_or_null("P%dLabel" % seat) as Label
+		var name_label: Label = _prematch_identity_card.get_node_or_null("P%dName" % seat) as Label
+		if wash != null:
+			wash.visible = true
+			wash.position = quadrant_pos
+			wash.size = quadrant_size
+		if accent != null:
+			accent.visible = true
+			accent.position = quadrant_pos + Vector2(22.0, 20.0)
+			accent.size = Vector2(quadrant_size.x * 0.58, 5.0)
+		if label != null:
+			label.visible = true
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			label.position = quadrant_pos + Vector2(24.0, 34.0)
+			label.size = Vector2(quadrant_size.x - 48.0, 24.0)
+		if name_label != null:
+			name_label.visible = true
+			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			name_label.position = quadrant_pos + Vector2(24.0, 62.0)
+			name_label.size = Vector2(quadrant_size.x - 48.0, quadrant_size.y - 74.0)
+
+func _set_identity_player_visible(seat: int, visible: bool) -> void:
+	var label: Label = _prematch_identity_card.get_node_or_null("P%dLabel" % seat) as Label
+	var name_label: Label = _prematch_identity_card.get_node_or_null("P%dName" % seat) as Label
+	if label != null:
+		label.visible = visible
+	if name_label != null:
+		name_label.visible = visible
+
+func _set_team_vs_visible(visible: bool) -> void:
+	var streak: ColorRect = _prematch_identity_card.get_node_or_null("TeamVsStreak") as ColorRect
+	var label: Label = _prematch_identity_card.get_node_or_null("TeamVsLabel") as Label
+	if streak != null:
+		streak.visible = visible
+	if label != null:
+		label.visible = visible
+
+func _show_prematch_identity_card() -> void:
+	_ensure_prematch_identity_card()
+	if _prematch_identity_card == null:
+		return
+	_refresh_prematch_identity_card()
+	_layout_prematch_identity_card()
+	_prematch_identity_card.visible = true
+	_prematch_identity_card.modulate = Color(1.0, 1.0, 1.0, 1.0)
+
+func _refresh_prematch_identity_card() -> void:
+	if _prematch_identity_card == null:
+		return
+	var p1_data: Dictionary = _prematch_identity_player_data(1, "Swarm Father")
+	var p2_data: Dictionary = _prematch_identity_player_data(2, "Mrs. SwarmDaddy")
+	var p3_data: Dictionary = _prematch_identity_player_data(3, "Player 3")
+	var p4_data: Dictionary = _prematch_identity_player_data(4, "Player 4")
+	var p1_label: Label = _prematch_identity_card.get_node_or_null("P1Label") as Label
+	var p1_name: Label = _prematch_identity_card.get_node_or_null("P1Name") as Label
+	var p2_label: Label = _prematch_identity_card.get_node_or_null("P2Label") as Label
+	var p2_name: Label = _prematch_identity_card.get_node_or_null("P2Name") as Label
+	var p3_label: Label = _prematch_identity_card.get_node_or_null("P3Label") as Label
+	var p3_name: Label = _prematch_identity_card.get_node_or_null("P3Name") as Label
+	var p4_label: Label = _prematch_identity_card.get_node_or_null("P4Label") as Label
+	var p4_name: Label = _prematch_identity_card.get_node_or_null("P4Name") as Label
+	var p1_accent: ColorRect = _prematch_identity_card.get_node_or_null("P1Accent") as ColorRect
+	var p2_accent: ColorRect = _prematch_identity_card.get_node_or_null("P2Accent") as ColorRect
+	var p3_accent: ColorRect = _prematch_identity_card.get_node_or_null("P3Accent") as ColorRect
+	var p4_accent: ColorRect = _prematch_identity_card.get_node_or_null("P4Accent") as ColorRect
+	var p1_wash: ColorRect = _prematch_identity_card.get_node_or_null("P1Wash") as ColorRect
+	var p2_wash: ColorRect = _prematch_identity_card.get_node_or_null("P2Wash") as ColorRect
+	var p3_wash: ColorRect = _prematch_identity_card.get_node_or_null("P3Wash") as ColorRect
+	var p4_wash: ColorRect = _prematch_identity_card.get_node_or_null("P4Wash") as ColorRect
+	var p1_color: Color = p1_data.get("color", TeamVisuals.owner_color(1)) as Color
+	var p2_color: Color = p2_data.get("color", TeamVisuals.owner_color(2)) as Color
+	var p3_color: Color = p3_data.get("color", TeamVisuals.owner_color(3)) as Color
+	var p4_color: Color = p4_data.get("color", TeamVisuals.owner_color(4)) as Color
+	if p1_label != null:
+		p1_label.text = "PLAYER 1"
+	if p1_name != null:
+		p1_name.text = str(p1_data.get("name", "Swarm Father"))
+	if p2_label != null:
+		p2_label.text = "PLAYER 2"
+	if p2_name != null:
+		p2_name.text = str(p2_data.get("name", "Mrs. SwarmDaddy"))
+	if p3_label != null:
+		p3_label.text = "PLAYER 3"
+	if p3_name != null:
+		p3_name.text = str(p3_data.get("name", "Player 3"))
+	if p4_label != null:
+		p4_label.text = "PLAYER 4"
+	if p4_name != null:
+		p4_name.text = str(p4_data.get("name", "Player 4"))
+	if p1_accent != null:
+		p1_accent.color = Color(p1_color.r, p1_color.g, p1_color.b, 0.96)
+	if p2_accent != null:
+		p2_accent.color = Color(p2_color.r, p2_color.g, p2_color.b, 0.96)
+	if p3_accent != null:
+		p3_accent.color = Color(p3_color.r, p3_color.g, p3_color.b, 0.96)
+	if p4_accent != null:
+		p4_accent.color = Color(p4_color.r, p4_color.g, p4_color.b, 0.96)
+	if p1_wash != null:
+		p1_wash.color = Color(p1_color.r, p1_color.g, p1_color.b, 0.16)
+	if p2_wash != null:
+		p2_wash.color = Color(p2_color.r, p2_color.g, p2_color.b, 0.16)
+	if p3_wash != null:
+		p3_wash.color = Color(p3_color.r, p3_color.g, p3_color.b, 0.16)
+	if p4_wash != null:
+		p4_wash.color = Color(p4_color.r, p4_color.g, p4_color.b, 0.16)
+
+func _prematch_identity_player_data(seat: int, fallback_name: String) -> Dictionary:
+	var entry: Dictionary = _get_roster_entry_for_slot(seat)
+	var uid: String = str(entry.get("uid", "")).strip_edges()
+	var is_cpu: bool = bool(entry.get("is_cpu", false))
+	var name: String = _display_name_for_seat(seat, uid, is_cpu)
+	if name.strip_edges().is_empty() or name == "Player %d" % seat:
+		name = fallback_name
+	var team_color: Color = _prematch_identity_card_color_for_seat(seat)
+	return {
+		"seat": seat,
+		"name": name,
+		"color": team_color
+	}
+
+func _prematch_identity_card_color_for_seat(seat: int) -> Color:
+	match _current_vs_mode():
+		"2V2", "3P FFA", "4P FFA":
+			return TeamVisuals.owner_color(seat)
+	return _team_color_for_seat(seat)
+
+func _team_color_for_seat(seat: int) -> Color:
+	match _current_vs_mode():
+		"3P FFA", "4P FFA":
+			return TeamVisuals.owner_color(seat)
+	var team_id: int = _resolve_team_for_seat(seat)
+	if team_id <= 0:
+		team_id = seat
+	return TeamVisuals.owner_color(team_id)
+
+func _prematch_identity_uses_stacked_3p() -> bool:
+	if _current_vs_mode() == "3P FFA":
+		return true
+	return _record_active_seats().size() == 3
+
+func _prematch_identity_uses_team_2v2() -> bool:
+	return _current_vs_mode() == "2V2"
+
+func _prematch_identity_uses_quadrant_4p() -> bool:
+	if _prematch_identity_uses_team_2v2():
+		return false
+	if _current_vs_mode() == "4P FFA":
+		return true
+	if OpsState != null and OpsState.has_method("get_team_mode_override"):
+		return _record_active_seats().size() == 4 and str(OpsState.call("get_team_mode_override")).strip_edges().to_lower() == "ffa"
+	return false
+
+func _prematch_identity_card_show_ms() -> int:
+	if _prematch_identity_uses_quadrant_4p():
+		return 620
+	return PREMATCH_IDENTITY_CARD_SHOW_MS
+
+func _prematch_hive_focus_start_ms() -> int:
+	if _prematch_identity_uses_quadrant_4p():
+		return 700
+	return PREMATCH_HIVE_FOCUS_START_MS
+
+func _prematch_hive_pulse_sec() -> float:
+	if _prematch_identity_uses_quadrant_4p():
+		return 0.32
+	return PREMATCH_HIVE_PULSE_SEC
+
+func _fade_prematch_identity_card() -> void:
+	if _prematch_identity_card == null or _prematch_identity_card_faded:
+		return
+	_prematch_identity_card_faded = true
+	var tween: Tween = create_tween()
+	tween.tween_property(_prematch_identity_card, "modulate:a", 0.0, PREMATCH_IDENTITY_CARD_FADE_SEC)
+	tween.finished.connect(func() -> void:
+		if _prematch_identity_card != null:
+			_prematch_identity_card.visible = false
+	)
+
+func _apply_team_orientation_buffers() -> void:
+	var local_owner_id: int = _resolve_local_owner_id()
+	var opponent_owner_id: int = _resolve_primary_opponent_owner_id(local_owner_id)
+	var local_color: Color = _team_color_for_seat(local_owner_id)
+	var opponent_color: Color = _team_color_for_seat(opponent_owner_id)
+	var top_buffer: Control = _resolve_top_buffer_background() as Control
+	var bottom_buffer: Control = _resolve_bottom_buffer_background() as Control
+	_apply_team_buffer_color(top_buffer, opponent_color, "OpponentTeamColorWash")
+	_apply_team_buffer_color(bottom_buffer, local_color, "LocalTeamColorWash")
+
+func _resolve_primary_opponent_owner_id(local_owner_id: int) -> int:
+	var active_seats: Array[int] = _record_active_seats()
+	for seat in active_seats:
+		if seat == local_owner_id:
+			continue
+		if not _are_allied_owners(local_owner_id, seat):
+			return seat
+	if local_owner_id != 2:
+		return 2
+	return 1
+
+func _apply_team_buffer_color(buffer: Control, color: Color, node_name: String) -> void:
+	if buffer == null:
+		return
+	var wash: ColorRect = buffer.get_node_or_null(node_name) as ColorRect
+	if wash == null:
+		wash = ColorRect.new()
+		wash.name = node_name
+		wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		wash.z_as_relative = false
+		wash.z_index = -1
+		buffer.add_child(wash)
+	wash.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	wash.offset_left = 0.0
+	wash.offset_top = 0.0
+	wash.offset_right = 0.0
+	wash.offset_bottom = 0.0
+	wash.color = Color(color.r, color.g, color.b, PREMATCH_TEAM_BUFFER_ALPHA)
+	wash.visible = true
+	buffer.move_child(wash, 0)
+
+func _resolve_local_starting_hive_ids() -> Array[int]:
+	var ids: Array[int] = []
+	var local_owner_id: int = _resolve_local_owner_id()
+	return _resolve_starting_hive_ids_for_owner(local_owner_id)
+
+func _resolve_starting_hive_ids_for_owner(owner_id: int) -> Array[int]:
+	var ids: Array[int] = []
+	if state == null or state.hives == null:
+		return ids
+	for hive_any in state.hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		if int(hive.owner_id) == int(owner_id):
+			ids.append(int(hive.id))
+	ids.sort()
+	return ids
+
+func _resolve_prematch_focus_hive_ids() -> Array[int]:
+	if not _prematch_identity_uses_quadrant_4p():
+		return _resolve_local_starting_hive_ids()
+	var ids: Array[int] = []
+	var active_seats: Array[int] = _record_active_seats()
+	active_seats.sort()
+	for seat in active_seats:
+		var seat_ids: Array[int] = _resolve_starting_hive_ids_for_owner(seat)
+		for hive_id in seat_ids:
+			ids.append(hive_id)
+	return ids
+
+func _start_prematch_hive_focus_sequence() -> void:
+	if _prematch_hive_focus_started:
+		return
+	_prematch_hive_focus_started = true
+	var cam: Camera2D = camera if camera != null else $Camera2D
+	if cam != null:
+		_prematch_gameplay_camera_position = cam.global_position
+		_prematch_gameplay_camera_zoom = cam.zoom
+	var hive_ids: Array[int] = _resolve_prematch_focus_hive_ids()
+	if hive_ids.is_empty():
+		return
+	call_deferred("_run_prematch_hive_focus_sequence", hive_ids)
+
+func _run_prematch_hive_focus_sequence(hive_ids: Array[int]) -> void:
+	for hive_id in hive_ids:
+		if _prematch_countdown_return_started:
+			return
+		if OpsState == null or OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
+			return
+		_focus_camera_on_hive(hive_id)
+		_pulse_prematch_hive(hive_id)
+		await get_tree().create_timer(_prematch_hive_pulse_sec()).timeout
+
+func _focus_camera_on_hive(hive_id: int) -> void:
+	if state == null:
+		return
+	var cam: Camera2D = camera if camera != null else $Camera2D
+	if cam == null:
+		return
+	var hive_pos: Vector2 = state.hive_world_pos_by_id(hive_id)
+	if hive_pos == Vector2.ZERO:
+		return
+	if _prematch_camera_tween != null and _prematch_camera_tween.is_valid():
+		_prematch_camera_tween.kill()
+	var base_zoom: Vector2 = _prematch_gameplay_camera_zoom
+	if base_zoom.x <= 0.0 or base_zoom.y <= 0.0:
+		base_zoom = cam.zoom
+	if base_zoom.x <= 0.0 or base_zoom.y <= 0.0:
+		base_zoom = Vector2.ONE
+	var focus_zoom: Vector2 = base_zoom * PREMATCH_HIVE_FOCUS_ZOOM_MULT
+	_prematch_camera_tween = create_tween()
+	_prematch_camera_tween.set_parallel(true)
+	_prematch_camera_tween.tween_property(cam, "global_position", hive_pos, 0.28).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_prematch_camera_tween.tween_property(cam, "zoom", focus_zoom, 0.28).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+func _pulse_prematch_hive(hive_id: int) -> void:
+	if state == null:
+		return
+	var pulse_root: Node2D = _ensure_prematch_pulse_root()
+	if pulse_root == null:
+		return
+	var hive_pos: Vector2 = state.hive_world_pos_by_id(hive_id)
+	if hive_pos == Vector2.ZERO:
+		return
+	var owner_id: int = _owner_id_for_hive_id(hive_id)
+	if owner_id <= 0:
+		owner_id = _resolve_local_owner_id()
+	var color: Color = TeamVisuals.owner_color(owner_id)
+	var ring: Line2D = Line2D.new()
+	ring.name = "PrematchHivePulse_%d" % hive_id
+	ring.width = 5.0
+	ring.default_color = Color(color.r, color.g, color.b, 0.95)
+	ring.closed = true
+	ring.z_as_relative = false
+	ring.z_index = PLAYFIELD_OUTLINE_Z_INDEX
+	ring.points = _circle_points(44.0, 36)
+	pulse_root.add_child(ring)
+	ring.global_position = hive_pos
+	var tween: Tween = create_tween()
+	tween.set_parallel(true)
+	var pulse_sec: float = _prematch_hive_pulse_sec()
+	tween.tween_property(ring, "scale", Vector2(1.8, 1.8), pulse_sec).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(ring, "modulate:a", 0.0, pulse_sec).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.finished.connect(func() -> void:
+		if ring != null and is_instance_valid(ring):
+			ring.queue_free()
+	)
+
+func _owner_id_for_hive_id(hive_id: int) -> int:
+	if state == null:
+		return 0
+	var hive: HiveData = state.find_hive_by_id(hive_id)
+	if hive == null:
+		return 0
+	return int(hive.owner_id)
+
+func _circle_points(radius: float, segments: int) -> PackedVector2Array:
+	var points: PackedVector2Array = PackedVector2Array()
+	var count: int = maxi(8, segments)
+	for i in range(count):
+		var angle: float = (TAU * float(i)) / float(count)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
+	return points
+
+func _ensure_prematch_pulse_root() -> Node2D:
+	if _prematch_pulse_root != null and is_instance_valid(_prematch_pulse_root):
+		return _prematch_pulse_root
+	var pools_root: Node2D = get_node_or_null("PoolsRoot") as Node2D
+	if pools_root == null:
+		pools_root = Node2D.new()
+		pools_root.name = "PoolsRoot"
+		add_child(pools_root)
+	var existing: Node2D = pools_root.get_node_or_null("PrematchPulseRoot") as Node2D
+	if existing == null:
+		existing = Node2D.new()
+		existing.name = "PrematchPulseRoot"
+		existing.z_as_relative = false
+		existing.z_index = PLAYFIELD_OUTLINE_Z_INDEX
+		pools_root.add_child(existing)
+	_prematch_pulse_root = existing
+	return _prematch_pulse_root
+
+func _clear_prematch_pulses() -> void:
+	if _prematch_camera_tween != null and _prematch_camera_tween.is_valid():
+		_prematch_camera_tween.kill()
+	_prematch_camera_tween = null
+	if _prematch_pulse_root == null or not is_instance_valid(_prematch_pulse_root):
+		return
+	for child in _prematch_pulse_root.get_children():
+		child.queue_free()
+
+func _return_camera_to_gameplay_view() -> void:
+	if _prematch_countdown_return_started:
+		return
+	_prematch_countdown_return_started = true
+	if _prematch_camera_tween != null and _prematch_camera_tween.is_valid():
+		_prematch_camera_tween.kill()
+	_prematch_camera_tween = null
+	_fit_camera_to_viewport("prematch_countdown_return")
 
 func _layout_prematch_records_panel(records: Control) -> void:
 	if records == null:
@@ -2117,6 +2878,7 @@ func _show_prematch_ui() -> void:
 			})
 		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
 		_prematch_countdown_label.visible = true
+	_show_prematch_identity_card()
 	_refresh_prematch_records()
 	_refresh_capture_flag_prematch_prompt()
 	if _prematch_records_panel != null:
@@ -2209,6 +2971,27 @@ func _refresh_async_prematch_card() -> void:
 func _async_prematch_detail_lines() -> Array[String]:
 	var stage_count: int = maxi(1, _get_stage_map_paths_runtime().size())
 	match _current_vs_mode():
+		"1V1":
+			return [
+				"Map: %s" % _async_prematch_map_title(),
+				"Head-to-head control. Opening input unlocks after the countdown.",
+				_async_prematch_bot_line(),
+				_async_prematch_track_line()
+			]
+		"2V2":
+			return [
+				"Map: %s" % _async_prematch_map_title(),
+				"Two teams, shared pressure. Coordinate lanes after the countdown.",
+				_async_prematch_bot_line(),
+				_async_prematch_track_line()
+			]
+		"3P FFA", "4P FFA":
+			return [
+				"Map: %s" % _async_prematch_map_title(),
+				"Free-for-all control. Every active seat plays for itself.",
+				_async_prematch_bot_line(),
+				_async_prematch_track_line()
+			]
 		VS_MODE_ASYNC_SINGLE_MAP_TIMED:
 			return [
 				"Map: %s" % _async_prematch_map_title(),
@@ -2309,13 +3092,21 @@ func _current_vs_mode() -> String:
 
 func _uses_async_prematch_card() -> bool:
 	match _current_vs_mode():
-		VS_MODE_STAGE_RACE, "TIMED_RACE", "MISS_N_OUT", VS_MODE_ASYNC_SINGLE_MAP_TIMED:
+		"1V1", "2V2", "3P FFA", "4P FFA", VS_MODE_STAGE_RACE, "TIMED_RACE", "MISS_N_OUT", VS_MODE_ASYNC_SINGLE_MAP_TIMED:
 			return true
 		_:
 			return false
 
 func _async_prematch_mode_banner() -> String:
 	match _current_vs_mode():
+		"1V1":
+			return "1V1 DUEL"
+		"2V2":
+			return "2V2"
+		"3P FFA":
+			return "3P FFA"
+		"4P FFA":
+			return "4P FFA"
 		VS_MODE_ASYNC_SINGLE_MAP_TIMED:
 			return "MAP RUN"
 		"TIMED_RACE":
@@ -2326,6 +3117,9 @@ func _async_prematch_mode_banner() -> String:
 			return "STAGE RACE"
 
 func _async_prematch_round_line() -> String:
+	match _current_vs_mode():
+		"1V1", "2V2", "3P FFA", "4P FFA":
+			return "Sync start"
 	if _current_vs_mode() == VS_MODE_ASYNC_SINGLE_MAP_TIMED:
 		return "Single map run"
 	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
@@ -2640,6 +3434,13 @@ func _update_prematch_flow(delta: float) -> void:
 	if _prematch_countdown_label != null:
 		_prematch_countdown_label.text = str(sec_left)
 		_prematch_countdown_label.visible = true
+	var elapsed_ms: float = float(OpsState.prematch_duration_ms) - _prematch_remaining_ms_f
+	if elapsed_ms >= float(_prematch_identity_card_show_ms()) and not _prematch_identity_card_faded:
+		_fade_prematch_identity_card()
+	if elapsed_ms >= float(_prematch_hive_focus_start_ms()) and not _prematch_hive_focus_started:
+		_start_prematch_hive_focus_sequence()
+	if _prematch_remaining_ms_f <= float(PREMATCH_COUNTDOWN_RETURN_MS) and not _prematch_countdown_return_started:
+		_return_camera_to_gameplay_view()
 	_refresh_capture_flag_prematch_prompt()
 	if _uses_async_prematch_card():
 		_refresh_prematch_records()
@@ -2698,6 +3499,9 @@ func _finish_prematch() -> void:
 	)
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
+	if _prematch_identity_card != null:
+		_prematch_identity_card.visible = false
+	_clear_prematch_pulses()
 	_arm_camera_transition_lock("prematch_to_running")
 	_start_match_sim("prematch_complete")
 	SFLog.warn("INPUT_UNLOCKED", {"reason": "prematch_complete"})
@@ -3718,6 +4522,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	_finalize_match_telemetry_session(winner_id_in)
 	_maybe_record_jukebox_result(winner_id_in, reason)
 	_play_post_match_song(winner_id_in)
+	_maybe_record_stage_race_contest_result(winner_id_in, reason)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
@@ -3830,7 +4635,7 @@ func _resolve_jukebox_local_identity(tree: SceneTree) -> Dictionary:
 	if typeof(local_profile_any) == TYPE_DICTIONARY:
 		var local_profile: Dictionary = local_profile_any as Dictionary
 		player_id = str(local_profile.get("uid", local_profile.get("player_id", ""))).strip_edges()
-		handle = str(local_profile.get("name", local_profile.get("handle", ""))).strip_edges()
+		handle = str(local_profile.get("display_name", local_profile.get("name", local_profile.get("handle", "")))).strip_edges()
 	if player_id.is_empty() and ProfileManager != null and ProfileManager.has_method("get_user_id"):
 		player_id = str(ProfileManager.get_user_id()).strip_edges()
 	if handle.is_empty() and ProfileManager != null and ProfileManager.has_method("get_display_name"):
@@ -3841,6 +4646,81 @@ func _resolve_jukebox_local_identity(tree: SceneTree) -> Dictionary:
 		"player_id": player_id,
 		"handle": handle
 	}
+
+func _maybe_record_stage_race_contest_result(winner_id_in: int, reason: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or not _is_stage_race_runtime_mode():
+		return
+	var contest_id: String = str(tree.get_meta("contest_id", "")).strip_edges()
+	if contest_id.is_empty():
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	if local_owner_id <= 0:
+		local_owner_id = clampi(active_player_id, 1, 4)
+	if winner_id_in <= 0 or winner_id_in != local_owner_id:
+		return
+	var elapsed_ms: int = maxi(0, int(OpsState.match_elapsed_ms))
+	if elapsed_ms <= 0:
+		return
+	var map_id: String = _resolve_stage_race_contest_map_id(tree)
+	if map_id.is_empty():
+		return
+	var identity: Dictionary = _resolve_jukebox_local_identity(tree)
+	var player_id: String = str(identity.get("player_id", "")).strip_edges()
+	if player_id.is_empty():
+		return
+	var result_signature: String = "%s|%s|%s|%d|%d|%s" % [contest_id, map_id, player_id, elapsed_ms, winner_id_in, reason.strip_edges()]
+	if str(tree.get_meta(TREE_META_CONTEST_RESULT_SIGNATURE, "")).strip_edges() == result_signature:
+		return
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state == null or not contest_state.has_method("record_stage_race_map_result"):
+		return
+	var result: Dictionary = contest_state.call("record_stage_race_map_result", contest_id, map_id, {
+		"player_id": player_id,
+		"player_name": str(identity.get("handle", "You")).strip_edges(),
+		"best_time_ms": elapsed_ms,
+		"updated_at": int(Time.get_unix_time_from_system()),
+		"source": "stage_race_runtime",
+		"winner_id": winner_id_in,
+		"reason": reason
+	}) as Dictionary
+	if bool(result.get("ok", false)):
+		tree.set_meta(TREE_META_CONTEST_RESULT_SIGNATURE, result_signature)
+		SFLog.info("CONTEST_RESULT_RECORDED", {
+			"contest_id": contest_id,
+			"map_id": map_id,
+			"player_id": player_id,
+			"winner_id": winner_id_in,
+			"reason": reason,
+			"elapsed_ms": elapsed_ms,
+			"updated": bool(result.get("updated", false))
+		})
+	else:
+		SFLog.warn("CONTEST_RESULT_RECORD_FAILED", result)
+
+func _resolve_stage_race_contest_map_id(tree: SceneTree) -> String:
+	var stage_index: int = maxi(0, int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)))
+	var map_ids_any: Variant = tree.get_meta("map_ids", PackedStringArray())
+	if typeof(map_ids_any) == TYPE_PACKED_STRING_ARRAY:
+		var packed_ids: PackedStringArray = map_ids_any
+		if stage_index >= 0 and stage_index < packed_ids.size():
+			var packed_map_id: String = str(packed_ids[stage_index]).strip_edges()
+			if not packed_map_id.is_empty():
+				return packed_map_id
+	elif typeof(map_ids_any) == TYPE_ARRAY:
+		var ids: Array = map_ids_any as Array
+		if stage_index >= 0 and stage_index < ids.size():
+			var array_map_id: String = str(ids[stage_index]).strip_edges()
+			if not array_map_id.is_empty():
+				return array_map_id
+	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
+	if stage_maps.is_empty():
+		return ""
+	var clamped_index: int = clampi(stage_index, 0, maxi(stage_maps.size() - 1, 0))
+	var map_path: String = str(stage_maps[clamped_index]).strip_edges()
+	if map_path.is_empty():
+		return ""
+	return MapRegistry.map_id_from_path(map_path)
 
 func _on_post_match_action(action: String) -> void:
 	if action == "rematch_vote" and not _is_stage_race_runtime_mode():
@@ -4024,7 +4904,8 @@ func _clear_stage_runtime_meta() -> void:
 		TREE_META_VS_MODE,
 		TREE_META_VS_STAGE_MAP_PATHS,
 		TREE_META_VS_STAGE_CURRENT_INDEX,
-		TREE_META_VS_STAGE_ROUND_RESULTS
+		TREE_META_VS_STAGE_ROUND_RESULTS,
+		TREE_META_CONTEST_RESULT_SIGNATURE
 	]
 	for key in keys:
 		if tree.has_meta(key):
@@ -4230,6 +5111,8 @@ func _on_viewport_size_changed() -> void:
 	_center_match_timer()
 	if _prematch_records_panel != null and _prematch_records_panel.visible:
 		_layout_prematch_records_panel(_prematch_records_panel)
+	if _prematch_identity_card != null and _prematch_identity_card.visible:
+		_layout_prematch_identity_card()
 	_snap_power_bar_to_map_top("viewport_resize")
 
 func _resize_world_viewport() -> void:
@@ -5349,7 +6232,9 @@ func _scan(n: Node, out: Array[Node]) -> void:
 	if cname.find("Hive") != -1 or cname.find("Lane") != -1 or str(n.name).find("Hive") != -1 or str(n.name).find("Lane") != -1:
 		out.append(n)
 	for c in n.get_children():
-		_scan(c, out)
+		var child: Node = c as Node
+		if child != null:
+			_scan(child, out)
 
 func clear_map() -> void:
 	var hr := $MapRoot/HiveRenderer
@@ -7408,7 +8293,11 @@ func _reset_sim_state() -> void:
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
 	_prematch_final_fit_requested = false
+	_prematch_identity_card_faded = false
+	_prematch_hive_focus_started = false
+	_prematch_countdown_return_started = false
 	_prematch_ui_state_logged = false
+	_clear_prematch_pulses()
 	_match_started = false
 	_ctf_click_consumed = false
 	_ctf_move_armed = false

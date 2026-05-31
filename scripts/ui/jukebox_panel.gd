@@ -24,13 +24,15 @@ const PERIOD_TAB_MIN_WIDTH: float = 94.0
 const PERIOD_TAB_MAX_WIDTH: float = 132.0
 const MAP_CARD_MIN_WIDTH: float = 110.0
 const MAP_CARD_MAX_WIDTH: float = 360.0
-const PLAY_BUTTON_MIN_WIDTH: float = 188.0
-const PLAY_BUTTON_MAX_WIDTH: float = 324.0
-const PLAY_BUTTON_HEIGHT: float = 74.0
+const PLAY_BUTTON_MIN_WIDTH: float = 320.0
+const PLAY_BUTTON_MAX_WIDTH: float = 620.0
+const PLAY_BUTTON_HEIGHT: float = 150.0
 const SELECTOR_NAV_MIN_WIDTH: float = 67.0
 const SELECTOR_NAV_MAX_WIDTH: float = 110.0
 const TOUCH_LAYOUT_MAX_WIDTH: float = 1100.0
 const TOUCH_LAYOUT_FONT_SCALE: float = 1.16
+const SELECTOR_PANEL_MIN_HEIGHT: float = 350.0
+const HERO_PANEL_MIN_HEIGHT: float = 430.0
 
 signal closed
 signal play_requested(map_path: String, cpu_style: String, cpu_tier: String)
@@ -54,8 +56,8 @@ const TOP_LIMIT: int = 50
 @onready var selected_meta_label: Label = $VBox/HeroPanel/HeroVBox/SelectedMeta
 @onready var selected_desc_label: Label = $VBox/HeroPanel/HeroVBox/SelectedDesc
 @onready var map_best_label: Label = $VBox/HeroPanel/HeroVBox/MapBest
-@onready var play_button: Button = $VBox/SelectorPanel/SelectorVBox/PlayButton
-@onready var play_sprite: TextureRect = $VBox/SelectorPanel/SelectorVBox/PlayButton/PlaySprite
+@onready var play_button: Button = $VBox/HeroPanel/HeroVBox/PlayButton
+@onready var play_sprite: TextureRect = $VBox/HeroPanel/HeroVBox/PlayButton/PlaySprite
 @onready var scout_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/ScoutButton
 @onready var close_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/CloseButton
 @onready var cpu_panel: Panel = $VBox/CpuPanel
@@ -215,6 +217,12 @@ func _ensure_swarmfront_banner() -> void:
 func _style_controls() -> void:
 	_ensure_swarmfront_banner()
 	_apply_swarmfront_banner_style()
+	var selector_panel: Control = $VBox/SelectorPanel
+	if selector_panel != null:
+		selector_panel.custom_minimum_size = Vector2(0.0, SELECTOR_PANEL_MIN_HEIGHT)
+	var hero_panel: Control = $VBox/HeroPanel
+	if hero_panel != null:
+		hero_panel.custom_minimum_size = Vector2(0.0, HERO_PANEL_MIN_HEIGHT)
 	_apply_font(title_label, _font_semibold, _scaled_touch_font_size(24))
 	_apply_font(sub_label, _font_regular, _scaled_touch_font_size(16))
 	_apply_font(map_count_label, _font_regular, _scaled_touch_font_size(SELECTOR_META_FONT_SIZE))

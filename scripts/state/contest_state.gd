@@ -6,6 +6,8 @@ const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const CONTESTS_DIR := "res://data/contests"
 const LEADERBOARDS_DIR := "res://data/leaderboards"
 const ENTRY_SAVE_PATH := "user://contest_entries.json"
+const RUNTIME_LEADERBOARD_SAVE_PATH: String = "user://contest_leaderboards_v1.json"
+const RUNTIME_LEADERBOARD_SCHEMA: String = "swarmfront.contest_leaderboards.v1"
 const TIMED_GAME_DEFAULT_MAP_COUNT := 3
 const TIMED_GAME_MAP_COUNT_3 := 3
 const TIMED_GAME_MAP_COUNT_5 := 5
@@ -36,10 +38,13 @@ const MISS_N_OUT_ACTION_RETURN_TO_LOBBY := "return_to_lobby"
 
 var contests: Dictionary = {}
 var player_entries: Dictionary = {}
+var runtime_leaderboards: Dictionary = {}
+var _runtime_leaderboard_save_path: String = RUNTIME_LEADERBOARD_SAVE_PATH
 
 func _ready() -> void:
 	load_contests()
 	_load_entries()
+	_load_runtime_leaderboards()
 
 func build_contest_id(parts: Dictionary) -> String:
 	var scope := str(parts.get("scope", "")).to_upper()
@@ -312,15 +317,122 @@ func get_map_ids(contest: ContestDef) -> PackedStringArray:
 	return contest.map_ids
 
 func get_leaderboard_entries(contest_id: String, map_id: String) -> Array:
-	var normalized_id := normalize_contest_id(contest_id)
-	var path := "%s/%s/%s.json" % [LEADERBOARDS_DIR, normalized_id, map_id]
+	var normalized_id: String = normalize_contest_id(contest_id)
+	var seed_entries: Array = _load_seed_leaderboard_entries(normalized_id, map_id)
+	var runtime_entries: Array = _runtime_leaderboard_entries(normalized_id, map_id)
+	return _merge_leaderboard_entries(seed_entries, runtime_entries)
+
+func record_stage_race_map_result(contest_id: String, map_id: String, result: Dictionary) -> Dictionary:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	var normalized_map_id: String = str(map_id).strip_edges()
+	if normalized_id.is_empty():
+		return {"ok": false, "reason": "contest_id_empty"}
+	if normalized_map_id.is_empty():
+		return {"ok": false, "reason": "map_id_empty", "contest_id": normalized_id}
+	var player_id: String = str(result.get("player_id", result.get("uid", ""))).strip_edges()
+	if player_id.is_empty():
+		return {"ok": false, "reason": "player_id_empty", "contest_id": normalized_id, "map_id": normalized_map_id}
+	var time_ms: int = _result_time_ms(result)
+	if time_ms <= 0:
+		return {"ok": false, "reason": "time_ms_empty", "contest_id": normalized_id, "map_id": normalized_map_id}
+	var now_ts: int = int(Time.get_unix_time_from_system())
+	var player_name: String = str(result.get("player_name", result.get("handle", result.get("name", player_id)))).strip_edges()
+	if player_name.is_empty():
+		player_name = player_id
+	var contest_rows: Dictionary = {}
+	if typeof(runtime_leaderboards.get(normalized_id, {})) == TYPE_DICTIONARY:
+		contest_rows = (runtime_leaderboards.get(normalized_id, {}) as Dictionary).duplicate(true)
+	var rows: Array = []
+	if typeof(contest_rows.get(normalized_map_id, [])) == TYPE_ARRAY:
+		rows = (contest_rows.get(normalized_map_id, []) as Array).duplicate(true)
+	var entry_index: int = -1
+	for i in range(rows.size()):
+		var row_any: Variant = rows[i]
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("player_id", "")).strip_edges() == player_id:
+			entry_index = i
+			break
+	var updated: bool = false
+	var entry: Dictionary = {}
+	if entry_index >= 0:
+		entry = (rows[entry_index] as Dictionary).duplicate(true)
+		var existing_time_ms: int = _entry_time_ms(entry)
+		if existing_time_ms <= 0 or time_ms < existing_time_ms:
+			entry["best_time_ms"] = time_ms
+			entry["best_score"] = time_ms
+			entry["time_ms"] = time_ms
+			entry["best_run_ts"] = int(result.get("updated_at", now_ts))
+			updated = true
+		entry["runs_count"] = int(entry.get("runs_count", 0)) + 1
+	else:
+		entry = {
+			"player_id": player_id,
+			"player_name": player_name,
+			"hive_name": str(result.get("hive_name", "")).strip_edges(),
+			"best_time_ms": time_ms,
+			"best_score": time_ms,
+			"time_ms": time_ms,
+			"best_run_ts": int(result.get("updated_at", now_ts)),
+			"runs_count": 1,
+			"source": str(result.get("source", "stage_race_runtime")).strip_edges()
+		}
+		updated = true
+	var hive_name: String = str(result.get("hive_name", "")).strip_edges()
+	if not player_name.is_empty():
+		entry["player_name"] = player_name
+	if not hive_name.is_empty():
+		entry["hive_name"] = hive_name
+	entry["updated_at"] = int(result.get("updated_at", now_ts))
+	entry["source"] = str(entry.get("source", "stage_race_runtime")).strip_edges()
+	if entry_index >= 0:
+		rows[entry_index] = entry
+	else:
+		rows.append(entry)
+	rows.sort_custom(func(a: Variant, b: Variant) -> bool:
+		if typeof(a) != TYPE_DICTIONARY:
+			return false
+		if typeof(b) != TYPE_DICTIONARY:
+			return true
+		var a_entry: Dictionary = a as Dictionary
+		var b_entry: Dictionary = b as Dictionary
+		var a_time: int = _entry_time_ms(a_entry)
+		var b_time: int = _entry_time_ms(b_entry)
+		if a_time != b_time:
+			return a_time < b_time
+		return str(a_entry.get("player_id", "")) < str(b_entry.get("player_id", ""))
+	)
+	contest_rows[normalized_map_id] = rows
+	runtime_leaderboards[normalized_id] = contest_rows
+	_save_runtime_leaderboards()
+	return {
+		"ok": true,
+		"contest_id": normalized_id,
+		"map_id": normalized_map_id,
+		"player_id": player_id,
+		"best_time_ms": int(entry.get("best_time_ms", time_ms)),
+		"runs_count": int(entry.get("runs_count", 1)),
+		"updated": updated
+	}
+
+func debug_set_runtime_leaderboard_save_path(path: String) -> void:
+	_runtime_leaderboard_save_path = path if not path.strip_edges().is_empty() else RUNTIME_LEADERBOARD_SAVE_PATH
+	_load_runtime_leaderboards()
+
+func debug_reset_runtime_leaderboards() -> void:
+	runtime_leaderboards.clear()
+	_save_runtime_leaderboards()
+
+func _load_seed_leaderboard_entries(normalized_id: String, map_id: String) -> Array:
+	var path: String = "%s/%s/%s.json" % [LEADERBOARDS_DIR, normalized_id, map_id]
 	if not FileAccess.file_exists(path):
 		return []
-	var f := FileAccess.open(path, FileAccess.READ)
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return []
-	var json := JSON.new()
-	var err := json.parse(f.get_as_text())
+	var json: JSON = JSON.new()
+	var err: int = json.parse(f.get_as_text())
 	if err != OK:
 		return []
 	if typeof(json.data) != TYPE_ARRAY:
@@ -328,11 +440,19 @@ func get_leaderboard_entries(contest_id: String, map_id: String) -> Array:
 	return json.data
 
 func get_best_score(contest_id: String, map_id: String) -> int:
-	var entries := get_leaderboard_entries(contest_id, map_id)
+	var entries: Array = get_leaderboard_entries(contest_id, map_id)
 	if entries.is_empty():
 		return 0
-	var first: Dictionary = entries[0]
-	return int(first.get("best_score", 0))
+	var best_score: int = 0
+	for entry_any in entries:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var score: int = _entry_time_ms(entry_any as Dictionary)
+		if score <= 0:
+			continue
+		if best_score <= 0 or score < best_score:
+			best_score = score
+	return best_score
 
 func timed_game_rules() -> Dictionary:
 	return {
@@ -1124,7 +1244,102 @@ func _miss_n_out_round_row(p: Dictionary, round_idx: int, benchmark_ms: int) -> 
 func _entry_time_ms(entry: Dictionary) -> int:
 	if entry.has("best_time_ms"):
 		return maxi(0, int(entry.get("best_time_ms", 0)))
+	if entry.has("time_ms"):
+		return maxi(0, int(entry.get("time_ms", 0)))
 	return maxi(0, int(entry.get("best_score", 0)))
+
+func _result_time_ms(result: Dictionary) -> int:
+	if result.has("best_time_ms"):
+		return maxi(0, int(result.get("best_time_ms", 0)))
+	if result.has("time_ms"):
+		return maxi(0, int(result.get("time_ms", 0)))
+	return maxi(0, int(result.get("best_score", 0)))
+
+func _runtime_leaderboard_entries(contest_id: String, map_id: String) -> Array:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if typeof(runtime_leaderboards.get(normalized_id, {})) != TYPE_DICTIONARY:
+		return []
+	var contest_rows: Dictionary = runtime_leaderboards.get(normalized_id, {}) as Dictionary
+	if typeof(contest_rows.get(map_id, [])) != TYPE_ARRAY:
+		return []
+	return (contest_rows.get(map_id, []) as Array).duplicate(true)
+
+func _merge_leaderboard_entries(seed_entries: Array, runtime_entries: Array) -> Array:
+	var by_player: Dictionary = {}
+	var ordered_fallback: Array = []
+	for source_entries in [seed_entries, runtime_entries]:
+		for entry_any in source_entries:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = (entry_any as Dictionary).duplicate(true)
+			var player_id: String = str(entry.get("player_id", "")).strip_edges()
+			if player_id.is_empty():
+				ordered_fallback.append(entry)
+				continue
+			if not by_player.has(player_id):
+				by_player[player_id] = entry
+				continue
+			var existing: Dictionary = by_player[player_id] as Dictionary
+			var existing_time: int = _entry_time_ms(existing)
+			var entry_time: int = _entry_time_ms(entry)
+			if existing_time <= 0 or (entry_time > 0 and entry_time < existing_time):
+				var merged: Dictionary = existing.duplicate(true)
+				for key in entry.keys():
+					merged[key] = entry[key]
+				merged["runs_count"] = int(existing.get("runs_count", 0)) + int(entry.get("runs_count", 0))
+				by_player[player_id] = merged
+			else:
+				existing["runs_count"] = int(existing.get("runs_count", 0)) + int(entry.get("runs_count", 0))
+				if str(existing.get("player_name", "")).strip_edges().is_empty():
+					existing["player_name"] = str(entry.get("player_name", player_id))
+				if str(existing.get("hive_name", "")).strip_edges().is_empty():
+					existing["hive_name"] = str(entry.get("hive_name", ""))
+				by_player[player_id] = existing
+	var merged_entries: Array = []
+	for entry_any in by_player.values():
+		merged_entries.append(entry_any)
+	for entry_any in ordered_fallback:
+		merged_entries.append(entry_any)
+	merged_entries.sort_custom(func(a: Variant, b: Variant) -> bool:
+		if typeof(a) != TYPE_DICTIONARY:
+			return false
+		if typeof(b) != TYPE_DICTIONARY:
+			return true
+		var a_entry: Dictionary = a as Dictionary
+		var b_entry: Dictionary = b as Dictionary
+		var a_time: int = _entry_time_ms(a_entry)
+		var b_time: int = _entry_time_ms(b_entry)
+		if a_time != b_time:
+			return a_time < b_time
+		return str(a_entry.get("player_id", "")) < str(b_entry.get("player_id", ""))
+	)
+	return merged_entries
+
+func _load_runtime_leaderboards() -> void:
+	runtime_leaderboards.clear()
+	if not FileAccess.file_exists(_runtime_leaderboard_save_path):
+		return
+	var f: FileAccess = FileAccess.open(_runtime_leaderboard_save_path, FileAccess.READ)
+	if f == null:
+		return
+	var json: JSON = JSON.new()
+	var err: int = json.parse(f.get_as_text())
+	if err != OK or typeof(json.data) != TYPE_DICTIONARY:
+		return
+	var data: Dictionary = json.data as Dictionary
+	if str(data.get("schema", "")) == RUNTIME_LEADERBOARD_SCHEMA and typeof(data.get("leaderboards", {})) == TYPE_DICTIONARY:
+		runtime_leaderboards = data.get("leaderboards", {}) as Dictionary
+		return
+	runtime_leaderboards = data
+
+func _save_runtime_leaderboards() -> void:
+	var f: FileAccess = FileAccess.open(_runtime_leaderboard_save_path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify({
+		"schema": RUNTIME_LEADERBOARD_SCHEMA,
+		"leaderboards": runtime_leaderboards
+	}))
 
 func _load_entries() -> void:
 	player_entries.clear()

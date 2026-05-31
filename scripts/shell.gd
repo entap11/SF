@@ -2703,6 +2703,14 @@ func _shell_async_mode_id() -> String:
 
 func _shell_async_prematch_mode_banner() -> String:
 	match _shell_async_mode_id():
+		"1V1":
+			return "1V1 DUEL"
+		"2V2":
+			return "2V2"
+		"3P FFA":
+			return "3P FFA"
+		"4P FFA":
+			return "4P FFA"
 		"ASYNC_SINGLE_MAP_TIMED":
 			return "MAP RUN"
 		"TIMED_RACE":
@@ -2726,6 +2734,9 @@ func _shell_async_prematch_mode_banner() -> String:
 
 func _shell_async_prematch_round_line() -> String:
 	var stage_maps: Array[String] = _shell_stage_map_paths()
+	match _shell_async_mode_id():
+		"1V1", "2V2", "3P FFA", "4P FFA":
+			return "Sync start"
 	if _shell_async_mode_id() == "ASYNC_SINGLE_MAP_TIMED":
 		return "Single map run"
 	if not _mode_uses_async_prematch_details(_shell_async_mode_id()):
@@ -2747,6 +2758,27 @@ func _shell_async_prematch_round_line() -> String:
 func _shell_async_prematch_detail_lines() -> Array[String]:
 	var stage_count: int = maxi(1, _shell_stage_map_paths().size())
 	match _shell_async_mode_id():
+		"1V1":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Head-to-head control. Opening input unlocks after the countdown.",
+				_shell_async_bot_line(),
+				_shell_async_track_line()
+			]
+		"2V2":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Two teams, shared pressure. Coordinate lanes after the countdown.",
+				_shell_async_bot_line(),
+				_shell_async_track_line()
+			]
+		"3P FFA", "4P FFA":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Free-for-all control. Every active seat plays for itself.",
+				_shell_async_bot_line(),
+				_shell_async_track_line()
+			]
 		"ASYNC_SINGLE_MAP_TIMED":
 			return [
 				"Map: %s" % _shell_async_map_title(),
