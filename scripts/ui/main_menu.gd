@@ -12591,10 +12591,7 @@ func _on_async_cycle_selected(scope: String, paid: bool, denomination: int) -> v
 		clean_scope = "WEEKLY"
 	_apply_async_entry_amount(paid, denomination)
 	_close_entry_route_modal()
-	if paid:
-		_open_stage_race_tournament_lobby(clean_scope)
-		return
-	_start_free_stage_race_contest(clean_scope)
+	_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
 
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("async matches"):
@@ -13037,12 +13034,15 @@ func _get_async_stage_leaderboard_rows(map_count: int) -> Array:
 		out.append(row_any)
 	return out
 
-func _open_async_stage_contest_leaderboard(map_count: int) -> void:
+func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0) -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var resolved_map_count: int = 5
 	if map_count == 3:
 		resolved_map_count = 3
-	var contest_data: Dictionary = _resolve_async_stage_contest_data(resolved_map_count)
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope.is_empty():
+		clean_scope = "WEEKLY"
+	var contest_data: Dictionary = _resolve_async_stage_contest_data(resolved_map_count, clean_scope, paid, denomination)
 	var contest_name: String = str(contest_data.get("contest_name", "Stage Contest"))
 	var contest_time_left: String = str(contest_data.get("time_left", "--"))
 	var title: String = "%d MAP STAGE CONTEST LEADERBOARD" % resolved_map_count
@@ -13110,6 +13110,23 @@ func _open_async_stage_contest_leaderboard(map_count: int) -> void:
 		body.add_child(empty_label)
 		_apply_font(empty_label, _font_regular, 12)
 
+	var play_button: Button = Button.new()
+	play_button.text = "PLAY"
+	play_button.custom_minimum_size = Vector2(0.0, 56.0)
+	if paid:
+		play_button.pressed.connect(func():
+			_close_entry_route_modal()
+			_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
+		)
+	else:
+		play_button.pressed.connect(func():
+			_close_entry_route_modal()
+			_start_free_stage_race_contest(clean_scope, resolved_map_count)
+		)
+	body.add_child(play_button)
+	_apply_font(play_button, _font_semibold, 15)
+	_style_button(play_button, Color(0.20, 0.15, 0.03), Color(0.95, 0.67, 0.05), Color(1.0, 0.90, 0.52))
+
 	var close_button: Button = Button.new()
 	close_button.text = "CLOSE"
 	close_button.custom_minimum_size = Vector2(0.0, 40.0)
@@ -13119,7 +13136,7 @@ func _open_async_stage_contest_leaderboard(map_count: int) -> void:
 	_style_button(close_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_entry_route_modal = panel
 
-func _resolve_async_stage_contest_data(map_count: int) -> Dictionary:
+func _resolve_async_stage_contest_data(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0) -> Dictionary:
 	var output: Dictionary = {
 		"contest_id": "",
 		"contest_name": "Stage Contest",
@@ -13129,14 +13146,18 @@ func _resolve_async_stage_contest_data(map_count: int) -> Dictionary:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	if contest_state == null:
 		return output
-	var contest_obj: Variant = _select_async_stage_contest_for_leaderboard(contest_state)
+	var contest_obj: Variant = _select_async_stage_contest_for_leaderboard(contest_state, scope, paid, denomination)
 	if contest_obj == null:
 		return output
 	var contest_id: String = str(_variant_dict_or_object_get(contest_obj, "id", ""))
 	if contest_id.is_empty():
 		return output
 	output["contest_id"] = contest_id
-	output["contest_name"] = str(_variant_dict_or_object_get(contest_obj, "name", "Stage Contest"))
+	var contest_price: int = maxi(0, int(_variant_dict_or_object_get(contest_obj, "price", 0)))
+	if contest_price == 0:
+		output["contest_name"] = "%s Stage Race - Free Roll" % str(_variant_dict_or_object_get(contest_obj, "scope", scope)).strip_edges().to_upper()
+	else:
+		output["contest_name"] = str(_variant_dict_or_object_get(contest_obj, "name", "Stage Contest"))
 	output["time_left"] = _format_async_contest_time_left(int(_variant_dict_or_object_get(contest_obj, "end_ts", 0)))
 	if not contest_state.has_method("build_stage_race_overall_leaderboard"):
 		return output
@@ -13157,14 +13178,20 @@ func _resolve_async_stage_contest_data(map_count: int) -> Dictionary:
 	output["rows"] = rows_out
 	return output
 
-func _select_async_stage_contest_for_leaderboard(contest_state: Node) -> Variant:
+func _select_async_stage_contest_for_leaderboard(contest_state: Node, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0) -> Variant:
 	var selected: Variant = null
-	var scope: String = "WEEKLY"
-	var target_entry_usd: int = _current_async_paid_entry_usd()
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope.is_empty():
+		clean_scope = "WEEKLY"
+	var target_entry_usd: int = maxi(1, denomination) if paid else 0
 	var best_distance: int = 2147483647
 	var best_price: int = 2147483647
+	if not paid:
+		var free_contest: Variant = _select_free_stage_race_contest_for_scope(contest_state, clean_scope)
+		if free_contest != null:
+			return free_contest
 	if contest_state.has_method("get_contests_by_scope"):
-		var contests_any: Variant = contest_state.call("get_contests_by_scope", scope)
+		var contests_any: Variant = contest_state.call("get_contests_by_scope", clean_scope)
 		if typeof(contests_any) == TYPE_ARRAY:
 			for contest_any in contests_any as Array:
 				if contest_any == null:
@@ -13175,7 +13202,7 @@ func _select_async_stage_contest_for_leaderboard(contest_state: Node) -> Variant
 					best_price = price_usd
 					best_distance = abs(price_usd - target_entry_usd)
 					continue
-				if _async_track_mode == ASYNC_TRACK_PAID:
+				if paid:
 					var next_distance: int = abs(price_usd - target_entry_usd)
 					if next_distance < best_distance or (next_distance == best_distance and price_usd < best_price):
 						selected = contest_any
@@ -13187,10 +13214,37 @@ func _select_async_stage_contest_for_leaderboard(contest_state: Node) -> Variant
 	if selected != null:
 		return selected
 	if contest_state.has_method("get_contest_by_scope"):
-		var fallback_any: Variant = contest_state.call("get_contest_by_scope", scope)
+		var fallback_any: Variant = contest_state.call("get_contest_by_scope", clean_scope)
 		if fallback_any != null:
 			return fallback_any
 	return null
+
+func _select_free_stage_race_contest_for_scope(contest_state: Node, scope: String) -> Variant:
+	var contests_any: Variant = contest_state.get("contests")
+	if typeof(contests_any) != TYPE_DICTIONARY:
+		return null
+	var clean_scope: String = scope.strip_edges().to_upper()
+	var selected: Variant = null
+	for contest_any in (contests_any as Dictionary).values():
+		if contest_any == null:
+			continue
+		if str(_variant_dict_or_object_get(contest_any, "scope", "")).strip_edges().to_upper() != clean_scope:
+			continue
+		if not bool(_variant_dict_or_object_get(contest_any, "published", false)):
+			continue
+		if maxi(0, int(_variant_dict_or_object_get(contest_any, "price", -1))) != 0:
+			continue
+		var map_ids_any: Variant = _variant_dict_or_object_get(contest_any, "map_ids", PackedStringArray())
+		var map_count: int = 0
+		if typeof(map_ids_any) == TYPE_PACKED_STRING_ARRAY:
+			map_count = (map_ids_any as PackedStringArray).size()
+		elif typeof(map_ids_any) == TYPE_ARRAY:
+			map_count = (map_ids_any as Array).size()
+		if map_count < 5:
+			continue
+		if selected == null or str(_variant_dict_or_object_get(contest_any, "id", "")) < str(_variant_dict_or_object_get(selected, "id", "")):
+			selected = contest_any
+	return selected
 
 func _variant_dict_or_object_get(source: Variant, key: String, default_value: Variant) -> Variant:
 	if typeof(source) == TYPE_DICTIONARY:
@@ -14189,46 +14243,137 @@ func _open_async_monthly() -> void:
 func _open_async_yearly() -> void:
 	_open_stage_race_tournament_lobby("YEARLY")
 
-func _start_free_stage_race_contest(scope: String, requested_map_count: int = 5) -> void:
-	if _block_for_active_hive_tournament("async matches"):
-		return
+func _resolve_stage_race_contest_launch_data(scope: String, requested_map_count: int = 5, paid: bool = false, denomination: int = 0) -> Dictionary:
 	var clean_scope: String = scope.strip_edges().to_upper()
 	if clean_scope.is_empty():
 		clean_scope = "WEEKLY"
+	var output: Dictionary = {
+		"ok": false,
+		"scope": clean_scope,
+		"contest_id": "",
+		"contest": null,
+		"plan": {},
+		"map_ids": PackedStringArray(),
+		"map_count": maxi(1, requested_map_count),
+		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC,
+		"error": "%s Stage Race contest unavailable." % clean_scope.capitalize()
+	}
 	var contest_state: Node = get_node_or_null("/root/ContestState")
-	if contest_state == null or not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_stage_race_plan"):
-		status_label.text = "%s Stage Race contest unavailable." % clean_scope.capitalize()
-		return
-	var contest: Variant = contest_state.call("get_contest_by_scope", clean_scope)
+	if contest_state == null or not contest_state.has_method("build_stage_race_plan"):
+		return output
+	var contest: Variant = _select_async_stage_contest_for_leaderboard(contest_state, clean_scope, paid, denomination)
 	if contest == null:
-		status_label.text = "No %s Stage Race contest is posted yet." % clean_scope.capitalize()
-		return
+		output["error"] = "No %s Stage Race contest is posted yet." % clean_scope.capitalize()
+		return output
 	var contest_id: String = str(contest.get("id")).strip_edges()
 	if contest_id.is_empty():
-		status_label.text = "%s Stage Race contest unavailable." % clean_scope.capitalize()
-		return
+		return output
 	var map_count: int = maxi(1, requested_map_count)
 	var plan: Dictionary = contest_state.call("build_stage_race_plan", contest_id, map_count) as Dictionary
 	if not bool(plan.get("ok", false)):
-		status_label.text = "%s Stage Race contest unavailable." % clean_scope.capitalize()
-		return
+		return output
 	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
 	if map_ids.is_empty():
-		status_label.text = "%s Stage Race contest has no maps." % clean_scope.capitalize()
+		output["error"] = "%s Stage Race contest has no maps." % clean_scope.capitalize()
+		return output
+	output["ok"] = true
+	output["contest_id"] = contest_id
+	output["contest"] = contest
+	output["plan"] = plan
+	output["map_ids"] = map_ids
+	output["map_count"] = maxi(1, int(plan.get("map_count", map_ids.size())))
+	output["window_sec"] = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
+	output["error"] = ""
+	return output
+
+func _open_stage_race_contest_choice(scope: String, paid: bool, denomination: int) -> void:
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope.is_empty():
+		clean_scope = "WEEKLY"
+	var launch_data: Dictionary = _resolve_stage_race_contest_launch_data(clean_scope, 5, paid, denomination)
+	if not bool(launch_data.get("ok", false)):
+		status_label.text = str(launch_data.get("error", "%s Stage Race contest unavailable." % clean_scope.capitalize()))
 		return
-	var resolved_map_count: int = maxi(1, int(plan.get("map_count", map_ids.size())))
-	var window_sec: int = _resolve_plan_time_window_sec(plan, ASYNC_STAGE_AND_MISS_WINDOW_SEC)
+	var resolved_map_count: int = int(launch_data.get("map_count", 5))
+	var title: String = "%s STAGE RACE" % clean_scope.capitalize().to_upper()
+	var entry_text: String = "$%d ENTRY" % maxi(1, denomination) if paid else "FREE ROLL"
+	var subtitle: String = "%s | %d MAPS" % [entry_text, resolved_map_count]
+	var panel: Panel = _build_entry_overlay(title, subtitle, Vector2(720.0, 360.0))
+	var body: VBoxContainer = _entry_overlay_body(panel)
+	if body == null:
+		return
+	var button_row: HBoxContainer = HBoxContainer.new()
+	button_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	button_row.add_theme_constant_override("separation", 14)
+	body.add_child(button_row)
+
+	var play_button: Button = Button.new()
+	play_button.text = "PLAY"
+	play_button.custom_minimum_size = Vector2(260.0, 72.0)
+	if paid:
+		play_button.pressed.connect(func():
+			_close_entry_route_modal()
+			_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
+		)
+	else:
+		play_button.pressed.connect(func():
+			_close_entry_route_modal()
+			_start_free_stage_race_contest(clean_scope, resolved_map_count)
+		)
+	button_row.add_child(play_button)
+
+	var leaderboard_button: Button = Button.new()
+	leaderboard_button.text = "LEADERBOARD"
+	leaderboard_button.custom_minimum_size = Vector2(260.0, 72.0)
+	leaderboard_button.pressed.connect(func():
+		_close_entry_route_modal()
+		_open_stage_race_contest_leaderboard(clean_scope, resolved_map_count, paid, denomination)
+	)
+	button_row.add_child(leaderboard_button)
+
+	var close_button: Button = Button.new()
+	close_button.text = "CLOSE"
+	close_button.custom_minimum_size = Vector2(0.0, 52.0)
+	close_button.pressed.connect(_close_entry_route_modal)
+	body.add_child(close_button)
+	_style_entry_overlay_buttons([play_button, leaderboard_button, close_button])
+	_apply_font(play_button, _font_semibold, 16)
+	_apply_font(leaderboard_button, _font_semibold, 16)
+	_style_game_hub_cancel_button(close_button)
+	_entry_route_modal = panel
+	status_label.text = "%s Stage Race selected." % clean_scope.capitalize()
+
+func _open_stage_race_contest_leaderboard(scope: String, requested_map_count: int = 5, paid: bool = false, denomination: int = 0) -> void:
+	var launch_data: Dictionary = _resolve_stage_race_contest_launch_data(scope, requested_map_count, paid, denomination)
+	if not bool(launch_data.get("ok", false)):
+		status_label.text = str(launch_data.get("error", "Stage Race leaderboard unavailable."))
+		return
+	_open_async_stage_contest_leaderboard(int(launch_data.get("map_count", requested_map_count)), str(launch_data.get("scope", scope)), paid, denomination)
+	status_label.text = "%s Stage Race leaderboard opened." % str(launch_data.get("scope", scope)).capitalize()
+
+func _start_free_stage_race_contest(scope: String, requested_map_count: int = 5) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
+	var launch_data: Dictionary = _resolve_stage_race_contest_launch_data(scope, requested_map_count, false, 0)
+	if not bool(launch_data.get("ok", false)):
+		status_label.text = str(launch_data.get("error", "Stage Race contest unavailable."))
+		return
+	var clean_scope: String = str(launch_data.get("scope", scope)).strip_edges().to_upper()
+	var resolved_map_count: int = int(launch_data.get("map_count", requested_map_count))
+	var map_ids: PackedStringArray = launch_data.get("map_ids", PackedStringArray()) as PackedStringArray
 	var lobby_options: Dictionary = {
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
-		"window_sec": window_sec,
-		"contest_id": contest_id,
+		"window_sec": int(launch_data.get("window_sec", ASYNC_STAGE_AND_MISS_WINDOW_SEC)),
+		"contest_id": str(launch_data.get("contest_id", "")),
 		"contest_scope": clean_scope,
 		"map_ids": map_ids
 	}
 	status_label.text = "%s Stage Race contest starting..." % clean_scope.capitalize()
-	_open_async_vs_lobby("STAGE_RACE", resolved_map_count, true, 0, lobby_options)
+	if not _launch_async_vs_match_direct("STAGE_RACE", resolved_map_count, true, 0, lobby_options):
+		_open_async_vs_lobby("STAGE_RACE", resolved_map_count, true, 0, lobby_options)
 
-func _open_stage_race_tournament_lobby(scope: String) -> void:
+func _open_stage_race_tournament_lobby(scope: String, paid: bool = true, denomination: int = 0) -> void:
 	var return_async_panel: bool = async_panel != null and async_panel.visible
 	_close_top_level_windows(UI_SURFACE_TIME_PUZZLE)
 	_time_puzzle_return_async_panel = return_async_panel
@@ -14239,15 +14384,26 @@ func _open_stage_race_tournament_lobby(scope: String) -> void:
 			_time_puzzle_lobby = null
 			if async_panel != null and _time_puzzle_return_async_panel:
 				async_panel.visible = true
-			_time_puzzle_return_async_panel = false
+				_time_puzzle_return_async_panel = false
 		)
+		_time_puzzle_lobby.free_stage_race_play_requested.connect(_on_time_puzzle_free_stage_race_play_requested)
+		_time_puzzle_lobby.stage_race_leaderboard_requested.connect(_on_time_puzzle_stage_race_leaderboard_requested)
 		add_child(_time_puzzle_lobby)
+	_time_puzzle_lobby.configure_entry(not paid, denomination)
 	_time_puzzle_lobby.set_scope(scope)
 	_time_puzzle_lobby.visible = true
 	if status_label != null:
 		status_label.text = "%s Stage Race tournaments." % scope.capitalize()
 	if async_panel != null:
 		async_panel.visible = false
+
+func _on_time_puzzle_free_stage_race_play_requested(scope: String, map_count: int) -> void:
+	if _time_puzzle_lobby != null:
+		_time_puzzle_lobby.visible = false
+	_start_free_stage_race_contest(scope, map_count)
+
+func _on_time_puzzle_stage_race_leaderboard_requested(scope: String, paid: bool, denomination: int, map_count: int) -> void:
+	_open_stage_race_contest_leaderboard(scope, map_count, paid, denomination)
 
 func _open_async_subpanel(mode: String, panel: Panel) -> void:
 	if panel == null:
@@ -14727,6 +14883,36 @@ func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entr
 	_vs_lobby.visible = true
 	if async_panel != null:
 		async_panel.visible = false
+
+func _launch_async_vs_match_direct(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> bool:
+	var scene: PackedScene = preload("res://scenes/ui/VsLobby.tscn")
+	if scene == null:
+		return false
+	_play_matchmaker_sfx()
+	_close_top_level_windows(UI_SURFACE_VS_LOBBY)
+	var lobby: Control = scene.instantiate() as Control
+	if lobby == null:
+		return false
+	lobby.visible = false
+	lobby.closed.connect(func():
+		if is_instance_valid(lobby) and not lobby.is_queued_for_deletion():
+			lobby.queue_free()
+	)
+	add_child(lobby)
+	if not lobby.has_method("configure") or not lobby.has_method("_join_async_contest") or not lobby.has_method("_start_match"):
+		lobby.queue_free()
+		return false
+	lobby.call("configure", mode_id, map_count, entry_usd, free_play, options)
+	lobby.call("_join_async_contest", false)
+	lobby.call("_start_match", true)
+	var tree: SceneTree = get_tree()
+	if tree != null and not tree.has_meta("start_game"):
+		var hidden_status: Label = lobby.get_node_or_null("Panel/VBox/Status") as Label
+		if hidden_status != null and not hidden_status.text.strip_edges().is_empty():
+			status_label.text = hidden_status.text
+		lobby.queue_free()
+		return false
+	return true
 
 func _resolve_plan_time_window_sec(plan: Dictionary, fallback_sec: int) -> int:
 	var ms: int = int(plan.get("time_limit_ms", fallback_sec * 1000))

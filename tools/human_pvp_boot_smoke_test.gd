@@ -1,7 +1,7 @@
 extends Node
 
 const DEFAULT_MAP: String = "res://maps/json/MAP_TEST.json"
-const BOOT_TIMEOUT_MS: int = 10000
+const BOOT_TIMEOUT_MS: int = 18000
 
 var _failed: bool = false
 

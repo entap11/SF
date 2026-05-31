@@ -1,11 +1,13 @@
 extends Control
 class_name TimePuzzleLobby
 
-const UITypography := preload("res://scripts/ui/ui_typography.gd")
+const UITypography = preload("res://scripts/ui/ui_typography.gd")
 
 signal closed
+signal free_stage_race_play_requested(scope: String, map_count: int)
+signal stage_race_leaderboard_requested(scope: String, paid: bool, denomination: int, map_count: int)
 
-const SCOPES := ["WEEKLY", "MONTHLY", "YEARLY"]
+const SCOPES: Array[String] = ["WEEKLY", "MONTHLY", "YEARLY"]
 const FALLBACK_STAGE_RACE_MAP_COUNT: int = 5
 const FALLBACK_STAGE_RACE_WINDOW_SEC: int = 30 * 60
 const FALLBACK_STAGE_RACE_START_PLAYERS: int = 5
@@ -16,12 +18,14 @@ const FALLBACK_STAGE_RACE_START_PLAYERS: int = 5
 @onready var back_button: Button = $Panel/VBox/Header/Back
 @onready var scope_box: HBoxContainer = $Panel/VBox/ScopeTabs
 @onready var contest_list: VBoxContainer = $Panel/VBox/ContestList
-@onready var contest_state := get_node_or_null("/root/ContestState")
+@onready var contest_state: Node = get_node_or_null("/root/ContestState")
 
 var _scope_buttons: Dictionary = {}
-var _current_scope := "WEEKLY"
+var _current_scope: String = "WEEKLY"
 var _font_regular: Font = null
 var _font_semibold: Font = null
+var _free_roll: bool = false
+var _denomination: int = 0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -37,6 +41,12 @@ func _ready() -> void:
 func set_scope(scope: String) -> void:
 	if SCOPES.has(scope):
 		_set_scope(scope)
+
+func configure_entry(free_roll: bool, denomination: int = 0) -> void:
+	_free_roll = free_roll
+	_denomination = maxi(0, denomination)
+	if is_node_ready():
+		_refresh_contests()
 
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()
@@ -85,7 +95,7 @@ func _build_scope_tabs() -> void:
 		child.queue_free()
 	_scope_buttons.clear()
 	for scope in SCOPES:
-		var button := Button.new()
+		var button: Button = Button.new()
 		button.text = scope.capitalize()
 		button.toggle_mode = true
 		button.custom_minimum_size = Vector2(170.0, 58.0)
@@ -109,28 +119,124 @@ func _refresh_contests() -> void:
 	if contest_state == null:
 		_add_empty_state("Tournament data is unavailable.", true)
 		return
-	var contests: Array[ContestDef] = contest_state.get_contests_by_scope(_current_scope)
+	var contests: Array[ContestDef] = _contests_for_current_entry()
 	if contests.is_empty():
 		_add_empty_state("No %s Stage Race contest is posted yet." % _current_scope.capitalize(), true)
 		return
 	for contest in contests:
-		var button := Button.new()
-		button.text = _format_contest_tile(contest)
-		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		button.custom_minimum_size = Vector2(0.0, 118.0)
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_apply_font(button, _font_regular, 19)
-		_style_button(button, Color(0.08, 0.09, 0.12), Color(0.54, 0.45, 0.23), Color(0.95, 0.93, 0.86))
-		button.pressed.connect(func(): _open_contest(contest.id))
-		contest_list.add_child(button)
+		_add_contest_card(contest)
+
+func _contests_for_current_entry() -> Array[ContestDef]:
+	if contest_state == null:
+		return []
+	if _free_roll:
+		return _free_contests_for_scope(_current_scope)
+	var paid_contests: Array[ContestDef] = contest_state.get_contests_by_scope(_current_scope)
+	if _denomination <= 0:
+		return paid_contests
+	var exact: Array[ContestDef] = []
+	for contest in paid_contests:
+		if contest != null and contest.price == _denomination:
+			exact.append(contest)
+	return exact if not exact.is_empty() else paid_contests
+
+func _free_contests_for_scope(scope: String) -> Array[ContestDef]:
+	var out: Array[ContestDef] = []
+	if contest_state == null:
+		return out
+	var contests_any: Variant = contest_state.get("contests")
+	if typeof(contests_any) != TYPE_DICTIONARY:
+		return out
+	var clean_scope: String = scope.strip_edges().to_upper()
+	for contest_any in (contests_any as Dictionary).values():
+		var contest: ContestDef = contest_any as ContestDef
+		if contest == null:
+			continue
+		if contest.scope.strip_edges().to_upper() != clean_scope:
+			continue
+		if not contest.published:
+			continue
+		if contest.price != 0:
+			continue
+		if contest.map_ids.size() < 5:
+			continue
+		out.append(contest)
+	out.sort_custom(func(a: ContestDef, b: ContestDef) -> bool:
+		return a.id < b.id
+	)
+	return out
+
+func _add_contest_card(contest: ContestDef) -> void:
+	var card: Panel = Panel.new()
+	card.custom_minimum_size = Vector2(0.0, 260.0)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_panel(card, Color(0.075, 0.08, 0.105, 0.96), Color(0.54, 0.45, 0.23), 8.0)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 24.0
+	box.offset_top = 24.0
+	box.offset_right = -24.0
+	box.offset_bottom = -24.0
+	box.add_theme_constant_override("separation", 14)
+	card.add_child(box)
+
+	var heading: Label = Label.new()
+	heading.text = _contest_label(contest)
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(heading, _font_semibold, 26)
+	box.add_child(heading)
+
+	var details: Label = Label.new()
+	details.text = _format_contest_details(contest)
+	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(details, _font_regular, 19)
+	box.add_child(details)
+
+	var action_row: HBoxContainer = HBoxContainer.new()
+	action_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_row.add_theme_constant_override("separation", 12)
+	box.add_child(action_row)
+
+	var play_button: Button = Button.new()
+	play_button.text = "PLAY"
+	play_button.custom_minimum_size = Vector2(0.0, 68.0)
+	play_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_font(play_button, _font_semibold, 22)
+	_style_button(play_button, Color(0.18, 0.15, 0.07), Color(0.86, 0.68, 0.22), Color(1.0, 0.92, 0.58))
+	if _free_roll:
+		play_button.pressed.connect(func(): free_stage_race_play_requested.emit(_current_scope, maxi(1, contest.map_ids.size())))
+	else:
+		play_button.pressed.connect(func(): _open_contest(contest.id))
+	action_row.add_child(play_button)
+
+	var leaderboard_button: Button = Button.new()
+	leaderboard_button.text = "LEADERBOARD"
+	leaderboard_button.custom_minimum_size = Vector2(0.0, 68.0)
+	leaderboard_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_font(leaderboard_button, _font_semibold, 22)
+	_style_button(leaderboard_button, Color(0.10, 0.11, 0.14), Color(0.44, 0.46, 0.56), Color(0.92, 0.92, 0.92))
+	leaderboard_button.pressed.connect(func():
+		stage_race_leaderboard_requested.emit(_current_scope, not _free_roll, _denomination, maxi(1, contest.map_ids.size()))
+	)
+	action_row.add_child(leaderboard_button)
+
+	var details_button: Button = Button.new()
+	details_button.text = "DETAILS"
+	details_button.custom_minimum_size = Vector2(0.0, 58.0)
+	details_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_font(details_button, _font_semibold, 18)
+	_style_button(details_button, Color(0.08, 0.09, 0.12), Color(0.40, 0.42, 0.52), Color(0.92, 0.92, 0.92))
+	details_button.pressed.connect(func(): _open_contest(contest.id))
+	box.add_child(details_button)
+	contest_list.add_child(card)
 
 func _format_contest_tile(contest: ContestDef) -> String:
-	var entered := false
+	var entered: bool = false
 	if contest_state != null:
 		entered = contest_state.is_entered(contest.id)
-	var entry_text := "Entered" if entered else "Not entered"
-	var cap_text := _cap_text(contest.buff_cap_per_map)
-	var remaining := _format_remaining(contest.end_ts)
+	var entry_text: String = "Entered" if entered else "Not entered"
+	var cap_text: String = _cap_text(contest.buff_cap_per_map)
+	var remaining: String = _format_remaining(contest.end_ts)
 	var stage_label: String = "5-Map Stage Race"
 	var contest_label: String = contest.name.replace("Time Puzzle", "Stage Race")
 	return "%s\n%s | %s | %s | %s" % [
@@ -141,12 +247,31 @@ func _format_contest_tile(contest: ContestDef) -> String:
 		remaining
 	]
 
+func _format_contest_details(contest: ContestDef) -> String:
+	var entered: bool = false
+	if contest_state != null:
+		entered = contest_state.is_entered(contest.id)
+	var entry_text: String = "Free Roll" if contest.price == 0 else "$%d Entry" % contest.price
+	var state_text: String = "Entered" if entered else "Ready"
+	return "%s | %d-map Stage Race | %s | %s | %s" % [
+		entry_text,
+		maxi(1, contest.map_ids.size()),
+		state_text,
+		_cap_text(contest.buff_cap_per_map),
+		_format_remaining(contest.end_ts)
+	]
+
+func _contest_label(contest: ContestDef) -> String:
+	if contest.price == 0:
+		return "%s Stage Race - Free Roll" % contest.scope.strip_edges().to_upper()
+	return contest.name.replace("Time Puzzle", "Stage Race")
+
 func _add_empty_state(message: String, allow_fallback_start: bool) -> void:
-	var card := Panel.new()
+	var card: Panel = Panel.new()
 	card.custom_minimum_size = Vector2(0.0, 300.0)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_style_panel(card, Color(0.075, 0.08, 0.105, 0.96), Color(0.40, 0.42, 0.52, 0.78), 8.0)
-	var box := VBoxContainer.new()
+	var box: VBoxContainer = VBoxContainer.new()
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
 	box.offset_left = 24.0
 	box.offset_top = 24.0
@@ -154,18 +279,18 @@ func _add_empty_state(message: String, allow_fallback_start: bool) -> void:
 	box.offset_bottom = -24.0
 	box.add_theme_constant_override("separation", 16)
 	card.add_child(box)
-	var heading := Label.new()
+	var heading: Label = Label.new()
 	heading.text = "%s STAGE RACE" % _current_scope
 	_apply_font(heading, _font_semibold, 26)
 	box.add_child(heading)
-	var body := Label.new()
+	var body: Label = Label.new()
 	body.text = "%s\nYou can still start a free Stage Race run now." % message
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_apply_font(body, _font_regular, 20)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(body)
 	if allow_fallback_start:
-		var start_button := Button.new()
+		var start_button: Button = Button.new()
 		start_button.text = "START FREE STAGE RACE"
 		start_button.custom_minimum_size = Vector2(0.0, 68.0)
 		_apply_font(start_button, _font_semibold, 22)
@@ -175,7 +300,9 @@ func _add_empty_state(message: String, allow_fallback_start: bool) -> void:
 	contest_list.add_child(card)
 
 func _open_contest(contest_id: String) -> void:
-	var panel := preload("res://scenes/ui/ContestHub.tscn").instantiate()
+	var panel: ContestHub = preload("res://scenes/ui/ContestHub.tscn").instantiate() as ContestHub
+	if panel == null:
+		return
 	panel.contest_id = contest_id
 	panel.closed.connect(func():
 		panel.queue_free()
@@ -189,12 +316,15 @@ func _open_fallback_stage_race_lobby() -> void:
 	var vs_lobby_scene: PackedScene = load("res://scenes/ui/VsLobby.tscn") as PackedScene
 	if vs_lobby_scene == null:
 		return
-	var vs_lobby := vs_lobby_scene.instantiate()
-	vs_lobby.configure("STAGE_RACE", FALLBACK_STAGE_RACE_MAP_COUNT, 0, true, {
+	var vs_lobby_any: Variant = vs_lobby_scene.instantiate()
+	if not (vs_lobby_any is Control):
+		return
+	var vs_lobby: Control = vs_lobby_any as Control
+	vs_lobby.call("configure", "STAGE_RACE", FALLBACK_STAGE_RACE_MAP_COUNT, 0, true, {
 		"start_players": FALLBACK_STAGE_RACE_START_PLAYERS,
 		"window_sec": FALLBACK_STAGE_RACE_WINDOW_SEC
 	})
-	vs_lobby.closed.connect(func():
+	vs_lobby.connect("closed", func():
 		vs_lobby.queue_free()
 		visible = true
 	)
@@ -238,14 +368,14 @@ func _style_scope_button(button: Button, active: bool) -> void:
 func _style_button(button: Button, bg: Color, border: Color, font_color: Color) -> void:
 	if button == null:
 		return
-	var normal := StyleBoxFlat.new()
+	var normal: StyleBoxFlat = StyleBoxFlat.new()
 	normal.bg_color = bg
 	normal.border_color = border
 	normal.set_border_width_all(2)
 	normal.set_corner_radius_all(8)
-	var hover := normal.duplicate() as StyleBoxFlat
+	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
 	hover.bg_color = bg.lightened(0.08)
-	var pressed := normal.duplicate() as StyleBoxFlat
+	var pressed: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
 	pressed.bg_color = bg.darkened(0.10)
 	button.add_theme_stylebox_override("normal", normal)
 	button.add_theme_stylebox_override("hover", hover)
@@ -258,7 +388,7 @@ func _style_button(button: Button, bg: Color, border: Color, font_color: Color) 
 func _style_panel(panel: Panel, bg: Color, border: Color, radius: float) -> void:
 	if panel == null:
 		return
-	var style := StyleBoxFlat.new()
+	var style: StyleBoxFlat = StyleBoxFlat.new()
 	style.bg_color = bg
 	style.border_color = border
 	style.set_border_width_all(1)

@@ -6,6 +6,8 @@ extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
+const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
 const BotTelemetryStoreScript := preload("res://scripts/state/bot_telemetry_store.gd")
 
 signal map_selected(map_id: String)
@@ -63,7 +65,7 @@ enum MatchPhase {
 	ENDING,
 	ENDED
 }
-const PREMATCH_DURATION_MS := 5000
+const PREMATCH_DURATION_MS: int = 5000
 const PREMATCH_RECORDS_SHOW_MS := 3000
 const VICTORY_MODE_CONQUEST := "conquest"
 const VICTORY_MODE_CAPTURE_FLAG := "capture_flag"
@@ -122,6 +124,144 @@ var _capture_flag_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func get_state() -> GameState:
 	return state
+
+func load_contests() -> void:
+	contests.clear()
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state != null and contest_state.has_method("load_contests"):
+		contest_state.call("load_contests")
+		var live_contests_any: Variant = contest_state.get("contests")
+		if typeof(live_contests_any) == TYPE_DICTIONARY:
+			contests = (live_contests_any as Dictionary).duplicate()
+			return
+	var dir: DirAccess = DirAccess.open(CONTESTS_DIR)
+	if dir == null:
+		return
+	for file_name in dir.get_files():
+		if not file_name.ends_with(".tres") and not file_name.ends_with(".res"):
+			continue
+		var contest: ContestDef = load("%s/%s" % [CONTESTS_DIR, file_name]) as ContestDef
+		if contest == null or contest.id.strip_edges().is_empty():
+			continue
+		contests[contest.id.strip_edges()] = contest
+
+func get_contest_ids() -> PackedStringArray:
+	var keys: Array = contests.keys()
+	keys.sort()
+	var ids: PackedStringArray = PackedStringArray()
+	for key_any in keys:
+		ids.append(str(key_any))
+	return ids
+
+func save_contest(contest: ContestDef) -> bool:
+	if contest == null or contest.id.strip_edges().is_empty():
+		return false
+	var dir_path: String = ProjectSettings.globalize_path(CONTESTS_DIR)
+	DirAccess.make_dir_recursive_absolute(dir_path)
+	var path: String = "%s/%s.tres" % [CONTESTS_DIR, contest.id.strip_edges()]
+	var err: Error = ResourceSaver.save(contest, path)
+	if err != OK:
+		SFLog.warn("OPS_CONTEST_SAVE_FAILED", {"path": path, "error": int(err)})
+		return false
+	load_contests()
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state != null and contest_state.has_method("load_contests"):
+		contest_state.call("load_contests")
+	return true
+
+func delete_contest(contest_id: String) -> bool:
+	var clean_id: String = contest_id.strip_edges()
+	if clean_id.is_empty():
+		return false
+	var path: String = "%s/%s.tres" % [CONTESTS_DIR, clean_id]
+	var err: Error = DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	if err != OK:
+		SFLog.warn("OPS_CONTEST_DELETE_FAILED", {"path": path, "error": int(err)})
+		return false
+	load_contests()
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state != null and contest_state.has_method("load_contests"):
+		contest_state.call("load_contests")
+	return true
+
+func load_maps() -> void:
+	maps.clear()
+	var dir: DirAccess = DirAccess.open(MAPS_DIR)
+	if dir != null:
+		for file_name in dir.get_files():
+			if not file_name.ends_with(".tres") and not file_name.ends_with(".res"):
+				continue
+			var map_def: MapDef = load("%s/%s" % [MAPS_DIR, file_name]) as MapDef
+			if map_def == null or map_def.id.strip_edges().is_empty():
+				continue
+			maps[map_def.id.strip_edges()] = map_def
+	for path_any in MAP_LOADER.list_maps():
+		var path: String = str(path_any).strip_edges()
+		var map_id: String = MAP_REGISTRY.map_id_from_path(path).strip_edges()
+		if map_id.is_empty() or maps.has(map_id):
+			continue
+		var generated: MapDef = MapDef.new()
+		generated.id = map_id
+		generated.display_name = MAP_LOADER.display_name_for_map(map_id)
+		generated.map_scene_path = path
+		generated.preview_path = ""
+		generated.in_pool = true
+		maps[map_id] = generated
+
+func get_map_ids() -> PackedStringArray:
+	var keys: Array = maps.keys()
+	keys.sort_custom(func(a: Variant, b: Variant) -> bool:
+		return str(a).naturalnocasecmp_to(str(b)) < 0
+	)
+	var ids: PackedStringArray = PackedStringArray()
+	for key_any in keys:
+		ids.append(str(key_any))
+	return ids
+
+func save_map(map_def: MapDef) -> bool:
+	if map_def == null or map_def.id.strip_edges().is_empty():
+		return false
+	var dir_path: String = ProjectSettings.globalize_path(MAPS_DIR)
+	DirAccess.make_dir_recursive_absolute(dir_path)
+	var path: String = "%s/%s.tres" % [MAPS_DIR, map_def.id.strip_edges()]
+	var err: Error = ResourceSaver.save(map_def, path)
+	if err != OK:
+		SFLog.warn("OPS_MAP_SAVE_FAILED", {"path": path, "error": int(err)})
+		return false
+	load_maps()
+	return true
+
+func request_map_test(map_id: String) -> void:
+	var clean_id: String = map_id.strip_edges()
+	if clean_id.is_empty():
+		return
+	current_map_id = clean_id
+	map_selected.emit(clean_id)
+
+func open_ops_console(parent: Node = null) -> Control:
+	if _console_instance == null or not is_instance_valid(_console_instance):
+		var scene: PackedScene = load(OPS_CONSOLE_SCENE) as PackedScene
+		if scene == null:
+			return null
+		_console_instance = scene.instantiate() as Control
+		if _console_instance == null:
+			return null
+		var host: Node = parent if parent != null else get_tree().root
+		host.add_child(_console_instance)
+	_console_instance.visible = true
+	if _console_instance.has_method("refresh"):
+		_console_instance.call("refresh")
+	return _console_instance
+
+func close_ops_console() -> void:
+	if _console_instance != null and is_instance_valid(_console_instance):
+		_console_instance.visible = false
+
+func toggle_ops_console(parent: Node = null) -> void:
+	if _console_instance != null and is_instance_valid(_console_instance) and _console_instance.visible:
+		close_ops_console()
+	else:
+		open_ops_console(parent)
 
 func get_contract_state_hash() -> String:
 	return _build_contract_state_signature().sha256_text()

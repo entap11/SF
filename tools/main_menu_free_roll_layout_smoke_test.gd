@@ -91,14 +91,42 @@ func _run() -> void:
 	weekly_button.pressed.emit()
 	await process_frame
 	await process_frame
-	var vs_lobby: Control = menu.get("_vs_lobby") as Control
-	if vs_lobby == null or not vs_lobby.visible:
-		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: weekly free roll did not open VS lobby")
+	var lobby: TimePuzzleLobby = menu.get("_time_puzzle_lobby") as TimePuzzleLobby
+	if lobby == null or not lobby.visible:
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: weekly free roll did not open tournament lobby")
 		quit(1)
 		return
-	var summary: Label = vs_lobby.get_node_or_null("Panel/VBox/Summary") as Label
-	if summary == null or not summary.text.contains("Stage Race"):
-		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: weekly free roll did not route to Stage Race")
+	var lobby_title: Label = lobby.get_node_or_null("Panel/VBox/Header/Title") as Label
+	if lobby_title == null or lobby_title.text != "STAGE RACE TOURNAMENTS":
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: weekly free roll did not route to tournament lobby")
+		quit(1)
+		return
+	var leaderboard_button: Button = _find_button_with_text(lobby, "LEADERBOARD")
+	if leaderboard_button == null or leaderboard_button.custom_minimum_size.y < 68.0:
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: leaderboard button missing or too small")
+		quit(1)
+		return
+	leaderboard_button.pressed.emit()
+	await process_frame
+	await process_frame
+	var leaderboard: Control = menu.get("_entry_route_modal") as Control
+	if leaderboard == null or not leaderboard.visible:
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: leaderboard path did not open")
+		quit(1)
+		return
+	var leaderboard_title: Label = leaderboard.get_node_or_null("EntryScroll/EntryBody/EntryTitle") as Label
+	if leaderboard_title == null or not leaderboard_title.text.contains("STAGE CONTEST LEADERBOARD"):
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: leaderboard path did not open styled stage contest board")
+		quit(1)
+		return
+	var leaderboard_subtitle: Label = leaderboard.get_node_or_null("EntryScroll/EntryBody/EntrySubtitle") as Label
+	if leaderboard_subtitle == null or not leaderboard_subtitle.text.contains("Free Roll") or leaderboard_subtitle.text.contains("$1"):
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: free roll leaderboard routed to paid contest: %s" % (leaderboard_subtitle.text if leaderboard_subtitle != null else "missing"))
+		quit(1)
+		return
+	var leaderboard_play: Button = _find_button_with_text(leaderboard, "PLAY")
+	if leaderboard_play == null:
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: leaderboard play CTA missing")
 		quit(1)
 		return
 	var async_panel: Control = menu.get_node_or_null("AsyncPanel") as Control
@@ -126,3 +154,12 @@ func _assert_button(panel: Control, path: String, min_width: float, min_height: 
 		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: %s button is horizontally offscreen: %s" % [label, str(rect)])
 		quit(1)
 		return
+
+func _find_button_with_text(root: Node, text: String) -> Button:
+	if root is Button and (root as Button).text == text:
+		return root as Button
+	for child in root.get_children():
+		var found: Button = _find_button_with_text(child, text)
+		if found != null:
+			return found
+	return null

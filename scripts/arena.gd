@@ -160,9 +160,10 @@ const PREMATCH_RECORDS_FONT_SIZE: int = 17
 const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
 const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
 const PREMATCH_UI_CROSSFADE_MS: int = 350
-const PREMATCH_IDENTITY_CARD_SHOW_MS: int = 1350
+const PREMATCH_ORIENTATION_DURATION_MS: int = 10000
+const PREMATCH_IDENTITY_CARD_SHOW_MS: int = 5000
 const PREMATCH_IDENTITY_CARD_FADE_SEC: float = 0.25
-const PREMATCH_HIVE_FOCUS_START_MS: int = 1550
+const PREMATCH_HIVE_FOCUS_START_MS: int = 5250
 const PREMATCH_HIVE_PULSE_SEC: float = 0.42
 const PREMATCH_COUNTDOWN_RETURN_MS: int = 3000
 const PREMATCH_HIVE_FOCUS_ZOOM_MULT: float = 1.45
@@ -180,6 +181,8 @@ const LOSE_HIVE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/
 const WIN_HIVE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/win_hive.wav"
 const WIN_HIVE_SOUND_START_SEC: float = 0.246
 const WIN_HIVE_SOUND_END_SEC: float = 0.925
+const HIVE_SWITCH_SFX_LIMIT_COUNT: int = 3
+const HIVE_SWITCH_SFX_LIMIT_WINDOW_MS: int = 7000
 const WIN_SONG_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/win_song.mp3"
 const LOSE_SONG_PATHS: Array[String] = [
 	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song.wav",
@@ -197,8 +200,10 @@ var _prematch_countdown_sfx_player: AudioStreamPlayer = null
 var _tower_shot_sfx_counts: Dictionary = {}
 var _tower_shot_sfx_stream: AudioStream = null
 var _swarm_sfx_stream: AudioStream = null
+var _swarm_sfx_players_by_id: Dictionary = {}
 var _lose_hive_sfx_stream: AudioStream = null
 var _win_hive_sfx_stream: AudioStream = null
+var _hive_switch_sfx_played_ms: Array[int] = []
 var _post_match_song_player: AudioStreamPlayer = null
 var _post_match_loss_song_index: int = 0
 var lane_system: LaneSystem
@@ -1281,6 +1286,8 @@ func _begin_prematch() -> void:
 	var prematch_dur_ms: int = OpsState.prematch_duration_ms
 	if prematch_dur_ms <= 0:
 		prematch_dur_ms = OpsState.PREMATCH_DURATION_MS
+	if _should_show_prematch_identity_flow():
+		prematch_dur_ms = maxi(prematch_dur_ms, PREMATCH_ORIENTATION_DURATION_MS)
 	if _capture_flag_selection_pending_for_local():
 		prematch_dur_ms += CTF_SELECTION_GRACE_MS
 	_prematch_remaining_ms_f = float(prematch_dur_ms)
@@ -1367,10 +1374,13 @@ func _play_tower_shot_sfx() -> void:
 	add_child(player)
 	player.play()
 
-func _on_swarm_spawned_for_sfx(_swarm_id: int, _owner_id: int, _from_id: int, _to_id: int, _lane_id: int, _world_pos: Vector2) -> void:
-	_play_swarm_sfx()
+func _on_swarm_spawned_for_sfx(swarm_id: int, _owner_id: int, _from_id: int, _to_id: int, _lane_id: int, _world_pos: Vector2) -> void:
+	_play_swarm_sfx(swarm_id)
 
-func _play_swarm_sfx() -> void:
+func _on_swarm_landed_for_sfx(swarm_id: int, _owner_id: int, _from_id: int, _to_id: int, _lane_id: int, _world_pos: Vector2) -> void:
+	_stop_swarm_sfx(swarm_id)
+
+func _play_swarm_sfx(swarm_id: int = -1) -> void:
 	if not _is_game_sfx_enabled():
 		return
 	if _swarm_sfx_stream == null:
@@ -1379,21 +1389,61 @@ func _play_swarm_sfx() -> void:
 		if SFLog.LOGGING_ENABLED:
 			push_warning("SWARM_SOUND_MISSING: " + SWARM_SOUND_PATH)
 		return
-	var player := AudioStreamPlayer.new()
-	player.name = "SwarmSfxPlayer"
+	var player: AudioStreamPlayer = AudioStreamPlayer.new()
+	player.name = "SwarmSfxPlayer_%d" % swarm_id
 	player.stream = _swarm_sfx_stream
-	player.finished.connect(Callable(player, "queue_free"))
+	if swarm_id > 0:
+		_stop_swarm_sfx(swarm_id)
+		_swarm_sfx_players_by_id[swarm_id] = player
+	player.finished.connect(func() -> void:
+		if swarm_id > 0:
+			var current: AudioStreamPlayer = _swarm_sfx_players_by_id.get(swarm_id, null) as AudioStreamPlayer
+			if current == player:
+				_swarm_sfx_players_by_id.erase(swarm_id)
+		if is_instance_valid(player):
+			player.queue_free()
+	)
 	add_child(player)
 	player.play()
+
+func _stop_swarm_sfx(swarm_id: int) -> void:
+	if swarm_id <= 0:
+		return
+	var player: AudioStreamPlayer = _swarm_sfx_players_by_id.get(swarm_id, null) as AudioStreamPlayer
+	_swarm_sfx_players_by_id.erase(swarm_id)
+	if player == null or not is_instance_valid(player):
+		return
+	player.stop()
+	player.queue_free()
+
+func _stop_all_swarm_sfx() -> void:
+	for swarm_id_any in _swarm_sfx_players_by_id.keys():
+		_stop_swarm_sfx(int(swarm_id_any))
+	_swarm_sfx_players_by_id.clear()
 
 func _on_hive_owner_changed_for_sfx(_hive_id: int, prev_owner: int, next_owner: int, _world_pos: Vector2) -> void:
 	var local_owner_id: int = _resolve_local_owner_id()
 	if local_owner_id <= 0:
 		return
 	if prev_owner == local_owner_id and next_owner != local_owner_id:
+		if not _can_play_hive_switch_sfx():
+			return
 		_play_lose_hive_sfx()
 	elif next_owner == local_owner_id and prev_owner > 0 and prev_owner != local_owner_id:
+		if not _can_play_hive_switch_sfx():
+			return
 		_play_win_hive_sfx()
+
+func _can_play_hive_switch_sfx() -> bool:
+	var now_ms: int = Time.get_ticks_msec()
+	var cutoff_ms: int = now_ms - HIVE_SWITCH_SFX_LIMIT_WINDOW_MS
+	for i in range(_hive_switch_sfx_played_ms.size() - 1, -1, -1):
+		if int(_hive_switch_sfx_played_ms[i]) < cutoff_ms:
+			_hive_switch_sfx_played_ms.remove_at(i)
+	if _hive_switch_sfx_played_ms.size() >= HIVE_SWITCH_SFX_LIMIT_COUNT:
+		return false
+	_hive_switch_sfx_played_ms.append(now_ms)
+	return true
 
 func _play_lose_hive_sfx() -> void:
 	if not _is_game_sfx_enabled():
@@ -2243,6 +2293,9 @@ func _show_prematch_identity_card() -> void:
 	_ensure_prematch_identity_card()
 	if _prematch_identity_card == null:
 		return
+	if not _should_show_prematch_identity_flow():
+		_prematch_identity_card.visible = false
+		return
 	_refresh_prematch_identity_card()
 	_layout_prematch_identity_card()
 	_prematch_identity_card.visible = true
@@ -2355,18 +2408,12 @@ func _prematch_identity_uses_quadrant_4p() -> bool:
 	return false
 
 func _prematch_identity_card_show_ms() -> int:
-	if _prematch_identity_uses_quadrant_4p():
-		return 620
 	return PREMATCH_IDENTITY_CARD_SHOW_MS
 
 func _prematch_hive_focus_start_ms() -> int:
-	if _prematch_identity_uses_quadrant_4p():
-		return 700
 	return PREMATCH_HIVE_FOCUS_START_MS
 
 func _prematch_hive_pulse_sec() -> float:
-	if _prematch_identity_uses_quadrant_4p():
-		return 0.32
 	return PREMATCH_HIVE_PULSE_SEC
 
 func _fade_prematch_identity_card() -> void:
@@ -2382,12 +2429,12 @@ func _fade_prematch_identity_card() -> void:
 
 func _apply_team_orientation_buffers() -> void:
 	var local_owner_id: int = _resolve_local_owner_id()
-	var opponent_owner_id: int = _resolve_primary_opponent_owner_id(local_owner_id)
 	var local_color: Color = _team_color_for_seat(local_owner_id)
-	var opponent_color: Color = _team_color_for_seat(opponent_owner_id)
 	var top_buffer: Control = _resolve_top_buffer_background() as Control
 	var bottom_buffer: Control = _resolve_bottom_buffer_background() as Control
-	_apply_team_buffer_color(top_buffer, opponent_color, "OpponentTeamColorWash")
+	_clear_team_buffer_color(top_buffer, "OpponentTeamColorWash")
+	_clear_team_buffer_color(bottom_buffer, "OpponentTeamColorWash")
+	_apply_team_buffer_color(top_buffer, local_color, "LocalTeamColorWash")
 	_apply_team_buffer_color(bottom_buffer, local_color, "LocalTeamColorWash")
 
 func _resolve_primary_opponent_owner_id(local_owner_id: int) -> int:
@@ -2401,23 +2448,39 @@ func _resolve_primary_opponent_owner_id(local_owner_id: int) -> int:
 		return 2
 	return 1
 
+func _clear_team_buffer_color(buffer: Control, node_name: String) -> void:
+	if buffer == null:
+		return
+	var wash_node: Node = buffer.get_node_or_null(node_name)
+	if wash_node != null:
+		buffer.remove_child(wash_node)
+		wash_node.queue_free()
+
 func _apply_team_buffer_color(buffer: Control, color: Color, node_name: String) -> void:
 	if buffer == null:
 		return
-	var wash: ColorRect = buffer.get_node_or_null(node_name) as ColorRect
+	buffer.clip_contents = true
+	var wash: TextureRect = buffer.get_node_or_null(node_name) as TextureRect
 	if wash == null:
-		wash = ColorRect.new()
+		var stale_wash: Node = buffer.get_node_or_null(node_name)
+		if stale_wash != null:
+			buffer.remove_child(stale_wash)
+			stale_wash.queue_free()
+		wash = TextureRect.new()
 		wash.name = node_name
 		wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		wash.z_as_relative = false
-		wash.z_index = -1
 		buffer.add_child(wash)
+	wash.texture = (buffer as TextureRect).texture if buffer is TextureRect else null
+	wash.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	wash.stretch_mode = (buffer as TextureRect).stretch_mode if buffer is TextureRect else TextureRect.STRETCH_SCALE
+	wash.texture_repeat = (buffer as TextureRect).texture_repeat if buffer is TextureRect else CanvasItem.TEXTURE_REPEAT_DISABLED
 	wash.set_anchors_preset(Control.PRESET_FULL_RECT, true)
 	wash.offset_left = 0.0
 	wash.offset_top = 0.0
 	wash.offset_right = 0.0
 	wash.offset_bottom = 0.0
-	wash.color = Color(color.r, color.g, color.b, PREMATCH_TEAM_BUFFER_ALPHA)
+	wash.modulate = Color(color.r, color.g, color.b, PREMATCH_TEAM_BUFFER_ALPHA)
+	wash.self_modulate = Color.WHITE
 	wash.visible = true
 	buffer.move_child(wash, 0)
 
@@ -3090,6 +3153,28 @@ func _current_vs_mode() -> String:
 		return ""
 	return str(tree.get_meta(TREE_META_VS_MODE, "")).strip_edges().to_upper()
 
+func _is_async_runtime_mode(mode_id: String = "") -> bool:
+	var mode: String = mode_id.strip_edges().to_upper()
+	if mode.is_empty():
+		mode = _current_vs_mode()
+	match mode:
+		VS_MODE_STAGE_RACE, "TIMED_RACE", "MISS_N_OUT", VS_MODE_ASYNC_SINGLE_MAP_TIMED:
+			return true
+		_:
+			return false
+
+func _is_async_stage_continuation() -> bool:
+	if not _is_async_runtime_mode():
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var stage_index: int = maxi(0, int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)))
+	return stage_index > 0
+
+func _should_show_prematch_identity_flow() -> bool:
+	return not _is_async_stage_continuation()
+
 func _uses_async_prematch_card() -> bool:
 	match _current_vs_mode():
 		"1V1", "2V2", "3P FFA", "4P FFA", VS_MODE_STAGE_RACE, "TIMED_RACE", "MISS_N_OUT", VS_MODE_ASYNC_SINGLE_MAP_TIMED:
@@ -3435,10 +3520,11 @@ func _update_prematch_flow(delta: float) -> void:
 		_prematch_countdown_label.text = str(sec_left)
 		_prematch_countdown_label.visible = true
 	var elapsed_ms: float = float(OpsState.prematch_duration_ms) - _prematch_remaining_ms_f
-	if elapsed_ms >= float(_prematch_identity_card_show_ms()) and not _prematch_identity_card_faded:
-		_fade_prematch_identity_card()
-	if elapsed_ms >= float(_prematch_hive_focus_start_ms()) and not _prematch_hive_focus_started:
-		_start_prematch_hive_focus_sequence()
+	if _should_show_prematch_identity_flow():
+		if elapsed_ms >= float(_prematch_identity_card_show_ms()) and not _prematch_identity_card_faded:
+			_fade_prematch_identity_card()
+		if elapsed_ms >= float(_prematch_hive_focus_start_ms()) and not _prematch_hive_focus_started:
+			_start_prematch_hive_focus_sequence()
 	if _prematch_remaining_ms_f <= float(PREMATCH_COUNTDOWN_RETURN_MS) and not _prematch_countdown_return_started:
 		_return_camera_to_gameplay_view()
 	_refresh_capture_flag_prematch_prompt()
@@ -4264,9 +4350,12 @@ func _wire_tower_shot_sfx() -> void:
 func _wire_swarm_sfx() -> void:
 	if sim_events == null or not is_instance_valid(sim_events):
 		return
-	var cb := Callable(self, "_on_swarm_spawned_for_sfx")
-	if not sim_events.is_connected("swarm_spawned", cb):
-		sim_events.connect("swarm_spawned", cb)
+	var spawned_cb: Callable = Callable(self, "_on_swarm_spawned_for_sfx")
+	if not sim_events.is_connected("swarm_spawned", spawned_cb):
+		sim_events.connect("swarm_spawned", spawned_cb)
+	var landed_cb: Callable = Callable(self, "_on_swarm_landed_for_sfx")
+	if sim_events.has_signal("swarm_landed") and not sim_events.is_connected("swarm_landed", landed_cb):
+		sim_events.connect("swarm_landed", landed_cb)
 
 func _wire_hive_owner_sfx() -> void:
 	if sim_events == null or not is_instance_valid(sim_events):
@@ -5024,6 +5113,8 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 		return
 	# MapApplier swaps in a fresh authoritative state without calling Arena._reset_sim_state().
 	# Clear post-match latches here so stage-race rounds can always advance.
+	_clear_unit_visuals_for_state_swap()
+	_stop_all_swarm_sfx()
 	_match_end_handled = false
 	_match_record_committed = false
 	_post_match_action_taken = false
@@ -5062,6 +5153,15 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	mark_render_dirty("ops_state_changed")
 	if state.hives != null:
 		set_process_unhandled_input(true)
+
+func _clear_unit_visuals_for_state_swap() -> void:
+	var unit_r: Node = unit_renderer
+	if unit_r == null:
+		unit_r = _resolve_unit_renderer()
+		if unit_r is Node2D:
+			unit_renderer = unit_r as Node2D
+	if unit_r != null and unit_r.has_method("clear_all"):
+		unit_r.call("clear_all")
 
 func _on_ops_state_changed_iid(_payload: Variant = null) -> void:
 	call_deferred("_start_sim_after_state_change")
@@ -8240,6 +8340,7 @@ func _try_activate_buff_slot(pid: int, slot_index: int) -> void:
 func _reset_sim_state() -> void:
 	units.clear()
 	swarm_packets.clear()
+	_stop_all_swarm_sfx()
 	debris.clear()
 	unit_id_counter = 1
 	swarm_id_counter = 1
@@ -8247,6 +8348,7 @@ func _reset_sim_state() -> void:
 	tick_accum = 0.0
 	events.clear()
 	_tower_shot_sfx_counts.clear()
+	_hive_switch_sfx_played_ms.clear()
 	sim_time_us = 0
 	winner_id = -1
 	end_reason = ""
@@ -9832,6 +9934,7 @@ func _update_swarms(dt: float) -> void:
 		var from_hive: HiveData = _find_hive_by_id(int(packet["from_id"]))
 		var to_hive: HiveData = _find_hive_by_id(int(packet["to_id"]))
 		if from_hive == null or to_hive == null:
+			_stop_swarm_sfx(int(packet.get("id", -1)))
 			swarm_packets.remove_at(i)
 			continue
 		var from_center: Vector2 = _cell_center(from_hive.grid_pos)
@@ -9841,6 +9944,7 @@ func _update_swarms(dt: float) -> void:
 
 		var lane_len: float = from_pos.distance_to(to_pos)
 		if lane_len <= 0.0:
+			_stop_swarm_sfx(int(packet.get("id", -1)))
 			swarm_packets.remove_at(i)
 			continue
 		var prev_t: float = packet["t"]
@@ -9852,6 +9956,7 @@ func _update_swarms(dt: float) -> void:
 		if packet["t"] >= 1.0:
 			if _are_allied_owners(to_hive.owner_id, owner_id) and to_hive.power >= 50 and to_hive.shock_ms <= 0.0:
 				if _pass_through_swarm(packet, to_hive):
+					_stop_swarm_sfx(int(packet.get("id", -1)))
 					swarm_packets.remove_at(i)
 					continue
 			if debug_swarms:
@@ -9866,6 +9971,7 @@ func _update_swarms(dt: float) -> void:
 			for _j in range(int(packet["payload"])):
 				_apply_unit_arrival(owner_id, to_hive, int(packet.get("from_id", -1)), int(packet.get("lane_id", -1)), "other")
 			dbg("SF: swarm arrive %d payload=%d" % [to_hive.id, packet["payload"]])
+			_stop_swarm_sfx(int(packet.get("id", -1)))
 			swarm_packets.remove_at(i)
 		else:
 			swarm_packets[i] = packet
@@ -11978,7 +12084,7 @@ func _try_swarm(from_id: int, to_id: int, pid: int = -1) -> bool:
 	}
 	swarm_id_counter += 1
 	swarm_packets.append(packet)
-	_play_swarm_sfx()
+	_play_swarm_sfx(int(packet.get("id", -1)))
 	_note_render_dirty()
 	if debug_swarms:
 		SFLog.info("SWARM_CREATE", {
@@ -12010,6 +12116,7 @@ func _consume_passthrough_payload(from_id: int, owner_id: int) -> int:
 		var created_us: int = int(packet.get("created_us", sim_time_us))
 		if abs(sim_time_us - created_us) <= SWARM_MERGE_WINDOW_US:
 			total += int(packet.get("payload", 0))
+			_stop_swarm_sfx(int(packet.get("id", -1)))
 			swarm_packets.remove_at(i)
 	return total
 
@@ -12070,6 +12177,7 @@ func _pass_through_swarm(packet: Dictionary, hive: HiveData) -> bool:
 	}
 	swarm_id_counter += 1
 	swarm_packets.append(new_packet)
+	_play_swarm_sfx(int(new_packet.get("id", -1)))
 	dbg("SF: swarm pass-through %d->%d payload=%d" % [hive.id, target_id, payload])
 	return true
 

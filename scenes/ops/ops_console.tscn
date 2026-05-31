@@ -110,6 +110,27 @@ max_value = 999
 step = 1
 value = 0
 
+[node name="ContestMapCountLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Map Count"
+
+[node name="ContestMapCount" type="OptionButton" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
+[node name="ContestPrizePoolLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Prize Pool ($)"
+
+[node name="ContestPrizePool" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+min_value = 0
+max_value = 100000
+step = 1
+value = 0
+
+[node name="ContestRewardsJsonLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Payouts JSON"
+
+[node name="ContestRewardsJson" type="TextEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+custom_minimum_size = Vector2(0, 96)
+placeholder_text = "[{\"placement\":1,\"reward_type\":\"cash\",\"amount_cents\":500}]"
+
 [node name="ContestMapPoolLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
 text = "Map Pool"
 

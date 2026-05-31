@@ -141,14 +141,14 @@ const UNIT_OUTLINE_BASE_SCALE_META: StringName = &"unit_outline_base_scale"
 @export var bee_clip_collision_plane_offset_px: float = 16.0
 @export var bee_clip_collision_prime_nose_bias_px: float = 0.0
 @export var bee_clip_collision_missing_speed_cap_px_s: float = 180.0
-@export var bee_clip_collision_min_hold_ticks: int = 6
+@export var bee_clip_collision_min_hold_ticks: int = 3
 @export var bee_clip_collision_debug_logs: bool = false
 @export var bee_clip_collision_debug_throttle_ms: int = 120
 @export var bee_clip_flip_forward_axis: bool = false
 @export var bee_clip_debug_logs: bool = false
 @export var bee_clip_missing_speed_fallback_px_s: float = 220.0
 @export var bee_clip_hold_missing_until_clipped: bool = true
-@export var bee_clip_missing_hold_max_ticks: int = 14
+@export var bee_clip_missing_hold_max_ticks: int = 6
 @export var unit_emergence_enabled: bool = true
 
 var _unit_space: String = "local"

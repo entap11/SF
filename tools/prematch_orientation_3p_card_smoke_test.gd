@@ -1,7 +1,7 @@
 extends SceneTree
 
 const MAP_3P: String = "res://maps/delta/MAP_delta__SBASE__3p.json"
-const BOOT_TIMEOUT_MS: int = 10000
+const BOOT_TIMEOUT_MS: int = 18000
 
 var _failed: bool = false
 

@@ -1094,6 +1094,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		var clean_tutorial_section: String = tutorial_section.strip_edges()
 		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
 		tree.set_meta(TREE_META_TUTORIAL_SECTION, clean_tutorial_section)
+	_hide_arena_for_map_transition()
 	_request_match_scene_preload()
 	_request_map_prewarm(map_path)
 	await _wait_for_launch_prewarm(map_path, 900)
@@ -1109,6 +1110,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	SFLog.info("MAP_APPLY_REQUEST", {"map_path": map_path})
 	SFLog.info("MAP_APPLY_ENTRY", {"map_path": map_path})
 	if not _apply_map_direct_to_arena(map_path):
+		_show_arena_after_failed_map_transition()
 		_set_shell_status("Launch failed while applying %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "direct_apply_failed"})
 		SFLog.error("MAP_APPLY_FAIL", {"map_path": map_path, "err": "direct_apply_failed"})
@@ -1171,6 +1173,16 @@ func _launch_mode_for_map_contract(tree: SceneTree) -> String:
 		if required_players == 4:
 			return "4P FFA"
 	return "1V1"
+
+func _hide_arena_for_map_transition() -> void:
+	if arena_root == null or _arena_instance == null:
+		return
+	arena_root.modulate.a = 0.0
+
+func _show_arena_after_failed_map_transition() -> void:
+	if arena_root == null:
+		return
+	arena_root.modulate.a = 1.0
 
 func _report_map_mode_contract_violation(mode: String, path: String, reason: String) -> void:
 	var map_id: String = MAP_REGISTRY.map_id_from_path(path)
@@ -2538,7 +2550,12 @@ func _show_shell_async_prematch_card() -> bool:
 		return false
 	if int(OpsState.match_phase) != int(OpsState.MatchPhase.PREMATCH):
 		return false
-	return _mode_shows_shell_prematch_card(_shell_match_mode_id())
+	var mode_id: String = _shell_match_mode_id()
+	if _mode_uses_async_prematch_details(mode_id):
+		var tree: SceneTree = get_tree()
+		if tree != null and int(tree.get_meta("vs_stage_current_index", 0)) > 0:
+			return false
+	return _mode_shows_shell_prematch_card(mode_id)
 
 func _ensure_shell_async_prematch_overlay() -> Control:
 	if _shell_prematch_overlay != null and is_instance_valid(_shell_prematch_overlay):

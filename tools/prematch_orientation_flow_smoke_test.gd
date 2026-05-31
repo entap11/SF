@@ -1,7 +1,7 @@
 extends SceneTree
 
 const DEFAULT_MAP: String = "res://maps/json/MAP_TEST.json"
-const BOOT_TIMEOUT_MS: int = 10000
+const BOOT_TIMEOUT_MS: int = 18000
 
 var _failed: bool = false
 
@@ -54,17 +54,24 @@ func _run() -> void:
 	_expect(_label_text(card, "P1Name") == "Swarm Father", "P1 metadata name not used", {"text": _label_text(card, "P1Name")})
 	_expect(_label_text(card, "P2Name") == "Mrs. SwarmDaddy", "P2 metadata name not used", {"text": _label_text(card, "P2Name")})
 
-	var top_wash: ColorRect = tree.root.get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground/OpponentTeamColorWash") as ColorRect
-	var bottom_wash: ColorRect = tree.root.get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/LocalTeamColorWash") as ColorRect
-	_expect(top_wash != null and top_wash.visible, "Opponent top color buffer missing", {})
+	var top_wash: TextureRect = tree.root.get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground/LocalTeamColorWash") as TextureRect
+	var bottom_wash: TextureRect = tree.root.get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/LocalTeamColorWash") as TextureRect
+	var obsolete_top_wash: Node = tree.root.get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground/OpponentTeamColorWash")
+	_expect(top_wash != null and top_wash.visible, "Local top color buffer missing", {})
 	_expect(bottom_wash != null and bottom_wash.visible, "Local bottom color buffer missing", {})
+	_expect(obsolete_top_wash == null, "Opponent color buffer should not be used on local screen", {})
+	if top_wash != null and bottom_wash != null:
+		_expect(_colors_close(top_wash.modulate, bottom_wash.modulate), "Top and bottom buffers should use same local color", {
+			"top": str(top_wash.modulate),
+			"bottom": str(bottom_wash.modulate)
+		})
 
 	var local_hive_ids: Array = arena_node.call("_resolve_local_starting_hive_ids") as Array
 	_expect(not local_hive_ids.is_empty(), "Local starting hives not identified", {})
 	_assert_local_hives_owned(arena_node, local_hive_ids)
 
 	var hives_before: String = _hive_snapshot(arena_node)
-	var deadline: int = Time.get_ticks_msec() + 2600
+	var deadline: int = Time.get_ticks_msec() + 6500
 	while Time.get_ticks_msec() < deadline:
 		await tree.process_frame
 	var hives_after: String = _hive_snapshot(arena_node)
@@ -156,6 +163,12 @@ func _hive_snapshot(arena_node: Node) -> String:
 		parts.append("%d:%d:%d:%s" % [int(hive.id), int(hive.owner_id), int(hive.power), str(hive.grid_pos)])
 	parts.sort()
 	return "|".join(parts)
+
+func _colors_close(a: Color, b: Color) -> bool:
+	return absf(a.r - b.r) <= 0.01 \
+		and absf(a.g - b.g) <= 0.01 \
+		and absf(a.b - b.b) <= 0.01 \
+		and absf(a.a - b.a) <= 0.01
 
 func _expect(condition: bool, message: String, details: Dictionary) -> void:
 	if condition:

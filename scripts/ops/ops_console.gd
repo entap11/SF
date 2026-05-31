@@ -8,6 +8,9 @@ extends Control
 @onready var contest_end: LineEdit = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestEnd
 @onready var contest_entry_type: OptionButton = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestEntryType
 @onready var contest_ante: SpinBox = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestAnte
+@onready var contest_map_count: OptionButton = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestMapCount
+@onready var contest_prize_pool: SpinBox = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestPrizePool
+@onready var contest_rewards_json: TextEdit = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestRewardsJson
 @onready var contest_map_pool: ItemList = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestMapPool
 @onready var contest_published: CheckButton = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestPublished
 @onready var contest_new: Button = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestButtons/ContestNew
@@ -36,6 +39,12 @@ func _ready() -> void:
 	contest_entry_type.add_item("YEARLY")
 	contest_entry_type.add_item("DAILY")
 	contest_entry_type.add_item("EVENT")
+	contest_map_count.clear()
+	contest_map_count.add_item("3 maps")
+	contest_map_count.set_item_metadata(0, 3)
+	contest_map_count.add_item("5 maps")
+	contest_map_count.set_item_metadata(1, 5)
+	contest_map_count.select(1)
 	contest_map_pool.select_mode = ItemList.SELECT_MULTI
 	contest_list.item_selected.connect(_on_contest_selected)
 	contest_new.pressed.connect(_on_contest_new)
@@ -110,6 +119,9 @@ func _on_contest_selected(index: int) -> void:
 	contest_end.text = str(contest.end_ts)
 	_set_scope_selection(contest.scope)
 	contest_ante.value = contest.price
+	_set_map_count_selection(contest.map_ids.size())
+	contest_prize_pool.value = float(maxi(0, contest.prize_pool_cents)) / 100.0
+	contest_rewards_json.text = JSON.stringify(contest.prize_rewards, "\t")
 	contest_published.button_pressed = contest.published
 	_set_contest_map_pool_selection(contest.map_ids)
 	contest_status.text = "Loaded %s" % contest.id
@@ -133,20 +145,36 @@ func _on_contest_save() -> void:
 	if parts.is_empty():
 		contest_status.text = "Invalid contest ID format"
 		return
-	var normalized_id: String = _normalize_contest_id(contest.id)
+	var selected_scope: String = _selected_scope()
+	var selected_price: int = maxi(0, int(contest_ante.value))
+	parts["scope"] = selected_scope
+	parts["price"] = selected_price
+	parts["currency"] = "FREE" if selected_price <= 0 else str(parts.get("currency", "USD")).strip_edges().to_upper()
+	var normalized_id: String = _build_contest_id(parts)
 	if not normalized_id.is_empty():
 		contest.id = normalized_id
 	contest.name = contest_name.text.strip_edges()
 	contest.mode = contest_mode.text.strip_edges()
-	contest.scope = str(parts.get("scope", contest.scope))
+	contest.scope = selected_scope
 	contest.currency = str(parts.get("currency", contest.currency))
-	contest.price = int(parts.get("price", contest.price))
+	contest.price = selected_price
 	contest.time_slice = str(parts.get("time", contest.time_slice))
 	contest.status = "OPEN"
 	contest.start_ts = int(contest_start.text)
 	contest.end_ts = int(contest_end.text)
 	contest.published = contest_published.button_pressed
-	contest.map_ids = _collect_selected_map_pool()
+	var selected_maps: PackedStringArray = _collect_selected_map_pool()
+	var target_map_count: int = _selected_map_count()
+	if selected_maps.size() < target_map_count:
+		contest_status.text = "Select at least %d maps for this contest" % target_map_count
+		return
+	contest.map_ids = _trim_map_ids_to_count(selected_maps, target_map_count)
+	contest.prize_pool_cents = int(round(float(contest_prize_pool.value) * 100.0))
+	var prize_parse: Dictionary = _parse_prize_rewards_json()
+	if not bool(prize_parse.get("ok", false)):
+		contest_status.text = str(prize_parse.get("error", "Invalid payout JSON"))
+		return
+	contest.prize_rewards = prize_parse.get("rewards", []) as Array[Dictionary]
 	if contest.id.is_empty():
 		contest_status.text = "Contest ID required"
 		return
@@ -181,6 +209,9 @@ func _clear_contest_form() -> void:
 	contest_end.text = "0"
 	contest_entry_type.select(0)
 	contest_ante.value = 0
+	contest_map_count.select(1)
+	contest_prize_pool.value = 0
+	contest_rewards_json.text = ""
 	contest_published.button_pressed = false
 	contest_map_pool.deselect_all()
 
@@ -238,10 +269,71 @@ func _set_scope_selection(scope: String) -> void:
 			return
 	contest_entry_type.select(0)
 
+func _selected_scope() -> String:
+	if contest_entry_type == null or contest_entry_type.item_count <= 0:
+		return "WEEKLY"
+	var selected: int = contest_entry_type.selected
+	if selected < 0 or selected >= contest_entry_type.item_count:
+		return "WEEKLY"
+	return contest_entry_type.get_item_text(selected).strip_edges().to_upper()
+
+func _set_map_count_selection(count: int) -> void:
+	var target: int = 3 if count <= 3 else 5
+	for i in range(contest_map_count.item_count):
+		if int(contest_map_count.get_item_metadata(i)) == target:
+			contest_map_count.select(i)
+			return
+	contest_map_count.select(1)
+
+func _selected_map_count() -> int:
+	if contest_map_count == null or contest_map_count.item_count <= 0:
+		return 5
+	var selected: int = contest_map_count.selected
+	if selected < 0 or selected >= contest_map_count.item_count:
+		return 5
+	return clampi(int(contest_map_count.get_item_metadata(selected)), 3, 5)
+
+func _trim_map_ids_to_count(map_ids: PackedStringArray, count: int) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	var target: int = _nearest_supported_map_count(count)
+	for map_id_any in map_ids:
+		if out.size() >= target:
+			break
+		var map_id: String = str(map_id_any).strip_edges()
+		if map_id.is_empty():
+			continue
+		out.append(map_id)
+	return out
+
+func _nearest_supported_map_count(count: int) -> int:
+	return 3 if count <= 3 else 5
+
+func _parse_prize_rewards_json() -> Dictionary:
+	var raw: String = contest_rewards_json.text.strip_edges()
+	if raw.is_empty():
+		return {"ok": true, "rewards": []}
+	var json: JSON = JSON.new()
+	var err: Error = json.parse(raw)
+	if err != OK:
+		return {"ok": false, "error": "Payout JSON error on line %d: %s" % [json.get_error_line(), json.get_error_message()]}
+	if typeof(json.data) != TYPE_ARRAY:
+		return {"ok": false, "error": "Payout JSON must be an array"}
+	var rewards: Array[Dictionary] = []
+	for reward_any in json.data as Array:
+		if typeof(reward_any) != TYPE_DICTIONARY:
+			return {"ok": false, "error": "Each payout entry must be an object"}
+		rewards.append((reward_any as Dictionary).duplicate(true))
+	return {"ok": true, "rewards": rewards}
+
 func _parse_contest_id(contest_id_str: String) -> Dictionary:
 	if contest_state != null:
 		return contest_state.parse_contest_id(contest_id_str)
 	return {}
+
+func _build_contest_id(parts: Dictionary) -> String:
+	if contest_state != null and contest_state.has_method("build_contest_id"):
+		return str(contest_state.call("build_contest_id", parts))
+	return _normalize_contest_id(contest_id.text)
 
 func _normalize_contest_id(contest_id_str: String) -> String:
 	if contest_state != null:

@@ -165,6 +165,7 @@ func _update_swarms(dt: float, unit_system: UnitSystem) -> void:
 		var lane_len := from_pos.distance_to(to_pos)
 		if lane_len <= 0.001:
 			_apply_swarm_arrival(packet, unit_system)
+			_emit_swarm_landed(packet)
 			swarm_packets.remove_at(i)
 			continue
 		var dir: int = int(packet.get("dir", 1))
@@ -240,6 +241,7 @@ func _update_swarms(dt: float, unit_system: UnitSystem) -> void:
 		var arrived := (dir >= 0 and next_t >= 1.0) or (dir < 0 and next_t <= 0.0)
 		if arrived:
 			_apply_swarm_arrival(packet, unit_system)
+			_emit_swarm_landed(packet)
 			swarm_packets.remove_at(i)
 		else:
 			swarm_packets[i] = packet
@@ -268,6 +270,23 @@ func _apply_swarm_arrival(packet: Dictionary, unit_system: UnitSystem) -> void:
 		"dst": dst_id,
 		"count": count
 	})
+
+func _emit_swarm_landed(packet: Dictionary) -> void:
+	if _sim_events == null or not _sim_events.has_signal("swarm_landed"):
+		return
+	var pos_value: Variant = packet.get("pos", Vector2.ZERO)
+	var world_pos: Vector2 = Vector2.ZERO
+	if pos_value is Vector2:
+		world_pos = pos_value
+	_sim_events.emit_signal(
+		"swarm_landed",
+		int(packet.get("id", -1)),
+		int(packet.get("owner_id", 0)),
+		int(packet.get("from_id", -1)),
+		int(packet.get("to_id", -1)),
+		int(packet.get("lane_id", -1)),
+		world_pos
+	)
 
 func _edge_points(a_id: int, b_id: int) -> Array:
 	if state == null:

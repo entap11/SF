@@ -42,13 +42,9 @@ func _assert_scope_routes_to_stage_race_lobby(scope: String) -> void:
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: contest list missing")
 		quit(1)
 		return
-	var contest_button: Button = null
-	for child in contest_list.get_children():
-		if child is Button:
-			contest_button = child as Button
-			break
+	var contest_button: Button = _find_button_with_text(contest_list, "PLAY")
 	if contest_button == null:
-		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s contest button missing" % scope)
+		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s contest play button missing" % scope)
 		quit(1)
 		return
 	contest_button.pressed.emit()
@@ -146,6 +142,15 @@ func _find_descendant_by_name(root: Node, node_name: String) -> Node:
 		if child.name == node_name:
 			return child
 		var found: Node = _find_descendant_by_name(child, node_name)
+		if found != null:
+			return found
+	return null
+
+func _find_button_with_text(root: Node, text: String) -> Button:
+	if root is Button and (root as Button).text == text:
+		return root as Button
+	for child in root.get_children():
+		var found: Button = _find_button_with_text(child, text)
 		if found != null:
 			return found
 	return null

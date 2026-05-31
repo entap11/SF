@@ -23,6 +23,19 @@ func _init() -> void:
 		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: back button too small")
 		quit(1)
 		return
+	if lobby.has_method("configure_entry"):
+		lobby.call("configure_entry", true, 0)
+	await process_frame
+	var leaderboard: Button = _find_button_with_text(lobby, "LEADERBOARD")
+	var play_card: Button = _find_button_with_text(lobby, "PLAY")
+	if leaderboard == null or leaderboard.custom_minimum_size.y < 68.0:
+		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: free leaderboard button missing or too small")
+		quit(1)
+		return
+	if play_card == null or play_card.custom_minimum_size.y < 68.0:
+		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: free play button missing or too small")
+		quit(1)
+		return
 
 	var hub_any: Variant = ContestHubScene.instantiate()
 	if not (hub_any is Control):
@@ -45,3 +58,12 @@ func _init() -> void:
 
 	print("TIME_PUZZLE_LOBBY_UI_SMOKE: PASS")
 	quit(0)
+
+func _find_button_with_text(root: Node, text: String) -> Button:
+	if root is Button and (root as Button).text == text:
+		return root as Button
+	for child in root.get_children():
+		var found: Button = _find_button_with_text(child, text)
+		if found != null:
+			return found
+	return null
