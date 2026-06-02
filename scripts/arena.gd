@@ -23,6 +23,7 @@ const MatchTelemetryCollectorScript := preload("res://scripts/state/match_teleme
 const MatchAnalyzerScript := preload("res://scripts/state/match_analyzer.gd")
 const PlayerTelemetryProfileStoreScript := preload("res://scripts/state/player_telemetry_profile_store.gd")
 const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
+const AsyncRecordEligibilityPolicy := preload("res://scripts/state/async_record_eligibility_policy.gd")
 const TeamVisuals = preload("res://scripts/renderers/team_visuals.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaTutorialSection1Controller := preload("res://scripts/arena_helpers/tutorial_section1_controller.gd")
@@ -137,6 +138,9 @@ const TREE_META_VS_MODE: String = "vs_mode"
 const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
 const TREE_META_CONTEST_RESULT_SIGNATURE: String = "contest_result_commit_signature"
+const TREE_META_VS_STAGE_RUN_ID: String = "vs_stage_run_id"
+const TREE_META_PENDING_STAGE_LEADERBOARD: String = "pending_stage_leaderboard_open"
+const TREE_META_PENDING_STAGE_LEADERBOARD_CONTEXT: String = "pending_stage_leaderboard_context"
 const MAP_RECORD_MODE_ID: String = "ASYNC_SINGLE_MAP_TIMED"
 const JUKEBOX_META_ENABLED: String = "jukebox_board_enabled"
 const JUKEBOX_META_MAP_PATH: String = "jukebox_map_path"
@@ -145,6 +149,7 @@ const JUKEBOX_META_PERIOD: String = "jukebox_board_period"
 const JUKEBOX_META_LOCAL_OWNER_ID: String = "jukebox_local_owner_id"
 const JUKEBOX_META_RESULT_SIGNATURE: String = "jukebox_result_commit_signature"
 const JUKEBOX_META_EASY_BOT: String = "jukebox_easy_bot"
+const JUKEBOX_META_HIGHLIGHT_PLAYER_ID: String = "jukebox_highlight_player_id"
 const TREE_META_REOPEN_JUKEBOX_ON_READY: String = "reopen_jukebox_on_ready"
 const TREE_META_REOPEN_JUKEBOX_STATE: String = "reopen_jukebox_state"
 const TREE_META_TUTORIAL_ACTIVE: String = "tutorial_launch_active"
@@ -814,7 +819,8 @@ func _capture_jukebox_restore_state() -> Dictionary:
 		"selected_map_path": map_path,
 		"selected_period": period,
 		"cpu_style": cpu_style,
-		"cpu_tier": cpu_tier
+		"cpu_tier": cpu_tier,
+		"highlight_player_id": str(tree.get_meta(JUKEBOX_META_HIGHLIGHT_PLAYER_ID, "")).strip_edges()
 	}
 
 func _on_jukebox_back_pressed() -> void:
@@ -2533,7 +2539,6 @@ func _run_prematch_hive_focus_sequence(hive_ids: Array[int]) -> void:
 			return
 		if OpsState == null or OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
 			return
-		_focus_camera_on_hive(hive_id)
 		_pulse_prematch_hive(hive_id)
 		await get_tree().create_timer(_prematch_hive_pulse_sec()).timeout
 
@@ -4655,6 +4660,8 @@ func _maybe_record_jukebox_result(winner_id_in: int, reason: String) -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
+	if not AsyncRecordEligibilityPolicy.is_balancer_medium_record_eligible(tree):
+		return
 	var local_owner_id: int = clampi(int(tree.get_meta(JUKEBOX_META_LOCAL_OWNER_ID, 1)), 1, 4)
 	if winner_id_in <= 0 or winner_id_in != local_owner_id:
 		return
@@ -4684,6 +4691,12 @@ func _maybe_record_jukebox_result(winner_id_in: int, reason: String) -> void:
 	)
 	if bool(result.get("ok", false)):
 		tree.set_meta(JUKEBOX_META_RESULT_SIGNATURE, result_signature)
+		var board: Dictionary = _jukebox_leaderboard_store.get_board_snapshot(map_id, MAP_RECORD_MODE_ID, _resolve_jukebox_period(tree), player_id, str(identity.get("handle", "You")).strip_edges(), 10)
+		var your_rank: int = int(board.get("your_rank", 0))
+		if your_rank > 0 and your_rank <= 10:
+			tree.set_meta(JUKEBOX_META_HIGHLIGHT_PLAYER_ID, player_id)
+		elif tree.has_meta(JUKEBOX_META_HIGHLIGHT_PLAYER_ID):
+			tree.remove_meta(JUKEBOX_META_HIGHLIGHT_PLAYER_ID)
 		SFLog.info("JUKEBOX_RESULT_RECORDED", {
 			"map_id": map_id,
 			"mode_id": MAP_RECORD_MODE_ID,
@@ -4740,6 +4753,8 @@ func _maybe_record_stage_race_contest_result(winner_id_in: int, reason: String) 
 	var tree: SceneTree = get_tree()
 	if tree == null or not _is_stage_race_runtime_mode():
 		return
+	if not AsyncRecordEligibilityPolicy.is_balancer_medium_record_eligible(tree):
+		return
 	var contest_id: String = str(tree.get_meta("contest_id", "")).strip_edges()
 	if contest_id.is_empty():
 		return
@@ -4770,6 +4785,7 @@ func _maybe_record_stage_race_contest_result(winner_id_in: int, reason: String) 
 		"best_time_ms": elapsed_ms,
 		"updated_at": int(Time.get_unix_time_from_system()),
 		"source": "stage_race_runtime",
+		"run_id": _stage_race_run_id(tree, player_id),
 		"winner_id": winner_id_in,
 		"reason": reason
 	}) as Dictionary
@@ -4782,6 +4798,7 @@ func _maybe_record_stage_race_contest_result(winner_id_in: int, reason: String) 
 			"winner_id": winner_id_in,
 			"reason": reason,
 			"elapsed_ms": elapsed_ms,
+			"run_id": str(result.get("run_id", "")),
 			"updated": bool(result.get("updated", false))
 		})
 	else:
@@ -4833,6 +4850,7 @@ func _on_post_match_action(action: String) -> void:
 			_advance_stage_race_round()
 		"finish_run":
 			_post_match_action_taken = true
+			_prepare_stage_race_finish_leaderboard_request()
 			_clear_stage_runtime_meta()
 			_return_to_main_menu()
 		"rematch":
@@ -4994,6 +5012,7 @@ func _clear_stage_runtime_meta() -> void:
 		TREE_META_VS_STAGE_MAP_PATHS,
 		TREE_META_VS_STAGE_CURRENT_INDEX,
 		TREE_META_VS_STAGE_ROUND_RESULTS,
+		TREE_META_VS_STAGE_RUN_ID,
 		TREE_META_CONTEST_RESULT_SIGNATURE
 	]
 	for key in keys:
@@ -5017,6 +5036,44 @@ func _return_to_main_menu() -> void:
 	if sim_runner != null:
 		sim_runner.log_pause_snapshot("arena_return_to_main_menu")
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
+
+func _stage_race_run_id(tree: SceneTree, player_id: String) -> String:
+	if tree == null:
+		return ""
+	var existing: String = str(tree.get_meta(TREE_META_VS_STAGE_RUN_ID, "")).strip_edges()
+	if not existing.is_empty():
+		return existing
+	var clean_player_id: String = player_id.strip_edges()
+	if clean_player_id.is_empty():
+		clean_player_id = "local"
+	var generated: String = "%s_%d_%d" % [clean_player_id.sha256_text().substr(0, 10), Time.get_unix_time_from_system(), Time.get_ticks_msec()]
+	tree.set_meta(TREE_META_VS_STAGE_RUN_ID, generated)
+	return generated
+
+func _prepare_stage_race_finish_leaderboard_request() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or not _is_stage_race_runtime_mode():
+		return
+	var contest_id: String = str(tree.get_meta("contest_id", "")).strip_edges()
+	if contest_id.is_empty():
+		return
+	var identity: Dictionary = _resolve_jukebox_local_identity(tree)
+	var player_id: String = str(identity.get("player_id", "")).strip_edges()
+	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
+	var map_count: int = maxi(1, stage_maps.size())
+	var scope: String = str(tree.get_meta("contest_scope", "WEEKLY")).strip_edges().to_upper()
+	if scope.is_empty():
+		scope = "WEEKLY"
+	tree.set_meta(TREE_META_PENDING_STAGE_LEADERBOARD, true)
+	tree.set_meta(TREE_META_PENDING_STAGE_LEADERBOARD_CONTEXT, {
+		"contest_id": contest_id,
+		"scope": scope,
+		"map_count": map_count,
+		"paid": not bool(tree.get_meta("vs_free_roll", false)),
+		"denomination": maxi(0, int(tree.get_meta("vs_price_usd", 0))),
+		"player_id": player_id,
+		"run_id": _stage_race_run_id(tree, player_id)
+	})
 
 func _on_barracks_activated(_barracks_id: int, _owner_id: int) -> void:
 	_play_barracks_activate_sfx()

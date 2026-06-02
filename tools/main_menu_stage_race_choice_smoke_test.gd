@@ -35,9 +35,17 @@ func _run() -> void:
 		push_error("MAIN_MENU_STAGE_RACE_CHOICE_SMOKE: tournament lobby did not open")
 		quit(1)
 		return
-	var leaderboard_button: Button = _find_button_with_text(lobby, "LEADERBOARD")
+	var leaderboard_button: Button = _find_button_with_text(lobby, "LEADERBOARD 5 MAPS")
 	if leaderboard_button == null:
-		push_error("MAIN_MENU_STAGE_RACE_CHOICE_SMOKE: leaderboard button missing")
+		push_error("MAIN_MENU_STAGE_RACE_CHOICE_SMOKE: 5-map leaderboard button missing")
+		quit(1)
+		return
+	if _find_button_with_text(lobby, "LEADERBOARD 3 MAPS") == null:
+		push_error("MAIN_MENU_STAGE_RACE_CHOICE_SMOKE: 3-map leaderboard button missing")
+		quit(1)
+		return
+	if _find_button_with_text(lobby, "PLAY 3 MAPS") == null or _find_button_with_text(lobby, "PLAY 5 MAPS") == null:
+		push_error("MAIN_MENU_STAGE_RACE_CHOICE_SMOKE: 3-map/5-map play buttons missing")
 		quit(1)
 		return
 	leaderboard_button.pressed.emit()

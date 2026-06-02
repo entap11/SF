@@ -101,9 +101,9 @@ func _run() -> void:
 		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: weekly free roll did not route to tournament lobby")
 		quit(1)
 		return
-	var leaderboard_button: Button = _find_button_with_text(lobby, "LEADERBOARD")
+	var leaderboard_button: Button = _find_button_with_text(lobby, "LEADERBOARD 5 MAPS")
 	if leaderboard_button == null or leaderboard_button.custom_minimum_size.y < 68.0:
-		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: leaderboard button missing or too small")
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: 5-map leaderboard button missing or too small")
 		quit(1)
 		return
 	leaderboard_button.pressed.emit()

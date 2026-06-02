@@ -12,6 +12,7 @@ const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
 const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
 const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
+const BuffStripVisibilityPolicy := preload("res://scripts/ui/buff_strip_visibility_policy.gd")
 const SHELL_BUFFER_ROOT_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
 const SHELL_POWER_BAR_PATH: String = SHELL_TOP_BUFFER_PATH + "/PowerBarAnchor/PowerBar"
@@ -1841,7 +1842,10 @@ func _sync_buff_ui() -> void:
 	var ally_seats: Array = relation.get("allies", [])
 	var opponent_seats: Array = relation.get("opponents", [])
 	_sync_side_strip(_ally_buff_strip, players, ally_seats, _ally_strip_title(active_seats, ally_seats))
-	_sync_opponent_strips(players, opponent_seats, active_seats, ally_seats)
+	if _show_opponent_buff_strips_for_current_match():
+		_sync_opponent_strips(players, opponent_seats, active_seats, ally_seats)
+	else:
+		_hide_opponent_buff_strips()
 	_layout_buff_strip_positions()
 
 func _show_buff_ui_placeholders() -> void:
@@ -1853,17 +1857,29 @@ func _show_buff_ui_placeholders() -> void:
 				"slots_active": 3,
 				"slots": []
 			})
-	if _opponent_buff_strip != null:
+	if _opponent_buff_strip != null and _show_opponent_buff_strips_for_current_match():
 		_opponent_buff_strip.visible = true
 		if _opponent_buff_strip.has_method("set_visible_slot_count"):
 			_opponent_buff_strip.call("set_visible_slot_count", 3)
 		if _opponent_buff_strip.has_method("reset_slots"):
 			_opponent_buff_strip.call("reset_slots")
+	else:
+		_hide_opponent_buff_strips()
 	if _opponent_buff_strip_b != null:
 		_opponent_buff_strip_b.visible = false
 	if _ally_buff_strip != null:
 		_ally_buff_strip.visible = false
 	_layout_buff_strip_positions()
+
+func _hide_opponent_buff_strips() -> void:
+	for strip in [_opponent_buff_strip, _opponent_buff_strip_b]:
+		if strip == null:
+			continue
+		strip.visible = false
+		if strip.has_method("set_visible_slot_count"):
+			strip.call("set_visible_slot_count", 0)
+		if strip.has_method("reset_slots"):
+			strip.call("reset_slots")
 
 func _set_buff_strip_visibility(player_visible: bool, opponent_visible: bool, opponent_b_visible: bool, ally_visible: bool) -> void:
 	if _player_buff_strip != null:
@@ -2501,6 +2517,9 @@ func _mode_shows_power_bar_during_prematch(mode_id: String) -> bool:
 func _mode_shows_buff_placeholders_during_prematch(mode_id: String) -> bool:
 	return _arena_instance != null and _mode_uses_full_match_hud(mode_id)
 
+func _show_opponent_buff_strips_for_current_match() -> bool:
+	return BuffStripVisibilityPolicy.should_show_opponent_buff_strips(get_tree())
+
 func _mode_shows_shell_prematch_card(mode_id: String) -> bool:
 	return _arena_instance != null and _mode_uses_full_match_hud(mode_id)
 
@@ -2550,12 +2569,7 @@ func _show_shell_async_prematch_card() -> bool:
 		return false
 	if int(OpsState.match_phase) != int(OpsState.MatchPhase.PREMATCH):
 		return false
-	var mode_id: String = _shell_match_mode_id()
-	if _mode_uses_async_prematch_details(mode_id):
-		var tree: SceneTree = get_tree()
-		if tree != null and int(tree.get_meta("vs_stage_current_index", 0)) > 0:
-			return false
-	return _mode_shows_shell_prematch_card(mode_id)
+	return _mode_shows_shell_prematch_card(_shell_match_mode_id())
 
 func _ensure_shell_async_prematch_overlay() -> Control:
 	if _shell_prematch_overlay != null and is_instance_valid(_shell_prematch_overlay):

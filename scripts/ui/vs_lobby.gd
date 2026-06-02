@@ -984,6 +984,8 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("vs_stage_map_paths", stage_map_paths)
 	tree.set_meta("vs_stage_current_index", 0)
 	tree.set_meta("vs_stage_round_results", [])
+	if _mode.strip_edges().to_upper() == "STAGE_RACE":
+		tree.set_meta("vs_stage_run_id", _stage_race_run_id(tree))
 	tree.set_meta("vs_handshake_session_id", _session_id)
 	tree.set_meta("vs_handshake_role", _session_role)
 	tree.set_meta("vs_handshake_invite_code", _invite_code)
@@ -1097,6 +1099,15 @@ func _prepare_bot_fill_jukebox_metadata(map_path: String) -> bool:
 	tree.set_meta("jukebox_board_period", BOT_FILL_JUKEBOX_BOARD_PERIOD)
 	tree.set_meta("jukebox_local_owner_id", 1)
 	return true
+
+func _stage_race_run_id(tree: SceneTree) -> String:
+	var existing: String = str(tree.get_meta("vs_stage_run_id", "")).strip_edges()
+	if not existing.is_empty():
+		return existing
+	var local_uid: String = _local_uid.strip_edges()
+	if local_uid.is_empty():
+		local_uid = "local"
+	return "%s_%d_%d" % [local_uid.sha256_text().substr(0, 10), Time.get_unix_time_from_system(), Time.get_ticks_msec()]
 
 func _bot_fill_randomizer_payload() -> Dictionary:
 	var payload_v: Variant = _context_meta.get(MatchSetupRandomizer.CONTEXT_KEY, {})

@@ -345,13 +345,17 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 	var rows: Array = []
 	if typeof(contest_rows.get(normalized_map_id, [])) == TYPE_ARRAY:
 		rows = (contest_rows.get(normalized_map_id, []) as Array).duplicate(true)
+	var run_id: String = str(result.get("run_id", "")).strip_edges()
 	var entry_index: int = -1
 	for i in range(rows.size()):
 		var row_any: Variant = rows[i]
 		if typeof(row_any) != TYPE_DICTIONARY:
 			continue
 		var row: Dictionary = row_any as Dictionary
-		if str(row.get("player_id", "")).strip_edges() == player_id:
+		if run_id.is_empty() and str(row.get("player_id", "")).strip_edges() == player_id and str(row.get("run_id", "")).strip_edges().is_empty():
+			entry_index = i
+			break
+		if not run_id.is_empty() and str(row.get("player_id", "")).strip_edges() == player_id and str(row.get("run_id", "")).strip_edges() == run_id:
 			entry_index = i
 			break
 	var updated: bool = false
@@ -378,6 +382,8 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 			"runs_count": 1,
 			"source": str(result.get("source", "stage_race_runtime")).strip_edges()
 		}
+		if not run_id.is_empty():
+			entry["run_id"] = run_id
 		updated = true
 	var hive_name: String = str(result.get("hive_name", "")).strip_edges()
 	if not player_name.is_empty():
@@ -386,6 +392,8 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 		entry["hive_name"] = hive_name
 	entry["updated_at"] = int(result.get("updated_at", now_ts))
 	entry["source"] = str(entry.get("source", "stage_race_runtime")).strip_edges()
+	if not run_id.is_empty():
+		entry["run_id"] = run_id
 	if entry_index >= 0:
 		rows[entry_index] = entry
 	else:
@@ -401,7 +409,11 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 		var b_time: int = _entry_time_ms(b_entry)
 		if a_time != b_time:
 			return a_time < b_time
-		return str(a_entry.get("player_id", "")) < str(b_entry.get("player_id", ""))
+		var a_player: String = str(a_entry.get("player_id", ""))
+		var b_player: String = str(b_entry.get("player_id", ""))
+		if a_player != b_player:
+			return a_player < b_player
+		return str(a_entry.get("run_id", "")) < str(b_entry.get("run_id", ""))
 	)
 	contest_rows[normalized_map_id] = rows
 	runtime_leaderboards[normalized_id] = contest_rows
@@ -411,6 +423,7 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 		"contest_id": normalized_id,
 		"map_id": normalized_map_id,
 		"player_id": player_id,
+		"run_id": run_id,
 		"best_time_ms": int(entry.get("best_time_ms", time_ms)),
 		"runs_count": int(entry.get("runs_count", 1)),
 		"updated": updated
@@ -636,7 +649,7 @@ func build_stage_race_overall_leaderboard(contest_id: String, map_count: int = T
 	var stage_maps: PackedStringArray = _take_stage_maps(contest.map_ids, resolved_map_count)
 	if stage_maps.is_empty():
 		return []
-	var by_player: Dictionary = {}
+	var by_run: Dictionary = {}
 	for map_id in stage_maps:
 		var entries: Array = get_leaderboard_entries(contest.id, map_id)
 		for entry_v in entries:
@@ -646,10 +659,13 @@ func build_stage_race_overall_leaderboard(contest_id: String, map_count: int = T
 			var player_id: String = str(entry.get("player_id", ""))
 			if player_id.is_empty():
 				continue
-			var row: Dictionary = by_player.get(player_id, {
+			var run_id: String = str(entry.get("run_id", "")).strip_edges()
+			var row_key: String = _stage_race_overall_row_key(player_id, run_id)
+			var row: Dictionary = by_run.get(row_key, {
 				"player_id": player_id,
 				"player_name": str(entry.get("player_name", player_id)),
 				"hive_name": str(entry.get("hive_name", "")),
+				"run_id": run_id,
 				"completed_maps": 0,
 				"aggregate_time_ms": 0,
 				"map_times_ms": {},
@@ -664,10 +680,10 @@ func build_stage_race_overall_leaderboard(contest_id: String, map_count: int = T
 			row["completed_maps"] = int(row.get("completed_maps", 0)) + 1
 			row["aggregate_time_ms"] = int(row.get("aggregate_time_ms", 0)) + time_ms
 			row["runs_count"] = int(row.get("runs_count", 0)) + int(entry.get("runs_count", 0))
-			by_player[player_id] = row
+			by_run[row_key] = row
 	var rows: Array[Dictionary] = []
 	var required_maps: int = stage_maps.size()
-	for player_row_v in by_player.values():
+	for player_row_v in by_run.values():
 		if typeof(player_row_v) != TYPE_DICTIONARY:
 			continue
 		var player_row: Dictionary = player_row_v as Dictionary
@@ -684,7 +700,9 @@ func build_stage_race_overall_leaderboard(contest_id: String, map_count: int = T
 			return a_agg < b_agg
 		var a_id: String = str(a.get("player_id", ""))
 		var b_id: String = str(b.get("player_id", ""))
-		return a_id < b_id
+		if a_id != b_id:
+			return a_id < b_id
+		return str(a.get("run_id", "")) < str(b.get("run_id", ""))
 	)
 	for i in range(rows.size()):
 		rows[i]["rank"] = i + 1
@@ -709,6 +727,7 @@ func get_stage_race_map_leaderboard(contest_id: String, map_id: String, limit: i
 			"player_id": str(entry.get("player_id", "")),
 			"player_name": str(entry.get("player_name", "Player")),
 			"hive_name": str(entry.get("hive_name", "")),
+			"run_id": str(entry.get("run_id", "")).strip_edges(),
 			"time_ms": _entry_time_ms(entry),
 			"runs_count": int(entry.get("runs_count", 0))
 		})
@@ -719,7 +738,9 @@ func get_stage_race_map_leaderboard(contest_id: String, map_id: String, limit: i
 			return a_time < b_time
 		var a_id: String = str(a.get("player_id", ""))
 		var b_id: String = str(b.get("player_id", ""))
-		return a_id < b_id
+		if a_id != b_id:
+			return a_id < b_id
+		return str(a.get("run_id", "")) < str(b.get("run_id", ""))
 	)
 	for i in range(rows.size()):
 		rows[i]["rank"] = i + 1
@@ -1264,8 +1285,23 @@ func _runtime_leaderboard_entries(contest_id: String, map_id: String) -> Array:
 		return []
 	return (contest_rows.get(map_id, []) as Array).duplicate(true)
 
+func _stage_race_overall_row_key(player_id: String, run_id: String) -> String:
+	var clean_run_id: String = run_id.strip_edges()
+	if not clean_run_id.is_empty():
+		return "run:%s:%s" % [player_id, clean_run_id]
+	return "player:%s" % player_id
+
+func _leaderboard_entry_key(entry: Dictionary) -> String:
+	var player_id: String = str(entry.get("player_id", "")).strip_edges()
+	if player_id.is_empty():
+		return ""
+	var run_id: String = str(entry.get("run_id", "")).strip_edges()
+	if not run_id.is_empty():
+		return "run:%s:%s" % [player_id, run_id]
+	return "player:%s" % player_id
+
 func _merge_leaderboard_entries(seed_entries: Array, runtime_entries: Array) -> Array:
-	var by_player: Dictionary = {}
+	var by_entry: Dictionary = {}
 	var ordered_fallback: Array = []
 	for source_entries in [seed_entries, runtime_entries]:
 		for entry_any in source_entries:
@@ -1276,10 +1312,14 @@ func _merge_leaderboard_entries(seed_entries: Array, runtime_entries: Array) -> 
 			if player_id.is_empty():
 				ordered_fallback.append(entry)
 				continue
-			if not by_player.has(player_id):
-				by_player[player_id] = entry
+			var entry_key: String = _leaderboard_entry_key(entry)
+			if entry_key.is_empty():
+				ordered_fallback.append(entry)
 				continue
-			var existing: Dictionary = by_player[player_id] as Dictionary
+			if not by_entry.has(entry_key):
+				by_entry[entry_key] = entry
+				continue
+			var existing: Dictionary = by_entry[entry_key] as Dictionary
 			var existing_time: int = _entry_time_ms(existing)
 			var entry_time: int = _entry_time_ms(entry)
 			if existing_time <= 0 or (entry_time > 0 and entry_time < existing_time):
@@ -1287,16 +1327,16 @@ func _merge_leaderboard_entries(seed_entries: Array, runtime_entries: Array) -> 
 				for key in entry.keys():
 					merged[key] = entry[key]
 				merged["runs_count"] = int(existing.get("runs_count", 0)) + int(entry.get("runs_count", 0))
-				by_player[player_id] = merged
+				by_entry[entry_key] = merged
 			else:
 				existing["runs_count"] = int(existing.get("runs_count", 0)) + int(entry.get("runs_count", 0))
 				if str(existing.get("player_name", "")).strip_edges().is_empty():
 					existing["player_name"] = str(entry.get("player_name", player_id))
 				if str(existing.get("hive_name", "")).strip_edges().is_empty():
 					existing["hive_name"] = str(entry.get("hive_name", ""))
-				by_player[player_id] = existing
+				by_entry[entry_key] = existing
 	var merged_entries: Array = []
-	for entry_any in by_player.values():
+	for entry_any in by_entry.values():
 		merged_entries.append(entry_any)
 	for entry_any in ordered_fallback:
 		merged_entries.append(entry_any)
@@ -1311,7 +1351,11 @@ func _merge_leaderboard_entries(seed_entries: Array, runtime_entries: Array) -> 
 		var b_time: int = _entry_time_ms(b_entry)
 		if a_time != b_time:
 			return a_time < b_time
-		return str(a_entry.get("player_id", "")) < str(b_entry.get("player_id", ""))
+		var a_player: String = str(a_entry.get("player_id", ""))
+		var b_player: String = str(b_entry.get("player_id", ""))
+		if a_player != b_player:
+			return a_player < b_player
+		return str(a_entry.get("run_id", "")) < str(b_entry.get("run_id", ""))
 	)
 	return merged_entries
 

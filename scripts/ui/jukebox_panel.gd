@@ -86,6 +86,8 @@ var _selected_map_path: String = ""
 var _map_offset: int = 0
 var _leaderboard_offset: int = 0
 var _map_schematic_preview: Control = null
+var _highlight_player_id: String = ""
+var _highlight_until_msec: int = 0
 
 func _ready() -> void:
 	visible = false
@@ -163,6 +165,8 @@ func restore_runtime_state(snapshot: Dictionary) -> void:
 	var target_period: String = str(snapshot.get("selected_period", "")).strip_edges().to_upper()
 	if not target_period.is_empty() and _jukebox_state.PERIOD_LABELS.has(target_period):
 		_selected_period = target_period
+	_highlight_player_id = str(snapshot.get("highlight_player_id", "")).strip_edges()
+	_highlight_until_msec = Time.get_ticks_msec() + 8000 if not _highlight_player_id.is_empty() else 0
 	var category_entries: Array[Dictionary] = _visible_map_entries()
 	var max_offset: int = maxi(0, category_entries.size() - MAP_WINDOW_SIZE)
 	_map_offset = clampi(int(snapshot.get("map_offset", _map_offset)), 0, max_offset)
@@ -496,6 +500,16 @@ func _refresh_leaderboard() -> void:
 	var entries: Array = board.get("entries", []) as Array
 	var total_entries: int = entries.size()
 	var max_offset: int = maxi(0, total_entries - PAGE_SIZE)
+	if not _highlight_player_id.is_empty() and Time.get_ticks_msec() <= _highlight_until_msec:
+		for highlight_index in range(entries.size()):
+			var highlight_entry_any: Variant = entries[highlight_index]
+			if typeof(highlight_entry_any) != TYPE_DICTIONARY:
+				continue
+			var highlight_entry: Dictionary = highlight_entry_any as Dictionary
+			if str(highlight_entry.get("player_id", "")).strip_edges() == _highlight_player_id:
+				if highlight_index < _leaderboard_offset or highlight_index >= _leaderboard_offset + PAGE_SIZE:
+					_leaderboard_offset = clampi(highlight_index, 0, max_offset)
+				break
 	_leaderboard_offset = clampi(_leaderboard_offset, 0, max_offset)
 	if total_entries <= 0:
 		var empty := Label.new()
@@ -540,6 +554,8 @@ func _refresh_leaderboard() -> void:
 		row.add_child(time_label)
 		_apply_font(time_label, _font_semibold, _scaled_touch_font_size(LEADERBOARD_ROW_FONT_SIZE))
 		leaderboard_list.add_child(row)
+		if str(entry.get("player_id", "")).strip_edges() == _highlight_player_id and Time.get_ticks_msec() <= _highlight_until_msec:
+			_pulse_leaderboard_row(row)
 	_refresh_leaderboard_nav(total_entries)
 	var your_best_ms: int = int(board.get("your_best_ms", 0))
 	var your_rank: int = int(board.get("your_rank", 0))
@@ -548,6 +564,19 @@ func _refresh_leaderboard() -> void:
 	else:
 		your_best_label.text = "Your best: #%d  %s" % [your_rank, _format_time_ms(your_best_ms)]
 	_refresh_map_best()
+
+func _pulse_leaderboard_row(row: Control) -> void:
+	if row == null:
+		return
+	row.modulate = Color(1.0, 0.86, 0.26, 1.0)
+	var tween := create_tween()
+	tween.set_loops(8)
+	tween.tween_property(row, "modulate", Color(1.0, 0.96, 0.62, 1.0), 0.35)
+	tween.tween_property(row, "modulate", Color(1.0, 0.68, 0.18, 1.0), 0.35)
+	tween.finished.connect(func() -> void:
+		if is_instance_valid(row):
+			row.modulate = Color.WHITE
+	)
 
 func _refresh_map_best() -> void:
 	if _selected_map_path.is_empty():

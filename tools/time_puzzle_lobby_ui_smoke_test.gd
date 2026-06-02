@@ -26,14 +26,24 @@ func _init() -> void:
 	if lobby.has_method("configure_entry"):
 		lobby.call("configure_entry", true, 0)
 	await process_frame
-	var leaderboard: Button = _find_button_with_text(lobby, "LEADERBOARD")
-	var play_card: Button = _find_button_with_text(lobby, "PLAY")
-	if leaderboard == null or leaderboard.custom_minimum_size.y < 68.0:
-		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: free leaderboard button missing or too small")
+	var leaderboard_3: Button = _find_button_with_text(lobby, "LEADERBOARD 3 MAPS")
+	var leaderboard_5: Button = _find_button_with_text(lobby, "LEADERBOARD 5 MAPS")
+	var play_3: Button = _find_button_with_text(lobby, "PLAY 3 MAPS")
+	var play_5: Button = _find_button_with_text(lobby, "PLAY 5 MAPS")
+	if leaderboard_3 == null or leaderboard_3.custom_minimum_size.y < 68.0:
+		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: free 3-map leaderboard button missing or too small")
 		quit(1)
 		return
-	if play_card == null or play_card.custom_minimum_size.y < 68.0:
-		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: free play button missing or too small")
+	if leaderboard_5 == null or leaderboard_5.custom_minimum_size.y < 68.0:
+		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: free 5-map leaderboard button missing or too small")
+		quit(1)
+		return
+	if play_3 == null or play_3.custom_minimum_size.y < 68.0:
+		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: free 3-map play button missing or too small")
+		quit(1)
+		return
+	if play_5 == null or play_5.custom_minimum_size.y < 68.0:
+		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: free 5-map play button missing or too small")
 		quit(1)
 		return
 

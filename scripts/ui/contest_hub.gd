@@ -3,11 +3,14 @@ class_name ContestHub
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
+const AsyncContestConfigStoreScript := preload("res://scripts/state/async_contest_config_store.gd")
 const STAGE_RACE_START_PLAYERS := 5
+const STAGE_RACE_SUPPORTED_MAP_COUNTS: Array[int] = [3, 5]
 
 signal closed
 
 @export var contest_id: String = ""
+@export var stage_race_map_count: int = 0
 
 @onready var root_panel: Panel = $Panel
 @onready var root_vbox: VBoxContainer = $Panel/VBox
@@ -26,6 +29,13 @@ signal closed
 var contest: ContestDef
 var _font_regular: Font = null
 var _font_semibold: Font = null
+var _async_contest_config_store: RefCounted = AsyncContestConfigStoreScript.new()
+
+func configure_stage_race_map_count(map_count: int) -> void:
+	stage_race_map_count = map_count
+	if is_node_ready():
+		_update_stage_race_play_state()
+		_refresh_stage_race_summary()
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -184,7 +194,10 @@ func _update_stage_race_play_state() -> void:
 	if contest != null and contest_state != null:
 		entered = contest_state.is_entered(contest.id)
 	stage_race_play_button.disabled = contest == null
-	stage_race_play_button.text = "START STAGE RACE" if entered else "ENTER & START"
+	var map_count: int = _stage_race_map_count()
+	stage_race_play_button.text = "START %d MAPS" % map_count if entered else "ENTER & START %d MAPS" % map_count
+	if stage_race_board_button != null:
+		stage_race_board_button.text = "%d MAP BOARD" % map_count
 
 func _on_play_map(map_id: String) -> void:
 	if contest == null:
@@ -237,6 +250,9 @@ func _on_stage_race_play_pressed() -> void:
 		"contest_scope": contest.scope,
 		"map_ids": plan.get("map_ids", PackedStringArray())
 	}
+	var dash_options: Dictionary = _async_contest_config_store.launch_options(str(contest.scope), map_count)
+	for key in dash_options.keys():
+		options[key] = dash_options[key]
 	vs_lobby.configure("STAGE_RACE", map_count, contest.price, false, options)
 	vs_lobby.closed.connect(func():
 		vs_lobby.queue_free()
@@ -250,7 +266,7 @@ func _on_stage_race_board_pressed() -> void:
 		return
 	var panel := preload("res://scenes/ui/StageRaceLeaderboardPanel.tscn").instantiate()
 	panel.contest_id = contest.id
-	panel.map_ids = contest.map_ids
+	panel.map_ids = _stage_race_map_ids()
 	panel.closed.connect(func():
 		panel.queue_free()
 	)
@@ -315,7 +331,22 @@ func _format_remaining(end_ts: int) -> String:
 func _stage_race_map_count() -> int:
 	if contest == null:
 		return 0
+	if STAGE_RACE_SUPPORTED_MAP_COUNTS.has(stage_race_map_count) and contest.map_ids.size() >= stage_race_map_count:
+		return stage_race_map_count
+	if contest.map_ids.size() >= 5:
+		return 5
+	if contest.map_ids.size() >= 3:
+		return 3
 	return maxi(1, contest.map_ids.size())
+
+func _stage_race_map_ids() -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	if contest == null:
+		return out
+	var count: int = mini(_stage_race_map_count(), contest.map_ids.size())
+	for i in range(count):
+		out.append(contest.map_ids[i])
+	return out
 
 func _format_time_ms(value: int) -> String:
 	var ms: int = maxi(0, value)

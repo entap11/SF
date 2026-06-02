@@ -65,7 +65,7 @@ static func description(payload: Dictionary) -> String:
 		parts.append("hive start %d" % int(categories.get(CATEGORY_HIVE_START_POWER, 0)))
 	if categories.has(CATEGORY_STRUCTURE_POWER):
 		var structure_kind: String = _structure_kind_from_payload(payload)
-		var structure_label: String = "towers" if structure_kind == "tower" else "barracks"
+		var structure_label: String = "structures" if structure_kind == "mixed" else ("towers" if structure_kind == "tower" else "barracks")
 		parts.append("%s %d" % [structure_label, int(categories.get(CATEGORY_STRUCTURE_POWER, 0))])
 	if categories.has(CATEGORY_NPC_HIVE_POWER):
 		parts.append("NPC hives %d" % int(categories.get(CATEGORY_NPC_HIVE_POWER, 0)))
@@ -252,11 +252,12 @@ static func _populate_structure_slots(map_data: Dictionary, payload: Dictionary,
 	var barracks: Array = []
 	var next_tower_id: int = 1
 	var next_barracks_id: int = 1
-	for slot_any in slots:
+	for slot_index in range(slots.size()):
+		var slot_any: Variant = slots[slot_index]
 		if typeof(slot_any) != TYPE_DICTIONARY:
 			continue
 		var slot: Dictionary = slot_any as Dictionary
-		var kind: String = _structure_kind_for_slot(slot, desired_kind)
+		var kind: String = _structure_kind_for_slot(slot, desired_kind, _payload_seed(payload), slot_index)
 		if kind.is_empty():
 			continue
 		var gp: Array = _slot_grid_pos(slot)
@@ -285,11 +286,11 @@ static func _structure_kind_from_payload(payload: Dictionary) -> String:
 	if typeof(structures_v) == TYPE_DICTIONARY:
 		var structures: Dictionary = structures_v as Dictionary
 		var kind: String = str(structures.get("kind", "")).strip_edges().to_lower()
-		if kind == "tower" or kind == "barracks":
+		if kind == "tower" or kind == "barracks" or kind == "mixed":
 			return kind
 	return "tower"
 
-static func _structure_kind_for_slot(slot: Dictionary, desired_kind: String) -> String:
+static func _structure_kind_for_slot(slot: Dictionary, desired_kind: String, seed: int = 0, slot_index: int = 0) -> String:
 	var allowed: Array = []
 	var allowed_v: Variant = slot.get("allowed", ["tower", "barracks"])
 	if typeof(allowed_v) == TYPE_ARRAY:
@@ -299,6 +300,12 @@ static func _structure_kind_for_slot(slot: Dictionary, desired_kind: String) -> 
 				allowed.append(kind)
 	if allowed.is_empty():
 		allowed = ["tower", "barracks"]
+	if desired_kind == "mixed":
+		if allowed.size() == 1:
+			return str(allowed[0])
+		var slot_key: String = "%d|%d|%s|%s" % [seed, slot_index, str(slot.get("id", "")), str(slot.get("grid_pos", slot.get("pos", [])))]
+		var idx: int = _stable_positive_hash(slot_key) % allowed.size()
+		return str(allowed[idx])
 	if allowed.has(desired_kind):
 		return desired_kind
 	return str(allowed[0])

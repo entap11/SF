@@ -9,8 +9,10 @@ func _init() -> void:
 		return
 	_assert_scope_has_contests(contest_state, "WEEKLY")
 	_assert_scope_has_contests(contest_state, "MONTHLY")
+	_assert_scope_has_contests(contest_state, "YEARLY")
 	await _assert_scope_routes_to_stage_race_lobby("WEEKLY")
 	await _assert_scope_routes_to_stage_race_lobby("MONTHLY")
+	await _assert_scope_routes_to_stage_race_lobby("YEARLY")
 	await _assert_orphan_leaderboard_modal_is_closed()
 	print("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: PASS")
 	quit(0)
@@ -42,9 +44,21 @@ func _assert_scope_routes_to_stage_race_lobby(scope: String) -> void:
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: contest list missing")
 		quit(1)
 		return
-	var contest_button: Button = _find_button_with_text(contest_list, "PLAY")
+	var contest_button: Button = _find_button_with_text(contest_list, "PLAY 3 MAPS")
 	if contest_button == null:
-		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s contest play button missing" % scope)
+		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s 3-map contest play button missing" % scope)
+		quit(1)
+		return
+	if _find_button_with_text(contest_list, "PLAY 5 MAPS") == null:
+		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s 5-map contest play button missing" % scope)
+		quit(1)
+		return
+	if _find_button_with_text(contest_list, "LEADERBOARD 3 MAPS") == null:
+		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s 3-map leaderboard button missing" % scope)
+		quit(1)
+		return
+	if _find_button_with_text(contest_list, "LEADERBOARD 5 MAPS") == null:
+		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s 5-map leaderboard button missing" % scope)
 		quit(1)
 		return
 	contest_button.pressed.emit()
@@ -57,6 +71,10 @@ func _assert_scope_routes_to_stage_race_lobby(scope: String) -> void:
 	var play_button: Button = hub.get_node_or_null("Panel/VBox/StageRaceActions/StageRacePlay") as Button
 	if play_button == null:
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s play button missing" % scope)
+		quit(1)
+		return
+	if not play_button.text.contains("3"):
+		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s contest hub did not preserve 3-map selection" % scope)
 		quit(1)
 		return
 	play_button.pressed.emit()

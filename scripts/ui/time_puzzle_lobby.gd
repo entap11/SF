@@ -8,6 +8,7 @@ signal free_stage_race_play_requested(scope: String, map_count: int)
 signal stage_race_leaderboard_requested(scope: String, paid: bool, denomination: int, map_count: int)
 
 const SCOPES: Array[String] = ["WEEKLY", "MONTHLY", "YEARLY"]
+const STAGE_RACE_MAP_COUNT_OPTIONS: Array[int] = [3, 5]
 const FALLBACK_STAGE_RACE_MAP_COUNT: int = 5
 const FALLBACK_STAGE_RACE_WINDOW_SEC: int = 30 * 60
 const FALLBACK_STAGE_RACE_START_PLAYERS: int = 5
@@ -96,7 +97,7 @@ func _build_scope_tabs() -> void:
 	_scope_buttons.clear()
 	for scope in SCOPES:
 		var button: Button = Button.new()
-		button.text = scope.capitalize()
+		button.text = _scope_display_name(scope)
 		button.toggle_mode = true
 		button.custom_minimum_size = Vector2(170.0, 58.0)
 		_apply_font(button, _font_semibold, 18)
@@ -121,7 +122,7 @@ func _refresh_contests() -> void:
 		return
 	var contests: Array[ContestDef] = _contests_for_current_entry()
 	if contests.is_empty():
-		_add_empty_state("No %s Stage Race contest is posted yet." % _current_scope.capitalize(), true)
+		_add_empty_state("No %s Stage Race contest is posted yet." % _scope_display_name(_current_scope), true)
 		return
 	for contest in contests:
 		_add_contest_card(contest)
@@ -158,7 +159,7 @@ func _free_contests_for_scope(scope: String) -> Array[ContestDef]:
 			continue
 		if contest.price != 0:
 			continue
-		if contest.map_ids.size() < 5:
+		if contest.map_ids.size() < STAGE_RACE_MAP_COUNT_OPTIONS[0]:
 			continue
 		out.append(contest)
 	out.sort_custom(func(a: ContestDef, b: ContestDef) -> bool:
@@ -168,7 +169,7 @@ func _free_contests_for_scope(scope: String) -> Array[ContestDef]:
 
 func _add_contest_card(contest: ContestDef) -> void:
 	var card: Panel = Panel.new()
-	card.custom_minimum_size = Vector2(0.0, 260.0)
+	card.custom_minimum_size = Vector2(0.0, 360.0)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_style_panel(card, Color(0.075, 0.08, 0.105, 0.96), Color(0.54, 0.45, 0.23), 8.0)
 	var box: VBoxContainer = VBoxContainer.new()
@@ -192,33 +193,8 @@ func _add_contest_card(contest: ContestDef) -> void:
 	_apply_font(details, _font_regular, 19)
 	box.add_child(details)
 
-	var action_row: HBoxContainer = HBoxContainer.new()
-	action_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	action_row.add_theme_constant_override("separation", 12)
-	box.add_child(action_row)
-
-	var play_button: Button = Button.new()
-	play_button.text = "PLAY"
-	play_button.custom_minimum_size = Vector2(0.0, 68.0)
-	play_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_apply_font(play_button, _font_semibold, 22)
-	_style_button(play_button, Color(0.18, 0.15, 0.07), Color(0.86, 0.68, 0.22), Color(1.0, 0.92, 0.58))
-	if _free_roll:
-		play_button.pressed.connect(func(): free_stage_race_play_requested.emit(_current_scope, maxi(1, contest.map_ids.size())))
-	else:
-		play_button.pressed.connect(func(): _open_contest(contest.id))
-	action_row.add_child(play_button)
-
-	var leaderboard_button: Button = Button.new()
-	leaderboard_button.text = "LEADERBOARD"
-	leaderboard_button.custom_minimum_size = Vector2(0.0, 68.0)
-	leaderboard_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_apply_font(leaderboard_button, _font_semibold, 22)
-	_style_button(leaderboard_button, Color(0.10, 0.11, 0.14), Color(0.44, 0.46, 0.56), Color(0.92, 0.92, 0.92))
-	leaderboard_button.pressed.connect(func():
-		stage_race_leaderboard_requested.emit(_current_scope, not _free_roll, _denomination, maxi(1, contest.map_ids.size()))
-	)
-	action_row.add_child(leaderboard_button)
+	for map_count in _available_stage_race_map_counts(contest):
+		_add_map_count_action_row(box, contest, map_count)
 
 	var details_button: Button = Button.new()
 	details_button.text = "DETAILS"
@@ -226,9 +202,45 @@ func _add_contest_card(contest: ContestDef) -> void:
 	details_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_apply_font(details_button, _font_semibold, 18)
 	_style_button(details_button, Color(0.08, 0.09, 0.12), Color(0.40, 0.42, 0.52), Color(0.92, 0.92, 0.92))
-	details_button.pressed.connect(func(): _open_contest(contest.id))
+	details_button.pressed.connect(func(): _open_contest(contest.id, _default_stage_race_map_count(contest)))
 	box.add_child(details_button)
 	contest_list.add_child(card)
+
+func _add_map_count_action_row(box: VBoxContainer, contest: ContestDef, map_count: int) -> void:
+	var action_row: HBoxContainer = HBoxContainer.new()
+	action_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_row.add_theme_constant_override("separation", 12)
+	box.add_child(action_row)
+
+	var count_label: Label = Label.new()
+	count_label.text = "%d-map async" % map_count
+	count_label.custom_minimum_size = Vector2(150.0, 68.0)
+	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_apply_font(count_label, _font_semibold, 18)
+	action_row.add_child(count_label)
+
+	var play_button: Button = Button.new()
+	play_button.text = "PLAY %d MAPS" % map_count
+	play_button.custom_minimum_size = Vector2(0.0, 68.0)
+	play_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_font(play_button, _font_semibold, 21)
+	_style_button(play_button, Color(0.18, 0.15, 0.07), Color(0.86, 0.68, 0.22), Color(1.0, 0.92, 0.58))
+	if _free_roll:
+		play_button.pressed.connect(func(): free_stage_race_play_requested.emit(_current_scope, map_count))
+	else:
+		play_button.pressed.connect(func(): _open_contest(contest.id, map_count))
+	action_row.add_child(play_button)
+
+	var leaderboard_button: Button = Button.new()
+	leaderboard_button.text = "LEADERBOARD %d MAPS" % map_count
+	leaderboard_button.custom_minimum_size = Vector2(0.0, 68.0)
+	leaderboard_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_font(leaderboard_button, _font_semibold, 19)
+	_style_button(leaderboard_button, Color(0.10, 0.11, 0.14), Color(0.44, 0.46, 0.56), Color(0.92, 0.92, 0.92))
+	leaderboard_button.pressed.connect(func():
+		stage_race_leaderboard_requested.emit(_current_scope, not _free_roll, _denomination, map_count)
+	)
+	action_row.add_child(leaderboard_button)
 
 func _format_contest_tile(contest: ContestDef) -> String:
 	var entered: bool = false
@@ -237,7 +249,7 @@ func _format_contest_tile(contest: ContestDef) -> String:
 	var entry_text: String = "Entered" if entered else "Not entered"
 	var cap_text: String = _cap_text(contest.buff_cap_per_map)
 	var remaining: String = _format_remaining(contest.end_ts)
-	var stage_label: String = "5-Map Stage Race"
+	var stage_label: String = _stage_race_map_count_summary(contest)
 	var contest_label: String = contest.name.replace("Time Puzzle", "Stage Race")
 	return "%s\n%s | %s | %s | %s" % [
 		contest_label,
@@ -253,9 +265,9 @@ func _format_contest_details(contest: ContestDef) -> String:
 		entered = contest_state.is_entered(contest.id)
 	var entry_text: String = "Free Roll" if contest.price == 0 else "$%d Entry" % contest.price
 	var state_text: String = "Entered" if entered else "Ready"
-	return "%s | %d-map Stage Race | %s | %s | %s" % [
+	return "%s | %s Stage Race | %s | %s | %s" % [
 		entry_text,
-		maxi(1, contest.map_ids.size()),
+		_stage_race_map_count_summary(contest),
 		state_text,
 		_cap_text(contest.buff_cap_per_map),
 		_format_remaining(contest.end_ts)
@@ -263,7 +275,7 @@ func _format_contest_details(contest: ContestDef) -> String:
 
 func _contest_label(contest: ContestDef) -> String:
 	if contest.price == 0:
-		return "%s Stage Race - Free Roll" % contest.scope.strip_edges().to_upper()
+		return "%s Stage Race - Free Roll" % _scope_display_name(contest.scope).to_upper()
 	return contest.name.replace("Time Puzzle", "Stage Race")
 
 func _add_empty_state(message: String, allow_fallback_start: bool) -> void:
@@ -290,20 +302,27 @@ func _add_empty_state(message: String, allow_fallback_start: bool) -> void:
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(body)
 	if allow_fallback_start:
-		var start_button: Button = Button.new()
-		start_button.text = "START FREE STAGE RACE"
-		start_button.custom_minimum_size = Vector2(0.0, 68.0)
-		_apply_font(start_button, _font_semibold, 22)
-		_style_button(start_button, Color(0.18, 0.15, 0.07), Color(0.86, 0.68, 0.22), Color(1.0, 0.92, 0.58))
-		start_button.pressed.connect(_open_fallback_stage_race_lobby)
-		box.add_child(start_button)
+		var fallback_row: HBoxContainer = HBoxContainer.new()
+		fallback_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fallback_row.add_theme_constant_override("separation", 12)
+		box.add_child(fallback_row)
+		for map_count in STAGE_RACE_MAP_COUNT_OPTIONS:
+			var start_button: Button = Button.new()
+			start_button.text = "START %d MAPS" % map_count
+			start_button.custom_minimum_size = Vector2(0.0, 68.0)
+			start_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_apply_font(start_button, _font_semibold, 22)
+			_style_button(start_button, Color(0.18, 0.15, 0.07), Color(0.86, 0.68, 0.22), Color(1.0, 0.92, 0.58))
+			start_button.pressed.connect(Callable(self, "_open_fallback_stage_race_lobby").bind(map_count))
+			fallback_row.add_child(start_button)
 	contest_list.add_child(card)
 
-func _open_contest(contest_id: String) -> void:
+func _open_contest(contest_id: String, map_count: int = FALLBACK_STAGE_RACE_MAP_COUNT) -> void:
 	var panel: ContestHub = preload("res://scenes/ui/ContestHub.tscn").instantiate() as ContestHub
 	if panel == null:
 		return
 	panel.contest_id = contest_id
+	panel.configure_stage_race_map_count(map_count)
 	panel.closed.connect(func():
 		panel.queue_free()
 		visible = true
@@ -312,7 +331,7 @@ func _open_contest(contest_id: String) -> void:
 	add_child(panel)
 	visible = false
 
-func _open_fallback_stage_race_lobby() -> void:
+func _open_fallback_stage_race_lobby(map_count: int = FALLBACK_STAGE_RACE_MAP_COUNT) -> void:
 	var vs_lobby_scene: PackedScene = load("res://scenes/ui/VsLobby.tscn") as PackedScene
 	if vs_lobby_scene == null:
 		return
@@ -320,7 +339,7 @@ func _open_fallback_stage_race_lobby() -> void:
 	if not (vs_lobby_any is Control):
 		return
 	var vs_lobby: Control = vs_lobby_any as Control
-	vs_lobby.call("configure", "STAGE_RACE", FALLBACK_STAGE_RACE_MAP_COUNT, 0, true, {
+	vs_lobby.call("configure", "STAGE_RACE", _resolve_supported_stage_race_map_count(map_count), 0, true, {
 		"start_players": FALLBACK_STAGE_RACE_START_PLAYERS,
 		"window_sec": FALLBACK_STAGE_RACE_WINDOW_SEC
 	})
@@ -346,6 +365,43 @@ func _format_remaining(end_ts: int) -> String:
 	var hours: int = remaining / 3600
 	var mins: int = (remaining % 3600) / 60
 	return "Remaining %02dh%02dm" % [hours, mins]
+
+func _available_stage_race_map_counts(contest: ContestDef) -> Array[int]:
+	var out: Array[int] = []
+	if contest == null:
+		return out
+	for map_count in STAGE_RACE_MAP_COUNT_OPTIONS:
+		if contest.map_ids.size() >= map_count:
+			out.append(map_count)
+	return out
+
+func _default_stage_race_map_count(contest: ContestDef) -> int:
+	var counts: Array[int] = _available_stage_race_map_counts(contest)
+	if counts.is_empty():
+		return FALLBACK_STAGE_RACE_MAP_COUNT
+	return counts[counts.size() - 1]
+
+func _stage_race_map_count_summary(contest: ContestDef) -> String:
+	var counts: Array[int] = _available_stage_race_map_counts(contest)
+	if counts.size() == 1:
+		return "%d-map" % int(counts[0])
+	if counts.size() > 1:
+		var labels: Array[String] = []
+		for count_any in counts:
+			labels.append("%d-map" % int(count_any))
+		return "/".join(labels)
+	return "%d-map" % FALLBACK_STAGE_RACE_MAP_COUNT
+
+func _resolve_supported_stage_race_map_count(map_count: int) -> int:
+	if STAGE_RACE_MAP_COUNT_OPTIONS.has(map_count):
+		return map_count
+	return FALLBACK_STAGE_RACE_MAP_COUNT
+
+func _scope_display_name(scope: String) -> String:
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope == "YEARLY":
+		return "Season"
+	return clean_scope.capitalize()
 
 func _on_back_pressed() -> void:
 	closed.emit()

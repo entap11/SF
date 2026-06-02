@@ -61,6 +61,15 @@ func _init() -> void:
 	_assert_eq(int(overall_row.get("completed_maps", 0)), 5, "overall leaderboard should count completed maps")
 	_assert_eq(int(overall_row.get("aggregate_time_ms", 0)), 777 + 901 + 902 + 903 + 904, "overall leaderboard should aggregate best map times")
 
+	contest_state.call("debug_reset_runtime_leaderboards")
+	_record_complete_run(contest_state, map_ids, "run_a", 1000)
+	_record_complete_run(contest_state, map_ids, "run_b", 900)
+	var run_rows: Array = contest_state.call("build_stage_race_overall_leaderboard", CONTEST_ID, 5, 25) as Array
+	_assert_eq(_count_player_rows(run_rows, PLAYER_ID), 2, "same player should have one overall row per completed run")
+	var run_b_row: Dictionary = _find_player_run_row(run_rows, PLAYER_ID, "run_b")
+	_assert_true(not run_b_row.is_empty(), "second run should have its own overall row")
+	_assert_eq(int(run_b_row.get("aggregate_time_ms", 0)), 900 + 901 + 902 + 903 + 904, "second run should aggregate its own map times")
+
 	await _assert_arena_match_end_writes_contest_result(contest_state, map_ids[1])
 
 	contest_state.call("debug_reset_runtime_leaderboards")
@@ -78,6 +87,8 @@ func _assert_arena_match_end_writes_contest_result(contest_state: Node, map_id: 
 	await process_frame
 	var tree: SceneTree = self
 	tree.set_meta("vs_mode", "STAGE_RACE")
+	tree.set_meta("vs_cpu_style", "balancer")
+	tree.set_meta("vs_cpu_tier", "medium")
 	tree.set_meta("contest_id", CONTEST_ID)
 	tree.set_meta("map_ids", PackedStringArray([str(map_id)]))
 	tree.set_meta("vs_stage_map_paths", ["res://maps/_future/nomansland/MAP_nomansland__545__v02_all_sides_owned__1p.json"])
@@ -102,6 +113,18 @@ func _assert_arena_match_end_writes_contest_result(contest_state: Node, map_id: 
 	arena.queue_free()
 	await process_frame
 
+func _record_complete_run(contest_state: Node, map_ids: PackedStringArray, run_id: String, base_time_ms: int) -> void:
+	for i in range(map_ids.size()):
+		var map_id: String = str(map_ids[i])
+		var result: Dictionary = contest_state.call("record_stage_race_map_result", CONTEST_ID, map_id, {
+			"player_id": PLAYER_ID,
+			"player_name": PLAYER_HANDLE,
+			"best_time_ms": base_time_ms + i,
+			"run_id": run_id,
+			"source": "smoke"
+		}) as Dictionary
+		_assert_true(bool(result.get("ok", false)), "%s map %d result should write" % [run_id, i + 1])
+
 func _find_player_row(rows: Array, player_id: String) -> Dictionary:
 	for row_any in rows:
 		if typeof(row_any) != TYPE_DICTIONARY:
@@ -110,6 +133,25 @@ func _find_player_row(rows: Array, player_id: String) -> Dictionary:
 		if str(row.get("player_id", "")) == player_id:
 			return row
 	return {}
+
+func _find_player_run_row(rows: Array, player_id: String, run_id: String) -> Dictionary:
+	for row_any in rows:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("player_id", "")) == player_id and str(row.get("run_id", "")) == run_id:
+			return row
+	return {}
+
+func _count_player_rows(rows: Array, player_id: String) -> int:
+	var count: int = 0
+	for row_any in rows:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("player_id", "")) == player_id:
+			count += 1
+	return count
 
 func _assert_true(value: bool, label: String) -> void:
 	if value:

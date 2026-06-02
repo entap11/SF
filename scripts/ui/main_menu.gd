@@ -19,6 +19,8 @@ const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MatchTelemetryModelScript = preload("res://scripts/state/match_telemetry_model.gd")
 const MatchAnalyzerScript = preload("res://scripts/state/match_analyzer.gd")
 const MatchReplayMapViewScript = preload("res://scripts/ui/match_replay_map_view.gd")
+const AsyncContestConfigStoreScript := preload("res://scripts/state/async_contest_config_store.gd")
+const AsyncContestDashPanelScript := preload("res://scripts/ui/async_contest_dash_panel.gd")
 const MATCH_BACKGROUND_INLAY_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/match_background_inlay.png"
 const HONEY_WIDGET_SCENE_PATH: String = "res://ui/hud/honey/honey_widget.tscn"
 const TIER_WIDGET_SCENE_PATH: String = "res://ui/hud/tier/tier_widget.tscn"
@@ -80,6 +82,8 @@ const UI_SURFACE_BATTLE_PASS := "battle_pass"
 const UI_SURFACE_RANK := "rank"
 const UI_SURFACE_RANK_CONTEXT := "rank_context"
 const UI_SURFACE_HIVE_DROPDOWN := "hive_dropdown"
+const TREE_META_PENDING_STAGE_LEADERBOARD: String = "pending_stage_leaderboard_open"
+const TREE_META_PENDING_STAGE_LEADERBOARD_CONTEXT: String = "pending_stage_leaderboard_context"
 const DASH_HERO_TAB_GARAGE := "garage"
 const DASH_HERO_TAB_BUFFS := "buffs"
 const DASH_HERO_TAB_ACHIEVEMENTS := "achievements"
@@ -273,6 +277,9 @@ var _rank_panel: Control = null
 var _rank_context_panel: Panel = null
 var _jukebox_panel: Panel = null
 var _dash_hex_jukebox: HexButton = null
+var _async_contest_dash_panel: Panel = null
+var _dash_hex_async_contest: HexButton = null
+var _async_contest_config_store: RefCounted = AsyncContestConfigStoreScript.new()
 var _mm_boot_sound_player: AudioStreamPlayer = null
 var _mm_boot_sound_started: bool = false
 var _menu_sfx_player: AudioStreamPlayer = null
@@ -1193,6 +1200,7 @@ func _ready() -> void:
 	call_deferred("_init_dash_state")
 	call_deferred("_finish_noncritical_menu_boot")
 	call_deferred("_apply_pending_jukebox_reopen_request")
+	call_deferred("_apply_pending_stage_leaderboard_request")
 	_apply_player_profile(_player_profile)
 	_refresh_profile_handle_labels()
 	status_label.text = "Ready"
@@ -1341,6 +1349,33 @@ func _apply_pending_jukebox_reopen_request() -> void:
 	_open_jukebox_panel()
 	if _jukebox_panel != null and _jukebox_panel.has_method("restore_runtime_state"):
 		_jukebox_panel.call("restore_runtime_state", restore_state)
+
+func _apply_pending_stage_leaderboard_request() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var should_open: bool = bool(tree.get_meta(TREE_META_PENDING_STAGE_LEADERBOARD, false))
+	var context: Dictionary = {}
+	var context_any: Variant = tree.get_meta(TREE_META_PENDING_STAGE_LEADERBOARD_CONTEXT, {})
+	if typeof(context_any) == TYPE_DICTIONARY:
+		context = context_any as Dictionary
+	if tree.has_meta(TREE_META_PENDING_STAGE_LEADERBOARD):
+		tree.remove_meta(TREE_META_PENDING_STAGE_LEADERBOARD)
+	if tree.has_meta(TREE_META_PENDING_STAGE_LEADERBOARD_CONTEXT):
+		tree.remove_meta(TREE_META_PENDING_STAGE_LEADERBOARD_CONTEXT)
+	if not should_open:
+		return
+	var map_count: int = maxi(1, int(context.get("map_count", 5)))
+	var scope: String = str(context.get("scope", "WEEKLY")).strip_edges().to_upper()
+	if scope.is_empty():
+		scope = "WEEKLY"
+	var paid: bool = bool(context.get("paid", false))
+	var denomination: int = maxi(0, int(context.get("denomination", 0)))
+	var player_id: String = str(context.get("player_id", "")).strip_edges()
+	var run_id: String = str(context.get("run_id", "")).strip_edges()
+	_open_async_stage_contest_leaderboard(map_count, scope, paid, denomination, player_id, run_id)
+	if status_label != null:
+		status_label.text = "%s Stage Race leaderboard opened." % scope.capitalize()
 
 func _process(_delta: float) -> void:
 	_sync_main_art_shroud()
@@ -2274,6 +2309,17 @@ func _set_hex_buttons() -> void:
 		_dash_hex_jukebox.custom_minimum_size = dash_hex_size
 		_apply_black_key_to_hex_button(_dash_hex_jukebox)
 		_dash_hex_jukebox.queue_redraw()
+	if _dash_hex_async_contest != null:
+		_dash_hex_async_contest.text = "ASYNC"
+		_dash_hex_async_contest.font = _font_semibold
+		_dash_hex_async_contest.font_size = _scaled_ui_font_size(13)
+		_dash_hex_async_contest.fill_color = Color(0.16, 0.16, 0.2)
+		_dash_hex_async_contest.border_color = Color(0.7, 0.72, 0.8)
+		_dash_hex_async_contest.text_color = Color(0.92, 0.94, 0.98)
+		_dash_hex_async_contest.sprite_key = DASH_HEX_JUKEBOX_KEY
+		_dash_hex_async_contest.custom_minimum_size = dash_hex_size
+		_apply_black_key_to_hex_button(_dash_hex_async_contest)
+		_dash_hex_async_contest.queue_redraw()
 
 func _apply_black_key_to_hex_button(button: HexButton) -> void:
 	if button == null:
@@ -6214,6 +6260,7 @@ func _configure_dash_account_surfaces() -> void:
 	$DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub.text = "Membership, trophy case, and hive-only comms."
 	_refresh_hive_panel()
 	_refresh_hive_panel_action_state()
+	_ensure_async_contest_dash_panel()
 	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesTitle.text = "ACHIEVEMENTS"
 	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesSub.text = "Progress meters are placeholder for live achievement hooks."
 	_refresh_dash_achievement_preview()
@@ -13027,7 +13074,7 @@ func _get_async_stage_leaderboard_rows(map_count: int) -> Array:
 		out.append(row_any)
 	return out
 
-func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0) -> void:
+func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0, highlight_player_id: String = "", highlight_run_id: String = "") -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var resolved_map_count: int = 5
 	if map_count == 3:
@@ -13079,23 +13126,34 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 		var entry: Dictionary = {}
 		if i < rows.size() and typeof(rows[i]) == TYPE_DICTIONARY:
 			entry = rows[i] as Dictionary
+		var row_highlighted: bool = _stage_leaderboard_row_matches_highlight(entry, highlight_player_id, highlight_run_id)
+		if row_highlighted:
+			row_box.set_meta("stage_leaderboard_highlighted", true)
+			row_box.modulate = Color(1.0, 0.90, 0.48, 1.0)
 		var handle_label: Label = Label.new()
 		handle_label.text = "%d. %s" % [i + 1, str(entry.get("handle", "--"))]
 		handle_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row_box.add_child(handle_label)
 		_apply_font(handle_label, _font_regular, 12)
+		if row_highlighted:
+			handle_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.55, 1.0))
 		var total_label: Label = Label.new()
 		total_label.text = str(entry.get("total_time", "--:--.---"))
 		total_label.custom_minimum_size = Vector2(240.0, 0.0)
 		total_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row_box.add_child(total_label)
 		_apply_font(total_label, _font_regular, 12)
+		if row_highlighted:
+			total_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.55, 1.0))
 		var left_label: Label = Label.new()
 		left_label.text = str(entry.get("time_left", "--"))
 		left_label.custom_minimum_size = Vector2(220.0, 0.0)
 		left_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row_box.add_child(left_label)
 		_apply_font(left_label, _font_regular, 12)
+		if row_highlighted:
+			left_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.55, 1.0))
+			_pulse_stage_leaderboard_row(row_box)
 	if rows.is_empty():
 		var empty_label: Label = Label.new()
 		empty_label.text = "No stage race submissions yet."
@@ -13128,6 +13186,25 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 	_apply_font(close_button, _font_regular, 13)
 	_style_button(close_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_entry_route_modal = panel
+
+func _stage_leaderboard_row_matches_highlight(entry: Dictionary, highlight_player_id: String, highlight_run_id: String) -> bool:
+	if entry.is_empty():
+		return false
+	var clean_run_id: String = highlight_run_id.strip_edges()
+	if not clean_run_id.is_empty():
+		return str(entry.get("run_id", "")).strip_edges() == clean_run_id
+	var clean_player_id: String = highlight_player_id.strip_edges()
+	if clean_player_id.is_empty():
+		return false
+	return str(entry.get("player_id", "")).strip_edges() == clean_player_id
+
+func _pulse_stage_leaderboard_row(row: Control) -> void:
+	if row == null:
+		return
+	var tween: Tween = create_tween()
+	tween.set_loops(6)
+	tween.tween_property(row, "modulate", Color(1.0, 0.72, 0.18, 1.0), 0.32)
+	tween.tween_property(row, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.32)
 
 func _resolve_async_stage_contest_data(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0) -> Dictionary:
 	var output: Dictionary = {
@@ -13164,6 +13241,8 @@ func _resolve_async_stage_contest_data(map_count: int, scope: String = "WEEKLY",
 		var row: Dictionary = row_any as Dictionary
 		var handle: String = str(row.get("player_name", row.get("player_id", "--")))
 		rows_out.append({
+			"player_id": str(row.get("player_id", "")).strip_edges(),
+			"run_id": str(row.get("run_id", "")).strip_edges(),
 			"handle": handle,
 			"total_time": _format_async_stage_total_time_ms(int(row.get("aggregate_time_ms", 0))),
 			"time_left": str(output.get("time_left", "--"))
@@ -13638,7 +13717,7 @@ func _set_dash_panel_store_passthrough(enabled: bool) -> void:
 		_style_panel(dash_panel, DASH_PANEL_BG_COLOR, DASH_PANEL_BORDER_COLOR)
 
 func _hide_dash_panels() -> void:
-	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full, _jukebox_panel, _dash_friends_panel, _dash_scholastic_panel]:
+	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_hive_panel, dash_store_panel, dash_settings_panel, dash_badges_panel_full, _jukebox_panel, _async_contest_dash_panel, _dash_friends_panel, _dash_scholastic_panel]:
 		if panel == null:
 			continue
 		panel.visible = false
@@ -13683,6 +13762,43 @@ func _ensure_jukebox_panel() -> void:
 		)
 		_set_hex_buttons()
 
+func _ensure_async_contest_dash_panel() -> void:
+	if dash_panel == null:
+		return
+	if _async_contest_dash_panel == null:
+		var panel_any: Node = AsyncContestDashPanelScript.new()
+		if panel_any is Panel:
+			_async_contest_dash_panel = panel_any as Panel
+			_async_contest_dash_panel.name = "DashAsyncContestPanel"
+			_async_contest_dash_panel.anchor_left = 0.0
+			_async_contest_dash_panel.anchor_top = 0.0
+			_async_contest_dash_panel.anchor_right = 1.0
+			_async_contest_dash_panel.anchor_bottom = 1.0
+			_async_contest_dash_panel.offset_left = 0.0
+			_async_contest_dash_panel.offset_top = 0.0
+			_async_contest_dash_panel.offset_right = 0.0
+			_async_contest_dash_panel.offset_bottom = 0.0
+			_async_contest_dash_panel.visible = false
+			dash_panel.add_child(_async_contest_dash_panel)
+			if _async_contest_dash_panel.has_method("set_content_top_offset"):
+				_async_contest_dash_panel.call("set_content_top_offset", _main_usable_top_px())
+			if _async_contest_dash_panel.has_signal("close_requested"):
+				_async_contest_dash_panel.connect("close_requested", func() -> void:
+					_close_async_contest_dash_panel()
+				)
+			if _async_contest_dash_panel.has_signal("config_saved"):
+				_async_contest_dash_panel.connect("config_saved", Callable(self, "_on_async_contest_dash_config_saved"))
+	if dash_hexes == null:
+		return
+	if _dash_hex_async_contest == null:
+		_dash_hex_async_contest = HexButton.new()
+		_dash_hex_async_contest.name = "DashAsyncContest"
+		dash_hexes.add_child(_dash_hex_async_contest)
+		_dash_hex_async_contest.pressed.connect(func() -> void:
+			_open_async_contest_dash_panel()
+		)
+		_set_hex_buttons()
+
 func _open_jukebox_panel() -> void:
 	if _jukebox_panel == null:
 		_ensure_jukebox_panel()
@@ -13704,6 +13820,30 @@ func _close_jukebox_panel() -> void:
 	if _jukebox_panel != null:
 		_jukebox_panel.visible = false
 	_set_dash_hidden_state()
+
+func _open_async_contest_dash_panel() -> void:
+	if _async_contest_dash_panel == null:
+		_ensure_async_contest_dash_panel()
+	if _async_contest_dash_panel == null:
+		return
+	_play_mm_base_drop_sfx()
+	_close_top_level_windows(UI_SURFACE_DASH)
+	_hide_dash_panels()
+	_set_dash_chrome_visible(false)
+	_set_dash_panel_store_passthrough(false)
+	_set_dash_offsets(0.0)
+	dash_panel.visible = true
+	_async_contest_dash_panel.visible = true
+	_dash_open = true
+
+func _close_async_contest_dash_panel() -> void:
+	if _async_contest_dash_panel != null:
+		_async_contest_dash_panel.visible = false
+	_set_dash_hidden_state()
+
+func _on_async_contest_dash_config_saved(config: Dictionary) -> void:
+	if status_label != null:
+		status_label.text = "%s %d-map async contest saved." % [str(config.get("scope", "Weekly")).capitalize(), int(config.get("map_count", 3))]
 
 func _on_jukebox_play_requested(map_path: String, cpu_style: String = "", cpu_tier: String = "") -> void:
 	if map_path.strip_edges().is_empty():
@@ -13733,6 +13873,10 @@ func _launch_jukebox_map(map_path: String, cpu_style: String = "", cpu_tier: Str
 	var map_id: String = MAP_REGISTRY.map_id_from_path(map_path)
 	var clean_cpu_style: String = cpu_style.strip_edges().to_lower()
 	var clean_cpu_tier: String = cpu_tier.strip_edges().to_lower()
+	if clean_cpu_style.is_empty():
+		clean_cpu_style = "balancer"
+	if clean_cpu_tier.is_empty():
+		clean_cpu_tier = "medium"
 	var clear_keys: Array[String] = [
 		"open_map_picker_on_ready",
 		"vs_mode",
@@ -13768,6 +13912,7 @@ func _launch_jukebox_map(map_path: String, cpu_style: String = "", cpu_tier: Str
 		"jukebox_board_period",
 		"jukebox_local_owner_id",
 		"jukebox_result_commit_signature",
+		"jukebox_highlight_player_id",
 		"jukebox_easy_bot"
 	]
 	for key_any in clear_keys:
@@ -13786,23 +13931,41 @@ func _launch_jukebox_map(map_path: String, cpu_style: String = "", cpu_tier: Str
 		"uid": local_uid,
 		"name": local_name
 	})
-	if not clean_cpu_style.is_empty():
-		tree.set_meta("vs_cpu_style", clean_cpu_style)
-	if not clean_cpu_tier.is_empty():
-		tree.set_meta("vs_cpu_tier", clean_cpu_tier)
+	tree.set_meta("vs_cpu_style", clean_cpu_style)
+	tree.set_meta("vs_cpu_tier", clean_cpu_tier)
 	tree.set_meta("jukebox_board_enabled", true)
 	tree.set_meta("jukebox_map_path", map_path)
 	tree.set_meta("jukebox_map_id", map_id)
 	tree.set_meta("jukebox_board_period", "WEEKLY")
 	tree.set_meta("jukebox_local_owner_id", 1)
-	if clean_cpu_style.is_empty() and clean_cpu_tier.is_empty():
-		tree.set_meta("jukebox_easy_bot", true)
 	if OpsState != null and OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", "")
 	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
 	if err != OK:
 		return false
 	return true
+
+func _async_contest_scope_key(scope: String) -> String:
+	return AsyncContestConfigStoreScript.normalize_scope(scope)
+
+func _async_contest_dash_applies_to_mode(mode_id: String) -> bool:
+	var clean_mode: String = mode_id.strip_edges().to_upper()
+	return clean_mode == "STAGE_RACE" or clean_mode == "TIMED_RACE" or clean_mode == "MISS_N_OUT"
+
+func _merge_async_contest_dash_options(options: Dictionary, scope: String, map_count: int) -> Dictionary:
+	var merged: Dictionary = options.duplicate(true)
+	if _async_contest_config_store == null:
+		return merged
+	var launch_options: Dictionary = _async_contest_config_store.launch_options(_async_contest_scope_key(scope), map_count)
+	for key in launch_options.keys():
+		merged[key] = launch_options[key]
+	return merged
+
+func _options_with_async_contest_dash_config(mode_id: String, map_count: int, options: Dictionary) -> Dictionary:
+	if not _async_contest_dash_applies_to_mode(mode_id):
+		return options
+	var scope: String = str(options.get("contest_scope", options.get("async_contest_scope", "WEEKLY")))
+	return _merge_async_contest_dash_options(options, scope, map_count)
 
 func _open_tournament_panel() -> void:
 	if async_panel == null:
@@ -14857,6 +15020,7 @@ func _current_async_paid_entry_usd() -> int:
 	return maxi(1, _async_paid_entry_usd)
 
 func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> void:
+	var configured_options: Dictionary = _options_with_async_contest_dash_config(mode_id, map_count, options)
 	var return_async_panel: bool = async_panel != null and async_panel.visible
 	_play_matchmaker_sfx()
 	_close_top_level_windows(UI_SURFACE_VS_LOBBY)
@@ -14872,12 +15036,13 @@ func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entr
 		)
 		add_child(_vs_lobby)
 	if _vs_lobby.has_method("configure"):
-		_vs_lobby.call("configure", mode_id, map_count, entry_usd, free_play, options)
+		_vs_lobby.call("configure", mode_id, map_count, entry_usd, free_play, configured_options)
 	_vs_lobby.visible = true
 	if async_panel != null:
 		async_panel.visible = false
 
 func _launch_async_vs_match_direct(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> bool:
+	var configured_options: Dictionary = _options_with_async_contest_dash_config(mode_id, map_count, options)
 	var scene: PackedScene = preload("res://scenes/ui/VsLobby.tscn")
 	if scene == null:
 		return false
@@ -14895,7 +15060,7 @@ func _launch_async_vs_match_direct(mode_id: String, map_count: int, free_play: b
 	if not lobby.has_method("configure") or not lobby.has_method("_join_async_contest") or not lobby.has_method("_start_match"):
 		lobby.queue_free()
 		return false
-	lobby.call("configure", mode_id, map_count, entry_usd, free_play, options)
+	lobby.call("configure", mode_id, map_count, entry_usd, free_play, configured_options)
 	lobby.call("_join_async_contest", false)
 	lobby.call("_start_match", true)
 	var tree: SceneTree = get_tree()
