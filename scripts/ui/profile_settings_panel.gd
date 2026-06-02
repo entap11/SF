@@ -7,13 +7,11 @@ const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MIN_HANDLE_LEN: int = 3
 const MAX_HANDLE_LEN: int = 16
 const DEV_ALLOW_UID_EDIT: bool = false
+const SETTINGS_UI_SCALE: float = 3.0
+const SETTINGS_BASE_MIN_HEIGHT: float = 760.0
 const PERF_MODE_QUALITY: String = "quality"
 const PERF_MODE_BALANCED: String = "balanced"
 const PERF_MODE_PERFORMANCE: String = "performance"
-const POWERBAR_THEME_BASE: String = "base"
-const POWERBAR_THEME_UPGRADED: String = "upgraded"
-const POWERBAR_THEME_UPGRADED_DYNAMIC: String = "upgraded_dynamic"
-const POWERBAR_THEME_UPGRADED_BOIL: String = "upgraded_boil"
 const ADMIN_DASHBOARD_URL_DEFAULT: String = "http://127.0.0.1:8787/dashboard"
 const ADMIN_DASHBOARD_USERNAME_DEFAULT: String = "Mattballou"
 const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = "$warmFr0nt"
@@ -34,8 +32,6 @@ const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = "$warmFr0nt"
 @onready var floor_graphics_toggle: CheckButton = $VBox/PerformanceSection/FloorGraphicsRow/FloorGraphicsToggle
 @onready var admin_section: VBoxContainer = $VBox/AdminSection
 @onready var admin_open_button: Button = $VBox/AdminSection/AdminRow/AdminOpenButton
-@onready var powerbar_theme_row: HBoxContainer = $VBox/AdminSection/PowerBarThemeRow
-@onready var powerbar_theme_option: OptionButton = $VBox/AdminSection/PowerBarThemeRow/PowerBarThemeOption
 @onready var admin_username_input: LineEdit = $VBox/AdminSection/AdminCredentialsRow/AdminUsernameInput
 @onready var admin_password_input: LineEdit = $VBox/AdminSection/AdminCredentialsRow/AdminPasswordInput
 @onready var admin_status_label: Label = $VBox/AdminSection/AdminStatusLabel
@@ -74,20 +70,17 @@ func _ready() -> void:
 	admin_username_input.focus_exited.connect(_on_admin_credentials_focus_exited)
 	admin_password_input.focus_exited.connect(_on_admin_credentials_focus_exited)
 	admin_open_button.pressed.connect(_on_admin_open_pressed)
-	powerbar_theme_option.item_selected.connect(_on_powerbar_theme_selected)
 	_disable_legacy_profile_controls()
 	_set_uid_edit_enabled(DEV_ALLOW_UID_EDIT)
 	_refresh_admin_credentials()
 	_refresh_admin_tools()
 	_build_performance_options()
-	_build_powerbar_theme_options()
 	_refresh_options()
 	_refresh_display_name()
 	_refresh_user_id()
 	_refresh_gpu_vfx()
 	_refresh_audio_settings()
 	_refresh_performance_settings()
-	_refresh_powerbar_theme_setting()
 	_apply_master_audio_setting()
 	_apply_performance_mode_setting()
 
@@ -182,29 +175,6 @@ func _refresh_performance_settings() -> void:
 	_select_performance_mode(perf_mode)
 	floor_graphics_toggle.set_pressed_no_signal(floor_enabled)
 	floor_graphics_toggle.text = "ON" if floor_enabled else "OFF"
-
-func _build_powerbar_theme_options() -> void:
-	powerbar_theme_option.clear()
-	powerbar_theme_option.add_item("Base")
-	powerbar_theme_option.set_item_metadata(0, POWERBAR_THEME_BASE)
-	powerbar_theme_option.add_item("Upgraded (Static)")
-	powerbar_theme_option.set_item_metadata(1, POWERBAR_THEME_UPGRADED)
-	powerbar_theme_option.add_item("Upgraded II (Dynamic)")
-	powerbar_theme_option.set_item_metadata(2, POWERBAR_THEME_UPGRADED_DYNAMIC)
-	powerbar_theme_option.add_item("Boil Prototype")
-	powerbar_theme_option.set_item_metadata(3, POWERBAR_THEME_UPGRADED_BOIL)
-
-func _refresh_powerbar_theme_setting() -> void:
-	if not ProfileManager.has_method("get_powerbar_theme"):
-		return
-	var target_theme: String = str(ProfileManager.call("get_powerbar_theme")).strip_edges().to_lower()
-	var selected_index: int = 0
-	for index in range(powerbar_theme_option.get_item_count()):
-		var metadata: Variant = powerbar_theme_option.get_item_metadata(index)
-		if str(metadata).strip_edges().to_lower() == target_theme:
-			selected_index = index
-			break
-	powerbar_theme_option.select(selected_index)
 
 func _build_performance_options() -> void:
 	performance_mode_option.clear()
@@ -372,8 +342,6 @@ func _refresh_admin_tools() -> void:
 	admin_section.visible = enabled
 	admin_open_button.visible = enabled
 	admin_open_button.disabled = not enabled
-	powerbar_theme_row.visible = enabled
-	powerbar_theme_option.disabled = not enabled
 	admin_status_label.visible = enabled
 	admin_status_label.text = "Private admin dashboard. Use in-app credentials."
 
@@ -441,82 +409,100 @@ func _on_admin_credentials_submitted(_text: String) -> void:
 func _on_admin_credentials_focus_exited() -> void:
 	_persist_admin_credentials()
 
-func _on_powerbar_theme_selected(index: int) -> void:
-	if not ProfileManager.has_method("set_powerbar_theme"):
-		return
-	var metadata: Variant = powerbar_theme_option.get_item_metadata(index)
-	var theme_id: String = str(metadata).strip_edges().to_lower()
-	ProfileManager.call("set_powerbar_theme", theme_id)
-	_refresh_powerbar_theme_setting()
-	admin_status_label.text = "PowerBar theme set to %s." % theme_id
-
 func _apply_readability_layout() -> void:
 	_load_fonts()
-	custom_minimum_size = Vector2(0.0, 760.0)
+	custom_minimum_size = Vector2(0.0, SETTINGS_BASE_MIN_HEIGHT * SETTINGS_UI_SCALE)
 	var root_vbox: VBoxContainer = get_node("VBox") as VBoxContainer
+	_ensure_scroll_layout(root_vbox)
 	if root_vbox != null:
-		root_vbox.add_theme_constant_override("separation", 14)
+		root_vbox.custom_minimum_size = Vector2(root_vbox.custom_minimum_size.x, SETTINGS_BASE_MIN_HEIGHT * SETTINGS_UI_SCALE)
+		root_vbox.add_theme_constant_override("separation", _scaled_int(14))
 	for node_any in find_children("*", "VBoxContainer", true, false):
 		var vbox: VBoxContainer = node_any as VBoxContainer
 		if vbox == null or vbox == root_vbox:
 			continue
-		vbox.add_theme_constant_override("separation", 8)
+		vbox.add_theme_constant_override("separation", _scaled_int(8))
 	for node_any in find_children("*", "HBoxContainer", true, false):
 		var hbox: HBoxContainer = node_any as HBoxContainer
 		if hbox == null:
 			continue
-		hbox.add_theme_constant_override("separation", 14)
+		hbox.add_theme_constant_override("separation", _scaled_int(14))
 	for node_any in find_children("*", "Label", true, false):
 		var label: Label = node_any as Label
 		if label == null:
 			continue
-		_apply_font(label, _font_regular, 16)
+		_apply_font(label, _font_regular, _scaled_int(16))
 	for node_any in find_children("*", "Button", true, false):
 		var button: Button = node_any as Button
 		if button == null:
 			continue
-		_apply_font(button, _font_regular, 16)
-		_set_control_min_height(button, 44.0)
+		_apply_font(button, _font_regular, _scaled_int(16))
+		_set_control_min_height(button, _scaled_float(44.0))
 	for node_any in find_children("*", "CheckButton", true, false):
 		var toggle: CheckButton = node_any as CheckButton
 		if toggle == null:
 			continue
-		_apply_font(toggle, _font_regular, 16)
-		_set_control_min_height(toggle, 40.0)
+		_apply_font(toggle, _font_regular, _scaled_int(16))
+		_set_control_min_height(toggle, _scaled_float(40.0))
 	for node_any in find_children("*", "OptionButton", true, false):
 		var option: OptionButton = node_any as OptionButton
 		if option == null:
 			continue
-		_apply_font(option, _font_regular, 16)
-		_set_control_min_height(option, 44.0)
+		_apply_font(option, _font_regular, _scaled_int(16))
+		_set_control_min_height(option, _scaled_float(44.0))
 	for node_any in find_children("*", "LineEdit", true, false):
 		var line_edit: LineEdit = node_any as LineEdit
 		if line_edit == null:
 			continue
-		_apply_font(line_edit, _font_regular, 16)
-		_set_control_min_height(line_edit, 44.0)
-	if has_node("VBox/Header"):
-		var header_label: Label = get_node("VBox/Header") as Label
-		_apply_font(header_label, _font_semibold, 26)
+		_apply_font(line_edit, _font_regular, _scaled_int(16))
+		_set_control_min_height(line_edit, _scaled_float(44.0))
+	if root_vbox != null:
+		var header_label: Label = root_vbox.get_node_or_null("Header") as Label
+		if header_label != null:
+			_apply_font(header_label, _font_semibold, _scaled_int(26))
 	var section_title_paths: Array[String] = [
-		"VBox/ProfileRow/ProfileLabel",
-		"VBox/UserIdSection/UserIdLabel",
-		"VBox/VideoSection/VideoLabel",
-		"VBox/AudioSection/AudioLabel",
-		"VBox/PerformanceSection/PerformanceLabel",
-		"VBox/AdminSection/AdminLabel"
+		"ProfileRow/ProfileLabel",
+		"UserIdSection/UserIdLabel",
+		"VideoSection/VideoLabel",
+		"AudioSection/AudioLabel",
+		"PerformanceSection/PerformanceLabel",
+		"AdminSection/AdminLabel"
 	]
 	for section_path in section_title_paths:
-		if not has_node(section_path):
+		if root_vbox == null or not root_vbox.has_node(section_path):
 			continue
-		var section_label: Label = get_node(section_path) as Label
-		_apply_font(section_label, _font_semibold, 18)
+		var section_label: Label = root_vbox.get_node(section_path) as Label
+		_apply_font(section_label, _font_semibold, _scaled_int(18))
 	display_name_input.placeholder_text = "Display name"
 	current_user_id_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	current_user_id_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	user_id_warning_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	admin_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rename_policy_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+func _ensure_scroll_layout(root_vbox: VBoxContainer) -> void:
+	if root_vbox == null:
+		return
+	var scroll: ScrollContainer = get_node_or_null("SettingsScroll") as ScrollContainer
+	if scroll == null:
+		scroll = ScrollContainer.new()
+		scroll.name = "SettingsScroll"
+		add_child(scroll)
+		move_child(scroll, 0)
+		scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if root_vbox.get_parent() != scroll:
+		var old_parent: Node = root_vbox.get_parent()
+		if old_parent != null:
+			old_parent.remove_child(root_vbox)
+		scroll.add_child(root_vbox)
+	root_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+func _scaled_int(value: int) -> int:
+	return int(roundi(float(value) * SETTINGS_UI_SCALE))
+
+func _scaled_float(value: float) -> float:
+	return value * SETTINGS_UI_SCALE
 
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()

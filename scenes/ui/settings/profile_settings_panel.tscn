@@ -213,18 +213,6 @@ text = "Analytics Dashboard"
 layout_mode = 2
 text = "Admin Login"
 
-[node name="PowerBarThemeRow" type="HBoxContainer" parent="VBox/AdminSection"]
-layout_mode = 2
-
-[node name="PowerBarThemeLabel" type="Label" parent="VBox/AdminSection/PowerBarThemeRow"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "PowerBar Theme"
-
-[node name="PowerBarThemeOption" type="OptionButton" parent="VBox/AdminSection/PowerBarThemeRow"]
-layout_mode = 2
-size_flags_horizontal = 3
-
 [node name="AdminStatusLabel" type="Label" parent="VBox/AdminSection"]
 layout_mode = 2
 text = "Private admin dashboard. Use in-app credentials."

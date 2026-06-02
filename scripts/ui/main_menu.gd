@@ -1760,8 +1760,8 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter, _font_regular, 12)
 	_apply_display_label($DashPanel/DashStorePanel/StoreVBox/StoreTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreSub, _font_regular, 14)
-	_apply_display_label($DashPanel/DashSettingsPanel/SettingsVBox/SettingsTitle, 20, _font_semibold, 24)
-	_apply_font($DashPanel/DashSettingsPanel/SettingsVBox/SettingsSub, _font_regular, 16)
+	_apply_display_label($DashPanel/DashSettingsPanel/SettingsVBox/SettingsTitle, 60, _font_semibold, 72)
+	_apply_font($DashPanel/DashSettingsPanel/SettingsVBox/SettingsSub, _font_regular, 48)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox/StoreLandingHeader, _font_semibold, 14)
 	_apply_font(store_category_header, _font_semibold, 16)
 	_apply_font(store_category_sub, _font_regular, 13)
@@ -7876,14 +7876,15 @@ func _style_dash_buttons() -> void:
 		_apply_font(badge_button, _font_semibold, 14)
 		_style_button(badge_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
 	for button in [dash_stats_close, dash_analysis_close, dash_replay_close, dash_buffs_close, dash_hive_close, dash_store_close, dash_settings_close, dash_badges_close, async_close]:
+		var close_font_size: int = 14
 		if button == dash_settings_close:
-			# Settings uses dense form controls; keep close button compact and avoid oversized sprite overlap.
 			button.set_meta("sf_close_skin", false)
-			button.custom_minimum_size = Vector2(220.0, 56.0)
+			button.custom_minimum_size = Vector2(360.0, 132.0)
+			close_font_size = 48
 		if button == dash_store_close:
 			button.set_meta("sf_close_skin_min_w", STORE_CLOSE_SKIN_MIN_WIDTH)
 			button.set_meta("sf_close_skin_min_h", STORE_CLOSE_SKIN_MIN_HEIGHT)
-		_apply_font(button, _font_regular, 14)
+		_apply_font(button, _font_regular, close_font_size)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_set_stats_tier(_stats_tier)
 
