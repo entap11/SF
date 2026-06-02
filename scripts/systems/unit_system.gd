@@ -758,8 +758,9 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		if owner_id > 0 and before_owner > 0 and applied_damage > 0:
 			_telemetry_record_hive_damage(owner_id, before_owner, applied_damage)
 		if hive.power <= 0:
+			var capture_power: int = maxi(SimTuning.CAPTURE_START_POWER, amount - maxi(0, before_power))
 			hive.owner_id = owner_id
-			hive.power = clampi(SimTuning.CAPTURE_START_POWER, 1, SimTuning.MAX_POWER)
+			hive.power = clampi(capture_power, 1, SimTuning.MAX_POWER)
 			if state.has_method("_clear_all_outgoing_from"):
 				state.call("_clear_all_outgoing_from", int(hive.id))
 		else:

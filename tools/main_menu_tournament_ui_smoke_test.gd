@@ -16,6 +16,20 @@ func _init() -> void:
 		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament nav button missing")
 		quit(1)
 		return
+	var tournaments_skin: TextureRect = tournaments_button.get_node_or_null("SkinTex") as TextureRect
+	var registry := SpriteRegistry.get_instance()
+	var expected_skin_path := "res://assets/sprites/sf_skin_v1/tournaments.png"
+	if (
+		tournaments_skin == null
+		or not tournaments_skin.visible
+		or tournaments_skin.texture == null
+		or registry == null
+		or registry.get_tex_path("ui.mm.tournaments.normal") != expected_skin_path
+		or tournaments_skin.texture != registry.get_tex("ui.mm.tournaments.normal")
+	):
+		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament nav sprite missing")
+		quit(1)
+		return
 	tournaments_button.pressed.emit()
 	await process_frame
 

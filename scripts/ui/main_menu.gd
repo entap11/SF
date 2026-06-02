@@ -7268,15 +7268,6 @@ func _apply_bottom_nav_sprite_presentation() -> void:
 	for button in _bottom_nav_buttons():
 		if button == null:
 			continue
-		if button == menu_unused_button:
-			if button.has_node("SkinTex"):
-				var stale_skin: TextureRect = button.get_node("SkinTex") as TextureRect
-				if stale_skin != null:
-					stale_skin.visible = false
-			button.add_theme_color_override("font_color", Color(0.92, 0.92, 0.92, 1.0))
-			button.add_theme_color_override("font_hover_color", Color(1.0, 0.95, 0.72, 1.0))
-			button.add_theme_color_override("font_pressed_color", Color(1.0, 0.84, 0.36, 1.0))
-			continue
 		if (not button.has_node("SkinTex")) and button.has_method("apply_skin"):
 			button.call("apply_skin")
 		if not button.has_node("SkinTex"):
@@ -7284,6 +7275,7 @@ func _apply_bottom_nav_sprite_presentation() -> void:
 		_style_bottom_nav_sprite_button(button)
 		var skin_tex: TextureRect = button.get_node("SkinTex") as TextureRect
 		if skin_tex != null:
+			skin_tex.visible = true
 			skin_tex.material = material
 
 func _apply_bottom_nav_layout() -> void:

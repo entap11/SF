@@ -17,7 +17,7 @@ const HIVE_LANE_RADIUS_PX := HIVE_RADIUS_PX
 const HIVE_BLOCK_RADIUS_PX := HIVE_RADIUS_PX
 const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
 const LANE_OCCLUSION_PAD_PX := HiveGeometry.DEFAULT_LANE_OCCLUSION_PAD_PX
-const LANE_OCCLUSION_STABLE_HIVE_POWER := HiveGeometry.TIER_3_MIN_POWER
+const LANE_OCCLUSION_STABLE_HIVE_POWER := 0
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC
 const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
@@ -490,8 +490,8 @@ func _hive_block_radius(hive: HiveData) -> float:
 		radius = MapSchema.hive_radius_px_for_kind(str(hive.kind), _grid_cell_size_px())
 	if radius <= 0.0:
 		radius = HIVE_BLOCK_RADIUS_PX
-	# Lane topology must stay deterministic through a match. Reserve the large
-	# hive footprint up front so growth cannot invalidate an existing edge.
+	# Lane topology uses the base hive footprint. Larger reserved footprints
+	# over-block clear tactical routes on tight maps such as Delta.
 	return HiveGeometry.lane_block_radius_px(radius, LANE_OCCLUSION_STABLE_HIVE_POWER, LANE_BODY_HALF_WIDTH_PX, LANE_OCCLUSION_PAD_PX)
 
 func _hive_block_extents(hive: HiveData) -> Vector2:
