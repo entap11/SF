@@ -44,16 +44,26 @@ func _init() -> void:
 		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: free tournament rows missing")
 		quit(1)
 		return
+	var free_row_count: int = list.get_child_count()
+	var free_tab: Button = menu.get_node_or_null("AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/TournamentBrowser/TournamentTabs/TournamentFreeTab") as Button
+	if free_tab == null or free_tab.text != "FREE ROLL":
+		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: free roll tab missing or mislabeled")
+		quit(1)
+		return
 
 	var money_tab: Button = menu.get_node_or_null("AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/TournamentBrowser/TournamentTabs/TournamentMoneyTab") as Button
-	if money_tab == null:
-		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: money tab missing")
+	if money_tab == null or money_tab.text != "MONEY GAME":
+		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: money game tab missing or mislabeled")
 		quit(1)
 		return
 	money_tab.pressed.emit()
 	await process_frame
 	if list.get_child_count() < 3:
 		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: money tournament rows missing")
+		quit(1)
+		return
+	if list.get_child_count() != free_row_count:
+		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: free and money tabs should expose matching menu row counts")
 		quit(1)
 		return
 

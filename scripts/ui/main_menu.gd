@@ -14024,7 +14024,7 @@ func _ensure_tournament_browser_ui() -> void:
 
 	_tournament_free_tab = Button.new()
 	_tournament_free_tab.name = "TournamentFreeTab"
-	_tournament_free_tab.text = "FREE PLAY"
+	_tournament_free_tab.text = "FREE ROLL"
 	_tournament_free_tab.toggle_mode = true
 	_tournament_free_tab.custom_minimum_size = Vector2(0.0, 64.0)
 	_tournament_free_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -14035,7 +14035,7 @@ func _ensure_tournament_browser_ui() -> void:
 
 	_tournament_money_tab = Button.new()
 	_tournament_money_tab.name = "TournamentMoneyTab"
-	_tournament_money_tab.text = "$ ENTRIES"
+	_tournament_money_tab.text = "MONEY GAME"
 	_tournament_money_tab.toggle_mode = true
 	_tournament_money_tab.custom_minimum_size = Vector2(0.0, 64.0)
 	_tournament_money_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
