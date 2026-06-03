@@ -133,6 +133,7 @@ func randomizer_payload_for_config(scope: String, map_count: int, config: Dictio
 	for category in MatchSetupRandomizer.CATEGORY_ORDER:
 		if rng.randf() <= category_chance:
 			categories[category] = _random_power_value(rng)
+	MatchSetupRandomizer._limit_dual_structure_categories(categories, rng)
 	var hit: bool = not categories.is_empty()
 	var payload: Dictionary = {
 		"version": 1,
@@ -144,11 +145,7 @@ func randomizer_payload_for_config(scope: String, map_count: int, config: Dictio
 	}
 	if not hit:
 		return payload
-	if categories.has(MatchSetupRandomizer.CATEGORY_STRUCTURE_POWER):
-		payload["structures"] = {
-			"kind": "mixed",
-			"slot_policy": "all_slots"
-		}
+	MatchSetupRandomizer._add_structure_payload(payload, categories)
 	payload["description"] = MatchSetupRandomizer.description(payload)
 	return payload
 

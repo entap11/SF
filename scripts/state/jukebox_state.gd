@@ -6,22 +6,17 @@ const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
 
 const PERIOD_LABELS: Array[String] = ["WEEKLY", "MONTHLY", "SEASON", "ALL TIME"]
-const CATEGORY_ORDER: Array[String] = ["FEATURED", "CTF", "HIDDEN", "FFA", "NOMANSLAND", "DELTA"]
+const CATEGORY_ORDER: Array[String] = ["FEATURED", "CTF", "HIDDEN", "FFA", "NOMANSLAND", "DELTA", "RACE"]
 const INTERNAL_CATEGORY_LABELS: Array[String] = ["STRATEGY", "TEMPO", "REACTION", "GREED", "GREEDY"]
 const DEFAULT_BOARD_MODE: String = "ASYNC_SINGLE_MAP_TIMED"
 const DIRECT_CTF_MAP_PATHS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 ]
-const HIDDEN_CTF_MAP_PATHS: Array[String] = [
-	"res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__1p.json"
-]
+const HIDDEN_CTF_MAP_PATHS: Array[String] = []
 const FEATURED_MAP_PATHS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__545__v02_all_sides_owned__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__545__v03_top_half_vs_bottom_half__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__545__v04_top_corners_vs_bottom_corners__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__545__v05_diagonal_TL_vs_BR__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__1p.json"
+	"res://maps/_future/nomansland/MAP_nomansland__323__v01_corners_midline_spine__1p.json",
+	"res://maps/_future/nomansland/MAP_nomansland__444__v01_pinched_spine__1p.json"
 ]
 const HERO_FALLBACK_PREVIEW_PATH: String = "res://assets/sprites/sf_skin_v1/map_jukebox.png"
 

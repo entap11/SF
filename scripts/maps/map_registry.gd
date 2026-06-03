@@ -12,69 +12,8 @@ const SANDBOXED_PUBLIC_STYLES: Dictionary = {
 	"nomansland": ["656"]
 }
 const PUBLIC_NOMANSLAND_SEQUENCE_IDS: Array[String] = [
-	"MAP_nomansland__SBASE__1p",
-	"MAP_nomansland__SN6__1p",
-	"MAP_nomansland__GBASE__1p",
-	"MAP_nomansland__GBASE__BR2__TR2__1p",
-	"MAP_nomansland__GBASE__TB__1p",
-	"MAP_nomansland__SBASE__1p__start_v12_top_row_vs_bottom_row_3each",
-	"MAP_nomansland__SBASE__1p__start_v01_base_corners",
-	"MAP_nomansland__SBASE__1p__start_v02_top2_vs_bottom2",
-	"MAP_nomansland__SBASE__1p__start_v03_top3_vs_bottom3",
-	"MAP_nomansland__SBASE__1p__start_v04_full_side_spines",
-	"MAP_nomansland__SBASE__1p__start_v05_top_segment_spines",
-	"MAP_nomansland__SBASE__1p__start_v06_center_spine_split_2v2",
-	"MAP_nomansland__SBASE__1p__start_v07_side_corners_2each",
-	"MAP_nomansland__SBASE__1p__start_v08_diagonal_corners_2each",
-	"MAP_nomansland__SBASE__1p__start_v09_center_adjacent_c3_vs_c4",
-	"MAP_nomansland__SBASE__1p__start_v10_center_adjacent_c2_vs_c3",
-	"MAP_nomansland__SBASE__1p__start_v11_corners_plus_spine_ends",
-	"MAP_nomansland__SBASE__1p__start_v13_midline_2each",
-	"MAP_nomansland__SBASE__1p__start_v14_rot90_top_segments_vs_bottom_segments",
-	"MAP_nomansland__SBASE__1p__start_v15_center_trio_split",
-	"MAP_nomansland__SBASE__1p__start_v16_full_spine_split",
-	"MAP_nomansland__SBASE__1p__start_v17_alternating_spine",
-	"MAP_nomansland__SBASE__1p__npc04",
-	"MAP_nomansland__SBASE__1p__npc05",
-	"MAP_nomansland__SBASE__1p__npc05__B",
-	"MAP_nomansland__SBASE__1p__npc05__T",
-	"MAP_nomansland__SBASE__1p__npc05__TB",
-	"MAP_nomansland__SBASE__1p__npc06",
-	"MAP_nomansland__SBASE__1p__npc06__B",
-	"MAP_nomansland__SBASE__1p__npc06__T",
-	"MAP_nomansland__SBASE__1p__npc06__TB",
-	"MAP_nomansland__SBASE__1p__npc08",
-	"MAP_nomansland__SBASE__1p__npc_center_heavy",
-	"MAP_nomansland__SBASE__1p__npc_center_heavy__B",
-	"MAP_nomansland__SBASE__1p__npc_center_heavy__T",
-	"MAP_nomansland__SBASE__1p__npc_center_heavy__TB",
-	"MAP_nomansland__SBASE__1p__npc_rails_heavy",
-	"MAP_nomansland__SBASE__1p__npc_wave_pressure",
-	"MAP_nomansland__SBASE__1p__npc_wave_pressure__B",
-	"MAP_nomansland__SBASE__1p__npc_wave_pressure__T",
-	"MAP_nomansland__SBASE__1p__npc_wave_pressure__TB",
 	"MAP_nomansland__545__v01_top2_sides__1p",
-	"MAP_nomansland__545__v02_all_sides_owned__1p",
-	"MAP_nomansland__545__v03_top_half_vs_bottom_half__1p",
-	"MAP_nomansland__545__v04_top_corners_vs_bottom_corners__1p",
-	"MAP_nomansland__545__v05_diagonal_TL_vs_BR__1p",
-	"MAP_nomansland__545__v06_diagonal_BL_vs_TR__1p",
-	"MAP_nomansland__545__v07_top_spine_vs_bottom_spine__1p",
-	"MAP_nomansland__545__v08_spine_knife_fight__1p",
-	"MAP_nomansland__545__v09_triad_top_vs_bottom__1p",
-	"MAP_nomansland__545__v10_side_ladders_no_corners__1p",
-	"MAP_nomansland__545__v11_outer_vs_inner__1p",
-	"MAP_nomansland__545__v12_cross_spine_anchors__1p",
-	"MAP_nomansland__545__v13_top3_each__1p",
-	"MAP_nomansland__545__v14_bottom3_each__1p",
-	"MAP_nomansland__545__v15_spine_ends_duel__1p",
-	"MAP_nomansland__545__v16_spine_mid_duel_only__1p",
-	"MAP_nomansland__545__v17_four_corners_only__1p",
-	"MAP_nomansland__545__v18_two_hubs_each__1p",
 	"MAP_nomansland__323__v01_corners_midline_spine__1p",
-	"MAP_nomansland__323__v02_side_pairs__1p",
-	"MAP_nomansland__323__v03_opposing_corners__1p",
-	"MAP_nomansland__323__v04_center_axis__1p",
 	"MAP_nomansland__444__v01_pinched_spine__1p"
 ]
 const ALLOWED_MODES: Array[String] = ["1p", "2p", "3p", "4p"]
@@ -140,6 +79,138 @@ const PUBLIC_MAP_ALIASES: Dictionary = {
 		"family": "delta",
 		"sequence": 3,
 		"status": "active"
+	},
+	"MAP_tritip__SBASE__3p": {
+		"public_name": "tritip1",
+		"family": "tritip",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_rink_rat__SBASE__4p": {
+		"public_name": "rinkrat1",
+		"family": "rink_rat",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_rink_rat__LR__4p": {
+		"public_name": "rinkrat2",
+		"family": "rink_rat",
+		"sequence": 2,
+		"status": "candidate"
+	},
+	"MAP_iron_cross__SBASE__4p": {
+		"public_name": "ironcross1",
+		"family": "iron_cross",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_swirly__SBASE__4p": {
+		"public_name": "swirly1",
+		"family": "swirly",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_race__SBASE__1p": {
+		"public_name": "race",
+		"family": "race",
+		"sequence": 1,
+		"status": "active"
+	},
+	"MAP_corkscrew__SBASE__1p": {
+		"public_name": "corkscrew",
+		"family": "corkscrew",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_laneclimb__SBASE__4p": {
+		"public_name": "laneclimb",
+		"family": "laneclimb",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_knifefight__SBASE__1p": {
+		"public_name": "knifefight1",
+		"family": "knifefight",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_knifefight__KF2__1p": {
+		"public_name": "knifefight2",
+		"family": "knifefight",
+		"sequence": 2,
+		"status": "candidate"
+	},
+	"MAP_knifefight__KF2_CLOSE__4p": {
+		"public_name": "knifefight2close",
+		"family": "knifefight",
+		"sequence": 3,
+		"status": "candidate"
+	},
+	"MAP_knifefight__KF3__1p": {
+		"public_name": "knifefight3",
+		"family": "knifefight",
+		"sequence": 4,
+		"status": "candidate"
+	},
+	"MAP_knifefight__KF3_CLOSE__4p": {
+		"public_name": "knifefight3close",
+		"family": "knifefight",
+		"sequence": 5,
+		"status": "candidate"
+	},
+	"MAP_knifefight__KF4_WALLS__1p": {
+		"public_name": "knifefight4",
+		"family": "knifefight",
+		"sequence": 6,
+		"status": "candidate"
+	},
+	"MAP_quadfight__SBASE__4p": {
+		"public_name": "quadfight1",
+		"family": "quadfight",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_closequarters__SBASE__4p": {
+		"public_name": "closequarters1",
+		"family": "closequarters",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_closequarters__CQ2__4p": {
+		"public_name": "closequarters2",
+		"family": "closequarters",
+		"sequence": 2,
+		"status": "candidate"
+	},
+	"MAP_closequarters__CQ3__4p": {
+		"public_name": "closequarters3",
+		"family": "closequarters",
+		"sequence": 3,
+		"status": "candidate"
+	},
+	"MAP_corridors__SBASE__4p": {
+		"public_name": "corridors1",
+		"family": "corridors",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_centerstrike__SBASE__4p": {
+		"public_name": "centerstrike1",
+		"family": "centerstrike",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_centerstrike__CS2__4p": {
+		"public_name": "centerstrike2",
+		"family": "centerstrike",
+		"sequence": 2,
+		"status": "candidate"
+	},
+	"MAP_centerstrike__CS3__4p": {
+		"public_name": "centerstrike3",
+		"family": "centerstrike",
+		"sequence": 3,
+		"status": "candidate"
 	}
 }
 

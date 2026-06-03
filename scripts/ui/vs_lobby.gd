@@ -36,10 +36,8 @@ const BOT_FILL_DIALOG_SIZE: Vector2i = Vector2i(720, 420)
 const DEFAULT_STAGE_MAP_IDS: Array[String] = []
 const CTF_STAGE_MAP_IDS: Array[String] = [
 	"MAP_nomansland__545__v01_top2_sides__1p",
-	"MAP_nomansland__545__v02_all_sides_owned__1p",
-	"MAP_nomansland__545__v03_top_half_vs_bottom_half__1p",
-	"MAP_nomansland__545__v04_top_corners_vs_bottom_corners__1p",
-	"MAP_nomansland__545__v05_diagonal_TL_vs_BR__1p"
+	"MAP_nomansland__323__v01_corners_midline_spine__1p",
+	"MAP_nomansland__444__v01_pinched_spine__1p"
 ]
 const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
 const CTF_FLAG_MOVE_COUNT_MAX_DEFAULT: int = 1

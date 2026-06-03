@@ -152,6 +152,23 @@ func _run() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: play button did not emit play_requested")
 		quit(1)
 		return
+	var race_tab: Button = _category_button(panel, "RACE")
+	if race_tab == null:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: RACE category tab missing")
+		quit(1)
+		return
+	race_tab.pressed.emit()
+	await process_frame
+	await process_frame
+	var race_state: Dictionary = panel.call("capture_runtime_state") as Dictionary
+	if str(race_state.get("selected_category", "")) != "RACE":
+		push_error("JUKEBOX_PANEL_UI_SMOKE: RACE tab did not select category")
+		quit(1)
+		return
+	if not str(race_state.get("selected_map_path", "")).contains("MAP_race__SBASE__1p.json"):
+		push_error("JUKEBOX_PANEL_UI_SMOKE: RACE category did not select Race map")
+		quit(1)
+		return
 
 	print("JUKEBOX_PANEL_UI_SMOKE: PASS")
 	quit(0)
@@ -171,6 +188,20 @@ func _second_map_button(panel: Control, initial_map_path: String) -> Button:
 			var button: Button = child as Button
 			if not button.button_pressed:
 				return button
+	return null
+
+func _category_button(panel: Control, label: String) -> Button:
+	var tabs: Node = panel.get_node_or_null("VBox/SelectorPanel/SelectorVBox/CategoryTabs")
+	if tabs == null:
+		tabs = panel.get_node_or_null("VBox/SelectorPanel/SelectorVBox/CategoryTabsScroll/CategoryTabs")
+	if tabs == null:
+		return null
+	for child in tabs.get_children():
+		if not (child is Button):
+			continue
+		var button: Button = child as Button
+		if button.text == label:
+			return button
 	return null
 
 func _rect_contains_rect(outer: Rect2, inner: Rect2) -> bool:

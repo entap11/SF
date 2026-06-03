@@ -1,0 +1,45 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_corridors__SBASE__4p",
+  "name": "Corridors 1",
+  "family": "corridors",
+  "display_family": "Corridors",
+  "mode": "4p",
+  "player_buckets": ["1P", "2V2", "4P_FFA"],
+  "strict_player_buckets": true,
+  "playstyle_tags": ["STRATEGY"],
+  "season_tags": ["corridors"],
+  "rotation": { "status": "candidate", "weight": 1 },
+  "async_bot_count": 3,
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
+  "start_slots": ["p1h1", "p3h1", "p2h1", "p4h1"],
+  "nodes": [
+    { "id": "p3h1", "pos": { "x": 1,  "y": 1  }, "owner": "P3",  "kind": "hive" },
+    { "id": "p2h1", "pos": { "x": 17, "y": 1  }, "owner": "P2",  "kind": "hive" },
+    { "id": "p1h1", "pos": { "x": 1,  "y": 27 }, "owner": "P1",  "kind": "hive" },
+    { "id": "p4h1", "pos": { "x": 17, "y": 27 }, "owner": "P4",  "kind": "hive" },
+
+    { "id": "n01",  "pos": { "x": 7,  "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n02",  "pos": { "x": 11, "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n03",  "pos": { "x": 7,  "y": 8  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n04",  "pos": { "x": 11, "y": 8  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n05",  "pos": { "x": 4,  "y": 11 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n06",  "pos": { "x": 14, "y": 11 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n07",  "pos": { "x": 4,  "y": 15 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n08",  "pos": { "x": 14, "y": 15 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n09",  "pos": { "x": 7,  "y": 18 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n10",  "pos": { "x": 11, "y": 18 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n11",  "pos": { "x": 7,  "y": 27 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n12",  "pos": { "x": 11, "y": 27 }, "owner": "NPC", "kind": "hive" }
+  ],
+  "structure_slots": [
+    { "id": "slot_north_center", "pos": { "x": 9, "y": 5  }, "allowed": ["tower", "barracks"] },
+    { "id": "slot_south_center", "pos": { "x": 9, "y": 21 }, "allowed": ["tower", "barracks"] }
+  ],
+  "walls": [
+    { "x1": 0.0,  "y1": 14.0, "x2": 2.0,  "y2": 14.0 },
+    { "x1": 16.0, "y1": 14.0, "x2": 18.0, "y2": 14.0 }
+  ],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

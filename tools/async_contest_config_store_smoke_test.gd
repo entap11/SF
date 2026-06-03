@@ -43,12 +43,27 @@ func _run() -> void:
 		_fail("100 percent randomizer did not hit")
 		return
 	var categories: Dictionary = payload.get("categories", {}) as Dictionary
-	if categories.size() != MatchSetupRandomizer.CATEGORY_ORDER.size():
-		_fail("100 percent randomizer should select every category")
+	if not categories.has(MatchSetupRandomizer.CATEGORY_HIVE_START_POWER):
+		_fail("100 percent randomizer should select hive start power")
+		return
+	if not categories.has(MatchSetupRandomizer.CATEGORY_NPC_HIVE_POWER):
+		_fail("100 percent randomizer should select NPC hive power")
+		return
+	var has_towers: bool = categories.has(MatchSetupRandomizer.CATEGORY_TOWER_POWER)
+	var has_barracks: bool = categories.has(MatchSetupRandomizer.CATEGORY_BARRACKS_POWER)
+	if not has_towers and not has_barracks:
+		_fail("100 percent randomizer should select at least one structure category")
 		return
 	var structures: Dictionary = payload.get("structures", {}) as Dictionary
-	if str(structures.get("kind", "")) != "mixed":
-		_fail("randomizer structure kind should be mixed")
+	var structure_kind: String = str(structures.get("kind", ""))
+	if has_towers and has_barracks and structure_kind != "mixed":
+		_fail("dual structure categories should emit mixed structure kind")
+		return
+	if has_towers and not has_barracks and structure_kind != "tower":
+		_fail("tower-only category should emit tower structure kind")
+		return
+	if has_barracks and not has_towers and structure_kind != "barracks":
+		_fail("barracks-only category should emit barracks structure kind")
 		return
 	config["randomizer_pct"] = 0
 	store.update_config("WEEKLY", 3, config)

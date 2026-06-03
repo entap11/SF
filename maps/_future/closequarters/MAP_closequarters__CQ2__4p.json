@@ -1,0 +1,38 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_closequarters__CQ2__4p",
+  "name": "Close Quarters 2",
+  "family": "closequarters",
+  "display_family": "Close Quarters",
+  "mode": "4p",
+  "player_buckets": ["1P", "2V2", "4P_FFA"],
+  "strict_player_buckets": true,
+  "playstyle_tags": ["STRATEGY"],
+  "season_tags": ["closequarters"],
+  "rotation": { "status": "candidate", "weight": 1 },
+  "async_bot_count": 3,
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
+  "start_slots": ["p1h1", "p3h1", "p2h1", "p4h1"],
+  "nodes": [
+    { "id": "p2h1", "pos": { "x": 9,  "y": 11 }, "owner": "P2",  "kind": "hive" },
+    { "id": "p3h1", "pos": { "x": 6,  "y": 14 }, "owner": "P3",  "kind": "hive" },
+    { "id": "p4h1", "pos": { "x": 12, "y": 14 }, "owner": "P4",  "kind": "hive" },
+    { "id": "p1h1", "pos": { "x": 9,  "y": 17 }, "owner": "P1",  "kind": "hive" },
+
+    { "id": "n01",  "pos": { "x": 1,  "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n02",  "pos": { "x": 17, "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n03",  "pos": { "x": 5,  "y": 6  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n04",  "pos": { "x": 13, "y": 6  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n05",  "pos": { "x": 5,  "y": 22 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n06",  "pos": { "x": 13, "y": 22 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n07",  "pos": { "x": 1,  "y": 27 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n08",  "pos": { "x": 17, "y": 27 }, "owner": "NPC", "kind": "hive" }
+  ],
+  "structure_slots": [
+    { "id": "slot_north", "pos": { "x": 9, "y": 8  }, "allowed": ["tower", "barracks"] },
+    { "id": "slot_south", "pos": { "x": 9, "y": 20 }, "allowed": ["tower", "barracks"] }
+  ],
+  "walls": [],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

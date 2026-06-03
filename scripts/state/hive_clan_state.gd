@@ -60,8 +60,8 @@ const HIVE_TOURNAMENT_BRACKET_STATUS_ACTIVE: String = "active"
 const HIVE_TOURNAMENT_BRACKET_STATUS_RESOLVED: String = "resolved"
 const HIVE_TOURNAMENT_STAGE_MAP_PATHS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__545__v02_all_sides_owned__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__545__v03_top_half_vs_bottom_half__1p.json"
+	"res://maps/_future/nomansland/MAP_nomansland__323__v01_corners_midline_spine__1p.json",
+	"res://maps/_future/nomansland/MAP_nomansland__444__v01_pinched_spine__1p.json"
 ]
 const INVITE_OFFER_BUNDLES: Array[Dictionary] = [
 	{"bundle_id": "starter", "title": "Starter Honey Gift", "honey_cost": 250, "detail": "Small welcome gift attached to the invite."},

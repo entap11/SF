@@ -5,16 +5,19 @@ const CONTEXT_KEY: String = "match_randomizer"
 const TREE_META_KEY: String = "vs_match_randomizer"
 const RANDOMIZER_CHANCE: float = 0.10
 const CATEGORY_CHANCE: float = 0.33
+const BOTH_STRUCTURE_TYPES_CHANCE: float = 0.15
 const POWER_VALUES: Array[int] = [5, 15, 20, 25]
 const CATEGORY_HIVE_START_POWER: String = "hive_start_power"
-const CATEGORY_STRUCTURE_POWER: String = "structure_power"
+const CATEGORY_TOWER_POWER: String = "tower_power"
+const CATEGORY_BARRACKS_POWER: String = "barracks_power"
+const CATEGORY_STRUCTURE_POWER: String = CATEGORY_TOWER_POWER
 const CATEGORY_NPC_HIVE_POWER: String = "npc_hive_power"
 const CATEGORY_ORDER: Array[String] = [
 	CATEGORY_HIVE_START_POWER,
-	CATEGORY_STRUCTURE_POWER,
+	CATEGORY_TOWER_POWER,
+	CATEGORY_BARRACKS_POWER,
 	CATEGORY_NPC_HIVE_POWER
 ]
-const STRUCTURE_KIND_VALUES: Array[String] = ["tower", "barracks"]
 
 static func roll(rng: RandomNumberGenerator) -> Dictionary:
 	if rng == null:
@@ -37,6 +40,7 @@ static func roll(rng: RandomNumberGenerator) -> Dictionary:
 	if categories.is_empty():
 		var fallback_category: String = CATEGORY_ORDER[rng.randi_range(0, CATEGORY_ORDER.size() - 1)]
 		categories[fallback_category] = _random_power_value(rng)
+	_limit_dual_structure_categories(categories, rng)
 	var payload: Dictionary = {
 		"version": 1,
 		"hit": true,
@@ -45,11 +49,7 @@ static func roll(rng: RandomNumberGenerator) -> Dictionary:
 		"category_chance": CATEGORY_CHANCE,
 		"categories": categories
 	}
-	if categories.has(CATEGORY_STRUCTURE_POWER):
-		payload["structures"] = {
-			"kind": _random_structure_kind(rng),
-			"slot_policy": "all_slots"
-		}
+	_add_structure_payload(payload, categories)
 	payload["description"] = description(payload)
 	return payload
 
@@ -63,10 +63,10 @@ static func description(payload: Dictionary) -> String:
 	var parts: Array[String] = []
 	if categories.has(CATEGORY_HIVE_START_POWER):
 		parts.append("hive start %d" % int(categories.get(CATEGORY_HIVE_START_POWER, 0)))
-	if categories.has(CATEGORY_STRUCTURE_POWER):
-		var structure_kind: String = _structure_kind_from_payload(payload)
-		var structure_label: String = "structures" if structure_kind == "mixed" else ("towers" if structure_kind == "tower" else "barracks")
-		parts.append("%s %d" % [structure_label, int(categories.get(CATEGORY_STRUCTURE_POWER, 0))])
+	if categories.has(CATEGORY_TOWER_POWER):
+		parts.append("towers %d" % int(categories.get(CATEGORY_TOWER_POWER, 0)))
+	if categories.has(CATEGORY_BARRACKS_POWER):
+		parts.append("barracks %d" % int(categories.get(CATEGORY_BARRACKS_POWER, 0)))
 	if categories.has(CATEGORY_NPC_HIVE_POWER):
 		parts.append("NPC hives %d" % int(categories.get(CATEGORY_NPC_HIVE_POWER, 0)))
 	if parts.is_empty():
@@ -125,6 +125,9 @@ static func apply_start_slots(map_data: Dictionary, payload: Dictionary, active_
 	}
 	return out
 
+static func should_randomize_start_slots(payload: Dictionary) -> bool:
+	return bool(payload.get("randomize_start_slots", false))
+
 static func apply_to_map_data(map_data: Dictionary, payload: Dictionary) -> Dictionary:
 	if map_data.is_empty() or not bool(payload.get("hit", false)):
 		return map_data
@@ -139,17 +142,40 @@ static func apply_to_map_data(map_data: Dictionary, payload: Dictionary) -> Dict
 		_set_hive_power(out, true, int(categories.get(CATEGORY_HIVE_START_POWER, 0)))
 	if categories.has(CATEGORY_NPC_HIVE_POWER):
 		_set_hive_power(out, false, int(categories.get(CATEGORY_NPC_HIVE_POWER, 0)))
-	if categories.has(CATEGORY_STRUCTURE_POWER):
-		_populate_structure_slots(out, payload, int(categories.get(CATEGORY_STRUCTURE_POWER, 0)))
-		_set_structure_power(out, int(categories.get(CATEGORY_STRUCTURE_POWER, 0)))
+	if categories.has(CATEGORY_TOWER_POWER) or categories.has(CATEGORY_BARRACKS_POWER):
+		_populate_structure_slots(out, payload, categories)
+		if categories.has(CATEGORY_TOWER_POWER):
+			_set_structure_power(out, "towers", int(categories.get(CATEGORY_TOWER_POWER, 0)))
+		if categories.has(CATEGORY_BARRACKS_POWER):
+			_set_structure_power(out, "barracks", int(categories.get(CATEGORY_BARRACKS_POWER, 0)))
 	out[CONTEXT_KEY] = payload.duplicate(true)
 	return out
 
 static func _random_power_value(rng: RandomNumberGenerator) -> int:
 	return POWER_VALUES[rng.randi_range(0, POWER_VALUES.size() - 1)]
 
-static func _random_structure_kind(rng: RandomNumberGenerator) -> String:
-	return STRUCTURE_KIND_VALUES[rng.randi_range(0, STRUCTURE_KIND_VALUES.size() - 1)]
+static func _limit_dual_structure_categories(categories: Dictionary, rng: RandomNumberGenerator) -> void:
+	if not categories.has(CATEGORY_TOWER_POWER) or not categories.has(CATEGORY_BARRACKS_POWER):
+		return
+	if rng.randf() <= BOTH_STRUCTURE_TYPES_CHANCE:
+		return
+	if rng.randi_range(0, 1) == 0:
+		categories.erase(CATEGORY_BARRACKS_POWER)
+	else:
+		categories.erase(CATEGORY_TOWER_POWER)
+
+static func _add_structure_payload(payload: Dictionary, categories: Dictionary) -> void:
+	var has_towers: bool = categories.has(CATEGORY_TOWER_POWER)
+	var has_barracks: bool = categories.has(CATEGORY_BARRACKS_POWER)
+	if not has_towers and not has_barracks:
+		return
+	var kind: String = "mixed" if has_towers and has_barracks else ("tower" if has_towers else "barracks")
+	payload["structures"] = {
+		"kind": kind,
+		"slot_policy": "all_slots",
+		"allow_towers": has_towers,
+		"allow_barracks": has_barracks
+	}
 
 static func _positive_seed(value: int) -> int:
 	var out: int = abs(value)
@@ -224,29 +250,27 @@ static func _set_hive_power(map_data: Dictionary, player_owned: bool, power_raw:
 			hive["pwr"] = power
 	map_data["hives"] = hives
 
-static func _set_structure_power(map_data: Dictionary, power_raw: int) -> void:
+static func _set_structure_power(map_data: Dictionary, key: String, power_raw: int) -> void:
 	var power: int = clampi(power_raw, 1, 50)
-	for key in ["towers", "barracks"]:
-		var structures_v: Variant = map_data.get(key, [])
-		if typeof(structures_v) != TYPE_ARRAY:
+	var structures_v: Variant = map_data.get(key, [])
+	if typeof(structures_v) != TYPE_ARRAY:
+		return
+	var structures: Array = structures_v as Array
+	for structure_any in structures:
+		if typeof(structure_any) != TYPE_DICTIONARY:
 			continue
-		var structures: Array = structures_v as Array
-		for structure_any in structures:
-			if typeof(structure_any) != TYPE_DICTIONARY:
-				continue
-			var structure: Dictionary = structure_any as Dictionary
-			structure["power"] = power
-			structure["current_power"] = power
-		map_data[key] = structures
+		var structure: Dictionary = structure_any as Dictionary
+		structure["power"] = power
+		structure["current_power"] = power
+	map_data[key] = structures
 
-static func _populate_structure_slots(map_data: Dictionary, payload: Dictionary, power_raw: int) -> void:
+static func _populate_structure_slots(map_data: Dictionary, payload: Dictionary, categories: Dictionary) -> void:
 	var slots_v: Variant = map_data.get("structure_slots", [])
 	if typeof(slots_v) != TYPE_ARRAY:
 		return
 	var slots: Array = slots_v as Array
 	if slots.is_empty():
 		return
-	var power: int = clampi(power_raw, 1, 50)
 	var desired_kind: String = _structure_kind_from_payload(payload)
 	var towers: Array = []
 	var barracks: Array = []
@@ -263,6 +287,10 @@ static func _populate_structure_slots(map_data: Dictionary, payload: Dictionary,
 		var gp: Array = _slot_grid_pos(slot)
 		if gp.is_empty():
 			continue
+		var power: int = int(categories.get(CATEGORY_TOWER_POWER if kind == "tower" else CATEGORY_BARRACKS_POWER, 0))
+		if power <= 0:
+			continue
+		power = clampi(power, 1, 50)
 		var structure: Dictionary = {
 			"id": next_tower_id if kind == "tower" else next_barracks_id,
 			"grid_pos": gp,

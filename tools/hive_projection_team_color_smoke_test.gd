@@ -30,7 +30,7 @@ func _init() -> void:
 
 	var pip_fill: Polygon2D = visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_0") as Polygon2D
 	_assert_true(pip_fill != null, "lane budget pip should exist")
-	_assert_true(_is_black(pip_fill.color), "available P2 pip should be black")
+	_assert_true(_is_magenta(pip_fill.color), "available P2 pip should be magenta")
 	_assert_true(pip_fill.color.a > 0.5, "available P2 pip should be visible")
 
 	var small_visual: Node2D = await _configured_visual(1, 5, 0, 1)
@@ -59,8 +59,8 @@ func _init() -> void:
 	var spent_outline: Line2D = spent_visual.get_node_or_null("LaneBudgetIndicators/BudgetPipOutline_0") as Line2D
 	var spent_fill: Polygon2D = spent_visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_0") as Polygon2D
 	_assert_true(spent_outline != null, "spent P2 pip outline should exist")
-	_assert_true(_is_black(spent_outline.default_color), "spent P2 pip outline should be black")
-	_assert_true(spent_outline.position.y >= 18.0 and spent_outline.position.y <= 22.0, "large flat-top pip should fit below the number on the top disk")
+	_assert_true(_is_dark_magenta(spent_outline.default_color), "spent P2 pip outline should be dark magenta")
+	_assert_true(spent_outline.position.y >= 26.0 and spent_outline.position.y <= 34.0, "large flat-top pip should fit below the number on the top disk")
 	_assert_true(spent_fill != null and spent_fill.color.a == 0.0, "spent P2 pip fill should stay transparent")
 
 	var npc_visual: Node2D = await _configured_visual(0, 8, 0, 3)
@@ -80,7 +80,7 @@ func _init() -> void:
 
 	var npc_pip_fill: Polygon2D = npc_visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_0") as Polygon2D
 	_assert_true(npc_pip_fill != null, "NPC lane budget pip should exist")
-	_assert_true(_is_black(npc_pip_fill.color), "NPC lane budget pip should be black")
+	_assert_true(_is_magenta(npc_pip_fill.color), "NPC lane budget pip should be magenta")
 
 	if _failed:
 		quit(1)
@@ -107,8 +107,11 @@ func _configured_visual(owner_id: int, power: int, lane_budget_used: int, lane_b
 	await process_frame
 	return visual
 
-func _is_black(color: Color) -> bool:
-	return color.r <= 0.01 and color.g <= 0.01 and color.b <= 0.01
+func _is_magenta(color: Color) -> bool:
+	return color.r >= 0.95 and color.g <= 0.05 and color.b >= 0.70
+
+func _is_dark_magenta(color: Color) -> bool:
+	return color.r >= 0.15 and color.r <= 0.25 and color.g <= 0.05 and color.b >= 0.12 and color.b <= 0.22
 
 func _registry_path_matches(key: String, path: String) -> bool:
 	var registry: SpriteRegistry = SpriteRegistryScript.get_instance()

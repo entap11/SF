@@ -18,10 +18,10 @@ const TIMED_GAME_DEFAULT_LIMIT_MS := 30 * 60 * 1000
 const TIMED_GAME_MAIN_LEADERBOARD_THRESHOLD := 0.5
 const DEFAULT_STAGE_RACE_MAP_IDS := [
 	"MAP_nomansland__545__v01_top2_sides__1p",
-	"MAP_nomansland__545__v02_all_sides_owned__1p",
-	"MAP_nomansland__545__v03_top_half_vs_bottom_half__1p",
-	"MAP_nomansland__545__v04_top_corners_vs_bottom_corners__1p",
-	"MAP_nomansland__545__v05_diagonal_TL_vs_BR__1p"
+	"MAP_nomansland__323__v01_corners_midline_spine__1p",
+	"MAP_nomansland__444__v01_pinched_spine__1p",
+	"MAP_race__SBASE__1p",
+	"MAP_nomansland__545__v01_top2_sides__1p"
 ]
 const TIMED_RACE_DEFAULT_MAP_COUNT := TIMED_GAME_MAP_COUNT_3
 const TIMED_RACE_SUPPORTED_MAP_COUNTS: Array[int] = TIMED_GAME_SUPPORTED_MAP_COUNTS
@@ -339,6 +339,7 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 	var player_name: String = str(result.get("player_name", result.get("handle", result.get("name", player_id)))).strip_edges()
 	if player_name.is_empty():
 		player_name = player_id
+	var stage_index: int = _result_stage_index(result)
 	var contest_rows: Dictionary = {}
 	if typeof(runtime_leaderboards.get(normalized_id, {})) == TYPE_DICTIONARY:
 		contest_rows = (runtime_leaderboards.get(normalized_id, {}) as Dictionary).duplicate(true)
@@ -352,6 +353,8 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 		if typeof(row_any) != TYPE_DICTIONARY:
 			continue
 		var row: Dictionary = row_any as Dictionary
+		if _entry_stage_index(row) != stage_index:
+			continue
 		if run_id.is_empty() and str(row.get("player_id", "")).strip_edges() == player_id and str(row.get("run_id", "")).strip_edges().is_empty():
 			entry_index = i
 			break
@@ -384,6 +387,8 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 		}
 		if not run_id.is_empty():
 			entry["run_id"] = run_id
+		if stage_index >= 0:
+			entry["stage_index"] = stage_index
 		updated = true
 	var hive_name: String = str(result.get("hive_name", "")).strip_edges()
 	if not player_name.is_empty():
@@ -394,6 +399,8 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 	entry["source"] = str(entry.get("source", "stage_race_runtime")).strip_edges()
 	if not run_id.is_empty():
 		entry["run_id"] = run_id
+	if stage_index >= 0:
+		entry["stage_index"] = stage_index
 	if entry_index >= 0:
 		rows[entry_index] = entry
 	else:
@@ -413,6 +420,10 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 		var b_player: String = str(b_entry.get("player_id", ""))
 		if a_player != b_player:
 			return a_player < b_player
+		var a_stage: int = _entry_stage_index(a_entry)
+		var b_stage: int = _entry_stage_index(b_entry)
+		if a_stage != b_stage:
+			return a_stage < b_stage
 		return str(a_entry.get("run_id", "")) < str(b_entry.get("run_id", ""))
 	)
 	contest_rows[normalized_map_id] = rows
@@ -424,6 +435,7 @@ func record_stage_race_map_result(contest_id: String, map_id: String, result: Di
 		"map_id": normalized_map_id,
 		"player_id": player_id,
 		"run_id": run_id,
+		"stage_index": stage_index,
 		"best_time_ms": int(entry.get("best_time_ms", time_ms)),
 		"runs_count": int(entry.get("runs_count", 1)),
 		"updated": updated
@@ -650,12 +662,16 @@ func build_stage_race_overall_leaderboard(contest_id: String, map_count: int = T
 	if stage_maps.is_empty():
 		return []
 	var by_run: Dictionary = {}
-	for map_id in stage_maps:
+	for stage_index in range(stage_maps.size()):
+		var map_id: String = str(stage_maps[stage_index])
 		var entries: Array = get_leaderboard_entries(contest.id, map_id)
 		for entry_v in entries:
 			if typeof(entry_v) != TYPE_DICTIONARY:
 				continue
 			var entry: Dictionary = entry_v as Dictionary
+			var entry_stage_index: int = _entry_stage_index(entry)
+			if entry_stage_index >= 0 and entry_stage_index != stage_index:
+				continue
 			var player_id: String = str(entry.get("player_id", ""))
 			if player_id.is_empty():
 				continue
@@ -672,10 +688,11 @@ func build_stage_race_overall_leaderboard(contest_id: String, map_count: int = T
 				"runs_count": 0
 			})
 			var map_times: Dictionary = row.get("map_times_ms", {}) as Dictionary
-			if map_times.has(map_id):
+			var stage_slot_key: String = _stage_slot_key(map_id, stage_index, entry_stage_index)
+			if map_times.has(stage_slot_key):
 				continue
 			var time_ms: int = _entry_time_ms(entry)
-			map_times[map_id] = time_ms
+			map_times[stage_slot_key] = time_ms
 			row["map_times_ms"] = map_times
 			row["completed_maps"] = int(row.get("completed_maps", 0)) + 1
 			row["aggregate_time_ms"] = int(row.get("aggregate_time_ms", 0)) + time_ms
@@ -728,6 +745,7 @@ func get_stage_race_map_leaderboard(contest_id: String, map_id: String, limit: i
 			"player_name": str(entry.get("player_name", "Player")),
 			"hive_name": str(entry.get("hive_name", "")),
 			"run_id": str(entry.get("run_id", "")).strip_edges(),
+			"stage_index": _entry_stage_index(entry),
 			"time_ms": _entry_time_ms(entry),
 			"runs_count": int(entry.get("runs_count", 0))
 		})
@@ -740,6 +758,10 @@ func get_stage_race_map_leaderboard(contest_id: String, map_id: String, limit: i
 		var b_id: String = str(b.get("player_id", ""))
 		if a_id != b_id:
 			return a_id < b_id
+		var a_stage: int = int(a.get("stage_index", -1))
+		var b_stage: int = int(b.get("stage_index", -1))
+		if a_stage != b_stage:
+			return a_stage < b_stage
 		return str(a.get("run_id", "")) < str(b.get("run_id", ""))
 	)
 	for i in range(rows.size()):
@@ -1276,6 +1298,25 @@ func _result_time_ms(result: Dictionary) -> int:
 		return maxi(0, int(result.get("time_ms", 0)))
 	return maxi(0, int(result.get("best_score", 0)))
 
+func _result_stage_index(result: Dictionary) -> int:
+	if result.has("stage_index"):
+		return maxi(-1, int(result.get("stage_index", -1)))
+	if result.has("map_index"):
+		return maxi(-1, int(result.get("map_index", -1)))
+	return -1
+
+func _entry_stage_index(entry: Dictionary) -> int:
+	if entry.has("stage_index"):
+		return maxi(-1, int(entry.get("stage_index", -1)))
+	if entry.has("map_index"):
+		return maxi(-1, int(entry.get("map_index", -1)))
+	return -1
+
+func _stage_slot_key(map_id: String, stage_index: int, entry_stage_index: int) -> String:
+	if entry_stage_index >= 0:
+		return "%d:%s" % [stage_index, map_id]
+	return map_id
+
 func _runtime_leaderboard_entries(contest_id: String, map_id: String) -> Array:
 	var normalized_id: String = normalize_contest_id(contest_id)
 	if typeof(runtime_leaderboards.get(normalized_id, {})) != TYPE_DICTIONARY:
@@ -1297,7 +1338,10 @@ func _leaderboard_entry_key(entry: Dictionary) -> String:
 		return ""
 	var run_id: String = str(entry.get("run_id", "")).strip_edges()
 	if not run_id.is_empty():
-		return "run:%s:%s" % [player_id, run_id]
+		return "run:%s:%s:%d" % [player_id, run_id, _entry_stage_index(entry)]
+	var stage_index: int = _entry_stage_index(entry)
+	if stage_index >= 0:
+		return "stage:%s:%d" % [player_id, stage_index]
 	return "player:%s" % player_id
 
 func _merge_leaderboard_entries(seed_entries: Array, runtime_entries: Array) -> Array:

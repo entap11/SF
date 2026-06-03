@@ -1,0 +1,48 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_knifefight__KF4_WALLS__1p",
+  "name": "Knife Fight 4 Walls",
+  "family": "knifefight",
+  "display_family": "Knife Fight",
+  "mode": "1p",
+  "player_buckets": ["1P"],
+  "strict_player_buckets": true,
+  "playstyle_tags": ["STRATEGY"],
+  "season_tags": ["knifefight"],
+  "rotation": { "status": "candidate", "weight": 1 },
+  "async_bot_count": 1,
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
+  "start_slots": ["p1h1", "p2h1"],
+  "nodes": [
+    { "id": "p1h1", "pos": { "x": 1,  "y": 27 }, "owner": "P1",  "kind": "hive" },
+    { "id": "p2h1", "pos": { "x": 17, "y": 1  }, "owner": "P2",  "kind": "hive" },
+
+    { "id": "n01",  "pos": { "x": 1,  "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n02",  "pos": { "x": 4,  "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n03",  "pos": { "x": 7,  "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n04",  "pos": { "x": 14, "y": 1  }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "n05",  "pos": { "x": 4,  "y": 12 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n06",  "pos": { "x": 14, "y": 16 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "n07",  "pos": { "x": 4,  "y": 27 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n08",  "pos": { "x": 11, "y": 27 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n09",  "pos": { "x": 14, "y": 27 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n10",  "pos": { "x": 17, "y": 27 }, "owner": "NPC", "kind": "hive" }
+  ],
+  "structure_slots": [
+    { "id": "slot_north_left",  "pos": { "x": 6,  "y": 7  }, "allowed": ["tower", "barracks"] },
+    { "id": "slot_north_right", "pos": { "x": 12, "y": 7  }, "allowed": ["tower", "barracks"] },
+    { "id": "slot_south_left",  "pos": { "x": 6,  "y": 21 }, "allowed": ["tower", "barracks"] },
+    { "id": "slot_south_right", "pos": { "x": 12, "y": 21 }, "allowed": ["tower", "barracks"] }
+  ],
+  "walls": [
+    { "x1": 2.0,  "y1": 11.0, "x2": 2.0,  "y2": 28.0 },
+    { "x1": 16.0, "y1": 0.0,  "x2": 16.0, "y2": 17.0 },
+
+    { "x1": 5.0,  "y1": 0.0,  "x2": 5.0,  "y2": 11.0 },
+    { "x1": 13.0, "y1": 17.0, "x2": 13.0, "y2": 28.0 }
+  ],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

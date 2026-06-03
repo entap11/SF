@@ -37,15 +37,59 @@ func _init() -> void:
 		"MAP_nomansland__545__v01_top2_sides__1p",
 		"nomansland545-1"
 	)
-	_expect_display(
+	_expect_sandboxed(
 		failures,
-		"MAP_nomansland__545__v01_top2_sides__B__1p",
-		"nomansland545-1-b"
+		"MAP_nomansland__545__v01_top2_sides__B__1p"
 	)
 	_expect_display(
 		failures,
 		"MAP_nomansland__323__v01_corners_midline_spine__1p",
 		"nomansland323-1"
+	)
+	_expect_display(
+		failures,
+		"MAP_nomansland__444__v01_pinched_spine__1p",
+		"nomansland444-1"
+	)
+	_expect_display(
+		failures,
+		"MAP_corkscrew__SBASE__1p",
+		"corkscrew"
+	)
+	_expect_display(
+		failures,
+		"MAP_laneclimb__SBASE__4p",
+		"laneclimb"
+	)
+	_expect_display(
+		failures,
+		"MAP_knifefight__SBASE__1p",
+		"knifefight1"
+	)
+	_expect_display(
+		failures,
+		"MAP_knifefight__KF2__1p",
+		"knifefight2"
+	)
+	_expect_display(
+		failures,
+		"MAP_knifefight__KF2_CLOSE__4p",
+		"knifefight2close"
+	)
+	_expect_display(
+		failures,
+		"MAP_knifefight__KF3__1p",
+		"knifefight3"
+	)
+	_expect_display(
+		failures,
+		"MAP_knifefight__KF3_CLOSE__4p",
+		"knifefight3close"
+	)
+	_expect_display(
+		failures,
+		"MAP_knifefight__KF4_WALLS__1p",
+		"knifefight4"
 	)
 	_expect_display(
 		failures,
@@ -61,6 +105,71 @@ func _init() -> void:
 		failures,
 		"MAP_delta__SBASE__TR3__3p",
 		"delta2"
+	)
+	_expect_display(
+		failures,
+		"MAP_tritip__SBASE__3p",
+		"tritip1"
+	)
+	_expect_display(
+		failures,
+		"MAP_rink_rat__SBASE__4p",
+		"rinkrat1"
+	)
+	_expect_display(
+		failures,
+		"MAP_rink_rat__LR__4p",
+		"rinkrat2"
+	)
+	_expect_display(
+		failures,
+		"MAP_iron_cross__SBASE__4p",
+		"ironcross1"
+	)
+	_expect_display(
+		failures,
+		"MAP_swirly__SBASE__4p",
+		"swirly1"
+	)
+	_expect_display(
+		failures,
+		"MAP_quadfight__SBASE__4p",
+		"quadfight1"
+	)
+	_expect_display(
+		failures,
+		"MAP_closequarters__SBASE__4p",
+		"closequarters1"
+	)
+	_expect_display(
+		failures,
+		"MAP_closequarters__CQ2__4p",
+		"closequarters2"
+	)
+	_expect_display(
+		failures,
+		"MAP_closequarters__CQ3__4p",
+		"closequarters3"
+	)
+	_expect_display(
+		failures,
+		"MAP_corridors__SBASE__4p",
+		"corridors1"
+	)
+	_expect_display(
+		failures,
+		"MAP_centerstrike__SBASE__4p",
+		"centerstrike1"
+	)
+	_expect_display(
+		failures,
+		"MAP_centerstrike__CS2__4p",
+		"centerstrike2"
+	)
+	_expect_display(
+		failures,
+		"MAP_centerstrike__CS3__4p",
+		"centerstrike3"
 	)
 	_check_alias_uniqueness(failures)
 	_check_catalog_alias_coverage(failures)
@@ -142,15 +251,34 @@ func _check_jukebox_public_titles(failures: Array[String]) -> void:
 			failures.append("jukebox description should be empty for %s: %s" % [map_id, str(entry.get("desc", ""))])
 		title_sequence.append(title)
 	var expected_prefix: Array[String] = [
+		"centerstrike1",
+		"centerstrike2",
+		"centerstrike3",
+		"closequarters1",
+		"closequarters2",
+		"closequarters3",
+		"corkscrew",
+		"corridors1",
 		"delta",
 		"delta1",
 		"delta2",
+		"ironcross1",
+		"knifefight1",
+		"knifefight2",
+		"knifefight2close",
+		"knifefight3",
+		"knifefight3close",
+		"knifefight4",
+		"laneclimb",
 		"nomansland545-1",
-		"nomansland545-2",
-		"nomansland545-3",
-		"nomansland545-4",
-		"nomansland545-5",
-		"nomansland545-6"
+		"nomansland323-1",
+		"nomansland444-1",
+		"quadfight1",
+		"race",
+		"rinkrat1",
+		"rinkrat2",
+		"swirly1",
+		"tritip1"
 	]
 	for i in range(mini(expected_prefix.size(), title_sequence.size())):
 		if title_sequence[i] != expected_prefix[i]:

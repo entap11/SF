@@ -125,7 +125,8 @@ const LANE_BUDGET_THREE_TOP_LIFT: float = 19.5
 const LANE_BUDGET_SINGLE_POS := Vector2(0.0, -46.5)
 const LANE_BUDGET_LOBE_POS := Vector2(22.5, -42.0)
 const LANE_BUDGET_CENTER_POS := Vector2(0.0, -54.0)
-const LANE_BUDGET_PIP_COLOR := Color(1.0, 1.0, 1.0, 1.0)
+const LANE_BUDGET_PIP_COLOR := Color(1.0, 0.0, 0.78, 1.0)
+const LANE_BUDGET_PIP_OUTLINE_COLOR := Color(0.20, 0.0, 0.16, 1.0)
 const GROUND_GLOW_POINTS: int = 32
 const GROUND_GLOW_Y_RATIO: float = 0.27
 const GROUND_GLOW_W_RATIO: float = 0.92
@@ -1390,17 +1391,18 @@ func _update_lane_budget_indicators() -> void:
 			fill_poly.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
 		var is_used: bool = i < _lane_budget_used
 		var is_available: bool = i < _lane_budget_max
-		var outline_color: Color = Color(0.0, 0.0, 0.0, 0.30)
+		var outline_color: Color = LANE_BUDGET_PIP_OUTLINE_COLOR
+		outline_color.a = 0.30
 		var fill_color: Color = Color(0.0, 0.0, 0.0, 0.0)
 		if is_used:
-			outline_color = indicator_color
-			outline_color.a = 0.96
+			outline_color = LANE_BUDGET_PIP_OUTLINE_COLOR
+			outline_color.a = 0.98
 			fill_color = Color(0.0, 0.0, 0.0, 0.0)
 		elif is_available:
-			outline_color = indicator_color
-			outline_color.a = 0.96
+			outline_color = LANE_BUDGET_PIP_OUTLINE_COLOR
+			outline_color.a = 0.98
 			fill_color = indicator_color
-			fill_color.a = 0.88
+			fill_color.a = 0.94
 		else:
 			outline_color = Color(0.0, 0.0, 0.0, 0.20)
 			fill_color = Color(0.0, 0.0, 0.0, 0.0)

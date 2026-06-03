@@ -1,0 +1,47 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_tritip__SBASE__3p",
+  "name": "Tri Tip 1",
+  "family": "tritip",
+  "display_family": "Tri Tip",
+  "mode": "3p",
+  "player_buckets": ["3P"],
+  "strict_player_buckets": true,
+  "playstyle_tags": ["FFA", "STRATEGY"],
+  "season_tags": ["tritip"],
+  "rotation": { "status": "candidate", "weight": 1 },
+  "async_bot_count": 0,
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
+  "start_slots": ["p1h1", "p2h1", "p3h1"],
+  "nodes": [
+    { "id": "p2h1", "pos": { "x": 3,  "y": 14 }, "owner": "P2",  "kind": "hive" },
+    { "id": "p1h1", "pos": { "x": 9,  "y": 14 }, "owner": "P1",  "kind": "hive" },
+    { "id": "p3h1", "pos": { "x": 15, "y": 14 }, "owner": "P3",  "kind": "hive" },
+
+    { "id": "n01",  "pos": { "x": 3,  "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n02",  "pos": { "x": 15, "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n03",  "pos": { "x": 2,  "y": 4  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n04",  "pos": { "x": 4,  "y": 4  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n05",  "pos": { "x": 8,  "y": 4  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n06",  "pos": { "x": 10, "y": 4  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n07",  "pos": { "x": 14, "y": 4  }, "owner": "NPC", "kind": "hive" },
+    { "id": "n08",  "pos": { "x": 16, "y": 4  }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "n09",  "pos": { "x": 2,  "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n10",  "pos": { "x": 4,  "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n11",  "pos": { "x": 8,  "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n12",  "pos": { "x": 10, "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n13",  "pos": { "x": 14, "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n14",  "pos": { "x": 16, "y": 24 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n15",  "pos": { "x": 9,  "y": 27 }, "owner": "NPC", "kind": "hive" }
+  ],
+  "structure_slots": [],
+  "walls": [
+    { "x1": 6.0,  "y1": 5.0,  "x2": 6.0,  "y2": 11.5 },
+    { "x1": 6.0,  "y1": 16.5, "x2": 6.0,  "y2": 23.0 },
+    { "x1": 12.0, "y1": 5.0,  "x2": 12.0, "y2": 11.5 },
+    { "x1": 12.0, "y1": 16.5, "x2": 12.0, "y2": 23.0 }
+  ],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

@@ -21,6 +21,13 @@ static func map_supports_game_mode(map_data: Dictionary, mode_id: String) -> Dic
 		return {"ok": true, "reason": ""}
 	if has_3p_bucket:
 		return {"ok": false, "reason": "3p_map_requires_3p_mode"}
+	if bool(map_data.get("strict_player_buckets", false)):
+		var required_bucket: String = _required_player_bucket_for_mode(clean_mode)
+		if not required_bucket.is_empty() and not _map_has_player_bucket(map_data, required_bucket):
+			return {
+				"ok": false,
+				"reason": "requires_%s_map" % required_bucket.to_lower()
+			}
 	if clean_mode == "HIDDEN_CAPTURE_FLAG":
 		var hidden_summary: Dictionary = hidden_capture_flag_split_summary(map_data)
 		if not bool(hidden_summary.get("ok", false)):
@@ -199,6 +206,17 @@ static func _map_player_buckets(map_data: Dictionary) -> Array[String]:
 	if not mode.is_empty():
 		out.append(mode)
 	return out
+
+static func _required_player_bucket_for_mode(clean_mode: String) -> String:
+	match clean_mode:
+		"1V1", "1P":
+			return "1P"
+		"2V2":
+			return "2V2"
+		"4P_FFA", "4P":
+			return "4P_FFA"
+		_:
+			return ""
 
 static func _normalize_mode_id(mode_id: String) -> String:
 	return _normalize_bucket(mode_id)

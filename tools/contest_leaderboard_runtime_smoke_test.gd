@@ -34,6 +34,7 @@ func _init() -> void:
 		"player_id": PLAYER_ID,
 		"player_name": PLAYER_HANDLE,
 		"best_time_ms": 777,
+		"stage_index": 0,
 		"source": "smoke"
 	}) as Dictionary
 	_assert_true(bool(write_result.get("ok", false)), "single map result should write")
@@ -51,6 +52,7 @@ func _init() -> void:
 			"player_id": PLAYER_ID,
 			"player_name": PLAYER_HANDLE,
 			"best_time_ms": time_ms,
+			"stage_index": i,
 			"source": "smoke"
 		}) as Dictionary
 		_assert_true(bool(result.get("ok", false)), "map %d result should write" % (i + 1))
@@ -91,7 +93,7 @@ func _assert_arena_match_end_writes_contest_result(contest_state: Node, map_id: 
 	tree.set_meta("vs_cpu_tier", "medium")
 	tree.set_meta("contest_id", CONTEST_ID)
 	tree.set_meta("map_ids", PackedStringArray([str(map_id)]))
-	tree.set_meta("vs_stage_map_paths", ["res://maps/_future/nomansland/MAP_nomansland__545__v02_all_sides_owned__1p.json"])
+	tree.set_meta("vs_stage_map_paths", ["res://maps/_future/nomansland/MAP_nomansland__323__v01_corners_midline_spine__1p.json"])
 	tree.set_meta("vs_stage_current_index", 0)
 	tree.set_meta("vs_local_profile", {
 		"uid": ARENA_PLAYER_ID,
@@ -121,6 +123,7 @@ func _record_complete_run(contest_state: Node, map_ids: PackedStringArray, run_i
 			"player_name": PLAYER_HANDLE,
 			"best_time_ms": base_time_ms + i,
 			"run_id": run_id,
+			"stage_index": i,
 			"source": "smoke"
 		}) as Dictionary
 		_assert_true(bool(result.get("ok", false)), "%s map %d result should write" % [run_id, i + 1])

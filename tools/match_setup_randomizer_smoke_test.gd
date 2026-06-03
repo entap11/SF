@@ -74,13 +74,15 @@ func _test_randomizer_applies_power_overrides() -> bool:
 		"hit": true,
 		"categories": {
 			MatchSetupRandomizer.CATEGORY_HIVE_START_POWER: 15,
-			MatchSetupRandomizer.CATEGORY_STRUCTURE_POWER: 20,
+			MatchSetupRandomizer.CATEGORY_BARRACKS_POWER: 20,
 			MatchSetupRandomizer.CATEGORY_NPC_HIVE_POWER: 25
 		},
 		"structures": {"kind": "barracks", "slot_policy": "all_slots"}
 	}
 	var applied: Dictionary = MatchSetupRandomizer.apply_to_map_data(map_data, payload)
 	var hives: Array = applied.get("hives", []) as Array
+	if int((hives[0] as Dictionary).get("owner_id", 0)) != 1 or int((hives[1] as Dictionary).get("owner_id", 0)) != 2:
+		return _fail("randomizer should not change player hive ownership")
 	if int((hives[0] as Dictionary).get("power", 0)) != 15:
 		return _fail("player hive power override failed")
 	if int((hives[1] as Dictionary).get("power", 0)) != 15:

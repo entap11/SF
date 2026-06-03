@@ -30,6 +30,7 @@ func _run() -> void:
 			"player_name": PLAYER_NAME,
 			"best_time_ms": 700 + i,
 			"run_id": RUN_ID,
+			"stage_index": i,
 			"source": "finish_handoff_smoke"
 		}) as Dictionary
 		if not bool(result.get("ok", false)):

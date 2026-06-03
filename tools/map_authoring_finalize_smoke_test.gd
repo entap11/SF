@@ -68,7 +68,7 @@ func _test_finalize_adds_tags_and_centroid_structure_slots() -> bool:
 	var payload: Dictionary = {
 		"version": 1,
 		"hit": true,
-		"categories": {MatchSetupRandomizer.CATEGORY_STRUCTURE_POWER: 20},
+		"categories": {MatchSetupRandomizer.CATEGORY_BARRACKS_POWER: 20},
 		"structures": {"kind": "barracks", "slot_policy": "all_slots"}
 	}
 	var randomized: Dictionary = MatchSetupRandomizer.apply_to_map_data(model, payload)

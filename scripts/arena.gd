@@ -4869,6 +4869,7 @@ func _maybe_record_stage_race_contest_result(winner_id_in: int, reason: String) 
 		"updated_at": int(Time.get_unix_time_from_system()),
 		"source": "stage_race_runtime",
 		"run_id": _stage_race_run_id(tree, player_id),
+		"stage_index": maxi(0, int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0))),
 		"winner_id": winner_id_in,
 		"reason": reason
 	}) as Dictionary

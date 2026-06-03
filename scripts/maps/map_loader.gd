@@ -838,6 +838,7 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 		"family": str(data.get("family", "")).strip_edges().to_lower(),
 		"display_family": str(data.get("display_family", data.get("family", ""))).strip_edges(),
 		"mode": str(data.get("mode", "")).strip_edges().to_lower(),
+		"strict_player_buckets": bool(data.get("strict_player_buckets", false)),
 		"player_buckets": [],
 		"playstyle_tags": [],
 		"season_tags": [],

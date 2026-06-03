@@ -1,0 +1,47 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_quadfight__SBASE__4p",
+  "name": "Quad Fight 1",
+  "family": "quadfight",
+  "display_family": "Quad Fight",
+  "mode": "4p",
+  "player_buckets": ["1P", "2V2", "4P_FFA"],
+  "strict_player_buckets": true,
+  "playstyle_tags": ["STRATEGY"],
+  "season_tags": ["quadfight"],
+  "rotation": { "status": "candidate", "weight": 1 },
+  "async_bot_count": 1,
+  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
+  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
+  "start_slots": ["p1h1", "p3h1", "p2h1", "p4h1"],
+  "nodes": [
+    { "id": "p3h1", "pos": { "x": 1,  "y": 1  }, "owner": "P3",  "kind": "hive" },
+    { "id": "p2h1", "pos": { "x": 17, "y": 1  }, "owner": "P2",  "kind": "hive" },
+    { "id": "p1h1", "pos": { "x": 1,  "y": 27 }, "owner": "P1",  "kind": "hive" },
+    { "id": "p4h1", "pos": { "x": 17, "y": 27 }, "owner": "P4",  "kind": "hive" },
+
+    { "id": "tl_outer", "pos": { "x": 4,  "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tl_lower", "pos": { "x": 1,  "y": 5  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tl_inner", "pos": { "x": 4,  "y": 5  }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "tr_outer", "pos": { "x": 14, "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tr_lower", "pos": { "x": 17, "y": 5  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tr_inner", "pos": { "x": 14, "y": 5  }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "bl_upper", "pos": { "x": 1,  "y": 23 }, "owner": "NPC", "kind": "hive" },
+    { "id": "bl_inner", "pos": { "x": 4,  "y": 23 }, "owner": "NPC", "kind": "hive" },
+    { "id": "bl_outer", "pos": { "x": 4,  "y": 27 }, "owner": "NPC", "kind": "hive" },
+
+    { "id": "br_inner", "pos": { "x": 14, "y": 23 }, "owner": "NPC", "kind": "hive" },
+    { "id": "br_upper", "pos": { "x": 17, "y": 23 }, "owner": "NPC", "kind": "hive" },
+    { "id": "br_outer", "pos": { "x": 14, "y": 27 }, "owner": "NPC", "kind": "hive" }
+  ],
+  "structure_slots": [
+    { "id": "slot_top_left",     "pos": { "x": 5,  "y": 8  }, "allowed": ["tower", "barracks"] },
+    { "id": "slot_top_right",    "pos": { "x": 13, "y": 8  }, "allowed": ["tower", "barracks"] },
+    { "id": "slot_bottom_left",  "pos": { "x": 5,  "y": 20 }, "allowed": ["tower", "barracks"] },
+    { "id": "slot_bottom_right", "pos": { "x": 13, "y": 20 }, "allowed": ["tower", "barracks"] }
+  ],
+  "walls": [],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

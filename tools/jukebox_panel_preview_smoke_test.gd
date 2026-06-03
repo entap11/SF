@@ -18,16 +18,16 @@ func _test_jukebox_preview_and_play_button_layout() -> bool:
 	panel.visible = true
 	await process_frame
 	await process_frame
-	var play_button: Button = panel.get_node_or_null("VBox/SelectorPanel/SelectorVBox/PlayButton") as Button
+	var play_button: Button = panel.get_node_or_null("VBox/HeroPanel/HeroVBox/PlayButton") as Button
 	if play_button == null:
 		return _fail("PlayButton missing")
-	if play_button.custom_minimum_size.x > 340.0:
-		return _fail("PlayButton still too wide: %s" % str(play_button.custom_minimum_size))
-	if play_button.custom_minimum_size.y > 86.0:
-		return _fail("PlayButton still too tall: %s" % str(play_button.custom_minimum_size))
+	if play_button.custom_minimum_size.x < 340.0:
+		return _fail("PlayButton is too narrow: %s" % str(play_button.custom_minimum_size))
+	if play_button.custom_minimum_size.y < 120.0:
+		return _fail("PlayButton is too small: %s" % str(play_button.custom_minimum_size))
 	if play_button.disabled:
 		return _fail("PlayButton should be enabled when a map is selected")
-	var play_sprite: TextureRect = panel.get_node_or_null("VBox/SelectorPanel/SelectorVBox/PlayButton/PlaySprite") as TextureRect
+	var play_sprite: TextureRect = panel.get_node_or_null("VBox/HeroPanel/HeroVBox/PlayButton/PlaySprite") as TextureRect
 	if play_sprite == null or play_sprite.texture == null:
 		return _fail("PlaySprite missing texture")
 	if play_sprite.modulate.a < 0.99 or play_sprite.self_modulate.a < 0.99:

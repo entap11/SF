@@ -27,7 +27,8 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 		return
 	d = _adapt_map_for_vs_mode(d)
 	var randomizer_payload: Dictionary = _match_randomizer_payload()
-	d = MatchSetupRandomizer.apply_start_slots(d, randomizer_payload, _infer_active_seats_from_map(d))
+	if MatchSetupRandomizer.should_randomize_start_slots(randomizer_payload):
+		d = MatchSetupRandomizer.apply_start_slots(d, randomizer_payload, _infer_active_seats_from_map(d))
 	d = MatchSetupRandomizer.apply_to_map_data(d, randomizer_payload)
 	if _is_dev_runner():
 		_dev_seed_lanes_and_spawns(d)
