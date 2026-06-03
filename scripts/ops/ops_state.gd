@@ -266,6 +266,126 @@ func toggle_ops_console(parent: Node = null) -> void:
 func get_contract_state_hash() -> String:
 	return _build_contract_state_signature().sha256_text()
 
+func get_authority_snapshot() -> Dictionary:
+	var st: GameState = state
+	if st == null:
+		return {}
+	var unit_system: Object = st.unit_system
+	var units_any: Variant = unit_system.get("units") if unit_system != null else []
+	return {
+		"version": 1,
+		"hash": get_contract_state_hash(),
+		"tick": int(st.tick),
+		"current_map_id": current_map_id,
+		"match_phase": int(match_phase),
+		"outcome": int(outcome),
+		"outcome_tick": int(outcome_tick),
+		"outcome_reason": outcome_reason,
+		"winner_id": int(winner_id),
+		"end_reason": end_reason,
+		"match_duration_ms": int(match_duration_ms),
+		"match_elapsed_ms": int(match_elapsed_ms),
+		"match_time_remaining_ms": int(match_time_remaining_ms),
+		"match_remaining_ms": int(match_remaining_ms),
+		"match_deadline_ms": int(match_deadline_ms),
+		"match_clock_running": bool(match_clock_running),
+		"match_clock_started": bool(match_clock_started),
+		"victory_mode": victory_mode,
+		"victory_rules": victory_rules.duplicate(true),
+		"capture_flag_state": capture_flag_state.duplicate(true),
+		"stats_by_team": stats_by_team.duplicate(true),
+		"team_mode_override": team_mode_override,
+		"match_roster": match_roster.duplicate(true),
+		"lane_front_by_lane_id": lane_front_by_lane_id.duplicate(true),
+		"state": {
+			"hives": _authority_snapshot_hives(st),
+			"lanes": _authority_snapshot_lanes(st),
+			"lane_candidates": st.lane_candidates.duplicate(true),
+			"walls": st.walls.duplicate(true),
+			"spawns": st.spawns.duplicate(true),
+			"swarm_requests": st.swarm_requests.duplicate(true),
+			"swarm_packets": st.swarm_packets.duplicate(true),
+			"swarm_cooldown_until_us": st.swarm_cooldown_until_us.duplicate(true),
+			"lane_retract_requests": st.lane_retract_requests.duplicate(true),
+			"towers": st.towers.duplicate(true),
+			"barracks": st.barracks.duplicate(true),
+			"structure_owner_by_node_id": st.structure_owner_by_node_id.duplicate(true),
+			"tower_owner_by_node_id": st.tower_owner_by_node_id.duplicate(true),
+			"hive_spawn_block_until_us": st.hive_spawn_block_until_us.duplicate(true),
+			"passive_power_block_until_ms_by_hive": st.passive_power_block_until_ms_by_hive.duplicate(true),
+			"tick": int(st.tick),
+			"sim_time_us": int(st.get("_sim_time_us")),
+			"units": (units_any as Array).duplicate(true) if typeof(units_any) == TYPE_ARRAY else [],
+			"unit_id_counter": int(unit_system.get("unit_id_counter")) if unit_system != null else 1,
+			"unit_sim_time_us": int(unit_system.get("sim_time_us")) if unit_system != null else 0,
+			"units_set_version": int(st.units_set_version)
+		}
+	}
+
+func restore_authority_snapshot(snapshot: Dictionary) -> bool:
+	if snapshot.is_empty():
+		return false
+	var state_any: Variant = snapshot.get("state", {})
+	if typeof(state_any) != TYPE_DICTIONARY:
+		return false
+	var state_snapshot: Dictionary = state_any as Dictionary
+	var st: GameState = state
+	if st == null:
+		st = GameState.new()
+		state = st
+	var unit_system: Object = st.unit_system
+	current_map_id = str(snapshot.get("current_map_id", current_map_id))
+	match_phase = int(snapshot.get("match_phase", match_phase))
+	outcome = int(snapshot.get("outcome", outcome))
+	outcome_tick = int(snapshot.get("outcome_tick", outcome_tick))
+	outcome_reason = str(snapshot.get("outcome_reason", outcome_reason))
+	winner_id = int(snapshot.get("winner_id", winner_id))
+	end_reason = str(snapshot.get("end_reason", end_reason))
+	match_duration_ms = int(snapshot.get("match_duration_ms", match_duration_ms))
+	match_elapsed_ms = int(snapshot.get("match_elapsed_ms", match_elapsed_ms))
+	match_time_remaining_ms = int(snapshot.get("match_time_remaining_ms", match_time_remaining_ms))
+	match_time_remaining_sec = float(match_time_remaining_ms) / 1000.0
+	match_remaining_ms = int(snapshot.get("match_remaining_ms", match_remaining_ms))
+	match_deadline_ms = int(snapshot.get("match_deadline_ms", match_deadline_ms))
+	match_clock_running = bool(snapshot.get("match_clock_running", match_clock_running))
+	match_clock_started = bool(snapshot.get("match_clock_started", match_clock_started))
+	victory_mode = str(snapshot.get("victory_mode", victory_mode))
+	victory_rules = (snapshot.get("victory_rules", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("victory_rules", {})) == TYPE_DICTIONARY else {}
+	capture_flag_state = (snapshot.get("capture_flag_state", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("capture_flag_state", {})) == TYPE_DICTIONARY else {}
+	stats_by_team = (snapshot.get("stats_by_team", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("stats_by_team", {})) == TYPE_DICTIONARY else {}
+	team_mode_override = str(snapshot.get("team_mode_override", team_mode_override))
+	match_roster = (snapshot.get("match_roster", []) as Array).duplicate(true) if typeof(snapshot.get("match_roster", [])) == TYPE_ARRAY else []
+	lane_front_by_lane_id = (snapshot.get("lane_front_by_lane_id", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("lane_front_by_lane_id", {})) == TYPE_DICTIONARY else {}
+	st.hives = _authority_restore_hives(state_snapshot.get("hives", []))
+	st.lanes = _authority_restore_lanes(state_snapshot.get("lanes", []))
+	st.lane_candidates = (state_snapshot.get("lane_candidates", []) as Array).duplicate(true) if typeof(state_snapshot.get("lane_candidates", [])) == TYPE_ARRAY else []
+	st.walls = (state_snapshot.get("walls", []) as Array).duplicate(true) if typeof(state_snapshot.get("walls", [])) == TYPE_ARRAY else []
+	st.spawns = (state_snapshot.get("spawns", []) as Array).duplicate(true) if typeof(state_snapshot.get("spawns", [])) == TYPE_ARRAY else []
+	st.swarm_requests = (state_snapshot.get("swarm_requests", []) as Array).duplicate(true) if typeof(state_snapshot.get("swarm_requests", [])) == TYPE_ARRAY else []
+	st.swarm_packets = (state_snapshot.get("swarm_packets", []) as Array).duplicate(true) if typeof(state_snapshot.get("swarm_packets", [])) == TYPE_ARRAY else []
+	st.swarm_cooldown_until_us = (state_snapshot.get("swarm_cooldown_until_us", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("swarm_cooldown_until_us", {})) == TYPE_DICTIONARY else {}
+	st.lane_retract_requests = (state_snapshot.get("lane_retract_requests", []) as Array).duplicate(true) if typeof(state_snapshot.get("lane_retract_requests", [])) == TYPE_ARRAY else []
+	st.towers = (state_snapshot.get("towers", []) as Array).duplicate(true) if typeof(state_snapshot.get("towers", [])) == TYPE_ARRAY else []
+	st.barracks = (state_snapshot.get("barracks", []) as Array).duplicate(true) if typeof(state_snapshot.get("barracks", [])) == TYPE_ARRAY else []
+	st.structure_owner_by_node_id = (state_snapshot.get("structure_owner_by_node_id", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("structure_owner_by_node_id", {})) == TYPE_DICTIONARY else {}
+	st.tower_owner_by_node_id = st.structure_owner_by_node_id
+	st.hive_spawn_block_until_us = (state_snapshot.get("hive_spawn_block_until_us", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("hive_spawn_block_until_us", {})) == TYPE_DICTIONARY else {}
+	st.passive_power_block_until_ms_by_hive = (state_snapshot.get("passive_power_block_until_ms_by_hive", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("passive_power_block_until_ms_by_hive", {})) == TYPE_DICTIONARY else {}
+	st.tick = int(state_snapshot.get("tick", st.tick))
+	st.set("_sim_time_us", int(state_snapshot.get("sim_time_us", st.get("_sim_time_us"))))
+	st.units_set_version = int(state_snapshot.get("units_set_version", st.units_set_version))
+	st.rebuild_indexes()
+	if unit_system != null:
+		var units_any: Variant = state_snapshot.get("units", [])
+		unit_system.set("units", (units_any as Array).duplicate(true) if typeof(units_any) == TYPE_ARRAY else [])
+		unit_system.set("unit_id_counter", int(state_snapshot.get("unit_id_counter", 1)))
+		unit_system.set("sim_time_us", int(state_snapshot.get("unit_sim_time_us", int(st.get("_sim_time_us")))))
+		st.unit_system = unit_system
+		st.units_by_lane.clear()
+		st.units_by_lane["_all"] = unit_system.get("units")
+	call_deferred("_emit_state_changed", st)
+	return true
+
 func get_pvp_debug_state_hash() -> String:
 	return _build_pvp_debug_state_signature().sha256_text()
 
@@ -414,22 +534,173 @@ func _pvp_debug_player_rows() -> Array[String]:
 		])
 	return rows
 
+func _authority_snapshot_hives(st: GameState) -> Array:
+	var rows: Array = []
+	if st == null:
+		return rows
+	for hive_any in st.hives:
+		if not (hive_any is HiveData):
+			continue
+		var hive: HiveData = hive_any as HiveData
+		rows.append({
+			"id": int(hive.id),
+			"grid_pos": [int(hive.grid_pos.x), int(hive.grid_pos.y)],
+			"render_grid_pos": [float(hive.render_grid_pos.x), float(hive.render_grid_pos.y)],
+			"owner_id": int(hive.owner_id),
+			"power": int(hive.power),
+			"kind": str(hive.kind),
+			"radius_px": float(hive.radius_px),
+			"spawn_accum_ms": float(hive.spawn_accum_ms),
+			"idle_accum_ms": float(hive.idle_accum_ms),
+			"shock_ms": float(hive.shock_ms),
+			"spawn_rr_index": int(hive.spawn_rr_index),
+			"pass_rr_index": int(hive.pass_rr_index),
+			"pass_preferred_targets": hive.pass_preferred_targets.duplicate()
+		})
+	return rows
+
+func _authority_restore_hives(hives_any: Variant) -> Array[HiveData]:
+	var rows: Array[HiveData] = []
+	if typeof(hives_any) != TYPE_ARRAY:
+		return rows
+	for hive_any in hives_any as Array:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var data: Dictionary = hive_any as Dictionary
+		var grid_any: Variant = data.get("grid_pos", [0, 0])
+		var grid_arr: Array = grid_any as Array if typeof(grid_any) == TYPE_ARRAY else [0, 0]
+		var render_any: Variant = data.get("render_grid_pos", [float(grid_arr[0]), float(grid_arr[1])])
+		var render_arr: Array = render_any as Array if typeof(render_any) == TYPE_ARRAY else [float(grid_arr[0]), float(grid_arr[1])]
+		var hive: HiveData = HiveData.new(
+			int(data.get("id", 0)),
+			Vector2i(int(grid_arr[0]), int(grid_arr[1])),
+			int(data.get("owner_id", 0)),
+			int(data.get("power", 0)),
+			str(data.get("kind", "Hive")),
+			float(data.get("radius_px", 0.0)),
+			Vector2(float(render_arr[0]), float(render_arr[1]))
+		)
+		hive.spawn_accum_ms = float(data.get("spawn_accum_ms", 0.0))
+		hive.idle_accum_ms = float(data.get("idle_accum_ms", 0.0))
+		hive.shock_ms = float(data.get("shock_ms", 0.0))
+		hive.spawn_rr_index = int(data.get("spawn_rr_index", 0))
+		hive.pass_rr_index = int(data.get("pass_rr_index", 0))
+		var preferred_any: Variant = data.get("pass_preferred_targets", [])
+		hive.pass_preferred_targets.clear()
+		if typeof(preferred_any) == TYPE_ARRAY:
+			for target_any in preferred_any as Array:
+				hive.pass_preferred_targets.append(int(target_any))
+		rows.append(hive)
+	return rows
+
+func _authority_snapshot_lanes(st: GameState) -> Array:
+	var rows: Array = []
+	if st == null:
+		return rows
+	for lane_any in st.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		rows.append({
+			"id": int(lane.id),
+			"a_id": int(lane.a_id),
+			"b_id": int(lane.b_id),
+			"dir": int(lane.dir),
+			"send_a": bool(lane.send_a),
+			"send_b": bool(lane.send_b),
+			"a_pressure": float(lane.a_pressure),
+			"b_pressure": float(lane.b_pressure),
+			"a_stream_len": float(lane.a_stream_len),
+			"b_stream_len": float(lane.b_stream_len),
+			"build_t": float(lane.build_t),
+			"last_impact_f": float(lane.last_impact_f),
+			"establish_a": bool(lane.establish_a),
+			"establish_b": bool(lane.establish_b),
+			"establish_t0_ms": int(lane.establish_t0_ms),
+			"spawn_accum_a_ms": float(lane.spawn_accum_a_ms),
+			"spawn_accum_b_ms": float(lane.spawn_accum_b_ms),
+			"retract_a": bool(lane.retract_a),
+			"retract_b": bool(lane.retract_b),
+			"a_seg": Array(lane.a_seg),
+			"b_seg": Array(lane.b_seg),
+			"seg_carry_ms": int(lane.seg_carry_ms)
+		})
+	return rows
+
+func _authority_restore_lanes(lanes_any: Variant) -> Array:
+	var rows: Array = []
+	if typeof(lanes_any) != TYPE_ARRAY:
+		return rows
+	for lane_any in lanes_any as Array:
+		if typeof(lane_any) != TYPE_DICTIONARY:
+			continue
+		var data: Dictionary = lane_any as Dictionary
+		var lane: LaneData = LaneData.new(
+			int(data.get("id", 0)),
+			int(data.get("a_id", 0)),
+			int(data.get("b_id", 0)),
+			int(data.get("dir", 1)),
+			bool(data.get("send_a", false)),
+			bool(data.get("send_b", false)),
+			float(data.get("a_pressure", 0.0)),
+			float(data.get("b_pressure", 0.0)),
+			float(data.get("a_stream_len", 0.0)),
+			float(data.get("b_stream_len", 0.0)),
+			float(data.get("build_t", 1.0)),
+			float(data.get("last_impact_f", 0.5)),
+			bool(data.get("establish_a", false)),
+			bool(data.get("establish_b", false)),
+			int(data.get("establish_t0_ms", 0)),
+			float(data.get("spawn_accum_a_ms", 0.0)),
+			float(data.get("spawn_accum_b_ms", 0.0)),
+			bool(data.get("retract_a", false)),
+			bool(data.get("retract_b", false))
+		)
+		var a_seg_any: Variant = data.get("a_seg", [])
+		var b_seg_any: Variant = data.get("b_seg", [])
+		if typeof(a_seg_any) == TYPE_ARRAY:
+			var a_seg: Array = a_seg_any as Array
+			for i in range(mini(a_seg.size(), lane.a_seg.size())):
+				lane.a_seg[i] = int(a_seg[i])
+		if typeof(b_seg_any) == TYPE_ARRAY:
+			var b_seg: Array = b_seg_any as Array
+			for i in range(mini(b_seg.size(), lane.b_seg.size())):
+				lane.b_seg[i] = int(b_seg[i])
+		lane.seg_carry_ms = int(data.get("seg_carry_ms", 0))
+		rows.append(lane)
+	return rows
+
 func _build_contract_state_signature() -> String:
 	var st: GameState = state
 	if st == null:
 		return "state:null"
 	var parts: Array[String] = []
+	parts.append("map=%s" % current_map_id)
 	parts.append("tick=%d" % int(st.tick))
 	parts.append("sim_us=%d" % int(st.get("_sim_time_us")))
 	parts.append("phase=%d" % int(match_phase))
+	parts.append("outcome=%d" % int(outcome))
+	parts.append("outcome_tick=%d" % int(outcome_tick))
 	parts.append("winner=%d" % int(winner_id))
+	parts.append("match_elapsed_ms=%d" % int(match_elapsed_ms))
+	parts.append("match_remaining_ms=%d" % int(match_time_remaining_ms))
+	parts.append("victory=%s" % get_victory_mode())
 	var hive_rows: Array = []
 	for hive_any in st.hives:
 		if hive_any is HiveData:
 			var hive: HiveData = hive_any as HiveData
 			hive_rows.append([
 				int(hive.id),
-				"h:%d:%d:%d" % [int(hive.id), int(hive.owner_id), int(hive.power)]
+				"h:%d:%d:%d:%d:%d:%d:%d:%d" % [
+					int(hive.id),
+					int(hive.owner_id),
+					int(hive.power),
+					_round_contract_float(float(hive.spawn_accum_ms)),
+					_round_contract_float(float(hive.idle_accum_ms)),
+					_round_contract_float(float(hive.shock_ms)),
+					int(hive.spawn_rr_index),
+					int(hive.pass_rr_index)
+				]
 			])
 	hive_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
 	for row_any in hive_rows:
@@ -441,7 +712,7 @@ func _build_contract_state_signature() -> String:
 			var lane: LaneData = lane_any as LaneData
 			lane_rows.append([
 				int(lane.id),
-				"l:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
+				"l:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
 					int(lane.id),
 					int(lane.a_id),
 					int(lane.b_id),
@@ -453,7 +724,13 @@ func _build_contract_state_signature() -> String:
 					_round_contract_float(float(lane.spawn_accum_a_ms)),
 					_round_contract_float(float(lane.spawn_accum_b_ms)),
 					_round_contract_float(float(lane.build_t)),
-					_round_contract_float(float(lane.a_stream_len + lane.b_stream_len))
+					_round_contract_float(float(lane.a_stream_len)),
+					_round_contract_float(float(lane.b_stream_len)),
+					1 if bool(lane.establish_a) else 0,
+					1 if bool(lane.establish_b) else 0,
+					1 if bool(lane.retract_a) else 0,
+					1 if bool(lane.retract_b) else 0,
+					int(lane.seg_carry_ms)
 				]
 			])
 	lane_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
@@ -486,6 +763,15 @@ func _build_contract_state_signature() -> String:
 	for row_any in unit_rows:
 		var row: Array = row_any as Array
 		parts.append(str(row[1]))
+	var request_rows: Array = []
+	for req_any in st.swarm_requests:
+		if typeof(req_any) != TYPE_DICTIONARY:
+			continue
+		var req: Dictionary = req_any as Dictionary
+		request_rows.append("swreq:%d:%d" % [int(req.get("src", -1)), int(req.get("dst", -1))])
+	request_rows.sort()
+	for row_any in request_rows:
+		parts.append(str(row_any))
 	var swarm_rows: Array = []
 	for swarm_any in st.swarm_packets:
 		if typeof(swarm_any) != TYPE_DICTIONARY:
@@ -508,6 +794,57 @@ func _build_contract_state_signature() -> String:
 	for row_any in swarm_rows:
 		var row: Array = row_any as Array
 		parts.append(str(row[1]))
+	var cooldown_keys: Array = st.swarm_cooldown_until_us.keys()
+	cooldown_keys.sort()
+	for key_any in cooldown_keys:
+		parts.append("swcool:%s:%d" % [str(key_any), int(st.swarm_cooldown_until_us.get(key_any, 0))])
+	var retract_rows: Array = []
+	for retract_any in st.lane_retract_requests:
+		if typeof(retract_any) != TYPE_DICTIONARY:
+			continue
+		var retract: Dictionary = retract_any as Dictionary
+		retract_rows.append("retract:%d:%d:%d:%d" % [
+			int(retract.get("lane_id", -1)),
+			int(retract.get("from_id", -1)),
+			int(retract.get("to_id", -1)),
+			int(retract.get("owner_id", 0))
+		])
+	retract_rows.sort()
+	for row_any in retract_rows:
+		parts.append(str(row_any))
+	var lane_front_keys: Array = lane_front_by_lane_id.keys()
+	lane_front_keys.sort()
+	for key_any in lane_front_keys:
+		parts.append("front:%s:%d" % [str(key_any), _round_contract_float(float(lane_front_by_lane_id.get(key_any, 0.0)))])
+	var tower_rows: Array = []
+	for tower_any in st.towers:
+		if typeof(tower_any) != TYPE_DICTIONARY:
+			continue
+		var tower: Dictionary = tower_any as Dictionary
+		tower_rows.append("tower:%d:%d:%d:%d" % [
+			int(tower.get("id", -1)),
+			int(tower.get("owner_id", 0)),
+			int(tower.get("power", 0)),
+			int(tower.get("current_power", 0))
+		])
+	tower_rows.sort()
+	for row_any in tower_rows:
+		parts.append(str(row_any))
+	var barracks_rows: Array = []
+	for barracks_any in st.barracks:
+		if typeof(barracks_any) != TYPE_DICTIONARY:
+			continue
+		var barracks: Dictionary = barracks_any as Dictionary
+		barracks_rows.append("barracks:%d:%d:%d:%d:%s" % [
+			int(barracks.get("id", -1)),
+			int(barracks.get("owner_id", 0)),
+			int(barracks.get("route_cursor", 0)),
+			int(barracks.get("current_power", 0)),
+			JSON.stringify(barracks.get("route_hive_ids", []))
+		])
+	barracks_rows.sort()
+	for row_any in barracks_rows:
+		parts.append(str(row_any))
 	return "|".join(parts)
 
 func _round_contract_float(value: float) -> int:
@@ -572,11 +909,23 @@ func _default_runtime_telemetry_snapshot() -> Dictionary:
 		"contract_command_lead_ticks": -1,
 		"contract_min_command_lead_ticks": -1,
 		"contract_missed_scheduled_commands": 0,
+		"contract_late_scheduled_commands": 0,
+		"contract_buffered_lagging_commands": 0,
 		"contract_state_hash_mismatches": 0,
 		"contract_violation_count": 0,
 		"contract_last_violation_reason": "",
 		"contract_report_path": "",
 		"contract_pending_commands": 0,
+		"peer_desync_or_lagging": false,
+		"peer_desync_or_lagging_reason": "",
+		"peer_desync_or_lagging_details": {},
+		"recovery_state": "running",
+		"recovery_attempts": 0,
+		"recovery_last_outcome": "",
+		"recovery_desync_tick": -1,
+		"last_matching_checkpoint_tick": -1,
+		"authority_snapshot_count": 0,
+		"accepted_command_log_size": 0,
 		"waiting_for_remote": false,
 		"waiting_for_remote_reason": "not_lockstep",
 		"pool_hits": 0,
@@ -2704,9 +3053,6 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		_log_input_ignored_match_over("apply_lane_intent")
 		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
-	var scheduled_result: Dictionary = _schedule_vs_lane_intent_if_needed(st, src_hive_id, dst_hive_id, intent)
-	if not scheduled_result.is_empty():
-		return scheduled_result
 	if intent == "swarm":
 		var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
 		if lane_index == -1:
@@ -2763,6 +3109,9 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			})
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
 			return result
+		var scheduled_swarm_result: Dictionary = _schedule_vs_lane_intent_if_needed(st, src_hive_id, dst_hive_id, intent)
+		if not scheduled_swarm_result.is_empty():
+			return scheduled_swarm_result
 		var now_us: int = int(st._sim_time_us)
 		st.swarm_cooldown_until_us[src_hive_id] = now_us + (SWARM_COOLDOWN_MS * 1000)
 		if st.swarm_requests == null:
@@ -2818,6 +3167,15 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 				int(result.get("lane_id", -1))
 			)
 			return result
+		if not _can_create_runtime_lane(st, src_hive_id, dst_hive_id, intent):
+			if intent != "none":
+				_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, intent)
+			result["reason"] = "no_lane"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
+			return result
+		var scheduled_runtime_lane_result: Dictionary = _schedule_vs_lane_intent_if_needed(st, src_hive_id, dst_hive_id, intent)
+		if not scheduled_runtime_lane_result.is_empty():
+			return scheduled_runtime_lane_result
 		lane_index = _ensure_runtime_lane(st, src_hive_id, dst_hive_id, intent)
 	if lane_index == -1:
 		if intent != "none":
@@ -2951,6 +3309,12 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 				"action": action,
 				"intent": resolved_intent
 			})
+
+	var scheduled_lane_result: Dictionary = _schedule_vs_lane_intent_if_needed(st, src_hive_id, dst_hive_id, resolved_intent)
+	if not scheduled_lane_result.is_empty():
+		scheduled_lane_result["lane_id"] = int(result.get("lane_id", -1))
+		scheduled_lane_result["intent"] = resolved_intent
+		return scheduled_lane_result
 
 	var pre_apply_source_exec: Dictionary = {}
 	if st.has_method("get_execution_metrics_for_hive"):

@@ -12,12 +12,21 @@ const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
 const SETTINGS_CRASH_ON_CONTRACT_VIOLATION: String = "swarmfront/vs/crash_on_contract_violation"
 const DEFAULT_BACKEND_TIMEOUT_SEC: float = 6.0
+const CRASH_ON_CONTRACT_VIOLATION_DEFAULT: bool = false
 const CONTRACT_VERSION: int = 1
 const CONTRACT_DIAGNOSTIC_LOG_PATH: String = "user://vs_contract_violations.jsonl"
 const COMMAND_LEAD_TICKS: int = 3
+const FALLBACK_AUTH_COMMAND_LEAD_TICKS: int = 6
+const COMMAND_LATE_TOLERANCE_TICKS: int = 8
 const HASH_INTERVAL_TICKS: int = 5
 const HASH_RETENTION_TICKS: int = 180
 const DEBUG_EVENT_LIMIT: int = 10
+const RECOVERY_STATE_RUNNING: String = "running"
+const RECOVERY_STATE_WAITING_FOR_PEER: String = "waiting_for_peer"
+const RECOVERY_STATE_DESYNC_RECOVERY: String = "desync_recovery"
+const RECOVERY_STATE_DESYNC_ENDED: String = "desync_ended"
+const RECOVERY_HISTORY_TICKS: int = 120
+const RECOVERY_MAX_ATTEMPTS: int = 2
 const ALLOWED_LANE_INTENTS: Dictionary = {
 	"attack": true,
 	"feed": true,
@@ -67,8 +76,22 @@ var _last_contract_violation: Dictionary = {}
 var _contract_current_command_lead_ticks: int = -1
 var _contract_min_command_lead_ticks: int = 2147483647
 var _contract_missed_scheduled_commands: int = 0
+var _contract_late_scheduled_commands: int = 0
+var _contract_buffered_lagging_commands: int = 0
 var _contract_state_hash_mismatches: int = 0
 var _contract_last_violation_reason: String = ""
+var _peer_desync_or_lagging: bool = false
+var _peer_desync_or_lagging_reason: String = ""
+var _peer_desync_or_lagging_details: Dictionary = {}
+var _recovery_state: String = RECOVERY_STATE_RUNNING
+var _recovery_attempts: int = 0
+var _recovery_last_outcome: String = ""
+var _recovery_desync_tick: int = -1
+var _recovery_remote_hash: String = ""
+var _recovery_local_hash: String = ""
+var _last_matching_checkpoint_tick: int = -1
+var _authority_snapshots_by_tick: Dictionary = {}
+var _accepted_command_log: Array[Dictionary] = []
 var _debug_event_log: Array[Dictionary] = []
 var _last_debug_event: Dictionary = {}
 var _desync_event_before_divergence: Dictionary = {}
@@ -100,6 +123,24 @@ func clear() -> void:
 	_debug_event_log.clear()
 	_last_debug_event = {}
 	_desync_event_before_divergence = {}
+	_peer_desync_or_lagging = false
+	_peer_desync_or_lagging_reason = ""
+	_peer_desync_or_lagging_details = {}
+	_recovery_state = RECOVERY_STATE_RUNNING
+	_recovery_attempts = 0
+	_recovery_last_outcome = ""
+	_recovery_desync_tick = -1
+	_recovery_remote_hash = ""
+	_recovery_local_hash = ""
+	_recovery_state = RECOVERY_STATE_RUNNING
+	_recovery_attempts = 0
+	_recovery_last_outcome = ""
+	_recovery_desync_tick = -1
+	_recovery_remote_hash = ""
+	_recovery_local_hash = ""
+	_last_matching_checkpoint_tick = -1
+	_authority_snapshots_by_tick.clear()
+	_accepted_command_log.clear()
 	_publish_queue.clear()
 	_reset_contract_diagnostics()
 	_reset_telemetry()
@@ -171,9 +212,36 @@ func get_debug_snapshot() -> Dictionary:
 		"last_event": get_last_debug_event(),
 		"desync": _contract_state_hash_mismatches > 0,
 		"desync_event_before_divergence": _desync_event_before_divergence.duplicate(true),
+		"peer_desync_or_lagging": _peer_desync_or_lagging,
+		"peer_desync_or_lagging_reason": _peer_desync_or_lagging_reason,
+		"peer_desync_or_lagging_details": _peer_desync_or_lagging_details.duplicate(true),
+		"recovery_state": _recovery_state,
+		"recovery_attempts": _recovery_attempts,
+		"recovery_last_outcome": _recovery_last_outcome,
+		"recovery_desync_tick": _recovery_desync_tick,
+		"last_matching_checkpoint_tick": _last_matching_checkpoint_tick,
+		"accepted_command_log_size": _accepted_command_log.size(),
 		"last_contract_violation": _last_contract_violation.duplicate(true),
 		"diagnostics": _contract_diagnostics_snapshot()
 	}
+
+func is_peer_desync_or_lagging() -> bool:
+	return _peer_desync_or_lagging
+
+func get_peer_desync_or_lagging_reason() -> String:
+	return _peer_desync_or_lagging_reason
+
+func get_peer_desync_or_lagging_details() -> Dictionary:
+	return _peer_desync_or_lagging_details.duplicate(true)
+
+func get_recovery_state() -> String:
+	return _recovery_state
+
+func is_recovering_or_ended() -> bool:
+	return _recovery_state == RECOVERY_STATE_DESYNC_RECOVERY or _recovery_state == RECOVERY_STATE_DESYNC_ENDED
+
+func can_accept_gameplay_intents() -> bool:
+	return is_active() and _recovery_state == RECOVERY_STATE_RUNNING
 
 func tick(delta: float) -> void:
 	_finish_poll_thread(false)
@@ -190,6 +258,8 @@ func tick(delta: float) -> void:
 	_poll_remote_intents()
 
 func consume_remote_commands(target_tick: int = -1) -> Array:
+	if _recovery_state != RECOVERY_STATE_RUNNING:
+		return []
 	if _pending_remote_commands.is_empty():
 		return []
 	if target_tick < 0:
@@ -202,13 +272,14 @@ func consume_remote_commands(target_tick: int = -1) -> Array:
 		var command: Dictionary = command_any as Dictionary
 		var execute_tick: int = int(command.get("execute_tick", -1))
 		_observe_command_lead(execute_tick, target_tick)
-		if execute_tick < target_tick:
-			_contract_violation("command_missed_execute_tick", {
-				"target_tick": target_tick,
-				"command": command.duplicate(true)
-			})
-			continue
-		if execute_tick == target_tick:
+		if execute_tick <= target_tick:
+			if execute_tick < target_tick:
+				var late_delta: int = target_tick - execute_tick
+				if late_delta > COMMAND_LATE_TOLERANCE_TICKS:
+					_buffer_lagging_command(command, target_tick, late_delta)
+					remaining.append(command)
+					continue
+				_record_late_scheduled_command(command, target_tick, late_delta)
 			out.append(command)
 		else:
 			remaining.append(command)
@@ -216,7 +287,7 @@ func consume_remote_commands(target_tick: int = -1) -> Array:
 	out.sort_custom(Callable(self, "_sort_commands_by_contract_order"))
 	return out
 
-func record_local_state_hash(tick: int, state_hash: String) -> bool:
+func record_local_state_hash(tick: int, state_hash: String, authority_snapshot: Dictionary = {}) -> bool:
 	if not is_active():
 		return true
 	var safe_tick: int = int(tick)
@@ -228,6 +299,7 @@ func record_local_state_hash(tick: int, state_hash: String) -> bool:
 	if clean_hash.is_empty():
 		return _contract_violation("local_state_hash_empty", {"tick": safe_tick})
 	_local_hash_by_tick[safe_tick] = clean_hash
+	_record_authority_snapshot(safe_tick, clean_hash, authority_snapshot)
 	_prune_hash_windows(safe_tick)
 	_compare_state_hash_if_ready(safe_tick)
 	var command: Dictionary = _contract_command_base("state_hash")
@@ -239,7 +311,27 @@ func record_local_state_hash(tick: int, state_hash: String) -> bool:
 		return false
 	return _publish_command(command)
 
+func _record_authority_snapshot(tick: int, state_hash: String, authority_snapshot: Dictionary) -> void:
+	if authority_snapshot.is_empty():
+		return
+	var safe_tick: int = int(tick)
+	var snapshot: Dictionary = authority_snapshot.duplicate(true)
+	snapshot["tick"] = safe_tick
+	snapshot["hash"] = state_hash
+	_authority_snapshots_by_tick[safe_tick] = snapshot
+	_prune_authority_snapshots(safe_tick)
+
+func _prune_authority_snapshots(latest_tick: int) -> void:
+	var min_tick: int = maxi(0, int(latest_tick) - RECOVERY_HISTORY_TICKS)
+	for tick_any in _authority_snapshots_by_tick.keys():
+		if int(tick_any) < min_tick:
+			_authority_snapshots_by_tick.erase(tick_any)
+
 func _sort_commands_by_contract_order(a: Dictionary, b: Dictionary) -> bool:
+	var a_seq: int = int(a.get("command_seq", 0))
+	var b_seq: int = int(b.get("command_seq", 0))
+	if a_seq > 0 and b_seq > 0 and a_seq != b_seq:
+		return a_seq < b_seq
 	var a_tick: int = int(a.get("execute_tick", 0))
 	var b_tick: int = int(b.get("execute_tick", 0))
 	if a_tick != b_tick:
@@ -253,7 +345,85 @@ func _sort_commands_by_contract_order(a: Dictionary, b: Dictionary) -> bool:
 	return a_ms < b_ms
 
 func _queue_scheduled_command(command: Dictionary) -> void:
-	_pending_remote_commands.append(command.duplicate(true))
+	var normalized: Dictionary = _normalize_authoritative_command(command, -1)
+	_append_accepted_command_log(normalized)
+	var command_id: String = str(normalized.get("command_id", "")).strip_edges()
+	if not command_id.is_empty():
+		for pending_any in _pending_remote_commands:
+			var pending: Dictionary = pending_any as Dictionary
+			if str(pending.get("command_id", "")).strip_edges() == command_id:
+				return
+	_pending_remote_commands.append(normalized)
+
+func _append_accepted_command_log(command: Dictionary) -> void:
+	var kind: String = str(command.get("kind", "")).strip_edges().to_lower()
+	if kind.is_empty() or kind == "state_hash":
+		return
+	var normalized: Dictionary = _normalize_authoritative_command(command, int(command.get("command_seq", -1)))
+	var command_id: String = str(normalized.get("command_id", "")).strip_edges()
+	if not command_id.is_empty():
+		for existing_any in _accepted_command_log:
+			var existing: Dictionary = existing_any as Dictionary
+			if str(existing.get("command_id", "")).strip_edges() == command_id:
+				return
+	_accepted_command_log.append(normalized.duplicate(true))
+	_accepted_command_log.sort_custom(Callable(self, "_sort_commands_by_contract_order"))
+	_prune_accepted_command_log()
+
+func _prune_accepted_command_log() -> void:
+	if _last_matching_checkpoint_tick < 0:
+		return
+	var min_tick: int = maxi(0, _last_matching_checkpoint_tick - RECOVERY_HISTORY_TICKS)
+	var kept: Array[Dictionary] = []
+	for command_any in _accepted_command_log:
+		var command: Dictionary = command_any as Dictionary
+		if int(command.get("execute_tick", -1)) >= min_tick:
+			kept.append(command)
+	_accepted_command_log = kept
+
+func _canonical_command_from_publish_result(request_command: Dictionary, result: Dictionary) -> Dictionary:
+	var command_any: Variant = result.get("canonical_command", result.get("command", {}))
+	if typeof(command_any) == TYPE_DICTIONARY:
+		return _normalize_authoritative_command(command_any as Dictionary, int(result.get("seq", -1)))
+	var fallback: Dictionary = request_command.duplicate(true)
+	var seq: int = int(result.get("command_seq", result.get("seq", -1)))
+	if seq > 0:
+		fallback["command_seq"] = seq
+		if not fallback.has("command_id"):
+			fallback["command_id"] = "%s:%d" % [_session_id, seq]
+	return _normalize_authoritative_command(fallback, seq)
+
+func _normalize_authoritative_command(command: Dictionary, event_seq: int) -> Dictionary:
+	var normalized: Dictionary = command.duplicate(true)
+	var seq: int = int(normalized.get("command_seq", event_seq))
+	if seq > 0:
+		normalized["command_seq"] = seq
+		if str(normalized.get("command_id", "")).strip_edges().is_empty():
+			normalized["command_id"] = "%s:%d" % [_session_id, seq]
+	var requested_execute_tick: int = int(normalized.get("requested_execute_tick", normalized.get("execute_tick", -1)))
+	if not normalized.has("requested_execute_tick"):
+		normalized["requested_execute_tick"] = requested_execute_tick
+	if normalized.has("canonical_execute_tick"):
+		normalized["execute_tick"] = int(normalized.get("canonical_execute_tick", normalized.get("execute_tick", -1)))
+	elif normalized.has("execute_tick"):
+		var issued_tick: int = int(normalized.get("issued_tick", normalized.get("local_issued_tick", -1)))
+		var fallback_execute_tick: int = int(normalized.get("execute_tick", -1))
+		if issued_tick >= 0 and fallback_execute_tick < issued_tick + FALLBACK_AUTH_COMMAND_LEAD_TICKS:
+			fallback_execute_tick = issued_tick + FALLBACK_AUTH_COMMAND_LEAD_TICKS
+			normalized["authority_action"] = "rebased"
+		normalized["canonical_execute_tick"] = fallback_execute_tick
+		normalized["execute_tick"] = fallback_execute_tick
+	return normalized
+
+func _record_local_command_accepted(command: Dictionary) -> void:
+	var kind: String = str(command.get("kind", "")).strip_edges().to_lower()
+	var intent: String = str(command.get("intent", "")).strip_edges().to_lower()
+	var event_type: String = "command_sent"
+	if kind == "lane_intent":
+		event_type = "swarm_intent_sent" if intent == "swarm" else "lane_intent_sent"
+	elif kind == "lane_retract":
+		event_type = "lane_retract_sent"
+	_push_debug_event(event_type, _command_debug_payload(command, "accepted"))
 
 func record_debug_input_rejected(src_hive_id: int, dst_hive_id: int, intent: String, reason: String, lane_id: int = -1) -> void:
 	_push_debug_event("rejected_input", {
@@ -290,12 +460,128 @@ func _compare_state_hash_if_ready(hash_tick: int) -> void:
 	var local_hash: String = str(_local_hash_by_tick.get(hash_tick, ""))
 	var remote_hash: String = str(_remote_hash_by_tick.get(hash_tick, ""))
 	if local_hash == remote_hash:
+		_last_matching_checkpoint_tick = maxi(_last_matching_checkpoint_tick, int(hash_tick))
+		if _recovery_state == RECOVERY_STATE_WAITING_FOR_PEER:
+			_set_recovery_state(RECOVERY_STATE_RUNNING, "hashes_matched")
+			_peer_desync_or_lagging = false
+			_peer_desync_or_lagging_reason = ""
+			_peer_desync_or_lagging_details = {}
+		_prune_accepted_command_log()
 		return
+	_mark_peer_desync_or_lagging("state_hash_mismatch", {
+		"tick": hash_tick,
+		"local_hash": local_hash,
+		"remote_hash": remote_hash,
+		"last_event": _last_debug_event.duplicate(true)
+	})
 	_contract_violation("state_hash_mismatch", {
 		"tick": hash_tick,
 		"local_hash": local_hash,
 		"remote_hash": remote_hash
 	})
+
+func build_desync_recovery_plan() -> Dictionary:
+	if _recovery_state != RECOVERY_STATE_DESYNC_RECOVERY:
+		return {"ok": false, "reason": "not_in_desync_recovery", "state": _recovery_state}
+	if _recovery_desync_tick < 0:
+		return {"ok": false, "reason": "desync_tick_missing"}
+	var rollback_tick: int = _find_latest_matching_snapshot_tick(_recovery_desync_tick)
+	if rollback_tick < 0:
+		return {
+			"ok": false,
+			"reason": "matching_checkpoint_missing",
+			"desync_tick": _recovery_desync_tick
+		}
+	var snapshot_any: Variant = _authority_snapshots_by_tick.get(rollback_tick, {})
+	if typeof(snapshot_any) != TYPE_DICTIONARY:
+		return {
+			"ok": false,
+			"reason": "snapshot_missing",
+			"rollback_tick": rollback_tick,
+			"desync_tick": _recovery_desync_tick
+		}
+	var commands: Array = []
+	for command_any in _accepted_command_log:
+		var command: Dictionary = command_any as Dictionary
+		var execute_tick: int = int(command.get("execute_tick", -1))
+		if execute_tick > rollback_tick and execute_tick <= _recovery_desync_tick:
+			commands.append(command.duplicate(true))
+	commands.sort_custom(Callable(self, "_sort_commands_by_contract_order"))
+	return {
+		"ok": true,
+		"match_id": _session_id,
+		"rollback_tick": rollback_tick,
+		"desync_tick": _recovery_desync_tick,
+		"target_hash": _recovery_remote_hash,
+		"local_hash": _recovery_local_hash,
+		"snapshot": (snapshot_any as Dictionary).duplicate(true),
+		"commands": commands,
+		"attempt": _recovery_attempts + 1
+	}
+
+func complete_desync_recovery(recovered_tick: int, recovered_hash: String, replayed_count: int) -> Dictionary:
+	var clean_hash: String = str(recovered_hash).strip_edges()
+	var success: bool = clean_hash != "" and clean_hash == _recovery_remote_hash
+	_recovery_attempts += 1
+	var payload: Dictionary = {
+		"match_id": _session_id,
+		"checkpoint_tick": _last_matching_checkpoint_tick,
+		"desync_tick": _recovery_desync_tick,
+		"recovered_tick": int(recovered_tick),
+		"local_hash": clean_hash,
+		"remote_hash": _recovery_remote_hash,
+		"replayed_count": int(replayed_count),
+		"recovery_attempts": _recovery_attempts,
+		"success": success
+	}
+	if success:
+		_recovery_last_outcome = "recovered"
+		_set_recovery_state(RECOVERY_STATE_RUNNING, "recovery_success")
+		_peer_desync_or_lagging = false
+		_peer_desync_or_lagging_reason = ""
+		_peer_desync_or_lagging_details = {}
+		_local_hash_by_tick[_recovery_desync_tick] = clean_hash
+		_last_matching_checkpoint_tick = maxi(_last_matching_checkpoint_tick, _recovery_desync_tick)
+		_push_debug_event("desync_recovery_success", payload)
+		_write_contract_violation_report({"reason": "desync_recovery_success", "payload": payload, "session_id": _session_id, "report_path": _contract_diagnostic_log_path()})
+		_update_runtime_telemetry()
+		return {"ok": true, "recovered": true, "payload": payload}
+	_recovery_last_outcome = "failed"
+	_push_debug_event("desync_recovery_failed", payload)
+	_write_contract_violation_report({"reason": "desync_recovery_failed", "payload": payload, "session_id": _session_id, "report_path": _contract_diagnostic_log_path()})
+	if _recovery_attempts >= RECOVERY_MAX_ATTEMPTS:
+		_set_recovery_state(RECOVERY_STATE_DESYNC_ENDED, "recovery_failed")
+		_mark_peer_desync_or_lagging("desync_recovery_failed", payload)
+	_update_runtime_telemetry()
+	return {"ok": false, "recovered": false, "payload": payload, "ended": _recovery_state == RECOVERY_STATE_DESYNC_ENDED}
+
+func mark_desync_unrecoverable(reason: String, details: Dictionary) -> void:
+	var payload: Dictionary = details.duplicate(true)
+	payload["reason"] = reason
+	payload["match_id"] = _session_id
+	payload["desync_tick"] = _recovery_desync_tick
+	payload["checkpoint_tick"] = _last_matching_checkpoint_tick
+	_recovery_last_outcome = "unrecoverable"
+	_set_recovery_state(RECOVERY_STATE_DESYNC_ENDED, reason)
+	_mark_peer_desync_or_lagging(reason, payload)
+	_push_debug_event("desync_recovery_unrecoverable", payload)
+	_write_contract_violation_report({"reason": "desync_recovery_unrecoverable", "payload": payload, "session_id": _session_id, "report_path": _contract_diagnostic_log_path()})
+
+func _find_latest_matching_snapshot_tick(max_tick: int) -> int:
+	var best_tick: int = -1
+	for tick_any in _authority_snapshots_by_tick.keys():
+		var tick_value: int = int(tick_any)
+		if tick_value > int(max_tick):
+			continue
+		if tick_value > _last_matching_checkpoint_tick:
+			continue
+		if not _local_hash_by_tick.has(tick_value) or not _remote_hash_by_tick.has(tick_value):
+			continue
+		if str(_local_hash_by_tick.get(tick_value, "")) != str(_remote_hash_by_tick.get(tick_value, "")):
+			continue
+		if tick_value > best_tick:
+			best_tick = tick_value
+	return best_tick
 
 func _prune_hash_windows(latest_tick: int) -> void:
 	var min_tick: int = maxi(0, latest_tick - HASH_RETENTION_TICKS)
@@ -318,6 +604,15 @@ func get_contract_diagnostics_snapshot() -> Dictionary:
 func record_local_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String, src_owner_id: int, dst_owner_id: int) -> bool:
 	if not is_active():
 		return true
+	if not can_accept_gameplay_intents():
+		_push_debug_event("intent_blocked_recovery_state", {
+			"kind": "lane_intent",
+			"src": int(src_hive_id),
+			"dst": int(dst_hive_id),
+			"intent": str(intent),
+			"recovery_state": _recovery_state
+		})
+		return false
 	if src_owner_id != _local_seat:
 		return true
 	var clean_intent: String = str(intent).strip_edges().to_lower()
@@ -331,16 +626,19 @@ func record_local_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String
 	})
 	if not _validate_contract_command(command, "outgoing"):
 		return false
-	var published: bool = _publish_command(command)
-	if published:
-		var event_type: String = "swarm_intent_sent" if clean_intent == "swarm" else "lane_intent_sent"
-		_push_debug_event(event_type, command)
-		_queue_scheduled_command(command)
-	return published
+	return _publish_command(command)
 
 func record_local_lane_retract(from_id: int, to_id: int, owner_id: int) -> bool:
 	if not is_active():
 		return true
+	if not can_accept_gameplay_intents():
+		_push_debug_event("intent_blocked_recovery_state", {
+			"kind": "lane_retract",
+			"from_id": int(from_id),
+			"to_id": int(to_id),
+			"recovery_state": _recovery_state
+		})
+		return false
 	if owner_id != _local_seat:
 		return true
 	var command: Dictionary = _contract_command_base("lane_retract")
@@ -351,15 +649,18 @@ func record_local_lane_retract(from_id: int, to_id: int, owner_id: int) -> bool:
 	})
 	if not _validate_contract_command(command, "outgoing"):
 		return false
-	var published: bool = _publish_command(command)
-	if published:
-		_push_debug_event("lane_intent_sent", command)
-		_queue_scheduled_command(command)
-	return published
+	return _publish_command(command)
 
 func record_local_barracks_route(barracks_id: int, route_hive_ids: Array, owner_id: int) -> bool:
 	if not is_active():
 		return true
+	if not can_accept_gameplay_intents():
+		_push_debug_event("intent_blocked_recovery_state", {
+			"kind": "barracks_route",
+			"barracks_id": int(barracks_id),
+			"recovery_state": _recovery_state
+		})
+		return false
 	if owner_id != _local_seat:
 		return true
 	var command: Dictionary = _contract_command_base("barracks_route")
@@ -370,10 +671,7 @@ func record_local_barracks_route(barracks_id: int, route_hive_ids: Array, owner_
 	})
 	if not _validate_contract_command(command, "outgoing"):
 		return false
-	var published: bool = _publish_command(command)
-	if published:
-		_queue_scheduled_command(command)
-	return published
+	return _publish_command(command)
 
 func _publish_command(command: Dictionary) -> bool:
 	if not _validate_contract_command(command, "publish"):
@@ -405,6 +703,9 @@ func _handle_publish_result(command: Dictionary, result: Dictionary, t0_us: int)
 		})
 		return
 	_intent_events_tx += 1
+	var canonical_command: Dictionary = _canonical_command_from_publish_result(command, result)
+	_queue_scheduled_command(canonical_command)
+	_record_local_command_accepted(canonical_command)
 	_update_runtime_telemetry()
 
 func _poll_remote_intents() -> void:
@@ -456,12 +757,13 @@ func _handle_remote_intent_poll_result(result: Dictionary, t0_us: int, after_seq
 		if typeof(command_any) != TYPE_DICTIONARY:
 			_contract_violation("remote_command_not_dictionary", {"event": event.duplicate(true)})
 			continue
-		var command: Dictionary = (command_any as Dictionary).duplicate(true)
+		var command: Dictionary = _normalize_authoritative_command(command_any as Dictionary, seq)
 		if not _validate_contract_command(command, "remote"):
 			continue
 		if str(command.get("kind", "")).strip_edges().to_lower() == "state_hash":
 			_handle_remote_state_hash(command)
 			continue
+		_append_accepted_command_log(command)
 		_pending_remote_commands.append(command)
 		_remote_commands_rx += 1
 		_record_remote_command_received(command)
@@ -481,12 +783,16 @@ func _record_remote_command_received(command: Dictionary) -> void:
 
 func _contract_command_base(kind: String) -> Dictionary:
 	var st: GameState = OpsState.get_state() if OpsState != null and OpsState.has_method("get_state") else null
+	var issued_tick: int = int(st.tick) if st != null else -1
+	var requested_execute_tick: int = (issued_tick + COMMAND_LEAD_TICKS) if issued_tick >= 0 else -1
 	return {
 		"kind": kind,
 		"contract_version": CONTRACT_VERSION,
 		"issued_ms": Time.get_ticks_msec(),
-		"issued_tick": int(st.tick) if st != null else -1,
-		"execute_tick": (int(st.tick) + COMMAND_LEAD_TICKS) if st != null else -1,
+		"issued_tick": issued_tick,
+		"local_issued_tick": issued_tick,
+		"requested_execute_tick": requested_execute_tick,
+		"execute_tick": requested_execute_tick,
 		"issued_sim_us": int(st.get("_sim_time_us")) if st != null else -1,
 		"sender_seat": int(_local_seat),
 		"sender_uid": _local_uid
@@ -589,8 +895,8 @@ func _write_contract_violation_report(report: Dictionary) -> void:
 
 func _crash_on_contract_violation() -> bool:
 	if ProjectSettings.has_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION):
-		return bool(ProjectSettings.get_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, true))
-	return true
+		return bool(ProjectSettings.get_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, CRASH_ON_CONTRACT_VIOLATION_DEFAULT))
+	return CRASH_ON_CONTRACT_VIOLATION_DEFAULT
 
 func _reset_contract_diagnostics() -> void:
 	_contract_violation_count = 0
@@ -598,9 +904,14 @@ func _reset_contract_diagnostics() -> void:
 	_contract_current_command_lead_ticks = -1
 	_contract_min_command_lead_ticks = 2147483647
 	_contract_missed_scheduled_commands = 0
+	_contract_late_scheduled_commands = 0
+	_contract_buffered_lagging_commands = 0
 	_contract_state_hash_mismatches = 0
 	_contract_last_violation_reason = ""
 	_desync_event_before_divergence = {}
+	_peer_desync_or_lagging = false
+	_peer_desync_or_lagging_reason = ""
+	_peer_desync_or_lagging_details = {}
 
 func _push_debug_event(event_type: String, payload: Dictionary) -> void:
 	var st: GameState = OpsState.get_state() if OpsState != null and OpsState.has_method("get_state") else null
@@ -626,17 +937,102 @@ func _observe_command_lead(execute_tick: int, target_tick: int) -> void:
 	if _contract_min_command_lead_ticks == 2147483647 or lead_ticks < _contract_min_command_lead_ticks:
 		_contract_min_command_lead_ticks = lead_ticks
 
+func _record_late_scheduled_command(command: Dictionary, target_tick: int, late_delta: int) -> void:
+	_contract_missed_scheduled_commands += 1
+	_contract_late_scheduled_commands += 1
+	SFLog.allow_tag("VS_COMMAND_LATE_EXECUTE")
+	var payload: Dictionary = _command_debug_payload(command, "rebased")
+	payload["received_tick"] = int(target_tick)
+	payload["applied_tick"] = int(target_tick)
+	payload["late_delta"] = int(late_delta)
+	SFLog.warn("VS_COMMAND_LATE_EXECUTE", payload)
+	_push_debug_event("late_scheduled_command", payload)
+	_update_runtime_telemetry()
+
+func _buffer_lagging_command(command: Dictionary, target_tick: int, late_delta: int) -> void:
+	_contract_missed_scheduled_commands += 1
+	_contract_buffered_lagging_commands += 1
+	var payload: Dictionary = _command_debug_payload(command, "paused")
+	payload["received_tick"] = int(target_tick)
+	payload["applied_tick"] = -1
+	payload["late_delta"] = int(late_delta)
+	payload["late_tolerance"] = COMMAND_LATE_TOLERANCE_TICKS
+	_mark_peer_desync_or_lagging("command_outside_late_tolerance", payload)
+	SFLog.allow_tag("VS_COMMAND_BUFFERED_LAGGING")
+	SFLog.warn("VS_COMMAND_BUFFERED_LAGGING", payload)
+	_push_debug_event("buffered_lagging_command", payload)
+	_update_runtime_telemetry()
+
+func _set_recovery_state(next_state: String, reason: String) -> void:
+	if _recovery_state == next_state:
+		return
+	var previous_state: String = _recovery_state
+	_recovery_state = next_state
+	_push_debug_event("recovery_state_changed", {
+		"from": previous_state,
+		"to": next_state,
+		"reason": reason,
+		"desync_tick": _recovery_desync_tick,
+		"checkpoint_tick": _last_matching_checkpoint_tick
+	})
+
+func _mark_peer_desync_or_lagging(reason: String, details: Dictionary) -> void:
+	_peer_desync_or_lagging = true
+	_peer_desync_or_lagging_reason = reason
+	_peer_desync_or_lagging_details = details.duplicate(true)
+	if reason == "state_hash_mismatch":
+		_recovery_desync_tick = int(details.get("tick", -1))
+		_recovery_local_hash = str(details.get("local_hash", ""))
+		_recovery_remote_hash = str(details.get("remote_hash", ""))
+		_set_recovery_state(RECOVERY_STATE_DESYNC_RECOVERY, reason)
+	elif _recovery_state == RECOVERY_STATE_RUNNING:
+		_set_recovery_state(RECOVERY_STATE_WAITING_FOR_PEER, reason)
+
+func _command_debug_payload(command: Dictionary, action_taken: String) -> Dictionary:
+	var st: GameState = OpsState.get_state() if OpsState != null and OpsState.has_method("get_state") else null
+	var state_hash: String = ""
+	if OpsState != null and OpsState.has_method("get_contract_state_hash"):
+		state_hash = str(OpsState.call("get_contract_state_hash"))
+	return {
+		"match_id": _session_id,
+		"command_id": str(command.get("command_id", "")),
+		"command_seq": int(command.get("command_seq", -1)),
+		"player_id": int(command.get("sender_seat", command.get("src_owner", command.get("owner_id", 0)))),
+		"kind": str(command.get("kind", "")),
+		"intent": str(command.get("intent", "")),
+		"issued_tick": int(command.get("issued_tick", -1)),
+		"requested_tick": int(command.get("requested_execute_tick", -1)),
+		"canonical_execute_tick": int(command.get("execute_tick", -1)),
+		"local_tick": int(st.tick) if st != null else -1,
+		"action_taken": action_taken,
+		"state_hash": state_hash,
+		"src": int(command.get("src", command.get("from_id", -1))),
+		"dst": int(command.get("dst", command.get("to_id", -1)))
+	}
+
 func _contract_diagnostics_snapshot() -> Dictionary:
 	return {
 		"contract_version": CONTRACT_VERSION,
 		"contract_command_lead_ticks": _contract_current_command_lead_ticks,
 		"contract_min_command_lead_ticks": -1 if _contract_min_command_lead_ticks == 2147483647 else _contract_min_command_lead_ticks,
 		"contract_missed_scheduled_commands": _contract_missed_scheduled_commands,
+		"contract_late_scheduled_commands": _contract_late_scheduled_commands,
+		"contract_buffered_lagging_commands": _contract_buffered_lagging_commands,
 		"contract_state_hash_mismatches": _contract_state_hash_mismatches,
 		"contract_violation_count": _contract_violation_count,
 		"contract_last_violation_reason": _contract_last_violation_reason,
 		"contract_report_path": _contract_diagnostic_log_path(),
-		"contract_pending_commands": _pending_remote_commands.size()
+		"contract_pending_commands": _pending_remote_commands.size(),
+		"peer_desync_or_lagging": _peer_desync_or_lagging,
+		"peer_desync_or_lagging_reason": _peer_desync_or_lagging_reason,
+		"peer_desync_or_lagging_details": _peer_desync_or_lagging_details.duplicate(true),
+		"recovery_state": _recovery_state,
+		"recovery_attempts": _recovery_attempts,
+		"recovery_last_outcome": _recovery_last_outcome,
+		"recovery_desync_tick": _recovery_desync_tick,
+		"last_matching_checkpoint_tick": _last_matching_checkpoint_tick,
+		"authority_snapshot_count": _authority_snapshots_by_tick.size(),
+		"accepted_command_log_size": _accepted_command_log.size()
 	}
 
 func _contract_diagnostic_log_path() -> String:

@@ -20,6 +20,7 @@ const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
 const SETTINGS_FORCE_RELEASE_GUARD_FOR_SMOKE: String = "swarmfront/vs/force_release_guard_for_smoke"
 const DEFAULT_BACKEND_TIMEOUT_SEC: float = 6.0
 const MAX_SYNC_BACKEND_TIMEOUT_SEC: float = 6.0
+const AUTH_COMMAND_LEAD_TICKS: int = 6
 const TRANSPORT_ERROR_BACKOFF_MS: int = 60000
 const DIAGNOSTIC_LOG_PATH: String = "user://vs_handshake_diagnostics.jsonl"
 const DIAGNOSTIC_MAX_PAYLOAD_CHARS: int = 1200
@@ -711,12 +712,13 @@ func publish_intent(session_id: String, uid: String, command: Dictionary) -> Dic
 	if seq <= 0:
 		seq = 1
 	stream["next_seq"] = seq + 1
+	var canonical_command: Dictionary = _canonicalize_authoritative_command(sid, sender_uid, command, seq, stream)
 	var events_any: Variant = stream.get("events", [])
 	var events: Array = events_any as Array if typeof(events_any) == TYPE_ARRAY else []
 	var event: Dictionary = {
 		"seq": seq,
 		"uid": sender_uid,
-		"command": command.duplicate(true),
+		"command": canonical_command.duplicate(true),
 		"ts_unix": int(Time.get_unix_time_from_system())
 	}
 	events.append(event)
@@ -724,7 +726,37 @@ func publish_intent(session_id: String, uid: String, command: Dictionary) -> Dic
 		events.remove_at(0)
 	stream["events"] = events
 	_intent_streams[sid] = stream
-	return _with_server_perf_meta({"ok": true, "seq": seq}, start_ms)
+	return _with_server_perf_meta({
+		"ok": true,
+		"seq": seq,
+		"command_seq": seq,
+		"command_id": str(canonical_command.get("command_id", "")),
+		"command": canonical_command.duplicate(true),
+		"canonical_command": canonical_command.duplicate(true)
+	}, start_ms)
+
+func _canonicalize_authoritative_command(session_id: String, sender_uid: String, command: Dictionary, seq: int, stream: Dictionary) -> Dictionary:
+	var canonical: Dictionary = command.duplicate(true)
+	var command_seq: int = maxi(1, int(seq))
+	var issued_tick: int = int(canonical.get("issued_tick", canonical.get("local_issued_tick", 0)))
+	var requested_execute_tick: int = int(canonical.get("execute_tick", canonical.get("requested_execute_tick", -1)))
+	var last_execute_tick: int = int(stream.get("last_execute_tick", -1))
+	var min_execute_tick: int = issued_tick + AUTH_COMMAND_LEAD_TICKS
+	var execute_tick: int = requested_execute_tick
+	if execute_tick < min_execute_tick:
+		execute_tick = min_execute_tick
+	if execute_tick <= last_execute_tick:
+		execute_tick = last_execute_tick + 1
+	stream["last_execute_tick"] = execute_tick
+	canonical["command_seq"] = command_seq
+	canonical["command_id"] = "%s:%d" % [session_id, command_seq]
+	canonical["authority_session_id"] = session_id
+	canonical["authority_uid"] = sender_uid
+	canonical["canonical_execute_tick"] = execute_tick
+	canonical["execute_tick"] = execute_tick
+	canonical["requested_execute_tick"] = requested_execute_tick
+	canonical["authority_action"] = "accepted" if execute_tick == requested_execute_tick else "rebased"
+	return canonical
 
 func poll_intents(session_id: String, uid: String, after_seq: int = 0) -> Dictionary:
 	var start_ms: int = Time.get_ticks_msec()

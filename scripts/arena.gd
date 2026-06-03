@@ -1588,6 +1588,8 @@ func _pump_vs_pvp_runtime(delta: float) -> void:
 		return
 	if _vs_pvp_runtime.has_method("tick"):
 		_vs_pvp_runtime.call("tick", delta)
+	if _handle_vs_recovery_state():
+		return
 	if not _vs_pvp_runtime.has_method("consume_remote_commands"):
 		return
 	var st: GameState = OpsState.get_state() if OpsState != null else null
@@ -1596,6 +1598,84 @@ func _pump_vs_pvp_runtime(delta: float) -> void:
 	if typeof(commands_any) != TYPE_ARRAY:
 		return
 	_apply_remote_pvp_commands(commands_any as Array)
+
+func _handle_vs_recovery_state() -> bool:
+	if _vs_pvp_runtime == null:
+		return false
+	var recovery_state: String = "running"
+	if _vs_pvp_runtime.has_method("get_recovery_state"):
+		recovery_state = str(_vs_pvp_runtime.call("get_recovery_state"))
+	var peer_blocked: bool = false
+	if _vs_pvp_runtime.has_method("is_peer_desync_or_lagging"):
+		peer_blocked = bool(_vs_pvp_runtime.call("is_peer_desync_or_lagging"))
+	if recovery_state == "running" and not peer_blocked:
+		return false
+	var reason: String = "peer_desync_or_lagging"
+	if _vs_pvp_runtime.has_method("get_peer_desync_or_lagging_reason"):
+		reason = str(_vs_pvp_runtime.call("get_peer_desync_or_lagging_reason"))
+	if sim_runner != null and bool(sim_runner.running):
+		sim_runner.set_running(false, reason)
+		sim_runner.log_pause_snapshot(reason)
+	if recovery_state == "desync_recovery":
+		_show_capture_flag_toast("Connection unstable. Resyncing match...", 1800.0)
+		_attempt_vs_desync_recovery()
+		return true
+	if recovery_state == "desync_ended":
+		_show_capture_flag_toast("Connection unstable. Match ended.", 2200.0)
+		if OpsState != null and OpsState.has_method("begin_match_end") and int(OpsState.match_phase) == int(OpsState.MatchPhase.RUNNING):
+			OpsState.call("begin_match_end", 0, "desync_failure", 0)
+		return true
+	if peer_blocked:
+		_show_capture_flag_toast("Connection unstable. Waiting for opponent...", 1400.0)
+		return true
+	return false
+
+func _attempt_vs_desync_recovery() -> void:
+	if _vs_pvp_runtime == null or not _vs_pvp_runtime.has_method("build_desync_recovery_plan"):
+		return
+	var plan_any: Variant = _vs_pvp_runtime.call("build_desync_recovery_plan")
+	if typeof(plan_any) != TYPE_DICTIONARY:
+		return
+	var plan: Dictionary = plan_any as Dictionary
+	if not bool(plan.get("ok", false)):
+		if _vs_pvp_runtime.has_method("mark_desync_unrecoverable"):
+			_vs_pvp_runtime.call("mark_desync_unrecoverable", str(plan.get("reason", "recovery_plan_failed")), plan)
+		return
+	var snapshot_any: Variant = plan.get("snapshot", {})
+	if typeof(snapshot_any) != TYPE_DICTIONARY:
+		if _vs_pvp_runtime.has_method("mark_desync_unrecoverable"):
+			_vs_pvp_runtime.call("mark_desync_unrecoverable", "snapshot_missing", plan)
+		return
+	if OpsState == null or not OpsState.has_method("restore_authority_snapshot"):
+		if _vs_pvp_runtime.has_method("mark_desync_unrecoverable"):
+			_vs_pvp_runtime.call("mark_desync_unrecoverable", "restore_api_missing", plan)
+		return
+	var restored: bool = bool(OpsState.call("restore_authority_snapshot", snapshot_any as Dictionary))
+	if not restored:
+		if _vs_pvp_runtime.has_method("mark_desync_unrecoverable"):
+			_vs_pvp_runtime.call("mark_desync_unrecoverable", "snapshot_restore_failed", plan)
+		return
+	var commands_any: Variant = plan.get("commands", [])
+	var commands: Array = commands_any as Array if typeof(commands_any) == TYPE_ARRAY else []
+	_apply_remote_pvp_commands(commands)
+	var recovered_hash: String = ""
+	if OpsState.has_method("get_contract_state_hash"):
+		recovered_hash = str(OpsState.call("get_contract_state_hash"))
+	var recovered_tick: int = -1
+	if OpsState.has_method("get_state"):
+		var recovered_state: GameState = OpsState.call("get_state") as GameState
+		if recovered_state != null:
+			recovered_tick = int(recovered_state.tick)
+	if _vs_pvp_runtime.has_method("complete_desync_recovery"):
+		var result_any: Variant = _vs_pvp_runtime.call("complete_desync_recovery", recovered_tick, recovered_hash, commands.size())
+		if typeof(result_any) == TYPE_DICTIONARY:
+			var result: Dictionary = result_any as Dictionary
+			if bool(result.get("recovered", false)):
+				if sim_runner != null:
+					sim_runner.set_running(true, "desync_recovery_success")
+				mark_render_dirty("vs_desync_recovered")
+			elif bool(result.get("ended", false)) and OpsState != null and OpsState.has_method("begin_match_end") and int(OpsState.match_phase) == int(OpsState.MatchPhase.RUNNING):
+				OpsState.call("begin_match_end", 0, "desync_failure", 0)
 
 func _apply_remote_pvp_commands(commands: Array) -> void:
 	if commands == null or commands.is_empty():
@@ -4563,12 +4643,15 @@ func _on_sim_ticked() -> void:
 		_match_telemetry_collector.call("sample_runtime_perf", int(_authoritative_sim_time_us() / 1000), runtime_snapshot)
 	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("record_local_state_hash") and OpsState != null and state != null:
 		var state_hash: String = ""
-		if OpsState.has_method("get_pvp_debug_state_hash"):
-			state_hash = str(OpsState.call("get_pvp_debug_state_hash"))
-		elif OpsState.has_method("get_contract_state_hash"):
+		if OpsState.has_method("get_contract_state_hash"):
 			state_hash = str(OpsState.call("get_contract_state_hash"))
 		if not state_hash.is_empty():
-			_vs_pvp_runtime.call("record_local_state_hash", int(state.tick), state_hash)
+			var authority_snapshot: Dictionary = {}
+			if OpsState.has_method("get_authority_snapshot"):
+				var snapshot_any: Variant = OpsState.call("get_authority_snapshot")
+				if typeof(snapshot_any) == TYPE_DICTIONARY:
+					authority_snapshot = snapshot_any as Dictionary
+			_vs_pvp_runtime.call("record_local_state_hash", int(state.tick), state_hash, authority_snapshot)
 	mark_render_dirty("sim_tick")
 	# SimRunner already ticks at fixed cadence; pushing every sim tick avoids
 	# time-gate jitter (99ms/101ms skip pattern) that reads as sawtooth motion.

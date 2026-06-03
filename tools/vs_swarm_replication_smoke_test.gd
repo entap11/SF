@@ -8,8 +8,10 @@ func _init() -> void:
 	var failed: bool = false
 	failed = _test_successful_swarm_intent_replicates() or failed
 	failed = _test_invalid_remote_command_trips_contract_guard() or failed
-	failed = _test_missed_scheduled_command_updates_diagnostics() or failed
+	failed = _test_late_scheduled_command_delivers_and_updates_diagnostics() or failed
+	failed = _test_same_authoritative_command_log_hashes_match() or failed
 	failed = _test_state_hash_mismatch_trips_contract_guard() or failed
+	failed = _test_desync_recovery_uses_snapshot_and_command_log() or failed
 	if not failed:
 		print("VS_SWARM_REPLICATION_SMOKE: PASS")
 	quit(1 if failed else 0)
@@ -78,15 +80,25 @@ func _test_successful_swarm_intent_replicates() -> bool:
 	var open_result: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack") as Dictionary
 	if not bool(open_result.get("ok", false)):
 		return _fail("attack route setup failed: %s" % str(open_result))
+	var scheduled_hash: String = str(ops_state.call("get_contract_state_hash"))
+	if scheduled_hash != state_hash:
+		return _fail("local PvP request mutated state before authority apply: before=%s after=%s result=%s" % [state_hash, scheduled_hash, str(open_result)])
 	var early_attack: Array = runtime.call("consume_remote_commands", 1) as Array
 	if not early_attack.is_empty():
 		return _fail("scheduled attack command should not mature early: %s" % str(early_attack))
 	var early_diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
-	if int(early_diag.get("contract_command_lead_ticks", -1)) != 2:
-		return _fail("early scheduled command lead should be 2 ticks: %s" % str(early_diag))
-	var scheduled_attack: Array = runtime.call("consume_remote_commands", 3) as Array
+	if int(early_diag.get("contract_command_lead_ticks", -1)) != 5:
+		return _fail("early scheduled command lead should be 5 ticks: %s" % str(early_diag))
+	var scheduled_attack: Array = runtime.call("consume_remote_commands", 6) as Array
 	if scheduled_attack.is_empty():
 		return _fail("scheduled attack command missing")
+	var attack_command: Dictionary = scheduled_attack[0] as Dictionary
+	if int(attack_command.get("command_seq", 0)) != 1:
+		return _fail("scheduled attack missing canonical command_seq: %s" % str(attack_command))
+	if str(attack_command.get("command_id", "")).strip_edges().is_empty():
+		return _fail("scheduled attack missing canonical command_id: %s" % str(attack_command))
+	if int(attack_command.get("execute_tick", -1)) != 6:
+		return _fail("scheduled attack should use canonical execute tick 6: %s" % str(attack_command))
 	var due_diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
 	if int(due_diag.get("contract_command_lead_ticks", -1)) != 0:
 		return _fail("due scheduled command lead should be 0 ticks: %s" % str(due_diag))
@@ -111,6 +123,8 @@ func _test_successful_swarm_intent_replicates() -> bool:
 		return _fail("replicated swarm command missing sim metadata: %s" % str(swarm_command))
 	if int(swarm_command.get("execute_tick", -1)) < 0:
 		return _fail("replicated swarm command missing execute tick: %s" % str(swarm_command))
+	if int(swarm_command.get("command_seq", 0)) <= 1:
+		return _fail("replicated swarm command missing canonical sequence after lane open: %s" % str(swarm_command))
 	if runtime.has_method("clear"):
 		runtime.call("clear")
 	return false
@@ -162,10 +176,10 @@ func _test_invalid_remote_command_trips_contract_guard() -> bool:
 		return _fail("invalid remote command should not be queued: %s" % str(pending))
 	if runtime.has_method("clear"):
 		runtime.call("clear")
-	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, true)
+	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
 	return false
 
-func _test_missed_scheduled_command_updates_diagnostics() -> bool:
+func _test_late_scheduled_command_delivers_and_updates_diagnostics() -> bool:
 	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
 	var root_node: Window = get_root()
 	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
@@ -194,6 +208,7 @@ func _test_missed_scheduled_command_updates_diagnostics() -> bool:
 					"issued_ms": Time.get_ticks_msec(),
 					"issued_tick": 0,
 					"execute_tick": 2,
+					"canonical_execute_tick": 2,
 					"issued_sim_us": 0,
 					"sender_seat": 2,
 					"sender_uid": "missed_guest",
@@ -208,20 +223,212 @@ func _test_missed_scheduled_command_updates_diagnostics() -> bool:
 	}, Time.get_ticks_usec(), 0)
 	var before_count: int = int(runtime.call("get_contract_violation_count"))
 	var matured: Array = runtime.call("consume_remote_commands", 3) as Array
-	if not matured.is_empty():
-		return _fail("missed scheduled command should not be delivered after execute tick: %s" % str(matured))
+	if matured.is_empty():
+		return _fail("late scheduled command should be delivered on the next available tick")
 	var after_count: int = int(runtime.call("get_contract_violation_count"))
-	if after_count <= before_count:
-		return _fail("missed scheduled command did not trip contract guard")
+	if after_count != before_count:
+		return _fail("late scheduled command should not trip contract guard")
 	var diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
 	if int(diag.get("contract_missed_scheduled_commands", 0)) <= 0:
-		return _fail("missed scheduled command should increment diagnostics: %s" % str(diag))
+		return _fail("late scheduled command should increment compatibility diagnostics: %s" % str(diag))
+	if int(diag.get("contract_late_scheduled_commands", 0)) <= 0:
+		return _fail("late scheduled command should increment late diagnostics: %s" % str(diag))
 	if int(diag.get("contract_command_lead_ticks", 0)) != -1:
-		return _fail("missed scheduled command should record negative lead: %s" % str(diag))
+		return _fail("late scheduled command should record negative lead: %s" % str(diag))
+	runtime.call("_handle_remote_intent_poll_result", {
+		"ok": true,
+		"latest_seq": 2,
+		"events": [
+			{
+				"seq": 2,
+				"uid": "missed_guest",
+				"command": {
+					"kind": "lane_intent",
+					"contract_version": 1,
+					"issued_ms": Time.get_ticks_msec(),
+					"issued_tick": 1,
+					"execute_tick": 4,
+					"canonical_execute_tick": 4,
+					"issued_sim_us": 100000,
+					"sender_seat": 2,
+					"sender_uid": "missed_guest",
+					"src": 2,
+					"dst": 1,
+					"intent": "attack",
+					"src_owner": 2,
+					"dst_owner": 1
+				}
+			}
+		]
+	}, Time.get_ticks_usec(), 1)
+	before_count = int(runtime.call("get_contract_violation_count"))
+	var several_late: Array = runtime.call("consume_remote_commands", 10) as Array
+	if several_late.is_empty():
+		return _fail("several-ticks-late command should still deliver within tolerance")
+	after_count = int(runtime.call("get_contract_violation_count"))
+	if after_count != before_count:
+		return _fail("several-ticks-late command should not trip contract guard")
+	diag = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if int(diag.get("contract_late_scheduled_commands", 0)) < 2:
+		return _fail("several-ticks-late command should increment late diagnostics: %s" % str(diag))
 	if runtime.has_method("clear"):
 		runtime.call("clear")
-	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, true)
+	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
+	if _test_outside_tolerance_pauses_without_crash():
+		return true
 	return false
+
+func _test_outside_tolerance_pauses_without_crash() -> bool:
+	var root_node: Window = get_root()
+	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
+	if runtime == null:
+		return _fail("VsPvpRuntime autoload missing")
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	set_meta("vs_handshake_session_id", "outside_tolerance_guard_smoke")
+	set_meta("vs_handshake_role", "host")
+	set_meta("vs_mode", "PVP")
+	set_meta("vs_local_profile", {"uid": "lag_host", "display_name": "LagHost"})
+	runtime.call("configure_from_tree", self, [
+		{"uid": "lag_host", "seat": 1, "active": true},
+		{"uid": "lag_guest", "seat": 2, "active": true}
+	])
+	runtime.call("_handle_remote_intent_poll_result", {
+		"ok": true,
+		"latest_seq": 1,
+		"events": [
+			{
+				"seq": 1,
+				"uid": "lag_guest",
+				"command": {
+					"kind": "lane_intent",
+					"contract_version": 1,
+					"issued_ms": Time.get_ticks_msec(),
+					"issued_tick": 0,
+					"execute_tick": 2,
+					"canonical_execute_tick": 2,
+					"issued_sim_us": 0,
+					"sender_seat": 2,
+					"sender_uid": "lag_guest",
+					"src": 2,
+					"dst": 1,
+					"intent": "attack",
+					"src_owner": 2,
+					"dst_owner": 1
+				}
+			}
+		]
+	}, Time.get_ticks_usec(), 0)
+	var matured: Array = runtime.call("consume_remote_commands", 20) as Array
+	if not matured.is_empty():
+		return _fail("outside tolerance command should buffer instead of apply: %s" % str(matured))
+	var diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if not bool(diag.get("peer_desync_or_lagging", false)):
+		return _fail("outside tolerance should set peer_desync_or_lagging: %s" % str(diag))
+	if int(diag.get("contract_buffered_lagging_commands", 0)) <= 0:
+		return _fail("outside tolerance should increment buffered diagnostics: %s" % str(diag))
+	if int(runtime.call("get_contract_violation_count")) != 0:
+		return _fail("outside tolerance should not be an app-crash contract violation")
+	if str(diag.get("recovery_state", "")) != "waiting_for_peer":
+		return _fail("outside tolerance should enter waiting_for_peer recovery state: %s" % str(diag))
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	return false
+
+func _test_same_authoritative_command_log_hashes_match() -> bool:
+	var root_node: Window = get_root()
+	var ops_state: Node = root_node.get_node_or_null("/root/OpsState")
+	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
+	if ops_state == null:
+		return _fail("OpsState autoload missing")
+	if runtime != null and runtime.has_method("clear"):
+		runtime.call("clear")
+	var map_dict: Dictionary = _deterministic_authority_map()
+	var command_log: Array = [
+		{"command_seq": 1, "kind": "lane_intent", "src": 1, "dst": 3, "intent": "feed"},
+		{"command_seq": 2, "kind": "lane_intent", "src": 1, "dst": 2, "intent": "attack"},
+		{"command_seq": 3, "kind": "lane_intent", "src": 1, "dst": 2, "intent": "swarm"},
+		{"command_seq": 4, "kind": "lane_retract", "from_id": 1, "to_id": 2, "owner_id": 1},
+		{"command_seq": 5, "kind": "lane_intent", "src": 2, "dst": 1, "intent": "attack"}
+	]
+	var first: Dictionary = _apply_authoritative_command_log(ops_state, map_dict, command_log)
+	if not bool(first.get("ok", false)):
+		return _fail(str(first.get("reason", "first command log failed")))
+	var second: Dictionary = _apply_authoritative_command_log(ops_state, map_dict, command_log)
+	if not bool(second.get("ok", false)):
+		return _fail(str(second.get("reason", "second command log failed")))
+	if str(first.get("hash", "")) != str(second.get("hash", "")):
+		return _fail("same accepted command log produced different hashes: first=%s second=%s" % [str(first), str(second)])
+	if int(first.get("swarm_requests", 0)) != 1 or int(second.get("swarm_requests", 0)) != 1:
+		return _fail("swarm command should enqueue exactly one deterministic request: first=%s second=%s" % [str(first), str(second)])
+	if runtime != null and runtime.has_method("clear"):
+		runtime.call("clear")
+	return false
+
+func _deterministic_authority_map() -> Dictionary:
+	return {
+		"map_id": "pvp_authority_regression",
+		"hives": [
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 50, "kind": "Hive"},
+			{"id": 2, "x": 5, "y": 0, "owner_id": 2, "power": 50, "kind": "Hive"},
+			{"id": 3, "x": 0, "y": 5, "owner_id": 1, "power": 20, "kind": "Hive"}
+		],
+		"lane_candidates": [
+			{"a_id": 1, "b_id": 2},
+			{"a_id": 1, "b_id": 3}
+		]
+	}
+
+func _apply_authoritative_command_log(ops_state: Node, map_dict: Dictionary, command_log: Array) -> Dictionary:
+	ops_state.call("reset_state_from_map", map_dict)
+	ops_state.set("match_phase", 1)
+	var failure_reason: String = ""
+	var sorted_log: Array = command_log.duplicate(true)
+	sorted_log.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("command_seq", 0)) < int(b.get("command_seq", 0))
+	)
+	ops_state.call("with_remote_replication_apply", func() -> void:
+		for command_any in sorted_log:
+			if typeof(command_any) != TYPE_DICTIONARY:
+				failure_reason = "command log entry is not a dictionary"
+				return
+			var command: Dictionary = command_any as Dictionary
+			var kind: String = str(command.get("kind", "")).strip_edges().to_lower()
+			match kind:
+				"lane_intent":
+					var result: Dictionary = ops_state.call(
+						"apply_lane_intent",
+						int(command.get("src", -1)),
+						int(command.get("dst", -1)),
+						str(command.get("intent", ""))
+					) as Dictionary
+					if not bool(result.get("ok", false)):
+						failure_reason = "command_seq %d failed: %s" % [int(command.get("command_seq", 0)), str(result)]
+						return
+				"lane_retract":
+					ops_state.call(
+						"retract_lane",
+						int(command.get("from_id", -1)),
+						int(command.get("to_id", -1)),
+						int(command.get("owner_id", 0))
+					)
+				_:
+					failure_reason = "unsupported command kind: %s" % kind
+					return
+	)
+	if not failure_reason.is_empty():
+		return {"ok": false, "reason": failure_reason}
+	var state: GameState = ops_state.call("get_state") as GameState
+	if state == null:
+		return {"ok": false, "reason": "state missing after command log"}
+	if int(state.swarm_requests.size()) != 1:
+		return {"ok": false, "reason": "swarm command should enqueue exactly one request, got %d" % int(state.swarm_requests.size())}
+	return {
+		"ok": true,
+		"hash": str(ops_state.call("get_contract_state_hash")),
+		"swarm_requests": int(state.swarm_requests.size()),
+		"hive_1_power": int((state.find_hive_by_id(1) as HiveData).power)
+	}
 
 func _test_state_hash_mismatch_trips_contract_guard() -> bool:
 	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
@@ -271,10 +478,210 @@ func _test_state_hash_mismatch_trips_contract_guard() -> bool:
 		return _fail("state hash mismatch should increment diagnostics: %s" % str(diag))
 	if str(diag.get("contract_last_violation_reason", "")) != "state_hash_mismatch":
 		return _fail("state hash mismatch should record latest violation reason: %s" % str(diag))
+	if str(diag.get("recovery_state", "")) != "desync_recovery":
+		return _fail("state hash mismatch should enter desync recovery instead of continuing: %s" % str(diag))
 	if runtime.has_method("clear"):
 		runtime.call("clear")
-	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, true)
+	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
 	return false
+
+func _test_desync_recovery_uses_snapshot_and_command_log() -> bool:
+	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
+	var root_node: Window = get_root()
+	var ops_state: Node = root_node.get_node_or_null("/root/OpsState")
+	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
+	if ops_state == null:
+		return _fail("OpsState autoload missing")
+	if runtime == null:
+		return _fail("VsPvpRuntime autoload missing")
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	set_meta("vs_handshake_session_id", "desync_recovery_smoke")
+	set_meta("vs_handshake_role", "host")
+	set_meta("vs_mode", "PVP")
+	set_meta("vs_local_profile", {"uid": "recovery_host", "display_name": "RecoveryHost"})
+	runtime.call("configure_from_tree", self, [
+		{"uid": "recovery_host", "seat": 1, "active": true},
+		{"uid": "recovery_guest", "seat": 2, "active": true}
+	])
+	ops_state.call("reset_state_from_map", _deterministic_authority_map())
+	ops_state.set("match_phase", 1)
+	var checkpoint_hash: String = str(ops_state.call("get_contract_state_hash"))
+	var checkpoint_snapshot: Dictionary = ops_state.call("get_authority_snapshot") as Dictionary
+	runtime.call("_record_authority_snapshot", 0, checkpoint_hash, checkpoint_snapshot)
+	runtime.set("_local_hash_by_tick", {0: checkpoint_hash})
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("recovery_guest", 1, 0, checkpoint_hash), Time.get_ticks_usec(), 0)
+	var checkpoint_diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if int(checkpoint_diag.get("last_matching_checkpoint_tick", -1)) != 0:
+		return _fail("matching checkpoint should be recorded before recovery: %s" % str(checkpoint_diag))
+
+	var command_log: Array = [
+		_recovery_lane_command(1, 1, "recovery_host", 1, 1, 3, "feed", 1, 1),
+		_recovery_lane_command(2, 2, "recovery_host", 1, 1, 2, "attack", 1, 2),
+		_recovery_lane_command(3, 3, "recovery_host", 1, 1, 2, "swarm", 1, 2),
+		_recovery_retract_command(4, 4, "recovery_host", 1, 1, 2, 1),
+		_recovery_lane_command(5, 5, "recovery_guest", 2, 2, 1, "attack", 2, 1)
+	]
+	for command_any in command_log:
+		runtime.call("_queue_scheduled_command", command_any as Dictionary)
+	var expected_apply: Dictionary = _apply_command_rows_to_current_state(ops_state, command_log)
+	if not bool(expected_apply.get("ok", false)):
+		return _fail("expected authoritative replay failed before desync: %s" % str(expected_apply))
+	var expected_hash: String = str(ops_state.call("get_contract_state_hash"))
+	var expected_state: GameState = ops_state.call("get_state") as GameState
+	if expected_state == null or int(expected_state.swarm_requests.size()) != 1:
+		return _fail("swarm command should be part of command-log replay before recovery")
+
+	var local_hashes_any: Variant = runtime.get("_local_hash_by_tick")
+	var local_hashes: Dictionary = local_hashes_any as Dictionary if typeof(local_hashes_any) == TYPE_DICTIONARY else {}
+	local_hashes[5] = "artificial_local_desync"
+	runtime.set("_local_hash_by_tick", local_hashes)
+	runtime.call("_record_authority_snapshot", 5, "artificial_local_desync", ops_state.call("get_authority_snapshot") as Dictionary)
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("recovery_guest", 2, 5, expected_hash), Time.get_ticks_usec(), 1)
+	var desync_diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if str(desync_diag.get("recovery_state", "")) != "desync_recovery":
+		return _fail("desync mismatch should freeze into recovery: %s" % str(desync_diag))
+	if bool(runtime.call("can_accept_gameplay_intents")):
+		return _fail("gameplay intents should be blocked during desync recovery")
+
+	var plan: Dictionary = runtime.call("build_desync_recovery_plan") as Dictionary
+	if not bool(plan.get("ok", false)):
+		return _fail("recovery plan should be available: %s" % str(plan))
+	if int(plan.get("rollback_tick", -1)) != 0:
+		return _fail("recovery should roll back to last matching checkpoint: %s" % str(plan))
+	var commands_any: Variant = plan.get("commands", [])
+	var commands: Array = commands_any as Array if typeof(commands_any) == TYPE_ARRAY else []
+	if commands.size() != command_log.size():
+		return _fail("recovery plan should replay every accepted command since checkpoint: %s" % str(plan))
+	var restored: bool = bool(ops_state.call("restore_authority_snapshot", plan.get("snapshot", {}) as Dictionary))
+	if not restored:
+		return _fail("authority snapshot restore failed")
+	var replay_apply: Dictionary = _apply_command_rows_to_current_state(ops_state, commands)
+	if not bool(replay_apply.get("ok", false)):
+		return _fail("recovery replay failed: %s" % str(replay_apply))
+	var recovered_hash: String = str(ops_state.call("get_contract_state_hash"))
+	var recovery_result: Dictionary = runtime.call("complete_desync_recovery", 5, recovered_hash, commands.size()) as Dictionary
+	if not bool(recovery_result.get("recovered", false)):
+		return _fail("recovery should complete when command-log replay reaches remote hash: result=%s expected=%s recovered=%s" % [str(recovery_result), expected_hash, recovered_hash])
+	var recovered_diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if str(recovered_diag.get("recovery_state", "")) != "running":
+		return _fail("runtime should return to running after recovery: %s" % str(recovered_diag))
+	if str(ops_state.call("get_contract_state_hash")) != expected_hash:
+		return _fail("recovered authoritative hash should match canonical replay")
+
+	runtime.set("_recovery_remote_hash", "unreachable_hash")
+	var failed_once: Dictionary = runtime.call("complete_desync_recovery", 5, recovered_hash, commands.size()) as Dictionary
+	var failed_twice: Dictionary = runtime.call("complete_desync_recovery", 5, recovered_hash, commands.size()) as Dictionary
+	if not bool(failed_once.get("ok", true)) and not bool(failed_twice.get("ended", false)):
+		return _fail("failed recovery should end cleanly after retry budget: once=%s twice=%s" % [str(failed_once), str(failed_twice)])
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	return false
+
+func _state_hash_poll(uid: String, seq: int, hash_tick: int, state_hash: String) -> Dictionary:
+	return {
+		"ok": true,
+		"latest_seq": int(seq),
+		"events": [
+			{
+				"seq": int(seq),
+				"uid": uid,
+				"command": {
+					"kind": "state_hash",
+					"contract_version": 1,
+					"issued_ms": Time.get_ticks_msec(),
+					"issued_tick": int(hash_tick),
+					"execute_tick": int(hash_tick) + 3,
+					"issued_sim_us": int(hash_tick) * 100000,
+					"sender_seat": 2,
+					"sender_uid": uid,
+					"hash_tick": int(hash_tick),
+					"state_hash": state_hash
+				}
+			}
+		]
+	}
+
+func _recovery_lane_command(seq: int, execute_tick: int, sender_uid: String, sender_seat: int, src: int, dst: int, intent: String, src_owner: int, dst_owner: int) -> Dictionary:
+	return {
+		"kind": "lane_intent",
+		"contract_version": 1,
+		"command_seq": int(seq),
+		"command_id": "desync_recovery_smoke:%d" % int(seq),
+		"issued_ms": Time.get_ticks_msec(),
+		"issued_tick": 0,
+		"local_issued_tick": 0,
+		"requested_execute_tick": int(execute_tick),
+		"execute_tick": int(execute_tick),
+		"canonical_execute_tick": int(execute_tick),
+		"issued_sim_us": 0,
+		"sender_seat": int(sender_seat),
+		"sender_uid": sender_uid,
+		"src": int(src),
+		"dst": int(dst),
+		"intent": intent,
+		"src_owner": int(src_owner),
+		"dst_owner": int(dst_owner)
+	}
+
+func _recovery_retract_command(seq: int, execute_tick: int, sender_uid: String, sender_seat: int, from_id: int, to_id: int, owner_id: int) -> Dictionary:
+	return {
+		"kind": "lane_retract",
+		"contract_version": 1,
+		"command_seq": int(seq),
+		"command_id": "desync_recovery_smoke:%d" % int(seq),
+		"issued_ms": Time.get_ticks_msec(),
+		"issued_tick": 0,
+		"local_issued_tick": 0,
+		"requested_execute_tick": int(execute_tick),
+		"execute_tick": int(execute_tick),
+		"canonical_execute_tick": int(execute_tick),
+		"issued_sim_us": 0,
+		"sender_seat": int(sender_seat),
+		"sender_uid": sender_uid,
+		"from_id": int(from_id),
+		"to_id": int(to_id),
+		"owner_id": int(owner_id)
+	}
+
+func _apply_command_rows_to_current_state(ops_state: Node, command_log: Array) -> Dictionary:
+	var failure_reason: String = ""
+	var sorted_log: Array = command_log.duplicate(true)
+	sorted_log.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("command_seq", 0)) < int(b.get("command_seq", 0))
+	)
+	ops_state.call("with_remote_replication_apply", func() -> void:
+		for command_any in sorted_log:
+			if typeof(command_any) != TYPE_DICTIONARY:
+				failure_reason = "command log entry is not a dictionary"
+				return
+			var command: Dictionary = command_any as Dictionary
+			var kind: String = str(command.get("kind", "")).strip_edges().to_lower()
+			match kind:
+				"lane_intent":
+					var result: Dictionary = ops_state.call(
+						"apply_lane_intent",
+						int(command.get("src", -1)),
+						int(command.get("dst", -1)),
+						str(command.get("intent", ""))
+					) as Dictionary
+					if not bool(result.get("ok", false)):
+						failure_reason = "command_seq %d failed: %s" % [int(command.get("command_seq", 0)), str(result)]
+						return
+				"lane_retract":
+					ops_state.call(
+						"retract_lane",
+						int(command.get("from_id", -1)),
+						int(command.get("to_id", -1)),
+						int(command.get("owner_id", 0))
+					)
+				_:
+					failure_reason = "unsupported command kind: %s" % kind
+					return
+	)
+	if not failure_reason.is_empty():
+		return {"ok": false, "reason": failure_reason}
+	return {"ok": true, "hash": str(ops_state.call("get_contract_state_hash"))}
 
 func _find_lane_intent_command(poll: Dictionary, uid: String, intent: String, src: int, dst: int) -> Dictionary:
 	var events_any: Variant = poll.get("events", [])
