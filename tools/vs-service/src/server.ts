@@ -71,6 +71,7 @@ type IntentEvent = {
 type IntentStream = {
   nextSeq: number;
   events: IntentEvent[];
+  lastExecuteTick: number;
 };
 
 const processStartUnix = nowUnix();
@@ -857,15 +858,53 @@ function publishIntent(req: Request, res: Response): void {
   if (!sessionHasPlayer(session, uid)) {
     return fail(res, "player_not_in_session");
   }
-  const stream = intentStreams.get(sessionId) ?? { nextSeq: 1, events: [] };
+  const stream = intentStreams.get(sessionId) ?? { nextSeq: 1, events: [], lastExecuteTick: -1 };
   const seq = stream.nextSeq;
   stream.nextSeq += 1;
-  stream.events.push({ seq, uid, command: cloneContext(command), ts_unix: nowUnix() });
+  const canonicalCommand = canonicalizeAuthoritativeCommand(sessionId, uid, command, seq, stream);
+  stream.events.push({ seq, uid, command: canonicalCommand, ts_unix: nowUnix() });
   while (stream.events.length > config.intentStreamMaxEvents) {
     stream.events.shift();
   }
   intentStreams.set(sessionId, stream);
-  return ok(res, { seq });
+  return ok(res, {
+    seq,
+    command_seq: seq,
+    command_id: stringValue(canonicalCommand.command_id),
+    command: { ...canonicalCommand },
+    canonical_command: { ...canonicalCommand }
+  });
+}
+
+function canonicalizeAuthoritativeCommand(
+  sessionId: string,
+  senderUid: string,
+  command: JsonRecord,
+  seq: number,
+  stream: IntentStream
+): JsonRecord {
+  const canonical = cloneContext(command);
+  const commandSeq = Math.max(1, Math.trunc(seq));
+  const issuedTick = Math.trunc(numberValue(canonical.issued_tick ?? canonical.local_issued_tick, 0));
+  const requestedExecuteTick = Math.trunc(numberValue(canonical.requested_execute_tick ?? canonical.execute_tick, issuedTick + 3));
+  const minExecuteTick = issuedTick + 3;
+  let executeTick = requestedExecuteTick;
+  if (executeTick < minExecuteTick) {
+    executeTick = minExecuteTick;
+  }
+  if (executeTick <= stream.lastExecuteTick) {
+    executeTick = stream.lastExecuteTick + 1;
+  }
+  stream.lastExecuteTick = executeTick;
+  canonical.command_seq = commandSeq;
+  canonical.command_id = `${sessionId}:${commandSeq}`;
+  canonical.authority_session_id = sessionId;
+  canonical.authority_uid = senderUid;
+  canonical.canonical_execute_tick = executeTick;
+  canonical.execute_tick = executeTick;
+  canonical.requested_execute_tick = requestedExecuteTick;
+  canonical.authority_action = executeTick === requestedExecuteTick ? "accepted" : "rebased";
+  return canonical;
 }
 
 function pollIntents(req: Request, res: Response): void {

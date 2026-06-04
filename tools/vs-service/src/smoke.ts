@@ -73,11 +73,19 @@ async function main(): Promise<void> {
       command: { kind: "lane_intent", src: 1, dst: 2, intent: "attack", src_owner: 1, dst_owner: 2, issued_ms: 1 }
     });
     expect(Number(hostPublish.seq) === 1, "host seq mismatch", hostPublish);
+    expect(Number(hostPublish.command_seq) === 1, "host command_seq mismatch", hostPublish);
+    expect(String(hostPublish.command_id ?? "").length > 0, "host command_id missing", hostPublish);
+    const hostCanonical = hostPublish.canonical_command as JsonRecord;
+    expect(Number(hostCanonical.command_seq) === 1, "host canonical command_seq missing", hostPublish);
+    expect(Number(hostCanonical.execute_tick) >= 0, "host canonical execute_tick missing", hostPublish);
 
     const guestPoll = await post(baseUrl, "poll_intents", { session_id: sessionId, uid: guest.uid, after_seq: 0 });
     const guestEvents = guestPoll.events as JsonRecord[];
     expect(Array.isArray(guestEvents) && guestEvents.length === 1, "guest did not receive host event", guestPoll);
     expect(guestEvents[0].uid === host.uid, "guest received wrong sender", guestPoll);
+    const guestCommand = guestEvents[0].command as JsonRecord;
+    expect(Number(guestCommand.command_seq) === 1, "guest received non-canonical host command", guestPoll);
+    expect(Number(guestCommand.execute_tick) >= 0, "guest received command without execute_tick", guestPoll);
 
     await post(baseUrl, "publish_intent", {
       session_id: sessionId,

@@ -469,7 +469,7 @@ var _last_export_log_ms: int = 0
 @export var debug_export_rm_log_interval_ms := 1000
 var _last_export_rm_log_ms := 0
 @export var debug_swarms := false
-@export var show_runtime_telemetry_overlay := true
+@export var show_runtime_telemetry_overlay: bool = false
 var _last_render_serial: int = -1
 var _last_rm_ms: int = 0
 const RM_REFRESH_HZ := 10.0
@@ -3434,6 +3434,8 @@ func _commit_match_records(winner_slot: int) -> void:
 
 func _ensure_match_roster() -> void:
 	var roster: Array = OpsState.match_roster
+	if (roster == null or roster.is_empty()) and get_tree() != null:
+		roster = _match_roster_from_vs_tree_meta(get_tree())
 	var local_uid: String = ProfileManager.get_user_id()
 	var active_seats_lookup: Dictionary = _active_seat_lookup_from_state()
 	var had_roster: bool = roster != null and roster.size() > 0
@@ -3541,6 +3543,73 @@ func _ensure_match_roster() -> void:
 			_audit_ops_write("match_roster", "Arena._ensure_match_roster")
 			OpsState.match_roster = next_roster
 		)
+
+func _match_roster_from_vs_tree_meta(tree: SceneTree) -> Array:
+	if tree == null:
+		return []
+	var session_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	if session_id.is_empty():
+		return []
+	if not _vs_tree_meta_is_two_player_session(tree):
+		return []
+	var local_any: Variant = tree.get_meta("vs_local_profile", {})
+	var remote_any: Variant = tree.get_meta("vs_remote_profile", {})
+	if typeof(local_any) != TYPE_DICTIONARY or typeof(remote_any) != TYPE_DICTIONARY:
+		return []
+	var local_profile: Dictionary = local_any as Dictionary
+	var remote_profile: Dictionary = remote_any as Dictionary
+	var local_uid: String = str(local_profile.get("uid", "")).strip_edges()
+	var remote_uid: String = str(remote_profile.get("uid", "")).strip_edges()
+	if local_uid.is_empty() or remote_uid.is_empty():
+		return []
+	var role: String = str(tree.get_meta("vs_handshake_role", "host")).strip_edges().to_lower()
+	var local_seat: int = 2 if role == "guest" else 1
+	var remote_seat: int = 1 if local_seat == 2 else 2
+	var seats: Dictionary = {}
+	seats[local_seat] = {
+		"seat": local_seat,
+		"uid": local_uid,
+		"display_name": str(local_profile.get("display_name", local_profile.get("name", "Player %d" % local_seat))).strip_edges(),
+		"is_local": true,
+		"is_cpu": false,
+		"active": true,
+		"team_id": local_seat
+	}
+	seats[remote_seat] = {
+		"seat": remote_seat,
+		"uid": remote_uid,
+		"display_name": str(remote_profile.get("display_name", remote_profile.get("name", "Player %d" % remote_seat))).strip_edges(),
+		"is_local": false,
+		"is_cpu": bool(remote_profile.get("is_cpu", false)),
+		"active": true,
+		"team_id": remote_seat
+	}
+	var out: Array = []
+	for seat in range(1, 5):
+		if seats.has(seat):
+			out.append(seats.get(seat))
+		else:
+			out.append({
+				"seat": seat,
+				"uid": "",
+				"display_name": "",
+				"is_local": false,
+				"is_cpu": false,
+				"active": false,
+				"team_id": seat
+			})
+	return out
+
+func _vs_tree_meta_is_two_player_session(tree: SceneTree) -> bool:
+	if tree == null:
+		return false
+	var required_players: int = int(tree.get_meta("vs_required_players", 2))
+	if required_players > 2:
+		return false
+	var mode: String = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+	if mode == "2V2" or mode == "3P FFA" or mode == "3P_FFA" or mode == "4P FFA" or mode == "4P_FFA":
+		return false
+	return true
 
 func _active_seat_lookup_from_state() -> Dictionary:
 	var active_lookup: Dictionary = {}

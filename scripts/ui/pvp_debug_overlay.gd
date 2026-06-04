@@ -115,8 +115,8 @@ func _overlay_enabled() -> bool:
 	if env_value == "1" or env_value == "true" or env_value == "on":
 		return true
 	if ProjectSettings.has_setting(SETTINGS_ENABLED):
-		return bool(ProjectSettings.get_setting(SETTINGS_ENABLED, true))
-	return true
+		return bool(ProjectSettings.get_setting(SETTINGS_ENABLED, false))
+	return false
 
 func _is_pvp_context() -> bool:
 	var runtime: Node = _runtime()
@@ -153,12 +153,34 @@ func _update_text() -> void:
 	lines.append("PVP DEBUG %s" % _build_marker)
 	lines.append("scene: %s" % active_scene_path)
 	lines.append("mode: %s | role: %s | seat: %d" % [_mode_id(), role, int(runtime_snapshot.get("local_seat", 0))])
+	lines.append("remote: %s | seat: %d" % [
+		str(runtime_snapshot.get("remote_uid", "")).strip_edges(),
+		int(runtime_snapshot.get("remote_seat", 0))
+	])
 	lines.append("player: %s" % local_uid)
 	lines.append("map: %s" % map_id)
 	lines.append("path: %s" % map_path)
 	lines.append("scale: %s" % scale_value)
 	lines.append("fps: %.1f | frame: %.1f ms" % [float(perf.get("fps", 0.0)), float(perf.get("frame_ms", 0.0))])
 	lines.append("units: %d | lanes: %d" % [_active_unit_count(), _active_lane_count()])
+	lines.append("pub %d/%d | poll %d/%d | tx/rx/cmd %d/%d/%d | pending %d" % [
+		int(runtime_snapshot.get("publish_count", 0)),
+		int(runtime_snapshot.get("publish_fail_count", 0)),
+		int(runtime_snapshot.get("poll_count", 0)),
+		int(runtime_snapshot.get("poll_fail_count", 0)),
+		int(runtime_snapshot.get("intent_events_tx", 0)),
+		int(runtime_snapshot.get("intent_events_rx", 0)),
+		int(runtime_snapshot.get("remote_commands_rx", 0)),
+		int(runtime_snapshot.get("pending_commands", 0))
+	])
+	var telemetry_log_path: String = str(runtime_snapshot.get("runtime_telemetry_log_path", "")).strip_edges()
+	if not telemetry_log_path.is_empty():
+		lines.append("log: %s" % telemetry_log_path)
+	lines.append("recovery: %s | violations: %d (%s)" % [
+		str(runtime_snapshot.get("recovery_state", "running")),
+		int(diagnostics.get("contract_violation_count", 0)),
+		str(diagnostics.get("contract_last_violation_reason", "")).strip_edges()
+	])
 	lines.append("state hash: %s" % hash_short)
 	if bool(runtime_snapshot.get("desync", false)) or int(diagnostics.get("contract_state_hash_mismatches", 0)) > 0:
 		lines.append("DESYNC DETECTED")

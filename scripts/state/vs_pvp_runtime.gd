@@ -15,6 +15,9 @@ const DEFAULT_BACKEND_TIMEOUT_SEC: float = 6.0
 const CRASH_ON_CONTRACT_VIOLATION_DEFAULT: bool = false
 const CONTRACT_VERSION: int = 1
 const CONTRACT_DIAGNOSTIC_LOG_PATH: String = "user://vs_contract_violations.jsonl"
+const RUNTIME_TELEMETRY_LOG_DIR: String = "user://pvp_runtime"
+const RUNTIME_TELEMETRY_SAMPLE_INTERVAL_MS: int = 1000
+const RUNTIME_TELEMETRY_SLOW_RTT_MS: float = 750.0
 const COMMAND_LEAD_TICKS: int = 3
 const FALLBACK_AUTH_COMMAND_LEAD_TICKS: int = 6
 const COMMAND_LATE_TOLERANCE_TICKS: int = 8
@@ -95,6 +98,9 @@ var _accepted_command_log: Array[Dictionary] = []
 var _debug_event_log: Array[Dictionary] = []
 var _last_debug_event: Dictionary = {}
 var _desync_event_before_divergence: Dictionary = {}
+var _runtime_telemetry_log_path: String = ""
+var _runtime_telemetry_log_started: bool = false
+var _runtime_telemetry_last_sample_ms: int = 0
 
 func _exit_tree() -> void:
 	_poll_generation += 1
@@ -142,6 +148,9 @@ func clear() -> void:
 	_authority_snapshots_by_tick.clear()
 	_accepted_command_log.clear()
 	_publish_queue.clear()
+	_runtime_telemetry_log_path = ""
+	_runtime_telemetry_log_started = false
+	_runtime_telemetry_last_sample_ms = 0
 	_reset_contract_diagnostics()
 	_reset_telemetry()
 
@@ -164,7 +173,19 @@ func configure_from_tree(tree: SceneTree, roster: Array) -> void:
 	_mode = str(tree.get_meta("vs_mode", "")).strip_edges()
 	_role = role
 	_local_uid = local_uid
-	_local_seat = _resolve_local_seat(roster, local_uid, role)
+	var required_players: int = int(tree.get_meta("vs_required_players", 2))
+	_local_seat = _resolve_local_seat(roster, local_uid, role, _mode, required_players)
+	if _local_seat <= 0:
+		SFLog.allow_tag("VS_PVP_RUNTIME_CONFIG")
+		SFLog.warn("VS_PVP_RUNTIME_CONFIG", {
+			"active": false,
+			"session_id": _session_id,
+			"mode": _mode,
+			"local_uid": _local_uid,
+			"role": role,
+			"reason": "local_seat_unresolved"
+		})
+		return
 	_remote_uid = _resolve_remote_uid(roster, local_uid)
 	_remote_seat = _resolve_remote_seat(roster, _local_seat)
 	_active = true
@@ -208,6 +229,14 @@ func get_debug_snapshot() -> Dictionary:
 		"local_seat": _local_seat,
 		"remote_uid": _remote_uid,
 		"remote_seat": _remote_seat,
+		"publish_count": _publish_count,
+		"publish_fail_count": _publish_fail_count,
+		"poll_count": _poll_count,
+		"poll_fail_count": _poll_fail_count,
+		"intent_events_tx": _intent_events_tx,
+		"intent_events_rx": _intent_events_rx,
+		"remote_commands_rx": _remote_commands_rx,
+		"pending_commands": _pending_remote_commands.size(),
 		"events": get_debug_event_log(),
 		"last_event": get_last_debug_event(),
 		"desync": _contract_state_hash_mismatches > 0,
@@ -221,6 +250,9 @@ func get_debug_snapshot() -> Dictionary:
 		"recovery_desync_tick": _recovery_desync_tick,
 		"last_matching_checkpoint_tick": _last_matching_checkpoint_tick,
 		"accepted_command_log_size": _accepted_command_log.size(),
+		"runtime_telemetry_log_path": _runtime_telemetry_log_path,
+		"last_rtt_ms": snappedf(_last_rtt_ms, 0.1),
+		"rtt_ema_ms": snappedf(_rtt_ema_ms, 0.1),
 		"last_contract_violation": _last_contract_violation.duplicate(true),
 		"diagnostics": _contract_diagnostics_snapshot()
 	}
@@ -691,6 +723,10 @@ func _publish_command(command: Dictionary) -> bool:
 func _handle_publish_result(command: Dictionary, result: Dictionary, t0_us: int) -> void:
 	_record_transport_result("publish", result, t0_us)
 	if not bool(result.get("ok", false)):
+		_write_runtime_telemetry_event("publish_failed", {
+			"command": _command_debug_payload(command, "publish_failed"),
+			"result": result.duplicate(true)
+		})
 		SFLog.allow_tag("VS_PVP_PUBLISH_FAIL")
 		SFLog.warn("VS_PVP_PUBLISH_FAIL", {
 			"session_id": _session_id,
@@ -723,6 +759,10 @@ func _poll_remote_intents() -> void:
 func _handle_remote_intent_poll_result(result: Dictionary, t0_us: int, after_seq: int) -> void:
 	_record_transport_result("poll", result, t0_us)
 	if not bool(result.get("ok", false)):
+		_write_runtime_telemetry_event("poll_failed", {
+			"after_seq": int(after_seq),
+			"result": result.duplicate(true)
+		}, false)
 		_update_runtime_telemetry()
 		return
 	var latest_seq: int = int(result.get("latest_seq", _last_seq))
@@ -737,6 +777,18 @@ func _handle_remote_intent_poll_result(result: Dictionary, t0_us: int, after_seq
 	var missing_seq_count: int = maxi(0, (latest_seq - after_seq) - events.size())
 	if missing_seq_count > 0:
 		_packet_dropped += missing_seq_count
+		_write_runtime_telemetry_event("poll_sequence_gap", {
+			"after_seq": int(after_seq),
+			"latest_seq": int(latest_seq),
+			"events_received": events.size(),
+			"missing_seq_count": missing_seq_count
+		})
+	if events.size() > 0:
+		_write_runtime_telemetry_event("poll_events_received", {
+			"after_seq": int(after_seq),
+			"latest_seq": int(latest_seq),
+			"events_received": events.size()
+		}, false)
 	if latest_seq > _last_seq:
 		_last_seq = latest_seq
 	for event_any in events:
@@ -928,6 +980,7 @@ func _push_debug_event(event_type: String, payload: Dictionary) -> void:
 	_debug_event_log.append(event)
 	while _debug_event_log.size() > DEBUG_EVENT_LIMIT:
 		_debug_event_log.pop_front()
+	_write_runtime_telemetry_event(event_type, event)
 
 func _observe_command_lead(execute_tick: int, target_tick: int) -> void:
 	if target_tick < 0 or execute_tick < 0:
@@ -1045,10 +1098,10 @@ func _should_poll_on_worker_thread() -> bool:
 	return str(handshake.call("get_transport_mode")) == "http" and not _configured_backend_url().is_empty()
 
 func _should_publish_on_worker_thread() -> bool:
-	var handshake: Node = _handshake()
-	if handshake == null or not handshake.has_method("get_transport_mode"):
-		return false
-	return str(handshake.call("get_transport_mode")) == "http" and not _configured_backend_url().is_empty()
+	# Gameplay publishes are sparse but must feed the local accepted-command queue
+	# immediately. Keep HTTP publish on the main path so mobile does not appear
+	# input-dead while waiting for a worker-thread completion.
+	return false
 
 func _start_async_publish_commands() -> bool:
 	_finish_publish_thread(false)
@@ -1236,6 +1289,7 @@ func _reset_telemetry() -> void:
 	_rate_window_start_ms = Time.get_ticks_msec()
 	_rate_window_rx_events = 0
 	_snapshot_receive_rate_hz = 0.0
+	_runtime_telemetry_last_sample_ms = 0
 	_update_runtime_telemetry()
 
 func _record_transport_result(kind: String, result: Dictionary, t0_us: int) -> void:
@@ -1261,6 +1315,18 @@ func _record_transport_result(kind: String, result: Dictionary, t0_us: int) -> v
 		_rtt_ema_ms = lerpf(_rtt_ema_ms, rtt_ms, 0.20)
 	_server_tick_rate_hz = maxf(0.0, float(result.get("server_tick_rate_hz", _server_tick_rate_hz)))
 	_server_frametime_ms = maxf(0.0, float(result.get("server_frametime_ms", result.get("request_ms", _server_frametime_ms))))
+	if not ok:
+		_write_runtime_telemetry_event("transport_failed", {
+			"kind": kind,
+			"rtt_ms": snappedf(rtt_ms, 0.1),
+			"result": result.duplicate(true)
+		}, false)
+	elif rtt_ms >= RUNTIME_TELEMETRY_SLOW_RTT_MS:
+		_write_runtime_telemetry_event("transport_slow", {
+			"kind": kind,
+			"rtt_ms": snappedf(rtt_ms, 0.1),
+			"threshold_ms": RUNTIME_TELEMETRY_SLOW_RTT_MS
+		}, false)
 
 func _record_received_events(count: int) -> void:
 	var safe_count: int = maxi(0, count)
@@ -1309,9 +1375,151 @@ func _update_runtime_telemetry() -> void:
 		"waiting_for_remote_reason": "not_lockstep"
 	}
 	telemetry.merge(_contract_diagnostics_snapshot(), true)
+	telemetry["runtime_telemetry_log_path"] = _runtime_telemetry_log_path
 	OpsState.call("update_runtime_telemetry", telemetry)
+	_maybe_write_runtime_telemetry_sample(telemetry)
 
-func _resolve_local_seat(roster: Array, local_uid: String, role: String) -> int:
+func _maybe_write_runtime_telemetry_sample(telemetry: Dictionary) -> void:
+	if not is_active():
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if _runtime_telemetry_last_sample_ms > 0 and now_ms - _runtime_telemetry_last_sample_ms < RUNTIME_TELEMETRY_SAMPLE_INTERVAL_MS:
+		return
+	_runtime_telemetry_last_sample_ms = now_ms
+	if not _runtime_telemetry_log_started:
+		_begin_runtime_telemetry_log()
+	if _runtime_telemetry_log_path.is_empty():
+		return
+	var telemetry_for_log: Dictionary = telemetry.duplicate(true)
+	telemetry_for_log["runtime_telemetry_log_path"] = _runtime_telemetry_log_path
+	var sample: Dictionary = _runtime_telemetry_base_payload("sample")
+	sample["telemetry"] = telemetry_for_log
+	sample["runtime"] = get_debug_snapshot()
+	var ops_runtime: Dictionary = _ops_runtime_telemetry_snapshot()
+	if not ops_runtime.is_empty():
+		sample["ops_runtime"] = ops_runtime
+	var state_snapshot: Dictionary = _runtime_authority_state_snapshot()
+	if not state_snapshot.is_empty():
+		sample["state"] = state_snapshot
+	_append_runtime_telemetry_line(sample)
+
+func _begin_runtime_telemetry_log() -> void:
+	_runtime_telemetry_log_started = true
+	var dir_path: String = ProjectSettings.globalize_path(RUNTIME_TELEMETRY_LOG_DIR)
+	var make_err: Error = DirAccess.make_dir_recursive_absolute(dir_path)
+	if make_err != OK:
+		SFLog.allow_tag("VS_RUNTIME_TELEMETRY_FILE")
+		SFLog.warn("VS_RUNTIME_TELEMETRY_FILE", {
+			"event": "mkdir_failed",
+			"path": RUNTIME_TELEMETRY_LOG_DIR,
+			"error": int(make_err)
+		})
+		return
+	var filename: String = "pvp_runtime_%s_%s_%d.jsonl" % [
+		_sanitize_log_token(_session_id),
+		_sanitize_log_token(_local_uid),
+		int(Time.get_unix_time_from_system() * 1000.0) + Time.get_ticks_msec()
+	]
+	_runtime_telemetry_log_path = "%s/%s" % [RUNTIME_TELEMETRY_LOG_DIR, filename]
+	_append_runtime_telemetry_line(_runtime_telemetry_base_payload("session_start"))
+
+func _runtime_telemetry_base_payload(event_type: String) -> Dictionary:
+	return {
+		"event": str(event_type),
+		"unix_ms": int(Time.get_unix_time_from_system() * 1000.0),
+		"app_ms": Time.get_ticks_msec(),
+		"match_id": _session_id,
+		"mode": _mode,
+		"role": _role,
+		"local_uid": _local_uid,
+		"local_seat": _local_seat,
+		"remote_uid": _remote_uid,
+		"remote_seat": _remote_seat,
+		"last_seq": _last_seq,
+		"recovery_state": _recovery_state,
+		"peer_desync_or_lagging": _peer_desync_or_lagging,
+		"peer_desync_or_lagging_reason": _peer_desync_or_lagging_reason
+	}
+
+func _runtime_authority_state_snapshot() -> Dictionary:
+	var out: Dictionary = {}
+	if OpsState == null:
+		return out
+	if OpsState.has_method("get_pvp_debug_state_snapshot"):
+		var debug_any: Variant = OpsState.call("get_pvp_debug_state_snapshot")
+		if typeof(debug_any) == TYPE_DICTIONARY:
+			out.merge(debug_any as Dictionary, true)
+	if OpsState.has_method("get_contract_state_hash"):
+		out["hash"] = str(OpsState.call("get_contract_state_hash"))
+	var state_any: Variant = OpsState.get("state") if OpsState != null else null
+	if state_any != null:
+		var tick_any: Variant = state_any.get("tick") if state_any is Object else null
+		if tick_any != null:
+			out["tick"] = int(tick_any)
+	return out
+
+func _ops_runtime_telemetry_snapshot() -> Dictionary:
+	if OpsState == null or not OpsState.has_method("get_runtime_telemetry_snapshot"):
+		return {}
+	var snapshot_any: Variant = OpsState.call("get_runtime_telemetry_snapshot")
+	if typeof(snapshot_any) == TYPE_DICTIONARY:
+		return snapshot_any as Dictionary
+	return {}
+
+func _write_runtime_telemetry_event(event_type: String, payload: Dictionary, include_state: bool = true) -> void:
+	if not is_active():
+		return
+	if not _runtime_telemetry_log_started:
+		_begin_runtime_telemetry_log()
+	if _runtime_telemetry_log_path.is_empty():
+		return
+	var event: Dictionary = _runtime_telemetry_base_payload(event_type)
+	event["payload"] = payload.duplicate(true)
+	event["diagnostics"] = _contract_diagnostics_snapshot()
+	if include_state:
+		var state_snapshot: Dictionary = _runtime_authority_state_snapshot()
+		if not state_snapshot.is_empty():
+			event["state"] = state_snapshot
+	_append_runtime_telemetry_line(event)
+
+func _append_runtime_telemetry_line(payload: Dictionary) -> void:
+	if _runtime_telemetry_log_path.is_empty():
+		return
+	var file: FileAccess = FileAccess.open(_runtime_telemetry_log_path, FileAccess.READ_WRITE)
+	if file == null:
+		file = FileAccess.open(_runtime_telemetry_log_path, FileAccess.WRITE_READ)
+	if file == null:
+		SFLog.allow_tag("VS_RUNTIME_TELEMETRY_FILE")
+		SFLog.warn("VS_RUNTIME_TELEMETRY_FILE", {
+			"event": "open_failed",
+			"path": _runtime_telemetry_log_path,
+			"error": int(FileAccess.get_open_error())
+		})
+		return
+	file.seek_end()
+	file.store_line(JSON.stringify(payload))
+	file.close()
+
+func _sanitize_log_token(value: String) -> String:
+	var clean: String = str(value).strip_edges()
+	if clean.is_empty():
+		clean = "unknown"
+	var out: String = ""
+	for index in range(clean.length()):
+		var character: String = clean.substr(index, 1)
+		var code: int = character.unicode_at(0)
+		var is_digit: bool = code >= 48 and code <= 57
+		var is_upper: bool = code >= 65 and code <= 90
+		var is_lower: bool = code >= 97 and code <= 122
+		if is_digit or is_upper or is_lower or character == "-" or character == "_":
+			out += character
+		else:
+			out += "_"
+	if out.length() > 72:
+		out = out.substr(0, 72)
+	return out
+
+func _resolve_local_seat(roster: Array, local_uid: String, role: String, mode: String = "", required_players: int = 2) -> int:
 	for entry_any in roster:
 		if typeof(entry_any) != TYPE_DICTIONARY:
 			continue
@@ -1321,9 +1529,19 @@ func _resolve_local_seat(roster: Array, local_uid: String, role: String) -> int:
 		var seat: int = int(entry.get("seat", 0))
 		if seat >= 1 and seat <= 4:
 			return seat
+	if not _mode_allows_two_player_seat_fallback(mode, required_players):
+		return 0
 	if role == "guest":
 		return 2
 	return 1
+
+func _mode_allows_two_player_seat_fallback(mode: String, required_players: int) -> bool:
+	if int(required_players) > 2:
+		return false
+	var clean_mode: String = str(mode).strip_edges().to_upper()
+	if clean_mode == "2V2" or clean_mode == "3P FFA" or clean_mode == "3P_FFA" or clean_mode == "4P FFA" or clean_mode == "4P_FFA":
+		return false
+	return true
 
 func _resolve_remote_uid(roster: Array, local_uid: String) -> String:
 	for entry_any in roster:
