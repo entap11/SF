@@ -3,6 +3,7 @@ extends RefCounted
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
+const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
 
 signal selected_hive_changed(selected_id: int)
 
@@ -209,6 +210,21 @@ func get_hive_radius_px() -> float:
 		r = 18.0
 	return r
 
+func get_hive_pick_radius_px(hive_id: int = -1) -> float:
+	if hive_id > 0:
+		var hr := get_hive_renderer()
+		if hr != null and hr.has_method("get_hive_node_by_id"):
+			var node: Node = hr.get_hive_node_by_id(hive_id)
+			if node != null and node.has_method("get_pick_radius_px"):
+				return maxf(1.0, float(node.call("get_pick_radius_px")))
+		var hive: HiveData = find_hive_by_id(hive_id)
+		if hive != null:
+			var radius_px: float = float(hive.radius_px)
+			if radius_px <= 0.0:
+				radius_px = get_hive_radius_px()
+			return HiveGeometry.hive_input_pick_radius_px(radius_px, int(hive.power))
+	return HiveGeometry.hive_input_pick_radius_px(get_hive_radius_px(), 0)
+
 func get_hive_renderer() -> HiveRenderer:
 	if _hive_renderer == null:
 		_hive_renderer = _resolve_hive_renderer()
@@ -257,8 +273,10 @@ func pick_hive_id_world(world_pos: Vector2) -> int:
 	params.collide_with_bodies = true
 	var hits: Array = space.intersect_point(params, 16)
 	if hits.is_empty():
-		SFLog.info("PICK_MISS", {"world": world_pos})
-		return -1
+		var fallback_id: int = _pick_hive_id_by_rendered_footprint_world(world_pos)
+		if fallback_id <= 0:
+			SFLog.info("PICK_MISS", {"world": world_pos})
+		return fallback_id
 	var best_id := -1
 	var best_d := INF
 	for h in hits:
@@ -300,10 +318,31 @@ func pick_hive_id_world(world_pos: Vector2) -> int:
 			best_d = d
 			best_id = hid
 	if best_id <= 0:
-		SFLog.info("PICK_MISS", {"world": world_pos, "note": "hit_non_hive"})
-		return -1
+		var fallback_id: int = _pick_hive_id_by_rendered_footprint_world(world_pos)
+		if fallback_id <= 0:
+			SFLog.info("PICK_MISS", {"world": world_pos, "note": "hit_non_hive"})
+		return fallback_id
 	SFLog.info("PICK_HIT", {"world": world_pos, "hid": best_id, "dist": best_d})
 	return best_id
+
+func _pick_hive_id_by_rendered_footprint_world(world_pos: Vector2) -> int:
+	if _map_root == null:
+		_map_root = _resolve_map_root()
+	if _map_root == null:
+		return -1
+	var local_pos: Vector2 = _map_root.to_local(world_pos)
+	var nearest: Dictionary = _nearest_hive_local(local_pos)
+	var nearest_id: int = int(nearest.get("id", -1))
+	if nearest_id <= 0:
+		return -1
+	var dist: float = float(nearest.get("dist", INF))
+	if dist == INF:
+		return -1
+	var pick_radius: float = get_hive_pick_radius_px(nearest_id)
+	if dist <= pick_radius:
+		SFLog.info("PICK_HIT_FOOTPRINT", {"world": world_pos, "hid": nearest_id, "dist": dist, "radius": pick_radius})
+		return nearest_id
+	return -1
 
 func get_nearest_hive_local(local_pos: Vector2) -> Dictionary:
 	var nearest := _nearest_hive_local(local_pos)

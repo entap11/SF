@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="FontFile" path="res://assets/fonts/ChakraPetch-SemiBold.ttf" id="1"]
+[ext_resource type="FontFile" path="res://assets/fonts/brand/Iceland/Iceland-Regular.ttf" id="1"]
 
 [node name="MainMenuHeaderHierarchyStudy" type="Control"]
 layout_mode = 0

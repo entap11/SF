@@ -63,7 +63,7 @@ const MAX_OUT_LANES := 2
 const DOT_RADIUS := 3.0
 const HIVE_DIAMETER_PX := HiveGeometry.BASE_DIAMETER_PX
 const HIVE_RADIUS_PX := HIVE_DIAMETER_PX * 0.5
-const HIVE_PICK_PADDING_PX := 14.4
+const HIVE_PICK_PADDING_PX := 0.0
 const HIVE_HIT_RADIUS_PX := HIVE_RADIUS_PX + HIVE_PICK_PADDING_PX
 const LANE_HIT_DIST_PX := 24.0
 const LANE_PICK_DIST_PX := 12.0
@@ -127,7 +127,7 @@ const SHELL_WIN_OVERLAY_PATH: String = SHELL_HUD_ROOT_PATH + "/WinOverlay"
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const CTF_MOVE_BUTTON_NAME: StringName = &"CaptureFlagMoveButton"
 const CTF_MOVE_BUTTON_FONT_PATH: String = "res://assets/fonts/free_roll_display_v2_font.tres"
-const CTF_MOVE_BUTTON_FALLBACK_FONT_PATH: String = "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const CTF_MOVE_BUTTON_FALLBACK_FONT_PATH: String = "res://assets/fonts/brand/Iceland/Iceland-Regular.ttf"
 const VS_MODE_STAGE_RACE: String = "STAGE_RACE"
 const VS_MODE_CAPTURE_FLAG: String = "CAPTURE_FLAG"
 const VS_MODE_HIDDEN_CAPTURE_FLAG: String = "HIDDEN_CAPTURE_FLAG"
@@ -2027,14 +2027,16 @@ func _ensure_prematch_identity_card() -> void:
 	p1_streak.color = Color(1.0, 0.78, 0.08, 0.95)
 	var p2_streak: ColorRect = _ensure_identity_color_rect(card, "P2Accent")
 	p2_streak.color = Color(1.0, 0.16, 0.12, 0.95)
+	var p3_color: Color = TeamVisuals.owner_color(3)
+	var p4_color: Color = TeamVisuals.owner_color(4)
 	var p3_wash: ColorRect = _ensure_identity_color_rect(card, "P3Wash")
-	p3_wash.color = Color(0.2, 1.0, 0.35, 0.14)
+	p3_wash.color = Color(p3_color.r, p3_color.g, p3_color.b, 0.14)
 	var p3_streak: ColorRect = _ensure_identity_color_rect(card, "P3Accent")
-	p3_streak.color = Color(0.2, 1.0, 0.35, 0.95)
+	p3_streak.color = Color(p3_color.r, p3_color.g, p3_color.b, 0.95)
 	var p4_wash: ColorRect = _ensure_identity_color_rect(card, "P4Wash")
-	p4_wash.color = Color(0.12, 0.54, 0.96, 0.14)
+	p4_wash.color = Color(p4_color.r, p4_color.g, p4_color.b, 0.14)
 	var p4_streak: ColorRect = _ensure_identity_color_rect(card, "P4Accent")
-	p4_streak.color = Color(0.12, 0.54, 0.96, 0.95)
+	p4_streak.color = Color(p4_color.r, p4_color.g, p4_color.b, 0.95)
 
 	var p1_label: Label = _ensure_identity_label(card, "P1Label")
 	var p1_name: Label = _ensure_identity_label(card, "P1Name")
@@ -2768,7 +2770,7 @@ func _load_ctf_move_button_font() -> Font:
 		var fallback_font: Resource = load(CTF_MOVE_BUTTON_FALLBACK_FONT_PATH)
 		if fallback_font is Font:
 			return fallback_font as Font
-	return ThemeDB.fallback_font
+	return UITypography.fallback_font()
 
 func _ensure_capture_flag_move_button() -> Button:
 	if _ctf_move_button != null and is_instance_valid(_ctf_move_button):
@@ -3129,7 +3131,7 @@ func _async_prematch_detail_lines() -> Array[String]:
 		"2V2":
 			return [
 				"Map: %s" % _async_prematch_map_title(),
-				"Two teams, shared pressure. Coordinate lanes after the countdown.",
+				_get_team_banner_line(),
 				_async_prematch_bot_line(),
 				_async_prematch_track_line()
 			]
@@ -3174,13 +3176,15 @@ func _get_team_banner_line() -> String:
 	return _prematch_team_ui_formatter.format_team_banner_line(
 		_record_active_seats(),
 		Callable(self, "_resolve_team_for_seat"),
-		local_seat
+		local_seat,
+		Callable(self, "_display_name_for_team_seat")
 	)
 
 func _get_team_arrow_line() -> String:
 	return _prematch_team_ui_formatter.format_team_arrow_line(
 		_record_active_seats(),
-		Callable(self, "_resolve_team_for_seat")
+		Callable(self, "_resolve_team_for_seat"),
+		Callable(self, "_display_name_for_team_seat")
 	)
 
 func _format_team_seats_text(seats: Array) -> String:
@@ -3194,6 +3198,12 @@ func _resolve_team_for_seat(seat: int) -> int:
 		team_id = seat
 	return team_id
 
+func _display_name_for_team_seat(seat: int) -> String:
+	var entry: Dictionary = _get_roster_entry_for_slot(seat)
+	var uid: String = str(entry.get("uid", "")).strip_edges()
+	var is_cpu: bool = bool(entry.get("is_cpu", false))
+	return _display_name_for_seat(seat, uid, is_cpu)
+
 func _get_player_record_line(player_slot: int) -> String:
 	var entry: Dictionary = _get_roster_entry_for_slot(player_slot)
 	var uid: String = str(entry.get("uid", ""))
@@ -3203,18 +3213,12 @@ func _get_player_record_line(player_slot: int) -> String:
 	var record: Dictionary = _match_records.get_record(record_key)
 	var wins: int = int(record.get("wins", 0))
 	var losses: int = int(record.get("losses", 0))
-	var uid_label: String = uid
-	if uid_label.is_empty():
-		if is_cpu:
-			uid_label = "cpu"
-		else:
-			uid_label = "unassigned"
 	SFLog.info("PREMATCH_NAME_RESOLVE", {
 		"seat": player_slot,
 		"uid": uid,
 		"handle": handle
 	})
-	return "P%d [%s] %s  W-L %d-%d" % [player_slot, uid_label, handle, wins, losses]
+	return "%s  W-L %d-%d" % [handle, wins, losses]
 
 func _get_h2h_record_line() -> String:
 	var p1_entry: Dictionary = _get_roster_entry_for_slot(1)
@@ -9287,15 +9291,9 @@ func _owner_color(owner_id: int) -> Color:
 	match owner_id:
 		0:
 			return Color(0.6, 0.6, 0.6)
-		1:
-			return Color(0.95, 0.85, 0.2)
-		2:
-			return Color(0.9, 0.2, 0.2)
-		3:
-			return Color8(34, 85, 34)
-		4:
-			return Color(0.2, 0.5, 0.95)
 		_:
+			if owner_id >= 1 and owner_id <= 4:
+				return TeamVisuals.owner_color(owner_id)
 			return Color(0.8, 0.8, 0.8)
 
 func _owner_label(owner_id: int) -> String:
@@ -12730,16 +12728,24 @@ func _hive_id_at_point(local_pos: Vector2) -> int:
 		return -1
 	var best_id := -1
 	var best_dist := INF
+	var nodes: Dictionary = {}
+	if hive_renderer != null and hive_renderer.has_method("get_hive_nodes_by_id"):
+		nodes = hive_renderer.get_hive_nodes_by_id()
 	for hive in state.hives:
 		var render_gp: Vector2 = hive.render_grid_pos
 		if not is_finite(render_gp.x) or not is_finite(render_gp.y):
 			render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
 		var center := _grid_coord_to_world(render_gp)
+		var node: Node = nodes.get(int(hive.id), null) as Node
+		if node is Node2D:
+			center = (node as Node2D).position
 		var dist := center.distance_squared_to(local_pos)
 		var hive_radius: float = float(hive.radius_px)
 		if hive_radius <= 0.0:
 			hive_radius = HIVE_RADIUS_PX
-		var hit_radius: float = maxf(HIVE_HIT_RADIUS_PX, hive_radius + HIVE_PICK_PADDING_PX)
+		var hit_radius: float = HiveGeometry.hive_input_pick_radius_px(hive_radius, int(hive.power))
+		if node != null and node.has_method("get_pick_radius_px"):
+			hit_radius = float(node.call("get_pick_radius_px"))
 		if dist <= hit_radius * hit_radius and dist < best_dist:
 			best_dist = dist
 			best_id = hive.id

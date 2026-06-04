@@ -28,7 +28,7 @@ func _init() -> void:
 	var tree: SceneTree = self
 	tree.set_meta("vs_mode", "STAGE_RACE")
 	tree.set_meta("vs_sync_start", false)
-	tree.set_meta("vs_stage_map_paths", [MAP_PATH, "res://maps/_future/nomansland/MAP_nomansland__323__v01_corners_midline_spine__1p.json"])
+	tree.set_meta("vs_stage_map_paths", [MAP_PATH, "res://maps/_future/nomansland/MAP_nomansland__545__v17_four_corners_only__1p.json"])
 	tree.set_meta("vs_stage_current_index", 0)
 	tree.set_meta("vs_local_profile", {
 		"uid": PLAYER_ID,

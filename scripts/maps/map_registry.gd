@@ -13,7 +13,7 @@ const SANDBOXED_PUBLIC_STYLES: Dictionary = {
 }
 const PUBLIC_NOMANSLAND_SEQUENCE_IDS: Array[String] = [
 	"MAP_nomansland__545__v01_top2_sides__1p",
-	"MAP_nomansland__323__v01_corners_midline_spine__1p",
+	"MAP_nomansland__545__v17_four_corners_only__1p",
 	"MAP_nomansland__444__v01_pinched_spine__1p"
 ]
 const ALLOWED_MODES: Array[String] = ["1p", "2p", "3p", "4p"]

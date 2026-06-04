@@ -7,6 +7,7 @@ const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
+const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
 const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/startup_launch_request_resolver.gd")
 const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
 const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
@@ -38,7 +39,7 @@ const SOAK_DEFAULT_ROUND_SECONDS: int = 300
 const SOAK_DEFAULT_PAIR_COUNT: int = 2
 const SOAK_DEFAULT_REAPPLY_MS: int = 1000
 const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
-const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__1p.json"
+const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
 const TUTORIAL_SECTION1_ID: String = "section1"
@@ -142,6 +143,7 @@ var _team_mode_ui: String = "2v2"
 var _buff_ui_last_active_pid: int = 1
 var _font_regular: Font
 var _font_semibold: Font
+var _shell_prematch_team_ui_formatter: ArenaPrematchTeamUiFormatter = ArenaPrematchTeamUiFormatter.new()
 var _startup_request_resolver: ShellStartupLaunchRequestResolver = ShellStartupLaunchRequestResolver.new()
 var _mvp_waiter: ShellMvpWaiter = ShellMvpWaiter.new()
 var _mvp_map_utils: ShellMvpMapUtils = ShellMvpMapUtils.new()
@@ -2799,7 +2801,7 @@ func _shell_async_prematch_detail_lines() -> Array[String]:
 		"2V2":
 			return [
 				"Map: %s" % _shell_async_map_title(),
-				"Two teams, shared pressure. Coordinate lanes after the countdown.",
+				_shell_team_banner_line(),
 				_shell_async_bot_line(),
 				_shell_async_track_line()
 			]
@@ -2924,6 +2926,78 @@ func _shell_async_track_line() -> String:
 	for path in stage_maps:
 		labels.append(_map_display_name(path))
 	return "Track: %s" % " -> ".join(labels)
+
+func _shell_team_banner_line() -> String:
+	var active_seats: Array[int] = []
+	for seat_any in _active_seats_from_hud():
+		var seat: int = int(seat_any)
+		if seat >= 1 and seat <= 4 and not active_seats.has(seat):
+			active_seats.append(seat)
+	if _shell_async_mode_id() == "2V2" and active_seats.size() < 4:
+		active_seats = [1, 2, 3, 4]
+	active_seats.sort()
+	return _shell_prematch_team_ui_formatter.format_team_banner_line(
+		active_seats,
+		Callable(self, "_shell_team_for_seat"),
+		_shell_local_seat(),
+		Callable(self, "_shell_display_name_for_seat")
+	)
+
+func _shell_team_for_seat(seat: int) -> int:
+	var seat_id: int = int(seat)
+	if seat_id < 1 or seat_id > 4:
+		return seat_id
+	if OpsState != null and OpsState.has_method("get_team_for_seat"):
+		var team_id: int = int(OpsState.call("get_team_for_seat", seat_id))
+		if team_id > 0 and team_id != seat_id:
+			return team_id
+	if _shell_async_mode_id() == "2V2":
+		return 1 if seat_id == 1 or seat_id == 3 else 2
+	return seat_id
+
+func _shell_local_seat() -> int:
+	if OpsState != null and OpsState.has_method("get_hud_snapshot"):
+		var hud: Dictionary = OpsState.call("get_hud_snapshot") as Dictionary
+		var active_pid: int = int(hud.get("active_player_id", _buff_ui_last_active_pid))
+		if active_pid >= 1 and active_pid <= 4:
+			return active_pid
+	return clampi(_buff_ui_last_active_pid, 1, 4)
+
+func _shell_display_name_for_seat(seat: int) -> String:
+	var seat_id: int = int(seat)
+	if seat_id < 1 or seat_id > 4:
+		return ""
+	if OpsState != null:
+		var roster_any: Variant = OpsState.get("match_roster")
+		var roster: Array = []
+		if typeof(roster_any) == TYPE_ARRAY:
+			roster = roster_any as Array
+		for entry_any in roster:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_any as Dictionary
+			if int(entry.get("seat", -1)) != seat_id:
+				continue
+			var display_name: String = str(entry.get("display_name", entry.get("handle", entry.get("name", "")))).strip_edges()
+			if not display_name.is_empty():
+				return display_name
+			if bool(entry.get("is_cpu", false)):
+				return "CPU"
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		var roster_any: Variant = tree.get_meta("vs_assigned_players", [])
+		if typeof(roster_any) == TYPE_ARRAY:
+			var assigned: Array = roster_any as Array
+			var idx: int = seat_id - 1
+			if idx >= 0 and idx < assigned.size():
+				var assigned_name: String = str(assigned[idx]).strip_edges()
+				if not assigned_name.is_empty():
+					return assigned_name
+	if seat_id == _shell_local_seat() and ProfileManager != null and ProfileManager.has_method("get_display_name"):
+		var local_name: String = str(ProfileManager.call("get_display_name")).strip_edges()
+		if not local_name.is_empty():
+			return local_name
+	return "P%d" % seat_id
 
 func _maybe_start_soak_perf() -> bool:
 	var config: Dictionary = _parse_soak_perf_config(OS.get_cmdline_user_args())

@@ -10,6 +10,8 @@ const HIDDEN_CTF_ALLOTMENT_PATTERNS: Array[String] = [
 	"checkerboard",
 	"shuffle"
 ]
+const CAPTURE_FLAG_CENTER_NEUTRAL_MIN_HIVES: int = 8
+const CAPTURE_FLAG_CENTER_NEUTRAL_MAX_COUNT: int = 4
 
 static func map_supports_game_mode(map_data: Dictionary, mode_id: String) -> Dictionary:
 	var clean_mode: String = _normalize_mode_id(mode_id)
@@ -44,20 +46,56 @@ static func hidden_capture_flag_split_summary(map_data: Dictionary) -> Dictionar
 	var hives: Array = _valid_hive_dicts(hives_v as Array)
 	if hives.size() < 4:
 		return {"ok": false, "reason": "too_few_hives", "owner_counts": {}}
-	if hives.size() % 2 != 0:
-		return {
-			"ok": false,
-			"reason": "odd_hive_count",
-			"owner_counts": {},
-			"total_hives": hives.size()
-		}
-	var each: int = int(hives.size() / 2)
+	var neutral_count: int = _capture_flag_center_neutral_target_count(hives.size())
+	var owned_count: int = maxi(0, hives.size() - neutral_count)
+	var p1_count: int = int(ceil(float(owned_count) * 0.5))
+	var p2_count: int = owned_count - p1_count
 	return {
 		"ok": true,
 		"reason": "",
-		"owner_counts": {1: each, 2: each},
+		"owner_counts": {1: p1_count, 2: p2_count, 0: neutral_count},
 		"total_hives": hives.size()
 	}
+
+static func apply_capture_flag_territory_split(map_data: Dictionary, options: Dictionary = {}) -> Dictionary:
+	var out: Dictionary = map_data.duplicate(true)
+	var hives_v: Variant = out.get("hives", [])
+	if typeof(hives_v) != TYPE_ARRAY:
+		return out
+	var hives: Array = hives_v as Array
+	var candidates: Array = _valid_hive_dicts(hives)
+	if candidates.size() < 4:
+		return out
+	var p1_center: Vector2 = _owner_centroid_or_extreme(candidates, 1, true)
+	var p2_center: Vector2 = _owner_centroid_or_extreme(candidates, 2, false)
+	var axis: Vector2 = p2_center - p1_center
+	if axis.length_squared() <= 0.0001:
+		axis = _widest_map_axis(candidates)
+	if axis.length_squared() <= 0.0001:
+		axis = Vector2.RIGHT
+	axis = axis.normalized()
+	var midpoint: Vector2 = (p1_center + p2_center) * 0.5
+	var neutral_lookup: Dictionary = _capture_flag_center_neutral_lookup(candidates, midpoint, axis)
+	for hive_any in candidates:
+		var hive: Dictionary = hive_any as Dictionary
+		var hive_id: String = _hive_id_sort_key(hive)
+		if neutral_lookup.has(hive_id):
+			_set_hive_owner(hive, 0)
+			continue
+		var projection: float = (_hive_pos(hive) - midpoint).dot(axis)
+		if is_equal_approx(projection, 0.0):
+			var d1: float = _hive_pos(hive).distance_squared_to(p1_center)
+			var d2: float = _hive_pos(hive).distance_squared_to(p2_center)
+			_set_hive_owner(hive, 1 if d1 <= d2 else 2)
+		else:
+			_set_hive_owner(hive, 1 if projection < 0.0 else 2)
+	out["hives"] = hives
+	out["capture_flag_territory_split"] = {
+		"owner_counts": _owner_counts_for_hives(hives),
+		"neutral_count": int(neutral_lookup.size()),
+		"mode": str(options.get("mode", "CAPTURE_FLAG"))
+	}
+	return out
 
 static func apply_hidden_capture_flag_owner_split(map_data: Dictionary, options: Dictionary = {}) -> Dictionary:
 	var out: Dictionary = map_data.duplicate(true)
@@ -174,7 +212,7 @@ static func _shuffle_hives(hives: Array, rng: RandomNumberGenerator) -> void:
 static func _set_hive_owner(hive: Dictionary, owner_id: int) -> void:
 	hive["owner_id"] = owner_id
 	if hive.has("owner"):
-		hive["owner"] = "P%d" % owner_id
+		hive["owner"] = "NPC" if owner_id <= 0 else "P%d" % owner_id
 
 static func _owner_counts_for_hives(hives: Array) -> Dictionary:
 	var counts: Dictionary = {}
@@ -240,5 +278,81 @@ static func _hive_y(hive: Dictionary) -> float:
 		return float((grid_pos as Array)[1])
 	return 0.0
 
+static func _hive_pos(hive: Dictionary) -> Vector2:
+	return Vector2(_hive_x(hive), _hive_y(hive))
+
 static func _hive_id_sort_key(hive: Dictionary) -> String:
 	return str(hive.get("id", "")).strip_edges()
+
+static func _owner_centroid_or_extreme(hives: Array, owner_id: int, prefer_min: bool) -> Vector2:
+	var sum: Vector2 = Vector2.ZERO
+	var count: int = 0
+	for hive_any in hives:
+		var hive: Dictionary = hive_any as Dictionary
+		if int(hive.get("owner_id", 0)) != owner_id:
+			continue
+		sum += _hive_pos(hive)
+		count += 1
+	if count > 0:
+		return sum / float(count)
+	var axis: Vector2 = _widest_map_axis(hives)
+	var best: Vector2 = _hive_pos(hives[0] as Dictionary)
+	var best_score: float = best.dot(axis)
+	for hive_any in hives:
+		var pos: Vector2 = _hive_pos(hive_any as Dictionary)
+		var score: float = pos.dot(axis)
+		if prefer_min:
+			if score < best_score:
+				best = pos
+				best_score = score
+		elif score > best_score:
+			best = pos
+			best_score = score
+	return best
+
+static func _widest_map_axis(hives: Array) -> Vector2:
+	var min_x: float = INF
+	var max_x: float = -INF
+	var min_y: float = INF
+	var max_y: float = -INF
+	for hive_any in hives:
+		var pos: Vector2 = _hive_pos(hive_any as Dictionary)
+		min_x = minf(min_x, pos.x)
+		max_x = maxf(max_x, pos.x)
+		min_y = minf(min_y, pos.y)
+		max_y = maxf(max_y, pos.y)
+	if (max_x - min_x) >= (max_y - min_y):
+		return Vector2.RIGHT
+	return Vector2.DOWN
+
+static func _capture_flag_center_neutral_lookup(hives: Array, midpoint: Vector2, axis: Vector2) -> Dictionary:
+	var target_count: int = _capture_flag_center_neutral_target_count(hives.size())
+	var lookup: Dictionary = {}
+	if target_count <= 0:
+		return lookup
+	var ranked: Array = []
+	for hive_any in hives:
+		var hive: Dictionary = hive_any as Dictionary
+		var owner_id: int = int(hive.get("owner_id", 0))
+		if owner_id == 1 or owner_id == 2:
+			continue
+		var rel: Vector2 = _hive_pos(hive) - midpoint
+		ranked.append({
+			"id": _hive_id_sort_key(hive),
+			"center_score": absf(rel.dot(axis)) + rel.length() * 0.04
+		})
+	ranked.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if not is_equal_approx(float(a.get("center_score", 0.0)), float(b.get("center_score", 0.0))):
+			return float(a.get("center_score", 0.0)) < float(b.get("center_score", 0.0))
+		return str(a.get("id", "")) < str(b.get("id", ""))
+	)
+	for i in range(mini(target_count, ranked.size())):
+		lookup[str((ranked[i] as Dictionary).get("id", ""))] = true
+	return lookup
+
+static func _capture_flag_center_neutral_target_count(hive_count: int) -> int:
+	if hive_count < CAPTURE_FLAG_CENTER_NEUTRAL_MIN_HIVES:
+		return 0
+	if hive_count >= 12:
+		return CAPTURE_FLAG_CENTER_NEUTRAL_MAX_COUNT
+	return 2

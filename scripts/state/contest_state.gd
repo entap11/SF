@@ -18,7 +18,7 @@ const TIMED_GAME_DEFAULT_LIMIT_MS := 30 * 60 * 1000
 const TIMED_GAME_MAIN_LEADERBOARD_THRESHOLD := 0.5
 const DEFAULT_STAGE_RACE_MAP_IDS := [
 	"MAP_nomansland__545__v01_top2_sides__1p",
-	"MAP_nomansland__323__v01_corners_midline_spine__1p",
+	"MAP_nomansland__545__v17_four_corners_only__1p",
 	"MAP_nomansland__444__v01_pinched_spine__1p",
 	"MAP_race__SBASE__1p",
 	"MAP_nomansland__545__v01_top2_sides__1p"
@@ -721,6 +721,7 @@ func build_stage_race_overall_leaderboard(contest_id: String, map_count: int = T
 			return a_id < b_id
 		return str(a.get("run_id", "")) < str(b.get("run_id", ""))
 	)
+	rows = _best_stage_race_rows_by_player(rows)
 	for i in range(rows.size()):
 		rows[i]["rank"] = i + 1
 	if limit > 0 and rows.size() > limit:
@@ -764,6 +765,7 @@ func get_stage_race_map_leaderboard(contest_id: String, map_id: String, limit: i
 			return a_stage < b_stage
 		return str(a.get("run_id", "")) < str(b.get("run_id", ""))
 	)
+	rows = _best_stage_race_rows_by_player(rows)
 	for i in range(rows.size()):
 		rows[i]["rank"] = i + 1
 	if limit > 0 and rows.size() > limit:
@@ -1331,6 +1333,20 @@ func _stage_race_overall_row_key(player_id: String, run_id: String) -> String:
 	if not clean_run_id.is_empty():
 		return "run:%s:%s" % [player_id, clean_run_id]
 	return "player:%s" % player_id
+
+func _best_stage_race_rows_by_player(sorted_rows: Array[Dictionary]) -> Array[Dictionary]:
+	var seen_players: Dictionary = {}
+	var out: Array[Dictionary] = []
+	for row in sorted_rows:
+		var player_id: String = str(row.get("player_id", "")).strip_edges()
+		if player_id.is_empty():
+			out.append(row)
+			continue
+		if seen_players.has(player_id):
+			continue
+		seen_players[player_id] = true
+		out.append(row)
+	return out
 
 func _leaderboard_entry_key(entry: Dictionary) -> String:
 	var player_id: String = str(entry.get("player_id", "")).strip_edges()

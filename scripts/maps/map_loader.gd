@@ -210,7 +210,9 @@ static func _resolve_map_path(path_or_id: String) -> String:
 		return ""
 	var normalized: String = MAP_SCHEMA.normalize_path(raw)
 	if FileAccess.file_exists(normalized):
-		return normalized if MAP_REGISTRY.is_map_path_allowed(normalized) else ""
+		if MAP_REGISTRY.is_map_path_allowed(normalized) or _is_allowed_jukebox_one_player_variant_path(normalized):
+			return normalized
+		return ""
 	if normalized.begins_with("res://"):
 		return ""
 	var requested_id: String = MAP_REGISTRY.map_id_from_input(normalized)
@@ -229,6 +231,15 @@ static func _resolve_map_path(path_or_id: String) -> String:
 		if path_id_upper == requested_id.to_upper() or path_id_upper == requested_canonical.to_upper():
 			return path
 	return ""
+
+static func _is_allowed_jukebox_one_player_variant_path(path: String) -> bool:
+	var clean: String = path.strip_edges()
+	if not clean.ends_with("__1p.json"):
+		return false
+	var source_path: String = clean.trim_suffix("__1p.json") + "__4p.json"
+	if not FileAccess.file_exists(source_path):
+		return false
+	return MAP_REGISTRY.is_map_path_allowed(source_path)
 
 static func _meta_string_array(source: Dictionary, key: String) -> Array[String]:
 	var out: Array[String] = []
@@ -270,6 +281,8 @@ static func _infer_async_bot_count(player_buckets: Array[String], mode: String) 
 			mode_clean = mode_clean.left(mode_clean.length() - 1)
 		if mode_clean.is_valid_int():
 			max_players = int(mode_clean)
+	if max_players <= 1 and mode.strip_edges().to_lower() == "1p":
+		return 1
 	return maxi(0, max_players - 1)
 
 static func _is_dev_runner() -> bool:
@@ -1148,7 +1161,8 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	model["playstyle_tags"] = playstyle_tags
 	model["season_tags"] = season_tags
 	model["rotation"] = rotation
-	model["async_bot_count"] = _infer_async_bot_count(player_buckets, mode)
+	var explicit_async_bot_count: int = _as_int(data.get("async_bot_count", -1), -1)
+	model["async_bot_count"] = explicit_async_bot_count if explicit_async_bot_count >= 0 else _infer_async_bot_count(player_buckets, mode)
 
 	var npc_count := 0
 	for hive_any in hives:

@@ -6,10 +6,10 @@ const CosmeticThemeDB = preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const DEBUG_FILL_PROBE: bool = false
 const TRACE_POWER_BAR_DUMP: bool = false
 
-const P1_COLOR: Color = Color(0.85, 0.72, 0.12, 0.95)
-const P2_COLOR: Color = Color(0.95, 0.20, 0.20, 0.95)
-const P3_COLOR: Color = Color(0.25, 0.95, 0.35, 0.95)
-const P4_COLOR: Color = Color(0.15, 0.45, 0.95, 0.95)
+const P1_COLOR: Color = Color(1.0, 0.94, 0.0, 1.0)
+const P2_COLOR: Color = Color(1.0, 0.0, 0.16, 1.0)
+const P3_COLOR: Color = Color(0.0, 1.0, 0.10, 1.0)
+const P4_COLOR: Color = Color(0.0, 0.22, 1.0, 1.0)
 const DEFAULT_TOP_PX: float = 10.0
 const DEFAULT_ART_SIZE: Vector2 = Vector2(960.0, 128.0)
 const FRAME_TEX_SIZE: Vector2 = Vector2(1536.0, 1024.0)

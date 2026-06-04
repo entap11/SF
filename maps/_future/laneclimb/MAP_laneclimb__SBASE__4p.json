@@ -5,73 +5,303 @@
   "family": "laneclimb",
   "display_family": "Lane Climb",
   "mode": "4p",
-  "player_buckets": ["4P_FFA"],
+  "player_buckets": [
+    "4P_FFA"
+  ],
   "strict_player_buckets": true,
-  "playstyle_tags": ["RACE", "STRATEGY"],
-  "season_tags": ["laneclimb"],
-  "rotation": { "status": "candidate", "weight": 1 },
+  "playstyle_tags": [
+    "RACE",
+    "STRATEGY"
+  ],
+  "season_tags": [
+    "laneclimb"
+  ],
+  "rotation": {
+    "status": "candidate",
+    "weight": 1
+  },
   "async_bot_count": 3,
-  "grid": { "w": 18, "h": 28, "quant": "full_or_half" },
-  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
-  "start_slots": ["p1h1", "p3h1", "p4h1", "p2h1"],
+  "grid": {
+    "w": 18,
+    "h": 28,
+    "quant": "full_or_half"
+  },
+  "defaults": {
+    "player_start_power": 10,
+    "npc_start_power": 5
+  },
+  "start_slots": [
+    "p1h1",
+    "p3h1",
+    "p4h1",
+    "p2h1"
+  ],
   "nodes": [
-    { "id": "p1h1", "pos": { "x": 2,  "y": 27 }, "owner": "P1",  "kind": "hive" },
-    { "id": "p3h1", "pos": { "x": 6,  "y": 27 }, "owner": "P3",  "kind": "hive" },
-    { "id": "p4h1", "pos": { "x": 13, "y": 27 }, "owner": "P4",  "kind": "hive" },
-    { "id": "p2h1", "pos": { "x": 17, "y": 27 }, "owner": "P2",  "kind": "hive" },
-
-    { "id": "l1_25", "pos": { "x": 4,  "y": 24 }, "owner": "NPC", "kind": "hive", "power": 25 },
-    { "id": "l1_15", "pos": { "x": 3,  "y": 15 }, "owner": "NPC", "kind": "hive", "power": 15 },
-    { "id": "l1_10", "pos": { "x": 2,  "y": 9  }, "owner": "NPC", "kind": "hive", "power": 10 },
-    { "id": "l1_05", "pos": { "x": 2,  "y": 2  }, "owner": "NPC", "kind": "hive", "power": 5  },
-
-    { "id": "l2_25", "pos": { "x": 8,  "y": 24 }, "owner": "NPC", "kind": "hive", "power": 25 },
-    { "id": "l2_15", "pos": { "x": 7,  "y": 15 }, "owner": "NPC", "kind": "hive", "power": 15 },
-    { "id": "l2_10", "pos": { "x": 6,  "y": 9  }, "owner": "NPC", "kind": "hive", "power": 10 },
-    { "id": "l2_05", "pos": { "x": 6,  "y": 2  }, "owner": "NPC", "kind": "hive", "power": 5  },
-
-    { "id": "l3_25", "pos": { "x": 11, "y": 24 }, "owner": "NPC", "kind": "hive", "power": 25 },
-    { "id": "l3_15", "pos": { "x": 11, "y": 15 }, "owner": "NPC", "kind": "hive", "power": 15 },
-    { "id": "l3_10", "pos": { "x": 12, "y": 9  }, "owner": "NPC", "kind": "hive", "power": 10 },
-    { "id": "l3_05", "pos": { "x": 12, "y": 2  }, "owner": "NPC", "kind": "hive", "power": 5  },
-
-    { "id": "l4_25", "pos": { "x": 15, "y": 24 }, "owner": "NPC", "kind": "hive", "power": 25 },
-    { "id": "l4_15", "pos": { "x": 15, "y": 15 }, "owner": "NPC", "kind": "hive", "power": 15 },
-    { "id": "l4_10", "pos": { "x": 16, "y": 9  }, "owner": "NPC", "kind": "hive", "power": 10 },
-    { "id": "l4_05", "pos": { "x": 16, "y": 2  }, "owner": "NPC", "kind": "hive", "power": 5  }
+    {
+      "id": "p1h1",
+      "pos": {
+        "x": 2,
+        "y": 27
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "p3h1",
+      "pos": {
+        "x": 6,
+        "y": 27
+      },
+      "owner": "P3",
+      "kind": "hive"
+    },
+    {
+      "id": "p4h1",
+      "pos": {
+        "x": 13,
+        "y": 27
+      },
+      "owner": "P4",
+      "kind": "hive"
+    },
+    {
+      "id": "p2h1",
+      "pos": {
+        "x": 17,
+        "y": 27
+      },
+      "owner": "P2",
+      "kind": "hive"
+    },
+    {
+      "id": "l1_25",
+      "pos": {
+        "x": 4,
+        "y": 24
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 25
+    },
+    {
+      "id": "l1_15",
+      "pos": {
+        "x": 3,
+        "y": 15
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 15
+    },
+    {
+      "id": "l1_10",
+      "pos": {
+        "x": 2,
+        "y": 9
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 10
+    },
+    {
+      "id": "l1_05",
+      "pos": {
+        "x": 2,
+        "y": 2
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 5
+    },
+    {
+      "id": "l2_25",
+      "pos": {
+        "x": 8,
+        "y": 24
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 25
+    },
+    {
+      "id": "l2_15",
+      "pos": {
+        "x": 7,
+        "y": 15
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 15
+    },
+    {
+      "id": "l2_10",
+      "pos": {
+        "x": 6,
+        "y": 9
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 10
+    },
+    {
+      "id": "l2_05",
+      "pos": {
+        "x": 6,
+        "y": 2
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 5
+    },
+    {
+      "id": "l3_25",
+      "pos": {
+        "x": 11,
+        "y": 24
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 25
+    },
+    {
+      "id": "l3_15",
+      "pos": {
+        "x": 11,
+        "y": 15
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 15
+    },
+    {
+      "id": "l3_10",
+      "pos": {
+        "x": 12,
+        "y": 9
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 10
+    },
+    {
+      "id": "l3_05",
+      "pos": {
+        "x": 12,
+        "y": 2
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 5
+    },
+    {
+      "id": "l4_25",
+      "pos": {
+        "x": 15,
+        "y": 24
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 25
+    },
+    {
+      "id": "l4_15",
+      "pos": {
+        "x": 15,
+        "y": 15
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 15
+    },
+    {
+      "id": "l4_10",
+      "pos": {
+        "x": 16,
+        "y": 9
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 10
+    },
+    {
+      "id": "l4_05",
+      "pos": {
+        "x": 16,
+        "y": 2
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 5
+    }
   ],
   "structure_slots": [
-    { "id": "slot_l1_mid", "pos": { "x": 3,  "y": 12 }, "allowed": ["tower", "barracks"] },
-    { "id": "slot_l2_mid", "pos": { "x": 7,  "y": 12 }, "allowed": ["tower", "barracks"] },
-    { "id": "slot_l3_mid", "pos": { "x": 11, "y": 12 }, "allowed": ["tower", "barracks"] },
-    { "id": "slot_l4_mid", "pos": { "x": 15, "y": 12 }, "allowed": ["tower", "barracks"] }
+    {
+      "id": "slot_l1_mid",
+      "pos": {
+        "x": 3,
+        "y": 12
+      },
+      "allowed": [
+        "tower",
+        "barracks"
+      ]
+    },
+    {
+      "id": "slot_l2_mid",
+      "pos": {
+        "x": 7,
+        "y": 12
+      },
+      "allowed": [
+        "tower",
+        "barracks"
+      ]
+    },
+    {
+      "id": "slot_l3_mid",
+      "pos": {
+        "x": 11,
+        "y": 12
+      },
+      "allowed": [
+        "tower",
+        "barracks"
+      ]
+    },
+    {
+      "id": "slot_l4_mid",
+      "pos": {
+        "x": 15,
+        "y": 12
+      },
+      "allowed": [
+        "tower",
+        "barracks"
+      ]
+    }
   ],
   "walls": [
-    { "x1": 5.0,  "y1": 5.0, "x2": 5.0,  "y2": 8.0  },
-    { "x1": 5.0,  "y1": 8.0, "x2": 4.9,  "y2": 9.0  },
-    { "x1": 4.9,  "y1": 9.0, "x2": 4.9,  "y2": 12.0 },
-    { "x1": 4.9,  "y1": 12.0, "x2": 5.0, "y2": 15.5 },
-    { "x1": 5.0,  "y1": 15.5, "x2": 4.9, "y2": 18.0 },
-    { "x1": 4.9,  "y1": 18.0, "x2": 4.9, "y2": 22.0 },
-    { "x1": 4.9,  "y1": 22.0, "x2": 5.0, "y2": 26.0 },
-    { "x1": 5.0,  "y1": 26.0, "x2": 4.9, "y2": 28.0 },
-
-    { "x1": 9.0,  "y1": 5.0, "x2": 9.0,  "y2": 8.0  },
-    { "x1": 9.0,  "y1": 8.0, "x2": 8.9,  "y2": 9.0  },
-    { "x1": 8.9,  "y1": 9.0, "x2": 8.9,  "y2": 12.0 },
-    { "x1": 8.9,  "y1": 12.0, "x2": 9.0, "y2": 15.5 },
-    { "x1": 9.0,  "y1": 15.5, "x2": 8.9, "y2": 18.0 },
-    { "x1": 8.9,  "y1": 18.0, "x2": 8.9, "y2": 22.0 },
-    { "x1": 8.9,  "y1": 22.0, "x2": 9.0, "y2": 26.0 },
-    { "x1": 9.0,  "y1": 26.0, "x2": 8.9, "y2": 28.0 },
-
-    { "x1": 14.0, "y1": 5.0, "x2": 14.0, "y2": 8.0  },
-    { "x1": 14.0, "y1": 8.0, "x2": 14.0, "y2": 12.0 },
-    { "x1": 14.0, "y1": 12.0, "x2": 14.0, "y2": 15.5 },
-    { "x1": 14.0, "y1": 15.5, "x2": 14.1, "y2": 18.0 },
-    { "x1": 14.1, "y1": 18.0, "x2": 14.0, "y2": 22.0 },
-    { "x1": 14.0, "y1": 22.0, "x2": 14.1, "y2": 26.0 },
-    { "x1": 14.1, "y1": 26.0, "x2": 14.0, "y2": 28.0 }
+    {
+      "x1": 5.0,
+      "y1": 5.0,
+      "x2": 5.0,
+      "y2": 28.0
+    },
+    {
+      "x1": 9.0,
+      "y1": 5.0,
+      "x2": 9.0,
+      "y2": 28.0
+    },
+    {
+      "x1": 14.0,
+      "y1": 5.0,
+      "x2": 14.0,
+      "y2": 28.0
+    }
   ],
-  "occluders": { "walls": [], "blocks_los": [] }
+  "occluders": {
+    "walls": [],
+    "blocks_los": []
+  }
 }

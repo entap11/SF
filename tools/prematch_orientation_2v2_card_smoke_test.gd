@@ -68,6 +68,14 @@ func _run() -> void:
 	_expect(_label_pos(card, "P2Label").y > _label_pos(card, "P1Label").y, "P2 should be below P1", {})
 	_expect(_label_pos(card, "P4Label").y > _label_pos(card, "P3Label").y, "P4 should be below P3", {})
 
+	var records_panel: Control = await _wait_for_node("/root/Shell/HUDCanvasLayer/HUDRoot/PreMatchOverlay/RecordsPanel", BOOT_TIMEOUT_MS) as Control
+	_expect(records_panel != null, "Prematch records panel missing", {})
+	if records_panel != null:
+		var team_line: String = _visible_label_text(records_panel, "RecordsBg/RecordsVBox/RecordP2")
+		_expect(team_line.find("Swarm Father") >= 0, "Prematch team line should show local handle", {"text": team_line})
+		_expect(team_line.find("u_prematch") < 0, "Prematch team line should not show raw uid", {"text": team_line})
+		_expect(team_line.find("[") < 0 and team_line.find("]") < 0, "Prematch team line should not show id brackets", {"text": team_line})
+
 	var focus_ids: Array = arena_node.call("_resolve_prematch_focus_hive_ids") as Array
 	var local_ids: Array = arena_node.call("_resolve_local_starting_hive_ids") as Array
 	_expect(focus_ids == local_ids, "2v2 focus should remain local-only", {"focus_ids": focus_ids, "local_ids": local_ids})

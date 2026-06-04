@@ -20,8 +20,17 @@ func _test_lane_flow_governors_offline() -> void:
 	state.hive_spawn_block_until_us[1] = 999999999
 	state.tick_lane_flow(5000.0)
 	var units: Array = unit_system.export_units_render()
-	_assert_true(not units.is_empty(), "lane-flow spawn should bypass build/shock/lane-cap governors")
-	_assert_true(float((state.lanes[0] as LaneData).a_pressure) > 999.0, "lane pressure should continue increasing past old cap")
+	_assert_true(units.is_empty(), "lane-flow spawn should stop when lane pressure is at the hard cap")
+	_assert_true(float((state.lanes[0] as LaneData).a_pressure) <= 999.0, "lane pressure should not increase past the hard cap")
+
+	state = _state_with_hostile_lane_conditions(0.0)
+	unit_system = UnitSystem.new()
+	unit_system.bind_state(state)
+	unit_system.use_lane_system_spawns = true
+	state.hive_spawn_block_until_us[1] = 999999999
+	state.tick_lane_flow(5000.0)
+	units = unit_system.export_units_render()
+	_assert_true(not units.is_empty(), "lane-flow spawn should still bypass build/shock governors below the lane cap")
 
 func _test_unit_system_governors_offline() -> void:
 	var state := _state_with_hostile_lane_conditions()
@@ -31,7 +40,16 @@ func _test_unit_system_governors_offline() -> void:
 	unit_system.use_lane_system_spawns = false
 	unit_system.tick(1.5)
 	var units: Array = unit_system.export_units_render()
-	_assert_true(not units.is_empty(), "unit-system spawn should bypass source/build/lane-cap/per-tick governors")
+	_assert_true(units.is_empty(), "unit-system spawn should stop when lane pressure is at the hard cap")
+
+	state = _state_with_hostile_lane_conditions(0.0)
+	state.spawns = [{"hive_id": 99}]
+	unit_system = UnitSystem.new()
+	unit_system.bind_state(state)
+	unit_system.use_lane_system_spawns = false
+	unit_system.tick(1.5)
+	units = unit_system.export_units_render()
+	_assert_true(not units.is_empty(), "unit-system spawn should still bypass source/build/per-tick governors below the lane cap")
 
 func _test_pass_through_governors_offline() -> void:
 	var state := GameState.new()
@@ -40,7 +58,7 @@ func _test_pass_through_governors_offline() -> void:
 	for i in range(300):
 		unit_system.units.append({"id": i + 1})
 	var multiplier: float = float(unit_system.call("_pass_through_emit_rate_multiplier"))
-	_assert_true(is_equal_approx(multiplier, 1.0), "pass-through rate multiplier should stay 1.0 under load")
+	_assert_true(is_equal_approx(multiplier, 0.8), "pass-through rate multiplier should throttle under heavy visible-unit load")
 
 func _test_friendly_arrivals_absorb_below_max_power() -> void:
 	var state := GameState.new()
@@ -157,14 +175,14 @@ func _test_outgoing_lane_budget_restored() -> void:
 	_assert_true(int(state.lanes_allowed_for_power(25)) == 3, "power 25 hives should have three outgoing lanes")
 	_assert_true(int(state.lanes_allowed_for_power(50)) == 3, "max hives should have three outgoing lanes")
 
-func _state_with_hostile_lane_conditions() -> GameState:
+func _state_with_hostile_lane_conditions(starting_pressure: float = 999.0) -> GameState:
 	var state := GameState.new()
 	state.hives = [
 		HiveData.new(1, Vector2i(0, 0), 1, 50, "Hive"),
 		HiveData.new(2, Vector2i(10, 0), 2, 50, "Hive")
 	]
 	state.lanes = [
-		LaneData.new(1, 1, 2, 1, true, false, 999.0, 0.0, 0.0, 0.0, 0.0, 0.5, true, false)
+		LaneData.new(1, 1, 2, 1, true, false, starting_pressure, 0.0, 0.0, 0.0, 0.0, 0.5, true, false)
 	]
 	state.rebuild_indexes()
 	return state

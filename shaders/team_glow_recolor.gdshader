@@ -18,6 +18,10 @@ uniform float pulse_strength = 0.0;
 uniform float pulse_speed = 2.4;
 uniform float pulse_phase = 0.0;
 uniform float global_alpha = 1.0;
+uniform float selected_hot = 0.0;
+uniform vec4 selected_hot_color : source_color = vec4(1.0, 0.96, 0.82, 1.0);
+uniform float selected_metal_lift = 0.0;
+uniform float selected_hot_edge = 0.0;
 
 vec3 rgb2hsv(vec3 c) {
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -56,5 +60,11 @@ void fragment() {
 	vec3 emissive = team_color.rgb * energy * glow_strength;
 	vec3 lit = mix(tex.rgb, preserved, mask * detail_preserve);
 	vec3 out_rgb = (lit * body_pulse) + (emissive * mask * additive_glow * glow_pulse);
+	float dark_mask = 1.0 - smoothstep(0.16, 0.62, lum);
+	float metal_gate = dark_mask * smoothstep(0.18, 0.95, tex.a);
+	vec3 hot_base = mix(vec3(0.86, 0.90, 0.95), selected_hot_color.rgb, 0.52);
+	vec3 hot_metal = mix(out_rgb, hot_base, metal_gate * selected_metal_lift);
+	float hot_edge = smoothstep(0.30, 0.98, bright) * metal_gate;
+	out_rgb = mix(out_rgb, hot_metal + (selected_hot_color.rgb * hot_edge * selected_hot_edge), selected_hot);
 	COLOR = vec4(out_rgb, tex.a * global_alpha);
 }

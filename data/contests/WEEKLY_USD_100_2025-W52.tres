@@ -11,6 +11,6 @@ status = "OPEN"
 start_ts = 0
 end_ts = 4102444800
 published = true
-map_ids = PackedStringArray("tp_map_01", "tp_map_02", "tp_map_03", "tp_map_04", "tp_map_05")
+map_ids = PackedStringArray("MAP_nomansland__545__v01_top2_sides__1p", "MAP_nomansland__545__v17_four_corners_only__1p", "MAP_nomansland__444__v01_pinched_spine__1p", "MAP_race__SBASE__1p", "MAP_nomansland__545__v01_top2_sides__1p")
 buff_cap_per_map = -1
 bonus_rules = {}

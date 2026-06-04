@@ -10,8 +10,8 @@ uniform bool use_noise_tex = false;
 
 uniform vec4 player_color_0 : source_color = vec4(0.95, 0.85, 0.20, 1.0);
 uniform vec4 player_color_1 : source_color = vec4(0.90, 0.22, 0.22, 1.0);
-uniform vec4 player_color_2 : source_color = vec4(0.20, 0.62, 0.26, 1.0);
-uniform vec4 player_color_3 : source_color = vec4(0.22, 0.52, 0.95, 1.0);
+uniform vec4 player_color_2 : source_color = vec4(0.47, 1.0, 0.28, 1.0);
+uniform vec4 player_color_3 : source_color = vec4(0.08, 0.28, 0.75, 1.0);
 
 uniform float maturity : hint_range(0.0, 1.0, 0.001) = 0.0;
 uniform float initial_maturity_floor : hint_range(0.0, 1.0, 0.001) = 0.18;

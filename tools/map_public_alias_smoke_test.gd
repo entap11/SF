@@ -43,8 +43,8 @@ func _init() -> void:
 	)
 	_expect_display(
 		failures,
-		"MAP_nomansland__323__v01_corners_midline_spine__1p",
-		"nomansland323-1"
+		"MAP_nomansland__545__v17_four_corners_only__1p",
+		"nomansland545-2"
 	)
 	_expect_display(
 		failures,
@@ -233,10 +233,11 @@ func _check_jukebox_public_titles(failures: Array[String]) -> void:
 	var seen_titles: Dictionary = {}
 	for entry in entries:
 		var map_id: String = str(entry.get("map_id", ""))
+		var display_map_id: String = str(entry.get("source_map_id", map_id))
 		var title: String = str(entry.get("title", ""))
-		var expected: String = MAP_REGISTRY.public_map_display_name_for_id(map_id)
+		var expected: String = MAP_REGISTRY.public_map_display_name_for_id(display_map_id)
 		if title != expected:
-			failures.append("jukebox title mismatch for %s: expected %s got %s" % [map_id, expected, title])
+			failures.append("jukebox title mismatch for %s: expected %s got %s" % [display_map_id, expected, title])
 		var title_key: String = title.to_lower()
 		if seen_titles.has(title_key):
 			failures.append("jukebox duplicate title: %s" % title)
@@ -271,7 +272,7 @@ func _check_jukebox_public_titles(failures: Array[String]) -> void:
 		"knifefight4",
 		"laneclimb",
 		"nomansland545-1",
-		"nomansland323-1",
+		"nomansland545-2",
 		"nomansland444-1",
 		"quadfight1",
 		"race",

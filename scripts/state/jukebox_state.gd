@@ -15,7 +15,7 @@ const DIRECT_CTF_MAP_PATHS: Array[String] = [
 const HIDDEN_CTF_MAP_PATHS: Array[String] = []
 const FEATURED_MAP_PATHS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json",
-	"res://maps/_future/nomansland/MAP_nomansland__323__v01_corners_midline_spine__1p.json",
+	"res://maps/_future/nomansland/MAP_nomansland__545__v17_four_corners_only__1p.json",
 	"res://maps/_future/nomansland/MAP_nomansland__444__v01_pinched_spine__1p.json"
 ]
 const HERO_FALLBACK_PREVIEW_PATH: String = "res://assets/sprites/sf_skin_v1/map_jukebox.png"
@@ -36,20 +36,30 @@ func refresh() -> void:
 		var registry_path: String = str(registry_path_any)
 		if not map_paths.has(registry_path):
 			map_paths.append(registry_path)
+	var seen_catalog_paths: Dictionary = {}
 	for path in map_paths:
-		var loaded: Dictionary = MAP_LOADER.load_map(path)
+		var source_path: String = path
+		var catalog_path: String = _preferred_jukebox_map_path(source_path)
+		if seen_catalog_paths.has(catalog_path):
+			continue
+		seen_catalog_paths[catalog_path] = true
+		var loaded: Dictionary = MAP_LOADER.load_map(catalog_path)
 		if not bool(loaded.get("ok", false)):
 			continue
 		var data: Dictionary = loaded.get("data", {}) as Dictionary
-		var map_id: String = MAP_REGISTRY.map_id_from_path(path)
+		var source_map_id: String = MAP_REGISTRY.map_id_from_path(source_path)
+		var map_id: String = MAP_REGISTRY.map_id_from_path(catalog_path)
 		if map_id == "MAP_TEST":
 			continue
 		var normalized: Dictionary = MAP_REGISTRY.normalize_map_id(map_id)
-		var public_title: String = MAP_REGISTRY.public_map_display_name_for_id(map_id)
+		var source_normalized: Dictionary = MAP_REGISTRY.normalize_map_id(source_map_id)
+		var public_title: String = MAP_REGISTRY.public_map_display_name_for_id(source_map_id)
 		var playstyle_tags: Array[String] = _entry_playstyle_tags(data, normalized)
 		var entry: Dictionary = {
-			"path": path,
+			"path": catalog_path,
+			"source_path": source_path,
 			"map_id": map_id,
+			"source_map_id": source_map_id,
 			"title": public_title,
 			"hero_title": "",
 			"map_family": _entry_map_family(data, normalized),
@@ -60,18 +70,18 @@ func refresh() -> void:
 			"rotation": _entry_rotation(data),
 			"async_bot_count": _entry_async_bot_count(data, normalized),
 			"preview_path": preview_path(data),
-			"category": primary_category(path, normalized),
-			"filters": category_filters(path, normalized, playstyle_tags),
+			"category": primary_category(source_path, source_normalized),
+			"filters": category_filters(source_path, source_normalized, playstyle_tags),
 			"meta": "",
 			"desc": "",
-			"sort_key": MAP_REGISTRY.public_map_sort_key_for_id(map_id),
-			"public_alias_status": str(MAP_REGISTRY.public_map_alias_entry_for_id(map_id).get("status", "unlisted")),
+			"sort_key": MAP_REGISTRY.public_map_sort_key_for_id(source_map_id),
+			"public_alias_status": str(MAP_REGISTRY.public_map_alias_entry_for_id(source_map_id).get("status", "unlisted")),
 			"owner_counts": owner_counts(data),
-			"supports_ctf": supports_ctf(path, normalized),
-			"supports_hidden_ctf": supports_hidden_ctf(path, normalized)
+			"supports_ctf": supports_ctf(source_path, source_normalized),
+			"supports_hidden_ctf": supports_hidden_ctf(source_path, source_normalized)
 		}
 		_map_entries.append(entry)
-		_entries_by_path[path] = entry
+		_entries_by_path[catalog_path] = entry
 		for filter_any in entry.get("filters", []):
 			var filter: String = str(filter_any)
 			if filter.is_empty():
@@ -115,7 +125,8 @@ func catalog(category: String = "ALL") -> Array[Dictionary]:
 func entry_for_path(map_path: String) -> Dictionary:
 	if _map_entries.is_empty():
 		refresh()
-	var entry: Dictionary = _entries_by_path.get(map_path, {})
+	var catalog_path: String = _preferred_jukebox_map_path(map_path)
+	var entry: Dictionary = _entries_by_path.get(catalog_path, {})
 	return entry.duplicate(true)
 
 func board_snapshot(map_path: String, period: String, limit: int = 50) -> Dictionary:
@@ -179,7 +190,29 @@ func owner_counts(data: Dictionary) -> Dictionary:
 		var hive: Dictionary = hive_any as Dictionary
 		var owner_id: int = int(hive.get("owner_id", 0))
 		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
+	if not counts.is_empty():
+		return counts
+	for node_any in data.get("nodes", []) as Array:
+		if typeof(node_any) != TYPE_DICTIONARY:
+			continue
+		var node: Dictionary = node_any as Dictionary
+		var kind: String = str(node.get("kind", "hive")).strip_edges().to_lower()
+		if kind != "hive" and kind != "player_hive" and kind != "npc_hive":
+			continue
+		var owner: String = str(node.get("owner", node.get("team", ""))).strip_edges().to_upper()
+		var owner_id: int = 0
+		if owner.begins_with("P") and owner.trim_prefix("P").is_valid_int():
+			owner_id = int(owner.trim_prefix("P"))
+		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
 	return counts
+
+func _preferred_jukebox_map_path(path: String) -> String:
+	var clean: String = path.strip_edges()
+	if clean.ends_with("__4p.json"):
+		var one_player_path: String = clean.trim_suffix("__4p.json") + "__1p.json"
+		if FileAccess.file_exists(one_player_path):
+			return one_player_path
+	return clean
 
 func supports_ctf(path: String, normalized: Dictionary) -> bool:
 	var family: String = _map_family_for_path(path, normalized)
@@ -327,6 +360,9 @@ func _entry_async_bot_count(data: Dictionary, normalized: Dictionary) -> int:
 			clean = clean.left(clean.length() - 1)
 		if clean.is_valid_int():
 			max_players = maxi(max_players, int(clean))
+	var mode: String = str(data.get("mode", normalized.get("mode", ""))).strip_edges().to_lower()
+	if max_players <= 1 and mode == "1p":
+		return 1
 	return maxi(0, max_players - 1)
 
 func preview_path(data: Dictionary) -> String:

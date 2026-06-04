@@ -1,0 +1,149 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_centerstrike__CS3__1p",
+  "name": "Centerstrike 3",
+  "family": "centerstrike",
+  "display_family": "Centerstrike",
+  "mode": "1p",
+  "player_buckets": [
+    "1P"
+  ],
+  "strict_player_buckets": true,
+  "playstyle_tags": [
+    "STRATEGY"
+  ],
+  "season_tags": [
+    "centerstrike"
+  ],
+  "rotation": {
+    "status": "candidate",
+    "weight": 1
+  },
+  "async_bot_count": 1,
+  "grid": {
+    "w": 18,
+    "h": 28,
+    "quant": "full_or_half"
+  },
+  "defaults": {
+    "player_start_power": 10,
+    "npc_start_power": 5
+  },
+  "start_slots": [
+    "p1h1",
+    "p2h1"
+  ],
+  "nodes": [
+    {
+      "id": "p3h1",
+      "pos": {
+        "x": 1,
+        "y": 1
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 5
+    },
+    {
+      "id": "p2h1",
+      "pos": {
+        "x": 17,
+        "y": 1
+      },
+      "owner": "P2",
+      "kind": "hive"
+    },
+    {
+      "id": "p1h1",
+      "pos": {
+        "x": 1,
+        "y": 27
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "p4h1",
+      "pos": {
+        "x": 17,
+        "y": 27
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 5
+    },
+    {
+      "id": "n01",
+      "pos": {
+        "x": 6,
+        "y": 11
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n02",
+      "pos": {
+        "x": 12,
+        "y": 11
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n04",
+      "pos": {
+        "x": 4,
+        "y": 14
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n05",
+      "pos": {
+        "x": 14,
+        "y": 14
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n07",
+      "pos": {
+        "x": 6,
+        "y": 17
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n08",
+      "pos": {
+        "x": 12,
+        "y": 17
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    }
+  ],
+  "structure_slots": [],
+  "walls": [
+    {
+      "x1": 9.0,
+      "y1": 0.0,
+      "x2": 9.0,
+      "y2": 3.0
+    },
+    {
+      "x1": 9.0,
+      "y1": 25.0,
+      "x2": 9.0,
+      "y2": 28.0
+    }
+  ],
+  "occluders": {
+    "walls": [],
+    "blocks_los": []
+  }
+}

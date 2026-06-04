@@ -302,8 +302,8 @@ static func _active_seats_from_vs_mode() -> Array:
 
 static func _adapt_map_for_vs_mode(map_dict: Dictionary) -> Dictionary:
 	var mode: String = _vs_mode()
-	if mode == "HIDDEN_CAPTURE_FLAG":
-		return _adapt_map_for_hidden_capture_flag(map_dict)
+	if mode == "CAPTURE_FLAG" or mode == "HIDDEN_CAPTURE_FLAG":
+		return _adapt_map_for_capture_flag(map_dict, mode)
 	if mode != "2V2" and mode != "4P FFA":
 		return map_dict
 	if _mode_from_map_descriptor(map_dict) != "1p":
@@ -325,13 +325,14 @@ static func _adapt_map_for_vs_mode(map_dict: Dictionary) -> Dictionary:
 		})
 	return out
 
-static func _adapt_map_for_hidden_capture_flag(map_dict: Dictionary) -> Dictionary:
-	var out: Dictionary = MapModeRules.apply_hidden_capture_flag_owner_split(map_dict, _hidden_ctf_allotment_options(map_dict))
-	SFLog.info("MAP_APPLIER_HIDDEN_CTF_OWNER_SPLIT", {
+static func _adapt_map_for_capture_flag(map_dict: Dictionary, mode: String) -> Dictionary:
+	var out: Dictionary = MapModeRules.apply_capture_flag_territory_split(map_dict, {"mode": mode})
+	var split_meta: Dictionary = out.get("capture_flag_territory_split", {}) as Dictionary
+	SFLog.info("MAP_APPLIER_CTF_TERRITORY_SPLIT", {
 		"map_id": str(out.get("map_id", out.get("_id", out.get("id", "UNKNOWN")))),
-		"owner_counts": out.get("hidden_ctf_owner_split", {}).get("owner_counts", {}),
-		"pattern": str(out.get("hidden_ctf_owner_split", {}).get("pattern", "")),
-		"seed": int(out.get("hidden_ctf_owner_split", {}).get("seed", 0))
+		"vs_mode": mode,
+		"owner_counts": split_meta.get("owner_counts", {}),
+		"neutral_count": int(split_meta.get("neutral_count", 0))
 	})
 	return out
 

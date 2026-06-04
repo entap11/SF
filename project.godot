@@ -44,6 +44,10 @@ window/handheld/orientation=1
 window/size/window_width=1080
 window/size/window_height=1920
 
+[gui]
+
+theme/custom_font="res://assets/fonts/brand/Iceland/Iceland-Regular.ttf"
+
 [rendering]
 
 textures/vram_compression/import_etc2_astc=true

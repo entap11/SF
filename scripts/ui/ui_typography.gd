@@ -1,8 +1,8 @@
 class_name UITypography
 extends RefCounted
 
-const FONT_REGULAR_PATH: String = "res://assets/fonts/ChakraPetch-Regular.ttf"
-const FONT_SEMIBOLD_PATH: String = "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const FONT_REGULAR_PATH: String = "res://assets/fonts/brand/Iceland/Iceland-Regular.ttf"
+const FONT_SEMIBOLD_PATH: String = "res://assets/fonts/brand/Iceland/Iceland-Regular.ttf"
 const FONT_FREE_ROLL_ATLAS_PATH: String = "res://assets/fonts/free_roll_display_v2_font.tres"
 const FONT_FREE_ROLL_SUPPORTED: String = " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 
@@ -28,6 +28,10 @@ static func semibold_font() -> Font:
 	if _semibold_font == null and ResourceLoader.exists(FONT_SEMIBOLD_PATH):
 		_semibold_font = load(FONT_SEMIBOLD_PATH) as Font
 	return _semibold_font
+
+static func fallback_font() -> Font:
+	var font: Font = regular_font()
+	return font if font != null else ThemeDB.fallback_font
 
 static func free_roll_font() -> Font:
 	if _free_roll_font == null and ResourceLoader.exists(FONT_FREE_ROLL_ATLAS_PATH):

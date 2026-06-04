@@ -11,7 +11,7 @@ const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
 const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader")
 const CORE_ENERGY_SHADER := preload("res://shaders/hive_core_energy.gdshader")
-const POWER_LABEL_FONT := preload("res://assets/fonts/ChakraPetch-SemiBold.ttf")
+const POWER_LABEL_FONT := preload("res://assets/fonts/brand/Iceland/Iceland-Regular.ttf")
 const LIGHT_PROJECTION_LARGE_PATH := "res://assets/sprites/sf_skin_v1/light_projection.png"
 const LIGHT_PROJECTION_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/light_projection_medium.png"
 @export var debug_show_kind_label := false
@@ -111,14 +111,14 @@ const FLAT_TOP_LABEL_Y_RATIO: float = -0.345
 const FLAT_TOP_PIP_Y: float = 30.0
 const FLAT_TOP_SMALL_PIP_Y: float = 9.0
 const FLAT_TOP_MED_PIP_Y: float = 12.0
-const FLAT_TOP_PIP_SPACING: float = 14.25
+const FLAT_TOP_PIP_SPACING: float = 18.0
 const POWER_PROJECTION_SMALL_SIZE := Vector2(58.0, 72.0)
 const POWER_PROJECTION_MEDIUM_SIZE := Vector2(74.0, 84.0)
 const POWER_PROJECTION_LARGE_SIZE := Vector2(92.0, 92.0)
 const LANE_BUDGET_DEFAULT_SLOTS: int = 3
-const LANE_BUDGET_PIP_RADIUS: float = 6.0
-const LANE_BUDGET_PIP_INNER_RADIUS: float = 4.05
-const LANE_BUDGET_PIP_SPACING: float = 25.5
+const LANE_BUDGET_PIP_RADIUS: float = 7.5
+const LANE_BUDGET_PIP_INNER_RADIUS: float = 5.2
+const LANE_BUDGET_PIP_SPACING: float = 29.0
 const LANE_BUDGET_LABEL_SIDE_GAP: float = 18.0
 const LANE_BUDGET_LABEL_TOP_GAP: float = 22.5
 const LANE_BUDGET_THREE_TOP_LIFT: float = 19.5
@@ -143,7 +143,7 @@ const SELECTED_RING_H_RATIO: float = 0.34
 const LANE_PORT_COUNT: int = 3
 const LANE_PORT_Y_RATIO: float = 0.20
 const LANE_PORT_SPACING_RATIO: float = 0.18
-const LANE_PORT_RADIUS: float = 3.4
+const LANE_PORT_RADIUS: float = 4.6
 const ACTIVITY_IDLE: String = "idle"
 const ACTIVITY_FEEDING: String = "feeding"
 const ACTIVITY_ATTACKING: String = "attacking"
@@ -388,6 +388,7 @@ func set_activity_state(state: String) -> void:
 func set_selected_visual(on: bool, color: Color = Color.WHITE) -> void:
 	_selected_visual = on
 	_selected_visual_color = color
+	_update_selected_hot_shader()
 	_update_phase3_polish()
 
 func preview_state_idle() -> void:
@@ -423,7 +424,7 @@ func _draw() -> void:
 	SFLog.log_once("HIVEVIS_DRAW", "HiveVisual._draw ran", SFLog.Level.INFO)
 	if _tex == null:
 		draw_circle(Vector2.ZERO, radius_px, _power_color)
-	var font: Font = ThemeDB.fallback_font
+	var font: Font = UITypography.fallback_font()
 	if font == null:
 		return
 	if _power_label != null and is_instance_valid(_power_label):
@@ -1088,7 +1089,7 @@ func _update_phase3_motion() -> void:
 	var port_wave: float = 0.5 + (0.5 * sin(_fx_t * 4.8))
 	if _selected_highlight_ring != null and is_instance_valid(_selected_highlight_ring):
 		var selected_color: Color = _selected_visual_color.lerp(Color.WHITE, 0.65)
-		selected_color.a = (0.30 + (selected_wave * 0.24)) * selected_highlight_strength if _selected_visual else 0.0
+		selected_color.a = 0.0
 		_selected_highlight_ring.default_color = selected_color
 	_update_lane_port_colors(port_wave)
 
@@ -1112,7 +1113,7 @@ func _update_phase3_polish() -> void:
 		ring_color.a = 0.28 * owner_accent_strength * max_power_mul * neutral_mul
 		_owner_accent_ring.default_color = ring_color
 	if _selected_highlight_ring != null and is_instance_valid(_selected_highlight_ring):
-		_selected_highlight_ring.visible = selected_highlight_strength > 0.0
+		_selected_highlight_ring.visible = false
 	var crown_boost: float = float(activity.get("crown", 0.0))
 	if _core_crown_glow != null and is_instance_valid(_core_crown_glow) and crown_boost <= 0.0:
 		var crown_color: Color = accent
@@ -1144,10 +1145,10 @@ func _update_lane_port_colors(pulse_t: float) -> void:
 			alpha_base += 0.10 * lane_port_pulse_strength
 		if stress:
 			alpha_base *= 0.72 + (0.28 * sin(_fx_t * 34.0))
-		var outline_color: Color = accent.lerp(Color.WHITE, 0.28)
-		outline_color.a = clampf(alpha_base * owner_accent_strength * neutral_mul, 0.0, 0.95)
-		var fill_color: Color = accent
-		fill_color.a = clampf((alpha_base * 0.58) * owner_accent_strength * neutral_mul, 0.0, 0.80)
+		var outline_color: Color = LANE_BUDGET_PIP_OUTLINE_COLOR
+		outline_color.a = clampf(0.52 + (alpha_base * 0.48), 0.0, 0.98)
+		var fill_color: Color = LANE_BUDGET_PIP_COLOR
+		fill_color.a = clampf((alpha_base * 0.92) * neutral_mul, 0.0, 0.92)
 		if outline != null and is_instance_valid(outline):
 			outline.default_color = outline_color
 		if fill != null and is_instance_valid(fill):
@@ -1367,7 +1368,7 @@ func _update_lane_budget_indicators() -> void:
 			child.queue_free()
 		_lane_budget_pips.clear()
 		for i in range(slot_count):
-			var outline: Line2D = _create_ring_line("BudgetPipOutline_%d" % i, 1, 1.5, _lane_budget_layer)
+			var outline: Line2D = _create_ring_line("BudgetPipOutline_%d" % i, 1, 1.8, _lane_budget_layer)
 			var fill: Polygon2D = Polygon2D.new()
 			fill.name = "BudgetPipFill_%d" % i
 			fill.z_index = 0
@@ -1775,6 +1776,7 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 		_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength)
 		_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed)
 		_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())
+		_update_selected_hot_shader()
 	if _npc_shader_mat != null and is_neutral_owner:
 		_npc_shader_mat.set_shader_parameter("npc_tint", NPC_HIVE_COLOR)
 		_npc_shader_mat.set_shader_parameter("tint_strength", 0.88)
@@ -1784,10 +1786,26 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 		_npc_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength * 0.42)
 		_npc_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed * 0.82)
 		_npc_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())
+		_update_selected_hot_shader()
 	_update_projection_tint()
 	_update_lane_budget_indicators()
 	_update_ground_glow()
 	_update_core_materials()
+
+func _update_selected_hot_shader() -> void:
+	var hot_strength: float = 1.0 if _selected_visual else 0.0
+	var selected_color: Color = _selected_visual_color
+	if selected_color.a <= 0.0:
+		selected_color = Color.WHITE
+	selected_color = selected_color.lerp(Color(1.0, 0.96, 0.82, 1.0), 0.68)
+	for mat_v in [_shader_mat, _npc_shader_mat]:
+		var mat: ShaderMaterial = mat_v as ShaderMaterial
+		if mat == null:
+			continue
+		mat.set_shader_parameter("selected_hot", hot_strength)
+		mat.set_shader_parameter("selected_hot_color", selected_color)
+		mat.set_shader_parameter("selected_metal_lift", 0.88 if _selected_visual else 0.0)
+		mat.set_shader_parameter("selected_hot_edge", 0.22 if _selected_visual else 0.0)
 
 func _hive_sprite_pulse_phase() -> float:
 	var hive_id_value: int = 0

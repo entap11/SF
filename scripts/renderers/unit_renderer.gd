@@ -4061,7 +4061,7 @@ func _draw() -> void:
 		})
 	var hive_by_id := _build_hive_by_id()
 	var sim_time_s: float = float(model.get("sim_time_s", 0.0))
-	var font: Font = ThemeDB.fallback_font
+	var font: Font = UITypography.fallback_font()
 	var font_size: int = 10
 	var registry := _get_sprite_registry()
 	for u in _units:

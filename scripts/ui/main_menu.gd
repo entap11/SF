@@ -599,7 +599,7 @@ const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
 	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png"
 }
 const HIDDEN_CTF_MAP_IDS: Array[String] = [
-	"res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__1p.json"
+	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 ]
 const DIRECT_CTF_MAP_IDS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
@@ -1373,7 +1373,8 @@ func _apply_pending_stage_leaderboard_request() -> void:
 	var denomination: int = maxi(0, int(context.get("denomination", 0)))
 	var player_id: String = str(context.get("player_id", "")).strip_edges()
 	var run_id: String = str(context.get("run_id", "")).strip_edges()
-	_open_async_stage_contest_leaderboard(map_count, scope, paid, denomination, player_id, run_id)
+	var contest_id: String = str(context.get("contest_id", "")).strip_edges()
+	_open_async_stage_contest_leaderboard(map_count, scope, paid, denomination, player_id, run_id, contest_id)
 	if status_label != null:
 		status_label.text = "%s Stage Race leaderboard opened." % scope.capitalize()
 
@@ -13074,7 +13075,7 @@ func _get_async_stage_leaderboard_rows(map_count: int) -> Array:
 		out.append(row_any)
 	return out
 
-func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0, highlight_player_id: String = "", highlight_run_id: String = "") -> void:
+func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0, highlight_player_id: String = "", highlight_run_id: String = "", preferred_contest_id: String = "") -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var resolved_map_count: int = 5
 	if map_count == 3:
@@ -13082,7 +13083,7 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 	var clean_scope: String = scope.strip_edges().to_upper()
 	if clean_scope.is_empty():
 		clean_scope = "WEEKLY"
-	var contest_data: Dictionary = _resolve_async_stage_contest_data(resolved_map_count, clean_scope, paid, denomination)
+	var contest_data: Dictionary = _resolve_async_stage_contest_data(resolved_map_count, clean_scope, paid, denomination, preferred_contest_id)
 	var contest_name: String = str(contest_data.get("contest_name", "Stage Contest"))
 	var contest_time_left: String = str(contest_data.get("time_left", "--"))
 	var title: String = "%d MAP STAGE CONTEST LEADERBOARD" % resolved_map_count
@@ -13137,6 +13138,7 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 		_apply_font(handle_label, _font_regular, 12)
 		if row_highlighted:
 			handle_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.55, 1.0))
+			handle_label.set_meta("stage_leaderboard_name_highlighted", true)
 		var total_label: Label = Label.new()
 		total_label.text = str(entry.get("total_time", "--:--.---"))
 		total_label.custom_minimum_size = Vector2(240.0, 0.0)
@@ -13153,7 +13155,7 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 		_apply_font(left_label, _font_regular, 12)
 		if row_highlighted:
 			left_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.55, 1.0))
-			_pulse_stage_leaderboard_row(row_box)
+			_pulse_stage_leaderboard_row(row_box, handle_label)
 	if rows.is_empty():
 		var empty_label: Label = Label.new()
 		empty_label.text = "No stage race submissions yet."
@@ -13192,21 +13194,78 @@ func _stage_leaderboard_row_matches_highlight(entry: Dictionary, highlight_playe
 		return false
 	var clean_run_id: String = highlight_run_id.strip_edges()
 	if not clean_run_id.is_empty():
-		return str(entry.get("run_id", "")).strip_edges() == clean_run_id
+		if str(entry.get("run_id", "")).strip_edges() == clean_run_id:
+			return true
 	var clean_player_id: String = highlight_player_id.strip_edges()
 	if clean_player_id.is_empty():
 		return false
 	return str(entry.get("player_id", "")).strip_edges() == clean_player_id
 
-func _pulse_stage_leaderboard_row(row: Control) -> void:
+func _pulse_stage_leaderboard_row(row: Control, handle_label: Label = null) -> void:
 	if row == null:
 		return
+	row.set_meta("stage_leaderboard_pulsing", true)
 	var tween: Tween = create_tween()
 	tween.set_loops(6)
 	tween.tween_property(row, "modulate", Color(1.0, 0.72, 0.18, 1.0), 0.32)
 	tween.tween_property(row, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.32)
+	if handle_label == null:
+		return
+	handle_label.set_meta("stage_leaderboard_emitting", true)
+	var name_tween: Tween = create_tween()
+	name_tween.set_loops(6)
+	name_tween.tween_property(handle_label, "self_modulate", Color(1.0, 0.66, 0.10, 1.0), 0.32)
+	name_tween.tween_property(handle_label, "self_modulate", Color(1.0, 1.0, 1.0, 1.0), 0.32)
+	call_deferred("_attach_stage_leaderboard_name_emitter", handle_label)
 
-func _resolve_async_stage_contest_data(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0) -> Dictionary:
+func _attach_stage_leaderboard_name_emitter(handle_label: Label) -> void:
+	if handle_label == null or not is_instance_valid(handle_label):
+		return
+	var existing: Node = handle_label.get_node_or_null("StageLeaderboardNameEmitter")
+	if existing != null:
+		if existing is CPUParticles2D:
+			var existing_particles: CPUParticles2D = existing as CPUParticles2D
+			existing_particles.restart()
+			existing_particles.emitting = true
+		return
+	var emitter: CPUParticles2D = CPUParticles2D.new()
+	emitter.name = "StageLeaderboardNameEmitter"
+	emitter.amount = 22
+	emitter.lifetime = 0.75
+	emitter.one_shot = false
+	emitter.explosiveness = 0.15
+	emitter.randomness = 0.65
+	emitter.local_coords = true
+	emitter.direction = Vector2(1.0, -0.15)
+	emitter.spread = 160.0
+	emitter.gravity = Vector2(0.0, 18.0)
+	emitter.initial_velocity_min = 12.0
+	emitter.initial_velocity_max = 42.0
+	emitter.scale_amount_min = 1.2
+	emitter.scale_amount_max = 2.8
+	emitter.color = Color(1.0, 0.82, 0.22, 0.9)
+	emitter.z_index = 20
+	handle_label.add_child(emitter)
+	_position_stage_leaderboard_name_emitter(handle_label, emitter)
+	emitter.restart()
+	emitter.emitting = true
+	var cleanup_tween: Tween = create_tween()
+	cleanup_tween.tween_interval(4.0)
+	cleanup_tween.tween_callback(func() -> void:
+		if is_instance_valid(emitter):
+			emitter.emitting = false
+			emitter.queue_free()
+	)
+
+func _position_stage_leaderboard_name_emitter(handle_label: Label, emitter: CPUParticles2D) -> void:
+	if handle_label == null or emitter == null:
+		return
+	if not is_instance_valid(handle_label) or not is_instance_valid(emitter):
+		return
+	var label_size: Vector2 = handle_label.size
+	emitter.position = Vector2(maxf(28.0, label_size.x * 0.34), maxf(8.0, label_size.y * 0.55))
+
+func _resolve_async_stage_contest_data(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0, preferred_contest_id: String = "") -> Dictionary:
 	var output: Dictionary = {
 		"contest_id": "",
 		"contest_name": "Stage Contest",
@@ -13216,7 +13275,12 @@ func _resolve_async_stage_contest_data(map_count: int, scope: String = "WEEKLY",
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	if contest_state == null:
 		return output
-	var contest_obj: Variant = _select_async_stage_contest_for_leaderboard(contest_state, scope, paid, denomination)
+	var contest_obj: Variant = null
+	var clean_preferred_id: String = preferred_contest_id.strip_edges()
+	if not clean_preferred_id.is_empty() and contest_state.has_method("get_contest"):
+		contest_obj = contest_state.call("get_contest", clean_preferred_id)
+	if contest_obj == null:
+		contest_obj = _select_async_stage_contest_for_leaderboard(contest_state, scope, paid, denomination)
 	if contest_obj == null:
 		return output
 	var contest_id: String = str(_variant_dict_or_object_get(contest_obj, "id", ""))
@@ -14505,7 +14569,7 @@ func _open_stage_race_contest_leaderboard(scope: String, requested_map_count: in
 	if not bool(launch_data.get("ok", false)):
 		status_label.text = str(launch_data.get("error", "Stage Race leaderboard unavailable."))
 		return
-	_open_async_stage_contest_leaderboard(int(launch_data.get("map_count", requested_map_count)), str(launch_data.get("scope", scope)), paid, denomination)
+	_open_async_stage_contest_leaderboard(int(launch_data.get("map_count", requested_map_count)), str(launch_data.get("scope", scope)), paid, denomination, "", "", str(launch_data.get("contest_id", "")))
 	status_label.text = "%s Stage Race leaderboard opened." % str(launch_data.get("scope", scope)).capitalize()
 
 func _start_free_stage_race_contest(scope: String, requested_map_count: int = 5) -> void:

@@ -12,8 +12,8 @@ const SLOT_USED_COLOR: Color = Color(0.48, 0.12, 0.12, 0.96)
 const SLOT_ARMED_COLOR: Color = Color(1.0, 0.96, 0.68, 1.0)
 const TEAM_COLOR_P1: Color = Color(0.85, 0.72, 0.12, 1.0)
 const TEAM_COLOR_P2: Color = Color(0.95, 0.20, 0.20, 1.0)
-const TEAM_COLOR_P3: Color = Color(0.25, 0.95, 0.35, 1.0)
-const TEAM_COLOR_P4: Color = Color(0.15, 0.45, 0.95, 1.0)
+const TEAM_COLOR_P3: Color = Color(0.47, 1.0, 0.28, 1.0)
+const TEAM_COLOR_P4: Color = Color(0.08, 0.28, 0.75, 1.0)
 const TIER_DURATION_MS := {
 	"classic": 10000,
 	"premium": 15000,

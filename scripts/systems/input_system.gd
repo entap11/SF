@@ -9,6 +9,7 @@ extends RefCounted
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const InputEventUtils := preload("res://scripts/systems/input_helpers/input_event_utils.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 
 const DOUBLE_TAP_MS := 360
 const DOUBLE_TAP_DIST_PX := 22.0
@@ -22,8 +23,8 @@ const TOWER_PICK_RADIUS_PX := 40.0
 const STRUCTURE_PICK_BIAS := 0.95
 const LONG_PRESS_MS := 400
 const LONG_PRESS_MOVE_PX := 12.0
-const DRAG_HOVER_EXTRA_PX := 22.0
-const DEST_HIVE_ASSIST_SCALE := 1.2
+const DRAG_HOVER_EXTRA_PX := 36.0
+const DEST_HIVE_ASSIST_SCALE := 1.30
 const ENABLE_ROUTE_LANE_FLASH := true
 const ROUTE_LANE_FLASH_MS := 250
 
@@ -231,7 +232,10 @@ func handle_press(local_pos: Vector2, dev_pid: int, arena_api: ArenaAPI, button_
 	if selection == null or arena_api == null:
 		return
 	var actor_id := _player_id_from_button(button_index, arena_api, dev_pid)
-	var hive_id: int = _pick_hive_id_with_destination_assist(local_pos, _hover_hive_id, actor_id, arena_api)
+	var base_hive_id: int = arena_api.pick_hive_id_local(local_pos)
+	if base_hive_id <= 0:
+		base_hive_id = _hover_hive_id
+	var hive_id: int = _pick_hive_id_with_destination_assist(local_pos, base_hive_id, actor_id, arena_api)
 	var lane: LaneData = arena_api.pick_lane(local_pos)
 	var lane_id: int = lane.id if lane != null else -1
 	_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index)
@@ -289,6 +293,8 @@ func clear_selection() -> void:
 	if selection == null:
 		return
 	selection.clear_selection()
+	if _last_arena_api != null:
+		_last_arena_api.clear_selection()
 	_selected_hive_id = -1
 	for player_id in [1, 2, 3, 4]:
 		_selected_by_player[player_id] = -1
@@ -384,17 +390,9 @@ func _clear_enemy_first_visual(arena_api: ArenaAPI, player_id: int) -> void:
 		_clear_selected_visual(arena_api)
 
 func _owner_color(owner_id: int) -> Color:
-	match owner_id:
-		1:
-			return Color(1.0, 0.8235, 0.0, 1.0)
-		2:
-			return Color(1.0, 0.0, 0.0, 1.0)
-		3:
-			return Color8(34, 85, 34)
-		4:
-			return Color(0.0, 0.35, 1.0, 1.0)
-		_:
-			return Color(1.0, 1.0, 1.0, 1.0)
+	if owner_id >= 1 and owner_id <= 4:
+		return TeamVisuals.owner_color(owner_id)
+	return Color(1.0, 1.0, 1.0, 1.0)
 
 func _are_allied_seats(seat_a: int, seat_b: int) -> bool:
 	var a_id: int = int(seat_a)
@@ -532,6 +530,8 @@ func _set_selected(arena_api: ArenaAPI, hive_id: int) -> void:
 	if selection != null:
 		selection.selected_hive_id = hive_id
 		selection.selected_lane_id = -1
+	if arena_api != null:
+		arena_api.set_selected_hive_id(hive_id)
 	var hr := _get_hive_renderer(arena_api)
 	var owner_id := 0
 	if hive_id > 0:
@@ -550,6 +550,8 @@ func _clear_selected(arena_api: ArenaAPI) -> void:
 	if selection != null:
 		selection.selected_hive_id = -1
 		selection.selected_lane_id = -1
+	if arena_api != null:
+		arena_api.clear_selection()
 	if _visual_selected_player_id == 1:
 		_clear_selected_visual(arena_api)
 	if had_selection:
@@ -619,7 +621,7 @@ func _pick_drag_hover_hive_id(local_pos: Vector2, arena_api: ArenaAPI) -> int:
 	var dist: float = float(nearest.get("dist", INF))
 	if dist == INF:
 		return -1
-	var snap_radius: float = maxf(1.0, arena_api.get_hive_radius_px()) + DRAG_HOVER_EXTRA_PX
+	var snap_radius: float = maxf(1.0, arena_api.get_hive_pick_radius_px(nearest_id)) + DRAG_HOVER_EXTRA_PX
 	if dist <= snap_radius:
 		return nearest_id
 	return -1
@@ -649,7 +651,6 @@ func _pick_assisted_destination_hive_id(local_pos: Vector2, selected_id: int, ar
 	var st: GameState = arena_api.get_state()
 	if st == null or st.hives == null:
 		return -1
-	var radius: float = maxf(1.0, arena_api.get_hive_radius_px()) * DEST_HIVE_ASSIST_SCALE
 	var best_id := -1
 	var best_dist := INF
 	var hr := arena_api.get_hive_renderer()
@@ -668,6 +669,7 @@ func _pick_assisted_destination_hive_id(local_pos: Vector2, selected_id: int, ar
 				render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
 			center = arena_api.grid_to_world(Vector2i(roundi(render_gp.x), roundi(render_gp.y)))
 		var dist: float = center.distance_to(local_pos)
+		var radius: float = maxf(1.0, arena_api.get_hive_pick_radius_px(hid)) * DEST_HIVE_ASSIST_SCALE
 		if dist <= radius and dist < best_dist:
 			best_id = hid
 			best_dist = dist
@@ -783,9 +785,9 @@ func _tap_is_outside_hive_core(hive_id: int, local_pos: Vector2, arena_api: Aren
 		if not is_finite(render_gp.x) or not is_finite(render_gp.y):
 			render_gp = Vector2(float(hive.grid_pos.x), float(hive.grid_pos.y))
 		center = arena_api.grid_to_world(Vector2i(roundi(render_gp.x), roundi(render_gp.y)))
-	var core_radius: float = float(hive.radius_px)
+	var core_radius: float = arena_api.get_hive_pick_radius_px(hive_id)
 	if core_radius <= 0.0:
-		core_radius = maxf(1.0, arena_api.get_hive_radius_px() - 12.0)
+		core_radius = maxf(1.0, arena_api.get_hive_radius_px())
 	return local_pos.distance_to(center) > core_radius
 
 func _get_viewport_from_arena(arena_api: ArenaAPI) -> Viewport:
@@ -1474,8 +1476,7 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		selection.last_vibe_target_id = -1
 		selection.drag_dev_pid = actor_id
 		if actor_id == 1 and friendly:
-			selection.selected_hive_id = hive_id
-			selection.selected_lane_id = -1
+			_set_selected_for_player(arena_api, actor_id, hive_id)
 			selection.selected_cell = arena_api.cell_from_point(local_pos)
 	else:
 		selection.drag_active = false

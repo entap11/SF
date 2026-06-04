@@ -30,6 +30,11 @@ func _init() -> void:
 	_assert_true(not _node_visible(overlay, "Panel/VBox/H2H"), "h2h hidden")
 	_assert_true(not _node_visible(overlay, "Panel/VBox/StatsHeader"), "stats hidden")
 	_assert_eq(_label_text(overlay, "Panel/VBox/Status"), "Play again?", "status")
+	_assert_true(_font_size(overlay, "Panel/VBox/Title") >= 30, "title font should be readable")
+	_assert_true(_font_size(overlay, "Panel/VBox/Result") >= 24, "result font should be readable")
+	_assert_true(_button_min_height(overlay, "Panel/VBox/Buttons/Rematch") >= 58.0, "rematch button should be readable")
+	var panel: Control = overlay.get_node_or_null("Panel") as Control
+	_assert_true(panel != null and panel.custom_minimum_size.x >= 360.0 and panel.custom_minimum_size.y >= 420.0, "outcome panel should be larger")
 
 	if _failed:
 		quit(1)
@@ -79,6 +84,18 @@ func _label_text(root: Node, path: String) -> String:
 func _node_visible(root: Node, path: String) -> bool:
 	var control: Control = root.get_node_or_null(path) as Control
 	return control != null and control.visible
+
+func _font_size(root: Node, path: String) -> int:
+	var label: Label = root.get_node_or_null(path) as Label
+	if label == null:
+		return 0
+	return int(label.get_theme_font_size("font_size"))
+
+func _button_min_height(root: Node, path: String) -> float:
+	var button: Button = root.get_node_or_null(path) as Button
+	if button == null:
+		return 0.0
+	return float(button.custom_minimum_size.y)
 
 func _assert_eq(actual: Variant, expected: Variant, label: String) -> void:
 	if actual == expected:

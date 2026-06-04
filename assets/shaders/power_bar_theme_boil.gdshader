@@ -10,10 +10,10 @@ uniform float share_p1 : hint_range(0.0, 1.0) = 0.5;
 uniform float share_p2 : hint_range(0.0, 1.0) = 0.5;
 uniform float share_p3 : hint_range(0.0, 1.0) = 0.0;
 uniform float share_p4 : hint_range(0.0, 1.0) = 0.0;
-uniform vec4 color_p1 : source_color = vec4(0.85, 0.72, 0.12, 1.0);
-uniform vec4 color_p2 : source_color = vec4(0.95, 0.20, 0.20, 1.0);
-uniform vec4 color_p3 : source_color = vec4(0.25, 0.95, 0.35, 1.0);
-uniform vec4 color_p4 : source_color = vec4(0.15, 0.45, 0.95, 1.0);
+uniform vec4 color_p1 : source_color = vec4(1.0, 0.94, 0.0, 1.0);
+uniform vec4 color_p2 : source_color = vec4(1.0, 0.0, 0.16, 1.0);
+uniform vec4 color_p3 : source_color = vec4(0.0, 1.0, 0.10, 1.0);
+uniform vec4 color_p4 : source_color = vec4(0.0, 0.22, 1.0, 1.0);
 
 uniform vec4 boil_tint : source_color = vec4(1.0, 0.92, 0.60, 0.34);
 uniform float boil_speed = 1.35;
@@ -117,18 +117,19 @@ void fragment() {
 	float seam = boundary_energy(uv.x, ns) * (0.40 + 0.60 * vel_boost);
 	float front = exp(-pow((uv.x - fill_ratio) / 0.025, 2.0)) * (0.30 + fill_velocity * 0.70);
 
-	vec3 lane_tint = seat_color * (0.46 + liquid_luma * 1.82 + turbulence * 0.42);
+	vec3 lane_tint = seat_color * (0.76 + liquid_luma * 1.48 + turbulence * 0.24);
 	vec3 boil_glow = boil_tint.rgb * boil_tint.a * (boil_wave * 0.6 + bubble * bubble_strength);
-	vec3 foam = mix(seat_color, vec3(1.0, 0.97, 0.86), 0.72) * smoothstep(0.72, 1.0, bubble + turbulence * 0.55);
+	vec3 foam = mix(seat_color, vec3(1.0), 0.30) * smoothstep(0.72, 1.0, bubble + turbulence * 0.55);
+	vec3 front_color = seat_color_for_x(clamp(fill_ratio, 0.0, 1.0), ns, color_p1.rgb, color_p2.rgb, color_p3.rgb, color_p4.rgb);
 
 	vec3 out_rgb = tex_base.rgb;
-	vec3 lane_base = mix(tex_base.rgb * 0.66, lane_tint, 0.95);
+	vec3 lane_base = lane_tint;
 	out_rgb = mix(out_rgb, lane_base, lane_mask * tint_strength);
 	out_rgb += boil_glow * lane_mask * (1.30 * glow_boost);
 	out_rgb += foam * lane_mask * (0.92 * glow_boost);
-	out_rgb += seat_color * lane_mask * (0.22 * glow_boost);
+	out_rgb += seat_color * lane_mask * (0.45 * glow_boost);
 	out_rgb += seat_color * seam * lane_mask * (0.72 * glow_boost);
-	out_rgb += mix(color_p1.rgb, color_p2.rgb, smoothstep(0.0, 1.0, uv.x)) * front * lane_mask * (0.76 * glow_boost);
+	out_rgb += front_color * front * lane_mask * (0.76 * glow_boost);
 	out_rgb *= brightness_boost;
 	out_rgb = pow(max(out_rgb, vec3(0.0)), vec3(0.92));
 

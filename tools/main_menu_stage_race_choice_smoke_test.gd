@@ -75,10 +75,15 @@ func _run() -> void:
 		push_error("MAIN_MENU_STAGE_RACE_CHOICE_SMOKE: free contest start method missing")
 		quit(1)
 		return
-	menu.call("_start_free_stage_race_contest", "WEEKLY", 5)
+	menu.call("_start_free_stage_race_contest", "WEEKLY", 3)
 	await process_frame
 	if not has_meta("start_game") or str(get_meta("vs_mode", "")) != "STAGE_RACE":
 		push_error("MAIN_MENU_STAGE_RACE_CHOICE_SMOKE: direct free play launch did not set match metadata")
+		quit(1)
+		return
+	var stage_paths: Array = get_meta("vs_stage_map_paths", []) as Array
+	if stage_paths.size() != 3:
+		push_error("MAIN_MENU_STAGE_RACE_CHOICE_SMOKE: direct free play launch did not preserve 3-map selection")
 		quit(1)
 		return
 	if shell.applied_map.strip_edges().is_empty():

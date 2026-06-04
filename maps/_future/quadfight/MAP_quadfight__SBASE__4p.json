@@ -20,21 +20,21 @@
     { "id": "p1h1", "pos": { "x": 1,  "y": 27 }, "owner": "P1",  "kind": "hive" },
     { "id": "p4h1", "pos": { "x": 17, "y": 27 }, "owner": "P4",  "kind": "hive" },
 
-    { "id": "tl_outer", "pos": { "x": 4,  "y": 1  }, "owner": "NPC", "kind": "hive" },
-    { "id": "tl_lower", "pos": { "x": 1,  "y": 5  }, "owner": "NPC", "kind": "hive" },
-    { "id": "tl_inner", "pos": { "x": 4,  "y": 5  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tl_outer", "pos": { "x": 6,  "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tl_lower", "pos": { "x": 1,  "y": 7  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tl_inner", "pos": { "x": 6,  "y": 7  }, "owner": "NPC", "kind": "hive" },
 
-    { "id": "tr_outer", "pos": { "x": 14, "y": 1  }, "owner": "NPC", "kind": "hive" },
-    { "id": "tr_lower", "pos": { "x": 17, "y": 5  }, "owner": "NPC", "kind": "hive" },
-    { "id": "tr_inner", "pos": { "x": 14, "y": 5  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tr_outer", "pos": { "x": 12, "y": 1  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tr_lower", "pos": { "x": 17, "y": 7  }, "owner": "NPC", "kind": "hive" },
+    { "id": "tr_inner", "pos": { "x": 12, "y": 7  }, "owner": "NPC", "kind": "hive" },
 
-    { "id": "bl_upper", "pos": { "x": 1,  "y": 23 }, "owner": "NPC", "kind": "hive" },
-    { "id": "bl_inner", "pos": { "x": 4,  "y": 23 }, "owner": "NPC", "kind": "hive" },
-    { "id": "bl_outer", "pos": { "x": 4,  "y": 27 }, "owner": "NPC", "kind": "hive" },
+    { "id": "bl_upper", "pos": { "x": 1,  "y": 21 }, "owner": "NPC", "kind": "hive" },
+    { "id": "bl_inner", "pos": { "x": 6,  "y": 21 }, "owner": "NPC", "kind": "hive" },
+    { "id": "bl_outer", "pos": { "x": 6,  "y": 27 }, "owner": "NPC", "kind": "hive" },
 
-    { "id": "br_inner", "pos": { "x": 14, "y": 23 }, "owner": "NPC", "kind": "hive" },
-    { "id": "br_upper", "pos": { "x": 17, "y": 23 }, "owner": "NPC", "kind": "hive" },
-    { "id": "br_outer", "pos": { "x": 14, "y": 27 }, "owner": "NPC", "kind": "hive" }
+    { "id": "br_inner", "pos": { "x": 12, "y": 21 }, "owner": "NPC", "kind": "hive" },
+    { "id": "br_upper", "pos": { "x": 17, "y": 21 }, "owner": "NPC", "kind": "hive" },
+    { "id": "br_outer", "pos": { "x": 12, "y": 27 }, "owner": "NPC", "kind": "hive" }
   ],
   "structure_slots": [
     { "id": "slot_top_left",     "pos": { "x": 5,  "y": 8  }, "allowed": ["tower", "barracks"] },

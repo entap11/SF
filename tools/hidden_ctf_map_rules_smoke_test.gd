@@ -4,7 +4,7 @@ const HANDSHAKE_SCRIPT := preload("res://scripts/state/vs_handshake_state.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
-const HIDDEN_CTF_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__1p.json"
+const HIDDEN_CTF_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 const SHARED_NON_3P_MAP_PATH: String = HIDDEN_CTF_MAP_PATH
 const THREE_PLAYER_MAP_PATH: String = "res://maps/delta/MAP_delta__SBASE__3p.json"
 
@@ -14,7 +14,7 @@ func _init() -> void:
 	ProjectSettings.set_setting(SETTINGS_BACKEND_URL, "")
 	var failed: bool = false
 	failed = _test_map_mode_eligibility() or failed
-	failed = _test_hidden_ctf_split_removes_npc_hives() or failed
+	failed = _test_capture_flag_territory_split() or failed
 	failed = await _test_handshake_selects_hidden_ctf_split_map() or failed
 	if failed:
 		quit(1)
@@ -48,7 +48,7 @@ func _test_map_mode_eligibility() -> bool:
 			return _fail("3P map must not be accepted for %s" % mode_id)
 	return false
 
-func _test_hidden_ctf_split_removes_npc_hives() -> bool:
+func _test_capture_flag_territory_split() -> bool:
 	var loaded: Dictionary = MAP_LOADER.load_map(HIDDEN_CTF_MAP_PATH)
 	if not bool(loaded.get("ok", false)):
 		return _fail("hidden CTF test map failed to load")
@@ -56,27 +56,19 @@ func _test_hidden_ctf_split_removes_npc_hives() -> bool:
 	var summary: Dictionary = MapModeRules.hidden_capture_flag_split_summary(data)
 	if not bool(summary.get("ok", false)):
 		return _fail("hidden CTF split summary rejected map: %s" % str(summary))
-	for pattern in MapModeRules.HIDDEN_CTF_ALLOTMENT_PATTERNS:
-		var split: Dictionary = MapModeRules.apply_hidden_capture_flag_owner_split(data, {
-			"pattern": pattern,
-			"seed": 12345
-		})
-		var split_result: bool = _assert_even_no_npc_split(split, pattern)
-		if split_result:
-			return true
-	var deterministic_a: Dictionary = MapModeRules.apply_hidden_capture_flag_owner_split(data, {
-		"pattern": "shuffle",
-		"seed": 77
-	})
-	var deterministic_b: Dictionary = MapModeRules.apply_hidden_capture_flag_owner_split(data, {
-		"pattern": "shuffle",
-		"seed": 77
-	})
+	var ctf_split: Dictionary = MapModeRules.apply_capture_flag_territory_split(data, {"mode": "CAPTURE_FLAG"})
+	if _assert_territory_split(ctf_split, "visible CTF"):
+		return true
+	var hidden_split: Dictionary = MapModeRules.apply_capture_flag_territory_split(data, {"mode": "HIDDEN_CAPTURE_FLAG"})
+	if _assert_territory_split(hidden_split, "hidden CTF"):
+		return true
+	var deterministic_a: Dictionary = MapModeRules.apply_capture_flag_territory_split(data, {"mode": "HIDDEN_CAPTURE_FLAG"})
+	var deterministic_b: Dictionary = MapModeRules.apply_capture_flag_territory_split(data, {"mode": "HIDDEN_CAPTURE_FLAG"})
 	if _owner_signature(deterministic_a) != _owner_signature(deterministic_b):
-		return _fail("seeded shuffle should be deterministic")
+		return _fail("capture flag territory split should be deterministic")
 	return false
 
-func _assert_even_no_npc_split(split: Dictionary, label: String) -> bool:
+func _assert_territory_split(split: Dictionary, label: String) -> bool:
 	var hives: Array = split.get("hives", []) as Array
 	var counts: Dictionary = {}
 	for hive_any in hives:
@@ -84,10 +76,14 @@ func _assert_even_no_npc_split(split: Dictionary, label: String) -> bool:
 			continue
 		var owner_id: int = int((hive_any as Dictionary).get("owner_id", 0))
 		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
-		if owner_id != 1 and owner_id != 2:
-			return _fail("hidden CTF %s split left neutral/NPC hive: %s" % [label, str(hive_any)])
-	if int(counts.get(1, 0)) != int(counts.get(2, 0)):
-		return _fail("hidden CTF %s split is not even: %s" % [label, str(counts)])
+	if int(counts.get(1, 0)) <= 1:
+		return _fail("%s territory split should give player 1 more than a start hive: %s" % [label, str(counts)])
+	if int(counts.get(2, 0)) <= 1:
+		return _fail("%s territory split should give player 2 more than a start hive: %s" % [label, str(counts)])
+	if int(counts.get(0, 0)) > MapModeRules.CAPTURE_FLAG_CENTER_NEUTRAL_MAX_COUNT:
+		return _fail("%s territory split left too many neutral hives: %s" % [label, str(counts)])
+	if int(counts.get(0, 0)) >= int(counts.get(1, 0)) or int(counts.get(0, 0)) >= int(counts.get(2, 0)):
+		return _fail("%s territory split should leave mostly owned hives: %s" % [label, str(counts)])
 	return false
 
 func _owner_signature(map_data: Dictionary) -> String:

@@ -1,7 +1,7 @@
 class_name ArenaPrematchTeamUiFormatter
 extends RefCounted
 
-func format_team_banner_line(active_seats: Array[int], team_for_seat_cb: Callable, local_seat: int) -> String:
+func format_team_banner_line(active_seats: Array[int], team_for_seat_cb: Callable, local_seat: int, name_for_seat_cb: Callable = Callable()) -> String:
 	if active_seats.is_empty():
 		return "Teams: --"
 	var team_to_seats: Dictionary = _build_team_to_seats(active_seats, team_for_seat_cb)
@@ -24,24 +24,24 @@ func format_team_banner_line(active_seats: Array[int], team_for_seat_cb: Callabl
 		for seat_any in local_team_seats:
 			var seat_int: int = int(seat_any)
 			if seat_int != resolved_local_seat:
-				teammate = "P%d" % seat_int
+				teammate = _name_for_seat(seat_int, name_for_seat_cb)
 				break
-		return "Teams: T%d %s vs T%d %s | You: P%d + %s" % [
+		return "Teams: T%d %s vs T%d %s | You: %s + %s" % [
 			left_team_id,
-			format_team_seats_text(left_team_seats),
+			format_team_seats_text(left_team_seats, name_for_seat_cb),
 			right_team_id,
-			format_team_seats_text(right_team_seats),
-			resolved_local_seat,
+			format_team_seats_text(right_team_seats, name_for_seat_cb),
+			_name_for_seat(resolved_local_seat, name_for_seat_cb),
 			teammate
 		]
 	var chunks: Array[String] = []
 	for team_id in team_ids:
 		var seats_for_team: Array = (team_to_seats.get(team_id, []) as Array).duplicate()
 		seats_for_team.sort()
-		chunks.append("T%d %s" % [team_id, format_team_seats_text(seats_for_team)])
-	return "Teams: %s | You: P%d" % [" | ".join(chunks), resolved_local_seat]
+		chunks.append("T%d %s" % [team_id, format_team_seats_text(seats_for_team, name_for_seat_cb)])
+	return "Teams: %s | You: %s" % [" | ".join(chunks), _name_for_seat(resolved_local_seat, name_for_seat_cb)]
 
-func format_team_arrow_line(active_seats: Array[int], team_for_seat_cb: Callable) -> String:
+func format_team_arrow_line(active_seats: Array[int], team_for_seat_cb: Callable, name_for_seat_cb: Callable = Callable()) -> String:
 	if active_seats.is_empty():
 		return ""
 	var team_to_seats: Dictionary = _build_team_to_seats(active_seats, team_for_seat_cb)
@@ -56,19 +56,26 @@ func format_team_arrow_line(active_seats: Array[int], team_for_seat_cb: Callable
 		if seats_for_team.size() >= 2:
 			var members: Array[String] = []
 			for seat_any in seats_for_team:
-				members.append("P%d" % int(seat_any))
+				members.append(_name_for_seat(int(seat_any), name_for_seat_cb))
 			chunks.append("T%d %s" % [team_id, " --> ".join(members)])
 	if chunks.is_empty():
 		return "Team Links: --"
 	return "Team Links: %s" % "  |  ".join(chunks)
 
-func format_team_seats_text(seats: Array) -> String:
+func format_team_seats_text(seats: Array, name_for_seat_cb: Callable = Callable()) -> String:
 	if seats.is_empty():
 		return "-"
 	var out: Array[String] = []
 	for seat_any in seats:
-		out.append("P%d" % int(seat_any))
+		out.append(_name_for_seat(int(seat_any), name_for_seat_cb))
 	return "+".join(out)
+
+func _name_for_seat(seat: int, name_for_seat_cb: Callable) -> String:
+	if name_for_seat_cb.is_valid():
+		var value: String = str(name_for_seat_cb.call(seat)).strip_edges()
+		if not value.is_empty():
+			return value
+	return "P%d" % int(seat)
 
 func _build_team_to_seats(active_seats: Array[int], team_for_seat_cb: Callable) -> Dictionary:
 	var team_to_seats: Dictionary = {}

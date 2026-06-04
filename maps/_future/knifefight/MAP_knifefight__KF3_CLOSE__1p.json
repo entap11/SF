@@ -1,0 +1,181 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_knifefight__KF3_CLOSE__1p",
+  "name": "Knife Fight 3 Close",
+  "family": "knifefight",
+  "display_family": "Knife Fight",
+  "mode": "1p",
+  "player_buckets": [
+    "1P"
+  ],
+  "strict_player_buckets": true,
+  "playstyle_tags": [
+    "STRATEGY"
+  ],
+  "season_tags": [
+    "knifefight"
+  ],
+  "rotation": {
+    "status": "candidate",
+    "weight": 1
+  },
+  "async_bot_count": 1,
+  "grid": {
+    "w": 18,
+    "h": 28,
+    "quant": "full_or_half"
+  },
+  "defaults": {
+    "player_start_power": 10,
+    "npc_start_power": 5
+  },
+  "start_slots": [
+    "p1h1",
+    "p2h1"
+  ],
+  "nodes": [
+    {
+      "id": "p1h1",
+      "pos": {
+        "x": 4,
+        "y": 5
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "p3h1",
+      "pos": {
+        "x": 14,
+        "y": 5
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 5
+    },
+    {
+      "id": "p2h1",
+      "pos": {
+        "x": 4,
+        "y": 23
+      },
+      "owner": "P2",
+      "kind": "hive"
+    },
+    {
+      "id": "p4h1",
+      "pos": {
+        "x": 14,
+        "y": 23
+      },
+      "owner": "NPC",
+      "kind": "hive",
+      "power": 5
+    },
+    {
+      "id": "n01",
+      "pos": {
+        "x": 7,
+        "y": 10
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n02",
+      "pos": {
+        "x": 11,
+        "y": 10
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n03",
+      "pos": {
+        "x": 9,
+        "y": 12
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n04",
+      "pos": {
+        "x": 9,
+        "y": 16
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n05",
+      "pos": {
+        "x": 7,
+        "y": 18
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n06",
+      "pos": {
+        "x": 11,
+        "y": 18
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    }
+  ],
+  "structure_slots": [
+    {
+      "id": "slot_north_left",
+      "pos": {
+        "x": 6,
+        "y": 9
+      },
+      "allowed": [
+        "tower",
+        "barracks"
+      ]
+    },
+    {
+      "id": "slot_north_right",
+      "pos": {
+        "x": 12,
+        "y": 9
+      },
+      "allowed": [
+        "tower",
+        "barracks"
+      ]
+    },
+    {
+      "id": "slot_south_left",
+      "pos": {
+        "x": 6,
+        "y": 19
+      },
+      "allowed": [
+        "tower",
+        "barracks"
+      ]
+    },
+    {
+      "id": "slot_south_right",
+      "pos": {
+        "x": 12,
+        "y": 19
+      },
+      "allowed": [
+        "tower",
+        "barracks"
+      ]
+    }
+  ],
+  "walls": [],
+  "occluders": {
+    "walls": [],
+    "blocks_los": []
+  }
+}

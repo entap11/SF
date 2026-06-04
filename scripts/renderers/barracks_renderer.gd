@@ -144,7 +144,7 @@ func _draw() -> void:
 		return
 	var ring_color: Color = TeamVisuals.owner_color(ring_owner_id)
 	ring_color.a = 0.85
-	var font: Font = ThemeDB.fallback_font
+	var font: Font = UITypography.fallback_font()
 	var idx := 1
 	for hive_id_v in targets:
 		var hive_id: int = int(hive_id_v)

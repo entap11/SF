@@ -32,6 +32,7 @@ const HIVE_VISUAL_FOOTPRINT_SCALE_SMALL: float = 3.15
 const HIVE_VISUAL_FOOTPRINT_SCALE_MED: float = 3.45
 const HIVE_VISUAL_FOOTPRINT_SCALE_LARGE: float = 3.95
 const HIVE_VISUAL_FOOTPRINT_SCALE_MAX: float = 4.40
+const HIVE_INPUT_PICK_PAD_PX: float = 0.0
 
 static func lane_occlusion_radius_px(base_radius_px: float) -> float:
 	var radius: float = maxf(1.0, base_radius_px)
@@ -58,6 +59,9 @@ static func hive_visual_footprint_half_extents_px(base_radius_px: float, power: 
 	elif power >= TIER_2_MIN_POWER:
 		scale = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_MED)
 	return Vector2(radius * scale, radius * scale)
+
+static func hive_input_pick_radius_px(base_radius_px: float, _power: int = 0) -> float:
+	return hive_visual_footprint_radius_px(base_radius_px, _power) + HIVE_INPUT_PICK_PAD_PX
 
 static func _scaled_hive_footprint_scale(base_scale: float) -> float:
 	return base_scale * (HIVE_VISUAL_SCALE / HIVE_VISUAL_SCALE_BASELINE)

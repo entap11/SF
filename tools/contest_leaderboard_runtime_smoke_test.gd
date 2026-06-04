@@ -67,10 +67,15 @@ func _init() -> void:
 	_record_complete_run(contest_state, map_ids, "run_a", 1000)
 	_record_complete_run(contest_state, map_ids, "run_b", 900)
 	var run_rows: Array = contest_state.call("build_stage_race_overall_leaderboard", CONTEST_ID, 5, 25) as Array
-	_assert_eq(_count_player_rows(run_rows, PLAYER_ID), 2, "same player should have one overall row per completed run")
+	_assert_eq(_count_player_rows(run_rows, PLAYER_ID), 1, "same player should have one overall row for their best completed run")
 	var run_b_row: Dictionary = _find_player_run_row(run_rows, PLAYER_ID, "run_b")
-	_assert_true(not run_b_row.is_empty(), "second run should have its own overall row")
-	_assert_eq(int(run_b_row.get("aggregate_time_ms", 0)), 900 + 901 + 902 + 903 + 904, "second run should aggregate its own map times")
+	_assert_true(not run_b_row.is_empty(), "best run should be the player's displayed overall row")
+	_assert_eq(int(run_b_row.get("aggregate_time_ms", 0)), 900 + 901 + 902 + 903 + 904, "best run should aggregate its own map times")
+	var first_map_rows: Array = contest_state.call("get_stage_race_map_leaderboard", CONTEST_ID, str(map_ids[0]), 25) as Array
+	_assert_eq(_count_player_rows(first_map_rows, PLAYER_ID), 1, "same player should have one map leaderboard row for their best map time")
+	var first_map_best: Dictionary = _find_player_run_row(first_map_rows, PLAYER_ID, "run_b")
+	_assert_true(not first_map_best.is_empty(), "map leaderboard should keep the player's best run row")
+	_assert_eq(int(first_map_best.get("time_ms", 0)), 900, "map leaderboard should show the player's best map time")
 
 	await _assert_arena_match_end_writes_contest_result(contest_state, map_ids[1])
 
@@ -93,7 +98,7 @@ func _assert_arena_match_end_writes_contest_result(contest_state: Node, map_id: 
 	tree.set_meta("vs_cpu_tier", "medium")
 	tree.set_meta("contest_id", CONTEST_ID)
 	tree.set_meta("map_ids", PackedStringArray([str(map_id)]))
-	tree.set_meta("vs_stage_map_paths", ["res://maps/_future/nomansland/MAP_nomansland__323__v01_corners_midline_spine__1p.json"])
+	tree.set_meta("vs_stage_map_paths", ["res://maps/_future/nomansland/MAP_nomansland__545__v17_four_corners_only__1p.json"])
 	tree.set_meta("vs_stage_current_index", 0)
 	tree.set_meta("vs_local_profile", {
 		"uid": ARENA_PLAYER_ID,

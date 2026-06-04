@@ -63,6 +63,12 @@ func _init() -> void:
 	_assert_true(spent_outline.position.y >= 26.0 and spent_outline.position.y <= 34.0, "large flat-top pip should fit below the number on the top disk")
 	_assert_true(spent_fill != null and spent_fill.color.a == 0.0, "spent P2 pip fill should stay transparent")
 
+	var large_available_visual: Node2D = await _configured_visual(1, 50, 0, 3)
+	var large_available_pip: Polygon2D = large_available_visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_0") as Polygon2D
+	_assert_true(large_available_pip != null, "large available lane budget pip should exist")
+	_assert_true(large_available_pip.visible and large_available_pip.color.a > 0.5, "large available lane budget pip should be visible")
+	_assert_true(_is_magenta(large_available_pip.color), "large available lane budget pip should be magenta")
+
 	var npc_visual: Node2D = await _configured_visual(0, 8, 0, 3)
 	var npc_sprite: Sprite2D = npc_visual.get_node_or_null("BaseSpriteLayer/BaseSprite") as Sprite2D
 	_assert_true(npc_sprite != null, "NPC base sprite should exist")

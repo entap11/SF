@@ -50,7 +50,7 @@ func _draw() -> void:
 	_draw_hives(frame)
 
 func _draw_empty_state(rect: Rect2) -> void:
-	var font := ThemeDB.fallback_font
+	var font := UITypography.fallback_font()
 	var font_size := 18
 	var text := "Play a match to save a map replay"
 	var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
@@ -162,7 +162,7 @@ func _draw_units(frame: Dictionary) -> void:
 		draw_circle(pos, clampf(3.5 + float(amount) * 0.7, 4.0, 10.0), _player_color(int(unit[1])))
 
 func _draw_hives(frame: Dictionary) -> void:
-	var font := ThemeDB.fallback_font
+	var font := UITypography.fallback_font()
 	var font_size := 14
 	for hive_any in frame.get("h", []):
 		if typeof(hive_any) != TYPE_ARRAY:

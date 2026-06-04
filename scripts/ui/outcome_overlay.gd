@@ -32,6 +32,21 @@ var _stage_next_available: bool = false
 var _stage_status_text: String = ""
 var _post_match_summary_panel: Control = null
 
+const PANEL_MAX_SIZE: Vector2 = Vector2(740.0, 620.0)
+const PANEL_MARGIN_PX: float = 28.0
+const PANEL_PAD_PX: float = 24.0
+const LABEL_FONT_BODY: int = 18
+const LABEL_FONT_TITLE: int = 30
+const LABEL_FONT_RESULT: int = 24
+const LABEL_FONT_STATUS: int = 18
+const BUTTON_FONT_SIZE: int = 18
+const BUTTON_MIN_SIZE: Vector2 = Vector2(190.0, 58.0)
+const PANEL_BG: Color = Color(0.035, 0.038, 0.048, 0.92)
+const PANEL_BORDER: Color = Color(0.95, 0.82, 0.24, 0.55)
+const FONT_MAIN: Color = Color(0.96, 0.95, 0.88, 1.0)
+const FONT_MUTED: Color = Color(0.82, 0.82, 0.76, 1.0)
+const FONT_RESULT: Color = Color(1.0, 0.88, 0.30, 1.0)
+
 const OVERLAY_MODE_REMATCH: String = "rematch"
 const OVERLAY_MODE_STAGE_ROUND: String = "stage_round"
 const OVERLAY_MODE_TUTORIAL_COMPLETE: String = "tutorial_complete"
@@ -42,6 +57,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_ensure_post_match_summary_panel()
+	_apply_readable_layout()
 	rematch_button.text = "REMATCH"
 	exit_button.text = "MAIN MENU"
 	rematch_button.pressed.connect(_on_rematch_pressed)
@@ -64,6 +80,7 @@ func show_outcome(
 		"path": str(get_path()) if is_inside_tree() else "<detached>"
 	})
 	_force_fullscreen_anchors()
+	_apply_readable_layout()
 	_ensure_outcome_layer()
 	local_player_id = maxi(1, player_id)
 	_action_taken = false
@@ -96,6 +113,7 @@ func show_stage_round_outcome(data: Dictionary) -> void:
 		"next_available": _stage_next_available
 	})
 	_force_fullscreen_anchors()
+	_apply_readable_layout()
 	_ensure_outcome_layer()
 	local_player_id = maxi(1, int(data.get("local_player_id", 1)))
 	_action_taken = false
@@ -126,6 +144,7 @@ func show_tutorial_complete(winner_id: int, reason: String, player_id: int) -> v
 		"path": str(get_path()) if is_inside_tree() else "<detached>"
 	})
 	_force_fullscreen_anchors()
+	_apply_readable_layout()
 	_ensure_outcome_layer()
 	local_player_id = maxi(1, player_id)
 	_action_taken = false
@@ -260,6 +279,7 @@ func _apply_stage_round_outcome(data: Dictionary) -> void:
 	rematch_button.text = next_label
 	rematch_button.disabled = not _stage_next_available
 	exit_button.text = exit_label
+	_apply_readable_layout()
 	_update_status()
 
 func _apply_tutorial_complete_outcome(winner_id: int, reason: String) -> void:
@@ -486,6 +506,86 @@ func _force_fullscreen_anchors() -> void:
 	offset_top = 0.0
 	offset_right = 0.0
 	offset_bottom = 0.0
+
+func _apply_readable_layout() -> void:
+	if panel == null or vbox == null:
+		return
+	var viewport_size: Vector2 = PANEL_MAX_SIZE + Vector2(PANEL_MARGIN_PX * 2.0, PANEL_MARGIN_PX * 2.0)
+	var viewport := get_viewport()
+	if viewport != null:
+		viewport_size = viewport.get_visible_rect().size
+	var panel_size := Vector2(
+		minf(PANEL_MAX_SIZE.x, maxf(360.0, viewport_size.x - PANEL_MARGIN_PX * 2.0)),
+		minf(PANEL_MAX_SIZE.y, maxf(420.0, viewport_size.y - PANEL_MARGIN_PX * 2.0))
+	)
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -panel_size.x * 0.5
+	panel.offset_top = -panel_size.y * 0.5
+	panel.offset_right = panel_size.x * 0.5
+	panel.offset_bottom = panel_size.y * 0.5
+	panel.custom_minimum_size = panel_size
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = PANEL_BG
+	panel_style.border_color = PANEL_BORDER
+	panel_style.set_border_width_all(2)
+	panel_style.corner_radius_top_left = 6
+	panel_style.corner_radius_top_right = 6
+	panel_style.corner_radius_bottom_left = 6
+	panel_style.corner_radius_bottom_right = 6
+	panel_style.content_margin_left = PANEL_PAD_PX
+	panel_style.content_margin_top = PANEL_PAD_PX
+	panel_style.content_margin_right = PANEL_PAD_PX
+	panel_style.content_margin_bottom = PANEL_PAD_PX
+	panel.add_theme_stylebox_override("panel", panel_style)
+
+	vbox.anchor_left = 0.0
+	vbox.anchor_top = 0.0
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.offset_left = PANEL_PAD_PX
+	vbox.offset_top = PANEL_PAD_PX
+	vbox.offset_right = -PANEL_PAD_PX
+	vbox.offset_bottom = -PANEL_PAD_PX
+	vbox.add_theme_constant_override("separation", 8)
+
+	_style_label(title_label, LABEL_FONT_TITLE, FONT_MAIN, HORIZONTAL_ALIGNMENT_CENTER)
+	_style_label(result_label, LABEL_FONT_RESULT, FONT_RESULT, HORIZONTAL_ALIGNMENT_CENTER)
+	_style_label(reason_label, LABEL_FONT_BODY, FONT_MUTED)
+	_style_label(record_label, LABEL_FONT_BODY, FONT_MAIN)
+	_style_label(h2h_label, LABEL_FONT_BODY, FONT_MAIN)
+	_style_label(stats_header, LABEL_FONT_BODY, FONT_RESULT)
+	_style_label(stat_max_power, LABEL_FONT_BODY, FONT_MAIN)
+	_style_label(stat_units_killed, LABEL_FONT_BODY, FONT_MAIN)
+	_style_label(stat_units_landed, LABEL_FONT_BODY, FONT_MAIN)
+	_style_label(countdown_label, LABEL_FONT_STATUS, FONT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_style_label(status_label, LABEL_FONT_STATUS, FONT_MAIN, HORIZONTAL_ALIGNMENT_CENTER)
+	_style_button(rematch_button)
+	_style_button(exit_button)
+
+func _style_label(label: Label, font_size: int, color: Color, alignment: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> void:
+	if label == null:
+		return
+	label.horizontal_alignment = alignment
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.86))
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+
+func _style_button(button: Button) -> void:
+	if button == null:
+		return
+	button.custom_minimum_size = Vector2(
+		maxf(button.custom_minimum_size.x, BUTTON_MIN_SIZE.x),
+		maxf(button.custom_minimum_size.y, BUTTON_MIN_SIZE.y)
+	)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE)
 
 func _ensure_outcome_layer() -> void:
 	var tree := get_tree()

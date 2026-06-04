@@ -34,8 +34,30 @@ func _run() -> void:
 	if outline == null or outline.points.is_empty():
 		_fail("lane budget pip outline missing")
 		return
-	if not is_equal_approx(outline.points[0].length(), 6.0):
-		_fail("lane budget pip radius should be 1.5x baseline 4")
+	if not is_equal_approx(outline.points[0].length(), 7.5):
+		_fail("lane budget pip radius should be larger than the previous 6px")
+		return
+	var available: Dictionary = pips[1] as Dictionary
+	var fill: Polygon2D = available.get("fill", null) as Polygon2D
+	if fill == null or not fill.visible:
+		_fail("lane budget pip fill should be visible")
+		return
+	if fill.color.r < 0.95 or fill.color.g > 0.05 or fill.color.b < 0.70:
+		_fail("lane budget pip fill should be magenta")
+		return
+	node.call("set_selected", true, Color(1.0, 0.82, 0.0, 1.0))
+	await process_frame
+	var selector_sprite: Sprite2D = node.get_node_or_null("Visual/SelectorRing") as Sprite2D
+	if selector_sprite != null and selector_sprite.visible:
+		_fail("selected hive should not show selector ring sprite")
+		return
+	var sprite: Sprite2D = node.get_node_or_null("Visual/BaseSpriteLayer/BaseSprite") as Sprite2D
+	if sprite == null or not (sprite.material is ShaderMaterial):
+		_fail("selected hive sprite should use shader material")
+		return
+	var mat: ShaderMaterial = sprite.material as ShaderMaterial
+	if float(mat.get_shader_parameter("selected_hot")) < 0.99:
+		_fail("selected hive shader should enable white-hot metal")
 		return
 	print("HIVE_VISUAL_SCALE_SMOKE: PASS")
 	quit(0)

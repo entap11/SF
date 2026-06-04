@@ -7,11 +7,12 @@ signal hive_unhovered(hive_id: int)
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
+const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
 const SELECTOR_PULSE_SHADER := preload("res://shaders/selector_pulse.gdshader")
 const SELECTOR_SMALL_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_small.tres"
 const SELECTOR_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_medium.tres"
 const SELECTOR_LARGE_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_large.tres"
-const FLAG_BADGE_FONT_PATH := "res://assets/fonts/ChakraPetch-SemiBold.ttf"
+const FLAG_BADGE_FONT_PATH := "res://assets/fonts/brand/Iceland/Iceland-Regular.ttf"
 
 const SELECTOR_STATE_INACTIVE := 0
 const SELECTOR_STATE_HOVER := 1
@@ -83,10 +84,6 @@ const SWARM_COOLDOWN_SHAKE_HZ := 24.0
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
 @onready var pick_shape: CollisionShape2D = $PickShape2D
 
-const PICK_PAD_X := 10.0
-const PICK_PAD_TOP := -6.0
-const PICK_PAD_BOTTOM := 18.0
-const PICK_Y_BIAS := 6.0
 var _selector_sprite: Sprite2D = null
 var _selector_tex_small: Texture2D = null
 var _selector_tex_med: Texture2D = null
@@ -211,30 +208,17 @@ func _ready() -> void:
 func _fit_pick_hitbox_to_sprite() -> void:
 	if pick_shape == null:
 		return
-	var sprite: Node = get_node_or_null("Visual/BaseSpriteLayer/BaseSprite")
-	if sprite == null:
-		sprite = get_node_or_null("Visual/BaseSprite")
-	if sprite == null:
-		sprite = get_node_or_null("Visual/HiveSprite")
-	if sprite == null or not (sprite is Sprite2D):
-		return
-	var s: Sprite2D = sprite as Sprite2D
-	if s.texture == null:
-		return
-	var tex := s.texture
-	var tex_w: float = tex.get_width()
-	var tex_h: float = tex.get_height()
-	var gs: Vector2 = s.global_scale
-	var w: float = tex_w * abs(gs.x)
-	var h: float = tex_h * abs(gs.y)
-	if w <= 0.0 or h <= 0.0:
-		return
-	var rect := RectangleShape2D.new()
-	rect.size = Vector2(w + PICK_PAD_X, h + PICK_PAD_TOP + PICK_PAD_BOTTOM)
-	pick_shape.shape = rect
-	pick_shape.global_position = s.global_position + Vector2(0, PICK_Y_BIAS + 3)
+	var circle := pick_shape.shape as CircleShape2D
+	if circle == null:
+		circle = CircleShape2D.new()
+		pick_shape.shape = circle
+	circle.radius = get_pick_radius_px()
+	pick_shape.position = Vector2.ZERO
 	pick_shape.disabled = false
 	SFLog.log_once("HIVE_PICK_BOX", "HIVE_PICK_BOX fitted", SFLog.Level.INFO)
+
+func get_pick_radius_px() -> float:
+	return HiveGeometry.hive_input_pick_radius_px(radius_px, power)
 
 func apply_render(
 	owner_id_in: int,
@@ -365,6 +349,8 @@ func _draw() -> void:
 	if cooldown_active:
 		_draw_swarm_cooldown_ring()
 	if _selector_state == SELECTOR_STATE_INACTIVE:
+		return
+	if _selector_state == SELECTOR_STATE_SELECTED or _selector_state == SELECTOR_STATE_ACTIVATED:
 		return
 	if _selector_sprite != null and _selector_sprite.texture != null:
 		return
@@ -554,6 +540,10 @@ func _refresh_selector_state() -> void:
 func _update_selector_visual() -> void:
 	if _selector_sprite == null:
 		return
+	if _selector_state == SELECTOR_STATE_SELECTED or _selector_state == SELECTOR_STATE_ACTIVATED:
+		_selector_sprite.visible = false
+		_selector_sprite.texture = null
+		return
 	var tex := _selector_texture_for_power(power)
 	_selector_sprite.texture = tex
 	_selector_sprite.visible = _selector_state != SELECTOR_STATE_INACTIVE and tex != null
@@ -648,10 +638,6 @@ func _apply_selector_shader_state(state: int) -> void:
 func _apply_visual_highlight() -> void:
 	if visual == null or not visual.has_method("set_selected_visual"):
 		return
-	if _target_hint_active:
-		var target_color := Color.WHITE if _target_hint_valid else TARGET_INVALID_GREY
-		visual.call("set_selected_visual", true, target_color)
-		return
 	visual.call("set_selected_visual", _selected or _activated, _selected_color)
 
 func _swarm_cooldown_remaining_ms() -> int:
@@ -664,7 +650,8 @@ func _swarm_cooldown_active() -> bool:
 
 func _update_fallback_process() -> void:
 	var needs_fallback := _selector_sprite == null or _selector_sprite.texture == null
-	set_process((needs_fallback and (_selected or _hovered or _activated or _target_hint_active)) or (_flag_badge != null and _flag_badge.visible) or _swarm_cooldown_active())
+	var selector_needs_process := needs_fallback and (_hovered or _target_hint_active)
+	set_process(selector_needs_process or (_flag_badge != null and _flag_badge.visible) or _swarm_cooldown_active())
 
 func _on_mouse_entered() -> void:
 	_hovered = true

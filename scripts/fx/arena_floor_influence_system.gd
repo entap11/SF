@@ -5,6 +5,7 @@ extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const FloorInfluenceConfig := preload("res://scripts/fx/arena_floor_influence_config.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const FLOOR_SHADER: Shader = preload("res://shaders/arena_floor_reactive.gdshader")
 const BLOB_SHADER: Shader = preload("res://shaders/arena_influence_blob.gdshader")
 
@@ -318,10 +319,8 @@ func _resolve_player_colors() -> Array[Color]:
 	if out.size() >= 4:
 		return out
 	out.clear()
-	out.append(Color(0.95, 0.85, 0.20, 1.0))
-	out.append(Color(0.90, 0.22, 0.22, 1.0))
-	out.append(Color(0.20, 0.62, 0.26, 1.0))
-	out.append(Color(0.22, 0.52, 0.95, 1.0))
+	for owner_id in [1, 2, 3, 4]:
+		out.append(TeamVisuals.owner_color(owner_id))
 	return out
 
 func _build_emitters(render_model: Dictionary) -> Array:

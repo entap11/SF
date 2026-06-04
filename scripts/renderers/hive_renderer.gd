@@ -154,7 +154,19 @@ func _connect_selection_signal() -> void:
 	var cb := Callable(self, "_on_selected_hive_changed")
 	if not arena_api.is_connected("selected_hive_changed", cb):
 		arena_api.connect("selected_hive_changed", cb)
-	_apply_selection(arena_api.selected_hive_id)
+	_apply_selection(_current_selected_hive_id(arena_api))
+
+func _current_selected_hive_id(arena_api: ArenaAPI) -> int:
+	var api_selected_id: int = int(arena_api.selected_hive_id) if arena_api != null else -1
+	if api_selected_id > 0:
+		return api_selected_id
+	if sel != null:
+		var selected_v: Variant = sel.get("selected_hive_id")
+		if selected_v != null:
+			var selection_selected_id: int = int(selected_v)
+			if selection_selected_id > 0:
+				return selection_selected_id
+	return api_selected_id
 
 func _on_selected_hive_changed(selected_id: int) -> void:
 	_apply_selection(selected_id)
@@ -269,7 +281,7 @@ func _draw_model() -> void:
 			print("HIVE: arena_ref=", arena)
 		_last_render_version = arena.render_version
 
-	var font: Font = ThemeDB.fallback_font
+	var font: Font = UITypography.fallback_font()
 	var font_size: int = POWER_LABEL_FONT_SIZE
 
 	var cell: float = float(cell_px)
@@ -334,7 +346,7 @@ func _draw_state() -> void:
 		print("HIVE: arena_ref=", arena)
 	_last_render_version = arena.render_version
 
-	var font: Font = ThemeDB.fallback_font
+	var font: Font = UITypography.fallback_font()
 	var font_size: int = POWER_LABEL_FONT_SIZE
 
 	var cell: float = 64.0

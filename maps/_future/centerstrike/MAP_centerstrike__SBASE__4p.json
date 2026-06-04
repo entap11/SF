@@ -21,12 +21,12 @@
     { "id": "p4h1", "pos": { "x": 17, "y": 27 }, "owner": "P4",  "kind": "hive" },
 
     { "id": "n01",  "pos": { "x": 9,  "y": 4  }, "owner": "NPC", "kind": "hive" },
-    { "id": "n02",  "pos": { "x": 7,  "y": 12 }, "owner": "NPC", "kind": "hive" },
-    { "id": "n03",  "pos": { "x": 11, "y": 12 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n02",  "pos": { "x": 6,  "y": 11 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n03",  "pos": { "x": 12, "y": 11 }, "owner": "NPC", "kind": "hive" },
     { "id": "n04",  "pos": { "x": 1,  "y": 14 }, "owner": "NPC", "kind": "hive" },
     { "id": "n05",  "pos": { "x": 17, "y": 14 }, "owner": "NPC", "kind": "hive" },
-    { "id": "n06",  "pos": { "x": 7,  "y": 16 }, "owner": "NPC", "kind": "hive" },
-    { "id": "n07",  "pos": { "x": 11, "y": 16 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n06",  "pos": { "x": 6,  "y": 17 }, "owner": "NPC", "kind": "hive" },
+    { "id": "n07",  "pos": { "x": 12, "y": 17 }, "owner": "NPC", "kind": "hive" },
     { "id": "n08",  "pos": { "x": 9,  "y": 24 }, "owner": "NPC", "kind": "hive" }
   ],
   "structure_slots": [],
