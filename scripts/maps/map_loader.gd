@@ -210,7 +210,7 @@ static func _resolve_map_path(path_or_id: String) -> String:
 		return ""
 	var normalized: String = MAP_SCHEMA.normalize_path(raw)
 	if FileAccess.file_exists(normalized):
-		if MAP_REGISTRY.is_map_path_allowed(normalized) or _is_allowed_jukebox_one_player_variant_path(normalized):
+		if MAP_REGISTRY.is_map_path_allowed(normalized) or _is_allowed_jukebox_one_player_variant_path(normalized) or _is_allowed_player_variant_sibling_path(normalized):
 			return normalized
 		return ""
 	if normalized.begins_with("res://"):
@@ -240,6 +240,23 @@ static func _is_allowed_jukebox_one_player_variant_path(path: String) -> bool:
 	if not FileAccess.file_exists(source_path):
 		return false
 	return MAP_REGISTRY.is_map_path_allowed(source_path)
+
+static func _is_allowed_player_variant_sibling_path(path: String) -> bool:
+	var clean: String = path.strip_edges()
+	var variant: String = MAP_REGISTRY.player_variant_for_path(clean)
+	if variant.is_empty():
+		return false
+	if not clean.ends_with("__%s.json" % variant):
+		return false
+	var map_id: String = MAP_REGISTRY.map_id_from_path(clean)
+	if map_id.is_empty():
+		return false
+	var stem: String = map_id.trim_suffix("__%s" % variant)
+	for sibling_variant in ["1p", "2p", "3p", "4p"]:
+		var sibling_id: String = "%s__%s" % [stem, sibling_variant]
+		if MAP_REGISTRY.is_map_id_allowed(sibling_id):
+			return true
+	return false
 
 static func _meta_string_array(source: Dictionary, key: String) -> Array[String]:
 	var out: Array[String] = []

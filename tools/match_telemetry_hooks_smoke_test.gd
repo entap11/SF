@@ -62,6 +62,12 @@ func _initialize() -> void:
 		"sim_phase_hotspot": "lane_flow",
 		"sim_phase_hotspot_ms": 0.75,
 		"sim_phase_costs_ms": {"lane_flow": 0.75, "unit_system": 0.25},
+		"active_unit_count": 127,
+		"active_lane_count": 18,
+		"active_send_lane_count": 12,
+		"active_swarm_count": 3,
+		"units_by_owner": {"1": 70, "2": 57},
+		"units_by_lane_count": {"4": 12, "9": 8},
 		"server_frametime_ms": 8.0,
 		"packet_tx": 10,
 		"packet_rx": 9,
@@ -117,6 +123,10 @@ func _initialize() -> void:
 		return
 	if str(runtime_summary.get("worst_sim_phase", "")) != "lane_flow" or float(runtime_summary.get("max_sim_phase_ms", 0.0)) <= 0.0:
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: runtime phase summary bad %s" % str(runtime_summary))
+		quit(1)
+		return
+	if int(runtime_summary.get("max_active_units", 0)) != 127 or int(runtime_summary.get("max_active_lanes", 0)) != 18 or int(runtime_summary.get("max_active_send_lanes", 0)) != 12:
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: runtime unit summary bad %s" % str(runtime_summary))
 		quit(1)
 		return
 	if ((video_replay.get("input_events", []) as Array).size() != 1):

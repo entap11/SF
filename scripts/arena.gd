@@ -4713,6 +4713,9 @@ func _on_sim_ticked() -> void:
 		_match_telemetry_collector.call("sample_state", int(_authoritative_sim_time_us() / 1000), TICK_DT, state)
 	if _telemetry_active and _match_telemetry_collector != null and _match_telemetry_collector.has_method("sample_runtime_perf"):
 		var runtime_snapshot: Dictionary = OpsState.call("get_runtime_telemetry_snapshot") if OpsState != null and OpsState.has_method("get_runtime_telemetry_snapshot") else {}
+		var authority_counts: Dictionary = _authoritative_runtime_counts_snapshot()
+		for key_any in authority_counts.keys():
+			runtime_snapshot[key_any] = authority_counts.get(key_any)
 		_match_telemetry_collector.call("sample_runtime_perf", int(_authoritative_sim_time_us() / 1000), runtime_snapshot)
 	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("record_local_state_hash") and OpsState != null and state != null:
 		var state_hash: String = ""
@@ -6120,7 +6123,60 @@ func _publish_frame_runtime_telemetry(
 	var pool_patch: Dictionary = _pool_runtime_telemetry_snapshot()
 	for key_any in pool_patch.keys():
 		patch[key_any] = pool_patch.get(key_any)
+	var authority_counts: Dictionary = _authoritative_runtime_counts_snapshot()
+	for key_any in authority_counts.keys():
+		patch[key_any] = authority_counts.get(key_any)
 	OpsState.call("update_runtime_telemetry", patch)
+
+func _authoritative_runtime_counts_snapshot() -> Dictionary:
+	var st: GameState = state
+	if st == null and OpsState != null and OpsState.has_method("get_state"):
+		st = OpsState.call("get_state") as GameState
+	if st == null:
+		return {
+			"active_unit_count": 0,
+			"active_lane_count": 0,
+			"active_send_lane_count": 0,
+			"active_swarm_count": 0,
+			"units_by_owner": {},
+			"units_by_lane_count": {}
+		}
+	var active_lane_count: int = 0
+	var active_send_lane_count: int = 0
+	for lane_any in st.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		active_lane_count += 1
+		if bool(lane.send_a) or bool(lane.send_b):
+			active_send_lane_count += 1
+	var units_any: Variant = []
+	var unit_system_obj: Object = st.unit_system
+	if unit_system_obj != null:
+		units_any = unit_system_obj.get("units")
+	elif st.units_by_lane.has("_all"):
+		units_any = st.units_by_lane.get("_all")
+	var active_unit_count: int = 0
+	var units_by_owner: Dictionary = {}
+	var units_by_lane_count: Dictionary = {}
+	if typeof(units_any) == TYPE_ARRAY:
+		for unit_any in units_any as Array:
+			if typeof(unit_any) != TYPE_DICTIONARY:
+				continue
+			var unit: Dictionary = unit_any as Dictionary
+			active_unit_count += 1
+			var owner_key: String = str(int(unit.get("owner_id", 0)))
+			units_by_owner[owner_key] = int(units_by_owner.get(owner_key, 0)) + 1
+			var lane_key: String = str(int(unit.get("lane_id", -1)))
+			units_by_lane_count[lane_key] = int(units_by_lane_count.get(lane_key, 0)) + 1
+	return {
+		"active_unit_count": active_unit_count,
+		"active_lane_count": active_lane_count,
+		"active_send_lane_count": active_send_lane_count,
+		"active_swarm_count": st.swarm_packets.size(),
+		"units_by_owner": units_by_owner,
+		"units_by_lane_count": units_by_lane_count
+	}
 
 func _runtime_telemetry_overlay_enabled() -> bool:
 	if not show_runtime_telemetry_overlay:
@@ -6271,6 +6327,12 @@ func _runtime_telemetry_text(snapshot: Dictionary) -> String:
 			float(snapshot.get("sim_time_scale", 1.0))
 		],
 		"Accum sim delta %.1f ms" % float(snapshot.get("accumulated_sim_delta_ms", 0.0)),
+		"Units %d | lanes %d/%d | swarms %d" % [
+			int(snapshot.get("active_unit_count", 0)),
+			int(snapshot.get("active_send_lane_count", 0)),
+			int(snapshot.get("active_lane_count", 0)),
+			int(snapshot.get("active_swarm_count", 0))
+		],
 		"Server tick %.1f Hz | frame %.1f ms" % [
 			float(snapshot.get("server_tick_rate_hz", 0.0)),
 			float(snapshot.get("server_frametime_ms", 0.0))

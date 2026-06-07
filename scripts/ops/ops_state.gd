@@ -936,6 +936,12 @@ func _default_runtime_telemetry_snapshot() -> Dictionary:
 		"available_pooled_objects": 0,
 		"total_pooled_objects": 0,
 		"peak_pooled_objects": 0,
+		"active_unit_count": 0,
+		"active_lane_count": 0,
+		"active_send_lane_count": 0,
+		"active_swarm_count": 0,
+		"units_by_owner": {},
+		"units_by_lane_count": {},
 		"match_prewarm_duration_ms": 0.0,
 		"post_match_save_duration_ms": 0.0
 	}

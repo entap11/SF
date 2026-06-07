@@ -6,6 +6,7 @@ signal queue_changed(queue_size: int)
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const VsHandshakeTransportHttp := preload("res://scripts/state/vs_handshake_transport_http.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
+const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
 
@@ -893,14 +894,12 @@ func _stage_map_paths_from_map_ids(context: Dictionary, requested_count: int) ->
 		for id_any in ids_v as PackedStringArray:
 			ids.append(str(id_any))
 	for id_any in ids:
-		var map_path: String = MAP_LOADER._resolve_map_path(str(id_any))
+		var resolved_path: String = MAP_LOADER._resolve_map_path(str(id_any))
+		var map_path: String = _stage_map_path_variant_for_mode(resolved_path, mode)
 		if map_path.is_empty() or picked.has(map_path):
 			continue
-		var loaded: Dictionary = MAP_LOADER.load_map(map_path)
-		if not bool(loaded.get("ok", false)):
-			continue
-		var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
-		if not bool(summary.get("ok", false)):
+		var validation: Dictionary = _stage_map_path_supports_mode(map_path, mode)
+		if not bool(validation.get("ok", false)):
 			continue
 		picked.append(map_path)
 		if picked.size() >= requested_count:
@@ -914,17 +913,15 @@ func _stage_map_paths_from_context_stage_paths(context: Dictionary, requested_co
 	if typeof(paths_v) != TYPE_ARRAY:
 		return picked
 	for path_any in paths_v as Array:
-		var map_path: String = str(path_any).strip_edges()
+		var raw_path: String = str(path_any).strip_edges()
+		var map_path: String = _stage_map_path_variant_for_mode(raw_path, mode)
 		if map_path.is_empty() or picked.has(map_path):
 			continue
 		if not FileAccess.file_exists(map_path):
 			continue
-		var loaded: Dictionary = MAP_LOADER.load_map(map_path)
-		if not bool(loaded.get("ok", false)):
-			continue
-		var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
-		if not bool(summary.get("ok", false)):
-			_report_map_mode_contract_violation(mode, map_path, str(summary.get("reason", "invalid_map_mode")))
+		var validation: Dictionary = _stage_map_path_supports_mode(map_path, mode)
+		if not bool(validation.get("ok", false)):
+			_report_map_mode_contract_violation(mode, map_path, str(validation.get("reason", "invalid_map_mode")))
 			continue
 		picked.append(map_path)
 		if picked.size() >= requested_count:
@@ -934,18 +931,73 @@ func _stage_map_paths_from_context_stage_paths(context: Dictionary, requested_co
 func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
 	var out: Array[String] = []
 	for path_any in MAP_LOADER.list_maps():
-		var path: String = str(path_any).strip_edges()
+		var source_path: String = str(path_any).strip_edges()
+		var path: String = _stage_map_path_variant_for_mode(source_path, mode)
 		if path.is_empty():
 			continue
-		var result: Dictionary = MAP_LOADER.load_map(path)
-		if not bool(result.get("ok", false)):
+		if out.has(path):
 			continue
-		var data: Dictionary = result.get("data", {}) as Dictionary
-		var summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode)
-		if not bool(summary.get("ok", false)):
+		var validation: Dictionary = _stage_map_path_supports_mode(path, mode)
+		if not bool(validation.get("ok", false)):
 			continue
 		out.append(path)
 	return out
+
+func _stage_map_path_variant_for_mode(path: String, mode: String) -> String:
+	var clean_path: String = path.strip_edges()
+	if clean_path.is_empty():
+		return ""
+	var required_variant: String = _required_player_variant_for_mode(mode)
+	if required_variant.is_empty():
+		return clean_path
+	var source_variant: String = MAP_REGISTRY.player_variant_for_path(clean_path)
+	if source_variant == required_variant:
+		return clean_path
+	if source_variant.is_empty():
+		return ""
+	var sibling_path: String = clean_path.trim_suffix("__%s.json" % source_variant) + "__%s.json" % required_variant
+	if FileAccess.file_exists(sibling_path):
+		return sibling_path
+	return ""
+
+func _stage_map_path_supports_mode(path: String, mode: String) -> Dictionary:
+	var required_variant: String = _required_player_variant_for_mode(mode)
+	if not required_variant.is_empty() and MAP_REGISTRY.player_variant_for_path(path) != required_variant:
+		return {
+			"ok": false,
+			"reason": "requires_%s_map_path" % required_variant
+		}
+	var loaded: Dictionary = MAP_LOADER.load_map(path)
+	if not bool(loaded.get("ok", false)):
+		return {
+			"ok": false,
+			"reason": str(loaded.get("err", "load_failed"))
+		}
+	var data: Dictionary = loaded.get("data", {}) as Dictionary
+	var summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode)
+	if not bool(summary.get("ok", false)):
+		return summary
+	var owner_summary: Dictionary = MapModeRules.map_matches_active_owner_contract(data, mode)
+	if not bool(owner_summary.get("ok", false)):
+		return owner_summary
+	return {
+		"ok": true,
+		"reason": ""
+	}
+
+func _required_player_variant_for_mode(mode: String) -> String:
+	var clean_mode: String = mode.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+	match clean_mode:
+		"1V1", "PVP":
+			return "1p"
+		"2V2":
+			return "2p"
+		"3P_FFA":
+			return "3p"
+		"4P_FFA":
+			return "4p"
+		_:
+			return ""
 
 func _report_map_mode_contract_violation(mode: String, path: String, reason: String) -> void:
 	var payload: Dictionary = {

@@ -601,6 +601,10 @@ func _runtime_perf_row(payload: Dictionary) -> Dictionary:
 	var max_server_ms: float = float(runtime_summary.get("max_server_frametime_ms", _max_sample_value(samples, "srv_ms")))
 	var pool_avoided: int = int(runtime_summary.get("runtime_instantiates_avoided", _last_sample_int(samples, "pool_avoided")))
 	var pool_expansions: int = int(runtime_summary.get("pool_expansions", _last_sample_int(samples, "pool_expansions")))
+	var max_active_units: int = int(runtime_summary.get("max_active_units", _max_sample_value(samples, "units")))
+	var max_active_lanes: int = int(runtime_summary.get("max_active_lanes", _max_sample_value(samples, "lanes")))
+	var max_active_send_lanes: int = int(runtime_summary.get("max_active_send_lanes", _max_sample_value(samples, "send_lanes")))
+	var max_active_swarms: int = int(runtime_summary.get("max_active_swarms", _max_sample_value(samples, "swarms")))
 	var prewarm_ms: float = float(runtime_summary.get("match_prewarm_duration_ms", _max_sample_value(samples, "prewarm_ms")))
 	var save_ms: float = float(runtime_summary.get("post_match_save_duration_ms", _max_sample_value(samples, "save_ms")))
 	var packet_drops: int = int(runtime_summary.get("packet_dropped", _last_sample_int(samples, "drop")))
@@ -624,6 +628,10 @@ func _runtime_perf_row(payload: Dictionary) -> Dictionary:
 		"remote_wait_pct": remote_wait_pct,
 		"server_frametime_ms": avg_server_ms,
 		"max_server_frametime_ms": max_server_ms,
+		"max_active_units": max_active_units,
+		"max_active_lanes": max_active_lanes,
+		"max_active_send_lanes": max_active_send_lanes,
+		"max_active_swarms": max_active_swarms,
 		"pool_avoided": pool_avoided,
 		"pool_expansions": pool_expansions,
 		"prewarm_ms": prewarm_ms,

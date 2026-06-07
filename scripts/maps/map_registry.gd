@@ -242,6 +242,31 @@ static func map_id_from_input(path_or_id: String) -> String:
 		return file_name.get_basename().strip_edges()
 	return file_name.strip_edges()
 
+static func player_variant_for_path(path: String) -> String:
+	return player_variant_for_id(map_id_from_path(path))
+
+static func player_variant_for_id(map_id: String) -> String:
+	var raw_id: String = map_id_from_input(map_id)
+	if raw_id.is_empty():
+		return ""
+	var normalized: Dictionary = normalize_map_id(raw_id)
+	if bool(normalized.get("ok", false)):
+		var mode_token: String = str(normalized.get("mode", "")).strip_edges().to_lower()
+		if ALLOWED_MODES.has(mode_token):
+			return mode_token
+	var parts: PackedStringArray = raw_id.split("__", false)
+	for part_any in parts:
+		var token: String = str(part_any).strip_edges().to_lower()
+		if ALLOWED_MODES.has(token):
+			return token
+	return ""
+
+static func is_one_player_map_path(path: String) -> bool:
+	return player_variant_for_path(path) == "1p"
+
+static func is_one_player_map_id(map_id: String) -> bool:
+	return player_variant_for_id(map_id) == "1p"
+
 static func public_map_display_name_for_path(path: String) -> String:
 	return public_map_display_name_for_id(map_id_from_path(path))
 

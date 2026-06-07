@@ -743,6 +743,8 @@ func _can_offer_standard_bot_fill() -> bool:
 		return false
 	if _uses_async_window():
 		return false
+	if _is_strict_human_1v1_context():
+		return false
 	return true
 
 func _is_waiting_for_human_opponent() -> bool:
@@ -967,6 +969,9 @@ func _start_match(session_already_started: bool = false) -> void:
 		"stage_maps": stage_map_paths
 	})
 	var tree := get_tree()
+	for key in _vs_launch_clear_keys():
+		if tree.has_meta(key):
+			tree.remove_meta(key)
 	tree.set_meta("start_game", true)
 	tree.set_meta("vs_mode", _mode)
 	tree.set_meta("vs_price_usd", _price_usd)
@@ -1153,6 +1158,52 @@ func _bot_fill_jukebox_clear_keys() -> Array[String]:
 		"jukebox_board_period",
 		"jukebox_local_owner_id",
 		"jukebox_result_commit_signature",
+		"jukebox_easy_bot"
+	]
+
+func _vs_launch_clear_keys() -> Array[String]:
+	return [
+		"open_map_picker_on_ready",
+		"vs_mode",
+		"vs_price_usd",
+		"vs_free_roll",
+		"vs_assigned_players",
+		"vs_open_slots",
+		"vs_required_players",
+		"vs_sync_start",
+		"vs_sync_join_sec",
+		"vs_window_sec",
+		"vs_window_started_unix",
+		"vs_window_deadline_unix",
+		"vs_stage_map_paths",
+		"vs_stage_current_index",
+		"vs_stage_round_results",
+		"vs_stage_run_id",
+		"vs_handshake_session_id",
+		"vs_handshake_role",
+		"vs_handshake_invite_code",
+		"vs_local_profile",
+		"vs_remote_profile",
+		TREE_META_VS_CPU_STYLE,
+		TREE_META_VS_CPU_TIER,
+		MatchSetupRandomizer.TREE_META_KEY,
+		MatchSetupRandomizer.CONTEXT_KEY,
+		"ctf_flag_selection_mode",
+		"ctf_player_select_pct",
+		"ctf_randomize_flag_hive",
+		"ctf_hidden_flag",
+		"ctf_flag_move_count_max",
+		"ctf_flag_move_reveals",
+		"miss_n_out_local_player_id",
+		"miss_n_out_eliminated",
+		"miss_n_out_notice",
+		"jukebox_board_enabled",
+		"jukebox_map_path",
+		"jukebox_map_id",
+		"jukebox_board_period",
+		"jukebox_local_owner_id",
+		"jukebox_result_commit_signature",
+		"jukebox_highlight_player_id",
 		"jukebox_easy_bot"
 	]
 
@@ -1406,6 +1457,9 @@ func _on_dev_min_override_pressed() -> void:
 	if not _free_roll:
 		status_label.text = "Bot fill is unavailable for money games."
 		return
+	if _is_strict_human_1v1_context():
+		status_label.text = "Bot fill is disabled for 1v1 phone testing."
+		return
 	if not _uses_async_window():
 		_dev_fill_sync_opponent()
 		return
@@ -1640,6 +1694,9 @@ func _explicit_stage_map_paths(mode: String) -> Array[String]:
 		var path: String = str(path_any).strip_edges()
 		if path.is_empty() or resolved.has(path):
 			continue
+		path = _stage_map_path_variant_for_mode(path, mode)
+		if path.is_empty() or resolved.has(path):
+			continue
 		if not FileAccess.file_exists(path):
 			continue
 		var validation: Dictionary = _stage_map_path_supports_mode(path, mode)
@@ -1654,22 +1711,44 @@ func _explicit_stage_map_paths(mode: String) -> Array[String]:
 func _candidate_stage_map_paths_for_mode(mode: String) -> Array[String]:
 	var out: Array[String] = []
 	for path_any in MAP_LOADER.list_maps():
-		var path: String = str(path_any).strip_edges()
+		var source_path: String = str(path_any).strip_edges()
+		var path: String = _stage_map_path_variant_for_mode(source_path, mode)
 		if path.is_empty():
 			continue
-		var loaded: Dictionary = MAP_LOADER.load_map(path)
-		if not bool(loaded.get("ok", false)):
+		if out.has(path):
 			continue
-		var data: Dictionary = loaded.get("data", {}) as Dictionary
-		var summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode)
-		if bool(summary.get("ok", false)):
+		if bool(_stage_map_path_supports_mode(path, mode).get("ok", false)):
 			out.append(path)
 	return out
 
 func _map_path_supports_mode(path: String, mode: String) -> bool:
 	return bool(_stage_map_path_supports_mode(path, mode).get("ok", false))
 
+func _stage_map_path_variant_for_mode(path: String, mode: String) -> String:
+	var clean_path: String = path.strip_edges()
+	if clean_path.is_empty():
+		return ""
+	var required_variant: String = _required_player_variant_for_mode(mode)
+	if required_variant.is_empty():
+		return clean_path
+	var source_variant: String = MAP_REGISTRY.player_variant_for_path(clean_path)
+	if source_variant == required_variant:
+		return clean_path
+	if source_variant.is_empty():
+		return ""
+	var sibling_path: String = clean_path.trim_suffix("__%s.json" % source_variant) + "__%s.json" % required_variant
+	if FileAccess.file_exists(sibling_path):
+		return sibling_path
+	return ""
+
 func _stage_map_path_supports_mode(path: String, mode: String) -> Dictionary:
+	var required_variant: String = _required_player_variant_for_mode(mode)
+	if not required_variant.is_empty() and MAP_REGISTRY.player_variant_for_path(path) != required_variant:
+		return {
+			"ok": false,
+			"reason": "requires_%s_map_path" % required_variant,
+			"path": path
+		}
 	var loaded: Dictionary = MAP_LOADER.load_map(path)
 	if not bool(loaded.get("ok", false)):
 		return {
@@ -1681,11 +1760,38 @@ func _stage_map_path_supports_mode(path: String, mode: String) -> Dictionary:
 	if not bool(summary.get("ok", false)):
 		summary["path"] = path
 		return summary
+	var owner_summary: Dictionary = MapModeRules.map_matches_active_owner_contract(loaded.get("data", {}) as Dictionary, mode)
+	if not bool(owner_summary.get("ok", false)):
+		owner_summary["path"] = path
+		return owner_summary
 	return {
 		"ok": true,
 		"reason": "",
 		"path": path
 	}
+
+func _mode_requires_one_player_map_path(mode: String) -> bool:
+	return _required_player_variant_for_mode(mode) == "1p"
+
+func _required_player_variant_for_mode(mode: String) -> String:
+	var clean_mode: String = mode.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+	match clean_mode:
+		"1V1", "PVP":
+			return "1p"
+		"2V2":
+			return "2p"
+		"3P_FFA":
+			return "3p"
+		"4P_FFA":
+			return "4p"
+		_:
+			return ""
+
+func _is_strict_human_1v1_context() -> bool:
+	if not _is_human_pvp_context():
+		return false
+	var clean_mode: String = _mode.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+	return clean_mode == "1V1" or clean_mode == "PVP"
 
 func _validate_stage_map_paths_for_launch(paths: Array[String], mode: String) -> Dictionary:
 	if paths.is_empty():
@@ -1757,7 +1863,9 @@ func _resolve_map_path(map_id: String) -> String:
 		return ""
 	var resolved: String = MAP_LOADER._resolve_map_path(trimmed)
 	if not resolved.is_empty() and FileAccess.file_exists(resolved):
-		return resolved
+		var mode_path: String = _stage_map_path_variant_for_mode(resolved, _mode)
+		if not mode_path.is_empty():
+			return mode_path
 	return ""
 
 func _sync_dev_button_text() -> void:

@@ -1146,6 +1146,13 @@ func _validate_launch_map_mode_contract(map_path: String, tree: SceneTree) -> Di
 			"mode": mode,
 			"reason": "jukebox_catalog"
 		}
+	var required_variant: String = _required_player_variant_for_mode(mode)
+	if not required_variant.is_empty() and MAP_REGISTRY.player_variant_for_path(map_path) != required_variant:
+		return {
+			"ok": false,
+			"mode": mode,
+			"reason": "requires_%s_map_path" % required_variant
+		}
 	var loaded: Dictionary = MAP_LOADER.load_map(map_path)
 	if not bool(loaded.get("ok", false)):
 		return {
@@ -1155,6 +1162,12 @@ func _validate_launch_map_mode_contract(map_path: String, tree: SceneTree) -> Di
 		}
 	var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
 	summary["mode"] = mode
+	if not bool(summary.get("ok", false)):
+		return summary
+	var owner_summary: Dictionary = MapModeRules.map_matches_active_owner_contract(loaded.get("data", {}) as Dictionary, mode)
+	if not bool(owner_summary.get("ok", false)):
+		owner_summary["mode"] = mode
+		return owner_summary
 	return summary
 
 func _mode_uses_jukebox_map_catalog(mode: String, tree: SceneTree) -> bool:
@@ -1164,6 +1177,23 @@ func _mode_uses_jukebox_map_catalog(mode: String, tree: SceneTree) -> bool:
 	if tree != null and bool(tree.get_meta("jukebox_board_enabled", false)):
 		return true
 	return false
+
+func _mode_requires_one_player_map_path(mode: String) -> bool:
+	return _required_player_variant_for_mode(mode) == "1p"
+
+func _required_player_variant_for_mode(mode: String) -> String:
+	var clean_mode: String = mode.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+	match clean_mode:
+		"1V1", "PVP":
+			return "1p"
+		"2V2":
+			return "2p"
+		"3P_FFA":
+			return "3p"
+		"4P_FFA":
+			return "4p"
+		_:
+			return ""
 
 func _launch_mode_for_map_contract(tree: SceneTree) -> String:
 	if tree != null:

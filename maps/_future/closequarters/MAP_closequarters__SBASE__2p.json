@@ -1,24 +1,25 @@
 {
   "_schema": "swarmfront.map.v1.xy",
-  "id": "MAP_nomansland__323__v01_corners_midline_spine__1p",
-  "family": "nomansland",
-  "mode": "1p",
+  "id": "MAP_closequarters__SBASE__2p",
+  "name": "Close Quarters 1",
+  "family": "closequarters",
+  "display_family": "Close Quarters",
+  "mode": "2p",
   "player_buckets": [
-    "1P"
+    "2V2"
   ],
+  "strict_player_buckets": true,
   "playstyle_tags": [
-    "FFA",
     "STRATEGY"
   ],
   "season_tags": [
-    "nomansland",
-    "323"
+    "closequarters"
   ],
   "rotation": {
     "status": "candidate",
     "weight": 1
   },
-  "async_bot_count": 1,
+  "async_bot_count": 0,
   "grid": {
     "w": 18,
     "h": 28,
@@ -28,77 +29,81 @@
     "player_start_power": 10,
     "npc_start_power": 5
   },
+  "start_slots": [
+    "p1h1",
+    "p3h1",
+    "p2h1",
+    "p4h1"
+  ],
   "nodes": [
     {
-      "id": "p1h1",
-      "pos": {
-        "x": 1,
-        "y": 1
-      },
-      "owner": "P1",
-      "kind": "hive"
-    },
-    {
-      "id": "r1",
-      "pos": {
-        "x": 17,
-        "y": 1
-      },
-      "owner": "NPC",
-      "kind": "hive",
-      "power": 5
-    },
-    {
-      "id": "c1",
+      "id": "p2h1",
       "pos": {
         "x": 9,
-        "y": 7
-      },
-      "owner": "NPC",
-      "kind": "hive"
-    },
-    {
-      "id": "l2",
-      "pos": {
-        "x": 1,
-        "y": 13
-      },
-      "owner": "NPC",
-      "kind": "hive"
-    },
-    {
-      "id": "r2",
-      "pos": {
-        "x": 17,
-        "y": 13
-      },
-      "owner": "NPC",
-      "kind": "hive"
-    },
-    {
-      "id": "l3",
-      "pos": {
-        "x": 1,
-        "y": 26
-      },
-      "owner": "NPC",
-      "kind": "hive",
-      "power": 5
-    },
-    {
-      "id": "p2h3",
-      "pos": {
-        "x": 17,
-        "y": 26
+        "y": 9
       },
       "owner": "P2",
       "kind": "hive"
     },
     {
-      "id": "c2",
+      "id": "p3h1",
+      "pos": {
+        "x": 4,
+        "y": 14
+      },
+      "owner": "P3",
+      "kind": "hive"
+    },
+    {
+      "id": "p4h1",
+      "pos": {
+        "x": 14,
+        "y": 14
+      },
+      "owner": "P4",
+      "kind": "hive"
+    },
+    {
+      "id": "p1h1",
       "pos": {
         "x": 9,
-        "y": 20
+        "y": 19
+      },
+      "owner": "P1",
+      "kind": "hive"
+    },
+    {
+      "id": "n01",
+      "pos": {
+        "x": 3,
+        "y": 4
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n02",
+      "pos": {
+        "x": 15,
+        "y": 4
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n03",
+      "pos": {
+        "x": 3,
+        "y": 24
+      },
+      "owner": "NPC",
+      "kind": "hive"
+    },
+    {
+      "id": "n04",
+      "pos": {
+        "x": 15,
+        "y": 24
       },
       "owner": "NPC",
       "kind": "hive"
@@ -106,10 +111,10 @@
   ],
   "structure_slots": [
     {
-      "id": "structure_slot_a",
+      "id": "slot_north",
       "pos": {
-        "x": 5,
-        "y": 13
+        "x": 9,
+        "y": 8
       },
       "allowed": [
         "tower",
@@ -117,10 +122,10 @@
       ]
     },
     {
-      "id": "structure_slot_b",
+      "id": "slot_south",
       "pos": {
-        "x": 13,
-        "y": 14
+        "x": 9,
+        "y": 20
       },
       "allowed": [
         "tower",
@@ -128,9 +133,10 @@
       ]
     }
   ],
+  "walls": [],
   "occluders": {
     "walls": [],
     "blocks_los": []
   },
-  "strict_player_buckets": true
+  "generated_from": "MAP_closequarters__SBASE__4p"
 }

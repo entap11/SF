@@ -208,8 +208,9 @@ func owner_counts(data: Dictionary) -> Dictionary:
 
 func _preferred_jukebox_map_path(path: String) -> String:
 	var clean: String = path.strip_edges()
-	if clean.ends_with("__4p.json"):
-		var one_player_path: String = clean.trim_suffix("__4p.json") + "__1p.json"
+	var variant: String = MAP_REGISTRY.player_variant_for_path(clean)
+	if variant == "2p" or variant == "4p":
+		var one_player_path: String = clean.trim_suffix("__%s.json" % variant) + "__1p.json"
 		if FileAccess.file_exists(one_player_path):
 			return one_player_path
 	return clean

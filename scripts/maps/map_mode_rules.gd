@@ -39,6 +39,63 @@ static func map_supports_game_mode(map_data: Dictionary, mode_id: String) -> Dic
 			}
 	return {"ok": true, "reason": ""}
 
+static func active_owner_contract_for_mode(mode_id: String) -> Dictionary:
+	var clean_mode: String = _normalize_mode_id(mode_id)
+	match clean_mode:
+		"1V1", "PVP", "1P":
+			return {
+				"ok": true,
+				"required_owners": [1, 2],
+				"forbidden_owners": [3, 4],
+				"reason": ""
+			}
+		"2V2", "2P":
+			return {
+				"ok": true,
+				"required_owners": [1, 2, 3, 4],
+				"forbidden_owners": [],
+				"reason": ""
+			}
+		"3P_FFA", "3P":
+			return {
+				"ok": true,
+				"required_owners": [1, 2, 3],
+				"forbidden_owners": [4],
+				"reason": ""
+			}
+		"4P_FFA", "4P":
+			return {
+				"ok": true,
+				"required_owners": [1, 2, 3, 4],
+				"forbidden_owners": [],
+				"reason": ""
+			}
+		_:
+			return {"ok": false, "required_owners": [], "forbidden_owners": [], "reason": "no_owner_contract"}
+
+static func map_matches_active_owner_contract(map_data: Dictionary, mode_id: String) -> Dictionary:
+	var contract: Dictionary = active_owner_contract_for_mode(mode_id)
+	if not bool(contract.get("ok", false)):
+		return {"ok": true, "reason": ""}
+	var counts: Dictionary = _owner_counts_for_map(map_data)
+	for owner_any in contract.get("required_owners", []) as Array:
+		var owner_id: int = int(owner_any)
+		if int(counts.get(owner_id, 0)) <= 0:
+			return {
+				"ok": false,
+				"reason": "missing_owner_%d" % owner_id,
+				"owner_counts": counts
+			}
+	for owner_any in contract.get("forbidden_owners", []) as Array:
+		var owner_id: int = int(owner_any)
+		if int(counts.get(owner_id, 0)) > 0:
+			return {
+				"ok": false,
+				"reason": "forbidden_owner_%d" % owner_id,
+				"owner_counts": counts
+			}
+	return {"ok": true, "reason": "", "owner_counts": counts}
+
 static func hidden_capture_flag_split_summary(map_data: Dictionary) -> Dictionary:
 	var hives_v: Variant = map_data.get("hives", [])
 	if typeof(hives_v) != TYPE_ARRAY:
@@ -220,6 +277,32 @@ static func _owner_counts_for_hives(hives: Array) -> Dictionary:
 		if typeof(hive_any) != TYPE_DICTIONARY:
 			continue
 		var owner_id: int = int((hive_any as Dictionary).get("owner_id", 0))
+		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
+	return counts
+
+static func _owner_counts_for_map(map_data: Dictionary) -> Dictionary:
+	var hives_any: Variant = map_data.get("hives", [])
+	if typeof(hives_any) == TYPE_ARRAY:
+		var hive_counts: Dictionary = _owner_counts_for_hives(hives_any as Array)
+		if not hive_counts.is_empty():
+			return hive_counts
+	var counts: Dictionary = {}
+	var nodes_any: Variant = map_data.get("nodes", [])
+	if typeof(nodes_any) != TYPE_ARRAY:
+		return counts
+	for node_any in nodes_any as Array:
+		if typeof(node_any) != TYPE_DICTIONARY:
+			continue
+		var node: Dictionary = node_any as Dictionary
+		var kind: String = str(node.get("kind", "hive")).strip_edges().to_lower()
+		if kind != "hive" and kind != "player_hive" and kind != "npc_hive":
+			continue
+		var owner_id: int = int(node.get("owner_id", -1))
+		if owner_id < 0:
+			var owner_text: String = str(node.get("owner", node.get("team", ""))).strip_edges().to_upper()
+			owner_id = 0
+			if owner_text.begins_with("P") and owner_text.trim_prefix("P").is_valid_int():
+				owner_id = int(owner_text.trim_prefix("P"))
 		counts[owner_id] = int(counts.get(owner_id, 0)) + 1
 	return counts
 

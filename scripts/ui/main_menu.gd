@@ -14934,21 +14934,64 @@ func _free_roll_random_map_paths(mode_id: String, map_count: int) -> Array[Strin
 func _free_roll_candidate_map_paths(mode_id: String) -> Array[String]:
 	var out: Array[String] = []
 	for path_any in MAP_LOADER.list_maps():
-		var path: String = str(path_any).strip_edges()
+		var source_path: String = str(path_any).strip_edges()
+		var path: String = _free_roll_map_path_variant_for_mode(source_path, mode_id)
 		if path.is_empty():
+			continue
+		if out.has(path):
 			continue
 		if not _free_roll_map_path_supports_mode(path, mode_id):
 			continue
 		out.append(path)
 	return out
 
+func _free_roll_map_path_variant_for_mode(path: String, mode_id: String) -> String:
+	var clean_path: String = path.strip_edges()
+	if clean_path.is_empty():
+		return ""
+	var required_variant: String = _required_player_variant_for_mode(mode_id)
+	if required_variant.is_empty():
+		return clean_path
+	var source_variant: String = MAP_REGISTRY.player_variant_for_path(clean_path)
+	if source_variant == required_variant:
+		return clean_path
+	if source_variant.is_empty():
+		return ""
+	var sibling_path: String = clean_path.trim_suffix("__%s.json" % source_variant) + "__%s.json" % required_variant
+	if FileAccess.file_exists(sibling_path):
+		return sibling_path
+	return ""
+
 func _free_roll_map_path_supports_mode(path: String, mode_id: String) -> bool:
+	var required_variant: String = _required_player_variant_for_mode(mode_id)
+	if not required_variant.is_empty() and MAP_REGISTRY.player_variant_for_path(path) != required_variant:
+		return false
 	var loaded: Dictionary = MAP_LOADER.load_map(path)
 	if not bool(loaded.get("ok", false)):
 		return false
 	var model: Dictionary = loaded.get("data", {}) as Dictionary
 	var summary: Dictionary = MAP_MODE_RULES.map_supports_game_mode(model, mode_id)
-	return bool(summary.get("ok", false))
+	if not bool(summary.get("ok", false)):
+		return false
+	var owner_summary: Dictionary = MAP_MODE_RULES.map_matches_active_owner_contract(model, mode_id)
+	return bool(owner_summary.get("ok", false))
+
+func _mode_requires_one_player_map_path(mode_id: String) -> bool:
+	return _required_player_variant_for_mode(mode_id) == "1p"
+
+func _required_player_variant_for_mode(mode_id: String) -> String:
+	var clean_mode: String = mode_id.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+	match clean_mode:
+		"1V1", "PVP":
+			return "1p"
+		"2V2":
+			return "2p"
+		"3P_FFA":
+			return "3p"
+		"4P_FFA":
+			return "4p"
+		_:
+			return ""
 
 func _free_roll_requires_hidden_ctf_split(mode_id: String) -> bool:
 	return mode_id.strip_edges().to_upper() == "HIDDEN_CAPTURE_FLAG"

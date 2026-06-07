@@ -632,6 +632,10 @@ func _build_runtime_perf_summary() -> Dictionary:
 		"pool_expansions": int(last_sample.get("pool_expansions", 0)),
 		"runtime_instantiates_avoided": int(last_sample.get("pool_avoided", 0)),
 		"peak_pooled_objects": int(_max_sample_key("pool_peak")),
+		"max_active_units": int(_max_sample_key("units")),
+		"max_active_lanes": int(_max_sample_key("lanes")),
+		"max_active_send_lanes": int(_max_sample_key("send_lanes")),
+		"max_active_swarms": int(_max_sample_key("swarms")),
 		"match_prewarm_duration_ms": _max_sample_key("prewarm_ms"),
 		"post_match_save_duration_ms": _max_sample_key("save_ms"),
 		"avg_server_frametime_ms": _avg_sample_key("srv_ms"),
@@ -665,6 +669,12 @@ func _compact_runtime_perf_sample(t_ms: int, snapshot: Dictionary) -> Dictionary
 		"pool_avoided": int(snapshot.get("runtime_instantiates_avoided", 0)),
 		"pool_active": int(snapshot.get("active_pooled_objects", 0)),
 		"pool_peak": int(snapshot.get("peak_pooled_objects", 0)),
+		"units": int(snapshot.get("active_unit_count", 0)),
+		"lanes": int(snapshot.get("active_lane_count", 0)),
+		"send_lanes": int(snapshot.get("active_send_lane_count", 0)),
+		"swarms": int(snapshot.get("active_swarm_count", 0)),
+		"units_by_owner": _compact_int_count_dict(snapshot.get("units_by_owner", {})),
+		"units_by_lane": _compact_int_count_dict(snapshot.get("units_by_lane_count", {})),
 		"prewarm_ms": snappedf(float(snapshot.get("match_prewarm_duration_ms", 0.0)), 0.01),
 		"save_ms": snappedf(float(snapshot.get("post_match_save_duration_ms", 0.0)), 0.01),
 		"srv_ms": snappedf(float(snapshot.get("server_frametime_ms", 0.0)), 0.1),
@@ -684,6 +694,19 @@ func _compact_phase_costs(source: Dictionary) -> Dictionary:
 		if key.is_empty():
 			continue
 		out[key] = snappedf(float(source.get(key_any, 0.0)), 0.01)
+	return out
+
+func _compact_int_count_dict(value: Variant) -> Dictionary:
+	var source: Dictionary = value as Dictionary if typeof(value) == TYPE_DICTIONARY else {}
+	var out: Dictionary = {}
+	for key_any in source.keys():
+		var key: String = str(key_any).strip_edges()
+		if key.is_empty():
+			continue
+		var count: int = int(source.get(key_any, 0))
+		if count <= 0:
+			continue
+		out[key] = count
 	return out
 
 func _avg_sample_key(key: String) -> float:

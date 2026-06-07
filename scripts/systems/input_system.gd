@@ -345,19 +345,36 @@ func _get_selected_for_player(player_id: int) -> int:
 
 func _set_selected_for_player(arena_api: ArenaAPI, player_id: int, hive_id: int) -> void:
 	_ensure_player_selection_slots()
+	if player_id < 1 or player_id > 4:
+		player_id = _get_active_pid(arena_api)
+	var changed: bool = int(_selected_by_player.get(player_id, -1)) != hive_id
 	_selected_by_player[player_id] = hive_id
-	if player_id == 1:
-		_set_selected(arena_api, hive_id)
-		return
+	if player_id == _get_active_pid(arena_api):
+		_selected_hive_id = hive_id
+		selected_src_id = hive_id
+		if selection != null:
+			selection.selected_hive_id = hive_id
+			selection.selected_lane_id = -1
+		if arena_api != null:
+			arena_api.set_selected_hive_id(hive_id)
 	_set_selected_visual_for_player(arena_api, player_id, hive_id)
+	if changed and hive_id > 0:
+		SFLog.info("SELECT", {"src": hive_id, "player_id": player_id})
 
 func _clear_selected_for_player(arena_api: ArenaAPI, player_id: int) -> void:
 	_ensure_player_selection_slots()
+	if player_id < 1 or player_id > 4:
+		player_id = _get_active_pid(arena_api)
 	var had_selection := int(_selected_by_player.get(player_id, -1)) > 0
 	_selected_by_player[player_id] = -1
-	if player_id == 1:
-		_clear_selected(arena_api)
-		return
+	if player_id == _get_active_pid(arena_api):
+		_selected_hive_id = -1
+		selected_src_id = -1
+		if selection != null:
+			selection.selected_hive_id = -1
+			selection.selected_lane_id = -1
+		if arena_api != null:
+			arena_api.clear_selection()
 	if _visual_selected_player_id == player_id:
 		_clear_selected_visual(arena_api)
 	if had_selection:
@@ -523,40 +540,20 @@ func _get_hive_pos_local(hid: int, arena_api: ArenaAPI) -> Vector2:
 	return Vector2.ZERO
 
 func _set_selected(arena_api: ArenaAPI, hive_id: int) -> void:
-	var changed := hive_id != _selected_hive_id
-	_selected_hive_id = hive_id
-	_selected_by_player[1] = hive_id
-	selected_src_id = hive_id
-	if selection != null:
-		selection.selected_hive_id = hive_id
-		selection.selected_lane_id = -1
-	if arena_api != null:
-		arena_api.set_selected_hive_id(hive_id)
-	var hr := _get_hive_renderer(arena_api)
-	var owner_id := 0
-	if hive_id > 0:
-		owner_id = arena_api.get_hive_owner_id(hive_id)
-		_set_selected_visual_for_player(arena_api, owner_id, hive_id)
-		if changed:
-			SFLog.info("SELECT", {"src": hive_id})
+	if hive_id <= 0:
+		_clear_selected(arena_api)
 		return
-	_clear_selected(arena_api)
+	var player_id: int = _get_active_pid(arena_api)
+	if arena_api != null:
+		var owner_id: int = int(arena_api.get_hive_owner_id(hive_id))
+		if owner_id >= 1 and owner_id <= 4:
+			player_id = owner_id
+	_set_selected_for_player(arena_api, player_id, hive_id)
 
 func _clear_selected(arena_api: ArenaAPI) -> void:
-	var had_selection := _selected_hive_id > 0
-	_selected_hive_id = -1
-	_selected_by_player[1] = -1
-	selected_src_id = -1
-	if selection != null:
-		selection.selected_hive_id = -1
-		selection.selected_lane_id = -1
-	if arena_api != null:
-		arena_api.clear_selection()
-	if _visual_selected_player_id == 1:
-		_clear_selected_visual(arena_api)
-	if had_selection:
-		SFLog.info("INPUT_DESELECT", {"player_id": 1})
-		SFLog.info("DESELECT", {})
+	var player_id: int = _get_active_pid(arena_api)
+	_clear_selected_for_player(arena_api, player_id)
+	SFLog.info("DESELECT", {"player_id": player_id})
 
 func _set_selected_visual_for_player(arena_api: ArenaAPI, player_id: int, hive_id: int) -> void:
 	var hr := _get_hive_renderer(arena_api)
@@ -1475,7 +1472,7 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		selection.drag_hover_reason = ""
 		selection.last_vibe_target_id = -1
 		selection.drag_dev_pid = actor_id
-		if actor_id == 1 and friendly:
+		if friendly:
 			_set_selected_for_player(arena_api, actor_id, hive_id)
 			selection.selected_cell = arena_api.cell_from_point(local_pos)
 	else:
