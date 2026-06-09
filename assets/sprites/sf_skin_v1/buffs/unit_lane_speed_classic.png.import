@@ -15,7 +15,7 @@ dest_files=["res://.godot/imported/unit_lane_speed_classic.png-9fa8a2d4ca8bb5d6e
 
 [params]
 
-compress/mode=0
+compress/mode=1
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/hdr_compression=1

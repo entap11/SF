@@ -15,7 +15,7 @@ dest_files=["res://.godot/imported/Replay.png-b90063e90ed7ee2c2951a8a0a3403a1d.c
 
 [params]
 
-compress/mode=0
+compress/mode=1
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/hdr_compression=1

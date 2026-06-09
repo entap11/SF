@@ -15,7 +15,7 @@ dest_files=["res://.godot/imported/mm_back_art.png-32a508ef67010065f0d4249a18254
 
 [params]
 
-compress/mode=0
+compress/mode=1
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/hdr_compression=1

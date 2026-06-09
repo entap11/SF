@@ -15,7 +15,7 @@ dest_files=["res://.godot/imported/unit_global_2xdamage_classic.png-894c85fbe273
 
 [params]
 
-compress/mode=0
+compress/mode=1
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/hdr_compression=1
