@@ -96,6 +96,10 @@ var in_overtime: bool = false
 var ot_checked: bool = false
 var match_clock_running: bool = false
 var match_clock_started: bool = false
+var match_clock_paused: bool = false
+var match_clock_pause_started_ms: int = 0
+var match_clock_pause_accumulated_ms: int = 0
+var match_clock_pause_reason: String = ""
 var match_end_reason: String = ""
 var SF_TEST_MATCH_TIMER: bool = false
 var _match_timer_config_logged: bool = false
@@ -284,13 +288,17 @@ func get_authority_snapshot() -> Dictionary:
 		"winner_id": int(winner_id),
 		"end_reason": end_reason,
 		"match_duration_ms": int(match_duration_ms),
-		"match_elapsed_ms": int(match_elapsed_ms),
-		"match_time_remaining_ms": int(match_time_remaining_ms),
-		"match_remaining_ms": int(match_remaining_ms),
-		"match_deadline_ms": int(match_deadline_ms),
-		"match_clock_running": bool(match_clock_running),
-		"match_clock_started": bool(match_clock_started),
-		"victory_mode": victory_mode,
+			"match_elapsed_ms": int(match_elapsed_ms),
+			"match_time_remaining_ms": int(match_time_remaining_ms),
+			"match_remaining_ms": int(match_remaining_ms),
+			"match_deadline_ms": int(match_deadline_ms),
+			"match_clock_running": bool(match_clock_running),
+			"match_clock_started": bool(match_clock_started),
+			"match_clock_paused": bool(match_clock_paused),
+			"match_clock_pause_started_ms": int(match_clock_pause_started_ms),
+			"match_clock_pause_accumulated_ms": int(match_clock_pause_accumulated_ms),
+			"match_clock_pause_reason": match_clock_pause_reason,
+			"victory_mode": victory_mode,
 		"victory_rules": victory_rules.duplicate(true),
 		"capture_flag_state": capture_flag_state.duplicate(true),
 		"stats_by_team": stats_by_team.duplicate(true),
@@ -349,6 +357,10 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	match_deadline_ms = int(snapshot.get("match_deadline_ms", match_deadline_ms))
 	match_clock_running = bool(snapshot.get("match_clock_running", match_clock_running))
 	match_clock_started = bool(snapshot.get("match_clock_started", match_clock_started))
+	match_clock_paused = bool(snapshot.get("match_clock_paused", match_clock_paused))
+	match_clock_pause_started_ms = int(snapshot.get("match_clock_pause_started_ms", match_clock_pause_started_ms))
+	match_clock_pause_accumulated_ms = int(snapshot.get("match_clock_pause_accumulated_ms", match_clock_pause_accumulated_ms))
+	match_clock_pause_reason = str(snapshot.get("match_clock_pause_reason", match_clock_pause_reason))
 	victory_mode = str(snapshot.get("victory_mode", victory_mode))
 	victory_rules = (snapshot.get("victory_rules", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("victory_rules", {})) == TYPE_DICTIONARY else {}
 	capture_flag_state = (snapshot.get("capture_flag_state", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("capture_flag_state", {})) == TYPE_DICTIONARY else {}
@@ -1013,6 +1025,10 @@ func reset_match_state() -> void:
 	ot_checked = false
 	match_clock_running = false
 	match_clock_started = false
+	match_clock_paused = false
+	match_clock_pause_started_ms = 0
+	match_clock_pause_accumulated_ms = 0
+	match_clock_pause_reason = ""
 	match_end_reason = ""
 	_match_timer_config_logged = false
 	_input_ignored_match_over_logged = false
@@ -2644,6 +2660,9 @@ func begin_match_end(winner: int, reason: String, linger_ms: int = 1500) -> void
 		"match_end_ms": match_end_ms
 	})
 	match_clock_running = false
+	match_clock_paused = false
+	match_clock_pause_started_ms = 0
+	match_clock_pause_reason = ""
 	var st := state
 	outcome_tick = int(st.tick) if st != null else -1
 	if winner == 1:
@@ -2694,6 +2713,11 @@ func enforce_post_match_authority(context: String = "") -> void:
 		corrected = true
 	if match_clock_running:
 		match_clock_running = false
+		corrected = true
+	if match_clock_paused:
+		match_clock_paused = false
+		match_clock_pause_started_ms = 0
+		match_clock_pause_reason = ""
 		corrected = true
 	if corrected:
 		SFLog.warn("POSTMATCH_AUTHORITY_ENFORCED", {
@@ -2839,7 +2863,74 @@ func tick_match_clock(state_ref: GameState, dt_ms: int) -> void:
 			"iid": int(state_ref.get_instance_id()) if state_ref != null else 0,
 			"duration_ms": match_duration_ms
 		})
+	if match_clock_paused:
+		match_clock_running = false
+		return
 	if not match_clock_running:
+		return
+	_sync_match_clock_remaining_from_deadline(now_ms)
+
+func pause_match_clock(reason: String = "pause", at_msec: int = -1) -> Dictionary:
+	if not match_clock_started:
+		return _match_clock_pause_result(false, "not_started")
+	if match_phase != MatchPhase.RUNNING:
+		return _match_clock_pause_result(false, "not_running")
+	var now_ms: int = at_msec if at_msec >= 0 else Time.get_ticks_msec()
+	if match_clock_paused:
+		match_clock_pause_reason = _clean_match_clock_pause_reason(reason)
+		return _match_clock_pause_result(true, "already_paused")
+	_sync_match_clock_remaining_from_deadline(now_ms)
+	match_clock_paused = true
+	match_clock_running = false
+	match_clock_pause_started_ms = now_ms
+	match_clock_pause_reason = _clean_match_clock_pause_reason(reason)
+	SFLog.info("CLOCK_EXTERNAL_PAUSE", {
+		"reason": match_clock_pause_reason,
+		"remaining_ms": int(match_remaining_ms),
+		"elapsed_ms": int(match_elapsed_ms),
+		"deadline_ms": int(match_deadline_ms),
+		"pause_started_ms": int(match_clock_pause_started_ms)
+	})
+	return _match_clock_pause_result(true, "paused")
+
+func resume_match_clock(reason: String = "resume", at_msec: int = -1) -> Dictionary:
+	if not match_clock_started:
+		return _match_clock_pause_result(false, "not_started")
+	if not match_clock_paused:
+		if match_phase == MatchPhase.RUNNING:
+			match_clock_running = true
+		return _match_clock_pause_result(true, "not_paused")
+	var now_ms: int = at_msec if at_msec >= 0 else Time.get_ticks_msec()
+	var paused_ms: int = 0
+	if match_clock_pause_started_ms > 0:
+		paused_ms = maxi(0, now_ms - match_clock_pause_started_ms)
+	match_deadline_ms += paused_ms
+	match_clock_pause_accumulated_ms += paused_ms
+	match_clock_pause_started_ms = 0
+	match_clock_pause_reason = _clean_match_clock_pause_reason(reason)
+	match_clock_paused = false
+	match_clock_running = match_phase == MatchPhase.RUNNING
+	_sync_match_clock_remaining_from_deadline(now_ms)
+	SFLog.info("CLOCK_EXTERNAL_RESUME", {
+		"reason": match_clock_pause_reason,
+		"paused_ms": int(paused_ms),
+		"accumulated_pause_ms": int(match_clock_pause_accumulated_ms),
+		"remaining_ms": int(match_remaining_ms),
+		"elapsed_ms": int(match_elapsed_ms),
+		"deadline_ms": int(match_deadline_ms)
+	})
+	return _match_clock_pause_result(true, "resumed")
+
+func get_match_clock_pause_snapshot() -> Dictionary:
+	return {
+		"match_clock_paused": bool(match_clock_paused),
+		"match_clock_pause_started_ms": int(match_clock_pause_started_ms),
+		"match_clock_pause_accumulated_ms": int(match_clock_pause_accumulated_ms),
+		"match_clock_pause_reason": match_clock_pause_reason
+	}
+
+func _sync_match_clock_remaining_from_deadline(now_ms: int) -> void:
+	if match_deadline_ms <= 0:
 		return
 	var remaining_ms := match_deadline_ms - now_ms
 	if remaining_ms < 0:
@@ -2852,6 +2943,24 @@ func tick_match_clock(state_ref: GameState, dt_ms: int) -> void:
 		match_elapsed_ms = 0
 	if match_elapsed_ms >= match_duration_ms:
 		match_elapsed_ms = match_duration_ms
+
+func _match_clock_pause_result(ok: bool, reason: String) -> Dictionary:
+	return {
+		"ok": ok,
+		"reason": reason,
+		"paused": bool(match_clock_paused),
+		"running": bool(match_clock_running),
+		"started": bool(match_clock_started),
+		"remaining_ms": int(match_remaining_ms),
+		"elapsed_ms": int(match_elapsed_ms),
+		"deadline_ms": int(match_deadline_ms),
+		"pause_started_ms": int(match_clock_pause_started_ms),
+		"pause_accumulated_ms": int(match_clock_pause_accumulated_ms)
+	}
+
+func _clean_match_clock_pause_reason(reason: String) -> String:
+	var clean: String = str(reason).strip_edges()
+	return "pause" if clean.is_empty() else clean
 
 func request_intent_feed(src_id: int, dst_id: int) -> bool:
 	var result := apply_lane_intent(src_id, dst_id, "feed")

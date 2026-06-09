@@ -3687,6 +3687,7 @@ func _launch_local_hive_tournament_run(assignment: Dictionary = {}) -> bool:
 	tree.set_meta("hive_tournament_slot_index", int(active_assignment.get("slot_index", 0)))
 	tree.set_meta("hive_tournament_opponent_hive_id", str(active_assignment.get("opponent_hive_id", "")))
 	tree.set_meta("hive_tournament_opponent_player_id", str(active_assignment.get("opponent_player_id", "")))
+	tree.set_meta("hive_tournament_deadline_unix", int(active_assignment.get("deadline_unix", 0)))
 	tree.set_meta("hive_tournament_submission_recorded", false)
 	if OpsState != null and OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", "ffa")
@@ -3743,6 +3744,7 @@ func _clear_direct_match_launch_tree_metas() -> void:
 		"hive_tournament_slot_index",
 		"hive_tournament_opponent_hive_id",
 		"hive_tournament_opponent_player_id",
+		"hive_tournament_deadline_unix",
 		"hive_tournament_submission_recorded"
 	]
 	for key_any in clear_keys:

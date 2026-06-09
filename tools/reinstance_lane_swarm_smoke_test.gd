@@ -5,8 +5,10 @@ var _failed: bool = false
 func _initialize() -> void:
 	await process_frame
 	_test_input_source_routes_active_lane_to_swarm()
+	_test_input_lane_source_double_tap_routes_to_retract()
 	_test_enemy_lane_swarm_intent()
 	_test_friendly_lane_swarm_intent()
+	_test_retract_lane_does_not_enqueue_swarm()
 	if not _failed:
 		print("REINSTANCE_LANE_SWARM_SMOKE: PASS")
 	quit(1 if _failed else 0)
@@ -15,6 +17,12 @@ func _test_input_source_routes_active_lane_to_swarm() -> void:
 	var source := FileAccess.get_file_as_string("res://scripts/systems/input_system.gd")
 	_expect_true(source.contains("var action := \"swarm\" if lane_active else \"establish\""), "repeat lane action should be logged as swarm")
 	_expect_true(source.contains("if lane_active:\n\t\t\treturn _issue_swarm_intent_result(from_id, to_id, player_id)"), "active lane repeat should route to swarm intent")
+
+func _test_input_lane_source_double_tap_routes_to_retract() -> void:
+	var source := FileAccess.get_file_as_string("res://scripts/systems/input_system.gd")
+	_expect_true(source.contains("const LANE_SOURCE_RETRACT_T"), "lane source band should be defined")
+	_expect_true(source.contains("LANE_DBL_RETRACT"), "lane source double-tap should log retract")
+	_expect_true(source.contains("arena_api.retract_lane(src_id, dst_id, player_id)"), "lane source double-tap should issue retract")
 
 func _test_enemy_lane_swarm_intent() -> void:
 	var state := _reset_state(2)
@@ -40,6 +48,15 @@ func _test_friendly_lane_swarm_intent() -> void:
 	_expect_eq(str(repeat.get("intent", "")), "swarm", "friendly lane repeat should return swarm intent")
 	_expect_eq(state.swarm_requests.size(), 1, "friendly lane repeat should enqueue one swarm")
 	_expect_swarm_request(state.swarm_requests[0], 1, 2, "friendly lane repeat")
+
+func _test_retract_lane_does_not_enqueue_swarm() -> void:
+	var state := _reset_state(2)
+	var ops_state := _ops_state()
+	var first: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack")
+	_expect_true(bool(first.get("ok", false)), "attack route should open before retract")
+	ops_state.call("retract_lane", 1, 2, 1)
+	_expect_true(not state.intent_is_on(1, 2), "retract should disable outgoing lane")
+	_expect_eq(state.swarm_requests.size(), 0, "retract should not enqueue swarm")
 
 func _reset_state(dst_owner_id: int) -> GameState:
 	var ops_state := _ops_state()

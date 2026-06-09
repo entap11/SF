@@ -702,6 +702,8 @@ func _check_match_win(now_ms: int) -> void:
 		return
 	if _match_over:
 		return
+	if bool(OpsState.match_clock_paused):
+		return
 	var remaining_ms := _get_match_remaining_ms()
 	if OpsState.match_clock_started and not OpsState.timer_visible_started and remaining_ms <= TIMER_REVEAL_MS:
 		OpsState.timer_visible_started = true

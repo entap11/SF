@@ -879,7 +879,7 @@ func _ensure_pvp_debug_overlay() -> Control:
 	overlay.offset_right = 0.0
 	overlay.offset_bottom = 0.0
 	overlay.z_as_relative = false
-	overlay.z_index = 5000
+	overlay.z_index = 4095
 	hud_root.add_child(overlay)
 	_pvp_debug_overlay = overlay
 	return _pvp_debug_overlay

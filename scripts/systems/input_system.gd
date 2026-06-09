@@ -25,6 +25,7 @@ const LONG_PRESS_MS := 400
 const LONG_PRESS_MOVE_PX := 12.0
 const DRAG_HOVER_EXTRA_PX := 36.0
 const DEST_HIVE_ASSIST_SCALE := 1.30
+const LANE_SOURCE_RETRACT_T := 0.22
 const ENABLE_ROUTE_LANE_FLASH := true
 const ROUTE_LANE_FLASH_MS := 250
 
@@ -756,10 +757,12 @@ func _pick_lane_id_for_click(local_pos: Vector2, fallback_lane_id: int, arena_ap
 func _should_route_hive_click_to_lane(prev_selected_id: int, clicked_id: int, lane_id: int, local_pos: Vector2, player_id: int, arena_api: ArenaAPI) -> bool:
 	if clicked_id <= 0 or lane_id <= 0 or arena_api == null:
 		return false
-	if prev_selected_id > 0:
-		return false
 	if _is_lane_double_tap(lane_id, local_pos, player_id, _press_is_touch):
 		return true
+	if _is_lane_source_retract_tap(lane_id, local_pos, player_id, arena_api):
+		return true
+	if prev_selected_id > 0:
+		return false
 	var hive: HiveData = arena_api.find_hive_by_id(clicked_id)
 	if hive == null:
 		return false
@@ -1454,7 +1457,8 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		_handling_click = false
 		return
 	if hive_id > 0:
-		_reset_lane_tap_state()
+		if lane_id <= 0:
+			_reset_lane_tap_state()
 		var hive: HiveData = arena_api.find_hive_by_id(hive_id)
 		if hive == null:
 			reset_drag()
@@ -1813,6 +1817,7 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_a
 	var b: HiveData = arena_api.find_hive_by_id(lane.b_id)
 	if a == null or b == null:
 		return false
+	var tap_t: float = clampf(float(hit.get("t", 0.5)), 0.0, 1.0)
 	var src_id: int = -1
 	var dst_id: int = -1
 	if lane.send_a and int(a.owner_id) == player_id:
@@ -1824,9 +1829,51 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_a
 	if src_id <= 0 or dst_id <= 0:
 		return false
 	if arena_api.intent_is_on(src_id, dst_id):
-		SFLog.info("LANE_DBL_SWARM", {"lane_id": lane_id, "src": src_id, "dst": dst_id})
+		if _tap_t_is_near_lane_source(lane, src_id, tap_t):
+			SFLog.info("LANE_DBL_RETRACT", {"lane_id": lane_id, "src": src_id, "dst": dst_id, "t": tap_t})
+			arena_api.retract_lane(src_id, dst_id, player_id)
+			return true
+		SFLog.info("LANE_DBL_SWARM", {"lane_id": lane_id, "src": src_id, "dst": dst_id, "t": tap_t})
 		_issue_swarm_intent(src_id, dst_id, player_id)
 		return true
+	return false
+
+func _is_lane_source_retract_tap(lane_id: int, local_pos: Vector2, player_id: int, arena_api: ArenaAPI) -> bool:
+	if lane_id <= 0 or player_id <= 0 or arena_api == null:
+		return false
+	var lane: LaneData = arena_api.find_lane_by_id(lane_id)
+	if lane == null:
+		return false
+	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
+	var hit: Dictionary = _pick_lane_hit(world_pos, arena_api)
+	if not bool(hit.get("hit", false)):
+		return false
+	if int(hit.get("lane_id", -1)) != lane_id:
+		return false
+	var tap_t: float = clampf(float(hit.get("t", 0.5)), 0.0, 1.0)
+	var src_id: int = _owned_active_lane_source(lane, player_id, arena_api)
+	if src_id <= 0:
+		return false
+	return _tap_t_is_near_lane_source(lane, src_id, tap_t)
+
+func _owned_active_lane_source(lane: LaneData, player_id: int, arena_api: ArenaAPI) -> int:
+	if lane == null or player_id <= 0 or arena_api == null:
+		return -1
+	var a: HiveData = arena_api.find_hive_by_id(lane.a_id)
+	var b: HiveData = arena_api.find_hive_by_id(lane.b_id)
+	if a != null and lane.send_a and int(a.owner_id) == player_id:
+		return int(a.id)
+	if b != null and lane.send_b and int(b.owner_id) == player_id:
+		return int(b.id)
+	return -1
+
+func _tap_t_is_near_lane_source(lane: LaneData, src_id: int, tap_t: float) -> bool:
+	if lane == null or src_id <= 0:
+		return false
+	if src_id == int(lane.a_id):
+		return tap_t <= LANE_SOURCE_RETRACT_T
+	if src_id == int(lane.b_id):
+		return tap_t >= 1.0 - LANE_SOURCE_RETRACT_T
 	return false
 
 func _lane_side_for_tap(lane: LaneData, mode: String, tap_f: float) -> String:

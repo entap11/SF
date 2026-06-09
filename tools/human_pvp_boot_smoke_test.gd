@@ -1,4 +1,4 @@
-extends Node
+extends SceneTree
 
 const DEFAULT_MAP: String = "res://maps/json/MAP_TEST.json"
 const BOOT_TIMEOUT_MS: int = 18000
@@ -6,8 +6,14 @@ const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 
 var _failed: bool = false
 
-func _ready() -> void:
+func _initialize() -> void:
 	call_deferred("_run")
+
+func get_tree() -> SceneTree:
+	return self
+
+func get_node_or_null(path: NodePath) -> Node:
+	return root.get_node_or_null(path)
 
 func _run() -> void:
 	var tree: SceneTree = get_tree()

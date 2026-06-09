@@ -141,6 +141,9 @@ const TREE_META_CONTEST_RESULT_SIGNATURE: String = "contest_result_commit_signat
 const TREE_META_VS_STAGE_RUN_ID: String = "vs_stage_run_id"
 const TREE_META_PENDING_STAGE_LEADERBOARD: String = "pending_stage_leaderboard_open"
 const TREE_META_PENDING_STAGE_LEADERBOARD_CONTEXT: String = "pending_stage_leaderboard_context"
+const TREE_META_VS_WINDOW_DEADLINE_UNIX: String = "vs_window_deadline_unix"
+const TREE_META_CONTEST_ID: String = "contest_id"
+const TREE_META_HIVE_TOURNAMENT_DEADLINE_UNIX: String = "hive_tournament_deadline_unix"
 const MAP_RECORD_MODE_ID: String = "ASYNC_SINGLE_MAP_TIMED"
 const JUKEBOX_META_ENABLED: String = "jukebox_board_enabled"
 const JUKEBOX_META_MAP_PATH: String = "jukebox_map_path"
@@ -196,6 +199,7 @@ const LOSE_SONG_PATHS: Array[String] = [
 ]
 const POST_MATCH_SONG_FADE_OUT_SEC: float = 4.0
 const POST_MATCH_AUDIO_FADE_OUT_DB: float = -60.0
+const LIFECYCLE_CONTEST_EXPIRED_REASON: String = "contest_expired"
 
 var state: GameState
 var sel: SelectionState
@@ -500,6 +504,10 @@ var _vs_pvp_runtime: Node = null
 var floor_influence_system: ArenaFloorInfluenceSystem = null
 var _jukebox_back_button: Button = null
 var _pvp_debug_overlay: Control = null
+var _app_lifecycle: Node = null
+var _lifecycle_local_pause_active: bool = false
+var _lifecycle_local_pause_sim_was_running: bool = false
+var _lifecycle_local_pause_reason: String = ""
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
@@ -571,6 +579,7 @@ func _ready() -> void:
 		outcome_overlay.post_match_action.connect(_on_post_match_action)
 	sel = SelectionState.new()
 	_init_systems()
+	_bind_app_lifecycle()
 	_ensure_jukebox_back_button()
 	_prewarm_render_assets()
 	SFLog.info("SIM_PIPELINE_ACTIVE", {
@@ -1588,6 +1597,177 @@ func _configure_vs_pvp_runtime() -> void:
 		if _vs_pvp_runtime.has_method("get_local_seat"):
 			local_seat = clampi(int(_vs_pvp_runtime.call("get_local_seat")), 1, 4)
 		active_player_id = local_seat
+
+func _bind_app_lifecycle() -> void:
+	_app_lifecycle = get_node_or_null("/root/AppLifecycle")
+	if _app_lifecycle == null:
+		return
+	var background_callable := Callable(self, "_on_app_backgrounded")
+	if _app_lifecycle.has_signal("app_backgrounded") and not _app_lifecycle.is_connected("app_backgrounded", background_callable):
+		_app_lifecycle.connect("app_backgrounded", background_callable)
+	var foreground_callable := Callable(self, "_on_app_foregrounded")
+	if _app_lifecycle.has_signal("app_foregrounded") and not _app_lifecycle.is_connected("app_foregrounded", foreground_callable):
+		_app_lifecycle.connect("app_foregrounded", foreground_callable)
+
+func _on_app_backgrounded(reason: String, paused_at_msec: int, _paused_at_unix: int) -> void:
+	if not _should_local_lifecycle_pause_match():
+		SFLog.info("APP_LIFECYCLE_LOCAL_PAUSE_SKIPPED", {
+			"reason": reason,
+			"pvp_active": _is_pvp_runtime_active(),
+			"match_started": _match_started,
+			"phase": int(OpsState.match_phase) if OpsState != null else -1
+		})
+		return
+	_lifecycle_local_pause_active = true
+	_lifecycle_local_pause_sim_was_running = bool(sim_runner.running)
+	_lifecycle_local_pause_reason = reason
+	if OpsState != null and OpsState.has_method("pause_match_clock"):
+		OpsState.call("pause_match_clock", "app_background:%s" % reason, paused_at_msec)
+	if sim_runner != null and sim_runner.running:
+		sim_runner.set_running(false, "app_background")
+		sim_runner.log_pause_snapshot("app_background")
+	SFLog.info("APP_LIFECYCLE_LOCAL_PAUSE", {
+		"reason": reason,
+		"paused_at_msec": paused_at_msec,
+		"sim_was_running": _lifecycle_local_pause_sim_was_running,
+		"mode": _current_vs_mode()
+	})
+
+func _on_app_foregrounded(reason: String, _elapsed_msec: int, _resumed_at_unix: int) -> void:
+	if not _lifecycle_local_pause_active:
+		return
+	var resume_allowed := _can_resume_after_lifecycle_pause()
+	var expiry_snapshot: Dictionary = _async_submission_expiry_snapshot()
+	if bool(expiry_snapshot.get("expired", false)):
+		_expire_local_async_submission(expiry_snapshot, reason)
+		_clear_lifecycle_local_pause_state()
+		return
+	if OpsState != null and OpsState.has_method("resume_match_clock"):
+		OpsState.call("resume_match_clock", "app_foreground:%s" % reason, Time.get_ticks_msec())
+	if resume_allowed and _lifecycle_local_pause_sim_was_running and sim_runner != null and not sim_runner.running:
+		sim_runner.set_running(true, "app_foreground")
+		sim_runner.log_pause_snapshot("app_foreground")
+	SFLog.info("APP_LIFECYCLE_LOCAL_RESUME", {
+		"reason": reason,
+		"pause_reason": _lifecycle_local_pause_reason,
+		"resume_allowed": resume_allowed,
+		"sim_was_running": _lifecycle_local_pause_sim_was_running,
+		"mode": _current_vs_mode()
+	})
+	_clear_lifecycle_local_pause_state()
+
+func _clear_lifecycle_local_pause_state() -> void:
+	_lifecycle_local_pause_active = false
+	_lifecycle_local_pause_sim_was_running = false
+	_lifecycle_local_pause_reason = ""
+
+func _should_local_lifecycle_pause_match() -> bool:
+	if OpsState == null or sim_runner == null:
+		return false
+	if _is_pvp_runtime_active():
+		return false
+	if not _match_started:
+		return false
+	if not bool(sim_runner.running):
+		return false
+	if OpsState.match_phase != OpsState.MatchPhase.RUNNING:
+		return false
+	if OpsState.is_ending_or_ended():
+		return false
+	return true
+
+func _can_resume_after_lifecycle_pause() -> bool:
+	if OpsState == null or sim_runner == null:
+		return false
+	if _is_pvp_runtime_active():
+		return false
+	if not _match_started:
+		return false
+	if OpsState.match_phase != OpsState.MatchPhase.RUNNING:
+		return false
+	if OpsState.is_ending_or_ended():
+		return false
+	return true
+
+func _is_pvp_runtime_active() -> bool:
+	return _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("is_active") and bool(_vs_pvp_runtime.call("is_active"))
+
+func _async_submission_expiry_snapshot(now_unix: int = -1) -> Dictionary:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return {"expired": false, "reason": "no_tree"}
+	var mode: String = _current_vs_mode()
+	var has_hive_tournament_runtime: bool = not str(tree.get_meta("hive_tournament_round_id", "")).strip_edges().is_empty()
+	if not _is_async_runtime_mode(mode) and not has_hive_tournament_runtime:
+		return {"expired": false, "reason": "not_async_runtime", "mode": mode}
+	var resolved_now_unix: int = now_unix if now_unix >= 0 else int(Time.get_unix_time_from_system())
+	var deadlines: Array[Dictionary] = []
+	_append_submission_deadline(deadlines, "vs_window", int(tree.get_meta(TREE_META_VS_WINDOW_DEADLINE_UNIX, 0)))
+	_append_submission_deadline(deadlines, "hive_tournament", int(tree.get_meta(TREE_META_HIVE_TOURNAMENT_DEADLINE_UNIX, 0)))
+	var contest_id: String = str(tree.get_meta(TREE_META_CONTEST_ID, "")).strip_edges()
+	if not contest_id.is_empty():
+		var contest_state: Node = get_node_or_null("/root/ContestState")
+		if contest_state != null and contest_state.has_method("get_contest"):
+			var contest: Variant = contest_state.call("get_contest", contest_id)
+			_append_submission_deadline(deadlines, "contest_end", int(_variant_dict_or_object_get(contest, "end_ts", 0)))
+	if deadlines.is_empty():
+		return {
+			"expired": false,
+			"reason": "no_deadline",
+			"mode": mode,
+			"contest_id": contest_id
+		}
+	deadlines.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("deadline_unix", 0)) < int(b.get("deadline_unix", 0))
+	)
+	var selected: Dictionary = deadlines[0]
+	var deadline_unix: int = int(selected.get("deadline_unix", 0))
+	return {
+		"expired": resolved_now_unix >= deadline_unix,
+		"reason": "expired" if resolved_now_unix >= deadline_unix else "open",
+		"source": str(selected.get("source", "")),
+		"deadline_unix": deadline_unix,
+		"now_unix": resolved_now_unix,
+		"mode": mode,
+		"contest_id": contest_id
+	}
+
+func _append_submission_deadline(deadlines: Array[Dictionary], source: String, deadline_unix: int) -> void:
+	if deadline_unix <= 0:
+		return
+	deadlines.append({
+		"source": source,
+		"deadline_unix": deadline_unix
+	})
+
+func _expire_local_async_submission(expiry_snapshot: Dictionary, foreground_reason: String) -> void:
+	if sim_runner != null and sim_runner.running:
+		sim_runner.set_running(false, "app_foreground_contest_expired")
+	if OpsState != null and OpsState.has_method("begin_match_end") and int(OpsState.match_phase) == int(OpsState.MatchPhase.RUNNING):
+		OpsState.call("begin_match_end", 0, LIFECYCLE_CONTEST_EXPIRED_REASON, 0)
+		if OpsState.has_method("finalize_match_end"):
+			OpsState.call("finalize_match_end")
+	SFLog.warn("APP_LIFECYCLE_ASYNC_SUBMISSION_EXPIRED", {
+		"foreground_reason": foreground_reason,
+		"pause_reason": _lifecycle_local_pause_reason,
+		"expiry": expiry_snapshot
+	})
+	if sim_runner != null:
+		sim_runner.log_pause_snapshot("app_foreground_contest_expired")
+	if not _match_end_handled:
+		_on_match_ended(0, LIFECYCLE_CONTEST_EXPIRED_REASON)
+
+func _variant_dict_or_object_get(source: Variant, key: String, default_value: Variant) -> Variant:
+	if typeof(source) == TYPE_DICTIONARY:
+		var dict: Dictionary = source as Dictionary
+		return dict.get(key, default_value)
+	if source is Object:
+		var obj: Object = source as Object
+		var value: Variant = obj.get(key)
+		if value == null:
+			return default_value
+		return value
+	return default_value
 
 func _configure_special_victory_mode() -> void:
 	if OpsState == null or not OpsState.has_method("set_victory_mode"):
@@ -5166,16 +5346,17 @@ func _show_stage_race_round_overlay(winner_id_in: int, reason: String) -> void:
 		var h2h_text: String = _get_h2h_record_line()
 		outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
 		return
-	var next_round_available: bool = bool(summary.get("next_round_available", false))
+	var submission_expired: bool = reason == LIFECYCLE_CONTEST_EXPIRED_REASON
+	var next_round_available: bool = bool(summary.get("next_round_available", false)) and not submission_expired
 	var next_action: String = "next_round" if next_round_available else "finish_run"
 	var next_label: String = "Next Round" if next_round_available else "Finish Run"
-	var status_text: String = "Cumulative rank is provisional. Ready for next round?" if next_round_available else "Cumulative rank is provisional. Run complete."
+	var status_text: String = "Submission window expired. This run cannot submit." if submission_expired else "Cumulative rank is provisional. Ready for next round?" if next_round_available else "Cumulative rank is provisional. Run complete."
 	var payload: Dictionary = summary.duplicate(true)
 	payload["next_action"] = next_action
 	payload["next_label"] = next_label
 	payload["exit_label"] = "Back to Lobby"
 	payload["status_text"] = status_text
-	payload["next_round_available"] = true
+	payload["next_round_available"] = next_round_available
 	payload["next_button_enabled"] = true
 	outcome_overlay.show_stage_round_outcome(payload)
 
@@ -6315,7 +6496,7 @@ func _ensure_pvp_debug_overlay() -> void:
 	overlay.offset_right = 0.0
 	overlay.offset_bottom = 0.0
 	overlay.z_as_relative = false
-	overlay.z_index = 5000
+	overlay.z_index = 4095
 	parent.add_child(overlay)
 	_pvp_debug_overlay = overlay
 
