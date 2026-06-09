@@ -56,12 +56,14 @@ const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
 const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
 const MATCH_REPLAY_SAVE_DIR: String = "user://matches"
 const MM_BOOT_SOUND_ENABLED: bool = false
-const MM_BOOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/mm_ambient.wav"
+const MM_BOOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/mm_ambient.ogg"
 const MM_BASE_DROP_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/mm_base_drop.mp3"
-const STORE_PURCHASE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/store_purchase.wav"
-const MATCHMAKER_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/matchmaker.wav"
-const JUKEBOX_PLAY_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/jukebox_play.wav"
-const BUFF_EQUIP_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/buff_equip.wav"
+const STORE_PURCHASE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/store_purchase.ogg"
+const MATCHMAKER_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/matchmaker.ogg"
+const JUKEBOX_PLAY_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/jukebox_play.ogg"
+const BUFF_EQUIP_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/buff_equip.ogg"
+const MENU_AUDIO_TAIL_FADE_SEC: float = 4.0
+const MENU_AUDIO_FADE_OUT_DB: float = -60.0
 
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
@@ -1272,8 +1274,10 @@ func _play_mm_boot_sound() -> void:
 		_mm_boot_sound_player.name = "MMBootSoundPlayer"
 		add_child(_mm_boot_sound_player)
 	_mm_boot_sound_player.stream = stream
+	_mm_boot_sound_player.volume_db = 0.0
 	_mm_boot_sound_started = true
 	_mm_boot_sound_player.play()
+	_schedule_audio_tail_fade(_mm_boot_sound_player, MENU_AUDIO_TAIL_FADE_SEC, false)
 
 func _play_menu_sfx(sound_path: String, persist_on_scene_change: bool = false) -> void:
 	if not _is_menu_sfx_enabled():
@@ -1292,9 +1296,11 @@ func _play_menu_sfx(sound_path: String, persist_on_scene_change: bool = false) -
 		var transient_player := AudioStreamPlayer.new()
 		transient_player.name = "MenuTransientSfxPlayer"
 		transient_player.stream = stream
+		transient_player.volume_db = 0.0
 		transient_player.finished.connect(Callable(transient_player, "queue_free"))
 		tree.root.add_child(transient_player)
 		transient_player.play()
+		_schedule_audio_tail_fade(transient_player, MENU_AUDIO_TAIL_FADE_SEC, true)
 		return
 	if _menu_sfx_player == null or not is_instance_valid(_menu_sfx_player):
 		_menu_sfx_player = AudioStreamPlayer.new()
@@ -1302,7 +1308,50 @@ func _play_menu_sfx(sound_path: String, persist_on_scene_change: bool = false) -
 		add_child(_menu_sfx_player)
 	_menu_sfx_player.stop()
 	_menu_sfx_player.stream = stream
+	_menu_sfx_player.volume_db = 0.0
 	_menu_sfx_player.play()
+
+func _schedule_audio_tail_fade(player: AudioStreamPlayer, fade_sec: float, free_after: bool) -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	var stream: AudioStream = player.stream
+	if stream == null:
+		return
+	var length_sec: float = stream.get_length()
+	if length_sec <= 0.0:
+		return
+	var fade_duration: float = clampf(fade_sec, 0.05, length_sec)
+	var delay_sec: float = maxf(0.0, length_sec - fade_duration)
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var timer: SceneTreeTimer = tree.create_timer(delay_sec)
+	timer.timeout.connect(func() -> void:
+		_fade_out_audio_player(player, fade_duration, free_after)
+	)
+
+func _fade_out_audio_player(player: AudioStreamPlayer, fade_sec: float, free_after: bool) -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	if not player.playing:
+		if free_after and is_instance_valid(player):
+			player.queue_free()
+		return
+	var fade_duration: float = maxf(0.0, fade_sec)
+	if fade_duration <= 0.0:
+		player.stop()
+		if free_after and is_instance_valid(player):
+			player.queue_free()
+		return
+	var tween: Tween = player.create_tween()
+	tween.tween_property(player, "volume_db", MENU_AUDIO_FADE_OUT_DB, fade_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tween.finished.connect(func() -> void:
+		if not is_instance_valid(player):
+			return
+		player.stop()
+		if free_after:
+			player.queue_free()
+	)
 
 func _play_store_purchase_sfx() -> void:
 	_play_menu_sfx(STORE_PURCHASE_SOUND_PATH)

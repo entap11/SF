@@ -179,21 +179,23 @@ const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 const MAP_MM_BACKGROUND_NODE_NAME: StringName = &"MMBackgroundArt"
-const PREMATCH_COUNTDOWN_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_prematch_countdown.wav"
-const TOWER_SHOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_tower_shot.wav"
-const SWARM_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_swarm.wav"
-const LOSE_HIVE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_lose_hive.wav"
-const WIN_HIVE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/win_hive.wav"
+const PREMATCH_COUNTDOWN_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_prematch_countdown.ogg"
+const TOWER_SHOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_tower_shot.ogg"
+const SWARM_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_swarm.ogg"
+const LOSE_HIVE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/game_lose_hive.ogg"
+const WIN_HIVE_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/win_hive.ogg"
 const WIN_HIVE_SOUND_START_SEC: float = 0.246
 const WIN_HIVE_SOUND_END_SEC: float = 0.925
 const HIVE_SWITCH_SFX_LIMIT_COUNT: int = 3
 const HIVE_SWITCH_SFX_LIMIT_WINDOW_MS: int = 7000
 const WIN_SONG_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/win_song.mp3"
 const LOSE_SONG_PATHS: Array[String] = [
-	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song.wav",
-	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song2.wav",
-	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song3.wav"
+	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song.ogg",
+	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song2.ogg",
+	"res://assets/sprites/sf_skin_v1/sf_sounds/lose_song3.ogg"
 ]
+const POST_MATCH_SONG_FADE_OUT_SEC: float = 4.0
+const POST_MATCH_AUDIO_FADE_OUT_DB: float = -60.0
 
 var state: GameState
 var sel: SelectionState
@@ -210,6 +212,7 @@ var _lose_hive_sfx_stream: AudioStream = null
 var _win_hive_sfx_stream: AudioStream = null
 var _hive_switch_sfx_played_ms: Array[int] = []
 var _post_match_song_player: AudioStreamPlayer = null
+var _post_match_song_fade_tween: Tween = null
 var _post_match_loss_song_index: int = 0
 var lane_system: LaneSystem
 var unit_system: UnitSystem = null
@@ -838,8 +841,10 @@ func _return_to_jukebox() -> void:
 	tree.set_meta(TREE_META_REOPEN_JUKEBOX_STATE, _capture_jukebox_restore_state())
 	var current_scene: Node = tree.current_scene
 	if current_scene != null and current_scene.has_method("_open_main_menu"):
+		await _fade_out_post_match_song_blocking()
 		current_scene.call("_open_main_menu")
 		return
+	await _fade_out_post_match_song_blocking()
 	tree.change_scene_to_file("res://scenes/MainMenu.tscn")
 
 func _has_vs_cpu_bot_override() -> bool:
@@ -1507,8 +1512,10 @@ func _play_post_match_song(winner_id_in: int) -> void:
 		_post_match_song_player = AudioStreamPlayer.new()
 		_post_match_song_player.name = "PostMatchSongPlayer"
 		add_child(_post_match_song_player)
+	_cancel_post_match_song_fade()
 	_post_match_song_player.stop()
 	_post_match_song_player.stream = stream
+	_post_match_song_player.volume_db = 0.0
 	_post_match_song_player.play()
 
 func _next_loss_song_path() -> String:
@@ -1518,9 +1525,56 @@ func _next_loss_song_path() -> String:
 	_post_match_loss_song_index += 1
 	return LOSE_SONG_PATHS[idx]
 
-func _stop_post_match_song() -> void:
+func _stop_post_match_song(fade_out: bool = true) -> void:
 	if _post_match_song_player != null and is_instance_valid(_post_match_song_player):
-		_post_match_song_player.stop()
+		if fade_out:
+			_cancel_post_match_song_fade()
+			_post_match_song_fade_tween = _fade_out_audio_player(_post_match_song_player, POST_MATCH_SONG_FADE_OUT_SEC, false)
+		else:
+			_cancel_post_match_song_fade()
+			_post_match_song_player.stop()
+			_post_match_song_player.volume_db = 0.0
+
+func _cancel_post_match_song_fade() -> void:
+	if _post_match_song_fade_tween != null and is_instance_valid(_post_match_song_fade_tween):
+		_post_match_song_fade_tween.kill()
+	_post_match_song_fade_tween = null
+
+func _fade_out_post_match_song_blocking() -> void:
+	if _post_match_song_player == null or not is_instance_valid(_post_match_song_player):
+		return
+	if not _post_match_song_player.playing:
+		return
+	_cancel_post_match_song_fade()
+	_post_match_song_fade_tween = _fade_out_audio_player(_post_match_song_player, POST_MATCH_SONG_FADE_OUT_SEC, false)
+	if _post_match_song_fade_tween != null and is_instance_valid(_post_match_song_fade_tween):
+		await _post_match_song_fade_tween.finished
+
+func _fade_out_audio_player(player: AudioStreamPlayer, fade_sec: float, free_after: bool) -> Tween:
+	if player == null or not is_instance_valid(player):
+		return null
+	if not player.playing:
+		if free_after and is_instance_valid(player):
+			player.queue_free()
+		return null
+	var fade_duration: float = maxf(0.0, fade_sec)
+	if fade_duration <= 0.0:
+		player.stop()
+		player.volume_db = 0.0
+		if free_after and is_instance_valid(player):
+			player.queue_free()
+		return null
+	var tween: Tween = player.create_tween()
+	tween.tween_property(player, "volume_db", POST_MATCH_AUDIO_FADE_OUT_DB, fade_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tween.finished.connect(func() -> void:
+		if not is_instance_valid(player):
+			return
+		player.stop()
+		player.volume_db = 0.0
+		if free_after:
+			player.queue_free()
+	)
+	return tween
 
 func _configure_vs_pvp_runtime() -> void:
 	_vs_pvp_runtime = get_node_or_null("/root/VsPvpRuntime")
@@ -5147,6 +5201,7 @@ func _advance_stage_race_round() -> void:
 	tree.set_meta(TREE_META_VS_STAGE_CURRENT_INDEX, next_index)
 	if outcome_overlay != null:
 		outcome_overlay.hide_overlay()
+	await _fade_out_post_match_song_blocking()
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("_apply_map_then_start"):
 		shell.call("_apply_map_then_start", next_map_path)
@@ -5195,6 +5250,7 @@ func _return_to_main_menu() -> void:
 		outcome_overlay.hide_overlay()
 	if sim_runner != null:
 		sim_runner.log_pause_snapshot("arena_return_to_main_menu")
+	await _fade_out_post_match_song_blocking()
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
 
 func _stage_race_run_id(tree: SceneTree, player_id: String) -> String:

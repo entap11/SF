@@ -4,7 +4,7 @@ class_name TierWidget
 signal tier_pressed()
 signal rank_pressed()
 
-const HERO_BLOCK_FONT: Font = preload("res://assets/fonts/ChakraPetch-SemiBold.ttf")
+const HERO_BLOCK_FONT: Font = preload("res://assets/fonts/brand/Iceland/Iceland-Regular.ttf")
 const DISPLAY_ATLAS_FONT_PATH: String = "res://assets/fonts/free_roll_display_v2_font.tres"
 const DISPLAY_ATLAS_SUPPORTED: String = " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 const HERO_YELLOW_TOP: Color = Color(0.90, 0.74, 0.09, 1.0)
