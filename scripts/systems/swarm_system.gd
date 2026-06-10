@@ -13,16 +13,19 @@ const SWARM_MAX_START := 5
 const SWARM_PICKUP_HALF_PX: float = 10.0
 const SWARM_PICKUP_RADIUS_PX: float = SWARM_PICKUP_HALF_PX * 2.0
 const SWARM_SHOCK_MS: int = 2000
+const SWARM_CHAIN_WINDOW_MS: int = 350
 const EDGE_MIN_DIST_PX := 1.0
 
 var state: GameState = null
 var swarm_packets: Array = []
 var _next_swarm_id: int = 1
 var _sim_events: Node = null
+var _recent_landed_swarms_by_hive: Dictionary = {}
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
 	swarm_packets.clear()
+	_recent_landed_swarms_by_hive.clear()
 	_next_swarm_id = 1
 	if state != null:
 		state.swarm_packets = swarm_packets
@@ -33,7 +36,7 @@ func set_sim_events(sim_events: Node) -> void:
 func tick(dt: float, unit_system: UnitSystem) -> void:
 	if state == null:
 		return
-	if OpsState.has_outcome():
+	if _ops_state_has_outcome():
 		return
 	_consume_swarm_requests()
 	_update_swarms(dt, unit_system)
@@ -88,7 +91,8 @@ func _spawn_swarm(src_id: int, dst_id: int) -> void:
 	if power_before <= 1:
 		_log_swarm_ignored(src_id, dst_id, "no_power")
 		return
-	var start_count := clampi(power_before - 1, 1, SWARM_MAX_START)
+	var chained_count: int = _consume_recent_landed_swarm_count(src_id, owner_id, power_before)
+	var start_count := maxi(clampi(power_before - 1, 1, SWARM_MAX_START), chained_count)
 	var power_after := power_before - start_count
 	from_hive.power = power_after
 	if state.hive_spawn_block_until_us == null:
@@ -146,6 +150,7 @@ func _spawn_swarm(src_id: int, dst_id: int) -> void:
 		"src": src_id,
 		"dst": dst_id,
 		"start_count": start_count,
+		"chained_count": chained_count,
 		"src_power_before": power_before,
 		"src_power_after": power_after
 	})
@@ -251,6 +256,12 @@ func _apply_swarm_arrival(packet: Dictionary, unit_system: UnitSystem) -> void:
 	if count <= 0:
 		return
 	var dst_id := int(packet.get("to_id", -1))
+	var before_owner: int = 0
+	var before_power: int = 0
+	var dst_hive_before: HiveData = state.find_hive_by_id(dst_id) if state != null else null
+	if dst_hive_before != null:
+		before_owner = int(dst_hive_before.owner_id)
+		before_power = int(dst_hive_before.power)
 	if unit_system != null:
 		var unit := {
 			"from_id": int(packet.get("from_id", -1)),
@@ -265,11 +276,71 @@ func _apply_swarm_arrival(packet: Dictionary, unit_system: UnitSystem) -> void:
 			"arrive_source": "swarm_system"
 		}
 		unit_system._apply_unit_arrival(unit)
+		_record_recent_landed_swarm(packet, before_owner, before_power)
 	SFLog.info("SWARM_ARRIVE", {
 		"swarm_id": int(packet.get("id", -1)),
 		"dst": dst_id,
 		"count": count
 	})
+
+func _record_recent_landed_swarm(packet: Dictionary, before_owner: int, before_power: int) -> void:
+	if state == null:
+		return
+	var dst_id: int = int(packet.get("to_id", -1))
+	var owner_id: int = int(packet.get("owner_id", 0))
+	var arrived_count: int = int(packet.get("count", 0))
+	if dst_id <= 0 or owner_id <= 0 or arrived_count <= 0:
+		return
+	var hive: HiveData = state.find_hive_by_id(dst_id)
+	if hive == null or int(hive.owner_id) != owner_id:
+		return
+	var after_power: int = int(hive.power)
+	var carry_count: int = 0
+	if before_owner == owner_id:
+		carry_count = clampi(after_power - before_power, 0, arrived_count)
+	else:
+		carry_count = mini(after_power, arrived_count)
+	if carry_count <= 0:
+		return
+	var now_us: int = int(state._sim_time_us)
+	_recent_landed_swarms_by_hive[dst_id] = {
+		"owner_id": owner_id,
+		"count": carry_count,
+		"expires_us": now_us + (SWARM_CHAIN_WINDOW_MS * 1000),
+		"swarm_id": int(packet.get("id", -1))
+	}
+	SFLog.info("SWARM_CHAIN_READY", {
+		"hive_id": dst_id,
+		"owner_id": owner_id,
+		"count": carry_count,
+		"source_swarm_id": int(packet.get("id", -1)),
+		"window_ms": SWARM_CHAIN_WINDOW_MS
+	})
+
+func _consume_recent_landed_swarm_count(src_id: int, owner_id: int, power_before: int) -> int:
+	if state == null or src_id <= 0 or owner_id <= 0 or power_before <= 1:
+		return 0
+	var recent_any: Variant = _recent_landed_swarms_by_hive.get(src_id, null)
+	if typeof(recent_any) != TYPE_DICTIONARY:
+		return 0
+	var recent: Dictionary = recent_any as Dictionary
+	var now_us: int = int(state._sim_time_us)
+	if now_us > int(recent.get("expires_us", 0)):
+		_recent_landed_swarms_by_hive.erase(src_id)
+		return 0
+	if int(recent.get("owner_id", 0)) != owner_id:
+		return 0
+	_recent_landed_swarms_by_hive.erase(src_id)
+	var chained_count: int = clampi(int(recent.get("count", 0)), 0, power_before - 1)
+	if chained_count <= 0:
+		return 0
+	SFLog.info("SWARM_CHAIN_CONSUME", {
+		"hive_id": src_id,
+		"owner_id": owner_id,
+		"count": chained_count,
+		"source_swarm_id": int(recent.get("swarm_id", -1))
+	})
+	return chained_count
 
 func _emit_swarm_landed(packet: Dictionary) -> void:
 	if _sim_events == null or not _sim_events.has_signal("swarm_landed"):
@@ -310,3 +381,12 @@ func _log_swarm_ignored(src_id: int, dst_id: int, reason: String) -> void:
 		"dst": dst_id,
 		"reason": reason
 	})
+
+func _ops_state_has_outcome() -> bool:
+	var main_loop: MainLoop = Engine.get_main_loop()
+	if not (main_loop is SceneTree):
+		return false
+	var ops_state: Node = (main_loop as SceneTree).get_root().get_node_or_null("/root/OpsState")
+	if ops_state == null or not ops_state.has_method("has_outcome"):
+		return false
+	return bool(ops_state.call("has_outcome"))

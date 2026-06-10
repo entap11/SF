@@ -11,7 +11,7 @@ func _init() -> void:
 	get_root().add_child(menu)
 	await process_frame
 
-	var tournaments_button: Button = menu.get_node_or_null("BottomBar/MenuButtons/RightButtons/SettingsButton") as Button
+	var tournaments_button: Button = menu.get_node_or_null("BottomBar/MenuButtons/SettingsButton") as Button
 	if tournaments_button == null or not tournaments_button.visible or tournaments_button.text != "TOURNAMENTS":
 		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament nav button missing")
 		quit(1)

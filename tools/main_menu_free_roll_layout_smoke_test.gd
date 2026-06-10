@@ -17,12 +17,12 @@ func _run() -> void:
 	get_root().add_child(menu)
 	await process_frame
 	await process_frame
-	var tournament_button: Button = menu.get_node_or_null("BottomBar/MenuButtons/RightButtons/SettingsButton") as Button
+	var tournament_button: Button = menu.get_node_or_null("BottomBar/MenuButtons/SettingsButton") as Button
 	if tournament_button == null or not tournament_button.visible or tournament_button.text != "TOURNAMENTS":
 		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: bottom tournament button is not visible")
 		quit(1)
 		return
-	var jukebox_button: Button = menu.get_node_or_null("BottomBar/MenuButtons/RightButtons/JukeboxButton") as Button
+	var jukebox_button: Button = menu.get_node_or_null("BottomBar/MenuButtons/JukeboxButton") as Button
 	if jukebox_button == null or not jukebox_button.visible:
 		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: bottom jukebox button is not visible")
 		quit(1)

@@ -20,7 +20,7 @@ func _test_input_source_routes_active_lane_to_swarm() -> void:
 
 func _test_input_lane_source_double_tap_routes_to_retract() -> void:
 	var source := FileAccess.get_file_as_string("res://scripts/systems/input_system.gd")
-	_expect_true(source.contains("const LANE_SOURCE_RETRACT_T"), "lane source band should be defined")
+	_expect_true(source.contains("const LANE_SOURCE_RETRACT_T := 0.50"), "lane source half should route double-tap to retract")
 	_expect_true(source.contains("LANE_DBL_RETRACT"), "lane source double-tap should log retract")
 	_expect_true(source.contains("arena_api.retract_lane(src_id, dst_id, player_id)"), "lane source double-tap should issue retract")
 

@@ -607,12 +607,12 @@ const DIRECT_CTF_MAP_IDS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 ]
 const BOTTOM_NAV_BUTTON_SCALE: float = 3.2175
+const BOTTOM_NAV_SIZE_MULTIPLIER: float = 1.5
 const BOTTOM_NAV_HEIGHT_SCALE: float = 1.2
 const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(38.0, 56.0)
-const BOTTOM_NAV_CENTER_STRETCH_RATIO: float = 1.2
 const BOTTOM_NAV_OUTER_PADDING: float = 8.0
-const BOTTOM_NAV_GROUP_SEPARATION: int = 6
-const BOTTOM_NAV_BUTTON_SEPARATION: int = 4
+const BOTTOM_NAV_BUTTON_SEPARATION: int = 8
+const BOTTOM_NAV_ROW_SEPARATION: float = 12.0
 const HIVE_DROPDOWN_WIDTH: float = 420.0
 const HIVE_DROPDOWN_HEIGHT: float = 292.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
@@ -1187,6 +1187,8 @@ func _ready() -> void:
 		get_viewport().size_changed.connect(_apply_background_art_direction)
 	if not get_viewport().size_changed.is_connected(_apply_top_safe_area_layout):
 		get_viewport().size_changed.connect(_apply_top_safe_area_layout)
+	if not get_viewport().size_changed.is_connected(_apply_settings_panel_layout):
+		get_viewport().size_changed.connect(_apply_settings_panel_layout)
 	_set_hex_buttons()
 	_apply_top_safe_area_layout()
 	_ensure_home_replay_player()
@@ -1688,6 +1690,49 @@ func _apply_store_window_scale() -> void:
 		store_landing_header_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		store_landing_header_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
+func _apply_settings_panel_layout() -> void:
+	if dash_settings_panel == null:
+		return
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var pad_x: float = clampf(viewport_size.x * 0.032, 18.0, 36.0)
+	var pad_top: float = clampf(viewport_size.y * 0.028, 20.0, 44.0)
+	var pad_bottom: float = clampf(viewport_size.y * 0.036, 28.0, 56.0)
+	dash_settings_panel.offset_left = pad_x
+	dash_settings_panel.offset_top = pad_top
+	dash_settings_panel.offset_right = -pad_x
+	dash_settings_panel.offset_bottom = -pad_bottom
+	var settings_vbox: VBoxContainer = dash_settings_panel.get_node_or_null("SettingsVBox") as VBoxContainer
+	if settings_vbox != null:
+		var inner_pad: float = clampf(viewport_size.x * 0.022, 12.0, 24.0)
+		settings_vbox.offset_left = inner_pad
+		settings_vbox.offset_top = inner_pad
+		settings_vbox.offset_right = -inner_pad
+		settings_vbox.offset_bottom = -inner_pad
+	var settings_title: Label = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsTitle") as Label
+	if settings_title != null:
+		UITypography.apply_font(settings_title, _font_semibold, 22)
+		settings_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		settings_title.clip_text = true
+		settings_title.custom_minimum_size = Vector2(0.0, 32.0)
+	var settings_sub: Label = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsSub") as Label
+	if settings_sub != null:
+		UITypography.apply_font(settings_sub, _font_regular, 15)
+		settings_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		settings_sub.custom_minimum_size = Vector2(0.0, 40.0)
+	var settings_body: Panel = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsBody") as Panel
+	if settings_body != null:
+		settings_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		settings_body.clip_contents = true
+	var profile_panel: Control = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsBody/ProfilePanel") as Control
+	if profile_panel != null:
+		profile_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		profile_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		profile_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var close_button: Button = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsClose") as Button
+	if close_button != null:
+		close_button.custom_minimum_size = Vector2(0.0, 52.0)
+		UITypography.apply_font(close_button, _font_regular, 16)
+
 func _apply_hex_background_preset(target: Node, preset_name: StringName) -> void:
 	if target == null:
 		return
@@ -1845,8 +1890,8 @@ func _style_labels() -> void:
 	_apply_font($DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter, _font_regular, 12)
 	_apply_display_label($DashPanel/DashStorePanel/StoreVBox/StoreTitle, 18, _font_semibold, 20)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreSub, _font_regular, 14)
-	_apply_display_label($DashPanel/DashSettingsPanel/SettingsVBox/SettingsTitle, 60, _font_semibold, 72)
-	_apply_font($DashPanel/DashSettingsPanel/SettingsVBox/SettingsSub, _font_regular, 48)
+	_apply_display_label($DashPanel/DashSettingsPanel/SettingsVBox/SettingsTitle, 22, _font_semibold, 26)
+	_apply_font($DashPanel/DashSettingsPanel/SettingsVBox/SettingsSub, _font_regular, 15)
 	_apply_font($DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox/StoreLanding/StoreLandingVBox/StoreLandingHeader, _font_semibold, 14)
 	_apply_font(store_category_header, _font_semibold, 16)
 	_apply_font(store_category_sub, _font_regular, 13)
@@ -1983,7 +2028,8 @@ func _style_labels() -> void:
 	var store_body_vbox: VBoxContainer = $DashPanel/DashStorePanel/StoreVBox/StoreBody/StoreBodyVBox
 	store_body_vbox.add_theme_constant_override("separation", 12)
 	var settings_vbox: VBoxContainer = $DashPanel/DashSettingsPanel/SettingsVBox
-	settings_vbox.add_theme_constant_override("separation", 16)
+	settings_vbox.add_theme_constant_override("separation", 10)
+	_apply_settings_panel_layout()
 	store_category_grid.add_theme_constant_override("h_separation", 12)
 	store_category_grid.add_theme_constant_override("v_separation", 12)
 	store_category_list.add_theme_constant_override("separation", 8)
@@ -7377,49 +7423,97 @@ func _apply_bottom_nav_sprite_presentation() -> void:
 			skin_tex.visible = true
 			skin_tex.material = material
 
-func _apply_bottom_nav_layout() -> void:
-	if menu_buttons_row == null or menu_left_buttons_row == null or menu_right_buttons_row == null:
+func _ensure_bottom_nav_two_row_layout() -> HBoxContainer:
+	if bottom_bar == null or menu_buttons_row == null:
+		return null
+	var utility_row: HBoxContainer = bottom_bar.get_node_or_null("UtilityButtons") as HBoxContainer
+	if utility_row == null:
+		utility_row = HBoxContainer.new()
+		utility_row.name = "UtilityButtons"
+		utility_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		bottom_bar.add_child(utility_row)
+		bottom_bar.move_child(utility_row, menu_buttons_row.get_index())
+	menu_buttons_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_reparent_bottom_nav_button(menu_store_button, utility_row, 0)
+	_reparent_bottom_nav_button(menu_buffs_button, utility_row, 1)
+	_reparent_bottom_nav_button(menu_battle_pass_button, utility_row, 2)
+	_reparent_bottom_nav_button(menu_free_roll_button, menu_buttons_row, 0)
+	_reparent_bottom_nav_button(menu_cash_button, menu_buttons_row, 1)
+	_reparent_bottom_nav_button(menu_jukebox_button, menu_buttons_row, 2)
+	if menu_unused_button != null:
+		_reparent_bottom_nav_button(menu_unused_button, menu_buttons_row, 3)
+	for group in [menu_left_buttons_row, menu_right_buttons_row]:
+		if group == null:
+			continue
+		group.visible = false
+		group.custom_minimum_size = Vector2.ZERO
+		group.size_flags_horizontal = 0
+	return utility_row
+
+func _reparent_bottom_nav_button(button: Button, target: Container, index: int) -> void:
+	if button == null or target == null:
 		return
-	var scale: float = maxf(1.0, BOTTOM_NAV_BUTTON_SCALE)
-	var nav_button_w: float = round(BOTTOM_NAV_BASE_BUTTON_SIZE.x * scale)
-	var nav_button_h: float = round(BOTTOM_NAV_BASE_BUTTON_SIZE.y * scale * BOTTOM_NAV_HEIGHT_SCALE)
-	var side_size: Vector2 = Vector2(
-		nav_button_w,
-		nav_button_h
+	if button.get_parent() != target:
+		var current_parent: Node = button.get_parent()
+		if current_parent != null:
+			current_parent.remove_child(button)
+		target.add_child(button)
+	target.move_child(button, clampi(index, 0, maxi(0, target.get_child_count() - 1)))
+	button.visible = true
+
+func _bottom_nav_scaled_button_size(row_button_count: int) -> Vector2:
+	var target_scale: float = maxf(1.0, BOTTOM_NAV_BUTTON_SCALE * BOTTOM_NAV_SIZE_MULTIPLIER)
+	var target_size: Vector2 = Vector2(
+		round(BOTTOM_NAV_BASE_BUTTON_SIZE.x * target_scale),
+		round(BOTTOM_NAV_BASE_BUTTON_SIZE.y * target_scale * BOTTOM_NAV_HEIGHT_SCALE)
 	)
-	var center_size: Vector2 = Vector2(
-		round(nav_button_w * 1.12),
-		nav_button_h
-	)
+	var viewport_width: float = get_viewport_rect().size.x
+	var available_width: float = maxf(1.0, viewport_width - (BOTTOM_NAV_OUTER_PADDING * 2.0) - (BOTTOM_NAV_BUTTON_SEPARATION * maxf(0.0, float(row_button_count - 1))))
+	var max_width: float = floor(available_width / maxf(1.0, float(row_button_count)))
+	if target_size.x <= max_width:
+		return target_size
+	var fit_scale: float = max_width / maxf(1.0, target_size.x)
+	return Vector2(max_width, floor(target_size.y * fit_scale))
+
+func _apply_bottom_nav_layout() -> void:
+	if menu_buttons_row == null:
+		return
+	var utility_row: HBoxContainer = _ensure_bottom_nav_two_row_layout()
+	if utility_row == null:
+		return
+	var nav_size: Vector2 = _bottom_nav_scaled_button_size(4)
+	var utility_size: Vector2 = _bottom_nav_scaled_button_size(3)
+	var row_height: float = maxf(nav_size.y, utility_size.y)
+	var button_size: Vector2 = Vector2(nav_size.x, row_height)
+	var utility_button_size: Vector2 = Vector2(utility_size.x, row_height)
+	utility_row.anchor_right = 1.0
+	utility_row.offset_left = BOTTOM_NAV_OUTER_PADDING
+	utility_row.offset_right = -BOTTOM_NAV_OUTER_PADDING
+	utility_row.add_theme_constant_override("separation", BOTTOM_NAV_BUTTON_SEPARATION)
 	menu_buttons_row.offset_left = BOTTOM_NAV_OUTER_PADDING
 	menu_buttons_row.offset_right = -BOTTOM_NAV_OUTER_PADDING
-	menu_buttons_row.add_theme_constant_override("separation", BOTTOM_NAV_GROUP_SEPARATION)
-	menu_left_buttons_row.add_theme_constant_override("separation", BOTTOM_NAV_BUTTON_SEPARATION)
-	menu_right_buttons_row.add_theme_constant_override("separation", BOTTOM_NAV_BUTTON_SEPARATION)
-	menu_left_buttons_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	menu_right_buttons_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	menu_left_buttons_row.size_flags_stretch_ratio = 3.0
-	menu_right_buttons_row.size_flags_stretch_ratio = 3.0
-	var side_buttons: Array[Button] = [
+	menu_buttons_row.add_theme_constant_override("separation", BOTTOM_NAV_BUTTON_SEPARATION)
+	for button in [
 		menu_store_button,
 		menu_buffs_button,
-		menu_free_roll_button,
-		menu_battle_pass_button,
-		menu_jukebox_button
-	]
-	if menu_unused_button != null and menu_unused_button.visible:
-		side_buttons.append(menu_unused_button)
-	for button in side_buttons:
+		menu_battle_pass_button
+	]:
 		if button == null:
 			continue
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = side_size
-	menu_cash_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	menu_cash_button.size_flags_stretch_ratio = BOTTOM_NAV_CENTER_STRETCH_RATIO
-	menu_cash_button.custom_minimum_size = center_size
+		button.size_flags_stretch_ratio = 1.0
+		button.custom_minimum_size = utility_button_size
+	for button in [menu_free_roll_button, menu_cash_button, menu_jukebox_button, menu_unused_button]:
+		if button == null:
+			continue
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.size_flags_stretch_ratio = 1.0
+		button.custom_minimum_size = button_size
 	var row_top: float = 14.0
-	menu_buttons_row.offset_top = row_top
-	menu_buttons_row.offset_bottom = row_top + side_size.y
+	utility_row.offset_top = row_top
+	utility_row.offset_bottom = row_top + row_height
+	menu_buttons_row.offset_top = utility_row.offset_bottom + BOTTOM_NAV_ROW_SEPARATION
+	menu_buttons_row.offset_bottom = menu_buttons_row.offset_top + row_height
 	var status_top: float = menu_buttons_row.offset_bottom + 6.0
 	status_label.offset_top = status_top
 	status_label.offset_bottom = status_top + 30.0
@@ -11157,7 +11251,12 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		var mode_id: String = str(def.get("mode", ""))
 		if button == null or mode_id.is_empty():
 			continue
-		_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
+		if mode_id == "STAGE_RACE_3":
+			_connect_free_roll_guarded_press(button, Callable(self, "_start_free_stage_race_contest").bind("WEEKLY", 3))
+		elif mode_id == "STAGE_RACE_5":
+			_connect_free_roll_guarded_press(button, Callable(self, "_start_free_stage_race_contest").bind("WEEKLY", 5))
+		else:
+			_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
 		_apply_async_mode_skin_to_button(button, label, false, selected_denom, true)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	var cancel: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/CancelButton") as Button
@@ -13688,6 +13787,7 @@ func _open_settings_panel() -> void:
 	_set_dash_offsets(0.0)
 	dash_panel.visible = true
 	dash_settings_panel.visible = true
+	_apply_settings_panel_layout()
 	_dash_open = true
 
 func _close_settings_panel() -> void:
@@ -13784,6 +13884,7 @@ func _open_dash_panel(panel: Panel) -> void:
 	_dash_open = true
 	panel.visible = true
 	if panel == dash_settings_panel:
+		_apply_settings_panel_layout()
 		_refresh_dash_top_tabs()
 	if panel == _dash_scholastic_panel:
 		_refresh_dash_top_tabs()

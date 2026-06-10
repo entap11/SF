@@ -1,10 +1,11 @@
 extends SceneTree
 
 const MAIN_MENU_SCENE_PATH := "res://scenes/MainMenu.tscn"
-const EXPECTED_FONT_SIZE := 48
-const EXPECTED_CONTROL_HEIGHT := 132.0
-const EXPECTED_TOGGLE_HEIGHT := 120.0
-const EXPECTED_FORM_HEIGHT := 2280.0
+const MIN_READABLE_FONT_SIZE := 14
+const MAX_READABLE_FONT_SIZE := 28
+const MIN_CONTROL_HEIGHT := 40.0
+const MAX_CONTROL_HEIGHT := 72.0
+const EXPECTED_FORM_HEIGHT := 760.0
 
 var _failed: bool = false
 
@@ -36,52 +37,65 @@ func _init() -> void:
 		return
 	var scroll := panel.get_node_or_null("SettingsScroll") as ScrollContainer
 	var root_vbox := panel.get_node_or_null("SettingsScroll/VBox") as VBoxContainer
+	var title := menu.get_node_or_null("DashPanel/DashSettingsPanel/SettingsVBox/SettingsTitle") as Label
+	var subtitle := menu.get_node_or_null("DashPanel/DashSettingsPanel/SettingsVBox/SettingsSub") as Label
 	_expect(scroll != null, "settings panel should use a scroll container")
 	_expect(root_vbox != null, "settings form should be inside scroll container")
-	_expect(panel.custom_minimum_size.y >= EXPECTED_FORM_HEIGHT, "settings panel minimum height should be scaled")
-	_expect(root_vbox != null and root_vbox.custom_minimum_size.y >= EXPECTED_FORM_HEIGHT, "settings form minimum height should be scaled")
+	_expect(panel.custom_minimum_size.y >= EXPECTED_FORM_HEIGHT, "settings panel should keep a scrollable form height")
+	_expect(root_vbox != null and root_vbox.custom_minimum_size.y >= EXPECTED_FORM_HEIGHT, "settings form should keep a scrollable form height")
+	_expect_readable_label(title, "settings title")
+	_expect_readable_label(subtitle, "settings subtitle")
 	_expect(panel.find_child("PowerBarThemeRow", true, false) == null, "PowerBar theme row should not be in settings")
 	_expect(panel.find_child("PowerBarThemeOption", true, false) == null, "PowerBar theme selector should not be in settings")
 	if root_vbox != null:
-		_expect_large_line_edit(root_vbox, "ProfileRow/DisplayNameInput", "handle input")
-		_expect_large_button(root_vbox, "UserIdSection/UserIdCurrentRow/CopyUserIdButton", "copy user ID button")
-		_expect_large_toggle(root_vbox, "VideoSection/GpuVfxRow/GpuVfxToggle", "GPU VFX toggle")
-		_expect_large_option(root_vbox, "PerformanceSection/PerformanceModeRow/PerformanceModeOption", "performance option")
+		_expect_readable_line_edit(root_vbox, "ProfileRow/DisplayNameInput", "handle input")
+		_expect_readable_button(root_vbox, "UserIdSection/UserIdCurrentRow/CopyUserIdButton", "copy user ID button")
+		_expect_readable_toggle(root_vbox, "VideoSection/GpuVfxRow/GpuVfxToggle", "GPU VFX toggle")
+		_expect_readable_option(root_vbox, "PerformanceSection/PerformanceModeRow/PerformanceModeOption", "performance option")
 	if not _failed:
 		print("PROFILE_SETTINGS_MOBILE_LAYOUT_SMOKE: PASS")
 	quit(1 if _failed else 0)
 
-func _expect_large_line_edit(root_vbox: VBoxContainer, path: String, label: String) -> void:
+func _expect_readable_line_edit(root_vbox: VBoxContainer, path: String, label: String) -> void:
 	var control := root_vbox.get_node_or_null(path) as LineEdit
 	_expect(control != null, "%s should exist" % label)
 	if control == null:
 		return
-	_expect(control.custom_minimum_size.y >= EXPECTED_CONTROL_HEIGHT, "%s should have mobile-sized height" % label)
-	_expect(control.get_theme_font_size("font_size") >= EXPECTED_FONT_SIZE, "%s should have mobile-sized text" % label)
+	_expect_readable_control(control, label)
 
-func _expect_large_button(root_vbox: VBoxContainer, path: String, label: String) -> void:
+func _expect_readable_button(root_vbox: VBoxContainer, path: String, label: String) -> void:
 	var control := root_vbox.get_node_or_null(path) as Button
 	_expect(control != null, "%s should exist" % label)
 	if control == null:
 		return
-	_expect(control.custom_minimum_size.y >= EXPECTED_CONTROL_HEIGHT, "%s should have mobile-sized height" % label)
-	_expect(control.get_theme_font_size("font_size") >= EXPECTED_FONT_SIZE, "%s should have mobile-sized text" % label)
+	_expect_readable_control(control, label)
 
-func _expect_large_toggle(root_vbox: VBoxContainer, path: String, label: String) -> void:
+func _expect_readable_toggle(root_vbox: VBoxContainer, path: String, label: String) -> void:
 	var control := root_vbox.get_node_or_null(path) as CheckButton
 	_expect(control != null, "%s should exist" % label)
 	if control == null:
 		return
-	_expect(control.custom_minimum_size.y >= EXPECTED_TOGGLE_HEIGHT, "%s should have mobile-sized height" % label)
-	_expect(control.get_theme_font_size("font_size") >= EXPECTED_FONT_SIZE, "%s should have mobile-sized text" % label)
+	_expect_readable_control(control, label)
 
-func _expect_large_option(root_vbox: VBoxContainer, path: String, label: String) -> void:
+func _expect_readable_option(root_vbox: VBoxContainer, path: String, label: String) -> void:
 	var control := root_vbox.get_node_or_null(path) as OptionButton
 	_expect(control != null, "%s should exist" % label)
 	if control == null:
 		return
-	_expect(control.custom_minimum_size.y >= EXPECTED_CONTROL_HEIGHT, "%s should have mobile-sized height" % label)
-	_expect(control.get_theme_font_size("font_size") >= EXPECTED_FONT_SIZE, "%s should have mobile-sized text" % label)
+	_expect_readable_control(control, label)
+
+func _expect_readable_label(control: Label, label: String) -> void:
+	_expect(control != null, "%s should exist" % label)
+	if control == null:
+		return
+	var font_size := control.get_theme_font_size("font_size")
+	_expect(font_size >= MIN_READABLE_FONT_SIZE and font_size <= MAX_READABLE_FONT_SIZE, "%s font should be readable and bounded: %d" % [label, font_size])
+
+func _expect_readable_control(control: Control, label: String) -> void:
+	var min_height := control.custom_minimum_size.y
+	var font_size := control.get_theme_font_size("font_size")
+	_expect(min_height >= MIN_CONTROL_HEIGHT and min_height <= MAX_CONTROL_HEIGHT, "%s height should be readable and bounded: %.1f" % [label, min_height])
+	_expect(font_size >= MIN_READABLE_FONT_SIZE and font_size <= MAX_READABLE_FONT_SIZE, "%s font should be readable and bounded: %d" % [label, font_size])
 
 func _expect(condition: bool, message: String) -> void:
 	if condition:

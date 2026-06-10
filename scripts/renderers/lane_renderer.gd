@@ -72,7 +72,7 @@ const DRAG_PREVIEW_VALID_SNAP_GAIN: float = 1.75
 # Anchors are already lane-edge-biased; extra tuck visually shortens lanes too much.
 const LANE_TUCK_IN_PX: float = 0.0
 const LANE_CAP_TRIM_RADIUS_RATIO: float = 0.45
-const LANE_CONTEST_BUFFER_PX: float = 80.0
+const LANE_CONTEST_BUFFER_PX: float = 130.0
 const LANE_THICKNESS_MODE_MANUAL: int = 0
 const LANE_THICKNESS_MODE_MATCH_UNIT_RATIO: int = 1
 const UNIT_RENDER_SCALE_MATCH: float = 1.44
