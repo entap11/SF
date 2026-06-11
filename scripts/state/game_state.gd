@@ -1219,13 +1219,15 @@ func outgoing_active_count(hive_id: int) -> int:
 	return count
 
 func tick_lane_flow(dt_ms: float, allow_spawns: bool = true) -> void:
-	if dt_ms <= 0.0 or lanes.is_empty():
+	if dt_ms <= 0.0:
+		return
+	tick += 1
+	_sim_time_us += int(round(dt_ms * 1000.0))
+	if lanes.is_empty():
 		return
 	if not allow_spawns and not _lane_spawn_disabled_logged:
 		_lane_spawn_disabled_logged = true
 		SFLog.info("SPAWN_DISABLED", {"system": "lane"})
-	tick += 1
-	_sim_time_us += int(round(dt_ms * 1000.0))
 
 	if OS.is_debug_build():
 		_lane_dump_accum_ms += dt_ms

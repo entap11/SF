@@ -84,7 +84,10 @@ func _run() -> void:
 	if not _failed:
 		_assert_runtime_local_seat(role)
 	if not _failed:
-		_assert_runtime_lane_can_be_instanced(ops_state, 2 if role == "guest" else 1)
+		await _wait_ms(tree, 1600)
+		_assert_input_system_unlocked(arena_node)
+	if not _failed:
+		await _assert_pointer_lane_can_be_instanced(tree, arena_node, ops_state, 2 if role == "guest" else 1)
 	if not _failed:
 		await _assert_runtime_telemetry_log(tree)
 	if not _failed:
@@ -206,8 +209,24 @@ func _assert_runtime_local_seat(role: String) -> void:
 			"expected": expected_seat
 		})
 
-func _assert_runtime_lane_can_be_instanced(ops_state: Node, owner_id: int) -> void:
-	if ops_state == null or not ops_state.has_method("get_state") or not ops_state.has_method("apply_lane_intent"):
+func _assert_input_system_unlocked(arena_node: Node) -> void:
+	if arena_node == null:
+		_expect(false, "Arena missing for input lock assertion", {})
+		return
+	var input_any: Variant = arena_node.get("input_system")
+	if input_any == null:
+		_expect(false, "Arena input_system missing", {})
+		return
+	var input_object: Object = input_any as Object
+	_expect(input_object != null and not bool(input_object.get("inputs_locked")), "Input system remained locked after RUNNING", {
+		"input_locked": bool(input_object.get("inputs_locked")) if input_object != null else true
+	})
+
+func _assert_pointer_lane_can_be_instanced(tree: SceneTree, arena_node: Node, ops_state: Node, owner_id: int) -> void:
+	if arena_node == null:
+		_expect(false, "Arena missing for pointer lane assertion", {})
+		return
+	if ops_state == null or not ops_state.has_method("get_state"):
 		_expect(false, "OpsState missing lane APIs", {})
 		return
 	var state_ref: Variant = ops_state.call("get_state")
@@ -238,8 +257,67 @@ func _assert_runtime_lane_can_be_instanced(ops_state: Node, owner_id: int) -> vo
 	_expect(src_id > 0 and dst_id > 0, "No runtime lane candidate found", {})
 	if _failed:
 		return
-	var result: Dictionary = ops_state.call("apply_lane_intent", src_id, dst_id, "attack") as Dictionary
-	_expect(bool(result.get("ok", false)), "Runtime lane intent failed", result)
+	var input_any: Variant = arena_node.get("input_system")
+	var api_any: Variant = arena_node.get("api")
+	if input_any == null or api_any == null:
+		_expect(false, "Arena missing input_system/api for pointer lane assertion", {
+			"has_input": input_any != null,
+			"has_api": api_any != null
+		})
+		return
+	var input_object: Object = input_any as Object
+	var api_object: Object = api_any as Object
+	if input_object == null or api_object == null:
+		_expect(false, "Arena input_system/api are not objects", {})
+		return
+	var src_hive: HiveData = state_ref.call("find_hive_by_id", src_id) as HiveData
+	var dst_hive: HiveData = state_ref.call("find_hive_by_id", dst_id) as HiveData
+	if src_hive == null or dst_hive == null:
+		_expect(false, "Pointer lane candidate hives missing", {"src": src_id, "dst": dst_id})
+		return
+	var src_pos: Vector2 = arena_node.call("cell_center", src_hive.grid_pos) as Vector2
+	var dst_pos: Vector2 = arena_node.call("cell_center", dst_hive.grid_pos) as Vector2
+	_send_pointer_tap(input_object, api_object, src_pos, src_id)
+	await tree.process_frame
+	_expect(int(api_object.get("selected_hive_id")) == src_id, "Pointer tap did not select local hive", {
+		"src": src_id,
+		"selected": int(api_object.get("selected_hive_id")),
+		"owner": owner_id
+	})
+	if _failed:
+		return
+	_send_pointer_tap(input_object, api_object, dst_pos, dst_id)
+	var deadline: int = Time.get_ticks_msec() + 2200
+	while Time.get_ticks_msec() < deadline:
+		if bool(state_ref.call("is_outgoing_lane_active", src_id, dst_id)):
+			return
+		await tree.process_frame
+	var runtime: Node = get_node_or_null("/root/VsPvpRuntime")
+	_expect(false, "Pointer lane intent did not become active", {
+		"src": src_id,
+		"dst": dst_id,
+		"owner": owner_id,
+		"runtime": runtime.call("get_debug_snapshot") if runtime != null and runtime.has_method("get_debug_snapshot") else {}
+	})
+
+func _send_pointer_tap(input_object: Object, api_object: Object, local_pos: Vector2, hive_id: int) -> void:
+	var press: Dictionary = {
+		"type": "press",
+		"local_pos": local_pos,
+		"hive_id": hive_id,
+		"lane_id": -1,
+		"button": MOUSE_BUTTON_LEFT,
+		"is_touch": true
+	}
+	var release: Dictionary = press.duplicate(true)
+	release["type"] = "release"
+	input_object.call("handle_pointer_event", press, api_object)
+	input_object.call("handle_pointer_event", release, api_object)
+
+func _wait_ms(tree: SceneTree, duration_ms: int) -> void:
+	var deadline: int = Time.get_ticks_msec() + maxi(0, duration_ms)
+	while Time.get_ticks_msec() < deadline:
+		await tree.process_frame
 
 func _assert_runtime_telemetry_log(tree: SceneTree) -> void:
 	var runtime: Node = get_node_or_null("/root/VsPvpRuntime")

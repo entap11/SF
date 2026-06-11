@@ -1592,11 +1592,18 @@ func _configure_vs_pvp_runtime() -> void:
 	var tree: SceneTree = get_tree()
 	var roster: Array = OpsState.match_roster if OpsState != null else []
 	_vs_pvp_runtime.call("configure_from_tree", tree, roster)
+	_sync_active_player_from_vs_runtime()
+
+func _sync_active_player_from_vs_runtime() -> void:
+	if _vs_pvp_runtime == null:
+		return
 	if _vs_pvp_runtime.has_method("is_active") and bool(_vs_pvp_runtime.call("is_active")):
 		var local_seat: int = 1
 		if _vs_pvp_runtime.has_method("get_local_seat"):
 			local_seat = clampi(int(_vs_pvp_runtime.call("get_local_seat")), 1, 4)
-		active_player_id = local_seat
+		if active_player_id != local_seat:
+			active_player_id = local_seat
+			SFLog.info("PVP_ACTIVE_PLAYER_SYNC", {"local_seat": local_seat})
 
 func _bind_app_lifecycle() -> void:
 	_app_lifecycle = get_node_or_null("/root/AppLifecycle")
@@ -1820,6 +1827,7 @@ func _pump_vs_pvp_runtime(delta: float) -> void:
 		return
 	if not bool(_vs_pvp_runtime.call("is_active")):
 		return
+	_sync_active_player_from_vs_runtime()
 	if _vs_pvp_runtime.has_method("tick"):
 		_vs_pvp_runtime.call("tick", delta)
 	if _handle_vs_recovery_state():
@@ -6619,11 +6627,12 @@ func _snap_power_bar_to_map_top(reason: String = "") -> void:
 func _sync_inputs_locked_from_state() -> void:
 	if input_system == null:
 		return
-	var should_lock := bool(OpsState.input_locked)
-	if should_lock == _inputs_locked_from_state:
+	var should_lock: bool = bool(OpsState.input_locked)
+	var actual_lock: bool = bool(input_system.get("inputs_locked"))
+	if should_lock == _inputs_locked_from_state and actual_lock == should_lock:
 		return
 	_inputs_locked_from_state = should_lock
-	var reason := OpsState.input_locked_reason if should_lock else ""
+	var reason: String = OpsState.input_locked_reason if should_lock else ""
 	input_system.set_inputs_locked(should_lock, reason)
 
 func dbg(msg: String) -> void:

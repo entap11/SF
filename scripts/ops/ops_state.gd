@@ -2839,7 +2839,7 @@ func tick_match_clock(state_ref: GameState, dt_ms: int) -> void:
 	if not is_running():
 		match_clock_running = false
 		return
-	var now_ms := Time.get_ticks_msec()
+	var now_ms: int = Time.get_ticks_msec()
 	if not match_clock_started:
 		match_clock_started = true
 		match_elapsed_ms = 0
@@ -2868,7 +2868,16 @@ func tick_match_clock(state_ref: GameState, dt_ms: int) -> void:
 		return
 	if not match_clock_running:
 		return
-	_sync_match_clock_remaining_from_deadline(now_ms)
+	var step_ms: int = maxi(0, int(dt_ms))
+	if step_ms <= 0:
+		match_deadline_ms = now_ms + maxi(0, int(match_remaining_ms))
+		return
+	match_elapsed_ms = mini(match_duration_ms, maxi(0, match_elapsed_ms + step_ms))
+	var remaining_ms: int = maxi(0, match_duration_ms - match_elapsed_ms)
+	match_time_remaining_ms = remaining_ms
+	match_time_remaining_sec = float(remaining_ms) / 1000.0
+	match_remaining_ms = remaining_ms
+	match_deadline_ms = now_ms + remaining_ms
 
 func pause_match_clock(reason: String = "pause", at_msec: int = -1) -> Dictionary:
 	if not match_clock_started:
@@ -2879,7 +2888,6 @@ func pause_match_clock(reason: String = "pause", at_msec: int = -1) -> Dictionar
 	if match_clock_paused:
 		match_clock_pause_reason = _clean_match_clock_pause_reason(reason)
 		return _match_clock_pause_result(true, "already_paused")
-	_sync_match_clock_remaining_from_deadline(now_ms)
 	match_clock_paused = true
 	match_clock_running = false
 	match_clock_pause_started_ms = now_ms
@@ -2910,7 +2918,7 @@ func resume_match_clock(reason: String = "resume", at_msec: int = -1) -> Diction
 	match_clock_pause_reason = _clean_match_clock_pause_reason(reason)
 	match_clock_paused = false
 	match_clock_running = match_phase == MatchPhase.RUNNING
-	_sync_match_clock_remaining_from_deadline(now_ms)
+	match_deadline_ms = now_ms + maxi(0, int(match_remaining_ms))
 	SFLog.info("CLOCK_EXTERNAL_RESUME", {
 		"reason": match_clock_pause_reason,
 		"paused_ms": int(paused_ms),

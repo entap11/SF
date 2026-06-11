@@ -23,6 +23,7 @@ func _test_match_clock_pause_shifts_deadline(ops_state: Node) -> void:
 	_expect_true(bool(ops_state.get("match_clock_started")), "clock should start on first tick")
 	_expect_true(bool(ops_state.get("match_clock_running")), "clock should be running on first tick")
 	_expect_true(deadline_start > 0, "clock should set deadline")
+	ops_state.call("tick_match_clock", state, 1000)
 	var pause_at: int = Time.get_ticks_msec() + 1000
 	var pause_result: Dictionary = ops_state.call("pause_match_clock", "smoke_background", pause_at) as Dictionary
 	_expect_true(bool(pause_result.get("ok", false)), "pause_match_clock should succeed")
@@ -35,12 +36,11 @@ func _test_match_clock_pause_shifts_deadline(ops_state: Node) -> void:
 	_expect_eq(int(ops_state.get("match_elapsed_ms")), elapsed_at_pause, "paused tick should not advance elapsed time")
 	var pause_duration_ms: int = 30000
 	var resume_at: int = pause_at + pause_duration_ms
-	var deadline_before_resume: int = int(ops_state.get("match_deadline_ms"))
 	var resume_result: Dictionary = ops_state.call("resume_match_clock", "smoke_foreground", resume_at) as Dictionary
 	_expect_true(bool(resume_result.get("ok", false)), "resume_match_clock should succeed")
 	_expect_true(not bool(ops_state.get("match_clock_paused")), "clock should not remain paused after resume")
 	_expect_true(bool(ops_state.get("match_clock_running")), "clock should run after resume")
-	_expect_eq(int(ops_state.get("match_deadline_ms")), deadline_before_resume + pause_duration_ms, "resume should shift deadline by paused duration")
+	_expect_eq(int(ops_state.get("match_deadline_ms")), resume_at + remaining_at_pause, "resume should rebuild deadline from deterministic remaining time")
 	_expect_eq(int(ops_state.get("match_remaining_ms")), remaining_at_pause, "resume should preserve frozen remaining time")
 	_expect_eq(int(ops_state.get("match_elapsed_ms")), elapsed_at_pause, "resume should preserve frozen elapsed time")
 	_expect_eq(int(ops_state.get("match_clock_pause_accumulated_ms")), pause_duration_ms, "pause duration should accumulate")
