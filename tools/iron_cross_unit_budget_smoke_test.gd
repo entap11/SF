@@ -5,11 +5,11 @@ const IRON_CROSS_MAP := "res://maps/_future/iron_cross/MAP_iron_cross__SBASE__4p
 
 func _init() -> void:
 	await process_frame
-	_test_iron_cross_all_lanes_obey_unit_budget()
+	_test_iron_cross_lane_pressure_can_exceed_former_budget()
 	print("IRON_CROSS_UNIT_BUDGET_SMOKE: PASS")
 	quit(0)
 
-func _test_iron_cross_all_lanes_obey_unit_budget() -> void:
+func _test_iron_cross_lane_pressure_can_exceed_former_budget() -> void:
 	var loaded: Dictionary = MAP_LOADER.load_map(IRON_CROSS_MAP)
 	_assert_true(bool(loaded.get("ok", false)), "Iron Cross map should load")
 	var state := GameState.new()
@@ -28,6 +28,11 @@ func _test_iron_cross_all_lanes_obey_unit_budget() -> void:
 		lane_id += 1
 	state.rebuild_indexes()
 	_assert_true(not state.lanes.is_empty(), "Iron Cross should have generated lane candidates")
+	var lane: LaneData = state.lanes[0] as LaneData
+	lane.send_a = true
+	lane.send_b = false
+	var former_lane_cap: float = state.call("_lane_hard_cap_units", 99999.0)
+	lane.a_pressure = former_lane_cap
 
 	for hive_any in state.hives:
 		var hive: HiveData = hive_any as HiveData
@@ -38,15 +43,10 @@ func _test_iron_cross_all_lanes_obey_unit_budget() -> void:
 	unit_system.bind_state(state)
 	unit_system.use_lane_system_spawns = true
 
-	for _i in range(180):
-		state.tick_lane_flow(100.0)
-		unit_system.tick(0.1)
-
-	for lane_any in state.lanes:
-		var lane: LaneData = lane_any as LaneData
-		var lane_cap: float = state.call("_lane_hard_cap_units", 99999.0)
-		_assert_true(float(lane.a_pressure) <= lane_cap, "A-side lane pressure should obey hard cap")
-		_assert_true(float(lane.b_pressure) <= lane_cap, "B-side lane pressure should obey hard cap")
+	state.tick_lane_flow(5000.0)
+	var units: Array = unit_system.export_units_render()
+	_assert_true(not units.is_empty(), "Iron Cross should spawn above the former lane pressure budget")
+	_assert_true(float(lane.a_pressure) > former_lane_cap, "Iron Cross lane pressure should exceed the former hard cap")
 
 func _assert_true(value: bool, label: String) -> void:
 	if value:

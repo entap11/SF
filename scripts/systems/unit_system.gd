@@ -16,23 +16,20 @@ const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const BASE_MS := SimTuning.BASE_SPAWN_MS
 const PER_POWER_MS := SimTuning.PER_POWER_MS
 const MIN_MS := SimTuning.MIN_SPAWN_MS
+const MAX_ACTIVE_UNITS := 400
 const MAX_SPAWNS_PER_TICK := 5
 const ENABLE_MAX_SPAWNS_PER_TICK := false
-const ENABLE_LANE_HARD_CAP := true
+const ENABLE_LANE_HARD_CAP := false
 const ENABLE_LANE_ESTABLISH_SPAWN_GATE := false
 const ENABLE_SPAWN_SOURCE_FILTER := false
-const ENABLE_PASS_THROUGH_RATE_THROTTLE := true
-const ENABLE_PASS_THROUGH_PIPELINE_CAP := true
+const ENABLE_PASS_THROUGH_RATE_THROTTLE := false
+const ENABLE_PASS_THROUGH_PIPELINE_CAP := false
 const ENABLE_PASS_THROUGH_POWER_GATE := true
-const ENABLE_PASS_THROUGH_EMIT_RATE_CAP := true
+const ENABLE_PASS_THROUGH_EMIT_RATE_CAP := false
 const UNIT_RADIUS_PX := 24.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
-const PASS_THROUGH_VISIBLE_UNITS_SOFT_CAP: int = 200
-const PASS_THROUGH_VISIBLE_UNITS_HARD_CAP: int = 230
-const PASS_THROUGH_THROTTLE_SOFT_MULT: float = 0.9
-const PASS_THROUGH_THROTTLE_HARD_MULT: float = 0.8
 const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 
@@ -205,6 +202,9 @@ func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive:
 	var lane_cap := _lane_hard_cap_units(_lane_length(lane))
 	var spawned := 0
 	while accum >= interval_ms and (not ENABLE_MAX_SPAWNS_PER_TICK or spawned < MAX_SPAWNS_PER_TICK):
+		if not can_accept_unit():
+			accum = minf(accum, interval_ms)
+			break
 		var pressure := _lane_side_pressure(lane, from_is_a)
 		if ENABLE_LANE_HARD_CAP and pressure >= float(lane_cap):
 			accum = minf(accum, interval_ms)
@@ -218,17 +218,19 @@ func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive:
 			)
 			break
 		accum -= interval_ms
-		_spawn_unit(from_hive, to_hive, lane, from_is_a)
+		if not _spawn_unit(from_hive, to_hive, lane, from_is_a):
+			accum = minf(accum + interval_ms, interval_ms)
+			break
 		spawned += 1
 	spawn_accum_by_lane[key] = accum
 
-func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is_a: bool) -> void:
+func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is_a: bool) -> bool:
 	if state == null:
-		return
+		return false
 	var a_hive: HiveData = state.find_hive_by_id(int(lane.a_id))
 	var b_hive: HiveData = state.find_hive_by_id(int(lane.b_id))
 	if a_hive == null or b_hive == null:
-		return
+		return false
 	_log_unit_gate_open_once(
 		int(lane.id),
 		int(from_hive.id),
@@ -237,7 +239,9 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 	)
 	var edge_points := _edge_points(a_hive, b_hive, int(lane.id))
 	if edge_points.is_empty():
-		return
+		return false
+	if not can_accept_unit():
+		return false
 	var unit_id := unit_id_counter
 	var a_pos: Vector2 = edge_points[0]
 	var b_pos: Vector2 = edge_points[1]
@@ -276,10 +280,11 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		unit["t"] = 1.0 if from_is_a else 0.0
 		unit["pos"] = b_pos if from_is_a else a_pos
 		_apply_unit_arrival(unit)
-		return
+		return true
 	_adjust_lane_pressure(int(lane.id), from_is_a, 1)
 	units.append(unit)
 	_sync_units_to_state()
+	return true
 
 func _update_units(dt: float) -> void:
 	if units.is_empty():
@@ -872,12 +877,12 @@ func _pass_through_targets(hive: HiveData) -> Array:
 		return outgoing
 	return preferred
 
-func _spawn_pass_through_unit(hive: HiveData, owner_id: int, target_id: int, lane_id: int) -> void:
+func _spawn_pass_through_unit(hive: HiveData, owner_id: int, target_id: int, lane_id: int) -> bool:
 	if hive == null or owner_id <= 0 or target_id <= 0 or lane_id <= 0:
-		return
+		return false
 	var lane: LaneData = _find_lane_by_id(lane_id)
 	if lane == null:
-		return
+		return false
 	var a_id: int = int(lane.a_id)
 	var b_id: int = int(lane.b_id)
 	var from_id: int = int(hive.id)
@@ -887,7 +892,7 @@ func _spawn_pass_through_unit(hive: HiveData, owner_id: int, target_id: int, lan
 	elif from_id == b_id and target_id == a_id:
 		dir = -1
 	else:
-		return
+		return false
 	var pass_unit: Dictionary = {
 		"from_id": from_id,
 		"to_id": target_id,
@@ -899,7 +904,7 @@ func _spawn_pass_through_unit(hive: HiveData, owner_id: int, target_id: int, lan
 		"dir": dir,
 		"arrive_source": "pass_through"
 	}
-	spawn_unit(pass_unit)
+	return spawn_unit(pass_unit)
 
 func _drain_pass_through_queues(dt: float) -> void:
 	if state == null or _pass_through_queue_by_key.is_empty():
@@ -931,6 +936,9 @@ func _drain_pass_through_queues(dt: float) -> void:
 			continue
 		var emit_rate: float = _pass_through_emit_rate_units_per_sec(hive)
 		var emit_accum_ms: float = float(_pass_through_emit_accum_ms_by_key.get(key, 0.0))
+		if not can_accept_unit():
+			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
+			continue
 		var releasable_by_rate: int = queued
 		if ENABLE_PASS_THROUGH_EMIT_RATE_CAP:
 			emit_accum_ms += dt_ms
@@ -956,8 +964,9 @@ func _drain_pass_through_queues(dt: float) -> void:
 			var target: Dictionary = target_any as Dictionary
 			var target_id: int = int(target.get("target_id", -1))
 			var lane_id: int = int(target.get("lane_id", -1))
+			if not _spawn_pass_through_unit(hive, owner_id, target_id, lane_id):
+				break
 			hive.pass_rr_index += 1
-			_spawn_pass_through_unit(hive, owner_id, target_id, lane_id)
 			released += 1
 		if released <= 0:
 			_pass_through_emit_accum_ms_by_key[key] = emit_accum_ms
@@ -992,17 +1001,13 @@ func _pass_through_emit_rate_units_per_sec(hive: HiveData) -> float:
 	return maxf(0.0, single_rate * _pass_through_emit_rate_multiplier())
 
 func _pass_through_emit_rate_multiplier() -> float:
-	if not ENABLE_PASS_THROUGH_RATE_THROTTLE:
-		return 1.0
-	var visible_units: int = _visible_unit_count()
-	if visible_units <= PASS_THROUGH_VISIBLE_UNITS_SOFT_CAP:
-		return 1.0
-	if visible_units <= PASS_THROUGH_VISIBLE_UNITS_HARD_CAP:
-		return PASS_THROUGH_THROTTLE_SOFT_MULT
-	return PASS_THROUGH_THROTTLE_HARD_MULT
+	return 1.0
 
 func _visible_unit_count() -> int:
 	return maxi(0, units.size())
+
+func can_accept_unit() -> bool:
+	return MAX_ACTIVE_UNITS > 0 and units.size() < MAX_ACTIVE_UNITS
 
 func _pass_through_pipeline_cap_units(hive: HiveData, emit_rate_units_per_sec: float) -> int:
 	if hive == null or emit_rate_units_per_sec <= 0.0:
@@ -1471,9 +1476,9 @@ func _remove_unit(
 		return true
 	return false
 
-func spawn_unit(unit: Dictionary) -> void:
+func spawn_unit(unit: Dictionary) -> bool:
 	if state == null:
-		return
+		return false
 	var lane_id := int(unit.get("lane_id", -1))
 	if lane_id > 0 and ENABLE_LANE_ESTABLISH_SPAWN_GATE:
 		var established := false
@@ -1500,13 +1505,15 @@ func spawn_unit(unit: Dictionary) -> void:
 				"build",
 				build_t
 			)
-			return
+			return false
 		_log_unit_gate_open_once(
 			lane_id,
 			int(unit.get("from_id", -1)),
 			int(unit.get("to_id", -1)),
 			build_t
 		)
+	if not can_accept_unit():
+		return false
 	if not unit.has("id") or int(unit.get("id", 0)) <= 0:
 		unit["id"] = _next_external_unit_id
 		_next_external_unit_id += 1
@@ -1525,6 +1532,7 @@ func spawn_unit(unit: Dictionary) -> void:
 	_telemetry_record_unit_produced(int(unit.get("owner_id", 0)), int(unit.get("amount", 1)), production_source)
 	units.append(unit)
 	_sync_units_to_state()
+	return true
 
 func _telemetry_match_ms() -> int:
 	return maxi(0, int(round(float(sim_time_us) / 1000.0)))

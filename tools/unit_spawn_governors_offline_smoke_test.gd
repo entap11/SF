@@ -2,9 +2,11 @@ extends SceneTree
 
 func _init() -> void:
 	await process_frame
-	_test_lane_flow_governors_offline()
-	_test_unit_system_governors_offline()
+	_test_lane_flow_allows_spawn_above_former_hard_cap()
+	_test_unit_system_allows_spawn_above_former_hard_cap()
 	_test_pass_through_governors_offline()
+	_test_active_unit_cap_blocks_until_unit_frees()
+	_test_lane_flow_waits_for_unit_capacity()
 	_test_friendly_arrivals_absorb_below_max_power()
 	_test_friendly_arrival_that_maxes_hive_does_not_pass_through()
 	_test_shocked_hive_absorbs_friendly_arrivals_without_power()
@@ -12,27 +14,17 @@ func _init() -> void:
 	print("UNIT_SPAWN_GOVERNORS_OFFLINE_SMOKE: PASS")
 	quit(0)
 
-func _test_lane_flow_governors_offline() -> void:
+func _test_lane_flow_allows_spawn_above_former_hard_cap() -> void:
 	var state := _state_with_hostile_lane_conditions()
 	var unit_system := UnitSystem.new()
 	unit_system.bind_state(state)
 	unit_system.use_lane_system_spawns = true
-	state.hive_spawn_block_until_us[1] = 999999999
 	state.tick_lane_flow(5000.0)
 	var units: Array = unit_system.export_units_render()
-	_assert_true(units.is_empty(), "lane-flow spawn should stop when lane pressure is at the hard cap")
-	_assert_true(float((state.lanes[0] as LaneData).a_pressure) <= 999.0, "lane pressure should not increase past the hard cap")
+	_assert_true(not units.is_empty(), "lane-flow spawn should continue above the former lane pressure hard cap")
+	_assert_true(float((state.lanes[0] as LaneData).a_pressure) > 999.0, "lane-flow pressure should be allowed above the former hard cap")
 
-	state = _state_with_hostile_lane_conditions(0.0)
-	unit_system = UnitSystem.new()
-	unit_system.bind_state(state)
-	unit_system.use_lane_system_spawns = true
-	state.hive_spawn_block_until_us[1] = 999999999
-	state.tick_lane_flow(5000.0)
-	units = unit_system.export_units_render()
-	_assert_true(not units.is_empty(), "lane-flow spawn should still bypass build/shock governors below the lane cap")
-
-func _test_unit_system_governors_offline() -> void:
+func _test_unit_system_allows_spawn_above_former_hard_cap() -> void:
 	var state := _state_with_hostile_lane_conditions()
 	state.spawns = [{"hive_id": 99}]
 	var unit_system := UnitSystem.new()
@@ -40,16 +32,8 @@ func _test_unit_system_governors_offline() -> void:
 	unit_system.use_lane_system_spawns = false
 	unit_system.tick(1.5)
 	var units: Array = unit_system.export_units_render()
-	_assert_true(units.is_empty(), "unit-system spawn should stop when lane pressure is at the hard cap")
-
-	state = _state_with_hostile_lane_conditions(0.0)
-	state.spawns = [{"hive_id": 99}]
-	unit_system = UnitSystem.new()
-	unit_system.bind_state(state)
-	unit_system.use_lane_system_spawns = false
-	unit_system.tick(1.5)
-	units = unit_system.export_units_render()
-	_assert_true(not units.is_empty(), "unit-system spawn should still bypass source/build/per-tick governors below the lane cap")
+	_assert_true(not units.is_empty(), "unit-system spawn should continue above the former lane pressure hard cap")
+	_assert_true(float((state.lanes[0] as LaneData).a_pressure) > 999.0, "unit-system pressure should be allowed above the former hard cap")
 
 func _test_pass_through_governors_offline() -> void:
 	var state := GameState.new()
@@ -58,7 +42,44 @@ func _test_pass_through_governors_offline() -> void:
 	for i in range(300):
 		unit_system.units.append({"id": i + 1})
 	var multiplier: float = float(unit_system.call("_pass_through_emit_rate_multiplier"))
-	_assert_true(is_equal_approx(multiplier, 0.8), "pass-through rate multiplier should throttle under heavy visible-unit load")
+	_assert_true(is_equal_approx(multiplier, 1.0), "pass-through rate multiplier should not throttle under heavy visible-unit load")
+
+func _test_active_unit_cap_blocks_until_unit_frees() -> void:
+	var state := GameState.new()
+	var unit_system := UnitSystem.new()
+	unit_system.bind_state(state)
+	for i in range(200):
+		unit_system.units.append({"id": i + 1, "owner_id": 1, "amount": 1})
+	for i in range(200):
+		unit_system.units.append({"id": 201 + i, "owner_id": 2, "amount": 1})
+	var spawned_at_cap: bool = unit_system.spawn_unit({"owner_id": 2, "amount": 1})
+	_assert_true(not spawned_at_cap, "active unit cap should reject unit 401")
+	_assert_true(unit_system.units.size() == 400, "active unit cap should hold at 400 without recycling")
+	_assert_true(_unit_count_for_owner(unit_system, 1) == 200, "active unit cap should not remove owner 1 units")
+	_assert_true(_unit_count_for_owner(unit_system, 2) == 200, "active unit cap should not remove owner 2 units")
+	var removed: bool = bool(unit_system.call("_remove_unit", 1, "test_capacity_free"))
+	_assert_true(removed, "test should remove one unit to free capacity")
+	var spawned_after_free: bool = unit_system.spawn_unit({"owner_id": 2, "amount": 1})
+	_assert_true(spawned_after_free, "spawn should resume after a unit leaves the active game")
+	_assert_true(unit_system.units.size() == 400, "active unit cap should refill the freed slot only")
+	_assert_true(_unit_count_for_owner(unit_system, 1) == 199, "only the explicitly removed owner 1 unit should be gone")
+	_assert_true(_unit_count_for_owner(unit_system, 2) == 201, "owner 2 should receive the newly available slot")
+
+func _test_lane_flow_waits_for_unit_capacity() -> void:
+	var state := _state_with_hostile_lane_conditions(0.0)
+	var unit_system := UnitSystem.new()
+	unit_system.bind_state(state)
+	unit_system.use_lane_system_spawns = true
+	for i in range(400):
+		unit_system.units.append({"id": i + 1, "owner_id": 1 if i < 200 else 2, "amount": 1})
+	state.tick_lane_flow(5000.0)
+	_assert_true(unit_system.units.size() == 400, "lane-flow should not spawn while active unit cap is full")
+	_assert_true(is_equal_approx(float((state.lanes[0] as LaneData).a_pressure), 0.0), "lane-flow should not add phantom pressure while unit cap is full")
+	var removed: bool = bool(unit_system.call("_remove_unit", 1, "test_capacity_free"))
+	_assert_true(removed, "test should free one active unit for lane-flow")
+	state.tick_lane_flow(1.0)
+	_assert_true(unit_system.units.size() == 400, "lane-flow should use exactly one newly freed unit slot")
+	_assert_true(float((state.lanes[0] as LaneData).a_pressure) > 0.0, "lane-flow should resume once unit capacity is available")
 
 func _test_friendly_arrivals_absorb_below_max_power() -> void:
 	var state := GameState.new()
@@ -186,6 +207,14 @@ func _state_with_hostile_lane_conditions(starting_pressure: float = 999.0) -> Ga
 	]
 	state.rebuild_indexes()
 	return state
+
+func _unit_count_for_owner(unit_system: UnitSystem, owner_id: int) -> int:
+	var count: int = 0
+	for unit_any in unit_system.units:
+		var unit: Dictionary = unit_any as Dictionary
+		if int(unit.get("owner_id", 0)) == owner_id:
+			count += 1
+	return count
 
 func _assert_true(value: bool, label: String) -> void:
 	if value:

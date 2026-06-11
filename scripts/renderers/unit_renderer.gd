@@ -105,7 +105,7 @@ const DBG_VISUAL_SPEED: float = 0.35
 const AUDIT_RENDER: bool = false
 const PROCESS_HEARTBEAT_MS: int = 1000
 const USE_UNIT_POOL: bool = true
-const UNIT_POOL_SIZE_PER_TEAM: int = 64
+const UNIT_POOL_SIZE_TOTAL: int = 400
 const UNIT_POOL_OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
 const PRUNE_AFTER_TICKS: int = 2
 const PASS_THROUGH_VISUAL_WARM_PX: float = 7.0
@@ -163,6 +163,7 @@ var _diag_visual_phase_by_id: Dictionary = {}
 var _unit_pool: Array[Node2D] = []
 var _unit_in_use: Dictionary = {}
 var _pooled_nodes: Dictionary = {}
+var _unit_pool_built: bool = false
 var _pool_hits: int = 0
 var _pool_misses: int = 0
 var _pool_expansions: int = 0
@@ -376,9 +377,9 @@ func _pool_build() -> void:
 		return
 	if not USE_UNIT_POOL:
 		return
-	if not _unit_pool.is_empty():
+	if _unit_pool_built:
 		return
-	var total_nodes: int = UNIT_POOL_SIZE_PER_TEAM * 4
+	var total_nodes: int = UNIT_POOL_SIZE_TOTAL
 	for i in range(total_nodes):
 		var node: Node2D = _create_unit_render_node()
 		node.name = "UnitPool_%d" % i
@@ -390,6 +391,7 @@ func _pool_build() -> void:
 		add_child(node)
 		_unit_pool.append(node)
 		_pooled_nodes[node] = true
+	_unit_pool_built = true
 
 func _release_unit_pool_nodes() -> void:
 	for node_any in _unit_pool:
@@ -402,6 +404,7 @@ func _release_unit_pool_nodes() -> void:
 		if node != null and is_instance_valid(node):
 			node.queue_free()
 	_pooled_nodes.clear()
+	_unit_pool_built = false
 
 func _clear_bee_clip_state(unit_id: int) -> void:
 	_bee_clip_by_unit_id.erase(unit_id)
@@ -429,14 +432,6 @@ func _pool_acquire() -> Node2D:
 	_pool_build()
 	if _unit_pool.is_empty():
 		_pool_misses += 1
-		_pool_expansions += 1
-		var node_extra: Node2D = _create_unit_render_node()
-		node_extra.name = "UnitPool_Extra"
-		add_child(node_extra)
-		if not _assert_not_freed(node_extra):
-			return null
-		_pool_release(node_extra)
-	if _unit_pool.is_empty():
 		return null
 	_pool_hits += 1
 	_runtime_instantiates_avoided += 1

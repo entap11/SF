@@ -21,7 +21,7 @@ const LANE_OCCLUSION_STABLE_HIVE_POWER := 0
 const LANE_TRAVEL_SPEED_PX_S := SimTuning.UNIT_SPEED_PX_PER_SEC
 const LANE_LEN_LOG_INTERVAL_MS := 1000
 const SPAWN_BLOCK_LOG_INTERVAL_MS := 1000
-const ENABLE_LANE_HARD_CAP := true
+const ENABLE_LANE_HARD_CAP := false
 const ENABLE_LANE_ESTABLISH_SPAWN_GATE := false
 const ENABLE_HIVE_SPAWN_SHOCK_BLOCK := false
 const ENABLE_OUTGOING_LANE_BUDGET := true
@@ -1323,6 +1323,9 @@ func _accumulate_lane_pressure(
 					var lane_cap_a: float = _lane_hard_cap_units(lane_len)
 					var spawned_any := false
 					while lane.spawn_accum_a_ms >= spawn_ms:
+						if not _unit_system_has_unit_capacity():
+							lane.spawn_accum_a_ms = minf(lane.spawn_accum_a_ms, spawn_ms)
+							break
 						if ENABLE_LANE_HARD_CAP and lane.a_pressure >= lane_cap_a:
 							lane.spawn_accum_a_ms = minf(lane.spawn_accum_a_ms, spawn_ms)
 							_log_spawn_block(lane, "A", "LANE_CAP")
@@ -1367,6 +1370,9 @@ func _accumulate_lane_pressure(
 					var lane_cap_b: float = _lane_hard_cap_units(lane_len)
 					var spawned_any := false
 					while lane.spawn_accum_b_ms >= spawn_ms:
+						if not _unit_system_has_unit_capacity():
+							lane.spawn_accum_b_ms = minf(lane.spawn_accum_b_ms, spawn_ms)
+							break
 						if ENABLE_LANE_HARD_CAP and lane.b_pressure >= lane_cap_b:
 							lane.spawn_accum_b_ms = minf(lane.spawn_accum_b_ms, spawn_ms)
 							_log_spawn_block(lane, "B", "LANE_CAP")
@@ -1416,9 +1422,9 @@ func _log_spawn_block(lane: LaneData, side: String, reason: String) -> void:
 			"reason": reason
 		}, 250)
 
-func _spawn_unit_packet(lane: LaneData, from_hive: HiveData, to_hive: HiveData, from_is_a: bool) -> void:
+func _spawn_unit_packet(lane: LaneData, from_hive: HiveData, to_hive: HiveData, from_is_a: bool) -> bool:
 	if unit_system == null:
-		return
+		return false
 	var side := "A" if from_is_a else "B"
 	var unit: Dictionary = {
 		"from_id": int(from_hive.id),
@@ -1437,7 +1443,16 @@ func _spawn_unit_packet(lane: LaneData, from_hive: HiveData, to_hive: HiveData, 
 			"amount": int(unit.get("amount", 1)),
 			"owner_id": int(from_hive.owner_id)
 		}, 250)
-	unit_system.spawn_unit(unit)
+	return bool(unit_system.spawn_unit(unit))
+
+func _unit_system_has_unit_capacity() -> bool:
+	if unit_system == null:
+		return true
+	if not unit_system.use_lane_system_spawns:
+		return true
+	if unit_system.has_method("can_accept_unit"):
+		return bool(unit_system.call("can_accept_unit"))
+	return true
 
 func _lane_hard_cap_units(lane_len: float) -> float:
 	var px_per_unit: float = maxf(1.0, float(SimTuning.LANE_HARD_CAP_PX_PER_UNIT))

@@ -48,6 +48,24 @@ func _initialize() -> void:
 	var telemetry: Dictionary = telemetry_any as Dictionary if typeof(telemetry_any) == TYPE_DICTIONARY else {}
 	_assert_true(int(telemetry.get("pool_hits", 0)) >= 2, "pool telemetry should count hits")
 	_assert_true(int(telemetry.get("runtime_instantiates_avoided", 0)) >= 2, "pool telemetry should count avoided runtime instantiates")
+	_assert_true(int(telemetry.get("total_pooled_objects", 0)) == 400, "hard pool should contain exactly 400 nodes")
+
+	var held_nodes: Array[Node2D] = []
+	for i in range(400):
+		var pooled_any: Variant = renderer.call("_pool_acquire")
+		var pooled_node: Node2D = pooled_any as Node2D
+		_assert_true(pooled_node != null, "hard pool should provide prewarmed node %d" % i)
+		if pooled_node == null:
+			quit(1)
+			return
+		held_nodes.append(pooled_node)
+	var exhausted_any: Variant = renderer.call("_pool_acquire")
+	_assert_true(exhausted_any == null, "hard pool should not expand past 400 nodes")
+	telemetry_any = renderer.call("get_pool_telemetry_snapshot")
+	telemetry = telemetry_any as Dictionary if typeof(telemetry_any) == TYPE_DICTIONARY else {}
+	_assert_true(int(telemetry.get("pool_expansions", -1)) == 0, "hard pool should report zero expansions")
+	for held in held_nodes:
+		renderer.call("_pool_release", held)
 	root_node.queue_free()
 	print("UNIT_VISUAL_POOL_SMOKE: PASS")
 	quit(0)
