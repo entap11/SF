@@ -10,61 +10,61 @@ var _failed: bool = false
 
 func _initialize() -> void:
 	await process_frame
-	_test_contested_front_tracks_last_impact()
-	_test_contested_front_respects_hive_buffer()
-	_test_unit_collision_records_visual_impact()
+	_test_contested_front_stays_static_midpoint()
+	_test_static_front_ignores_hive_buffer_clamp()
+	_test_unit_collision_keeps_static_visual_front()
 	if _failed:
 		quit(1)
 		return
-	print("LANE_DYNAMIC_FRONT_SMOKE: PASS")
+	print("LANE_STATIC_FRONT_SMOKE: PASS")
 	quit(0)
 
-func _test_contested_front_tracks_last_impact() -> void:
+func _test_contested_front_stays_static_midpoint() -> void:
 	var lane: LaneData = _make_lane(12.0, 4.0)
 	var lane_system: LaneSystem = _make_lane_system(lane)
 	_set_ops_running()
 	_set_front(lane.id, 0.5)
 	lane.last_impact_f = 0.65
 	lane_system.tick_lane_fronts(1.0)
-	_assert_near(_front(lane.id), 0.65, 0.001, "contested front should move to latest impact toward B")
+	_assert_near(_front(lane.id), 0.5, 0.001, "contested front should stay at static midpoint")
 
 	lane.a_pressure = 4.0
 	lane.b_pressure = 12.0
 	_set_front(lane.id, 0.5)
 	lane.last_impact_f = 0.35
 	lane_system.tick_lane_fronts(1.0)
-	_assert_near(_front(lane.id), 0.35, 0.001, "contested front should move to latest impact toward A")
+	_assert_near(_front(lane.id), 0.5, 0.001, "opposite pressure should not move static front")
 
 	lane.a_pressure = 5.0
 	lane.b_pressure = 5.0
 	_set_front(lane.id, 0.35)
 	lane.last_impact_f = 0.35
 	lane_system.tick_lane_fronts(1.0)
-	_assert_near(_front(lane.id), 0.35, 0.001, "equal pressure should not reset latest impact to midpoint")
+	_assert_near(_front(lane.id), 0.5, 0.001, "static front should restore midpoint if old state drifted")
 	lane_system.free()
 
-func _test_contested_front_respects_hive_buffer() -> void:
+func _test_static_front_ignores_hive_buffer_clamp() -> void:
 	var lane: LaneData = _make_lane(100.0, 1.0)
 	var lane_system: LaneSystem = _make_lane_system(lane)
 	_set_ops_running()
 	_set_front(lane.id, 0.5)
 	lane.last_impact_f = 0.95
 	lane_system.tick_lane_fronts(1.0)
-	_assert_near(_front(lane.id), 0.6875, 0.001, "opposed front should clamp to 80px buffer on a 256px lane")
+	_assert_near(_front(lane.id), 0.5, 0.001, "static front should ignore dynamic buffer target")
 	lane_system.free()
 
-func _test_unit_collision_records_visual_impact() -> void:
+func _test_unit_collision_keeps_static_visual_front() -> void:
 	var lane: LaneData = _make_lane(1.0, 1.0)
 	var state: GameState = _make_state(lane)
 	var unit_system = UnitSystemScript.new()
 	unit_system.bind_state(state)
 	unit_system.call("_record_lane_visual_impact", lane.id, 0.68)
-	_assert_near(lane.last_impact_f, 0.68, 0.001, "unit impact should update lane visual impact")
-	_assert_near(_front(lane.id), 0.68, 0.001, "unit impact should update visible front")
+	_assert_near(lane.last_impact_f, 0.5, 0.001, "unit impact should not move static lane visual impact")
+	_assert_near(_front(lane.id), 0.5, 0.001, "unit impact should keep visible front static")
 	var lane_system: LaneSystem = _make_lane_system(lane)
 	_set_ops_running()
 	lane_system.tick_lane_fronts(1.0)
-	_assert_near(_front(lane.id), 0.68, 0.001, "contested front should hold latest impact between collisions")
+	_assert_near(_front(lane.id), 0.5, 0.001, "contested front should remain static between collisions")
 	lane_system.free()
 
 func _make_lane(a_pressure: float, b_pressure: float) -> LaneData:
@@ -105,4 +105,4 @@ func _assert_near(actual: float, expected: float, tolerance: float, message: Str
 	if absf(actual - expected) <= tolerance:
 		return
 	_failed = true
-	push_error("LANE_DYNAMIC_FRONT_SMOKE: %s expected %.3f got %.3f" % [message, expected, actual])
+	push_error("LANE_STATIC_FRONT_SMOKE: %s expected %.3f got %.3f" % [message, expected, actual])

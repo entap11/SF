@@ -23,6 +23,8 @@ const FALLBACK_AUTH_COMMAND_LEAD_TICKS: int = 6
 const COMMAND_LATE_TOLERANCE_TICKS: int = 8
 const HASH_INTERVAL_TICKS: int = 5
 const HASH_RETENTION_TICKS: int = 180
+const HASH_MISMATCH_RECOVERY_THRESHOLD: int = 3
+const HASH_STARTUP_GRACE_TICKS: int = 30
 const DEBUG_EVENT_LIMIT: int = 10
 const RECOVERY_STATE_RUNNING: String = "running"
 const RECOVERY_STATE_WAITING_FOR_PEER: String = "waiting_for_peer"
@@ -83,6 +85,12 @@ var _contract_late_scheduled_commands: int = 0
 var _contract_buffered_lagging_commands: int = 0
 var _contract_state_hash_mismatches: int = 0
 var _contract_last_violation_reason: String = ""
+var _hash_mismatch_consecutive_count: int = 0
+var _hash_mismatch_first_tick: int = -1
+var _hash_mismatch_last_tick: int = -1
+var _hash_mismatch_first_ms: int = 0
+var _hash_mismatch_last_ms: int = 0
+var _hash_mismatch_last_details: Dictionary = {}
 var _peer_desync_or_lagging: bool = false
 var _peer_desync_or_lagging_reason: String = ""
 var _peer_desync_or_lagging_details: Dictionary = {}
@@ -98,6 +106,7 @@ var _accepted_command_log: Array[Dictionary] = []
 var _debug_event_log: Array[Dictionary] = []
 var _last_debug_event: Dictionary = {}
 var _desync_event_before_divergence: Dictionary = {}
+var _last_publish_result: Dictionary = {}
 var _runtime_telemetry_log_path: String = ""
 var _runtime_telemetry_log_started: bool = false
 var _runtime_telemetry_last_sample_ms: int = 0
@@ -129,6 +138,13 @@ func clear() -> void:
 	_debug_event_log.clear()
 	_last_debug_event = {}
 	_desync_event_before_divergence = {}
+	_last_publish_result = {}
+	_hash_mismatch_consecutive_count = 0
+	_hash_mismatch_first_tick = -1
+	_hash_mismatch_last_tick = -1
+	_hash_mismatch_first_ms = 0
+	_hash_mismatch_last_ms = 0
+	_hash_mismatch_last_details = {}
 	_peer_desync_or_lagging = false
 	_peer_desync_or_lagging_reason = ""
 	_peer_desync_or_lagging_details = {}
@@ -239,8 +255,10 @@ func get_debug_snapshot() -> Dictionary:
 		"pending_commands": _pending_remote_commands.size(),
 		"events": get_debug_event_log(),
 		"last_event": get_last_debug_event(),
-		"desync": _contract_state_hash_mismatches > 0,
+		"desync": _peer_desync_or_lagging or _recovery_state != RECOVERY_STATE_RUNNING,
 		"desync_event_before_divergence": _desync_event_before_divergence.duplicate(true),
+		"hash_mismatch_consecutive_count": _hash_mismatch_consecutive_count,
+		"hash_mismatch_last_details": _hash_mismatch_last_details.duplicate(true),
 		"peer_desync_or_lagging": _peer_desync_or_lagging,
 		"peer_desync_or_lagging_reason": _peer_desync_or_lagging_reason,
 		"peer_desync_or_lagging_details": _peer_desync_or_lagging_details.duplicate(true),
@@ -253,6 +271,7 @@ func get_debug_snapshot() -> Dictionary:
 		"runtime_telemetry_log_path": _runtime_telemetry_log_path,
 		"last_rtt_ms": snappedf(_last_rtt_ms, 0.1),
 		"rtt_ema_ms": snappedf(_rtt_ema_ms, 0.1),
+		"last_publish_result": _last_publish_result.duplicate(true),
 		"last_contract_violation": _last_contract_violation.duplicate(true),
 		"diagnostics": _contract_diagnostics_snapshot()
 	}
@@ -308,10 +327,9 @@ func consume_remote_commands(target_tick: int = -1) -> Array:
 			if execute_tick < target_tick:
 				var late_delta: int = target_tick - execute_tick
 				if late_delta > COMMAND_LATE_TOLERANCE_TICKS:
-					_buffer_lagging_command(command, target_tick, late_delta)
-					remaining.append(command)
-					continue
-				_record_late_scheduled_command(command, target_tick, late_delta)
+					_record_late_scheduled_command(command, target_tick, late_delta, true)
+				else:
+					_record_late_scheduled_command(command, target_tick, late_delta, false)
 			out.append(command)
 		else:
 			remaining.append(command)
@@ -476,6 +494,25 @@ func record_debug_intent_applied(src_hive_id: int, dst_hive_id: int, intent: Str
 		"lane_id": int(lane_id)
 	})
 
+func record_stale_ownership_reject(details: Dictionary) -> void:
+	var payload: Dictionary = details.duplicate(true)
+	payload["recovery_state"] = _recovery_state
+	payload["last_mismatch_info"] = _hash_mismatch_last_details.duplicate(true)
+	_push_debug_event("stale_ownership_reject", payload)
+	_write_runtime_telemetry_event("stale_ownership_reject", payload)
+
+func _record_input_blocked_runtime_state(command: Dictionary) -> void:
+	var st: GameState = OpsState.get_state() if OpsState != null and OpsState.has_method("get_state") else null
+	var payload: Dictionary = command.duplicate(true)
+	payload["active"] = is_active()
+	payload["recovery_state"] = _recovery_state
+	payload["sim_tick"] = int(st.tick) if st != null else -1
+	payload["last_mismatch_info"] = _hash_mismatch_last_details.duplicate(true)
+	payload["last_recovery_reason"] = _peer_desync_or_lagging_reason
+	payload["last_publish_result"] = _last_publish_result.duplicate(true)
+	_push_debug_event("input_blocked_runtime_state", payload)
+	_write_runtime_telemetry_event("input_blocked_runtime_state", payload)
+
 func _handle_remote_state_hash(command: Dictionary) -> void:
 	var hash_tick: int = int(command.get("hash_tick", -1))
 	var state_hash: String = str(command.get("state_hash", "")).strip_edges()
@@ -486,12 +523,115 @@ func _handle_remote_state_hash(command: Dictionary) -> void:
 	_prune_hash_windows(hash_tick)
 	_compare_state_hash_if_ready(hash_tick)
 
+func _record_hash_match(hash_tick: int) -> void:
+	if _hash_mismatch_consecutive_count <= 0:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	var payload: Dictionary = _hash_mismatch_last_details.duplicate(true)
+	payload["healed_tick"] = int(hash_tick)
+	payload["healed_ms"] = now_ms
+	payload["duration_ticks"] = maxi(0, int(hash_tick) - _hash_mismatch_first_tick)
+	payload["duration_ms"] = maxi(0, now_ms - _hash_mismatch_first_ms)
+	payload["mismatched_samples"] = _hash_mismatch_consecutive_count
+	_push_debug_event("hash_mismatch_self_healed", payload)
+	_write_runtime_telemetry_event("hash_mismatch_self_healed", payload)
+	_reset_hash_mismatch_tracking()
+
+func _record_hash_mismatch(hash_tick: int, local_hash: String, remote_hash: String) -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	if _hash_mismatch_consecutive_count <= 0:
+		_hash_mismatch_first_tick = int(hash_tick)
+		_hash_mismatch_first_ms = now_ms
+	_hash_mismatch_consecutive_count += 1
+	_hash_mismatch_last_tick = int(hash_tick)
+	_hash_mismatch_last_ms = now_ms
+	_contract_state_hash_mismatches += 1
+	var payload: Dictionary = _hash_mismatch_payload(hash_tick, local_hash, remote_hash)
+	_hash_mismatch_last_details = payload.duplicate(true)
+	var in_startup_grace: bool = int(hash_tick) <= HASH_STARTUP_GRACE_TICKS
+	if in_startup_grace:
+		_push_debug_event("startup_hash_mismatch_grace", payload)
+		_write_runtime_telemetry_event("startup_hash_mismatch_grace", payload)
+		return
+	if _hash_mismatch_consecutive_count < HASH_MISMATCH_RECOVERY_THRESHOLD:
+		var event_type: String = "hash_mismatch_warning" if _hash_mismatch_consecutive_count >= 2 else "hash_mismatch_diagnostic"
+		_push_debug_event(event_type, payload)
+		_write_runtime_telemetry_event(event_type, payload)
+		return
+	_mark_peer_desync_or_lagging("state_hash_mismatch", payload)
+	_contract_violation("state_hash_mismatch", payload)
+
+func _reset_hash_mismatch_tracking() -> void:
+	_hash_mismatch_consecutive_count = 0
+	_hash_mismatch_first_tick = -1
+	_hash_mismatch_last_tick = -1
+	_hash_mismatch_first_ms = 0
+	_hash_mismatch_last_ms = 0
+	_hash_mismatch_last_details = {}
+
+func _hash_mismatch_payload(hash_tick: int, local_hash: String, remote_hash: String) -> Dictionary:
+	return {
+		"tick": int(hash_tick),
+		"local_hash": local_hash,
+		"remote_hash": remote_hash,
+		"peer_uid": _remote_uid,
+		"peer_seat": _remote_seat,
+		"recovery_state": _recovery_state,
+		"consecutive_count": _hash_mismatch_consecutive_count,
+		"threshold": HASH_MISMATCH_RECOVERY_THRESHOLD,
+		"startup_grace_ticks": HASH_STARTUP_GRACE_TICKS,
+		"in_startup_grace": int(hash_tick) <= HASH_STARTUP_GRACE_TICKS,
+		"first_mismatch_tick": _hash_mismatch_first_tick,
+		"last_mismatch_tick": _hash_mismatch_last_tick,
+		"duration_ticks": maxi(0, int(hash_tick) - _hash_mismatch_first_tick),
+		"duration_ms": maxi(0, Time.get_ticks_msec() - _hash_mismatch_first_ms),
+		"command_log": _command_log_edge_snapshot(),
+		"late_command_diagnostics": {
+			"missed": _contract_missed_scheduled_commands,
+			"late": _contract_late_scheduled_commands,
+			"buffered": _contract_buffered_lagging_commands,
+			"current_lead_ticks": _contract_current_command_lead_ticks,
+			"min_lead_ticks": -1 if _contract_min_command_lead_ticks == 2147483647 else _contract_min_command_lead_ticks
+		},
+		"last_event": _last_debug_event.duplicate(true)
+	}
+
+func _command_log_edge_snapshot() -> Dictionary:
+	var size: int = _accepted_command_log.size()
+	var head: Array = []
+	var tail: Array = []
+	var head_count: int = mini(3, size)
+	for i in range(head_count):
+		head.append(_command_log_summary(_accepted_command_log[i] as Dictionary))
+	var tail_start: int = maxi(head_count, size - 3)
+	for i in range(tail_start, size):
+		tail.append(_command_log_summary(_accepted_command_log[i] as Dictionary))
+	return {
+		"size": size,
+		"head": head,
+		"tail": tail
+	}
+
+func _command_log_summary(command: Dictionary) -> Dictionary:
+	return {
+		"command_id": str(command.get("command_id", "")),
+		"command_seq": int(command.get("command_seq", -1)),
+		"kind": str(command.get("kind", "")),
+		"issued_tick": int(command.get("issued_tick", -1)),
+		"execute_tick": int(command.get("execute_tick", -1)),
+		"sender_seat": int(command.get("sender_seat", 0)),
+		"src": int(command.get("src", command.get("from_id", command.get("barracks_id", -1)))),
+		"dst": int(command.get("dst", command.get("to_id", -1))),
+		"intent": str(command.get("intent", ""))
+	}
+
 func _compare_state_hash_if_ready(hash_tick: int) -> void:
 	if not _local_hash_by_tick.has(hash_tick) or not _remote_hash_by_tick.has(hash_tick):
 		return
 	var local_hash: String = str(_local_hash_by_tick.get(hash_tick, ""))
 	var remote_hash: String = str(_remote_hash_by_tick.get(hash_tick, ""))
 	if local_hash == remote_hash:
+		_record_hash_match(hash_tick)
 		_last_matching_checkpoint_tick = maxi(_last_matching_checkpoint_tick, int(hash_tick))
 		if _recovery_state == RECOVERY_STATE_WAITING_FOR_PEER:
 			_set_recovery_state(RECOVERY_STATE_RUNNING, "hashes_matched")
@@ -500,17 +640,7 @@ func _compare_state_hash_if_ready(hash_tick: int) -> void:
 			_peer_desync_or_lagging_details = {}
 		_prune_accepted_command_log()
 		return
-	_mark_peer_desync_or_lagging("state_hash_mismatch", {
-		"tick": hash_tick,
-		"local_hash": local_hash,
-		"remote_hash": remote_hash,
-		"last_event": _last_debug_event.duplicate(true)
-	})
-	_contract_violation("state_hash_mismatch", {
-		"tick": hash_tick,
-		"local_hash": local_hash,
-		"remote_hash": remote_hash
-	})
+	_record_hash_mismatch(hash_tick, local_hash, remote_hash)
 
 func build_desync_recovery_plan() -> Dictionary:
 	if _recovery_state != RECOVERY_STATE_DESYNC_RECOVERY:
@@ -637,12 +767,11 @@ func record_local_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String
 	if not is_active():
 		return true
 	if not can_accept_gameplay_intents():
-		_push_debug_event("intent_blocked_recovery_state", {
+		_record_input_blocked_runtime_state({
 			"kind": "lane_intent",
 			"src": int(src_hive_id),
 			"dst": int(dst_hive_id),
-			"intent": str(intent),
-			"recovery_state": _recovery_state
+			"intent": str(intent)
 		})
 		return false
 	if src_owner_id != _local_seat:
@@ -664,11 +793,10 @@ func record_local_lane_retract(from_id: int, to_id: int, owner_id: int) -> bool:
 	if not is_active():
 		return true
 	if not can_accept_gameplay_intents():
-		_push_debug_event("intent_blocked_recovery_state", {
+		_record_input_blocked_runtime_state({
 			"kind": "lane_retract",
 			"from_id": int(from_id),
-			"to_id": int(to_id),
-			"recovery_state": _recovery_state
+			"to_id": int(to_id)
 		})
 		return false
 	if owner_id != _local_seat:
@@ -687,10 +815,9 @@ func record_local_barracks_route(barracks_id: int, route_hive_ids: Array, owner_
 	if not is_active():
 		return true
 	if not can_accept_gameplay_intents():
-		_push_debug_event("intent_blocked_recovery_state", {
+		_record_input_blocked_runtime_state({
 			"kind": "barracks_route",
-			"barracks_id": int(barracks_id),
-			"recovery_state": _recovery_state
+			"barracks_id": int(barracks_id)
 		})
 		return false
 	if owner_id != _local_seat:
@@ -722,6 +849,14 @@ func _publish_command(command: Dictionary) -> bool:
 
 func _handle_publish_result(command: Dictionary, result: Dictionary, t0_us: int) -> void:
 	_record_transport_result("publish", result, t0_us)
+	_last_publish_result = {
+		"ok": bool(result.get("ok", false)),
+		"err": str(result.get("err", "")),
+		"seq": int(result.get("seq", result.get("command_seq", -1))),
+		"kind": str(command.get("kind", "")),
+		"command_id": str(command.get("command_id", "")),
+		"tick_ms": Time.get_ticks_msec()
+	}
 	if not bool(result.get("ok", false)):
 		_write_runtime_telemetry_event("publish_failed", {
 			"command": _command_debug_payload(command, "publish_failed"),
@@ -909,7 +1044,6 @@ func _contract_violation(reason: String, payload: Dictionary) -> bool:
 	if reason == "command_missed_execute_tick":
 		_contract_missed_scheduled_commands += 1
 	elif reason == "state_hash_mismatch":
-		_contract_state_hash_mismatches += 1
 		if _desync_event_before_divergence.is_empty():
 			_desync_event_before_divergence = _last_debug_event.duplicate(true)
 	var report: Dictionary = {
@@ -961,6 +1095,12 @@ func _reset_contract_diagnostics() -> void:
 	_contract_state_hash_mismatches = 0
 	_contract_last_violation_reason = ""
 	_desync_event_before_divergence = {}
+	_hash_mismatch_consecutive_count = 0
+	_hash_mismatch_first_tick = -1
+	_hash_mismatch_last_tick = -1
+	_hash_mismatch_first_ms = 0
+	_hash_mismatch_last_ms = 0
+	_hash_mismatch_last_details = {}
 	_peer_desync_or_lagging = false
 	_peer_desync_or_lagging_reason = ""
 	_peer_desync_or_lagging_details = {}
@@ -990,7 +1130,7 @@ func _observe_command_lead(execute_tick: int, target_tick: int) -> void:
 	if _contract_min_command_lead_ticks == 2147483647 or lead_ticks < _contract_min_command_lead_ticks:
 		_contract_min_command_lead_ticks = lead_ticks
 
-func _record_late_scheduled_command(command: Dictionary, target_tick: int, late_delta: int) -> void:
+func _record_late_scheduled_command(command: Dictionary, target_tick: int, late_delta: int, outside_tolerance: bool = false) -> void:
 	_contract_missed_scheduled_commands += 1
 	_contract_late_scheduled_commands += 1
 	SFLog.allow_tag("VS_COMMAND_LATE_EXECUTE")
@@ -998,6 +1138,8 @@ func _record_late_scheduled_command(command: Dictionary, target_tick: int, late_
 	payload["received_tick"] = int(target_tick)
 	payload["applied_tick"] = int(target_tick)
 	payload["late_delta"] = int(late_delta)
+	payload["late_tolerance"] = COMMAND_LATE_TOLERANCE_TICKS
+	payload["outside_tolerance"] = bool(outside_tolerance)
 	SFLog.warn("VS_COMMAND_LATE_EXECUTE", payload)
 	_push_debug_event("late_scheduled_command", payload)
 	_update_runtime_telemetry()
@@ -1072,6 +1214,10 @@ func _contract_diagnostics_snapshot() -> Dictionary:
 		"contract_late_scheduled_commands": _contract_late_scheduled_commands,
 		"contract_buffered_lagging_commands": _contract_buffered_lagging_commands,
 		"contract_state_hash_mismatches": _contract_state_hash_mismatches,
+		"hash_mismatch_consecutive_count": _hash_mismatch_consecutive_count,
+		"hash_mismatch_threshold": HASH_MISMATCH_RECOVERY_THRESHOLD,
+		"hash_startup_grace_ticks": HASH_STARTUP_GRACE_TICKS,
+		"hash_mismatch_last_details": _hash_mismatch_last_details.duplicate(true),
 		"contract_violation_count": _contract_violation_count,
 		"contract_last_violation_reason": _contract_last_violation_reason,
 		"contract_report_path": _contract_diagnostic_log_path(),
@@ -1366,6 +1512,7 @@ func _update_runtime_telemetry() -> void:
 		"packet_dropped": _packet_dropped,
 		"publish_count": _publish_count,
 		"publish_fail_count": _publish_fail_count,
+		"last_publish_result": _last_publish_result.duplicate(true),
 		"poll_count": _poll_count,
 		"poll_fail_count": _poll_fail_count,
 		"intent_events_tx": _intent_events_tx,

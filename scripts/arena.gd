@@ -44,6 +44,8 @@ const GRID_DEBUG := false
 const RENDER_DEBUG := false
 const LANE_ESTABLISH_MS := 2400.0
 const UNIT_TRAVEL_MS := 4800.0
+const ENABLE_DYNAMIC_LANE_FRONTS := false
+const STATIC_LANE_FRONT_T := 0.5
 const SPAWN_BASE_MS := SimTuning.BASE_SPAWN_MS
 const SPAWN_PER_POWER_MS := SimTuning.PER_POWER_MS
 const SPAWN_MIN_MS := SimTuning.MIN_SPAWN_MS
@@ -1954,6 +1956,7 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 				if not (sender_seat == local_seat or sender_seat == remote_seat):
 					continue
 				if src_owner != sender_seat or sent_owner != src_owner:
+					_record_vs_stale_ownership_reject(cmd, "lane_intent", "source_owner_mismatch", src, sender_seat, src_owner)
 					continue
 				OpsState.with_remote_replication_apply(func() -> void:
 					OpsState.apply_lane_intent(src, dst, intent)
@@ -1975,6 +1978,7 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 				if not (sender_seat == local_seat or sender_seat == remote_seat):
 					continue
 				if owner_id != sender_seat or actual_owner != sender_seat:
+					_record_vs_stale_ownership_reject(cmd, "lane_retract", "source_owner_mismatch", from_id, sender_seat, actual_owner)
 					continue
 				OpsState.with_remote_replication_apply(func() -> void:
 					OpsState.retract_lane(from_id, to_id, owner_id)
@@ -1993,6 +1997,7 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 				if not (sender_seat == local_seat or sender_seat == remote_seat):
 					continue
 				if owner_for_route != sender_seat:
+					_record_vs_stale_ownership_reject(cmd, "barracks_route", "owner_mismatch", barracks_id, sender_seat, owner_for_route)
 					continue
 				OpsState.with_remote_replication_apply(func() -> void:
 					OpsState.request_barracks_route(barracks_id, route, owner_for_route)
@@ -2000,6 +2005,26 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 				mark_render_dirty("vs_scheduled_barracks_route")
 			_:
 				continue
+
+func _record_vs_stale_ownership_reject(command: Dictionary, kind: String, reason: String, source_id: int, expected_owner: int, actual_owner: int) -> void:
+	if _vs_pvp_runtime == null or not _vs_pvp_runtime.has_method("record_stale_ownership_reject"):
+		return
+	var st: GameState = OpsState.get_state() if OpsState != null else null
+	_vs_pvp_runtime.call("record_stale_ownership_reject", {
+		"kind": kind,
+		"reason": reason,
+		"issued_tick": int(command.get("issued_tick", -1)),
+		"execute_tick": int(command.get("execute_tick", -1)),
+		"arrival_tick": int(st.tick) if st != null else -1,
+		"apply_tick": int(st.tick) + 1 if st != null else -1,
+		"source_id": int(source_id),
+		"expected_owner": int(expected_owner),
+		"actual_owner": int(actual_owner),
+		"command_id": str(command.get("command_id", "")),
+		"command_seq": int(command.get("command_seq", -1)),
+		"sender_seat": int(command.get("sender_seat", 0)),
+		"sender_uid": str(command.get("sender_uid", ""))
+	})
 
 func _ensure_prematch_ui() -> void:
 	if _prematch_overlay != null and is_instance_valid(_prematch_overlay):
@@ -10836,6 +10861,8 @@ func record_lane_collision(lane_key: String, collision: Variant) -> void:
 		t = clamp((collision - a_pos).dot(ab) / len_sq, 0.0, 1.0)
 	else:
 		t = clamp(float(collision), 0.0, 1.0)
+	if not ENABLE_DYNAMIC_LANE_FRONTS:
+		t = STATIC_LANE_FRONT_T
 	lane_state["last_collision_t"] = t
 	lane_state["front_t"] = t
 	state.lane_sim_by_key[lane_key] = lane_state
@@ -10893,6 +10920,8 @@ func _collect_lane_collisions(remove_indices: Array[int], remove_set: Dictionary
 					remove_indices.append(b_idx)
 					remove_set[b_idx] = true
 				var impact_f: float = clamp((float(a_entry["pos"]) + float(b_entry["pos"])) * 0.5, 0.0, 1.0)
+				if not ENABLE_DYNAMIC_LANE_FRONTS:
+					impact_f = STATIC_LANE_FRONT_T
 				lane.last_impact_f = impact_f
 				record_lane_collision(lane_key, a_pos.lerp(b_pos, impact_f))
 				_spawn_debris_for_lane(lane, 0, impact_f)

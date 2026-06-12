@@ -10,7 +10,7 @@ func _init() -> void:
 	failed = _test_invalid_remote_command_trips_contract_guard() or failed
 	failed = _test_late_scheduled_command_delivers_and_updates_diagnostics() or failed
 	failed = _test_same_authoritative_command_log_hashes_match() or failed
-	failed = _test_state_hash_mismatch_trips_contract_guard() or failed
+	failed = _test_state_hash_mismatch_threshold_and_self_heal() or failed
 	failed = _test_desync_recovery_uses_snapshot_and_command_log() or failed
 	if not failed:
 		print("VS_SWARM_REPLICATION_SMOKE: PASS")
@@ -274,11 +274,11 @@ func _test_late_scheduled_command_delivers_and_updates_diagnostics() -> bool:
 	if runtime.has_method("clear"):
 		runtime.call("clear")
 	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
-	if _test_outside_tolerance_pauses_without_crash():
+	if _test_outside_tolerance_delivers_without_recovery():
 		return true
 	return false
 
-func _test_outside_tolerance_pauses_without_crash() -> bool:
+func _test_outside_tolerance_delivers_without_recovery() -> bool:
 	var root_node: Window = get_root()
 	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
 	if runtime == null:
@@ -320,17 +320,32 @@ func _test_outside_tolerance_pauses_without_crash() -> bool:
 		]
 	}, Time.get_ticks_usec(), 0)
 	var matured: Array = runtime.call("consume_remote_commands", 20) as Array
-	if not matured.is_empty():
-		return _fail("outside tolerance command should buffer instead of apply: %s" % str(matured))
+	if matured.is_empty():
+		return _fail("outside tolerance command should deliver late instead of blocking input")
 	var diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
-	if not bool(diag.get("peer_desync_or_lagging", false)):
-		return _fail("outside tolerance should set peer_desync_or_lagging: %s" % str(diag))
-	if int(diag.get("contract_buffered_lagging_commands", 0)) <= 0:
-		return _fail("outside tolerance should increment buffered diagnostics: %s" % str(diag))
+	if bool(diag.get("peer_desync_or_lagging", false)):
+		return _fail("outside tolerance command should not set peer_desync_or_lagging: %s" % str(diag))
+	if int(diag.get("contract_buffered_lagging_commands", 0)) != 0:
+		return _fail("outside tolerance command should not increment buffered diagnostics: %s" % str(diag))
+	if int(diag.get("contract_late_scheduled_commands", 0)) <= 0:
+		return _fail("outside tolerance command should increment late diagnostics: %s" % str(diag))
 	if int(runtime.call("get_contract_violation_count")) != 0:
 		return _fail("outside tolerance should not be an app-crash contract violation")
-	if str(diag.get("recovery_state", "")) != "waiting_for_peer":
-		return _fail("outside tolerance should enter waiting_for_peer recovery state: %s" % str(diag))
+	if str(diag.get("recovery_state", "")) != "running":
+		return _fail("outside tolerance should keep recovery state running: %s" % str(diag))
+	if not bool(runtime.call("can_accept_gameplay_intents")):
+		return _fail("outside tolerance should keep gameplay intents enabled: %s" % str(diag))
+	runtime.set("_local_hash_by_tick", {35: "late_local_hash", 40: "late_healed_hash"})
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("lag_guest", 2, 35, "late_remote_hash"), Time.get_ticks_usec(), 1)
+	diag = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if str(diag.get("recovery_state", "")) != "running":
+		return _fail("late command followed by temporary hash mismatch should not enter recovery: %s" % str(diag))
+	if not bool(runtime.call("can_accept_gameplay_intents")):
+		return _fail("late command followed by temporary hash mismatch should keep gameplay intents enabled")
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("lag_guest", 3, 40, "late_healed_hash"), Time.get_ticks_usec(), 2)
+	diag = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if int(diag.get("hash_mismatch_consecutive_count", -1)) != 0:
+		return _fail("temporary hash mismatch after late command should self-heal: %s" % str(diag))
 	if runtime.has_method("clear"):
 		runtime.call("clear")
 	return false
@@ -430,7 +445,7 @@ func _apply_authoritative_command_log(ops_state: Node, map_dict: Dictionary, com
 		"hive_1_power": int((state.find_hive_by_id(1) as HiveData).power)
 	}
 
-func _test_state_hash_mismatch_trips_contract_guard() -> bool:
+func _test_state_hash_mismatch_threshold_and_self_heal() -> bool:
 	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
 	var root_node: Window = get_root()
 	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
@@ -446,40 +461,73 @@ func _test_state_hash_mismatch_trips_contract_guard() -> bool:
 		{"uid": "hash_host", "seat": 1, "active": true},
 		{"uid": "hash_guest", "seat": 2, "active": true}
 	])
-	runtime.set("_local_hash_by_tick", {5: "local_hash"})
+	runtime.set("_local_hash_by_tick", {35: "local_hash_35", 40: "local_hash_40", 45: "local_hash_45"})
 	var before_count: int = int(runtime.call("get_contract_violation_count"))
-	runtime.call("_handle_remote_intent_poll_result", {
-		"ok": true,
-		"latest_seq": 1,
-		"events": [
-			{
-				"seq": 1,
-				"uid": "hash_guest",
-				"command": {
-					"kind": "state_hash",
-					"contract_version": 1,
-					"issued_ms": Time.get_ticks_msec(),
-					"issued_tick": 5,
-					"execute_tick": 8,
-					"issued_sim_us": 500000,
-					"sender_seat": 2,
-					"sender_uid": "hash_guest",
-					"hash_tick": 5,
-					"state_hash": "remote_hash"
-				}
-			}
-		]
-	}, Time.get_ticks_usec(), 0)
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("hash_guest", 1, 35, "remote_hash_35"), Time.get_ticks_usec(), 0)
+	var diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if str(diag.get("recovery_state", "")) != "running":
+		return _fail("single state hash mismatch should not enter recovery: %s" % str(diag))
+	if int(diag.get("hash_mismatch_consecutive_count", 0)) != 1:
+		return _fail("single state hash mismatch should increment consecutive count: %s" % str(diag))
+	if int(runtime.call("get_contract_violation_count")) != before_count:
+		return _fail("single state hash mismatch should not trip contract guard")
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("hash_guest", 2, 40, "remote_hash_40"), Time.get_ticks_usec(), 1)
+	diag = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if str(diag.get("recovery_state", "")) != "running":
+		return _fail("two state hash mismatches should not enter recovery: %s" % str(diag))
+	if int(diag.get("hash_mismatch_consecutive_count", 0)) != 2:
+		return _fail("two state hash mismatches should keep consecutive count at two: %s" % str(diag))
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("hash_guest", 3, 45, "remote_hash_45"), Time.get_ticks_usec(), 2)
 	var after_count: int = int(runtime.call("get_contract_violation_count"))
 	if after_count <= before_count:
-		return _fail("state hash mismatch did not trip contract guard")
-	var diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
-	if int(diag.get("contract_state_hash_mismatches", 0)) <= 0:
-		return _fail("state hash mismatch should increment diagnostics: %s" % str(diag))
+		return _fail("third persistent state hash mismatch should trip contract guard")
+	diag = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if int(diag.get("contract_state_hash_mismatches", 0)) < 3:
+		return _fail("state hash mismatch samples should increment diagnostics: %s" % str(diag))
 	if str(diag.get("contract_last_violation_reason", "")) != "state_hash_mismatch":
-		return _fail("state hash mismatch should record latest violation reason: %s" % str(diag))
+		return _fail("persistent state hash mismatch should record latest violation reason: %s" % str(diag))
 	if str(diag.get("recovery_state", "")) != "desync_recovery":
-		return _fail("state hash mismatch should enter desync recovery instead of continuing: %s" % str(diag))
+		return _fail("third persistent state hash mismatch should enter desync recovery: %s" % str(diag))
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	set_meta("vs_handshake_session_id", "hash_self_heal_smoke")
+	set_meta("vs_handshake_role", "host")
+	set_meta("vs_mode", "PVP")
+	set_meta("vs_local_profile", {"uid": "hash_host", "display_name": "HashHost"})
+	runtime.call("configure_from_tree", self, [
+		{"uid": "hash_host", "seat": 1, "active": true},
+		{"uid": "hash_guest", "seat": 2, "active": true}
+	])
+	runtime.set("_local_hash_by_tick", {35: "local_hash_35", 40: "same_hash_40"})
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("hash_guest", 1, 35, "remote_hash_35"), Time.get_ticks_usec(), 0)
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("hash_guest", 2, 40, "same_hash_40"), Time.get_ticks_usec(), 1)
+	diag = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if int(diag.get("hash_mismatch_consecutive_count", -1)) != 0:
+		return _fail("matching hash should reset mismatch counter after self-heal: %s" % str(diag))
+	var events: Array = runtime.call("get_debug_event_log") as Array
+	var saw_self_heal: bool = false
+	for event_any in events:
+		if typeof(event_any) == TYPE_DICTIONARY and str((event_any as Dictionary).get("type", "")) == "hash_mismatch_self_healed":
+			saw_self_heal = true
+			break
+	if not saw_self_heal:
+		return _fail("hash mismatch self-heal event missing: %s" % str(events))
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	set_meta("vs_handshake_session_id", "hash_startup_grace_smoke")
+	runtime.call("configure_from_tree", self, [
+		{"uid": "hash_host", "seat": 1, "active": true},
+		{"uid": "hash_guest", "seat": 2, "active": true}
+	])
+	runtime.set("_local_hash_by_tick", {5: "local_hash_5", 10: "local_hash_10", 15: "local_hash_15"})
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("hash_guest", 1, 5, "remote_hash_5"), Time.get_ticks_usec(), 0)
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("hash_guest", 2, 10, "remote_hash_10"), Time.get_ticks_usec(), 1)
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("hash_guest", 3, 15, "remote_hash_15"), Time.get_ticks_usec(), 2)
+	diag = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
+	if str(diag.get("recovery_state", "")) != "running":
+		return _fail("startup grace should suppress early persistent mismatch recovery: %s" % str(diag))
+	if not bool(runtime.call("can_accept_gameplay_intents")):
+		return _fail("startup grace mismatch should not block gameplay intents")
 	if runtime.has_method("clear"):
 		runtime.call("clear")
 	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
@@ -534,10 +582,14 @@ func _test_desync_recovery_uses_snapshot_and_command_log() -> bool:
 
 	var local_hashes_any: Variant = runtime.get("_local_hash_by_tick")
 	var local_hashes: Dictionary = local_hashes_any as Dictionary if typeof(local_hashes_any) == TYPE_DICTIONARY else {}
-	local_hashes[5] = "artificial_local_desync"
+	local_hashes[35] = "artificial_local_desync_35"
+	local_hashes[40] = "artificial_local_desync_40"
+	local_hashes[45] = "artificial_local_desync_45"
 	runtime.set("_local_hash_by_tick", local_hashes)
-	runtime.call("_record_authority_snapshot", 5, "artificial_local_desync", ops_state.call("get_authority_snapshot") as Dictionary)
-	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("recovery_guest", 2, 5, expected_hash), Time.get_ticks_usec(), 1)
+	runtime.call("_record_authority_snapshot", 45, "artificial_local_desync_45", ops_state.call("get_authority_snapshot") as Dictionary)
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("recovery_guest", 2, 35, expected_hash), Time.get_ticks_usec(), 1)
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("recovery_guest", 3, 40, expected_hash), Time.get_ticks_usec(), 2)
+	runtime.call("_handle_remote_intent_poll_result", _state_hash_poll("recovery_guest", 4, 45, expected_hash), Time.get_ticks_usec(), 3)
 	var desync_diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
 	if str(desync_diag.get("recovery_state", "")) != "desync_recovery":
 		return _fail("desync mismatch should freeze into recovery: %s" % str(desync_diag))
@@ -560,7 +612,7 @@ func _test_desync_recovery_uses_snapshot_and_command_log() -> bool:
 	if not bool(replay_apply.get("ok", false)):
 		return _fail("recovery replay failed: %s" % str(replay_apply))
 	var recovered_hash: String = str(ops_state.call("get_contract_state_hash"))
-	var recovery_result: Dictionary = runtime.call("complete_desync_recovery", 5, recovered_hash, commands.size()) as Dictionary
+	var recovery_result: Dictionary = runtime.call("complete_desync_recovery", 45, recovered_hash, commands.size()) as Dictionary
 	if not bool(recovery_result.get("recovered", false)):
 		return _fail("recovery should complete when command-log replay reaches remote hash: result=%s expected=%s recovered=%s" % [str(recovery_result), expected_hash, recovered_hash])
 	var recovered_diag: Dictionary = runtime.call("get_contract_diagnostics_snapshot") as Dictionary
@@ -570,8 +622,8 @@ func _test_desync_recovery_uses_snapshot_and_command_log() -> bool:
 		return _fail("recovered authoritative hash should match canonical replay")
 
 	runtime.set("_recovery_remote_hash", "unreachable_hash")
-	var failed_once: Dictionary = runtime.call("complete_desync_recovery", 5, recovered_hash, commands.size()) as Dictionary
-	var failed_twice: Dictionary = runtime.call("complete_desync_recovery", 5, recovered_hash, commands.size()) as Dictionary
+	var failed_once: Dictionary = runtime.call("complete_desync_recovery", 45, recovered_hash, commands.size()) as Dictionary
+	var failed_twice: Dictionary = runtime.call("complete_desync_recovery", 45, recovered_hash, commands.size()) as Dictionary
 	if not bool(failed_once.get("ok", true)) and not bool(failed_twice.get("ended", false)):
 		return _fail("failed recovery should end cleanly after retry budget: once=%s twice=%s" % [str(failed_once), str(failed_twice)])
 	if runtime.has_method("clear"):

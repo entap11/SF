@@ -73,6 +73,8 @@ const DRAG_PREVIEW_VALID_SNAP_GAIN: float = 1.75
 const LANE_TUCK_IN_PX: float = 0.0
 const LANE_CAP_TRIM_RADIUS_RATIO: float = 0.45
 const LANE_CONTEST_BUFFER_PX: float = 130.0
+const ENABLE_DYNAMIC_LANE_FRONTS: bool = false
+const STATIC_LANE_FRONT_T: float = 0.5
 const LANE_THICKNESS_MODE_MANUAL: int = 0
 const LANE_THICKNESS_MODE_MATCH_UNIT_RATIO: int = 1
 const UNIT_RENDER_SCALE_MATCH: float = 1.44
@@ -450,6 +452,8 @@ func _lane_color_for_t(send_a: bool, send_b: bool, color_a: Color, color_b: Colo
 	return LANE_INACTIVE_COLOR
 
 func _clamped_contested_front_t(start: Vector2, end: Vector2, front_t: float) -> float:
+	if not ENABLE_DYNAMIC_LANE_FRONTS:
+		return STATIC_LANE_FRONT_T
 	var lane_len: float = start.distance_to(end)
 	if lane_len <= 0.001:
 		return clampf(front_t, 0.05, 0.95)

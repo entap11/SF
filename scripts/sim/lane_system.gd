@@ -13,6 +13,8 @@ const LANE_FRONT_SPEED := 0.35
 const LANE_CONTEST_RETURN_SPEED := 1.25
 const LANE_CONTEST_BUFFER_PX := 80.0
 const LANE_ESTABLISH_EPS := 0.999
+const ENABLE_DYNAMIC_LANE_FRONTS := false
+const STATIC_LANE_FRONT_T := 0.5
 const LANE_BODY_HALF_WIDTH_PX := HiveGeometry.DEFAULT_LANE_BODY_HALF_WIDTH_PX
 const LANE_OCCLUSION_PAD_PX := HiveGeometry.DEFAULT_LANE_OCCLUSION_PAD_PX
 
@@ -337,6 +339,10 @@ func tick_lane_fronts(dt: float) -> void:
 			send_a = bool(d.get("send_a", false))
 			send_b = bool(d.get("send_b", false))
 		if lane_id <= 0:
+			continue
+		if not ENABLE_DYNAMIC_LANE_FRONTS:
+			if not is_equal_approx(_lane_front_t(lane_id), STATIC_LANE_FRONT_T):
+				_set_lane_front_t(lane_id, STATIC_LANE_FRONT_T)
 			continue
 		var t: float = _lane_front_t(lane_id)
 		var dir := 0.0

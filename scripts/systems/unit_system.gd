@@ -26,6 +26,8 @@ const ENABLE_PASS_THROUGH_RATE_THROTTLE := false
 const ENABLE_PASS_THROUGH_PIPELINE_CAP := false
 const ENABLE_PASS_THROUGH_POWER_GATE := true
 const ENABLE_PASS_THROUGH_EMIT_RATE_CAP := false
+const ENABLE_DYNAMIC_LANE_FRONTS := false
+const STATIC_LANE_FRONT_T := 0.5
 const UNIT_RADIUS_PX := 24.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
@@ -621,6 +623,15 @@ func _find_lane_by_id(lane_id: int) -> LaneData:
 func _record_lane_visual_impact(lane_id: int, impact_t: float) -> void:
 	var lane := _find_lane_by_id(lane_id)
 	if lane == null:
+		return
+	if not ENABLE_DYNAMIC_LANE_FRONTS:
+		if not is_equal_approx(float(lane.last_impact_f), STATIC_LANE_FRONT_T):
+			lane.last_impact_f = STATIC_LANE_FRONT_T
+		var static_ops_state: Node = _ops_state()
+		if static_ops_state != null:
+			var static_front_by_lane: Dictionary = static_ops_state.get("lane_front_by_lane_id") as Dictionary
+			if not is_equal_approx(float(static_front_by_lane.get(lane_id, STATIC_LANE_FRONT_T)), STATIC_LANE_FRONT_T):
+				static_front_by_lane[lane_id] = STATIC_LANE_FRONT_T
 		return
 	var t: float = clampf(impact_t, 0.0, 1.0)
 	lane.last_impact_f = t
