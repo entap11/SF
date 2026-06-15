@@ -2,7 +2,9 @@ extends SceneTree
 
 const TEST_VIEWPORT_SIZE := Vector2i(944, 2048)
 const MIN_BUTTON_WIDTH := 180.0
-const MIN_BUTTON_HEIGHT := 320.0
+const MIN_BUTTON_HEIGHT := 80.0
+const MIN_BUTTON_ASPECT := 1.45
+const MIN_SKIN_ASPECT := 1.45
 
 func _init() -> void:
 	call_deferred("_run")
@@ -37,35 +39,56 @@ func _run() -> void:
 		menu.get_node_or_null("BottomBar/MenuButtons/JukeboxButton") as Button,
 		menu.get_node_or_null("BottomBar/MenuButtons/SettingsButton") as Button
 	]
-	_assert_row_buttons(top_buttons, "utility")
-	_assert_row_buttons(bottom_buttons, "primary")
+	if not _assert_row_buttons(top_buttons, "utility"):
+		return
+	if not _assert_row_buttons(bottom_buttons, "primary"):
+		return
 	if top_buttons[0].get_global_rect().position.y >= bottom_buttons[0].get_global_rect().position.y:
 		push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: utility row is not above primary row")
 		quit(1)
 		return
-	_assert_even_spacing(top_buttons, "utility")
-	_assert_even_spacing(bottom_buttons, "primary")
+	if not _assert_even_spacing(top_buttons, "utility"):
+		return
+	if not _assert_even_spacing(bottom_buttons, "primary"):
+		return
 	print("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: PASS")
 	quit(0)
 
-func _assert_row_buttons(buttons: Array[Button], label: String) -> void:
+func _assert_row_buttons(buttons: Array[Button], label: String) -> bool:
 	var viewport_width: float = get_root().get_visible_rect().size.x
 	for button in buttons:
 		if button == null or not button.visible:
 			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button missing" % label)
 			quit(1)
-			return
+			return false
 		if button.custom_minimum_size.x < MIN_BUTTON_WIDTH or button.custom_minimum_size.y < MIN_BUTTON_HEIGHT:
 			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button too small: %s" % [label, str(button.custom_minimum_size)])
 			quit(1)
-			return
+			return false
+		var aspect: float = button.custom_minimum_size.x / maxf(1.0, button.custom_minimum_size.y)
+		if aspect < MIN_BUTTON_ASPECT:
+			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button should preserve banner aspect: %s" % [label, str(button.custom_minimum_size)])
+			quit(1)
+			return false
+		var skin_tex: TextureRect = button.get_node_or_null("SkinTex") as TextureRect
+		if skin_tex == null or skin_tex.texture == null:
+			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button missing readable skin texture" % label)
+			quit(1)
+			return false
+		var tex_size: Vector2 = skin_tex.texture.get_size()
+		var tex_aspect: float = tex_size.x / maxf(1.0, tex_size.y)
+		if tex_aspect < MIN_SKIN_ASPECT:
+			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row skin should be cropped to banner art: %s" % [label, str(tex_size)])
+			quit(1)
+			return false
 		var rect: Rect2 = button.get_global_rect()
 		if rect.position.x < -0.5 or rect.end.x > viewport_width + 0.5:
 			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button offscreen: %s" % [label, str(rect)])
 			quit(1)
-			return
+			return false
+	return true
 
-func _assert_even_spacing(buttons: Array[Button], label: String) -> void:
+func _assert_even_spacing(buttons: Array[Button], label: String) -> bool:
 	var widths: Array[float] = []
 	for button in buttons:
 		widths.append(button.get_global_rect().size.x)
@@ -74,4 +97,5 @@ func _assert_even_spacing(buttons: Array[Button], label: String) -> void:
 		if absf(width - first_width) > 2.0:
 			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row is not evenly sized: %s" % [label, str(widths)])
 			quit(1)
-			return
+			return false
+	return true

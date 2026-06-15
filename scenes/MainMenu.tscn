@@ -1311,7 +1311,7 @@ offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="HiveTopRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
+[node name="HiveTopRow" type="VBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox"]
 custom_minimum_size = Vector2(0, 236)
 layout_mode = 2
 
@@ -1495,8 +1495,9 @@ text = "Recent hive posts appear here"
 [node name="HiveComm4" type="Label" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList"]
 layout_mode = 2
 
-[node name="HiveActionsRow" type="HBoxContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
+[node name="HiveActionsRow" type="GridContainer" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox"]
 layout_mode = 2
+columns = 2
 
 [node name="HivePostMessage" type="Button" parent="DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow"]
 layout_mode = 2

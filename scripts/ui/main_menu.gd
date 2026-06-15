@@ -434,6 +434,11 @@ var _hive_direct_mode: bool = false
 var _jukebox_direct_mode: bool = false
 var _replay_direct_mode: bool = false
 var _hive_panel_tween: Tween = null
+var _hive_expanded_section: String = HIVE_SECTION_OVERVIEW
+var _hive_section_buttons: Dictionary = {}
+var _hive_tournaments_panel: Panel = null
+var _hive_tournaments_section_button: Button = null
+var _hive_tournaments_detail: Label = null
 var _player_profile := {
 	"tier_text": "Tier: Bronze",
 	"honey": 12480
@@ -455,6 +460,12 @@ const HIVE_PANEL_PROFILE_DEFAULT := {
 	"hive_honey_total": 982400,
 	"honey_score": 12480,
 	"wax_score": 940,
+	"member_count": 12,
+	"member_capacity": 14,
+	"created_at_unix": 0,
+	"avg_member_service_days": 26,
+	"tournament_wins": 0,
+	"hive_championships": 0,
 	"season_name": "Season 01: Founding Swarm",
 	"season_reset_text": "Resets in 12d 04h",
 	"members": [
@@ -608,8 +619,8 @@ const DIRECT_CTF_MAP_IDS: Array[String] = [
 ]
 const BOTTOM_NAV_BUTTON_SCALE: float = 3.2175
 const BOTTOM_NAV_SIZE_MULTIPLIER: float = 1.5
-const BOTTOM_NAV_HEIGHT_SCALE: float = 1.2
-const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(38.0, 56.0)
+const BOTTOM_NAV_HEIGHT_SCALE: float = 1.0
+const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(64.0, 36.0)
 const BOTTOM_NAV_OUTER_PADDING: float = 8.0
 const BOTTOM_NAV_BUTTON_SEPARATION: int = 8
 const BOTTOM_NAV_ROW_SEPARATION: float = 12.0
@@ -625,6 +636,11 @@ const HIVE_TEXT_DIALOG_WIDTH: int = 800
 const HIVE_ABOUT_DIALOG_HEIGHT: int = 560
 const HIVE_DIALOG_BELOW_BANNER_TOP_RATIO: float = 0.23
 const HIVE_DIALOG_BELOW_BANNER_MIN_TOP: int = 360
+const HIVE_SECTION_OVERVIEW: String = "overview"
+const HIVE_SECTION_ACTIVITY: String = "activity"
+const HIVE_SECTION_COMMS: String = "comms"
+const HIVE_SECTION_MEMBERS: String = "members"
+const HIVE_SECTION_TOURNAMENTS: String = "tournaments"
 const GAME_HUB_OVERLAY_TARGET_WIDTH: float = 1176.0
 const GAME_HUB_OVERLAY_FREE_TARGET_HEIGHT: float = 1512.0
 const GAME_HUB_OVERLAY_PAID_TARGET_HEIGHT: float = 1248.0
@@ -806,6 +822,7 @@ var _buff_cart_clear_button: Button = null
 var _buff_cart_counts: Dictionary = {}
 var _buff_drag_state: Dictionary = {}
 var _usd_skin_cache: Dictionary = {}
+var _bottom_nav_skin_cache: Dictionary = {}
 var _cancel_skin_cache: Texture2D = null
 var _cancel_skin_loaded: bool = false
 var _close_skin_cache: Texture2D = null
@@ -1178,6 +1195,7 @@ func _ready() -> void:
 	_apply_bottom_nav_sprite_presentation()
 	_apply_bottom_nav_layout()
 	_style_panels()
+	_apply_hive_panel_mobile_layout()
 	_start_entry_hub_skin_prewarm()
 	_ensure_async_stage_contest_section()
 	_wire_buttons()
@@ -1189,6 +1207,8 @@ func _ready() -> void:
 		get_viewport().size_changed.connect(_apply_top_safe_area_layout)
 	if not get_viewport().size_changed.is_connected(_apply_settings_panel_layout):
 		get_viewport().size_changed.connect(_apply_settings_panel_layout)
+	if not get_viewport().size_changed.is_connected(_apply_hive_panel_mobile_layout):
+		get_viewport().size_changed.connect(_apply_hive_panel_mobile_layout)
 	_set_hex_buttons()
 	_apply_top_safe_area_layout()
 	_ensure_home_replay_player()
@@ -1733,6 +1753,253 @@ func _apply_settings_panel_layout() -> void:
 		close_button.custom_minimum_size = Vector2(0.0, 52.0)
 		UITypography.apply_font(close_button, _font_regular, 16)
 
+func _apply_hive_panel_mobile_layout() -> void:
+	if dash_hive_panel == null:
+		return
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var touch_layout: bool = _use_game_hub_touch_layout()
+	var pad_x: float = clampf(viewport_size.x * 0.026, 18.0, 34.0) if touch_layout else 24.0
+	var pad_top: float = clampf(viewport_size.y * 0.020, 18.0, 38.0) if touch_layout else 24.0
+	var pad_bottom: float = clampf(viewport_size.y * 0.024, 24.0, 44.0) if touch_layout else 24.0
+	var hive_vbox: VBoxContainer = dash_hive_panel.get_node_or_null("HiveVBox") as VBoxContainer
+	if hive_vbox != null:
+		hive_vbox.offset_left = pad_x
+		hive_vbox.offset_top = pad_top
+		hive_vbox.offset_right = -pad_x
+		hive_vbox.offset_bottom = -pad_bottom
+		hive_vbox.add_theme_constant_override("separation", 10 if touch_layout else 14)
+	var header_panel: Panel = dash_hive_panel.get_node_or_null("HiveVBox/HiveHeaderPanel") as Panel
+	if header_panel != null:
+		header_panel.custom_minimum_size = Vector2(0.0, 138.0 if touch_layout else 116.0)
+	var body_vbox: VBoxContainer = dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox") as VBoxContainer
+	if body_vbox != null:
+		var body_pad: float = 10.0 if touch_layout else 16.0
+		body_vbox.offset_left = body_pad
+		body_vbox.offset_top = body_pad
+		body_vbox.offset_right = -body_pad
+		body_vbox.offset_bottom = -body_pad
+		body_vbox.add_theme_constant_override("separation", 8 if touch_layout else 16)
+	var top_stack: BoxContainer = dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow") as BoxContainer
+	if top_stack != null:
+		top_stack.custom_minimum_size = Vector2(0.0, 0.0)
+		top_stack.add_theme_constant_override("separation", 8 if touch_layout else 14)
+	_ensure_hive_tournaments_section()
+	_ensure_hive_section_button(
+		HIVE_SECTION_OVERVIEW,
+		"Hive Overview",
+		dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox") as VBoxContainer,
+		dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader") as Label
+	)
+	_ensure_hive_section_button(
+		HIVE_SECTION_MEMBERS,
+		"Members",
+		dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox") as VBoxContainer,
+		dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader") as Label
+	)
+	_ensure_hive_section_button(
+		HIVE_SECTION_ACTIVITY,
+		"Recent Activity",
+		dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox") as VBoxContainer,
+		dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader") as Label
+	)
+	_ensure_hive_section_button(
+		HIVE_SECTION_COMMS,
+		"Hive Comms",
+		dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox") as VBoxContainer,
+		dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsHeader") as Label
+	)
+	_configure_hive_text_controls(touch_layout)
+	_update_hive_section_visibility()
+
+func _ensure_hive_section_button(section_key: String, title: String, host: VBoxContainer, old_header: Label) -> Button:
+	if host == null:
+		return null
+	var button_name: String = "Hive%sSectionButton" % section_key.capitalize()
+	var button: Button = host.get_node_or_null(button_name) as Button
+	if button == null:
+		button = Button.new()
+		button.name = button_name
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0.0, 48.0)
+		host.add_child(button)
+		host.move_child(button, 0)
+		if not button.pressed.is_connected(_on_hive_section_button_pressed.bind(section_key)):
+			button.pressed.connect(_on_hive_section_button_pressed.bind(section_key))
+	_hive_section_buttons[section_key] = button
+	button.set_meta("section_title", title)
+	button.focus_mode = Control.FOCUS_NONE
+	_apply_font(button, _font_semibold, 18)
+	_style_button(button, Color(0.10, 0.11, 0.14, 0.92), Color(0.48, 0.50, 0.60, 0.72), Color(0.94, 0.96, 1.0, 1.0))
+	if old_header != null:
+		old_header.visible = false
+	return button
+
+func _on_hive_section_button_pressed(section_key: String) -> void:
+	_hive_expanded_section = section_key
+	_update_hive_section_visibility()
+
+func _ensure_hive_tournaments_section() -> void:
+	if _hive_tournaments_panel != null and is_instance_valid(_hive_tournaments_panel):
+		return
+	var body_vbox: VBoxContainer = dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox") as VBoxContainer
+	if body_vbox == null:
+		return
+	_hive_tournaments_panel = Panel.new()
+	_hive_tournaments_panel.name = "HiveTournamentsPanel"
+	_hive_tournaments_panel.custom_minimum_size = Vector2(0.0, 56.0)
+	_style_panel(_hive_tournaments_panel, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
+	var section_vbox := VBoxContainer.new()
+	section_vbox.name = "HiveTournamentsVBox"
+	section_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	section_vbox.offset_left = 12.0
+	section_vbox.offset_top = 10.0
+	section_vbox.offset_right = -12.0
+	section_vbox.offset_bottom = -10.0
+	section_vbox.add_theme_constant_override("separation", 8)
+	_hive_tournaments_panel.add_child(section_vbox)
+	_hive_tournaments_section_button = _ensure_hive_section_button(HIVE_SECTION_TOURNAMENTS, "Tournaments", section_vbox, null)
+	_hive_tournaments_detail = Label.new()
+	_hive_tournaments_detail.name = "HiveTournamentsDetail"
+	_hive_tournaments_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hive_tournaments_detail.add_theme_color_override("font_color", Color(0.86, 0.89, 0.94, 0.90))
+	_apply_font(_hive_tournaments_detail, _font_regular, 16)
+	section_vbox.add_child(_hive_tournaments_detail)
+	body_vbox.add_child(_hive_tournaments_panel)
+	var footer: Label = body_vbox.get_node_or_null("HiveFooter") as Label
+	if footer != null:
+		body_vbox.move_child(_hive_tournaments_panel, footer.get_index())
+
+func _configure_hive_text_controls(touch_layout: bool) -> void:
+	var title: Label = dash_hive_panel.get_node_or_null("HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveTitle") as Label
+	if title != null:
+		_apply_font(title, _font_semibold, 28 if touch_layout else 22)
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		title.custom_minimum_size = Vector2(0.0, 36.0 if touch_layout else 30.0)
+	var sub: Label = dash_hive_panel.get_node_or_null("HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub") as Label
+	if sub != null:
+		_apply_font(sub, _font_regular, 18 if touch_layout else 14)
+		sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		sub.custom_minimum_size = Vector2(0.0, 52.0 if touch_layout else 36.0)
+	for label_path in [
+		"HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveHoneyLabel",
+		"HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow/HiveTotalHoneyLabel"
+	]:
+		var metric_label: Label = dash_hive_panel.get_node_or_null(label_path) as Label
+		if metric_label != null:
+			_apply_font(metric_label, _font_regular, 16 if touch_layout else 14)
+			metric_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	for label_path in [
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity4",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HivePinnedNotice",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm1",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm2",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm3",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList/HiveComm4",
+		"HiveVBox/HiveBody/HiveBodyVBox/HiveFooter"
+	]:
+		var label: Label = dash_hive_panel.get_node_or_null(label_path) as Label
+		if label == null:
+			continue
+		_apply_font(label, _font_regular, 17 if touch_layout else 13)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size = Vector2(0.0, 30.0 if touch_layout else 24.0)
+	for button_any in hive_action_buttons:
+		var button: Button = button_any as Button
+		if button == null:
+			continue
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0.0, 54.0 if touch_layout else 44.0)
+		_apply_font(button, _font_semibold, 17 if touch_layout else 12)
+	var actions_grid: GridContainer = dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow") as GridContainer
+	if actions_grid != null:
+		actions_grid.columns = 2 if touch_layout else 3
+		actions_grid.add_theme_constant_override("h_separation", 8 if touch_layout else 10)
+		actions_grid.add_theme_constant_override("v_separation", 8 if touch_layout else 10)
+	if dash_hive_close != null:
+		dash_hive_close.set_meta("sf_close_skin", false)
+		dash_hive_close.text = "Close"
+		dash_hive_close.icon = null
+		dash_hive_close.custom_minimum_size = Vector2(0.0, 54.0 if touch_layout else 46.0)
+		_apply_font(dash_hive_close, _font_semibold, 18 if touch_layout else 14)
+		_style_button(dash_hive_close, Color(0.12, 0.13, 0.16), Color(0.52, 0.54, 0.64), Color(0.94, 0.95, 0.98))
+
+func _update_hive_section_visibility() -> void:
+	if dash_hive_panel == null:
+		return
+	var sections: Dictionary = {
+		HIVE_SECTION_OVERVIEW: [
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName"),
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag"),
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague"),
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers")
+		],
+		HIVE_SECTION_MEMBERS: [
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList")
+		],
+		HIVE_SECTION_ACTIVITY: [
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity1"),
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity2"),
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity3"),
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivity4")
+		],
+		HIVE_SECTION_COMMS: [
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HivePinnedNotice"),
+			dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveCommsList")
+		],
+		HIVE_SECTION_TOURNAMENTS: [
+			_hive_tournaments_detail
+		]
+	}
+	for key_any in sections.keys():
+		var key: String = str(key_any)
+		var expanded: bool = key == _hive_expanded_section
+		var nodes: Array = sections.get(key, []) as Array
+		for node_any in nodes:
+			var node: CanvasItem = node_any as CanvasItem
+			if node != null:
+				node.visible = expanded
+		var button: Button = _hive_section_buttons.get(key, null) as Button
+		if button != null:
+			var title: String = str(button.get_meta("section_title", key.capitalize()))
+			button.text = "%s %s" % ["v" if expanded else ">", title]
+	var action_row: CanvasItem = dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsRow") as CanvasItem
+	if action_row != null:
+		action_row.visible = true
+	_update_hive_section_panel_heights()
+
+func _update_hive_section_panel_heights() -> void:
+	var expanded_heights: Dictionary = {
+		HIVE_SECTION_OVERVIEW: 214.0,
+		HIVE_SECTION_MEMBERS: 334.0,
+		HIVE_SECTION_ACTIVITY: 206.0,
+		HIVE_SECTION_COMMS: 304.0,
+		HIVE_SECTION_TOURNAMENTS: 128.0
+	}
+	var panels: Dictionary = {
+		HIVE_SECTION_OVERVIEW: dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel"),
+		HIVE_SECTION_MEMBERS: dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel"),
+		HIVE_SECTION_ACTIVITY: dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel"),
+		HIVE_SECTION_COMMS: dash_hive_panel.get_node_or_null("HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel"),
+		HIVE_SECTION_TOURNAMENTS: _hive_tournaments_panel
+	}
+	for key_any in panels.keys():
+		var key: String = str(key_any)
+		var panel: Control = panels.get(key, null) as Control
+		if panel == null:
+			continue
+		var expanded: bool = key == _hive_expanded_section
+		var height: float = float(expanded_heights.get(key, 180.0)) if expanded else 58.0
+		if key == HIVE_SECTION_COMMS:
+			height = 356.0 if expanded else 182.0
+		panel.custom_minimum_size = Vector2(0.0, height)
+
 func _apply_hex_background_preset(target: Node, preset_name: StringName) -> void:
 	if target == null:
 		return
@@ -2002,7 +2269,7 @@ func _style_labels() -> void:
 	hive_header_vbox.add_theme_constant_override("separation", 6)
 	var hive_metrics_row: HBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveMetricsRow
 	hive_metrics_row.add_theme_constant_override("separation", 12)
-	var hive_top_row: HBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow
+	var hive_top_row: BoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow
 	hive_top_row.add_theme_constant_override("separation", 14)
 	var hive_roster_list: VBoxContainer = $DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterList
 	hive_roster_list.add_theme_constant_override("separation", 6)
@@ -5329,6 +5596,8 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 	_hive_panel_profile["honey_score"] = int(hive.get("hive_honey_strength", 0))
 	_hive_panel_profile["members"] = member_lines
 	_hive_panel_profile["member_records"] = members_any if typeof(members_any) == TYPE_ARRAY else []
+	_hive_panel_profile["member_count"] = (members_any as Array).size() if typeof(members_any) == TYPE_ARRAY else 0
+	_hive_panel_profile["member_capacity"] = maxi(1, int(hive.get("member_capacity", 14)))
 	_hive_panel_profile["hive_id"] = hive_id
 	_hive_panel_profile["leave_request"] = membership.get("leave_request", {})
 	_hive_panel_profile["invite_only"] = false
@@ -5386,6 +5655,10 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 	_hive_panel_profile["messages"] = comms_lines
 	_hive_panel_profile["message_records"] = comm_records
 	var created_at_unix: int = int(hive.get("created_at_unix", 0))
+	_hive_panel_profile["created_at_unix"] = created_at_unix
+	_hive_panel_profile["avg_member_service_days"] = int(hive.get("avg_member_service_days", 0))
+	_hive_panel_profile["tournament_wins"] = int(hive.get("tournament_wins", 0))
+	_hive_panel_profile["hive_championships"] = int(hive.get("hive_championships", 0))
 	var seasonal_best_finish: int = int(hive.get("seasonal_best_finish", 0))
 	var best_finish_text: String = "#%d" % seasonal_best_finish if seasonal_best_finish > 0 else "Unplaced"
 	var earned_milestones_any: Variant = hive.get("honey_earned_milestones", [])
@@ -5939,6 +6212,80 @@ func _build_hive_feed_row_text(feed: Dictionary) -> String:
 		_format_hive_feed_age(int(feed.get("created_at_unix", 0)))
 	]
 	return "%s\n%s" % [header, message]
+
+func _format_hive_membership_duration_for_card(member_since_text: String) -> String:
+	var clean: String = member_since_text.strip_edges()
+	for prefix in ["Member for ", "Member since ", "Time in hive: "]:
+		if clean.begins_with(prefix):
+			return clean.substr(prefix.length()).strip_edges()
+	return clean if not clean.is_empty() else "Today"
+
+func _build_hive_trophy_strip_text() -> String:
+	var founded_unix: int = int(_hive_panel_profile.get("created_at_unix", 0))
+	var founded_text: String = _format_calendar_date(founded_unix) if founded_unix > 0 else "TBD"
+	return "Founded: %s\nAvg Service: %dd\nTournament Wins: %d\nChampionships: %d" % [
+		founded_text,
+		int(_hive_panel_profile.get("avg_member_service_days", 0)),
+		int(_hive_panel_profile.get("tournament_wins", 0)),
+		int(_hive_panel_profile.get("hive_championships", 0))
+	]
+
+func _build_hive_recent_activity_lines(message_records: Array, achievements: Array[String]) -> Array[String]:
+	var lines: Array[String] = []
+	for record_any in message_records:
+		if typeof(record_any) != TYPE_DICTIONARY:
+			continue
+		var line: String = _build_hive_feed_row_text(record_any as Dictionary).strip_edges()
+		if line != "":
+			lines.append(line)
+		if lines.size() >= 4:
+			break
+	if lines.is_empty():
+		var founded_unix: int = int(_hive_panel_profile.get("created_at_unix", 0))
+		if founded_unix > 0:
+			lines.append("Hive founded %s." % _format_calendar_date(founded_unix))
+	for achievement in achievements:
+		if lines.size() >= 4:
+			break
+		var clean: String = achievement.strip_edges()
+		if clean != "" and clean.find("Hive rank") == -1:
+			lines.append(clean)
+	if lines.is_empty():
+		lines.append("No recent hive activity.")
+	return lines
+
+func _build_hive_comms_lines(message_records: Array, fallback_messages: Array[String]) -> Array[String]:
+	var lines: Array[String] = []
+	for record_any in message_records:
+		if typeof(record_any) != TYPE_DICTIONARY:
+			continue
+		var record: Dictionary = record_any as Dictionary
+		var feed_type: String = str(record.get("type", "")).strip_edges().to_lower()
+		if feed_type != "hive_posted" and feed_type != "hive_notice_pinned" and feed_type != "message":
+			continue
+		var line: String = _build_hive_feed_row_text(record).strip_edges()
+		if line != "":
+			lines.append(line)
+		if lines.size() >= 3:
+			break
+	for fallback in fallback_messages:
+		if lines.size() >= 3:
+			break
+		var clean: String = fallback.strip_edges()
+		if clean != "" and not clean.begins_with("No hive comms"):
+			lines.append(clean)
+	if lines.is_empty():
+		lines.append("No hive communications yet.")
+	return lines
+
+func _build_hive_tournaments_section_text(tournament_status_line: String) -> String:
+	var clean_status: String = tournament_status_line.strip_edges()
+	if clean_status != "":
+		return clean_status
+	var entries_any: Variant = _hive_panel_profile.get("tournament_entries", {})
+	if typeof(entries_any) == TYPE_DICTIONARY and not (entries_any as Dictionary).is_empty():
+		return "Tournament entries are available. Open Tournaments for bracket status."
+	return "No active hive tournament."
 
 func _build_hive_roster_button_text(member: Dictionary, is_local: bool) -> String:
 	var name: String = str(member.get("display_name", "Player"))
@@ -6933,28 +7280,35 @@ func _refresh_hive_panel() -> void:
 	hive_honey_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	hive_total_honey_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hive_title_label.text = hive_name.to_upper()
-	hive_sub_label.text = "%s | %s | Hive Rank #%d" % [member_role, member_since_text, member_rank_within_hive]
+	var member_count: int = maxi(0, int(_hive_panel_profile.get("member_count", 0)))
+	var member_capacity: int = maxi(1, int(_hive_panel_profile.get("member_capacity", 14)))
+	hive_sub_label.text = "Rank #%d - %d/%d Members\nRole: %s" % [
+		ecosystem_rank,
+		member_count,
+		member_capacity,
+		member_role
+	]
 	if not leave_request.is_empty():
-		hive_sub_label.text += " | Leaving in %s" % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
-	hive_honey_label.text = "HIVE HONEY: %s" % _format_number(hive_honey)
-	hive_total_honey_label.text = "TOTAL HIVE HONEY: %s" % _format_number(hive_honey_total)
+		hive_sub_label.text += "\nLeaving in %s" % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
+	hive_honey_label.text = "Your Honey: %s" % _format_number(hive_honey)
+	hive_total_honey_label.text = "Hive Honey: %s" % _format_number(hive_honey_total)
 	_refresh_hive_dashboard_menu_row(true)
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "MY MEMBERSHIP"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Leadership: %s" % office_title
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Time in hive: %s" % member_since_text
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Roster rank: #%d" % member_rank_within_hive if not invite_only else "Hive status: Invite access"
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = "Tier %s | Rank pts %s | Spend %s | Votes %d" % [hive_tier, _format_number(ecosystem_rank), "Yes" if can_spend_hive_honey else "No", pending_governance_count]
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveOverviewHeader.text = "HIVE OVERVIEW"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanName.text = "Role: %s\nTime in Hive: %s" % [office_title, _format_hive_membership_duration_for_card(member_since_text)]
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanTag.text = "Roster Rank: #%d\nTier: %s" % [member_rank_within_hive, hive_tier] if not invite_only else "Hive Status: Invite Access\nTier: %s" % hive_tier
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanLeague.text = "Can Spend Honey: %s\nVotes: %d" % ["Yes" if can_spend_hive_honey else "No", pending_governance_count]
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveOverviewPanel/HiveOverviewVBox/HiveClanMembers.text = _build_hive_trophy_strip_text()
 	var roster_buttons: Array[Button] = _hive_roster_buttons()
 	var member_records_any: Variant = _hive_panel_profile.get("member_records", [])
 	var member_records: Array = member_records_any if typeof(member_records_any) == TYPE_ARRAY else []
 	var visible_member_slots: int = maxi(0, roster_buttons.size() - 1)
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "HIVE MEMBERS %d/14" % member_records.size()
-	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "TROPHY CASE"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveTopRow/HiveRosterPanel/HiveRosterVBox/HiveRosterHeader.text = "MEMBERS"
+	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActivityPanel/HiveActivityVBox/HiveActivityHeader.text = "RECENT ACTIVITY"
 	$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveActionsPanel/HiveActionsVBox/HiveActionsHeader.text = "HIVE COMMS"
 	if pinned_notice_message == "":
-		hive_pinned_notice_label.text = "PINNED NOTICE\nNo pinned notice."
+		hive_pinned_notice_label.text = "Pinned Notice: No pinned notice."
 	else:
-		hive_pinned_notice_label.text = "PINNED NOTICE\n%s" % pinned_notice_message
+		hive_pinned_notice_label.text = "Pinned Notice: %s" % pinned_notice_message
 		if pinned_notice_meta != "":
 			hive_pinned_notice_label.text += "\n%s" % pinned_notice_meta
 	var local_player_id: String = ""
@@ -7000,18 +7354,24 @@ func _refresh_hive_panel() -> void:
 			roster_button.text = ""
 			roster_button.disabled = true
 			_style_button(roster_button, Color(0.09, 0.10, 0.13, 0.14), Color(0.24, 0.26, 0.32, 0.18), Color(0.70, 0.73, 0.78, 1.0))
+	var activity_lines: Array[String] = _build_hive_recent_activity_lines(message_records, achievements)
 	for i in range(activity_labels.size()):
-		if i < achievements.size():
-			activity_labels[i].text = achievements[i]
+		if i < activity_lines.size():
+			activity_labels[i].text = activity_lines[i]
+			activity_labels[i].visible = true
 		else:
-			activity_labels[i].text = "No trophy case item yet"
+			activity_labels[i].text = ""
+			activity_labels[i].visible = false
+	var comm_lines: Array[String] = _build_hive_comms_lines(message_records, messages)
 	for i in range(comm_labels.size()):
-		if i < message_records.size() and typeof(message_records[i]) == TYPE_DICTIONARY:
-			comm_labels[i].text = _build_hive_feed_row_text(message_records[i] as Dictionary)
-		elif i < messages.size():
-			comm_labels[i].text = messages[i]
+		if i < comm_lines.size():
+			comm_labels[i].text = comm_lines[i]
+			comm_labels[i].visible = true
 		else:
-			comm_labels[i].text = "No hive comms yet"
+			comm_labels[i].text = ""
+			comm_labels[i].visible = false
+	if _hive_tournaments_detail != null:
+		_hive_tournaments_detail.text = _build_hive_tournaments_section_text(tournament_status_line)
 	if invite_only:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Invite access active for hive comms." % season_reset_text
 	elif leave_request.is_empty():
@@ -7021,6 +7381,7 @@ func _refresh_hive_panel() -> void:
 			$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "%s | Hive-only comms stay inside the hive." % season_reset_text
 	else:
 		$DashPanel/DashHivePanel/HiveVBox/HiveBody/HiveBodyVBox/HiveFooter.text = "Leave pending: joins unlock in %s | Same hive locked for 7d after exit." % _format_time_remaining(int(leave_request.get("effective_at_unix", 0)))
+	_update_hive_section_visibility()
 	_refresh_hive_panel_action_state()
 
 func _refresh_hive_candidate_panel() -> void:
@@ -7408,8 +7769,22 @@ func _style_bottom_nav_sprite_button(button: Button) -> void:
 	button.add_theme_color_override("font_hover_color", Color(1.0, 1.0, 1.0, 0.0))
 	button.add_theme_color_override("font_pressed_color", Color(1.0, 1.0, 1.0, 0.0))
 
+func _bottom_nav_readable_texture(source_tex: Texture2D) -> Texture2D:
+	if source_tex == null:
+		return null
+	var cache_key: String = source_tex.resource_path
+	if cache_key.is_empty():
+		cache_key = str(source_tex.get_rid())
+	if _bottom_nav_skin_cache.has(cache_key):
+		var cached_any: Variant = _bottom_nav_skin_cache.get(cache_key)
+		if cached_any is Texture2D:
+			return cached_any as Texture2D
+		return source_tex
+	var cropped_tex: Texture2D = _key_neutral_to_alpha_texture(source_tex, 1024, 512, 0.035)
+	_bottom_nav_skin_cache[cache_key] = cropped_tex
+	return cropped_tex if cropped_tex != null else source_tex
+
 func _apply_bottom_nav_sprite_presentation() -> void:
-	var material: ShaderMaterial = _bottom_nav_skin_shader_material()
 	for button in _bottom_nav_buttons():
 		if button == null:
 			continue
@@ -7421,7 +7796,10 @@ func _apply_bottom_nav_sprite_presentation() -> void:
 		var skin_tex: TextureRect = button.get_node("SkinTex") as TextureRect
 		if skin_tex != null:
 			skin_tex.visible = true
-			skin_tex.material = material
+			skin_tex.texture = _bottom_nav_readable_texture(skin_tex.texture)
+			skin_tex.material = null
+			skin_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			skin_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 
 func _ensure_bottom_nav_two_row_layout() -> HBoxContainer:
 	if bottom_bar == null or menu_buttons_row == null:
@@ -7483,9 +7861,8 @@ func _apply_bottom_nav_layout() -> void:
 		return
 	var nav_size: Vector2 = _bottom_nav_scaled_button_size(4)
 	var utility_size: Vector2 = _bottom_nav_scaled_button_size(3)
-	var row_height: float = maxf(nav_size.y, utility_size.y)
-	var button_size: Vector2 = Vector2(nav_size.x, row_height)
-	var utility_button_size: Vector2 = Vector2(utility_size.x, row_height)
+	var button_size: Vector2 = nav_size
+	var utility_button_size: Vector2 = utility_size
 	utility_row.anchor_right = 1.0
 	utility_row.offset_left = BOTTOM_NAV_OUTER_PADDING
 	utility_row.offset_right = -BOTTOM_NAV_OUTER_PADDING
@@ -7511,9 +7888,9 @@ func _apply_bottom_nav_layout() -> void:
 		button.custom_minimum_size = button_size
 	var row_top: float = 14.0
 	utility_row.offset_top = row_top
-	utility_row.offset_bottom = row_top + row_height
+	utility_row.offset_bottom = row_top + utility_button_size.y
 	menu_buttons_row.offset_top = utility_row.offset_bottom + BOTTOM_NAV_ROW_SEPARATION
-	menu_buttons_row.offset_bottom = menu_buttons_row.offset_top + row_height
+	menu_buttons_row.offset_bottom = menu_buttons_row.offset_top + button_size.y
 	var status_top: float = menu_buttons_row.offset_bottom + 6.0
 	status_label.offset_top = status_top
 	status_label.offset_bottom = status_top + 30.0
@@ -8070,6 +8447,10 @@ func _style_dash_buttons() -> void:
 		_style_button(badge_button, Color(0.16, 0.14, 0.1), Color(0.75, 0.65, 0.35), Color(0.98, 0.94, 0.8))
 	for button in [dash_stats_close, dash_analysis_close, dash_replay_close, dash_buffs_close, dash_hive_close, dash_store_close, dash_settings_close, dash_badges_close, async_close]:
 		var close_font_size: int = 14
+		if button == dash_hive_close:
+			button.set_meta("sf_close_skin", false)
+			button.custom_minimum_size = Vector2(0.0, 54.0)
+			close_font_size = 18
 		if button == dash_settings_close:
 			button.set_meta("sf_close_skin", false)
 			button.custom_minimum_size = Vector2(360.0, 132.0)

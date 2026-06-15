@@ -25,9 +25,17 @@ func _init() -> void:
 		or tournaments_skin.texture == null
 		or registry == null
 		or registry.get_tex_path("ui.mm.tournaments.normal") != expected_skin_path
-		or tournaments_skin.texture != registry.get_tex("ui.mm.tournaments.normal")
 	):
 		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament nav sprite missing")
+		quit(1)
+		return
+	var raw_tournament_skin: Texture2D = registry.get_tex("ui.mm.tournaments.normal")
+	if raw_tournament_skin == null:
+		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: raw tournament nav sprite missing")
+		quit(1)
+		return
+	if tournaments_skin.texture.get_size().x >= raw_tournament_skin.get_size().x:
+		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament nav sprite should be cropped for readability")
 		quit(1)
 		return
 	tournaments_button.pressed.emit()

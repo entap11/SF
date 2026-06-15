@@ -4,6 +4,7 @@ signal close_requested()
 signal store_requested()
 
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const UITypography = preload("res://scripts/ui/ui_typography.gd")
 
 @export var battle_pass_state_path: NodePath = NodePath("/root/BattlePassState")
 
@@ -25,16 +26,16 @@ const GOLD: Color = Color(1.0, 0.82, 0.28, 1.0)
 const MUTED: Color = Color(0.75, 0.78, 0.84, 0.78)
 const GOOD: Color = Color(0.56, 0.88, 0.58, 1.0)
 const LOCKED: Color = Color(0.52, 0.55, 0.62, 0.82)
-const CLOSE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/Close.png"
 const TOUCH_LAYOUT_MAX_WIDTH: float = 1100.0
 const TOUCH_LAYOUT_SCALE: float = 1.18
+const TOUCH_PANEL_MARGIN_X: float = 34.0
+const TOUCH_PANEL_TOP: float = 128.0
+const TOUCH_PANEL_BOTTOM: float = 132.0
 
 var _state: Node = null
 var _last_snapshot: Dictionary = {}
 var _texture_cache: Dictionary = {}
 var _level_cards: Dictionary = {}
-var _close_skin_cache: Texture2D = null
-var _close_skin_loaded: bool = false
 
 var _root: MarginContainer = null
 var _season_label: Label = null
@@ -54,8 +55,12 @@ var _claim_all_button: Button = null
 var _veteran_start_button: Button = null
 var _veteran_opt_out_button: Button = null
 var _close_button: Button = null
+var _font_regular: Font = null
+var _font_semibold: Font = null
 
 func _ready() -> void:
+	_load_fonts()
+	_apply_responsive_frame()
 	_build_layout()
 	_bind_state()
 	_refresh_from_state()
@@ -70,7 +75,24 @@ func _exit_tree() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
+		_apply_responsive_frame()
 		call_deferred("_refresh_card_sizes")
+
+func _load_fonts() -> void:
+	_font_regular = UITypography.regular_font()
+	_font_semibold = UITypography.semibold_font()
+
+func _apply_font(control: Control, font: Font, size: int) -> void:
+	UITypography.apply_font(control, font, size)
+
+func _apply_responsive_frame() -> void:
+	if not _uses_touch_layout():
+		return
+	set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	offset_left = TOUCH_PANEL_MARGIN_X
+	offset_top = TOUCH_PANEL_TOP
+	offset_right = -TOUCH_PANEL_MARGIN_X
+	offset_bottom = -TOUCH_PANEL_BOTTOM
 
 func _build_layout() -> void:
 	for child in get_children():
@@ -82,7 +104,7 @@ func _build_layout() -> void:
 	_root = MarginContainer.new()
 	_root.name = "Root"
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	var outer_margin: int = _scaled_int(24)
+	var outer_margin: int = _scaled_int(16 if _uses_touch_layout() else 24)
 	_root.add_theme_constant_override("margin_left", outer_margin)
 	_root.add_theme_constant_override("margin_top", outer_margin)
 	_root.add_theme_constant_override("margin_right", outer_margin)
@@ -91,7 +113,7 @@ func _build_layout() -> void:
 
 	var vbox := VBoxContainer.new()
 	vbox.name = "VBox"
-	vbox.add_theme_constant_override("separation", _scaled_int(12))
+	vbox.add_theme_constant_override("separation", _scaled_int(8 if _uses_touch_layout() else 12))
 	_root.add_child(vbox)
 
 	vbox.add_child(_build_header())
@@ -101,6 +123,7 @@ func _build_layout() -> void:
 	_veteran_label.visible = false
 	_veteran_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_veteran_label.add_theme_color_override("font_color", GOLD)
+	_apply_font(_veteran_label, _font_regular, 16 if _uses_touch_layout() else 13)
 	vbox.add_child(_veteran_label)
 
 	var body := Panel.new()
@@ -111,10 +134,11 @@ func _build_layout() -> void:
 
 	var body_margin := MarginContainer.new()
 	body_margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	body_margin.add_theme_constant_override("margin_left", 14)
-	body_margin.add_theme_constant_override("margin_top", 14)
-	body_margin.add_theme_constant_override("margin_right", 14)
-	body_margin.add_theme_constant_override("margin_bottom", 14)
+	var body_pad: int = _scaled_int(8 if _uses_touch_layout() else 14)
+	body_margin.add_theme_constant_override("margin_left", body_pad)
+	body_margin.add_theme_constant_override("margin_top", body_pad)
+	body_margin.add_theme_constant_override("margin_right", body_pad)
+	body_margin.add_theme_constant_override("margin_bottom", body_pad)
 	body.add_child(body_margin)
 
 	_levels_scroll = ScrollContainer.new()
@@ -128,7 +152,7 @@ func _build_layout() -> void:
 	_cards_vbox = VBoxContainer.new()
 	_cards_vbox.name = "Cards"
 	_cards_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cards_vbox.add_theme_constant_override("separation", 14)
+	_cards_vbox.add_theme_constant_override("separation", _scaled_int(10 if _uses_touch_layout() else 14))
 	_levels_scroll.add_child(_cards_vbox)
 	_enable_touch_drag_scroll(_levels_scroll)
 
@@ -138,6 +162,7 @@ func _build_layout() -> void:
 	_event_label.name = "EventLog"
 	_event_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_event_label.add_theme_color_override("font_color", MUTED)
+	_apply_font(_event_label, _font_regular, 14 if _uses_touch_layout() else 12)
 	vbox.add_child(_event_label)
 
 	vbox.add_child(_build_footer_close())
@@ -145,19 +170,20 @@ func _build_layout() -> void:
 func _build_header() -> Control:
 	var header := Panel.new()
 	header.name = "Header"
-	header.custom_minimum_size = Vector2(0.0, 172.0 if _uses_touch_layout() else 142.0)
+	header.custom_minimum_size = Vector2(0.0, _scaled_float(128.0 if _uses_touch_layout() else 142.0))
 	header.add_theme_stylebox_override("panel", _style(SECTION_BG, Color(0.95, 0.77, 0.28, 0.22), 1, 6))
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	margin.add_theme_constant_override("margin_left", 16)
-	margin.add_theme_constant_override("margin_top", 14)
-	margin.add_theme_constant_override("margin_right", 16)
-	margin.add_theme_constant_override("margin_bottom", 14)
+	var header_pad: int = _scaled_int(10 if _uses_touch_layout() else 14)
+	margin.add_theme_constant_override("margin_left", _scaled_int(12 if _uses_touch_layout() else 16))
+	margin.add_theme_constant_override("margin_top", header_pad)
+	margin.add_theme_constant_override("margin_right", _scaled_int(12 if _uses_touch_layout() else 16))
+	margin.add_theme_constant_override("margin_bottom", header_pad)
 	header.add_child(margin)
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 18)
+	var row: BoxContainer = VBoxContainer.new() if _uses_touch_layout() else HBoxContainer.new()
+	row.add_theme_constant_override("separation", _scaled_int(8 if _uses_touch_layout() else 18))
 	margin.add_child(row)
 
 	var text_col := VBoxContainer.new()
@@ -167,32 +193,37 @@ func _build_header() -> Control:
 
 	var title := Label.new()
 	title.text = "BATTLE PASS"
-	title.add_theme_font_size_override("font_size", _scaled_int(22))
+	_apply_font(title, _font_semibold, 28 if _uses_touch_layout() else 22)
 	title.add_theme_color_override("font_color", Color(0.98, 0.98, 1.0, 1.0))
 	text_col.add_child(title)
 
 	_season_label = Label.new()
+	_apply_font(_season_label, _font_semibold, 17 if _uses_touch_layout() else 13)
 	_season_label.add_theme_color_override("font_color", GOLD)
 	text_col.add_child(_season_label)
 
 	_summary_label = Label.new()
 	_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(_summary_label, _font_regular, 16 if _uses_touch_layout() else 13)
 	_summary_label.add_theme_color_override("font_color", Color(0.9, 0.92, 0.96, 0.95))
 	text_col.add_child(_summary_label)
 
 	_wallet_label = Label.new()
 	_wallet_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(_wallet_label, _font_regular, 15 if _uses_touch_layout() else 12)
 	_wallet_label.add_theme_color_override("font_color", MUTED)
 	text_col.add_child(_wallet_label)
 
 	var progress_col := VBoxContainer.new()
-	progress_col.custom_minimum_size = Vector2(260.0 if _uses_touch_layout() else 230.0, 0.0)
+	progress_col.custom_minimum_size = Vector2(0.0 if _uses_touch_layout() else 230.0, 0.0)
+	progress_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	progress_col.add_theme_constant_override("separation", 8)
 	row.add_child(progress_col)
 
 	_progress_title_label = Label.new()
 	_progress_title_label.text = "NECTAR"
 	_progress_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_apply_font(_progress_title_label, _font_semibold, 15 if _uses_touch_layout() else 12)
 	_progress_title_label.add_theme_color_override("font_color", GOLD)
 	progress_col.add_child(_progress_title_label)
 
@@ -200,7 +231,8 @@ func _build_header() -> Control:
 	_progress_bar.min_value = 0.0
 	_progress_bar.max_value = 100.0
 	_progress_bar.show_percentage = true
-	_progress_bar.custom_minimum_size = Vector2(0.0, _scaled_float(30.0))
+	_progress_bar.custom_minimum_size = Vector2(0.0, _scaled_float(26.0 if _uses_touch_layout() else 30.0))
+	_apply_font(_progress_bar, _font_semibold, 13 if _uses_touch_layout() else 11)
 	progress_col.add_child(_progress_bar)
 
 	return header
@@ -209,7 +241,7 @@ func _build_actions() -> Control:
 	var row: Container
 	if _uses_touch_layout():
 		var grid := GridContainer.new()
-		grid.columns = 3
+		grid.columns = 2
 		row = grid
 	else:
 		row = HBoxContainer.new()
@@ -266,7 +298,7 @@ func _build_footer_close() -> Control:
 func _build_range_bar() -> Control:
 	var panel := Panel.new()
 	panel.name = "LevelRangeBar"
-	panel.custom_minimum_size = Vector2(0.0, 58.0)
+	panel.custom_minimum_size = Vector2(0.0, _scaled_float(52.0 if _uses_touch_layout() else 58.0))
 	panel.add_theme_stylebox_override("panel", _style(SECTION_BG, Color(0.95, 0.77, 0.28, 0.20), 1, 6))
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
@@ -281,7 +313,7 @@ func _build_range_bar() -> Control:
 	margin.add_child(_range_bar)
 	for range_def in LEVEL_RANGES:
 		var button := _make_button(str(range_def.get("label", "")))
-		button.custom_minimum_size = Vector2(_scaled_float(132.0), _scaled_float(44.0 if _uses_touch_layout() else 40.0))
+		button.custom_minimum_size = Vector2(_scaled_float(132.0), _scaled_float(40.0))
 		var level: int = int(range_def.get("level", 1))
 		button.pressed.connect(func() -> void:
 			_scroll_to_level(level)
@@ -332,28 +364,45 @@ func _render_summary(snapshot: Dictionary) -> void:
 	var premium_owned: bool = bool(snapshot.get("premium_owned", false))
 	var elite_owned: bool = bool(snapshot.get("elite_owned", false))
 	var speed_text: String = "Elite speed x1.30" if elite_owned else ("Premium speed x1.20" if premium_owned else "Base speed x1.00")
-	_summary_label.text = "Level %d/%d | %s | Paths %d | Premium %s | Elite %s" % [
-		level,
-		total_levels,
-		speed_text,
-		side_quest_paths,
-		"YES" if premium_owned else "NO",
-		"YES" if elite_owned else "NO"
-	]
+	if _uses_touch_layout():
+		_summary_label.text = "Level %d/%d | %s | Paths %d" % [
+			level,
+			total_levels,
+			speed_text,
+			side_quest_paths
+		]
+	else:
+		_summary_label.text = "Level %d/%d | %s | Paths %d | Premium %s | Elite %s" % [
+			level,
+			total_levels,
+			speed_text,
+			side_quest_paths,
+			"YES" if premium_owned else "NO",
+			"YES" if elite_owned else "NO"
+		]
 
 	var wallet_any: Variant = snapshot.get("wallet", {})
 	var wallet: Dictionary = wallet_any as Dictionary if typeof(wallet_any) == TYPE_DICTIONARY else {}
 	var inventory_any: Variant = snapshot.get("inventory", {})
 	var inventory: Dictionary = inventory_any as Dictionary if typeof(inventory_any) == TYPE_DICTIONARY else {}
-	_wallet_label.text = "Nectar %d total | Need %d for Level %d | Current level %d/%d | Honey %d | Tickets %d" % [
-		total_nectar,
-		nectar_needed,
-		next_level,
-		nectar_into_level,
-		nectar_for_level,
-		int(wallet.get("honey", 0)),
-		int(inventory.get("access_tickets", 0))
-	]
+	if _uses_touch_layout():
+		_wallet_label.text = "Nectar %d | Need %d for L%d | Honey %d | Tickets %d" % [
+			total_nectar,
+			nectar_needed,
+			next_level,
+			int(wallet.get("honey", 0)),
+			int(inventory.get("access_tickets", 0))
+		]
+	else:
+		_wallet_label.text = "Nectar %d total | Need %d for Level %d | Current level %d/%d | Honey %d | Tickets %d" % [
+			total_nectar,
+			nectar_needed,
+			next_level,
+			nectar_into_level,
+			nectar_for_level,
+			int(wallet.get("honey", 0)),
+			int(inventory.get("access_tickets", 0))
+		]
 	if _progress_title_label != null:
 		_progress_title_label.text = "NECTAR %d / %d" % [nectar_into_level, nectar_for_level]
 	_progress_bar.value = progress_ratio * 100.0
@@ -391,38 +440,49 @@ func _build_level_card(row: Dictionary) -> Panel:
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_top", 12)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_bottom", 12)
+	var card_pad_x: int = _scaled_int(10 if _uses_touch_layout() else 14)
+	var card_pad_y: int = _scaled_int(9 if _uses_touch_layout() else 12)
+	margin.add_theme_constant_override("margin_left", card_pad_x)
+	margin.add_theme_constant_override("margin_top", card_pad_y)
+	margin.add_theme_constant_override("margin_right", card_pad_x)
+	margin.add_theme_constant_override("margin_bottom", card_pad_y)
 	card.add_child(margin)
 
-	var row_box := HBoxContainer.new()
-	row_box.add_theme_constant_override("separation", _scaled_int(14))
+	var row_box: BoxContainer = VBoxContainer.new() if _uses_touch_layout() else HBoxContainer.new()
+	row_box.add_theme_constant_override("separation", _scaled_int(8 if _uses_touch_layout() else 14))
 	margin.add_child(row_box)
 
 	var meta := VBoxContainer.new()
-	meta.custom_minimum_size = Vector2(_scaled_float(172.0), 0.0)
-	meta.add_theme_constant_override("separation", _scaled_int(6))
+	meta.custom_minimum_size = Vector2(0.0 if _uses_touch_layout() else _scaled_float(172.0), 0.0)
+	meta.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	meta.add_theme_constant_override("separation", _scaled_int(4 if _uses_touch_layout() else 6))
 	row_box.add_child(meta)
 
 	var level_label := Label.new()
 	level_label.text = "LEVEL %03d" % level
-	level_label.add_theme_font_size_override("font_size", _scaled_int(20))
+	_apply_font(level_label, _font_semibold, 24 if _uses_touch_layout() else 20)
 	level_label.add_theme_color_override("font_color", GOLD if unlocked else LOCKED)
 	meta.add_child(level_label)
 
 	var xp_label := Label.new()
-	xp_label.text = "Unlock total: %d nectar\nLevel cost: %d nectar" % [
-		int(row.get("unlock_nectar", 0)),
-		int(row.get("xp_required", 0))
-	]
+	if _uses_touch_layout():
+		xp_label.text = "Unlock: %d nectar | Cost: %d nectar" % [
+			int(row.get("unlock_nectar", 0)),
+			int(row.get("xp_required", 0))
+		]
+	else:
+		xp_label.text = "Unlock total: %d nectar\nLevel cost: %d nectar" % [
+			int(row.get("unlock_nectar", 0)),
+			int(row.get("xp_required", 0))
+		]
 	xp_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(xp_label, _font_regular, 16 if _uses_touch_layout() else 12)
 	xp_label.add_theme_color_override("font_color", Color(0.9, 0.92, 0.96, 0.88))
 	meta.add_child(xp_label)
 
 	var status := Label.new()
 	status.text = "OPEN" if unlocked else "LOCKED"
+	_apply_font(status, _font_semibold, 15 if _uses_touch_layout() else 12)
 	status.add_theme_color_override("font_color", GOOD if unlocked else LOCKED)
 	meta.add_child(status)
 
@@ -431,6 +491,7 @@ func _build_level_card(row: Dictionary) -> Panel:
 		var scarcity := Label.new()
 		scarcity.text = "Prestige slots: %d" % scarcity_remaining
 		scarcity.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_apply_font(scarcity, _font_regular, 15 if _uses_touch_layout() else 12)
 		scarcity.add_theme_color_override("font_color", GOLD)
 		meta.add_child(scarcity)
 
@@ -449,9 +510,9 @@ func _build_level_card(row: Dictionary) -> Panel:
 		main_state = tracks.get(main_track_slot, {}) as Dictionary
 	reward_col.add_child(_build_main_reward_card(level, main_track_slot, main_state))
 
-	var offshoots := HBoxContainer.new()
+	var offshoots: BoxContainer = VBoxContainer.new() if _uses_touch_layout() else HBoxContainer.new()
 	offshoots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	offshoots.add_theme_constant_override("separation", _scaled_int(10))
+	offshoots.add_theme_constant_override("separation", _scaled_int(8 if _uses_touch_layout() else 10))
 	reward_col.add_child(offshoots)
 	for track in OFFSHOOT_TRACKS:
 		var track_state: Dictionary = tracks.get(track, {}) as Dictionary
@@ -462,13 +523,13 @@ func _build_level_card(row: Dictionary) -> Panel:
 
 func _build_main_reward_card(level: int, track: String, track_state: Dictionary) -> Panel:
 	var panel: Panel = _build_reward_card(level, "MAIN TRACK", track, track_state, true)
-	panel.custom_minimum_size = Vector2(0.0, _scaled_float(136.0 if _uses_touch_layout() else 112.0))
+	panel.custom_minimum_size = Vector2(0.0, _scaled_float(104.0 if _uses_touch_layout() else 112.0))
 	return panel
 
 func _build_offshoot_card(level: int, track: String, track_state: Dictionary) -> Panel:
 	var panel: Panel = _build_reward_card(level, "%s OFFSHOOT" % track.to_upper(), track, track_state, false)
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.custom_minimum_size = Vector2(0.0, _scaled_float(116.0 if _uses_touch_layout() else 96.0))
+	panel.custom_minimum_size = Vector2(0.0, _scaled_float(88.0 if _uses_touch_layout() else 96.0))
 	return panel
 
 func _build_reward_card(level: int, label_text: String, track: String, track_state: Dictionary, main_track: bool) -> Panel:
@@ -484,10 +545,11 @@ func _build_reward_card(level: int, label_text: String, track: String, track_sta
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	margin.add_theme_constant_override("margin_left", 10)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 10)
-	margin.add_theme_constant_override("margin_bottom", 10)
+	var reward_pad: int = _scaled_int(8 if _uses_touch_layout() else 10)
+	margin.add_theme_constant_override("margin_left", reward_pad)
+	margin.add_theme_constant_override("margin_top", reward_pad)
+	margin.add_theme_constant_override("margin_right", reward_pad)
+	margin.add_theme_constant_override("margin_bottom", reward_pad)
 	track_panel.add_child(margin)
 
 	var box := VBoxContainer.new()
@@ -499,11 +561,13 @@ func _build_reward_card(level: int, label_text: String, track: String, track_sta
 	box.add_child(top)
 
 	var icon := TextureRect.new()
-	icon.custom_minimum_size = Vector2(_scaled_float(78.0 if _uses_touch_layout() else 64.0), _scaled_float(78.0 if _uses_touch_layout() else 64.0))
+	var reward_tex: Texture2D = _reward_texture(reward)
+	icon.custom_minimum_size = Vector2(_scaled_float(50.0 if _uses_touch_layout() else 64.0), _scaled_float(50.0 if _uses_touch_layout() else 64.0))
 	icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.texture = _reward_texture(reward)
-	top.add_child(icon)
+	icon.texture = reward_tex
+	if reward_tex != null:
+		top.add_child(icon)
 
 	var text_col := VBoxContainer.new()
 	text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -512,23 +576,26 @@ func _build_reward_card(level: int, label_text: String, track: String, track_sta
 
 	var track_label := Label.new()
 	track_label.text = label_text
+	_apply_font(track_label, _font_semibold, 15 if _uses_touch_layout() else 12)
 	track_label.add_theme_color_override("font_color", GOLD if main_track else _offshoot_title_color(label_text))
 	text_col.add_child(track_label)
 
 	var reward_label := Label.new()
 	reward_label.text = _reward_title(reward)
 	reward_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(reward_label, _font_regular, 17 if _uses_touch_layout() else 13)
 	reward_label.add_theme_color_override("font_color", Color(0.94, 0.95, 0.98, 0.96))
 	text_col.add_child(reward_label)
 
 	var status_label := Label.new()
 	status_label.text = _track_status_text(claimable, claimed, locked_reason)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(status_label, _font_regular, 15 if _uses_touch_layout() else 12)
 	status_label.add_theme_color_override("font_color", GOOD if claimable else (GOLD if claimed else LOCKED))
 	box.add_child(status_label)
 
 	var claim_button := _make_button("Claim")
-	claim_button.custom_minimum_size = Vector2(0.0, _scaled_float(42.0 if _uses_touch_layout() else 34.0))
+	claim_button.custom_minimum_size = Vector2(0.0, _scaled_float(38.0 if _uses_touch_layout() else 34.0))
 	claim_button.disabled = not claimable
 	claim_button.pressed.connect(func() -> void:
 		_claim_track(level, track)
@@ -580,7 +647,7 @@ func _refresh_card_sizes() -> void:
 	var available: float = maxf(240.0, _levels_scroll.size.y)
 	var card_height: float
 	if _uses_touch_layout():
-		card_height = clampf(available * 0.72, 420.0, 760.0)
+		card_height = clampf(available * 0.52, 360.0, 560.0)
 	else:
 		card_height = clampf((available - 28.0) / 3.0, 240.0, 620.0)
 	for child in _cards_vbox.get_children():
@@ -675,7 +742,7 @@ func _reward_texture(reward: Dictionary) -> Texture2D:
 		if not icon_path.is_empty():
 			return _load_texture(icon_path)
 	if reward_type == "honey":
-		return _load_texture("res://assets/sprites/sf_skin_v1/honey_letters.png")
+		return null
 	if reward_type == "access_ticket":
 		return _load_texture("res://assets/sprites/sf_skin_v1/battle_pass.png")
 	if reward_type == "cosmetic":
@@ -745,12 +812,13 @@ func _make_button(text: String) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size = Vector2(0.0, _scaled_float(44.0 if _uses_touch_layout() else 38.0))
+	button.custom_minimum_size = Vector2(0.0, _scaled_float(50.0 if _uses_touch_layout() else 38.0))
 	button.add_theme_stylebox_override("normal", _style(Color(0.10, 0.105, 0.12, 0.86), Color(0.95, 0.77, 0.28, 0.30), 1, 5))
 	button.add_theme_stylebox_override("hover", _style(Color(0.15, 0.14, 0.12, 0.92), Color(0.95, 0.80, 0.36, 0.58), 1, 5))
 	button.add_theme_stylebox_override("pressed", _style(Color(0.06, 0.06, 0.07, 0.96), Color(0.95, 0.77, 0.28, 0.72), 1, 5))
 	button.add_theme_color_override("font_color", Color(0.94, 0.95, 0.98, 1.0))
 	button.add_theme_color_override("font_disabled_color", Color(0.56, 0.58, 0.64, 0.72))
+	_apply_font(button, _font_semibold, 16 if _uses_touch_layout() else 13)
 	return button
 
 func _make_close_button() -> Button:
@@ -758,81 +826,14 @@ func _make_close_button() -> Button:
 	button.name = "CloseButton"
 	button.tooltip_text = "CLOSE"
 	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	button.custom_minimum_size = Vector2(330.0, 140.0)
-	var tex: Texture2D = _close_skin_texture()
-	if tex == null:
-		button.text = "Close"
-		button.custom_minimum_size = Vector2(180.0, 44.0)
-		button.add_theme_stylebox_override("normal", _style(Color(0.10, 0.105, 0.12, 0.86), Color(0.95, 0.77, 0.28, 0.30), 1, 5))
-		button.add_theme_stylebox_override("hover", _style(Color(0.15, 0.14, 0.12, 0.92), Color(0.95, 0.80, 0.36, 0.58), 1, 5))
-		button.add_theme_stylebox_override("pressed", _style(Color(0.06, 0.06, 0.07, 0.96), Color(0.95, 0.77, 0.28, 0.72), 1, 5))
-		button.add_theme_color_override("font_color", Color(0.94, 0.95, 0.98, 1.0))
-		return button
-	button.icon = tex
-	button.text = ""
-	button.set("expand_icon", true)
-	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
-	button.add_theme_constant_override("h_separation", 0)
-	_style_sprite_button(button)
+	button.text = "Close"
+	button.custom_minimum_size = Vector2(_scaled_float(220.0), _scaled_float(52.0))
+	button.add_theme_stylebox_override("normal", _style(Color(0.10, 0.105, 0.12, 0.86), Color(0.95, 0.77, 0.28, 0.30), 1, 5))
+	button.add_theme_stylebox_override("hover", _style(Color(0.15, 0.14, 0.12, 0.92), Color(0.95, 0.80, 0.36, 0.58), 1, 5))
+	button.add_theme_stylebox_override("pressed", _style(Color(0.06, 0.06, 0.07, 0.96), Color(0.95, 0.77, 0.28, 0.72), 1, 5))
+	button.add_theme_color_override("font_color", Color(0.94, 0.95, 0.98, 1.0))
+	_apply_font(button, _font_semibold, 18 if _uses_touch_layout() else 14)
 	return button
-
-func _close_skin_texture() -> Texture2D:
-	if _close_skin_loaded:
-		return _close_skin_cache
-	_close_skin_loaded = true
-	if not ResourceLoader.exists(CLOSE_SKIN_PATH):
-		return null
-	var loaded_any: Variant = load(CLOSE_SKIN_PATH)
-	if loaded_any is Texture2D:
-		_close_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D, 512, 256)
-	return _close_skin_cache
-
-func _style_sprite_button(button: Button) -> void:
-	var clear_style := StyleBoxEmpty.new()
-	button.flat = true
-	button.add_theme_stylebox_override("normal", clear_style)
-	button.add_theme_stylebox_override("hover", clear_style)
-	button.add_theme_stylebox_override("pressed", clear_style)
-	button.add_theme_stylebox_override("focus", clear_style)
-	button.add_theme_stylebox_override("disabled", clear_style)
-	button.add_theme_color_override("font_color", Color(1, 1, 1, 0))
-	button.add_theme_color_override("font_hover_color", Color(1, 1, 1, 0))
-	button.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0))
-
-func _key_black_to_alpha_texture(source_tex: Texture2D, max_width: int = 512, max_height: int = 256) -> Texture2D:
-	if source_tex == null:
-		return null
-	var source_image: Image = source_tex.get_image()
-	if source_image == null or source_image.is_empty():
-		return source_tex
-	source_image.convert(Image.FORMAT_RGBA8)
-	var width: int = source_image.get_width()
-	var height: int = source_image.get_height()
-	var can_resize: bool = max_width > 0 and max_height > 0
-	if can_resize and (width > max_width or height > max_height):
-		var width_scale: float = float(max_width) / float(width)
-		var height_scale: float = float(max_height) / float(height)
-		var resize_scale: float = minf(width_scale, height_scale)
-		var target_w: int = maxi(1, int(round(float(width) * resize_scale)))
-		var target_h: int = maxi(1, int(round(float(height) * resize_scale)))
-		source_image.resize(target_w, target_h, Image.INTERPOLATE_LANCZOS)
-		width = source_image.get_width()
-		height = source_image.get_height()
-	for y in range(height):
-		for x in range(width):
-			var px: Color = source_image.get_pixel(x, y)
-			if px.a <= 0.0:
-				continue
-			var max_v: float = max(px.r, max(px.g, px.b))
-			var min_v: float = min(px.r, min(px.g, px.b))
-			var sat: float = max_v - min_v
-			if max_v <= 0.03:
-				px.a = 0.0
-			elif max_v < 0.14 and sat < 0.20:
-				var t: float = clamp((max_v - 0.03) / 0.11, 0.0, 1.0)
-				px.a *= t
-			source_image.set_pixel(x, y, px)
-	return ImageTexture.create_from_image(source_image)
 
 func _style(bg: Color, border: Color, border_width: int = 1, radius: int = 6) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
