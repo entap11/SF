@@ -11,8 +11,10 @@ const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
 const SETTINGS_CRASH_ON_CONTRACT_VIOLATION: String = "swarmfront/vs/crash_on_contract_violation"
+const SETTINGS_HASH_RECOVERY_PAUSE_ENABLED: String = "swarmfront/vs/hash_recovery_pause_enabled"
 const DEFAULT_BACKEND_TIMEOUT_SEC: float = 6.0
 const CRASH_ON_CONTRACT_VIOLATION_DEFAULT: bool = false
+const HASH_RECOVERY_PAUSE_ENABLED_DEFAULT: bool = false
 const CONTRACT_VERSION: int = 1
 const CONTRACT_DIAGNOSTIC_LOG_PATH: String = "user://vs_contract_violations.jsonl"
 const RUNTIME_TELEMETRY_LOG_DIR: String = "user://pvp_runtime"
@@ -558,6 +560,12 @@ func _record_hash_mismatch(hash_tick: int, local_hash: String, remote_hash: Stri
 		_push_debug_event(event_type, payload)
 		_write_runtime_telemetry_event(event_type, payload)
 		return
+	if not _hash_recovery_pause_enabled():
+		payload["recovery_suppressed"] = true
+		_push_debug_event("state_hash_mismatch_recovery_suppressed", payload)
+		_write_runtime_telemetry_event("state_hash_mismatch_recovery_suppressed", payload)
+		_contract_violation("state_hash_mismatch", payload)
+		return
 	_mark_peer_desync_or_lagging("state_hash_mismatch", payload)
 	_contract_violation("state_hash_mismatch", payload)
 
@@ -1084,6 +1092,11 @@ func _crash_on_contract_violation() -> bool:
 		return bool(ProjectSettings.get_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, CRASH_ON_CONTRACT_VIOLATION_DEFAULT))
 	return CRASH_ON_CONTRACT_VIOLATION_DEFAULT
 
+func _hash_recovery_pause_enabled() -> bool:
+	if ProjectSettings.has_setting(SETTINGS_HASH_RECOVERY_PAUSE_ENABLED):
+		return bool(ProjectSettings.get_setting(SETTINGS_HASH_RECOVERY_PAUSE_ENABLED, HASH_RECOVERY_PAUSE_ENABLED_DEFAULT))
+	return HASH_RECOVERY_PAUSE_ENABLED_DEFAULT
+
 func _reset_contract_diagnostics() -> void:
 	_contract_violation_count = 0
 	_last_contract_violation = {}
@@ -1217,6 +1230,7 @@ func _contract_diagnostics_snapshot() -> Dictionary:
 		"hash_mismatch_consecutive_count": _hash_mismatch_consecutive_count,
 		"hash_mismatch_threshold": HASH_MISMATCH_RECOVERY_THRESHOLD,
 		"hash_startup_grace_ticks": HASH_STARTUP_GRACE_TICKS,
+		"hash_recovery_pause_enabled": _hash_recovery_pause_enabled(),
 		"hash_mismatch_last_details": _hash_mismatch_last_details.duplicate(true),
 		"contract_violation_count": _contract_violation_count,
 		"contract_last_violation_reason": _contract_last_violation_reason,

@@ -694,8 +694,6 @@ func _build_contract_state_signature() -> String:
 	parts.append("outcome=%d" % int(outcome))
 	parts.append("outcome_tick=%d" % int(outcome_tick))
 	parts.append("winner=%d" % int(winner_id))
-	parts.append("match_elapsed_ms=%d" % int(match_elapsed_ms))
-	parts.append("match_remaining_ms=%d" % int(match_time_remaining_ms))
 	parts.append("victory=%s" % get_victory_mode())
 	var hive_rows: Array = []
 	for hive_any in st.hives:
@@ -724,7 +722,7 @@ func _build_contract_state_signature() -> String:
 			var lane: LaneData = lane_any as LaneData
 			lane_rows.append([
 				int(lane.id),
-				"l:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
+				"l:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
 					int(lane.id),
 					int(lane.a_id),
 					int(lane.b_id),
@@ -735,11 +733,8 @@ func _build_contract_state_signature() -> String:
 					_round_contract_float(float(lane.b_pressure)),
 					_round_contract_float(float(lane.spawn_accum_a_ms)),
 					_round_contract_float(float(lane.spawn_accum_b_ms)),
-					_round_contract_float(float(lane.build_t)),
 					_round_contract_float(float(lane.a_stream_len)),
 					_round_contract_float(float(lane.b_stream_len)),
-					1 if bool(lane.establish_a) else 0,
-					1 if bool(lane.establish_b) else 0,
 					1 if bool(lane.retract_a) else 0,
 					1 if bool(lane.retract_b) else 0,
 					int(lane.seg_carry_ms)
@@ -824,10 +819,6 @@ func _build_contract_state_signature() -> String:
 	retract_rows.sort()
 	for row_any in retract_rows:
 		parts.append(str(row_any))
-	var lane_front_keys: Array = lane_front_by_lane_id.keys()
-	lane_front_keys.sort()
-	for key_any in lane_front_keys:
-		parts.append("front:%s:%d" % [str(key_any), _round_contract_float(float(lane_front_by_lane_id.get(key_any, 0.0)))])
 	var tower_rows: Array = []
 	for tower_any in st.towers:
 		if typeof(tower_any) != TYPE_DICTIONARY:

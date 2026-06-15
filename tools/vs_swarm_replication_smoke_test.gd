@@ -2,6 +2,7 @@ extends SceneTree
 
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_CRASH_ON_CONTRACT_VIOLATION: String = "swarmfront/vs/crash_on_contract_violation"
+const SETTINGS_HASH_RECOVERY_PAUSE_ENABLED: String = "swarmfront/vs/hash_recovery_pause_enabled"
 
 func _init() -> void:
 	await process_frame
@@ -10,6 +11,7 @@ func _init() -> void:
 	failed = _test_invalid_remote_command_trips_contract_guard() or failed
 	failed = _test_late_scheduled_command_delivers_and_updates_diagnostics() or failed
 	failed = _test_same_authoritative_command_log_hashes_match() or failed
+	failed = _test_contract_hash_ignores_clock_and_visual_drift() or failed
 	failed = _test_state_hash_mismatch_threshold_and_self_heal() or failed
 	failed = _test_desync_recovery_uses_snapshot_and_command_log() or failed
 	if not failed:
@@ -445,8 +447,44 @@ func _apply_authoritative_command_log(ops_state: Node, map_dict: Dictionary, com
 		"hive_1_power": int((state.find_hive_by_id(1) as HiveData).power)
 	}
 
+func _test_contract_hash_ignores_clock_and_visual_drift() -> bool:
+	var root_node: Window = get_root()
+	var ops_state: Node = root_node.get_node_or_null("/root/OpsState")
+	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
+	if ops_state == null:
+		return _fail("OpsState autoload missing")
+	if runtime != null and runtime.has_method("clear"):
+		runtime.call("clear")
+	ops_state.call("reset_state_from_map", _deterministic_authority_map())
+	ops_state.set("match_phase", 1)
+	var open_result: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack") as Dictionary
+	if not bool(open_result.get("ok", false)):
+		return _fail("clock drift hash smoke failed to open lane: %s" % str(open_result))
+	var baseline_hash: String = str(ops_state.call("get_contract_state_hash"))
+	ops_state.set("match_elapsed_ms", int(ops_state.get("match_elapsed_ms")) + 1700)
+	ops_state.set("match_time_remaining_ms", maxi(0, int(ops_state.get("match_time_remaining_ms")) - 1700))
+	ops_state.set("match_remaining_ms", maxi(0, int(ops_state.get("match_remaining_ms")) - 1700))
+	ops_state.set("match_deadline_ms", int(ops_state.get("match_deadline_ms")) + 333)
+	var front_by_lane: Dictionary = ops_state.get("lane_front_by_lane_id") as Dictionary
+	for key_any in front_by_lane.keys():
+		front_by_lane[key_any] = 0.91
+	var state: GameState = ops_state.call("get_state") as GameState
+	if state != null:
+		for lane_any in state.lanes:
+			if lane_any is LaneData:
+				var lane: LaneData = lane_any as LaneData
+				lane.build_t = 0.17
+				lane.establish_a = true
+				lane.establish_b = false
+				lane.establish_t0_ms = Time.get_ticks_msec() + 12345
+	var drift_hash: String = str(ops_state.call("get_contract_state_hash"))
+	if drift_hash != baseline_hash:
+		return _fail("contract hash should ignore clock and visual lane drift: before=%s after=%s" % [baseline_hash, drift_hash])
+	return false
+
 func _test_state_hash_mismatch_threshold_and_self_heal() -> bool:
 	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
+	ProjectSettings.set_setting(SETTINGS_HASH_RECOVERY_PAUSE_ENABLED, false)
 	var root_node: Window = get_root()
 	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
 	if runtime == null:
@@ -486,8 +524,10 @@ func _test_state_hash_mismatch_threshold_and_self_heal() -> bool:
 		return _fail("state hash mismatch samples should increment diagnostics: %s" % str(diag))
 	if str(diag.get("contract_last_violation_reason", "")) != "state_hash_mismatch":
 		return _fail("persistent state hash mismatch should record latest violation reason: %s" % str(diag))
-	if str(diag.get("recovery_state", "")) != "desync_recovery":
-		return _fail("third persistent state hash mismatch should enter desync recovery: %s" % str(diag))
+	if str(diag.get("recovery_state", "")) != "running":
+		return _fail("hash recovery pause disabled should keep runtime running: %s" % str(diag))
+	if not bool(runtime.call("can_accept_gameplay_intents")):
+		return _fail("hash recovery pause disabled should keep gameplay intents enabled")
 	if runtime.has_method("clear"):
 		runtime.call("clear")
 	set_meta("vs_handshake_session_id", "hash_self_heal_smoke")
@@ -531,10 +571,12 @@ func _test_state_hash_mismatch_threshold_and_self_heal() -> bool:
 	if runtime.has_method("clear"):
 		runtime.call("clear")
 	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
+	ProjectSettings.set_setting(SETTINGS_HASH_RECOVERY_PAUSE_ENABLED, false)
 	return false
 
 func _test_desync_recovery_uses_snapshot_and_command_log() -> bool:
 	ProjectSettings.set_setting(SETTINGS_CRASH_ON_CONTRACT_VIOLATION, false)
+	ProjectSettings.set_setting(SETTINGS_HASH_RECOVERY_PAUSE_ENABLED, true)
 	var root_node: Window = get_root()
 	var ops_state: Node = root_node.get_node_or_null("/root/OpsState")
 	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
@@ -628,6 +670,7 @@ func _test_desync_recovery_uses_snapshot_and_command_log() -> bool:
 		return _fail("failed recovery should end cleanly after retry budget: once=%s twice=%s" % [str(failed_once), str(failed_twice)])
 	if runtime.has_method("clear"):
 		runtime.call("clear")
+	ProjectSettings.set_setting(SETTINGS_HASH_RECOVERY_PAUSE_ENABLED, false)
 	return false
 
 func _state_hash_poll(uid: String, seq: int, hash_tick: int, state_hash: String) -> Dictionary:
