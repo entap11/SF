@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "description": "Approved render-only assets for the premium arena polish layer. Entries are loaded for validation only until placement rules are implemented.",
+  "defaults": {
+    "render_only": true,
+    "affects_gameplay": false,
+    "allowed_z_index_max": -11,
+    "mobile_total_instance_limit": 24,
+    "opacity_range": [0.25, 0.75],
+    "scale_range": [0.75, 1.25],
+    "allowed_placement_zones": [
+      "arena_dead_space",
+      "lane_edges",
+      "outer_floor_edges",
+      "hq_adjacency_glow"
+    ],
+    "forbidden_overlap": [
+      "active_lane_core",
+      "hive_body",
+      "tower_body",
+      "barracks_body",
+      "unit_path_core",
+      "ui"
+    ]
+  },
+  "props": [],
+  "vfx": [],
+  "lighting": []
+}

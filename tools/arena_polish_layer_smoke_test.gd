@@ -3,6 +3,7 @@ extends SceneTree
 const SETTINGS_POLISH_ENABLED: String = "swarmfront/arena/premium_polish_enabled"
 const SETTINGS_TOWER_VISUAL_SCALE: String = "swarmfront/arena/tower_visual_scale"
 const SETTINGS_COMPARISON_MODE: String = "swarmfront/arena/polish_comparison_mode"
+const MANIFEST_PATH: String = "res://assets/sprites/arena_polish/arena_polish_manifest.json"
 const ArenaPolishLayerScript: Script = preload("res://scripts/renderers/arena_polish_layer.gd")
 const POLISH_Z_INDEX: int = -15
 
@@ -17,6 +18,10 @@ func _initialize() -> void:
 	var arena_source: String = FileAccess.get_file_as_string("res://scripts/arena.gd")
 	_expect_true(arena_source.contains("func apply_arena_visual_comparison_mode"), "Arena should expose a visual comparison mode helper")
 	_expect_true(arena_source.contains("func arena_visual_comparison_modes"), "Arena should expose available visual comparison modes")
+	_expect_true(DirAccess.dir_exists_absolute("res://assets/sprites/arena_polish/props"), "Arena polish props folder should be tracked")
+	_expect_true(DirAccess.dir_exists_absolute("res://assets/sprites/arena_polish/vfx"), "Arena polish vfx folder should be tracked")
+	_expect_true(DirAccess.dir_exists_absolute("res://assets/sprites/arena_polish/lighting"), "Arena polish lighting folder should be tracked")
+	_expect_true(FileAccess.file_exists(MANIFEST_PATH), "Arena polish manifest should exist")
 
 	var arena_scene: PackedScene = load("res://scenes/Arena.tscn") as PackedScene
 	_expect_true(arena_scene != null, "Arena scene should load")
@@ -40,6 +45,10 @@ func _initialize() -> void:
 	_expect_true(bool(layer.get_meta("premium_arena_polish", false)), "Layer should be marked as arena polish")
 	_expect_true(bool(layer.get_meta("gameplay_affects_state", true)) == false, "Layer should be marked non-gameplay")
 	_expect_true(float(layer.call("tower_visual_scale")) == 1.25, "Tower visual scale setting should be readable")
+	var manifest: Dictionary = layer.call("manifest") as Dictionary
+	_expect_true(int(manifest.get("version", 0)) == 1, "Manifest should load with version 1")
+	_expect_true((layer.call("manifest_errors") as PackedStringArray).is_empty(), "Manifest should validate cleanly")
+	_expect_true((layer.call("approved_entries") as Array).is_empty(), "Manifest should place no assets until entries are added")
 
 	ProjectSettings.set_setting(SETTINGS_POLISH_ENABLED, true)
 	layer.call("apply_runtime_settings")
