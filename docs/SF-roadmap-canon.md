@@ -220,10 +220,32 @@ Tasks:
   - buff activation
   - OT state
   - match resolution reason
+- Premium Arena Polish Prototype:
+  - Keep all changes render-only; do not change gameplay, sim state, OpsState, SimState, pathing, targeting, ownership logic, lane geometry, combat, networking, PvP hash inputs, or balance.
+  - Add Swarmfront-specific atmospheric story props only after sprite assets exist:
+    - destroyed bee husk clusters near lane edges, never on lane cores
+    - rare destroyed drone wrecks in dead space
+    - abandoned hive fragments, broken hex panels, damaged shell pieces, cracked honey storage cells
+    - old tower foundations as subtle worldbuilding pads
+    - cable bundles/exposed conduits near safe lane edges
+    - cracked tech floor plates or soft low-opacity glow pools
+  - Cap atmospheric story props to 3-5 visible on screen at once; goal is environmental storytelling, not clutter.
+  - Keep props low contrast and subordinate to hives, lanes, units, towers, barracks, and UI.
+  - Enforce safe placement zones and forbidden overlap through the arena polish manifest/policy before any sprite placement.
+- Lane Visual Hierarchy Prototype:
+  - Make lane visuals stateful and hierarchical while remaining render-only.
+  - Uncontested lanes should feel embedded in the arena floor: low z-index, lower alpha, narrower width if safe, no glow, no pulse.
+  - Active lanes should sit at medium z-index/alpha/width with very low glow if supported.
+  - Contested lanes should visually lift above the floor: higher z-index, high alpha, wider line if safe, medium glow, subtle cheap pulse only if needed.
+  - Start with only `embedded`, `active`, and `contested`; do not add `critical` until contested works cleanly and tests pass.
+  - Cache visual profile per lane; recompute only when relevant render inputs change.
+  - Do not rebuild lane geometry every frame and do not spawn/despawn lane nodes repeatedly.
 
 Tests:
 - Visual state always matches gameplay state.
 - No ambiguity about why lanes are blocked or buffs active.
+- Arena polish manifest rejects unsafe placement metadata before sprites render.
+- Lane visual profile tests prove embedded lanes resolve lower/dimmer and contested lanes resolve higher/brighter/wider without mutating sim/lane gameplay state.
 
 ## Explicit Non-Goals (Do NOT implement yet)
 - Full buff catalog

@@ -219,6 +219,43 @@ Remaining tasks:
 - bot personality tuning
 - Social Highlight video framing, CTA overlay, and thumbnail treatment
 
+### Premium Arena Polish And Lane Hierarchy
+
+Current direction:
+- Build premium battlefield presentation through render-only changes.
+- Do not change gameplay, sim state, OpsState, SimState, pathing, targeting, ownership, lane geometry, combat, networking, PvP hashes, or balance.
+- Preserve faction color readability and lane clarity.
+
+Arena story props:
+- Use Swarmfront-specific props rather than generic sci-fi clutter:
+  - destroyed bee husk clusters
+  - destroyed drone wrecks
+  - abandoned hive fragments
+  - old tower foundations
+  - cable bundles/exposed conduits
+  - cracked tech floor plates or soft glow pools
+- Keep no more than 3-5 atmospheric story props visible on screen at once.
+- Props should be noticeable in screenshots but fade from conscious attention during gameplay.
+- Placement must use the existing arena polish manifest/policy before any sprite placement.
+
+Lane Visual Hierarchy Prototype:
+- Uncontested lanes should feel embedded in the arena floor.
+- Contested lanes should visually lift above the floor.
+- Start with three render-only states:
+  - embedded
+  - active
+  - contested
+- Cache lane visual profiles and update only when lane render inputs change.
+- Tween profile changes over roughly 0.20 seconds.
+- No particles in the first pass; if pulse is used, keep it cheap and limited to currently pulsing lanes.
+
+Next implementation order:
+1. Inspect `lane_renderer.gd` and identify the smallest safe insertion point for cached visual profiles.
+2. Add the feature flag `LANE_VISUAL_HIERARCHY_ENABLED`, defaulting safe for export.
+3. Implement profile derivation for embedded/active/contested without changing lane geometry or sim state.
+4. Add smoke tests proving profile changes do not mutate gameplay state or recreate lane nodes unnecessarily.
+5. Wait for actual arena prop sprites before adding prop manifest entries or placement.
+
 ## Known Technical Risks
 
 - `main_menu.gd` is too large and mixes launch flow, dashboard, async, store, and mode selection.
