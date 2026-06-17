@@ -1635,13 +1635,13 @@ func _update_lane_visuals(delta: float) -> void:
 			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)))
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
-			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
-			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false)
+			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true, profile)
+			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false, profile)
 		elif send_a:
-			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
+			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true, profile)
 			sprite_b.visible = false
 		elif send_b:
-			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false)
+			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false, profile)
 			sprite_a.visible = false
 		else:
 			sprite_a.visible = false
@@ -1726,7 +1726,8 @@ func _apply_lane_sprite_visual(
 	target_thickness_px: float,
 	unit_body_px: float,
 	lane_basis_dir: Vector2 = Vector2.ZERO,
-	points_toward_end: bool = true
+	points_toward_end: bool = true,
+	visual_profile: Dictionary = {}
 ) -> void:
 	if sprite == null or sprite.texture == null:
 		return
@@ -1765,6 +1766,7 @@ func _apply_lane_sprite_visual(
 	sprite.flip_h = not points_toward_end
 	sprite.scale = Vector2(scale_x, scale_y)
 	sprite.modulate = color
+	_apply_lane_shader_visual_profile(sprite, visual_profile, segment_count_f)
 	if lane_id == 9 and not _lane_align_logged:
 		_lane_align_logged = true
 		var dir_norm: Vector2 = Vector2.ZERO
@@ -1792,6 +1794,14 @@ func _apply_lane_sprite_visual(
 			"y_scale": scale_y,
 			"tex_size": [sprite.texture.get_width(), sprite.texture.get_height()]
 		})
+
+func _apply_lane_shader_visual_profile(sprite: Sprite2D, visual_profile: Dictionary, segment_count: float) -> void:
+	if sprite == null:
+		return
+	sprite.set_instance_shader_parameter("lane_tile_void_period", float(visual_profile.get("tile_void_period", 1.0)))
+	sprite.set_instance_shader_parameter("lane_tile_void_keep", float(visual_profile.get("tile_void_keep", 1.0)))
+	sprite.set_instance_shader_parameter("lane_tile_void_phase", float(visual_profile.get("tile_void_phase", 0.0)))
+	sprite.set_instance_shader_parameter("lane_tile_repeat_count", maxf(1.0, segment_count))
 
 func _local_lane_owner_id() -> int:
 	if arena != null:

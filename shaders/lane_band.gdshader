@@ -10,6 +10,10 @@ uniform float ink_luma_floor = 0.20;
 uniform float ink_luma_full = 0.52;
 uniform float ink_chroma_floor = 0.10;
 uniform float ink_chroma_full = 0.30;
+instance uniform float lane_tile_void_period = 1.0;
+instance uniform float lane_tile_void_keep = 1.0;
+instance uniform float lane_tile_void_phase = 0.0;
+instance uniform float lane_tile_repeat_count = 1.0;
 
 void fragment() {
     vec4 c = texture(TEXTURE, UV);
@@ -41,5 +45,10 @@ void fragment() {
     float edge_glow = ink * (1.0 - smoothstep(0.42, 0.95, d));
     vec3 glow = team * edge_glow * glow_boost;
     vec3 recolor = base + highlights + glow;
-    COLOR = vec4(recolor, c.a * a * ink * tint.a);
+    float tile_mask = 1.0;
+    if (lane_tile_void_period > 1.0 && lane_tile_void_keep < lane_tile_void_period) {
+        float tile_x = floor(max(0.0, UV.x) * max(1.0, lane_tile_repeat_count) + lane_tile_void_phase);
+        tile_mask = step(mod(tile_x, lane_tile_void_period), lane_tile_void_keep - 0.001);
+    }
+    COLOR = vec4(recolor, c.a * a * ink * tint.a * tile_mask);
 }

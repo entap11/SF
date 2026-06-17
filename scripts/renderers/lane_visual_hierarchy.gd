@@ -36,6 +36,9 @@ static func profile_for_state(state_name: String) -> Dictionary:
 				"glow_alpha": 0.45,
 				"brightness": 1.25,
 				"saturation": 1.15,
+				"tile_void_period": 1.0,
+				"tile_void_keep": 1.0,
+				"tile_void_phase": 0.0,
 				"pulse_enabled": true
 			}
 		STATE_ACTIVE:
@@ -47,6 +50,9 @@ static func profile_for_state(state_name: String) -> Dictionary:
 				"glow_alpha": 0.20,
 				"brightness": 1.05,
 				"saturation": 0.95,
+				"tile_void_period": 1.0,
+				"tile_void_keep": 1.0,
+				"tile_void_phase": 0.0,
 				"pulse_enabled": false
 			}
 		_:
@@ -58,6 +64,9 @@ static func profile_for_state(state_name: String) -> Dictionary:
 				"glow_alpha": 0.0,
 				"brightness": 0.22,
 				"saturation": 0.15,
+				"tile_void_period": 2.0,
+				"tile_void_keep": 1.0,
+				"tile_void_phase": 0.0,
 				"pulse_enabled": false
 			}
 
@@ -84,6 +93,9 @@ static func legacy_profile(legacy_z_index: int, legacy_width: float) -> Dictiona
 		"glow_alpha": 0.0,
 		"brightness": 1.0,
 		"saturation": 1.0,
+		"tile_void_period": 1.0,
+		"tile_void_keep": 1.0,
+		"tile_void_phase": 0.0,
 		"pulse_enabled": false
 	}
 
@@ -107,6 +119,9 @@ static func interpolate_profiles(from_profile: Dictionary, to_profile: Dictionar
 		"glow_alpha": lerpf(float(from_profile.get("glow_alpha", 0.0)), float(to_profile.get("glow_alpha", 0.0)), t),
 		"brightness": lerpf(float(from_profile.get("brightness", 1.0)), float(to_profile.get("brightness", 1.0)), t),
 		"saturation": lerpf(float(from_profile.get("saturation", 1.0)), float(to_profile.get("saturation", 1.0)), t),
+		"tile_void_period": float(to_profile.get("tile_void_period", 1.0)),
+		"tile_void_keep": float(to_profile.get("tile_void_keep", 1.0)),
+		"tile_void_phase": float(to_profile.get("tile_void_phase", 0.0)),
 		"pulse_enabled": bool(to_profile.get("pulse_enabled", false))
 	}
 
