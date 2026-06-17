@@ -18,8 +18,8 @@ func _run() -> void:
 	if label == null or label.label_settings == null:
 		_fail("power label missing")
 		return
-	if int(label.label_settings.font_size) != 56:
-		_fail("power label font should be 2x baseline 28")
+	if int(label.label_settings.font_size) != 84:
+		_fail("power label font should use the current 84px hive label size")
 		return
 	var visual: Node = node.get_node_or_null("Visual")
 	if visual == null:

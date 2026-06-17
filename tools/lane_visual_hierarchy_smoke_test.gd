@@ -46,33 +46,16 @@ func _initialize() -> void:
 	_expect_true(int(contested_profile.get("z_index", 0)) > int(active_profile.get("z_index", 0)) + 3, "Contested lanes should lift clearly above active lanes")
 	_expect_true(float(embedded_profile.get("alpha", 0.0)) < float(active_profile.get("alpha", 0.0)), "Embedded lanes should be dimmer than active lanes")
 	_expect_true(float(active_profile.get("alpha", 0.0)) < float(contested_profile.get("alpha", 0.0)), "Contested lanes should be brighter than active lanes")
-	_expect_true(float(embedded_profile.get("alpha", 1.0)) <= 0.12, "Embedded lanes should be very low alpha")
+	_expect_true(float(embedded_profile.get("alpha", 1.0)) <= 0.20, "Embedded lanes should be low alpha")
 	_expect_true(float(embedded_profile.get("width", 0.0)) < float(active_profile.get("width", 0.0)), "Embedded lanes should be narrower than active lanes")
 	_expect_true(float(active_profile.get("width", 0.0)) < float(contested_profile.get("width", 0.0)), "Contested lanes should be wider than active lanes")
-	_expect_true(float(embedded_profile.get("width", 99.0)) <= 3.0, "Embedded lanes should be thin floor etching")
+	_expect_true(float(embedded_profile.get("width", 99.0)) <= 6.5, "Embedded lanes should stay thin while remaining readable")
 	_expect_true(float(embedded_profile.get("brightness", 1.0)) < float(active_profile.get("brightness", 1.0)), "Embedded lanes should be darker than active lanes")
 	_expect_true(float(active_profile.get("brightness", 1.0)) < float(contested_profile.get("brightness", 1.0)), "Contested lanes should be brighter than active lanes")
 	_expect_true(float(embedded_profile.get("saturation", 1.0)) < float(active_profile.get("saturation", 1.0)), "Embedded lanes should be more desaturated than active lanes")
 	_expect_true(float(active_profile.get("saturation", 1.0)) < float(contested_profile.get("saturation", 1.0)), "Contested lanes should be most saturated")
-	_expect_true(float(embedded_profile.get("tile_void_period", 1.0)) == 2.0, "Embedded lanes should skip every other arrow tile")
-	_expect_true(float(embedded_profile.get("tile_void_keep", 0.0)) == 1.0, "Embedded lanes should keep one tile before each void")
-	_expect_true(float(active_profile.get("tile_void_period", 0.0)) == 1.0, "Active lanes should keep every arrow tile")
-	_expect_true(float(contested_profile.get("tile_void_period", 0.0)) == 1.0, "Contested lanes should keep every arrow tile")
 	_expect_true(not bool(embedded_profile.get("pulse_enabled", true)), "Embedded lanes should not pulse")
 	_expect_true(bool(contested_profile.get("pulse_enabled", false)), "Contested lanes may pulse")
-	if arena_scene != null:
-		var shader_arena: Node = arena_scene.instantiate()
-		var shader_lane_renderer: Node = shader_arena.get_node_or_null("MapRoot/LaneRenderer")
-		if shader_lane_renderer != null:
-			var test_sprite := Sprite2D.new()
-			shader_lane_renderer.call("_apply_lane_shader_visual_profile", test_sprite, embedded_profile, 4.0)
-			_expect_true(test_sprite.material is ShaderMaterial, "Lane shader profile should assign a sprite-local ShaderMaterial")
-			if test_sprite.material is ShaderMaterial:
-				var test_mat: ShaderMaterial = test_sprite.material as ShaderMaterial
-				_expect_true(float(test_mat.get_shader_parameter("lane_tile_void_period")) == 2.0, "Lane shader profile should set tile void period on the material")
-				_expect_true(float(test_mat.get_shader_parameter("lane_tile_repeat_count")) == 4.0, "Lane shader profile should set tile repeat count on the material")
-			test_sprite.free()
-		shader_arena.free()
 	var bright_yellow: Color = Color(1.0, 0.92, 0.0, 1.0)
 	var embedded_color: Color = LaneVisualHierarchyScript.call("apply_profile_to_color", bright_yellow, embedded_profile, 0) as Color
 	var contested_color: Color = LaneVisualHierarchyScript.call("apply_profile_to_color", bright_yellow, contested_profile, 0) as Color

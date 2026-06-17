@@ -174,7 +174,7 @@
       "softness": 0.018
     },
     "lane.mvp": "res://assets/sprites/sf_skin_v1/lane_mvp.png",
-    "lane.points": "res://assets/sprites/sf_skin_v1/lane_points_tile.png",
+    "lane.points": "res://assets/sprites/sf_skin_v1/lane_white_5space.png",
     "barracks.base.neutral": {
       "path": "res://assets/sprites/sf_skin_v1/barracks.tres",
       "scale": 8.0

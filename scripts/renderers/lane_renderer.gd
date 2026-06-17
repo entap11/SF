@@ -48,8 +48,10 @@ const LANE_FRIENDLY_ALPHA := 0.78
 const LANE_SEGMENT_KEY := "lane.segment"
 const LANE_CONNECTOR_KEY := "lane.connector"
 const LANE_TEX_KEY := "lane.points"
-const LANE_FALLBACK_PATH := "res://assets/sprites/sf_skin_v1/lane_points_tile.png"
-const LANE_SEGMENT_TARGET_PX := 56.0
+const LANE_FALLBACK_PATH := "res://assets/sprites/sf_skin_v1/lane_white_5space.png"
+const LANE_SEGMENT_TARGET_PX := 84.0
+const LANE_STRIP_TEXTURE_MIN_WIDTH_PX := 1024.0
+const LANE_TEXTURE_TRIM_LUMA_THRESHOLD := 0.70
 const LANE_SEGMENT_SCALE := 1.0
 const LANE_CONNECTOR_SCALE := 0.75
 const LANE_MAX_SEGMENTS := 64
@@ -487,7 +489,7 @@ func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sp
 	sprite.centered = true
 	sprite.rotation = (to - from).angle()
 	sprite.position = (from + to) * 0.5
-	sprite.material = _new_lane_band_material()
+	sprite.material = _get_lane_band_material()
 
 	var scale_x: float = seg_len / tex_w
 	var scale_y: float = LANE_THICKNESS_PX / tex_h
@@ -1077,12 +1079,18 @@ func _load_lane_textures() -> void:
 	if tex == null and ResourceLoader.exists(LANE_FALLBACK_PATH):
 		tex = ResourceLoader.load(LANE_FALLBACK_PATH) as Texture2D
 		tex_path = LANE_FALLBACK_PATH
+	var raw_size := Vector2i.ZERO
+	if tex != null:
+		raw_size = Vector2i(tex.get_width(), tex.get_height())
+		tex = _trim_texture(tex)
 	if tex != null and not _lane_tex_logged:
 		_lane_tex_logged = true
 		SFLog.info("LANE_TEX_RESOLVE_OK", {
 			"key": tex_key,
 			"selection": CosmeticThemeDB.get_garage_selection("lanes"),
 			"path": tex_path if tex_path != "" else tex.resource_path,
+			"raw_w": raw_size.x,
+			"raw_h": raw_size.y,
 			"w": tex.get_width(),
 			"h": tex.get_height(),
 			"class": tex.get_class()
@@ -1126,7 +1134,7 @@ func _ensure_drag_preview_sprite() -> void:
 		_drag_preview_sprite = sprite
 	if _drag_preview_sprite != null:
 		_drag_preview_sprite.texture = _lane_tex
-		_drag_preview_sprite.material = _new_lane_band_material()
+		_drag_preview_sprite.material = _get_lane_band_material()
 		_drag_preview_sprite.visible = false
 
 func _lane_key(a_id: int, b_id: int, lane_id: int) -> String:
@@ -1156,6 +1164,10 @@ func _trim_texture(tex: Texture2D) -> Texture2D:
 		return tex
 
 	var used := img.get_used_rect()
+	if used.size == img.get_size():
+		var bright_used := _bright_lane_used_rect(img)
+		if bright_used.size.x > 0 and bright_used.size.y > 0:
+			used = bright_used
 	# If the image is basically empty or already tight, bail.
 	if used.size.x <= 0 or used.size.y <= 0:
 		return tex
@@ -1166,6 +1178,27 @@ func _trim_texture(tex: Texture2D) -> Texture2D:
 	atlas.atlas = tex
 	atlas.region = used
 	return atlas
+
+func _bright_lane_used_rect(img: Image) -> Rect2i:
+	var min_x: int = img.get_width()
+	var min_y: int = img.get_height()
+	var max_x: int = -1
+	var max_y: int = -1
+	for y in range(img.get_height()):
+		for x in range(img.get_width()):
+			var c: Color = img.get_pixel(x, y)
+			if c.a <= 0.01:
+				continue
+			var lum: float = (c.r * 0.299) + (c.g * 0.587) + (c.b * 0.114)
+			if lum < LANE_TEXTURE_TRIM_LUMA_THRESHOLD:
+				continue
+			min_x = mini(min_x, x)
+			min_y = mini(min_y, y)
+			max_x = maxi(max_x, x)
+			max_y = maxi(max_y, y)
+	if max_x < min_x or max_y < min_y:
+		return Rect2i()
+	return Rect2i(min_x, min_y, (max_x - min_x) + 1, (max_y - min_y) + 1)
 
 func _get_lane_colorkey_material() -> ShaderMaterial:
 	if _lane_colorkey_material != null:
@@ -1199,11 +1232,6 @@ func _get_lane_band_material() -> ShaderMaterial:
 		_audit_mat_sets += 10
 	_lane_band_material = mat
 	return mat
-
-func _new_lane_band_material() -> ShaderMaterial:
-	var base: ShaderMaterial = _get_lane_band_material()
-	var mat: ShaderMaterial = base.duplicate() as ShaderMaterial
-	return mat if mat != null else base
 
 func _clear_lane_sprites() -> void:
 	if _lane_sprite_root == null:
@@ -1563,7 +1591,7 @@ func _create_lane_sprite_node() -> Sprite2D:
 	sprite.texture = _lane_tex
 	sprite.centered = true
 	sprite.z_index = LANE_FRIENDLY_Z_INDEX
-	sprite.material = _new_lane_band_material()
+	sprite.material = _get_lane_band_material()
 	sprite.visible = false
 	return sprite
 
@@ -1640,13 +1668,13 @@ func _update_lane_visuals(delta: float) -> void:
 			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)))
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
-			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true, profile)
-			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false, profile)
+			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
+			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false)
 		elif send_a:
-			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true, profile)
+			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
 			sprite_b.visible = false
 		elif send_b:
-			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false, profile)
+			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false)
 			sprite_a.visible = false
 		else:
 			sprite_a.visible = false
@@ -1731,8 +1759,7 @@ func _apply_lane_sprite_visual(
 	target_thickness_px: float,
 	unit_body_px: float,
 	lane_basis_dir: Vector2 = Vector2.ZERO,
-	points_toward_end: bool = true,
-	visual_profile: Dictionary = {}
+	points_toward_end: bool = true
 ) -> void:
 	if sprite == null or sprite.texture == null:
 		return
@@ -1741,13 +1768,15 @@ func _apply_lane_sprite_visual(
 	if length_px <= LANE_MIN_LEN_PX:
 		sprite.visible = false
 		return
-	var desired_seg_len: float = LANE_SEGMENT_TARGET_PX
-	var max_segments: int = LANE_MAX_SEGMENTS
-	var segment_count_f: float = clampf(length_px / maxf(1.0, desired_seg_len), 1.0, float(max_segments))
-	var effective_seg_len: float = length_px / segment_count_f
-	_maybe_log_lane_sprite_coverage(length_px, int(round(segment_count_f)), effective_seg_len)
 	var tex_w: float = maxf(1.0, float(sprite.texture.get_width()))
 	var tex_h: float = maxf(1.0, float(sprite.texture.get_height()))
+	var desired_seg_len: float = LANE_SEGMENT_TARGET_PX
+	var max_segments: int = LANE_MAX_SEGMENTS
+	var segment_count_f: float = 1.0
+	if tex_w < LANE_STRIP_TEXTURE_MIN_WIDTH_PX:
+		segment_count_f = clampf(length_px / maxf(1.0, desired_seg_len), 1.0, float(max_segments))
+	var effective_seg_len: float = length_px / segment_count_f
+	_maybe_log_lane_sprite_coverage(length_px, int(round(segment_count_f)), effective_seg_len)
 	# Keep full coverage while allowing a partial tail tile for non-integer segment counts.
 	sprite.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	sprite.region_enabled = true
@@ -1771,7 +1800,6 @@ func _apply_lane_sprite_visual(
 	sprite.flip_h = not points_toward_end
 	sprite.scale = Vector2(scale_x, scale_y)
 	sprite.modulate = color
-	_apply_lane_shader_visual_profile(sprite, visual_profile, segment_count_f)
 	if lane_id == 9 and not _lane_align_logged:
 		_lane_align_logged = true
 		var dir_norm: Vector2 = Vector2.ZERO
@@ -1799,18 +1827,6 @@ func _apply_lane_sprite_visual(
 			"y_scale": scale_y,
 			"tex_size": [sprite.texture.get_width(), sprite.texture.get_height()]
 		})
-
-func _apply_lane_shader_visual_profile(sprite: Sprite2D, visual_profile: Dictionary, segment_count: float) -> void:
-	if sprite == null:
-		return
-	var mat: ShaderMaterial = sprite.material as ShaderMaterial
-	if mat == null or mat.shader != LANE_BAND_SHADER or mat == _lane_band_material:
-		mat = _new_lane_band_material()
-		sprite.material = mat
-	mat.set_shader_parameter("lane_tile_void_period", float(visual_profile.get("tile_void_period", 1.0)))
-	mat.set_shader_parameter("lane_tile_void_keep", float(visual_profile.get("tile_void_keep", 1.0)))
-	mat.set_shader_parameter("lane_tile_void_phase", float(visual_profile.get("tile_void_phase", 0.0)))
-	mat.set_shader_parameter("lane_tile_repeat_count", maxf(1.0, segment_count))
 
 func _local_lane_owner_id() -> int:
 	if arena != null:
