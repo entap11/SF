@@ -30,34 +30,34 @@ static func profile_for_state(state_name: String) -> Dictionary:
 		STATE_CONTESTED:
 			return {
 				"state": STATE_CONTESTED,
-				"z_index": 3,
-				"alpha": 0.92,
-				"width": 10.0,
-				"glow_alpha": 0.26,
-				"brightness": 1.05,
-				"saturation": 1.0,
+				"z_index": 9,
+				"alpha": 0.98,
+				"width": 13.0,
+				"glow_alpha": 0.45,
+				"brightness": 1.25,
+				"saturation": 1.15,
 				"pulse_enabled": true
 			}
 		STATE_ACTIVE:
 			return {
 				"state": STATE_ACTIVE,
-				"z_index": -4,
-				"alpha": 0.58,
-				"width": 7.0,
-				"glow_alpha": 0.08,
-				"brightness": 0.78,
-				"saturation": 0.70,
+				"z_index": 3,
+				"alpha": 0.78,
+				"width": 9.5,
+				"glow_alpha": 0.20,
+				"brightness": 1.05,
+				"saturation": 0.95,
 				"pulse_enabled": false
 			}
 		_:
 			return {
 				"state": STATE_EMBEDDED,
-				"z_index": -10,
-				"alpha": 0.22,
-				"width": 4.5,
+				"z_index": -14,
+				"alpha": 0.10,
+				"width": 2.8,
 				"glow_alpha": 0.0,
-				"brightness": 0.55,
-				"saturation": 0.45,
+				"brightness": 0.22,
+				"saturation": 0.15,
 				"pulse_enabled": false
 			}
 
