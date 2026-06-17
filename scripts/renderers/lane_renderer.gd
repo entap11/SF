@@ -14,6 +14,7 @@ const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
+const LaneVisualHierarchyScript: Script = preload("res://scripts/renderers/lane_visual_hierarchy.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const LANE_BAND_SHADER := preload("res://shaders/lane_band.gdshader")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
@@ -138,6 +139,15 @@ var _process_hb_last_ms: int = 0
 var _process_hb_frames: int = 0
 var _process_hb_max_ms: float = 0.0
 var _process_hb_sum_ms: float = 0.0
+
+static func is_lane_visual_hierarchy_enabled() -> bool:
+	return bool(LaneVisualHierarchyScript.call("is_enabled"))
+
+static func lane_visual_state_for_lane(lane: Dictionary) -> String:
+	return str(LaneVisualHierarchyScript.call("state_for_lane", lane))
+
+static func lane_visual_profile_for_state(state_name: String) -> Dictionary:
+	return LaneVisualHierarchyScript.call("profile_for_state", state_name) as Dictionary
 
 func _lane_color_for_hive(hive_id: int) -> Color:
 	var owner_id: int = 0
@@ -1443,11 +1453,13 @@ func _compute_active_lane_signature() -> String:
 			continue
 		var lane_id: int = int(d.get("lane_id", d.get("id", -1)))
 		var intent: String = str(d.get("intent", ""))
-		parts.append("%s:%s%s:%s" % [
+		var visual_state: String = lane_visual_state_for_lane(d) if is_lane_visual_hierarchy_enabled() else ""
+		parts.append("%s:%s%s:%s:%s" % [
 			str(lane_id),
 			"A" if send_a else "",
 			"B" if send_b else "",
-			str(intent)
+			str(intent),
+			visual_state
 		])
 	parts.sort()
 	var lanes_sig: String = "|".join(parts)
@@ -1518,6 +1530,7 @@ func _rebuild_lane_sprites_now() -> void:
 		entry["lane_id"] = lane_id
 		entry["send_a"] = send_a
 		entry["send_b"] = send_b
+		_sync_lane_visual_profile(entry, lane, false)
 		_lane_nodes_by_key[key] = entry
 	var keys: Array = _lane_nodes_by_key.keys()
 	for key_any in keys:
@@ -1548,6 +1561,20 @@ func _create_lane_sprite_node() -> Sprite2D:
 	sprite.material = _get_lane_band_material()
 	sprite.visible = false
 	return sprite
+
+func _sync_lane_visual_profile(entry: Dictionary, lane: Dictionary, force_complete: bool = false) -> bool:
+	return bool(LaneVisualHierarchyScript.call("sync_entry_profile", entry, lane, force_complete))
+
+func _resolve_lane_visual_profile(entry: Dictionary, delta: float, legacy_z_index: int, legacy_width: float) -> Dictionary:
+	if not is_lane_visual_hierarchy_enabled():
+		return LaneVisualHierarchyScript.call("legacy_profile", legacy_z_index, legacy_width) as Dictionary
+	return LaneVisualHierarchyScript.call("resolve_entry_profile", entry, delta) as Dictionary
+
+func _interpolate_lane_visual_profile(from_profile: Dictionary, to_profile: Dictionary, t: float) -> Dictionary:
+	return LaneVisualHierarchyScript.call("interpolate_profiles", from_profile, to_profile, t) as Dictionary
+
+func _apply_lane_visual_profile_to_color(color: Color, profile: Dictionary) -> Color:
+	return LaneVisualHierarchyScript.call("apply_profile_to_color", color, profile, Time.get_ticks_msec()) as Color
 
 func _update_lane_visuals(delta: float) -> void:
 	if _lane_nodes_by_key.is_empty():
@@ -1597,19 +1624,24 @@ func _update_lane_visuals(delta: float) -> void:
 		var color_b: Color = _with_alpha(_lane_color_for_hive(b_id), _lane_send_alpha(_owner_id_for_lane(b_id, model), _owner_id_for_lane(a_id, model)))
 		var lane_basis_dir: Vector2 = b_pos - a_pos
 		var lane_z_index: int = _lane_visual_z_index(send_a, send_b, a_id, b_id)
+		var profile: Dictionary = _resolve_lane_visual_profile(entry, delta, lane_z_index, target_px)
+		var profile_width_px: float = float(profile.get("width", target_px))
+		color_a = _apply_lane_visual_profile_to_color(color_a, profile)
+		color_b = _apply_lane_visual_profile_to_color(color_b, profile)
+		lane_z_index = int(profile.get("z_index", lane_z_index))
 		sprite_a.z_index = lane_z_index
 		sprite_b.z_index = lane_z_index
 		if send_a and send_b:
 			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)))
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
-			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, target_px, unit_body_px, lane_basis_dir, true)
-			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir, false)
+			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
+			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false)
 		elif send_a:
-			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, target_px, unit_body_px, lane_basis_dir, true)
+			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
 			sprite_b.visible = false
 		elif send_b:
-			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, target_px, unit_body_px, lane_basis_dir, false)
+			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false)
 			sprite_a.visible = false
 		else:
 			sprite_a.visible = false
