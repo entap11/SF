@@ -34,6 +34,7 @@ const ArenaStageRuntimeFlow := preload("res://scripts/arena_helpers/stage_runtim
 const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
 const ArenaInputBridgeUtils := preload("res://scripts/arena_helpers/input_bridge_utils.gd")
 const ArenaFloorInfluenceSystem := preload("res://scripts/fx/arena_floor_influence_system.gd")
+const ArenaPolishLayerScript: Script = preload("res://scripts/renderers/arena_polish_layer.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const FORCE_DISABLE_FLOOR_INFLUENCE: bool = true
 
@@ -251,6 +252,7 @@ var _last_render_hives_version: int = -1
 @onready var map_root: Node2D = $MapRoot
 @onready var map_hex_background: Control = get_node_or_null("MapHexBackgroundLayer/HexSeamBackground") as Control
 @onready var floor_renderer: FloorRenderer = $MapRoot/FloorRenderer
+@onready var arena_polish_layer: Node2D = get_node_or_null("MapRoot/ArenaPolishLayer") as Node2D
 @onready var lane_renderer = $MapRoot/LaneRenderer
 @onready var tower_renderer_node = $MapRoot/TowerRenderer
 @onready var hive_renderer: HiveRenderer = $MapRoot/HiveRenderer
@@ -556,6 +558,8 @@ func _ready() -> void:
 	for c in get_tree().root.get_children():
 		SFLog.trace(" - ", {"path": _node_path_for_log(c), "type": c.get_class()})
 	clear_map_render()
+	_ensure_arena_polish_layer()
+	_apply_arena_polish_runtime_settings()
 	$MapRoot/HiveRenderer.visible = true
 	$MapRoot/LaneRenderer.visible = true
 	_ensure_wall_renderer()
@@ -639,6 +643,37 @@ func _configure_map_hex_background() -> void:
 		return
 	if map_hex_background.has_method("apply_preset"):
 		map_hex_background.call("apply_preset", StringName("dash"))
+
+func _ensure_arena_polish_layer() -> Node2D:
+	if arena_polish_layer != null and is_instance_valid(arena_polish_layer):
+		arena_polish_layer.call("apply_runtime_settings")
+		return arena_polish_layer
+	if map_root == null:
+		return null
+	var existing: Node = map_root.get_node_or_null("ArenaPolishLayer")
+	if existing is Node2D and existing.get_script() == ArenaPolishLayerScript:
+		arena_polish_layer = existing as Node2D
+	else:
+		arena_polish_layer = ArenaPolishLayerScript.new() as Node2D
+		arena_polish_layer.name = "ArenaPolishLayer"
+		map_root.add_child(arena_polish_layer)
+	arena_polish_layer.call("apply_runtime_settings")
+	return arena_polish_layer
+
+func _apply_arena_polish_runtime_settings() -> void:
+	var layer: Node2D = _ensure_arena_polish_layer()
+	if layer == null:
+		return
+	layer.call("apply_runtime_settings")
+	if tower_renderer_node != null and tower_renderer_node.has_method("apply_visual_settings"):
+		tower_renderer_node.call("apply_visual_settings")
+
+func apply_arena_visual_comparison_mode(mode: String) -> void:
+	ArenaPolishLayerScript.call("apply_comparison_mode", mode)
+	_apply_arena_polish_runtime_settings()
+
+func arena_visual_comparison_modes() -> PackedStringArray:
+	return ArenaPolishLayerScript.call("comparison_modes") as PackedStringArray
 
 func _ensure_map_mm_background_art() -> void:
 	var map_background_layer: CanvasLayer = get_node_or_null("MapHexBackgroundLayer") as CanvasLayer
@@ -6040,6 +6075,7 @@ func on_map_built() -> void:
 	_map_built_version = _map_build_version
 	_rebuild_map_markers()
 	_normalize_map_root()
+	_apply_arena_polish_runtime_settings()
 	if lane_renderer != null:
 		lane_renderer.setup(state, sel, self)
 	if hive_renderer != null:

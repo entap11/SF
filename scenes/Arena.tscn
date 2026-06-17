@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3 uid="uid://bi1epiw4to48u"]
+[gd_scene load_steps=17 format=3 uid="uid://bi1epiw4to48u"]
 
 [ext_resource type="Script" path="res://scripts/arena.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/renderers/lane_renderer.gd" id="2"]
@@ -15,6 +15,7 @@
 [ext_resource type="Script" path="res://scripts/sim/sim_events.gd" id="14"]
 [ext_resource type="Script" path="res://scripts/renderers/wall_renderer.gd" id="15"]
 [ext_resource type="PackedScene" path="res://ui/backgrounds/HexSeamBackground.tscn" id="16"]
+[ext_resource type="Script" path="res://scripts/renderers/arena_polish_layer.gd" id="17"]
 
 [sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_1"]
 blend_mode = 1
@@ -43,6 +44,11 @@ z_index = 0
 visible = false
 centered = true
 z_index = 1
+
+[node name="ArenaPolishLayer" type="Node2D" parent="MapRoot"]
+visible = false
+z_index = -15
+script = ExtResource("17")
 
 [node name="TowerGroundGlowRenderer" type="Node2D" parent="MapRoot"]
 z_index = -10

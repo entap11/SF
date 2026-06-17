@@ -10,6 +10,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const VisualShadow := preload("res://scripts/renderers/visual_shadow.gd")
+const ArenaPolishLayerScript: Script = preload("res://scripts/renderers/arena_polish_layer.gd")
 const TOWER_TEX_SMALL: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_small.tres")
 const TOWER_TEX_MEDIUM: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_medium.tres")
 const TOWER_TEX_LARGE: Texture2D = preload("res://assets/sprites/sf_skin_v1/tower_large.tres")
@@ -68,6 +69,12 @@ func set_model(m: Dictionary) -> void:
 	_sync_tower_sprites()
 	queue_redraw()
 
+func apply_visual_settings() -> void:
+	# Screenshot/prototype scaling only. Tower positions, targeting, collisions,
+	# ownership, and sim state remain owned by the authoritative model.
+	_sync_tower_sprites()
+	queue_redraw()
+
 func _draw() -> void:
 	if towers.is_empty():
 		return
@@ -84,7 +91,7 @@ func _draw() -> void:
 		if not has_tex:
 			var color: Color = _owner_color(owner_id)
 			color.a = 0.9
-			var fallback_h: float = TOWER_SPIKE_PX * TOWER_VISUAL_SCALE * TOWER_PITCH_SCALE_Y
+			var fallback_h: float = TOWER_SPIKE_PX * TOWER_VISUAL_SCALE * _tower_visual_scale_setting() * TOWER_PITCH_SCALE_Y
 			var tip: Vector2 = pos + Vector2(0.0, -fallback_h)
 			draw_line(pos, tip, color, 2.0)
 			var half_w: float = maxf(2.0, fallback_h * 0.14)
@@ -251,7 +258,8 @@ func _update_tower_sprite(sprite: Sprite2D, td: Dictionary, registry: SpriteRegi
 	if tex != null:
 		var tex_size: Vector2 = tex.get_size()
 		var tier_mult: float = _tower_size_multiplier_for_tier(tier)
-		var draw_size_px: float = TOWER_SPIKE_PX * 2.0 * TOWER_VISUAL_SCALE * maxf(0.1, scale) * tier_mult
+		var preview_scale: float = _tower_visual_scale_setting()
+		var draw_size_px: float = TOWER_SPIKE_PX * 2.0 * TOWER_VISUAL_SCALE * maxf(0.1, scale) * tier_mult * preview_scale
 		var tex_max: float = maxf(tex_size.x, tex_size.y)
 		var s: float = draw_size_px / tex_max if tex_max > 0.0 else 1.0
 		var scale_x: float = TOWER_PITCH_SCALE_X * s
@@ -340,6 +348,9 @@ func _tower_size_multiplier_for_tier(tier: int) -> float:
 	if tier == 2:
 		return TOWER_SIZE_MULT_T2
 	return TOWER_SIZE_MULT_T3_PLUS
+
+func _tower_visual_scale_setting() -> float:
+	return float(ArenaPolishLayerScript.call("tower_visual_scale"))
 
 func _apply_tower_owner_visual(tower_id: int, owner_id: int) -> void:
 	if not _tower_sprites_by_id.has(tower_id):

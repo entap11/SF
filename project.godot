@@ -63,3 +63,6 @@ vs/backend_url="https://sf-zr2m.onrender.com/v1"
 vs/backend_token=""
 vs/backend_timeout_sec=6.0
 vs/crash_on_contract_violation=false
+arena/premium_polish_enabled=false
+arena/tower_visual_scale=1.0
+arena/polish_comparison_mode="settings"
