@@ -1,6 +1,7 @@
 extends Node2D
 class_name ArenaPolishLayer
 
+const ArenaPolishPlacementPolicyScript: Script = preload("res://scripts/renderers/arena_polish_placement_policy.gd")
 const SETTINGS_POLISH_ENABLED: String = "swarmfront/arena/premium_polish_enabled"
 const SETTINGS_TOWER_VISUAL_SCALE: String = "swarmfront/arena/tower_visual_scale"
 const SETTINGS_COMPARISON_MODE: String = "swarmfront/arena/polish_comparison_mode"
@@ -165,8 +166,7 @@ static func validate_manifest(data: Dictionary) -> PackedStringArray:
 			errors.append("defaults_render_only_not_true")
 		if bool(defaults.get("affects_gameplay", true)):
 			errors.append("defaults_affects_gameplay_not_false")
-		if int(defaults.get("mobile_total_instance_limit", 0)) <= 0:
-			errors.append("mobile_total_instance_limit_missing")
+		ArenaPolishPlacementPolicyScript.call("validate_defaults", errors, defaults)
 	for kind in ["props", "vfx", "lighting"]:
 		var entries_v: Variant = data.get(kind, [])
 		if typeof(entries_v) != TYPE_ARRAY:
@@ -178,10 +178,10 @@ static func validate_manifest(data: Dictionary) -> PackedStringArray:
 			if typeof(entry_v) != TYPE_DICTIONARY:
 				errors.append("%s_%d_not_dictionary" % [kind, i])
 				continue
-			_validate_manifest_entry(errors, kind, i, entry_v as Dictionary)
+			_validate_manifest_entry(errors, kind, i, entry_v as Dictionary, defaults_v as Dictionary if typeof(defaults_v) == TYPE_DICTIONARY else {})
 	return errors
 
-static func _validate_manifest_entry(errors: PackedStringArray, kind: String, index: int, entry: Dictionary) -> void:
+static func _validate_manifest_entry(errors: PackedStringArray, kind: String, index: int, entry: Dictionary, defaults: Dictionary) -> void:
 	var prefix: String = "%s_%d" % [kind, index]
 	var id: String = str(entry.get("id", "")).strip_edges()
 	if id.is_empty():
@@ -193,8 +193,4 @@ static func _validate_manifest_entry(errors: PackedStringArray, kind: String, in
 		errors.append("%s_texture_outside_arena_polish" % prefix)
 	elif not ResourceLoader.exists(texture_path):
 		errors.append("%s_texture_missing_resource" % prefix)
-	var zones_v: Variant = entry.get("allowed_placement_zones", [])
-	if typeof(zones_v) != TYPE_ARRAY or (zones_v as Array).is_empty():
-		errors.append("%s_allowed_placement_zones_missing" % prefix)
-	if bool(entry.get("affects_gameplay", false)):
-		errors.append("%s_affects_gameplay_true" % prefix)
+	ArenaPolishPlacementPolicyScript.call("validate_entry", errors, prefix, entry, defaults)

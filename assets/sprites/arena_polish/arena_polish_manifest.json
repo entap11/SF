@@ -12,7 +12,8 @@
       "arena_dead_space",
       "lane_edges",
       "outer_floor_edges",
-      "hq_adjacency_glow"
+      "hq_adjacency_glow",
+      "corner_atmosphere"
     ],
     "forbidden_overlap": [
       "active_lane_core",

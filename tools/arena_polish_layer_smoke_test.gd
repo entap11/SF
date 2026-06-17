@@ -48,6 +48,8 @@ func _initialize() -> void:
 	var manifest: Dictionary = layer.call("manifest") as Dictionary
 	_expect_true(int(manifest.get("version", 0)) == 1, "Manifest should load with version 1")
 	_expect_true((layer.call("manifest_errors") as PackedStringArray).is_empty(), "Manifest should validate cleanly")
+	var defaults: Dictionary = manifest.get("defaults", {}) as Dictionary
+	_expect_true("corner_atmosphere" in (defaults.get("allowed_placement_zones", []) as Array), "Manifest should expose corner atmosphere as a safe zone")
 	_expect_true((layer.call("approved_entries") as Array).is_empty(), "Manifest should place no assets until entries are added")
 
 	ProjectSettings.set_setting(SETTINGS_POLISH_ENABLED, true)
