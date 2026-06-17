@@ -45,8 +45,17 @@ func _initialize() -> void:
 	_expect_true(float(active_profile.get("alpha", 0.0)) < float(contested_profile.get("alpha", 0.0)), "Contested lanes should be brighter than active lanes")
 	_expect_true(float(embedded_profile.get("width", 0.0)) < float(active_profile.get("width", 0.0)), "Embedded lanes should be narrower than active lanes")
 	_expect_true(float(active_profile.get("width", 0.0)) < float(contested_profile.get("width", 0.0)), "Contested lanes should be wider than active lanes")
+	_expect_true(float(embedded_profile.get("brightness", 1.0)) < float(active_profile.get("brightness", 1.0)), "Embedded lanes should be darker than active lanes")
+	_expect_true(float(active_profile.get("brightness", 1.0)) < float(contested_profile.get("brightness", 1.0)), "Contested lanes should be brighter than active lanes")
+	_expect_true(float(embedded_profile.get("saturation", 1.0)) < float(active_profile.get("saturation", 1.0)), "Embedded lanes should be more desaturated than active lanes")
+	_expect_true(float(active_profile.get("saturation", 1.0)) < float(contested_profile.get("saturation", 1.0)), "Contested lanes should be most saturated")
 	_expect_true(not bool(embedded_profile.get("pulse_enabled", true)), "Embedded lanes should not pulse")
 	_expect_true(bool(contested_profile.get("pulse_enabled", false)), "Contested lanes may pulse")
+	var bright_yellow: Color = Color(1.0, 0.92, 0.0, 1.0)
+	var embedded_color: Color = LaneVisualHierarchyScript.call("apply_profile_to_color", bright_yellow, embedded_profile, 0) as Color
+	var contested_color: Color = LaneVisualHierarchyScript.call("apply_profile_to_color", bright_yellow, contested_profile, 0) as Color
+	_expect_true(embedded_color.a < contested_color.a, "Embedded lane color should be more transparent than contested")
+	_expect_true(_color_luma(embedded_color) < _color_luma(contested_color), "Embedded lane color should be darker than contested")
 
 	var entry: Dictionary = {}
 	var changed_first: bool = bool(LaneVisualHierarchyScript.call("sync_entry_profile", entry, embedded_lane, true))
@@ -69,3 +78,6 @@ func _expect_true(value: bool, message: String) -> void:
 		return
 	_failed = true
 	push_error("LANE_VISUAL_HIERARCHY_SMOKE: %s" % message)
+
+func _color_luma(color: Color) -> float:
+	return (color.r * 0.299) + (color.g * 0.587) + (color.b * 0.114)

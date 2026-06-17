@@ -31,27 +31,33 @@ static func profile_for_state(state_name: String) -> Dictionary:
 			return {
 				"state": STATE_CONTESTED,
 				"z_index": 3,
-				"alpha": 0.96,
-				"width": 11.0,
-				"glow_alpha": 0.38,
+				"alpha": 0.92,
+				"width": 10.0,
+				"glow_alpha": 0.26,
+				"brightness": 1.05,
+				"saturation": 1.0,
 				"pulse_enabled": true
 			}
 		STATE_ACTIVE:
 			return {
 				"state": STATE_ACTIVE,
-				"z_index": -2,
-				"alpha": 0.70,
-				"width": 8.0,
-				"glow_alpha": 0.16,
+				"z_index": -4,
+				"alpha": 0.58,
+				"width": 7.0,
+				"glow_alpha": 0.08,
+				"brightness": 0.78,
+				"saturation": 0.70,
 				"pulse_enabled": false
 			}
 		_:
 			return {
 				"state": STATE_EMBEDDED,
-				"z_index": -8,
-				"alpha": 0.40,
-				"width": 6.0,
+				"z_index": -10,
+				"alpha": 0.22,
+				"width": 4.5,
 				"glow_alpha": 0.0,
+				"brightness": 0.55,
+				"saturation": 0.45,
 				"pulse_enabled": false
 			}
 
@@ -76,6 +82,8 @@ static func legacy_profile(legacy_z_index: int, legacy_width: float) -> Dictiona
 		"alpha": 1.0,
 		"width": legacy_width,
 		"glow_alpha": 0.0,
+		"brightness": 1.0,
+		"saturation": 1.0,
 		"pulse_enabled": false
 	}
 
@@ -97,6 +105,8 @@ static func interpolate_profiles(from_profile: Dictionary, to_profile: Dictionar
 		"alpha": lerpf(float(from_profile.get("alpha", 1.0)), float(to_profile.get("alpha", 1.0)), t),
 		"width": lerpf(float(from_profile.get("width", 12.6)), float(to_profile.get("width", 12.6)), t),
 		"glow_alpha": lerpf(float(from_profile.get("glow_alpha", 0.0)), float(to_profile.get("glow_alpha", 0.0)), t),
+		"brightness": lerpf(float(from_profile.get("brightness", 1.0)), float(to_profile.get("brightness", 1.0)), t),
+		"saturation": lerpf(float(from_profile.get("saturation", 1.0)), float(to_profile.get("saturation", 1.0)), t),
 		"pulse_enabled": bool(to_profile.get("pulse_enabled", false))
 	}
 
@@ -106,10 +116,16 @@ static func apply_profile_to_color(color: Color, profile: Dictionary, now_ms: in
 		var pulse_t: float = 0.5 + 0.5 * sin((float(now_ms) / 1000.0) * TAU * PULSE_HZ)
 		alpha *= lerpf(0.86, 1.0, pulse_t)
 	var glow: float = clampf(float(profile.get("glow_alpha", 0.0)), 0.0, 1.0)
-	var brighten: float = 1.0 + (glow * 0.32)
+	var brightness: float = clampf(float(profile.get("brightness", 1.0)), 0.0, 1.5)
+	var saturation: float = clampf(float(profile.get("saturation", 1.0)), 0.0, 1.4)
+	var lum: float = (color.r * 0.299) + (color.g * 0.587) + (color.b * 0.114)
+	var r: float = lerpf(lum, color.r, saturation)
+	var g: float = lerpf(lum, color.g, saturation)
+	var b: float = lerpf(lum, color.b, saturation)
+	var brighten: float = brightness + (glow * 0.18)
 	return Color(
-		clampf((color.r * brighten) + (glow * 0.08), 0.0, 1.0),
-		clampf((color.g * brighten) + (glow * 0.08), 0.0, 1.0),
-		clampf((color.b * brighten) + (glow * 0.08), 0.0, 1.0),
+		clampf((r * brighten) + (glow * 0.04), 0.0, 1.0),
+		clampf((g * brighten) + (glow * 0.04), 0.0, 1.0),
+		clampf((b * brighten) + (glow * 0.04), 0.0, 1.0),
 		color.a * alpha
 	)
