@@ -10,10 +10,10 @@ uniform float ink_luma_floor = 0.20;
 uniform float ink_luma_full = 0.52;
 uniform float ink_chroma_floor = 0.10;
 uniform float ink_chroma_full = 0.30;
-instance uniform float lane_tile_void_period = 1.0;
-instance uniform float lane_tile_void_keep = 1.0;
-instance uniform float lane_tile_void_phase = 0.0;
-instance uniform float lane_tile_repeat_count = 1.0;
+uniform float lane_tile_void_period = 1.0;
+uniform float lane_tile_void_keep = 1.0;
+uniform float lane_tile_void_phase = 0.0;
+uniform float lane_tile_repeat_count = 1.0;
 
 void fragment() {
     vec4 c = texture(TEXTURE, UV);

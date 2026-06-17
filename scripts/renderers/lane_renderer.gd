@@ -487,7 +487,7 @@ func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sp
 	sprite.centered = true
 	sprite.rotation = (to - from).angle()
 	sprite.position = (from + to) * 0.5
-	sprite.material = _get_lane_band_material()
+	sprite.material = _new_lane_band_material()
 
 	var scale_x: float = seg_len / tex_w
 	var scale_y: float = LANE_THICKNESS_PX / tex_h
@@ -1126,7 +1126,7 @@ func _ensure_drag_preview_sprite() -> void:
 		_drag_preview_sprite = sprite
 	if _drag_preview_sprite != null:
 		_drag_preview_sprite.texture = _lane_tex
-		_drag_preview_sprite.material = _get_lane_band_material()
+		_drag_preview_sprite.material = _new_lane_band_material()
 		_drag_preview_sprite.visible = false
 
 func _lane_key(a_id: int, b_id: int, lane_id: int) -> String:
@@ -1199,6 +1199,11 @@ func _get_lane_band_material() -> ShaderMaterial:
 		_audit_mat_sets += 10
 	_lane_band_material = mat
 	return mat
+
+func _new_lane_band_material() -> ShaderMaterial:
+	var base: ShaderMaterial = _get_lane_band_material()
+	var mat: ShaderMaterial = base.duplicate() as ShaderMaterial
+	return mat if mat != null else base
 
 func _clear_lane_sprites() -> void:
 	if _lane_sprite_root == null:
@@ -1558,7 +1563,7 @@ func _create_lane_sprite_node() -> Sprite2D:
 	sprite.texture = _lane_tex
 	sprite.centered = true
 	sprite.z_index = LANE_FRIENDLY_Z_INDEX
-	sprite.material = _get_lane_band_material()
+	sprite.material = _new_lane_band_material()
 	sprite.visible = false
 	return sprite
 
@@ -1798,10 +1803,14 @@ func _apply_lane_sprite_visual(
 func _apply_lane_shader_visual_profile(sprite: Sprite2D, visual_profile: Dictionary, segment_count: float) -> void:
 	if sprite == null:
 		return
-	sprite.set_instance_shader_parameter("lane_tile_void_period", float(visual_profile.get("tile_void_period", 1.0)))
-	sprite.set_instance_shader_parameter("lane_tile_void_keep", float(visual_profile.get("tile_void_keep", 1.0)))
-	sprite.set_instance_shader_parameter("lane_tile_void_phase", float(visual_profile.get("tile_void_phase", 0.0)))
-	sprite.set_instance_shader_parameter("lane_tile_repeat_count", maxf(1.0, segment_count))
+	var mat: ShaderMaterial = sprite.material as ShaderMaterial
+	if mat == null or mat.shader != LANE_BAND_SHADER or mat == _lane_band_material:
+		mat = _new_lane_band_material()
+		sprite.material = mat
+	mat.set_shader_parameter("lane_tile_void_period", float(visual_profile.get("tile_void_period", 1.0)))
+	mat.set_shader_parameter("lane_tile_void_keep", float(visual_profile.get("tile_void_keep", 1.0)))
+	mat.set_shader_parameter("lane_tile_void_phase", float(visual_profile.get("tile_void_phase", 0.0)))
+	mat.set_shader_parameter("lane_tile_repeat_count", maxf(1.0, segment_count))
 
 func _local_lane_owner_id() -> int:
 	if arena != null:

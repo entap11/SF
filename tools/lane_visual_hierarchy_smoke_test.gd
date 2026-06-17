@@ -60,6 +60,19 @@ func _initialize() -> void:
 	_expect_true(float(contested_profile.get("tile_void_period", 0.0)) == 1.0, "Contested lanes should keep every arrow tile")
 	_expect_true(not bool(embedded_profile.get("pulse_enabled", true)), "Embedded lanes should not pulse")
 	_expect_true(bool(contested_profile.get("pulse_enabled", false)), "Contested lanes may pulse")
+	if arena_scene != null:
+		var shader_arena: Node = arena_scene.instantiate()
+		var shader_lane_renderer: Node = shader_arena.get_node_or_null("MapRoot/LaneRenderer")
+		if shader_lane_renderer != null:
+			var test_sprite := Sprite2D.new()
+			shader_lane_renderer.call("_apply_lane_shader_visual_profile", test_sprite, embedded_profile, 4.0)
+			_expect_true(test_sprite.material is ShaderMaterial, "Lane shader profile should assign a sprite-local ShaderMaterial")
+			if test_sprite.material is ShaderMaterial:
+				var test_mat: ShaderMaterial = test_sprite.material as ShaderMaterial
+				_expect_true(float(test_mat.get_shader_parameter("lane_tile_void_period")) == 2.0, "Lane shader profile should set tile void period on the material")
+				_expect_true(float(test_mat.get_shader_parameter("lane_tile_repeat_count")) == 4.0, "Lane shader profile should set tile repeat count on the material")
+			test_sprite.free()
+		shader_arena.free()
 	var bright_yellow: Color = Color(1.0, 0.92, 0.0, 1.0)
 	var embedded_color: Color = LaneVisualHierarchyScript.call("apply_profile_to_color", bright_yellow, embedded_profile, 0) as Color
 	var contested_color: Color = LaneVisualHierarchyScript.call("apply_profile_to_color", bright_yellow, contested_profile, 0) as Color
