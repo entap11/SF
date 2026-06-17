@@ -47,6 +47,8 @@ func _initialize() -> void:
 	_expect_true(float(layer.call("tower_visual_scale")) == 1.25, "Tower visual scale setting should be readable")
 	var manifest: Dictionary = layer.call("manifest") as Dictionary
 	_expect_true(int(manifest.get("version", 0)) == 1, "Manifest should load with version 1")
+	var schema: Dictionary = manifest.get("entry_schema", {}) as Dictionary
+	_expect_true((schema.get("required", []) as Array).has("texture"), "Manifest should document required texture field")
 	_expect_true((layer.call("manifest_errors") as PackedStringArray).is_empty(), "Manifest should validate cleanly")
 	var defaults: Dictionary = manifest.get("defaults", {}) as Dictionary
 	_expect_true("corner_atmosphere" in (defaults.get("allowed_placement_zones", []) as Array), "Manifest should expose corner atmosphere as a safe zone")

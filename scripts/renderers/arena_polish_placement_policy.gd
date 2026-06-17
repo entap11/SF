@@ -59,6 +59,8 @@ static func validate_entry(errors: PackedStringArray, prefix: String, entry: Dic
 		errors.append("%s_max_instances_missing" % prefix)
 	if bool(entry.get("affects_gameplay", false)):
 		errors.append("%s_affects_gameplay_true" % prefix)
+	_validate_range(errors, "%s_opacity_range" % prefix, entry.get("opacity_range", defaults.get("opacity_range", [])), DEFAULT_MIN_OPACITY, DEFAULT_MAX_OPACITY)
+	_validate_range(errors, "%s_scale_range" % prefix, entry.get("scale_range", defaults.get("scale_range", [])), DEFAULT_MIN_SCALE, DEFAULT_MAX_SCALE)
 
 static func _validate_zone_array(errors: PackedStringArray, label: String, zones_v: Variant, require_nonempty: bool) -> void:
 	if typeof(zones_v) != TYPE_ARRAY:

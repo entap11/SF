@@ -1,6 +1,34 @@
 {
   "version": 1,
   "description": "Approved render-only assets for the premium arena polish layer. Entries are loaded for validation only until placement rules are implemented.",
+  "entry_schema": {
+    "required": [
+      "id",
+      "texture",
+      "allowed_placement_zones",
+      "max_instances",
+      "opacity_range",
+      "scale_range",
+      "z_index"
+    ],
+    "optional": [
+      "enabled",
+      "forbidden_overlap",
+      "animation",
+      "vfx",
+      "description",
+      "tags",
+      "anchor",
+      "blend_mode",
+      "affects_gameplay"
+    ],
+    "id_format": "lowercase snake_case, digits allowed",
+    "texture_roots": {
+      "props": "res://assets/sprites/arena_polish/props/",
+      "vfx": "res://assets/sprites/arena_polish/vfx/",
+      "lighting": "res://assets/sprites/arena_polish/lighting/"
+    }
+  },
   "defaults": {
     "render_only": true,
     "affects_gameplay": false,

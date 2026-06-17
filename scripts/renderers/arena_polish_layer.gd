@@ -18,6 +18,27 @@ const COMPARISON_MODE_TOWER_150: String = "tower_150"
 const MIN_TOWER_VISUAL_SCALE: float = 1.0
 const MAX_TOWER_VISUAL_SCALE: float = 1.5
 const POLISH_Z_INDEX: int = -15
+const ENTRY_KINDS: Array = ["props", "vfx", "lighting"]
+const ENTRY_REQUIRED_FIELDS: Array = [
+	"id",
+	"texture",
+	"allowed_placement_zones",
+	"max_instances",
+	"opacity_range",
+	"scale_range",
+	"z_index"
+]
+const ENTRY_OPTIONAL_FIELDS: Array = [
+	"enabled",
+	"forbidden_overlap",
+	"animation",
+	"vfx",
+	"description",
+	"tags",
+	"anchor",
+	"blend_mode",
+	"affects_gameplay"
+]
 
 var _manifest: Dictionary = {}
 var _manifest_errors: PackedStringArray = PackedStringArray()
@@ -96,6 +117,15 @@ static func apply_comparison_mode(mode: String) -> void:
 			ProjectSettings.set_setting(SETTINGS_POLISH_ENABLED, true)
 			ProjectSettings.set_setting(SETTINGS_TOWER_VISUAL_SCALE, 1.50)
 
+static func entry_kinds() -> PackedStringArray:
+	return PackedStringArray(ENTRY_KINDS)
+
+static func entry_required_fields() -> PackedStringArray:
+	return PackedStringArray(ENTRY_REQUIRED_FIELDS)
+
+static func entry_optional_fields() -> PackedStringArray:
+	return PackedStringArray(ENTRY_OPTIONAL_FIELDS)
+
 func apply_runtime_settings() -> void:
 	visible = is_polish_enabled()
 	z_index = POLISH_Z_INDEX
@@ -167,7 +197,7 @@ static func validate_manifest(data: Dictionary) -> PackedStringArray:
 		if bool(defaults.get("affects_gameplay", true)):
 			errors.append("defaults_affects_gameplay_not_false")
 		ArenaPolishPlacementPolicyScript.call("validate_defaults", errors, defaults)
-	for kind in ["props", "vfx", "lighting"]:
+	for kind in ENTRY_KINDS:
 		var entries_v: Variant = data.get(kind, [])
 		if typeof(entries_v) != TYPE_ARRAY:
 			errors.append("%s_not_array" % kind)
@@ -183,14 +213,66 @@ static func validate_manifest(data: Dictionary) -> PackedStringArray:
 
 static func _validate_manifest_entry(errors: PackedStringArray, kind: String, index: int, entry: Dictionary, defaults: Dictionary) -> void:
 	var prefix: String = "%s_%d" % [kind, index]
+	for field in ENTRY_REQUIRED_FIELDS:
+		if not entry.has(field):
+			errors.append("%s_%s_missing" % [prefix, field])
 	var id: String = str(entry.get("id", "")).strip_edges()
 	if id.is_empty():
 		errors.append("%s_id_missing" % prefix)
+	elif not _is_valid_entry_id(id):
+		errors.append("%s_id_invalid" % prefix)
 	var texture_path: String = str(entry.get("texture", "")).strip_edges()
 	if texture_path.is_empty():
 		errors.append("%s_texture_missing" % prefix)
 	elif not texture_path.begins_with("res://assets/sprites/arena_polish/"):
 		errors.append("%s_texture_outside_arena_polish" % prefix)
+	elif not _texture_path_matches_kind(kind, texture_path):
+		errors.append("%s_texture_wrong_kind_folder" % prefix)
 	elif not ResourceLoader.exists(texture_path):
 		errors.append("%s_texture_missing_resource" % prefix)
+	if entry.has("animation"):
+		_validate_animation_metadata(errors, prefix, entry.get("animation"))
+	if entry.has("vfx"):
+		_validate_vfx_metadata(errors, prefix, entry.get("vfx"))
 	ArenaPolishPlacementPolicyScript.call("validate_entry", errors, prefix, entry, defaults)
+
+static func _is_valid_entry_id(id: String) -> bool:
+	for i in range(id.length()):
+		var ch: String = id.substr(i, 1)
+		if not (ch >= "a" and ch <= "z") and not (ch >= "0" and ch <= "9") and ch != "_":
+			return false
+	return true
+
+static func _texture_path_matches_kind(kind: String, texture_path: String) -> bool:
+	match kind:
+		"props":
+			return texture_path.begins_with("res://assets/sprites/arena_polish/props/")
+		"vfx":
+			return texture_path.begins_with("res://assets/sprites/arena_polish/vfx/")
+		"lighting":
+			return texture_path.begins_with("res://assets/sprites/arena_polish/lighting/")
+		_:
+			return false
+
+static func _validate_animation_metadata(errors: PackedStringArray, prefix: String, animation_v: Variant) -> void:
+	if typeof(animation_v) != TYPE_DICTIONARY:
+		errors.append("%s_animation_not_dictionary" % prefix)
+		return
+	var animation: Dictionary = animation_v as Dictionary
+	if bool(animation.get("enabled", false)):
+		var fps: float = float(animation.get("fps", 0.0))
+		if fps <= 0.0 or fps > 30.0:
+			errors.append("%s_animation_fps_out_of_bounds" % prefix)
+		var frames: int = int(animation.get("frames", 0))
+		if frames <= 0 or frames > 32:
+			errors.append("%s_animation_frames_out_of_bounds" % prefix)
+
+static func _validate_vfx_metadata(errors: PackedStringArray, prefix: String, vfx_v: Variant) -> void:
+	if typeof(vfx_v) != TYPE_DICTIONARY:
+		errors.append("%s_vfx_not_dictionary" % prefix)
+		return
+	var vfx: Dictionary = vfx_v as Dictionary
+	if int(vfx.get("max_particles", 0)) > 32:
+		errors.append("%s_vfx_max_particles_too_high" % prefix)
+	if float(vfx.get("spawn_rate_hz", 0.0)) > 8.0:
+		errors.append("%s_vfx_spawn_rate_too_high" % prefix)
