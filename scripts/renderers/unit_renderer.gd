@@ -24,6 +24,7 @@ var _last_set_log_ms: int = 0
 var _last_model_units_count: int = -1
 var _last_live_nodes_count: int = -1
 var swarm_nodes_by_id: Dictionary = {}
+var _swarm_visual_by_id: Dictionary = {}
 var unit_nodes_by_id: Dictionary = {}
 var _unit_multimesh_batches: Dictionary = {}
 var _sprite_registry: SpriteRegistry = null
@@ -233,6 +234,7 @@ var _process_hb_last_ms: int = 0
 var _process_hb_frames: int = 0
 var _process_hb_max_ms: float = 0.0
 var _process_hb_sum_ms: float = 0.0
+var _model_sample_wall_us: int = 0
 
 func _ready() -> void:
 	SFLog.allow_tag("RENDER_PROCESS_HEARTBEAT")
@@ -611,6 +613,8 @@ func bind_units(snapshot: Array, units_version: int, sim_time_us: int) -> void:
 	_units = snapshot
 	model["units"] = snapshot
 	model["sim_time_s"] = float(sim_time_us) / 1000000.0
+	_model_sample_wall_us = Time.get_ticks_usec()
+	model["sample_wall_us"] = _model_sample_wall_us
 	_maybe_invalidate_on_lane_signature()
 	_prewarm_active_lane_endpoints()
 	var structure_changed: bool = units_version != _bound_units_version
@@ -645,6 +649,8 @@ func set_units_snapshot(snapshot: Array, sim_time_us: int) -> void:
 	_units = snapshot
 	model["units"] = snapshot
 	model["sim_time_s"] = float(sim_time_us) / 1000000.0
+	_model_sample_wall_us = Time.get_ticks_usec()
+	model["sample_wall_us"] = _model_sample_wall_us
 	_maybe_invalidate_on_lane_signature()
 	_prewarm_active_lane_endpoints()
 	var structure_changed: bool = _consume_units_snapshot_signature(snapshot)
@@ -3474,7 +3480,19 @@ func _sample_vec2(sample: Dictionary, key: String, fallback: Vector2) -> Vector2
 
 func _update_unit_visual_smoothing(_delta: float) -> void:
 	var now_us: int = Time.get_ticks_usec()
+	_update_swarm_visual_smoothing(now_us)
 	_render_units(now_us)
+
+func _visual_sim_time_s(now_us: int) -> float:
+	var base_sim_s: float = float(model.get("sim_time_s", 0.0))
+	if not bool(model.get("sim_running", true)):
+		return base_sim_s
+	var sample_wall_us: int = int(model.get("sample_wall_us", _model_sample_wall_us))
+	if sample_wall_us <= 0:
+		return base_sim_s
+	var max_visual_step_us: int = int(round(maxf(0.001, sim_dt_sec) * 1000000.0))
+	var elapsed_us: int = mini(max_visual_step_us, maxi(0, now_us - sample_wall_us))
+	return base_sim_s + (float(elapsed_us) / 1000000.0)
 
 func _render_units_constant_speed(delta: float) -> void:
 	if unit_nodes_by_id.is_empty():
@@ -3538,6 +3556,50 @@ func _render_units_constant_speed(delta: float) -> void:
 			_apply_unit_orientation_from_dir(node, sprite, dir_vec)
 		if not unit_data.is_empty():
 			_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
+
+func _ingest_swarm_sample(swarm_id: int, pos: Vector2, sample_sim_us: int) -> void:
+	var sample_wall_us: int = Time.get_ticks_usec()
+	var state: Dictionary = {}
+	var existing_any: Variant = _swarm_visual_by_id.get(swarm_id, null)
+	if typeof(existing_any) == TYPE_DICTIONARY:
+		state = existing_any as Dictionary
+	if state.is_empty():
+		state = {
+			"prev_pos": pos,
+			"curr_pos": pos,
+			"prev_sim_us": sample_sim_us,
+			"curr_sim_us": sample_sim_us,
+			"prev_wall_us": sample_wall_us,
+			"curr_wall_us": sample_wall_us
+		}
+	else:
+		state["prev_pos"] = state.get("curr_pos", pos)
+		state["curr_pos"] = pos
+		state["prev_sim_us"] = int(state.get("curr_sim_us", sample_sim_us))
+		state["curr_sim_us"] = sample_sim_us
+		state["prev_wall_us"] = int(state.get("curr_wall_us", sample_wall_us))
+		state["curr_wall_us"] = sample_wall_us
+	_swarm_visual_by_id[swarm_id] = state
+
+func _update_swarm_visual_smoothing(now_us: int) -> void:
+	if swarm_nodes_by_id.is_empty():
+		return
+	var ids: Array = swarm_nodes_by_id.keys()
+	for id_any in ids:
+		var swarm_id: int = int(id_any)
+		var node: Node2D = swarm_nodes_by_id.get(swarm_id, null)
+		if node == null or not is_instance_valid(node):
+			continue
+		var state_any: Variant = _swarm_visual_by_id.get(swarm_id, null)
+		if typeof(state_any) != TYPE_DICTIONARY:
+			continue
+		var state: Dictionary = state_any as Dictionary
+		var alpha: float = _render_alpha_for_state(state, now_us, false)
+		if alpha > 1.0:
+			alpha = minf(alpha, 1.0 + (BUTTER_MAX_EXTRAP_SEC / maxf(0.001, sim_dt_sec)))
+		var prev_pos: Vector2 = state.get("prev_pos", node.position)
+		var curr_pos: Vector2 = state.get("curr_pos", prev_pos)
+		node.position = prev_pos.lerp(curr_pos, alpha)
 
 func _render_alpha_for_state(state: Dictionary, now_us: int, settle_active: bool = false) -> float:
 	var prev_sim_us: int = int(state.get("prev_sim_us", state.get("prev_time_us", 0)))
@@ -3854,7 +3916,7 @@ func _render_units_batched(now_us: int) -> void:
 		return
 	var settle_active: bool = _post_match_settle_is_active(now_us)
 	var hive_by_id: Dictionary = _build_hive_by_id()
-	var sim_time_s: float = float(model.get("sim_time_s", 0.0))
+	var sim_time_s: float = _visual_sim_time_s(now_us)
 	var ids: Array = _unit_visual_by_id.keys()
 	if AUDIT_RENDER:
 		_audit_draw_ops += ids.size()
@@ -3890,7 +3952,7 @@ func _render_units(now_us: int) -> void:
 		return
 	var settle_active: bool = _post_match_settle_is_active(now_us)
 	var hive_by_id: Dictionary = _build_hive_by_id()
-	var sim_time_s: float = float(model.get("sim_time_s", 0.0))
+	var sim_time_s: float = _visual_sim_time_s(now_us)
 	var ids: Array = unit_nodes_by_id.keys()
 	if AUDIT_RENDER:
 		_audit_draw_ops += ids.size()
@@ -4272,11 +4334,14 @@ func _sync_swarm_nodes() -> void:
 		var node: Node2D = swarm_nodes_by_id.get(swarm_id, null)
 		if node == null:
 			node = _create_swarm_node(swarm_id, swarm_radius)
+			node.position = pos
 			swarm_nodes_by_id[swarm_id] = node
 			add_child(node)
 			var init_count: int = int(sd.get("count", 0))
 			node.set_meta("count", init_count)
 			SFLog.info("SWARM_VIS_CREATE", {"swarm_id": swarm_id, "count": init_count})
+		var sample_sim_us: int = int(round(float(model.get("sim_time_s", 0.0)) * 1000000.0))
+		_ingest_swarm_sample(swarm_id, pos, sample_sim_us)
 		_update_swarm_node(node, sd, pos, swarm_radius, hive_by_id)
 		seen[swarm_id] = true
 
@@ -4288,6 +4353,7 @@ func _sync_swarm_nodes() -> void:
 				node.queue_free()
 				SFLog.info("SWARM_VIS_FREE", {"swarm_id": int(existing_id)})
 			swarm_nodes_by_id.erase(existing_id)
+			_swarm_visual_by_id.erase(existing_id)
 
 func _create_swarm_node(swarm_id: int, swarm_radius: float) -> Node2D:
 	var root := Node2D.new()
@@ -4300,7 +4366,8 @@ func _create_swarm_node(swarm_id: int, swarm_radius: float) -> Node2D:
 	return root
 
 func _update_swarm_node(node: Node2D, sd: Dictionary, pos: Vector2, swarm_radius: float, hive_by_id: Dictionary) -> void:
-	node.position = pos
+	if not _swarm_visual_by_id.has(int(sd.get("swarm_id", sd.get("id", -1)))):
+		node.position = pos
 	node.set_meta("swarm_radius", swarm_radius)
 	var owner_id: int = int(sd.get("owner_id", 0))
 	var color: Color = _owner_color(owner_id)
@@ -4338,6 +4405,7 @@ func _clear_swarm_nodes() -> void:
 			node.queue_free()
 			SFLog.info("SWARM_VIS_FREE", {"swarm_id": int(swarm_id)})
 	swarm_nodes_by_id.clear()
+	_swarm_visual_by_id.clear()
 
 func _unit_pos(u: Variant, hive_by_id: Dictionary) -> Array:
 	if typeof(u) == TYPE_DICTIONARY:

@@ -64,6 +64,8 @@ const LANE_WIDTH_PX := 12.6
 const LANE_MIN_LEN_PX := 6.0
 const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
+const LANE_FRONT_INTERP_DELAY_TICKS: float = 0.75
+const LANE_FRONT_MAX_EXTRAP_SEC: float = 0.05
 const DRAG_PREVIEW_MIN_LEN_PX := 2.0
 const DRAG_PREVIEW_SHIMMER_HZ: float = 1.75
 const DRAG_PREVIEW_BLACK_ALPHA_MIN: float = 0.28
@@ -141,6 +143,7 @@ var _process_hb_last_ms: int = 0
 var _process_hb_frames: int = 0
 var _process_hb_max_ms: float = 0.0
 var _process_hb_sum_ms: float = 0.0
+var _lane_front_visual_by_id: Dictionary = {}
 
 static func is_lane_visual_hierarchy_enabled() -> bool:
 	return bool(LaneVisualHierarchyScript.call("is_enabled"))
@@ -472,6 +475,59 @@ func _clamped_contested_front_t(start: Vector2, end: Vector2, front_t: float) ->
 	var buffer_t: float = clampf(LANE_CONTEST_BUFFER_PX / lane_len, 0.0, 0.45)
 	return clampf(front_t, buffer_t, 1.0 - buffer_t)
 
+func _ingest_lane_front_sample(lane_id: int, front_t: float, sample_sim_us: int) -> void:
+	if lane_id <= 0:
+		return
+	var sample_wall_us: int = Time.get_ticks_usec()
+	var clean_t: float = clampf(front_t, 0.0, 1.0)
+	var state_entry: Dictionary = {}
+	var existing_any: Variant = _lane_front_visual_by_id.get(lane_id, null)
+	if typeof(existing_any) == TYPE_DICTIONARY:
+		state_entry = existing_any as Dictionary
+	if state_entry.is_empty():
+		state_entry = {
+			"prev_t": clean_t,
+			"curr_t": clean_t,
+			"prev_sim_us": sample_sim_us,
+			"curr_sim_us": sample_sim_us,
+			"prev_wall_us": sample_wall_us,
+			"curr_wall_us": sample_wall_us
+		}
+	else:
+		state_entry["prev_t"] = float(state_entry.get("curr_t", clean_t))
+		state_entry["curr_t"] = clean_t
+		state_entry["prev_sim_us"] = int(state_entry.get("curr_sim_us", sample_sim_us))
+		state_entry["curr_sim_us"] = sample_sim_us
+		state_entry["prev_wall_us"] = int(state_entry.get("curr_wall_us", sample_wall_us))
+		state_entry["curr_wall_us"] = sample_wall_us
+	_lane_front_visual_by_id[lane_id] = state_entry
+
+func _lane_front_alpha_for_state(state_entry: Dictionary, now_us: int) -> float:
+	var prev_sim_us: int = int(state_entry.get("prev_sim_us", 0))
+	var curr_sim_us: int = int(state_entry.get("curr_sim_us", prev_sim_us))
+	if curr_sim_us <= prev_sim_us:
+		return 1.0
+	var interval_sim_us: int = curr_sim_us - prev_sim_us
+	var curr_wall_us: int = int(state_entry.get("curr_wall_us", now_us))
+	var elapsed_wall_us: int = maxi(0, now_us - curr_wall_us)
+	var interp_delay_us: int = int(maxf(0.0, LANE_FRONT_INTERP_DELAY_TICKS) * float(interval_sim_us))
+	var desired_sim_us: int = curr_sim_us + elapsed_wall_us - interp_delay_us
+	if desired_sim_us <= prev_sim_us:
+		return 0.0
+	var alpha: float = float(desired_sim_us - prev_sim_us) / float(interval_sim_us)
+	var max_extra_alpha: float = float(int(LANE_FRONT_MAX_EXTRAP_SEC * 1000000.0)) / float(interval_sim_us)
+	return minf(alpha, 1.0 + maxf(0.0, max_extra_alpha))
+
+func _lane_front_visual_t(lane_id: int, fallback_t: float, now_us: int) -> float:
+	var state_any: Variant = _lane_front_visual_by_id.get(lane_id, null)
+	if typeof(state_any) != TYPE_DICTIONARY:
+		return clampf(fallback_t, 0.0, 1.0)
+	var state_entry: Dictionary = state_any as Dictionary
+	var prev_t: float = float(state_entry.get("prev_t", fallback_t))
+	var curr_t: float = float(state_entry.get("curr_t", prev_t))
+	var alpha: float = _lane_front_alpha_for_state(state_entry, now_us)
+	return clampf(lerpf(prev_t, curr_t, alpha), 0.0, 1.0)
+
 func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sprite2D:
 	if tex == null:
 		return null
@@ -602,6 +658,7 @@ func bind_state(state_ref: GameState) -> void:
 
 func set_model(rm: Dictionary) -> void:
 	model = rm
+	var sample_sim_us: int = int(round(float(model.get("sim_time_s", 0.0)) * 1000000.0))
 	var map_id_for_cache: String = str(rm.get("map_id", rm.get("id", "")))
 	var hives_count_for_cache: int = 0
 	var hives_v_for_cache: Variant = rm.get("hives", [])
@@ -622,12 +679,20 @@ func set_model(rm: Dictionary) -> void:
 	if typeof(lanes_v) == TYPE_ARRAY:
 		var lanes: Array = lanes_v as Array
 		lanes_total = lanes.size()
+		var seen_front_lanes: Dictionary = {}
 		for lane_v in lanes:
 			if typeof(lane_v) != TYPE_DICTIONARY:
 				continue
 			var d := lane_v as Dictionary
+			var lane_id: int = int(d.get("lane_id", d.get("id", -1)))
+			if lane_id > 0:
+				seen_front_lanes[lane_id] = true
+				_ingest_lane_front_sample(lane_id, float(d.get("front_t", 0.5)), sample_sim_us)
 			if bool(d.get("send_a", false)) or bool(d.get("send_b", false)):
 				lanes_active += 1
+		for lane_id_any in _lane_front_visual_by_id.keys():
+			if not seen_front_lanes.has(int(lane_id_any)):
+				_lane_front_visual_by_id.erase(lane_id_any)
 	var map_id := str(model.get("map_id", model.get("id", "")))
 	var sig := "%s:%d:%d" % [map_id, lanes_total, lanes_active]
 	if sig != _lane_map_sig:
@@ -928,7 +993,9 @@ func _draw_intended_lanes() -> void:
 			var p1: Vector2 = ep.get("b", b_pos)
 			var send_a: bool = bool(l.get("send_a", false))
 			var send_b: bool = bool(l.get("send_b", false))
-			_draw_lane_colored(p0, p1, a_id, b_id, send_a, send_b, model, 3.0, l)
+			var lane_meta: Dictionary = l.duplicate()
+			lane_meta["front_t"] = _lane_front_visual_t(lane_id, float(lane_meta.get("front_t", 0.5)), Time.get_ticks_usec())
+			_draw_lane_colored(p0, p1, a_id, b_id, send_a, send_b, model, 3.0, lane_meta)
 
 # Returns true if it drew at least one lane.
 func _draw_state_lanes() -> bool:
@@ -1011,8 +1078,12 @@ func _draw_state_lanes() -> bool:
 		var build_t := 1.0
 		if lane_any is LaneData:
 			build_t = float((lane_any as LaneData).build_t)
+		var fallback_front_t: float = 0.5
+		if lane_any is LaneData:
+			fallback_front_t = float((lane_any as LaneData).last_impact_f)
 		var lane_meta := {
-			"front_t": float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)),
+			"lane_id": lane_id,
+			"front_t": _lane_front_visual_t(lane_id, fallback_front_t, Time.get_ticks_usec()),
 			"build_t": build_t
 		}
 		_draw_lane_colored(start, end, a_id, b_id, send_a, send_b, {}, width, lane_meta)
@@ -1563,6 +1634,7 @@ func _rebuild_lane_sprites_now() -> void:
 		entry["lane_id"] = lane_id
 		entry["send_a"] = send_a
 		entry["send_b"] = send_b
+		entry["front_t"] = float(lane.get("front_t", 0.5))
 		_sync_lane_visual_profile(entry, lane, false)
 		_lane_nodes_by_key[key] = entry
 	var keys: Array = _lane_nodes_by_key.keys()
@@ -1665,7 +1737,8 @@ func _update_lane_visuals(delta: float) -> void:
 		sprite_a.z_index = lane_z_index
 		sprite_b.z_index = lane_z_index
 		if send_a and send_b:
-			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, float(OpsState.lane_front_by_lane_id.get(lane_id, 0.5)))
+			var raw_front_t: float = float(entry.get("front_t", 0.5))
+			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, _lane_front_visual_t(lane_id, raw_front_t, Time.get_ticks_usec()))
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
 			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
@@ -1908,7 +1981,8 @@ func _update_lane_sprite_tints() -> void:
 		var send_b: bool = bool(d.get("send_b", false))
 		var color_a: Color = _lane_color_for_hive(a_id)
 		var color_b: Color = _lane_color_for_hive(b_id)
-		var front_t: float = float(OpsState.lane_front_by_lane_id.get(lane_id, d.get("front_t", d.get("split_t", 0.5))))
+		var raw_front_t: float = float(d.get("front_t", d.get("split_t", 0.5)))
+		var front_t: float = _lane_front_visual_t(lane_id, raw_front_t, Time.get_ticks_usec())
 		var p0_any: Variant = hive_anchor_local_by_id.get(a_id, null)
 		var p1_any: Variant = hive_anchor_local_by_id.get(b_id, null)
 		if not (p0_any is Vector2 and p1_any is Vector2):
@@ -1994,6 +2068,7 @@ func _draw_model_lanes(rm: Dictionary) -> void:
 			width = 3.0
 		var lane_meta := d.duplicate()
 		lane_meta["build_t"] = build_t
+		lane_meta["front_t"] = _lane_front_visual_t(lane_id, float(lane_meta.get("front_t", 0.5)), Time.get_ticks_usec())
 		_draw_lane_colored(seg[0], seg[1], a_id, b_id, send_a, send_b, rm, width, lane_meta)
 
 func _edge_to_edge_segment(a_id: int, b_id: int, a_pos: Vector2, b_pos: Vector2, lane_id: int = -1) -> PackedVector2Array:
