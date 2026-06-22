@@ -38,7 +38,13 @@ func _run() -> void:
 		return
 	var button: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/ProgressiveButton") as Button
 	if button == null:
-		_fail("missing Progressive button")
+		_fail("missing Gauntlet button")
+		return
+	if button.tooltip_text != "GAUNTLET":
+		_fail("Progressive button should be presented as Gauntlet")
+		return
+	if button.icon == null:
+		_fail("Gauntlet button should use gauntlet art")
 		return
 	menu.set("_free_roll_press_block_until_msec", 0)
 	menu.call("_on_free_roll_button_down", button)

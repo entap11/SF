@@ -605,7 +605,8 @@ const HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
 const ASYNC_CYCLE_SKIN_BY_LABEL: Dictionary = {
 	"WEEKLY": "res://assets/sprites/sf_skin_v1/weekly_color.png",
 	"MONTHLY": "res://assets/sprites/sf_skin_v1/monthly.png",
-	"SEASON": "res://assets/sprites/sf_skin_v1/season.png"
+	"SEASON": "res://assets/sprites/sf_skin_v1/season.png",
+	"GAUNTLET": "res://assets/sprites/sf_skin_v1/gauntlet.png"
 }
 const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
 	"CAPTURE FLAG": "res://assets/sprites/sf_skin_v1/capture_the_flag.png",
@@ -615,7 +616,7 @@ const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
 	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png"
 }
 const PROGRESSIVE_MODE_ID: String = "PROGRESSIVE"
-const PROGRESSIVE_LABEL: String = "PROGRESSIVE"
+const PROGRESSIVE_LABEL: String = "GAUNTLET"
 const HIDDEN_CTF_MAP_IDS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 ]
@@ -13196,21 +13197,21 @@ func _on_progressive_selected() -> void:
 	_close_entry_route_modal()
 	var plan: Array[Dictionary] = ProgressiveConfigScript.build_stage_plan()
 	if plan.is_empty():
-		status_label.text = "Progressive unavailable: no stage plan."
+		status_label.text = "Gauntlet unavailable: no stage plan."
 		return
 	var player_profile: Dictionary = _progressive_local_profile()
 	var run: Dictionary = _progressive_run_store.start_run(plan, player_profile)
 	if run.is_empty():
-		status_label.text = "Progressive unavailable: run setup failed."
+		status_label.text = "Gauntlet unavailable: run setup failed."
 		return
 	var stage: Dictionary = _progressive_run_store.current_stage(run)
 	if stage.is_empty():
-		status_label.text = "Progressive unavailable: first stage missing."
+		status_label.text = "Gauntlet unavailable: first stage missing."
 		return
 	if _launch_progressive_stage_direct(run, stage):
-		status_label.text = "Progressive stage 1 starting..."
+		status_label.text = "Gauntlet stage 1 starting..."
 	else:
-		status_label.text = "Progressive launch failed."
+		status_label.text = "Gauntlet launch failed."
 
 func _progressive_local_profile() -> Dictionary:
 	var player_id: String = "local"
@@ -13245,7 +13246,7 @@ func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary) -> boo
 		local_name = "You"
 	var bot_style: String = str(stage.get("bot_style", "balancer")).strip_edges().to_lower()
 	var bot_tier: String = str(stage.get("bot_tier", ProgressiveConfigScript.BOT_TIER_EASY)).strip_edges().to_lower()
-	var bot_name: String = "Progressive %s Bot" % bot_tier.capitalize()
+	var bot_name: String = "Gauntlet %s Bot" % bot_tier.capitalize()
 	var bot_profile: Dictionary = {
 		"uid": "bot_progressive_%d" % int(stage.get("stage_number", 1)),
 		"display_name": bot_name,

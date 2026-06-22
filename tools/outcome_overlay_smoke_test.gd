@@ -59,7 +59,7 @@ func _init() -> void:
 			"status_text": "Run stars: 7 / 72. Ready for the next stage?"
 		})
 	await process_frame
-	_assert_eq(_label_text(overlay, "Panel/VBox/Title"), "PROGRESSIVE 2 OF 18", "progressive title")
+	_assert_eq(_label_text(overlay, "Panel/VBox/Title"), "GAUNTLET 2 OF 18", "progressive title")
 	_assert_eq(_label_text(overlay, "Panel/VBox/Result"), "STAGE RESULT: YOU WON", "progressive result")
 	_assert_eq(_label_text(overlay, "Panel/VBox/H2H"), "Run Stars: 7 / 72", "progressive running tally")
 	_assert_eq(_button_text(overlay, "Panel/VBox/Buttons/Rematch"), "Next Stage", "progressive next button")

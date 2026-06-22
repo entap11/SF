@@ -7,6 +7,7 @@ const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
+const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
 const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/startup_launch_request_resolver.gd")
 const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
@@ -22,6 +23,7 @@ const SHELL_PLAYER_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/BuffSl
 const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStrip"
 const SHELL_OPPONENT_BUFF_STRIP_B_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStripB"
 const SHELL_ALLY_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/AllyBuffStrip"
+const LEGACY_MATCH_BUFF_STRIPS_ENABLED: bool = false
 const PENDING_APPLY_MAX_TRIES: int = 60
 const TRACE_SHELL_LOGS: bool = false
 const MVP_SMOKE_ARENA_PATH: String = "/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena"
@@ -696,6 +698,8 @@ func _resolve_buff_ui_nodes() -> void:
 	_opponent_buff_strip = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_PATH) as Control
 	_opponent_buff_strip_b = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_B_PATH) as Control
 	_ally_buff_strip = get_node_or_null(SHELL_ALLY_BUFF_STRIP_PATH) as Control
+	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
+		_set_buff_strip_visibility(false, false, false, false)
 	SFLog.info("BUFF_UI_RESOLVE", {
 		"player_strip": _diag_resolve(_player_buff_strip),
 		"opponent_strip": _diag_resolve(_opponent_buff_strip),
@@ -706,6 +710,10 @@ func _resolve_buff_ui_nodes() -> void:
 func _wire_buff_ui() -> void:
 	if _player_buff_strip == null:
 		SFLog.warn("BUFF_UI_MISSING_PLAYER_STRIP", {})
+		return
+	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
+		_set_buff_strip_visibility(false, false, false, false)
+		SFLog.info("BUFF_UI_LEGACY_STRIPS_DISABLED", {})
 		return
 	if _player_buff_strip.has_signal("buff_drag_started"):
 		var drag_started_cb: Callable = Callable(self, "_on_player_buff_drag_started")
@@ -1835,6 +1843,9 @@ func _resolve_runtime_arena_node() -> Node:
 	return _arena_instance.get_node_or_null("WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena")
 
 func _sync_buff_ui() -> void:
+	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
+		_set_buff_strip_visibility(false, false, false, false)
+		return
 	if _player_buff_strip == null:
 		return
 	if _arena_instance == null:
@@ -1911,6 +1922,8 @@ func _set_buff_strip_visibility(player_visible: bool, opponent_visible: bool, op
 		_ally_buff_strip.visible = ally_visible
 
 func _layout_buff_strip_positions() -> void:
+	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
+		return
 	_layout_player_strip_inside_bottom_buffer()
 	_layout_side_strips_inside_bottom_buffer()
 
@@ -2576,6 +2589,7 @@ func _sync_shell_async_prematch_overlay() -> void:
 		if OpsState != null:
 			sec_left = maxi(0, int(ceil(float(OpsState.prematch_remaining_ms) / 1000.0)))
 		_shell_prematch_countdown_label.text = str(sec_left)
+		_shell_prematch_countdown_label.add_theme_color_override("font_color", _shell_prematch_countdown_color())
 		_shell_prematch_countdown_label.visible = true
 	if _shell_prematch_record_h2h != null:
 		var sec_left: int = 0
@@ -2733,9 +2747,17 @@ func _style_shell_prematch_countdown(label: Label) -> void:
 	label.z_as_relative = false
 	label.z_index = 3200
 	label.add_theme_font_size_override("font_size", 220)
-	label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.20, 1.0))
+	label.add_theme_color_override("font_color", _shell_prematch_countdown_color())
 	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
 	label.add_theme_constant_override("outline_size", 10)
+
+func _shell_prematch_countdown_color() -> Color:
+	var team_id: int = _shell_team_for_seat(_shell_local_seat())
+	if team_id < 1 or team_id > 4:
+		team_id = clampi(_shell_local_seat(), 1, 4)
+	var color: Color = TeamVisuals.owner_color(team_id)
+	color.a = 1.0
+	return color
 
 func _layout_shell_async_prematch_overlay() -> void:
 	if _shell_prematch_records_panel == null:
@@ -2777,7 +2799,7 @@ func _shell_async_prematch_mode_banner() -> String:
 		"MISS_N_OUT":
 			return "MISS N OUT"
 		"PROGRESSIVE":
-			return "PROGRESSIVE"
+			return "GAUNTLET"
 		"1V1", "PVP":
 			return "1V1"
 		"2V2":

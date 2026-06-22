@@ -59,6 +59,7 @@ const LANE_MAX_SEGMENTS := 64
 const LANE_FRIENDLY_Z_INDEX := -5
 const LANE_HOSTILE_Z_INDEX := -3
 const LANE_CONNECTOR_AT_ENDPOINTS := false
+const LANE_FRIENDLY_WIDTH_MULTIPLIER := 0.50
 # --- Lane sprite sizing ---
 const LANE_THICKNESS_PX := 2.0
 const LANE_WIDTH_PX := 12.6
@@ -1785,7 +1786,7 @@ func _update_lane_visuals(delta: float) -> void:
 		var lane_basis_dir: Vector2 = b_pos - a_pos
 		var lane_z_index: int = _lane_visual_z_index(send_a, send_b, a_id, b_id)
 		var profile: Dictionary = _resolve_lane_visual_profile(entry, delta, lane_z_index, target_px)
-		var profile_width_px: float = float(profile.get("width", target_px))
+		var profile_width_px: float = _lane_visual_width_px(float(profile.get("width", target_px)), send_a, send_b, a_id, b_id)
 		color_a = _apply_lane_visual_profile_to_color(color_a, profile)
 		color_b = _apply_lane_visual_profile_to_color(color_b, profile)
 		lane_z_index = int(profile.get("z_index", lane_z_index))
@@ -2117,6 +2118,14 @@ func _lane_visual_z_index(send_a: bool, send_b: bool, a_id: int, b_id: int) -> i
 	if send_b:
 		hostile = hostile or _lane_sender_is_hostile_to_local(owner_b)
 	return LANE_HOSTILE_Z_INDEX if hostile else LANE_FRIENDLY_Z_INDEX
+
+func _lane_visual_width_px(base_width_px: float, send_a: bool, send_b: bool, a_id: int, b_id: int) -> float:
+	if send_a == send_b:
+		return base_width_px
+	var sender_owner: int = _owner_id_for_lane(a_id if send_a else b_id, model)
+	if _lane_sender_is_hostile_to_local(sender_owner):
+		return base_width_px
+	return maxf(1.0, base_width_px * LANE_FRIENDLY_WIDTH_MULTIPLIER)
 
 func _log_lane_endpoints_once(lane_id: int, ep: Dictionary) -> void:
 	if lane_id <= 0:

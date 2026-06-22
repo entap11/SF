@@ -2312,10 +2312,16 @@ func _style_prematch_countdown_label() -> void:
 	_prematch_countdown_label.offset_bottom = 0.0
 	_prematch_countdown_label.z_as_relative = false
 	_prematch_countdown_label.z_index = 2200
-	_prematch_countdown_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.20, 1.0))
+	_prematch_countdown_label.add_theme_color_override("font_color", _local_countdown_color())
 	_prematch_countdown_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
 	_prematch_countdown_label.add_theme_constant_override("outline_size", 10)
 	_prematch_countdown_label.add_theme_font_size_override("font_size", 220)
+
+func _local_countdown_color() -> Color:
+	var seat: int = clampi(active_player_id, 1, 4)
+	var color: Color = _prematch_identity_card_color_for_seat(seat)
+	color.a = 1.0
+	return color
 
 func _ensure_prematch_identity_card() -> void:
 	if _prematch_overlay == null:
@@ -3359,6 +3365,7 @@ func _show_prematch_ui() -> void:
 				"type": _prematch_countdown_label.get_class()
 			})
 		_prematch_countdown_label.modulate = Color(1, 1, 1, 1)
+		_prematch_countdown_label.add_theme_color_override("font_color", _local_countdown_color())
 		_prematch_countdown_label.visible = true
 	_show_prematch_identity_card()
 	_refresh_prematch_records()
@@ -4008,6 +4015,7 @@ func _update_prematch_flow(delta: float) -> void:
 		sec_left = int(ceil(_prematch_remaining_ms_f / 1000.0))
 	if _prematch_countdown_label != null:
 		_prematch_countdown_label.text = str(sec_left)
+		_prematch_countdown_label.add_theme_color_override("font_color", _local_countdown_color())
 		_prematch_countdown_label.visible = true
 	var elapsed_ms: float = float(OpsState.prematch_duration_ms) - _prematch_remaining_ms_f
 	if _should_show_prematch_identity_flow():
@@ -11600,7 +11608,7 @@ func _ensure_timer_hud() -> void:
 	if not _timer_label_bind_logged:
 		_timer_label_bind_logged = true
 		var font_before: int = _control_font_size(timer_label)
-		timer_label.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+		timer_label.add_theme_color_override("font_color", _local_countdown_color())
 		timer_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
 		timer_label.add_theme_constant_override("outline_size", 4)
 		timer_label.add_theme_font_size_override("font_size", 200)
@@ -11738,6 +11746,7 @@ func _update_timer_label() -> void:
 		})
 	timer_label.modulate = Color(1, 1, 1, 1)
 	timer_label.self_modulate = Color(1, 1, 1, 1)
+	timer_label.add_theme_color_override("font_color", _local_countdown_color())
 	timer_label.visible = true
 	var remaining_ms := int(OpsState.match_remaining_ms)
 	if remaining_ms < 0:

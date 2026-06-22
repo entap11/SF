@@ -317,6 +317,7 @@ mouse_filter = 2
 stretch_mode = 2
 
 [node name="BuffSlotsStrip" type="Control" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground"]
+visible = false
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -366,6 +367,7 @@ mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
 
 [node name="OpponentBuffStrip" type="Control" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground"]
+visible = false
 layout_mode = 1
 anchors_preset = 2
 anchor_top = 1.0

@@ -300,7 +300,7 @@ func _apply_progressive_stage_outcome(data: Dictionary) -> void:
 	var next_available: bool = bool(data.get("next_round_available", false))
 	var next_label: String = str(data.get("next_label", "Next Stage"))
 	var exit_label: String = str(data.get("exit_label", "Main Menu"))
-	title_label.text = "PROGRESSIVE %d OF %d" % [stage_number, stage_count]
+	title_label.text = "GAUNTLET %d OF %d" % [stage_number, stage_count]
 	if winner_id == 0:
 		result_label.text = "STAGE RESULT: DRAW"
 	elif winner_id == local_player_id:
