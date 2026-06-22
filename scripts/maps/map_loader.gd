@@ -210,7 +210,7 @@ static func _resolve_map_path(path_or_id: String) -> String:
 		return ""
 	var normalized: String = MAP_SCHEMA.normalize_path(raw)
 	if FileAccess.file_exists(normalized):
-		if MAP_REGISTRY.is_map_path_allowed(normalized) or _is_allowed_jukebox_one_player_variant_path(normalized) or _is_allowed_player_variant_sibling_path(normalized):
+		if MAP_REGISTRY.is_map_path_allowed(normalized) or _is_allowed_jukebox_one_player_variant_path(normalized) or _is_allowed_player_variant_sibling_path(normalized) or _is_allowed_future_nomansland_one_player_path(normalized):
 			return normalized
 		return ""
 	if normalized.begins_with("res://"):
@@ -257,6 +257,14 @@ static func _is_allowed_player_variant_sibling_path(path: String) -> bool:
 		if MAP_REGISTRY.is_map_id_allowed(sibling_id):
 			return true
 	return false
+
+static func _is_allowed_future_nomansland_one_player_path(path: String) -> bool:
+	var clean: String = path.strip_edges()
+	if not clean.begins_with("res://maps/_future/nomansland/"):
+		return false
+	if not clean.ends_with("__1p.json"):
+		return false
+	return FileAccess.file_exists(clean)
 
 static func _meta_string_array(source: Dictionary, key: String) -> Array[String]:
 	var out: Array[String] = []

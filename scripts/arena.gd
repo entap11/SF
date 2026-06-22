@@ -23,6 +23,9 @@ const MatchTelemetryCollectorScript := preload("res://scripts/state/match_teleme
 const MatchAnalyzerScript := preload("res://scripts/state/match_analyzer.gd")
 const PlayerTelemetryProfileStoreScript := preload("res://scripts/state/player_telemetry_profile_store.gd")
 const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
+const ProgressiveConfigScript := preload("res://scripts/state/progressive_config.gd")
+const ProgressiveRunStoreScript := preload("res://scripts/state/progressive_run_store.gd")
+const ProgressiveStarDecayHudScript := preload("res://scripts/ui/progressive_star_decay_hud.gd")
 const AsyncRecordEligibilityPolicy := preload("res://scripts/state/async_record_eligibility_policy.gd")
 const TeamVisuals = preload("res://scripts/renderers/team_visuals.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
@@ -132,6 +135,7 @@ const CTF_MOVE_BUTTON_NAME: StringName = &"CaptureFlagMoveButton"
 const CTF_MOVE_BUTTON_FONT_PATH: String = "res://assets/fonts/free_roll_display_v2_font.tres"
 const CTF_MOVE_BUTTON_FALLBACK_FONT_PATH: String = "res://assets/fonts/brand/Iceland/Iceland-Regular.ttf"
 const VS_MODE_STAGE_RACE: String = "STAGE_RACE"
+const VS_MODE_PROGRESSIVE: String = "PROGRESSIVE"
 const VS_MODE_CAPTURE_FLAG: String = "CAPTURE_FLAG"
 const VS_MODE_HIDDEN_CAPTURE_FLAG: String = "HIDDEN_CAPTURE_FLAG"
 const VS_MODE_ASYNC_SINGLE_MAP_TIMED: String = "ASYNC_SINGLE_MAP_TIMED"
@@ -294,10 +298,14 @@ var _timer_debug_mode: bool = true
 var _timer_branch_logged: bool = false
 var _timer_label_bind_logged: bool = false
 var _timer_ready_logged: bool = false
+var _progressive_counter_root: Control = null
+var _progressive_counter_label: Label = null
+var _progressive_star_decay_hud: Control = null
 var _cam_probe_accum: float = 0.0
 var _world_viewport_cache: ArenaWorldViewportCache = ArenaWorldViewportCache.new()
 var _stage_runtime_flow: ArenaStageRuntimeFlow = ArenaStageRuntimeFlow.new()
 var _jukebox_leaderboard_store: RefCounted = JukeboxLeaderboardStoreScript.new()
+var _progressive_run_store: RefCounted = ProgressiveRunStoreScript.new()
 var _prematch_team_ui_formatter: ArenaPrematchTeamUiFormatter = ArenaPrematchTeamUiFormatter.new()
 var _input_bridge_utils: ArenaInputBridgeUtils = ArenaInputBridgeUtils.new()
 var _camera_fit_viewport_override_px: Vector2 = Vector2.ZERO
@@ -613,6 +621,7 @@ func _ready() -> void:
 	# Match startup must flow through prematch/bootstrap so roster and bot state exist
 	# before the simulation is allowed to run.
 	_ensure_timer_hud()
+	_ensure_progressive_counter_hud()
 	call_deferred("_ensure_runtime_telemetry_overlay")
 	call_deferred("_ensure_pvp_debug_overlay")
 	_configure_grid_spec(grid_w, grid_h)
@@ -2062,9 +2071,12 @@ func _record_vs_stale_ownership_reject(command: Dictionary, kind: String, reason
 	})
 
 func _ensure_prematch_ui() -> void:
-	if _prematch_overlay != null and is_instance_valid(_prematch_overlay):
-		return
-	var ui_root: Node = get_node_or_null(SHELL_HUD_ROOT_PATH)
+	var ui_root: Node = null
+	var overlay: Control = _prematch_overlay if _prematch_overlay != null and is_instance_valid(_prematch_overlay) else null
+	if overlay != null:
+		ui_root = overlay.get_parent()
+	if ui_root == null:
+		ui_root = get_node_or_null(SHELL_HUD_ROOT_PATH)
 	if ui_root == null:
 		var hud_layer: CanvasLayer = get_node_or_null(SHELL_HUD_LAYER_PATH) as CanvasLayer
 		if hud_layer == null:
@@ -2077,7 +2089,8 @@ func _ensure_prematch_ui() -> void:
 		ui_root = get_node_or_null("../UI")
 	if ui_root == null:
 		return
-	var overlay := ui_root.get_node_or_null("PreMatchOverlay") as Control
+	if overlay == null:
+		overlay = ui_root.get_node_or_null("PreMatchOverlay") as Control
 	if overlay == null:
 		var scene: Node = get_tree().current_scene
 		if scene != null:
@@ -2105,17 +2118,13 @@ func _ensure_prematch_ui() -> void:
 		countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		countdown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		countdown.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		countdown.anchor_left = 0.5
-		countdown.anchor_right = 0.5
+		countdown.anchor_left = 0.0
+		countdown.anchor_right = 1.0
 		countdown.anchor_top = 0.0
-		countdown.anchor_bottom = 0.0
-		countdown.offset_left = -40.0
-		countdown.offset_right = 40.0
-		countdown.offset_top = 20.0
-		countdown.offset_bottom = 60.0
-		countdown.add_theme_font_size_override("font_size", 64)
+		countdown.anchor_bottom = 1.0
 		_prematch_overlay.add_child(countdown)
 	_prematch_countdown_label = countdown
+	_style_prematch_countdown_label()
 	var records := _prematch_overlay.get_node_or_null("RecordsPanel") as Control
 	if records == null:
 		records = Control.new()
@@ -2286,6 +2295,27 @@ func _ensure_prematch_on_top() -> void:
 	_prematch_overlay.z_as_relative = false
 	_prematch_overlay.z_index = 2000
 	_prematch_overlay.top_level = false
+
+func _style_prematch_countdown_label() -> void:
+	if _prematch_countdown_label == null:
+		return
+	_prematch_countdown_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_prematch_countdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prematch_countdown_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_prematch_countdown_label.anchor_left = 0.0
+	_prematch_countdown_label.anchor_top = 0.0
+	_prematch_countdown_label.anchor_right = 1.0
+	_prematch_countdown_label.anchor_bottom = 1.0
+	_prematch_countdown_label.offset_left = 0.0
+	_prematch_countdown_label.offset_top = 0.0
+	_prematch_countdown_label.offset_right = 0.0
+	_prematch_countdown_label.offset_bottom = 0.0
+	_prematch_countdown_label.z_as_relative = false
+	_prematch_countdown_label.z_index = 2200
+	_prematch_countdown_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.20, 1.0))
+	_prematch_countdown_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
+	_prematch_countdown_label.add_theme_constant_override("outline_size", 10)
+	_prematch_countdown_label.add_theme_font_size_override("font_size", 220)
 
 func _ensure_prematch_identity_card() -> void:
 	if _prematch_overlay == null:
@@ -5076,10 +5106,19 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	_commit_match_records(winner_id_in)
 	_finalize_match_telemetry_session(winner_id_in)
 	_maybe_record_jukebox_result(winner_id_in, reason)
-	_play_post_match_song(winner_id_in)
+	if _should_play_post_match_song(winner_id_in):
+		_play_post_match_song(winner_id_in)
 	_maybe_record_stage_race_contest_result(winner_id_in, reason)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
+
+func _should_play_post_match_song(_winner_id_in: int) -> bool:
+	if not _is_progressive_runtime_mode():
+		return true
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return true
+	return int(tree.get_meta("progressive_stage_index", 0)) <= 0
 
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	if _controls_hint_controller != null:
@@ -5091,6 +5130,14 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 		_tutorial_section2_controller.on_match_ended()
 	if _tutorial_section3_controller != null:
 		_tutorial_section3_controller.on_match_ended()
+	if _is_progressive_runtime_mode():
+		if outcome_overlay != null and outcome_overlay.has_method("clear_post_match_summary"):
+			outcome_overlay.call("clear_post_match_summary")
+		_show_progressive_stage_overlay(winner_id_in, reason)
+		if sim_runner != null:
+			sim_runner.log_pause_snapshot("arena_show_progressive_stage_outcome")
+		mark_render_dirty("match_end_progressive_stage")
+		return
 	if _is_stage_race_runtime_mode():
 		if outcome_overlay != null and outcome_overlay.has_method("clear_post_match_summary"):
 			outcome_overlay.call("clear_post_match_summary")
@@ -5291,7 +5338,7 @@ func _resolve_stage_race_contest_map_id(tree: SceneTree) -> String:
 	return MapRegistry.map_id_from_path(map_path)
 
 func _on_post_match_action(action: String) -> void:
-	if action == "rematch_vote" and not _is_stage_race_runtime_mode():
+	if action == "rematch_vote" and not _is_stage_race_runtime_mode() and not _is_progressive_runtime_mode():
 		var voter_id: int = active_player_id
 		if voter_id != 1 and voter_id != 2:
 			voter_id = 1
@@ -5309,11 +5356,17 @@ func _on_post_match_action(action: String) -> void:
 	match action:
 		"next_round":
 			_post_match_action_taken = true
-			_advance_stage_race_round()
+			if _is_progressive_runtime_mode():
+				_advance_progressive_stage()
+			else:
+				await _advance_stage_race_round()
 		"finish_run":
 			_post_match_action_taken = true
-			_prepare_stage_race_finish_leaderboard_request()
-			_clear_stage_runtime_meta()
+			if _is_progressive_runtime_mode():
+				_clear_progressive_runtime_meta()
+			else:
+				_prepare_stage_race_finish_leaderboard_request()
+				_clear_stage_runtime_meta()
 			_return_to_main_menu()
 		"rematch":
 			_post_match_action_taken = true
@@ -5322,12 +5375,20 @@ func _on_post_match_action(action: String) -> void:
 			_post_match_action_taken = true
 			if _is_stage_race_runtime_mode():
 				_clear_stage_runtime_meta()
+			if _is_progressive_runtime_mode():
+				_clear_progressive_runtime_meta()
 			_return_to_main_menu()
 		_:
 			return
 
 func _is_stage_race_runtime_mode() -> bool:
 	return _stage_runtime_flow.is_stage_race_runtime_mode(get_tree(), TREE_META_VS_MODE, VS_MODE_STAGE_RACE)
+
+func _is_progressive_runtime_mode() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	return str(tree.get_meta(TREE_META_VS_MODE, "")).strip_edges().to_upper() == VS_MODE_PROGRESSIVE or str(tree.get_meta("progressive_run_id", "")).strip_edges() != ""
 
 func _get_stage_map_paths_runtime() -> Array[String]:
 	return _stage_runtime_flow.get_stage_map_paths_runtime(get_tree(), TREE_META_VS_STAGE_MAP_PATHS)
@@ -5428,6 +5489,228 @@ func _show_stage_race_round_overlay(winner_id_in: int, reason: String) -> void:
 	payload["next_button_enabled"] = true
 	outcome_overlay.show_stage_round_outcome(payload)
 
+func _build_progressive_stage_summary(winner_id_in: int, reason: String) -> Dictionary:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return {}
+	var run_id: String = str(tree.get_meta("progressive_run_id", tree.get_meta(TREE_META_VS_STAGE_RUN_ID, ""))).strip_edges()
+	if run_id.is_empty():
+		return {}
+	var plan: Array = _progressive_stage_plan(tree)
+	var stage_count: int = maxi(1, plan.size())
+	var stage_index: int = clampi(int(tree.get_meta("progressive_stage_index", tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0))), 0, stage_count - 1)
+	var stage: Dictionary = _progressive_stage_at(tree, stage_index)
+	var thresholds: Dictionary = tree.get_meta("progressive_thresholds_ms", stage.get("thresholds_ms", {})) as Dictionary
+	var local_owner_id: int = _resolve_local_owner_id()
+	if local_owner_id <= 0:
+		local_owner_id = clampi(active_player_id, 1, 4)
+	var elapsed_ms: int = maxi(0, int(OpsState.match_elapsed_ms))
+	var won: bool = winner_id_in > 0 and winner_id_in == local_owner_id
+	var stars: int = ProgressiveConfigScript.stars_for_elapsed(elapsed_ms, thresholds, won, reason)
+	var result: Dictionary = _progressive_run_store.record_stage_result(run_id, {
+		"stage_index": stage_index,
+		"map_path": str(stage.get("map_path", "")),
+		"map_id": str(stage.get("map_id", "")),
+		"elapsed_ms": elapsed_ms,
+		"winner_id": winner_id_in,
+		"reason": reason,
+		"passed": won and stars > 0,
+		"stars": stars,
+		"thresholds_ms": thresholds.duplicate(true)
+	})
+	var updated_run: Dictionary = {}
+	if bool(result.get("ok", false)):
+		updated_run = result.get("run", {}) as Dictionary
+		tree.set_meta("progressive_total_stars", int(updated_run.get("total_stars", int(tree.get_meta("progressive_total_stars", 0)))))
+		tree.set_meta("progressive_max_stars", int(updated_run.get("max_stars", int(tree.get_meta("progressive_max_stars", stage_count * ProgressiveConfigScript.STAR_MAX)))))
+		SFLog.info("PROGRESSIVE_STAGE_RECORDED", {
+			"run_id": run_id,
+			"stage_index": stage_index,
+			"elapsed_ms": elapsed_ms,
+			"stars": stars,
+			"status": str(updated_run.get("status", "")),
+			"next_stage_index": int(updated_run.get("stage_index", stage_index))
+		})
+	else:
+		SFLog.warn("PROGRESSIVE_STAGE_RECORD_FAILED", {
+			"run_id": run_id,
+			"stage_index": stage_index,
+			"error": str(result.get("error", "unknown"))
+		})
+	_update_progressive_counter_ui()
+	var total_stars: int = int(tree.get_meta("progressive_total_stars", stars))
+	var max_stars: int = int(tree.get_meta("progressive_max_stars", stage_count * ProgressiveConfigScript.STAR_MAX))
+	var next_available: bool = won and stars > 0 and stage_index + 1 < stage_count
+	return {
+		"mode_id": VS_MODE_PROGRESSIVE,
+		"stage_index": stage_index,
+		"stage_number": stage_index + 1,
+		"stage_count": stage_count,
+		"winner_id": winner_id_in,
+		"reason": reason,
+		"local_player_id": local_owner_id,
+		"elapsed_ms": elapsed_ms,
+		"thresholds_ms": thresholds,
+		"stars": stars,
+		"total_stars": total_stars,
+		"max_stars": max_stars,
+		"next_round_available": next_available,
+		"next_button_enabled": next_available,
+		"next_action": "next_round" if next_available else "finish_run",
+		"next_label": "Next Stage" if next_available else "Finish Run",
+		"exit_label": "Main Menu",
+		"status_text": "Run stars: %d / %d. Ready for the next stage?" % [total_stars, max_stars] if next_available else "Run ended with %d / %d stars." % [total_stars, max_stars]
+	}
+
+func _show_progressive_stage_overlay(winner_id_in: int, reason: String) -> void:
+	var summary: Dictionary = _build_progressive_stage_summary(winner_id_in, reason)
+	if bool(summary.get("next_round_available", false)):
+		_post_match_action_taken = true
+		SFLog.info("PROGRESSIVE_AUTO_ADVANCE", {
+			"stage_index": int(summary.get("stage_index", -1)),
+			"next_stage_index": int(summary.get("stage_index", -1)) + 1,
+			"stars": int(summary.get("stars", 0)),
+			"total_stars": int(summary.get("total_stars", 0))
+		})
+		call_deferred("_auto_advance_progressive_stage")
+		return
+	if outcome_overlay == null:
+		_ensure_post_match_ui()
+	if outcome_overlay == null:
+		SFLog.warn("POSTMATCH_UI_MISSING", {"kind": "outcome_overlay_progressive"})
+		return
+	if summary.is_empty():
+		var record_slot: int = clampi(active_player_id, 1, 4)
+		outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, _get_player_record_line(record_slot), _get_h2h_record_line())
+		return
+	outcome_overlay.show_stage_round_outcome(summary)
+
+func _auto_advance_progressive_stage() -> void:
+	_advance_progressive_stage()
+
+func _progressive_stage_plan(tree: SceneTree) -> Array:
+	if tree == null:
+		return []
+	var plan_any: Variant = tree.get_meta("progressive_stage_plan", [])
+	if typeof(plan_any) == TYPE_ARRAY:
+		return plan_any as Array
+	var run: Dictionary = _progressive_run_store.load_current_run()
+	var run_plan_any: Variant = run.get("stage_plan", [])
+	if typeof(run_plan_any) == TYPE_ARRAY:
+		return run_plan_any as Array
+	return []
+
+func _progressive_stage_count(tree: SceneTree) -> int:
+	return maxi(1, _progressive_stage_plan(tree).size())
+
+func _progressive_stage_at(tree: SceneTree, index: int) -> Dictionary:
+	var plan: Array = _progressive_stage_plan(tree)
+	if not plan.is_empty():
+		var clamped: int = clampi(index, 0, plan.size() - 1)
+		var stage_any: Variant = plan[clamped]
+		if typeof(stage_any) == TYPE_DICTIONARY:
+			return (stage_any as Dictionary).duplicate(true)
+	return {
+		"stage_index": index,
+		"stage_number": index + 1,
+		"map_path": _progressive_current_stage_map_path(tree),
+		"thresholds_ms": tree.get_meta("progressive_thresholds_ms", {}) if tree != null else {}
+	}
+
+func _progressive_current_stage_map_path(tree: SceneTree) -> String:
+	if tree == null:
+		return ""
+	var paths_any: Variant = tree.get_meta(TREE_META_VS_STAGE_MAP_PATHS, [])
+	if typeof(paths_any) != TYPE_ARRAY:
+		return ""
+	var paths: Array = paths_any as Array
+	if paths.is_empty():
+		return ""
+	var index: int = clampi(int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)), 0, paths.size() - 1)
+	return str(paths[index]).strip_edges()
+
+func _advance_progressive_stage() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var run: Dictionary = _progressive_run_store.load_current_run()
+	if run.is_empty():
+		_clear_progressive_runtime_meta()
+		_return_to_main_menu()
+		return
+	var stage: Dictionary = _progressive_run_store.current_stage(run)
+	if stage.is_empty() or str(run.get("status", "")).strip_edges() != ProgressiveRunStoreScript.STATUS_ACTIVE:
+		_clear_progressive_runtime_meta()
+		_return_to_main_menu()
+		return
+	var map_path: String = str(stage.get("map_path", "")).strip_edges()
+	if map_path.is_empty():
+		_clear_progressive_runtime_meta()
+		_return_to_main_menu()
+		return
+	_apply_progressive_stage_tree_meta(run, stage)
+	SFLog.info("PROGRESSIVE_ADVANCE_ATTEMPT", {
+		"run_id": str(run.get("run_id", "")),
+		"stage_index": int(run.get("stage_index", -1)),
+		"stage_number": int(stage.get("stage_number", int(run.get("stage_index", 0)) + 1)),
+		"map_path": map_path,
+		"bot_style": str(stage.get("bot_style", "")),
+		"bot_tier": str(stage.get("bot_tier", ""))
+	})
+	if outcome_overlay != null:
+		outcome_overlay.hide_overlay()
+	_stop_post_match_song(false)
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("_apply_map_then_start"):
+		SFLog.info("PROGRESSIVE_ADVANCE_SHELL_APPLY", {"map_path": map_path})
+		shell.call_deferred("_apply_map_then_start", map_path)
+		return
+	var gamebot: Node = get_node_or_null("/root/Gamebot")
+	if gamebot != null:
+		if gamebot.has_method("set_vs"):
+			gamebot.call("set_vs", map_path)
+		else:
+			gamebot.set("next_map_id", map_path)
+	tree.set_meta("start_game", true)
+	SFLog.info("PROGRESSIVE_ADVANCE_SCENE_FALLBACK", {"map_path": map_path})
+	tree.change_scene_to_file(SHELL_SCENE_PATH)
+
+func _apply_progressive_stage_tree_meta(run: Dictionary, stage: Dictionary) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var map_path: String = str(stage.get("map_path", "")).strip_edges()
+	var stage_index: int = int(stage.get("stage_index", int(run.get("stage_index", 0))))
+	var bot_style: String = str(stage.get("bot_style", "balancer")).strip_edges().to_lower()
+	var bot_tier: String = str(stage.get("bot_tier", ProgressiveConfigScript.BOT_TIER_EASY)).strip_edges().to_lower()
+	var map_ids := PackedStringArray()
+	var map_id: String = str(stage.get("map_id", MapRegistry.map_id_from_path(map_path))).strip_edges()
+	if not map_id.is_empty():
+		map_ids.append(map_id)
+	tree.set_meta("start_game", true)
+	tree.set_meta(TREE_META_VS_MODE, VS_MODE_PROGRESSIVE)
+	tree.set_meta(TREE_META_VS_STAGE_MAP_PATHS, [map_path])
+	tree.set_meta(TREE_META_VS_STAGE_CURRENT_INDEX, stage_index)
+	tree.set_meta(TREE_META_VS_STAGE_RUN_ID, str(run.get("run_id", "")))
+	tree.set_meta("map_ids", map_ids)
+	tree.set_meta(TREE_META_VS_CPU_STYLE, bot_style)
+	tree.set_meta(TREE_META_VS_CPU_TIER, bot_tier)
+	tree.set_meta("progressive_run_id", str(run.get("run_id", "")))
+	tree.set_meta("progressive_stage_plan", (run.get("stage_plan", []) as Array).duplicate(true))
+	tree.set_meta("progressive_stage_index", stage_index)
+	tree.set_meta("progressive_stage_number", int(stage.get("stage_number", stage_index + 1)))
+	tree.set_meta("progressive_thresholds_ms", (stage.get("thresholds_ms", {}) as Dictionary).duplicate(true))
+	tree.set_meta("progressive_conquerable_hive_count", int(stage.get("conquerable_hive_count", 1)))
+	tree.set_meta("progressive_npc_power_bonus", int(stage.get("npc_power_bonus", 0)))
+	tree.set_meta("progressive_bot_start_power_bonus", int(stage.get("bot_start_power_bonus", 0)))
+	tree.set_meta("progressive_player_start_power_delta", int(stage.get("player_start_power_delta", 0)))
+	tree.set_meta("progressive_bot_attack_grace_ms", ProgressiveConfigScript.BOT_ATTACK_GRACE_MS)
+	tree.set_meta("progressive_human_owner_id", ProgressiveConfigScript.HUMAN_OWNER_ID)
+	tree.set_meta("progressive_bot_attack_grace_broken", false)
+	tree.set_meta("progressive_total_stars", int(run.get("total_stars", 0)))
+	tree.set_meta("progressive_max_stars", int(run.get("max_stars", 0)))
+	_update_progressive_counter_ui()
+
 func _advance_stage_race_round() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
@@ -5482,6 +5765,39 @@ func _clear_stage_runtime_meta() -> void:
 	for key in keys:
 		if tree.has_meta(key):
 			tree.remove_meta(key)
+
+func _clear_progressive_runtime_meta() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var keys: Array[String] = [
+		TREE_META_VS_MODE,
+		TREE_META_VS_STAGE_MAP_PATHS,
+		TREE_META_VS_STAGE_CURRENT_INDEX,
+		TREE_META_VS_STAGE_ROUND_RESULTS,
+		TREE_META_VS_STAGE_RUN_ID,
+		TREE_META_VS_CPU_STYLE,
+		TREE_META_VS_CPU_TIER,
+		"map_ids",
+		"progressive_run_id",
+		"progressive_stage_plan",
+		"progressive_stage_index",
+		"progressive_stage_number",
+		"progressive_thresholds_ms",
+		"progressive_conquerable_hive_count",
+		"progressive_npc_power_bonus",
+		"progressive_bot_start_power_bonus",
+		"progressive_player_start_power_delta",
+		"progressive_bot_attack_grace_ms",
+		"progressive_human_owner_id",
+		"progressive_bot_attack_grace_broken",
+		"progressive_total_stars",
+		"progressive_max_stars"
+	]
+	for key in keys:
+		if tree.has_meta(key):
+			tree.remove_meta(key)
+	_update_progressive_counter_ui()
 
 func _handle_rematch() -> void:
 	if current_map_data.is_empty():
@@ -6260,6 +6576,7 @@ func _tick_arena_runtime(delta: float) -> void:
 		_sync_inputs_locked_from_state()
 	_pump_vs_pvp_runtime(delta)
 	_update_timer_ui()
+	_update_progressive_counter_ui()
 	if tie_toast != null and tie_toast_ms > 0.0:
 		tie_toast_ms = max(0.0, tie_toast_ms - delta * 1000.0)
 		if tie_toast_ms <= 0.0:
@@ -11444,6 +11761,93 @@ func _update_timer_label() -> void:
 			"text": next_text
 		})
 
+func _ensure_progressive_counter_hud() -> void:
+	if _progressive_counter_root != null and is_instance_valid(_progressive_counter_root) and _progressive_counter_label != null and is_instance_valid(_progressive_counter_label) and _progressive_star_decay_hud != null and is_instance_valid(_progressive_star_decay_hud):
+		return
+	var layer: CanvasLayer = _ensure_timer_layer()
+	if layer == null:
+		return
+	var existing: Control = layer.get_node_or_null("ProgressiveCounter") as Control
+	if existing != null:
+		_progressive_counter_root = existing
+	else:
+		var root_control := Control.new()
+		root_control.name = "ProgressiveCounter"
+		root_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.add_child(root_control)
+		_progressive_counter_root = root_control
+	_force_fullscreen_anchors(_progressive_counter_root)
+	var label: Label = _progressive_counter_root.get_node_or_null("ProgressiveStarsLabel") as Label
+	if label == null:
+		label = Label.new()
+		label.name = "ProgressiveStarsLabel"
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.anchor_left = 1.0
+		label.anchor_right = 1.0
+		label.anchor_top = 0.0
+		label.anchor_bottom = 0.0
+		label.offset_left = -430.0
+		label.offset_top = 18.0
+		label.offset_right = -28.0
+		label.offset_bottom = 82.0
+		label.z_as_relative = false
+		label.z_index = 910
+		label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.30, 1.0))
+		label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+		label.add_theme_constant_override("outline_size", 3)
+		label.add_theme_font_size_override("font_size", 30)
+		_progressive_counter_root.add_child(label)
+	_progressive_counter_label = label
+	var star_hud: Control = _progressive_counter_root.get_node_or_null("ProgressiveStarDecayHud") as Control
+	if star_hud == null:
+		star_hud = ProgressiveStarDecayHudScript.new()
+		star_hud.name = "ProgressiveStarDecayHud"
+		star_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		star_hud.anchor_left = 1.0
+		star_hud.anchor_right = 1.0
+		star_hud.anchor_top = 0.0
+		star_hud.anchor_bottom = 0.0
+		star_hud.offset_left = -410.0
+		star_hud.offset_top = 74.0
+		star_hud.offset_right = -36.0
+		star_hud.offset_bottom = 136.0
+		star_hud.z_as_relative = false
+		star_hud.z_index = 909
+		_progressive_counter_root.add_child(star_hud)
+	_progressive_star_decay_hud = star_hud
+	_progressive_counter_root.visible = false
+	_progressive_counter_label.visible = false
+	_progressive_star_decay_hud.visible = false
+
+func _update_progressive_counter_ui() -> void:
+	_ensure_progressive_counter_hud()
+	if _progressive_counter_root == null or _progressive_counter_label == null or _progressive_star_decay_hud == null:
+		return
+	var visible_now: bool = _is_progressive_runtime_mode()
+	_progressive_counter_root.visible = visible_now
+	_progressive_counter_label.visible = visible_now
+	_progressive_star_decay_hud.visible = visible_now
+	if not visible_now:
+		return
+	var tree: SceneTree = get_tree()
+	var total_stars: int = maxi(0, int(tree.get_meta("progressive_total_stars", 0))) if tree != null else 0
+	var max_stars: int = maxi(total_stars, int(tree.get_meta("progressive_max_stars", 0))) if tree != null else total_stars
+	var stage_number: int = maxi(1, int(tree.get_meta("progressive_stage_number", int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)) + 1))) if tree != null else 1
+	var stage_count: int = _progressive_stage_count(tree)
+	var text: String = "STARS %d / %d   STAGE %d / %d" % [total_stars, max_stars, stage_number, maxi(stage_number, stage_count)]
+	if _progressive_counter_label.text != text:
+		_progressive_counter_label.text = text
+	var thresholds: Dictionary = {}
+	if tree != null:
+		var thresholds_any: Variant = tree.get_meta("progressive_thresholds_ms", {})
+		if typeof(thresholds_any) == TYPE_DICTIONARY:
+			thresholds = thresholds_any as Dictionary
+	var elapsed_ms: int = maxi(0, int(OpsState.match_elapsed_ms))
+	if _progressive_star_decay_hud.has_method("configure"):
+		_progressive_star_decay_hud.call("configure", thresholds, elapsed_ms)
+
 func _dump_timer_parent_chain(node: Node) -> Array:
 	var out: Array = []
 	var n: Node = node
@@ -11545,6 +11949,15 @@ func _coin_flip_ids(ids: Array) -> int:
 
 func _end_game(winner: int, reason: String) -> void:
 	if game_over:
+		return
+	if _is_progressive_runtime_mode():
+		game_over = true
+		winner_id = winner
+		end_reason = reason
+		sim_running = false
+		_on_match_ended(winner, reason)
+		if sim_runner != null:
+			sim_runner.log_pause_snapshot("arena_end_game_progressive")
 		return
 	game_over = true
 	winner_id = winner

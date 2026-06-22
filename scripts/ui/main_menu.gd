@@ -21,6 +21,8 @@ const MatchAnalyzerScript = preload("res://scripts/state/match_analyzer.gd")
 const MatchReplayMapViewScript = preload("res://scripts/ui/match_replay_map_view.gd")
 const AsyncContestConfigStoreScript := preload("res://scripts/state/async_contest_config_store.gd")
 const AsyncContestDashPanelScript := preload("res://scripts/ui/async_contest_dash_panel.gd")
+const ProgressiveConfigScript := preload("res://scripts/state/progressive_config.gd")
+const ProgressiveRunStoreScript := preload("res://scripts/state/progressive_run_store.gd")
 const MATCH_BACKGROUND_INLAY_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/match_background_inlay.png"
 const HONEY_WIDGET_SCENE_PATH: String = "res://ui/hud/honey/honey_widget.tscn"
 const TIER_WIDGET_SCENE_PATH: String = "res://ui/hud/tier/tier_widget.tscn"
@@ -282,6 +284,7 @@ var _dash_hex_jukebox: HexButton = null
 var _async_contest_dash_panel: Panel = null
 var _dash_hex_async_contest: HexButton = null
 var _async_contest_config_store: RefCounted = AsyncContestConfigStoreScript.new()
+var _progressive_run_store: RefCounted = ProgressiveRunStoreScript.new()
 var _mm_boot_sound_player: AudioStreamPlayer = null
 var _mm_boot_sound_started: bool = false
 var _menu_sfx_player: AudioStreamPlayer = null
@@ -611,6 +614,8 @@ const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
 	"RACE": "res://assets/sprites/sf_skin_v1/Race.png",
 	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png"
 }
+const PROGRESSIVE_MODE_ID: String = "PROGRESSIVE"
+const PROGRESSIVE_LABEL: String = "PROGRESSIVE"
 const HIDDEN_CTF_MAP_IDS: Array[String] = [
 	"res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 ]
@@ -11582,6 +11587,7 @@ func _center_free_roll_scene_panel(panel: Panel, overlay_size: Vector2) -> void:
 func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> void:
 	if panel == null:
 		return
+	_ensure_free_roll_progressive_button(panel)
 	_apply_free_roll_scene_layout(panel)
 	_install_free_roll_scroll_guard(panel)
 	_style_free_roll_game_hub_scene(panel)
@@ -11605,7 +11611,8 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 	var cycle_defs: Array[Dictionary] = [
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/WeeklyButton"), "label": "WEEKLY", "mode": "WEEKLY"},
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/MonthlyButton"), "label": "MONTHLY", "mode": "MONTHLY"},
-		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/SeasonButton"), "label": "SEASON", "mode": "YEARLY"}
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/SeasonButton"), "label": "SEASON", "mode": "YEARLY"},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/ProgressiveButton"), "label": PROGRESSIVE_LABEL, "mode": PROGRESSIVE_MODE_ID}
 	]
 	for def in cycle_defs:
 		var button: Button = panel.get_node_or_null(def.get("path", NodePath(""))) as Button
@@ -11613,7 +11620,10 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		var mode_id: String = str(def.get("mode", ""))
 		if button == null or mode_id.is_empty():
 			continue
-		_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
+		if mode_id == PROGRESSIVE_MODE_ID:
+			_connect_free_roll_guarded_press(button, Callable(self, "_on_progressive_selected"))
+		else:
+			_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
 		_apply_async_cycle_skin_to_button(button, label, false, selected_denom, true)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	var map_defs: Array[Dictionary] = [
@@ -11645,6 +11655,20 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		_connect_free_roll_guarded_press(cancel, Callable(self, "_close_entry_route_modal"))
 		_style_game_hub_cancel_button(cancel, GAME_HUB_FREE_LOWER_ROWS_SCALE, true)
 		_configure_game_hub_option_button(cancel, broadcast_free_roll)
+
+func _ensure_free_roll_progressive_button(panel: Panel) -> Button:
+	var canvas: Control = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas") as Control
+	if canvas == null:
+		return null
+	var existing: Button = canvas.get_node_or_null("ProgressiveButton") as Button
+	if existing != null:
+		return existing
+	var button := Button.new()
+	button.name = "ProgressiveButton"
+	button.text = PROGRESSIVE_LABEL
+	button.custom_minimum_size = FREE_ROLL_CYCLE_BUTTON_SIZE
+	canvas.add_child(button)
+	return button
 
 func _apply_free_roll_scene_layout(panel: Panel) -> void:
 	if panel == null:
@@ -11899,7 +11923,8 @@ func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
 	var cycle_paths: Array[String] = [
 		"EntryScroll/EntryBody/EntryCanvas/WeeklyButton",
 		"EntryScroll/EntryBody/EntryCanvas/MonthlyButton",
-		"EntryScroll/EntryBody/EntryCanvas/SeasonButton"
+		"EntryScroll/EntryBody/EntryCanvas/SeasonButton",
+		"EntryScroll/EntryBody/EntryCanvas/ProgressiveButton"
 	]
 	var cycle_cols: int = 2 if content_width >= 760.0 else 1
 	var cycle_gap: float = 30.0 if cycle_cols == 2 else 0.0
@@ -13165,10 +13190,193 @@ func _on_async_cycle_selected(scope: String, paid: bool, denomination: int) -> v
 	_close_entry_route_modal()
 	_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
 
+func _on_progressive_selected() -> void:
+	if _block_for_active_hive_tournament("progressive"):
+		return
+	_close_entry_route_modal()
+	var plan: Array[Dictionary] = ProgressiveConfigScript.build_stage_plan()
+	if plan.is_empty():
+		status_label.text = "Progressive unavailable: no stage plan."
+		return
+	var player_profile: Dictionary = _progressive_local_profile()
+	var run: Dictionary = _progressive_run_store.start_run(plan, player_profile)
+	if run.is_empty():
+		status_label.text = "Progressive unavailable: run setup failed."
+		return
+	var stage: Dictionary = _progressive_run_store.current_stage(run)
+	if stage.is_empty():
+		status_label.text = "Progressive unavailable: first stage missing."
+		return
+	if _launch_progressive_stage_direct(run, stage):
+		status_label.text = "Progressive stage 1 starting..."
+	else:
+		status_label.text = "Progressive launch failed."
+
+func _progressive_local_profile() -> Dictionary:
+	var player_id: String = "local"
+	var display_name: String = "You"
+	if ProfileManager != null:
+		if ProfileManager.has_method("get_user_id"):
+			player_id = str(ProfileManager.call("get_user_id")).strip_edges()
+		if ProfileManager.has_method("get_display_name"):
+			display_name = str(ProfileManager.call("get_display_name")).strip_edges()
+	if player_id.is_empty():
+		player_id = "local"
+	if display_name.is_empty():
+		display_name = "You"
+	return {
+		"uid": player_id,
+		"display_name": display_name
+	}
+
+func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary) -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var map_path: String = str(stage.get("map_path", "")).strip_edges()
+	if map_path.is_empty() or not FileAccess.file_exists(map_path):
+		return false
+	for key in _progressive_launch_clear_keys():
+		if tree.has_meta(key):
+			tree.remove_meta(key)
+	var player_profile: Dictionary = run.get("player_profile", {}) as Dictionary
+	var local_name: String = str(player_profile.get("display_name", "You")).strip_edges()
+	if local_name.is_empty():
+		local_name = "You"
+	var bot_style: String = str(stage.get("bot_style", "balancer")).strip_edges().to_lower()
+	var bot_tier: String = str(stage.get("bot_tier", ProgressiveConfigScript.BOT_TIER_EASY)).strip_edges().to_lower()
+	var bot_name: String = "Progressive %s Bot" % bot_tier.capitalize()
+	var bot_profile: Dictionary = {
+		"uid": "bot_progressive_%d" % int(stage.get("stage_number", 1)),
+		"display_name": bot_name,
+		"is_cpu": true,
+		"style": bot_style,
+		"persona": bot_style,
+		"tier": bot_tier
+	}
+	var map_ids := PackedStringArray()
+	var map_id: String = str(stage.get("map_id", MAP_REGISTRY.map_id_from_path(map_path))).strip_edges()
+	if not map_id.is_empty():
+		map_ids.append(map_id)
+	tree.set_meta("start_game", true)
+	tree.set_meta("vs_mode", PROGRESSIVE_MODE_ID)
+	tree.set_meta("vs_price_usd", 0)
+	tree.set_meta("vs_free_roll", true)
+	tree.set_meta("vs_assigned_players", [local_name, bot_name])
+	tree.set_meta("vs_open_slots", 0)
+	tree.set_meta("vs_required_players", 2)
+	tree.set_meta("vs_sync_start", false)
+	tree.set_meta("vs_sync_join_sec", 0)
+	tree.set_meta("vs_window_sec", 0)
+	tree.set_meta("vs_window_started_unix", 0)
+	tree.set_meta("vs_window_deadline_unix", 0)
+	tree.set_meta("vs_stage_map_paths", [map_path])
+	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
+	tree.set_meta("vs_stage_run_id", str(run.get("run_id", "")))
+	tree.set_meta("vs_handshake_session_id", "")
+	tree.set_meta("vs_handshake_role", "")
+	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_local_profile", player_profile.duplicate(true))
+	tree.set_meta("vs_remote_profile", bot_profile)
+	tree.set_meta("vs_cpu_style", bot_style)
+	tree.set_meta("vs_cpu_tier", bot_tier)
+	tree.set_meta("map_ids", map_ids)
+	tree.set_meta("progressive_run_id", str(run.get("run_id", "")))
+	tree.set_meta("progressive_stage_plan", (run.get("stage_plan", []) as Array).duplicate(true))
+	tree.set_meta("progressive_stage_index", int(stage.get("stage_index", 0)))
+	tree.set_meta("progressive_stage_number", int(stage.get("stage_number", 1)))
+	tree.set_meta("progressive_thresholds_ms", (stage.get("thresholds_ms", {}) as Dictionary).duplicate(true))
+	tree.set_meta("progressive_conquerable_hive_count", int(stage.get("conquerable_hive_count", 1)))
+	tree.set_meta("progressive_npc_power_bonus", int(stage.get("npc_power_bonus", 0)))
+	tree.set_meta("progressive_bot_start_power_bonus", int(stage.get("bot_start_power_bonus", 0)))
+	tree.set_meta("progressive_player_start_power_delta", int(stage.get("player_start_power_delta", 0)))
+	tree.set_meta("progressive_bot_attack_grace_ms", ProgressiveConfigScript.BOT_ATTACK_GRACE_MS)
+	tree.set_meta("progressive_human_owner_id", ProgressiveConfigScript.HUMAN_OWNER_ID)
+	tree.set_meta("progressive_bot_attack_grace_broken", false)
+	tree.set_meta("progressive_total_stars", int(run.get("total_stars", 0)))
+	tree.set_meta("progressive_max_stars", int(run.get("max_stars", 0)))
+	SFLog.info("PROGRESSIVE_LAUNCH", {
+		"run_id": str(run.get("run_id", "")),
+		"stage_number": int(stage.get("stage_number", 1)),
+		"map_path": map_path,
+		"bot_style": bot_style,
+		"bot_tier": bot_tier
+	})
+	_play_matchmaker_sfx()
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("_apply_map_then_start"):
+		shell.call("_apply_map_then_start", map_path)
+		return true
+	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
+	return err == OK
+
+func _progressive_launch_clear_keys() -> Array[String]:
+	return [
+		"open_map_picker_on_ready",
+		"start_game",
+		"vs_mode",
+		"vs_price_usd",
+		"vs_free_roll",
+		"vs_assigned_players",
+		"vs_open_slots",
+		"vs_required_players",
+		"vs_sync_start",
+		"vs_sync_join_sec",
+		"vs_window_sec",
+		"vs_window_started_unix",
+		"vs_window_deadline_unix",
+		"vs_stage_map_paths",
+		"vs_stage_current_index",
+		"vs_stage_round_results",
+		"vs_stage_run_id",
+		"vs_handshake_session_id",
+		"vs_handshake_role",
+		"vs_handshake_invite_code",
+		"vs_local_profile",
+		"vs_remote_profile",
+		"vs_cpu_style",
+		"vs_cpu_tier",
+		"map_ids",
+		"contest_id",
+		"contest_scope",
+		"ctf_flag_selection_mode",
+		"ctf_player_select_pct",
+		"ctf_randomize_flag_hive",
+		"ctf_hidden_flag",
+		"ctf_flag_move_count_max",
+		"ctf_flag_move_reveals",
+		"jukebox_board_enabled",
+		"jukebox_map_path",
+		"jukebox_map_id",
+		"jukebox_board_period",
+		"jukebox_local_owner_id",
+		"jukebox_result_commit_signature",
+		"jukebox_highlight_player_id",
+		"jukebox_easy_bot",
+		"progressive_run_id",
+		"progressive_stage_plan",
+		"progressive_stage_index",
+		"progressive_stage_number",
+		"progressive_thresholds_ms",
+		"progressive_conquerable_hive_count",
+		"progressive_npc_power_bonus",
+		"progressive_bot_start_power_bonus",
+		"progressive_player_start_power_delta",
+		"progressive_bot_attack_grace_ms",
+		"progressive_human_owner_id",
+		"progressive_bot_attack_grace_broken",
+		"progressive_total_stars",
+		"progressive_max_stars"
+	]
+
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("async matches"):
 		return
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
+		return
+	if mode_id == PROGRESSIVE_MODE_ID:
+		_on_progressive_selected()
 		return
 	if mode_id == "CAPTURE_FLAG":
 		_apply_async_entry_amount(paid, denomination)

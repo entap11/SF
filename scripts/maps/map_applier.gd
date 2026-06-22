@@ -26,6 +26,7 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 			push_error("MAP APPLY FAIL: map is empty")
 		return
 	d = _adapt_map_for_vs_mode(d)
+	d = _apply_progressive_scaling(d)
 	var randomizer_payload: Dictionary = _match_randomizer_payload()
 	if MatchSetupRandomizer.should_randomize_start_slots(randomizer_payload):
 		d = MatchSetupRandomizer.apply_start_slots(d, randomizer_payload, _infer_active_seats_from_map(d))
@@ -33,7 +34,7 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 	if _is_dev_runner():
 		_dev_seed_lanes_and_spawns(d)
 
-	var p1_uid: String = ProfileManager.get_user_id()
+	var p1_uid: String = _profile_manager_user_id()
 	var active_seats: Array = _infer_active_seats_from_map(d)
 	var team_by_seat: Dictionary = _resolve_team_ids_for_seats(d, active_seats)
 	var roster: Array = [
@@ -116,15 +117,19 @@ static func apply_map(arena: Node2D, d: Dictionary) -> void:
 			"map_id": map_id
 		})
 
-	var built_state := OpsState.reset_state_from_map(d)
+	var ops_state: Node = _ops_state()
+	if ops_state == null:
+		push_error("MAP APPLY FAIL: OpsState is not available")
+		return
+	var built_state: GameState = ops_state.call("reset_state_from_map", d) as GameState
 	# reset_state_from_map() resets match state, including match_roster.
 	# Reapply roster after reset so team mapping remains authoritative for the live match.
-	OpsState.sim_mutate("MapApplier.apply_map_post_reset_roster", func() -> void:
-		if OpsState.has_method("audit_mutation"):
-			OpsState.audit_mutation("MapApplier.apply_map_post_reset_roster", "match_roster", "res://scripts/maps/map_applier.gd")
-		OpsState.match_roster = roster
-		if OpsState.has_method("ensure_bot_profiles_from_roster"):
-			OpsState.ensure_bot_profiles_from_roster()
+	ops_state.call("sim_mutate", "MapApplier.apply_map_post_reset_roster", func() -> void:
+		if ops_state.has_method("audit_mutation"):
+			ops_state.call("audit_mutation", "MapApplier.apply_map_post_reset_roster", "match_roster", "res://scripts/maps/map_applier.gd")
+		ops_state.set("match_roster", roster)
+		if ops_state.has_method("ensure_bot_profiles_from_roster"):
+			ops_state.call("ensure_bot_profiles_from_roster")
 	)
 	var map_lanes: Array = []
 	for i in range(built_state.lanes.size()):
@@ -247,6 +252,67 @@ static func _is_dev_runner() -> bool:
 		return false
 	var tree := loop as SceneTree
 	return tree.get_root().get_node_or_null("DevMapRunner") != null
+
+static func _profile_manager_user_id() -> String:
+	var loop := Engine.get_main_loop()
+	if loop == null or not (loop is SceneTree):
+		return "local"
+	var tree := loop as SceneTree
+	var manager: Node = tree.get_root().get_node_or_null("ProfileManager")
+	if manager != null and manager.has_method("get_user_id"):
+		var uid: String = str(manager.call("get_user_id")).strip_edges()
+		if not uid.is_empty():
+			return uid
+	return "local"
+
+static func _ops_state() -> Node:
+	var loop := Engine.get_main_loop()
+	if loop == null or not (loop is SceneTree):
+		return null
+	var tree := loop as SceneTree
+	return tree.get_root().get_node_or_null("OpsState")
+
+static func _apply_progressive_scaling(map_data: Dictionary) -> Dictionary:
+	var loop := Engine.get_main_loop()
+	if loop == null or not (loop is SceneTree):
+		return map_data
+	var tree := loop as SceneTree
+	if str(tree.get_meta("vs_mode", "")).strip_edges().to_upper() != "PROGRESSIVE":
+		return map_data
+	var npc_bonus: int = int(tree.get_meta("progressive_npc_power_bonus", 0))
+	var bot_bonus: int = int(tree.get_meta("progressive_bot_start_power_bonus", 0))
+	var player_delta: int = int(tree.get_meta("progressive_player_start_power_delta", 0))
+	if npc_bonus == 0 and bot_bonus == 0 and player_delta == 0:
+		return map_data
+	var out: Dictionary = map_data.duplicate(true)
+	var hives_any: Variant = out.get("hives", [])
+	if typeof(hives_any) != TYPE_ARRAY:
+		return map_data
+	var hives: Array = hives_any as Array
+	for i in range(hives.size()):
+		var hive_any: Variant = hives[i]
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = (hive_any as Dictionary).duplicate(true)
+		var owner_id: int = int(hive.get("owner_id", 0))
+		var current_power: int = int(hive.get("power", hive.get("pwr", 10)))
+		var next_power: int = current_power
+		if owner_id == 1:
+			next_power = maxi(1, current_power + player_delta)
+		elif owner_id > 1:
+			next_power = maxi(1, current_power + bot_bonus)
+		else:
+			next_power = maxi(1, current_power + npc_bonus)
+		hive["power"] = next_power
+		hive["pwr"] = next_power
+		hives[i] = hive
+	out["hives"] = hives
+	SFLog.info("PROGRESSIVE_MAP_SCALING", {
+		"npc_power_bonus": npc_bonus,
+		"bot_start_power_bonus": bot_bonus,
+		"player_start_power_delta": player_delta
+	})
+	return out
 
 static func _is_runtime_non_dev_context() -> bool:
 	if Engine.is_editor_hint():
@@ -616,9 +682,10 @@ static func _set_roster_local_flag(roster: Array, seat: int, is_local: bool) -> 
 	roster[index] = entry
 
 static func _team_mode_override() -> String:
-	if not OpsState.has_method("get_team_mode_override"):
+	var ops_state: Node = _ops_state()
+	if ops_state == null or not ops_state.has_method("get_team_mode_override"):
 		return ""
-	var mode: String = str(OpsState.call("get_team_mode_override")).strip_edges().to_lower()
+	var mode: String = str(ops_state.call("get_team_mode_override")).strip_edges().to_lower()
 	if mode == "ffa" or mode == "2v2":
 		return mode
 	return ""

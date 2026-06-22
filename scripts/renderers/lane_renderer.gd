@@ -14,6 +14,7 @@ const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
+const LaneOverlapGapsScript := preload("res://scripts/renderers/lane_overlap_gaps.gd")
 const LaneVisualHierarchyScript: Script = preload("res://scripts/renderers/lane_visual_hierarchy.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const LANE_BAND_SHADER := preload("res://shaders/lane_band.gdshader")
@@ -78,6 +79,10 @@ const DRAG_PREVIEW_VALID_SNAP_GAIN: float = 1.75
 const LANE_TUCK_IN_PX: float = 0.0
 const LANE_CAP_TRIM_RADIUS_RATIO: float = 0.45
 const LANE_CONTEST_BUFFER_PX: float = 130.0
+const LANE_OVERLAP_GAPS_ENABLED: bool = true
+const LANE_OVERLAP_GAP_EXTRA_PX: float = 10.0
+const LANE_OVERLAP_ENDPOINT_IGNORE_T: float = 0.06
+const LANE_OVERLAP_MIN_SEGMENT_PX: float = 14.0
 const ENABLE_DYNAMIC_LANE_FRONTS: bool = false
 const STATIC_LANE_FRONT_T: float = 0.5
 const LANE_THICKNESS_MODE_MANUAL: int = 0
@@ -1616,8 +1621,13 @@ func _rebuild_lane_sprites_now() -> void:
 			entry = {
 				"sprite_a": sprite_a,
 				"sprite_b": sprite_b,
+				"sprites_a": [sprite_a],
+				"sprites_b": [sprite_b],
 				"visual_t": 0.0
 			}
+		else:
+			_ensure_lane_sprite_parts(entry, "a")
+			_ensure_lane_sprite_parts(entry, "b")
 		var prev_send_a: bool = bool(entry.get("send_a", false))
 		var prev_send_b: bool = bool(entry.get("send_b", false))
 		if prev_send_a != send_a or prev_send_b != send_b:
@@ -1645,12 +1655,7 @@ func _rebuild_lane_sprites_now() -> void:
 		var old_any: Variant = _lane_nodes_by_key.get(key, null)
 		if typeof(old_any) == TYPE_DICTIONARY:
 			var old_entry: Dictionary = old_any as Dictionary
-			var sprite_a_old: Sprite2D = old_entry.get("sprite_a", null) as Sprite2D
-			var sprite_b_old: Sprite2D = old_entry.get("sprite_b", null) as Sprite2D
-			if sprite_a_old != null:
-				sprite_a_old.queue_free()
-			if sprite_b_old != null:
-				sprite_b_old.queue_free()
+			_free_lane_entry_sprites(old_entry)
 		_lane_nodes_by_key.erase(key)
 	var lane_ids: Array = _lane_key_by_id.keys()
 	for lane_id_any in lane_ids:
@@ -1666,6 +1671,57 @@ func _create_lane_sprite_node() -> Sprite2D:
 	sprite.material = _get_lane_band_material()
 	sprite.visible = false
 	return sprite
+
+func _ensure_lane_sprite_parts(entry: Dictionary, side: String) -> Array:
+	var store_key: String = "sprites_%s" % side
+	var legacy_key: String = "sprite_%s" % side
+	var parts: Array = []
+	var parts_any: Variant = entry.get(store_key, [])
+	if typeof(parts_any) == TYPE_ARRAY:
+		parts = parts_any as Array
+	var legacy: Sprite2D = entry.get(legacy_key, null) as Sprite2D
+	if parts.is_empty() and legacy != null:
+		parts.append(legacy)
+	elif legacy == null and not parts.is_empty() and parts[0] is Sprite2D:
+		entry[legacy_key] = parts[0]
+	entry[store_key] = parts
+	return parts
+
+func _lane_sprite_for_part(entry: Dictionary, side: String, index: int) -> Sprite2D:
+	var parts: Array = _ensure_lane_sprite_parts(entry, side)
+	while parts.size() <= index:
+		var sprite: Sprite2D = _create_lane_sprite_node()
+		_lane_sprite_root.add_child(sprite)
+		parts.append(sprite)
+	entry["sprites_%s" % side] = parts
+	if not parts.is_empty():
+		entry["sprite_%s" % side] = parts[0]
+	return parts[index] as Sprite2D
+
+func _hide_lane_sprite_parts(entry: Dictionary, side: String, from_index: int = 0) -> void:
+	var parts_any: Variant = entry.get("sprites_%s" % side, [])
+	if typeof(parts_any) != TYPE_ARRAY:
+		return
+	var parts: Array = parts_any as Array
+	for i in range(maxi(0, from_index), parts.size()):
+		var sprite: Sprite2D = parts[i] as Sprite2D
+		if sprite != null and is_instance_valid(sprite):
+			sprite.visible = false
+
+func _free_lane_entry_sprites(entry: Dictionary) -> void:
+	var freed: Dictionary = {}
+	for side in ["a", "b"]:
+		var parts_any: Variant = entry.get("sprites_%s" % side, [])
+		if typeof(parts_any) == TYPE_ARRAY:
+			for sprite_any in parts_any as Array:
+				var sprite: Sprite2D = sprite_any as Sprite2D
+				if sprite != null and is_instance_valid(sprite) and not freed.has(sprite.get_instance_id()):
+					freed[sprite.get_instance_id()] = true
+					sprite.queue_free()
+		var legacy: Sprite2D = entry.get("sprite_%s" % side, null) as Sprite2D
+		if legacy != null and is_instance_valid(legacy) and not freed.has(legacy.get_instance_id()):
+			freed[legacy.get_instance_id()] = true
+			legacy.queue_free()
 
 func _sync_lane_visual_profile(entry: Dictionary, lane: Dictionary, force_complete: bool = false) -> bool:
 	return bool(LaneVisualHierarchyScript.call("sync_entry_profile", entry, lane, force_complete))
@@ -1692,15 +1748,14 @@ func _update_lane_visuals(delta: float) -> void:
 	var keys: Array = _lane_nodes_by_key.keys()
 	if AUDIT_RENDER:
 		_audit_draw_ops += keys.size()
+	var prepared_by_key: Dictionary = {}
 	for key_any in keys:
 		var entry_any: Variant = _lane_nodes_by_key.get(key_any, null)
 		if typeof(entry_any) != TYPE_DICTIONARY:
 			continue
 		var entry: Dictionary = entry_any as Dictionary
-		var sprite_a: Sprite2D = entry.get("sprite_a", null) as Sprite2D
-		var sprite_b: Sprite2D = entry.get("sprite_b", null) as Sprite2D
-		if sprite_a == null or sprite_b == null:
-			continue
+		_ensure_lane_sprite_parts(entry, "a")
+		_ensure_lane_sprite_parts(entry, "b")
 		var send_a: bool = bool(entry.get("send_a", false))
 		var send_b: bool = bool(entry.get("send_b", false))
 		var a_id: int = int(entry.get("a_id", 0))
@@ -1712,15 +1767,15 @@ func _update_lane_visuals(delta: float) -> void:
 		var a_anchor_v: Variant = _hive_local_pos_for_lane(a_id)
 		var b_anchor_v: Variant = _hive_local_pos_for_lane(b_id)
 		if not (a_anchor_v is Vector2 and b_anchor_v is Vector2):
-			sprite_a.visible = false
-			sprite_b.visible = false
+			_hide_lane_sprite_parts(entry, "a")
+			_hide_lane_sprite_parts(entry, "b")
 			continue
 		var a_anchor: Vector2 = a_anchor_v as Vector2
 		var b_anchor: Vector2 = b_anchor_v as Vector2
 		var ep: Dictionary = _compute_lane_endpoints_from_centers_local(a_anchor, b_anchor, a_id, b_id, lane_id)
 		if not bool(ep.get("ok", false)):
-			sprite_a.visible = false
-			sprite_b.visible = false
+			_hide_lane_sprite_parts(entry, "a")
+			_hide_lane_sprite_parts(entry, "b")
 			continue
 		var a_pos: Vector2 = ep.get("a", a_anchor)
 		var b_pos: Vector2 = ep.get("b", b_anchor)
@@ -1734,24 +1789,60 @@ func _update_lane_visuals(delta: float) -> void:
 		color_a = _apply_lane_visual_profile_to_color(color_a, profile)
 		color_b = _apply_lane_visual_profile_to_color(color_b, profile)
 		lane_z_index = int(profile.get("z_index", lane_z_index))
-		sprite_a.z_index = lane_z_index
-		sprite_b.z_index = lane_z_index
+		prepared_by_key[key_any] = {
+			"entry": entry,
+			"send_a": send_a,
+			"send_b": send_b,
+			"a_id": a_id,
+			"b_id": b_id,
+			"lane_id": lane_id,
+			"visual_t": visual_t,
+			"a_pos": a_pos,
+			"b_pos": b_pos,
+			"color_a": color_a,
+			"color_b": color_b,
+			"lane_basis_dir": lane_basis_dir,
+			"z_index": lane_z_index,
+			"width": profile_width_px
+		}
+	for key_any in keys:
+		var prepared_any: Variant = prepared_by_key.get(key_any, null)
+		if typeof(prepared_any) != TYPE_DICTIONARY:
+			continue
+		var prepared: Dictionary = prepared_any as Dictionary
+		var entry: Dictionary = prepared.get("entry", {}) as Dictionary
+		if entry.is_empty():
+			continue
+		var send_a: bool = bool(prepared.get("send_a", false))
+		var send_b: bool = bool(prepared.get("send_b", false))
+		var a_id: int = int(prepared.get("a_id", 0))
+		var b_id: int = int(prepared.get("b_id", 0))
+		var lane_id: int = int(prepared.get("lane_id", -1))
+		var visual_t: float = float(prepared.get("visual_t", 1.0))
+		var a_pos: Vector2 = prepared.get("a_pos", Vector2.ZERO) as Vector2
+		var b_pos: Vector2 = prepared.get("b_pos", Vector2.ZERO) as Vector2
+		var color_a: Color = prepared.get("color_a", Color.WHITE) as Color
+		var color_b: Color = prepared.get("color_b", Color.WHITE) as Color
+		var lane_basis_dir: Vector2 = prepared.get("lane_basis_dir", Vector2.ZERO) as Vector2
+		var lane_z_index: int = int(prepared.get("z_index", LANE_FRIENDLY_Z_INDEX))
+		var profile_width_px: float = float(prepared.get("width", target_px))
 		if send_a and send_b:
 			var raw_front_t: float = float(entry.get("front_t", 0.5))
 			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, _lane_front_visual_t(lane_id, raw_front_t, Time.get_ticks_usec()))
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
-			_apply_lane_sprite_visual(sprite_a, a_pos, front_pos, color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
-			_apply_lane_sprite_visual(sprite_b, front_pos, b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false)
+			_apply_lane_sprite_visual_with_gaps(entry, "a", a_pos, front_pos, color_a, lane_id, a_id, b_id, lane_z_index, profile_width_px, unit_body_px, lane_basis_dir, true, prepared_by_key, key_any)
+			_apply_lane_sprite_visual_with_gaps(entry, "b", front_pos, b_pos, color_b, lane_id, a_id, b_id, lane_z_index, profile_width_px, unit_body_px, lane_basis_dir, false, prepared_by_key, key_any)
 		elif send_a:
-			_apply_lane_sprite_visual(sprite_a, a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, profile_width_px, unit_body_px, lane_basis_dir, true)
-			sprite_b.visible = false
+			_apply_lane_sprite_visual_with_gaps(entry, "a", a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, a_id, b_id, lane_z_index, profile_width_px, unit_body_px, lane_basis_dir, true, prepared_by_key, key_any)
+			_hide_lane_sprite_parts(entry, "b")
 		elif send_b:
-			_apply_lane_sprite_visual(sprite_b, b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, profile_width_px, unit_body_px, lane_basis_dir, false)
-			sprite_a.visible = false
+			_apply_lane_sprite_visual_with_gaps(entry, "b", b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, a_id, b_id, lane_z_index, profile_width_px, unit_body_px, lane_basis_dir, false, prepared_by_key, key_any)
+			_hide_lane_sprite_parts(entry, "a")
 		else:
-			sprite_a.visible = false
-			sprite_b.visible = false
+			_hide_lane_sprite_parts(entry, "a")
+			_hide_lane_sprite_parts(entry, "b")
+		_lane_nodes_by_key[key_any] = entry
 
 func _resolve_lane_thickness_info() -> Dictionary:
 	var target_px: float = lane_thickness_px
@@ -1822,6 +1913,106 @@ func _maybe_log_lane_sprite_coverage(length_px: float, segment_count: int, effec
 		"max": LANE_MAX_SEGMENTS,
 		"target": LANE_SEGMENT_TARGET_PX
 	})
+
+func _apply_lane_sprite_visual_with_gaps(
+	entry: Dictionary,
+	side: String,
+	start_pos: Vector2,
+	end_pos: Vector2,
+	color: Color,
+	lane_id: int,
+	a_id: int,
+	b_id: int,
+	lane_z_index: int,
+	target_thickness_px: float,
+	unit_body_px: float,
+	lane_basis_dir: Vector2,
+	points_toward_end: bool,
+	prepared_by_key: Dictionary,
+	self_key: Variant
+) -> void:
+	var intervals: Array = _lane_visible_intervals_for_overlaps(
+		start_pos,
+		end_pos,
+		lane_id,
+		a_id,
+		b_id,
+		lane_z_index,
+		target_thickness_px,
+		prepared_by_key,
+		self_key
+	)
+	var drawn: int = 0
+	for interval_any in intervals:
+		if not (interval_any is Vector2):
+			continue
+		var interval: Vector2 = interval_any as Vector2
+		var seg_start: Vector2 = start_pos.lerp(end_pos, interval.x)
+		var seg_end: Vector2 = start_pos.lerp(end_pos, interval.y)
+		if seg_start.distance_to(seg_end) <= LANE_MIN_LEN_PX:
+			continue
+		var sprite: Sprite2D = _lane_sprite_for_part(entry, side, drawn)
+		sprite.z_index = lane_z_index
+		_apply_lane_sprite_visual(
+			sprite,
+			seg_start,
+			seg_end,
+			color,
+			lane_id,
+			target_thickness_px,
+			unit_body_px,
+			lane_basis_dir,
+			points_toward_end
+		)
+		drawn += 1
+	_hide_lane_sprite_parts(entry, side, drawn)
+
+func _lane_visible_intervals_for_overlaps(
+	start_pos: Vector2,
+	end_pos: Vector2,
+	lane_id: int,
+	a_id: int,
+	b_id: int,
+	lane_z_index: int,
+	lane_width_px: float,
+	prepared_by_key: Dictionary,
+	self_key: Variant
+) -> Array:
+	if not LANE_OVERLAP_GAPS_ENABLED:
+		return [Vector2(0.0, 1.0)]
+	return LaneOverlapGapsScript.visible_intervals(
+		start_pos,
+		end_pos,
+		lane_id,
+		a_id,
+		b_id,
+		lane_z_index,
+		lane_width_px,
+		prepared_by_key,
+		self_key,
+		LANE_OVERLAP_GAP_EXTRA_PX,
+		LANE_OVERLAP_ENDPOINT_IGNORE_T,
+		LANE_OVERLAP_MIN_SEGMENT_PX
+	)
+
+func _lanes_share_hive_endpoint(a_id: int, b_id: int, other_a_id: int, other_b_id: int) -> bool:
+	return LaneOverlapGapsScript.share_hive_endpoint(a_id, b_id, other_a_id, other_b_id)
+
+func _other_lane_occludes_current(
+	lane_id: int,
+	lane_z_index: int,
+	other_lane_id: int,
+	other_z_index: int,
+	self_key: Variant,
+	other_key: Variant
+) -> bool:
+	return LaneOverlapGapsScript.other_occludes_current(lane_id, lane_z_index, other_lane_id, other_z_index, self_key, other_key)
+
+func _segment_intersection_t(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> Dictionary:
+	return LaneOverlapGapsScript.segment_intersection_t(a, b, c, d)
+
+func _subtract_lane_gap_interval(intervals: Array, cut_start: float, cut_end: float, min_t: float) -> Array:
+	return LaneOverlapGapsScript.subtract_interval(intervals, cut_start, cut_end, min_t)
 
 func _apply_lane_sprite_visual(
 	sprite: Sprite2D,

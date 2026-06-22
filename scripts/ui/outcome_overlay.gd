@@ -243,6 +243,9 @@ func _apply_outcome(winner_id: int, reason: String, _record_text: String, _h2h_t
 	_update_status()
 
 func _apply_stage_round_outcome(data: Dictionary) -> void:
+	if str(data.get("mode_id", "")).strip_edges().to_upper() == "PROGRESSIVE":
+		_apply_progressive_stage_outcome(data)
+		return
 	_set_standard_rows_visible(true)
 	rematch_button.visible = true
 	var round_number: int = maxi(1, int(data.get("round_number", 1)))
@@ -278,6 +281,50 @@ func _apply_stage_round_outcome(data: Dictionary) -> void:
 	countdown_label.text = ""
 	rematch_button.text = next_label
 	rematch_button.disabled = not _stage_next_available
+	exit_button.text = exit_label
+	_apply_readable_layout()
+	_update_status()
+
+func _apply_progressive_stage_outcome(data: Dictionary) -> void:
+	_set_standard_rows_visible(true)
+	rematch_button.visible = true
+	var stage_number: int = maxi(1, int(data.get("stage_number", 1)))
+	var stage_count: int = maxi(stage_number, int(data.get("stage_count", stage_number)))
+	var winner_id: int = int(data.get("winner_id", 0))
+	var reason: String = str(data.get("reason", ""))
+	var stage_stars: int = clampi(int(data.get("stars", 0)), 0, 4)
+	var total_stars: int = maxi(0, int(data.get("total_stars", stage_stars)))
+	var max_stars: int = maxi(total_stars, int(data.get("max_stars", stage_count * 4)))
+	var elapsed_ms: int = maxi(0, int(data.get("elapsed_ms", 0)))
+	var thresholds: Dictionary = data.get("thresholds_ms", {}) as Dictionary
+	var next_available: bool = bool(data.get("next_round_available", false))
+	var next_label: String = str(data.get("next_label", "Next Stage"))
+	var exit_label: String = str(data.get("exit_label", "Main Menu"))
+	title_label.text = "PROGRESSIVE %d OF %d" % [stage_number, stage_count]
+	if winner_id == 0:
+		result_label.text = "STAGE RESULT: DRAW"
+	elif winner_id == local_player_id:
+		result_label.text = "STAGE RESULT: YOU WON"
+	else:
+		result_label.text = "STAGE RESULT: RUN ENDED"
+	reason_label.text = "How: %s" % _present_reason(reason)
+	record_label.text = "Stage Stars: %s  (%s)" % [_star_text(stage_stars, 4), _format_stage_time(elapsed_ms)]
+	h2h_label.text = "Run Stars: %d / %d" % [total_stars, max_stars]
+	stats_header.text = "Star Times"
+	stat_max_power.text = "4-star: %s | 3-star: %s | 2-star: %s" % [
+		_format_stage_time(int(thresholds.get("four_star_ms", 0))),
+		_format_stage_time(int(thresholds.get("three_star_ms", 0))),
+		_format_stage_time(int(thresholds.get("two_star_ms", 0)))
+	]
+	stat_units_killed.text = "Current Stage: %d / %d" % [stage_number, stage_count]
+	if next_available:
+		stat_units_landed.text = "Next stage starts automatically."
+	else:
+		stat_units_landed.text = "Running tally: %s" % _star_text(total_stars, max_stars)
+	countdown_label.text = ""
+	rematch_button.text = next_label
+	rematch_button.disabled = not _stage_next_available
+	rematch_button.visible = not next_available
 	exit_button.text = exit_label
 	_apply_readable_layout()
 	_update_status()
@@ -401,10 +448,18 @@ func _present_reason(reason: String) -> String:
 	match normalized:
 		"time", "timeout":
 			return "time"
-		"conquest", "elimination", "domination":
+		"conquest", "elimination", "domination", "capture_all":
 			return "domination"
 		_:
 			return normalized
+
+func _star_text(filled: int, total: int) -> String:
+	var clean_total: int = maxi(0, total)
+	var clean_filled: int = clampi(filled, 0, clean_total)
+	var chars: PackedStringArray = PackedStringArray()
+	for i in range(clean_total):
+		chars.append("*" if i < clean_filled else "-")
+	return "".join(chars)
 
 func _simple_result_text(winner_id: int) -> String:
 	if winner_id == 0:

@@ -34,6 +34,7 @@ const BOT_TIER_MEDIUM := "medium"
 const BOT_TIER_HARD := "hard"
 const BOT_REACTION_DELAY_EXTRA_MS := 750
 const SWARM_COOLDOWN_MS := 5000
+const PROGRESSIVE_MODE_ID := "PROGRESSIVE"
 const AUTH_FENCE_LOG_INTERVAL_MS := 1000
 const AUTH_FENCE_ALLOWED_PREFIXES := [
 	"res://scripts/systems/",
@@ -2430,6 +2431,54 @@ func _intent_telemetry_tree() -> SceneTree:
 		return null
 	return main_loop as SceneTree
 
+func _progressive_bot_attack_grace_blocks(src_owner_id: int, dst_owner_id: int, intent: String) -> bool:
+	var clean_intent: String = str(intent).strip_edges().to_lower()
+	if clean_intent != "attack" and clean_intent != "swarm":
+		return false
+	if src_owner_id <= 0 or dst_owner_id <= 0:
+		return false
+	var tree: SceneTree = _intent_telemetry_tree()
+	if not _progressive_bot_attack_grace_active(tree):
+		return false
+	var human_owner_id: int = maxi(1, int(tree.get_meta("progressive_human_owner_id", 1)))
+	if dst_owner_id != human_owner_id:
+		return false
+	if not _is_cpu_seat(src_owner_id):
+		return false
+	return true
+
+func _maybe_break_progressive_bot_attack_grace(src_owner_id: int, dst_owner_id: int, intent: String) -> void:
+	var clean_intent: String = str(intent).strip_edges().to_lower()
+	if clean_intent != "attack" and clean_intent != "swarm":
+		return
+	if src_owner_id <= 0 or dst_owner_id <= 0:
+		return
+	var tree: SceneTree = _intent_telemetry_tree()
+	if not _progressive_bot_attack_grace_active(tree):
+		return
+	var human_owner_id: int = maxi(1, int(tree.get_meta("progressive_human_owner_id", 1)))
+	if src_owner_id != human_owner_id:
+		return
+	if not _is_cpu_seat(dst_owner_id):
+		return
+	tree.set_meta("progressive_bot_attack_grace_broken", true)
+	SFLog.info("PROGRESSIVE_BOT_ATTACK_GRACE_BROKEN", {
+		"src_owner_id": src_owner_id,
+		"dst_owner_id": dst_owner_id,
+		"intent": clean_intent,
+		"elapsed_ms": int(match_elapsed_ms)
+	})
+
+func _progressive_bot_attack_grace_active(tree: SceneTree) -> bool:
+	if tree == null:
+		return false
+	if str(tree.get_meta("vs_mode", "")).strip_edges().to_upper() != PROGRESSIVE_MODE_ID:
+		return false
+	if bool(tree.get_meta("progressive_bot_attack_grace_broken", false)):
+		return false
+	var grace_ms: int = maxi(0, int(tree.get_meta("progressive_bot_attack_grace_ms", 0)))
+	return grace_ms > 0 and int(match_elapsed_ms) < grace_ms
+
 func _resolve_intent_telemetry_map_id(tree: SceneTree) -> String:
 	if not current_map_id.is_empty():
 		return current_map_id
@@ -3203,6 +3252,11 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			result["reason"] = "src_owner"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
 			return result
+		_maybe_break_progressive_bot_attack_grace(telemetry_src_owner, telemetry_dst_owner, intent)
+		if _progressive_bot_attack_grace_blocks(telemetry_src_owner, telemetry_dst_owner, intent):
+			result["reason"] = "progressive_attack_grace"
+			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
+			return result
 		var send_enabled: bool = bool(swarm_lane.send_a if from_is_a else swarm_lane.send_b)
 		if not send_enabled:
 			result["reason"] = "not_enabled"
@@ -3314,6 +3368,20 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	telemetry_dst_owner = dst_owner
 	if src_owner <= 0:
 		result["reason"] = "src_owner"
+		_record_intent_telemetry(
+			src_hive_id,
+			dst_hive_id,
+			intent,
+			false,
+			str(result.get("reason", "")),
+			int(result.get("lane_id", -1)),
+			telemetry_src_owner,
+			telemetry_dst_owner
+		)
+		return result
+	_maybe_break_progressive_bot_attack_grace(src_owner, dst_owner, intent)
+	if _progressive_bot_attack_grace_blocks(src_owner, dst_owner, intent):
+		result["reason"] = "progressive_attack_grace"
 		_record_intent_telemetry(
 			src_hive_id,
 			dst_hive_id,

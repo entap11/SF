@@ -36,6 +36,36 @@ func _init() -> void:
 	var panel: Control = overlay.get_node_or_null("Panel") as Control
 	_assert_true(panel != null and panel.custom_minimum_size.x >= 360.0 and panel.custom_minimum_size.y >= 420.0, "outcome panel should be larger")
 
+	overlay.show_stage_round_outcome({
+		"mode_id": "PROGRESSIVE",
+		"stage_number": 2,
+		"stage_count": 18,
+		"winner_id": 1,
+		"local_player_id": 1,
+		"reason": "capture_all",
+		"elapsed_ms": 59000,
+		"stars": 3,
+		"total_stars": 7,
+		"max_stars": 72,
+		"thresholds_ms": {
+			"four_star_ms": 52000,
+			"three_star_ms": 62000,
+			"two_star_ms": 72000
+		},
+			"next_label": "Next Stage",
+			"exit_label": "Main Menu",
+			"next_round_available": true,
+			"next_button_enabled": true,
+			"status_text": "Run stars: 7 / 72. Ready for the next stage?"
+		})
+	await process_frame
+	_assert_eq(_label_text(overlay, "Panel/VBox/Title"), "PROGRESSIVE 2 OF 18", "progressive title")
+	_assert_eq(_label_text(overlay, "Panel/VBox/Result"), "STAGE RESULT: YOU WON", "progressive result")
+	_assert_eq(_label_text(overlay, "Panel/VBox/H2H"), "Run Stars: 7 / 72", "progressive running tally")
+	_assert_eq(_button_text(overlay, "Panel/VBox/Buttons/Rematch"), "Next Stage", "progressive next button")
+	_assert_true(not _node_visible(overlay, "Panel/VBox/Buttons/Rematch"), "progressive next button hidden during auto-advance")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Next stage starts automatically.", "progressive auto-advance text")
+
 	if _failed:
 		quit(1)
 		return
@@ -96,6 +126,12 @@ func _button_min_height(root: Node, path: String) -> float:
 	if button == null:
 		return 0.0
 	return float(button.custom_minimum_size.y)
+
+func _button_text(root: Node, path: String) -> String:
+	var button: Button = root.get_node_or_null(path) as Button
+	if button == null:
+		return "<missing>"
+	return button.text
 
 func _assert_eq(actual: Variant, expected: Variant, label: String) -> void:
 	if actual == expected:

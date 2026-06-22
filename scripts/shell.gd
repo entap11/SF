@@ -1881,27 +1881,14 @@ func _sync_buff_ui() -> void:
 	_layout_buff_strip_positions()
 
 func _show_buff_ui_placeholders() -> void:
-	if _player_buff_strip != null:
-		_player_buff_strip.visible = true
-		if _player_buff_strip.has_method("apply_snapshot"):
-			_player_buff_strip.call("apply_snapshot", {
-				"pid": _buff_ui_last_active_pid,
-				"slots_active": 3,
-				"slots": []
-			})
-	if _opponent_buff_strip != null and _show_opponent_buff_strips_for_current_match():
-		_opponent_buff_strip.visible = true
-		if _opponent_buff_strip.has_method("set_visible_slot_count"):
-			_opponent_buff_strip.call("set_visible_slot_count", 3)
-		if _opponent_buff_strip.has_method("reset_slots"):
-			_opponent_buff_strip.call("reset_slots")
-	else:
-		_hide_opponent_buff_strips()
-	if _opponent_buff_strip_b != null:
-		_opponent_buff_strip_b.visible = false
-	if _ally_buff_strip != null:
-		_ally_buff_strip.visible = false
-	_layout_buff_strip_positions()
+	_set_buff_strip_visibility(false, false, false, false)
+	if _player_buff_strip != null and _player_buff_strip.has_method("apply_snapshot"):
+		_player_buff_strip.call("apply_snapshot", {"pid": _buff_ui_last_active_pid, "slots_active": 0, "slots": []})
+	_hide_opponent_buff_strips()
+	if _ally_buff_strip != null and _ally_buff_strip.has_method("set_visible_slot_count"):
+		_ally_buff_strip.call("set_visible_slot_count", 0)
+	if _ally_buff_strip != null and _ally_buff_strip.has_method("reset_slots"):
+		_ally_buff_strip.call("reset_slots")
 
 func _hide_opponent_buff_strips() -> void:
 	for strip in [_opponent_buff_strip, _opponent_buff_strip_b]:
@@ -2532,7 +2519,7 @@ func _shell_match_mode_id() -> String:
 
 func _mode_uses_full_match_hud(mode_id: String) -> bool:
 	match mode_id.strip_edges().to_upper():
-		"ASYNC_SINGLE_MAP_TIMED", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT":
+		"ASYNC_SINGLE_MAP_TIMED", "STAGE_RACE", "PROGRESSIVE", "TIMED_RACE", "MISS_N_OUT":
 			return true
 		"1V1", "2V2", "PVP":
 			return true
@@ -2557,7 +2544,7 @@ func _mode_shows_shell_prematch_card(mode_id: String) -> bool:
 
 func _mode_uses_async_prematch_details(mode_id: String) -> bool:
 	match mode_id.strip_edges().to_upper():
-		"ASYNC_SINGLE_MAP_TIMED", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT":
+		"ASYNC_SINGLE_MAP_TIMED", "STAGE_RACE", "PROGRESSIVE", "TIMED_RACE", "MISS_N_OUT":
 			return true
 		_:
 			return false
@@ -2605,6 +2592,10 @@ func _show_shell_async_prematch_card() -> bool:
 
 func _ensure_shell_async_prematch_overlay() -> Control:
 	if _shell_prematch_overlay != null and is_instance_valid(_shell_prematch_overlay):
+		var existing_countdown: Label = _shell_prematch_overlay.get_node_or_null("CountdownLabel") as Label
+		if existing_countdown != null:
+			_style_shell_prematch_countdown(existing_countdown)
+			_shell_prematch_countdown_label = existing_countdown
 		return _shell_prematch_overlay
 	var hud_root: Control = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as Control
 	if hud_root == null:
@@ -2631,14 +2622,6 @@ func _ensure_shell_async_prematch_overlay() -> Control:
 		countdown.name = "CountdownLabel"
 		countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		countdown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		countdown.anchor_left = 0.5
-		countdown.anchor_right = 0.5
-		countdown.anchor_top = 0.0
-		countdown.anchor_bottom = 0.0
-		countdown.offset_left = -40.0
-		countdown.offset_right = 40.0
-		countdown.offset_top = 20.0
-		countdown.offset_bottom = 60.0
 		overlay.add_child(countdown)
 	_style_shell_prematch_countdown(countdown)
 	_shell_prematch_countdown_label = countdown
@@ -2736,10 +2719,23 @@ func _style_shell_prematch_labels() -> void:
 func _style_shell_prematch_countdown(label: Label) -> void:
 	if label == null:
 		return
-	label.add_theme_font_size_override("font_size", 64)
-	label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
-	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
-	label.add_theme_constant_override("outline_size", 3)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.anchor_left = 0.0
+	label.anchor_top = 0.0
+	label.anchor_right = 1.0
+	label.anchor_bottom = 1.0
+	label.offset_left = 0.0
+	label.offset_top = 0.0
+	label.offset_right = 0.0
+	label.offset_bottom = 0.0
+	label.z_as_relative = false
+	label.z_index = 3200
+	label.add_theme_font_size_override("font_size", 220)
+	label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.20, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
+	label.add_theme_constant_override("outline_size", 10)
 
 func _layout_shell_async_prematch_overlay() -> void:
 	if _shell_prematch_records_panel == null:
@@ -2780,6 +2776,8 @@ func _shell_async_prematch_mode_banner() -> String:
 			return "TIMED RACE"
 		"MISS_N_OUT":
 			return "MISS N OUT"
+		"PROGRESSIVE":
+			return "PROGRESSIVE"
 		"1V1", "PVP":
 			return "1V1"
 		"2V2":
@@ -2800,6 +2798,16 @@ func _shell_async_prematch_round_line() -> String:
 	match _shell_async_mode_id():
 		"1V1", "2V2", "3P FFA", "4P FFA":
 			return "Sync start"
+		"PROGRESSIVE":
+			var progressive_tree: SceneTree = get_tree()
+			var stage_number: int = 1
+			var stage_count: int = stage_maps.size()
+			if progressive_tree != null:
+				stage_number = maxi(1, int(progressive_tree.get_meta("progressive_stage_number", int(progressive_tree.get_meta("vs_stage_current_index", 0)) + 1)))
+				var plan_any: Variant = progressive_tree.get_meta("progressive_stage_plan", [])
+				if typeof(plan_any) == TYPE_ARRAY:
+					stage_count = maxi(stage_count, (plan_any as Array).size())
+			return "Stage %d of %d" % [stage_number, maxi(stage_number, stage_count)]
 	if _shell_async_mode_id() == "ASYNC_SINGLE_MAP_TIMED":
 		return "Single map run"
 	if not _mode_uses_async_prematch_details(_shell_async_mode_id()):
@@ -2868,6 +2876,13 @@ func _shell_async_prematch_detail_lines() -> Array[String]:
 				"Map: %s" % _shell_async_map_title(),
 				"%d stages back to back. Clear this map, then roll into the next one." % stage_count,
 				"Fastest total run wins. %s" % _shell_async_bot_line(),
+				_shell_async_track_line()
+			]
+		"PROGRESSIVE":
+			return [
+				"Map: %s" % _shell_async_map_title(),
+				"Clear the map to bank stars and roll into the next stage.",
+				"Domination advances the run. %s" % _shell_async_bot_line(),
 				_shell_async_track_line()
 			]
 		"CAPTURE_FLAG", "CTF":
