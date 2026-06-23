@@ -44,6 +44,7 @@ const LANE_FLASH_WIDTH := 3.5
 const LANE_FLASH_COLOR := Color(1.0, 0.9, 0.35, 0.9)
 const LANE_INACTIVE_COLOR := Color(1.0, 1.0, 1.0, 0.036)
 const LANE_CONTESTED_COLOR := Color(1.0, 1.0, 1.0, 0.18)
+const PLAYER_4_LANE_COLOR := Color8(8, 45, 140)
 const LANE_ACTIVE_ALPHA := 1.0
 const LANE_FRIENDLY_ALPHA := 0.78
 const LANE_SEGMENT_KEY := "lane.segment"
@@ -186,6 +187,8 @@ func _lane_send_alpha(src_owner: int, dst_owner: int) -> float:
 	return LANE_ACTIVE_ALPHA
 
 func _lane_color_for_owner(owner_id: int) -> Color:
+	if owner_id == 4:
+		return PLAYER_4_LANE_COLOR
 	if owner_id > 0:
 		return TeamVisuals.owner_color(owner_id)
 	return Color(0.22, 0.22, 0.24, 0.55)

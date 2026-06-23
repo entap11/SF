@@ -5,7 +5,7 @@ const NPC_COLOR := Color(0.52, 0.47, 0.82, 1.0)
 const STRUCTURE_NPC_ACCENT_COLOR := Color(0.55, 0.50, 0.70, 1.0)
 const PLAYER_1_COLOR := Color8(255, 210, 0)
 const PLAYER_2_COLOR := Color8(229, 57, 53)
-const PLAYER_3_COLOR := Color8(120, 255, 72)
+const PLAYER_3_COLOR := Color8(34, 139, 58)
 const PLAYER_4_COLOR := Color8(20, 72, 190)
 
 const WHITE_SAT_MAX: float = 0.32

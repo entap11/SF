@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script="res://data/contest/ContestDef.gd" format=3]
+
+[resource]
+id = "WEEKLY_USD_3_2025-W52"
+scope = "WEEKLY"
+currency = "USD"
+price = 3
+time_slice = "2025-W52"
+name = "WEEKLY Time Puzzle — $3"
+status = "OPEN"
+start_ts = 0
+end_ts = 4102444800
+published = true
+map_ids = PackedStringArray("MAP_nomansland__545__v01_top2_sides__1p", "MAP_nomansland__545__v17_four_corners_only__1p", "MAP_nomansland__444__v01_pinched_spine__1p", "MAP_race__SBASE__1p", "MAP_nomansland__545__v01_top2_sides__1p")
+buff_cap_per_map = 2
+bonus_rules = {}

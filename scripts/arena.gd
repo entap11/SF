@@ -5499,12 +5499,31 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 	results = _upsert_stage_round_result(results, round_index, round_result)
 	_set_stage_round_results_runtime(results)
 	var rank_snapshot: Dictionary = _stage_rank_snapshot(results, local_owner_id)
+	var wager_cents: int = maxi(0, int(tree.get_meta("vs_wager_cents", maxi(0, int(tree.get_meta("vs_price_usd", 0))) * 100)))
+	var settlement: Dictionary = {}
+	var settlement_any: Variant = tree.get_meta("vs_money_settlement_result", {})
+	if typeof(settlement_any) == TYPE_DICTIONARY:
+		settlement = settlement_any as Dictionary
+	var balance_start_cents: int = maxi(0, int(tree.get_meta("async_money_balance_start_cents", 0)))
+	var balance_after_entry_cents: int = maxi(0, int(tree.get_meta("async_money_balance_after_entry_cents", 0)))
+	var winner_payout_cents: int = maxi(0, int(settlement.get("winner_payout_cents", 0)))
+	var balance_finish_cents: int = maxi(0, int(tree.get_meta("async_money_balance_finish_cents", balance_after_entry_cents + winner_payout_cents)))
+	if bool(tree.get_meta("vs_paid_entry", false)):
+		SFLog.info("ASYNC_MONEY_STAGE_BALANCE_FINISH", {
+			"contest_id": str(tree.get_meta("async_money_contest_id", tree.get_meta("contest_id", ""))),
+			"entry_id": str(tree.get_meta("async_money_entry_id", "")),
+			"balance_start_cents": balance_start_cents,
+			"balance_after_entry_cents": balance_after_entry_cents,
+			"balance_finish_cents": balance_finish_cents,
+			"winner_payout_cents": winner_payout_cents
+		})
 	return {
 		"round_number": round_index + 1,
 		"total_rounds": total_rounds,
 		"winner_id": winner_id_in,
 		"reason": reason,
 		"local_owner_id": local_owner_id,
+		"local_player_id": local_owner_id,
 		"round_time_ms": elapsed_ms,
 		"local_owned_hives": local_owned_hives,
 		"opponent_owned_hives": opponent_owned_hives,
@@ -5512,7 +5531,20 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 		"local_round_wins": int(rank_snapshot.get("local_wins", 0)),
 		"opponent_round_wins": int(rank_snapshot.get("opponent_wins", 0)),
 		"cumulative_time_ms": maxi(0, int(rank_snapshot.get("local_elapsed_ms", elapsed_ms))),
-		"next_round_available": round_index + 1 < total_rounds
+		"next_round_available": round_index + 1 < total_rounds,
+		"paid_entry": bool(tree.get_meta("vs_paid_entry", false)),
+		"free_roll": bool(tree.get_meta("vs_free_roll", false)),
+		"wager_cents": wager_cents,
+		"async_money_entry_id": str(tree.get_meta("async_money_entry_id", "")),
+		"async_money_contest_id": str(tree.get_meta("async_money_contest_id", tree.get_meta("contest_id", ""))),
+		"async_money_ledger_status": str(tree.get_meta("async_money_ledger_status", "")),
+		"async_money_pot_cents": maxi(0, int(tree.get_meta("async_money_pot_cents", wager_cents))),
+		"async_money_escrow_cents": maxi(0, int(tree.get_meta("async_money_escrow_cents", wager_cents))),
+		"async_money_ledger_source": str(tree.get_meta("async_money_ledger_source", "")),
+		"async_money_balance_start_cents": balance_start_cents,
+		"async_money_balance_after_entry_cents": balance_after_entry_cents,
+		"async_money_balance_finish_cents": balance_finish_cents,
+		"winner_payout_cents": winner_payout_cents
 	}
 
 func _show_stage_race_round_overlay(winner_id_in: int, reason: String) -> void:
@@ -6097,7 +6129,16 @@ func _prepare_stage_race_finish_leaderboard_request() -> void:
 		"paid": not bool(tree.get_meta("vs_free_roll", false)),
 		"denomination": maxi(0, int(tree.get_meta("vs_price_usd", 0))),
 		"player_id": player_id,
-		"run_id": _stage_race_run_id(tree, player_id)
+		"run_id": _stage_race_run_id(tree, player_id),
+		"wager_cents": maxi(0, int(tree.get_meta("vs_wager_cents", maxi(0, int(tree.get_meta("vs_price_usd", 0))) * 100))),
+		"async_money_entry_id": str(tree.get_meta("async_money_entry_id", "")),
+		"async_money_ledger_status": str(tree.get_meta("async_money_ledger_status", "")),
+		"async_money_pot_cents": maxi(0, int(tree.get_meta("async_money_pot_cents", 0))),
+		"async_money_escrow_cents": maxi(0, int(tree.get_meta("async_money_escrow_cents", 0))),
+		"async_money_ledger_source": str(tree.get_meta("async_money_ledger_source", "")),
+		"async_money_balance_start_cents": maxi(0, int(tree.get_meta("async_money_balance_start_cents", 0))),
+		"async_money_balance_after_entry_cents": maxi(0, int(tree.get_meta("async_money_balance_after_entry_cents", 0))),
+		"async_money_balance_finish_cents": maxi(0, int(tree.get_meta("async_money_balance_finish_cents", tree.get_meta("async_money_balance_after_entry_cents", 0))))
 	})
 
 func _on_barracks_activated(_barracks_id: int, _owner_id: int) -> void:

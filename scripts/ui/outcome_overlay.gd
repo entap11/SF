@@ -271,19 +271,55 @@ func _apply_stage_round_outcome(data: Dictionary) -> void:
 	reason_label.text = "How: %s" % _present_reason(reason)
 	record_label.text = "Current Map Time: %s | Cumulative Time: %s" % [_format_stage_time(round_time_ms), _format_stage_time(cumulative_time_ms)]
 	h2h_label.text = "Score: You %d | Opponent %d" % [local_owned, opponent_owned]
-	stats_header.text = "Cumulative Rank"
-	if current_rank > 0:
-		stat_max_power.text = "#%d (provisional, cumulative)" % current_rank
+	if bool(data.get("paid_entry", false)):
+		_apply_stage_money_status(data, current_rank, round_number, total_rounds)
 	else:
-		stat_max_power.text = "-- (provisional, cumulative)"
-	stat_units_killed.text = "Round Wins: You %d | Opponent %d" % [local_round_wins, opponent_round_wins]
-	stat_units_landed.text = "Rank is based on cumulative run totals (%d/%d)" % [round_number, total_rounds]
+		stats_header.text = "Cumulative Rank"
+		if current_rank > 0:
+			stat_max_power.text = "#%d (provisional, cumulative)" % current_rank
+		else:
+			stat_max_power.text = "-- (provisional, cumulative)"
+		stat_units_killed.text = "Round Wins: You %d | Opponent %d" % [local_round_wins, opponent_round_wins]
+		stat_units_landed.text = "Rank is based on cumulative run totals (%d/%d)" % [round_number, total_rounds]
 	countdown_label.text = ""
 	rematch_button.text = next_label
 	rematch_button.disabled = not _stage_next_available
 	exit_button.text = exit_label
 	_apply_readable_layout()
 	_update_status()
+
+func _apply_stage_money_status(data: Dictionary, current_rank: int, round_number: int, total_rounds: int) -> void:
+	var wager_cents: int = maxi(0, int(data.get("wager_cents", 0)))
+	var escrow_cents: int = maxi(0, int(data.get("async_money_escrow_cents", wager_cents)))
+	var pot_cents: int = maxi(0, int(data.get("async_money_pot_cents", escrow_cents)))
+	var payout_cents: int = maxi(0, int(data.get("winner_payout_cents", 0)))
+	var ledger_status: String = str(data.get("async_money_ledger_status", "")).strip_edges().to_lower()
+	var balance_start_cents: int = maxi(0, int(data.get("async_money_balance_start_cents", 0)))
+	var balance_after_entry_cents: int = maxi(0, int(data.get("async_money_balance_after_entry_cents", balance_start_cents)))
+	var balance_finish_cents: int = maxi(0, int(data.get("async_money_balance_finish_cents", balance_after_entry_cents + payout_cents)))
+	stats_header.text = "Money Status"
+	if balance_start_cents > 0 or balance_after_entry_cents > 0:
+		stat_max_power.text = "Wallet: start %s | after entry %s | finish %s" % [
+			_format_money_cents(balance_start_cents),
+			_format_money_cents(balance_after_entry_cents),
+			_format_money_cents(balance_finish_cents)
+		]
+	else:
+		stat_max_power.text = "Entry debited: %s | Escrow: %s" % [_format_money_cents(wager_cents), _format_money_cents(escrow_cents)]
+	if payout_cents > 0 or ledger_status == "settled":
+		stat_units_killed.text = "Payout received: %s | Pot: %s" % [_format_money_cents(payout_cents), _format_money_cents(pot_cents)]
+	elif ledger_status == "refunded":
+		stat_units_killed.text = "Entry refunded: %s" % _format_money_cents(escrow_cents)
+	elif current_rank > 0:
+		stat_units_killed.text = "Entry: %s | Rank: #%d provisional | Pot: %s" % [_format_money_cents(wager_cents), current_rank, _format_money_cents(pot_cents)]
+	else:
+		stat_units_killed.text = "Entry: %s | Rank: -- provisional | Pot: %s" % [_format_money_cents(wager_cents), _format_money_cents(pot_cents)]
+	if payout_cents > 0 or ledger_status == "settled":
+		stat_units_landed.text = "Contest settlement is complete."
+	elif ledger_status == "refunded":
+		stat_units_landed.text = "This entry is no longer live."
+	else:
+		stat_units_landed.text = "Payout pending until contest close (%d/%d maps)." % [round_number, total_rounds]
 
 func _apply_progressive_stage_outcome(data: Dictionary) -> void:
 	_set_standard_rows_visible(true)
@@ -460,6 +496,10 @@ func _star_text(filled: int, total: int) -> String:
 	for i in range(clean_total):
 		chars.append("*" if i < clean_filled else "-")
 	return "".join(chars)
+
+func _format_money_cents(cents: int) -> String:
+	var clean_cents: int = maxi(0, cents)
+	return "$%d.%02d" % [int(clean_cents / 100), clean_cents % 100]
 
 func _simple_result_text(winner_id: int) -> String:
 	if winner_id == 0:

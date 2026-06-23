@@ -63,4 +63,4 @@ show_influence_debug = false
 debug_influence_preview = false
 debug_magenta_probe = false
 debug_magenta_probe_duration_sec = 1.2
-player_colors = [Color(0.95, 0.85, 0.2, 1), Color(0.9, 0.22, 0.22, 1), Color(0.2, 0.62, 0.26, 1), Color(0.22, 0.52, 0.95, 1)]
+player_colors = [Color(0.95, 0.85, 0.2, 1), Color(0.9, 0.22, 0.22, 1), Color(0.13, 0.55, 0.23, 1), Color(0.22, 0.52, 0.95, 1)]

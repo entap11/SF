@@ -53,6 +53,8 @@ func _run() -> void:
 	_assert_eq(int(context.get("wager_cents", 0)), 500, "lobby context carries wager cents")
 	_assert_eq(bool(context.get("paid_entry", false)), true, "lobby context marks paid entry")
 	_assert_eq(str(context.get("async_money_ledger_status", "")), "escrowed", "lobby context carries async escrow status")
+	_assert_eq(int(context.get("async_money_balance_start_cents", 0)), 1000, "lobby context carries starting wallet balance")
+	_assert_eq(int(context.get("async_money_balance_after_entry_cents", 0)), 500, "lobby context carries after-entry wallet balance")
 
 	print("MAIN_MENU_ASYNC_MONEY_ESCROW_SMOKE: PASS")
 	quit(0)

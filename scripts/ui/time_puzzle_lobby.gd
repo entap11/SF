@@ -5,6 +5,7 @@ const UITypography = preload("res://scripts/ui/ui_typography.gd")
 
 signal closed
 signal free_stage_race_play_requested(scope: String, map_count: int)
+signal stage_race_play_requested(scope: String, paid: bool, denomination: int, map_count: int)
 signal stage_race_leaderboard_requested(scope: String, paid: bool, denomination: int, map_count: int)
 
 const SCOPES: Array[String] = ["WEEKLY", "MONTHLY", "YEARLY"]
@@ -27,6 +28,7 @@ var _font_regular: Font = null
 var _font_semibold: Font = null
 var _free_roll: bool = false
 var _denomination: int = 0
+var _direct_stage_race_play: bool = false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -46,6 +48,11 @@ func set_scope(scope: String) -> void:
 func configure_entry(free_roll: bool, denomination: int = 0) -> void:
 	_free_roll = free_roll
 	_denomination = maxi(0, denomination)
+	if is_node_ready():
+		_refresh_contests()
+
+func configure_direct_stage_race_play(enabled: bool) -> void:
+	_direct_stage_race_play = enabled
 	if is_node_ready():
 		_refresh_contests()
 
@@ -227,6 +234,8 @@ func _add_map_count_action_row(box: VBoxContainer, contest: ContestDef, map_coun
 	_style_button(play_button, Color(0.18, 0.15, 0.07), Color(0.86, 0.68, 0.22), Color(1.0, 0.92, 0.58))
 	if _free_roll:
 		play_button.pressed.connect(func(): free_stage_race_play_requested.emit(_current_scope, map_count))
+	elif _direct_stage_race_play:
+		play_button.pressed.connect(func(): stage_race_play_requested.emit(_current_scope, true, _denomination, map_count))
 	else:
 		play_button.pressed.connect(func(): _open_contest(contest.id, map_count))
 	action_row.add_child(play_button)

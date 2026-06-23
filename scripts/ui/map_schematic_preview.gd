@@ -198,7 +198,7 @@ func _owner_color(owner_id: int) -> Color:
 		2:
 			return Color(1.0, 0.26, 0.24, 1.0)
 		3:
-			return Color(0.22, 0.95, 0.46, 1.0)
+			return Color(0.13, 0.55, 0.23, 1.0)
 		4:
 			return Color(0.92, 0.44, 1.0, 1.0)
 		_:

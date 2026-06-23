@@ -88,7 +88,7 @@ enum GrowthCurve {
 @export var player_colors: Array[Color] = [
 	Color(0.95, 0.85, 0.20, 1.0),
 	Color(0.90, 0.22, 0.22, 1.0),
-	Color(0.47, 1.0, 0.28, 1.0),
+	Color(0.13, 0.55, 0.23, 1.0),
 	Color(0.08, 0.28, 0.75, 1.0)
 ]
 

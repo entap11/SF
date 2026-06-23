@@ -546,7 +546,7 @@ var _money_games_selected_division: String = "division_i"
 var _money_games_selected_tier: int = 1
 var _async_money_ledger = AsyncMoneyGameLedgerScript.new()
 
-const ASYNC_BUYINS := [1, 2, 3, 5, 10]
+const ASYNC_BUYINS := [1, 2, 3, 5, 10, 20]
 const MONEY_DENOMINATIONS := [1, 2, 3, 5, 10, 20, 50]
 const ASYNC_MAPS := ["Map A", "Map B", "Map C", "Map D", "Map E"]
 const ASYNC_CONFIRM_WINDOW_MS := 900
@@ -1453,7 +1453,18 @@ func _apply_pending_stage_leaderboard_request() -> void:
 	var player_id: String = str(context.get("player_id", "")).strip_edges()
 	var run_id: String = str(context.get("run_id", "")).strip_edges()
 	var contest_id: String = str(context.get("contest_id", "")).strip_edges()
-	_open_async_stage_contest_leaderboard(map_count, scope, paid, denomination, player_id, run_id, contest_id)
+	var money_status: Dictionary = {
+		"wager_cents": maxi(0, int(context.get("wager_cents", denomination * 100))),
+		"async_money_entry_id": str(context.get("async_money_entry_id", "")),
+		"async_money_ledger_status": str(context.get("async_money_ledger_status", "")),
+		"async_money_pot_cents": maxi(0, int(context.get("async_money_pot_cents", 0))),
+		"async_money_escrow_cents": maxi(0, int(context.get("async_money_escrow_cents", 0))),
+		"async_money_ledger_source": str(context.get("async_money_ledger_source", "")),
+		"async_money_balance_start_cents": maxi(0, int(context.get("async_money_balance_start_cents", 0))),
+		"async_money_balance_after_entry_cents": maxi(0, int(context.get("async_money_balance_after_entry_cents", 0))),
+		"async_money_balance_finish_cents": maxi(0, int(context.get("async_money_balance_finish_cents", context.get("async_money_balance_after_entry_cents", 0))))
+	}
+	_open_async_stage_contest_leaderboard(map_count, scope, paid, denomination, player_id, run_id, contest_id, money_status)
 	if status_label != null:
 		status_label.text = "%s Stage Race leaderboard opened." % scope.capitalize()
 
@@ -2523,6 +2534,7 @@ func _wire_buttons() -> void:
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncTopRow/AsyncSeasonPanel/AsyncSeasonVBox/AsyncSeasonAction.pressed.connect(_open_async_yearly)
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncResultsPanel/AsyncResultsVBox/AsyncResultsAction.pressed.connect(_on_async_results_action_pressed)
 	$AsyncPanel/AsyncVBox/AsyncBody/AsyncBodyVBox/AsyncBottomRow/AsyncRulesPanel/AsyncRulesVBox/AsyncRulesAction.pressed.connect(_on_async_rules_action_pressed)
+	_ensure_async_buyin_button_count()
 	for idx in range(ASYNC_BUYINS.size()):
 		var amount: int = ASYNC_BUYINS[idx]
 		async_weekly_buyin_buttons[idx].pressed.connect(func(): _set_async_buyin("weekly", amount))
@@ -11408,6 +11420,16 @@ func _open_async_money_entry_escrow(mode_id: String, entry_usd: int, reason: Str
 		backend_escrow["wager_cents"] = wager_cents
 		backend_escrow["charge"] = charge
 		backend_escrow["ledger_source"] = "backend"
+		backend_escrow["balance_start_cents"] = balance_before_usd * 100
+		backend_escrow["balance_after_entry_cents"] = maxi(0, int(charge.get("remaining_usd", balance_before_usd))) * 100
+		SFLog.info("ASYNC_MONEY_ENTRY_BALANCE", {
+			"contest_id": clean_contest_id,
+			"entry_id": entry_id,
+			"entry_usd": amount,
+			"balance_start_cents": int(backend_escrow.get("balance_start_cents", 0)),
+			"balance_after_entry_cents": int(backend_escrow.get("balance_after_entry_cents", 0)),
+			"ledger_source": "backend"
+		})
 		return backend_escrow
 	if not _async_money_backend_fallback_allowed(backend_escrow):
 		if int(charge.get("charged_usd", 0)) > 0 and not bool(charge.get("bypassed", false)):
@@ -11429,6 +11451,16 @@ func _open_async_money_entry_escrow(mode_id: String, entry_usd: int, reason: Str
 	escrow["wager_cents"] = wager_cents
 	escrow["charge"] = charge
 	escrow["ledger_source"] = "local"
+	escrow["balance_start_cents"] = balance_before_usd * 100
+	escrow["balance_after_entry_cents"] = maxi(0, int(charge.get("remaining_usd", balance_before_usd))) * 100
+	SFLog.info("ASYNC_MONEY_ENTRY_BALANCE", {
+		"contest_id": clean_contest_id,
+		"entry_id": entry_id,
+		"entry_usd": amount,
+		"balance_start_cents": int(escrow.get("balance_start_cents", 0)),
+		"balance_after_entry_cents": int(escrow.get("balance_after_entry_cents", 0)),
+		"ledger_source": "local"
+	})
 	return escrow
 
 func _refund_async_money_entry_escrow(escrow: Dictionary, reason: String) -> void:
@@ -11490,6 +11522,8 @@ func _apply_async_money_escrow_options(options: Dictionary, escrow: Dictionary) 
 	out["async_money_pot_cents"] = maxi(0, int(escrow.get("pot_cents", 0)))
 	out["async_money_escrow_cents"] = maxi(0, int(escrow.get("escrow_cents", 0)))
 	out["async_money_ledger_source"] = str(escrow.get("ledger_source", "local"))
+	out["async_money_balance_start_cents"] = maxi(0, int(escrow.get("balance_start_cents", 0)))
+	out["async_money_balance_after_entry_cents"] = maxi(0, int(escrow.get("balance_after_entry_cents", 0)))
 	return out
 
 func _apply_async_money_escrow_tree_meta(escrow: Dictionary) -> void:
@@ -11506,6 +11540,8 @@ func _apply_async_money_escrow_tree_meta(escrow: Dictionary) -> void:
 	tree.set_meta("async_money_pot_cents", maxi(0, int(escrow.get("pot_cents", 0))))
 	tree.set_meta("async_money_escrow_cents", maxi(0, int(escrow.get("escrow_cents", 0))))
 	tree.set_meta("async_money_ledger_source", str(escrow.get("ledger_source", "local")))
+	tree.set_meta("async_money_balance_start_cents", maxi(0, int(escrow.get("balance_start_cents", 0))))
+	tree.set_meta("async_money_balance_after_entry_cents", maxi(0, int(escrow.get("balance_after_entry_cents", 0))))
 
 func debug_get_async_money_entry_snapshot(entry_id: String) -> Dictionary:
 	return _async_money_ledger.get_entry_snapshot(entry_id)
@@ -13607,6 +13643,9 @@ func _progressive_launch_clear_keys() -> Array[String]:
 		"async_money_pot_cents",
 		"async_money_escrow_cents",
 		"async_money_ledger_source",
+		"async_money_balance_start_cents",
+		"async_money_balance_after_entry_cents",
+		"async_money_balance_finish_cents",
 		"ctf_flag_selection_mode",
 		"ctf_player_select_pct",
 		"ctf_randomize_flag_hive",
@@ -13665,11 +13704,20 @@ func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 		"YEARLY":
 			_on_async_cycle_selected("YEARLY", paid, denomination)
 		"STAGE_RACE":
-			_on_async_stage_race_selected(3, not paid)
+			if paid:
+				_start_paid_stage_race_contest("WEEKLY", 3, denomination)
+			else:
+				_on_async_stage_race_selected(3, true)
 		"STAGE_RACE_3":
-			_on_async_stage_race_selected(3, not paid)
+			if paid:
+				_start_paid_stage_race_contest("WEEKLY", 3, denomination)
+			else:
+				_on_async_stage_race_selected(3, true)
 		"STAGE_RACE_5":
-			_on_async_stage_race_selected(5, not paid)
+			if paid:
+				_start_paid_stage_race_contest("WEEKLY", 5, denomination)
+			else:
+				_on_async_stage_race_selected(5, true)
 		"TIMED_RACE":
 			_on_async_timed_race_selected(3, not paid)
 		"TIMED_RACE_3":
@@ -14081,7 +14129,7 @@ func _get_async_stage_leaderboard_rows(map_count: int) -> Array:
 		out.append(row_any)
 	return out
 
-func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0, highlight_player_id: String = "", highlight_run_id: String = "", preferred_contest_id: String = "") -> void:
+func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEKLY", paid: bool = false, denomination: int = 0, highlight_player_id: String = "", highlight_run_id: String = "", preferred_contest_id: String = "", money_status: Dictionary = {}) -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var resolved_map_count: int = 5
 	if map_count == 3:
@@ -14126,6 +14174,7 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 	var rows_any: Variant = contest_data.get("rows", [])
 	if typeof(rows_any) == TYPE_ARRAY:
 		rows = rows_any as Array
+	var highlighted_rank: int = 0
 	for i in range(10):
 		var row_box: HBoxContainer = HBoxContainer.new()
 		row_box.add_theme_constant_override("separation", 10)
@@ -14135,6 +14184,7 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 			entry = rows[i] as Dictionary
 		var row_highlighted: bool = _stage_leaderboard_row_matches_highlight(entry, highlight_player_id, highlight_run_id)
 		if row_highlighted:
+			highlighted_rank = i + 1
 			row_box.set_meta("stage_leaderboard_highlighted", true)
 			row_box.modulate = Color(1.0, 0.90, 0.48, 1.0)
 		var handle_label: Label = Label.new()
@@ -14169,13 +14219,23 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 		body.add_child(empty_label)
 		_apply_font(empty_label, _font_regular, 12)
 
+	var money_text: String = _stage_leaderboard_money_status_text(clean_scope, paid, denomination, highlighted_rank, money_status)
+	if not money_text.is_empty():
+		var money_label: Label = Label.new()
+		money_label.text = money_text
+		money_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		money_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		money_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		body.add_child(money_label)
+		_apply_font(money_label, _font_regular, 12)
+
 	var play_button: Button = Button.new()
 	play_button.text = "PLAY"
 	play_button.custom_minimum_size = Vector2(0.0, 56.0)
 	if paid:
 		play_button.pressed.connect(func():
 			_close_entry_route_modal()
-			_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
+			_start_paid_stage_race_contest(clean_scope, resolved_map_count, denomination)
 		)
 	else:
 		play_button.pressed.connect(func():
@@ -14194,6 +14254,41 @@ func _open_async_stage_contest_leaderboard(map_count: int, scope: String = "WEEK
 	_apply_font(close_button, _font_regular, 13)
 	_style_button(close_button, Color(0.12, 0.13, 0.16), Color(0.4, 0.42, 0.5), Color(0.9, 0.9, 0.9))
 	_entry_route_modal = panel
+
+func _stage_leaderboard_money_status_text(scope: String, paid: bool, denomination: int, highlighted_rank: int, money_status: Dictionary = {}) -> String:
+	if not paid:
+		return ""
+	var wager_cents: int = maxi(0, int(money_status.get("wager_cents", denomination * 100)))
+	var escrow_cents: int = maxi(0, int(money_status.get("async_money_escrow_cents", wager_cents)))
+	var pot_cents: int = maxi(0, int(money_status.get("async_money_pot_cents", escrow_cents)))
+	var payout_cents: int = maxi(0, int(money_status.get("winner_payout_cents", 0)))
+	var ledger_status: String = str(money_status.get("async_money_ledger_status", "")).strip_edges().to_lower()
+	var balance_start_cents: int = maxi(0, int(money_status.get("async_money_balance_start_cents", 0)))
+	var balance_after_entry_cents: int = maxi(0, int(money_status.get("async_money_balance_after_entry_cents", balance_start_cents)))
+	var balance_finish_cents: int = maxi(0, int(money_status.get("async_money_balance_finish_cents", balance_after_entry_cents + payout_cents)))
+	var wallet_text: String = ""
+	if balance_start_cents > 0 or balance_after_entry_cents > 0:
+		wallet_text = "Wallet start %s | after entry %s | finish %s. " % [
+			_format_money_cents(balance_start_cents),
+			_format_money_cents(balance_after_entry_cents),
+			_format_money_cents(balance_finish_cents)
+		]
+	var rank_text: String = "#%d provisional" % highlighted_rank if highlighted_rank > 0 else "not ranked yet"
+	if payout_cents > 0 or ledger_status == "settled":
+		return "%sEntry: %s | Payout received: %s | Pot: %s" % [wallet_text, _format_money_cents(wager_cents), _format_money_cents(payout_cents), _format_money_cents(pot_cents)]
+	if ledger_status == "refunded":
+		return "%sEntry refunded: %s | This paid entry is no longer live." % [wallet_text, _format_money_cents(escrow_cents)]
+	return "%sEntry debited: %s | Escrow: %s | Current rank: %s. Payout pending until %s contest close." % [
+		wallet_text,
+		_format_money_cents(wager_cents),
+		_format_money_cents(escrow_cents),
+		rank_text,
+		scope.capitalize()
+	]
+
+func _format_money_cents(cents: int) -> String:
+	var clean_cents: int = maxi(0, cents)
+	return "$%d.%02d" % [int(clean_cents / 100), clean_cents % 100]
 
 func _stage_leaderboard_row_matches_highlight(entry: Dictionary, highlight_player_id: String, highlight_run_id: String) -> bool:
 	if entry.is_empty():
@@ -15545,7 +15640,7 @@ func _open_stage_race_contest_choice(scope: String, paid: bool, denomination: in
 	if paid:
 		play_button.pressed.connect(func():
 			_close_entry_route_modal()
-			_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
+			_start_paid_stage_race_contest(clean_scope, resolved_map_count, denomination)
 		)
 	else:
 		play_button.pressed.connect(func():
@@ -15604,6 +15699,30 @@ func _start_free_stage_race_contest(scope: String, requested_map_count: int = 5)
 	if not _launch_async_vs_match_direct("STAGE_RACE", resolved_map_count, true, 0, lobby_options):
 		_open_async_vs_lobby("STAGE_RACE", resolved_map_count, true, 0, lobby_options)
 
+func _start_paid_stage_race_contest(scope: String, requested_map_count: int = 5, denomination: int = 1) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
+	var entry_usd: int = maxi(1, denomination)
+	if not _require_balance_for_entry(entry_usd):
+		return
+	var launch_data: Dictionary = _resolve_stage_race_contest_launch_data(scope, requested_map_count, true, entry_usd)
+	if not bool(launch_data.get("ok", false)):
+		status_label.text = str(launch_data.get("error", "Stage Race contest unavailable."))
+		return
+	var clean_scope: String = str(launch_data.get("scope", scope)).strip_edges().to_upper()
+	var resolved_map_count: int = int(launch_data.get("map_count", requested_map_count))
+	var map_ids: PackedStringArray = launch_data.get("map_ids", PackedStringArray()) as PackedStringArray
+	var lobby_options: Dictionary = {
+		"start_players": ASYNC_WINDOW_START_PLAYERS,
+		"window_sec": int(launch_data.get("window_sec", ASYNC_STAGE_AND_MISS_WINDOW_SEC)),
+		"contest_id": str(launch_data.get("contest_id", "")),
+		"contest_scope": clean_scope,
+		"map_ids": map_ids
+	}
+	status_label.text = "%s Stage Race $%d contest starting..." % [clean_scope.capitalize(), entry_usd]
+	if not _launch_async_vs_match_direct("STAGE_RACE", resolved_map_count, false, entry_usd, lobby_options):
+		_open_async_vs_lobby("STAGE_RACE", resolved_map_count, false, entry_usd, lobby_options)
+
 func _open_stage_race_tournament_lobby(scope: String, paid: bool = true, denomination: int = 0) -> void:
 	var return_async_panel: bool = async_panel != null and async_panel.visible
 	_close_top_level_windows(UI_SURFACE_TIME_PUZZLE)
@@ -15618,8 +15737,10 @@ func _open_stage_race_tournament_lobby(scope: String, paid: bool = true, denomin
 				_time_puzzle_return_async_panel = false
 		)
 		_time_puzzle_lobby.free_stage_race_play_requested.connect(_on_time_puzzle_free_stage_race_play_requested)
+		_time_puzzle_lobby.stage_race_play_requested.connect(_on_time_puzzle_stage_race_play_requested)
 		_time_puzzle_lobby.stage_race_leaderboard_requested.connect(_on_time_puzzle_stage_race_leaderboard_requested)
 		add_child(_time_puzzle_lobby)
+	_time_puzzle_lobby.configure_direct_stage_race_play(true)
 	_time_puzzle_lobby.configure_entry(not paid, denomination)
 	_time_puzzle_lobby.set_scope(scope)
 	_time_puzzle_lobby.visible = true
@@ -15632,6 +15753,14 @@ func _on_time_puzzle_free_stage_race_play_requested(scope: String, map_count: in
 	if _time_puzzle_lobby != null:
 		_time_puzzle_lobby.visible = false
 	_start_free_stage_race_contest(scope, map_count)
+
+func _on_time_puzzle_stage_race_play_requested(scope: String, paid: bool, denomination: int, map_count: int) -> void:
+	if _time_puzzle_lobby != null:
+		_time_puzzle_lobby.visible = false
+	if paid:
+		_start_paid_stage_race_contest(scope, map_count, denomination)
+	else:
+		_start_free_stage_race_contest(scope, map_count)
 
 func _on_time_puzzle_stage_race_leaderboard_requested(scope: String, paid: bool, denomination: int, map_count: int) -> void:
 	_open_stage_race_contest_leaderboard(scope, map_count, paid, denomination)
@@ -15657,6 +15786,35 @@ func _set_async_buyin(mode: String, amount: int) -> void:
 	_reset_async_confirm(mode)
 	_sync_async_buyin_buttons(mode)
 	_update_async_rules(mode)
+
+func _ensure_async_buyin_button_count() -> void:
+	_ensure_async_buyin_buttons_for_list(async_weekly_buyin_buttons, "WeeklyBuyin")
+	_ensure_async_buyin_buttons_for_list(async_monthly_buyin_buttons, "MonthlyBuyin")
+	_ensure_async_buyin_buttons_for_list(async_yearly_buyin_buttons, "YearlyBuyin")
+
+func _ensure_async_buyin_buttons_for_list(buttons: Array, prefix: String) -> void:
+	if buttons.size() >= ASYNC_BUYINS.size():
+		return
+	var template: Button = null
+	var parent: Node = null
+	for button_v in buttons:
+		var button: Button = button_v as Button
+		if button == null:
+			continue
+		template = button
+		parent = button.get_parent()
+	if parent == null:
+		return
+	while buttons.size() < ASYNC_BUYINS.size():
+		var added_button := Button.new()
+		added_button.name = "%s%d" % [prefix, buttons.size() + 1]
+		if template != null:
+			added_button.custom_minimum_size = template.custom_minimum_size
+			added_button.size_flags_horizontal = template.size_flags_horizontal
+			added_button.size_flags_vertical = template.size_flags_vertical
+			added_button.focus_mode = template.focus_mode
+		parent.add_child(added_button)
+		buttons.append(added_button)
 
 func _sync_async_buyin_buttons(mode: String) -> void:
 	var buttons := _get_async_buyin_buttons(mode)
@@ -15938,7 +16096,10 @@ func _direct_async_launch_clear_keys() -> Array[String]:
 		"async_money_ledger_status",
 		"async_money_pot_cents",
 		"async_money_escrow_cents",
-		"async_money_ledger_source"
+		"async_money_ledger_source",
+		"async_money_balance_start_cents",
+		"async_money_balance_after_entry_cents",
+		"async_money_balance_finish_cents"
 	]
 
 func _resolve_direct_capture_flag_map_path(mode_id: String, free_roll: bool = false) -> String:

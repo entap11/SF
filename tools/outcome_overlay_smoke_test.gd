@@ -66,6 +66,39 @@ func _init() -> void:
 	_assert_true(not _node_visible(overlay, "Panel/VBox/Buttons/Rematch"), "progressive next button hidden during auto-advance")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Next stage starts automatically.", "progressive auto-advance text")
 
+	overlay.show_stage_round_outcome({
+		"round_number": 3,
+		"total_rounds": 3,
+		"winner_id": 1,
+		"local_player_id": 1,
+		"reason": "capture_all",
+		"round_time_ms": 64000,
+		"cumulative_time_ms": 191000,
+		"local_owned_hives": 8,
+		"opponent_owned_hives": 0,
+		"current_rank": 1,
+		"local_round_wins": 3,
+		"opponent_round_wins": 0,
+		"paid_entry": true,
+		"wager_cents": 2000,
+		"async_money_escrow_cents": 2000,
+		"async_money_pot_cents": 2000,
+		"async_money_balance_start_cents": 50000,
+		"async_money_balance_after_entry_cents": 48000,
+		"async_money_balance_finish_cents": 48000,
+		"async_money_ledger_status": "escrowed",
+		"next_label": "Finish Run",
+		"exit_label": "Back to Lobby",
+		"next_round_available": false,
+		"next_button_enabled": true,
+		"status_text": "Cumulative rank is provisional. Run complete."
+	})
+	await process_frame
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatsHeader"), "Money Status", "paid stage money header")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatMaxHivePower"), "Wallet: start $500.00 | after entry $480.00 | finish $480.00", "paid stage wallet status")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Entry: $20.00 | Rank: #1 provisional | Pot: $20.00", "paid stage rank status")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Payout pending until contest close (3/3 maps).", "paid stage payout pending")
+
 	if _failed:
 		quit(1)
 		return
