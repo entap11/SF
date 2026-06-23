@@ -149,6 +149,31 @@ func debug_get_money_ledger_snapshot() -> Dictionary:
 func debug_get_money_transaction_ledger(filters: Dictionary = {}) -> Array[Dictionary]:
 	return _money_ledger.get_transaction_ledger(filters)
 
+func open_async_entry_escrow(entry_id: String, contest_id: String, player_id: String, wager_cents: int, idempotency_key: String, balance_cents: int = -1) -> Dictionary:
+	var payload: Dictionary = {
+		"entry_id": entry_id,
+		"contest_id": contest_id,
+		"player_id": player_id,
+		"wager_cents": wager_cents,
+		"idempotency_key": idempotency_key
+	}
+	if balance_cents >= 0:
+		payload["balance_cents"] = balance_cents
+	var transport := _call_transport("open_async_entry_escrow", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func refund_async_entry(entry_id: String, reason: String, idempotency_key: String) -> Dictionary:
+	var transport := _call_transport("refund_async_entry", {
+		"entry_id": entry_id,
+		"reason": reason,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
 func _configured_backend_url() -> String:
 	var env_url: String = OS.get_environment(ENV_BACKEND_URL).strip_edges()
 	if not env_url.is_empty():
@@ -573,20 +598,13 @@ func start_session(session_id: String, uid: String) -> Dictionary:
 	return {"ok": true, "session": _dup_session(session)}
 
 func settle_money_match(session_id: String, winner_owner_id: int, reason: String = "") -> Dictionary:
-	var transport := _call_transport("settle_money_match", {
-		"session_id": session_id,
-		"winner_owner_id": winner_owner_id,
-		"reason": reason
-	})
-	if bool(transport.get("handled", false)):
-		return transport.get("result", {}) as Dictionary
 	_prune()
 	var sid: String = session_id.strip_edges()
 	if sid.is_empty():
 		return {"ok": false, "err": "missing_session_id", "code": "missing_session_id"}
-	if not _sessions.has(sid):
+	var session: Dictionary = _money_session_for_settlement(sid)
+	if session.is_empty():
 		return {"ok": false, "err": "session_not_found", "code": "session_not_found"}
-	var session: Dictionary = (_sessions.get(sid, {}) as Dictionary).duplicate(true)
 	var context: Dictionary = session.get("context", {}) as Dictionary
 	if not bool(context.get("paid_entry", false)):
 		return {"ok": true, "type": "no_money_settlement_required", "session_id": sid, "ledger_required": false}
@@ -599,6 +617,13 @@ func settle_money_match(session_id: String, winner_owner_id: int, reason: String
 		}
 	var clean_reason: String = reason.strip_edges()
 	if winner_owner_id <= 0:
+		var refund_transport := _call_transport("refund_money_match", {
+			"session_id": sid,
+			"reason": clean_reason if not clean_reason.is_empty() else "draw_or_no_winner",
+			"idempotency_key": "refund:%s:%s" % [sid, clean_reason if not clean_reason.is_empty() else "draw_or_no_winner"]
+		})
+		if bool(refund_transport.get("handled", false)):
+			return _money_transport_result_with_owner(refund_transport.get("result", {}) as Dictionary, session, winner_owner_id, "")
 		return _refund_money_match_for_session(session, clean_reason if not clean_reason.is_empty() else "draw_or_no_winner")
 	var winner_uid: String = _money_player_uid_for_owner_id(session, winner_owner_id)
 	if winner_uid.is_empty():
@@ -609,6 +634,13 @@ func settle_money_match(session_id: String, winner_owner_id: int, reason: String
 			"session_id": sid,
 			"winner_owner_id": winner_owner_id
 		}
+	var settle_transport := _call_transport("settle_money_match", {
+		"session_id": sid,
+		"winner_id": winner_uid,
+		"idempotency_key": "settle:%s:%s" % [sid, winner_uid]
+	})
+	if bool(settle_transport.get("handled", false)):
+		return _money_transport_result_with_owner(settle_transport.get("result", {}) as Dictionary, session, winner_owner_id, winner_uid)
 	var settle_result: Dictionary = _money_ledger.intent_settle_match(
 		sid,
 		winner_uid,
@@ -633,6 +665,25 @@ func settle_money_match(session_id: String, winner_owner_id: int, reason: String
 	response["winner_uid"] = winner_uid
 	response["session"] = _dup_session(session)
 	return response
+
+func _money_session_for_settlement(session_id: String) -> Dictionary:
+	if _transport_http != null and _transport_http.configured():
+		var remote_session: Dictionary = get_session(session_id)
+		if not remote_session.is_empty():
+			return remote_session.duplicate(true)
+	if _sessions.has(session_id):
+		return (_sessions.get(session_id, {}) as Dictionary).duplicate(true)
+	return {}
+
+func _money_transport_result_with_owner(result: Dictionary, session: Dictionary, winner_owner_id: int, winner_uid: String) -> Dictionary:
+	var out: Dictionary = result.duplicate(true)
+	if bool(out.get("ok", false)):
+		out["winner_owner_id"] = winner_owner_id
+		if not winner_uid.strip_edges().is_empty():
+			out["winner_uid"] = winner_uid
+		if not out.has("session") and not session.is_empty():
+			out["session"] = session.duplicate(true)
+	return out
 
 func get_money_rematch_funding_status(session_id: String, owner_id: int) -> Dictionary:
 	var sid: String = session_id.strip_edges()

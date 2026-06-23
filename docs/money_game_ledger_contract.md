@@ -225,6 +225,80 @@ Expected failures:
 - `winner_not_in_match`
 - `empty_escrow`
 
+### `settle_async_contest`
+
+Closes an async contest pot and credits the contest winner plus house.
+
+Request:
+
+```json
+{
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "winner_id": "p1",
+  "idempotency_key": "settle:WEEKLY_USD_5_2026W26:p1"
+}
+```
+
+Success:
+
+```json
+{
+  "ok": true,
+  "type": "async_contest_settled",
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "status": "settled",
+  "winner_id": "p1",
+  "winner_payout_cents": 900,
+  "house_rake_cents": 100,
+  "pot_cents": 1000
+}
+```
+
+Expected failures:
+
+- `missing_idempotency_key`
+- `missing_contest_id`
+- `missing_winner_id`
+- `contest_not_found`
+- `contest_already_closed`
+- `winner_not_in_contest`
+- `empty_escrow`
+
+### `refund_async_entry`
+
+Refunds one escrowed async entry before contest settlement.
+
+Request:
+
+```json
+{
+  "entry_id": "async:WEEKLY_USD_5_2026W26:p1:12345",
+  "reason": "failed_start",
+  "idempotency_key": "refund:async:WEEKLY_USD_5_2026W26:p1:12345"
+}
+```
+
+Success:
+
+```json
+{
+  "ok": true,
+  "type": "async_entry_refunded",
+  "entry_id": "async:WEEKLY_USD_5_2026W26:p1:12345",
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "status": "refunded",
+  "refunded_cents": 500,
+  "refund_reason": "failed_start"
+}
+```
+
+Expected failures:
+
+- `missing_idempotency_key`
+- `missing_entry_id`
+- `entry_not_found`
+- `entry_already_closed`
+
 ### `settle_vs_money_match_result`
 
 Client-local test-double helper for syncing a completed VS match result into the money ledger.

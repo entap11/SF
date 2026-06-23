@@ -16,16 +16,21 @@ function close(server: http.Server): Promise<void> {
 }
 
 async function post(baseUrl: string, action: string, body: JsonRecord): Promise<JsonRecord> {
+  const data = await postRaw(baseUrl, action, body);
+  if (data.http_status !== 200 || data.ok !== true) {
+    throw new Error(`${action} failed: ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
+async function postRaw(baseUrl: string, action: string, body: JsonRecord): Promise<JsonRecord> {
   const response = await fetch(`${baseUrl}/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body)
   });
   const data = await response.json() as JsonRecord;
-  if (!response.ok || data.ok !== true) {
-    throw new Error(`${action} failed: ${JSON.stringify(data)}`);
-  }
-  return data;
+  return { ...data, http_status: response.status };
 }
 
 function expect(condition: unknown, message: string, details?: unknown): void {
@@ -103,6 +108,163 @@ async function main(): Promise<void> {
     expect((q2.session as JsonRecord).status === "started", "quick match did not auto-start", q2);
     const qPoll = await post(baseUrl, "poll_quick_match", { ticket_id: String(q1.ticket_id) });
     expect(qPoll.matched === true && qPoll.session_id === q2.session_id, "quick poll did not find match", qPoll);
+
+    const paidContext = {
+      mode: "PVP_PAID_SMOKE",
+      map_count: 1,
+      price_usd: 1,
+      wager_cents: 100,
+      free_roll: false,
+      paid_entry: true,
+      stage_map_paths: ["res://maps/json/MAP_TEST_PAID_8x12.json"]
+    };
+    const paidInvite = await post(baseUrl, "create_invite", {
+      profile: { uid: "paid_host", display_name: "Paid Host", balance_cents: 1000 },
+      context: paidContext
+    });
+    const paidJoin = await post(baseUrl, "join_invite", {
+      invite_code: String(paidInvite.invite_code),
+      profile: { uid: "paid_guest", display_name: "Paid Guest", balance_cents: 1000 }
+    });
+    const paidSession = paidJoin.session as JsonRecord;
+    const paidSessionContext = paidSession.context as JsonRecord;
+    expect(paidSession.status === "started", "paid invite did not start after escrow", paidJoin);
+    expect(paidSessionContext.ledger_status === "escrowed", "paid invite missing escrow status", paidSessionContext);
+    expect(Number(paidSessionContext.pot_cents) === 200, "paid invite pot mismatch", paidSessionContext);
+    const paidSessionId = String(paidJoin.session_id);
+    const paidOpenTransactions = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId });
+    expect((paidOpenTransactions.transactions as JsonRecord[]).length === 2, "paid invite should debit both players", paidOpenTransactions);
+    const paidSettle = await post(baseUrl, "settle_money_match", {
+      session_id: paidSessionId,
+      winner_id: "paid_host",
+      idempotency_key: `settle:${paidSessionId}:paid_host`
+    });
+    expect(Number(paidSettle.winner_payout_cents) === 180, "paid winner payout mismatch", paidSettle);
+    expect(Number(paidSettle.house_rake_cents) === 20, "paid house rake mismatch", paidSettle);
+    const paidTransactionsAfterSettle = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId });
+    const paidTransactionCount = (paidTransactionsAfterSettle.transactions as JsonRecord[]).length;
+    await post(baseUrl, "settle_money_match", {
+      session_id: paidSessionId,
+      winner_id: "paid_host",
+      idempotency_key: `settle:${paidSessionId}:paid_host`
+    });
+    const paidTransactionsAfterDuplicate = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId });
+    expect((paidTransactionsAfterDuplicate.transactions as JsonRecord[]).length === paidTransactionCount, "duplicate paid settle added transactions", paidTransactionsAfterDuplicate);
+    const paidSecondSettle = await postRaw(baseUrl, "settle_money_match", {
+      session_id: paidSessionId,
+      winner_id: "paid_guest",
+      idempotency_key: `settle:${paidSessionId}:paid_guest`
+    });
+    expect(paidSecondSettle.ok === false && paidSecondSettle.err === "match_already_closed", "second paid settle should fail", paidSecondSettle);
+
+    const directOpen = await post(baseUrl, "open_money_escrow", {
+      session_id: "direct_refund_session",
+      player_ids: ["refund_a", "refund_b"],
+      player_balances_cents: { refund_a: 500, refund_b: 500 },
+      wager_cents: 250,
+      idempotency_key: "open:direct_refund_session"
+    });
+    expect(Number(directOpen.pot_cents) === 500, "direct open pot mismatch", directOpen);
+    const directRefund = await post(baseUrl, "refund_money_match", {
+      session_id: "direct_refund_session",
+      reason: "failed_start",
+      idempotency_key: "refund:direct_refund_session"
+    });
+    expect(Number(directRefund.refunded_cents_per_player) === 250, "direct refund amount mismatch", directRefund);
+    const directRefundTransactions = await post(baseUrl, "get_money_transactions", { session_id: "direct_refund_session" });
+    const directRefundTransactionCount = (directRefundTransactions.transactions as JsonRecord[]).length;
+    await post(baseUrl, "refund_money_match", {
+      session_id: "direct_refund_session",
+      reason: "failed_start",
+      idempotency_key: "refund:direct_refund_session"
+    });
+    const duplicateRefundTransactions = await post(baseUrl, "get_money_transactions", { session_id: "direct_refund_session" });
+    expect((duplicateRefundTransactions.transactions as JsonRecord[]).length === directRefundTransactionCount, "duplicate refund added transactions", duplicateRefundTransactions);
+
+    const paidShortFirst = await post(baseUrl, "enqueue_quick_match", {
+      profile: { uid: "paid_short_a", display_name: "Short A", balance_cents: 50 },
+      context: paidContext
+    });
+    expect(paidShortFirst.matched === false, "first underfunded paid quick should queue", paidShortFirst);
+    const paidShortSecond = await postRaw(baseUrl, "enqueue_quick_match", {
+      profile: { uid: "paid_short_b", display_name: "Short B", balance_cents: 1000 },
+      context: paidContext
+    });
+    expect(paidShortSecond.ok === false && paidShortSecond.err === "insufficient_funds", "underfunded paid quick should not start", paidShortSecond);
+    const stillQueued = await post(baseUrl, "poll_quick_match", { ticket_id: String(paidShortFirst.ticket_id) });
+    expect(stillQueued.matched === false, "failed paid quick should keep original player queued", stillQueued);
+    await post(baseUrl, "cancel_quick_match", { ticket_id: String(paidShortFirst.ticket_id), uid: "paid_short_a" });
+
+    const asyncOpenA = await post(baseUrl, "open_async_entry_escrow", {
+      entry_id: "async_entry_a",
+      contest_id: "async_contest_paid",
+      player_id: "async_a",
+      balance_cents: 1000,
+      wager_cents: 500,
+      idempotency_key: "open:async_entry_a"
+    });
+    expect(Number(asyncOpenA.pot_cents) === 500, "first async pot mismatch", asyncOpenA);
+    await post(baseUrl, "open_async_entry_escrow", {
+      entry_id: "async_entry_a",
+      contest_id: "async_contest_paid",
+      player_id: "async_a",
+      balance_cents: 1000,
+      wager_cents: 500,
+      idempotency_key: "open:async_entry_a"
+    });
+    const asyncEntryATransactions = await post(baseUrl, "get_money_transactions", { entry_id: "async_entry_a" });
+    expect((asyncEntryATransactions.transactions as JsonRecord[]).length === 1, "duplicate async open added transactions", asyncEntryATransactions);
+    const asyncOpenB = await post(baseUrl, "open_async_entry_escrow", {
+      entry_id: "async_entry_b",
+      contest_id: "async_contest_paid",
+      player_id: "async_b",
+      balance_cents: 1000,
+      wager_cents: 500,
+      idempotency_key: "open:async_entry_b"
+    });
+    expect(Number(asyncOpenB.pot_cents) === 1000, "second async pot mismatch", asyncOpenB);
+    const asyncSettle = await post(baseUrl, "settle_async_contest", {
+      contest_id: "async_contest_paid",
+      winner_id: "async_b",
+      idempotency_key: "settle:async_contest_paid:async_b"
+    });
+    expect(Number(asyncSettle.winner_payout_cents) === 900, "async winner payout mismatch", asyncSettle);
+    expect(Number(asyncSettle.house_rake_cents) === 100, "async house rake mismatch", asyncSettle);
+    const asyncContestTransactions = await post(baseUrl, "get_money_transactions", { contest_id: "async_contest_paid" });
+    const asyncContestTransactionCount = (asyncContestTransactions.transactions as JsonRecord[]).length;
+    await post(baseUrl, "settle_async_contest", {
+      contest_id: "async_contest_paid",
+      winner_id: "async_b",
+      idempotency_key: "settle:async_contest_paid:async_b"
+    });
+    const asyncDuplicateSettleTransactions = await post(baseUrl, "get_money_transactions", { contest_id: "async_contest_paid" });
+    expect((asyncDuplicateSettleTransactions.transactions as JsonRecord[]).length === asyncContestTransactionCount, "duplicate async settle added transactions", asyncDuplicateSettleTransactions);
+    const asyncLateRefund = await postRaw(baseUrl, "refund_async_entry", {
+      entry_id: "async_entry_a",
+      reason: "late_refund",
+      idempotency_key: "refund:async_entry_a"
+    });
+    expect(asyncLateRefund.ok === false && asyncLateRefund.err === "entry_already_closed", "settled async entry refund should fail", asyncLateRefund);
+    await post(baseUrl, "open_async_entry_escrow", {
+      entry_id: "async_entry_refund",
+      contest_id: "async_contest_refund",
+      player_id: "async_refund_player",
+      balance_cents: 1000,
+      wager_cents: 250,
+      idempotency_key: "open:async_entry_refund"
+    });
+    const asyncRefund = await post(baseUrl, "refund_async_entry", {
+      entry_id: "async_entry_refund",
+      reason: "failed_start",
+      idempotency_key: "refund:async_entry_refund"
+    });
+    expect(Number(asyncRefund.refunded_cents) === 250, "async refund amount mismatch", asyncRefund);
+    const latestAsync = await post(baseUrl, "get_money_transactions", {
+      contest_id: "async_contest_paid",
+      sort_desc: true,
+      limit: 1
+    });
+    expect((latestAsync.transactions as JsonRecord[]).length === 1, "transaction limit filter failed", latestAsync);
 
     const rankedContext = {
       ...context,

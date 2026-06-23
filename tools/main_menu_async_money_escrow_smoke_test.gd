@@ -1,10 +1,16 @@
 extends SceneTree
 
+const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
+
 func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
 	await process_frame
+	ProjectSettings.set_setting(SETTINGS_BACKEND_URL, "")
+	var handshake: Node = get_root().get_node_or_null("/root/VsHandshake")
+	if handshake != null and handshake.has_method("_configure_transport"):
+		handshake.call("_configure_transport")
 	var scene: PackedScene = load("res://scenes/MainMenu.tscn") as PackedScene
 	if scene == null:
 		_fail("failed to load MainMenu.tscn")

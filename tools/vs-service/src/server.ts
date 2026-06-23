@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import http from "node:http";
 import { config } from "./config.js";
+import { moneyLedger, type JsonRecord as LedgerJsonRecord } from "./moneyLedger.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -14,6 +15,7 @@ type Player = {
   rank_position?: number;
   wax_score?: number;
   color_id?: string;
+  balance_cents?: number;
 };
 
 type Session = {
@@ -41,6 +43,7 @@ type QueueTicket = {
   rank_position: number;
   wax_score: number;
   color_id: string;
+  balance_cents?: number;
 };
 
 type Presence = {
@@ -131,6 +134,25 @@ function numberValue(value: unknown, fallback = 0): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function optionalCentsValue(value: unknown): number | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : undefined;
+}
+
+function profileBalanceCents(value: JsonRecord): number | undefined {
+  const direct = optionalCentsValue(value.balance_cents ?? value.cash_balance_cents ?? value.wallet_balance_cents);
+  if (direct != null) {
+    return direct;
+  }
+  if (isRecord(value.wallet)) {
+    return optionalCentsValue(value.wallet.balance_cents ?? value.wallet.cash_balance_cents);
+  }
+  return undefined;
+}
+
 function normalizeTier(value: unknown): string {
   const tier = stringValue(value).toUpperCase();
   return tier || "DRONE";
@@ -157,7 +179,8 @@ function normalizeProfile(value: unknown, fallbackName: string): Player | null {
     tier_id: normalizeTier(value.tier_id),
     rank_position: Math.max(0, Math.trunc(numberValue(value.rank_position, 0))),
     wax_score: numberValue(value.wax_score, 0),
-    color_id: stringValue(value.color_id).toUpperCase() || "GREEN"
+    color_id: stringValue(value.color_id).toUpperCase() || "GREEN",
+    balance_cents: profileBalanceCents(value)
   };
 }
 
@@ -240,7 +263,8 @@ function newSession(host: Player, context: JsonRecord, source: "invite" | "quick
       tier_id: host.tier_id,
       rank_position: host.rank_position,
       wax_score: host.wax_score,
-      color_id: host.color_id
+      color_id: host.color_id,
+      balance_cents: host.balance_cents
     },
     guest: { uid: "", display_name: "", ready: false },
     close_reason: ""
@@ -250,6 +274,60 @@ function newSession(host: Player, context: JsonRecord, source: "invite" | "quick
 function markSessionStarted(session: Session): void {
   session.status = "started";
   session.started_unix = nowUnix();
+}
+
+function contextIsPaid(context: JsonRecord): boolean {
+  if (boolValue(context.free_roll)) {
+    return false;
+  }
+  return boolValue(context.paid_entry) || numberValue(context.wager_cents, 0) > 0 || numberValue(context.price_usd, 0) > 0;
+}
+
+function contextWagerCents(context: JsonRecord): number {
+  const wagerCents = Math.trunc(numberValue(context.wager_cents, 0));
+  if (wagerCents > 0) {
+    return wagerCents;
+  }
+  const priceUsd = numberValue(context.price_usd, 0);
+  return Math.max(0, Math.round(priceUsd * 100));
+}
+
+function sessionFundingPlayer(player: Player): { player_id: string; balance_cents?: number } {
+  return {
+    player_id: player.uid,
+    balance_cents: player.balance_cents
+  };
+}
+
+function startSessionAuthoritatively(session: Session): LedgerJsonRecord {
+  if (!contextIsPaid(session.context)) {
+    markSessionStarted(session);
+    return { ok: true, session };
+  }
+  if (!session.host.uid || !session.guest.uid) {
+    return { ok: false, err: "not_enough_players", code: "not_enough_players" };
+  }
+  const wagerCents = contextWagerCents(session.context);
+  const escrow = moneyLedger.openMoneyEscrow(
+    session.id,
+    [sessionFundingPlayer(session.host), sessionFundingPlayer(session.guest)],
+    wagerCents,
+    `open:${session.id}`
+  );
+  if (escrow.ok !== true) {
+    return escrow;
+  }
+  session.context = {
+    ...session.context,
+    paid_entry: true,
+    free_roll: false,
+    wager_cents: wagerCents,
+    price_usd: wagerCents / 100,
+    ledger_status: "escrowed",
+    pot_cents: Number(escrow.pot_cents ?? wagerCents * 2)
+  };
+  markSessionStarted(session);
+  return { ok: true, session, escrow };
 }
 
 function refreshSessionStatus(session: Session): void {
@@ -425,6 +503,19 @@ function fail(res: Response, err: string, status = 400, extra: JsonRecord = {}):
   res.status(status).json({ ok: false, err, ...extra });
 }
 
+function failLedger(res: Response, result: LedgerJsonRecord, status = 400): void {
+  const err = stringValue(result.err ?? result.code) || "ledger_error";
+  fail(res, err, status, result);
+}
+
+function okOrLedgerFailure(res: Response, result: LedgerJsonRecord, status = 400): void {
+  if (result.ok === true) {
+    ok(res, result);
+    return;
+  }
+  failLedger(res, result, status);
+}
+
 function actionName(req: Request): string {
   return stringValue(req.params.action);
 }
@@ -454,6 +545,22 @@ function handleAction(req: Request, res: Response): void {
       return canStart(req, res);
     case "start_session":
       return startSession(req, res);
+    case "open_money_escrow":
+      return openMoneyEscrow(req, res);
+    case "settle_money_match":
+      return settleMoneyMatch(req, res);
+    case "refund_money_match":
+      return refundMoneyMatch(req, res);
+    case "open_async_entry_escrow":
+      return openAsyncEntryEscrow(req, res);
+    case "settle_async_contest":
+      return settleAsyncContest(req, res);
+    case "refund_async_entry":
+      return refundAsyncEntry(req, res);
+    case "get_money_transactions":
+      return getMoneyTransactions(req, res);
+    case "debug_get_money_ledger_snapshot":
+      return debugGetMoneyLedgerSnapshot(req, res);
     case "leave_session":
       return leaveSession(req, res);
     case "heartbeat":
@@ -512,6 +619,7 @@ function joinInvite(req: Request, res: Response): void {
   if (session.guest.uid && session.guest.uid !== guest.uid) {
     return fail(res, "invite_full");
   }
+  const previousGuest = { ...session.guest };
   const existingReady = session.guest.ready;
   session.guest = {
     uid: guest.uid,
@@ -520,9 +628,15 @@ function joinInvite(req: Request, res: Response): void {
     tier_id: guest.tier_id,
     rank_position: guest.rank_position,
     wax_score: guest.wax_score,
-    color_id: guest.color_id
+    color_id: guest.color_id,
+    balance_cents: guest.balance_cents
   };
-  markSessionStarted(session);
+  const startResult = startSessionAuthoritatively(session);
+  if (startResult.ok !== true) {
+    session.guest = previousGuest;
+    refreshSessionStatus(session);
+    return failLedger(res, startResult, 402);
+  }
   return ok(res, { session_id: session.id, session: cloneSession(session) });
 }
 
@@ -547,7 +661,8 @@ function enqueueQuickMatch(req: Request, res: Response): void {
       tier_id: other.tier_id,
       rank_position: other.rank_position,
       wax_score: other.wax_score,
-      color_id: other.color_id
+      color_id: other.color_id,
+      balance_cents: other.balance_cents
     };
     const session = newSession(host, other.context, "quick");
     session.guest = {
@@ -558,9 +673,14 @@ function enqueueQuickMatch(req: Request, res: Response): void {
       tier_id: player.tier_id,
       rank_position: player.rank_position,
       wax_score: player.wax_score,
-      color_id: player.color_id
+      color_id: player.color_id,
+      balance_cents: player.balance_cents
     };
-    markSessionStarted(session);
+    const startResult = startSessionAuthoritatively(session);
+    if (startResult.ok !== true) {
+      queue.splice(matchIndex, 0, other);
+      return failLedger(res, startResult, 402);
+    }
     sessions.set(session.id, session);
     inviteToSession.set(session.invite_code, session.id);
     return ok(res, { matched: true, session_id: session.id, session: cloneSession(session) });
@@ -575,7 +695,8 @@ function enqueueQuickMatch(req: Request, res: Response): void {
     tier_id: String(player.tier_id ?? "DRONE"),
     rank_position: Number(player.rank_position ?? 0),
     wax_score: Number(player.wax_score ?? 0),
-    color_id: String(player.color_id ?? "GREEN")
+    color_id: String(player.color_id ?? "GREEN"),
+    balance_cents: player.balance_cents
   };
   queue.push(ticket);
   return ok(res, { matched: false, ticket_id: ticket.id });
@@ -634,7 +755,8 @@ function debugFillQuickMatch(req: Request, res: Response): void {
     uid: ticket.uid,
     display_name: ticket.display_name || "Player",
     ready: false,
-    ticket_id: ticketId
+    ticket_id: ticketId,
+    balance_cents: ticket.balance_cents
   };
   const session = newSession(host, ticket.context, "quick");
   session.guest = {
@@ -642,7 +764,11 @@ function debugFillQuickMatch(req: Request, res: Response): void {
     display_name: botName,
     ready: true
   };
-  markSessionStarted(session);
+  const startResult = startSessionAuthoritatively(session);
+  if (startResult.ok !== true) {
+    queue.splice(index, 0, ticket);
+    return failLedger(res, startResult, 402);
+  }
   sessions.set(session.id, session);
   inviteToSession.set(session.invite_code, session.id);
   return ok(res, { session_id: session.id, session: cloneSession(session) });
@@ -665,7 +791,10 @@ function debugFillSession(req: Request, res: Response): void {
       ready: true
     };
   }
-  markSessionStarted(session);
+  const startResult = startSessionAuthoritatively(session);
+  if (startResult.ok !== true) {
+    return failLedger(res, startResult, 402);
+  }
   return ok(res, { session_id: session.id, session: cloneSession(session) });
 }
 
@@ -720,8 +849,139 @@ function startSession(req: Request, res: Response): void {
   if (!["matched", "ready"].includes(session.status) || session.host.uid !== uid) {
     return fail(res, "not_ready_or_not_host");
   }
-  markSessionStarted(session);
+  const startResult = startSessionAuthoritatively(session);
+  if (startResult.ok !== true) {
+    return failLedger(res, startResult, 402);
+  }
   return ok(res, { session: cloneSession(session) });
+}
+
+function playerBalanceHints(body: JsonRecord): Record<string, number> {
+  const source = isRecord(body.player_balances_cents) ? body.player_balances_cents : {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(source)) {
+    const playerId = stringValue(key);
+    const balance = optionalCentsValue(value);
+    if (playerId && balance != null) {
+      out[playerId] = balance;
+    }
+  }
+  return out;
+}
+
+function requestPlayerFundings(body: JsonRecord, fallbackPlayers: Player[] = []): { player_id: string; balance_cents?: number }[] {
+  const balances = playerBalanceHints(body);
+  const rawPlayerIds = Array.isArray(body.player_ids) ? body.player_ids : [];
+  const playerIds = rawPlayerIds.map((value: unknown) => stringValue(value)).filter(Boolean);
+  if (playerIds.length > 0) {
+    return playerIds.map((playerId) => ({ player_id: playerId, balance_cents: balances[playerId] }));
+  }
+  return fallbackPlayers
+    .filter((player) => Boolean(player.uid))
+    .map((player) => ({
+      player_id: player.uid,
+      balance_cents: player.balance_cents ?? balances[player.uid]
+    }));
+}
+
+function openMoneyEscrow(req: Request, res: Response): void {
+  const sessionId = stringValue(req.body?.session_id);
+  const session = sessions.get(sessionId);
+  const fallbackPlayers = session ? [session.host, session.guest] : [];
+  const wagerCents = Math.trunc(numberValue(req.body?.wager_cents, session ? contextWagerCents(session.context) : 0));
+  const idempotencyKey = stringValue(req.body?.idempotency_key);
+  const result = moneyLedger.openMoneyEscrow(sessionId, requestPlayerFundings(req.body ?? {}, fallbackPlayers), wagerCents, idempotencyKey);
+  if (result.ok === true && session) {
+    session.context = {
+      ...session.context,
+      paid_entry: true,
+      free_roll: false,
+      wager_cents: wagerCents,
+      price_usd: wagerCents / 100,
+      ledger_status: "escrowed",
+      pot_cents: Number(result.pot_cents ?? 0)
+    };
+  }
+  return okOrLedgerFailure(res, result, 402);
+}
+
+function settleMoneyMatch(req: Request, res: Response): void {
+  const sessionId = stringValue(req.body?.session_id);
+  const result = moneyLedger.settleMoneyMatch(sessionId, stringValue(req.body?.winner_id), stringValue(req.body?.idempotency_key));
+  const session = sessions.get(sessionId);
+  if (result.ok === true && session) {
+    session.context = {
+      ...session.context,
+      ledger_status: "settled",
+      winner_id: stringValue(result.winner_id),
+      winner_payout_cents: Number(result.winner_payout_cents ?? 0),
+      house_rake_cents: Number(result.house_rake_cents ?? 0)
+    };
+  }
+  return okOrLedgerFailure(res, result);
+}
+
+function refundMoneyMatch(req: Request, res: Response): void {
+  const sessionId = stringValue(req.body?.session_id);
+  const result = moneyLedger.refundMoneyMatch(
+    sessionId,
+    stringValue(req.body?.reason),
+    stringValue(req.body?.idempotency_key)
+  );
+  const session = sessions.get(sessionId);
+  if (result.ok === true && session) {
+    session.context = {
+      ...session.context,
+      ledger_status: "refunded",
+      refund_reason: stringValue(result.refund_reason)
+    };
+  }
+  return okOrLedgerFailure(res, result);
+}
+
+function openAsyncEntryEscrow(req: Request, res: Response): void {
+  const body = (req.body ?? {}) as JsonRecord;
+  const playerId = stringValue(body.player_id);
+  const balances = playerBalanceHints(body);
+  const player = {
+    player_id: playerId,
+    balance_cents: optionalCentsValue(body.balance_cents) ?? balances[playerId]
+  };
+  const result = moneyLedger.openAsyncEntryEscrow(
+    stringValue(body.entry_id),
+    stringValue(body.contest_id),
+    player,
+    Math.trunc(numberValue(body.wager_cents, 0)),
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result, 402);
+}
+
+function settleAsyncContest(req: Request, res: Response): void {
+  const result = moneyLedger.settleAsyncContest(
+    stringValue(req.body?.contest_id),
+    stringValue(req.body?.winner_id),
+    stringValue(req.body?.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function refundAsyncEntry(req: Request, res: Response): void {
+  const result = moneyLedger.refundAsyncEntry(
+    stringValue(req.body?.entry_id),
+    stringValue(req.body?.reason),
+    stringValue(req.body?.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function getMoneyTransactions(req: Request, res: Response): void {
+  const filters = isRecord(req.body?.filters) ? req.body.filters : (req.body ?? {});
+  return ok(res, { transactions: moneyLedger.getTransactionLedger(filters) });
+}
+
+function debugGetMoneyLedgerSnapshot(_req: Request, res: Response): void {
+  return ok(res, { ledger: moneyLedger.getSnapshot() });
 }
 
 function leaveSession(req: Request, res: Response): void {
@@ -833,6 +1093,7 @@ function respondFriendInvite(req: Request, res: Response): void {
     invite.status = "expired";
     return fail(res, "session_not_found", 404);
   }
+  const previousGuest = { ...session.guest };
   session.guest = {
     uid: guest.uid,
     display_name: guest.display_name || "Player 2",
@@ -840,9 +1101,15 @@ function respondFriendInvite(req: Request, res: Response): void {
     tier_id: guest.tier_id,
     rank_position: guest.rank_position,
     wax_score: guest.wax_score,
-    color_id: guest.color_id
+    color_id: guest.color_id,
+    balance_cents: guest.balance_cents
   };
-  markSessionStarted(session);
+  const startResult = startSessionAuthoritatively(session);
+  if (startResult.ok !== true) {
+    session.guest = previousGuest;
+    refreshSessionStatus(session);
+    return failLedger(res, startResult, 402);
+  }
   invite.status = "accepted";
   return ok(res, { accepted: true, session_id: session.id, session: cloneSession(session) });
 }

@@ -11377,6 +11377,7 @@ func _open_async_money_entry_escrow(mode_id: String, entry_usd: int, reason: Str
 			"price_usd": 0,
 			"reason": reason
 		}
+	var balance_before_usd: int = _wallet_balance_usd()
 	var charge: Dictionary = _charge_paid_entry_usd(amount, reason)
 	if not bool(charge.get("ok", false)):
 		return charge
@@ -11392,12 +11393,32 @@ func _open_async_money_entry_escrow(mode_id: String, entry_usd: int, reason: Str
 		clean_contest_id = "LOCAL_%s_%d" % [clean_mode, Time.get_ticks_msec()]
 	var entry_id: String = "async:%s:%s:%d" % [clean_contest_id, player_id, Time.get_ticks_msec()]
 	var wager_cents: int = amount * 100
+	var idempotency_key: String = "open:%s" % entry_id
+	var backend_escrow: Dictionary = _open_async_money_entry_escrow_backend(
+		entry_id,
+		clean_contest_id,
+		player_id,
+		wager_cents,
+		idempotency_key,
+		balance_before_usd * 100
+	)
+	if bool(backend_escrow.get("ok", false)):
+		backend_escrow["paid_entry"] = true
+		backend_escrow["price_usd"] = amount
+		backend_escrow["wager_cents"] = wager_cents
+		backend_escrow["charge"] = charge
+		backend_escrow["ledger_source"] = "backend"
+		return backend_escrow
+	if not _async_money_backend_fallback_allowed(backend_escrow):
+		if int(charge.get("charged_usd", 0)) > 0 and not bool(charge.get("bypassed", false)):
+			_wallet_profile["balance_usd"] = _wallet_balance_usd() + int(charge.get("charged_usd", 0))
+		return backend_escrow
 	var escrow: Dictionary = _async_money_ledger.intent_open_entry_escrow(
 		entry_id,
 		clean_contest_id,
 		player_id,
 		wager_cents,
-		"open:%s" % entry_id
+		idempotency_key
 	)
 	if not bool(escrow.get("ok", false)):
 		if int(charge.get("charged_usd", 0)) > 0 and not bool(charge.get("bypassed", false)):
@@ -11407,6 +11428,7 @@ func _open_async_money_entry_escrow(mode_id: String, entry_usd: int, reason: Str
 	escrow["price_usd"] = amount
 	escrow["wager_cents"] = wager_cents
 	escrow["charge"] = charge
+	escrow["ledger_source"] = "local"
 	return escrow
 
 func _refund_async_money_entry_escrow(escrow: Dictionary, reason: String) -> void:
@@ -11415,11 +11437,46 @@ func _refund_async_money_entry_escrow(escrow: Dictionary, reason: String) -> voi
 	var entry_id: String = str(escrow.get("entry_id", "")).strip_edges()
 	if entry_id.is_empty():
 		return
+	if str(escrow.get("ledger_source", "")).strip_edges().to_lower() == "backend":
+		var backend_refund: Dictionary = _refund_async_money_entry_escrow_backend(entry_id, reason)
+		if bool(backend_refund.get("ok", false)):
+			var backend_refund_usd: int = int(int(backend_refund.get("refunded_cents", 0)) / 100)
+			if backend_refund_usd > 0:
+				_wallet_profile["balance_usd"] = _wallet_balance_usd() + backend_refund_usd
+		return
 	var refund: Dictionary = _async_money_ledger.intent_refund_entry(entry_id, reason, "refund:%s:%s" % [entry_id, reason])
 	if bool(refund.get("ok", false)):
 		var refund_usd: int = int(int(refund.get("refunded_cents", 0)) / 100)
 		if refund_usd > 0:
 			_wallet_profile["balance_usd"] = _wallet_balance_usd() + refund_usd
+
+func _open_async_money_entry_escrow_backend(entry_id: String, contest_id: String, player_id: String, wager_cents: int, idempotency_key: String, balance_cents: int) -> Dictionary:
+	var handshake: Node = _vs_handshake_backend_node()
+	if handshake == null or not handshake.has_method("open_async_entry_escrow"):
+		return {"ok": false, "handled": false, "err": "transport_not_configured"}
+	return handshake.call("open_async_entry_escrow", entry_id, contest_id, player_id, wager_cents, idempotency_key, balance_cents) as Dictionary
+
+func _refund_async_money_entry_escrow_backend(entry_id: String, reason: String) -> Dictionary:
+	var handshake: Node = _vs_handshake_backend_node()
+	if handshake == null or not handshake.has_method("refund_async_entry"):
+		return {"ok": false, "handled": false, "err": "transport_not_configured"}
+	return handshake.call("refund_async_entry", entry_id, reason, "refund:%s:%s" % [entry_id, reason]) as Dictionary
+
+func _vs_handshake_backend_node() -> Node:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("VsHandshake")
+
+func _async_money_backend_fallback_allowed(result: Dictionary) -> bool:
+	if result.is_empty():
+		return true
+	if bool(result.get("transport_error", false)):
+		return true
+	if not bool(result.get("handled", true)):
+		return true
+	var err: String = str(result.get("err", result.get("code", ""))).strip_edges()
+	return ["transport_not_configured", "unknown_action", "not_found"].has(err)
 
 func _apply_async_money_escrow_options(options: Dictionary, escrow: Dictionary) -> Dictionary:
 	var out: Dictionary = options.duplicate(true)
@@ -11432,6 +11489,7 @@ func _apply_async_money_escrow_options(options: Dictionary, escrow: Dictionary) 
 	out["async_money_ledger_status"] = str(escrow.get("status", ""))
 	out["async_money_pot_cents"] = maxi(0, int(escrow.get("pot_cents", 0)))
 	out["async_money_escrow_cents"] = maxi(0, int(escrow.get("escrow_cents", 0)))
+	out["async_money_ledger_source"] = str(escrow.get("ledger_source", "local"))
 	return out
 
 func _apply_async_money_escrow_tree_meta(escrow: Dictionary) -> void:
@@ -11447,6 +11505,7 @@ func _apply_async_money_escrow_tree_meta(escrow: Dictionary) -> void:
 	tree.set_meta("async_money_ledger_status", str(escrow.get("status", "")))
 	tree.set_meta("async_money_pot_cents", maxi(0, int(escrow.get("pot_cents", 0))))
 	tree.set_meta("async_money_escrow_cents", maxi(0, int(escrow.get("escrow_cents", 0))))
+	tree.set_meta("async_money_ledger_source", str(escrow.get("ledger_source", "local")))
 
 func debug_get_async_money_entry_snapshot(entry_id: String) -> Dictionary:
 	return _async_money_ledger.get_entry_snapshot(entry_id)
@@ -13547,6 +13606,7 @@ func _progressive_launch_clear_keys() -> Array[String]:
 		"async_money_ledger_status",
 		"async_money_pot_cents",
 		"async_money_escrow_cents",
+		"async_money_ledger_source",
 		"ctf_flag_selection_mode",
 		"ctf_player_select_pct",
 		"ctf_randomize_flag_hive",
@@ -15877,7 +15937,8 @@ func _direct_async_launch_clear_keys() -> Array[String]:
 		"async_money_contest_id",
 		"async_money_ledger_status",
 		"async_money_pot_cents",
-		"async_money_escrow_cents"
+		"async_money_escrow_cents",
+		"async_money_ledger_source"
 	]
 
 func _resolve_direct_capture_flag_map_path(mode_id: String, free_roll: bool = false) -> String:

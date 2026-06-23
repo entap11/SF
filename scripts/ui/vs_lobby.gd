@@ -1227,7 +1227,8 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"async_money_contest_id",
 		"async_money_ledger_status",
 		"async_money_pot_cents",
-		"async_money_escrow_cents"
+		"async_money_escrow_cents",
+		"async_money_ledger_source"
 	]
 
 func _remote_profile_for_tree() -> Dictionary:

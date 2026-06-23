@@ -160,6 +160,42 @@ Paid session context must include:
 }
 ```
 
+The local smoke backend accepts optional profile balance hints for paid-session testing:
+
+```json
+{
+  "profile": {
+    "uid": "u1",
+    "display_name": "Host",
+    "balance_cents": 1000
+  }
+}
+```
+
+Production backends should ignore client-provided cash balances and use the authoritative wallet/payment account instead.
+
+### `open_money_escrow`
+Request:
+```json
+{
+  "session_id": "S12345678",
+  "player_ids": ["u1", "u2"],
+  "wager_cents": 100,
+  "idempotency_key": "open:S12345678"
+}
+```
+Response:
+```json
+{
+  "ok": true,
+  "type": "escrow_opened",
+  "session_id": "S12345678",
+  "status": "escrowed",
+  "pot_cents": 200,
+  "escrow_cents": 200
+}
+```
+
 ### `settle_money_match`
 Request:
 ```json
@@ -201,6 +237,92 @@ Response:
   "status": "refunded",
   "refund_reason": "failed_start",
   "refunded_cents_per_player": 100
+}
+```
+
+### `open_async_entry_escrow`
+Request:
+```json
+{
+  "entry_id": "async:WEEKLY_USD_5_2026W26:u1:12345",
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "player_id": "u1",
+  "wager_cents": 500,
+  "idempotency_key": "open:async:WEEKLY_USD_5_2026W26:u1:12345"
+}
+```
+Response:
+```json
+{
+  "ok": true,
+  "type": "async_entry_escrowed",
+  "entry_id": "async:WEEKLY_USD_5_2026W26:u1:12345",
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "player_id": "u1",
+  "status": "escrowed",
+  "wager_cents": 500,
+  "pot_cents": 500,
+  "escrow_cents": 500
+}
+```
+
+### `settle_async_contest`
+Request:
+```json
+{
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "winner_id": "u1",
+  "idempotency_key": "settle:WEEKLY_USD_5_2026W26:u1"
+}
+```
+Response:
+```json
+{
+  "ok": true,
+  "type": "async_contest_settled",
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "status": "settled",
+  "winner_id": "u1",
+  "winner_payout_cents": 900,
+  "house_rake_cents": 100,
+  "pot_cents": 1000
+}
+```
+
+### `refund_async_entry`
+Request:
+```json
+{
+  "entry_id": "async:WEEKLY_USD_5_2026W26:u1:12345",
+  "reason": "failed_start",
+  "idempotency_key": "refund:async:WEEKLY_USD_5_2026W26:u1:12345"
+}
+```
+Response:
+```json
+{
+  "ok": true,
+  "type": "async_entry_refunded",
+  "entry_id": "async:WEEKLY_USD_5_2026W26:u1:12345",
+  "status": "refunded",
+  "refunded_cents": 500
+}
+```
+
+### `get_money_transactions`
+Request:
+```json
+{
+  "session_id": "S12345678",
+  "sort_desc": true,
+  "limit": 20
+}
+```
+Response:
+```json
+{
+  "ok": true,
+  "transactions": []
 }
 ```
 

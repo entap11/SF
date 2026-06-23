@@ -59,6 +59,7 @@ Implemented visibility for beta users:
    - `res://tools/async_money_game_ledger_smoke_test.gd`
    - `res://tools/vs_money_game_start_smoke_test.gd`
    - `res://tools/main_menu_async_money_escrow_smoke_test.gd`
+   - `res://tools/money_game_backend_transport_smoke_test.gd` with local `tools/vs-service` running
    - `res://tools/economy_buff_smoke_test.gd`
    - `res://tools/swarm_pass_smoke_test.gd`
    - `res://tools/rank_system_smoke_test.gd`

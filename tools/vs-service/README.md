@@ -34,6 +34,13 @@ http://127.0.0.1:8791/v1
 - `POST /v1/enqueue_quick_match`
 - `POST /v1/poll_quick_match`
 - `POST /v1/cancel_quick_match`
+- `POST /v1/open_money_escrow`
+- `POST /v1/settle_money_match`
+- `POST /v1/refund_money_match`
+- `POST /v1/open_async_entry_escrow`
+- `POST /v1/settle_async_contest`
+- `POST /v1/refund_async_entry`
+- `POST /v1/get_money_transactions`
 - `POST /v1/publish_intent`
 - `POST /v1/poll_intents`
 
@@ -77,4 +84,11 @@ Verify before exporting TestFlight:
 
 ```bash
 godot --headless --path ../.. --script res://scripts/dev/vs_pvp_smoke.gd --vs-smoke-backend-url=https://YOUR_HOSTNAME/v1
+```
+
+Local money-game transport smoke:
+
+```bash
+PORT=8791 BIND_HOST=127.0.0.1 npm start
+SF_VS_BACKEND_URL=http://127.0.0.1:8791/v1 godot --headless --path ../.. --script res://tools/money_game_backend_transport_smoke_test.gd
 ```
