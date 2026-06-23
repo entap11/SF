@@ -9,6 +9,7 @@ const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
+const MoneyGameLedgerScript := preload("res://scripts/state/money_game_ledger.gd")
 
 const SESSION_TTL_SEC: int = 15 * 60
 const QUEUE_TTL_SEC: int = 90
@@ -50,12 +51,14 @@ var _queue: Array[Dictionary] = []
 var _intent_streams: Dictionary = {}
 var _presence_by_uid: Dictionary = {}
 var _friend_invites: Dictionary = {}
+var _rematch_sessions_by_parent_key: Dictionary = {}
 var _transport_http: VsHandshakeTransportHttp = null
 var _transport_mode: String = "local"
 var _transport_error_logged: bool = false
 var _transport_config_blocker: String = ""
 var _last_transport_error: Dictionary = {}
 var _transport_backoff_until_msec: int = 0
+var _money_ledger = MoneyGameLedgerScript.new()
 
 func _ready() -> void:
 	_rng.randomize()
@@ -116,6 +119,35 @@ func get_beta_runtime_flags() -> Dictionary:
 		"competitive_provisional": not remote_online,
 		"authoritative_progression_online": remote_online
 	}
+
+func clear() -> void:
+	_sessions.clear()
+	_invite_to_session.clear()
+	_queue.clear()
+	_intent_streams.clear()
+	_presence_by_uid.clear()
+	_friend_invites.clear()
+	_rematch_sessions_by_parent_key.clear()
+	_last_transport_error = {}
+	_transport_backoff_until_msec = 0
+	_transport_error_logged = false
+	_money_ledger = MoneyGameLedgerScript.new()
+	emit_signal("queue_changed", _queue.size())
+
+func debug_set_money_balance_cents(account_id: String, amount_cents: int) -> Dictionary:
+	return _money_ledger.set_balance_cents(account_id, amount_cents)
+
+func debug_get_money_balance_cents(account_id: String) -> int:
+	return int(_money_ledger.get_balance_cents(account_id))
+
+func debug_get_money_match_snapshot(session_id: String) -> Dictionary:
+	return _money_ledger.get_match_snapshot(session_id)
+
+func debug_get_money_ledger_snapshot() -> Dictionary:
+	return _money_ledger.get_snapshot()
+
+func debug_get_money_transaction_ledger(filters: Dictionary = {}) -> Array[Dictionary]:
+	return _money_ledger.get_transaction_ledger(filters)
 
 func _configured_backend_url() -> String:
 	var env_url: String = OS.get_environment(ENV_BACKEND_URL).strip_edges()
@@ -246,7 +278,9 @@ func join_invite(invite_code: String, profile: Dictionary) -> Dictionary:
 		"display_name": str(guest.get("display_name", "Player 2")),
 		"ready": bool(existing_guest.get("ready", false))
 	}
-	_mark_session_started(session)
+	var start_result: Dictionary = _mark_session_started(session)
+	if not bool(start_result.get("ok", false)):
+		return start_result
 	_sessions[session_id] = session
 	_emit_session_changed(session_id)
 	return {"ok": true, "session_id": session_id, "session": _dup_session(session)}
@@ -295,7 +329,9 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 			"wax_score": float(player.get("wax_score", 0.0)),
 			"color_id": str(player.get("color_id", "GREEN"))
 		}
-		_mark_session_started(session)
+		var start_result: Dictionary = _mark_session_started(session)
+		if not bool(start_result.get("ok", false)):
+			return start_result
 		var session_id: String = str(session.get("id", ""))
 		_sessions[session_id] = session
 		_invite_to_session[str(session.get("invite_code", ""))] = session_id
@@ -411,7 +447,9 @@ func debug_fill_quick_match(ticket_id: String, bot_name: String = "Rival") -> Di
 			"display_name": bot_name,
 			"ready": true
 		}
-		_mark_session_started(session)
+		var start_result: Dictionary = _mark_session_started(session)
+		if not bool(start_result.get("ok", false)):
+			return start_result
 		var session_id: String = str(session.get("id", ""))
 		_sessions[session_id] = session
 		_invite_to_session[str(session.get("invite_code", ""))] = session_id
@@ -440,7 +478,9 @@ func debug_fill_session(session_id: String, bot_name: String = "Rival") -> Dicti
 			"display_name": bot_name,
 			"ready": false
 		}
-	_mark_session_started(session)
+	var start_result: Dictionary = _mark_session_started(session)
+	if not bool(start_result.get("ok", false)):
+		return start_result
 	_sessions[sid] = session
 	_emit_session_changed(sid)
 	return {"ok": true, "session_id": sid, "session": _dup_session(session)}
@@ -525,10 +565,177 @@ func start_session(session_id: String, uid: String) -> Dictionary:
 	if not can_start(sid, uid):
 		return {"ok": false, "err": "not_ready_or_not_host"}
 	var session: Dictionary = _sessions.get(sid, {}) as Dictionary
-	_mark_session_started(session)
+	var start_result: Dictionary = _mark_session_started(session)
+	if not bool(start_result.get("ok", false)):
+		return start_result
 	_sessions[sid] = session
 	_emit_session_changed(sid)
 	return {"ok": true, "session": _dup_session(session)}
+
+func settle_money_match(session_id: String, winner_owner_id: int, reason: String = "") -> Dictionary:
+	var transport := _call_transport("settle_money_match", {
+		"session_id": session_id,
+		"winner_owner_id": winner_owner_id,
+		"reason": reason
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	_prune()
+	var sid: String = session_id.strip_edges()
+	if sid.is_empty():
+		return {"ok": false, "err": "missing_session_id", "code": "missing_session_id"}
+	if not _sessions.has(sid):
+		return {"ok": false, "err": "session_not_found", "code": "session_not_found"}
+	var session: Dictionary = (_sessions.get(sid, {}) as Dictionary).duplicate(true)
+	var context: Dictionary = session.get("context", {}) as Dictionary
+	if not bool(context.get("paid_entry", false)):
+		return {"ok": true, "type": "no_money_settlement_required", "session_id": sid, "ledger_required": false}
+	if str(context.get("ledger_status", "")).strip_edges().to_lower() == "refunded":
+		return {
+			"ok": false,
+			"err": "money_match_already_refunded",
+			"code": "money_match_already_refunded",
+			"session_id": sid
+		}
+	var clean_reason: String = reason.strip_edges()
+	if winner_owner_id <= 0:
+		return _refund_money_match_for_session(session, clean_reason if not clean_reason.is_empty() else "draw_or_no_winner")
+	var winner_uid: String = _money_player_uid_for_owner_id(session, winner_owner_id)
+	if winner_uid.is_empty():
+		return {
+			"ok": false,
+			"err": "winner_not_in_match",
+			"code": "winner_not_in_match",
+			"session_id": sid,
+			"winner_owner_id": winner_owner_id
+		}
+	var settle_result: Dictionary = _money_ledger.intent_settle_match(
+		sid,
+		winner_uid,
+		"settle:%s:%s" % [sid, winner_uid]
+	)
+	if not bool(settle_result.get("ok", false)):
+		var out: Dictionary = settle_result.duplicate(true)
+		out["err"] = str(out.get("code", out.get("err", "settlement_failed")))
+		return out
+	context["ledger_status"] = "settled"
+	context["winner_owner_id"] = winner_owner_id
+	context["winner_uid"] = winner_uid
+	context["winner_payout_cents"] = int(settle_result.get("winner_payout_cents", 0))
+	context["house_rake_cents"] = int(settle_result.get("house_rake_cents", 0))
+	context["settle_transaction_ids"] = (settle_result.get("transaction_ids", []) as Array).duplicate(true)
+	context["settle_reason"] = clean_reason
+	session["context"] = context
+	_sessions[sid] = session
+	_emit_session_changed(sid)
+	var response: Dictionary = settle_result.duplicate(true)
+	response["winner_owner_id"] = winner_owner_id
+	response["winner_uid"] = winner_uid
+	response["session"] = _dup_session(session)
+	return response
+
+func get_money_rematch_funding_status(session_id: String, owner_id: int) -> Dictionary:
+	var sid: String = session_id.strip_edges()
+	if sid.is_empty():
+		return {"ok": false, "err": "missing_session_id", "code": "missing_session_id"}
+	if not _sessions.has(sid):
+		return {"ok": false, "err": "session_not_found", "code": "session_not_found"}
+	var session: Dictionary = _sessions.get(sid, {}) as Dictionary
+	var context: Dictionary = session.get("context", {}) as Dictionary
+	if not bool(context.get("paid_entry", false)):
+		return {"ok": true, "payment_required": false, "paid_entry": false, "session_id": sid}
+	var player_uid: String = _money_player_uid_for_owner_id(session, owner_id)
+	if player_uid.is_empty():
+		return {
+			"ok": false,
+			"err": "player_not_in_session",
+			"code": "player_not_in_session",
+			"session_id": sid,
+			"owner_id": owner_id
+		}
+	var wager_cents: int = maxi(0, int(context.get("wager_cents", int(context.get("price_usd", 0)) * 100)))
+	var balance_cents: int = int(_money_ledger.get_balance_cents(player_uid))
+	return {
+		"ok": true,
+		"payment_required": balance_cents < wager_cents,
+		"paid_entry": true,
+		"session_id": sid,
+		"owner_id": owner_id,
+		"player_uid": player_uid,
+		"wager_cents": wager_cents,
+		"balance_cents": balance_cents,
+		"missing_cents": maxi(0, wager_cents - balance_cents)
+	}
+
+func prepare_money_rematch(session_id: String) -> Dictionary:
+	var transport := _call_transport("prepare_money_rematch", {"session_id": session_id})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	_prune()
+	var sid: String = session_id.strip_edges()
+	if sid.is_empty():
+		return {"ok": false, "err": "missing_session_id", "code": "missing_session_id"}
+	if not _sessions.has(sid):
+		return {"ok": false, "err": "session_not_found", "code": "session_not_found"}
+	var parent_session: Dictionary = (_sessions.get(sid, {}) as Dictionary).duplicate(true)
+	var parent_context: Dictionary = parent_session.get("context", {}) as Dictionary
+	if not bool(parent_context.get("paid_entry", false)):
+		return {"ok": true, "type": "no_money_rematch_escrow_required", "session_id": sid, "ledger_required": false}
+	var next_rematch_index: int = maxi(1, int(parent_context.get("rematch_index", 0)) + 1)
+	var parent_key: String = "%s:%d" % [sid, next_rematch_index]
+	var existing_session_id: String = str(_rematch_sessions_by_parent_key.get(parent_key, "")).strip_edges()
+	if not existing_session_id.is_empty() and _sessions.has(existing_session_id):
+		var existing_session: Dictionary = _sessions.get(existing_session_id, {}) as Dictionary
+		return {"ok": true, "type": "money_rematch_prepared", "session_id": existing_session_id, "session": _dup_session(existing_session), "cached": true}
+	var host: Dictionary = parent_session.get("host", {}) as Dictionary
+	var guest: Dictionary = parent_session.get("guest", {}) as Dictionary
+	if str(host.get("uid", "")).strip_edges().is_empty() or str(guest.get("uid", "")).strip_edges().is_empty():
+		return {"ok": false, "err": "not_enough_players", "code": "not_enough_players"}
+	var rematch_context: Dictionary = parent_context.duplicate(true)
+	for key in [
+		"ledger_status",
+		"pot_cents",
+		"escrow_cents",
+		"winner_owner_id",
+		"winner_uid",
+		"winner_payout_cents",
+		"house_rake_cents",
+		"settle_transaction_ids",
+		"settle_reason",
+		"refund_reason",
+		"refund_transaction_ids"
+	]:
+		rematch_context.erase(key)
+	rematch_context["rematch_parent_session_id"] = sid
+	rematch_context["rematch_index"] = next_rematch_index
+	var rematch_session: Dictionary = _new_session(host, rematch_context, "rematch")
+	rematch_session["guest"] = {
+		"uid": str(guest.get("uid", "")),
+		"display_name": str(guest.get("display_name", "Player 2")),
+		"ready": true,
+		"tier_id": str(guest.get("tier_id", "DRONE")),
+		"rank_position": int(guest.get("rank_position", 0)),
+		"wax_score": float(guest.get("wax_score", 0.0)),
+		"color_id": str(guest.get("color_id", "GREEN"))
+	}
+	var start_result: Dictionary = _mark_session_started(rematch_session)
+	if not bool(start_result.get("ok", false)):
+		return start_result
+	var rematch_session_id: String = str(rematch_session.get("id", ""))
+	_sessions[rematch_session_id] = rematch_session
+	_invite_to_session[str(rematch_session.get("invite_code", ""))] = rematch_session_id
+	_rematch_sessions_by_parent_key[parent_key] = rematch_session_id
+	parent_context["next_rematch_session_id"] = rematch_session_id
+	parent_session["context"] = parent_context
+	_sessions[sid] = parent_session
+	_emit_session_changed(rematch_session_id)
+	return {
+		"ok": true,
+		"type": "money_rematch_prepared",
+		"session_id": rematch_session_id,
+		"parent_session_id": sid,
+		"session": _dup_session(rematch_session)
+	}
 
 func leave_session(session_id: String, uid: String) -> Dictionary:
 	var transport := _call_transport("leave_session", {
@@ -682,7 +889,9 @@ func respond_friend_invite(invite_id: String, profile: Dictionary, accept: bool)
 		"display_name": str(guest.get("display_name", "Player 2")),
 		"ready": false
 	}
-	_mark_session_started(session)
+	var start_result: Dictionary = _mark_session_started(session)
+	if not bool(start_result.get("ok", false)):
+		return start_result
 	_sessions[session_id] = session
 	invite["status"] = "accepted"
 	_friend_invites[clean_id] = invite
@@ -851,6 +1060,17 @@ func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dict
 
 func _prepare_session_context(context: Dictionary) -> Dictionary:
 	var out: Dictionary = context.duplicate(true)
+	var price_usd: int = maxi(0, int(out.get("price_usd", 0)))
+	var wager_cents: int = maxi(0, int(out.get("wager_cents", price_usd * 100)))
+	var free_roll: bool = bool(out.get("free_roll", price_usd <= 0 and wager_cents <= 0))
+	if free_roll or wager_cents <= 0:
+		free_roll = true
+		price_usd = 0
+		wager_cents = 0
+	out["price_usd"] = price_usd
+	out["wager_cents"] = wager_cents
+	out["free_roll"] = free_roll
+	out["paid_entry"] = not free_roll and wager_cents > 0
 	var requested_count: int = maxi(1, int(out.get("map_count", 1)))
 	var stage_maps: Array[String] = _stage_map_paths_from_context_stage_paths(out, requested_count)
 	if stage_maps.is_empty():
@@ -1056,9 +1276,99 @@ func _session_refresh_status(session: Dictionary) -> void:
 		return
 	session["status"] = "matched"
 
-func _mark_session_started(session: Dictionary) -> void:
+func _mark_session_started(session: Dictionary) -> Dictionary:
+	var escrow_result: Dictionary = _ensure_money_escrow_for_session(session)
+	if not bool(escrow_result.get("ok", false)):
+		return escrow_result
 	session["status"] = "started"
 	session["started_unix"] = int(Time.get_unix_time_from_system())
+	return {"ok": true, "session": _dup_session(session)}
+
+func _ensure_money_escrow_for_session(session: Dictionary) -> Dictionary:
+	var context: Dictionary = session.get("context", {}) as Dictionary
+	if not bool(context.get("paid_entry", false)):
+		return {"ok": true, "ledger_required": false}
+	if str(context.get("ledger_status", "")).strip_edges().to_lower() == "escrowed":
+		return {"ok": true, "ledger_required": true, "ledger_status": "escrowed"}
+	var session_id: String = str(session.get("id", "")).strip_edges()
+	if session_id.is_empty():
+		return {"ok": false, "err": "missing_session_id", "code": "missing_session_id"}
+	var player_ids: Array[String] = _money_player_ids_for_session(session)
+	if player_ids.size() < 2:
+		return {"ok": false, "err": "not_enough_players", "code": "not_enough_players", "message": "Paid VS requires two funded players."}
+	var wager_cents: int = maxi(0, int(context.get("wager_cents", int(context.get("price_usd", 0)) * 100)))
+	if wager_cents <= 0:
+		return {"ok": false, "err": "invalid_wager", "code": "invalid_wager", "message": "Paid VS wager must be positive integer cents."}
+	var escrow_result: Dictionary = _money_ledger.intent_open_escrow(
+		session_id,
+		player_ids,
+		wager_cents,
+		"open:%s" % session_id
+	)
+	if not bool(escrow_result.get("ok", false)):
+		var out: Dictionary = escrow_result.duplicate(true)
+		out["err"] = str(out.get("code", out.get("err", "escrow_failed")))
+		return out
+	context["ledger_status"] = "escrowed"
+	context["wager_cents"] = wager_cents
+	context["pot_cents"] = int(escrow_result.get("pot_cents", wager_cents * player_ids.size()))
+	context["escrow_cents"] = int(escrow_result.get("escrow_cents", context.get("pot_cents", 0)))
+	session["context"] = context
+	return {"ok": true, "ledger_required": true, "ledger_status": "escrowed", "escrow": escrow_result}
+
+func _money_player_ids_for_session(session: Dictionary) -> Array[String]:
+	var out: Array[String] = []
+	for key in ["host", "guest"]:
+		var profile_any: Variant = session.get(key, {})
+		if typeof(profile_any) != TYPE_DICTIONARY:
+			continue
+		var profile: Dictionary = profile_any as Dictionary
+		var uid: String = str(profile.get("uid", "")).strip_edges()
+		if uid.is_empty():
+			continue
+		out.append(uid)
+	return out
+
+func _money_player_uid_for_owner_id(session: Dictionary, owner_id: int) -> String:
+	var key: String = ""
+	match owner_id:
+		1:
+			key = "host"
+		2:
+			key = "guest"
+		_:
+			return ""
+	var profile_any: Variant = session.get(key, {})
+	if typeof(profile_any) != TYPE_DICTIONARY:
+		return ""
+	return str((profile_any as Dictionary).get("uid", "")).strip_edges()
+
+func _refund_money_match_for_session(session: Dictionary, reason: String) -> Dictionary:
+	var sid: String = str(session.get("id", "")).strip_edges()
+	if sid.is_empty():
+		return {"ok": false, "err": "missing_session_id", "code": "missing_session_id"}
+	var clean_reason: String = reason.strip_edges()
+	if clean_reason.is_empty():
+		clean_reason = "money_match_refund"
+	var refund_result: Dictionary = _money_ledger.intent_refund_match(
+		sid,
+		clean_reason,
+		"refund:%s:%s" % [sid, clean_reason]
+	)
+	if not bool(refund_result.get("ok", false)):
+		var out: Dictionary = refund_result.duplicate(true)
+		out["err"] = str(out.get("code", out.get("err", "refund_failed")))
+		return out
+	var context: Dictionary = session.get("context", {}) as Dictionary
+	context["ledger_status"] = "refunded"
+	context["refund_reason"] = clean_reason
+	context["refund_transaction_ids"] = (refund_result.get("transaction_ids", []) as Array).duplicate(true)
+	session["context"] = context
+	_sessions[sid] = session
+	_emit_session_changed(sid)
+	var response: Dictionary = refund_result.duplicate(true)
+	response["session"] = _dup_session(session)
+	return response
 
 func _contexts_compatible(a: Dictionary, b: Dictionary) -> bool:
 	if str(a.get("mode", "")) != str(b.get("mode", "")):
@@ -1066,6 +1376,10 @@ func _contexts_compatible(a: Dictionary, b: Dictionary) -> bool:
 	if int(a.get("map_count", 0)) != int(b.get("map_count", 0)):
 		return false
 	if int(a.get("price_usd", 0)) != int(b.get("price_usd", 0)):
+		return false
+	if _context_wager_cents(a) != _context_wager_cents(b):
+		return false
+	if _context_paid_entry(a) != _context_paid_entry(b):
 		return false
 	if bool(a.get("free_roll", false)) != bool(b.get("free_roll", false)):
 		return false
@@ -1076,6 +1390,16 @@ func _contexts_compatible(a: Dictionary, b: Dictionary) -> bool:
 		if not _context_value_matches(a, b, key):
 			return false
 	return true
+
+func _context_wager_cents(context: Dictionary) -> int:
+	return maxi(0, int(context.get("wager_cents", int(context.get("price_usd", 0)) * 100)))
+
+func _context_paid_entry(context: Dictionary) -> bool:
+	if context.has("paid_entry"):
+		return bool(context.get("paid_entry", false))
+	var wager_cents: int = _context_wager_cents(context)
+	var free_roll: bool = bool(context.get("free_roll", int(context.get("price_usd", 0)) <= 0 and wager_cents <= 0))
+	return not free_roll and wager_cents > 0
 
 func _best_quick_match_index(player: Dictionary, context: Dictionary) -> int:
 	var best_index: int = -1

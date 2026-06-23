@@ -2,6 +2,8 @@
 
 This contract matches the client transport in `scripts/state/vs_handshake_state.gd` and `scripts/state/vs_handshake_transport_http.gd`.
 
+Paid VS sessions must also satisfy the authoritative escrow and settlement rules in `docs/money_game_ledger_contract.md`.
+
 ## Transport
 
 - Base URL: configured via `SF_VS_BACKEND_URL` (or project setting `swarmfront/vs/backend_url`).
@@ -143,6 +145,65 @@ Response:
 { "ok": true, "session": { "...": "session object" } }
 ```
 
+For paid money-game sessions, any response that marks a session `started` must only succeed after ledger escrow is open for every player in the session. This includes invite joins and quick-match pairings that auto-start locally, plus explicit `start_session` calls. The escrow operation uses integer cents and idempotency as defined in `docs/money_game_ledger_contract.md`.
+
+Paid session context must include:
+
+```json
+{
+  "price_usd": 1,
+  "wager_cents": 100,
+  "free_roll": false,
+  "paid_entry": true,
+  "ledger_status": "escrowed",
+  "pot_cents": 200
+}
+```
+
+### `settle_money_match`
+Request:
+```json
+{
+  "session_id": "S12345678",
+  "winner_id": "u1",
+  "idempotency_key": "settle:S12345678:u1"
+}
+```
+Response:
+```json
+{
+  "ok": true,
+  "type": "match_settled",
+  "session_id": "S12345678",
+  "status": "settled",
+  "winner_id": "u1",
+  "winner_payout_cents": 180,
+  "house_rake_cents": 20,
+  "pot_cents": 200
+}
+```
+
+### `refund_money_match`
+Request:
+```json
+{
+  "session_id": "S12345678",
+  "reason": "failed_start",
+  "idempotency_key": "refund:S12345678"
+}
+```
+Response:
+```json
+{
+  "ok": true,
+  "type": "match_refunded",
+  "session_id": "S12345678",
+  "status": "refunded",
+  "refund_reason": "failed_start",
+  "refunded_cents_per_player": 100
+}
+```
+
 ### `leave_session`
 Request:
 ```json
@@ -212,7 +273,7 @@ Response:
   "expires_unix": 1739981700,
   "host": { "uid": "u1", "display_name": "Host", "ready": false },
   "guest": { "uid": "u2", "display_name": "Guest", "ready": false },
-  "context": { "mode": "PVP", "map_count": 1, "price_usd": 0, "free_roll": true }
+  "context": { "mode": "PVP", "map_count": 1, "price_usd": 0, "wager_cents": 0, "free_roll": true, "paid_entry": false }
 }
 ```
 

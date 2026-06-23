@@ -55,6 +55,10 @@ Implemented visibility for beta users:
 
 ## Pre-Upload Gate
 1. Run smoke tests:
+   - `res://tools/money_game_ledger_smoke_test.gd`
+   - `res://tools/async_money_game_ledger_smoke_test.gd`
+   - `res://tools/vs_money_game_start_smoke_test.gd`
+   - `res://tools/main_menu_async_money_escrow_smoke_test.gd`
    - `res://tools/economy_buff_smoke_test.gd`
    - `res://tools/swarm_pass_smoke_test.gd`
    - `res://tools/rank_system_smoke_test.gd`

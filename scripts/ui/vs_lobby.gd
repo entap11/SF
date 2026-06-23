@@ -68,6 +68,7 @@ const BOT_FILL_JUKEBOX_BOARD_PERIOD: String = "WEEKLY"
 var _mode := ""
 var _map_count := 3
 var _price_usd := 1
+var _wager_cents := 100
 var _free_roll := false
 var _countdown_left := 0
 var _timeout_left := 0
@@ -111,6 +112,7 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	_map_count = map_count
 	_price_usd = price_usd
 	_free_roll = free_roll
+	_wager_cents = _wager_cents_from_price(_price_usd, _free_roll)
 	_bot_fill_prompt_shown = false
 	_bot_filled_match = false
 	_bot_remote_profile = {}
@@ -261,7 +263,7 @@ func accept_friend_invite(invite: Dictionary) -> void:
 	_refresh_sync_session_ui()
 
 func _refresh_summary() -> void:
-	var price_text := "Free Roll" if _free_roll else "$%d Entry" % _price_usd
+	var price_text := "Free Roll" if _free_roll else "%s Entry" % _format_money_cents(_wager_cents)
 	var summary_text: String = "%s | %d Maps | %s" % [_mode_label(_mode), _map_count, price_text]
 	summary_label.text = summary_text
 
@@ -542,6 +544,8 @@ func _handshake_context() -> Dictionary:
 		"mode": _mode,
 		"map_count": _map_count,
 		"price_usd": _price_usd,
+		"wager_cents": _wager_cents,
+		"paid_entry": not _free_roll and _wager_cents > 0,
 		"free_roll": _free_roll
 	}
 	for key in _context_meta.keys():
@@ -940,7 +944,7 @@ func _start_match(session_already_started: bool = false) -> void:
 				return
 			var started_session: Dictionary = start_result.get("session", {}) as Dictionary
 			_apply_session_context(started_session)
-	var price_text := "FREE" if _free_roll else "$%d" % _price_usd
+	var price_text := "FREE" if _free_roll else _format_money_cents(_wager_cents)
 	var stage_map_paths: Array[String] = _resolve_stage_map_paths()
 	var first_stage_map: String = stage_map_paths[0] if not stage_map_paths.is_empty() else ""
 	if first_stage_map.is_empty():
@@ -975,6 +979,8 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("start_game", true)
 	tree.set_meta("vs_mode", _mode)
 	tree.set_meta("vs_price_usd", _price_usd)
+	tree.set_meta("vs_wager_cents", _wager_cents)
+	tree.set_meta("vs_paid_entry", not _free_roll and _wager_cents > 0)
 	tree.set_meta("vs_free_roll", _free_roll)
 	tree.set_meta("vs_assigned_players", _assigned_players.duplicate())
 	tree.set_meta("vs_open_slots", maxi(_max_players() - _assigned_players.size(), 0))
@@ -1075,6 +1081,8 @@ func _prepare_bot_fill_jukebox_metadata(map_path: String) -> bool:
 	tree.set_meta("start_game", true)
 	tree.set_meta("vs_mode", "ASYNC_SINGLE_MAP_TIMED")
 	tree.set_meta("vs_price_usd", 0)
+	tree.set_meta("vs_wager_cents", 0)
+	tree.set_meta("vs_paid_entry", false)
 	tree.set_meta("vs_free_roll", true)
 	tree.set_meta("vs_assigned_players", [_local_name, str(bot_profile.get("display_name", "Rival"))])
 	tree.set_meta("vs_open_slots", 0)
@@ -1125,6 +1133,8 @@ func _bot_fill_jukebox_clear_keys() -> Array[String]:
 		"open_map_picker_on_ready",
 		"vs_mode",
 		"vs_price_usd",
+		"vs_wager_cents",
+		"vs_paid_entry",
 		"vs_free_roll",
 		"vs_assigned_players",
 		"vs_open_slots",
@@ -1142,6 +1152,9 @@ func _bot_fill_jukebox_clear_keys() -> Array[String]:
 		"vs_handshake_invite_code",
 		"vs_local_profile",
 		"vs_remote_profile",
+		"vs_money_ledger_status",
+		"vs_money_settlement_result",
+		"vs_money_transaction_ids",
 		"vs_cpu_style",
 		"vs_cpu_tier",
 		MatchSetupRandomizer.TREE_META_KEY,
@@ -1166,6 +1179,8 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"open_map_picker_on_ready",
 		"vs_mode",
 		"vs_price_usd",
+		"vs_wager_cents",
+		"vs_paid_entry",
 		"vs_free_roll",
 		"vs_assigned_players",
 		"vs_open_slots",
@@ -1184,6 +1199,9 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"vs_handshake_invite_code",
 		"vs_local_profile",
 		"vs_remote_profile",
+		"vs_money_ledger_status",
+		"vs_money_settlement_result",
+		"vs_money_transaction_ids",
 		TREE_META_VS_CPU_STYLE,
 		TREE_META_VS_CPU_TIER,
 		MatchSetupRandomizer.TREE_META_KEY,
@@ -1204,7 +1222,12 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"jukebox_local_owner_id",
 		"jukebox_result_commit_signature",
 		"jukebox_highlight_player_id",
-		"jukebox_easy_bot"
+		"jukebox_easy_bot",
+		"async_money_entry_id",
+		"async_money_contest_id",
+		"async_money_ledger_status",
+		"async_money_pot_cents",
+		"async_money_escrow_cents"
 	]
 
 func _remote_profile_for_tree() -> Dictionary:
@@ -1247,12 +1270,13 @@ func _apply_session_context(session: Dictionary) -> void:
 	_map_count = maxi(1, int(context.get("map_count", _map_count)))
 	_price_usd = maxi(0, int(context.get("price_usd", _price_usd)))
 	_free_roll = bool(context.get("free_roll", _free_roll))
+	_wager_cents = maxi(0, int(context.get("wager_cents", _wager_cents_from_price(_price_usd, _free_roll))))
 	if bool(context.get("human_pvp", _context_meta.get("human_pvp", false))):
 		for stale_key in ["map_ids", "stage_map_paths", MatchSetupRandomizer.CONTEXT_KEY]:
 			_context_meta.erase(stale_key)
 	for key in context.keys():
 		match str(key):
-			"mode", "map_count", "price_usd", "free_roll":
+			"mode", "map_count", "price_usd", "wager_cents", "paid_entry", "free_roll":
 				continue
 			_:
 				_context_meta[str(key)] = context[key]
@@ -1273,6 +1297,19 @@ func _sync_transport_ready() -> bool:
 	else:
 		status_label.text = "Online VS backend is not configured for this build."
 	return false
+
+func _wager_cents_from_price(price_usd: int, free_roll: bool) -> int:
+	if free_roll:
+		return 0
+	return maxi(0, price_usd) * 100
+
+func _format_money_cents(amount_cents: int) -> String:
+	var cents: int = maxi(0, amount_cents)
+	var dollars: int = int(cents / 100)
+	var rem: int = cents % 100
+	if rem == 0:
+		return "$%d" % dollars
+	return "$%d.%02d" % [dollars, rem]
 
 func _last_handshake_transport_error(handshake: Node) -> Dictionary:
 	if handshake == null or not handshake.has_method("get_last_transport_error"):

@@ -23,6 +23,7 @@ const AsyncContestConfigStoreScript := preload("res://scripts/state/async_contes
 const AsyncContestDashPanelScript := preload("res://scripts/ui/async_contest_dash_panel.gd")
 const ProgressiveConfigScript := preload("res://scripts/state/progressive_config.gd")
 const ProgressiveRunStoreScript := preload("res://scripts/state/progressive_run_store.gd")
+const AsyncMoneyGameLedgerScript := preload("res://scripts/state/async_money_game_ledger.gd")
 const MATCH_BACKGROUND_INLAY_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/match_background_inlay.png"
 const HONEY_WIDGET_SCENE_PATH: String = "res://ui/hud/honey/honey_widget.tscn"
 const TIER_WIDGET_SCENE_PATH: String = "res://ui/hud/tier/tier_widget.tscn"
@@ -543,6 +544,7 @@ var _tournament_list: VBoxContainer = null
 var _joined_tournaments: Dictionary = {}
 var _money_games_selected_division: String = "division_i"
 var _money_games_selected_tier: int = 1
+var _async_money_ledger = AsyncMoneyGameLedgerScript.new()
 
 const ASYNC_BUYINS := [1, 2, 3, 5, 10]
 const MONEY_DENOMINATIONS := [1, 2, 3, 5, 10, 20, 50]
@@ -4041,6 +4043,9 @@ func _clear_direct_match_launch_tree_metas() -> void:
 		"vs_handshake_invite_code",
 		"vs_local_profile",
 		"vs_remote_profile",
+		"vs_money_ledger_status",
+		"vs_money_settlement_result",
+		"vs_money_transaction_ids",
 		"vs_cpu_style",
 		"vs_cpu_tier",
 		"ctf_flag_selection_mode",
@@ -11294,6 +11299,30 @@ func _bbcode_escape(text: String) -> String:
 func _wallet_balance_usd() -> int:
 	return int(_wallet_profile.get("balance_usd", 0))
 
+func _cash_balance_gate_active() -> bool:
+	return not _dev_bypass_cash_balance
+
+func _can_afford_money_entry(entry_usd: int) -> bool:
+	if entry_usd <= 0:
+		return true
+	if not _cash_balance_gate_active():
+		return true
+	return _wallet_balance_usd() >= entry_usd
+
+func _money_entry_tooltip(entry_usd: int, base_text: String = "") -> String:
+	var label: String = base_text.strip_edges()
+	if label.is_empty() and entry_usd > 0:
+		label = "$%d Entry" % entry_usd
+	if _can_afford_money_entry(entry_usd):
+		return label
+	var unavailable: String = "%s Click to add funds." % _money_entry_shortfall_text(entry_usd)
+	if label.is_empty():
+		return unavailable
+	return "%s\n%s" % [label, unavailable]
+
+func _money_entry_shortfall_text(entry_usd: int) -> String:
+	return "Insufficient balance: $%d available, $%d required." % [_wallet_balance_usd(), entry_usd]
+
 func _default_money_denomination() -> int:
 	var balance := _wallet_balance_usd()
 	for denom in MONEY_DENOMINATIONS:
@@ -11309,8 +11338,21 @@ func _require_balance_for_entry(entry_usd: int) -> bool:
 	var balance := _wallet_balance_usd()
 	if balance >= entry_usd:
 		return true
-	_open_insufficient_balance_modal("Insufficient balance: $%d available, $%d required." % [balance, entry_usd])
+	_open_add_funds_for_money_entry(entry_usd, "entry")
 	return false
+
+func _open_add_funds_for_money_entry(entry_usd: int, source: String = "entry") -> void:
+	var amount: int = maxi(1, entry_usd)
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		tree.set_meta("money_payment_window_requested", true)
+		tree.set_meta("money_payment_window_context", {
+			"source": source,
+			"entry_usd": amount,
+			"balance_usd": _wallet_balance_usd(),
+			"missing_usd": maxi(0, amount - _wallet_balance_usd())
+		})
+	_open_insufficient_balance_modal(_money_entry_shortfall_text(amount))
 
 func _charge_paid_entry_usd(entry_usd: int, reason: String) -> Dictionary:
 	var amount: int = maxi(0, entry_usd)
@@ -11324,6 +11366,96 @@ func _charge_paid_entry_usd(entry_usd: int, reason: String) -> Dictionary:
 	var next_balance: int = maxi(0, balance - amount)
 	_wallet_profile["balance_usd"] = next_balance
 	return {"ok": true, "charged_usd": amount, "remaining_usd": next_balance, "bypassed": false, "reason": reason}
+
+func _open_async_money_entry_escrow(mode_id: String, entry_usd: int, reason: String, contest_id: String = "") -> Dictionary:
+	var amount: int = maxi(0, entry_usd)
+	if amount <= 0:
+		return {
+			"ok": true,
+			"paid_entry": false,
+			"wager_cents": 0,
+			"price_usd": 0,
+			"reason": reason
+		}
+	var charge: Dictionary = _charge_paid_entry_usd(amount, reason)
+	if not bool(charge.get("ok", false)):
+		return charge
+	var local_profile: Dictionary = _progressive_local_profile()
+	var player_id: String = str(local_profile.get("uid", "local")).strip_edges()
+	if player_id.is_empty():
+		player_id = "local"
+	var clean_mode: String = mode_id.strip_edges().to_upper()
+	if clean_mode.is_empty():
+		clean_mode = "ASYNC"
+	var clean_contest_id: String = contest_id.strip_edges()
+	if clean_contest_id.is_empty():
+		clean_contest_id = "LOCAL_%s_%d" % [clean_mode, Time.get_ticks_msec()]
+	var entry_id: String = "async:%s:%s:%d" % [clean_contest_id, player_id, Time.get_ticks_msec()]
+	var wager_cents: int = amount * 100
+	var escrow: Dictionary = _async_money_ledger.intent_open_entry_escrow(
+		entry_id,
+		clean_contest_id,
+		player_id,
+		wager_cents,
+		"open:%s" % entry_id
+	)
+	if not bool(escrow.get("ok", false)):
+		if int(charge.get("charged_usd", 0)) > 0 and not bool(charge.get("bypassed", false)):
+			_wallet_profile["balance_usd"] = _wallet_balance_usd() + int(charge.get("charged_usd", 0))
+		return escrow
+	escrow["paid_entry"] = true
+	escrow["price_usd"] = amount
+	escrow["wager_cents"] = wager_cents
+	escrow["charge"] = charge
+	return escrow
+
+func _refund_async_money_entry_escrow(escrow: Dictionary, reason: String) -> void:
+	if escrow.is_empty() or not bool(escrow.get("paid_entry", false)):
+		return
+	var entry_id: String = str(escrow.get("entry_id", "")).strip_edges()
+	if entry_id.is_empty():
+		return
+	var refund: Dictionary = _async_money_ledger.intent_refund_entry(entry_id, reason, "refund:%s:%s" % [entry_id, reason])
+	if bool(refund.get("ok", false)):
+		var refund_usd: int = int(int(refund.get("refunded_cents", 0)) / 100)
+		if refund_usd > 0:
+			_wallet_profile["balance_usd"] = _wallet_balance_usd() + refund_usd
+
+func _apply_async_money_escrow_options(options: Dictionary, escrow: Dictionary) -> Dictionary:
+	var out: Dictionary = options.duplicate(true)
+	if escrow.is_empty():
+		return out
+	out["paid_entry"] = bool(escrow.get("paid_entry", false))
+	out["wager_cents"] = maxi(0, int(escrow.get("wager_cents", 0)))
+	out["async_money_entry_id"] = str(escrow.get("entry_id", ""))
+	out["async_money_contest_id"] = str(escrow.get("contest_id", ""))
+	out["async_money_ledger_status"] = str(escrow.get("status", ""))
+	out["async_money_pot_cents"] = maxi(0, int(escrow.get("pot_cents", 0)))
+	out["async_money_escrow_cents"] = maxi(0, int(escrow.get("escrow_cents", 0)))
+	return out
+
+func _apply_async_money_escrow_tree_meta(escrow: Dictionary) -> void:
+	if escrow.is_empty():
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	tree.set_meta("vs_paid_entry", bool(escrow.get("paid_entry", false)))
+	tree.set_meta("vs_wager_cents", maxi(0, int(escrow.get("wager_cents", 0))))
+	tree.set_meta("async_money_entry_id", str(escrow.get("entry_id", "")))
+	tree.set_meta("async_money_contest_id", str(escrow.get("contest_id", "")))
+	tree.set_meta("async_money_ledger_status", str(escrow.get("status", "")))
+	tree.set_meta("async_money_pot_cents", maxi(0, int(escrow.get("pot_cents", 0))))
+	tree.set_meta("async_money_escrow_cents", maxi(0, int(escrow.get("escrow_cents", 0))))
+
+func debug_get_async_money_entry_snapshot(entry_id: String) -> Dictionary:
+	return _async_money_ledger.get_entry_snapshot(entry_id)
+
+func debug_get_async_money_contest_snapshot(contest_id: String) -> Dictionary:
+	return _async_money_ledger.get_contest_snapshot(contest_id)
+
+func debug_get_async_money_ledger_snapshot() -> Dictionary:
+	return _async_money_ledger.get_snapshot()
 
 func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
@@ -11442,6 +11574,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		button.custom_minimum_size = GAME_HUB_HUMAN_BUTTON_SIZE
 		if paid:
 			button.pressed.connect(func(): _on_human_mode_selected(chosen_mode, true, _money_games_selected_tier))
+			_register_money_game_paid_route_button(button, "human", chosen_mode)
 		else:
 			button.pressed.connect(func(): _on_human_mode_selected(chosen_mode, false, selected_denom))
 		human_row.add_child(button)
@@ -11481,6 +11614,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		button.custom_minimum_size = GAME_HUB_CYCLE_BUTTON_SIZE
 		if paid:
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, true, _money_games_selected_tier))
+			_register_money_game_paid_route_button(button, "async_cycle", label)
 		else:
 			button.pressed.connect(func(): _on_async_mode_selected(async_mode_id, false, 0))
 		cycle_row.add_child(button)
@@ -11532,6 +11666,8 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	_configure_game_hub_option_button(cancel, broadcast_free_roll)
 	_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 	_entry_route_modal = panel
+	if paid:
+		_refresh_money_games_paid_route_buttons()
 
 func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
 	var panel_any: Node = _load_packed_scene(FREE_ROLL_GAME_HUB_SCENE_PATH).instantiate()
@@ -12284,6 +12420,7 @@ func _refresh_money_games_division_ui(
 	_refresh_money_games_division_tabs(tab_buttons)
 	_rebuild_money_games_tier_row(tier_row, division_arena_label, entry_fee_label, animate_swap, broadcast_mode)
 	_refresh_money_games_context_labels(division_arena_label, entry_fee_label)
+	_refresh_money_games_paid_route_buttons()
 
 func _refresh_money_games_division_tabs(tab_buttons: Dictionary) -> void:
 	for division_id in MONEY_DIVISION_TAB_IDS:
@@ -12358,6 +12495,10 @@ func _rebuild_money_games_tier_row(
 				var button := Button.new()
 				button.custom_minimum_size = MONEY_ENTRY_TIER_BUTTON_SIZE
 				button.text = "$%d" % tier
+				button.disabled = false
+				button.set_meta("sf_money_entry_tier_usd", tier)
+				button.set_meta("sf_money_unaffordable", not _can_afford_money_entry(tier))
+				button.tooltip_text = _money_entry_tooltip(tier)
 				button.pressed.connect(func() -> void:
 					_on_money_games_tier_pressed(bound_tier, tier_row, division_arena_label, entry_fee_label)
 				)
@@ -12381,6 +12522,9 @@ func _on_money_games_tier_pressed(
 	) -> void:
 	if tier <= 0:
 		return
+	if not _can_afford_money_entry(tier):
+		_open_add_funds_for_money_entry(tier, "money_game_tier")
+		return
 	_money_games_selected_tier = _money_clamp_tier_for_division(_money_games_selected_division, tier)
 	for child in tier_row.get_children():
 		var button: Button = child as Button
@@ -12389,6 +12533,7 @@ func _on_money_games_tier_pressed(
 		var active: bool = button.text.strip_edges() == "$%d" % _money_games_selected_tier
 		_style_money_entry_tier_button(button, active)
 	_refresh_money_games_context_labels(division_arena_label, entry_fee_label)
+	_refresh_money_games_paid_route_buttons()
 	if entry_fee_label != null:
 		var tween := entry_fee_label.create_tween()
 		tween.tween_property(entry_fee_label, "modulate:a", 0.55, 0.08)
@@ -12420,6 +12565,9 @@ func _style_money_entry_tier_button(button: Button, active: bool) -> void:
 		style.border_color = MONEY_ENTRY_INACTIVE_EDGE
 		button.modulate = Color(0.85, 0.85, 0.85, 0.92)
 		button.add_theme_color_override("font_color", MONEY_TAB_INACTIVE_TEXT)
+	if bool(button.get_meta("sf_money_unaffordable", false)):
+		button.modulate = Color(0.42, 0.42, 0.42, 0.58)
+		button.add_theme_color_override("font_color", Color(0.62, 0.64, 0.68, 0.78))
 	button.add_theme_stylebox_override("normal", style)
 	var hover := style.duplicate() as StyleBoxFlat
 	if hover != null:
@@ -12432,7 +12580,54 @@ func _refresh_money_games_context_labels(division_arena_label: Label, entry_fee_
 	if division_arena_label != null:
 		division_arena_label.text = arena_label
 	if entry_fee_label != null:
-		entry_fee_label.text = "Entry Fee: $%d" % _money_games_selected_tier
+		if _cash_balance_gate_active():
+			entry_fee_label.text = "Entry Fee: $%d | Balance: $%d" % [_money_games_selected_tier, _wallet_balance_usd()]
+		else:
+			entry_fee_label.text = "Entry Fee: $%d" % _money_games_selected_tier
+
+func _register_money_game_paid_route_button(button: Button, route_kind: String, route_label: String) -> void:
+	if button == null:
+		return
+	button.set_meta("sf_money_paid_route", true)
+	button.set_meta("sf_money_route_kind", route_kind)
+	button.set_meta("sf_money_route_label", route_label)
+
+func _refresh_money_games_paid_route_buttons() -> void:
+	if _entry_route_modal == null:
+		return
+	var buttons: Array[Button] = []
+	_collect_money_game_paid_route_buttons(_entry_route_modal, buttons)
+	for button in buttons:
+		_refresh_money_game_paid_route_button(button)
+
+func _collect_money_game_paid_route_buttons(root_node: Node, out: Array[Button]) -> void:
+	if root_node == null:
+		return
+	if root_node is Button and bool(root_node.get_meta("sf_money_paid_route", false)):
+		out.append(root_node as Button)
+	for child in root_node.get_children():
+		_collect_money_game_paid_route_buttons(child, out)
+
+func _refresh_money_game_paid_route_button(button: Button) -> void:
+	if button == null:
+		return
+	var entry_usd: int = maxi(1, _money_games_selected_tier)
+	var route_kind: String = str(button.get_meta("sf_money_route_kind", ""))
+	var route_label: String = str(button.get_meta("sf_money_route_label", ""))
+	var label_text: String = "%s  $%d" % [route_label, entry_usd] if not route_label.is_empty() else "$%d Entry" % entry_usd
+	var unaffordable: bool = not _can_afford_money_entry(entry_usd)
+	button.disabled = false
+	button.set_meta("sf_money_entry_usd", entry_usd)
+	button.set_meta("sf_money_unaffordable", unaffordable)
+	if button.icon == null:
+		button.text = label_text
+	button.tooltip_text = _money_entry_tooltip(entry_usd, label_text)
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	match route_kind:
+		"human", "async_cycle", "async_mode":
+			button.modulate = Color(0.38, 0.38, 0.38, 0.56) if unaffordable else Color(1.0, 1.0, 1.0, 1.0)
+		_:
+			button.modulate = Color(0.45, 0.45, 0.45, 0.60) if unaffordable else Color(1.0, 1.0, 1.0, 1.0)
 
 func _money_division_arena_label(division_id: String) -> String:
 	match _money_normalize_division_id(division_id):
@@ -12623,6 +12818,7 @@ func _add_game_hub_map_group(
 		button.custom_minimum_size = GAME_HUB_ASYNC_MODE_BUTTON_SIZE
 		if paid:
 			button.pressed.connect(func(): _on_async_mode_selected(chosen_mode_id, true, _money_games_selected_tier))
+			_register_money_game_paid_route_button(button, "async_mode", label)
 		else:
 			button.pressed.connect(func(): _on_async_mode_selected(chosen_mode_id, false, 0))
 		row.add_child(button)
@@ -13318,6 +13514,8 @@ func _progressive_launch_clear_keys() -> Array[String]:
 		"start_game",
 		"vs_mode",
 		"vs_price_usd",
+		"vs_wager_cents",
+		"vs_paid_entry",
 		"vs_free_roll",
 		"vs_assigned_players",
 		"vs_open_slots",
@@ -13336,11 +13534,19 @@ func _progressive_launch_clear_keys() -> Array[String]:
 		"vs_handshake_invite_code",
 		"vs_local_profile",
 		"vs_remote_profile",
+		"vs_money_ledger_status",
+		"vs_money_settlement_result",
+		"vs_money_transaction_ids",
 		"vs_cpu_style",
 		"vs_cpu_tier",
 		"map_ids",
 		"contest_id",
 		"contest_scope",
+		"async_money_entry_id",
+		"async_money_contest_id",
+		"async_money_ledger_status",
+		"async_money_pot_cents",
+		"async_money_escrow_cents",
 		"ctf_flag_selection_mode",
 		"ctf_player_select_pct",
 		"ctf_randomize_flag_hive",
@@ -13449,11 +13655,11 @@ func _open_async_entry_selector(free_roll: bool) -> void:
 		_open_async_paid_menu()
 		status_label.text = "Async paid-contest selector opened."
 
-func _open_vs_mode_select_panel(free_roll: bool, preset_mode: String = "") -> void:
+func _open_vs_mode_select_panel(free_roll: bool, preset_mode: String = "", denomination: int = 0) -> void:
 	_close_top_level_windows(UI_SURFACE_PLAY_MODE)
 	var panel := preload("res://scenes/ui/VsModeSelect.tscn").instantiate()
 	if panel.has_method("configure_entry"):
-		panel.call("configure_entry", free_roll)
+		panel.call("configure_entry", free_roll, denomination)
 	if not preset_mode.is_empty() and panel.has_method("configure_preset_mode"):
 		panel.call("configure_preset_mode", preset_mode)
 	panel.closed.connect(func(): panel.queue_free())
@@ -14704,6 +14910,9 @@ func _launch_jukebox_map(map_path: String, cpu_style: String = "", cpu_tier: Str
 		"vs_handshake_invite_code",
 		"vs_local_profile",
 		"vs_remote_profile",
+		"vs_money_ledger_status",
+		"vs_money_settlement_result",
+		"vs_money_transaction_ids",
 		"vs_cpu_style",
 		"vs_cpu_tier",
 		"ctf_flag_selection_mode",
@@ -15466,10 +15675,6 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var map_count_requested: int = maxi(1, requested_map_count)
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
-	if not free_play:
-		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_miss_n_out")
-		if not bool(charge.get("ok", false)):
-			return
 	var lobby_options: Dictionary = {
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
@@ -15526,12 +15731,15 @@ func _on_async_capture_flag_selected(free_play: bool) -> bool:
 		return false
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	var escrow: Dictionary = {}
 	if not free_play:
-		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_capture_flag")
-		if not bool(charge.get("ok", false)):
+		escrow = _open_async_money_entry_escrow("CAPTURE_FLAG", entry_usd, "async_capture_flag")
+		if not bool(escrow.get("ok", false)):
 			return false
 	if not _launch_direct_capture_flag("CAPTURE_FLAG", free_play, entry_usd):
+		_refund_async_money_entry_escrow(escrow, "capture_flag_launch_failed")
 		return false
+	_apply_async_money_escrow_tree_meta(escrow)
 	status_label.text = "%s Capture the Flag starting..." % track_label
 	return true
 
@@ -15540,12 +15748,15 @@ func _on_async_hidden_capture_flag_selected(free_play: bool) -> bool:
 		return false
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
+	var escrow: Dictionary = {}
 	if not free_play:
-		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_hidden_capture_flag")
-		if not bool(charge.get("ok", false)):
+		escrow = _open_async_money_entry_escrow("HIDDEN_CAPTURE_FLAG", entry_usd, "async_hidden_capture_flag")
+		if not bool(escrow.get("ok", false)):
 			return false
 	if not _launch_direct_capture_flag("HIDDEN_CAPTURE_FLAG", free_play, entry_usd):
+		_refund_async_money_entry_escrow(escrow, "hidden_capture_flag_launch_failed")
 		return false
+	_apply_async_money_escrow_tree_meta(escrow)
 	status_label.text = "%s Hidden Flag starting..." % track_label
 	return true
 
@@ -15576,6 +15787,9 @@ func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: in
 	if tree == null:
 		status_label.text = "Could not start CTF."
 		return false
+	for key in _direct_async_launch_clear_keys():
+		if tree.has_meta(key):
+			tree.remove_meta(key)
 	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
 	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
 	if local_name.strip_edges().is_empty():
@@ -15584,6 +15798,8 @@ func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: in
 	tree.set_meta("start_game", true)
 	tree.set_meta("vs_mode", mode_id)
 	tree.set_meta("vs_price_usd", maxi(0, entry_usd))
+	tree.set_meta("vs_wager_cents", 0 if free_roll else maxi(0, entry_usd) * 100)
+	tree.set_meta("vs_paid_entry", not free_roll and entry_usd > 0)
 	tree.set_meta("vs_free_roll", free_roll)
 	tree.set_meta("vs_assigned_players", [local_name, "CPU"])
 	tree.set_meta("vs_open_slots", 0)
@@ -15633,6 +15849,36 @@ func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: in
 		return false
 	status_label.text = "%s starting..." % ("Hidden CTF" if hidden_mode else "Capture the Flag")
 	return true
+
+func _direct_async_launch_clear_keys() -> Array[String]:
+	return [
+		"open_map_picker_on_ready",
+		"start_game",
+		"vs_mode",
+		"vs_price_usd",
+		"vs_wager_cents",
+		"vs_paid_entry",
+		"vs_free_roll",
+		"vs_assigned_players",
+		"vs_open_slots",
+		"vs_required_players",
+		"vs_sync_start",
+		"vs_sync_join_sec",
+		"vs_window_sec",
+		"vs_window_started_unix",
+		"vs_window_deadline_unix",
+		"vs_stage_map_paths",
+		"vs_stage_current_index",
+		"vs_stage_round_results",
+		"vs_money_ledger_status",
+		"vs_money_settlement_result",
+		"vs_money_transaction_ids",
+		"async_money_entry_id",
+		"async_money_contest_id",
+		"async_money_ledger_status",
+		"async_money_pot_cents",
+		"async_money_escrow_cents"
+	]
 
 func _resolve_direct_capture_flag_map_path(mode_id: String, free_roll: bool = false) -> String:
 	if free_roll:
@@ -15752,10 +15998,6 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
-	if not free_play:
-		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_stage_race")
-		if not bool(charge.get("ok", false)):
-			return
 	var lobby_options: Dictionary = {
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
@@ -15812,10 +16054,6 @@ func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
-	if not free_play:
-		var charge: Dictionary = _charge_paid_entry_usd(entry_usd, "async_timed_race")
-		if not bool(charge.get("ok", false)):
-			return
 	var lobby_options: Dictionary = {
 		"start_players": ASYNC_WINDOW_START_PLAYERS,
 		"sync_join_sec": ASYNC_TIMED_RACE_SYNC_JOIN_SEC
@@ -15870,6 +16108,17 @@ func _current_async_paid_entry_usd() -> int:
 
 func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> void:
 	var configured_options: Dictionary = _options_with_async_contest_dash_config(mode_id, map_count, options)
+	if not free_play and entry_usd > 0 and str(configured_options.get("async_money_entry_id", "")).strip_edges().is_empty():
+		var escrow: Dictionary = _open_async_money_entry_escrow(
+			mode_id,
+			entry_usd,
+			"async_lobby:%s" % mode_id.strip_edges().to_lower(),
+			str(configured_options.get("contest_id", ""))
+		)
+		if not bool(escrow.get("ok", false)):
+			status_label.text = str(escrow.get("message", escrow.get("err", escrow.get("reason", "Money game escrow failed."))))
+			return
+		configured_options = _apply_async_money_escrow_options(configured_options, escrow)
 	var return_async_panel: bool = async_panel != null and async_panel.visible
 	_play_matchmaker_sfx()
 	_close_top_level_windows(UI_SURFACE_VS_LOBBY)
@@ -15892,6 +16141,18 @@ func _open_async_vs_lobby(mode_id: String, map_count: int, free_play: bool, entr
 
 func _launch_async_vs_match_direct(mode_id: String, map_count: int, free_play: bool, entry_usd: int, options: Dictionary = {}) -> bool:
 	var configured_options: Dictionary = _options_with_async_contest_dash_config(mode_id, map_count, options)
+	var escrow: Dictionary = {}
+	if not free_play and entry_usd > 0 and str(configured_options.get("async_money_entry_id", "")).strip_edges().is_empty():
+		escrow = _open_async_money_entry_escrow(
+			mode_id,
+			entry_usd,
+			"async_direct:%s" % mode_id.strip_edges().to_lower(),
+			str(configured_options.get("contest_id", ""))
+		)
+		if not bool(escrow.get("ok", false)):
+			status_label.text = str(escrow.get("message", escrow.get("err", escrow.get("reason", "Money game escrow failed."))))
+			return false
+		configured_options = _apply_async_money_escrow_options(configured_options, escrow)
 	var scene: PackedScene = preload("res://scenes/ui/VsLobby.tscn")
 	if scene == null:
 		return false
@@ -15917,6 +16178,7 @@ func _launch_async_vs_match_direct(mode_id: String, map_count: int, free_play: b
 		var hidden_status: Label = lobby.get_node_or_null("Panel/VBox/Status") as Label
 		if hidden_status != null and not hidden_status.text.strip_edges().is_empty():
 			status_label.text = hidden_status.text
+		_refund_async_money_entry_escrow(escrow, "async_direct_launch_failed")
 		lobby.queue_free()
 		return false
 	return true

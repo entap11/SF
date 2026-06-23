@@ -516,6 +516,11 @@ var _vs_pvp_runtime: Node = null
 var floor_influence_system: ArenaFloorInfluenceSystem = null
 var _jukebox_back_button: Button = null
 var _pvp_debug_overlay: Control = null
+var _money_payment_layer: CanvasLayer = null
+var _money_payment_modal: Panel = null
+var _money_payment_body_label: Label = null
+var _money_payment_status_label: Label = null
+var _money_payment_context: Dictionary = {}
 var _app_lifecycle: Node = null
 var _lifecycle_local_pause_active: bool = false
 var _lifecycle_local_pause_sim_was_running: bool = false
@@ -5117,8 +5122,46 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	if _should_play_post_match_song(winner_id_in):
 		_play_post_match_song(winner_id_in)
 	_maybe_record_stage_race_contest_result(winner_id_in, reason)
+	_maybe_settle_vs_money_match(winner_id_in, reason)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
+
+func _maybe_settle_vs_money_match(winner_id_in: int, reason: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	if not bool(tree.get_meta("vs_paid_entry", false)):
+		return
+	var session_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	if session_id.is_empty():
+		return
+	if str(tree.get_meta("vs_money_ledger_status", "")).strip_edges().to_lower() in ["settled", "refunded"]:
+		return
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("settle_money_match"):
+		SFLog.warn("VS_MONEY_SETTLEMENT_MISSING", {"session_id": session_id})
+		return
+	var result: Dictionary = handshake.call("settle_money_match", session_id, winner_id_in, reason) as Dictionary
+	tree.set_meta("vs_money_settlement_result", result.duplicate(true))
+	if bool(result.get("ok", false)):
+		var ledger_status: String = str((result.get("session", {}) as Dictionary).get("context", {}).get("ledger_status", "")).strip_edges()
+		if ledger_status.is_empty():
+			ledger_status = "settled" if str(result.get("type", "")) == "match_settled" else "refunded"
+		tree.set_meta("vs_money_ledger_status", ledger_status)
+		tree.set_meta("vs_money_transaction_ids", (result.get("transaction_ids", []) as Array).duplicate(true))
+		SFLog.info("VS_MONEY_SETTLED", {
+			"session_id": session_id,
+			"winner_id": winner_id_in,
+			"ledger_status": ledger_status,
+			"winner_payout_cents": int(result.get("winner_payout_cents", 0)),
+			"house_rake_cents": int(result.get("house_rake_cents", 0))
+		})
+		return
+	SFLog.warn("VS_MONEY_SETTLEMENT_FAILED", {
+		"session_id": session_id,
+		"winner_id": winner_id_in,
+		"err": str(result.get("err", result.get("code", "unknown")))
+	})
 
 func _should_play_post_match_song(_winner_id_in: int) -> bool:
 	if not _is_progressive_runtime_mode():
@@ -5350,6 +5393,8 @@ func _on_post_match_action(action: String) -> void:
 		var voter_id: int = active_player_id
 		if voter_id != 1 and voter_id != 2:
 			voter_id = 1
+		if _paid_vs_rematch_funding_blocked(voter_id):
+			return
 		var accepted: bool = OpsState.request_rematch(voter_id)
 		SFLog.info("REMATCH_VOTE_INTENT", {
 			"voter_id": voter_id,
@@ -5812,11 +5857,202 @@ func _handle_rematch() -> void:
 		if SFLog.LOGGING_ENABLED:
 			push_error("ARENA: rematch failed (no map data)")
 		return
+	if not _prepare_paid_vs_rematch_if_needed():
+		_post_match_action_taken = false
+		return
 	SFLog.info("MATCH_RESET", {"map": current_map_name})
 	if outcome_overlay != null:
 		outcome_overlay.hide_overlay()
 	_reset_sim_state()
 	MapApplier.apply_map(self, current_map_data.duplicate(true))
+
+func _paid_vs_rematch_funding_blocked(owner_id: int) -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null or not bool(tree.get_meta("vs_paid_entry", false)):
+		return false
+	var session_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	if session_id.is_empty():
+		return false
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("get_money_rematch_funding_status"):
+		return false
+	var funding: Dictionary = handshake.call("get_money_rematch_funding_status", session_id, owner_id) as Dictionary
+	if not bool(funding.get("ok", false)):
+		SFLog.warn("VS_MONEY_REMATCH_FUNDING_CHECK_FAILED", funding)
+		return false
+	if not bool(funding.get("payment_required", false)):
+		return false
+	_show_money_payment_required_prompt(funding)
+	SFLog.info("VS_MONEY_REMATCH_FUNDS_REQUIRED", {
+		"session_id": session_id,
+		"owner_id": owner_id,
+		"balance_cents": int(funding.get("balance_cents", 0)),
+		"wager_cents": int(funding.get("wager_cents", 0)),
+		"missing_cents": int(funding.get("missing_cents", 0))
+	})
+	return true
+
+func _prepare_paid_vs_rematch_if_needed() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null or not bool(tree.get_meta("vs_paid_entry", false)):
+		return true
+	var session_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	if session_id.is_empty():
+		return true
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("prepare_money_rematch"):
+		SFLog.warn("VS_MONEY_REMATCH_PREPARE_MISSING", {"session_id": session_id})
+		return false
+	var result: Dictionary = handshake.call("prepare_money_rematch", session_id) as Dictionary
+	if not bool(result.get("ok", false)):
+		SFLog.warn("VS_MONEY_REMATCH_PREPARE_FAILED", result)
+		if str(result.get("code", result.get("err", ""))) == "insufficient_funds":
+			var player_id: String = str(result.get("player_id", "")).strip_edges()
+			var balance_cents: int = int(result.get("balance_cents", 0))
+			var required_cents: int = int(result.get("required_cents", tree.get_meta("vs_wager_cents", 0)))
+			_show_money_payment_required_prompt({
+				"ok": true,
+				"payment_required": true,
+				"player_uid": player_id,
+				"balance_cents": balance_cents,
+				"wager_cents": required_cents,
+				"missing_cents": maxi(0, required_cents - balance_cents),
+				"session_id": session_id
+			})
+		return false
+	var rematch_session: Dictionary = result.get("session", {}) as Dictionary
+	var rematch_context: Dictionary = rematch_session.get("context", {}) as Dictionary
+	var rematch_session_id: String = str(result.get("session_id", rematch_session.get("id", ""))).strip_edges()
+	if rematch_session_id.is_empty():
+		return false
+	tree.set_meta("vs_handshake_session_id", rematch_session_id)
+	tree.set_meta("vs_money_ledger_status", str(rematch_context.get("ledger_status", "escrowed")))
+	tree.set_meta("vs_money_settlement_result", {})
+	tree.set_meta("vs_money_transaction_ids", [])
+	tree.set_meta("vs_wager_cents", int(rematch_context.get("wager_cents", tree.get_meta("vs_wager_cents", 0))))
+	tree.set_meta("vs_price_usd", int(rematch_context.get("price_usd", tree.get_meta("vs_price_usd", 0))))
+	SFLog.info("VS_MONEY_REMATCH_ESCROWED", {
+		"parent_session_id": session_id,
+		"rematch_session_id": rematch_session_id,
+		"wager_cents": int(rematch_context.get("wager_cents", 0)),
+		"pot_cents": int(rematch_context.get("pot_cents", 0))
+	})
+	return true
+
+func _show_money_payment_required_prompt(funding: Dictionary) -> void:
+	_money_payment_context = funding.duplicate(true)
+	_ensure_money_payment_modal()
+	if _money_payment_modal == null:
+		return
+	var wager_cents: int = int(funding.get("wager_cents", 0))
+	var balance_cents: int = int(funding.get("balance_cents", 0))
+	var missing_cents: int = int(funding.get("missing_cents", maxi(0, wager_cents - balance_cents)))
+	if _money_payment_body_label != null:
+		_money_payment_body_label.text = "Rematch entry: %s\nCash balance: %s\nAdd at least %s to play again." % [
+			_money_cents_text(wager_cents),
+			_money_cents_text(balance_cents),
+			_money_cents_text(missing_cents)
+		]
+	if _money_payment_status_label != null:
+		_money_payment_status_label.text = "Not enough cash for this rematch."
+	_money_payment_layer.visible = true
+	_money_payment_modal.visible = true
+
+func _ensure_money_payment_modal() -> void:
+	if _money_payment_modal != null and is_instance_valid(_money_payment_modal):
+		return
+	_money_payment_layer = CanvasLayer.new()
+	_money_payment_layer.name = "MoneyPaymentLayer"
+	_money_payment_layer.layer = 1200
+	_money_payment_layer.visible = false
+	add_child(_money_payment_layer)
+	var backdrop: ColorRect = ColorRect.new()
+	backdrop.name = "Backdrop"
+	backdrop.color = Color(0.0, 0.0, 0.0, 0.68)
+	backdrop.anchor_right = 1.0
+	backdrop.anchor_bottom = 1.0
+	_money_payment_layer.add_child(backdrop)
+	var modal: Panel = Panel.new()
+	modal.name = "MoneyPaymentModal"
+	modal.anchor_left = 0.5
+	modal.anchor_top = 0.5
+	modal.anchor_right = 0.5
+	modal.anchor_bottom = 0.5
+	modal.offset_left = -190.0
+	modal.offset_top = -126.0
+	modal.offset_right = 190.0
+	modal.offset_bottom = 126.0
+	modal.custom_minimum_size = Vector2(380.0, 252.0)
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = Color(0.07, 0.08, 0.10, 0.98)
+	style.border_color = Color(1.0, 0.84, 0.36, 0.95)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	style.content_margin_left = 18.0
+	style.content_margin_top = 18.0
+	style.content_margin_right = 18.0
+	style.content_margin_bottom = 18.0
+	modal.add_theme_stylebox_override("panel", style)
+	_money_payment_layer.add_child(modal)
+	var vbox: VBoxContainer = VBoxContainer.new()
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.offset_left = 18.0
+	vbox.offset_top = 18.0
+	vbox.offset_right = -18.0
+	vbox.offset_bottom = -18.0
+	vbox.add_theme_constant_override("separation", 10)
+	modal.add_child(vbox)
+	var title: Label = Label.new()
+	title.text = "ADD CASH?"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", Color(1.0, 0.90, 0.62, 1.0))
+	vbox.add_child(title)
+	_money_payment_body_label = Label.new()
+	_money_payment_body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_money_payment_body_label.add_theme_font_size_override("font_size", 16)
+	_money_payment_body_label.add_theme_color_override("font_color", Color(0.90, 0.93, 0.96, 1.0))
+	vbox.add_child(_money_payment_body_label)
+	_money_payment_status_label = Label.new()
+	_money_payment_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_money_payment_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_money_payment_status_label.add_theme_font_size_override("font_size", 14)
+	_money_payment_status_label.add_theme_color_override("font_color", Color(1.0, 0.72, 0.58, 1.0))
+	vbox.add_child(_money_payment_status_label)
+	var buttons: HBoxContainer = HBoxContainer.new()
+	buttons.size_flags_vertical = Control.SIZE_SHRINK_END
+	buttons.add_theme_constant_override("separation", 10)
+	vbox.add_child(buttons)
+	var cancel_button: Button = Button.new()
+	cancel_button.text = "NOT NOW"
+	cancel_button.custom_minimum_size = Vector2(0.0, 48.0)
+	cancel_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cancel_button.pressed.connect(_on_money_payment_cancel_pressed)
+	buttons.add_child(cancel_button)
+	var add_button: Button = Button.new()
+	add_button.text = "ADD CASH"
+	add_button.custom_minimum_size = Vector2(0.0, 48.0)
+	add_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_button.pressed.connect(_on_money_payment_add_pressed)
+	buttons.add_child(add_button)
+	_money_payment_modal = modal
+
+func _on_money_payment_cancel_pressed() -> void:
+	if _money_payment_layer != null:
+		_money_payment_layer.visible = false
+
+func _on_money_payment_add_pressed() -> void:
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		tree.set_meta("money_payment_window_requested", true)
+		tree.set_meta("money_payment_window_context", _money_payment_context.duplicate(true))
+	if _money_payment_status_label != null:
+		_money_payment_status_label.text = "Payment provider window requested."
+
+func _money_cents_text(amount_cents: int) -> String:
+	var safe_amount: int = maxi(0, amount_cents)
+	return "$%d.%02d" % [safe_amount / 100, safe_amount % 100]
 
 func _return_to_main_menu() -> void:
 	if outcome_overlay != null:

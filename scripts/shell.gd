@@ -2575,7 +2575,7 @@ func _sync_shell_async_prematch_overlay() -> void:
 	if _shell_prematch_record_teams != null:
 		_shell_prematch_record_teams.text = _shell_async_prematch_mode_banner()
 	if _shell_prematch_record_team_arrows != null:
-		_shell_prematch_record_team_arrows.text = _shell_async_prematch_round_line()
+		_shell_prematch_record_team_arrows.text = _shell_prematch_round_and_stakes_line()
 	if _shell_prematch_record_p1 != null:
 		_shell_prematch_record_p1.text = detail_lines[0] if detail_lines.size() > 0 else ""
 	if _shell_prematch_record_p2 != null:
@@ -2847,6 +2847,39 @@ func _shell_async_prematch_round_line() -> String:
 			return "Round %d of %d" % [round_index + 1, stage_maps.size()]
 		_:
 			return "Stage %d of %d" % [round_index + 1, stage_maps.size()]
+
+func _shell_prematch_round_and_stakes_line() -> String:
+	var round_line: String = _shell_async_prematch_round_line()
+	var stakes_line: String = _shell_stakes_line()
+	if stakes_line.is_empty():
+		return round_line
+	if round_line.is_empty():
+		return stakes_line
+	return "%s | %s" % [round_line, stakes_line]
+
+func _shell_stakes_line() -> String:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return ""
+	var free_roll: bool = bool(tree.get_meta("vs_free_roll", true))
+	var wager_cents: int = maxi(0, int(tree.get_meta("vs_wager_cents", int(tree.get_meta("vs_price_usd", 0)) * 100)))
+	if free_roll or wager_cents <= 0:
+		return "Stakes: Free Roll"
+	var pot_cents: int = wager_cents * maxi(2, int(tree.get_meta("vs_required_players", 2)))
+	var winner_cents: int = pot_cents - int((pot_cents * 1000) / 10000)
+	return "Stakes: %s entry | %s pot | %s to winner" % [
+		_shell_money_text(wager_cents),
+		_shell_money_text(pot_cents),
+		_shell_money_text(winner_cents)
+	]
+
+func _shell_money_text(amount_cents: int) -> String:
+	var cents: int = maxi(0, amount_cents)
+	var dollars: int = int(cents / 100)
+	var rem: int = cents % 100
+	if rem == 0:
+		return "$%d" % dollars
+	return "$%d.%02d" % [dollars, rem]
 
 func _shell_async_prematch_detail_lines() -> Array[String]:
 	var stage_count: int = maxi(1, _shell_stage_map_paths().size())

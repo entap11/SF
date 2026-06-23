@@ -59,7 +59,7 @@ const LANE_MAX_SEGMENTS := 64
 const LANE_FRIENDLY_Z_INDEX := -5
 const LANE_HOSTILE_Z_INDEX := -3
 const LANE_CONNECTOR_AT_ENDPOINTS := false
-const LANE_FRIENDLY_WIDTH_MULTIPLIER := 0.50
+const LANE_NARROW_WIDTH_MULTIPLIER := 0.50
 # --- Lane sprite sizing ---
 const LANE_THICKNESS_PX := 2.0
 const LANE_WIDTH_PX := 12.6
@@ -836,7 +836,7 @@ func _draw_drag_preview_lane() -> void:
 	if _lane_tex == null:
 		return
 	var thickness_info: Dictionary = _resolve_lane_thickness_info()
-	var preview_width: float = float(thickness_info.get("target_px", LANE_WIDTH_PX))
+	var preview_width: float = _narrow_lane_width_px(float(thickness_info.get("target_px", LANE_WIDTH_PX)))
 	_draw_lane_textured_segment(preview_start, preview_end, _drag_preview_color(start_hive_id), preview_width)
 
 func _compute_drag_preview_segment_local() -> Dictionary:
@@ -927,7 +927,7 @@ func _update_drag_preview_sprite() -> void:
 	var preview_end: Vector2 = seg.get("end", Vector2.ZERO)
 	var start_hive_id: int = int(seg.get("start_hive_id", -1))
 	var thickness_info: Dictionary = _resolve_lane_thickness_info()
-	var target_px: float = float(thickness_info.get("target_px", lane_thickness_px))
+	var target_px: float = _narrow_lane_width_px(float(thickness_info.get("target_px", lane_thickness_px)))
 	var unit_body_px: float = float(thickness_info.get("unit_body_px", -1.0))
 	_apply_lane_sprite_visual(
 		_drag_preview_sprite,
@@ -2119,13 +2119,11 @@ func _lane_visual_z_index(send_a: bool, send_b: bool, a_id: int, b_id: int) -> i
 		hostile = hostile or _lane_sender_is_hostile_to_local(owner_b)
 	return LANE_HOSTILE_Z_INDEX if hostile else LANE_FRIENDLY_Z_INDEX
 
-func _lane_visual_width_px(base_width_px: float, send_a: bool, send_b: bool, a_id: int, b_id: int) -> float:
-	if send_a == send_b:
-		return base_width_px
-	var sender_owner: int = _owner_id_for_lane(a_id if send_a else b_id, model)
-	if _lane_sender_is_hostile_to_local(sender_owner):
-		return base_width_px
-	return maxf(1.0, base_width_px * LANE_FRIENDLY_WIDTH_MULTIPLIER)
+func _narrow_lane_width_px(base_width_px: float) -> float:
+	return maxf(1.0, base_width_px * LANE_NARROW_WIDTH_MULTIPLIER)
+
+func _lane_visual_width_px(base_width_px: float, _send_a: bool, _send_b: bool, _a_id: int, _b_id: int) -> float:
+	return _narrow_lane_width_px(base_width_px)
 
 func _log_lane_endpoints_once(lane_id: int, ep: Dictionary) -> void:
 	if lane_id <= 0:
@@ -2373,11 +2371,11 @@ func _draw_lane_colored(start: Vector2, end: Vector2, a_id: int, b_id: int, send
 		var mid := start.lerp(end, t_front)
 		var color_a := _resolve_lane_color(a_id, b_id, true, false, rm, lane)
 		var color_b := _resolve_lane_color(a_id, b_id, false, true, rm, lane)
-		_draw_lane_textured_segment(start, mid, color_a, LANE_WIDTH_PX, true)
-		_draw_lane_textured_segment(mid, end, color_b, LANE_WIDTH_PX, false)
+		_draw_lane_textured_segment(start, mid, color_a, width, true)
+		_draw_lane_textured_segment(mid, end, color_b, width, false)
 		return
 	var color := _resolve_lane_color(a_id, b_id, send_a, send_b, rm, lane)
-	_draw_lane_textured_segment(start, end, color, LANE_WIDTH_PX, not send_b)
+	_draw_lane_textured_segment(start, end, color, width, not send_b)
 
 func _draw_lane_textured_segment(start: Vector2, end: Vector2, color: Color, lane_width: float = LANE_WIDTH_PX, points_toward_end: bool = true) -> void:
 	var dir: Vector2 = end - start

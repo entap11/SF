@@ -14,6 +14,8 @@ func _run() -> void:
 		quit(1)
 		return
 	var menu: Node = scene.instantiate()
+	menu.set("_dev_bypass_cash_balance", false)
+	menu.set("_wallet_profile", {"balance_usd": 10})
 	get_root().add_child(menu)
 	await process_frame
 	await process_frame
@@ -44,6 +46,26 @@ func _run() -> void:
 	_assert_tooltip_button(buttons, "MONTHLY", 350.0, 132.0)
 	_assert_text_button(buttons, "DIVISION I", 208.0, 82.0)
 	_assert_text_button(buttons, "$1", 128.0, 56.0)
+	_press_text_button(buttons, "DIVISION III")
+	await create_timer(0.35).timeout
+	buttons = _collect_buttons(panel)
+	_assert_text_button(buttons, "$50", 128.0, 56.0)
+	_assert_text_button_unaffordable_clickable(buttons, "$50")
+	_assert_tooltip_button_unaffordable_clickable(buttons, "1V1")
+	_press_tooltip_button(buttons, "1V1")
+	await process_frame
+	await process_frame
+	var funds_panel: Control = menu.get("_entry_route_modal") as Control
+	if funds_panel == null or not funds_panel.visible:
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: add-funds panel did not open")
+		quit(1)
+		return
+	var funds_buttons: Array[Button] = _collect_buttons(funds_panel)
+	_assert_text_button(funds_buttons, "ADD FUNDS", 0.0, 0.0)
+	if not bool(get_meta("money_payment_window_requested", false)):
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: add-funds click should mark payment window requested")
+		quit(1)
+		return
 
 	print("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: PASS")
 	quit(0)
@@ -72,6 +94,60 @@ func _assert_text_button(buttons: Array[Button], text_value: String, min_width: 
 		_assert_button_size(button, min_width, min_height, text_value)
 		return
 	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing text button %s" % text_value)
+	quit(1)
+
+func _assert_text_button_unaffordable_clickable(buttons: Array[Button], text_value: String) -> void:
+	for button in buttons:
+		if button.text.strip_edges() != text_value:
+			continue
+		if button.disabled:
+			push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: %s button should stay clickable" % text_value)
+			quit(1)
+			return
+		if not bool(button.get_meta("sf_money_unaffordable", false)):
+			push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: %s button should be marked unaffordable" % text_value)
+			quit(1)
+			return
+		return
+	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing unaffordable text button %s" % text_value)
+	quit(1)
+
+func _assert_tooltip_button_unaffordable_clickable(buttons: Array[Button], token: String) -> void:
+	for button in buttons:
+		if not button.tooltip_text.contains(token):
+			continue
+		if button.disabled:
+			push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: %s route should stay clickable" % token)
+			quit(1)
+			return
+		if not bool(button.get_meta("sf_money_unaffordable", false)):
+			push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: %s route should be marked unaffordable" % token)
+			quit(1)
+			return
+		if not button.tooltip_text.contains("Insufficient balance"):
+			push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: %s route missing insufficient balance tooltip" % token)
+			quit(1)
+			return
+		return
+	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing unaffordable tooltip button %s" % token)
+	quit(1)
+
+func _press_text_button(buttons: Array[Button], text_value: String) -> void:
+	for button in buttons:
+		if button.text.strip_edges() != text_value:
+			continue
+		button.emit_signal("pressed")
+		return
+	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing press target %s" % text_value)
+	quit(1)
+
+func _press_tooltip_button(buttons: Array[Button], token: String) -> void:
+	for button in buttons:
+		if not button.tooltip_text.contains(token):
+			continue
+		button.emit_signal("pressed")
+		return
+	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing tooltip press target %s" % token)
 	quit(1)
 
 func _assert_button_size(button: Button, min_width: float, min_height: float, label: String) -> void:

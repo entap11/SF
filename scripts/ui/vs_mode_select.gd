@@ -11,7 +11,7 @@ const MODES := [
 	{"id": "MISS_N_OUT", "label": "Miss-N-Out"}
 ]
 const MAP_COUNTS := [3, 5]
-const PRICES := [1, 5, 10, 20]
+const PRICES := [1, 2, 3, 5, 10, 20, 50]
 const CTF_PLAYER_SELECT_PCTS := [0, 25, 35, 50, 100]
 const CTF_FLAG_MOVE_COUNTS := [0, 1, 2]
 
@@ -56,9 +56,9 @@ var _selected_ctf_flag_move_reveals := true
 var _free_roll := false
 var _entry_lock := "any" # "any", "free_only", "paid_only"
 
-func configure_entry(free_roll: bool) -> void:
+func configure_entry(free_roll: bool, denomination: int = 0) -> void:
 	_entry_lock = "free_only" if free_roll else "paid_only"
-	_selected_price = 0 if free_roll else PRICES[0]
+	_selected_price = 0 if free_roll else _clamp_price(denomination)
 	_free_roll = free_roll
 	if not _price_buttons.is_empty():
 		_build_buttons()
@@ -191,7 +191,7 @@ func _build_buttons() -> void:
 	if _entry_lock == "free_only":
 		_select_price(0)
 	elif _entry_lock == "paid_only":
-		_select_price(PRICES[0])
+		_select_price(_clamp_price(_selected_price))
 	else:
 		_select_price(_selected_price)
 	_sync_button_states()
@@ -216,10 +216,16 @@ func _select_map_count(count: int) -> void:
 	_refresh_summary()
 
 func _select_price(price: int) -> void:
-	_selected_price = price
+	_selected_price = 0 if price <= 0 else _clamp_price(price)
 	_free_roll = price <= 0
 	_sync_button_states()
 	_refresh_summary()
+
+func _clamp_price(price: int) -> int:
+	for listed_price in PRICES:
+		if int(listed_price) == price:
+			return price
+	return PRICES[0]
 
 func _select_ctf_player_select_pct(pct: int) -> void:
 	if _selected_mode == "HIDDEN_CAPTURE_FLAG":
