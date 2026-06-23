@@ -275,6 +275,7 @@ var _play_mode_select: Control = null
 var _vs_lobby: Control = null
 var _vs_lobby_return_async_panel: bool = false
 var _entry_route_modal: Panel = null
+var _payout_proof_button: Button = null
 var _async_stage_section: Panel = null
 var _swarm_pass_panel: Control = null
 var _battle_pass_panel: Control = null
@@ -1206,6 +1207,7 @@ func _ready() -> void:
 	_apply_hive_panel_mobile_layout()
 	_start_entry_hub_skin_prewarm()
 	_ensure_async_stage_contest_section()
+	_ensure_payout_proof_button()
 	_wire_buttons()
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
@@ -1217,6 +1219,8 @@ func _ready() -> void:
 		get_viewport().size_changed.connect(_apply_settings_panel_layout)
 	if not get_viewport().size_changed.is_connected(_apply_hive_panel_mobile_layout):
 		get_viewport().size_changed.connect(_apply_hive_panel_mobile_layout)
+	if not get_viewport().size_changed.is_connected(_layout_payout_proof_button):
+		get_viewport().size_changed.connect(_layout_payout_proof_button)
 	_set_hex_buttons()
 	_apply_top_safe_area_layout()
 	_ensure_home_replay_player()
@@ -1246,6 +1250,7 @@ func _ready() -> void:
 	call_deferred("_sync_main_art_shroud")
 	call_deferred("_play_mm_boot_sound")
 	call_deferred("_auto_start_home_replay")
+	call_deferred("_layout_payout_proof_button")
 
 func _finish_noncritical_menu_boot() -> void:
 	_ensure_dash_replay_map_view()
@@ -13861,6 +13866,141 @@ func _configure_entry_overlay_panel(panel: Panel, title: String, subtitle: Strin
 func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vector2(480, 220)) -> Panel:
 	var panel := Panel.new()
 	return _configure_entry_overlay_panel(panel, title, subtitle, size)
+
+func _ensure_payout_proof_button() -> void:
+	if _payout_proof_button != null and is_instance_valid(_payout_proof_button):
+		return
+	_payout_proof_button = Button.new()
+	_payout_proof_button.name = "PayoutProofButton"
+	_payout_proof_button.text = "$"
+	_payout_proof_button.tooltip_text = "Payout proof"
+	_payout_proof_button.focus_mode = Control.FOCUS_NONE
+	_payout_proof_button.custom_minimum_size = Vector2(44.0, 44.0)
+	_payout_proof_button.modulate = Color(1.0, 1.0, 1.0, 0.68)
+	_payout_proof_button.z_index = 90
+	_payout_proof_button.pressed.connect(_open_payout_proof_panel)
+	add_child(_payout_proof_button)
+	_apply_font(_payout_proof_button, _font_semibold, 18)
+	_style_button(_payout_proof_button, Color(0.05, 0.07, 0.08, 0.34), Color(0.87, 0.70, 0.25, 0.58), Color(1.0, 0.88, 0.46, 0.92))
+	_layout_payout_proof_button()
+
+func _layout_payout_proof_button() -> void:
+	if _payout_proof_button == null or not is_instance_valid(_payout_proof_button):
+		return
+	_payout_proof_button.layout_mode = 1
+	_payout_proof_button.anchor_left = 1.0
+	_payout_proof_button.anchor_right = 1.0
+	_payout_proof_button.anchor_top = 1.0
+	_payout_proof_button.anchor_bottom = 1.0
+	_payout_proof_button.offset_left = -74.0
+	_payout_proof_button.offset_right = -24.0
+	_payout_proof_button.offset_top = -148.0
+	_payout_proof_button.offset_bottom = -98.0
+	_payout_proof_button.move_to_front()
+
+func _open_payout_proof_panel() -> void:
+	_close_top_level_windows(UI_SURFACE_ENTRY)
+	var summary: Dictionary = _fetch_money_payout_summary()
+	var subtitle: String = "Posted ledger payouts"
+	if not bool(summary.get("ok", false)):
+		subtitle = "Ledger unavailable"
+	var panel: Panel = _build_entry_overlay("Payout Proof", subtitle, Vector2(760.0, 520.0))
+	panel.name = "PayoutProofModal"
+	var body: VBoxContainer = _entry_overlay_body(panel)
+	if body == null:
+		return
+	if bool(summary.get("ok", false)):
+		_add_payout_proof_summary(body, summary)
+	else:
+		var unavailable: Label = Label.new()
+		unavailable.name = "PayoutProofUnavailable"
+		unavailable.text = "Payout proof is unavailable until the money ledger backend is online."
+		unavailable.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		unavailable.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		body.add_child(unavailable)
+		_apply_font(unavailable, _font_regular, 13)
+	var close_button: Button = Button.new()
+	close_button.name = "PayoutProofClose"
+	close_button.text = "Close"
+	close_button.custom_minimum_size = Vector2(0.0, 42.0)
+	close_button.pressed.connect(_close_entry_route_modal)
+	body.add_child(close_button)
+	_style_entry_overlay_buttons([close_button])
+	_entry_route_modal = panel
+
+func _fetch_money_payout_summary() -> Dictionary:
+	var backend: Node = get_node_or_null("/root/VsHandshake")
+	if backend == null or not backend.has_method("get_money_payout_summary"):
+		return {"ok": false, "err": "backend_unavailable"}
+	return backend.call("get_money_payout_summary", {"limit": 8}) as Dictionary
+
+func _add_payout_proof_summary(body: VBoxContainer, summary: Dictionary) -> void:
+	var total_row: Label = Label.new()
+	total_row.name = "PayoutProofTotals"
+	total_row.text = "Paid out %s | House rake %s | Closed gross %s" % [
+		_format_money_cents(maxi(0, int(summary.get("paid_out_cents", 0)))),
+		_format_money_cents(maxi(0, int(summary.get("house_rake_cents", 0)))),
+		_format_money_cents(maxi(0, int(summary.get("gross_closed_cents", 0))))
+	]
+	total_row.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.add_child(total_row)
+	_apply_font(total_row, _font_semibold, 15)
+
+	var detail_row: Label = Label.new()
+	detail_row.name = "PayoutProofDetail"
+	detail_row.text = "%d payout transactions | %d contests | %d pending approvals" % [
+		maxi(0, int(summary.get("payout_transaction_count", 0))),
+		maxi(0, int(summary.get("contest_count", 0))),
+		maxi(0, int(summary.get("pending_approval_reports", 0)))
+	]
+	detail_row.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.add_child(detail_row)
+	_apply_font(detail_row, _font_regular, 12)
+
+	var contests_any: Variant = summary.get("contests", [])
+	var contests: Array = contests_any as Array if typeof(contests_any) == TYPE_ARRAY else []
+	if contests.is_empty():
+		var empty: Label = Label.new()
+		empty.name = "PayoutProofEmpty"
+		empty.text = "No contest payouts have posted yet."
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		body.add_child(empty)
+		_apply_font(empty, _font_regular, 13)
+		return
+	var header: Label = Label.new()
+	header.text = "Recent contest payouts"
+	header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.add_child(header)
+	_apply_font(header, _font_semibold, 13)
+	for contest_any in contests:
+		if typeof(contest_any) != TYPE_DICTIONARY:
+			continue
+		body.add_child(_build_payout_proof_contest_row(contest_any as Dictionary))
+
+func _build_payout_proof_contest_row(contest: Dictionary) -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.name = "PayoutProofContestRow"
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
+	var contest_label: Label = Label.new()
+	contest_label.text = str(contest.get("contest_id", ""))
+	contest_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	contest_label.clip_text = true
+	row.add_child(contest_label)
+	_apply_font(contest_label, _font_regular, 11)
+	var paid_label: Label = Label.new()
+	paid_label.text = _format_money_cents(maxi(0, int(contest.get("paid_out_cents", 0))))
+	paid_label.custom_minimum_size = Vector2(110.0, 0.0)
+	paid_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(paid_label)
+	_apply_font(paid_label, _font_semibold, 11)
+	var rake_label: Label = Label.new()
+	rake_label.text = "rake %s" % _format_money_cents(maxi(0, int(contest.get("house_rake_cents", 0))))
+	rake_label.custom_minimum_size = Vector2(110.0, 0.0)
+	rake_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(rake_label)
+	_apply_font(rake_label, _font_regular, 11)
+	return row
 
 func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2, use_default_inlay_shift: bool = true) -> void:
 	if panel == null:

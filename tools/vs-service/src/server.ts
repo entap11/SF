@@ -553,12 +553,24 @@ function handleAction(req: Request, res: Response): void {
       return refundMoneyMatch(req, res);
     case "open_async_entry_escrow":
       return openAsyncEntryEscrow(req, res);
+    case "preview_async_contest_payout_report":
+      return previewAsyncContestPayoutReport(req, res);
+    case "list_async_contest_payout_reports":
+      return listAsyncContestPayoutReports(req, res);
+    case "approve_async_contest_payout_report":
+      return approveAsyncContestPayoutReport(req, res);
     case "settle_async_contest":
       return settleAsyncContest(req, res);
+    case "settle_async_contest_payouts":
+      return settleAsyncContestPayouts(req, res);
+    case "settle_async_contest_payout_percentages":
+      return settleAsyncContestPayoutPercentages(req, res);
     case "refund_async_entry":
       return refundAsyncEntry(req, res);
     case "get_money_transactions":
       return getMoneyTransactions(req, res);
+    case "get_money_payout_summary":
+      return getMoneyPayoutSummary(req, res);
     case "debug_get_money_ledger_snapshot":
       return debugGetMoneyLedgerSnapshot(req, res);
     case "leave_session":
@@ -958,9 +970,56 @@ function openAsyncEntryEscrow(req: Request, res: Response): void {
 }
 
 function settleAsyncContest(req: Request, res: Response): void {
+  if (Array.isArray(req.body?.payouts)) {
+    return settleAsyncContestPayouts(req, res);
+  }
   const result = moneyLedger.settleAsyncContest(
     stringValue(req.body?.contest_id),
     stringValue(req.body?.winner_id),
+    stringValue(req.body?.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function settleAsyncContestPayouts(req: Request, res: Response): void {
+  const result = moneyLedger.settleAsyncContestPayouts(
+    stringValue(req.body?.contest_id),
+    Array.isArray(req.body?.payouts) ? req.body.payouts : [],
+    Math.trunc(numberValue(req.body?.house_rake_cents, 0)),
+    stringValue(req.body?.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function settleAsyncContestPayoutPercentages(req: Request, res: Response): void {
+  const result = moneyLedger.settleAsyncContestPayoutPercentages(
+    stringValue(req.body?.contest_id),
+    Array.isArray(req.body?.payouts) ? req.body.payouts : [],
+    Math.trunc(numberValue(req.body?.house_rake_bps, 1000)),
+    stringValue(req.body?.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function previewAsyncContestPayoutReport(req: Request, res: Response): void {
+  const result = moneyLedger.previewAsyncContestPayoutApprovalReport(
+    stringValue(req.body?.contest_id),
+    Array.isArray(req.body?.payouts) ? req.body.payouts : [],
+    Math.trunc(numberValue(req.body?.house_rake_bps, 1000))
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function listAsyncContestPayoutReports(req: Request, res: Response): void {
+  const filters = isRecord(req.body?.filters) ? req.body.filters : (req.body ?? {});
+  return ok(res, { reports: moneyLedger.listAsyncContestPayoutApprovalReports(filters) });
+}
+
+function approveAsyncContestPayoutReport(req: Request, res: Response): void {
+  const report = isRecord(req.body?.report) ? req.body.report : {};
+  const result = moneyLedger.approveAsyncContestPayoutReport(
+    report,
+    stringValue(req.body?.approver_id),
     stringValue(req.body?.idempotency_key)
   );
   return okOrLedgerFailure(res, result);
@@ -978,6 +1037,11 @@ function refundAsyncEntry(req: Request, res: Response): void {
 function getMoneyTransactions(req: Request, res: Response): void {
   const filters = isRecord(req.body?.filters) ? req.body.filters : (req.body ?? {});
   return ok(res, { transactions: moneyLedger.getTransactionLedger(filters) });
+}
+
+function getMoneyPayoutSummary(req: Request, res: Response): void {
+  const filters = isRecord(req.body?.filters) ? req.body.filters : (req.body ?? {});
+  return ok(res, moneyLedger.getPayoutSummary(filters));
 }
 
 function debugGetMoneyLedgerSnapshot(_req: Request, res: Response): void {

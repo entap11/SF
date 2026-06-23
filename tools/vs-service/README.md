@@ -39,8 +39,13 @@ http://127.0.0.1:8791/v1
 - `POST /v1/refund_money_match`
 - `POST /v1/open_async_entry_escrow`
 - `POST /v1/settle_async_contest`
+- `POST /v1/preview_async_contest_payout_report`
+- `POST /v1/list_async_contest_payout_reports`
+- `POST /v1/approve_async_contest_payout_report`
+- `POST /v1/settle_async_contest_payout_percentages`
 - `POST /v1/refund_async_entry`
 - `POST /v1/get_money_transactions`
+- `POST /v1/get_money_payout_summary`
 - `POST /v1/publish_intent`
 - `POST /v1/poll_intents`
 

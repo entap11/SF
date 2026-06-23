@@ -66,6 +66,11 @@ size_flags_vertical = 3
 size_flags_horizontal = 5
 size_flags_vertical = 3
 
+[node name="ContestSetupLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Contest Setup"
+
+[node name="ContestSetupSelect" type="OptionButton" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
 [node name="ContestIdLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
 text = "ID"
 
@@ -124,12 +129,22 @@ max_value = 100000
 step = 1
 value = 0
 
+[node name="ContestWinnerCountLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Paid Winners"
+
+[node name="ContestWinnerCount" type="OptionButton" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
+[node name="ContestPayoutRows" type="VBoxContainer" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
+[node name="ContestPayoutSummary" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Payout total: 0.0% across 1 winners"
+
 [node name="ContestRewardsJsonLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
 text = "Payouts JSON"
 
 [node name="ContestRewardsJson" type="TextEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
 custom_minimum_size = Vector2(0, 96)
-placeholder_text = "[{\"placement\":1,\"reward_type\":\"cash\",\"amount_cents\":500}]"
+placeholder_text = "[{\"placement\":1,\"reward_type\":\"cash\",\"payout_bps\":9000}]"
 
 [node name="ContestMapPoolLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
 text = "Map Pool"
@@ -152,6 +167,65 @@ text = "Save"
 text = "Delete"
 
 [node name="ContestStatus" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = ""
+
+[node name="ContestApprovalLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Payout Approval"
+
+[node name="ContestRefreshPayoutReports" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Refresh payout reports"
+
+[node name="ContestApprovalSummary" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+visible = false
+autowrap_mode = 3
+text = ""
+
+[node name="ContestApprovalRows" type="VBoxContainer" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+visible = false
+
+[node name="ContestApproverLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+visible = false
+text = "Approver"
+
+[node name="ContestApproverInput" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+visible = false
+placeholder_text = "ops_admin"
+
+[node name="ContestApprovePayouts" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+visible = false
+text = "Approve payouts"
+
+[node name="ContestApprovalBackendStatus" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+autowrap_mode = 3
+text = ""
+
+[node name="PayoutReportLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Payout Ledger Report"
+
+[node name="PayoutReportFilters" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
+[node name="PayoutReportContestFilter" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutReportFilters"]
+size_flags_horizontal = 3
+placeholder_text = "contest_id"
+
+[node name="PayoutReportAccountFilter" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutReportFilters"]
+size_flags_horizontal = 3
+placeholder_text = "account_id"
+
+[node name="PayoutReportRefresh" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutReportFilters"]
+text = "Refresh"
+
+[node name="PayoutReportExport" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutReportFilters"]
+text = "Export CSV"
+
+[node name="PayoutReportSummary" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+autowrap_mode = 3
+text = ""
+
+[node name="PayoutReportRows" type="VBoxContainer" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
+[node name="PayoutReportStatus" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+autowrap_mode = 3
 text = ""
 
 [node name="Maps" type="Control" parent="RootPanel/RootVBox/Tabs"]

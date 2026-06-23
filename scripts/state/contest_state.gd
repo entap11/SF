@@ -192,7 +192,9 @@ func preview_entry_requirements(contest_id: String) -> Dictionary:
 		"access_ticket_cost": ticket_cost,
 		"entry_currency": "ACCESS_TICKET" if requires_ticket else str(contest.currency).to_upper(),
 		"entry_price": ticket_cost if requires_ticket else int(contest.price),
-		"prize_rewards": contest.prize_rewards.duplicate(true)
+		"prize_rewards": contest.prize_rewards.duplicate(true),
+		"cash_payout_schedule": contest.get_cash_payout_schedule() if contest.has_method("get_cash_payout_schedule") else contest.prize_rewards.duplicate(true),
+		"house_rake_bps": contest.get_house_rake_bps() if contest.has_method("get_house_rake_bps") else 1000
 	}
 	if requires_ticket:
 		var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
@@ -733,6 +735,101 @@ func get_stage_race_overall_lead(contest_id: String, map_count: int = TIMED_GAME
 	if rows.is_empty():
 		return {}
 	return rows[0]
+
+func build_stage_race_money_closeout_request(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if maxi(0, int(contest.price)) <= 0:
+		return {"ok": false, "reason": "contest_not_money", "contest_id": normalized_id}
+	var schedule: Array[Dictionary] = contest.get_cash_payout_schedule() if contest.has_method("get_cash_payout_schedule") else []
+	if schedule.is_empty():
+		return {"ok": false, "reason": "missing_cash_payout_schedule", "contest_id": normalized_id}
+	var house_rake_bps: int = contest.get_house_rake_bps() if contest.has_method("get_house_rake_bps") else 1000
+	var payout_total_bps: int = 0
+	var max_placement: int = 1
+	for payout in schedule:
+		var placement: int = maxi(1, int(payout.get("placement", 0)))
+		var payout_bps: int = clampi(int(payout.get("payout_bps", 0)), 0, 10000)
+		max_placement = maxi(max_placement, placement)
+		payout_total_bps += payout_bps
+	if payout_total_bps + house_rake_bps != 10000:
+		return {
+			"ok": false,
+			"reason": "payout_schedule_not_balanced",
+			"contest_id": normalized_id,
+			"payout_total_bps": payout_total_bps,
+			"house_rake_bps": house_rake_bps
+		}
+	var resolved_map_count: int = _resolve_timed_map_count(map_count)
+	if map_count <= 0:
+		resolved_map_count = contest.map_ids.size()
+	var rows: Array[Dictionary] = build_stage_race_overall_leaderboard(normalized_id, resolved_map_count, max_placement)
+	if rows.size() < max_placement:
+		return {
+			"ok": false,
+			"reason": "insufficient_qualified_players",
+			"contest_id": normalized_id,
+			"qualified_count": rows.size(),
+			"required_placement": max_placement
+		}
+	var backend_payouts: Array[Dictionary] = []
+	for payout in schedule:
+		var placement: int = maxi(1, int(payout.get("placement", 0)))
+		var row: Dictionary = rows[placement - 1]
+		var player_id: String = str(row.get("player_id", "")).strip_edges()
+		var completed_maps: int = maxi(0, int(row.get("completed_maps", 0)))
+		if player_id.is_empty():
+			return {"ok": false, "reason": "leaderboard_player_id_empty", "contest_id": normalized_id, "placement": placement}
+		if completed_maps < resolved_map_count:
+			return {
+				"ok": false,
+				"reason": "insufficient_completed_runs",
+				"contest_id": normalized_id,
+				"placement": placement,
+				"player_id": player_id,
+				"completed_maps": completed_maps,
+				"required_maps": resolved_map_count
+			}
+		backend_payouts.append({
+			"placement": placement,
+			"player_id": player_id,
+			"payout_bps": clampi(int(payout.get("payout_bps", 0)), 0, 10000)
+		})
+	return {
+		"ok": true,
+		"type": "stage_race_money_closeout_request",
+		"contest_id": normalized_id,
+		"map_count": resolved_map_count,
+		"house_rake_bps": house_rake_bps,
+		"payouts": backend_payouts,
+		"leaderboard_rows": rows
+	}
+
+func request_stage_race_money_payout_approval(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	var closeout: Dictionary = build_stage_race_money_closeout_request(contest_id, map_count)
+	if not bool(closeout.get("ok", false)):
+		return closeout
+	var backend: Node = get_node_or_null("/root/VsHandshake")
+	if backend == null or not backend.has_method("preview_async_contest_payout_report"):
+		closeout["ok"] = false
+		closeout["reason"] = "backend_unavailable"
+		return closeout
+	var result: Dictionary = backend.call(
+		"preview_async_contest_payout_report",
+		str(closeout.get("contest_id", "")),
+		closeout.get("payouts", []) as Array,
+		int(closeout.get("house_rake_bps", 1000))
+	) as Dictionary
+	if bool(result.get("ok", false)):
+		result["closeout_request"] = closeout.duplicate(true)
+		return result
+	result["closeout_request"] = closeout.duplicate(true)
+	return result
+
+func finalize_stage_race_money_contest(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	return request_stage_race_money_payout_approval(contest_id, map_count)
 
 func get_stage_race_map_leaderboard(contest_id: String, map_id: String, limit: int = 10) -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []

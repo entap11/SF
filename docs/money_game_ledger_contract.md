@@ -227,7 +227,7 @@ Expected failures:
 
 ### `settle_async_contest`
 
-Closes an async contest pot and credits the contest winner plus house.
+Closes an async contest pot and credits one contest winner plus house. This is the legacy winner-take-all shape; use `settle_async_contest_payout_percentages` for normal dashboard-configured contests.
 
 Request:
 
@@ -249,8 +249,57 @@ Success:
   "status": "settled",
   "winner_id": "p1",
   "winner_payout_cents": 900,
+  "payout_total_cents": 900,
+  "payout_count": 1,
+  "payouts": [
+    {"placement": 1, "player_id": "p1", "amount_cents": 900, "payout_bps": 0}
+  ],
   "house_rake_cents": 100,
   "pot_cents": 1000
+}
+```
+
+### `settle_async_contest_payout_percentages`
+
+Closes an async contest pot using the percentage payout table configured on the contest. Percentages are basis points of the gross pot:
+
+```text
+sum(payouts.payout_bps) + house_rake_bps == 10000
+```
+
+Example: 100 players enter a `$5` contest. Escrow is `$500`, house rake is `$50`, and the remaining `$450` is split across the configured top winners.
+
+Request:
+
+```json
+{
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "house_rake_bps": 1000,
+  "payouts": [
+    {"placement": 1, "player_id": "p1", "payout_bps": 4000},
+    {"placement": 2, "player_id": "p2", "payout_bps": 2000},
+    {"placement": 3, "player_id": "p3", "payout_bps": 1500},
+    {"placement": 4, "player_id": "p4", "payout_bps": 1000},
+    {"placement": 5, "player_id": "p5", "payout_bps": 500}
+  ],
+  "idempotency_key": "settle:WEEKLY_USD_5_2026W26:top5"
+}
+```
+
+Success:
+
+```json
+{
+  "ok": true,
+  "type": "async_contest_settled",
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "status": "settled",
+  "winner_id": "p1",
+  "winner_payout_cents": 20000,
+  "payout_total_cents": 45000,
+  "payout_count": 5,
+  "house_rake_cents": 5000,
+  "pot_cents": 50000
 }
 ```
 
@@ -258,11 +307,116 @@ Expected failures:
 
 - `missing_idempotency_key`
 - `missing_contest_id`
-- `missing_winner_id`
+- `missing_winner_id` for legacy winner-take-all requests
 - `contest_not_found`
 - `contest_already_closed`
-- `winner_not_in_contest`
+- `winner_not_in_contest` for legacy winner-take-all requests
 - `empty_escrow`
+- `missing_payouts` for payout-table requests
+- `missing_payout_player` for payout-table requests
+- `payout_player_not_in_contest` for payout-table requests
+- `duplicate_payout_player` for payout-table requests
+- `duplicate_payout_placement` for payout-table requests
+- `invalid_payout_amount` for payout-table requests
+- `invalid_payout_percentage` for percentage payout-table requests
+- `settlement_not_balanced` for payout-table requests
+- `settlement_percentages_not_balanced` for percentage payout-table requests
+
+### `preview_async_contest_payout_report`
+
+Builds the dashboard approval report without posting payments. This is the normal closeout path for money contests.
+
+Response includes contest participation and money totals: unique players, total entries, paid entries, total take, house rake, player pool, and planned payout rows. A successful preview is persisted as a `pending_approval` report so the ops console can list it after contest close.
+
+Stage-race money contests should be closed by the contest/result authority, not by ops UI code. `ContestState.request_stage_race_money_payout_approval(contest_id, map_count)` builds the payout table from the final stage-race leaderboard and the contest percentage schedule, then calls this backend action to queue the approval report.
+
+```json
+{
+  "ok": true,
+  "type": "async_contest_payout_approval_report",
+  "approval_status": "pending_approval",
+  "report_id": "APR-WEEKLY_USD_5_2026W26-...",
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "players_count": 100,
+  "entries_count": 100,
+  "paid_entries_count": 100,
+  "total_take_cents": 50000,
+  "house_rake_cents": 5000,
+  "player_pool_cents": 45000,
+  "planned_payouts": [
+    {"placement": 1, "player_id": "p1", "payout_bps": 4000, "amount_cents": 20000}
+  ]
+}
+```
+
+### `list_async_contest_payout_reports`
+
+Returns persisted payout approval reports for ops review. Common filters are `status: "pending_approval"`, `contest_id`, `report_id`, `sort_desc`, and `limit`.
+
+Request:
+
+```json
+{
+  "status": "pending_approval",
+  "limit": 10
+}
+```
+
+Success:
+
+```json
+{
+  "ok": true,
+  "reports": [
+    {"...": "preview_async_contest_payout_report response"}
+  ]
+}
+```
+
+### `get_money_payout_summary`
+
+Aggregates posted payout and rake ledger rows for public payout proof and admin reporting. This endpoint is read-only and derives its totals from posted transactions, not from contest configuration.
+
+Success:
+
+```json
+{
+  "ok": true,
+  "type": "money_payout_summary",
+  "paid_out_cents": 2250,
+  "house_rake_cents": 250,
+  "gross_closed_cents": 2500,
+  "payout_transaction_count": 4,
+  "contest_count": 1,
+  "pending_approval_reports": 0,
+  "contests": [
+    {
+      "contest_id": "WEEKLY_USD_5_2026-W26",
+      "paid_out_cents": 2250,
+      "house_rake_cents": 250,
+      "total_take_cents": 2500,
+      "payout_count": 4,
+      "transaction_ids": ["ASYNC-000000010"]
+    }
+  ]
+}
+```
+
+### `approve_async_contest_payout_report`
+
+Approves a pending report and posts payout/rake ledger rows. Payout and rake transactions include `approval_id` and `approved_by`.
+
+Request:
+
+```json
+{
+  "report": {"...": "preview_async_contest_payout_report response"},
+  "approver_id": "ops_admin",
+  "idempotency_key": "settle:WEEKLY_USD_5_2026W26:top5"
+}
+```
+
+Success includes the normal settlement fields plus `approval_status`, `approval_id`, and `approved_by`.
 
 ### `refund_async_entry`
 

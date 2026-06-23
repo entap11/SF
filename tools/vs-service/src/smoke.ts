@@ -239,6 +239,74 @@ async function main(): Promise<void> {
     });
     const asyncDuplicateSettleTransactions = await post(baseUrl, "get_money_transactions", { contest_id: "async_contest_paid" });
     expect((asyncDuplicateSettleTransactions.transactions as JsonRecord[]).length === asyncContestTransactionCount, "duplicate async settle added transactions", asyncDuplicateSettleTransactions);
+
+    for (let i = 1; i <= 5; i += 1) {
+      await post(baseUrl, "open_async_entry_escrow", {
+        entry_id: `async_pool_entry_${i}`,
+        contest_id: "async_contest_pool",
+        player_id: `async_pool_${i}`,
+        balance_cents: 1000,
+        wager_cents: 500,
+        idempotency_key: `open:async_pool_entry_${i}`
+      });
+    }
+    const asyncPayoutReport = await post(baseUrl, "preview_async_contest_payout_report", {
+      contest_id: "async_contest_pool",
+      house_rake_bps: 1000,
+      payouts: [
+        { placement: 1, player_id: "async_pool_1", payout_bps: 4000 },
+        { placement: 2, player_id: "async_pool_2", payout_bps: 2500 },
+        { placement: 3, player_id: "async_pool_3", payout_bps: 1500 },
+        { placement: 4, player_id: "async_pool_4", payout_bps: 1000 }
+      ]
+    });
+    expect(String(asyncPayoutReport.approval_status) === "pending_approval", "async payout report should require approval", asyncPayoutReport);
+    expect(Number(asyncPayoutReport.players_count) === 5, "async payout report player count mismatch", asyncPayoutReport);
+    expect(Number(asyncPayoutReport.entries_count) === 5, "async payout report entry count mismatch", asyncPayoutReport);
+    expect(Number(asyncPayoutReport.total_take_cents) === 2500, "async payout report total take mismatch", asyncPayoutReport);
+    expect(Number(asyncPayoutReport.house_rake_cents) === 250, "async payout report rake mismatch", asyncPayoutReport);
+    expect(Number(asyncPayoutReport.player_pool_cents) === 2250, "async payout report player pool mismatch", asyncPayoutReport);
+    const pendingPayoutReports = await post(baseUrl, "list_async_contest_payout_reports", {
+      status: "pending_approval",
+      contest_id: "async_contest_pool"
+    });
+    expect(
+      ((pendingPayoutReports.reports as JsonRecord[]) ?? []).some((report) => String(report.report_id) === String(asyncPayoutReport.report_id)),
+      "async payout report should be listed for ops approval",
+      pendingPayoutReports
+    );
+    const asyncPayoutSettle = await post(baseUrl, "approve_async_contest_payout_report", {
+      report: asyncPayoutReport,
+      approver_id: "ops_admin",
+      idempotency_key: "settle:async_contest_pool:top4"
+    });
+    expect(String(asyncPayoutSettle.approval_status) === "approved", "async payout approval status mismatch", asyncPayoutSettle);
+    expect(Number(asyncPayoutSettle.payout_total_cents) === 2250, "async payout table total mismatch", asyncPayoutSettle);
+    expect(Number(asyncPayoutSettle.house_rake_cents) === 250, "async payout table rake mismatch", asyncPayoutSettle);
+    const asyncPayoutTransactions = await post(baseUrl, "get_money_transactions", {
+      contest_id: "async_contest_pool",
+      transaction_type: "async_winner_payout"
+    });
+    expect((asyncPayoutTransactions.transactions as JsonRecord[]).length === 4, "async payout table should write one row per winner", asyncPayoutTransactions);
+    expect(String((asyncPayoutTransactions.transactions as JsonRecord[])[0]?.approval_id ?? "") === String(asyncPayoutReport.report_id ?? ""), "async payout row approval id mismatch", asyncPayoutTransactions);
+    const pendingPayoutReportsAfterApproval = await post(baseUrl, "list_async_contest_payout_reports", {
+      status: "pending_approval",
+      contest_id: "async_contest_pool"
+    });
+    expect(
+      ((pendingPayoutReportsAfterApproval.reports as JsonRecord[]) ?? []).length === 0,
+      "approved async payout report should leave pending queue",
+      pendingPayoutReportsAfterApproval
+    );
+    const payoutSummary = await post(baseUrl, "get_money_payout_summary", { limit: 10 });
+    expect(Number(payoutSummary.paid_out_cents) >= 3330, "payout summary paid total mismatch", payoutSummary);
+    expect(Number(payoutSummary.house_rake_cents) >= 370, "payout summary rake total mismatch", payoutSummary);
+    const contestSummaries = (payoutSummary.contests as JsonRecord[]) ?? [];
+    const poolSummary = contestSummaries.find((summary) => String(summary.contest_id) === "async_contest_pool");
+    expect(poolSummary != null, "payout summary missing async contest pool", payoutSummary);
+    expect(Number(poolSummary?.paid_out_cents) === 2250, "payout summary contest paid amount mismatch", poolSummary);
+    expect(Number(poolSummary?.house_rake_cents) === 250, "payout summary contest rake mismatch", poolSummary);
+
     const asyncLateRefund = await postRaw(baseUrl, "refund_async_entry", {
       entry_id: "async_entry_a",
       reason: "late_refund",

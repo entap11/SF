@@ -284,10 +284,58 @@ Response:
   "status": "settled",
   "winner_id": "u1",
   "winner_payout_cents": 900,
+  "payout_total_cents": 900,
+  "payout_count": 1,
   "house_rake_cents": 100,
   "pot_cents": 1000
 }
 ```
+
+### `settle_async_contest_payout_percentages`
+Request:
+```json
+{
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "house_rake_bps": 1000,
+  "payouts": [
+    {"placement": 1, "player_id": "u1", "payout_bps": 4000},
+    {"placement": 2, "player_id": "u2", "payout_bps": 2000},
+    {"placement": 3, "player_id": "u3", "payout_bps": 1500},
+    {"placement": 4, "player_id": "u4", "payout_bps": 1000},
+    {"placement": 5, "player_id": "u5", "payout_bps": 500}
+  ],
+  "idempotency_key": "settle:WEEKLY_USD_5_2026W26:top5"
+}
+```
+Response:
+```json
+{
+  "ok": true,
+  "type": "async_contest_settled",
+  "contest_id": "WEEKLY_USD_5_2026W26",
+  "status": "settled",
+  "winner_id": "u1",
+  "winner_payout_cents": 20000,
+  "payout_total_cents": 45000,
+  "payout_count": 5,
+  "house_rake_cents": 5000,
+  "pot_cents": 50000
+}
+```
+
+The percentage payout-table settlement must balance exactly: `sum(payouts.payout_bps) + house_rake_bps == 10000`. The ledger calculates final cents from escrow at contest close and posts one transaction per paid placement.
+
+### `preview_async_contest_payout_report`
+Builds and persists the dashboard approval report before money moves. The response includes `players_count`, `entries_count`, `paid_entries_count`, `total_take_cents`, `house_rake_cents`, `player_pool_cents`, and `planned_payouts`.
+
+### `list_async_contest_payout_reports`
+Returns persisted payout approval reports for the ops console. Supports `status`/`approval_status`, `contest_id`, `report_id`, `sort_desc`, and `limit`.
+
+### `get_money_payout_summary`
+Returns posted payout totals for proof/reporting: total paid out, house rake, gross closed amount, payout/rake transaction counts, pending approval count, and recent contest payout summaries. Totals are derived from ledger transaction rows.
+
+### `approve_async_contest_payout_report`
+Approves the report and posts payout/rake ledger rows with `approval_id` and `approved_by`.
 
 ### `refund_async_entry`
 Request:

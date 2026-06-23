@@ -4,10 +4,13 @@ const SMOKE_SAVE_PATH: String = "user://contest_leaderboard_runtime_smoke.json"
 const CONTEST_ID: String = "WEEKLY_USD_1_2025-W52"
 const PLAYER_ID: String = "contest_runtime_smoke_player"
 const PLAYER_HANDLE: String = "Contest Smoke"
+const RUNNER_UP_ID: String = "contest_runtime_smoke_runner_up"
+const RUNNER_UP_HANDLE: String = "Contest Smoke Runner Up"
 const ARENA_PLAYER_ID: String = "contest_arena_smoke_player"
 const ARENA_PLAYER_HANDLE: String = "Arena Contest Smoke"
 
 func _init() -> void:
+	ProjectSettings.set_setting("swarmfront/vs/backend_url", "")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SMOKE_SAVE_PATH))
 	await process_frame
 
@@ -19,6 +22,9 @@ func _init() -> void:
 		contest_state.call("debug_set_runtime_leaderboard_save_path", SMOKE_SAVE_PATH)
 	if contest_state.has_method("debug_reset_runtime_leaderboards"):
 		contest_state.call("debug_reset_runtime_leaderboards")
+	var handshake: Node = get_root().get_node_or_null("VsHandshake")
+	if handshake != null and handshake.has_method("_configure_transport"):
+		handshake.call("_configure_transport")
 
 	var contest: ContestDef = contest_state.call("get_contest", CONTEST_ID) as ContestDef
 	if contest == null:
@@ -66,6 +72,7 @@ func _init() -> void:
 	contest_state.call("debug_reset_runtime_leaderboards")
 	_record_complete_run(contest_state, map_ids, "run_a", 1000)
 	_record_complete_run(contest_state, map_ids, "run_b", 900)
+	_record_complete_run_for_player(contest_state, map_ids, RUNNER_UP_ID, RUNNER_UP_HANDLE, "run_c", 1200)
 	var run_rows: Array = contest_state.call("build_stage_race_overall_leaderboard", CONTEST_ID, 5, 25) as Array
 	_assert_eq(_count_player_rows(run_rows, PLAYER_ID), 1, "same player should have one overall row for their best completed run")
 	var run_b_row: Dictionary = _find_player_run_row(run_rows, PLAYER_ID, "run_b")
@@ -76,6 +83,22 @@ func _init() -> void:
 	var first_map_best: Dictionary = _find_player_run_row(first_map_rows, PLAYER_ID, "run_b")
 	_assert_true(not first_map_best.is_empty(), "map leaderboard should keep the player's best run row")
 	_assert_eq(int(first_map_best.get("time_ms", 0)), 900, "map leaderboard should show the player's best map time")
+	contest.house_rake_bps = 1000
+	contest.set_cash_payout_schedule([
+		{"placement": 1, "reward_type": "cash", "payout_bps": 6000},
+		{"placement": 2, "reward_type": "cash", "payout_bps": 3000}
+	])
+	var closeout: Dictionary = contest_state.call("build_stage_race_money_closeout_request", CONTEST_ID, 5) as Dictionary
+	_assert_true(bool(closeout.get("ok", false)), "money closeout request should build from final leaderboard")
+	var payouts: Array = closeout.get("payouts", []) as Array
+	_assert_eq(payouts.size(), 2, "money closeout should include configured payout count")
+	_assert_eq(str((payouts[0] as Dictionary).get("player_id", "")), PLAYER_ID, "first payout should follow leaderboard winner")
+	_assert_eq(str((payouts[1] as Dictionary).get("player_id", "")), RUNNER_UP_ID, "second payout should follow leaderboard runner up")
+	_assert_eq(int((payouts[0] as Dictionary).get("payout_bps", 0)), 6000, "first payout should use configured percentage")
+	_assert_eq(int(closeout.get("house_rake_bps", 0)), 1000, "closeout should carry house rake")
+	var offline_submit: Dictionary = contest_state.call("request_stage_race_money_payout_approval", CONTEST_ID, 5) as Dictionary
+	_assert_true(not bool(offline_submit.get("ok", false)), "offline payout approval request should not silently succeed")
+	_assert_true(str(offline_submit.get("err", offline_submit.get("reason", ""))).strip_edges() in ["transport_not_configured", "backend_unavailable"], "offline payout approval should report backend unavailable")
 
 	await _assert_arena_match_end_writes_contest_result(contest_state, map_ids[1])
 
@@ -121,11 +144,14 @@ func _assert_arena_match_end_writes_contest_result(contest_state: Node, map_id: 
 	await process_frame
 
 func _record_complete_run(contest_state: Node, map_ids: PackedStringArray, run_id: String, base_time_ms: int) -> void:
+	_record_complete_run_for_player(contest_state, map_ids, PLAYER_ID, PLAYER_HANDLE, run_id, base_time_ms)
+
+func _record_complete_run_for_player(contest_state: Node, map_ids: PackedStringArray, player_id: String, player_handle: String, run_id: String, base_time_ms: int) -> void:
 	for i in range(map_ids.size()):
 		var map_id: String = str(map_ids[i])
 		var result: Dictionary = contest_state.call("record_stage_race_map_result", CONTEST_ID, map_id, {
-			"player_id": PLAYER_ID,
-			"player_name": PLAYER_HANDLE,
+			"player_id": player_id,
+			"player_name": player_handle,
 			"best_time_ms": base_time_ms + i,
 			"run_id": run_id,
 			"stage_index": i,

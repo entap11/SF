@@ -174,6 +174,42 @@ func refund_async_entry(entry_id: String, reason: String, idempotency_key: Strin
 		return transport.get("result", {}) as Dictionary
 	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
+func preview_async_contest_payout_report(contest_id: String, payouts: Array, house_rake_bps: int) -> Dictionary:
+	var transport := _call_transport("preview_async_contest_payout_report", {
+		"contest_id": contest_id,
+		"payouts": payouts,
+		"house_rake_bps": house_rake_bps
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func list_async_contest_payout_reports(filters: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("list_async_contest_payout_reports", {
+		"filters": filters
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func get_money_payout_summary(filters: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("get_money_payout_summary", {
+		"filters": filters
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func approve_async_contest_payout_report(report: Dictionary, approver_id: String, idempotency_key: String) -> Dictionary:
+	var transport := _call_transport("approve_async_contest_payout_report", {
+		"report": report,
+		"approver_id": approver_id,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
 func _configured_backend_url() -> String:
 	var env_url: String = OS.get_environment(ENV_BACKEND_URL).strip_edges()
 	if not env_url.is_empty():
