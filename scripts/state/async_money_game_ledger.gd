@@ -79,7 +79,7 @@ func build_contest_payout_approval_report(contest_id: String, payouts: Array, ho
 	var normalized_percentages: Array[Dictionary] = _normalize_settlement_payouts(payouts)
 	if normalized_percentages.is_empty():
 		return _error("missing_payouts", "At least one payout is required.")
-	var clean_house_rake_bps: int = clampi(house_rake_bps, 0, BASIS_POINTS_DENOMINATOR)
+	var clean_house_rake_bps: int = DEFAULT_HOUSE_RAKE_BPS
 	var payout_total_bps: int = 0
 	var seen_players: Dictionary = {}
 	var seen_placements: Dictionary = {}
@@ -101,14 +101,14 @@ func build_contest_payout_approval_report(contest_id: String, payouts: Array, ho
 		seen_players[payout_player_id] = true
 		seen_placements[placement] = true
 		payout_total_bps += payout_bps
-	if payout_total_bps + clean_house_rake_bps != BASIS_POINTS_DENOMINATOR:
-		return _error("settlement_percentages_not_balanced", "Payout percentages plus house rake must equal 100 percent.")
 	var house_rake_cents: int = int((escrow_cents * clean_house_rake_bps) / BASIS_POINTS_DENOMINATOR)
 	var player_pool_cents: int = maxi(0, escrow_cents - house_rake_cents)
+	if payout_total_bps != BASIS_POINTS_DENOMINATOR:
+		return _error("settlement_percentages_not_balanced", "Payout percentages must equal 100 percent of the post-rake player pool.")
 	var planned_payouts: Array[Dictionary] = []
 	var payout_total_cents: int = 0
 	for payout in normalized_percentages:
-		var amount_cents: int = int((escrow_cents * int(payout.get("payout_bps", 0))) / BASIS_POINTS_DENOMINATOR)
+		var amount_cents: int = int((player_pool_cents * int(payout.get("payout_bps", 0))) / BASIS_POINTS_DENOMINATOR)
 		payout_total_cents += amount_cents
 		var planned: Dictionary = payout.duplicate(true)
 		planned["amount_cents"] = amount_cents
@@ -136,6 +136,7 @@ func build_contest_payout_approval_report(contest_id: String, payouts: Array, ho
 		"house_rake_bps": clean_house_rake_bps,
 		"house_rake_cents": house_rake_cents,
 		"player_pool_cents": player_pool_cents,
+		"payout_basis": "post_rake_pool",
 		"payout_total_bps": payout_total_bps,
 		"payout_total_cents": payout_total_cents,
 		"planned_payouts": planned_payouts,

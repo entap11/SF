@@ -18,6 +18,47 @@ The client may preview balances and display outcomes, but paid balances, escrow,
 - A match that fails before authoritative start is refunded from escrow.
 - A settled or refunded match is closed and cannot be settled or refunded again under a new key.
 
+## Scheduled Contest Lifecycle
+
+Scheduled money contests use one lifecycle across Race, Stage Race, Gauntlet, and any other dashboard-configured paid contest that requires manual payout approval:
+
+```text
+OPEN -> CLOSED -> PAYOUT_PENDING -> PAYOUT_APPROVED
+```
+
+Status meanings:
+
+- `OPEN`: entries may be accepted while the contest window is active.
+- `CLOSED`: the contest window has ended and no more entries may be accepted.
+- `PAYOUT_PENDING`: a payout approval report has been queued and is waiting for ops approval.
+- `PAYOUT_APPROVED`: ops approved the report and the backend posted payout/rake transactions.
+
+Terminal blocked statuses must not be swept, previewed, approved, or settled:
+
+- `CANCELLED`
+- `CANCELED`
+- `VOID`
+- `VOIDED`
+- `REFUNDED`
+
+Scheduled closeout rules:
+
+- The contest/result authority, not the ops UI, decides when a scheduled contest is due for closeout.
+- A scheduled contest is due when it is published, requires payout approval, has an `end_ts`, and `now >= end_ts`.
+- When due, the client state marks the contest `CLOSED`, checks for an existing payout report, and only queues a new report if none exists.
+- If a persisted report already exists, local contest status is synced from that report: `pending_approval` maps to `PAYOUT_PENDING`; `approved` maps to `PAYOUT_APPROVED`.
+- `VOID`, refunded, cancelled, and already-approved contests are skipped by scheduled closeout sweeps.
+- Manual closeout requests must reject missing contests and terminal blocked statuses.
+
+Approval rules:
+
+- Payout reports are created with `approval_status: "pending_approval"`.
+- Approval is the only step that posts money to player accounts and to the house rake account.
+- Approval must require an `approver_id` and an idempotency key.
+- Repeating the same approval idempotency key returns the cached result and does not post again.
+- Re-approving an already approved report with a new idempotency key must fail with `approval_report_already_approved`.
+- A report whose status is anything other than `pending_approval` must fail with `approval_report_not_pending`, except for the explicit already-approved case above.
+
 ## Rounding
 
 House rake is computed as:
@@ -27,7 +68,7 @@ house_rake_cents = floor(pot_cents * house_rake_bps / 10000)
 winner_payout_cents = pot_cents - house_rake_cents
 ```
 
-Default `house_rake_bps` is `1000`, meaning 10%.
+Paid contest `house_rake_bps` is fixed at `1000`, meaning 10%.
 
 ## Ledger Record
 
@@ -147,6 +188,15 @@ Debits one async entrant and adds that entry to the contest escrow pot.
 
 Async entries are not a two-player match start. They are contest entries whose final settlement depends on the async result authority for that contest period.
 
+Before this action is called, the client/game state must resolve the entry from the authoritative `ContestDef`:
+
+- `pool_type` must be `MONEY`.
+- The contest must be open: status `OPEN`, `start_ts <= now`, and `end_ts` not elapsed.
+- `wager_cents` must be `ContestDef.price * 100`.
+- Paid contest lookup must match the selected denomination exactly; a `$50` selection must not fall back to a `$20` contest.
+- The local preview must block known insufficient balances and route the player to add funds before escrow is attempted.
+- The backend remains the final authority for balance and debit success.
+
 Request:
 
 ```json
@@ -261,10 +311,12 @@ Success:
 
 ### `settle_async_contest_payout_percentages`
 
-Closes an async contest pot using the percentage payout table configured on the contest. Percentages are basis points of the gross pot:
+Closes an async contest pot using the percentage payout table configured on the contest. House rake is removed from the gross escrow pot first. Payout percentages are basis points of the post-rake player pool:
 
 ```text
-sum(payouts.payout_bps) + house_rake_bps == 10000
+house_rake_cents = floor(escrow_cents * house_rake_bps / 10000)
+player_pool_cents = escrow_cents - house_rake_cents
+sum(payouts.payout_bps) == 10000
 ```
 
 Example: 100 players enter a `$5` contest. Escrow is `$500`, house rake is `$50`, and the remaining `$450` is split across the configured top winners.
@@ -280,7 +332,7 @@ Request:
     {"placement": 2, "player_id": "p2", "payout_bps": 2000},
     {"placement": 3, "player_id": "p3", "payout_bps": 1500},
     {"placement": 4, "player_id": "p4", "payout_bps": 1000},
-    {"placement": 5, "player_id": "p5", "payout_bps": 500}
+    {"placement": 5, "player_id": "p5", "payout_bps": 1500}
   ],
   "idempotency_key": "settle:WEEKLY_USD_5_2026W26:top5"
 }
@@ -295,10 +347,12 @@ Success:
   "contest_id": "WEEKLY_USD_5_2026W26",
   "status": "settled",
   "winner_id": "p1",
-  "winner_payout_cents": 20000,
+  "winner_payout_cents": 18000,
   "payout_total_cents": 45000,
   "payout_count": 5,
   "house_rake_cents": 5000,
+  "player_pool_cents": 45000,
+  "payout_basis": "post_rake_pool",
   "pot_cents": 50000
 }
 ```
@@ -328,7 +382,17 @@ Builds the dashboard approval report without posting payments. This is the norma
 
 Response includes contest participation and money totals: unique players, total entries, paid entries, total take, house rake, player pool, and planned payout rows. A successful preview is persisted as a `pending_approval` report so the ops console can list it after contest close.
 
-Stage-race money contests should be closed by the contest/result authority, not by ops UI code. `ContestState.request_stage_race_money_payout_approval(contest_id, map_count)` builds the payout table from the final stage-race leaderboard and the contest percentage schedule, then calls this backend action to queue the approval report.
+Stage-race money contests should be closed by the contest/result authority, not by ops UI code. `ContestState.request_stage_race_money_payout_approval(contest_id, map_count)` builds the payout table from the final stage-race leaderboard and the contest percentage schedule, then calls this backend action to queue the approval report and mark the local contest `PAYOUT_PENDING`.
+
+Race and Miss-N-Out money contests should close from backend-aggregated terminal results. Each entrant submits a terminal row with `submit_async_contest_result`; `preview_async_contest_result_payout_report` ranks the full backend result field, applies the contest payout percentages, queues the same pending approval report shape, and marks the local contest `PAYOUT_PENDING`. This prevents a single client's local leaderboard from becoming the payout authority.
+
+Gauntlet money contests follow the same approval-report shape. Scheduled Gauntlet contests require ops approval; sit-and-go Gauntlet contests may use a non-scheduled settlement flow once their lobby lifecycle is finalized.
+
+Backend result actions:
+
+- `submit_async_contest_result`: idempotently stores one entrant result row for `RACE` or `MISS_N_OUT`.
+- `list_async_contest_results`: returns submitted rows sorted by the family ranking rule.
+- `preview_async_contest_result_payout_report`: builds the pending approval report from backend-ranked result rows and the configured payout schedule.
 
 ```json
 {
@@ -343,8 +407,9 @@ Stage-race money contests should be closed by the contest/result authority, not 
   "total_take_cents": 50000,
   "house_rake_cents": 5000,
   "player_pool_cents": 45000,
+  "payout_basis": "post_rake_pool",
   "planned_payouts": [
-    {"placement": 1, "player_id": "p1", "payout_bps": 4000, "amount_cents": 20000}
+    {"placement": 1, "player_id": "p1", "payout_bps": 4000, "amount_cents": 18000}
   ]
 }
 ```
@@ -404,7 +469,7 @@ Success:
 
 ### `approve_async_contest_payout_report`
 
-Approves a pending report and posts payout/rake ledger rows. Payout and rake transactions include `approval_id` and `approved_by`.
+Approves a pending report and posts payout/rake ledger rows. Payout and rake transactions include `approval_id` and `approved_by`. On success, the backend returns the approved report and the client marks the contest `PAYOUT_APPROVED`.
 
 Request:
 
@@ -417,6 +482,49 @@ Request:
 ```
 
 Success includes the normal settlement fields plus `approval_status`, `approval_id`, and `approved_by`.
+
+Expected failures:
+
+- `missing_idempotency_key`
+- `invalid_approval_report`
+- `missing_approver_id`
+- `approval_report_already_approved`
+- `approval_report_not_pending`
+- `contest_not_found`
+- `contest_already_closed`
+- `empty_escrow`
+- `missing_payouts`
+- `missing_payout_player`
+- `payout_player_not_in_contest`
+- `duplicate_payout_player`
+- `duplicate_payout_placement`
+- `invalid_payout_amount`
+- `settlement_not_balanced`
+
+## Ops Review and Proof
+
+Ops approval is a review gate, not the payout authority. The approval report must be generated from the contest/result authority and backend ledger totals, then reviewed in the ops console before approval.
+
+For Race and Miss-N-Out reports, ops review must verify:
+
+- The report source is `backend_result_ledger`.
+- Backend result rows are present.
+- The backend leaderboard has at least as many qualified rows as planned payout rows.
+- Each planned payout row has a non-empty `player_id`.
+
+The proof/reporting surfaces must derive payout totals from posted transactions, not from contest definitions or projected reports. Support and public transparency views should be able to show:
+
+- contest id
+- paid-out amount
+- house rake amount
+- gross closed amount
+- payout transaction count
+- rake transaction count
+- transaction ids
+- approval id
+- approver id when available
+
+`get_money_transactions` is the authoritative transaction drilldown for support disputes. It must remain sortable by `transaction_seq` and filterable by `account_id`, `session_id`, `contest_id`, `entry_id`, `transaction_type`, `direction`, `status`, `idempotency_key`, `from_unix`, `to_unix`, and `limit`.
 
 ### `refund_async_entry`
 
@@ -640,3 +748,9 @@ They must prove:
 - Async entry refund restores an escrowed entry before settlement.
 - Every successful money movement writes a sortable posted transaction.
 - Duplicate idempotency calls do not append duplicate transactions.
+- Scheduled money contest closeout marks due contests `CLOSED` and queues one `pending_approval` report.
+- Scheduled closeout skips void/refunded/cancelled contests.
+- Scheduled closeout skips contests that already have a pending or approved report.
+- Approving a pending report posts payout/rake transactions and marks the local contest `PAYOUT_APPROVED`.
+- Re-approving an approved report with a new key fails with `approval_report_already_approved`.
+- Payout summary/proof totals are derived from posted transaction rows.

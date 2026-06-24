@@ -53,6 +53,15 @@ type AsyncContest = {
   settle_idempotency_key?: string;
 };
 
+type AsyncContestResult = {
+  contest_id: string;
+  contest_family: string;
+  player_id: string;
+  result_id: string;
+  row: JsonRecord;
+  submitted_unix: number;
+};
+
 type SettlementPayout = {
   placement: number;
   player_id: string;
@@ -90,6 +99,7 @@ export class MoneyLedger {
   private syncMatches = new Map<string, SyncMatch>();
   private asyncEntries = new Map<string, AsyncEntry>();
   private asyncContests = new Map<string, AsyncContest>();
+  private asyncContestResults = new Map<string, Map<string, AsyncContestResult>>();
   private asyncPayoutApprovalReports = new Map<string, JsonRecord>();
   private operationResults = new Map<string, JsonRecord>();
   private transactions: JsonRecord[] = [];
@@ -421,7 +431,7 @@ export class MoneyLedger {
     if (normalizedPayouts.length <= 0) {
       return this.error("missing_payouts", "At least one payout is required.");
     }
-    const cleanHouseRakeBps = Math.max(0, Math.min(BASIS_POINTS_DENOMINATOR, Math.trunc(houseRakeBps)));
+    const cleanHouseRakeBps = DEFAULT_HOUSE_RAKE_BPS;
     let payoutTotalBps = 0;
     const seenPlayers = new Set<string>();
     const seenPlacements = new Set<number>();
@@ -445,14 +455,14 @@ export class MoneyLedger {
       seenPlacements.add(payout.placement);
       payoutTotalBps += payout.payout_bps;
     }
-    if (payoutTotalBps + cleanHouseRakeBps !== BASIS_POINTS_DENOMINATOR) {
-      return this.error("settlement_percentages_not_balanced", "Payout percentages plus house rake must equal 100 percent.");
-    }
     const houseRakeCents = Math.floor((pot.escrow_cents * cleanHouseRakeBps) / BASIS_POINTS_DENOMINATOR);
     const playerPoolCents = Math.max(0, pot.escrow_cents - houseRakeCents);
+    if (payoutTotalBps !== BASIS_POINTS_DENOMINATOR) {
+      return this.error("settlement_percentages_not_balanced", "Payout percentages must equal 100 percent of the post-rake player pool.");
+    }
     let payoutTotalCents = 0;
     const plannedPayouts = normalizedPayouts.map((payout) => {
-      const amountCents = Math.floor((pot.escrow_cents * payout.payout_bps) / BASIS_POINTS_DENOMINATOR);
+      const amountCents = Math.floor((playerPoolCents * payout.payout_bps) / BASIS_POINTS_DENOMINATOR);
       payoutTotalCents += amountCents;
       return { ...payout, amount_cents: amountCents };
     });
@@ -480,6 +490,7 @@ export class MoneyLedger {
       house_rake_bps: cleanHouseRakeBps,
       house_rake_cents: houseRakeCents,
       player_pool_cents: playerPoolCents,
+      payout_basis: "post_rake_pool",
       payout_total_bps: payoutTotalBps,
       payout_total_cents: payoutTotalCents,
       planned_payouts: clone(plannedPayouts),
@@ -496,6 +507,147 @@ export class MoneyLedger {
       report.generated_utc = utcStamp(now);
       report.updated_unix = now;
       report.updated_utc = utcStamp(now);
+      this.asyncPayoutApprovalReports.set(cleanString(report.report_id), clone(report));
+    }
+    return report;
+  }
+
+  submitAsyncContestResult(contestId: string, contestFamily: string, playerId: string, result: JsonRecord, idempotencyKey: string): JsonRecord {
+    const cleanKey = cleanString(idempotencyKey);
+    if (!cleanKey) {
+      return this.error("missing_idempotency_key", "Idempotency key is required.");
+    }
+    const cached = this.cached(cleanKey);
+    if (cached) {
+      return cached;
+    }
+    const cleanContestId = cleanString(contestId);
+    const cleanPlayerId = cleanString(playerId);
+    const cleanFamily = this.normalizeContestFamily(contestFamily || result.contest_family);
+    if (!cleanContestId) {
+      return this.store(cleanKey, this.error("missing_contest_id", "Contest id is required."));
+    }
+    if (!cleanPlayerId) {
+      return this.store(cleanKey, this.error("missing_player_id", "Player id is required."));
+    }
+    if (!["RACE", "MISS_N_OUT", "GAUNTLET", "STAGE_RACE"].includes(cleanFamily)) {
+      return this.store(cleanKey, this.error("unsupported_contest_family", "Contest family is not supported for result aggregation."));
+    }
+    const pot = this.asyncContests.get(cleanContestId);
+    if (!pot) {
+      return this.store(cleanKey, this.error("contest_not_found", "Contest escrow was not found."));
+    }
+    if (!pot.player_ids.includes(cleanPlayerId)) {
+      return this.store(cleanKey, this.error("result_player_not_in_contest", "Result player must be entered in contest."));
+    }
+    const normalized = this.normalizeAsyncContestResultRow(cleanFamily, cleanPlayerId, result);
+    if (normalized.ok !== true) {
+      return this.store(cleanKey, normalized);
+    }
+    const rows = this.asyncContestResults.get(cleanContestId) ?? new Map<string, AsyncContestResult>();
+    const now = Math.floor(Date.now() / 1000);
+    const resultId = cleanString(result.result_id ?? result.run_id) || `${cleanContestId}:${cleanPlayerId}`;
+    const stored: AsyncContestResult = {
+      contest_id: cleanContestId,
+      contest_family: cleanFamily,
+      player_id: cleanPlayerId,
+      result_id: resultId,
+      row: normalized.row as JsonRecord,
+      submitted_unix: now
+    };
+    rows.set(cleanPlayerId, stored);
+    this.asyncContestResults.set(cleanContestId, rows);
+    return this.store(cleanKey, {
+      ok: true,
+      type: "async_contest_result_submitted",
+      contest_id: cleanContestId,
+      contest_family: cleanFamily,
+      player_id: cleanPlayerId,
+      result_id: resultId,
+      submitted_unix: now,
+      submitted_utc: utcStamp(now),
+      results_count: rows.size,
+      row: clone(stored.row)
+    });
+  }
+
+  listAsyncContestResults(filters: JsonRecord = {}): JsonRecord[] {
+    const contestFilter = cleanString(filters.contest_id);
+    const familyFilter = this.normalizeContestFamily(filters.contest_family);
+    const playerFilter = cleanString(filters.player_id);
+    const rows: JsonRecord[] = [];
+    for (const [contestId, byPlayer] of this.asyncContestResults.entries()) {
+      if (contestFilter && contestId !== contestFilter) {
+        continue;
+      }
+      for (const stored of byPlayer.values()) {
+        if (familyFilter && stored.contest_family !== familyFilter) {
+          continue;
+        }
+        if (playerFilter && stored.player_id !== playerFilter) {
+          continue;
+        }
+        rows.push({
+          contest_id: stored.contest_id,
+          contest_family: stored.contest_family,
+          player_id: stored.player_id,
+          result_id: stored.result_id,
+          submitted_unix: stored.submitted_unix,
+          submitted_utc: utcStamp(stored.submitted_unix),
+          row: clone(stored.row)
+        });
+      }
+    }
+    rows.sort((a, b) => {
+      const family = familyFilter || this.normalizeContestFamily(a.contest_family);
+      const cmp = this.compareAsyncContestResultRows(family, a.row as JsonRecord, b.row as JsonRecord);
+      if (cmp !== 0) {
+        return cmp;
+      }
+      return cleanString(a.player_id).localeCompare(cleanString(b.player_id));
+    });
+    const limit = Math.max(0, cents(filters.limit));
+    return limit > 0 ? rows.slice(0, limit) : rows;
+  }
+
+  previewAsyncContestResultPayoutReport(contestId: string, contestFamily: string, payoutSchedule: unknown[], houseRakeBps: number, options: JsonRecord = {}): JsonRecord {
+    const cleanContestId = cleanString(contestId);
+    const cleanFamily = this.normalizeContestFamily(contestFamily);
+    if (!cleanContestId) {
+      return this.error("missing_contest_id", "Contest id is required.");
+    }
+    if (!cleanFamily) {
+      return this.error("missing_contest_family", "Contest family is required.");
+    }
+    const pot = this.asyncContests.get(cleanContestId);
+    if (!pot) {
+      return this.error("contest_not_found", "Contest escrow was not found.");
+    }
+    const schedule = this.normalizePayoutSchedule(payoutSchedule);
+    if (schedule.length <= 0) {
+      return this.error("missing_payouts", "At least one payout is required.");
+    }
+    const maxPlacement = schedule.reduce((max, payout) => Math.max(max, payout.placement), 1);
+    const rankedRows = this.rankedAsyncContestResultRows(cleanContestId, cleanFamily, options);
+    if (rankedRows.length < maxPlacement) {
+      return this.error("insufficient_qualified_players", "Not enough qualified result rows for payout schedule.", {
+        contest_id: cleanContestId,
+        contest_family: cleanFamily,
+        qualified_count: rankedRows.length,
+        required_placement: maxPlacement
+      });
+    }
+    const payouts = schedule.map((payout) => ({
+      placement: payout.placement,
+      player_id: cleanString(rankedRows[payout.placement - 1]?.player_id),
+      payout_bps: payout.payout_bps
+    }));
+    const report = this.previewAsyncContestPayoutApprovalReport(cleanContestId, payouts, houseRakeBps);
+    if (report.ok === true) {
+      report.contest_family = cleanFamily;
+      report.result_source = "backend_result_ledger";
+      report.qualified_results_count = rankedRows.length;
+      report.leaderboard_rows = clone(rankedRows);
       this.asyncPayoutApprovalReports.set(cleanString(report.report_id), clone(report));
     }
     return report;
@@ -692,6 +844,21 @@ export class MoneyLedger {
     if (report == null || report.ok !== true) {
       return this.store(cleanKey, this.error("invalid_approval_report", "A valid payout approval report is required."));
     }
+    const approvalId = cleanString(report.report_id);
+    const storedBeforeApproval = approvalId ? this.asyncPayoutApprovalReports.get(approvalId) : undefined;
+    if (storedBeforeApproval && cleanString(storedBeforeApproval.approval_status) === "approved") {
+      return this.store(cleanKey, this.error("approval_report_already_approved", "Payout approval report has already been approved.", {
+        report_id: approvalId,
+        contest_id: cleanString(storedBeforeApproval.contest_id)
+      }));
+    }
+    const approvalStatus = cleanString(storedBeforeApproval?.approval_status ?? report.approval_status);
+    if (approvalStatus && approvalStatus !== "pending_approval") {
+      return this.store(cleanKey, this.error("approval_report_not_pending", "Only pending payout approval reports can be approved.", {
+        report_id: approvalId,
+        approval_status: approvalStatus
+      }));
+    }
     const cleanApproverId = cleanString(approverId);
     if (!cleanApproverId) {
       return this.store(cleanKey, this.error("missing_approver_id", "Approver id is required."));
@@ -703,7 +870,6 @@ export class MoneyLedger {
         approval_id: cleanString(report.report_id),
         approved_by: cleanApproverId
       }));
-    const approvalId = cleanString(report.report_id);
     const settle = this.settleAsyncContestPayouts(cleanString(report.contest_id), approvedPayouts, cents(report.house_rake_cents), cleanKey);
     if (settle.ok === true) {
       const storedReport = this.asyncPayoutApprovalReports.get(approvalId) ?? clone(report);
@@ -896,6 +1062,7 @@ export class MoneyLedger {
       sync_matches: Object.fromEntries([...this.syncMatches.entries()].map(([key, value]) => [key, clone(value)])),
       async_entries: Object.fromEntries([...this.asyncEntries.entries()].map(([key, value]) => [key, clone(value)])),
       async_contests: Object.fromEntries([...this.asyncContests.entries()].map(([key, value]) => [key, clone(value)])),
+      async_contest_results: Object.fromEntries([...this.asyncContestResults.entries()].map(([key, value]) => [key, Object.fromEntries([...value.entries()].map(([playerId, row]) => [playerId, clone(row)]))])),
       async_payout_approval_reports: Object.fromEntries([...this.asyncPayoutApprovalReports.entries()].map(([key, value]) => [key, clone(value)])),
       transactions: this.getTransactionLedger()
     };
@@ -920,6 +1087,122 @@ export class MoneyLedger {
         approved_by: cleanString(payout.approved_by)
       }))
       .sort((a, b) => a.placement - b.placement);
+  }
+
+  private normalizePayoutSchedule(payouts: unknown[]): SettlementPayout[] {
+    return this.normalizeSettlementPayouts(payouts).filter((payout) => payout.payout_bps > 0);
+  }
+
+  private normalizeAsyncContestResultRow(contestFamily: string, playerId: string, result: JsonRecord): JsonRecord {
+    const cleanPlayerId = cleanString(result.player_id) || playerId;
+    if (!cleanPlayerId) {
+      return this.error("missing_player_id", "Player id is required.");
+    }
+    const base: JsonRecord = {
+      ...clone(result),
+      player_id: cleanPlayerId,
+      player_name: cleanString(result.player_name ?? result.name ?? result.handle),
+      contest_family: contestFamily
+    };
+    if (contestFamily === "RACE") {
+      const requiredMaps = Math.max(1, cents(result.required_maps ?? result.map_count, 1));
+      const completedMaps = Math.max(0, Math.min(requiredMaps, cents(result.completed_maps)));
+      const submittedTimes = Array.isArray(result.map_times_ms) ? result.map_times_ms : [];
+      const aggregateFromTimes = submittedTimes.reduce((total, time) => total + Math.max(0, cents(time)), 0);
+      const aggregateMs = Math.max(0, cents(result.aggregate_ms ?? result.aggregate_time_ms, aggregateFromTimes));
+      return {
+        ok: true,
+        row: {
+          ...base,
+          required_maps: requiredMaps,
+          completed_maps: completedMaps,
+          completed_all: completedMaps >= requiredMaps,
+          aggregate_ms: aggregateMs,
+          failed_map_elapsed_ms: Math.max(0, cents(result.failed_map_elapsed_ms)),
+          run_id: cleanString(result.run_id),
+          status: cleanString(result.status)
+        }
+      };
+    }
+    if (contestFamily === "MISS_N_OUT") {
+      const placement = Math.max(1, cents(result.placement ?? result.rank, 999999));
+      return {
+        ok: true,
+        row: {
+          ...base,
+          placement,
+          rank: placement,
+          is_winner: Boolean(result.is_winner) || placement === 1,
+          eliminated: Boolean(result.eliminated) || placement > 1,
+          eliminated_round: Math.max(0, cents(result.eliminated_round ?? result.round_index)),
+          time_ms: Math.max(0, cents(result.time_ms))
+        }
+      };
+    }
+    return { ok: true, row: base };
+  }
+
+  private rankedAsyncContestResultRows(contestId: string, contestFamily: string, options: JsonRecord = {}): JsonRecord[] {
+    const byPlayer = this.asyncContestResults.get(contestId);
+    if (!byPlayer) {
+      return [];
+    }
+    const mapCount = Math.max(0, cents(options.map_count ?? options.required_maps));
+    const rows: JsonRecord[] = [...byPlayer.values()]
+      .filter((stored) => stored.contest_family === contestFamily)
+      .map((stored) => ({ ...clone(stored.row), submitted_unix: stored.submitted_unix, result_id: stored.result_id }));
+    const qualified = contestFamily === "RACE" && mapCount > 0
+      ? rows.filter((row) => cents(row.completed_maps) >= mapCount)
+      : rows;
+    qualified.sort((a, b) => this.compareAsyncContestResultRows(contestFamily, a, b));
+    return qualified.map((row, index) => ({ ...row, rank: index + 1, placement: index + 1 }));
+  }
+
+  private compareAsyncContestResultRows(contestFamily: string, a: JsonRecord, b: JsonRecord): number {
+    if (contestFamily === "RACE") {
+      const aDone = Boolean(a.completed_all) || cents(a.completed_maps) >= cents(a.required_maps);
+      const bDone = Boolean(b.completed_all) || cents(b.completed_maps) >= cents(b.required_maps);
+      if (aDone !== bDone) {
+        return aDone ? -1 : 1;
+      }
+      const completedDiff = cents(b.completed_maps) - cents(a.completed_maps);
+      if (completedDiff !== 0) {
+        return completedDiff;
+      }
+      const aggregateDiff = cents(a.aggregate_ms) - cents(b.aggregate_ms);
+      if (aggregateDiff !== 0) {
+        return aggregateDiff;
+      }
+      const failedDiff = cents(b.failed_map_elapsed_ms) - cents(a.failed_map_elapsed_ms);
+      if (failedDiff !== 0) {
+        return failedDiff;
+      }
+    } else if (contestFamily === "MISS_N_OUT") {
+      const placementDiff = cents(a.placement ?? a.rank, 999999) - cents(b.placement ?? b.rank, 999999);
+      if (placementDiff !== 0) {
+        return placementDiff;
+      }
+      const roundDiff = cents(b.eliminated_round) - cents(a.eliminated_round);
+      if (roundDiff !== 0) {
+        return roundDiff;
+      }
+      const timeDiff = cents(a.time_ms) - cents(b.time_ms);
+      if (timeDiff !== 0) {
+        return timeDiff;
+      }
+    }
+    return cleanString(a.player_id).localeCompare(cleanString(b.player_id));
+  }
+
+  private normalizeContestFamily(value: unknown): string {
+    const clean = cleanString(value).toUpperCase().replace(/[-\s]+/g, "_");
+    if (clean === "TIMED_RACE") {
+      return "RACE";
+    }
+    if (clean === "MISS_AND_OUT" || clean === "MISS_NOUT") {
+      return "MISS_N_OUT";
+    }
+    return clean;
   }
 
   private asyncContestEntryCounts(pot: AsyncContest): JsonRecord {

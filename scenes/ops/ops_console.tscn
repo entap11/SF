@@ -175,6 +175,9 @@ text = "Payout Approval"
 [node name="ContestRefreshPayoutReports" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
 text = "Refresh payout reports"
 
+[node name="ContestBuildPayoutReport" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Build selected contest report"
+
 [node name="ContestApprovalSummary" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
 visible = false
 autowrap_mode = 3
@@ -226,6 +229,29 @@ text = ""
 
 [node name="PayoutReportStatus" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
 autowrap_mode = 3
+text = ""
+
+[node name="PayoutProofLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+text = "Payout Proof"
+
+[node name="PayoutProofButtons" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+
+[node name="PayoutProofGenerate" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofButtons"]
+text = "Generate proof"
+
+[node name="PayoutProofCopy" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofButtons"]
+text = "Copy proof"
+
+[node name="PayoutProofExport" type="Button" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofButtons"]
+text = "Export proof"
+
+[node name="PayoutProofSummary" type="Label" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+autowrap_mode = 3
+text = "No payout proof loaded."
+
+[node name="PayoutProofText" type="TextEdit" parent="RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm"]
+custom_minimum_size = Vector2(0, 128)
+editable = false
 text = ""
 
 [node name="Maps" type="Control" parent="RootPanel/RootVBox/Tabs"]

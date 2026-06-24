@@ -6,6 +6,17 @@ const DEFAULT_MONEY_DENOMINATIONS: Array[int] = [1, 2, 3, 5, 10, 15, 20, 50, 100
 const DEFAULT_HOUSE_RAKE_BPS: int = 1000
 const BASIS_POINTS_DENOMINATOR: int = 10000
 const PAYOUT_REPORT_EXPORT_PATH: String = "user://ops_payout_summary_export.csv"
+const PAYOUT_PROOF_EXPORT_PATH: String = "user://ops_payout_proof.txt"
+const CONTEST_SCHEDULED_SCOPES: Array[String] = ["WEEKLY", "MONTHLY", "SEASONAL"]
+const CONTEST_GAME_FAMILIES: Array[Dictionary] = [
+	{"label": "Stage race", "family": "STAGE_RACE", "mode": "STAGE_RACE", "map_count": 5, "min_players": 5, "max_players": 10},
+	{"label": "Miss n out", "family": "MISS_N_OUT", "mode": "MISS_N_OUT", "map_count": 3, "min_players": 4, "max_players": 8},
+	{"label": "Race", "family": "RACE", "mode": "RACE", "map_count": 3, "min_players": 5, "max_players": 10},
+	{"label": "Gauntlet", "family": "GAUNTLET", "mode": "GAUNTLET", "map_count": 5, "min_players": 10, "max_players": 10}
+]
+const MONEY_SCHEDULED_CONTEST_FAMILIES: Array[String] = ["STAGE_RACE", "RACE", "GAUNTLET"]
+const HIGH_STAKES_SCHEDULED_FAMILIES: Array[String] = ["RACE", "GAUNTLET"]
+const SIT_AND_GO_CONTEST_FAMILIES: Array[String] = ["MISS_N_OUT", "GAUNTLET"]
 
 @onready var contest_list: ItemList = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestList
 @onready var contest_setup_select: OptionButton = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestSetupSelect
@@ -35,6 +46,7 @@ const PAYOUT_REPORT_EXPORT_PATH: String = "user://ops_payout_summary_export.csv"
 @onready var contest_status: Label = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestStatus
 @onready var contest_approval_label: Label = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestApprovalLabel
 @onready var contest_refresh_payout_reports: Button = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestRefreshPayoutReports
+@onready var contest_build_payout_report: Button = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestBuildPayoutReport
 @onready var contest_approval_summary: Label = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestApprovalSummary
 @onready var contest_approval_rows: VBoxContainer = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestApprovalRows
 @onready var contest_approver_label: Label = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestApproverLabel
@@ -48,6 +60,11 @@ const PAYOUT_REPORT_EXPORT_PATH: String = "user://ops_payout_summary_export.csv"
 @onready var payout_report_summary: Label = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutReportSummary
 @onready var payout_report_rows: VBoxContainer = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutReportRows
 @onready var payout_report_status: Label = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutReportStatus
+@onready var payout_proof_generate: Button = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofButtons/PayoutProofGenerate
+@onready var payout_proof_copy: Button = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofButtons/PayoutProofCopy
+@onready var payout_proof_export: Button = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofButtons/PayoutProofExport
+@onready var payout_proof_summary: Label = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofSummary
+@onready var payout_proof_text: TextEdit = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofText
 
 @onready var map_list: ItemList = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapList
 @onready var map_id: Label = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm/MapId
@@ -64,12 +81,13 @@ var _current_contest_id: String = ""
 var _current_map_id: String = ""
 var _current_payout_approval_report: Dictionary = {}
 var _current_payout_summary: Dictionary = {}
+var _current_payout_proof: Dictionary = {}
 
 func _ready() -> void:
 	contest_entry_type.clear()
 	contest_entry_type.add_item("WEEKLY")
 	contest_entry_type.add_item("MONTHLY")
-	contest_entry_type.add_item("YEARLY")
+	contest_entry_type.add_item("SEASONAL")
 	contest_entry_type.add_item("DAILY")
 	contest_entry_type.add_item("EVENT")
 	_configure_contest_setup_selector()
@@ -87,9 +105,13 @@ func _ready() -> void:
 	contest_save.pressed.connect(_on_contest_save)
 	contest_delete.pressed.connect(_on_contest_delete)
 	contest_refresh_payout_reports.pressed.connect(_on_refresh_payout_reports_pressed)
+	contest_build_payout_report.pressed.connect(_on_build_payout_report_pressed)
 	contest_approve_payouts.pressed.connect(_on_approve_payouts_pressed)
 	payout_report_refresh.pressed.connect(_on_refresh_payout_summary_pressed)
 	payout_report_export.pressed.connect(_on_export_payout_summary_pressed)
+	payout_proof_generate.pressed.connect(_on_generate_payout_proof_pressed)
+	payout_proof_copy.pressed.connect(_on_copy_payout_proof_pressed)
+	payout_proof_export.pressed.connect(_on_export_payout_proof_pressed)
 	map_list.item_selected.connect(_on_map_selected)
 	map_in_pool.toggled.connect(_on_map_in_pool_toggled)
 	map_load_test.pressed.connect(_on_map_load_test)
@@ -103,10 +125,12 @@ func _ready() -> void:
 	_refresh_payment_controls()
 	clear_payout_approval_report()
 	clear_payout_summary()
+	clear_payout_proof()
 
 func refresh() -> void:
 	_load_contests()
 	_load_maps()
+	request_scheduled_money_closeout_sweep()
 
 func _load_contests() -> void:
 	contest_list.clear()
@@ -165,7 +189,7 @@ func _on_contest_selected(index: int) -> void:
 	contest_end.text = str(contest.end_ts)
 	_set_scope_selection(contest.scope)
 	contest_ante.value = contest.price
-	_set_contest_setup_selection(contest.scope, contest.currency, contest.price)
+	_set_contest_setup_selection(contest.scope, contest.currency, contest.price, contest.contest_family, contest.schedule_kind)
 	_set_map_count_selection(contest.map_ids.size())
 	contest_prize_pool.value = float(maxi(0, contest.prize_pool_cents)) / 100.0
 	var cash_schedule: Array[Dictionary] = contest.get_cash_payout_schedule() if contest.has_method("get_cash_payout_schedule") else contest.prize_rewards
@@ -208,6 +232,12 @@ func _on_contest_save() -> void:
 	contest.scope = selected_scope
 	contest.currency = str(parts.get("currency", contest.currency))
 	contest.price = selected_price
+	var selected_setup: Dictionary = _selected_contest_setup_metadata()
+	contest.pool_type = str(selected_setup.get("pool_type", "MONEY" if selected_price > 0 else "FREE")).strip_edges().to_upper()
+	contest.contest_family = str(selected_setup.get("family", contest.contest_family)).strip_edges().to_upper()
+	contest.schedule_kind = str(selected_setup.get("schedule_kind", contest.schedule_kind)).strip_edges().to_upper()
+	contest.min_players = maxi(0, int(selected_setup.get("min_players", contest.min_players)))
+	contest.max_players = maxi(contest.min_players, int(selected_setup.get("max_players", contest.max_players)))
 	contest.time_slice = str(parts.get("time", contest.time_slice))
 	contest.status = "OPEN"
 	contest.start_ts = int(contest_start.text)
@@ -220,12 +250,14 @@ func _on_contest_save() -> void:
 		return
 	contest.map_ids = _trim_map_ids_to_count(selected_maps, target_map_count)
 	contest.house_rake_bps = DEFAULT_HOUSE_RAKE_BPS
+	if contest.has_method("normalize_definition"):
+		contest.normalize_definition()
 	if selected_price > 0:
 		contest.prize_pool_cents = int(round(float(contest_prize_pool.value) * 100.0))
 		contest.set_cash_payout_schedule(_collect_payout_schedule_from_rows())
 		var payout_bps: int = contest.get_cash_payout_total_bps()
-		if payout_bps + contest.get_house_rake_bps() != BASIS_POINTS_DENOMINATOR:
-			contest_status.text = "Money payout percentages plus house rake must equal 100%."
+		if payout_bps != BASIS_POINTS_DENOMINATOR:
+			contest_status.text = "Money payout percentages must equal 100% of the post-rake player pool."
 			return
 	else:
 		contest.prize_pool_cents = 0
@@ -291,6 +323,7 @@ func get_current_payout_summary() -> Dictionary:
 	return _current_payout_summary.duplicate(true)
 
 func request_pending_payout_reports(filters: Dictionary = {}) -> Dictionary:
+	request_scheduled_money_closeout_sweep()
 	var backend: Node = get_node_or_null("/root/VsHandshake")
 	if backend == null or not backend.has_method("list_async_contest_payout_reports"):
 		_set_approval_backend_status("Payout backend unavailable.")
@@ -320,6 +353,49 @@ func request_pending_payout_reports(filters: Dictionary = {}) -> Dictionary:
 	_set_approval_backend_status("Loaded pending payout report %s." % str((report_any as Dictionary).get("report_id", "")))
 	return result
 
+func request_scheduled_money_closeout_sweep() -> Dictionary:
+	if contest_state == null or not contest_state.has_method("process_scheduled_money_contest_closeouts"):
+		return {"ok": false, "err": "contest_state_unavailable"}
+	var result: Dictionary = contest_state.call("process_scheduled_money_contest_closeouts") as Dictionary
+	if bool(result.get("ok", false)):
+		var queued_count: int = maxi(0, int(result.get("queued_count", 0)))
+		var skipped_count: int = maxi(0, int(result.get("skipped_count", 0)))
+		var failed_count: int = maxi(0, int(result.get("failed_count", 0)))
+		if queued_count > 0:
+			_set_approval_backend_status("Queued %d closed contest payout report(s)." % queued_count)
+		elif failed_count > 0 and skipped_count <= 0:
+			_set_approval_backend_status("Closed contest sweep found %d issue(s)." % failed_count)
+		return result
+	_set_approval_backend_status("Closed contest sweep failed: %s" % _result_error(result))
+	return result
+
+func request_selected_contest_payout_report() -> Dictionary:
+	var selected_id: String = _current_contest_id.strip_edges()
+	if selected_id.is_empty():
+		selected_id = contest_id.text.strip_edges() if contest_id != null else ""
+	if selected_id.is_empty():
+		contest_status.text = "Select a money contest first."
+		_set_approval_backend_status(contest_status.text)
+		return {"ok": false, "err": "missing_contest_id"}
+	if contest_state == null or not contest_state.has_method("request_money_contest_payout_approval"):
+		contest_status.text = "Contest state payout approval unavailable."
+		_set_approval_backend_status(contest_status.text)
+		return {"ok": false, "err": "contest_state_unavailable"}
+	var result: Dictionary = contest_state.call("request_money_contest_payout_approval", selected_id, _selected_map_count()) as Dictionary
+	if bool(result.get("ok", false)):
+		show_payout_approval_report(result)
+		var source_label: String = _approval_report_source_label(result)
+		contest_status.text = "Built payout report for %s." % selected_id
+		_set_approval_backend_status("Built %s report %s." % [source_label, str(result.get("report_id", ""))])
+		return result
+	var reason: String = _result_error(result)
+	if reason == "transport_not_configured" or reason == "backend_unavailable":
+		contest_status.text = "Backend unavailable; payout report was not queued."
+	else:
+		contest_status.text = "Payout report failed: %s" % reason
+	_set_approval_backend_status(contest_status.text)
+	return result
+
 func request_payout_summary(filters: Dictionary = {}) -> Dictionary:
 	var backend: Node = get_node_or_null("/root/VsHandshake")
 	if backend == null or not backend.has_method("get_money_payout_summary"):
@@ -346,6 +422,164 @@ func show_payout_summary(summary: Dictionary) -> void:
 func clear_payout_summary() -> void:
 	_current_payout_summary.clear()
 	_refresh_payout_summary_report()
+
+func show_payout_proof(proof: Dictionary) -> void:
+	_current_payout_proof = proof.duplicate(true)
+	_refresh_payout_proof()
+
+func clear_payout_proof() -> void:
+	_current_payout_proof.clear()
+	_refresh_payout_proof()
+
+func get_current_payout_proof() -> Dictionary:
+	return _current_payout_proof.duplicate(true)
+
+func request_payout_proof(contest_id_filter: String = "") -> Dictionary:
+	var target_contest_id: String = contest_id_filter.strip_edges()
+	if target_contest_id.is_empty():
+		target_contest_id = _selected_proof_contest_id()
+	if target_contest_id.is_empty():
+		_set_payout_report_status("Payout proof requires a contest id.")
+		return {"ok": false, "err": "missing_contest_id"}
+	var backend: Node = get_node_or_null("/root/VsHandshake")
+	if backend == null or not backend.has_method("get_money_transactions") or not backend.has_method("list_async_contest_payout_reports") or not backend.has_method("get_money_payout_summary"):
+		_set_payout_report_status("Payout proof backend unavailable.")
+		return {"ok": false, "err": "backend_unavailable"}
+	var reports_result: Dictionary = backend.call("list_async_contest_payout_reports", {
+		"contest_id": target_contest_id,
+		"limit": 1,
+		"sort_desc": true
+	}) as Dictionary
+	if not bool(reports_result.get("ok", false)):
+		_set_payout_report_status("Payout proof report fetch failed: %s" % _result_error(reports_result))
+		return reports_result
+	var transactions_result: Dictionary = backend.call("get_money_transactions", {
+		"contest_id": target_contest_id,
+		"sort_desc": false
+	}) as Dictionary
+	if not bool(transactions_result.get("ok", false)):
+		_set_payout_report_status("Payout proof transaction fetch failed: %s" % _result_error(transactions_result))
+		return transactions_result
+	var summary_result: Dictionary = backend.call("get_money_payout_summary", {
+		"contest_id": target_contest_id,
+		"limit": 1
+	}) as Dictionary
+	if not bool(summary_result.get("ok", false)):
+		_set_payout_report_status("Payout proof summary fetch failed: %s" % _result_error(summary_result))
+		return summary_result
+	var proof: Dictionary = build_payout_proof_from_backend(target_contest_id, reports_result, transactions_result, summary_result)
+	show_payout_proof(proof)
+	_set_payout_report_status("Payout proof loaded for %s." % target_contest_id)
+	return proof
+
+func build_payout_proof_from_backend(contest_id_value: String, reports_result: Dictionary, transactions_result: Dictionary, summary_result: Dictionary) -> Dictionary:
+	var reports: Array = reports_result.get("reports", []) as Array
+	var report: Dictionary = {}
+	if not reports.is_empty() and typeof(reports[0]) == TYPE_DICTIONARY:
+		report = (reports[0] as Dictionary).duplicate(true)
+	var transactions: Array = transactions_result.get("transactions", []) as Array
+	var payout_transactions: Array[Dictionary] = []
+	var rake_transactions: Array[Dictionary] = []
+	for tx_any in transactions:
+		if typeof(tx_any) != TYPE_DICTIONARY:
+			continue
+		var tx: Dictionary = (tx_any as Dictionary).duplicate(true)
+		var tx_type: String = str(tx.get("transaction_type", "")).strip_edges()
+		if tx_type == "async_winner_payout" or tx_type == "winner_payout":
+			payout_transactions.append(tx)
+		elif tx_type == "async_house_rake" or tx_type == "house_rake":
+			rake_transactions.append(tx)
+	var proof: Dictionary = {
+		"ok": true,
+		"type": "money_payout_proof",
+		"contest_id": contest_id_value,
+		"approval_report": report,
+		"summary": summary_result.duplicate(true),
+		"payout_transactions": payout_transactions,
+		"rake_transactions": rake_transactions,
+		"transaction_count": payout_transactions.size() + rake_transactions.size()
+	}
+	proof["proof_text"] = _compose_payout_proof_text(proof)
+	return proof
+
+func _selected_proof_contest_id() -> String:
+	var filter_id: String = payout_report_contest_filter.text.strip_edges() if payout_report_contest_filter != null else ""
+	if not filter_id.is_empty():
+		return filter_id
+	if not _current_contest_id.strip_edges().is_empty():
+		return _current_contest_id.strip_edges()
+	return contest_id.text.strip_edges() if contest_id != null else ""
+
+func _refresh_payout_proof() -> void:
+	var has_proof: bool = bool(_current_payout_proof.get("ok", false))
+	if payout_proof_text != null:
+		payout_proof_text.text = str(_current_payout_proof.get("proof_text", "")) if has_proof else ""
+	if payout_proof_summary == null:
+		return
+	if not has_proof:
+		payout_proof_summary.text = "No payout proof loaded."
+		return
+	var report: Dictionary = _current_payout_proof.get("approval_report", {}) as Dictionary
+	var summary: Dictionary = _current_payout_proof.get("summary", {}) as Dictionary
+	payout_proof_summary.text = "Proof %s | Approval %s | %s | Paid %s | Rake %s | Transactions %d" % [
+		str(_current_payout_proof.get("contest_id", "")),
+		str(report.get("report_id", report.get("approval_id", ""))),
+		str(report.get("approval_status", "")),
+		_format_cents(maxi(0, int(summary.get("paid_out_cents", report.get("payout_total_cents", 0))))),
+		_format_cents(maxi(0, int(summary.get("house_rake_cents", report.get("house_rake_cents", 0))))),
+		maxi(0, int(_current_payout_proof.get("transaction_count", 0)))
+	]
+
+func _compose_payout_proof_text(proof: Dictionary) -> String:
+	var report: Dictionary = proof.get("approval_report", {}) as Dictionary
+	var summary: Dictionary = proof.get("summary", {}) as Dictionary
+	var payout_transactions: Array = proof.get("payout_transactions", []) as Array
+	var rake_transactions: Array = proof.get("rake_transactions", []) as Array
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("SWARMFRONT MONEY PAYOUT PROOF")
+	lines.append("Contest: %s" % str(proof.get("contest_id", "")))
+	lines.append("Approval ID: %s" % str(report.get("report_id", report.get("approval_id", ""))))
+	lines.append("Approval status: %s" % str(report.get("approval_status", "")))
+	lines.append("Approved by: %s" % str(report.get("approved_by", "")))
+	lines.append("Approved UTC: %s" % str(report.get("approved_utc", "")))
+	lines.append("Generated UTC: %s" % str(report.get("generated_utc", "")))
+	lines.append("Updated UTC: %s" % str(report.get("updated_utc", "")))
+	lines.append("Total take: %s" % _format_cents(maxi(0, int(report.get("total_take_cents", summary.get("gross_closed_cents", 0))))))
+	lines.append("House rake: %s" % _format_cents(maxi(0, int(report.get("house_rake_cents", summary.get("house_rake_cents", 0))))))
+	lines.append("Player pool: %s" % _format_cents(maxi(0, int(report.get("player_pool_cents", summary.get("paid_out_cents", 0))))))
+	lines.append("Payout total: %s" % _format_cents(maxi(0, int(report.get("payout_total_cents", summary.get("paid_out_cents", 0))))))
+	lines.append("")
+	lines.append("PAYOUT TRANSACTIONS")
+	if payout_transactions.is_empty():
+		lines.append("No payout transactions found.")
+	for tx_any in payout_transactions:
+		if typeof(tx_any) != TYPE_DICTIONARY:
+			continue
+		var tx: Dictionary = tx_any as Dictionary
+		lines.append("%s | %s | placement %d | %s | approval %s | %s" % [
+			str(tx.get("transaction_id", "")),
+			str(tx.get("account_id", tx.get("player_id", ""))),
+			maxi(0, int(tx.get("placement", 0))),
+			_format_cents(maxi(0, int(tx.get("amount_cents", 0)))),
+			str(tx.get("approval_id", "")),
+			str(tx.get("created_utc", ""))
+		])
+	lines.append("")
+	lines.append("RAKE TRANSACTIONS")
+	if rake_transactions.is_empty():
+		lines.append("No rake transactions found.")
+	for tx_any in rake_transactions:
+		if typeof(tx_any) != TYPE_DICTIONARY:
+			continue
+		var tx: Dictionary = tx_any as Dictionary
+		lines.append("%s | %s | %s | approval %s | %s" % [
+			str(tx.get("transaction_id", "")),
+			str(tx.get("account_id", "")),
+			_format_cents(maxi(0, int(tx.get("amount_cents", 0)))),
+			str(tx.get("approval_id", "")),
+			str(tx.get("created_utc", ""))
+		])
+	return "\n".join(lines)
 
 func _refresh_payout_summary_report() -> void:
 	if payout_report_rows != null:
@@ -432,6 +666,23 @@ func _on_export_payout_summary_pressed() -> void:
 	else:
 		_set_payout_report_status("Payout report export failed: %s" % _result_error(result))
 
+func _on_generate_payout_proof_pressed() -> void:
+	request_payout_proof()
+
+func _on_copy_payout_proof_pressed() -> void:
+	var result: Dictionary = copy_current_payout_proof()
+	if bool(result.get("ok", false)):
+		_set_payout_report_status("Copied payout proof.")
+	else:
+		_set_payout_report_status("Payout proof copy failed: %s" % _result_error(result))
+
+func _on_export_payout_proof_pressed() -> void:
+	var result: Dictionary = export_current_payout_proof()
+	if bool(result.get("ok", false)):
+		_set_payout_report_status("Exported payout proof: %s" % str(result.get("path", "")))
+	else:
+		_set_payout_report_status("Payout proof export failed: %s" % _result_error(result))
+
 func _collect_payout_summary_filters() -> Dictionary:
 	var filters: Dictionary = {"limit": 25}
 	var contest_filter: String = payout_report_contest_filter.text.strip_edges() if payout_report_contest_filter != null else ""
@@ -467,6 +718,28 @@ func export_current_payout_summary_csv(path: String = PAYOUT_REPORT_EXPORT_PATH)
 	file.close()
 	return {"ok": true, "path": ProjectSettings.globalize_path(path)}
 
+func copy_current_payout_proof() -> Dictionary:
+	if not bool(_current_payout_proof.get("ok", false)):
+		return {"ok": false, "err": "missing_payout_proof"}
+	var proof_text: String = str(_current_payout_proof.get("proof_text", ""))
+	if proof_text.strip_edges().is_empty():
+		return {"ok": false, "err": "empty_payout_proof"}
+	DisplayServer.clipboard_set(proof_text)
+	return {"ok": true, "bytes": proof_text.to_utf8_buffer().size()}
+
+func export_current_payout_proof(path: String = PAYOUT_PROOF_EXPORT_PATH) -> Dictionary:
+	if not bool(_current_payout_proof.get("ok", false)):
+		return {"ok": false, "err": "missing_payout_proof"}
+	var proof_text: String = str(_current_payout_proof.get("proof_text", ""))
+	if proof_text.strip_edges().is_empty():
+		return {"ok": false, "err": "empty_payout_proof"}
+	var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return {"ok": false, "err": "export_open_failed", "path": path}
+	file.store_string(proof_text)
+	file.close()
+	return {"ok": true, "path": ProjectSettings.globalize_path(path)}
+
 func _refresh_payout_approval_report() -> void:
 	var has_report: bool = bool(_current_payout_approval_report.get("ok", false))
 	for node in [contest_approval_summary, contest_approval_rows, contest_approver_label, contest_approver_input, contest_approve_payouts]:
@@ -492,26 +765,211 @@ func _refresh_payout_approval_report() -> void:
 	var house_rake_cents: int = maxi(0, int(_current_payout_approval_report.get("house_rake_cents", 0)))
 	var player_pool_cents: int = maxi(0, int(_current_payout_approval_report.get("player_pool_cents", 0)))
 	var payout_count: int = maxi(0, int(_current_payout_approval_report.get("payout_count", 0)))
+	var qualified_results_count: int = maxi(0, int(_current_payout_approval_report.get("qualified_results_count", 0)))
+	var source_label: String = _approval_report_source_label(_current_payout_approval_report)
+	var review: Dictionary = _review_payout_approval_report(_current_payout_approval_report)
 	if contest_approval_summary != null:
-		contest_approval_summary.text = "Report %s | %s | Players %d | Entries %d | Paid entries %d | Total %s | Rake %s | Player pool %s | Planned payouts %d" % [
-			str(_current_payout_approval_report.get("report_id", "")),
+		var summary_parts: PackedStringArray = PackedStringArray([
+			"Report %s" % str(_current_payout_approval_report.get("report_id", "")),
 			approval_status,
-			players_count,
-			entries_count,
-			paid_entries_count,
-			_format_cents(total_take_cents),
-			_format_cents(house_rake_cents),
-			_format_cents(player_pool_cents),
-			payout_count
-		]
+			"Source %s" % source_label,
+			"Players %d" % players_count,
+			"Entries %d" % entries_count,
+			"Paid entries %d" % paid_entries_count,
+			"Total %s" % _format_cents(total_take_cents),
+			"Rake %s" % _format_cents(house_rake_cents),
+			"Player pool %s" % _format_cents(player_pool_cents),
+			"Planned payouts %d" % payout_count
+		])
+		if qualified_results_count > 0:
+			summary_parts.append("Qualified results %d" % qualified_results_count)
+		summary_parts.append("Review %s" % ("OK" if bool(review.get("ok", false)) else "Blocked"))
+		contest_approval_summary.text = " | ".join(summary_parts)
+	if not bool(review.get("ok", false)):
+		contest_approval_rows.add_child(_build_approval_section_label("Review blockers"))
+		var issues: Array = review.get("issues", []) as Array
+		for issue_any in issues:
+			contest_approval_rows.add_child(_build_approval_review_row(str(issue_any)))
+	else:
+		var warnings: Array = review.get("warnings", []) as Array
+		if not warnings.is_empty():
+			contest_approval_rows.add_child(_build_approval_section_label("Review notes"))
+			for warning_any in warnings:
+				contest_approval_rows.add_child(_build_approval_review_row(str(warning_any)))
 	var planned_payouts: Array = _current_payout_approval_report.get("planned_payouts", []) as Array
+	if not planned_payouts.is_empty():
+		contest_approval_rows.add_child(_build_approval_section_label("Planned payouts"))
+		contest_approval_rows.add_child(_build_approval_payout_header_row())
 	for payout_any in planned_payouts:
 		if typeof(payout_any) != TYPE_DICTIONARY:
 			continue
 		var payout: Dictionary = payout_any as Dictionary
 		contest_approval_rows.add_child(_build_approval_payout_row(payout))
+	var leaderboard_rows: Array = _current_payout_approval_report.get("leaderboard_rows", []) as Array
+	if not leaderboard_rows.is_empty():
+		contest_approval_rows.add_child(_build_approval_section_label("Qualified leaderboard"))
+		contest_approval_rows.add_child(_build_approval_leaderboard_header_row())
+	for row_any in leaderboard_rows:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		contest_approval_rows.add_child(_build_approval_leaderboard_row(row_any as Dictionary))
 	if contest_approve_payouts != null:
-		contest_approve_payouts.disabled = approval_status != "pending_approval" or planned_payouts.is_empty()
+		contest_approve_payouts.disabled = approval_status != "pending_approval" or not bool(review.get("ok", false))
+
+func _review_payout_approval_report(report: Dictionary) -> Dictionary:
+	var issues: Array[String] = []
+	var warnings: Array[String] = []
+	var planned_payouts: Array = report.get("planned_payouts", []) as Array
+	if planned_payouts.is_empty():
+		issues.append("No planned payout rows.")
+	for payout_any in planned_payouts:
+		if typeof(payout_any) != TYPE_DICTIONARY:
+			issues.append("Invalid payout row payload.")
+			continue
+		var payout: Dictionary = payout_any as Dictionary
+		var placement: int = maxi(0, int(payout.get("placement", 0)))
+		if placement <= 0:
+			issues.append("Payout row is missing placement.")
+		if str(payout.get("player_id", "")).strip_edges().is_empty():
+			issues.append("Payout row #%d is missing player id." % placement)
+		if maxi(0, int(payout.get("payout_bps", 0))) <= 0:
+			issues.append("Payout row #%d is missing payout percentage." % placement)
+		if maxi(0, int(payout.get("amount_cents", 0))) <= 0:
+			issues.append("Payout row #%d is missing payout amount." % placement)
+	var family: String = _approval_report_family(report)
+	var source: String = str(report.get("result_source", report.get("closeout_source", ""))).strip_edges()
+	var leaderboard_rows: Array = report.get("leaderboard_rows", []) as Array
+	var qualified_results_count: int = maxi(0, int(report.get("qualified_results_count", leaderboard_rows.size())))
+	if _approval_report_requires_backend_results(report):
+		if source != "backend_result_ledger":
+			issues.append("%s money closeouts must use backend result ledger source." % family)
+		if leaderboard_rows.is_empty():
+			issues.append("%s money closeout is missing backend leaderboard rows." % family)
+		if qualified_results_count < planned_payouts.size():
+			issues.append("Qualified result count is below planned payout count.")
+	elif source.is_empty():
+		warnings.append("Report source is not set.")
+	var payout_total_bps: int = maxi(0, int(report.get("payout_total_bps", 0)))
+	if payout_total_bps > 0 and payout_total_bps != BASIS_POINTS_DENOMINATOR:
+		issues.append("Payout percentages do not equal 100% of post-rake pool.")
+	return {
+		"ok": issues.is_empty(),
+		"issues": issues,
+		"warnings": warnings,
+		"contest_family": family
+	}
+
+func _approval_report_requires_backend_results(report: Dictionary) -> bool:
+	var family: String = _approval_report_family(report)
+	return family == "RACE" or family == "MISS_N_OUT"
+
+func _approval_report_family(report: Dictionary) -> String:
+	var family: String = str(report.get("contest_family", "")).strip_edges().to_upper()
+	if family == "MISS_N_OUT" or family == "RACE":
+		return family
+	var contest_id_value: String = str(report.get("contest_id", "")).strip_edges().to_upper()
+	if contest_id_value.ends_with("_RACE") or contest_id_value.contains("_RACE_"):
+		return "RACE"
+	if contest_id_value.ends_with("_MISS_N_OUT") or contest_id_value.contains("_MISS_N_OUT_"):
+		return "MISS_N_OUT"
+	return family
+
+func _approval_report_source_label(report: Dictionary) -> String:
+	var source: String = str(report.get("result_source", report.get("closeout_source", "ledger"))).strip_edges()
+	if source == "backend_result_ledger":
+		return "Backend results"
+	if source == "ledger":
+		return "Payout ledger"
+	return source.replace("_", " ").capitalize()
+
+func _build_approval_section_label(text: String) -> Label:
+	var label: Label = Label.new()
+	label.text = text
+	label.add_theme_color_override("font_color", Color(0.96, 0.78, 0.36, 1.0))
+	return label
+
+func _build_approval_review_row(text: String) -> Label:
+	var label: Label = Label.new()
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return label
+
+func _build_approval_payout_header_row() -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_approval_header_cell("Place", 64.0, HORIZONTAL_ALIGNMENT_LEFT))
+	var player: Label = _approval_header_cell("Player", 120.0, HORIZONTAL_ALIGNMENT_LEFT)
+	player.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(player)
+	row.add_child(_approval_header_cell("Percent", 90.0, HORIZONTAL_ALIGNMENT_LEFT))
+	row.add_child(_approval_header_cell("Amount", 100.0, HORIZONTAL_ALIGNMENT_LEFT))
+	return row
+
+func _build_approval_leaderboard_header_row() -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_approval_header_cell("Rank", 64.0, HORIZONTAL_ALIGNMENT_LEFT))
+	var player: Label = _approval_header_cell("Player", 120.0, HORIZONTAL_ALIGNMENT_LEFT)
+	player.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(player)
+	row.add_child(_approval_header_cell("Result", 260.0, HORIZONTAL_ALIGNMENT_RIGHT))
+	return row
+
+func _approval_header_cell(text: String, width: float, align: HorizontalAlignment) -> Label:
+	var label: Label = Label.new()
+	label.text = text
+	label.custom_minimum_size = Vector2(width, 0.0)
+	label.horizontal_alignment = align
+	label.add_theme_color_override("font_color", Color(0.96, 0.78, 0.36, 1.0))
+	return label
+
+func _build_approval_leaderboard_row(row_data: Dictionary) -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var rank: int = maxi(1, int(row_data.get("rank", row_data.get("placement", 0))))
+	var rank_label: Label = Label.new()
+	rank_label.custom_minimum_size = Vector2(64.0, 0.0)
+	rank_label.text = "#%d" % rank
+	row.add_child(rank_label)
+	var player_label: Label = Label.new()
+	player_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	player_label.clip_text = true
+	player_label.text = str(row_data.get("player_id", ""))
+	row.add_child(player_label)
+	var metric_label: Label = Label.new()
+	metric_label.custom_minimum_size = Vector2(260.0, 0.0)
+	metric_label.text = _approval_leaderboard_metric_label(row_data)
+	metric_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	metric_label.clip_text = true
+	row.add_child(metric_label)
+	return row
+
+func _approval_leaderboard_metric_label(row_data: Dictionary) -> String:
+	var parts: PackedStringArray = PackedStringArray()
+	if row_data.has("aggregate_ms"):
+		parts.append("Total %s" % _format_elapsed_ms(maxi(0, int(row_data.get("aggregate_ms", 0)))))
+	if row_data.has("completed_maps"):
+		parts.append("Maps %d" % maxi(0, int(row_data.get("completed_maps", 0))))
+	if row_data.has("placement"):
+		parts.append("Place %d" % maxi(1, int(row_data.get("placement", 0))))
+	if row_data.has("eliminated_round"):
+		parts.append("Round %d" % maxi(0, int(row_data.get("eliminated_round", 0))))
+	if row_data.has("time_ms"):
+		parts.append("Time %s" % _format_elapsed_ms(maxi(0, int(row_data.get("time_ms", 0)))))
+	if row_data.has("score"):
+		parts.append("Score %d" % int(row_data.get("score", 0)))
+	if parts.is_empty():
+		return str(row_data.get("result_status", "submitted"))
+	return " | ".join(parts)
+
+func _format_elapsed_ms(ms: int) -> String:
+	var safe_ms: int = maxi(0, ms)
+	var minutes: int = safe_ms / 60000
+	var seconds: int = (safe_ms % 60000) / 1000
+	var millis: int = safe_ms % 1000
+	if minutes > 0:
+		return "%d:%02d.%03d" % [minutes, seconds, millis]
+	return "%d.%03ds" % [seconds, millis]
 
 func _build_approval_payout_row(payout: Dictionary) -> Control:
 	var row: HBoxContainer = HBoxContainer.new()
@@ -538,6 +996,13 @@ func _on_approve_payouts_pressed() -> void:
 	if _current_payout_approval_report.is_empty():
 		contest_status.text = "No payout approval report loaded."
 		return
+	var review: Dictionary = _review_payout_approval_report(_current_payout_approval_report)
+	if not bool(review.get("ok", false)):
+		var issues: Array = review.get("issues", []) as Array
+		contest_status.text = "Payout approval blocked: %s" % (str(issues[0]) if not issues.is_empty() else "review_failed")
+		_set_approval_backend_status(contest_status.text)
+		_refresh_payout_approval_report()
+		return
 	var approver_id: String = contest_approver_input.text.strip_edges()
 	if approver_id.is_empty():
 		contest_status.text = "Approver required."
@@ -548,9 +1013,11 @@ func _on_approve_payouts_pressed() -> void:
 		var approved_report_any: Variant = result.get("approval_report", {})
 		if typeof(approved_report_any) == TYPE_DICTIONARY:
 			show_payout_approval_report(approved_report_any as Dictionary)
+			_mark_current_contest_payout_approved(approved_report_any as Dictionary)
 		else:
 			_current_payout_approval_report["approval_status"] = "approved"
 			_refresh_payout_approval_report()
+			_mark_current_contest_payout_approved(_current_payout_approval_report)
 		contest_status.text = "Payout approval posted for %s." % str(_current_payout_approval_report.get("report_id", ""))
 		_set_approval_backend_status("Approval posted. Transactions: %s" % str(result.get("transaction_ids", [])))
 		return
@@ -564,6 +1031,9 @@ func _on_approve_payouts_pressed() -> void:
 func _on_refresh_payout_reports_pressed() -> void:
 	request_pending_payout_reports()
 
+func _on_build_payout_report_pressed() -> void:
+	request_selected_contest_payout_report()
+
 func _approve_payout_report_backend(report: Dictionary, approver_id: String) -> Dictionary:
 	var backend: Node = get_node_or_null("/root/VsHandshake")
 	if backend == null or not backend.has_method("approve_async_contest_payout_report"):
@@ -571,6 +1041,14 @@ func _approve_payout_report_backend(report: Dictionary, approver_id: String) -> 
 	var report_id: String = str(report.get("report_id", "")).strip_edges()
 	var key: String = "approve:%s:%s" % [report_id, approver_id]
 	return backend.call("approve_async_contest_payout_report", report, approver_id, key) as Dictionary
+
+func _mark_current_contest_payout_approved(report: Dictionary) -> void:
+	if contest_state == null or not contest_state.has_method("mark_money_contest_payout_approved"):
+		return
+	var approved_contest_id: String = str(report.get("contest_id", _current_contest_id)).strip_edges()
+	if approved_contest_id.is_empty():
+		return
+	contest_state.call("mark_money_contest_payout_approved", approved_contest_id, report)
 
 func _set_approval_backend_status(text: String) -> void:
 	if contest_approval_backend_status != null:
@@ -691,22 +1169,65 @@ func _nearest_supported_map_count(count: int) -> int:
 
 func _configure_contest_setup_selector() -> void:
 	contest_setup_select.clear()
-	_add_contest_setup_option("Free weekly", "WEEKLY", "FREE", 0)
-	_add_contest_setup_option("Free monthly", "MONTHLY", "FREE", 0)
-	for denomination in _money_denominations():
-		_add_contest_setup_option("Money weekly $%d" % denomination, "WEEKLY", "USD", denomination)
-	for denomination in _money_denominations():
-		_add_contest_setup_option("Money monthly $%d" % denomination, "MONTHLY", "USD", denomination)
+	for scope in CONTEST_SCHEDULED_SCOPES:
+		for family in CONTEST_GAME_FAMILIES:
+			_add_contest_setup_option(
+				"Free %s %s" % [_scope_label(scope), str(family.get("label", ""))],
+				scope,
+				"FREE",
+				0,
+				family,
+				"SCHEDULED"
+			)
+	for scope in CONTEST_SCHEDULED_SCOPES:
+		for family in CONTEST_GAME_FAMILIES:
+			var family_id: String = str(family.get("family", "")).strip_edges().to_upper()
+			if not MONEY_SCHEDULED_CONTEST_FAMILIES.has(family_id):
+				continue
+			for denomination in _money_denominations_for_family(family_id, "SCHEDULED"):
+				_add_contest_setup_option(
+					"Money %s %s $%d" % [_scope_label(scope), str(family.get("label", "")), denomination],
+					scope,
+					"USD",
+					denomination,
+					family,
+					"SCHEDULED"
+				)
+	for family_id in SIT_AND_GO_CONTEST_FAMILIES:
+		var sit_family: Dictionary = _family_metadata(family_id)
+		_add_contest_setup_option("Free %s sit-and-go" % str(sit_family.get("label", "")).to_lower(), "EVENT", "FREE", 0, sit_family, "SIT_AND_GO")
+		for denomination in _money_denominations_for_family(family_id, "SIT_AND_GO"):
+			_add_contest_setup_option("Money %s sit-and-go $%d" % [str(sit_family.get("label", "")).to_lower(), denomination], "EVENT", "USD", denomination, sit_family, "SIT_AND_GO")
 	contest_setup_select.select(0)
 
-func _add_contest_setup_option(label: String, scope: String, currency: String, price: int) -> void:
+func _add_contest_setup_option(label: String, scope: String, currency: String, price: int, family: Dictionary = {}, schedule_kind: String = "SCHEDULED") -> void:
+	var family_id: String = str(family.get("family", "STAGE_RACE")).strip_edges().to_upper()
+	var mode_id: String = str(family.get("mode", family_id)).strip_edges().to_upper()
+	var pool_type: String = "MONEY" if price > 0 else "FREE"
 	var idx: int = contest_setup_select.item_count
 	contest_setup_select.add_item(label)
 	contest_setup_select.set_item_metadata(idx, {
 		"scope": scope.strip_edges().to_upper(),
 		"currency": currency.strip_edges().to_upper(),
-		"price": maxi(0, price)
+		"price": maxi(0, price),
+		"pool_type": pool_type,
+		"family": family_id,
+		"mode": mode_id,
+		"schedule_kind": schedule_kind.strip_edges().to_upper(),
+		"map_count": maxi(3, int(family.get("map_count", 5))),
+		"min_players": maxi(0, int(family.get("min_players", 0))),
+		"max_players": maxi(0, int(family.get("max_players", 0)))
 	})
+
+func _family_metadata(family_id: String) -> Dictionary:
+	var clean: String = family_id.strip_edges().to_upper()
+	for family in CONTEST_GAME_FAMILIES:
+		if str(family.get("family", "")).strip_edges().to_upper() == clean:
+			return family.duplicate(true)
+	return CONTEST_GAME_FAMILIES[0].duplicate(true)
+
+func _scope_label(scope: String) -> String:
+	return scope.strip_edges().to_lower().capitalize()
 
 func _money_denominations() -> Array[int]:
 	var found: Dictionary = {}
@@ -726,6 +1247,16 @@ func _money_denominations() -> Array[int]:
 	out.sort()
 	return out
 
+func _money_denominations_for_family(family_id: String, schedule_kind: String) -> Array[int]:
+	var clean_family: String = family_id.strip_edges().to_upper()
+	var clean_schedule: String = schedule_kind.strip_edges().to_upper()
+	var out: Array[int] = []
+	for denom in _money_denominations():
+		if denom == 100 and not (clean_schedule == "SCHEDULED" and HIGH_STAKES_SCHEDULED_FAMILIES.has(clean_family)):
+			continue
+		out.append(denom)
+	return out
+
 func _on_contest_setup_selected(index: int) -> void:
 	if index < 0 or index >= contest_setup_select.item_count:
 		return
@@ -737,15 +1268,32 @@ func _on_contest_setup_selected(index: int) -> void:
 	var currency: String = str(metadata.get("currency", "FREE")).strip_edges().to_upper()
 	var price: int = maxi(0, int(metadata.get("price", 0)))
 	_set_scope_selection(scope)
+	contest_mode.text = str(metadata.get("mode", contest_mode.text)).strip_edges().to_upper()
+	_set_map_count_selection(maxi(3, int(metadata.get("map_count", _selected_map_count()))))
 	contest_ante.value = price
-	_apply_contest_setup_id(scope, currency, price)
+	_apply_contest_setup_id(scope, currency, price, str(metadata.get("family", "")).strip_edges().to_upper())
 	_refresh_payment_controls()
 	_sync_rewards_json_from_payout_rows()
 
-func _apply_contest_setup_id(scope: String, currency: String, price: int) -> void:
+func _selected_contest_setup_metadata() -> Dictionary:
+	if contest_setup_select == null or contest_setup_select.item_count <= 0:
+		return {}
+	var selected: int = contest_setup_select.selected
+	if selected < 0 or selected >= contest_setup_select.item_count:
+		return {}
+	var metadata_any: Variant = contest_setup_select.get_item_metadata(selected)
+	if typeof(metadata_any) != TYPE_DICTIONARY:
+		return {}
+	return (metadata_any as Dictionary).duplicate(true)
+
+func _apply_contest_setup_id(scope: String, currency: String, price: int, family: String = "") -> void:
 	var parts: Dictionary = _parse_contest_id(contest_id.text.strip_edges())
 	var time_slice: String = str(parts.get("time", "")).strip_edges()
-	var suffix: String = str(parts.get("suffix", "")).strip_edges()
+	var suffix: String = family.strip_edges().to_upper()
+	if suffix.is_empty():
+		suffix = str(parts.get("suffix", "")).strip_edges()
+	if suffix == "STAGE_RACE":
+		suffix = ""
 	if time_slice.is_empty():
 		time_slice = _default_time_slice(scope)
 	var next_id: String = _build_contest_id({
@@ -758,18 +1306,25 @@ func _apply_contest_setup_id(scope: String, currency: String, price: int) -> voi
 	if not next_id.is_empty():
 		contest_id.text = next_id
 
-func _set_contest_setup_selection(scope: String, currency: String, price: int) -> void:
+func _set_contest_setup_selection(scope: String, currency: String, price: int, family: String = "", schedule_kind: String = "") -> void:
 	var clean_scope: String = scope.strip_edges().to_upper()
 	var clean_currency: String = currency.strip_edges().to_upper()
 	var clean_price: int = maxi(0, price)
+	var clean_family: String = family.strip_edges().to_upper()
+	var clean_schedule_kind: String = schedule_kind.strip_edges().to_upper()
 	for i in range(contest_setup_select.item_count):
 		var metadata_any: Variant = contest_setup_select.get_item_metadata(i)
 		if typeof(metadata_any) != TYPE_DICTIONARY:
 			continue
 		var metadata: Dictionary = metadata_any as Dictionary
-		if str(metadata.get("scope", "")) == clean_scope and str(metadata.get("currency", "")) == clean_currency and int(metadata.get("price", -1)) == clean_price:
-			contest_setup_select.select(i)
-			return
+		if str(metadata.get("scope", "")) != clean_scope or str(metadata.get("currency", "")) != clean_currency or int(metadata.get("price", -1)) != clean_price:
+			continue
+		if not clean_family.is_empty() and str(metadata.get("family", "")) != clean_family:
+			continue
+		if not clean_schedule_kind.is_empty() and str(metadata.get("schedule_kind", "")) != clean_schedule_kind:
+			continue
+		contest_setup_select.select(i)
+		return
 
 func _default_time_slice(scope: String) -> String:
 	var now: Dictionary = Time.get_datetime_dict_from_system()
@@ -779,7 +1334,7 @@ func _default_time_slice(scope: String) -> String:
 	var clean_scope: String = scope.strip_edges().to_upper()
 	if clean_scope == "MONTHLY":
 		return "%04d-%02d" % [year, month]
-	if clean_scope == "YEARLY":
+	if clean_scope == "SEASONAL" or clean_scope == "YEARLY":
 		return "%04d" % year
 	var rough_week: int = clampi(int(ceil(float(((month - 1) * 31) + day) / 7.0)), 1, 53)
 	return "%04d-W%02d" % [year, rough_week]
@@ -894,8 +1449,8 @@ func _sync_rewards_json_from_payout_rows() -> void:
 		for payout in schedule:
 			total_bps += clampi(int(payout.get("payout_bps", 0)), 0, BASIS_POINTS_DENOMINATOR)
 		var rake_bps: int = DEFAULT_HOUSE_RAKE_BPS if int(contest_ante.value) > 0 else 0
-		var remaining_bps: int = BASIS_POINTS_DENOMINATOR - rake_bps - total_bps
-		contest_payout_summary.text = "Payout total: %.1f%% across %d winners | House %.1f%% | Remaining %.1f%%" % [
+		var remaining_bps: int = BASIS_POINTS_DENOMINATOR - total_bps
+		contest_payout_summary.text = "Payout total: %.1f%% of post-rake pool across %d winners | House %.1f%% of gross | Unallocated %.1f%%" % [
 			float(total_bps) / 100.0,
 			schedule.size(),
 			float(rake_bps) / 100.0,

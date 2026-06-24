@@ -553,6 +553,12 @@ function handleAction(req: Request, res: Response): void {
       return refundMoneyMatch(req, res);
     case "open_async_entry_escrow":
       return openAsyncEntryEscrow(req, res);
+    case "submit_async_contest_result":
+      return submitAsyncContestResult(req, res);
+    case "list_async_contest_results":
+      return listAsyncContestResults(req, res);
+    case "preview_async_contest_result_payout_report":
+      return previewAsyncContestResultPayoutReport(req, res);
     case "preview_async_contest_payout_report":
       return previewAsyncContestPayoutReport(req, res);
     case "list_async_contest_payout_reports":
@@ -967,6 +973,34 @@ function openAsyncEntryEscrow(req: Request, res: Response): void {
     stringValue(body.idempotency_key)
   );
   return okOrLedgerFailure(res, result, 402);
+}
+
+function submitAsyncContestResult(req: Request, res: Response): void {
+  const body = (req.body ?? {}) as JsonRecord;
+  const result = moneyLedger.submitAsyncContestResult(
+    stringValue(body.contest_id),
+    stringValue(body.contest_family),
+    stringValue(body.player_id),
+    isRecord(body.result) ? body.result : body,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function listAsyncContestResults(req: Request, res: Response): void {
+  const filters = isRecord(req.body?.filters) ? req.body.filters : (req.body ?? {});
+  return ok(res, { results: moneyLedger.listAsyncContestResults(filters) });
+}
+
+function previewAsyncContestResultPayoutReport(req: Request, res: Response): void {
+  const result = moneyLedger.previewAsyncContestResultPayoutReport(
+    stringValue(req.body?.contest_id),
+    stringValue(req.body?.contest_family),
+    Array.isArray(req.body?.payout_schedule) ? req.body.payout_schedule : Array.isArray(req.body?.payouts) ? req.body.payouts : [],
+    Math.trunc(numberValue(req.body?.house_rake_bps, 1000)),
+    isRecord(req.body?.options) ? req.body.options : (req.body ?? {})
+  );
+  return okOrLedgerFailure(res, result);
 }
 
 function settleAsyncContest(req: Request, res: Response): void {

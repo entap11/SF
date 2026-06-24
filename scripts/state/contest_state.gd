@@ -3,6 +3,7 @@ extends Node
 signal run_requested(context: Dictionary)
 
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
+const AsyncMoneyGameLedgerScript := preload("res://scripts/state/async_money_game_ledger.gd")
 const CONTESTS_DIR := "res://data/contests"
 const LEADERBOARDS_DIR := "res://data/leaderboards"
 const ENTRY_SAVE_PATH := "user://contest_entries.json"
@@ -35,11 +36,15 @@ const MISS_N_OUT_DEFAULT_LIMIT_MS := 30 * 60 * 1000
 const MISS_N_OUT_DNF_TIME_MS := 2147483647
 const MISS_N_OUT_ACTION_KEEP_PLAYING := "keep_playing_for_practice"
 const MISS_N_OUT_ACTION_RETURN_TO_LOBBY := "return_to_lobby"
+const RACE_LEADERBOARD_KEY: String = "__race_overall"
+const MISS_N_OUT_LEADERBOARD_KEY: String = "__miss_n_out_overall"
+const GAUNTLET_LEADERBOARD_KEY: String = "__gauntlet_overall"
 
 var contests: Dictionary = {}
 var player_entries: Dictionary = {}
 var runtime_leaderboards: Dictionary = {}
 var _runtime_leaderboard_save_path: String = RUNTIME_LEADERBOARD_SAVE_PATH
+var _async_money_entry_ledger: RefCounted = AsyncMoneyGameLedgerScript.new()
 
 func _ready() -> void:
 	load_contests()
@@ -108,8 +113,13 @@ func load_contests() -> void:
 				contest.price = int(parts.get("price", contest.price))
 			if contest.time_slice.is_empty():
 				contest.time_slice = str(parts.get("time", contest.time_slice))
+			var suffix: String = str(parts.get("suffix", "")).strip_edges().to_upper()
+			if not suffix.is_empty():
+				contest.contest_family = suffix
 		if contest.mode.is_empty():
 			contest.mode = "STAGE_RACE"
+		if contest.has_method("normalize_definition"):
+			contest.normalize_definition()
 		if contest.map_ids.is_empty():
 			contest.map_ids = PackedStringArray(DEFAULT_STAGE_RACE_MAP_IDS)
 		else:
@@ -155,6 +165,56 @@ func get_contests_by_scope(scope: String) -> Array[ContestDef]:
 	)
 	return result
 
+func get_contests_by_definition(filters: Dictionary = {}) -> Array[ContestDef]:
+	var result: Array[ContestDef] = []
+	var clean_scope: String = str(filters.get("scope", "")).strip_edges().to_upper()
+	if clean_scope == "YEARLY":
+		clean_scope = "SEASONAL"
+	var clean_pool: String = str(filters.get("pool_type", "")).strip_edges().to_upper()
+	var clean_family: String = str(filters.get("contest_family", filters.get("family", ""))).strip_edges().to_upper()
+	var clean_schedule: String = str(filters.get("schedule_kind", "")).strip_edges().to_upper()
+	var has_price: bool = filters.has("price") or filters.has("entry_price") or filters.has("denomination")
+	var target_price: int = maxi(0, int(filters.get("price", filters.get("entry_price", filters.get("denomination", 0)))))
+	for contest_any in contests.values():
+		var contest: ContestDef = contest_any as ContestDef
+		if contest == null:
+			continue
+		if not contest.published:
+			continue
+		if not clean_scope.is_empty():
+			var contest_scope: String = str(contest.scope).strip_edges().to_upper()
+			if contest_scope == "YEARLY":
+				contest_scope = "SEASONAL"
+			if contest_scope != clean_scope:
+				continue
+		if not clean_pool.is_empty():
+			var contest_pool: String = ContestDef.normalize_pool_type(contest.pool_type, contest.currency, contest.price)
+			if contest_pool != clean_pool:
+				continue
+		if not clean_family.is_empty():
+			var contest_family: String = ContestDef.normalize_contest_family(contest.contest_family, contest.mode, contest.scope)
+			if contest_family != clean_family:
+				continue
+		if not clean_schedule.is_empty():
+			var contest_schedule: String = ContestDef.normalize_schedule_kind(contest.schedule_kind)
+			if contest_schedule != clean_schedule:
+				continue
+		if has_price and maxi(0, int(contest.price)) != target_price:
+			continue
+		result.append(contest)
+	result.sort_custom(func(a: ContestDef, b: ContestDef) -> bool:
+		if a.price != b.price:
+			return a.price < b.price
+		return a.id < b.id
+	)
+	return result
+
+func get_contest_by_definition(filters: Dictionary = {}) -> ContestDef:
+	var matches: Array[ContestDef] = get_contests_by_definition(filters)
+	if matches.is_empty():
+		return null
+	return matches[0]
+
 func get_contest_by_scope(scope: String) -> ContestDef:
 	var contests_by_scope := get_contests_by_scope(scope)
 	if contests_by_scope.is_empty():
@@ -177,25 +237,58 @@ func enter_contest(contest_id: String) -> void:
 	player_entries[normalized_id] = int(Time.get_unix_time_from_system())
 	_save_entries()
 
-func preview_entry_requirements(contest_id: String) -> Dictionary:
+func preview_entry_requirements(contest_id: String, metadata: Dictionary = {}) -> Dictionary:
 	var contest: ContestDef = get_contest(contest_id)
 	if contest == null:
 		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
 	var normalized_id: String = normalize_contest_id(contest_id)
 	var ticket_cost: int = contest.get_access_ticket_cost() if contest.has_method("get_access_ticket_cost") else maxi(0, int(contest.access_ticket_cost))
 	var requires_ticket: bool = contest.requires_access_ticket() if contest.has_method("requires_access_ticket") else ticket_cost > 0
+	var paid_entry: bool = contest.is_money_contest() if contest.has_method("is_money_contest") else int(contest.price) > 0
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	var starts_at: int = maxi(0, int(contest.start_ts))
+	var ends_at: int = maxi(0, int(contest.end_ts))
+	var status_open: bool = str(contest.status).strip_edges().to_upper() in ["", "OPEN"]
+	var entry_started: bool = starts_at <= 0 or now_unix >= starts_at
+	var entry_not_closed: bool = ends_at <= 0 or now_unix < ends_at
+	var entry_open: bool = status_open and entry_started and entry_not_closed
+	var entry_price_usd: int = maxi(0, int(contest.price))
+	var entry_price_cents: int = entry_price_usd * 100
+	var balance_cents_known: bool = metadata.has("balance_cents") or metadata.has("wallet_balance_cents") or metadata.has("balance_usd")
+	var balance_cents: int = _entry_balance_cents_from_metadata(metadata)
+	var payment_required: bool = paid_entry and balance_cents_known and balance_cents < entry_price_cents
 	var preview: Dictionary = {
 		"ok": true,
 		"contest_id": normalized_id,
 		"already_entered": is_entered(normalized_id),
+		"pool_type": ContestDef.normalize_pool_type(contest.pool_type, contest.currency, contest.price),
+		"contest_family": ContestDef.normalize_contest_family(contest.contest_family, contest.mode, contest.scope),
+		"schedule_kind": ContestDef.normalize_schedule_kind(contest.schedule_kind),
+		"paid_entry": paid_entry,
 		"requires_access_ticket": requires_ticket,
 		"access_ticket_cost": ticket_cost,
 		"entry_currency": "ACCESS_TICKET" if requires_ticket else str(contest.currency).to_upper(),
 		"entry_price": ticket_cost if requires_ticket else int(contest.price),
+		"entry_price_usd": entry_price_usd,
+		"entry_price_cents": entry_price_cents,
+		"wager_cents": entry_price_cents if paid_entry else 0,
+		"entry_open": entry_open,
+		"entry_status": str(contest.status).strip_edges().to_upper(),
+		"entry_starts_unix": starts_at,
+		"entry_ends_unix": ends_at,
+		"balance_cents_known": balance_cents_known,
+		"balance_cents": balance_cents if balance_cents_known else -1,
+		"payment_required": payment_required,
+		"missing_cents": maxi(0, entry_price_cents - balance_cents) if balance_cents_known else entry_price_cents,
 		"prize_rewards": contest.prize_rewards.duplicate(true),
 		"cash_payout_schedule": contest.get_cash_payout_schedule() if contest.has_method("get_cash_payout_schedule") else contest.prize_rewards.duplicate(true),
-		"house_rake_bps": contest.get_house_rake_bps() if contest.has_method("get_house_rake_bps") else 1000
+		"house_rake_bps": contest.get_house_rake_bps() if contest.has_method("get_house_rake_bps") else 1000,
+		"payout_basis": "post_rake_pool" if paid_entry else ""
 	}
+	if not entry_open:
+		preview["can_enter"] = false
+		preview["reason"] = _entry_window_reason(status_open, entry_started, entry_not_closed)
+		return preview
 	if requires_ticket:
 		var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
 		if battle_pass_state != null and battle_pass_state.has_method("preview_exclusive_event_entry"):
@@ -209,6 +302,15 @@ func preview_entry_requirements(contest_id: String) -> Dictionary:
 		else:
 			preview["ticket_preview"] = {"ok": false, "reason": "battle_pass_state_missing"}
 			preview["can_enter"] = false
+	elif paid_entry:
+		if not balance_cents_known:
+			preview["can_enter"] = false
+			preview["reason"] = "balance_unknown"
+		elif payment_required:
+			preview["can_enter"] = false
+			preview["reason"] = "insufficient_funds"
+		else:
+			preview["can_enter"] = true
 	else:
 		preview["can_enter"] = true
 	return preview
@@ -245,12 +347,17 @@ func intent_claim_contest_prizes(contest_id: String, placement: int, metadata: D
 	return {"ok": false, "reason": "prize_claim_api_missing"}
 
 func intent_enter_contest(contest_id: String, metadata: Dictionary = {}) -> Dictionary:
-	var preview: Dictionary = preview_entry_requirements(contest_id)
+	var preview: Dictionary = preview_entry_requirements(contest_id, metadata)
 	if not bool(preview.get("ok", false)):
 		return preview
 	if bool(preview.get("already_entered", false)):
 		return {"ok": true, "contest_id": str(preview.get("contest_id", "")), "already_entered": true}
 	var normalized_id: String = str(preview.get("contest_id", ""))
+	if not bool(preview.get("can_enter", false)):
+		var blocked: Dictionary = preview.duplicate(true)
+		blocked["ok"] = false
+		blocked["entry_blocked"] = true
+		return blocked
 	if bool(preview.get("requires_access_ticket", false)):
 		var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
 		if battle_pass_state == null:
@@ -267,10 +374,145 @@ func intent_enter_contest(contest_id: String, metadata: Dictionary = {}) -> Dict
 			return ticket_result
 		enter_contest(normalized_id)
 		return {"ok": true, "contest_id": normalized_id, "ticket_result": ticket_result}
+	if bool(preview.get("paid_entry", false)):
+		var escrow_result: Dictionary = _open_paid_contest_entry_escrow(normalized_id, preview, metadata)
+		if not bool(escrow_result.get("ok", false)):
+			return escrow_result
+		enter_contest(normalized_id)
+		return {
+			"ok": true,
+			"contest_id": normalized_id,
+			"paid_entry": true,
+			"escrow": escrow_result,
+			"entry_id": str(escrow_result.get("entry_id", "")),
+			"wager_cents": maxi(0, int(escrow_result.get("wager_cents", preview.get("wager_cents", 0)))),
+			"ledger_status": str(escrow_result.get("status", ""))
+		}
 	enter_contest(normalized_id)
 	return {"ok": true, "contest_id": normalized_id}
 
-func intent_refund_contest_entry(contest_id: String, reason: String = "contest_entry_refund") -> Dictionary:
+func debug_get_async_money_entry_snapshot(entry_id: String) -> Dictionary:
+	if _async_money_entry_ledger != null and _async_money_entry_ledger.has_method("get_entry_snapshot"):
+		return _async_money_entry_ledger.call("get_entry_snapshot", entry_id) as Dictionary
+	return {}
+
+func debug_get_async_money_contest_snapshot(contest_id: String) -> Dictionary:
+	if _async_money_entry_ledger != null and _async_money_entry_ledger.has_method("get_contest_snapshot"):
+		return _async_money_entry_ledger.call("get_contest_snapshot", contest_id) as Dictionary
+	return {}
+
+func debug_get_async_money_ledger_snapshot() -> Dictionary:
+	if _async_money_entry_ledger != null and _async_money_entry_ledger.has_method("get_snapshot"):
+		return _async_money_entry_ledger.call("get_snapshot") as Dictionary
+	return {}
+
+func _entry_balance_cents_from_metadata(metadata: Dictionary) -> int:
+	if metadata.has("balance_cents"):
+		return maxi(0, int(metadata.get("balance_cents", 0)))
+	if metadata.has("wallet_balance_cents"):
+		return maxi(0, int(metadata.get("wallet_balance_cents", 0)))
+	if metadata.has("balance_usd"):
+		return maxi(0, int(metadata.get("balance_usd", 0))) * 100
+	return -1
+
+func _entry_window_reason(status_open: bool, entry_started: bool, entry_not_closed: bool) -> String:
+	if not status_open:
+		return "contest_not_open"
+	if not entry_started:
+		return "contest_not_started"
+	if not entry_not_closed:
+		return "contest_closed"
+	return ""
+
+func _open_paid_contest_entry_escrow(contest_id: String, preview: Dictionary, metadata: Dictionary) -> Dictionary:
+	var player_id: String = _entry_player_id(metadata)
+	if player_id.is_empty():
+		return {"ok": false, "reason": "missing_player_id", "contest_id": contest_id}
+	var wager_cents: int = maxi(0, int(preview.get("wager_cents", 0)))
+	if wager_cents <= 0:
+		return {"ok": false, "reason": "invalid_wager", "contest_id": contest_id}
+	var entry_id: String = str(metadata.get("entry_id", "")).strip_edges()
+	if entry_id.is_empty():
+		entry_id = _build_async_entry_id(contest_id, player_id)
+	var idempotency_key: String = str(metadata.get("idempotency_key", "")).strip_edges()
+	if idempotency_key.is_empty():
+		idempotency_key = "open:%s" % entry_id
+	var balance_cents: int = _entry_balance_cents_from_metadata(metadata)
+	var backend_result: Dictionary = _open_paid_contest_entry_escrow_backend(entry_id, contest_id, player_id, wager_cents, idempotency_key, balance_cents)
+	if bool(backend_result.get("ok", false)):
+		backend_result["ledger_source"] = "backend"
+		backend_result["paid_entry"] = true
+		return backend_result
+	if not _async_money_backend_fallback_allowed(backend_result):
+		return backend_result
+	if _async_money_entry_ledger == null or not _async_money_entry_ledger.has_method("intent_open_entry_escrow"):
+		return {"ok": false, "reason": "async_money_ledger_unavailable", "contest_id": contest_id}
+	var local_result: Dictionary = _async_money_entry_ledger.call("intent_open_entry_escrow", entry_id, contest_id, player_id, wager_cents, idempotency_key) as Dictionary
+	if bool(local_result.get("ok", false)):
+		local_result["ledger_source"] = "local"
+		local_result["paid_entry"] = true
+	return local_result
+
+func _open_paid_contest_entry_escrow_backend(entry_id: String, contest_id: String, player_id: String, wager_cents: int, idempotency_key: String, balance_cents: int) -> Dictionary:
+	var backend: Node = get_node_or_null("/root/VsHandshake")
+	if backend == null or not backend.has_method("open_async_entry_escrow"):
+		return {"ok": false, "handled": false, "err": "transport_not_configured"}
+	return backend.call("open_async_entry_escrow", entry_id, contest_id, player_id, wager_cents, idempotency_key, balance_cents) as Dictionary
+
+func _async_money_backend_fallback_allowed(result: Dictionary) -> bool:
+	if result.is_empty():
+		return true
+	if bool(result.get("transport_error", false)):
+		return true
+	if not bool(result.get("handled", true)):
+		return true
+	var err: String = str(result.get("err", result.get("code", result.get("reason", "")))).strip_edges()
+	return ["transport_not_configured", "unknown_action", "not_found"].has(err)
+
+func _entry_player_id(metadata: Dictionary) -> String:
+	var player_id: String = str(metadata.get("player_id", metadata.get("uid", ""))).strip_edges()
+	if not player_id.is_empty():
+		return player_id
+	var profile_any: Variant = metadata.get("profile", {})
+	if typeof(profile_any) == TYPE_DICTIONARY:
+		player_id = str((profile_any as Dictionary).get("uid", (profile_any as Dictionary).get("player_id", ""))).strip_edges()
+		if not player_id.is_empty():
+			return player_id
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager != null and profile_manager.has_method("get_user_id"):
+		player_id = str(profile_manager.call("get_user_id")).strip_edges()
+	if player_id.is_empty():
+		player_id = "local"
+	return player_id
+
+func _build_async_entry_id(contest_id: String, player_id: String) -> String:
+	var clean_contest: String = contest_id.strip_edges()
+	var clean_player: String = player_id.strip_edges()
+	return "async:%s:%s" % [clean_contest, clean_player]
+
+func _refund_paid_contest_entry_escrow(contest_id: String, reason: String, metadata: Dictionary = {}) -> Dictionary:
+	var player_id: String = _entry_player_id(metadata)
+	var entry_id: String = _build_async_entry_id(contest_id, player_id)
+	var clean_reason: String = reason.strip_edges()
+	if clean_reason.is_empty():
+		clean_reason = "contest_entry_refund"
+	var backend: Node = get_node_or_null("/root/VsHandshake")
+	var idempotency_key: String = "refund:%s:%s" % [entry_id, clean_reason]
+	if backend != null and backend.has_method("refund_async_entry"):
+		var backend_result: Dictionary = backend.call("refund_async_entry", entry_id, clean_reason, idempotency_key) as Dictionary
+		if bool(backend_result.get("ok", false)):
+			backend_result["ledger_source"] = "backend"
+			return backend_result
+		if not _async_money_backend_fallback_allowed(backend_result):
+			return backend_result
+	if _async_money_entry_ledger == null or not _async_money_entry_ledger.has_method("intent_refund_entry"):
+		return {"ok": false, "reason": "async_money_ledger_unavailable", "contest_id": contest_id, "entry_id": entry_id}
+	var local_result: Dictionary = _async_money_entry_ledger.call("intent_refund_entry", entry_id, clean_reason, idempotency_key) as Dictionary
+	if bool(local_result.get("ok", false)):
+		local_result["ledger_source"] = "local"
+	return local_result
+
+func intent_refund_contest_entry(contest_id: String, reason: String = "contest_entry_refund", metadata: Dictionary = {}) -> Dictionary:
 	var contest: ContestDef = get_contest(contest_id)
 	if contest == null:
 		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
@@ -294,6 +536,14 @@ func intent_refund_contest_entry(contest_id: String, reason: String = "contest_e
 		player_entries.erase(normalized_id)
 		_save_entries()
 		return {"ok": true, "contest_id": normalized_id, "refund_result": refund_result}
+	var paid_entry: bool = contest.is_money_contest() if contest.has_method("is_money_contest") else int(contest.price) > 0
+	if paid_entry:
+		var paid_refund: Dictionary = _refund_paid_contest_entry_escrow(normalized_id, reason, metadata)
+		if not bool(paid_refund.get("ok", false)):
+			return paid_refund
+		player_entries.erase(normalized_id)
+		_save_entries()
+		return {"ok": true, "contest_id": normalized_id, "paid_entry": true, "refund_result": paid_refund}
 	player_entries.erase(normalized_id)
 	_save_entries()
 	return {"ok": true, "contest_id": normalized_id, "refunded": false}
@@ -611,6 +861,159 @@ func evaluate_timed_race(participants: Array, map_count: int = TIMED_RACE_DEFAUL
 		"winner_reason": "first_to_finish" if bool(winner.get("completed_all", false)) else "most_progress_then_fastest_time"
 	}
 
+func record_timed_race_result(contest_id: String, result: Dictionary) -> Dictionary:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if normalized_id.is_empty():
+		return {"ok": false, "reason": "contest_id_empty"}
+	var player_id: String = str(result.get("player_id", result.get("uid", ""))).strip_edges()
+	if player_id.is_empty():
+		return {"ok": false, "reason": "player_id_empty", "contest_id": normalized_id}
+	var resolved_map_count: int = _resolve_timed_map_count(int(result.get("map_count", result.get("required_maps", TIMED_RACE_DEFAULT_MAP_COUNT))))
+	var map_times: Array[int] = _int_array(result.get("map_times_ms", []), resolved_map_count)
+	var completed_maps: int = mini(maxi(int(result.get("completed_maps", map_times.size())), 0), resolved_map_count)
+	if map_times.size() > completed_maps:
+		map_times = map_times.slice(0, completed_maps)
+	var aggregate_ms: int = maxi(0, int(result.get("aggregate_ms", 0)))
+	if aggregate_ms <= 0:
+		for time_ms in map_times:
+			aggregate_ms += maxi(0, int(time_ms))
+	var failed_elapsed_ms: int = maxi(0, int(result.get("failed_map_elapsed_ms", 0)))
+	var run_id: String = str(result.get("run_id", "")).strip_edges()
+	var now_ts: int = int(Time.get_unix_time_from_system())
+	var player_name: String = str(result.get("player_name", result.get("handle", result.get("name", player_id)))).strip_edges()
+	if player_name.is_empty():
+		player_name = player_id
+	var contest_rows: Dictionary = {}
+	if typeof(runtime_leaderboards.get(normalized_id, {})) == TYPE_DICTIONARY:
+		contest_rows = (runtime_leaderboards.get(normalized_id, {}) as Dictionary).duplicate(true)
+	var rows: Array = []
+	if typeof(contest_rows.get(RACE_LEADERBOARD_KEY, [])) == TYPE_ARRAY:
+		rows = (contest_rows.get(RACE_LEADERBOARD_KEY, []) as Array).duplicate(true)
+	var entry_index: int = -1
+	for i in range(rows.size()):
+		var row_any: Variant = rows[i]
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		var row_player: String = str(row.get("player_id", "")).strip_edges()
+		var row_run: String = str(row.get("run_id", "")).strip_edges()
+		if row_player == player_id and ((run_id.is_empty() and row_run.is_empty()) or (not run_id.is_empty() and row_run == run_id)):
+			entry_index = i
+			break
+	var entry: Dictionary = {
+		"player_id": player_id,
+		"player_name": player_name,
+		"hive_name": str(result.get("hive_name", "")).strip_edges(),
+		"run_id": run_id,
+		"completed_maps": completed_maps,
+		"required_maps": resolved_map_count,
+		"completed_all": completed_maps >= resolved_map_count,
+		"aggregate_ms": aggregate_ms,
+		"failed_map_elapsed_ms": failed_elapsed_ms,
+		"map_times_ms": map_times.duplicate(),
+		"status": str(result.get("status", "")).strip_edges(),
+		"updated_at": int(result.get("updated_at", now_ts)),
+		"source": str(result.get("source", "timed_race_runtime")).strip_edges()
+	}
+	if entry_index >= 0:
+		rows[entry_index] = entry
+	else:
+		rows.append(entry)
+	rows.sort_custom(func(a: Variant, b: Variant) -> bool:
+		if typeof(a) != TYPE_DICTIONARY:
+			return false
+		if typeof(b) != TYPE_DICTIONARY:
+			return true
+		return _timed_race_row_precedes(a as Dictionary, b as Dictionary)
+	)
+	contest_rows[RACE_LEADERBOARD_KEY] = rows
+	runtime_leaderboards[normalized_id] = contest_rows
+	_save_runtime_leaderboards()
+	var rank: int = 0
+	for i in range(rows.size()):
+		var row_any: Variant = rows[i]
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("player_id", "")).strip_edges() == player_id and str(row.get("run_id", "")).strip_edges() == run_id:
+			rank = i + 1
+			break
+	return {
+		"ok": true,
+		"contest_id": normalized_id,
+		"player_id": player_id,
+		"run_id": run_id,
+		"rank": rank,
+		"completed_maps": completed_maps,
+		"required_maps": resolved_map_count,
+		"aggregate_ms": aggregate_ms,
+		"updated": true
+	}
+
+func build_timed_race_leaderboard(contest_id: String, limit: int = 10) -> Array[Dictionary]:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if typeof(runtime_leaderboards.get(normalized_id, {})) != TYPE_DICTIONARY:
+		return []
+	var contest_rows: Dictionary = runtime_leaderboards.get(normalized_id, {}) as Dictionary
+	if typeof(contest_rows.get(RACE_LEADERBOARD_KEY, [])) != TYPE_ARRAY:
+		return []
+	var rows: Array[Dictionary] = []
+	for row_any in contest_rows.get(RACE_LEADERBOARD_KEY, []) as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		rows.append((row_any as Dictionary).duplicate(true))
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return _timed_race_row_precedes(a, b)
+	)
+	rows = _best_timed_race_rows_by_player(rows)
+	for i in range(rows.size()):
+		rows[i]["rank"] = i + 1
+	if limit > 0 and rows.size() > limit:
+		return rows.slice(0, limit)
+	return rows
+
+func build_timed_race_money_closeout_request(contest_id: String, map_count: int = TIMED_RACE_DEFAULT_MAP_COUNT) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if maxi(0, int(contest.price)) <= 0:
+		return {"ok": false, "reason": "contest_not_money", "contest_id": normalized_id}
+	var schedule: Array[Dictionary] = _cash_payout_schedule_for_closeout(contest)
+	var validation: Dictionary = _validate_money_payout_schedule_for_closeout(normalized_id, contest, schedule)
+	if not bool(validation.get("ok", false)):
+		return validation
+	var max_placement: int = int(validation.get("max_placement", 1))
+	var resolved_map_count: int = _resolve_timed_map_count(map_count)
+	var rows: Array[Dictionary] = build_timed_race_leaderboard(normalized_id, 0)
+	var qualified_rows: Array[Dictionary] = []
+	for row in rows:
+		if int(row.get("completed_maps", 0)) >= resolved_map_count:
+			qualified_rows.append(row)
+	if qualified_rows.size() < max_placement:
+		return {
+			"ok": false,
+			"reason": "insufficient_completed_runs",
+			"contest_id": normalized_id,
+			"qualified_count": qualified_rows.size(),
+			"required_placement": max_placement,
+			"required_maps": resolved_map_count
+		}
+	var payout_rows: Array[Dictionary] = qualified_rows.slice(0, max_placement)
+	var backend_payouts: Array[Dictionary] = _build_payouts_from_ranked_rows(normalized_id, payout_rows, schedule)
+	if backend_payouts.is_empty():
+		return {"ok": false, "reason": "missing_qualified_payouts", "contest_id": normalized_id}
+	return {
+		"ok": true,
+		"type": "timed_race_money_closeout_request",
+		"contest_id": normalized_id,
+		"contest_family": "RACE",
+		"map_count": resolved_map_count,
+		"house_rake_bps": int(validation.get("house_rake_bps", 1000)),
+		"payouts": backend_payouts,
+		"leaderboard_rows": payout_rows
+	}
+
 func get_stage_race_maps(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> PackedStringArray:
 	var contest: ContestDef = get_contest(contest_id)
 	if contest == null:
@@ -754,13 +1157,14 @@ func build_stage_race_money_closeout_request(contest_id: String, map_count: int 
 		var payout_bps: int = clampi(int(payout.get("payout_bps", 0)), 0, 10000)
 		max_placement = maxi(max_placement, placement)
 		payout_total_bps += payout_bps
-	if payout_total_bps + house_rake_bps != 10000:
+	if payout_total_bps != 10000:
 		return {
 			"ok": false,
 			"reason": "payout_schedule_not_balanced",
 			"contest_id": normalized_id,
 			"payout_total_bps": payout_total_bps,
-			"house_rake_bps": house_rake_bps
+			"house_rake_bps": house_rake_bps,
+			"payout_basis": "post_rake_pool"
 		}
 	var resolved_map_count: int = _resolve_timed_map_count(map_count)
 	if map_count <= 0:
@@ -807,8 +1211,178 @@ func build_stage_race_money_closeout_request(contest_id: String, map_count: int 
 		"leaderboard_rows": rows
 	}
 
+func record_gauntlet_run_result(contest_id: String, result: Dictionary) -> Dictionary:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if normalized_id.is_empty():
+		return {"ok": false, "reason": "contest_id_empty"}
+	var player_id: String = str(result.get("player_id", result.get("uid", ""))).strip_edges()
+	if player_id.is_empty():
+		return {"ok": false, "reason": "player_id_empty", "contest_id": normalized_id}
+	var run_id: String = str(result.get("run_id", "")).strip_edges()
+	if run_id.is_empty():
+		return {"ok": false, "reason": "run_id_empty", "contest_id": normalized_id, "player_id": player_id}
+	var total_stars: int = maxi(0, int(result.get("total_stars", 0)))
+	var max_stars: int = maxi(total_stars, int(result.get("max_stars", 0)))
+	var completed_stages: int = maxi(0, int(result.get("completed_stages", result.get("completed_maps", 0))))
+	var stage_count: int = maxi(completed_stages, int(result.get("stage_count", result.get("required_stages", 0))))
+	var elapsed_ms: int = maxi(0, int(result.get("elapsed_ms", result.get("total_elapsed_ms", 0))))
+	var now_ts: int = int(Time.get_unix_time_from_system())
+	var player_name: String = str(result.get("player_name", result.get("handle", result.get("name", player_id)))).strip_edges()
+	if player_name.is_empty():
+		player_name = player_id
+	var contest_rows: Dictionary = {}
+	if typeof(runtime_leaderboards.get(normalized_id, {})) == TYPE_DICTIONARY:
+		contest_rows = (runtime_leaderboards.get(normalized_id, {}) as Dictionary).duplicate(true)
+	var rows: Array = []
+	if typeof(contest_rows.get(GAUNTLET_LEADERBOARD_KEY, [])) == TYPE_ARRAY:
+		rows = (contest_rows.get(GAUNTLET_LEADERBOARD_KEY, []) as Array).duplicate(true)
+	var entry_index: int = -1
+	for i in range(rows.size()):
+		var row_any: Variant = rows[i]
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("player_id", "")).strip_edges() == player_id and str(row.get("run_id", "")).strip_edges() == run_id:
+			entry_index = i
+			break
+	var entry: Dictionary = {
+		"player_id": player_id,
+		"player_name": player_name,
+		"hive_name": str(result.get("hive_name", "")).strip_edges(),
+		"run_id": run_id,
+		"total_stars": total_stars,
+		"max_stars": max_stars,
+		"completed_stages": completed_stages,
+		"stage_count": stage_count,
+		"elapsed_ms": elapsed_ms,
+		"status": str(result.get("status", "")).strip_edges(),
+		"updated_at": int(result.get("updated_at", now_ts)),
+		"source": str(result.get("source", "gauntlet_runtime")).strip_edges()
+	}
+	var stage_results_any: Variant = result.get("stage_results", [])
+	if typeof(stage_results_any) == TYPE_ARRAY:
+		entry["stage_results"] = (stage_results_any as Array).duplicate(true)
+	if entry_index >= 0:
+		rows[entry_index] = entry
+	else:
+		rows.append(entry)
+	rows.sort_custom(func(a: Variant, b: Variant) -> bool:
+		if typeof(a) != TYPE_DICTIONARY:
+			return false
+		if typeof(b) != TYPE_DICTIONARY:
+			return true
+		return _gauntlet_row_precedes(a as Dictionary, b as Dictionary)
+	)
+	contest_rows[GAUNTLET_LEADERBOARD_KEY] = rows
+	runtime_leaderboards[normalized_id] = contest_rows
+	_save_runtime_leaderboards()
+	var rank: int = 0
+	for i in range(rows.size()):
+		var row_any: Variant = rows[i]
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("player_id", "")).strip_edges() == player_id and str(row.get("run_id", "")).strip_edges() == run_id:
+			rank = i + 1
+			break
+	return {
+		"ok": true,
+		"contest_id": normalized_id,
+		"player_id": player_id,
+		"run_id": run_id,
+		"rank": rank,
+		"total_stars": total_stars,
+		"completed_stages": completed_stages,
+		"updated": true
+	}
+
+func build_gauntlet_leaderboard(contest_id: String, limit: int = 10) -> Array[Dictionary]:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if typeof(runtime_leaderboards.get(normalized_id, {})) != TYPE_DICTIONARY:
+		return []
+	var contest_rows: Dictionary = runtime_leaderboards.get(normalized_id, {}) as Dictionary
+	if typeof(contest_rows.get(GAUNTLET_LEADERBOARD_KEY, [])) != TYPE_ARRAY:
+		return []
+	var rows: Array[Dictionary] = []
+	for row_any in contest_rows.get(GAUNTLET_LEADERBOARD_KEY, []) as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		rows.append((row_any as Dictionary).duplicate(true))
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return _gauntlet_row_precedes(a, b)
+	)
+	for i in range(rows.size()):
+		rows[i]["rank"] = i + 1
+	if limit > 0 and rows.size() > limit:
+		return rows.slice(0, limit)
+	return rows
+
+func build_gauntlet_money_closeout_request(contest_id: String) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if maxi(0, int(contest.price)) <= 0:
+		return {"ok": false, "reason": "contest_not_money", "contest_id": normalized_id}
+	var schedule: Array[Dictionary] = _cash_payout_schedule_for_closeout(contest)
+	var validation: Dictionary = _validate_money_payout_schedule_for_closeout(normalized_id, contest, schedule)
+	if not bool(validation.get("ok", false)):
+		return validation
+	var max_placement: int = int(validation.get("max_placement", 1))
+	var rows: Array[Dictionary] = build_gauntlet_leaderboard(normalized_id, max_placement)
+	if rows.size() < max_placement:
+		return {
+			"ok": false,
+			"reason": "insufficient_qualified_players",
+			"contest_id": normalized_id,
+			"qualified_count": rows.size(),
+			"required_placement": max_placement
+		}
+	var backend_payouts: Array[Dictionary] = _build_payouts_from_ranked_rows(normalized_id, rows, schedule)
+	if backend_payouts.is_empty():
+		return {"ok": false, "reason": "missing_qualified_payouts", "contest_id": normalized_id}
+	return {
+		"ok": true,
+		"type": "gauntlet_money_closeout_request",
+		"contest_id": normalized_id,
+		"contest_family": "GAUNTLET",
+		"house_rake_bps": int(validation.get("house_rake_bps", 1000)),
+		"payouts": backend_payouts,
+		"leaderboard_rows": rows
+	}
+
+func build_money_contest_closeout_request(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var family: String = ContestDef.normalize_contest_family(contest.contest_family, contest.mode, contest.scope)
+	match family:
+		"STAGE_RACE":
+			return build_stage_race_money_closeout_request(contest_id, map_count)
+		"GAUNTLET":
+			return build_gauntlet_money_closeout_request(contest_id)
+		"RACE":
+			return build_timed_race_money_closeout_request(contest_id, map_count)
+		"MISS_N_OUT":
+			return build_miss_n_out_money_closeout_request(contest_id)
+		_:
+			return {
+				"ok": false,
+				"reason": "unsupported_money_closeout_family",
+				"contest_id": normalize_contest_id(contest_id),
+				"contest_family": family
+			}
+
 func request_stage_race_money_payout_approval(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
-	var closeout: Dictionary = build_stage_race_money_closeout_request(contest_id, map_count)
+	var status_check: Dictionary = _validate_money_payout_status_for_request(contest_id)
+	if not bool(status_check.get("ok", false)):
+		return status_check
+	var backend_result_report: Dictionary = _request_backend_result_payout_approval(contest_id, map_count)
+	if bool(backend_result_report.get("ok", false)) or not _async_money_backend_fallback_allowed(backend_result_report):
+		if bool(backend_result_report.get("ok", false)):
+			_mark_contest_payout_pending(str(backend_result_report.get("contest_id", contest_id)))
+		return backend_result_report
+	var closeout: Dictionary = build_money_contest_closeout_request(contest_id, map_count)
 	if not bool(closeout.get("ok", false)):
 		return closeout
 	var backend: Node = get_node_or_null("/root/VsHandshake")
@@ -824,12 +1398,216 @@ func request_stage_race_money_payout_approval(contest_id: String, map_count: int
 	) as Dictionary
 	if bool(result.get("ok", false)):
 		result["closeout_request"] = closeout.duplicate(true)
+		_mark_contest_payout_pending(str(result.get("contest_id", closeout.get("contest_id", contest_id))))
 		return result
 	result["closeout_request"] = closeout.duplicate(true)
 	return result
 
 func finalize_stage_race_money_contest(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
 	return request_stage_race_money_payout_approval(contest_id, map_count)
+
+func request_money_contest_payout_approval(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	return request_stage_race_money_payout_approval(contest_id, map_count)
+
+func process_scheduled_money_contest_closeouts(now_unix: int = 0, options: Dictionary = {}) -> Dictionary:
+	var resolved_now: int = now_unix if now_unix > 0 else int(Time.get_unix_time_from_system())
+	var result: Dictionary = {
+		"ok": true,
+		"type": "scheduled_money_contest_closeout_sweep",
+		"now_unix": resolved_now,
+		"checked_count": 0,
+		"closed_count": 0,
+		"queued_count": 0,
+		"skipped_count": 0,
+		"failed_count": 0,
+		"closed_contests": [],
+		"queued_reports": [],
+		"skipped": [],
+		"failed": []
+	}
+	var map_count_override: int = maxi(0, int(options.get("map_count", 0)))
+	for contest_any in contests.values():
+		var contest: ContestDef = contest_any as ContestDef
+		if contest == null:
+			continue
+		if not _scheduled_money_closeout_due(contest, resolved_now):
+			continue
+		result["checked_count"] = int(result.get("checked_count", 0)) + 1
+		var normalized_id: String = normalize_contest_id(contest.id)
+		if _mark_contest_closed_for_payout(contest):
+			result["closed_count"] = int(result.get("closed_count", 0)) + 1
+			(result["closed_contests"] as Array).append(normalized_id)
+		var existing: Dictionary = _existing_payout_report_for_contest(normalized_id)
+		if bool(existing.get("ok", false)) and bool(existing.get("found", false)):
+			_sync_contest_status_from_existing_report(contest, existing.get("report", {}) as Dictionary)
+			result["skipped_count"] = int(result.get("skipped_count", 0)) + 1
+			(result["skipped"] as Array).append({
+				"contest_id": normalized_id,
+				"reason": "payout_report_already_exists",
+				"report_id": str((existing.get("report", {}) as Dictionary).get("report_id", ""))
+			})
+			continue
+		if not bool(existing.get("ok", false)) and not _async_money_backend_fallback_allowed(existing):
+			result["failed_count"] = int(result.get("failed_count", 0)) + 1
+			(result["failed"] as Array).append({
+				"contest_id": normalized_id,
+				"reason": _result_reason(existing),
+				"result": existing
+			})
+			continue
+		var closeout_map_count: int = map_count_override if map_count_override > 0 else _closeout_map_count_for_contest(contest)
+		var report: Dictionary = request_money_contest_payout_approval(normalized_id, closeout_map_count)
+		if bool(report.get("ok", false)):
+			result["queued_count"] = int(result.get("queued_count", 0)) + 1
+			(result["queued_reports"] as Array).append({
+				"contest_id": normalized_id,
+				"report_id": str(report.get("report_id", "")),
+				"result_source": str(report.get("result_source", report.get("closeout_source", ""))),
+				"approval_status": str(report.get("approval_status", "pending_approval"))
+			})
+		else:
+			result["failed_count"] = int(result.get("failed_count", 0)) + 1
+			(result["failed"] as Array).append({
+				"contest_id": normalized_id,
+				"reason": _result_reason(report),
+				"result": report
+			})
+	return result
+
+func _scheduled_money_closeout_due(contest: ContestDef, now_unix: int) -> bool:
+	if contest == null:
+		return false
+	if contest.has_method("normalize_definition"):
+		contest.normalize_definition()
+	if not contest.published:
+		return false
+	if not contest.requires_payout_approval():
+		return false
+	var end_ts: int = maxi(0, int(contest.end_ts))
+	if end_ts <= 0 or now_unix < end_ts:
+		return false
+	var status: String = str(contest.status).strip_edges().to_upper()
+	return not _contest_status_blocks_payout(status)
+
+func _mark_contest_closed_for_payout(contest: ContestDef) -> bool:
+	var status: String = str(contest.status).strip_edges().to_upper()
+	if status == "CLOSED" or status == "PAYOUT_PENDING" or status == "PAYOUT_APPROVED" or status == "SETTLED":
+		return false
+	contest.status = "CLOSED"
+	return true
+
+func mark_money_contest_payout_approved(contest_id: String, approval_report: Dictionary = {}) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	var status: String = str(contest.status).strip_edges().to_upper()
+	if _contest_status_blocks_payout(status):
+		return {"ok": false, "reason": "contest_status_blocks_payout", "contest_id": normalized_id, "status": status}
+	if status == "PAYOUT_APPROVED" or status == "SETTLED":
+		return {"ok": true, "contest_id": normalized_id, "status": status, "already_marked": true}
+	contest.status = "PAYOUT_APPROVED"
+	return {
+		"ok": true,
+		"contest_id": normalized_id,
+		"status": contest.status,
+		"approval_id": str(approval_report.get("report_id", approval_report.get("approval_id", ""))),
+		"approved_by": str(approval_report.get("approved_by", ""))
+	}
+
+func _mark_contest_payout_pending(contest_id: String) -> void:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return
+	var status: String = str(contest.status).strip_edges().to_upper()
+	if status == "PAYOUT_APPROVED" or status == "SETTLED" or _contest_status_blocks_payout(status):
+		return
+	contest.status = "PAYOUT_PENDING"
+
+func _sync_contest_status_from_existing_report(contest: ContestDef, report: Dictionary) -> void:
+	if contest == null:
+		return
+	var status: String = str(report.get("approval_status", "")).strip_edges().to_lower()
+	if status == "approved":
+		contest.status = "PAYOUT_APPROVED"
+	elif status == "pending_approval":
+		contest.status = "PAYOUT_PENDING"
+
+func _validate_money_payout_status_for_request(contest_id: String) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	var status: String = str(contest.status).strip_edges().to_upper()
+	if _contest_status_blocks_payout(status) or status == "PAYOUT_APPROVED" or status == "SETTLED":
+		return {"ok": false, "reason": "contest_status_blocks_payout", "contest_id": normalized_id, "status": status}
+	return {"ok": true, "contest_id": normalized_id, "status": status}
+
+func _contest_status_blocks_payout(status: String) -> bool:
+	return ["CANCELLED", "CANCELED", "VOID", "VOIDED", "REFUNDED"].has(status.strip_edges().to_upper())
+
+func _existing_payout_report_for_contest(contest_id: String) -> Dictionary:
+	var backend: Node = get_node_or_null("/root/VsHandshake")
+	if backend == null or not backend.has_method("list_async_contest_payout_reports"):
+		return {"ok": false, "handled": false, "err": "transport_not_configured"}
+	var result: Dictionary = backend.call("list_async_contest_payout_reports", {
+		"contest_id": contest_id,
+		"limit": 1,
+		"sort_desc": true
+	}) as Dictionary
+	if not bool(result.get("ok", false)):
+		return result
+	var reports: Array = result.get("reports", []) as Array
+	if reports.is_empty():
+		return {"ok": true, "found": false}
+	var report_any: Variant = reports[0]
+	if typeof(report_any) != TYPE_DICTIONARY:
+		return {"ok": false, "err": "invalid_payout_report_payload"}
+	return {"ok": true, "found": true, "report": (report_any as Dictionary).duplicate(true)}
+
+func _closeout_map_count_for_contest(contest: ContestDef) -> int:
+	var family: String = ContestDef.normalize_contest_family(contest.contest_family, contest.mode, contest.scope)
+	if family == "RACE":
+		return _resolve_timed_map_count(contest.map_ids.size())
+	if contest.map_ids.size() > 0:
+		return _resolve_timed_map_count(contest.map_ids.size())
+	return TIMED_GAME_DEFAULT_MAP_COUNT
+
+func _result_reason(result: Dictionary) -> String:
+	var reason: String = str(result.get("reason", result.get("err", result.get("code", "")))).strip_edges()
+	return reason if not reason.is_empty() else "unknown_error"
+
+func _request_backend_result_payout_approval(contest_id: String, map_count: int = TIMED_GAME_DEFAULT_MAP_COUNT) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var family: String = ContestDef.normalize_contest_family(contest.contest_family, contest.mode, contest.scope)
+	if family != "RACE" and family != "MISS_N_OUT":
+		return {"ok": false, "handled": false, "err": "backend_result_approval_not_required"}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	var schedule: Array[Dictionary] = _cash_payout_schedule_for_closeout(contest)
+	var validation: Dictionary = _validate_money_payout_schedule_for_closeout(normalized_id, contest, schedule)
+	if not bool(validation.get("ok", false)):
+		return validation
+	var backend: Node = get_node_or_null("/root/VsHandshake")
+	if backend == null or not backend.has_method("preview_async_contest_result_payout_report"):
+		return {"ok": false, "handled": false, "err": "transport_not_configured"}
+	var options: Dictionary = {
+		"map_count": _resolve_timed_map_count(map_count) if family == "RACE" else map_count,
+		"required_maps": _resolve_timed_map_count(map_count) if family == "RACE" else map_count
+	}
+	var result: Dictionary = backend.call(
+		"preview_async_contest_result_payout_report",
+		normalized_id,
+		family,
+		schedule,
+		int(validation.get("house_rake_bps", 1000)),
+		options
+	) as Dictionary
+	if bool(result.get("ok", false)):
+		result["closeout_source"] = "backend_result_ledger"
+		return result
+	return result
 
 func get_stage_race_map_leaderboard(contest_id: String, map_id: String, limit: int = 10) -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
@@ -1038,6 +1816,107 @@ func evaluate_miss_n_out(participants: Array, player_count: int = MISS_N_OUT_DEF
 		"player_states": player_states
 	}
 
+func record_miss_n_out_result(contest_id: String, result: Dictionary) -> Dictionary:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if normalized_id.is_empty():
+		return {"ok": false, "reason": "contest_id_empty"}
+	var incoming_rows: Array[Dictionary] = _miss_n_out_result_rows(result)
+	if incoming_rows.is_empty():
+		return {"ok": false, "reason": "missing_miss_n_out_result_rows", "contest_id": normalized_id}
+	var contest_rows: Dictionary = {}
+	if typeof(runtime_leaderboards.get(normalized_id, {})) == TYPE_DICTIONARY:
+		contest_rows = (runtime_leaderboards.get(normalized_id, {}) as Dictionary).duplicate(true)
+	var rows_by_player: Dictionary = {}
+	if typeof(contest_rows.get(MISS_N_OUT_LEADERBOARD_KEY, [])) == TYPE_ARRAY:
+		for existing_any in contest_rows.get(MISS_N_OUT_LEADERBOARD_KEY, []) as Array:
+			if typeof(existing_any) != TYPE_DICTIONARY:
+				continue
+			var existing: Dictionary = (existing_any as Dictionary).duplicate(true)
+			var existing_player: String = str(existing.get("player_id", "")).strip_edges()
+			if existing_player.is_empty():
+				continue
+			rows_by_player[existing_player] = existing
+	for incoming in incoming_rows:
+		var incoming_player: String = str(incoming.get("player_id", "")).strip_edges()
+		if incoming_player.is_empty():
+			continue
+		rows_by_player[incoming_player] = incoming.duplicate(true)
+	var rows: Array[Dictionary] = []
+	for row_any in rows_by_player.values():
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		rows.append((row_any as Dictionary).duplicate(true))
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return _miss_n_out_row_precedes(a, b)
+	)
+	for i in range(rows.size()):
+		rows[i]["rank"] = i + 1
+	contest_rows[MISS_N_OUT_LEADERBOARD_KEY] = rows
+	runtime_leaderboards[normalized_id] = contest_rows
+	_save_runtime_leaderboards()
+	return {
+		"ok": true,
+		"contest_id": normalized_id,
+		"player_count": rows.size(),
+		"winner_id": str(rows[0].get("player_id", "")),
+		"updated": true
+	}
+
+func build_miss_n_out_leaderboard(contest_id: String, limit: int = 10) -> Array[Dictionary]:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if typeof(runtime_leaderboards.get(normalized_id, {})) != TYPE_DICTIONARY:
+		return []
+	var contest_rows: Dictionary = runtime_leaderboards.get(normalized_id, {}) as Dictionary
+	if typeof(contest_rows.get(MISS_N_OUT_LEADERBOARD_KEY, [])) != TYPE_ARRAY:
+		return []
+	var rows: Array[Dictionary] = []
+	for row_any in contest_rows.get(MISS_N_OUT_LEADERBOARD_KEY, []) as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		rows.append((row_any as Dictionary).duplicate(true))
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return _miss_n_out_row_precedes(a, b)
+	)
+	for i in range(rows.size()):
+		rows[i]["rank"] = i + 1
+	if limit > 0 and rows.size() > limit:
+		return rows.slice(0, limit)
+	return rows
+
+func build_miss_n_out_money_closeout_request(contest_id: String) -> Dictionary:
+	var contest: ContestDef = get_contest(contest_id)
+	if contest == null:
+		return {"ok": false, "reason": "contest_not_found", "contest_id": contest_id}
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if maxi(0, int(contest.price)) <= 0:
+		return {"ok": false, "reason": "contest_not_money", "contest_id": normalized_id}
+	var schedule: Array[Dictionary] = _cash_payout_schedule_for_closeout(contest)
+	var validation: Dictionary = _validate_money_payout_schedule_for_closeout(normalized_id, contest, schedule)
+	if not bool(validation.get("ok", false)):
+		return validation
+	var max_placement: int = int(validation.get("max_placement", 1))
+	var rows: Array[Dictionary] = build_miss_n_out_leaderboard(normalized_id, max_placement)
+	if rows.size() < max_placement:
+		return {
+			"ok": false,
+			"reason": "insufficient_qualified_players",
+			"contest_id": normalized_id,
+			"qualified_count": rows.size(),
+			"required_placement": max_placement
+		}
+	var backend_payouts: Array[Dictionary] = _build_payouts_from_ranked_rows(normalized_id, rows, schedule)
+	if backend_payouts.is_empty():
+		return {"ok": false, "reason": "missing_qualified_payouts", "contest_id": normalized_id}
+	return {
+		"ok": true,
+		"type": "miss_n_out_money_closeout_request",
+		"contest_id": normalized_id,
+		"contest_family": "MISS_N_OUT",
+		"house_rake_bps": int(validation.get("house_rake_bps", 1000)),
+		"payouts": backend_payouts,
+		"leaderboard_rows": rows
+	}
+
 func miss_n_out_player_status(result: Dictionary, player_id: String) -> Dictionary:
 	if player_id.is_empty():
 		return {}
@@ -1122,6 +2001,16 @@ func _normalize_timed_participants(participants: Array, map_count: int) -> Array
 			"failed_map_elapsed_ms": failed_elapsed_ms,
 			"status": status
 		})
+	return out
+
+func _int_array(value: Variant, limit: int = 0) -> Array[int]:
+	var out: Array[int] = []
+	if typeof(value) != TYPE_ARRAY:
+		return out
+	for item in value as Array:
+		out.append(maxi(0, int(item)))
+		if limit > 0 and out.size() >= limit:
+			break
 	return out
 
 func _timed_main_leaderboard_map_index(participants: Array[Dictionary], map_count: int) -> int:
@@ -1444,6 +2333,225 @@ func _best_stage_race_rows_by_player(sorted_rows: Array[Dictionary]) -> Array[Di
 		seen_players[player_id] = true
 		out.append(row)
 	return out
+
+func _validate_money_payout_schedule_for_closeout(contest_id: String, contest: ContestDef, schedule: Array[Dictionary]) -> Dictionary:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	if schedule.is_empty():
+		return {"ok": false, "reason": "missing_cash_payout_schedule", "contest_id": normalized_id}
+	var house_rake_bps: int = contest.get_house_rake_bps() if contest != null and contest.has_method("get_house_rake_bps") else 1000
+	var payout_total_bps: int = 0
+	var max_placement: int = 1
+	for payout in schedule:
+		var placement: int = maxi(1, int(payout.get("placement", 0)))
+		var payout_bps: int = clampi(int(payout.get("payout_bps", 0)), 0, 10000)
+		max_placement = maxi(max_placement, placement)
+		payout_total_bps += payout_bps
+	if payout_total_bps != 10000:
+		return {
+			"ok": false,
+			"reason": "payout_schedule_not_balanced",
+			"contest_id": normalized_id,
+			"payout_total_bps": payout_total_bps,
+			"house_rake_bps": house_rake_bps,
+			"payout_basis": "post_rake_pool"
+		}
+	return {
+		"ok": true,
+		"contest_id": normalized_id,
+		"house_rake_bps": house_rake_bps,
+		"payout_total_bps": payout_total_bps,
+		"max_placement": max_placement
+	}
+
+func _build_payouts_from_ranked_rows(contest_id: String, rows: Array[Dictionary], schedule: Array[Dictionary]) -> Array[Dictionary]:
+	var normalized_id: String = normalize_contest_id(contest_id)
+	var out: Array[Dictionary] = []
+	for payout in schedule:
+		var placement: int = maxi(1, int(payout.get("placement", 0)))
+		if placement > rows.size():
+			continue
+		var row: Dictionary = rows[placement - 1]
+		var player_id: String = str(row.get("player_id", "")).strip_edges()
+		if player_id.is_empty():
+			push_warning("ContestState: payout row missing player_id for %s placement %d" % [normalized_id, placement])
+			continue
+		out.append({
+			"placement": placement,
+			"player_id": player_id,
+			"payout_bps": clampi(int(payout.get("payout_bps", 0)), 0, 10000)
+		})
+	return out
+
+func _cash_payout_schedule_for_closeout(contest: ContestDef) -> Array[Dictionary]:
+	if contest == null:
+		return []
+	var schedule: Array[Dictionary] = contest.get_cash_payout_schedule() if contest.has_method("get_cash_payout_schedule") else []
+	if not schedule.is_empty():
+		return schedule
+	var is_money: bool = contest.is_money_contest() if contest.has_method("is_money_contest") else int(contest.price) > 0
+	var schedule_kind: String = ContestDef.normalize_schedule_kind(contest.schedule_kind)
+	if is_money and schedule_kind == ContestDef.SCHEDULE_KIND_SIT_AND_GO:
+		return [{"placement": 1, "reward_type": "cash", "amount_cents": 0, "payout_bps": 10000}]
+	return []
+
+func _timed_race_row_precedes(a: Dictionary, b: Dictionary) -> bool:
+	var a_done: bool = bool(a.get("completed_all", int(a.get("completed_maps", 0)) >= int(a.get("required_maps", TIMED_RACE_DEFAULT_MAP_COUNT))))
+	var b_done: bool = bool(b.get("completed_all", int(b.get("completed_maps", 0)) >= int(b.get("required_maps", TIMED_RACE_DEFAULT_MAP_COUNT))))
+	if a_done != b_done:
+		return a_done
+	var a_completed: int = int(a.get("completed_maps", 0))
+	var b_completed: int = int(b.get("completed_maps", 0))
+	if a_completed != b_completed:
+		return a_completed > b_completed
+	var a_agg: int = int(a.get("aggregate_ms", 0))
+	var b_agg: int = int(b.get("aggregate_ms", 0))
+	if a_agg != b_agg:
+		return a_agg < b_agg
+	var a_failed: int = int(a.get("failed_map_elapsed_ms", 0))
+	var b_failed: int = int(b.get("failed_map_elapsed_ms", 0))
+	if a_failed != b_failed:
+		return a_failed > b_failed
+	var a_player: String = str(a.get("player_id", ""))
+	var b_player: String = str(b.get("player_id", ""))
+	if a_player != b_player:
+		return a_player < b_player
+	return str(a.get("run_id", "")) < str(b.get("run_id", ""))
+
+func _best_timed_race_rows_by_player(sorted_rows: Array[Dictionary]) -> Array[Dictionary]:
+	var seen_players: Dictionary = {}
+	var out: Array[Dictionary] = []
+	for row in sorted_rows:
+		var player_id: String = str(row.get("player_id", "")).strip_edges()
+		if player_id.is_empty():
+			out.append(row)
+			continue
+		if seen_players.has(player_id):
+			continue
+		seen_players[player_id] = true
+		out.append(row)
+	return out
+
+func _miss_n_out_result_rows(result: Dictionary) -> Array[Dictionary]:
+	if typeof(result.get("leaderboard", [])) == TYPE_ARRAY and not (result.get("leaderboard", []) as Array).is_empty():
+		return _miss_n_out_rows_from_leaderboard(result.get("leaderboard", []) as Array, result)
+	var winner_any: Variant = result.get("winner", {})
+	if typeof(winner_any) != TYPE_DICTIONARY:
+		return []
+	var winner: Dictionary = winner_any as Dictionary
+	var winner_id: String = str(winner.get("player_id", "")).strip_edges()
+	if winner_id.is_empty():
+		return []
+	var eliminated_order: Array = result.get("eliminated_order", []) as Array
+	var total_players: int = maxi(1, int(result.get("player_count", result.get("participants_total", eliminated_order.size() + 1))))
+	total_players = maxi(total_players, eliminated_order.size() + 1)
+	var now_ts: int = int(Time.get_unix_time_from_system())
+	var source: String = str(result.get("source", "miss_n_out_runtime")).strip_edges()
+	var rows: Array[Dictionary] = [{
+		"player_id": winner_id,
+		"player_name": str(winner.get("player_name", winner_id)),
+		"placement": 1,
+		"is_winner": true,
+		"eliminated": false,
+		"eliminated_round": 0,
+		"survived_rounds": int(winner.get("survived_rounds", result.get("map_count", 0))),
+		"time_ms": int(winner.get("time_ms", 0)),
+		"updated_at": int(result.get("updated_at", now_ts)),
+		"source": source
+	}]
+	for i in range(eliminated_order.size()):
+		var row_any: Variant = eliminated_order[i]
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var eliminated: Dictionary = row_any as Dictionary
+		var player_id: String = str(eliminated.get("player_id", "")).strip_edges()
+		if player_id.is_empty():
+			continue
+		rows.append({
+			"player_id": player_id,
+			"player_name": str(eliminated.get("player_name", player_id)),
+			"placement": maxi(2, total_players - i),
+			"is_winner": false,
+			"eliminated": true,
+			"eliminated_round": int(eliminated.get("round_index", eliminated.get("map_index", 0))),
+			"time_ms": int(eliminated.get("time_ms", 0)),
+			"dnf": bool(eliminated.get("dnf", false)),
+			"reason": str(eliminated.get("reason", "")),
+			"updated_at": int(result.get("updated_at", now_ts)),
+			"source": source
+		})
+	return rows
+
+func _miss_n_out_rows_from_leaderboard(leaderboard: Array, result: Dictionary) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	var now_ts: int = int(Time.get_unix_time_from_system())
+	var source: String = str(result.get("source", "miss_n_out_runtime")).strip_edges()
+	for i in range(leaderboard.size()):
+		var row_any: Variant = leaderboard[i]
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		var player_id: String = str(row.get("player_id", "")).strip_edges()
+		if player_id.is_empty():
+			continue
+		var placement: int = maxi(1, int(row.get("placement", row.get("rank", i + 1))))
+		rows.append({
+			"player_id": player_id,
+			"player_name": str(row.get("player_name", row.get("name", player_id))),
+			"placement": placement,
+			"is_winner": bool(row.get("is_winner", placement == 1)),
+			"eliminated": bool(row.get("eliminated", placement > 1)),
+			"eliminated_round": int(row.get("eliminated_round", row.get("round_index", 0))),
+			"time_ms": int(row.get("time_ms", 0)),
+			"dnf": bool(row.get("dnf", false)),
+			"reason": str(row.get("reason", "")),
+			"updated_at": int(row.get("updated_at", result.get("updated_at", now_ts))),
+			"source": str(row.get("source", source)).strip_edges()
+		})
+	return rows
+
+func _miss_n_out_row_precedes(a: Dictionary, b: Dictionary) -> bool:
+	var a_placement: int = maxi(1, int(a.get("placement", a.get("rank", 999999))))
+	var b_placement: int = maxi(1, int(b.get("placement", b.get("rank", 999999))))
+	if a_placement != b_placement:
+		return a_placement < b_placement
+	var a_round: int = int(a.get("eliminated_round", 0))
+	var b_round: int = int(b.get("eliminated_round", 0))
+	if a_round != b_round:
+		return a_round > b_round
+	var a_time: int = int(a.get("time_ms", 0))
+	var b_time: int = int(b.get("time_ms", 0))
+	if a_time != b_time:
+		if a_time <= 0:
+			return false
+		if b_time <= 0:
+			return true
+		return a_time < b_time
+	var a_player: String = str(a.get("player_id", ""))
+	var b_player: String = str(b.get("player_id", ""))
+	return a_player < b_player
+
+func _gauntlet_row_precedes(a: Dictionary, b: Dictionary) -> bool:
+	var a_stars: int = int(a.get("total_stars", 0))
+	var b_stars: int = int(b.get("total_stars", 0))
+	if a_stars != b_stars:
+		return a_stars > b_stars
+	var a_completed: int = int(a.get("completed_stages", 0))
+	var b_completed: int = int(b.get("completed_stages", 0))
+	if a_completed != b_completed:
+		return a_completed > b_completed
+	var a_elapsed: int = int(a.get("elapsed_ms", 0))
+	var b_elapsed: int = int(b.get("elapsed_ms", 0))
+	if a_elapsed != b_elapsed:
+		if a_elapsed <= 0:
+			return false
+		if b_elapsed <= 0:
+			return true
+		return a_elapsed < b_elapsed
+	var a_player: String = str(a.get("player_id", ""))
+	var b_player: String = str(b.get("player_id", ""))
+	if a_player != b_player:
+		return a_player < b_player
+	return str(a.get("run_id", "")) < str(b.get("run_id", ""))
 
 func _leaderboard_entry_key(entry: Dictionary) -> String:
 	var player_id: String = str(entry.get("player_id", "")).strip_edges()

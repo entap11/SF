@@ -257,7 +257,7 @@ async function main(): Promise<void> {
         { placement: 1, player_id: "async_pool_1", payout_bps: 4000 },
         { placement: 2, player_id: "async_pool_2", payout_bps: 2500 },
         { placement: 3, player_id: "async_pool_3", payout_bps: 1500 },
-        { placement: 4, player_id: "async_pool_4", payout_bps: 1000 }
+        { placement: 4, player_id: "async_pool_4", payout_bps: 2000 }
       ]
     });
     expect(String(asyncPayoutReport.approval_status) === "pending_approval", "async payout report should require approval", asyncPayoutReport);
@@ -298,6 +298,101 @@ async function main(): Promise<void> {
       "approved async payout report should leave pending queue",
       pendingPayoutReportsAfterApproval
     );
+
+    for (const playerId of ["race_backend_p1", "race_backend_p2", "race_backend_p3"]) {
+      await post(baseUrl, "open_async_entry_escrow", {
+        entry_id: `entry_${playerId}`,
+        contest_id: "async_race_backend",
+        player_id: playerId,
+        balance_cents: 20_000,
+        wager_cents: 5000,
+        idempotency_key: `open:entry_${playerId}`
+      });
+    }
+    await post(baseUrl, "submit_async_contest_result", {
+      contest_id: "async_race_backend",
+      contest_family: "RACE",
+      player_id: "race_backend_p1",
+      result: { player_id: "race_backend_p1", run_id: "race_p1", map_count: 3, completed_maps: 3, map_times_ms: [60000, 61000, 62000] },
+      idempotency_key: "submit:async_race_backend:p1"
+    });
+    await post(baseUrl, "submit_async_contest_result", {
+      contest_id: "async_race_backend",
+      contest_family: "RACE",
+      player_id: "race_backend_p2",
+      result: { player_id: "race_backend_p2", run_id: "race_p2", map_count: 3, completed_maps: 3, map_times_ms: [59000, 60000, 61000] },
+      idempotency_key: "submit:async_race_backend:p2"
+    });
+    await post(baseUrl, "submit_async_contest_result", {
+      contest_id: "async_race_backend",
+      contest_family: "RACE",
+      player_id: "race_backend_p3",
+      result: { player_id: "race_backend_p3", run_id: "race_p3", map_count: 3, completed_maps: 2, map_times_ms: [58000, 59000], failed_map_elapsed_ms: 30000 },
+      idempotency_key: "submit:async_race_backend:p3"
+    });
+    const raceResults = await post(baseUrl, "list_async_contest_results", {
+      contest_id: "async_race_backend",
+      contest_family: "RACE"
+    });
+    expect(String(((raceResults.results as JsonRecord[])[0]?.player_id ?? "")) === "race_backend_p2", "backend race result ranking mismatch", raceResults);
+    const raceBackendReport = await post(baseUrl, "preview_async_contest_result_payout_report", {
+      contest_id: "async_race_backend",
+      contest_family: "RACE",
+      map_count: 3,
+      payout_schedule: [
+        { placement: 1, payout_bps: 7000 },
+        { placement: 2, payout_bps: 3000 }
+      ],
+      house_rake_bps: 1000
+    });
+    expect(String(raceBackendReport.result_source) === "backend_result_ledger", "race report should come from backend result ledger", raceBackendReport);
+    expect(String(((raceBackendReport.planned_payouts as JsonRecord[])[0]?.player_id ?? "")) === "race_backend_p2", "race backend report first payout mismatch", raceBackendReport);
+    const raceBackendSettle = await post(baseUrl, "approve_async_contest_payout_report", {
+      report: raceBackendReport,
+      approver_id: "ops_admin",
+      idempotency_key: "settle:async_race_backend:backend_results"
+    });
+    expect(Number(raceBackendSettle.payout_count) === 2, "race backend result settlement payout count mismatch", raceBackendSettle);
+
+    for (const playerId of ["miss_backend_p1", "miss_backend_p2", "miss_backend_p3"]) {
+      await post(baseUrl, "open_async_entry_escrow", {
+        entry_id: `entry_${playerId}`,
+        contest_id: "async_miss_backend",
+        player_id: playerId,
+        balance_cents: 10_000,
+        wager_cents: 1500,
+        idempotency_key: `open:entry_${playerId}`
+      });
+    }
+    await post(baseUrl, "submit_async_contest_result", {
+      contest_id: "async_miss_backend",
+      contest_family: "MISS_N_OUT",
+      player_id: "miss_backend_p1",
+      result: { player_id: "miss_backend_p1", placement: 2, eliminated_round: 2, time_ms: 64000 },
+      idempotency_key: "submit:async_miss_backend:p1"
+    });
+    await post(baseUrl, "submit_async_contest_result", {
+      contest_id: "async_miss_backend",
+      contest_family: "MISS_N_OUT",
+      player_id: "miss_backend_p2",
+      result: { player_id: "miss_backend_p2", placement: 1, is_winner: true, time_ms: 60000 },
+      idempotency_key: "submit:async_miss_backend:p2"
+    });
+    await post(baseUrl, "submit_async_contest_result", {
+      contest_id: "async_miss_backend",
+      contest_family: "MISS_N_OUT",
+      player_id: "miss_backend_p3",
+      result: { player_id: "miss_backend_p3", placement: 3, eliminated_round: 1, time_ms: 70000 },
+      idempotency_key: "submit:async_miss_backend:p3"
+    });
+    const missBackendReport = await post(baseUrl, "preview_async_contest_result_payout_report", {
+      contest_id: "async_miss_backend",
+      contest_family: "MISS_N_OUT",
+      payout_schedule: [{ placement: 1, payout_bps: 10000 }],
+      house_rake_bps: 1000
+    });
+    expect(String(((missBackendReport.planned_payouts as JsonRecord[])[0]?.player_id ?? "")) === "miss_backend_p2", "miss backend report winner mismatch", missBackendReport);
+
     const payoutSummary = await post(baseUrl, "get_money_payout_summary", { limit: 10 });
     expect(Number(payoutSummary.paid_out_cents) >= 3330, "payout summary paid total mismatch", payoutSummary);
     expect(Number(payoutSummary.house_rake_cents) >= 370, "payout summary rake total mismatch", payoutSummary);

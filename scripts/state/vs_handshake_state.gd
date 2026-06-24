@@ -184,6 +184,39 @@ func preview_async_contest_payout_report(contest_id: String, payouts: Array, hou
 		return transport.get("result", {}) as Dictionary
 	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
+func submit_async_contest_result(contest_id: String, contest_family: String, player_id: String, result: Dictionary, idempotency_key: String) -> Dictionary:
+	var payload: Dictionary = {
+		"contest_id": contest_id,
+		"contest_family": contest_family,
+		"player_id": player_id,
+		"result": result,
+		"idempotency_key": idempotency_key
+	}
+	var transport := _call_transport("submit_async_contest_result", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func list_async_contest_results(filters: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("list_async_contest_results", {
+		"filters": filters
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func preview_async_contest_result_payout_report(contest_id: String, contest_family: String, payout_schedule: Array, house_rake_bps: int, options: Dictionary = {}) -> Dictionary:
+	var payload: Dictionary = options.duplicate(true)
+	payload["contest_id"] = contest_id
+	payload["contest_family"] = contest_family
+	payload["payout_schedule"] = payout_schedule
+	payload["house_rake_bps"] = house_rake_bps
+	payload["options"] = options.duplicate(true)
+	var transport := _call_transport("preview_async_contest_result_payout_report", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
 func list_async_contest_payout_reports(filters: Dictionary = {}) -> Dictionary:
 	var transport := _call_transport("list_async_contest_payout_reports", {
 		"filters": filters
@@ -194,6 +227,14 @@ func list_async_contest_payout_reports(filters: Dictionary = {}) -> Dictionary:
 
 func get_money_payout_summary(filters: Dictionary = {}) -> Dictionary:
 	var transport := _call_transport("get_money_payout_summary", {
+		"filters": filters
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func get_money_transactions(filters: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("get_money_transactions", {
 		"filters": filters
 	})
 	if bool(transport.get("handled", false)):

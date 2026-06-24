@@ -126,7 +126,7 @@ func _refresh() -> void:
 	time_label.text = _format_remaining(contest.end_ts)
 	cap_label.text = _cap_text(contest.buff_cap_per_map)
 	if contest_state != null:
-		var preview: Dictionary = contest_state.preview_entry_requirements(contest.id) as Dictionary if contest_state.has_method("preview_entry_requirements") else {}
+		var preview: Dictionary = contest_state.preview_entry_requirements(contest.id, _entry_metadata()) as Dictionary if contest_state.has_method("preview_entry_requirements") else {}
 		var entered: bool = contest_state.is_entered(contest.id)
 		enter_button.visible = not entered
 		if bool(preview.get("requires_access_ticket", false)):
@@ -134,6 +134,12 @@ func _refresh() -> void:
 				int(preview.get("access_ticket_cost", 0)),
 				"" if int(preview.get("access_ticket_cost", 0)) == 1 else "s"
 			]
+		elif bool(preview.get("paid_entry", false)):
+			var entry_usd: int = maxi(0, int(preview.get("entry_price_usd", 0)))
+			if not bool(preview.get("can_enter", false)) and str(preview.get("reason", "")) == "insufficient_funds":
+				enter_button.text = "ADD FUNDS"
+			else:
+				enter_button.text = "Enter ($%d)" % entry_usd
 		else:
 			enter_button.text = "Enter"
 	else:
@@ -181,8 +187,15 @@ func _on_enter_pressed() -> void:
 		return
 	if contest_state == null:
 		return
+	var preview: Dictionary = contest_state.call("preview_entry_requirements", contest.id, _entry_metadata()) as Dictionary if contest_state.has_method("preview_entry_requirements") else {}
+	if bool(preview.get("paid_entry", false)) and not bool(preview.get("can_enter", false)):
+		_handle_entry_blocked(preview)
+		return
 	if contest_state.has_method("intent_enter_contest"):
-		contest_state.call("intent_enter_contest", contest.id, {"source": "contest_hub"})
+		var result: Dictionary = contest_state.call("intent_enter_contest", contest.id, _entry_metadata({"source": "contest_hub"})) as Dictionary
+		if not bool(result.get("ok", false)):
+			_handle_entry_blocked(result)
+			return
 	else:
 		contest_state.enter_contest(contest.id)
 	_refresh()
@@ -222,12 +235,12 @@ func _on_stage_race_play_pressed() -> void:
 	if contest == null or contest_state == null:
 		return
 	if contest_state.has_method("preview_entry_requirements"):
-		var preview: Dictionary = contest_state.call("preview_entry_requirements", contest.id) as Dictionary
+		var preview: Dictionary = contest_state.call("preview_entry_requirements", contest.id, _entry_metadata()) as Dictionary
 		if not bool(preview.get("already_entered", false)):
 			_on_enter_pressed()
-			var refreshed_preview: Dictionary = contest_state.call("preview_entry_requirements", contest.id) as Dictionary
+			var refreshed_preview: Dictionary = contest_state.call("preview_entry_requirements", contest.id, _entry_metadata()) as Dictionary
 			if not bool(refreshed_preview.get("already_entered", false)):
-				stage_race_summary_label.text = "Entry is required before this Stage Race can start."
+				stage_race_summary_label.text = _entry_blocked_message(refreshed_preview)
 				_update_stage_race_play_state()
 				return
 	if not contest_state.has_method("build_stage_race_plan"):
@@ -260,6 +273,55 @@ func _on_stage_race_play_pressed() -> void:
 	)
 	add_child(vs_lobby)
 	visible = false
+
+func _entry_metadata(extra: Dictionary = {}) -> Dictionary:
+	var out: Dictionary = extra.duplicate(true)
+	var player_id: String = ""
+	if ProfileManager != null and ProfileManager.has_method("get_user_id"):
+		player_id = str(ProfileManager.call("get_user_id")).strip_edges()
+	if player_id.is_empty():
+		player_id = "local"
+	out["player_id"] = player_id
+	var tree: SceneTree = get_tree()
+	if tree != null and tree.has_meta("wallet_balance_cents"):
+		out["balance_cents"] = maxi(0, int(tree.get_meta("wallet_balance_cents")))
+	elif tree != null and tree.has_meta("wallet_balance_usd"):
+		out["balance_usd"] = maxi(0, int(tree.get_meta("wallet_balance_usd")))
+	return out
+
+func _handle_entry_blocked(result: Dictionary) -> void:
+	if stage_race_summary_label != null:
+		stage_race_summary_label.text = _entry_blocked_message(result)
+	if str(result.get("reason", result.get("err", ""))) == "insufficient_funds":
+		var tree: SceneTree = get_tree()
+		if tree != null:
+			tree.set_meta("money_payment_window_requested", true)
+			tree.set_meta("money_payment_window_context", {
+				"source": "contest_hub",
+				"contest_id": str(result.get("contest_id", contest.id if contest != null else "")),
+				"entry_usd": maxi(0, int(result.get("entry_price_usd", 0))),
+				"balance_cents": maxi(0, int(result.get("balance_cents", 0))),
+				"missing_cents": maxi(0, int(result.get("missing_cents", 0)))
+			})
+
+func _entry_blocked_message(result: Dictionary) -> String:
+	var reason: String = str(result.get("reason", result.get("err", ""))).strip_edges()
+	match reason:
+		"insufficient_funds":
+				return "Insufficient balance: $%.2f available, $%.2f required." % [
+					float(maxi(0, int(result.get("balance_cents", 0)))) / 100.0,
+					float(maxi(0, int(result.get("entry_price_cents", result.get("wager_cents", 0))))) / 100.0
+				]
+		"balance_unknown":
+			return "Wallet balance unavailable. Add funds or try again from Money Games."
+		"contest_not_started":
+			return "This contest is not open yet."
+		"contest_closed":
+			return "This contest has closed."
+		"contest_not_open":
+			return "This contest is not open."
+		_:
+			return "Entry is required before this Stage Race can start."
 
 func _on_stage_race_board_pressed() -> void:
 	if contest == null:

@@ -547,8 +547,24 @@ var _money_games_selected_division: String = "division_i"
 var _money_games_selected_tier: int = 1
 var _async_money_ledger = AsyncMoneyGameLedgerScript.new()
 
-const ASYNC_BUYINS := [1, 2, 3, 5, 10, 20]
-const MONEY_DENOMINATIONS := [1, 2, 3, 5, 10, 20, 50]
+const ASYNC_BUYINS := [1, 2, 3, 5, 10, 15, 20, 50]
+const MONEY_DENOMINATIONS := [1, 2, 3, 5, 10, 15, 20, 50]
+const SCHEDULED_MONEY_DENOMINATIONS := [1, 2, 3, 5, 10, 15, 20, 50]
+const HIGH_STAKES_SCHEDULED_MONEY_DENOMINATION: int = 100
+const SCHEDULED_MONEY_SCOPES: Array[Dictionary] = [
+	{"label": "WEEKLY", "scope": "WEEKLY"},
+	{"label": "MONTHLY", "scope": "MONTHLY"},
+	{"label": "SEASONAL", "scope": "SEASONAL"}
+]
+const SCHEDULED_MONEY_FAMILIES: Array[Dictionary] = [
+	{"label": "Stage Race", "family": "STAGE_RACE", "map_count": 5, "allows_100": false},
+	{"label": "Race", "family": "RACE", "map_count": 3, "allows_100": true},
+	{"label": "Gauntlet", "family": "GAUNTLET", "map_count": 0, "allows_100": true}
+]
+const SIT_AND_GO_MONEY_FAMILIES: Array[Dictionary] = [
+	{"label": "Miss N Out", "family": "MISS_N_OUT", "map_count": 5},
+	{"label": "Gauntlet", "family": "GAUNTLET", "map_count": 0}
+]
 const ASYNC_MAPS := ["Map A", "Map B", "Map C", "Map D", "Map E"]
 const ASYNC_CONFIRM_WINDOW_MS := 900
 const ASYNC_TRACK_SELECT := "select"
@@ -773,7 +789,7 @@ const MONEY_DIVISION_LABELS: Dictionary = {
 }
 const MONEY_DIVISION_TIERS: Dictionary = {
 	MONEY_DIVISION_I: [1, 2, 3],
-	MONEY_DIVISION_II: [5, 10],
+	MONEY_DIVISION_II: [5, 10, 15],
 	MONEY_DIVISION_III: [20, 50]
 }
 const MONEY_TAB_INACTIVE_BG: Color = Color(0.10, 0.11, 0.14, 0.92)
@@ -11681,6 +11697,24 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		_apply_human_mode_skin_to_button(button, chosen_mode, paid, selected_denom)
 		_tune_game_hub_human_button(button, top_row_scale)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
+	if paid:
+		_add_game_hub_spacer(match_type_block, 10.0)
+		_build_paid_async_contest_sections(body, broadcast_free_roll, lower_rows_scale, section_label_rebound_x, button_track_right_inset_px)
+		var paid_cancel_row_host: Control = _make_game_hub_center_track(body, button_track_right_inset_px)
+		var paid_cancel_row := HBoxContainer.new()
+		paid_cancel_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		paid_cancel_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		paid_cancel_row_host.add_child(paid_cancel_row)
+		var paid_cancel := Button.new()
+		paid_cancel.text = "CANCEL"
+		paid_cancel.pressed.connect(_close_entry_route_modal)
+		paid_cancel_row.add_child(paid_cancel)
+		_style_game_hub_cancel_button(paid_cancel, lower_rows_scale)
+		_configure_game_hub_option_button(paid_cancel, broadcast_free_roll)
+		_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
+		_entry_route_modal = panel
+		_refresh_money_games_paid_route_buttons()
+		return
 	if not paid:
 		_add_game_hub_spacer(match_type_block, GAME_HUB_FREE_SECTION_SPACER_PX)
 	_add_game_hub_section_header(match_type_block, "TIME PUZZLES", "Race against time & ranking", broadcast_free_roll, section_label_rebound_x)
@@ -11768,6 +11802,124 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	_entry_route_modal = panel
 	if paid:
 		_refresh_money_games_paid_route_buttons()
+
+func _build_paid_async_contest_sections(body: VBoxContainer, broadcast_mode: bool, lower_rows_scale: float, rebound_x: float, center_track_right_inset_px: float) -> void:
+	if body == null:
+		return
+	_add_game_hub_block_divider(body, broadcast_mode)
+	_add_game_hub_spacer(body, GAME_HUB_BLOCK_SPACING_PX)
+	_add_game_hub_block_label(body, "CONTESTS", broadcast_mode, rebound_x)
+	var contest_block := VBoxContainer.new()
+	contest_block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	contest_block.add_theme_constant_override("separation", 12)
+	body.add_child(contest_block)
+	for scope_any in SCHEDULED_MONEY_SCOPES:
+		var scope_def: Dictionary = scope_any as Dictionary
+		_add_paid_scheduled_scope_section(
+			contest_block,
+			str(scope_def.get("label", "WEEKLY")),
+			str(scope_def.get("scope", "WEEKLY")),
+			broadcast_mode,
+			lower_rows_scale,
+			rebound_x,
+			center_track_right_inset_px
+		)
+	_add_game_hub_spacer(contest_block, 4.0)
+	_add_game_hub_section_header(contest_block, "SIT & GO", "Lobby contests that fill and launch", broadcast_mode, rebound_x)
+	_add_paid_contest_button_grid(contest_block, "EVENT", SIT_AND_GO_MONEY_FAMILIES, "SIT_AND_GO", broadcast_mode, lower_rows_scale, center_track_right_inset_px)
+
+func _add_paid_scheduled_scope_section(parent: VBoxContainer, label: String, scope: String, broadcast_mode: bool, lower_rows_scale: float, rebound_x: float, center_track_right_inset_px: float) -> void:
+	if parent == null:
+		return
+	_add_game_hub_section_header(parent, label, "Scheduled money contests", broadcast_mode, rebound_x)
+	_add_paid_contest_button_grid(parent, scope, SCHEDULED_MONEY_FAMILIES, "SCHEDULED", broadcast_mode, lower_rows_scale, center_track_right_inset_px)
+
+func _add_paid_contest_button_grid(parent: VBoxContainer, scope: String, family_defs: Array, schedule_kind: String, broadcast_mode: bool, lower_rows_scale: float, center_track_right_inset_px: float) -> void:
+	if parent == null:
+		return
+	var row_host: Control = _make_game_hub_center_track(parent, center_track_right_inset_px)
+	var row_wrap := HBoxContainer.new()
+	row_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row_wrap.alignment = BoxContainer.ALIGNMENT_CENTER
+	row_host.add_child(row_wrap)
+	var grid := GridContainer.new()
+	grid.columns = 2 if _use_game_hub_touch_layout() else 3
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	row_wrap.add_child(grid)
+	for family_any in family_defs:
+		if typeof(family_any) != TYPE_DICTIONARY:
+			continue
+		var family_def: Dictionary = family_any as Dictionary
+		var family_id: String = str(family_def.get("family", "")).strip_edges().to_upper()
+		var family_label: String = str(family_def.get("label", family_id)).strip_edges()
+		if family_id.is_empty() or family_label.is_empty():
+			continue
+		for denom in _paid_contest_denominations_for_family(family_def, schedule_kind):
+			var button := Button.new()
+			button.custom_minimum_size = Vector2(228.0, 50.0) * maxf(0.78, lower_rows_scale)
+			button.text = "%s  $%d" % [family_label.to_upper(), denom]
+			button.set_meta("sf_paid_contest_scope", scope)
+			button.set_meta("sf_paid_contest_family", family_id)
+			button.set_meta("sf_paid_contest_schedule_kind", schedule_kind)
+			button.set_meta("sf_paid_contest_denomination", denom)
+			button.tooltip_text = _money_entry_tooltip(denom, "%s %s $%d" % [_scope_display_label(scope), family_label, denom])
+			button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			button.pressed.connect(func() -> void:
+				_on_paid_async_contest_button_pressed(scope, family_id, schedule_kind, denom)
+			)
+			grid.add_child(button)
+			_apply_font(button, _font_semibold, 12)
+			_style_paid_contest_route_button(button, denom)
+			_configure_game_hub_option_button(button, broadcast_mode)
+
+func _paid_contest_denominations_for_family(family_def: Dictionary, schedule_kind: String) -> Array[int]:
+	var out: Array[int] = []
+	for denom_any in SCHEDULED_MONEY_DENOMINATIONS:
+		out.append(maxi(1, int(denom_any)))
+	var clean_schedule: String = schedule_kind.strip_edges().to_upper()
+	if clean_schedule == "SCHEDULED" and bool(family_def.get("allows_100", false)):
+		out.append(HIGH_STAKES_SCHEDULED_MONEY_DENOMINATION)
+	return out
+
+func _style_paid_contest_route_button(button: Button, denomination: int) -> void:
+	if button == null:
+		return
+	_style_button(button, Color(0.1, 0.11, 0.14), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+	if not _can_afford_money_entry(denomination):
+		button.modulate = Color(0.42, 0.42, 0.42, 0.58)
+		button.add_theme_color_override("font_color", Color(0.62, 0.64, 0.68, 0.78))
+	else:
+		button.modulate = Color(1.0, 1.0, 1.0, 1.0)
+
+func _on_paid_async_contest_button_pressed(scope: String, family: String, schedule_kind: String, denomination: int) -> void:
+	var entry_usd: int = maxi(1, denomination)
+	if not _can_afford_money_entry(entry_usd):
+		_open_add_funds_for_money_entry(entry_usd, "async_contest")
+		return
+	var clean_family: String = family.strip_edges().to_upper()
+	var clean_schedule: String = schedule_kind.strip_edges().to_upper()
+	_apply_async_entry_amount(true, entry_usd)
+	match clean_family:
+		"STAGE_RACE":
+			_start_paid_stage_race_contest(scope, 5, entry_usd)
+		"RACE":
+			_start_paid_timed_race_contest(scope, 3, entry_usd)
+		"MISS_N_OUT":
+			_start_paid_miss_n_out_sit_and_go(entry_usd)
+		"GAUNTLET":
+			_start_paid_gauntlet_contest(scope, entry_usd, clean_schedule)
+		_:
+			status_label.text = "Paid contest unavailable."
+
+func _scope_display_label(scope: String) -> String:
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope == "YEARLY":
+		clean_scope = "SEASONAL"
+	if clean_scope == "EVENT":
+		return "Sit & Go"
+	return clean_scope.capitalize()
 
 func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
 	var panel_any: Node = _load_packed_scene(FREE_ROLL_GAME_HUB_SCENE_PATH).instantiate()
@@ -13487,26 +13639,45 @@ func _on_async_cycle_selected(scope: String, paid: bool, denomination: int) -> v
 	_close_entry_route_modal()
 	_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
 
-func _on_progressive_selected() -> void:
+func _on_progressive_selected(paid: bool = false, denomination: int = 0, contest_id: String = "", contest_scope: String = "", schedule_kind: String = "SIT_AND_GO") -> void:
 	if _block_for_active_hive_tournament("progressive"):
 		return
 	_close_entry_route_modal()
+	var entry_usd: int = maxi(0, denomination) if paid else 0
+	var escrow: Dictionary = {}
+	if paid:
+		escrow = _open_async_money_entry_escrow(PROGRESSIVE_MODE_ID, entry_usd, "async_gauntlet:%s" % schedule_kind.strip_edges().to_lower(), contest_id)
+		if not bool(escrow.get("ok", false)):
+			status_label.text = str(escrow.get("message", escrow.get("err", escrow.get("reason", "Gauntlet escrow failed."))))
+			return
 	var plan: Array[Dictionary] = ProgressiveConfigScript.build_stage_plan()
 	if plan.is_empty():
+		_refund_async_money_entry_escrow(escrow, "gauntlet_plan_missing")
 		status_label.text = "Gauntlet unavailable: no stage plan."
 		return
 	var player_profile: Dictionary = _progressive_local_profile()
 	var run: Dictionary = _progressive_run_store.start_run(plan, player_profile)
 	if run.is_empty():
+		_refund_async_money_entry_escrow(escrow, "gauntlet_run_setup_failed")
 		status_label.text = "Gauntlet unavailable: run setup failed."
 		return
 	var stage: Dictionary = _progressive_run_store.current_stage(run)
 	if stage.is_empty():
+		_refund_async_money_entry_escrow(escrow, "gauntlet_first_stage_missing")
 		status_label.text = "Gauntlet unavailable: first stage missing."
 		return
-	if _launch_progressive_stage_direct(run, stage):
-		status_label.text = "Gauntlet stage 1 starting..."
+	var launch_options: Dictionary = {
+		"paid_entry": paid,
+		"price_usd": entry_usd,
+		"contest_id": contest_id.strip_edges(),
+		"contest_scope": contest_scope.strip_edges().to_upper(),
+		"schedule_kind": schedule_kind.strip_edges().to_upper(),
+		"escrow": escrow
+	}
+	if _launch_progressive_stage_direct(run, stage, launch_options):
+		status_label.text = "Gauntlet $%d stage 1 starting..." % entry_usd if paid else "Gauntlet stage 1 starting..."
 	else:
+		_refund_async_money_entry_escrow(escrow, "gauntlet_launch_failed")
 		status_label.text = "Gauntlet launch failed."
 
 func _progressive_local_profile() -> Dictionary:
@@ -13526,7 +13697,7 @@ func _progressive_local_profile() -> Dictionary:
 		"display_name": display_name
 	}
 
-func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary) -> bool:
+func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary, launch_options: Dictionary = {}) -> bool:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return false
@@ -13557,8 +13728,19 @@ func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary) -> boo
 		map_ids.append(map_id)
 	tree.set_meta("start_game", true)
 	tree.set_meta("vs_mode", PROGRESSIVE_MODE_ID)
-	tree.set_meta("vs_price_usd", 0)
-	tree.set_meta("vs_free_roll", true)
+	var paid_entry: bool = bool(launch_options.get("paid_entry", false))
+	var price_usd: int = maxi(0, int(launch_options.get("price_usd", 0)))
+	tree.set_meta("vs_price_usd", price_usd)
+	tree.set_meta("vs_free_roll", not paid_entry)
+	tree.set_meta("vs_paid_entry", paid_entry)
+	tree.set_meta("vs_wager_cents", price_usd * 100)
+	var contest_id: String = str(launch_options.get("contest_id", "")).strip_edges()
+	var contest_scope: String = str(launch_options.get("contest_scope", "")).strip_edges().to_upper()
+	if not contest_id.is_empty():
+		tree.set_meta("contest_id", contest_id)
+		tree.set_meta("async_money_contest_id", contest_id)
+	if not contest_scope.is_empty():
+		tree.set_meta("contest_scope", contest_scope)
 	tree.set_meta("vs_assigned_players", [local_name, bot_name])
 	tree.set_meta("vs_open_slots", 0)
 	tree.set_meta("vs_required_players", 2)
@@ -13593,12 +13775,17 @@ func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary) -> boo
 	tree.set_meta("progressive_bot_attack_grace_broken", false)
 	tree.set_meta("progressive_total_stars", int(run.get("total_stars", 0)))
 	tree.set_meta("progressive_max_stars", int(run.get("max_stars", 0)))
+	var escrow: Dictionary = launch_options.get("escrow", {}) as Dictionary
+	if not escrow.is_empty():
+		_apply_async_money_escrow_tree_meta(escrow)
 	SFLog.info("PROGRESSIVE_LAUNCH", {
 		"run_id": str(run.get("run_id", "")),
 		"stage_number": int(stage.get("stage_number", 1)),
 		"map_path": map_path,
 		"bot_style": bot_style,
-		"bot_tier": bot_tier
+		"bot_tier": bot_tier,
+		"paid_entry": paid_entry,
+		"contest_id": contest_id
 	})
 	_play_matchmaker_sfx()
 	var shell: Node = get_node_or_null("/root/Shell")
@@ -14574,6 +14761,8 @@ func _select_async_stage_contest_for_leaderboard(contest_state: Node, scope: Str
 				if contest_any == null:
 					continue
 				var price_usd: int = maxi(0, int(_variant_dict_or_object_get(contest_any, "price", 0)))
+				if paid and price_usd != target_entry_usd:
+					continue
 				if selected == null:
 					selected = contest_any
 					best_price = price_usd
@@ -14590,10 +14779,40 @@ func _select_async_stage_contest_for_leaderboard(contest_state: Node, scope: Str
 					best_price = price_usd
 	if selected != null:
 		return selected
+	if paid:
+		return null
 	if contest_state.has_method("get_contest_by_scope"):
 		var fallback_any: Variant = contest_state.call("get_contest_by_scope", clean_scope)
 		if fallback_any != null:
 			return fallback_any
+	return null
+
+func _select_async_contest_definition(contest_state: Node, scope: String, family: String, paid: bool, denomination: int = 0, schedule_kind: String = "SCHEDULED") -> Variant:
+	if contest_state == null:
+		return null
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope.is_empty():
+		clean_scope = "WEEKLY"
+	if clean_scope == "YEARLY":
+		clean_scope = "SEASONAL"
+	var clean_family: String = family.strip_edges().to_upper()
+	var clean_schedule: String = schedule_kind.strip_edges().to_upper()
+	if clean_schedule.is_empty():
+		clean_schedule = "SCHEDULED"
+	var filters: Dictionary = {
+		"scope": clean_scope,
+		"family": clean_family,
+		"pool_type": "MONEY" if paid else "FREE",
+		"schedule_kind": clean_schedule
+	}
+	if paid:
+		filters["price"] = maxi(1, denomination)
+	if contest_state.has_method("get_contest_by_definition"):
+		var matched: Variant = contest_state.call("get_contest_by_definition", filters)
+		if matched != null:
+			return matched
+	if clean_family == "STAGE_RACE" and clean_schedule == "SCHEDULED":
+		return _select_async_stage_contest_for_leaderboard(contest_state, clean_scope, paid, denomination)
 	return null
 
 func _select_free_stage_race_contest_for_scope(contest_state: Node, scope: String) -> Variant:
@@ -15727,7 +15946,7 @@ func _resolve_stage_race_contest_launch_data(scope: String, requested_map_count:
 	var contest_state: Node = get_node_or_null("/root/ContestState")
 	if contest_state == null or not contest_state.has_method("build_stage_race_plan"):
 		return output
-	var contest: Variant = _select_async_stage_contest_for_leaderboard(contest_state, clean_scope, paid, denomination)
+	var contest: Variant = _select_async_contest_definition(contest_state, clean_scope, "STAGE_RACE", paid, denomination)
 	if contest == null:
 		output["error"] = "No %s Stage Race contest is posted yet." % clean_scope.capitalize()
 		return output
@@ -15863,8 +16082,84 @@ func _start_paid_stage_race_contest(scope: String, requested_map_count: int = 5,
 	if not _launch_async_vs_match_direct("STAGE_RACE", resolved_map_count, false, entry_usd, lobby_options):
 		_open_async_vs_lobby("STAGE_RACE", resolved_map_count, false, entry_usd, lobby_options)
 
+func _start_paid_timed_race_contest(scope: String, requested_map_count: int = 3, denomination: int = 1) -> void:
+	if _block_for_active_hive_tournament("async matches"):
+		return
+	var entry_usd: int = maxi(1, denomination)
+	if not _require_balance_for_entry(entry_usd):
+		return
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope.is_empty():
+		clean_scope = "WEEKLY"
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state == null or not contest_state.has_method("build_timed_race_plan"):
+		status_label.text = "%s Race paid contest unavailable." % clean_scope.capitalize()
+		return
+	var contest: Variant = _select_async_contest_definition(contest_state, clean_scope, "RACE", true, entry_usd, "SCHEDULED")
+	if contest == null:
+		status_label.text = "%s Race $%d contest is not posted." % [clean_scope.capitalize(), entry_usd]
+		return
+	var contest_id: String = str(contest.get("id")).strip_edges()
+	var map_count: int = maxi(1, requested_map_count)
+	var plan: Dictionary = contest_state.call("build_timed_race_plan", contest_id, map_count) as Dictionary
+	if not bool(plan.get("ok", false)):
+		status_label.text = "%s Race (%d maps) plan unavailable." % [clean_scope.capitalize(), map_count]
+		return
+	var map_ids: PackedStringArray = plan.get("map_ids", PackedStringArray()) as PackedStringArray
+	if map_ids.is_empty():
+		status_label.text = "%s Race contest has no maps." % clean_scope.capitalize()
+		return
+	var map_labels: Array[String] = []
+	for map_id_v in map_ids:
+		map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(str(map_id_v)))
+	var lobby_options: Dictionary = {
+		"start_players": ASYNC_WINDOW_START_PLAYERS,
+		"sync_join_sec": maxi(1, int(plan.get("start_countdown_sec", ASYNC_TIMED_RACE_SYNC_JOIN_SEC))),
+		"contest_id": contest_id,
+		"contest_scope": clean_scope,
+		"map_ids": map_ids
+	}
+	status_label.text = "%s Race $%d (%d maps): %s" % [clean_scope.capitalize(), entry_usd, map_count, ", ".join(map_labels)]
+	_open_async_vs_lobby("TIMED_RACE", map_count, false, entry_usd, lobby_options)
+
+func _start_paid_miss_n_out_sit_and_go(denomination: int = 1) -> void:
+	if not _require_balance_for_entry(maxi(1, denomination)):
+		return
+	_apply_async_entry_amount(true, maxi(1, denomination))
+	_on_async_miss_n_out_selected(false, 5)
+
+func _start_paid_gauntlet_contest(scope: String, denomination: int = 1, schedule_kind: String = "SCHEDULED") -> void:
+	if _block_for_active_hive_tournament("gauntlet"):
+		return
+	var entry_usd: int = maxi(1, denomination)
+	if not _require_balance_for_entry(entry_usd):
+		return
+	var clean_schedule: String = schedule_kind.strip_edges().to_upper()
+	if clean_schedule.is_empty():
+		clean_schedule = "SCHEDULED"
+	var clean_scope: String = scope.strip_edges().to_upper()
+	if clean_scope.is_empty():
+		clean_scope = "EVENT" if clean_schedule == "SIT_AND_GO" else "WEEKLY"
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state == null:
+		status_label.text = "Gauntlet paid contest unavailable."
+		return
+	var contest: Variant = _select_async_contest_definition(contest_state, clean_scope, "GAUNTLET", true, entry_usd, clean_schedule)
+	if contest == null:
+		status_label.text = "%s Gauntlet $%d contest is not posted." % [_scope_display_label(clean_scope), entry_usd]
+		return
+	var contest_id: String = str(contest.get("id")).strip_edges()
+	if contest_id.is_empty():
+		status_label.text = "Gauntlet contest is missing an id."
+		return
+	_on_progressive_selected(true, entry_usd, contest_id, clean_scope, clean_schedule)
+
 func _open_stage_race_tournament_lobby(scope: String, paid: bool = true, denomination: int = 0) -> void:
 	var return_async_panel: bool = async_panel != null and async_panel.visible
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		tree.set_meta("wallet_balance_usd", _wallet_balance_usd())
+		tree.set_meta("wallet_balance_cents", _wallet_balance_usd() * 100)
 	_close_top_level_windows(UI_SURFACE_TIME_PUZZLE)
 	_time_puzzle_return_async_panel = return_async_panel
 	if _time_puzzle_lobby == null:
@@ -16050,17 +16345,14 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 		_open_async_vs_lobby("MISS_N_OUT", free_map_ids.size(), free_play, entry_usd, lobby_options)
 		return
 	if contest_state == null:
-		status_label.text = "%s Miss-N-Out (%d maps, fallback lobby config)" % [track_label, map_count_requested]
-		_open_async_vs_lobby("MISS_N_OUT", map_count_requested, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Miss-N-Out paid contest unavailable." % track_label
 		return
-	if not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_miss_n_out_plan"):
-		status_label.text = "%s Miss-N-Out (%d maps, fallback lobby config)" % [track_label, map_count_requested]
-		_open_async_vs_lobby("MISS_N_OUT", map_count_requested, free_play, entry_usd, lobby_options)
+	if not contest_state.has_method("build_miss_n_out_plan"):
+		status_label.text = "%s Miss-N-Out paid contest unavailable." % track_label
 		return
-	var contest: Variant = contest_state.call("get_contest_by_scope", "WEEKLY")
+	var contest: Variant = _select_async_contest_definition(contest_state, "EVENT", "MISS_N_OUT", not free_play, entry_usd, "SIT_AND_GO")
 	if contest == null:
-		status_label.text = "%s Miss-N-Out (%d maps, no weekly contest, fallback lobby config)" % [track_label, map_count_requested]
-		_open_async_vs_lobby("MISS_N_OUT", map_count_requested, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Miss-N-Out $%d contest is not posted." % [track_label, entry_usd]
 		return
 	var contest_id: String = str(contest.get("id"))
 	var plan: Dictionary = contest_state.call("build_miss_n_out_plan", contest_id, map_count_requested) as Dictionary
@@ -16078,7 +16370,7 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 	lobby_options["contest_id"] = contest_id
 	var miss_scope: String = str(contest.get("scope"))
 	if miss_scope.is_empty():
-		miss_scope = "WEEKLY"
+		miss_scope = "EVENT"
 	lobby_options["contest_scope"] = miss_scope
 	lobby_options["map_ids"] = map_ids
 	status_label.text = "%s Miss-N-Out (%d maps, %d min window): %s | Eliminated players can continue for practice or return to lobby." % [track_label, resolved_map_count, int(window_sec / 60), ", ".join(map_labels)]
@@ -16377,17 +16669,14 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 		_open_async_vs_lobby("STAGE_RACE", free_map_ids.size(), free_play, entry_usd, lobby_options)
 		return
 	if contest_state == null:
-		status_label.text = "%s Stage Race (%d maps, fallback lobby config)." % [track_label, map_count]
-		_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Stage Race paid contest unavailable." % track_label
 		return
-	if not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_stage_race_plan"):
-		status_label.text = "%s Stage Race (%d maps, fallback lobby config)." % [track_label, map_count]
-		_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
+	if not contest_state.has_method("build_stage_race_plan"):
+		status_label.text = "%s Stage Race paid contest unavailable." % track_label
 		return
-	var contest: Variant = contest_state.call("get_contest_by_scope", "WEEKLY")
+	var contest: Variant = _select_async_contest_definition(contest_state, "WEEKLY", "STAGE_RACE", not free_play, entry_usd)
 	if contest == null:
-		status_label.text = "%s Stage Race (%d maps, no weekly contest, fallback lobby config)." % [track_label, map_count]
-		_open_async_vs_lobby("STAGE_RACE", map_count, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Stage Race $%d contest is not posted." % [track_label, entry_usd]
 		return
 	var contest_id: String = str(contest.get("id"))
 	var plan: Dictionary = contest_state.call("build_stage_race_plan", contest_id, map_count) as Dictionary
@@ -16433,17 +16722,14 @@ func _on_async_timed_race_selected(map_count: int, free_play: bool) -> void:
 		_open_async_vs_lobby("TIMED_RACE", free_map_ids.size(), free_play, entry_usd, lobby_options)
 		return
 	if contest_state == null:
-		status_label.text = "%s Timed Race (%d maps, fallback lobby config)." % [track_label, map_count]
-		_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Race paid contest unavailable." % track_label
 		return
-	if not contest_state.has_method("get_contest_by_scope") or not contest_state.has_method("build_timed_race_plan"):
-		status_label.text = "%s Timed Race (%d maps, fallback lobby config)." % [track_label, map_count]
-		_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
+	if not contest_state.has_method("build_timed_race_plan"):
+		status_label.text = "%s Race paid contest unavailable." % track_label
 		return
-	var contest: Variant = contest_state.call("get_contest_by_scope", "WEEKLY")
+	var contest: Variant = _select_async_contest_definition(contest_state, "WEEKLY", "RACE", not free_play, entry_usd)
 	if contest == null:
-		status_label.text = "%s Timed Race (%d maps, no weekly contest, fallback lobby config)." % [track_label, map_count]
-		_open_async_vs_lobby("TIMED_RACE", map_count, free_play, entry_usd, lobby_options)
+		status_label.text = "%s Race $%d contest is not posted." % [track_label, entry_usd]
 		return
 	var contest_id: String = str(contest.get("id"))
 	var plan: Dictionary = contest_state.call("build_timed_race_plan", contest_id, map_count) as Dictionary

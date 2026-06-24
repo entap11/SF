@@ -4,6 +4,14 @@ This contract matches the client transport in `scripts/state/vs_handshake_state.
 
 Paid VS sessions must also satisfy the authoritative escrow and settlement rules in `docs/money_game_ledger_contract.md`.
 
+Async paid contests must also satisfy the scheduled contest lifecycle in `docs/money_game_ledger_contract.md`:
+
+```text
+OPEN -> CLOSED -> PAYOUT_PENDING -> PAYOUT_APPROVED
+```
+
+The VS backend owns money movement. Client state may mirror contest status for menu/ops UX, but posted escrow, payout, refund, and rake transactions are backend-authoritative.
+
 ## Transport
 
 - Base URL: configured via `SF_VS_BACKEND_URL` (or project setting `swarmfront/vs/backend_url`).
@@ -266,6 +274,8 @@ Response:
 }
 ```
 
+Async paid contest clients must derive `contest_id` and `wager_cents` from the selected `ContestDef`; paid denomination selection is exact, not nearest-match fallback. The backend still validates funds and posts the escrow debit authoritatively.
+
 ### `settle_async_contest`
 Request:
 ```json
@@ -302,7 +312,7 @@ Request:
     {"placement": 2, "player_id": "u2", "payout_bps": 2000},
     {"placement": 3, "player_id": "u3", "payout_bps": 1500},
     {"placement": 4, "player_id": "u4", "payout_bps": 1000},
-    {"placement": 5, "player_id": "u5", "payout_bps": 500}
+    {"placement": 5, "player_id": "u5", "payout_bps": 1500}
   ],
   "idempotency_key": "settle:WEEKLY_USD_5_2026W26:top5"
 }
@@ -315,18 +325,69 @@ Response:
   "contest_id": "WEEKLY_USD_5_2026W26",
   "status": "settled",
   "winner_id": "u1",
-  "winner_payout_cents": 20000,
+  "winner_payout_cents": 18000,
   "payout_total_cents": 45000,
   "payout_count": 5,
   "house_rake_cents": 5000,
+  "player_pool_cents": 45000,
+  "payout_basis": "post_rake_pool",
   "pot_cents": 50000
 }
 ```
 
-The percentage payout-table settlement must balance exactly: `sum(payouts.payout_bps) + house_rake_bps == 10000`. The ledger calculates final cents from escrow at contest close and posts one transaction per paid placement.
+The percentage payout-table settlement must balance exactly against the post-rake player pool: `sum(payouts.payout_bps) == 10000`. The ledger calculates house rake from gross escrow first, then calculates each paid placement from the remaining player pool and posts one transaction per paid placement.
 
 ### `preview_async_contest_payout_report`
 Builds and persists the dashboard approval report before money moves. The response includes `players_count`, `entries_count`, `paid_entries_count`, `total_take_cents`, `house_rake_cents`, `player_pool_cents`, and `planned_payouts`.
+
+The report must be persisted with `approval_status: "pending_approval"`. A client that successfully queues a scheduled contest report mirrors that contest as `PAYOUT_PENDING`.
+
+### `submit_async_contest_result`
+Submits one entrant's terminal async contest result into the backend result ledger. Race and Miss-N-Out money contests use this before closeout so ops approval can rank the full contest field, not only the local client row.
+
+Request:
+```json
+{
+  "contest_id": "WEEKLY_USD_15_2026-W26_RACE",
+  "contest_family": "RACE",
+  "player_id": "p1",
+  "result": {
+    "player_id": "p1",
+    "run_id": "run_123",
+    "map_count": 3,
+    "completed_maps": 3,
+    "map_times_ms": [61000, 63000, 64000]
+  },
+  "idempotency_key": "submit_result:WEEKLY_USD_15_2026-W26_RACE:p1:run_123"
+}
+```
+
+### `list_async_contest_results`
+Returns backend-submitted terminal result rows for a contest, sorted by the contest-family ranking rule.
+
+Request:
+```json
+{ "contest_id": "WEEKLY_USD_15_2026-W26_RACE", "contest_family": "RACE" }
+```
+
+### `preview_async_contest_result_payout_report`
+Ranks backend-submitted result rows, applies the dashboard payout percentage table, and queues a pending payout approval report. This is the preferred closeout path for Race and Miss-N-Out money contests.
+
+Request:
+```json
+{
+  "contest_id": "WEEKLY_USD_15_2026-W26_RACE",
+  "contest_family": "RACE",
+  "map_count": 3,
+  "payout_schedule": [
+    { "placement": 1, "payout_bps": 7000 },
+    { "placement": 2, "payout_bps": 3000 }
+  ],
+  "house_rake_bps": 1000
+}
+```
+
+The report source must indicate backend result authority, and ops review should block approval when the backend result set is missing or has fewer qualified rows than planned payout rows.
 
 ### `list_async_contest_payout_reports`
 Returns persisted payout approval reports for the ops console. Supports `status`/`approval_status`, `contest_id`, `report_id`, `sort_desc`, and `limit`.
@@ -335,7 +396,15 @@ Returns persisted payout approval reports for the ops console. Supports `status`
 Returns posted payout totals for proof/reporting: total paid out, house rake, gross closed amount, payout/rake transaction counts, pending approval count, and recent contest payout summaries. Totals are derived from ledger transaction rows.
 
 ### `approve_async_contest_payout_report`
-Approves the report and posts payout/rake ledger rows with `approval_id` and `approved_by`.
+Approves a pending report and posts payout/rake ledger rows with `approval_id` and `approved_by`. A successful approval returns `approval_status: "approved"` and the approved report; the client mirrors the contest as `PAYOUT_APPROVED`.
+
+Approval failure rules:
+
+- Missing idempotency key returns `missing_idempotency_key`.
+- Missing approver returns `missing_approver_id`.
+- Repeating the same idempotency key returns the cached result and posts no duplicate transactions.
+- Re-approving an already approved report with a new idempotency key returns `approval_report_already_approved`.
+- Approving a report whose status is not `pending_approval` returns `approval_report_not_pending`.
 
 ### `refund_async_entry`
 Request:

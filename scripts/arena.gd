@@ -4413,7 +4413,7 @@ func _resolve_telemetry_map_id() -> String:
 	return map_id
 
 func _resolve_telemetry_match_type() -> int:
-	if _is_stage_race_runtime_mode():
+	if _is_async_stage_run_runtime_mode():
 		return int(MatchTelemetryModelScript.MATCH_TYPE_ASYNC)
 	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("is_active"):
 		if bool(_vs_pvp_runtime.call("is_active")):
@@ -5189,7 +5189,7 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 			sim_runner.log_pause_snapshot("arena_show_progressive_stage_outcome")
 		mark_render_dirty("match_end_progressive_stage")
 		return
-	if _is_stage_race_runtime_mode():
+	if _is_async_stage_run_runtime_mode():
 		if outcome_overlay != null and outcome_overlay.has_method("clear_post_match_summary"):
 			outcome_overlay.call("clear_post_match_summary")
 		_show_stage_race_round_overlay(winner_id_in, reason)
@@ -5389,7 +5389,7 @@ func _resolve_stage_race_contest_map_id(tree: SceneTree) -> String:
 	return MapRegistry.map_id_from_path(map_path)
 
 func _on_post_match_action(action: String) -> void:
-	if action == "rematch_vote" and not _is_stage_race_runtime_mode() and not _is_progressive_runtime_mode():
+	if action == "rematch_vote" and not _is_async_stage_run_runtime_mode() and not _is_progressive_runtime_mode():
 		var voter_id: int = active_player_id
 		if voter_id != 1 and voter_id != 2:
 			voter_id = 1
@@ -5418,7 +5418,8 @@ func _on_post_match_action(action: String) -> void:
 			if _is_progressive_runtime_mode():
 				_clear_progressive_runtime_meta()
 			else:
-				_prepare_stage_race_finish_leaderboard_request()
+				if _is_stage_race_runtime_mode():
+					_prepare_stage_race_finish_leaderboard_request()
 				_clear_stage_runtime_meta()
 			_return_to_main_menu()
 		"rematch":
@@ -5426,7 +5427,7 @@ func _on_post_match_action(action: String) -> void:
 			_handle_rematch()
 		"main_menu":
 			_post_match_action_taken = true
-			if _is_stage_race_runtime_mode():
+			if _is_async_stage_run_runtime_mode():
 				_clear_stage_runtime_meta()
 			if _is_progressive_runtime_mode():
 				_clear_progressive_runtime_meta()
@@ -5436,6 +5437,13 @@ func _on_post_match_action(action: String) -> void:
 
 func _is_stage_race_runtime_mode() -> bool:
 	return _stage_runtime_flow.is_stage_race_runtime_mode(get_tree(), TREE_META_VS_MODE, VS_MODE_STAGE_RACE)
+
+func _is_async_stage_run_runtime_mode() -> bool:
+	match _current_vs_mode():
+		VS_MODE_STAGE_RACE, "TIMED_RACE", "MISS_N_OUT":
+			return true
+		_:
+			return false
 
 func _is_progressive_runtime_mode() -> bool:
 	var tree: SceneTree = get_tree()
@@ -5474,9 +5482,11 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 	var total_rounds: int = stage_maps.size()
 	var raw_round_index: int = int(tree.get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0))
 	var round_index: int = clampi(raw_round_index, 0, total_rounds - 1)
+	var mode_id: String = _current_vs_mode()
 	var local_owner_id: int = _resolve_local_owner_id()
 	if local_owner_id <= 0:
 		local_owner_id = clampi(active_player_id, 1, 4)
+	var local_won_round: bool = winner_id_in > 0 and winner_id_in == local_owner_id
 	var owned_by_owner: Dictionary = _owned_hive_counts_by_owner()
 	var local_owned_hives: int = int(owned_by_owner.get(local_owner_id, 0))
 	var opponent_owner_id: int = _resolve_stage_opponent_owner_id(owned_by_owner, local_owner_id, winner_id_in)
@@ -5499,6 +5509,16 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 	results = _upsert_stage_round_result(results, round_index, round_result)
 	_set_stage_round_results_runtime(results)
 	var rank_snapshot: Dictionary = _stage_rank_snapshot(results, local_owner_id)
+	var next_round_available: bool = round_index + 1 < total_rounds
+	if mode_id == "TIMED_RACE" or mode_id == "MISS_N_OUT":
+		next_round_available = next_round_available and local_won_round
+	if mode_id == "MISS_N_OUT" and not local_won_round:
+		tree.set_meta("miss_n_out_eliminated", true)
+		tree.set_meta("miss_n_out_notice", "Eliminated in round %d. You can keep playing for practice or return to lobby." % (round_index + 1))
+	if mode_id == "TIMED_RACE" and not next_round_available:
+		_maybe_record_timed_race_contest_result(results, winner_id_in, reason)
+	elif mode_id == "MISS_N_OUT" and not next_round_available:
+		_maybe_record_miss_n_out_contest_result(results, winner_id_in, reason)
 	var wager_cents: int = maxi(0, int(tree.get_meta("vs_wager_cents", maxi(0, int(tree.get_meta("vs_price_usd", 0))) * 100)))
 	var settlement: Dictionary = {}
 	var settlement_any: Variant = tree.get_meta("vs_money_settlement_result", {})
@@ -5518,6 +5538,7 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 			"winner_payout_cents": winner_payout_cents
 		})
 	return {
+		"mode_id": mode_id,
 		"round_number": round_index + 1,
 		"total_rounds": total_rounds,
 		"winner_id": winner_id_in,
@@ -5531,7 +5552,7 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 		"local_round_wins": int(rank_snapshot.get("local_wins", 0)),
 		"opponent_round_wins": int(rank_snapshot.get("opponent_wins", 0)),
 		"cumulative_time_ms": maxi(0, int(rank_snapshot.get("local_elapsed_ms", elapsed_ms))),
-		"next_round_available": round_index + 1 < total_rounds,
+		"next_round_available": next_round_available,
 		"paid_entry": bool(tree.get_meta("vs_paid_entry", false)),
 		"free_roll": bool(tree.get_meta("vs_free_roll", false)),
 		"wager_cents": wager_cents,
@@ -5626,6 +5647,16 @@ func _build_progressive_stage_summary(winner_id_in: int, reason: String) -> Dict
 	var total_stars: int = int(tree.get_meta("progressive_total_stars", stars))
 	var max_stars: int = int(tree.get_meta("progressive_max_stars", stage_count * ProgressiveConfigScript.STAR_MAX))
 	var next_available: bool = won and stars > 0 and stage_index + 1 < stage_count
+	if not next_available:
+		_maybe_record_gauntlet_contest_result(updated_run, {
+			"run_id": run_id,
+			"stage_count": stage_count,
+			"total_stars": total_stars,
+			"max_stars": max_stars,
+			"terminal_stage_index": stage_index,
+			"winner_id": winner_id_in,
+			"reason": reason
+		})
 	return {
 		"mode_id": VS_MODE_PROGRESSIVE,
 		"stage_index": stage_index,
@@ -5646,6 +5677,275 @@ func _build_progressive_stage_summary(winner_id_in: int, reason: String) -> Dict
 		"exit_label": "Main Menu",
 		"status_text": "Run stars: %d / %d. Ready for the next stage?" % [total_stars, max_stars] if next_available else "Run ended with %d / %d stars." % [total_stars, max_stars]
 	}
+
+func _maybe_record_gauntlet_contest_result(run: Dictionary, fallback: Dictionary) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var contest_id: String = str(tree.get_meta("contest_id", "")).strip_edges()
+	if contest_id.is_empty():
+		contest_id = str(tree.get_meta("async_money_contest_id", "")).strip_edges()
+	if contest_id.is_empty():
+		return
+	var run_data: Dictionary = run
+	if run_data.is_empty():
+		run_data = _progressive_run_store.load_current_run()
+	if run_data.is_empty():
+		run_data = fallback.duplicate(true)
+	var identity: Dictionary = _resolve_jukebox_local_identity(tree)
+	var player_id: String = str(identity.get("player_id", "")).strip_edges()
+	if player_id.is_empty():
+		return
+	var run_id: String = str(run_data.get("run_id", fallback.get("run_id", tree.get_meta("progressive_run_id", "")))).strip_edges()
+	if run_id.is_empty():
+		return
+	var stage_results: Array = run_data.get("stage_results", []) as Array
+	var total_stars: int = int(run_data.get("total_stars", fallback.get("total_stars", tree.get_meta("progressive_total_stars", 0))))
+	var max_stars: int = int(run_data.get("max_stars", fallback.get("max_stars", tree.get_meta("progressive_max_stars", 0))))
+	var completed_stages: int = _progressive_completed_stage_count(stage_results)
+	var total_elapsed_ms: int = _progressive_total_elapsed_ms(stage_results)
+	var result_signature: String = "gauntlet|%s|%s|%s|%d|%d|%d" % [contest_id, player_id, run_id, total_stars, completed_stages, total_elapsed_ms]
+	if str(tree.get_meta(TREE_META_CONTEST_RESULT_SIGNATURE, "")).strip_edges() == result_signature:
+		return
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state == null or not contest_state.has_method("record_gauntlet_run_result"):
+		return
+	var record: Dictionary = contest_state.call("record_gauntlet_run_result", contest_id, {
+		"player_id": player_id,
+		"player_name": str(identity.get("handle", "You")).strip_edges(),
+		"run_id": run_id,
+		"total_stars": total_stars,
+		"max_stars": max_stars,
+		"completed_stages": completed_stages,
+		"stage_count": int(run_data.get("stage_count", fallback.get("stage_count", completed_stages))),
+		"elapsed_ms": total_elapsed_ms,
+		"status": str(run_data.get("status", "")),
+		"stage_results": stage_results.duplicate(true),
+		"updated_at": int(Time.get_unix_time_from_system()),
+		"source": "gauntlet_runtime"
+	}) as Dictionary
+	if bool(record.get("ok", false)):
+		tree.set_meta(TREE_META_CONTEST_RESULT_SIGNATURE, result_signature)
+		SFLog.info("GAUNTLET_CONTEST_RESULT_RECORDED", {
+			"contest_id": contest_id,
+			"player_id": player_id,
+			"run_id": run_id,
+			"rank": int(record.get("rank", 0)),
+			"total_stars": total_stars,
+			"completed_stages": completed_stages
+		})
+	else:
+		SFLog.warn("GAUNTLET_CONTEST_RESULT_RECORD_FAILED", record)
+
+func _maybe_record_timed_race_contest_result(results: Array, winner_id_in: int, reason: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or _current_vs_mode() != "TIMED_RACE":
+		return
+	var contest_id: String = _runtime_contest_id(tree)
+	if contest_id.is_empty():
+		return
+	var identity: Dictionary = _resolve_jukebox_local_identity(tree)
+	var player_id: String = str(identity.get("player_id", "")).strip_edges()
+	if player_id.is_empty():
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	if local_owner_id <= 0:
+		local_owner_id = clampi(active_player_id, 1, 4)
+	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
+	var map_count: int = maxi(1, stage_maps.size())
+	var ordered_results: Array[Dictionary] = _ordered_stage_results(results)
+	var map_times: Array[int] = []
+	var completed_maps: int = 0
+	var failed_elapsed_ms: int = 0
+	for row in ordered_results:
+		var elapsed_ms: int = maxi(0, int(row.get("elapsed_ms", 0)))
+		var row_winner: int = int(row.get("winner_id", 0))
+		if row_winner == local_owner_id:
+			map_times.append(elapsed_ms)
+			completed_maps += 1
+			continue
+		failed_elapsed_ms = elapsed_ms
+		break
+	var run_id: String = _stage_race_run_id(tree, player_id)
+	var result_signature: String = "timed_race|%s|%s|%s|%d|%s|%d" % [contest_id, player_id, run_id, completed_maps, ",".join(_int_values_as_strings(map_times)), failed_elapsed_ms]
+	if str(tree.get_meta(TREE_META_CONTEST_RESULT_SIGNATURE, "")).strip_edges() == result_signature:
+		return
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state == null or not contest_state.has_method("record_timed_race_result"):
+		return
+	var record: Dictionary = contest_state.call("record_timed_race_result", contest_id, {
+		"player_id": player_id,
+		"player_name": str(identity.get("handle", "You")).strip_edges(),
+		"run_id": run_id,
+		"map_count": map_count,
+		"completed_maps": completed_maps,
+		"map_times_ms": map_times.duplicate(),
+		"failed_map_elapsed_ms": failed_elapsed_ms,
+		"status": "complete" if completed_maps >= map_count else "incomplete",
+		"winner_id": winner_id_in,
+		"reason": reason,
+		"updated_at": int(Time.get_unix_time_from_system()),
+		"source": "timed_race_runtime"
+	}) as Dictionary
+	if bool(record.get("ok", false)):
+		var backend_result: Dictionary = _submit_async_contest_result_backend(contest_id, "RACE", player_id, {
+			"player_id": player_id,
+			"player_name": str(identity.get("handle", "You")).strip_edges(),
+			"run_id": run_id,
+			"map_count": map_count,
+			"required_maps": map_count,
+			"completed_maps": completed_maps,
+			"map_times_ms": map_times.duplicate(),
+			"failed_map_elapsed_ms": failed_elapsed_ms,
+			"status": "complete" if completed_maps >= map_count else "incomplete",
+			"winner_id": winner_id_in,
+			"reason": reason,
+			"source": "timed_race_runtime"
+		}, "submit_result:%s" % result_signature)
+		tree.set_meta(TREE_META_CONTEST_RESULT_SIGNATURE, result_signature)
+		SFLog.info("TIMED_RACE_CONTEST_RESULT_RECORDED", {
+			"contest_id": contest_id,
+			"player_id": player_id,
+			"run_id": run_id,
+			"rank": int(record.get("rank", 0)),
+			"completed_maps": completed_maps,
+			"map_count": map_count,
+			"backend_submitted": bool(backend_result.get("ok", false)),
+			"backend_err": str(backend_result.get("err", backend_result.get("code", "")))
+		})
+	else:
+		SFLog.warn("TIMED_RACE_CONTEST_RESULT_RECORD_FAILED", record)
+
+func _maybe_record_miss_n_out_contest_result(results: Array, winner_id_in: int, reason: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or _current_vs_mode() != "MISS_N_OUT":
+		return
+	var contest_id: String = _runtime_contest_id(tree)
+	if contest_id.is_empty():
+		return
+	var identity: Dictionary = _resolve_jukebox_local_identity(tree)
+	var player_id: String = str(identity.get("player_id", "")).strip_edges()
+	if player_id.is_empty():
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	if local_owner_id <= 0:
+		local_owner_id = clampi(active_player_id, 1, 4)
+	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
+	var player_count: int = maxi(2, stage_maps.size() + 1)
+	var ordered_results: Array[Dictionary] = _ordered_stage_results(results)
+	var eliminated_round: int = 0
+	var terminal_time_ms: int = 0
+	for row in ordered_results:
+		var round_number: int = maxi(1, int(row.get("round_number", int(row.get("round_index", 0)) + 1)))
+		var elapsed_ms: int = maxi(0, int(row.get("elapsed_ms", 0)))
+		terminal_time_ms = elapsed_ms
+		if int(row.get("winner_id", 0)) != local_owner_id:
+			eliminated_round = round_number
+			break
+	var won_run: bool = eliminated_round <= 0 and winner_id_in == local_owner_id and ordered_results.size() >= stage_maps.size()
+	var placement: int = 1 if won_run else maxi(2, player_count - maxi(0, eliminated_round - 1))
+	var run_id: String = _stage_race_run_id(tree, player_id)
+	var result_signature: String = "miss_n_out|%s|%s|%s|%d|%d|%d" % [contest_id, player_id, run_id, placement, eliminated_round, terminal_time_ms]
+	if str(tree.get_meta(TREE_META_CONTEST_RESULT_SIGNATURE, "")).strip_edges() == result_signature:
+		return
+	var contest_state: Node = get_node_or_null("/root/ContestState")
+	if contest_state == null or not contest_state.has_method("record_miss_n_out_result"):
+		return
+	var record: Dictionary = contest_state.call("record_miss_n_out_result", contest_id, {
+		"leaderboard": [{
+			"player_id": player_id,
+			"player_name": str(identity.get("handle", "You")).strip_edges(),
+			"placement": placement,
+			"is_winner": won_run,
+			"eliminated": not won_run,
+			"eliminated_round": eliminated_round,
+			"time_ms": terminal_time_ms,
+			"reason": reason
+		}],
+		"player_count": player_count,
+		"updated_at": int(Time.get_unix_time_from_system()),
+		"source": "miss_n_out_runtime"
+	}) as Dictionary
+	if bool(record.get("ok", false)):
+		var submit_row: Dictionary = {
+			"player_id": player_id,
+			"player_name": str(identity.get("handle", "You")).strip_edges(),
+			"placement": placement,
+			"is_winner": won_run,
+			"eliminated": not won_run,
+			"eliminated_round": eliminated_round,
+			"time_ms": terminal_time_ms,
+			"reason": reason,
+			"source": "miss_n_out_runtime"
+		}
+		var backend_result: Dictionary = _submit_async_contest_result_backend(contest_id, "MISS_N_OUT", player_id, submit_row, "submit_result:%s" % result_signature)
+		tree.set_meta(TREE_META_CONTEST_RESULT_SIGNATURE, result_signature)
+		tree.set_meta("miss_n_out_result", {
+			"leaderboard": [submit_row]
+		})
+		SFLog.info("MISS_N_OUT_CONTEST_RESULT_RECORDED", {
+			"contest_id": contest_id,
+			"player_id": player_id,
+			"run_id": run_id,
+			"winner": won_run,
+			"placement": placement,
+			"eliminated_round": eliminated_round,
+			"backend_submitted": bool(backend_result.get("ok", false)),
+			"backend_err": str(backend_result.get("err", backend_result.get("code", "")))
+		})
+	else:
+		SFLog.warn("MISS_N_OUT_CONTEST_RESULT_RECORD_FAILED", record)
+
+func _submit_async_contest_result_backend(contest_id: String, contest_family: String, player_id: String, result: Dictionary, idempotency_key: String) -> Dictionary:
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("submit_async_contest_result"):
+		return {"ok": false, "handled": false, "err": "transport_not_configured"}
+	return handshake.call("submit_async_contest_result", contest_id, contest_family, player_id, result, idempotency_key) as Dictionary
+
+func _runtime_contest_id(tree: SceneTree) -> String:
+	if tree == null:
+		return ""
+	var contest_id: String = str(tree.get_meta("contest_id", "")).strip_edges()
+	if contest_id.is_empty():
+		contest_id = str(tree.get_meta("async_money_contest_id", "")).strip_edges()
+	return contest_id
+
+func _ordered_stage_results(results: Array) -> Array[Dictionary]:
+	var ordered: Array[Dictionary] = []
+	for result_any in results:
+		if typeof(result_any) != TYPE_DICTIONARY:
+			continue
+		ordered.append((result_any as Dictionary).duplicate(true))
+	ordered.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_index: int = int(a.get("round_index", 0))
+		var b_index: int = int(b.get("round_index", 0))
+		if a_index != b_index:
+			return a_index < b_index
+		return int(a.get("recorded_ms", 0)) < int(b.get("recorded_ms", 0))
+	)
+	return ordered
+
+func _int_values_as_strings(values: Array[int]) -> Array[String]:
+	var out: Array[String] = []
+	for value in values:
+		out.append(str(int(value)))
+	return out
+
+func _progressive_completed_stage_count(stage_results: Array) -> int:
+	var completed: int = 0
+	for result_any in stage_results:
+		if typeof(result_any) != TYPE_DICTIONARY:
+			continue
+		completed += 1
+	return completed
+
+func _progressive_total_elapsed_ms(stage_results: Array) -> int:
+	var total: int = 0
+	for result_any in stage_results:
+		if typeof(result_any) != TYPE_DICTIONARY:
+			continue
+		total += maxi(0, int((result_any as Dictionary).get("elapsed_ms", 0)))
+	return total
 
 func _show_progressive_stage_overlay(winner_id_in: int, reason: String) -> void:
 	var summary: Dictionary = _build_progressive_stage_summary(winner_id_in, reason)
@@ -5845,7 +6145,11 @@ func _clear_stage_runtime_meta() -> void:
 		TREE_META_VS_STAGE_CURRENT_INDEX,
 		TREE_META_VS_STAGE_ROUND_RESULTS,
 		TREE_META_VS_STAGE_RUN_ID,
-		TREE_META_CONTEST_RESULT_SIGNATURE
+		TREE_META_CONTEST_RESULT_SIGNATURE,
+		"miss_n_out_local_player_id",
+		"miss_n_out_eliminated",
+		"miss_n_out_notice",
+		"miss_n_out_result"
 	]
 	for key in keys:
 		if tree.has_meta(key):
@@ -5863,6 +6167,7 @@ func _clear_progressive_runtime_meta() -> void:
 		TREE_META_VS_STAGE_RUN_ID,
 		TREE_META_VS_CPU_STYLE,
 		TREE_META_VS_CPU_TIER,
+		TREE_META_CONTEST_RESULT_SIGNATURE,
 		"map_ids",
 		"progressive_run_id",
 		"progressive_stage_plan",

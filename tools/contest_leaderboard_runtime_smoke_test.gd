@@ -86,7 +86,7 @@ func _init() -> void:
 	contest.house_rake_bps = 1000
 	contest.set_cash_payout_schedule([
 		{"placement": 1, "reward_type": "cash", "payout_bps": 6000},
-		{"placement": 2, "reward_type": "cash", "payout_bps": 3000}
+		{"placement": 2, "reward_type": "cash", "payout_bps": 4000}
 	])
 	var closeout: Dictionary = contest_state.call("build_stage_race_money_closeout_request", CONTEST_ID, 5) as Dictionary
 	_assert_true(bool(closeout.get("ok", false)), "money closeout request should build from final leaderboard")

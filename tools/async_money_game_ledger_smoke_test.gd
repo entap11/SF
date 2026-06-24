@@ -63,7 +63,7 @@ func _init() -> void:
 	var unbalanced_percent_settle: Dictionary = ledger.intent_settle_contest_payout_percentages("contest_unbalanced", [
 		{"placement": 1, "player_id": "unbalanced_p1", "payout_bps": 5000}
 	], 1000, "settle:contest_unbalanced:bad_percent")
-	_assert_code(unbalanced_percent_settle, "settlement_percentages_not_balanced", "payout percentages plus rake must equal 100 percent")
+	_assert_code(unbalanced_percent_settle, "settlement_percentages_not_balanced", "payout percentages must equal post-rake player pool")
 
 	for i in range(100):
 		var player_id: String = "pool_p%d" % (i + 1)
@@ -75,7 +75,7 @@ func _init() -> void:
 		{"placement": 2, "player_id": "pool_p2", "payout_bps": 2000},
 		{"placement": 3, "player_id": "pool_p3", "payout_bps": 1500},
 		{"placement": 4, "player_id": "pool_p4", "payout_bps": 1000},
-		{"placement": 5, "player_id": "pool_p5", "payout_bps": 500}
+		{"placement": 5, "player_id": "pool_p5", "payout_bps": 1500}
 	]
 	var approval_report: Dictionary = ledger.preview_contest_payout_approval_report("contest_pool_100", scheduled_payouts, 1000)
 	_assert_ok(approval_report, "build 100-player payout approval report")
