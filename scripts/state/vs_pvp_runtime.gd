@@ -12,6 +12,8 @@ const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
 const SETTINGS_CRASH_ON_CONTRACT_VIOLATION: String = "swarmfront/vs/crash_on_contract_violation"
 const SETTINGS_HASH_RECOVERY_PAUSE_ENABLED: String = "swarmfront/vs/hash_recovery_pause_enabled"
+const SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED: String = "swarmfront/vs/runtime_telemetry_file_enabled"
+const ENV_RUNTIME_TELEMETRY_FILE_ENABLED: String = "SF_VS_RUNTIME_TELEMETRY_JSONL"
 const DEFAULT_BACKEND_TIMEOUT_SEC: float = 6.0
 const CRASH_ON_CONTRACT_VIOLATION_DEFAULT: bool = false
 const HASH_RECOVERY_PAUSE_ENABLED_DEFAULT: bool = false
@@ -109,9 +111,13 @@ var _debug_event_log: Array[Dictionary] = []
 var _last_debug_event: Dictionary = {}
 var _desync_event_before_divergence: Dictionary = {}
 var _last_publish_result: Dictionary = {}
+var _client_command_counter: int = 0
 var _runtime_telemetry_log_path: String = ""
 var _runtime_telemetry_log_started: bool = false
 var _runtime_telemetry_last_sample_ms: int = 0
+var _runtime_telemetry_write_ms_last: float = 0.0
+var _runtime_telemetry_write_ms_max: float = 0.0
+var _runtime_telemetry_write_count: int = 0
 
 func _exit_tree() -> void:
 	_poll_generation += 1
@@ -166,9 +172,13 @@ func clear() -> void:
 	_authority_snapshots_by_tick.clear()
 	_accepted_command_log.clear()
 	_publish_queue.clear()
+	_client_command_counter = 0
 	_runtime_telemetry_log_path = ""
 	_runtime_telemetry_log_started = false
 	_runtime_telemetry_last_sample_ms = 0
+	_runtime_telemetry_write_ms_last = 0.0
+	_runtime_telemetry_write_ms_max = 0.0
+	_runtime_telemetry_write_count = 0
 	_reset_contract_diagnostics()
 	_reset_telemetry()
 
@@ -255,6 +265,8 @@ func get_debug_snapshot() -> Dictionary:
 		"intent_events_rx": _intent_events_rx,
 		"remote_commands_rx": _remote_commands_rx,
 		"pending_commands": _pending_remote_commands.size(),
+		"publish_in_flight": _publish_inflight,
+		"publish_queue_size": _publish_queue.size(),
 		"events": get_debug_event_log(),
 		"last_event": get_last_debug_event(),
 		"desync": _peer_desync_or_lagging or _recovery_state != RECOVERY_STATE_RUNNING,
@@ -271,6 +283,10 @@ func get_debug_snapshot() -> Dictionary:
 		"last_matching_checkpoint_tick": _last_matching_checkpoint_tick,
 		"accepted_command_log_size": _accepted_command_log.size(),
 		"runtime_telemetry_log_path": _runtime_telemetry_log_path,
+		"runtime_telemetry_file_enabled": _runtime_telemetry_file_enabled(),
+		"telemetry_write_ms": snappedf(_runtime_telemetry_write_ms_last, 0.1),
+		"telemetry_write_ms_max": snappedf(_runtime_telemetry_write_ms_max, 0.1),
+		"telemetry_write_count": _runtime_telemetry_write_count,
 		"last_rtt_ms": snappedf(_last_rtt_ms, 0.1),
 		"rtt_ema_ms": snappedf(_rtt_ema_ms, 0.1),
 		"last_publish_result": _last_publish_result.duplicate(true),
@@ -398,29 +414,57 @@ func _sort_commands_by_contract_order(a: Dictionary, b: Dictionary) -> bool:
 
 func _queue_scheduled_command(command: Dictionary) -> void:
 	var normalized: Dictionary = _normalize_authoritative_command(command, -1)
-	_append_accepted_command_log(normalized)
 	var command_id: String = str(normalized.get("command_id", "")).strip_edges()
-	if not command_id.is_empty():
-		for pending_any in _pending_remote_commands:
-			var pending: Dictionary = pending_any as Dictionary
-			if str(pending.get("command_id", "")).strip_edges() == command_id:
-				return
+	var client_command_id: String = _client_command_id(normalized)
+	for i in range(_pending_remote_commands.size()):
+		var pending: Dictionary = _pending_remote_commands[i] as Dictionary
+		if _commands_share_identity(pending, command_id, client_command_id):
+			_pending_remote_commands[i] = normalized
+			_upsert_accepted_command_log(normalized)
+			return
+	if _accepted_command_log_has_identity(command_id, client_command_id):
+		_upsert_accepted_command_log(normalized)
+		return
+	_upsert_accepted_command_log(normalized)
 	_pending_remote_commands.append(normalized)
 
 func _append_accepted_command_log(command: Dictionary) -> void:
+	_upsert_accepted_command_log(command)
+
+func _upsert_accepted_command_log(command: Dictionary) -> void:
 	var kind: String = str(command.get("kind", "")).strip_edges().to_lower()
 	if kind.is_empty() or kind == "state_hash":
 		return
 	var normalized: Dictionary = _normalize_authoritative_command(command, int(command.get("command_seq", -1)))
 	var command_id: String = str(normalized.get("command_id", "")).strip_edges()
-	if not command_id.is_empty():
-		for existing_any in _accepted_command_log:
-			var existing: Dictionary = existing_any as Dictionary
-			if str(existing.get("command_id", "")).strip_edges() == command_id:
-				return
+	var client_command_id: String = _client_command_id(normalized)
+	for i in range(_accepted_command_log.size()):
+		var existing: Dictionary = _accepted_command_log[i] as Dictionary
+		if _commands_share_identity(existing, command_id, client_command_id):
+			_accepted_command_log[i] = normalized.duplicate(true)
+			_accepted_command_log.sort_custom(Callable(self, "_sort_commands_by_contract_order"))
+			_prune_accepted_command_log()
+			return
 	_accepted_command_log.append(normalized.duplicate(true))
 	_accepted_command_log.sort_custom(Callable(self, "_sort_commands_by_contract_order"))
 	_prune_accepted_command_log()
+
+func _accepted_command_log_has_identity(command_id: String, client_command_id: String) -> bool:
+	for existing_any in _accepted_command_log:
+		var existing: Dictionary = existing_any as Dictionary
+		if _commands_share_identity(existing, command_id, client_command_id):
+			return true
+	return false
+
+func _commands_share_identity(command: Dictionary, command_id: String, client_command_id: String) -> bool:
+	if not client_command_id.is_empty() and _client_command_id(command) == client_command_id:
+		return true
+	if not command_id.is_empty() and str(command.get("command_id", "")).strip_edges() == command_id:
+		return true
+	return false
+
+func _client_command_id(command: Dictionary) -> String:
+	return str(command.get("client_command_id", "")).strip_edges()
 
 func _prune_accepted_command_log() -> void:
 	if _last_matching_checkpoint_tick < 0:
@@ -476,6 +520,33 @@ func _record_local_command_accepted(command: Dictionary) -> void:
 	elif kind == "lane_retract":
 		event_type = "lane_retract_sent"
 	_push_debug_event(event_type, _command_debug_payload(command, "accepted"))
+
+func _next_client_command_id(kind: String, issued_tick: int) -> String:
+	_client_command_counter += 1
+	var session_token: String = _sanitize_log_token(_session_id)
+	var uid_token: String = _sanitize_log_token(_local_uid)
+	return "%s:%s:%s:%d:%d:%d" % [
+		session_token,
+		uid_token,
+		str(kind).strip_edges().to_lower(),
+		int(issued_tick),
+		Time.get_ticks_msec(),
+		_client_command_counter
+	]
+
+func _command_needs_local_pending_accept(command: Dictionary) -> bool:
+	var kind: String = str(command.get("kind", "")).strip_edges().to_lower()
+	return kind == "lane_intent" or kind == "lane_retract" or kind == "barracks_route"
+
+func _queue_local_pending_command_for_async_publish(command: Dictionary) -> void:
+	var pending: Dictionary = _normalize_authoritative_command(command, -1)
+	var client_command_id: String = _client_command_id(pending)
+	if str(pending.get("command_id", "")).strip_edges().is_empty():
+		pending["command_id"] = "%s:pending:%s" % [_sanitize_log_token(_session_id), client_command_id]
+	if not pending.has("authority_action"):
+		pending["authority_action"] = "local_pending"
+	_queue_scheduled_command(pending)
+	_record_local_command_accepted(pending)
 
 func record_debug_input_rejected(src_hive_id: int, dst_hive_id: int, intent: String, reason: String, lane_id: int = -1) -> void:
 	_push_debug_event("rejected_input", {
@@ -843,8 +914,10 @@ func record_local_barracks_route(barracks_id: int, route_hive_ids: Array, owner_
 func _publish_command(command: Dictionary) -> bool:
 	if not _validate_contract_command(command, "publish"):
 		return false
-	if _should_publish_on_worker_thread():
-		_publish_queue.append(command.duplicate(true))
+	if _should_publish_on_worker_thread(command):
+		if _command_needs_local_pending_accept(command):
+			_queue_local_pending_command_for_async_publish(command)
+		_enqueue_async_publish_command(command)
 		return _start_async_publish_commands()
 	var handshake: Node = _handshake()
 	if handshake == null or not handshake.has_method("publish_intent"):
@@ -884,7 +957,8 @@ func _handle_publish_result(command: Dictionary, result: Dictionary, t0_us: int)
 	_intent_events_tx += 1
 	var canonical_command: Dictionary = _canonical_command_from_publish_result(command, result)
 	_queue_scheduled_command(canonical_command)
-	_record_local_command_accepted(canonical_command)
+	if not (_should_publish_on_worker_thread(command) and _command_needs_local_pending_accept(command)):
+		_record_local_command_accepted(canonical_command)
 	_update_runtime_telemetry()
 
 func _poll_remote_intents() -> void:
@@ -980,9 +1054,12 @@ func _contract_command_base(kind: String) -> Dictionary:
 	var st: GameState = OpsState.get_state() if OpsState != null and OpsState.has_method("get_state") else null
 	var issued_tick: int = int(st.tick) if st != null else -1
 	var requested_execute_tick: int = (issued_tick + COMMAND_LEAD_TICKS) if issued_tick >= 0 else -1
+	var clean_kind: String = str(kind).strip_edges().to_lower()
+	var client_command_id: String = _next_client_command_id(clean_kind, issued_tick)
 	return {
-		"kind": kind,
+		"kind": clean_kind,
 		"contract_version": CONTRACT_VERSION,
+		"client_command_id": client_command_id,
 		"issued_ms": Time.get_ticks_msec(),
 		"issued_tick": issued_tick,
 		"local_issued_tick": issued_tick,
@@ -1096,6 +1173,14 @@ func _hash_recovery_pause_enabled() -> bool:
 	if ProjectSettings.has_setting(SETTINGS_HASH_RECOVERY_PAUSE_ENABLED):
 		return bool(ProjectSettings.get_setting(SETTINGS_HASH_RECOVERY_PAUSE_ENABLED, HASH_RECOVERY_PAUSE_ENABLED_DEFAULT))
 	return HASH_RECOVERY_PAUSE_ENABLED_DEFAULT
+
+func _runtime_telemetry_file_enabled() -> bool:
+	var env_value: String = OS.get_environment(ENV_RUNTIME_TELEMETRY_FILE_ENABLED).strip_edges().to_lower()
+	if env_value == "1" or env_value == "true" or env_value == "yes" or env_value == "on":
+		return true
+	if ProjectSettings.has_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED):
+		return bool(ProjectSettings.get_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false))
+	return false
 
 func _reset_contract_diagnostics() -> void:
 	_contract_violation_count = 0
@@ -1257,11 +1342,27 @@ func _should_poll_on_worker_thread() -> bool:
 		return false
 	return str(handshake.call("get_transport_mode")) == "http" and not _configured_backend_url().is_empty()
 
-func _should_publish_on_worker_thread() -> bool:
-	# Gameplay publishes are sparse but must feed the local accepted-command queue
-	# immediately. Keep HTTP publish on the main path so mobile does not appear
-	# input-dead while waiting for a worker-thread completion.
-	return false
+func _should_publish_on_worker_thread(command: Dictionary) -> bool:
+	var kind: String = str(command.get("kind", "")).strip_edges().to_lower()
+	if kind.is_empty():
+		return false
+	var handshake: Node = _handshake()
+	if handshake == null or not handshake.has_method("get_transport_mode"):
+		return false
+	return str(handshake.call("get_transport_mode")) == "http" and not _configured_backend_url().is_empty()
+
+func _enqueue_async_publish_command(command: Dictionary) -> void:
+	var copy: Dictionary = command.duplicate(true)
+	var kind: String = str(copy.get("kind", "")).strip_edges().to_lower()
+	if kind == "state_hash":
+		var kept: Array[Dictionary] = []
+		for queued_any in _publish_queue:
+			var queued: Dictionary = queued_any as Dictionary
+			if str(queued.get("kind", "")).strip_edges().to_lower() == "state_hash":
+				continue
+			kept.append(queued)
+		_publish_queue = kept
+	_publish_queue.append(copy)
 
 func _start_async_publish_commands() -> bool:
 	_finish_publish_thread(false)
@@ -1290,7 +1391,7 @@ func _start_async_publish_commands() -> bool:
 		_publish_thread = null
 		for command_any in batch:
 			if typeof(command_any) == TYPE_DICTIONARY:
-				_publish_queue.append(command_any as Dictionary)
+				_enqueue_async_publish_command(command_any as Dictionary)
 		_contract_violation("publish_thread_start_failed", {"err": int(err), "batch_size": batch.size()})
 		return false
 	return true
@@ -1450,6 +1551,9 @@ func _reset_telemetry() -> void:
 	_rate_window_rx_events = 0
 	_snapshot_receive_rate_hz = 0.0
 	_runtime_telemetry_last_sample_ms = 0
+	_runtime_telemetry_write_ms_last = 0.0
+	_runtime_telemetry_write_ms_max = 0.0
+	_runtime_telemetry_write_count = 0
 	_update_runtime_telemetry()
 
 func _record_transport_result(kind: String, result: Dictionary, t0_us: int) -> void:
@@ -1526,6 +1630,8 @@ func _update_runtime_telemetry() -> void:
 		"packet_dropped": _packet_dropped,
 		"publish_count": _publish_count,
 		"publish_fail_count": _publish_fail_count,
+		"publish_in_flight": _publish_inflight,
+		"publish_queue_size": _publish_queue.size(),
 		"last_publish_result": _last_publish_result.duplicate(true),
 		"poll_count": _poll_count,
 		"poll_fail_count": _poll_fail_count,
@@ -1537,11 +1643,17 @@ func _update_runtime_telemetry() -> void:
 	}
 	telemetry.merge(_contract_diagnostics_snapshot(), true)
 	telemetry["runtime_telemetry_log_path"] = _runtime_telemetry_log_path
+	telemetry["runtime_telemetry_file_enabled"] = _runtime_telemetry_file_enabled()
+	telemetry["telemetry_write_ms"] = snappedf(_runtime_telemetry_write_ms_last, 0.1)
+	telemetry["telemetry_write_ms_max"] = snappedf(_runtime_telemetry_write_ms_max, 0.1)
+	telemetry["telemetry_write_count"] = _runtime_telemetry_write_count
 	OpsState.call("update_runtime_telemetry", telemetry)
 	_maybe_write_runtime_telemetry_sample(telemetry)
 
 func _maybe_write_runtime_telemetry_sample(telemetry: Dictionary) -> void:
 	if not is_active():
+		return
+	if not _runtime_telemetry_file_enabled():
 		return
 	var now_ms: int = Time.get_ticks_msec()
 	if _runtime_telemetry_last_sample_ms > 0 and now_ms - _runtime_telemetry_last_sample_ms < RUNTIME_TELEMETRY_SAMPLE_INTERVAL_MS:
@@ -1630,6 +1742,8 @@ func _ops_runtime_telemetry_snapshot() -> Dictionary:
 func _write_runtime_telemetry_event(event_type: String, payload: Dictionary, include_state: bool = true) -> void:
 	if not is_active():
 		return
+	if not _runtime_telemetry_file_enabled():
+		return
 	if not _runtime_telemetry_log_started:
 		_begin_runtime_telemetry_log()
 	if _runtime_telemetry_log_path.is_empty():
@@ -1646,6 +1760,7 @@ func _write_runtime_telemetry_event(event_type: String, payload: Dictionary, inc
 func _append_runtime_telemetry_line(payload: Dictionary) -> void:
 	if _runtime_telemetry_log_path.is_empty():
 		return
+	var t0_us: int = Time.get_ticks_usec()
 	var file: FileAccess = FileAccess.open(_runtime_telemetry_log_path, FileAccess.READ_WRITE)
 	if file == null:
 		file = FileAccess.open(_runtime_telemetry_log_path, FileAccess.WRITE_READ)
@@ -1660,6 +1775,9 @@ func _append_runtime_telemetry_line(payload: Dictionary) -> void:
 	file.seek_end()
 	file.store_line(JSON.stringify(payload))
 	file.close()
+	_runtime_telemetry_write_ms_last = float(Time.get_ticks_usec() - t0_us) / 1000.0
+	_runtime_telemetry_write_ms_max = maxf(_runtime_telemetry_write_ms_max, _runtime_telemetry_write_ms_last)
+	_runtime_telemetry_write_count += 1
 
 func _sanitize_log_token(value: String) -> String:
 	var clean: String = str(value).strip_edges()

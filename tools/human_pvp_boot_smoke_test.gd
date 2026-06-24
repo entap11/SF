@@ -3,6 +3,7 @@ extends SceneTree
 const DEFAULT_MAP: String = "res://maps/json/MAP_TEST.json"
 const BOOT_TIMEOUT_MS: int = 18000
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
+const SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED: String = "swarmfront/vs/runtime_telemetry_file_enabled"
 
 var _failed: bool = false
 
@@ -17,6 +18,7 @@ func get_node_or_null(path: NodePath) -> Node:
 
 func _run() -> void:
 	var tree: SceneTree = get_tree()
+	ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, true)
 	var role: String = _arg_value("--human-pvp-role=").strip_edges().to_lower()
 	if role != "guest":
 		role = "host"
@@ -362,6 +364,7 @@ func _expect(condition: bool, message: String, details: Dictionary) -> void:
 	push_error("HUMAN_PVP_BOOT_SMOKE: %s -> %s" % [message, details])
 
 func _finish(tree: SceneTree) -> void:
+	ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false)
 	var shell: Node = tree.root.get_node_or_null("Shell")
 	if shell != null:
 		shell.queue_free()

@@ -6978,18 +6978,19 @@ func _hb_maybe_flush() -> void:
 	var avg_phys_ms: float = 0.0
 	if phys_ticks > 0:
 		avg_phys_ms = _hb_sum_phys_ms / float(phys_ticks)
-	SFLog.info("ARENA_FRAME_HEARTBEAT", {
-		"frames": frames,
-		"fps": snapped(fps_est, 0.1),
-		"max_frame_ms": snapped(_hb_max_frame_ms, 0.1),
-		"avg_frame_ms": snapped(avg_frame_ms, 0.1),
-		"max_process_ms": snapped(_hb_max_process_ms, 0.1),
-		"avg_process_ms": snapped(avg_process_ms, 0.1),
-		"max_engine_process_ms": snapped(_hb_max_engine_process_ms, 0.1),
-		"physics_ticks": phys_ticks,
-		"max_physics_ms": snapped(_hb_max_phys_ms, 0.1),
-		"avg_physics_ms": snapped(avg_phys_ms, 0.1)
-	})
+	if _should_emit_live_pvp_heartbeat_logs():
+		SFLog.info("ARENA_FRAME_HEARTBEAT", {
+			"frames": frames,
+			"fps": snapped(fps_est, 0.1),
+			"max_frame_ms": snapped(_hb_max_frame_ms, 0.1),
+			"avg_frame_ms": snapped(avg_frame_ms, 0.1),
+			"max_process_ms": snapped(_hb_max_process_ms, 0.1),
+			"avg_process_ms": snapped(avg_process_ms, 0.1),
+			"max_engine_process_ms": snapped(_hb_max_engine_process_ms, 0.1),
+			"physics_ticks": phys_ticks,
+			"max_physics_ms": snapped(_hb_max_phys_ms, 0.1),
+			"avg_physics_ms": snapped(avg_phys_ms, 0.1)
+		})
 	_publish_frame_runtime_telemetry(frames, fps_est, avg_frame_ms, avg_process_ms, phys_ticks, avg_phys_ms, window_ms)
 	_hb_last_ms = now_ms
 	_hb_frames = 0
@@ -7001,6 +7002,9 @@ func _hb_maybe_flush() -> void:
 	_hb_phys = 0
 	_hb_max_phys_ms = 0.0
 	_hb_sum_phys_ms = 0.0
+
+func _should_emit_live_pvp_heartbeat_logs() -> bool:
+	return not _is_pvp_runtime_active() or SFLog.LOGGING_ENABLED
 
 func _publish_frame_runtime_telemetry(
 	frames: int,
@@ -7228,10 +7232,12 @@ func _runtime_telemetry_text(snapshot: Dictionary) -> String:
 			float(snapshot.get("local_physics_fps", 0.0)),
 			float(snapshot.get("local_physics_fixed_hz", 0.0))
 		],
-		"Sim %.1f/%.1f Hz | %.2f ms | scale %.3f" % [
+		"Sim %s %.1f/%.1f Hz | %.2f/%.2f ms | scale %.3f" % [
+			"RUN" if bool(snapshot.get("sim_running", false)) else "STOP",
 			float(snapshot.get("local_sim_tick_rate_hz", 0.0)),
 			float(snapshot.get("local_sim_fixed_hz", 0.0)),
 			float(snapshot.get("sim_ms", 0.0)),
+			float(snapshot.get("sim_ms_max", snapshot.get("sim_ms", 0.0))),
 			float(snapshot.get("sim_time_scale", 1.0))
 		],
 		"Accum sim delta %.1f ms" % float(snapshot.get("accumulated_sim_delta_ms", 0.0)),
@@ -7253,6 +7259,12 @@ func _runtime_telemetry_text(snapshot: Dictionary) -> String:
 			int(snapshot.get("packet_tx", 0)),
 			int(snapshot.get("packet_rx", 0)),
 			int(snapshot.get("packet_dropped", 0))
+		],
+		"Publish %s q%d | telemetry write %.1f/%.1f ms" % [
+			"IN-FLIGHT" if bool(snapshot.get("publish_in_flight", false)) else "idle",
+			int(snapshot.get("publish_queue_size", 0)),
+			float(snapshot.get("telemetry_write_ms", 0.0)),
+			float(snapshot.get("telemetry_write_ms_max", 0.0))
 		],
 		"Contract lead %d | min %d | pending %d" % [
 			int(snapshot.get("contract_command_lead_ticks", -1)),
@@ -10892,8 +10904,8 @@ func _resolve_lane_unit_interactions(remove_indices: Array[int], remove_set: Dic
 			var a_entry_t: float = float(a_entry.get("t", -1.0))
 			var b_entry_t: float = float(b_entry.get("t", -1.0))
 			var owner_match := _are_allied_owners(
-				int(a_unit.get("owner_id", 0)),
-				int(b_unit.get("owner_id", 0))
+			int(a_unit.get("owner_id", 0)),
+			int(b_unit.get("owner_id", 0))
 			)
 			var a_from_id: int = int(a_unit.get("from_id", -1))
 			var b_from_id: int = int(b_unit.get("from_id", -1))

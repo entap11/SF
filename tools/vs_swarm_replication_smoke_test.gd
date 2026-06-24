@@ -3,6 +3,7 @@ extends SceneTree
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_CRASH_ON_CONTRACT_VIOLATION: String = "swarmfront/vs/crash_on_contract_violation"
 const SETTINGS_HASH_RECOVERY_PAUSE_ENABLED: String = "swarmfront/vs/hash_recovery_pause_enabled"
+const SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED: String = "swarmfront/vs/runtime_telemetry_file_enabled"
 
 func _init() -> void:
 	await process_frame
@@ -14,9 +15,60 @@ func _init() -> void:
 	failed = _test_contract_hash_ignores_clock_and_visual_drift() or failed
 	failed = _test_state_hash_mismatch_threshold_and_self_heal() or failed
 	failed = _test_desync_recovery_uses_snapshot_and_command_log() or failed
+	failed = _test_http_state_hash_publish_is_async_source_guard() or failed
+	failed = _test_async_state_hash_queue_coalesces() or failed
+	failed = _test_runtime_telemetry_file_disabled_by_default() or failed
 	if not failed:
 		print("VS_SWARM_REPLICATION_SMOKE: PASS")
 	quit(1 if failed else 0)
+
+func _test_http_state_hash_publish_is_async_source_guard() -> bool:
+	var source: String = FileAccess.get_file_as_string("res://scripts/state/vs_pvp_runtime.gd")
+	if source.is_empty():
+		return _fail("VsPvpRuntime source should be readable")
+	if not source.contains("func _should_publish_on_worker_thread(command: Dictionary) -> bool:"):
+		return _fail("publish worker guard missing")
+	if not source.contains("_queue_local_pending_command_for_async_publish(command)"):
+		return _fail("async gameplay publishes should queue a local pending command before network publish")
+	if not source.contains("client_command_id"):
+		return _fail("async publish merge should preserve client command identity")
+	if not source.contains("func _enqueue_async_publish_command(command: Dictionary) -> void:"):
+		return _fail("async publish coalescing helper missing")
+	if not source.contains("_publish_queue = kept"):
+		return _fail("queued state hashes should be coalesced before async publish")
+	if not source.contains("_runtime_telemetry_file_enabled()"):
+		return _fail("runtime telemetry JSONL should be gated before file writes")
+	return false
+
+func _test_async_state_hash_queue_coalesces() -> bool:
+	var runtime: Node = get_root().get_node_or_null("/root/VsPvpRuntime")
+	if runtime == null:
+		return _fail("VsPvpRuntime autoload missing")
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	runtime.call("_enqueue_async_publish_command", {"kind": "state_hash", "hash_tick": 5, "state_hash": "old_hash"})
+	runtime.call("_enqueue_async_publish_command", {"kind": "state_hash", "hash_tick": 10, "state_hash": "new_hash"})
+	var queue_any: Variant = runtime.get("_publish_queue")
+	if typeof(queue_any) != TYPE_ARRAY:
+		return _fail("publish queue should be readable for smoke")
+	var queue: Array = queue_any as Array
+	if queue.size() != 1:
+		return _fail("state hash publish queue should coalesce to one entry: %s" % str(queue))
+	var command: Dictionary = queue[0] as Dictionary
+	if int(command.get("hash_tick", -1)) != 10 or str(command.get("state_hash", "")) != "new_hash":
+		return _fail("state hash publish queue should keep newest hash: %s" % str(command))
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	return false
+
+func _test_runtime_telemetry_file_disabled_by_default() -> bool:
+	var runtime: Node = get_root().get_node_or_null("/root/VsPvpRuntime")
+	if runtime == null:
+		return _fail("VsPvpRuntime autoload missing")
+	ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false)
+	if bool(runtime.call("_runtime_telemetry_file_enabled")):
+		return _fail("runtime telemetry JSONL should be disabled unless explicitly opted in")
+	return false
 
 func _test_successful_swarm_intent_replicates() -> bool:
 	var root_node: Window = get_root()

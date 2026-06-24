@@ -558,18 +558,25 @@ func _finalize_tick_profile(tick_t0_us: int) -> void:
 	if now_ms - _hb_last_ms >= 1000:
 		var window_ms: int = maxi(1, now_ms - _hb_last_ms)
 		_telemetry_sim_tick_rate_hz = (float(_hb_ticks) * 1000.0) / float(window_ms)
-		SFLog.info("SIM_HEARTBEAT", {
-			"ticks": _hb_ticks,
-			"max_tick_ms": snapped(_hb_max_tick_ms, 0.1),
-			"hotspot_phase": _hb_phase_hotspot,
-			"hotspot_ms": snapped(_hb_phase_hotspot_ms, 0.1)
-		})
+		if _should_emit_live_pvp_heartbeat_logs():
+			SFLog.info("SIM_HEARTBEAT", {
+				"ticks": _hb_ticks,
+				"max_tick_ms": snapped(_hb_max_tick_ms, 0.1),
+				"hotspot_phase": _hb_phase_hotspot,
+				"hotspot_ms": snapped(_hb_phase_hotspot_ms, 0.1)
+			})
 		_hb_last_ms = now_ms
 		_hb_max_tick_ms = 0.0
 		_hb_phase_hotspot = ""
 		_hb_phase_hotspot_ms = 0.0
 		_hb_ticks = 0
 	_update_runtime_telemetry(tick_ms, max_tick_ms)
+
+func _should_emit_live_pvp_heartbeat_logs() -> bool:
+	var runtime: Node = get_node_or_null("/root/VsPvpRuntime")
+	if runtime == null or not runtime.has_method("is_active"):
+		return true
+	return not bool(runtime.call("is_active")) or SFLog.LOGGING_ENABLED
 
 func _update_runtime_telemetry(tick_ms: float, max_tick_ms: float) -> void:
 	if OpsState == null or not OpsState.has_method("update_runtime_telemetry"):
