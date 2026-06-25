@@ -277,8 +277,9 @@ func _on_stage_race_play_pressed() -> void:
 func _entry_metadata(extra: Dictionary = {}) -> Dictionary:
 	var out: Dictionary = extra.duplicate(true)
 	var player_id: String = ""
-	if ProfileManager != null and ProfileManager.has_method("get_user_id"):
-		player_id = str(ProfileManager.call("get_user_id")).strip_edges()
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager != null and profile_manager.has_method("get_user_id"):
+		player_id = str(profile_manager.call("get_user_id")).strip_edges()
 	if player_id.is_empty():
 		player_id = "local"
 	out["player_id"] = player_id
