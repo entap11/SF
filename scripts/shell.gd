@@ -35,7 +35,8 @@ const MVP_SMOKE_OUTCOME_OVERLAY_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRo
 const MVP_SMOKE_DEFAULT_BOOT_TIMEOUT_MS: int = 7000
 const MVP_SMOKE_DEFAULT_RUN_TIMEOUT_MS: int = 12000
 const MVP_SMOKE_DEFAULT_END_TIMEOUT_MS: int = 25000
-const MVP_SMOKE_DEFAULT_WIN_MAP: String = "res://maps/json/MAP_TEST.json"
+const MVP_SMOKE_DEFAULT_MAP: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
+const MVP_SMOKE_DEFAULT_WIN_MAP: String = MVP_SMOKE_DEFAULT_MAP
 const SOAK_DEFAULT_SECONDS: int = 1800
 const SOAK_DEFAULT_ROUND_SECONDS: int = 300
 const SOAK_DEFAULT_PAIR_COUNT: int = 2
@@ -3400,6 +3401,7 @@ func _parse_mvp_smoke_config(args: Array) -> Dictionary:
 	return config
 
 func _run_mvp_smoke(config: Dictionary) -> void:
+	SFLog.force_enable(true)
 	SFLog.allow_tag("MVP_SMOKE_START")
 	SFLog.allow_tag("MVP_SMOKE_CHECK")
 	SFLog.allow_tag("MVP_SMOKE_FAIL")
@@ -3473,9 +3475,10 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 			"phase": int(OpsState.match_phase)
 		})
 
+	var record_text_ready: bool = await _mvp_wait_for_record_text_populated(boot_timeout_ms)
 	var p1_label: Label = get_node_or_null(MVP_SMOKE_RECORD_P1_PATH) as Label
 	var p1_ok: bool = p1_label != null and not str(p1_label.text).strip_edges().is_empty()
-	if p1_ok:
+	if record_text_ready and p1_ok:
 		passes += _mvp_smoke_pass("prematch_record_text_populated", {"text": p1_label.text})
 	else:
 		fails += _mvp_smoke_fail("prematch_record_text_populated", {"text": p1_label.text if p1_label != null else "<null>"})
@@ -3631,12 +3634,18 @@ func _mvp_run_shell_return_flow_check(expected_map_path: String) -> Dictionary:
 	return result
 
 func _mvp_pick_default_map() -> String:
+	if ResourceLoader.exists(MVP_SMOKE_DEFAULT_MAP):
+		var default_preflight: Dictionary = MAP_LOADER.load_map(MVP_SMOKE_DEFAULT_MAP)
+		if bool(default_preflight.get("ok", false)) and _mvp_map_supports_mode(MVP_SMOKE_DEFAULT_MAP, default_preflight.get("data", {}) as Dictionary, "1V1"):
+			return MVP_SMOKE_DEFAULT_MAP
 	var maps: Array[String] = _mvp_list_json_maps()
 	if maps.is_empty():
 		return ""
 	for map_path in maps:
 		var preflight: Dictionary = MAP_LOADER.load_map(map_path)
 		if not bool(preflight.get("ok", false)):
+			continue
+		if not _mvp_map_supports_mode(map_path, preflight.get("data", {}) as Dictionary, "1V1"):
 			continue
 		var data: Dictionary = preflight.get("data", {}) as Dictionary
 		var wall_count: int = _mvp_count_walls(data)
@@ -3645,34 +3654,34 @@ func _mvp_pick_default_map() -> String:
 		if map_path.findn("NO_WALLS") != -1:
 			continue
 		return map_path
-	return maps[0]
+	for map_path in maps:
+		var preflight: Dictionary = MAP_LOADER.load_map(map_path)
+		if bool(preflight.get("ok", false)) and _mvp_map_supports_mode(map_path, preflight.get("data", {}) as Dictionary, "1V1"):
+			return map_path
+	return ""
 
 func _mvp_pick_win_map() -> String:
 	if ResourceLoader.exists(MVP_SMOKE_DEFAULT_WIN_MAP):
-		return MVP_SMOKE_DEFAULT_WIN_MAP
-	var maps: Array[String] = _mvp_list_json_maps()
-	for map_path_any in maps:
-		var map_path: String = str(map_path_any)
+		var default_preflight: Dictionary = MAP_LOADER.load_map(MVP_SMOKE_DEFAULT_WIN_MAP)
+		if bool(default_preflight.get("ok", false)) and _mvp_map_supports_mode(MVP_SMOKE_DEFAULT_WIN_MAP, default_preflight.get("data", {}) as Dictionary, "1V1"):
+			return MVP_SMOKE_DEFAULT_WIN_MAP
+	for map_path in _mvp_list_json_maps():
 		var preflight: Dictionary = MAP_LOADER.load_map(map_path)
 		if not bool(preflight.get("ok", false)):
 			continue
-		var data: Dictionary = preflight.get("data", {}) as Dictionary
-		var hives_v: Variant = data.get("hives", [])
-		if typeof(hives_v) != TYPE_ARRAY:
-			continue
-		var hives: Array = hives_v as Array
-		var owner_counts: Dictionary = {}
-		for hive_any in hives:
-			if typeof(hive_any) != TYPE_DICTIONARY:
-				continue
-			var hive_d: Dictionary = hive_any as Dictionary
-			var owner_id: int = int(hive_d.get("owner_id", 0))
-			if owner_id < 1 or owner_id > 4:
-				continue
-			owner_counts[owner_id] = int(owner_counts.get(owner_id, 0)) + 1
-		if owner_counts.size() >= 2:
+		if _mvp_map_supports_mode(map_path, preflight.get("data", {}) as Dictionary, "1V1"):
 			return map_path
 	return ""
+
+func _mvp_map_supports_mode(map_path: String, data: Dictionary, mode: String) -> bool:
+	var required_variant: String = _required_player_variant_for_mode(mode)
+	if not required_variant.is_empty() and MAP_REGISTRY.player_variant_for_path(map_path) != required_variant:
+		return false
+	var summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode)
+	if not bool(summary.get("ok", false)):
+		return false
+	var owner_summary: Dictionary = MapModeRules.map_matches_active_owner_contract(data, mode)
+	return bool(owner_summary.get("ok", false))
 
 func _mvp_run_post_match_flow_check(win_map_path: String, run_timeout_ms: int, end_timeout_ms: int) -> Dictionary:
 	var result: Dictionary = {"passes": 0, "fails": 0}
@@ -3858,6 +3867,19 @@ func _mvp_wait_for_records_visible(timeout_ms: int) -> bool:
 		int(OpsState.MatchPhase.PREMATCH),
 		timeout_ms
 	)
+
+func _mvp_wait_for_record_text_populated(timeout_ms: int) -> bool:
+	var deadline: int = Time.get_ticks_msec() + timeout_ms
+	while Time.get_ticks_msec() < deadline:
+		var p1_label: Label = get_node_or_null(MVP_SMOKE_RECORD_P1_PATH) as Label
+		var h2h_label: Label = get_node_or_null(MVP_SMOKE_RECORD_H2H_PATH) as Label
+		if p1_label != null and h2h_label != null:
+			var p1_text: String = str(p1_label.text).strip_edges()
+			var h2h_text: String = str(h2h_label.text).strip_edges()
+			if not p1_text.is_empty() and not h2h_text.is_empty():
+				return true
+		await get_tree().process_frame
+	return false
 
 func _mvp_wait_for_phase(target_phase: int, timeout_ms: int) -> bool:
 	if _mvp_waiter == null:
