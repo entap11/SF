@@ -1,9 +1,13 @@
-# Rank Backend Contract
+# ENTaP Identity / Rank Backend Contract
 
 This contract matches client transport in:
 - `scripts/state/rank_state.gd`
 - `scripts/state/rank_transport_http.gd`
 - Implemented by service scaffold in `tools/rank-service`
+
+The folder name is historical. For Swarmfront beta, this service is the first
+ENTaP platform identity authority. Rank features may remain dormant; beta
+scope is account identity creation only.
 
 ## Transport
 
@@ -15,8 +19,8 @@ This contract matches client transport in:
 - Admin routes: authenticated `GET/POST /v1/admin/*`
 
 Examples:
-- `POST https://rank-backend.example/v1/get_snapshot`
-- `POST https://rank-backend.example/v1/record_match_result`
+- `POST https://rank-backend.example/v1/rank/register_player`
+- `POST https://rank-backend.example/v1/rank/get_snapshot`
 - `POST http://127.0.0.1:8790/v1/rank/get_snapshot` (with `SF_RANK_BACKEND_URL=http://127.0.0.1:8790/v1/rank`)
 
 ## Envelope
@@ -37,11 +41,14 @@ Client hydrates local cache from any of:
 Recommended full state shape:
 ```json
 {
-  "local_player_id": "u_123",
+  "local_player_id": "018f0000-0000-7000-8000-000000000123",
   "players_by_id": {
-    "u_123": {
-      "player_id": "u_123",
-      "display_name": "Player 123",
+    "018f0000-0000-7000-8000-000000000123": {
+      "id": "018f0000-0000-7000-8000-000000000123",
+      "player_id": "018f0000-0000-7000-8000-000000000123",
+      "entap_id": "AAA 000",
+      "call_sign": "Player_0000",
+      "display_name": "Player_0000",
       "region": "GLOBAL",
       "wax_score": 100.0,
       "last_active_unix": 1739980800,
@@ -62,14 +69,17 @@ Recommended full state shape:
 
 ## Canonical Player IDs
 
-- Beta/staging backend should use stable profile IDs in the shape `u_<12 hex chars>`.
+- Beta/staging backend uses server-assigned UUIDv7 account IDs.
+- The client must not generate or send authoritative IDs during first account creation.
+- `entap_id` is server-assigned, public, permanent, unique, and matches `^[A-Z]{3} [0-9]{3}$`.
+- `call_sign` is player-chosen, public, and unique case-insensitively.
 - Bot seats may use `bot_<6 digits>`.
 - When canonical ID enforcement is enabled on the service, rank-changing writes with any other ID shape are rejected.
 
 ### `get_snapshot`
 Request:
 ```json
-{ "local_player_id": "u_123" }
+{ "local_player_id": "018f0000-0000-7000-8000-000000000123" }
 ```
 Response:
 ```json
@@ -80,25 +90,40 @@ Response:
 Request:
 ```json
 {
-  "player_id": "u_123",
-  "display_name": "Player 123",
-  "region": "GLOBAL",
-  "friends": []
+  "call_sign": "Player_0000",
+  "region": "NA",
+  "install_metadata": {
+    "client": "swarmfront",
+    "platform": "iOS"
+  }
 }
 ```
-Response (any of):
+Response:
 ```json
-{ "ok": true, "player": { "...player snapshot..." } }
+{
+  "ok": true,
+  "player": {
+    "id": "018f0000-0000-7000-8000-000000000123",
+    "player_id": "018f0000-0000-7000-8000-000000000123",
+    "entap_id": "AAA 000",
+    "call_sign": "Player_0000",
+    "display_name": "Player_0000"
+  }
+}
 ```
-or
+Duplicate call sign response:
 ```json
-{ "ok": true, "snapshot": { "...state payload..." } }
+{
+  "ok": false,
+  "err": "call_sign_not_unique",
+  "call_sign": "Player_0000"
+}
 ```
 
 ### `set_player_friends`
 Request:
 ```json
-{ "player_id": "u_123", "friends": ["u_456"] }
+{ "player_id": "018f0000-0000-7000-8000-000000000123", "friends": ["018f0000-0000-7000-8000-000000000456"] }
 ```
 Response:
 ```json
@@ -108,7 +133,7 @@ Response:
 ### `set_player_region`
 Request:
 ```json
-{ "player_id": "u_123", "region": "NA" }
+{ "player_id": "018f0000-0000-7000-8000-000000000123", "region": "NA" }
 ```
 Response:
 ```json
@@ -119,8 +144,8 @@ Response:
 Request:
 ```json
 {
-  "player_id": "u_123",
-  "opponent_id": "u_456",
+  "player_id": "018f0000-0000-7000-8000-000000000123",
+  "opponent_id": "018f0000-0000-7000-8000-000000000456",
   "did_player_win": true,
   "mode_name": "STANDARD",
   "metadata": { "event_id": "evt_abc123" }
@@ -148,7 +173,7 @@ Response:
 ### `get_player_snapshot`
 Request:
 ```json
-{ "player_id": "u_123" }
+{ "player_id": "018f0000-0000-7000-8000-000000000123" }
 ```
 Response:
 ```json
@@ -159,7 +184,7 @@ Response:
 Request:
 ```json
 {
-  "requester_id": "u_123",
+  "requester_id": "018f0000-0000-7000-8000-000000000123",
   "filter_name": "GLOBAL",
   "limit": 25
 }
@@ -172,7 +197,7 @@ Response:
     "filter": "GLOBAL",
     "rows": [],
     "local_context": {},
-    "local_player_id": "u_123",
+    "local_player_id": "018f0000-0000-7000-8000-000000000123",
     "player": {}
   }
 }
@@ -182,7 +207,7 @@ Response:
 Request:
 ```json
 {
-  "requester_id": "u_123",
+  "requester_id": "018f0000-0000-7000-8000-000000000123",
   "filter_name": "GLOBAL",
   "limit": 25
 }
@@ -196,9 +221,9 @@ Response:
 Request:
 ```json
 {
-  "requester_id": "u_123",
+  "requester_id": "018f0000-0000-7000-8000-000000000123",
   "queue_entries": [
-    { "player_id": "u_456", "wait_seconds": 14.2 }
+    { "player_id": "018f0000-0000-7000-8000-000000000456", "wait_seconds": 14.2 }
   ]
 }
 ```
@@ -208,7 +233,7 @@ Response:
   "ok": true,
   "rows": [
     {
-      "player_id": "u_456",
+      "player_id": "018f0000-0000-7000-8000-000000000456",
       "display_name": "Player 456",
       "wax_score": 104.0,
       "wax_delta": 4.0,
@@ -253,7 +278,96 @@ For progression writes (`record_match_result`), include:
 - `GET /health/details`
 - `GET /v1/admin/players/:playerId`
 - `GET /v1/admin/tier-counts`
-- `GET /v1/admin/audit?limit=50&player_id=u_...&event_type=rank_state_changed`
+- `GET /v1/admin/audit?limit=50&player_id=018f0000-0000-7000-8000-000000000123&event_type=rank_state_changed`
 - `POST /v1/admin/recompute`
 
 All admin endpoints use the same bearer-token gate as the rank action route when `RANK_API_TOKEN` is configured.
+
+## Database Migration
+
+Run migrations before pointing a beta build at the service:
+```bash
+cd tools/rank-service
+DATABASE_URL="$DATABASE_URL" npm run migrate
+```
+
+Identity requirements enforced by migrations:
+- `rank_players.id UUID PRIMARY KEY`
+- `rank_players.entap_id TEXT NOT NULL UNIQUE`
+- `rank_players.call_sign TEXT NOT NULL`
+- `chk_rank_players_entap_id_format`
+- `uq_rank_players_call_sign_lower`
+- `rank_entap_id_seq`
+- `rank_uuid_v7()`
+- `rank_entap_id_from_sequence(seq bigint)`
+
+ENTaP IDs are allocated inside the account insert transaction with:
+```sql
+rank_entap_id_from_sequence(nextval('rank_entap_id_seq'))
+```
+
+Sequence gaps are acceptable. Duplicate ENTaP IDs are not acceptable and remain guarded by `UNIQUE(entap_id)`.
+
+## Environment Variables
+
+Service:
+- `DATABASE_URL`: required Postgres connection string.
+- `PORT`: Render supplies this automatically.
+- `BIND_HOST`: use `0.0.0.0` on Render.
+- `RANK_API_TOKEN`: optional bearer token. Set for staging/prod.
+- `RANK_ENFORCE_CANONICAL_PLAYER_IDS`: keep `true`.
+- `RANK_ENABLE_DEBUG_ACTIONS`: keep `false` for beta/staging/prod unless explicitly testing.
+- `RANK_DEFAULT_REGION`: default `GLOBAL`.
+
+Client:
+- `SF_RANK_BACKEND_URL`: preferred runtime override for dev/staging.
+- `SF_RANK_BACKEND_TOKEN`: bearer token matching `RANK_API_TOKEN`.
+- `swarmfront/rank/backend_url`: project/export setting fallback.
+- `swarmfront/rank/backend_token`: project/export setting fallback.
+- `swarmfront/rank/backend_timeout_sec`: request timeout.
+
+Recommended URLs:
+- Dev: `SF_RANK_BACKEND_URL=http://127.0.0.1:8790/v1/rank`
+- Staging: `SF_RANK_BACKEND_URL=https://YOUR-RANK-STAGING.onrender.com/v1/rank`
+- Production: `SF_RANK_BACKEND_URL=https://YOUR-RANK-PROD.onrender.com/v1/rank`
+
+## Render Deployment
+
+Create a separate Render Web Service for `tools/rank-service`; do not reuse the VS backend.
+
+Suggested settings:
+- Root directory: `tools/rank-service`
+- Runtime: Node
+- Build command: `npm ci && npm run build`
+- Start command: `npm run start`
+- Health check path: `/health`
+- Environment:
+  - `DATABASE_URL`
+  - `BIND_HOST=0.0.0.0`
+  - `RANK_API_TOKEN=<staging-or-prod-secret>`
+  - `RANK_ENFORCE_CANONICAL_PLAYER_IDS=true`
+  - `RANK_ENABLE_DEBUG_ACTIONS=false`
+
+After first deploy, run migrations from a trusted shell:
+```bash
+cd tools/rank-service
+DATABASE_URL="postgres://..." npm run migrate
+```
+
+## Staging Smoke
+
+One clean staging smoke command:
+```bash
+cd tools/rank-service
+RANK_SMOKE_BASE_URL="https://YOUR-RANK-STAGING.onrender.com/v1/rank" \
+RANK_SMOKE_TOKEN="$RANK_API_TOKEN" \
+npm run smoke:identity
+```
+
+The smoke verifies:
+- service health
+- account creation
+- UUIDv7 `id`
+- `AAA 000` ENTaP ID format
+- duplicate call sign returns `call_sign_not_unique`
+- rapid account creations do not share an ENTaP ID

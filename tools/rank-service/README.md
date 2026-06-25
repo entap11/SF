@@ -1,14 +1,15 @@
-# Swarmfront Rank Service
+# ENTaP Identity / Rank Service
 
-Dedicated central rank service for player ranking, tiers/colors, leaderboard queries, and matchmaking candidate selection.
+First ENTaP platform identity authority, currently hosted in the historical `tools/rank-service` package. For Swarmfront beta, the required production surface is identity creation only; rank features can remain dormant.
 
 ## Why this exists
 
-This service is separate from analytics and is the authority for rank state. The game can point `SF_RANK_BACKEND_URL` here and stop relying on local-only rank progression.
+This service is separate from analytics and the VS backend. The game points `SF_RANK_BACKEND_URL` here so account creation can receive server-assigned UUIDv7 internal IDs and public ENTaP IDs.
 
 ## API shape
 
-- Route shape: `POST /v1/rank/<action>`
+- Beta identity route: `POST /v1/rank/register_player`
+- General route shape: `POST /v1/rank/<action>`
 - Matches `/Users/home/SideProjects/SF/project/docs/rank_backend_contract.md`
 - Responses use `{ "ok": true, ... }` / `{ "ok": false, "err": "..." }`
 
@@ -42,9 +43,20 @@ If your Postgres is not on the default local URL, set it before launch:
 RANK_DATABASE_URL=postgres://user:pass@host:5432/swarmfront_rank ./tools/run_with_rank_service.sh
 ```
 
-## Beta hardening defaults
+Identity-only smoke against a real Postgres URL:
 
-- Canonical rank IDs enforced by default: `u_<12 hex chars>` for players, `bot_<6 digits>` for bot seats.
+```bash
+RANK_DATABASE_URL=postgres://user:pass@host:5432/swarmfront_rank ./tools/run_rank_identity_smoke.sh
+```
+
+## Beta identity contract
+
+- Client sends `call_sign`, `region`, and optional `install_metadata`.
+- Client does not send an authoritative account ID during beta account creation.
+- Service assigns UUIDv7 `id`.
+- Service assigns sequential public `entap_id` using `rank_entap_id_seq`.
+- Duplicate call signs return `409` with `err=call_sign_not_unique`.
+- Canonical rank IDs are UUIDv7 for human players and `bot_<6 digits>` for bot seats.
 - Debug rank mutation endpoints are disabled by default.
 - Admin/ops routes are available under `/v1/admin/*` and use the same bearer token gate as gameplay routes when `RANK_API_TOKEN` is set.
 
@@ -56,6 +68,27 @@ Set environment (or project setting) so rank transport points to this service:
 SF_RANK_BACKEND_URL=http://127.0.0.1:8790/v1/rank
 # optional if set on service
 SF_RANK_BACKEND_TOKEN=<same-as-RANK_API_TOKEN>
+```
+
+For staging/production beta builds, configure the deployed Render URL instead of the local URL.
+
+## Render staging deployment
+
+The repo root includes `render.yaml` for a separate staging web service and Postgres database:
+
+- Web service: `entap-identity-rank-staging`
+- Database: `entap-identity-rank-staging-db`
+- Root directory: `tools/rank-service`
+- Build command: `npm ci && npm run build`
+- Start command: `npm run start`
+- Health check: `/health`
+
+After deployment, set a real `RANK_API_TOKEN`, run migrations if needed, then smoke:
+
+```bash
+RANK_SMOKE_BASE_URL=https://YOUR-RANK-STAGING.onrender.com/v1/rank \
+RANK_SMOKE_TOKEN=$RANK_API_TOKEN \
+npm run smoke:identity
 ```
 
 ## Persistence

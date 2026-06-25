@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Pool, PoolClient } from "pg";
-import { normalizeLoadedState, normalizePlayerRecord } from "./logic.js";
+import { entapIdFromSequence, normalizeCallSign, normalizeLoadedState, normalizePlayerRecord } from "./logic.js";
 import { runMigrations } from "./db/migrate.js";
 import type { PlayerRecord, RankAuditEvent, RankAuditEventInput, RankState, RankWriteContext } from "./types.js";
 
@@ -8,8 +8,9 @@ const META_LOCAL_PLAYER_ID = "local_player_id";
 const WRITE_LOCK_KEY = 934_771_112;
 
 interface PlayerRow {
-  player_id: string;
-  display_name: string;
+  id: string;
+  entap_id: string;
+  call_sign: string;
   region: string;
   wax_score: number | string;
   last_active_unix: number | string;
@@ -21,6 +22,13 @@ interface PlayerRow {
   promotion_history: unknown;
   friends: unknown;
   apex_active: boolean;
+}
+
+interface RegisterIdentityInput {
+  callSign: string;
+  region: string;
+  friends: string[];
+  installMetadata?: Record<string, unknown>;
 }
 
 interface ProcessedEventRow {
@@ -199,8 +207,9 @@ export class RankStore {
 
     const players = await client.query<PlayerRow>(`
       SELECT
-        player_id,
-        display_name,
+        id::text AS id,
+        entap_id,
+        call_sign,
         region,
         wax_score,
         last_active_unix,
@@ -215,9 +224,12 @@ export class RankStore {
       FROM rank_players
     `);
     for (const row of players.rows) {
-      state.players_by_id[row.player_id] = normalizePlayerRecord(row.player_id, {
-        player_id: row.player_id,
-        display_name: row.display_name,
+      state.players_by_id[row.id] = normalizePlayerRecord(row.id, {
+        id: row.id,
+        entap_id: row.entap_id,
+        call_sign: row.call_sign,
+        player_id: row.id,
+        display_name: row.call_sign,
         region: row.region,
         wax_score: this.toNumber(row.wax_score),
         last_active_unix: this.toNumber(row.last_active_unix),
@@ -250,6 +262,9 @@ export class RankStore {
     }
     return (
       a.player_id === b.player_id &&
+      a.id === b.id &&
+      a.entap_id === b.entap_id &&
+      a.call_sign === b.call_sign &&
       a.display_name === b.display_name &&
       a.region === b.region &&
       a.wax_score === b.wax_score &&
@@ -287,7 +302,7 @@ export class RankStore {
     const nextPlayerSet = new Set(nextPlayerIds);
     const deletedPlayerIds = beforePlayerIds.filter((id) => !nextPlayerSet.has(id));
     if (deletedPlayerIds.length > 0) {
-      await client.query("DELETE FROM rank_players WHERE player_id = ANY($1::text[])", [deletedPlayerIds]);
+      await client.query("DELETE FROM rank_players WHERE id = ANY($1::uuid[])", [deletedPlayerIds]);
     }
 
     for (const playerId of nextPlayerIds) {
@@ -299,8 +314,9 @@ export class RankStore {
       await client.query(
         `
           INSERT INTO rank_players (
-            player_id,
-            display_name,
+            id,
+            entap_id,
+            call_sign,
             region,
             wax_score,
             last_active_unix,
@@ -315,11 +331,12 @@ export class RankStore {
             updated_at
           )
           VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, now()
+            $1::uuid, COALESCE(NULLIF($2, ''), rank_entap_id_from_sequence(nextval('rank_entap_id_seq'))), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, now()
           )
-          ON CONFLICT (player_id)
+          ON CONFLICT (id)
           DO UPDATE SET
-            display_name = EXCLUDED.display_name,
+            entap_id = EXCLUDED.entap_id,
+            call_sign = EXCLUDED.call_sign,
             region = EXCLUDED.region,
             wax_score = EXCLUDED.wax_score,
             last_active_unix = EXCLUDED.last_active_unix,
@@ -334,8 +351,9 @@ export class RankStore {
             updated_at = now()
         `,
         [
-          nextRecord.player_id,
-          nextRecord.display_name,
+          nextRecord.id || nextRecord.player_id,
+          nextRecord.entap_id,
+          normalizeCallSign(nextRecord.call_sign || nextRecord.display_name, `Player_${String(nextRecord.entap_id || "AAA 000").replace(" ", "_")}`),
           nextRecord.region,
           nextRecord.wax_score,
           Math.trunc(nextRecord.last_active_unix),
@@ -426,6 +444,145 @@ export class RankStore {
         player_count: Math.max(0, Math.trunc(this.toNumber(row.player_count)))
       }));
     });
+  }
+
+  async allocateEntapId(): Promise<string> {
+    return this.withClient(async (client) => {
+      const result = await client.query<{ sequence: string }>("SELECT nextval('rank_entap_id_seq')::text AS sequence");
+      return entapIdFromSequence(this.toNumber(result.rows[0]?.sequence));
+    });
+  }
+
+  async registerPlayerIdentity(input: RegisterIdentityInput): Promise<{ ok: boolean; err?: string; player?: PlayerRecord }> {
+    const callSign = normalizeCallSign(input.callSign, "");
+    if (!callSign) {
+      return { ok: false, err: "invalid_call_sign" };
+    }
+    const region = String(input.region || "").trim().toUpperCase() || "GLOBAL";
+    const friends = Array.isArray(input.friends) ? input.friends : [];
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<PlayerRow>(
+        `
+          WITH identity AS (
+            SELECT
+              rank_uuid_v7() AS id,
+              rank_entap_id_from_sequence(nextval('rank_entap_id_seq')) AS entap_id
+          )
+          INSERT INTO rank_players (
+            id,
+            entap_id,
+            call_sign,
+            region,
+            wax_score,
+            last_active_unix,
+            last_decay_day,
+            tier_id,
+            color_id,
+            rank_position,
+            percentile,
+            promotion_history,
+            friends,
+            apex_active,
+            updated_at
+          )
+          SELECT
+            identity.id,
+            identity.entap_id,
+            $1,
+            $2,
+            100.0,
+            floor(extract(epoch from now()))::bigint,
+            -1,
+            'DRONE',
+            'GREEN',
+            0,
+            0,
+            '{"DRONE": true}'::jsonb,
+            $3::jsonb,
+            false,
+            now()
+          FROM identity
+          RETURNING
+            id::text AS id,
+            entap_id,
+            call_sign,
+            region,
+            wax_score,
+            last_active_unix,
+            last_decay_day,
+            tier_id,
+            color_id,
+            rank_position,
+            percentile,
+            promotion_history,
+            friends,
+            apex_active
+        `,
+        [callSign, region, JSON.stringify(friends)]
+      );
+      const row = result.rows[0];
+      await client.query(
+        `
+          INSERT INTO rank_audit_events (event_type, player_id, related_player_id, payload)
+          VALUES ($1, $2, '', $3::jsonb)
+        `,
+        [
+          "player_registered",
+          row.id,
+          JSON.stringify({
+            id: row.id,
+            entap_id: row.entap_id,
+            call_sign: row.call_sign,
+            region: row.region,
+            source: "identity_register",
+            install_metadata: this.toRecord(input.installMetadata)
+          })
+        ]
+      );
+      await client.query("COMMIT");
+      return {
+        ok: true,
+        player: normalizePlayerRecord(row.id, {
+          id: row.id,
+          entap_id: row.entap_id,
+          call_sign: row.call_sign,
+          player_id: row.id,
+          display_name: row.call_sign,
+          region: row.region,
+          wax_score: this.toNumber(row.wax_score),
+          last_active_unix: this.toNumber(row.last_active_unix),
+          last_decay_day: Math.trunc(this.toNumber(row.last_decay_day, -1)),
+          tier_id: row.tier_id,
+          color_id: row.color_id,
+          rank_position: Math.trunc(this.toNumber(row.rank_position)),
+          percentile: this.toNumber(row.percentile),
+          promotion_history: row.promotion_history as Record<string, boolean>,
+          friends: row.friends as string[],
+          apex_active: Boolean(row.apex_active)
+        })
+      };
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore rollback errors
+      }
+      const pgError = error as { code?: string; constraint?: string; detail?: string };
+      if (pgError.code === "23505") {
+        const constraint = String(pgError.constraint ?? "");
+        if (constraint.includes("call_sign") || String(pgError.detail ?? "").toLowerCase().includes("call_sign")) {
+          return { ok: false, err: "call_sign_not_unique" };
+        }
+        if (constraint.includes("entap_id") || String(pgError.detail ?? "").toLowerCase().includes("entap_id")) {
+          return { ok: false, err: "entap_id_collision" };
+        }
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async readAuditTrail(limit: number, playerId = "", eventType = ""): Promise<RankAuditEvent[]> {

@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { randomBytes } from "node:crypto";
 import type {
   MatchCandidateRow,
   MatchQueueEntry,
@@ -11,6 +12,9 @@ const DAY_SECONDS = 86_400;
 const DEFAULT_TIER = "DRONE";
 const DEFAULT_COLOR = "GREEN";
 const APEX_TIERS = new Set(["EXECUTIONER_WASP", "SCORPION_WASP", "COW_KILLER"]);
+const UUID_V7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ENTAP_ID_RE = /^[A-Z]{3} [0-9]{3}$/;
+const CALL_SIGN_RE = /^[A-Za-z0-9_]{3,16}$/;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -38,6 +42,55 @@ function normalizeRegion(value: string): string {
 function normalizeDisplayName(displayName: string, playerId: string): string {
   const clean = displayName.trim();
   return clean === "" ? playerId : clean;
+}
+
+export function generateUuidV7(): string {
+  const unixMs = BigInt(Date.now());
+  const bytes = randomBytes(16);
+  bytes[0] = Number((unixMs >> 40n) & 0xffn);
+  bytes[1] = Number((unixMs >> 32n) & 0xffn);
+  bytes[2] = Number((unixMs >> 24n) & 0xffn);
+  bytes[3] = Number((unixMs >> 16n) & 0xffn);
+  bytes[4] = Number((unixMs >> 8n) & 0xffn);
+  bytes[5] = Number(unixMs & 0xffn);
+  bytes[6] = (bytes[6] & 0x0f) | 0x70;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export function isUuidV7(value: string): boolean {
+  return UUID_V7_RE.test(value.trim());
+}
+
+export function entapIdFromSequence(sequence: number): string {
+  const safeSequence = Math.max(0, Math.min((26 * 26 * 26 * 1000) - 1, Math.trunc(sequence)));
+  const letters = Math.floor(safeSequence / 1000);
+  const digits = safeSequence % 1000;
+  const a = Math.floor(letters / (26 * 26));
+  const b = Math.floor(letters / 26) % 26;
+  const c = letters % 26;
+  return `${String.fromCharCode(65 + a)}${String.fromCharCode(65 + b)}${String.fromCharCode(65 + c)} ${String(digits).padStart(3, "0")}`;
+}
+
+export function isEntapId(value: string): boolean {
+  return ENTAP_ID_RE.test(value.trim().toUpperCase());
+}
+
+export function normalizeCallSign(value: string, fallback: string): string {
+  const clean = value.trim();
+  if (CALL_SIGN_RE.test(clean)) {
+    return clean;
+  }
+  const fallbackClean = fallback.trim().replace(/[^A-Za-z0-9_]/g, "_").slice(0, 16);
+  if (CALL_SIGN_RE.test(fallbackClean)) {
+    return fallbackClean;
+  }
+  return "Player_000";
+}
+
+export function isCallSign(value: string): boolean {
+  return CALL_SIGN_RE.test(value.trim());
 }
 
 function normalizeHistory(raw: unknown, currentTier: string): Record<string, boolean> {
@@ -213,11 +266,17 @@ function normalizePlayerHistoryForTier(raw: unknown, tierId: string): Record<str
 }
 
 export function normalizePlayerRecord(playerId: string, rawRecord: Partial<PlayerRecord>, unixNow: number = nowUnix()): PlayerRecord {
-  const safePlayerId = normalizeId(playerId);
+  const rawId = normalizeId(String(rawRecord.id ?? playerId));
+  const safePlayerId = isUuidV7(rawId) ? rawId.toLowerCase() : normalizeId(playerId);
   const tierId = normalizeTier(String(rawRecord.tier_id ?? DEFAULT_TIER));
+  const entapId = isEntapId(String(rawRecord.entap_id ?? "")) ? String(rawRecord.entap_id).trim().toUpperCase() : "AAA 000";
+  const callSign = normalizeCallSign(String(rawRecord.call_sign ?? rawRecord.display_name ?? ""), `Player_${entapId.replace(" ", "_")}`);
   return {
+    id: safePlayerId,
+    entap_id: entapId,
+    call_sign: callSign,
     player_id: safePlayerId,
-    display_name: normalizeDisplayName(String(rawRecord.display_name ?? ""), safePlayerId),
+    display_name: normalizeDisplayName(callSign, safePlayerId),
     region: normalizeRegion(String(rawRecord.region ?? "")),
     wax_score: Math.max(config.rank.waxFloor, Number(rawRecord.wax_score ?? config.rank.baseGain)),
     last_active_unix: Math.max(0, Number(rawRecord.last_active_unix ?? unixNow)),
@@ -232,11 +291,23 @@ export function normalizePlayerRecord(playerId: string, rawRecord: Partial<Playe
   };
 }
 
-export function newPlayerRecord(playerId: string, displayName: string, region: string, unixNow: number, friends: string[]): PlayerRecord {
-  const safePlayerId = normalizeId(playerId);
+export function newPlayerRecord(
+  playerId: string,
+  displayName: string,
+  region: string,
+  unixNow: number,
+  friends: string[],
+  entapId = "AAA 000"
+): PlayerRecord {
+  const safePlayerId = isUuidV7(playerId) ? normalizeId(playerId).toLowerCase() : generateUuidV7();
+  const safeEntapId = isEntapId(entapId) ? entapId.trim().toUpperCase() : "AAA 000";
+  const callSign = normalizeCallSign(displayName, `Player_${safeEntapId.replace(" ", "_")}`);
   return {
+    id: safePlayerId,
+    entap_id: safeEntapId,
+    call_sign: callSign,
     player_id: safePlayerId,
-    display_name: normalizeDisplayName(displayName, safePlayerId),
+    display_name: normalizeDisplayName(callSign, safePlayerId),
     region: normalizeRegion(region),
     wax_score: Math.max(config.rank.waxFloor, config.rank.baseGain),
     last_active_unix: unixNow,
@@ -272,7 +343,8 @@ export function ensurePlayerExists(state: RankState, playerId: string, displayNa
     return;
   }
   const unixNow = nowUnix();
-  state.players_by_id[cleanId] = newPlayerRecord(cleanId, displayName || cleanId, config.rank.defaultRegion, unixNow, []);
+  const entapId = entapIdFromSequence(Object.keys(state.players_by_id).length);
+  state.players_by_id[cleanId] = newPlayerRecord(cleanId, displayName || `Player_${entapId.replace(" ", "_")}`, config.rank.defaultRegion, unixNow, [], entapId);
 }
 
 export function computeGain(_playerWax: number, _opponentWax: number, modeName: string, moneyTier = 0): number {
@@ -765,8 +837,11 @@ export function buildLeaderboardView(
     rows.push({
       rank_filtered: i + 1,
       rank_global: Number(record.rank_position ?? i + 1),
+      id: playerId,
       player_id: playerId,
-      display_name: String(record.display_name ?? playerId),
+      entap_id: record.entap_id,
+      call_sign: record.call_sign,
+      display_name: String(record.call_sign ?? record.display_name ?? playerId),
       region: String(record.region ?? config.rank.defaultRegion),
       wax_score: Number(record.wax_score ?? 0),
       tier_id: String(record.tier_id ?? DEFAULT_TIER),
@@ -881,8 +956,11 @@ export function findMatchCandidates(state: RankState, requesterId: string, queue
     score -= waxDelta;
 
     rows.push({
+      id: candidateId,
       player_id: candidateId,
-      display_name: String(candidate.display_name ?? candidateId),
+      entap_id: candidate.entap_id,
+      call_sign: candidate.call_sign,
+      display_name: String(candidate.call_sign ?? candidate.display_name ?? candidateId),
       wax_score: candidateWax,
       wax_delta: waxDelta,
       tier_id: candidateTier,
@@ -918,8 +996,11 @@ export function playerSnapshot(record: PlayerRecord | undefined): Record<string,
     return {};
   }
   return {
+    id: record.id,
+    entap_id: record.entap_id,
+    call_sign: record.call_sign,
     player_id: record.player_id,
-    display_name: record.display_name,
+    display_name: record.call_sign,
     region: record.region,
     wax_score: record.wax_score,
     last_active_unix: record.last_active_unix,

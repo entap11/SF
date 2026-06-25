@@ -8,6 +8,9 @@ import {
   computeGain,
   computeLoss,
   ensurePlayerExists,
+  generateUuidV7,
+  isCallSign,
+  isUuidV7,
   findMatchCandidates,
   newPlayerRecord,
   normalizedColorQuintiles,
@@ -24,7 +27,6 @@ import {
 import { RankStore } from "./store.js";
 import type { MatchQueueEntry, PlayerRecord, RankState } from "./types.js";
 
-const CANONICAL_HUMAN_PLAYER_ID = /^u_[0-9a-f]{12}$/i;
 const BOT_PLAYER_ID = /^bot_[0-9]{6}$/;
 const PROCESS_START_UNIX = nowUnix();
 
@@ -73,7 +75,7 @@ function redactDatabaseUrl(rawUrl: string): string {
 }
 
 function isCanonicalHumanPlayerId(value: string): boolean {
-  return CANONICAL_HUMAN_PLAYER_ID.test(value.trim());
+  return isUuidV7(value);
 }
 
 function isRankParticipantId(value: string): boolean {
@@ -89,7 +91,7 @@ function requireCanonicalHumanPlayerId(res: Response, playerId: string, field: s
   if (!config.enforceCanonicalPlayerIds || isCanonicalHumanPlayerId(playerId)) {
     return true;
   }
-  invalidRequest(res, "invalid_player_id", { field, expected: "u_<12 hex chars>" });
+  invalidRequest(res, "invalid_player_id", { field, expected: "UUIDv7" });
   return false;
 }
 
@@ -97,7 +99,7 @@ function requireRankParticipantId(res: Response, playerId: string, field: string
   if (!config.enforceCanonicalPlayerIds || isRankParticipantId(playerId)) {
     return true;
   }
-  invalidRequest(res, "invalid_player_id", { field, expected: "u_<12 hex chars> or bot_<6 digits>" });
+  invalidRequest(res, "invalid_player_id", { field, expected: "UUIDv7 or bot_<6 digits>" });
   return false;
 }
 
@@ -422,16 +424,13 @@ async function main(): Promise<void> {
               return;
             }
             const result = await store.write((state, context) => {
-              const ensured = ensureLocalPlayer(state, requestedLocalId);
-              if (ensured.created) {
-                recomputeRankings(state);
+              const requestedExisting = state.players_by_id[requestedLocalId];
+              if (requestedExisting) {
+                state.local_player_id = requestedLocalId;
                 context.recordAuditEvent({
-                  event_type: "player_registered",
+                  event_type: "player_snapshot_requested",
                   player_id: requestedLocalId,
-                  payload: {
-                    source: "get_snapshot",
-                    auto_created: true
-                  }
+                  payload: { source: "get_snapshot" }
                 });
               }
               return {
@@ -448,62 +447,28 @@ async function main(): Promise<void> {
         }
 
         case "register_player": {
-          const playerId = toStringValue(payload.player_id);
-          if (!playerId) {
-            res.status(400).json({ ok: false, err: "missing_player_id" });
+          const callSign = toStringValue(payload.call_sign) || toStringValue(payload.display_name);
+          if (!isCallSign(callSign)) {
+            invalidRequest(res, "invalid_call_sign", { expected: "^[A-Za-z0-9_]{3,16}$" });
             return;
           }
-          if (!requireCanonicalHumanPlayerId(res, playerId, "player_id")) {
-            return;
-          }
-          const displayName = toStringValue(payload.display_name);
           const region = toStringValue(payload.region);
           const friends = sanitizeFriends(payload.friends);
           if (!requireFriendIds(res, friends)) {
             return;
           }
-
-          const result = await store.write((state, context) => {
-            const existing = state.players_by_id[playerId];
-            if (!existing) {
-              state.players_by_id[playerId] = newPlayerRecord(playerId, displayName || playerId, region, nowUnix(), friends);
-              context.recordAuditEvent({
-                event_type: "player_registered",
-                player_id: playerId,
-                payload: {
-                  display_name: displayName || playerId,
-                  region: region || config.rank.defaultRegion
-                }
-              });
-            } else {
-              const merged = {
-                ...existing,
-                display_name: displayName || existing.display_name,
-                region: region || existing.region,
-                friends
-              };
-              state.players_by_id[playerId] = normalizePlayerRecord(playerId, merged);
-              context.recordAuditEvent({
-                event_type: "player_profile_updated",
-                player_id: playerId,
-                payload: {
-                  display_name: displayName || existing.display_name,
-                  region: region || existing.region,
-                  friend_count: friends.length
-                }
-              });
-            }
-            if (!state.local_player_id) {
-              state.local_player_id = playerId;
-            }
-            recomputeRankings(state);
-            return {
-              ok: true,
-              player: playerSnapshot(state.players_by_id[playerId]),
-              snapshot: stateSnapshot(state)
-            };
+          const installMetadata = isRecord(payload.install_metadata) ? payload.install_metadata : {};
+          const result = await store.registerPlayerIdentity({
+            callSign,
+            region,
+            friends,
+            installMetadata
           });
-          res.json(result);
+          res.status(result.ok ? 200 : result.err === "call_sign_not_unique" ? 409 : 500).json(
+            result.ok && result.player
+              ? { ok: true, player: playerSnapshot(result.player) }
+              : { ok: false, err: result.err ?? "identity_registration_failed", call_sign: callSign }
+          );
           return;
         }
 

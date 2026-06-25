@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS rank_players (
-  player_id TEXT PRIMARY KEY,
-  display_name TEXT NOT NULL,
+  id UUID PRIMARY KEY,
+  entap_id TEXT NOT NULL UNIQUE,
+  call_sign TEXT NOT NULL UNIQUE,
   region TEXT NOT NULL,
   wax_score DOUBLE PRECISION NOT NULL,
   last_active_unix BIGINT NOT NULL,
@@ -16,9 +17,11 @@ CREATE TABLE IF NOT EXISTS rank_players (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_rank_players_wax_desc ON rank_players (wax_score DESC, player_id ASC);
+CREATE INDEX IF NOT EXISTS idx_rank_players_wax_desc ON rank_players (wax_score DESC, id ASC);
 CREATE INDEX IF NOT EXISTS idx_rank_players_rank_position ON rank_players (rank_position ASC);
 CREATE INDEX IF NOT EXISTS idx_rank_players_region_rank ON rank_players (region, rank_position ASC);
+CREATE INDEX IF NOT EXISTS idx_rank_players_entap_id ON rank_players (entap_id ASC);
+CREATE INDEX IF NOT EXISTS idx_rank_players_call_sign ON rank_players (call_sign ASC);
 
 CREATE TABLE IF NOT EXISTS rank_meta (
   key TEXT PRIMARY KEY,

@@ -64,6 +64,9 @@ export interface RankServiceConfig {
 }
 
 export interface PlayerRecord {
+  id: string;
+  entap_id: string;
+  call_sign: string;
   player_id: string;
   display_name: string;
   region: string;
@@ -91,7 +94,10 @@ export interface MatchQueueEntry {
 }
 
 export interface MatchCandidateRow {
+  id: string;
   player_id: string;
+  entap_id: string;
+  call_sign: string;
   display_name: string;
   wax_score: number;
   wax_delta: number;
