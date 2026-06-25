@@ -1,10 +1,14 @@
 class_name MapRegistry
 extends RefCounted
 
+const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+
 const MAP_ROOT: String = "res://maps"
 const SKIP_DIR_TOKENS: Array[String] = ["/_legacy", "/templates"]
 const SANDBOX_ENABLED: bool = true
 const SANDBOX_ENV_VAR: String = "SF_MAP_SANDBOX"
+const WALL_MAPS_PLAYABLE: bool = false
+const WALL_MAP_SANDBOX_REASON: String = "walls_sandboxed"
 const SANDBOX_ALLOWED_MAP_IDS: Array[String] = [
 	"MAP_TEST"
 ]
@@ -423,6 +427,8 @@ static func _make_public_nomansland_sequence_alias(map_id: String, style: String
 	}
 
 static func is_map_path_allowed(path: String) -> bool:
+	if is_wall_map_sandboxed_path(path):
+		return false
 	return is_map_id_allowed(map_id_from_path(path))
 
 static func is_map_id_allowed(map_id: String) -> bool:
@@ -434,6 +440,39 @@ static func is_map_id_allowed(map_id: String) -> bool:
 			return true
 	if has_public_map_alias_for_id(normalized):
 		return true
+	return false
+
+static func is_wall_map_sandboxed_path(path: String) -> bool:
+	return not WALL_MAPS_PLAYABLE and map_has_walls_path(path)
+
+static func map_has_walls_path(path: String) -> bool:
+	var clean: String = path.strip_edges()
+	if clean.is_empty() or not FileAccess.file_exists(clean):
+		return false
+	var f: FileAccess = FileAccess.open(clean, FileAccess.READ)
+	if f == null:
+		return false
+	var raw: String = f.get_as_text()
+	if raw.strip_edges().is_empty():
+		return false
+	var json: JSON = JSON.new()
+	var err: int = json.parse(raw)
+	if err != OK or typeof(json.data) != TYPE_DICTIONARY:
+		return false
+	return map_data_has_walls(json.data as Dictionary)
+
+static func map_data_has_walls(map_data: Dictionary) -> bool:
+	if not MAP_SCHEMA._walls_from_field(map_data.get("walls", null)).is_empty():
+		return true
+	if not MAP_SCHEMA._walls_from_entities(map_data.get("entities", [])).is_empty():
+		return true
+	if not MAP_SCHEMA._walls_from_entities(map_data.get("nodes", [])).is_empty():
+		return true
+	var occluders_v: Variant = map_data.get("occluders", null)
+	if typeof(occluders_v) == TYPE_DICTIONARY:
+		var occluders: Dictionary = occluders_v as Dictionary
+		if not MAP_SCHEMA._walls_from_field(occluders.get("walls", null)).is_empty():
+			return true
 	return false
 
 static func normalize_map_id(map_id: String) -> Dictionary:

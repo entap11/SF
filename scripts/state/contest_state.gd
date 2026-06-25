@@ -21,7 +21,7 @@ const DEFAULT_STAGE_RACE_MAP_IDS := [
 	"MAP_nomansland__545__v01_top2_sides__1p",
 	"MAP_nomansland__545__v17_four_corners_only__1p",
 	"MAP_nomansland__444__v01_pinched_spine__1p",
-	"MAP_race__SBASE__1p",
+	"MAP_knifefight__SBASE__1p",
 	"MAP_nomansland__545__v01_top2_sides__1p"
 ]
 const TIMED_RACE_DEFAULT_MAP_COUNT := TIMED_GAME_MAP_COUNT_3
@@ -126,6 +126,8 @@ func load_contests() -> void:
 			contest.map_ids = _sanitize_stage_map_ids(contest.map_ids)
 			if contest.map_ids.is_empty():
 				contest.map_ids = PackedStringArray(DEFAULT_STAGE_RACE_MAP_IDS)
+			else:
+				contest.map_ids = _stage_map_ids_with_defaults(contest.map_ids)
 		if contest.name.is_empty():
 			contest.name = "%s Stage Race — $%d" % [contest.scope, contest.price]
 		contests[normalized_id] = contest
@@ -143,6 +145,15 @@ func _sanitize_stage_map_ids(map_ids: PackedStringArray) -> PackedStringArray:
 		if resolved.is_empty():
 			continue
 		out.append(map_id)
+	return out
+
+func _stage_map_ids_with_defaults(map_ids: PackedStringArray) -> PackedStringArray:
+	var out: PackedStringArray = map_ids.duplicate()
+	var fallback_ids: PackedStringArray = PackedStringArray(DEFAULT_STAGE_RACE_MAP_IDS)
+	var idx: int = 0
+	while out.size() < TIMED_GAME_MAP_COUNT_5 and not fallback_ids.is_empty():
+		out.append(fallback_ids[idx % fallback_ids.size()])
+		idx += 1
 	return out
 
 func get_contests_by_scope(scope: String) -> Array[ContestDef]:

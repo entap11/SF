@@ -58,29 +58,24 @@ func _test_map_mode_rules_are_strict() -> bool:
 	if bool(shared_3p_summary.get("ok", false)):
 		return _fail("shared non-3P map must not support 3P FFA")
 
-	var one_v_one_loaded: Dictionary = MAP_LOADER.load_map(ONE_V_ONE_ONLY_MAP_PATH)
-	if not bool(one_v_one_loaded.get("ok", false)):
-		return _fail("1v1-only map failed to load: %s" % str(one_v_one_loaded))
-	var one_v_one_data: Dictionary = one_v_one_loaded.get("data", {}) as Dictionary
-	var one_v_one_summary: Dictionary = MapModeRules.map_supports_game_mode(one_v_one_data, "1V1")
-	if not bool(one_v_one_summary.get("ok", false)):
-		return _fail("1v1-only map rejected for 1V1: %s" % str(one_v_one_summary))
-	for mode_id in ["2V2", "4P FFA", "3P FFA"]:
-		var restricted_summary: Dictionary = MapModeRules.map_supports_game_mode(one_v_one_data, mode_id)
-		if bool(restricted_summary.get("ok", false)):
-			return _fail("1v1-only map must not support %s" % mode_id)
-
-	var race_loaded: Dictionary = MAP_LOADER.load_map(RACE_ONE_V_ONE_MAP_PATH)
-	if not bool(race_loaded.get("ok", false)):
-		return _fail("Race failed to load: %s" % str(race_loaded))
-	var race_data: Dictionary = race_loaded.get("data", {}) as Dictionary
-	var race_summary: Dictionary = MapModeRules.map_supports_game_mode(race_data, "1V1")
-	if not bool(race_summary.get("ok", false)):
-		return _fail("Race rejected for 1V1: %s" % str(race_summary))
-	for mode_id in ["2V2", "4P FFA", "3P FFA"]:
-		var race_restricted_summary: Dictionary = MapModeRules.map_supports_game_mode(race_data, mode_id)
-		if bool(race_restricted_summary.get("ok", false)):
-			return _fail("Race must not support %s" % mode_id)
+	var wall_fixtures: Array[Dictionary] = [
+		{"label": "Corkscrew", "path": ONE_V_ONE_ONLY_MAP_PATH, "mode": "1V1"},
+		{"label": "Race", "path": RACE_ONE_V_ONE_MAP_PATH, "mode": "1V1"},
+		{"label": "Knife Fight 4", "path": KNIFE_FIGHT_FOUR_ONE_V_ONE_MAP_PATH, "mode": "1V1"},
+		{"label": "Laneclimb", "path": FOUR_PLAYER_ONLY_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Corridors", "path": CORRIDORS_SHARED_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Centerstrike", "path": CENTERSTRIKE_SHARED_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Centerstrike 2", "path": CENTERSTRIKE_TWO_SHARED_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Centerstrike 3", "path": CENTERSTRIKE_THREE_SHARED_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Rink Rat", "path": RINK_RAT_SHARED_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Rink Rat LR", "path": RINK_RAT_LEFT_RIGHT_SHARED_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Iron Cross", "path": IRON_CROSS_SHARED_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Swirly", "path": SWIRLY_SHARED_MAP_PATH, "mode": "4P FFA"},
+		{"label": "Tri Tip", "path": TRITIP_THREE_PLAYER_MAP_PATH, "mode": "3P FFA"}
+	]
+	for fixture in wall_fixtures:
+		if _expect_wall_map_sandboxed(str(fixture.get("path", "")), str(fixture.get("label", "")), str(fixture.get("mode", ""))):
+			return true
 
 	var knife_fight_loaded: Dictionary = MAP_LOADER.load_map(KNIFE_FIGHT_ONE_V_ONE_MAP_PATH)
 	if not bool(knife_fight_loaded.get("ok", false)):
@@ -144,30 +139,6 @@ func _test_map_mode_rules_are_strict() -> bool:
 		if bool(knife_three_close_restricted_summary.get("ok", false)):
 			return _fail("Knife Fight 3 Close must not support %s" % mode_id)
 
-	var knife_fight_four_loaded: Dictionary = MAP_LOADER.load_map(KNIFE_FIGHT_FOUR_ONE_V_ONE_MAP_PATH)
-	if not bool(knife_fight_four_loaded.get("ok", false)):
-		return _fail("Knife Fight 4 failed to load: %s" % str(knife_fight_four_loaded))
-	var knife_fight_four_data: Dictionary = knife_fight_four_loaded.get("data", {}) as Dictionary
-	var knife_fight_four_summary: Dictionary = MapModeRules.map_supports_game_mode(knife_fight_four_data, "1V1")
-	if not bool(knife_fight_four_summary.get("ok", false)):
-		return _fail("Knife Fight 4 rejected for 1V1: %s" % str(knife_fight_four_summary))
-	for mode_id in ["2V2", "4P FFA", "3P FFA"]:
-		var knife_four_restricted_summary: Dictionary = MapModeRules.map_supports_game_mode(knife_fight_four_data, mode_id)
-		if bool(knife_four_restricted_summary.get("ok", false)):
-			return _fail("Knife Fight 4 must not support %s" % mode_id)
-
-	var four_player_loaded: Dictionary = MAP_LOADER.load_map(FOUR_PLAYER_ONLY_MAP_PATH)
-	if not bool(four_player_loaded.get("ok", false)):
-		return _fail("4P-only map failed to load: %s" % str(four_player_loaded))
-	var four_player_data: Dictionary = four_player_loaded.get("data", {}) as Dictionary
-	var four_player_summary: Dictionary = MapModeRules.map_supports_game_mode(four_player_data, "4P FFA")
-	if not bool(four_player_summary.get("ok", false)):
-		return _fail("4P-only map rejected for 4P FFA: %s" % str(four_player_summary))
-	for mode_id in ["1V1", "2V2", "3P FFA"]:
-		var four_restricted_summary: Dictionary = MapModeRules.map_supports_game_mode(four_player_data, mode_id)
-		if bool(four_restricted_summary.get("ok", false)):
-			return _fail("4P-only map must not support %s" % mode_id)
-
 	var quad_fight_loaded: Dictionary = MAP_LOADER.load_map(QUAD_FIGHT_SHARED_MAP_PATH)
 	if not bool(quad_fight_loaded.get("ok", false)):
 		return _fail("Quad Fight failed to load: %s" % str(quad_fight_loaded))
@@ -216,102 +187,6 @@ func _test_map_mode_rules_are_strict() -> bool:
 	if bool(close_quarters_three_3p_summary.get("ok", false)):
 		return _fail("Close Quarters 3 must not support 3P FFA")
 
-	var corridors_loaded: Dictionary = MAP_LOADER.load_map(CORRIDORS_SHARED_MAP_PATH)
-	if not bool(corridors_loaded.get("ok", false)):
-		return _fail("Corridors failed to load: %s" % str(corridors_loaded))
-	var corridors_data: Dictionary = corridors_loaded.get("data", {}) as Dictionary
-	for mode_id in ["1V1", "2V2", "4P FFA"]:
-		var corridors_summary: Dictionary = MapModeRules.map_supports_game_mode(corridors_data, mode_id)
-		if not bool(corridors_summary.get("ok", false)):
-			return _fail("Corridors rejected for %s: %s" % [mode_id, str(corridors_summary)])
-	var corridors_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(corridors_data, "3P FFA")
-	if bool(corridors_3p_summary.get("ok", false)):
-		return _fail("Corridors must not support 3P FFA")
-
-	var centerstrike_loaded: Dictionary = MAP_LOADER.load_map(CENTERSTRIKE_SHARED_MAP_PATH)
-	if not bool(centerstrike_loaded.get("ok", false)):
-		return _fail("Centerstrike failed to load: %s" % str(centerstrike_loaded))
-	var centerstrike_data: Dictionary = centerstrike_loaded.get("data", {}) as Dictionary
-	for mode_id in ["1V1", "2V2", "4P FFA"]:
-		var centerstrike_summary: Dictionary = MapModeRules.map_supports_game_mode(centerstrike_data, mode_id)
-		if not bool(centerstrike_summary.get("ok", false)):
-			return _fail("Centerstrike rejected for %s: %s" % [mode_id, str(centerstrike_summary)])
-	var centerstrike_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(centerstrike_data, "3P FFA")
-	if bool(centerstrike_3p_summary.get("ok", false)):
-		return _fail("Centerstrike must not support 3P FFA")
-
-	var centerstrike_two_loaded: Dictionary = MAP_LOADER.load_map(CENTERSTRIKE_TWO_SHARED_MAP_PATH)
-	if not bool(centerstrike_two_loaded.get("ok", false)):
-		return _fail("Centerstrike 2 failed to load: %s" % str(centerstrike_two_loaded))
-	var centerstrike_two_data: Dictionary = centerstrike_two_loaded.get("data", {}) as Dictionary
-	for mode_id in ["1V1", "2V2", "4P FFA"]:
-		var centerstrike_two_summary: Dictionary = MapModeRules.map_supports_game_mode(centerstrike_two_data, mode_id)
-		if not bool(centerstrike_two_summary.get("ok", false)):
-			return _fail("Centerstrike 2 rejected for %s: %s" % [mode_id, str(centerstrike_two_summary)])
-	var centerstrike_two_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(centerstrike_two_data, "3P FFA")
-	if bool(centerstrike_two_3p_summary.get("ok", false)):
-		return _fail("Centerstrike 2 must not support 3P FFA")
-
-	var centerstrike_three_loaded: Dictionary = MAP_LOADER.load_map(CENTERSTRIKE_THREE_SHARED_MAP_PATH)
-	if not bool(centerstrike_three_loaded.get("ok", false)):
-		return _fail("Centerstrike 3 failed to load: %s" % str(centerstrike_three_loaded))
-	var centerstrike_three_data: Dictionary = centerstrike_three_loaded.get("data", {}) as Dictionary
-	for mode_id in ["1V1", "2V2", "4P FFA"]:
-		var centerstrike_three_summary: Dictionary = MapModeRules.map_supports_game_mode(centerstrike_three_data, mode_id)
-		if not bool(centerstrike_three_summary.get("ok", false)):
-			return _fail("Centerstrike 3 rejected for %s: %s" % [mode_id, str(centerstrike_three_summary)])
-	var centerstrike_three_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(centerstrike_three_data, "3P FFA")
-	if bool(centerstrike_three_3p_summary.get("ok", false)):
-		return _fail("Centerstrike 3 must not support 3P FFA")
-
-	var rink_rat_loaded: Dictionary = MAP_LOADER.load_map(RINK_RAT_SHARED_MAP_PATH)
-	if not bool(rink_rat_loaded.get("ok", false)):
-		return _fail("Rink Rat failed to load: %s" % str(rink_rat_loaded))
-	var rink_rat_data: Dictionary = rink_rat_loaded.get("data", {}) as Dictionary
-	for mode_id in ["1V1", "2V2", "4P FFA"]:
-		var rink_rat_summary: Dictionary = MapModeRules.map_supports_game_mode(rink_rat_data, mode_id)
-		if not bool(rink_rat_summary.get("ok", false)):
-			return _fail("Rink Rat rejected for %s: %s" % [mode_id, str(rink_rat_summary)])
-	var rink_rat_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(rink_rat_data, "3P FFA")
-	if bool(rink_rat_3p_summary.get("ok", false)):
-		return _fail("Rink Rat must not support 3P FFA")
-
-	var rink_rat_lr_loaded: Dictionary = MAP_LOADER.load_map(RINK_RAT_LEFT_RIGHT_SHARED_MAP_PATH)
-	if not bool(rink_rat_lr_loaded.get("ok", false)):
-		return _fail("Rink Rat LR failed to load: %s" % str(rink_rat_lr_loaded))
-	var rink_rat_lr_data: Dictionary = rink_rat_lr_loaded.get("data", {}) as Dictionary
-	for mode_id in ["1V1", "2V2", "4P FFA"]:
-		var rink_rat_lr_summary: Dictionary = MapModeRules.map_supports_game_mode(rink_rat_lr_data, mode_id)
-		if not bool(rink_rat_lr_summary.get("ok", false)):
-			return _fail("Rink Rat LR rejected for %s: %s" % [mode_id, str(rink_rat_lr_summary)])
-	var rink_rat_lr_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(rink_rat_lr_data, "3P FFA")
-	if bool(rink_rat_lr_3p_summary.get("ok", false)):
-		return _fail("Rink Rat LR must not support 3P FFA")
-
-	var iron_cross_loaded: Dictionary = MAP_LOADER.load_map(IRON_CROSS_SHARED_MAP_PATH)
-	if not bool(iron_cross_loaded.get("ok", false)):
-		return _fail("Iron Cross failed to load: %s" % str(iron_cross_loaded))
-	var iron_cross_data: Dictionary = iron_cross_loaded.get("data", {}) as Dictionary
-	for mode_id in ["1V1", "2V2", "4P FFA"]:
-		var iron_cross_summary: Dictionary = MapModeRules.map_supports_game_mode(iron_cross_data, mode_id)
-		if not bool(iron_cross_summary.get("ok", false)):
-			return _fail("Iron Cross rejected for %s: %s" % [mode_id, str(iron_cross_summary)])
-	var iron_cross_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(iron_cross_data, "3P FFA")
-	if bool(iron_cross_3p_summary.get("ok", false)):
-		return _fail("Iron Cross must not support 3P FFA")
-
-	var swirly_loaded: Dictionary = MAP_LOADER.load_map(SWIRLY_SHARED_MAP_PATH)
-	if not bool(swirly_loaded.get("ok", false)):
-		return _fail("Swirly failed to load: %s" % str(swirly_loaded))
-	var swirly_data: Dictionary = swirly_loaded.get("data", {}) as Dictionary
-	for mode_id in ["1V1", "2V2", "4P FFA"]:
-		var swirly_summary: Dictionary = MapModeRules.map_supports_game_mode(swirly_data, mode_id)
-		if not bool(swirly_summary.get("ok", false)):
-			return _fail("Swirly rejected for %s: %s" % [mode_id, str(swirly_summary)])
-	var swirly_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(swirly_data, "3P FFA")
-	if bool(swirly_3p_summary.get("ok", false)):
-		return _fail("Swirly must not support 3P FFA")
-
 	var delta_loaded: Dictionary = MAP_LOADER.load_map(THREE_PLAYER_MAP_PATH)
 	if not bool(delta_loaded.get("ok", false)):
 		return _fail("Delta 3P map failed to load: %s" % str(delta_loaded))
@@ -324,17 +199,6 @@ func _test_map_mode_rules_are_strict() -> bool:
 		if bool(delta_summary.get("ok", false)):
 			return _fail("Delta 3P map must not support %s" % mode_id)
 
-	var tritip_loaded: Dictionary = MAP_LOADER.load_map(TRITIP_THREE_PLAYER_MAP_PATH)
-	if not bool(tritip_loaded.get("ok", false)):
-		return _fail("Tri Tip 3P map failed to load: %s" % str(tritip_loaded))
-	var tritip_data: Dictionary = tritip_loaded.get("data", {}) as Dictionary
-	var tritip_3p_summary: Dictionary = MapModeRules.map_supports_game_mode(tritip_data, "3P FFA")
-	if not bool(tritip_3p_summary.get("ok", false)):
-		return _fail("Tri Tip 3P map rejected for 3P FFA: %s" % str(tritip_3p_summary))
-	for mode_id in ["1V1", "2V2", "4P FFA", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG"]:
-		var tritip_summary: Dictionary = MapModeRules.map_supports_game_mode(tritip_data, mode_id)
-		if bool(tritip_summary.get("ok", false)):
-			return _fail("Tri Tip 3P map must not support %s" % mode_id)
 	return false
 
 func _test_handshake_rejects_explicit_3p_map_for_non_3p_mode() -> bool:
@@ -401,6 +265,21 @@ func _validate_path_for_mode(path: String, mode_id: String) -> Dictionary:
 	summary["path"] = path
 	summary["map_id"] = MAP_REGISTRY.map_id_from_path(path)
 	return summary
+
+func _expect_wall_map_sandboxed(path: String, label: String, mode_id: String) -> bool:
+	var loaded: Dictionary = MAP_LOADER.load_map(path)
+	if not bool(loaded.get("ok", false)):
+		return _fail("%s wall map failed to load for sandbox validation: %s" % [label, str(loaded)])
+	var data: Dictionary = loaded.get("data", {}) as Dictionary
+	if not MAP_REGISTRY.map_data_has_walls(data):
+		return _fail("%s wall sandbox fixture has no walls: %s" % [label, path])
+	var summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode_id)
+	if bool(summary.get("ok", false)):
+		return _fail("%s wall map must be sandboxed for %s" % [label, mode_id])
+	var reason: String = str(summary.get("reason", ""))
+	if reason != MAP_REGISTRY.WALL_MAP_SANDBOX_REASON:
+		return _fail("%s wall map rejected for wrong reason: %s" % [label, str(summary)])
+	return false
 
 func _fail(message: String) -> bool:
 	push_error("MAP_MODE_CONTRACT_SMOKE: %s" % message)

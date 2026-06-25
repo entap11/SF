@@ -8,7 +8,7 @@ class ShellStub:
 		applied_maps.append(map_path)
 
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
-const DENOMINATIONS: Array[int] = [1, 2, 3, 5, 10, 20]
+const DENOMINATIONS: Array[int] = [1, 2, 3, 5, 10, 15, 20, 50]
 const SCOPES: Array[String] = ["WEEKLY", "MONTHLY"]
 const MAP_COUNTS: Array[int] = [3, 5]
 
