@@ -30,4 +30,4 @@ databases:
     databaseName: entap_identity_rank_staging
     user: entap_identity_rank_staging
     region: oregon
-    plan: starter
+    plan: basic-256mb
