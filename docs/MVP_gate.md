@@ -3,7 +3,29 @@
 ## Purpose
 Single low-cost gate to run before coding sessions and before TestFlight packaging.
 
-## Automated Gate (run first)
+## Release Readiness Gate
+
+Command:
+
+```bash
+scripts/dev/run_release_readiness_gate.sh
+```
+
+This runs the MVP smoke plus the fast player config matrix gate. It is the default local gate before packaging or TestFlight work.
+
+Useful variants:
+
+```bash
+scripts/dev/run_release_readiness_gate.sh --matrix-gate pr
+scripts/dev/run_release_readiness_gate.sh --matrix-gate fast --matrix-no-soak
+scripts/dev/run_release_readiness_gate.sh --matrix-gate nightly
+scripts/dev/run_release_readiness_gate.sh --include-soak-gate
+scripts/dev/run_release_readiness_gate.sh --include-tf-preflight
+```
+
+GitHub Actions wiring is available at `.github/workflows/release-readiness.yml` for a self-hosted macOS Godot runner.
+
+## MVP Smoke Only
 
 Command:
 
@@ -33,6 +55,24 @@ Current automated checks (`scripts/dev/run_mvp_smoke.sh`, shell smoke mode):
    - outcome overlay is visible
    - rematch votes trigger restart out of `ENDED`
 
+## Player Config Matrix Gate
+
+Command:
+
+```bash
+scripts/dev/run_player_config_matrix_gate.sh --gate fast
+```
+
+This validates the PvP configuration manifest, contract parity, topology boot routes, mode runtime routes, and a short deterministic soak sample.
+
+Latest reports:
+
+- `artifacts/player_config_matrix/latest.json`
+- `artifacts/player_config_matrix/boot_routes_latest.json`
+- `artifacts/player_config_matrix/soak_latest.json`
+
+See `docs/player_config_matrix.md` for matrix details and replay commands.
+
 ## Required MVP Gates (tracking list)
 
 1. `DONE` Prematch overlay + W/L by UUID visible and not duplicated.
@@ -45,7 +85,9 @@ Current automated checks (`scripts/dev/run_mvp_smoke.sh`, shell smoke mode):
 4. `PENDING` Map lane generation policy lock:
    - no explicit per-map lane lists
    - blockers only: walls, geometry obstruction, lane budget
-5. `PENDING` Perf/determinism soak threshold pass for target maps.
+5. `PARTIAL (automated)` Perf/determinism soak threshold pass for target maps:
+   - player config matrix fast soak is automated
+   - broader perf soak still runs through `scripts/dev/run_soak_gate.sh`
 
 ## Tomorrow Focus (MVP path)
 

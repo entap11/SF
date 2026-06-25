@@ -1,6 +1,6 @@
 extends SceneTree
 
-const MAP_4P_SOURCE: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
+const MAP_4P_SOURCE: String = "res://maps/_future/quadfight/MAP_quadfight__SBASE__4p.json"
 const BOOT_TIMEOUT_MS: int = 18000
 
 var _failed: bool = false

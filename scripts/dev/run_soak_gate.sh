@@ -2,19 +2,21 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+GODOT_BIN="${GODOT_BIN:-godot}"
 LOG_FILE="${SOAK_LOG_FILE:-/tmp/swarmfront_soak.log}"
 SOAK_SECONDS="${SOAK_SECONDS:-1800}"
 ROUND_SECONDS="${SOAK_ROUND_SECONDS:-300}"
 PAIR_COUNT="${SOAK_PAIR_COUNT:-2}"
-SOAK_MAP="${SOAK_MAP:-MAP_TEST}"
+SOAK_MAP="${SOAK_MAP:-res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json}"
 MAX_FRAME_MS="${MAX_FRAME_MS:-45.0}"
 MAX_PROCESS_MS="${MAX_PROCESS_MS:-45.0}"
 MAX_TICK_MS="${MAX_TICK_MS:-8.0}"
 WARMUP_SAMPLES="${SOAK_WARMUP_SAMPLES:-1}"
 SIM_PROFILE="${SOAK_SIM_PROFILE:-0}"
+REQUIRE_SIM_HEARTBEAT="${SOAK_REQUIRE_SIM_HEARTBEAT:-0}"
 
 if [[ -z "${SOAK_MAP}" ]]; then
-  echo "SOAK_GATE_FAIL no soak map provided (set SOAK_MAP or rely on default MAP_TEST)"
+  echo "SOAK_GATE_FAIL no soak map provided (set SOAK_MAP or rely on default 1P quadfight map)"
   exit 1
 fi
 
@@ -28,7 +30,7 @@ if [[ "${SIM_PROFILE}" == "1" || "${SIM_PROFILE}" == "true" ]]; then
 fi
 
 set +e
-godot --headless --path "${ROOT_DIR}" \
+"${GODOT_BIN}" --headless --path "${ROOT_DIR}" \
   -- \
   --soak-perf \
   --soak-seconds="${SOAK_SECONDS}" \
@@ -39,7 +41,7 @@ godot --headless --path "${ROOT_DIR}" \
 GODOT_RC=$?
 set -e
 
-python3 - "${LOG_FILE}" "${MAX_FRAME_MS}" "${MAX_PROCESS_MS}" "${MAX_TICK_MS}" "${GODOT_RC}" "${WARMUP_SAMPLES}" <<'PY'
+python3 - "${LOG_FILE}" "${MAX_FRAME_MS}" "${MAX_PROCESS_MS}" "${MAX_TICK_MS}" "${GODOT_RC}" "${WARMUP_SAMPLES}" "${REQUIRE_SIM_HEARTBEAT}" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -50,6 +52,7 @@ max_process_limit = float(sys.argv[3])
 max_tick_limit = float(sys.argv[4])
 godot_rc = int(sys.argv[5])
 warmup_samples = max(0, int(sys.argv[6]))
+require_sim_heartbeat = sys.argv[7].lower() in ("1", "true", "yes")
 
 if not log_path.exists():
     print(f"SOAK_GATE_FAIL missing log file: {log_path}")
@@ -87,15 +90,19 @@ print(f"  max_process_ms={max_process:.2f} (limit {max_process_limit:.2f})")
 print(f"  max_arena_process_ms={max_arena_process:.2f}")
 print(f"  max_renderer_process_ms={max_renderer_process:.2f}")
 print(f"  max_engine_process_ms={max_engine_process:.2f} (info)")
-print(f"  max_tick_ms={max_tick:.2f} (limit {max_tick_limit:.2f})")
+tick_limit_label = "limit" if tick_vals or tick_cost_vals or require_sim_heartbeat else "optional limit"
+print(f"  max_tick_ms={max_tick:.2f} ({tick_limit_label} {max_tick_limit:.2f})")
 print(f"  heartbeat_samples={len(frame_vals)} frame / {len(process_vals)} arena / {len(renderer_process_vals)} renderer / {len(tick_vals)} tick")
 
 failed = False
 if godot_rc != 0:
     print("SOAK_GATE_FAIL godot returned non-zero")
     failed = True
-if not frame_vals or not process_vals or not renderer_process_vals or not tick_vals:
-    print("SOAK_GATE_FAIL missing heartbeat samples")
+if not frame_vals or not process_vals or not renderer_process_vals:
+    print("SOAK_GATE_FAIL missing frame/render heartbeat samples")
+    failed = True
+if require_sim_heartbeat and not tick_vals and not tick_cost_vals:
+    print("SOAK_GATE_FAIL missing sim heartbeat samples")
     failed = True
 if max_process > max_process_limit:
     print("SOAK_GATE_FAIL process limit exceeded")

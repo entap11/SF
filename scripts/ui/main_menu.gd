@@ -103,6 +103,7 @@ const DASH_HEX_BASE_SIZE: Vector2 = Vector2(90.0, 64.0)
 const DASH_HEX_SIZE_SCALE: float = 1.38
 const DASH_HEX_CONTAINER_RIGHT_MARGIN: float = 8.0
 const DASH_HEX_CONTAINER_EXTRA_WIDTH: float = 16.0
+const DASH_EDGE_TAB_SIZE: Vector2 = Vector2(180.0, 360.0)
 const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 const HIVE_VIEW_MEMBER := "member"
 const HIVE_VIEW_CANDIDATE := "candidate"
@@ -1208,6 +1209,8 @@ const STORE_SKUS := [
 ]
 
 func _ready() -> void:
+	if _maybe_route_headless_shell_smoke():
+		return
 	set_process(true)
 	_load_fonts()
 	_apply_background_art_direction()
@@ -1267,6 +1270,22 @@ func _ready() -> void:
 	call_deferred("_play_mm_boot_sound")
 	call_deferred("_auto_start_home_replay")
 	call_deferred("_layout_payout_proof_button")
+
+func _maybe_route_headless_shell_smoke() -> bool:
+	for arg_any in OS.get_cmdline_user_args():
+		var arg: String = str(arg_any)
+		if arg == "--mvp-smoke" or arg == "--soak-perf":
+			call_deferred("_route_headless_shell_smoke", arg)
+			return true
+	return false
+
+func _route_headless_shell_smoke(arg: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
+	if err != OK:
+		SFLog.warn("MAIN_MENU_HEADLESS_SHELL_ROUTE_FAILED", {"arg": arg, "error_code": int(err)})
 
 func _finish_noncritical_menu_boot() -> void:
 	_ensure_dash_replay_map_view()
@@ -2660,10 +2679,12 @@ func _set_hex_buttons() -> void:
 	hive_button.queue_redraw()
 	dash_tab.text = "DASH"
 	dash_tab.font = _font_semibold
-	dash_tab.font_size = _scaled_ui_font_size(14)
+	dash_tab.font_size = _scaled_ui_font_size(22)
 	dash_tab.fill_color = Color(0.18, 0.19, 0.22)
 	dash_tab.border_color = Color(0.55, 0.56, 0.62)
 	dash_tab.text_color = Color(0.85, 0.86, 0.9)
+	if not _dash_open:
+		_apply_closed_dash_tab_size()
 	dash_tab.cut_side = HexButton.CUT_LEFT
 	dash_tab.sprite_key = DASH_TAB_KEY_RIGHT
 	dash_tab.queue_redraw()
@@ -2724,6 +2745,14 @@ func _set_hex_buttons() -> void:
 		_dash_hex_async_contest.custom_minimum_size = dash_hex_size
 		_apply_black_key_to_hex_button(_dash_hex_async_contest)
 		_dash_hex_async_contest.queue_redraw()
+
+func _apply_closed_dash_tab_size() -> void:
+	if dash_tab == null:
+		return
+	dash_tab.offset_left = -DASH_EDGE_TAB_SIZE.x
+	dash_tab.offset_right = 0.0
+	dash_tab.offset_top = -DASH_EDGE_TAB_SIZE.y * 0.5
+	dash_tab.offset_bottom = DASH_EDGE_TAB_SIZE.y * 0.5
 
 func _apply_black_key_to_hex_button(button: HexButton) -> void:
 	if button == null:

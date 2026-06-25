@@ -54,7 +54,19 @@ Implemented visibility for beta users:
    - monotonic sequence per profile for anti-duplication
 
 ## Pre-Upload Gate
-1. Run smoke tests:
+1. Run release readiness:
+
+```bash
+scripts/dev/run_release_readiness_gate.sh --matrix-gate pr --include-tf-preflight
+```
+
+For a faster local pre-check:
+
+```bash
+scripts/dev/run_release_readiness_gate.sh --matrix-gate fast
+```
+
+2. Run smoke tests not yet covered by the readiness script, as needed for the target build:
    - `res://tools/money_game_ledger_smoke_test.gd`
    - `res://tools/async_money_game_ledger_smoke_test.gd`
    - `res://tools/vs_money_game_start_smoke_test.gd`
@@ -64,6 +76,6 @@ Implemented visibility for beta users:
    - `res://tools/swarm_pass_smoke_test.gd`
    - `res://tools/rank_system_smoke_test.gd`
    - `res://tools/floor_influence_smoke_test.gd`
-2. Export iOS project from Godot.
-3. Build/archive in Xcode.
-4. Upload to TestFlight.
+3. Export iOS project from Godot.
+4. Build/archive in Xcode.
+5. Upload to TestFlight.

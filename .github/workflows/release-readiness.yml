@@ -1,0 +1,143 @@
+name: Release Readiness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      matrix_gate:
+        description: Player config matrix tier
+        required: true
+        default: fast
+        type: choice
+        options:
+          - fast
+          - pr
+          - nightly
+      matrix_seed:
+        description: Base deterministic seed
+        required: true
+        default: "123"
+      matrix_seed_runs:
+        description: Optional override for matrix soak seed runs
+        required: false
+        default: ""
+      matrix_no_soak:
+        description: Run matrix contract and boot routes only
+        required: false
+        default: false
+        type: boolean
+      include_soak_gate:
+        description: Include legacy perf soak gate
+        required: false
+        default: false
+        type: boolean
+      include_tf_preflight:
+        description: Include TestFlight machine/backend preflight
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 11 * * *"
+
+jobs:
+  release-readiness:
+    name: Release Readiness
+    runs-on: [self-hosted, macOS, godot]
+    timeout-minutes: 150
+    env:
+      GODOT_BIN: ${{ vars.GODOT_BIN || 'godot' }}
+      INPUT_MATRIX_GATE: ${{ inputs.matrix_gate || '' }}
+      INPUT_MATRIX_SEED: ${{ inputs.matrix_seed || '' }}
+      INPUT_MATRIX_SEED_RUNS: ${{ inputs.matrix_seed_runs || '' }}
+      INPUT_MATRIX_NO_SOAK: ${{ inputs.matrix_no_soak || false }}
+      INPUT_INCLUDE_SOAK_GATE: ${{ inputs.include_soak_gate || false }}
+      INPUT_INCLUDE_TF_PREFLIGHT: ${{ inputs.include_tf_preflight || false }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Godot
+        run: |
+          set -euo pipefail
+          "${GODOT_BIN}" --version
+
+      - name: Run Release Readiness
+        run: |
+          set -euo pipefail
+
+          matrix_gate="fast"
+          matrix_seed="123"
+          matrix_seed_runs=""
+          matrix_no_soak="0"
+          include_soak_gate="0"
+          include_tf_preflight="0"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            matrix_gate="nightly"
+            include_soak_gate="1"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            matrix_gate="${INPUT_MATRIX_GATE:-fast}"
+            matrix_seed="${INPUT_MATRIX_SEED:-123}"
+            matrix_seed_runs="${INPUT_MATRIX_SEED_RUNS:-}"
+            if [[ "${INPUT_MATRIX_NO_SOAK}" == "true" ]]; then
+              matrix_no_soak="1"
+            fi
+            if [[ "${INPUT_INCLUDE_SOAK_GATE}" == "true" ]]; then
+              include_soak_gate="1"
+            fi
+            if [[ "${INPUT_INCLUDE_TF_PREFLIGHT}" == "true" ]]; then
+              include_tf_preflight="1"
+            fi
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            matrix_gate="pr"
+          fi
+
+          args=(--matrix-gate "${matrix_gate}" --matrix-seed "${matrix_seed}")
+          if [[ -n "${matrix_seed_runs}" ]]; then
+            args+=(--matrix-seed-runs "${matrix_seed_runs}")
+          fi
+          if [[ "${matrix_no_soak}" == "1" ]]; then
+            args+=(--matrix-no-soak)
+          fi
+          if [[ "${include_soak_gate}" == "1" ]]; then
+            args+=(--include-soak-gate)
+          fi
+          if [[ "${include_tf_preflight}" == "1" ]]; then
+            args+=(--include-tf-preflight)
+          fi
+
+          scripts/dev/run_release_readiness_gate.sh "${args[@]}"
+
+      - name: Collect Smoke Logs
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ci_logs
+          if [[ -f /tmp/swarmfront_mvp_smoke.log ]]; then
+            cp /tmp/swarmfront_mvp_smoke.log artifacts/ci_logs/swarmfront_mvp_smoke.log
+          fi
+          if [[ -f /tmp/swarmfront_soak.log ]]; then
+            cp /tmp/swarmfront_soak.log artifacts/ci_logs/swarmfront_soak.log
+          fi
+
+      - name: Upload Matrix Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-config-matrix-${{ github.run_id }}
+          path: |
+            artifacts/player_config_matrix/**/*.json
+            artifacts/player_config_matrix/logs/*.log
+          if-no-files-found: ignore
+
+      - name: Upload Smoke Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs-${{ github.run_id }}
+          path: |
+            artifacts/ci_logs/*.log
+          if-no-files-found: ignore
