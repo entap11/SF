@@ -10,6 +10,8 @@ const BATTLE_PASS_PANEL_SCENE_PATH: String = "res://scenes/ui/BattlePassPanel.ts
 const RANK_PANEL_SCENE_PATH: String = "res://scenes/ui/RankPanel.tscn"
 const JUKEBOX_PANEL_SCENE_PATH: String = "res://scenes/ui/JukeboxPanel.tscn"
 const GARAGE_PANEL_SCENE_PATH: String = "res://scenes/ui/GaragePanel.tscn"
+const BETA_QUICK_START_PDF_PATH: String = "res://data/help/Swarmfront Quick Start Guide.pdf"
+const BETA_QUICK_START_USER_PATH: String = "user://help/Swarmfront Quick Start Guide.pdf"
 const SCHOLASTIC_PANEL_SCENE_PATH: String = "res://scenes/ui/ScholasticPanel.tscn"
 const FREE_ROLL_GAME_HUB_SCENE_PATH: String = "res://scenes/ui/FreeRollGameHub.tscn"
 const DASH_BUFFS_HERO_SCENE_PATH: String = "res://scenes/ui/DashBuffsHero.tscn"
@@ -103,6 +105,7 @@ const DASH_HEX_BASE_SIZE: Vector2 = Vector2(90.0, 64.0)
 const DASH_HEX_SIZE_SCALE: float = 1.38
 const DASH_HEX_CONTAINER_RIGHT_MARGIN: float = 8.0
 const DASH_HEX_CONTAINER_EXTRA_WIDTH: float = 16.0
+const DASH_TOP_TAB_SIZE: Vector2 = Vector2(132.0, 44.0)
 const DASH_EDGE_TAB_SIZE: Vector2 = Vector2(180.0, 360.0)
 const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 const HIVE_VIEW_MEMBER := "member"
@@ -298,6 +301,8 @@ var _dash_buffs_hero: Control = null
 var _dash_achievements_hero: Control = null
 var _dash_friends_panel: Control = null
 var _dash_friends_tab: Button = null
+var _dash_help_tab: Button = null
+var _beta_help_dialog: AcceptDialog = null
 var _dash_scholastic_panel: Panel = null
 var _dash_scholastic_tab: Button = null
 var _scholastic_cta_dialog: ConfirmationDialog = null
@@ -1218,6 +1223,7 @@ func _ready() -> void:
 	_ensure_honey_widget()
 	_style_labels()
 	_ensure_friends_tab()
+	_ensure_beta_help_tab()
 	_ensure_scholastic_dash_surface()
 	_style_buttons()
 	_apply_bottom_nav_sprite_presentation()
@@ -2462,15 +2468,16 @@ func _style_buttons() -> void:
 
 func _style_dash_top_tabs() -> void:
 	_ensure_friends_tab()
+	_ensure_beta_help_tab()
 	if dash_tabs != null:
 		dash_tabs.alignment = BoxContainer.ALIGNMENT_CENTER
 		dash_tabs.add_theme_constant_override("separation", 12)
-	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_scholastic_tab, dash_settings_tab, _dash_friends_tab]:
+	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_friends_tab, _dash_help_tab, _dash_scholastic_tab, dash_settings_tab]:
 		if button == null:
 			continue
-		button.toggle_mode = true
+		button.toggle_mode = button != _dash_help_tab
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		button.custom_minimum_size = Vector2(180.0, 44.0)
+		button.custom_minimum_size = DASH_TOP_TAB_SIZE
 		_apply_font(button, _font_semibold, 12)
 	_refresh_dash_top_tabs()
 
@@ -6833,13 +6840,31 @@ func _ensure_friends_tab() -> void:
 	button.name = "FriendsTab"
 	button.text = "FRIENDS"
 	button.toggle_mode = true
-	button.custom_minimum_size = Vector2(180.0, 44.0)
+	button.custom_minimum_size = DASH_TOP_TAB_SIZE
 	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	button.pressed.connect(func() -> void:
 		_set_dash_top_tab(DASH_HERO_TAB_FRIENDS)
 	)
 	dash_tabs.add_child(button)
 	_dash_friends_tab = button
+
+func _ensure_beta_help_tab() -> void:
+	if dash_tabs == null:
+		return
+	if _dash_help_tab != null and is_instance_valid(_dash_help_tab):
+		return
+	var button := Button.new()
+	button.name = "GuideTab"
+	button.text = "GUIDE"
+	button.toggle_mode = false
+	button.custom_minimum_size = DASH_TOP_TAB_SIZE
+	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	button.tooltip_text = "Open the beta quick start guide"
+	button.pressed.connect(_open_beta_quick_start_guide)
+	var settings_index: int = dash_settings_tab.get_index() if dash_settings_tab != null else dash_tabs.get_child_count()
+	dash_tabs.add_child(button)
+	dash_tabs.move_child(button, settings_index)
+	_dash_help_tab = button
 
 func _ensure_scholastic_dash_surface() -> void:
 	if dash_panel == null or dash_tabs == null:
@@ -6849,7 +6874,7 @@ func _ensure_scholastic_dash_surface() -> void:
 		button.name = "ScholasticTab"
 		button.text = "SFA / SFU"
 		button.toggle_mode = true
-		button.custom_minimum_size = Vector2(180.0, 44.0)
+		button.custom_minimum_size = DASH_TOP_TAB_SIZE
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		button.visible = false
 		button.pressed.connect(func() -> void:
@@ -7232,6 +7257,73 @@ func _open_vs_lobby_from_friend_response(result: Dictionary) -> void:
 	_vs_lobby.visible = true
 	status_label.text = "Friend match accepted."
 
+func _open_beta_quick_start_guide() -> void:
+	if not FileAccess.file_exists(BETA_QUICK_START_PDF_PATH):
+		status_label.text = "Quick Start guide is missing."
+		return
+	var dir := DirAccess.open("user://")
+	if dir == null:
+		status_label.text = "Could not prepare guide folder."
+		return
+	var mk_err: int = int(dir.make_dir_recursive("help"))
+	if mk_err != OK and mk_err != ERR_ALREADY_EXISTS:
+		status_label.text = "Could not prepare guide folder."
+		return
+	var bytes: PackedByteArray = FileAccess.get_file_as_bytes(BETA_QUICK_START_PDF_PATH)
+	if bytes.is_empty():
+		status_label.text = "Quick Start guide could not be read."
+		return
+	var out := FileAccess.open(BETA_QUICK_START_USER_PATH, FileAccess.WRITE)
+	if out == null:
+		status_label.text = "Quick Start guide could not be copied."
+		return
+	out.store_buffer(bytes)
+	out.close()
+	var global_path: String = ProjectSettings.globalize_path(BETA_QUICK_START_USER_PATH)
+	var open_err: int = ERR_UNAVAILABLE
+	var force_dialog: bool = OS.has_environment("SF_FORCE_GUIDE_DIALOG") and OS.get_environment("SF_FORCE_GUIDE_DIALOG") == "1"
+	if not force_dialog:
+		open_err = int(OS.shell_open(global_path))
+		if open_err != OK:
+			open_err = int(OS.shell_open(_file_uri_for_global_path(global_path)))
+	if open_err == OK:
+		status_label.text = "Quick Start guide opened."
+		return
+	_show_beta_quick_start_dialog(global_path)
+	status_label.text = "Quick Start guide opened in app."
+
+func _file_uri_for_global_path(global_path: String) -> String:
+	var normalized_path: String = global_path.replace("\\", "/")
+	var escaped_path: String = normalized_path
+	escaped_path = escaped_path.replace("%", "%25")
+	escaped_path = escaped_path.replace(" ", "%20")
+	escaped_path = escaped_path.replace("#", "%23")
+	escaped_path = escaped_path.replace("?", "%3F")
+	if escaped_path.begins_with("/"):
+		return "file://" + escaped_path
+	return "file:///" + escaped_path
+
+func _show_beta_quick_start_dialog(global_path: String) -> void:
+	if _beta_help_dialog != null and is_instance_valid(_beta_help_dialog):
+		_beta_help_dialog.popup_centered()
+		return
+	_beta_help_dialog = AcceptDialog.new()
+	_beta_help_dialog.title = "Quick Start Guide"
+	_beta_help_dialog.dialog_text = "Quick Start\n\n1. Tap PLAY, then Free Roll.\n2. Pick Stage Race for the safest first match.\n3. For friend matches, host creates the room and guest joins from Friends.\n4. In 1v1, stay on 1P maps unless you are testing a specific beta route.\n\nThe PDF is bundled, but this device could not open it in the system viewer.\nSaved copy:\n%s" % global_path
+	_beta_help_dialog.min_size = Vector2i(560, 360)
+	_beta_help_dialog.confirmed.connect(func() -> void:
+		if _beta_help_dialog != null:
+			_beta_help_dialog.queue_free()
+			_beta_help_dialog = null
+	)
+	_beta_help_dialog.close_requested.connect(func() -> void:
+		if _beta_help_dialog != null:
+			_beta_help_dialog.queue_free()
+			_beta_help_dialog = null
+	)
+	add_child(_beta_help_dialog)
+	_beta_help_dialog.popup_centered()
+
 func _set_dash_top_tab(tab_id: String, force_refresh: bool = false) -> void:
 	var normalized_tab: String = tab_id.strip_edges().to_lower()
 	if normalized_tab != DASH_HERO_TAB_BUFFS and normalized_tab != DASH_HERO_TAB_ACHIEVEMENTS and normalized_tab != DASH_HERO_TAB_FRIENDS:
@@ -7262,6 +7354,9 @@ func _refresh_dash_top_tabs() -> void:
 	if _dash_friends_tab != null:
 		_dash_friends_tab.button_pressed = active_friends
 		_apply_dash_top_tab_style(_dash_friends_tab, active_friends)
+	if _dash_help_tab != null:
+		_dash_help_tab.button_pressed = false
+		_apply_dash_top_tab_style(_dash_help_tab, false)
 	if _dash_scholastic_tab != null:
 		var active_scholastic: bool = _dash_scholastic_panel != null and _dash_scholastic_panel.visible
 		_dash_scholastic_tab.button_pressed = active_scholastic
