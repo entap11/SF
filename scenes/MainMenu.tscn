@@ -2334,7 +2334,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="OverlayPanel" type="Panel" parent="ProfileFirstRunOverlay/OverlayCenter"]
-custom_minimum_size = Vector2(560, 420)
+custom_minimum_size = Vector2(900, 700)
 layout_mode = 2
 mouse_filter = 1
 
@@ -2346,13 +2346,13 @@ layout_mode = 1
 layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 16.0
-offset_top = 16.0
-offset_right = -16.0
-offset_bottom = -16.0
+offset_left = 36.0
+offset_top = 34.0
+offset_right = -36.0
+offset_bottom = -34.0
 grow_horizontal = 2
 grow_vertical = 2
 
 [node name="OnboardingPanel" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel/OverlayVBox" instance=ExtResource("8")]
-custom_minimum_size = Vector2(520, 260)
+custom_minimum_size = Vector2(820, 560)
 layout_mode = 2
