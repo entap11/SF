@@ -45,18 +45,18 @@ size_flags_horizontal = 3
 [node name="DisplayNameInput" type="LineEdit" parent="VBox/ProfileRow"]
 layout_mode = 2
 size_flags_horizontal = 3
-placeholder_text = "Display name"
+placeholder_text = "Call sign"
 
 [node name="UserIdSection" type="VBoxContainer" parent="VBox"]
 layout_mode = 2
 
 [node name="UserIdLabel" type="Label" parent="VBox/UserIdSection"]
 layout_mode = 2
-text = "User ID"
+text = "ENTaP ID"
 
 [node name="UserIdWarningLabel" type="Label" parent="VBox/UserIdSection"]
 layout_mode = 2
-text = "UID is your identity key for stats."
+text = "Permanent public account number for support, recovery, tournaments, and exact friend lookup."
 
 [node name="UserIdCurrentRow" type="HBoxContainer" parent="VBox/UserIdSection"]
 layout_mode = 2
@@ -75,11 +75,11 @@ layout_mode = 2
 [node name="UserIdInput" type="LineEdit" parent="VBox/UserIdSection/UserIdRow"]
 layout_mode = 2
 size_flags_horizontal = 3
-placeholder_text = "u_001122aabbcc"
+placeholder_text = "AAA 000"
 
 [node name="SetUserIdButton" type="Button" parent="VBox/UserIdSection/UserIdRow"]
 layout_mode = 2
-text = "Set User ID"
+text = "Set Internal ID"
 
 [node name="UserIdStatusLabel" type="Label" parent="VBox/UserIdSection"]
 layout_mode = 2

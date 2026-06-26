@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Swarmfront"
-run/main_scene="res://scenes/Shell.tscn"
+run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.2")
 
 [autoload]
@@ -29,6 +29,7 @@ EconomyBuffState="*res://scripts/state/economy_buff_state.gd"
 ScholasticState="*res://scripts/state/scholastic_state.gd"
 RankState="*res://scripts/state/rank_state.gd"
 RankRuntimeAwards="*res://scripts/state/rank_runtime_awards.gd"
+AdManager="*res://scripts/state/ad_manager.gd"
 JukeboxRuntime="*res://scripts/state/jukebox_runtime.gd"
 AppLifecycle="*res://scripts/state/app_lifecycle_state.gd"
 VsHandshake="*res://scripts/state/vs_handshake_state.gd"
@@ -56,9 +57,11 @@ environment/defaults/default_clear_color=Color(0.168627, 0.168627, 0.168627, 1)
 
 [swarmfront]
 
-rank/backend_url=""
+rank/backend_url="https://entap-identity-rank-staging.onrender.com/v1/rank"
 rank/backend_token=""
 rank/backend_timeout_sec=2.0
+ads/fake_ads=false
+ads/show_placeholders=false
 vs/backend_url="https://sf-zr2m.onrender.com/v1"
 vs/backend_token=""
 vs/backend_timeout_sec=6.0

@@ -39,6 +39,7 @@ const ArenaInputBridgeUtils := preload("res://scripts/arena_helpers/input_bridge
 const ArenaFloorInfluenceSystem := preload("res://scripts/fx/arena_floor_influence_system.gd")
 const ArenaPolishLayerScript: Script = preload("res://scripts/renderers/arena_polish_layer.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
+const AdSurfaceScript: Script = preload("res://scripts/ui/ad_surface.gd")
 const FORCE_DISABLE_FLOOR_INFLUENCE: bool = true
 
 const GRID_W := 18
@@ -174,6 +175,8 @@ const PREMATCH_RECORDS_TOP_GAP_PX: float = 24.0
 const PREMATCH_RECORDS_FONT_SIZE: int = 17
 const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
 const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
+const PREMATCH_AD_SIZE: Vector2 = Vector2(468.0, 60.0)
+const IN_GAME_AD_SIZE: Vector2 = Vector2(320.0, 50.0)
 const PREMATCH_UI_CROSSFADE_MS: int = 350
 const PREMATCH_ORIENTATION_DURATION_MS: int = 10000
 const PREMATCH_IDENTITY_CARD_SHOW_MS: int = 5000
@@ -322,6 +325,8 @@ var _prematch_record_team_arrows: Label = null
 var _prematch_ctf_panel: Panel = null
 var _prematch_ctf_title: Label = null
 var _prematch_ctf_body: Label = null
+var _prematch_ad_surface: Control = null
+var _in_game_ad_surface: Control = null
 var _ctf_move_button: Button = null
 var _controls_hint_controller: ArenaControlsHintController = ArenaControlsHintController.new()
 var _tutorial_section1_controller: ArenaTutorialSection1Controller = ArenaTutorialSection1Controller.new()
@@ -627,6 +632,7 @@ func _ready() -> void:
 	# before the simulation is allowed to run.
 	_ensure_timer_hud()
 	_ensure_progressive_counter_hud()
+	call_deferred("_ensure_in_game_ad_surface")
 	call_deferred("_ensure_runtime_telemetry_overlay")
 	call_deferred("_ensure_pvp_debug_overlay")
 	_configure_grid_spec(grid_w, grid_h)
@@ -2253,6 +2259,7 @@ func _ensure_prematch_ui() -> void:
 	ctf_body.add_theme_font_size_override("font_size", 16)
 	ctf_body.add_theme_color_override("font_color", Color(0.94, 0.96, 0.99, 1.0))
 	_layout_capture_flag_instruction_panel(ctf_panel)
+	_ensure_prematch_ad_surface()
 	_prematch_records_panel = records
 	_prematch_record_p1 = p1
 	_prematch_record_p2 = p2
@@ -3098,6 +3105,86 @@ func _layout_capture_flag_instruction_panel(panel: Control = null) -> void:
 	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX + _prematch_records_panel_size().y + 16.0
 	target.position = Vector2((vr.size.x - width) * 0.5, panel_top)
 	target.size = Vector2(width, height)
+
+func _ensure_prematch_ad_surface() -> void:
+	if _prematch_overlay == null:
+		return
+	if _prematch_ad_surface == null or not is_instance_valid(_prematch_ad_surface):
+		var existing: Node = _prematch_overlay.get_node_or_null("PrematchHandshakeAdSurface")
+		if existing is Control:
+			_prematch_ad_surface = existing as Control
+		else:
+			var created_any: Variant = AdSurfaceScript.new()
+			if not (created_any is Control):
+				return
+			_prematch_ad_surface = created_any as Control
+			_prematch_ad_surface.name = "PrematchHandshakeAdSurface"
+			_prematch_overlay.add_child(_prematch_ad_surface)
+	if _prematch_ad_surface.has_method("configure"):
+		_prematch_ad_surface.call("configure", "prematch_handshake", "handshake", PREMATCH_AD_SIZE, false)
+	_prematch_ad_surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_prematch_ad_surface.z_as_relative = false
+	_prematch_ad_surface.z_index = 1003
+	_layout_prematch_ad_surface()
+
+func _layout_prematch_ad_surface() -> void:
+	if _prematch_ad_surface == null:
+		return
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var vr: Rect2 = vp.get_visible_rect()
+	var top_inset: float = _ui_top_inset_px()
+	var ad_size: Vector2 = Vector2(
+		minf(PREMATCH_AD_SIZE.x, maxf(300.0, vr.size.x - 32.0)),
+		PREMATCH_AD_SIZE.y
+	)
+	var records_bottom: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX + _prematch_records_panel_size().y
+	var ctf_bottom: float = records_bottom
+	if _prematch_ctf_panel != null and _prematch_ctf_panel.visible:
+		ctf_bottom = maxf(ctf_bottom, _prematch_ctf_panel.position.y + _prematch_ctf_panel.size.y)
+	_prematch_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, ctf_bottom + 14.0)
+	_prematch_ad_surface.size = ad_size
+
+func _ensure_in_game_ad_surface() -> void:
+	var hud_root: Control = _resolve_hud_root()
+	if hud_root == null:
+		return
+	if _in_game_ad_surface == null or not is_instance_valid(_in_game_ad_surface):
+		var existing: Node = hud_root.get_node_or_null("InGameHudAdSurface")
+		if existing is Control:
+			_in_game_ad_surface = existing as Control
+		else:
+			var created_any: Variant = AdSurfaceScript.new()
+			if not (created_any is Control):
+				return
+			_in_game_ad_surface = created_any as Control
+			_in_game_ad_surface.name = "InGameHudAdSurface"
+			hud_root.add_child(_in_game_ad_surface)
+	if _in_game_ad_surface.has_method("configure"):
+		_in_game_ad_surface.call("configure", "in_game_hud", "in_game", IN_GAME_AD_SIZE, false)
+	_in_game_ad_surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_in_game_ad_surface.z_as_relative = false
+	_in_game_ad_surface.z_index = 90
+	_layout_in_game_ad_surface()
+
+func _layout_in_game_ad_surface() -> void:
+	if _in_game_ad_surface == null:
+		return
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var vr: Rect2 = vp.get_visible_rect()
+	var ad_size: Vector2 = Vector2(
+		minf(IN_GAME_AD_SIZE.x, maxf(280.0, vr.size.x - 32.0)),
+		IN_GAME_AD_SIZE.y
+	)
+	var bottom_inset: float = 16.0
+	var bottom_buffer: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as Control
+	if bottom_buffer != null:
+		bottom_inset = maxf(bottom_inset, bottom_buffer.get_global_rect().size.y + 8.0)
+	_in_game_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, maxf(0.0, vr.size.y - bottom_inset - ad_size.y))
+	_in_game_ad_surface.size = ad_size
 
 func _prematch_records_panel_size() -> Vector2:
 	if _uses_async_prematch_card():
@@ -4654,9 +4741,11 @@ func _refresh_capture_flag_prematch_prompt() -> void:
 	var ctf_enabled: bool = OpsState != null and OpsState.has_method("is_capture_flag_mode") and bool(OpsState.call("is_capture_flag_mode"))
 	if not ctf_enabled or OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
 		_prematch_ctf_panel.visible = false
+		_layout_prematch_ad_surface()
 		return
 	_layout_capture_flag_instruction_panel(_prematch_ctf_panel)
 	_prematch_ctf_panel.visible = true
+	_layout_prematch_ad_surface()
 	var sec_left: int = maxi(0, int(ceil(_prematch_remaining_ms_f / 1000.0)))
 	var hidden_mode: bool = _hidden_capture_flag_enabled()
 	if _capture_flag_selection_pending_for_local():
@@ -6639,6 +6728,10 @@ func _on_viewport_size_changed() -> void:
 	_center_match_timer()
 	if _prematch_records_panel != null and _prematch_records_panel.visible:
 		_layout_prematch_records_panel(_prematch_records_panel)
+	if _prematch_ad_surface != null:
+		_layout_prematch_ad_surface()
+	if _in_game_ad_surface != null:
+		_layout_in_game_ad_surface()
 	if _prematch_identity_card != null and _prematch_identity_card.visible:
 		_layout_prematch_identity_card()
 	_snap_power_bar_to_map_top("viewport_resize")

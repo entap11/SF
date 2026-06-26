@@ -20,6 +20,7 @@ const P1_TEXT_COLOR := Color(0.0, 0.0, 0.0)
 const P2_TEXT_COLOR := Color(1.0, 1.0, 1.0)
 const HIVE_COLOR_LOG_LIMIT := 10
 const HIVE_FALLBACK_VISUAL_SCALE: float = 1.60
+const HIVE_FALLBACK_WIDTH_SCALE: float = 0.90
 
 @export var cell_px: float = 64.0
 @export var animations_enabled := true
@@ -598,7 +599,7 @@ func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color,
 		var resolved: Dictionary = CosmeticThemeDB.resolve_hive_sprite(owner_id, kind, power, registry)
 		tex = resolved.get("texture", null) as Texture2D
 	if tex != null:
-		var size := Vector2(visual_radius * 2.0, visual_radius * 2.0)
+		var size := Vector2(visual_radius * 2.0 * HIVE_FALLBACK_WIDTH_SCALE, visual_radius * 2.0)
 		var rect := Rect2(pos - size * 0.5, size)
 		draw_texture_rect(tex, rect, false, _fallback_sprite_tint(owner_id))
 	else:

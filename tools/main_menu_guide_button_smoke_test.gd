@@ -51,8 +51,21 @@ func _run() -> void:
 			push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: forced guide dialog did not open")
 			quit(1)
 			return
-		if not dialog.dialog_text.contains("Saved copy:"):
+		var guide_text: RichTextLabel = dialog.get_node_or_null("GuideScroll/GuideText") as RichTextLabel
+		if guide_text == null:
+			push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: guide dialog missing scrollable guide text")
+			quit(1)
+			return
+		if not guide_text.text.contains("Saved PDF copy:"):
 			push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: guide dialog missing saved-copy fallback")
+			quit(1)
+			return
+		if not guide_text.text.contains("Barracks") or not guide_text.text.contains("Towers") or not guide_text.text.contains("Super Swarms"):
+			push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: guide dialog missing full guide sections")
+			quit(1)
+			return
+		if int(guide_text.get_theme_font_size("normal_font_size")) < 32:
+			push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: guide font is too small")
 			quit(1)
 			return
 

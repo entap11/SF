@@ -68,20 +68,38 @@ func intent_register_player(
 		player_id: String,
 		display_name: String,
 		region: String = "",
-		friends: Array = []
+		friends: Array = [],
+		install_metadata: Dictionary = {},
+		authoritative_required: bool = false
 	) -> Dictionary:
-	var clean_id: String = _normalize_local_write_player_id(player_id)
-	if clean_id == "":
+	var clean_id: String = "" if authoritative_required else _normalize_local_write_player_id(player_id)
+	var call_sign: String = display_name.strip_edges()
+	if call_sign == "":
+		return {"ok": false, "reason": "missing_call_sign"}
+	if authoritative_required and not is_authoritative_transport_online():
+		return {"ok": false, "reason": "rank_backend_not_configured"}
+	if clean_id == "" and not authoritative_required:
 		return {"ok": false, "reason": "missing_player_id"}
 	var payload: Dictionary = {
-		"player_id": clean_id,
-		"display_name": display_name,
+		"call_sign": call_sign,
+		"display_name": call_sign,
 		"region": region,
 		"friends": friends
 	}
+	if not clean_id.is_empty():
+		payload["id"] = clean_id
+		payload["player_id"] = clean_id
+	if not install_metadata.is_empty():
+		payload["install_metadata"] = install_metadata
 	var transport_result := _handle_transport_write("register_player", payload)
 	if bool(transport_result.get("handled", false)):
 		return transport_result.get("result", {}) as Dictionary
+	if authoritative_required:
+		return {
+			"ok": false,
+			"reason": "rank_backend_unavailable",
+			"transport_error": true
+		}
 	var existing: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	var now_unix: int = _now_unix()
 	if existing.is_empty():
@@ -362,8 +380,11 @@ func _get_player_snapshot_local(player_id: String) -> Dictionary:
 	if record.is_empty():
 		return {}
 	return {
+		"id": clean_id,
 		"player_id": clean_id,
-		"display_name": str(record.get("display_name", clean_id)),
+		"entap_id": str(record.get("entap_id", "")),
+		"call_sign": str(record.get("call_sign", record.get("display_name", clean_id))),
+		"display_name": str(record.get("call_sign", record.get("display_name", clean_id))),
 		"region": str(record.get("region", "GLOBAL")),
 		"friends": (record.get("friends", []) as Array).duplicate(),
 		"wax_score": float(record.get("wax_score", 0.0)),
@@ -623,15 +644,18 @@ func _apply_remote_state_payload(payload: Dictionary) -> bool:
 		_players_by_id[player_id] = _normalize_player_record(player_id, record)
 	var remote_local_id: String = str(state.get("local_player_id", _local_player_id)).strip_edges()
 	var profile_user_id: String = _profile_user_id()
-	if not profile_user_id.is_empty():
-		_local_player_id = profile_user_id
-	elif not remote_local_id.is_empty():
+	if not remote_local_id.is_empty():
 		_local_player_id = remote_local_id
+		_apply_profile_identity_from_remote(_players_by_id.get(remote_local_id, {}))
+	elif not profile_user_id.is_empty():
+		_local_player_id = profile_user_id
 	_prune_smoke_fixture_players_if_present()
 	_sorted_player_ids = _percentile_calculator.sort_player_ids_desc(_players_by_id)
 	return true
 
 func _cache_remote_write_result(result: Dictionary) -> bool:
+	if result.has("player"):
+		_apply_profile_identity_from_remote(result.get("player", null))
 	if _apply_remote_state_payload(result):
 		return true
 	var changed: bool = false
@@ -645,12 +669,16 @@ func _upsert_remote_player(player_any: Variant) -> bool:
 	if typeof(player_any) != TYPE_DICTIONARY:
 		return false
 	var player: Dictionary = player_any as Dictionary
+	_apply_profile_identity_from_remote(player)
 	var player_id: String = str(player.get("player_id", "")).strip_edges()
 	if player_id.is_empty():
 		return false
 	var existing: Dictionary = _players_by_id.get(player_id, {}) as Dictionary
 	var merged: Dictionary = existing.duplicate(true)
-	merged["display_name"] = str(player.get("display_name", merged.get("display_name", player_id)))
+	merged["id"] = str(player.get("id", player_id))
+	merged["entap_id"] = str(player.get("entap_id", merged.get("entap_id", "")))
+	merged["call_sign"] = str(player.get("call_sign", player.get("display_name", merged.get("call_sign", merged.get("display_name", player_id)))))
+	merged["display_name"] = str(merged.get("call_sign", player_id))
 	merged["region"] = str(player.get("region", merged.get("region", _config.default_region)))
 	merged["wax_score"] = float(player.get("wax_score", merged.get("wax_score", _config.base_gain)))
 	merged["last_active_unix"] = int(player.get("last_active_unix", merged.get("last_active_unix", _now_unix())))
@@ -668,6 +696,14 @@ func _upsert_remote_player(player_any: Variant) -> bool:
 	merged["apex_active"] = bool(player.get("apex_active", merged.get("apex_active", false)))
 	_players_by_id[player_id] = _normalize_player_record(player_id, merged)
 	return true
+
+func _apply_profile_identity_from_remote(player_any: Variant) -> void:
+	if typeof(player_any) != TYPE_DICTIONARY:
+		return
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null or not profile_manager.has_method("apply_backend_identity"):
+		return
+	profile_manager.call("apply_backend_identity", player_any)
 
 func _load_config() -> void:
 	var loaded_any: Variant = load(CONFIG_PATH)
@@ -809,8 +845,11 @@ func _recompute_rankings(emit_events: bool) -> void:
 
 func _normalize_player_record(player_id: String, raw_record: Dictionary) -> Dictionary:
 	var record: Dictionary = raw_record.duplicate(true)
+	record["id"] = str(record.get("id", player_id)).strip_edges()
 	record["player_id"] = player_id
-	record["display_name"] = _display_name_or_default(str(record.get("display_name", "")), player_id)
+	record["entap_id"] = str(record.get("entap_id", "")).strip_edges()
+	record["call_sign"] = _display_name_or_default(str(record.get("call_sign", record.get("display_name", ""))), player_id)
+	record["display_name"] = str(record.get("call_sign", ""))
 	record["region"] = _region_or_default(str(record.get("region", "")))
 	record["wax_score"] = maxf(_config.wax_floor, float(record.get("wax_score", _config.base_gain)))
 	record["last_active_unix"] = int(record.get("last_active_unix", _now_unix()))
@@ -847,8 +886,11 @@ func _top_rows(limit: int) -> Array[Dictionary]:
 		var record: Dictionary = _players_by_id.get(player_id, {}) as Dictionary
 		rows.append({
 			"rank": int(record.get("rank_position", i + 1)),
+			"id": player_id,
 			"player_id": player_id,
-			"display_name": str(record.get("display_name", player_id)),
+			"entap_id": str(record.get("entap_id", "")),
+			"call_sign": str(record.get("call_sign", record.get("display_name", player_id))),
+			"display_name": str(record.get("call_sign", record.get("display_name", player_id))),
 			"wax_score": float(record.get("wax_score", 0.0)),
 			"tier_id": str(record.get("tier_id", "DRONE")),
 			"color_id": str(record.get("color_id", "GREEN")),

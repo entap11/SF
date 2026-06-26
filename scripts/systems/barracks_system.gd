@@ -741,8 +741,6 @@ func _tick_barracks_spawns(dt: float) -> void:
 	if state == null:
 		return
 	var unit_system: UnitSystem = state.unit_system
-	if unit_system == null:
-		return
 	var dt_ms: float = dt * 1000.0
 	for b_any in barracks:
 		if typeof(b_any) != TYPE_DICTIONARY:
@@ -760,18 +758,22 @@ func _tick_barracks_spawns(dt: float) -> void:
 			b["active"] = false
 			b["tier"] = 1
 			b["spawn_accum_ms"] = 0.0
+			_reset_barracks_route_preferences(b)
 			continue
 		var min_tier: int = _barracks_tier_for_owner(control_ids, owner_id)
 		if min_tier <= 0:
 			b["active"] = false
 			b["tier"] = 1
 			b["spawn_accum_ms"] = 0.0
+			_reset_barracks_route_preferences(b)
 			continue
 		b["active"] = true
 		b["tier"] = min_tier
 		if not was_active:
 			emit_signal("barracks_activated", barracks_id, owner_id)
 		barracks_control_ms[owner_id] = float(barracks_control_ms.get(owner_id, 0.0)) + dt_ms
+		if unit_system == null:
+			continue
 		b["spawn_accum_ms"] = float(b.get("spawn_accum_ms", 0.0)) + dt_ms
 		var interval_ms: float = _barracks_interval_ms(min_tier)
 		while float(b.get("spawn_accum_ms", 0.0)) >= interval_ms:
@@ -800,6 +802,20 @@ func _tick_barracks_spawns(dt: float) -> void:
 				"owner_id": owner_id,
 				"target_id": target_id
 			})
+
+func _reset_barracks_route_preferences(barracks_data: Dictionary) -> void:
+	var had_route: bool = false
+	for key in ["route_targets", "route_hive_ids", "preferred_targets"]:
+		var value: Variant = barracks_data.get(key, [])
+		if typeof(value) == TYPE_ARRAY and not (value as Array).is_empty():
+			had_route = true
+		barracks_data[key] = []
+	if int(barracks_data.get("route_cursor", 0)) != 0 or int(barracks_data.get("rr_index", 0)) != 0:
+		had_route = true
+	barracks_data["route_cursor"] = 0
+	barracks_data["rr_index"] = 0
+	if had_route:
+		SFLog.info("BARRACKS_ROUTE_RESET", {"id": int(barracks_data.get("id", -1))})
 
 func _barracks_interval_ms(tier: int) -> float:
 	match tier:

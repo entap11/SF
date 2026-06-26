@@ -91,11 +91,12 @@ func _refresh_options() -> void:
 	var active_index: int = 0
 	for i in range(profiles.size()):
 		var profile: Dictionary = profiles[i]
-		var handle: String = str(profile.get("handle", ""))
+		var handle: String = str(profile.get("call_sign", profile.get("handle", "")))
 		var pid: String = str(profile.get("profile_id", ""))
 		var label: String = handle
-		if pid.length() >= 4:
-			label = "%s (%s)" % [handle, pid.substr(pid.length() - 4, 4)]
+		var entap_id: String = str(profile.get("entap_id", ""))
+		if not entap_id.is_empty():
+			label = "%s (%s)" % [handle, entap_id]
 		profile_dropdown.add_item(label)
 		profile_dropdown.set_item_metadata(i, pid)
 		if pid == active_id:
@@ -116,19 +117,19 @@ func _refresh_rename_policy(message: String = "") -> void:
 		rename_policy_label.text = message
 		return
 	if not ProfileManager.has_method("get_handle_policy_snapshot"):
-		rename_policy_label.text = "Choose a handle. Letters, numbers, underscore."
+		rename_policy_label.text = "Choose a call sign. Letters, numbers, underscore."
 		return
 	var snapshot: Dictionary = ProfileManager.call("get_handle_policy_snapshot") as Dictionary
 	if not bool(snapshot.get("handle_chosen", false)):
-		rename_policy_label.text = "Choose your first handle. Letters, numbers, underscore. Founder and offensive names are reserved."
+		rename_policy_label.text = "Choose your first call sign. Letters, numbers, underscore. Founder and offensive names are reserved."
 		return
 	if bool(snapshot.get("handle_locked", false)):
-		rename_policy_label.text = "Handle changes are locked for this account."
+		rename_policy_label.text = "Call sign changes are locked for this account."
 		return
 	if bool(snapshot.get("free_change_available", false)):
-		rename_policy_label.text = "One free handle change is available. Paid renames cannot bypass reserved or prohibited names."
+		rename_policy_label.text = "One free call sign change is available. Paid renames cannot bypass reserved or prohibited names."
 		return
-	rename_policy_label.text = "Free handle changes are available once per year. Next free change: %s. Paid rename flow can unlock an earlier change." % _format_policy_date(int(snapshot.get("next_free_change_unix", 0)))
+	rename_policy_label.text = "Free call sign changes are available once per year. Next free change: %s. Paid rename flow can unlock an earlier change." % _format_policy_date(int(snapshot.get("next_free_change_unix", 0)))
 
 func _format_policy_date(unix_time: int) -> String:
 	if unix_time <= 0:
@@ -137,10 +138,10 @@ func _format_policy_date(unix_time: int) -> String:
 	return "%04d-%02d-%02d" % [int(dt.get("year", 0)), int(dt.get("month", 0)), int(dt.get("day", 0))]
 
 func _refresh_user_id() -> void:
-	var uid: String = ProfileManager.get_user_id()
-	current_user_id_label.text = "Current: %s" % uid
+	var uid: String = ProfileManager.get_entap_id() if ProfileManager.has_method("get_entap_id") else ""
+	current_user_id_label.text = "ENTaP ID: %s" % uid
 	if DEV_ALLOW_UID_EDIT:
-		user_id_input.text = uid
+		user_id_input.text = ProfileManager.get_user_id()
 	user_id_status_label.text = ""
 
 func _refresh_gpu_vfx() -> void:
@@ -282,15 +283,16 @@ func _on_set_user_id_pressed() -> void:
 	SFLog.info("UI_PROFILE_UID_SET_CLICK", {"ok": ok, "attempted": attempted})
 	if ok:
 		var uid: String = ProfileManager.get_user_id()
-		current_user_id_label.text = "Current: %s" % uid
+		current_user_id_label.text = "Internal ID: %s" % uid
 		user_id_input.text = uid
 		user_id_status_label.text = "Saved."
 	else:
-		user_id_status_label.text = "Invalid. Use u_ + 12 hex (example: u_001122aabbcc)."
+		user_id_status_label.text = "Invalid. Use UUIDv7 format."
 
 func _on_copy_user_id_pressed() -> void:
-	DisplayServer.clipboard_set(ProfileManager.get_user_id())
-	SFLog.info("PROFILE_UID_COPIED", {"user_id": ProfileManager.get_user_id()})
+	var entap_id: String = ProfileManager.get_entap_id() if ProfileManager.has_method("get_entap_id") else ""
+	DisplayServer.clipboard_set(entap_id)
+	SFLog.info("PROFILE_ENTAP_ID_COPIED", {"entap_id": entap_id})
 	user_id_status_label.text = "Copied."
 
 func _on_gpu_vfx_toggled(enabled: bool) -> void:
@@ -473,7 +475,7 @@ func _apply_readability_layout() -> void:
 			continue
 		var section_label: Label = root_vbox.get_node(section_path) as Label
 		_apply_font(section_label, _font_semibold, _scaled_int(18))
-	display_name_input.placeholder_text = "Display name"
+	display_name_input.placeholder_text = "Call sign"
 	current_user_id_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	current_user_id_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	user_id_warning_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

@@ -23,9 +23,7 @@ const PROFILE_KEY_UNLOCKED_ACHIEVEMENTS: String = "unlocked_achievements"
 const PROFILE_KEY_POWERBAR_THEME: String = "cosmetic_powerbar_theme"
 const PROFILE_KEY_GARAGE_SELECTIONS: String = "garage_selections"
 const PROFILE_KEY_SOCIAL_DESTINATIONS: String = "social_destinations"
-const USER_ID_PREFIX: String = "u_"
-const USER_ID_HEX_LEN: int = 12
-const DISPLAY_NAME_PREFIX: String = "Player "
+const DISPLAY_NAME_PREFIX: String = "Player_"
 const DISPLAY_NAME_MIN_LEN: int = 3
 const DISPLAY_NAME_MAX_LEN: int = 16
 const HANDLE_RENAME_COOLDOWN_SEC: int = 365 * 24 * 60 * 60
@@ -95,6 +93,10 @@ var _tutorial_section2_step: String = TUTORIAL_SECTION2_STEP_0_INTRO
 var _tutorial_section3_unlocked: bool = false
 var _tutorial_section3_status: String = TUTORIAL_SECTION3_STATUS_NOT_STARTED
 var _tutorial_section3_step: String = TUTORIAL_SECTION3_STEP_0_INTRO
+var _id: String = ""
+var _entap_id: String = ""
+var _call_sign: String = ""
+var _legacy_user_id: String = ""
 var _user_id: String = ""
 var _display_name: String = ""
 var _created_at_unix: int = 0
@@ -122,8 +124,6 @@ var _floor_graphics_enabled: bool = true
 var _performance_mode: String = PERFORMANCE_MODE_QUALITY
 var _admin_dashboard_username: String = DEFAULT_ADMIN_DASHBOARD_USERNAME
 var _admin_dashboard_password: String = DEFAULT_ADMIN_DASHBOARD_PASSWORD
-var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
-
 func _ready() -> void:
 	ensure_loaded()
 
@@ -131,24 +131,32 @@ func ensure_loaded() -> void:
 	if not _boot_trace_enter_logged:
 		_boot_trace_enter_logged = true
 		SFLog.info("PROFILE_BOOT_TRACE_ENTER", {
-			"user_id": _user_id,
-			"display_name": _display_name,
+			"id": _id,
+			"entap_id": _entap_id,
+			"call_sign": _call_sign,
 			"created_at_unix": _created_at_unix,
 			"has_loaded": _has_loaded
 		})
 		SFLog.info("PROFILE_USER_DATA_DIR", {"dir": OS.get_user_data_dir()})
 	if _has_loaded:
 		return
-	_rng.randomize()
 	var cfg: ConfigFile = ConfigFile.new()
 	var err: int = cfg.load(PROFILE_PATH)
 	SFLog.info("PROFILE_BOOT_TRACE_LOAD", {
 		"path": PROFILE_PATH,
 		"err": err
 	})
+	var had_existing_profile: bool = false
 	if err == OK:
+		_id = str(cfg.get_value(PROFILE_SECTION, "id", ""))
+		_entap_id = str(cfg.get_value(PROFILE_SECTION, "entap_id", ""))
+		_call_sign = str(cfg.get_value(PROFILE_SECTION, "call_sign", ""))
+		_legacy_user_id = str(cfg.get_value(PROFILE_SECTION, "legacy_user_id", cfg.get_value(PROFILE_SECTION, "user_id", "")))
 		_user_id = str(cfg.get_value(PROFILE_SECTION, "user_id", ""))
 		_display_name = str(cfg.get_value(PROFILE_SECTION, "display_name", ""))
+		if _call_sign.strip_edges().is_empty():
+			_call_sign = _display_name
+		had_existing_profile = not _id.strip_edges().is_empty() or not _user_id.strip_edges().is_empty() or not _legacy_user_id.strip_edges().is_empty()
 		_created_at_unix = int(cfg.get_value(PROFILE_SECTION, "created_at_unix", 0))
 		_onboarding_complete = bool(cfg.get_value(PROFILE_SECTION, "onboarding_complete", false))
 		_handle_chosen = bool(cfg.get_value(PROFILE_SECTION, "handle_chosen", _onboarding_complete))
@@ -198,10 +206,12 @@ func ensure_loaded() -> void:
 		_social_destinations = _sanitize_social_destinations(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_SOCIAL_DESTINATIONS, {}))
 
 	var created: bool = false
-	if _user_id.is_empty():
-		_user_id = _generate_user_id()
+	if not had_existing_profile:
+		_id = ""
+		_entap_id = ""
+		_call_sign = _default_call_sign(_entap_id)
+		_sync_identity_aliases()
 		_created_at_unix = int(Time.get_unix_time_from_system())
-		_display_name = _default_display_name(_user_id)
 		_handle_chosen = false
 		_handle_changed_at_unix = 0
 		_next_handle_change_unix = 0
@@ -240,10 +250,14 @@ func ensure_loaded() -> void:
 		_created_this_run = true
 	else:
 		_created_this_run = false
-		var cleaned_name: String = _sanitize_display_name(_display_name, _user_id)
+		var identity_updated: bool = _ensure_identity_fields()
+		var cleaned_name: String = _sanitize_display_name(_call_sign, _id)
 		var updated: bool = false
+		if identity_updated:
+			updated = true
 		if cleaned_name != _display_name:
-			_display_name = cleaned_name
+			_call_sign = cleaned_name
+			_sync_identity_aliases()
 			updated = true
 		if _created_at_unix <= 0:
 			_created_at_unix = int(Time.get_unix_time_from_system())
@@ -339,20 +353,38 @@ func ensure_loaded() -> void:
 	_has_loaded = true
 	if created:
 		SFLog.info("PROFILE_CREATED", {
-			"user_id": _user_id,
-			"display_name": _display_name,
+			"id": _id,
+			"entap_id": _entap_id,
+			"call_sign": _call_sign,
 			"onboarding_complete": _onboarding_complete
 		})
 	else:
 		SFLog.info("PROFILE_LOADED", {
-			"user_id": _user_id,
-			"display_name": _display_name,
+			"id": _id,
+			"entap_id": _entap_id,
+			"call_sign": _call_sign,
 			"onboarding_complete": _onboarding_complete
 		})
 
+func get_id() -> String:
+	ensure_loaded()
+	return _id
+
 func get_user_id() -> String:
 	ensure_loaded()
-	return _user_id
+	return _id if not _id.strip_edges().is_empty() else _user_id.strip_edges()
+
+func get_entap_id() -> String:
+	ensure_loaded()
+	return _entap_id
+
+func has_authoritative_identity() -> bool:
+	ensure_loaded()
+	return _is_uuidv7(_id) and _is_valid_entap_id_static(_entap_id)
+
+func get_call_sign() -> String:
+	ensure_loaded()
+	return _call_sign if not _call_sign.strip_edges().is_empty() else _display_name.strip_edges()
 
 func was_created_this_run() -> bool:
 	ensure_loaded()
@@ -400,12 +432,12 @@ func get_tutorial_section3_step() -> String:
 
 func get_display_name() -> String:
 	ensure_loaded()
-	return _display_name
+	return get_call_sign()
 
 func get_handle(uid: String) -> String:
 	ensure_loaded()
-	if uid == _user_id:
-		return _display_name
+	if uid == _id:
+		return _call_sign
 	return ""
 
 func set_display_name(name: String) -> void:
@@ -417,28 +449,28 @@ func request_paid_display_name_change(name: String, source: String = "paid_renam
 func request_handle_change(name: String, paid_override: bool = false, source: String = "settings") -> Dictionary:
 	ensure_loaded()
 	var raw_clean: String = name.strip_edges()
-	if raw_clean == _display_name.strip_edges() and _handle_chosen:
+	if raw_clean == _call_sign.strip_edges() and _handle_chosen:
 		return {
 			"ok": true,
 			"changed": false,
-			"handle": _display_name,
+			"handle": _call_sign,
 			"next_free_change_unix": _next_handle_change_unix
 		}
 	var validation: Dictionary = validate_handle_policy(raw_clean)
 	if not bool(validation.get("ok", false)):
 		SFLog.info("PROFILE_HANDLE_REJECTED", {
-			"user_id": _user_id,
+			"id": _id,
 			"source": source,
 			"reason": str(validation.get("reason", "")),
 			"attempted": name
 		})
 		return validation
-	var cleaned: String = _sanitize_display_name(raw_clean, _user_id)
-	if cleaned == _display_name and _handle_chosen:
+	var cleaned: String = _sanitize_display_name(raw_clean, _id)
+	if cleaned == _call_sign and _handle_chosen:
 		return {
 			"ok": true,
 			"changed": false,
-			"handle": _display_name,
+			"handle": _call_sign,
 			"next_free_change_unix": _next_handle_change_unix
 		}
 	if _handle_locked:
@@ -456,8 +488,9 @@ func request_handle_change(name: String, paid_override: bool = false, source: St
 			"message": "Free handle changes are available once per year.",
 			"next_free_change_unix": _next_handle_change_unix
 		}
-	var old_handle: String = _display_name
-	_display_name = cleaned
+	var old_handle: String = _call_sign
+	_call_sign = cleaned
+	_sync_identity_aliases()
 	_handle_chosen = true
 	_handle_changed_at_unix = now_unix
 	if is_initial_pick or not paid_override:
@@ -465,7 +498,7 @@ func request_handle_change(name: String, paid_override: bool = false, source: St
 	_handle_change_count += 1
 	_handle_history.append({
 		"old": old_handle,
-		"new": _display_name,
+		"new": _call_sign,
 		"changed_at_unix": now_unix,
 		"source": source,
 		"paid": paid_override,
@@ -473,8 +506,8 @@ func request_handle_change(name: String, paid_override: bool = false, source: St
 	})
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_DISPLAY_NAME_SET", {
-		"user_id": _user_id,
-		"display_name": _display_name,
+		"id": _id,
+		"call_sign": _call_sign,
 		"source": source,
 		"paid": paid_override,
 		"initial": is_initial_pick
@@ -482,7 +515,8 @@ func request_handle_change(name: String, paid_override: bool = false, source: St
 	return {
 		"ok": true,
 		"changed": true,
-		"handle": _display_name,
+		"handle": _call_sign,
+		"call_sign": _call_sign,
 		"next_free_change_unix": _next_handle_change_unix,
 		"initial": is_initial_pick,
 		"paid": paid_override
@@ -507,23 +541,74 @@ func get_handle_policy_snapshot() -> Dictionary:
 		"cooldown_sec": HANDLE_RENAME_COOLDOWN_SEC
 	}
 
+func apply_backend_identity(identity: Dictionary) -> bool:
+	ensure_loaded()
+	var backend_id: String = _sanitize_user_id(str(identity.get("id", identity.get("player_id", ""))))
+	if backend_id.is_empty():
+		return false
+	var backend_entap_id: String = _sanitize_entap_id(str(identity.get("entap_id", "")))
+	var backend_call_sign: String = str(identity.get("call_sign", identity.get("display_name", _call_sign))).strip_edges()
+	if not bool(validate_call_sign(backend_call_sign).get("ok", false)):
+		backend_call_sign = _call_sign
+	var changed: bool = false
+	if backend_id != _id:
+		if _legacy_user_id.strip_edges().is_empty() and not _id.strip_edges().is_empty():
+			_legacy_user_id = _id
+		_id = backend_id
+		changed = true
+	if not backend_entap_id.is_empty() and backend_entap_id != _entap_id:
+		_entap_id = backend_entap_id
+		changed = true
+	if not backend_call_sign.strip_edges().is_empty() and backend_call_sign != _call_sign:
+		_call_sign = _sanitize_display_name(backend_call_sign, _id)
+		changed = true
+	if changed:
+		_sync_identity_aliases()
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		SFLog.info("PROFILE_BACKEND_IDENTITY_APPLIED", {
+			"id": _id,
+			"entap_id": _entap_id,
+			"call_sign": _call_sign
+		})
+	return changed
+
+func smoke_force_identity_state(
+		id: String,
+		entap_id: String,
+		call_sign: String,
+		handle_chosen: bool,
+		onboarding_complete: bool
+	) -> bool:
+	if not OS.is_debug_build():
+		return false
+	ensure_loaded()
+	_id = _sanitize_user_id(id)
+	_entap_id = _sanitize_entap_id(entap_id)
+	_call_sign = _sanitize_display_name(call_sign, _id)
+	_handle_chosen = handle_chosen
+	_onboarding_complete = onboarding_complete
+	_sync_identity_aliases()
+	return true
+
 func set_user_id(raw: String) -> bool:
 	ensure_loaded()
 	var uid: String = _sanitize_user_id(raw)
 	if not _is_valid_user_id(uid):
 		SFLog.info("PROFILE_USER_ID_REJECTED", {"attempted": raw})
 		return false
-	if uid == _user_id:
-		SFLog.info("PROFILE_USER_ID_NOOP", {"user_id": _user_id})
+	if uid == _id:
+		SFLog.info("PROFILE_USER_ID_NOOP", {"id": _id})
 		return true
-	var old_id: String = _user_id
-	_user_id = uid
-	if _display_name.strip_edges().is_empty():
-		_display_name = _default_display_name(_user_id)
+	var old_id: String = _id
+	_id = uid
+	_sync_identity_aliases()
+	if _call_sign.strip_edges().is_empty():
+		_call_sign = _default_call_sign(_entap_id)
+		_sync_identity_aliases()
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_USER_ID_SET", {
 		"old": old_id,
-		"new": _user_id
+		"new": _id
 	})
 	return true
 
@@ -532,11 +617,17 @@ func mark_onboarding_complete() -> void:
 	if _onboarding_complete:
 		return
 	if not _handle_chosen:
-		SFLog.info("PROFILE_ONBOARDING_BLOCKED_NO_HANDLE", {"user_id": _user_id})
+		SFLog.info("PROFILE_ONBOARDING_BLOCKED_NO_HANDLE", {"id": _id})
+		return
+	if _id.strip_edges().is_empty() or _entap_id.strip_edges().is_empty():
+		SFLog.info("PROFILE_ONBOARDING_BLOCKED_NO_BACKEND_IDENTITY", {
+			"id": _id,
+			"entap_id": _entap_id
+		})
 		return
 	_onboarding_complete = true
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
-	SFLog.info("PROFILE_ONBOARDING_COMPLETE", {"user_id": _user_id})
+	SFLog.info("PROFILE_ONBOARDING_COMPLETE", {"id": _id})
 
 func mark_controls_hint_seen() -> void:
 	ensure_loaded()
@@ -1123,9 +1214,16 @@ func set_buff_loadout_ids_for_mode(mode: String, ids: Array) -> bool:
 	return true
 
 func _save_profile(user_id: String, display_name: String, created_at: int, onboarding_complete: bool) -> void:
+	_ensure_identity_fields()
+	_sync_identity_aliases()
 	var cfg: ConfigFile = ConfigFile.new()
-	cfg.set_value(PROFILE_SECTION, "user_id", user_id)
-	cfg.set_value(PROFILE_SECTION, "display_name", display_name)
+	cfg.set_value(PROFILE_SECTION, "id", _id)
+	cfg.set_value(PROFILE_SECTION, "entap_id", _entap_id)
+	cfg.set_value(PROFILE_SECTION, "call_sign", _call_sign)
+	if not _legacy_user_id.strip_edges().is_empty():
+		cfg.set_value(PROFILE_SECTION, "legacy_user_id", _legacy_user_id)
+	cfg.set_value(PROFILE_SECTION, "user_id", _id)
+	cfg.set_value(PROFILE_SECTION, "display_name", _call_sign)
 	cfg.set_value(PROFILE_SECTION, "handle_chosen", _handle_chosen)
 	cfg.set_value(PROFILE_SECTION, "handle_changed_at_unix", _handle_changed_at_unix)
 	cfg.set_value(PROFILE_SECTION, "next_handle_change_unix", _next_handle_change_unix)
@@ -1170,33 +1268,65 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	if err == OK:
 		SFLog.info("PROFILE_SAVED", {
 			"path": PROFILE_PATH,
-			"user_id": user_id,
-			"display_name": display_name
+			"id": _id,
+			"entap_id": _entap_id,
+			"call_sign": _call_sign
 		})
 
-func _generate_user_id() -> String:
-	var hex: String = ""
-	for i in range(6):
-		var value: int = int(_rng.randi_range(0, 255))
-		hex += "%02x" % value
-	return USER_ID_PREFIX + hex
+func _ensure_identity_fields() -> bool:
+	var changed: bool = false
+	var clean_id: String = _sanitize_user_id(_id)
+	if clean_id.is_empty() and not _user_id.strip_edges().is_empty() and _is_uuidv7(_user_id.strip_edges()):
+		clean_id = _user_id.strip_edges().to_lower()
+	if clean_id.is_empty():
+		if _legacy_user_id.strip_edges().is_empty() and not _user_id.strip_edges().is_empty():
+			_legacy_user_id = _user_id.strip_edges()
+	if clean_id != _id:
+		_id = clean_id
+		changed = true
+	var clean_entap: String = _sanitize_entap_id(_entap_id)
+	if clean_entap != _entap_id:
+		_entap_id = clean_entap
+		changed = true
+	var clean_call_sign: String = _sanitize_display_name(_call_sign, _id)
+	if clean_call_sign.is_empty():
+		clean_call_sign = _default_call_sign(_entap_id)
+	if clean_call_sign != _call_sign:
+		_call_sign = clean_call_sign
+		changed = true
+	if _user_id != _id or _display_name != _call_sign:
+		_sync_identity_aliases()
+		changed = true
+	return changed
 
-func _default_display_name(user_id: String) -> String:
-	var suffix: String = user_id
-	if user_id.begins_with(USER_ID_PREFIX):
-		suffix = user_id.substr(USER_ID_PREFIX.length(), user_id.length() - USER_ID_PREFIX.length())
+func _sync_identity_aliases() -> void:
+	_user_id = _id
+	_display_name = _call_sign
+
+func _default_call_sign(entap_id: String) -> String:
+	var suffix: String = _sanitize_entap_id(entap_id).replace(" ", "_")
 	if suffix.length() >= 4:
 		suffix = suffix.substr(suffix.length() - 4, 4)
 	else:
 		suffix = suffix.pad_zeros(4)
 	return DISPLAY_NAME_PREFIX + suffix.to_upper()
 
+func _default_display_name(user_id: String) -> String:
+	return _default_call_sign(_entap_id)
+
 func _sanitize_display_name(name: String, user_id: String) -> String:
-	var cleaned: String = name.strip_edges()
+	var cleaned: String = ""
+	var raw: String = name.strip_edges()
+	for i in range(raw.length()):
+		var code: int = raw.unicode_at(i)
+		var allowed: bool = (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or (code >= 48 and code <= 57) or code == 95
+		cleaned += raw.substr(i, 1) if allowed else "_"
 	if cleaned.length() > DISPLAY_NAME_MAX_LEN:
 		cleaned = cleaned.substr(0, DISPLAY_NAME_MAX_LEN)
 	if cleaned.is_empty():
-		cleaned = _default_display_name(user_id)
+		cleaned = _default_call_sign(_entap_id)
+	while cleaned.length() < DISPLAY_NAME_MIN_LEN:
+		cleaned += "_"
 	return cleaned
 
 static func validate_handle_policy(raw_handle: String) -> Dictionary:
@@ -1212,7 +1342,8 @@ static func validate_handle_policy(raw_handle: String) -> Dictionary:
 			return _handle_reject("invalid_chars", "Use letters, numbers, and underscore only.")
 	var compact: String = _handle_policy_compact(handle)
 	var collapsed: String = _collapse_repeated_chars(compact)
-	if compact.begins_with("swarm") and (compact.contains("father") or compact.contains("daddy") or compact.contains("daddi") or compact.contains("dad")):
+	var lower_handle: String = handle.to_lower()
+	if lower_handle != "swarmfather" and compact.begins_with("swarm") and (compact.contains("father") or compact.contains("daddy") or compact.contains("daddi") or compact.contains("dad")):
 		return _handle_reject("reserved_founder", "That handle is reserved.")
 	for protected_term in ["admin", "moderator", "mod", "support", "official", "developer", "devteam", "staff"]:
 		if compact == protected_term or compact.begins_with(protected_term + "_") or compact.ends_with("_" + protected_term):
@@ -1234,7 +1365,21 @@ static func validate_handle_policy(raw_handle: String) -> Dictionary:
 	return {
 		"ok": true,
 		"handle": handle,
+		"call_sign": handle,
 		"normalized": compact
+	}
+
+static func validate_call_sign(raw_call_sign: String) -> Dictionary:
+	return validate_handle_policy(raw_call_sign)
+
+static func validate_entap_id(raw_entap_id: String) -> Dictionary:
+	var clean: String = raw_entap_id.strip_edges().to_upper()
+	if _is_valid_entap_id_static(clean):
+		return {"ok": true, "entap_id": clean}
+	return {
+		"ok": false,
+		"reason": "invalid_entap_id",
+		"message": "ENTaP ID must match AAA 000."
 	}
 
 static func _handle_reject(reason: String, message: String) -> Dictionary:
@@ -1387,21 +1532,50 @@ func _sanitize_admin_dashboard_password(password: String) -> String:
 
 func _sanitize_user_id(raw: String) -> String:
 	var cleaned: String = raw.strip_edges().to_lower()
-	return cleaned
+	return cleaned if _is_uuidv7(cleaned) else ""
 
 func _is_valid_user_id(uid: String) -> bool:
-	if not uid.begins_with(USER_ID_PREFIX):
+	return _is_uuidv7(uid)
+
+func _is_uuidv7(uid: String) -> bool:
+	var clean: String = uid.strip_edges().to_lower()
+	if clean.length() != 36:
 		return false
-	var suffix: String = uid.substr(USER_ID_PREFIX.length(), uid.length() - USER_ID_PREFIX.length())
-	if suffix.length() != USER_ID_HEX_LEN:
+	for hyphen_index in [8, 13, 18, 23]:
+		if clean.substr(hyphen_index, 1) != "-":
+			return false
+	if clean.substr(14, 1) != "7":
 		return false
-	for i in range(suffix.length()):
-		var ch: String = suffix.substr(i, 1)
-		var code: int = ch.unicode_at(0)
+	var variant: String = clean.substr(19, 1)
+	if not ["8", "9", "a", "b"].has(variant):
+		return false
+	for i in range(clean.length()):
+		if [8, 13, 18, 23].has(i):
+			continue
+		var code: int = clean.unicode_at(i)
 		var is_digit: bool = code >= 48 and code <= 57
 		var is_lower_hex: bool = code >= 97 and code <= 102
-		var is_upper_hex: bool = code >= 65 and code <= 70
-		if not (is_digit or is_lower_hex or is_upper_hex):
+		if not is_digit and not is_lower_hex:
+			return false
+	return true
+
+func _sanitize_entap_id(raw: String) -> String:
+	var clean: String = raw.strip_edges().to_upper()
+	return clean if _is_valid_entap_id_static(clean) else ""
+
+static func _is_valid_entap_id_static(value: String) -> bool:
+	var clean: String = value.strip_edges().to_upper()
+	if clean.length() != 7:
+		return false
+	if clean.substr(3, 1) != " ":
+		return false
+	for i in range(3):
+		var letter_code: int = clean.unicode_at(i)
+		if letter_code < 65 or letter_code > 90:
+			return false
+	for i in range(4, 7):
+		var digit_code: int = clean.unicode_at(i)
+		if digit_code < 48 or digit_code > 57:
 			return false
 	return true
 
@@ -1751,8 +1925,11 @@ func _ensure_loadout_owned() -> void:
 func get_profiles() -> Array[Dictionary]:
 	ensure_loaded()
 	var profile: Dictionary = {
-		"profile_id": _user_id,
-		"handle": _display_name,
+		"profile_id": _id,
+		"id": _id,
+		"entap_id": _entap_id,
+		"handle": _call_sign,
+		"call_sign": _call_sign,
 		"created_at_unix": _created_at_unix,
 		"last_used_at_unix": _created_at_unix
 	}
@@ -1772,7 +1949,7 @@ func get_active_handle() -> String:
 
 func set_active_profile(profile_id: String) -> void:
 	ensure_loaded()
-	if profile_id != _user_id:
+	if profile_id != _id:
 		return
 
 func create_profile() -> String:
@@ -1780,7 +1957,7 @@ func create_profile() -> String:
 
 func rename_profile(profile_id: String, new_handle: String) -> bool:
 	ensure_loaded()
-	if profile_id != _user_id:
+	if profile_id != _id:
 		return false
 	var result: Dictionary = request_handle_change(new_handle, false, "rename_dialog")
 	return bool(result.get("ok", false))

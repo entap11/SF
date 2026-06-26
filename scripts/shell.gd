@@ -14,6 +14,7 @@ const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
 const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
 const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
+const AdSurfaceScript: Script = preload("res://scripts/ui/ad_surface.gd")
 const BuffStripVisibilityPolicy := preload("res://scripts/ui/buff_strip_visibility_policy.gd")
 const SHELL_BUFFER_ROOT_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot"
 const SHELL_TOP_BUFFER_PATH: String = SHELL_BUFFER_ROOT_PATH + "/TopBufferBackground"
@@ -82,6 +83,7 @@ const PREMATCH_POWERBAR_REVEAL_WINDOW_MS: int = 350
 const SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
 const SHELL_ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
 const SHELL_ASYNC_PREMATCH_TOP_GAP_PX: float = 24.0
+const SHELL_HANDSHAKE_AD_SIZE: Vector2 = Vector2(468.0, 60.0)
 const SHELL_WORLD_VIEWPORT_LEFT_INSET_PX: float = 0.0
 const SHELL_WORLD_VIEWPORT_RIGHT_INSET_PX: float = 0.0
 const SHELL_WORLD_VIEWPORT_TOP_INSET_PX: float = 60.0
@@ -169,6 +171,7 @@ var _shell_prematch_record_p2: Label = null
 var _shell_prematch_record_p3: Label = null
 var _shell_prematch_record_p4: Label = null
 var _shell_prematch_record_h2h: Label = null
+var _shell_handshake_ad_surface: Control = null
 var _telemetry_dashboard_panel: Control = null
 var _pvp_debug_overlay: Control = null
 
@@ -2611,6 +2614,7 @@ func _ensure_shell_async_prematch_overlay() -> Control:
 		if existing_countdown != null:
 			_style_shell_prematch_countdown(existing_countdown)
 			_shell_prematch_countdown_label = existing_countdown
+		_ensure_shell_handshake_ad_surface(_shell_prematch_overlay)
 		return _shell_prematch_overlay
 	var hud_root: Control = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as Control
 	if hud_root == null:
@@ -2696,6 +2700,7 @@ func _ensure_shell_async_prematch_overlay() -> Control:
 	records_vbox.move_child(_shell_prematch_record_teams, 0)
 	records_vbox.move_child(_shell_prematch_record_team_arrows, 1)
 	_style_shell_prematch_labels()
+	_ensure_shell_handshake_ad_surface(overlay)
 	return overlay
 
 func _ensure_shell_prematch_label(vbox: VBoxContainer, name: String) -> Label:
@@ -2779,6 +2784,38 @@ func _layout_shell_async_prematch_overlay() -> void:
 		SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX,
 		SHELL_ASYNC_PREMATCH_CARD_HEIGHT_PX
 	)
+	_layout_shell_handshake_ad_surface(visible_rect, top_inset)
+
+func _ensure_shell_handshake_ad_surface(overlay: Control) -> void:
+	if overlay == null:
+		return
+	if _shell_handshake_ad_surface == null or not is_instance_valid(_shell_handshake_ad_surface):
+		var existing: Node = overlay.get_node_or_null("HandshakeAdSurface")
+		if existing is Control:
+			_shell_handshake_ad_surface = existing as Control
+		else:
+			var created_any: Variant = AdSurfaceScript.new()
+			if not (created_any is Control):
+				return
+			_shell_handshake_ad_surface = created_any as Control
+			_shell_handshake_ad_surface.name = "HandshakeAdSurface"
+			overlay.add_child(_shell_handshake_ad_surface)
+	if _shell_handshake_ad_surface.has_method("configure"):
+		_shell_handshake_ad_surface.call("configure", "vs_handshake", "handshake", SHELL_HANDSHAKE_AD_SIZE, false)
+	_shell_handshake_ad_surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_shell_handshake_ad_surface.z_as_relative = false
+	_shell_handshake_ad_surface.z_index = 3002
+
+func _layout_shell_handshake_ad_surface(visible_rect: Rect2, top_inset: float) -> void:
+	if _shell_handshake_ad_surface == null:
+		return
+	var ad_size: Vector2 = Vector2(
+		minf(SHELL_HANDSHAKE_AD_SIZE.x, maxf(300.0, visible_rect.size.x - 32.0)),
+		SHELL_HANDSHAKE_AD_SIZE.y
+	)
+	var card_bottom: float = top_inset + SHELL_ASYNC_PREMATCH_TOP_GAP_PX + SHELL_ASYNC_PREMATCH_CARD_HEIGHT_PX
+	_shell_handshake_ad_surface.position = Vector2((visible_rect.size.x - ad_size.x) * 0.5, card_bottom + 14.0)
+	_shell_handshake_ad_surface.size = ad_size
 
 func _shell_async_mode_id() -> String:
 	return _shell_match_mode_id()

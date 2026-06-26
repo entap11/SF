@@ -254,6 +254,15 @@ function requireBearerAuth(req: Request, res: Response, next: NextFunction): voi
   next();
 }
 
+function requireRankActionAuth(req: Request, res: Response, next: NextFunction): void {
+  const action = toStringValue(req.params.action).replace(/^\/+/, "");
+  if (action === "register_player") {
+    next();
+    return;
+  }
+  requireBearerAuth(req, res, next);
+}
+
 function asyncHandler(fn: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
     void fn(req, res).catch(next);
@@ -411,7 +420,7 @@ async function main(): Promise<void> {
 
   app.post(
     "/v1/rank/:action",
-    requireBearerAuth,
+    requireRankActionAuth,
     asyncHandler(async (req, res) => {
       const action = toStringValue(req.params.action).replace(/^\/+/, "");
       const payload = isRecord(req.body) ? req.body : {};

@@ -13,7 +13,7 @@ const SWARM_MAX_START := 5
 const SWARM_PICKUP_HALF_PX: float = 10.0
 const SWARM_PICKUP_RADIUS_PX: float = SWARM_PICKUP_HALF_PX * 2.0
 const SWARM_SHOCK_MS: int = 2000
-const SWARM_CHAIN_WINDOW_MS: int = 350
+const SWARM_CHAIN_WINDOW_MS: int = 1000
 const EDGE_MIN_DIST_PX := 1.0
 
 var state: GameState = null

@@ -3,6 +3,7 @@ extends Control
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const PostMatchSummaryPanelScript := preload("res://scripts/ui/ui_post_match_summary.gd")
+const AdSurfaceScript := preload("res://scripts/ui/ad_surface.gd")
 
 signal post_match_action(action: String)
 
@@ -31,6 +32,7 @@ var _stage_next_action: String = "next_round"
 var _stage_next_available: bool = false
 var _stage_status_text: String = ""
 var _post_match_summary_panel: Control = null
+var _post_match_ad_surface: Control = null
 
 const PANEL_MAX_SIZE: Vector2 = Vector2(740.0, 620.0)
 const PANEL_MARGIN_PX: float = 28.0
@@ -41,6 +43,7 @@ const LABEL_FONT_RESULT: int = 24
 const LABEL_FONT_STATUS: int = 18
 const BUTTON_FONT_SIZE: int = 18
 const BUTTON_MIN_SIZE: Vector2 = Vector2(190.0, 58.0)
+const POST_MATCH_AD_SIZE: Vector2 = Vector2(520.0, 72.0)
 const PANEL_BG: Color = Color(0.035, 0.038, 0.048, 0.92)
 const PANEL_BORDER: Color = Color(0.95, 0.82, 0.24, 0.55)
 const FONT_MAIN: Color = Color(0.96, 0.95, 0.88, 1.0)
@@ -57,6 +60,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_ensure_post_match_summary_panel()
+	_ensure_post_match_ad_surface()
 	_apply_readable_layout()
 	rematch_button.text = "REMATCH"
 	exit_button.text = "MAIN MENU"
@@ -215,6 +219,36 @@ func _ensure_post_match_summary_panel() -> void:
 	if insert_index >= 0 and insert_index < vbox.get_child_count() - 1:
 		vbox.move_child(created, insert_index)
 	_post_match_summary_panel = created
+
+func _ensure_post_match_ad_surface() -> void:
+	if _post_match_ad_surface != null and is_instance_valid(_post_match_ad_surface):
+		return
+	if vbox == null:
+		return
+	var existing: Node = vbox.get_node_or_null("PostMatchAdSurface")
+	if existing is Control:
+		_post_match_ad_surface = existing as Control
+	else:
+		var created_any: Variant = AdSurfaceScript.new()
+		if not (created_any is Control):
+			return
+		var created: Control = created_any as Control
+		created.name = "PostMatchAdSurface"
+		vbox.add_child(created)
+		_post_match_ad_surface = created
+	if _post_match_ad_surface.has_method("configure"):
+		_post_match_ad_surface.call(
+			"configure",
+			"post_match_summary",
+			"post_match",
+			POST_MATCH_AD_SIZE,
+			false
+		)
+	var insert_index: int = vbox.get_child_count()
+	if countdown_label != null and countdown_label.get_parent() == vbox:
+		insert_index = countdown_label.get_index()
+	if _post_match_ad_surface.get_parent() == vbox and insert_index >= 0 and _post_match_ad_surface.get_index() > insert_index:
+		vbox.move_child(_post_match_ad_surface, mini(insert_index, vbox.get_child_count() - 1))
 
 func _process(_delta: float) -> void:
 	if not visible:
@@ -659,6 +693,11 @@ func _apply_readable_layout() -> void:
 	_style_label(status_label, LABEL_FONT_STATUS, FONT_MAIN, HORIZONTAL_ALIGNMENT_CENTER)
 	_style_button(rematch_button)
 	_style_button(exit_button)
+	if _post_match_ad_surface != null:
+		_post_match_ad_surface.custom_minimum_size = Vector2(
+			minf(POST_MATCH_AD_SIZE.x, maxf(320.0, panel_size.x - PANEL_PAD_PX * 2.0)),
+			POST_MATCH_AD_SIZE.y
+		)
 
 func _style_label(label: Label, font_size: int, color: Color, alignment: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> void:
 	if label == null:

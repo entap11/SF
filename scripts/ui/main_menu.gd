@@ -12,6 +12,112 @@ const JUKEBOX_PANEL_SCENE_PATH: String = "res://scenes/ui/JukeboxPanel.tscn"
 const GARAGE_PANEL_SCENE_PATH: String = "res://scenes/ui/GaragePanel.tscn"
 const BETA_QUICK_START_PDF_PATH: String = "res://data/help/Swarmfront Quick Start Guide.pdf"
 const BETA_QUICK_START_USER_PATH: String = "user://help/Swarmfront Quick Start Guide.pdf"
+const BETA_QUICK_START_DIALOG_TEXT: String = """Swarmfront Quick Start Guide
+
+The Basics
+
+The object of Swarmfront is simple: capture and defend hives until your opponent has none left. Every hive continuously produces bees. The larger the hive, the faster it produces them, so growing your economy is just as important as attacking.
+
+Creating and Managing Lanes
+
+There are two ways to create a lane:
+
+1. Tap Method
+Tap the source hive, then tap the destination hive.
+
+2. Drag Method
+Tap and hold the source hive, drag to the destination hive, then release.
+
+If both hives are yours, sending from the opposite hive back to the original source reverses the lane direction.
+
+To remove a lane completely, double tap the source half of the lane. That is the half closest to the sending hive. The lane will immediately disappear.
+
+Swarms
+
+Swarms are one of the most powerful mechanics in the game, but they come with a cost.
+
+You can launch a swarm in one of two ways:
+
+- Repeat source-to-destination on an existing active lane.
+- Double tap the destination half of an existing lane.
+
+A swarm begins with 5 attack power. As it travels down the lane, it absorbs every friendly bee it encounters. For example, if it starts at 5 and picks up 3 more bees along the way, it will strike the enemy hive with 8 power.
+
+Unlike normal lane traffic, a swarm cannot be intercepted while traveling. Whatever power it has when it reaches its destination will arrive.
+
+The downside is that the launching hive goes into recovery for a few seconds. During that time:
+
+- It cannot send bees.
+- It cannot receive incoming bees.
+- It cannot launch another swarm until its cooldown expires.
+
+Choose your timing carefully.
+
+Super Swarms
+
+If you swarm into a friendly hive, then within about one second launch another swarm from that hive, the swarm does not start over. Instead, it passes straight through and becomes a Super Swarm.
+
+The new swarm starts with all the power it carried into the friendly hive, then continues collecting any additional bees it encounters on the new lane before crashing into its final destination.
+
+Used correctly, Super Swarms can deliver devastating attacks.
+
+Barracks
+
+Some maps contain Barracks.
+
+Barracks cannot be attacked directly, nor can you send bees to them. Instead, they are controlled by the ring of hives surrounding them. You will know which hives belong to the Barracks because they are connected by circuitry.
+
+Control every surrounding hive and the Barracks comes online.
+
+Lose even one controlling hive and the Barracks immediately shuts down.
+
+A Barracks sends additional bees to your hives. Its strength is determined by the smallest controlling hive in its network.
+
+For example:
+
+- If the smallest controlling hive is Small, the Barracks operates as Small.
+- If the smallest is Medium, the Barracks becomes Medium.
+- If every controlling hive is Large, the Barracks operates at full Large strength.
+
+You can also customize where those extra bees go.
+
+Long press the Barracks to enter Selection Mode. From there, choose which connected hives should receive reinforcements and the order in which they will receive them. You can send reinforcements to all of them, only a few, or even just one.
+
+Tap anywhere on empty space to exit Selection Mode. Your preferences are automatically saved.
+
+If the Barracks ever goes offline, those preferences are reset.
+
+Towers
+
+Towers work much like Barracks.
+
+Instead of producing bees, they automatically attack enemy bees that enter their range.
+
+Like Barracks, Towers are activated by controlling every surrounding hive. Lose one controlling hive and the Tower shuts down.
+
+Tower strength is determined by the weakest controlling hive.
+
+The stronger the Tower:
+
+- The farther it can shoot.
+- The faster it fires.
+
+And yes... it never misses.
+
+Winning the Game
+
+Destroy every enemy hive before your opponent destroys yours.
+
+Capturing neutral hives early gives you more production.
+
+Protect your strongest hives.
+
+Fight for Barracks and Towers whenever possible.
+
+And when the opportunity presents itself...
+
+Launch a Swarm.
+"""
 const SCHOLASTIC_PANEL_SCENE_PATH: String = "res://scenes/ui/ScholasticPanel.tscn"
 const FREE_ROLL_GAME_HUB_SCENE_PATH: String = "res://scenes/ui/FreeRollGameHub.tscn"
 const DASH_BUFFS_HERO_SCENE_PATH: String = "res://scenes/ui/DashBuffsHero.tscn"
@@ -1266,6 +1372,7 @@ func _ready() -> void:
 	_refresh_profile_handle_labels()
 	status_label.text = "Ready"
 	_bind_onboarding_gate()
+	call_deferred("_bind_onboarding_gate")
 	if HiveClanState != null and HiveClanState.has_signal("hive_clan_state_changed"):
 		if not HiveClanState.hive_clan_state_changed.is_connected(_on_hive_clan_state_changed):
 			HiveClanState.hive_clan_state_changed.connect(_on_hive_clan_state_changed)
@@ -2116,13 +2223,15 @@ func _prewarm_entry_hub_skin_cache() -> void:
 
 func _bind_onboarding_gate() -> void:
 	ProfileManager.ensure_loaded()
-	if not ProfileManager.is_onboarding_complete():
+	var has_identity: bool = bool(ProfileManager.call("has_authoritative_identity")) if ProfileManager.has_method("has_authoritative_identity") else false
+	if not ProfileManager.is_onboarding_complete() or not has_identity:
 		onboarding_overlay.visible = true
 		if onboarding_panel != null:
 			if not onboarding_panel.onboarding_done.is_connected(_on_onboarding_done):
 				onboarding_panel.onboarding_done.connect(_on_onboarding_done)
 	else:
 		onboarding_overlay.visible = false
+		_ensure_profile_registered_for_rank()
 
 func _apply_performance_pref_from_profile() -> void:
 	if not ProfileManager.has_method("get_content_scale_factor"):
@@ -2133,9 +2242,35 @@ func _apply_performance_pref_from_profile() -> void:
 		window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.1)
 
 func _on_onboarding_done() -> void:
+	_ensure_profile_registered_for_rank()
 	onboarding_overlay.visible = false
 	_refresh_scholastic_dash_visibility()
 	_maybe_show_sfa_join_cta(true)
+
+func _ensure_profile_registered_for_rank() -> void:
+	if ProfileManager == null or not ProfileManager.has_method("get_user_id") or not ProfileManager.has_method("get_display_name"):
+		return
+	var existing_player_id: String = str(ProfileManager.call("get_user_id")).strip_edges()
+	var existing_entap_id: String = str(ProfileManager.call("get_entap_id")).strip_edges() if ProfileManager.has_method("get_entap_id") else ""
+	if not existing_player_id.is_empty() and not existing_entap_id.is_empty():
+		return
+	var call_sign: String = str(ProfileManager.call("get_display_name")).strip_edges()
+	if call_sign.is_empty():
+		return
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	if rank_state == null or not rank_state.has_method("intent_register_player"):
+		return
+	var install_metadata: Dictionary = {
+		"client": "swarmfront",
+		"platform": OS.get_name(),
+		"source": "main_menu"
+	}
+	var result: Dictionary = rank_state.call("intent_register_player", "", call_sign, "NA", [], install_metadata, false) as Dictionary
+	if not bool(result.get("ok", false)):
+		SFLog.warn("PROFILE_RANK_REGISTRATION_FAILED", {
+			"reason": str(result.get("reason", result.get("err", "unknown"))),
+			"call_sign": call_sign
+		}, "", 3000)
 
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()
@@ -7309,8 +7444,31 @@ func _show_beta_quick_start_dialog(global_path: String) -> void:
 		return
 	_beta_help_dialog = AcceptDialog.new()
 	_beta_help_dialog.title = "Quick Start Guide"
-	_beta_help_dialog.dialog_text = "Quick Start\n\n1. Tap PLAY, then Free Roll.\n2. Pick Stage Race for the safest first match.\n3. For friend matches, host creates the room and guest joins from Friends.\n4. In 1v1, stay on 1P maps unless you are testing a specific beta route.\n\nThe PDF is bundled, but this device could not open it in the system viewer.\nSaved copy:\n%s" % global_path
-	_beta_help_dialog.min_size = Vector2i(560, 360)
+	_beta_help_dialog.dialog_text = ""
+	var viewport_size: Vector2i = get_viewport().get_visible_rect().size
+	var dialog_size: Vector2i = Vector2i(
+		clampi(int(float(viewport_size.x) * 0.92), 620, 920),
+		clampi(int(float(viewport_size.y) * 0.74), 720, 1400)
+	)
+	_beta_help_dialog.min_size = dialog_size
+	var scroll := ScrollContainer.new()
+	scroll.name = "GuideScroll"
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+	scroll.custom_minimum_size = Vector2(maxf(560.0, float(dialog_size.x) - 36.0), maxf(640.0, float(dialog_size.y) - 120.0))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var guide_label := RichTextLabel.new()
+	guide_label.name = "GuideText"
+	guide_label.bbcode_enabled = false
+	guide_label.fit_content = true
+	guide_label.scroll_active = false
+	guide_label.selection_enabled = true
+	guide_label.text = "%s\n\nSaved PDF copy:\n%s" % [BETA_QUICK_START_DIALOG_TEXT, global_path]
+	guide_label.add_theme_font_size_override("normal_font_size", 32)
+	guide_label.add_theme_font_size_override("bold_font_size", 38)
+	guide_label.add_theme_constant_override("line_separation", 10)
+	guide_label.custom_minimum_size = Vector2(maxf(520.0, float(dialog_size.x) - 76.0), 0.0)
+	scroll.add_child(guide_label)
+	_beta_help_dialog.add_child(scroll)
 	_beta_help_dialog.confirmed.connect(func() -> void:
 		if _beta_help_dialog != null:
 			_beta_help_dialog.queue_free()
@@ -7322,7 +7480,7 @@ func _show_beta_quick_start_dialog(global_path: String) -> void:
 			_beta_help_dialog = null
 	)
 	add_child(_beta_help_dialog)
-	_beta_help_dialog.popup_centered()
+	_beta_help_dialog.popup_centered(dialog_size)
 
 func _set_dash_top_tab(tab_id: String, force_refresh: bool = false) -> void:
 	var normalized_tab: String = tab_id.strip_edges().to_lower()

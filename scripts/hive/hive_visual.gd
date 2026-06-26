@@ -61,6 +61,7 @@ const HEIGHT_LARGE_SCALE := HiveGeometry.HIVE_HEIGHT_SCALE_LARGE
 const HEIGHT_MAX_SCALE := HiveGeometry.HIVE_HEIGHT_SCALE_MAX
 const FLOOR_REFLECTION_ENABLED: bool = false
 const HIVE_VISUAL_SCALE: float = HiveGeometry.HIVE_VISUAL_SCALE
+const HIVE_WIDTH_SCALE: float = 0.90
 const HIVE_HEIGHT_SCALE: float = HiveGeometry.HIVE_HEIGHT_SCALE
 const HIVE_COLOR_SAT_BOOST: float = 1.22
 const HIVE_COLOR_VAL_BOOST: float = 1.12
@@ -1870,8 +1871,8 @@ func _apply_sprite() -> void:
 		_resolve_tier(power)
 	)
 	var uniform_scale := target_height / tex_size.y
-	_current_size = tex_size * uniform_scale
-	_sprite.scale = Vector2.ONE * uniform_scale
+	_current_size = Vector2(tex_size.x * uniform_scale * HIVE_WIDTH_SCALE, tex_size.y * uniform_scale)
+	_sprite.scale = Vector2(uniform_scale * HIVE_WIDTH_SCALE, uniform_scale)
 	_update_core_layout()
 	_update_lane_occluder()
 	_update_phase3_layout()

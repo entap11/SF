@@ -8,7 +8,10 @@ func _init() -> void:
 	failed = _expect_ok("MurderHornet57") or failed
 	failed = _expect_ok("FatherOfSwarm") or failed
 	failed = _expect_ok("JewishPlayer") or failed
-	failed = _expect_block("SwarmFather", "reserved_founder") or failed
+	failed = _expect_ok("SwarmFather") or failed
+	failed = _expect_ok("swarmfather") or failed
+	failed = _expect_block("Swarm_Father", "reserved_founder") or failed
+	failed = _expect_block("Sw4rmFather", "reserved_founder") or failed
 	failed = _expect_block("SwarmDaddy", "reserved_founder") or failed
 	failed = _expect_block("SwarmDad57", "reserved_founder") or failed
 	failed = _expect_block("FvckYou", "prohibited_language") or failed
