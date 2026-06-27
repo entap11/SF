@@ -469,6 +469,14 @@ func debug_get_crucible_snapshot() -> Dictionary:
 		return transport.get("result", {}) as Dictionary
 	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
+func get_wax_audit_snapshot(filters: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("get_wax_audit_snapshot", {
+		"filters": filters
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
 func _configured_backend_url() -> String:
 	var env_url: String = OS.get_environment(ENV_BACKEND_URL).strip_edges()
 	if not env_url.is_empty():

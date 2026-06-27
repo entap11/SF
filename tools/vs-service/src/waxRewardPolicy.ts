@@ -58,6 +58,9 @@ export function defaultWaxRewardConfig(): JsonRecord {
     async_multiplier_bps: 9500,
     repeated_opponent_soft_count: 2,
     repeated_opponent_zero_count: 3,
+    close_loss_min_score: 0.8,
+    close_loss_max_margin_ratio: 0.10,
+    minimum_match_duration_sec: 30,
     standard_win_wax: {
       [STRENGTH_MUCH_WEAKER]: 1,
       [STRENGTH_SLIGHTLY_WEAKER]: 2,
@@ -165,7 +168,11 @@ export function evaluateWaxMatch(payload: JsonRecord, config: JsonRecord = {}): 
     mode_group: modeGroup,
     result: boolValue(payload.did_win) ? "win" : "loss",
     opponent_strength_band: STRENGTH_EQUAL,
-    close_loss_qualified: boolValue(payload.close_loss_qualified),
+    close_loss_qualified: false,
+    close_loss_score: 0,
+    close_loss_reason: "",
+    rating_source: cleanString(payload.rating_source),
+    rating_confidence: numberValue(payload.rating_confidence),
     base_wax_delta: 0,
     mode_multiplier: 1,
     final_wax_delta: 0,
@@ -176,7 +183,7 @@ export function evaluateWaxMatch(payload: JsonRecord, config: JsonRecord = {}): 
   };
   const blocked = blockedReason(payload, modeGroup);
   if (blocked) {
-    breakdown.validity_status = "blocked";
+    breakdown.validity_status = blocked === "suspicious_wax_hold" ? "held_review" : "blocked";
     breakdown.anti_harvest_reason_if_blocked = blocked;
     return breakdown;
   }
@@ -192,7 +199,11 @@ export function evaluateWaxMatch(payload: JsonRecord, config: JsonRecord = {}): 
     merged
   );
   breakdown.opponent_strength_band = strengthBand;
-  const baseDelta = baseMatchDelta(strengthBand, boolValue(payload.did_win), boolValue(payload.close_loss_qualified), merged);
+  const closeLoss = evaluateCloseLoss(payload, strengthBand, merged);
+  breakdown.close_loss_qualified = Boolean(closeLoss.qualified);
+  breakdown.close_loss_score = numberValue(closeLoss.score);
+  breakdown.close_loss_reason = cleanString(closeLoss.reason);
+  const baseDelta = baseMatchDelta(strengthBand, boolValue(payload.did_win), Boolean(closeLoss.qualified), merged);
   breakdown.base_wax_delta = baseDelta;
   const multiplierBps = modeGroup === MODE_GROUP_ASYNC ? intValue(merged.async_multiplier_bps, BASIS_POINTS_DENOMINATOR) : BASIS_POINTS_DENOMINATOR;
   const diminished = applyRepeatedOpponentDiminishing(baseDelta, intValue(payload.repeated_opponent_count), merged);
@@ -220,7 +231,20 @@ function blockedReason(payload: JsonRecord, modeGroup: string): string {
       return flag;
     }
   }
-  if (boolValue(payload.suspicious_win_trading) || boolValue(payload.same_account_cluster)) {
+  if (Object.prototype.hasOwnProperty.call(payload, "minimum_quality_met") && !boolValue(payload.minimum_quality_met, true)) {
+    return "minimum_quality_not_met";
+  }
+  const durationSec = numberValue(payload.duration_sec, numberValue(payload.match_duration_ms) / 1000);
+  if (durationSec > 0 && durationSec < numberValue(defaultWaxRewardConfig().minimum_match_duration_sec, 30)) {
+    return "match_too_short";
+  }
+  const reviewFlags = ["suspicious_win_trading", "same_account_cluster", "same_device_cluster", "same_ip_cluster", "account_cluster_abuse", "low_effort_farming", "win_trading_signal", "abuse_review_required"];
+  for (const flag of reviewFlags) {
+    if (boolValue(payload[flag])) {
+      return "suspicious_wax_hold";
+    }
+  }
+  if (cleanString(payload.review_status).toLowerCase() === "held") {
     return "suspicious_wax_hold";
   }
   return "";
@@ -234,6 +258,71 @@ function baseMatchDelta(strengthBand: string, didWin: boolean, closeLoss: boolea
     return intValue(recordValue(config.standard_close_loss_wax)[strengthBand]);
   }
   return intValue(recordValue(config.standard_loss_wax)[strengthBand]);
+}
+
+function evaluateCloseLoss(payload: JsonRecord, strengthBand: string, config: JsonRecord): JsonRecord {
+  if (boolValue(payload.did_win)) {
+    return { qualified: false, score: 0, reason: "win" };
+  }
+  if (![STRENGTH_SLIGHTLY_STRONGER, STRENGTH_MUCH_STRONGER].includes(strengthBand)) {
+    return { qualified: false, score: 0, reason: "opponent_not_stronger" };
+  }
+  const metric = closeLossMetric(payload, config);
+  const score = clamp(numberValue(metric.score), 0, 1);
+  if (!boolValue(metric.has_metric)) {
+    return { qualified: false, score, reason: "missing_close_loss_metric" };
+  }
+  const minScore = clamp(numberValue(config.close_loss_min_score, 0.8), 0, 1);
+  if (score < minScore) {
+    return { qualified: false, score, reason: cleanString(metric.reason) || "close_loss_score_too_low" };
+  }
+  return { qualified: true, score, reason: cleanString(metric.reason) || "qualified" };
+}
+
+function closeLossMetric(payload: JsonRecord, config: JsonRecord): JsonRecord {
+  if (Object.prototype.hasOwnProperty.call(payload, "close_loss_score")) {
+    return { has_metric: true, score: clamp(numberValue(payload.close_loss_score), 0, 1), reason: "explicit_score" };
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "close_loss_margin_ratio")) {
+    return closeLossScoreFromMarginRatio(numberValue(payload.close_loss_margin_ratio, 1), config, "margin_ratio");
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "score_margin")) {
+    const scoreTotal = Math.max(1, Math.abs(numberValue(payload.player_score)) + Math.abs(numberValue(payload.opponent_score)));
+    return closeLossScoreFromMarginRatio(Math.abs(numberValue(payload.score_margin)) / scoreTotal, config, "score_margin");
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "player_score") && Object.prototype.hasOwnProperty.call(payload, "opponent_score")) {
+    const playerScore = numberValue(payload.player_score);
+    const opponentScore = numberValue(payload.opponent_score);
+    const maxScore = Math.max(1, Math.abs(playerScore), Math.abs(opponentScore));
+    return closeLossScoreFromMarginRatio(Math.abs(opponentScore - playerScore) / maxScore, config, "score_delta");
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "time_margin_ms")) {
+    const elapsedMs = Math.max(1, numberValue(payload.elapsed_ms ?? payload.match_duration_ms));
+    return closeLossScoreFromMarginRatio(Math.abs(numberValue(payload.time_margin_ms)) / elapsedMs, config, "time_margin");
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "objective_progress_ratio")) {
+    return { has_metric: true, score: clamp(numberValue(payload.objective_progress_ratio), 0, 1), reason: "objective_progress" };
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "survival_ratio")) {
+    return { has_metric: true, score: clamp(numberValue(payload.survival_ratio), 0, 1), reason: "survival_ratio" };
+  }
+  return { has_metric: false, score: 0, reason: "missing_close_loss_metric" };
+}
+
+function closeLossScoreFromMarginRatio(marginRatio: number, config: JsonRecord, reason: string): JsonRecord {
+  const maxMargin = Math.max(0.001, numberValue(config.close_loss_max_margin_ratio, 0.10));
+  const safeMargin = clamp(Math.abs(marginRatio), 0, 1);
+  let score = 0;
+  if (safeMargin <= maxMargin) {
+    score = 1 - (safeMargin / maxMargin * 0.2);
+  } else {
+    score = Math.max(0, 0.8 - ((safeMargin - maxMargin) / maxMargin));
+  }
+  return { has_metric: true, score: clamp(score, 0, 1), reason };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function applyRepeatedOpponentDiminishing(delta: number, repeatedCount: number, config: JsonRecord): JsonRecord {

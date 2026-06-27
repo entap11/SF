@@ -274,6 +274,7 @@ func _apply_outcome(winner_id: int, reason: String, _record_text: String, _h2h_t
 	stat_units_killed.text = ""
 	stat_units_landed.text = ""
 	_apply_crucible_status_from_tree(winner_id)
+	_apply_competitive_wax_status_from_tree()
 	_update_countdown_label()
 	_update_status()
 
@@ -571,6 +572,29 @@ func _apply_crucible_status_from_tree(winner_id: int) -> void:
 		stat_units_landed.text = "Crucible settlement: %s. You won this Wax match." % settlement_status.capitalize()
 	else:
 		stat_units_landed.text = "Crucible settlement: %s. You lost this Wax match." % settlement_status.capitalize()
+
+func _apply_competitive_wax_status_from_tree() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or bool(tree.get_meta("vs_crucible", false)) or not tree.has_meta("competitive_wax_result"):
+		return
+	var wax_result: Dictionary = tree.get_meta("competitive_wax_result", {}) as Dictionary
+	var breakdown: Dictionary = wax_result.get("breakdown", wax_result.get("award", {})) as Dictionary
+	var delta_millis: int = int(tree.get_meta("competitive_wax_delta_millis", breakdown.get("applied_wax_delta_millis", breakdown.get("final_wax_delta_millis", 0))))
+	var balance_millis: int = maxi(0, int(tree.get_meta("competitive_wax_balance_millis", wax_result.get("balance_millis", breakdown.get("balance_millis", 0)))))
+	var status: String = str(tree.get_meta("competitive_wax_status", breakdown.get("validity_status", ""))).strip_edges()
+	var reason: String = str(breakdown.get("anti_harvest_reason_if_blocked", breakdown.get("close_loss_reason", ""))).strip_edges()
+	_set_standard_rows_visible(true)
+	stats_header.text = "Competitive Wax"
+	stat_max_power.text = "Change %s | Balance %s" % [_format_signed_wax_millis(delta_millis), _format_wax_millis(balance_millis)]
+	if bool(tree.get_meta("competitive_wax_held_for_review", false)) or status == "held_review":
+		stat_units_killed.text = "Wax result held for review."
+	elif status == "blocked":
+		stat_units_killed.text = "Wax not awarded."
+	elif delta_millis == 0:
+		stat_units_killed.text = "No Wax change for this result."
+	else:
+		stat_units_killed.text = "Wax ledger updated."
+	stat_units_landed.text = reason if not reason.is_empty() else str(breakdown.get("mode_group", ""))
 
 func _format_wax_millis(amount_millis: int) -> String:
 	var clean_millis: int = maxi(0, amount_millis)

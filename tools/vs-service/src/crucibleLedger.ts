@@ -470,10 +470,12 @@ export class CrucibleLedger {
     const status = cleanString(breakdown.validity_status) || "eligible";
     const deltaMillis = intValue(breakdown.final_wax_delta_millis);
     if (status === "blocked" || deltaMillis === 0) {
+      const heldForReview = status === "held_review";
       const result = {
         ok: true,
         awarded: false,
         subtracted: false,
+        held_for_review: heldForReview,
         event_id: eventId,
         breakdown: clone(breakdown),
         balance_millis: this.getBalanceMillis(cleanPlayer)
@@ -560,6 +562,51 @@ export class CrucibleLedger {
       wax_stats_by_player: Object.fromEntries([...this.waxStatsByPlayer.entries()].map(([key, value]) => [key, clone(value)])),
       operation_results: Object.fromEntries([...this.operationResults.entries()].map(([key, value]) => [key, clone(value)])),
       next_transaction_seq: this.nextTransactionSeq
+    };
+  }
+
+  getWaxAuditSnapshot(filters: JsonRecord = {}): JsonRecord {
+    const playerId = cleanString(filters.player_id);
+    const statusFilter = cleanString(filters.validity_status ?? filters.status);
+    const limit = Math.max(1, Math.min(500, intValue(filters.limit, 100)));
+    const awards: JsonRecord[] = [];
+    const heldReviews: JsonRecord[] = [];
+    for (const awardRaw of this.competitiveWaxAwardsByEvent.values()) {
+      const award = clone(awardRaw);
+      if (playerId && cleanString(award.player_id) !== playerId) {
+        continue;
+      }
+      if (statusFilter && cleanString(award.validity_status) !== statusFilter) {
+        continue;
+      }
+      awards.push(award);
+      if (cleanString(award.validity_status) === "held_review") {
+        heldReviews.push(award);
+      }
+      if (awards.length >= limit) {
+        break;
+      }
+    }
+    const entries: JsonRecord[] = [];
+    for (let i = this.transactions.length - 1; i >= 0; i -= 1) {
+      const entry = clone(this.transactions[i]);
+      if (playerId && cleanString(entry.player_id) !== playerId) {
+        continue;
+      }
+      entries.push(entry);
+      if (entries.length >= limit) {
+        break;
+      }
+    }
+    return {
+      ok: true,
+      filters: clone(filters),
+      award_count: awards.length,
+      held_review_count: heldReviews.length,
+      ledger_entry_count: entries.length,
+      awards,
+      held_reviews: heldReviews,
+      ledger_entries: entries
     };
   }
 

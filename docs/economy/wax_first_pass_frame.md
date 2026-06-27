@@ -1,6 +1,6 @@
 # Wax First-Pass Economy Frame
 
-Status: backend first slice implemented. `WaxRewardPolicy` exists locally, `waxRewardPolicy.ts` mirrors it in the VS service, and `record_competitive_wax_result` applies competitive Wax awards/losses into the same `wax_millis` pool used by Crucible wagering. Live PvP, async money payout approval, free/tournament contest rank closeout, and Hive tournament bracket winner closeout now publish into that backend path when configured. RankState `wax_score` remains a separate rating/progression score.
+Status: backend first slice implemented. `WaxRewardPolicy` exists locally, `waxRewardPolicy.ts` mirrors it in the VS service, and `record_competitive_wax_result` applies competitive Wax awards/losses into the same `wax_millis` pool used by Crucible wagering. Live PvP, async money payout approval, free/tournament contest rank closeout, and Hive tournament bracket winner closeout now publish into that backend path when configured. Close-loss Wax now requires an auditable quality metric, suspicious awards are held for review, player-facing Wax summaries are available from CrucibleState, and ops can query a narrower Wax audit snapshot. RankState `wax_score` remains a separate rating/progression score.
 
 ## Core Philosophy
 
@@ -74,7 +74,8 @@ Opponent strength should be derived from rating/MMR/rank delta using configurabl
 - Must be configurable.
 - Should not simply mean "lost."
 - Should represent a quality loss where the player meaningfully exceeded expectation against a stronger opponent.
-- If no reliable close-loss metric exists yet, defer close-loss Wax or use a conservative placeholder until the metric is trustworthy.
+- If no reliable close-loss metric exists yet, defer close-loss Wax.
+- Current implementation only awards close-loss Wax against stronger opponents when a close-loss metric is present and meets the configured score threshold.
 
 ## Async
 
@@ -173,7 +174,7 @@ Repeated opponent logic:
 
 Collusion handling:
 
-- First pass can log/hold rather than fully adjudicate.
+- First pass logs/holds suspicious Wax awards rather than fully adjudicating them.
 - Emit telemetry for suspicious Wax awards.
 - Include match_id, player IDs, mode, opponent strength band, award amount, and block/hold reason.
 

@@ -23,9 +23,17 @@ class FakeRankState:
 
 const HiveClanStateScript = preload("res://scripts/state/hive_clan_state.gd")
 const SAVE_PATH := "user://hive_tournament_round_smoke.json"
+const SETTINGS_VS_BACKEND_URL: String = "swarmfront/vs/backend_url"
+const SETTINGS_VS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 
 func _init() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+	if OS.get_environment("SF_VS_BACKEND_URL").strip_edges().is_empty():
+		ProjectSettings.set_setting(SETTINGS_VS_BACKEND_URL, "")
+		ProjectSettings.set_setting(SETTINGS_VS_BACKEND_TOKEN, "")
+		var handshake: Node = get_root().get_node_or_null("VsHandshake")
+		if handshake != null and handshake.has_method("_configure_transport"):
+			handshake.call("_configure_transport")
 	await process_frame
 
 	var profile_manager: Node = get_root().get_node_or_null("ProfileManager")

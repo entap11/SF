@@ -2,6 +2,7 @@ extends SceneTree
 
 const WaxRewardPolicy = preload("res://scripts/state/wax_reward_policy.gd")
 const HoneyEconomySimulator = preload("res://scripts/state/honey_economy_simulator.gd")
+const WaxEconomySimulator = preload("res://scripts/state/wax_economy_simulator.gd")
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 
@@ -21,6 +22,7 @@ func _run() -> void:
 	await _test_competitive_wax_ledger()
 	await _test_nectar_policy()
 	_test_honey_simulator()
+	_test_wax_simulator()
 	print("ECONOMY_LAYER_SMOKE: PASS")
 	quit(0)
 
@@ -52,10 +54,54 @@ func _test_wax_policy() -> void:
 		"mode_name": "PROGRESSIVE",
 		"did_win": false,
 		"close_loss_qualified": true,
+		"close_loss_margin_ratio": 0.04,
 		"player_rating": 1000.0,
 		"opponent_rating": 1125.0
 	})
 	_assert_eq(int(close_loss.get("final_wax_delta", 0)), 1, "close loss vs slightly stronger should award 1 Wax")
+	_assert_true(bool(close_loss.get("close_loss_qualified", false)), "metric-backed close loss should qualify")
+	var close_loss_missing_metric: Dictionary = WaxRewardPolicy.evaluate_match({
+		"match_id": "wax_policy_close_missing",
+		"player_id": "wax_a",
+		"opponent_id": "wax_b",
+		"mode_name": "PROGRESSIVE",
+		"did_win": false,
+		"close_loss_qualified": true,
+		"player_rating": 1000.0,
+		"opponent_rating": 1125.0
+	})
+	_assert_eq(int(close_loss_missing_metric.get("final_wax_delta", 0)), 0, "close loss without metric should not award Wax")
+	_assert_eq(str(close_loss_missing_metric.get("close_loss_reason", "")), "missing_close_loss_metric", "missing close-loss metric should be auditable")
+	var close_loss_weaker: Dictionary = WaxRewardPolicy.evaluate_match({
+		"match_id": "wax_policy_close_weaker",
+		"player_id": "wax_a",
+		"opponent_id": "wax_b",
+		"mode_name": "PROGRESSIVE",
+		"did_win": false,
+		"close_loss_score": 1.0,
+		"player_rating": 1500.0,
+		"opponent_rating": 1000.0
+	})
+	_assert_eq(int(close_loss_weaker.get("final_wax_delta", 0)), -2, "loss to weaker opponent should never receive close-loss Wax")
+	var too_short: Dictionary = WaxRewardPolicy.evaluate_match({
+		"match_id": "wax_policy_short",
+		"player_id": "wax_a",
+		"opponent_id": "wax_b",
+		"mode_name": "1V1",
+		"did_win": true,
+		"duration_sec": 5
+	})
+	_assert_eq(str(too_short.get("validity_status", "")), "blocked", "too-short match should be blocked")
+	_assert_eq(str(too_short.get("anti_harvest_reason_if_blocked", "")), "match_too_short", "too-short block should be auditable")
+	var held_review: Dictionary = WaxRewardPolicy.evaluate_match({
+		"match_id": "wax_policy_held",
+		"player_id": "wax_a",
+		"opponent_id": "wax_b",
+		"mode_name": "1V1",
+		"did_win": true,
+		"suspicious_win_trading": true
+	})
+	_assert_eq(str(held_review.get("validity_status", "")), "held_review", "suspicious award should be held for review")
 	var crucible: Dictionary = WaxRewardPolicy.evaluate_match({
 		"match_id": "wax_policy_crucible",
 		"player_id": "wax_a",
@@ -88,6 +134,23 @@ func _test_competitive_wax_ledger() -> void:
 	}) as Dictionary
 	_assert_true(bool(dup.get("duplicate", false)), "duplicate Wax result should be ignored")
 	_assert_eq(int(crucible_state.call("get_balance_millis", "wax_ledger_a")), 13000, "duplicate should not double-award Wax")
+	var held: Dictionary = crucible_state.call("intent_apply_competitive_wax_result", "wax_match_held", "wax_ledger_a", "wax_ledger_b", true, "1V1", {
+		"event_id": "wax_match_held:wax_ledger_a",
+		"player_rating": 1000.0,
+		"opponent_rating": 1000.0,
+		"suspicious_win_trading": true
+	}) as Dictionary
+	_assert_true(bool(held.get("held_for_review", false)), "suspicious competitive Wax should be held for review")
+	_assert_eq(int(crucible_state.call("get_balance_millis", "wax_ledger_a")), 13000, "held review should not change Wax balance")
+	var summary: Dictionary = crucible_state.call("get_player_wax_summary", "wax_ledger_a", 5) as Dictionary
+	_assert_true(bool(summary.get("ok", false)), "Wax summary should return ok")
+	_assert_eq(int(summary.get("balance_millis", 0)), 13000, "Wax summary should expose current balance")
+	_assert_eq(int(summary.get("held_review_count", 0)), 1, "Wax summary should count held awards")
+	var activity: Array = summary.get("recent_activity", []) as Array
+	_assert_true(activity.size() >= 2, "Wax summary should expose recent activity")
+	var audit: Dictionary = crucible_state.call("get_wax_audit_snapshot", {"player_id": "wax_ledger_a", "validity_status": "held_review"}) as Dictionary
+	_assert_true(bool(audit.get("ok", false)), "Wax audit snapshot should return ok")
+	_assert_eq(int(audit.get("held_review_count", 0)), 1, "Wax audit snapshot should filter held reviews")
 
 func _test_nectar_policy() -> void:
 	var battle_pass_state: Node = get_root().get_node_or_null("BattlePassState")
@@ -121,6 +184,13 @@ func _test_honey_simulator() -> void:
 	_assert_true(profiles.size() >= 8, "Honey simulator should include required profiles")
 	var hives: Dictionary = sim.get("hive_examples", {}) as Dictionary
 	_assert_true(hives.has("mixed") and hives.has("free_only"), "Honey simulator should include hive examples")
+
+func _test_wax_simulator() -> void:
+	var sim: Dictionary = WaxEconomySimulator.simulate(90)
+	_assert_true(bool(sim.get("ok", false)), "Wax simulator should return ok")
+	var profiles: Array = sim.get("profiles", []) as Array
+	_assert_true(profiles.size() >= 8, "Wax simulator should include required profiles")
+	_assert_true(not bool(sim.get("farmer_beats_average", true)), "Wax farming should not beat average play")
 
 func _assert_true(value: bool, label: String) -> void:
 	if value:

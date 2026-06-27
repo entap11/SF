@@ -859,6 +859,8 @@ function handleAction(req: Request, res: Response): void {
       return debugSetCrucibleBalance(req, res);
     case "debug_get_crucible_snapshot":
       return debugGetCrucibleSnapshot(req, res);
+    case "get_wax_audit_snapshot":
+      return getWaxAuditSnapshot(req, res);
     case "leave_session":
       return leaveSession(req, res);
     case "heartbeat":
@@ -2032,6 +2034,14 @@ function debugGetCrucibleSnapshot(req: Request, res: Response): void {
   return ok(res, { ledger: crucibleLedger.getSnapshot() });
 }
 
+function getWaxAuditSnapshot(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  const filters = isRecord(req.body?.filters) ? req.body.filters : (req.body ?? {});
+  return ok(res, crucibleLedger.getWaxAuditSnapshot(filters));
+}
+
 function leaveSession(req: Request, res: Response): void {
   const sessionId = stringValue(req.body?.session_id);
   const uid = stringValue(req.body?.uid);
@@ -2326,7 +2336,8 @@ export function createApp(): express.Express {
         grant_honey: "POST /v1/grant_honey",
         debit_hive_honey_purchase: "POST /v1/debit_hive_honey_purchase",
         get_wax_policy: "POST /v1/get_wax_policy",
-        record_competitive_wax_result: "POST /v1/record_competitive_wax_result"
+        record_competitive_wax_result: "POST /v1/record_competitive_wax_result",
+        get_wax_audit_snapshot: "POST /v1/get_wax_audit_snapshot"
       },
       crucible: {
         storage: crucibleLedger.getStorageSnapshot(),

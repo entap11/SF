@@ -23,6 +23,9 @@ static func default_config() -> Dictionary:
 		"async_multiplier_bps": 9500,
 		"repeated_opponent_soft_count": 2,
 		"repeated_opponent_zero_count": 3,
+		"close_loss_min_score": 0.8,
+		"close_loss_max_margin_ratio": 0.10,
+		"minimum_match_duration_sec": 30,
 		"standard_win_wax": {
 			STRENGTH_MUCH_WEAKER: 1,
 			STRENGTH_SLIGHTLY_WEAKER: 2,
@@ -87,7 +90,11 @@ static func evaluate_match(payload: Dictionary, config: Dictionary = {}) -> Dict
 		"mode_group": mode_group,
 		"result": "win" if bool(payload.get("did_win", false)) else "loss",
 		"opponent_strength_band": STRENGTH_EQUAL,
-		"close_loss_qualified": bool(payload.get("close_loss_qualified", false)),
+		"close_loss_qualified": false,
+		"close_loss_score": 0.0,
+		"close_loss_reason": "",
+		"rating_source": str(payload.get("rating_source", "")).strip_edges(),
+		"rating_confidence": float(payload.get("rating_confidence", 0.0)),
 		"base_wax_delta": 0,
 		"mode_multiplier": 1.0,
 		"final_wax_delta": 0,
@@ -99,7 +106,7 @@ static func evaluate_match(payload: Dictionary, config: Dictionary = {}) -> Dict
 	var blocked_reason: String = _blocked_reason(payload, mode_group)
 	if not blocked_reason.is_empty():
 		breakdown["ok"] = true
-		breakdown["validity_status"] = "blocked"
+		breakdown["validity_status"] = "held_review" if blocked_reason == "suspicious_wax_hold" else "blocked"
 		breakdown["anti_harvest_reason_if_blocked"] = blocked_reason
 		return breakdown
 	if mode_group == MODE_GROUP_TOURNAMENT:
@@ -112,7 +119,11 @@ static func evaluate_match(payload: Dictionary, config: Dictionary = {}) -> Dict
 		merged_config
 	)
 	breakdown["opponent_strength_band"] = strength_band
-	var base_delta: int = _base_match_delta(strength_band, bool(payload.get("did_win", false)), bool(payload.get("close_loss_qualified", false)), merged_config)
+	var close_loss: Dictionary = _evaluate_close_loss(payload, strength_band, merged_config)
+	breakdown["close_loss_qualified"] = bool(close_loss.get("qualified", false))
+	breakdown["close_loss_score"] = float(close_loss.get("score", 0.0))
+	breakdown["close_loss_reason"] = str(close_loss.get("reason", ""))
+	var base_delta: int = _base_match_delta(strength_band, bool(payload.get("did_win", false)), bool(close_loss.get("qualified", false)), merged_config)
 	breakdown["base_wax_delta"] = base_delta
 	var multiplier_bps: int = int(merged_config.get("async_multiplier_bps", BASIS_POINTS_DENOMINATOR)) if mode_group == MODE_GROUP_ASYNC else BASIS_POINTS_DENOMINATOR
 	var diminished: Dictionary = _apply_repeated_opponent_diminishing(base_delta, int(payload.get("repeated_opponent_count", 0)), merged_config)
@@ -164,7 +175,15 @@ static func _blocked_reason(payload: Dictionary, mode_group: String) -> String:
 	for flag in ["tutorial", "practice", "custom_match", "private_match", "afk", "immediate_surrender", "no_contest", "refunded", "desync", "invalid_result"]:
 		if bool(payload.get(flag, false)):
 			return flag
-	if bool(payload.get("suspicious_win_trading", false)) or bool(payload.get("same_account_cluster", false)):
+	if payload.has("minimum_quality_met") and not bool(payload.get("minimum_quality_met", true)):
+		return "minimum_quality_not_met"
+	var duration_sec: float = float(payload.get("duration_sec", float(payload.get("match_duration_ms", 0.0)) / 1000.0))
+	if duration_sec > 0.0 and duration_sec < float(default_config().get("minimum_match_duration_sec", 30)):
+		return "match_too_short"
+	for review_flag in ["suspicious_win_trading", "same_account_cluster", "same_device_cluster", "same_ip_cluster", "account_cluster_abuse", "low_effort_farming", "win_trading_signal", "abuse_review_required"]:
+		if bool(payload.get(review_flag, false)):
+			return "suspicious_wax_hold"
+	if str(payload.get("review_status", "")).strip_edges().to_lower() == "held":
 		return "suspicious_wax_hold"
 	return ""
 
@@ -174,6 +193,52 @@ static func _base_match_delta(strength_band: String, did_win: bool, close_loss: 
 	if close_loss:
 		return int((config.get("standard_close_loss_wax", {}) as Dictionary).get(strength_band, 0))
 	return int((config.get("standard_loss_wax", {}) as Dictionary).get(strength_band, 0))
+
+static func _evaluate_close_loss(payload: Dictionary, strength_band: String, config: Dictionary) -> Dictionary:
+	if bool(payload.get("did_win", false)):
+		return {"qualified": false, "score": 0.0, "reason": "win"}
+	if not [STRENGTH_SLIGHTLY_STRONGER, STRENGTH_MUCH_STRONGER].has(strength_band):
+		return {"qualified": false, "score": 0.0, "reason": "opponent_not_stronger"}
+	var metric: Dictionary = _close_loss_metric(payload, config)
+	var score: float = clampf(float(metric.get("score", 0.0)), 0.0, 1.0)
+	if not bool(metric.get("has_metric", false)):
+		return {"qualified": false, "score": score, "reason": "missing_close_loss_metric"}
+	var min_score: float = clampf(float(config.get("close_loss_min_score", 0.8)), 0.0, 1.0)
+	if score < min_score:
+		return {"qualified": false, "score": score, "reason": str(metric.get("reason", "close_loss_score_too_low"))}
+	return {"qualified": true, "score": score, "reason": str(metric.get("reason", "qualified"))}
+
+static func _close_loss_metric(payload: Dictionary, config: Dictionary) -> Dictionary:
+	if payload.has("close_loss_score"):
+		return {"has_metric": true, "score": clampf(float(payload.get("close_loss_score", 0.0)), 0.0, 1.0), "reason": "explicit_score"}
+	if payload.has("close_loss_margin_ratio"):
+		return _close_loss_score_from_margin_ratio(float(payload.get("close_loss_margin_ratio", 1.0)), config, "margin_ratio")
+	if payload.has("score_margin"):
+		var score_total: float = maxf(1.0, absf(float(payload.get("player_score", 0.0))) + absf(float(payload.get("opponent_score", 0.0))))
+		return _close_loss_score_from_margin_ratio(absf(float(payload.get("score_margin", 0.0))) / score_total, config, "score_margin")
+	if payload.has("player_score") and payload.has("opponent_score"):
+		var player_score: float = float(payload.get("player_score", 0.0))
+		var opponent_score: float = float(payload.get("opponent_score", 0.0))
+		var max_score: float = maxf(1.0, maxf(absf(player_score), absf(opponent_score)))
+		return _close_loss_score_from_margin_ratio(absf(opponent_score - player_score) / max_score, config, "score_delta")
+	if payload.has("time_margin_ms"):
+		var elapsed_ms: float = maxf(1.0, float(payload.get("elapsed_ms", payload.get("match_duration_ms", 0.0))))
+		return _close_loss_score_from_margin_ratio(absf(float(payload.get("time_margin_ms", 0.0))) / elapsed_ms, config, "time_margin")
+	if payload.has("objective_progress_ratio"):
+		return {"has_metric": true, "score": clampf(float(payload.get("objective_progress_ratio", 0.0)), 0.0, 1.0), "reason": "objective_progress"}
+	if payload.has("survival_ratio"):
+		return {"has_metric": true, "score": clampf(float(payload.get("survival_ratio", 0.0)), 0.0, 1.0), "reason": "survival_ratio"}
+	return {"has_metric": false, "score": 0.0, "reason": "missing_close_loss_metric"}
+
+static func _close_loss_score_from_margin_ratio(margin_ratio: float, config: Dictionary, reason: String) -> Dictionary:
+	var max_margin: float = maxf(0.001, float(config.get("close_loss_max_margin_ratio", 0.10)))
+	var safe_margin: float = clampf(absf(margin_ratio), 0.0, 1.0)
+	var score: float = 0.0
+	if safe_margin <= max_margin:
+		score = 1.0 - (safe_margin / max_margin * 0.2)
+	else:
+		score = maxf(0.0, 0.8 - ((safe_margin - max_margin) / max_margin))
+	return {"has_metric": true, "score": clampf(score, 0.0, 1.0), "reason": reason}
 
 static func _apply_repeated_opponent_diminishing(delta: int, repeated_count: int, config: Dictionary) -> Dictionary:
 	var zero_count: int = maxi(1, int(config.get("repeated_opponent_zero_count", 3)))

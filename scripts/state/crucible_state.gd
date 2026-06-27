@@ -95,6 +95,80 @@ func get_snapshot() -> Dictionary:
 		"anti_collusion_observations": _anti_collusion_observations.duplicate(true)
 	}
 
+func get_player_wax_summary(player_id: String, limit: int = 8) -> Dictionary:
+	var clean_id: String = player_id.strip_edges()
+	if clean_id.is_empty():
+		return {"ok": false, "err": "missing_player_id"}
+	var safe_limit: int = clampi(limit, 1, 50)
+	var recent: Array[Dictionary] = get_player_wax_activity(clean_id, safe_limit)
+	return {
+		"ok": true,
+		"player_id": clean_id,
+		"balance_millis": get_balance_millis(clean_id),
+		"balance_label": _format_wax_millis(get_balance_millis(clean_id)),
+		"stats": _safe_dictionary(_wax_stats_by_player.get(clean_id, {})),
+		"recent_activity": recent,
+		"held_review_count": _held_wax_review_count(clean_id)
+	}
+
+func get_player_wax_activity(player_id: String, limit: int = 8) -> Array[Dictionary]:
+	var clean_id: String = player_id.strip_edges()
+	var safe_limit: int = clampi(limit, 1, 50)
+	var out: Array[Dictionary] = []
+	for i in range(_ledger_entries.size() - 1, -1, -1):
+		var entry: Dictionary = _ledger_entries[i] as Dictionary
+		if str(entry.get("player_id", "")).strip_edges() != clean_id:
+			continue
+		out.append(_player_wax_activity_from_ledger(entry))
+		if out.size() >= safe_limit:
+			return out
+	for award_any in _competitive_wax_awards_by_event.values():
+		if out.size() >= safe_limit:
+			break
+		var award: Dictionary = award_any as Dictionary
+		if str(award.get("player_id", "")).strip_edges() != clean_id:
+			continue
+		if str(award.get("validity_status", "")) != "held_review":
+			continue
+		out.append(_player_wax_activity_from_award(award))
+	return out
+
+func get_wax_audit_snapshot(filters: Dictionary = {}) -> Dictionary:
+	var player_id: String = str(filters.get("player_id", "")).strip_edges()
+	var status_filter: String = str(filters.get("validity_status", filters.get("status", ""))).strip_edges()
+	var limit: int = clampi(int(filters.get("limit", 100)), 1, 500)
+	var awards: Array[Dictionary] = []
+	var held_reviews: Array[Dictionary] = []
+	for award_any in _competitive_wax_awards_by_event.values():
+		var award: Dictionary = (award_any as Dictionary).duplicate(true)
+		if not player_id.is_empty() and str(award.get("player_id", "")).strip_edges() != player_id:
+			continue
+		if not status_filter.is_empty() and str(award.get("validity_status", "")).strip_edges() != status_filter:
+			continue
+		awards.append(award)
+		if str(award.get("validity_status", "")) == "held_review":
+			held_reviews.append(award)
+		if awards.size() >= limit:
+			break
+	var entries: Array[Dictionary] = []
+	for i in range(_ledger_entries.size() - 1, -1, -1):
+		var entry: Dictionary = (_ledger_entries[i] as Dictionary).duplicate(true)
+		if not player_id.is_empty() and str(entry.get("player_id", "")).strip_edges() != player_id:
+			continue
+		entries.append(entry)
+		if entries.size() >= limit:
+			break
+	return {
+		"ok": true,
+		"filters": filters.duplicate(true),
+		"award_count": awards.size(),
+		"held_review_count": held_reviews.size(),
+		"ledger_entry_count": entries.size(),
+		"awards": awards,
+		"held_reviews": held_reviews,
+		"ledger_entries": entries
+	}
+
 func intent_update_config(patch: Dictionary, actor_id: String = "ops") -> Dictionary:
 	if _server_authoritative_enabled():
 		var backend: Node = _handshake_backend()
@@ -443,10 +517,11 @@ func intent_apply_competitive_wax_result(match_id: String, player_id: String, op
 	var status: String = str(breakdown.get("validity_status", "eligible"))
 	var delta_millis: int = int(breakdown.get("final_wax_delta_millis", 0))
 	if status == "blocked" or delta_millis == 0:
-		_emit_event("wax_blocked_antiharvest" if status == "blocked" else "wax_award_attempt", breakdown)
+		var held_for_review: bool = status == "held_review"
+		_emit_event("wax_held_review" if held_for_review else ("wax_blocked_antiharvest" if status == "blocked" else "wax_award_attempt"), breakdown)
 		_save_state()
 		_emit_changed()
-		return {"ok": true, "awarded": false, "event_id": event_id, "breakdown": breakdown, "balance_millis": get_balance_millis(clean_player)}
+		return {"ok": true, "awarded": false, "held_for_review": held_for_review, "event_id": event_id, "breakdown": breakdown, "balance_millis": get_balance_millis(clean_player)}
 	_ensure_player(clean_player)
 	var applied_delta: int = delta_millis
 	if delta_millis < 0:
@@ -911,6 +986,57 @@ func _earn_amount_for_path(path: String, metadata: Dictionary) -> int:
 			return maxi(0, _runtime_config().event_earn_millis)
 		_:
 			return maxi(0, int(metadata.get("amount_millis", 0)))
+
+func _player_wax_activity_from_ledger(entry: Dictionary) -> Dictionary:
+	var metadata: Dictionary = _safe_dictionary(entry.get("metadata", {}))
+	var breakdown: Dictionary = _safe_dictionary(metadata.get("breakdown", {}))
+	var amount_millis: int = int(entry.get("amount_millis", 0))
+	return {
+		"activity_id": str(entry.get("entry_id", "")),
+		"source": str(entry.get("entry_type", "")),
+		"match_id": str(entry.get("match_id", "")),
+		"amount_millis": amount_millis,
+		"amount_label": _format_signed_wax_millis(amount_millis),
+		"balance_millis": int(breakdown.get("balance_millis", 0)),
+		"status": str(breakdown.get("validity_status", "settled")),
+		"reason": str(breakdown.get("anti_harvest_reason_if_blocked", breakdown.get("result", ""))),
+		"mode_group": str(breakdown.get("mode_group", "")),
+		"created_at": int(entry.get("created_at", 0)),
+		"metadata": metadata.duplicate(true)
+	}
+
+func _player_wax_activity_from_award(award: Dictionary) -> Dictionary:
+	var amount_millis: int = int(award.get("applied_wax_delta_millis", award.get("final_wax_delta_millis", 0)))
+	return {
+		"activity_id": str(award.get("event_id", "")),
+		"source": "COMPETITIVE_WAX_REVIEW",
+		"match_id": str(award.get("match_id", "")),
+		"amount_millis": amount_millis,
+		"amount_label": _format_signed_wax_millis(amount_millis),
+		"balance_millis": int(award.get("balance_millis", get_balance_millis(str(award.get("player_id", ""))))),
+		"status": str(award.get("validity_status", "")),
+		"reason": str(award.get("anti_harvest_reason_if_blocked", "")),
+		"mode_group": str(award.get("mode_group", "")),
+		"created_at": int(award.get("created_at", 0)),
+		"metadata": award.duplicate(true)
+	}
+
+func _held_wax_review_count(player_id: String) -> int:
+	var count: int = 0
+	for award_any in _competitive_wax_awards_by_event.values():
+		var award: Dictionary = award_any as Dictionary
+		if str(award.get("player_id", "")).strip_edges() == player_id and str(award.get("validity_status", "")) == "held_review":
+			count += 1
+	return count
+
+func _format_wax_millis(amount_millis: int) -> String:
+	var clean_millis: int = maxi(0, amount_millis)
+	return "%d.%03d Wax" % [int(clean_millis / 1000), clean_millis % 1000]
+
+func _format_signed_wax_millis(amount_millis: int) -> String:
+	if amount_millis < 0:
+		return "-%s" % _format_wax_millis(absi(amount_millis))
+	return _format_wax_millis(amount_millis)
 
 func _ensure_config() -> void:
 	if _config != null:
