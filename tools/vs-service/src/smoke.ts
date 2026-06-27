@@ -333,6 +333,10 @@ async function main(): Promise<void> {
     expect(String(asyncPayoutSettle.approval_status) === "approved", "async payout approval status mismatch", asyncPayoutSettle);
     expect(Number(asyncPayoutSettle.payout_total_cents) === 2250, "async payout table total mismatch", asyncPayoutSettle);
     expect(Number(asyncPayoutSettle.house_rake_cents) === 250, "async payout table rake mismatch", asyncPayoutSettle);
+    expect(Array.isArray(asyncPayoutSettle.wax_awards) && (asyncPayoutSettle.wax_awards as JsonRecord[]).length === 4, "async payout approval should emit Wax award records", asyncPayoutSettle);
+    const asyncPoolWaxSnapshot = await post(baseUrl, "debug_get_crucible_snapshot", {}, adminHeaders);
+    const asyncPoolWaxBalances = ((asyncPoolWaxSnapshot.ledger as JsonRecord).balances_by_player as JsonRecord);
+    expect(Number(asyncPoolWaxBalances.async_pool_1) === 5000 && Number(asyncPoolWaxBalances.async_pool_2) === 3000, "async payout approval should award placement Wax", asyncPoolWaxSnapshot);
     const asyncPayoutTransactions = await post(baseUrl, "get_money_transactions", {
       contest_id: "async_contest_pool",
       transaction_type: "async_winner_payout"
@@ -403,6 +407,10 @@ async function main(): Promise<void> {
       idempotency_key: "settle:async_race_backend:backend_results"
     });
     expect(Number(raceBackendSettle.payout_count) === 2, "race backend result settlement payout count mismatch", raceBackendSettle);
+    expect(Array.isArray(raceBackendSettle.wax_awards) && (raceBackendSettle.wax_awards as JsonRecord[]).length === 2, "race backend settlement should award Wax from leaderboard rows", raceBackendSettle);
+    const raceWaxSnapshot = await post(baseUrl, "debug_get_crucible_snapshot", {}, adminHeaders);
+    const raceWaxBalances = ((raceWaxSnapshot.ledger as JsonRecord).balances_by_player as JsonRecord);
+    expect(Number(raceWaxBalances.race_backend_p2) === 5000 && Number(raceWaxBalances.race_backend_p1) === 3000, "race backend result settlement Wax balance mismatch", raceWaxSnapshot);
 
     for (const playerId of ["miss_backend_p1", "miss_backend_p2", "miss_backend_p3"]) {
       await post(baseUrl, "open_async_entry_escrow", {

@@ -99,6 +99,7 @@ Wax ledger notes:
 
 - Wax is stored as integer `wax_millis` in the Crucible ledger so competitive earning and Crucible wagering draw from the same pool.
 - `record_competitive_wax_result` is the preferred non-Crucible award/loss path; it calculates server-side from match result, mode group, player/opponent rating, placement metadata, and anti-harvest signals.
+- Approved async contest payout reports call the same Wax path for approved placement rows; backend result-ledger reports use ranked leaderboard rows when available.
 - Crucible match participation does not award competitive Wax. Crucible only escrows, burns, refunds, and pays out wagered Wax.
 - RankState `wax_score` remains a separate rating/progression input and should not be treated as the spendable/wagerable Wax balance.
 
