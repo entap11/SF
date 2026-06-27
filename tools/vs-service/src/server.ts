@@ -12,6 +12,8 @@ import {
 } from "./contestDash.js";
 import { moneyLedger, type JsonRecord as LedgerJsonRecord } from "./moneyLedger.js";
 import { crucibleLedger } from "./crucibleLedger.js";
+import { honeyLedger } from "./honeyLedger.js";
+import { honeyActivitySpecsSnapshot } from "./honeyEconomyPolicy.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -810,6 +812,26 @@ function handleAction(req: Request, res: Response): void {
       return getMoneyPayoutSummary(req, res);
     case "debug_get_money_ledger_snapshot":
       return debugGetMoneyLedgerSnapshot(req, res);
+    case "get_honey_balance":
+      return getHoneyBalance(req, res);
+    case "get_honey_policy":
+      return getHoneyPolicy(req, res);
+    case "record_honey_activity":
+      return recordHoneyActivity(req, res);
+    case "grant_honey":
+      return grantHoney(req, res);
+    case "debit_honey":
+      return debitHoney(req, res);
+    case "preview_hive_honey_purchase":
+      return previewHiveHoneyPurchase(req, res);
+    case "debit_hive_honey_purchase":
+      return debitHiveHoneyPurchase(req, res);
+    case "get_honey_transactions":
+      return getHoneyTransactions(req, res);
+    case "debug_set_honey_balance":
+      return debugSetHoneyBalance(req, res);
+    case "debug_get_honey_ledger_snapshot":
+      return debugGetHoneyLedgerSnapshot(req, res);
     case "get_crucible_config":
       return getCrucibleConfig(req, res);
     case "update_crucible_config":
@@ -1624,6 +1646,140 @@ function debugGetMoneyLedgerSnapshot(_req: Request, res: Response): void {
   return ok(res, { ledger: moneyLedger.getSnapshot() });
 }
 
+function honeyMemberIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => stringValue(entry)).filter(Boolean);
+}
+
+function honeyCostCenti(body: JsonRecord): number {
+  const direct = Number(body.cost_centi);
+  if (Number.isFinite(direct)) {
+    return Math.max(0, Math.trunc(direct));
+  }
+  const fallback = Number(body.honey_cost_centi);
+  return Number.isFinite(fallback) ? Math.max(0, Math.trunc(fallback)) : 0;
+}
+
+function getHoneyBalance(req: Request, res: Response): void {
+  const playerId = stringValue(req.body?.player_id);
+  const result = honeyLedger.getBalanceSnapshot(playerId);
+  return okOrLedgerFailure(res, result, 404);
+}
+
+function getHoneyPolicy(_req: Request, res: Response): void {
+  return ok(res, { policy: honeyActivitySpecsSnapshot() });
+}
+
+function recordHoneyActivity(req: Request, res: Response): void {
+  if (!requireMatchAuthority(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const opponentIds = Array.isArray(body.opponent_ids) ? body.opponent_ids.map((entry) => stringValue(entry)).filter(Boolean) : [];
+  const result = honeyLedger.recordActivity({
+    player_id: stringValue(body.player_id),
+    activity_key: stringValue(body.activity_key),
+    entap_title: stringValue(body.entap_title),
+    completed: body.completed == null ? true : boolValue(body.completed),
+    early_quit: boolValue(body.early_quit),
+    duration_sec: numberValue(body.duration_sec, 0),
+    opponent_ids: opponentIds,
+    occurred_unix: Math.trunc(numberValue(body.occurred_unix, 0)),
+    metadata
+  }, stringValue(body.idempotency_key));
+  return okOrLedgerFailure(res, result, 402);
+}
+
+function grantHoney(req: Request, res: Response): void {
+  if (!requireMatchAuthority(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = honeyLedger.grant(
+    stringValue(body.player_id),
+    Math.trunc(numberValue(body.amount_centi, 0)),
+    stringValue(body.source),
+    metadata,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result, 402);
+}
+
+function debitHoney(req: Request, res: Response): void {
+  if (!requireMatchAuthority(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = honeyLedger.debit(
+    stringValue(body.player_id),
+    Math.trunc(numberValue(body.amount_centi, 0)),
+    stringValue(body.source),
+    metadata,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result, 402);
+}
+
+function previewHiveHoneyPurchase(req: Request, res: Response): void {
+  const body = (req.body ?? {}) as JsonRecord;
+  const result = honeyLedger.previewHivePurchase(
+    stringValue(body.hive_id),
+    honeyMemberIds(body.member_ids),
+    honeyCostCenti(body)
+  );
+  return okOrLedgerFailure(res, result, 402);
+}
+
+function debitHiveHoneyPurchase(req: Request, res: Response): void {
+  if (!requireMatchAuthority(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = honeyLedger.debitHivePurchase(
+    stringValue(body.hive_id),
+    honeyMemberIds(body.member_ids),
+    honeyCostCenti(body),
+    stringValue(body.source),
+    metadata,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result, 402);
+}
+
+function getHoneyTransactions(req: Request, res: Response): void {
+  const filters = isRecord(req.body?.filters) ? req.body.filters : (req.body ?? {});
+  return ok(res, { transactions: honeyLedger.getTransactionLedger(filters) });
+}
+
+function debugSetHoneyBalance(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = honeyLedger.setBalanceCenti(
+    stringValue(body.player_id),
+    Math.trunc(numberValue(body.balance_centi, 0)),
+    stringValue(body.source) || "ops_debug",
+    metadata,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function debugGetHoneyLedgerSnapshot(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  return ok(res, { ledger: honeyLedger.getSnapshot() });
+}
+
 function getCrucibleConfig(_req: Request, res: Response): void {
   return ok(res, {
     config: crucibleLedger.getConfigSnapshot(),
@@ -2031,6 +2187,14 @@ export function createApp(): express.Express {
         configured_path: config.crucibleLedgerPath,
         admin_auth_required: Boolean(config.adminToken),
         match_authority_required: Boolean(config.matchAuthorityToken)
+      },
+      honey: {
+        storage: honeyLedger.getStorageSnapshot(),
+        configured_storage: config.honeyLedgerStore,
+        configured_path: config.honeyLedgerPath,
+        precision: "centi_honey",
+        admin_auth_required: Boolean(config.adminToken),
+        match_authority_required: Boolean(config.matchAuthorityToken)
       }
     });
   });
@@ -2051,12 +2215,24 @@ export function createApp(): express.Express {
       routes: {
         health: "/v1/health",
         create_invite: "POST /v1/create_invite",
-        contest_dash_config: "GET/POST /v1/contest_dash/config"
+        contest_dash_config: "GET/POST /v1/contest_dash/config",
+        get_honey_balance: "POST /v1/get_honey_balance",
+        record_honey_activity: "POST /v1/record_honey_activity",
+        grant_honey: "POST /v1/grant_honey",
+        debit_hive_honey_purchase: "POST /v1/debit_hive_honey_purchase"
       },
       crucible: {
         storage: crucibleLedger.getStorageSnapshot(),
         configured_storage: config.crucibleLedgerStore,
         configured_path: config.crucibleLedgerPath,
+        admin_auth_required: Boolean(config.adminToken),
+        match_authority_required: Boolean(config.matchAuthorityToken)
+      },
+      honey: {
+        storage: honeyLedger.getStorageSnapshot(),
+        configured_storage: config.honeyLedgerStore,
+        configured_path: config.honeyLedgerPath,
+        precision: "centi_honey",
         admin_auth_required: Boolean(config.adminToken),
         match_authority_required: Boolean(config.matchAuthorityToken)
       }
@@ -2076,6 +2252,14 @@ export function createApp(): express.Express {
         storage: crucibleLedger.getStorageSnapshot(),
         configured_storage: config.crucibleLedgerStore,
         configured_path: config.crucibleLedgerPath,
+        admin_auth_required: Boolean(config.adminToken),
+        match_authority_required: Boolean(config.matchAuthorityToken)
+      },
+      honey: {
+        storage: honeyLedger.getStorageSnapshot(),
+        configured_storage: config.honeyLedgerStore,
+        configured_path: config.honeyLedgerPath,
+        precision: "centi_honey",
         admin_auth_required: Boolean(config.adminToken),
         match_authority_required: Boolean(config.matchAuthorityToken)
       }

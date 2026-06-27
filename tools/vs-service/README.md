@@ -46,6 +46,14 @@ http://127.0.0.1:8791/v1
 - `POST /v1/refund_async_entry`
 - `POST /v1/get_money_transactions`
 - `POST /v1/get_money_payout_summary`
+- `POST /v1/get_honey_balance`
+- `POST /v1/get_honey_policy`
+- `POST /v1/record_honey_activity`
+- `POST /v1/grant_honey`
+- `POST /v1/debit_honey`
+- `POST /v1/preview_hive_honey_purchase`
+- `POST /v1/debit_hive_honey_purchase`
+- `POST /v1/get_honey_transactions`
 - `POST /v1/publish_intent`
 - `POST /v1/poll_intents`
 - `POST /v1/create_spectator_grant`
@@ -69,11 +77,21 @@ The same `POST /<action>` routes are also available for hosts that prefer a root
 - `VS_SPECTATOR_LIVE_ENABLED`: set to `1` to allow live admin spectate.
 - `VS_SPECTATOR_DEFAULT_DELAY_SEC`, `VS_SPECTATOR_MIN_DELAY_SEC`, `VS_SPECTATOR_MAX_DELAY_SEC`: delayed spectator bounds.
 - `VS_SPECTATOR_PUBLIC_ENABLED`: keep disabled for beta unless separately reviewed.
-- `VS_ADMIN_TOKEN`: local/dev admin auth for Crucible config, debug, award, refund, and review endpoints.
+- `VS_ADMIN_TOKEN`: local/dev admin auth for Crucible config/review/debug endpoints and Honey debug endpoints.
 - `VS_ADMIN_ROLE`: local/dev expected admin role. Defaults to `ops_admin`.
-- `VS_MATCH_AUTHORITY_TOKEN`: local/dev match-authority auth for Crucible escrow, settlement, and lifecycle writes.
+- `VS_MATCH_AUTHORITY_TOKEN`: local/dev match-authority auth for Crucible escrow, settlement, lifecycle writes, and Honey grant/debit writes.
 - `CRUCIBLE_LEDGER_STORE`: `file` or `memory` today; production target is `postgres`.
 - `CRUCIBLE_LEDGER_PATH`: JSON snapshot path for the local/dev file-backed Crucible ledger. Defaults to `data/crucible-ledger.json`.
+- `HONEY_LEDGER_STORE`: `file` or `memory` today; production target is the ENTaP player ledger.
+- `HONEY_LEDGER_PATH`: JSON snapshot path for the local/dev file-backed Honey ledger. Defaults to `data/honey-ledger.json`.
+
+Honey ledger notes:
+
+- Honey is stored as integer `centi_honey`.
+- `record_honey_activity` is the preferred award path; it calculates the reward server-side from activity key, expected duration, completion flags, and anti-farm signals.
+- Mutating Honey writes require match-authority auth in this local service.
+- Hive Honey purchases use member-owned proportional debits; there is no separate Hive treasury.
+- The current file-backed ledger is a local/dev adapter. Production should replace it with the canonical ENTaP player Honey ledger and real identity validation.
 
 Production Crucible requirements:
 

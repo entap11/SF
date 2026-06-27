@@ -37,12 +37,11 @@ func _init() -> void:
 	) as Dictionary
 	_assert_true(bool(disabled_result.get("ok", false)), "disabled gate should return a handled result")
 	_assert_eq(str(disabled_result.get("reason", "")), "honey_rewards_disabled", "disabled reason")
-	_assert_int_eq(int(disabled_result.get("honey_tenths_awarded", -1)), 0, "disabled tenths awarded")
+	_assert_int_eq(int(disabled_result.get("honey_centi_awarded", -1)), 0, "disabled centi awarded")
 	_assert_int_eq(int(profile_manager.call("get_honey_balance")), 0, "disabled profile balance")
 
 	var snapshot: Dictionary = honey_state.call("get_snapshot") as Dictionary
-	_assert_int_eq(int(snapshot.get("total_honey_tenths_awarded", -1)), 0, "disabled total awarded")
-	_assert_int_eq(int(snapshot.get("community_honey_tenths", -1)), 0, "disabled community total")
+	_assert_int_eq(int(snapshot.get("total_honey_centi_awarded", -1)), 0, "disabled total awarded")
 	_assert_true((snapshot.get("weekly_progress", {}) as Dictionary).is_empty(), "disabled weekly progress")
 	_assert_true((snapshot.get("recent_events", []) as Array).is_empty(), "disabled recent events")
 
@@ -61,9 +60,9 @@ func _init() -> void:
 		{"event_id": "ops_gate_disabled"}
 	) as Dictionary
 	_assert_true(bool(enabled_result.get("ok", false)), "event id should not be consumed while disabled")
-	_assert_int_eq(int(enabled_result.get("honey_tenths_awarded", -1)), 2, "enabled tenths awarded")
+	_assert_int_eq(int(enabled_result.get("honey_centi_awarded", -1)), 400, "enabled centi awarded")
 	snapshot = honey_state.call("get_snapshot") as Dictionary
-	_assert_int_eq(int(snapshot.get("total_honey_tenths_awarded", -1)), 2, "enabled total awarded")
+	_assert_int_eq(int(snapshot.get("total_honey_centi_awarded", -1)), 400, "enabled total awarded")
 
 	print("HONEY_REWARDS_OPS_GATE_SMOKE: PASS")
 	quit(0)

@@ -191,7 +191,7 @@ func _init() -> void:
 	var bp_snapshot: Dictionary = battle_pass_state.call("get_snapshot") as Dictionary
 	var crucible_snapshot: Dictionary = crucible_state.call("get_snapshot") as Dictionary
 	var settlements: Dictionary = crucible_snapshot.get("settlements_by_match_id", {}) as Dictionary
-	_assert_eq(int(honey_snapshot.get("total_honey_tenths_awarded", 0)), 0, "runtime Crucible awards no Honey")
+	_assert_eq(int(honey_snapshot.get("total_honey_centi_awarded", 0)), 0, "runtime Crucible awards no Honey")
 	_assert_eq(int(bp_snapshot.get("battle_pass_xp", 0)), 0, "runtime Crucible awards no Nectar")
 	_assert_true(settlements.has(RUNTIME_MATCH_ID), "runtime Crucible settles via CrucibleState")
 	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 52000, "runtime winner payout")

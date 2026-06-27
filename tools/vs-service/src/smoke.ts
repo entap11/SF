@@ -49,6 +49,7 @@ function expect(condition: unknown, message: string, details?: unknown): void {
 async function main(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), "sf-vs-crucible-"));
   process.env.CRUCIBLE_LEDGER_PATH = join(tempDir, "crucible-ledger.json");
+  process.env.HONEY_LEDGER_PATH = join(tempDir, "honey-ledger.json");
   process.env.VS_ADMIN_TOKEN = "smoke_admin_token";
   process.env.VS_ADMIN_ROLE = "ops_admin";
   process.env.VS_MATCH_AUTHORITY_TOKEN = "smoke_match_token";
@@ -65,8 +66,10 @@ async function main(): Promise<void> {
   try {
     const health = await fetch(`http://127.0.0.1:${address.port}/health`).then((res) => res.json() as Promise<JsonRecord>);
     expect(health.ok === true, "health failed", health);
+    expect(String(((health.honey as JsonRecord).storage as JsonRecord)?.kind ?? "") === "file", "health missing Honey storage", health);
     const serviceIndex = await fetch(`http://127.0.0.1:${address.port}/v1`).then((res) => res.json() as Promise<JsonRecord>);
     expect(serviceIndex.ok === true && String((serviceIndex.dashboard as JsonRecord)?.path ?? "") === "/dash", "service index missing dashboard link", serviceIndex);
+    expect(String(((serviceIndex.honey as JsonRecord).storage as JsonRecord)?.kind ?? "") === "file", "service index missing Honey readiness", serviceIndex);
     const dashHtml = await fetch(`http://127.0.0.1:${address.port}/dash`).then((res) => res.text());
     expect(dashHtml.includes("Swarmfront Contest Dash"), "contest dash html missing title");
     const dashState = await fetch(`${baseUrl}/contest_dash/config`).then((res) => res.json() as Promise<JsonRecord>);
@@ -515,6 +518,138 @@ async function main(): Promise<void> {
     expect(humanPvpFirst.matched === false && humanPvpSecond.matched === true, "human PvP pregame context blocked match", humanPvpSecond);
     await post(baseUrl, "leave_session", { session_id: String(humanPvpSecond.session_id), uid: "human_pvp_b" });
     await post(baseUrl, "leave_session", { session_id: String(humanPvpSecond.session_id), uid: "human_pvp_a" });
+
+    const honeyPolicy = await post(baseUrl, "get_honey_policy", {});
+    const honeyPolicyPayload = honeyPolicy.policy as JsonRecord;
+    expect(String(honeyPolicyPayload.precision) === "centi_honey", "Honey policy precision mismatch", honeyPolicy);
+    const honeyActivity = await post(baseUrl, "record_honey_activity", {
+      player_id: "activity_player",
+      activity_key: "competitive.live_free",
+      entap_title: "Swarmfront",
+      completed: true,
+      duration_sec: 600,
+      opponent_ids: ["activity_opp"],
+      metadata: { match_id: "activity_match_1" },
+      idempotency_key: "honey:activity:activity_player:match_1"
+    }, matchHeaders);
+    expect(Number(honeyActivity.amount_centi) === 400 && Number(honeyActivity.balance_centi) === 400, "Honey activity award mismatch", honeyActivity);
+    await post(baseUrl, "record_honey_activity", {
+      player_id: "activity_player",
+      activity_key: "competitive.live_free",
+      entap_title: "Swarmfront",
+      completed: true,
+      duration_sec: 600,
+      opponent_ids: ["activity_opp"],
+      metadata: { match_id: "activity_match_1" },
+      idempotency_key: "honey:activity:activity_player:match_1"
+    }, matchHeaders);
+    const activityBalance = await post(baseUrl, "get_honey_balance", { player_id: "activity_player" });
+    expect(Number(activityBalance.balance_centi) === 400, "duplicate Honey activity should be idempotent", activityBalance);
+    const lowEffort = await post(baseUrl, "record_honey_activity", {
+      player_id: "activity_player",
+      activity_key: "competitive.live_free",
+      entap_title: "Swarmfront",
+      completed: true,
+      duration_sec: 60,
+      opponent_ids: ["activity_opp_low"],
+      metadata: { match_id: "activity_match_low" },
+      idempotency_key: "honey:activity:activity_player:low"
+    }, matchHeaders);
+    expect(lowEffort.awarded === false && Number(lowEffort.amount_centi) === 0, "low-effort Honey activity should not award", lowEffort);
+    for (let i = 0; i < 4; i += 1) {
+      await post(baseUrl, "record_honey_activity", {
+        player_id: "farm_player",
+        activity_key: "competitive.live_free",
+        entap_title: "Swarmfront",
+        completed: true,
+        duration_sec: 600,
+        opponent_ids: ["same_opp"],
+        metadata: { match_id: `farm_match_${i}` },
+        idempotency_key: `honey:activity:farm_player:${i}`
+      }, matchHeaders);
+    }
+    const farmBalance = await post(baseUrl, "get_honey_balance", { player_id: "farm_player" });
+    expect(Number(farmBalance.balance_centi) === 1400, "same-opponent Honey diminishing return mismatch", farmBalance);
+
+    const honeyGrant = await post(baseUrl, "grant_honey", {
+      player_id: "honey_player",
+      amount_centi: 1600,
+      source: "platform_growth.purchase_bundle",
+      metadata: { entap_title: "Swarmfront", activity_id: "bundle_25" },
+      idempotency_key: "honey:grant:honey_player:bundle_25"
+    }, matchHeaders);
+    expect(Number(honeyGrant.balance_centi) === 1600, "Honey grant balance mismatch", honeyGrant);
+    await post(baseUrl, "grant_honey", {
+      player_id: "honey_player",
+      amount_centi: 1600,
+      source: "platform_growth.purchase_bundle",
+      metadata: { entap_title: "Swarmfront", activity_id: "bundle_25" },
+      idempotency_key: "honey:grant:honey_player:bundle_25"
+    }, matchHeaders);
+    const honeyBalance = await post(baseUrl, "get_honey_balance", { player_id: "honey_player" });
+    expect(Number(honeyBalance.balance_centi) === 1600 && Number(honeyBalance.balance_honey_whole) === 16, "Honey duplicate grant should be idempotent", honeyBalance);
+    const honeyDebit = await post(baseUrl, "debit_honey", {
+      player_id: "honey_player",
+      amount_centi: 400,
+      source: "hive_cosmetic.test",
+      idempotency_key: "honey:debit:honey_player:test"
+    }, matchHeaders);
+    expect(Number(honeyDebit.balance_centi) === 1200, "Honey debit balance mismatch", honeyDebit);
+    const honeyOverDebit = await postRaw(baseUrl, "debit_honey", {
+      player_id: "honey_player",
+      amount_centi: 5000,
+      source: "hive_cosmetic.test",
+      idempotency_key: "honey:debit:honey_player:too_much"
+    }, matchHeaders);
+    expect(honeyOverDebit.ok === false && honeyOverDebit.err === "insufficient_honey", "Honey over-debit should fail", honeyOverDebit);
+    await post(baseUrl, "debug_set_honey_balance", {
+      player_id: "hive_a",
+      balance_centi: 1000,
+      idempotency_key: "honey:set:hive_a"
+    }, adminHeaders);
+    await post(baseUrl, "debug_set_honey_balance", {
+      player_id: "hive_b",
+      balance_centi: 3000,
+      idempotency_key: "honey:set:hive_b"
+    }, adminHeaders);
+    await post(baseUrl, "debug_set_honey_balance", {
+      player_id: "hive_c",
+      balance_centi: 6000,
+      idempotency_key: "honey:set:hive_c"
+    }, adminHeaders);
+    const hiveHoneyPreview = await post(baseUrl, "preview_hive_honey_purchase", {
+      hive_id: "hive_smoke",
+      member_ids: ["hive_a", "hive_b", "hive_c"],
+      cost_centi: 2500
+    });
+    expect(Number(hiveHoneyPreview.available_centi) === 10000, "Hive Honey preview total mismatch", hiveHoneyPreview);
+    const hivePreviewDeductions = hiveHoneyPreview.deductions as JsonRecord[];
+    expect(Number(hivePreviewDeductions.find((row) => row.player_id === "hive_a")?.deduction_centi ?? 0) === 250, "Hive Honey p1 deduction mismatch", hiveHoneyPreview);
+    expect(Number(hivePreviewDeductions.find((row) => row.player_id === "hive_b")?.deduction_centi ?? 0) === 750, "Hive Honey p2 deduction mismatch", hiveHoneyPreview);
+    expect(Number(hivePreviewDeductions.find((row) => row.player_id === "hive_c")?.deduction_centi ?? 0) === 1500, "Hive Honey p3 deduction mismatch", hiveHoneyPreview);
+    const hiveHoneyDebit = await post(baseUrl, "debit_hive_honey_purchase", {
+      hive_id: "hive_smoke",
+      member_ids: ["hive_a", "hive_b", "hive_c"],
+      cost_centi: 2500,
+      source: "hive_tournament.weekly",
+      metadata: { entap_title: "Swarmfront" },
+      idempotency_key: "honey:hive_debit:hive_smoke:weekly"
+    }, matchHeaders);
+    expect((hiveHoneyDebit.transactions as JsonRecord[]).length === 3, "Hive Honey debit should write one transaction per payer", hiveHoneyDebit);
+    await post(baseUrl, "debit_hive_honey_purchase", {
+      hive_id: "hive_smoke",
+      member_ids: ["hive_a", "hive_b", "hive_c"],
+      cost_centi: 2500,
+      source: "hive_tournament.weekly",
+      idempotency_key: "honey:hive_debit:hive_smoke:weekly"
+    }, matchHeaders);
+    const hiveABalance = await post(baseUrl, "get_honey_balance", { player_id: "hive_a" });
+    const hiveCBalance = await post(baseUrl, "get_honey_balance", { player_id: "hive_c" });
+    expect(Number(hiveABalance.balance_centi) === 750 && Number(hiveCBalance.balance_centi) === 4500, "Hive Honey duplicate debit should be idempotent", { hiveABalance, hiveCBalance });
+    const honeyTransactions = await post(baseUrl, "get_honey_transactions", { player_id: "hive_c", type: "hive_debit" });
+    expect((honeyTransactions.transactions as JsonRecord[]).length === 1, "Honey transaction filter mismatch", honeyTransactions);
+    const honeySnapshot = await post(baseUrl, "debug_get_honey_ledger_snapshot", {}, adminHeaders);
+    expect(String((honeySnapshot.ledger as JsonRecord).precision ?? "") === "centi_honey", "Honey snapshot precision mismatch", honeySnapshot);
 
     const crucibleConfig = await post(baseUrl, "get_crucible_config", {});
     const crucibleConfigPayload = crucibleConfig.config as JsonRecord;

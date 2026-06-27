@@ -242,6 +242,88 @@ func get_money_transactions(filters: Dictionary = {}) -> Dictionary:
 		return transport.get("result", {}) as Dictionary
 	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
+func get_honey_balance(player_id: String) -> Dictionary:
+	var transport := _call_transport("get_honey_balance", {
+		"player_id": player_id
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func get_honey_policy() -> Dictionary:
+	var transport := _call_transport("get_honey_policy", {})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func record_honey_activity(player_id: String, activity_key: String, metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var payload: Dictionary = metadata.duplicate(true)
+	payload["player_id"] = player_id
+	payload["activity_key"] = activity_key
+	payload["metadata"] = metadata.duplicate(true)
+	payload["idempotency_key"] = idempotency_key
+	if not payload.has("entap_title"):
+		payload["entap_title"] = "Swarmfront"
+	var transport := _call_transport("record_honey_activity", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func grant_honey(player_id: String, amount_centi: int, source: String, metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var transport := _call_transport("grant_honey", {
+		"player_id": player_id,
+		"amount_centi": amount_centi,
+		"source": source,
+		"metadata": metadata,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func debit_honey(player_id: String, amount_centi: int, source: String, metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var transport := _call_transport("debit_honey", {
+		"player_id": player_id,
+		"amount_centi": amount_centi,
+		"source": source,
+		"metadata": metadata,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func preview_hive_honey_purchase(hive_id: String, member_ids: Array, cost_centi: int) -> Dictionary:
+	var transport := _call_transport("preview_hive_honey_purchase", {
+		"hive_id": hive_id,
+		"member_ids": member_ids,
+		"cost_centi": cost_centi
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func debit_hive_honey_purchase(hive_id: String, member_ids: Array, cost_centi: int, source: String, metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var transport := _call_transport("debit_hive_honey_purchase", {
+		"hive_id": hive_id,
+		"member_ids": member_ids,
+		"cost_centi": cost_centi,
+		"source": source,
+		"metadata": metadata,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func get_honey_transactions(filters: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("get_honey_transactions", {
+		"filters": filters
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
 func approve_async_contest_payout_report(report: Dictionary, approver_id: String, idempotency_key: String) -> Dictionary:
 	var transport := _call_transport("approve_async_contest_payout_report", {
 		"report": report,

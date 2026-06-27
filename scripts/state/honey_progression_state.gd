@@ -7,47 +7,83 @@ signal honey_progression_changed(snapshot: Dictionary)
 signal honey_event(event: Dictionary)
 
 const SAVE_PATH: String = "user://honey_progression_state.json"
-const SAVE_SCHEMA_VERSION: int = 1
-const TENTHS_PER_HONEY: int = 10
+const SAVE_SCHEMA_VERSION: int = 2
+const CENTI_PER_HONEY: int = 100
 const EVENT_DEDUPE_MAX: int = 5000
 const RECENT_EVENT_MAX: int = 64
-const ASYNC_FREE_TENTHS: int = 2
-const PVP_FREE_TENTHS: int = 3
-const PVP_FREE_WIN_BONUS_TENTHS: int = 1
-const TOURNAMENT_PARTICIPATION_TENTHS: int = 10
+const COMMUNITY_BASE_CENTI: int = 100
+const ENGAGEMENT_BASE_CENTI: int = 200
+const COMPETITIVE_PARTICIPATION_BASE_CENTI: int = 400
+const COMPETITIVE_SUCCESS_BASE_CENTI: int = 800
+const PLATFORM_GROWTH_BASE_CENTI: int = 1600
+const ASYNC_FREE_CENTI: int = COMPETITIVE_PARTICIPATION_BASE_CENTI
+const ASYNC_MONEY_CENTI: int = 600
+const LIVE_FREE_CENTI: int = COMPETITIVE_PARTICIPATION_BASE_CENTI
+const LIVE_MONEY_CENTI: int = 600
+const TOURNAMENT_FREE_CENTI: int = COMPETITIVE_PARTICIPATION_BASE_CENTI
+const TOURNAMENT_MONEY_CENTI: int = 600
+const DAILY_OBJECTIVES_CENTI: int = ENGAGEMENT_BASE_CENTI
+const WEEKLY_OBJECTIVES_CENTI: int = COMPETITIVE_PARTICIPATION_BASE_CENTI
+const WEEKLY_ALL_MODES_CENTI: int = COMPETITIVE_PARTICIPATION_BASE_CENTI
+const DAILY_LOGIN_CENTI: int = ENGAGEMENT_BASE_CENTI
+const STREAK_7D_CENTI: int = COMPETITIVE_PARTICIPATION_BASE_CENTI
+const STREAK_30D_CENTI: int = COMPETITIVE_SUCCESS_BASE_CENTI
+const COMMUNITY_CHALLENGE_CENTI: int = COMMUNITY_BASE_CENTI
+const FEATURED_CONTRIBUTION_CENTI: int = ENGAGEMENT_BASE_CENTI
 
 const WEEKLY_BONUS_SPECS: Dictionary = {
 	"free_pvp_variety": {
-		"amount": 50,
+		"amount": WEEKLY_ALL_MODES_CENTI,
 		"group": "free_pvp",
 		"required": ["1V1", "2V2", "3P_FFA", "4P_FFA"]
 	},
 	"money_pvp_variety": {
-		"amount": 100,
+		"amount": WEEKLY_ALL_MODES_CENTI,
 		"group": "money_pvp",
 		"required": ["1V1", "2V2", "3P_FFA", "4P_FFA"]
 	},
 	"free_async_variety": {
-		"amount": 50,
+		"amount": WEEKLY_ALL_MODES_CENTI,
 		"group": "free_async_modes",
 		"required": ["STAGE_RACE", "TIMED_RACE", "MISS_N_OUT"]
 	},
 	"async_3_map_variety": {
-		"amount": 100,
+		"amount": WEEKLY_ALL_MODES_CENTI,
 		"group": "async_3_map",
 		"required": ["STAGE_RACE_3", "TIMED_RACE_3", "MISS_N_OUT_3"]
 	},
 	"async_5_map_variety": {
-		"amount": 50,
+		"amount": WEEKLY_ALL_MODES_CENTI,
 		"group": "async_5_map",
 		"required": ["STAGE_RACE_5", "TIMED_RACE_5", "MISS_N_OUT_5"]
 	}
 }
 
+const PURCHASE_BUNDLE_REWARDS_CENTI: Dictionary = {
+	1: 400,
+	5: 800,
+	10: 1200,
+	25: 1600,
+	50: 2400,
+	100: 3200
+}
+
+const WARPATH_REWARDS_CENTI: Dictionary = {
+	"premium": 1600,
+	"elite": 2400
+}
+
+const REFERRAL_REWARDS_CENTI: Dictionary = {
+	"signup": 400,
+	"onboarding": 800,
+	"active_7d": 1200,
+	"active_30d": 1600,
+	"active_60d": 2400
+}
+
 var _save_schema_version: int = SAVE_SCHEMA_VERSION
-var _total_honey_tenths_awarded: int = 0
-var _community_honey_tenths: int = 0
-var _pending_profile_honey_tenths: int = 0
+var _total_honey_centi_awarded: int = 0
+var _pending_profile_honey_centi: int = 0
 var _awarded_event_ids: Dictionary = {}
 var _awarded_event_order: Array[String] = []
 var _weekly_cycle_key: String = ""
@@ -66,20 +102,27 @@ func _ready() -> void:
 	call_deferred("_scan_for_sim_runner")
 	SFLog.info("HONEY_STATE", {
 		"weekly_cycle_key": _weekly_cycle_key,
-		"pending_profile_tenths": _pending_profile_honey_tenths,
-		"total_honey_tenths_awarded": _total_honey_tenths_awarded
+		"pending_profile_centi": _pending_profile_honey_centi,
+		"total_honey_centi_awarded": _total_honey_centi_awarded
 	})
 	_emit_changed()
 
 func get_snapshot() -> Dictionary:
 	return {
 		"schema_version": _save_schema_version,
+		"precision": "centi_honey",
+		"reward_ladder": {
+			"community": COMMUNITY_BASE_CENTI,
+			"engagement": ENGAGEMENT_BASE_CENTI,
+			"competitive_participation": COMPETITIVE_PARTICIPATION_BASE_CENTI,
+			"competitive_success": COMPETITIVE_SUCCESS_BASE_CENTI,
+			"platform_growth": PLATFORM_GROWTH_BASE_CENTI
+		},
 		"profile_honey_balance": _profile_honey_balance(),
-		"pending_profile_honey_tenths": _pending_profile_honey_tenths,
-		"pending_profile_honey_progress": float(_pending_profile_honey_tenths) / float(TENTHS_PER_HONEY),
-		"total_honey_tenths_awarded": _total_honey_tenths_awarded,
-		"community_honey_tenths": _community_honey_tenths,
-		"community_honey_whole": int(_community_honey_tenths / TENTHS_PER_HONEY),
+		"pending_profile_honey_centi": _pending_profile_honey_centi,
+		"pending_profile_honey_progress": float(_pending_profile_honey_centi) / float(CENTI_PER_HONEY),
+		"total_honey_centi_awarded": _total_honey_centi_awarded,
+		"total_honey_visible": int(_total_honey_centi_awarded / CENTI_PER_HONEY),
 		"weekly_cycle_key": _weekly_cycle_key,
 		"weekly_progress": _weekly_progress.duplicate(true),
 		"weekly_claimed": _weekly_claimed.duplicate(true),
@@ -88,32 +131,31 @@ func get_snapshot() -> Dictionary:
 
 func intent_record_async_completion(mode_id: String, map_count: int, paid_entry: bool, metadata: Dictionary = {}) -> Dictionary:
 	if _metadata_is_crucible(metadata):
-		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_tenths_awarded": 0}
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_centi_awarded": 0}
 	var normalized_mode: String = _normalize_async_mode(mode_id)
 	if normalized_mode.is_empty():
 		return {"ok": false, "reason": "invalid_async_mode", "mode_id": mode_id}
 	var resolved_map_count: int = maxi(1, map_count)
 	var updates: Array[Dictionary] = []
-	if not paid_entry:
-		updates.append({"group": "free_async_modes", "entry": normalized_mode})
-		if resolved_map_count == 3:
-			updates.append({"group": "async_3_map", "entry": "%s_3" % normalized_mode})
-		elif resolved_map_count == 5:
-			updates.append({"group": "async_5_map", "entry": "%s_5" % normalized_mode})
-	var amount: int = ASYNC_FREE_TENTHS * (2 if paid_entry else 1)
+	updates.append({"group": "free_async_modes", "entry": normalized_mode})
+	if resolved_map_count == 3:
+		updates.append({"group": "async_3_map", "entry": "%s_3" % normalized_mode})
+	elif resolved_map_count == 5:
+		updates.append({"group": "async_5_map", "entry": "%s_5" % normalized_mode})
+	var amount: int = ASYNC_MONEY_CENTI if paid_entry else ASYNC_FREE_CENTI
 	var meta: Dictionary = metadata.duplicate(true)
 	meta["mode_id"] = normalized_mode
 	meta["map_count"] = resolved_map_count
 	meta["paid_entry"] = paid_entry
-	return _award_honey_tenths("async_completion", amount, meta, updates)
+	return _award_honey_centi("async_completion", amount, meta, updates)
 
 func intent_record_async_final_placement(mode_id: String, map_count: int, placement: int, paid_entry: bool, contest_scope: String = "", metadata: Dictionary = {}) -> Dictionary:
 	if _metadata_is_crucible(metadata):
-		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_tenths_awarded": 0}
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_centi_awarded": 0}
 	var normalized_mode: String = _normalize_async_mode(mode_id)
 	if normalized_mode.is_empty():
 		return {"ok": false, "reason": "invalid_async_mode", "mode_id": mode_id}
-	var amount: int = _placement_bonus_tenths(placement, paid_entry)
+	var amount: int = _placement_bonus_centi(placement, paid_entry)
 	if amount <= 0:
 		return {"ok": false, "reason": "placement_not_rewarded", "placement": placement}
 	var meta: Dictionary = metadata.duplicate(true)
@@ -122,21 +164,21 @@ func intent_record_async_final_placement(mode_id: String, map_count: int, placem
 	meta["placement"] = maxi(1, placement)
 	meta["paid_entry"] = paid_entry
 	meta["contest_scope"] = contest_scope.strip_edges().to_upper()
-	return _award_honey_tenths("async_final_placement", amount, meta, [])
+	return _award_honey_centi("async_final_placement", amount, meta, [])
 
 func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_tier: int = 0, did_win: bool = false, metadata: Dictionary = {}) -> Dictionary:
 	if _metadata_is_crucible(metadata):
-		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_tenths_awarded": 0}
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_centi_awarded": 0}
 	var normalized_mode: String = _normalize_pvp_mode(pvp_mode_id)
 	if normalized_mode.is_empty():
 		return {"ok": false, "reason": "invalid_pvp_mode", "mode_id": pvp_mode_id}
 	var amount: int = 0
 	if paid_entry:
-		amount = _money_pvp_tenths(money_tier)
+		amount = LIVE_MONEY_CENTI
 		if amount <= 0:
 			return {"ok": false, "reason": "invalid_money_tier", "money_tier": money_tier}
 	else:
-		amount = PVP_FREE_TENTHS + (PVP_FREE_WIN_BONUS_TENTHS if did_win else 0)
+		amount = LIVE_FREE_CENTI
 	var updates: Array[Dictionary] = [{
 		"group": "money_pvp" if paid_entry else "free_pvp",
 		"entry": normalized_mode
@@ -146,32 +188,100 @@ func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_t
 	meta["paid_entry"] = paid_entry
 	meta["money_tier"] = money_tier
 	meta["did_win"] = did_win
-	return _award_honey_tenths("pvp_completion", amount, meta, updates)
+	return _award_honey_centi("pvp_completion", amount, meta, updates)
 
 func intent_record_tournament_participation(metadata: Dictionary = {}) -> Dictionary:
-	return _award_honey_tenths("tournament_participation", TOURNAMENT_PARTICIPATION_TENTHS, metadata.duplicate(true), [])
+	if _metadata_is_crucible(metadata):
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_centi_awarded": 0}
+	var paid_entry: bool = bool(metadata.get("paid_entry", metadata.get("is_money", false)))
+	return _award_honey_centi("tournament_participation", TOURNAMENT_MONEY_CENTI if paid_entry else TOURNAMENT_FREE_CENTI, metadata.duplicate(true), [])
 
 func intent_record_tournament_placement(placement: int, metadata: Dictionary = {}) -> Dictionary:
-	var amount: int = _placement_bonus_tenths(placement, false)
+	var amount: int = _placement_bonus_centi(placement, false)
 	if amount <= 0:
 		return {"ok": false, "reason": "placement_not_rewarded", "placement": placement}
 	var meta: Dictionary = metadata.duplicate(true)
 	meta["placement"] = maxi(1, placement)
-	return _award_honey_tenths("tournament_placement", amount, meta, [])
+	return _award_honey_centi("tournament_placement", amount, meta, [])
 
 func intent_record_contest_winner(scope: String, metadata: Dictionary = {}) -> Dictionary:
 	var normalized_scope: String = scope.strip_edges().to_upper()
-	var amount: int = _contest_winner_bonus_tenths(normalized_scope)
+	var amount: int = _contest_winner_bonus_centi(normalized_scope)
 	if amount <= 0:
 		return {"ok": false, "reason": "invalid_scope", "scope": scope}
 	var meta: Dictionary = metadata.duplicate(true)
 	meta["scope"] = normalized_scope
-	return _award_honey_tenths("contest_winner", amount, meta, [])
+	return _award_honey_centi("contest_winner", amount, meta, [])
+
+func intent_record_purchase_bundle(bundle_usd: int, metadata: Dictionary = {}) -> Dictionary:
+	var clean_usd: int = maxi(0, bundle_usd)
+	if not PURCHASE_BUNDLE_REWARDS_CENTI.has(clean_usd):
+		return {"ok": false, "reason": "unsupported_bundle", "bundle_usd": bundle_usd}
+	var meta: Dictionary = metadata.duplicate(true)
+	meta["bundle_usd"] = clean_usd
+	return _award_honey_centi("purchase_bundle", int(PURCHASE_BUNDLE_REWARDS_CENTI[clean_usd]), meta, [])
+
+func intent_record_warpath_purchase(tier: String, metadata: Dictionary = {}) -> Dictionary:
+	var clean_tier: String = tier.strip_edges().to_lower()
+	if not WARPATH_REWARDS_CENTI.has(clean_tier):
+		return {"ok": false, "reason": "unsupported_warpath_tier", "tier": tier}
+	var meta: Dictionary = metadata.duplicate(true)
+	meta["tier"] = clean_tier
+	return _award_honey_centi("warpath_purchase", int(WARPATH_REWARDS_CENTI[clean_tier]), meta, [])
+
+func intent_record_referral(stage: String, metadata: Dictionary = {}) -> Dictionary:
+	var clean_stage: String = stage.strip_edges().to_lower()
+	if not REFERRAL_REWARDS_CENTI.has(clean_stage):
+		return {"ok": false, "reason": "unsupported_referral_stage", "stage": stage}
+	var meta: Dictionary = metadata.duplicate(true)
+	meta["stage"] = clean_stage
+	return _award_honey_centi("referral", int(REFERRAL_REWARDS_CENTI[clean_stage]), meta, [])
+
+func intent_record_daily_login(metadata: Dictionary = {}) -> Dictionary:
+	return _award_honey_centi("daily_login", DAILY_LOGIN_CENTI, metadata.duplicate(true), [])
+
+func intent_record_login_streak(days: int, metadata: Dictionary = {}) -> Dictionary:
+	var safe_days: int = maxi(0, days)
+	var amount: int = STREAK_30D_CENTI if safe_days >= 30 else STREAK_7D_CENTI if safe_days >= 7 else 0
+	if amount <= 0:
+		return {"ok": false, "reason": "unsupported_streak", "days": days}
+	var meta: Dictionary = metadata.duplicate(true)
+	meta["days"] = safe_days
+	return _award_honey_centi("login_streak", amount, meta, [])
+
+func intent_record_objective_completion(objective_type: String, metadata: Dictionary = {}) -> Dictionary:
+	var clean_type: String = objective_type.strip_edges().to_lower()
+	var amount: int = 0
+	match clean_type:
+		"daily_all":
+			amount = DAILY_OBJECTIVES_CENTI
+		"weekly_all":
+			amount = WEEKLY_OBJECTIVES_CENTI
+		"weekly_all_modes":
+			amount = WEEKLY_ALL_MODES_CENTI
+		_:
+			return {"ok": false, "reason": "unsupported_objective_type", "objective_type": objective_type}
+	var meta: Dictionary = metadata.duplicate(true)
+	meta["objective_type"] = clean_type
+	return _award_honey_centi("objective_completion", amount, meta, [])
+
+func intent_record_community_contribution(contribution_type: String, metadata: Dictionary = {}) -> Dictionary:
+	var clean_type: String = contribution_type.strip_edges().to_lower()
+	var amount: int = 0
+	match clean_type:
+		"community_challenge":
+			amount = COMMUNITY_CHALLENGE_CENTI
+		"featured_contribution":
+			amount = FEATURED_CONTRIBUTION_CENTI
+		_:
+			return {"ok": false, "reason": "unsupported_contribution_type", "contribution_type": contribution_type}
+	var meta: Dictionary = metadata.duplicate(true)
+	meta["contribution_type"] = clean_type
+	return _award_honey_centi("community_contribution", amount, meta, [])
 
 func debug_reset_state() -> void:
-	_total_honey_tenths_awarded = 0
-	_community_honey_tenths = 0
-	_pending_profile_honey_tenths = 0
+	_total_honey_centi_awarded = 0
+	_pending_profile_honey_centi = 0
 	_awarded_event_ids.clear()
 	_awarded_event_order.clear()
 	_weekly_cycle_key = _current_week_cycle_key()
@@ -181,8 +291,8 @@ func debug_reset_state() -> void:
 	_save_state()
 	_emit_changed()
 
-func _award_honey_tenths(source_name: String, honey_tenths: int, metadata: Dictionary, weekly_updates: Array[Dictionary]) -> Dictionary:
-	var safe_amount: int = maxi(0, honey_tenths)
+func _award_honey_centi(source_name: String, honey_centi: int, metadata: Dictionary, weekly_updates: Array[Dictionary]) -> Dictionary:
+	var safe_amount: int = maxi(0, honey_centi)
 	if safe_amount <= 0:
 		return {"ok": false, "reason": "no_honey"}
 	if not _honey_rewards_enabled():
@@ -190,7 +300,7 @@ func _award_honey_tenths(source_name: String, honey_tenths: int, metadata: Dicti
 			"ok": true,
 			"awarded": false,
 			"reason": "honey_rewards_disabled",
-			"honey_tenths_awarded": 0,
+			"honey_centi_awarded": 0,
 			"whole_honey_granted": 0,
 			"profile_honey_balance": _profile_honey_balance(),
 			"claimed_weekly_bonuses": []
@@ -208,16 +318,18 @@ func _award_honey_tenths(source_name: String, honey_tenths: int, metadata: Dicti
 	_awarded_event_order.append(event_id)
 	_prune_awarded_event_dedupe()
 	_apply_weekly_updates(weekly_updates)
-	var grant_result: Dictionary = _grant_tenths_to_profile(safe_amount, "%s:%s" % [source_name, event_id])
+	var backend_result: Dictionary = _post_honey_grant_to_backend(source_name, safe_amount, metadata, event_id)
+	var grant_result: Dictionary = _grant_centi_to_profile(safe_amount, "%s:%s" % [source_name, event_id])
 	var claimed_bonuses: Array[Dictionary] = _claim_ready_weekly_bonuses(metadata)
 	var event: Dictionary = {
 		"type": "honey_awarded",
 		"source": source_name,
 		"event_id": event_id,
-		"honey_tenths_awarded": safe_amount,
+		"honey_centi_awarded": safe_amount,
 		"whole_honey_granted": int(grant_result.get("whole_honey_granted", 0)),
 		"profile_honey_balance": _profile_honey_balance(),
 		"metadata": metadata.duplicate(true),
+		"backend_result": backend_result.duplicate(true),
 		"claimed_weekly_bonuses": claimed_bonuses.duplicate(true)
 	}
 	_append_recent_event(event)
@@ -228,23 +340,23 @@ func _award_honey_tenths(source_name: String, honey_tenths: int, metadata: Dicti
 	return {
 		"ok": true,
 		"event_id": event_id,
-		"honey_tenths_awarded": safe_amount,
+		"honey_centi_awarded": safe_amount,
 		"whole_honey_granted": int(grant_result.get("whole_honey_granted", 0)),
 		"profile_honey_balance": _profile_honey_balance(),
+		"backend_result": backend_result.duplicate(true),
 		"claimed_weekly_bonuses": claimed_bonuses.duplicate(true)
 	}
 
-func _grant_tenths_to_profile(honey_tenths: int, reason: String) -> Dictionary:
-	var safe_amount: int = maxi(0, honey_tenths)
+func _grant_centi_to_profile(honey_centi: int, reason: String) -> Dictionary:
+	var safe_amount: int = maxi(0, honey_centi)
 	if safe_amount <= 0:
 		return {"whole_honey_granted": 0}
-	_total_honey_tenths_awarded += safe_amount
-	_community_honey_tenths += safe_amount
-	_pending_profile_honey_tenths += safe_amount
+	_total_honey_centi_awarded += safe_amount
+	_pending_profile_honey_centi += safe_amount
 	return _flush_pending_profile_honey(reason)
 
 func _flush_pending_profile_honey(reason: String) -> Dictionary:
-	var whole_honey_ready: int = int(_pending_profile_honey_tenths / TENTHS_PER_HONEY)
+	var whole_honey_ready: int = int(_pending_profile_honey_centi / CENTI_PER_HONEY)
 	if whole_honey_ready <= 0:
 		return {"whole_honey_granted": 0}
 	var profile_manager: Node = _profile_manager()
@@ -256,7 +368,8 @@ func _flush_pending_profile_honey(reason: String) -> Dictionary:
 	var result: Dictionary = result_any as Dictionary
 	if not bool(result.get("ok", false)):
 		return {"whole_honey_granted": 0}
-	_pending_profile_honey_tenths = _pending_profile_honey_tenths % TENTHS_PER_HONEY
+	_pending_profile_honey_centi = _pending_profile_honey_centi % CENTI_PER_HONEY
+	_sync_hive_honey_balance_snapshot(int(result.get("honey_balance", _profile_honey_balance())), reason)
 	return {
 		"whole_honey_granted": whole_honey_ready,
 		"profile_honey_balance": int(result.get("honey_balance", _profile_honey_balance()))
@@ -286,12 +399,12 @@ func _claim_ready_weekly_bonuses(metadata: Dictionary) -> Array[Dictionary]:
 			continue
 		_weekly_claimed[bonus_id] = true
 		var amount: int = maxi(0, int(spec.get("amount", 0)))
-		var grant_result: Dictionary = _grant_tenths_to_profile(amount, "weekly_bonus:%s:%s" % [_weekly_cycle_key, bonus_id])
+		var grant_result: Dictionary = _grant_centi_to_profile(amount, "weekly_bonus:%s:%s" % [_weekly_cycle_key, bonus_id])
 		var event: Dictionary = {
 			"type": "weekly_honey_bonus_awarded",
 			"bonus_id": bonus_id,
 			"weekly_cycle_key": _weekly_cycle_key,
-			"honey_tenths_awarded": amount,
+			"honey_centi_awarded": amount,
 			"whole_honey_granted": int(grant_result.get("whole_honey_granted", 0)),
 			"profile_honey_balance": _profile_honey_balance(),
 			"metadata": metadata.duplicate(true)
@@ -318,38 +431,27 @@ func _weekly_bonus_ready(spec: Dictionary) -> bool:
 			return false
 	return true
 
-func _placement_bonus_tenths(placement: int, paid_entry: bool) -> int:
-	var base: int = 0
-	match maxi(1, placement):
-		1:
-			base = 50
-		2:
-			base = 20
-		3:
-			base = 10
-		_:
-			base = 0
-	return base * (2 if paid_entry else 1)
+func _placement_bonus_centi(placement: int, paid_entry: bool) -> int:
+	var safe_place: int = maxi(1, placement)
+	var max_weekly: int = COMPETITIVE_SUCCESS_BASE_CENTI
+	var min_weekly: int = COMMUNITY_BASE_CENTI
+	var payout_depth: int = 10
+	if safe_place > payout_depth:
+		return 0
+	var span: int = maxi(1, payout_depth - 1)
+	var weekly_amount: int = int(round(lerpf(float(max_weekly), float(min_weekly), float(safe_place - 1) / float(span))))
+	return weekly_amount * (2 if paid_entry else 1)
 
-func _money_pvp_tenths(money_tier: int) -> int:
-	match money_tier:
-		1:
-			return 5
-		2:
-			return 10
-		3:
-			return 15
-		_:
-			return 0
-
-func _contest_winner_bonus_tenths(scope: String) -> int:
+func _contest_winner_bonus_centi(scope: String) -> int:
 	match scope:
 		"DAILY":
-			return 50
+			return COMPETITIVE_PARTICIPATION_BASE_CENTI
 		"WEEKLY":
-			return 100
+			return COMPETITIVE_SUCCESS_BASE_CENTI
 		"MONTHLY":
-			return 150
+			return PLATFORM_GROWTH_BASE_CENTI
+		"SEASONAL":
+			return PLATFORM_GROWTH_BASE_CENTI * 2
 		_:
 			return 0
 
@@ -411,6 +513,84 @@ func _profile_honey_balance() -> int:
 	if profile_manager != null and profile_manager.has_method("get_honey_balance"):
 		return maxi(0, int(profile_manager.call("get_honey_balance")))
 	return 0
+
+func _sync_hive_honey_balance_snapshot(balance: int, reason: String) -> void:
+	var profile_manager: Node = _profile_manager()
+	var hive_state: Node = get_node_or_null("/root/HiveClanState")
+	if profile_manager == null or hive_state == null:
+		return
+	if not profile_manager.has_method("get_user_id") or not hive_state.has_method("intent_sync_member_honey_balance"):
+		return
+	var player_id: String = str(profile_manager.call("get_user_id")).strip_edges()
+	if player_id.is_empty():
+		return
+	hive_state.call("intent_sync_member_honey_balance", player_id, maxi(0, balance), reason)
+
+func _post_honey_grant_to_backend(source_name: String, amount_centi: int, metadata: Dictionary, event_id: String) -> Dictionary:
+	var backend: Node = get_node_or_null("/root/VsHandshakeState")
+	if backend == null or not backend.has_method("grant_honey"):
+		return {"handled": false, "reason": "backend_unavailable"}
+	var profile_manager: Node = _profile_manager()
+	if profile_manager == null or not profile_manager.has_method("get_user_id"):
+		return {"handled": false, "reason": "profile_unavailable"}
+	var player_id: String = str(profile_manager.call("get_user_id")).strip_edges()
+	if player_id.is_empty():
+		return {"handled": false, "reason": "missing_player_id"}
+	var enriched: Dictionary = metadata.duplicate(true)
+	enriched["entap_title"] = str(enriched.get("entap_title", "Swarmfront"))
+	enriched["source_name"] = source_name
+	enriched["event_id"] = event_id
+	var idempotency_key: String = "honey:%s:%s" % [player_id, event_id]
+	if backend.has_method("record_honey_activity"):
+		var activity_key: String = _backend_activity_key(source_name, metadata)
+		if not activity_key.is_empty():
+			var activity_result: Dictionary = backend.call("record_honey_activity", player_id, activity_key, enriched, idempotency_key) as Dictionary
+			activity_result["handled"] = bool(activity_result.get("handled", true))
+			if bool(activity_result.get("handled", false)) and str(activity_result.get("err", "")) != "transport_not_configured":
+				return activity_result
+	var result: Dictionary = backend.call("grant_honey", player_id, amount_centi, source_name, enriched, idempotency_key) as Dictionary
+	result["handled"] = bool(result.get("handled", true))
+	return result
+
+func _backend_activity_key(source_name: String, metadata: Dictionary) -> String:
+	var source: String = source_name.strip_edges().to_lower()
+	var paid_entry: bool = bool(metadata.get("paid_entry", metadata.get("is_money", false)))
+	match source:
+		"async_completion":
+			return "competitive.async_money" if paid_entry else "competitive.async_free"
+		"pvp_completion":
+			return "competitive.live_money" if paid_entry else "competitive.live_free"
+		"tournament_participation":
+			return "competitive.tournament_money" if paid_entry else "competitive.tournament_free"
+		"async_final_placement", "tournament_placement", "contest_winner":
+			var scope: String = str(metadata.get("contest_scope", metadata.get("scope", "WEEKLY"))).strip_edges().to_upper()
+			if scope == "SEASONAL":
+				return "competitive.placement_seasonal"
+			if scope == "MONTHLY":
+				return "competitive.placement_monthly"
+			return "competitive.placement_weekly"
+		"purchase_bundle":
+			return "platform.purchase_bundle"
+		"warpath_purchase":
+			return "platform.warpath_purchase"
+		"referral":
+			return "platform.referral_retained"
+		"daily_login":
+			return "engagement.daily_login"
+		"login_streak":
+			return "engagement.weekly_objectives"
+		"objective_completion":
+			var objective_type: String = str(metadata.get("objective_type", "")).strip_edges().to_lower()
+			if objective_type == "weekly_all":
+				return "engagement.weekly_objectives"
+			if objective_type == "weekly_all_modes":
+				return "engagement.weekly_all_modes"
+			return "engagement.daily_objectives"
+		"community_contribution":
+			var contribution_type: String = str(metadata.get("contribution_type", "")).strip_edges().to_lower()
+			return "community.featured_contribution" if contribution_type == "featured_contribution" else "community.challenge"
+		_:
+			return ""
 
 func _honey_rewards_enabled() -> bool:
 	var ops_config: Node = get_node_or_null("/root/OpsConfig")
@@ -570,9 +750,8 @@ func _money_tier_from_entry_usd(entry_usd: int) -> int:
 	return 3
 
 func _load_state() -> void:
-	_total_honey_tenths_awarded = 0
-	_community_honey_tenths = 0
-	_pending_profile_honey_tenths = 0
+	_total_honey_centi_awarded = 0
+	_pending_profile_honey_centi = 0
 	_awarded_event_ids.clear()
 	_awarded_event_order.clear()
 	_weekly_cycle_key = ""
@@ -591,9 +770,13 @@ func _load_state() -> void:
 		return
 	var raw: Dictionary = parser.data as Dictionary
 	_save_schema_version = maxi(1, int(raw.get("schema_version", SAVE_SCHEMA_VERSION)))
-	_total_honey_tenths_awarded = maxi(0, int(raw.get("total_honey_tenths_awarded", 0)))
-	_community_honey_tenths = maxi(0, int(raw.get("community_honey_tenths", _total_honey_tenths_awarded)))
-	_pending_profile_honey_tenths = maxi(0, int(raw.get("pending_profile_honey_tenths", 0)))
+	if _save_schema_version < 2:
+		_total_honey_centi_awarded = maxi(0, int(raw.get("total_honey_tenths_awarded", 0))) * 10
+		_pending_profile_honey_centi = maxi(0, int(raw.get("pending_profile_honey_tenths", 0))) * 10
+	else:
+		_total_honey_centi_awarded = maxi(0, int(raw.get("total_honey_centi_awarded", 0)))
+		_pending_profile_honey_centi = maxi(0, int(raw.get("pending_profile_honey_centi", 0)))
+	_save_schema_version = SAVE_SCHEMA_VERSION
 	_weekly_cycle_key = str(raw.get("weekly_cycle_key", "")).strip_edges()
 	var awarded_ids_any: Variant = raw.get("awarded_event_ids", {})
 	if typeof(awarded_ids_any) == TYPE_DICTIONARY:
@@ -621,9 +804,9 @@ func _load_state() -> void:
 func _save_state() -> void:
 	var payload: Dictionary = {
 		"schema_version": SAVE_SCHEMA_VERSION,
-		"total_honey_tenths_awarded": _total_honey_tenths_awarded,
-		"community_honey_tenths": _community_honey_tenths,
-		"pending_profile_honey_tenths": _pending_profile_honey_tenths,
+		"precision": "centi_honey",
+		"total_honey_centi_awarded": _total_honey_centi_awarded,
+		"pending_profile_honey_centi": _pending_profile_honey_centi,
 		"awarded_event_ids": _awarded_event_ids.duplicate(true),
 		"awarded_event_order": _awarded_event_order.duplicate(),
 		"weekly_cycle_key": _weekly_cycle_key,

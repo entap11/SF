@@ -38,7 +38,7 @@ func _init() -> void:
 			honey_state.call("intent_record_async_completion", "STAGE_RACE", 3, false, {"event_id": "free_async_%d" % i}) as Dictionary,
 			"free async completion %d" % i
 		)
-	_assert_eq(int(profile_manager.call("get_honey_balance")), 1, "five async completions should mint one honey")
+	_assert_eq(int(profile_manager.call("get_honey_balance")), 20, "five async completions should mint v2 participation honey")
 
 	var duplicate: Dictionary = honey_state.call("intent_record_async_completion", "STAGE_RACE", 3, false, {"event_id": "free_async_0"}) as Dictionary
 	_assert_true(not bool(duplicate.get("ok", false)), "duplicate async event should be rejected")
@@ -47,7 +47,19 @@ func _init() -> void:
 		honey_state.call("intent_record_async_final_placement", "STAGE_RACE", 3, 1, false, "WEEKLY", {"event_id": "place_stage_1"}) as Dictionary,
 		"stage race placement"
 	)
-	_assert_eq(int(profile_manager.call("get_honey_balance")), 6, "first place async bonus should add five honey")
+	_assert_eq(int(profile_manager.call("get_honey_balance")), 28, "first place async bonus should add competitive success honey")
+
+	_assert_ok(
+		honey_state.call("intent_record_purchase_bundle", 25, {"event_id": "bundle_25"}) as Dictionary,
+		"platform growth purchase bundle"
+	)
+	_assert_eq(int(profile_manager.call("get_honey_balance")), 44, "platform growth should use the Honey v2 tier")
+
+	_assert_ok(
+		honey_state.call("intent_record_referral", "active_30d", {"event_id": "ref_30d"}) as Dictionary,
+		"retained referral"
+	)
+	_assert_eq(int(profile_manager.call("get_honey_balance")), 60, "retained referral should use platform growth tier")
 
 	_assert_ok(honey_state.call("intent_record_async_completion", "TIMED_RACE", 3, false, {"event_id": "timed_3"}) as Dictionary, "timed 3")
 	_assert_ok(honey_state.call("intent_record_async_completion", "MISS_N_OUT", 3, false, {"event_id": "miss_3"}) as Dictionary, "miss 3")
@@ -60,7 +72,7 @@ func _init() -> void:
 	_assert_true(bool(weekly_claimed.get("free_async_variety", false)), "free async weekly bonus should auto-claim")
 	_assert_true(bool(weekly_claimed.get("async_3_map_variety", false)), "3-map async weekly bonus should auto-claim")
 	_assert_true(bool(weekly_claimed.get("async_5_map_variety", false)), "5-map async weekly bonus should auto-claim")
-	_assert_eq(int(profile_manager.call("get_honey_balance")), 27, "async bonuses should settle to expected whole honey")
+	_assert_eq(int(profile_manager.call("get_honey_balance")), 92, "async bonuses should settle to expected whole honey")
 
 	var fake_runner := FakeSimRunner.new()
 	fake_runner.name = "SimRunner"
@@ -77,7 +89,7 @@ func _init() -> void:
 	await process_frame
 
 	snapshot = honey_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("total_honey_tenths_awarded", 0)), 274, "auto pvp win should add four tenths")
+	_assert_eq(int(snapshot.get("total_honey_centi_awarded", 0)), 9600, "auto pvp completion should add participation honey")
 
 	set_meta("vs_mode", "STAGE_RACE")
 	set_meta("vs_sync_start", false)
@@ -89,14 +101,14 @@ func _init() -> void:
 	fake_runner.emit_signal("match_ended", 1, "round_end")
 	await process_frame
 	snapshot = honey_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("total_honey_tenths_awarded", 0)), 274, "non-final stage round should not award honey")
+	_assert_eq(int(snapshot.get("total_honey_centi_awarded", 0)), 9600, "non-final stage round should not award honey")
 
 	set_meta("vs_stage_current_index", 2)
 	remove_meta("honey_runtime_nonce")
 	fake_runner.emit_signal("match_ended", 1, "round_end")
 	await process_frame
 	snapshot = honey_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("total_honey_tenths_awarded", 0)), 276, "final stage round should award async completion honey")
+	_assert_eq(int(snapshot.get("total_honey_centi_awarded", 0)), 10000, "final stage round should award async completion honey")
 
 	print("HONEY_SMOKE: PASS")
 	quit(0)

@@ -97,6 +97,7 @@ func _ready() -> void:
 	_load_state()
 	_refresh_runtime_state()
 	_bootstrap_local_profile()
+	_connect_profile_honey_signal()
 	_connect_tree_signals()
 	call_deferred("_scan_for_sim_runner")
 	_emit_changed()
@@ -486,21 +487,27 @@ func intent_enter_hive_tournament(hive_id: String, tournament_id: String, actor_
 	if _hive_has_open_tournament_commitment(hive_id):
 		return {"ok": false, "reason": "active_round_in_progress"}
 	var honey_cost: int = maxi(0, int(entry_def.get("honey_cost", 0)))
-	var available_hive_honey: int = maxi(0, int(hive.get("hive_honey_strength", 0)))
+	var purchase_preview: Dictionary = preview_hive_honey_purchase(hive_id, honey_cost)
+	var available_hive_honey: int = maxi(0, int(purchase_preview.get("available_hive_honey", hive.get("hive_honey_strength", 0))))
 	if honey_cost <= 0:
 		return {"ok": false, "reason": "invalid_tournament_cost"}
-	if available_hive_honey < honey_cost:
+	if not bool(purchase_preview.get("ok", false)):
 		return {
 			"ok": false,
-			"reason": "insufficient_hive_honey",
+			"reason": str(purchase_preview.get("reason", "insufficient_hive_honey")),
 			"available_hive_honey": available_hive_honey,
 			"required_hive_honey": honey_cost
 		}
+	var debit_result: Dictionary = intent_debit_hive_honey_proportional(hive_id, honey_cost, "hive_tournament:%s" % resolved_tournament_id, {}, actor_id)
+	if not bool(debit_result.get("ok", false)):
+		return debit_result
+	hive = _hives_by_id.get(hive_id, hive) as Dictionary
 	var entry_record: Dictionary = {
 		"tournament_id": resolved_tournament_id,
 		"title": str(entry_def.get("title", "Hive Tournament")),
 		"detail": str(entry_def.get("detail", "")),
 		"honey_cost": honey_cost,
+		"honey_deductions": (debit_result.get("deductions", []) as Array).duplicate(true),
 		"entered_at_unix": _now_unix(),
 		"entered_by_player_id": actor_id,
 		"queue_status": HIVE_TOURNAMENT_STATUS_QUEUED,
@@ -514,7 +521,6 @@ func intent_enter_hive_tournament(hive_id: String, tournament_id: String, actor_
 	}
 	tournament_entries[resolved_tournament_id] = entry_record
 	hive["tournament_entries"] = tournament_entries
-	hive["total_honey_spent"] = int(hive.get("total_honey_spent", 0)) + honey_cost
 	_recompute_hive_metrics(hive)
 	_hives_by_id[hive_id] = hive
 	var queue_result: Dictionary = _queue_hive_tournament_entry(hive_id, resolved_tournament_id)
@@ -526,7 +532,8 @@ func intent_enter_hive_tournament(hive_id: String, tournament_id: String, actor_
 		"player_id": actor_id,
 		"tournament_id": resolved_tournament_id,
 		"title": str(entry_record.get("title", "Hive Tournament")),
-		"honey_cost": honey_cost
+		"honey_cost": honey_cost,
+		"honey_deductions": (debit_result.get("deductions", []) as Array).duplicate(true)
 	})
 	return {
 		"ok": true,
@@ -1546,6 +1553,7 @@ func intent_record_hive_honey(hive_id: String, player_id: String, honey_amount: 
 	if member.is_empty():
 		return {"ok": false, "reason": "member_not_found"}
 	member["honey_contributed"] = int(member.get("honey_contributed", 0)) + safe_amount
+	member["honey_balance_snapshot"] = maxi(0, int(member.get("honey_balance_snapshot", 0)) + safe_amount)
 	member["last_honey_reason"] = reason.strip_edges()
 	member["last_honey_at_unix"] = _now_unix()
 	members[resolved_player_id] = member
@@ -1562,6 +1570,135 @@ func intent_record_hive_honey(hive_id: String, player_id: String, honey_amount: 
 		"metadata": metadata.duplicate(true)
 	})
 	return {"ok": true, "membership": get_player_membership(resolved_player_id), "hive": _build_hive_snapshot(hive)}
+
+func intent_sync_member_honey_balance(player_id: String, honey_balance: int, reason: String = "") -> Dictionary:
+	_refresh_runtime_state()
+	var resolved_player_id: String = _sanitize_player_id(player_id)
+	if resolved_player_id.is_empty():
+		return {"ok": false, "reason": "missing_player_id"}
+	var hive_id: String = str(_player_to_hive_id.get(resolved_player_id, "")).strip_edges()
+	if hive_id.is_empty():
+		return {"ok": true, "synced": false, "reason": "player_not_in_hive"}
+	var hive: Dictionary = _hives_by_id.get(hive_id, {}) as Dictionary
+	if hive.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	var members: Dictionary = hive.get("members", {}) as Dictionary
+	var member: Dictionary = members.get(resolved_player_id, {}) as Dictionary
+	if member.is_empty():
+		return {"ok": false, "reason": "member_not_found"}
+	member["honey_balance_snapshot"] = maxi(0, honey_balance)
+	member["last_honey_reason"] = reason.strip_edges()
+	member["last_honey_at_unix"] = _now_unix()
+	members[resolved_player_id] = member
+	hive["members"] = members
+	_recompute_hive_metrics(hive)
+	_hives_by_id[hive_id] = hive
+	_save_state()
+	_emit_changed()
+	return {"ok": true, "synced": true, "hive": _build_hive_snapshot(hive), "membership": get_player_membership(resolved_player_id)}
+
+func preview_hive_honey_purchase(hive_id: String, honey_cost: int, balances_by_player: Dictionary = {}) -> Dictionary:
+	_refresh_runtime_state()
+	var clean_hive_id: String = str(hive_id).strip_edges()
+	var cost: int = maxi(0, honey_cost)
+	if cost <= 0:
+		return {"ok": false, "reason": "invalid_honey_cost"}
+	var hive: Dictionary = _hives_by_id.get(clean_hive_id, {}) as Dictionary
+	if hive.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	var members: Dictionary = hive.get("members", {}) as Dictionary
+	var balances: Dictionary = _hive_member_honey_balances(hive, balances_by_player)
+	var total_balance: int = 0
+	for balance_any in balances.values():
+		total_balance += maxi(0, int(balance_any))
+	if total_balance < cost:
+		return {
+			"ok": false,
+			"reason": "insufficient_hive_honey",
+			"available_hive_honey": total_balance,
+			"required_hive_honey": cost
+		}
+	var remaining: int = cost
+	var deductions: Array[Dictionary] = []
+	var member_ids: Array[String] = []
+	for player_id_any in members.keys():
+		var player_id: String = _sanitize_player_id(str(player_id_any))
+		if player_id.is_empty():
+			continue
+		if maxi(0, int(balances.get(player_id, 0))) <= 0:
+			continue
+		member_ids.append(player_id)
+	member_ids.sort()
+	for i in range(member_ids.size()):
+		var player_id: String = member_ids[i]
+		var balance: int = maxi(0, int(balances.get(player_id, 0)))
+		var deduction: int = 0
+		if i == member_ids.size() - 1:
+			deduction = remaining
+		else:
+			deduction = int(floor(float(cost) * float(balance) / float(maxi(1, total_balance))))
+			deduction = mini(balance, deduction)
+			remaining -= deduction
+		if deduction <= 0 and balance <= 0:
+			continue
+		deductions.append({
+			"player_id": player_id,
+			"balance_before": balance,
+			"deduction": deduction,
+			"balance_after": maxi(0, balance - deduction),
+			"share_bps": int(round(10000.0 * float(balance) / float(maxi(1, total_balance))))
+		})
+	return {
+		"ok": true,
+		"hive_id": clean_hive_id,
+		"honey_cost": cost,
+		"available_hive_honey": total_balance,
+		"deductions": deductions,
+		"deduction_model": "member_owned_proportional"
+	}
+
+func intent_debit_hive_honey_proportional(hive_id: String, honey_cost: int, reason: String = "", balances_by_player: Dictionary = {}, actor_player_id: String = "") -> Dictionary:
+	var preview: Dictionary = preview_hive_honey_purchase(hive_id, honey_cost, balances_by_player)
+	if not bool(preview.get("ok", false)):
+		return preview
+	var clean_hive_id: String = str(hive_id).strip_edges()
+	var hive: Dictionary = _hives_by_id.get(clean_hive_id, {}) as Dictionary
+	var members: Dictionary = hive.get("members", {}) as Dictionary
+	var deductions: Array = preview.get("deductions", []) as Array
+	for deduction_any in deductions:
+		if typeof(deduction_any) != TYPE_DICTIONARY:
+			continue
+		var deduction: Dictionary = deduction_any as Dictionary
+		var player_id: String = _sanitize_player_id(str(deduction.get("player_id", "")))
+		var member: Dictionary = members.get(player_id, {}) as Dictionary
+		if member.is_empty():
+			continue
+		member["honey_balance_snapshot"] = maxi(0, int(deduction.get("balance_after", 0)))
+		member["honey_spent"] = maxi(0, int(member.get("honey_spent", 0))) + maxi(0, int(deduction.get("deduction", 0)))
+		member["last_honey_reason"] = reason.strip_edges()
+		member["last_honey_at_unix"] = _now_unix()
+		members[player_id] = member
+	hive["members"] = members
+	hive["total_honey_spent"] = maxi(0, int(hive.get("total_honey_spent", 0))) + maxi(0, honey_cost)
+	_recompute_hive_metrics(hive)
+	_hives_by_id[clean_hive_id] = hive
+	_save_state()
+	_emit_event({
+		"type": "hive_honey_debited",
+		"hive_id": clean_hive_id,
+		"player_id": _resolve_player_id(actor_player_id),
+		"honey_cost": maxi(0, honey_cost),
+		"reason": reason.strip_edges(),
+		"deductions": deductions.duplicate(true),
+		"deduction_model": "member_owned_proportional"
+	})
+	return {
+		"ok": true,
+		"hive": _build_hive_snapshot(hive),
+		"honey_cost": maxi(0, honey_cost),
+		"deductions": deductions.duplicate(true),
+		"deduction_model": "member_owned_proportional"
+	}
 
 func intent_request_leave_hive(player_id: String = "") -> Dictionary:
 	_refresh_runtime_state()
@@ -1775,6 +1912,8 @@ func _build_hive_snapshot(hive: Dictionary) -> Dictionary:
 			"joined_at_unix": int(member.get("joined_at_unix", 0)),
 			"last_seen_at_unix": int(member.get("last_seen_at_unix", int(member.get("joined_at_unix", 0)))),
 			"honey_contributed": int(member.get("honey_contributed", 0)),
+			"honey_balance_snapshot": _member_honey_balance(member),
+			"honey_spent": int(member.get("honey_spent", 0)),
 			"rank_position": int(player_snapshot.get("rank_position", 0)),
 			"tier_id": str(player_snapshot.get("tier_id", "DRONE")),
 			"wax_score": float(player_snapshot.get("wax_score", 0.0))
@@ -2230,6 +2369,8 @@ func _sanitize_member(raw: Dictionary) -> Dictionary:
 		"joined_at_unix": maxi(0, int(raw.get("joined_at_unix", 0))),
 		"last_seen_at_unix": maxi(0, int(raw.get("last_seen_at_unix", raw.get("joined_at_unix", 0)))),
 		"honey_contributed": maxi(0, int(raw.get("honey_contributed", 0))),
+		"honey_balance_snapshot": maxi(0, int(raw.get("honey_balance_snapshot", raw.get("honey_contributed", 0)))),
+		"honey_spent": maxi(0, int(raw.get("honey_spent", 0))),
 		"last_honey_reason": str(raw.get("last_honey_reason", "")),
 		"last_honey_at_unix": maxi(0, int(raw.get("last_honey_at_unix", 0)))
 	}
@@ -2394,13 +2535,33 @@ func _reindex_memberships() -> void:
 
 func _recompute_hive_metrics(hive: Dictionary) -> void:
 	var members: Dictionary = hive.get("members", {}) as Dictionary
-	var total_honey: int = 0
+	var total_honey_contributed: int = 0
+	var spendable_honey: int = 0
 	for member_any in members.values():
 		var member: Dictionary = member_any as Dictionary
-		total_honey += maxi(0, int(member.get("honey_contributed", 0)))
-	hive["total_honey_contributed"] = total_honey
-	var total_honey_spent: int = maxi(0, int(hive.get("total_honey_spent", 0)))
-	hive["hive_honey_strength"] = maxi(0, total_honey - total_honey_spent)
+		total_honey_contributed += maxi(0, int(member.get("honey_contributed", 0)))
+		spendable_honey += _member_honey_balance(member)
+	hive["total_honey_contributed"] = total_honey_contributed
+	hive["hive_honey_strength"] = spendable_honey
+
+func _hive_member_honey_balances(hive: Dictionary, balances_by_player: Dictionary = {}) -> Dictionary:
+	var out: Dictionary = {}
+	var members: Dictionary = hive.get("members", {}) as Dictionary
+	for player_id_any in members.keys():
+		var player_id: String = _sanitize_player_id(str(player_id_any))
+		if player_id.is_empty():
+			continue
+		var member: Dictionary = members.get(player_id, {}) as Dictionary
+		if balances_by_player.has(player_id):
+			out[player_id] = maxi(0, int(balances_by_player.get(player_id, 0)))
+		else:
+			out[player_id] = _member_honey_balance(member)
+	return out
+
+func _member_honey_balance(member: Dictionary) -> int:
+	if member.has("honey_balance_snapshot"):
+		return maxi(0, int(member.get("honey_balance_snapshot", 0)))
+	return maxi(0, int(member.get("honey_contributed", 0)))
 
 func _sanitize_hive_tournament_status(status: String) -> String:
 	var clean_status: String = status.strip_edges().to_lower()
@@ -3803,6 +3964,8 @@ func _new_member(player_id: String, display_name: String, role: String, joined_a
 		"joined_at_unix": joined_at_unix,
 		"last_seen_at_unix": joined_at_unix,
 		"honey_contributed": 0,
+		"honey_balance_snapshot": 0,
+		"honey_spent": 0,
 		"last_honey_reason": "",
 		"last_honey_at_unix": 0
 	}
@@ -4662,6 +4825,20 @@ func _rank_state() -> Node:
 
 func _profile_manager() -> Node:
 	return get_node_or_null("/root/ProfileManager")
+
+func _connect_profile_honey_signal() -> void:
+	var profile_manager: Node = _profile_manager()
+	if profile_manager == null or not profile_manager.has_signal("honey_balance_changed"):
+		return
+	var callback: Callable = Callable(self, "_on_profile_honey_balance_changed")
+	if not profile_manager.is_connected("honey_balance_changed", callback):
+		profile_manager.connect("honey_balance_changed", callback)
+
+func _on_profile_honey_balance_changed(new_value: int, _delta: int, reason: String) -> void:
+	var local_id: String = _local_player_id()
+	if local_id.is_empty():
+		return
+	intent_sync_member_honey_balance(local_id, maxi(0, new_value), reason)
 
 func _is_final_stage_round(tree: SceneTree) -> bool:
 	var stage_paths_any: Variant = tree.get_meta("vs_stage_map_paths", [])
