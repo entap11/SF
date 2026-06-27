@@ -2,12 +2,21 @@ extends SceneTree
 
 const WaxRewardPolicy = preload("res://scripts/state/wax_reward_policy.gd")
 const HoneyEconomySimulator = preload("res://scripts/state/honey_economy_simulator.gd")
+const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
+const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 
 func _init() -> void:
+	OS.set_environment("SF_VS_BACKEND_URL", "")
+	OS.set_environment("SF_VS_BACKEND_TOKEN", "")
+	ProjectSettings.set_setting(SETTINGS_BACKEND_URL, "")
+	ProjectSettings.set_setting(SETTINGS_BACKEND_TOKEN, "")
 	call_deferred("_run")
 
 func _run() -> void:
 	await process_frame
+	var handshake: Node = get_root().get_node_or_null("VsHandshake")
+	if handshake != null and handshake.has_method("_configure_transport"):
+		handshake.call("_configure_transport")
 	_test_wax_policy()
 	await _test_competitive_wax_ledger()
 	await _test_nectar_policy()

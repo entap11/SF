@@ -1,6 +1,6 @@
 # Wax First-Pass Economy Frame
 
-Status: backend first slice implemented. `WaxRewardPolicy` exists locally, `waxRewardPolicy.ts` mirrors it in the VS service, and `record_competitive_wax_result` applies competitive Wax awards/losses into the same `wax_millis` pool used by Crucible wagering. Live PvP, async money payout approval, and free/tournament contest rank closeout now publish into that backend path when configured. RankState `wax_score` remains a separate rating/progression score.
+Status: backend first slice implemented. `WaxRewardPolicy` exists locally, `waxRewardPolicy.ts` mirrors it in the VS service, and `record_competitive_wax_result` applies competitive Wax awards/losses into the same `wax_millis` pool used by Crucible wagering. Live PvP, async money payout approval, free/tournament contest rank closeout, and Hive tournament bracket winner closeout now publish into that backend path when configured. RankState `wax_score` remains a separate rating/progression score.
 
 ## Core Philosophy
 
@@ -130,6 +130,7 @@ Tournament implementation note:
 - Do not double-award overlapping bands.
 - Award the highest qualifying band only.
 - Tournament Wax should be config-driven by tournament type.
+- Hive tournament bracket winners currently credit the winning Hive's queen/creator representative through the player-owned Wax ledger, with Hive/team metadata attached for audit. This is a first slice until team distribution rules are finalized.
 
 ## Never Award Wax For
 

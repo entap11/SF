@@ -34,6 +34,12 @@ func _init() -> void:
 		return
 	profile_manager.call("set_user_id", "ta1")
 	profile_manager.call("set_display_name", "Alpha Queen")
+	var crucible_state: Node = get_root().get_node_or_null("CrucibleState")
+	if crucible_state == null:
+		_fail("CrucibleState autoload missing")
+		return
+	if crucible_state.has_method("debug_reset_state"):
+		crucible_state.call("debug_reset_state")
 
 	var existing_rank_state: Node = get_root().get_node_or_null("RankState")
 	if existing_rank_state != null:
@@ -129,6 +135,11 @@ func _init() -> void:
 	var alpha_snapshot: Dictionary = state.call("get_hive_snapshot", "h_alpha") as Dictionary
 	var alpha_rank_breakdown: Dictionary = alpha_snapshot.get("rank_breakdown", {}) as Dictionary
 	_assert_true(float(alpha_rank_breakdown.get("multiplier", 1.0)) > 1.0, "weekly trophy should permanently raise hive rank multiplier")
+	var wax_result: Dictionary = alpha_hive.get("last_tournament_wax_result", {}) as Dictionary
+	_assert_true(bool(wax_result.get("ok", false)), "weekly bracket champion should publish competitive Wax")
+	_assert_eq(int(wax_result.get("balance_millis", 0)), 25000, "weekly bracket champion representative should receive 25 Wax")
+	_assert_eq(int(crucible_state.call("get_balance_millis", "ta1")), 25000, "local Wax mirror should credit the winning queen")
+	_assert_backend_wax_if_configured("ta1", str(wax_result.get("event_id", "")))
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 	print("HIVE_TOURNAMENT_ROUND_SMOKE: PASS")
@@ -211,6 +222,23 @@ func _find_other_active_round(state: Node, excluded_round_id: String) -> Diction
 			continue
 		return round
 	return {}
+
+func _assert_backend_wax_if_configured(player_id: String, event_id: String) -> void:
+	var handshake: Node = get_root().get_node_or_null("VsHandshake")
+	if handshake == null or not handshake.has_method("get_transport_mode"):
+		return
+	if str(handshake.call("get_transport_mode")) != "http":
+		return
+	if event_id.is_empty():
+		_fail("backend Wax result should include event id")
+		return
+	var snapshot: Dictionary = handshake.call("debug_get_crucible_snapshot") as Dictionary
+	_assert_true(bool(snapshot.get("ok", false)), "backend Crucible snapshot should load")
+	var ledger: Dictionary = snapshot.get("ledger", {}) as Dictionary
+	var balances: Dictionary = ledger.get("balances_by_player", {}) as Dictionary
+	_assert_eq(int(balances.get(player_id, 0)), 25000, "backend Wax ledger should credit the winning queen")
+	var awards: Dictionary = ledger.get("competitive_wax_awards_by_event", {}) as Dictionary
+	_assert_true(awards.has(event_id), "backend Wax ledger should store the Hive tournament award")
 
 func _assert_true(value: bool, label: String) -> void:
 	if value:
