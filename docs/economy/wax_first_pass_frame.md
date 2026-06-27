@@ -1,6 +1,6 @@
 # Wax First-Pass Economy Frame
 
-Status: first slice implemented as `WaxRewardPolicy` plus idempotent CrucibleState wallet ledger. RankState `wax_score` remains a separate rating/progression score.
+Status: backend first slice implemented. `WaxRewardPolicy` exists locally, `waxRewardPolicy.ts` mirrors it in the VS service, and `record_competitive_wax_result` applies competitive Wax awards/losses into the same `wax_millis` pool used by Crucible wagering. RankState `wax_score` remains a separate rating/progression score.
 
 ## Core Philosophy
 
@@ -253,25 +253,17 @@ Collusion handling:
    - wax_tournament_awarded
    - wax_async_awarded
 
-## Questions Before Implementation
+## Implementation Status And Open Questions
 
-1. Where is current Wax/rank score stored?
-2. Is current Wax a float score, integer wallet, or both?
-3. What rating/MMR field should determine opponent strength?
-4. Do we have a reliable close-loss metric yet?
-5. Where are CTF/HCTF identified in match metadata?
-6. How are Async contests currently finalized and ranked?
-7. Do W/M/S contests expose field size and placement cleanly?
-8. Where should the Wax ledger persist?
-9. What is the safest first slice?
+1. Wagerable/earned Wax is stored as integer `wax_millis` in the Crucible ledger.
+2. `RankState.wax_score` remains rating-like progression data and is not the spendable/wagerable Wax balance.
+3. Opponent strength currently uses player/opponent rating fields supplied by match authority.
+4. Close-loss Wax is supported by policy, but production should only pass `close_loss_qualified` after the sim exposes a trusted metric.
+5. CTF/HCTF/Progressive/Async/Tournament mode mapping is policy-supported, but each result publisher still needs to pass clean mode/placement metadata.
+6. Async and W/M/S finalization still need a dedicated publisher from contest result approval into `record_competitive_wax_result`.
+7. Production persistence should eventually move this ledger from the local/dev file adapter to the canonical ENTaP player economy ledger.
 
 ## Recommended First Slice
 
-- Centralized Wax config.
-- WaxRewardPolicy calculator.
-- Standard Competitive PvP / Progressive win-loss table.
-- Opponent strength banding.
-- Basic idempotency.
-- Crucible no-participation-award guard.
-- Tests for core PvP win/loss outcomes.
-- Defer complex close-loss and tournament percentile logic if the required metrics are not yet reliable.
+- Done: centralized Wax config, local/backend WaxRewardPolicy calculators, Standard Competitive PvP / Progressive win-loss table, opponent strength banding, idempotency, Crucible no-participation-award guard, repeated-opponent diminishing, and backend smoke coverage for core win/loss outcomes.
+- Remaining: wire authoritative match/contest completion publishers into the backend endpoint, add clean close-loss metrics, and move production persistence/identity to the canonical ENTaP economy service.

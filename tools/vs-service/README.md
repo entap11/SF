@@ -54,6 +54,8 @@ http://127.0.0.1:8791/v1
 - `POST /v1/preview_hive_honey_purchase`
 - `POST /v1/debit_hive_honey_purchase`
 - `POST /v1/get_honey_transactions`
+- `POST /v1/get_wax_policy`
+- `POST /v1/record_competitive_wax_result`
 - `POST /v1/publish_intent`
 - `POST /v1/poll_intents`
 - `POST /v1/create_spectator_grant`
@@ -79,7 +81,7 @@ The same `POST /<action>` routes are also available for hosts that prefer a root
 - `VS_SPECTATOR_PUBLIC_ENABLED`: keep disabled for beta unless separately reviewed.
 - `VS_ADMIN_TOKEN`: local/dev admin auth for Crucible config/review/debug endpoints and Honey debug endpoints.
 - `VS_ADMIN_ROLE`: local/dev expected admin role. Defaults to `ops_admin`.
-- `VS_MATCH_AUTHORITY_TOKEN`: local/dev match-authority auth for Crucible escrow, settlement, lifecycle writes, and Honey grant/debit writes.
+- `VS_MATCH_AUTHORITY_TOKEN`: local/dev match-authority auth for Crucible escrow, settlement, lifecycle writes, Honey grant/debit writes, and competitive Wax result writes.
 - `CRUCIBLE_LEDGER_STORE`: `file` or `memory` today; production target is `postgres`.
 - `CRUCIBLE_LEDGER_PATH`: JSON snapshot path for the local/dev file-backed Crucible ledger. Defaults to `data/crucible-ledger.json`.
 - `HONEY_LEDGER_STORE`: `file` or `memory` today; production target is the ENTaP player ledger.
@@ -92,6 +94,13 @@ Honey ledger notes:
 - Mutating Honey writes require match-authority auth in this local service.
 - Hive Honey purchases use member-owned proportional debits; there is no separate Hive treasury.
 - The current file-backed ledger is a local/dev adapter. Production should replace it with the canonical ENTaP player Honey ledger and real identity validation.
+
+Wax ledger notes:
+
+- Wax is stored as integer `wax_millis` in the Crucible ledger so competitive earning and Crucible wagering draw from the same pool.
+- `record_competitive_wax_result` is the preferred non-Crucible award/loss path; it calculates server-side from match result, mode group, player/opponent rating, placement metadata, and anti-harvest signals.
+- Crucible match participation does not award competitive Wax. Crucible only escrows, burns, refunds, and pays out wagered Wax.
+- RankState `wax_score` remains a separate rating/progression input and should not be treated as the spendable/wagerable Wax balance.
 
 Production Crucible requirements:
 

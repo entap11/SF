@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createCrucibleLedgerStore, type CrucibleLedgerStore } from "./crucibleLedgerStore.js";
+import { evaluateWaxMatch } from "./waxRewardPolicy.js";
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -58,6 +59,7 @@ const RULESET_CRUCIBLE = "CRUCIBLE";
 const HOUSE_BURN_ACCOUNT = "crucible_burn";
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const SNAPSHOT_TYPE = "crucible_ledger";
+const REPEATED_OPPONENT_WINDOW_SEC = 24 * 60 * 60;
 const DEFAULT_CONFIG: CrucibleConfig = {
   enabled: true,
   queue_enabled: true,
@@ -156,6 +158,8 @@ export class CrucibleLedger {
   private auditRecords: JsonRecord[] = [];
   private antiCollusionObservations: JsonRecord[] = [];
   private reviewRecordsByMatchId = new Map<string, JsonRecord>();
+  private competitiveWaxAwardsByEvent = new Map<string, JsonRecord>();
+  private waxStatsByPlayer = new Map<string, JsonRecord>();
   private operationResults = new Map<string, JsonRecord>();
   private nextTransactionSeq = 1;
 
@@ -370,6 +374,10 @@ export class CrucibleLedger {
     this.balances.set(HOUSE_BURN_ACCOUNT, this.getBalanceMillis(HOUSE_BURN_ACCOUNT) + escrow.burn);
     this.appendTransaction("BURN", cleanMatch, HOUSE_BURN_ACCOUNT, escrow.burn, escrow.escrow_id, {});
     this.appendTransaction("WINNER_PAYOUT", cleanMatch, cleanWinner, escrow.winner_payout, escrow.escrow_id, {});
+    const loserBurnShare = Math.floor(escrow.burn / 2);
+    const winnerBurnShare = Math.max(0, escrow.burn - loserBurnShare);
+    this.applyWaxStats(cleanWinner, escrow.winner_payout, winnerBurnShare);
+    this.applyWaxStats(loser, -Math.max(0, escrow.stake_each), loserBurnShare);
     escrow.settlement_status = "SETTLED";
     const settlement = this.settlementRecord(escrow, "SETTLED", cleanWinner, loser, cleanSource, cleanString(reason), metadata);
     this.settlementsByMatchId.set(cleanMatch, settlement);
@@ -419,8 +427,88 @@ export class CrucibleLedger {
     }
     this.balances.set(cleanPlayer, this.getBalanceMillis(cleanPlayer) + amount);
     const transaction = this.appendTransaction("EARN", cleanString(metadata.match_id), cleanPlayer, amount, "", { source: cleanString(source), ...metadata });
+    this.applyWaxStats(cleanPlayer, amount, 0);
     this.persistToStore();
     return { ok: true, awarded: true, player_id: cleanPlayer, amount_millis: amount, balance_millis: this.getBalanceMillis(cleanPlayer), transaction_id: transaction.transaction_id };
+  }
+
+  recordCompetitiveWaxResult(input: JsonRecord, idempotencyKey = ""): JsonRecord {
+    const cleanMatch = cleanString(input.match_id);
+    const cleanPlayer = cleanString(input.player_id);
+    const cleanOpponent = cleanString(input.opponent_id);
+    const metadata = this.recordValue(input.metadata);
+    const eventId = cleanString(input.event_id ?? metadata.event_id) || `competitive_wax:${cleanMatch}:${cleanPlayer}`;
+    const cleanKey = cleanString(idempotencyKey) || eventId;
+    const cached = this.operationResults.get(cleanKey);
+    if (cached) {
+      return clone(cached);
+    }
+    if (!cleanMatch || !cleanPlayer) {
+      return this.store(cleanKey, error("missing_wax_award_fields", "Match id and player id are required."));
+    }
+    const existing = this.competitiveWaxAwardsByEvent.get(eventId);
+    if (existing) {
+      return this.store(cleanKey, { ok: true, awarded: false, duplicate: true, event_id: eventId, award: clone(existing) });
+    }
+    const occurredAt = Math.max(1, intValue(input.occurred_unix, nowUnix()));
+    const repeatedCount = input.repeated_opponent_count == null
+      ? this.repeatedOpponentCount(cleanPlayer, cleanOpponent, occurredAt)
+      : Math.max(0, intValue(input.repeated_opponent_count));
+    const payload = {
+      ...metadata,
+      ...input,
+      match_id: cleanMatch,
+      player_id: cleanPlayer,
+      opponent_id: cleanOpponent,
+      repeated_opponent_count: repeatedCount
+    };
+    const breakdown = evaluateWaxMatch(payload);
+    breakdown.event_id = eventId;
+    breakdown.created_at = occurredAt;
+    breakdown.repeated_opponent_count = repeatedCount;
+    this.competitiveWaxAwardsByEvent.set(eventId, clone(breakdown));
+    const status = cleanString(breakdown.validity_status) || "eligible";
+    const deltaMillis = intValue(breakdown.final_wax_delta_millis);
+    if (status === "blocked" || deltaMillis === 0) {
+      const result = {
+        ok: true,
+        awarded: false,
+        subtracted: false,
+        event_id: eventId,
+        breakdown: clone(breakdown),
+        balance_millis: this.getBalanceMillis(cleanPlayer)
+      };
+      return this.store(cleanKey, result);
+    }
+    this.ensurePlayer(cleanPlayer);
+    let appliedDelta = deltaMillis;
+    if (deltaMillis < 0) {
+      appliedDelta = -Math.min(this.getBalanceMillis(cleanPlayer), Math.abs(deltaMillis));
+    }
+    this.balances.set(cleanPlayer, Math.max(0, this.getBalanceMillis(cleanPlayer) + appliedDelta));
+    this.applyWaxStats(cleanPlayer, appliedDelta, 0);
+    const transaction = this.appendTransaction(
+      appliedDelta > 0 ? "COMPETITIVE_WAX_AWARD" : "COMPETITIVE_WAX_LOSS",
+      cleanMatch,
+      cleanPlayer,
+      appliedDelta,
+      "",
+      { event_id: eventId, opponent_id: cleanOpponent, breakdown: clone(breakdown) }
+    );
+    breakdown.applied_wax_delta_millis = appliedDelta;
+    breakdown.balance_millis = this.getBalanceMillis(cleanPlayer);
+    breakdown.transaction_id = transaction.transaction_id;
+    this.competitiveWaxAwardsByEvent.set(eventId, clone(breakdown));
+    const result = {
+      ok: true,
+      awarded: appliedDelta > 0,
+      subtracted: appliedDelta < 0,
+      event_id: eventId,
+      breakdown: clone(breakdown),
+      balance_millis: this.getBalanceMillis(cleanPlayer),
+      transaction_id: transaction.transaction_id
+    };
+    return this.store(cleanKey, result);
   }
 
   resolveReview(matchId: string, action: string, actorId = "ops", metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
@@ -468,6 +556,8 @@ export class CrucibleLedger {
       audit_records: clone(this.auditRecords),
       anti_collusion_observations: clone(this.antiCollusionObservations),
       review_records_by_match_id: Object.fromEntries([...this.reviewRecordsByMatchId.entries()].map(([key, value]) => [key, clone(value)])),
+      competitive_wax_awards_by_event: Object.fromEntries([...this.competitiveWaxAwardsByEvent.entries()].map(([key, value]) => [key, clone(value)])),
+      wax_stats_by_player: Object.fromEntries([...this.waxStatsByPlayer.entries()].map(([key, value]) => [key, clone(value)])),
       operation_results: Object.fromEntries([...this.operationResults.entries()].map(([key, value]) => [key, clone(value)])),
       next_transaction_seq: this.nextTransactionSeq
     };
@@ -655,8 +745,57 @@ export class CrucibleLedger {
     this.auditRecords = this.arrayValue(snapshot.audit_records).map((entry) => clone(entry) as JsonRecord);
     this.antiCollusionObservations = this.arrayValue(snapshot.anti_collusion_observations).map((entry) => clone(entry) as JsonRecord);
     this.reviewRecordsByMatchId = new Map(Object.entries(this.recordValue(snapshot.review_records_by_match_id)).map(([key, value]) => [key, clone(value) as JsonRecord]));
+    this.competitiveWaxAwardsByEvent = new Map(Object.entries(this.recordValue(snapshot.competitive_wax_awards_by_event)).map(([key, value]) => [key, clone(value) as JsonRecord]));
+    this.waxStatsByPlayer = new Map(Object.entries(this.recordValue(snapshot.wax_stats_by_player)).map(([key, value]) => [key, clone(value) as JsonRecord]));
     this.operationResults = new Map(Object.entries(this.recordValue(snapshot.operation_results)).map(([key, value]) => [key, clone(value) as JsonRecord]));
     this.nextTransactionSeq = Math.max(1, intValue(snapshot.next_transaction_seq, this.inferNextTransactionSeq()));
+  }
+
+  private repeatedOpponentCount(playerId: string, opponentId: string, occurredAt: number): number {
+    if (!playerId || !opponentId) {
+      return 0;
+    }
+    const windowStart = Math.max(0, occurredAt - REPEATED_OPPONENT_WINDOW_SEC);
+    let count = 0;
+    for (const award of this.competitiveWaxAwardsByEvent.values()) {
+      if (cleanString(award.player_id) !== playerId || cleanString(award.opponent_id) !== opponentId) {
+        continue;
+      }
+      const createdAt = intValue(award.created_at, 0);
+      if (createdAt >= windowStart && createdAt <= occurredAt) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  private applyWaxStats(playerId: string, deltaMillis: number, burnedMillis: number): void {
+    const cleanPlayer = cleanString(playerId);
+    if (!cleanPlayer) {
+      return;
+    }
+    const existing = this.waxStatsByPlayer.get(cleanPlayer) ?? {};
+    const current = {
+      lifetime_wax_won: intValue(existing.lifetime_wax_won),
+      lifetime_wax_lost: intValue(existing.lifetime_wax_lost),
+      lifetime_wax_burned: intValue(existing.lifetime_wax_burned),
+      lifetime_wax_net: intValue(existing.lifetime_wax_net),
+      largest_wax_award: intValue(existing.largest_wax_award),
+      largest_wax_loss: intValue(existing.largest_wax_loss)
+    };
+    const delta = intValue(deltaMillis);
+    const burned = Math.max(0, intValue(burnedMillis));
+    if (delta > 0) {
+      current.lifetime_wax_won += delta;
+      current.largest_wax_award = Math.max(current.largest_wax_award, delta);
+    } else if (delta < 0) {
+      const loss = Math.abs(delta);
+      current.lifetime_wax_lost += loss;
+      current.largest_wax_loss = Math.max(current.largest_wax_loss, loss);
+    }
+    current.lifetime_wax_burned += burned;
+    current.lifetime_wax_net = current.lifetime_wax_won - current.lifetime_wax_lost - current.lifetime_wax_burned;
+    this.waxStatsByPlayer.set(cleanPlayer, current);
   }
 
   private recordAntiCollusionObservation(matchId: string, playerAId: string, playerBId: string, signals: unknown, stakeEach: number): void {
@@ -708,6 +847,10 @@ export class CrucibleLedger {
     this.balances.set(HOUSE_BURN_ACCOUNT, this.getBalanceMillis(HOUSE_BURN_ACCOUNT) + escrow.burn);
     this.appendTransaction("BURN", escrow.match_id, HOUSE_BURN_ACCOUNT, escrow.burn, escrow.escrow_id, { review_release: true, actor_id: actorId });
     this.appendTransaction("WINNER_PAYOUT", escrow.match_id, winnerId, escrow.winner_payout, escrow.escrow_id, { review_release: true, actor_id: actorId });
+    const loserBurnShare = Math.floor(escrow.burn / 2);
+    const winnerBurnShare = Math.max(0, escrow.burn - loserBurnShare);
+    this.applyWaxStats(winnerId, escrow.winner_payout, winnerBurnShare);
+    this.applyWaxStats(loser, -Math.max(0, escrow.stake_each), loserBurnShare);
     escrow.settlement_status = "SETTLED";
     const settlement = this.settlementRecord(escrow, "SETTLED", winnerId, loser, "ADMIN_REVIEW", "review_release", {
       ...metadata,

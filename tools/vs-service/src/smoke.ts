@@ -654,6 +654,71 @@ async function main(): Promise<void> {
     const crucibleConfig = await post(baseUrl, "get_crucible_config", {});
     const crucibleConfigPayload = crucibleConfig.config as JsonRecord;
     expect(Number(crucibleConfigPayload.config_version) > 0, "crucible config missing version", crucibleConfig);
+    const waxPolicy = await post(baseUrl, "get_wax_policy", {});
+    expect(String((waxPolicy.policy as JsonRecord).precision) === "wax_millis", "Wax policy precision mismatch", waxPolicy);
+    const waxWin = await post(baseUrl, "record_competitive_wax_result", {
+      match_id: "wax_win_smoke",
+      player_id: "wax_winner",
+      opponent_id: "wax_even",
+      mode_name: "1V1",
+      did_win: true,
+      player_rating: 1000,
+      opponent_rating: 1000,
+      idempotency_key: "wax:win"
+    }, matchHeaders);
+    expect(waxWin.awarded === true && Number(waxWin.balance_millis) === 3000, "Wax win should award 3 Wax", waxWin);
+    const waxWinDuplicate = await post(baseUrl, "record_competitive_wax_result", {
+      match_id: "wax_win_smoke",
+      player_id: "wax_winner",
+      opponent_id: "wax_even",
+      mode_name: "1V1",
+      did_win: true,
+      player_rating: 1000,
+      opponent_rating: 1000,
+      idempotency_key: "wax:win"
+    }, matchHeaders);
+    expect(waxWinDuplicate.awarded === true && Number(waxWinDuplicate.balance_millis) === 3000, "Wax duplicate idempotency mismatch", waxWinDuplicate);
+    await post(baseUrl, "debug_set_crucible_balance", {
+      player_id: "wax_loss",
+      balance_millis: 10000
+    }, adminHeaders);
+    const waxLoss = await post(baseUrl, "record_competitive_wax_result", {
+      match_id: "wax_loss_smoke",
+      player_id: "wax_loss",
+      opponent_id: "wax_weaker",
+      mode_name: "PVP",
+      did_win: false,
+      player_rating: 2000,
+      opponent_rating: 1000,
+      idempotency_key: "wax:loss"
+    }, matchHeaders);
+    expect(waxLoss.subtracted === true && Number(waxLoss.balance_millis) === 8000, "Wax loss vs weaker should subtract 2 Wax", waxLoss);
+    for (let i = 1; i <= 4; i += 1) {
+      await post(baseUrl, "record_competitive_wax_result", {
+        match_id: `wax_repeat_${i}`,
+        player_id: "wax_repeat",
+        opponent_id: "wax_repeat_opp",
+        mode_name: "1V1",
+        did_win: true,
+        player_rating: 1000,
+        opponent_rating: 1000,
+        idempotency_key: `wax:repeat:${i}`
+      }, matchHeaders);
+    }
+    const waxRepeatSnapshot = await post(baseUrl, "debug_get_crucible_snapshot", {}, adminHeaders);
+    const waxRepeatBalances = ((waxRepeatSnapshot.ledger as JsonRecord).balances_by_player as JsonRecord);
+    expect(Number(waxRepeatBalances.wax_repeat) === 7000, "Wax repeated-opponent diminishing mismatch", waxRepeatSnapshot);
+    const waxCrucibleBlocked = await post(baseUrl, "record_competitive_wax_result", {
+      match_id: "wax_crucible_blocked",
+      player_id: "wax_crucible",
+      opponent_id: "wax_crucible_opp",
+      mode_name: "1V1",
+      did_win: true,
+      vs_crucible: true,
+      idempotency_key: "wax:crucible_blocked"
+    }, matchHeaders);
+    const waxCrucibleBreakdown = waxCrucibleBlocked.breakdown as JsonRecord;
+    expect(waxCrucibleBlocked.awarded === false && waxCrucibleBreakdown.validity_status === "blocked", "Crucible participation should not award competitive Wax", waxCrucibleBlocked);
     const crucibleContext = {
       ...context,
       mode: "1V1",

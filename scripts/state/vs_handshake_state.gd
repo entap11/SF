@@ -434,6 +434,26 @@ func award_crucible_wax(player_id: String, amount_millis: int, source: String, m
 		return transport.get("result", {}) as Dictionary
 	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
+func get_wax_policy() -> Dictionary:
+	var transport := _call_transport("get_wax_policy", {})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func record_competitive_wax_result(match_id: String, player_id: String, opponent_id: String, did_win: bool, mode_name: String, metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var payload: Dictionary = metadata.duplicate(true)
+	payload["match_id"] = match_id
+	payload["player_id"] = player_id
+	payload["opponent_id"] = opponent_id
+	payload["did_win"] = did_win
+	payload["mode_name"] = mode_name
+	payload["metadata"] = metadata
+	payload["idempotency_key"] = idempotency_key
+	var transport := _call_transport("record_competitive_wax_result", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
 func debug_set_crucible_balance(player_id: String, balance_millis: int) -> Dictionary:
 	var transport := _call_transport("debug_set_crucible_balance", {
 		"player_id": player_id,

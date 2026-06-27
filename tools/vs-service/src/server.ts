@@ -14,6 +14,7 @@ import { moneyLedger, type JsonRecord as LedgerJsonRecord } from "./moneyLedger.
 import { crucibleLedger } from "./crucibleLedger.js";
 import { honeyLedger } from "./honeyLedger.js";
 import { honeyActivitySpecsSnapshot } from "./honeyEconomyPolicy.js";
+import { waxPolicySnapshot } from "./waxRewardPolicy.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -848,6 +849,10 @@ function handleAction(req: Request, res: Response): void {
       return resolveCrucibleReview(req, res);
     case "record_crucible_lifecycle":
       return recordCrucibleLifecycle(req, res);
+    case "get_wax_policy":
+      return getWaxPolicy(req, res);
+    case "record_competitive_wax_result":
+      return recordCompetitiveWaxResult(req, res);
     case "award_crucible_wax":
       return awardCrucibleWax(req, res);
     case "debug_set_crucible_balance":
@@ -1912,6 +1917,32 @@ function awardCrucibleWax(req: Request, res: Response): void {
   return okOrLedgerFailure(res, result);
 }
 
+function getWaxPolicy(_req: Request, res: Response): void {
+  return ok(res, { policy: waxPolicySnapshot() });
+}
+
+function recordCompetitiveWaxResult(req: Request, res: Response): void {
+  if (!requireMatchAuthority(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = crucibleLedger.recordCompetitiveWaxResult({
+    ...body,
+    metadata,
+    match_id: stringValue(body.match_id),
+    player_id: stringValue(body.player_id),
+    opponent_id: stringValue(body.opponent_id),
+    mode_name: stringValue(body.mode_name ?? body.mode),
+    did_win: boolValue(body.did_win),
+    close_loss_qualified: boolValue(body.close_loss_qualified),
+    player_rating: numberValue(body.player_rating ?? body.player_wax_score, 0),
+    opponent_rating: numberValue(body.opponent_rating ?? body.opponent_wax_score, 0),
+    occurred_unix: Math.trunc(numberValue(body.occurred_unix, 0))
+  }, stringValue(body.idempotency_key));
+  return okOrLedgerFailure(res, result, 402);
+}
+
 function debugSetCrucibleBalance(req: Request, res: Response): void {
   if (!requireAdmin(req, res)) {
     return;
@@ -2219,7 +2250,9 @@ export function createApp(): express.Express {
         get_honey_balance: "POST /v1/get_honey_balance",
         record_honey_activity: "POST /v1/record_honey_activity",
         grant_honey: "POST /v1/grant_honey",
-        debit_hive_honey_purchase: "POST /v1/debit_hive_honey_purchase"
+        debit_hive_honey_purchase: "POST /v1/debit_hive_honey_purchase",
+        get_wax_policy: "POST /v1/get_wax_policy",
+        record_competitive_wax_result: "POST /v1/record_competitive_wax_result"
       },
       crucible: {
         storage: crucibleLedger.getStorageSnapshot(),
