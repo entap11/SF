@@ -60,7 +60,7 @@ func sync_contest_rank_rewards(contest_id: String, contest_scope: String = "", m
 		}
 	) as Dictionary
 	if bool(result.get("ok", false)) and bool(result.get("awarded", false)):
-		_award_competitive_wax_result("contest:%s:%s" % [clean_contest_id, player_id], player_id, "", true, "TOURNAMENT", {
+		var competitive_wax_result: Dictionary = _award_competitive_wax_result("contest:%s:%s" % [clean_contest_id, player_id], player_id, "", true, "TOURNAMENT", {
 			"event_id": "competitive_wax:contest:%s:%s" % [clean_contest_id, player_id],
 			"contest_id": clean_contest_id,
 			"contest_scope": scope,
@@ -68,6 +68,7 @@ func sync_contest_rank_rewards(contest_id: String, contest_scope: String = "", m
 			"field_size": rows.size(),
 			"map_count": map_count
 		})
+		result["competitive_wax_result"] = competitive_wax_result
 		var event: Dictionary = {
 			"type": "contest_rank_awarded",
 			"contest_id": clean_contest_id,
@@ -243,11 +244,11 @@ func _award_pvp_match_result(tree: SceneTree, rank_state: Node, winner_id: int, 
 		runtime_rank_award.emit(event)
 		SFLog.info("RANK_RUNTIME_AWARD", event)
 
-func _award_competitive_wax_result(match_id: String, player_id: String, opponent_id: String, did_win: bool, mode_name: String, metadata: Dictionary) -> void:
+func _award_competitive_wax_result(match_id: String, player_id: String, opponent_id: String, did_win: bool, mode_name: String, metadata: Dictionary) -> Dictionary:
 	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
 	if crucible_state == null or not crucible_state.has_method("intent_apply_competitive_wax_result"):
-		return
-	crucible_state.call("intent_apply_competitive_wax_result", match_id, player_id, opponent_id, did_win, mode_name, metadata)
+		return {"ok": false, "err": "crucible_state_unavailable"}
+	return crucible_state.call("intent_apply_competitive_wax_result", match_id, player_id, opponent_id, did_win, mode_name, metadata) as Dictionary
 
 func _sync_tree_contest_reward() -> void:
 	var tree: SceneTree = get_tree()

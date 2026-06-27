@@ -1,6 +1,6 @@
 # Wax First-Pass Economy Frame
 
-Status: backend first slice implemented. `WaxRewardPolicy` exists locally, `waxRewardPolicy.ts` mirrors it in the VS service, and `record_competitive_wax_result` applies competitive Wax awards/losses into the same `wax_millis` pool used by Crucible wagering. Live PvP and async money payout approval now publish into that backend path when configured. RankState `wax_score` remains a separate rating/progression score.
+Status: backend first slice implemented. `WaxRewardPolicy` exists locally, `waxRewardPolicy.ts` mirrors it in the VS service, and `record_competitive_wax_result` applies competitive Wax awards/losses into the same `wax_millis` pool used by Crucible wagering. Live PvP, async money payout approval, and free/tournament contest rank closeout now publish into that backend path when configured. RankState `wax_score` remains a separate rating/progression score.
 
 ## Core Philosophy
 
@@ -260,10 +260,10 @@ Collusion handling:
 3. Opponent strength currently uses player/opponent rating fields supplied by match authority.
 4. Close-loss Wax is supported by policy, but production should only pass `close_loss_qualified` after the sim exposes a trusted metric.
 5. CTF/HCTF/Progressive/Async/Tournament mode mapping is policy-supported, but each result publisher still needs to pass clean mode/placement metadata.
-6. Async money payout approval publishes Wax for approved payout rows and, when backend result-ledger rows are available, ranked leaderboard rows.
+6. Async money payout approval publishes Wax for approved payout rows and, when backend result-ledger rows are available, ranked leaderboard rows. Free/tournament contest rank closeout returns the competitive Wax publish result for audit/debug visibility.
 7. Production persistence should eventually move this ledger from the local/dev file adapter to the canonical ENTaP player economy ledger.
 
 ## Recommended First Slice
 
 - Done: centralized Wax config, local/backend WaxRewardPolicy calculators, Standard Competitive PvP / Progressive win-loss table, opponent strength banding, idempotency, Crucible no-participation-award guard, repeated-opponent diminishing, and backend smoke coverage for core win/loss outcomes.
-- Remaining: broaden non-money/free async contest closeout publishing, wire additional tournament completion paths, add clean close-loss metrics, and move production persistence/identity to the canonical ENTaP economy service.
+- Remaining: wire additional bracket/Hive tournament completion paths, add clean close-loss metrics, and move production persistence/identity to the canonical ENTaP economy service.
