@@ -175,10 +175,20 @@ func debug_reset_state() -> void:
 	_emit_changed()
 
 func _award_honey_tenths(source_name: String, honey_tenths: int, metadata: Dictionary, weekly_updates: Array[Dictionary]) -> Dictionary:
-	_roll_week_if_needed()
 	var safe_amount: int = maxi(0, honey_tenths)
 	if safe_amount <= 0:
 		return {"ok": false, "reason": "no_honey"}
+	if not _honey_rewards_enabled():
+		return {
+			"ok": true,
+			"awarded": false,
+			"reason": "honey_rewards_disabled",
+			"honey_tenths_awarded": 0,
+			"whole_honey_granted": 0,
+			"profile_honey_balance": _profile_honey_balance(),
+			"claimed_weekly_bonuses": []
+		}
+	_roll_week_if_needed()
 	var event_id: String = _event_id_from_metadata(source_name, metadata)
 	if _awarded_event_ids.has(event_id):
 		return {
@@ -394,6 +404,12 @@ func _profile_honey_balance() -> int:
 	if profile_manager != null and profile_manager.has_method("get_honey_balance"):
 		return maxi(0, int(profile_manager.call("get_honey_balance")))
 	return 0
+
+func _honey_rewards_enabled() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("honey_rewards_enabled"):
+		return bool(ops_config.call("honey_rewards_enabled"))
+	return false
 
 func _connect_tree_signals() -> void:
 	var tree: SceneTree = get_tree()

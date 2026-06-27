@@ -57,6 +57,9 @@ var _free_roll := false
 var _entry_lock := "any" # "any", "free_only", "paid_only"
 
 func configure_entry(free_roll: bool, denomination: int = 0) -> void:
+	if not free_roll and not _paid_entries_enabled():
+		free_roll = true
+		denomination = 0
 	_entry_lock = "free_only" if free_roll else "paid_only"
 	_selected_price = 0 if free_roll else _clamp_price(denomination)
 	_free_roll = free_roll
@@ -277,6 +280,13 @@ func _is_capture_flag_mode(mode_id: String) -> bool:
 	return mode_id == "CAPTURE_FLAG" or mode_id == "HIDDEN_CAPTURE_FLAG"
 
 func _on_confirm_pressed() -> void:
+	if not _free_roll and not _paid_entries_enabled():
+		_free_roll = true
+		_selected_price = 0
+		_entry_lock = "free_only"
+		_build_buttons()
+		_refresh_summary()
+		return
 	var lobby := preload("res://scenes/ui/VsLobby.tscn").instantiate()
 	var options: Dictionary = {}
 	if _is_capture_flag_mode(_selected_mode):
@@ -285,6 +295,18 @@ func _on_confirm_pressed() -> void:
 		options["ctf_randomize_flag_hive"] = true
 		options["ctf_flag_move_count_max"] = _selected_ctf_flag_move_count_max
 		options["ctf_flag_move_reveals"] = true if _selected_mode == "HIDDEN_CAPTURE_FLAG" else _selected_ctf_flag_move_reveals
+	var setup_context: Dictionary = {
+		"mode": _selected_mode,
+		"map_count": _selected_map_count,
+		"price_usd": _selected_price,
+		"free_roll": _free_roll,
+		"entry_lock": _entry_lock
+	}
+	for key in options.keys():
+		setup_context[str(key)] = options[key]
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("build_match_config_snapshot"):
+		options["config_snapshot"] = ops_config.call("build_match_config_snapshot", setup_context)
 	lobby.configure(_selected_mode, _selected_map_count, _selected_price, _free_roll, options)
 	lobby.closed.connect(func():
 		lobby.queue_free()
@@ -292,6 +314,12 @@ func _on_confirm_pressed() -> void:
 	)
 	add_child(lobby)
 	visible = false
+
+func _paid_entries_enabled() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("paid_entries_enabled"):
+		return bool(ops_config.call("paid_entries_enabled"))
+	return false
 
 func _on_back_pressed() -> void:
 	closed.emit()

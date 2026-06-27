@@ -25,30 +25,31 @@ grow_vertical = 2
 
 [node name="TitleLabel" type="Label" parent="VBox"]
 layout_mode = 2
-text = "Choose Your Handle"
+text = "Choose Your Call Sign"
 
 [node name="BodyLabel" type="Label" parent="VBox"]
 layout_mode = 2
-text = "This is the name other players see in lobbies, leaderboards, and match results."
+text = "This is the call sign other players see in lobbies, leaderboards, and match results."
 autowrap_mode = 3
 
 [node name="DisplayNameLabel" type="Label" parent="VBox"]
 layout_mode = 2
-text = "Handle"
+text = "Call Sign"
 
 [node name="DisplayNameInput" type="LineEdit" parent="VBox"]
 layout_mode = 2
-placeholder_text = "Handle"
+placeholder_text = "Call Sign"
 
 [node name="AgeLabel" type="Label" parent="VBox"]
 layout_mode = 2
 text = "Age"
 
-[node name="AgeSpin" type="SpinBox" parent="VBox"]
+[node name="AgeSpin" type="LineEdit" parent="VBox"]
 layout_mode = 2
-min_value = 1.0
-max_value = 99.0
-value = 18.0
+placeholder_text = "Age"
+max_length = 2
+virtual_keyboard_enabled = true
+virtual_keyboard_type = 2
 
 [node name="StatusLabel" type="Label" parent="VBox"]
 layout_mode = 2

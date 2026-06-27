@@ -33,6 +33,7 @@ class FakeRankState:
 
 var _original_rank_state: Node = null
 var _fake_rank_state: FakeRankState = null
+var _guide_prompt_requested: bool = false
 
 func _init() -> void:
 	call_deferred("_run")
@@ -66,12 +67,21 @@ func _run() -> void:
 		return
 	var panel: Control = scene.instantiate() as Control
 	root.add_child(panel)
+	if panel.has_signal("onboarding_guide_prompt_requested"):
+		panel.connect("onboarding_guide_prompt_requested", func() -> void:
+			_guide_prompt_requested = true
+		)
 	await process_frame
 	var input: LineEdit = panel.get_node_or_null("VBox/DisplayNameInput") as LineEdit
 	if input == null:
-		_fail("handle input missing")
+		_fail("call sign input missing")
 		return
 	input.text = "BetaSmoke_%04d" % int(Time.get_ticks_msec() % 10000)
+	var age_input: LineEdit = panel.get_node_or_null("VBox/AgeSpin") as LineEdit
+	if age_input == null:
+		_fail("age input missing")
+		return
+	age_input.text = "18"
 	panel.call("_on_continue_pressed")
 	await process_frame
 
@@ -93,6 +103,9 @@ func _run() -> void:
 		return
 	if not bool(profile_manager.call("is_onboarding_complete")):
 		_fail("onboarding should complete after backend identity")
+		return
+	if not _guide_prompt_requested:
+		_fail("onboarding should request the guide prompt after successful submit")
 		return
 	print("ONBOARDING_BACKEND_IDENTITY_SUCCESS_SMOKE: PASS")
 	_cleanup()

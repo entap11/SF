@@ -35,6 +35,7 @@ const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = "$warmFr0nt"
 @onready var admin_username_input: LineEdit = $VBox/AdminSection/AdminCredentialsRow/AdminUsernameInput
 @onready var admin_password_input: LineEdit = $VBox/AdminSection/AdminCredentialsRow/AdminPasswordInput
 @onready var admin_status_label: Label = $VBox/AdminSection/AdminStatusLabel
+@onready var support_diagnostics_button: Button = $VBox/SupportSection/SupportRow/SupportDiagnosticsButton
 @onready var rename_policy_label: Label = $VBox/RenamePolicyLabel
 @onready var buttons_row: HBoxContainer = $VBox/ButtonsRow
 @onready var new_button: Button = $VBox/ButtonsRow/NewProfileButton
@@ -70,6 +71,7 @@ func _ready() -> void:
 	admin_username_input.focus_exited.connect(_on_admin_credentials_focus_exited)
 	admin_password_input.focus_exited.connect(_on_admin_credentials_focus_exited)
 	admin_open_button.pressed.connect(_on_admin_open_pressed)
+	support_diagnostics_button.pressed.connect(_on_support_diagnostics_pressed)
 	_disable_legacy_profile_controls()
 	_set_uid_edit_enabled(DEV_ALLOW_UID_EDIT)
 	_refresh_admin_credentials()
@@ -294,6 +296,18 @@ func _on_copy_user_id_pressed() -> void:
 	DisplayServer.clipboard_set(entap_id)
 	SFLog.info("PROFILE_ENTAP_ID_COPIED", {"entap_id": entap_id})
 	user_id_status_label.text = "Copied."
+
+func _on_support_diagnostics_pressed() -> void:
+	var scene: PackedScene = load("res://scenes/ui/SupportDiagnosticsPanel.tscn") as PackedScene
+	if scene == null:
+		user_id_status_label.text = "Diagnostics unavailable."
+		return
+	var panel: Control = scene.instantiate() as Control
+	if panel == null:
+		user_id_status_label.text = "Diagnostics unavailable."
+		return
+	get_tree().root.add_child(panel)
+	user_id_status_label.text = "Diagnostics opened."
 
 func _on_gpu_vfx_toggled(enabled: bool) -> void:
 	ProfileManager.set_gpu_vfx_enabled(enabled)

@@ -14,10 +14,18 @@ func _init() -> void:
 
 	var honey_state: Node = get_root().get_node_or_null("HoneyProgressionState")
 	var profile_manager: Node = get_root().get_node_or_null("ProfileManager")
-	if honey_state == null or profile_manager == null:
+	var ops_config: Node = get_root().get_node_or_null("OpsConfig")
+	if honey_state == null or profile_manager == null or ops_config == null:
 		push_error("HONEY_SMOKE: required autoload missing")
 		quit(1)
 		return
+	ops_config.call("force_config_for_smoke", {
+		"schema_version": 1,
+		"config_version": "honey-progression-smoke",
+		"feature_flags": {
+			"enable_honey_rewards": true
+		}
+	})
 
 	if honey_state.has_method("debug_reset_state"):
 		honey_state.call("debug_reset_state")

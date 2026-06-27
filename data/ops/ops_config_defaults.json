@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "config_version": "bundled-2026-06-26-001",
+  "environment": "beta",
+  "generated_utc": "2026-06-26T00:00:00Z",
+  "min_supported_build": 0,
+  "force_update": false,
+  "maintenance": {
+    "enabled": false,
+    "title": "",
+    "body": "",
+    "severity": "info",
+    "link_url": "",
+    "start_utc": "",
+    "end_utc": ""
+  },
+  "feature_flags": {
+    "enable_ads": false,
+    "enable_house_ads": true,
+    "enable_buff_system": true,
+    "enable_paid_entries": false,
+    "enable_observer_mode": false,
+    "enable_honey_rewards": false,
+    "enable_rank_backend": false,
+    "enable_rank_local_beta_fallback": true
+  },
+  "ads": {
+    "external_ads_enabled": false,
+    "house_ads_enabled": true,
+    "placements": {
+      "handshake": true,
+      "in_game": true,
+      "post_match": true
+    },
+    "house_ticker_items": [
+      "SWARMFRONT STATUS | Beta systems online",
+      "Hold lanes | Break hives | Review the replay"
+    ]
+  },
+  "match_tuning": {
+    "version": "beta-default",
+    "buff_availability": {
+      "enabled": true
+    },
+    "match_timers": {},
+    "cooldowns": {},
+    "rewards": {}
+  },
+  "analytics": {
+    "enabled": false,
+    "endpoint_url": "",
+    "flush_batch_size": 25,
+    "flush_interval_sec": 30
+  },
+  "support": {
+    "email": "support@entap.games",
+    "privacy_url": "https://entap.games/privacy",
+    "terms_url": "https://entap.games/terms",
+    "data_deletion_url": "mailto:support@entap.games"
+  }
+}

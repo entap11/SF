@@ -165,6 +165,8 @@ const MM_HERO_PANEL_ANCHOR_LEFT: float = 0.14
 const MM_HERO_PANEL_ANCHOR_RIGHT: float = 0.86
 const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
 const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
+const MM_WELCOME_HANDLE_TOP_PX: float = 350.0
+const MM_WELCOME_HANDLE_HEIGHT_PX: float = 96.0
 const MATCH_REPLAY_SAVE_DIR: String = "user://matches"
 const MM_BOOT_SOUND_ENABLED: bool = false
 const MM_BOOT_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/mm_ambient.ogg"
@@ -409,6 +411,7 @@ var _dash_friends_panel: Control = null
 var _dash_friends_tab: Button = null
 var _dash_help_tab: Button = null
 var _beta_help_dialog: AcceptDialog = null
+var _onboarding_guide_prompt_dialog: ConfirmationDialog = null
 var _dash_scholastic_panel: Panel = null
 var _dash_scholastic_tab: Button = null
 var _scholastic_cta_dialog: ConfirmationDialog = null
@@ -813,13 +816,13 @@ const GAME_HUB_FREE_SECTION_SPACER_PX: float = 14.0
 const GAME_HUB_FREE_MAP_GROUP_SPACER_PX: float = 12.0
 const GAME_HUB_FREE_BOTTOM_SPACER_PX: float = 20.0
 const GAME_HUB_TOUCH_LAYOUT_MAX_WIDTH: float = 1100.0
-const GAME_HUB_TOUCH_PAID_TOP_ROW_SCALE: float = 1.46
-const GAME_HUB_TOUCH_PAID_LOWER_ROWS_SCALE: float = 1.34
-const GAME_HUB_TOUCH_PAID_CLUSTER_SPACING: int = 14
-const GAME_HUB_MONEY_TOP_ROW_SCALE: float = 1.48
-const GAME_HUB_MONEY_LOWER_ROWS_SCALE: float = 1.24
-const GAME_HUB_MONEY_BODY_SEPARATION: int = 12
-const GAME_HUB_MONEY_CLUSTER_SPACING: int = 14
+const GAME_HUB_TOUCH_PAID_TOP_ROW_SCALE: float = 1.75
+const GAME_HUB_TOUCH_PAID_LOWER_ROWS_SCALE: float = 1.55
+const GAME_HUB_TOUCH_PAID_CLUSTER_SPACING: int = 18
+const GAME_HUB_MONEY_TOP_ROW_SCALE: float = 1.75
+const GAME_HUB_MONEY_LOWER_ROWS_SCALE: float = 1.55
+const GAME_HUB_MONEY_BODY_SEPARATION: int = 16
+const GAME_HUB_MONEY_CLUSTER_SPACING: int = 18
 const GAME_HUB_SECTION_HEADER_COLOR: Color = Color8(201, 204, 214, 255)
 const GAME_HUB_SECTION_SUBTEXT_COLOR: Color = Color(0.86, 0.88, 0.92, 0.60)
 const GAME_HUB_BLOCK_LABEL_COLOR: Color = Color(0.82, 0.85, 0.90, 0.78)
@@ -915,14 +918,14 @@ const MONEY_ENTRY_ACTIVE_EDGE: Color = Color(0.96, 0.80, 0.34, 0.72)
 const MONEY_ENTRY_ACTIVE_BG: Color = Color(0.18, 0.15, 0.10, 0.95)
 const MONEY_ENTRY_INACTIVE_BG: Color = Color(0.11, 0.12, 0.16, 0.90)
 const MONEY_ENTRY_INACTIVE_EDGE: Color = Color(0.44, 0.46, 0.53, 0.52)
-const MONEY_DIVISION_TAB_SIZE: Vector2 = Vector2(223.0, 82.0)
-const MONEY_ENTRY_TIER_BUTTON_SIZE: Vector2 = Vector2(128.0, 56.0)
-const MONEY_DIVISION_LABEL_SIZE: int = 16
-const MONEY_DIVISION_LOCKED_LABEL_SIZE: int = 13
-const MONEY_ENTRY_LABEL_SIZE: int = 17
-const MONEY_ENTRY_TIER_LABEL_SIZE: int = 16
-const MONEY_ARENA_LABEL_SIZE: int = 17
-const MONEY_ENTRY_FEE_LABEL_SIZE: int = 15
+const MONEY_DIVISION_TAB_SIZE: Vector2 = Vector2(223.0, 112.0)
+const MONEY_ENTRY_TIER_BUTTON_SIZE: Vector2 = Vector2(168.0, 78.0)
+const MONEY_DIVISION_LABEL_SIZE: int = 24
+const MONEY_DIVISION_LOCKED_LABEL_SIZE: int = 18
+const MONEY_ENTRY_LABEL_SIZE: int = 28
+const MONEY_ENTRY_TIER_LABEL_SIZE: int = 24
+const MONEY_ARENA_LABEL_SIZE: int = 26
+const MONEY_ENTRY_FEE_LABEL_SIZE: int = 22
 const UI_TEXT_SCALE: float = 2.0
 
 var _buff_library_all: Array[Dictionary] = []
@@ -1383,6 +1386,7 @@ func _ready() -> void:
 	call_deferred("_play_mm_boot_sound")
 	call_deferred("_auto_start_home_replay")
 	call_deferred("_layout_payout_proof_button")
+	call_deferred("_apply_ops_config_menu_gates")
 
 func _maybe_route_headless_shell_smoke() -> bool:
 	for arg_any in OS.get_cmdline_user_args():
@@ -1399,6 +1403,29 @@ func _route_headless_shell_smoke(arg: String) -> void:
 	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
 	if err != OK:
 		SFLog.warn("MAIN_MENU_HEADLESS_SHELL_ROUTE_FAILED", {"arg": arg, "error_code": int(err)})
+
+func _apply_ops_config_menu_gates() -> void:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config == null:
+		return
+	if ops_config.has_method("is_force_update_required") and bool(ops_config.call("is_force_update_required")):
+		_show_ops_blocking_dialog("Update Required", "This beta build is no longer supported. Please install the latest TestFlight build.", true)
+		return
+	if ops_config.has_method("is_maintenance_mode") and bool(ops_config.call("is_maintenance_mode")):
+		var motd: Dictionary = ops_config.call("get_motd") as Dictionary if ops_config.has_method("get_motd") else {}
+		var title: String = str(motd.get("title", "Maintenance")).strip_edges()
+		var body: String = str(motd.get("body", "Swarmfront is temporarily unavailable.")).strip_edges()
+		_show_ops_blocking_dialog(title if not title.is_empty() else "Maintenance", body if not body.is_empty() else "Swarmfront is temporarily unavailable.", true)
+
+func _show_ops_blocking_dialog(title: String, body: String, exclusive: bool) -> void:
+	var dialog := AcceptDialog.new()
+	dialog.name = "OpsConfigGateDialog"
+	dialog.title = title
+	dialog.dialog_text = body
+	dialog.exclusive = exclusive
+	dialog.min_size = Vector2i(620, 320)
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(720, 360))
 
 func _finish_noncritical_menu_boot() -> void:
 	_ensure_dash_replay_map_view()
@@ -2229,6 +2256,8 @@ func _bind_onboarding_gate() -> void:
 		if onboarding_panel != null:
 			if not onboarding_panel.onboarding_done.is_connected(_on_onboarding_done):
 				onboarding_panel.onboarding_done.connect(_on_onboarding_done)
+			if onboarding_panel.has_signal("onboarding_guide_prompt_requested") and not onboarding_panel.onboarding_guide_prompt_requested.is_connected(_on_onboarding_guide_prompt_requested):
+				onboarding_panel.onboarding_guide_prompt_requested.connect(_on_onboarding_guide_prompt_requested)
 	else:
 		onboarding_overlay.visible = false
 		_ensure_profile_registered_for_rank()
@@ -2246,6 +2275,91 @@ func _on_onboarding_done() -> void:
 	onboarding_overlay.visible = false
 	_refresh_scholastic_dash_visibility()
 	_maybe_show_sfa_join_cta(true)
+
+func _on_onboarding_guide_prompt_requested() -> void:
+	call_deferred("_show_onboarding_guide_prompt")
+
+func _show_onboarding_guide_prompt() -> void:
+	if _onboarding_guide_prompt_dialog != null and is_instance_valid(_onboarding_guide_prompt_dialog):
+		_onboarding_guide_prompt_dialog.popup_centered(_onboarding_guide_prompt_size())
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "OnboardingGuidePromptDialog"
+	dialog.title = "Quick Start Guide"
+	dialog.dialog_text = ""
+	dialog.exclusive = true
+	dialog.min_size = _onboarding_guide_prompt_size()
+	_style_onboarding_guide_prompt(dialog)
+	var body := VBoxContainer.new()
+	body.name = "GuidePromptBody"
+	body.add_theme_constant_override("separation", 22)
+	body.custom_minimum_size = Vector2(620.0, 260.0)
+	var title := Label.new()
+	title.name = "GuidePromptTitle"
+	title.text = "Want the Quick Start Guide?"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(title, _font_semibold, 42)
+	var copy := Label.new()
+	copy.name = "GuidePromptCopy"
+	copy.text = "Open the guide now for the basics on lanes, swarms, towers, barracks, and winning your first matches."
+	copy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_apply_font(copy, _font_regular, 34)
+	body.add_child(title)
+	body.add_child(copy)
+	dialog.add_child(body)
+	dialog.confirmed.connect(_on_onboarding_guide_prompt_confirmed)
+	dialog.canceled.connect(_on_onboarding_guide_prompt_canceled)
+	dialog.close_requested.connect(_on_onboarding_guide_prompt_canceled)
+	add_child(dialog)
+	_onboarding_guide_prompt_dialog = dialog
+	dialog.popup_centered(_onboarding_guide_prompt_size())
+
+func _onboarding_guide_prompt_size() -> Vector2i:
+	var viewport_size: Vector2i = get_viewport().get_visible_rect().size
+	return Vector2i(
+		clampi(int(float(viewport_size.x) * 0.78), 700, 980),
+		clampi(int(float(viewport_size.y) * 0.34), 360, 560)
+	)
+
+func _style_onboarding_guide_prompt(dialog: ConfirmationDialog) -> void:
+	if dialog == null:
+		return
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.035, 0.045, 0.06, 0.98)
+	panel_style.border_color = Color(0.95, 0.78, 0.22, 0.88)
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	dialog.add_theme_stylebox_override("panel", panel_style)
+	dialog.add_theme_color_override("title_color", Color(1.0, 0.91, 0.58, 1.0))
+	if _font_semibold != null:
+		dialog.add_theme_font_override("title_font", _font_semibold)
+	dialog.add_theme_font_size_override("title_font_size", 34)
+	var open_button: Button = dialog.get_ok_button()
+	if open_button != null:
+		open_button.text = "OPEN GUIDE"
+		open_button.custom_minimum_size = Vector2(240.0, 76.0)
+		_apply_font(open_button, _font_semibold, 34)
+		_style_button(open_button, Color(0.16, 0.12, 0.04), Color(0.95, 0.78, 0.22), Color(1.0, 0.93, 0.66))
+	var cancel_button: Button = dialog.get_cancel_button()
+	if cancel_button != null:
+		cancel_button.text = "SKIP"
+		cancel_button.custom_minimum_size = Vector2(180.0, 76.0)
+		_apply_font(cancel_button, _font_regular, 34)
+		_style_button(cancel_button, Color(0.10, 0.11, 0.14), Color(0.45, 0.48, 0.56), Color(0.92, 0.93, 0.96))
+
+func _on_onboarding_guide_prompt_confirmed() -> void:
+	_open_beta_quick_start_guide()
+
+func _on_onboarding_guide_prompt_canceled() -> void:
+	status_label.text = "Quick Start guide skipped."
 
 func _ensure_profile_registered_for_rank() -> void:
 	if ProfileManager == null or not ProfileManager.has_method("get_user_id") or not ProfileManager.has_method("get_display_name"):
@@ -2294,11 +2408,13 @@ func _style_labels() -> void:
 		_apply_swarmfront_title_shader(brand_title_label)
 		_suppress_legacy_brand_banner()
 	if welcome_handle_label != null:
-		_apply_font(welcome_handle_label, _font_semibold, 16)
+		_apply_font(welcome_handle_label, _font_semibold, 32)
 		welcome_handle_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.45, 1.0))
 		welcome_handle_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.72))
 		welcome_handle_label.add_theme_constant_override("shadow_offset_x", 0)
-		welcome_handle_label.add_theme_constant_override("shadow_offset_y", 2)
+		welcome_handle_label.add_theme_constant_override("shadow_offset_y", 4)
+		welcome_handle_label.add_theme_constant_override("outline_size", 2)
+		welcome_handle_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.88))
 	if dash_handle_label != null:
 		_apply_font(dash_handle_label, _font_semibold, 18)
 		dash_handle_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.45, 1.0))
@@ -2541,6 +2657,18 @@ func _apply_background_art_direction() -> void:
 	if hero_vbox != null:
 		hero_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 		hero_vbox.add_theme_constant_override("separation", 8)
+	if welcome_handle_label != null:
+		welcome_handle_label.anchor_left = 0.5
+		welcome_handle_label.anchor_right = 0.5
+		welcome_handle_label.anchor_top = 0.0
+		welcome_handle_label.anchor_bottom = 0.0
+		welcome_handle_label.offset_left = -360.0
+		welcome_handle_label.offset_right = 360.0
+		welcome_handle_label.offset_top = MM_WELCOME_HANDLE_TOP_PX
+		welcome_handle_label.offset_bottom = MM_WELCOME_HANDLE_TOP_PX + MM_WELCOME_HANDLE_HEIGHT_PX
+		welcome_handle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		welcome_handle_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		welcome_handle_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	if hero_title_label != null:
 		hero_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hero_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -12140,7 +12268,7 @@ func _add_paid_contest_button_grid(parent: VBoxContainer, scope: String, family_
 			continue
 		for denom in _paid_contest_denominations_for_family(family_def, schedule_kind):
 			var button := Button.new()
-			button.custom_minimum_size = Vector2(228.0, 50.0) * maxf(0.78, lower_rows_scale)
+			button.custom_minimum_size = Vector2(260.0, 72.0) * maxf(0.78, lower_rows_scale)
 			button.text = "%s  $%d" % [family_label.to_upper(), denom]
 			button.set_meta("sf_paid_contest_scope", scope)
 			button.set_meta("sf_paid_contest_family", family_id)
@@ -12152,7 +12280,7 @@ func _add_paid_contest_button_grid(parent: VBoxContainer, scope: String, family_
 				_on_paid_async_contest_button_pressed(scope, family_id, schedule_kind, denom)
 			)
 			grid.add_child(button)
-			_apply_font(button, _font_semibold, 12)
+			_apply_font(button, _font_semibold, 16)
 			_style_paid_contest_route_button(button, denom)
 			_configure_game_hub_option_button(button, broadcast_mode)
 
@@ -13825,6 +13953,9 @@ func _on_touch_drag_scroll_gui_input(event: InputEvent, scroll: ScrollContainer)
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("human matches"):
 		return
+	if paid and not _paid_entries_enabled():
+		status_label.text = "Paid entries are disabled for this beta build."
+		return
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
 		return
 	if _is_direct_pvp_human_mode(mode_id):
@@ -14219,6 +14350,9 @@ func _apply_async_entry_amount(paid: bool, denomination: int) -> void:
 func _open_human_entry_selector(free_roll: bool) -> void:
 	if _block_for_active_hive_tournament("human matches"):
 		return
+	if not free_roll and not _paid_entries_enabled():
+		status_label.text = "Paid entries are disabled for this beta build."
+		return
 	_open_vs_mode_select_panel(free_roll)
 	if free_roll:
 		status_label.text = "Human free-play selector opened."
@@ -14227,6 +14361,9 @@ func _open_human_entry_selector(free_roll: bool) -> void:
 
 func _open_async_entry_selector(free_roll: bool) -> void:
 	if _block_for_active_hive_tournament("async matches"):
+		return
+	if not free_roll and not _paid_entries_enabled():
+		status_label.text = "Paid entries are disabled for this beta build."
 		return
 	_close_entry_route_modal()
 	_open_async_panel()
@@ -14246,6 +14383,12 @@ func _open_vs_mode_select_panel(free_roll: bool, preset_mode: String = "", denom
 		panel.call("configure_preset_mode", preset_mode)
 	panel.closed.connect(func(): panel.queue_free())
 	add_child(panel)
+
+func _paid_entries_enabled() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("paid_entries_enabled"):
+		return bool(ops_config.call("paid_entries_enabled"))
+	return false
 
 func _resolve_entry_overlay_size(size: Vector2) -> Vector2:
 	var viewport_size: Vector2 = get_viewport_rect().size

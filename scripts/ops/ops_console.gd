@@ -2,6 +2,8 @@ extends Control
 
 signal contest_payout_approval_requested(report: Dictionary, approver_id: String)
 
+const VsSpectatorRuntimeScript := preload("res://scripts/state/vs_spectator_runtime.gd")
+const MatchReplayMapViewScript := preload("res://scripts/ui/match_replay_map_view.gd")
 const DEFAULT_MONEY_DENOMINATIONS: Array[int] = [1, 2, 3, 5, 10, 15, 20, 50, 100]
 const DEFAULT_HOUSE_RAKE_BPS: int = 1000
 const BASIS_POINTS_DENOMINATOR: int = 10000
@@ -65,6 +67,7 @@ const SIT_AND_GO_CONTEST_FAMILIES: Array[String] = ["MISS_N_OUT", "GAUNTLET"]
 @onready var payout_proof_export: Button = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofButtons/PayoutProofExport
 @onready var payout_proof_summary: Label = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofSummary
 @onready var payout_proof_text: TextEdit = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofText
+@onready var tabs: TabContainer = $RootPanel/RootVBox/Tabs
 
 @onready var map_list: ItemList = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapList
 @onready var map_id: Label = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm/MapId
@@ -82,8 +85,29 @@ var _current_map_id: String = ""
 var _current_payout_approval_report: Dictionary = {}
 var _current_payout_summary: Dictionary = {}
 var _current_payout_proof: Dictionary = {}
+var _spectator_runtime: Node = null
+var _spectator_session_id: LineEdit = null
+var _spectator_uid: LineEdit = null
+var _spectator_delay: SpinBox = null
+var _spectator_live: CheckButton = null
+var _spectator_status: Label = null
+var _spectator_events: TextEdit = null
+var _spectator_map_view: Control = null
+var _spectator_join_button: Button = null
+var _spectator_poll_button: Button = null
+var _spectator_leave_button: Button = null
+var _ops_config_status: Label = null
+var _ops_config_payload: TextEdit = null
+var _ops_config_reload_button: Button = null
+var _ops_config_copy_button: Button = null
 
 func _ready() -> void:
+	if _ops_config_tab_only_smoke():
+		_ensure_ops_config_tab()
+		return
+	if _spectator_tab_only_smoke():
+		_ensure_spectator_tab()
+		return
 	contest_entry_type.clear()
 	contest_entry_type.add_item("WEEKLY")
 	contest_entry_type.add_item("MONTHLY")
@@ -126,6 +150,353 @@ func _ready() -> void:
 	clear_payout_approval_report()
 	clear_payout_summary()
 	clear_payout_proof()
+	_ensure_ops_config_tab()
+	_ensure_spectator_tab()
+
+func _ensure_ops_config_tab() -> void:
+	if tabs == null:
+		return
+	var existing: Control = tabs.get_node_or_null("OpsConfig") as Control
+	if existing != null:
+		_render_ops_config_status()
+		return
+	var tab: MarginContainer = MarginContainer.new()
+	tab.name = "OpsConfig"
+	tab.add_theme_constant_override("margin_left", 12)
+	tab.add_theme_constant_override("margin_top", 12)
+	tab.add_theme_constant_override("margin_right", 12)
+	tab.add_theme_constant_override("margin_bottom", 12)
+	tabs.add_child(tab)
+	var root: VBoxContainer = VBoxContainer.new()
+	root.name = "OpsConfigVBox"
+	root.add_theme_constant_override("separation", 8)
+	tab.add_child(root)
+	var title: Label = Label.new()
+	title.text = "Beta Ops Config"
+	title.add_theme_font_size_override("font_size", 18)
+	root.add_child(title)
+	_ops_config_status = Label.new()
+	_ops_config_status.name = "OpsConfigStatus"
+	_ops_config_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	root.add_child(_ops_config_status)
+	var buttons: HBoxContainer = HBoxContainer.new()
+	buttons.name = "OpsConfigButtons"
+	buttons.add_theme_constant_override("separation", 8)
+	_ops_config_reload_button = Button.new()
+	_ops_config_reload_button.name = "OpsConfigReload"
+	_ops_config_reload_button.text = "Reload"
+	_ops_config_reload_button.pressed.connect(_on_ops_config_reload_pressed)
+	buttons.add_child(_ops_config_reload_button)
+	_ops_config_copy_button = Button.new()
+	_ops_config_copy_button.name = "OpsConfigCopy"
+	_ops_config_copy_button.text = "Copy Snapshot"
+	_ops_config_copy_button.pressed.connect(_on_ops_config_copy_pressed)
+	buttons.add_child(_ops_config_copy_button)
+	root.add_child(buttons)
+	_ops_config_payload = TextEdit.new()
+	_ops_config_payload.name = "OpsConfigPayload"
+	_ops_config_payload.custom_minimum_size = Vector2(640.0, 420.0)
+	_ops_config_payload.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ops_config_payload.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_ops_config_payload.editable = false
+	root.add_child(_ops_config_payload)
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_signal("config_changed"):
+		var callback: Callable = Callable(self, "_on_ops_config_changed")
+		if not ops_config.is_connected("config_changed", callback):
+			ops_config.connect("config_changed", callback)
+	_render_ops_config_status()
+
+func _ops_config_tab_only_smoke() -> bool:
+	var tree: SceneTree = get_tree()
+	return tree != null and tree.root != null and bool(tree.root.get_meta("ops_console_config_tab_only", false))
+
+func _on_ops_config_reload_pressed() -> void:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("reload"):
+		ops_config.call("reload")
+	_render_ops_config_status()
+
+func _on_ops_config_copy_pressed() -> void:
+	DisplayServer.clipboard_set(JSON.stringify(_build_ops_config_payload(), "\t"))
+	if _ops_config_status != null:
+		_ops_config_status.text = "%s\nCopied ops config snapshot." % _ops_config_summary_text()
+
+func _on_ops_config_changed(_snapshot: Dictionary) -> void:
+	_render_ops_config_status()
+
+func _render_ops_config_status() -> void:
+	var payload: Dictionary = _build_ops_config_payload()
+	if _ops_config_status != null:
+		_ops_config_status.text = _ops_config_summary_text(payload)
+	if _ops_config_payload != null:
+		_ops_config_payload.text = JSON.stringify(payload, "\t")
+
+func _build_ops_config_payload() -> Dictionary:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config == null:
+		return {
+			"ok": false,
+			"reason": "ops_config_autoload_missing"
+		}
+	var config: Dictionary = ops_config.call("get_config_snapshot") as Dictionary if ops_config.has_method("get_config_snapshot") else {}
+	var debug: Dictionary = ops_config.call("get_debug_snapshot") as Dictionary if ops_config.has_method("get_debug_snapshot") else {}
+	var validation: Dictionary = ops_config.call("validate_config_payload", config) as Dictionary if ops_config.has_method("validate_config_payload") else {"ok": false, "errors": ["validator_missing"]}
+	var fail_closed: Dictionary = ops_config.call("get_fail_closed_policy") as Dictionary if ops_config.has_method("get_fail_closed_policy") else {}
+	return {
+		"ok": bool(validation.get("ok", false)),
+		"debug": debug,
+		"validation": validation,
+		"fail_closed_policy": fail_closed,
+		"active_config": config
+	}
+
+func _ops_config_summary_text(payload: Dictionary = {}) -> String:
+	var resolved: Dictionary = payload if not payload.is_empty() else _build_ops_config_payload()
+	var debug: Dictionary = resolved.get("debug", {}) as Dictionary
+	var validation: Dictionary = resolved.get("validation", {}) as Dictionary
+	return "source=%s | version=%s | hash=%s | valid=%s | errors=%d | warnings=%d" % [
+		str(debug.get("config_source", "")),
+		str(debug.get("config_version", "")),
+		str(debug.get("config_hash", "")).substr(0, 12),
+		str(validation.get("ok", false)),
+		(validation.get("errors", []) as Array).size(),
+		(validation.get("warnings", []) as Array).size()
+	]
+
+func _ensure_spectator_tab() -> void:
+	if tabs == null:
+		return
+	var existing: Control = tabs.get_node_or_null("Spectate") as Control
+	if existing != null:
+		return
+	var tab: MarginContainer = MarginContainer.new()
+	tab.name = "Spectate"
+	tab.add_theme_constant_override("margin_left", 12)
+	tab.add_theme_constant_override("margin_top", 12)
+	tab.add_theme_constant_override("margin_right", 12)
+	tab.add_theme_constant_override("margin_bottom", 12)
+	tabs.add_child(tab)
+	var root: VBoxContainer = VBoxContainer.new()
+	root.name = "SpectateVBox"
+	root.add_theme_constant_override("separation", 8)
+	tab.add_child(root)
+	var title: Label = Label.new()
+	title.text = "Admin Spectate"
+	title.add_theme_font_size_override("font_size", 18)
+	root.add_child(title)
+	_spectator_status = Label.new()
+	_spectator_status.name = "SpectatorStatus"
+	_spectator_status.text = "Read-only spectator transport. No player controls."
+	_spectator_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	root.add_child(_spectator_status)
+	_spectator_session_id = _ops_line_edit("SpectatorSessionId", "Session ID")
+	root.add_child(_labeled_control("Session ID", _spectator_session_id))
+	_spectator_uid = _ops_line_edit("SpectatorUid", "ops_spectator")
+	_spectator_uid.text = "ops_spectator"
+	root.add_child(_labeled_control("Spectator UID", _spectator_uid))
+	var options_row: HBoxContainer = HBoxContainer.new()
+	options_row.name = "SpectatorOptions"
+	options_row.add_theme_constant_override("separation", 8)
+	_spectator_delay = SpinBox.new()
+	_spectator_delay.name = "SpectatorDelay"
+	_spectator_delay.min_value = 10
+	_spectator_delay.max_value = 30
+	_spectator_delay.step = 1
+	_spectator_delay.value = 20
+	options_row.add_child(_labeled_control("Delay sec", _spectator_delay))
+	_spectator_live = CheckButton.new()
+	_spectator_live.name = "SpectatorLiveAdmin"
+	_spectator_live.text = "Live admin"
+	options_row.add_child(_spectator_live)
+	root.add_child(options_row)
+	var buttons: HBoxContainer = HBoxContainer.new()
+	buttons.name = "SpectatorButtons"
+	buttons.add_theme_constant_override("separation", 8)
+	_spectator_join_button = Button.new()
+	_spectator_join_button.name = "SpectatorJoin"
+	_spectator_join_button.text = "Create Grant + Join"
+	_spectator_join_button.pressed.connect(_on_spectator_join_pressed)
+	buttons.add_child(_spectator_join_button)
+	_spectator_poll_button = Button.new()
+	_spectator_poll_button.name = "SpectatorPoll"
+	_spectator_poll_button.text = "Poll"
+	_spectator_poll_button.pressed.connect(_on_spectator_poll_pressed)
+	buttons.add_child(_spectator_poll_button)
+	_spectator_leave_button = Button.new()
+	_spectator_leave_button.name = "SpectatorLeave"
+	_spectator_leave_button.text = "Leave"
+	_spectator_leave_button.pressed.connect(_on_spectator_leave_pressed)
+	buttons.add_child(_spectator_leave_button)
+	root.add_child(buttons)
+	_spectator_map_view = MatchReplayMapViewScript.new()
+	_spectator_map_view.name = "SpectatorMapView"
+	_spectator_map_view.custom_minimum_size = Vector2(560.0, 300.0)
+	_spectator_map_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_spectator_map_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(_spectator_map_view)
+	_spectator_events = TextEdit.new()
+	_spectator_events.name = "SpectatorEvents"
+	_spectator_events.custom_minimum_size = Vector2(560.0, 220.0)
+	_spectator_events.editable = false
+	root.add_child(_spectator_events)
+	_spectator_runtime = VsSpectatorRuntimeScript.new()
+	_spectator_runtime.name = "SpectatorRuntime"
+	add_child(_spectator_runtime)
+	_sync_spectator_gate()
+
+func _spectator_tab_only_smoke() -> bool:
+	var tree: SceneTree = get_tree()
+	return tree != null and tree.root != null and bool(tree.root.get_meta("ops_console_spectator_tab_only", false))
+
+func _ops_line_edit(node_name: String, placeholder: String) -> LineEdit:
+	var edit: LineEdit = LineEdit.new()
+	edit.name = node_name
+	edit.placeholder_text = placeholder
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return edit
+
+func _labeled_control(label_text: String, control: Control) -> HBoxContainer:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.name = label_text
+	row.add_theme_constant_override("separation", 8)
+	var label: Label = Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(120.0, 0.0)
+	row.add_child(label)
+	row.add_child(control)
+	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return row
+
+func _on_spectator_join_pressed() -> void:
+	if not _observer_mode_enabled():
+		_set_spectator_status("Observer mode disabled by beta config.")
+		return
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("create_spectator_grant"):
+		_set_spectator_status("Spectator backend unavailable.")
+		return
+	var session_id: String = _spectator_session_id.text.strip_edges() if _spectator_session_id != null else ""
+	if session_id.is_empty():
+		_set_spectator_status("Enter a session id.")
+		return
+	var spectator_uid: String = _spectator_uid.text.strip_edges() if _spectator_uid != null else "ops_spectator"
+	if spectator_uid.is_empty():
+		spectator_uid = "ops_spectator"
+	var live: bool = _spectator_live != null and _spectator_live.button_pressed
+	var delay_sec: int = 0 if live else int(_spectator_delay.value if _spectator_delay != null else 20)
+	var role: String = "admin_spectate" if live else "invited_spectator"
+	var grant_result: Dictionary = handshake.call("create_spectator_grant", session_id, role, spectator_uid, "Ops Spectator", delay_sec) as Dictionary
+	if not bool(grant_result.get("ok", false)):
+		_set_spectator_status("Grant failed: %s" % str(grant_result.get("err", "unknown")))
+		return
+	var grant: Dictionary = grant_result.get("grant", {}) as Dictionary
+	var token: String = str(grant.get("token", "")).strip_edges()
+	if token.is_empty():
+		_set_spectator_status("Grant did not return a token.")
+		return
+	if _spectator_runtime == null:
+		_set_spectator_status("Spectator runtime missing.")
+		return
+	_spectator_runtime.call("configure", session_id, token, spectator_uid, "Ops Spectator", handshake)
+	var join_result: Dictionary = _spectator_runtime.call("join") as Dictionary
+	if not bool(join_result.get("ok", false)):
+		_set_spectator_status("Join failed: %s" % str(join_result.get("err", "unknown")))
+		return
+	_set_spectator_status(_spectator_summary())
+
+func _on_spectator_poll_pressed() -> void:
+	if _spectator_runtime == null:
+		_set_spectator_status("Spectator runtime missing.")
+		return
+	var poll_result: Dictionary = _spectator_runtime.call("poll_once") as Dictionary
+	if not bool(poll_result.get("ok", false)):
+		_set_spectator_status("Poll failed: %s" % str(poll_result.get("err", "unknown")))
+		return
+	var snapshot_result: Dictionary = _spectator_runtime.call("poll_snapshots_once") as Dictionary
+	if not bool(snapshot_result.get("ok", false)):
+		_set_spectator_status("Visual poll failed: %s" % str(snapshot_result.get("err", "unknown")))
+		return
+	_set_spectator_status(_spectator_summary())
+	_render_spectator_events()
+	_render_spectator_visual()
+
+func _on_spectator_leave_pressed() -> void:
+	if _spectator_runtime != null:
+		_spectator_runtime.call("leave")
+	_set_spectator_status("Spectator disconnected.")
+	if _spectator_events != null:
+		_spectator_events.text = ""
+	if _spectator_map_view != null and _spectator_map_view.has_method("set_replay_data"):
+		_spectator_map_view.call("set_replay_data", {})
+
+func _set_spectator_status(text: String) -> void:
+	if _spectator_status != null:
+		_spectator_status.text = text
+
+func _sync_spectator_gate() -> void:
+	var enabled: bool = _observer_mode_enabled()
+	if not enabled:
+		_set_spectator_status("Observer mode disabled by beta config.")
+	for button in [_spectator_join_button, _spectator_poll_button, _spectator_leave_button]:
+		if button != null:
+			button.disabled = not enabled
+
+func _observer_mode_enabled() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("observer_mode_enabled"):
+		return bool(ops_config.call("observer_mode_enabled"))
+	return false
+
+func _spectator_summary() -> String:
+	if _spectator_runtime == null:
+		return "Spectator runtime missing."
+	var snap: Dictionary = _spectator_runtime.call("get_debug_snapshot") as Dictionary
+	var mode: String = "LIVE ADMIN" if bool(snap.get("live", false)) else "Delayed %ds" % int(snap.get("delay_sec", 0))
+	return "SPECTATING %s | %s | events=%d | visuals=%d | polls=%d" % [
+		str(snap.get("session_id", "")),
+		mode,
+		int(snap.get("event_count", 0)),
+		int(snap.get("snapshot_count", 0)),
+		int(snap.get("poll_count", 0))
+	]
+
+func _render_spectator_events() -> void:
+	if _spectator_runtime == null or _spectator_events == null:
+		return
+	var events: Array = _spectator_runtime.call("get_event_buffer") as Array
+	var lines: PackedStringArray = PackedStringArray()
+	for event_any in events:
+		if typeof(event_any) != TYPE_DICTIONARY:
+			continue
+		var event: Dictionary = event_any as Dictionary
+		var command: Dictionary = event.get("command", {}) as Dictionary
+		lines.append("#%d %s %s" % [
+			int(event.get("seq", 0)),
+			str(event.get("uid", "")),
+			str(command.get("kind", command.get("type", "event")))
+		])
+	_spectator_events.text = "\n".join(lines)
+
+func _render_spectator_visual() -> void:
+	if _spectator_runtime == null or _spectator_map_view == null:
+		return
+	var latest_event: Dictionary = _spectator_runtime.call("get_latest_snapshot") as Dictionary
+	var payload_any: Variant = latest_event.get("snapshot", {})
+	if typeof(payload_any) != TYPE_DICTIONARY:
+		return
+	var payload: Dictionary = payload_any as Dictionary
+	var replay_any: Variant = payload.get("replay", payload.get("visual_replay", {}))
+	if typeof(replay_any) != TYPE_DICTIONARY:
+		return
+	var replay: Dictionary = replay_any as Dictionary
+	if _spectator_map_view.has_method("set_replay_data"):
+		_spectator_map_view.call("set_replay_data", replay)
+	var frame_index: int = int(payload.get("frame_index", -1))
+	if frame_index < 0 and _spectator_map_view.has_method("frame_count"):
+		frame_index = int(_spectator_map_view.call("frame_count")) - 1
+	if _spectator_map_view.has_method("set_frame_index"):
+		_spectator_map_view.call("set_frame_index", maxi(0, frame_index))
 
 func refresh() -> void:
 	_load_contests()

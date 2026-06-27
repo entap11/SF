@@ -18,10 +18,21 @@ func _run() -> void:
 	await process_frame
 	var input: LineEdit = panel.get_node_or_null("VBox/DisplayNameInput") as LineEdit
 	if input == null:
-		_fail("handle input missing")
+		_fail("call sign input missing")
+		return
+	var title_label: Label = panel.get_node_or_null("VBox/TitleLabel") as Label
+	var display_label: Label = panel.get_node_or_null("VBox/DisplayNameLabel") as Label
+	if title_label == null or not title_label.text.contains("Call Sign"):
+		_fail("title should use Call Sign copy")
+		return
+	if display_label == null or display_label.text != "Call Sign":
+		_fail("display name label should read Call Sign")
+		return
+	if input.placeholder_text != "Call Sign":
+		_fail("display name placeholder should read Call Sign")
 		return
 	if input.text.strip_edges().is_empty():
-		_fail("handle input should be prefilled")
+		_fail("call sign input should be prefilled")
 		return
 	var profile_manager: Node = get_root().get_node_or_null("ProfileManager")
 	if profile_manager == null or not profile_manager.has_method("validate_handle_policy"):
@@ -34,12 +45,15 @@ func _run() -> void:
 	if panel.get_node_or_null("VBox/UidRow") != null:
 		_fail("user id row should not be visible on first-run onboarding")
 		return
-	var age_spin: SpinBox = panel.get_node_or_null("VBox/AgeSpin") as SpinBox
-	if age_spin == null:
+	var age_input: LineEdit = panel.get_node_or_null("VBox/AgeSpin") as LineEdit
+	if age_input == null:
 		_fail("age input should be visible on first-run onboarding")
 		return
-	if int(age_spin.value) != 18:
-		_fail("age input should default to 18")
+	if not age_input.text.strip_edges().is_empty():
+		_fail("age input should start blank")
+		return
+	if not age_input.virtual_keyboard_enabled or age_input.virtual_keyboard_type != LineEdit.KEYBOARD_TYPE_NUMBER:
+		_fail("age input should request the numeric virtual keyboard")
 		return
 	print("ONBOARDING_PANEL_SMOKE: PASS")
 	quit(0)

@@ -1,7 +1,15 @@
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import crypto from "node:crypto";
 import http from "node:http";
 import { config } from "./config.js";
+import {
+  contestDashInfo,
+  handleContestDashDelete,
+  handleContestDashPage,
+  handleContestDashSave,
+  handleContestDashState
+} from "./contestDash.js";
 import { moneyLedger, type JsonRecord as LedgerJsonRecord } from "./moneyLedger.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -77,6 +85,35 @@ type IntentStream = {
   lastExecuteTick: number;
 };
 
+type SpectatorSnapshotEvent = {
+  seq: number;
+  uid: string;
+  snapshot: JsonRecord;
+  ts_unix: number;
+};
+
+type SpectatorSnapshotStream = {
+  nextSeq: number;
+  snapshots: SpectatorSnapshotEvent[];
+};
+
+type SpectatorRole = "admin_spectate" | "tournament_observer" | "invited_spectator" | "public_delayed_spectate";
+
+type SpectatorGrant = {
+  id: string;
+  token: string;
+  session_id: string;
+  role: SpectatorRole;
+  spectator_uid: string;
+  display_name: string;
+  created_unix: number;
+  expires_unix: number;
+  delay_sec: number;
+  live: boolean;
+  joined_unix?: number;
+  last_seen_unix?: number;
+};
+
 const processStartUnix = nowUnix();
 const sessions = new Map<string, Session>();
 const inviteToSession = new Map<string, string>();
@@ -84,6 +121,8 @@ const queue: QueueTicket[] = [];
 const intentStreams = new Map<string, IntentStream>();
 const presenceByUid = new Map<string, Presence>();
 const friendInvites = new Map<string, FriendInvite>();
+const spectatorGrants = new Map<string, SpectatorGrant>();
+const spectatorSnapshotStreams = new Map<string, SpectatorSnapshotStream>();
 const serviceBuild = process.env.RENDER_GIT_COMMIT
   ?? process.env.SOURCE_VERSION
   ?? process.env.npm_package_version
@@ -105,6 +144,12 @@ const TIER_ORDER = [
   "SCORPION_WASP",
   "COW_KILLER"
 ];
+const SPECTATOR_ROLES = new Set<SpectatorRole>([
+  "admin_spectate",
+  "tournament_observer",
+  "invited_spectator",
+  "public_delayed_spectate"
+]);
 
 function nowUnix(): number {
   return Math.floor(Date.now() / 1000);
@@ -241,6 +286,20 @@ function nextFriendInviteId(): string {
   return `FI${Date.now()}`;
 }
 
+function nextSpectatorGrantId(): string {
+  for (let i = 0; i < 100; i += 1) {
+    const id = randomId("SG", 8);
+    if (![...spectatorGrants.values()].some((grant) => grant.id === id)) {
+      return id;
+    }
+  }
+  return `SG${Date.now()}`;
+}
+
+function nextSpectatorGrantToken(): string {
+  return crypto.randomBytes(24).toString("hex");
+}
+
 function nextBotUid(): string {
   return randomId("bot_", 6);
 }
@@ -359,6 +418,12 @@ function closeSession(sessionId: string, reason: string): void {
   sessions.delete(sessionId);
   inviteToSession.delete(session.invite_code);
   intentStreams.delete(sessionId);
+  spectatorSnapshotStreams.delete(sessionId);
+  for (const [token, grant] of spectatorGrants.entries()) {
+    if (grant.session_id === sessionId) {
+      spectatorGrants.delete(token);
+    }
+  }
 }
 
 function prune(): void {
@@ -381,6 +446,11 @@ function prune(): void {
   for (const invite of friendInvites.values()) {
     if (invite.status === "pending" && now > invite.expires_unix) {
       invite.status = "expired";
+    }
+  }
+  for (const [token, grant] of spectatorGrants.entries()) {
+    if (now > grant.expires_unix) {
+      spectatorGrants.delete(token);
     }
   }
 }
@@ -591,6 +661,18 @@ function handleAction(req: Request, res: Response): void {
       return pollFriendInvites(req, res);
     case "respond_friend_invite":
       return respondFriendInvite(req, res);
+    case "create_spectator_grant":
+      return createSpectatorGrant(req, res);
+    case "join_spectate":
+      return joinSpectate(req, res);
+    case "poll_spectator_events":
+      return pollSpectatorEvents(req, res);
+    case "publish_spectator_snapshot":
+      return publishSpectatorSnapshot(req, res);
+    case "poll_spectator_snapshots":
+      return pollSpectatorSnapshots(req, res);
+    case "leave_spectate":
+      return leaveSpectate(req, res);
     case "publish_intent":
       return publishIntent(req, res);
     case "poll_intents":
@@ -598,6 +680,268 @@ function handleAction(req: Request, res: Response): void {
     default:
       return fail(res, "unknown_action", 404, { action: actionName(req) });
   }
+}
+
+function bearerToken(req: Request): string {
+  const header = stringValue(req.header("authorization") ?? req.header("Authorization"));
+  const prefix = "bearer ";
+  if (header.toLowerCase().startsWith(prefix)) {
+    return header.slice(prefix.length).trim();
+  }
+  return "";
+}
+
+function spectatorAdminAuthorized(req: Request): boolean {
+  if (!config.spectatorEnabled) {
+    return false;
+  }
+  if (config.spectatorDevOpen) {
+    return true;
+  }
+  const expected = stringValue(config.spectatorAdminToken);
+  if (!expected) {
+    return false;
+  }
+  const supplied = bearerToken(req) || stringValue(req.body?.admin_token);
+  return supplied === expected;
+}
+
+function normalizeSpectatorRole(value: unknown): SpectatorRole | null {
+  const role = stringValue(value).toLowerCase() as SpectatorRole;
+  if (!SPECTATOR_ROLES.has(role)) {
+    return null;
+  }
+  if (role === "public_delayed_spectate" && !config.spectatorPublicEnabled) {
+    return null;
+  }
+  return role;
+}
+
+function spectatorDelay(role: SpectatorRole, requestedValue: unknown): { delay_sec: number; live: boolean } {
+  const requested = Math.trunc(numberValue(requestedValue, config.spectatorDefaultDelaySec));
+  if (role === "admin_spectate" && config.spectatorLiveEnabled && requested <= 0) {
+    return { delay_sec: 0, live: true };
+  }
+  const minDelay = Math.max(0, Math.trunc(config.spectatorMinDelaySec));
+  const maxDelay = Math.max(minDelay, Math.trunc(config.spectatorMaxDelaySec));
+  const fallback = Math.min(maxDelay, Math.max(minDelay, Math.trunc(config.spectatorDefaultDelaySec)));
+  const delay = Number.isFinite(requested) ? requested : fallback;
+  return { delay_sec: Math.min(maxDelay, Math.max(minDelay, delay)), live: false };
+}
+
+function spectatorGrantResponse(grant: SpectatorGrant, includeToken = false): JsonRecord {
+  return {
+    id: grant.id,
+    ...(includeToken ? { token: grant.token } : {}),
+    session_id: grant.session_id,
+    role: grant.role,
+    spectator_uid: grant.spectator_uid,
+    display_name: grant.display_name,
+    created_unix: grant.created_unix,
+    expires_unix: grant.expires_unix,
+    delay_sec: grant.delay_sec,
+    live: grant.live,
+    joined_unix: grant.joined_unix ?? 0,
+    last_seen_unix: grant.last_seen_unix ?? 0
+  };
+}
+
+function resolveSpectatorGrant(req: Request): SpectatorGrant | null {
+  const token = stringValue(req.body?.grant_token ?? req.body?.spectator_token);
+  if (!token) {
+    return null;
+  }
+  const grant = spectatorGrants.get(token);
+  if (!grant || nowUnix() > grant.expires_unix) {
+    if (grant) {
+      spectatorGrants.delete(token);
+    }
+    return null;
+  }
+  return grant;
+}
+
+function createSpectatorGrant(req: Request, res: Response): void {
+  if (!spectatorAdminAuthorized(req)) {
+    return fail(res, "spectator_unauthorized", 403);
+  }
+  const sessionId = stringValue(req.body?.session_id);
+  const session = sessions.get(sessionId);
+  if (!session || !isSessionLive(session)) {
+    if (session) {
+      closeSession(sessionId, "expired");
+    }
+    return fail(res, "session_not_found", 404);
+  }
+  const role = normalizeSpectatorRole(req.body?.role ?? "invited_spectator");
+  if (role == null) {
+    return fail(res, "invalid_spectator_role");
+  }
+  const delay = spectatorDelay(role, req.body?.delay_sec);
+  const createdUnix = nowUnix();
+  const ttlSec = Math.max(60, Math.trunc(config.spectatorGrantTtlSec));
+  const token = nextSpectatorGrantToken();
+  const grant: SpectatorGrant = {
+    id: nextSpectatorGrantId(),
+    token,
+    session_id: session.id,
+    role,
+    spectator_uid: stringValue(req.body?.spectator_uid),
+    display_name: stringValue(req.body?.display_name) || "Spectator",
+    created_unix: createdUnix,
+    expires_unix: createdUnix + ttlSec,
+    delay_sec: delay.delay_sec,
+    live: delay.live
+  };
+  spectatorGrants.set(token, grant);
+  return ok(res, { grant: spectatorGrantResponse(grant, true) });
+}
+
+function joinSpectate(req: Request, res: Response): void {
+  const grant = resolveSpectatorGrant(req);
+  if (!grant) {
+    return fail(res, "invalid_spectator_grant", 403);
+  }
+  const requestedSessionId = stringValue(req.body?.session_id);
+  if (requestedSessionId && requestedSessionId !== grant.session_id) {
+    return fail(res, "spectator_session_mismatch", 403);
+  }
+  const requestedUid = stringValue(req.body?.spectator_uid);
+  if (grant.spectator_uid && requestedUid && requestedUid !== grant.spectator_uid) {
+    return fail(res, "spectator_uid_mismatch", 403);
+  }
+  const session = sessions.get(grant.session_id);
+  if (!session || !isSessionLive(session)) {
+    if (session) {
+      closeSession(grant.session_id, "expired");
+    }
+    return fail(res, "session_not_found", 404);
+  }
+  const now = nowUnix();
+  grant.joined_unix = grant.joined_unix ?? now;
+  grant.last_seen_unix = now;
+  return ok(res, {
+    spectator: spectatorGrantResponse(grant, false),
+    session: cloneSession(session)
+  });
+}
+
+function pollSpectatorEvents(req: Request, res: Response): void {
+  const grant = resolveSpectatorGrant(req);
+  if (!grant) {
+    return fail(res, "invalid_spectator_grant", 403);
+  }
+  const requestedSessionId = stringValue(req.body?.session_id);
+  if (requestedSessionId && requestedSessionId !== grant.session_id) {
+    return fail(res, "spectator_session_mismatch", 403);
+  }
+  const session = sessions.get(grant.session_id);
+  if (!session || !isSessionLive(session)) {
+    if (session) {
+      closeSession(grant.session_id, "expired");
+    }
+    return fail(res, "session_not_found", 404);
+  }
+  grant.last_seen_unix = nowUnix();
+  const afterSeq = Math.max(0, Math.trunc(numberValue(req.body?.after_seq, 0)));
+  const stream = intentStreams.get(grant.session_id);
+  if (!stream) {
+    return ok(res, {
+      latest_seq: afterSeq,
+      events: [],
+      delay_sec: grant.delay_sec,
+      live: grant.live
+    });
+  }
+  const cutoffUnix = nowUnix() - Math.max(0, grant.delay_sec);
+  const visibleEvents = stream.events
+    .filter((event) => event.seq > afterSeq && event.ts_unix <= cutoffUnix)
+    .slice(-Math.max(1, config.spectatorStreamMaxEvents))
+    .map((event) => ({ ...event, command: { ...event.command } }));
+  const latestVisibleSeq = visibleEvents.reduce((latest, event) => Math.max(latest, Number(event.seq ?? 0)), afterSeq);
+  return ok(res, {
+    latest_seq: latestVisibleSeq,
+    events: visibleEvents,
+    delay_sec: grant.delay_sec,
+    live: grant.live
+  });
+}
+
+function leaveSpectate(req: Request, res: Response): void {
+  const grant = resolveSpectatorGrant(req);
+  if (!grant) {
+    return fail(res, "invalid_spectator_grant", 403);
+  }
+  spectatorGrants.delete(grant.token);
+  return ok(res, { closed: true, spectator: spectatorGrantResponse(grant, false) });
+}
+
+function publishSpectatorSnapshot(req: Request, res: Response): void {
+  const sessionId = stringValue(req.body?.session_id);
+  const uid = stringValue(req.body?.uid);
+  const snapshot = req.body?.snapshot;
+  const session = sessions.get(sessionId);
+  if (!session || !uid || !isRecord(snapshot)) {
+    return fail(res, "invalid_args");
+  }
+  if (!sessionHasPlayer(session, uid)) {
+    return fail(res, "player_not_in_session");
+  }
+  const stream = spectatorSnapshotStreams.get(sessionId) ?? { nextSeq: 1, snapshots: [] };
+  const seq = stream.nextSeq;
+  stream.nextSeq += 1;
+  stream.snapshots.push({
+    seq,
+    uid,
+    snapshot: cloneContext(snapshot),
+    ts_unix: nowUnix()
+  });
+  while (stream.snapshots.length > config.spectatorStreamMaxEvents) {
+    stream.snapshots.shift();
+  }
+  spectatorSnapshotStreams.set(sessionId, stream);
+  return ok(res, { seq, snapshot_seq: seq });
+}
+
+function pollSpectatorSnapshots(req: Request, res: Response): void {
+  const grant = resolveSpectatorGrant(req);
+  if (!grant) {
+    return fail(res, "invalid_spectator_grant", 403);
+  }
+  const requestedSessionId = stringValue(req.body?.session_id);
+  if (requestedSessionId && requestedSessionId !== grant.session_id) {
+    return fail(res, "spectator_session_mismatch", 403);
+  }
+  const session = sessions.get(grant.session_id);
+  if (!session || !isSessionLive(session)) {
+    if (session) {
+      closeSession(grant.session_id, "expired");
+    }
+    return fail(res, "session_not_found", 404);
+  }
+  grant.last_seen_unix = nowUnix();
+  const afterSeq = Math.max(0, Math.trunc(numberValue(req.body?.after_seq, 0)));
+  const stream = spectatorSnapshotStreams.get(grant.session_id);
+  if (!stream) {
+    return ok(res, {
+      latest_seq: afterSeq,
+      snapshots: [],
+      delay_sec: grant.delay_sec,
+      live: grant.live
+    });
+  }
+  const cutoffUnix = nowUnix() - Math.max(0, grant.delay_sec);
+  const visibleSnapshots = stream.snapshots
+    .filter((snapshot) => snapshot.seq > afterSeq && snapshot.ts_unix <= cutoffUnix)
+    .slice(-Math.max(1, config.spectatorStreamMaxEvents))
+    .map((snapshot) => ({ ...snapshot, snapshot: cloneContext(snapshot.snapshot) }));
+  const latestVisibleSeq = visibleSnapshots.reduce((latest, snapshot) => Math.max(latest, Number(snapshot.seq ?? 0)), afterSeq);
+  return ok(res, {
+    latest_seq: latestVisibleSeq,
+    snapshots: visibleSnapshots,
+    delay_sec: grant.delay_sec,
+    live: grant.live
+  });
 }
 
 function createInvite(req: Request, res: Response): void {
@@ -1319,7 +1663,30 @@ export function createApp(): express.Express {
       build: serviceBuild,
       uptime_sec: nowUnix() - processStartUnix,
       sessions: sessions.size,
-      queue: queue.length
+      queue: queue.length,
+      spectator_grants: spectatorGrants.size,
+      spectator_snapshot_streams: spectatorSnapshotStreams.size
+    });
+  });
+  app.get("/", (_req, res) => {
+    ok(res, {
+      service: "swarmfront-vs-service",
+      build: serviceBuild,
+      dashboard: "/dash",
+      api_base: "/v1"
+    });
+  });
+  app.get("/dash", handleContestDashPage);
+  app.get("/v1", (_req, res) => {
+    ok(res, {
+      service: "swarmfront-vs-service",
+      build: serviceBuild,
+      dashboard: contestDashInfo(),
+      routes: {
+        health: "/v1/health",
+        create_invite: "POST /v1/create_invite",
+        contest_dash_config: "GET/POST /v1/contest_dash/config"
+      }
     });
   });
   app.get("/v1/health", (_req, res) => {
@@ -1329,8 +1696,19 @@ export function createApp(): express.Express {
       build: serviceBuild,
       uptime_sec: nowUnix() - processStartUnix,
       sessions: sessions.size,
-      queue: queue.length
+      queue: queue.length,
+      spectator_grants: spectatorGrants.size,
+      spectator_snapshot_streams: spectatorSnapshotStreams.size
     });
+  });
+  app.get("/v1/contest_dash/config", (req, res, next) => {
+    void handleContestDashState(req, res).catch(next);
+  });
+  app.post("/v1/contest_dash/config", (req, res, next) => {
+    void handleContestDashSave(req, res).catch(next);
+  });
+  app.post("/v1/contest_dash/delete", (req, res, next) => {
+    void handleContestDashDelete(req, res).catch(next);
   });
   app.post("/:action", handleAction);
   app.post("/v1/:action", handleAction);

@@ -217,6 +217,25 @@ text = "Admin Login"
 layout_mode = 2
 text = "Private admin dashboard. Use in-app credentials."
 
+[node name="SupportSection" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="SupportLabel" type="Label" parent="VBox/SupportSection"]
+layout_mode = 2
+text = "Support"
+
+[node name="SupportRow" type="HBoxContainer" parent="VBox/SupportSection"]
+layout_mode = 2
+
+[node name="SupportHint" type="Label" parent="VBox/SupportSection/SupportRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Account and diagnostics payload"
+
+[node name="SupportDiagnosticsButton" type="Button" parent="VBox/SupportSection/SupportRow"]
+layout_mode = 2
+text = "Diagnostics"
+
 [node name="RenamePolicyLabel" type="Label" parent="VBox"]
 layout_mode = 2
 autowrap_mode = 3

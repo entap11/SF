@@ -28,5 +28,15 @@ export const config = {
   corsEnabled: parseBoolean(process.env.VS_CORS_ENABLED, true),
   sessionTtlSec: parseIntValue(process.env.VS_SESSION_TTL_SEC, 15 * 60),
   queueTtlSec: parseIntValue(process.env.VS_QUEUE_TTL_SEC, 90),
-  intentStreamMaxEvents: parseIntValue(process.env.VS_INTENT_STREAM_MAX_EVENTS, 512)
+  intentStreamMaxEvents: parseIntValue(process.env.VS_INTENT_STREAM_MAX_EVENTS, 512),
+  spectatorEnabled: parseBoolean(process.env.VS_SPECTATOR_ENABLED, true),
+  spectatorAdminToken: process.env.VS_SPECTATOR_ADMIN_TOKEN?.trim() || "",
+  spectatorDevOpen: parseBoolean(process.env.VS_SPECTATOR_DEV_OPEN, false),
+  spectatorGrantTtlSec: parseIntValue(process.env.VS_SPECTATOR_GRANT_TTL_SEC, 30 * 60),
+  spectatorDefaultDelaySec: parseIntValue(process.env.VS_SPECTATOR_DEFAULT_DELAY_SEC, 20),
+  spectatorMinDelaySec: parseIntValue(process.env.VS_SPECTATOR_MIN_DELAY_SEC, 10),
+  spectatorMaxDelaySec: parseIntValue(process.env.VS_SPECTATOR_MAX_DELAY_SEC, 30),
+  spectatorLiveEnabled: parseBoolean(process.env.VS_SPECTATOR_LIVE_ENABLED, false),
+  spectatorPublicEnabled: parseBoolean(process.env.VS_SPECTATOR_PUBLIC_ENABLED, false),
+  spectatorStreamMaxEvents: parseIntValue(process.env.VS_SPECTATOR_STREAM_MAX_EVENTS, 512)
 };

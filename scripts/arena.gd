@@ -177,6 +177,10 @@ const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
 const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
 const PREMATCH_AD_SIZE: Vector2 = Vector2(468.0, 60.0)
 const IN_GAME_AD_SIZE: Vector2 = Vector2(320.0, 50.0)
+const IN_GAME_AD_TOP_MARGIN_PX: float = 8.0
+const IN_GAME_AD_MIN_WIDTH_PX: float = 280.0
+const IN_GAME_AD_HUD_Z_INDEX: int = 3200
+const POWER_BAR_ARENA_TOP_GAP_PX: float = -8.0
 const PREMATCH_UI_CROSSFADE_MS: int = 350
 const PREMATCH_ORIENTATION_DURATION_MS: int = 10000
 const PREMATCH_IDENTITY_CARD_SHOW_MS: int = 5000
@@ -498,6 +502,7 @@ var _last_render_serial: int = -1
 var _last_rm_ms: int = 0
 const RM_REFRESH_HZ := 10.0
 const POWERBAR_LOG_THROTTLE_MS: int = 250
+const SPECTATOR_SNAPSHOT_INTERVAL_SEC: float = 1.0
 var _pb_last_ratio: float = -1.0
 var _pb_last_log_ms: int = 0
 var _dbg_last_event: String = ""
@@ -518,6 +523,7 @@ var _runtime_telemetry_overlay: PanelContainer = null
 var _runtime_telemetry_label: Label = null
 var _runtime_telemetry_last_update_ms: int = 0
 var _vs_pvp_runtime: Node = null
+var _spectator_snapshot_accum: float = 0.0
 var floor_influence_system: ArenaFloorInfluenceSystem = null
 var _jukebox_back_button: Button = null
 var _pvp_debug_overlay: Control = null
@@ -1898,6 +1904,33 @@ func _pump_vs_pvp_runtime(delta: float) -> void:
 		return
 	_apply_remote_pvp_commands(commands_any as Array)
 
+func _maybe_publish_spectator_snapshot(delta: float) -> void:
+	if _vs_pvp_runtime == null or not _vs_pvp_runtime.has_method("is_active"):
+		_spectator_snapshot_accum = 0.0
+		return
+	if not bool(_vs_pvp_runtime.call("is_active")):
+		_spectator_snapshot_accum = 0.0
+		return
+	if not _vs_pvp_runtime.has_method("publish_spectator_snapshot_async"):
+		return
+	if _vs_pvp_runtime.has_method("get_role") and str(_vs_pvp_runtime.call("get_role")).strip_edges().to_lower() != "host":
+		return
+	if OpsState == null or OpsState.match_phase != OpsState.MatchPhase.RUNNING:
+		return
+	if _match_telemetry_collector == null or not _match_telemetry_collector.has_method("build_live_replay_snapshot"):
+		return
+	var st: GameState = OpsState.get_state()
+	if st == null:
+		return
+	_spectator_snapshot_accum += maxf(0.0, delta)
+	if _spectator_snapshot_accum < SPECTATOR_SNAPSHOT_INTERVAL_SEC:
+		return
+	_spectator_snapshot_accum = 0.0
+	var snapshot: Dictionary = _match_telemetry_collector.call("build_live_replay_snapshot", Time.get_ticks_msec(), st) as Dictionary
+	if snapshot.is_empty():
+		return
+	_vs_pvp_runtime.call("publish_spectator_snapshot_async", snapshot)
+
 func _handle_vs_recovery_state() -> bool:
 	if _vs_pvp_runtime == null:
 		return false
@@ -3163,10 +3196,10 @@ func _ensure_in_game_ad_surface() -> void:
 			hud_root.add_child(_in_game_ad_surface)
 	if _in_game_ad_surface.has_method("configure"):
 		_in_game_ad_surface.call("configure", "in_game_hud", "in_game", IN_GAME_AD_SIZE, false)
-	_in_game_ad_surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_in_game_ad_surface.z_as_relative = false
-	_in_game_ad_surface.z_index = 90
+	_in_game_ad_surface.z_index = IN_GAME_AD_HUD_Z_INDEX
 	_layout_in_game_ad_surface()
+	_snap_power_bar_to_map_top("in_game_ad_surface_ready")
 
 func _layout_in_game_ad_surface() -> void:
 	if _in_game_ad_surface == null:
@@ -3176,14 +3209,10 @@ func _layout_in_game_ad_surface() -> void:
 		return
 	var vr: Rect2 = vp.get_visible_rect()
 	var ad_size: Vector2 = Vector2(
-		minf(IN_GAME_AD_SIZE.x, maxf(280.0, vr.size.x - 32.0)),
+		minf(IN_GAME_AD_SIZE.x, maxf(IN_GAME_AD_MIN_WIDTH_PX, vr.size.x - 32.0)),
 		IN_GAME_AD_SIZE.y
 	)
-	var bottom_inset: float = 16.0
-	var bottom_buffer: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as Control
-	if bottom_buffer != null:
-		bottom_inset = maxf(bottom_inset, bottom_buffer.get_global_rect().size.y + 8.0)
-	_in_game_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, maxf(0.0, vr.size.y - bottom_inset - ad_size.y))
+	_in_game_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, IN_GAME_AD_TOP_MARGIN_PX)
 	_in_game_ad_surface.size = ad_size
 
 func _prematch_records_panel_size() -> Vector2:
@@ -4383,6 +4412,8 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	if _match_telemetry_collector.has_method("is_active"):
 		active_any = _match_telemetry_collector.call("is_active")
 	_telemetry_active = bool(active_any)
+	if _telemetry_active:
+		_record_match_start_analytics(match_id, season_id, map_id, match_type, start_utc_ms, metadata_overrides)
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
 		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
 	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
@@ -4393,7 +4424,10 @@ func _begin_match_telemetry_session(reason: String) -> void:
 		"map_id": map_id,
 		"match_type": match_type,
 		"players": player_ids,
-		"reason": reason
+		"reason": reason,
+		"config_version": str(metadata_overrides.get("config_version", "")),
+		"config_hash": str(metadata_overrides.get("config_hash", "")),
+		"config_source": str(metadata_overrides.get("config_source", ""))
 	})
 
 func _finalize_match_telemetry_session(winner_id_in: int) -> void:
@@ -4431,6 +4465,7 @@ func _finalize_match_telemetry_session(winner_id_in: int) -> void:
 		profile_result = profile_result_any as Dictionary if typeof(profile_result_any) == TYPE_DICTIONARY else {}
 		if not bool(profile_result.get("ok", false)):
 			SFLog.warn("PLAYER_TELEMETRY_PROFILE_UPDATE_FAILED", profile_result)
+	_record_match_end_summary_analytics(telemetry_model, winner_id_in)
 	_telemetry_active = false
 	SFLog.info("TELEMETRY_FINALIZE", {
 		"winner_id": winner_id_in,
@@ -4543,6 +4578,12 @@ func _resolve_telemetry_metadata_overrides(player_ids: Array[int], _match_type: 
 			rank_transport_mode = str(rank_state.call("get_transport_mode")).strip_edges()
 		if rank_state.has_method("is_authoritative_transport_online"):
 			rank_authoritative_online = bool(rank_state.call("is_authoritative_transport_online"))
+	var tree: SceneTree = get_tree()
+	var config_snapshot: Dictionary = {}
+	if tree != null:
+		var config_any: Variant = tree.get_meta("vs_config_snapshot", {})
+		if typeof(config_any) == TYPE_DICTIONARY:
+			config_snapshot = (config_any as Dictionary).duplicate(true)
 	return {
 		"vs_mode": _current_vs_mode(),
 		"start_reason": reason.strip_edges(),
@@ -4554,7 +4595,11 @@ func _resolve_telemetry_metadata_overrides(player_ids: Array[int], _match_type: 
 		"player_loadouts": _resolve_telemetry_player_loadouts(player_ids),
 		"cosmetics": _resolve_telemetry_cosmetics(),
 		"rank_transport_mode": rank_transport_mode,
-		"rank_authoritative_online": rank_authoritative_online
+		"rank_authoritative_online": rank_authoritative_online,
+		"config_version": str(config_snapshot.get("config_version", "")),
+		"config_hash": str(config_snapshot.get("config_hash", "")),
+		"config_source": str(config_snapshot.get("config_source", "")),
+		"config_snapshot": config_snapshot
 	}
 
 func _resolve_telemetry_player_loadouts(player_ids: Array[int]) -> Dictionary:
@@ -5082,7 +5127,65 @@ func _ensure_vfx_manager() -> void:
 			"target_parent": _node_path_for_log(pools_root),
 			"node_path": _node_path_for_log(vfx_manager)
 		})
+
+func _record_match_end_summary_analytics(telemetry_model: Variant, winner_id_in: int) -> void:
+	var analytics: Node = get_node_or_null("/root/AnalyticsClient")
+	if analytics == null or not analytics.has_method("record_match_end_summary"):
+		return
+	var payload: Dictionary = {}
+	if telemetry_model != null and telemetry_model.has_method("to_dict"):
+		var payload_any: Variant = telemetry_model.call("to_dict")
+		if typeof(payload_any) == TYPE_DICTIONARY:
+			payload = payload_any as Dictionary
+	if payload.is_empty():
+		return
+	var metadata: Dictionary = payload.get("metadata", {}) as Dictionary
+	var match_type: int = int(metadata.get("match_type", 0))
+	var props: Dictionary = {
+		"match_id": str(metadata.get("match_id", "match_%d" % Time.get_ticks_msec())),
+		"season_id": str(metadata.get("season_id", "dev")),
+		"map_id": str(metadata.get("map_id", "unknown")),
+		"match_type": _telemetry_match_type_label(match_type),
+		"duration_ms": int(round(float(metadata.get("duration_s", 0.0)) * 1000.0)),
+		"winner": str(winner_id_in),
+		"vs_mode": str(metadata.get("vs_mode", "")),
+		"config_version": str(metadata.get("config_version", "")),
+		"config_hash": str(metadata.get("config_hash", "")),
+		"config_source": str(metadata.get("config_source", ""))
+	}
+	analytics.call("record_match_end_summary", props)
 	_configure_vfx_manager()
+
+func _record_match_start_analytics(
+		match_id: String,
+		season_id: String,
+		map_id: String,
+		match_type: int,
+		start_utc_ms: int,
+		metadata: Dictionary
+	) -> void:
+	var analytics: Node = get_node_or_null("/root/AnalyticsClient")
+	if analytics == null or not analytics.has_method("record_match_start"):
+		return
+	var props: Dictionary = {
+		"match_id": match_id,
+		"season_id": season_id,
+		"map_id": map_id,
+		"match_type": _telemetry_match_type_label(match_type),
+		"start_utc_ms": start_utc_ms,
+		"vs_mode": str(metadata.get("vs_mode", "")),
+		"config_version": str(metadata.get("config_version", "")),
+		"config_hash": str(metadata.get("config_hash", "")),
+		"config_source": str(metadata.get("config_source", ""))
+	}
+	analytics.call("record_match_start", props)
+
+func _telemetry_match_type_label(match_type: int) -> String:
+	if match_type == int(MatchTelemetryModelScript.MATCH_TYPE_VS):
+		return "VS"
+	if match_type == int(MatchTelemetryModelScript.MATCH_TYPE_ASYNC):
+		return "ASYNC"
+	return "BOT"
 
 func _configure_vfx_manager() -> void:
 	if vfx_manager == null or not is_instance_valid(vfx_manager):
@@ -7258,6 +7361,7 @@ func _tick_arena_runtime(delta: float) -> void:
 		input_system.tick(delta, api)
 		_sync_inputs_locked_from_state()
 	_pump_vs_pvp_runtime(delta)
+	_maybe_publish_spectator_snapshot(delta)
 	_update_timer_ui()
 	_update_progressive_counter_ui()
 	if tie_toast != null and tie_toast_ms > 0.0:
@@ -7695,7 +7799,52 @@ func dbg_mark_event(label: String) -> void:
 	SFLog.mark_event(label)
 
 func _snap_power_bar_to_map_top(reason: String = "") -> void:
-	return # PowerBar is HUD/buffer-placed; do not snap to play surface.
+	if power_bar == null or not is_instance_valid(power_bar):
+		power_bar = _resolve_power_bar_node()
+	if power_bar == null or not power_bar.is_inside_tree():
+		return
+	var anchor: Control = power_bar.get_parent() as Control
+	if anchor == null or not anchor.is_inside_tree():
+		return
+	var arena_top_y: float = _arena_playfield_top_screen_y()
+	if not is_finite(arena_top_y):
+		return
+	var target_top_y: float = arena_top_y + POWER_BAR_ARENA_TOP_GAP_PX
+	var power_rect: Rect2 = power_bar.get_global_rect()
+	var delta_y: float = target_top_y - power_rect.position.y
+	if absf(delta_y) <= 0.5:
+		return
+	anchor.offset_top += delta_y
+	anchor.offset_bottom += delta_y
+	_layout_capture_flag_move_button()
+	SFLog.throttled_info("POWER_BAR_ARENA_TOP_SNAP", {
+		"reason": reason,
+		"arena_top_y": arena_top_y,
+		"target_top_y": target_top_y,
+		"delta_y": delta_y
+	}, 1000)
+
+func _arena_playfield_top_screen_y() -> float:
+	var playfield_rect: Rect2 = _resolve_playfield_rect_px()
+	if playfield_rect.size.y > 1.0:
+		return playfield_rect.position.y
+	var bounds_world: Rect2 = _resolve_camera_fit_bounds_world()
+	if bounds_world.size.x <= 1.0 or bounds_world.size.y <= 1.0:
+		bounds_world = _arena_rect()
+	if bounds_world.size.x <= 1.0 or bounds_world.size.y <= 1.0:
+		return INF
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return INF
+	var canvas_xform: Transform2D = vp.get_canvas_transform()
+	var top_left: Vector2 = canvas_xform * bounds_world.position
+	var top_right: Vector2 = canvas_xform * (bounds_world.position + Vector2(bounds_world.size.x, 0.0))
+	var top_y: float = minf(top_left.y, top_right.y)
+	var tree: SceneTree = get_tree()
+	var world_container: Control = _world_viewport_cache.resolve_container(tree) if _world_viewport_cache != null else null
+	if world_container != null and world_container.is_inside_tree():
+		top_y += world_container.get_global_rect().position.y
+	return top_y
 
 func _sync_inputs_locked_from_state() -> void:
 	if input_system == null:

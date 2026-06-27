@@ -50,6 +50,37 @@ async function main(): Promise<void> {
   try {
     const health = await fetch(`http://127.0.0.1:${address.port}/health`).then((res) => res.json() as Promise<JsonRecord>);
     expect(health.ok === true, "health failed", health);
+    const serviceIndex = await fetch(`http://127.0.0.1:${address.port}/v1`).then((res) => res.json() as Promise<JsonRecord>);
+    expect(serviceIndex.ok === true && String((serviceIndex.dashboard as JsonRecord)?.path ?? "") === "/dash", "service index missing dashboard link", serviceIndex);
+    const dashHtml = await fetch(`http://127.0.0.1:${address.port}/dash`).then((res) => res.text());
+    expect(dashHtml.includes("Swarmfront Contest Dash"), "contest dash html missing title");
+    const dashState = await fetch(`${baseUrl}/contest_dash/config`).then((res) => res.json() as Promise<JsonRecord>);
+    const dashMaps = dashState.maps as JsonRecord[];
+    expect(dashState.ok === true && Array.isArray(dashMaps) && dashMaps.length >= 5, "contest dash state missing maps", dashState);
+    const dashSave = await fetch(`${baseUrl}/contest_dash/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        contest: {
+          id: "WEEKLY_USD_5_SMOKE_RACE",
+          name: "Smoke Weekly Race",
+          scope: "WEEKLY",
+          family: "RACE",
+          schedule_kind: "SCHEDULED",
+          status: "OPEN",
+          published: false,
+          price_usd: 5,
+          map_count: 5,
+          map_paths: dashMaps.slice(0, 5).map((entry) => String(entry.path ?? "")),
+          payout_schedule: [
+            { placement: 1, payout_bps: 5000 },
+            { placement: 2, payout_bps: 3000 },
+            { placement: 3, payout_bps: 2000 }
+          ]
+        }
+      })
+    }).then((res) => res.json() as Promise<JsonRecord>);
+    expect(dashSave.ok === true && String((dashSave.contest as JsonRecord)?.id ?? "") === "WEEKLY_USD_5_SMOKE_RACE", "contest dash save failed", dashSave);
 
     const context = {
       mode: "PVP",

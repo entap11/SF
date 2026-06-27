@@ -48,6 +48,12 @@ http://127.0.0.1:8791/v1
 - `POST /v1/get_money_payout_summary`
 - `POST /v1/publish_intent`
 - `POST /v1/poll_intents`
+- `POST /v1/create_spectator_grant`
+- `POST /v1/join_spectate`
+- `POST /v1/poll_spectator_events`
+- `POST /v1/publish_spectator_snapshot`
+- `POST /v1/poll_spectator_snapshots`
+- `POST /v1/leave_spectate`
 
 The same `POST /<action>` routes are also available for hosts that prefer a root base URL.
 
@@ -59,6 +65,10 @@ The same `POST /<action>` routes are also available for hosts that prefer a root
 - `VS_SESSION_TTL_SEC`: defaults to `900`.
 - `VS_QUEUE_TTL_SEC`: defaults to `90`.
 - `VS_INTENT_STREAM_MAX_EVENTS`: defaults to `512`.
+- `VS_SPECTATOR_ADMIN_TOKEN`: bearer token required to create spectator grants.
+- `VS_SPECTATOR_LIVE_ENABLED`: set to `1` to allow live admin spectate.
+- `VS_SPECTATOR_DEFAULT_DELAY_SEC`, `VS_SPECTATOR_MIN_DELAY_SEC`, `VS_SPECTATOR_MAX_DELAY_SEC`: delayed spectator bounds.
+- `VS_SPECTATOR_PUBLIC_ENABLED`: keep disabled for beta unless separately reviewed.
 
 ## Deploy
 

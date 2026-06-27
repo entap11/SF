@@ -516,6 +516,12 @@ func get_transport_mode() -> String:
 func is_authoritative_transport_online() -> bool:
 	return _transport_mode == "http" and _transport_http != null and _transport_http.configured()
 
+func is_local_beta_fallback_allowed() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("rank_local_beta_fallback_allowed"):
+		return bool(ops_config.call("rank_local_beta_fallback_allowed"))
+	return true
+
 func refresh_from_backend() -> Dictionary:
 	var ok: bool = _refresh_from_backend_internal(true)
 	return {
@@ -529,6 +535,12 @@ func _configure_transport() -> void:
 	if backend_url.is_empty():
 		_transport_http = null
 		_transport_mode = "local"
+		return
+	if not _ops_rank_backend_enabled():
+		_transport_http = null
+		_transport_mode = "local"
+		SFLog.allow_tag("RANK_TRANSPORT_CONFIG")
+		SFLog.info("RANK_TRANSPORT_CONFIG", {"mode": _transport_mode, "url": backend_url, "blocked_by_ops_config": true})
 		return
 	_transport_http = RankTransportHttpScript.new()
 	_transport_http.configure(
@@ -560,6 +572,12 @@ func _configured_backend_timeout_sec() -> float:
 	if ProjectSettings.has_setting(SETTINGS_BACKEND_TIMEOUT_SEC):
 		return maxf(0.1, float(ProjectSettings.get_setting(SETTINGS_BACKEND_TIMEOUT_SEC, DEFAULT_BACKEND_TIMEOUT_SEC)))
 	return DEFAULT_BACKEND_TIMEOUT_SEC
+
+func _ops_rank_backend_enabled() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("rank_backend_enabled"):
+		return bool(ops_config.call("rank_backend_enabled"))
+	return false
 
 func _runtime_config() -> RankConfigScript:
 	if _config == null:

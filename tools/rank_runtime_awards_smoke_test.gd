@@ -9,7 +9,7 @@ class FakeContestState:
 
 	func build_stage_race_overall_leaderboard(_contest_id: String, _map_count: int = 5, _limit: int = 25) -> Array[Dictionary]:
 		return [
-			{"rank": 1, "player_id": "u_aaaaaaaaaaaa", "player_name": "Alpha"},
+			{"rank": 1, "player_id": "018f2b2c-1234-7abc-8def-123456789abc", "player_name": "Alpha"},
 			{"rank": 2, "player_id": "bot_000001", "player_name": "Bot"}
 		]
 
@@ -39,9 +39,7 @@ func _init() -> void:
 	profile_manager.name = "SmokeProfileManager"
 	get_root().add_child(profile_manager)
 	await process_frame
-	profile_manager.set("_user_id", "u_aaaaaaaaaaaa")
-	profile_manager.set("_display_name", "Alpha")
-	profile_manager.set("_created_at_unix", int(Time.get_unix_time_from_system()))
+	profile_manager.call("smoke_force_identity_state", "018f2b2c-1234-7abc-8def-123456789abc", "ABC 123", "Alpha", true, true)
 	profile_manager.call("set_honey_balance", 0)
 
 	var rank_state: Node = RankStateScript.new()
@@ -50,9 +48,9 @@ func _init() -> void:
 	get_root().add_child(rank_state)
 	await process_frame
 
-	_assert_ok(rank_state.call("intent_register_player", "u_aaaaaaaaaaaa", "Alpha", "NA", []) as Dictionary, "register local")
+	_assert_ok(rank_state.call("intent_register_player", "018f2b2c-1234-7abc-8def-123456789abc", "Alpha", "NA", []) as Dictionary, "register local")
 	_assert_ok(rank_state.call("intent_register_player", "bot_000001", "Bot", "NA", []) as Dictionary, "register bot")
-	rank_state.call("intent_debug_set_player_wax", "u_aaaaaaaaaaaa", 200.0)
+	rank_state.call("intent_debug_set_player_wax", "018f2b2c-1234-7abc-8def-123456789abc", 200.0)
 	rank_state.call("intent_debug_set_player_wax", "bot_000001", 200.0)
 
 	var contest_state: Node = FakeContestState.new()
@@ -71,24 +69,25 @@ func _init() -> void:
 	fake_runner.name = "SimRunner"
 	get_root().add_child(fake_runner)
 	await process_frame
+	runtime_awards.call("_connect_sim_runner", fake_runner)
 
 	set_meta("vs_mode", "1V1")
 	set_meta("vs_sync_start", true)
 	set_meta("vs_free_roll", true)
 	set_meta("vs_price_usd", 0)
 	set_meta("vs_assigned_players", [
-		{"uid": "u_aaaaaaaaaaaa", "seat": 1},
+		{"uid": "018f2b2c-1234-7abc-8def-123456789abc", "seat": 1},
 		{"uid": "bot_000001", "seat": 2}
 	])
 	fake_runner.emit_signal("match_ended", 1, "timeout")
 	await process_frame
 
-	var local_after_free: Dictionary = rank_state.call("get_player_snapshot", "u_aaaaaaaaaaaa") as Dictionary
+	var local_after_free: Dictionary = rank_state.call("get_player_snapshot", "018f2b2c-1234-7abc-8def-123456789abc") as Dictionary
 	var opponent_after_free: Dictionary = rank_state.call("get_player_snapshot", "bot_000001") as Dictionary
 	_assert_eq(int(round(float(local_after_free.get("wax_score", 0.0)))), 210, "runtime free pvp win should add 10 wax")
 	_assert_eq(int(round(float(opponent_after_free.get("wax_score", 0.0)))), 196, "runtime free pvp loss should subtract 4 wax")
 
-	rank_state.call("intent_debug_set_player_wax", "u_aaaaaaaaaaaa", 200.0)
+	rank_state.call("intent_debug_set_player_wax", "018f2b2c-1234-7abc-8def-123456789abc", 200.0)
 	rank_state.call("intent_debug_set_player_wax", "bot_000001", 200.0)
 	set_meta("vs_free_roll", false)
 	set_meta("vs_price_usd", 5)
@@ -96,14 +95,14 @@ func _init() -> void:
 	fake_runner.emit_signal("match_ended", 1, "timeout")
 	await process_frame
 
-	var local_after_money: Dictionary = rank_state.call("get_player_snapshot", "u_aaaaaaaaaaaa") as Dictionary
+	var local_after_money: Dictionary = rank_state.call("get_player_snapshot", "018f2b2c-1234-7abc-8def-123456789abc") as Dictionary
 	var opponent_after_money: Dictionary = rank_state.call("get_player_snapshot", "bot_000001") as Dictionary
 	_assert_eq(int(round(float(local_after_money.get("wax_score", 0.0)))), 216, "runtime money tier 2 win should add 16 wax")
 	_assert_eq(int(round(float(opponent_after_money.get("wax_score", 0.0)))), 193, "runtime money tier 2 loss should subtract 7 wax")
 
 	var contest_result: Dictionary = runtime_awards.call("sync_contest_rank_rewards", "WEEKLY_USD_1_2025-W52", "WEEKLY", 5) as Dictionary
 	_assert_ok(contest_result, "contest sync")
-	var after_contest: Dictionary = rank_state.call("get_player_snapshot", "u_aaaaaaaaaaaa") as Dictionary
+	var after_contest: Dictionary = rank_state.call("get_player_snapshot", "018f2b2c-1234-7abc-8def-123456789abc") as Dictionary
 	_assert_eq(int(round(float(after_contest.get("wax_score", 0.0)))), 226, "contest sync should add weekly first-place wax")
 
 	var now_local: Dictionary = Time.get_datetime_dict_from_system()
@@ -111,7 +110,7 @@ func _init() -> void:
 	var open_month_result: Dictionary = runtime_awards.call("sync_contest_rank_rewards", current_month_contest_id, "MONTHLY", 5) as Dictionary
 	_assert_ok(open_month_result, "open monthly sync")
 	_assert_true(not bool(open_month_result.get("awarded", false)), "current month should not award before month end")
-	var after_open_month: Dictionary = rank_state.call("get_player_snapshot", "u_aaaaaaaaaaaa") as Dictionary
+	var after_open_month: Dictionary = rank_state.call("get_player_snapshot", "018f2b2c-1234-7abc-8def-123456789abc") as Dictionary
 	_assert_eq(int(round(float(after_open_month.get("wax_score", 0.0)))), 226, "open monthly should not change wax")
 
 	print("RANK_RUNTIME_AWARDS_SMOKE: PASS")

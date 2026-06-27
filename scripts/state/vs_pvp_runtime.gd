@@ -80,6 +80,12 @@ var _publish_thread: Thread = null
 var _publish_inflight: bool = false
 var _publish_generation: int = 0
 var _publish_queue: Array[Dictionary] = []
+var _spectator_snapshot_thread: Thread = null
+var _spectator_snapshot_inflight: bool = false
+var _spectator_snapshot_generation: int = 0
+var _spectator_snapshot_tx: int = 0
+var _spectator_snapshot_fail_count: int = 0
+var _last_spectator_snapshot_result: Dictionary = {}
 var _contract_violation_count: int = 0
 var _last_contract_violation: Dictionary = {}
 var _contract_current_command_lead_ticks: int = -1
@@ -122,14 +128,18 @@ var _runtime_telemetry_write_count: int = 0
 func _exit_tree() -> void:
 	_poll_generation += 1
 	_publish_generation += 1
+	_spectator_snapshot_generation += 1
 	_finish_poll_thread(true)
 	_finish_publish_thread(true)
+	_finish_spectator_snapshot_thread(true)
 
 func clear() -> void:
 	_poll_generation += 1
 	_publish_generation += 1
+	_spectator_snapshot_generation += 1
 	_finish_poll_thread(true)
 	_finish_publish_thread(true)
+	_finish_spectator_snapshot_thread(true)
 	_active = false
 	_session_id = ""
 	_mode = ""
@@ -172,6 +182,9 @@ func clear() -> void:
 	_authority_snapshots_by_tick.clear()
 	_accepted_command_log.clear()
 	_publish_queue.clear()
+	_spectator_snapshot_tx = 0
+	_spectator_snapshot_fail_count = 0
+	_last_spectator_snapshot_result = {}
 	_client_command_counter = 0
 	_runtime_telemetry_log_path = ""
 	_runtime_telemetry_log_started = false
@@ -267,6 +280,10 @@ func get_debug_snapshot() -> Dictionary:
 		"pending_commands": _pending_remote_commands.size(),
 		"publish_in_flight": _publish_inflight,
 		"publish_queue_size": _publish_queue.size(),
+		"spectator_snapshot_in_flight": _spectator_snapshot_inflight,
+		"spectator_snapshot_tx": _spectator_snapshot_tx,
+		"spectator_snapshot_fail_count": _spectator_snapshot_fail_count,
+		"last_spectator_snapshot_result": _last_spectator_snapshot_result.duplicate(true),
 		"events": get_debug_event_log(),
 		"last_event": get_last_debug_event(),
 		"desync": _peer_desync_or_lagging or _recovery_state != RECOVERY_STATE_RUNNING,
@@ -315,6 +332,7 @@ func can_accept_gameplay_intents() -> bool:
 func tick(delta: float) -> void:
 	_finish_poll_thread(false)
 	_finish_publish_thread(false)
+	_finish_spectator_snapshot_thread(false)
 	if not is_active():
 		_update_runtime_telemetry()
 		return
@@ -1460,6 +1478,89 @@ func _publish_commands_thread(
 	return {
 		"generation": generation,
 		"entries": entries
+	}
+
+func publish_spectator_snapshot_async(snapshot: Dictionary) -> bool:
+	_finish_spectator_snapshot_thread(false)
+	if not is_active():
+		return false
+	if _spectator_snapshot_inflight:
+		return false
+	if snapshot.is_empty():
+		return false
+	var backend_url: String = _configured_backend_url()
+	if backend_url.is_empty():
+		return false
+	_spectator_snapshot_inflight = true
+	_spectator_snapshot_thread = Thread.new()
+	var generation: int = _spectator_snapshot_generation
+	var err: Error = _spectator_snapshot_thread.start(Callable(self, "_publish_spectator_snapshot_thread").bind(
+		backend_url,
+		_configured_backend_timeout_sec(),
+		_configured_backend_token(),
+		_session_id,
+		_local_uid,
+		snapshot.duplicate(true),
+		generation
+	))
+	if err != OK:
+		_spectator_snapshot_inflight = false
+		_spectator_snapshot_thread = null
+		_spectator_snapshot_fail_count += 1
+		_last_spectator_snapshot_result = {"ok": false, "err": "spectator_snapshot_thread_start_failed", "code": int(err)}
+		SFLog.allow_tag("VS_SPECTATOR_SNAPSHOT_FAIL")
+		SFLog.warn("VS_SPECTATOR_SNAPSHOT_FAIL", _last_spectator_snapshot_result, "", 1000)
+		return false
+	return true
+
+func _finish_spectator_snapshot_thread(force_wait: bool) -> void:
+	if _spectator_snapshot_thread == null:
+		_spectator_snapshot_inflight = false
+		return
+	if _spectator_snapshot_thread.is_alive():
+		if not force_wait:
+			return
+	var completed: Variant = _spectator_snapshot_thread.wait_to_finish()
+	_spectator_snapshot_thread = null
+	_spectator_snapshot_inflight = false
+	if typeof(completed) != TYPE_DICTIONARY:
+		_spectator_snapshot_fail_count += 1
+		_last_spectator_snapshot_result = {"ok": false, "err": "spectator_snapshot_bad_result", "result_type": typeof(completed)}
+		return
+	var payload: Dictionary = completed as Dictionary
+	if int(payload.get("generation", -1)) != _spectator_snapshot_generation or not is_active():
+		return
+	var result_any: Variant = payload.get("result", {})
+	if typeof(result_any) != TYPE_DICTIONARY:
+		_spectator_snapshot_fail_count += 1
+		_last_spectator_snapshot_result = {"ok": false, "err": "spectator_snapshot_result_missing"}
+		return
+	var result: Dictionary = result_any as Dictionary
+	_last_spectator_snapshot_result = result.duplicate(true)
+	if bool(result.get("ok", false)):
+		_spectator_snapshot_tx += 1
+	else:
+		_spectator_snapshot_fail_count += 1
+
+func _publish_spectator_snapshot_thread(
+	backend_url: String,
+	timeout_sec: float,
+	auth_token: String,
+	session_id: String,
+	uid: String,
+	snapshot: Dictionary,
+	generation: int
+) -> Dictionary:
+	var transport: VsHandshakeTransportHttp = VsHandshakeTransportHttp.new()
+	transport.configure(backend_url, timeout_sec, auth_token)
+	var result: Dictionary = transport.call_action("publish_spectator_snapshot", {
+		"session_id": session_id,
+		"uid": uid,
+		"snapshot": snapshot
+	})
+	return {
+		"generation": generation,
+		"result": result
 	}
 
 func _start_async_remote_intent_poll() -> void:

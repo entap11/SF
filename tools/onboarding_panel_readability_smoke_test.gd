@@ -15,12 +15,12 @@ func _run() -> void:
 	root.add_child(panel)
 	await process_frame
 	var checks: Array[Dictionary] = [
-		{"path": "VBox/TitleLabel", "min": 42},
-		{"path": "VBox/DisplayNameLabel", "min": 36},
-		{"path": "VBox/DisplayNameInput", "min": 42},
-		{"path": "VBox/AgeLabel", "min": 36},
-		{"path": "VBox/AgeSpin", "min": 42},
-		{"path": "VBox/ContinueButton", "min": 36}
+		{"path": "VBox/TitleLabel", "min": 54},
+		{"path": "VBox/DisplayNameLabel", "min": 44},
+		{"path": "VBox/DisplayNameInput", "min": 52},
+		{"path": "VBox/AgeLabel", "min": 44},
+		{"path": "VBox/AgeSpin", "min": 52},
+		{"path": "VBox/ContinueButton", "min": 46}
 	]
 	for check in checks:
 		var path: String = str(check.get("path", ""))
@@ -34,10 +34,10 @@ func _run() -> void:
 			return
 	var display_input: Control = panel.get_node_or_null("VBox/DisplayNameInput") as Control
 	var continue_button: Control = panel.get_node_or_null("VBox/ContinueButton") as Control
-	if display_input == null or display_input.custom_minimum_size.y < 76.0:
+	if display_input == null or display_input.custom_minimum_size.y < 94.0:
 		_fail("display name input height too small")
 		return
-	if continue_button == null or continue_button.custom_minimum_size.y < 76.0:
+	if continue_button == null or continue_button.custom_minimum_size.y < 94.0:
 		_fail("continue button height too small")
 		return
 	panel.queue_free()

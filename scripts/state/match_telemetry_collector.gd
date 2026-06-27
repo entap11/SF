@@ -508,6 +508,24 @@ func sample_runtime_perf(t_ms: int, snapshot: Dictionary) -> void:
 	_runtime_perf_last_sample_ms = sample_now_ms
 	_runtime_perf_samples.append(_compact_runtime_perf_sample(sample_now_ms, snapshot))
 
+func build_live_replay_snapshot(t_ms: int, state: GameState) -> Dictionary:
+	if state == null:
+		return {}
+	var sample_now_ms: int = maxi(0, t_ms)
+	var replay_map: Dictionary = _build_replay_map(state)
+	var replay_frame: Dictionary = _build_replay_frame(sample_now_ms, state)
+	return {
+		"schema_version": 1,
+		"frame_index": 0,
+		"replay": {
+			"schema_version": 1,
+			"sample_ms": REPLAY_SAMPLE_INTERVAL_MS,
+			"duration_ms": sample_now_ms,
+			"map": replay_map,
+			"frames": [replay_frame]
+		}
+	}
+
 func finalize_match(winner_player_id: int, end_utc_ms: int) -> Variant:
 	if not _started:
 		return _model

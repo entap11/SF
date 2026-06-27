@@ -68,6 +68,38 @@ func _run() -> void:
 			push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: guide font is too small")
 			quit(1)
 			return
+		dialog.hide()
+	menu.call("_show_onboarding_guide_prompt")
+	await process_frame
+	var prompt: ConfirmationDialog = menu.get("_onboarding_guide_prompt_dialog") as ConfirmationDialog
+	if prompt == null or not prompt.visible:
+		push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: onboarding guide prompt did not open")
+		quit(1)
+		return
+	var prompt_title: Label = prompt.get_node_or_null("GuidePromptBody/GuidePromptTitle") as Label
+	var prompt_copy: Label = prompt.get_node_or_null("GuidePromptBody/GuidePromptCopy") as Label
+	if prompt_title == null or not prompt_title.text.contains("Quick Start Guide"):
+		push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: onboarding guide prompt title missing")
+		quit(1)
+		return
+	if prompt_copy == null or not prompt_copy.text.contains("lanes"):
+		push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: onboarding guide prompt copy missing")
+		quit(1)
+		return
+	if int(prompt_title.get_theme_font_size("font_size")) < 42 or int(prompt_copy.get_theme_font_size("font_size")) < 34:
+		push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: onboarding guide prompt fonts are too small")
+		quit(1)
+		return
+	var open_button: Button = prompt.get_ok_button()
+	var cancel_button: Button = prompt.get_cancel_button()
+	if open_button == null or open_button.text != "OPEN GUIDE" or open_button.custom_minimum_size.y < 76.0:
+		push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: onboarding guide open button not large enough")
+		quit(1)
+		return
+	if cancel_button == null or cancel_button.text != "SKIP" or cancel_button.custom_minimum_size.y < 76.0:
+		push_error("MAIN_MENU_GUIDE_BUTTON_SMOKE: onboarding guide skip button not large enough")
+		quit(1)
+		return
 
 	print("MAIN_MENU_GUIDE_BUTTON_SMOKE: PASS")
 	quit(0)

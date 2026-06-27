@@ -4,11 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 MVP_GATE="${ROOT_DIR}/scripts/dev/run_mvp_smoke.sh"
+BETA_OPS_GATE="${ROOT_DIR}/scripts/dev/run_beta_ops_gate.sh"
 MATRIX_GATE="${ROOT_DIR}/scripts/dev/run_player_config_matrix_gate.sh"
 SOAK_GATE="${ROOT_DIR}/scripts/dev/run_soak_gate.sh"
 TF_PREFLIGHT="${ROOT_DIR}/tools/tf_preflight.sh"
 
 RUN_MVP="${RELEASE_READINESS_RUN_MVP:-1}"
+RUN_BETA_OPS="${RELEASE_READINESS_RUN_BETA_OPS:-0}"
 RUN_MATRIX="${RELEASE_READINESS_RUN_MATRIX:-1}"
 RUN_SOAK_GATE="${RELEASE_READINESS_RUN_SOAK_GATE:-0}"
 RUN_TF_PREFLIGHT="${RELEASE_READINESS_RUN_TF_PREFLIGHT:-0}"
@@ -19,6 +21,7 @@ MATRIX_SEED_RUNS="${RELEASE_READINESS_MATRIX_SEED_RUNS:-}"
 MATRIX_NO_SOAK="${RELEASE_READINESS_MATRIX_NO_SOAK:-0}"
 
 MVP_TIMEOUT_SECONDS="${RELEASE_READINESS_MVP_TIMEOUT_SECONDS:-180}"
+BETA_OPS_TIMEOUT_SECONDS="${RELEASE_READINESS_BETA_OPS_TIMEOUT_SECONDS:-360}"
 MATRIX_TIMEOUT_SECONDS="${RELEASE_READINESS_MATRIX_TIMEOUT_SECONDS:-}"
 SOAK_GATE_TIMEOUT_SECONDS="${RELEASE_READINESS_SOAK_GATE_TIMEOUT_SECONDS:-2400}"
 TF_PREFLIGHT_TIMEOUT_SECONDS="${RELEASE_READINESS_TF_PREFLIGHT_TIMEOUT_SECONDS:-600}"
@@ -38,6 +41,7 @@ Options:
   --matrix-seed-runs <n>           Number of matrix soak seed runs.
   --matrix-no-soak                 Run matrix contract + boot routes only.
   --skip-mvp                       Skip MVP smoke.
+  --include-beta-ops               Also run scripts/dev/run_beta_ops_gate.sh.
   --skip-matrix                    Skip player config matrix.
   --include-soak-gate              Also run scripts/dev/run_soak_gate.sh.
   --include-tf-preflight           Also run tools/tf_preflight.sh.
@@ -50,6 +54,7 @@ Default matrix timeout budgets:
 
 Environment overrides:
   RELEASE_READINESS_RUN_MVP
+  RELEASE_READINESS_RUN_BETA_OPS
   RELEASE_READINESS_RUN_MATRIX
   RELEASE_READINESS_RUN_SOAK_GATE
   RELEASE_READINESS_RUN_TF_PREFLIGHT
@@ -58,6 +63,7 @@ Environment overrides:
   RELEASE_READINESS_MATRIX_SEED_RUNS
   RELEASE_READINESS_MATRIX_NO_SOAK
   RELEASE_READINESS_MVP_TIMEOUT_SECONDS
+  RELEASE_READINESS_BETA_OPS_TIMEOUT_SECONDS
   RELEASE_READINESS_MATRIX_TIMEOUT_SECONDS
   RELEASE_READINESS_SOAK_GATE_TIMEOUT_SECONDS
   RELEASE_READINESS_TF_PREFLIGHT_TIMEOUT_SECONDS
@@ -96,6 +102,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-mvp)
       RUN_MVP=0
+      shift
+      ;;
+    --include-beta-ops)
+      RUN_BETA_OPS=1
       shift
       ;;
     --skip-matrix)
@@ -188,6 +198,12 @@ if [[ "${RUN_MVP}" == "1" || "${RUN_MVP}" == "true" ]]; then
   run_stage mvp_smoke "${MVP_TIMEOUT_SECONDS}" "${MVP_GATE}"
 else
   echo "RELEASE_READINESS_STAGE_SKIP mvp_smoke"
+fi
+
+if [[ "${RUN_BETA_OPS}" == "1" || "${RUN_BETA_OPS}" == "true" ]]; then
+  run_stage beta_ops "${BETA_OPS_TIMEOUT_SECONDS}" "${BETA_OPS_GATE}"
+else
+  echo "RELEASE_READINESS_STAGE_SKIP beta_ops"
 fi
 
 if [[ "${RUN_MATRIX}" == "1" || "${RUN_MATRIX}" == "true" ]]; then

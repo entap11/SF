@@ -557,6 +557,15 @@ func _handshake_context() -> Dictionary:
 		context["stage_map_paths"] = explicit_stage_map_paths
 	return context
 
+func _match_config_snapshot_for_context(context: Dictionary) -> Dictionary:
+	var raw_snapshot: Variant = _context_meta.get("config_snapshot", {})
+	if typeof(raw_snapshot) == TYPE_DICTIONARY and not (raw_snapshot as Dictionary).is_empty():
+		return (raw_snapshot as Dictionary).duplicate(true)
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("build_match_config_snapshot"):
+		return ops_config.call("build_match_config_snapshot", context) as Dictionary
+	return {}
+
 func _local_profile() -> Dictionary:
 	var profile: Dictionary = {
 		"uid": _local_uid,
@@ -1000,6 +1009,10 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("vs_handshake_invite_code", _invite_code)
 	tree.set_meta("vs_local_profile", _local_profile())
 	tree.set_meta("vs_remote_profile", _remote_profile_for_tree())
+	var config_snapshot: Dictionary = _match_config_snapshot_for_context(_handshake_context())
+	tree.set_meta("vs_config_snapshot", config_snapshot.duplicate(true))
+	tree.set_meta("vs_config_version", str(config_snapshot.get("config_version", "")))
+	tree.set_meta("vs_config_hash", str(config_snapshot.get("config_hash", "")))
 	var randomizer_payload: Dictionary = _match_randomizer_payload_for_match()
 	if not randomizer_payload.is_empty():
 		tree.set_meta(MatchSetupRandomizer.TREE_META_KEY, randomizer_payload)
@@ -1096,6 +1109,16 @@ func _prepare_bot_fill_jukebox_metadata(map_path: String) -> bool:
 	tree.set_meta("vs_handshake_invite_code", "")
 	tree.set_meta("vs_local_profile", local_profile)
 	tree.set_meta("vs_remote_profile", bot_profile)
+	var config_snapshot: Dictionary = _match_config_snapshot_for_context({
+		"mode": "ASYNC_SINGLE_MAP_TIMED",
+		"map_count": 1,
+		"price_usd": 0,
+		"free_roll": true,
+		"map_path": clean_map_path
+	})
+	tree.set_meta("vs_config_snapshot", config_snapshot.duplicate(true))
+	tree.set_meta("vs_config_version", str(config_snapshot.get("config_version", "")))
+	tree.set_meta("vs_config_hash", str(config_snapshot.get("config_hash", "")))
 	if not cpu_style.is_empty():
 		tree.set_meta(TREE_META_VS_CPU_STYLE, cpu_style)
 	if not cpu_tier.is_empty():
@@ -1199,10 +1222,13 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"vs_handshake_invite_code",
 		"vs_local_profile",
 		"vs_remote_profile",
-		"vs_money_ledger_status",
-		"vs_money_settlement_result",
-		"vs_money_transaction_ids",
-		TREE_META_VS_CPU_STYLE,
+			"vs_money_ledger_status",
+			"vs_money_settlement_result",
+			"vs_money_transaction_ids",
+			"vs_config_snapshot",
+			"vs_config_version",
+			"vs_config_hash",
+			TREE_META_VS_CPU_STYLE,
 		TREE_META_VS_CPU_TIER,
 		MatchSetupRandomizer.TREE_META_KEY,
 		MatchSetupRandomizer.CONTEXT_KEY,

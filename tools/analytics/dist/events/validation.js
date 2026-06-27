@@ -16,6 +16,19 @@ const sessionEndPropsSchema = z
     purchases_made: z.coerce.number().int().nonnegative().optional()
 })
     .passthrough();
+const matchStartPropsSchema = z
+    .object({
+    match_id: z.string().min(1),
+    season_id: z.string().min(1),
+    map_id: z.string().min(1),
+    match_type: z.enum(["VS", "ASYNC", "BOT"]),
+    start_utc_ms: z.coerce.number().int().nonnegative(),
+    vs_mode: z.string().optional(),
+    config_version: z.string().optional(),
+    config_hash: z.string().optional(),
+    config_source: z.string().optional()
+})
+    .passthrough();
 const matchEndSummaryPropsSchema = z
     .object({
     match_id: z.string().min(1),
@@ -90,6 +103,8 @@ function parseProps(eventName, props) {
             return sessionStartPropsSchema.safeParse(props);
         case "session_end":
             return sessionEndPropsSchema.safeParse(props);
+        case "match_start":
+            return matchStartPropsSchema.safeParse(props);
         case "match_end_summary":
             return matchEndSummaryPropsSchema.safeParse(props);
         case "purchase":

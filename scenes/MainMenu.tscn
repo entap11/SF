@@ -220,10 +220,10 @@ vertical_alignment = 1
 layout_mode = 0
 anchor_left = 0.5
 anchor_right = 0.5
-offset_left = -240.0
-offset_top = 252.0
-offset_right = 240.0
-offset_bottom = 280.0
+offset_left = -360.0
+offset_top = 350.0
+offset_right = 360.0
+offset_bottom = 446.0
 text = "Welcome Player"
 horizontal_alignment = 1
 vertical_alignment = 1
@@ -2334,7 +2334,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="OverlayPanel" type="Panel" parent="ProfileFirstRunOverlay/OverlayCenter"]
-custom_minimum_size = Vector2(900, 700)
+custom_minimum_size = Vector2(1040, 860)
 layout_mode = 2
 mouse_filter = 1
 
@@ -2354,5 +2354,5 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="OnboardingPanel" parent="ProfileFirstRunOverlay/OverlayCenter/OverlayPanel/OverlayVBox" instance=ExtResource("8")]
-custom_minimum_size = Vector2(820, 560)
+custom_minimum_size = Vector2(960, 760)
 layout_mode = 2

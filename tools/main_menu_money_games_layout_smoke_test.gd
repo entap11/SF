@@ -40,16 +40,16 @@ func _run() -> void:
 		return
 
 	var buttons: Array[Button] = _collect_buttons(panel)
-	_assert_tooltip_button(buttons, "1V1", 250.0, 104.0)
-	_assert_tooltip_button(buttons, "4P FFA", 250.0, 104.0)
-	_assert_tooltip_button(buttons, "WEEKLY", 350.0, 132.0)
-	_assert_tooltip_button(buttons, "MONTHLY", 350.0, 132.0)
-	_assert_text_button(buttons, "DIVISION I", 208.0, 82.0)
-	_assert_text_button(buttons, "$1", 128.0, 56.0)
+	_assert_tooltip_button(buttons, "1V1", 330.0, 145.0)
+	_assert_tooltip_button(buttons, "4P FFA", 330.0, 145.0)
+	_assert_tooltip_button(buttons, "Weekly", 400.0, 110.0)
+	_assert_tooltip_button(buttons, "Monthly", 400.0, 110.0)
+	_assert_text_button(buttons, "DIVISION I", 208.0, 112.0)
+	_assert_text_button(buttons, "$1", 168.0, 78.0)
 	_press_text_button(buttons, "DIVISION III")
 	await create_timer(0.35).timeout
 	buttons = _collect_buttons(panel)
-	_assert_text_button(buttons, "$50", 128.0, 56.0)
+	_assert_text_button(buttons, "$50", 168.0, 78.0)
 	_assert_text_button_unaffordable_clickable(buttons, "$50")
 	_assert_tooltip_button_unaffordable_clickable(buttons, "1V1")
 	_press_tooltip_button(buttons, "1V1")

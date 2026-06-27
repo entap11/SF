@@ -44,12 +44,12 @@ func _run() -> void:
 		quit(1)
 		return
 
-	var title: Label = _find_label_with_text(panel, "BATTLE PASS")
+	var title: Label = _find_label_with_text(panel, "WARPATH")
 	if title == null:
 		push_error("MAIN_MENU_BATTLE_PASS_LAYOUT_SMOKE: title label missing")
 		quit(1)
 		return
-	if title.get_theme_font_size("font_size") < 28:
+	if title.get_theme_font_size("font_size") < 56:
 		push_error("MAIN_MENU_BATTLE_PASS_LAYOUT_SMOKE: title font too small: %d" % title.get_theme_font_size("font_size"))
 		quit(1)
 		return
@@ -91,7 +91,7 @@ func _run() -> void:
 		push_error("MAIN_MENU_BATTLE_PASS_LAYOUT_SMOKE: first level card missing")
 		quit(1)
 		return
-	if first_level_label.get_theme_font_size("font_size") < 24:
+	if first_level_label.get_theme_font_size("font_size") < 48:
 		push_error("MAIN_MENU_BATTLE_PASS_LAYOUT_SMOKE: level font too small: %d" % first_level_label.get_theme_font_size("font_size"))
 		quit(1)
 		return
@@ -100,8 +100,8 @@ func _run() -> void:
 		quit(1)
 		return
 	var level_card: Control = _nearest_panel(first_level_label)
-	if level_card == null or level_card.custom_minimum_size.y > 560.0:
-		push_error("MAIN_MENU_BATTLE_PASS_LAYOUT_SMOKE: level card did not use compact mobile height")
+	if level_card == null or level_card.custom_minimum_size.y < 720.0:
+		push_error("MAIN_MENU_BATTLE_PASS_LAYOUT_SMOKE: level card did not use enlarged mobile height")
 		quit(1)
 		return
 

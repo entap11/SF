@@ -28,6 +28,7 @@ const GOOD: Color = Color(0.56, 0.88, 0.58, 1.0)
 const LOCKED: Color = Color(0.52, 0.55, 0.62, 0.82)
 const TOUCH_LAYOUT_MAX_WIDTH: float = 1100.0
 const TOUCH_LAYOUT_SCALE: float = 1.18
+const WARPATH_VISUAL_SCALE: float = 2.0
 const TOUCH_PANEL_MARGIN_X: float = 34.0
 const TOUCH_PANEL_TOP: float = 128.0
 const TOUCH_PANEL_BOTTOM: float = 132.0
@@ -83,7 +84,7 @@ func _load_fonts() -> void:
 	_font_semibold = UITypography.semibold_font()
 
 func _apply_font(control: Control, font: Font, size: int) -> void:
-	UITypography.apply_font(control, font, size)
+	UITypography.apply_font(control, font, size, WARPATH_VISUAL_SCALE)
 
 func _apply_responsive_frame() -> void:
 	if not _uses_touch_layout():
@@ -192,7 +193,7 @@ func _build_header() -> Control:
 	row.add_child(text_col)
 
 	var title := Label.new()
-	title.text = "BATTLE PASS"
+	title.text = "WARPATH"
 	_apply_font(title, _font_semibold, 28 if _uses_touch_layout() else 22)
 	title.add_theme_color_override("font_color", Color(0.98, 0.98, 1.0, 1.0))
 	text_col.add_child(title)
@@ -647,9 +648,9 @@ func _refresh_card_sizes() -> void:
 	var available: float = maxf(240.0, _levels_scroll.size.y)
 	var card_height: float
 	if _uses_touch_layout():
-		card_height = clampf(available * 0.52, 360.0, 560.0)
+		card_height = clampf(available * 0.86, 360.0 * WARPATH_VISUAL_SCALE, 560.0 * WARPATH_VISUAL_SCALE)
 	else:
-		card_height = clampf((available - 28.0) / 3.0, 240.0, 620.0)
+		card_height = clampf((available - 28.0) / 2.0, 240.0 * WARPATH_VISUAL_SCALE, 620.0 * WARPATH_VISUAL_SCALE)
 	for child in _cards_vbox.get_children():
 		if child is Control:
 			(child as Control).custom_minimum_size = Vector2(0.0, card_height)
@@ -661,7 +662,8 @@ func _uses_touch_layout() -> bool:
 	return viewport_size.y > viewport_size.x or viewport_size.x <= TOUCH_LAYOUT_MAX_WIDTH
 
 func _touch_layout_scale() -> float:
-	return TOUCH_LAYOUT_SCALE if _uses_touch_layout() else 1.0
+	var layout_scale: float = TOUCH_LAYOUT_SCALE if _uses_touch_layout() else 1.0
+	return layout_scale * WARPATH_VISUAL_SCALE
 
 func _scaled_float(value: float) -> float:
 	return round(value * _touch_layout_scale())
@@ -847,8 +849,8 @@ func _style(bg: Color, border: Color, border_width: int = 1, radius: int = 6) ->
 	style.corner_radius_top_right = radius
 	style.corner_radius_bottom_left = radius
 	style.corner_radius_bottom_right = radius
-	style.content_margin_left = 10
-	style.content_margin_top = 8
-	style.content_margin_right = 10
-	style.content_margin_bottom = 8
+	style.content_margin_left = 10.0 * WARPATH_VISUAL_SCALE
+	style.content_margin_top = 8.0 * WARPATH_VISUAL_SCALE
+	style.content_margin_right = 10.0 * WARPATH_VISUAL_SCALE
+	style.content_margin_bottom = 8.0 * WARPATH_VISUAL_SCALE
 	return style

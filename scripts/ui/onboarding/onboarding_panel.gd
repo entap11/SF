@@ -2,22 +2,23 @@ class_name OnboardingPanel
 extends Control
 
 signal onboarding_done
+signal onboarding_guide_prompt_requested
 
 const UITypography = preload("res://scripts/ui/ui_typography.gd")
 
-const TITLE_FONT_SIZE: int = 42
-const BODY_FONT_SIZE: int = 36
-const STATUS_FONT_SIZE: int = 28
-const INPUT_FONT_SIZE: int = 42
-const BUTTON_FONT_SIZE: int = 36
-const ROW_HEIGHT: float = 76.0
+const TITLE_FONT_SIZE: int = 54
+const BODY_FONT_SIZE: int = 44
+const STATUS_FONT_SIZE: int = 34
+const INPUT_FONT_SIZE: int = 52
+const BUTTON_FONT_SIZE: int = 46
+const ROW_HEIGHT: float = 94.0
 
 @onready var title_label: Label = $VBox/TitleLabel
 @onready var body_label: Label = $VBox/BodyLabel
 @onready var display_name_input: LineEdit = $VBox/DisplayNameInput
 @onready var display_name_label: Label = $VBox/DisplayNameLabel
 @onready var age_label: Label = $VBox/AgeLabel
-@onready var age_spin: SpinBox = $VBox/AgeSpin
+@onready var age_input: LineEdit = $VBox/AgeSpin
 @onready var status_label: Label = $VBox/StatusLabel
 @onready var continue_button: Button = $VBox/ContinueButton
 
@@ -25,16 +26,22 @@ func _ready() -> void:
 	_apply_readable_first_run_type()
 	ProfileManager.ensure_loaded()
 	display_name_input.text = _initial_handle_text()
+	_configure_age_input()
 	continue_button.pressed.connect(_on_continue_pressed)
 	display_name_input.text_changed.connect(func(_text: String) -> void:
 		status_label.text = ""
 	)
+	age_input.text_changed.connect(_on_age_text_changed)
 
 func _on_continue_pressed() -> void:
 	var call_sign: String = display_name_input.text.strip_edges()
 	var validation: Dictionary = ProfileManager.validate_handle_policy(call_sign)
 	if not bool(validation.get("ok", false)):
-		status_label.text = str(validation.get("message", "Choose a valid handle."))
+		status_label.text = _call_sign_validation_message(validation, "Choose a valid call sign.")
+		return
+	var age_years: int = _age_years_from_input()
+	if age_years < 0:
+		status_label.text = "Enter an age from 1 to 99."
 		return
 	var registration: Dictionary = _register_backend_identity(call_sign)
 	if not bool(registration.get("ok", false)):
@@ -46,13 +53,14 @@ func _on_continue_pressed() -> void:
 	var server_call_sign: String = str(player.get("call_sign", call_sign)).strip_edges()
 	var result: Dictionary = ProfileManager.request_handle_change(server_call_sign, false, "onboarding")
 	if not bool(result.get("ok", false)):
-		status_label.text = str(result.get("message", "Choose a valid handle."))
+		status_label.text = _call_sign_validation_message(result, "Choose a valid call sign.")
 		return
-	_report_age_to_scholastic_state()
+	_report_age_to_scholastic_state(age_years)
 	ProfileManager.mark_onboarding_complete()
 	if not ProfileManager.is_onboarding_complete():
 		status_label.text = "Account setup did not finish. Please try again."
 		return
+	onboarding_guide_prompt_requested.emit()
 	onboarding_done.emit()
 
 func _register_backend_identity(call_sign: String) -> Dictionary:
@@ -77,16 +85,53 @@ func _registration_error_message(result: Dictionary) -> String:
 		_:
 			return "Account setup failed. Please try again."
 
-func _report_age_to_scholastic_state() -> void:
+func _call_sign_validation_message(result: Dictionary, fallback: String) -> String:
+	var message: String = str(result.get("message", fallback)).strip_edges()
+	if message.is_empty():
+		message = fallback
+	return message.replace("handle", "call sign").replace("Handle", "Call Sign")
+
+func _report_age_to_scholastic_state(age_years: int) -> void:
 	var state_node: Node = get_node_or_null("/root/ScholasticState")
 	if state_node == null or not state_node.has_method("intent_report_age"):
 		return
 	state_node.call(
 		"intent_report_age",
 		ProfileManager.get_user_id(),
-		int(age_spin.value),
+		age_years,
 		ProfileManager.get_display_name()
 	)
+
+func _configure_age_input() -> void:
+	if age_input == null:
+		return
+	age_input.text = ""
+	age_input.placeholder_text = "Age"
+	age_input.max_length = 2
+	age_input.virtual_keyboard_enabled = true
+	age_input.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER
+
+func _on_age_text_changed(text: String) -> void:
+	status_label.text = ""
+	var digits: String = ""
+	for index in text.length():
+		var character: String = text.substr(index, 1)
+		if character.is_valid_int():
+			digits += character
+	if digits == text:
+		return
+	var caret_column: int = mini(age_input.caret_column, digits.length())
+	age_input.text = digits
+	age_input.caret_column = caret_column
+
+func _age_years_from_input() -> int:
+	var text: String = age_input.text.strip_edges() if age_input != null else ""
+	if text.is_empty() or not text.is_valid_int():
+		return -1
+	var age_years: int = int(text)
+	if age_years < 1 or age_years > 99:
+		return -1
+	return age_years
 
 func _initial_handle_text() -> String:
 	if ProfileManager.has_method("is_handle_chosen") and bool(ProfileManager.call("is_handle_chosen")):
@@ -105,19 +150,19 @@ func _initial_handle_text() -> String:
 	return "Player_%s" % suffix.to_upper()
 
 func _apply_readable_first_run_type() -> void:
-	custom_minimum_size = Vector2(820.0, 540.0)
+	custom_minimum_size = Vector2(960.0, 740.0)
 	var box: VBoxContainer = $VBox
 	if box != null:
-		box.add_theme_constant_override("separation", 18)
+		box.add_theme_constant_override("separation", 24)
 	_apply_font(title_label, UITypography.semibold_font(), TITLE_FONT_SIZE)
 	_apply_font(body_label, UITypography.regular_font(), BODY_FONT_SIZE)
 	_apply_font(display_name_label, UITypography.semibold_font(), BODY_FONT_SIZE)
 	_apply_font(display_name_input, UITypography.regular_font(), INPUT_FONT_SIZE)
 	_apply_font(age_label, UITypography.semibold_font(), BODY_FONT_SIZE)
-	_apply_font(age_spin, UITypography.regular_font(), INPUT_FONT_SIZE)
+	_apply_font(age_input, UITypography.regular_font(), INPUT_FONT_SIZE)
 	_apply_font(status_label, UITypography.regular_font(), STATUS_FONT_SIZE)
 	_apply_font(continue_button, UITypography.semibold_font(), BUTTON_FONT_SIZE)
-	for control in [display_name_input, age_spin, continue_button]:
+	for control in [display_name_input, age_input, continue_button]:
 		if control is Control:
 			(control as Control).custom_minimum_size.y = ROW_HEIGHT
 

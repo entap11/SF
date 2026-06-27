@@ -117,7 +117,8 @@ func get_beta_runtime_flags() -> Dictionary:
 		"progression_authority": "remote_authoritative" if remote_online else "local_provisional",
 		"transport_mode": get_transport_mode(),
 		"competitive_provisional": not remote_online,
-		"authoritative_progression_online": remote_online
+		"authoritative_progression_online": remote_online,
+		"ops_config": _ops_config_debug_snapshot()
 	}
 
 func clear() -> void:
@@ -272,6 +273,18 @@ func _configured_backend_timeout_sec() -> float:
 	if ProjectSettings.has_setting(SETTINGS_BACKEND_TIMEOUT_SEC):
 		configured_timeout = float(ProjectSettings.get_setting(SETTINGS_BACKEND_TIMEOUT_SEC, DEFAULT_BACKEND_TIMEOUT_SEC))
 	return clampf(configured_timeout, 0.1, MAX_SYNC_BACKEND_TIMEOUT_SEC)
+
+func _ops_observer_mode_enabled() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("observer_mode_enabled"):
+		return bool(ops_config.call("observer_mode_enabled"))
+	return false
+
+func _ops_config_debug_snapshot() -> Dictionary:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("get_debug_snapshot"):
+		return ops_config.call("get_debug_snapshot") as Dictionary
+	return {}
 
 func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 	if _transport_http == null or not _transport_http.configured():
@@ -1135,6 +1148,82 @@ func poll_intents(session_id: String, uid: String, after_seq: int = 0) -> Dictio
 			continue
 		out.append(e.duplicate(true))
 	return _with_server_perf_meta({"ok": true, "events": out, "latest_seq": latest_seq}, start_ms)
+
+func create_spectator_grant(session_id: String, role: String = "invited_spectator", spectator_uid: String = "", display_name: String = "Spectator", delay_sec: int = 20) -> Dictionary:
+	if not _ops_observer_mode_enabled():
+		return {"ok": false, "handled": true, "err": "observer_mode_disabled"}
+	var payload: Dictionary = {
+		"session_id": session_id,
+		"role": role,
+		"spectator_uid": spectator_uid,
+		"display_name": display_name,
+		"delay_sec": delay_sec
+	}
+	var transport := _call_transport("create_spectator_grant", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func join_spectate(grant_token: String, session_id: String = "", spectator_uid: String = "") -> Dictionary:
+	if not _ops_observer_mode_enabled():
+		return {"ok": false, "handled": true, "err": "observer_mode_disabled"}
+	var payload: Dictionary = {
+		"grant_token": grant_token,
+		"session_id": session_id,
+		"spectator_uid": spectator_uid
+	}
+	var transport := _call_transport("join_spectate", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func poll_spectator_events(grant_token: String, session_id: String = "", after_seq: int = 0) -> Dictionary:
+	if not _ops_observer_mode_enabled():
+		return {"ok": false, "handled": true, "err": "observer_mode_disabled"}
+	var payload: Dictionary = {
+		"grant_token": grant_token,
+		"session_id": session_id,
+		"after_seq": after_seq
+	}
+	var transport := _call_transport("poll_spectator_events", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func publish_spectator_snapshot(session_id: String, uid: String, snapshot: Dictionary) -> Dictionary:
+	if not _ops_observer_mode_enabled():
+		return {"ok": false, "handled": true, "err": "observer_mode_disabled"}
+	var transport := _call_transport("publish_spectator_snapshot", {
+		"session_id": session_id,
+		"uid": uid,
+		"snapshot": snapshot
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func poll_spectator_snapshots(grant_token: String, session_id: String = "", after_seq: int = 0) -> Dictionary:
+	if not _ops_observer_mode_enabled():
+		return {"ok": false, "handled": true, "err": "observer_mode_disabled"}
+	var payload: Dictionary = {
+		"grant_token": grant_token,
+		"session_id": session_id,
+		"after_seq": after_seq
+	}
+	var transport := _call_transport("poll_spectator_snapshots", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func leave_spectate(grant_token: String) -> Dictionary:
+	if not _ops_observer_mode_enabled():
+		return {"ok": true, "closed": true, "observer_mode_disabled": true}
+	var transport := _call_transport("leave_spectate", {
+		"grant_token": grant_token
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
 func _with_server_perf_meta(result: Dictionary, start_ms: int) -> Dictionary:
 	var out: Dictionary = result.duplicate(true)

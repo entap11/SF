@@ -14,6 +14,12 @@ func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_test_ads", false)
+	ProjectSettings.set_setting("swarmfront/ads/fake_ads", false)
+	_force_external_ads_config()
+	var manager: Node = root.get_node_or_null("AdManager")
+	if manager != null and manager.has_method("clear_provider"):
+		manager.call("clear_provider")
 	var original_profile_manager: Node = get_root().get_node_or_null("ProfileManager")
 	if original_profile_manager != null:
 		original_profile_manager.name = "ProfileManagerOriginal"
@@ -58,8 +64,22 @@ func _run() -> void:
 		return
 	fake_profile.zero_ads = true
 	surface.call("set_ad_available", true)
-	if bool(surface.visible):
-		push_error("AD_SURFACE_SMOKE: zero_ads should suppress ad surface")
+	if not bool(surface.visible):
+		push_error("AD_SURFACE_SMOKE: zero_ads should switch approved ad surface to ticker")
+		quit(1)
+		return
+	if str(surface.get_meta("ad_surface_content_mode", "")) != "internal_ticker":
+		push_error("AD_SURFACE_SMOKE: zero_ads surface should report internal_ticker mode")
+		quit(1)
+		return
+	var ticker_label: Label = surface.get_node_or_null("PlaceholderLabel") as Label
+	if ticker_label == null or not ticker_label.visible or not ticker_label.text.contains("SWARMFRONT"):
+		push_error("AD_SURFACE_SMOKE: zero_ads ticker label missing")
+		quit(1)
+		return
+	surface.call("set_internal_ticker_items", ["LANE ALERT", "HIVE PRESSURE"])
+	if ticker_label.text != "LANE ALERT  |  HIVE PRESSURE":
+		push_error("AD_SURFACE_SMOKE: custom ticker items did not render")
 		quit(1)
 		return
 	fake_profile.zero_ads = false
@@ -75,3 +95,24 @@ func _run() -> void:
 		original_profile_manager.name = "ProfileManager"
 	print("AD_SURFACE_SMOKE: PASS")
 	quit(0)
+
+func _force_external_ads_config() -> void:
+	var ops_config: Node = root.get_node_or_null("OpsConfig")
+	if ops_config == null or not ops_config.has_method("force_config_for_smoke"):
+		return
+	var config: Dictionary = ops_config.call("get_config_snapshot") as Dictionary
+	config["config_version"] = "ad-surface-smoke-external"
+	var flags: Dictionary = config.get("feature_flags", {}) as Dictionary
+	flags["enable_ads"] = true
+	flags["enable_house_ads"] = false
+	config["feature_flags"] = flags
+	var ads: Dictionary = config.get("ads", {}) as Dictionary
+	ads["external_ads_enabled"] = true
+	ads["house_ads_enabled"] = false
+	ads["placements"] = {
+		"handshake": true,
+		"in_game": true,
+		"post_match": true
+	}
+	config["ads"] = ads
+	ops_config.call("force_config_for_smoke", config, "remote_fresh")

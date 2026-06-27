@@ -28,6 +28,7 @@ tools/scholastic-service/dist/
 tools/vs-service/.env
 tools/vs-service/node_modules/
 tools/vs-service/dist/
+tools/vs-service/var/
 
 # Local Godot import noise
 assets/sprites/sf_skin_v1/barracks.PNG.import

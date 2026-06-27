@@ -1,6 +1,7 @@
 export const PHASE0_EVENT_NAMES = [
   "session_start",
   "session_end",
+  "match_start",
   "match_end_summary",
   "purchase",
   "error",
