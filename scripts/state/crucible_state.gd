@@ -424,19 +424,8 @@ func intent_apply_competitive_wax_result(match_id: String, player_id: String, op
 	if clean_match_id.is_empty() or clean_player.is_empty():
 		return _error("missing_wax_award_fields", "Match id and player id are required.")
 	var event_id: String = str(metadata.get("event_id", "competitive_wax:%s:%s" % [clean_match_id, clean_player])).strip_edges()
-	if _server_authoritative_enabled():
-		var backend: Node = _handshake_backend()
-		if backend == null or not backend.has_method("record_competitive_wax_result"):
-			return _error("transport_not_configured", "Wax backend is not configured.")
-		var remote_result: Dictionary = backend.call("record_competitive_wax_result", clean_match_id, clean_player, clean_opponent, did_win, mode_name, metadata, event_id) as Dictionary
-		if bool(remote_result.get("ok", false)):
-			var balance_millis: int = maxi(0, int(remote_result.get("balance_millis", get_balance_millis(clean_player))))
-			_balances_by_player[clean_player] = balance_millis
-			var breakdown: Dictionary = _safe_dictionary(remote_result.get("breakdown", remote_result.get("award", {})))
-			if not breakdown.is_empty():
-				_competitive_wax_awards_by_event[event_id] = breakdown.duplicate(true)
-			_save_state()
-			_emit_changed()
+	var remote_result: Dictionary = _try_remote_competitive_wax_result(clean_match_id, clean_player, clean_opponent, did_win, mode_name, metadata, event_id)
+	if not remote_result.is_empty():
 		return remote_result
 	if _competitive_wax_awards_by_event.has(event_id):
 		var existing: Dictionary = _safe_dictionary(_competitive_wax_awards_by_event.get(event_id, {}))
@@ -490,6 +479,23 @@ func intent_apply_competitive_wax_result(match_id: String, player_id: String, op
 		"breakdown": breakdown,
 		"balance_millis": get_balance_millis(clean_player)
 	}
+
+func _try_remote_competitive_wax_result(match_id: String, player_id: String, opponent_id: String, did_win: bool, mode_name: String, metadata: Dictionary, event_id: String) -> Dictionary:
+	var backend: Node = _handshake_backend()
+	if backend == null or not backend.has_method("record_competitive_wax_result"):
+		return {}
+	var remote_result: Dictionary = backend.call("record_competitive_wax_result", match_id, player_id, opponent_id, did_win, mode_name, metadata, event_id) as Dictionary
+	if not bool(remote_result.get("handled", true)) or str(remote_result.get("err", "")) == "transport_not_configured":
+		return {}
+	if bool(remote_result.get("ok", false)):
+		var balance_millis: int = maxi(0, int(remote_result.get("balance_millis", get_balance_millis(player_id))))
+		_balances_by_player[player_id] = balance_millis
+		var breakdown: Dictionary = _safe_dictionary(remote_result.get("breakdown", remote_result.get("award", {})))
+		if not breakdown.is_empty():
+			_competitive_wax_awards_by_event[event_id] = breakdown.duplicate(true)
+		_save_state()
+		_emit_changed()
+	return remote_result
 
 func validate_purity(payload: Dictionary = {}) -> Dictionary:
 	var violations: Array[String] = []
