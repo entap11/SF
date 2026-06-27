@@ -241,6 +241,30 @@ layout_mode = 2
 autowrap_mode = 3
 text = "One free handle change is available per year. Paid renames cannot bypass reserved or prohibited names."
 
+[node name="CommunitySafetySection" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="CommunitySafetyLabel" type="Label" parent="VBox/CommunitySafetySection"]
+layout_mode = 2
+text = "Community Safety"
+
+[node name="CommunitySafetyRow" type="HBoxContainer" parent="VBox/CommunitySafetySection"]
+layout_mode = 2
+
+[node name="CommunitySafetyHint" type="Label" parent="VBox/CommunitySafetySection/CommunitySafetyRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Reports, appeals, Call Sign policy, and privacy posture."
+
+[node name="CommunitySafetyButton" type="Button" parent="VBox/CommunitySafetySection/CommunitySafetyRow"]
+layout_mode = 2
+text = "Open Safety"
+
+[node name="CommunitySafetyStatusLabel" type="Label" parent="VBox/CommunitySafetySection"]
+layout_mode = 2
+autowrap_mode = 3
+text = ""
+
 [node name="ButtonsRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
 
@@ -269,3 +293,68 @@ offset_right = -16.0
 offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="CommunitySafetyDialog" type="AcceptDialog" parent="."]
+title = "Community Safety"
+size = Vector2i(760, 900)
+
+[node name="SafetyVBox" type="VBoxContainer" parent="CommunitySafetyDialog"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="SafetyOverview" type="Label" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = "Public identity and moderation status."
+
+[node name="ReportHeader" type="Label" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+text = "Report"
+
+[node name="ReportTargetInput" type="LineEdit" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+placeholder_text = "Target player ID, hive ID, match ID, or Call Sign"
+
+[node name="ReportCategoryOption" type="OptionButton" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+
+[node name="ReportSummaryInput" type="TextEdit" parent="CommunitySafetyDialog/SafetyVBox"]
+custom_minimum_size = Vector2(0, 96)
+layout_mode = 2
+placeholder_text = "What should moderation review?"
+wrap_mode = 1
+
+[node name="SubmitReportButton" type="Button" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+text = "Submit Report"
+
+[node name="AppealHeader" type="Label" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+text = "Appeal"
+
+[node name="AppealActionInput" type="LineEdit" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+placeholder_text = "Moderation action ID"
+
+[node name="AppealStatementInput" type="TextEdit" parent="CommunitySafetyDialog/SafetyVBox"]
+custom_minimum_size = Vector2(0, 96)
+layout_mode = 2
+placeholder_text = "Why should this action be reviewed?"
+wrap_mode = 1
+
+[node name="SubmitAppealButton" type="Button" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+text = "Submit Appeal"
+
+[node name="SafetyStatusLabel" type="Label" parent="CommunitySafetyDialog/SafetyVBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = ""

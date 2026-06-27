@@ -50,7 +50,7 @@ func _init() -> void:
 			"free pvp completion %d" % i
 		)
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("battle_pass_level", 0)), 3, "five free pvp completions should reach level 3 on the progressive curve")
+	_assert_eq(int(snapshot.get("battle_pass_level", 0)), 2, "five free pvp completions should reach level 2 on the economy frame")
 
 	battle_pass_state.call("debug_reset_state")
 	await process_frame
@@ -68,6 +68,29 @@ func _init() -> void:
 
 	battle_pass_state.call("debug_reset_state")
 	await process_frame
+	var first_win_one: Dictionary = battle_pass_state.call(
+		"intent_record_pvp_completion",
+		"1V1",
+		false,
+		0,
+		true,
+		{"event_id": "first_win_day_one", "player_id": "first_win_player", "day_key": "2026-06-27"}
+	) as Dictionary
+	_assert_ok(first_win_one, "first win day one")
+	_assert_eq(int(first_win_one.get("xp_awarded", 0)), 38, "first win should add 20 base nectar before multiplier")
+	var first_win_duplicate_day: Dictionary = battle_pass_state.call(
+		"intent_record_pvp_completion",
+		"1V1",
+		false,
+		0,
+		true,
+		{"event_id": "first_win_day_duplicate", "player_id": "first_win_player", "day_key": "2026-06-27"}
+	) as Dictionary
+	_assert_ok(first_win_duplicate_day, "first win duplicate day")
+	_assert_eq(int(first_win_duplicate_day.get("xp_awarded", 0)), 18, "second win same day should not repeat first-win bonus")
+
+	battle_pass_state.call("debug_reset_state")
+	await process_frame
 	_assert_ok(battle_pass_state.call("intent_set_pass_entitlements", true, false) as Dictionary, "premium entitlements")
 	var premium_result: Dictionary = battle_pass_state.call(
 		"intent_record_pvp_completion",
@@ -78,7 +101,7 @@ func _init() -> void:
 		{"event_id": "premium_free_pvp"}
 	) as Dictionary
 	_assert_ok(premium_result, "premium free pvp")
-	_assert_eq(int(premium_result.get("xp_awarded", 0)), 24, "premium should apply a 20 percent nectar bonus")
+	_assert_eq(int(premium_result.get("xp_awarded", 0)), 13, "premium should apply a 30 percent nectar bonus")
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
 	_assert_eq(int(snapshot.get("side_quest_paths_available", 0)), 2, "premium should unlock the first side quest path")
 	_assert_eq(int(snapshot.get("visible_level_cap", 0)), 110, "premium should see level 110")
@@ -108,7 +131,7 @@ func _init() -> void:
 		{"event_id": "elite_free_pvp"}
 	) as Dictionary
 	_assert_ok(elite_result, "elite free pvp")
-	_assert_eq(int(elite_result.get("xp_awarded", 0)), 26, "elite should apply a 30 percent nectar bonus")
+	_assert_eq(int(elite_result.get("xp_awarded", 0)), 16, "elite should apply a 60 percent nectar bonus")
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
 	_assert_eq(int(snapshot.get("side_quest_paths_available", 0)), 3, "elite should unlock both side quest paths")
 	_assert_eq(int(snapshot.get("visible_level_cap", 0)), 120, "elite should see level 120")
@@ -121,7 +144,7 @@ func _init() -> void:
 	_assert_str_eq(_reward_type_for_row(elite_rows, 103, "elite"), "cosmetic", "elite prestige level 103 should be a prestige cosmetic")
 	var contest_result: Dictionary = battle_pass_state.call("intent_record_contest_result", "WEEKLY", 1, {"event_id": "weekly_contest_top1"}) as Dictionary
 	_assert_ok(contest_result, "weekly contest result")
-	_assert_eq(int(contest_result.get("xp_awarded", 0)), 39, "elite weekly contest win should award 39 nectar XP")
+	_assert_eq(int(contest_result.get("xp_awarded", 0)), 48, "elite weekly contest win should award 48 nectar XP")
 
 	var fake_runner := FakeSimRunner.new()
 	fake_runner.name = "SimRunner"
@@ -138,7 +161,7 @@ func _init() -> void:
 	fake_runner.emit_signal("match_ended", 1, "timeout")
 	await process_frame
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 96, "runtime free pvp should add elite-weighted nectar XP including the win bonus")
+	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 125, "runtime free pvp should add elite-weighted nectar XP including win and first-win bonuses")
 
 	set_meta("vs_mode", "STAGE_RACE")
 	set_meta("vs_sync_start", false)
@@ -150,14 +173,14 @@ func _init() -> void:
 	fake_runner.emit_signal("match_ended", 1, "round_end")
 	await process_frame
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 96, "non-final async stage round should not award nectar")
+	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 125, "non-final async stage round should not award nectar")
 
 	set_meta("vs_stage_current_index", 2)
 	remove_meta("bp_runtime_nonce")
 	fake_runner.emit_signal("match_ended", 1, "round_end")
 	await process_frame
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 119, "final async stage round should award elite-weighted async nectar XP")
+	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 138, "final async stage round should award elite-weighted async nectar XP")
 
 	print("BATTLE_PASS_SMOKE: PASS")
 	quit(0)

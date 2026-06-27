@@ -19,6 +19,7 @@ const CONTEST_GAME_FAMILIES: Array[Dictionary] = [
 const MONEY_SCHEDULED_CONTEST_FAMILIES: Array[String] = ["STAGE_RACE", "RACE", "GAUNTLET"]
 const HIGH_STAKES_SCHEDULED_FAMILIES: Array[String] = ["RACE", "GAUNTLET"]
 const SIT_AND_GO_CONTEST_FAMILIES: Array[String] = ["MISS_N_OUT", "GAUNTLET"]
+const CRUCIBLE_LEDGER_EXPORT_PATH: String = "user://ops_crucible_ledger_export.csv"
 
 @onready var contest_list: ItemList = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestList
 @onready var contest_setup_select: OptionButton = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestSetupSelect
@@ -69,6 +70,49 @@ const SIT_AND_GO_CONTEST_FAMILIES: Array[String] = ["MISS_N_OUT", "GAUNTLET"]
 @onready var payout_proof_text: TextEdit = $RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/PayoutProofText
 @onready var tabs: TabContainer = $RootPanel/RootVBox/Tabs
 
+@onready var crucible_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleEnabled
+@onready var crucible_queue_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleQueueEnabled
+@onready var crucible_wagering_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleWageringEnabled
+@onready var crucible_ads_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleAdsEnabled
+@onready var crucible_capacity_cap_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleCapacityCapEnabled
+@onready var crucible_settlement_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleSettlementEnabled
+@onready var crucible_earn_buttons_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleEarnButtonsEnabled
+@onready var crucible_server_settlement_required: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleServerSettlementRequired
+@onready var crucible_local_dev_settlement_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleLocalDevSettlementEnabled
+@onready var crucible_launch_grant_enabled: CheckButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleLaunchGrantEnabled
+@onready var crucible_config_version: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleConfigVersion
+@onready var crucible_stake_bps: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleStakeBps
+@onready var crucible_burn_bps: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleBurnBps
+@onready var crucible_minimum_stake: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleMinimumStake
+@onready var crucible_capacity_max: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleCapacityMax
+@onready var crucible_reserved_slots: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleReservedSlots
+@onready var crucible_starting_wax: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleStartingWax
+@onready var crucible_launch_grant_millis: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleLaunchGrantMillis
+@onready var crucible_standard_win_earn: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleStandardWinEarn
+@onready var crucible_standard_loss_earn: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleStandardLossEarn
+@onready var crucible_tournament_earn: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleTournamentEarn
+@onready var crucible_challenge_earn: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleChallengeEarn
+@onready var crucible_event_earn: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleEventEarn
+@onready var crucible_rounding_mode: OptionButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleRoundingRow/CrucibleRoundingMode
+@onready var crucible_preview_player: LineEdit = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow/CruciblePreviewPlayer
+@onready var crucible_preview_balance: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow/CruciblePreviewBalance
+@onready var crucible_preview_active_count: SpinBox = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow/CruciblePreviewActiveCount
+@onready var crucible_preview_button: Button = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow/CruciblePreviewButton
+@onready var crucible_refresh: Button = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleButtons/CrucibleRefresh
+@onready var crucible_save: Button = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleButtons/CrucibleSave
+@onready var crucible_status: Label = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleStatus
+@onready var crucible_preview_status: Label = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewStatus
+@onready var crucible_ledger_refresh: Button = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleLedgerRefresh
+@onready var crucible_ledger_filter: LineEdit = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleLedgerFilter
+@onready var crucible_ledger_export: Button = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleLedgerExport
+@onready var crucible_review_match: LineEdit = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleReviewMatch
+@onready var crucible_review_action: OptionButton = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleReviewAction
+@onready var crucible_review_resolve: Button = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleReviewResolve
+@onready var crucible_ledger_summary: Label = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerSummary
+@onready var crucible_collusion_summary: Label = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleCollusionSummary
+@onready var crucible_audit_rows: VBoxContainer = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleAuditRows
+@onready var crucible_ledger_rows: VBoxContainer = $RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerRows
+
 @onready var map_list: ItemList = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapList
 @onready var map_id: Label = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm/MapId
 @onready var map_name: Label = $RootPanel/RootVBox/Tabs/Maps/MapsHBox/MapForm/MapName
@@ -100,6 +144,9 @@ var _ops_config_status: Label = null
 var _ops_config_payload: TextEdit = null
 var _ops_config_reload_button: Button = null
 var _ops_config_copy_button: Button = null
+var _current_crucible_ledger_snapshot: Dictionary = {}
+var _current_crucible_filtered_ledger_entries: Array[Dictionary] = []
+var _current_crucible_filtered_audit_records: Array[Dictionary] = []
 
 func _ready() -> void:
 	if _ops_config_tab_only_smoke():
@@ -136,6 +183,13 @@ func _ready() -> void:
 	payout_proof_generate.pressed.connect(_on_generate_payout_proof_pressed)
 	payout_proof_copy.pressed.connect(_on_copy_payout_proof_pressed)
 	payout_proof_export.pressed.connect(_on_export_payout_proof_pressed)
+	crucible_refresh.pressed.connect(_on_crucible_refresh_pressed)
+	crucible_save.pressed.connect(_on_crucible_save_pressed)
+	crucible_preview_button.pressed.connect(_on_crucible_preview_pressed)
+	crucible_ledger_refresh.pressed.connect(_on_crucible_ledger_refresh_pressed)
+	crucible_ledger_filter.text_changed.connect(_on_crucible_ledger_filter_changed)
+	crucible_ledger_export.pressed.connect(_on_crucible_ledger_export_pressed)
+	crucible_review_resolve.pressed.connect(_on_crucible_review_resolve_pressed)
 	map_list.item_selected.connect(_on_map_selected)
 	map_in_pool.toggled.connect(_on_map_in_pool_toggled)
 	map_load_test.pressed.connect(_on_map_load_test)
@@ -152,6 +206,10 @@ func _ready() -> void:
 	clear_payout_proof()
 	_ensure_ops_config_tab()
 	_ensure_spectator_tab()
+	_configure_crucible_rounding_selector()
+	_configure_crucible_review_selector()
+	refresh_crucible_config()
+	refresh_crucible_ledger()
 
 func _ensure_ops_config_tab() -> void:
 	if tabs == null:
@@ -502,6 +560,8 @@ func refresh() -> void:
 	_load_contests()
 	_load_maps()
 	request_scheduled_money_closeout_sweep()
+	refresh_crucible_config()
+	refresh_crucible_ledger()
 
 func _load_contests() -> void:
 	contest_list.clear()
@@ -1444,6 +1504,438 @@ func _result_error(result: Dictionary) -> String:
 func _format_cents(amount_cents: int) -> String:
 	var safe_cents: int = maxi(0, amount_cents)
 	return "$%.2f" % (float(safe_cents) / 100.0)
+
+func refresh_crucible_config() -> Dictionary:
+	var state: Node = get_node_or_null("/root/CrucibleState")
+	if state == null or not state.has_method("get_config_snapshot"):
+		_set_crucible_status("CrucibleState unavailable.")
+		return {"ok": false, "err": "crucible_state_unavailable"}
+	var snapshot: Dictionary = state.call("get_config_snapshot") as Dictionary
+	_apply_crucible_config_to_form(snapshot)
+	_set_crucible_status("Loaded Crucible config v%d (%s)." % [
+		maxi(1, int(snapshot.get("config_version", 1))),
+		str(snapshot.get("config_hash", "")).substr(0, 8)
+	])
+	return {"ok": true, "config": snapshot}
+
+func _configure_crucible_rounding_selector() -> void:
+	if crucible_rounding_mode == null:
+		return
+	crucible_rounding_mode.clear()
+	for mode in ["FLOOR", "NEAREST", "CEIL"]:
+		var idx: int = crucible_rounding_mode.item_count
+		crucible_rounding_mode.add_item(mode.capitalize())
+		crucible_rounding_mode.set_item_metadata(idx, mode)
+	crucible_rounding_mode.select(0)
+
+func _configure_crucible_review_selector() -> void:
+	if crucible_review_action == null:
+		return
+	crucible_review_action.clear()
+	crucible_review_action.add_item("Refund")
+	crucible_review_action.set_item_metadata(0, "refund")
+	crucible_review_action.add_item("Approve")
+	crucible_review_action.set_item_metadata(1, "approve")
+	crucible_review_action.select(0)
+
+func _apply_crucible_config_to_form(config: Dictionary) -> void:
+	crucible_enabled.button_pressed = bool(config.get("enabled", true))
+	crucible_queue_enabled.button_pressed = bool(config.get("queue_enabled", true))
+	crucible_wagering_enabled.button_pressed = bool(config.get("wagering_enabled", true))
+	crucible_ads_enabled.button_pressed = bool(config.get("ads_enabled", true))
+	crucible_capacity_cap_enabled.button_pressed = bool(config.get("capacity_cap_enabled", true))
+	crucible_settlement_enabled.button_pressed = bool(config.get("settlement_enabled", true))
+	crucible_earn_buttons_enabled.button_pressed = bool(config.get("earn_path_buttons_enabled", true))
+	crucible_server_settlement_required.button_pressed = bool(config.get("server_authoritative_settlement_required", false))
+	crucible_local_dev_settlement_enabled.button_pressed = bool(config.get("local_dev_settlement_enabled", true))
+	crucible_launch_grant_enabled.button_pressed = bool(config.get("launch_grant_enabled", false))
+	crucible_config_version.value = maxi(1, int(config.get("config_version", 1)))
+	crucible_stake_bps.value = clampi(int(config.get("stake_bps", 500)), 0, BASIS_POINTS_DENOMINATOR)
+	crucible_burn_bps.value = clampi(int(config.get("burn_bps", 1000)), 0, BASIS_POINTS_DENOMINATOR)
+	crucible_minimum_stake.value = maxi(1, int(config.get("minimum_stake_millis", 1000)))
+	crucible_capacity_max.value = maxi(0, int(config.get("capacity_max", 100)))
+	crucible_reserved_slots.value = maxi(0, int(config.get("reserved_slots", 0)))
+	crucible_starting_wax.value = maxi(0, int(config.get("starting_crucible_wax_millis", 0)))
+	crucible_launch_grant_millis.value = maxi(0, int(config.get("launch_grant_millis", 0)))
+	crucible_standard_win_earn.value = maxi(0, int(config.get("standard_pvp_win_earn_millis", 250)))
+	crucible_standard_loss_earn.value = maxi(0, int(config.get("standard_pvp_loss_earn_millis", 100)))
+	crucible_tournament_earn.value = maxi(0, int(config.get("tournament_placement_earn_millis", 1000)))
+	crucible_challenge_earn.value = maxi(0, int(config.get("challenge_earn_millis", 500)))
+	crucible_event_earn.value = maxi(0, int(config.get("event_earn_millis", 500)))
+	_set_crucible_rounding_mode(str(config.get("rounding_mode", "FLOOR")))
+
+func _collect_crucible_config_patch() -> Dictionary:
+	return {
+		"enabled": crucible_enabled.button_pressed,
+		"queue_enabled": crucible_queue_enabled.button_pressed,
+		"wagering_enabled": crucible_wagering_enabled.button_pressed,
+		"ads_enabled": crucible_ads_enabled.button_pressed,
+		"capacity_cap_enabled": crucible_capacity_cap_enabled.button_pressed,
+		"settlement_enabled": crucible_settlement_enabled.button_pressed,
+		"earn_path_buttons_enabled": crucible_earn_buttons_enabled.button_pressed,
+		"server_authoritative_settlement_required": crucible_server_settlement_required.button_pressed,
+		"local_dev_settlement_enabled": crucible_local_dev_settlement_enabled.button_pressed,
+		"launch_grant_enabled": crucible_launch_grant_enabled.button_pressed,
+		"config_version": maxi(1, int(crucible_config_version.value)),
+		"stake_bps": clampi(int(crucible_stake_bps.value), 0, BASIS_POINTS_DENOMINATOR),
+		"burn_bps": clampi(int(crucible_burn_bps.value), 0, BASIS_POINTS_DENOMINATOR),
+		"minimum_stake_millis": maxi(1, int(crucible_minimum_stake.value)),
+		"capacity_max": maxi(0, int(crucible_capacity_max.value)),
+		"reserved_slots": maxi(0, int(crucible_reserved_slots.value)),
+		"starting_crucible_wax_millis": maxi(0, int(crucible_starting_wax.value)),
+		"launch_grant_millis": maxi(0, int(crucible_launch_grant_millis.value)),
+		"standard_pvp_win_earn_millis": maxi(0, int(crucible_standard_win_earn.value)),
+		"standard_pvp_loss_earn_millis": maxi(0, int(crucible_standard_loss_earn.value)),
+		"tournament_placement_earn_millis": maxi(0, int(crucible_tournament_earn.value)),
+		"challenge_earn_millis": maxi(0, int(crucible_challenge_earn.value)),
+		"event_earn_millis": maxi(0, int(crucible_event_earn.value)),
+		"rounding_mode": _selected_crucible_rounding_mode()
+	}
+
+func _on_crucible_refresh_pressed() -> void:
+	refresh_crucible_config()
+
+func _on_crucible_save_pressed() -> void:
+	var state: Node = get_node_or_null("/root/CrucibleState")
+	if state == null or not state.has_method("intent_update_config"):
+		_set_crucible_status("CrucibleState unavailable.")
+		return
+	var patch: Dictionary = _collect_crucible_config_patch()
+	var result: Dictionary = state.call("intent_update_config", patch, "ops_console") as Dictionary
+	if bool(result.get("ok", false)):
+		var config: Dictionary = result.get("config", patch) as Dictionary
+		_apply_crucible_config_to_form(config)
+		_set_crucible_status("Saved Crucible config v%d (%s)." % [
+			maxi(1, int(config.get("config_version", patch.get("config_version", 1)))),
+			str(config.get("config_hash", "")).substr(0, 8)
+		])
+		return
+	_set_crucible_status("Crucible config save failed: %s" % _result_error(result))
+
+func _on_crucible_preview_pressed() -> void:
+	var state: Node = get_node_or_null("/root/CrucibleState")
+	if state == null or not state.has_method("preview_entry_status"):
+		_set_crucible_preview_status("CrucibleState unavailable.")
+		return
+	var player_id: String = crucible_preview_player.text.strip_edges()
+	if player_id.is_empty():
+		_set_crucible_preview_status("Player id required.")
+		return
+	if state.has_method("intent_set_balance_millis"):
+		state.call("intent_set_balance_millis", player_id, maxi(0, int(crucible_preview_balance.value)))
+	var active_count: int = maxi(0, int(crucible_preview_active_count.value))
+	var result: Dictionary = state.call("preview_entry_status", player_id, active_count, false) as Dictionary
+	if bool(result.get("ok", false)):
+		_set_crucible_preview_status("Entry allowed | balance %d | active %d." % [
+			maxi(0, int(result.get("balance_millis", int(crucible_preview_balance.value)))),
+			active_count
+		])
+		return
+	var code: String = str(result.get("code", result.get("err", ""))).strip_edges()
+	if code == "capacity":
+		_set_crucible_preview_status("Entry blocked: capacity full.")
+	elif code == "no_wax":
+		_set_crucible_preview_status("Entry blocked: no Wax.")
+	elif code == "queue_disabled":
+		_set_crucible_preview_status("Entry blocked: queue disabled.")
+	else:
+		_set_crucible_preview_status("Entry blocked: %s" % _result_error(result))
+	refresh_crucible_ledger()
+
+func refresh_crucible_ledger() -> Dictionary:
+	var state: Node = get_node_or_null("/root/CrucibleState")
+	if state == null or not state.has_method("get_snapshot"):
+		_set_crucible_ledger_summary("CrucibleState unavailable.")
+		_clear_children(crucible_audit_rows)
+		_clear_children(crucible_ledger_rows)
+		return {"ok": false, "err": "crucible_state_unavailable"}
+	var snapshot: Dictionary = state.call("get_snapshot") as Dictionary
+	_render_crucible_ledger_snapshot(snapshot)
+	return {"ok": true, "snapshot": snapshot}
+
+func _on_crucible_ledger_refresh_pressed() -> void:
+	refresh_crucible_ledger()
+
+func _on_crucible_ledger_filter_changed(_new_text: String) -> void:
+	if not _current_crucible_ledger_snapshot.is_empty():
+		_render_crucible_ledger_snapshot(_current_crucible_ledger_snapshot)
+
+func _on_crucible_ledger_export_pressed() -> void:
+	var result: Dictionary = export_current_crucible_ledger_csv()
+	if bool(result.get("ok", false)):
+		_set_crucible_status("Exported Crucible ledger: %s." % str(result.get("path", "")))
+		return
+	_set_crucible_status("Crucible ledger export failed: %s" % _result_error(result))
+
+func _on_crucible_review_resolve_pressed() -> void:
+	var state: Node = get_node_or_null("/root/CrucibleState")
+	if state == null or not state.has_method("intent_resolve_review"):
+		_set_crucible_status("Crucible review resolver unavailable.")
+		return
+	var match_id: String = crucible_review_match.text.strip_edges() if crucible_review_match != null else ""
+	if match_id.is_empty():
+		_set_crucible_status("Held match id required.")
+		return
+	var action: String = _selected_crucible_review_action()
+	var result: Dictionary = state.call("intent_resolve_review", match_id, action, "ops_console", {}) as Dictionary
+	if bool(result.get("ok", false)):
+		_set_crucible_status("Resolved Crucible review %s with %s." % [match_id, action])
+		refresh_crucible_ledger()
+		return
+	_set_crucible_status("Crucible review failed: %s" % _result_error(result))
+
+func _render_crucible_ledger_snapshot(snapshot: Dictionary) -> void:
+	_current_crucible_ledger_snapshot = snapshot.duplicate(true)
+	var escrows: Dictionary = snapshot.get("escrows_by_id", {}) as Dictionary
+	var settlements: Dictionary = snapshot.get("settlements_by_match_id", {}) as Dictionary
+	var review_records: Dictionary = snapshot.get("review_records_by_match_id", {}) as Dictionary
+	var ledger_entries: Array = snapshot.get("ledger_entries", []) as Array
+	var audit_records: Array = snapshot.get("audit_records", []) as Array
+	var anti_collusion_observations: Array = snapshot.get("anti_collusion_observations", []) as Array
+	var filtered_ledger: Array[Dictionary] = _filter_dictionaries(ledger_entries, _crucible_filter_text())
+	var filtered_audit: Array[Dictionary] = _filter_dictionaries(audit_records, _crucible_filter_text())
+	_current_crucible_filtered_ledger_entries = filtered_ledger.duplicate(true)
+	_current_crucible_filtered_audit_records = filtered_audit.duplicate(true)
+	var burn_total: int = 0
+	var payout_total: int = 0
+	var refund_total: int = 0
+	for entry_any in ledger_entries:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		match str(entry.get("entry_type", "")):
+			"BURN":
+				burn_total += absi(int(entry.get("amount_millis", 0)))
+			"WINNER_PAYOUT":
+				payout_total += maxi(0, int(entry.get("amount_millis", 0)))
+			"ESCROW_REFUND":
+				refund_total += maxi(0, int(entry.get("amount_millis", 0)))
+	_set_crucible_ledger_summary("Escrows %d | Settlements %d | Held %d | Ledger entries %d/%d | Audit records %d/%d | Burn %d | Payout %d | Refund %d" % [
+		escrows.size(),
+		settlements.size(),
+		review_records.size(),
+		filtered_ledger.size(),
+		ledger_entries.size(),
+		filtered_audit.size(),
+		audit_records.size(),
+		burn_total,
+		payout_total,
+		refund_total
+	])
+	_set_crucible_collusion_summary(_build_crucible_collusion_summary(anti_collusion_observations, audit_records))
+	_clear_children(crucible_audit_rows)
+	_clear_children(crucible_ledger_rows)
+	if crucible_audit_rows != null:
+		crucible_audit_rows.add_child(_crucible_section_label("Recent audit"))
+		for record in _tail_dictionaries(filtered_audit, 8):
+			crucible_audit_rows.add_child(_build_crucible_audit_row(record))
+	if crucible_ledger_rows != null:
+		crucible_ledger_rows.add_child(_crucible_section_label("Recent ledger"))
+		for entry in _tail_dictionaries(filtered_ledger, 10):
+			crucible_ledger_rows.add_child(_build_crucible_ledger_row(entry))
+
+func export_current_crucible_ledger_csv(path: String = CRUCIBLE_LEDGER_EXPORT_PATH) -> Dictionary:
+	if _current_crucible_ledger_snapshot.is_empty():
+		return {"ok": false, "err": "no_crucible_ledger_snapshot"}
+	var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return {"ok": false, "err": "export_open_failed", "path": path}
+	file.store_line("kind,match_id,player_id,status,type,amount_millis,result_source,winner_id,loser_id,created_at,id")
+	for entry in _current_crucible_filtered_ledger_entries:
+		file.store_line(",".join([
+			_csv_cell("ledger"),
+			_csv_cell(str(entry.get("match_id", ""))),
+			_csv_cell(str(entry.get("player_id", ""))),
+			_csv_cell(""),
+			_csv_cell(str(entry.get("entry_type", ""))),
+			_csv_cell(str(int(entry.get("amount_millis", 0)))),
+			_csv_cell(""),
+			_csv_cell(""),
+			_csv_cell(""),
+			_csv_cell(str(entry.get("created_at", ""))),
+			_csv_cell(str(entry.get("transaction_id", entry.get("entry_id", ""))))
+		]))
+	for record in _current_crucible_filtered_audit_records:
+		file.store_line(",".join([
+			_csv_cell("audit"),
+			_csv_cell(str(record.get("match_id", ""))),
+			_csv_cell(""),
+			_csv_cell(str(record.get("settlement_status", record.get("type", "")))),
+			_csv_cell(str(record.get("review_status", ""))),
+			_csv_cell(""),
+			_csv_cell(str(record.get("result_source", ""))),
+			_csv_cell(str(record.get("winner_id", ""))),
+			_csv_cell(str(record.get("loser_id", ""))),
+			_csv_cell(str(record.get("created_at", ""))),
+			_csv_cell(str(record.get("settlement_id", "")))
+		]))
+	file.close()
+	return {"ok": true, "path": ProjectSettings.globalize_path(path)}
+
+func _build_crucible_audit_row(record: Dictionary) -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
+	row.add_child(_crucible_cell(str(record.get("settlement_status", record.get("type", ""))), 120.0))
+	row.add_child(_crucible_cell(str(record.get("match_id", "")), 180.0))
+	row.add_child(_crucible_cell("winner %s" % str(record.get("winner_id", "")), 140.0))
+	row.add_child(_crucible_cell("burn %d" % maxi(0, int(record.get("burn", 0))), 90.0))
+	row.add_child(_crucible_cell(str(record.get("result_source", "")), 150.0))
+	return row
+
+func _build_crucible_ledger_row(entry: Dictionary) -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
+	row.add_child(_crucible_cell(str(entry.get("entry_type", "")), 130.0))
+	row.add_child(_crucible_cell(str(entry.get("match_id", "")), 180.0))
+	row.add_child(_crucible_cell(str(entry.get("player_id", "")), 150.0))
+	row.add_child(_crucible_cell(str(int(entry.get("amount_millis", 0))), 100.0))
+	row.add_child(_crucible_cell(str(entry.get("transaction_id", entry.get("entry_id", ""))), 180.0))
+	return row
+
+func _build_crucible_collusion_summary(observations: Array, audit_records: Array) -> String:
+	var repeated: int = 0
+	var win_trading: int = 0
+	var same_device: int = 0
+	var same_ip: int = 0
+	var suspicious_forfeits: int = 0
+	var high_stakes: int = 0
+	var pair_counts: Dictionary = {}
+	for observation_any in observations:
+		if typeof(observation_any) != TYPE_DICTIONARY:
+			continue
+		var observation: Dictionary = observation_any as Dictionary
+		if bool(observation.get("repeated_same_opponent", false)):
+			repeated += 1
+		if bool(observation.get("unusual_win_trading", false)):
+			win_trading += 1
+		if bool(observation.get("same_device_cluster", false)):
+			same_device += 1
+		if bool(observation.get("same_ip_pattern", false)):
+			same_ip += 1
+		if bool(observation.get("suspicious_forfeit", false)):
+			suspicious_forfeits += 1
+		if bool(observation.get("high_stakes_repeated_transfer", false)) or int(observation.get("stake_each", 0)) >= 10000:
+			high_stakes += 1
+		var a: String = str(observation.get("player_a_id", "")).strip_edges()
+		var b: String = str(observation.get("player_b_id", "")).strip_edges()
+		if not a.is_empty() and not b.is_empty():
+			var pair: Array[String] = [a, b]
+			pair.sort()
+			var pair_key: String = "%s|%s" % [pair[0], pair[1]]
+			pair_counts[pair_key] = int(pair_counts.get(pair_key, 0)) + 1
+	for count_any in pair_counts.values():
+		if int(count_any) > 1:
+			repeated += int(count_any) - 1
+	for record_any in audit_records:
+		if typeof(record_any) != TYPE_DICTIONARY:
+			continue
+		var reason: String = str((record_any as Dictionary).get("reason", "")).strip_edges().to_lower()
+		if reason in ["voluntary_quit", "forfeit", "disconnect_after_start"]:
+			suspicious_forfeits += 1
+	var total_flags: int = repeated + win_trading + same_device + same_ip + suspicious_forfeits + high_stakes
+	return "Anti-collusion: observations %d | flags %d | repeated opponents %d | win trading %d | same device %d | same IP %d | suspicious forfeits %d | high stakes %d" % [
+		observations.size(),
+		total_flags,
+		repeated,
+		win_trading,
+		same_device,
+		same_ip,
+		suspicious_forfeits,
+		high_stakes
+	]
+
+func _crucible_section_label(text: String) -> Label:
+	var label: Label = Label.new()
+	label.text = text
+	label.add_theme_color_override("font_color", Color(0.96, 0.78, 0.36, 1.0))
+	return label
+
+func _crucible_cell(text: String, width: float) -> Label:
+	var label: Label = Label.new()
+	label.custom_minimum_size = Vector2(width, 0.0)
+	label.clip_text = true
+	label.text = text
+	return label
+
+func _tail_dictionaries(rows: Array, limit: int) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var start: int = maxi(0, rows.size() - maxi(1, limit))
+	for i in range(start, rows.size()):
+		var row_any: Variant = rows[i]
+		if typeof(row_any) == TYPE_DICTIONARY:
+			out.append((row_any as Dictionary).duplicate(true))
+	return out
+
+func _filter_dictionaries(rows: Array, filter_text: String) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for row_any in rows:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = (row_any as Dictionary).duplicate(true)
+		if filter_text.is_empty() or _dictionary_matches_filter(row, filter_text):
+			out.append(row)
+	return out
+
+func _dictionary_matches_filter(row: Dictionary, filter_text: String) -> bool:
+	var needle: String = filter_text.strip_edges().to_lower()
+	if needle.is_empty():
+		return true
+	for value in row.values():
+		if str(value).to_lower().contains(needle):
+			return true
+	return false
+
+func _crucible_filter_text() -> String:
+	return crucible_ledger_filter.text.strip_edges().to_lower() if crucible_ledger_filter != null else ""
+
+func _selected_crucible_review_action() -> String:
+	if crucible_review_action == null:
+		return "refund"
+	var idx: int = crucible_review_action.selected
+	if idx < 0:
+		return "refund"
+	var metadata: Variant = crucible_review_action.get_item_metadata(idx)
+	return str(metadata).strip_edges().to_lower() if metadata != null else "refund"
+
+func _clear_children(container: Node) -> void:
+	if container == null:
+		return
+	for child in container.get_children():
+		child.queue_free()
+
+func _selected_crucible_rounding_mode() -> String:
+	if crucible_rounding_mode == null or crucible_rounding_mode.item_count <= 0:
+		return "FLOOR"
+	var selected: int = crucible_rounding_mode.selected
+	if selected < 0 or selected >= crucible_rounding_mode.item_count:
+		return "FLOOR"
+	return str(crucible_rounding_mode.get_item_metadata(selected)).strip_edges().to_upper()
+
+func _set_crucible_rounding_mode(mode: String) -> void:
+	var target: String = mode.strip_edges().to_upper()
+	for i in range(crucible_rounding_mode.item_count):
+		if str(crucible_rounding_mode.get_item_metadata(i)).strip_edges().to_upper() == target:
+			crucible_rounding_mode.select(i)
+			return
+	crucible_rounding_mode.select(0)
+
+func _set_crucible_status(text: String) -> void:
+	if crucible_status != null:
+		crucible_status.text = text
+
+func _set_crucible_preview_status(text: String) -> void:
+	if crucible_preview_status != null:
+		crucible_preview_status.text = text
+
+func _set_crucible_ledger_summary(text: String) -> void:
+	if crucible_ledger_summary != null:
+		crucible_ledger_summary.text = text
+
+func _set_crucible_collusion_summary(text: String) -> void:
+	if crucible_collusion_summary != null:
+		crucible_collusion_summary.text = text
 
 func _on_map_selected(index: int) -> void:
 	var map_id_meta: Variant = map_list.get_item_metadata(index)

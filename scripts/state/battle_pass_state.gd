@@ -3,6 +3,7 @@ extends Node
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BattlePassConfigScript = preload("res://scripts/state/battle_pass_config.gd")
 const BattlePassRewardsScript = preload("res://scripts/state/battle_pass_rewards.gd")
+const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
 
 signal battle_pass_state_changed(snapshot: Dictionary)
 signal battle_pass_event(event: Dictionary)
@@ -43,6 +44,7 @@ var _inventory: Dictionary = {}
 
 var _awarded_match_ids: Dictionary = {}
 var _awarded_match_order: Array[String] = []
+var _first_win_bonus_by_day_player: Dictionary = {}
 
 var _quest_progress: Dictionary = {}
 var _quest_claimed: Dictionary = {}
@@ -117,6 +119,7 @@ func get_snapshot() -> Dictionary:
 		"inventory": _inventory.duplicate(true),
 		"access_ticket_entry_claim_count": _access_ticket_entry_claims.size(),
 		"exclusive_event_prize_claim_count": _exclusive_event_prize_claims.size(),
+		"first_win_bonus_claims": _first_win_bonus_by_day_player.duplicate(true),
 		"quests": _build_quest_rows(),
 		"quest_bonuses": _build_quest_bonus_rows()
 	}
@@ -187,6 +190,8 @@ func intent_award_nectar_xp(source_name: String, nectar_xp: int, metadata: Dicti
 	return _apply_nectar_xp_award(source_name, safe_xp, metadata, true)
 
 func intent_record_async_completion(mode_id: String, map_count: int, paid_entry: bool, metadata: Dictionary = {}) -> Dictionary:
+	if _metadata_is_crucible(metadata):
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_nectar", "xp_awarded": 0}
 	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
 	if event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
@@ -219,6 +224,8 @@ func intent_record_async_completion(mode_id: String, map_count: int, paid_entry:
 	}
 
 func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_tier: int = 0, did_win: bool = false, metadata: Dictionary = {}) -> Dictionary:
+	if _metadata_is_crucible(metadata):
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_nectar", "xp_awarded": 0}
 	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
 	if event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
@@ -239,6 +246,15 @@ func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_t
 		changed = _apply_quest_progress("money_match_played", 1, xp_meta) or changed
 	if did_win:
 		changed = _apply_quest_progress("pvp_win", 1, xp_meta) or changed
+		var first_win_bonus: Dictionary = _reserve_first_win_bonus(xp_meta)
+		if bool(first_win_bonus.get("awarded", false)):
+			xp_total += maxi(0, int(first_win_bonus.get("xp", 0)))
+			xp_meta["first_win_bonus_nectar"] = int(first_win_bonus.get("xp", 0))
+			_emit_event("nectar_first_win_awarded", {
+				"player_id": str(first_win_bonus.get("player_id", "")),
+				"day_key": str(first_win_bonus.get("day_key", "")),
+				"xp": int(first_win_bonus.get("xp", 0))
+			})
 	var xp_result: Dictionary = _apply_nectar_xp_award("pvp_completion", xp_total, xp_meta, true)
 	if not bool(xp_result.get("ok", false)):
 		return xp_result
@@ -954,6 +970,7 @@ func _roll_season_if_needed() -> void:
 	_veteran_start_level = 1
 	_awarded_match_ids.clear()
 	_awarded_match_order.clear()
+	_first_win_bonus_by_day_player.clear()
 	_quest_progress.clear()
 	_quest_claimed.clear()
 	_quest_bonus_claimed.clear()
@@ -1067,6 +1084,8 @@ func _apply_loaded_state(state: Dictionary) -> void:
 	_inventory = _rewards.normalize_inventory(inventory_any as Dictionary if typeof(inventory_any) == TYPE_DICTIONARY else {})
 	var awarded_ids_any: Variant = state.get("awarded_match_ids", {})
 	_awarded_match_ids = (awarded_ids_any as Dictionary).duplicate(true) if typeof(awarded_ids_any) == TYPE_DICTIONARY else {}
+	var first_win_any: Variant = state.get("first_win_bonus_by_day_player", {})
+	_first_win_bonus_by_day_player = (first_win_any as Dictionary).duplicate(true) if typeof(first_win_any) == TYPE_DICTIONARY else {}
 	var awarded_order_any: Variant = state.get("awarded_match_order", [])
 	if typeof(awarded_order_any) == TYPE_ARRAY:
 		_awarded_match_order.clear()
@@ -1116,6 +1135,7 @@ func _save_state() -> void:
 		"inventory": _inventory,
 		"awarded_match_ids": _awarded_match_ids,
 		"awarded_match_order": _awarded_match_order,
+		"first_win_bonus_by_day_player": _first_win_bonus_by_day_player,
 		"quest_progress": _quest_progress,
 		"quest_claimed": _quest_claimed,
 		"quest_bonus_claimed": _quest_bonus_claimed,
@@ -1136,6 +1156,9 @@ func _emit_state_changed() -> void:
 		"level": _battle_pass_level,
 		"xp": _battle_pass_xp
 	})
+
+func _metadata_is_crucible(metadata: Dictionary) -> bool:
+	return CrucibleRulesetPolicyScript.is_crucible_ruleset(str(metadata.get("ruleset", metadata.get("vs_ruleset", ""))))
 
 func _emit_event(event_type: String, payload: Dictionary) -> void:
 	var event: Dictionary = payload.duplicate(true)
@@ -1218,6 +1241,23 @@ func _reserve_award_event(event_id: String) -> Dictionary:
 	_awarded_match_order.append(clean_event_id)
 	_prune_award_dedupe()
 	return {"ok": true, "event_id": clean_event_id}
+
+func _reserve_first_win_bonus(metadata: Dictionary) -> Dictionary:
+	var player_id: String = str(metadata.get("player_id", metadata.get("uid", "local_player"))).strip_edges()
+	if player_id.is_empty():
+		player_id = "local_player"
+	var day_key: String = str(metadata.get("day_key", "")).strip_edges()
+	if day_key.is_empty():
+		var now: Dictionary = Time.get_datetime_dict_from_system()
+		day_key = "%04d-%02d-%02d" % [int(now.get("year", 1970)), int(now.get("month", 1)), int(now.get("day", 1))]
+	var claim_key: String = "%s:%s" % [day_key, player_id]
+	if _first_win_bonus_by_day_player.has(claim_key):
+		return {"awarded": false, "player_id": player_id, "day_key": day_key, "xp": 0}
+	var xp: int = _config.get_first_win_of_day_xp()
+	if xp <= 0:
+		return {"awarded": false, "player_id": player_id, "day_key": day_key, "xp": 0}
+	_first_win_bonus_by_day_player[claim_key] = true
+	return {"awarded": true, "player_id": player_id, "day_key": day_key, "xp": xp}
 
 func _refresh_entitlements_from_profile() -> bool:
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")

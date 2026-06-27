@@ -1,8 +1,8 @@
 # Swarmfront VS Service
 
-Minimum in-memory VS handshake backend for two-phone TestFlight smoke tests.
+Minimum VS handshake backend for two-phone TestFlight smoke tests.
 
-This implements the routes in `../../docs/vs_backend_contract.md`. It intentionally does not include database, auth, payment, or rank production logic. Sessions, queue tickets, and intent streams reset when the process restarts.
+This implements the routes in `../../docs/vs_backend_contract.md`. Production Crucible storage/auth is pinned to Supabase Postgres plus Supabase Auth, but the current service still uses local/dev adapters unless those production adapters are wired. Sessions, queue tickets, and intent streams reset when the process restarts.
 
 ## Local Run
 
@@ -69,6 +69,20 @@ The same `POST /<action>` routes are also available for hosts that prefer a root
 - `VS_SPECTATOR_LIVE_ENABLED`: set to `1` to allow live admin spectate.
 - `VS_SPECTATOR_DEFAULT_DELAY_SEC`, `VS_SPECTATOR_MIN_DELAY_SEC`, `VS_SPECTATOR_MAX_DELAY_SEC`: delayed spectator bounds.
 - `VS_SPECTATOR_PUBLIC_ENABLED`: keep disabled for beta unless separately reviewed.
+- `VS_ADMIN_TOKEN`: local/dev admin auth for Crucible config, debug, award, refund, and review endpoints.
+- `VS_ADMIN_ROLE`: local/dev expected admin role. Defaults to `ops_admin`.
+- `VS_MATCH_AUTHORITY_TOKEN`: local/dev match-authority auth for Crucible escrow, settlement, and lifecycle writes.
+- `CRUCIBLE_LEDGER_STORE`: `file` or `memory` today; production target is `postgres`.
+- `CRUCIBLE_LEDGER_PATH`: JSON snapshot path for the local/dev file-backed Crucible ledger. Defaults to `data/crucible-ledger.json`.
+
+Production Crucible requirements:
+
+- Supabase Postgres-backed `CrucibleLedgerStore`.
+- Supabase Auth validation for users/admins.
+- Backend-issued short-lived signed JWTs for admin and match-authority operations.
+- No client-provided authority should be trusted for settlement, escrow, or privileged admin writes.
+
+For Crucible launch operations, see `../../docs/economy/crucible_launch_runbook.md`.
 
 ## Deploy
 

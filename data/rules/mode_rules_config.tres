@@ -52,6 +52,37 @@ rules_by_mode = {
 },
 "unlimited_buffs": false
 },
+"CRUCIBLE": {
+"baseline_free_slots": 0,
+"battle_pass_gameplay_modifiers_enabled": false,
+"buffs_enabled": false,
+"classic_requires_overtime": false,
+"classic_slot_index": -1,
+"consumables_enabled": false,
+"entry_cost": 0,
+"entry_currency": "WAX",
+"esports_standardized_buff_enabled": false,
+"esports_standardized_buff_id": "",
+"honey_rewards_enabled": false,
+"label": "Crucible",
+"loadout_ui_enabled": false,
+"max_additional_slots": 0,
+"max_elite": 0,
+"max_premium": 0,
+"max_total_slots": 0,
+"nectar_awards": {
+"match_completed": 0,
+"paid_match_completed": 0,
+"purchase_kickback_per_usd": 0.0,
+"tournament_participation": 0
+},
+"nectar_rewards_enabled": false,
+"normal_rank_wax_payout_enabled": false,
+"paid_stat_advantages_enabled": false,
+"ruleset": "CRUCIBLE",
+"store_prompts_enabled": false,
+"unlimited_buffs": false
+},
 "STANDARD": {
 "baseline_free_slots": 1,
 "buffs_enabled": true,

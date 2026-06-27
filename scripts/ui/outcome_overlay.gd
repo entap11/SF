@@ -273,6 +273,7 @@ func _apply_outcome(winner_id: int, reason: String, _record_text: String, _h2h_t
 	stat_max_power.text = ""
 	stat_units_killed.text = ""
 	stat_units_landed.text = ""
+	_apply_crucible_status_from_tree(winner_id)
 	_update_countdown_label()
 	_update_status()
 
@@ -534,6 +535,51 @@ func _star_text(filled: int, total: int) -> String:
 func _format_money_cents(cents: int) -> String:
 	var clean_cents: int = maxi(0, cents)
 	return "$%d.%02d" % [int(clean_cents / 100), clean_cents % 100]
+
+func _apply_crucible_status_from_tree(winner_id: int) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or not bool(tree.get_meta("vs_crucible", false)):
+		return
+	_set_standard_rows_visible(true)
+	stats_header.text = "Crucible Wax"
+	var start_millis: int = maxi(0, int(tree.get_meta("crucible_local_balance_start_millis", 0)))
+	var after_escrow_millis: int = maxi(0, int(tree.get_meta("crucible_local_balance_after_escrow_millis", start_millis)))
+	var finish_millis: int = maxi(0, int(tree.get_meta("crucible_local_balance_finish_millis", after_escrow_millis)))
+	var stake_millis: int = maxi(0, int(tree.get_meta("crucible_stake_each_millis", start_millis - after_escrow_millis)))
+	var payout_millis: int = maxi(0, int(tree.get_meta("crucible_winner_payout_millis", 0)))
+	var burn_millis: int = maxi(0, int(tree.get_meta("crucible_burn_millis", 0)))
+	var delta_millis: int = int(tree.get_meta("crucible_balance_delta_millis", finish_millis - start_millis))
+	var settlement_status: String = str(tree.get_meta("crucible_settlement_status", "")).strip_edges()
+	stat_max_power.text = "Wax: start %s | after escrow %s | finish %s" % [
+		_format_wax_millis(start_millis),
+		_format_wax_millis(after_escrow_millis),
+		_format_wax_millis(finish_millis)
+	]
+	var delta_prefix: String = "+" if delta_millis > 0 else ""
+	stat_units_killed.text = "Stake %s | Winner payout %s | Burn %s | Net %s%s" % [
+		_format_wax_millis(stake_millis),
+		_format_wax_millis(payout_millis),
+		_format_wax_millis(burn_millis),
+		delta_prefix,
+		_format_signed_wax_millis(delta_millis)
+	]
+	if settlement_status.is_empty():
+		stat_units_landed.text = "Crucible settlement status pending."
+	elif winner_id == 0 or settlement_status == "NO_CONTEST" or settlement_status == "REFUNDED":
+		stat_units_landed.text = "Crucible settlement: %s." % settlement_status.capitalize()
+	elif winner_id == local_player_id:
+		stat_units_landed.text = "Crucible settlement: %s. You won this Wax match." % settlement_status.capitalize()
+	else:
+		stat_units_landed.text = "Crucible settlement: %s. You lost this Wax match." % settlement_status.capitalize()
+
+func _format_wax_millis(amount_millis: int) -> String:
+	var clean_millis: int = maxi(0, amount_millis)
+	return "%d.%03d Wax" % [int(clean_millis / 1000), clean_millis % 1000]
+
+func _format_signed_wax_millis(amount_millis: int) -> String:
+	if amount_millis < 0:
+		return "-%s" % _format_wax_millis(absi(amount_millis))
+	return _format_wax_millis(amount_millis)
 
 func _simple_result_text(winner_id: int) -> String:
 	if winner_id == 0:

@@ -4,6 +4,7 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const ModeRulesConfigScript = preload("res://scripts/state/mode_rules_config.gd")
 const EconomyBuffModelsScript = preload("res://scripts/state/economy_buff_models.gd")
+const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
 
 signal economy_state_changed(snapshot: Dictionary)
 signal mode_changed(mode_key: String)
@@ -70,6 +71,8 @@ func intent_set_wallet(player_id: String, wallet: Dictionary) -> Dictionary:
 	return {"ok": true, "wallet": (_wallets_by_player[clean_id] as Dictionary).duplicate(true)}
 
 func intent_equip_buff(player_id: String, slot_index: int, buff_id: String) -> Dictionary:
+	if _tree_is_crucible():
+		return _error("crucible_buffs_disabled", "Crucible does not allow buff selection.")
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return _error("missing_player_id", "Player id is required.")
@@ -128,6 +131,8 @@ func intent_unequip_buff(player_id: String, slot_index: int) -> Dictionary:
 	return {"ok": true, "loadout": loadout.duplicate()}
 
 func intent_activate_buff(player_id: String, slot_index: int) -> Dictionary:
+	if _tree_is_crucible():
+		return _error("crucible_buffs_disabled", "Crucible does not allow buff activation.")
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return _error("missing_player_id", "Player id is required.")
@@ -167,6 +172,8 @@ func intent_activate_buff(player_id: String, slot_index: int) -> Dictionary:
 	return _activate_slot_internal(clean_id, slot_index, buff_id)
 
 func intent_unlock_additional_slot(player_id: String) -> Dictionary:
+	if _tree_is_crucible():
+		return _error("crucible_buffs_disabled", "Crucible does not allow buff slots.")
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return _error("missing_player_id", "Player id is required.")
@@ -206,6 +213,8 @@ func intent_pay_tournament_entry(player_id: String) -> Dictionary:
 	return {"ok": true, "cost": cost, "wallet": _wallet_for_player(clean_id)}
 
 func intent_purchase_buff_access(player_id: String, buff_id: String, nectar_cost: int) -> Dictionary:
+	if _tree_is_crucible():
+		return _error("crucible_store_disabled", "Crucible does not allow buff purchases.")
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return _error("missing_player_id", "Player id is required.")
@@ -249,6 +258,8 @@ func intent_spend_nectar(player_id: String, nectar_amount: int, reason: String) 
 	return {"ok": true, "wallet": wallet.duplicate(true)}
 
 func intent_record_match_completion(player_id: String, paid_entry: bool) -> Dictionary:
+	if _tree_is_crucible():
+		return {"ok": true, "awarded": 0, "suppressed": true, "reason": "crucible_no_nectar"}
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return _error("missing_player_id", "Player id is required.")
@@ -259,6 +270,8 @@ func intent_record_match_completion(player_id: String, paid_entry: bool) -> Dict
 	return _award_nectar(clean_id, amount, key)
 
 func intent_record_tournament_participation(player_id: String) -> Dictionary:
+	if _tree_is_crucible():
+		return {"ok": true, "awarded": 0, "suppressed": true, "reason": "crucible_no_nectar"}
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return _error("missing_player_id", "Player id is required.")
@@ -268,6 +281,8 @@ func intent_record_tournament_participation(player_id: String) -> Dictionary:
 	return _award_nectar(clean_id, amount, "tournament_participation")
 
 func intent_record_store_purchase(player_id: String, usd_amount: float) -> Dictionary:
+	if _tree_is_crucible():
+		return _error("crucible_store_disabled", "Crucible does not allow store purchase rewards.")
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return _error("missing_player_id", "Player id is required.")
@@ -409,6 +424,8 @@ func get_state_snapshot() -> Dictionary:
 	}
 
 func _activate_slot_internal(player_id: String, slot_index: int, buff_id: String) -> Dictionary:
+	if _tree_is_crucible():
+		return _error("crucible_buffs_disabled", "Crucible does not allow buff activation.")
 	var activation_state: Dictionary = _activation_state_for_player(player_id)
 	var key: String = str(slot_index)
 	if bool(activation_state.get(key, false)):
@@ -569,6 +586,9 @@ func _error(code: String, message: String) -> Dictionary:
 	validation_failed.emit(payload)
 	SFLog.info("BUFF_RULES", {"validation_error": code, "message": message})
 	return payload
+
+func _tree_is_crucible() -> bool:
+	return CrucibleRulesetPolicyScript.is_crucible_tree(get_tree())
 
 func _non_empty_count(loadout: Array[String]) -> int:
 	var count: int = 0

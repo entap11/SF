@@ -132,6 +132,7 @@ const AsyncContestDashPanelScript := preload("res://scripts/ui/async_contest_das
 const ProgressiveConfigScript := preload("res://scripts/state/progressive_config.gd")
 const ProgressiveRunStoreScript := preload("res://scripts/state/progressive_run_store.gd")
 const AsyncMoneyGameLedgerScript := preload("res://scripts/state/async_money_game_ledger.gd")
+const CrucibleRulesetPolicy := preload("res://scripts/state/crucible_ruleset_policy.gd")
 const MATCH_BACKGROUND_INLAY_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/match_background_inlay.png"
 const HONEY_WIDGET_SCENE_PATH: String = "res://ui/hud/honey/honey_widget.tscn"
 const TIER_WIDGET_SCENE_PATH: String = "res://ui/hud/tier/tier_widget.tscn"
@@ -218,6 +219,7 @@ const DASH_EDGE_TAB_SIZE: Vector2 = Vector2(180.0, 360.0)
 const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 const HIVE_VIEW_MEMBER := "member"
 const HIVE_VIEW_CANDIDATE := "candidate"
+const HIVE_INACTIVE_QUEEN_SUCCESSION_SEC: int = 12 * 7 * 24 * 60 * 60
 
 @onready var top_bar: Control = $TopBar
 @onready var hive_button: HexButton = $TopBar/HiveButton
@@ -834,8 +836,9 @@ const GAME_HUB_HOVER_EDGE_COLOR: Color = Color(0.95, 0.80, 0.34, 0.72)
 const GAME_HUB_HOVER_BRIGHTNESS: float = 1.10
 const GAME_HUB_SWEEP_DURATION_SEC: float = 0.8
 const FREE_ROLL_SCENE_CANVAS_WIDTH: float = 864.0
-const FREE_ROLL_SCENE_CANVAS_HEIGHT: float = 2320.0
+const FREE_ROLL_SCENE_CANVAS_HEIGHT: float = 2490.0
 const FREE_ROLL_HUMAN_BUTTON_SIZE: Vector2 = Vector2(360.0, 150.0)
+const FREE_ROLL_CRUCIBLE_BUTTON_SIZE: Vector2 = Vector2(360.0, 150.0)
 const FREE_ROLL_CYCLE_BUTTON_SIZE: Vector2 = Vector2(360.0, 142.0)
 const FREE_ROLL_ROUTE_BUTTON_SIZE: Vector2 = Vector2(360.0, 138.0)
 const FREE_ROLL_CANCEL_BUTTON_SIZE: Vector2 = Vector2(320.0, 116.0)
@@ -1007,6 +1010,7 @@ var _hive_member_actions_vote_promote_button: Button = null
 var _hive_member_actions_discipline_button: Button = null
 var _hive_member_actions_leadership_vote_button: Button = null
 var _hive_member_actions_remove_button: Button = null
+var _hive_member_actions_claim_succession_button: Button = null
 var _hive_remove_member_dialog: ConfirmationDialog = null
 var _hive_remove_member_desc_label: Label = null
 var _hive_remove_member_target: Dictionary = {}
@@ -5378,6 +5382,16 @@ func _ensure_hive_member_actions_dialog() -> void:
 	_apply_font(detail, _font_regular, 11)
 	_hive_member_actions_detail_label = detail
 
+	var succession_button := Button.new()
+	succession_button.text = "CLAIM INACTIVE QUEEN SUCCESSION"
+	succession_button.disabled = true
+	succession_button.custom_minimum_size = Vector2(0.0, 42.0)
+	succession_button.pressed.connect(_on_hive_member_actions_claim_succession_pressed)
+	body.add_child(succession_button)
+	_apply_font(succession_button, _font_semibold, 12)
+	_style_button(succession_button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
+	_hive_member_actions_claim_succession_button = succession_button
+
 	var action_row := HBoxContainer.new()
 	action_row.add_theme_constant_override("separation", 8)
 	body.add_child(action_row)
@@ -5582,6 +5596,12 @@ func _refresh_hive_member_action_buttons() -> void:
 	if _hive_member_actions_remove_button != null:
 		_hive_member_actions_remove_button.text = "REMOVE PLAYER"
 		_hive_member_actions_remove_button.disabled = not bool(context.get("can_remove_member", false))
+	if _hive_member_actions_claim_succession_button != null:
+		var succession: Dictionary = _current_hive_inactive_queen_succession_status()
+		_hive_member_actions_claim_succession_button.visible = not bool(succession.get("hidden", false))
+		_hive_member_actions_claim_succession_button.disabled = not bool(succession.get("can_claim", false))
+		_hive_member_actions_claim_succession_button.text = str(succession.get("button_text", "CLAIM INACTIVE QUEEN SUCCESSION"))
+		_hive_member_actions_claim_succession_button.tooltip_text = str(succession.get("detail_text", ""))
 
 func _current_hive_member_action_context() -> Dictionary:
 	if _hive_member_actions_list == null:
@@ -5656,6 +5676,174 @@ func _current_hive_member_action_context() -> Dictionary:
 		"can_remove_member": can_remove_member,
 		"detail_text": "\n".join(detail_lines)
 	}
+
+func _current_hive_inactive_queen_succession_status() -> Dictionary:
+	var cached: Dictionary = _hive_panel_profile.get("inactive_queen_succession", {}) as Dictionary
+	if not cached.is_empty():
+		return cached
+	var membership: Dictionary = _current_hive_membership()
+	if membership.is_empty():
+		return {"hidden": true}
+	if HiveClanState == null or not HiveClanState.has_method("get_hive_snapshot"):
+		return {"hidden": true}
+	var hive: Dictionary = HiveClanState.call("get_hive_snapshot", str(membership.get("hive_id", ""))) as Dictionary
+	return _build_inactive_queen_succession_status(hive, str(membership.get("player_id", "")), str(membership.get("role", "member")))
+
+func _build_inactive_queen_succession_status(hive: Dictionary, local_player_id: String, local_role: String, now_unix: int = 0) -> Dictionary:
+	var resolved_now: int = now_unix if now_unix > 0 else int(Time.get_unix_time_from_system())
+	if hive.is_empty():
+		return {"hidden": true}
+	var local_member: Dictionary = _find_hive_member_snapshot(hive, local_player_id)
+	if local_member.is_empty():
+		return {"hidden": true}
+	var queen: Dictionary = _first_hive_member_snapshot_for_role(hive, "queen")
+	if queen.is_empty():
+		return {
+			"hidden": false,
+			"can_claim": false,
+			"button_text": "NO QUEEN FOUND",
+			"status_line": "Governance: Queen seat is missing; leadership repair will run from Hive state.",
+			"detail_text": "No Queen was found in this Hive snapshot."
+		}
+	var queen_player_id: String = str(queen.get("player_id", ""))
+	var queen_name: String = str(queen.get("display_name", "Queen"))
+	var queen_last_seen_at: int = int(queen.get("last_seen_at_unix", int(queen.get("joined_at_unix", 0))))
+	var eligible_at_unix: int = queen_last_seen_at + HIVE_INACTIVE_QUEEN_SUCCESSION_SEC if queen_last_seen_at > 0 else 0
+	var normalized_role: String = local_role.strip_edges().to_lower()
+	var local_is_queen: bool = local_player_id == queen_player_id or normalized_role == "queen"
+	var local_active: bool = _hive_member_snapshot_is_active(local_member, resolved_now)
+	var successor: Dictionary = _inactive_queen_successor_preview(hive, queen_player_id, resolved_now)
+	var successor_name: String = str(successor.get("display_name", "next eligible member")) if not successor.is_empty() else "no active successor"
+	var inactive_text: String = _format_hive_presence_compact(queen_last_seen_at).replace("seen", "inactive")
+	if queen_last_seen_at <= 0 or eligible_at_unix > resolved_now:
+		var unlock_text: String = _format_time_remaining(eligible_at_unix) if eligible_at_unix > 0 else "12w"
+		return {
+			"hidden": false,
+			"can_claim": false,
+			"button_text": "SUCCESSION LOCKED",
+			"status_line": "Governance: Queen succession locked. %s has been %s; eligible in %s." % [queen_name, inactive_text, unlock_text],
+			"detail_text": "Inactive Queen succession unlocks after 12 weeks without Queen activity.",
+			"queen_player_id": queen_player_id,
+			"queen_last_seen_at_unix": queen_last_seen_at,
+			"eligible_at_unix": eligible_at_unix
+		}
+	if local_is_queen:
+		return {
+			"hidden": false,
+			"can_claim": false,
+			"button_text": "QUEEN CANNOT CLAIM",
+			"status_line": "Governance: inactive Queen succession is eligible, but the current Queen cannot claim it.",
+			"detail_text": "Another active Hive member must claim inactive Queen succession.",
+			"queen_player_id": queen_player_id,
+			"queen_last_seen_at_unix": queen_last_seen_at,
+			"eligible_at_unix": eligible_at_unix
+		}
+	if not local_active:
+		return {
+			"hidden": false,
+			"can_claim": false,
+			"button_text": "CHECK IN TO CLAIM",
+			"status_line": "Governance: inactive Queen succession is eligible; only active members can claim it.",
+			"detail_text": "You must be an active Hive member before claiming inactive Queen succession.",
+			"queen_player_id": queen_player_id,
+			"queen_last_seen_at_unix": queen_last_seen_at,
+			"eligible_at_unix": eligible_at_unix
+		}
+	if successor.is_empty():
+		return {
+			"hidden": false,
+			"can_claim": false,
+			"button_text": "NO ACTIVE SUCCESSOR",
+			"status_line": "Governance: inactive Queen succession is eligible, but no active successor is available.",
+			"detail_text": "A senior active Soldier is preferred; otherwise the strongest active Member can succeed.",
+			"queen_player_id": queen_player_id,
+			"queen_last_seen_at_unix": queen_last_seen_at,
+			"eligible_at_unix": eligible_at_unix
+		}
+	return {
+		"hidden": false,
+		"can_claim": true,
+		"button_text": "CLAIM SUCCESSION",
+		"status_line": "Governance: inactive Queen succession is eligible. Claim promotes %s." % successor_name,
+		"detail_text": "%s has been %s. Claiming promotes %s by governance rule." % [queen_name, inactive_text, successor_name],
+		"queen_player_id": queen_player_id,
+		"queen_last_seen_at_unix": queen_last_seen_at,
+		"eligible_at_unix": eligible_at_unix,
+		"successor_player_id": str(successor.get("player_id", "")),
+		"successor_name": successor_name
+	}
+
+func _find_hive_member_snapshot(hive: Dictionary, player_id: String) -> Dictionary:
+	var clean_player_id: String = player_id.strip_edges()
+	if clean_player_id.is_empty():
+		return {}
+	var members_any: Variant = hive.get("members", [])
+	if typeof(members_any) != TYPE_ARRAY:
+		return {}
+	for member_any in members_any as Array:
+		if typeof(member_any) != TYPE_DICTIONARY:
+			continue
+		var member: Dictionary = member_any as Dictionary
+		if str(member.get("player_id", "")) == clean_player_id:
+			return member
+	return {}
+
+func _first_hive_member_snapshot_for_role(hive: Dictionary, role: String) -> Dictionary:
+	var clean_role: String = role.strip_edges().to_lower()
+	var members_any: Variant = hive.get("members", [])
+	if typeof(members_any) != TYPE_ARRAY:
+		return {}
+	for member_any in members_any as Array:
+		if typeof(member_any) != TYPE_DICTIONARY:
+			continue
+		var member: Dictionary = member_any as Dictionary
+		if str(member.get("role", "member")).strip_edges().to_lower() == clean_role:
+			return member
+	return {}
+
+func _hive_member_snapshot_is_active(member: Dictionary, now_unix: int) -> bool:
+	if member.is_empty():
+		return false
+	var last_seen_at_unix: int = int(member.get("last_seen_at_unix", int(member.get("joined_at_unix", 0))))
+	if last_seen_at_unix <= 0:
+		return false
+	return now_unix - last_seen_at_unix < 7 * 24 * 60 * 60
+
+func _inactive_queen_successor_preview(hive: Dictionary, queen_player_id: String, now_unix: int) -> Dictionary:
+	var best_soldier: Dictionary = {}
+	var best_soldier_joined_at: int = 0
+	var best_soldier_honey: int = -1
+	var best_member: Dictionary = {}
+	var best_member_honey: int = -1
+	var best_member_joined_at: int = 0
+	var members_any: Variant = hive.get("members", [])
+	if typeof(members_any) != TYPE_ARRAY:
+		return {}
+	for member_any in members_any as Array:
+		if typeof(member_any) != TYPE_DICTIONARY:
+			continue
+		var member: Dictionary = member_any as Dictionary
+		var player_id: String = str(member.get("player_id", ""))
+		if player_id.is_empty() or player_id == queen_player_id:
+			continue
+		if not _hive_member_snapshot_is_active(member, now_unix):
+			continue
+		var role: String = str(member.get("role", "member")).strip_edges().to_lower()
+		var joined_at: int = int(member.get("joined_at_unix", 0))
+		var honey: int = int(member.get("honey_contributed", 0))
+		if role == "soldier":
+			if best_soldier.is_empty() or (joined_at > 0 and (best_soldier_joined_at <= 0 or joined_at < best_soldier_joined_at)) or (joined_at == best_soldier_joined_at and honey > best_soldier_honey):
+				best_soldier = member
+				best_soldier_joined_at = joined_at
+				best_soldier_honey = honey
+		elif role == "member":
+			if best_member.is_empty() or honey > best_member_honey or (honey == best_member_honey and joined_at > 0 and (best_member_joined_at <= 0 or joined_at < best_member_joined_at)):
+				best_member = member
+				best_member_honey = honey
+				best_member_joined_at = joined_at
+	if not best_soldier.is_empty():
+		return best_soldier
+	return best_member
 
 func _find_hive_vote_snapshot(votes_any: Variant, target_player_id: String) -> Dictionary:
 	if typeof(votes_any) != TYPE_ARRAY:
@@ -5807,6 +5995,37 @@ func _on_hive_member_actions_remove_member_pressed() -> void:
 		status_label.text = "Remove player is not available for this selection."
 		return
 	_open_hive_remove_member_dialog(context)
+
+func _on_hive_member_actions_claim_succession_pressed() -> void:
+	var succession: Dictionary = _current_hive_inactive_queen_succession_status()
+	if not bool(succession.get("can_claim", false)):
+		status_label.text = str(succession.get("detail_text", "Inactive Queen succession is not available."))
+		return
+	if HiveClanState == null or not HiveClanState.has_method("intent_claim_inactive_queen_succession"):
+		status_label.text = "Inactive Queen succession unavailable."
+		return
+	var hive_id: String = _current_hive_id()
+	var result: Dictionary = HiveClanState.call("intent_claim_inactive_queen_succession", hive_id, "") as Dictionary
+	if not bool(result.get("ok", false)):
+		var reason: String = str(result.get("reason", "unknown"))
+		match reason:
+			"queen_still_active":
+				status_label.text = "Queen succession is still locked."
+			"queen_cannot_claim_own_succession":
+				status_label.text = "The Queen cannot claim inactive succession."
+			"actor_not_active":
+				status_label.text = "Only active Hive members can claim succession."
+			"no_active_successor":
+				status_label.text = "No active succession candidate is available."
+			_:
+				status_label.text = "Could not claim inactive Queen succession."
+		_sync_hive_panel_profile_from_hive_state()
+		_refresh_hive_member_actions_dialog()
+		return
+	var successor_name: String = str(succession.get("successor_name", "new Queen"))
+	status_label.text = "%s claimed the Queen seat by inactivity succession." % successor_name
+	_sync_hive_panel_profile_from_hive_state()
+	_refresh_hive_member_actions_dialog()
 
 func _check_hive_governance_inbox() -> void:
 	if HiveClanState == null or not HiveClanState.has_method("get_pending_governance_actions_for_player"):
@@ -5993,6 +6212,11 @@ func _sync_hive_panel_profile_from_hive_state() -> void:
 	if comm_records.is_empty():
 		comms_lines.append("Pending invites: %d | Applications: %d" % [pending_count, received_application_count])
 		comms_lines.append("Governance inbox: %d pending vote(s)" % pending_governance_count)
+	var succession_status: Dictionary = _build_inactive_queen_succession_status(hive, local_player_id, role_key)
+	_hive_panel_profile["inactive_queen_succession"] = succession_status.duplicate(true)
+	if not bool(succession_status.get("hidden", false)):
+		comms_lines.append(str(succession_status.get("status_line", "")).strip_edges())
+	if comm_records.is_empty():
 		comms_lines.append("Hive-only coordination and moderation stay scoped here.")
 		comms_lines.append("Pinned notices and recent hive posts appear here.")
 	_hive_panel_profile["messages"] = comms_lines
@@ -6201,6 +6425,8 @@ func _on_hive_action_pressed(slot: int) -> void:
 				_submit_hive_remove_queen_vote()
 			4:
 				_open_hive_leave_dialog()
+			5:
+				_on_hive_member_actions_claim_succession_pressed()
 			_:
 				pass
 		return
@@ -6215,6 +6441,8 @@ func _on_hive_action_pressed(slot: int) -> void:
 			_open_hive_my_invites_dialog()
 		4:
 			_open_hive_leave_dialog()
+		5:
+			_on_hive_member_actions_claim_succession_pressed()
 		_:
 			pass
 
@@ -6329,6 +6557,7 @@ func _refresh_hive_panel_action_state() -> void:
 	var leave_request: Dictionary = _hive_panel_profile.get("leave_request", {}) as Dictionary
 	var invite_only: bool = bool(_hive_panel_profile.get("invite_only", false))
 	var role_key: String = _current_hive_role_key()
+	var succession_status: Dictionary = _current_hive_inactive_queen_succession_status()
 	for action_button_any in hive_action_buttons:
 		var action_button: Button = action_button_any as Button
 		if action_button != null:
@@ -6398,7 +6627,10 @@ func _refresh_hive_panel_action_state() -> void:
 			if hive_action_buttons.size() >= 6:
 				var soldier_extra_button: Button = hive_action_buttons[5] as Button
 				if soldier_extra_button != null:
-					soldier_extra_button.visible = false
+					soldier_extra_button.visible = not bool(succession_status.get("hidden", false))
+					soldier_extra_button.text = "CLAIM QUEEN" if bool(succession_status.get("can_claim", false)) else "SUCCESSION LOCKED"
+					soldier_extra_button.disabled = not bool(succession_status.get("can_claim", false))
+					soldier_extra_button.tooltip_text = str(succession_status.get("detail_text", ""))
 			return
 	if hive_action_buttons.size() >= 1:
 		var post_button: Button = hive_action_buttons[0] as Button
@@ -6435,7 +6667,10 @@ func _refresh_hive_panel_action_state() -> void:
 	if hive_action_buttons.size() >= 6:
 		var extra_button: Button = hive_action_buttons[5] as Button
 		if extra_button != null:
-			extra_button.visible = false
+			extra_button.visible = not bool(succession_status.get("hidden", false))
+			extra_button.text = "CLAIM QUEEN" if bool(succession_status.get("can_claim", false)) else "SUCCESSION LOCKED"
+			extra_button.disabled = not bool(succession_status.get("can_claim", false))
+			extra_button.tooltip_text = str(succession_status.get("detail_text", ""))
 
 func _role_label(role: String) -> String:
 	match role.strip_edges().to_lower():
@@ -6535,7 +6770,7 @@ func _hive_feed_type_label(feed_type: String) -> String:
 			return "APPLICATION"
 		"hive_role_changed", "hive_soldier_promoted", "hive_soldier_demoted":
 			return "ROLE"
-		"hive_queen_removed", "hive_queen_removal_vote_cast", "hive_leadership_removed_by_hive_vote", "hive_leadership_removal_vote_cast":
+		"hive_queen_removed", "hive_queen_removal_vote_cast", "hive_leadership_removed_by_hive_vote", "hive_leadership_removal_vote_cast", "hive_inactive_queen_succession_claimed":
 			return "GOVERNANCE"
 		"hive_leave_requested", "hive_leave_cancelled", "hive_leave_finalized", "hive_member_removed":
 			return "ROSTER"
@@ -12019,6 +12254,185 @@ func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -
 	_style_game_hub_cancel_button(cancel)
 	_entry_route_modal = panel
 
+func _open_crucible_confirmation() -> void:
+	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
+	if crucible_state == null:
+		status_label.text = "Crucible is unavailable."
+		return
+	_refresh_crucible_config_from_backend(crucible_state)
+	var player_id: String = _local_crucible_player_id()
+	var entry_status: Dictionary = crucible_state.call("preview_entry_status", player_id, 0, false) as Dictionary
+	if not bool(entry_status.get("ok", false)):
+		match str(entry_status.get("code", "")):
+			"capacity":
+				_open_crucible_capacity_blocked(str(entry_status.get("message", "Crucible at capacity.")))
+			"no_wax":
+				_open_crucible_wax_melted()
+			_:
+				status_label.text = str(entry_status.get("message", entry_status.get("code", "Crucible entry blocked.")))
+		return
+	var stake_preview: Dictionary = {}
+	if crucible_state.has_method("preview_player_stake"):
+		stake_preview = crucible_state.call("preview_player_stake", player_id) as Dictionary
+	if not bool(stake_preview.get("ok", false)):
+		status_label.text = str(stake_preview.get("message", stake_preview.get("code", "Crucible stake preview unavailable.")))
+		return
+	_close_top_level_windows(UI_SURFACE_ENTRY)
+	var panel := _build_entry_overlay("CRUCIBLE", "Pure 1V1 Wax stake queue", Vector2(620.0, 440.0))
+	var body: VBoxContainer = _entry_overlay_body(panel)
+	if body == null:
+		return
+	var facts: Label = Label.new()
+	facts.name = "CrucibleConfirmationFacts"
+	facts.text = "Current Wax: %s\nRequired stake: %s\nWinner payout after burn: %s\nBurn amount: %s" % [
+		_format_crucible_wax_millis(int(entry_status.get("balance_millis", 0))),
+		_format_crucible_wax_millis(int(stake_preview.get("stake_each", 0))),
+		_format_crucible_wax_millis(int(stake_preview.get("winner_payout", 0))),
+		_format_crucible_wax_millis(int(stake_preview.get("burn", 0)))
+	]
+	facts.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	facts.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(facts)
+	_apply_font(facts, _font_semibold, 14)
+	var rules: Label = Label.new()
+	rules.name = "CrucibleConfirmationRules"
+	rules.text = "No buffs. No Honey. No Nectar. Winner takes Wax."
+	rules.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(rules)
+	_apply_font(rules, _font_regular, 13)
+	var start_button := Button.new()
+	start_button.text = "ENTER CRUCIBLE"
+	start_button.custom_minimum_size = Vector2(0.0, 44.0)
+	start_button.pressed.connect(func() -> void:
+		_launch_crucible_queue()
+	)
+	body.add_child(start_button)
+	var earn_button := Button.new()
+	earn_button.text = "EARN WAX"
+	earn_button.custom_minimum_size = Vector2(0.0, 42.0)
+	earn_button.pressed.connect(func() -> void:
+		_open_crucible_wax_melted("Earn more Crucible Wax before staking.")
+	)
+	body.add_child(earn_button)
+	var cancel := Button.new()
+	cancel.text = "CANCEL"
+	cancel.custom_minimum_size = Vector2(0.0, 42.0)
+	cancel.pressed.connect(_close_entry_route_modal)
+	body.add_child(cancel)
+	_style_entry_overlay_buttons([start_button, earn_button, cancel])
+	_style_game_hub_cancel_button(cancel)
+	_entry_route_modal = panel
+
+func _launch_crucible_queue() -> void:
+	_close_entry_route_modal()
+	var lobby_options: Dictionary = _human_pvp_lobby_options("1V1")
+	lobby_options["vs_ruleset"] = CrucibleRulesetPolicy.RULESET_CRUCIBLE
+	lobby_options["vs_crucible"] = true
+	lobby_options["crucible_local_dev_seed_opponent"] = OS.is_debug_build()
+	lobby_options["crucible_result_target"] = "server_authoritative"
+	_open_async_vs_lobby("1V1", 1, true, 0, lobby_options)
+	status_label.text = "Crucible queue opened."
+
+func _refresh_crucible_config_from_backend(crucible_state: Node) -> Dictionary:
+	if crucible_state == null:
+		return {"ok": false, "err": "crucible_state_unavailable"}
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("get_crucible_config"):
+		return {"ok": false, "err": "transport_not_configured"}
+	var result: Dictionary = handshake.call("get_crucible_config") as Dictionary
+	if not bool(result.get("ok", false)):
+		return result
+	var config_any: Variant = result.get("config", {})
+	if typeof(config_any) != TYPE_DICTIONARY:
+		return {"ok": false, "err": "invalid_crucible_config"}
+	var patch: Dictionary = (config_any as Dictionary).duplicate(true)
+	if patch.has("config_hash"):
+		patch.erase("config_hash")
+	if crucible_state.has_method("apply_remote_config_snapshot"):
+		return crucible_state.call("apply_remote_config_snapshot", patch) as Dictionary
+	if crucible_state.has_method("intent_update_config"):
+		return crucible_state.call("intent_update_config", patch, "player_confirmation_refresh") as Dictionary
+	return {"ok": false, "err": "crucible_config_apply_unavailable"}
+
+func _open_crucible_capacity_blocked(message: String = "Crucible at capacity.") -> void:
+	_close_top_level_windows(UI_SURFACE_ENTRY)
+	var panel := _build_entry_overlay("CRUCIBLE FULL", message, Vector2(560.0, 280.0))
+	var body: VBoxContainer = _entry_overlay_body(panel)
+	if body == null:
+		return
+	var retry := Button.new()
+	retry.text = "CHECK AGAIN"
+	retry.custom_minimum_size = Vector2(0.0, 42.0)
+	retry.pressed.connect(_open_crucible_confirmation)
+	body.add_child(retry)
+	var close := Button.new()
+	close.text = "CLOSE"
+	close.custom_minimum_size = Vector2(0.0, 42.0)
+	close.pressed.connect(_close_entry_route_modal)
+	body.add_child(close)
+	_style_entry_overlay_buttons([retry, close])
+	_style_game_hub_cancel_button(close)
+	_entry_route_modal = panel
+
+func _open_crucible_wax_melted(subtitle: String = "Your Wax Has Melted.") -> void:
+	_close_top_level_windows(UI_SURFACE_ENTRY)
+	var panel := _build_entry_overlay("WAX MELTED", subtitle, Vector2(620.0, 420.0))
+	var body: VBoxContainer = _entry_overlay_body(panel)
+	if body == null:
+		return
+	var note := Label.new()
+	note.text = "Crucible requires a Wax stake. No store prompts are available from Crucible."
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(note)
+	_apply_font(note, _font_regular, 13)
+	var standard := Button.new()
+	standard.text = "PLAY STANDARD 1V1"
+	standard.custom_minimum_size = Vector2(0.0, 42.0)
+	standard.pressed.connect(func() -> void:
+		_close_entry_route_modal()
+		_on_human_mode_selected("1V1", false, 0)
+	)
+	body.add_child(standard)
+	var hive := Button.new()
+	hive.text = "OPEN HIVE"
+	hive.custom_minimum_size = Vector2(0.0, 42.0)
+	hive.pressed.connect(func() -> void:
+		_close_entry_route_modal()
+		_open_hive_panel()
+	)
+	body.add_child(hive)
+	var rank := Button.new()
+	rank.text = "VIEW RANK"
+	rank.custom_minimum_size = Vector2(0.0, 42.0)
+	rank.pressed.connect(func() -> void:
+		_close_entry_route_modal()
+		_open_rank_panel()
+	)
+	body.add_child(rank)
+	var close := Button.new()
+	close.text = "CLOSE"
+	close.custom_minimum_size = Vector2(0.0, 42.0)
+	close.pressed.connect(_close_entry_route_modal)
+	body.add_child(close)
+	_style_entry_overlay_buttons([standard, hive, rank, close])
+	_style_game_hub_cancel_button(close)
+	_entry_route_modal = panel
+
+func _local_crucible_player_id() -> String:
+	var player_id: String = ""
+	if ProfileManager != null:
+		player_id = ProfileManager.get_user_id()
+	player_id = player_id.strip_edges()
+	return player_id if not player_id.is_empty() else "local"
+
+func _format_crucible_wax_millis(millis: int) -> String:
+	var clean: int = maxi(0, millis)
+	if clean % 1000 == 0:
+		return "%d Wax" % int(clean / 1000)
+	return "%.3f Wax" % (float(clean) / 1000.0)
+
 func _open_game_hub(paid: bool, denomination: int) -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var selected_denom: int = denomination
@@ -12386,6 +12800,7 @@ func _center_free_roll_scene_panel(panel: Panel, overlay_size: Vector2) -> void:
 func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> void:
 	if panel == null:
 		return
+	_ensure_free_roll_crucible_button(panel)
 	_ensure_free_roll_progressive_button(panel)
 	_apply_free_roll_scene_layout(panel)
 	_install_free_roll_scroll_guard(panel)
@@ -12407,6 +12822,11 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		_connect_free_roll_guarded_press(button, Callable(self, "_on_human_mode_selected").bind(mode_id, false, selected_denom))
 		_apply_human_mode_skin_to_button(button, mode_id, false, selected_denom, true)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
+	var crucible_button: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/CrucibleButton") as Button
+	if crucible_button != null:
+		_connect_free_roll_guarded_press(crucible_button, Callable(self, "_open_crucible_confirmation"))
+		_apply_crucible_button_skin(crucible_button)
+		_configure_game_hub_option_button(crucible_button, broadcast_free_roll)
 	var cycle_defs: Array[Dictionary] = [
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/WeeklyButton"), "label": "WEEKLY", "mode": "WEEKLY"},
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/MonthlyButton"), "label": "MONTHLY", "mode": "MONTHLY"},
@@ -12455,6 +12875,20 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		_style_game_hub_cancel_button(cancel, GAME_HUB_FREE_LOWER_ROWS_SCALE, true)
 		_configure_game_hub_option_button(cancel, broadcast_free_roll)
 
+func _ensure_free_roll_crucible_button(panel: Panel) -> Button:
+	var canvas: Control = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas") as Control
+	if canvas == null:
+		return null
+	var existing: Button = canvas.get_node_or_null("CrucibleButton") as Button
+	if existing != null:
+		return existing
+	var button := Button.new()
+	button.name = "CrucibleButton"
+	button.text = "CRUCIBLE"
+	button.custom_minimum_size = FREE_ROLL_CRUCIBLE_BUTTON_SIZE
+	canvas.add_child(button)
+	return button
+
 func _ensure_free_roll_progressive_button(panel: Panel) -> Button:
 	var canvas: Control = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas") as Control
 	if canvas == null:
@@ -12490,27 +12924,28 @@ func _apply_free_roll_scene_layout(panel: Panel) -> void:
 	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human2v2Button", 450.0, 286.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
 	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human3pFfaButton", 54.0, 462.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
 	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human4pFfaButton", 450.0, 462.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
-	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesHeading", 672.0, 34.0)
-	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesSubtext", 708.0, 30.0)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/WeeklyButton", 54.0, 770.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MonthlyButton", 450.0, 770.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/SeasonButton", 252.0, 938.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CrucibleButton", 252.0, 638.0, FREE_ROLL_CRUCIBLE_BUTTON_SIZE)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesHeading", 832.0, 34.0)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesSubtext", 868.0, 30.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/WeeklyButton", 54.0, 930.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MonthlyButton", 450.0, 930.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/SeasonButton", 252.0, 1098.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
 	var divider: ColorRect = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/MapConfigDivider") as ColorRect
 	if divider != null:
-		_set_free_roll_control_rect(divider, 54.0, 1120.0, FREE_ROLL_SCENE_CANVAS_WIDTH - 108.0, 1.0)
-	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MapConfigLabel", 1144.0, 28.0)
-	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/OneMapHeading", 1188.0, 30.0)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CaptureFlagButton", 54.0, 1230.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HiddenFlagButton", 450.0, 1230.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
-	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/ThreeMapHeading", 1396.0, 30.0)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/StageRace3Button", 54.0, 1438.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimedRace3Button", 450.0, 1438.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MissNOut3Button", 252.0, 1600.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
-	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/FiveMapHeading", 1778.0, 30.0)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/StageRace5Button", 54.0, 1820.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimedRace5Button", 450.0, 1820.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MissNOut5Button", 252.0, 1982.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CancelButton", 272.0, 2160.0, FREE_ROLL_CANCEL_BUTTON_SIZE)
+		_set_free_roll_control_rect(divider, 54.0, 1280.0, FREE_ROLL_SCENE_CANVAS_WIDTH - 108.0, 1.0)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MapConfigLabel", 1304.0, 28.0)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/OneMapHeading", 1348.0, 30.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CaptureFlagButton", 54.0, 1390.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HiddenFlagButton", 450.0, 1390.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/ThreeMapHeading", 1556.0, 30.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/StageRace3Button", 54.0, 1598.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimedRace3Button", 450.0, 1598.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MissNOut3Button", 252.0, 1760.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/FiveMapHeading", 1938.0, 30.0)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/StageRace5Button", 54.0, 1980.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimedRace5Button", 450.0, 1980.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MissNOut5Button", 252.0, 2142.0, FREE_ROLL_ROUTE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CancelButton", 272.0, 2320.0, FREE_ROLL_CANCEL_BUTTON_SIZE)
 
 func _set_free_roll_label_rect(panel: Panel, path: String, y: float, height: float) -> void:
 	var label: Label = panel.get_node_or_null(path) as Label
@@ -13507,6 +13942,16 @@ func _style_game_hub_cancel_button(button: Button, size_scale: float = 1.0, pres
 		_set_layout_driven_icon_width(button, GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH)
 	else:
 		button.set("icon_max_width", _scaled_game_hub_icon_width(GAME_HUB_ASYNC_MODE_ICON_MAX_WIDTH, size_scale))
+
+func _apply_crucible_button_skin(button: Button) -> void:
+	if button == null:
+		return
+	button.text = "CRUCIBLE"
+	button.tooltip_text = "Pure 1V1 Wax stake queue"
+	button.set_meta("sf_cancel_skin", false)
+	button.set_meta("sf_close_skin", false)
+	_apply_font(button, _font_semibold, 14)
+	_style_button(button, Color(0.10, 0.11, 0.13, 0.96), Color(0.84, 0.72, 0.42, 0.86), Color(0.96, 0.91, 0.78, 1.0))
 
 func _configure_game_hub_option_button(button: Button, broadcast_mode: bool = false) -> void:
 	if button == null:

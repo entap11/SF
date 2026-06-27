@@ -14,6 +14,9 @@ func _init() -> void:
 	failed = _expect_block("Sw4rmFather", "reserved_founder") or failed
 	failed = _expect_block("SwarmDaddy", "reserved_founder") or failed
 	failed = _expect_block("SwarmDad57", "reserved_founder") or failed
+	failed = _expect_block("OfficialMatt", "reserved_staff") or failed
+	failed = _expect_block("SupportQueen", "reserved_staff") or failed
+	failed = _expect_block("Swarmfront", "reserved_identity") or failed
 	failed = _expect_block("FvckYou", "prohibited_language") or failed
 	failed = _expect_block("Fuuuck", "prohibited_language") or failed
 	failed = _expect_block("RapistHive", "prohibited_language") or failed

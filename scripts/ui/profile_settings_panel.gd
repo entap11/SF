@@ -15,6 +15,7 @@ const PERF_MODE_PERFORMANCE: String = "performance"
 const ADMIN_DASHBOARD_URL_DEFAULT: String = "http://127.0.0.1:8787/dashboard"
 const ADMIN_DASHBOARD_USERNAME_DEFAULT: String = "Mattballou"
 const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = "$warmFr0nt"
+const REPORT_CATEGORY_OPTIONS: Array[String] = ["call_sign", "hive", "match", "chat", "other"]
 
 @onready var profile_dropdown: OptionButton = $VBox/ProfileRow/ProfileDropdown
 @onready var display_name_input: LineEdit = $VBox/ProfileRow/DisplayNameInput
@@ -37,12 +38,24 @@ const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = "$warmFr0nt"
 @onready var admin_status_label: Label = $VBox/AdminSection/AdminStatusLabel
 @onready var support_diagnostics_button: Button = $VBox/SupportSection/SupportRow/SupportDiagnosticsButton
 @onready var rename_policy_label: Label = $VBox/RenamePolicyLabel
+@onready var community_safety_button: Button = $VBox/CommunitySafetySection/CommunitySafetyRow/CommunitySafetyButton
+@onready var community_safety_status_label: Label = $VBox/CommunitySafetySection/CommunitySafetyStatusLabel
 @onready var buttons_row: HBoxContainer = $VBox/ButtonsRow
 @onready var new_button: Button = $VBox/ButtonsRow/NewProfileButton
 @onready var rename_button: Button = $VBox/ButtonsRow/RenameButton
 @onready var delete_button: Button = $VBox/ButtonsRow/DeleteButton
 @onready var rename_dialog: AcceptDialog = $RenameDialog
 @onready var rename_input: LineEdit = $RenameDialog/RenameInput
+@onready var community_safety_dialog: AcceptDialog = $CommunitySafetyDialog
+@onready var safety_overview: Label = $CommunitySafetyDialog/SafetyVBox/SafetyOverview
+@onready var report_target_input: LineEdit = $CommunitySafetyDialog/SafetyVBox/ReportTargetInput
+@onready var report_category_option: OptionButton = $CommunitySafetyDialog/SafetyVBox/ReportCategoryOption
+@onready var report_summary_input: TextEdit = $CommunitySafetyDialog/SafetyVBox/ReportSummaryInput
+@onready var submit_report_button: Button = $CommunitySafetyDialog/SafetyVBox/SubmitReportButton
+@onready var appeal_action_input: LineEdit = $CommunitySafetyDialog/SafetyVBox/AppealActionInput
+@onready var appeal_statement_input: TextEdit = $CommunitySafetyDialog/SafetyVBox/AppealStatementInput
+@onready var submit_appeal_button: Button = $CommunitySafetyDialog/SafetyVBox/SubmitAppealButton
+@onready var safety_status_label: Label = $CommunitySafetyDialog/SafetyVBox/SafetyStatusLabel
 @export var admin_dashboard_url: String = ADMIN_DASHBOARD_URL_DEFAULT
 @export var admin_tools_enabled_in_release: bool = false
 var _font_regular: Font = null
@@ -72,10 +85,14 @@ func _ready() -> void:
 	admin_password_input.focus_exited.connect(_on_admin_credentials_focus_exited)
 	admin_open_button.pressed.connect(_on_admin_open_pressed)
 	support_diagnostics_button.pressed.connect(_on_support_diagnostics_pressed)
+	community_safety_button.pressed.connect(_on_community_safety_pressed)
+	submit_report_button.pressed.connect(_on_submit_report_pressed)
+	submit_appeal_button.pressed.connect(_on_submit_appeal_pressed)
 	_disable_legacy_profile_controls()
 	_set_uid_edit_enabled(DEV_ALLOW_UID_EDIT)
 	_refresh_admin_credentials()
 	_refresh_admin_tools()
+	_build_report_category_options()
 	_build_performance_options()
 	_refresh_options()
 	_refresh_display_name()
@@ -129,9 +146,106 @@ func _refresh_rename_policy(message: String = "") -> void:
 		rename_policy_label.text = "Call sign changes are locked for this account."
 		return
 	if bool(snapshot.get("free_change_available", false)):
-		rename_policy_label.text = "One free call sign change is available. Paid renames cannot bypass reserved or prohibited names."
+		rename_policy_label.text = "One free Call Sign change is available this calendar year. Honey renames cannot bypass reserved or prohibited names."
 		return
-	rename_policy_label.text = "Free call sign changes are available once per year. Next free change: %s. Paid rename flow can unlock an earlier change." % _format_policy_date(int(snapshot.get("next_free_change_unix", 0)))
+	rename_policy_label.text = "One free Call Sign change is available per calendar year. Next free change: %s. Additional changes require Honey." % _format_policy_date(int(snapshot.get("next_free_change_unix", 0)))
+
+func _build_report_category_options() -> void:
+	if report_category_option == null:
+		return
+	report_category_option.clear()
+	for category in REPORT_CATEGORY_OPTIONS:
+		report_category_option.add_item(_category_label(category))
+		report_category_option.set_item_metadata(report_category_option.get_item_count() - 1, category)
+
+func _category_label(category: String) -> String:
+	var clean: String = category.strip_edges().replace("_", " ")
+	return clean.capitalize()
+
+func _on_community_safety_pressed() -> void:
+	_refresh_community_safety_dialog()
+	community_safety_dialog.popup_centered_ratio(0.86)
+
+func _refresh_community_safety_dialog(status_message: String = "") -> void:
+	var public_identity: Dictionary = {}
+	if ProfileManager.has_method("get_public_identity_snapshot"):
+		public_identity = ProfileManager.call("get_public_identity_snapshot") as Dictionary
+	var private_snapshot: Dictionary = {}
+	if ProfileManager.has_method("get_private_profile_snapshot"):
+		private_snapshot = ProfileManager.call("get_private_profile_snapshot") as Dictionary
+	var moderation_snapshot: Dictionary = {}
+	var moderation_state: Node = get_node_or_null("/root/ModerationState")
+	if moderation_state != null and moderation_state.has_method("get_snapshot"):
+		moderation_snapshot = moderation_state.call("get_snapshot") as Dictionary
+	var policy: Dictionary = private_snapshot.get("handle_policy", {}) as Dictionary
+	var privacy_posture: Dictionary = private_snapshot.get("privacy_posture", {}) as Dictionary
+	var report_count: int = (moderation_snapshot.get("reports_by_id", {}) as Dictionary).size() if typeof(moderation_snapshot.get("reports_by_id", {})) == TYPE_DICTIONARY else 0
+	var action_count: int = (moderation_snapshot.get("actions_by_id", {}) as Dictionary).size() if typeof(moderation_snapshot.get("actions_by_id", {})) == TYPE_DICTIONARY else 0
+	var appeal_count: int = (moderation_snapshot.get("appeals_by_id", {}) as Dictionary).size() if typeof(moderation_snapshot.get("appeals_by_id", {})) == TYPE_DICTIONARY else 0
+	safety_overview.text = "Public ID: %s\nCall Sign: %s\nFree Call Sign used this year: %s\nForced rename required: %s\nPublic financial identity: %s\nReports: %d | Actions: %d | Appeals: %d" % [
+		str(public_identity.get("public_player_id", "")),
+		str(public_identity.get("call_sign", "")),
+		"yes" if bool(policy.get("free_change_used_this_year", false)) else "no",
+		"yes" if bool(policy.get("forced_rename_required", false)) else "no",
+		"yes" if bool(privacy_posture.get("public_identity_includes_financial_identity", false)) else "no",
+		report_count,
+		action_count,
+		appeal_count
+	]
+	safety_status_label.text = status_message
+	community_safety_status_label.text = status_message
+
+func _on_submit_report_pressed() -> void:
+	var moderation_state: Node = get_node_or_null("/root/ModerationState")
+	if moderation_state == null or not moderation_state.has_method("submit_report"):
+		_refresh_community_safety_dialog("Reporting is unavailable.")
+		return
+	var target_id: String = report_target_input.text.strip_edges()
+	var summary: String = report_summary_input.text.strip_edges()
+	var category: String = _selected_report_category()
+	var reporter_id: String = ProfileManager.get_user_id()
+	var result: Dictionary = moderation_state.call("submit_report", reporter_id, _target_type_for_category(category), target_id, category, summary, {"surface": "dash_settings"}) as Dictionary
+	if bool(result.get("ok", false)):
+		var report: Dictionary = result.get("report", {}) as Dictionary
+		report_summary_input.text = ""
+		_refresh_community_safety_dialog("Report submitted: %s" % str(report.get("report_id", "")))
+	else:
+		_refresh_community_safety_dialog(str(result.get("reason", "Report rejected.")))
+
+func _on_submit_appeal_pressed() -> void:
+	var moderation_state: Node = get_node_or_null("/root/ModerationState")
+	if moderation_state == null or not moderation_state.has_method("submit_appeal"):
+		_refresh_community_safety_dialog("Appeals are unavailable.")
+		return
+	var action_id: String = appeal_action_input.text.strip_edges()
+	var statement: String = appeal_statement_input.text.strip_edges()
+	var player_id: String = ProfileManager.get_user_id()
+	var result: Dictionary = moderation_state.call("submit_appeal", action_id, player_id, statement) as Dictionary
+	if bool(result.get("ok", false)):
+		var appeal: Dictionary = result.get("appeal", {}) as Dictionary
+		appeal_statement_input.text = ""
+		_refresh_community_safety_dialog("Appeal submitted: %s" % str(appeal.get("appeal_id", "")))
+	else:
+		_refresh_community_safety_dialog(str(result.get("reason", "Appeal rejected.")))
+
+func _selected_report_category() -> String:
+	var selected: int = report_category_option.get_selected_id()
+	if selected < 0:
+		selected = report_category_option.selected
+	var metadata: Variant = report_category_option.get_item_metadata(selected) if selected >= 0 and selected < report_category_option.get_item_count() else ""
+	var category: String = str(metadata).strip_edges()
+	return "other" if category.is_empty() else category
+
+func _target_type_for_category(category: String) -> String:
+	match category.strip_edges().to_lower():
+		"hive":
+			return "hive"
+		"match":
+			return "match"
+		"chat":
+			return "message"
+		_:
+			return "player"
 
 func _format_policy_date(unix_time: int) -> String:
 	if unix_time <= 0:
@@ -472,6 +586,12 @@ func _apply_readability_layout() -> void:
 			continue
 		_apply_font(line_edit, _font_regular, _scaled_int(16))
 		_set_control_min_height(line_edit, _scaled_float(44.0))
+	for node_any in find_children("*", "TextEdit", true, false):
+		var text_edit: TextEdit = node_any as TextEdit
+		if text_edit == null:
+			continue
+		_apply_font(text_edit, _font_regular, _scaled_int(16))
+		_set_control_min_height(text_edit, _scaled_float(72.0))
 	if root_vbox != null:
 		var header_label: Label = root_vbox.get_node_or_null("Header") as Label
 		if header_label != null:
@@ -482,7 +602,8 @@ func _apply_readability_layout() -> void:
 		"VideoSection/VideoLabel",
 		"AudioSection/AudioLabel",
 		"PerformanceSection/PerformanceLabel",
-		"AdminSection/AdminLabel"
+		"AdminSection/AdminLabel",
+		"CommunitySafetySection/CommunitySafetyLabel"
 	]
 	for section_path in section_title_paths:
 		if root_vbox == null or not root_vbox.has_node(section_path):
@@ -495,6 +616,9 @@ func _apply_readability_layout() -> void:
 	user_id_warning_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	admin_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rename_policy_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	community_safety_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	safety_overview.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	safety_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 func _ensure_scroll_layout(root_vbox: VBoxContainer) -> void:
 	if root_vbox == null:

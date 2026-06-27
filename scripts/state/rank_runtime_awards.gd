@@ -3,6 +3,7 @@ extends Node
 signal runtime_rank_award(event: Dictionary)
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
+const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
 
 @export var rank_state_path: NodePath = NodePath("/root/RankState")
 @export var profile_manager_path: NodePath = NodePath("/root/ProfileManager")
@@ -59,6 +60,14 @@ func sync_contest_rank_rewards(contest_id: String, contest_scope: String = "", m
 		}
 	) as Dictionary
 	if bool(result.get("ok", false)) and bool(result.get("awarded", false)):
+		_award_competitive_wax_result("contest:%s:%s" % [clean_contest_id, player_id], player_id, "", true, "TOURNAMENT", {
+			"event_id": "competitive_wax:contest:%s:%s" % [clean_contest_id, player_id],
+			"contest_id": clean_contest_id,
+			"contest_scope": scope,
+			"placement": placement,
+			"field_size": rows.size(),
+			"map_count": map_count
+		})
 		var event: Dictionary = {
 			"type": "contest_rank_awarded",
 			"contest_id": clean_contest_id,
@@ -169,6 +178,9 @@ func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 	var mode_id: String = str(tree.get_meta("vs_mode", "")).strip_edges()
 	if mode_id.is_empty():
 		return
+	if CrucibleRulesetPolicyScript.is_crucible_tree(tree):
+		_settle_crucible_match_result(tree, winner_id, reason)
+		return
 	if bool(tree.get_meta("vs_sync_start", false)):
 		_award_pvp_match_result(tree, rank_state, winner_id, reason)
 		return
@@ -190,11 +202,17 @@ func _award_pvp_match_result(tree: SceneTree, rank_state: Node, winner_id: int, 
 	var free_roll: bool = bool(tree.get_meta("vs_free_roll", false))
 	var mode_name: String = "STANDARD" if free_roll else "MONEY_MATCH"
 	var money_tier: int = 0 if free_roll else _money_tier_from_entry_usd(maxi(0, int(tree.get_meta("vs_price_usd", 0))))
+	var player_before: Dictionary = {}
+	var opponent_before: Dictionary = {}
+	if rank_state.has_method("get_player_snapshot"):
+		player_before = rank_state.call("get_player_snapshot", player_id) as Dictionary
+		opponent_before = rank_state.call("get_player_snapshot", opponent_id) as Dictionary
+	var did_win: bool = winner_id > 0 and winner_id == local_owner_id
 	var result: Dictionary = rank_state.call(
 		"intent_record_match_result",
 		player_id,
 		opponent_id,
-		winner_id > 0 and winner_id == local_owner_id,
+		did_win,
 		mode_name,
 		{
 			"event_id": _runtime_event_id(tree, mode_name, reason),
@@ -204,16 +222,32 @@ func _award_pvp_match_result(tree: SceneTree, rank_state: Node, winner_id: int, 
 		money_tier
 	) as Dictionary
 	if bool(result.get("ok", false)):
+		_award_competitive_wax_result(str(tree.get_meta("vs_handshake_session_id", _runtime_event_id(tree, mode_name, reason))), player_id, opponent_id, did_win, mode_name, {
+			"event_id": "competitive_wax:%s:%s" % [_runtime_event_id(tree, mode_name, reason), player_id],
+			"player_rating": float(player_before.get("wax_score", 0.0)),
+			"opponent_rating": float(opponent_before.get("wax_score", 0.0)),
+			"winner_id": winner_id,
+			"reason": reason,
+			"paid_entry": not free_roll,
+			"money_tier": money_tier,
+			"close_loss_qualified": bool(tree.get_meta("wax_close_loss_qualified", false))
+		})
 		var event: Dictionary = {
 			"type": "pvp_rank_awarded",
 			"player_id": player_id,
 			"opponent_id": opponent_id,
 			"mode_name": mode_name,
 			"money_tier": money_tier,
-			"did_player_win": winner_id > 0 and winner_id == local_owner_id
+			"did_player_win": did_win
 		}
 		runtime_rank_award.emit(event)
 		SFLog.info("RANK_RUNTIME_AWARD", event)
+
+func _award_competitive_wax_result(match_id: String, player_id: String, opponent_id: String, did_win: bool, mode_name: String, metadata: Dictionary) -> void:
+	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
+	if crucible_state == null or not crucible_state.has_method("intent_apply_competitive_wax_result"):
+		return
+	crucible_state.call("intent_apply_competitive_wax_result", match_id, player_id, opponent_id, did_win, mode_name, metadata)
 
 func _sync_tree_contest_reward() -> void:
 	var tree: SceneTree = get_tree()
@@ -293,6 +327,67 @@ func _runtime_event_id(tree: SceneTree, mode_name: String, reason: String) -> St
 		tree.set_meta(nonce_key, nonce)
 		tree.set_meta(nonce_scene_key, scene_id)
 	return "%s:%s:%s" % [nonce, mode_name.strip_edges().to_upper(), reason.strip_edges().to_lower()]
+
+func _settle_crucible_match_result(tree: SceneTree, winner_id: int, reason: String) -> void:
+	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
+	if crucible_state == null or not crucible_state.has_method("intent_settle_match"):
+		return
+	var match_id: String = str(tree.get_meta("crucible_match_id", tree.get_meta("vs_handshake_session_id", ""))).strip_edges()
+	if match_id.is_empty():
+		match_id = _runtime_event_id(tree, "CRUCIBLE", reason)
+	var winner_player_id: String = _player_id_for_owner_id(tree, winner_id)
+	var result: Dictionary = crucible_state.call(
+		"intent_settle_match",
+		match_id,
+		winner_player_id,
+		CrucibleRulesetPolicyScript.RESULT_SOURCE_LOCAL_DEV_SIM,
+		reason,
+		{
+			"event_id": _runtime_event_id(tree, "CRUCIBLE", reason),
+			"winner_owner_id": winner_id
+		}
+	) as Dictionary
+	if bool(result.get("ok", false)):
+		var event: Dictionary = {
+			"type": "crucible_runtime_settlement",
+			"match_id": match_id,
+			"winner_owner_id": winner_id,
+			"winner_player_id": winner_player_id
+		}
+		runtime_rank_award.emit(event)
+		SFLog.info("RANK_RUNTIME_AWARD", event)
+
+func _player_id_for_owner_id(tree: SceneTree, owner_id: int) -> String:
+	if owner_id <= 0:
+		return ""
+	var player_a_id: String = str(tree.get_meta("crucible_player_a_id", "")).strip_edges()
+	var player_b_id: String = str(tree.get_meta("crucible_player_b_id", "")).strip_edges()
+	var player_a_seat: int = clampi(int(tree.get_meta("crucible_player_a_seat", 1)), 1, 4)
+	var player_b_seat: int = clampi(int(tree.get_meta("crucible_player_b_seat", 2)), 1, 4)
+	if owner_id == player_a_seat and not player_a_id.is_empty():
+		return player_a_id
+	if owner_id == player_b_seat and not player_b_id.is_empty():
+		return player_b_id
+	var roster_any: Variant = tree.get_meta("vs_assigned_players", [])
+	if typeof(roster_any) == TYPE_ARRAY:
+		for entry_any in roster_any as Array:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_any as Dictionary
+			if int(entry.get("seat", 0)) != owner_id:
+				continue
+			return str(entry.get("uid", "")).strip_edges()
+	var local_profile_any: Variant = tree.get_meta("vs_local_profile", {})
+	if typeof(local_profile_any) == TYPE_DICTIONARY:
+		var local_profile: Dictionary = local_profile_any as Dictionary
+		if owner_id == clampi(int(local_profile.get("seat", 1)), 1, 4):
+			return str(local_profile.get("uid", "")).strip_edges()
+	var remote_profile_any: Variant = tree.get_meta("vs_remote_profile", {})
+	if typeof(remote_profile_any) == TYPE_DICTIONARY:
+		var remote_profile: Dictionary = remote_profile_any as Dictionary
+		if owner_id == clampi(int(remote_profile.get("seat", 2)), 1, 4):
+			return str(remote_profile.get("uid", "")).strip_edges()
+	return ""
 
 func _rank_state() -> Node:
 	return get_node_or_null(rank_state_path)

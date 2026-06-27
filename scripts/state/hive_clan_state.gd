@@ -24,6 +24,7 @@ const MAX_HIVE_MEMBERS: int = 14
 const MIN_LEADERSHIP_REMOVAL_VOTES: int = 9
 const GOVERNANCE_VOTE_WINDOW_SEC: int = 48 * 60 * 60
 const VOTE_ABSTAIN_INACTIVE_SEC: int = 7 * 24 * 60 * 60
+const INACTIVE_QUEEN_SUCCESSION_SEC: int = 12 * 7 * 24 * 60 * 60
 const HIVE_CREATE_LIMIT_COUNT: int = 1
 const HIVE_CREATE_LIMIT_WINDOW_SEC: int = 7 * 24 * 60 * 60
 const INVITE_EXPIRY_SEC: int = 48 * 60 * 60
@@ -1285,6 +1286,72 @@ func intent_vote_remove_queen(hive_id: String, actor_player_id: String = "") -> 
 		"hive": _build_hive_snapshot(hive),
 		"queen_removed": false,
 		"vote": _build_queen_removal_vote_snapshot(hive)
+	}
+
+func intent_claim_inactive_queen_succession(hive_id: String, actor_player_id: String = "") -> Dictionary:
+	_refresh_runtime_state()
+	var actor_id: String = _resolve_player_id(actor_player_id)
+	if actor_id.is_empty():
+		return {"ok": false, "reason": "missing_player_id"}
+	var hive: Dictionary = _hives_by_id.get(hive_id, {}) as Dictionary
+	if hive.is_empty():
+		return {"ok": false, "reason": "hive_not_found"}
+	var members: Dictionary = hive.get("members", {}) as Dictionary
+	if not members.has(actor_id):
+		return {"ok": false, "reason": "forbidden"}
+	if not _is_player_active_voter(hive, actor_id):
+		return {"ok": false, "reason": "actor_inactive"}
+	var queen_id: String = _first_role_player_id(hive, ROLE_QUEEN)
+	if queen_id.is_empty():
+		return {"ok": false, "reason": "queen_not_found"}
+	if actor_id == queen_id:
+		return {"ok": false, "reason": "queen_cannot_claim_own_succession"}
+	var queen_last_seen_at: int = _member_last_seen_at_unix(hive, queen_id)
+	var now_unix: int = _now_unix()
+	var eligible_at_unix: int = queen_last_seen_at + INACTIVE_QUEEN_SUCCESSION_SEC if queen_last_seen_at > 0 else 0
+	if queen_last_seen_at <= 0 or eligible_at_unix > now_unix:
+		return {
+			"ok": false,
+			"reason": "queen_still_active",
+			"queen_player_id": queen_id,
+			"queen_last_seen_at_unix": queen_last_seen_at,
+			"eligible_at_unix": eligible_at_unix
+		}
+	var new_queen_id: String = _select_inactive_queen_successor_id(hive, queen_id)
+	if new_queen_id.is_empty():
+		return {"ok": false, "reason": "no_active_successor"}
+	var old_queen_member: Dictionary = members.get(queen_id, {}) as Dictionary
+	var new_queen_member: Dictionary = members.get(new_queen_id, {}) as Dictionary
+	if old_queen_member.is_empty() or new_queen_member.is_empty():
+		return {"ok": false, "reason": "successor_not_found"}
+	old_queen_member["role"] = ROLE_MEMBER
+	new_queen_member["role"] = ROLE_QUEEN
+	members[queen_id] = old_queen_member
+	members[new_queen_id] = new_queen_member
+	hive["members"] = members
+	hive["queen_removal_vote"] = {}
+	hive["queen_removal_vote_started_at_unix"] = 0
+	_clear_governance_state_for_player(hive, queen_id)
+	_clear_governance_state_for_player(hive, new_queen_id)
+	_recompute_hive_metrics(hive)
+	_hives_by_id[hive_id] = hive
+	_save_state()
+	_emit_event({
+		"type": "hive_inactive_queen_succession_claimed",
+		"hive_id": hive_id,
+		"actor_player_id": actor_id,
+		"old_queen_player_id": queen_id,
+		"new_queen_player_id": new_queen_id,
+		"queen_last_seen_at_unix": queen_last_seen_at,
+		"inactive_window_sec": INACTIVE_QUEEN_SUCCESSION_SEC
+	})
+	return {
+		"ok": true,
+		"hive": _build_hive_snapshot(hive),
+		"old_queen_player_id": queen_id,
+		"new_queen_player_id": new_queen_id,
+		"queen_last_seen_at_unix": queen_last_seen_at,
+		"inactive_window_sec": INACTIVE_QUEEN_SUCCESSION_SEC
 	}
 
 func intent_vote_promote_soldier(hive_id: String, target_player_id: String, actor_player_id: String = "") -> Dictionary:
@@ -3793,6 +3860,56 @@ func _senior_soldier_player_id(hive: Dictionary) -> String:
 			best_player_id = str(member.get("player_id", ""))
 	return best_player_id
 
+func _select_inactive_queen_successor_id(hive: Dictionary, queen_id: String) -> String:
+	var senior_soldier_id: String = _senior_active_soldier_player_id(hive, queen_id)
+	if not senior_soldier_id.is_empty():
+		return senior_soldier_id
+	return _strongest_active_member_player_id(hive, queen_id)
+
+func _senior_active_soldier_player_id(hive: Dictionary, excluded_player_id: String = "") -> String:
+	var members: Dictionary = hive.get("members", {}) as Dictionary
+	var best_player_id: String = ""
+	var best_joined_at: int = 0
+	var best_honey: int = -1
+	for member_any in members.values():
+		var member: Dictionary = member_any as Dictionary
+		var player_id: String = str(member.get("player_id", ""))
+		if player_id.is_empty() or player_id == excluded_player_id:
+			continue
+		if str(member.get("role", ROLE_MEMBER)) != ROLE_SOLDIER:
+			continue
+		if not _is_player_active_voter(hive, player_id):
+			continue
+		var joined_at: int = int(member.get("joined_at_unix", 0))
+		var honey: int = int(member.get("honey_contributed", 0))
+		if best_player_id.is_empty() or (joined_at > 0 and (best_joined_at <= 0 or joined_at < best_joined_at)) or (joined_at == best_joined_at and honey > best_honey):
+			best_joined_at = joined_at
+			best_honey = honey
+			best_player_id = player_id
+	return best_player_id
+
+func _strongest_active_member_player_id(hive: Dictionary, excluded_player_id: String = "") -> String:
+	var members: Dictionary = hive.get("members", {}) as Dictionary
+	var best_player_id: String = ""
+	var best_honey: int = -1
+	var best_joined_at: int = 0
+	for member_any in members.values():
+		var member: Dictionary = member_any as Dictionary
+		var player_id: String = str(member.get("player_id", ""))
+		if player_id.is_empty() or player_id == excluded_player_id:
+			continue
+		if str(member.get("role", ROLE_MEMBER)) != ROLE_MEMBER:
+			continue
+		if not _is_player_active_voter(hive, player_id):
+			continue
+		var honey: int = int(member.get("honey_contributed", 0))
+		var joined_at: int = int(member.get("joined_at_unix", 0))
+		if best_player_id.is_empty() or honey > best_honey or (honey == best_honey and joined_at > 0 and (best_joined_at <= 0 or joined_at < best_joined_at)):
+			best_player_id = player_id
+			best_honey = honey
+			best_joined_at = joined_at
+	return best_player_id
+
 func _find_pending_invite_id(hive_id: String, target_player_id: String) -> String:
 	for invite_id_any in _invites_by_id.keys():
 		var invite_id: String = str(invite_id_any)
@@ -4373,7 +4490,7 @@ func _ensure_hive_leadership(hive: Dictionary) -> void:
 		return
 	if _count_role(hive, ROLE_QUEEN) > 0:
 		return
-	var promote_player_id: String = _first_role_player_id(hive, ROLE_SOLDIER)
+	var promote_player_id: String = _senior_soldier_player_id(hive)
 	if promote_player_id.is_empty():
 		var best_honey: int = -1
 		for member_any in members.values():

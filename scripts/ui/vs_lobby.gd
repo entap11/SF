@@ -4,6 +4,7 @@ const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
 const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
+const CrucibleRulesetPolicy := preload("res://scripts/state/crucible_ruleset_policy.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
 signal closed
@@ -265,6 +266,8 @@ func accept_friend_invite(invite: Dictionary) -> void:
 func _refresh_summary() -> void:
 	var price_text := "Free Roll" if _free_roll else "%s Entry" % _format_money_cents(_wager_cents)
 	var summary_text: String = "%s | %d Maps | %s" % [_mode_label(_mode), _map_count, price_text]
+	if _context_is_crucible():
+		summary_text += " | Wax %s" % _format_crucible_wax_millis(_crucible_balance_millis(_local_uid))
 	summary_label.text = summary_text
 
 func _on_quick_match() -> void:
@@ -571,6 +574,9 @@ func _local_profile() -> Dictionary:
 		"uid": _local_uid,
 		"display_name": _local_name
 	}
+	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
+	if crucible_state != null and crucible_state.has_method("get_balance_millis"):
+		profile["crucible_wax_millis"] = int(crucible_state.call("get_balance_millis", _local_uid))
 	var rank_payload: Dictionary = _local_rank_matchmaking_payload()
 	for key in rank_payload.keys():
 		profile[str(key)] = rank_payload[key]
@@ -964,6 +970,8 @@ func _start_match(session_already_started: bool = false) -> void:
 		status_label.text = "Map does not support this mode."
 		_report_map_mode_contract_violation(_mode, str(launch_validation.get("path", first_stage_map)), str(launch_validation.get("reason", "invalid_map_mode")))
 		return
+	if not _prepare_crucible_match_context():
+		return
 	if _should_route_bot_fill_through_jukebox():
 		if _launch_bot_fill_jukebox_map(first_stage_map):
 			status_label.text = "Bot match starting..."
@@ -1007,7 +1015,9 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("vs_handshake_session_id", _session_id)
 	tree.set_meta("vs_handshake_role", _session_role)
 	tree.set_meta("vs_handshake_invite_code", _invite_code)
-	tree.set_meta("vs_local_profile", _local_profile())
+	var local_profile_for_tree: Dictionary = _local_profile()
+	local_profile_for_tree["seat"] = _local_tree_seat()
+	tree.set_meta("vs_local_profile", local_profile_for_tree)
 	tree.set_meta("vs_remote_profile", _remote_profile_for_tree())
 	var config_snapshot: Dictionary = _match_config_snapshot_for_context(_handshake_context())
 	tree.set_meta("vs_config_snapshot", config_snapshot.duplicate(true))
@@ -1155,6 +1165,29 @@ func _bot_fill_jukebox_clear_keys() -> Array[String]:
 	return [
 		"open_map_picker_on_ready",
 		"vs_mode",
+		"vs_ruleset",
+		"vs_crucible",
+		"crucible_match_id",
+		"crucible_config_version",
+		"crucible_config_hash",
+		"crucible_escrow_id",
+		"crucible_stake_each_millis",
+		"crucible_pot_millis",
+		"crucible_burn_millis",
+		"crucible_winner_payout_millis",
+		"crucible_local_balance_start_millis",
+		"crucible_local_balance_after_escrow_millis",
+		"crucible_remote_balance_start_millis",
+		"crucible_remote_balance_after_escrow_millis",
+		"crucible_local_balance_finish_millis",
+		"crucible_remote_balance_finish_millis",
+		"crucible_balance_delta_millis",
+		"crucible_player_a_balance_finish_millis",
+		"crucible_player_b_balance_finish_millis",
+		"crucible_player_a_id",
+		"crucible_player_b_id",
+		"crucible_player_a_seat",
+		"crucible_player_b_seat",
 		"vs_price_usd",
 		"vs_wager_cents",
 		"vs_paid_entry",
@@ -1201,6 +1234,29 @@ func _vs_launch_clear_keys() -> Array[String]:
 	return [
 		"open_map_picker_on_ready",
 		"vs_mode",
+		"vs_ruleset",
+		"vs_crucible",
+		"crucible_match_id",
+		"crucible_config_version",
+		"crucible_config_hash",
+		"crucible_escrow_id",
+		"crucible_stake_each_millis",
+		"crucible_pot_millis",
+		"crucible_burn_millis",
+		"crucible_winner_payout_millis",
+		"crucible_local_balance_start_millis",
+		"crucible_local_balance_after_escrow_millis",
+		"crucible_remote_balance_start_millis",
+		"crucible_remote_balance_after_escrow_millis",
+		"crucible_local_balance_finish_millis",
+		"crucible_remote_balance_finish_millis",
+		"crucible_balance_delta_millis",
+		"crucible_player_a_balance_finish_millis",
+		"crucible_player_b_balance_finish_millis",
+		"crucible_player_a_id",
+		"crucible_player_b_id",
+		"crucible_player_a_seat",
+		"crucible_player_b_seat",
 		"vs_price_usd",
 		"vs_wager_cents",
 		"vs_paid_entry",
@@ -1262,7 +1318,9 @@ func _vs_launch_clear_keys() -> Array[String]:
 
 func _remote_profile_for_tree() -> Dictionary:
 	if _bot_filled_match and not _bot_remote_profile.is_empty():
-		return _bot_remote_profile.duplicate(true)
+		var bot_profile: Dictionary = _bot_remote_profile.duplicate(true)
+		bot_profile["seat"] = 2
+		return bot_profile
 	if _session_id.is_empty() or _handshake() == null:
 		return {}
 	var session: Dictionary = _handshake().call("get_session", _session_id) as Dictionary
@@ -1271,10 +1329,13 @@ func _remote_profile_for_tree() -> Dictionary:
 	var host: Dictionary = session.get("host", {}) as Dictionary
 	var guest: Dictionary = session.get("guest", {}) as Dictionary
 	var remote: Dictionary = {}
+	var remote_seat: int = 0
 	if str(host.get("uid", "")) == _local_uid:
 		remote = guest
+		remote_seat = 2
 	elif str(guest.get("uid", "")) == _local_uid:
 		remote = host
+		remote_seat = 1
 	if remote.is_empty():
 		return {}
 	var uid: String = str(remote.get("uid", "")).strip_edges()
@@ -1284,8 +1345,106 @@ func _remote_profile_for_tree() -> Dictionary:
 	return {
 		"uid": uid,
 		"display_name": str(remote.get("display_name", "Player 2")),
-		"is_cpu": is_cpu
+		"is_cpu": is_cpu,
+		"seat": remote_seat
 	}
+
+func _local_tree_seat() -> int:
+	return 2 if _session_role.strip_edges().to_lower() == "guest" else 1
+
+func _prepare_crucible_match_context() -> bool:
+	if not _context_is_crucible():
+		return true
+	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
+	if crucible_state == null:
+		status_label.text = "Crucible is unavailable."
+		return false
+	if not crucible_state.has_method("intent_open_escrow"):
+		status_label.text = "Crucible escrow is unavailable."
+		return false
+	var local_id: String = _local_uid.strip_edges()
+	var remote_profile: Dictionary = _remote_profile_for_tree()
+	var remote_id: String = str(remote_profile.get("uid", "")).strip_edges()
+	if local_id.is_empty() or remote_id.is_empty() or local_id == remote_id:
+		status_label.text = "Crucible requires an opponent before escrow."
+		return false
+	if bool(_context_meta.get("crucible_local_dev_seed_opponent", false)) and crucible_state.has_method("get_balance_millis") and crucible_state.has_method("intent_set_balance_millis"):
+		var local_balance: int = int(crucible_state.call("get_balance_millis", local_id))
+		var remote_balance: int = int(crucible_state.call("get_balance_millis", remote_id))
+		if local_balance > 0 and remote_balance <= 0:
+			crucible_state.call("intent_set_balance_millis", remote_id, local_balance)
+	var local_balance_before: int = _crucible_balance_millis(local_id)
+	var remote_balance_before: int = _crucible_balance_millis(remote_id)
+	var match_id: String = str(_context_meta.get("crucible_match_id", "")).strip_edges()
+	if match_id.is_empty():
+		var session_key: String = _session_id.strip_edges()
+		if session_key.is_empty():
+			session_key = "%s_%s_%d" % [local_id, remote_id, Time.get_ticks_msec()]
+		match_id = "crucible_%s" % session_key.sha256_text().substr(0, 16)
+	var metadata: Dictionary = {
+		"result_target": "server_authoritative",
+		"launch_path": "vs_lobby",
+		"session_id": _session_id,
+		"local_role": _session_role,
+		"anti_collusion_signals": {
+			"repeated_same_opponent": false,
+			"unusual_win_trading": false,
+			"same_device_cluster": false,
+			"same_ip_pattern": false,
+			"suspicious_forfeit": false,
+			"high_stakes_repeated_transfer": false
+		}
+	}
+	var escrow_result: Dictionary = crucible_state.call("intent_open_escrow", match_id, local_id, remote_id, metadata) as Dictionary
+	if not bool(escrow_result.get("ok", false)):
+		status_label.text = str(escrow_result.get("message", escrow_result.get("code", "Crucible escrow failed.")))
+		return false
+	var escrow: Dictionary = escrow_result.get("escrow", {}) as Dictionary
+	var local_balance_after: int = _crucible_balance_millis(local_id)
+	var remote_balance_after: int = _crucible_balance_millis(remote_id)
+	_context_meta["vs_ruleset"] = CrucibleRulesetPolicy.RULESET_CRUCIBLE
+	_context_meta["vs_crucible"] = true
+	_context_meta["crucible_match_id"] = match_id
+	_context_meta["crucible_escrow_id"] = str(escrow.get("escrow_id", ""))
+	_context_meta["crucible_config_version"] = int(escrow.get("config_version", 0))
+	_context_meta["crucible_config_hash"] = str(escrow.get("config_hash", ""))
+	_context_meta["crucible_stake_each_millis"] = maxi(0, int(escrow.get("stake_each", 0)))
+	_context_meta["crucible_pot_millis"] = maxi(0, int(escrow.get("pot", 0)))
+	_context_meta["crucible_burn_millis"] = maxi(0, int(escrow.get("burn", 0)))
+	_context_meta["crucible_winner_payout_millis"] = maxi(0, int(escrow.get("winner_payout", 0)))
+	_context_meta["crucible_local_balance_start_millis"] = local_balance_before
+	_context_meta["crucible_local_balance_after_escrow_millis"] = local_balance_after
+	_context_meta["crucible_remote_balance_start_millis"] = remote_balance_before
+	_context_meta["crucible_remote_balance_after_escrow_millis"] = remote_balance_after
+	_context_meta["crucible_player_a_id"] = local_id
+	_context_meta["crucible_player_b_id"] = remote_id
+	_context_meta["crucible_player_a_seat"] = _local_tree_seat()
+	_context_meta["crucible_player_b_seat"] = clampi(int(remote_profile.get("seat", 2)), 1, 4)
+	status_label.text = "Crucible escrow locked: stake %s | winner payout %s | Wax now %s." % [
+		_format_crucible_wax_millis(int(_context_meta.get("crucible_stake_each_millis", 0))),
+		_format_crucible_wax_millis(int(_context_meta.get("crucible_winner_payout_millis", 0))),
+		_format_crucible_wax_millis(local_balance_after)
+	]
+	_refresh_summary()
+	return true
+
+func _context_is_crucible() -> bool:
+	return CrucibleRulesetPolicy.is_crucible_ruleset(str(_context_meta.get("vs_ruleset", ""))) or bool(_context_meta.get("vs_crucible", false))
+
+func _crucible_balance_millis(player_id: String) -> int:
+	var clean_id: String = player_id.strip_edges()
+	if clean_id.is_empty():
+		return 0
+	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
+	if crucible_state == null or not crucible_state.has_method("get_balance_millis"):
+		return 0
+	return maxi(0, int(crucible_state.call("get_balance_millis", clean_id)))
+
+func _format_crucible_wax_millis(amount_millis: int) -> String:
+	var safe_millis: int = maxi(0, amount_millis)
+	var whole: int = int(safe_millis / 1000)
+	var frac: int = safe_millis % 1000
+	return "%d.%03d" % [whole, frac]
 
 func _apply_session_context(session: Dictionary) -> void:
 	if session.is_empty():

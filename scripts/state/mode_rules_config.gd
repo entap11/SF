@@ -5,10 +5,12 @@ const MODE_STANDARD: String = "STANDARD"
 const MODE_STEROIDS: String = "STEROIDS_LEAGUE"
 const MODE_ESPORTS_NO_BUFFS: String = "ESPORTS_NO_BUFFS"
 const MODE_ESPORTS_STANDARDIZED: String = "ESPORTS_STANDARDIZED"
+const MODE_CRUCIBLE: String = "CRUCIBLE"
 
 const ENTRY_FREE: String = "FREE"
 const ENTRY_NECTAR: String = "NECTAR"
 const ENTRY_USD: String = "USD"
+const ENTRY_WAX: String = "WAX"
 
 @export var enabled: bool = true
 @export var default_mode_key: String = MODE_STANDARD
@@ -107,6 +109,37 @@ const ENTRY_USD: String = "USD"
 			"paid_match_completed": 6,
 			"tournament_participation": 10,
 			"purchase_kickback_per_usd": 6.0
+		}
+	},
+	MODE_CRUCIBLE: {
+		"label": "Crucible",
+		"ruleset": "CRUCIBLE",
+		"buffs_enabled": false,
+		"loadout_ui_enabled": false,
+		"baseline_free_slots": 0,
+		"max_additional_slots": 0,
+		"max_total_slots": 0,
+		"max_elite": 0,
+		"max_premium": 0,
+		"classic_slot_index": -1,
+		"classic_requires_overtime": false,
+		"unlimited_buffs": false,
+		"esports_standardized_buff_enabled": false,
+		"esports_standardized_buff_id": "",
+		"entry_currency": ENTRY_WAX,
+		"entry_cost": 0,
+		"honey_rewards_enabled": false,
+		"nectar_rewards_enabled": false,
+		"normal_rank_wax_payout_enabled": false,
+		"store_prompts_enabled": false,
+		"battle_pass_gameplay_modifiers_enabled": false,
+		"paid_stat_advantages_enabled": false,
+		"consumables_enabled": false,
+		"nectar_awards": {
+			"match_completed": 0,
+			"paid_match_completed": 0,
+			"tournament_participation": 0,
+			"purchase_kickback_per_usd": 0.0
 		}
 	}
 }

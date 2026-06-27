@@ -1,6 +1,7 @@
 extends Node
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
+const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
 
 signal honey_progression_changed(snapshot: Dictionary)
 signal honey_event(event: Dictionary)
@@ -86,6 +87,8 @@ func get_snapshot() -> Dictionary:
 	}
 
 func intent_record_async_completion(mode_id: String, map_count: int, paid_entry: bool, metadata: Dictionary = {}) -> Dictionary:
+	if _metadata_is_crucible(metadata):
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_tenths_awarded": 0}
 	var normalized_mode: String = _normalize_async_mode(mode_id)
 	if normalized_mode.is_empty():
 		return {"ok": false, "reason": "invalid_async_mode", "mode_id": mode_id}
@@ -105,6 +108,8 @@ func intent_record_async_completion(mode_id: String, map_count: int, paid_entry:
 	return _award_honey_tenths("async_completion", amount, meta, updates)
 
 func intent_record_async_final_placement(mode_id: String, map_count: int, placement: int, paid_entry: bool, contest_scope: String = "", metadata: Dictionary = {}) -> Dictionary:
+	if _metadata_is_crucible(metadata):
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_tenths_awarded": 0}
 	var normalized_mode: String = _normalize_async_mode(mode_id)
 	if normalized_mode.is_empty():
 		return {"ok": false, "reason": "invalid_async_mode", "mode_id": mode_id}
@@ -120,6 +125,8 @@ func intent_record_async_final_placement(mode_id: String, map_count: int, placem
 	return _award_honey_tenths("async_final_placement", amount, meta, [])
 
 func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_tier: int = 0, did_win: bool = false, metadata: Dictionary = {}) -> Dictionary:
+	if _metadata_is_crucible(metadata):
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_tenths_awarded": 0}
 	var normalized_mode: String = _normalize_pvp_mode(pvp_mode_id)
 	if normalized_mode.is_empty():
 		return {"ok": false, "reason": "invalid_pvp_mode", "mode_id": pvp_mode_id}
@@ -448,6 +455,8 @@ func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null or not tree.has_meta("vs_mode"):
 		return
+	if CrucibleRulesetPolicyScript.is_crucible_tree(tree):
+		return
 	var mode_id: String = str(tree.get_meta("vs_mode", "")).strip_edges()
 	if mode_id.is_empty():
 		return
@@ -500,6 +509,9 @@ func _runtime_event_id(tree: SceneTree, mode_id: String, reason: String) -> Stri
 		tree.set_meta(nonce_scene_key, scene_id)
 	var round_index: int = maxi(0, int(tree.get_meta("vs_stage_current_index", 0)))
 	return "%s:%s:%s:%d" % [nonce, mode_id.strip_edges().to_upper(), reason.strip_edges().to_lower(), round_index]
+
+func _metadata_is_crucible(metadata: Dictionary) -> bool:
+	return CrucibleRulesetPolicyScript.is_crucible_ruleset(str(metadata.get("ruleset", metadata.get("vs_ruleset", ""))))
 
 func _resolve_local_pvp_owner_id(tree: SceneTree) -> int:
 	var runtime: Node = get_node_or_null("/root/VsPvpRuntime")

@@ -3,6 +3,7 @@ extends Node
 signal runtime_battle_pass_award(event: Dictionary)
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
+const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
 
 @export var battle_pass_state_path: NodePath = NodePath("/root/BattlePassState")
 @export var profile_manager_path: NodePath = NodePath("/root/ProfileManager")
@@ -114,6 +115,8 @@ func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 	var battle_pass_state: Node = _battle_pass_state()
 	if tree == null or battle_pass_state == null or not tree.has_meta("vs_mode"):
 		return
+	if CrucibleRulesetPolicyScript.is_crucible_tree(tree):
+		return
 	var mode_id: String = str(tree.get_meta("vs_mode", "")).strip_edges()
 	if mode_id.is_empty():
 		return
@@ -171,6 +174,7 @@ func _award_pvp_match_result(tree: SceneTree, battle_pass_state: Node, winner_id
 		winner_id > 0 and winner_id == local_owner_id,
 		{
 			"event_id": _runtime_event_id(tree, str(tree.get_meta("vs_mode", "1V1")), reason),
+			"player_id": player_id,
 			"winner_id": winner_id,
 			"reason": reason
 		}

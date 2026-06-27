@@ -38,5 +38,10 @@ export const config = {
   spectatorMaxDelaySec: parseIntValue(process.env.VS_SPECTATOR_MAX_DELAY_SEC, 30),
   spectatorLiveEnabled: parseBoolean(process.env.VS_SPECTATOR_LIVE_ENABLED, false),
   spectatorPublicEnabled: parseBoolean(process.env.VS_SPECTATOR_PUBLIC_ENABLED, false),
-  spectatorStreamMaxEvents: parseIntValue(process.env.VS_SPECTATOR_STREAM_MAX_EVENTS, 512)
+  spectatorStreamMaxEvents: parseIntValue(process.env.VS_SPECTATOR_STREAM_MAX_EVENTS, 512),
+  adminToken: process.env.VS_ADMIN_TOKEN?.trim() || "",
+  adminRole: process.env.VS_ADMIN_ROLE?.trim() || "ops_admin",
+  matchAuthorityToken: process.env.VS_MATCH_AUTHORITY_TOKEN?.trim() || "",
+  crucibleLedgerStore: process.env.CRUCIBLE_LEDGER_STORE?.trim() || "file",
+  crucibleLedgerPath: process.env.CRUCIBLE_LEDGER_PATH?.trim() || "data/crucible-ledger.json"
 };

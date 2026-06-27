@@ -1,9 +1,15 @@
 import http from "node:http";
-import { bestQuickMatchCandidateForTest, createApp } from "./server.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 type JsonRecord = Record<string, unknown>;
 
-function listen(app: ReturnType<typeof createApp>): Promise<http.Server> {
+type ListenableApp = {
+  listen: (port: number, hostname: string, callback: () => void) => http.Server;
+};
+
+function listen(app: ListenableApp): Promise<http.Server> {
   return new Promise((resolve) => {
     const server = app.listen(0, "127.0.0.1", () => resolve(server));
   });
@@ -15,18 +21,18 @@ function close(server: http.Server): Promise<void> {
   });
 }
 
-async function post(baseUrl: string, action: string, body: JsonRecord): Promise<JsonRecord> {
-  const data = await postRaw(baseUrl, action, body);
+async function post(baseUrl: string, action: string, body: JsonRecord, headers: JsonRecord = {}): Promise<JsonRecord> {
+  const data = await postRaw(baseUrl, action, body, headers);
   if (data.http_status !== 200 || data.ok !== true) {
     throw new Error(`${action} failed: ${JSON.stringify(data)}`);
   }
   return data;
 }
 
-async function postRaw(baseUrl: string, action: string, body: JsonRecord): Promise<JsonRecord> {
+async function postRaw(baseUrl: string, action: string, body: JsonRecord, headers: JsonRecord = {}): Promise<JsonRecord> {
   const response = await fetch(`${baseUrl}/${action}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...headers as Record<string, string> },
     body: JSON.stringify(body)
   });
   const data = await response.json() as JsonRecord;
@@ -41,6 +47,15 @@ function expect(condition: unknown, message: string, details?: unknown): void {
 }
 
 async function main(): Promise<void> {
+  const tempDir = mkdtempSync(join(tmpdir(), "sf-vs-crucible-"));
+  process.env.CRUCIBLE_LEDGER_PATH = join(tempDir, "crucible-ledger.json");
+  process.env.VS_ADMIN_TOKEN = "smoke_admin_token";
+  process.env.VS_ADMIN_ROLE = "ops_admin";
+  process.env.VS_MATCH_AUTHORITY_TOKEN = "smoke_match_token";
+  const adminHeaders = { "x-admin-token": "smoke_admin_token", "x-admin-role": "ops_admin" };
+  const matchHeaders = { "x-match-authority-token": "smoke_match_token" };
+  const { bestQuickMatchCandidateForTest, createApp } = await import("./server.js");
+  const { CrucibleLedger } = await import("./crucibleLedger.js");
   const server = await listen(createApp());
   const address = server.address();
   if (address == null || typeof address === "string") {
@@ -81,6 +96,7 @@ async function main(): Promise<void> {
       })
     }).then((res) => res.json() as Promise<JsonRecord>);
     expect(dashSave.ok === true && String((dashSave.contest as JsonRecord)?.id ?? "") === "WEEKLY_USD_5_SMOKE_RACE", "contest dash save failed", dashSave);
+    expect(((health.crucible as JsonRecord).match_authority_required) === true, "health missing match authority readiness", health);
 
     const context = {
       mode: "PVP",
@@ -500,6 +516,162 @@ async function main(): Promise<void> {
     await post(baseUrl, "leave_session", { session_id: String(humanPvpSecond.session_id), uid: "human_pvp_b" });
     await post(baseUrl, "leave_session", { session_id: String(humanPvpSecond.session_id), uid: "human_pvp_a" });
 
+    const crucibleConfig = await post(baseUrl, "get_crucible_config", {});
+    const crucibleConfigPayload = crucibleConfig.config as JsonRecord;
+    expect(Number(crucibleConfigPayload.config_version) > 0, "crucible config missing version", crucibleConfig);
+    const crucibleContext = {
+      ...context,
+      mode: "1V1",
+      human_pvp: true,
+      vs_ruleset: "CRUCIBLE",
+      vs_crucible: true,
+      free_roll: true,
+      crucible_config_version: crucibleConfigPayload.config_version,
+      crucible_config_hash: crucibleConfigPayload.config_hash
+    };
+    const regularContext = {
+      ...context,
+      mode: "1V1",
+      human_pvp: true
+    };
+    const regularFirst = await post(baseUrl, "enqueue_quick_match", {
+      profile: { uid: "regular_not_crucible", display_name: "Regular" },
+      context: regularContext
+    });
+    const crucibleFirst = await post(baseUrl, "enqueue_quick_match", {
+      profile: { uid: "crucible_a", display_name: "Crucible A", crucible_wax_millis: 50000 },
+      context: crucibleContext
+    });
+    expect(regularFirst.matched === false && crucibleFirst.matched === false, "regular and Crucible tickets must not match", { regularFirst, crucibleFirst });
+    const crucibleSecond = await post(baseUrl, "enqueue_quick_match", {
+      profile: { uid: "crucible_b", display_name: "Crucible B", crucible_wax_millis: 50000 },
+      context: crucibleContext
+    });
+    expect(crucibleSecond.matched === true, "Crucible second player should match", crucibleSecond);
+    const crucibleSession = crucibleSecond.session as JsonRecord;
+    const crucibleSessionContext = crucibleSession.context as JsonRecord;
+    expect(crucibleSession.status === "started", "Crucible session did not start", crucibleSecond);
+    expect(crucibleSessionContext.vs_ruleset === "CRUCIBLE", "Crucible session lost ruleset", crucibleSessionContext);
+    expect(crucibleSessionContext.crucible_ledger_status === "escrowed", "Crucible session missing escrow", crucibleSessionContext);
+    expect(Number(crucibleSessionContext.crucible_stake_each) === 2500, "Crucible stake mismatch", crucibleSessionContext);
+    const crucibleMatchId = String(crucibleSessionContext.crucible_match_id);
+    const unauthSettle = await postRaw(baseUrl, "settle_crucible_match", {
+      match_id: crucibleMatchId,
+      winner_id: "crucible_a",
+      result_source: "SERVER_MATCH_RESULT",
+      reason: "missing_match_auth"
+    });
+    expect(unauthSettle.http_status === 401 && unauthSettle.err === "match_authority_required", "Crucible settlement should require match authority", unauthSettle);
+    const crucibleSettle = await post(baseUrl, "settle_crucible_match", {
+      match_id: crucibleMatchId,
+      winner_id: "crucible_a",
+      result_source: "SERVER_MATCH_RESULT",
+      reason: "smoke_win",
+      idempotency_key: `settle:${crucibleMatchId}:crucible_a`
+    }, matchHeaders);
+    const crucibleSettlement = crucibleSettle.settlement as JsonRecord;
+    expect(String(crucibleSettlement.settlement_status) === "SETTLED", "Crucible settlement status mismatch", crucibleSettle);
+    expect(Number(crucibleSettlement.winner_payout) === 4500, "Crucible winner payout mismatch", crucibleSettle);
+
+    const noContestOpen = await post(baseUrl, "open_crucible_escrow", {
+      match_id: "crucible_no_contest_smoke",
+      player_a_id: "crucible_nc_a",
+      player_b_id: "crucible_nc_b",
+      metadata: {
+        player_balance_millis_by_id: { crucible_nc_a: 10000, crucible_nc_b: 10000 },
+        expected_config_version: crucibleConfigPayload.config_version,
+        expected_config_hash: crucibleConfigPayload.config_hash
+      },
+      idempotency_key: "open:crucible_no_contest_smoke"
+    }, matchHeaders);
+    expect((noContestOpen.escrow as JsonRecord).match_id === "crucible_no_contest_smoke", "Crucible direct escrow failed", noContestOpen);
+    const noContestSettle = await post(baseUrl, "settle_crucible_match", {
+      match_id: "crucible_no_contest_smoke",
+      winner_id: "crucible_nc_a",
+      result_source: "UI",
+      reason: "ui_attempt",
+      idempotency_key: "settle:crucible_no_contest_smoke:ui"
+    }, matchHeaders);
+    expect(String((noContestSettle.settlement as JsonRecord).settlement_status) === "NO_CONTEST", "UI source should no-contest", noContestSettle);
+
+    const lifecycleOpen = await post(baseUrl, "open_crucible_escrow", {
+      match_id: "crucible_lifecycle_smoke",
+      player_a_id: "crucible_life_a",
+      player_b_id: "crucible_life_b",
+      metadata: {
+        player_balance_millis_by_id: { crucible_life_a: 20000, crucible_life_b: 20000 },
+        expected_config_version: crucibleConfigPayload.config_version,
+        expected_config_hash: crucibleConfigPayload.config_hash
+      },
+      idempotency_key: "open:crucible_lifecycle_smoke"
+    }, matchHeaders);
+    expect(lifecycleOpen.ok === true, "Crucible lifecycle escrow failed", lifecycleOpen);
+    const lifecycle = await post(baseUrl, "record_crucible_lifecycle", {
+      match_id: "crucible_lifecycle_smoke",
+      event_type: "voluntary_quit",
+      player_id: "crucible_life_b"
+    }, matchHeaders);
+    expect(String((lifecycle.settlement as JsonRecord).winner_id) === "crucible_life_a", "voluntary quit should award opponent", lifecycle);
+
+    const heldOpen = await post(baseUrl, "open_crucible_escrow", {
+      match_id: "crucible_held_smoke",
+      player_a_id: "crucible_hold_a",
+      player_b_id: "crucible_hold_b",
+      metadata: {
+        player_balance_millis_by_id: { crucible_hold_a: 20000, crucible_hold_b: 20000 },
+        anti_collusion_signals: { unusual_win_trading: true },
+        expected_config_version: crucibleConfigPayload.config_version,
+        expected_config_hash: crucibleConfigPayload.config_hash
+      },
+      idempotency_key: "open:crucible_held_smoke"
+    }, matchHeaders);
+    expect(heldOpen.ok === true, "Crucible held escrow failed", heldOpen);
+    const heldSettle = await post(baseUrl, "settle_crucible_match", {
+      match_id: "crucible_held_smoke",
+      winner_id: "crucible_hold_a",
+      result_source: "SERVER_MATCH_RESULT",
+      reason: "risk_smoke",
+      idempotency_key: "settle:crucible_held_smoke"
+    }, matchHeaders);
+    expect(String((heldSettle.settlement as JsonRecord).settlement_status) === "HELD_REVIEW", "risk match should be held", heldSettle);
+    const heldReview = await post(baseUrl, "resolve_crucible_review", {
+      match_id: "crucible_held_smoke",
+      action: "refund",
+      actor_id: "ops_smoke",
+      idempotency_key: "review:crucible_held_smoke:refund"
+    }, adminHeaders);
+    expect(String((heldReview.settlement as JsonRecord).settlement_status) === "REFUNDED", "held match review refund failed", heldReview);
+
+    const unauthBalancePreview = await postRaw(baseUrl, "preview_crucible_entry", {
+      player_id: "preview_hint_unauth",
+      balance_millis: 10000
+    });
+    expect(unauthBalancePreview.http_status === 401 && unauthBalancePreview.err === "crucible_balance_hint_auth_required", "Crucible balance hints should require authority", unauthBalancePreview);
+    const authBalancePreview = await post(baseUrl, "preview_crucible_entry", {
+      player_id: "preview_hint_auth",
+      balance_millis: 10000
+    }, matchHeaders);
+    expect(authBalancePreview.ok === true && Number(authBalancePreview.balance_millis) === 10000, "authorized Crucible balance preview failed", authBalancePreview);
+
+    const unauthConfigPatch = await postRaw(baseUrl, "update_crucible_config", {
+      actor_id: "ops_smoke",
+      patch: { capacity_max: 2 }
+    });
+    expect(unauthConfigPatch.http_status === 401 && unauthConfigPatch.err === "admin_auth_required", "Crucible config update should require admin auth", unauthConfigPatch);
+    const configPatch = await post(baseUrl, "update_crucible_config", {
+      actor_id: "ops_smoke",
+      patch: { capacity_max: 1, reserved_slots: 1 }
+    }, adminHeaders);
+    expect(Number((configPatch.config as JsonRecord).capacity_max) === 1, "Crucible config update failed", configPatch);
+    const capacityBlocked = await postRaw(baseUrl, "preview_crucible_entry", {
+      player_id: "capacity_blocked"
+    });
+    expect(capacityBlocked.ok === false && capacityBlocked.err === "capacity", "Crucible capacity block failed", capacityBlocked);
+    await post(baseUrl, "update_crucible_config", {
+      actor_id: "ops_smoke",
+      patch: { capacity_max: 100, reserved_slots: 0 }
+    }, adminHeaders);
+
     const devQuick = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "dev_q", display_name: "Dev Q" }, context });
     const devFill = await post(baseUrl, "debug_fill_quick_match", {
       ticket_id: String(devQuick.ticket_id),
@@ -532,8 +704,24 @@ async function main(): Promise<void> {
     await post(baseUrl, "leave_session", { session_id: sessionId, uid: host.uid });
 
     console.log(JSON.stringify({ ok: true, smoke: "pass", base_url: baseUrl }));
+    const persistencePath = join(tempDir, "crucible-persistence.json");
+    const persistedLedgerA = new CrucibleLedger(persistencePath);
+    const persistedConfig = persistedLedgerA.updateConfig({ stake_bps: 1000, burn_bps: 500, config_version: 9 }, "smoke");
+    expect(persistedConfig.ok === true, "persisted config update failed", persistedConfig);
+    persistedLedgerA.setBalanceMillis("persist_a", 10000);
+    persistedLedgerA.setBalanceMillis("persist_b", 10000);
+    const persistedEscrow = persistedLedgerA.openEscrow("persist_match", "persist_a", "persist_b", {}, "persist_open");
+    expect(persistedEscrow.ok === true, "persisted escrow open failed", persistedEscrow);
+    const persistedSettlement = persistedLedgerA.settleMatch("persist_match", "persist_a", "SERVER_MATCH_RESULT", "persist_smoke", {}, "persist_settle");
+    expect(persistedSettlement.ok === true, "persisted settlement failed", persistedSettlement);
+    const persistedLedgerB = new CrucibleLedger(persistencePath);
+    const persistedSnapshot = persistedLedgerB.getSnapshot();
+    expect(Number((persistedSnapshot.config as JsonRecord).stake_bps) === 1000, "persisted config missing", persistedSnapshot.config);
+    expect(((persistedSnapshot.settlements_by_match_id as JsonRecord).persist_match as JsonRecord)?.winner_id === "persist_a", "persisted settlement missing", persistedSnapshot);
+    expect(Number((persistedSnapshot.balances_by_player as JsonRecord).persist_a) === 10900, "persisted balance missing", persistedSnapshot.balances_by_player);
   } finally {
     await close(server);
+    rmSync(tempDir, { recursive: true, force: true });
   }
 }
 

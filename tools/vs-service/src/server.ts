@@ -11,6 +11,7 @@ import {
   handleContestDashState
 } from "./contestDash.js";
 import { moneyLedger, type JsonRecord as LedgerJsonRecord } from "./moneyLedger.js";
+import { crucibleLedger } from "./crucibleLedger.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -24,6 +25,7 @@ type Player = {
   wax_score?: number;
   color_id?: string;
   balance_cents?: number;
+  crucible_wax_millis?: number;
 };
 
 type Session = {
@@ -52,6 +54,7 @@ type QueueTicket = {
   wax_score: number;
   color_id: string;
   balance_cents?: number;
+  crucible_wax_millis?: number;
 };
 
 type Presence = {
@@ -174,6 +177,82 @@ function boolValue(value: unknown): boolean {
   return ["1", "true", "yes", "on"].includes(normalized);
 }
 
+function adminTokenFromRequest(req: Request): string {
+  const headerToken = stringValue(req.header("x-admin-token"));
+  if (headerToken) {
+    return headerToken;
+  }
+  const auth = stringValue(req.header("authorization"));
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    return auth.slice(7).trim();
+  }
+  return stringValue((req.body as JsonRecord | undefined)?.admin_token);
+}
+
+function requireAdmin(req: Request, res: Response): boolean {
+  if (!config.adminToken) {
+    return true;
+  }
+  if (adminTokenFromRequest(req) !== config.adminToken) {
+    fail(res, "admin_auth_required", 401, { required_role: config.adminRole });
+    return false;
+  }
+  const role = stringValue(req.header("x-admin-role") || (req.body as JsonRecord | undefined)?.admin_role || config.adminRole);
+  if (role !== config.adminRole) {
+    fail(res, "admin_role_required", 403, { required_role: config.adminRole });
+    return false;
+  }
+  return true;
+}
+
+function requestHasAdminAuthority(req: Request): boolean {
+  if (!config.adminToken) {
+    return false;
+  }
+  if (adminTokenFromRequest(req) !== config.adminToken) {
+    return false;
+  }
+  const role = stringValue(req.header("x-admin-role") || (req.body as JsonRecord | undefined)?.admin_role || config.adminRole);
+  return role === config.adminRole;
+}
+
+function matchAuthorityTokenFromRequest(req: Request): string {
+  const headerToken = stringValue(req.header("x-match-authority-token") || req.header("x-match-token"));
+  if (headerToken) {
+    return headerToken;
+  }
+  const auth = stringValue(req.header("authorization"));
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    return auth.slice(7).trim();
+  }
+  return stringValue((req.body as JsonRecord | undefined)?.match_authority_token);
+}
+
+function requireMatchAuthority(req: Request, res: Response): boolean {
+  if (!config.matchAuthorityToken) {
+    return true;
+  }
+  if (matchAuthorityTokenFromRequest(req) === config.matchAuthorityToken) {
+    return true;
+  }
+  fail(res, "match_authority_required", 401, { authority: "server_match_result" });
+  return false;
+}
+
+function requestHasMatchAuthority(req: Request): boolean {
+  if (!config.matchAuthorityToken) {
+    return false;
+  }
+  return matchAuthorityTokenFromRequest(req) === config.matchAuthorityToken;
+}
+
+function requestMayProvideCrucibleBalanceHint(req: Request): boolean {
+  if (!config.adminToken && !config.matchAuthorityToken) {
+    return true;
+  }
+  return requestHasAdminAuthority(req) || requestHasMatchAuthority(req);
+}
+
 function numberValue(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -194,6 +273,17 @@ function profileBalanceCents(value: JsonRecord): number | undefined {
   }
   if (isRecord(value.wallet)) {
     return optionalCentsValue(value.wallet.balance_cents ?? value.wallet.cash_balance_cents);
+  }
+  return undefined;
+}
+
+function profileCrucibleWaxMillis(value: JsonRecord): number | undefined {
+  const direct = optionalCentsValue(value.crucible_wax_millis ?? value.crucible_wax ?? value.wax_millis);
+  if (direct != null) {
+    return direct;
+  }
+  if (isRecord(value.wallet)) {
+    return optionalCentsValue(value.wallet.crucible_wax_millis ?? value.wallet.wax_millis);
   }
   return undefined;
 }
@@ -225,7 +315,8 @@ function normalizeProfile(value: unknown, fallbackName: string): Player | null {
     rank_position: Math.max(0, Math.trunc(numberValue(value.rank_position, 0))),
     wax_score: numberValue(value.wax_score, 0),
     color_id: stringValue(value.color_id).toUpperCase() || "GREEN",
-    balance_cents: profileBalanceCents(value)
+    balance_cents: profileBalanceCents(value),
+    crucible_wax_millis: profileCrucibleWaxMillis(value)
   };
 }
 
@@ -323,7 +414,8 @@ function newSession(host: Player, context: JsonRecord, source: "invite" | "quick
       rank_position: host.rank_position,
       wax_score: host.wax_score,
       color_id: host.color_id,
-      balance_cents: host.balance_cents
+      balance_cents: host.balance_cents,
+      crucible_wax_millis: host.crucible_wax_millis
     },
     guest: { uid: "", display_name: "", ready: false },
     close_reason: ""
@@ -342,6 +434,10 @@ function contextIsPaid(context: JsonRecord): boolean {
   return boolValue(context.paid_entry) || numberValue(context.wager_cents, 0) > 0 || numberValue(context.price_usd, 0) > 0;
 }
 
+function contextIsCrucible(context: JsonRecord): boolean {
+  return stringValue(context.vs_ruleset ?? context.ruleset).toUpperCase() === "CRUCIBLE" || boolValue(context.vs_crucible);
+}
+
 function contextWagerCents(context: JsonRecord): number {
   const wagerCents = Math.trunc(numberValue(context.wager_cents, 0));
   if (wagerCents > 0) {
@@ -349,6 +445,16 @@ function contextWagerCents(context: JsonRecord): number {
   }
   const priceUsd = numberValue(context.price_usd, 0);
   return Math.max(0, Math.round(priceUsd * 100));
+}
+
+function activeCrucibleCount(): number {
+  let count = queue.filter((ticket) => contextIsCrucible(ticket.context)).length;
+  for (const session of sessions.values()) {
+    if (session.status !== "closed" && contextIsCrucible(session.context)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function sessionFundingPlayer(player: Player): { player_id: string; balance_cents?: number } {
@@ -359,6 +465,60 @@ function sessionFundingPlayer(player: Player): { player_id: string; balance_cent
 }
 
 function startSessionAuthoritatively(session: Session): LedgerJsonRecord {
+  if (contextIsCrucible(session.context)) {
+    if (!session.host.uid || !session.guest.uid) {
+      return { ok: false, err: "not_enough_players", code: "not_enough_players" };
+    }
+    const matchId = stringValue(session.context.crucible_match_id) || `crucible_${session.id}`;
+    const configSnapshot = crucibleLedger.getConfigSnapshot();
+    const escrow = crucibleLedger.openEscrow(
+      matchId,
+      session.host.uid,
+      session.guest.uid,
+      {
+        expected_config_version: session.context.crucible_config_version ?? configSnapshot.config_version,
+        expected_config_hash: session.context.crucible_config_hash ?? configSnapshot.config_hash,
+        session_id: session.id,
+        player_balance_millis_by_id: {
+          [session.host.uid]: session.host.crucible_wax_millis,
+          [session.guest.uid]: session.guest.crucible_wax_millis
+        },
+        anti_collusion_signals: {
+          repeated_same_opponent: false,
+          unusual_win_trading: false,
+          same_device_cluster: false,
+          same_ip_pattern: false,
+          suspicious_forfeit: false,
+          high_stakes_repeated_transfer: false
+        }
+      },
+      `open:${matchId}`
+    );
+    if (escrow.ok !== true) {
+      return escrow;
+    }
+    const escrowRecord = isRecord(escrow.escrow) ? escrow.escrow : {};
+    session.context = {
+      ...session.context,
+      mode: "1V1",
+      vs_mode: "1V1",
+      vs_ruleset: "CRUCIBLE",
+      vs_crucible: true,
+      free_roll: true,
+      paid_entry: false,
+      crucible_match_id: matchId,
+      crucible_ledger_status: "escrowed",
+      crucible_escrow_id: escrowRecord.escrow_id,
+      crucible_stake_each: escrowRecord.stake_each,
+      crucible_pot: escrowRecord.pot,
+      crucible_burn: escrowRecord.burn,
+      crucible_winner_payout: escrowRecord.winner_payout,
+      crucible_config_version: escrowRecord.config_version,
+      crucible_config_hash: escrowRecord.config_hash
+    };
+    markSessionStarted(session);
+    return { ok: true, session, escrow };
+  }
   if (!contextIsPaid(session.context)) {
     markSessionStarted(session);
     return { ok: true, session };
@@ -486,8 +646,8 @@ function contextsCompatible(a: JsonRecord, b: JsonRecord): boolean {
     return false;
   }
   const keys = Boolean(a.human_pvp ?? false) || Boolean(b.human_pvp ?? false)
-    ? ["contest_id", "contest_scope"]
-    : ["map_ids", "stage_map_paths", "contest_id", "contest_scope"];
+    ? ["contest_id", "contest_scope", "vs_ruleset", "vs_crucible"]
+    : ["map_ids", "stage_map_paths", "contest_id", "contest_scope", "vs_ruleset", "vs_crucible"];
   return keys.every((key) => contextValueMatches(a, b, key));
 }
 
@@ -544,7 +704,8 @@ export function bestQuickMatchCandidateForTest(playerValue: JsonRecord, context:
       tier_id: normalizeTier(candidateValue.tier_id),
       rank_position: Math.max(0, Math.trunc(numberValue(candidateValue.rank_position, 0))),
       wax_score: numberValue(candidateValue.wax_score, 0),
-      color_id: stringValue(candidateValue.color_id).toUpperCase() || "GREEN"
+      color_id: stringValue(candidateValue.color_id).toUpperCase() || "GREEN",
+      crucible_wax_millis: optionalCentsValue(candidateValue.crucible_wax_millis)
     };
     if (candidate.uid === player.uid || !contextsCompatible(context, candidate.context)) {
       continue;
@@ -649,6 +810,28 @@ function handleAction(req: Request, res: Response): void {
       return getMoneyPayoutSummary(req, res);
     case "debug_get_money_ledger_snapshot":
       return debugGetMoneyLedgerSnapshot(req, res);
+    case "get_crucible_config":
+      return getCrucibleConfig(req, res);
+    case "update_crucible_config":
+      return updateCrucibleConfig(req, res);
+    case "preview_crucible_entry":
+      return previewCrucibleEntry(req, res);
+    case "open_crucible_escrow":
+      return openCrucibleEscrow(req, res);
+    case "settle_crucible_match":
+      return settleCrucibleMatch(req, res);
+    case "refund_crucible_match":
+      return refundCrucibleMatch(req, res);
+    case "resolve_crucible_review":
+      return resolveCrucibleReview(req, res);
+    case "record_crucible_lifecycle":
+      return recordCrucibleLifecycle(req, res);
+    case "award_crucible_wax":
+      return awardCrucibleWax(req, res);
+    case "debug_set_crucible_balance":
+      return debugSetCrucibleBalance(req, res);
+    case "debug_get_crucible_snapshot":
+      return debugGetCrucibleSnapshot(req, res);
     case "leave_session":
       return leaveSession(req, res);
     case "heartbeat":
@@ -991,7 +1174,8 @@ function joinInvite(req: Request, res: Response): void {
     rank_position: guest.rank_position,
     wax_score: guest.wax_score,
     color_id: guest.color_id,
-    balance_cents: guest.balance_cents
+    balance_cents: guest.balance_cents,
+    crucible_wax_millis: guest.crucible_wax_millis
   };
   const startResult = startSessionAuthoritatively(session);
   if (startResult.ok !== true) {
@@ -1024,7 +1208,8 @@ function enqueueQuickMatch(req: Request, res: Response): void {
       rank_position: other.rank_position,
       wax_score: other.wax_score,
       color_id: other.color_id,
-      balance_cents: other.balance_cents
+      balance_cents: other.balance_cents,
+      crucible_wax_millis: other.crucible_wax_millis
     };
     const session = newSession(host, other.context, "quick");
     session.guest = {
@@ -1036,7 +1221,8 @@ function enqueueQuickMatch(req: Request, res: Response): void {
       rank_position: player.rank_position,
       wax_score: player.wax_score,
       color_id: player.color_id,
-      balance_cents: player.balance_cents
+      balance_cents: player.balance_cents,
+      crucible_wax_millis: player.crucible_wax_millis
     };
     const startResult = startSessionAuthoritatively(session);
     if (startResult.ok !== true) {
@@ -1046,6 +1232,15 @@ function enqueueQuickMatch(req: Request, res: Response): void {
     sessions.set(session.id, session);
     inviteToSession.set(session.invite_code, session.id);
     return ok(res, { matched: true, session_id: session.id, session: cloneSession(session) });
+  }
+  if (contextIsCrucible(context)) {
+    if (player.crucible_wax_millis != null) {
+      crucibleLedger.setBalanceMillis(player.uid, player.crucible_wax_millis);
+    }
+    const entryStatus = crucibleLedger.previewEntryStatus(player.uid, activeCrucibleCount(), false);
+    if (entryStatus.ok !== true) {
+      return failLedger(res, entryStatus, entryStatus.err === "capacity" ? 409 : 402);
+    }
   }
   const ticket: QueueTicket = {
     id: nextTicketId(),
@@ -1058,7 +1253,8 @@ function enqueueQuickMatch(req: Request, res: Response): void {
     rank_position: Number(player.rank_position ?? 0),
     wax_score: Number(player.wax_score ?? 0),
     color_id: String(player.color_id ?? "GREEN"),
-    balance_cents: player.balance_cents
+    balance_cents: player.balance_cents,
+    crucible_wax_millis: player.crucible_wax_millis
   };
   queue.push(ticket);
   return ok(res, { matched: false, ticket_id: ticket.id });
@@ -1118,13 +1314,15 @@ function debugFillQuickMatch(req: Request, res: Response): void {
     display_name: ticket.display_name || "Player",
     ready: false,
     ticket_id: ticketId,
-    balance_cents: ticket.balance_cents
+    balance_cents: ticket.balance_cents,
+    crucible_wax_millis: ticket.crucible_wax_millis
   };
   const session = newSession(host, ticket.context, "quick");
   session.guest = {
     uid: nextBotUid(),
     display_name: botName,
-    ready: true
+    ready: true,
+    crucible_wax_millis: ticket.crucible_wax_millis
   };
   const startResult = startSessionAuthoritatively(session);
   if (startResult.ok !== true) {
@@ -1426,12 +1624,173 @@ function debugGetMoneyLedgerSnapshot(_req: Request, res: Response): void {
   return ok(res, { ledger: moneyLedger.getSnapshot() });
 }
 
+function getCrucibleConfig(_req: Request, res: Response): void {
+  return ok(res, {
+    config: crucibleLedger.getConfigSnapshot(),
+    active_crucible_count: activeCrucibleCount(),
+    storage: crucibleLedger.getStorageSnapshot(),
+    authority: {
+      match_authority_required: Boolean(config.matchAuthorityToken),
+      admin_auth_required: Boolean(config.adminToken)
+    }
+  });
+}
+
+function updateCrucibleConfig(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  const patch = isRecord(req.body?.patch) ? req.body.patch : (req.body ?? {});
+  const result = crucibleLedger.updateConfig(patch, stringValue(req.body?.actor_id) || "ops");
+  return ok(res, result);
+}
+
+function previewCrucibleEntry(req: Request, res: Response): void {
+  const body = (req.body ?? {}) as JsonRecord;
+  const playerId = stringValue(body.player_id);
+  const balance = optionalCentsValue(body.balance_millis ?? body.crucible_wax_millis);
+  if (balance != null) {
+    if (!requestMayProvideCrucibleBalanceHint(req)) {
+      fail(res, "crucible_balance_hint_auth_required", 401, { authority: "admin_or_match_authority" });
+      return;
+    }
+    crucibleLedger.setBalanceMillis(playerId, balance);
+  }
+  const count = body.active_crucible_count == null ? activeCrucibleCount() : Math.max(0, Math.trunc(numberValue(body.active_crucible_count, 0)));
+  const result = crucibleLedger.previewEntryStatus(playerId, count, boolValue(body.has_priority_access));
+  return okOrLedgerFailure(res, result, result.err === "capacity" ? 409 : 402);
+}
+
+function openCrucibleEscrow(req: Request, res: Response): void {
+  if (!requireMatchAuthority(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = crucibleLedger.openEscrow(
+    stringValue(body.match_id),
+    stringValue(body.player_a_id),
+    stringValue(body.player_b_id),
+    metadata,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result, 402);
+}
+
+function settleCrucibleMatch(req: Request, res: Response): void {
+  if (!requireMatchAuthority(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = crucibleLedger.settleMatch(
+    stringValue(body.match_id),
+    stringValue(body.winner_id),
+    stringValue(body.result_source),
+    stringValue(body.reason),
+    metadata,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function refundCrucibleMatch(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = crucibleLedger.refundMatch(
+    stringValue(body.match_id),
+    stringValue(body.reason),
+    stringValue(body.result_source) || "SERVER_MATCH_RESULT",
+    metadata,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function resolveCrucibleReview(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = crucibleLedger.resolveReview(
+    stringValue(body.match_id),
+    stringValue(body.action),
+    stringValue(body.actor_id) || "ops",
+    metadata,
+    stringValue(body.idempotency_key)
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function recordCrucibleLifecycle(req: Request, res: Response): void {
+  if (!requireMatchAuthority(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = crucibleLedger.recordLifecycle(
+    stringValue(body.match_id),
+    stringValue(body.event_type),
+    stringValue(body.player_id),
+    metadata
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function awardCrucibleWax(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as JsonRecord;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const result = crucibleLedger.awardWax(
+    stringValue(body.player_id),
+    Math.trunc(numberValue(body.amount_millis, 0)),
+    stringValue(body.source),
+    metadata
+  );
+  return okOrLedgerFailure(res, result);
+}
+
+function debugSetCrucibleBalance(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  const result = crucibleLedger.setBalanceMillis(stringValue(req.body?.player_id), Math.trunc(numberValue(req.body?.balance_millis, 0)));
+  return okOrLedgerFailure(res, result);
+}
+
+function debugGetCrucibleSnapshot(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  return ok(res, { ledger: crucibleLedger.getSnapshot() });
+}
+
 function leaveSession(req: Request, res: Response): void {
   const sessionId = stringValue(req.body?.session_id);
   const uid = stringValue(req.body?.uid);
   const session = sessions.get(sessionId);
   if (!session || !uid) {
     return fail(res, "session_not_found", 404);
+  }
+  if (session.status === "started" && contextIsCrucible(session.context) && sessionHasPlayer(session, uid)) {
+    const matchId = stringValue(session.context.crucible_match_id) || `crucible_${session.id}`;
+    const settlement = crucibleLedger.recordLifecycle(matchId, "voluntary_quit", uid, {
+      session_id: session.id,
+      suspicious_forfeit: true
+    });
+    session.context = {
+      ...session.context,
+      crucible_ledger_status: settlement.ok === true ? "settled" : "settlement_failed",
+      crucible_leave_result: settlement
+    };
+    closeSession(sessionId, uid === session.host.uid ? "host_left_forfeit" : "guest_left_forfeit");
+    return ok(res, { closed: true, settlement });
   }
   if (session.host.uid === uid) {
     closeSession(sessionId, "host_left");
@@ -1665,7 +2024,14 @@ export function createApp(): express.Express {
       sessions: sessions.size,
       queue: queue.length,
       spectator_grants: spectatorGrants.size,
-      spectator_snapshot_streams: spectatorSnapshotStreams.size
+      spectator_snapshot_streams: spectatorSnapshotStreams.size,
+      crucible: {
+        storage: crucibleLedger.getStorageSnapshot(),
+        configured_storage: config.crucibleLedgerStore,
+        configured_path: config.crucibleLedgerPath,
+        admin_auth_required: Boolean(config.adminToken),
+        match_authority_required: Boolean(config.matchAuthorityToken)
+      }
     });
   });
   app.get("/", (_req, res) => {
@@ -1686,6 +2052,13 @@ export function createApp(): express.Express {
         health: "/v1/health",
         create_invite: "POST /v1/create_invite",
         contest_dash_config: "GET/POST /v1/contest_dash/config"
+      },
+      crucible: {
+        storage: crucibleLedger.getStorageSnapshot(),
+        configured_storage: config.crucibleLedgerStore,
+        configured_path: config.crucibleLedgerPath,
+        admin_auth_required: Boolean(config.adminToken),
+        match_authority_required: Boolean(config.matchAuthorityToken)
       }
     });
   });
@@ -1698,7 +2071,14 @@ export function createApp(): express.Express {
       sessions: sessions.size,
       queue: queue.length,
       spectator_grants: spectatorGrants.size,
-      spectator_snapshot_streams: spectatorSnapshotStreams.size
+      spectator_snapshot_streams: spectatorSnapshotStreams.size,
+      crucible: {
+        storage: crucibleLedger.getStorageSnapshot(),
+        configured_storage: config.crucibleLedgerStore,
+        configured_path: config.crucibleLedgerPath,
+        admin_auth_required: Boolean(config.adminToken),
+        match_authority_required: Boolean(config.matchAuthorityToken)
+      }
     });
   });
   app.get("/v1/contest_dash/config", (req, res, next) => {

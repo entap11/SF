@@ -23,10 +23,16 @@ const PROFILE_KEY_UNLOCKED_ACHIEVEMENTS: String = "unlocked_achievements"
 const PROFILE_KEY_POWERBAR_THEME: String = "cosmetic_powerbar_theme"
 const PROFILE_KEY_GARAGE_SELECTIONS: String = "garage_selections"
 const PROFILE_KEY_SOCIAL_DESTINATIONS: String = "social_destinations"
+const PROFILE_KEY_FORCED_RENAME_REQUIRED: String = "forced_rename_required"
+const PROFILE_KEY_FORCED_RENAME_REASON: String = "forced_rename_reason"
+const PROFILE_KEY_FORCED_RENAME_ACTION_ID: String = "forced_rename_action_id"
+const USER_ID_PREFIX: String = "u_"
+const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player_"
 const DISPLAY_NAME_MIN_LEN: int = 3
 const DISPLAY_NAME_MAX_LEN: int = 16
 const HANDLE_RENAME_COOLDOWN_SEC: int = 365 * 24 * 60 * 60
+const HANDLE_EXTRA_CHANGE_HONEY_COST: int = 25
 const HANDLE_POLICY_VERSION: int = 1
 const BUFF_LOADOUT_SIZE: int = 3
 const BUFF_MODE_VS: String = "vs"
@@ -106,6 +112,9 @@ var _next_handle_change_unix: int = 0
 var _handle_change_count: int = 0
 var _handle_locked: bool = false
 var _handle_history: Array = []
+var _forced_rename_required: bool = false
+var _forced_rename_reason: String = ""
+var _forced_rename_action_id: String = ""
 var _owned_buff_ids: Array[String] = []
 var _buff_loadout_ids: Array[String] = []
 var _owned_buff_ids_by_mode: Dictionary = {}
@@ -165,6 +174,9 @@ func ensure_loaded() -> void:
 		_handle_change_count = maxi(0, int(cfg.get_value(PROFILE_SECTION, "handle_change_count", 0)))
 		_handle_locked = bool(cfg.get_value(PROFILE_SECTION, "handle_locked", false))
 		_handle_history = _sanitize_handle_history(cfg.get_value(PROFILE_SECTION, "handle_history", []))
+		_forced_rename_required = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_FORCED_RENAME_REQUIRED, false))
+		_forced_rename_reason = _sanitize_moderation_reason(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_FORCED_RENAME_REASON, "")))
+		_forced_rename_action_id = _sanitize_moderation_action_id(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_FORCED_RENAME_ACTION_ID, "")))
 		_controls_hint_seen = bool(cfg.get_value(PROFILE_SECTION, "controls_hint_seen", false))
 		_tutorial_section1_status = _sanitize_tutorial_section1_status(
 			str(cfg.get_value(PROFILE_SECTION, "tutorial_section1_status", TUTORIAL_SECTION1_STATUS_NOT_STARTED))
@@ -218,6 +230,9 @@ func ensure_loaded() -> void:
 		_handle_change_count = 0
 		_handle_locked = false
 		_handle_history = []
+		_forced_rename_required = false
+		_forced_rename_reason = ""
+		_forced_rename_action_id = ""
 		_onboarding_complete = false
 		_controls_hint_seen = false
 		_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_NOT_STARTED
@@ -266,7 +281,7 @@ func ensure_loaded() -> void:
 			_handle_changed_at_unix = _created_at_unix
 			updated = true
 		if _next_handle_change_unix <= 0 and _handle_chosen:
-			_next_handle_change_unix = _handle_changed_at_unix + HANDLE_RENAME_COOLDOWN_SEC
+			_next_handle_change_unix = _first_day_of_next_calendar_year_unix(_handle_changed_at_unix)
 			updated = true
 		var clean_mode: String = _sanitize_performance_mode(_performance_mode)
 		if clean_mode != _performance_mode:
@@ -441,15 +456,37 @@ func get_handle(uid: String) -> String:
 	return ""
 
 func set_display_name(name: String) -> void:
-	request_handle_change(name, false, "settings")
+	request_handle_change(name, true, "legacy_set_display_name")
 
 func request_paid_display_name_change(name: String, source: String = "paid_rename") -> Dictionary:
 	return request_handle_change(name, true, source)
+
+func request_honey_display_name_change(name: String, source: String = "honey_rename") -> Dictionary:
+	ensure_loaded()
+	var preview: Dictionary = request_handle_change(name, false, source + "_preview")
+	if bool(preview.get("ok", false)):
+		return preview
+	if str(preview.get("reason", "")) != "requires_honey_payment":
+		return preview
+	return {
+		"ok": false,
+		"reason": "requires_honey_payment",
+		"message": "Additional Call Sign changes require Honey.",
+		"honey_cost": HANDLE_EXTRA_CHANGE_HONEY_COST,
+		"payment_action": "spend_honey_then_call_request_paid_display_name_change"
+	}
 
 func request_handle_change(name: String, paid_override: bool = false, source: String = "settings") -> Dictionary:
 	ensure_loaded()
 	var raw_clean: String = name.strip_edges()
 	if raw_clean == _call_sign.strip_edges() and _handle_chosen:
+		if _forced_rename_required:
+			return {
+				"ok": false,
+				"reason": "forced_rename_required",
+				"message": "A moderator-required Call Sign change must choose a new Call Sign.",
+				"forced_rename_action_id": _forced_rename_action_id
+			}
 		return {
 			"ok": true,
 			"changed": false,
@@ -481,12 +518,13 @@ func request_handle_change(name: String, paid_override: bool = false, source: St
 		}
 	var now_unix: int = int(Time.get_unix_time_from_system())
 	var is_initial_pick: bool = not _handle_chosen
-	if not is_initial_pick and not paid_override and now_unix < _next_handle_change_unix:
+	if not is_initial_pick and not paid_override and not _forced_rename_required and _free_handle_change_used_in_calendar_year(_calendar_year_from_unix(now_unix)):
 		return {
 			"ok": false,
-			"reason": "cooldown",
-			"message": "Free handle changes are available once per year.",
-			"next_free_change_unix": _next_handle_change_unix
+			"reason": "requires_honey_payment",
+			"message": "One free Call Sign change is available per calendar year. Additional changes require Honey.",
+			"honey_cost": HANDLE_EXTRA_CHANGE_HONEY_COST,
+			"current_calendar_year": _calendar_year_from_unix(now_unix)
 		}
 	var old_handle: String = _call_sign
 	_call_sign = cleaned
@@ -494,7 +532,13 @@ func request_handle_change(name: String, paid_override: bool = false, source: St
 	_handle_chosen = true
 	_handle_changed_at_unix = now_unix
 	if is_initial_pick or not paid_override:
-		_next_handle_change_unix = now_unix + HANDLE_RENAME_COOLDOWN_SEC
+		_next_handle_change_unix = _first_day_of_next_calendar_year_unix(now_unix)
+	var forced_action_id: String = _forced_rename_action_id
+	var forced_reason: String = _forced_rename_reason
+	var cleared_forced_rename: bool = _forced_rename_required
+	_forced_rename_required = false
+	_forced_rename_reason = ""
+	_forced_rename_action_id = ""
 	_handle_change_count += 1
 	_handle_history.append({
 		"old": old_handle,
@@ -502,7 +546,10 @@ func request_handle_change(name: String, paid_override: bool = false, source: St
 		"changed_at_unix": now_unix,
 		"source": source,
 		"paid": paid_override,
-		"initial": is_initial_pick
+		"initial": is_initial_pick,
+		"calendar_year": _calendar_year_from_unix(now_unix),
+		"moderation_forced": cleared_forced_rename,
+		"moderation_action_id": forced_action_id
 	})
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_DISPLAY_NAME_SET", {
@@ -519,7 +566,11 @@ func request_handle_change(name: String, paid_override: bool = false, source: St
 		"call_sign": _call_sign,
 		"next_free_change_unix": _next_handle_change_unix,
 		"initial": is_initial_pick,
-		"paid": paid_override
+		"paid": paid_override,
+		"honey_cost": HANDLE_EXTRA_CHANGE_HONEY_COST if paid_override else 0,
+		"forced_rename_cleared": cleared_forced_rename,
+		"forced_rename_reason": forced_reason,
+		"forced_rename_action_id": forced_action_id
 	}
 
 func is_handle_chosen() -> bool:
@@ -533,12 +584,78 @@ func get_handle_policy_snapshot() -> Dictionary:
 		"policy_version": HANDLE_POLICY_VERSION,
 		"handle_chosen": _handle_chosen,
 		"handle_locked": _handle_locked,
+		"forced_rename_required": _forced_rename_required,
+		"forced_rename_reason": _forced_rename_reason,
+		"forced_rename_action_id": _forced_rename_action_id,
 		"handle_change_count": _handle_change_count,
 		"handle_changed_at_unix": _handle_changed_at_unix,
 		"next_free_change_unix": _next_handle_change_unix,
-		"free_change_available": (not _handle_chosen) or (not _handle_locked and now_unix >= _next_handle_change_unix),
+		"free_change_available": (not _handle_chosen) or _forced_rename_required or (not _handle_locked and not _free_handle_change_used_in_calendar_year(_calendar_year_from_unix(now_unix))),
 		"paid_change_available": _handle_chosen and not _handle_locked,
-		"cooldown_sec": HANDLE_RENAME_COOLDOWN_SEC
+		"cooldown_sec": HANDLE_RENAME_COOLDOWN_SEC,
+		"calendar_year": _calendar_year_from_unix(now_unix),
+		"free_change_used_this_year": _free_handle_change_used_in_calendar_year(_calendar_year_from_unix(now_unix)),
+		"honey_change_cost": HANDLE_EXTRA_CHANGE_HONEY_COST
+	}
+
+func require_forced_handle_change(reason: String, moderation_action_id: String = "") -> Dictionary:
+	ensure_loaded()
+	_forced_rename_required = true
+	_forced_rename_reason = _sanitize_moderation_reason(reason)
+	_forced_rename_action_id = _sanitize_moderation_action_id(moderation_action_id)
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_FORCED_RENAME_REQUIRED", {
+		"user_id": _user_id,
+		"reason": _forced_rename_reason,
+		"action_id": _forced_rename_action_id
+	})
+	return {
+		"ok": true,
+		"forced_rename_required": _forced_rename_required,
+		"reason": _forced_rename_reason,
+		"action_id": _forced_rename_action_id
+	}
+
+func clear_forced_handle_change(reason: String = "moderator_clear") -> Dictionary:
+	ensure_loaded()
+	if not _forced_rename_required and _forced_rename_reason.is_empty() and _forced_rename_action_id.is_empty():
+		return {"ok": true, "changed": false}
+	_forced_rename_required = false
+	_forced_rename_reason = ""
+	_forced_rename_action_id = ""
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_FORCED_RENAME_CLEARED", {"user_id": _user_id, "reason": reason})
+	return {"ok": true, "changed": true}
+
+func get_public_identity_snapshot() -> Dictionary:
+	ensure_loaded()
+	return {
+		"schema_version": 1,
+		"player_id": _user_id,
+		"public_player_id": _public_player_id(_user_id),
+		"call_sign": _display_name,
+		"display_name": _display_name,
+		"handle_policy_version": HANDLE_POLICY_VERSION,
+		"identity_authority": "sf_local"
+	}
+
+func get_private_profile_snapshot() -> Dictionary:
+	ensure_loaded()
+	return {
+		"schema_version": 1,
+		"user_id": _user_id,
+		"public_player_id": _public_player_id(_user_id),
+		"display_name": _display_name,
+		"created_at_unix": _created_at_unix,
+		"onboarding_complete": _onboarding_complete,
+		"handle_policy": get_handle_policy_snapshot(),
+		"handle_history": _handle_history.duplicate(true),
+		"communication_preferences": _social_destinations.duplicate(true),
+		"privacy_posture": {
+			"public_identity_includes_financial_identity": false,
+			"public_identity_includes_private_contact": false,
+			"public_identity_includes_payment_identity": false
+		}
 	}
 
 func apply_backend_identity(identity: Dictionary) -> bool:
@@ -1230,6 +1347,9 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "handle_change_count", _handle_change_count)
 	cfg.set_value(PROFILE_SECTION, "handle_locked", _handle_locked)
 	cfg.set_value(PROFILE_SECTION, "handle_history", _handle_history)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_FORCED_RENAME_REQUIRED, _forced_rename_required)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_FORCED_RENAME_REASON, _forced_rename_reason)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_FORCED_RENAME_ACTION_ID, _forced_rename_action_id)
 	if created_at > 0:
 		cfg.set_value(PROFILE_SECTION, "created_at_unix", created_at)
 	cfg.set_value(PROFILE_SECTION, "onboarding_complete", onboarding_complete)
@@ -1345,9 +1465,16 @@ static func validate_handle_policy(raw_handle: String) -> Dictionary:
 	var lower_handle: String = handle.to_lower()
 	if lower_handle != "swarmfather" and compact.begins_with("swarm") and (compact.contains("father") or compact.contains("daddy") or compact.contains("daddi") or compact.contains("dad")):
 		return _handle_reject("reserved_founder", "That handle is reserved.")
-	for protected_term in ["admin", "moderator", "mod", "support", "official", "developer", "devteam", "staff"]:
+	for protected_term in ["admin", "moderator", "support", "official", "developer", "devteam", "staff"]:
 		if compact == protected_term or compact.begins_with(protected_term + "_") or compact.ends_with("_" + protected_term):
 			return _handle_reject("reserved_staff", "That handle could be confused with staff.")
+		if compact.begins_with(protected_term) or compact.ends_with(protected_term):
+			return _handle_reject("reserved_staff", "That handle could be confused with staff.")
+	if compact == "mod" or compact.begins_with("mod_") or compact.ends_with("_mod"):
+		return _handle_reject("reserved_staff", "That handle could be confused with staff.")
+	for reserved_identity in ["entap", "swarmfront", "officialswarmfront", "swarmfrontofficial", "mattballou"]:
+		if compact == reserved_identity or compact.begins_with(reserved_identity + "_") or compact.ends_with("_" + reserved_identity):
+			return _handle_reject("reserved_identity", "That handle is reserved.")
 	var hard_terms: Array[String] = [
 		"fuck", "fuk", "fck", "fvck", "shit", "cunt",
 		"rape", "rapist", "molest", "incest", "pedo", "pedophile",
@@ -1438,9 +1565,64 @@ func _sanitize_handle_history(values_v: Variant) -> Array:
 			"changed_at_unix": int(item.get("changed_at_unix", 0)),
 			"source": str(item.get("source", "")),
 			"paid": bool(item.get("paid", false)),
-			"initial": bool(item.get("initial", false))
+			"initial": bool(item.get("initial", false)),
+			"calendar_year": int(item.get("calendar_year", _calendar_year_from_unix(int(item.get("changed_at_unix", 0))))),
+			"moderation_forced": bool(item.get("moderation_forced", false)),
+			"moderation_action_id": _sanitize_moderation_action_id(str(item.get("moderation_action_id", "")))
 		})
 	return out
+
+func _free_handle_change_used_in_calendar_year(year: int) -> bool:
+	for item_any in _handle_history:
+		if typeof(item_any) != TYPE_DICTIONARY:
+			continue
+		var item: Dictionary = item_any as Dictionary
+		if bool(item.get("initial", false)):
+			continue
+		if bool(item.get("paid", false)):
+			continue
+		if bool(item.get("moderation_forced", false)):
+			continue
+		var item_year: int = int(item.get("calendar_year", _calendar_year_from_unix(int(item.get("changed_at_unix", 0)))))
+		if item_year == year:
+			return true
+	return false
+
+func _calendar_year_from_unix(unix_time: int) -> int:
+	var dt: Dictionary = Time.get_datetime_dict_from_unix_time(maxi(0, unix_time))
+	var year: int = int(dt.get("year", 0))
+	if year <= 0:
+		year = int(Time.get_datetime_dict_from_system().get("year", 0))
+	return year
+
+func _first_day_of_next_calendar_year_unix(unix_time: int) -> int:
+	var year: int = _calendar_year_from_unix(unix_time)
+	return int(Time.get_unix_time_from_datetime_dict({
+		"year": year + 1,
+		"month": 1,
+		"day": 1,
+		"hour": 0,
+		"minute": 0,
+		"second": 0
+	}))
+
+func _sanitize_moderation_reason(value: String) -> String:
+	var clean: String = value.strip_edges()
+	if clean.length() > 160:
+		clean = clean.substr(0, 160)
+	return clean
+
+func _sanitize_moderation_action_id(value: String) -> String:
+	var clean: String = value.strip_edges()
+	if clean.length() > 80:
+		clean = clean.substr(0, 80)
+	return clean
+
+func _public_player_id(player_id: String) -> String:
+	var clean: String = _sanitize_user_id(player_id)
+	if clean.length() <= 6:
+		return clean
+	return "sf_" + clean.substr(clean.length() - 6, 6)
 
 func _sanitize_performance_mode(mode: String) -> String:
 	var cleaned: String = mode.strip_edges().to_lower()

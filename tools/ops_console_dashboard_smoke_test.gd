@@ -23,6 +23,172 @@ func _run() -> void:
 	if console.has_method("refresh"):
 		console.call("refresh")
 	await process_frame
+	var crucible_state: Node = get_root().get_node_or_null("/root/CrucibleState")
+	var original_crucible_config: Dictionary = crucible_state.call("get_config_snapshot") as Dictionary if crucible_state != null and crucible_state.has_method("get_config_snapshot") else {}
+	var crucible_queue_enabled: CheckButton = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleQueueEnabled") as CheckButton
+	var crucible_wagering_enabled: CheckButton = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleWageringEnabled") as CheckButton
+	var crucible_capacity_enabled: CheckButton = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches/CrucibleCapacityCapEnabled") as CheckButton
+	var crucible_stake_bps: SpinBox = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleStakeBps") as SpinBox
+	var crucible_burn_bps: SpinBox = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleBurnBps") as SpinBox
+	var crucible_minimum_stake: SpinBox = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleMinimumStake") as SpinBox
+	var crucible_capacity_max: SpinBox = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleCapacityMax") as SpinBox
+	var crucible_reserved_slots: SpinBox = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid/CrucibleReservedSlots") as SpinBox
+	var crucible_preview_player: LineEdit = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow/CruciblePreviewPlayer") as LineEdit
+	var crucible_preview_balance: SpinBox = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow/CruciblePreviewBalance") as SpinBox
+	var crucible_preview_active_count: SpinBox = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow/CruciblePreviewActiveCount") as SpinBox
+	var crucible_preview_button: Button = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow/CruciblePreviewButton") as Button
+	var crucible_save: Button = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleButtons/CrucibleSave") as Button
+	var crucible_status: Label = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleStatus") as Label
+	var crucible_preview_status: Label = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewStatus") as Label
+	var crucible_ledger_refresh: Button = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleLedgerRefresh") as Button
+	var crucible_ledger_filter: LineEdit = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleLedgerFilter") as LineEdit
+	var crucible_ledger_export: Button = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleLedgerExport") as Button
+	var crucible_review_match: LineEdit = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleReviewMatch") as LineEdit
+	var crucible_review_resolve: Button = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls/CrucibleReviewResolve") as Button
+	var crucible_ledger_summary: Label = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerSummary") as Label
+	var crucible_collusion_summary: Label = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleCollusionSummary") as Label
+	var crucible_audit_rows: VBoxContainer = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleAuditRows") as VBoxContainer
+	var crucible_ledger_rows: VBoxContainer = console.get_node_or_null("RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerRows") as VBoxContainer
+	if crucible_state == null or crucible_queue_enabled == null or crucible_wagering_enabled == null or crucible_capacity_enabled == null or crucible_stake_bps == null or crucible_burn_bps == null or crucible_minimum_stake == null or crucible_capacity_max == null or crucible_reserved_slots == null or crucible_preview_player == null or crucible_preview_balance == null or crucible_preview_active_count == null or crucible_preview_button == null or crucible_save == null or crucible_status == null or crucible_preview_status == null or crucible_ledger_refresh == null or crucible_ledger_filter == null or crucible_ledger_export == null or crucible_review_match == null or crucible_review_resolve == null or crucible_ledger_summary == null or crucible_collusion_summary == null or crucible_audit_rows == null or crucible_ledger_rows == null:
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible controls missing")
+		quit(1)
+		return
+	crucible_queue_enabled.button_pressed = true
+	crucible_wagering_enabled.button_pressed = true
+	crucible_capacity_enabled.button_pressed = true
+	crucible_stake_bps.value = 750
+	crucible_burn_bps.value = 1250
+	crucible_minimum_stake.value = 1000
+	crucible_capacity_max.value = 1
+	crucible_reserved_slots.value = 0
+	crucible_save.pressed.emit()
+	await process_frame
+	var updated_crucible_config: Dictionary = crucible_state.call("get_config_snapshot") as Dictionary
+	if int(updated_crucible_config.get("stake_bps", 0)) != 750 or int(updated_crucible_config.get("burn_bps", 0)) != 1250:
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible save did not update stake/burn config")
+		quit(1)
+		return
+	if not crucible_status.text.contains("Saved Crucible config"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible save status missing")
+		quit(1)
+		return
+	crucible_preview_player.text = "ops_crucible_preview"
+	crucible_preview_balance.value = 5000
+	crucible_preview_active_count.value = 0
+	crucible_preview_button.pressed.emit()
+	await process_frame
+	if not crucible_preview_status.text.contains("Entry allowed"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible allowed preview missing")
+		quit(1)
+		return
+	crucible_preview_balance.value = 0
+	crucible_preview_active_count.value = 0
+	crucible_preview_button.pressed.emit()
+	await process_frame
+	if not crucible_preview_status.text.contains("no Wax"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible no-Wax preview missing")
+		quit(1)
+		return
+	crucible_preview_balance.value = 5000
+	crucible_preview_active_count.value = 1
+	crucible_preview_button.pressed.emit()
+	await process_frame
+	if not crucible_preview_status.text.contains("capacity full"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible capacity preview missing")
+		quit(1)
+		return
+	crucible_queue_enabled.button_pressed = false
+	crucible_save.pressed.emit()
+	await process_frame
+	crucible_preview_active_count.value = 0
+	crucible_preview_button.pressed.emit()
+	await process_frame
+	if not crucible_preview_status.text.contains("queue disabled"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible queue-disabled preview missing")
+		quit(1)
+		return
+	if crucible_state.has_method("apply_remote_config_snapshot"):
+		crucible_state.call("apply_remote_config_snapshot", {
+			"enabled": true,
+			"queue_enabled": true,
+			"wagering_enabled": true,
+			"settlement_enabled": true,
+			"server_authoritative_settlement_required": false,
+			"local_dev_settlement_enabled": true,
+			"stake_bps": 750,
+			"burn_bps": 1250,
+			"minimum_stake_millis": 1000
+		})
+	crucible_state.call("intent_set_balance_millis", "ops_ledger_a", 20000)
+	crucible_state.call("intent_set_balance_millis", "ops_ledger_b", 20000)
+	var ledger_open_result: Dictionary = crucible_state.call("intent_open_escrow", "ops_ledger_match", "ops_ledger_a", "ops_ledger_b", {
+		"anti_collusion_signals": {
+			"repeated_same_opponent": true,
+			"unusual_win_trading": true,
+			"same_device_cluster": true,
+			"same_ip_pattern": true,
+			"suspicious_forfeit": true,
+			"high_stakes_repeated_transfer": true
+		}
+	}) as Dictionary
+	if not bool(ledger_open_result.get("ok", false)):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible ledger escrow failed %s" % str(ledger_open_result))
+		quit(1)
+		return
+	var ledger_settle_result: Dictionary = crucible_state.call("intent_settle_match", "ops_ledger_match", "ops_ledger_a", "AUTHORITATIVE_SIM", "ops_smoke", {}) as Dictionary
+	if not bool(ledger_settle_result.get("ok", false)):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible ledger settlement failed %s" % str(ledger_settle_result))
+		quit(1)
+		return
+	var ledger_settlement: Dictionary = ledger_settle_result.get("settlement", {}) as Dictionary
+	if str(ledger_settlement.get("settlement_status", "")) != "HELD_REVIEW":
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible risk settlement was not held")
+		quit(1)
+		return
+	crucible_state.call("record_anti_collusion_observation", "ops_ledger_match", "ops_ledger_a", "ops_ledger_b", {
+		"repeated_same_opponent": true,
+		"unusual_win_trading": true,
+		"same_device_cluster": true,
+		"same_ip_pattern": true,
+		"suspicious_forfeit": true,
+		"high_stakes_repeated_transfer": true
+	})
+	crucible_ledger_refresh.pressed.emit()
+	await process_frame
+	if not crucible_ledger_summary.text.contains("Escrows") or not crucible_ledger_summary.text.contains("Settlements") or not crucible_ledger_summary.text.contains("Held"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible ledger summary missing")
+		quit(1)
+		return
+	if crucible_audit_rows.get_child_count() < 2 or crucible_ledger_rows.get_child_count() < 2:
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible ledger rows missing")
+		quit(1)
+		return
+	if not crucible_collusion_summary.text.contains("flags") or not crucible_collusion_summary.text.contains("win trading") or not crucible_collusion_summary.text.contains("same IP"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible anti-collusion summary missing")
+		quit(1)
+		return
+	crucible_ledger_filter.text = "ops_ledger_a"
+	crucible_ledger_filter.text_changed.emit(crucible_ledger_filter.text)
+	await process_frame
+	if not crucible_ledger_summary.text.contains("1/"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible ledger filter did not narrow rows")
+		quit(1)
+		return
+	crucible_ledger_export.pressed.emit()
+	await process_frame
+	if not crucible_status.text.contains("Exported Crucible ledger"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible ledger export missing")
+		quit(1)
+		return
+	crucible_review_match.text = "ops_ledger_match"
+	crucible_review_resolve.pressed.emit()
+	await process_frame
+	if not crucible_status.text.contains("Resolved Crucible review"):
+		push_error("OPS_CONSOLE_DASHBOARD_SMOKE: Crucible review resolve missing")
+		quit(1)
+		return
+	if not original_crucible_config.is_empty() and crucible_state.has_method("intent_update_config"):
+		crucible_state.call("intent_update_config", original_crucible_config, "ops_console_smoke_restore")
 	var setup_select: OptionButton = console.get_node_or_null("RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestSetupSelect") as OptionButton
 	var map_count: OptionButton = console.get_node_or_null("RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestMapCount") as OptionButton
 	var ante: SpinBox = console.get_node_or_null("RootPanel/RootVBox/Tabs/Contests/ContestsHBox/ContestForm/ContestAnte") as SpinBox

@@ -10,6 +10,7 @@ const RankPromotionResolverScript = preload("res://scripts/state/rank_promotion_
 const RankLeaderboardManagerScript = preload("res://scripts/state/rank_leaderboard_manager.gd")
 const RankMatchmakerScript = preload("res://scripts/state/rank_matchmaker.gd")
 const RankTransportHttpScript = preload("res://scripts/state/rank_transport_http.gd")
+const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
 
 signal rank_state_changed(snapshot: Dictionary)
 signal rank_event(event: Dictionary)
@@ -172,6 +173,8 @@ func intent_record_match_result(
 		metadata: Dictionary = {},
 		money_tier: int = 0
 	) -> Dictionary:
+	if CrucibleRulesetPolicyScript.is_crucible_ruleset(str(metadata.get("ruleset", metadata.get("vs_ruleset", mode_name)))):
+		return {"ok": true, "awarded": false, "suppressed": true, "reason": "crucible_uses_crucible_settlement"}
 	var p1: String = _normalize_local_write_player_id(player_id)
 	var p2: String = opponent_id.strip_edges()
 	if p1 == "" or p2 == "":

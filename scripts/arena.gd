@@ -23,6 +23,7 @@ const MatchTelemetryCollectorScript := preload("res://scripts/state/match_teleme
 const MatchAnalyzerScript := preload("res://scripts/state/match_analyzer.gd")
 const PlayerTelemetryProfileStoreScript := preload("res://scripts/state/player_telemetry_profile_store.gd")
 const JukeboxLeaderboardStoreScript := preload("res://scripts/state/jukebox_leaderboard_store.gd")
+const CrucibleRulesetPolicyScript := preload("res://scripts/state/crucible_ruleset_policy.gd")
 const ProgressiveConfigScript := preload("res://scripts/state/progressive_config.gd")
 const ProgressiveRunStoreScript := preload("res://scripts/state/progressive_run_store.gd")
 const ProgressiveStarDecayHudScript := preload("res://scripts/ui/progressive_star_decay_hud.gd")
@@ -3702,6 +3703,9 @@ func _current_vs_mode() -> String:
 		return ""
 	return str(tree.get_meta(TREE_META_VS_MODE, "")).strip_edges().to_upper()
 
+func _is_crucible_match() -> bool:
+	return CrucibleRulesetPolicyScript.is_crucible_tree(get_tree())
+
 func _is_async_runtime_mode(mode_id: String = "") -> bool:
 	var mode: String = mode_id.strip_edges().to_upper()
 	if mode.is_empty():
@@ -5315,6 +5319,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		_play_post_match_song(winner_id_in)
 	_maybe_record_stage_race_contest_result(winner_id_in, reason)
 	_maybe_settle_vs_money_match(winner_id_in, reason)
+	_maybe_settle_crucible_match(winner_id_in, reason)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
 
@@ -5354,6 +5359,106 @@ func _maybe_settle_vs_money_match(winner_id_in: int, reason: String) -> void:
 		"winner_id": winner_id_in,
 		"err": str(result.get("err", result.get("code", "unknown")))
 	})
+
+func _maybe_settle_crucible_match(winner_id_in: int, reason: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	if not CrucibleRulesetPolicyScript.is_crucible_tree(tree):
+		return
+	var match_id: String = str(tree.get_meta("crucible_match_id", "")).strip_edges()
+	if match_id.is_empty():
+		SFLog.warn("CRUCIBLE_SETTLEMENT_MISSING_MATCH", {"winner_id": winner_id_in, "reason": reason})
+		return
+	var current_status: String = str(tree.get_meta("crucible_settlement_status", "")).strip_edges().to_lower()
+	if current_status in ["settled", "refunded", "no_contest"]:
+		return
+	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
+	if crucible_state == null or not crucible_state.has_method("intent_settle_match"):
+		SFLog.warn("CRUCIBLE_SETTLEMENT_STATE_MISSING", {"match_id": match_id})
+		return
+	var winner_player_id: String = _crucible_player_id_for_winner_seat(winner_id_in)
+	var metadata: Dictionary = {
+		"source": "arena_match_end",
+		"authoritative": true,
+		"winner_seat": winner_id_in,
+		"reason": reason,
+		"ops_winner_id": int(OpsState.winner_id) if OpsState != null else winner_id_in,
+		"ops_match_end_reason": str(OpsState.match_end_reason) if OpsState != null else reason,
+		"ops_outcome_tick": int(OpsState.outcome_tick) if OpsState != null else -1,
+		"session_id": str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	}
+	var result: Dictionary = crucible_state.call(
+		"intent_settle_match",
+		match_id,
+		winner_player_id,
+		CrucibleRulesetPolicyScript.RESULT_SOURCE_AUTHORITATIVE_SIM,
+		reason,
+		metadata
+	) as Dictionary
+	tree.set_meta("crucible_settlement_result", result.duplicate(true))
+	if bool(result.get("ok", false)):
+		var settlement: Dictionary = result.get("settlement", {}) as Dictionary
+		var status: String = str(settlement.get("settlement_status", "")).strip_edges()
+		if status.is_empty():
+			status = "SETTLED" if not winner_player_id.is_empty() else "NO_CONTEST"
+		tree.set_meta("crucible_settlement_status", status)
+		if crucible_state.has_method("get_balance_millis"):
+			var player_a_id: String = str(tree.get_meta("crucible_player_a_id", "")).strip_edges()
+			var player_b_id: String = str(tree.get_meta("crucible_player_b_id", "")).strip_edges()
+			var player_a_finish: int = int(crucible_state.call("get_balance_millis", player_a_id)) if not player_a_id.is_empty() else 0
+			var player_b_finish: int = int(crucible_state.call("get_balance_millis", player_b_id)) if not player_b_id.is_empty() else 0
+			tree.set_meta("crucible_player_a_balance_finish_millis", player_a_finish)
+			tree.set_meta("crucible_player_b_balance_finish_millis", player_b_finish)
+			var local_profile: Dictionary = tree.get_meta("vs_local_profile", {}) as Dictionary
+			var remote_profile: Dictionary = tree.get_meta("vs_remote_profile", {}) as Dictionary
+			var local_id: String = str(local_profile.get("uid", "")).strip_edges()
+			var remote_id: String = str(remote_profile.get("uid", "")).strip_edges()
+			var local_finish: int = 0
+			var remote_finish: int = 0
+			if local_id == player_a_id:
+				local_finish = player_a_finish
+				remote_finish = player_b_finish
+			elif local_id == player_b_id:
+				local_finish = player_b_finish
+				remote_finish = player_a_finish
+			elif not local_id.is_empty():
+				local_finish = int(crucible_state.call("get_balance_millis", local_id))
+			if remote_finish <= 0 and not remote_id.is_empty():
+				remote_finish = int(crucible_state.call("get_balance_millis", remote_id))
+			tree.set_meta("crucible_local_balance_finish_millis", local_finish)
+			tree.set_meta("crucible_remote_balance_finish_millis", remote_finish)
+			if tree.has_meta("crucible_local_balance_start_millis"):
+				tree.set_meta("crucible_balance_delta_millis", local_finish - int(tree.get_meta("crucible_local_balance_start_millis", local_finish)))
+		SFLog.info("CRUCIBLE_MATCH_SETTLED", {
+			"match_id": match_id,
+			"winner_seat": winner_id_in,
+			"winner_id": winner_player_id,
+			"settlement_status": status,
+			"winner_payout": int(settlement.get("winner_payout", 0)),
+			"burn": int(settlement.get("burn", 0))
+		})
+		return
+	SFLog.warn("CRUCIBLE_SETTLEMENT_FAILED", {
+		"match_id": match_id,
+		"winner_seat": winner_id_in,
+		"winner_id": winner_player_id,
+		"err": str(result.get("err", result.get("code", "unknown")))
+	})
+
+func _crucible_player_id_for_winner_seat(winner_seat: int) -> String:
+	if winner_seat <= 0:
+		return ""
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return ""
+	var seat_a: int = int(tree.get_meta("crucible_player_a_seat", 1))
+	var seat_b: int = int(tree.get_meta("crucible_player_b_seat", 2))
+	if winner_seat == seat_a:
+		return str(tree.get_meta("crucible_player_a_id", "")).strip_edges()
+	if winner_seat == seat_b:
+		return str(tree.get_meta("crucible_player_b_id", "")).strip_edges()
+	return ""
 
 func _should_play_post_match_song(_winner_id_in: int) -> bool:
 	if not _is_progressive_runtime_mode():
@@ -9576,6 +9681,9 @@ func _update_hive_shock(dt: float) -> void:
 func _init_buff_states() -> void:
 	if not buff_states.is_empty():
 		return
+	if _is_crucible_match():
+		_reset_buff_runtime()
+		return
 	if not buffs_enabled:
 		return
 	for pid in [1, 2, 3, 4]:
@@ -9694,6 +9802,9 @@ func _pick_seeded_unique_ids(pool: Array[String], pid: int, needed: int) -> Arra
 	return out
 
 func _reset_buff_states() -> void:
+	if _is_crucible_match():
+		_reset_buff_runtime()
+		return
 	if not buffs_enabled:
 		return
 	if buff_states.is_empty():
@@ -9703,6 +9814,9 @@ func _reset_buff_states() -> void:
 	_reset_buff_runtime()
 
 func _update_buff_states() -> void:
+	if _is_crucible_match():
+		_reset_buff_runtime()
+		return
 	if not buffs_enabled:
 		return
 	if buff_states.is_empty():
@@ -9777,6 +9891,8 @@ func _sync_buff_effects(now_ms: int) -> void:
 		buff_active_slots[pid] = slot_map
 
 func _apply_buff(pid: int, buff_id: String, now_ms: int) -> void:
+	if _is_crucible_match():
+		return
 	var buff: Dictionary = BuffCatalog.get_buff(buff_id)
 	if buff.is_empty():
 		return
@@ -9823,6 +9939,8 @@ func _remove_buff(pid: int, buff_id: String) -> void:
 	buff_instances[pid] = instances
 
 func _apply_buff_effects(pid: int, effects: Array, sign: float) -> void:
+	if _is_crucible_match():
+		return
 	if effects.is_empty():
 		return
 	if not buff_mods.has(pid):
@@ -9862,13 +9980,13 @@ func _lane_insight_active(pid: int) -> bool:
 func get_buff_ui_snapshot() -> Dictionary:
 	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
 	var snapshot: Dictionary = {
-		"buffs_enabled": bool(buffs_enabled),
+		"buffs_enabled": bool(buffs_enabled) and not _is_crucible_match(),
 		"active_player_id": int(active_player_id),
 		"overtime_active": bool(overtime_active),
 		"sim_time_ms": now_ms,
 		"players": {}
 	}
-	if not buffs_enabled:
+	if not buffs_enabled or _is_crucible_match():
 		return snapshot
 	if buff_states.is_empty():
 		_init_buff_states()
@@ -10047,6 +10165,13 @@ func _buff_target_context_from_world(world_pos: Vector2) -> Dictionary:
 	}
 
 func _try_activate_buff_slot(pid: int, slot_index: int) -> void:
+	if _is_crucible_match():
+		SFLog.info("BUFF_ACTIVATE_BLOCKED", {
+			"pid": pid,
+			"slot_index": slot_index,
+			"reason": "crucible_buffs_disabled"
+		})
+		return
 	if not buffs_enabled:
 		return
 	if buff_states.is_empty():

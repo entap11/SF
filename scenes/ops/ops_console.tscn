@@ -254,6 +254,267 @@ custom_minimum_size = Vector2(0, 128)
 editable = false
 text = ""
 
+[node name="Crucible" type="Control" parent="RootPanel/RootVBox/Tabs"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CrucibleScroll" type="ScrollContainer" parent="RootPanel/RootVBox/Tabs/Crucible"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CrucibleForm" type="VBoxContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="CrucibleHeader" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+text = "Crucible Controls"
+
+[node name="CrucibleSwitches" type="GridContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+columns = 3
+
+[node name="CrucibleEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Mode enabled"
+
+[node name="CrucibleQueueEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Queue enabled"
+
+[node name="CrucibleWageringEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Wagering enabled"
+
+[node name="CrucibleAdsEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Ads enabled"
+
+[node name="CrucibleCapacityCapEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Capacity cap"
+
+[node name="CrucibleSettlementEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Settlement enabled"
+
+[node name="CrucibleEarnButtonsEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Earn buttons"
+
+[node name="CrucibleServerSettlementRequired" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Server settlement"
+
+[node name="CrucibleLocalDevSettlementEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Local dev settlement"
+
+[node name="CrucibleLaunchGrantEnabled" type="CheckButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleSwitches"]
+text = "Launch grant"
+
+[node name="CrucibleNumericGrid" type="GridContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+columns = 2
+
+[node name="CrucibleConfigVersionLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Config Version"
+
+[node name="CrucibleConfigVersion" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 1
+max_value = 100000
+step = 1
+value = 1
+
+[node name="CrucibleStakeBpsLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Stake BPS"
+
+[node name="CrucibleStakeBps" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 10000
+step = 25
+value = 500
+
+[node name="CrucibleBurnBpsLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Burn BPS"
+
+[node name="CrucibleBurnBps" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 10000
+step = 25
+value = 1000
+
+[node name="CrucibleMinimumStakeLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Minimum Stake Millis"
+
+[node name="CrucibleMinimumStake" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 1
+max_value = 100000000
+step = 50
+value = 1000
+
+[node name="CrucibleCapacityMaxLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Capacity Max"
+
+[node name="CrucibleCapacityMax" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000
+step = 1
+value = 100
+
+[node name="CrucibleReservedSlotsLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Reserved Slots"
+
+[node name="CrucibleReservedSlots" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000
+step = 1
+
+[node name="CrucibleStartingWaxLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Starting Wax Millis"
+
+[node name="CrucibleStartingWax" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000000
+step = 100
+
+[node name="CrucibleLaunchGrantMillisLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Launch Grant Millis"
+
+[node name="CrucibleLaunchGrantMillis" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000000
+step = 100
+
+[node name="CrucibleStandardWinEarnLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Standard Win Earn"
+
+[node name="CrucibleStandardWinEarn" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000000
+step = 50
+value = 250
+
+[node name="CrucibleStandardLossEarnLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Standard Loss Earn"
+
+[node name="CrucibleStandardLossEarn" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000000
+step = 50
+value = 100
+
+[node name="CrucibleTournamentEarnLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Tournament Base Earn"
+
+[node name="CrucibleTournamentEarn" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000000
+step = 100
+value = 1000
+
+[node name="CrucibleChallengeEarnLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Challenge Earn"
+
+[node name="CrucibleChallengeEarn" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000000
+step = 50
+value = 500
+
+[node name="CrucibleEventEarnLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+text = "Event Earn"
+
+[node name="CrucibleEventEarn" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleNumericGrid"]
+min_value = 0
+max_value = 100000000
+step = 50
+value = 500
+
+[node name="CrucibleRoundingRow" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+
+[node name="CrucibleRoundingLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleRoundingRow"]
+custom_minimum_size = Vector2(160, 0)
+text = "Rounding Mode"
+
+[node name="CrucibleRoundingMode" type="OptionButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleRoundingRow"]
+size_flags_horizontal = 3
+
+[node name="CruciblePreviewLabel" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+text = "Entry Preview"
+
+[node name="CruciblePreviewRow" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+
+[node name="CruciblePreviewPlayer" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow"]
+size_flags_horizontal = 3
+placeholder_text = "player_id"
+text = "ops_preview_player"
+
+[node name="CruciblePreviewBalance" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow"]
+min_value = 0
+max_value = 100000000
+step = 100
+value = 5000
+
+[node name="CruciblePreviewActiveCount" type="SpinBox" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow"]
+min_value = 0
+max_value = 100000
+step = 1
+
+[node name="CruciblePreviewButton" type="Button" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CruciblePreviewRow"]
+text = "Preview Entry"
+
+[node name="CrucibleButtons" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+
+[node name="CrucibleRefresh" type="Button" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleButtons"]
+text = "Refresh"
+
+[node name="CrucibleSave" type="Button" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleButtons"]
+text = "Save Config"
+
+[node name="CrucibleStatus" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+autowrap_mode = 3
+text = ""
+
+[node name="CruciblePreviewStatus" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+autowrap_mode = 3
+text = ""
+
+[node name="CrucibleLedgerHeader" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+text = "Crucible Ledger / Audit"
+
+[node name="CrucibleLedgerControls" type="HBoxContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+
+[node name="CrucibleLedgerRefresh" type="Button" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls"]
+text = "Refresh Ledger"
+
+[node name="CrucibleLedgerFilter" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls"]
+custom_minimum_size = Vector2(160, 0)
+placeholder_text = "match/player/status"
+
+[node name="CrucibleLedgerExport" type="Button" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls"]
+text = "Export CSV"
+
+[node name="CrucibleReviewMatch" type="LineEdit" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls"]
+custom_minimum_size = Vector2(150, 0)
+placeholder_text = "held match id"
+
+[node name="CrucibleReviewAction" type="OptionButton" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls"]
+
+[node name="CrucibleReviewResolve" type="Button" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm/CrucibleLedgerControls"]
+text = "Resolve"
+
+[node name="CrucibleLedgerSummary" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+autowrap_mode = 3
+text = "No Crucible ledger loaded."
+
+[node name="CrucibleCollusionSummary" type="Label" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+autowrap_mode = 3
+text = "Anti-collusion: no observations loaded."
+
+[node name="CrucibleAuditRows" type="VBoxContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+
+[node name="CrucibleLedgerRows" type="VBoxContainer" parent="RootPanel/RootVBox/Tabs/Crucible/CrucibleScroll/CrucibleForm"]
+
 [node name="Maps" type="Control" parent="RootPanel/RootVBox/Tabs"]
 layout_mode = 1
 anchors_preset = 15

@@ -52,6 +52,13 @@ func _init() -> void:
 		_expect_readable_button(root_vbox, "UserIdSection/UserIdCurrentRow/CopyUserIdButton", "copy user ID button")
 		_expect_readable_toggle(root_vbox, "VideoSection/GpuVfxRow/GpuVfxToggle", "GPU VFX toggle")
 		_expect_readable_option(root_vbox, "PerformanceSection/PerformanceModeRow/PerformanceModeOption", "performance option")
+		_expect_readable_button(root_vbox, "CommunitySafetySection/CommunitySafetyRow/CommunitySafetyButton", "community safety button")
+		var safety_button := root_vbox.get_node_or_null("CommunitySafetySection/CommunitySafetyRow/CommunitySafetyButton") as Button
+		if safety_button != null:
+			safety_button.pressed.emit()
+			await process_frame
+			var dialog := panel.get_node_or_null("CommunitySafetyDialog") as AcceptDialog
+			_expect(dialog != null and dialog.visible, "community safety button should open safety dialog")
 	if not _failed:
 		print("PROFILE_SETTINGS_MOBILE_LAYOUT_SMOKE: PASS")
 	quit(1 if _failed else 0)

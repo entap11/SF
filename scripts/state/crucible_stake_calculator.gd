@@ -1,0 +1,51 @@
+class_name CrucibleStakeCalculator
+extends RefCounted
+
+const CrucibleConfigScript = preload("res://scripts/state/crucible_config.gd")
+
+static func preview_stake(player_a_balance_millis: int, player_b_balance_millis: int, config: CrucibleConfigScript) -> Dictionary:
+	if config == null:
+		return _blocked("missing_config", "Crucible config is unavailable.")
+	if not config.enabled or not config.queue_enabled:
+		return _blocked("queue_disabled", "Crucible queue is disabled.")
+	if not config.wagering_enabled:
+		return _blocked("wagering_disabled", "Crucible wagering is disabled.")
+	var a_balance: int = maxi(0, player_a_balance_millis)
+	var b_balance: int = maxi(0, player_b_balance_millis)
+	var minimum: int = maxi(1, config.minimum_stake_millis)
+	if a_balance < minimum or b_balance < minimum:
+		return _blocked("insufficient_wax", "Both players need Crucible Wax to enter.")
+	var lower_balance: int = mini(a_balance, b_balance)
+	var stake: int = _round_millis(float(lower_balance) * float(maxi(0, config.stake_bps)) / 10000.0, config.normalized_rounding_mode())
+	stake = clampi(maxi(minimum, stake), minimum, lower_balance)
+	var pot: int = stake * 2
+	var burn: int = _round_millis(float(pot) * float(clampi(config.burn_bps, 0, 10000)) / 10000.0, config.normalized_rounding_mode())
+	burn = clampi(burn, 0, pot)
+	var payout: int = maxi(0, pot - burn)
+	return {
+		"ok": true,
+		"stake_each": stake,
+		"stake_unit": "wax_millis",
+		"pot": pot,
+		"burn": burn,
+		"winner_payout": payout,
+		"config_version": config.config_version,
+		"config_hash": config.config_hash()
+	}
+
+static func _round_millis(value: float, mode: String) -> int:
+	match mode:
+		CrucibleConfigScript.ROUND_CEIL:
+			return int(ceil(value))
+		CrucibleConfigScript.ROUND_NEAREST:
+			return int(round(value))
+		_:
+			return int(floor(value))
+
+static func _blocked(code: String, message: String) -> Dictionary:
+	return {
+		"ok": false,
+		"code": code,
+		"message": message
+	}
+

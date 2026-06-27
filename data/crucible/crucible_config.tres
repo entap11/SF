@@ -1,0 +1,32 @@
+[gd_resource type="Resource" script="res://scripts/state/crucible_config.gd" format=3]
+
+[resource]
+enabled = true
+queue_enabled = true
+wagering_enabled = true
+ads_enabled = true
+capacity_cap_enabled = true
+settlement_enabled = true
+earn_path_buttons_enabled = true
+config_version = 1
+capacity_max = 100
+reserved_slots = 0
+priority_access_enabled = false
+pre_ad_seconds = 25
+post_ad_seconds = 12
+banner_ads_enabled = true
+ticker_ads_enabled = false
+stake_bps = 500
+burn_bps = 1000
+minimum_stake_millis = 1000
+rounding_mode = "FLOOR"
+starting_crucible_wax_millis = 0
+launch_grant_enabled = false
+launch_grant_millis = 0
+standard_pvp_win_earn_millis = 250
+standard_pvp_loss_earn_millis = 100
+tournament_placement_earn_millis = 1000
+challenge_earn_millis = 500
+event_earn_millis = 500
+server_authoritative_settlement_required = false
+local_dev_settlement_enabled = true

@@ -252,6 +252,121 @@ func approve_async_contest_payout_report(report: Dictionary, approver_id: String
 		return transport.get("result", {}) as Dictionary
 	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
+func get_crucible_config() -> Dictionary:
+	var transport := _call_transport("get_crucible_config", {})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func update_crucible_config(patch: Dictionary, actor_id: String = "ops") -> Dictionary:
+	var transport := _call_transport("update_crucible_config", {
+		"patch": patch,
+		"actor_id": actor_id
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func preview_crucible_entry(player_id: String, balance_millis: int = -1, active_crucible_count: int = -1, has_priority_access: bool = false) -> Dictionary:
+	var payload: Dictionary = {
+		"player_id": player_id,
+		"has_priority_access": has_priority_access
+	}
+	if balance_millis >= 0:
+		payload["balance_millis"] = balance_millis
+	if active_crucible_count >= 0:
+		payload["active_crucible_count"] = active_crucible_count
+	var transport := _call_transport("preview_crucible_entry", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func open_crucible_escrow(match_id: String, player_a_id: String, player_b_id: String, metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var transport := _call_transport("open_crucible_escrow", {
+		"match_id": match_id,
+		"player_a_id": player_a_id,
+		"player_b_id": player_b_id,
+		"metadata": metadata,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func settle_crucible_match(match_id: String, winner_id: String, result_source: String, reason: String = "", metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var transport := _call_transport("settle_crucible_match", {
+		"match_id": match_id,
+		"winner_id": winner_id,
+		"result_source": result_source,
+		"reason": reason,
+		"metadata": metadata,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func refund_crucible_match(match_id: String, reason: String = "refund", metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var transport := _call_transport("refund_crucible_match", {
+		"match_id": match_id,
+		"reason": reason,
+		"result_source": "SERVER_MATCH_RESULT",
+		"metadata": metadata,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func resolve_crucible_review(match_id: String, action: String, actor_id: String = "ops", metadata: Dictionary = {}, idempotency_key: String = "") -> Dictionary:
+	var transport := _call_transport("resolve_crucible_review", {
+		"match_id": match_id,
+		"action": action,
+		"actor_id": actor_id,
+		"metadata": metadata,
+		"idempotency_key": idempotency_key
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func record_crucible_lifecycle(match_id: String, event_type: String, player_id: String = "", metadata: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("record_crucible_lifecycle", {
+		"match_id": match_id,
+		"event_type": event_type,
+		"player_id": player_id,
+		"metadata": metadata
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func award_crucible_wax(player_id: String, amount_millis: int, source: String, metadata: Dictionary = {}) -> Dictionary:
+	var transport := _call_transport("award_crucible_wax", {
+		"player_id": player_id,
+		"amount_millis": amount_millis,
+		"source": source,
+		"metadata": metadata
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func debug_set_crucible_balance(player_id: String, balance_millis: int) -> Dictionary:
+	var transport := _call_transport("debug_set_crucible_balance", {
+		"player_id": player_id,
+		"balance_millis": balance_millis
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
+func debug_get_crucible_snapshot() -> Dictionary:
+	var transport := _call_transport("debug_get_crucible_snapshot", {})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
+
 func _configured_backend_url() -> String:
 	var env_url: String = OS.get_environment(ENV_BACKEND_URL).strip_edges()
 	if not env_url.is_empty():

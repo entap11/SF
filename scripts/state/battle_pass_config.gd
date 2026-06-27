@@ -157,9 +157,9 @@ func get_nectar_multiplier_for_entitlements(premium_owned: bool, elite_owned: bo
 		return 1.0
 	var ent: Dictionary = ent_any as Dictionary
 	if elite_owned:
-		return maxf(1.0, float(ent.get(TRACK_ELITE, 1.30)))
+		return maxf(1.0, float(ent.get(TRACK_ELITE, 1.60)))
 	if premium_owned:
-		return maxf(1.0, float(ent.get(TRACK_PREMIUM, 1.20)))
+		return maxf(1.0, float(ent.get(TRACK_PREMIUM, 1.30)))
 	return maxf(1.0, float(ent.get(TRACK_FREE, 1.0)))
 
 func get_side_quest_path_count_for_entitlements(premium_owned: bool, elite_owned: bool) -> int:
@@ -181,6 +181,10 @@ func get_xp_award(source_name: String) -> int:
 	var xp_awards: Dictionary = xp_awards_any as Dictionary
 	var key: String = source_name.strip_edges().to_lower()
 	return maxi(0, int(xp_awards.get(key, 0)))
+
+func get_first_win_of_day_xp() -> int:
+	var progression: Dictionary = _progression_settings()
+	return maxi(0, int(progression.get("first_win_of_day_xp", 20)))
 
 func get_async_completion_xp(map_count: int, paid_entry: bool) -> int:
 	var mode_xp: Dictionary = _mode_xp_settings()
@@ -568,30 +572,31 @@ func _build_default_config() -> Dictionary:
 		},
 		"entitlement_multipliers": {
 			TRACK_FREE: 1.0,
-			TRACK_PREMIUM: 1.20,
-			TRACK_ELITE: 1.30
+			TRACK_PREMIUM: 1.30,
+			TRACK_ELITE: 1.60
 		},
 		"side_quest_paths": {
 			TRACK_FREE: 1,
 			TRACK_PREMIUM: 2,
 			TRACK_ELITE: 3
 		},
+		"first_win_of_day_xp": 20,
 		"mode_xp": {
 			"async_completion": {
-				"free": {"3": 18, "5": 22, "default": 18},
-				"paid": {"3": 24, "5": 30, "default": 24}
+				"free": {"3": 8, "5": 8, "default": 8},
+				"paid": {"3": 10, "5": 10, "default": 10}
 			},
 			"pvp": {
-				"free": {"completion": 20, "win_bonus": 4},
+				"free": {"completion": 10, "win_bonus": 8},
 				"money": {
-					"1": {"completion": 24, "win_bonus": 4},
-					"2": {"completion": 30, "win_bonus": 5},
-					"3": {"completion": 36, "win_bonus": 6}
+					"1": {"completion": 12, "win_bonus": 10},
+					"2": {"completion": 12, "win_bonus": 10},
+					"3": {"completion": 12, "win_bonus": 10}
 				}
 			},
 			"tournament": {
-				"participation": 35,
-				"placement": {"1": 25, "2": 12, "3": 6}
+				"participation": 12,
+				"placement": {"1": 75, "2": 0, "3": 0}
 			},
 			"contest": {
 				"daily": {"1": 15, "2": 8, "3": 4},
