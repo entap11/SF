@@ -20,6 +20,16 @@ func _init() -> void:
 	if typeof(votes_any) == TYPE_DICTIONARY:
 		(votes_any as Dictionary).clear()
 	ops_state.set("post_end_action", "")
+	set_meta("battle_pass_latest_nectar_award", {
+		"xp_awarded": 61,
+		"base_xp": 38,
+		"xp_multiplier": 1.6,
+		"nectar_breakdown": {
+			"participation_nectar": 10,
+			"win_bonus_nectar": 8,
+			"first_win_bonus_nectar": 20
+		}
+	})
 	overlay.show_outcome(1, "conquest", 1, "Record: 99-99", "H2H: noisy")
 	await process_frame
 
@@ -29,6 +39,7 @@ func _init() -> void:
 	_assert_true(not _node_visible(overlay, "Panel/VBox/Record"), "record hidden")
 	_assert_true(not _node_visible(overlay, "Panel/VBox/H2H"), "h2h hidden")
 	_assert_true(not _node_visible(overlay, "Panel/VBox/StatsHeader"), "stats hidden")
+	_assert_eq(_label_text(overlay, "Panel/VBox/NectarSummary"), "Nectar earned: +61 (play +10, win +8, first win +20, 1.6x pass)", "nectar summary")
 	_assert_eq(_label_text(overlay, "Panel/VBox/Status"), "Play again?", "status")
 	_assert_true(_font_size(overlay, "Panel/VBox/Title") >= 30, "title font should be readable")
 	_assert_true(_font_size(overlay, "Panel/VBox/Result") >= 24, "result font should be readable")
@@ -44,6 +55,8 @@ func _init() -> void:
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Stake 1.000 Wax | Winner payout 2.000 Wax | Burn 0.000 Wax | Net +1.000 Wax", "crucible stake status")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Crucible settlement: Settled. You won this Wax match.", "crucible settlement status")
 	_clear_crucible_tree_meta()
+	if has_meta("battle_pass_latest_nectar_award"):
+		remove_meta("battle_pass_latest_nectar_award")
 
 	overlay.show_stage_round_outcome({
 		"mode_id": "PROGRESSIVE",

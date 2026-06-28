@@ -19,8 +19,8 @@ enum PrestigeModel {
 @export var xp_per_level_prestige: int = 185
 @export var xp_per_level_apex: int = 240
 
-@export var premium_multiplier: float = 1.18
-@export var elite_multiplier: float = 1.30
+@export var premium_multiplier: float = 1.30
+@export var elite_multiplier: float = 1.60
 @export var premium_price_usd: float = 9.99
 @export var elite_price_usd: float = 14.99
 @export var elite_async_access: bool = true
@@ -87,13 +87,13 @@ enum PrestigeModel {
 
 # Transparent Nectar award defaults used by authoritative event handlers.
 @export var nectar_awards: Dictionary = {
-	"match_completed_free": 8,
-	"match_completed_money": 24,
-	"async_completed": 6,
+	"match_completed_free": 10,
+	"match_completed_money": 12,
+	"async_completed": 8,
 	"contest_participation": 10,
-	"tournament_participation": 14,
-	"tournament_placement_bonus": 20,
-	"money_match_completed": 30
+	"tournament_participation": 12,
+	"tournament_placement_bonus": 75,
+	"money_match_completed": 12
 }
 @export var store_kickback_nectar_per_usd: float = 6.0
 
@@ -114,4 +114,3 @@ func normalized_prestige_model() -> int:
 	if prestige_model == PrestigeModel.HARD_BRICK:
 		return PrestigeModel.HARD_BRICK
 	return PrestigeModel.SOFT_CAP
-

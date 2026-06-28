@@ -2,6 +2,7 @@ extends Node
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
+const PlatformEconomyEventSchemaScript = preload("res://scripts/state/platform_economy_event_schema.gd")
 
 signal honey_progression_changed(snapshot: Dictionary)
 signal honey_event(event: Dictionary)
@@ -332,7 +333,9 @@ func _award_honey_centi(source_name: String, honey_centi: int, metadata: Diction
 		"backend_result": backend_result.duplicate(true),
 		"claimed_weekly_bonuses": claimed_bonuses.duplicate(true)
 	}
+	event["platform_economy_event"] = _build_platform_honey_event(event)
 	_append_recent_event(event)
+	_store_latest_honey_award_on_tree(event)
 	_save_state()
 	honey_event.emit(event)
 	SFLog.info("HONEY_EVENT", event)
@@ -346,6 +349,31 @@ func _award_honey_centi(source_name: String, honey_centi: int, metadata: Diction
 		"backend_result": backend_result.duplicate(true),
 		"claimed_weekly_bonuses": claimed_bonuses.duplicate(true)
 	}
+
+func _build_platform_honey_event(event: Dictionary) -> Dictionary:
+	var metadata: Dictionary = event.get("metadata", {}) as Dictionary if typeof(event.get("metadata", {})) == TYPE_DICTIONARY else {}
+	return PlatformEconomyEventSchemaScript.build_award_event(
+		"honey",
+		"centi_honey",
+		"award",
+		str(event.get("event_id", "")),
+		str(metadata.get("player_id", metadata.get("uid", ""))).strip_edges(),
+		int(event.get("honey_centi_awarded", 0)),
+		int(event.get("profile_honey_balance", 0)) * CENTI_PER_HONEY + _pending_profile_honey_centi,
+		str(event.get("source", "")),
+		metadata,
+		{
+			"whole_honey_granted": int(event.get("whole_honey_granted", 0)),
+			"claimed_weekly_bonus_count": (event.get("claimed_weekly_bonuses", []) as Array).size() if typeof(event.get("claimed_weekly_bonuses", [])) == TYPE_ARRAY else 0
+		}
+	)
+
+func _store_latest_honey_award_on_tree(event: Dictionary) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	tree.set_meta("honey_latest_award", event.duplicate(true))
+	tree.set_meta("honey_latest_awarded_centi", maxi(0, int(event.get("honey_centi_awarded", 0))))
 
 func _grant_centi_to_profile(honey_centi: int, reason: String) -> Dictionary:
 	var safe_amount: int = maxi(0, honey_centi)

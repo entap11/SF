@@ -77,6 +77,10 @@ func contest_period_is_closed(contest_id: String, contest_scope: String = "") ->
 		return bool(rank_runtime.call("contest_period_is_closed", contest_id, contest_scope))
 	return true
 
+func sync_runtime_connections() -> void:
+	_connect_tree_signals()
+	_scan_for_sim_runner()
+
 func _connect_tree_signals() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
@@ -146,8 +150,15 @@ func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 			"type": "async_nectar_awarded",
 			"mode_id": normalized_async,
 			"map_count": _resolve_async_map_count(tree),
-			"xp_awarded": int(async_result.get("xp_awarded", 0))
+			"xp_awarded": int(async_result.get("xp_awarded", 0)),
+			"base_xp": int(async_result.get("base_xp", 0)),
+			"xp_multiplier": float(async_result.get("xp_multiplier", 1.0)),
+			"battle_pass_level": int(async_result.get("battle_pass_level", 0)),
+			"suppressed": bool(async_result.get("suppressed", false)),
+			"reason": str(async_result.get("reason", "")),
+			"nectar_breakdown": (async_result.get("nectar_breakdown", {}) as Dictionary).duplicate(true)
 		}
+		_store_latest_award_on_tree(tree, async_event)
 		runtime_battle_pass_award.emit(async_event)
 		SFLog.info("BATTLE_PASS_RUNTIME_AWARD", async_event)
 	call_deferred("_sync_tree_contest_reward")
@@ -185,8 +196,15 @@ func _award_pvp_match_result(tree: SceneTree, battle_pass_state: Node, winner_id
 			"mode_id": str(tree.get_meta("vs_mode", "1V1")).strip_edges().to_upper(),
 			"money_tier": money_tier,
 			"did_win": winner_id > 0 and winner_id == local_owner_id,
-			"xp_awarded": int(result.get("xp_awarded", 0))
+			"xp_awarded": int(result.get("xp_awarded", 0)),
+			"base_xp": int(result.get("base_xp", 0)),
+			"xp_multiplier": float(result.get("xp_multiplier", 1.0)),
+			"battle_pass_level": int(result.get("battle_pass_level", 0)),
+			"suppressed": bool(result.get("suppressed", false)),
+			"reason": str(result.get("reason", "")),
+			"nectar_breakdown": (result.get("nectar_breakdown", {}) as Dictionary).duplicate(true)
 		}
+		_store_latest_award_on_tree(tree, event)
 		runtime_battle_pass_award.emit(event)
 		SFLog.info("BATTLE_PASS_RUNTIME_AWARD", event)
 
@@ -200,6 +218,12 @@ func _sync_tree_contest_reward() -> void:
 	var contest_scope: String = str(tree.get_meta("contest_scope", "")).strip_edges().to_upper()
 	var map_count: int = _resolve_async_map_count(tree)
 	sync_contest_nectar_rewards(contest_id, contest_scope, map_count)
+
+func _store_latest_award_on_tree(tree: SceneTree, event: Dictionary) -> void:
+	if tree == null:
+		return
+	tree.set_meta("battle_pass_latest_nectar_award", event.duplicate(true))
+	tree.set_meta("battle_pass_latest_nectar_awarded", int(event.get("xp_awarded", 0)))
 
 func _runtime_event_id(tree: SceneTree, mode_id: String, reason: String) -> String:
 	var nonce_key: String = "bp_runtime_nonce"

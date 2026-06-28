@@ -3,6 +3,7 @@ extends SceneTree
 const WaxRewardPolicy = preload("res://scripts/state/wax_reward_policy.gd")
 const HoneyEconomySimulator = preload("res://scripts/state/honey_economy_simulator.gd")
 const WaxEconomySimulator = preload("res://scripts/state/wax_economy_simulator.gd")
+const PlatformEconomyEventSchema = preload("res://scripts/state/platform_economy_event_schema.gd")
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 
@@ -21,6 +22,7 @@ func _run() -> void:
 	_test_wax_policy()
 	await _test_competitive_wax_ledger()
 	await _test_nectar_policy()
+	_test_platform_economy_event_schema()
 	_test_honey_simulator()
 	_test_wax_simulator()
 	print("ECONOMY_LAYER_SMOKE: PASS")
@@ -176,6 +178,81 @@ func _test_nectar_policy() -> void:
 		"vs_ruleset": "CRUCIBLE"
 	}) as Dictionary
 	_assert_true(bool(crucible_block.get("suppressed", false)), "Crucible should suppress Nectar")
+	var duplicate: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {
+		"event_id": "economy_second_win",
+		"player_id": "nectar_a",
+		"day_key": "2026-06-27"
+	}) as Dictionary
+	_assert_eq(str(duplicate.get("reason", "")), "event_already_awarded", "duplicate Nectar event should be ignored")
+	var no_contest: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {
+		"event_id": "economy_no_contest",
+		"no_contest": true
+	}) as Dictionary
+	_assert_true(bool(no_contest.get("suppressed", false)), "no-contest match should suppress Nectar")
+	var too_short_nectar: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {
+		"event_id": "economy_too_short_nectar",
+		"duration_sec": 5
+	}) as Dictionary
+	_assert_true(bool(too_short_nectar.get("suppressed", false)), "too-short match should suppress Nectar")
+	_assert_eq(str(too_short_nectar.get("reason", "")), "match_too_short", "too-short Nectar suppression should be auditable")
+	var repeated_opponent: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, false, {
+		"event_id": "economy_repeated_opponent_nectar",
+		"repeated_opponent_count": 5
+	}) as Dictionary
+	_assert_eq(int(repeated_opponent.get("xp_awarded", 0)), 7, "repeated opponent should diminish completion Nectar")
+	var repeated_breakdown: Dictionary = repeated_opponent.get("nectar_breakdown", {}) as Dictionary
+	_assert_eq(str(repeated_breakdown.get("validity_status", "")), "diminished", "repeated opponent should mark Nectar as diminished")
+	var daily_snapshot: Dictionary = battle_pass_state.call("get_snapshot") as Dictionary
+	_assert_eq(_daily_progress(daily_snapshot, "daily_complete_match"), 1, "daily complete counter should progress after a match")
+	_assert_true(_daily_ready(daily_snapshot, "daily_complete_match"), "daily complete challenge should be ready to claim")
+	_assert_true(not _daily_claimed(daily_snapshot, "daily_complete_match"), "daily challenge should not auto-claim")
+	var daily_claim: Dictionary = battle_pass_state.call("intent_claim_daily_challenge", "daily_complete_match") as Dictionary
+	_assert_true(bool(daily_claim.get("ok", false)), "daily complete challenge claim should succeed")
+	_assert_eq(int(daily_claim.get("xp_awarded", 0)), 40, "daily complete challenge should award configured Nectar")
+	var daily_claim_again: Dictionary = battle_pass_state.call("intent_claim_daily_challenge", "daily_complete_match") as Dictionary
+	_assert_eq(str(daily_claim_again.get("reason", "")), "challenge_already_claimed", "daily challenge should not double-claim")
+
+	battle_pass_state.call("debug_reset_state")
+	var money_loss: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", true, 3, false, {
+		"event_id": "money_loss"
+	}) as Dictionary
+	_assert_eq(int(money_loss.get("xp_awarded", 0)), 12, "money loss should award modest completion Nectar")
+	var money_win: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", true, 3, true, {
+		"event_id": "money_win",
+		"player_id": "nectar_money",
+		"day_key": "2026-06-27"
+	}) as Dictionary
+	_assert_eq(int(money_win.get("xp_awarded", 0)), 42, "money first win should award 12+10+20 Nectar")
+	var async_loss: Dictionary = battle_pass_state.call("intent_record_async_completion", "STAGE_RACE", 3, false, {
+		"event_id": "async_loss"
+	}) as Dictionary
+	_assert_eq(int(async_loss.get("xp_awarded", 0)), 8, "free async loss should award 8 Nectar")
+	var async_win: Dictionary = battle_pass_state.call("intent_record_async_completion", "STAGE_RACE", 5, true, {
+		"event_id": "async_win",
+		"did_win": true
+	}) as Dictionary
+	_assert_eq(int(async_win.get("xp_awarded", 0)), 18, "money async win should award 10+8 Nectar")
+	var tournament_win: Dictionary = battle_pass_state.call("intent_record_tournament_match_result", true, {
+		"event_id": "tournament_win"
+	}) as Dictionary
+	_assert_eq(int(tournament_win.get("xp_awarded", 0)), 22, "tournament match win should award 12+10 Nectar")
+	var tournament_champion: Dictionary = battle_pass_state.call("intent_record_tournament_placement", 1, {
+		"event_id": "tournament_champion"
+	}) as Dictionary
+	_assert_eq(int(tournament_champion.get("xp_awarded", 0)), 75, "tournament champion should award 75 Nectar")
+
+	battle_pass_state.call("debug_reset_state")
+	for i in range(10):
+		var win_result: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "CTF", false, 0, true, {
+			"event_id": "weekly_standard_win_%d" % i,
+			"player_id": "nectar_weekly",
+			"day_key": "2026-06-27"
+		}) as Dictionary
+		_assert_true(bool(win_result.get("ok", false)), "weekly standard win should award Nectar")
+	var weekly_snapshot: Dictionary = battle_pass_state.call("get_snapshot") as Dictionary
+	_assert_eq(int(weekly_snapshot.get("battle_pass_xp", 0)), 500, "ten standard wins should include first win and weekly win challenge Nectar")
+	_assert_eq(_weekly_progress(weekly_snapshot, "weekly_win_standard_pvp"), 10, "weekly standard win counter should reach target")
+	_assert_true(_weekly_claimed(weekly_snapshot, "weekly_win_standard_pvp"), "weekly standard win reward should auto-claim once complete")
 
 func _test_honey_simulator() -> void:
 	var sim: Dictionary = HoneyEconomySimulator.simulate(90)
@@ -192,6 +269,38 @@ func _test_wax_simulator() -> void:
 	_assert_true(profiles.size() >= 8, "Wax simulator should include required profiles")
 	_assert_true(not bool(sim.get("farmer_beats_average", true)), "Wax farming should not beat average play")
 
+func _test_platform_economy_event_schema() -> void:
+	var event: Dictionary = PlatformEconomyEventSchema.build_award_event(
+		"honey",
+		"centi_honey",
+		"award",
+		"platform_schema_smoke",
+		"player_platform_1",
+		400,
+		1200,
+		"async_completion",
+		{
+			"mode_id": "STAGE_RACE",
+			"call_sign": "VisibleName",
+			"email": "player@example.com",
+			"nested": {
+				"payment": "should_not_export",
+				"safe_flag": true
+			}
+		}
+	)
+	_assert_eq(str(event.get("platform_namespace", "")), "ENTaP", "platform schema should identify ENTaP namespace")
+	_assert_eq(str(event.get("producer_game", "")), "swarmfront", "platform schema should identify Swarmfront producer")
+	_assert_eq(str(event.get("idempotency_key", "")), "swarmfront:honey:award:platform_schema_smoke", "platform schema should produce stable idempotency key")
+	var player_ref: Dictionary = event.get("player_ref", {}) as Dictionary
+	_assert_eq(str(player_ref.get("kind", "")), "platform_player_id", "platform schema should use platform player reference")
+	var metadata: Dictionary = event.get("metadata", {}) as Dictionary
+	_assert_true(not metadata.has("call_sign"), "platform metadata should omit public identity")
+	_assert_true(not metadata.has("email"), "platform metadata should omit private identity")
+	var nested: Dictionary = metadata.get("nested", {}) as Dictionary
+	_assert_true(not nested.has("payment"), "platform metadata should omit financial identity")
+	_assert_true(bool(nested.get("safe_flag", false)), "platform metadata should preserve safe gameplay facts")
+
 func _assert_true(value: bool, label: String) -> void:
 	if value:
 		return
@@ -205,3 +314,48 @@ func _assert_eq(actual: Variant, expected: Variant, label: String) -> void:
 func _fail(message: String) -> void:
 	push_error("ECONOMY_LAYER_SMOKE: %s" % message)
 	quit(1)
+
+func _weekly_progress(snapshot: Dictionary, challenge_id: String) -> int:
+	for row_any in snapshot.get("weekly_challenges", []) as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("id", "")) == challenge_id:
+			return int(row.get("progress", 0))
+	return 0
+
+func _weekly_claimed(snapshot: Dictionary, challenge_id: String) -> bool:
+	for row_any in snapshot.get("weekly_challenges", []) as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("id", "")) == challenge_id:
+			return bool(row.get("claimed", false))
+	return false
+
+func _daily_progress(snapshot: Dictionary, challenge_id: String) -> int:
+	for row_any in snapshot.get("daily_challenges", []) as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("id", "")) == challenge_id:
+			return int(row.get("progress", 0))
+	return 0
+
+func _daily_ready(snapshot: Dictionary, challenge_id: String) -> bool:
+	for row_any in snapshot.get("daily_challenges", []) as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("id", "")) == challenge_id:
+			return bool(row.get("ready_to_claim", false))
+	return false
+
+func _daily_claimed(snapshot: Dictionary, challenge_id: String) -> bool:
+	for row_any in snapshot.get("daily_challenges", []) as Array:
+		if typeof(row_any) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = row_any as Dictionary
+		if str(row.get("id", "")) == challenge_id:
+			return bool(row.get("claimed", false))
+	return false

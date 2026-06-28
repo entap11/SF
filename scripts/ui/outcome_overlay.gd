@@ -33,6 +33,7 @@ var _stage_next_available: bool = false
 var _stage_status_text: String = ""
 var _post_match_summary_panel: Control = null
 var _post_match_ad_surface: Control = null
+var _nectar_summary_label: Label = null
 
 const PANEL_MAX_SIZE: Vector2 = Vector2(740.0, 620.0)
 const PANEL_MARGIN_PX: float = 28.0
@@ -59,6 +60,7 @@ func _ready() -> void:
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_ensure_nectar_summary_label()
 	_ensure_post_match_summary_panel()
 	_ensure_post_match_ad_surface()
 	_apply_readable_layout()
@@ -173,6 +175,18 @@ func hide_overlay() -> void:
 	visible = false
 	set_process(false)
 
+func set_nectar_award_summary(award: Dictionary = {}) -> void:
+	_ensure_nectar_summary_label()
+	if _nectar_summary_label == null:
+		return
+	var lines: PackedStringArray = _build_economy_summary_lines(award)
+	if lines.is_empty():
+		_nectar_summary_label.visible = false
+		_nectar_summary_label.text = ""
+		return
+	_nectar_summary_label.text = " | ".join(lines)
+	_nectar_summary_label.visible = true
+
 func set_post_match_summary(summary: Dictionary, winner_id: int, player_id: int) -> void:
 	_ensure_post_match_summary_panel()
 	if _post_match_summary_panel == null:
@@ -219,6 +233,27 @@ func _ensure_post_match_summary_panel() -> void:
 	if insert_index >= 0 and insert_index < vbox.get_child_count() - 1:
 		vbox.move_child(created, insert_index)
 	_post_match_summary_panel = created
+
+func _ensure_nectar_summary_label() -> void:
+	if _nectar_summary_label != null and is_instance_valid(_nectar_summary_label):
+		return
+	if vbox == null:
+		return
+	var existing: Node = vbox.get_node_or_null("NectarSummary")
+	if existing is Label:
+		_nectar_summary_label = existing as Label
+	else:
+		var created: Label = Label.new()
+		created.name = "NectarSummary"
+		created.visible = false
+		var insert_index: int = vbox.get_child_count()
+		if countdown_label != null and countdown_label.get_parent() == vbox:
+			insert_index = countdown_label.get_index()
+		vbox.add_child(created)
+		if insert_index >= 0 and insert_index < vbox.get_child_count() - 1:
+			vbox.move_child(created, insert_index)
+		_nectar_summary_label = created
+	_style_label(_nectar_summary_label, LABEL_FONT_BODY, FONT_RESULT, HORIZONTAL_ALIGNMENT_CENTER)
 
 func _ensure_post_match_ad_surface() -> void:
 	if _post_match_ad_surface != null and is_instance_valid(_post_match_ad_surface):
@@ -275,6 +310,7 @@ func _apply_outcome(winner_id: int, reason: String, _record_text: String, _h2h_t
 	stat_units_landed.text = ""
 	_apply_crucible_status_from_tree(winner_id)
 	_apply_canonical_wax_status_from_tree()
+	set_nectar_award_summary()
 	_update_countdown_label()
 	_update_status()
 
@@ -317,6 +353,7 @@ func _apply_stage_round_outcome(data: Dictionary) -> void:
 			stat_max_power.text = "-- (provisional, cumulative)"
 		stat_units_killed.text = "Round Wins: You %d | Opponent %d" % [local_round_wins, opponent_round_wins]
 		stat_units_landed.text = "Rank is based on cumulative run totals (%d/%d)" % [round_number, total_rounds]
+	set_nectar_award_summary(data.get("nectar_award", {}) as Dictionary if typeof(data.get("nectar_award", {})) == TYPE_DICTIONARY else {})
 	countdown_label.text = ""
 	rematch_button.text = next_label
 	rematch_button.disabled = not _stage_next_available
@@ -393,6 +430,7 @@ func _apply_progressive_stage_outcome(data: Dictionary) -> void:
 		stat_units_landed.text = "Next stage starts automatically."
 	else:
 		stat_units_landed.text = "Running tally: %s" % _star_text(total_stars, max_stars)
+	set_nectar_award_summary(data.get("nectar_award", {}) as Dictionary if typeof(data.get("nectar_award", {})) == TYPE_DICTIONARY else {})
 	countdown_label.text = ""
 	rematch_button.text = next_label
 	rematch_button.disabled = not _stage_next_available
@@ -419,6 +457,7 @@ func _apply_tutorial_complete_outcome(winner_id: int, reason: String) -> void:
 	stat_max_power.text = ""
 	stat_units_killed.text = ""
 	stat_units_landed.text = ""
+	set_nectar_award_summary({})
 	countdown_label.text = ""
 	rematch_button.visible = false
 	rematch_button.disabled = true
@@ -435,6 +474,114 @@ func _set_standard_rows_visible(show_rows: bool) -> void:
 	stat_units_killed.visible = show_rows
 	stat_units_landed.visible = show_rows
 	countdown_label.visible = show_rows
+
+func _latest_nectar_award_from_tree() -> Dictionary:
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta("battle_pass_latest_nectar_award"):
+		return {}
+	var award_any: Variant = tree.get_meta("battle_pass_latest_nectar_award")
+	if typeof(award_any) != TYPE_DICTIONARY:
+		return {}
+	return (award_any as Dictionary).duplicate(true)
+
+func _latest_honey_award_from_tree() -> Dictionary:
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta("honey_latest_award"):
+		return {}
+	var award_any: Variant = tree.get_meta("honey_latest_award")
+	if typeof(award_any) != TYPE_DICTIONARY:
+		return {}
+	return (award_any as Dictionary).duplicate(true)
+
+func _build_economy_summary_lines(explicit_nectar_award: Dictionary = {}) -> PackedStringArray:
+	var lines: PackedStringArray = PackedStringArray()
+	var nectar: Dictionary = explicit_nectar_award.duplicate(true)
+	if nectar.is_empty():
+		nectar = _latest_nectar_award_from_tree()
+	var nectar_line: String = _format_nectar_award_summary(nectar)
+	if not nectar_line.is_empty():
+		lines.append(nectar_line)
+	var honey_line: String = _format_honey_award_summary(_latest_honey_award_from_tree())
+	if not honey_line.is_empty():
+		lines.append(honey_line)
+	var wax_line: String = _format_wax_award_summary()
+	if not wax_line.is_empty():
+		lines.append(wax_line)
+	var money_line: String = _format_money_award_summary()
+	if not money_line.is_empty():
+		lines.append(money_line)
+	return lines
+
+func _format_nectar_award_summary(award: Dictionary) -> String:
+	if award.is_empty():
+		return ""
+	var xp_awarded: int = maxi(0, int(award.get("xp_awarded", 0)))
+	if xp_awarded <= 0:
+		var reason: String = str(award.get("reason", "")).strip_edges()
+		if bool(award.get("suppressed", false)) and not reason.is_empty():
+			return "Nectar: no reward (%s)" % reason.replace("_", " ")
+		return ""
+	var base_xp: int = maxi(0, int(award.get("base_xp", xp_awarded)))
+	var multiplier: float = maxf(1.0, float(award.get("xp_multiplier", 1.0)))
+	var breakdown: Dictionary = award.get("nectar_breakdown", {}) as Dictionary if typeof(award.get("nectar_breakdown", {})) == TYPE_DICTIONARY else {}
+	var parts: PackedStringArray = PackedStringArray()
+	var participation: int = maxi(0, int(breakdown.get("participation_nectar", 0)))
+	var win_bonus: int = maxi(0, int(breakdown.get("win_bonus_nectar", 0)))
+	var first_win_bonus: int = maxi(0, int(breakdown.get("first_win_bonus_nectar", 0)))
+	if participation > 0:
+		parts.append("play +%d" % participation)
+	if win_bonus > 0:
+		parts.append("win +%d" % win_bonus)
+	if first_win_bonus > 0:
+		parts.append("first win +%d" % first_win_bonus)
+	var detail: String = "base %d" % base_xp
+	if parts.size() > 0:
+		detail = ", ".join(parts)
+	if multiplier > 1.001:
+		detail = "%s, %.1fx pass" % [detail, multiplier]
+	return "Nectar earned: +%d (%s)" % [xp_awarded, detail]
+
+func _format_honey_award_summary(award: Dictionary) -> String:
+	if award.is_empty():
+		return ""
+	var centi: int = maxi(0, int(award.get("honey_centi_awarded", 0)))
+	if centi <= 0:
+		return ""
+	var whole: int = maxi(0, int(award.get("whole_honey_granted", 0)))
+	var amount: String = "%d.%02d" % [int(centi / 100), centi % 100]
+	if whole > 0:
+		return "Honey earned: +%s (+%d visible)" % [amount, whole]
+	return "Honey earned: +%s" % amount
+
+func _format_wax_award_summary() -> String:
+	var tree: SceneTree = get_tree()
+	if tree == null or bool(tree.get_meta("vs_crucible", false)) or not tree.has_meta("canonical_wax_result"):
+		return ""
+	var delta_wax: float = float(tree.get_meta("canonical_wax_delta", 0.0))
+	var balance_wax: float = maxf(0.0, float(tree.get_meta("canonical_wax_balance", 0.0)))
+	var status: String = str(tree.get_meta("canonical_wax_status", "settled")).strip_edges()
+	if status == "blocked":
+		return "Wax: no rank change"
+	return "Wax: %s | balance %s" % [_format_signed_wax(delta_wax), _format_wax(balance_wax)]
+
+func _format_money_award_summary() -> String:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return ""
+	var live_status: String = str(tree.get_meta("vs_money_ledger_status", "")).strip_edges().to_lower()
+	if not live_status.is_empty():
+		var result: Dictionary = tree.get_meta("vs_money_settlement_result", {}) as Dictionary if typeof(tree.get_meta("vs_money_settlement_result", {})) == TYPE_DICTIONARY else {}
+		var payout_cents: int = maxi(0, int(result.get("winner_payout_cents", 0)))
+		if payout_cents > 0:
+			return "Money payout: %s" % _format_money_cents(payout_cents)
+		if live_status == "refunded":
+			return "Money entry refunded"
+	if tree.has_meta("async_money_balance_start_cents") or tree.has_meta("async_money_balance_after_entry_cents") or tree.has_meta("async_money_balance_finish_cents"):
+		var start_cents: int = maxi(0, int(tree.get_meta("async_money_balance_start_cents", 0)))
+		var finish_cents: int = maxi(0, int(tree.get_meta("async_money_balance_finish_cents", tree.get_meta("async_money_balance_after_entry_cents", start_cents))))
+		if start_cents > 0 or finish_cents > 0:
+			return "Money: %s -> %s" % [_format_money_cents(start_cents), _format_money_cents(finish_cents)]
+	return ""
 
 func _update_stat_labels() -> void:
 	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:

@@ -186,6 +186,16 @@ func get_first_win_of_day_xp() -> int:
 	var progression: Dictionary = _progression_settings()
 	return maxi(0, int(progression.get("first_win_of_day_xp", 20)))
 
+func get_nectar_policy_config() -> Dictionary:
+	var progression: Dictionary = _progression_settings()
+	return {
+		"mode_xp": _mode_xp_settings().duplicate(true),
+		"first_win_of_day_xp": maxi(0, int(progression.get("first_win_of_day_xp", 20))),
+		"anti_harvest": (progression.get("anti_harvest", {}) as Dictionary).duplicate(true) if typeof(progression.get("anti_harvest", {})) == TYPE_DICTIONARY else {},
+		"weekly_challenges": get_weekly_challenge_definitions(),
+		"weekly_completion_bonus_xp": get_weekly_completion_bonus_xp()
+	}
+
 func get_async_completion_xp(map_count: int, paid_entry: bool) -> int:
 	var mode_xp: Dictionary = _mode_xp_settings()
 	var async_any: Variant = mode_xp.get("async_completion", {})
@@ -199,8 +209,15 @@ func get_async_completion_xp(map_count: int, paid_entry: bool) -> int:
 	var branch: Dictionary = branch_any as Dictionary
 	var key: String = str(maxi(1, map_count))
 	if branch.has(key):
-		return maxi(0, int(branch.get(key, 0)))
-	return maxi(0, int(branch.get("default", 0)))
+		return _completion_xp_from_value(branch.get(key, 0))
+	return _completion_xp_from_value(branch.get("default", 0))
+
+func get_async_match_xp(map_count: int, paid_entry: bool, did_win: bool) -> int:
+	var awards: Dictionary = _async_award_table(map_count, paid_entry)
+	var total: int = maxi(0, int(awards.get("completion", 0)))
+	if did_win:
+		total += maxi(0, int(awards.get("win_bonus", 0)))
+	return total
 
 func get_pvp_completion_xp(paid_entry: bool, money_tier: int, did_win: bool) -> int:
 	var mode_xp: Dictionary = _mode_xp_settings()
@@ -223,6 +240,8 @@ func get_pvp_completion_xp(paid_entry: bool, money_tier: int, did_win: bool) -> 
 	var money: Dictionary = money_any as Dictionary
 	var tier_any: Variant = money.get(str(maxi(1, money_tier)), {})
 	if typeof(tier_any) != TYPE_DICTIONARY:
+		tier_any = money.get("default", {})
+	if typeof(tier_any) != TYPE_DICTIONARY:
 		return 0
 	var tier: Dictionary = tier_any as Dictionary
 	var xp_total: int = maxi(0, int(tier.get("completion", 0)))
@@ -233,6 +252,13 @@ func get_pvp_completion_xp(paid_entry: bool, money_tier: int, did_win: bool) -> 
 func get_tournament_participation_xp() -> int:
 	var tournament: Dictionary = _tournament_settings()
 	return maxi(0, int(tournament.get("participation", 0)))
+
+func get_tournament_match_xp(did_win: bool) -> int:
+	var tournament: Dictionary = _tournament_settings()
+	var total: int = maxi(0, int(tournament.get("participation", 0)))
+	if did_win:
+		total += maxi(0, int(tournament.get("win_bonus", 0)))
+	return total
 
 func get_tournament_placement_xp(placement: int) -> int:
 	var tournament: Dictionary = _tournament_settings()
@@ -252,6 +278,24 @@ func get_contest_result_xp(scope: String, placement: int) -> int:
 	if typeof(scope_any) != TYPE_DICTIONARY:
 		return 0
 	return maxi(0, int((scope_any as Dictionary).get(str(maxi(1, placement)), 0)))
+
+func get_weekly_challenge_definitions() -> Array:
+	var progression: Dictionary = _progression_settings()
+	var challenges_any: Variant = progression.get("weekly_challenges", [])
+	if typeof(challenges_any) != TYPE_ARRAY:
+		return []
+	return (challenges_any as Array).duplicate(true)
+
+func get_daily_challenge_definitions() -> Array:
+	var progression: Dictionary = _progression_settings()
+	var challenges_any: Variant = progression.get("daily_challenges", [])
+	if typeof(challenges_any) != TYPE_ARRAY:
+		return []
+	return (challenges_any as Array).duplicate(true)
+
+func get_weekly_completion_bonus_xp() -> int:
+	var progression: Dictionary = _progression_settings()
+	return maxi(0, int(progression.get("weekly_completion_bonus_xp", 0)))
 
 func get_dau_access_ticket_rate(dau: int) -> float:
 	var tier: Dictionary = get_dau_tier(dau)
@@ -553,6 +597,36 @@ func _tournament_settings() -> Dictionary:
 		return {}
 	return tournament_any as Dictionary
 
+func _async_award_table(map_count: int, paid_entry: bool) -> Dictionary:
+	var mode_xp: Dictionary = _mode_xp_settings()
+	var async_any: Variant = mode_xp.get("async_completion", {})
+	if typeof(async_any) != TYPE_DICTIONARY:
+		return {}
+	var async_xp: Dictionary = async_any as Dictionary
+	var branch_key: String = "paid" if paid_entry else "free"
+	var branch_any: Variant = async_xp.get(branch_key, {})
+	if typeof(branch_any) != TYPE_DICTIONARY:
+		return {}
+	var branch: Dictionary = branch_any as Dictionary
+	var key: String = str(maxi(1, map_count))
+	if branch.has(key):
+		return _award_table_from_value(branch.get(key, 0))
+	return _award_table_from_value(branch.get("default", 0))
+
+func _completion_xp_from_value(value: Variant) -> int:
+	return maxi(0, int(_award_table_from_value(value).get("completion", 0)))
+
+func _award_table_from_value(value: Variant) -> Dictionary:
+	if typeof(value) == TYPE_DICTIONARY:
+		var table: Dictionary = value as Dictionary
+		return {
+			"completion": maxi(0, int(table.get("completion", 0))),
+			"win_bonus": maxi(0, int(table.get("win_bonus", 0)))
+		}
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return {"completion": maxi(0, int(value)), "win_bonus": 0}
+	return {"completion": 0, "win_bonus": 0}
+
 func _build_default_config() -> Dictionary:
 	var now_unix: int = int(Time.get_unix_time_from_system())
 	var season_start_unix: int = now_unix
@@ -581,21 +655,39 @@ func _build_default_config() -> Dictionary:
 			TRACK_ELITE: 3
 		},
 		"first_win_of_day_xp": 20,
+		"anti_harvest": {
+			"minimum_duration_sec": 30,
+			"repeated_opponent_soft_count": 3,
+			"repeated_opponent_step_multiplier": 0.15,
+			"repeated_opponent_min_multiplier": 0.5,
+			"daily_soft_cap_xp": 450,
+			"daily_soft_cap_multiplier": 0.5
+		},
 		"mode_xp": {
 			"async_completion": {
-				"free": {"3": 8, "5": 8, "default": 8},
-				"paid": {"3": 10, "5": 10, "default": 10}
+				"free": {
+					"3": {"completion": 8, "win_bonus": 6},
+					"5": {"completion": 8, "win_bonus": 6},
+					"default": {"completion": 8, "win_bonus": 6}
+				},
+				"paid": {
+					"3": {"completion": 10, "win_bonus": 8},
+					"5": {"completion": 10, "win_bonus": 8},
+					"default": {"completion": 10, "win_bonus": 8}
+				}
 			},
 			"pvp": {
 				"free": {"completion": 10, "win_bonus": 8},
 				"money": {
 					"1": {"completion": 12, "win_bonus": 10},
 					"2": {"completion": 12, "win_bonus": 10},
-					"3": {"completion": 12, "win_bonus": 10}
+					"3": {"completion": 12, "win_bonus": 10},
+					"default": {"completion": 12, "win_bonus": 10}
 				}
 			},
 			"tournament": {
 				"participation": 12,
+				"win_bonus": 10,
 				"placement": {"1": 75, "2": 0, "3": 0}
 			},
 			"contest": {
@@ -605,6 +697,24 @@ func _build_default_config() -> Dictionary:
 				"default": {"1": 25, "2": 12, "3": 6}
 			}
 		},
+		"daily_challenges": [
+			{"id": "daily_complete_match", "event_key": "daily_complete_match", "target": 1, "xp_reward": 40, "difficulty": "easy"},
+			{"id": "daily_win_match", "event_key": "daily_win_match", "target": 1, "xp_reward": 75, "difficulty": "medium"},
+			{"id": "daily_play_3_matches", "event_key": "daily_play_match", "target": 3, "xp_reward": 120, "difficulty": "hard"}
+		],
+		"weekly_challenges": [
+			{"id": "weekly_play_standard_pvp", "event_key": "weekly_play_standard_pvp", "target": 25, "xp_reward": 300},
+			{"id": "weekly_win_standard_pvp", "event_key": "weekly_win_standard_pvp", "target": 10, "xp_reward": 300},
+			{"id": "weekly_play_async", "event_key": "weekly_play_async", "target": 20, "xp_reward": 250},
+			{"id": "weekly_win_async", "event_key": "weekly_win_async", "target": 8, "xp_reward": 250},
+			{"id": "weekly_play_tournament", "event_key": "weekly_play_tournament", "target": 8, "xp_reward": 300},
+			{"id": "weekly_win_tournament", "event_key": "weekly_win_tournament", "target": 3, "xp_reward": 350},
+			{"id": "weekly_play_progressive", "event_key": "weekly_play_progressive", "target": 15, "xp_reward": 250},
+			{"id": "weekly_win_progressive", "event_key": "weekly_win_progressive", "target": 6, "xp_reward": 300},
+			{"id": "weekly_play_money", "event_key": "weekly_play_money", "target": 10, "xp_reward": 350},
+			{"id": "weekly_win_money", "event_key": "weekly_win_money", "target": 4, "xp_reward": 350}
+		],
+		"weekly_completion_bonus_xp": 750,
 		"prestige_pool": {
 			"seed_base_slots": 500,
 			"entry_rate": 0.40,

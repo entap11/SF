@@ -18,6 +18,8 @@ func _init() -> void:
 		push_error("BATTLE_PASS_SMOKE: required autoload missing")
 		quit(1)
 		return
+	if profile_manager.has_method("set_user_id"):
+		profile_manager.call("set_user_id", "018f2c4d-89ab-7def-8abc-123456789abc")
 
 	if battle_pass_state.has_method("debug_reset_state"):
 		battle_pass_state.call("debug_reset_state")
@@ -150,12 +152,20 @@ func _init() -> void:
 	fake_runner.name = "SimRunner"
 	get_root().add_child(fake_runner)
 	await process_frame
+	var runtime_awards: Node = get_root().get_node_or_null("BattlePassRuntimeAwards")
+	if runtime_awards != null and runtime_awards.has_method("sync_runtime_connections"):
+		runtime_awards.call("sync_runtime_connections")
+	await process_frame
+	if runtime_awards != null:
+		_assert_true(fake_runner.is_connected("match_ended", Callable(runtime_awards, "_on_runtime_match_ended")), "runtime awards should connect fake SimRunner")
+	var runtime_profile_id: String = str(profile_manager.call("get_user_id")).strip_edges()
+	_assert_true(not runtime_profile_id.is_empty(), "runtime profile id should be available")
 
 	set_meta("vs_mode", "1V1")
 	set_meta("vs_sync_start", true)
 	set_meta("vs_free_roll", true)
 	set_meta("vs_price_usd", 0)
-	set_meta("vs_local_profile", {"uid": str(profile_manager.call("get_user_id"))})
+	set_meta("vs_local_profile", {"uid": runtime_profile_id})
 	set_meta("vs_handshake_role", "host")
 	remove_meta("bp_runtime_nonce")
 	fake_runner.emit_signal("match_ended", 1, "timeout")

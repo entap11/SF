@@ -4,6 +4,8 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const BattlePassConfigScript = preload("res://scripts/state/battle_pass_config.gd")
 const BattlePassRewardsScript = preload("res://scripts/state/battle_pass_rewards.gd")
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
+const NectarRewardPolicyScript = preload("res://scripts/state/nectar_reward_policy.gd")
+const PlatformEconomyEventSchemaScript = preload("res://scripts/state/platform_economy_event_schema.gd")
 
 signal battle_pass_state_changed(snapshot: Dictionary)
 signal battle_pass_event(event: Dictionary)
@@ -49,6 +51,13 @@ var _first_win_bonus_by_day_player: Dictionary = {}
 var _quest_progress: Dictionary = {}
 var _quest_claimed: Dictionary = {}
 var _quest_bonus_claimed: Dictionary = {}
+var _daily_cycle_key: String = ""
+var _daily_challenge_progress: Dictionary = {}
+var _daily_challenge_claimed: Dictionary = {}
+var _weekly_cycle_key: String = ""
+var _weekly_challenge_progress: Dictionary = {}
+var _weekly_challenge_claimed: Dictionary = {}
+var _weekly_completion_bonus_claimed: bool = false
 var _access_ticket_entry_claims: Dictionary = {}
 var _exclusive_event_prize_claims: Dictionary = {}
 
@@ -63,8 +72,11 @@ func _ready() -> void:
 	_load_state()
 	_refresh_entitlements_from_profile()
 	_roll_season_if_needed()
+	_roll_daily_weekly_cycles_if_needed()
 	_ensure_prestige_state_initialized()
 	_ensure_quest_state_initialized()
+	_ensure_daily_challenge_state_initialized()
+	_ensure_weekly_challenge_state_initialized()
 	_recalculate_level_from_xp()
 	_refresh_veteran_unlock_state()
 	_emit_state_changed()
@@ -121,7 +133,12 @@ func get_snapshot() -> Dictionary:
 		"exclusive_event_prize_claim_count": _exclusive_event_prize_claims.size(),
 		"first_win_bonus_claims": _first_win_bonus_by_day_player.duplicate(true),
 		"quests": _build_quest_rows(),
-		"quest_bonuses": _build_quest_bonus_rows()
+		"quest_bonuses": _build_quest_bonus_rows(),
+		"daily_cycle_key": _daily_cycle_key,
+		"daily_challenges": _build_daily_challenge_rows(),
+		"weekly_cycle_key": _weekly_cycle_key,
+		"weekly_challenges": _build_weekly_challenge_rows(),
+		"weekly_completion_bonus_claimed": _weekly_completion_bonus_claimed
 	}
 
 func sync_entitlements_from_profile() -> Dictionary:
@@ -187,16 +204,28 @@ func intent_award_nectar_xp(source_name: String, nectar_xp: int, metadata: Dicti
 	var safe_xp: int = maxi(0, nectar_xp)
 	if safe_xp <= 0:
 		return {"ok": false, "reason": "xp_zero"}
+	var blocked_reason: String = _nectar_blocked_reason(source_name, metadata)
+	if not blocked_reason.is_empty():
+		_emit_nectar_blocked(blocked_reason, metadata)
+		return {"ok": true, "suppressed": true, "reason": blocked_reason, "xp_awarded": 0}
 	return _apply_nectar_xp_award(source_name, safe_xp, metadata, true)
 
 func intent_record_async_completion(mode_id: String, map_count: int, paid_entry: bool, metadata: Dictionary = {}) -> Dictionary:
 	if _metadata_is_crucible(metadata):
+		_emit_nectar_blocked("crucible_no_nectar", metadata)
 		return {"ok": true, "suppressed": true, "reason": "crucible_no_nectar", "xp_awarded": 0}
 	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
 	if event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
 	var safe_map_count: int = maxi(1, map_count)
-	var xp_total: int = _config.get_async_completion_xp(safe_map_count, paid_entry)
+	_roll_daily_weekly_cycles_if_needed()
+	var did_win: bool = _metadata_did_win(metadata)
+	var policy: Dictionary = _evaluate_nectar_policy(mode_id, paid_entry, 0, did_win, event_id, metadata)
+	if str(policy.get("validity_status", "")) == "blocked":
+		var reason: String = str(policy.get("anti_harvest_reason_if_blocked", "blocked"))
+		_emit_nectar_blocked(reason, metadata)
+		return {"ok": true, "suppressed": true, "reason": reason, "xp_awarded": 0}
+	var xp_total: int = int(policy.get("final_nectar", _config.get_async_match_xp(safe_map_count, paid_entry, did_win)))
 	if xp_total <= 0:
 		return {"ok": false, "reason": "xp_zero", "event_id": event_id}
 	var reserved: Dictionary = _reserve_award_event(event_id)
@@ -206,10 +235,14 @@ func intent_record_async_completion(mode_id: String, map_count: int, paid_entry:
 	xp_meta["mode_id"] = mode_id.strip_edges().to_upper()
 	xp_meta["map_count"] = safe_map_count
 	xp_meta["paid_entry"] = paid_entry
+	xp_meta["did_win"] = did_win
 	xp_meta["event_id"] = event_id
+	xp_meta["nectar_breakdown"] = policy.duplicate(true)
 	var changed: bool = _apply_quest_progress("async_match_completed", 1, xp_meta)
 	if paid_entry:
 		changed = _apply_quest_progress("money_async_played", 1, xp_meta) or changed
+	changed = _apply_daily_challenge_progress(_daily_events_for_result(did_win), xp_meta) or changed
+	changed = _apply_weekly_challenge_progress(_weekly_events_for_result(NectarRewardPolicyScript.MODE_GROUP_ASYNC, paid_entry, did_win), xp_meta) or changed
 	var xp_result: Dictionary = _apply_nectar_xp_award("async_completion", xp_total, xp_meta, true)
 	if not bool(xp_result.get("ok", false)):
 		return xp_result
@@ -220,16 +253,26 @@ func intent_record_async_completion(mode_id: String, map_count: int, paid_entry:
 		"ok": true,
 		"event_id": event_id,
 		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"base_xp": int(xp_result.get("base_xp", xp_total)),
+		"xp_multiplier": float(xp_result.get("xp_multiplier", 1.0)),
+		"nectar_breakdown": policy.duplicate(true),
 		"battle_pass_level": _battle_pass_level
 	}
 
 func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_tier: int = 0, did_win: bool = false, metadata: Dictionary = {}) -> Dictionary:
 	if _metadata_is_crucible(metadata):
+		_emit_nectar_blocked("crucible_no_nectar", metadata)
 		return {"ok": true, "suppressed": true, "reason": "crucible_no_nectar", "xp_awarded": 0}
 	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
 	if event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
-	var xp_total: int = _config.get_pvp_completion_xp(paid_entry, money_tier, did_win)
+	_roll_daily_weekly_cycles_if_needed()
+	var policy: Dictionary = _evaluate_nectar_policy(pvp_mode_id, paid_entry, money_tier, did_win, event_id, metadata)
+	if str(policy.get("validity_status", "")) == "blocked":
+		var reason: String = str(policy.get("anti_harvest_reason_if_blocked", "blocked"))
+		_emit_nectar_blocked(reason, metadata)
+		return {"ok": true, "suppressed": true, "reason": reason, "xp_awarded": 0}
+	var xp_total: int = int(policy.get("final_nectar", _config.get_pvp_completion_xp(paid_entry, money_tier, did_win)))
 	if xp_total <= 0:
 		return {"ok": false, "reason": "xp_zero", "event_id": event_id}
 	var reserved: Dictionary = _reserve_award_event(event_id)
@@ -241,6 +284,8 @@ func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_t
 	xp_meta["money_tier"] = money_tier
 	xp_meta["did_win"] = did_win
 	xp_meta["event_id"] = event_id
+	xp_meta["nectar_breakdown"] = policy.duplicate(true)
+	var mode_group: String = str(policy.get("mode_group", NectarRewardPolicyScript.MODE_GROUP_STANDARD))
 	var changed: bool = _apply_quest_progress("pvp_match_completed", 1, xp_meta)
 	if paid_entry:
 		changed = _apply_quest_progress("money_match_played", 1, xp_meta) or changed
@@ -250,11 +295,15 @@ func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_t
 		if bool(first_win_bonus.get("awarded", false)):
 			xp_total += maxi(0, int(first_win_bonus.get("xp", 0)))
 			xp_meta["first_win_bonus_nectar"] = int(first_win_bonus.get("xp", 0))
+			policy["first_win_bonus_nectar"] = int(first_win_bonus.get("xp", 0))
+			policy["final_nectar"] = int(policy.get("final_nectar", 0)) + int(first_win_bonus.get("xp", 0))
 			_emit_event("nectar_first_win_awarded", {
 				"player_id": str(first_win_bonus.get("player_id", "")),
 				"day_key": str(first_win_bonus.get("day_key", "")),
 				"xp": int(first_win_bonus.get("xp", 0))
 			})
+	changed = _apply_daily_challenge_progress(_daily_events_for_result(did_win), xp_meta) or changed
+	changed = _apply_weekly_challenge_progress(_weekly_events_for_result(mode_group, paid_entry, did_win), xp_meta) or changed
 	var xp_result: Dictionary = _apply_nectar_xp_award("pvp_completion", xp_total, xp_meta, true)
 	if not bool(xp_result.get("ok", false)):
 		return xp_result
@@ -265,14 +314,30 @@ func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_t
 		"ok": true,
 		"event_id": event_id,
 		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"base_xp": int(xp_result.get("base_xp", xp_total)),
+		"xp_multiplier": float(xp_result.get("xp_multiplier", 1.0)),
+		"nectar_breakdown": policy.duplicate(true),
 		"battle_pass_level": _battle_pass_level
 	}
 
 func intent_record_tournament_participation(metadata: Dictionary = {}) -> Dictionary:
+	return intent_record_tournament_match_result(false, metadata)
+
+func intent_record_tournament_match_result(did_win: bool, metadata: Dictionary = {}) -> Dictionary:
+	if _metadata_is_crucible(metadata):
+		_emit_nectar_blocked("crucible_no_nectar", metadata)
+		return {"ok": true, "suppressed": true, "reason": "crucible_no_nectar", "xp_awarded": 0}
 	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
 	if event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
-	var xp_total: int = _config.get_tournament_participation_xp()
+	_roll_daily_weekly_cycles_if_needed()
+	var paid_entry: bool = bool(metadata.get("paid_entry", metadata.get("is_money_match", metadata.get("is_money", false))))
+	var policy: Dictionary = _evaluate_nectar_policy("TOURNAMENT", paid_entry, 0, did_win, event_id, metadata)
+	if str(policy.get("validity_status", "")) == "blocked":
+		var reason: String = str(policy.get("anti_harvest_reason_if_blocked", "blocked"))
+		_emit_nectar_blocked(reason, metadata)
+		return {"ok": true, "suppressed": true, "reason": reason, "xp_awarded": 0}
+	var xp_total: int = int(policy.get("final_nectar", _config.get_tournament_match_xp(did_win)))
 	if xp_total <= 0:
 		return {"ok": false, "reason": "xp_zero", "event_id": event_id}
 	var reserved: Dictionary = _reserve_award_event(event_id)
@@ -280,8 +345,13 @@ func intent_record_tournament_participation(metadata: Dictionary = {}) -> Dictio
 		return reserved
 	var xp_meta: Dictionary = metadata.duplicate(true)
 	xp_meta["event_id"] = event_id
+	xp_meta["did_win"] = did_win
+	xp_meta["paid_entry"] = paid_entry
+	xp_meta["nectar_breakdown"] = policy.duplicate(true)
 	var changed: bool = _apply_quest_progress("tournament_played", 1, xp_meta)
-	var xp_result: Dictionary = _apply_nectar_xp_award("tournament_participation", xp_total, xp_meta, true)
+	changed = _apply_daily_challenge_progress(_daily_events_for_result(did_win), xp_meta) or changed
+	changed = _apply_weekly_challenge_progress(_weekly_events_for_result(NectarRewardPolicyScript.MODE_GROUP_TOURNAMENT, paid_entry, did_win), xp_meta) or changed
+	var xp_result: Dictionary = _apply_nectar_xp_award("tournament_match", xp_total, xp_meta, true)
 	if not bool(xp_result.get("ok", false)):
 		return xp_result
 	if changed:
@@ -291,6 +361,9 @@ func intent_record_tournament_participation(metadata: Dictionary = {}) -> Dictio
 		"ok": true,
 		"event_id": event_id,
 		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"base_xp": int(xp_result.get("base_xp", xp_total)),
+		"xp_multiplier": float(xp_result.get("xp_multiplier", 1.0)),
+		"nectar_breakdown": policy.duplicate(true),
 		"battle_pass_level": _battle_pass_level
 	}
 
@@ -619,6 +692,40 @@ func intent_claim_quest_reward(quest_id: String) -> Dictionary:
 		"reward_grant": reward_grant
 	}
 
+func intent_claim_daily_challenge(challenge_id: String) -> Dictionary:
+	_roll_daily_weekly_cycles_if_needed()
+	var clean_id: String = challenge_id.strip_edges()
+	if clean_id.is_empty():
+		return {"ok": false, "reason": "challenge_id_missing"}
+	var challenge: Dictionary = _daily_challenge_definition(clean_id)
+	if challenge.is_empty():
+		return {"ok": false, "reason": "challenge_missing"}
+	if bool(_daily_challenge_claimed.get(clean_id, false)):
+		return {"ok": false, "reason": "challenge_already_claimed"}
+	var target: int = maxi(1, int(challenge.get("target", 1)))
+	var progress: int = maxi(0, int(_daily_challenge_progress.get(clean_id, 0)))
+	if progress < target:
+		return {"ok": false, "reason": "challenge_incomplete", "progress": progress, "target": target}
+	_daily_challenge_claimed[clean_id] = true
+	var xp_reward: int = maxi(0, int(challenge.get("xp_reward", 0)))
+	var xp_result: Dictionary = {}
+	if xp_reward > 0:
+		xp_result = intent_award_nectar_xp("daily_challenge:%s" % clean_id, xp_reward, {"challenge_id": clean_id, "daily_cycle_key": _daily_cycle_key})
+	_save_state()
+	_emit_event("nectar_daily_challenge_completed", {
+		"challenge_id": clean_id,
+		"xp_reward": xp_reward,
+		"daily_cycle_key": _daily_cycle_key
+	})
+	_emit_state_changed()
+	return {
+		"ok": true,
+		"challenge_id": clean_id,
+		"xp_reward": xp_reward,
+		"xp_awarded": int(xp_result.get("xp_awarded", 0)),
+		"daily_cycle_key": _daily_cycle_key
+	}
+
 func intent_claim_reward(level: int, track_slot: String) -> Dictionary:
 	var validation: Dictionary = _validate_claim(level, track_slot, false)
 	if not bool(validation.get("ok", false)):
@@ -800,6 +907,51 @@ func _build_quest_bonus_rows() -> Array[Dictionary]:
 		})
 	return rows
 
+func _build_daily_challenge_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for challenge_any in _config.get_daily_challenge_definitions():
+		if typeof(challenge_any) != TYPE_DICTIONARY:
+			continue
+		var challenge: Dictionary = challenge_any as Dictionary
+		var challenge_id: String = str(challenge.get("id", "")).strip_edges()
+		if challenge_id.is_empty():
+			continue
+		var target: int = maxi(1, int(challenge.get("target", 1)))
+		var progress: int = maxi(0, int(_daily_challenge_progress.get(challenge_id, 0)))
+		rows.append({
+			"id": challenge_id,
+			"event_key": str(challenge.get("event_key", "")),
+			"difficulty": str(challenge.get("difficulty", "")),
+			"target": target,
+			"progress": mini(target, progress),
+			"xp_reward": maxi(0, int(challenge.get("xp_reward", 0))),
+			"claimed": bool(_daily_challenge_claimed.get(challenge_id, false)),
+			"ready_to_claim": progress >= target and not bool(_daily_challenge_claimed.get(challenge_id, false))
+		})
+	return rows
+
+func _build_weekly_challenge_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for challenge_any in _config.get_weekly_challenge_definitions():
+		if typeof(challenge_any) != TYPE_DICTIONARY:
+			continue
+		var challenge: Dictionary = challenge_any as Dictionary
+		var challenge_id: String = str(challenge.get("id", "")).strip_edges()
+		if challenge_id.is_empty():
+			continue
+		var target: int = maxi(1, int(challenge.get("target", 1)))
+		var progress: int = maxi(0, int(_weekly_challenge_progress.get(challenge_id, 0)))
+		rows.append({
+			"id": challenge_id,
+			"event_key": str(challenge.get("event_key", "")),
+			"target": target,
+			"progress": mini(target, progress),
+			"xp_reward": maxi(0, int(challenge.get("xp_reward", 0))),
+			"claimed": bool(_weekly_challenge_claimed.get(challenge_id, false)),
+			"completed": progress >= target
+		})
+	return rows
+
 func _apply_quest_progress(event_key: String, amount: int, metadata: Dictionary = {}) -> bool:
 	var changed: bool = false
 	var safe_amount: int = maxi(0, amount)
@@ -831,6 +983,142 @@ func _apply_quest_progress(event_key: String, amount: int, metadata: Dictionary 
 			"metadata": metadata
 		})
 	return changed
+
+func _apply_daily_challenge_progress(event_keys: Array[String], metadata: Dictionary = {}) -> bool:
+	if event_keys.is_empty():
+		return false
+	_ensure_daily_challenge_state_initialized()
+	var changed: bool = false
+	for challenge_any in _config.get_daily_challenge_definitions():
+		if typeof(challenge_any) != TYPE_DICTIONARY:
+			continue
+		var challenge: Dictionary = challenge_any as Dictionary
+		var event_key: String = str(challenge.get("event_key", "")).strip_edges().to_lower()
+		if event_key.is_empty() or not event_keys.has(event_key):
+			continue
+		var challenge_id: String = str(challenge.get("id", "")).strip_edges()
+		if challenge_id.is_empty():
+			continue
+		var target: int = maxi(1, int(challenge.get("target", 1)))
+		var current: int = maxi(0, int(_daily_challenge_progress.get(challenge_id, 0)))
+		var next: int = mini(target, current + 1)
+		if next == current:
+			continue
+		_daily_challenge_progress[challenge_id] = next
+		changed = true
+		_emit_event("nectar_daily_challenge_progress", {
+			"challenge_id": challenge_id,
+			"event_key": event_key,
+			"progress": next,
+			"target": target,
+			"ready_to_claim": next >= target,
+			"daily_cycle_key": _daily_cycle_key,
+			"metadata": metadata
+		})
+	return changed
+
+func _apply_weekly_challenge_progress(event_keys: Array[String], metadata: Dictionary = {}) -> bool:
+	if event_keys.is_empty():
+		return false
+	_ensure_weekly_challenge_state_initialized()
+	var changed: bool = false
+	var completed_this_update: bool = false
+	for challenge_any in _config.get_weekly_challenge_definitions():
+		if typeof(challenge_any) != TYPE_DICTIONARY:
+			continue
+		var challenge: Dictionary = challenge_any as Dictionary
+		var event_key: String = str(challenge.get("event_key", "")).strip_edges().to_lower()
+		if event_key.is_empty() or not event_keys.has(event_key):
+			continue
+		var challenge_id: String = str(challenge.get("id", "")).strip_edges()
+		if challenge_id.is_empty():
+			continue
+		var target: int = maxi(1, int(challenge.get("target", 1)))
+		var current: int = maxi(0, int(_weekly_challenge_progress.get(challenge_id, 0)))
+		var next: int = mini(target, current + 1)
+		if next != current:
+			_weekly_challenge_progress[challenge_id] = next
+			changed = true
+			_emit_event("nectar_weekly_challenge_progress", {
+				"challenge_id": challenge_id,
+				"event_key": event_key,
+				"progress": next,
+				"target": target,
+				"metadata": metadata
+			})
+		if next >= target and not bool(_weekly_challenge_claimed.get(challenge_id, false)):
+			_weekly_challenge_claimed[challenge_id] = true
+			completed_this_update = true
+			var reward_xp: int = maxi(0, int(challenge.get("xp_reward", 0)))
+			if reward_xp > 0:
+				var reward_meta: Dictionary = metadata.duplicate(true)
+				reward_meta["challenge_id"] = challenge_id
+				intent_award_nectar_xp("weekly_challenge:%s" % challenge_id, reward_xp, reward_meta)
+			_emit_event("nectar_weekly_challenge_completed", {
+				"challenge_id": challenge_id,
+				"event_key": event_key,
+				"xp_reward": reward_xp
+			})
+	if completed_this_update:
+		changed = _apply_weekly_completion_bonus(metadata) or changed
+	return changed
+
+func _apply_weekly_completion_bonus(metadata: Dictionary = {}) -> bool:
+	if _weekly_completion_bonus_claimed:
+		return false
+	var defs: Array = _config.get_weekly_challenge_definitions()
+	if defs.is_empty():
+		return false
+	for challenge_any in defs:
+		if typeof(challenge_any) != TYPE_DICTIONARY:
+			continue
+		var challenge: Dictionary = challenge_any as Dictionary
+		var challenge_id: String = str(challenge.get("id", "")).strip_edges()
+		if challenge_id.is_empty() or not bool(_weekly_challenge_claimed.get(challenge_id, false)):
+			return false
+	var bonus_xp: int = _config.get_weekly_completion_bonus_xp()
+	if bonus_xp <= 0:
+		return false
+	_weekly_completion_bonus_claimed = true
+	var reward_meta: Dictionary = metadata.duplicate(true)
+	reward_meta["weekly_completion_bonus"] = true
+	intent_award_nectar_xp("weekly_completion_bonus", bonus_xp, reward_meta)
+	_emit_event("nectar_weekly_challenge_completed", {
+		"challenge_id": "weekly_completion_bonus",
+		"xp_reward": bonus_xp
+	})
+	return true
+
+func _daily_events_for_result(did_win: bool) -> Array[String]:
+	var events: Array[String] = ["daily_complete_match", "daily_play_match"]
+	if did_win:
+		events.append("daily_win_match")
+	return events
+
+func _weekly_events_for_result(mode_group: String, paid_entry: bool, did_win: bool) -> Array[String]:
+	var events: Array[String] = []
+	match mode_group:
+		NectarRewardPolicyScript.MODE_GROUP_STANDARD:
+			events.append("weekly_play_standard_pvp")
+			if did_win:
+				events.append("weekly_win_standard_pvp")
+		NectarRewardPolicyScript.MODE_GROUP_PROGRESSIVE:
+			events.append("weekly_play_progressive")
+			if did_win:
+				events.append("weekly_win_progressive")
+		NectarRewardPolicyScript.MODE_GROUP_ASYNC:
+			events.append("weekly_play_async")
+			if did_win:
+				events.append("weekly_win_async")
+		NectarRewardPolicyScript.MODE_GROUP_TOURNAMENT:
+			events.append("weekly_play_tournament")
+			if did_win:
+				events.append("weekly_win_tournament")
+	if paid_entry:
+		events.append("weekly_play_money")
+		if did_win:
+			events.append("weekly_win_money")
+	return events
 
 func _claim_ready_quest_bonuses() -> void:
 	var bonus_defs: Array = _config.get_quest_bonus_definitions()
@@ -946,6 +1234,121 @@ func _ensure_quest_state_initialized() -> void:
 		if not _quest_claimed.has(quest_id):
 			_quest_claimed[quest_id] = false
 
+func _ensure_daily_challenge_state_initialized() -> void:
+	for challenge_any in _config.get_daily_challenge_definitions():
+		if typeof(challenge_any) != TYPE_DICTIONARY:
+			continue
+		var challenge: Dictionary = challenge_any as Dictionary
+		var challenge_id: String = str(challenge.get("id", "")).strip_edges()
+		if challenge_id.is_empty():
+			continue
+		if not _daily_challenge_progress.has(challenge_id):
+			_daily_challenge_progress[challenge_id] = 0
+		if not _daily_challenge_claimed.has(challenge_id):
+			_daily_challenge_claimed[challenge_id] = false
+
+func _ensure_weekly_challenge_state_initialized() -> void:
+	for challenge_any in _config.get_weekly_challenge_definitions():
+		if typeof(challenge_any) != TYPE_DICTIONARY:
+			continue
+		var challenge: Dictionary = challenge_any as Dictionary
+		var challenge_id: String = str(challenge.get("id", "")).strip_edges()
+		if challenge_id.is_empty():
+			continue
+		if not _weekly_challenge_progress.has(challenge_id):
+			_weekly_challenge_progress[challenge_id] = 0
+		if not _weekly_challenge_claimed.has(challenge_id):
+			_weekly_challenge_claimed[challenge_id] = false
+
+func _daily_challenge_definition(challenge_id: String) -> Dictionary:
+	var clean_id: String = challenge_id.strip_edges()
+	if clean_id.is_empty():
+		return {}
+	for challenge_any in _config.get_daily_challenge_definitions():
+		if typeof(challenge_any) != TYPE_DICTIONARY:
+			continue
+		var challenge: Dictionary = challenge_any as Dictionary
+		if str(challenge.get("id", "")).strip_edges() == clean_id:
+			return challenge.duplicate(true)
+	return {}
+
+func _roll_daily_weekly_cycles_if_needed() -> void:
+	var changed: bool = false
+	var live_daily: String = _current_daily_cycle_key()
+	if _daily_cycle_key != live_daily:
+		_daily_cycle_key = live_daily
+		_daily_challenge_progress.clear()
+		_daily_challenge_claimed.clear()
+		_ensure_daily_challenge_state_initialized()
+		changed = true
+	var live_weekly: String = _current_weekly_cycle_key()
+	if _weekly_cycle_key != live_weekly:
+		_weekly_cycle_key = live_weekly
+		_weekly_challenge_progress.clear()
+		_weekly_challenge_claimed.clear()
+		_weekly_completion_bonus_claimed = false
+		_ensure_weekly_challenge_state_initialized()
+		changed = true
+	if changed:
+		_save_state()
+
+func _current_daily_cycle_key() -> String:
+	var date: Dictionary = Time.get_date_dict_from_system()
+	return "%04d-%02d-%02d" % [
+		int(date.get("year", 1970)),
+		int(date.get("month", 1)),
+		int(date.get("day", 1))
+	]
+
+func _current_weekly_cycle_key() -> String:
+	var unix_day: int = int(floor(Time.get_unix_time_from_system() / 86400.0))
+	return "week_%d" % int(floor(float(unix_day) / 7.0))
+
+func _evaluate_nectar_policy(mode_id: String, paid_entry: bool, money_tier: int, did_win: bool, event_id: String, metadata: Dictionary) -> Dictionary:
+	var payload: Dictionary = metadata.duplicate(true)
+	payload["mode_id"] = mode_id.strip_edges().to_upper()
+	payload["paid_entry"] = paid_entry
+	payload["is_money_match"] = paid_entry
+	payload["money_tier"] = money_tier
+	payload["did_win"] = did_win
+	payload["event_id"] = event_id
+	payload["match_id"] = event_id
+	payload["multiplier"] = _config.get_nectar_multiplier_for_entitlements(_premium_owned, _elite_owned)
+	payload["pass_tier"] = TRACK_ELITE if _elite_owned else TRACK_PREMIUM if _premium_owned else TRACK_FREE
+	_emit_event("nectar_award_attempt", {
+		"event_id": event_id,
+		"mode_id": payload["mode_id"],
+		"paid_entry": paid_entry,
+		"did_win": did_win
+	})
+	return NectarRewardPolicyScript.evaluate_match(payload, _config.get_nectar_policy_config())
+
+func _nectar_blocked_reason(source_name: String, metadata: Dictionary) -> String:
+	var payload: Dictionary = metadata.duplicate(true)
+	if metadata.has("mode_id") or metadata.has("pvp_mode_id") or metadata.has("vs_mode"):
+		payload["mode_id"] = str(metadata.get("mode_id", metadata.get("pvp_mode_id", metadata.get("vs_mode", "")))).strip_edges().to_upper()
+	else:
+		payload["mode_id"] = "STANDARD"
+	return NectarRewardPolicyScript.blocked_reason_for_payload(payload)
+
+func _metadata_did_win(metadata: Dictionary) -> bool:
+	if metadata.has("did_win"):
+		return bool(metadata.get("did_win", false))
+	if metadata.has("won"):
+		return bool(metadata.get("won", false))
+	if metadata.has("placement"):
+		return int(metadata.get("placement", 0)) == 1
+	if metadata.has("rank"):
+		return int(metadata.get("rank", 0)) == 1
+	return false
+
+func _emit_nectar_blocked(reason: String, metadata: Dictionary) -> void:
+	var event_type: String = "nectar_blocked_crucible" if reason == "crucible_no_nectar" else "nectar_blocked_antiharvest"
+	_emit_event(event_type, {
+		"reason": reason,
+		"metadata": metadata
+	})
+
 func _prune_award_dedupe() -> void:
 	while _awarded_match_order.size() > MATCH_DEDUPE_MAX:
 		var drop_id: String = _awarded_match_order[0]
@@ -974,7 +1377,16 @@ func _roll_season_if_needed() -> void:
 	_quest_progress.clear()
 	_quest_claimed.clear()
 	_quest_bonus_claimed.clear()
+	_daily_cycle_key = _current_daily_cycle_key()
+	_daily_challenge_progress.clear()
+	_daily_challenge_claimed.clear()
+	_weekly_cycle_key = _current_weekly_cycle_key()
+	_weekly_challenge_progress.clear()
+	_weekly_challenge_claimed.clear()
+	_weekly_completion_bonus_claimed = false
 	_ensure_quest_state_initialized()
+	_ensure_daily_challenge_state_initialized()
+	_ensure_weekly_challenge_state_initialized()
 	_save_state()
 	_emit_event("season_reset", {"season_id": _current_season_id, "prestige_pool_base_slots": _season_prestige_base_slots})
 
@@ -1015,9 +1427,17 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 		"inventory": {},
 		"awarded_match_ids": {},
 		"awarded_match_order": [],
+		"first_win_bonus_by_day_player": {},
 		"quest_progress": {},
 		"quest_claimed": {},
 		"quest_bonus_claimed": {},
+		"daily_cycle_key": str(raw.get("daily_cycle_key", "")),
+		"daily_challenge_progress": {},
+		"daily_challenge_claimed": {},
+		"weekly_cycle_key": str(raw.get("weekly_cycle_key", "")),
+		"weekly_challenge_progress": {},
+		"weekly_challenge_claimed": {},
+		"weekly_completion_bonus_claimed": bool(raw.get("weekly_completion_bonus_claimed", false)),
 		"access_ticket_entry_claims": {},
 		"exclusive_event_prize_claims": {}
 	}
@@ -1042,6 +1462,9 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 	var award_order_any: Variant = raw.get("awarded_match_order", [])
 	if typeof(award_order_any) == TYPE_ARRAY:
 		out["awarded_match_order"] = (award_order_any as Array).duplicate(true)
+	var first_win_any: Variant = raw.get("first_win_bonus_by_day_player", {})
+	if typeof(first_win_any) == TYPE_DICTIONARY:
+		out["first_win_bonus_by_day_player"] = (first_win_any as Dictionary).duplicate(true)
 	var quest_progress_any: Variant = raw.get("quest_progress", {})
 	if typeof(quest_progress_any) == TYPE_DICTIONARY:
 		out["quest_progress"] = (quest_progress_any as Dictionary).duplicate(true)
@@ -1051,6 +1474,18 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 	var quest_bonus_any: Variant = raw.get("quest_bonus_claimed", {})
 	if typeof(quest_bonus_any) == TYPE_DICTIONARY:
 		out["quest_bonus_claimed"] = (quest_bonus_any as Dictionary).duplicate(true)
+	var daily_progress_any: Variant = raw.get("daily_challenge_progress", {})
+	if typeof(daily_progress_any) == TYPE_DICTIONARY:
+		out["daily_challenge_progress"] = (daily_progress_any as Dictionary).duplicate(true)
+	var daily_claimed_any: Variant = raw.get("daily_challenge_claimed", {})
+	if typeof(daily_claimed_any) == TYPE_DICTIONARY:
+		out["daily_challenge_claimed"] = (daily_claimed_any as Dictionary).duplicate(true)
+	var weekly_progress_any: Variant = raw.get("weekly_challenge_progress", {})
+	if typeof(weekly_progress_any) == TYPE_DICTIONARY:
+		out["weekly_challenge_progress"] = (weekly_progress_any as Dictionary).duplicate(true)
+	var weekly_claimed_any: Variant = raw.get("weekly_challenge_claimed", {})
+	if typeof(weekly_claimed_any) == TYPE_DICTIONARY:
+		out["weekly_challenge_claimed"] = (weekly_claimed_any as Dictionary).duplicate(true)
 	var ticket_claims_any: Variant = raw.get("access_ticket_entry_claims", {})
 	if typeof(ticket_claims_any) == TYPE_DICTIONARY:
 		out["access_ticket_entry_claims"] = (ticket_claims_any as Dictionary).duplicate(true)
@@ -1108,6 +1543,28 @@ func _apply_loaded_state(state: Dictionary) -> void:
 	var quest_bonus_any: Variant = state.get("quest_bonus_claimed", {})
 	if typeof(quest_bonus_any) == TYPE_DICTIONARY:
 		_quest_bonus_claimed = (quest_bonus_any as Dictionary).duplicate(true)
+	_daily_cycle_key = str(state.get("daily_cycle_key", ""))
+	_daily_challenge_progress = {}
+	var daily_progress_any: Variant = state.get("daily_challenge_progress", {})
+	if typeof(daily_progress_any) == TYPE_DICTIONARY:
+		_daily_challenge_progress = (daily_progress_any as Dictionary).duplicate(true)
+	_daily_challenge_claimed = {}
+	var daily_claimed_any: Variant = state.get("daily_challenge_claimed", {})
+	if typeof(daily_claimed_any) == TYPE_DICTIONARY:
+		_daily_challenge_claimed = (daily_claimed_any as Dictionary).duplicate(true)
+	_weekly_cycle_key = str(state.get("weekly_cycle_key", ""))
+	_weekly_challenge_progress = {}
+	var weekly_progress_any: Variant = state.get("weekly_challenge_progress", {})
+	if typeof(weekly_progress_any) == TYPE_DICTIONARY:
+		_weekly_challenge_progress = (weekly_progress_any as Dictionary).duplicate(true)
+	_weekly_challenge_claimed = {}
+	var weekly_claimed_any: Variant = state.get("weekly_challenge_claimed", {})
+	if typeof(weekly_claimed_any) == TYPE_DICTIONARY:
+		_weekly_challenge_claimed = (weekly_claimed_any as Dictionary).duplicate(true)
+	_weekly_completion_bonus_claimed = bool(state.get("weekly_completion_bonus_claimed", false))
+	_roll_daily_weekly_cycles_if_needed()
+	_ensure_daily_challenge_state_initialized()
+	_ensure_weekly_challenge_state_initialized()
 	var ticket_claims_any: Variant = state.get("access_ticket_entry_claims", {})
 	_access_ticket_entry_claims = (ticket_claims_any as Dictionary).duplicate(true) if typeof(ticket_claims_any) == TYPE_DICTIONARY else {}
 	var prize_claims_any: Variant = state.get("exclusive_event_prize_claims", {})
@@ -1139,6 +1596,13 @@ func _save_state() -> void:
 		"quest_progress": _quest_progress,
 		"quest_claimed": _quest_claimed,
 		"quest_bonus_claimed": _quest_bonus_claimed,
+		"daily_cycle_key": _daily_cycle_key,
+		"daily_challenge_progress": _daily_challenge_progress,
+		"daily_challenge_claimed": _daily_challenge_claimed,
+		"weekly_cycle_key": _weekly_cycle_key,
+		"weekly_challenge_progress": _weekly_challenge_progress,
+		"weekly_challenge_claimed": _weekly_challenge_claimed,
+		"weekly_completion_bonus_claimed": _weekly_completion_bonus_claimed,
 		"access_ticket_entry_claims": _access_ticket_entry_claims,
 		"exclusive_event_prize_claims": _exclusive_event_prize_claims
 	}
@@ -1163,8 +1627,36 @@ func _metadata_is_crucible(metadata: Dictionary) -> bool:
 func _emit_event(event_type: String, payload: Dictionary) -> void:
 	var event: Dictionary = payload.duplicate(true)
 	event["type"] = event_type
+	if event_type == "nectar_awarded":
+		event["platform_economy_event"] = _build_platform_nectar_event(event)
 	battle_pass_event.emit(event)
 	SFLog.info("BATTLE_PASS_EVENT", event)
+
+func _build_platform_nectar_event(event: Dictionary) -> Dictionary:
+	var metadata: Dictionary = event.get("metadata", {}) as Dictionary if typeof(event.get("metadata", {})) == TYPE_DICTIONARY else {}
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if event_id.is_empty():
+		event_id = "%s:%s:%s" % [
+			str(event.get("source", "")).strip_edges(),
+			str(metadata.get("challenge_id", metadata.get("quest_id", ""))).strip_edges(),
+			str(metadata.get("daily_cycle_key", metadata.get("weekly_cycle_key", ""))).strip_edges()
+		]
+	return PlatformEconomyEventSchemaScript.build_award_event(
+		"nectar",
+		"xp",
+		"award",
+		event_id,
+		str(metadata.get("player_id", metadata.get("uid", ""))).strip_edges(),
+		int(event.get("xp_awarded", 0)),
+		_battle_pass_xp,
+		str(event.get("source", "")),
+		metadata,
+		{
+			"base_xp": int(event.get("base_xp", 0)),
+			"xp_multiplier": float(event.get("xp_multiplier", 1.0)),
+			"battle_pass_level": _battle_pass_level
+		}
+	)
 
 func debug_reset_state() -> void:
 	_current_season_id = _config.get_season_id()
@@ -1184,12 +1676,22 @@ func debug_reset_state() -> void:
 	_inventory = _rewards.normalize_inventory({})
 	_awarded_match_ids.clear()
 	_awarded_match_order.clear()
+	_first_win_bonus_by_day_player.clear()
 	_quest_progress.clear()
 	_quest_claimed.clear()
 	_quest_bonus_claimed.clear()
+	_daily_cycle_key = _current_daily_cycle_key()
+	_daily_challenge_progress.clear()
+	_daily_challenge_claimed.clear()
+	_weekly_cycle_key = _current_weekly_cycle_key()
+	_weekly_challenge_progress.clear()
+	_weekly_challenge_claimed.clear()
+	_weekly_completion_bonus_claimed = false
 	_access_ticket_entry_claims.clear()
 	_exclusive_event_prize_claims.clear()
 	_ensure_quest_state_initialized()
+	_ensure_daily_challenge_state_initialized()
+	_ensure_weekly_challenge_state_initialized()
 	_save_state()
 	_emit_state_changed()
 
@@ -1202,6 +1704,13 @@ func _apply_nectar_xp_award(source_name: String, nectar_xp: int, metadata: Dicti
 	if apply_entitlement_bonus:
 		multiplier = _config.get_nectar_multiplier_for_entitlements(_premium_owned, _elite_owned)
 	var final_xp: int = maxi(1, int(round(float(safe_xp) * multiplier)))
+	if apply_entitlement_bonus and absf(multiplier - 1.0) > 0.001:
+		_emit_event("nectar_multiplier_applied", {
+			"source": source_name,
+			"base_xp": safe_xp,
+			"xp_multiplier": multiplier,
+			"final_xp": final_xp
+		})
 	_battle_pass_xp = maxi(0, _battle_pass_xp + final_xp)
 	_recalculate_level_from_xp()
 	var gained_levels: int = maxi(0, _battle_pass_level - previous_level)
@@ -1221,6 +1730,13 @@ func _apply_nectar_xp_award(source_name: String, nectar_xp: int, metadata: Dicti
 		"current_level": _battle_pass_level,
 		"metadata": metadata
 	})
+	_emit_event("nectar_awarded", {
+		"source": source_name,
+		"xp_awarded": final_xp,
+		"base_xp": safe_xp,
+		"xp_multiplier": multiplier,
+		"metadata": metadata
+	})
 	_emit_state_changed()
 	return {
 		"ok": true,
@@ -1236,6 +1752,7 @@ func _reserve_award_event(event_id: String) -> Dictionary:
 	if clean_event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
 	if _awarded_match_ids.has(clean_event_id):
+		_emit_event("nectar_duplicate_award_ignored", {"event_id": clean_event_id})
 		return {"ok": false, "reason": "event_already_awarded", "event_id": clean_event_id}
 	_awarded_match_ids[clean_event_id] = true
 	_awarded_match_order.append(clean_event_id)

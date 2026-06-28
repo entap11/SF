@@ -12,8 +12,8 @@ xp_per_level_standard = 100
 xp_per_level_advanced = 140
 xp_per_level_prestige = 185
 xp_per_level_apex = 240
-premium_multiplier = 1.18
-elite_multiplier = 1.3
+premium_multiplier = 1.3
+elite_multiplier = 1.6
 premium_price_usd = 9.99
 elite_price_usd = 14.99
 elite_async_access = true
@@ -73,12 +73,12 @@ soft_variant_cutoffs = {
 "99": 40
 }
 nectar_awards = {
-"async_completed": 6,
+"async_completed": 8,
 "contest_participation": 10,
-"match_completed_free": 8,
-"match_completed_money": 24,
-"money_match_completed": 30,
-"tournament_participation": 14,
-"tournament_placement_bonus": 20
+"match_completed_free": 10,
+"match_completed_money": 12,
+"money_match_completed": 12,
+"tournament_participation": 12,
+"tournament_placement_bonus": 75
 }
 store_kickback_nectar_per_usd = 6.0
