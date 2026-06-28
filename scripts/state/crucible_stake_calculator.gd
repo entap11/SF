@@ -14,13 +14,10 @@ static func preview_stake(player_a_balance_millis: int, player_b_balance_millis:
 	var b_balance: int = maxi(0, player_b_balance_millis)
 	var minimum: int = maxi(1, config.minimum_stake_millis)
 	if a_balance < minimum or b_balance < minimum:
-		return _blocked("insufficient_wax", "Both players need Crucible Wax to enter.")
-	var lower_balance: int = mini(a_balance, b_balance)
-	var stake: int = _round_millis(float(lower_balance) * float(maxi(0, config.stake_bps)) / 10000.0, config.normalized_rounding_mode())
-	stake = clampi(maxi(minimum, stake), minimum, lower_balance)
+		return _blocked("insufficient_wax", "Both players need Wax to enter.")
+	var stake: int = minimum
 	var pot: int = stake * 2
-	var burn: int = _round_millis(float(pot) * float(clampi(config.burn_bps, 0, 10000)) / 10000.0, config.normalized_rounding_mode())
-	burn = clampi(burn, 0, pot)
+	var burn: int = 0
 	var payout: int = maxi(0, pot - burn)
 	return {
 		"ok": true,
@@ -48,4 +45,3 @@ static func _blocked(code: String, message: String) -> Dictionary:
 		"code": code,
 		"message": message
 	}
-

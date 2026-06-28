@@ -67,7 +67,7 @@ const DEFAULT_CONFIG: CrucibleConfig = {
   ads_enabled: true,
   capacity_cap_enabled: true,
   settlement_enabled: true,
-  earn_path_buttons_enabled: true,
+  earn_path_buttons_enabled: false,
   config_version: 1,
   capacity_max: 100,
   reserved_slots: 0,
@@ -76,18 +76,18 @@ const DEFAULT_CONFIG: CrucibleConfig = {
   post_ad_seconds: 12,
   banner_ads_enabled: true,
   ticker_ads_enabled: false,
-  stake_bps: 500,
-  burn_bps: 1000,
+  stake_bps: 0,
+  burn_bps: 0,
   minimum_stake_millis: 1000,
   rounding_mode: "FLOOR",
   starting_crucible_wax_millis: 0,
   launch_grant_enabled: false,
   launch_grant_millis: 0,
-  standard_pvp_win_earn_millis: 250,
-  standard_pvp_loss_earn_millis: 100,
-  tournament_placement_earn_millis: 1000,
-  challenge_earn_millis: 500,
-  event_earn_millis: 500,
+  standard_pvp_win_earn_millis: 0,
+  standard_pvp_loss_earn_millis: 0,
+  tournament_placement_earn_millis: 0,
+  challenge_earn_millis: 0,
+  event_earn_millis: 0,
   server_authoritative_settlement_required: true,
   local_dev_settlement_enabled: false
 };
@@ -422,14 +422,17 @@ export class CrucibleLedger {
     if (!cleanPlayer) {
       return error("missing_player_id", "Player id is required.");
     }
-    if (amount <= 0) {
-      return { ok: true, awarded: false, player_id: cleanPlayer, amount_millis: 0 };
-    }
-    this.balances.set(cleanPlayer, this.getBalanceMillis(cleanPlayer) + amount);
-    const transaction = this.appendTransaction("EARN", cleanString(metadata.match_id), cleanPlayer, amount, "", { source: cleanString(source), ...metadata });
-    this.applyWaxStats(cleanPlayer, amount, 0);
-    this.persistToStore();
-    return { ok: true, awarded: true, player_id: cleanPlayer, amount_millis: amount, balance_millis: this.getBalanceMillis(cleanPlayer), transaction_id: transaction.transaction_id };
+    return {
+      ok: true,
+      awarded: false,
+      suppressed: true,
+      reason: "crucible_has_no_wax_rewards",
+      player_id: cleanPlayer,
+      amount_millis: 0,
+      balance_millis: this.getBalanceMillis(cleanPlayer),
+      requested_amount_millis: amount,
+      source: cleanString(source)
+    };
   }
 
   recordCompetitiveWaxResult(input: JsonRecord, idempotencyKey = ""): JsonRecord {
@@ -618,11 +621,9 @@ export class CrucibleLedger {
     if (lowerBalance < Math.max(1, this.config.minimum_stake_millis)) {
       return error("no_wax", "Your Wax Has Melted.");
     }
-    let stake = Math.floor((lowerBalance * this.config.stake_bps) / BASIS_POINTS_DENOMINATOR);
-    stake = Math.max(Math.max(1, this.config.minimum_stake_millis), stake);
-    stake = Math.min(stake, lowerBalance);
+    const stake = Math.max(1, this.config.minimum_stake_millis);
     const pot = stake * 2;
-    const burn = Math.floor((pot * this.config.burn_bps) / BASIS_POINTS_DENOMINATOR);
+    const burn = 0;
     return {
       ok: true,
       stake_each: stake,

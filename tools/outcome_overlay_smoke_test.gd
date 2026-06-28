@@ -39,9 +39,9 @@ func _init() -> void:
 	_set_crucible_tree_meta()
 	overlay.show_outcome(1, "capture_all", 1)
 	await process_frame
-	_assert_eq(_label_text(overlay, "Panel/VBox/StatsHeader"), "Crucible Wax", "crucible header")
-	_assert_eq(_label_text(overlay, "Panel/VBox/StatMaxHivePower"), "Wax: start 50.000 Wax | after escrow 47.500 Wax | finish 52.000 Wax", "crucible balance status")
-	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Stake 2.500 Wax | Winner payout 4.500 Wax | Burn 0.500 Wax | Net +2.000 Wax", "crucible stake status")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatsHeader"), "Wax Wager", "crucible header")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatMaxHivePower"), "Wax: start 50.000 Wax | after escrow 49.000 Wax | finish 51.000 Wax", "crucible balance status")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Stake 1.000 Wax | Winner payout 2.000 Wax | Burn 0.000 Wax | Net +1.000 Wax", "crucible stake status")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Crucible settlement: Settled. You won this Wax match.", "crucible settlement status")
 	_clear_crucible_tree_meta()
 
@@ -178,12 +178,12 @@ func _button_text(root: Node, path: String) -> String:
 func _set_crucible_tree_meta() -> void:
 	set_meta("vs_crucible", true)
 	set_meta("crucible_local_balance_start_millis", 50000)
-	set_meta("crucible_local_balance_after_escrow_millis", 47500)
-	set_meta("crucible_local_balance_finish_millis", 52000)
-	set_meta("crucible_stake_each_millis", 2500)
-	set_meta("crucible_winner_payout_millis", 4500)
-	set_meta("crucible_burn_millis", 500)
-	set_meta("crucible_balance_delta_millis", 2000)
+	set_meta("crucible_local_balance_after_escrow_millis", 49000)
+	set_meta("crucible_local_balance_finish_millis", 51000)
+	set_meta("crucible_stake_each_millis", 1000)
+	set_meta("crucible_winner_payout_millis", 2000)
+	set_meta("crucible_burn_millis", 0)
+	set_meta("crucible_balance_delta_millis", 1000)
 	set_meta("crucible_settlement_status", "SETTLED")
 
 func _clear_crucible_tree_meta() -> void:

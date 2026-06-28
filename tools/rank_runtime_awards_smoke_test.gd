@@ -98,7 +98,7 @@ func _init() -> void:
 	var opponent_after_free: Dictionary = rank_state.call("get_player_snapshot", "bot_000001") as Dictionary
 	_assert_eq(int(round(float(local_after_free.get("wax_score", 0.0)))), 210, "runtime free pvp win should add 10 wax")
 	_assert_eq(int(round(float(opponent_after_free.get("wax_score", 0.0)))), 196, "runtime free pvp loss should subtract 4 wax")
-	_assert_latest_competitive_wax("rank_state_wax_score", "STANDARD_COMPETITIVE")
+	_assert_latest_canonical_wax(10.0, 210.0)
 
 	rank_state.call("intent_debug_set_player_wax", "018f2b2c-1234-7abc-8def-123456789abc", 200.0)
 	rank_state.call("intent_debug_set_player_wax", "bot_000001", 200.0)
@@ -113,7 +113,7 @@ func _init() -> void:
 	var opponent_after_money: Dictionary = rank_state.call("get_player_snapshot", "bot_000001") as Dictionary
 	_assert_eq(int(round(float(local_after_money.get("wax_score", 0.0)))), 216, "runtime money tier 2 win should add 16 wax")
 	_assert_eq(int(round(float(opponent_after_money.get("wax_score", 0.0)))), 193, "runtime money tier 2 loss should subtract 7 wax")
-	_assert_latest_competitive_wax("rank_state_wax_score", "STANDARD_COMPETITIVE")
+	_assert_latest_canonical_wax(16.0, 216.0)
 
 	var contest_result: Dictionary = runtime_awards.call("sync_contest_rank_rewards", "WEEKLY_USD_1_2025-W52", "WEEKLY", 5) as Dictionary
 	_assert_ok(contest_result, "contest sync")
@@ -149,21 +149,10 @@ func _assert_true(value: bool, label: String) -> void:
 	push_error("RANK_RUNTIME_AWARDS_SMOKE: %s" % label)
 	quit(1)
 
-func _assert_latest_competitive_wax(expected_rating_source: String, expected_mode_group: String) -> void:
-	var crucible_state: Node = get_root().get_node_or_null("CrucibleState")
-	if crucible_state == null or not crucible_state.has_method("get_snapshot"):
-		return
-	var snapshot: Dictionary = crucible_state.call("get_snapshot") as Dictionary
-	var awards: Dictionary = snapshot.get("competitive_wax_awards_by_event", {}) as Dictionary
-	_assert_true(not awards.is_empty(), "competitive Wax award should be recorded")
-	var matching: Dictionary = {}
-	for award_any in awards.values():
-		var award: Dictionary = award_any as Dictionary
-		if str(award.get("rating_source", "")) == expected_rating_source and str(award.get("mode_group", "")) == expected_mode_group:
-			matching = award
-			break
-	if matching.is_empty():
-		_fail("competitive Wax metadata missing expected rating/mode -> %s" % JSON.stringify(awards))
+func _assert_latest_canonical_wax(expected_delta: float, expected_balance: float) -> void:
+	_assert_true(has_meta("canonical_wax_result"), "canonical Wax result should be exposed")
+	_assert_eq(int(round(float(get_meta("canonical_wax_delta", 0.0)))), int(round(expected_delta)), "canonical Wax delta mismatch")
+	_assert_eq(int(round(float(get_meta("canonical_wax_balance", 0.0)))), int(round(expected_balance)), "canonical Wax balance mismatch")
 
 func _assert_eq_string(actual: String, expected: String, label: String) -> void:
 	if actual == expected:

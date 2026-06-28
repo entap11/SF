@@ -41,27 +41,27 @@ func _init() -> void:
 	var capacity_status: Dictionary = crucible_state.call("preview_entry_status", PLAYER_A, 100, false) as Dictionary
 	_assert_code(capacity_status, "capacity", "capacity block should be distinct from no Wax")
 
-	# Stake math: lower balance drives stake, minimum is enforced, burn is deterministic.
+	# Stake math: Crucible always stakes exactly 1 Wax from each player and burns nothing.
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_A, 5000) as Dictionary, "seed A low balance")
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_B, 50000) as Dictionary, "seed B high balance")
 	var low_preview: Dictionary = crucible_state.call("preview_match", PLAYER_A, PLAYER_B) as Dictionary
 	_assert_ok(low_preview, "low-vs-high preview")
-	_assert_eq(int(low_preview.get("stake_each", 0)), 1000, "5 vs 50 Wax should stake minimum 1 Wax")
-	_assert_eq(int(low_preview.get("burn", 0)), 200, "1+1 Wax pot should burn 10 percent")
-	_assert_eq(int(low_preview.get("winner_payout", 0)), 1800, "1+1 Wax pot should pay 1.8 Wax after burn")
+	_assert_eq(int(low_preview.get("stake_each", 0)), 1000, "5 vs 50 Wax should stake 1 Wax")
+	_assert_eq(int(low_preview.get("burn", 0)), 0, "Crucible burns no Wax")
+	_assert_eq(int(low_preview.get("winner_payout", 0)), 2000, "1+1 Wax pot should pay 2 Wax")
 
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_A, 50000) as Dictionary, "seed A 50 Wax")
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_B, 50000) as Dictionary, "seed B 50 Wax")
 	var equal_preview: Dictionary = crucible_state.call("preview_match", PLAYER_A, PLAYER_B) as Dictionary
 	_assert_ok(equal_preview, "equal preview")
-	_assert_eq(int(equal_preview.get("stake_each", 0)), 2500, "50 vs 50 Wax should stake 2.5 Wax")
-	_assert_eq(int(equal_preview.get("burn", 0)), 500, "5 Wax pot should burn 0.5 Wax")
-	_assert_eq(int(equal_preview.get("winner_payout", 0)), 4500, "5 Wax pot should pay 4.5 Wax after burn")
+	_assert_eq(int(equal_preview.get("stake_each", 0)), 1000, "50 vs 50 Wax should stake 1 Wax")
+	_assert_eq(int(equal_preview.get("burn", 0)), 0, "Crucible burns no Wax")
+	_assert_eq(int(equal_preview.get("winner_payout", 0)), 2000, "1+1 Wax pot should pay 2 Wax")
 
 	var escrow_result: Dictionary = crucible_state.call("intent_open_escrow", MATCH_ID, PLAYER_A, PLAYER_B, {}) as Dictionary
 	_assert_ok(escrow_result, "open escrow")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 47500, "A escrow debit")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 47500, "B escrow debit")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 49000, "A escrow debit")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "B escrow debit")
 	var settle_result: Dictionary = crucible_state.call(
 		"intent_settle_match",
 		MATCH_ID,
@@ -72,8 +72,8 @@ func _init() -> void:
 	) as Dictionary
 	_assert_ok(settle_result, "settle winner")
 	var settlement: Dictionary = settle_result.get("settlement", {}) as Dictionary
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 52000, "winner receives payout after burn")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 47500, "loser remains debited")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 51000, "winner receives 2-Wax payout")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "loser remains debited")
 	_assert_str_eq(str(settlement.get("ruleset", "")), "CRUCIBLE", "audit ruleset")
 	_assert_str_eq(str(settlement.get("settlement_status", "")), "SETTLED", "settlement status")
 	_assert_true(settlement.has("match_id") and settlement.has("config_version") and settlement.has("result_source"), "audit fields present")
@@ -137,10 +137,12 @@ func _init() -> void:
 	var balance_before_earn: int = int(crucible_state.call("get_balance_millis", PLAYER_A))
 	var earn_result: Dictionary = crucible_state.call("intent_award_earn_path", PLAYER_A, "STANDARD_PVP_WIN", {"match_id": "earn_smoke"}) as Dictionary
 	_assert_ok(earn_result, "standard pvp earn")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), balance_before_earn + 250, "standard pvp win earns Crucible Wax")
+	_assert_true(bool(earn_result.get("suppressed", false)), "Crucible has no direct Wax earn path")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), balance_before_earn, "standard pvp win does not earn Crucible Wax")
 	var tournament_earn: Dictionary = crucible_state.call("intent_award_earn_path", PLAYER_A, "TOURNAMENT_PLACEMENT", {"placement": 2}) as Dictionary
 	_assert_ok(tournament_earn, "tournament earn")
-	_assert_eq(int(tournament_earn.get("amount_millis", 0)), 500, "placement earn scales by placement")
+	_assert_true(bool(tournament_earn.get("suppressed", false)), "tournament earn path is suppressed")
+	_assert_eq(int(tournament_earn.get("amount_millis", 0)), 0, "Crucible tournaments do not mint Wax")
 
 	# Direct rewards and normal rank Wax are suppressed when metadata declares Crucible.
 	var direct_honey: Dictionary = honey_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {"ruleset": "CRUCIBLE"}) as Dictionary
@@ -194,8 +196,8 @@ func _init() -> void:
 	_assert_eq(int(honey_snapshot.get("total_honey_centi_awarded", 0)), 0, "runtime Crucible awards no Honey")
 	_assert_eq(int(bp_snapshot.get("battle_pass_xp", 0)), 0, "runtime Crucible awards no Nectar")
 	_assert_true(settlements.has(RUNTIME_MATCH_ID), "runtime Crucible settles via CrucibleState")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 52000, "runtime winner payout")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 47500, "runtime loser debit")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 51000, "runtime winner payout")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "runtime loser debit")
 
 	print("CRUCIBLE_RULESET_SMOKE: PASS")
 	quit(0)

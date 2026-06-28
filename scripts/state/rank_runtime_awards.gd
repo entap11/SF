@@ -60,15 +60,6 @@ func sync_contest_rank_rewards(contest_id: String, contest_scope: String = "", m
 		}
 	) as Dictionary
 	if bool(result.get("ok", false)) and bool(result.get("awarded", false)):
-		var competitive_wax_result: Dictionary = _award_competitive_wax_result("contest:%s:%s" % [clean_contest_id, player_id], player_id, "", true, "TOURNAMENT", {
-			"event_id": "competitive_wax:contest:%s:%s" % [clean_contest_id, player_id],
-			"contest_id": clean_contest_id,
-			"contest_scope": scope,
-			"placement": placement,
-			"field_size": rows.size(),
-			"map_count": map_count
-		})
-		result["competitive_wax_result"] = competitive_wax_result
 		var event: Dictionary = {
 			"type": "contest_rank_awarded",
 			"contest_id": clean_contest_id,
@@ -209,24 +200,21 @@ func _award_pvp_match_result(tree: SceneTree, rank_state: Node, winner_id: int, 
 		player_before = rank_state.call("get_player_snapshot", player_id) as Dictionary
 		opponent_before = rank_state.call("get_player_snapshot", opponent_id) as Dictionary
 	var did_win: bool = winner_id > 0 and winner_id == local_owner_id
-	var source_mode_id: String = str(tree.get_meta("vs_mode", mode_name)).strip_edges().to_upper()
 	var result: Dictionary = rank_state.call(
 		"intent_record_match_result",
 		player_id,
 		opponent_id,
 		did_win,
 		mode_name,
-		{
+		_rank_match_metadata(tree, {
 			"event_id": _runtime_event_id(tree, mode_name, reason),
 			"winner_id": winner_id,
 			"reason": reason
-		},
+		}),
 		money_tier
 	) as Dictionary
 	if bool(result.get("ok", false)):
-		var wax_metadata: Dictionary = _build_pvp_wax_metadata(tree, source_mode_id, player_id, opponent_id, player_before, opponent_before, winner_id, reason, free_roll, money_tier, did_win)
-		var competitive_wax_result: Dictionary = _award_competitive_wax_result(str(tree.get_meta("vs_handshake_session_id", _runtime_event_id(tree, mode_name, reason))), player_id, opponent_id, did_win, _wax_mode_name_for_tree(source_mode_id, mode_name), wax_metadata)
-		_set_tree_competitive_wax_result(tree, competitive_wax_result)
+		_set_tree_canonical_wax_result(tree, result, player_before)
 		var event: Dictionary = {
 			"type": "pvp_rank_awarded",
 			"player_id": player_id,
@@ -238,65 +226,34 @@ func _award_pvp_match_result(tree: SceneTree, rank_state: Node, winner_id: int, 
 		runtime_rank_award.emit(event)
 		SFLog.info("RANK_RUNTIME_AWARD", event)
 
-func _build_pvp_wax_metadata(tree: SceneTree, source_mode_id: String, player_id: String, opponent_id: String, player_before: Dictionary, opponent_before: Dictionary, winner_id: int, reason: String, free_roll: bool, money_tier: int, did_win: bool) -> Dictionary:
-	var event_id: String = _runtime_event_id(tree, "STANDARD" if free_roll else "MONEY_MATCH", reason)
-	var metadata: Dictionary = {
-			"event_id": "competitive_wax:%s:%s" % [event_id, player_id],
-			"player_rating": float(player_before.get("wax_score", 0.0)),
-			"opponent_rating": float(opponent_before.get("wax_score", 0.0)),
-			"rating_source": "rank_state_wax_score",
-			"rating_confidence": 1.0 if player_before.has("wax_score") and opponent_before.has("wax_score") else 0.25,
-			"winner_id": winner_id,
-			"reason": reason,
-			"source_mode_id": source_mode_id.strip_edges().to_upper(),
-			"paid_entry": not free_roll,
-			"player_id": player_id,
-			"opponent_id": opponent_id,
-			"money_tier": money_tier,
-			"did_win": did_win
-		}
-	var close_loss_metadata: Dictionary = _close_loss_metadata_from_tree(tree, did_win)
-	for key in close_loss_metadata.keys():
-		metadata[key] = close_loss_metadata[key]
-	return metadata
-
-func _set_tree_competitive_wax_result(tree: SceneTree, result: Dictionary) -> void:
+func _set_tree_canonical_wax_result(tree: SceneTree, result: Dictionary, player_before: Dictionary) -> void:
 	if tree == null or result.is_empty():
 		return
-	tree.set_meta("competitive_wax_result", result.duplicate(true))
-	var breakdown: Dictionary = result.get("breakdown", result.get("award", {})) as Dictionary
-	tree.set_meta("competitive_wax_status", str(breakdown.get("validity_status", "")))
-	tree.set_meta("competitive_wax_delta_millis", int(breakdown.get("applied_wax_delta_millis", breakdown.get("final_wax_delta_millis", 0))))
-	tree.set_meta("competitive_wax_balance_millis", int(result.get("balance_millis", breakdown.get("balance_millis", 0))))
-	tree.set_meta("competitive_wax_held_for_review", bool(result.get("held_for_review", false)))
+	var player_after: Dictionary = result.get("player", {}) as Dictionary
+	var before_wax: float = float(player_before.get("wax_score", player_after.get("wax_score", 0.0)))
+	var after_wax: float = float(player_after.get("wax_score", before_wax))
+	tree.set_meta("canonical_wax_result", result.duplicate(true))
+	tree.set_meta("canonical_wax_status", "settled")
+	tree.set_meta("canonical_wax_delta", after_wax - before_wax)
+	tree.set_meta("canonical_wax_balance", after_wax)
+	tree.set_meta("canonical_wax_close_loss", result.get("close_loss", {}).duplicate(true) if typeof(result.get("close_loss", {})) == TYPE_DICTIONARY else {})
 
-func _wax_mode_name_for_tree(source_mode_id: String, fallback_mode_name: String) -> String:
-	var mode: String = source_mode_id.strip_edges().to_upper()
-	if mode in ["CTF", "HCTF", "HIDDEN_CTF", "PROGRESSIVE", "PROGRESSIVE_RUN", "ASYNC", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "WMS"]:
-		return mode
-	return fallback_mode_name
-
-func _close_loss_metadata_from_tree(tree: SceneTree, did_win: bool) -> Dictionary:
-	if did_win:
-		return {}
-	var metadata: Dictionary = {}
-	for key in ["close_loss_score", "close_loss_margin_ratio", "player_score", "opponent_score", "score_margin", "time_margin_ms", "elapsed_ms", "match_duration_ms", "objective_progress_ratio", "survival_ratio"]:
-		var meta_key: String = "wax_%s" % key
-		if tree.has_meta(meta_key):
-			metadata[key] = tree.get_meta(meta_key)
-	if not metadata.has("elapsed_ms"):
-		var ops_state: Node = get_node_or_null("/root/OpsState")
-		if ops_state != null:
-			metadata["elapsed_ms"] = maxi(0, int(ops_state.get("match_elapsed_ms")))
-	if tree.has_meta("wax_close_loss_qualified"):
-		metadata["legacy_close_loss_flag"] = bool(tree.get_meta("wax_close_loss_qualified", false))
+func _rank_match_metadata(tree: SceneTree, base: Dictionary) -> Dictionary:
+	var metadata: Dictionary = base.duplicate(true)
+	for key in ["match_elapsed_ms", "elapsed_ms", "match_duration_ms", "duration_ms", "match_remaining_ms", "remaining_ms", "in_overtime", "overtime_active"]:
+		if tree != null and tree.has_meta(key):
+			metadata[key] = tree.get_meta(key)
+	var ops_state: Node = get_node_or_null("/root/OpsState")
+	if ops_state != null:
+		if not metadata.has("match_elapsed_ms"):
+			metadata["match_elapsed_ms"] = int(ops_state.get("match_elapsed_ms"))
+		if not metadata.has("match_duration_ms"):
+			metadata["match_duration_ms"] = int(ops_state.get("match_duration_ms"))
+		if not metadata.has("match_remaining_ms"):
+			metadata["match_remaining_ms"] = int(ops_state.get("match_remaining_ms"))
+		if not metadata.has("in_overtime"):
+			metadata["in_overtime"] = bool(ops_state.get("in_overtime"))
 	return metadata
-
-func _award_competitive_wax_result(match_id: String, player_id: String, opponent_id: String, did_win: bool, mode_name: String, metadata: Dictionary) -> Dictionary:
-	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
-	if crucible_state == null or not crucible_state.has_method("intent_apply_competitive_wax_result"):
-		return {"ok": false, "err": "crucible_state_unavailable"}
-	return crucible_state.call("intent_apply_competitive_wax_result", match_id, player_id, opponent_id, did_win, mode_name, metadata) as Dictionary
 
 func _sync_tree_contest_reward() -> void:
 	var tree: SceneTree = get_tree()

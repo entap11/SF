@@ -210,12 +210,21 @@ func intent_record_match_result(
 	var resolved_money_tier: int = maxi(0, money_tier)
 	var player_gain: float = _wax_calculator.compute_gain(player_wax_before, opponent_wax_before, mode_key, resolved_money_tier)
 	var opponent_gain: float = _wax_calculator.compute_gain(opponent_wax_before, player_wax_before, mode_key, resolved_money_tier)
+	player_gain = _adjusted_win_for_strength(player_gain, player_wax_before, opponent_wax_before)
+	opponent_gain = _adjusted_win_for_strength(opponent_gain, opponent_wax_before, player_wax_before)
 	var player_loss: float = _wax_calculator.compute_loss(player_wax_before, opponent_wax_before, mode_key, resolved_money_tier)
 	var opponent_loss: float = _wax_calculator.compute_loss(opponent_wax_before, player_wax_before, mode_key, resolved_money_tier)
+	player_loss = _adjusted_loss_for_strength(player_loss, player_wax_before, opponent_wax_before)
+	opponent_loss = _adjusted_loss_for_strength(opponent_loss, opponent_wax_before, player_wax_before)
+	var close_loss: Dictionary = _close_loss_wax_outcome(did_player_win, player_wax_before, opponent_wax_before, metadata)
+	var close_loss_bonus: float = float(close_loss.get("wax_bonus", 0.0))
 
 	if did_player_win:
 		player_record["wax_score"] = player_wax_before + player_gain
 		opponent_record["wax_score"] = maxf(_config.wax_floor, opponent_wax_before - opponent_loss)
+	elif close_loss_bonus > 0.0:
+		player_record["wax_score"] = player_wax_before + close_loss_bonus
+		opponent_record["wax_score"] = opponent_wax_before + opponent_gain
 	else:
 		player_record["wax_score"] = maxf(_config.wax_floor, player_wax_before - player_loss)
 		opponent_record["wax_score"] = opponent_wax_before + opponent_gain
@@ -241,8 +250,13 @@ func intent_record_match_result(
 		"money_tier": resolved_money_tier,
 		"player_wax_before": player_wax_before,
 		"player_wax_after": float((_players_by_id.get(p1, {}) as Dictionary).get("wax_score", player_wax_before)),
+		"player_gain_applied": player_gain,
+		"player_loss_applied": player_loss,
 		"opponent_wax_before": opponent_wax_before,
 		"opponent_wax_after": float((_players_by_id.get(p2, {}) as Dictionary).get("wax_score", opponent_wax_before)),
+		"opponent_gain_applied": opponent_gain,
+		"opponent_loss_applied": opponent_loss,
+		"close_loss": close_loss,
 		"metadata": metadata
 	}
 	rank_event.emit(event_payload)
@@ -250,6 +264,7 @@ func intent_record_match_result(
 	_emit_changed()
 	return {
 		"ok": true,
+		"close_loss": close_loss,
 		"player": get_player_snapshot(p1),
 		"opponent": get_player_snapshot(p2)
 	}
@@ -319,8 +334,86 @@ func intent_apply_decay_tick() -> Dictionary:
 	if applied > 0:
 		_recompute_rankings(true)
 		_save_state()
-		_emit_changed()
+	_emit_changed()
 	return {"ok": true, "players_decayed": applied}
+
+func _close_loss_wax_outcome(did_player_win: bool, player_wax: float, opponent_wax: float, metadata: Dictionary) -> Dictionary:
+	if did_player_win:
+		return {"qualified": false, "reason": "player_won", "wax_bonus": 0.0}
+	var ratio_threshold: float = maxf(0.0, float(_runtime_config().much_better_wax_ratio))
+	var much_better_min: float = player_wax * (1.0 + ratio_threshold)
+	if opponent_wax < much_better_min:
+		return {
+			"qualified": false,
+			"reason": "opponent_not_much_better",
+			"wax_bonus": 0.0,
+			"opponent_wax_ratio": opponent_wax / maxf(1.0, player_wax)
+		}
+	if _metadata_indicates_overtime(metadata):
+		return {
+			"qualified": true,
+			"tier": "very_close",
+			"reason": "overtime_loss_vs_much_better",
+			"wax_bonus": maxf(0.0, float(_runtime_config().overtime_loss_vs_much_better_wax)),
+			"opponent_wax_ratio": opponent_wax / maxf(1.0, player_wax)
+		}
+	if _metadata_indicates_final_minute(metadata):
+		return {
+			"qualified": true,
+			"tier": "close",
+			"reason": "final_minute_loss_vs_much_better",
+			"wax_bonus": maxf(0.0, float(_runtime_config().close_loss_vs_much_better_wax)),
+			"opponent_wax_ratio": opponent_wax / maxf(1.0, player_wax)
+		}
+	return {
+		"qualified": false,
+		"reason": "loss_not_in_final_minute",
+		"wax_bonus": 0.0,
+		"opponent_wax_ratio": opponent_wax / maxf(1.0, player_wax)
+	}
+
+func _adjusted_loss_for_strength(base_loss: float, loser_wax: float, winner_wax: float) -> float:
+	var clean_loss: float = maxf(0.0, base_loss)
+	if clean_loss <= 0.0:
+		return 0.0
+	var ratio_threshold: float = maxf(0.0, float(_runtime_config().much_better_wax_ratio))
+	if loser_wax >= winner_wax * (1.0 + ratio_threshold):
+		return clean_loss * maxf(0.0, float(_runtime_config().much_better_loser_loss_multiplier))
+	if winner_wax >= loser_wax * (1.0 + ratio_threshold):
+		return clean_loss * maxf(0.0, float(_runtime_config().much_worse_loser_loss_multiplier))
+	return clean_loss
+
+func _adjusted_win_for_strength(base_gain: float, winner_wax: float, loser_wax: float) -> float:
+	var clean_gain: float = maxf(0.0, base_gain)
+	if clean_gain <= 0.0:
+		return 0.0
+	var ratio_threshold: float = maxf(0.0, float(_runtime_config().much_better_wax_ratio))
+	if loser_wax >= winner_wax * (1.0 + ratio_threshold):
+		return clean_gain * maxf(0.0, float(_runtime_config().much_better_opponent_win_multiplier))
+	if loser_wax > winner_wax:
+		return clean_gain * maxf(0.0, float(_runtime_config().better_opponent_win_multiplier))
+	if winner_wax > loser_wax:
+		return clean_gain * maxf(0.0, float(_runtime_config().lesser_opponent_win_multiplier))
+	return clean_gain
+
+func _metadata_indicates_overtime(metadata: Dictionary) -> bool:
+	for key in ["in_overtime", "overtime_active", "lost_in_overtime", "very_close_loss"]:
+		if bool(metadata.get(key, false)):
+			return true
+	return false
+
+func _metadata_indicates_final_minute(metadata: Dictionary) -> bool:
+	if bool(metadata.get("final_minute_loss", false)) or bool(metadata.get("close_loss", false)):
+		return true
+	var remaining_ms: int = int(metadata.get("match_remaining_ms", metadata.get("remaining_ms", -1)))
+	if remaining_ms >= 0:
+		return remaining_ms <= maxi(1, int(_runtime_config().close_loss_final_minute_ms))
+	var elapsed_ms: int = int(metadata.get("match_elapsed_ms", metadata.get("elapsed_ms", -1)))
+	var duration_ms: int = int(metadata.get("match_duration_ms", metadata.get("duration_ms", -1)))
+	if elapsed_ms >= 0 and duration_ms > 0:
+		var final_minute_start: int = maxi(0, duration_ms - maxi(1, int(_runtime_config().close_loss_final_minute_ms)))
+		return elapsed_ms >= final_minute_start
+	return false
 
 func intent_debug_set_player_wax(player_id: String, wax_score: float) -> Dictionary:
 	var clean_id: String = _normalize_local_write_player_id(player_id)

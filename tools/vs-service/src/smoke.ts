@@ -333,10 +333,7 @@ async function main(): Promise<void> {
     expect(String(asyncPayoutSettle.approval_status) === "approved", "async payout approval status mismatch", asyncPayoutSettle);
     expect(Number(asyncPayoutSettle.payout_total_cents) === 2250, "async payout table total mismatch", asyncPayoutSettle);
     expect(Number(asyncPayoutSettle.house_rake_cents) === 250, "async payout table rake mismatch", asyncPayoutSettle);
-    expect(Array.isArray(asyncPayoutSettle.wax_awards) && (asyncPayoutSettle.wax_awards as JsonRecord[]).length === 4, "async payout approval should emit Wax award records", asyncPayoutSettle);
-    const asyncPoolWaxSnapshot = await post(baseUrl, "debug_get_crucible_snapshot", {}, adminHeaders);
-    const asyncPoolWaxBalances = ((asyncPoolWaxSnapshot.ledger as JsonRecord).balances_by_player as JsonRecord);
-    expect(Number(asyncPoolWaxBalances.async_pool_1) === 5000 && Number(asyncPoolWaxBalances.async_pool_2) === 3000, "async payout approval should award placement Wax", asyncPoolWaxSnapshot);
+    expect(!Array.isArray(asyncPayoutSettle.wax_awards), "async payout approval should not emit Crucible ledger Wax awards", asyncPayoutSettle);
     const asyncPayoutTransactions = await post(baseUrl, "get_money_transactions", {
       contest_id: "async_contest_pool",
       transaction_type: "async_winner_payout"
@@ -407,10 +404,7 @@ async function main(): Promise<void> {
       idempotency_key: "settle:async_race_backend:backend_results"
     });
     expect(Number(raceBackendSettle.payout_count) === 2, "race backend result settlement payout count mismatch", raceBackendSettle);
-    expect(Array.isArray(raceBackendSettle.wax_awards) && (raceBackendSettle.wax_awards as JsonRecord[]).length === 2, "race backend settlement should award Wax from leaderboard rows", raceBackendSettle);
-    const raceWaxSnapshot = await post(baseUrl, "debug_get_crucible_snapshot", {}, adminHeaders);
-    const raceWaxBalances = ((raceWaxSnapshot.ledger as JsonRecord).balances_by_player as JsonRecord);
-    expect(Number(raceWaxBalances.race_backend_p2) === 5000 && Number(raceWaxBalances.race_backend_p1) === 3000, "race backend result settlement Wax balance mismatch", raceWaxSnapshot);
+    expect(!Array.isArray(raceBackendSettle.wax_awards), "race backend settlement should not award Crucible ledger Wax", raceBackendSettle);
 
     for (const playerId of ["miss_backend_p1", "miss_backend_p2", "miss_backend_p3"]) {
       await post(baseUrl, "open_async_entry_escrow", {
@@ -674,7 +668,7 @@ async function main(): Promise<void> {
       opponent_rating: 1000,
       idempotency_key: "wax:win"
     }, matchHeaders);
-    expect(waxWin.awarded === true && Number(waxWin.balance_millis) === 3000, "Wax win should award 3 Wax", waxWin);
+    expect(waxWin.suppressed === true && waxWin.awarded === false, "deprecated competitive Wax endpoint should be suppressed", waxWin);
     const waxWinDuplicate = await post(baseUrl, "record_competitive_wax_result", {
       match_id: "wax_win_smoke",
       player_id: "wax_winner",
@@ -685,7 +679,7 @@ async function main(): Promise<void> {
       opponent_rating: 1000,
       idempotency_key: "wax:win"
     }, matchHeaders);
-    expect(waxWinDuplicate.awarded === true && Number(waxWinDuplicate.balance_millis) === 3000, "Wax duplicate idempotency mismatch", waxWinDuplicate);
+    expect(waxWinDuplicate.suppressed === true && waxWinDuplicate.awarded === false, "deprecated competitive Wax duplicate should be suppressed", waxWinDuplicate);
     await post(baseUrl, "debug_set_crucible_balance", {
       player_id: "wax_loss",
       balance_millis: 10000
@@ -700,7 +694,7 @@ async function main(): Promise<void> {
       opponent_rating: 1000,
       idempotency_key: "wax:loss"
     }, matchHeaders);
-    expect(waxLoss.subtracted === true && Number(waxLoss.balance_millis) === 8000, "Wax loss vs weaker should subtract 2 Wax", waxLoss);
+    expect(waxLoss.suppressed === true && Number(waxLoss.balance_millis) === 10000, "deprecated competitive Wax loss should be suppressed", waxLoss);
     for (let i = 1; i <= 4; i += 1) {
       await post(baseUrl, "record_competitive_wax_result", {
         match_id: `wax_repeat_${i}`,
@@ -715,7 +709,7 @@ async function main(): Promise<void> {
     }
     const waxRepeatSnapshot = await post(baseUrl, "debug_get_crucible_snapshot", {}, adminHeaders);
     const waxRepeatBalances = ((waxRepeatSnapshot.ledger as JsonRecord).balances_by_player as JsonRecord);
-    expect(Number(waxRepeatBalances.wax_repeat) === 7000, "Wax repeated-opponent diminishing mismatch", waxRepeatSnapshot);
+    expect(Number(waxRepeatBalances.wax_repeat ?? 0) === 0, "deprecated repeated-opponent competitive Wax should be suppressed", waxRepeatSnapshot);
     const waxCrucibleBlocked = await post(baseUrl, "record_competitive_wax_result", {
       match_id: "wax_crucible_blocked",
       player_id: "wax_crucible",
@@ -725,8 +719,7 @@ async function main(): Promise<void> {
       vs_crucible: true,
       idempotency_key: "wax:crucible_blocked"
     }, matchHeaders);
-    const waxCrucibleBreakdown = waxCrucibleBlocked.breakdown as JsonRecord;
-    expect(waxCrucibleBlocked.awarded === false && waxCrucibleBreakdown.validity_status === "blocked", "Crucible participation should not award competitive Wax", waxCrucibleBlocked);
+    expect(waxCrucibleBlocked.awarded === false && waxCrucibleBlocked.suppressed === true, "Crucible participation should not award competitive Wax", waxCrucibleBlocked);
     const crucibleContext = {
       ...context,
       mode: "1V1",
@@ -761,7 +754,7 @@ async function main(): Promise<void> {
     expect(crucibleSession.status === "started", "Crucible session did not start", crucibleSecond);
     expect(crucibleSessionContext.vs_ruleset === "CRUCIBLE", "Crucible session lost ruleset", crucibleSessionContext);
     expect(crucibleSessionContext.crucible_ledger_status === "escrowed", "Crucible session missing escrow", crucibleSessionContext);
-    expect(Number(crucibleSessionContext.crucible_stake_each) === 2500, "Crucible stake mismatch", crucibleSessionContext);
+    expect(Number(crucibleSessionContext.crucible_stake_each) === 1000, "Crucible stake mismatch", crucibleSessionContext);
     const crucibleMatchId = String(crucibleSessionContext.crucible_match_id);
     const unauthSettle = await postRaw(baseUrl, "settle_crucible_match", {
       match_id: crucibleMatchId,
@@ -779,7 +772,7 @@ async function main(): Promise<void> {
     }, matchHeaders);
     const crucibleSettlement = crucibleSettle.settlement as JsonRecord;
     expect(String(crucibleSettlement.settlement_status) === "SETTLED", "Crucible settlement status mismatch", crucibleSettle);
-    expect(Number(crucibleSettlement.winner_payout) === 4500, "Crucible winner payout mismatch", crucibleSettle);
+    expect(Number(crucibleSettlement.winner_payout) === 2000, "Crucible winner payout mismatch", crucibleSettle);
 
     const noContestOpen = await post(baseUrl, "open_crucible_escrow", {
       match_id: "crucible_no_contest_smoke",
@@ -914,7 +907,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ ok: true, smoke: "pass", base_url: baseUrl }));
     const persistencePath = join(tempDir, "crucible-persistence.json");
     const persistedLedgerA = new CrucibleLedger(persistencePath);
-    const persistedConfig = persistedLedgerA.updateConfig({ stake_bps: 1000, burn_bps: 500, config_version: 9 }, "smoke");
+    const persistedConfig = persistedLedgerA.updateConfig({ stake_bps: 0, burn_bps: 0, config_version: 9 }, "smoke");
     expect(persistedConfig.ok === true, "persisted config update failed", persistedConfig);
     persistedLedgerA.setBalanceMillis("persist_a", 10000);
     persistedLedgerA.setBalanceMillis("persist_b", 10000);
@@ -924,9 +917,9 @@ async function main(): Promise<void> {
     expect(persistedSettlement.ok === true, "persisted settlement failed", persistedSettlement);
     const persistedLedgerB = new CrucibleLedger(persistencePath);
     const persistedSnapshot = persistedLedgerB.getSnapshot();
-    expect(Number((persistedSnapshot.config as JsonRecord).stake_bps) === 1000, "persisted config missing", persistedSnapshot.config);
+    expect(Number((persistedSnapshot.config as JsonRecord).stake_bps) === 0, "persisted config missing", persistedSnapshot.config);
     expect(((persistedSnapshot.settlements_by_match_id as JsonRecord).persist_match as JsonRecord)?.winner_id === "persist_a", "persisted settlement missing", persistedSnapshot);
-    expect(Number((persistedSnapshot.balances_by_player as JsonRecord).persist_a) === 10900, "persisted balance missing", persistedSnapshot.balances_by_player);
+    expect(Number((persistedSnapshot.balances_by_player as JsonRecord).persist_a) === 11000, "persisted balance missing", persistedSnapshot.balances_by_player);
   } finally {
     await close(server);
     rmSync(tempDir, { recursive: true, force: true });

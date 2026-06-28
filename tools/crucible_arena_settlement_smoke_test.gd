@@ -23,8 +23,8 @@ func _run() -> void:
 			"settlement_enabled": true,
 			"server_authoritative_settlement_required": false,
 			"local_dev_settlement_enabled": true,
-			"stake_bps": 500,
-			"burn_bps": 1000,
+			"stake_bps": 0,
+			"burn_bps": 0,
 			"minimum_stake_millis": 1000
 		}, "crucible_arena_smoke") as Dictionary, "configure Crucible")
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_A, 50000) as Dictionary, "seed A")
@@ -46,8 +46,8 @@ func _run() -> void:
 	_assert_eq(str(settlement.get("winner_id", "")), PLAYER_A, "seat 1 should map to player A")
 	_assert_eq(str(settlement.get("result_source", "")), "AUTHORITATIVE_SIM", "settlement source")
 	_assert_eq(str(get_meta("crucible_settlement_status", "")), "SETTLED", "tree status")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 52000, "winner payout")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 47500, "loser remains debited")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 51000, "winner payout")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "loser remains debited")
 
 	_clear_crucible_tree_meta()
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_A, 10000) as Dictionary, "seed no contest A")

@@ -69,18 +69,20 @@ func _init() -> void:
 
 	var result: Dictionary = runtime_awards.call("sync_contest_rank_rewards", CONTEST_ID, "WEEKLY", 5) as Dictionary
 	_assert_ok(result, "sync contest rank rewards")
-	var wax_result: Dictionary = result.get("competitive_wax_result", {}) as Dictionary
-	_assert_ok(wax_result, "publish tournament Wax")
-	_assert_eq(int(wax_result.get("balance_millis", 0)), 25000, "weekly champion Wax balance")
+	if result.has("competitive_wax_result"):
+		_fail("contest rank reward should not publish deprecated competitive Wax")
+		return
+	var player_snapshot: Dictionary = rank_state.call("get_player_snapshot", PLAYER_ID) as Dictionary
+	_assert_eq(int(round(float(player_snapshot.get("wax_score", 0.0)))), 210, "weekly champion should receive canonical RankState Wax")
 
 	var snapshot: Dictionary = handshake.call("debug_get_crucible_snapshot") as Dictionary
 	_assert_ok(snapshot, "fetch backend Crucible snapshot")
 	var ledger: Dictionary = snapshot.get("ledger", {}) as Dictionary
 	var balances: Dictionary = ledger.get("balances_by_player", {}) as Dictionary
-	_assert_eq(int(balances.get(PLAYER_ID, 0)), 25000, "backend tournament Wax balance")
+	_assert_eq(int(balances.get(PLAYER_ID, 0)), 0, "backend Crucible ledger should not receive tournament Wax")
 	var awards: Dictionary = ledger.get("competitive_wax_awards_by_event", {}) as Dictionary
-	if not awards.has("competitive_wax:contest:%s:%s" % [CONTEST_ID, PLAYER_ID]):
-		_fail("backend ledger missing tournament Wax award")
+	if awards.has("competitive_wax:contest:%s:%s" % [CONTEST_ID, PLAYER_ID]):
+		_fail("backend ledger should not store tournament Wax award")
 		return
 	print("FREE_ASYNC_TOURNAMENT_WAX_BACKEND_PUBLISH_SMOKE: PASS")
 	quit(0)

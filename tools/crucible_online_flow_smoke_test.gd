@@ -21,8 +21,8 @@ func _run() -> void:
 		"settlement_enabled": true,
 		"server_authoritative_settlement_required": false,
 		"local_dev_settlement_enabled": true,
-		"stake_bps": 500,
-		"burn_bps": 1000,
+		"stake_bps": 0,
+		"burn_bps": 0,
 		"minimum_stake_millis": 1000
 	}, "crucible_online_smoke") as Dictionary, "configure Crucible")
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_A, 50000) as Dictionary, "seed local")
@@ -61,9 +61,9 @@ func _run() -> void:
 	if match_id.is_empty():
 		_fail("VsLobby did not write Crucible match id")
 		return
-	_assert_eq(int(context_meta.get("crucible_stake_each_millis", 0)), 2500, "stake metadata")
+	_assert_eq(int(context_meta.get("crucible_stake_each_millis", 0)), 1000, "stake metadata")
 	_assert_eq(int(context_meta.get("crucible_local_balance_start_millis", 0)), 50000, "start balance metadata")
-	_assert_eq(int(context_meta.get("crucible_local_balance_after_escrow_millis", 0)), 47500, "after escrow metadata")
+	_assert_eq(int(context_meta.get("crucible_local_balance_after_escrow_millis", 0)), 49000, "after escrow metadata")
 
 	var arena_scene := load("res://scenes/Arena.tscn") as PackedScene
 	if arena_scene == null:
@@ -84,12 +84,12 @@ func _run() -> void:
 		return
 	_assert_eq(str(settlement.get("winner_id", "")), PLAYER_A, "winner id")
 	_assert_eq(str(settlement.get("settlement_status", "")), "SETTLED", "settlement status")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 52000, "winner balance")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 47500, "loser balance")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 51000, "winner balance")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "loser balance")
 	_assert_eq(str(get_meta("crucible_settlement_status", "")), "SETTLED", "tree settlement status")
-	_assert_eq(int(get_meta("crucible_local_balance_finish_millis", 0)), 52000, "local finish balance")
-	_assert_eq(int(get_meta("crucible_remote_balance_finish_millis", 0)), 47500, "remote finish balance")
-	_assert_eq(int(get_meta("crucible_balance_delta_millis", 0)), 2000, "local balance delta")
+	_assert_eq(int(get_meta("crucible_local_balance_finish_millis", 0)), 51000, "local finish balance")
+	_assert_eq(int(get_meta("crucible_remote_balance_finish_millis", 0)), 49000, "remote finish balance")
+	_assert_eq(int(get_meta("crucible_balance_delta_millis", 0)), 1000, "local balance delta")
 
 	lobby.queue_free()
 	arena.queue_free()

@@ -24,18 +24,15 @@ func _init() -> void:
 		"winner_id": 1,
 		"reason": "live_pvp_backend_smoke"
 	}) as Dictionary
-	_assert_ok(result, "publish competitive Wax result")
-	_assert_eq(int(result.get("balance_millis", 0)), 3000, "backend credited 3 Wax")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_ID)), 3000, "local mirror updated from backend")
+	_assert_ok(result, "suppress deprecated competitive Wax result")
+	_assert_true(bool(result.get("suppressed", false)), "deprecated competitive Wax publish should be suppressed")
+	_assert_eq(int(result.get("balance_millis", 0)), 0, "backend should not credit competitive Wax")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_ID)), 0, "local mirror should not credit competitive Wax")
 	var snapshot: Dictionary = handshake.call("debug_get_crucible_snapshot") as Dictionary
 	_assert_ok(snapshot, "fetch backend Crucible snapshot")
 	var ledger: Dictionary = snapshot.get("ledger", {}) as Dictionary
 	var balances: Dictionary = ledger.get("balances_by_player", {}) as Dictionary
-	_assert_eq(int(balances.get(PLAYER_ID, 0)), 3000, "backend ledger balance")
-	var awards: Dictionary = ledger.get("competitive_wax_awards_by_event", {}) as Dictionary
-	if not awards.has(EVENT_ID):
-		_fail("backend ledger missing competitive Wax award")
-		return
+	_assert_eq(int(balances.get(PLAYER_ID, 0)), 0, "backend ledger balance")
 	var duplicate: Dictionary = crucible_state.call("intent_apply_competitive_wax_result", MATCH_ID, PLAYER_ID, OPPONENT_ID, true, "1V1", {
 		"event_id": EVENT_ID,
 		"player_rating": 1000.0,
@@ -43,8 +40,9 @@ func _init() -> void:
 		"winner_id": 1,
 		"reason": "live_pvp_backend_smoke_duplicate"
 	}) as Dictionary
-	_assert_ok(duplicate, "duplicate competitive Wax publish")
-	_assert_eq(int(duplicate.get("balance_millis", 0)), 3000, "duplicate does not double-credit")
+	_assert_ok(duplicate, "duplicate deprecated competitive Wax publish")
+	_assert_true(bool(duplicate.get("suppressed", false)), "duplicate deprecated competitive Wax publish should be suppressed")
+	_assert_eq(int(duplicate.get("balance_millis", 0)), 0, "duplicate does not credit")
 	print("LIVE_PVP_WAX_BACKEND_PUBLISH_SMOKE: PASS")
 	quit(0)
 
@@ -55,6 +53,10 @@ func _assert_ok(result: Dictionary, label: String) -> void:
 func _assert_eq(actual: int, expected: int, label: String) -> void:
 	if actual != expected:
 		_fail("%s expected %d got %d" % [label, expected, actual])
+
+func _assert_true(value: bool, label: String) -> void:
+	if not value:
+		_fail(label)
 
 func _fail(message: String) -> void:
 	push_error(message)

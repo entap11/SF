@@ -53,10 +53,10 @@ func _run() -> void:
 	if match_id.is_empty() or str(context_meta.get("crucible_escrow_id", "")).is_empty():
 		_fail("Crucible lobby context missing escrow ids")
 		return
-	_assert_eq(int(context_meta.get("crucible_stake_each_millis", 0)), 2500, "stake metadata")
-	_assert_eq(int(context_meta.get("crucible_winner_payout_millis", 0)), 4500, "winner payout metadata")
+	_assert_eq(int(context_meta.get("crucible_stake_each_millis", 0)), 1000, "stake metadata")
+	_assert_eq(int(context_meta.get("crucible_winner_payout_millis", 0)), 2000, "winner payout metadata")
 	_assert_eq(int(context_meta.get("crucible_local_balance_start_millis", 0)), 50000, "local start metadata")
-	_assert_eq(int(context_meta.get("crucible_local_balance_after_escrow_millis", 0)), 47500, "local after escrow metadata")
+	_assert_eq(int(context_meta.get("crucible_local_balance_after_escrow_millis", 0)), 49000, "local after escrow metadata")
 	var status_node: Label = lobby.get("status_label") as Label
 	if status_node == null or not status_node.text.contains("Crucible escrow locked"):
 		_fail("Crucible lobby did not show escrow status")
@@ -67,7 +67,7 @@ func _run() -> void:
 	if escrows.is_empty() or settlements.has(match_id):
 		_fail("Crucible lobby escrow snapshot invalid")
 		return
-	if int(crucible_state.call("get_balance_millis", PLAYER_A)) != 47500:
+	if int(crucible_state.call("get_balance_millis", PLAYER_A)) != 49000:
 		_fail("Crucible lobby did not debit local stake")
 		return
 	lobby.queue_free()

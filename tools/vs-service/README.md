@@ -97,11 +97,11 @@ Honey ledger notes:
 
 Wax ledger notes:
 
-- Wax is stored as integer `wax_millis` in the Crucible ledger so competitive earning and Crucible wagering draw from the same pool.
-- `record_competitive_wax_result` is the preferred non-Crucible award/loss path; it calculates server-side from match result, mode group, player/opponent rating, placement metadata, and anti-harvest signals.
-- Approved async contest payout reports call the same Wax path for approved placement rows; backend result-ledger reports use ranked leaderboard rows when available.
-- Crucible match participation does not award competitive Wax. Crucible only escrows, burns, refunds, and pays out wagered Wax.
-- RankState `wax_score` remains a separate rating/progression input and should not be treated as the spendable/wagerable Wax balance.
+- Canonical Wax is owned by the rank/ENTaP identity layer, not the VS Crucible ledger.
+- `record_competitive_wax_result` is deprecated and suppressed for compatibility; it must not mint or subtract Wax.
+- Approved async contest payout reports do not publish Wax into the Crucible ledger.
+- Crucible only escrows, refunds, and pays out optional 1-Wax wagers. There is no burn.
+- RankState `wax_score` is the current canonical local implementation of player Wax.
 
 Production Crucible requirements:
 

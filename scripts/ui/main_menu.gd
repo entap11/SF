@@ -12312,7 +12312,7 @@ func _open_crucible_confirmation() -> void:
 	earn_button.text = "EARN WAX"
 	earn_button.custom_minimum_size = Vector2(0.0, 42.0)
 	earn_button.pressed.connect(func() -> void:
-		_open_crucible_wax_melted("Earn more Crucible Wax before staking.")
+		_open_crucible_wax_melted("Earn more Wax before staking.")
 	)
 	body.add_child(earn_button)
 	var cancel := Button.new()

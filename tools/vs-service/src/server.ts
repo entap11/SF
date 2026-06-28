@@ -1627,81 +1627,7 @@ function approveAsyncContestPayoutReport(req: Request, res: Response): void {
     stringValue(req.body?.approver_id),
     stringValue(req.body?.idempotency_key)
   );
-  if (result.ok === true) {
-    result.wax_awards = recordAsyncContestWaxAwards(report, result, stringValue(req.body?.idempotency_key));
-  }
   return okOrLedgerFailure(res, result);
-}
-
-function recordAsyncContestWaxAwards(report: JsonRecord, settlement: JsonRecord, idempotencyKey: string): JsonRecord[] {
-  const contestId = stringValue(settlement.contest_id ?? report.contest_id);
-  if (!contestId) {
-    return [];
-  }
-  const approvalId = stringValue(settlement.approval_id ?? report.report_id) || stringValue(settlement.settle_idempotency_key) || idempotencyKey;
-  const contestFamily = stringValue(settlement.contest_family ?? report.contest_family) || "ASYNC";
-  const sourceRows = asyncWaxPlacementRows(report, settlement);
-  const fieldSize = Math.max(
-    sourceRows.length,
-    Math.trunc(numberValue(report.players_count ?? settlement.players_count, 0)),
-    Math.trunc(numberValue(report.qualified_results_count ?? settlement.qualified_results_count, 0))
-  );
-  const awards: JsonRecord[] = [];
-  for (const row of sourceRows) {
-    const playerId = stringValue(row.player_id);
-    const placement = Math.max(1, Math.trunc(numberValue(row.placement ?? row.rank, 0)));
-    if (!playerId || placement <= 0) {
-      continue;
-    }
-    const eventId = `competitive_wax:async:${contestId}:${playerId}:${approvalId || "approval"}`;
-    const waxResult = crucibleLedger.recordCompetitiveWaxResult({
-      match_id: `async:${contestId}`,
-      player_id: playerId,
-      opponent_id: "",
-      mode_name: "ASYNC",
-      did_win: placement === 1,
-      placement_based: true,
-      placement,
-      field_size: Math.max(1, fieldSize),
-      event_id: eventId,
-      metadata: {
-        contest_id: contestId,
-        contest_family: contestFamily,
-        approval_id: approvalId,
-        placement,
-        field_size: Math.max(1, fieldSize),
-        payout_approved: true,
-        result_source: stringValue(report.result_source ?? settlement.result_source),
-        payout_cents: Math.max(0, Math.trunc(numberValue(row.amount_cents ?? row.payout_cents, 0)))
-      }
-    }, eventId);
-    awards.push({
-      player_id: playerId,
-      placement,
-      event_id: eventId,
-      wax_result: waxResult
-    });
-  }
-  return awards;
-}
-
-function asyncWaxPlacementRows(report: JsonRecord, settlement: JsonRecord): JsonRecord[] {
-  const leaderboardRows = Array.isArray(report.leaderboard_rows) ? report.leaderboard_rows : [];
-  if (leaderboardRows.length > 0) {
-    return leaderboardRows
-      .filter((row): row is JsonRecord => isRecord(row))
-      .map((row, index) => ({
-        ...row,
-        placement: Math.max(1, Math.trunc(numberValue(row.placement ?? row.rank, index + 1)))
-      }));
-  }
-  const payoutRows = Array.isArray(settlement.payouts) ? settlement.payouts : Array.isArray(report.planned_payouts) ? report.planned_payouts : [];
-  return payoutRows
-    .filter((row): row is JsonRecord => isRecord(row))
-    .map((row, index) => ({
-      ...row,
-      placement: Math.max(1, Math.trunc(numberValue(row.placement ?? row.rank, index + 1)))
-    }));
 }
 
 function refundAsyncEntry(req: Request, res: Response): void {
@@ -1998,25 +1924,19 @@ function getWaxPolicy(_req: Request, res: Response): void {
 }
 
 function recordCompetitiveWaxResult(req: Request, res: Response): void {
-  if (!requireMatchAuthority(req, res)) {
+ if (!requireMatchAuthority(req, res)) {
     return;
   }
   const body = (req.body ?? {}) as JsonRecord;
-  const metadata = isRecord(body.metadata) ? body.metadata : {};
-  const result = crucibleLedger.recordCompetitiveWaxResult({
-    ...body,
-    metadata,
-    match_id: stringValue(body.match_id),
+  return ok(res, {
+    ok: true,
+    awarded: false,
+    suppressed: true,
+    reason: "canonical_wax_is_rank_state",
+    event_id: stringValue(body.idempotency_key || body.event_id),
     player_id: stringValue(body.player_id),
-    opponent_id: stringValue(body.opponent_id),
-    mode_name: stringValue(body.mode_name ?? body.mode),
-    did_win: boolValue(body.did_win),
-    close_loss_qualified: boolValue(body.close_loss_qualified),
-    player_rating: numberValue(body.player_rating ?? body.player_wax_score, 0),
-    opponent_rating: numberValue(body.opponent_rating ?? body.opponent_wax_score, 0),
-    occurred_unix: Math.trunc(numberValue(body.occurred_unix, 0))
-  }, stringValue(body.idempotency_key));
-  return okOrLedgerFailure(res, result, 402);
+    balance_millis: crucibleLedger.getBalanceMillis(stringValue(body.player_id))
+  });
 }
 
 function debugSetCrucibleBalance(req: Request, res: Response): void {

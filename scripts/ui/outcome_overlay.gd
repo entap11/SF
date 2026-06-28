@@ -274,7 +274,7 @@ func _apply_outcome(winner_id: int, reason: String, _record_text: String, _h2h_t
 	stat_units_killed.text = ""
 	stat_units_landed.text = ""
 	_apply_crucible_status_from_tree(winner_id)
-	_apply_competitive_wax_status_from_tree()
+	_apply_canonical_wax_status_from_tree()
 	_update_countdown_label()
 	_update_status()
 
@@ -542,7 +542,7 @@ func _apply_crucible_status_from_tree(winner_id: int) -> void:
 	if tree == null or not bool(tree.get_meta("vs_crucible", false)):
 		return
 	_set_standard_rows_visible(true)
-	stats_header.text = "Crucible Wax"
+	stats_header.text = "Wax Wager"
 	var start_millis: int = maxi(0, int(tree.get_meta("crucible_local_balance_start_millis", 0)))
 	var after_escrow_millis: int = maxi(0, int(tree.get_meta("crucible_local_balance_after_escrow_millis", start_millis)))
 	var finish_millis: int = maxi(0, int(tree.get_meta("crucible_local_balance_finish_millis", after_escrow_millis)))
@@ -573,28 +573,31 @@ func _apply_crucible_status_from_tree(winner_id: int) -> void:
 	else:
 		stat_units_landed.text = "Crucible settlement: %s. You lost this Wax match." % settlement_status.capitalize()
 
-func _apply_competitive_wax_status_from_tree() -> void:
+func _apply_canonical_wax_status_from_tree() -> void:
 	var tree: SceneTree = get_tree()
-	if tree == null or bool(tree.get_meta("vs_crucible", false)) or not tree.has_meta("competitive_wax_result"):
+	if tree == null or bool(tree.get_meta("vs_crucible", false)) or not tree.has_meta("canonical_wax_result"):
 		return
-	var wax_result: Dictionary = tree.get_meta("competitive_wax_result", {}) as Dictionary
-	var breakdown: Dictionary = wax_result.get("breakdown", wax_result.get("award", {})) as Dictionary
-	var delta_millis: int = int(tree.get_meta("competitive_wax_delta_millis", breakdown.get("applied_wax_delta_millis", breakdown.get("final_wax_delta_millis", 0))))
-	var balance_millis: int = maxi(0, int(tree.get_meta("competitive_wax_balance_millis", wax_result.get("balance_millis", breakdown.get("balance_millis", 0)))))
-	var status: String = str(tree.get_meta("competitive_wax_status", breakdown.get("validity_status", ""))).strip_edges()
-	var reason: String = str(breakdown.get("anti_harvest_reason_if_blocked", breakdown.get("close_loss_reason", ""))).strip_edges()
+	var delta_wax: float = float(tree.get_meta("canonical_wax_delta", 0.0))
+	var balance_wax: float = maxf(0.0, float(tree.get_meta("canonical_wax_balance", 0.0)))
+	var status: String = str(tree.get_meta("canonical_wax_status", "settled")).strip_edges()
 	_set_standard_rows_visible(true)
-	stats_header.text = "Competitive Wax"
-	stat_max_power.text = "Change %s | Balance %s" % [_format_signed_wax_millis(delta_millis), _format_wax_millis(balance_millis)]
-	if bool(tree.get_meta("competitive_wax_held_for_review", false)) or status == "held_review":
-		stat_units_killed.text = "Wax result held for review."
-	elif status == "blocked":
+	stats_header.text = "Wax"
+	stat_max_power.text = "Change %s | Balance %s" % [_format_signed_wax(delta_wax), _format_wax(balance_wax)]
+	if status == "blocked":
 		stat_units_killed.text = "Wax not awarded."
-	elif delta_millis == 0:
+	elif is_zero_approx(delta_wax):
 		stat_units_killed.text = "No Wax change for this result."
 	else:
-		stat_units_killed.text = "Wax ledger updated."
-	stat_units_landed.text = reason if not reason.is_empty() else str(breakdown.get("mode_group", ""))
+		stat_units_killed.text = "Rank updated."
+	stat_units_landed.text = "Canonical ranking Wax."
+
+func _format_wax(amount: float) -> String:
+	return "%.1f Wax" % maxf(0.0, amount)
+
+func _format_signed_wax(amount: float) -> String:
+	if amount < 0.0:
+		return "-%s" % _format_wax(absf(amount))
+	return _format_wax(amount)
 
 func _format_wax_millis(amount_millis: int) -> String:
 	var clean_millis: int = maxi(0, amount_millis)

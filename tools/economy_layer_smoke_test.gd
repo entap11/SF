@@ -125,32 +125,32 @@ func _test_competitive_wax_ledger() -> void:
 		"player_rating": 1000.0,
 		"opponent_rating": 1000.0
 	}) as Dictionary
-	_assert_true(bool(award.get("ok", false)), "competitive Wax award should succeed")
-	_assert_eq(int(crucible_state.call("get_balance_millis", "wax_ledger_a")), 13000, "equal win should add 3 Wax")
+	_assert_true(bool(award.get("suppressed", false)), "competitive Wax ledger path should be suppressed")
+	_assert_eq(int(crucible_state.call("get_balance_millis", "wax_ledger_a")), 10000, "suppressed competitive award should not change Wax")
 	var dup: Dictionary = crucible_state.call("intent_apply_competitive_wax_result", "wax_match", "wax_ledger_a", "wax_ledger_b", true, "1V1", {
 		"event_id": "wax_match:wax_ledger_a",
 		"player_rating": 1000.0,
 		"opponent_rating": 1000.0
 	}) as Dictionary
-	_assert_true(bool(dup.get("duplicate", false)), "duplicate Wax result should be ignored")
-	_assert_eq(int(crucible_state.call("get_balance_millis", "wax_ledger_a")), 13000, "duplicate should not double-award Wax")
+	_assert_true(bool(dup.get("suppressed", false)), "duplicate competitive Wax result should remain suppressed")
+	_assert_eq(int(crucible_state.call("get_balance_millis", "wax_ledger_a")), 10000, "duplicate should not award Wax")
 	var held: Dictionary = crucible_state.call("intent_apply_competitive_wax_result", "wax_match_held", "wax_ledger_a", "wax_ledger_b", true, "1V1", {
 		"event_id": "wax_match_held:wax_ledger_a",
 		"player_rating": 1000.0,
 		"opponent_rating": 1000.0,
 		"suspicious_win_trading": true
 	}) as Dictionary
-	_assert_true(bool(held.get("held_for_review", false)), "suspicious competitive Wax should be held for review")
-	_assert_eq(int(crucible_state.call("get_balance_millis", "wax_ledger_a")), 13000, "held review should not change Wax balance")
+	_assert_true(bool(held.get("suppressed", false)), "suspicious competitive Wax should also be suppressed")
+	_assert_eq(int(crucible_state.call("get_balance_millis", "wax_ledger_a")), 10000, "suppressed review should not change Wax balance")
 	var summary: Dictionary = crucible_state.call("get_player_wax_summary", "wax_ledger_a", 5) as Dictionary
 	_assert_true(bool(summary.get("ok", false)), "Wax summary should return ok")
-	_assert_eq(int(summary.get("balance_millis", 0)), 13000, "Wax summary should expose current balance")
-	_assert_eq(int(summary.get("held_review_count", 0)), 1, "Wax summary should count held awards")
+	_assert_eq(int(summary.get("balance_millis", 0)), 10000, "Wax summary should expose current balance")
+	_assert_eq(int(summary.get("held_review_count", 0)), 0, "suppressed awards are not held reviews")
 	var activity: Array = summary.get("recent_activity", []) as Array
-	_assert_true(activity.size() >= 2, "Wax summary should expose recent activity")
+	_assert_eq(activity.size(), 0, "suppressed awards should not appear as activity")
 	var audit: Dictionary = crucible_state.call("get_wax_audit_snapshot", {"player_id": "wax_ledger_a", "validity_status": "held_review"}) as Dictionary
 	_assert_true(bool(audit.get("ok", false)), "Wax audit snapshot should return ok")
-	_assert_eq(int(audit.get("held_review_count", 0)), 1, "Wax audit snapshot should filter held reviews")
+	_assert_eq(int(audit.get("held_review_count", 0)), 0, "Wax audit snapshot should not invent held reviews")
 
 func _test_nectar_policy() -> void:
 	var battle_pass_state: Node = get_root().get_node_or_null("BattlePassState")

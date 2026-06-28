@@ -1,7 +1,5 @@
 extends RefCounted
 
-const WaxRewardPolicy = preload("res://scripts/state/wax_reward_policy.gd")
-
 static func simulate(days: int = 90) -> Dictionary:
 	var safe_days: int = maxi(1, days)
 	var profiles: Array[Dictionary] = []
@@ -47,40 +45,20 @@ static func _simulate_profile(profile: Dictionary, days: int) -> Dictionary:
 	var wins: int = int(round(float(live_matches) * float(profile.get("win_rate", 0.5))))
 	var losses: int = maxi(0, live_matches - wins)
 	for i in range(wins):
-		var award: Dictionary = WaxRewardPolicy.evaluate_match(_match_payload(profile, true, i))
-		breakdown["live"] = float(breakdown.get("live", 0.0)) + float(award.get("final_wax_delta", 0))
+		breakdown["live"] = float(breakdown.get("live", 0.0)) + _match_delta(profile, true, i)
 	for i in range(losses):
-		var loss_payload: Dictionary = _match_payload(profile, false, i)
-		if i % 5 == 0:
-			loss_payload["close_loss_margin_ratio"] = 0.05
-		var loss: Dictionary = WaxRewardPolicy.evaluate_match(loss_payload)
-		breakdown["live"] = float(breakdown.get("live", 0.0)) + float(loss.get("final_wax_delta", 0))
+		breakdown["live"] = float(breakdown.get("live", 0.0)) + _match_delta(profile, false, i)
 	matches += live_matches
 	var async_events: int = int(round(float(profile.get("async_per_week", 0)) * weeks))
 	for i in range(async_events):
 		var placement: int = 1 + (i % 6)
-		var async_result: Dictionary = WaxRewardPolicy.evaluate_match({
-			"mode_name": "ASYNC",
-			"placement_based": true,
-			"placement": placement,
-			"field_size": 12,
-			"did_win": placement == 1
-		})
-		breakdown["async"] = float(breakdown.get("async", 0.0)) + float(async_result.get("final_wax_delta", 0))
+		breakdown["async"] = float(breakdown.get("async", 0.0)) + _weekly_placement_wax(placement)
 	matches += async_events
 	var tournaments: int = int(round(float(profile.get("tournaments_per_month", 0)) * months))
 	for i in range(tournaments):
 		var placement_t: int = 1 + (i % 8)
-		var tournament: Dictionary = WaxRewardPolicy.evaluate_match({
-			"mode_name": "TOURNAMENT",
-			"contest_scope": "WEEKLY",
-			"placement": placement_t,
-			"field_size": 64,
-			"did_win": placement_t == 1
-		})
-		breakdown["tournament"] = float(breakdown.get("tournament", 0.0)) + float(tournament.get("final_wax_delta", 0))
-	var hive_wins: int = int(round(float(profile.get("hive_weekly_wins_per_month", 0)) * months))
-	breakdown["hive"] = float(hive_wins * 25)
+		breakdown["tournament"] = float(breakdown.get("tournament", 0.0)) + _weekly_placement_wax(placement_t)
+	breakdown["hive"] = 0.0
 	total_wax = float(breakdown.get("live", 0.0)) + float(breakdown.get("async", 0.0)) + float(breakdown.get("tournament", 0.0)) + float(breakdown.get("hive", 0.0))
 	var hours: float = float(profile.get("hours_per_week", 0.0)) * weeks
 	return {
@@ -92,18 +70,54 @@ static func _simulate_profile(profile: Dictionary, days: int) -> Dictionary:
 		"source_breakdown": breakdown
 	}
 
-static func _match_payload(profile: Dictionary, did_win: bool, index: int) -> Dictionary:
-	var player_rating: float = float(profile.get("rating", 1000.0))
-	var opponent_rating: float = player_rating + (125.0 if index % 3 == 0 else 0.0)
-	return {
-		"mode_name": "1V1",
-		"did_win": did_win,
-		"player_rating": player_rating,
-		"opponent_rating": opponent_rating,
-		"duration_sec": 240,
-		"repeated_opponent_count": int(profile.get("repeated_opponent_count", 0)),
-		"minimum_quality_met": bool(profile.get("minimum_quality_met", true))
-	}
+static func _match_delta(profile: Dictionary, did_win: bool, index: int) -> float:
+	if not bool(profile.get("minimum_quality_met", true)):
+		return 0.0
+	if int(profile.get("repeated_opponent_count", 0)) >= 4:
+		return 0.0
+	if did_win:
+		return _win_delta(profile)
+	if not did_win and _opponent_is_much_better(profile):
+		if index % 20 == 0:
+			return 2.0
+		if index % 5 == 0:
+			return 1.0
+		return -2.0
+	if not did_win and _loser_is_much_better(profile):
+		return -6.0
+	return -4.0
+
+static func _win_delta(profile: Dictionary) -> float:
+	var winner_wax: float = maxf(1.0, float(profile.get("rating", 1000.0)))
+	var loser_wax: float = winner_wax * maxf(0.0, float(profile.get("win_opponent_multiplier", 1.0)))
+	if loser_wax >= winner_wax * 1.2:
+		return 16.0
+	if loser_wax > winner_wax:
+		return 13.0
+	if winner_wax > loser_wax:
+		return 5.0
+	return 10.0
+
+static func _opponent_is_much_better(profile: Dictionary) -> bool:
+	var player_wax: float = maxf(1.0, float(profile.get("rating", 1000.0)))
+	var opponent_wax: float = player_wax * maxf(0.0, float(profile.get("close_loss_opponent_multiplier", 1.2)))
+	return opponent_wax >= player_wax * 1.2
+
+static func _loser_is_much_better(profile: Dictionary) -> bool:
+	var player_wax: float = maxf(1.0, float(profile.get("rating", 1000.0)))
+	var opponent_wax: float = player_wax * maxf(0.0, float(profile.get("close_loss_opponent_multiplier", 1.2)))
+	return player_wax >= opponent_wax * 1.2
+
+static func _weekly_placement_wax(placement: int) -> float:
+	match placement:
+		1:
+			return 10.0
+		2:
+			return 5.0
+		3:
+			return 2.0
+		_:
+			return 0.0
 
 static func _find_profile(profiles: Array[Dictionary], profile_id: String) -> Dictionary:
 	for profile in profiles:

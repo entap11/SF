@@ -4,7 +4,6 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const CrucibleConfigScript = preload("res://scripts/state/crucible_config.gd")
 const CrucibleStakeCalculatorScript = preload("res://scripts/state/crucible_stake_calculator.gd")
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
-const WaxRewardPolicyScript = preload("res://scripts/state/wax_reward_policy.gd")
 
 signal crucible_state_changed(snapshot: Dictionary)
 signal crucible_event(event: Dictionary)
@@ -390,6 +389,7 @@ func intent_settle_match(match_id: String, winner_id: String, result_source: Str
 	var winner_burn_share: int = maxi(0, burn - loser_burn_share)
 	_apply_wax_stats(clean_winner, payout, winner_burn_share)
 	_apply_wax_stats(loser, -maxi(0, int(escrow.get("stake_each", 0))), loser_burn_share)
+	_sync_rank_wax_after_crucible_result(clean_winner, loser)
 	_audit_records.append(settlement.duplicate(true))
 	_emit_event("crucible_match_completed", settlement)
 	_save_state()
@@ -471,106 +471,46 @@ func intent_award_earn_path(player_id: String, earn_path: String, metadata: Dict
 	var path: String = earn_path.strip_edges().to_upper()
 	if clean_id.is_empty():
 		return _error("missing_player_id", "Player id is required.")
-	var amount: int = _earn_amount_for_path(path, metadata)
-	if amount <= 0:
-		return {"ok": true, "awarded": false, "player_id": clean_id, "earn_path": path, "amount_millis": 0}
-	if _server_authoritative_enabled():
-		var backend: Node = _handshake_backend()
-		if backend == null or not backend.has_method("award_crucible_wax"):
-			return _error("transport_not_configured", "Crucible backend is not configured.")
-		var remote_result: Dictionary = backend.call("award_crucible_wax", clean_id, amount, path, metadata) as Dictionary
-		if bool(remote_result.get("ok", false)) and remote_result.has("balance_millis"):
-			_balances_by_player[clean_id] = maxi(0, int(remote_result.get("balance_millis", 0)))
-			_save_state()
-			_emit_changed()
-		return remote_result
-	_balances_by_player[clean_id] = get_balance_millis(clean_id) + amount
-	_append_ledger("EARN", str(metadata.get("match_id", "")), clean_id, amount, "", {"earn_path": path, "metadata": metadata.duplicate(true)})
-	_emit_event("crucible_wax_earned", {"player_id": clean_id, "earn_path": path, "amount_millis": amount})
-	_save_state()
-	_emit_changed()
-	return {"ok": true, "awarded": true, "player_id": clean_id, "earn_path": path, "amount_millis": amount, "balance_millis": get_balance_millis(clean_id)}
+	return {
+		"ok": true,
+		"awarded": false,
+		"suppressed": true,
+		"reason": "crucible_has_no_wax_rewards",
+		"player_id": clean_id,
+		"earn_path": path,
+		"amount_millis": 0,
+		"balance_millis": get_balance_millis(clean_id)
+	}
 
 func intent_apply_competitive_wax_result(match_id: String, player_id: String, opponent_id: String, did_win: bool, mode_name: String, metadata: Dictionary = {}) -> Dictionary:
 	var clean_match_id: String = match_id.strip_edges()
 	var clean_player: String = player_id.strip_edges()
-	var clean_opponent: String = opponent_id.strip_edges()
 	if clean_match_id.is_empty() or clean_player.is_empty():
 		return _error("missing_wax_award_fields", "Match id and player id are required.")
 	var event_id: String = str(metadata.get("event_id", "competitive_wax:%s:%s" % [clean_match_id, clean_player])).strip_edges()
-	var remote_result: Dictionary = _try_remote_competitive_wax_result(clean_match_id, clean_player, clean_opponent, did_win, mode_name, metadata, event_id)
-	if not remote_result.is_empty():
-		return remote_result
-	if _competitive_wax_awards_by_event.has(event_id):
-		var existing: Dictionary = _safe_dictionary(_competitive_wax_awards_by_event.get(event_id, {}))
-		_emit_event("wax_duplicate_ignored", existing)
-		return {"ok": true, "awarded": false, "duplicate": true, "event_id": event_id, "award": existing.duplicate(true)}
-	var payload: Dictionary = metadata.duplicate(true)
-	payload["match_id"] = clean_match_id
-	payload["player_id"] = clean_player
-	payload["opponent_id"] = clean_opponent
-	payload["did_win"] = did_win
-	payload["mode_name"] = mode_name
-	var breakdown: Dictionary = WaxRewardPolicyScript.evaluate_match(payload)
-	breakdown["event_id"] = event_id
-	_competitive_wax_awards_by_event[event_id] = breakdown.duplicate(true)
-	var status: String = str(breakdown.get("validity_status", "eligible"))
-	var delta_millis: int = int(breakdown.get("final_wax_delta_millis", 0))
-	if status == "blocked" or delta_millis == 0:
-		var held_for_review: bool = status == "held_review"
-		_emit_event("wax_held_review" if held_for_review else ("wax_blocked_antiharvest" if status == "blocked" else "wax_award_attempt"), breakdown)
-		_save_state()
-		_emit_changed()
-		return {"ok": true, "awarded": false, "held_for_review": held_for_review, "event_id": event_id, "breakdown": breakdown, "balance_millis": get_balance_millis(clean_player)}
-	_ensure_player(clean_player)
-	var applied_delta: int = delta_millis
-	if delta_millis < 0:
-		applied_delta = -mini(get_balance_millis(clean_player), absi(delta_millis))
-	_balances_by_player[clean_player] = maxi(0, get_balance_millis(clean_player) + applied_delta)
-	_apply_wax_stats(clean_player, applied_delta, 0)
-	var entry_type: String = LEDGER_COMPETITIVE_WAX_AWARD if applied_delta > 0 else LEDGER_COMPETITIVE_WAX_LOSS
-	var ledger_entry: Dictionary = _append_ledger(entry_type, clean_match_id, clean_player, applied_delta, "", {
+	var suppressed: Dictionary = {
 		"event_id": event_id,
-		"opponent_id": clean_opponent,
-		"breakdown": breakdown.duplicate(true)
-	})
-	var event_type: String = "wax_awarded" if applied_delta > 0 else "wax_subtracted"
-	if bool(breakdown.get("close_loss_qualified", false)) and applied_delta > 0 and not did_win:
-		event_type = "wax_close_loss_awarded"
-	elif str(breakdown.get("validity_status", "")) == "diminished":
-		event_type = "wax_repeated_opponent_diminished"
-	breakdown["applied_wax_delta_millis"] = applied_delta
-	breakdown["balance_millis"] = get_balance_millis(clean_player)
-	breakdown["ledger_entry_id"] = str(ledger_entry.get("entry_id", ""))
-	_competitive_wax_awards_by_event[event_id] = breakdown.duplicate(true)
-	_emit_event(event_type, breakdown)
+		"match_id": clean_match_id,
+		"player_id": clean_player,
+		"opponent_id": opponent_id.strip_edges(),
+		"did_win": did_win,
+		"mode_name": mode_name,
+		"validity_status": "suppressed",
+		"reason": "canonical_wax_is_rank_state",
+		"metadata": metadata.duplicate(true)
+	}
+	_competitive_wax_awards_by_event[event_id] = suppressed.duplicate(true)
+	_emit_event("wax_award_suppressed", suppressed)
 	_save_state()
 	_emit_changed()
 	return {
 		"ok": true,
-		"awarded": applied_delta > 0,
-		"subtracted": applied_delta < 0,
+		"awarded": false,
+		"suppressed": true,
 		"event_id": event_id,
-		"breakdown": breakdown,
+		"breakdown": suppressed,
 		"balance_millis": get_balance_millis(clean_player)
 	}
-
-func _try_remote_competitive_wax_result(match_id: String, player_id: String, opponent_id: String, did_win: bool, mode_name: String, metadata: Dictionary, event_id: String) -> Dictionary:
-	var backend: Node = _handshake_backend()
-	if backend == null or not backend.has_method("record_competitive_wax_result"):
-		return {}
-	var remote_result: Dictionary = backend.call("record_competitive_wax_result", match_id, player_id, opponent_id, did_win, mode_name, metadata, event_id) as Dictionary
-	if not bool(remote_result.get("handled", true)) or str(remote_result.get("err", "")) == "transport_not_configured":
-		return {}
-	if bool(remote_result.get("ok", false)):
-		var balance_millis: int = maxi(0, int(remote_result.get("balance_millis", get_balance_millis(player_id))))
-		_balances_by_player[player_id] = balance_millis
-		var breakdown: Dictionary = _safe_dictionary(remote_result.get("breakdown", remote_result.get("award", {})))
-		if not breakdown.is_empty():
-			_competitive_wax_awards_by_event[event_id] = breakdown.duplicate(true)
-		_save_state()
-		_emit_changed()
-	return remote_result
 
 func validate_purity(payload: Dictionary = {}) -> Dictionary:
 	var violations: Array[String] = []
@@ -804,6 +744,7 @@ func _release_held_settlement(escrow: Dictionary, winner_id: String, actor_id: S
 	var winner_burn_share: int = maxi(0, burn - loser_burn_share)
 	_apply_wax_stats(winner_id, payout, winner_burn_share)
 	_apply_wax_stats(loser_id, -maxi(0, int(escrow.get("stake_each", 0))), loser_burn_share)
+	_sync_rank_wax_after_crucible_result(winner_id, loser_id)
 	_audit_records.append(settlement.duplicate(true))
 	_emit_event("crucible_review_approved", settlement)
 	_save_state()
@@ -926,10 +867,38 @@ func _risk_assessment(escrow: Dictionary, settlement_metadata: Dictionary) -> Di
 func _ensure_player(player_id: String) -> void:
 	if _balances_by_player.has(player_id):
 		return
-	var starting: int = maxi(0, _runtime_config().starting_crucible_wax_millis)
+	var starting: int = _rank_wax_millis(player_id)
+	if starting <= 0:
+		starting = maxi(0, _runtime_config().starting_crucible_wax_millis)
 	if _runtime_config().launch_grant_enabled:
 		starting += maxi(0, _runtime_config().launch_grant_millis)
 	_balances_by_player[player_id] = starting
+
+func _rank_wax_millis(player_id: String) -> int:
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	if rank_state == null or not rank_state.has_method("get_player_snapshot"):
+		return 0
+	var snapshot: Dictionary = rank_state.call("get_player_snapshot", player_id) as Dictionary
+	if snapshot.is_empty() or not snapshot.has("wax_score"):
+		return 0
+	return maxi(0, int(round(float(snapshot.get("wax_score", 0.0)) * 1000.0)))
+
+func _sync_rank_wax_after_crucible_result(winner_id: String, loser_id: String) -> void:
+	var rank_state: Node = get_node_or_null("/root/RankState")
+	if rank_state == null or not rank_state.has_method("get_player_snapshot") or not rank_state.has_method("intent_debug_set_player_wax"):
+		return
+	_apply_rank_wax_delta(rank_state, winner_id, 1.0)
+	_apply_rank_wax_delta(rank_state, loser_id, -1.0)
+
+func _apply_rank_wax_delta(rank_state: Node, player_id: String, delta_wax: float) -> void:
+	var clean_id: String = player_id.strip_edges()
+	if clean_id.is_empty():
+		return
+	var snapshot: Dictionary = rank_state.call("get_player_snapshot", clean_id) as Dictionary
+	if snapshot.is_empty() or not snapshot.has("wax_score"):
+		return
+	var current: float = float(snapshot.get("wax_score", 0.0))
+	rank_state.call("intent_debug_set_player_wax", clean_id, current + delta_wax)
 
 func _apply_wax_stats(player_id: String, delta_millis: int, burned_millis: int = 0) -> void:
 	var clean_id: String = player_id.strip_edges()

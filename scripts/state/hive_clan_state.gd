@@ -3646,9 +3646,6 @@ func _award_hive_tournament_bracket_winner(bracket: Dictionary, resolved_round: 
 		winner_hive["hive_championships"] = int(winner_hive.get("hive_championships", 0)) + 1
 		winner_hive["seasonal_best_finish"] = 1
 	winner_hive = _grant_hive_awards_for_tournament_victory(winner_hive, bracket, resolved_round)
-	var competitive_wax_result: Dictionary = _publish_hive_tournament_wax_result(winner_hive, bracket, resolved_round)
-	if not competitive_wax_result.is_empty():
-		winner_hive["last_tournament_wax_result"] = competitive_wax_result
 	_hives_by_id[winner_hive_id] = winner_hive
 	if not bracket.is_empty():
 		_emit_event({
@@ -3657,84 +3654,8 @@ func _award_hive_tournament_bracket_winner(bracket: Dictionary, resolved_round: 
 			"tournament_id": str(resolved_round.get("tournament_id", "")),
 			"title": str(resolved_round.get("title", "Hive Tournament")),
 			"bracket_id": str(bracket.get("bracket_id", "")),
-			"winner_hive_id": winner_hive_id,
-			"competitive_wax_result": competitive_wax_result
+			"winner_hive_id": winner_hive_id
 		})
-
-func _publish_hive_tournament_wax_result(winner_hive: Dictionary, bracket: Dictionary, resolved_round: Dictionary) -> Dictionary:
-	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
-	if crucible_state == null or not crucible_state.has_method("intent_apply_competitive_wax_result"):
-		return {"ok": false, "err": "crucible_state_unavailable"}
-	var tournament_id: String = str(resolved_round.get("tournament_id", "")).strip_edges().to_lower()
-	var winner_hive_id: String = str(winner_hive.get("hive_id", resolved_round.get("winner_hive_id", ""))).strip_edges()
-	var representative_player_id: String = _hive_tournament_wax_representative_player_id(winner_hive)
-	if tournament_id.is_empty() or winner_hive_id.is_empty() or representative_player_id.is_empty():
-		return {"ok": false, "err": "missing_hive_tournament_wax_fields"}
-	var bracket_id: String = str(bracket.get("bracket_id", resolved_round.get("bracket_id", ""))).strip_edges()
-	var round_id: String = str(resolved_round.get("round_id", "")).strip_edges()
-	var match_key: String = bracket_id if not bracket_id.is_empty() else round_id
-	if match_key.is_empty():
-		match_key = "%s:%s" % [tournament_id, winner_hive_id]
-	var field_size: int = _hive_tournament_wax_field_size(tournament_id, bracket, resolved_round)
-	var metadata: Dictionary = {
-		"event_id": "competitive_wax:hive_tournament:%s:%s:%s" % [tournament_id, winner_hive_id, match_key],
-		"tournament_scope": _hive_tournament_wax_scope(tournament_id),
-		"contest_scope": _hive_tournament_wax_scope(tournament_id),
-		"placement": 1,
-		"field_size": field_size,
-		"participant_count": field_size,
-		"hive_tournament": true,
-		"hive_id": winner_hive_id,
-		"winner_hive_id": winner_hive_id,
-		"representative_player_id": representative_player_id,
-		"tournament_id": tournament_id,
-		"bracket_id": bracket_id,
-		"round_id": round_id,
-		"bracket_round_number": int(resolved_round.get("bracket_round_number", 0)),
-		"team_a_slot_wins": int(resolved_round.get("team_a_slot_wins", 0)),
-		"team_b_slot_wins": int(resolved_round.get("team_b_slot_wins", 0)),
-		"team_a_total_time_ms": int(resolved_round.get("team_a_total_time_ms", 0)),
-		"team_b_total_time_ms": int(resolved_round.get("team_b_total_time_ms", 0)),
-		"resolution_reason": str(resolved_round.get("resolution_reason", "")),
-		"forfeited_hive_id": str(resolved_round.get("forfeited_hive_id", ""))
-	}
-	return crucible_state.call(
-		"intent_apply_competitive_wax_result",
-		"hive_tournament:%s" % match_key,
-		representative_player_id,
-		"",
-		true,
-		"TOURNAMENT",
-		metadata
-	) as Dictionary
-
-func _hive_tournament_wax_representative_player_id(hive: Dictionary) -> String:
-	var members: Dictionary = hive.get("members", {}) as Dictionary
-	for member_any in members.values():
-		if typeof(member_any) != TYPE_DICTIONARY:
-			continue
-		var member: Dictionary = member_any as Dictionary
-		if str(member.get("role", "")).strip_edges().to_lower() == ROLE_QUEEN:
-			var queen_id: String = _sanitize_player_id(str(member.get("player_id", "")))
-			if not queen_id.is_empty():
-				return queen_id
-	return _sanitize_player_id(str(hive.get("created_by_player_id", "")))
-
-func _hive_tournament_wax_field_size(tournament_id: String, bracket: Dictionary, resolved_round: Dictionary) -> int:
-	var field_size: int = int(bracket.get("field_size", resolved_round.get("field_size", 0)))
-	if field_size > 0:
-		return field_size
-	var entry: Dictionary = _hive_tournament_entry_for_id(tournament_id)
-	return maxi(2, int(entry.get("field_size", 2)))
-
-func _hive_tournament_wax_scope(tournament_id: String) -> String:
-	match tournament_id.strip_edges().to_lower():
-		"monthly_hive_cup":
-			return "MONTHLY"
-		"seasonal_royal_gauntlet":
-			return "SEASONAL"
-		_:
-			return "WEEKLY"
 
 func _finalize_hive_tournament_entry_from_round(round: Dictionary, hive_id: String) -> void:
 	var tournament_id: String = str(round.get("tournament_id", ""))

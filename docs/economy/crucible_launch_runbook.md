@@ -15,10 +15,10 @@ Crucible is a ruleset overlay on normal 1V1 map shape. It must remain mechanical
 
 Current first-pass defaults:
 
-- Stake: `stake_bps = 500` of the lower player Crucible Wax balance.
-- Burn: `burn_bps = 1000` of the pot.
+- Stake: exactly `minimum_stake_millis = 1000`, meaning 1 Wax from each player.
+- Burn: `0`.
 - Minimum stake: `minimum_stake_millis = 1000`.
-- Starting Crucible Wax: `0`.
+- Starting local Crucible mirror: `0`; canonical player Wax is owned by RankState.
 - Launch grant: disabled by default.
 - Local dev settlement: disabled in production, allowed only behind config for smoke/dev.
 
