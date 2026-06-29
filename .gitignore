@@ -16,6 +16,7 @@ Thumbs.db
 # Logs
 *.log
 tmp/
+debug_reports/
 
 # Local tools
 tools/analytics/.env

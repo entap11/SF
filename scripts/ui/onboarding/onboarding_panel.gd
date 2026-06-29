@@ -12,6 +12,8 @@ const STATUS_FONT_SIZE: int = 34
 const INPUT_FONT_SIZE: int = 52
 const BUTTON_FONT_SIZE: int = 46
 const ROW_HEIGHT: float = 94.0
+const DEBUG_OFFLINE_PROFILE_ID: String = "018f2b2c-1234-7abc-8def-123456789abc"
+const DEBUG_OFFLINE_ENTAP_ID: String = "SFP 501"
 
 @onready var title_label: Label = $VBox/TitleLabel
 @onready var body_label: Label = $VBox/BodyLabel
@@ -66,12 +68,42 @@ func _on_continue_pressed() -> void:
 func _register_backend_identity(call_sign: String) -> Dictionary:
 	var rank_state: Node = get_node_or_null("/root/RankState")
 	if rank_state == null or not rank_state.has_method("intent_register_player"):
-		return {"ok": false, "reason": "account_service_unavailable"}
+		return _debug_offline_registration(call_sign, "account_service_unavailable")
 	var install_metadata: Dictionary = {
 		"client": "swarmfront",
 		"platform": OS.get_name()
 	}
-	return rank_state.call("intent_register_player", "", call_sign, "NA", [], install_metadata, true) as Dictionary
+	var result: Dictionary = rank_state.call("intent_register_player", "", call_sign, "NA", [], install_metadata, true) as Dictionary
+	if bool(result.get("ok", false)):
+		return result
+	var reason: String = str(result.get("err", result.get("reason", ""))).strip_edges()
+	if _is_backend_unavailable_reason(reason):
+		return _debug_offline_registration(call_sign, reason)
+	return result
+
+func _debug_offline_registration(call_sign: String, reason: String) -> Dictionary:
+	if not OS.is_debug_build():
+		return {"ok": false, "reason": reason}
+	return {
+		"ok": true,
+		"debug_offline_identity": true,
+		"player": {
+			"id": DEBUG_OFFLINE_PROFILE_ID,
+			"player_id": DEBUG_OFFLINE_PROFILE_ID,
+			"entap_id": DEBUG_OFFLINE_ENTAP_ID,
+			"call_sign": call_sign,
+			"display_name": call_sign
+		}
+	}
+
+func _is_backend_unavailable_reason(reason: String) -> bool:
+	return [
+		"account_service_unavailable",
+		"rank_backend_not_configured",
+		"rank_backend_unavailable",
+		"transport_not_configured",
+		"backend_unavailable"
+	].has(reason)
 
 func _registration_error_message(result: Dictionary) -> String:
 	var reason: String = str(result.get("err", result.get("reason", ""))).strip_edges()

@@ -58,6 +58,10 @@ var _console_instance: Control = null
 var _bot_telemetry_store: RefCounted = BotTelemetryStoreScript.new()
 var _match_telemetry_collector: RefCounted = null
 var _intent_log_match_id: String = ""
+var _intent_telemetry_base_cache: Dictionary = {}
+var _intent_telemetry_base_cache_key: String = ""
+var _intent_telemetry_actor_cache: Dictionary = {}
+var _bot_profiles_cache_key: String = ""
 
 # --- MATCH OUTCOME + CLOCK (authoritative) ---
 enum MatchPhase {
@@ -126,6 +130,85 @@ var victory_mode: String = VICTORY_MODE_CONQUEST
 var victory_rules: Dictionary = {}
 var capture_flag_state: Dictionary = {}
 var _capture_flag_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var intent_profile_enabled: bool = false
+var _intent_profile_totals: Dictionary = {}
+var _intent_profile_events: Array = []
+var _intent_profile_max_events: int = 2048
+var intent_telemetry_enabled: bool = true
+var intent_action_events_enabled: bool = true
+var intent_pre_apply_snapshot_enabled: bool = true
+
+func set_intent_cost_switches(
+	telemetry_enabled: bool = true,
+	action_events_enabled: bool = true,
+	pre_apply_snapshot_enabled: bool = true
+) -> void:
+	intent_telemetry_enabled = telemetry_enabled
+	intent_action_events_enabled = action_events_enabled
+	intent_pre_apply_snapshot_enabled = pre_apply_snapshot_enabled
+
+func _invalidate_intent_telemetry_cache(clear_match_id: bool = false) -> void:
+	_intent_telemetry_base_cache.clear()
+	_intent_telemetry_base_cache_key = ""
+	_intent_telemetry_actor_cache.clear()
+	_bot_profiles_cache_key = ""
+	if clear_match_id:
+		_intent_log_match_id = ""
+
+func set_intent_profile_enabled(enabled: bool, reset: bool = true) -> void:
+	intent_profile_enabled = enabled
+	if reset:
+		reset_intent_profile()
+
+func reset_intent_profile() -> void:
+	_intent_profile_totals.clear()
+	_intent_profile_events.clear()
+
+func get_intent_profile_report() -> Dictionary:
+	var stages: Array = []
+	for stage_name in _intent_profile_totals.keys():
+		var total: Dictionary = _intent_profile_totals.get(stage_name, {}) as Dictionary
+		var calls := int(total.get("calls", 0))
+		var ms := float(total.get("ms", 0.0))
+		stages.append({
+			"name": str(stage_name),
+			"total_ms": snappedf(ms, 0.001),
+			"calls": calls,
+			"average_ms": snappedf(ms / maxf(1.0, float(calls)), 0.001),
+			"max_ms": snappedf(float(total.get("max_ms", 0.0)), 0.001)
+		})
+	stages.sort_custom(Callable(self, "_sort_intent_profile_stage_by_total_ms_desc"))
+	var worst_events := _intent_profile_events.duplicate(true)
+	worst_events.sort_custom(Callable(self, "_sort_intent_profile_event_by_ms_desc"))
+	return {
+		"event_count": _intent_profile_events.size(),
+		"stages": stages,
+		"worst_events": worst_events.slice(0, mini(12, worst_events.size()))
+	}
+
+func _sort_intent_profile_stage_by_total_ms_desc(a: Dictionary, b: Dictionary) -> bool:
+	return float(a.get("total_ms", 0.0)) > float(b.get("total_ms", 0.0))
+
+func _sort_intent_profile_event_by_ms_desc(a: Dictionary, b: Dictionary) -> bool:
+	return float(a.get("ms", 0.0)) > float(b.get("ms", 0.0))
+
+func _intent_profile_add_stage(stage_name: String, start_usec: int, calls: int = 1) -> float:
+	if not intent_profile_enabled:
+		return 0.0
+	var ms := float(Time.get_ticks_usec() - start_usec) / 1000.0
+	var total: Dictionary = _intent_profile_totals.get(stage_name, {"ms": 0.0, "calls": 0, "max_ms": 0.0}) as Dictionary
+	total["ms"] = float(total.get("ms", 0.0)) + ms
+	total["calls"] = int(total.get("calls", 0)) + calls
+	total["max_ms"] = maxf(float(total.get("max_ms", 0.0)), ms)
+	_intent_profile_totals[stage_name] = total
+	return ms
+
+func _intent_profile_add_event(event: Dictionary) -> void:
+	if not intent_profile_enabled:
+		return
+	_intent_profile_events.append(event)
+	if _intent_profile_events.size() > _intent_profile_max_events:
+		_intent_profile_events.pop_front()
 
 func get_state() -> GameState:
 	return state
@@ -215,13 +298,14 @@ func load_maps() -> void:
 
 func get_map_ids() -> PackedStringArray:
 	var keys: Array = maps.keys()
-	keys.sort_custom(func(a: Variant, b: Variant) -> bool:
-		return str(a).naturalnocasecmp_to(str(b)) < 0
-	)
+	keys.sort_custom(Callable(self, "_sort_map_id_variant_natural"))
 	var ids: PackedStringArray = PackedStringArray()
 	for key_any in keys:
 		ids.append(str(key_any))
 	return ids
+
+func _sort_map_id_variant_natural(a: Variant, b: Variant) -> bool:
+	return str(a).naturalnocasecmp_to(str(b)) < 0
 
 func save_map(map_def: MapDef) -> bool:
 	if map_def == null or map_def.id.strip_edges().is_empty():
@@ -1038,7 +1122,7 @@ func reset_match_state() -> void:
 	victory_mode = VICTORY_MODE_CONQUEST
 	victory_rules = {}
 	capture_flag_state = {}
-	_intent_log_match_id = ""
+	_invalidate_intent_telemetry_cache(true)
 	current_map_id = ""
 
 func set_prematch_remaining_ms(value_ms: int, context: String = "") -> void:
@@ -1673,6 +1757,10 @@ func ensure_bot_profiles_from_roster() -> void:
 			continue
 		var existing: Dictionary = bot_profiles.get(seat, {})
 		next_profiles[seat] = _merge_bot_profile(seat, existing)
+	var next_key := _bot_profiles_signature(next_profiles)
+	if next_key != _bot_profiles_cache_key:
+		_intent_telemetry_actor_cache.clear()
+		_bot_profiles_cache_key = next_key
 	bot_profiles = next_profiles
 
 func get_bot_profile(seat: int) -> Dictionary:
@@ -1681,6 +1769,8 @@ func get_bot_profile(seat: int) -> Dictionary:
 		return {}
 	if not bot_profiles.has(seat_id):
 		bot_profiles[seat_id] = _default_bot_profile_for_seat(seat_id)
+		_intent_telemetry_actor_cache.erase(seat_id)
+		_bot_profiles_cache_key = _bot_profiles_signature(bot_profiles)
 	return (bot_profiles.get(seat_id, {}) as Dictionary).duplicate(true)
 
 func set_bot_profile(seat: int, patch: Dictionary) -> void:
@@ -1688,6 +1778,23 @@ func set_bot_profile(seat: int, patch: Dictionary) -> void:
 	if seat_id < 1 or seat_id > 4:
 		return
 	bot_profiles[seat_id] = _merge_bot_profile(seat_id, patch)
+	_intent_telemetry_actor_cache.erase(seat_id)
+	_bot_profiles_cache_key = _bot_profiles_signature(bot_profiles)
+
+func _bot_profiles_signature(profiles: Dictionary) -> String:
+	var rows: Array[String] = []
+	var keys: Array = profiles.keys()
+	keys.sort()
+	for seat_any in keys:
+		var seat := int(seat_any)
+		var profile: Dictionary = profiles.get(seat, {}) as Dictionary
+		rows.append("%d:%s:%s:%s" % [
+			seat,
+			str(profile.get("style", profile.get("persona", ""))),
+			str(profile.get("tier", "")),
+			str(profile.get("enabled", true))
+		])
+	return "|".join(rows)
 
 func get_bot_profiles_snapshot() -> Dictionary:
 	var snapshot: Dictionary = {}
@@ -2183,18 +2290,19 @@ func _balanced_hidden_capture_flag_pair_candidates(owner_a: int, owner_b: int, p
 			filtered.append(candidate)
 	if filtered.is_empty():
 		filtered = candidates.duplicate(true)
-	filtered.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var a_radial: float = float(a.get("radial_error", INF))
-		var b_radial: float = float(b.get("radial_error", INF))
-		if not is_equal_approx(a_radial, b_radial):
-			return a_radial < b_radial
-		var a_outward: float = float(a.get("outward", 0.0))
-		var b_outward: float = float(b.get("outward", 0.0))
-		if not is_equal_approx(a_outward, b_outward):
-			return a_outward > b_outward
-		return float(a.get("symmetry_error", 0.0)) > float(b.get("symmetry_error", 0.0))
-	)
+	filtered.sort_custom(Callable(self, "_sort_hidden_capture_flag_balanced_candidate"))
 	return filtered
+
+func _sort_hidden_capture_flag_balanced_candidate(a: Dictionary, b: Dictionary) -> bool:
+	var a_radial: float = float(a.get("radial_error", INF))
+	var b_radial: float = float(b.get("radial_error", INF))
+	if not is_equal_approx(a_radial, b_radial):
+		return a_radial < b_radial
+	var a_outward: float = float(a.get("outward", 0.0))
+	var b_outward: float = float(b.get("outward", 0.0))
+	if not is_equal_approx(a_outward, b_outward):
+		return a_outward > b_outward
+	return float(a.get("symmetry_error", 0.0)) > float(b.get("symmetry_error", 0.0))
 
 func _pick_balanced_hidden_capture_flag_pair(candidates: Array[Dictionary]) -> Dictionary:
 	if candidates.is_empty():
@@ -2253,14 +2361,15 @@ func _capture_flag_pair_candidates(owner_a: int, owner_b: int, preferred_owner_a
 				"radial_error": radial_error,
 				"outward": outward
 			})
-	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var a_score: float = float(a.get("score", INF))
-		var b_score: float = float(b.get("score", INF))
-		if not is_equal_approx(a_score, b_score):
-			return a_score < b_score
-		return float(a.get("outward", 0.0)) > float(b.get("outward", 0.0))
-	)
+	out.sort_custom(Callable(self, "_sort_capture_flag_pair_candidate"))
 	return out
+
+func _sort_capture_flag_pair_candidate(a: Dictionary, b: Dictionary) -> bool:
+	var a_score: float = float(a.get("score", INF))
+	var b_score: float = float(b.get("score", INF))
+	if not is_equal_approx(a_score, b_score):
+		return a_score < b_score
+	return float(a.get("outward", 0.0)) > float(b.get("outward", 0.0))
 
 func _capture_flag_map_center() -> Vector2:
 	if state == null or state.hives.is_empty():
@@ -2299,18 +2408,35 @@ func _record_intent_telemetry(
 	lane_id: int = -1,
 	src_owner_id: int = 0,
 	dst_owner_id: int = 0,
-	source_exec_override: Dictionary = {}
+	source_exec_override: Dictionary = {},
+	include_source_exec_metrics: bool = false
 ) -> void:
+	if not intent_telemetry_enabled:
+		return
+	var telemetry_total_start_usec := Time.get_ticks_usec()
+	var pvp_debug_start_usec := Time.get_ticks_usec()
 	_record_pvp_debug_intent_event(src_hive_id, dst_hive_id, intent, ok, reason, lane_id)
+	_intent_profile_add_stage("intent_record_pvp_debug_event", pvp_debug_start_usec)
+	var store_guard_start_usec := Time.get_ticks_usec()
 	if _bot_telemetry_store == null:
+		_intent_profile_add_stage("intent_record_store_guard", store_guard_start_usec)
+		_intent_profile_add_stage("intent_record_total", telemetry_total_start_usec)
 		return
 	if not _bot_telemetry_store.has_method("record_intent"):
+		_intent_profile_add_stage("intent_record_store_guard", store_guard_start_usec)
+		_intent_profile_add_stage("intent_record_total", telemetry_total_start_usec)
 		return
+	_intent_profile_add_stage("intent_record_store_guard", store_guard_start_usec)
 	var st: GameState = state
+	var context_start_usec := Time.get_ticks_usec()
 	var ctx: Dictionary = _intent_telemetry_context(src_owner_id, dst_owner_id)
+	_intent_profile_add_stage("intent_record_context", context_start_usec)
 	var source_exec: Dictionary = source_exec_override.duplicate(true) if source_exec_override != null else {}
-	if source_exec.is_empty() and st != null and st.has_method("get_execution_metrics_for_hive"):
+	var source_metrics_start_usec := Time.get_ticks_usec()
+	if include_source_exec_metrics and source_exec.is_empty() and st != null and st.has_method("get_execution_metrics_for_hive"):
 		source_exec = st.call("get_execution_metrics_for_hive", src_hive_id)
+	_intent_profile_add_stage("intent_record_source_metrics", source_metrics_start_usec)
+	var event_build_start_usec := Time.get_ticks_usec()
 	var event: Dictionary = {
 		"match_id": str(ctx.get("match_id", "")),
 		"map_id": str(ctx.get("map_id", "")),
@@ -2337,6 +2463,8 @@ func _record_intent_telemetry(
 		"src_owner_id": src_owner_id,
 		"dst_owner_id": dst_owner_id,
 		"is_cpu_actor": _is_cpu_seat(src_owner_id),
+		"telemetry_detail": "full" if include_source_exec_metrics else "lightweight",
+		"source_metrics_included": include_source_exec_metrics,
 		"src_power": int(source_exec.get("power", 0)),
 		"src_budget": int(source_exec.get("budget", 0)),
 		"src_active_outgoing": int(source_exec.get("active_outgoing", 0)),
@@ -2347,7 +2475,29 @@ func _record_intent_telemetry(
 		"src_high_power_idle_ms": int(source_exec.get("high_power_idle_ms", 0)),
 		"src_max_high_power_idle_ms": int(source_exec.get("max_high_power_idle_ms", 0))
 	}
+	_intent_profile_add_stage("intent_record_event_build", event_build_start_usec)
+	var bot_store_start_usec := Time.get_ticks_usec()
 	_bot_telemetry_store.call("record_intent", event)
+	_intent_profile_add_stage("intent_record_bot_store", bot_store_start_usec)
+	var match_context_start_usec := Time.get_ticks_usec()
+	var match_context := {
+		"src_owner": src_owner_id,
+		"dst_owner": dst_owner_id,
+		"phase": int(match_phase),
+		"tick": int(st.tick) if st != null else -1,
+		"source_mode": str(ctx.get("source_mode", "")),
+		"match_type": str(ctx.get("match_type", "")),
+		"is_cpu_actor": _is_cpu_seat(src_owner_id),
+		"src_power": int(source_exec.get("power", 0)),
+		"src_budget": int(source_exec.get("budget", 0)),
+		"src_active_outgoing": int(source_exec.get("active_outgoing", 0)),
+		"src_open_slots": int(source_exec.get("open_slots", 0)),
+		"src_available_targets": int(source_exec.get("available_targets", 0)),
+		"src_available_lane_unattended_ms": int(source_exec.get("available_lane_unattended_ms", 0)),
+		"src_high_power_idle_ms": int(source_exec.get("high_power_idle_ms", 0))
+	}
+	_intent_profile_add_stage("intent_record_match_context_build", match_context_start_usec)
+	var match_record_start_usec := Time.get_ticks_usec()
 	_record_match_intent_event(
 		src_owner_id,
 		src_hive_id,
@@ -2356,23 +2506,10 @@ func _record_intent_telemetry(
 		ok,
 		reason,
 		lane_id,
-		{
-			"src_owner": src_owner_id,
-			"dst_owner": dst_owner_id,
-			"phase": int(match_phase),
-			"tick": int(st.tick) if st != null else -1,
-			"source_mode": str(ctx.get("source_mode", "")),
-			"match_type": str(ctx.get("match_type", "")),
-			"is_cpu_actor": _is_cpu_seat(src_owner_id),
-			"src_power": int(source_exec.get("power", 0)),
-			"src_budget": int(source_exec.get("budget", 0)),
-			"src_active_outgoing": int(source_exec.get("active_outgoing", 0)),
-			"src_open_slots": int(source_exec.get("open_slots", 0)),
-			"src_available_targets": int(source_exec.get("available_targets", 0)),
-			"src_available_lane_unattended_ms": int(source_exec.get("available_lane_unattended_ms", 0)),
-			"src_high_power_idle_ms": int(source_exec.get("high_power_idle_ms", 0))
-		}
+		match_context
 	)
+	_intent_profile_add_stage("intent_record_match_collector", match_record_start_usec)
+	_intent_profile_add_stage("intent_record_total", telemetry_total_start_usec)
 
 func _record_pvp_debug_intent_event(src_hive_id: int, dst_hive_id: int, intent: String, ok: bool, reason: String, lane_id: int = -1) -> void:
 	var runtime: Node = _vs_pvp_runtime()
@@ -2386,11 +2523,25 @@ func _record_pvp_debug_intent_event(src_hive_id: int, dst_hive_id: int, intent: 
 
 func _intent_telemetry_context(src_owner_id: int, dst_owner_id: int) -> Dictionary:
 	var tree: SceneTree = _intent_telemetry_tree()
-	var source_mode: String = ""
-	var contest_id: String = ""
-	var free_roll: bool = false
-	var sync_start: bool = false
-	var remote_is_cpu: bool = false
+	var base: Dictionary = _intent_telemetry_base_context(tree)
+	var src_identity: Dictionary = _intent_telemetry_actor_identity(src_owner_id, tree)
+	var dst_identity: Dictionary = _intent_telemetry_actor_identity(dst_owner_id, tree)
+	var out: Dictionary = base.duplicate()
+	out["match_time_ms"] = maxi(0, int(match_elapsed_ms))
+	out["actor_label"] = str(src_identity.get("label", ""))
+	out["actor_style"] = str(src_identity.get("style", ""))
+	out["actor_tier"] = str(src_identity.get("tier", ""))
+	out["target_label"] = str(dst_identity.get("label", ""))
+	out["target_style"] = str(dst_identity.get("style", ""))
+	out["target_tier"] = str(dst_identity.get("tier", ""))
+	return out
+
+func _intent_telemetry_base_context(tree: SceneTree) -> Dictionary:
+	var source_mode := ""
+	var contest_id := ""
+	var free_roll := false
+	var sync_start := false
+	var remote_is_cpu := false
 	if tree != null:
 		source_mode = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
 		contest_id = str(tree.get_meta("contest_id", "")).strip_edges()
@@ -2407,23 +2558,27 @@ func _intent_telemetry_context(src_owner_id: int, dst_owner_id: int) -> Dictiona
 	elif not source_mode.is_empty():
 		match_type = "ASYNC"
 	var map_id: String = _resolve_intent_telemetry_map_id(tree)
-	var src_identity: Dictionary = _intent_telemetry_actor_identity(src_owner_id, tree)
-	var dst_identity: Dictionary = _intent_telemetry_actor_identity(dst_owner_id, tree)
-	return {
+	var cache_key := "%s|%s|%s|%s|%s|%s|%d" % [
+		source_mode,
+		contest_id,
+		str(free_roll),
+		str(sync_start),
+		str(remote_is_cpu),
+		map_id,
+		get_state_iid()
+	]
+	if cache_key == _intent_telemetry_base_cache_key and not _intent_telemetry_base_cache.is_empty():
+		return _intent_telemetry_base_cache
+	_intent_telemetry_base_cache_key = cache_key
+	_intent_telemetry_base_cache = {
 		"match_id": _ensure_intent_log_match_id(match_type, map_id),
 		"map_id": map_id,
 		"match_type": match_type,
-		"match_time_ms": maxi(0, int(match_elapsed_ms)),
 		"source_mode": source_mode,
 		"contest_id": contest_id,
-		"free_roll": free_roll,
-		"actor_label": str(src_identity.get("label", "")),
-		"actor_style": str(src_identity.get("style", "")),
-		"actor_tier": str(src_identity.get("tier", "")),
-		"target_label": str(dst_identity.get("label", "")),
-		"target_style": str(dst_identity.get("style", "")),
-		"target_tier": str(dst_identity.get("tier", ""))
+		"free_roll": free_roll
 	}
+	return _intent_telemetry_base_cache
 
 func _intent_telemetry_tree() -> SceneTree:
 	var main_loop: MainLoop = Engine.get_main_loop()
@@ -2503,6 +2658,10 @@ func _intent_telemetry_actor_identity(owner_id: int, tree: SceneTree) -> Diction
 	var seat: int = int(owner_id)
 	if seat <= 0:
 		return {"label": "", "style": "", "tier": ""}
+	var cache_key := _intent_actor_identity_cache_key(seat, tree)
+	var cached: Dictionary = _intent_telemetry_actor_cache.get(cache_key, {}) as Dictionary
+	if not cached.is_empty():
+		return cached
 	var profile: Dictionary = bot_profiles.get(seat, {}) as Dictionary
 	var label: String = "seat_%d" % seat
 	var style: String = str(profile.get("style", profile.get("persona", ""))).strip_edges()
@@ -2530,11 +2689,42 @@ func _intent_telemetry_actor_identity(owner_id: int, tree: SceneTree) -> Diction
 			label = remote_name
 		else:
 			label = "human_s%d" % seat
-	return {
+	var identity := {
 		"label": label,
 		"style": style,
 		"tier": tier
 	}
+	_intent_telemetry_actor_cache[cache_key] = identity
+	return identity
+
+func _intent_actor_identity_cache_key(seat: int, tree: SceneTree) -> String:
+	var profile: Dictionary = bot_profiles.get(seat, {}) as Dictionary
+	var local_sig := ""
+	var remote_sig := ""
+	if tree != null:
+		var local_profile_any: Variant = tree.get_meta("vs_local_profile", {})
+		if typeof(local_profile_any) == TYPE_DICTIONARY:
+			var local_profile: Dictionary = local_profile_any as Dictionary
+			local_sig = "%s/%s" % [
+				str(local_profile.get("name", "")),
+				str(local_profile.get("handle", ""))
+			]
+		var remote_profile_any: Variant = tree.get_meta("vs_remote_profile", {})
+		if typeof(remote_profile_any) == TYPE_DICTIONARY:
+			var remote_profile: Dictionary = remote_profile_any as Dictionary
+			remote_sig = "%s/%s/%s" % [
+				str(remote_profile.get("name", "")),
+				str(remote_profile.get("handle", "")),
+				str(remote_profile.get("is_cpu", false))
+			]
+	return "%d|%s|%s|%s|%s|%s" % [
+		seat,
+		str(profile.get("style", profile.get("persona", ""))),
+		str(profile.get("tier", "")),
+		str(_is_cpu_seat(seat)),
+		local_sig,
+		remote_sig
+	]
 
 func _ensure_intent_log_match_id(match_type: String, map_id: String) -> String:
 	if not _intent_log_match_id.is_empty():
@@ -2631,6 +2821,8 @@ func _swarm_cooldown_remaining_ms(st: GameState, src_hive_id: int) -> int:
 	return int(ceil(float(until_us - now_us) / 1000.0))
 
 func _record_match_action_event(player_id: int, kind: String, payload: Dictionary = {}) -> void:
+	if not intent_action_events_enabled:
+		return
 	if _match_telemetry_collector == null:
 		return
 	if not _match_telemetry_collector.has_method("record_action_event"):
@@ -3146,6 +3338,7 @@ func _log_intent_blocked_by_wall(st: GameState, src_hive_id: int, dst_hive_id: i
 	})
 
 func _next_runtime_lane_id(st: GameState) -> int:
+	var scan_start_usec := Time.get_ticks_usec()
 	var max_id: int = 0
 	for lane_any in st.lanes:
 		if lane_any is LaneData:
@@ -3153,35 +3346,61 @@ func _next_runtime_lane_id(st: GameState) -> int:
 		elif lane_any is Dictionary:
 			var lane_d: Dictionary = lane_any as Dictionary
 			max_id = maxi(max_id, int(lane_d.get("lane_id", lane_d.get("id", 0))))
+	_intent_profile_add_stage("intent_next_runtime_lane_id_scan", scan_start_usec)
 	return max_id + 1
 
 func _can_create_runtime_lane(st: GameState, src_hive_id: int, dst_hive_id: int, intent: String) -> bool:
+	var hive_lookup_start_usec := Time.get_ticks_usec()
 	var src_hive: HiveData = st.find_hive_by_id(src_hive_id)
 	var dst_hive: HiveData = st.find_hive_by_id(dst_hive_id)
+	_intent_profile_add_stage("intent_runtime_can_create_hive_lookup", hive_lookup_start_usec)
 	if src_hive == null or dst_hive == null:
 		return false
+	var can_connect_start_usec := Time.get_ticks_usec()
 	if not st.can_connect(src_hive_id, dst_hive_id):
+		_intent_profile_add_stage("intent_runtime_can_create_can_connect", can_connect_start_usec)
 		return false
+	_intent_profile_add_stage("intent_runtime_can_create_can_connect", can_connect_start_usec)
+	var walls_start_usec := Time.get_ticks_usec()
 	var walls: Array = st.walls if st != null else []
 	if not walls.is_empty():
+		var wall_segments_start_usec := Time.get_ticks_usec()
 		var wall_segments: Array = MAP_SCHEMA._wall_segments_from_walls(walls)
+		_intent_profile_add_stage("intent_runtime_can_create_wall_segments", wall_segments_start_usec)
 		if not wall_segments.is_empty():
 			var a_grid := Vector2(float(src_hive.grid_pos.x), float(src_hive.grid_pos.y))
 			var b_grid := Vector2(float(dst_hive.grid_pos.x), float(dst_hive.grid_pos.y))
+			var wall_intersect_start_usec := Time.get_ticks_usec()
 			if MAP_SCHEMA._segment_intersects_any_wall(a_grid, b_grid, wall_segments):
+				_intent_profile_add_stage("intent_runtime_can_create_wall_intersection", wall_intersect_start_usec)
 				_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, intent)
+				_intent_profile_add_stage("intent_runtime_can_create_walls_total", walls_start_usec)
 				return false
+			_intent_profile_add_stage("intent_runtime_can_create_wall_intersection", wall_intersect_start_usec)
+	_intent_profile_add_stage("intent_runtime_can_create_walls_total", walls_start_usec)
 	return true
 
 func _ensure_runtime_lane(st: GameState, src_hive_id: int, dst_hive_id: int, intent: String) -> int:
+	var index_start_usec := Time.get_ticks_usec()
 	var lane_index: int = st.lane_index_between(src_hive_id, dst_hive_id)
+	_intent_profile_add_stage("intent_ensure_runtime_lane_index_lookup", index_start_usec)
 	if lane_index != -1:
 		return lane_index
+	var can_create_start_usec := Time.get_ticks_usec()
 	if not _can_create_runtime_lane(st, src_hive_id, dst_hive_id, intent):
+		_intent_profile_add_stage("intent_ensure_runtime_lane_can_create", can_create_start_usec)
 		return -1
+	_intent_profile_add_stage("intent_ensure_runtime_lane_can_create", can_create_start_usec)
+	var next_id_start_usec := Time.get_ticks_usec()
 	var lane_id: int = _next_runtime_lane_id(st)
+	_intent_profile_add_stage("intent_ensure_runtime_lane_next_id", next_id_start_usec)
+	var append_start_usec := Time.get_ticks_usec()
 	st.lanes.append(LaneData.new(lane_id, src_hive_id, dst_hive_id, 1, false, false))
+	_intent_profile_add_stage("intent_ensure_runtime_lane_append", append_start_usec)
+	var rebuild_start_usec := Time.get_ticks_usec()
 	st.rebuild_indexes()
+	_intent_profile_add_stage("intent_ensure_runtime_lane_rebuild_indexes", rebuild_start_usec)
+	var log_start_usec := Time.get_ticks_usec()
 	SFLog.allow_tag("RUNTIME_LANE_CREATED")
 	SFLog.warn("RUNTIME_LANE_CREATED", {
 		"lane_id": lane_id,
@@ -3189,9 +3408,20 @@ func _ensure_runtime_lane(st: GameState, src_hive_id: int, dst_hive_id: int, int
 		"dst": dst_hive_id,
 		"intent": intent
 	})
-	return st.lane_index_between(src_hive_id, dst_hive_id)
+	_intent_profile_add_stage("intent_ensure_runtime_lane_log", log_start_usec)
+	var final_lookup_start_usec := Time.get_ticks_usec()
+	var created_index := st.lane_index_between(src_hive_id, dst_hive_id)
+	_intent_profile_add_stage("intent_ensure_runtime_lane_final_lookup", final_lookup_start_usec)
+	_intent_profile_add_event({
+		"kind": "runtime_lane_created",
+		"lane_id": lane_id,
+		"src": src_hive_id,
+		"dst": dst_hive_id
+	})
+	return created_index
 
 func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Dictionary:
+	var intent_total_start_usec := Time.get_ticks_usec()
 	var result := {
 		"ok": false,
 		"reason": "",
@@ -3202,28 +3432,43 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	}
 	var telemetry_src_owner: int = 0
 	var telemetry_dst_owner: int = 0
+	var preflight_start_usec := Time.get_ticks_usec()
 	var st: GameState = require_state()
 	if st == null:
+		_intent_profile_add_stage("intent_preflight", preflight_start_usec)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		result["reason"] = "state_missing"
 		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
 	if _guard_mutation("apply_lane_intent"):
+		_intent_profile_add_stage("intent_preflight", preflight_start_usec)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		result["reason"] = "render_export"
 		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
 	if is_ending_or_ended():
+		_intent_profile_add_stage("intent_preflight", preflight_start_usec)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		result["reason"] = "match_over"
 		_log_input_ignored_match_over("apply_lane_intent")
 		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 		return result
+	_intent_profile_add_stage("intent_preflight", preflight_start_usec)
 	if intent == "swarm":
+		var swarm_total_start_usec := Time.get_ticks_usec()
+		var swarm_lookup_start_usec := Time.get_ticks_usec()
 		var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
+		_intent_profile_add_stage("intent_swarm_lane_lookup", swarm_lookup_start_usec)
 		if lane_index == -1:
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "no_lane"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 			return result
 		var lane_any: Variant = st.lanes[lane_index]
 		if not (lane_any is LaneData):
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "no_lane"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 			return result
@@ -3235,39 +3480,62 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		elif src_hive_id == int(swarm_lane.b_id) and dst_hive_id == int(swarm_lane.a_id):
 			from_is_a = false
 		else:
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "no_lane"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 			return result
+		var swarm_hive_lookup_start_usec := Time.get_ticks_usec()
 		var swarm_src: HiveData = st.find_hive_by_id(src_hive_id)
 		var swarm_dst: HiveData = st.find_hive_by_id(dst_hive_id)
+		_intent_profile_add_stage("intent_swarm_hive_lookup", swarm_hive_lookup_start_usec)
 		if swarm_src != null:
 			telemetry_src_owner = int(swarm_src.owner_id)
 		if swarm_dst != null:
 			telemetry_dst_owner = int(swarm_dst.owner_id)
 		if swarm_src == null or swarm_dst == null:
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "missing_hive"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
 			return result
 		if int(swarm_src.owner_id) <= 0:
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "src_owner"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
 			return result
+		var swarm_ownership_start_usec := Time.get_ticks_usec()
 		_maybe_break_progressive_bot_attack_grace(telemetry_src_owner, telemetry_dst_owner, intent)
 		if _progressive_bot_attack_grace_blocks(telemetry_src_owner, telemetry_dst_owner, intent):
+			_intent_profile_add_stage("intent_swarm_ownership_validation", swarm_ownership_start_usec)
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "progressive_attack_grace"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
 			return result
+		_intent_profile_add_stage("intent_swarm_ownership_validation", swarm_ownership_start_usec)
+		var swarm_state_checks_start_usec := Time.get_ticks_usec()
 		var send_enabled: bool = bool(swarm_lane.send_a if from_is_a else swarm_lane.send_b)
 		if not send_enabled:
+			_intent_profile_add_stage("intent_swarm_state_checks", swarm_state_checks_start_usec)
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "not_enabled"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
 			return result
 		if int(swarm_src.power) <= 1:
+			_intent_profile_add_stage("intent_swarm_state_checks", swarm_state_checks_start_usec)
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "no_power"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
 			return result
 		var cooldown_remaining_ms: int = _swarm_cooldown_remaining_ms(st, src_hive_id)
 		if cooldown_remaining_ms > 0:
+			_intent_profile_add_stage("intent_swarm_state_checks", swarm_state_checks_start_usec)
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "cooldown"
 			result["cooldown_remaining_ms"] = cooldown_remaining_ms
 			SFLog.info("SWARM_COOLDOWN_BLOCK", {
@@ -3277,9 +3545,15 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			})
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)), telemetry_src_owner, telemetry_dst_owner)
 			return result
+		_intent_profile_add_stage("intent_swarm_state_checks", swarm_state_checks_start_usec)
+		var swarm_schedule_start_usec := Time.get_ticks_usec()
 		var scheduled_swarm_result: Dictionary = _schedule_vs_lane_intent_if_needed(st, src_hive_id, dst_hive_id, intent)
+		_intent_profile_add_stage("intent_swarm_schedule", swarm_schedule_start_usec)
 		if not scheduled_swarm_result.is_empty():
+			_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			return scheduled_swarm_result
+		var swarm_mutation_start_usec := Time.get_ticks_usec()
 		var now_us: int = int(st._sim_time_us)
 		st.swarm_cooldown_until_us[src_hive_id] = now_us + (SWARM_COOLDOWN_MS * 1000)
 		if st.swarm_requests == null:
@@ -3288,6 +3562,9 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		result["ok"] = true
 		result["cooldown_ms"] = SWARM_COOLDOWN_MS
 		SFLog.info("INTENT_SWARM", {"src": src_hive_id, "dst": dst_hive_id, "cooldown_ms": SWARM_COOLDOWN_MS})
+		_intent_profile_add_stage("intent_swarm_mutation", swarm_mutation_start_usec)
+		var swarm_telemetry_start_usec := Time.get_ticks_usec()
+		var swarm_record_intent_start_usec := Time.get_ticks_usec()
 		_record_intent_telemetry(
 			src_hive_id,
 			dst_hive_id,
@@ -3298,6 +3575,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			telemetry_src_owner,
 			telemetry_dst_owner
 		)
+		_intent_profile_add_stage("intent_swarm_record_intent_telemetry", swarm_record_intent_start_usec)
+		var swarm_action_event_start_usec := Time.get_ticks_usec()
 		_record_match_action_event(telemetry_src_owner, "swarm_send", {
 			"lane_id": int(result.get("lane_id", -1)),
 			"src": src_hive_id,
@@ -3305,18 +3584,32 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"src_owner": telemetry_src_owner,
 			"dst_owner": telemetry_dst_owner
 		})
+		_intent_profile_add_stage("intent_swarm_action_event", swarm_action_event_start_usec)
+		_intent_profile_add_stage("intent_swarm_telemetry", swarm_telemetry_start_usec)
+		var swarm_replication_start_usec := Time.get_ticks_usec()
 		_maybe_replicate_lane_intent(src_hive_id, dst_hive_id, intent, telemetry_src_owner, telemetry_dst_owner)
+		_intent_profile_add_stage("intent_swarm_replication", swarm_replication_start_usec)
+		_intent_profile_add_stage("intent_swarm_total", swarm_total_start_usec)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return result
+	var lane_lookup_start_usec := Time.get_ticks_usec()
 	var lane_index := st.lane_index_between(src_hive_id, dst_hive_id)
+	_intent_profile_add_stage("intent_lane_lookup_initial", lane_lookup_start_usec)
 	if lane_index == -1 and intent != "none":
+		var runtime_lane_total_start_usec := Time.get_ticks_usec()
+		var runtime_budget_start_usec := Time.get_ticks_usec()
 		var budget_src_hive: HiveData = st.find_hive_by_id(src_hive_id)
 		if budget_src_hive == null:
+			_intent_profile_add_stage("intent_runtime_lane_budget_check", runtime_budget_start_usec)
+			_intent_profile_add_stage("intent_runtime_lane_total", runtime_lane_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			result["reason"] = "missing_hive"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
 			return result
 		var pre_budget: int = int(st.lanes_allowed_for_power(int(budget_src_hive.power)))
 		var pre_active: int = int(st.count_active_outgoing(src_hive_id))
 		if pre_active >= pre_budget:
+			_intent_profile_add_stage("intent_runtime_lane_budget_check", runtime_budget_start_usec)
 			SFLog.info("LANE_BUDGET_BLOCK", {
 				"src": src_hive_id,
 				"dst": dst_hive_id,
@@ -3334,33 +3627,52 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 				str(result.get("reason", "")),
 				int(result.get("lane_id", -1))
 			)
+			_intent_profile_add_stage("intent_runtime_lane_total", runtime_lane_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			return result
+		_intent_profile_add_stage("intent_runtime_lane_budget_check", runtime_budget_start_usec)
+		var runtime_can_create_start_usec := Time.get_ticks_usec()
 		if not _can_create_runtime_lane(st, src_hive_id, dst_hive_id, intent):
+			_intent_profile_add_stage("intent_runtime_lane_can_create", runtime_can_create_start_usec)
 			if intent != "none":
 				_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, intent)
 			result["reason"] = "no_lane"
 			_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
+			_intent_profile_add_stage("intent_runtime_lane_total", runtime_lane_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			return result
+		_intent_profile_add_stage("intent_runtime_lane_can_create", runtime_can_create_start_usec)
+		var runtime_schedule_start_usec := Time.get_ticks_usec()
 		var scheduled_runtime_lane_result: Dictionary = _schedule_vs_lane_intent_if_needed(st, src_hive_id, dst_hive_id, intent)
+		_intent_profile_add_stage("intent_runtime_lane_schedule", runtime_schedule_start_usec)
 		if not scheduled_runtime_lane_result.is_empty():
+			_intent_profile_add_stage("intent_runtime_lane_total", runtime_lane_total_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			return scheduled_runtime_lane_result
+		var ensure_start_usec := Time.get_ticks_usec()
 		lane_index = _ensure_runtime_lane(st, src_hive_id, dst_hive_id, intent)
+		_intent_profile_add_stage("intent_runtime_lane_ensure", ensure_start_usec)
+		_intent_profile_add_stage("intent_runtime_lane_total", runtime_lane_total_start_usec)
 	if lane_index == -1:
 		if intent != "none":
 			_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, intent)
 		result["reason"] = "no_lane"
 		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return result
 	var lane: LaneData = st.lanes[lane_index]
 	result["lane_id"] = int(lane.id)
 	var pre_send_a: bool = bool(lane.send_a)
 	var pre_send_b: bool = bool(lane.send_b)
 
+	var hive_lookup_start_usec := Time.get_ticks_usec()
 	var src_hive: HiveData = st.find_hive_by_id(src_hive_id)
 	var dst_hive: HiveData = st.find_hive_by_id(dst_hive_id)
+	_intent_profile_add_stage("intent_hive_lookup_validation", hive_lookup_start_usec)
 	if src_hive == null or dst_hive == null:
 		result["reason"] = "missing_hive"
 		_record_intent_telemetry(src_hive_id, dst_hive_id, intent, false, str(result.get("reason", "")), int(result.get("lane_id", -1)))
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return result
 	var src_owner := int(src_hive.owner_id)
 	var dst_owner := int(dst_hive.owner_id)
@@ -3373,14 +3685,17 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			dst_hive_id,
 			intent,
 			false,
-			str(result.get("reason", "")),
-			int(result.get("lane_id", -1)),
-			telemetry_src_owner,
-			telemetry_dst_owner
-		)
+				str(result.get("reason", "")),
+				int(result.get("lane_id", -1)),
+				telemetry_src_owner,
+				telemetry_dst_owner
+			)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return result
+	var ownership_start_usec := Time.get_ticks_usec()
 	_maybe_break_progressive_bot_attack_grace(src_owner, dst_owner, intent)
 	if _progressive_bot_attack_grace_blocks(src_owner, dst_owner, intent):
+		_intent_profile_add_stage("intent_ownership_validation", ownership_start_usec)
 		result["reason"] = "progressive_attack_grace"
 		_record_intent_telemetry(
 			src_hive_id,
@@ -3392,8 +3707,11 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			telemetry_src_owner,
 			telemetry_dst_owner
 		)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return result
+	_intent_profile_add_stage("intent_ownership_validation", ownership_start_usec)
 
+	var ally_start_usec := Time.get_ticks_usec()
 	var same_team: bool = are_allies(src_owner, dst_owner)
 	var resolved_intent: String = intent
 	if resolved_intent == "attack" and same_team:
@@ -3407,14 +3725,27 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"src_owner": src_owner,
 			"dst_owner": dst_owner
 		})
+	_intent_profile_add_stage("intent_ally_resolution", ally_start_usec)
 	# Route intents are idempotent commands. Repeating attack/feed should keep
 	# the lane open; explicit retract/none is the only command that closes it.
 	var enable := resolved_intent != "none"
 
+	var budget_start_usec := Time.get_ticks_usec()
 	var power: int = int(src_hive.power)
 	var budget: int = int(st.lanes_allowed_for_power(power))
 	var active: int = int(st.count_active_outgoing(src_hive_id))
 	var already_active: bool = bool(st.is_outgoing_lane_active(src_hive_id, dst_hive_id))
+	var repeat_route_intent: bool = enable and already_active and resolved_intent != "none"
+	var needs_replace_validation: bool = enable and resolved_intent != "none" and not repeat_route_intent
+	var needs_restore_snapshot: bool = intent_pre_apply_snapshot_enabled and needs_replace_validation
+	var may_reverse_lane: bool = false
+	if enable:
+		if src_hive_id == int(lane.a_id):
+			may_reverse_lane = pre_send_b
+		elif src_hive_id == int(lane.b_id):
+			may_reverse_lane = pre_send_a
+	var needs_source_exec_metrics: bool = intent_telemetry_enabled and ((not repeat_route_intent) or may_reverse_lane)
+	_intent_profile_add_stage("intent_budget_snapshot", budget_start_usec)
 
 	if not enable and not already_active:
 		result["reason"] = "not_active"
@@ -3428,9 +3759,11 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			telemetry_src_owner,
 			telemetry_dst_owner
 		)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return result
 
 	if enable and resolved_intent != "none" and not st.can_connect(src_hive_id, dst_hive_id):
+		_intent_profile_add_stage("intent_connectivity_validation", budget_start_usec)
 		result["reason"] = "blocked"
 		_log_intent_blocked_by_wall(st, src_hive_id, dst_hive_id, resolved_intent)
 		_record_intent_telemetry(
@@ -3443,9 +3776,13 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			telemetry_src_owner,
 			telemetry_dst_owner
 		)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return result
+	if enable and resolved_intent != "none":
+		_intent_profile_add_stage("intent_connectivity_validation", budget_start_usec)
 
 	if enable and resolved_intent != "none":
+		var route_validation_start_usec := Time.get_ticks_usec()
 		if resolved_intent == "feed" and not same_team:
 			result["reason"] = "ownership"
 			_record_intent_telemetry(
@@ -3458,6 +3795,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 				telemetry_src_owner,
 				telemetry_dst_owner
 			)
+			_intent_profile_add_stage("intent_route_validation", route_validation_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			return result
 		if not already_active and active >= budget:
 			SFLog.info("LANE_BUDGET_BLOCK", {
@@ -3478,7 +3817,10 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 				telemetry_src_owner,
 				telemetry_dst_owner
 			)
+			_intent_profile_add_stage("intent_route_validation", route_validation_start_usec)
+			_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 			return result
+		_intent_profile_add_stage("intent_route_validation", route_validation_start_usec)
 
 	if (enable and not already_active) or (already_active and not enable):
 		var action := "disable" if already_active and not enable else "enable"
@@ -3492,20 +3834,38 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 				"intent": resolved_intent
 			})
 
+	var schedule_start_usec := Time.get_ticks_usec()
 	var scheduled_lane_result: Dictionary = _schedule_vs_lane_intent_if_needed(st, src_hive_id, dst_hive_id, resolved_intent)
+	_intent_profile_add_stage("intent_schedule_lane", schedule_start_usec)
 	if not scheduled_lane_result.is_empty():
 		scheduled_lane_result["lane_id"] = int(result.get("lane_id", -1))
 		scheduled_lane_result["intent"] = resolved_intent
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return scheduled_lane_result
 
+	var snapshot_start_usec := Time.get_ticks_usec()
 	var pre_apply_source_exec: Dictionary = {}
-	if st.has_method("get_execution_metrics_for_hive"):
+	var source_metrics_start_usec := Time.get_ticks_usec()
+	if needs_source_exec_metrics and st.has_method("get_execution_metrics_for_hive"):
 		pre_apply_source_exec = st.call("get_execution_metrics_for_hive", src_hive_id)
-	var pre_source_targets: Dictionary = _active_outgoing_targets(st, src_hive_id)
-	var pre_lane_directions: Array = _lane_direction_snapshot(st)
+	_intent_profile_add_stage("intent_pre_apply_source_metrics", source_metrics_start_usec)
+	var target_snapshot_start_usec := Time.get_ticks_usec()
+	var pre_source_targets: Dictionary = _active_outgoing_targets(st, src_hive_id) if needs_replace_validation else {}
+	_intent_profile_add_stage("intent_pre_apply_target_snapshot", target_snapshot_start_usec)
+	var restore_snapshot_start_usec := Time.get_ticks_usec()
+	var pre_lane_directions: Array = _lane_direction_snapshot(st) if needs_restore_snapshot else []
+	_intent_profile_add_stage("intent_pre_apply_restore_snapshot", restore_snapshot_start_usec)
+	if repeat_route_intent:
+		var repeat_skip_marker_usec := Time.get_ticks_usec()
+		_intent_profile_add_stage("intent_pre_apply_repeat_skipped", repeat_skip_marker_usec)
+	_intent_profile_add_stage("intent_pre_apply_snapshots", snapshot_start_usec)
+	var mutation_start_usec := Time.get_ticks_usec()
 	_apply_lane_intent(lane, src_hive_id, dst_hive_id, enable, resolved_intent)
-	if enable and resolved_intent != "none" and _lost_source_outgoing_target(st, src_hive_id, dst_hive_id, pre_source_targets):
-		_restore_lane_direction_snapshot(st, pre_lane_directions)
+	_intent_profile_add_stage("intent_apply_mutation", mutation_start_usec)
+	var post_validation_start_usec := Time.get_ticks_usec()
+	if needs_replace_validation and _lost_source_outgoing_target(st, src_hive_id, dst_hive_id, pre_source_targets):
+		if not pre_lane_directions.is_empty():
+			_restore_lane_direction_snapshot(st, pre_lane_directions)
 		result["reason"] = "implicit_replace_blocked"
 		result["ok"] = false
 		SFLog.warn("LANE_REPLACE_BLOCKED", {
@@ -3522,9 +3882,14 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			str(result.get("reason", "")),
 			int(result.get("lane_id", -1)),
 			telemetry_src_owner,
-			telemetry_dst_owner
+			telemetry_dst_owner,
+			pre_apply_source_exec,
+			needs_source_exec_metrics
 		)
+		_intent_profile_add_stage("intent_post_apply_validation", post_validation_start_usec)
+		_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 		return result
+	_intent_profile_add_stage("intent_post_apply_validation", post_validation_start_usec)
 	result["ok"] = true
 	var opened_new_lane: bool = enable and not already_active
 	var disabled_lane: bool = (not enable) and already_active
@@ -3538,6 +3903,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	var log_intent := resolved_intent if enable else "none"
 	var iid := int(st.get_instance_id())
 
+	var telemetry_start_usec := Time.get_ticks_usec()
+	var telemetry_log_start_usec := Time.get_ticks_usec()
 	SFLog.info("LANE_INTENT_APPLIED", {
 		"iid": iid,
 		"lane_id": int(lane.id),
@@ -3551,6 +3918,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		"send_b": bool(lane.send_b),
 		"intent": log_intent
 	})
+	_intent_profile_add_stage("intent_success_log_event", telemetry_log_start_usec)
+	var telemetry_record_start_usec := Time.get_ticks_usec()
 	_record_intent_telemetry(
 		src_hive_id,
 		dst_hive_id,
@@ -3560,9 +3929,12 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		int(result.get("lane_id", -1)),
 		telemetry_src_owner,
 		telemetry_dst_owner,
-		pre_apply_source_exec
+		pre_apply_source_exec,
+		needs_source_exec_metrics
 	)
+	_intent_profile_add_stage("intent_success_record_intent_telemetry", telemetry_record_start_usec)
 	if opened_new_lane:
+		var action_event_start_usec := Time.get_ticks_usec()
 		_record_match_action_event(telemetry_src_owner, "lane_open_%s" % resolved_intent, {
 			"lane_id": int(lane.id),
 			"src": src_hive_id,
@@ -3570,7 +3942,9 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"src_owner": telemetry_src_owner,
 			"dst_owner": telemetry_dst_owner
 		})
+		_intent_profile_add_stage("intent_success_action_event_open", action_event_start_usec)
 	if disabled_lane:
+		var action_event_start_usec := Time.get_ticks_usec()
 		_record_match_action_event(telemetry_src_owner, "lane_disable", {
 			"lane_id": int(lane.id),
 			"src": src_hive_id,
@@ -3578,7 +3952,9 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"src_owner": telemetry_src_owner,
 			"dst_owner": telemetry_dst_owner
 		})
+		_intent_profile_add_stage("intent_success_action_event_disable", action_event_start_usec)
 	if reversed_lane:
+		var action_event_start_usec := Time.get_ticks_usec()
 		_record_match_action_event(telemetry_src_owner, "lane_reverse", {
 			"lane_id": int(lane.id),
 			"src": src_hive_id,
@@ -3587,9 +3963,16 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"dst_owner": telemetry_dst_owner,
 			"intent": resolved_intent
 		})
+		_intent_profile_add_stage("intent_success_action_event_reverse", action_event_start_usec)
+	_intent_profile_add_stage("intent_telemetry_and_action_events", telemetry_start_usec)
+	var replication_start_usec := Time.get_ticks_usec()
 	_maybe_replicate_lane_intent(src_hive_id, dst_hive_id, log_intent, telemetry_src_owner, telemetry_dst_owner)
+	_intent_profile_add_stage("intent_replication", replication_start_usec)
+	var signal_start_usec := Time.get_ticks_usec()
 	emit_signal("lane_intent_changed", iid, int(lane.id))
 	emit_signal("lanes_changed", iid)
+	_intent_profile_add_stage("intent_signals", signal_start_usec)
+	_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 	return result
 
 
@@ -3827,6 +4210,7 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 
 	var map_id := str(map_dict.get("map_id", map_dict.get("_id", map_dict.get("id", "UNKNOWN"))))
 	current_map_id = map_id
+	_invalidate_intent_telemetry_cache(true)
 	SFLog.info("OPS_STATE_CHANGED", {
 		"iid": int(new_state.get_instance_id()),
 		"map_id": map_id

@@ -7,11 +7,15 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const INTENT_LOG_PATH: String = "user://bot_intent_telemetry_v1.jsonl"
 const SUMMARY_PATH: String = "user://bot_intent_summary_v1.json"
 const SUMMARY_FLUSH_INTERVAL_MS: int = 1000
+const INTENT_FLUSH_INTERVAL_MS: int = 1000
+const MAX_PENDING_INTENT_LINES: int = 32
 
 var _loaded: bool = false
 var _summary: Dictionary = {}
 var _summary_dirty: bool = false
 var _last_summary_flush_ms: int = 0
+var _pending_intent_lines: Array[String] = []
+var _last_intent_flush_ms: int = 0
 
 func record_intent(event: Dictionary) -> void:
 	if event == null or event.is_empty():
@@ -21,12 +25,14 @@ func record_intent(event: Dictionary) -> void:
 	var entry: Dictionary = event.duplicate(true)
 	entry["ts_ms"] = now_ms
 	entry["ts_unix"] = int(Time.get_unix_time_from_system())
-	_append_jsonl(INTENT_LOG_PATH, entry)
+	_queue_jsonl_entry(entry)
 	_apply_intent_to_summary(entry)
+	_flush_intents_if_due(now_ms)
 	_flush_summary_if_due(now_ms)
 
 func flush() -> void:
 	_ensure_loaded()
+	_flush_pending_intents(true)
 	_save_summary(true)
 
 func get_summary_snapshot() -> Dictionary:
@@ -75,7 +81,31 @@ func _load_summary() -> Dictionary:
 		summary["last_ts_ms"] = 0
 	return summary
 
-func _append_jsonl(path: String, payload: Dictionary) -> void:
+func _queue_jsonl_entry(payload: Dictionary) -> void:
+	_pending_intent_lines.append(JSON.stringify(payload))
+
+func _flush_intents_if_due(now_ms: int) -> void:
+	if _pending_intent_lines.is_empty():
+		return
+	if _pending_intent_lines.size() >= MAX_PENDING_INTENT_LINES:
+		_flush_pending_intents(false)
+		return
+	if now_ms - _last_intent_flush_ms >= INTENT_FLUSH_INTERVAL_MS:
+		_flush_pending_intents(false)
+
+func _flush_pending_intents(force: bool) -> void:
+	if _pending_intent_lines.is_empty() and not force:
+		return
+	if _pending_intent_lines.is_empty():
+		_last_intent_flush_ms = int(Time.get_ticks_msec())
+		return
+	_append_jsonl_lines(INTENT_LOG_PATH, _pending_intent_lines)
+	_pending_intent_lines.clear()
+	_last_intent_flush_ms = int(Time.get_ticks_msec())
+
+func _append_jsonl_lines(path: String, lines: Array[String]) -> void:
+	if lines.is_empty():
+		return
 	var file: FileAccess = FileAccess.open(path, FileAccess.READ_WRITE)
 	if file == null:
 		file = FileAccess.open(path, FileAccess.WRITE_READ)
@@ -83,7 +113,8 @@ func _append_jsonl(path: String, payload: Dictionary) -> void:
 		SFLog.warn("BOT_TELEMETRY_IO_FAIL", {"path": path})
 		return
 	file.seek_end()
-	file.store_line(JSON.stringify(payload))
+	for line in lines:
+		file.store_line(line)
 	file.close()
 
 func _apply_intent_to_summary(entry: Dictionary) -> void:

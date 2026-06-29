@@ -34,6 +34,7 @@ const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
 const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
+const CONTESTED_CAPTURE_BLOCK_US: int = 3000000
 
 var state: GameState = null
 var units: Array = []
@@ -64,8 +65,14 @@ var _last_units_set_sig: int = 0
 var _pass_through_queue_by_key: Dictionary = {}
 var _pass_through_emit_accum_ms_by_key: Dictionary = {}
 var _pass_through_last_log_ms_by_key: Dictionary = {}
+var _contested_capture_block_until_us_by_hive: Dictionary = {}
+var _current_arrivals_by_hive: Dictionary = {}
 var _pending_tower_hits: Array = []
 var _match_telemetry_collector: RefCounted = null
+var unit_flow_profile_enabled: bool = false
+var _unit_flow_profile_totals: Dictionary = {}
+var _unit_flow_profile_events: Array = []
+var _unit_flow_profile_max_events: int = 2048
 
 const UNIT_SPEED_LOG_INTERVAL_MS := 1000
 const PRESSURE_WARN_INTERVAL_MS := 1000
@@ -74,6 +81,64 @@ const LANE_CAP_LOG_INTERVAL_MS := 1000
 
 func setup(_sim_tuning: SimTuning = null) -> void:
 	return
+
+func set_unit_flow_profile_enabled(enabled: bool, reset: bool = true) -> void:
+	unit_flow_profile_enabled = enabled
+	if reset:
+		reset_unit_flow_profile()
+
+func reset_unit_flow_profile() -> void:
+	_unit_flow_profile_totals.clear()
+	_unit_flow_profile_events.clear()
+
+func get_unit_flow_profile_report() -> Dictionary:
+	var stages: Array = []
+	for stage_name in _unit_flow_profile_totals.keys():
+		var total: Dictionary = _unit_flow_profile_totals.get(stage_name, {}) as Dictionary
+		var calls := int(total.get("calls", 0))
+		var ms := float(total.get("ms", 0.0))
+		stages.append({
+			"name": str(stage_name),
+			"total_ms": snappedf(ms, 0.001),
+			"calls": calls,
+			"average_ms": snappedf(ms / maxf(1.0, float(calls)), 0.001),
+			"max_ms": snappedf(float(total.get("max_ms", 0.0)), 0.001)
+		})
+	stages.sort_custom(Callable(self, "_sort_profile_stage_by_total_ms_desc"))
+	return {
+		"event_count": _unit_flow_profile_events.size(),
+		"stages": stages,
+		"worst_events": _unit_flow_worst_profile_events(12)
+	}
+
+func _unit_flow_worst_profile_events(limit: int) -> Array:
+	var out: Array = _unit_flow_profile_events.duplicate(true)
+	out.sort_custom(Callable(self, "_sort_profile_event_by_ms_desc"))
+	return out.slice(0, mini(limit, out.size()))
+
+func _sort_profile_stage_by_total_ms_desc(a: Dictionary, b: Dictionary) -> bool:
+	return float(a.get("total_ms", 0.0)) > float(b.get("total_ms", 0.0))
+
+func _sort_profile_event_by_ms_desc(a: Dictionary, b: Dictionary) -> bool:
+	return float(a.get("ms", 0.0)) > float(b.get("ms", 0.0))
+
+func _unit_flow_profile_add_stage(stage_name: String, start_usec: int, calls: int = 1) -> void:
+	if not unit_flow_profile_enabled:
+		return
+	var ms := float(Time.get_ticks_usec() - start_usec) / 1000.0
+	var total: Dictionary = _unit_flow_profile_totals.get(stage_name, {"ms": 0.0, "calls": 0, "max_ms": 0.0}) as Dictionary
+	total["ms"] = float(total.get("ms", 0.0)) + ms
+	total["calls"] = int(total.get("calls", 0)) + calls
+	total["max_ms"] = maxf(float(total.get("max_ms", 0.0)), ms)
+	_unit_flow_profile_totals[stage_name] = total
+	_unit_flow_profile_events.append({
+		"name": stage_name,
+		"ms": snappedf(ms, 0.001),
+		"units": units.size(),
+		"sim_time_us": sim_time_us
+	})
+	if _unit_flow_profile_events.size() > _unit_flow_profile_max_events:
+		_unit_flow_profile_events.pop_front()
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
@@ -94,6 +159,8 @@ func bind_state(state_ref: GameState) -> void:
 	_pass_through_queue_by_key.clear()
 	_pass_through_emit_accum_ms_by_key.clear()
 	_pass_through_last_log_ms_by_key.clear()
+	_contested_capture_block_until_us_by_hive.clear()
+	_current_arrivals_by_hive.clear()
 	_pending_tower_hits.clear()
 	if state != null:
 		state.unit_system = self
@@ -110,16 +177,34 @@ func set_match_telemetry_collector(collector: RefCounted) -> void:
 func tick(dt: float) -> void:
 	if state == null:
 		return
+	var tick_start_usec := Time.get_ticks_usec()
 	sim_time_us += int(round(dt * 1000000.0))
+	var stage_start_usec := Time.get_ticks_usec()
 	_process_lane_retract_requests()
+	_unit_flow_profile_add_stage("unit_process_retract_requests", stage_start_usec)
 	if not use_lane_system_spawns:
+		stage_start_usec = Time.get_ticks_usec()
 		_spawn_units(dt)
+		_unit_flow_profile_add_stage("unit_spawn_units", stage_start_usec)
+	stage_start_usec = Time.get_ticks_usec()
 	_update_units(dt)
+	_unit_flow_profile_add_stage("unit_update_positions", stage_start_usec)
+	stage_start_usec = Time.get_ticks_usec()
 	_process_pending_tower_hits()
+	_unit_flow_profile_add_stage("unit_process_tower_hits", stage_start_usec)
+	stage_start_usec = Time.get_ticks_usec()
 	resolve_lane_interactions(state, sim_time_us)
+	_unit_flow_profile_add_stage("unit_resolve_lane_interactions", stage_start_usec)
+	stage_start_usec = Time.get_ticks_usec()
 	_process_arrivals()
+	_unit_flow_profile_add_stage("unit_process_arrivals", stage_start_usec)
+	stage_start_usec = Time.get_ticks_usec()
 	_drain_pass_through_queues(dt)
+	_unit_flow_profile_add_stage("unit_drain_pass_through", stage_start_usec)
+	stage_start_usec = Time.get_ticks_usec()
 	_sync_units_to_state()
+	_unit_flow_profile_add_stage("unit_commit_state", stage_start_usec)
+	_unit_flow_profile_add_stage("unit_tick_total", tick_start_usec)
 
 func queue_tower_hit(
 	victim_unit_id: int,
@@ -198,6 +283,10 @@ func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive:
 	var lane_id := int(lane.id)
 	var side := "a" if from_is_a else "b"
 	var key := "%d:%s" % [lane_id, side]
+	if is_hive_contested_capture_spawn_blocked(int(from_hive.id), int(from_hive.owner_id)):
+		spawn_accum_by_lane[key] = 0.0
+		_log_unit_gate_blocked(lane_id, int(from_hive.id), int(to_hive.id), "contested_capture", float(lane.build_t))
+		return
 	var accum := float(spawn_accum_by_lane.get(key, 0.0))
 	accum += dt_ms
 	var interval_ms := _spawn_interval_ms_for_power(int(from_hive.power))
@@ -311,6 +400,7 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 		return
 	if state_ref == null:
 		return
+	var gather_start_usec := Time.get_ticks_usec()
 	var lanes: Dictionary = {}
 	for i in range(units.size()):
 		var unit: Dictionary = units[i] as Dictionary
@@ -324,7 +414,9 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 		else:
 			(entry["ba"] as Array).append(i)
 		lanes[lane_id] = entry
+	_unit_flow_profile_add_stage("unit_build_active_lane_list", gather_start_usec)
 
+	var collision_start_usec := Time.get_ticks_usec()
 	var remove_indices: Array[int] = []
 	var remove_set: Dictionary = {}
 
@@ -516,6 +608,7 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 		remove_indices.sort()
 		for i in range(remove_indices.size() - 1, -1, -1):
 			units.remove_at(remove_indices[i])
+	_unit_flow_profile_add_stage("unit_resolve_lane_collisions", collision_start_usec)
 
 func _unit_dir(unit: Dictionary) -> int:
 	var dir := int(unit.get("dir", 0))
@@ -777,6 +870,7 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 			var capture_power: int = maxi(SimTuning.CAPTURE_START_POWER, amount - maxi(0, before_power))
 			hive.owner_id = owner_id
 			hive.power = clampi(capture_power, 1, SimTuning.MAX_POWER)
+			_mark_contested_capture_if_needed(int(hive.id), owner_id, before_owner)
 			if state.has_method("_clear_all_outgoing_from"):
 				state.call("_clear_all_outgoing_from", int(hive.id))
 		else:
@@ -1207,6 +1301,8 @@ func _unit_has_arrived(unit: Dictionary) -> bool:
 func _process_arrivals() -> void:
 	if units.is_empty():
 		return
+	var arrivals_by_hive: Dictionary = {}
+	var remove_indices: Array[int] = []
 	for i in range(units.size() - 1, -1, -1):
 		var unit: Dictionary = units[i] as Dictionary
 		if _unit_has_arrived(unit):
@@ -1218,8 +1314,104 @@ func _process_arrivals() -> void:
 					"dst": int(unit.get("to_id", -1)),
 					"t": snapped(t, 0.001)
 				})
-			_apply_unit_arrival(unit)
-			units.remove_at(i)
+			var to_id: int = int(unit.get("to_id", -1))
+			var arrivals: Array = arrivals_by_hive.get(to_id, [])
+			arrivals.append(unit)
+			arrivals_by_hive[to_id] = arrivals
+			remove_indices.append(i)
+	for hive_id_any in arrivals_by_hive.keys():
+		var hive_id: int = int(hive_id_any)
+		var arrivals: Array = arrivals_by_hive.get(hive_id, [])
+		arrivals.sort_custom(Callable(self, "_sort_arrival_for_resolution"))
+		_current_arrivals_by_hive[hive_id] = arrivals
+		for unit_any in arrivals:
+			if typeof(unit_any) != TYPE_DICTIONARY:
+				continue
+			_apply_unit_arrival(unit_any as Dictionary)
+		_current_arrivals_by_hive.erase(hive_id)
+	remove_indices.sort()
+	for r in range(remove_indices.size() - 1, -1, -1):
+		units.remove_at(remove_indices[r])
+
+func _sort_arrival_for_resolution(a: Dictionary, b: Dictionary) -> bool:
+	var a_progress: float = _arrival_progress(a)
+	var b_progress: float = _arrival_progress(b)
+	if not is_equal_approx(a_progress, b_progress):
+		return a_progress > b_progress
+	return int(a.get("id", 0)) < int(b.get("id", 0))
+
+func _arrival_progress(unit: Dictionary) -> float:
+	var dir: int = _unit_dir(unit)
+	var t: float = clampf(float(unit.get("t", 0.0)), 0.0, 1.0)
+	return t if dir >= 0 else 1.0 - t
+
+func _active_enemy_forces_for_hive(hive_id: int, owner_id: int) -> Array[Dictionary]:
+	var forces: Array[Dictionary] = []
+	var current_arrivals: Array = _current_arrivals_by_hive.get(hive_id, [])
+	for unit_any in current_arrivals:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var unit: Dictionary = unit_any as Dictionary
+		var unit_owner: int = int(unit.get("owner_id", 0))
+		if unit_owner > 0 and not _are_allied_owners(owner_id, unit_owner):
+			_add_owner_to_force_list(forces, unit_owner, float(unit.get("amount", 1)))
+	for unit_any in units:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var unit: Dictionary = unit_any as Dictionary
+		if _unit_has_arrived(unit):
+			continue
+		if int(unit.get("to_id", -1)) != hive_id:
+			continue
+		var unit_owner: int = int(unit.get("owner_id", 0))
+		if unit_owner > 0 and not _are_allied_owners(owner_id, unit_owner):
+			_add_owner_to_force_list(forces, unit_owner, float(unit.get("amount", 1)))
+	if state != null:
+		for lane_any in state.lanes:
+			if not (lane_any is LaneData):
+				continue
+			var lane: LaneData = lane_any as LaneData
+			if int(lane.b_id) == hive_id and bool(lane.send_a) and not bool(lane.retract_a):
+				var a_hive: HiveData = state.find_hive_by_id(int(lane.a_id))
+				if a_hive != null and int(a_hive.owner_id) > 0 and not _are_allied_owners(owner_id, int(a_hive.owner_id)):
+					_add_owner_to_force_list(forces, int(a_hive.owner_id), 1.0)
+			if int(lane.a_id) == hive_id and bool(lane.send_b) and not bool(lane.retract_b):
+				var b_hive: HiveData = state.find_hive_by_id(int(lane.b_id))
+				if b_hive != null and int(b_hive.owner_id) > 0 and not _are_allied_owners(owner_id, int(b_hive.owner_id)):
+					_add_owner_to_force_list(forces, int(b_hive.owner_id), 1.0)
+	return forces
+
+func _add_owner_to_force_list(forces: Array[Dictionary], owner_id: int, amount: float) -> void:
+	if owner_id <= 0 or amount <= 0.0:
+		return
+	for i in range(forces.size()):
+		var force: Dictionary = forces[i]
+		if _are_allied_owners(int(force.get("owner_id", 0)), owner_id):
+			force["amount"] = float(force.get("amount", 0.0)) + amount
+			forces[i] = force
+			return
+	forces.append({"owner_id": owner_id, "amount": amount})
+
+func is_hive_contested_capture_spawn_blocked(hive_id: int, owner_id: int) -> bool:
+	if hive_id <= 0 or owner_id <= 0:
+		return false
+	var block_until_us: int = int(_contested_capture_block_until_us_by_hive.get(hive_id, 0))
+	if sim_time_us >= block_until_us:
+		_contested_capture_block_until_us_by_hive.erase(hive_id)
+		return false
+	if _active_enemy_forces_for_hive(hive_id, owner_id).is_empty():
+		_contested_capture_block_until_us_by_hive.erase(hive_id)
+		return false
+	return true
+
+func _mark_contested_capture_if_needed(hive_id: int, owner_id: int, before_owner: int) -> void:
+	if hive_id <= 0 or owner_id <= 0:
+		return
+	if before_owner > 0:
+		return
+	if _active_enemy_forces_for_hive(hive_id, owner_id).is_empty():
+		return
+	_contested_capture_block_until_us_by_hive[hive_id] = sim_time_us + CONTESTED_CAPTURE_BLOCK_US
 
 func _process_lane_retract_requests() -> void:
 	if state == null:
@@ -1436,12 +1628,15 @@ func _ensure_unit_edges(unit: Dictionary) -> Dictionary:
 	return unit
 
 func _sync_units_to_state() -> void:
+	var sync_start_usec := Time.get_ticks_usec()
 	if state == null:
+		_unit_flow_profile_add_stage("unit_sync_units_to_state", sync_start_usec)
 		return
 	_refresh_units_set_version()
 	var all_v: Variant = state.units_by_lane.get("_all")
 	if all_v != units:
 		state.units_by_lane["_all"] = units
+	_unit_flow_profile_add_stage("unit_sync_units_to_state", sync_start_usec)
 
 func _refresh_units_set_version() -> void:
 	if state == null:
@@ -1457,6 +1652,7 @@ func _refresh_units_set_version() -> void:
 	state.units_set_version = units_set_version
 
 func _units_set_signature() -> int:
+	var signature_start_usec := Time.get_ticks_usec()
 	var sig: int = units.size()
 	var xor_ids: int = 0
 	for unit_any in units:
@@ -1465,6 +1661,7 @@ func _units_set_signature() -> int:
 		var unit: Dictionary = unit_any as Dictionary
 		xor_ids = xor_ids ^ int(unit.get("id", -1))
 	sig = (sig * 31 + xor_ids) & 0x7fffffff
+	_unit_flow_profile_add_stage("unit_set_signature", signature_start_usec)
 	return sig
 
 func _remove_unit(
@@ -1488,10 +1685,13 @@ func _remove_unit(
 	return false
 
 func spawn_unit(unit: Dictionary) -> bool:
+	var spawn_start_usec := Time.get_ticks_usec()
 	if state == null:
+		_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
 		return false
 	var lane_id := int(unit.get("lane_id", -1))
 	if lane_id > 0 and ENABLE_LANE_ESTABLISH_SPAWN_GATE:
+		var gate_start_usec := Time.get_ticks_usec()
 		var established := false
 		var build_t := 0.0
 		var lane_any = state.find_lane_by_id(lane_id)
@@ -1516,6 +1716,8 @@ func spawn_unit(unit: Dictionary) -> bool:
 				"build",
 				build_t
 			)
+			_unit_flow_profile_add_stage("unit_spawn_gate_check", gate_start_usec)
+			_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
 			return false
 		_log_unit_gate_open_once(
 			lane_id,
@@ -1523,8 +1725,11 @@ func spawn_unit(unit: Dictionary) -> bool:
 			int(unit.get("to_id", -1)),
 			build_t
 		)
+		_unit_flow_profile_add_stage("unit_spawn_gate_check", gate_start_usec)
 	if not can_accept_unit():
+		_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
 		return false
+	var setup_start_usec := Time.get_ticks_usec()
 	if not unit.has("id") or int(unit.get("id", 0)) <= 0:
 		unit["id"] = _next_external_unit_id
 		_next_external_unit_id += 1
@@ -1535,14 +1740,22 @@ func spawn_unit(unit: Dictionary) -> bool:
 		unit["t"] = 0.0 if dir >= 0 else 1.0
 	elif dir < 0 and float(unit.get("t", 0.0)) <= 0.0:
 		unit["t"] = 1.0
+	_unit_flow_profile_add_stage("unit_spawn_setup", setup_start_usec)
+	var path_start_usec := Time.get_ticks_usec()
 	unit = _ensure_unit_edges(unit)
+	_unit_flow_profile_add_stage("unit_spawn_recompute_paths", path_start_usec)
+	var movement_start_usec := Time.get_ticks_usec()
 	unit = _update_unit_pos_from_t(unit)
+	_unit_flow_profile_add_stage("unit_spawn_issue_movement_update", movement_start_usec)
 	var production_source: String = str(unit.get("arrive_source", "lane")).strip_edges().to_lower()
 	if production_source == "":
 		production_source = "lane"
+	var telemetry_start_usec := Time.get_ticks_usec()
 	_telemetry_record_unit_produced(int(unit.get("owner_id", 0)), int(unit.get("amount", 1)), production_source)
+	_unit_flow_profile_add_stage("unit_spawn_telemetry", telemetry_start_usec)
 	units.append(unit)
 	_sync_units_to_state()
+	_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
 	return true
 
 func _telemetry_match_ms() -> int:

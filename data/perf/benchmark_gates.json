@@ -1,0 +1,9 @@
+{
+  "target_fps": 30,
+  "target_frame_ms": 33.5,
+  "p99_max_ms": 41.67,
+  "max_frame_ms": 55.0,
+  "max_hitches": 0,
+  "warn_regression_percent": 10.0,
+  "fail_regression_percent": 20.0
+}

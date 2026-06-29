@@ -106,6 +106,11 @@ var _last_spawn_block_reason: Dictionary = {}
 var _lane_spawn_disabled_logged: bool = false
 var auth_fence_assert_enabled: bool = false
 var _auth_fence_last_ms: Dictionary = {}
+var lane_flow_profile_enabled: bool = false
+var _lane_flow_profile_ticks: Array = []
+var _lane_flow_profile_totals: Dictionary = {}
+var _lane_flow_profile_current: Dictionary = {}
+var _lane_flow_profile_max_ticks: int = 2048
 
 # -------------------------------------------------------------------
 # Init
@@ -113,6 +118,90 @@ var _auth_fence_last_ms: Dictionary = {}
 
 func _init() -> void:
 	tower_owner_by_node_id = structure_owner_by_node_id
+
+func set_lane_flow_profile_enabled(enabled: bool, reset: bool = true) -> void:
+	lane_flow_profile_enabled = enabled
+	if reset:
+		reset_lane_flow_profile()
+
+func reset_lane_flow_profile() -> void:
+	_lane_flow_profile_ticks.clear()
+	_lane_flow_profile_totals.clear()
+	_lane_flow_profile_current.clear()
+
+func get_lane_flow_profile_report() -> Dictionary:
+	var stages: Array = []
+	for stage_name in _lane_flow_profile_totals.keys():
+		var total: Dictionary = _lane_flow_profile_totals.get(stage_name, {}) as Dictionary
+		var calls := int(total.get("calls", 0))
+		var ms := float(total.get("ms", 0.0))
+		stages.append({
+			"name": str(stage_name),
+			"total_ms": snappedf(ms, 0.001),
+			"calls": calls,
+			"average_ms": snappedf(ms / maxf(1.0, float(calls)), 0.001),
+			"max_ms": snappedf(float(total.get("max_ms", 0.0)), 0.001)
+		})
+	stages.sort_custom(Callable(self, "_sort_profile_stage_by_total_ms_desc"))
+	return {
+		"tick_count": _lane_flow_profile_ticks.size(),
+		"stages": stages,
+		"worst_ticks": _lane_flow_worst_profile_ticks(12)
+	}
+
+func _lane_flow_worst_profile_ticks(limit: int) -> Array:
+	var out: Array = _lane_flow_profile_ticks.duplicate(true)
+	out.sort_custom(Callable(self, "_sort_profile_tick_by_total_ms_desc"))
+	return out.slice(0, mini(limit, out.size()))
+
+func _sort_profile_stage_by_total_ms_desc(a: Dictionary, b: Dictionary) -> bool:
+	return float(a.get("total_ms", 0.0)) > float(b.get("total_ms", 0.0))
+
+func _sort_profile_tick_by_total_ms_desc(a: Dictionary, b: Dictionary) -> bool:
+	return float(a.get("total_ms", 0.0)) > float(b.get("total_ms", 0.0))
+
+func _lane_flow_profile_begin(dt_ms: float) -> void:
+	_lane_flow_profile_current = {
+		"tick": tick + 1,
+		"dt_ms": snappedf(dt_ms, 0.001),
+		"started_usec": Time.get_ticks_usec(),
+		"stages": {},
+		"counters": {}
+	}
+
+func _lane_flow_profile_finish() -> void:
+	if _lane_flow_profile_current.is_empty():
+		return
+	_lane_flow_profile_current["total_ms"] = snappedf(float(Time.get_ticks_usec() - int(_lane_flow_profile_current.get("started_usec", Time.get_ticks_usec()))) / 1000.0, 0.001)
+	_lane_flow_profile_current.erase("started_usec")
+	_lane_flow_profile_ticks.append(_lane_flow_profile_current.duplicate(true))
+	if _lane_flow_profile_ticks.size() > _lane_flow_profile_max_ticks:
+		_lane_flow_profile_ticks.pop_front()
+	_lane_flow_profile_current.clear()
+
+func _lane_flow_profile_add_stage(stage_name: String, start_usec: int, calls: int = 1) -> void:
+	if not lane_flow_profile_enabled or _lane_flow_profile_current.is_empty():
+		return
+	var ms := float(Time.get_ticks_usec() - start_usec) / 1000.0
+	var stages: Dictionary = _lane_flow_profile_current.get("stages", {}) as Dictionary
+	var stage: Dictionary = stages.get(stage_name, {"ms": 0.0, "calls": 0, "max_ms": 0.0}) as Dictionary
+	stage["ms"] = float(stage.get("ms", 0.0)) + ms
+	stage["calls"] = int(stage.get("calls", 0)) + calls
+	stage["max_ms"] = maxf(float(stage.get("max_ms", 0.0)), ms)
+	stages[stage_name] = stage
+	_lane_flow_profile_current["stages"] = stages
+	var total: Dictionary = _lane_flow_profile_totals.get(stage_name, {"ms": 0.0, "calls": 0, "max_ms": 0.0}) as Dictionary
+	total["ms"] = float(total.get("ms", 0.0)) + ms
+	total["calls"] = int(total.get("calls", 0)) + calls
+	total["max_ms"] = maxf(float(total.get("max_ms", 0.0)), ms)
+	_lane_flow_profile_totals[stage_name] = total
+
+func _lane_flow_profile_count(counter_name: String, amount: int = 1) -> void:
+	if not lane_flow_profile_enabled or _lane_flow_profile_current.is_empty():
+		return
+	var counters: Dictionary = _lane_flow_profile_current.get("counters", {}) as Dictionary
+	counters[counter_name] = int(counters.get(counter_name, 0)) + amount
+	_lane_flow_profile_current["counters"] = counters
 
 # -------------------------------------------------------------------
 # Init / reset
@@ -1221,33 +1310,61 @@ func outgoing_active_count(hive_id: int) -> int:
 func tick_lane_flow(dt_ms: float, allow_spawns: bool = true) -> void:
 	if dt_ms <= 0.0:
 		return
+	if lane_flow_profile_enabled:
+		_lane_flow_profile_begin(dt_ms)
 	tick += 1
 	_sim_time_us += int(round(dt_ms * 1000.0))
 	if lanes.is_empty():
+		if lane_flow_profile_enabled:
+			_lane_flow_profile_finish()
 		return
 	if not allow_spawns and not _lane_spawn_disabled_logged:
 		_lane_spawn_disabled_logged = true
 		SFLog.info("SPAWN_DISABLED", {"system": "lane"})
 
 	if OS.is_debug_build():
+		var debug_start_usec := Time.get_ticks_usec()
 		_lane_dump_accum_ms += dt_ms
 		if _lane_dump_accum_ms >= SimTuning.LANE_DUMP_INTERVAL_MS:
 			_lane_dump_accum_ms = fmod(_lane_dump_accum_ms, SimTuning.LANE_DUMP_INTERVAL_MS)
 			_debug_dump_lane_state()
+		_lane_flow_profile_add_stage("debug_dump", debug_start_usec)
 
+	var gather_start_usec := Time.get_ticks_usec()
+	var lane_items: Array = []
+	var affected_count := 0
 	for lane in lanes:
 		if lane is LaneData:
-			_tick_lane(lane as LaneData, dt_ms, allow_spawns)
+			var lane_data := lane as LaneData
+			lane_items.append(lane_data)
+			if bool(lane_data.send_a) or bool(lane_data.send_b) or bool(lane_data.retract_a) or bool(lane_data.retract_b) or lane_data.a_pressure > 0.0 or lane_data.b_pressure > 0.0:
+				affected_count += 1
+	_lane_flow_profile_count("lane_count", lane_items.size())
+	_lane_flow_profile_count("affected_lane_count", affected_count)
+	if unit_system != null:
+		_lane_flow_profile_count("active_unit_count", unit_system.units.size())
+	_lane_flow_profile_add_stage("gather_affected_lanes", gather_start_usec)
+
+	for lane in lane_items:
+		_tick_lane(lane as LaneData, dt_ms, allow_spawns)
+	if lane_flow_profile_enabled:
+		var commit_start_usec := Time.get_ticks_usec()
+		_lane_flow_profile_add_stage("commit_state", commit_start_usec)
+		_lane_flow_profile_finish()
 
 func _tick_lane(lane: LaneData, dt_ms: float, allow_spawns: bool) -> void:
+	var reset_start_usec := Time.get_ticks_usec()
 	if lane.retract_a:
 		_reset_lane_side(lane, true)
 	if lane.retract_b:
 		_reset_lane_side(lane, false)
+	_lane_flow_profile_add_stage("resolve_retracts", reset_start_usec)
 
+	var setup_start_usec := Time.get_ticks_usec()
 	var a_hive: HiveData = find_hive_by_id(int(lane.a_id))
 	var b_hive: HiveData = find_hive_by_id(int(lane.b_id))
 	if a_hive == null or b_hive == null:
+		_lane_flow_profile_add_stage("lane_setup", setup_start_usec)
 		return
 
 	var a_pos := _hive_world_pos(a_hive)
@@ -1264,14 +1381,24 @@ func _tick_lane(lane: LaneData, dt_ms: float, allow_spawns: bool) -> void:
 				"lane_r": HIVE_LANE_RADIUS_PX
 			})
 	if lane_len <= 0.0:
+		_lane_flow_profile_add_stage("lane_setup", setup_start_usec)
 		return
+	_lane_flow_profile_add_stage("lane_setup", setup_start_usec)
 
+	var pressure_start_usec := Time.get_ticks_usec()
 	_accumulate_lane_pressure(lane, dt_ms, lane_len, a_hive, b_hive, allow_spawns)
+	_lane_flow_profile_add_stage("calculate_pressure", pressure_start_usec)
+	var cancel_start_usec := Time.get_ticks_usec()
 	_cancel_lane_pressure(lane)
+	_lane_flow_profile_add_stage("cancel_pressure", cancel_start_usec)
 
 	var speed_px_per_ms: float = float(SimTuning.UNIT_SPEED_PX_PER_SEC) / 1000.0
+	var stream_start_usec := Time.get_ticks_usec()
 	_advance_lane_stream(lane, lane_len, speed_px_per_ms, dt_ms)
+	_lane_flow_profile_add_stage("issue_movement_updates", stream_start_usec)
+	var ownership_start_usec := Time.get_ticks_usec()
 	_deliver_lane_pressure(lane)
+	_lane_flow_profile_add_stage("resolve_ownership", ownership_start_usec)
 
 func _reset_lane_side(lane: LaneData, is_a: bool) -> void:
 	var q := _arrival_q_for(int(lane.id))
@@ -1317,6 +1444,9 @@ func _accumulate_lane_pressure(
 				if ENABLE_HIVE_SPAWN_SHOCK_BLOCK and _sim_time_us < block_until_us:
 					lane.spawn_accum_a_ms = 0.0
 					_log_spawn_block(lane, "A", "SHOCK")
+				elif unit_system != null and unit_system.has_method("is_hive_contested_capture_spawn_blocked") and bool(unit_system.call("is_hive_contested_capture_spawn_blocked", int(a_hive.id), int(a_hive.owner_id))):
+					lane.spawn_accum_a_ms = 0.0
+					_log_spawn_block(lane, "A", "CONTESTED_CAPTURE")
 				else:
 					lane.spawn_accum_a_ms += dt_ms
 					var spawn_ms: float = _spawn_ms_for_hive(int(a_hive.power))
@@ -1364,6 +1494,9 @@ func _accumulate_lane_pressure(
 				if ENABLE_HIVE_SPAWN_SHOCK_BLOCK and _sim_time_us < block_until_us_b:
 					lane.spawn_accum_b_ms = 0.0
 					_log_spawn_block(lane, "B", "SHOCK")
+				elif unit_system != null and unit_system.has_method("is_hive_contested_capture_spawn_blocked") and bool(unit_system.call("is_hive_contested_capture_spawn_blocked", int(b_hive.id), int(b_hive.owner_id))):
+					lane.spawn_accum_b_ms = 0.0
+					_log_spawn_block(lane, "B", "CONTESTED_CAPTURE")
 				else:
 					lane.spawn_accum_b_ms += dt_ms
 					var spawn_ms: float = _spawn_ms_for_hive(int(b_hive.power))
@@ -1425,6 +1558,7 @@ func _log_spawn_block(lane: LaneData, side: String, reason: String) -> void:
 func _spawn_unit_packet(lane: LaneData, from_hive: HiveData, to_hive: HiveData, from_is_a: bool) -> bool:
 	if unit_system == null:
 		return false
+	var issue_start_usec := Time.get_ticks_usec()
 	var side := "A" if from_is_a else "B"
 	var unit: Dictionary = {
 		"from_id": int(from_hive.id),
@@ -1443,7 +1577,12 @@ func _spawn_unit_packet(lane: LaneData, from_hive: HiveData, to_hive: HiveData, 
 			"amount": int(unit.get("amount", 1)),
 			"owner_id": int(from_hive.owner_id)
 		}, 250)
-	return bool(unit_system.spawn_unit(unit))
+	var ok := bool(unit_system.spawn_unit(unit))
+	_lane_flow_profile_count("unit_spawn_packet_calls", 1)
+	if ok:
+		_lane_flow_profile_count("unit_spawn_packet_ok", 1)
+	_lane_flow_profile_add_stage("notify_units_spawn_packet", issue_start_usec)
+	return ok
 
 func _unit_system_has_unit_capacity() -> bool:
 	if unit_system == null:
