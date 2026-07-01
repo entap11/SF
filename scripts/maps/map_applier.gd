@@ -686,7 +686,7 @@ static func _team_mode_override() -> String:
 	if ops_state == null or not ops_state.has_method("get_team_mode_override"):
 		return ""
 	var mode: String = str(ops_state.call("get_team_mode_override")).strip_edges().to_lower()
-	if mode == "ffa" or mode == "2v2":
+	if mode == "ffa" or mode == "2v2" or mode == "1p":
 		return mode
 	return ""
 

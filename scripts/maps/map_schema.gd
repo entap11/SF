@@ -283,7 +283,8 @@ static func _adapt_v1_xy_to_internal(human: Dictionary) -> Dictionary:
 					"tier": str(e.get("tier", "MEDIUM")),
 					"owner": owner,
 					"owner_id": owner_id,
-					"kind": "Hive"
+					"kind": "Hive",
+					"power": int(e.get("power", e.get("pwr", 0)))
 				})
 			"npc_hive":
 				var owner_id: int = 0
@@ -309,7 +310,8 @@ static func _adapt_v1_xy_to_internal(human: Dictionary) -> Dictionary:
 					"tier": str(e.get("tier", "MEDIUM")),
 					"owner": "NEUTRAL",
 					"owner_id": owner_id,
-					"kind": "Hive"
+					"kind": "Hive",
+					"power": int(e.get("power", e.get("pwr", 0)))
 				})
 			"tower":
 				var tower_id := str(e.get("id", ""))
@@ -723,7 +725,8 @@ static func build_internal_map(human: Dictionary) -> Dictionary:
 			"id": int_id,
 			"grid_pos": [x, y],
 			"owner_id": owner_id,
-			"kind": kind
+			"kind": kind,
+			"power": int(hive.get("power", hive.get("pwr", 0)))
 		})
 
 	var lanes_raw: Variant = source.get("lanes", [])

@@ -44,6 +44,8 @@ const SOAK_DEFAULT_PAIR_COUNT: int = 2
 const SOAK_DEFAULT_REAPPLY_MS: int = 1000
 const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
+const TUTORIAL_CONTROLS_ID: String = "controls_v1"
+const TUTORIAL_CONTROLS_MAP_PATH: String = "res://maps/tutorial/MAP_tutorial_controls_v1__1p.json"
 const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
 const TUTORIAL_SECTION1_ID: String = "section1"
@@ -141,6 +143,7 @@ var _last_power_bar_visible: int = -1
 var _ui_watch_prev: Dictionary = {}
 var _selected_map_path: String = ""
 var _pending_map_path: String = ""
+var _pending_tutorial_section: String = ""
 var _pending_apply_tries: int = 0
 var _err_conn_ready: bool = false
 var _frame_once: bool = false
@@ -511,11 +514,16 @@ func _on_team_mode_pressed() -> void:
 
 func _set_team_mode_ui(mode: String) -> void:
 	var normalized: String = mode.strip_edges().to_lower()
-	if normalized != "ffa":
+	if normalized != "ffa" and normalized != "1p":
 		normalized = "2v2"
 	_team_mode_ui = normalized
 	if _team_mode_button != null:
-		_team_mode_button.text = "Mode: FFA" if _team_mode_ui == "ffa" else "Mode: 2v2"
+		if _team_mode_ui == "ffa":
+			_team_mode_button.text = "Mode: FFA"
+		elif _team_mode_ui == "1p":
+			_team_mode_button.text = "Mode: 1P"
+		else:
+			_team_mode_button.text = "Mode: 2v2"
 		_apply_team_mode_button_font()
 	if OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", _team_mode_ui)
@@ -606,7 +614,11 @@ func _map_display_name(map_path: String) -> String:
 	return MAP_REGISTRY.public_map_display_name_for_path(clean)
 
 func _shell_mode_label() -> String:
-	return "FFA" if _team_mode_ui == "ffa" else "2v2"
+	if _team_mode_ui == "ffa":
+		return "FFA"
+	if _team_mode_ui == "1p":
+		return "1P"
+	return "2v2"
 
 func _shell_status_color(tone: String) -> Color:
 	match tone:
@@ -938,6 +950,7 @@ func _on_play_selected_pressed() -> void:
 		SFLog.error("MAP_PICKER_PLAY_FILE_MISSING", {"path": _selected_map_path})
 		return
 	_pending_map_path = _selected_map_path
+	_pending_tutorial_section = ""
 	_pending_apply_tries = 0
 	_set_picker_summary("Launching %s..." % _map_display_name(_selected_map_path), "success")
 	_set_shell_status("Launching %s..." % _map_display_name(_selected_map_path), "success")
@@ -957,13 +970,16 @@ func _apply_pending_map_if_ready() -> void:
 		if _pending_apply_tries >= PENDING_APPLY_MAX_TRIES:
 			SFLog.error("PENDING_MAP_ARENA_NEVER_READY", {"path": _pending_map_path, "tries": _pending_apply_tries})
 			_pending_map_path = ""
+			_pending_tutorial_section = ""
 			return
 		call_deferred("_apply_pending_map_if_ready")
 		return
 	SFLog.info("PENDING_MAP_ARENA_READY_APPLYING", {"path": _pending_map_path, "tries": _pending_apply_tries})
 	var p: String = _pending_map_path
+	var tutorial_section: String = _pending_tutorial_section
 	_pending_map_path = ""
-	_apply_map_then_start(p)
+	_pending_tutorial_section = ""
+	_apply_map_then_start(p, tutorial_section)
 
 func _show_map_picker() -> void:
 	if TRACE_SHELL_LOGS: print("MAP_PICKER_SHOW_CALL ", {
@@ -1105,8 +1121,8 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		_set_shell_status("Launch blocked. %s does not support this mode." % _map_display_name(map_path), "error")
 		_report_map_mode_contract_violation(str(mode_validation.get("mode", "")), map_path, str(mode_validation.get("reason", "invalid_map_mode")))
 		return
+	var clean_tutorial_section: String = tutorial_section.strip_edges()
 	if tree != null:
-		var clean_tutorial_section: String = tutorial_section.strip_edges()
 		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
 		tree.set_meta(TREE_META_TUTORIAL_SECTION, clean_tutorial_section)
 	_hide_arena_for_map_transition()
@@ -1116,6 +1132,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	if _arena_instance == null:
 		SFLog.info("APPLY_MAP_THEN_START_DEFERRED_NO_ARENA", {"map_path": map_path})
 		_pending_map_path = map_path
+		_pending_tutorial_section = clean_tutorial_section
 		_pending_apply_tries = 0
 		_start_game()
 		call_deferred("_apply_pending_map_if_ready")
@@ -1147,6 +1164,8 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 050_CALLING_ACTION", {"action": "start_game", "map_path": map_path})
 	_start_game()
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 060_ACTION_RETURNED", {"action": "start_game"})
+	if not clean_tutorial_section.is_empty():
+		call_deferred("_restart_arena_match_flow_for_shell_tutorial")
 	call_deferred("_verify_map_applied_and_start", map_path)
 	SFLog.info("APPLY_MAP_THEN_START_DONE", {"map_path": map_path})
 
@@ -1428,20 +1447,31 @@ func _on_dev_pressed() -> void:
 	_open_main_menu()
 
 func _on_tutorial_pressed() -> void:
-	_set_team_mode_ui("2v2")
-	var tutorial_section: String = _prepare_tutorial_section1_sandbox_profile()
-	var map_path: String = _resolve_tutorial_sandbox_map_path()
+	_set_team_mode_ui("1p")
+	var tutorial_section: String = _prepare_tutorial_controls_profile()
+	var map_path: String = _resolve_tutorial_controls_map_path()
 	if map_path.is_empty():
-		_set_shell_status("Tutorial sandbox map is unavailable.", "error")
-		SFLog.error("TUTORIAL_SANDBOX_LAUNCH_NO_MAP", {})
+		_set_shell_status("Controls tutorial map is unavailable.", "error")
+		SFLog.error("TUTORIAL_CONTROLS_LAUNCH_NO_MAP", {})
 		return
 	_set_shell_status("Launching tutorial %s on %s..." % [_tutorial_section_display_name(tutorial_section), _map_display_name(map_path)], "success")
-	SFLog.info("TUTORIAL_SANDBOX_LAUNCH", {
+	SFLog.info("TUTORIAL_CONTROLS_LAUNCH", {
 		"map_path": map_path,
 		"mode": _team_mode_ui,
 		"section": tutorial_section
 	})
 	_apply_map_then_start(map_path, tutorial_section)
+
+func _prepare_tutorial_controls_profile() -> String:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return TUTORIAL_CONTROLS_ID
+	if profile_manager.has_method("prepare_tutorial_controls_sandbox"):
+		profile_manager.call("prepare_tutorial_controls_sandbox")
+		return TUTORIAL_CONTROLS_ID
+	if profile_manager.has_method("begin_tutorial_controls"):
+		profile_manager.call("begin_tutorial_controls")
+	return TUTORIAL_CONTROLS_ID
 
 func _prepare_tutorial_section1_sandbox_profile() -> String:
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
@@ -1511,6 +1541,8 @@ func _next_tutorial_section_for_profile(profile_manager: Node) -> String:
 
 func _tutorial_section_display_name(section: String) -> String:
 	match section:
+		TUTORIAL_CONTROLS_ID:
+			return "Controls"
 		TUTORIAL_SECTION1_ID:
 			return "Section 1"
 		TUTORIAL_SECTION2_ID:
@@ -1519,6 +1551,11 @@ func _tutorial_section_display_name(section: String) -> String:
 			return "Section 3"
 		_:
 			return "sandbox"
+
+func _resolve_tutorial_controls_map_path() -> String:
+	if ResourceLoader.exists(TUTORIAL_CONTROLS_MAP_PATH):
+		return TUTORIAL_CONTROLS_MAP_PATH
+	return ""
 
 func _prepare_tutorial_section3_sandbox_profile_fallback(profile_manager: Node) -> void:
 	if profile_manager == null:
@@ -1845,6 +1882,12 @@ func _resolve_runtime_arena_node() -> Node:
 	if _arena_instance == null:
 		return null
 	return _arena_instance.get_node_or_null("WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena")
+
+func _restart_arena_match_flow_for_shell_tutorial() -> void:
+	await get_tree().process_frame
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node != null and arena_node.has_method("restart_match_flow_for_shell_launch"):
+		arena_node.call("restart_match_flow_for_shell_launch")
 
 func _sync_buff_ui() -> void:
 	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
@@ -3415,6 +3458,7 @@ func _maybe_start_mvp_smoke() -> bool:
 func _parse_mvp_smoke_config(args: Array) -> Dictionary:
 	var config: Dictionary = {
 		"enabled": false,
+		"tutorial_controls_smoke": false,
 		"map_path": "",
 		"win_map_path": "",
 		"boot_timeout_ms": MVP_SMOKE_DEFAULT_BOOT_TIMEOUT_MS,
@@ -3425,6 +3469,9 @@ func _parse_mvp_smoke_config(args: Array) -> Dictionary:
 		var arg: String = str(arg_any)
 		if arg == "--mvp-smoke":
 			config["enabled"] = true
+		elif arg == "--mvp-tutorial-controls-smoke" or arg == "--tutorial-controls-smoke":
+			config["enabled"] = true
+			config["tutorial_controls_smoke"] = true
 		elif arg.begins_with("--mvp-map="):
 			config["map_path"] = arg.trim_prefix("--mvp-map=")
 		elif arg.begins_with("--mvp-win-map="):
@@ -3443,6 +3490,16 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 	SFLog.allow_tag("MVP_SMOKE_CHECK")
 	SFLog.allow_tag("MVP_SMOKE_FAIL")
 	SFLog.allow_tag("MVP_SMOKE_SUMMARY")
+	SFLog.allow_tag("TUTORIAL_CONTROLS_STEP")
+	SFLog.allow_tag("TUTORIAL_CONTROLS_COMPLETED")
+	SFLog.allow_tag("TUTORIAL_CONTROLS_INPUT_BLOCK")
+	SFLog.allow_tag("TUTORIAL_CONTROLS_RECOVERY")
+	SFLog.allow_tag("TUTORIAL_CONTROLS_READOUT_COMMIT")
+	SFLog.allow_tag("TUTORIAL_CONTROLS_DWELL")
+
+	if bool(config.get("tutorial_controls_smoke", false)):
+		await _run_tutorial_controls_smoke(config)
+		return
 
 	var fails: int = 0
 	var passes: int = 0
@@ -3583,6 +3640,454 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 	var summary_status: String = "pass" if fails == 0 else "fail"
 	SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": summary_status})
 	get_tree().quit(1 if fails > 0 else 0)
+
+func _run_tutorial_controls_smoke(config: Dictionary) -> void:
+	var fails: int = 0
+	var passes: int = 0
+	var map_path: String = TUTORIAL_CONTROLS_MAP_PATH
+	var boot_timeout_ms: int = int(config.get("boot_timeout_ms", MVP_SMOKE_DEFAULT_BOOT_TIMEOUT_MS))
+	var run_timeout_ms: int = int(config.get("run_timeout_ms", MVP_SMOKE_DEFAULT_RUN_TIMEOUT_MS))
+
+	SFLog.info("MVP_SMOKE_START", {
+		"mode": "tutorial_controls",
+		"map": map_path,
+		"boot_timeout_ms": boot_timeout_ms,
+		"run_timeout_ms": run_timeout_ms
+	})
+
+	var preflight: Dictionary = MAP_LOADER.load_map(map_path)
+	if bool(preflight.get("ok", false)):
+		passes += _mvp_smoke_pass("tutorial_controls_map_load_preflight", {"map": map_path})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_map_load_preflight", {"map": map_path, "err": str(preflight.get("err", "unknown"))})
+		SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": "fail", "mode": "tutorial_controls"})
+		get_tree().quit(1)
+		return
+
+	if _arena_instance != null:
+		_stop_game()
+		await get_tree().process_frame
+		await get_tree().process_frame
+
+	var menu_visible: bool = menu_root != null and menu_root.visible and menu_panel != null and menu_panel.visible
+	if menu_visible:
+		passes += _mvp_smoke_pass("tutorial_controls_shell_menu_visible_on_boot", {})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_shell_menu_visible_on_boot", {
+			"menu_root": menu_root.visible if menu_root != null else null,
+			"menu_panel": menu_panel.visible if menu_panel != null else null
+		})
+	if _tutorial_button != null:
+		passes += _mvp_smoke_pass("tutorial_controls_button_present", {})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_button_present", {})
+		SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": "fail", "mode": "tutorial_controls"})
+		get_tree().quit(1)
+		return
+
+	_tutorial_button.emit_signal("pressed")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var tree: SceneTree = get_tree()
+	var meta_ok: bool = tree != null \
+		and bool(tree.get_meta(TREE_META_TUTORIAL_ACTIVE, false)) \
+		and str(tree.get_meta(TREE_META_TUTORIAL_SECTION, "")) == TUTORIAL_CONTROLS_ID
+	if meta_ok:
+		passes += _mvp_smoke_pass("tutorial_controls_tree_meta_set", {"section": TUTORIAL_CONTROLS_ID})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_tree_meta_set", {
+			"active": bool(tree.get_meta(TREE_META_TUTORIAL_ACTIVE, false)) if tree != null else null,
+			"section": str(tree.get_meta(TREE_META_TUTORIAL_SECTION, "")) if tree != null else ""
+		})
+
+	var arena_node: Node = await _mvp_wait_for_node(MVP_SMOKE_ARENA_PATH, boot_timeout_ms)
+	if arena_node != null:
+		passes += _mvp_smoke_pass("tutorial_controls_arena_spawned", {"path": MVP_SMOKE_ARENA_PATH})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_arena_spawned", {"path": MVP_SMOKE_ARENA_PATH})
+		SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": "fail", "mode": "tutorial_controls"})
+		get_tree().quit(1)
+		return
+
+	var controller_ready: bool = await _tutorial_controls_smoke_wait_step(arena_node, "select_start_hive", boot_timeout_ms)
+	var snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+	if controller_ready and bool(snapshot.get("active", false)) and bool(snapshot.get("overlay_visible", false)):
+		passes += _mvp_smoke_pass("tutorial_controls_controller_starts", {
+			"step": str(snapshot.get("current_step", "")),
+			"body": str(snapshot.get("body_text", ""))
+		})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_controller_starts", snapshot)
+
+	var contracts: Array = snapshot.get("contracts", []) as Array
+	if contracts.size() >= 9:
+		passes += _mvp_smoke_pass("tutorial_controls_step_contracts_present", {"count": contracts.size()})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_step_contracts_present", {"count": contracts.size()})
+
+	var anchors: Dictionary = snapshot.get("anchors", {}) as Dictionary
+	if _tutorial_controls_smoke_anchors_valid(anchors):
+		passes += _mvp_smoke_pass("tutorial_controls_anchors_resolved", anchors)
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_anchors_resolved", anchors)
+		SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": "fail", "mode": "tutorial_controls"})
+		get_tree().quit(1)
+		return
+
+	var start_id: int = int(anchors.get("start_hive", -1))
+	var neutral_id: int = int(anchors.get("neutral_hive", -1))
+	var friend_id: int = int(anchors.get("friend_hive", -1))
+	var enemy_id: int = int(anchors.get("enemy_hive", -1))
+
+	if _tutorial_controls_smoke_wrong_press_blocked(arena_node, enemy_id):
+		passes += _mvp_smoke_pass("tutorial_controls_wrong_press_blocked", {"step": "select_start_hive", "hive_id": enemy_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_wrong_press_blocked", {"step": "select_start_hive", "hive_id": enemy_id})
+
+	var running_ok: bool = await _mvp_wait_for_phase(int(OpsState.MatchPhase.RUNNING), run_timeout_ms)
+	if running_ok:
+		passes += _mvp_smoke_pass("tutorial_controls_phase_reaches_running", {"phase": int(OpsState.match_phase)})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_phase_reaches_running", {"phase": int(OpsState.match_phase)})
+		SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": "fail", "mode": "tutorial_controls"})
+		get_tree().quit(1)
+		return
+
+	await _tutorial_controls_smoke_select_hive(arena_node, start_id)
+	var check_result: Dictionary = await _tutorial_controls_smoke_expect_step(arena_node, "feed_friend", run_timeout_ms, "tutorial_controls_advances_after_select", {"hive_id": start_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	if _tutorial_controls_smoke_commit_hive_press(arena_node, friend_id):
+		passes += _mvp_smoke_pass("tutorial_controls_feed_friend_prompt_committed", {"hive_id": friend_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_feed_friend_prompt_committed", _tutorial_controls_smoke_snapshot(arena_node))
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_feed_friend_intent", start_id, friend_id, "feed")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "reverse_feed", run_timeout_ms, "tutorial_controls_advances_after_feed_friend", {"src": start_id, "dst": friend_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	if _tutorial_controls_smoke_commit_hive_press(arena_node, friend_id):
+		passes += _mvp_smoke_pass("tutorial_controls_reverse_destination_prompt_committed", {"hive_id": friend_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_reverse_destination_prompt_committed", _tutorial_controls_smoke_snapshot(arena_node))
+	if _tutorial_controls_smoke_commit_hive_press(arena_node, start_id):
+		passes += _mvp_smoke_pass("tutorial_controls_reverse_source_prompt_committed", {"hive_id": start_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_reverse_source_prompt_committed", _tutorial_controls_smoke_snapshot(arena_node))
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_reverse_feed_intent", friend_id, start_id, "feed")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "cancel_lane_grab_throw", run_timeout_ms, "tutorial_controls_advances_after_reverse_feed", {"src": friend_id, "dst": start_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	OpsState.retract_lane(friend_id, start_id, 1)
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "remake_friend_lane", run_timeout_ms, "tutorial_controls_advances_after_lane_retract", {"src": friend_id, "dst": start_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_remake_friend_lane_intent", friend_id, start_id, "feed")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "attack_enemy_hive", run_timeout_ms, "tutorial_controls_advances_after_remake_friend_lane", {"src": friend_id, "dst": start_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	if _tutorial_controls_smoke_wrong_press_blocked(arena_node, enemy_id):
+		passes += _mvp_smoke_pass("tutorial_controls_attack_tap_tap_blocked", {"step": "attack_enemy_hive", "hive_id": enemy_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_attack_tap_tap_blocked", _tutorial_controls_smoke_snapshot(arena_node))
+
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_attack_enemy_intent", friend_id, enemy_id, "attack")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "contest_enemy_lane", run_timeout_ms, "tutorial_controls_advances_after_attack_enemy", {"src": friend_id, "dst": enemy_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	if _tutorial_controls_smoke_add_team_units_killed(1, 3):
+		passes += _mvp_smoke_pass("tutorial_controls_contest_cancel_seeded", {"team_id": 1, "count": 3})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_contest_cancel_seeded", {"team_id": 1})
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "attack_enemy_from_start", run_timeout_ms, "tutorial_controls_advances_after_contest_cancels", {"src": friend_id, "dst": enemy_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_attack_enemy_from_start_intent", start_id, enemy_id, "attack")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "take_neutral_hive", run_timeout_ms, "tutorial_controls_advances_after_start_attack", {"src": start_id, "dst": enemy_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_attack_neutral_intent", start_id, neutral_id, "attack")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	if _tutorial_controls_smoke_set_hive_owner(neutral_id, 1, 12):
+		passes += _mvp_smoke_pass("tutorial_controls_capture_neutral_mutation", {"hive_id": neutral_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_capture_neutral_mutation", {"hive_id": neutral_id})
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "attack_enemy_from_neutral", run_timeout_ms, "tutorial_controls_advances_after_neutral_capture", {"hive_id": neutral_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_attack_enemy_from_neutral_intent", neutral_id, enemy_id, "attack")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_intro", run_timeout_ms, "tutorial_controls_advances_after_neutral_attack", {"src": neutral_id, "dst": enemy_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	if _tutorial_controls_smoke_tap_anywhere(arena_node):
+		passes += _mvp_smoke_pass("tutorial_controls_swarm_intro_continues", {})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_swarm_intro_continues", _tutorial_controls_smoke_snapshot(arena_node))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_by_overlap", run_timeout_ms, "tutorial_controls_advances_to_overlap_swarm", {"src": neutral_id, "dst": enemy_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	_tutorial_controls_smoke_boost_hive(neutral_id, 30)
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_overlap_swarm_intent", neutral_id, enemy_id, "swarm")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "wait_overlap_swarm_hit", run_timeout_ms, "tutorial_controls_advances_after_overlap_swarm", {"src": neutral_id, "dst": enemy_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	_tutorial_controls_smoke_clear_swarms()
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_double_tap", run_timeout_ms, "tutorial_controls_advances_after_overlap_hit", {"src": neutral_id, "dst": enemy_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	_tutorial_controls_smoke_boost_hive(start_id, 30)
+	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_double_tap_swarm_intent", start_id, enemy_id, "swarm")
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "finish_fight", run_timeout_ms, "tutorial_controls_advances_after_double_tap_swarm", {"src": start_id, "dst": enemy_id})
+	passes += int(check_result.get("passes", 0))
+	fails += int(check_result.get("fails", 0))
+
+	if _tutorial_controls_smoke_set_hive_owner(enemy_id, 1, 6):
+		passes += _mvp_smoke_pass("tutorial_controls_capture_enemy_mutation", {"hive_id": enemy_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_capture_enemy_mutation", {"hive_id": enemy_id})
+	var completed_ok: bool = await _tutorial_controls_smoke_wait_profile_status("completed", run_timeout_ms)
+	if completed_ok:
+		passes += _mvp_smoke_pass("tutorial_controls_completion_persisted", {"status": "completed"})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_completion_persisted", _tutorial_controls_smoke_profile_snapshot())
+
+	var summary_status: String = "pass" if fails == 0 else "fail"
+	SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": summary_status, "mode": "tutorial_controls"})
+	get_tree().quit(1 if fails > 0 else 0)
+
+func _tutorial_controls_smoke_snapshot(arena_node: Node) -> Dictionary:
+	if arena_node == null or not arena_node.has_method("tutorial_controls_smoke_snapshot"):
+		return {}
+	var snapshot_any: Variant = arena_node.call("tutorial_controls_smoke_snapshot")
+	if typeof(snapshot_any) == TYPE_DICTIONARY:
+		return snapshot_any as Dictionary
+	return {}
+
+func _tutorial_controls_smoke_anchors_valid(anchors: Dictionary) -> bool:
+	for anchor_name in ["start_hive", "neutral_hive", "friend_hive", "enemy_hive"]:
+		if int(anchors.get(anchor_name, -1)) <= 0:
+			return false
+	return true
+
+func _tutorial_controls_smoke_tap_anywhere(arena_node: Node) -> bool:
+	if arena_node == null or not arena_node.has_method("tutorial_controls_smoke_should_allow_pointer_event"):
+		return false
+	var press_ev: Dictionary = {
+		"type": "press",
+		"button": 98,
+		"local_pos": Vector2.ZERO,
+		"world_pos": Vector2.ZERO,
+		"screen_pos": Vector2.ZERO,
+		"is_touch": false,
+		"touch_index": -1,
+		"hive_id": -1,
+		"lane_id": -1
+	}
+	var allowed: bool = bool(arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev))
+	press_ev["type"] = "release"
+	arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev)
+	return not allowed
+
+func _tutorial_controls_smoke_wrong_press_blocked(arena_node: Node, hive_id: int) -> bool:
+	if arena_node == null or not arena_node.has_method("tutorial_controls_smoke_should_allow_pointer_event"):
+		return false
+	var press_ev: Dictionary = {
+		"type": "press",
+		"button": 99,
+		"local_pos": Vector2.ZERO,
+		"world_pos": Vector2.ZERO,
+		"screen_pos": Vector2.ZERO,
+		"is_touch": false,
+		"touch_index": -1,
+		"hive_id": hive_id,
+		"lane_id": -1
+	}
+	var allowed: bool = bool(arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev))
+	press_ev["type"] = "release"
+	arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev)
+	return not allowed
+
+func _tutorial_controls_smoke_commit_hive_press(arena_node: Node, hive_id: int) -> bool:
+	if arena_node == null or not arena_node.has_method("tutorial_controls_smoke_should_allow_pointer_event"):
+		return false
+	var before_snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+	var press_ev: Dictionary = {
+		"type": "press",
+		"button": 97,
+		"local_pos": Vector2.ZERO,
+		"world_pos": Vector2.ZERO,
+		"screen_pos": Vector2.ZERO,
+		"is_touch": false,
+		"touch_index": -1,
+		"hive_id": hive_id,
+		"lane_id": -1
+	}
+	var allowed: bool = bool(arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev))
+	var after_snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+	press_ev["type"] = "release"
+	arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev)
+	if allowed:
+		return true
+	return _tutorial_controls_smoke_valid_consumed_prompt(before_snapshot, after_snapshot)
+
+func _tutorial_controls_smoke_valid_consumed_prompt(before_snapshot: Dictionary, after_snapshot: Dictionary) -> bool:
+	var before_step: String = str(before_snapshot.get("current_step", ""))
+	var after_step: String = str(after_snapshot.get("current_step", ""))
+	match before_step:
+		"select_start_hive":
+			return after_step == "feed_friend"
+		"feed_friend":
+			return after_step == "feed_friend" and bool(after_snapshot.get("feed_friend_arrival_wait_active", false))
+		"reverse_feed":
+			var before_phase: String = str(before_snapshot.get("reverse_feed_phase", ""))
+			var after_phase: String = str(after_snapshot.get("reverse_feed_phase", ""))
+			if before_phase == "tap_destination":
+				return after_step == "reverse_feed" and after_phase == "tap_source"
+			if before_phase == "tap_source":
+				return after_step == "reverse_feed" and bool(after_snapshot.get("reverse_feed_arrival_wait_active", false))
+			return false
+		_:
+			return false
+
+func _tutorial_controls_smoke_select_hive(arena_node: Node, hive_id: int) -> void:
+	if arena_node != null and arena_node.has_method("_handle_tap"):
+		arena_node.call("_handle_tap", hive_id, 1)
+	else:
+		var st: GameState = OpsState.get_state()
+		if st != null and st.selection != null:
+			OpsState.sim_mutate("tutorial_controls_smoke_select_hive", func() -> void:
+				st.selection.selected_hive_id = hive_id
+			)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+func _tutorial_controls_smoke_expect_step(arena_node: Node, step_id: String, timeout_ms: int, check_name: String, data: Dictionary) -> Dictionary:
+	var result: Dictionary = {"passes": 0, "fails": 0}
+	var ok: bool = await _tutorial_controls_smoke_wait_step(arena_node, step_id, timeout_ms)
+	if ok:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass(check_name, data)
+	else:
+		var snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+		data["expected_step"] = step_id
+		data["snapshot"] = snapshot
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail(check_name, data)
+	return result
+
+func _tutorial_controls_smoke_wait_step(arena_node: Node, step_id: String, timeout_ms: int) -> bool:
+	var deadline_ms: int = Time.get_ticks_msec() + max(1000, timeout_ms)
+	while Time.get_ticks_msec() <= deadline_ms:
+		var snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+		if bool(snapshot.get("active", false)) and str(snapshot.get("current_step", "")) == step_id:
+			return true
+		await _mvp_wait_ms(50)
+	return false
+
+func _tutorial_controls_smoke_apply_intent(check_name: String, src_id: int, dst_id: int, intent: String) -> Dictionary:
+	var result: Dictionary = {"passes": 0, "fails": 0}
+	var intent_result: Dictionary = OpsState.apply_lane_intent(src_id, dst_id, intent)
+	if bool(intent_result.get("ok", false)):
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass(check_name, intent_result)
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail(check_name, intent_result)
+	return result
+
+func _tutorial_controls_smoke_set_hive_owner(hive_id: int, owner_id: int, power: int) -> bool:
+	var st: GameState = OpsState.get_state()
+	if st == null or st.find_hive_by_id(hive_id) == null:
+		return false
+	OpsState.sim_mutate("tutorial_controls_smoke_set_hive_owner", func() -> void:
+		var hive: HiveData = st.find_hive_by_id(hive_id)
+		if hive != null:
+			hive.owner_id = owner_id
+			hive.power = maxi(1, power)
+	)
+	return true
+
+func _tutorial_controls_smoke_boost_hive(hive_id: int, power: int) -> void:
+	var st: GameState = OpsState.get_state()
+	if st == null or st.find_hive_by_id(hive_id) == null:
+		return
+	OpsState.sim_mutate("tutorial_controls_smoke_boost_hive", func() -> void:
+		var hive: HiveData = st.find_hive_by_id(hive_id)
+		if hive != null:
+			hive.power = maxi(int(hive.power), power)
+		if st.swarm_cooldown_until_us != null:
+			st.swarm_cooldown_until_us.erase(hive_id)
+	)
+
+func _tutorial_controls_smoke_add_team_units_killed(team_id: int, count: int) -> bool:
+	if team_id <= 0 or count <= 0:
+		return false
+	var stats_by_team: Dictionary = OpsState.stats_by_team
+	var stats: Dictionary = stats_by_team.get(team_id, {}) as Dictionary
+	if stats.is_empty():
+		stats = {
+			"max_total_hive_power": 0,
+			"units_killed": 0,
+			"units_landed": 0,
+			"units_landed_enemy": 0,
+			"units_fed_friendly": 0
+		}
+	stats["units_killed"] = int(stats.get("units_killed", 0)) + count
+	stats_by_team[team_id] = stats
+	OpsState.stats_by_team = stats_by_team
+	return true
+
+func _tutorial_controls_smoke_clear_swarms() -> void:
+	var st: GameState = OpsState.get_state()
+	if st == null:
+		return
+	OpsState.sim_mutate("tutorial_controls_smoke_clear_swarms", func() -> void:
+		st.swarm_requests.clear()
+		st.swarm_packets.clear()
+	)
+
+func _tutorial_controls_smoke_wait_profile_status(status: String, timeout_ms: int) -> bool:
+	var deadline_ms: int = Time.get_ticks_msec() + max(1000, timeout_ms)
+	while Time.get_ticks_msec() <= deadline_ms:
+		var snapshot: Dictionary = _tutorial_controls_smoke_profile_snapshot()
+		if str(snapshot.get("status", "")).strip_edges().to_lower() == status:
+			return true
+		await _mvp_wait_ms(50)
+	return false
+
+func _tutorial_controls_smoke_profile_snapshot() -> Dictionary:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return {"status": "<missing>", "version": 0}
+	var status: String = ""
+	var version: int = 0
+	if profile_manager.has_method("get_tutorial_controls_status"):
+		status = str(profile_manager.call("get_tutorial_controls_status"))
+	if profile_manager.has_method("get_tutorial_controls_version"):
+		version = int(profile_manager.call("get_tutorial_controls_version"))
+	return {"status": status, "version": version}
 
 func _mvp_run_shell_menu_flow_check(map_path: String) -> Dictionary:
 	var result: Dictionary = {"passes": 0, "fails": 0, "launched": false}

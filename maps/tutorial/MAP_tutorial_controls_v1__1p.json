@@ -1,0 +1,34 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_tutorial_controls_v1__1p",
+  "name": "Tutorial - Controls",
+  "family": "tutorial",
+  "display_family": "Tutorial",
+  "mode": "1p",
+  "player_buckets": ["1P"],
+  "strict_player_buckets": true,
+  "playstyle_tags": ["TUTORIAL", "CONTROLS"],
+  "season_tags": ["tutorial"],
+  "rotation": { "status": "tutorial", "weight": 0 },
+  "async_bot_count": 1,
+  "width": 18,
+  "height": 28,
+  "defaults": { "player_start_power": 10, "npc_start_power": 4 },
+  "start_slots": ["start_hive", "enemy_hive"],
+  "entities": [
+    { "type": "player_hive", "id": "start_hive", "owner": "P1", "x": 2, "y": 6, "power": 25 },
+    { "type": "npc_hive", "id": "neutral_hive", "owner": "NEUTRAL", "owner_id": 0, "x": 8, "y": 6, "power": 4 },
+    { "type": "player_hive", "id": "friend_hive", "owner": "P1", "x": 2, "y": 17, "power": 12 },
+    { "type": "player_hive", "id": "enemy_hive", "owner": "P2", "x": 15, "y": 17, "power": 25 }
+  ],
+  "lanes": [
+    { "from": "start_hive", "to": "neutral_hive" },
+    { "from": "start_hive", "to": "friend_hive" },
+    { "from": "friend_hive", "to": "start_hive" },
+    { "from": "start_hive", "to": "enemy_hive" },
+    { "from": "friend_hive", "to": "enemy_hive" },
+    { "from": "neutral_hive", "to": "enemy_hive" }
+  ],
+  "walls": [],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

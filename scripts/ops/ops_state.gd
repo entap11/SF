@@ -23,6 +23,7 @@ const OPS_CONSOLE_SCENE := "res://scenes/ops/ops_console.tscn"
 const MATCH_DURATION_MS_DEFAULT := 300000
 const MATCH_DURATION_MS_TEST := 70000
 const TEAM_MODE_2V2 := "2v2"
+const TEAM_MODE_1P := "1p"
 const TEAM_MODE_FFA := "ffa"
 const BOT_STYLE_BALANCER := "balancer"
 const BOT_STYLE_TURTLE := "turtle"
@@ -1156,6 +1157,8 @@ func _normalize_team_mode(mode: String) -> String:
 	var norm: String = mode.strip_edges().to_lower()
 	if norm == TEAM_MODE_FFA:
 		return TEAM_MODE_FFA
+	if norm == TEAM_MODE_1P:
+		return TEAM_MODE_1P
 	return TEAM_MODE_2V2
 
 func set_team_mode_override(mode: String) -> void:
@@ -3894,11 +3897,14 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	var opened_new_lane: bool = enable and not already_active
 	var disabled_lane: bool = (not enable) and already_active
 	var reversed_lane: bool = false
+	var redirected_units: int = 0
 	if enable:
 		if src_hive_id == int(lane.a_id):
-			reversed_lane = pre_send_b
+			reversed_lane = pre_send_b and bool(lane.send_a) and not bool(lane.send_b)
 		elif src_hive_id == int(lane.b_id):
-			reversed_lane = pre_send_a
+			reversed_lane = pre_send_a and bool(lane.send_b) and not bool(lane.send_a)
+	if reversed_lane:
+		redirected_units = _redirect_units_for_lane_reversal(st, lane, src_hive_id, dst_hive_id, telemetry_src_owner, pre_send_a, pre_send_b)
 
 	var log_intent := resolved_intent if enable else "none"
 	var iid := int(st.get_instance_id())
@@ -3916,7 +3922,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 		"src_is_b": src_hive_id == int(lane.b_id),
 		"send_a": bool(lane.send_a),
 		"send_b": bool(lane.send_b),
-		"intent": log_intent
+		"intent": log_intent,
+		"redirected_units": redirected_units
 	})
 	_intent_profile_add_stage("intent_success_log_event", telemetry_log_start_usec)
 	var telemetry_record_start_usec := Time.get_ticks_usec()
@@ -3961,7 +3968,8 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 			"dst": dst_hive_id,
 			"src_owner": telemetry_src_owner,
 			"dst_owner": telemetry_dst_owner,
-			"intent": resolved_intent
+			"intent": resolved_intent,
+			"redirected_units": redirected_units
 		})
 		_intent_profile_add_stage("intent_success_action_event_reverse", action_event_start_usec)
 	_intent_profile_add_stage("intent_telemetry_and_action_events", telemetry_start_usec)
@@ -3974,6 +3982,34 @@ func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Di
 	_intent_profile_add_stage("intent_signals", signal_start_usec)
 	_intent_profile_add_stage("intent_apply_total", intent_total_start_usec)
 	return result
+
+func _redirect_units_for_lane_reversal(st: GameState, lane: LaneData, src_hive_id: int, dst_hive_id: int, src_owner_id: int, pre_send_a: bool, pre_send_b: bool) -> int:
+	if st == null or lane == null:
+		return 0
+	var unit_system: Object = st.unit_system
+	if unit_system == null or not unit_system.has_method("redirect_units_for_lane_direction"):
+		return 0
+	var redirected_any: Variant = unit_system.call(
+		"redirect_units_for_lane_direction",
+		int(lane.id),
+		src_hive_id,
+		dst_hive_id,
+		src_owner_id
+	)
+	var redirected: int = int(redirected_any)
+	if redirected > 0:
+		SFLog.info("LANE_REVERSAL_REDIRECT_UNITS", {
+			"lane_id": int(lane.id),
+			"src": src_hive_id,
+			"dst": dst_hive_id,
+			"src_owner": src_owner_id,
+			"pre_send_a": pre_send_a,
+			"pre_send_b": pre_send_b,
+			"send_a": bool(lane.send_a),
+			"send_b": bool(lane.send_b),
+			"redirected_units": redirected
+		})
+	return redirected
 
 
 func _active_outgoing_targets(st: GameState, src_hive_id: int) -> Dictionary:
@@ -4142,6 +4178,8 @@ func retract_lane(from_id: int, to_id: int, owner_id: int) -> void:
 		"to_id": to_id,
 		"owner_id": owner_id
 	})
+	emit_signal("lane_intent_changed", int(st.get_instance_id()), int(lane.id))
+	emit_signal("lanes_changed", int(st.get_instance_id()))
 	_record_match_action_event(owner_id, "lane_retract", {
 		"lane_id": int(lane.id),
 		"src": from_id,

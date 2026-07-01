@@ -67,6 +67,7 @@ var _pass_through_emit_accum_ms_by_key: Dictionary = {}
 var _pass_through_last_log_ms_by_key: Dictionary = {}
 var _contested_capture_block_until_us_by_hive: Dictionary = {}
 var _current_arrivals_by_hive: Dictionary = {}
+var arrival_counts_by_hive_owner: Dictionary = {}
 var _pending_tower_hits: Array = []
 var _match_telemetry_collector: RefCounted = null
 var unit_flow_profile_enabled: bool = false
@@ -161,6 +162,7 @@ func bind_state(state_ref: GameState) -> void:
 	_pass_through_last_log_ms_by_key.clear()
 	_contested_capture_block_until_us_by_hive.clear()
 	_current_arrivals_by_hive.clear()
+	arrival_counts_by_hive_owner.clear()
 	_pending_tower_hits.clear()
 	if state != null:
 		state.unit_system = self
@@ -170,6 +172,9 @@ func bind_state(state_ref: GameState) -> void:
 
 func set_sim_events(sim_events: SimEvents) -> void:
 	_sim_events = sim_events
+
+func get_arrival_count(hive_id: int, owner_id: int) -> int:
+	return int(arrival_counts_by_hive_owner.get("%d:%d" % [hive_id, owner_id], 0))
 
 func set_match_telemetry_collector(collector: RefCounted) -> void:
 	_match_telemetry_collector = collector
@@ -819,6 +824,9 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	var before_owner := int(hive.owner_id)
 	var before_power := int(hive.power)
 	var friendly_arrival: bool = _are_allied_owners(before_owner, owner_id)
+	if owner_id > 0:
+		var arrival_key: String = "%d:%d" % [to_id, owner_id]
+		arrival_counts_by_hive_owner[arrival_key] = int(arrival_counts_by_hive_owner.get(arrival_key, 0)) + amount
 	var ops_state: Node = _ops_state()
 	if ops_state != null:
 		ops_state.call("add_units_landed", owner_id, amount)
@@ -1487,6 +1495,60 @@ func _recall_unit(unit: Dictionary) -> Dictionary:
 	unit["skip_pressure"] = true
 	unit = _update_unit_pos_from_t(unit)
 	return unit
+
+func redirect_units_for_lane_direction(lane_id: int, from_id: int, to_id: int, owner_id: int = 0) -> int:
+	if state == null or lane_id <= 0 or from_id <= 0 or to_id <= 0:
+		return 0
+	var lane: LaneData = _find_lane_by_id(lane_id)
+	if lane == null:
+		return 0
+	var new_dir: int = 0
+	if from_id == int(lane.a_id) and to_id == int(lane.b_id):
+		new_dir = 1
+	elif from_id == int(lane.b_id) and to_id == int(lane.a_id):
+		new_dir = -1
+	else:
+		return 0
+	var redirected: int = 0
+	for i in range(units.size()):
+		var unit: Dictionary = units[i] as Dictionary
+		if int(unit.get("lane_id", -1)) != lane_id:
+			continue
+		if bool(unit.get("returning", false)):
+			continue
+		if _unit_dir(unit) == new_dir:
+			continue
+		var unit_owner_id: int = int(unit.get("owner_id", 0))
+		if owner_id > 0 and unit_owner_id > 0 and not _are_allied_owners(owner_id, unit_owner_id):
+			continue
+		var amount: int = int(unit.get("amount", 1))
+		var old_from_is_a: bool = _unit_dir(unit) >= 0
+		var new_from_is_a: bool = new_dir >= 0
+		if amount > 0 and old_from_is_a != new_from_is_a:
+			_adjust_lane_pressure(lane_id, old_from_is_a, -amount)
+			_adjust_lane_pressure(lane_id, new_from_is_a, amount)
+		unit["from_id"] = from_id
+		unit["to_id"] = to_id
+		unit["dir"] = new_dir
+		unit.erase("returning")
+		if str(unit.get("arrive_source", "")) == "recall":
+			unit.erase("arrive_source")
+		if bool(unit.get("skip_pressure", false)):
+			unit.erase("skip_pressure")
+		unit = _ensure_unit_edges(unit)
+		unit = _update_unit_pos_from_t(unit)
+		units[i] = unit
+		redirected += amount
+	if redirected > 0:
+		_sync_units_to_state()
+		SFLog.info("LANE_UNITS_REDIRECTED", {
+			"lane_id": lane_id,
+			"src": from_id,
+			"dst": to_id,
+			"owner": owner_id,
+			"amount": redirected
+		})
+	return redirected
 
 func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: int, _now_us: int, tower_pos: Vector2 = Vector2.ZERO, tower_tier: int = -1) -> bool:
 	if victim_unit_id <= 0:

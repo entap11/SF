@@ -26,6 +26,14 @@ const LONG_PRESS_MOVE_PX := 12.0
 const DRAG_HOVER_EXTRA_PX := 36.0
 const DEST_HIVE_ASSIST_SCALE := 1.30
 const LANE_SOURCE_RETRACT_T := 0.50
+const LANE_GRAB_STATE_IDLE := "idle"
+const LANE_GRAB_STATE_CANDIDATE := "candidate"
+const LANE_GRAB_STATE_ARMED := "armed"
+const LANE_GRAB_STATE_THROW_READY := "throw_ready"
+const LANE_GRAB_STATE_COMMITTED := "committed"
+const LANE_GRAB_STATE_CANCELLED := "cancelled"
+const LANE_GRAB_ARM_MS := 160
+const LANE_GRAB_THROW_DISTANCE_PX := 44.0
 const ENABLE_ROUTE_LANE_FLASH := true
 const ROUTE_LANE_FLASH_MS := 250
 
@@ -75,6 +83,17 @@ var _phase_input_attempt_logged: bool = false
 var selected_structure_type: String = ""
 var selected_structure_id: int = -1
 var route_edit_mode: bool = false
+var _lane_grab_state: String = LANE_GRAB_STATE_IDLE
+var _lane_grab_touch_index: int = -1
+var _lane_grab_player_id: int = -1
+var _lane_grab_lane_id: int = -1
+var _lane_grab_side: String = ""
+var _lane_grab_src_id: int = -1
+var _lane_grab_dst_id: int = -1
+var _lane_grab_press_ms: int = 0
+var _lane_grab_start_local: Vector2 = Vector2.ZERO
+var _lane_grab_current_local: Vector2 = Vector2.ZERO
+var _lane_grab_reason: String = ""
 
 func setup(selection_state: SelectionState) -> void:
 	if selection_state != null:
@@ -104,7 +123,13 @@ func set_inputs_locked(v: bool, reason: String = "match_over") -> void:
 		_phase_input_attempt_logged = false
 
 func tick(_dt: float, _arena_api: ArenaAPI) -> void:
-	pass
+	if _arena_api == null:
+		return
+	if _lane_grab_state == LANE_GRAB_STATE_CANDIDATE:
+		if Time.get_ticks_msec() - _lane_grab_press_ms >= LANE_GRAB_ARM_MS:
+			_arm_lane_grab(_arena_api)
+	elif _lane_grab_state == LANE_GRAB_STATE_ARMED or _lane_grab_state == LANE_GRAB_STATE_THROW_READY:
+		_update_lane_grab_motion(_lane_grab_current_local, _arena_api)
 
 func _clear_interaction_state() -> void:
 	_press_active = false
@@ -118,6 +143,7 @@ func _clear_interaction_state() -> void:
 	_press_prev_selected_lane_id = -1
 	_dragging = false
 	_drag_src_id = -1
+	_cancel_lane_grab("touch_cancelled", _last_arena_api, true)
 	if _long_press_timer != null:
 		_long_press_timer = null
 	_clear_drag_target_visual(_last_arena_api)
@@ -209,9 +235,12 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	if event_type != "motion" and not InputEventUtils.is_player_pointer_button(button_index):
 		return
 	var is_touch: bool = bool(ev.get("is_touch", false))
+	var touch_index: int = int(ev.get("touch_index", -1))
 	var dev_pid: int = -1
 	if not is_touch and button_index != MOUSE_BUTTON_LEFT:
 		dev_pid = _dev_mouse_pid_from_button(button_index)
+	if _lane_grab_state != LANE_GRAB_STATE_IDLE and _lane_grab_touch_index >= 0 and is_touch and touch_index != _lane_grab_touch_index:
+		return
 	var local_pos: Vector2 = ev.get("local_pos", Vector2.ZERO)
 	var hive_id: int = int(ev.get("hive_id", -1))
 	var lane_id: int = int(ev.get("lane_id", -1))
@@ -221,7 +250,7 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	SFLog.log_once("input_path_pointer", "INPUT_PATH: handle_pointer_event", SFLog.Level.INFO)
 	match event_type:
 		"press":
-			_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index, is_touch)
+			_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index, is_touch, touch_index)
 		"motion":
 			_handle_drag(local_pos, hive_id, lane_id, arena_api)
 		"release":
@@ -953,6 +982,11 @@ func _pick_tower_candidate(_world_pos: Vector2, map_local: Vector2, arena_api: A
 		"center_local": best_center
 	}
 
+func _pick_tower_at_local(map_local: Vector2, arena_api: ArenaAPI) -> int:
+	var world_pos: Vector2 = _map_local_to_world(map_local, arena_api)
+	var hit: Dictionary = _pick_tower_candidate(world_pos, map_local, arena_api)
+	return int(hit.get("id", -1))
+
 func _pick_target(world_pos: Vector2, map_local: Vector2, arena_api: ArenaAPI) -> Dictionary:
 	var candidates: Array = []
 	var hive_c := _pick_hive_candidate(world_pos, map_local, arena_api)
@@ -982,6 +1016,254 @@ func _pick_target(world_pos: Vector2, map_local: Vector2, arena_api: ArenaAPI) -
 		return {"type": "", "id": -1, "dist": INF, "world": world_pos}
 	best["world"] = world_pos
 	return best
+
+func _start_lane_grab_candidate(lane_id: int, local_pos: Vector2, player_id: int, touch_index: int, arena_api: ArenaAPI) -> bool:
+	if lane_id <= 0 or player_id <= 0 or arena_api == null:
+		return false
+	var lane: LaneData = arena_api.find_lane_by_id(lane_id)
+	if lane == null:
+		_log_lane_grab_cancel("lane_removed", lane_id, "", player_id)
+		return false
+	var side_info: Dictionary = _owned_active_lane_side(lane, player_id, arena_api)
+	if side_info.is_empty():
+		_log_lane_grab_cancel("enemy_lane", lane_id, "", player_id)
+		return false
+	_lane_grab_state = LANE_GRAB_STATE_CANDIDATE
+	_lane_grab_touch_index = touch_index
+	_lane_grab_player_id = player_id
+	_lane_grab_lane_id = lane_id
+	_lane_grab_side = str(side_info.get("side", ""))
+	_lane_grab_src_id = int(side_info.get("src", -1))
+	_lane_grab_dst_id = int(side_info.get("dst", -1))
+	_lane_grab_press_ms = Time.get_ticks_msec()
+	_lane_grab_start_local = local_pos
+	_lane_grab_current_local = local_pos
+	_lane_grab_reason = ""
+	SFLog.info("LANE_GRAB_START", {
+		"lane_id": lane_id,
+		"side": _lane_grab_side,
+		"src": _lane_grab_src_id,
+		"dst": _lane_grab_dst_id,
+		"player_id": player_id
+	})
+	return true
+
+func _owned_active_lane_side(lane: LaneData, player_id: int, arena_api: ArenaAPI) -> Dictionary:
+	if lane == null or player_id <= 0 or arena_api == null:
+		return {}
+	var a: HiveData = arena_api.find_hive_by_id(int(lane.a_id))
+	var b: HiveData = arena_api.find_hive_by_id(int(lane.b_id))
+	if a != null and bool(lane.send_a) and int(a.owner_id) == player_id:
+		return {"side": "a", "src": int(lane.a_id), "dst": int(lane.b_id)}
+	if b != null and bool(lane.send_b) and int(b.owner_id) == player_id:
+		return {"side": "b", "src": int(lane.b_id), "dst": int(lane.a_id)}
+	return {}
+
+func _arm_lane_grab(arena_api: ArenaAPI) -> void:
+	if _lane_grab_state != LANE_GRAB_STATE_CANDIDATE:
+		return
+	var lane: LaneData = arena_api.find_lane_by_id(_lane_grab_lane_id) if arena_api != null else null
+	if lane == null:
+		_cancel_lane_grab("lane_removed", arena_api, true)
+		return
+	var side_info: Dictionary = _owned_active_lane_side(lane, _lane_grab_player_id, arena_api)
+	if side_info.is_empty():
+		_cancel_lane_grab("enemy_lane", arena_api, true)
+		return
+	_lane_grab_state = LANE_GRAB_STATE_ARMED
+	Input.vibrate_handheld(20)
+	SFLog.info("LANE_GRAB_ARMED", {
+		"lane_id": _lane_grab_lane_id,
+		"side": _lane_grab_side,
+		"player_id": _lane_grab_player_id
+	})
+	_set_lane_grab_preview(arena_api, false, Vector2.ZERO, Vector2.ZERO)
+
+func _update_lane_grab_motion(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
+	if _lane_grab_state == LANE_GRAB_STATE_IDLE:
+		return false
+	_lane_grab_current_local = local_pos
+	if _lane_grab_state == LANE_GRAB_STATE_CANDIDATE:
+		if _lane_grab_structure_hit(local_pos, arena_api):
+			_cancel_lane_grab("structure_hit", arena_api, true)
+			return true
+		if Time.get_ticks_msec() - _lane_grab_press_ms >= LANE_GRAB_ARM_MS:
+			_arm_lane_grab(arena_api)
+		return true
+	if _lane_grab_structure_hit(local_pos, arena_api):
+		_cancel_lane_grab("structure_hit", arena_api, true)
+		return true
+	var metrics: Dictionary = _lane_grab_metrics(local_pos, arena_api)
+	if not bool(metrics.get("ok", false)):
+		_cancel_lane_grab(str(metrics.get("reason", "lane_removed")), arena_api, true)
+		return true
+	var perp_dist: float = float(metrics.get("perp_dist", 0.0))
+	if perp_dist >= LANE_GRAB_THROW_DISTANCE_PX:
+		_lane_grab_state = LANE_GRAB_STATE_THROW_READY
+		_set_lane_grab_preview(
+			arena_api,
+			true,
+			metrics.get("closest", Vector2.ZERO) as Vector2,
+			local_pos
+		)
+	else:
+		_lane_grab_state = LANE_GRAB_STATE_ARMED
+		_set_lane_grab_preview(arena_api, false, Vector2.ZERO, Vector2.ZERO)
+	return true
+
+func _finish_lane_grab_release(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
+	if _lane_grab_state != LANE_GRAB_STATE_ARMED and _lane_grab_state != LANE_GRAB_STATE_THROW_READY:
+		return false
+	_update_lane_grab_motion(local_pos, arena_api)
+	if _lane_grab_state == LANE_GRAB_STATE_THROW_READY:
+		var lane_id: int = _lane_grab_lane_id
+		var side: String = _lane_grab_side
+		var src_id: int = _lane_grab_src_id
+		var dst_id: int = _lane_grab_dst_id
+		var player_id: int = _lane_grab_player_id
+		_lane_grab_state = LANE_GRAB_STATE_COMMITTED
+		_clear_lane_grab_preview(arena_api)
+		_reset_lane_grab_state()
+		arena_api.retract_lane(src_id, dst_id, player_id)
+		Input.vibrate_handheld(35)
+		SFLog.info("LANE_GRAB_RETRACT", {
+			"lane_id": lane_id,
+			"side": side,
+			"src": src_id,
+			"dst": dst_id,
+			"player_id": player_id
+		})
+		return true
+	var metrics: Dictionary = _lane_grab_metrics(local_pos, arena_api)
+	var reason: String = "distance_too_short"
+	if bool(metrics.get("ok", false)):
+		var parallel_abs: float = float(metrics.get("parallel_abs", 0.0))
+		var perp_dist: float = float(metrics.get("perp_dist", 0.0))
+		if parallel_abs >= LANE_GRAB_THROW_DISTANCE_PX and parallel_abs > perp_dist:
+			reason = "drag_along_lane"
+	_cancel_lane_grab(reason, arena_api, true)
+	return true
+
+func _lane_grab_structure_hit(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
+	if arena_api == null:
+		return false
+	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
+	var target: Dictionary = _pick_target(world_pos, local_pos, arena_api)
+	return int(target.get("id", -1)) > 0 and not str(target.get("type", "")).is_empty()
+
+func _lane_grab_metrics(local_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
+	if arena_api == null:
+		return {"ok": false, "reason": "lane_removed"}
+	var lane: LaneData = arena_api.find_lane_by_id(_lane_grab_lane_id)
+	if lane == null:
+		return {"ok": false, "reason": "lane_removed"}
+	var side_info: Dictionary = _owned_active_lane_side(lane, _lane_grab_player_id, arena_api)
+	if side_info.is_empty():
+		return {"ok": false, "reason": "enemy_lane"}
+	var seg: Dictionary = _lane_grab_segment_local(lane, arena_api)
+	if not bool(seg.get("ok", false)):
+		return {"ok": false, "reason": "lane_removed"}
+	var start_pos: Vector2 = seg.get("start", Vector2.ZERO) as Vector2
+	var end_pos: Vector2 = seg.get("end", Vector2.ZERO) as Vector2
+	var axis: Vector2 = end_pos - start_pos
+	var len_sq: float = axis.length_squared()
+	if len_sq <= 0.000001:
+		return {"ok": false, "reason": "lane_removed"}
+	var t: float = clampf((local_pos - start_pos).dot(axis) / len_sq, 0.0, 1.0)
+	var closest: Vector2 = start_pos.lerp(end_pos, t)
+	var offset: Vector2 = local_pos - closest
+	var lane_dir: Vector2 = axis.normalized()
+	var from_start: Vector2 = local_pos - _lane_grab_start_local
+	return {
+		"ok": true,
+		"closest": closest,
+		"perp_dist": offset.length(),
+		"parallel_abs": abs(from_start.dot(lane_dir))
+	}
+
+func _lane_grab_segment_local(lane: LaneData, arena_api: ArenaAPI) -> Dictionary:
+	if lane == null or arena_api == null:
+		return {"ok": false}
+	var a_pos: Vector2 = Vector2.INF
+	var b_pos: Vector2 = Vector2.INF
+	var lr := _get_lane_renderer(arena_api)
+	if lr != null and lr.has_method("get_lane_endpoints_world"):
+		var ep: Dictionary = lr.call("get_lane_endpoints_world", int(lane.id), int(lane.a_id), int(lane.b_id))
+		if bool(ep.get("ok", false)):
+			var a_world_v: Variant = ep.get("start_world", null)
+			var b_world_v: Variant = ep.get("end_world", null)
+			if a_world_v is Vector2 and b_world_v is Vector2:
+				a_pos = arena_api.world_to_map_local(a_world_v as Vector2)
+				b_pos = arena_api.world_to_map_local(b_world_v as Vector2)
+	if a_pos == Vector2.INF or b_pos == Vector2.INF:
+		a_pos = _get_hive_pos_local(int(lane.a_id), arena_api)
+		b_pos = _get_hive_pos_local(int(lane.b_id), arena_api)
+	if a_pos == Vector2.INF or b_pos == Vector2.INF:
+		return {"ok": false}
+	var start_pos: Vector2 = a_pos
+	var end_pos: Vector2 = b_pos
+	if bool(lane.send_a) and bool(lane.send_b):
+		var front_t: float = clampf(float(lane.last_impact_f), 0.05, 0.95)
+		var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
+		if _lane_grab_side == "a":
+			end_pos = front_pos
+		elif _lane_grab_side == "b":
+			start_pos = front_pos
+	elif _lane_grab_side == "b":
+		start_pos = b_pos
+		end_pos = a_pos
+	return {"ok": true, "start": start_pos, "end": end_pos}
+
+func _set_lane_grab_preview(arena_api: ArenaAPI, tension: bool, _anchor_local: Vector2, pull_local: Vector2) -> void:
+	var lr := _get_lane_renderer(arena_api)
+	if lr == null or not lr.has_method("set_lane_grab_preview"):
+		return
+	var source_world: Vector2 = Vector2.ZERO
+	var dest_world: Vector2 = Vector2.ZERO
+	var pull_world: Vector2 = _map_local_to_world(pull_local, arena_api) if tension else Vector2.ZERO
+	if tension:
+		var lane: LaneData = arena_api.find_lane_by_id(_lane_grab_lane_id) if arena_api != null else null
+		var seg: Dictionary = _lane_grab_segment_local(lane, arena_api)
+		if bool(seg.get("ok", false)):
+			source_world = _map_local_to_world(seg.get("start", Vector2.ZERO) as Vector2, arena_api)
+			dest_world = _map_local_to_world(seg.get("end", Vector2.ZERO) as Vector2, arena_api)
+	lr.call("set_lane_grab_preview", _lane_grab_lane_id, _lane_grab_side, _lane_grab_state, source_world, dest_world, pull_world)
+
+func _clear_lane_grab_preview(arena_api: ArenaAPI) -> void:
+	var lr := _get_lane_renderer(arena_api)
+	if lr != null and lr.has_method("clear_lane_grab_preview"):
+		lr.call("clear_lane_grab_preview")
+
+func _cancel_lane_grab(reason: String, arena_api: ArenaAPI, consume: bool) -> bool:
+	if _lane_grab_state == LANE_GRAB_STATE_IDLE:
+		return false
+	_lane_grab_state = LANE_GRAB_STATE_CANCELLED
+	_lane_grab_reason = reason
+	_log_lane_grab_cancel(reason, _lane_grab_lane_id, _lane_grab_side, _lane_grab_player_id)
+	_clear_lane_grab_preview(arena_api)
+	_reset_lane_grab_state()
+	return consume
+
+func _log_lane_grab_cancel(reason: String, lane_id: int, side: String, player_id: int) -> void:
+	SFLog.info("LANE_GRAB_CANCEL", {
+		"reason": reason,
+		"lane_id": lane_id,
+		"side": side,
+		"player_id": player_id
+	})
+
+func _reset_lane_grab_state() -> void:
+	_lane_grab_state = LANE_GRAB_STATE_IDLE
+	_lane_grab_touch_index = -1
+	_lane_grab_player_id = -1
+	_lane_grab_lane_id = -1
+	_lane_grab_side = ""
+	_lane_grab_src_id = -1
+	_lane_grab_dst_id = -1
+	_lane_grab_press_ms = 0
+	_lane_grab_start_local = Vector2.ZERO
+	_lane_grab_current_local = Vector2.ZERO
+	_lane_grab_reason = ""
 
 func _pick_barracks_id_at(pos_map_local: Vector2) -> int:
 	var arena_api: ArenaAPI = _last_arena_api
@@ -1391,7 +1673,7 @@ func _is_dev_mouse_override() -> bool:
 func _dev_mouse_pid_from_button(button_index: int) -> int:
 	return InputEventUtils.dev_mouse_pid_from_button(button_index)
 
-func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, button_index: int, is_touch: bool = false) -> void:
+func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, button_index: int, is_touch: bool = false, touch_index: int = -1) -> void:
 	if _handling_click:
 		if SFLog.LOGGING_ENABLED:
 			print("HIVE: re-entrant click blocked")
@@ -1418,6 +1700,8 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 	_press_lane_id = lane_id
 	_press_player_id = actor_id
 	_press_is_touch = is_touch
+	if _lane_grab_state != LANE_GRAB_STATE_IDLE:
+		_cancel_lane_grab("touch_cancelled", arena_api, true)
 	_clear_drag_target_visual(arena_api)
 	var arena: Node = arena_api._arena if arena_api != null else null
 	if arena != null:
@@ -1489,6 +1773,9 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		selection.drag_hover_reason = ""
 		selection.last_vibe_target_id = -1
 		selection.drag_dev_pid = actor_id
+		if _press_candidate_barracks_id == -1 and _pick_tower_at_local(local_pos, arena_api) == -1:
+			var candidate_lane_id: int = _pick_lane_id_for_click(local_pos, lane_id, arena_api)
+			_start_lane_grab_candidate(candidate_lane_id, local_pos, actor_id, touch_index if is_touch else -1, arena_api)
 	_handling_click = false
 	_queue_lane_preview_redraw(arena_api)
 	arena_api.mark_render_dirty("input_press")
@@ -1518,6 +1805,15 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		selection.drag_start_hive_id
 	)
 	var release_lane_id: int = _pick_lane_id_for_click(local_pos, lane_id, arena_api)
+	if _lane_grab_state == LANE_GRAB_STATE_CANDIDATE:
+		_cancel_lane_grab("released_before_arm", arena_api, false)
+	elif _lane_grab_state == LANE_GRAB_STATE_ARMED or _lane_grab_state == LANE_GRAB_STATE_THROW_READY:
+		if _finish_lane_grab_release(local_pos, arena_api):
+			_press_consumed = false
+			reset_drag()
+			_queue_lane_preview_redraw(arena_api)
+			arena_api.mark_render_dirty("input_release_lane_grab")
+			return
 	if selection.drag_active and selection.drag_moved and selection.drag_start_hive_id > 0:
 		var start_id: int = selection.drag_start_hive_id
 		if end_id > 0 and end_id != start_id:
@@ -1547,6 +1843,11 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 	arena_api.mark_render_dirty("input_release")
 
 func _handle_drag(local_pos: Vector2, _hive_id: int, _lane_id: int, arena_api: ArenaAPI) -> void:
+	if _lane_grab_state != LANE_GRAB_STATE_IDLE:
+		if _update_lane_grab_motion(local_pos, arena_api):
+			_queue_lane_preview_redraw(arena_api)
+			arena_api.mark_render_dirty("lane_grab_drag")
+			return
 	if _press_active and _press_candidate_barracks_id != -1:
 		var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
 		_press_last_world = world_pos

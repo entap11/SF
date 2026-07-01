@@ -10,7 +10,8 @@ const SANDBOX_ENV_VAR: String = "SF_MAP_SANDBOX"
 const WALL_MAPS_PLAYABLE: bool = false
 const WALL_MAP_SANDBOX_REASON: String = "walls_sandboxed"
 const SANDBOX_ALLOWED_MAP_IDS: Array[String] = [
-	"MAP_TEST"
+	"MAP_TEST",
+	"MAP_tutorial_controls_v1__1p"
 ]
 const SANDBOXED_PUBLIC_STYLES: Dictionary = {
 	"nomansland": ["656"]

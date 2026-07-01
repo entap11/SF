@@ -95,6 +95,8 @@ const UNIT_THICKNESS_KEY: String = "unit.p1"
 const DEBUG_PICK_DOT_MS := 200
 const DEBUG_PICK_DOT_RADIUS := 3.5
 const DEBUG_PICK_DOT_COLOR := Color(1.0, 0.2, 0.9, 0.9)
+const LANE_GRAB_HIGHLIGHT_COLOR := Color(1.0, 1.0, 1.0, 0.96)
+const LANE_GRAB_TENSION_COLOR := Color(1.0, 1.0, 1.0, 0.50)
 
 var state: GameState = null
 var sel: Object = null
@@ -151,6 +153,9 @@ var _process_hb_frames: int = 0
 var _process_hb_max_ms: float = 0.0
 var _process_hb_sum_ms: float = 0.0
 var _lane_front_visual_by_id: Dictionary = {}
+var _lane_grab_preview: Dictionary = {}
+var _lane_grab_tension_sprite: Sprite2D = null
+var _lane_grab_tension_line: Line2D = null
 
 static func is_lane_visual_hierarchy_enabled() -> bool:
 	return bool(LaneVisualHierarchyScript.call("is_enabled"))
@@ -475,6 +480,15 @@ func _lane_color_for_t(send_a: bool, send_b: bool, color_a: Color, color_b: Colo
 		return color_b
 	return LANE_INACTIVE_COLOR
 
+func _lane_side_for_t(send_a: bool, send_b: bool, t: float, front_t: float) -> String:
+	if send_a and send_b:
+		return "a" if t <= front_t else "b"
+	if send_a:
+		return "a"
+	if send_b:
+		return "b"
+	return ""
+
 func _clamped_contested_front_t(start: Vector2, end: Vector2, front_t: float) -> float:
 	if not ENABLE_DYNAMIC_LANE_FRONTS:
 		return STATIC_LANE_FRONT_T
@@ -793,6 +807,29 @@ func flash_lane(lane_id: int, duration_ms: int = LANE_FLASH_DEFAULT_MS) -> void:
 		return
 	var now_ms := Time.get_ticks_msec()
 	_lane_flash_expire_by_id[lane_id] = now_ms + maxi(1, duration_ms)
+	queue_redraw()
+
+func set_lane_grab_preview(lane_id: int, side: String, state_name: String, source_world: Vector2 = Vector2.ZERO, dest_world: Vector2 = Vector2.ZERO, pull_world: Vector2 = Vector2.ZERO) -> void:
+	if lane_id <= 0 or not (side == "a" or side == "b"):
+		clear_lane_grab_preview()
+		return
+	_lane_grab_preview = {
+		"lane_id": lane_id,
+		"side": side,
+		"state": state_name,
+		"source_world": source_world,
+		"dest_world": dest_world,
+		"pull_world": pull_world,
+		"tension": state_name == "throw_ready"
+	}
+	_apply_lane_grab_tension_sprite()
+	_update_lane_sprite_tints()
+	queue_redraw()
+
+func clear_lane_grab_preview() -> void:
+	_lane_grab_preview.clear()
+	_hide_lane_grab_tension_sprite()
+	_update_lane_sprite_tints()
 	queue_redraw()
 
 func _draw() -> void:
@@ -1792,6 +1829,8 @@ func _update_lane_visuals(delta: float) -> void:
 		var profile_width_px: float = _lane_visual_width_px(float(profile.get("width", target_px)), send_a, send_b, a_id, b_id)
 		color_a = _apply_lane_visual_profile_to_color(color_a, profile)
 		color_b = _apply_lane_visual_profile_to_color(color_b, profile)
+		color_a = _lane_grab_preview_color(lane_id, "a", color_a)
+		color_b = _lane_grab_preview_color(lane_id, "b", color_b)
 		lane_z_index = int(profile.get("z_index", lane_z_index))
 		prepared_by_key[key_any] = {
 			"entry": entry,
@@ -2206,6 +2245,8 @@ func _update_lane_sprite_tints() -> void:
 					var rel: Vector2 = spr.global_position - p0
 					t = clamp(rel.dot(dir) / len_sq, 0.0, 1.0)
 				var seg_color: Color = _lane_color_for_t(send_a, send_b, color_a, color_b, t, front_t)
+				var side: String = _lane_side_for_t(send_a, send_b, t, front_t)
+				seg_color = _lane_grab_preview_color(lane_id, side, seg_color)
 				spr.modulate = seg_color
 		var connectors: Array = entry.get("connectors", [])
 		for c in connectors:
@@ -2216,6 +2257,8 @@ func _update_lane_sprite_tints() -> void:
 					var rel_c: Vector2 = conn.global_position - p0
 					t_c = clamp(rel_c.dot(dir) / len_sq, 0.0, 1.0)
 				var conn_color: Color = _lane_color_for_t(send_a, send_b, color_a, color_b, t_c, front_t)
+				var conn_side: String = _lane_side_for_t(send_a, send_b, t_c, front_t)
+				conn_color = _lane_grab_preview_color(lane_id, conn_side, conn_color)
 				conn.modulate = conn_color
 
 func _draw_model_lanes(rm: Dictionary) -> void:
@@ -2374,10 +2417,18 @@ func _draw_lane_colored(start: Vector2, end: Vector2, a_id: int, b_id: int, send
 		var mid := start.lerp(end, t_front)
 		var color_a := _resolve_lane_color(a_id, b_id, true, false, rm, lane)
 		var color_b := _resolve_lane_color(a_id, b_id, false, true, rm, lane)
+		var lane_id: int = int(lane.get("lane_id", lane.get("id", -1)))
+		color_a = _lane_grab_preview_color(lane_id, "a", color_a)
+		color_b = _lane_grab_preview_color(lane_id, "b", color_b)
 		_draw_lane_textured_segment(start, mid, color_a, width, true)
 		_draw_lane_textured_segment(mid, end, color_b, width, false)
 		return
 	var color := _resolve_lane_color(a_id, b_id, send_a, send_b, rm, lane)
+	var lane_id_single: int = int(lane.get("lane_id", lane.get("id", -1)))
+	if send_a:
+		color = _lane_grab_preview_color(lane_id_single, "a", color)
+	elif send_b:
+		color = _lane_grab_preview_color(lane_id_single, "b", color)
 	_draw_lane_textured_segment(start, end, color, width, not send_b)
 
 func _draw_lane_textured_segment(start: Vector2, end: Vector2, color: Color, lane_width: float = LANE_WIDTH_PX, points_toward_end: bool = true) -> void:
@@ -2397,6 +2448,96 @@ func _draw_lane_textured_segment(start: Vector2, end: Vector2, color: Color, lan
 		color
 	)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+func _lane_grab_preview_color(lane_id: int, side: String, base_color: Color) -> Color:
+	if _lane_grab_preview.is_empty():
+		return base_color
+	if lane_id <= 0 or lane_id != int(_lane_grab_preview.get("lane_id", -1)):
+		return base_color
+	if side != str(_lane_grab_preview.get("side", "")):
+		return base_color
+	return LANE_GRAB_HIGHLIGHT_COLOR
+
+func _apply_lane_grab_tension_sprite() -> void:
+	if _lane_grab_preview.is_empty() or not bool(_lane_grab_preview.get("tension", false)):
+		_hide_lane_grab_tension_sprite()
+		return
+	var source_world_v: Variant = _lane_grab_preview.get("source_world", null)
+	var dest_world_v: Variant = _lane_grab_preview.get("dest_world", null)
+	var pull_world_v: Variant = _lane_grab_preview.get("pull_world", null)
+	if not (source_world_v is Vector2 and dest_world_v is Vector2 and pull_world_v is Vector2):
+		_hide_lane_grab_tension_sprite()
+		return
+	var source_local: Vector2 = to_local(source_world_v as Vector2)
+	var dest_local: Vector2 = to_local(dest_world_v as Vector2)
+	var pull_local: Vector2 = to_local(pull_world_v as Vector2)
+	if source_local.distance_to(dest_local) <= 2.0 or dest_local.distance_to(pull_local) <= 2.0:
+		_hide_lane_grab_tension_sprite()
+		return
+	var line: Line2D = _ensure_lane_grab_tension_line()
+	if line == null:
+		return
+	line.z_index = 64
+	line.width = maxf(10.0, lane_thickness_px * 0.48)
+	line.default_color = LANE_GRAB_TENSION_COLOR
+	line.points = _lane_grab_tension_curve_points(source_local, dest_local, pull_local)
+	line.visible = line.points.size() >= 2
+
+func _ensure_lane_grab_tension_sprite() -> Sprite2D:
+	if _lane_grab_tension_sprite != null and is_instance_valid(_lane_grab_tension_sprite):
+		return _lane_grab_tension_sprite
+	if _lane_tex == null:
+		_load_lane_textures()
+	if _lane_tex == null:
+		return null
+	var sprite := _create_lane_sprite_node()
+	sprite.name = "LaneGrabTensionSprite"
+	sprite.z_as_relative = false
+	sprite.z_index = 64
+	add_child(sprite)
+	_lane_grab_tension_sprite = sprite
+	return sprite
+
+func _ensure_lane_grab_tension_line() -> Line2D:
+	if _lane_grab_tension_line != null and is_instance_valid(_lane_grab_tension_line):
+		return _lane_grab_tension_line
+	var line := Line2D.new()
+	line.name = "LaneGrabTensionLine"
+	line.z_as_relative = false
+	line.z_index = 64
+	line.default_color = LANE_GRAB_TENSION_COLOR
+	line.width = maxf(10.0, lane_thickness_px * 0.48)
+	line.antialiased = true
+	if _lane_tex == null:
+		_load_lane_textures()
+	if _lane_tex != null:
+		line.texture = _lane_tex
+	add_child(line)
+	_lane_grab_tension_line = line
+	return line
+
+func _lane_grab_tension_curve_points(source_local: Vector2, dest_local: Vector2, pull_local: Vector2) -> PackedVector2Array:
+	var lane_vec: Vector2 = dest_local - source_local
+	var pull_offset: Vector2 = pull_local - dest_local
+	var pulled_dest: Vector2 = dest_local + pull_offset * 0.92
+	var c1: Vector2 = source_local + lane_vec * 0.42
+	var c2: Vector2 = dest_local + pull_offset * 0.64
+	var points := PackedVector2Array()
+	var steps: int = 14
+	for i in range(steps + 1):
+		var t: float = float(i) / float(steps)
+		points.append(_cubic_bezier_point(source_local, c1, c2, pulled_dest, t))
+	return points
+
+func _cubic_bezier_point(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:
+	var inv_t: float = 1.0 - t
+	return (p0 * inv_t * inv_t * inv_t) + (p1 * 3.0 * inv_t * inv_t * t) + (p2 * 3.0 * inv_t * t * t) + (p3 * t * t * t)
+
+func _hide_lane_grab_tension_sprite() -> void:
+	if _lane_grab_tension_sprite != null and is_instance_valid(_lane_grab_tension_sprite):
+		_lane_grab_tension_sprite.visible = false
+	if _lane_grab_tension_line != null and is_instance_valid(_lane_grab_tension_line):
+		_lane_grab_tension_line.visible = false
 
 func _resolve_lane_color(a_id: int, b_id: int, send_a: bool, send_b: bool, rm: Dictionary, lane: Dictionary = {}) -> Color:
 	var owner_a: int = _owner_id_for_lane(a_id, rm)

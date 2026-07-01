@@ -30,6 +30,7 @@ const ProgressiveStarDecayHudScript := preload("res://scripts/ui/progressive_sta
 const AsyncRecordEligibilityPolicy := preload("res://scripts/state/async_record_eligibility_policy.gd")
 const TeamVisuals = preload("res://scripts/renderers/team_visuals.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
+const ArenaTutorialControlsController := preload("res://scripts/arena_helpers/tutorial_controls_controller.gd")
 const ArenaTutorialSection1Controller := preload("res://scripts/arena_helpers/tutorial_section1_controller.gd")
 const ArenaTutorialSection2Controller := preload("res://scripts/arena_helpers/tutorial_section2_controller.gd")
 const ArenaTutorialSection3Controller := preload("res://scripts/arena_helpers/tutorial_section3_controller.gd")
@@ -165,6 +166,11 @@ const JUKEBOX_META_HIGHLIGHT_PLAYER_ID: String = "jukebox_highlight_player_id"
 const TREE_META_REOPEN_JUKEBOX_ON_READY: String = "reopen_jukebox_on_ready"
 const TREE_META_REOPEN_JUKEBOX_STATE: String = "reopen_jukebox_state"
 const TREE_META_TUTORIAL_ACTIVE: String = "tutorial_launch_active"
+const TREE_META_TUTORIAL_SECTION: String = "tutorial_launch_section"
+const TUTORIAL_CONTROLS_ID: String = "controls_v1"
+const TUTORIAL_SECTION1_ID: String = "section1"
+const TUTORIAL_SECTION2_ID: String = "section2"
+const TUTORIAL_SECTION3_ID: String = "section3"
 const TREE_META_VS_CPU_STYLE: String = "vs_cpu_style"
 const TREE_META_VS_CPU_TIER: String = "vs_cpu_tier"
 const TREE_META_VS_STAGE_ROUND_RESULTS: String = "vs_stage_round_results"
@@ -334,6 +340,7 @@ var _prematch_ad_surface: Control = null
 var _in_game_ad_surface: Control = null
 var _ctf_move_button: Button = null
 var _controls_hint_controller: ArenaControlsHintController = ArenaControlsHintController.new()
+var _tutorial_controls_controller: ArenaTutorialControlsController = ArenaTutorialControlsController.new()
 var _tutorial_section1_controller: ArenaTutorialSection1Controller = ArenaTutorialSection1Controller.new()
 var _tutorial_section2_controller: ArenaTutorialSection2Controller = ArenaTutorialSection2Controller.new()
 var _tutorial_section3_controller: ArenaTutorialSection3Controller = ArenaTutorialSection3Controller.new()
@@ -434,6 +441,7 @@ var tie_toast_ms: float = 0.0
 var contest_last_log_us: Dictionary = {}
 var arrival_history: Dictionary = {}
 var units_landed: Dictionary = {}
+var tutorial_arrivals_by_hive_owner: Dictionary = {}
 var capture_count: int = 0
 var error_count: int = 0
 var tower_control_ms: Dictionary = {}
@@ -740,10 +748,29 @@ func _start_match_flow() -> void:
 	_ensure_prematch_ui()
 	if _controls_hint_controller != null:
 		_controls_hint_controller.ensure_overlay(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
-	_begin_prematch()
-	var tutorial_active: bool = false
 	var tutorial_launch_active: bool = _is_tutorial_launch_active()
-	if tutorial_launch_active and _tutorial_section1_controller != null:
+	var tutorial_section: String = _tutorial_launch_section()
+	var controls_tutorial_launch: bool = tutorial_launch_active and tutorial_section == TUTORIAL_CONTROLS_ID
+	_begin_prematch()
+	if controls_tutorial_launch:
+		_finish_prematch()
+		SFLog.info("TUTORIAL_CONTROLS_PREMATCH_BYPASS", {
+			"phase": int(OpsState.match_phase),
+			"input_locked": bool(OpsState.input_locked)
+		})
+	var tutorial_active: bool = false
+	if tutorial_launch_active and tutorial_section == TUTORIAL_CONTROLS_ID and _tutorial_controls_controller != null:
+		tutorial_active = _tutorial_controls_controller.start_if_needed(
+			Callable(self, "_resolve_hud_root"),
+			Callable(self, "_force_fullscreen_anchors"),
+			_resolve_local_owner_id(),
+			state,
+			Callable(self, "_tutorial_hive_screen_pos"),
+			Callable(self, "_pause_tutorial_message_sim"),
+			Callable(self, "_resume_tutorial_message_sim"),
+			Callable(self, "_tutorial_arrival_count")
+		)
+	if tutorial_launch_active and tutorial_section == TUTORIAL_SECTION1_ID and _tutorial_section1_controller != null:
 		tutorial_active = _tutorial_section1_controller.start_if_needed(
 			Callable(self, "_resolve_hud_root"),
 			Callable(self, "_force_fullscreen_anchors"),
@@ -755,14 +782,14 @@ func _start_match_flow() -> void:
 			Callable(self, "_tutorial_buff_screen_pos"),
 			Callable(self, "get_buff_ui_snapshot")
 		)
-	if tutorial_launch_active and not tutorial_active and _tutorial_section2_controller != null:
+	if tutorial_launch_active and not tutorial_active and tutorial_section == TUTORIAL_SECTION2_ID and _tutorial_section2_controller != null:
 		tutorial_active = _tutorial_section2_controller.start_if_needed(
 			Callable(self, "_resolve_hud_root"),
 			Callable(self, "_force_fullscreen_anchors"),
 			_resolve_local_owner_id(),
 			state
 		)
-	if tutorial_launch_active and not tutorial_active and _tutorial_section3_controller != null:
+	if tutorial_launch_active and not tutorial_active and tutorial_section == TUTORIAL_SECTION3_ID and _tutorial_section3_controller != null:
 		tutorial_active = _tutorial_section3_controller.start_if_needed(
 			Callable(self, "_resolve_hud_root"),
 			Callable(self, "_force_fullscreen_anchors"),
@@ -786,6 +813,30 @@ func _is_tutorial_launch_active() -> bool:
 		return false
 	return bool(tree.get_meta(TREE_META_TUTORIAL_ACTIVE, false))
 
+func _tutorial_launch_section() -> String:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return ""
+	return str(tree.get_meta(TREE_META_TUTORIAL_SECTION, "")).strip_edges()
+
+func tutorial_controls_smoke_snapshot() -> Dictionary:
+	if _tutorial_controls_controller == null:
+		return {"active": false, "current_step": "", "anchors": {}, "contracts": []}
+	return _tutorial_controls_controller.smoke_snapshot()
+
+func tutorial_controls_smoke_should_allow_pointer_event(ev: Dictionary) -> bool:
+	if _tutorial_controls_controller == null:
+		return true
+	return _tutorial_controls_controller.should_allow_pointer_event(ev, state)
+
+func _tutorial_arrival_count(hive_id: int, owner_id: int) -> int:
+	if unit_system != null and unit_system.has_method("get_arrival_count"):
+		return int(unit_system.call("get_arrival_count", hive_id, owner_id))
+	return int(tutorial_arrivals_by_hive_owner.get("%d:%d" % [hive_id, owner_id], 0))
+
+func restart_match_flow_for_shell_launch() -> void:
+	_start_match_flow()
+
 func _start_match_flow_deferred() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -803,6 +854,7 @@ func _apply_tutorial_low_pressure_scenario() -> void:
 		if typeof(team_snapshot_any) == TYPE_DICTIONARY:
 			team_by_seat = (team_snapshot_any as Dictionary).duplicate(true)
 	var local_team_id: int = int(team_by_seat.get(local_owner_id, local_owner_id))
+	var controls_tutorial: bool = _tutorial_launch_section() == TUTORIAL_CONTROLS_ID
 	for seat in [1, 2, 3, 4]:
 		var seat_id: int = int(seat)
 		if seat_id == local_owner_id:
@@ -810,6 +862,13 @@ func _apply_tutorial_low_pressure_scenario() -> void:
 		var seat_team_id: int = int(team_by_seat.get(seat_id, seat_id))
 		var is_ally: bool = seat_team_id == local_team_id
 		if is_ally:
+			OpsState.call("set_bot_profile", seat_id, {
+				"enabled": false,
+				"opening_delay_ms": 999999,
+				"aggression": 0.0
+			})
+			continue
+		if controls_tutorial:
 			OpsState.call("set_bot_profile", seat_id, {
 				"enabled": false,
 				"opening_delay_ms": 999999,
@@ -838,7 +897,7 @@ func _apply_tutorial_low_pressure_scenario() -> void:
 	SFLog.info("TUTORIAL_LOW_PRESSURE_SCENARIO", {
 		"local_owner_id": local_owner_id,
 		"local_team_id": local_team_id,
-		"enemy_profile": "turtle/easy"
+		"enemy_profile": "disabled/controller_driven" if controls_tutorial else "turtle/easy"
 	})
 
 func _is_jukebox_easy_bot_mode() -> bool:
@@ -5472,6 +5531,8 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	if _controls_hint_controller != null:
 		_controls_hint_controller.hide(false)
 	var tutorial_section1_ended: bool = _tutorial_section1_controller != null and _tutorial_section1_controller.is_active()
+	if _tutorial_controls_controller != null:
+		_tutorial_controls_controller.on_match_ended()
 	if _tutorial_section1_controller != null:
 		_tutorial_section1_controller.on_match_ended()
 	if _tutorial_section2_controller != null:
@@ -7479,6 +7540,8 @@ func _tick_arena_runtime(delta: float) -> void:
 	if wall_renderer != null and is_instance_valid(wall_renderer):
 		wall_renderer.tick_visuals(delta)
 	_refresh_capture_flag_move_button()
+	if _tutorial_controls_controller != null and state != null:
+		_tutorial_controls_controller.tick(state, _resolve_local_owner_id())
 	if _tutorial_section1_controller != null and state != null:
 		_tutorial_section1_controller.tick(state, _resolve_local_owner_id())
 	if _tutorial_section2_controller != null and state != null:
@@ -9841,6 +9904,7 @@ func _enter_overtime() -> void:
 
 func _reset_match_stats() -> void:
 	units_landed = {1: 0, 2: 0, 3: 0, 4: 0}
+	tutorial_arrivals_by_hive_owner.clear()
 	tower_control_ms = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
 	if tower_system != null:
 		tower_system.reset_control_ms()
@@ -10431,7 +10495,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var st := event as InputEventScreenTouch
 		var wp: Vector2 = _screen_to_world(st.position)
 		var lp: Vector2 = map_root.to_local(wp)
-		_send_pointer_event(st.pressed, MOUSE_BUTTON_LEFT, lp, false, wp, st.position, true)
+		_send_pointer_event(st.pressed, MOUSE_BUTTON_LEFT, lp, false, wp, st.position, true, int(st.index))
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventScreenDrag:
@@ -10439,7 +10503,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var sd := event as InputEventScreenDrag
 		var wp: Vector2 = _screen_to_world(sd.position)
 		var lp: Vector2 = map_root.to_local(wp)
-		_send_pointer_event(false, 0, lp, true, wp, sd.position, true)
+		_send_pointer_event(false, 0, lp, true, wp, sd.position, true, int(sd.index))
 		return
 	input_system.handle_input(event, api)
 
@@ -10451,7 +10515,7 @@ func _pointer_local_from_screen(screen_pos: Vector2) -> Vector2:
 		screen_pos
 	)
 
-func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, is_motion: bool = false, world_pos: Vector2 = Vector2.ZERO, screen_pos: Vector2 = Vector2.ZERO, is_touch: bool = false) -> void:
+func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, is_motion: bool = false, world_pos: Vector2 = Vector2.ZERO, screen_pos: Vector2 = Vector2.ZERO, is_touch: bool = false, touch_index: int = -1) -> void:
 	var hive_id: int = api.pick_hive_id(world_pos)
 	if hive_id <= 0:
 		hive_id = api.hive_id_at_point(local_pos)
@@ -10487,9 +10551,15 @@ func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, i
 		"world_pos": world_pos,
 		"screen_pos": screen_pos,
 		"is_touch": is_touch,
+		"touch_index": touch_index,
 		"hive_id": hive_id,
 		"lane_id": lane_id
 	}
+	if _tutorial_launch_section() == TUTORIAL_CONTROLS_ID and _tutorial_controls_controller != null:
+		if not _tutorial_controls_controller.should_allow_pointer_event(ev, state):
+			if get_viewport() != null:
+				get_viewport().set_input_as_handled()
+			return
 	input_system.handle_pointer_event(ev, api)
 
 func _on_map_left_click(lp: Vector2, event: InputEventMouseButton) -> void:
@@ -13679,6 +13749,8 @@ func _apply_unit_arrival(unit_owner: int, hive: HiveData, from_id: int = -1, lan
 	_note_render_dirty()
 	if unit_owner >= 1 and unit_owner <= 4:
 		units_landed[unit_owner] = int(units_landed.get(unit_owner, 0)) + 1
+		var tutorial_arrival_key: String = "%d:%d" % [int(hive.id), unit_owner]
+		tutorial_arrivals_by_hive_owner[tutorial_arrival_key] = int(tutorial_arrivals_by_hive_owner.get(tutorial_arrival_key, 0)) + 1
 	var prev_owner: int = hive.owner_id
 	var friendly_arrival: bool = _are_allied_owners(prev_owner, unit_owner)
 	var pass_owner: int = unit_owner if unit_owner > 0 else prev_owner
@@ -14003,7 +14075,9 @@ func _handle_tap(hive_id: int, dev_pid: int = -1) -> void:
 		return
 	if input_system == null or api == null:
 		return
-	if _tutorial_section1_controller != null and state != null:
+	if _tutorial_launch_section() == TUTORIAL_CONTROLS_ID and _tutorial_controls_controller != null and state != null:
+		_tutorial_controls_controller.on_hive_clicked(hive_id, state, _resolve_local_owner_id())
+	if _tutorial_launch_section() == TUTORIAL_SECTION1_ID and _tutorial_section1_controller != null and state != null:
 		_tutorial_section1_controller.on_hive_clicked(hive_id, state, _resolve_local_owner_id())
 	input_system.handle_tap(hive_id, dev_pid, api)
 

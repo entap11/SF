@@ -73,6 +73,11 @@ const TUTORIAL_SECTION3_STEP_2_TOWER_CONTROL: String = "step_2_tower_control"
 const TUTORIAL_SECTION3_STEP_3_BARRACKS_ROUTE: String = "step_3_barracks_route"
 const TUTORIAL_SECTION3_STEP_COMPLETED: String = "completed"
 const TUTORIAL_SECTION3_STEP_SKIPPED: String = "skipped"
+const TUTORIAL_CONTROLS_VERSION: int = 1
+const TUTORIAL_CONTROLS_STATUS_NOT_STARTED: String = "not_started"
+const TUTORIAL_CONTROLS_STATUS_IN_PROGRESS: String = "in_progress"
+const TUTORIAL_CONTROLS_STATUS_COMPLETED: String = "completed"
+const TUTORIAL_CONTROLS_STATUS_SKIPPED: String = "skipped"
 const DEFAULT_HONEY_BALANCE: int = 12480
 const DEFAULT_ADMIN_DASHBOARD_USERNAME: String = "Mattballou"
 const DEFAULT_ADMIN_DASHBOARD_PASSWORD: String = "$warmFr0nt"
@@ -99,6 +104,8 @@ var _tutorial_section2_step: String = TUTORIAL_SECTION2_STEP_0_INTRO
 var _tutorial_section3_unlocked: bool = false
 var _tutorial_section3_status: String = TUTORIAL_SECTION3_STATUS_NOT_STARTED
 var _tutorial_section3_step: String = TUTORIAL_SECTION3_STEP_0_INTRO
+var _tutorial_controls_status: String = TUTORIAL_CONTROLS_STATUS_NOT_STARTED
+var _tutorial_controls_version: int = TUTORIAL_CONTROLS_VERSION
 var _id: String = ""
 var _entap_id: String = ""
 var _call_sign: String = ""
@@ -198,6 +205,10 @@ func ensure_loaded() -> void:
 		_tutorial_section3_step = _sanitize_tutorial_section3_step(
 			str(cfg.get_value(PROFILE_SECTION, "tutorial_section3_step", TUTORIAL_SECTION3_STEP_0_INTRO))
 		)
+		_tutorial_controls_status = _sanitize_tutorial_controls_status(
+			str(cfg.get_value(PROFILE_SECTION, "tutorial_controls_status", TUTORIAL_CONTROLS_STATUS_NOT_STARTED))
+		)
+		_tutorial_controls_version = maxi(0, int(cfg.get_value(PROFILE_SECTION, "tutorial_controls_version", TUTORIAL_CONTROLS_VERSION)))
 		_gpu_vfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, true))
 		_audio_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, true))
 		_sfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, true))
@@ -243,6 +254,8 @@ func ensure_loaded() -> void:
 		_tutorial_section3_unlocked = false
 		_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_NOT_STARTED
 		_tutorial_section3_step = TUTORIAL_SECTION3_STEP_0_INTRO
+		_tutorial_controls_status = TUTORIAL_CONTROLS_STATUS_NOT_STARTED
+		_tutorial_controls_version = TUTORIAL_CONTROLS_VERSION
 		_gpu_vfx_enabled = true
 		_audio_enabled = true
 		_sfx_enabled = true
@@ -330,6 +343,13 @@ func ensure_loaded() -> void:
 			updated = true
 		if _tutorial_section3_status == TUTORIAL_SECTION3_STATUS_COMPLETED and not _tutorial_section3_unlocked:
 			_tutorial_section3_unlocked = true
+			updated = true
+		var clean_controls_tutorial_status: String = _sanitize_tutorial_controls_status(_tutorial_controls_status)
+		if clean_controls_tutorial_status != _tutorial_controls_status:
+			_tutorial_controls_status = clean_controls_tutorial_status
+			updated = true
+		if _tutorial_controls_version <= 0:
+			_tutorial_controls_version = TUTORIAL_CONTROLS_VERSION
 			updated = true
 		var cleaned_loadout: Array[String] = _sanitize_loadout_ids(_buff_loadout_ids)
 		if cleaned_loadout != _buff_loadout_ids:
@@ -444,6 +464,18 @@ func get_tutorial_section3_status() -> String:
 func get_tutorial_section3_step() -> String:
 	ensure_loaded()
 	return _tutorial_section3_step
+
+func get_tutorial_controls_status() -> String:
+	ensure_loaded()
+	return _tutorial_controls_status
+
+func get_tutorial_controls_version() -> int:
+	ensure_loaded()
+	return _tutorial_controls_version
+
+func is_tutorial_controls_completed() -> bool:
+	ensure_loaded()
+	return _tutorial_controls_status == TUTORIAL_CONTROLS_STATUS_COMPLETED
 
 func get_display_name() -> String:
 	ensure_loaded()
@@ -904,6 +936,58 @@ func mark_tutorial_section3_skipped() -> void:
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_TUTORIAL_SECTION3_SKIPPED", {"user_id": _user_id})
 
+func begin_tutorial_controls() -> void:
+	ensure_loaded()
+	if _tutorial_controls_status == TUTORIAL_CONTROLS_STATUS_COMPLETED or _tutorial_controls_status == TUTORIAL_CONTROLS_STATUS_SKIPPED:
+		return
+	if _tutorial_controls_status == TUTORIAL_CONTROLS_STATUS_IN_PROGRESS and _tutorial_controls_version == TUTORIAL_CONTROLS_VERSION:
+		return
+	_tutorial_controls_status = TUTORIAL_CONTROLS_STATUS_IN_PROGRESS
+	_tutorial_controls_version = TUTORIAL_CONTROLS_VERSION
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_CONTROLS_BEGIN", {
+		"user_id": _user_id,
+		"version": _tutorial_controls_version
+	})
+
+func mark_tutorial_controls_completed() -> void:
+	ensure_loaded()
+	if _tutorial_controls_status == TUTORIAL_CONTROLS_STATUS_COMPLETED and _tutorial_controls_version == TUTORIAL_CONTROLS_VERSION:
+		return
+	_tutorial_controls_status = TUTORIAL_CONTROLS_STATUS_COMPLETED
+	_tutorial_controls_version = TUTORIAL_CONTROLS_VERSION
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_CONTROLS_COMPLETED", {"user_id": _user_id})
+
+func mark_tutorial_controls_skipped() -> void:
+	ensure_loaded()
+	if _tutorial_controls_status == TUTORIAL_CONTROLS_STATUS_SKIPPED and _tutorial_controls_version == TUTORIAL_CONTROLS_VERSION:
+		return
+	_tutorial_controls_status = TUTORIAL_CONTROLS_STATUS_SKIPPED
+	_tutorial_controls_version = TUTORIAL_CONTROLS_VERSION
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_CONTROLS_SKIPPED", {"user_id": _user_id})
+
+func prepare_tutorial_controls_sandbox() -> void:
+	ensure_loaded()
+	_onboarding_complete = true
+	_controls_hint_seen = true
+	_tutorial_section1_status = TUTORIAL_SECTION1_STATUS_SKIPPED
+	_tutorial_section1_step = TUTORIAL_SECTION1_STEP_SKIPPED
+	_tutorial_section2_unlocked = false
+	_tutorial_section2_status = TUTORIAL_SECTION2_STATUS_SKIPPED
+	_tutorial_section2_step = TUTORIAL_SECTION2_STEP_SKIPPED
+	_tutorial_section3_unlocked = false
+	_tutorial_section3_status = TUTORIAL_SECTION3_STATUS_SKIPPED
+	_tutorial_section3_step = TUTORIAL_SECTION3_STEP_SKIPPED
+	_tutorial_controls_status = TUTORIAL_CONTROLS_STATUS_IN_PROGRESS
+	_tutorial_controls_version = TUTORIAL_CONTROLS_VERSION
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_CONTROLS_SANDBOX_PREPARED", {
+		"user_id": _user_id,
+		"version": _tutorial_controls_version
+	})
+
 func prepare_tutorial_section1_sandbox() -> void:
 	ensure_loaded()
 	_onboarding_complete = true
@@ -1362,6 +1446,8 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "tutorial_section3_unlocked", _tutorial_section3_unlocked)
 	cfg.set_value(PROFILE_SECTION, "tutorial_section3_status", _tutorial_section3_status)
 	cfg.set_value(PROFILE_SECTION, "tutorial_section3_step", _tutorial_section3_step)
+	cfg.set_value(PROFILE_SECTION, "tutorial_controls_status", _tutorial_controls_status)
+	cfg.set_value(PROFILE_SECTION, "tutorial_controls_version", _tutorial_controls_version)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, _gpu_vfx_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, _audio_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, _sfx_enabled)
@@ -1705,6 +1791,16 @@ func _sanitize_tutorial_section3_step(step_name: String) -> String:
 	if cleaned == TUTORIAL_SECTION3_STEP_SKIPPED:
 		return TUTORIAL_SECTION3_STEP_SKIPPED
 	return TUTORIAL_SECTION3_STEP_0_INTRO
+
+func _sanitize_tutorial_controls_status(status: String) -> String:
+	var cleaned: String = status.strip_edges().to_lower()
+	if cleaned == TUTORIAL_CONTROLS_STATUS_IN_PROGRESS:
+		return TUTORIAL_CONTROLS_STATUS_IN_PROGRESS
+	if cleaned == TUTORIAL_CONTROLS_STATUS_COMPLETED:
+		return TUTORIAL_CONTROLS_STATUS_COMPLETED
+	if cleaned == TUTORIAL_CONTROLS_STATUS_SKIPPED:
+		return TUTORIAL_CONTROLS_STATUS_SKIPPED
+	return TUTORIAL_CONTROLS_STATUS_NOT_STARTED
 
 func _sanitize_admin_dashboard_username(username: String) -> String:
 	return username.strip_edges()
