@@ -45,6 +45,7 @@ const ANCHOR_POSITIONS := {
 	ANCHOR_ENEMY_HIVE: Vector2i(15, 17)
 }
 const POST_ACTION_DWELL_MS: int = 4500
+const SWARM_INTRO_AUTO_ADVANCE_MS: int = 5000
 
 var _active: bool = false
 var _current_step: String = STEP_SELECT_START_HIVE
@@ -59,6 +60,9 @@ var _skip_button: Button = null
 var _source_ring: Panel = null
 var _target_ring: Panel = null
 var _lane_line: ColorRect = null
+var _double_tap_lane_glows: Array = []
+var _double_tap_lane_cores: Array = []
+var _tap_hand: Control = null
 var _last_state: GameState = null
 var _signal_bound: bool = false
 var _saw_friend_lane_retract: bool = false
@@ -92,6 +96,7 @@ var _start_attack_timeout_ms: int = 10000
 var _start_attack_phase: String = START_ATTACK_PHASE_TAP_SOURCE
 var _overlap_swarm_seen: bool = false
 var _double_tap_swarm_seen: bool = false
+var _swarm_intro_auto_advance_at_ms: int = 0
 var _pending_next_step_id: String = ""
 var _pending_next_step_at_ms: int = 0
 
@@ -109,8 +114,8 @@ static func step_contracts() -> Array:
 		_contract(STEP_ATTACK_ENEMY_FROM_START_GUIDED, "Attack from this hive.", "OK, let's attack from this hive.", ANCHOR_START_HIVE, "", ["tap"], "paused", "tutorial_attack_enemy_from_start_guided"),
 		_contract(STEP_TAKE_NEUTRAL_HIVE, "Take the gray hive.", "So, it's time to win this game. Take that small NPC gray hive.", ANCHOR_START_HIVE, ANCHOR_NEUTRAL_HIVE, ["tap", "drag"], "normal", "tutorial_take_neutral"),
 		_contract(STEP_ATTACK_ENEMY_FROM_NEUTRAL, "Attack from gray.", "Now, make a lane to attack that enemy hive and I'll show you a trick.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_attack_enemy_from_neutral"),
-		_contract(STEP_SWARM_INTRO, "Time to swarm.", "You want to win now? It's time to swarm. There are two ways to swarm and we will try them both.", "", "", ["tap_anywhere"], "paused", "tutorial_swarm_intro"),
-		_contract(STEP_SWARM_BY_OVERLAP, "Create over the lane.", "First, create a lane over the top of an existing lane.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_swarm_overlap"),
+		_contract(STEP_SWARM_INTRO, "Time to swarm.", "You want to win now? It's time to swarm. There are two ways to swarm and we will try them both.", "", "", ["wait"], "paused", "tutorial_swarm_intro"),
+		_contract(STEP_SWARM_BY_OVERLAP, "Create over the lane.", "First, create a lane over the top of an existing lane.\n\nTap your hive, then tap the enemy hive, or drag a lane to it.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_swarm_overlap"),
 		_contract(STEP_WAIT_OVERLAP_SWARM_HIT, "Watch the swarm hit.", "Watch the swarm hit.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["wait"], "normal", "tutorial_swarm_overlap_wait"),
 		_contract(STEP_SWARM_DOUBLE_TAP, "Double tap to swarm.", "Perfect. Now let's double tap him!\n\nSimply double tap the lane near the enemy hive you want to swarm. Try either the middle or bottom lane this time.", ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE, ["lane_double_tap"], "paused", "tutorial_swarm_double_tap"),
 		_contract(STEP_FINISH_FIGHT, "Finish the fight.", "Finish the fight.", "", "", ["free_play"], "normal", "tutorial_finish_fight"),
@@ -171,6 +176,7 @@ func start_if_needed(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb:
 	_start_attack_phase = START_ATTACK_PHASE_TAP_SOURCE
 	_overlap_swarm_seen = false
 	_double_tap_swarm_seen = false
+	_swarm_intro_auto_advance_at_ms = 0
 	_pending_next_step_id = ""
 	_pending_next_step_at_ms = 0
 	_clear_attack_drag_gate()
@@ -209,6 +215,16 @@ func ensure_overlay(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: 
 	_source_ring = overlay.get_node_or_null("SourceFocusRing") as Panel
 	_target_ring = overlay.get_node_or_null("TargetFocusRing") as Panel
 	_lane_line = overlay.get_node_or_null("FocusLine") as ColorRect
+	_double_tap_lane_glows.clear()
+	_double_tap_lane_cores.clear()
+	for i in range(2):
+		var glow_node: ColorRect = overlay.get_node_or_null("DoubleTapLaneGlow%d" % i) as ColorRect
+		if glow_node != null:
+			_double_tap_lane_glows.append(glow_node)
+		var core_node: ColorRect = overlay.get_node_or_null("DoubleTapLaneCore%d" % i) as ColorRect
+		if core_node != null:
+			_double_tap_lane_cores.append(core_node)
+	_tap_hand = overlay.get_node_or_null("TapHand") as Control
 	if _skip_button != null and not _skip_button.pressed.is_connected(_on_skip_pressed):
 		_skip_button.pressed.connect(_on_skip_pressed)
 	_style_overlay_nodes()
@@ -251,11 +267,14 @@ func smoke_snapshot() -> Dictionary:
 		"start_attack_phase": _start_attack_phase,
 		"overlap_swarm_seen": _overlap_swarm_seen,
 		"double_tap_swarm_seen": _double_tap_swarm_seen,
+		"swarm_intro_auto_advance_remaining_ms": _swarm_intro_auto_advance_remaining_ms(),
 		"pending_next_step": _pending_next_step_id,
 		"pending_next_step_remaining_ms": _pending_next_step_remaining_ms(),
 		"source_focus_visible": _source_ring != null and is_instance_valid(_source_ring) and _source_ring.visible,
 		"target_focus_visible": _target_ring != null and is_instance_valid(_target_ring) and _target_ring.visible,
-		"lane_focus_visible": _lane_line != null and is_instance_valid(_lane_line) and _lane_line.visible
+		"lane_focus_visible": _lane_line != null and is_instance_valid(_lane_line) and _lane_line.visible,
+		"double_tap_lane_focus_visible": _double_tap_focus_visible(),
+		"tap_hand_visible": _tap_hand != null and is_instance_valid(_tap_hand) and _tap_hand.visible
 	}
 
 func should_allow_pointer_event(ev: Dictionary, state: GameState) -> bool:
@@ -349,6 +368,7 @@ func hide(mark_inactive: bool = true) -> void:
 	_start_attack_phase = START_ATTACK_PHASE_TAP_SOURCE
 	_overlap_swarm_seen = false
 	_double_tap_swarm_seen = false
+	_swarm_intro_auto_advance_at_ms = 0
 	_pending_next_step_id = ""
 	_pending_next_step_at_ms = 0
 	_clear_attack_drag_gate()
@@ -377,6 +397,7 @@ func tick(state: GameState, local_owner_id: int) -> void:
 	_maybe_advance_delayed_step()
 	if _readout_waiting_for_input:
 		_pause_for_readout()
+	_maybe_auto_advance_swarm_intro()
 	_evaluate_current_step(state)
 	_refresh_overlay_copy()
 	_refresh_focus_visuals()
@@ -675,6 +696,10 @@ func _advance_to_step(step_id: String) -> void:
 		_overlap_swarm_seen = false
 	if step_id == STEP_SWARM_DOUBLE_TAP:
 		_double_tap_swarm_seen = false
+	if step_id == STEP_SWARM_INTRO:
+		_swarm_intro_auto_advance_at_ms = Time.get_ticks_msec() + SWARM_INTRO_AUTO_ADVANCE_MS
+	elif previous_step == STEP_SWARM_INTRO:
+		_swarm_intro_auto_advance_at_ms = 0
 	if step_id == STEP_CONTEST_ENEMY_LANE:
 		_contest_cancel_wait_active = false
 		_contest_cancel_baseline = 0
@@ -765,6 +790,21 @@ func _maybe_advance_delayed_step() -> void:
 	_delayed_step_at_ms = 0
 	_advance_to_step(step_id)
 
+func _maybe_auto_advance_swarm_intro() -> void:
+	if _current_step != STEP_SWARM_INTRO:
+		return
+	if _swarm_intro_auto_advance_at_ms <= 0:
+		return
+	if Time.get_ticks_msec() < _swarm_intro_auto_advance_at_ms:
+		return
+	_commit_readout_for_step_input("swarm_intro_auto_advance", false)
+	_advance_to_step(STEP_SWARM_BY_OVERLAP)
+
+func _swarm_intro_auto_advance_remaining_ms() -> int:
+	if _current_step != STEP_SWARM_INTRO or _swarm_intro_auto_advance_at_ms <= 0:
+		return 0
+	return maxi(0, _swarm_intro_auto_advance_at_ms - Time.get_ticks_msec())
+
 func _pause_for_readout() -> void:
 	if _pause_sim_cb.is_valid():
 		_pause_sim_cb.call()
@@ -850,12 +890,6 @@ func _handle_prompted_tap_press(reason: String, state: GameState) -> bool:
 			if _readout_waiting_for_input:
 				_commit_readout_for_step_input(reason, true)
 			return false
-		STEP_SWARM_INTRO:
-			_commit_readout_for_step_input(reason, false)
-			_advance_to_step(STEP_SWARM_BY_OVERLAP)
-			if state != null:
-				_evaluate_current_step(state)
-			return true
 		_:
 			return false
 
@@ -1139,11 +1173,29 @@ func _build_overlay() -> Control:
 	focus_line.z_index = 1
 	overlay.add_child(focus_line)
 
+	for i in range(2):
+		var lane_glow := _build_focus_line_rect("DoubleTapLaneGlow%d" % i, Color(1.0, 0.08, 0.05, 0.58), 3)
+		overlay.add_child(lane_glow)
+		var lane_core := _build_focus_line_rect("DoubleTapLaneCore%d" % i, Color(1.0, 0.96, 0.88, 0.94), 4)
+		overlay.add_child(lane_core)
+
 	var source_ring := _build_focus_ring("SourceFocusRing", Color(1.0, 1.0, 1.0, 0.90))
 	overlay.add_child(source_ring)
 	var target_ring := _build_focus_ring("TargetFocusRing", Color(0.54, 0.88, 1.0, 0.92))
 	overlay.add_child(target_ring)
+
+	var tap_hand := _build_tap_hand()
+	overlay.add_child(tap_hand)
 	return overlay
+
+func _build_focus_line_rect(node_name: String, color: Color, z: int) -> ColorRect:
+	var rect := ColorRect.new()
+	rect.name = node_name
+	rect.visible = false
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.color = color
+	rect.z_index = z
+	return rect
 
 func _build_focus_ring(node_name: String, color: Color) -> Panel:
 	var ring := Panel.new()
@@ -1159,6 +1211,51 @@ func _build_focus_ring(node_name: String, color: Color) -> Panel:
 	style.set_corner_radius_all(46)
 	ring.add_theme_stylebox_override("panel", style)
 	return ring
+
+func _build_tap_hand() -> Control:
+	var hand := Control.new()
+	hand.name = "TapHand"
+	hand.visible = false
+	hand.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hand.custom_minimum_size = Vector2(112.0, 132.0)
+	hand.size = Vector2(112.0, 132.0)
+	hand.z_index = 8
+
+	var palm := _build_hand_panel("Palm", Vector2(72.0, 58.0), Vector2(20.0, 18.0), 22)
+	hand.add_child(palm)
+	var thumb := _build_hand_panel("Thumb", Vector2(34.0, 28.0), Vector2(10.0, 58.0), 14)
+	thumb.rotation = -0.45
+	hand.add_child(thumb)
+	var finger := _build_hand_panel("Finger", Vector2(30.0, 78.0), Vector2(42.0, 48.0), 15)
+	hand.add_child(finger)
+
+	var tap_dot := Panel.new()
+	tap_dot.name = "TapDot"
+	tap_dot.position = Vector2(46.0, 116.0)
+	tap_dot.size = Vector2(22.0, 12.0)
+	tap_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var dot_style := StyleBoxFlat.new()
+	dot_style.bg_color = Color(1.0, 1.0, 1.0, 0.68)
+	dot_style.border_color = Color(1.0, 0.08, 0.05, 0.82)
+	dot_style.set_border_width_all(2)
+	dot_style.set_corner_radius_all(8)
+	tap_dot.add_theme_stylebox_override("panel", dot_style)
+	hand.add_child(tap_dot)
+	return hand
+
+func _build_hand_panel(node_name: String, size_px: Vector2, position_px: Vector2, radius: int) -> Panel:
+	var panel := Panel.new()
+	panel.name = node_name
+	panel.position = position_px
+	panel.size = size_px
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(1.0, 0.78, 0.45, 0.96)
+	style.border_color = Color(0.12, 0.08, 0.04, 0.94)
+	style.set_border_width_all(4)
+	style.set_corner_radius_all(radius)
+	panel.add_theme_stylebox_override("panel", style)
+	return panel
 
 func _style_overlay_nodes() -> void:
 	if _title_label != null:
@@ -1206,6 +1303,14 @@ func _refresh_focus_visuals() -> void:
 	var source_pos: Vector2 = _screen_pos_for_anchor(source_anchor)
 	var target_pos: Vector2 = _screen_pos_for_anchor(target_anchor)
 	_position_instruction_panel(source_pos, target_pos)
+	if _current_step == STEP_SWARM_DOUBLE_TAP:
+		_position_focus_ring(_source_ring, Vector2(-9999.0, -9999.0), 86.0)
+		_position_focus_ring(_target_ring, target_pos, 96.0)
+		if _lane_line != null:
+			_lane_line.visible = false
+		_position_double_tap_focus()
+		return
+	_hide_double_tap_focus()
 	if _current_step == STEP_CANCEL_LANE_GRAB_THROW:
 		_position_focus_ring(_source_ring, Vector2(-9999.0, -9999.0), 86.0)
 		_position_focus_ring(_target_ring, Vector2(-9999.0, -9999.0), 78.0)
@@ -1222,6 +1327,7 @@ func _hide_focus_visuals() -> void:
 		_target_ring.visible = false
 	if _lane_line != null:
 		_lane_line.visible = false
+	_hide_double_tap_focus()
 
 func _screen_pos_for_anchor(anchor_name: String) -> Vector2:
 	var hive_id: int = _anchor_id(anchor_name)
@@ -1259,6 +1365,70 @@ func _position_focus_line(source_pos: Vector2, target_pos: Vector2, length_scala
 	_lane_line.pivot_offset = Vector2(0.0, 2.0)
 	_lane_line.size = Vector2(length_px, 4.0)
 	_lane_line.rotation = delta.angle()
+
+func _position_double_tap_focus() -> void:
+	var enemy_pos: Vector2 = _screen_pos_for_anchor(ANCHOR_ENEMY_HIVE)
+	var start_pos: Vector2 = _screen_pos_for_anchor(ANCHOR_START_HIVE)
+	var friend_pos: Vector2 = _screen_pos_for_anchor(ANCHOR_FRIEND_HIVE)
+	_position_lane_segment(_double_tap_lane_glows, 0, start_pos, enemy_pos, 0.58, 0.94, 34.0)
+	_position_lane_segment(_double_tap_lane_cores, 0, start_pos, enemy_pos, 0.58, 0.94, 9.0)
+	_position_lane_segment(_double_tap_lane_glows, 1, friend_pos, enemy_pos, 0.58, 0.94, 34.0)
+	_position_lane_segment(_double_tap_lane_cores, 1, friend_pos, enemy_pos, 0.58, 0.94, 9.0)
+	_position_tap_hand(friend_pos.lerp(enemy_pos, 0.76))
+
+func _position_lane_segment(nodes: Array, index: int, source_pos: Vector2, target_pos: Vector2, start_t: float, end_t: float, width_px: float) -> void:
+	if index < 0 or index >= nodes.size():
+		return
+	var rect: ColorRect = nodes[index] as ColorRect
+	if rect == null:
+		return
+	if source_pos.x < -1000.0 or target_pos.x < -1000.0:
+		rect.visible = false
+		return
+	var start_pos: Vector2 = source_pos.lerp(target_pos, clampf(start_t, 0.0, 1.0))
+	var end_pos: Vector2 = source_pos.lerp(target_pos, clampf(end_t, 0.0, 1.0))
+	var delta: Vector2 = end_pos - start_pos
+	var length_px: float = delta.length()
+	if length_px <= 1.0:
+		rect.visible = false
+		return
+	rect.visible = true
+	rect.position = start_pos
+	rect.pivot_offset = Vector2(0.0, width_px * 0.5)
+	rect.size = Vector2(length_px, width_px)
+	rect.rotation = delta.angle()
+
+func _position_tap_hand(tap_pos: Vector2) -> void:
+	if _tap_hand == null:
+		return
+	if tap_pos.x < -1000.0 or tap_pos.y < -1000.0:
+		_tap_hand.visible = false
+		return
+	var phase: float = float(Time.get_ticks_msec() % 800) / 800.0
+	var press_offset: float = 18.0 * absf(sin(phase * TAU))
+	var hand_size: Vector2 = Vector2(112.0, 132.0)
+	_tap_hand.visible = true
+	_tap_hand.size = hand_size
+	_tap_hand.position = tap_pos - Vector2(56.0, 122.0) + Vector2(0.0, press_offset - 18.0)
+
+func _hide_double_tap_focus() -> void:
+	for glow_any in _double_tap_lane_glows:
+		var glow: ColorRect = glow_any as ColorRect
+		if glow != null:
+			glow.visible = false
+	for core_any in _double_tap_lane_cores:
+		var core: ColorRect = core_any as ColorRect
+		if core != null:
+			core.visible = false
+	if _tap_hand != null:
+		_tap_hand.visible = false
+
+func _double_tap_focus_visible() -> bool:
+	for glow_any in _double_tap_lane_glows:
+		var glow: ColorRect = glow_any as ColorRect
+		if glow != null and glow.visible:
+			return true
+	return false
 
 func _position_instruction_panel(source_pos: Vector2, target_pos: Vector2) -> void:
 	if _panel == null or _overlay == null or not is_instance_valid(_panel):
@@ -1353,7 +1523,7 @@ func _press_allowed_for_step(ev: Dictionary, state: GameState) -> Dictionary:
 				neutral_attack_allowed["defer_commit"] = true
 			return neutral_attack_allowed
 		STEP_SWARM_INTRO:
-			return {"ok": true, "reason": "swarm_intro_continue", "consume": true}
+			return {"ok": false, "reason": "swarm_intro_auto_advance"}
 		STEP_SWARM_BY_OVERLAP:
 			var overlap_allowed: Dictionary = _allow_hive(hive_id, [ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE], "swarm_by_overlap")
 			if bool(overlap_allowed.get("ok", false)):

@@ -54,6 +54,7 @@ const FONT_RESULT: Color = Color(1.0, 0.88, 0.30, 1.0)
 const OVERLAY_MODE_REMATCH: String = "rematch"
 const OVERLAY_MODE_STAGE_ROUND: String = "stage_round"
 const OVERLAY_MODE_TUTORIAL_COMPLETE: String = "tutorial_complete"
+const OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE: String = "tutorial_controls_complete"
 
 func _ready() -> void:
 	_force_fullscreen_anchors()
@@ -165,6 +166,37 @@ func show_tutorial_complete(winner_id: int, reason: String, player_id: int) -> v
 	panel.modulate = Color(1, 1, 1, 1)
 	panel.self_modulate = Color(1, 1, 1, 1)
 	_apply_tutorial_complete_outcome(winner_id, reason)
+	set_process(true)
+	exit_button.grab_focus()
+	_log_show_state()
+	call_deferred("_log_layout_after_frame")
+
+func show_tutorial_controls_complete(winner_id: int, reason: String, player_id: int) -> void:
+	_overlay_mode = OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE
+	_stage_next_action = "tutorial_controls_followup"
+	_stage_next_available = true
+	_stage_status_text = "Click to Continue."
+	SFLog.info("OUTCOME_OVERLAY_TUTORIAL_CONTROLS_SHOW_CALL", {
+		"iid": int(get_instance_id()),
+		"inside_tree": is_inside_tree(),
+		"path": str(get_path()) if is_inside_tree() else "<detached>"
+	})
+	_force_fullscreen_anchors()
+	_apply_readable_layout()
+	_ensure_outcome_layer()
+	local_player_id = maxi(1, player_id)
+	_action_taken = false
+	clear_post_match_summary()
+	visible = true
+	panel.visible = true
+	show()
+	if get_parent() != null:
+		get_parent().move_child(self, get_parent().get_child_count() - 1)
+	modulate = Color(1, 1, 1, 1)
+	self_modulate = Color(1, 1, 1, 1)
+	panel.modulate = Color(1, 1, 1, 1)
+	panel.self_modulate = Color(1, 1, 1, 1)
+	_apply_tutorial_controls_complete_outcome(winner_id, reason)
 	set_process(true)
 	exit_button.grab_focus()
 	_log_show_state()
@@ -465,6 +497,27 @@ func _apply_tutorial_complete_outcome(winner_id: int, reason: String) -> void:
 	exit_button.custom_minimum_size = Vector2(maxf(exit_button.custom_minimum_size.x, 220.0), maxf(exit_button.custom_minimum_size.y, 72.0))
 	_update_status()
 
+func _apply_tutorial_controls_complete_outcome(_winner_id: int, _reason: String) -> void:
+	_set_standard_rows_visible(false)
+	title_label.text = "TUTORIAL COMPLETE"
+	result_label.text = "Great! Now you know how the controls work."
+	reason_label.visible = true
+	reason_label.text = "Let's get you into a real game and put those skills to work."
+	record_label.visible = true
+	record_label.text = "Click to Continue."
+	h2h_label.text = ""
+	stats_header.text = ""
+	stat_max_power.text = ""
+	stat_units_killed.text = ""
+	stat_units_landed.text = ""
+	set_nectar_award_summary({})
+	countdown_label.text = ""
+	rematch_button.visible = false
+	rematch_button.disabled = true
+	exit_button.text = "CONTINUE"
+	exit_button.custom_minimum_size = Vector2(maxf(exit_button.custom_minimum_size.x, 240.0), maxf(exit_button.custom_minimum_size.y, 78.0))
+	_update_status()
+
 func _set_standard_rows_visible(show_rows: bool) -> void:
 	reason_label.visible = true
 	record_label.visible = true
@@ -613,6 +666,9 @@ func _update_countdown_label() -> void:
 	countdown_label.text = "Rematch available for %ds" % sec
 
 func _update_status() -> void:
+	if _overlay_mode == OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE:
+		status_label.text = "Click to Continue."
+		return
 	if _overlay_mode == OVERLAY_MODE_TUTORIAL_COMPLETE:
 		status_label.text = "Ready for the next lesson."
 		return
@@ -660,6 +716,9 @@ func _on_exit_pressed() -> void:
 	if _action_taken:
 		return
 	_action_taken = true
+	if _overlay_mode == OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE:
+		emit_signal("post_match_action", "tutorial_controls_followup")
+		return
 	emit_signal("post_match_action", "main_menu")
 
 func _present_reason(reason: String) -> String:

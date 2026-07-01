@@ -26,6 +26,7 @@ const PROFILE_KEY_SOCIAL_DESTINATIONS: String = "social_destinations"
 const PROFILE_KEY_FORCED_RENAME_REQUIRED: String = "forced_rename_required"
 const PROFILE_KEY_FORCED_RENAME_REASON: String = "forced_rename_reason"
 const PROFILE_KEY_FORCED_RENAME_ACTION_ID: String = "forced_rename_action_id"
+const PROFILE_KEY_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED: String = "tutorial_controls_followup_bonus_claimed"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player_"
@@ -106,6 +107,7 @@ var _tutorial_section3_status: String = TUTORIAL_SECTION3_STATUS_NOT_STARTED
 var _tutorial_section3_step: String = TUTORIAL_SECTION3_STEP_0_INTRO
 var _tutorial_controls_status: String = TUTORIAL_CONTROLS_STATUS_NOT_STARTED
 var _tutorial_controls_version: int = TUTORIAL_CONTROLS_VERSION
+var _tutorial_controls_followup_bonus_claimed: bool = false
 var _id: String = ""
 var _entap_id: String = ""
 var _call_sign: String = ""
@@ -209,6 +211,7 @@ func ensure_loaded() -> void:
 			str(cfg.get_value(PROFILE_SECTION, "tutorial_controls_status", TUTORIAL_CONTROLS_STATUS_NOT_STARTED))
 		)
 		_tutorial_controls_version = maxi(0, int(cfg.get_value(PROFILE_SECTION, "tutorial_controls_version", TUTORIAL_CONTROLS_VERSION)))
+		_tutorial_controls_followup_bonus_claimed = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED, false))
 		_gpu_vfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, true))
 		_audio_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, true))
 		_sfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, true))
@@ -256,6 +259,7 @@ func ensure_loaded() -> void:
 		_tutorial_section3_step = TUTORIAL_SECTION3_STEP_0_INTRO
 		_tutorial_controls_status = TUTORIAL_CONTROLS_STATUS_NOT_STARTED
 		_tutorial_controls_version = TUTORIAL_CONTROLS_VERSION
+		_tutorial_controls_followup_bonus_claimed = false
 		_gpu_vfx_enabled = true
 		_audio_enabled = true
 		_sfx_enabled = true
@@ -959,6 +963,19 @@ func mark_tutorial_controls_completed() -> void:
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_TUTORIAL_CONTROLS_COMPLETED", {"user_id": _user_id})
 
+func has_tutorial_controls_followup_bonus_claimed() -> bool:
+	ensure_loaded()
+	return _tutorial_controls_followup_bonus_claimed
+
+func mark_tutorial_controls_followup_bonus_claimed() -> bool:
+	ensure_loaded()
+	if _tutorial_controls_followup_bonus_claimed:
+		return false
+	_tutorial_controls_followup_bonus_claimed = true
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	SFLog.info("PROFILE_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED", {"user_id": _user_id})
+	return true
+
 func mark_tutorial_controls_skipped() -> void:
 	ensure_loaded()
 	if _tutorial_controls_status == TUTORIAL_CONTROLS_STATUS_SKIPPED and _tutorial_controls_version == TUTORIAL_CONTROLS_VERSION:
@@ -1448,6 +1465,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "tutorial_section3_step", _tutorial_section3_step)
 	cfg.set_value(PROFILE_SECTION, "tutorial_controls_status", _tutorial_controls_status)
 	cfg.set_value(PROFILE_SECTION, "tutorial_controls_version", _tutorial_controls_version)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED, _tutorial_controls_followup_bonus_claimed)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, _gpu_vfx_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, _audio_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, _sfx_enabled)

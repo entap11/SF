@@ -46,6 +46,7 @@ const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 const TUTORIAL_CONTROLS_ID: String = "controls_v1"
 const TUTORIAL_CONTROLS_MAP_PATH: String = "res://maps/tutorial/MAP_tutorial_controls_v1__1p.json"
+const TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__444__v01_pinched_spine__1p.json"
 const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
 const TUTORIAL_SECTION1_ID: String = "section1"
@@ -1116,6 +1117,11 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		SFLog.error("APPLY_MAP_BAIL_MISSING_RESOURCE", {"map_path": map_path})
 		return
 	var tree: SceneTree = get_tree()
+	if tree != null:
+		if bool(tree.get_meta("tutorial_controls_followup_launch_pending", false)):
+			tree.remove_meta("tutorial_controls_followup_launch_pending")
+		else:
+			_clear_tutorial_controls_followup_tree_meta(tree)
 	var mode_validation: Dictionary = _validate_launch_map_mode_contract(map_path, tree)
 	if not bool(mode_validation.get("ok", false)):
 		_set_shell_status("Launch blocked. %s does not support this mode." % _map_display_name(map_path), "error")
@@ -1473,6 +1479,22 @@ func _prepare_tutorial_controls_profile() -> String:
 		profile_manager.call("begin_tutorial_controls")
 	return TUTORIAL_CONTROLS_ID
 
+func launch_tutorial_controls_followup_bot() -> void:
+	var map_path: String = _resolve_tutorial_controls_followup_map_path()
+	if map_path.is_empty():
+		_set_shell_status("Tutorial follow-up map is unavailable.", "error")
+		SFLog.error("TUTORIAL_CONTROLS_FOLLOWUP_NO_MAP", {})
+		return
+	_prepare_tutorial_controls_followup_tree_meta(map_path)
+	_set_team_mode_ui("1p")
+	_set_shell_status("Launching your first PvBot game on %s..." % _map_display_name(map_path), "success")
+	SFLog.info("TUTORIAL_CONTROLS_FOLLOWUP_LAUNCH", {
+		"map_path": map_path,
+		"bot_style": "turtle",
+		"bot_tier": "easy"
+	})
+	_apply_map_then_start(map_path)
+
 func _prepare_tutorial_section1_sandbox_profile() -> String:
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
 	if profile_manager == null:
@@ -1556,6 +1578,71 @@ func _resolve_tutorial_controls_map_path() -> String:
 	if ResourceLoader.exists(TUTORIAL_CONTROLS_MAP_PATH):
 		return TUTORIAL_CONTROLS_MAP_PATH
 	return ""
+
+func _resolve_tutorial_controls_followup_map_path() -> String:
+	if ResourceLoader.exists(TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH):
+		return TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH
+	return ""
+
+func _prepare_tutorial_controls_followup_tree_meta(map_path: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
+	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
+	if local_name.strip_edges().is_empty():
+		local_name = "You"
+	var remote_profile: Dictionary = {
+		"uid": "bot_tutorial_turtle_easy",
+		"display_name": "Training Turtle",
+		"name": "Training Turtle",
+		"is_cpu": true,
+		"seat": 2,
+		"style": "turtle",
+		"tier": "easy"
+	}
+	tree.set_meta("start_game", true)
+	tree.set_meta("vs_mode", "1V1")
+	tree.set_meta("vs_price_usd", 0)
+	tree.set_meta("vs_wager_cents", 0)
+	tree.set_meta("vs_paid_entry", false)
+	tree.set_meta("vs_free_roll", true)
+	tree.set_meta("vs_assigned_players", [local_name, str(remote_profile.get("display_name", "CPU"))])
+	tree.set_meta("vs_open_slots", 0)
+	tree.set_meta("vs_required_players", 2)
+	tree.set_meta("vs_sync_start", true)
+	tree.set_meta("vs_sync_join_sec", 0)
+	tree.set_meta("vs_window_sec", 0)
+	tree.set_meta("vs_window_started_unix", 0)
+	tree.set_meta("vs_window_deadline_unix", 0)
+	tree.set_meta("vs_stage_map_paths", [map_path])
+	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
+	tree.set_meta("vs_handshake_session_id", "")
+	tree.set_meta("vs_handshake_role", "host")
+	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_local_profile", {
+		"uid": local_uid,
+		"display_name": local_name,
+		"name": local_name
+	})
+	tree.set_meta("vs_remote_profile", remote_profile)
+	tree.set_meta("vs_cpu_style", "turtle")
+	tree.set_meta("vs_cpu_tier", "easy")
+	tree.set_meta("tutorial_controls_followup_launch_pending", true)
+	tree.set_meta("tutorial_controls_followup_match", true)
+	tree.set_meta("tutorial_controls_followup_reward_honey", 25)
+
+func _clear_tutorial_controls_followup_tree_meta(tree: SceneTree) -> void:
+	if tree == null:
+		return
+	for key in [
+		"tutorial_controls_followup_launch_pending",
+		"tutorial_controls_followup_match",
+		"tutorial_controls_followup_reward_honey"
+	]:
+		if tree.has_meta(key):
+			tree.remove_meta(key)
 
 func _prepare_tutorial_section3_sandbox_profile_fallback(profile_manager: Node) -> void:
 	if profile_manager == null:
@@ -3839,11 +3926,7 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
 
-	if _tutorial_controls_smoke_tap_anywhere(arena_node):
-		passes += _mvp_smoke_pass("tutorial_controls_swarm_intro_continues", {})
-	else:
-		fails += _mvp_smoke_fail("tutorial_controls_swarm_intro_continues", _tutorial_controls_smoke_snapshot(arena_node))
-	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_by_overlap", run_timeout_ms, "tutorial_controls_advances_to_overlap_swarm", {"src": neutral_id, "dst": enemy_id})
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_by_overlap", maxi(run_timeout_ms, 7000), "tutorial_controls_swarm_intro_auto_advances", {"src": neutral_id, "dst": enemy_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
 

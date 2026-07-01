@@ -5376,11 +5376,64 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	_maybe_record_jukebox_result(winner_id_in, reason)
 	if _should_play_post_match_song(winner_id_in):
 		_play_post_match_song(winner_id_in)
+	_maybe_award_tutorial_controls_followup_win(winner_id_in, reason)
 	_maybe_record_stage_race_contest_result(winner_id_in, reason)
 	_maybe_settle_vs_money_match(winner_id_in, reason)
 	_maybe_settle_crucible_match(winner_id_in, reason)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
+
+func _maybe_award_tutorial_controls_followup_win(winner_id_in: int, reason: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or not bool(tree.get_meta("tutorial_controls_followup_match", false)):
+		return
+	var local_owner_id: int = _resolve_local_owner_id()
+	if winner_id_in <= 0 or winner_id_in != local_owner_id:
+		SFLog.info("TUTORIAL_CONTROLS_FOLLOWUP_REWARD_SKIPPED", {
+			"winner_id": winner_id_in,
+			"local_owner_id": local_owner_id,
+			"reason": reason
+		})
+		return
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return
+	if profile_manager.has_method("grant_achievement"):
+		profile_manager.call("grant_achievement", "ACH_FIRST_WIN")
+	if profile_manager.has_method("mark_tutorial_controls_completed"):
+		profile_manager.call("mark_tutorial_controls_completed")
+	var bonus_claimed: bool = false
+	if profile_manager.has_method("has_tutorial_controls_followup_bonus_claimed"):
+		bonus_claimed = bool(profile_manager.call("has_tutorial_controls_followup_bonus_claimed"))
+	if bonus_claimed:
+		return
+	if not profile_manager.has_method("add_honey"):
+		return
+	var result_any: Variant = profile_manager.call("add_honey", 25, "tutorial_controls_completion_bonus")
+	var result: Dictionary = result_any as Dictionary if typeof(result_any) == TYPE_DICTIONARY else {}
+	if not bool(result.get("ok", false)):
+		return
+	if profile_manager.has_method("mark_tutorial_controls_followup_bonus_claimed"):
+		profile_manager.call("mark_tutorial_controls_followup_bonus_claimed")
+	tree.set_meta("honey_latest_award", {
+		"type": "honey_awarded",
+		"source": "tutorial_controls_completion_bonus",
+		"event_id": "tutorial_controls_completion_bonus_v1",
+		"honey_centi_awarded": 2500,
+		"whole_honey_granted": 25,
+		"profile_honey_balance": int(result.get("honey_balance", 0)),
+		"metadata": {
+			"winner_id": winner_id_in,
+			"reason": reason,
+			"map_id": _resolve_telemetry_map_id()
+		}
+	})
+	tree.set_meta("honey_latest_awarded_centi", 2500)
+	SFLog.info("TUTORIAL_CONTROLS_FOLLOWUP_REWARD_GRANTED", {
+		"winner_id": winner_id_in,
+		"honey": 25,
+		"achievement_id": "ACH_FIRST_WIN"
+	})
 
 func _maybe_settle_vs_money_match(winner_id_in: int, reason: String) -> void:
 	var tree: SceneTree = get_tree()
@@ -5531,6 +5584,7 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	if _controls_hint_controller != null:
 		_controls_hint_controller.hide(false)
 	var tutorial_section1_ended: bool = _tutorial_section1_controller != null and _tutorial_section1_controller.is_active()
+	var tutorial_controls_ended: bool = _tutorial_controls_controller != null and _tutorial_controls_controller.is_active() and winner_id_in == _resolve_local_owner_id()
 	if _tutorial_controls_controller != null:
 		_tutorial_controls_controller.on_match_ended()
 	if _tutorial_section1_controller != null:
@@ -5561,11 +5615,13 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 		var record_slot: int = clampi(active_player_id, 1, 4)
 		var record_text: String = _get_player_record_line(record_slot)
 		var h2h_text: String = _get_h2h_record_line()
-		if tutorial_section1_ended and outcome_overlay.has_method("show_tutorial_complete"):
+		if tutorial_controls_ended and outcome_overlay.has_method("show_tutorial_controls_complete"):
+			outcome_overlay.call("show_tutorial_controls_complete", winner_id_in, reason, active_player_id)
+		elif tutorial_section1_ended and outcome_overlay.has_method("show_tutorial_complete"):
 			outcome_overlay.call("show_tutorial_complete", winner_id_in, reason, active_player_id)
 		else:
 			outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
-		if not tutorial_section1_ended and outcome_overlay.has_method("set_post_match_summary"):
+		if not tutorial_section1_ended and not tutorial_controls_ended and outcome_overlay.has_method("set_post_match_summary"):
 			outcome_overlay.call("set_post_match_summary", _post_match_analysis_summary, winner_id_in, active_player_id)
 	else:
 		SFLog.warn("POSTMATCH_UI_MISSING", {"kind": "outcome_overlay"})
@@ -5765,6 +5821,9 @@ func _on_post_match_action(action: String) -> void:
 		return
 	SFLog.info("POST_MATCH_ACTION", {"action": action})
 	match action:
+		"tutorial_controls_followup":
+			_post_match_action_taken = true
+			_launch_tutorial_controls_followup_match()
 		"next_round":
 			_post_match_action_taken = true
 			if _is_progressive_runtime_mode():
@@ -5792,6 +5851,16 @@ func _on_post_match_action(action: String) -> void:
 			_return_to_main_menu()
 		_:
 			return
+
+func _launch_tutorial_controls_followup_match() -> void:
+	if outcome_overlay != null:
+		outcome_overlay.hide_overlay()
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("launch_tutorial_controls_followup_bot"):
+		shell.call_deferred("launch_tutorial_controls_followup_bot")
+		return
+	SFLog.warn("TUTORIAL_CONTROLS_FOLLOWUP_LAUNCH_MISSING_SHELL", {})
+	_return_to_main_menu()
 
 func _is_stage_race_runtime_mode() -> bool:
 	return _stage_runtime_flow.is_stage_race_runtime_mode(get_tree(), TREE_META_VS_MODE, VS_MODE_STAGE_RACE)
