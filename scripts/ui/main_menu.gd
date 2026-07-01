@@ -180,6 +180,7 @@ const MENU_AUDIO_TAIL_FADE_SEC: float = 4.0
 const MENU_AUDIO_FADE_OUT_DB: float = -60.0
 
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
+const TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH: String = "tutorial_controls_boot_launch"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
 const HIVE_BUTTON_SCALE: float = 1.5
 const HIVE_BUTTON_BASE_WIDTH: float = 140.0
@@ -2281,7 +2282,36 @@ func _on_onboarding_done() -> void:
 	_maybe_show_sfa_join_cta(true)
 
 func _on_onboarding_guide_prompt_requested() -> void:
-	call_deferred("_show_onboarding_guide_prompt")
+	call_deferred("_launch_controls_tutorial_after_onboarding")
+
+func _launch_controls_tutorial_after_onboarding() -> void:
+	if not _should_launch_controls_tutorial_after_onboarding():
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		status_label.text = "Controls tutorial could not start."
+		return
+	tree.set_meta(TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH, true)
+	SFLog.info("ONBOARDING_TUTORIAL_CONTROLS_AUTO_LAUNCH", {})
+	var err: Error = tree.change_scene_to_file(SHELL_SCENE_PATH)
+	if err != OK:
+		if tree.has_meta(TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH):
+			tree.remove_meta(TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH)
+		status_label.text = "Controls tutorial could not start."
+		SFLog.warn("ONBOARDING_TUTORIAL_CONTROLS_AUTO_LAUNCH_FAILED", {"error_code": int(err)})
+
+func _should_launch_controls_tutorial_after_onboarding() -> bool:
+	if ProfileManager == null:
+		return true
+	ProfileManager.ensure_loaded()
+	if not ProfileManager.is_onboarding_complete():
+		return false
+	if ProfileManager.has_method("get_tutorial_controls_status"):
+		var status: String = str(ProfileManager.call("get_tutorial_controls_status")).strip_edges().to_lower()
+		return status.is_empty() or status == "not_started"
+	if ProfileManager.has_method("is_tutorial_controls_completed"):
+		return not bool(ProfileManager.call("is_tutorial_controls_completed"))
+	return true
 
 func _show_onboarding_guide_prompt() -> void:
 	if _onboarding_guide_prompt_dialog != null and is_instance_valid(_onboarding_guide_prompt_dialog):

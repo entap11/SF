@@ -54,6 +54,7 @@ const TUTORIAL_SECTION2_ID: String = "section2"
 const TUTORIAL_SECTION3_ID: String = "section3"
 const TREE_META_TUTORIAL_ACTIVE: String = "tutorial_launch_active"
 const TREE_META_TUTORIAL_SECTION: String = "tutorial_launch_section"
+const TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH: String = "tutorial_controls_boot_launch"
 const SHELL_STATUS_NEUTRAL: Color = Color(0.82, 0.86, 0.91, 0.95)
 const SHELL_STATUS_SUCCESS: Color = Color(0.84, 0.94, 0.78, 0.96)
 const SHELL_STATUS_ERROR: Color = Color(0.98, 0.74, 0.72, 0.98)
@@ -310,8 +311,9 @@ func _ready() -> void:
 	var startup_requested: bool = bool(startup_request.get("start", false))
 	var startup_map_path: String = str(startup_request.get("map_path", "")).strip_edges()
 	var startup_reason: String = str(startup_request.get("reason", "none"))
+	var tutorial_controls_boot_launch: bool = _consume_tutorial_controls_boot_launch(get_tree())
 	var open_map_picker_on_ready: bool = _consume_open_map_picker_request(get_tree())
-	var in_menu_boot: bool = start_in_menu and not startup_requested
+	var in_menu_boot: bool = start_in_menu and not startup_requested and not tutorial_controls_boot_launch
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 070: before_startup_menu_flow")
 	_set_menu_state(in_menu_boot)
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 080: after_startup_menu_flow")
@@ -329,7 +331,12 @@ func _ready() -> void:
 		"map_picker_visible": (_map_picker_panel.visible if _map_picker_panel != null else false),
 		"select_map_button": _select_map_button != null
 	})
-	if startup_requested:
+	if tutorial_controls_boot_launch:
+		SFLog.info("SHELL_BOOT_TUTORIAL_CONTROLS_AUTOSTART", {
+			"in_menu_boot": in_menu_boot
+		})
+		call_deferred("_on_tutorial_pressed")
+	elif startup_requested:
 		SFLog.info("SHELL_BOOT_AUTOSTART", {
 			"reason": startup_reason,
 			"map_path": startup_map_path,
@@ -352,6 +359,28 @@ func _resolve_startup_launch_request() -> Dictionary:
 	if _startup_request_resolver == null:
 		_startup_request_resolver = ShellStartupLaunchRequestResolver.new()
 	return _startup_request_resolver.resolve(tree, gamebot)
+
+func _consume_tutorial_controls_boot_launch(tree: SceneTree) -> bool:
+	if tree == null or not tree.has_meta(TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH):
+		return false
+	var requested: bool = bool(tree.get_meta(TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH, false))
+	tree.remove_meta(TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH)
+	if not requested:
+		return false
+	return _profile_allows_tutorial_controls_auto_launch()
+
+func _profile_allows_tutorial_controls_auto_launch() -> bool:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return true
+	if profile_manager.has_method("ensure_loaded"):
+		profile_manager.call("ensure_loaded")
+	if profile_manager.has_method("get_tutorial_controls_status"):
+		var status: String = str(profile_manager.call("get_tutorial_controls_status")).strip_edges().to_lower()
+		return status.is_empty() or status == "not_started"
+	if profile_manager.has_method("is_tutorial_controls_completed"):
+		return not bool(profile_manager.call("is_tutorial_controls_completed"))
+	return true
 
 func _consume_open_map_picker_request(tree: SceneTree) -> bool:
 	if tree == null:
