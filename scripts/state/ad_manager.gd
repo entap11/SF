@@ -412,6 +412,10 @@ func _dev_biodynamic_ads_enabled() -> bool:
 	return false
 
 func _has_zero_ads_entitlement() -> bool:
+	var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
+	if battle_pass_state != null and battle_pass_state.has_method("has_active_ad_free_reward"):
+		if bool(battle_pass_state.call("has_active_ad_free_reward")):
+			return true
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
 	if profile_manager == null or not profile_manager.has_method("has_store_entitlement"):
 		return false

@@ -7263,18 +7263,19 @@ func _sync_entitlements_from_profile() -> void:
 func _spend_honey(amount: int, reason: String) -> Dictionary:
 	if amount <= 0:
 		return {"ok": false, "reason": "invalid_amount", "honey_balance": _current_honey_balance()}
-	if ProfileManager.has_method("spend_honey"):
-		var result_any: Variant = ProfileManager.call("spend_honey", amount, reason)
+	var honey_state: Node = get_node_or_null("/root/HoneyProgressionState")
+	if honey_state != null and honey_state.has_method("intent_spend_player_honey"):
+		var result_any: Variant = honey_state.call("intent_spend_player_honey", amount, reason, {
+			"event_id": "store_debit:%s" % reason.sha256_text(),
+			"surface": "main_menu_store"
+		})
 		if typeof(result_any) != TYPE_DICTIONARY:
-			return {"ok": false, "reason": "bad_profile_response", "honey_balance": _current_honey_balance()}
+			return {"ok": false, "reason": "bad_honey_authority_response", "honey_balance": _current_honey_balance()}
 		var result: Dictionary = result_any as Dictionary
 		if bool(result.get("ok", false)):
 			_set_honey_balance_local(int(result.get("honey_balance", _current_honey_balance())))
 		return result
-	if _current_honey_balance() < amount:
-		return {"ok": false, "reason": "insufficient_honey", "honey_balance": _current_honey_balance()}
-	_set_honey_balance_local(_current_honey_balance() - amount)
-	return {"ok": true, "honey_balance": _current_honey_balance()}
+	return {"ok": false, "reason": "honey_authority_unavailable", "honey_balance": _current_honey_balance()}
 
 func _grant_entitlements(flags: Array[String], reason: String) -> Dictionary:
 	if flags.is_empty():

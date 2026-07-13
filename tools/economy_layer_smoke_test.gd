@@ -164,13 +164,17 @@ func _test_nectar_policy() -> void:
 	var first_win: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {
 		"event_id": "economy_first_win",
 		"player_id": "nectar_a",
-		"day_key": "2026-06-27"
+		"opponent_id": "nectar_b",
+		"day_key": "2026-06-27",
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(int(first_win.get("xp_awarded", 0)), 38, "classic first win should award 18+20 Nectar")
 	var second_win: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {
 		"event_id": "economy_second_win",
 		"player_id": "nectar_a",
-		"day_key": "2026-06-27"
+		"opponent_id": "nectar_b",
+		"day_key": "2026-06-27",
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(int(second_win.get("xp_awarded", 0)), 18, "second win same day should not repeat first-win Nectar")
 	var crucible_block: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {
@@ -181,7 +185,8 @@ func _test_nectar_policy() -> void:
 	var duplicate: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {
 		"event_id": "economy_second_win",
 		"player_id": "nectar_a",
-		"day_key": "2026-06-27"
+		"day_key": "2026-06-27",
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(str(duplicate.get("reason", "")), "event_already_awarded", "duplicate Nectar event should be ignored")
 	var no_contest: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, true, {
@@ -195,9 +200,16 @@ func _test_nectar_policy() -> void:
 	}) as Dictionary
 	_assert_true(bool(too_short_nectar.get("suppressed", false)), "too-short match should suppress Nectar")
 	_assert_eq(str(too_short_nectar.get("reason", "")), "match_too_short", "too-short Nectar suppression should be auditable")
+	for farm_index in range(3):
+		battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, false, {
+			"event_id": "economy_repeat_setup_%d" % farm_index,
+			"opponent_id": "nectar_b",
+			"duration_sec": 120.0
+		})
 	var repeated_opponent: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, false, {
 		"event_id": "economy_repeated_opponent_nectar",
-		"repeated_opponent_count": 5
+		"opponent_id": "nectar_b",
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(int(repeated_opponent.get("xp_awarded", 0)), 7, "repeated opponent should diminish completion Nectar")
 	var repeated_breakdown: Dictionary = repeated_opponent.get("nectar_breakdown", {}) as Dictionary
@@ -214,26 +226,31 @@ func _test_nectar_policy() -> void:
 
 	battle_pass_state.call("debug_reset_state")
 	var money_loss: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", true, 3, false, {
-		"event_id": "money_loss"
+		"event_id": "money_loss",
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(int(money_loss.get("xp_awarded", 0)), 12, "money loss should award modest completion Nectar")
 	var money_win: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "1V1", true, 3, true, {
 		"event_id": "money_win",
 		"player_id": "nectar_money",
-		"day_key": "2026-06-27"
+		"day_key": "2026-06-27",
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(int(money_win.get("xp_awarded", 0)), 42, "money first win should award 12+10+20 Nectar")
 	var async_loss: Dictionary = battle_pass_state.call("intent_record_async_completion", "STAGE_RACE", 3, false, {
-		"event_id": "async_loss"
+		"event_id": "async_loss",
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(int(async_loss.get("xp_awarded", 0)), 8, "free async loss should award 8 Nectar")
 	var async_win: Dictionary = battle_pass_state.call("intent_record_async_completion", "STAGE_RACE", 5, true, {
 		"event_id": "async_win",
-		"did_win": true
+		"did_win": true,
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(int(async_win.get("xp_awarded", 0)), 18, "money async win should award 10+8 Nectar")
 	var tournament_win: Dictionary = battle_pass_state.call("intent_record_tournament_match_result", true, {
-		"event_id": "tournament_win"
+		"event_id": "tournament_win",
+		"duration_sec": 120.0
 	}) as Dictionary
 	_assert_eq(int(tournament_win.get("xp_awarded", 0)), 22, "tournament match win should award 12+10 Nectar")
 	var tournament_champion: Dictionary = battle_pass_state.call("intent_record_tournament_placement", 1, {
@@ -246,7 +263,8 @@ func _test_nectar_policy() -> void:
 		var win_result: Dictionary = battle_pass_state.call("intent_record_pvp_completion", "CTF", false, 0, true, {
 			"event_id": "weekly_standard_win_%d" % i,
 			"player_id": "nectar_weekly",
-			"day_key": "2026-06-27"
+			"day_key": "2026-06-27",
+			"duration_sec": 120.0
 		}) as Dictionary
 		_assert_true(bool(win_result.get("ok", false)), "weekly standard win should award Nectar")
 	var weekly_snapshot: Dictionary = battle_pass_state.call("get_snapshot") as Dictionary

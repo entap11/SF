@@ -18,15 +18,12 @@ const INVENTORY_BUNDLE_TOKENS: String = "bundle_tokens"
 const INVENTORY_AD_FREE_DAYS: String = "ad_free_days"
 
 func normalize_wallet(raw_wallet: Dictionary) -> Dictionary:
-	var wallet: Dictionary = {
-		"honey": 0,
-		"nectar": 0,
-		"wax": 0
-	}
-	wallet["honey"] = maxi(0, int(raw_wallet.get("honey", 0)))
-	wallet["nectar"] = maxi(0, int(raw_wallet.get("nectar", 0)))
-	wallet["wax"] = maxi(0, int(raw_wallet.get("wax", 0)))
-	return wallet
+	# Currency does not belong to the Battle Path reward inventory. Honey is
+	# player-owned, Wax is RankState-owned, and Nectar is seasonal path XP.
+	# Keep this migration shim so old saves load without preserving a second
+	# authoritative wallet.
+	var _discarded_legacy_wallet: Dictionary = raw_wallet
+	return {}
 
 func normalize_inventory(raw_inventory: Dictionary) -> Dictionary:
 	var inventory: Dictionary = {
@@ -75,9 +72,9 @@ func grant_reward(
 		}
 
 	if reward_type == REWARD_HONEY:
-		wallet["honey"] = maxi(0, int(wallet.get("honey", 0))) + quantity
 		return {
-			"ok": true,
+			"ok": false,
+			"reason": "honey_requires_player_authority",
 			"reward_type": REWARD_HONEY,
 			"quantity": quantity,
 			"wallet": wallet,

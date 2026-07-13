@@ -4,6 +4,8 @@ const HONEY_STATE_PATH: String = "user://honey_progression_state.json"
 const PROFILE_PATH: String = "user://profile.cfg"
 
 func _init() -> void:
+	OS.set_environment("SF_VS_BACKEND_URL", "")
+	ProjectSettings.set_setting("swarmfront/vs/backend_url", "")
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(HONEY_STATE_PATH))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PROFILE_PATH))
@@ -14,6 +16,9 @@ func _init() -> void:
 	if ops_config == null or honey_state == null or profile_manager == null:
 		_fail("required autoload missing")
 		return
+	var vs_handshake: Node = get_root().get_node_or_null("VsHandshake")
+	if vs_handshake != null and vs_handshake.has_method("_configure_transport"):
+		vs_handshake.call("_configure_transport")
 
 	ops_config.call("force_config_for_smoke", {
 		"schema_version": 1,
@@ -33,7 +38,7 @@ func _init() -> void:
 		"STAGE_RACE",
 		3,
 		false,
-		{"event_id": "ops_gate_disabled"}
+		{"event_id": "ops_gate_disabled", "duration_sec": 120.0}
 	) as Dictionary
 	_assert_true(bool(disabled_result.get("ok", false)), "disabled gate should return a handled result")
 	_assert_eq(str(disabled_result.get("reason", "")), "honey_rewards_disabled", "disabled reason")
@@ -49,7 +54,8 @@ func _init() -> void:
 		"schema_version": 1,
 		"config_version": "honey-rewards-enabled-smoke",
 		"feature_flags": {
-			"enable_honey_rewards": true
+			"enable_honey_rewards": true,
+			"enable_local_honey_rewards": true
 		}
 	})
 	var enabled_result: Dictionary = honey_state.call(
@@ -57,7 +63,7 @@ func _init() -> void:
 		"STAGE_RACE",
 		3,
 		false,
-		{"event_id": "ops_gate_disabled"}
+		{"event_id": "ops_gate_disabled", "duration_sec": 120.0}
 	) as Dictionary
 	_assert_true(bool(enabled_result.get("ok", false)), "event id should not be consumed while disabled")
 	_assert_int_eq(int(enabled_result.get("honey_centi_awarded", -1)), 400, "enabled centi awarded")

@@ -12,12 +12,15 @@ signal battle_pass_event(event: Dictionary)
 
 const CONFIG_PATH: String = "res://data/battle_pass/battle_pass_config.json"
 const SAVE_PATH: String = "user://battle_pass_state.json"
-const SAVE_SCHEMA_VERSION: int = 2
+const SAVE_SCHEMA_VERSION: int = 3
 const TRACK_FREE: String = "free"
 const TRACK_PREMIUM: String = "premium"
 const TRACK_ELITE: String = "elite"
 const REWARD_NONE: String = "none"
 const MATCH_DEDUPE_MAX: int = 5000
+const OPPONENT_HISTORY_WINDOW_SEC: int = 24 * 60 * 60
+const OPPONENT_HISTORY_MAX_PER_OPPONENT: int = 32
+const NECTAR_FIXED_POINT_SCALE: int = 1000
 
 var _config: BattlePassConfigScript = BattlePassConfigScript.new(CONFIG_PATH)
 var _rewards: BattlePassRewardsScript = BattlePassRewardsScript.new()
@@ -26,6 +29,7 @@ var _save_schema_version: int = SAVE_SCHEMA_VERSION
 var _current_season_id: String = ""
 var _battle_pass_xp: int = 0
 var _battle_pass_level: int = 1
+var _nectar_fractional_milli: int = 0
 
 var _premium_owned: bool = false
 var _elite_owned: bool = false
@@ -47,6 +51,10 @@ var _inventory: Dictionary = {}
 var _awarded_match_ids: Dictionary = {}
 var _awarded_match_order: Array[String] = []
 var _first_win_bonus_by_day_player: Dictionary = {}
+var _nectar_earned_by_day: Dictionary = {}
+var _opponent_award_times: Dictionary = {}
+var _ad_free_until_unix: int = 0
+var _redemption_receipts: Dictionary = {}
 
 var _quest_progress: Dictionary = {}
 var _quest_claimed: Dictionary = {}
@@ -101,8 +109,11 @@ func get_snapshot() -> Dictionary:
 		"season_id": _current_season_id,
 		"season_start_unix": _config.get_season_start_unix(),
 		"season_end_unix": _config.get_season_end_unix(),
+		"product_ids": _config.get_product_ids(),
 		"season_seconds_remaining": maxi(0, _config.get_season_end_unix() - int(Time.get_unix_time_from_system())),
 		"battle_pass_xp": _battle_pass_xp,
+		"nectar_xp": _battle_pass_xp,
+		"nectar_fractional_milli": _nectar_fractional_milli,
 		"battle_pass_level": _battle_pass_level,
 		"next_level": next_level,
 		"xp_into_level": xp_into_level,
@@ -127,8 +138,10 @@ func get_snapshot() -> Dictionary:
 		"quest_reward_summary": _config.get_quest_reward_summary(),
 		"progression_sink_summary": _config.get_progression_sink_summary(),
 		"rows": _build_level_rows(visible_cap),
-		"wallet": _wallet.duplicate(true),
+		"honey_balance": _canonical_honey_balance(),
 		"inventory": _inventory.duplicate(true),
+		"ad_free_until_unix": _ad_free_until_unix,
+		"ad_free_active": _ad_free_until_unix > int(Time.get_unix_time_from_system()),
 		"access_ticket_entry_claim_count": _access_ticket_entry_claims.size(),
 		"exclusive_event_prize_claim_count": _exclusive_event_prize_claims.size(),
 		"first_win_bonus_claims": _first_win_bonus_by_day_player.duplicate(true),
@@ -201,6 +214,8 @@ func intent_apply_veteran_start(flags: Dictionary, opt_out: bool = false) -> Dic
 	}
 
 func intent_award_nectar_xp(source_name: String, nectar_xp: int, metadata: Dictionary = {}) -> Dictionary:
+	if not _season_is_active():
+		return {"ok": true, "suppressed": true, "reason": "season_inactive", "xp_awarded": 0}
 	var safe_xp: int = maxi(0, nectar_xp)
 	if safe_xp <= 0:
 		return {"ok": false, "reason": "xp_zero"}
@@ -246,6 +261,8 @@ func intent_record_async_completion(mode_id: String, map_count: int, paid_entry:
 	var xp_result: Dictionary = _apply_nectar_xp_award("async_completion", xp_total, xp_meta, true)
 	if not bool(xp_result.get("ok", false)):
 		return xp_result
+	_record_opponent_award(xp_meta)
+	_save_state()
 	if changed:
 		_save_state()
 		_emit_state_changed()
@@ -307,6 +324,8 @@ func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_t
 	var xp_result: Dictionary = _apply_nectar_xp_award("pvp_completion", xp_total, xp_meta, true)
 	if not bool(xp_result.get("ok", false)):
 		return xp_result
+	_record_opponent_award(xp_meta)
+	_save_state()
 	if changed:
 		_save_state()
 		_emit_state_changed()
@@ -354,6 +373,8 @@ func intent_record_tournament_match_result(did_win: bool, metadata: Dictionary =
 	var xp_result: Dictionary = _apply_nectar_xp_award("tournament_match", xp_total, xp_meta, true)
 	if not bool(xp_result.get("ok", false)):
 		return xp_result
+	_record_opponent_award(xp_meta)
+	_save_state()
 	if changed:
 		_save_state()
 		_emit_state_changed()
@@ -452,7 +473,7 @@ func intent_grant_analytics_credit(package_id: String, quantity: int = 1, source
 		"reward_type": "analytics_credit",
 		"package_id": clean_package_id,
 		"quantity": safe_quantity
-	})
+	}, clean_source)
 	if not bool(grant_result.get("ok", false)):
 		return grant_result
 	_exclusive_event_prize_claims[claim_key] = {
@@ -476,6 +497,58 @@ func intent_grant_analytics_credit(package_id: String, quantity: int = 1, source
 		"quantity": safe_quantity,
 		"inventory": _inventory.duplicate(true)
 	}
+
+func intent_consume_analytics_credit(package_id: String, usage_id: String) -> Dictionary:
+	var clean_package: String = package_id.strip_edges()
+	var clean_usage: String = usage_id.strip_edges()
+	if clean_package.is_empty() or clean_usage.is_empty():
+		return {"ok": false, "reason": "analytics_redemption_key_missing"}
+	var receipt_key: String = "analytics:%s:%s" % [clean_package, clean_usage]
+	if _redemption_receipts.has(receipt_key):
+		return {"ok": true, "already_redeemed": true, "receipt": (_redemption_receipts.get(receipt_key, {}) as Dictionary).duplicate(true)}
+	var credits: Dictionary = _inventory.get("analytics_credits", {}) as Dictionary
+	var balance: int = maxi(0, int(credits.get(clean_package, 0)))
+	if balance <= 0:
+		return {"ok": false, "reason": "insufficient_analytics_credit", "package_id": clean_package}
+	credits[clean_package] = balance - 1
+	_inventory["analytics_credits"] = credits
+	return _record_redemption(receipt_key, "analytics_credit", clean_package, clean_usage)
+
+func intent_redeem_bundle_token(bundle_id: String, redemption_id: String) -> Dictionary:
+	var clean_bundle: String = bundle_id.strip_edges()
+	var clean_redemption: String = redemption_id.strip_edges()
+	if clean_bundle.is_empty() or clean_redemption.is_empty():
+		return {"ok": false, "reason": "bundle_redemption_key_missing"}
+	var receipt_key: String = "bundle:%s:%s" % [clean_bundle, clean_redemption]
+	if _redemption_receipts.has(receipt_key):
+		return {"ok": true, "already_redeemed": true, "receipt": (_redemption_receipts.get(receipt_key, {}) as Dictionary).duplicate(true)}
+	var tokens: Dictionary = _inventory.get("bundle_tokens", {}) as Dictionary
+	var balance: int = maxi(0, int(tokens.get(clean_bundle, 0)))
+	if balance <= 0:
+		return {"ok": false, "reason": "insufficient_bundle_token", "bundle_id": clean_bundle}
+	tokens[clean_bundle] = balance - 1
+	_inventory["bundle_tokens"] = tokens
+	return _record_redemption(receipt_key, "bundle_token", clean_bundle, clean_redemption)
+
+func has_active_ad_free_reward() -> bool:
+	return _ad_free_until_unix > int(Time.get_unix_time_from_system())
+
+func get_ad_free_until_unix() -> int:
+	return _ad_free_until_unix
+
+func _record_redemption(receipt_key: String, reward_type: String, item_id: String, redemption_id: String) -> Dictionary:
+	var receipt: Dictionary = {
+		"receipt_id": receipt_key.sha256_text(),
+		"reward_type": reward_type,
+		"item_id": item_id,
+		"redemption_id": redemption_id,
+		"redeemed_at_unix": int(Time.get_unix_time_from_system())
+	}
+	_redemption_receipts[receipt_key] = receipt
+	_save_state()
+	_emit_event("battle_path_reward_redeemed", receipt)
+	_emit_state_changed()
+	return {"ok": true, "receipt": receipt.duplicate(true), "inventory": _inventory.duplicate(true)}
 
 func preview_access_ticket_entry(entry_kind: String, entry_id: String, quantity: int = 1) -> Dictionary:
 	var clean_kind: String = entry_kind.strip_edges().to_lower()
@@ -602,8 +675,7 @@ func intent_claim_exclusive_event_prizes(entry_kind: String, entry_id: String, p
 			"wallet": _wallet.duplicate(true),
 			"inventory": _inventory.duplicate(true)
 		}
-	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
-	var grant_result: Dictionary = _rewards.grant_rewards(normalized_rewards, _wallet, _inventory, profile_manager)
+	var grant_result: Dictionary = _grant_reward_batch(normalized_rewards, "exclusive:%s" % key)
 	if not bool(grant_result.get("ok", false)):
 		return {"ok": false, "reason": "reward_batch_failed", "grant_result": grant_result}
 	_wallet = (grant_result.get("wallet", _wallet) as Dictionary).duplicate(true)
@@ -673,14 +745,16 @@ func intent_claim_quest_reward(quest_id: String) -> Dictionary:
 	var current_progress: int = maxi(0, int(_quest_progress.get(clean_id, 0)))
 	if current_progress < target:
 		return {"ok": false, "reason": "quest_incomplete", "progress": current_progress, "target": target}
-	_quest_claimed[clean_id] = true
-	var xp_reward: int = maxi(0, int(quest_def.get("xp_reward", 0)))
-	if xp_reward > 0:
-		intent_award_nectar_xp("quest_claim:%s" % clean_id, xp_reward, {"quest_id": clean_id})
 	var reward_def_any: Variant = quest_def.get("reward", {})
 	var reward_grant: Dictionary = {}
 	if typeof(reward_def_any) == TYPE_DICTIONARY:
-		reward_grant = _grant_reward(reward_def_any as Dictionary)
+		reward_grant = _grant_reward(reward_def_any as Dictionary, "quest:%s:%s" % [_current_season_id, clean_id])
+		if not bool(reward_grant.get("ok", false)):
+			return {"ok": false, "reason": "reward_grant_failed", "grant_result": reward_grant}
+	var xp_reward: int = maxi(0, int(quest_def.get("xp_reward", 0)))
+	if xp_reward > 0:
+		intent_award_nectar_xp("quest_claim:%s" % clean_id, xp_reward, {"quest_id": clean_id})
+	_quest_claimed[clean_id] = true
 	_claim_ready_quest_bonuses()
 	_save_state()
 	_emit_event("quest_claimed", {"quest_id": clean_id, "xp_reward": xp_reward})
@@ -731,7 +805,7 @@ func intent_claim_reward(level: int, track_slot: String) -> Dictionary:
 	if not bool(validation.get("ok", false)):
 		return validation
 	var reward_def: Dictionary = _config.get_reward_slot(level, track_slot)
-	var grant_result: Dictionary = _grant_reward(reward_def)
+	var grant_result: Dictionary = _grant_reward(reward_def, "level:%s:%d:%s" % [_current_season_id, level, track_slot])
 	if not bool(grant_result.get("ok", false)):
 		return {"ok": false, "reason": "reward_grant_failed", "grant_result": grant_result}
 	_mark_claimed(level, track_slot)
@@ -1143,16 +1217,48 @@ func _claim_ready_quest_bonuses() -> void:
 				break
 		if not all_ready:
 			continue
-		_quest_bonus_claimed[bonus_id] = true
+		var reward_any: Variant = bonus_def.get("reward", {})
+		if typeof(reward_any) == TYPE_DICTIONARY:
+			var reward_result: Dictionary = _grant_reward(reward_any as Dictionary, "quest_bonus:%s:%s" % [_current_season_id, bonus_id])
+			if not bool(reward_result.get("ok", false)):
+				_emit_event("quest_bonus_deferred", {"bonus_id": bonus_id, "reason": str(reward_result.get("reason", "reward_failed"))})
+				continue
 		var xp_reward: int = maxi(0, int(bonus_def.get("xp_reward", 0)))
 		if xp_reward > 0:
 			intent_award_nectar_xp("quest_bonus:%s" % bonus_id, xp_reward, {"bonus_id": bonus_id})
-		var reward_any: Variant = bonus_def.get("reward", {})
-		if typeof(reward_any) == TYPE_DICTIONARY:
-			_grant_reward(reward_any as Dictionary)
+		_quest_bonus_claimed[bonus_id] = true
 		_emit_event("quest_bonus_claimed", {"bonus_id": bonus_id})
 
-func _grant_reward(reward_def: Dictionary) -> Dictionary:
+func _grant_reward(reward_def: Dictionary, award_context: String = "") -> Dictionary:
+	var reward_type: String = str(reward_def.get("reward_type", REWARD_NONE)).strip_edges().to_lower()
+	if reward_type == "honey":
+		var honey_state: Node = get_node_or_null("/root/HoneyProgressionState")
+		if honey_state == null or not honey_state.has_method("intent_grant_player_honey"):
+			return {"ok": false, "reason": "honey_authority_missing"}
+		var event_id: String = "battle_path_honey:%s" % award_context.strip_edges().sha256_text()
+		var metadata: Dictionary = {
+			"event_id": event_id,
+			"season_id": _current_season_id,
+			"award_context": award_context
+		}
+		return honey_state.call(
+			"intent_grant_player_honey",
+			maxi(0, int(reward_def.get("quantity", 0))),
+			"battle_path_reward",
+			metadata
+		) as Dictionary
+	if reward_type == "ad_free_days":
+		var days: int = maxi(1, int(reward_def.get("quantity", 1)))
+		var now_unix: int = int(Time.get_unix_time_from_system())
+		_ad_free_until_unix = maxi(now_unix, _ad_free_until_unix) + days * 86400
+		return {
+			"ok": true,
+			"reward_type": reward_type,
+			"quantity": days,
+			"ad_free_until_unix": _ad_free_until_unix,
+			"inventory": _inventory.duplicate(true),
+			"wallet": {}
+		}
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
 	var grant_result: Dictionary = _rewards.grant_reward(reward_def, _wallet, _inventory, profile_manager)
 	if not bool(grant_result.get("ok", false)):
@@ -1164,6 +1270,26 @@ func _grant_reward(reward_def: Dictionary) -> Dictionary:
 	if typeof(inventory_any) == TYPE_DICTIONARY:
 		_inventory = _rewards.normalize_inventory(inventory_any as Dictionary)
 	return grant_result
+
+func _grant_reward_batch(reward_defs: Array[Dictionary], award_context: String) -> Dictionary:
+	var grants: Array[Dictionary] = []
+	for index in range(reward_defs.size()):
+		var result: Dictionary = _grant_reward(reward_defs[index], "%s:%d" % [award_context, index])
+		if not bool(result.get("ok", false)):
+			return {
+				"ok": false,
+				"reason": "reward_batch_failed",
+				"failed_index": index,
+				"grant_result": result,
+				"grants": grants
+			}
+		grants.append(result.duplicate(true))
+	return {
+		"ok": true,
+		"grants": grants,
+		"wallet": {},
+		"inventory": _inventory.duplicate(true)
+	}
 
 func _is_claimed(level: int, track_slot: String) -> bool:
 	return _claimed_rewards.has(_claim_key(level, track_slot))
@@ -1277,6 +1403,7 @@ func _roll_daily_weekly_cycles_if_needed() -> void:
 	var live_daily: String = _current_daily_cycle_key()
 	if _daily_cycle_key != live_daily:
 		_daily_cycle_key = live_daily
+		_nectar_earned_by_day.clear()
 		_daily_challenge_progress.clear()
 		_daily_challenge_claimed.clear()
 		_ensure_daily_challenge_state_initialized()
@@ -1315,6 +1442,10 @@ func _evaluate_nectar_policy(mode_id: String, paid_entry: bool, money_tier: int,
 	payload["match_id"] = event_id
 	payload["multiplier"] = _config.get_nectar_multiplier_for_entitlements(_premium_owned, _elite_owned)
 	payload["pass_tier"] = TRACK_ELITE if _elite_owned else TRACK_PREMIUM if _premium_owned else TRACK_FREE
+	payload["season_active"] = _season_is_active()
+	payload["require_match_duration"] = true
+	payload["daily_nectar_earned"] = maxi(0, int(_nectar_earned_by_day.get(_current_daily_cycle_key(), 0)))
+	payload["repeated_opponent_count"] = _recent_opponent_award_count(str(metadata.get("opponent_id", "")))
 	_emit_event("nectar_award_attempt", {
 		"event_id": event_id,
 		"mode_id": payload["mode_id"],
@@ -1322,6 +1453,38 @@ func _evaluate_nectar_policy(mode_id: String, paid_entry: bool, money_tier: int,
 		"did_win": did_win
 	})
 	return NectarRewardPolicyScript.evaluate_match(payload, _config.get_nectar_policy_config())
+
+func _recent_opponent_award_count(opponent_id: String) -> int:
+	var clean_id: String = opponent_id.strip_edges()
+	if clean_id.is_empty():
+		return 0
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	var cutoff: int = now_unix - OPPONENT_HISTORY_WINDOW_SEC
+	var recent: Array = []
+	var history_any: Variant = _opponent_award_times.get(clean_id, [])
+	if typeof(history_any) == TYPE_ARRAY:
+		for timestamp_any in history_any as Array:
+			var timestamp: int = int(timestamp_any)
+			if timestamp >= cutoff and timestamp <= now_unix + 60:
+				recent.append(timestamp)
+	if recent.size() > OPPONENT_HISTORY_MAX_PER_OPPONENT:
+		recent = recent.slice(recent.size() - OPPONENT_HISTORY_MAX_PER_OPPONENT)
+	if recent.is_empty():
+		_opponent_award_times.erase(clean_id)
+	else:
+		_opponent_award_times[clean_id] = recent
+	return recent.size()
+
+func _record_opponent_award(metadata: Dictionary) -> void:
+	var clean_id: String = str(metadata.get("opponent_id", "")).strip_edges()
+	if clean_id.is_empty():
+		return
+	_recent_opponent_award_count(clean_id)
+	var history: Array = _opponent_award_times.get(clean_id, []) as Array
+	history.append(int(Time.get_unix_time_from_system()))
+	if history.size() > OPPONENT_HISTORY_MAX_PER_OPPONENT:
+		history = history.slice(history.size() - OPPONENT_HISTORY_MAX_PER_OPPONENT)
+	_opponent_award_times[clean_id] = history
 
 func _nectar_blocked_reason(source_name: String, metadata: Dictionary) -> String:
 	var payload: Dictionary = metadata.duplicate(true)
@@ -1362,6 +1525,7 @@ func _roll_season_if_needed() -> void:
 	_current_season_id = live_season
 	_battle_pass_xp = 0
 	_battle_pass_level = 1
+	_nectar_fractional_milli = 0
 	_premium_owned = false
 	_elite_owned = false
 	_claimed_rewards.clear()
@@ -1374,6 +1538,8 @@ func _roll_season_if_needed() -> void:
 	_awarded_match_ids.clear()
 	_awarded_match_order.clear()
 	_first_win_bonus_by_day_player.clear()
+	_nectar_earned_by_day.clear()
+	_opponent_award_times.clear()
 	_quest_progress.clear()
 	_quest_claimed.clear()
 	_quest_bonus_claimed.clear()
@@ -1412,6 +1578,7 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 		"current_season_id": str(raw.get("current_season_id", _config.get_season_id())),
 		"battle_pass_xp": maxi(0, int(raw.get("battle_pass_xp", 0))),
 		"battle_pass_level": maxi(1, int(raw.get("battle_pass_level", 1))),
+		"nectar_fractional_milli": clampi(int(raw.get("nectar_fractional_milli", 0)), 0, NECTAR_FIXED_POINT_SCALE - 1),
 		"premium_owned": bool(raw.get("premium_owned", false)),
 		"elite_owned": bool(raw.get("elite_owned", false)),
 		"claimed_rewards": {},
@@ -1428,6 +1595,10 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 		"awarded_match_ids": {},
 		"awarded_match_order": [],
 		"first_win_bonus_by_day_player": {},
+		"nectar_earned_by_day": {},
+		"opponent_award_times": {},
+		"ad_free_until_unix": maxi(0, int(raw.get("ad_free_until_unix", 0))),
+		"redemption_receipts": {},
 		"quest_progress": {},
 		"quest_claimed": {},
 		"quest_bonus_claimed": {},
@@ -1465,6 +1636,15 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 	var first_win_any: Variant = raw.get("first_win_bonus_by_day_player", {})
 	if typeof(first_win_any) == TYPE_DICTIONARY:
 		out["first_win_bonus_by_day_player"] = (first_win_any as Dictionary).duplicate(true)
+	var nectar_daily_any: Variant = raw.get("nectar_earned_by_day", {})
+	if typeof(nectar_daily_any) == TYPE_DICTIONARY:
+		out["nectar_earned_by_day"] = (nectar_daily_any as Dictionary).duplicate(true)
+	var opponent_history_any: Variant = raw.get("opponent_award_times", {})
+	if typeof(opponent_history_any) == TYPE_DICTIONARY:
+		out["opponent_award_times"] = (opponent_history_any as Dictionary).duplicate(true)
+	var receipts_any: Variant = raw.get("redemption_receipts", {})
+	if typeof(receipts_any) == TYPE_DICTIONARY:
+		out["redemption_receipts"] = (receipts_any as Dictionary).duplicate(true)
 	var quest_progress_any: Variant = raw.get("quest_progress", {})
 	if typeof(quest_progress_any) == TYPE_DICTIONARY:
 		out["quest_progress"] = (quest_progress_any as Dictionary).duplicate(true)
@@ -1499,6 +1679,7 @@ func _apply_loaded_state(state: Dictionary) -> void:
 	_current_season_id = str(state.get("current_season_id", _config.get_season_id()))
 	_battle_pass_xp = maxi(0, int(state.get("battle_pass_xp", 0)))
 	_battle_pass_level = maxi(1, int(state.get("battle_pass_level", 1)))
+	_nectar_fractional_milli = clampi(int(state.get("nectar_fractional_milli", 0)), 0, NECTAR_FIXED_POINT_SCALE - 1)
 	_premium_owned = bool(state.get("premium_owned", false))
 	_elite_owned = bool(state.get("elite_owned", false))
 	var claimed_any: Variant = state.get("claimed_rewards", {})
@@ -1521,6 +1702,13 @@ func _apply_loaded_state(state: Dictionary) -> void:
 	_awarded_match_ids = (awarded_ids_any as Dictionary).duplicate(true) if typeof(awarded_ids_any) == TYPE_DICTIONARY else {}
 	var first_win_any: Variant = state.get("first_win_bonus_by_day_player", {})
 	_first_win_bonus_by_day_player = (first_win_any as Dictionary).duplicate(true) if typeof(first_win_any) == TYPE_DICTIONARY else {}
+	var nectar_daily_any: Variant = state.get("nectar_earned_by_day", {})
+	_nectar_earned_by_day = (nectar_daily_any as Dictionary).duplicate(true) if typeof(nectar_daily_any) == TYPE_DICTIONARY else {}
+	var opponent_history_any: Variant = state.get("opponent_award_times", {})
+	_opponent_award_times = (opponent_history_any as Dictionary).duplicate(true) if typeof(opponent_history_any) == TYPE_DICTIONARY else {}
+	_ad_free_until_unix = maxi(0, int(state.get("ad_free_until_unix", 0)))
+	var receipts_any: Variant = state.get("redemption_receipts", {})
+	_redemption_receipts = (receipts_any as Dictionary).duplicate(true) if typeof(receipts_any) == TYPE_DICTIONARY else {}
 	var awarded_order_any: Variant = state.get("awarded_match_order", [])
 	if typeof(awarded_order_any) == TYPE_ARRAY:
 		_awarded_match_order.clear()
@@ -1577,6 +1765,7 @@ func _save_state() -> void:
 		"current_season_id": _current_season_id,
 		"battle_pass_xp": _battle_pass_xp,
 		"battle_pass_level": _battle_pass_level,
+		"nectar_fractional_milli": _nectar_fractional_milli,
 		"premium_owned": _premium_owned,
 		"elite_owned": _elite_owned,
 		"claimed_rewards": _claimed_rewards,
@@ -1588,11 +1777,14 @@ func _save_state() -> void:
 		"veteran_rewards_unlocked": _veteran_rewards_unlocked,
 		"veteran_start_level": _veteran_start_level,
 		"veteran_unlock_level": _veteran_unlock_level,
-		"wallet": _wallet,
 		"inventory": _inventory,
 		"awarded_match_ids": _awarded_match_ids,
 		"awarded_match_order": _awarded_match_order,
 		"first_win_bonus_by_day_player": _first_win_bonus_by_day_player,
+		"nectar_earned_by_day": _nectar_earned_by_day,
+		"opponent_award_times": _opponent_award_times,
+		"ad_free_until_unix": _ad_free_until_unix,
+		"redemption_receipts": _redemption_receipts,
 		"quest_progress": _quest_progress,
 		"quest_claimed": _quest_claimed,
 		"quest_bonus_claimed": _quest_bonus_claimed,
@@ -1662,6 +1854,7 @@ func debug_reset_state() -> void:
 	_current_season_id = _config.get_season_id()
 	_battle_pass_xp = 0
 	_battle_pass_level = 1
+	_nectar_fractional_milli = 0
 	_premium_owned = false
 	_elite_owned = false
 	_claimed_rewards.clear()
@@ -1677,6 +1870,10 @@ func debug_reset_state() -> void:
 	_awarded_match_ids.clear()
 	_awarded_match_order.clear()
 	_first_win_bonus_by_day_player.clear()
+	_nectar_earned_by_day.clear()
+	_opponent_award_times.clear()
+	_ad_free_until_unix = 0
+	_redemption_receipts.clear()
 	_quest_progress.clear()
 	_quest_claimed.clear()
 	_quest_bonus_claimed.clear()
@@ -1703,7 +1900,21 @@ func _apply_nectar_xp_award(source_name: String, nectar_xp: int, metadata: Dicti
 	var multiplier: float = 1.0
 	if apply_entitlement_bonus:
 		multiplier = _config.get_nectar_multiplier_for_entitlements(_premium_owned, _elite_owned)
-	var final_xp: int = maxi(1, int(round(float(safe_xp) * multiplier)))
+	var multiplier_milli: int = maxi(0, int(round(multiplier * float(NECTAR_FIXED_POINT_SCALE))))
+	var scaled_milli: int = safe_xp * multiplier_milli + _nectar_fractional_milli
+	var final_xp: int = int(scaled_milli / NECTAR_FIXED_POINT_SCALE)
+	_nectar_fractional_milli = scaled_milli % NECTAR_FIXED_POINT_SCALE
+	if final_xp <= 0:
+		_save_state()
+		return {
+			"ok": true,
+			"xp_awarded": 0,
+			"base_xp": safe_xp,
+			"xp_multiplier": multiplier,
+			"nectar_fractional_milli": _nectar_fractional_milli,
+			"battle_pass_level": _battle_pass_level,
+			"gained_levels": 0
+		}
 	if apply_entitlement_bonus and absf(multiplier - 1.0) > 0.001:
 		_emit_event("nectar_multiplier_applied", {
 			"source": source_name,
@@ -1712,6 +1923,8 @@ func _apply_nectar_xp_award(source_name: String, nectar_xp: int, metadata: Dicti
 			"final_xp": final_xp
 		})
 	_battle_pass_xp = maxi(0, _battle_pass_xp + final_xp)
+	var day_key: String = _current_daily_cycle_key()
+	_nectar_earned_by_day[day_key] = maxi(0, int(_nectar_earned_by_day.get(day_key, 0))) + final_xp
 	_recalculate_level_from_xp()
 	var gained_levels: int = maxi(0, _battle_pass_level - previous_level)
 	if gained_levels > 0:
@@ -1748,6 +1961,8 @@ func _apply_nectar_xp_award(source_name: String, nectar_xp: int, metadata: Dicti
 	}
 
 func _reserve_award_event(event_id: String) -> Dictionary:
+	if not _season_is_active():
+		return {"ok": false, "reason": "season_inactive"}
 	var clean_event_id: String = event_id.strip_edges()
 	if clean_event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
@@ -1758,6 +1973,10 @@ func _reserve_award_event(event_id: String) -> Dictionary:
 	_awarded_match_order.append(clean_event_id)
 	_prune_award_dedupe()
 	return {"ok": true, "event_id": clean_event_id}
+
+func _season_is_active() -> bool:
+	var now_unix: int = int(Time.get_unix_time_from_system())
+	return now_unix >= _config.get_season_start_unix() and now_unix < _config.get_season_end_unix()
 
 func _reserve_first_win_bonus(metadata: Dictionary) -> Dictionary:
 	var player_id: String = str(metadata.get("player_id", metadata.get("uid", "local_player"))).strip_edges()
@@ -1790,6 +2009,12 @@ func _refresh_entitlements_from_profile() -> bool:
 	_premium_owned = next_premium
 	_elite_owned = next_elite
 	return changed
+
+func _canonical_honey_balance() -> int:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager != null and profile_manager.has_method("get_honey_balance"):
+		return maxi(0, int(profile_manager.call("get_honey_balance")))
+	return 0
 
 func _ensure_prestige_state_initialized() -> void:
 	if _season_prestige_base_slots > 0 and not _season_prestige_caps_by_level.is_empty():

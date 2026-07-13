@@ -4,6 +4,7 @@ signal runtime_rank_award(event: Dictionary)
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
+const RewardMatchContextScript = preload("res://scripts/state/reward_match_context.gd")
 
 @export var rank_state_path: NodePath = NodePath("/root/RankState")
 @export var profile_manager_path: NodePath = NodePath("/root/ProfileManager")
@@ -210,7 +211,7 @@ func _award_pvp_match_result(tree: SceneTree, rank_state: Node, winner_id: int, 
 			"event_id": _runtime_event_id(tree, mode_name, reason),
 			"winner_id": winner_id,
 			"reason": reason
-		}),
+		}, winner_id, reason),
 		money_tier
 	) as Dictionary
 	if bool(result.get("ok", false)):
@@ -238,22 +239,8 @@ func _set_tree_canonical_wax_result(tree: SceneTree, result: Dictionary, player_
 	tree.set_meta("canonical_wax_balance", after_wax)
 	tree.set_meta("canonical_wax_close_loss", result.get("close_loss", {}).duplicate(true) if typeof(result.get("close_loss", {})) == TYPE_DICTIONARY else {})
 
-func _rank_match_metadata(tree: SceneTree, base: Dictionary) -> Dictionary:
-	var metadata: Dictionary = base.duplicate(true)
-	for key in ["match_elapsed_ms", "elapsed_ms", "match_duration_ms", "duration_ms", "match_remaining_ms", "remaining_ms", "in_overtime", "overtime_active"]:
-		if tree != null and tree.has_meta(key):
-			metadata[key] = tree.get_meta(key)
-	var ops_state: Node = get_node_or_null("/root/OpsState")
-	if ops_state != null:
-		if not metadata.has("match_elapsed_ms"):
-			metadata["match_elapsed_ms"] = int(ops_state.get("match_elapsed_ms"))
-		if not metadata.has("match_duration_ms"):
-			metadata["match_duration_ms"] = int(ops_state.get("match_duration_ms"))
-		if not metadata.has("match_remaining_ms"):
-			metadata["match_remaining_ms"] = int(ops_state.get("match_remaining_ms"))
-		if not metadata.has("in_overtime"):
-			metadata["in_overtime"] = bool(ops_state.get("in_overtime"))
-	return metadata
+func _rank_match_metadata(tree: SceneTree, base: Dictionary, winner_id: int, reason: String) -> Dictionary:
+	return RewardMatchContextScript.enrich(tree, base, winner_id, reason, get_node_or_null("/root/OpsState"))
 
 func _sync_tree_contest_reward() -> void:
 	var tree: SceneTree = get_tree()

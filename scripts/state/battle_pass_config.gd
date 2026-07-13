@@ -21,6 +21,8 @@ const BASE_VISIBLE_MAX_LEVEL: int = 100
 const POST_100_PREMIUM_MAX_LEVEL: int = 110
 const POST_100_ELITE_MAX_LEVEL: int = 120
 const PRESTIGE_START_LEVEL: int = BASE_VISIBLE_MAX_LEVEL + 1
+const FALLBACK_SEASON_START_UNIX: int = 1782864000
+const FALLBACK_SEASON_END_UNIX: int = 1790812800
 
 var _config: Dictionary = {}
 var _levels_by_number: Dictionary = {}
@@ -34,6 +36,11 @@ func load_from_path(config_path: String = DEFAULT_CONFIG_PATH) -> void:
 	if loaded.is_empty():
 		loaded = _build_default_config()
 	_config = _normalize_config(loaded)
+	if str(_config.get("season_id", "")).strip_edges().is_empty():
+		_config["season_id"] = "sf_s1_2026"
+	if int(_config.get("start_time_unix", 0)) <= 0 or int(_config.get("end_time_unix", 0)) <= int(_config.get("start_time_unix", 0)):
+		_config["start_time_unix"] = FALLBACK_SEASON_START_UNIX
+		_config["end_time_unix"] = FALLBACK_SEASON_END_UNIX
 	_reindex_levels()
 	_reindex_quests()
 
@@ -48,6 +55,10 @@ func get_season_start_unix() -> int:
 
 func get_season_end_unix() -> int:
 	return int(_config.get("end_time_unix", 0))
+
+func get_product_ids() -> Dictionary:
+	var products_any: Variant = _config.get("products", {})
+	return (products_any as Dictionary).duplicate(true) if typeof(products_any) == TYPE_DICTIONARY else {}
 
 func get_total_levels() -> int:
 	return int(_config.get("total_levels", POST_100_ELITE_MAX_LEVEL))
@@ -628,9 +639,8 @@ func _award_table_from_value(value: Variant) -> Dictionary:
 	return {"completion": 0, "win_bonus": 0}
 
 func _build_default_config() -> Dictionary:
-	var now_unix: int = int(Time.get_unix_time_from_system())
-	var season_start_unix: int = now_unix
-	var season_end_unix: int = season_start_unix + (60 * 60 * 24 * 90)
+	var season_start_unix: int = FALLBACK_SEASON_START_UNIX
+	var season_end_unix: int = FALLBACK_SEASON_END_UNIX
 	var progression: Dictionary = {
 		"xp_curve": {
 			"bands": [
@@ -731,11 +741,15 @@ func _build_default_config() -> Dictionary:
 		levels.append(_build_default_level(level, progression))
 	var config: Dictionary = {
 		"schema_version": SCHEMA_VERSION_CURRENT,
-		"season_id": "tf_beta_s1",
+		"season_id": "sf_s1_2026",
 		"start_time_unix": season_start_unix,
 		"end_time_unix": season_end_unix,
 		"total_levels": POST_100_ELITE_MAX_LEVEL,
 		"scarcity_feature_default_enabled": true,
+		"products": {
+			TRACK_PREMIUM: "battle_pass_premium",
+			TRACK_ELITE: "battle_pass_elite"
+		},
 		"progression": progression,
 		"economy_targets": {
 			"baseline_action_xp": 20,

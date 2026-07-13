@@ -47,3 +47,15 @@ export const config = {
   honeyLedgerStore: process.env.HONEY_LEDGER_STORE?.trim() || "file",
   honeyLedgerPath: process.env.HONEY_LEDGER_PATH?.trim() || "data/honey-ledger.json"
 };
+
+const productionMode = process.env.NODE_ENV?.trim().toLowerCase() === "production"
+  || parseBoolean(process.env.VS_PRODUCTION_MODE, false)
+  || parseBoolean(process.env.RENDER, false)
+  || Boolean(process.env.RENDER_SERVICE_ID?.trim());
+
+if (productionMode && !config.matchAuthorityToken) {
+  throw new Error("VS_MATCH_AUTHORITY_TOKEN is required in production");
+}
+if (productionMode && !config.adminToken) {
+  throw new Error("VS_ADMIN_TOKEN is required in production");
+}

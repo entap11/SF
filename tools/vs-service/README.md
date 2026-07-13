@@ -79,9 +79,9 @@ The same `POST /<action>` routes are also available for hosts that prefer a root
 - `VS_SPECTATOR_LIVE_ENABLED`: set to `1` to allow live admin spectate.
 - `VS_SPECTATOR_DEFAULT_DELAY_SEC`, `VS_SPECTATOR_MIN_DELAY_SEC`, `VS_SPECTATOR_MAX_DELAY_SEC`: delayed spectator bounds.
 - `VS_SPECTATOR_PUBLIC_ENABLED`: keep disabled for beta unless separately reviewed.
-- `VS_ADMIN_TOKEN`: local/dev admin auth for Crucible config/review/debug endpoints and Honey debug endpoints.
+- `VS_ADMIN_TOKEN`: admin auth for Crucible config/review/debug endpoints and Honey debug endpoints; required in production.
 - `VS_ADMIN_ROLE`: local/dev expected admin role. Defaults to `ops_admin`.
-- `VS_MATCH_AUTHORITY_TOKEN`: local/dev match-authority auth for Crucible escrow, settlement, lifecycle writes, Honey grant/debit writes, and competitive Wax result writes.
+- `VS_MATCH_AUTHORITY_TOKEN`: match-authority auth for Crucible escrow, settlement, lifecycle writes, Honey grant/debit writes, and competitive Wax result writes; required in production.
 - `CRUCIBLE_LEDGER_STORE`: `file` or `memory` today; production target is `postgres`.
 - `CRUCIBLE_LEDGER_PATH`: JSON snapshot path for the local/dev file-backed Crucible ledger. Defaults to `data/crucible-ledger.json`.
 - `HONEY_LEDGER_STORE`: `file` or `memory` today; production target is the ENTaP player ledger.

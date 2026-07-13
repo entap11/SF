@@ -4,6 +4,7 @@ signal runtime_battle_pass_award(event: Dictionary)
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
+const RewardMatchContextScript = preload("res://scripts/state/reward_match_context.gd")
 
 @export var battle_pass_state_path: NodePath = NodePath("/root/BattlePassState")
 @export var profile_manager_path: NodePath = NodePath("/root/ProfileManager")
@@ -134,16 +135,22 @@ func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 		return
 	if normalized_async == "STAGE_RACE" and not _is_final_stage_round(tree):
 		return
+	var profile_manager: Node = _profile_manager()
+	var async_player_id: String = str(profile_manager.call("get_user_id")).strip_edges() if profile_manager != null and profile_manager.has_method("get_user_id") else ""
+	var async_local_owner_id: int = _resolve_local_pvp_owner_id(tree, async_player_id)
+	var async_metadata: Dictionary = RewardMatchContextScript.enrich(tree, {
+		"event_id": _runtime_event_id(tree, normalized_async, reason),
+		"contest_id": str(tree.get_meta("contest_id", "")).strip_edges(),
+		"contest_scope": str(tree.get_meta("contest_scope", "")).strip_edges().to_upper(),
+		"player_id": async_player_id,
+		"did_win": winner_id > 0 and winner_id == async_local_owner_id
+	}, winner_id, reason, get_node_or_null("/root/OpsState"))
 	var async_result: Dictionary = battle_pass_state.call(
 		"intent_record_async_completion",
 		normalized_async,
 		_resolve_async_map_count(tree),
 		not bool(tree.get_meta("vs_free_roll", false)),
-		{
-			"event_id": _runtime_event_id(tree, normalized_async, reason),
-			"contest_id": str(tree.get_meta("contest_id", "")).strip_edges(),
-			"contest_scope": str(tree.get_meta("contest_scope", "")).strip_edges().to_upper()
-		}
+		async_metadata
 	) as Dictionary
 	if bool(async_result.get("ok", false)):
 		var async_event: Dictionary = {
@@ -177,18 +184,19 @@ func _award_pvp_match_result(tree: SceneTree, battle_pass_state: Node, winner_id
 		return
 	var free_roll: bool = bool(tree.get_meta("vs_free_roll", false))
 	var money_tier: int = 0 if free_roll else _money_tier_from_entry_usd(maxi(0, int(tree.get_meta("vs_price_usd", 0))))
+	var metadata: Dictionary = RewardMatchContextScript.enrich(tree, {
+		"event_id": _runtime_event_id(tree, str(tree.get_meta("vs_mode", "1V1")), reason),
+		"player_id": player_id,
+		"opponent_id": _resolve_remote_player_id(tree, player_id),
+		"did_win": winner_id > 0 and winner_id == local_owner_id
+	}, winner_id, reason, get_node_or_null("/root/OpsState"))
 	var result: Dictionary = battle_pass_state.call(
 		"intent_record_pvp_completion",
 		str(tree.get_meta("vs_mode", "1V1")).strip_edges(),
 		not free_roll,
 		money_tier,
 		winner_id > 0 and winner_id == local_owner_id,
-		{
-			"event_id": _runtime_event_id(tree, str(tree.get_meta("vs_mode", "1V1")), reason),
-			"player_id": player_id,
-			"winner_id": winner_id,
-			"reason": reason
-		}
+		metadata
 	) as Dictionary
 	if bool(result.get("ok", false)):
 		var event: Dictionary = {
@@ -256,6 +264,20 @@ func _resolve_local_pvp_owner_id(tree: SceneTree, local_player_id: String) -> in
 			return clampi(int(entry.get("seat", 0)), 1, 4)
 	var role: String = str(tree.get_meta("vs_handshake_role", "host")).strip_edges().to_lower()
 	return 2 if role == "guest" else 1
+
+func _resolve_remote_player_id(tree: SceneTree, local_player_id: String) -> String:
+	var roster_any: Variant = tree.get_meta("vs_assigned_players", [])
+	if typeof(roster_any) == TYPE_ARRAY:
+		for entry_any in roster_any as Array:
+			if typeof(entry_any) != TYPE_DICTIONARY:
+				continue
+			var uid: String = str((entry_any as Dictionary).get("uid", "")).strip_edges()
+			if not uid.is_empty() and uid != local_player_id:
+				return uid
+	var remote_profile_any: Variant = tree.get_meta("vs_remote_profile", {})
+	if typeof(remote_profile_any) == TYPE_DICTIONARY:
+		return str((remote_profile_any as Dictionary).get("uid", "")).strip_edges()
+	return ""
 
 func _resolve_async_map_count(tree: SceneTree) -> int:
 	var stage_paths_any: Variant = tree.get_meta("vs_stage_map_paths", [])

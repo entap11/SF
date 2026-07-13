@@ -67,7 +67,7 @@ Set environment (or project setting) so rank transport points to this service:
 ```bash
 SF_RANK_BACKEND_URL=http://127.0.0.1:8790/v1/rank
 # optional if set on service
-SF_RANK_BACKEND_TOKEN=<same-as-RANK_API_TOKEN>
+SF_RANK_BACKEND_TOKEN=<same-as-RANK_API_TOKEN; required in production>
 ```
 
 For staging/production beta builds, configure the deployed Render URL instead of the local URL.

@@ -115,6 +115,7 @@ func get_fail_closed_policy() -> Dictionary:
 	return {
 		"paid_entries": false,
 		"honey_rewards": false,
+		"local_honey_rewards": false,
 		"observer_mode": false,
 		"rank_backend": false,
 		"rank_local_beta_fallback": true,
@@ -161,6 +162,9 @@ func paid_entries_enabled() -> bool:
 
 func honey_rewards_enabled() -> bool:
 	return get_flag("enable_honey_rewards", false)
+
+func local_honey_rewards_enabled() -> bool:
+	return get_flag("enable_local_honey_rewards", false)
 
 func observer_mode_enabled() -> bool:
 	return get_flag("enable_observer_mode", false)
@@ -230,6 +234,7 @@ func build_match_config_snapshot(setup_context: Dictionary = {}) -> Dictionary:
 			"enable_buff_system": bool(flags.get("enable_buff_system", true)),
 			"enable_paid_entries": bool(flags.get("enable_paid_entries", false)),
 			"enable_honey_rewards": bool(flags.get("enable_honey_rewards", false)),
+			"enable_local_honey_rewards": bool(flags.get("enable_local_honey_rewards", false)),
 			"enable_rank_backend": bool(flags.get("enable_rank_backend", false))
 		},
 		"match_tuning": match_tuning,
@@ -257,6 +262,7 @@ func _sanitize_config(config: Dictionary) -> Dictionary:
 	flags["enable_paid_entries"] = bool(flags.get("enable_paid_entries", false))
 	flags["enable_observer_mode"] = bool(flags.get("enable_observer_mode", false))
 	flags["enable_honey_rewards"] = bool(flags.get("enable_honey_rewards", false))
+	flags["enable_local_honey_rewards"] = bool(flags.get("enable_local_honey_rewards", false))
 	flags["enable_rank_backend"] = bool(flags.get("enable_rank_backend", false))
 	flags["enable_rank_local_beta_fallback"] = bool(flags.get("enable_rank_local_beta_fallback", true))
 	merged["feature_flags"] = flags
@@ -458,6 +464,7 @@ func _minimal_defaults() -> Dictionary:
 			"enable_paid_entries": false,
 			"enable_observer_mode": false,
 			"enable_honey_rewards": false,
+			"enable_local_honey_rewards": false,
 			"enable_rank_backend": false,
 			"enable_rank_local_beta_fallback": true
 		},

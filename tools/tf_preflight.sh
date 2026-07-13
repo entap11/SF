@@ -92,8 +92,9 @@ if [[ -x "$GODOT_BIN" ]]; then
   if [[ -n "$VS_BACKEND_URL" && "$VS_BACKEND_URL" == https://* ]]; then
     run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS configured backend PvP smoke" "--vs-smoke-backend-url=$VS_BACKEND_URL"
   fi
-  run_smoke "res://tools/economy_buff_smoke_test.gd" "Economy/Buff smoke"
-  run_smoke "res://tools/swarm_pass_smoke_test.gd" "SwarmPass smoke"
+  run_smoke "res://tools/economy_layer_smoke_test.gd" "Economy authority smoke"
+  run_smoke "res://tools/honey_progression_smoke_test.gd" "Honey progression smoke"
+  run_smoke "res://tools/battle_pass_progression_smoke_test.gd" "Battle Path progression smoke"
   run_smoke "res://tools/rank_system_smoke_test.gd" "Rank smoke"
   run_smoke "res://tools/tutorial_flow_smoke_test.gd" "Tutorial flow smoke"
 fi

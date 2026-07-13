@@ -2,6 +2,7 @@ extends Node
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
+const RewardMatchContextScript = preload("res://scripts/state/reward_match_context.gd")
 const PlatformEconomyEventSchemaScript = preload("res://scripts/state/platform_economy_event_schema.gd")
 
 signal honey_progression_changed(snapshot: Dictionary)
@@ -12,6 +13,7 @@ const SAVE_SCHEMA_VERSION: int = 2
 const CENTI_PER_HONEY: int = 100
 const EVENT_DEDUPE_MAX: int = 5000
 const RECENT_EVENT_MAX: int = 64
+const MINIMUM_MATCH_DURATION_SEC: float = 30.0
 const COMMUNITY_BASE_CENTI: int = 100
 const ENGAGEMENT_BASE_CENTI: int = 200
 const COMPETITIVE_PARTICIPATION_BASE_CENTI: int = 400
@@ -91,7 +93,6 @@ var _weekly_cycle_key: String = ""
 var _weekly_progress: Dictionary = {}
 var _weekly_claimed: Dictionary = {}
 var _recent_events: Array[Dictionary] = []
-var _ephemeral_event_counter: int = 0
 
 func _ready() -> void:
 	SFLog.allow_tag("HONEY_STATE")
@@ -133,6 +134,9 @@ func get_snapshot() -> Dictionary:
 func intent_record_async_completion(mode_id: String, map_count: int, paid_entry: bool, metadata: Dictionary = {}) -> Dictionary:
 	if _metadata_is_crucible(metadata):
 		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_centi_awarded": 0}
+	var blocked_reason: String = _match_reward_blocked_reason(metadata)
+	if not blocked_reason.is_empty():
+		return {"ok": true, "suppressed": true, "reason": blocked_reason, "honey_centi_awarded": 0}
 	var normalized_mode: String = _normalize_async_mode(mode_id)
 	if normalized_mode.is_empty():
 		return {"ok": false, "reason": "invalid_async_mode", "mode_id": mode_id}
@@ -170,6 +174,9 @@ func intent_record_async_final_placement(mode_id: String, map_count: int, placem
 func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_tier: int = 0, did_win: bool = false, metadata: Dictionary = {}) -> Dictionary:
 	if _metadata_is_crucible(metadata):
 		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_centi_awarded": 0}
+	var blocked_reason: String = _match_reward_blocked_reason(metadata)
+	if not blocked_reason.is_empty():
+		return {"ok": true, "suppressed": true, "reason": blocked_reason, "honey_centi_awarded": 0}
 	var normalized_mode: String = _normalize_pvp_mode(pvp_mode_id)
 	if normalized_mode.is_empty():
 		return {"ok": false, "reason": "invalid_pvp_mode", "mode_id": pvp_mode_id}
@@ -194,8 +201,74 @@ func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_t
 func intent_record_tournament_participation(metadata: Dictionary = {}) -> Dictionary:
 	if _metadata_is_crucible(metadata):
 		return {"ok": true, "suppressed": true, "reason": "crucible_no_honey", "honey_centi_awarded": 0}
+	var blocked_reason: String = _match_reward_blocked_reason(metadata)
+	if not blocked_reason.is_empty():
+		return {"ok": true, "suppressed": true, "reason": blocked_reason, "honey_centi_awarded": 0}
 	var paid_entry: bool = bool(metadata.get("paid_entry", metadata.get("is_money", false)))
 	return _award_honey_centi("tournament_participation", TOURNAMENT_MONEY_CENTI if paid_entry else TOURNAMENT_FREE_CENTI, metadata.duplicate(true), [])
+
+func intent_grant_player_honey(whole_honey: int, source_name: String, metadata: Dictionary = {}) -> Dictionary:
+	var amount: int = maxi(0, whole_honey)
+	var source: String = source_name.strip_edges().to_lower()
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if amount <= 0:
+		return {"ok": false, "reason": "invalid_amount"}
+	if source.is_empty():
+		return {"ok": false, "reason": "missing_source"}
+	if event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing"}
+	return _award_honey_centi(source, amount * CENTI_PER_HONEY, metadata.duplicate(true), [])
+
+func intent_spend_player_honey(whole_honey: int, source_name: String, metadata: Dictionary = {}) -> Dictionary:
+	var amount: int = maxi(0, whole_honey)
+	var source: String = source_name.strip_edges().to_lower()
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if amount <= 0:
+		return {"ok": false, "reason": "invalid_amount", "honey_balance": _profile_honey_balance()}
+	if source.is_empty():
+		return {"ok": false, "reason": "missing_source", "honey_balance": _profile_honey_balance()}
+	if event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing", "honey_balance": _profile_honey_balance()}
+	if _awarded_event_ids.has(event_id):
+		return {"ok": true, "already_processed": true, "event_id": event_id, "honey_balance": _profile_honey_balance()}
+	var amount_centi: int = amount * CENTI_PER_HONEY
+	var backend: Node = _honey_backend()
+	var profile_manager: Node = _profile_manager()
+	var backend_online: bool = backend != null and backend.has_method("is_authoritative_transport_online") and bool(backend.call("is_authoritative_transport_online"))
+	if backend_online:
+		var player_id: String = str(profile_manager.call("get_user_id")).strip_edges() if profile_manager != null and profile_manager.has_method("get_user_id") else ""
+		if player_id.is_empty() or not backend.has_method("debit_honey"):
+			return {"ok": false, "reason": "honey_authority_unavailable", "honey_balance": _profile_honey_balance()}
+		var backend_result: Dictionary = backend.call("debit_honey", player_id, amount_centi, source, metadata, "honey_debit:%s:%s" % [player_id, event_id]) as Dictionary
+		if not bool(backend_result.get("ok", false)):
+			return {"ok": false, "reason": str(backend_result.get("err", "honey_debit_failed")), "backend_result": backend_result, "honey_balance": _profile_honey_balance()}
+		_sync_profile_to_authoritative_honey(maxi(0, int(backend_result.get("balance_centi", 0))), "backend_debit:%s" % event_id)
+	else:
+		if not _local_honey_rewards_enabled():
+			return {"ok": false, "reason": "honey_authority_unavailable", "honey_balance": _profile_honey_balance()}
+		if profile_manager == null or not profile_manager.has_method("spend_honey"):
+			return {"ok": false, "reason": "profile_unavailable", "honey_balance": _profile_honey_balance()}
+		var local_result: Dictionary = profile_manager.call("spend_honey", amount, source) as Dictionary
+		if not bool(local_result.get("ok", false)):
+			return local_result
+		_sync_hive_honey_balance_snapshot(int(local_result.get("honey_balance", _profile_honey_balance())), source)
+	_awarded_event_ids[event_id] = true
+	_awarded_event_order.append(event_id)
+	_prune_awarded_event_dedupe()
+	var event: Dictionary = {
+		"type": "honey_spent",
+		"source": source,
+		"event_id": event_id,
+		"honey_spent": amount,
+		"profile_honey_balance": _profile_honey_balance(),
+		"metadata": metadata.duplicate(true)
+	}
+	_append_recent_event(event)
+	_save_state()
+	honey_event.emit(event)
+	SFLog.info("HONEY_EVENT", event)
+	_emit_changed()
+	return {"ok": true, "event_id": event_id, "honey_spent": amount, "honey_balance": _profile_honey_balance()}
 
 func intent_record_tournament_placement(placement: int, metadata: Dictionary = {}) -> Dictionary:
 	var amount: int = _placement_bonus_centi(placement, false)
@@ -307,7 +380,9 @@ func _award_honey_centi(source_name: String, honey_centi: int, metadata: Diction
 			"claimed_weekly_bonuses": []
 		}
 	_roll_week_if_needed()
-	var event_id: String = _event_id_from_metadata(source_name, metadata)
+	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
+	if event_id.is_empty():
+		return {"ok": false, "reason": "event_id_missing"}
 	if _awarded_event_ids.has(event_id):
 		return {
 			"ok": false,
@@ -315,22 +390,23 @@ func _award_honey_centi(source_name: String, honey_centi: int, metadata: Diction
 			"event_id": event_id,
 			"profile_honey_balance": _profile_honey_balance()
 		}
+	var grant_result: Dictionary = _grant_authoritative_centi(source_name, safe_amount, metadata, event_id)
+	if not bool(grant_result.get("ok", false)):
+		return grant_result
 	_awarded_event_ids[event_id] = true
 	_awarded_event_order.append(event_id)
 	_prune_awarded_event_dedupe()
 	_apply_weekly_updates(weekly_updates)
-	var backend_result: Dictionary = _post_honey_grant_to_backend(source_name, safe_amount, metadata, event_id)
-	var grant_result: Dictionary = _grant_centi_to_profile(safe_amount, "%s:%s" % [source_name, event_id])
 	var claimed_bonuses: Array[Dictionary] = _claim_ready_weekly_bonuses(metadata)
 	var event: Dictionary = {
 		"type": "honey_awarded",
 		"source": source_name,
 		"event_id": event_id,
-		"honey_centi_awarded": safe_amount,
+		"honey_centi_awarded": int(grant_result.get("honey_centi_awarded", safe_amount)),
 		"whole_honey_granted": int(grant_result.get("whole_honey_granted", 0)),
 		"profile_honey_balance": _profile_honey_balance(),
 		"metadata": metadata.duplicate(true),
-		"backend_result": backend_result.duplicate(true),
+		"backend_result": (grant_result.get("backend_result", {}) as Dictionary).duplicate(true),
 		"claimed_weekly_bonuses": claimed_bonuses.duplicate(true)
 	}
 	event["platform_economy_event"] = _build_platform_honey_event(event)
@@ -343,12 +419,57 @@ func _award_honey_centi(source_name: String, honey_centi: int, metadata: Diction
 	return {
 		"ok": true,
 		"event_id": event_id,
-		"honey_centi_awarded": safe_amount,
+		"awarded": bool(grant_result.get("awarded", true)),
+		"honey_centi_awarded": int(grant_result.get("honey_centi_awarded", safe_amount)),
 		"whole_honey_granted": int(grant_result.get("whole_honey_granted", 0)),
 		"profile_honey_balance": _profile_honey_balance(),
-		"backend_result": backend_result.duplicate(true),
+		"backend_result": (grant_result.get("backend_result", {}) as Dictionary).duplicate(true),
 		"claimed_weekly_bonuses": claimed_bonuses.duplicate(true)
 	}
+
+func _grant_authoritative_centi(source_name: String, honey_centi: int, metadata: Dictionary, event_id: String) -> Dictionary:
+	var safe_amount: int = maxi(0, honey_centi)
+	if safe_amount <= 0:
+		return {"ok": false, "reason": "no_honey"}
+	var backend: Node = _honey_backend()
+	var backend_online: bool = backend != null and backend.has_method("is_authoritative_transport_online") and bool(backend.call("is_authoritative_transport_online"))
+	if backend_online:
+		var backend_result: Dictionary = _post_honey_grant_to_backend(source_name, safe_amount, metadata, event_id)
+		if not bool(backend_result.get("ok", false)):
+			return {
+				"ok": false,
+				"reason": "honey_authority_unavailable",
+				"backend_result": backend_result.duplicate(true)
+			}
+		var awarded_centi: int = maxi(0, int(backend_result.get("amount_centi", 0)))
+		var balance_centi: int = maxi(0, int(backend_result.get("balance_centi", 0)))
+		_sync_profile_to_authoritative_honey(balance_centi, "backend:%s:%s" % [source_name, event_id])
+		_total_honey_centi_awarded += awarded_centi
+		return {
+			"ok": true,
+			"awarded": bool(backend_result.get("awarded", awarded_centi > 0)),
+			"honey_centi_awarded": awarded_centi,
+			"whole_honey_granted": int(awarded_centi / CENTI_PER_HONEY),
+			"profile_honey_balance": _profile_honey_balance(),
+			"backend_result": backend_result.duplicate(true)
+		}
+	if not _local_honey_rewards_enabled():
+		return {"ok": false, "reason": "honey_authority_unavailable"}
+	var local_result: Dictionary = _grant_centi_to_profile(safe_amount, "%s:%s" % [source_name, event_id])
+	local_result["ok"] = true
+	local_result["awarded"] = true
+	local_result["honey_centi_awarded"] = safe_amount
+	local_result["backend_result"] = {"handled": false, "reason": "local_development_authority"}
+	return local_result
+
+func _sync_profile_to_authoritative_honey(balance_centi: int, reason: String) -> void:
+	var profile_manager: Node = _profile_manager()
+	if profile_manager == null or not profile_manager.has_method("set_honey_balance"):
+		return
+	var safe_balance: int = maxi(0, balance_centi)
+	profile_manager.call("set_honey_balance", int(safe_balance / CENTI_PER_HONEY))
+	_pending_profile_honey_centi = safe_balance % CENTI_PER_HONEY
+	_sync_hive_honey_balance_snapshot(int(safe_balance / CENTI_PER_HONEY), reason)
 
 func _build_platform_honey_event(event: Dictionary) -> Dictionary:
 	var metadata: Dictionary = event.get("metadata", {}) as Dictionary if typeof(event.get("metadata", {})) == TYPE_DICTIONARY else {}
@@ -425,14 +546,21 @@ func _claim_ready_weekly_bonuses(metadata: Dictionary) -> Array[Dictionary]:
 		var spec: Dictionary = WEEKLY_BONUS_SPECS.get(bonus_id, {})
 		if not _weekly_bonus_ready(spec):
 			continue
-		_weekly_claimed[bonus_id] = true
 		var amount: int = maxi(0, int(spec.get("amount", 0)))
-		var grant_result: Dictionary = _grant_centi_to_profile(amount, "weekly_bonus:%s:%s" % [_weekly_cycle_key, bonus_id])
+		var bonus_event_id: String = "weekly_bonus:%s:%s" % [_weekly_cycle_key, bonus_id]
+		var bonus_metadata: Dictionary = metadata.duplicate(true)
+		bonus_metadata["event_id"] = bonus_event_id
+		bonus_metadata["weekly_cycle_key"] = _weekly_cycle_key
+		bonus_metadata["bonus_id"] = bonus_id
+		var grant_result: Dictionary = _grant_authoritative_centi("weekly_honey_bonus", amount, bonus_metadata, bonus_event_id)
+		if not bool(grant_result.get("ok", false)):
+			continue
+		_weekly_claimed[bonus_id] = true
 		var event: Dictionary = {
 			"type": "weekly_honey_bonus_awarded",
 			"bonus_id": bonus_id,
 			"weekly_cycle_key": _weekly_cycle_key,
-			"honey_centi_awarded": amount,
+			"honey_centi_awarded": int(grant_result.get("honey_centi_awarded", amount)),
 			"whole_honey_granted": int(grant_result.get("whole_honey_granted", 0)),
 			"profile_honey_balance": _profile_honey_balance(),
 			"metadata": metadata.duplicate(true)
@@ -482,13 +610,6 @@ func _contest_winner_bonus_centi(scope: String) -> int:
 			return PLATFORM_GROWTH_BASE_CENTI * 2
 		_:
 			return 0
-
-func _event_id_from_metadata(source_name: String, metadata: Dictionary) -> String:
-	var explicit_id: String = str(metadata.get("event_id", "")).strip_edges()
-	if not explicit_id.is_empty():
-		return explicit_id
-	_ephemeral_event_counter += 1
-	return "%s:auto:%d:%d" % [source_name, int(round(Time.get_unix_time_from_system() * 1000.0)), _ephemeral_event_counter]
 
 func _normalize_async_mode(mode_id: String) -> String:
 	var clean: String = mode_id.strip_edges().to_upper()
@@ -554,8 +675,11 @@ func _sync_hive_honey_balance_snapshot(balance: int, reason: String) -> void:
 		return
 	hive_state.call("intent_sync_member_honey_balance", player_id, maxi(0, balance), reason)
 
+func _honey_backend() -> Node:
+	return get_node_or_null("/root/VsHandshake")
+
 func _post_honey_grant_to_backend(source_name: String, amount_centi: int, metadata: Dictionary, event_id: String) -> Dictionary:
-	var backend: Node = get_node_or_null("/root/VsHandshakeState")
+	var backend: Node = _honey_backend()
 	if backend == null or not backend.has_method("grant_honey"):
 		return {"handled": false, "reason": "backend_unavailable"}
 	var profile_manager: Node = _profile_manager()
@@ -626,6 +750,29 @@ func _honey_rewards_enabled() -> bool:
 		return bool(ops_config.call("honey_rewards_enabled"))
 	return false
 
+func _local_honey_rewards_enabled() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config != null and ops_config.has_method("local_honey_rewards_enabled"):
+		return bool(ops_config.call("local_honey_rewards_enabled"))
+	return false
+
+func _match_reward_blocked_reason(metadata: Dictionary) -> String:
+	if str(metadata.get("event_id", "")).strip_edges().is_empty():
+		return "event_id_missing"
+	for flag in ["tutorial", "practice", "custom_match", "private_match", "no_contest", "refunded", "immediate_surrender", "afk", "insufficient_input", "insufficient_participation", "desync", "invalid_result", "early_quit"]:
+		if bool(metadata.get(flag, false)):
+			return flag
+	if metadata.has("completed") and not bool(metadata.get("completed", false)):
+		return "match_not_completed"
+	if metadata.has("minimum_quality_met") and not bool(metadata.get("minimum_quality_met", false)):
+		return "minimum_quality_not_met"
+	var duration_sec: float = float(metadata.get("duration_sec", float(metadata.get("match_duration_ms", 0.0)) / 1000.0))
+	if duration_sec <= 0.0:
+		return "match_duration_missing"
+	if duration_sec < MINIMUM_MATCH_DURATION_SEC:
+		return "match_too_short"
+	return ""
+
 func _connect_tree_signals() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
@@ -668,14 +815,12 @@ func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 	var mode_id: String = str(tree.get_meta("vs_mode", "")).strip_edges()
 	if mode_id.is_empty():
 		return
-	var metadata: Dictionary = {
+	var metadata: Dictionary = RewardMatchContextScript.enrich(tree, {
 		"event_id": _runtime_event_id(tree, mode_id, reason),
-		"winner_id": winner_id,
-		"reason": reason,
 		"contest_id": str(tree.get_meta("contest_id", "")).strip_edges(),
 		"contest_scope": str(tree.get_meta("contest_scope", "")).strip_edges().to_upper(),
 		"entry_usd": maxi(0, int(tree.get_meta("vs_price_usd", 0)))
-	}
+	}, winner_id, reason, get_node_or_null("/root/OpsState"))
 	var is_sync_pvp: bool = bool(tree.get_meta("vs_sync_start", false))
 	var free_roll: bool = bool(tree.get_meta("vs_free_roll", false))
 	if is_sync_pvp:

@@ -8,18 +8,32 @@ const PASS_STATE_PATH: String = "user://battle_pass_state.json"
 const PROFILE_PATH: String = "user://profile.cfg"
 
 func _init() -> void:
+	OS.set_environment("SF_VS_BACKEND_URL", "")
+	ProjectSettings.set_setting("swarmfront/vs/backend_url", "")
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PASS_STATE_PATH))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PROFILE_PATH))
 
 	var battle_pass_state: Node = get_root().get_node_or_null("BattlePassState")
 	var profile_manager: Node = get_root().get_node_or_null("ProfileManager")
-	if battle_pass_state == null or profile_manager == null:
+	var honey_state: Node = get_root().get_node_or_null("HoneyProgressionState")
+	var ops_config: Node = get_root().get_node_or_null("OpsConfig")
+	if battle_pass_state == null or profile_manager == null or honey_state == null or ops_config == null:
 		push_error("BATTLE_PASS_SMOKE: required autoload missing")
 		quit(1)
 		return
+	var vs_handshake: Node = get_root().get_node_or_null("VsHandshake")
+	if vs_handshake != null and vs_handshake.has_method("_configure_transport"):
+		vs_handshake.call("_configure_transport")
+	ops_config.call("force_config_for_smoke", {
+		"schema_version": 1,
+		"config_version": "battle-path-smoke",
+		"feature_flags": {"enable_honey_rewards": true, "enable_local_honey_rewards": true}
+	})
 	if profile_manager.has_method("set_user_id"):
 		profile_manager.call("set_user_id", "018f2c4d-89ab-7def-8abc-123456789abc")
+	profile_manager.call("set_honey_balance", 0)
+	honey_state.call("debug_reset_state")
 
 	if battle_pass_state.has_method("debug_reset_state"):
 		battle_pass_state.call("debug_reset_state")
@@ -31,6 +45,14 @@ func _init() -> void:
 	var quest_reward_summary: Dictionary = snapshot.get("quest_reward_summary", {}) as Dictionary
 	var free_summary: Dictionary = reward_summary.get("free", {}) as Dictionary
 	var sink_summary: Dictionary = snapshot.get("progression_sink_summary", {}) as Dictionary
+	_assert_str_eq(str(snapshot.get("season_id", "")), "sf_s1_2026", "Battle Path should use a fixed productized season id")
+	_assert_eq(int(snapshot.get("season_start_unix", 0)), 1782864000, "Battle Path should use the configured season start")
+	_assert_eq(int(snapshot.get("season_end_unix", 0)), 1790812800, "Battle Path should use the configured season end")
+	var product_ids: Dictionary = snapshot.get("product_ids", {}) as Dictionary
+	_assert_str_eq(str(product_ids.get("premium", "")), "battle_pass_premium", "premium path should map to the store product")
+	_assert_str_eq(str(product_ids.get("elite", "")), "battle_pass_elite", "elite path should map to the store product")
+	_assert_true(get_root().get_node_or_null("SwarmPassState") == null, "legacy SwarmPass authority should not be autoloaded")
+	_assert_true(get_root().get_node_or_null("EconomyBuffState") == null, "legacy spendable-Nectar authority should not be autoloaded")
 	_assert_eq(int(snapshot.get("side_quest_paths_available", 0)), 1, "free pass should expose one quest path")
 	_assert_eq(int(snapshot.get("visible_level_cap", 0)), 100, "free pass should cap at level 100")
 	_assert_eq(int(snapshot.get("prestige_pool_base_slots", 0)), 500, "season-start prestige pool should seed to 500")
@@ -45,10 +67,17 @@ func _init() -> void:
 	_assert_str_eq(_reward_type_for_row(free_rows, 10, "free"), "access_ticket", "free level 10 should grant an access ticket")
 	_assert_str_eq(_reward_type_for_row(free_rows, 15, "free"), "cosmetic", "free level 15 should be a milestone cosmetic")
 	_assert_str_eq(_reward_type_for_row(free_rows, 16, "free"), "none", "free level 16 should stay empty to preserve paid value")
+	var honey_claim: Dictionary = battle_pass_state.call("intent_claim_reward", 1, "free") as Dictionary
+	_assert_ok(honey_claim, "free level-one Honey claim")
+	_assert_eq(int(profile_manager.call("get_honey_balance")), 6, "Battle Path Honey should settle into the player balance")
+	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
+	_assert_eq(int(snapshot.get("honey_balance", -1)), 6, "Battle Path snapshot should read canonical player Honey")
+	_assert_true(not snapshot.has("wallet"), "Battle Path should not expose a currency wallet")
+	battle_pass_state.call("debug_reset_state")
 
 	for i in range(5):
 		_assert_ok(
-			battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, false, {"event_id": "free_pvp_%d" % i}) as Dictionary,
+			battle_pass_state.call("intent_record_pvp_completion", "1V1", false, 0, false, {"event_id": "free_pvp_%d" % i, "duration_sec": 120.0}) as Dictionary,
 			"free pvp completion %d" % i
 		)
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
@@ -76,7 +105,7 @@ func _init() -> void:
 		false,
 		0,
 		true,
-		{"event_id": "first_win_day_one", "player_id": "first_win_player", "day_key": "2026-06-27"}
+		{"event_id": "first_win_day_one", "player_id": "first_win_player", "day_key": "2026-06-27", "duration_sec": 120.0}
 	) as Dictionary
 	_assert_ok(first_win_one, "first win day one")
 	_assert_eq(int(first_win_one.get("xp_awarded", 0)), 38, "first win should add 20 base nectar before multiplier")
@@ -86,7 +115,7 @@ func _init() -> void:
 		false,
 		0,
 		true,
-		{"event_id": "first_win_day_duplicate", "player_id": "first_win_player", "day_key": "2026-06-27"}
+		{"event_id": "first_win_day_duplicate", "player_id": "first_win_player", "day_key": "2026-06-27", "duration_sec": 120.0}
 	) as Dictionary
 	_assert_ok(first_win_duplicate_day, "first win duplicate day")
 	_assert_eq(int(first_win_duplicate_day.get("xp_awarded", 0)), 18, "second win same day should not repeat first-win bonus")
@@ -100,7 +129,7 @@ func _init() -> void:
 		false,
 		0,
 		false,
-		{"event_id": "premium_free_pvp"}
+		{"event_id": "premium_free_pvp", "duration_sec": 120.0}
 	) as Dictionary
 	_assert_ok(premium_result, "premium free pvp")
 	_assert_eq(int(premium_result.get("xp_awarded", 0)), 13, "premium should apply a 30 percent nectar bonus")
@@ -130,7 +159,7 @@ func _init() -> void:
 		false,
 		0,
 		false,
-		{"event_id": "elite_free_pvp"}
+		{"event_id": "elite_free_pvp", "duration_sec": 120.0}
 	) as Dictionary
 	_assert_ok(elite_result, "elite free pvp")
 	_assert_eq(int(elite_result.get("xp_awarded", 0)), 16, "elite should apply a 60 percent nectar bonus")
@@ -167,11 +196,12 @@ func _init() -> void:
 	set_meta("vs_price_usd", 0)
 	set_meta("vs_local_profile", {"uid": runtime_profile_id})
 	set_meta("vs_handshake_role", "host")
+	set_meta("match_elapsed_ms", 120000)
 	remove_meta("bp_runtime_nonce")
 	fake_runner.emit_signal("match_ended", 1, "timeout")
 	await process_frame
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 125, "runtime free pvp should add elite-weighted nectar XP including win and first-win bonuses")
+	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 124, "runtime free pvp should carry fractional elite Nectar deterministically")
 
 	set_meta("vs_mode", "STAGE_RACE")
 	set_meta("vs_sync_start", false)
@@ -183,14 +213,14 @@ func _init() -> void:
 	fake_runner.emit_signal("match_ended", 1, "round_end")
 	await process_frame
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 125, "non-final async stage round should not award nectar")
+	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 124, "non-final async stage round should not award nectar")
 
 	set_meta("vs_stage_current_index", 2)
 	remove_meta("bp_runtime_nonce")
 	fake_runner.emit_signal("match_ended", 1, "round_end")
 	await process_frame
 	snapshot = battle_pass_state.call("get_snapshot") as Dictionary
-	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 138, "final async stage round should award elite-weighted async nectar XP")
+	_assert_eq(int(snapshot.get("battle_pass_xp", 0)), 147, "final async stage win should award completion and win Nectar with fractional carry")
 
 	print("BATTLE_PASS_SMOKE: PASS")
 	quit(0)

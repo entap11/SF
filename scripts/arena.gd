@@ -4578,14 +4578,6 @@ func _resolve_telemetry_season_id() -> String:
 			var season_from_bp: String = str(snapshot.get("season_id", "")).strip_edges()
 			if season_from_bp != "":
 				return season_from_bp
-	var swarm_pass_state: Node = get_node_or_null("/root/SwarmPassState")
-	if swarm_pass_state != null and swarm_pass_state.has_method("get_snapshot"):
-		var swarm_snapshot_any: Variant = swarm_pass_state.call("get_snapshot")
-		if typeof(swarm_snapshot_any) == TYPE_DICTIONARY:
-			var swarm_snapshot: Dictionary = swarm_snapshot_any as Dictionary
-			var season_from_swarm: String = str(swarm_snapshot.get("season_id", "")).strip_edges()
-			if season_from_swarm != "":
-				return season_from_swarm
 	return "local_beta"
 
 func _resolve_telemetry_map_id() -> String:
@@ -5407,9 +5399,15 @@ func _maybe_award_tutorial_controls_followup_win(winner_id_in: int, reason: Stri
 		bonus_claimed = bool(profile_manager.call("has_tutorial_controls_followup_bonus_claimed"))
 	if bonus_claimed:
 		return
-	if not profile_manager.has_method("add_honey"):
+	var honey_state: Node = get_node_or_null("/root/HoneyProgressionState")
+	if honey_state == null or not honey_state.has_method("intent_grant_player_honey"):
 		return
-	var result_any: Variant = profile_manager.call("add_honey", 25, "tutorial_controls_completion_bonus")
+	var result_any: Variant = honey_state.call("intent_grant_player_honey", 25, "tutorial_controls_completion_bonus", {
+		"event_id": "tutorial_controls_completion_bonus_v1",
+		"winner_id": winner_id_in,
+		"reason": reason,
+		"map_id": _resolve_telemetry_map_id()
+	})
 	var result: Dictionary = result_any as Dictionary if typeof(result_any) == TYPE_DICTIONARY else {}
 	if not bool(result.get("ok", false)):
 		return
@@ -5421,7 +5419,7 @@ func _maybe_award_tutorial_controls_followup_win(winner_id_in: int, reason: Stri
 		"event_id": "tutorial_controls_completion_bonus_v1",
 		"honey_centi_awarded": 2500,
 		"whole_honey_granted": 25,
-		"profile_honey_balance": int(result.get("honey_balance", 0)),
+		"profile_honey_balance": int(result.get("profile_honey_balance", 0)),
 		"metadata": {
 			"winner_id": winner_id_in,
 			"reason": reason,

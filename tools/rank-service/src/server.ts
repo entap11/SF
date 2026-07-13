@@ -63,6 +63,39 @@ function toBooleanValue(value: unknown): boolean {
   return false;
 }
 
+function matchRewardBlockReason(metadata: Record<string, unknown>): string {
+  const eventId = toStringValue(metadata.event_id);
+  if (!eventId) {
+    return "event_id_missing";
+  }
+  for (const flag of [
+    "tutorial", "practice", "custom_match", "private_match", "no_contest", "refunded",
+    "immediate_surrender", "early_quit", "afk", "insufficient_input",
+    "insufficient_participation", "desync", "invalid_result"
+  ]) {
+    if (toBooleanValue(metadata[flag])) {
+      return flag;
+    }
+  }
+  if (metadata.completed != null && !toBooleanValue(metadata.completed)) {
+    return "match_not_completed";
+  }
+  if (metadata.minimum_quality_met != null && !toBooleanValue(metadata.minimum_quality_met)) {
+    return "minimum_quality_not_met";
+  }
+  const durationSec = toNumberValue(
+    metadata.duration_sec,
+    toNumberValue(metadata.match_elapsed_ms, toNumberValue(metadata.elapsed_ms, 0)) / 1000
+  );
+  if (durationSec <= 0) {
+    return "match_duration_missing";
+  }
+  if (durationSec < 30) {
+    return "match_too_short";
+  }
+  return "";
+}
+
 function redactDatabaseUrl(rawUrl: string): string {
   try {
     const parsed = new URL(rawUrl);
@@ -567,6 +600,11 @@ async function main(): Promise<void> {
           const metadata = isRecord(payload.metadata) ? payload.metadata : {};
           const moneyTier = Math.max(0, Math.trunc(toNumberValue(payload.money_tier, toNumberValue(metadata.money_tier, 0))));
           const eventId = toStringValue(metadata.event_id);
+          const blockedReason = matchRewardBlockReason(metadata);
+          if (blockedReason) {
+            res.status(422).json({ ok: false, err: blockedReason, awarded: false });
+            return;
+          }
 
           const result = await store.write((state, context) => {
             if (eventId) {

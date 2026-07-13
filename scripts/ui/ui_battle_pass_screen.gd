@@ -382,16 +382,15 @@ func _render_summary(snapshot: Dictionary) -> void:
 			"YES" if elite_owned else "NO"
 		]
 
-	var wallet_any: Variant = snapshot.get("wallet", {})
-	var wallet: Dictionary = wallet_any as Dictionary if typeof(wallet_any) == TYPE_DICTIONARY else {}
 	var inventory_any: Variant = snapshot.get("inventory", {})
 	var inventory: Dictionary = inventory_any as Dictionary if typeof(inventory_any) == TYPE_DICTIONARY else {}
+	var honey_balance: int = maxi(0, int(snapshot.get("honey_balance", 0)))
 	if _uses_touch_layout():
 		_wallet_label.text = "Nectar %d | Need %d for L%d | Honey %d | Tickets %d" % [
 			total_nectar,
 			nectar_needed,
 			next_level,
-			int(wallet.get("honey", 0)),
+			honey_balance,
 			int(inventory.get("access_tickets", 0))
 		]
 	else:
@@ -401,7 +400,7 @@ func _render_summary(snapshot: Dictionary) -> void:
 			next_level,
 			nectar_into_level,
 			nectar_for_level,
-			int(wallet.get("honey", 0)),
+			honey_balance,
 			int(inventory.get("access_tickets", 0))
 		]
 	if _progress_title_label != null:
@@ -467,12 +466,12 @@ func _build_level_card(row: Dictionary) -> Panel:
 
 	var xp_label := Label.new()
 	if _uses_touch_layout():
-		xp_label.text = "Unlock: %d nectar | Cost: %d nectar" % [
+		xp_label.text = "Unlock: %d Nectar XP | Level XP: %d" % [
 			int(row.get("unlock_nectar", 0)),
 			int(row.get("xp_required", 0))
 		]
 	else:
-		xp_label.text = "Unlock total: %d nectar\nLevel cost: %d nectar" % [
+		xp_label.text = "Unlock total: %d Nectar XP\nLevel XP: %d" % [
 			int(row.get("unlock_nectar", 0)),
 			int(row.get("xp_required", 0))
 		]

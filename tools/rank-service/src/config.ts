@@ -121,3 +121,11 @@ export const config: RankServiceConfig = {
 if (!config.databaseUrl) {
   throw new Error("DATABASE_URL is required");
 }
+
+const productionMode = process.env.NODE_ENV?.trim().toLowerCase() === "production"
+  || parseBoolean(process.env.RENDER, false)
+  || Boolean(process.env.RENDER_SERVICE_ID?.trim());
+
+if (productionMode && !config.apiToken) {
+  throw new Error("RANK_API_TOKEN is required in production");
+}

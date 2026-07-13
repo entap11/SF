@@ -314,7 +314,7 @@ Service:
 - `DATABASE_URL`: required Postgres connection string.
 - `PORT`: Render supplies this automatically.
 - `BIND_HOST`: use `0.0.0.0` on Render.
-- `RANK_API_TOKEN`: optional bearer token. Set for staging/prod.
+- `RANK_API_TOKEN`: optional in local development and required in production.
 - `RANK_ENFORCE_CANONICAL_PLAYER_IDS`: keep `true`.
 - `RANK_ENABLE_DEBUG_ACTIONS`: keep `false` for beta/staging/prod unless explicitly testing.
 - `RANK_DEFAULT_REGION`: default `GLOBAL`.

@@ -175,6 +175,9 @@ func intent_record_match_result(
 	) -> Dictionary:
 	if CrucibleRulesetPolicyScript.is_crucible_ruleset(str(metadata.get("ruleset", metadata.get("vs_ruleset", mode_name)))):
 		return {"ok": true, "awarded": false, "suppressed": true, "reason": "crucible_uses_crucible_settlement"}
+	var reward_blocked_reason: String = _runtime_rank_reward_blocked_reason(metadata)
+	if not reward_blocked_reason.is_empty():
+		return {"ok": true, "awarded": false, "suppressed": true, "reason": reward_blocked_reason}
 	var p1: String = _normalize_local_write_player_id(player_id)
 	var p2: String = opponent_id.strip_edges()
 	if p1 == "" or p2 == "":
@@ -401,6 +404,25 @@ func _metadata_indicates_overtime(metadata: Dictionary) -> bool:
 		if bool(metadata.get(key, false)):
 			return true
 	return false
+
+func _runtime_rank_reward_blocked_reason(metadata: Dictionary) -> String:
+	# Direct simulation/unit calls may omit an event id. Runtime awards always carry
+	# one and must satisfy the same minimum-quality envelope as the backend.
+	if str(metadata.get("event_id", "")).strip_edges().is_empty():
+		return ""
+	for flag in ["tutorial", "practice", "custom_match", "private_match", "no_contest", "refunded", "immediate_surrender", "early_quit", "afk", "insufficient_input", "insufficient_participation", "desync", "invalid_result"]:
+		if bool(metadata.get(flag, false)):
+			return flag
+	if metadata.has("completed") and not bool(metadata.get("completed", true)):
+		return "match_not_completed"
+	if metadata.has("minimum_quality_met") and not bool(metadata.get("minimum_quality_met", true)):
+		return "minimum_quality_not_met"
+	var duration_sec: float = float(metadata.get("duration_sec", float(metadata.get("match_elapsed_ms", metadata.get("elapsed_ms", 0))) / 1000.0))
+	if duration_sec <= 0.0:
+		return "match_duration_missing"
+	if duration_sec < 30.0:
+		return "match_too_short"
+	return ""
 
 func _metadata_indicates_final_minute(metadata: Dictionary) -> bool:
 	if bool(metadata.get("final_minute_loss", false)) or bool(metadata.get("close_loss", false)):

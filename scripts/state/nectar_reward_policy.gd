@@ -78,15 +78,21 @@ static func blocked_reason_for_payload(payload: Dictionary, mode_group: String =
 		resolved_group = classify_mode_group(str(payload.get("mode_id", payload.get("mode", ""))))
 	if resolved_group == MODE_GROUP_INELIGIBLE:
 		return "ineligible_mode"
+	if payload.has("season_active") and not bool(payload.get("season_active", false)):
+		return "season_inactive"
 	if bool(payload.get("vs_crucible", false)) or str(payload.get("ruleset", payload.get("vs_ruleset", ""))).strip_edges().to_upper() == "CRUCIBLE":
 		return "crucible_no_nectar"
-	for flag in ["tutorial", "practice", "custom_match", "private_match", "no_contest", "refunded", "duplicate", "immediate_surrender", "afk", "insufficient_input", "insufficient_participation", "desync", "invalid_result"]:
+	for flag in ["tutorial", "practice", "custom_match", "private_match", "no_contest", "refunded", "duplicate", "immediate_surrender", "early_quit", "afk", "insufficient_input", "insufficient_participation", "desync", "invalid_result"]:
 		if bool(payload.get(flag, false)):
 			return flag
+	if payload.has("completed") and not bool(payload.get("completed", true)):
+		return "match_not_completed"
 	if payload.has("minimum_quality_met") and not bool(payload.get("minimum_quality_met", true)):
 		return "minimum_quality_not_met"
 	var duration_sec: float = float(payload.get("duration_sec", float(payload.get("match_duration_ms", 0.0)) / 1000.0))
 	var min_duration: float = float(payload.get("minimum_duration_sec", 0.0))
+	if bool(payload.get("require_match_duration", false)) and duration_sec <= 0.0:
+		return "match_duration_missing"
 	if min_duration > 0.0 and duration_sec > 0.0 and duration_sec < min_duration:
 		return "match_too_short"
 	return ""
