@@ -60,6 +60,7 @@ export interface RankServiceConfig {
   legacyStatePath: string;
   enforceCanonicalPlayerIds: boolean;
   allowDebugActions: boolean;
+  economyEpoch: string;
   rank: RankRuntimeConfig;
 }
 

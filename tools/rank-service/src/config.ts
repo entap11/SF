@@ -65,6 +65,7 @@ export const config: RankServiceConfig = {
     : DEFAULT_LEGACY_STATE_PATH,
   enforceCanonicalPlayerIds: parseBoolean(process.env.RANK_ENFORCE_CANONICAL_PLAYER_IDS, true),
   allowDebugActions: parseBoolean(process.env.RANK_ENABLE_DEBUG_ACTIONS, false),
+  economyEpoch: process.env.RANK_ECONOMY_EPOCH?.trim() || "",
   rank: {
     baseGain: parseFloatValue(process.env.RANK_BASE_GAIN, 100.0),
     opponentStrengthExponent: parseFloatValue(process.env.RANK_OPPONENT_STRENGTH_EXPONENT, 0.6),

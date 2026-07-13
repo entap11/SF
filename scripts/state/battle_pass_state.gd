@@ -6,6 +6,7 @@ const BattlePassRewardsScript = preload("res://scripts/state/battle_pass_rewards
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
 const NectarRewardPolicyScript = preload("res://scripts/state/nectar_reward_policy.gd")
 const PlatformEconomyEventSchemaScript = preload("res://scripts/state/platform_economy_event_schema.gd")
+const EconomyEpochScript = preload("res://scripts/state/economy_epoch.gd")
 
 signal battle_pass_state_changed(snapshot: Dictionary)
 signal battle_pass_event(event: Dictionary)
@@ -26,6 +27,8 @@ var _config: BattlePassConfigScript = BattlePassConfigScript.new(CONFIG_PATH)
 var _rewards: BattlePassRewardsScript = BattlePassRewardsScript.new()
 
 var _save_schema_version: int = SAVE_SCHEMA_VERSION
+var _economy_epoch: String = EconomyEpochScript.CURRENT
+var _economy_epoch_reset_applied: bool = false
 var _current_season_id: String = ""
 var _battle_pass_xp: int = 0
 var _battle_pass_level: int = 1
@@ -87,6 +90,12 @@ func _ready() -> void:
 	_ensure_weekly_challenge_state_initialized()
 	_recalculate_level_from_xp()
 	_refresh_veteran_unlock_state()
+	if _economy_epoch_reset_applied:
+		_save_state()
+		_emit_event("battle_path_economy_epoch_reset", {
+			"economy_epoch": _economy_epoch,
+			"identity_preserved": true
+		})
 	_emit_state_changed()
 
 func get_snapshot() -> Dictionary:
@@ -106,6 +115,7 @@ func get_snapshot() -> Dictionary:
 		veteran_notice = "Veteran start unlocked — reach Level %d to claim your starting rewards." % _veteran_unlock_level
 	return {
 		"schema_version": SAVE_SCHEMA_VERSION,
+		"economy_epoch": _economy_epoch,
 		"season_id": _current_season_id,
 		"season_start_unix": _config.get_season_start_unix(),
 		"season_end_unix": _config.get_season_end_unix(),
@@ -1557,6 +1567,8 @@ func _roll_season_if_needed() -> void:
 	_emit_event("season_reset", {"season_id": _current_season_id, "prestige_pool_base_slots": _season_prestige_base_slots})
 
 func _load_state() -> void:
+	_economy_epoch = EconomyEpochScript.CURRENT
+	_economy_epoch_reset_applied = false
 	if not FileAccess.file_exists(SAVE_PATH):
 		_current_season_id = _config.get_season_id()
 		return
@@ -1569,12 +1581,19 @@ func _load_state() -> void:
 	if typeof(parsed_any) != TYPE_DICTIONARY:
 		_current_season_id = _config.get_season_id()
 		return
-	var migrated: Dictionary = _migrate_loaded_state(parsed_any as Dictionary)
+	var raw: Dictionary = parsed_any as Dictionary
+	var stored_epoch: String = str(raw.get("economy_epoch", "")).strip_edges()
+	if stored_epoch != EconomyEpochScript.CURRENT:
+		_current_season_id = _config.get_season_id()
+		_economy_epoch_reset_applied = true
+		return
+	var migrated: Dictionary = _migrate_loaded_state(raw)
 	_apply_loaded_state(migrated)
 
 func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 	var out: Dictionary = {
 		"schema_version": SAVE_SCHEMA_VERSION,
+		"economy_epoch": str(raw.get("economy_epoch", EconomyEpochScript.CURRENT)),
 		"current_season_id": str(raw.get("current_season_id", _config.get_season_id())),
 		"battle_pass_xp": maxi(0, int(raw.get("battle_pass_xp", 0))),
 		"battle_pass_level": maxi(1, int(raw.get("battle_pass_level", 1))),
@@ -1676,6 +1695,7 @@ func _migrate_loaded_state(raw: Dictionary) -> Dictionary:
 
 func _apply_loaded_state(state: Dictionary) -> void:
 	_save_schema_version = maxi(1, int(state.get("schema_version", SAVE_SCHEMA_VERSION)))
+	_economy_epoch = str(state.get("economy_epoch", EconomyEpochScript.CURRENT)).strip_edges()
 	_current_season_id = str(state.get("current_season_id", _config.get_season_id()))
 	_battle_pass_xp = maxi(0, int(state.get("battle_pass_xp", 0)))
 	_battle_pass_level = maxi(1, int(state.get("battle_pass_level", 1)))
@@ -1762,6 +1782,7 @@ func _apply_loaded_state(state: Dictionary) -> void:
 func _save_state() -> void:
 	var payload: Dictionary = {
 		"schema_version": SAVE_SCHEMA_VERSION,
+		"economy_epoch": _economy_epoch,
 		"current_season_id": _current_season_id,
 		"battle_pass_xp": _battle_pass_xp,
 		"battle_pass_level": _battle_pass_level,
@@ -1851,6 +1872,8 @@ func _build_platform_nectar_event(event: Dictionary) -> Dictionary:
 	)
 
 func debug_reset_state() -> void:
+	_economy_epoch = EconomyEpochScript.CURRENT
+	_economy_epoch_reset_applied = false
 	_current_season_id = _config.get_season_id()
 	_battle_pass_xp = 0
 	_battle_pass_level = 1

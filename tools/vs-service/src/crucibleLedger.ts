@@ -149,6 +149,7 @@ function error(code: string, message: string, extra: JsonRecord = {}): JsonRecor
 
 export class CrucibleLedger {
   private storeAdapter: CrucibleLedgerStore;
+  private economyEpoch: string;
   private config: CrucibleConfig = { ...DEFAULT_CONFIG };
   private balances = new Map<string, number>();
   private escrowsById = new Map<string, Escrow>();
@@ -163,8 +164,9 @@ export class CrucibleLedger {
   private operationResults = new Map<string, JsonRecord>();
   private nextTransactionSeq = 1;
 
-  constructor(storeOrPath?: CrucibleLedgerStore | string) {
+  constructor(storeOrPath?: CrucibleLedgerStore | string, economyEpoch = process.env.VS_ECONOMY_EPOCH ?? "") {
     this.storeAdapter = createCrucibleLedgerStore(storeOrPath);
+    this.economyEpoch = cleanString(economyEpoch);
     this.loadFromStore();
   }
 
@@ -551,6 +553,7 @@ export class CrucibleLedger {
     return {
       snapshot_type: SNAPSHOT_TYPE,
       schema_version: SNAPSHOT_SCHEMA_VERSION,
+      economy_epoch: this.economyEpoch,
       created_at: nowUnix(),
       storage: this.getStorageSnapshot(),
       config: this.getConfigSnapshot(),
@@ -741,6 +744,17 @@ export class CrucibleLedger {
     }
     try {
       this.hydrate(snapshot);
+      const storedEpoch = cleanString(snapshot.economy_epoch);
+      if (this.economyEpoch && storedEpoch !== this.economyEpoch) {
+        this.resetEconomyRecords();
+        this.persistToStore();
+        console.log(JSON.stringify({
+          event: "wax_economy_epoch_reset",
+          previous_epoch: storedEpoch,
+          economy_epoch: this.economyEpoch,
+          identities_preserved: true
+        }));
+      }
     } catch (err) {
       console.warn("CRUCIBLE_LEDGER_HYDRATE_FAILED", { store: this.storeAdapter.kind, err: err instanceof Error ? err.message : String(err) });
     }
@@ -748,6 +762,21 @@ export class CrucibleLedger {
 
   private persistToStore(): void {
     this.storeAdapter.save(this.getSnapshot());
+  }
+
+  private resetEconomyRecords(): void {
+    this.balances.clear();
+    this.escrowsById.clear();
+    this.escrowIdByMatchId.clear();
+    this.settlementsByMatchId.clear();
+    this.transactions = [];
+    this.auditRecords = [];
+    this.antiCollusionObservations = [];
+    this.reviewRecordsByMatchId.clear();
+    this.competitiveWaxAwardsByEvent.clear();
+    this.waxStatsByPlayer.clear();
+    this.operationResults.clear();
+    this.nextTransactionSeq = 1;
   }
 
   private hydrate(snapshot: JsonRecord): void {

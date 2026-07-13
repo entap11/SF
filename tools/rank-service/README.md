@@ -82,6 +82,7 @@ The repo root includes `render.yaml` for a separate staging web service and Post
 - Build command: `npm ci && npm run build`
 - Start command: `npm run start`
 - Health check: `/health`
+- `RANK_ECONOMY_EPOCH=beta_2026071301` resets Wax and Wax-derived standings exactly once while preserving UUIDs, ENTaP IDs, call signs, friends, and audit history.
 
 After deployment, set a real `RANK_API_TOKEN`, run migrations if needed, then smoke:
 

@@ -57,6 +57,7 @@ async function main(): Promise<void> {
   const matchHeaders = { "x-match-authority-token": "smoke_match_token" };
   const { bestQuickMatchCandidateForTest, createApp } = await import("./server.js");
   const { CrucibleLedger } = await import("./crucibleLedger.js");
+  const { HoneyLedger } = await import("./honeyLedger.js");
   const server = await listen(createApp());
   const address = server.address();
   if (address == null || typeof address === "string") {
@@ -920,6 +921,25 @@ async function main(): Promise<void> {
     expect(Number((persistedSnapshot.config as JsonRecord).stake_bps) === 0, "persisted config missing", persistedSnapshot.config);
     expect(((persistedSnapshot.settlements_by_match_id as JsonRecord).persist_match as JsonRecord)?.winner_id === "persist_a", "persisted settlement missing", persistedSnapshot);
     expect(Number((persistedSnapshot.balances_by_player as JsonRecord).persist_a) === 11000, "persisted balance missing", persistedSnapshot.balances_by_player);
+
+    const waxEpochPath = join(tempDir, "crucible-epoch.json");
+    const waxEpochA = new CrucibleLedger(waxEpochPath, "epoch_a");
+    waxEpochA.updateConfig({ config_version: 22, stake_bps: 0 }, "epoch_smoke");
+    waxEpochA.setBalanceMillis("identity_preserved", 5000);
+    const waxEpochSame = new CrucibleLedger(waxEpochPath, "epoch_a").getSnapshot();
+    expect(Number((waxEpochSame.balances_by_player as JsonRecord).identity_preserved) === 5000, "same Wax epoch should retain balances", waxEpochSame);
+    const waxEpochReset = new CrucibleLedger(waxEpochPath, "epoch_b").getSnapshot();
+    expect(Object.keys(waxEpochReset.balances_by_player as JsonRecord).length === 0, "new Wax epoch should clear balances", waxEpochReset);
+    expect(Number((waxEpochReset.config as JsonRecord).config_version) === 22, "Wax epoch reset should retain policy config", waxEpochReset.config);
+
+    const honeyEpochPath = join(tempDir, "honey-epoch.json");
+    const honeyEpochA = new HoneyLedger(honeyEpochPath, "epoch_a");
+    honeyEpochA.setBalanceCenti("identity_preserved", 7500, "epoch_smoke");
+    const honeyEpochSame = new HoneyLedger(honeyEpochPath, "epoch_a").getSnapshot();
+    expect(Number((honeyEpochSame.balances_by_player as JsonRecord).identity_preserved) === 7500, "same Honey epoch should retain balances", honeyEpochSame);
+    const honeyEpochReset = new HoneyLedger(honeyEpochPath, "epoch_b").getSnapshot();
+    expect(Object.keys(honeyEpochReset.balances_by_player as JsonRecord).length === 0, "new Honey epoch should clear balances", honeyEpochReset);
+    expect((honeyEpochReset.transactions as JsonRecord[]).length === 0, "new Honey epoch should clear transaction records", honeyEpochReset);
   } finally {
     await close(server);
     rmSync(tempDir, { recursive: true, force: true });

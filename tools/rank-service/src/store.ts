@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 import type { Pool, PoolClient } from "pg";
-import { entapIdFromSequence, normalizeCallSign, normalizeLoadedState, normalizePlayerRecord } from "./logic.js";
+import { entapIdFromSequence, normalizeCallSign, normalizeLoadedState, normalizePlayerRecord, recomputeRankings } from "./logic.js";
 import { runMigrations } from "./db/migrate.js";
 import type { PlayerRecord, RankAuditEvent, RankAuditEventInput, RankState, RankWriteContext } from "./types.js";
 
 const META_LOCAL_PLAYER_ID = "local_player_id";
+const META_ECONOMY_EPOCH = "economy_epoch";
 const WRITE_LOCK_KEY = 934_771_112;
 
 interface PlayerRow {
@@ -66,6 +67,83 @@ export class RankStore {
   async init(): Promise<void> {
     await runMigrations(this.pool);
     await this.importLegacyStateIfNeeded();
+  }
+
+  async applyEconomyEpoch(epoch: string, startingWax: number): Promise<{
+    applied: boolean;
+    previous_epoch: string;
+    economy_epoch: string;
+    player_count: number;
+  }> {
+    const cleanEpoch = epoch.trim();
+    if (!cleanEpoch) {
+      return { applied: false, previous_epoch: "", economy_epoch: "", player_count: 0 };
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock($1)", [WRITE_LOCK_KEY]);
+      const meta = await client.query<{ value: string | null }>(
+        "SELECT value #>> '{}' AS value FROM rank_meta WHERE key = $1 LIMIT 1 FOR UPDATE",
+        [META_ECONOMY_EPOCH]
+      );
+      const previousEpoch = String(meta.rows[0]?.value ?? "").trim();
+      const playerCountResult = await client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM rank_players");
+      const playerCount = Math.max(0, Number.parseInt(playerCountResult.rows[0]?.count ?? "0", 10) || 0);
+      if (previousEpoch === cleanEpoch) {
+        await client.query("COMMIT");
+        return { applied: false, previous_epoch: previousEpoch, economy_epoch: cleanEpoch, player_count: playerCount };
+      }
+
+      const before = await this.loadState(client, true);
+      const next = this.cloneState(before);
+      const safeStartingWax = Math.max(0, Number.isFinite(startingWax) ? startingWax : 0);
+      const currentDay = Math.floor(Date.now() / 1000 / 86_400);
+      for (const [playerId, record] of Object.entries(next.players_by_id)) {
+        record.wax_score = safeStartingWax;
+        record.last_decay_day = currentDay;
+        record.tier_id = "DRONE";
+        record.color_id = "GREEN";
+        record.rank_position = 0;
+        record.percentile = 0;
+        record.promotion_history = {};
+        record.apex_active = false;
+        next.players_by_id[playerId] = normalizePlayerRecord(playerId, record, record.last_active_unix);
+      }
+      next.processed_events = {};
+      recomputeRankings(next);
+      await this.persistStateDiff(client, before, next);
+      await this.persistAuditEvents(client, [{
+        event_type: "beta_economy_epoch_reset",
+        payload: {
+          previous_epoch: previousEpoch,
+          economy_epoch: cleanEpoch,
+          player_count: playerCount,
+          identities_preserved: true,
+          starting_wax: safeStartingWax
+        }
+      }]);
+      await client.query(
+        `
+          INSERT INTO rank_meta (key, value, updated_at)
+          VALUES ($1, to_jsonb($2::text), now())
+          ON CONFLICT (key)
+          DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+        `,
+        [META_ECONOMY_EPOCH, cleanEpoch]
+      );
+      await client.query("COMMIT");
+      return { applied: true, previous_epoch: previousEpoch, economy_epoch: cleanEpoch, player_count: playerCount };
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async healthCheck(): Promise<boolean> {

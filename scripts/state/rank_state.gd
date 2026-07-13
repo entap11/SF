@@ -11,6 +11,7 @@ const RankLeaderboardManagerScript = preload("res://scripts/state/rank_leaderboa
 const RankMatchmakerScript = preload("res://scripts/state/rank_matchmaker.gd")
 const RankTransportHttpScript = preload("res://scripts/state/rank_transport_http.gd")
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
+const EconomyEpochScript = preload("res://scripts/state/economy_epoch.gd")
 
 signal rank_state_changed(snapshot: Dictionary)
 signal rank_event(event: Dictionary)
@@ -43,6 +44,7 @@ var _players_by_id: Dictionary = {}
 var _sorted_player_ids: Array[String] = []
 var _local_player_id: String = ""
 var _last_tier_badge: Dictionary = {}
+var _economy_epoch: String = EconomyEpochScript.CURRENT
 var _transport_http = null
 var _transport_mode: String = "local"
 var _transport_error_logged: bool = false
@@ -853,6 +855,7 @@ func _load_config() -> void:
 func _load_state() -> void:
 	_players_by_id.clear()
 	_sorted_player_ids.clear()
+	_economy_epoch = EconomyEpochScript.CURRENT
 	var resolved_save_path: String = _resolved_save_path()
 	if not FileAccess.file_exists(resolved_save_path):
 		return
@@ -863,6 +866,7 @@ func _load_state() -> void:
 	if typeof(parsed_any) != TYPE_DICTIONARY:
 		return
 	var parsed: Dictionary = parsed_any as Dictionary
+	var stored_epoch: String = str(parsed.get("economy_epoch", "")).strip_edges()
 	_local_player_id = str(parsed.get("local_player_id", ""))
 	var players_raw_any: Variant = parsed.get("players_by_id", {})
 	if typeof(players_raw_any) != TYPE_DICTIONARY:
@@ -875,10 +879,13 @@ func _load_state() -> void:
 			continue
 		var record: Dictionary = record_any as Dictionary
 		_players_by_id[player_id] = _normalize_player_record(player_id, record)
+	if stored_epoch != EconomyEpochScript.CURRENT:
+		_reset_cached_wax_for_economy_epoch(stored_epoch)
 	_prune_smoke_fixture_players_if_present()
 
 func _save_state() -> void:
 	var payload: Dictionary = {
+		"economy_epoch": _economy_epoch,
 		"local_player_id": _resolve_local_player_id(),
 		"players_by_id": _players_by_id
 	}
@@ -886,6 +893,28 @@ func _save_state() -> void:
 	if file == null:
 		return
 	file.store_string(JSON.stringify(payload, "\t"))
+
+func _reset_cached_wax_for_economy_epoch(previous_epoch: String) -> void:
+	var starting_wax: float = maxf(_config.wax_floor, _config.base_gain)
+	var current_day: int = int(_now_unix() / DAY_SECONDS)
+	for player_id_any in _players_by_id.keys():
+		var player_id: String = str(player_id_any)
+		var record: Dictionary = _players_by_id.get(player_id, {}) as Dictionary
+		record["wax_score"] = starting_wax
+		record["last_decay_day"] = current_day
+		record["tier_id"] = "DRONE"
+		record["color_id"] = "GREEN"
+		record["rank_position"] = 0
+		record["percentile"] = 0.0
+		record["promotion_history"] = {}
+		record["apex_active"] = false
+		_players_by_id[player_id] = _normalize_player_record(player_id, record)
+	SFLog.info("RANK_WAX_ECONOMY_EPOCH_RESET", {
+		"previous_epoch": previous_epoch,
+		"economy_epoch": _economy_epoch,
+		"player_count": _players_by_id.size(),
+		"identities_preserved": true
+	})
 
 func _resolved_save_path() -> String:
 	var clean: String = save_path.strip_edges()

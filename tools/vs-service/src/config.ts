@@ -42,6 +42,7 @@ export const config = {
   adminToken: process.env.VS_ADMIN_TOKEN?.trim() || "",
   adminRole: process.env.VS_ADMIN_ROLE?.trim() || "ops_admin",
   matchAuthorityToken: process.env.VS_MATCH_AUTHORITY_TOKEN?.trim() || "",
+  economyEpoch: process.env.VS_ECONOMY_EPOCH?.trim() || "",
   crucibleLedgerStore: process.env.CRUCIBLE_LEDGER_STORE?.trim() || "file",
   crucibleLedgerPath: process.env.CRUCIBLE_LEDGER_PATH?.trim() || "data/crucible-ledger.json",
   honeyLedgerStore: process.env.HONEY_LEDGER_STORE?.trim() || "file",

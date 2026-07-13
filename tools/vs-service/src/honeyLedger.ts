@@ -57,14 +57,16 @@ function arrayValue(value: unknown): unknown[] {
 
 export class HoneyLedger {
   private storeAdapter: HoneyLedgerStore;
+  private economyEpoch: string;
   private balances = new Map<string, number>();
   private transactions: HoneyTransaction[] = [];
   private activityRecords: JsonRecord[] = [];
   private operationResults = new Map<string, JsonRecord>();
   private nextTransactionSeq = 1;
 
-  constructor(storeOrPath?: HoneyLedgerStore | string) {
+  constructor(storeOrPath?: HoneyLedgerStore | string, economyEpoch = process.env.VS_ECONOMY_EPOCH ?? "") {
     this.storeAdapter = createHoneyLedgerStore(storeOrPath);
+    this.economyEpoch = cleanString(economyEpoch);
     this.loadFromStore();
   }
 
@@ -367,6 +369,7 @@ export class HoneyLedger {
     return {
       schema_version: SNAPSHOT_SCHEMA_VERSION,
       type: SNAPSHOT_TYPE,
+      economy_epoch: this.economyEpoch,
       precision: "centi_honey",
       storage: this.getStorageSnapshot(),
       balances_by_player: Object.fromEntries(this.balances.entries()),
@@ -414,6 +417,17 @@ export class HoneyLedger {
   private loadFromStore(): void {
     const snapshot = this.storeAdapter.load();
     if (snapshot == null) {
+      return;
+    }
+    const storedEpoch = cleanString(snapshot.economy_epoch);
+    if (this.economyEpoch && storedEpoch !== this.economyEpoch) {
+      this.persistToStore();
+      console.log(JSON.stringify({
+        event: "honey_economy_epoch_reset",
+        previous_epoch: storedEpoch,
+        economy_epoch: this.economyEpoch,
+        identities_preserved: true
+      }));
       return;
     }
     const balances = recordValue(snapshot.balances_by_player);

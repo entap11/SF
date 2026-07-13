@@ -2211,6 +2211,7 @@ export function createApp(): express.Express {
     ok(res, {
       service: "swarmfront-vs-service",
       build: serviceBuild,
+      economy_epoch: config.economyEpoch,
       uptime_sec: nowUnix() - processStartUnix,
       sessions: sessions.size,
       queue: queue.length,
@@ -2246,6 +2247,7 @@ export function createApp(): express.Express {
     ok(res, {
       service: "swarmfront-vs-service",
       build: serviceBuild,
+      economy_epoch: config.economyEpoch,
       dashboard: contestDashInfo(),
       routes: {
         health: "/v1/health",
@@ -2281,6 +2283,7 @@ export function createApp(): express.Express {
     ok(res, {
       service: "swarmfront-vs-service",
       build: serviceBuild,
+      economy_epoch: config.economyEpoch,
       uptime_sec: nowUnix() - processStartUnix,
       sessions: sessions.size,
       queue: queue.length,

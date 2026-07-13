@@ -8,6 +8,7 @@ signal social_destination_changed(destination_id: String, enabled: bool)
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const EconomyEpochScript = preload("res://scripts/state/economy_epoch.gd")
 
 const PROFILE_PATH: String = "user://profile.cfg"
 const PROFILE_SECTION: String = "profile"
@@ -27,6 +28,7 @@ const PROFILE_KEY_FORCED_RENAME_REQUIRED: String = "forced_rename_required"
 const PROFILE_KEY_FORCED_RENAME_REASON: String = "forced_rename_reason"
 const PROFILE_KEY_FORCED_RENAME_ACTION_ID: String = "forced_rename_action_id"
 const PROFILE_KEY_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED: String = "tutorial_controls_followup_bonus_claimed"
+const PROFILE_KEY_ECONOMY_EPOCH: String = "economy_epoch"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
 const DISPLAY_NAME_PREFIX: String = "Player_"
@@ -79,7 +81,7 @@ const TUTORIAL_CONTROLS_STATUS_NOT_STARTED: String = "not_started"
 const TUTORIAL_CONTROLS_STATUS_IN_PROGRESS: String = "in_progress"
 const TUTORIAL_CONTROLS_STATUS_COMPLETED: String = "completed"
 const TUTORIAL_CONTROLS_STATUS_SKIPPED: String = "skipped"
-const DEFAULT_HONEY_BALANCE: int = 12480
+const DEFAULT_HONEY_BALANCE: int = EconomyEpochScript.STARTING_HONEY
 const DEFAULT_ADMIN_DASHBOARD_USERNAME: String = "Mattballou"
 const DEFAULT_ADMIN_DASHBOARD_PASSWORD: String = "$warmFr0nt"
 const POWERBAR_THEME_BASE: String = "base"
@@ -129,6 +131,7 @@ var _buff_loadout_ids: Array[String] = []
 var _owned_buff_ids_by_mode: Dictionary = {}
 var _buff_loadout_ids_by_mode: Dictionary = {}
 var _honey_balance: int = DEFAULT_HONEY_BALANCE
+var _economy_epoch: String = EconomyEpochScript.CURRENT
 var _store_entitlements: Dictionary = {}
 var _unlocked_achievements: Dictionary = {}
 var _powerbar_theme: String = POWERBAR_THEME_BASE
@@ -225,6 +228,7 @@ func ensure_loaded() -> void:
 		_owned_buff_ids_by_mode = _sanitize_owned_mode_map(cfg.get_value(PROFILE_SECTION, "owned_buff_ids_by_mode", {}))
 		_buff_loadout_ids_by_mode = _sanitize_loadout_mode_map(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids_by_mode", {}), _owned_buff_ids_by_mode)
 		_honey_balance = maxi(0, int(cfg.get_value(PROFILE_SECTION, "honey_balance", DEFAULT_HONEY_BALANCE)))
+		_economy_epoch = str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ECONOMY_EPOCH, "")).strip_edges()
 		_store_entitlements = _sanitize_store_entitlements(cfg.get_value(PROFILE_SECTION, "store_entitlements", {}))
 		_unlocked_achievements = _sanitize_unlocked_achievements(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_UNLOCKED_ACHIEVEMENTS, {}))
 		_powerbar_theme = _sanitize_powerbar_theme(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_POWERBAR_THEME, POWERBAR_THEME_BASE)))
@@ -271,6 +275,7 @@ func ensure_loaded() -> void:
 		_owned_buff_ids = _default_owned_ids()
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
 		_honey_balance = DEFAULT_HONEY_BALANCE
+		_economy_epoch = EconomyEpochScript.CURRENT
 		_store_entitlements = {}
 		_unlocked_achievements = {}
 		_powerbar_theme = POWERBAR_THEME_BASE
@@ -363,6 +368,16 @@ func ensure_loaded() -> void:
 		if cleaned_honey != _honey_balance:
 			_honey_balance = cleaned_honey
 			updated = true
+		if _economy_epoch != EconomyEpochScript.CURRENT:
+			var previous_epoch: String = _economy_epoch
+			_honey_balance = DEFAULT_HONEY_BALANCE
+			_economy_epoch = EconomyEpochScript.CURRENT
+			updated = true
+			SFLog.info("PROFILE_ECONOMY_EPOCH_RESET", {
+				"previous_epoch": previous_epoch,
+				"economy_epoch": _economy_epoch,
+				"identity_preserved": true
+			})
 		var cleaned_entitlements: Dictionary = _sanitize_store_entitlements(_store_entitlements)
 		if cleaned_entitlements != _store_entitlements:
 			_store_entitlements = cleaned_entitlements
@@ -1479,6 +1494,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids_by_mode", _owned_buff_ids_by_mode)
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids_by_mode", _buff_loadout_ids_by_mode)
 	cfg.set_value(PROFILE_SECTION, "honey_balance", _honey_balance)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_ECONOMY_EPOCH, _economy_epoch)
 	cfg.set_value(PROFILE_SECTION, "store_entitlements", _store_entitlements)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_UNLOCKED_ACHIEVEMENTS, _unlocked_achievements)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_POWERBAR_THEME, _powerbar_theme)

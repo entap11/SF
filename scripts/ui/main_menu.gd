@@ -564,7 +564,7 @@ var _hive_tournaments_section_button: Button = null
 var _hive_tournaments_detail: Label = null
 var _player_profile := {
 	"tier_text": "Tier: Bronze",
-	"honey": 12480
+	"honey": 0
 }
 var _wallet_profile := {
 	"balance_usd": 0
@@ -579,10 +579,10 @@ const HIVE_PANEL_PROFILE_DEFAULT := {
 	"office_title": "Quartermaster",
 	"ecosystem_rank": 148,
 	"member_since_text": "Member for 26d",
-	"hive_honey": 12480,
-	"hive_honey_total": 982400,
-	"honey_score": 12480,
-	"wax_score": 940,
+	"hive_honey": 0,
+	"hive_honey_total": 0,
+	"honey_score": 0,
+	"wax_score": 100,
 	"member_count": 12,
 	"member_capacity": 14,
 	"created_at_unix": 0,

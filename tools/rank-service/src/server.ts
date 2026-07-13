@@ -340,6 +340,13 @@ function normalizeQueueEntries(raw: unknown): MatchQueueEntry[] {
 async function main(): Promise<void> {
   const store = new RankStore(pool, config.legacyStatePath);
   await store.init();
+  const economyEpochResult = await store.applyEconomyEpoch(
+    config.economyEpoch,
+    Math.max(config.rank.waxFloor, config.rank.baseGain)
+  );
+  if (config.economyEpoch) {
+    console.log(JSON.stringify({ event: "rank_economy_epoch", ...economyEpochResult }));
+  }
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
@@ -373,6 +380,7 @@ async function main(): Promise<void> {
         uptime_sec: Math.max(0, nowUnix() - PROCESS_START_UNIX),
         ...stats,
         config: {
+          economy_epoch: config.economyEpoch,
           players_per_tier_to_unlock: config.rank.playersPerTierToUnlock,
           enforce_canonical_player_ids: config.enforceCanonicalPlayerIds,
           debug_actions_enabled: config.allowDebugActions

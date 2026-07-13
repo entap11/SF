@@ -4,6 +4,7 @@ const SFLog = preload("res://scripts/util/sf_log.gd")
 const CrucibleRulesetPolicyScript = preload("res://scripts/state/crucible_ruleset_policy.gd")
 const RewardMatchContextScript = preload("res://scripts/state/reward_match_context.gd")
 const PlatformEconomyEventSchemaScript = preload("res://scripts/state/platform_economy_event_schema.gd")
+const EconomyEpochScript = preload("res://scripts/state/economy_epoch.gd")
 
 signal honey_progression_changed(snapshot: Dictionary)
 signal honey_event(event: Dictionary)
@@ -85,6 +86,7 @@ const REFERRAL_REWARDS_CENTI: Dictionary = {
 }
 
 var _save_schema_version: int = SAVE_SCHEMA_VERSION
+var _economy_epoch: String = EconomyEpochScript.CURRENT
 var _total_honey_centi_awarded: int = 0
 var _pending_profile_honey_centi: int = 0
 var _awarded_event_ids: Dictionary = {}
@@ -112,6 +114,7 @@ func _ready() -> void:
 func get_snapshot() -> Dictionary:
 	return {
 		"schema_version": _save_schema_version,
+		"economy_epoch": _economy_epoch,
 		"precision": "centi_honey",
 		"reward_ladder": {
 			"community": COMMUNITY_BASE_CENTI,
@@ -354,6 +357,7 @@ func intent_record_community_contribution(contribution_type: String, metadata: D
 	return _award_honey_centi("community_contribution", amount, meta, [])
 
 func debug_reset_state() -> void:
+	_economy_epoch = EconomyEpochScript.CURRENT
 	_total_honey_centi_awarded = 0
 	_pending_profile_honey_centi = 0
 	_awarded_event_ids.clear()
@@ -923,6 +927,7 @@ func _money_tier_from_entry_usd(entry_usd: int) -> int:
 	return 3
 
 func _load_state() -> void:
+	_economy_epoch = EconomyEpochScript.CURRENT
 	_total_honey_centi_awarded = 0
 	_pending_profile_honey_centi = 0
 	_awarded_event_ids.clear()
@@ -942,6 +947,14 @@ func _load_state() -> void:
 	if typeof(parser.data) != TYPE_DICTIONARY:
 		return
 	var raw: Dictionary = parser.data as Dictionary
+	var stored_epoch: String = str(raw.get("economy_epoch", "")).strip_edges()
+	if stored_epoch != EconomyEpochScript.CURRENT:
+		SFLog.info("HONEY_ECONOMY_EPOCH_RESET", {
+			"previous_epoch": stored_epoch,
+			"economy_epoch": EconomyEpochScript.CURRENT
+		})
+		_save_state()
+		return
 	_save_schema_version = maxi(1, int(raw.get("schema_version", SAVE_SCHEMA_VERSION)))
 	if _save_schema_version < 2:
 		_total_honey_centi_awarded = maxi(0, int(raw.get("total_honey_tenths_awarded", 0))) * 10
@@ -977,6 +990,7 @@ func _load_state() -> void:
 func _save_state() -> void:
 	var payload: Dictionary = {
 		"schema_version": SAVE_SCHEMA_VERSION,
+		"economy_epoch": _economy_epoch,
 		"precision": "centi_honey",
 		"total_honey_centi_awarded": _total_honey_centi_awarded,
 		"pending_profile_honey_centi": _pending_profile_honey_centi,
