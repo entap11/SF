@@ -3,3 +3,10 @@ Swarmfront.xcodeproj.xcframework/**/*.a filter=lfs diff=lfs merge=lfs -text
 MoltenVK.xcframework/**/*.a filter=lfs diff=lfs merge=lfs -text
 *.pdf binary
 *.png binary
+*.blend binary
+*.hdr binary
+*.exr binary
+assets/blender/**/*.blend filter=lfs diff=lfs merge=lfs -text
+assets/blender/**/*.png filter=lfs diff=lfs merge=lfs -text
+assets/blender/**/*.hdr filter=lfs diff=lfs merge=lfs -text
+assets/blender/**/*.exr filter=lfs diff=lfs merge=lfs -text

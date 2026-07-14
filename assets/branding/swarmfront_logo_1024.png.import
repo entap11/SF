@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://18t8qv2yjtuw"
-path="res://.godot/imported/settings_29x29.png-c450bee0de843b0e41ab0bee5e154dd3.ctex"
+uid="uid://5my64casxvc0"
+path="res://.godot/imported/swarmfront_logo_1024.png-8ead9f108fb95b37f763c47243b139b8.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://icons/settings_29x29.png"
-dest_files=["res://.godot/imported/settings_29x29.png-c450bee0de843b0e41ab0bee5e154dd3.ctex"]
+source_file="res://assets/branding/swarmfront_logo_1024.png"
+dest_files=["res://.godot/imported/swarmfront_logo_1024.png-8ead9f108fb95b37f763c47243b139b8.ctex"]
 
 [params]
 
