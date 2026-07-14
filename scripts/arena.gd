@@ -279,6 +279,7 @@ var _last_render_hives_version: int = -1
 @onready var tower_renderer_node = $MapRoot/TowerRenderer
 @onready var hive_renderer: HiveRenderer = $MapRoot/HiveRenderer
 @onready var buff_hive_targeting_controller: Node2D = $MapRoot/BuffHiveTargetPresentation
+@onready var buff_lane_global_targeting_controller: Node2D = $MapRoot/BuffLaneGlobalTargetPresentation
 @onready var unit_renderer: Node2D = _resolve_unit_renderer()
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
@@ -602,6 +603,7 @@ func _ready() -> void:
 		SFLog.trace(" - ", {"path": _node_path_for_log(c), "type": c.get_class()})
 	clear_map_render()
 	_setup_buff_hive_targeting_presentation()
+	_setup_buff_lane_global_targeting_presentation()
 	_ensure_arena_polish_layer()
 	_apply_arena_polish_runtime_settings()
 	$MapRoot/HiveRenderer.visible = true
@@ -7077,6 +7079,7 @@ func _create_system(script_path: String, label: String) -> RefCounted:
 
 func _exit_tree() -> void:
 	clear_buff_hive_targeting(-1, "arena_scene_exit")
+	clear_buff_lane_global_targeting(-1, "arena_scene_exit")
 
 
 func _notification(what: int) -> void:
@@ -7244,6 +7247,7 @@ func _apply_neutral_towers(map_data: Dictionary) -> void:
 func load_from_map(map_data: Dictionary) -> void:
 	_cancel_shell_buff_pointer_session("map_reload")
 	clear_buff_hive_targeting(-1, "map_reload")
+	clear_buff_lane_global_targeting(-1, "map_reload")
 	if not _is_dev_or_editor_context():
 		SFLog.warn("MAP_APPLY_ONE_WAY_DOOR", {
 			"entrypoint": "Arena.load_from_map",
@@ -7434,6 +7438,7 @@ func reset_match() -> void:
 func notify_map_built() -> void:
 	_cancel_shell_buff_pointer_session("map_rebuilt")
 	clear_buff_hive_targeting(-1, "map_rebuilt")
+	clear_buff_lane_global_targeting(-1, "map_rebuilt")
 	_fit_serial += 1
 	_fit_applied_serial = -1
 	_camera_fit_signature_last = ""
@@ -10025,6 +10030,184 @@ func get_buff_hive_targeting_snapshot() -> Dictionary:
 	if buff_hive_targeting_controller == null:
 		return {"active": false}
 	return buff_hive_targeting_controller.call("get_snapshot") as Dictionary
+
+
+func _setup_buff_lane_global_targeting_presentation() -> void:
+	if buff_lane_global_targeting_controller == null:
+		return
+	buff_lane_global_targeting_controller.call("setup", self, lane_renderer)
+	var selection_cb := Callable(self, "_on_buff_lane_global_target_selection_changed")
+	if not buff_lane_global_targeting_controller.is_connected("selection_changed", selection_cb):
+		buff_lane_global_targeting_controller.connect("selection_changed", selection_cb)
+
+
+func update_buff_lane_global_targeting(
+	pointer_session_id: int,
+	preview: Dictionary,
+	selected_target_type: String,
+	selected_target_id: Variant,
+	root_screen_pos: Vector2
+) -> Dictionary:
+	if buff_lane_global_targeting_controller == null:
+		return {"ok": false, "reason": "lane_global_targeting_controller_missing"}
+	var target_type: String = str(preview.get("target_type", ""))
+	if not bool(preview.get("ok", false)) or (target_type != BuffDefinitions.TARGET_LANE and target_type != "global"):
+		clear_buff_lane_global_targeting(pointer_session_id, "not_lane_or_global_targeting")
+		return {"ok": false, "reason": "not_lane_or_global_targeting"}
+	var updated: bool = bool(buff_lane_global_targeting_controller.call(
+		"begin_or_update",
+		pointer_session_id,
+		preview,
+		selected_target_type,
+		selected_target_id,
+		root_screen_pos
+	))
+	var snapshot: Dictionary = buff_lane_global_targeting_controller.call("get_snapshot") as Dictionary
+	snapshot["ok"] = updated
+	if not updated:
+		snapshot["reason"] = "pointer_session_mismatch"
+	return snapshot
+
+
+func clear_buff_lane_global_targeting(pointer_session_id: int = -1, reason: String = "cleared") -> bool:
+	if buff_lane_global_targeting_controller == null:
+		return false
+	return bool(buff_lane_global_targeting_controller.call("clear", pointer_session_id, true, reason))
+
+
+func get_buff_lane_global_targeting_snapshot() -> Dictionary:
+	if buff_lane_global_targeting_controller == null:
+		return {"active": false}
+	return buff_lane_global_targeting_controller.call("get_snapshot") as Dictionary
+
+
+func notify_buff_lane_render_nodes_changed() -> void:
+	if buff_lane_global_targeting_controller != null:
+		buff_lane_global_targeting_controller.call("notify_render_nodes_changed")
+
+
+func _on_buff_lane_global_target_selection_changed(
+	pointer_session_id: int,
+	target_type: String,
+	target_id: Variant,
+	reason: String
+) -> void:
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell == null or not shell.has_method("update_buff_pointer_selected_target"):
+		return
+	shell.call("update_buff_pointer_selected_target", pointer_session_id, target_type, target_id, reason)
+
+
+func get_buff_targeting_transform_signature() -> String:
+	var subviewport: SubViewport = get_viewport() as SubViewport
+	var container: SubViewportContainer = subviewport.get_parent() as SubViewportContainer if subviewport != null else null
+	if subviewport == null or container == null or map_root == null:
+		return "invalid"
+	var container_transform: Transform2D = container.get_global_transform_with_canvas()
+	var canvas_transform: Transform2D = subviewport.get_canvas_transform()
+	var map_transform: Transform2D = map_root.global_transform
+	return "%s|%s|%s|%s|%s" % [
+		str(container_transform),
+		str(container.size),
+		str(subviewport.size),
+		str(canvas_transform),
+		str(map_transform)
+	]
+
+
+func get_buff_global_targeting_query(root_screen_pos: Vector2) -> Dictionary:
+	var conversion: Dictionary = root_screen_to_buff_arena_local(root_screen_pos)
+	if not bool(conversion.get("ok", false)):
+		return {"valid": false, "reason": str(conversion.get("reason", "invalid_conversion"))}
+	var playfield_rect: Rect2 = _resolve_playfield_rect_px()
+	var exclusion_rects: Array[Rect2] = _buff_global_exclusion_rects()
+	if not buff_global_position_valid_for_rects(root_screen_pos, playfield_rect, exclusion_rects, true):
+		return {"valid": false, "reason": "excluded_or_outside_playfield"}
+	var inset_rect: Rect2 = playfield_rect.grow(-1.0)
+	if inset_rect.size.x <= 1.0 or inset_rect.size.y <= 1.0:
+		return {"valid": false, "reason": "playfield_rect_invalid"}
+	var root_points := PackedVector2Array([
+		inset_rect.position,
+		Vector2(inset_rect.end.x, inset_rect.position.y),
+		inset_rect.end,
+		Vector2(inset_rect.position.x, inset_rect.end.y)
+	])
+	var arena_points := PackedVector2Array()
+	for point in root_points:
+		var point_conversion: Dictionary = root_screen_to_buff_arena_local(point)
+		if not bool(point_conversion.get("ok", false)):
+			return {"valid": false, "reason": "boundary_conversion_failed"}
+		arena_points.append(point_conversion.get("arena_local_pos", Vector2.ZERO) as Vector2)
+	return {
+		"valid": true,
+		"reason": "",
+		"boundary_arena_local_points": arena_points,
+		"playfield_root_rect": playfield_rect
+	}
+
+
+static func buff_global_position_valid_for_rects(
+	root_screen_pos: Vector2,
+	playfield_rect: Rect2,
+	exclusion_rects: Array[Rect2],
+	conversion_ok: bool
+) -> bool:
+	if not conversion_ok or playfield_rect.size.x <= 1.0 or playfield_rect.size.y <= 1.0:
+		return false
+	if not playfield_rect.has_point(root_screen_pos):
+		return false
+	for exclusion_rect in exclusion_rects:
+		if exclusion_rect.size.x > 0.0 and exclusion_rect.size.y > 0.0 and exclusion_rect.has_point(root_screen_pos):
+			return false
+	return true
+
+
+func _buff_global_exclusion_rects() -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	var direct_paths: Array[String] = [
+		"/root/Shell/MenuRoot",
+		"/root/Shell/ArenaRoot/BackOverlay",
+		SHELL_PLAYER_BUFF_STRIP_PATH,
+		SHELL_OPPONENT_BUFF_STRIP_PATH,
+		SHELL_OPPONENT_BUFF_STRIP_B_PATH,
+		SHELL_ALLY_BUFF_STRIP_PATH,
+		SHELL_HUD_ROOT_PATH + "/PreMatchOverlay",
+		SHELL_OUTCOME_OVERLAY_PATH,
+		SHELL_WIN_OVERLAY_PATH
+	]
+	for path in direct_paths:
+		var control: Control = get_node_or_null(path) as Control
+		_buff_append_visible_control_rect(rects, control)
+	var main_ui: Node = get_node_or_null("../UI")
+	if main_ui != null:
+		for child in main_ui.get_children():
+			_buff_collect_blocking_control_rects(child, rects)
+	var hud_root: Node = get_node_or_null(SHELL_HUD_ROOT_PATH)
+	if hud_root != null:
+		for child in hud_root.get_children():
+			if child.name == "BufferBackdropLayer" or child.name == "BuffDragOverlay":
+				continue
+			_buff_collect_blocking_control_rects(child, rects)
+	return rects
+
+
+func _buff_collect_blocking_control_rects(node: Node, rects: Array[Rect2]) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	var control: Control = node as Control
+	if control != null and control.is_visible_in_tree() and control.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+		_buff_append_visible_control_rect(rects, control)
+		return
+	for child in node.get_children():
+		_buff_collect_blocking_control_rects(child, rects)
+
+
+func _buff_append_visible_control_rect(rects: Array[Rect2], control: Control) -> void:
+	if control == null or not control.is_visible_in_tree():
+		return
+	var rect: Rect2 = control.get_global_rect()
+	if rect.size.x > 0.0 and rect.size.y > 0.0:
+		rects.append(rect)
 
 
 func buff_arena_local_to_root_screen(arena_local_pos: Vector2) -> Dictionary:

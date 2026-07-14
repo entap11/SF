@@ -2700,7 +2700,7 @@ func _on_player_buff_pointer_moved(
 		if _player_buff_strip != null and _player_buff_strip.has_method("set_pointer_dragging"):
 			_player_buff_strip.call("set_pointer_dragging", pointer_session_id, true)
 		_show_buff_drag_overlay(pointer_session_id, pointer_kind, int(session.get("slot_index", -1)), root_screen_pos)
-		_update_buff_hive_targeting(arena_node, pointer_session_id, root_screen_pos)
+		_update_buff_targeting_presentation(arena_node, pointer_session_id, root_screen_pos)
 		SFLog.info("BUFF_POINTER_DRAG_STARTED", {
 			"pid": _buff_ui_last_active_pid,
 			"slot_index": int(session.get("slot_index", -1)),
@@ -2710,7 +2710,7 @@ func _on_player_buff_pointer_moved(
 	elif str(movement.get("state", "")) == BuffPointerSessionScript.STATE_DRAGGING:
 		_position_buff_drag_overlay(pointer_session_id, pointer_kind, root_screen_pos)
 		var arena_node: Node = _resolve_runtime_arena_node()
-		_update_buff_hive_targeting(arena_node, pointer_session_id, root_screen_pos)
+		_update_buff_targeting_presentation(arena_node, pointer_session_id, root_screen_pos)
 
 
 func _on_player_buff_pointer_released(
@@ -2738,41 +2738,20 @@ func _on_player_buff_pointer_released(
 		_finish_invalid_buff_release(session, "source_changed")
 		return
 	var preview: Dictionary = session.get("preview", {}) as Dictionary
-	var candidate: Dictionary = {}
-	if str(preview.get("target_type", "")) == "hive":
-		# Re-evaluate presentation with the unshifted release point so a release
-		# outside the Arena cannot submit a hive that is no longer visibly selected.
-		_update_buff_hive_targeting(arena_node, pointer_session_id, root_screen_pos)
-		session = _buff_pointer_session.snapshot()
-		preview = session.get("preview", {}) as Dictionary
-		var selected_hive_id: Variant = preview.get("selected_target_id", null)
-		if str(preview.get("selected_target_type", "")) == "hive" and selected_hive_id != null:
-			candidate = {
-				"ok": true,
-				"target_type": "hive",
-				"target_id": int(selected_hive_id)
-			}
-		else:
-			candidate = {"ok": false, "reason": "release_target_not_selected"}
-	else:
-		if not arena_node.has_method("root_screen_to_buff_arena_local"):
-			_finish_invalid_buff_release(session, "coordinate_converter_missing")
-			return
-		var conversion_any: Variant = arena_node.call("root_screen_to_buff_arena_local", root_screen_pos)
-		var conversion: Dictionary = conversion_any as Dictionary if typeof(conversion_any) == TYPE_DICTIONARY else {}
-		if not bool(conversion.get("ok", false)):
-			_finish_invalid_buff_release(session, str(conversion.get("reason", "coordinate_conversion_failed")))
-			return
-		if not arena_node.has_method("resolve_buff_release_candidate"):
-			_finish_invalid_buff_release(session, "release_resolver_missing")
-			return
-		var candidate_any: Variant = arena_node.call(
-			"resolve_buff_release_candidate",
-			_buff_ui_last_active_pid,
-			int(session.get("slot_index", -1)),
-			conversion.get("arena_local_pos", Vector2.ZERO)
-		)
-		candidate = candidate_any as Dictionary if typeof(candidate_any) == TYPE_DICTIONARY else {}
+	# Release uses the same unshifted fingertip and the retained visible selection.
+	# No target type performs a second geometric pick here.
+	_update_buff_targeting_presentation(arena_node, pointer_session_id, root_screen_pos)
+	session = _buff_pointer_session.snapshot()
+	preview = session.get("preview", {}) as Dictionary
+	var selected_type: String = str(preview.get("selected_target_type", ""))
+	var selected_id: Variant = preview.get("selected_target_id", null)
+	var candidate: Dictionary = {"ok": false, "reason": "release_target_not_selected"}
+	if selected_type == str(preview.get("target_type", "")) and selected_id != null:
+		candidate = {
+			"ok": true,
+			"target_type": selected_type,
+			"target_id": selected_id
+		}
 	if not bool(candidate.get("ok", false)) or not _candidate_matches_buff_preview(
 		candidate,
 		preview
@@ -2794,7 +2773,7 @@ func _on_player_buff_pointer_released(
 		_finish_invalid_buff_release(session, str(activation.get("reason", "submission_rejected")))
 		return
 	_buff_pointer_session.mark_submitted(pointer_session_id)
-	_clear_buff_hive_targeting(arena_node, pointer_session_id, "release_submitted")
+	_clear_buff_targeting_presentation(arena_node, pointer_session_id, "release_submitted")
 	_hide_buff_drag_overlay(pointer_session_id)
 	_clear_strip_pointer_capture(pointer_session_id)
 	_buff_pointer_session.clear(pointer_session_id)
@@ -2824,7 +2803,7 @@ func cancel_buff_pointer_session(reason: String = "cancelled") -> bool:
 	if session.is_empty():
 		return false
 	var pointer_session_id: int = int(session.get("pointer_session_id", 0))
-	_clear_buff_hive_targeting(_resolve_runtime_arena_node(), pointer_session_id, reason)
+	_clear_buff_targeting_presentation(_resolve_runtime_arena_node(), pointer_session_id, reason)
 	_buff_pointer_session.clear(pointer_session_id)
 	_clear_strip_pointer_capture(pointer_session_id)
 	_hide_buff_drag_overlay(pointer_session_id)
@@ -2926,6 +2905,66 @@ func _update_buff_hive_targeting(
 	return result
 
 
+func _update_buff_lane_global_targeting(
+	arena_node: Node,
+	pointer_session_id: int,
+	root_screen_pos: Vector2
+) -> Dictionary:
+	if arena_node == null or not arena_node.has_method("update_buff_lane_global_targeting"):
+		return {"ok": false, "reason": "lane_global_targeting_api_missing"}
+	var session: Dictionary = _buff_pointer_session.snapshot()
+	if session.is_empty() or int(session.get("pointer_session_id", 0)) != pointer_session_id:
+		return {"ok": false, "reason": "pointer_session_mismatch"}
+	var preview: Dictionary = session.get("preview", {}) as Dictionary
+	var target_type: String = str(preview.get("target_type", ""))
+	if target_type != "lane" and target_type != "global":
+		return {"ok": false, "reason": "not_lane_or_global_targeting"}
+	var selected_type: String = str(preview.get("selected_target_type", ""))
+	var selected_id: Variant = preview.get("selected_target_id", null)
+	var result_any: Variant = arena_node.call(
+		"update_buff_lane_global_targeting",
+		pointer_session_id,
+		preview,
+		selected_type,
+		selected_id,
+		root_screen_pos
+	)
+	var result: Dictionary = result_any as Dictionary if typeof(result_any) == TYPE_DICTIONARY else {}
+	var resolved_type: String = ""
+	var resolved_id: Variant = null
+	if target_type == "lane":
+		var lane_id: int = int(result.get("selected_lane_id", -1))
+		if lane_id > 0:
+			resolved_type = "lane"
+			resolved_id = lane_id
+	elif bool(result.get("global_valid", false)):
+		resolved_type = "global"
+		resolved_id = "global"
+	update_buff_pointer_selected_target(
+		pointer_session_id,
+		resolved_type,
+		resolved_id,
+		str(result.get("reason", "presentation_update"))
+	)
+	return result
+
+
+func _update_buff_targeting_presentation(
+	arena_node: Node,
+	pointer_session_id: int,
+	root_screen_pos: Vector2
+) -> Dictionary:
+	var session: Dictionary = _buff_pointer_session.snapshot()
+	if session.is_empty() or int(session.get("pointer_session_id", 0)) != pointer_session_id:
+		return {"ok": false, "reason": "pointer_session_mismatch"}
+	var target_type: String = str((session.get("preview", {}) as Dictionary).get("target_type", ""))
+	if target_type == "hive":
+		return _update_buff_hive_targeting(arena_node, pointer_session_id, root_screen_pos)
+	if target_type == "lane" or target_type == "global":
+		return _update_buff_lane_global_targeting(arena_node, pointer_session_id, root_screen_pos)
+	return {"ok": false, "reason": "unsupported_target_type"}
+
+
 func _clear_buff_hive_targeting(
 	arena_node: Node,
 	pointer_session_id: int,
@@ -2933,6 +2972,18 @@ func _clear_buff_hive_targeting(
 ) -> void:
 	if arena_node != null and arena_node.has_method("clear_buff_hive_targeting"):
 		arena_node.call("clear_buff_hive_targeting", pointer_session_id, reason)
+	_buff_pointer_session.clear_selected_target(pointer_session_id)
+
+
+func _clear_buff_targeting_presentation(
+	arena_node: Node,
+	pointer_session_id: int,
+	reason: String
+) -> void:
+	if arena_node != null and arena_node.has_method("clear_buff_hive_targeting"):
+		arena_node.call("clear_buff_hive_targeting", pointer_session_id, reason)
+	if arena_node != null and arena_node.has_method("clear_buff_lane_global_targeting"):
+		arena_node.call("clear_buff_lane_global_targeting", pointer_session_id, reason)
 	_buff_pointer_session.clear_selected_target(pointer_session_id)
 
 
@@ -2977,7 +3028,7 @@ func _candidate_matches_buff_preview(candidate: Dictionary, preview: Dictionary)
 func _finish_invalid_buff_release(session: Dictionary, reason: String) -> void:
 	var pointer_session_id: int = int(session.get("pointer_session_id", 0))
 	_start_buff_overlay_snap_back(pointer_session_id, int(session.get("slot_index", -1)))
-	_clear_buff_hive_targeting(_resolve_runtime_arena_node(), pointer_session_id, reason)
+	_clear_buff_targeting_presentation(_resolve_runtime_arena_node(), pointer_session_id, reason)
 	_clear_strip_pointer_capture(pointer_session_id)
 	_buff_pointer_session.clear(pointer_session_id)
 	SFLog.info("BUFF_POINTER_RELEASE_REJECTED", {

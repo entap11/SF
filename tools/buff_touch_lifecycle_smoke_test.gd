@@ -35,6 +35,27 @@ class FakeArena:
 	func preview_buff_targets(_pid: int, _slot_index: int) -> Dictionary:
 		return {"ok": true, "target_type": "global", "eligible_target_ids": ["global"]}
 
+	func update_buff_lane_global_targeting(
+		pointer_session_id: int,
+		_preview: Dictionary,
+		_selected_target_type: String,
+		_selected_target_id: Variant,
+		root_screen_pos: Vector2
+	) -> Dictionary:
+		var conversion: Dictionary = root_screen_to_buff_arena_local(root_screen_pos)
+		return {
+			"ok": true,
+			"pointer_session_id": pointer_session_id,
+			"selected_lane_id": -1,
+			"global_valid": candidate_ok and bool(conversion.get("ok", false))
+		}
+
+	func clear_buff_lane_global_targeting(_pointer_session_id: int, _reason: String) -> bool:
+		return true
+
+	func clear_buff_hive_targeting(_pointer_session_id: int, _reason: String) -> bool:
+		return true
+
 	func root_screen_to_buff_arena_local(root_screen_pos: Vector2) -> Dictionary:
 		last_conversion_root = root_screen_pos
 		return {"ok": true, "arena_local_pos": root_screen_pos}

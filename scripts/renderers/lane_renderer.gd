@@ -156,6 +156,9 @@ var _lane_front_visual_by_id: Dictionary = {}
 var _lane_grab_preview: Dictionary = {}
 var _lane_grab_tension_sprite: Sprite2D = null
 var _lane_grab_tension_line: Line2D = null
+var _buff_target_lane_probes: Dictionary = {}
+var _buff_target_lane_generation: int = 0
+var _buff_target_next_path_revision: int = 1
 
 static func is_lane_visual_hierarchy_enabled() -> bool:
 	return bool(LaneVisualHierarchyScript.call("is_enabled"))
@@ -609,6 +612,10 @@ func _ready() -> void:
 	set_process(USE_LANE_SPRITES and show_lane_sprites)
 	_lane_candidates_visible = false
 	_request_rebuild("ready")
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE or what == NOTIFICATION_EXIT_TREE:
+		_clear_buff_target_lane_probes("renderer_teardown")
 
 func _process(delta: float) -> void:
 	var process_t0_us: int = Time.get_ticks_usec()
@@ -1351,6 +1358,7 @@ func _get_lane_band_material() -> ShaderMaterial:
 	return mat
 
 func _clear_lane_sprites() -> void:
+	_clear_buff_target_lane_probes("lane_sprites_cleared")
 	if _lane_sprite_root == null:
 		return
 	var kids := _lane_sprite_root.get_children()
@@ -1621,6 +1629,7 @@ func get_lane_signature() -> int:
 	return int(hash(sig))
 
 func _rebuild_lane_sprites_now() -> void:
+	_clear_buff_target_lane_probes("lane_renderer_rebuild")
 	if not USE_LANE_SPRITES or not show_lane_sprites:
 		_clear_lane_sprites()
 		return
@@ -1780,6 +1789,7 @@ func _apply_lane_visual_profile_to_color(color: Color, profile: Dictionary) -> C
 
 func _update_lane_visuals(delta: float) -> void:
 	if _lane_nodes_by_key.is_empty():
+		_clear_buff_target_lane_probes("no_rendered_lanes")
 		return
 	var thickness_info: Dictionary = _resolve_lane_thickness_info()
 	var target_px: float = float(thickness_info.get("target_px", lane_thickness_px))
@@ -1790,6 +1800,8 @@ func _update_lane_visuals(delta: float) -> void:
 	if AUDIT_RENDER:
 		_audit_draw_ops += keys.size()
 	var prepared_by_key: Dictionary = {}
+	var buff_probe_ids_seen: Dictionary = {}
+	var buff_probes_changed: bool = false
 	for key_any in keys:
 		var entry_any: Variant = _lane_nodes_by_key.get(key_any, null)
 		if typeof(entry_any) != TYPE_DICTIONARY:
@@ -1848,6 +1860,22 @@ func _update_lane_visuals(delta: float) -> void:
 			"z_index": lane_z_index,
 			"width": profile_width_px
 		}
+		if lane_id > 0:
+			buff_probe_ids_seen[lane_id] = true
+			buff_probes_changed = _sync_buff_target_lane_probe(
+				lane_id,
+				PackedVector2Array([a_pos, b_pos]),
+				visible and is_visible_in_tree() and show_lane_sprites
+			) or buff_probes_changed
+	for probe_lane_id_any in _buff_target_lane_probes.keys():
+		var probe_lane_id: int = int(probe_lane_id_any)
+		if buff_probe_ids_seen.has(probe_lane_id):
+			continue
+		_buff_target_lane_probes.erase(probe_lane_id)
+		_buff_target_lane_generation += 1
+		buff_probes_changed = true
+	if buff_probes_changed:
+		_notify_buff_target_lane_nodes_changed()
 	for key_any in keys:
 		var prepared_any: Variant = prepared_by_key.get(key_any, null)
 		if typeof(prepared_any) != TYPE_DICTIONARY:
@@ -1886,6 +1914,61 @@ func _update_lane_visuals(delta: float) -> void:
 			_hide_lane_sprite_parts(entry, "a")
 			_hide_lane_sprite_parts(entry, "b")
 		_lane_nodes_by_key[key_any] = entry
+
+func get_buff_target_lane_probe(lane_id: int) -> Dictionary:
+	if lane_id <= 0 or not visible or not is_visible_in_tree() or not show_lane_sprites:
+		return {"valid": false, "lane_id": lane_id}
+	var probe_any: Variant = _buff_target_lane_probes.get(lane_id, null)
+	if typeof(probe_any) != TYPE_DICTIONARY:
+		return {"valid": false, "lane_id": lane_id}
+	var probe: Dictionary = (probe_any as Dictionary).duplicate(true)
+	probe["valid"] = bool(probe.get("renderable", false))
+	return probe
+
+func get_buff_target_lane_generation() -> int:
+	return _buff_target_lane_generation
+
+func get_buff_target_lane_probe_revision(lane_id: int) -> int:
+	var probe_any: Variant = _buff_target_lane_probes.get(lane_id, null)
+	if typeof(probe_any) != TYPE_DICTIONARY:
+		return -1
+	var probe: Dictionary = probe_any as Dictionary
+	if not bool(probe.get("renderable", false)):
+		return -1
+	return int(probe.get("path_revision", -1))
+
+func _sync_buff_target_lane_probe(lane_id: int, points: PackedVector2Array, renderable: bool) -> bool:
+	if lane_id <= 0 or points.size() < 2:
+		return false
+	var existing_any: Variant = _buff_target_lane_probes.get(lane_id, null)
+	if typeof(existing_any) == TYPE_DICTIONARY:
+		var existing: Dictionary = existing_any as Dictionary
+		if bool(existing.get("renderable", false)) == renderable \
+		and (existing.get("points", PackedVector2Array()) as PackedVector2Array) == points:
+			return false
+	var revision: int = _buff_target_next_path_revision
+	_buff_target_next_path_revision += 1
+	_buff_target_lane_probes[lane_id] = {
+		"valid": renderable,
+		"renderable": renderable,
+		"lane_id": lane_id,
+		"points": points.duplicate(),
+		"path_revision": revision,
+		"renderer_generation": _buff_target_lane_generation + 1
+	}
+	_buff_target_lane_generation += 1
+	return true
+
+func _clear_buff_target_lane_probes(reason: String) -> void:
+	if _buff_target_lane_probes.is_empty():
+		return
+	_buff_target_lane_probes.clear()
+	_buff_target_lane_generation += 1
+	_notify_buff_target_lane_nodes_changed(reason)
+
+func _notify_buff_target_lane_nodes_changed(_reason: String = "lane_probe_changed") -> void:
+	if arena != null and is_instance_valid(arena) and arena.has_method("notify_buff_lane_render_nodes_changed"):
+		arena.call("notify_buff_lane_render_nodes_changed")
 
 func _resolve_lane_thickness_info() -> Dictionary:
 	var target_px: float = lane_thickness_px
