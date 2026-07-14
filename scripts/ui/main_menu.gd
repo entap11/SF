@@ -2,6 +2,7 @@ extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const EconomyQuarantineUiPolicyScript = preload("res://scripts/ui/economy_quarantine_ui_policy.gd")
 const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
 const MAP_MODE_RULES = preload("res://scripts/maps/map_mode_rules.gd")
@@ -11212,11 +11213,7 @@ func _on_store_sku_pressed(sku: Dictionary) -> void:
 			return
 		var spend_result: Dictionary = _spend_honey(price_honey, "store_sku:%s" % sku_id)
 		if not bool(spend_result.get("ok", false)):
-			status_label.text = "Not enough Honey for %s (H%d needed, H%d available)." % [
-				title,
-				price_honey,
-				int(spend_result.get("honey_balance", _current_honey_balance()))
-			]
+			status_label.text = _honey_purchase_failure_text(spend_result, title, price_honey)
 			return
 		var grant_result: Dictionary = _grant_entitlements(entitlements, "store_sku:%s" % sku_id)
 		_update_store_prefs_visibility(str(sku.get("category", "")))
@@ -12294,7 +12291,10 @@ func _open_crucible_confirmation() -> void:
 	var player_id: String = _local_crucible_player_id()
 	var entry_status: Dictionary = crucible_state.call("preview_entry_status", player_id, 0, false) as Dictionary
 	if not bool(entry_status.get("ok", false)):
-		match str(entry_status.get("code", "")):
+		if _is_economy_quarantined_result(entry_status):
+			status_label.text = EconomyQuarantineUiPolicyScript.CRUCIBLE_UNAVAILABLE_TEXT
+			return
+		match str(entry_status.get("code", entry_status.get("err", ""))):
 			"capacity":
 				_open_crucible_capacity_blocked(str(entry_status.get("message", "Crucible at capacity.")))
 			"no_wax":
@@ -12306,7 +12306,7 @@ func _open_crucible_confirmation() -> void:
 	if crucible_state.has_method("preview_player_stake"):
 		stake_preview = crucible_state.call("preview_player_stake", player_id) as Dictionary
 	if not bool(stake_preview.get("ok", false)):
-		status_label.text = str(stake_preview.get("message", stake_preview.get("code", "Crucible stake preview unavailable.")))
+		status_label.text = EconomyQuarantineUiPolicyScript.CRUCIBLE_UNAVAILABLE_TEXT if _is_economy_quarantined_result(stake_preview) else str(stake_preview.get("message", stake_preview.get("code", "Crucible stake preview unavailable.")))
 		return
 	_close_top_level_windows(UI_SURFACE_ENTRY)
 	var panel := _build_entry_overlay("CRUCIBLE", "Pure 1V1 Wax stake queue", Vector2(620.0, 440.0))
@@ -12354,6 +12354,12 @@ func _open_crucible_confirmation() -> void:
 	_style_entry_overlay_buttons([start_button, earn_button, cancel])
 	_style_game_hub_cancel_button(cancel)
 	_entry_route_modal = panel
+
+func _is_economy_quarantined_result(result: Dictionary) -> bool:
+	return EconomyQuarantineUiPolicyScript.is_economy_quarantined_result(result)
+
+func _honey_purchase_failure_text(result: Dictionary, title: String, price_honey: int) -> String:
+	return EconomyQuarantineUiPolicyScript.honey_purchase_failure_text(result, title, price_honey, _current_honey_balance())
 
 func _launch_crucible_queue() -> void:
 	_close_entry_route_modal()

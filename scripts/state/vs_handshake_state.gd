@@ -825,6 +825,22 @@ func debug_fill_session(session_id: String, bot_name: String = "Rival") -> Dicti
 	_emit_session_changed(sid)
 	return {"ok": true, "session_id": sid, "session": _dup_session(session)}
 
+func fill_free_bot_match(ticket_id: String = "", session_id: String = "", bot_name: String = "Rival") -> Dictionary:
+	var payload: Dictionary = {"bot_name": bot_name}
+	if not ticket_id.strip_edges().is_empty():
+		payload["ticket_id"] = ticket_id.strip_edges()
+	elif not session_id.strip_edges().is_empty():
+		payload["session_id"] = session_id.strip_edges()
+	else:
+		return {"ok": false, "err": "missing_ticket_or_session_id"}
+	var transport := _call_transport("fill_free_bot_match", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	# Local mode never crosses a production trust boundary.
+	if not ticket_id.strip_edges().is_empty():
+		return debug_fill_quick_match(ticket_id, bot_name)
+	return debug_fill_session(session_id, bot_name)
+
 func get_session(session_id: String) -> Dictionary:
 	var transport := _call_transport("get_session", {"session_id": session_id})
 	if bool(transport.get("handled", false)):

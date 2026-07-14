@@ -57,15 +57,17 @@ func _ready() -> void:
 	_load_state()
 	_bootstrap_local_player()
 	_configure_transport()
-	_recompute_rankings(false)
-	_save_state()
+	if is_local_beta_fallback_allowed():
+		_recompute_rankings(false)
+		_save_state()
 	_emit_changed()
 	call_deferred("_refresh_from_backend_after_boot")
 
 func _refresh_from_backend_after_boot() -> void:
 	if _refresh_from_backend_internal(true):
 		return
-	_recompute_rankings(true)
+	if is_local_beta_fallback_allowed():
+		_recompute_rankings(true)
 
 func intent_register_player(
 		player_id: String,
@@ -107,7 +109,7 @@ func intent_register_player(
 	var now_unix: int = _now_unix()
 	if existing.is_empty():
 		var friend_ids: Array[String] = RankModelsScript.sanitize_friends(friends)
-		var initial_wax: float = maxf(_config.wax_floor, _config.base_gain)
+		var initial_wax: float = maxf(_config.wax_floor, _config.base_gain) if is_local_beta_fallback_allowed() else 0.0
 		var record: Dictionary = RankModelsScript.new_player_record(
 			clean_id,
 			display_name,
@@ -122,7 +124,8 @@ func intent_register_player(
 		existing["region"] = _region_or_default(region)
 		existing["friends"] = RankModelsScript.sanitize_friends(friends)
 		_players_by_id[clean_id] = _normalize_player_record(clean_id, existing)
-	_recompute_rankings(true)
+	if is_local_beta_fallback_allowed():
+		_recompute_rankings(true)
 	_save_state()
 	_emit_changed()
 	return {"ok": true, "player": get_player_snapshot(clean_id)}
@@ -197,6 +200,8 @@ func intent_record_match_result(
 	var transport_result := _handle_transport_write("record_match_result", payload)
 	if bool(transport_result.get("handled", false)):
 		return transport_result.get("result", {}) as Dictionary
+	if not is_local_beta_fallback_allowed():
+		return _local_economy_disabled_result("record_match_result")
 	_ensure_player_exists(p1)
 	_ensure_player_exists(p2)
 
@@ -292,6 +297,8 @@ func intent_record_contest_result(
 	var transport_result := _handle_transport_write("record_contest_result", payload)
 	if bool(transport_result.get("handled", false)):
 		return transport_result.get("result", {}) as Dictionary
+	if not is_local_beta_fallback_allowed():
+		return _local_economy_disabled_result("record_contest_result")
 	_ensure_player_exists(clean_id)
 
 	var now_unix: int = _now_unix()
@@ -334,6 +341,8 @@ func intent_apply_decay_tick() -> Dictionary:
 	var transport_result := _handle_transport_write("apply_decay_tick", {})
 	if bool(transport_result.get("handled", false)):
 		return transport_result.get("result", {}) as Dictionary
+	if not is_local_beta_fallback_allowed():
+		return _local_economy_disabled_result("apply_decay_tick")
 	var now_unix: int = _now_unix()
 	var applied: int = _apply_decay_all(now_unix)
 	if applied > 0:
@@ -450,6 +459,8 @@ func intent_debug_set_player_wax(player_id: String, wax_score: float) -> Diction
 	var transport_result := _handle_transport_write("debug_set_player_wax", payload)
 	if bool(transport_result.get("handled", false)):
 		return transport_result.get("result", {}) as Dictionary
+	if not is_local_beta_fallback_allowed():
+		return _local_economy_disabled_result("debug_set_player_wax")
 	_ensure_player_exists(clean_id)
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	record["wax_score"] = maxf(_config.wax_floor, wax_score)
@@ -470,6 +481,8 @@ func intent_debug_set_last_active(player_id: String, last_active_unix: int) -> D
 	var transport_result := _handle_transport_write("debug_set_last_active", payload)
 	if bool(transport_result.get("handled", false)):
 		return transport_result.get("result", {}) as Dictionary
+	if not is_local_beta_fallback_allowed():
+		return _local_economy_disabled_result("debug_set_last_active")
 	_ensure_player_exists(clean_id)
 	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	record["last_active_unix"] = maxi(0, last_active_unix)
@@ -640,7 +653,17 @@ func is_local_beta_fallback_allowed() -> bool:
 	var ops_config: Node = get_node_or_null("/root/OpsConfig")
 	if ops_config != null and ops_config.has_method("rank_local_beta_fallback_allowed"):
 		return bool(ops_config.call("rank_local_beta_fallback_allowed"))
-	return true
+	return false
+
+func _local_economy_disabled_result(action: String) -> Dictionary:
+	return {
+		"ok": false,
+		"err": "economy_disabled",
+		"code": "economy_disabled",
+		"reason": "economy_disabled",
+		"action": action,
+		"cached_values_preserved": true
+	}
 
 func refresh_from_backend() -> Dictionary:
 	var ok: bool = _refresh_from_backend_internal(true)
@@ -867,6 +890,7 @@ func _load_state() -> void:
 		return
 	var parsed: Dictionary = parsed_any as Dictionary
 	var stored_epoch: String = str(parsed.get("economy_epoch", "")).strip_edges()
+	_economy_epoch = stored_epoch if not stored_epoch.is_empty() else EconomyEpochScript.CURRENT
 	_local_player_id = str(parsed.get("local_player_id", ""))
 	var players_raw_any: Variant = parsed.get("players_by_id", {})
 	if typeof(players_raw_any) != TYPE_DICTIONARY:
@@ -879,7 +903,8 @@ func _load_state() -> void:
 			continue
 		var record: Dictionary = record_any as Dictionary
 		_players_by_id[player_id] = _normalize_player_record(player_id, record)
-	if stored_epoch != EconomyEpochScript.CURRENT:
+	if stored_epoch != EconomyEpochScript.CURRENT and EconomyEpochScript.reset_enabled():
+		_economy_epoch = EconomyEpochScript.CURRENT
 		_reset_cached_wax_for_economy_epoch(stored_epoch)
 	_prune_smoke_fixture_players_if_present()
 
@@ -930,7 +955,8 @@ func _bootstrap_local_player() -> void:
 	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
 	if profile_manager != null and profile_manager.has_method("get_display_name"):
 		display_name = str(profile_manager.call("get_display_name"))
-	_ensure_player_exists(_local_player_id, display_name)
+	if is_local_beta_fallback_allowed():
+		_ensure_player_exists(_local_player_id, display_name)
 
 func _ensure_player_exists(player_id: String, display_name: String = "") -> void:
 	if _players_by_id.has(player_id):
@@ -1016,7 +1042,8 @@ func _normalize_player_record(player_id: String, raw_record: Dictionary) -> Dict
 	record["call_sign"] = _display_name_or_default(str(record.get("call_sign", record.get("display_name", ""))), player_id)
 	record["display_name"] = str(record.get("call_sign", ""))
 	record["region"] = _region_or_default(str(record.get("region", "")))
-	record["wax_score"] = maxf(_config.wax_floor, float(record.get("wax_score", _config.base_gain)))
+	var wax_floor: float = _config.wax_floor if is_local_beta_fallback_allowed() else 0.0
+	record["wax_score"] = maxf(wax_floor, float(record.get("wax_score", 0.0)))
 	record["last_active_unix"] = int(record.get("last_active_unix", _now_unix()))
 	record["last_decay_day"] = int(record.get("last_decay_day", -1))
 	record["tier_id"] = str(record.get("tier_id", "DRONE")).strip_edges().to_upper()

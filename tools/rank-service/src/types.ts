@@ -56,6 +56,8 @@ export interface RankServiceConfig {
   port: number;
   bindHost: string;
   apiToken: string;
+  economyMutationsEnabled: boolean;
+  economyResetEnabled: boolean;
   databaseUrl: string;
   legacyStatePath: string;
   enforceCanonicalPlayerIds: boolean;
@@ -129,3 +131,5 @@ export interface RankAuditEvent {
 export interface RankWriteContext {
   recordAuditEvent: (event: RankAuditEventInput) => void;
 }
+
+export type RankWriteClassification = "identity" | "economy";

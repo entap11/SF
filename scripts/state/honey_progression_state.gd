@@ -948,7 +948,9 @@ func _load_state() -> void:
 		return
 	var raw: Dictionary = parser.data as Dictionary
 	var stored_epoch: String = str(raw.get("economy_epoch", "")).strip_edges()
-	if stored_epoch != EconomyEpochScript.CURRENT:
+	_economy_epoch = stored_epoch if not stored_epoch.is_empty() else EconomyEpochScript.CURRENT
+	if stored_epoch != EconomyEpochScript.CURRENT and EconomyEpochScript.reset_enabled():
+		_economy_epoch = EconomyEpochScript.CURRENT
 		SFLog.info("HONEY_ECONOMY_EPOCH_RESET", {
 			"previous_epoch": stored_epoch,
 			"economy_epoch": EconomyEpochScript.CURRENT

@@ -15,10 +15,41 @@ The VS backend owns money movement. Client state may mirror contest status for m
 ## Transport
 
 - Base URL: configured via `SF_VS_BACKEND_URL` (or project setting `swarmfront/vs/backend_url`).
-- Auth token: optional bearer token from `SF_VS_BACKEND_TOKEN` (or `swarmfront/vs/backend_token`).
+- Client auth token: optional bearer token from `SF_VS_BACKEND_TOKEN` (or `swarmfront/vs/backend_token`). Security Sprint 0 keeps the exported project setting empty. This is never the match-authority or admin secret.
 - Method: `POST`
 - Content-Type: `application/json`
 - Route shape: `POST <base_url>/<action>`
+
+## Security Sprint 0 route policy
+
+`VS_ECONOMY_MUTATIONS_ENABLED` defaults to false. While false, all quarantined actions return HTTP 503 with this stable body:
+
+```json
+{ "ok": false, "err": "economy_disabled", "code": "economy_disabled" }
+```
+
+Quarantined actions are:
+
+- Money: `open_money_escrow`, `settle_money_match`, `refund_money_match`.
+- Async contests: `open_async_entry_escrow`, `submit_async_contest_result`, `preview_async_contest_result_payout_report`, `preview_async_contest_payout_report`, `approve_async_contest_payout_report`, `settle_async_contest`, `settle_async_contest_payouts`, `settle_async_contest_payout_percentages`, `refund_async_entry`.
+- Honey: `record_honey_activity`, `grant_honey`, `debit_honey`, `debit_hive_honey_purchase`, `debug_set_honey_balance`.
+- Crucible/Wax: `preview_crucible_entry`, `update_crucible_config`, `open_crucible_escrow`, `settle_crucible_match`, `refund_crucible_match`, `resolve_crucible_review`, `record_crucible_lifecycle`, `record_competitive_wax_result`, `award_crucible_wax`, `debug_set_crucible_balance`.
+- Contest dashboard: `POST /v1/contest_dash/config` and `POST /v1/contest_dash/delete`.
+
+Paid or Crucible variants of `create_invite`, `join_invite`, `enqueue_quick_match`, `create_friend_invite`, `respond_friend_invite`, `start_session`, bot fill, and `leave_session` also fail closed. Their ordinary free variants remain available.
+
+Read classification:
+
+- Public policy/configuration: `get_honey_policy`, `get_crucible_config`, `get_wax_policy`, and `GET /v1/contest_dash/config`.
+- Admin-only private economy data: `get_money_transactions`, `get_money_payout_summary`, `debug_get_money_ledger_snapshot`, `list_async_contest_results`, `list_async_contest_payout_reports`, `get_honey_balance`, `preview_hive_honey_purchase`, `get_honey_transactions`, `debug_get_honey_ledger_snapshot`, `debug_get_crucible_snapshot`, and `get_wax_audit_snapshot`.
+- Public/client session traffic: free invite/queue/session/ready/start/leave, heartbeat/friends, intent exchange, and spectator use with a server-issued spectator grant.
+
+Mutation authorization when the quarantine is eventually lifted:
+
+- Match-authority-only actions use `VS_MATCH_AUTHORITY_TOKEN` on server-to-server requests. The token must never be distributed to Godot/TestFlight.
+- Administrative mutations and all private economy reads use `VS_ADMIN_TOKEN` and the configured admin role.
+- `debug_fill_quick_match` and `debug_fill_session` are admin-only. `fill_free_bot_match` is the narrow client operation for free, non-Crucible bot sessions.
+- `create_spectator_grant` uses the independent `VS_SPECTATOR_ADMIN_TOKEN`; an empty or forged value never authorizes it, and the development bypass is ignored in production.
 
 Example:
 - `POST https://your-backend.example/v1/create_invite`

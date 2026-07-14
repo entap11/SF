@@ -1,3 +1,5 @@
+import { guardEconomyMutation } from "./economyGuard.js";
+
 export type JsonRecord = Record<string, unknown>;
 
 type Direction = "credit" | "debit";
@@ -110,10 +112,15 @@ export class MoneyLedger {
   }
 
   configureHouseRakeBps(rakeBps: number): void {
+    if (guardEconomyMutation()) {
+      return;
+    }
     this.houseRakeBps = Math.max(0, Math.min(BASIS_POINTS_DENOMINATOR, Math.trunc(rakeBps)));
   }
 
   setBalanceCents(accountId: string, balanceCents: number): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanAccountId = cleanString(accountId);
     if (!cleanAccountId) {
       return this.error("missing_account_id", "Account id is required.");
@@ -127,6 +134,8 @@ export class MoneyLedger {
   }
 
   openMoneyEscrow(sessionId: string, players: PlayerFunding[], wagerCents: number, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -204,6 +213,8 @@ export class MoneyLedger {
   }
 
   settleMoneyMatch(sessionId: string, winnerId: string, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -273,6 +284,8 @@ export class MoneyLedger {
   }
 
   refundMoneyMatch(sessionId: string, reason: string, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -321,6 +334,8 @@ export class MoneyLedger {
   }
 
   openAsyncEntryEscrow(entryId: string, contestId: string, player: PlayerFunding, wagerCents: number, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -413,6 +428,8 @@ export class MoneyLedger {
   }
 
   buildAsyncContestPayoutApprovalReport(contestId: string, payouts: unknown[], houseRakeBps: number): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanContestId = cleanString(contestId);
     if (!cleanContestId) {
       return this.error("missing_contest_id", "Contest id is required.");
@@ -500,6 +517,8 @@ export class MoneyLedger {
   }
 
   previewAsyncContestPayoutApprovalReport(contestId: string, payouts: unknown[], houseRakeBps: number): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const report = this.buildAsyncContestPayoutApprovalReport(contestId, payouts, houseRakeBps);
     if (report.ok === true) {
       const now = Math.floor(Date.now() / 1000);
@@ -513,6 +532,8 @@ export class MoneyLedger {
   }
 
   submitAsyncContestResult(contestId: string, contestFamily: string, playerId: string, result: JsonRecord, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -611,6 +632,8 @@ export class MoneyLedger {
   }
 
   previewAsyncContestResultPayoutReport(contestId: string, contestFamily: string, payoutSchedule: unknown[], houseRakeBps: number, options: JsonRecord = {}): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanContestId = cleanString(contestId);
     const cleanFamily = this.normalizeContestFamily(contestFamily);
     if (!cleanContestId) {
@@ -668,6 +691,8 @@ export class MoneyLedger {
   }
 
   settleAsyncContest(contestId: string, winnerId: string, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -695,6 +720,8 @@ export class MoneyLedger {
   }
 
   settleAsyncContestPayouts(contestId: string, payouts: unknown[], houseRakeCents: number, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -812,6 +839,8 @@ export class MoneyLedger {
   }
 
   settleAsyncContestPayoutPercentages(contestId: string, payouts: unknown[], houseRakeBps: number, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -833,6 +862,8 @@ export class MoneyLedger {
   }
 
   approveAsyncContestPayoutReport(report: JsonRecord, approverId: string, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");
@@ -900,6 +931,8 @@ export class MoneyLedger {
   }
 
   refundAsyncEntry(entryId: string, reason: string, idempotencyKey: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey);
     if (!cleanKey) {
       return this.error("missing_idempotency_key", "Idempotency key is required.");

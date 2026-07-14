@@ -60,6 +60,7 @@ environment/defaults/default_clear_color=Color(0.168627, 0.168627, 0.168627, 1)
 
 [swarmfront]
 
+economy/reset_enabled=false
 rank/backend_url="https://entap-identity-rank-staging.onrender.com/v1/rank"
 rank/backend_token=""
 rank/backend_timeout_sec=2.0

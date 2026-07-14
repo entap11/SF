@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { guardEconomyMutation } from "./economyGuard.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -315,6 +316,8 @@ export async function getContestDashState(): Promise<JsonRecord> {
 }
 
 export async function saveContestDashContest(body: unknown): Promise<JsonRecord> {
+  const blocked = guardEconomyMutation();
+  if (blocked) return blocked;
   const maps = await listContestDashMaps();
   const config = await loadConfig(maps);
   const contest = normalizeContest(asRecord(body).contest ?? body, maps);
@@ -335,6 +338,8 @@ export async function saveContestDashContest(body: unknown): Promise<JsonRecord>
 }
 
 export async function deleteContestDashContest(body: unknown): Promise<JsonRecord> {
+  const blocked = guardEconomyMutation();
+  if (blocked) return blocked;
   const id = cleanString(asRecord(body).id).toUpperCase();
   if (!id) {
     return { ok: false, err: "missing_contest_id" };
@@ -668,12 +673,12 @@ export async function handleContestDashState(_req: Request, res: Response): Prom
 
 export async function handleContestDashSave(req: Request, res: Response): Promise<void> {
   const result = await saveContestDashContest(req.body);
-  res.status(result.ok === true ? 200 : 400).json(result);
+  res.status(result.ok === true ? 200 : result.err === "economy_disabled" ? 503 : 400).json(result);
 }
 
 export async function handleContestDashDelete(req: Request, res: Response): Promise<void> {
   const result = await deleteContestDashContest(req.body);
-  res.status(result.ok === true ? 200 : 400).json(result);
+  res.status(result.ok === true ? 200 : result.err === "economy_disabled" ? 503 : 400).json(result);
 }
 
 export function handleContestDashPage(_req: Request, res: Response): void {

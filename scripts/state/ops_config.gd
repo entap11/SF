@@ -173,7 +173,15 @@ func rank_backend_enabled() -> bool:
 	return get_flag("enable_rank_backend", false)
 
 func rank_local_beta_fallback_allowed() -> bool:
-	return get_flag("enable_rank_local_beta_fallback", true)
+	return rank_local_beta_fallback_allowed_for_runtime(
+		OS.is_debug_build(),
+		get_flag("enable_rank_local_beta_fallback", true)
+	)
+
+static func rank_local_beta_fallback_allowed_for_runtime(is_debug_build: bool, configured_debug_flag: bool) -> bool:
+	# Remote config and environment values cannot reactivate client-authoritative
+	# Rank/Wax mutation in production exports.
+	return is_debug_build and configured_debug_flag
 
 func external_ads_enabled() -> bool:
 	var ads: Dictionary = _dict(_config.get("ads", {}))

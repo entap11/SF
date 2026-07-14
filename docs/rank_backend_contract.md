@@ -315,13 +315,16 @@ Service:
 - `PORT`: Render supplies this automatically.
 - `BIND_HOST`: use `0.0.0.0` on Render.
 - `RANK_API_TOKEN`: optional in local development and required in production.
+- `RANK_ECONOMY_MUTATIONS_ENABLED`: defaults to `false`; keep false during Security Sprint 0.
+- `RANK_ECONOMY_RESET_ENABLED`: defaults to `false`; the epoch reset also requires the mutation gate.
+- `RANK_ECONOMY_EPOCH`: stored epoch marker; it does not trigger a reset by itself.
 - `RANK_ENFORCE_CANONICAL_PLAYER_IDS`: keep `true`.
 - `RANK_ENABLE_DEBUG_ACTIONS`: keep `false` for beta/staging/prod unless explicitly testing.
 - `RANK_DEFAULT_REGION`: default `GLOBAL`.
 
 Client:
 - `SF_RANK_BACKEND_URL`: preferred runtime override for dev/staging.
-- `SF_RANK_BACKEND_TOKEN`: bearer token matching `RANK_API_TOKEN`.
+- `SF_RANK_BACKEND_TOKEN`: trusted-runtime bearer token matching `RANK_API_TOKEN`; do not embed it in a public export.
 - `swarmfront/rank/backend_url`: project/export setting fallback.
 - `swarmfront/rank/backend_token`: project/export setting fallback.
 - `swarmfront/rank/backend_timeout_sec`: request timeout.
@@ -347,6 +350,8 @@ Suggested settings:
   - `RANK_API_TOKEN=<staging-or-prod-secret>`
   - `RANK_ENFORCE_CANONICAL_PLAYER_IDS=true`
   - `RANK_ENABLE_DEBUG_ACTIONS=false`
+  - `RANK_ECONOMY_MUTATIONS_ENABLED=false`
+  - `RANK_ECONOMY_RESET_ENABLED=false`
 
 After first deploy, run migrations from a trusted shell:
 ```bash
@@ -361,6 +366,7 @@ One clean staging smoke command:
 cd tools/rank-service
 RANK_SMOKE_BASE_URL="https://YOUR-RANK-STAGING.onrender.com/v1/rank" \
 RANK_SMOKE_TOKEN="$RANK_API_TOKEN" \
+SF_ALLOW_LIVE_BACKEND_TESTS=1 \
 npm run smoke:identity
 ```
 
@@ -371,3 +377,11 @@ The smoke verifies:
 - `AAA 000` ENTaP ID format
 - duplicate call sign returns `call_sign_not_unique`
 - rapid account creations do not share an ENTaP ID
+
+## Quarantine persistence boundary
+
+- Rank store writes require an explicit `identity` or `economy` classification. Missing classification fails before a database connection is acquired.
+- `economy` covers match and contest results, decay, recomputation, Wax/rank-derived values, processed events, economy audits, and economy epoch/reset state. It is blocked by `RANK_ECONOMY_MUTATIONS_ENABLED=false`.
+- `identity` permits only local identity selection, friend changes, and region changes with their narrowly scoped non-economy audits. The store compares protected fields before persistence and rejects classification misuse.
+- Registration is the explicit quarantine exception: it creates only the identity, a zero-Wax starter row, and one `player_registered` audit record.
+- Automated client smoke tests reject non-loopback backends before network activity unless `SF_ALLOW_LIVE_BACKEND_TESTS=1` is set deliberately.

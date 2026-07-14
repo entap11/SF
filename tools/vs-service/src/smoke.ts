@@ -9,6 +9,8 @@ type ListenableApp = {
   listen: (port: number, hostname: string, callback: () => void) => http.Server;
 };
 
+let defaultAuthorizedHeaders: JsonRecord = {};
+
 function listen(app: ListenableApp): Promise<http.Server> {
   return new Promise((resolve) => {
     const server = app.listen(0, "127.0.0.1", () => resolve(server));
@@ -22,7 +24,7 @@ function close(server: http.Server): Promise<void> {
 }
 
 async function post(baseUrl: string, action: string, body: JsonRecord, headers: JsonRecord = {}): Promise<JsonRecord> {
-  const data = await postRaw(baseUrl, action, body, headers);
+  const data = await postRaw(baseUrl, action, body, { ...defaultAuthorizedHeaders, ...headers });
   if (data.http_status !== 200 || data.ok !== true) {
     throw new Error(`${action} failed: ${JSON.stringify(data)}`);
   }
@@ -53,8 +55,11 @@ async function main(): Promise<void> {
   process.env.VS_ADMIN_TOKEN = "smoke_admin_token";
   process.env.VS_ADMIN_ROLE = "ops_admin";
   process.env.VS_MATCH_AUTHORITY_TOKEN = "smoke_match_token";
+  process.env.VS_ECONOMY_MUTATIONS_ENABLED = "true";
+  process.env.VS_ECONOMY_RESET_ENABLED = "true";
   const adminHeaders = { "x-admin-token": "smoke_admin_token", "x-admin-role": "ops_admin" };
   const matchHeaders = { "x-match-authority-token": "smoke_match_token" };
+  defaultAuthorizedHeaders = matchHeaders;
   const { bestQuickMatchCandidateForTest, createApp } = await import("./server.js");
   const { CrucibleLedger } = await import("./crucibleLedger.js");
   const { HoneyLedger } = await import("./honeyLedger.js");
@@ -67,10 +72,10 @@ async function main(): Promise<void> {
   try {
     const health = await fetch(`http://127.0.0.1:${address.port}/health`).then((res) => res.json() as Promise<JsonRecord>);
     expect(health.ok === true, "health failed", health);
-    expect(String(((health.honey as JsonRecord).storage as JsonRecord)?.kind ?? "") === "file", "health missing Honey storage", health);
+    expect(health.economy_mutations_enabled === true, "health missing economy readiness", health);
+    expect(String((((health.storage as JsonRecord).honey as JsonRecord)?.kind) ?? "") === "file", "health missing Honey storage", health);
     const serviceIndex = await fetch(`http://127.0.0.1:${address.port}/v1`).then((res) => res.json() as Promise<JsonRecord>);
     expect(serviceIndex.ok === true && String((serviceIndex.dashboard as JsonRecord)?.path ?? "") === "/dash", "service index missing dashboard link", serviceIndex);
-    expect(String(((serviceIndex.honey as JsonRecord).storage as JsonRecord)?.kind ?? "") === "file", "service index missing Honey readiness", serviceIndex);
     const dashHtml = await fetch(`http://127.0.0.1:${address.port}/dash`).then((res) => res.text());
     expect(dashHtml.includes("Swarmfront Contest Dash"), "contest dash html missing title");
     const dashState = await fetch(`${baseUrl}/contest_dash/config`).then((res) => res.json() as Promise<JsonRecord>);
@@ -78,7 +83,7 @@ async function main(): Promise<void> {
     expect(dashState.ok === true && Array.isArray(dashMaps) && dashMaps.length >= 5, "contest dash state missing maps", dashState);
     const dashSave = await fetch(`${baseUrl}/contest_dash/config`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json", ...adminHeaders },
       body: JSON.stringify({
         contest: {
           id: "WEEKLY_USD_5_SMOKE_RACE",
@@ -100,7 +105,7 @@ async function main(): Promise<void> {
       })
     }).then((res) => res.json() as Promise<JsonRecord>);
     expect(dashSave.ok === true && String((dashSave.contest as JsonRecord)?.id ?? "") === "WEEKLY_USD_5_SMOKE_RACE", "contest dash save failed", dashSave);
-    expect(((health.crucible as JsonRecord).match_authority_required) === true, "health missing match authority readiness", health);
+    expect(health.match_authority_auth_required === true, "health missing match authority readiness", health);
 
     const context = {
       mode: "PVP",
@@ -183,7 +188,7 @@ async function main(): Promise<void> {
     expect(paidSessionContext.ledger_status === "escrowed", "paid invite missing escrow status", paidSessionContext);
     expect(Number(paidSessionContext.pot_cents) === 200, "paid invite pot mismatch", paidSessionContext);
     const paidSessionId = String(paidJoin.session_id);
-    const paidOpenTransactions = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId });
+    const paidOpenTransactions = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId }, adminHeaders);
     expect((paidOpenTransactions.transactions as JsonRecord[]).length === 2, "paid invite should debit both players", paidOpenTransactions);
     const paidSettle = await post(baseUrl, "settle_money_match", {
       session_id: paidSessionId,
@@ -192,20 +197,20 @@ async function main(): Promise<void> {
     });
     expect(Number(paidSettle.winner_payout_cents) === 180, "paid winner payout mismatch", paidSettle);
     expect(Number(paidSettle.house_rake_cents) === 20, "paid house rake mismatch", paidSettle);
-    const paidTransactionsAfterSettle = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId });
+    const paidTransactionsAfterSettle = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId }, adminHeaders);
     const paidTransactionCount = (paidTransactionsAfterSettle.transactions as JsonRecord[]).length;
     await post(baseUrl, "settle_money_match", {
       session_id: paidSessionId,
       winner_id: "paid_host",
       idempotency_key: `settle:${paidSessionId}:paid_host`
     });
-    const paidTransactionsAfterDuplicate = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId });
+    const paidTransactionsAfterDuplicate = await post(baseUrl, "get_money_transactions", { session_id: paidSessionId }, adminHeaders);
     expect((paidTransactionsAfterDuplicate.transactions as JsonRecord[]).length === paidTransactionCount, "duplicate paid settle added transactions", paidTransactionsAfterDuplicate);
     const paidSecondSettle = await postRaw(baseUrl, "settle_money_match", {
       session_id: paidSessionId,
       winner_id: "paid_guest",
       idempotency_key: `settle:${paidSessionId}:paid_guest`
-    });
+    }, matchHeaders);
     expect(paidSecondSettle.ok === false && paidSecondSettle.err === "match_already_closed", "second paid settle should fail", paidSecondSettle);
 
     const directOpen = await post(baseUrl, "open_money_escrow", {
@@ -222,14 +227,14 @@ async function main(): Promise<void> {
       idempotency_key: "refund:direct_refund_session"
     });
     expect(Number(directRefund.refunded_cents_per_player) === 250, "direct refund amount mismatch", directRefund);
-    const directRefundTransactions = await post(baseUrl, "get_money_transactions", { session_id: "direct_refund_session" });
+    const directRefundTransactions = await post(baseUrl, "get_money_transactions", { session_id: "direct_refund_session" }, adminHeaders);
     const directRefundTransactionCount = (directRefundTransactions.transactions as JsonRecord[]).length;
     await post(baseUrl, "refund_money_match", {
       session_id: "direct_refund_session",
       reason: "failed_start",
       idempotency_key: "refund:direct_refund_session"
     });
-    const duplicateRefundTransactions = await post(baseUrl, "get_money_transactions", { session_id: "direct_refund_session" });
+    const duplicateRefundTransactions = await post(baseUrl, "get_money_transactions", { session_id: "direct_refund_session" }, adminHeaders);
     expect((duplicateRefundTransactions.transactions as JsonRecord[]).length === directRefundTransactionCount, "duplicate refund added transactions", duplicateRefundTransactions);
 
     const paidShortFirst = await post(baseUrl, "enqueue_quick_match", {
@@ -263,7 +268,7 @@ async function main(): Promise<void> {
       wager_cents: 500,
       idempotency_key: "open:async_entry_a"
     });
-    const asyncEntryATransactions = await post(baseUrl, "get_money_transactions", { entry_id: "async_entry_a" });
+    const asyncEntryATransactions = await post(baseUrl, "get_money_transactions", { entry_id: "async_entry_a" }, adminHeaders);
     expect((asyncEntryATransactions.transactions as JsonRecord[]).length === 1, "duplicate async open added transactions", asyncEntryATransactions);
     const asyncOpenB = await post(baseUrl, "open_async_entry_escrow", {
       entry_id: "async_entry_b",
@@ -281,14 +286,14 @@ async function main(): Promise<void> {
     });
     expect(Number(asyncSettle.winner_payout_cents) === 900, "async winner payout mismatch", asyncSettle);
     expect(Number(asyncSettle.house_rake_cents) === 100, "async house rake mismatch", asyncSettle);
-    const asyncContestTransactions = await post(baseUrl, "get_money_transactions", { contest_id: "async_contest_paid" });
+    const asyncContestTransactions = await post(baseUrl, "get_money_transactions", { contest_id: "async_contest_paid" }, adminHeaders);
     const asyncContestTransactionCount = (asyncContestTransactions.transactions as JsonRecord[]).length;
     await post(baseUrl, "settle_async_contest", {
       contest_id: "async_contest_paid",
       winner_id: "async_b",
       idempotency_key: "settle:async_contest_paid:async_b"
     });
-    const asyncDuplicateSettleTransactions = await post(baseUrl, "get_money_transactions", { contest_id: "async_contest_paid" });
+    const asyncDuplicateSettleTransactions = await post(baseUrl, "get_money_transactions", { contest_id: "async_contest_paid" }, adminHeaders);
     expect((asyncDuplicateSettleTransactions.transactions as JsonRecord[]).length === asyncContestTransactionCount, "duplicate async settle added transactions", asyncDuplicateSettleTransactions);
 
     for (let i = 1; i <= 5; i += 1) {
@@ -310,7 +315,7 @@ async function main(): Promise<void> {
         { placement: 3, player_id: "async_pool_3", payout_bps: 1500 },
         { placement: 4, player_id: "async_pool_4", payout_bps: 2000 }
       ]
-    });
+    }, adminHeaders);
     expect(String(asyncPayoutReport.approval_status) === "pending_approval", "async payout report should require approval", asyncPayoutReport);
     expect(Number(asyncPayoutReport.players_count) === 5, "async payout report player count mismatch", asyncPayoutReport);
     expect(Number(asyncPayoutReport.entries_count) === 5, "async payout report entry count mismatch", asyncPayoutReport);
@@ -320,7 +325,7 @@ async function main(): Promise<void> {
     const pendingPayoutReports = await post(baseUrl, "list_async_contest_payout_reports", {
       status: "pending_approval",
       contest_id: "async_contest_pool"
-    });
+    }, adminHeaders);
     expect(
       ((pendingPayoutReports.reports as JsonRecord[]) ?? []).some((report) => String(report.report_id) === String(asyncPayoutReport.report_id)),
       "async payout report should be listed for ops approval",
@@ -330,7 +335,7 @@ async function main(): Promise<void> {
       report: asyncPayoutReport,
       approver_id: "ops_admin",
       idempotency_key: "settle:async_contest_pool:top4"
-    });
+    }, adminHeaders);
     expect(String(asyncPayoutSettle.approval_status) === "approved", "async payout approval status mismatch", asyncPayoutSettle);
     expect(Number(asyncPayoutSettle.payout_total_cents) === 2250, "async payout table total mismatch", asyncPayoutSettle);
     expect(Number(asyncPayoutSettle.house_rake_cents) === 250, "async payout table rake mismatch", asyncPayoutSettle);
@@ -338,13 +343,13 @@ async function main(): Promise<void> {
     const asyncPayoutTransactions = await post(baseUrl, "get_money_transactions", {
       contest_id: "async_contest_pool",
       transaction_type: "async_winner_payout"
-    });
+    }, adminHeaders);
     expect((asyncPayoutTransactions.transactions as JsonRecord[]).length === 4, "async payout table should write one row per winner", asyncPayoutTransactions);
     expect(String((asyncPayoutTransactions.transactions as JsonRecord[])[0]?.approval_id ?? "") === String(asyncPayoutReport.report_id ?? ""), "async payout row approval id mismatch", asyncPayoutTransactions);
     const pendingPayoutReportsAfterApproval = await post(baseUrl, "list_async_contest_payout_reports", {
       status: "pending_approval",
       contest_id: "async_contest_pool"
-    });
+    }, adminHeaders);
     expect(
       ((pendingPayoutReportsAfterApproval.reports as JsonRecord[]) ?? []).length === 0,
       "approved async payout report should leave pending queue",
@@ -385,7 +390,7 @@ async function main(): Promise<void> {
     const raceResults = await post(baseUrl, "list_async_contest_results", {
       contest_id: "async_race_backend",
       contest_family: "RACE"
-    });
+    }, adminHeaders);
     expect(String(((raceResults.results as JsonRecord[])[0]?.player_id ?? "")) === "race_backend_p2", "backend race result ranking mismatch", raceResults);
     const raceBackendReport = await post(baseUrl, "preview_async_contest_result_payout_report", {
       contest_id: "async_race_backend",
@@ -403,7 +408,7 @@ async function main(): Promise<void> {
       report: raceBackendReport,
       approver_id: "ops_admin",
       idempotency_key: "settle:async_race_backend:backend_results"
-    });
+    }, adminHeaders);
     expect(Number(raceBackendSettle.payout_count) === 2, "race backend result settlement payout count mismatch", raceBackendSettle);
     expect(!Array.isArray(raceBackendSettle.wax_awards), "race backend settlement should not award Crucible ledger Wax", raceBackendSettle);
 
@@ -446,7 +451,7 @@ async function main(): Promise<void> {
     });
     expect(String(((missBackendReport.planned_payouts as JsonRecord[])[0]?.player_id ?? "")) === "miss_backend_p2", "miss backend report winner mismatch", missBackendReport);
 
-    const payoutSummary = await post(baseUrl, "get_money_payout_summary", { limit: 10 });
+    const payoutSummary = await post(baseUrl, "get_money_payout_summary", { limit: 10 }, adminHeaders);
     expect(Number(payoutSummary.paid_out_cents) >= 3330, "payout summary paid total mismatch", payoutSummary);
     expect(Number(payoutSummary.house_rake_cents) >= 370, "payout summary rake total mismatch", payoutSummary);
     const contestSummaries = (payoutSummary.contests as JsonRecord[]) ?? [];
@@ -459,7 +464,7 @@ async function main(): Promise<void> {
       entry_id: "async_entry_a",
       reason: "late_refund",
       idempotency_key: "refund:async_entry_a"
-    });
+    }, matchHeaders);
     expect(asyncLateRefund.ok === false && asyncLateRefund.err === "entry_already_closed", "settled async entry refund should fail", asyncLateRefund);
     await post(baseUrl, "open_async_entry_escrow", {
       entry_id: "async_entry_refund",
@@ -479,7 +484,7 @@ async function main(): Promise<void> {
       contest_id: "async_contest_paid",
       sort_desc: true,
       limit: 1
-    });
+    }, adminHeaders);
     expect((latestAsync.transactions as JsonRecord[]).length === 1, "transaction limit filter failed", latestAsync);
 
     const rankedContext = {
@@ -534,7 +539,7 @@ async function main(): Promise<void> {
       opponent_ids: ["activity_opp"],
       metadata: { match_id: "activity_match_1" },
       idempotency_key: "honey:activity:activity_player:match_1"
-    }, matchHeaders);
+    }, adminHeaders);
     expect(Number(honeyActivity.amount_centi) === 400 && Number(honeyActivity.balance_centi) === 400, "Honey activity award mismatch", honeyActivity);
     await post(baseUrl, "record_honey_activity", {
       player_id: "activity_player",
@@ -546,7 +551,7 @@ async function main(): Promise<void> {
       metadata: { match_id: "activity_match_1" },
       idempotency_key: "honey:activity:activity_player:match_1"
     }, matchHeaders);
-    const activityBalance = await post(baseUrl, "get_honey_balance", { player_id: "activity_player" });
+    const activityBalance = await post(baseUrl, "get_honey_balance", { player_id: "activity_player" }, adminHeaders);
     expect(Number(activityBalance.balance_centi) === 400, "duplicate Honey activity should be idempotent", activityBalance);
     const lowEffort = await post(baseUrl, "record_honey_activity", {
       player_id: "activity_player",
@@ -571,7 +576,7 @@ async function main(): Promise<void> {
         idempotency_key: `honey:activity:farm_player:${i}`
       }, matchHeaders);
     }
-    const farmBalance = await post(baseUrl, "get_honey_balance", { player_id: "farm_player" });
+    const farmBalance = await post(baseUrl, "get_honey_balance", { player_id: "farm_player" }, adminHeaders);
     expect(Number(farmBalance.balance_centi) === 1400, "same-opponent Honey diminishing return mismatch", farmBalance);
 
     const honeyGrant = await post(baseUrl, "grant_honey", {
@@ -589,7 +594,7 @@ async function main(): Promise<void> {
       metadata: { entap_title: "Swarmfront", activity_id: "bundle_25" },
       idempotency_key: "honey:grant:honey_player:bundle_25"
     }, matchHeaders);
-    const honeyBalance = await post(baseUrl, "get_honey_balance", { player_id: "honey_player" });
+    const honeyBalance = await post(baseUrl, "get_honey_balance", { player_id: "honey_player" }, adminHeaders);
     expect(Number(honeyBalance.balance_centi) === 1600 && Number(honeyBalance.balance_honey_whole) === 16, "Honey duplicate grant should be idempotent", honeyBalance);
     const honeyDebit = await post(baseUrl, "debit_honey", {
       player_id: "honey_player",
@@ -624,7 +629,7 @@ async function main(): Promise<void> {
       hive_id: "hive_smoke",
       member_ids: ["hive_a", "hive_b", "hive_c"],
       cost_centi: 2500
-    });
+    }, adminHeaders);
     expect(Number(hiveHoneyPreview.available_centi) === 10000, "Hive Honey preview total mismatch", hiveHoneyPreview);
     const hivePreviewDeductions = hiveHoneyPreview.deductions as JsonRecord[];
     expect(Number(hivePreviewDeductions.find((row) => row.player_id === "hive_a")?.deduction_centi ?? 0) === 250, "Hive Honey p1 deduction mismatch", hiveHoneyPreview);
@@ -646,10 +651,10 @@ async function main(): Promise<void> {
       source: "hive_tournament.weekly",
       idempotency_key: "honey:hive_debit:hive_smoke:weekly"
     }, matchHeaders);
-    const hiveABalance = await post(baseUrl, "get_honey_balance", { player_id: "hive_a" });
-    const hiveCBalance = await post(baseUrl, "get_honey_balance", { player_id: "hive_c" });
+    const hiveABalance = await post(baseUrl, "get_honey_balance", { player_id: "hive_a" }, adminHeaders);
+    const hiveCBalance = await post(baseUrl, "get_honey_balance", { player_id: "hive_c" }, adminHeaders);
     expect(Number(hiveABalance.balance_centi) === 750 && Number(hiveCBalance.balance_centi) === 4500, "Hive Honey duplicate debit should be idempotent", { hiveABalance, hiveCBalance });
-    const honeyTransactions = await post(baseUrl, "get_honey_transactions", { player_id: "hive_c", type: "hive_debit" });
+    const honeyTransactions = await post(baseUrl, "get_honey_transactions", { player_id: "hive_c", type: "hive_debit" }, adminHeaders);
     expect((honeyTransactions.transactions as JsonRecord[]).length === 1, "Honey transaction filter mismatch", honeyTransactions);
     const honeySnapshot = await post(baseUrl, "debug_get_honey_ledger_snapshot", {}, adminHeaders);
     expect(String((honeySnapshot.ledger as JsonRecord).precision ?? "") === "centi_honey", "Honey snapshot precision mismatch", honeySnapshot);
@@ -848,11 +853,11 @@ async function main(): Promise<void> {
       player_id: "preview_hint_unauth",
       balance_millis: 10000
     });
-    expect(unauthBalancePreview.http_status === 401 && unauthBalancePreview.err === "crucible_balance_hint_auth_required", "Crucible balance hints should require authority", unauthBalancePreview);
+    expect(unauthBalancePreview.http_status === 401 && unauthBalancePreview.err === "admin_auth_required", "Crucible balance previews should require admin auth", unauthBalancePreview);
     const authBalancePreview = await post(baseUrl, "preview_crucible_entry", {
       player_id: "preview_hint_auth",
       balance_millis: 10000
-    }, matchHeaders);
+    }, adminHeaders);
     expect(authBalancePreview.ok === true && Number(authBalancePreview.balance_millis) === 10000, "authorized Crucible balance preview failed", authBalancePreview);
 
     const unauthConfigPatch = await postRaw(baseUrl, "update_crucible_config", {
@@ -867,7 +872,7 @@ async function main(): Promise<void> {
     expect(Number((configPatch.config as JsonRecord).capacity_max) === 1, "Crucible config update failed", configPatch);
     const capacityBlocked = await postRaw(baseUrl, "preview_crucible_entry", {
       player_id: "capacity_blocked"
-    });
+    }, adminHeaders);
     expect(capacityBlocked.ok === false && capacityBlocked.err === "capacity", "Crucible capacity block failed", capacityBlocked);
     await post(baseUrl, "update_crucible_config", {
       actor_id: "ops_smoke",
@@ -878,7 +883,7 @@ async function main(): Promise<void> {
     const devFill = await post(baseUrl, "debug_fill_quick_match", {
       ticket_id: String(devQuick.ticket_id),
       bot_name: "Turtle Bot"
-    });
+    }, adminHeaders);
     expect((devFill.session as JsonRecord).status === "started", "debug quick fill did not auto-start", devFill);
     expect(((devFill.session as JsonRecord).guest as JsonRecord).display_name === "Turtle Bot", "debug quick fill used wrong bot", devFill);
 

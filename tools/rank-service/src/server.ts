@@ -1,5 +1,13 @@
 import express, { type NextFunction, type Request, type Response } from "express";
+import { adminRecompute } from "./adminRecompute.js";
 import { config } from "./config.js";
+import {
+  economyDisabledResult,
+  economyMutationsEnabled,
+  economyResetPermitted,
+  isRankEconomyMutationAction,
+  rankTokenAuthorized
+} from "./economyGuard.js";
 import { pool } from "./db/pool.js";
 import {
   applyDecayAll,
@@ -12,7 +20,6 @@ import {
   isCallSign,
   isUuidV7,
   findMatchCandidates,
-  newPlayerRecord,
   normalizedColorQuintiles,
   normalizePlayerRecord,
   nowUnix,
@@ -29,6 +36,10 @@ import type { MatchQueueEntry, PlayerRecord, RankState } from "./types.js";
 
 const BOT_PLAYER_ID = /^bot_[0-9]{6}$/;
 const PROCESS_START_UNIX = nowUnix();
+const SERVICE_BUILD = process.env.RENDER_GIT_COMMIT
+  ?? process.env.SOURCE_VERSION
+  ?? process.env.npm_package_version
+  ?? "dev";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -270,7 +281,7 @@ function unauthorized(res: Response): void {
 
 function requireBearerAuth(req: Request, res: Response, next: NextFunction): void {
   if (!config.apiToken) {
-    next();
+    res.status(503).json({ ok: false, err: "rank_auth_not_configured", code: "rank_auth_not_configured" });
     return;
   }
   const rawAuth = req.header("authorization") ?? "";
@@ -280,7 +291,7 @@ function requireBearerAuth(req: Request, res: Response, next: NextFunction): voi
     return;
   }
   const token = rawAuth.slice(prefix.length).trim();
-  if (!token || token !== config.apiToken) {
+  if (!rankTokenAuthorized(config.apiToken, token)) {
     unauthorized(res);
     return;
   }
@@ -300,20 +311,6 @@ function asyncHandler(fn: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
     void fn(req, res).catch(next);
   };
-}
-
-function ensureLocalPlayer(state: RankState, requestedId: string): { created: boolean } {
-  const cleanId = requestedId.trim();
-  if (!cleanId) {
-    return { created: false };
-  }
-  let created = false;
-  if (!state.players_by_id[cleanId]) {
-    state.players_by_id[cleanId] = newPlayerRecord(cleanId, cleanId, config.rank.defaultRegion, nowUnix(), []);
-    created = true;
-  }
-  state.local_player_id = cleanId;
-  return { created };
 }
 
 function normalizeQueueEntries(raw: unknown): MatchQueueEntry[] {
@@ -340,11 +337,11 @@ function normalizeQueueEntries(raw: unknown): MatchQueueEntry[] {
 async function main(): Promise<void> {
   const store = new RankStore(pool, config.legacyStatePath);
   await store.init();
-  const economyEpochResult = await store.applyEconomyEpoch(
-    config.economyEpoch,
-    Math.max(config.rank.waxFloor, config.rank.baseGain)
-  );
-  if (config.economyEpoch) {
+  if (economyResetPermitted()) {
+    const economyEpochResult = await store.applyEconomyEpoch(
+      config.economyEpoch,
+      Math.max(config.rank.waxFloor, config.rank.baseGain)
+    );
     console.log(JSON.stringify({ event: "rank_economy_epoch", ...economyEpochResult }));
   }
 
@@ -355,7 +352,15 @@ async function main(): Promise<void> {
     "/health",
     asyncHandler(async (_req, res) => {
       const dbOk = await store.healthCheck();
-      res.status(dbOk ? 200 : 503).json({ ok: dbOk, db_ok: dbOk, service: "swarmfront-rank-service" });
+      res.status(dbOk ? 200 : 503).json({
+        ok: dbOk,
+        service: "swarmfront-rank-service",
+        build: SERVICE_BUILD,
+        economy_mutations_enabled: economyMutationsEnabled(),
+        admin_auth_required: Boolean(config.apiToken),
+        match_authority_auth_required: Boolean(config.apiToken),
+        storage: { kind: "postgres", path: redactDatabaseUrl(config.databaseUrl) }
+      });
     })
   );
 
@@ -441,21 +446,8 @@ async function main(): Promise<void> {
     "/v1/admin/recompute",
     requireBearerAuth,
     asyncHandler(async (_req, res) => {
-      const result = await store.write((state, context) => {
-        recomputeRankings(state);
-        context.recordAuditEvent({
-          event_type: "admin_recompute",
-          payload: {
-            player_count: Object.keys(state.players_by_id).length
-          }
-        });
-        return {
-          ok: true,
-          player_count: Object.keys(state.players_by_id).length,
-          snapshot: stateSnapshot(state)
-        };
-      });
-      res.json(result);
+      const result = await adminRecompute(store);
+      res.status(result.status).json(result.body);
     })
   );
 
@@ -466,6 +458,11 @@ async function main(): Promise<void> {
       const action = toStringValue(req.params.action).replace(/^\/+/, "");
       const payload = isRecord(req.body) ? req.body : {};
 
+      if (isRankEconomyMutationAction(action) && !economyMutationsEnabled()) {
+        res.status(503).json(economyDisabledResult());
+        return;
+      }
+
       switch (action) {
         case "get_snapshot": {
           const requestedLocalId = toStringValue(payload.local_player_id);
@@ -473,7 +470,7 @@ async function main(): Promise<void> {
             if (!requireCanonicalHumanPlayerId(res, requestedLocalId, "local_player_id")) {
               return;
             }
-            const result = await store.write((state, context) => {
+            const result = await store.writeIdentity((state, context) => {
               const requestedExisting = state.players_by_id[requestedLocalId];
               if (requestedExisting) {
                 state.local_player_id = requestedLocalId;
@@ -535,7 +532,7 @@ async function main(): Promise<void> {
           if (!requireFriendIds(res, friends)) {
             return;
           }
-          const result = await store.write((state, context) => {
+          const result = await store.writeIdentity((state, context) => {
             const existing = state.players_by_id[playerId];
             if (!existing) {
               return { ok: false, err: "player_not_found" };
@@ -565,7 +562,7 @@ async function main(): Promise<void> {
             return;
           }
           const region = toStringValue(payload.region);
-          const result = await store.write((state, context) => {
+          const result = await store.writeIdentity((state, context) => {
             const existing = state.players_by_id[playerId];
             if (!existing) {
               return { ok: false, err: "player_not_found" };
@@ -614,7 +611,7 @@ async function main(): Promise<void> {
             return;
           }
 
-          const result = await store.write((state, context) => {
+          const result = await store.writeEconomy((state, context) => {
             if (eventId) {
               const dedupeKey = `${playerId}:${eventId}`;
               if (state.processed_events[dedupeKey]) {
@@ -726,7 +723,7 @@ async function main(): Promise<void> {
           const placement = Math.max(1, Math.trunc(toNumberValue(payload.placement, 0)));
           const eventId = toStringValue(metadata.event_id);
 
-          const result = await store.write((state, context) => {
+          const result = await store.writeEconomy((state, context) => {
             if (eventId) {
               const dedupeKey = `${playerId}:${eventId}`;
               if (state.processed_events[dedupeKey]) {
@@ -801,7 +798,7 @@ async function main(): Promise<void> {
         }
 
         case "apply_decay_tick": {
-          const result = await store.write((state, context) => {
+          const result = await store.writeEconomy((state, context) => {
             const applied = applyDecayAll(state, nowUnix());
             if (applied > 0) {
               recomputeRankings(state);
@@ -913,7 +910,7 @@ async function main(): Promise<void> {
             return;
           }
           const waxScore = toNumberValue(payload.wax_score, config.rank.waxFloor);
-          const result = await store.write((state, context) => {
+          const result = await store.writeEconomy((state, context) => {
             ensurePlayerExists(state, playerId, playerId);
             const before = state.players_by_id[playerId] ? { ...state.players_by_id[playerId] } : undefined;
             const existing = state.players_by_id[playerId];
@@ -942,7 +939,7 @@ async function main(): Promise<void> {
             return;
           }
           const lastActiveUnix = Math.max(0, Math.trunc(toNumberValue(payload.last_active_unix, nowUnix())));
-          const result = await store.write((state, context) => {
+          const result = await store.writeEconomy((state, context) => {
             ensurePlayerExists(state, playerId, playerId);
             const existing = state.players_by_id[playerId];
             existing.last_active_unix = lastActiveUnix;

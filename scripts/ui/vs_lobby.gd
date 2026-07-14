@@ -838,6 +838,11 @@ func _fill_open_seat_with_standard_bot() -> void:
 	var bot_profile: Dictionary = _random_standard_bot_profile()
 	var handshake: Node = _handshake()
 	if handshake != null:
+		if handshake.has_method("fill_free_bot_match"):
+			var free_fill: Dictionary = handshake.call("fill_free_bot_match", _quick_ticket_id, _session_id, str(bot_profile.get("display_name", "Rival"))) as Dictionary
+			if bool(free_fill.get("ok", false)):
+				_apply_bot_fill_session(free_fill, bot_profile)
+				return
 		if not _quick_ticket_id.is_empty() and handshake.has_method("debug_fill_quick_match"):
 			var fill_result: Dictionary = handshake.call("debug_fill_quick_match", _quick_ticket_id, str(bot_profile.get("display_name", "Rival"))) as Dictionary
 			if bool(fill_result.get("ok", false)):
@@ -1707,6 +1712,11 @@ func _dev_fill_sync_opponent() -> void:
 		status_label.text = "Handshake service unavailable."
 		return
 	var bot_profile: Dictionary = _dev_fill_bot_profile()
+	if handshake.has_method("fill_free_bot_match"):
+		var free_fill: Dictionary = handshake.call("fill_free_bot_match", _quick_ticket_id, _session_id, str(bot_profile.get("display_name", DEV_FILL_BOT_NAME))) as Dictionary
+		if bool(free_fill.get("ok", false)):
+			_apply_bot_fill_session(free_fill, bot_profile)
+			return
 	if not _quick_ticket_id.is_empty() and handshake.has_method("debug_fill_quick_match"):
 		var quick_fill: Dictionary = handshake.call("debug_fill_quick_match", _quick_ticket_id, str(bot_profile.get("display_name", DEV_FILL_BOT_NAME))) as Dictionary
 		if bool(quick_fill.get("ok", false)):

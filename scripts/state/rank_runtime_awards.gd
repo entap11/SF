@@ -226,6 +226,8 @@ func _award_pvp_match_result(tree: SceneTree, rank_state: Node, winner_id: int, 
 		}
 		runtime_rank_award.emit(event)
 		SFLog.info("RANK_RUNTIME_AWARD", event)
+	elif str(result.get("code", result.get("err", result.get("reason", "")))) == "economy_disabled":
+		_set_tree_canonical_wax_unavailable(tree, result, player_before)
 
 func _set_tree_canonical_wax_result(tree: SceneTree, result: Dictionary, player_before: Dictionary) -> void:
 	if tree == null or result.is_empty():
@@ -238,6 +240,16 @@ func _set_tree_canonical_wax_result(tree: SceneTree, result: Dictionary, player_
 	tree.set_meta("canonical_wax_delta", after_wax - before_wax)
 	tree.set_meta("canonical_wax_balance", after_wax)
 	tree.set_meta("canonical_wax_close_loss", result.get("close_loss", {}).duplicate(true) if typeof(result.get("close_loss", {})) == TYPE_DICTIONARY else {})
+
+func _set_tree_canonical_wax_unavailable(tree: SceneTree, result: Dictionary, player_before: Dictionary) -> void:
+	if tree == null:
+		return
+	var cached_wax: float = float(player_before.get("wax_score", 0.0))
+	tree.set_meta("canonical_wax_result", result.duplicate(true))
+	tree.set_meta("canonical_wax_status", "quarantined")
+	tree.set_meta("canonical_wax_delta", 0.0)
+	tree.set_meta("canonical_wax_balance", cached_wax)
+	tree.set_meta("canonical_wax_close_loss", {})
 
 func _rank_match_metadata(tree: SceneTree, base: Dictionary, winner_id: int, reason: String) -> Dictionary:
 	return RewardMatchContextScript.enrich(tree, base, winner_id, reason, get_node_or_null("/root/OpsState"))

@@ -2,20 +2,30 @@ extends RefCounted
 class_name VsHandshakeTransportHttp
 
 const DEFAULT_TIMEOUT_SEC: float = 30.0
+const TestBackendPolicyScript := preload("res://scripts/state/test_backend_policy.gd")
 
 var _base_url: String = ""
 var _timeout_sec: float = DEFAULT_TIMEOUT_SEC
 var _auth_token: String = ""
+var _unsafe_test_backend_blocked: bool = false
 
 func configure(base_url: String, timeout_sec: float = DEFAULT_TIMEOUT_SEC, auth_token: String = "") -> void:
 	_base_url = _normalize_base_url(base_url)
 	_timeout_sec = maxf(0.1, timeout_sec)
 	_auth_token = auth_token.strip_edges()
+	_unsafe_test_backend_blocked = not _base_url.is_empty() and not TestBackendPolicyScript.request_allowed(_base_url)
 
 func configured() -> bool:
 	return not _base_url.is_empty()
 
 func call_action(action: String, payload: Dictionary) -> Dictionary:
+	if _unsafe_test_backend_blocked:
+		return {
+			"ok": false,
+			"err": "unsafe_test_backend",
+			"code": "unsafe_test_backend",
+			"network_attempted": false
+		}
 	if not configured():
 		return {
 			"ok": false,

@@ -6,8 +6,16 @@ const SETTINGS_HASH_RECOVERY_PAUSE_ENABLED: String = "swarmfront/vs/hash_recover
 const SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED: String = "swarmfront/vs/runtime_telemetry_file_enabled"
 
 func _init() -> void:
+	OS.set_environment("SF_VS_BACKEND_URL", "")
+	OS.set_environment("SF_VS_BACKEND_TOKEN", "")
+	OS.set_environment("SF_ALLOW_LIVE_BACKEND_TESTS", "")
+	ProjectSettings.set_setting(SETTINGS_BACKEND_URL, "")
+	var handshake: Node = get_root().get_node_or_null("VsHandshake")
+	if handshake != null and handshake.has_method("_configure_transport"):
+		handshake.call("_configure_transport")
 	await process_frame
 	var failed: bool = false
+	failed = _test_canonical_host_guest_sequence_and_duplicate_dedupe() or failed
 	failed = _test_successful_swarm_intent_replicates() or failed
 	failed = _test_invalid_remote_command_trips_contract_guard() or failed
 	failed = _test_late_scheduled_command_delivers_and_updates_diagnostics() or failed
@@ -21,6 +29,68 @@ func _init() -> void:
 	if not failed:
 		print("VS_SWARM_REPLICATION_SMOKE: PASS")
 	quit(1 if failed else 0)
+
+func _test_canonical_host_guest_sequence_and_duplicate_dedupe() -> bool:
+	var handshake: Node = get_root().get_node_or_null("/root/VsHandshake")
+	var runtime: Node = get_root().get_node_or_null("/root/VsPvpRuntime")
+	if handshake == null or runtime == null:
+		return _fail("sequence smoke dependencies missing")
+	var host_uid: String = "sequence_host"
+	var guest_uid: String = "sequence_guest"
+	var invite: Dictionary = handshake.call("create_invite", {"uid": host_uid, "display_name": "Host"}, {"mode": "PVP", "free_roll": true}) as Dictionary
+	var joined: Dictionary = handshake.call("join_invite", str(invite.get("invite_code", "")), {"uid": guest_uid, "display_name": "Guest"}) as Dictionary
+	if not bool(invite.get("ok", false)) or not bool(joined.get("ok", false)):
+		return _fail("sequence fixture session failed: %s / %s" % [str(invite), str(joined)])
+	var session_id: String = str(invite.get("session_id", ""))
+	var host_command: Dictionary = _sequence_fixture_command(host_uid, 1, 10, 1, 2)
+	host_command["command_seq"] = 999
+	host_command["command_id"] = "client-invented-conflict"
+	var guest_command: Dictionary = _sequence_fixture_command(guest_uid, 2, 10, 2, 1)
+	var host_result: Dictionary = handshake.call("publish_intent", session_id, host_uid, host_command) as Dictionary
+	var guest_result: Dictionary = handshake.call("publish_intent", session_id, guest_uid, guest_command) as Dictionary
+	if int(host_result.get("command_seq", 0)) != 1 or int(guest_result.get("command_seq", 0)) != 2:
+		return _fail("host/guest commands were not canonically sequenced: %s / %s" % [str(host_result), str(guest_result)])
+	var canonical_host: Dictionary = host_result.get("canonical_command", {}) as Dictionary
+	var canonical_guest: Dictionary = guest_result.get("canonical_command", {}) as Dictionary
+	if str(canonical_host.get("command_id", "")) != "%s:1" % session_id:
+		return _fail("authority accepted a client-invented canonical id: %s" % str(canonical_host))
+	if int(canonical_host.get("issued_tick", -1)) != 10 or int(canonical_guest.get("issued_tick", -1)) != 10:
+		return _fail("same-tick issue metadata was not preserved")
+	if int(canonical_host.get("execute_tick", -1)) >= int(canonical_guest.get("execute_tick", -1)):
+		return _fail("same-tick commands did not receive deterministic authority order: %s / %s" % [str(canonical_host), str(canonical_guest)])
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	runtime.call("_queue_scheduled_command", canonical_guest)
+	runtime.call("_queue_scheduled_command", canonical_host)
+	runtime.call("_queue_scheduled_command", canonical_host.duplicate(true))
+	var delivered: Array = runtime.call("consume_remote_commands", 100) as Array
+	if delivered.size() != 2:
+		return _fail("duplicate canonical delivery changed dedupe behavior: %s" % str(delivered))
+	if int((delivered[0] as Dictionary).get("command_seq", 0)) != 1 or int((delivered[1] as Dictionary).get("command_seq", 0)) != 2:
+		return _fail("canonical commands were not delivered in sequence order: %s" % str(delivered))
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	return false
+
+func _sequence_fixture_command(sender_uid: String, sender_seat: int, issued_tick: int, src: int, dst: int) -> Dictionary:
+	return {
+		"kind": "lane_intent",
+		"contract_version": 1,
+		"client_command_id": "%s-same-tick" % sender_uid,
+		"issued_ms": Time.get_ticks_msec(),
+		"issued_tick": issued_tick,
+		"local_issued_tick": issued_tick,
+		"issued_sim_us": issued_tick * 100_000,
+		"requested_execute_tick": issued_tick + 3,
+		"execute_tick": issued_tick + 3,
+		"sender_seat": sender_seat,
+		"sender_uid": sender_uid,
+		"src": src,
+		"dst": dst,
+		"intent": "attack",
+		"src_owner": sender_seat,
+		"dst_owner": 2 if sender_seat == 1 else 1
+	}
 
 func _test_http_state_hash_publish_is_async_source_guard() -> bool:
 	var source: String = FileAccess.get_file_as_string("res://scripts/state/vs_pvp_runtime.gd")

@@ -1,5 +1,6 @@
 import { config } from "./config.js";
 import { randomBytes } from "node:crypto";
+import { economyMutationsEnabled } from "./economyGuard.js";
 import type {
   MatchCandidateRow,
   MatchQueueEntry,
@@ -278,7 +279,7 @@ export function normalizePlayerRecord(playerId: string, rawRecord: Partial<Playe
     player_id: safePlayerId,
     display_name: normalizeDisplayName(callSign, safePlayerId),
     region: normalizeRegion(String(rawRecord.region ?? "")),
-    wax_score: Math.max(config.rank.waxFloor, Number(rawRecord.wax_score ?? config.rank.baseGain)),
+    wax_score: Math.max(economyMutationsEnabled() ? config.rank.waxFloor : 0, Number(rawRecord.wax_score ?? 0)),
     last_active_unix: Math.max(0, Number(rawRecord.last_active_unix ?? unixNow)),
     last_decay_day: Number.isFinite(Number(rawRecord.last_decay_day)) ? Math.trunc(Number(rawRecord.last_decay_day)) : -1,
     tier_id: tierId,

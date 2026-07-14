@@ -1,4 +1,5 @@
 import { createHoneyLedgerStore, type HoneyLedgerStore } from "./honeyLedgerStore.js";
+import { economyResetPermitted, guardEconomyMutation } from "./economyGuard.js";
 import {
   evaluateHoneyActivity,
   honeyActivitySpecsSnapshot,
@@ -66,7 +67,7 @@ export class HoneyLedger {
 
   constructor(storeOrPath?: HoneyLedgerStore | string, economyEpoch = process.env.VS_ECONOMY_EPOCH ?? "") {
     this.storeAdapter = createHoneyLedgerStore(storeOrPath);
-    this.economyEpoch = cleanString(economyEpoch);
+    this.economyEpoch = economyResetPermitted() ? cleanString(economyEpoch) : "";
     this.loadFromStore();
   }
 
@@ -98,6 +99,8 @@ export class HoneyLedger {
   }
 
   setBalanceCenti(playerId: string, balanceCenti: number, source = "ops", metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanPlayer = cleanString(playerId);
     if (!cleanPlayer) {
       return error("missing_player_id", "Player id is required.");
@@ -124,6 +127,8 @@ export class HoneyLedger {
   }
 
   grant(playerId: string, amountCenti: number, source: string, metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanPlayer = cleanString(playerId);
     const amount = Math.max(0, intValue(amountCenti));
     if (!cleanPlayer) {
@@ -152,6 +157,8 @@ export class HoneyLedger {
   }
 
   recordActivity(input: HoneyActivityInput, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanPlayer = cleanString(input.player_id);
     const activityKey = cleanString(input.activity_key);
     if (!cleanPlayer) {
@@ -218,6 +225,8 @@ export class HoneyLedger {
   }
 
   debit(playerId: string, amountCenti: number, source: string, metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanPlayer = cleanString(playerId);
     const amount = Math.max(0, intValue(amountCenti));
     if (!cleanPlayer) {
@@ -302,6 +311,8 @@ export class HoneyLedger {
   }
 
   debitHivePurchase(hiveId: string, memberIds: string[], costCenti: number, source: string, metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const preview = this.previewHivePurchase(hiveId, memberIds, costCenti);
     if (preview.ok !== true) {
       return preview;
@@ -420,6 +431,9 @@ export class HoneyLedger {
       return;
     }
     const storedEpoch = cleanString(snapshot.economy_epoch);
+    if (!economyResetPermitted()) {
+      this.economyEpoch = storedEpoch;
+    }
     if (this.economyEpoch && storedEpoch !== this.economyEpoch) {
       this.persistToStore();
       console.log(JSON.stringify({

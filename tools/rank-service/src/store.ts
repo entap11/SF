@@ -1,12 +1,36 @@
 import { readFile } from "node:fs/promises";
 import type { Pool, PoolClient } from "pg";
+import { config } from "./config.js";
 import { entapIdFromSequence, normalizeCallSign, normalizeLoadedState, normalizePlayerRecord, recomputeRankings } from "./logic.js";
 import { runMigrations } from "./db/migrate.js";
-import type { PlayerRecord, RankAuditEvent, RankAuditEventInput, RankState, RankWriteContext } from "./types.js";
+import { economyResetPermitted, guardEconomyMutation, type EconomyGuardResult } from "./economyGuard.js";
+import type {
+  PlayerRecord,
+  RankAuditEvent,
+  RankAuditEventInput,
+  RankState,
+  RankWriteClassification,
+  RankWriteContext
+} from "./types.js";
 
 const META_LOCAL_PLAYER_ID = "local_player_id";
 const META_ECONOMY_EPOCH = "economy_epoch";
 const WRITE_LOCK_KEY = 934_771_112;
+const IDENTITY_AUDIT_EVENTS = new Set([
+  "player_snapshot_requested",
+  "player_friends_updated",
+  "player_region_updated"
+]);
+
+export class RankWriteClassificationError extends Error {
+  readonly code: string;
+
+  constructor(code: string) {
+    super(code);
+    this.name = "RankWriteClassificationError";
+    this.code = code;
+  }
+}
 
 interface PlayerRow {
   id: string;
@@ -75,6 +99,9 @@ export class RankStore {
     economy_epoch: string;
     player_count: number;
   }> {
+    if (!economyResetPermitted() || guardEconomyMutation()) {
+      return { applied: false, previous_epoch: "", economy_epoch: "", player_count: 0 };
+    }
     const cleanEpoch = epoch.trim();
     if (!cleanEpoch) {
       return { applied: false, previous_epoch: "", economy_epoch: "", player_count: 0 };
@@ -112,7 +139,7 @@ export class RankStore {
       }
       next.processed_events = {};
       recomputeRankings(next);
-      await this.persistStateDiff(client, before, next);
+      await this.persistStateDiff(client, before, next, "economy");
       await this.persistAuditEvents(client, [{
         event_type: "beta_economy_epoch_reset",
         payload: {
@@ -122,7 +149,7 @@ export class RankStore {
           identities_preserved: true,
           starting_wax: safeStartingWax
         }
-      }]);
+      }], "economy");
       await client.query(
         `
           INSERT INTO rank_meta (key, value, updated_at)
@@ -160,7 +187,34 @@ export class RankStore {
     return reader(state);
   }
 
-  async write<T>(writer: (state: RankState, context: RankWriteContext) => T | Promise<T>): Promise<T> {
+  async write<T>(
+    classification: RankWriteClassification | undefined,
+    writer: (state: RankState, context: RankWriteContext) => T | Promise<T>
+  ): Promise<T | EconomyGuardResult> {
+    if (classification !== "identity" && classification !== "economy") {
+      throw new RankWriteClassificationError("rank_write_classification_required");
+    }
+    if (classification === "economy") {
+      const blocked = guardEconomyMutation();
+      if (blocked) {
+        return blocked;
+      }
+    }
+    return this.writeClassified(classification, writer);
+  }
+
+  async writeIdentity<T>(writer: (state: RankState, context: RankWriteContext) => T | Promise<T>): Promise<T> {
+    return this.writeClassified("identity", writer);
+  }
+
+  async writeEconomy<T>(writer: (state: RankState, context: RankWriteContext) => T | Promise<T>): Promise<T | EconomyGuardResult> {
+    return this.write("economy", writer);
+  }
+
+  private async writeClassified<T>(
+    classification: RankWriteClassification,
+    writer: (state: RankState, context: RankWriteContext) => T | Promise<T>
+  ): Promise<T> {
     let resolveResult: (value: T | PromiseLike<T>) => void;
     let rejectResult: (reason?: unknown) => void;
     const resultPromise = new Promise<T>((resolve, reject) => {
@@ -195,8 +249,11 @@ export class RankStore {
           }
         };
         const result = await writer(next, context);
-        await this.persistStateDiff(client, before, next);
-        await this.persistAuditEvents(client, auditEvents);
+        if (classification === "identity") {
+          this.assertIdentityWriteAllowed(before, next, auditEvents);
+        }
+        await this.persistStateDiff(client, before, next, classification);
+        await this.persistAuditEvents(client, auditEvents, classification);
 
         await client.query("COMMIT");
         resolveResult(result);
@@ -358,7 +415,60 @@ export class RankStore {
     );
   }
 
-  private async persistStateDiff(client: PoolClient, before: RankState, next: RankState): Promise<void> {
+  private assertIdentityWriteAllowed(before: RankState, next: RankState, auditEvents: RankAuditEventInput[]): void {
+    const beforeIds = Object.keys(before.players_by_id).sort();
+    const nextIds = Object.keys(next.players_by_id).sort();
+    if (JSON.stringify(beforeIds) !== JSON.stringify(nextIds)) {
+      throw new RankWriteClassificationError("identity_write_cannot_create_or_delete_players");
+    }
+    if (JSON.stringify(before.processed_events) !== JSON.stringify(next.processed_events)) {
+      throw new RankWriteClassificationError("identity_write_cannot_change_processed_events");
+    }
+    for (const playerId of beforeIds) {
+      const oldRecord = before.players_by_id[playerId];
+      const nextRecord = next.players_by_id[playerId];
+      const protectedBefore = {
+        wax_score: oldRecord.wax_score,
+        last_active_unix: oldRecord.last_active_unix,
+        last_decay_day: oldRecord.last_decay_day,
+        tier_id: oldRecord.tier_id,
+        color_id: oldRecord.color_id,
+        rank_position: oldRecord.rank_position,
+        percentile: oldRecord.percentile,
+        promotion_history: oldRecord.promotion_history,
+        apex_active: oldRecord.apex_active
+      };
+      const protectedNext = {
+        wax_score: nextRecord.wax_score,
+        last_active_unix: nextRecord.last_active_unix,
+        last_decay_day: nextRecord.last_decay_day,
+        tier_id: nextRecord.tier_id,
+        color_id: nextRecord.color_id,
+        rank_position: nextRecord.rank_position,
+        percentile: nextRecord.percentile,
+        promotion_history: nextRecord.promotion_history,
+        apex_active: nextRecord.apex_active
+      };
+      if (JSON.stringify(protectedBefore) !== JSON.stringify(protectedNext)) {
+        throw new RankWriteClassificationError("identity_write_cannot_change_economy_state");
+      }
+    }
+    for (const event of auditEvents) {
+      if (!IDENTITY_AUDIT_EVENTS.has(event.event_type.trim())) {
+        throw new RankWriteClassificationError("identity_write_cannot_record_economy_audit");
+      }
+    }
+  }
+
+  private async persistStateDiff(
+    client: PoolClient,
+    before: RankState,
+    next: RankState,
+    classification: RankWriteClassification
+  ): Promise<void> {
+    if (classification !== "identity" && classification !== "economy") {
+      throw new RankWriteClassificationError("rank_write_classification_required");
+    }
     if (before.local_player_id !== next.local_player_id) {
       if (next.local_player_id.trim() === "") {
         await client.query("DELETE FROM rank_meta WHERE key = $1", [META_LOCAL_PLAYER_ID]);
@@ -473,7 +583,14 @@ export class RankStore {
     }
   }
 
-  private async persistAuditEvents(client: PoolClient, events: RankAuditEventInput[]): Promise<void> {
+  private async persistAuditEvents(
+    client: PoolClient,
+    events: RankAuditEventInput[],
+    classification: RankWriteClassification
+  ): Promise<void> {
+    if (classification !== "identity" && classification !== "economy") {
+      throw new RankWriteClassificationError("rank_write_classification_required");
+    }
     for (const event of events) {
       await client.query(
         `
@@ -532,6 +649,10 @@ export class RankStore {
   }
 
   async registerPlayerIdentity(input: RegisterIdentityInput): Promise<{ ok: boolean; err?: string; player?: PlayerRecord }> {
+    // Explicit quarantine exception: identity creation may persist only a zero-Wax
+    // starter record and the narrowly scoped player_registered audit event.
+    const economyBlocked = guardEconomyMutation();
+    const startingWax = economyBlocked ? 0 : Math.max(config.rank.waxFloor, config.rank.baseGain);
     const callSign = normalizeCallSign(input.callSign, "");
     if (!callSign) {
       return { ok: false, err: "invalid_call_sign" };
@@ -570,7 +691,7 @@ export class RankStore {
             identity.entap_id,
             $1,
             $2,
-            100.0,
+            $4,
             floor(extract(epoch from now()))::bigint,
             -1,
             'DRONE',
@@ -598,7 +719,7 @@ export class RankStore {
             friends,
             apex_active
         `,
-        [callSign, region, JSON.stringify(friends)]
+        [callSign, region, JSON.stringify(friends), startingWax]
       );
       const row = result.rows[0];
       await client.query(
@@ -615,6 +736,7 @@ export class RankStore {
             call_sign: row.call_sign,
             region: row.region,
             source: "identity_register",
+            economy_exception: economyBlocked ? "identity_registration_zero_wax" : "",
             install_metadata: this.toRecord(input.installMetadata)
           })
         ]
@@ -711,6 +833,9 @@ export class RankStore {
     if (Object.keys(imported.players_by_id).length === 0 && imported.local_player_id.trim() === "") {
       return;
     }
+    if (guardEconomyMutation()) {
+      return;
+    }
 
     await this.withClient(async (client) => {
       await client.query("BEGIN");
@@ -728,7 +853,7 @@ export class RankStore {
           players_by_id: {},
           processed_events: {}
         };
-        await this.persistStateDiff(client, empty, imported);
+        await this.persistStateDiff(client, empty, imported, "economy");
         await client.query("COMMIT");
 
         // eslint-disable-next-line no-console

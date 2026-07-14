@@ -11,6 +11,7 @@
     "start": "node --enable-source-maps dist/server.js",
     "build": "tsc -p tsconfig.json",
     "smoke": "tsx src/smoke.ts",
+    "smoke:quarantine": "tsx src/economyQuarantineSmoke.ts && tsx src/authFailClosedSmoke.ts",
     "smoke:spectator": "tsx src/spectatorSmoke.ts"
   },
   "dependencies": {

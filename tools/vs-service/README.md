@@ -11,6 +11,7 @@ cd tools/vs-service
 npm install
 npm run build
 npm run smoke
+npm run smoke:quarantine
 npm run dev
 ```
 
@@ -34,6 +35,7 @@ http://127.0.0.1:8791/v1
 - `POST /v1/enqueue_quick_match`
 - `POST /v1/poll_quick_match`
 - `POST /v1/cancel_quick_match`
+- `POST /v1/fill_free_bot_match` (free, non-Crucible sessions only)
 - `POST /v1/open_money_escrow`
 - `POST /v1/settle_money_match`
 - `POST /v1/refund_money_match`
@@ -76,10 +78,13 @@ The same `POST /<action>` routes are also available for hosts that prefer a root
 - `VS_QUEUE_TTL_SEC`: defaults to `90`.
 - `VS_INTENT_STREAM_MAX_EVENTS`: defaults to `512`.
 - `VS_SPECTATOR_ADMIN_TOKEN`: bearer token required to create spectator grants.
+- `VS_SPECTATOR_DEV_OPEN`: local/debug-only grant bypass. It is ignored in production and must remain disabled there.
 - `VS_SPECTATOR_LIVE_ENABLED`: set to `1` to allow live admin spectate.
 - `VS_SPECTATOR_DEFAULT_DELAY_SEC`, `VS_SPECTATOR_MIN_DELAY_SEC`, `VS_SPECTATOR_MAX_DELAY_SEC`: delayed spectator bounds.
 - `VS_SPECTATOR_PUBLIC_ENABLED`: keep disabled for beta unless separately reviewed.
 - `VS_ADMIN_TOKEN`: admin auth for Crucible config/review/debug endpoints and Honey debug endpoints; required in production.
+- `VS_ECONOMY_MUTATIONS_ENABLED`: production economy mutation gate. Defaults to `false`; disabled routes return HTTP 503 with `err=code=economy_disabled`.
+- `VS_ECONOMY_RESET_ENABLED`: separate reset gate. Defaults to `false` and has no effect unless the mutation gate is also enabled.
 - `VS_ECONOMY_EPOCH`: versioned one-time Honey/Wax ledger reset. Use `beta_2026071301` for this beta release and change it only for an intentional future reset.
 - `VS_ADMIN_ROLE`: local/dev expected admin role. Defaults to `ops_admin`.
 - `VS_MATCH_AUTHORITY_TOKEN`: match-authority auth for Crucible escrow, settlement, lifecycle writes, Honey grant/debit writes, and competitive Wax result writes; required in production.
@@ -95,6 +100,14 @@ Honey ledger notes:
 - Mutating Honey writes require match-authority auth in this local service.
 - Hive Honey purchases use member-owned proportional debits; there is no separate Hive treasury.
 - The current file-backed ledger is a local/dev adapter. Production should replace it with the canonical ENTaP player Honey ledger and real identity validation.
+
+Security Sprint 0 notes:
+
+- Keep `VS_ECONOMY_MUTATIONS_ENABLED=false` and `VS_ECONOMY_RESET_ENABLED=false` until the separate server-side match authority is approved and deployed.
+- Empty configured admin or match-authority tokens never authorize a request. Protected routes fail closed; free matchmaking does not require either credential.
+- Money/Honey/Crucible histories, balances, payout reports, and ledger snapshots are admin-only. Public policy reads are `get_honey_policy`, `get_crucible_config`, and `get_wax_policy`.
+- `debug_fill_quick_match` and `debug_fill_session` require VS admin authorization. TestFlight free bot play uses `fill_free_bot_match`, which rejects paid and Crucible contexts.
+- Contest-dashboard create/update/delete operations require admin authorization and are quarantined with other economy mutations.
 
 Wax ledger notes:
 

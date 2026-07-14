@@ -1,5 +1,7 @@
 type JsonRecord = Record<string, unknown>;
 
+import { assertSafeTestBackend } from "./testBackendGuard.js";
+
 const baseUrl = (process.env.RANK_SMOKE_BASE_URL || process.env.SF_RANK_BACKEND_URL || "").replace(/\/+$/, "");
 const token = (process.env.RANK_SMOKE_TOKEN || process.env.SF_RANK_BACKEND_TOKEN || "").trim();
 
@@ -84,6 +86,7 @@ async function createAccount(callSign: string): Promise<JsonRecord> {
 
 async function main(): Promise<void> {
   expect(baseUrl.length > 0, "RANK_SMOKE_BASE_URL or SF_RANK_BACKEND_URL is required");
+  assertSafeTestBackend(baseUrl);
 
   const health = await getServiceHealth();
   expect(health.ok === true, "health failed", health);

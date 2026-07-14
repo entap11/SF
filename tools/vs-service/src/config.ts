@@ -22,9 +22,15 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+const productionMode = process.env.NODE_ENV?.trim().toLowerCase() === "production"
+  || parseBoolean(process.env.VS_PRODUCTION_MODE, false)
+  || parseBoolean(process.env.RENDER, false)
+  || Boolean(process.env.RENDER_SERVICE_ID?.trim());
+
 export const config = {
   port: parseIntValue(process.env.PORT, 8791),
   bindHost: process.env.BIND_HOST?.trim() || "0.0.0.0",
+  productionMode,
   corsEnabled: parseBoolean(process.env.VS_CORS_ENABLED, true),
   sessionTtlSec: parseIntValue(process.env.VS_SESSION_TTL_SEC, 15 * 60),
   queueTtlSec: parseIntValue(process.env.VS_QUEUE_TTL_SEC, 90),
@@ -42,21 +48,11 @@ export const config = {
   adminToken: process.env.VS_ADMIN_TOKEN?.trim() || "",
   adminRole: process.env.VS_ADMIN_ROLE?.trim() || "ops_admin",
   matchAuthorityToken: process.env.VS_MATCH_AUTHORITY_TOKEN?.trim() || "",
+  economyMutationsEnabled: parseBoolean(process.env.VS_ECONOMY_MUTATIONS_ENABLED, false),
+  economyResetEnabled: parseBoolean(process.env.VS_ECONOMY_RESET_ENABLED, false),
   economyEpoch: process.env.VS_ECONOMY_EPOCH?.trim() || "",
   crucibleLedgerStore: process.env.CRUCIBLE_LEDGER_STORE?.trim() || "file",
   crucibleLedgerPath: process.env.CRUCIBLE_LEDGER_PATH?.trim() || "data/crucible-ledger.json",
   honeyLedgerStore: process.env.HONEY_LEDGER_STORE?.trim() || "file",
   honeyLedgerPath: process.env.HONEY_LEDGER_PATH?.trim() || "data/honey-ledger.json"
 };
-
-const productionMode = process.env.NODE_ENV?.trim().toLowerCase() === "production"
-  || parseBoolean(process.env.VS_PRODUCTION_MODE, false)
-  || parseBoolean(process.env.RENDER, false)
-  || Boolean(process.env.RENDER_SERVICE_ID?.trim());
-
-if (productionMode && !config.matchAuthorityToken) {
-  throw new Error("VS_MATCH_AUTHORITY_TOKEN is required in production");
-}
-if (productionMode && !config.adminToken) {
-  throw new Error("VS_ADMIN_TOKEN is required in production");
-}

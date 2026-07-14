@@ -8,67 +8,74 @@ class FakeContestState:
 	extends Node
 
 	func build_stage_race_overall_leaderboard(_contest_id: String, _map_count: int = 5, _limit: int = 25) -> Array[Dictionary]:
-		return [
-			{"rank": 1, "player_id": "018f2b2c-1234-7abc-8def-123456789abc", "player_name": "Alpha"},
-			{"rank": 2, "player_id": "bot_000001", "player_name": "Bot"}
-		]
+		return [{"rank": 1, "player_id": LOCAL_ID, "player_name": "Alpha"}]
 
 	func parse_contest_id(contest_id: String) -> Dictionary:
 		var parts: PackedStringArray = contest_id.split("_")
-		return {
-			"scope": parts[0] if not parts.is_empty() else "",
-			"time": parts[3] if parts.size() > 3 else ""
-		}
+		return {"scope": parts[0] if not parts.is_empty() else "", "time": parts[3] if parts.size() > 3 else ""}
 
 const RankStateScript = preload("res://scripts/state/rank_state.gd")
 const RankRuntimeAwardsScript = preload("res://scripts/state/rank_runtime_awards.gd")
 const ProfileManagerScript = preload("res://scripts/profile/profile_manager.gd")
 
-const RANK_SAVE_PATH: String = "user://rank_runtime_awards.smoke.json"
+const LOCAL_ID: String = "018f2b2c-1234-7abc-8def-123456789abc"
+const BOT_ID: String = "bot_000001"
+const RANK_SAVE_PATH: String = "user://rank_runtime_awards_quarantine.smoke.json"
 const PROFILE_PATH: String = "user://profile.cfg"
-const SETTINGS_BACKEND_URL: String = "swarmfront/rank/backend_url"
-const SETTINGS_BACKEND_TOKEN: String = "swarmfront/rank/backend_token"
-const SETTINGS_VS_BACKEND_URL: String = "swarmfront/vs/backend_url"
-const SETTINGS_VS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
+
+var _failed: bool = false
 
 func _init() -> void:
+	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(RANK_SAVE_PATH))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PROFILE_PATH))
+	OS.set_environment("SF_RANK_BACKEND_URL", "")
+	OS.set_environment("SF_RANK_BACKEND_TOKEN", "")
 	OS.set_environment("SF_VS_BACKEND_URL", "")
 	OS.set_environment("SF_VS_BACKEND_TOKEN", "")
-	ProjectSettings.set_setting(SETTINGS_BACKEND_URL, "")
-	ProjectSettings.set_setting(SETTINGS_BACKEND_TOKEN, "")
-	ProjectSettings.set_setting(SETTINGS_VS_BACKEND_URL, "")
-	ProjectSettings.set_setting(SETTINGS_VS_BACKEND_TOKEN, "")
-	var handshake: Node = get_root().get_node_or_null("VsHandshake")
-	if handshake != null and handshake.has_method("_configure_transport"):
-		handshake.call("_configure_transport")
+	ProjectSettings.set_setting("swarmfront/rank/backend_url", "")
+	ProjectSettings.set_setting("swarmfront/rank/backend_token", "")
+	ProjectSettings.set_setting("swarmfront/vs/backend_url", "")
+	ProjectSettings.set_setting("swarmfront/vs/backend_token", "")
+	_force_local_rank_debug_fallback(false)
 
 	var profile_manager: Node = ProfileManagerScript.new()
 	profile_manager.name = "SmokeProfileManager"
 	get_root().add_child(profile_manager)
 	await process_frame
-	profile_manager.call("smoke_force_identity_state", "018f2b2c-1234-7abc-8def-123456789abc", "ABC 123", "Alpha", true, true)
-	profile_manager.call("set_honey_balance", 0)
-	var crucible_state: Node = get_root().get_node_or_null("CrucibleState")
-	if crucible_state != null and crucible_state.has_method("debug_reset_state"):
-		crucible_state.call("debug_reset_state")
+	profile_manager.call("smoke_force_identity_state", LOCAL_ID, "ABC 123", "Alpha", true, true)
 
 	var rank_state: Node = RankStateScript.new()
 	rank_state.name = "SmokeRankState"
 	rank_state.set("save_path", RANK_SAVE_PATH)
 	get_root().add_child(rank_state)
 	await process_frame
+	_assert_ok(rank_state.call("intent_register_player", LOCAL_ID, "Alpha", "NA", []) as Dictionary, "register local identity")
+	_assert_ok(rank_state.call("intent_register_player", BOT_ID, "Bot", "NA", []) as Dictionary, "register bot identity")
+	_seed_cached_wax(rank_state, LOCAL_ID, 200.0)
+	_seed_cached_wax(rank_state, BOT_ID, 200.0)
 
-	_assert_ok(rank_state.call("intent_register_player", "018f2b2c-1234-7abc-8def-123456789abc", "Alpha", "NA", []) as Dictionary, "register local")
-	_assert_ok(rank_state.call("intent_register_player", "bot_000001", "Bot", "NA", []) as Dictionary, "register bot")
-	rank_state.call("intent_debug_set_player_wax", "018f2b2c-1234-7abc-8def-123456789abc", 200.0)
-	rank_state.call("intent_debug_set_player_wax", "bot_000001", 200.0)
+	var direct_match: Dictionary = rank_state.call("intent_record_match_result", LOCAL_ID, BOT_ID, true, "STANDARD", {
+		"event_id": "fabricated-runtime-award",
+		"duration_sec": 60.0,
+		"completed": true,
+		"minimum_quality_met": true
+	}, 0) as Dictionary
+	_assert_quarantined(direct_match, "fabricated match award")
+	_assert_cached_wax(rank_state, LOCAL_ID, 200, "fabricated match preserved local Wax")
+	_assert_cached_wax(rank_state, BOT_ID, 200, "fabricated match preserved opponent Wax")
+
+	var contest_result: Dictionary = rank_state.call("intent_record_contest_result", LOCAL_ID, "WEEKLY", 1, {
+		"event_id": "fabricated-contest-award"
+	}) as Dictionary
+	_assert_quarantined(contest_result, "fabricated contest award")
+	_assert_quarantined(rank_state.call("intent_apply_decay_tick") as Dictionary, "local decay")
+	_assert_quarantined(rank_state.call("intent_debug_set_player_wax", LOCAL_ID, 999.0) as Dictionary, "local debug Wax")
+	_assert_cached_wax(rank_state, LOCAL_ID, 200, "blocked local operations preserved cached Wax")
 
 	var contest_state: Node = FakeContestState.new()
 	contest_state.name = "SmokeContestState"
 	get_root().add_child(contest_state)
-
 	var runtime_awards: Node = RankRuntimeAwardsScript.new()
 	runtime_awards.name = "SmokeRankRuntimeAwards"
 	runtime_awards.set("rank_state_path", NodePath("/root/SmokeRankState"))
@@ -76,7 +83,6 @@ func _init() -> void:
 	runtime_awards.set("contest_state_path", NodePath("/root/SmokeContestState"))
 	get_root().add_child(runtime_awards)
 	await process_frame
-
 	var fake_runner := FakeSimRunner.new()
 	fake_runner.name = "SimRunner"
 	get_root().add_child(fake_runner)
@@ -87,79 +93,57 @@ func _init() -> void:
 	set_meta("vs_sync_start", true)
 	set_meta("vs_free_roll", true)
 	set_meta("vs_price_usd", 0)
+	set_meta("match_elapsed_ms", 60_000)
 	set_meta("vs_assigned_players", [
-		{"uid": "018f2b2c-1234-7abc-8def-123456789abc", "seat": 1},
-		{"uid": "bot_000001", "seat": 2}
+		{"uid": LOCAL_ID, "seat": 1},
+		{"uid": BOT_ID, "seat": 2}
 	])
 	fake_runner.emit_signal("match_ended", 1, "timeout")
 	await process_frame
+	_assert_cached_wax(rank_state, LOCAL_ID, 200, "runtime award preserved cached Wax")
+	_expect(str(get_meta("canonical_wax_status", "")) == "quarantined", "runtime award did not expose quarantined status")
+	_expect(int(round(float(get_meta("canonical_wax_delta", -1.0)))) == 0, "runtime quarantine fabricated a Wax delta")
+	_expect(int(round(float(get_meta("canonical_wax_balance", 0.0)))) == 200, "runtime quarantine erased cached Wax")
 
-	var local_after_free: Dictionary = rank_state.call("get_player_snapshot", "018f2b2c-1234-7abc-8def-123456789abc") as Dictionary
-	var opponent_after_free: Dictionary = rank_state.call("get_player_snapshot", "bot_000001") as Dictionary
-	_assert_eq(int(round(float(local_after_free.get("wax_score", 0.0)))), 210, "runtime free pvp win should add 10 wax")
-	_assert_eq(int(round(float(opponent_after_free.get("wax_score", 0.0)))), 196, "runtime free pvp loss should subtract 4 wax")
-	_assert_latest_canonical_wax(10.0, 210.0)
+	var synced_contest: Dictionary = runtime_awards.call("sync_contest_rank_rewards", "WEEKLY_USD_1_2025-W52", "WEEKLY", 5) as Dictionary
+	_assert_quarantined(synced_contest, "runtime contest award")
+	_assert_cached_wax(rank_state, LOCAL_ID, 200, "runtime contest preserved cached Wax")
 
-	rank_state.call("intent_debug_set_player_wax", "018f2b2c-1234-7abc-8def-123456789abc", 200.0)
-	rank_state.call("intent_debug_set_player_wax", "bot_000001", 200.0)
-	set_meta("vs_free_roll", false)
-	set_meta("vs_price_usd", 5)
-	set_meta("wax_close_loss_margin_ratio", 0.04)
-	remove_meta("rank_runtime_nonce")
-	fake_runner.emit_signal("match_ended", 1, "timeout")
-	await process_frame
+	if not _failed:
+		print("RANK_RUNTIME_AWARDS_QUARANTINE_SMOKE: PASS")
+	quit(1 if _failed else 0)
 
-	var local_after_money: Dictionary = rank_state.call("get_player_snapshot", "018f2b2c-1234-7abc-8def-123456789abc") as Dictionary
-	var opponent_after_money: Dictionary = rank_state.call("get_player_snapshot", "bot_000001") as Dictionary
-	_assert_eq(int(round(float(local_after_money.get("wax_score", 0.0)))), 216, "runtime money tier 2 win should add 16 wax")
-	_assert_eq(int(round(float(opponent_after_money.get("wax_score", 0.0)))), 193, "runtime money tier 2 loss should subtract 7 wax")
-	_assert_latest_canonical_wax(16.0, 216.0)
+func _force_local_rank_debug_fallback(enabled: bool) -> void:
+	var ops_config: Node = get_root().get_node_or_null("OpsConfig")
+	if ops_config == null or not ops_config.has_method("force_config_for_smoke"):
+		return
+	var snapshot: Dictionary = ops_config.call("get_config_snapshot") as Dictionary
+	var flags: Dictionary = (snapshot.get("feature_flags", {}) as Dictionary).duplicate(true)
+	flags["enable_rank_local_beta_fallback"] = enabled
+	snapshot["feature_flags"] = flags
+	ops_config.call("force_config_for_smoke", snapshot)
 
-	var contest_result: Dictionary = runtime_awards.call("sync_contest_rank_rewards", "WEEKLY_USD_1_2025-W52", "WEEKLY", 5) as Dictionary
-	_assert_ok(contest_result, "contest sync")
-	var after_contest: Dictionary = rank_state.call("get_player_snapshot", "018f2b2c-1234-7abc-8def-123456789abc") as Dictionary
-	_assert_eq(int(round(float(after_contest.get("wax_score", 0.0)))), 226, "contest sync should add weekly first-place wax")
+func _seed_cached_wax(rank_state: Node, player_id: String, wax: float) -> void:
+	var players: Dictionary = rank_state.get("_players_by_id") as Dictionary
+	var record: Dictionary = (players.get(player_id, {}) as Dictionary).duplicate(true)
+	record["wax_score"] = wax
+	players[player_id] = record
+	rank_state.set("_players_by_id", players)
 
-	var now_local: Dictionary = Time.get_datetime_dict_from_system()
-	var current_month_contest_id: String = "MONTHLY_USD_1_%04d-%02d" % [int(now_local.get("year", 1970)), int(now_local.get("month", 1))]
-	var open_month_result: Dictionary = runtime_awards.call("sync_contest_rank_rewards", current_month_contest_id, "MONTHLY", 5) as Dictionary
-	_assert_ok(open_month_result, "open monthly sync")
-	_assert_true(not bool(open_month_result.get("awarded", false)), "current month should not award before month end")
-	var after_open_month: Dictionary = rank_state.call("get_player_snapshot", "018f2b2c-1234-7abc-8def-123456789abc") as Dictionary
-	_assert_eq(int(round(float(after_open_month.get("wax_score", 0.0)))), 226, "open monthly should not change wax")
+func _assert_cached_wax(rank_state: Node, player_id: String, expected: int, label: String) -> void:
+	var player: Dictionary = rank_state.call("get_player_snapshot", player_id) as Dictionary
+	_expect(int(round(float(player.get("wax_score", -1.0)))) == expected, label)
 
-	print("RANK_RUNTIME_AWARDS_SMOKE: PASS")
-	quit(0)
+func _assert_quarantined(result: Dictionary, label: String) -> void:
+	_expect(not bool(result.get("ok", true)), "%s unexpectedly succeeded" % label)
+	_expect(str(result.get("code", result.get("err", result.get("reason", "")))) == "economy_disabled", "%s did not return stable economy_disabled: %s" % [label, str(result)])
+	_expect(bool(result.get("cached_values_preserved", false)), "%s did not confirm cached preservation" % label)
 
 func _assert_ok(result: Dictionary, label: String) -> void:
-	if bool(result.get("ok", false)):
+	_expect(bool(result.get("ok", false)), "%s failed: %s" % [label, str(result)])
+
+func _expect(condition: bool, message: String) -> void:
+	if condition:
 		return
-	push_error("RANK_RUNTIME_AWARDS_SMOKE: %s failed -> %s" % [label, result])
-	quit(1)
-
-func _assert_eq(actual: int, expected: int, label: String) -> void:
-	if actual == expected:
-		return
-	push_error("RANK_RUNTIME_AWARDS_SMOKE: %s (expected %d, got %d)" % [label, expected, actual])
-	quit(1)
-
-func _assert_true(value: bool, label: String) -> void:
-	if value:
-		return
-	push_error("RANK_RUNTIME_AWARDS_SMOKE: %s" % label)
-	quit(1)
-
-func _assert_latest_canonical_wax(expected_delta: float, expected_balance: float) -> void:
-	_assert_true(has_meta("canonical_wax_result"), "canonical Wax result should be exposed")
-	_assert_eq(int(round(float(get_meta("canonical_wax_delta", 0.0)))), int(round(expected_delta)), "canonical Wax delta mismatch")
-	_assert_eq(int(round(float(get_meta("canonical_wax_balance", 0.0)))), int(round(expected_balance)), "canonical Wax balance mismatch")
-
-func _assert_eq_string(actual: String, expected: String, label: String) -> void:
-	if actual == expected:
-		return
-	push_error("RANK_RUNTIME_AWARDS_SMOKE: %s (expected %s, got %s)" % [label, expected, actual])
-	quit(1)
-
-func _fail(message: String) -> void:
-	push_error("RANK_RUNTIME_AWARDS_SMOKE: %s" % message)
-	quit(1)
+	_failed = true
+	push_error("RANK_RUNTIME_AWARDS_QUARANTINE_SMOKE: %s" % message)

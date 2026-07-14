@@ -15,8 +15,46 @@ import { crucibleLedger } from "./crucibleLedger.js";
 import { honeyLedger } from "./honeyLedger.js";
 import { honeyActivitySpecsSnapshot } from "./honeyEconomyPolicy.js";
 import { waxPolicySnapshot } from "./waxRewardPolicy.js";
+import { economyDisabledResult, economyMutationsEnabled } from "./economyGuard.js";
 
 type JsonRecord = Record<string, unknown>;
+
+const QUARANTINED_ECONOMY_ACTIONS = new Set([
+  "open_money_escrow", "settle_money_match", "refund_money_match",
+  "open_async_entry_escrow", "submit_async_contest_result",
+  "preview_async_contest_result_payout_report", "preview_async_contest_payout_report",
+  "approve_async_contest_payout_report", "settle_async_contest",
+  "settle_async_contest_payouts", "settle_async_contest_payout_percentages", "refund_async_entry",
+  "record_honey_activity", "grant_honey", "debit_honey", "debit_hive_honey_purchase",
+  "debug_set_honey_balance", "preview_crucible_entry", "update_crucible_config",
+  "open_crucible_escrow", "settle_crucible_match", "refund_crucible_match",
+  "resolve_crucible_review", "record_crucible_lifecycle", "record_competitive_wax_result",
+  "award_crucible_wax", "debug_set_crucible_balance"
+]);
+
+const ADMIN_ECONOMY_READ_ACTIONS = new Set([
+  "get_money_transactions", "get_money_payout_summary", "debug_get_money_ledger_snapshot",
+  "list_async_contest_results", "list_async_contest_payout_reports", "get_honey_balance",
+  "preview_hive_honey_purchase", "get_honey_transactions", "debug_get_honey_ledger_snapshot",
+  "debug_get_crucible_snapshot", "get_wax_audit_snapshot"
+]);
+
+const MATCH_AUTHORITY_ECONOMY_ACTIONS = new Set([
+  "open_money_escrow", "settle_money_match", "refund_money_match",
+  "open_async_entry_escrow", "submit_async_contest_result",
+  "preview_async_contest_result_payout_report", "settle_async_contest",
+  "settle_async_contest_payouts", "settle_async_contest_payout_percentages", "refund_async_entry",
+  "record_honey_activity", "grant_honey", "debit_honey", "debit_hive_honey_purchase",
+  "open_crucible_escrow", "settle_crucible_match", "record_crucible_lifecycle",
+  "record_competitive_wax_result"
+]);
+
+const ADMIN_ECONOMY_MUTATION_ACTIONS = new Set([
+  "preview_async_contest_payout_report", "approve_async_contest_payout_report",
+  "debug_set_honey_balance", "preview_crucible_entry", "update_crucible_config",
+  "refund_crucible_match", "resolve_crucible_review", "award_crucible_wax",
+  "debug_set_crucible_balance"
+]);
 
 type Player = {
   uid: string;
@@ -194,7 +232,8 @@ function adminTokenFromRequest(req: Request): string {
 
 function requireAdmin(req: Request, res: Response): boolean {
   if (!config.adminToken) {
-    return true;
+    fail(res, "admin_auth_not_configured", 503);
+    return false;
   }
   if (adminTokenFromRequest(req) !== config.adminToken) {
     fail(res, "admin_auth_required", 401, { required_role: config.adminRole });
@@ -233,7 +272,8 @@ function matchAuthorityTokenFromRequest(req: Request): string {
 
 function requireMatchAuthority(req: Request, res: Response): boolean {
   if (!config.matchAuthorityToken) {
-    return true;
+    fail(res, "match_authority_not_configured", 503);
+    return false;
   }
   if (matchAuthorityTokenFromRequest(req) === config.matchAuthorityToken) {
     return true;
@@ -250,10 +290,15 @@ function requestHasMatchAuthority(req: Request): boolean {
 }
 
 function requestMayProvideCrucibleBalanceHint(req: Request): boolean {
-  if (!config.adminToken && !config.matchAuthorityToken) {
+  return requestHasAdminAuthority(req) || requestHasMatchAuthority(req);
+}
+
+function requireEconomyMutations(res: Response): boolean {
+  if (economyMutationsEnabled()) {
     return true;
   }
-  return requestHasAdminAuthority(req) || requestHasMatchAuthority(req);
+  res.status(503).json(economyDisabledResult());
+  return false;
 }
 
 function numberValue(value: unknown, fallback = 0): number {
@@ -324,7 +369,20 @@ function normalizeProfile(value: unknown, fallbackName: string): Player | null {
 }
 
 function cloneSession(session: Session): Session {
-  return JSON.parse(JSON.stringify(session)) as Session;
+  const cloned = JSON.parse(JSON.stringify(session)) as Session;
+  delete cloned.host.balance_cents;
+  delete cloned.host.crucible_wax_millis;
+  delete cloned.guest.balance_cents;
+  delete cloned.guest.crucible_wax_millis;
+  for (const key of [
+    "player_balances_cents", "balance_cents", "crucible_wax_millis",
+    "player_balance_millis_by_id", "crucible_local_balance_start_millis",
+    "crucible_remote_balance_start_millis", "crucible_local_balance_after_escrow_millis",
+    "crucible_remote_balance_after_escrow_millis"
+  ]) {
+    delete cloned.context[key];
+  }
+  return cloned;
 }
 
 function cloneContext(value: unknown): JsonRecord {
@@ -468,6 +526,9 @@ function sessionFundingPlayer(player: Player): { player_id: string; balance_cent
 }
 
 function startSessionAuthoritatively(session: Session): LedgerJsonRecord {
+  if ((contextIsCrucible(session.context) || contextIsPaid(session.context)) && !economyMutationsEnabled()) {
+    return economyDisabledResult();
+  }
   if (contextIsCrucible(session.context)) {
     if (!session.host.uid || !session.guest.uid) {
       return { ok: false, err: "not_enough_players", code: "not_enough_players" };
@@ -739,6 +800,10 @@ function fail(res: Response, err: string, status = 400, extra: JsonRecord = {}):
 
 function failLedger(res: Response, result: LedgerJsonRecord, status = 400): void {
   const err = stringValue(result.err ?? result.code) || "ledger_error";
+  if (err === "economy_disabled") {
+    res.status(503).json(economyDisabledResult());
+    return;
+  }
   fail(res, err, status, result);
 }
 
@@ -756,7 +821,20 @@ function actionName(req: Request): string {
 
 function handleAction(req: Request, res: Response): void {
   prune();
-  switch (actionName(req)) {
+  const action = actionName(req);
+  if (QUARANTINED_ECONOMY_ACTIONS.has(action) && !requireEconomyMutations(res)) {
+    return;
+  }
+  if (MATCH_AUTHORITY_ECONOMY_ACTIONS.has(action) && !requireMatchAuthority(req, res)) {
+    return;
+  }
+  if (ADMIN_ECONOMY_MUTATION_ACTIONS.has(action) && !requireAdmin(req, res)) {
+    return;
+  }
+  if (ADMIN_ECONOMY_READ_ACTIONS.has(action) && !requireAdmin(req, res)) {
+    return;
+  }
+  switch (action) {
     case "create_invite":
       return createInvite(req, res);
     case "join_invite":
@@ -771,6 +849,8 @@ function handleAction(req: Request, res: Response): void {
       return debugFillQuickMatch(req, res);
     case "debug_fill_session":
       return debugFillSession(req, res);
+    case "fill_free_bot_match":
+      return fillFreeBotMatch(req, res);
     case "get_session":
       return getSession(req, res);
     case "set_ready":
@@ -907,7 +987,7 @@ function spectatorAdminAuthorized(req: Request): boolean {
   if (!config.spectatorEnabled) {
     return false;
   }
-  if (config.spectatorDevOpen) {
+  if (config.spectatorDevOpen && !config.productionMode) {
     return true;
   }
   const expected = stringValue(config.spectatorAdminToken);
@@ -1161,7 +1241,11 @@ function createInvite(req: Request, res: Response): void {
   if (!host) {
     return fail(res, "invalid_profile");
   }
-  const session = newSession(host, cloneContext(req.body?.context), "invite");
+  const context = cloneContext(req.body?.context);
+  if ((contextIsPaid(context) || contextIsCrucible(context)) && !requireEconomyMutations(res)) {
+    return;
+  }
+  const session = newSession(host, context, "invite");
   sessions.set(session.id, session);
   inviteToSession.set(session.invite_code, session.id);
   return ok(res, { session_id: session.id, invite_code: session.invite_code, session: cloneSession(session) });
@@ -1186,6 +1270,9 @@ function joinInvite(req: Request, res: Response): void {
       closeSession(sessionId, "expired");
     }
     return fail(res, "session_not_found", 404);
+  }
+  if ((contextIsPaid(session.context) || contextIsCrucible(session.context)) && !requireEconomyMutations(res)) {
+    return;
   }
   if (session.host.uid === guest.uid) {
     return fail(res, "cannot_join_own_invite");
@@ -1221,6 +1308,9 @@ function enqueueQuickMatch(req: Request, res: Response): void {
     return fail(res, "invalid_profile");
   }
   const context = cloneContext(req.body?.context);
+  if ((contextIsPaid(context) || contextIsCrucible(context)) && !requireEconomyMutations(res)) {
+    return;
+  }
   const existing = queue.find((ticket) => ticket.uid === player.uid);
   if (existing) {
     return ok(res, { matched: false, ticket_id: existing.id });
@@ -1327,7 +1417,7 @@ function cancelQuickMatch(req: Request, res: Response): void {
   return ok(res);
 }
 
-function debugFillQuickMatch(req: Request, res: Response): void {
+function fillQuickMatchInternal(req: Request, res: Response): void {
   const ticketId = stringValue(req.body?.ticket_id);
   const botName = stringValue(req.body?.bot_name) || "Rival";
   if (!ticketId) {
@@ -1338,6 +1428,11 @@ function debugFillQuickMatch(req: Request, res: Response): void {
     return fail(res, "ticket_not_found", 404);
   }
   const ticket = queue.splice(index, 1)[0];
+  if (contextIsPaid(ticket.context) || contextIsCrucible(ticket.context)) {
+    queue.splice(index, 0, ticket);
+    res.status(503).json(economyDisabledResult());
+    return;
+  }
   const host: Player = {
     uid: ticket.uid,
     display_name: ticket.display_name || "Player",
@@ -1363,7 +1458,7 @@ function debugFillQuickMatch(req: Request, res: Response): void {
   return ok(res, { session_id: session.id, session: cloneSession(session) });
 }
 
-function debugFillSession(req: Request, res: Response): void {
+function fillSessionInternal(req: Request, res: Response): void {
   const sessionId = stringValue(req.body?.session_id);
   const botName = stringValue(req.body?.bot_name) || "Rival";
   const session = sessions.get(sessionId);
@@ -1372,6 +1467,10 @@ function debugFillSession(req: Request, res: Response): void {
       closeSession(sessionId, "expired");
     }
     return fail(res, "session_not_found", 404);
+  }
+  if (contextIsPaid(session.context) || contextIsCrucible(session.context)) {
+    res.status(503).json(economyDisabledResult());
+    return;
   }
   if (!session.guest.uid) {
     session.guest = {
@@ -1385,6 +1484,30 @@ function debugFillSession(req: Request, res: Response): void {
     return failLedger(res, startResult, 402);
   }
   return ok(res, { session_id: session.id, session: cloneSession(session) });
+}
+
+function debugFillQuickMatch(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  return fillQuickMatchInternal(req, res);
+}
+
+function debugFillSession(req: Request, res: Response): void {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  return fillSessionInternal(req, res);
+}
+
+function fillFreeBotMatch(req: Request, res: Response): void {
+  if (stringValue(req.body?.ticket_id)) {
+    return fillQuickMatchInternal(req, res);
+  }
+  if (stringValue(req.body?.session_id)) {
+    return fillSessionInternal(req, res);
+  }
+  return fail(res, "missing_ticket_or_session_id");
 }
 
 function getSession(req: Request, res: Response): void {
@@ -1969,19 +2092,11 @@ function leaveSession(req: Request, res: Response): void {
   if (!session || !uid) {
     return fail(res, "session_not_found", 404);
   }
-  if (session.status === "started" && contextIsCrucible(session.context) && sessionHasPlayer(session, uid)) {
-    const matchId = stringValue(session.context.crucible_match_id) || `crucible_${session.id}`;
-    const settlement = crucibleLedger.recordLifecycle(matchId, "voluntary_quit", uid, {
-      session_id: session.id,
-      suspicious_forfeit: true
-    });
-    session.context = {
-      ...session.context,
-      crucible_ledger_status: settlement.ok === true ? "settled" : "settlement_failed",
-      crucible_leave_result: settlement
-    };
-    closeSession(sessionId, uid === session.host.uid ? "host_left_forfeit" : "guest_left_forfeit");
-    return ok(res, { closed: true, settlement });
+  if (contextIsPaid(session.context) || contextIsCrucible(session.context)) {
+    if (!requireEconomyMutations(res)) {
+      return;
+    }
+    return fail(res, "economy_leave_requires_authority", 403);
   }
   if (session.host.uid === uid) {
     closeSession(sessionId, "host_left");
@@ -2035,6 +2150,9 @@ function createFriendInvite(req: Request, res: Response): void {
     return fail(res, "invalid_target");
   }
   const context = cloneContext(req.body?.context);
+  if ((contextIsPaid(context) || contextIsCrucible(context)) && !requireEconomyMutations(res)) {
+    return;
+  }
   const session = newSession(host, context, "invite");
   sessions.set(session.id, session);
   inviteToSession.set(session.invite_code, session.id);
@@ -2186,6 +2304,21 @@ function pollIntents(req: Request, res: Response): void {
   return ok(res, { latest_seq: latestSeq, events });
 }
 
+function healthPayload(): JsonRecord {
+  return {
+    service: "swarmfront-vs-service",
+    build: serviceBuild,
+    economy_mutations_enabled: economyMutationsEnabled(),
+    admin_auth_required: Boolean(config.adminToken),
+    match_authority_auth_required: Boolean(config.matchAuthorityToken),
+    storage: {
+      money: { kind: "memory", path: "" },
+      crucible: { kind: crucibleLedger.getStorageSnapshot().kind, path: config.crucibleLedgerPath },
+      honey: { kind: honeyLedger.getStorageSnapshot().kind, path: config.honeyLedgerPath }
+    }
+  };
+}
+
 export function createApp(): express.Express {
   const app = express();
   if (config.corsEnabled) {
@@ -2208,31 +2341,7 @@ export function createApp(): express.Express {
   });
   app.get("/health", (_req, res) => {
     prune();
-    ok(res, {
-      service: "swarmfront-vs-service",
-      build: serviceBuild,
-      economy_epoch: config.economyEpoch,
-      uptime_sec: nowUnix() - processStartUnix,
-      sessions: sessions.size,
-      queue: queue.length,
-      spectator_grants: spectatorGrants.size,
-      spectator_snapshot_streams: spectatorSnapshotStreams.size,
-      crucible: {
-        storage: crucibleLedger.getStorageSnapshot(),
-        configured_storage: config.crucibleLedgerStore,
-        configured_path: config.crucibleLedgerPath,
-        admin_auth_required: Boolean(config.adminToken),
-        match_authority_required: Boolean(config.matchAuthorityToken)
-      },
-      honey: {
-        storage: honeyLedger.getStorageSnapshot(),
-        configured_storage: config.honeyLedgerStore,
-        configured_path: config.honeyLedgerPath,
-        precision: "centi_honey",
-        admin_auth_required: Boolean(config.adminToken),
-        match_authority_required: Boolean(config.matchAuthorityToken)
-      }
-    });
+    res.json({ ok: true, ...healthPayload() });
   });
   app.get("/", (_req, res) => {
     ok(res, {
@@ -2247,7 +2356,6 @@ export function createApp(): express.Express {
     ok(res, {
       service: "swarmfront-vs-service",
       build: serviceBuild,
-      economy_epoch: config.economyEpoch,
       dashboard: contestDashInfo(),
       routes: {
         health: "/v1/health",
@@ -2260,59 +2368,22 @@ export function createApp(): express.Express {
         get_wax_policy: "POST /v1/get_wax_policy",
         record_competitive_wax_result: "POST /v1/record_competitive_wax_result",
         get_wax_audit_snapshot: "POST /v1/get_wax_audit_snapshot"
-      },
-      crucible: {
-        storage: crucibleLedger.getStorageSnapshot(),
-        configured_storage: config.crucibleLedgerStore,
-        configured_path: config.crucibleLedgerPath,
-        admin_auth_required: Boolean(config.adminToken),
-        match_authority_required: Boolean(config.matchAuthorityToken)
-      },
-      honey: {
-        storage: honeyLedger.getStorageSnapshot(),
-        configured_storage: config.honeyLedgerStore,
-        configured_path: config.honeyLedgerPath,
-        precision: "centi_honey",
-        admin_auth_required: Boolean(config.adminToken),
-        match_authority_required: Boolean(config.matchAuthorityToken)
       }
     });
   });
   app.get("/v1/health", (_req, res) => {
     prune();
-    ok(res, {
-      service: "swarmfront-vs-service",
-      build: serviceBuild,
-      economy_epoch: config.economyEpoch,
-      uptime_sec: nowUnix() - processStartUnix,
-      sessions: sessions.size,
-      queue: queue.length,
-      spectator_grants: spectatorGrants.size,
-      spectator_snapshot_streams: spectatorSnapshotStreams.size,
-      crucible: {
-        storage: crucibleLedger.getStorageSnapshot(),
-        configured_storage: config.crucibleLedgerStore,
-        configured_path: config.crucibleLedgerPath,
-        admin_auth_required: Boolean(config.adminToken),
-        match_authority_required: Boolean(config.matchAuthorityToken)
-      },
-      honey: {
-        storage: honeyLedger.getStorageSnapshot(),
-        configured_storage: config.honeyLedgerStore,
-        configured_path: config.honeyLedgerPath,
-        precision: "centi_honey",
-        admin_auth_required: Boolean(config.adminToken),
-        match_authority_required: Boolean(config.matchAuthorityToken)
-      }
-    });
+    res.json({ ok: true, ...healthPayload() });
   });
   app.get("/v1/contest_dash/config", (req, res, next) => {
     void handleContestDashState(req, res).catch(next);
   });
   app.post("/v1/contest_dash/config", (req, res, next) => {
+    if (!requireEconomyMutations(res) || !requireAdmin(req, res)) return;
     void handleContestDashSave(req, res).catch(next);
   });
   app.post("/v1/contest_dash/delete", (req, res, next) => {
+    if (!requireEconomyMutations(res) || !requireAdmin(req, res)) return;
     void handleContestDashDelete(req, res).catch(next);
   });
   app.post("/:action", handleAction);

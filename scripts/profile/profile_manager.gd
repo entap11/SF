@@ -368,7 +368,7 @@ func ensure_loaded() -> void:
 		if cleaned_honey != _honey_balance:
 			_honey_balance = cleaned_honey
 			updated = true
-		if _economy_epoch != EconomyEpochScript.CURRENT:
+		if _economy_epoch != EconomyEpochScript.CURRENT and EconomyEpochScript.reset_enabled():
 			var previous_epoch: String = _economy_epoch
 			_honey_balance = DEFAULT_HONEY_BALANCE
 			_economy_epoch = EconomyEpochScript.CURRENT

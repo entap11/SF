@@ -18,6 +18,9 @@ func get_node_or_null(path: NodePath) -> Node:
 
 func _run() -> void:
 	var tree: SceneTree = get_tree()
+	OS.set_environment("SF_VS_BACKEND_URL", "")
+	OS.set_environment("SF_VS_BACKEND_TOKEN", "")
+	OS.set_environment("SF_ALLOW_LIVE_BACKEND_TESTS", "")
 	ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, true)
 	var role: String = _arg_value("--human-pvp-role=").strip_edges().to_lower()
 	if role != "guest":
@@ -93,7 +96,7 @@ func _run() -> void:
 	if not _failed:
 		await _assert_runtime_telemetry_log(tree)
 	if not _failed:
-		print("HUMAN_PVP_BOOT_SMOKE: PASS")
+		print("HUMAN_PVP_BOOT_SMOKE: PASS role=%s" % role)
 	await _finish(tree)
 
 func _prepare_handshake_session(_role: String) -> String:

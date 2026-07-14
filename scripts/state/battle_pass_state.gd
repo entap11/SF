@@ -1583,7 +1583,7 @@ func _load_state() -> void:
 		return
 	var raw: Dictionary = parsed_any as Dictionary
 	var stored_epoch: String = str(raw.get("economy_epoch", "")).strip_edges()
-	if stored_epoch != EconomyEpochScript.CURRENT:
+	if stored_epoch != EconomyEpochScript.CURRENT and EconomyEpochScript.reset_enabled():
 		_current_season_id = _config.get_season_id()
 		_economy_epoch_reset_applied = true
 		return

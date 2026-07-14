@@ -21,6 +21,7 @@ cp .env.example .env
 docker compose up -d
 npm install
 npm run dev
+npm run smoke:quarantine
 ```
 
 Migrations also run automatically on service startup. You can run them manually with:
@@ -82,13 +83,15 @@ The repo root includes `render.yaml` for a separate staging web service and Post
 - Build command: `npm ci && npm run build`
 - Start command: `npm run start`
 - Health check: `/health`
-- `RANK_ECONOMY_EPOCH=beta_2026071301` resets Wax and Wax-derived standings exactly once while preserving UUIDs, ENTaP IDs, call signs, friends, and audit history.
+- `RANK_ECONOMY_MUTATIONS_ENABLED=false` quarantines Wax/result/decay/debug economy writes and is the production default.
+- `RANK_ECONOMY_RESET_ENABLED=false` is a separate reset gate. The `RANK_ECONOMY_EPOCH=beta_2026071301` marker cannot reset anything unless both gates are explicitly enabled.
 
 After deployment, set a real `RANK_API_TOKEN`, run migrations if needed, then smoke:
 
 ```bash
 RANK_SMOKE_BASE_URL=https://YOUR-RANK-STAGING.onrender.com/v1/rank \
 RANK_SMOKE_TOKEN=$RANK_API_TOKEN \
+SF_ALLOW_LIVE_BACKEND_TESTS=1 \
 npm run smoke:identity
 ```
 
@@ -96,6 +99,9 @@ npm run smoke:identity
 
 - Source of truth is Postgres (`DATABASE_URL`).
 - `RANK_STATE_PATH` is legacy import only. If a JSON state file exists and DB is empty, service imports it once on startup.
+- Every state transaction is classified at the store boundary as `identity` or `economy`; an unclassified write is rejected. Identity writes are structurally prevented from changing Wax, decay inputs, rank-derived fields, processed events, or economy audit records.
+- Identity registration is the sole quarantine exception: it may create an identity, exactly zero Wax, and one `player_registered` audit event. It cannot grant starting Wax while economy mutations are disabled.
+- Client-local Rank/Wax simulation is available only when both a Godot debug build and `enable_rank_local_beta_fallback` are active. Production exports ignore that flag.
 
 ## Real-time guarantees
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createCrucibleLedgerStore, type CrucibleLedgerStore } from "./crucibleLedgerStore.js";
+import { economyResetPermitted, guardEconomyMutation } from "./economyGuard.js";
 import { evaluateWaxMatch } from "./waxRewardPolicy.js";
 
 export type JsonRecord = Record<string, unknown>;
@@ -166,7 +167,7 @@ export class CrucibleLedger {
 
   constructor(storeOrPath?: CrucibleLedgerStore | string, economyEpoch = process.env.VS_ECONOMY_EPOCH ?? "") {
     this.storeAdapter = createCrucibleLedgerStore(storeOrPath);
-    this.economyEpoch = cleanString(economyEpoch);
+    this.economyEpoch = economyResetPermitted() ? cleanString(economyEpoch) : "";
     this.loadFromStore();
   }
 
@@ -179,6 +180,8 @@ export class CrucibleLedger {
   }
 
   updateConfig(patch: JsonRecord, actorId = "ops"): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const next = { ...this.config };
     for (const [key, value] of Object.entries(patch)) {
       if (!(key in next)) {
@@ -210,6 +213,8 @@ export class CrucibleLedger {
   }
 
   setBalanceMillis(playerId: string, balanceMillis: number): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanPlayer = cleanString(playerId);
     if (!cleanPlayer) {
       return error("missing_player_id", "Player id is required.");
@@ -224,11 +229,14 @@ export class CrucibleLedger {
     if (!cleanPlayer) {
       return 0;
     }
-    this.ensurePlayer(cleanPlayer);
-    return Math.max(0, this.balances.get(cleanPlayer) ?? 0);
+    const launchGrant = this.config.launch_grant_enabled ? Math.max(0, this.config.launch_grant_millis) : 0;
+    const fallback = Math.max(0, this.config.starting_crucible_wax_millis) + launchGrant;
+    return Math.max(0, this.balances.get(cleanPlayer) ?? fallback);
   }
 
   previewEntryStatus(playerId: string, activeCrucibleCount = 0, hasPriorityAccess = false): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanPlayer = cleanString(playerId);
     if (!cleanPlayer) {
       return error("missing_player_id", "Player id is required.");
@@ -251,6 +259,8 @@ export class CrucibleLedger {
   }
 
   previewMatch(playerAId: string, playerBId: string): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const a = cleanString(playerAId);
     const b = cleanString(playerBId);
     if (!a || !b) {
@@ -263,6 +273,8 @@ export class CrucibleLedger {
   }
 
   openEscrow(matchId: string, playerAId: string, playerBId: string, metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanKey = cleanString(idempotencyKey) || `open:${matchId}`;
     const cached = this.operationResults.get(cleanKey);
     if (cached) {
@@ -334,6 +346,8 @@ export class CrucibleLedger {
   }
 
   settleMatch(matchId: string, winnerId: string, resultSource: string, reason = "", metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanMatch = cleanString(matchId);
     const cleanKey = cleanString(idempotencyKey) || `settle:${cleanMatch}:${cleanString(winnerId) || "none"}`;
     const cached = this.operationResults.get(cleanKey);
@@ -388,6 +402,8 @@ export class CrucibleLedger {
   }
 
   refundMatch(matchId: string, reason = "refund", resultSource = "SERVER_MATCH_RESULT", metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanMatch = cleanString(matchId);
     const cleanKey = cleanString(idempotencyKey) || `refund:${cleanMatch}:${reason}`;
     const cached = this.operationResults.get(cleanKey);
@@ -402,6 +418,8 @@ export class CrucibleLedger {
   }
 
   recordLifecycle(matchId: string, eventType: string, playerId: string, metadata: JsonRecord = {}): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const escrow = this.escrowForMatch(matchId);
     if (!escrow) {
       return error("escrow_not_found", "Crucible escrow was not found.");
@@ -419,6 +437,8 @@ export class CrucibleLedger {
   }
 
   awardWax(playerId: string, amountMillis: number, source: string, metadata: JsonRecord = {}): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanPlayer = cleanString(playerId);
     const amount = Math.max(0, intValue(amountMillis));
     if (!cleanPlayer) {
@@ -438,6 +458,8 @@ export class CrucibleLedger {
   }
 
   recordCompetitiveWaxResult(input: JsonRecord, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanMatch = cleanString(input.match_id);
     const cleanPlayer = cleanString(input.player_id);
     const cleanOpponent = cleanString(input.opponent_id);
@@ -519,6 +541,8 @@ export class CrucibleLedger {
   }
 
   resolveReview(matchId: string, action: string, actorId = "ops", metadata: JsonRecord = {}, idempotencyKey = ""): JsonRecord {
+    const blocked = guardEconomyMutation();
+    if (blocked) return blocked;
     const cleanMatch = cleanString(matchId);
     const cleanAction = cleanString(action).toLowerCase();
     const cleanKey = cleanString(idempotencyKey) || `review:${cleanMatch}:${cleanAction}`;
@@ -745,6 +769,9 @@ export class CrucibleLedger {
     try {
       this.hydrate(snapshot);
       const storedEpoch = cleanString(snapshot.economy_epoch);
+      if (!economyResetPermitted()) {
+        this.economyEpoch = storedEpoch;
+      }
       if (this.economyEpoch && storedEpoch !== this.economyEpoch) {
         this.resetEconomyRecords();
         this.persistToStore();

@@ -59,6 +59,8 @@ export const config: RankServiceConfig = {
   port: parseIntValue(process.env.PORT, 8790),
   bindHost: process.env.BIND_HOST?.trim() || "127.0.0.1",
   apiToken: process.env.RANK_API_TOKEN?.trim() || "",
+  economyMutationsEnabled: parseBoolean(process.env.RANK_ECONOMY_MUTATIONS_ENABLED, false),
+  economyResetEnabled: parseBoolean(process.env.RANK_ECONOMY_RESET_ENABLED, false),
   databaseUrl: process.env.DATABASE_URL?.trim() || "",
   legacyStatePath: process.env.RANK_STATE_PATH?.trim()
     ? path.resolve(process.cwd(), process.env.RANK_STATE_PATH.trim())
