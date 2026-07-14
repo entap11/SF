@@ -3,14 +3,15 @@ extends Node2D
 
 signal selection_changed(pointer_session_id: int, hive_id: int, reason: String)
 
-const ACQUISITION_RADIUS_SCREEN_PX: float = 52.0
-const RETENTION_RADIUS_SCREEN_PX: float = 72.0
-const TARGET_SWITCH_MARGIN_SCREEN_PX: float = 14.0
-const VISIBLE_FOOTPRINT_PADDING_SCREEN_PX: float = 18.0
-const RETENTION_EXTRA_SCREEN_PX: float = 20.0
-const ELIGIBLE_RING_PAD_SCREEN_PX: float = 10.0
-const PREVIEW_RING_PAD_SCREEN_PX: float = 18.0
-const PULSE_HZ: float = 1.6
+const Config := preload("res://scripts/renderers/buff_targeting_presentation_config.gd")
+const ACQUISITION_RADIUS_SCREEN_PX: float = Config.HIVE_ACQUISITION_RADIUS_ROOT_SCREEN_PX
+const RETENTION_RADIUS_SCREEN_PX: float = Config.HIVE_RETENTION_RADIUS_ROOT_SCREEN_PX
+const TARGET_SWITCH_MARGIN_SCREEN_PX: float = Config.HIVE_SWITCH_MARGIN_ROOT_SCREEN_PX
+const VISIBLE_FOOTPRINT_PADDING_SCREEN_PX: float = Config.HIVE_VISIBLE_FOOTPRINT_PADDING_ROOT_SCREEN_PX
+const RETENTION_EXTRA_SCREEN_PX: float = Config.HIVE_RETENTION_EXTRA_ROOT_SCREEN_PX
+const ELIGIBLE_RING_PAD_SCREEN_PX: float = Config.HIVE_ELIGIBLE_RING_PAD_ROOT_SCREEN_PX
+const PREVIEW_RING_PAD_SCREEN_PX: float = Config.HIVE_PREVIEW_RING_PAD_ROOT_SCREEN_PX
+const PULSE_HZ: float = Config.ELIGIBLE_PULSE_FREQUENCY_HZ
 const DISTANCE_EPSILON_PX: float = 0.001
 
 var _arena: Node = null
@@ -351,14 +352,19 @@ func _draw_eligible_ring(probe: Dictionary, previewed: bool) -> void:
 	var local_per_screen_px: float = maxf(0.001, float(probe.get("local_per_screen_px", 1.0)))
 	var pulse: float = clampf(_pulse_phase, 0.0, 1.0)
 	var eligible_radius: float = base_radius * 1.10 + ELIGIBLE_RING_PAD_SCREEN_PX * local_per_screen_px
-	var eligible_width: float = maxf(1.5 * local_per_screen_px, 3.0 * local_per_screen_px)
-	var eligible_color := Color(1.0, 1.0, 1.0, 0.22 + 0.36 * pulse)
+	var eligible_width: float = Config.HIVE_ELIGIBLE_RING_WIDTH_ROOT_SCREEN_PX * local_per_screen_px
+	var eligible_color := Color(1.0, 1.0, 1.0, lerpf(
+		Config.ELIGIBLE_PULSE_ALPHA_MIN, Config.ELIGIBLE_PULSE_ALPHA_MAX, pulse
+	))
 	draw_arc(center, eligible_radius, 0.0, TAU, 72, eligible_color, eligible_width, true)
 	if not previewed:
 		return
 	var preview_radius: float = base_radius * 1.10 + PREVIEW_RING_PAD_SCREEN_PX * local_per_screen_px
-	var preview_width: float = maxf(4.5 * local_per_screen_px, eligible_width * 1.7)
-	var preview_color := Color(1.0, 1.0, 1.0, 0.72 + 0.26 * pulse)
+	var preview_width: float = maxf(
+		Config.HIVE_PREVIEW_RING_WIDTH_ROOT_SCREEN_PX * local_per_screen_px,
+		eligible_width * 1.5
+	)
+	var preview_color := Color(1.0, 1.0, 1.0, lerpf(0.82, Config.PREVIEW_PULSE_STRENGTH, pulse))
 	draw_arc(center, preview_radius, 0.0, TAU, 84, preview_color, preview_width, true)
 	var outer_color := Color(1.0, 1.0, 1.0, 0.26 + 0.32 * pulse)
 	draw_arc(center, preview_radius + 7.0 * local_per_screen_px, 0.0, TAU, 84, outer_color, 2.0 * local_per_screen_px, true)

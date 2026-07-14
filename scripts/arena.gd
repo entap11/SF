@@ -5,6 +5,8 @@
 # Only simulation/state systems may mutate state, and ONLY via OpsState-owned references.
 extends Node2D
 
+signal buff_canonical_outcome_recorded(outcome: Dictionary, presentation_epoch: String)
+
 const ARENA_MARKER := "ARENA_MARKER_2026-01-14_A"
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
@@ -30,6 +32,7 @@ const ProgressiveStarDecayHudScript := preload("res://scripts/ui/progressive_sta
 const AsyncRecordEligibilityPolicy := preload("res://scripts/state/async_record_eligibility_policy.gd")
 const BuffTargetResolverScript := preload("res://scripts/state/buff_target_resolver.gd")
 const BuffActivationTransactionScript := preload("res://scripts/state/buff_activation_transaction.gd")
+const BuffTargetingPresentationConfig := preload("res://scripts/renderers/buff_targeting_presentation_config.gd")
 const TeamVisuals = preload("res://scripts/renderers/team_visuals.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaTutorialControlsController := preload("res://scripts/arena_helpers/tutorial_controls_controller.gd")
@@ -280,6 +283,7 @@ var _last_render_hives_version: int = -1
 @onready var hive_renderer: HiveRenderer = $MapRoot/HiveRenderer
 @onready var buff_hive_targeting_controller: Node2D = $MapRoot/BuffHiveTargetPresentation
 @onready var buff_lane_global_targeting_controller: Node2D = $MapRoot/BuffLaneGlobalTargetPresentation
+@onready var buff_canonical_feedback_controller: Node2D = $MapRoot/BuffCanonicalFeedbackPresentation
 @onready var unit_renderer: Node2D = _resolve_unit_renderer()
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
@@ -468,6 +472,7 @@ var _buff_target_resolver: RefCounted = BuffTargetResolverScript.new()
 var _buff_activation_transactions: RefCounted = BuffActivationTransactionScript.new()
 var _buff_canonical_outcomes: Dictionary = {}
 var _buff_activation_counter: int = 0
+var _buff_presentation_epoch: String = ""
 const RUNTIME_SUPPORTED_BUFF_EFFECT_TYPES: Dictionary = {
 	"swarm_speed_pct": true,
 	"hive_production_time_pct": true,
@@ -559,6 +564,7 @@ var _lifecycle_local_pause_reason: String = ""
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	_buff_presentation_epoch = "%d:%d" % [get_instance_id(), Time.get_ticks_usec()]
 	_restore_buff_activation_runtime_state()
 	_allow_camfit_log_tags()
 	SFLog.allow_tag("ARENA_FRAME_HEARTBEAT")
@@ -604,6 +610,7 @@ func _ready() -> void:
 	clear_map_render()
 	_setup_buff_hive_targeting_presentation()
 	_setup_buff_lane_global_targeting_presentation()
+	_setup_buff_canonical_feedback_presentation()
 	_ensure_arena_polish_layer()
 	_apply_arena_polish_runtime_settings()
 	$MapRoot/HiveRenderer.visible = true
@@ -5377,6 +5384,8 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("cancel_buff_pointer_session"):
 		shell.call("cancel_buff_pointer_session", "match_ended:%s" % reason)
+	if buff_canonical_feedback_controller != null:
+		buff_canonical_feedback_controller.call("clear_presentation")
 	_buff_activation_transactions.terminate_match(_buff_match_id(), "match_ended:%s" % reason)
 	_persist_buff_activation_runtime_state()
 	if floor_influence_system != null:
@@ -7080,6 +7089,8 @@ func _create_system(script_path: String, label: String) -> RefCounted:
 func _exit_tree() -> void:
 	clear_buff_hive_targeting(-1, "arena_scene_exit")
 	clear_buff_lane_global_targeting(-1, "arena_scene_exit")
+	if buff_canonical_feedback_controller != null:
+		buff_canonical_feedback_controller.call("clear_presentation")
 
 
 func _notification(what: int) -> void:
@@ -10041,6 +10052,75 @@ func _setup_buff_lane_global_targeting_presentation() -> void:
 		buff_lane_global_targeting_controller.connect("selection_changed", selection_cb)
 
 
+func _setup_buff_canonical_feedback_presentation() -> void:
+	if buff_canonical_feedback_controller == null:
+		return
+	buff_canonical_feedback_controller.call(
+		"setup", self, hive_renderer, lane_renderer, _buff_presentation_epoch
+	)
+	var outcome_cb := Callable(self, "_on_buff_canonical_outcome_recorded")
+	if not buff_canonical_outcome_recorded.is_connected(outcome_cb):
+		buff_canonical_outcome_recorded.connect(outcome_cb)
+
+
+func _on_buff_canonical_outcome_recorded(outcome: Dictionary, presentation_epoch: String) -> void:
+	if buff_canonical_feedback_controller == null:
+		return
+	buff_canonical_feedback_controller.call(
+		"handle_canonical_outcome", outcome.duplicate(true), presentation_epoch
+	)
+
+
+func register_buff_activation_presentation_receipt(
+	activation: Dictionary,
+	target_type: String,
+	target_id: Variant,
+	submitted_at_msec: int
+) -> Dictionary:
+	if buff_canonical_feedback_controller == null or not bool(activation.get("ok", false)):
+		return {"ok": false, "reason": "feedback_controller_or_submission_missing"}
+	var match_id: String = str(activation.get("match_id", _buff_match_id())).strip_edges()
+	var owner_id: int = int(activation.get("owner_id", active_player_id))
+	var activation_id: String = str(activation.get("activation_id", "")).strip_edges()
+	var registered_any: Variant = buff_canonical_feedback_controller.call(
+		"register_submission_receipt",
+		match_id,
+		owner_id,
+		activation_id,
+		target_type,
+		target_id,
+		_buff_presentation_epoch,
+		submitted_at_msec
+	)
+	var registered: Dictionary = registered_any as Dictionary if typeof(registered_any) == TYPE_DICTIONARY else {}
+	if not bool(registered.get("ok", false)):
+		return registered
+	# Local non-PvP execution can finalize synchronously before Shell receives the
+	# successful submission result. Re-emit the already-recorded canonical event
+	# through the same production bridge after the receipt exists.
+	var outcome_key: String = "%s|%d|%s" % [match_id, owner_id, activation_id]
+	if _buff_canonical_outcomes.has(outcome_key):
+		buff_canonical_outcome_recorded.emit(
+			(_buff_canonical_outcomes[outcome_key] as Dictionary).duplicate(true),
+			_buff_presentation_epoch
+		)
+	return registered
+
+
+func get_buff_canonical_feedback_snapshot() -> Dictionary:
+	if buff_canonical_feedback_controller == null:
+		return {"active_flash_count": 0}
+	return buff_canonical_feedback_controller.call("get_snapshot") as Dictionary
+
+
+func get_buff_targeting_tuning_snapshot() -> Dictionary:
+	return BuffTargetingPresentationConfig.tuning_snapshot()
+
+
+func get_buff_presentation_owner_color(owner_id: int) -> Color:
+	return TeamVisuals.owner_color(owner_id)
+
+
 func update_buff_lane_global_targeting(
 	pointer_session_id: int,
 	preview: Dictionary,
@@ -10079,6 +10159,23 @@ func get_buff_lane_global_targeting_snapshot() -> Dictionary:
 	if buff_lane_global_targeting_controller == null:
 		return {"active": false}
 	return buff_lane_global_targeting_controller.call("get_snapshot") as Dictionary
+
+
+func is_buff_targeting_release_ready(pointer_session_id: int, target_type: String) -> bool:
+	if target_type == BuffDefinitions.TARGET_LANE:
+		return buff_lane_global_targeting_controller != null \
+			and bool(buff_lane_global_targeting_controller.call(
+				"is_release_ready", pointer_session_id, target_type
+			))
+	if target_type == "global":
+		var lane_global: Dictionary = get_buff_lane_global_targeting_snapshot()
+		return int(lane_global.get("pointer_session_id", 0)) == pointer_session_id \
+			and bool(lane_global.get("global_valid", false))
+	if target_type == BuffDefinitions.TARGET_HIVE:
+		var hive: Dictionary = get_buff_hive_targeting_snapshot()
+		return int(hive.get("pointer_session_id", 0)) == pointer_session_id \
+			and int(hive.get("selected_hive_id", -1)) > 0
+	return false
 
 
 func notify_buff_lane_render_nodes_changed() -> void:
@@ -10138,6 +10235,31 @@ func get_buff_global_targeting_query(root_screen_pos: Vector2) -> Dictionary:
 		if not bool(point_conversion.get("ok", false)):
 			return {"valid": false, "reason": "boundary_conversion_failed"}
 		arena_points.append(point_conversion.get("arena_local_pos", Vector2.ZERO) as Vector2)
+	return {
+		"valid": true,
+		"reason": "",
+		"boundary_arena_local_points": arena_points,
+		"playfield_root_rect": playfield_rect
+	}
+
+
+func get_buff_global_presentation_boundary() -> Dictionary:
+	var playfield_rect: Rect2 = _resolve_playfield_rect_px()
+	var inset_rect: Rect2 = playfield_rect.grow(-1.0)
+	if inset_rect.size.x <= 1.0 or inset_rect.size.y <= 1.0:
+		return {"valid": false, "reason": "playfield_rect_invalid"}
+	var root_points := PackedVector2Array([
+		inset_rect.position,
+		Vector2(inset_rect.end.x, inset_rect.position.y),
+		inset_rect.end,
+		Vector2(inset_rect.position.x, inset_rect.end.y)
+	])
+	var arena_points := PackedVector2Array()
+	for point: Vector2 in root_points:
+		var conversion: Dictionary = root_screen_to_buff_arena_local(point)
+		if not bool(conversion.get("ok", false)):
+			return {"valid": false, "reason": "boundary_conversion_failed"}
+		arena_points.append(conversion.get("arena_local_pos", Vector2.ZERO) as Vector2)
 	return {
 		"valid": true,
 		"reason": "",
@@ -10531,6 +10653,7 @@ func _execute_canonical_buff_activation(command: Dictionary) -> Dictionary:
 	_update_buff_ui()
 	mark_render_dirty("buff_activate_canonical")
 	_persist_buff_activation_runtime_state()
+	buff_canonical_outcome_recorded.emit(outcome.duplicate(true), _buff_presentation_epoch)
 	return outcome
 
 func _finalize_buff_canonical_no_op(command: Dictionary, reason: String, outcome_key: String) -> Dictionary:
@@ -10554,6 +10677,7 @@ func _finalize_buff_canonical_no_op(command: Dictionary, reason: String, outcome
 		)
 	_buff_canonical_outcomes[outcome_key] = outcome.duplicate(true)
 	_persist_buff_activation_runtime_state()
+	buff_canonical_outcome_recorded.emit(outcome.duplicate(true), _buff_presentation_epoch)
 	return outcome
 
 func _can_commit_reserved_buff_charge(transaction: Dictionary) -> bool:

@@ -1,4 +1,4 @@
-[gd_scene load_steps=19 format=3 uid="uid://bi1epiw4to48u"]
+[gd_scene load_steps=20 format=3 uid="uid://bi1epiw4to48u"]
 
 [ext_resource type="Script" path="res://scripts/arena.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/renderers/lane_renderer.gd" id="2"]
@@ -18,6 +18,7 @@
 [ext_resource type="Script" path="res://scripts/renderers/arena_polish_layer.gd" id="17"]
 [ext_resource type="Script" path="res://scripts/renderers/buff_hive_targeting_controller.gd" id="18"]
 [ext_resource type="Script" path="res://scripts/renderers/buff_lane_global_targeting_controller.gd" id="19"]
+[ext_resource type="Script" path="res://scripts/renderers/buff_canonical_feedback_controller.gd" id="20"]
 
 [sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_1"]
 blend_mode = 1
@@ -82,6 +83,10 @@ script = ExtResource("18")
 [node name="BuffLaneGlobalTargetPresentation" type="Node2D" parent="MapRoot"]
 z_index = 24
 script = ExtResource("19")
+
+[node name="BuffCanonicalFeedbackPresentation" type="Node2D" parent="MapRoot"]
+z_index = 36
+script = ExtResource("20")
 
 [node name="SelectionRing" type="Sprite2D" parent="MapRoot/HiveRenderer"]
 visible = false

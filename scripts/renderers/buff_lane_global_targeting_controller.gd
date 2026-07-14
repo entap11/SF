@@ -3,15 +3,15 @@ extends Node2D
 
 signal selection_changed(pointer_session_id: int, target_type: String, target_id: Variant, reason: String)
 
+const Config := preload("res://scripts/renderers/buff_targeting_presentation_config.gd")
 const TARGET_LANE: String = "lane"
 const TARGET_GLOBAL: String = "global"
-const LANE_ACQUISITION_RADIUS_PX: float = 44.0
-const LANE_RETENTION_RADIUS_PX: float = 64.0
-const LANE_SWITCH_MARGIN_PX: float = 12.0
+const LANE_ACQUISITION_RADIUS_PX: float = Config.LANE_ACQUISITION_RADIUS_ROOT_SCREEN_PX
+const LANE_RETENTION_RADIUS_PX: float = Config.LANE_RETENTION_RADIUS_ROOT_SCREEN_PX
+const LANE_SWITCH_MARGIN_PX: float = Config.LANE_SWITCH_MARGIN_ROOT_SCREEN_PX
 const DISTANCE_EPSILON_PX: float = 0.001
-const TRAVEL_PERIOD_PX: float = 54.0
-const TRAVEL_LENGTH_PX: float = 19.0
-const PULSE_CYCLE_SECONDS: float = 1.35
+const TRAVEL_PERIOD_PX: float = Config.LANE_TRAVEL_PERIOD_LOCAL_PX
+const TRAVEL_LENGTH_PX: float = Config.LANE_TRAVEL_LENGTH_LOCAL_PX
 
 var _arena: Node = null
 var _lane_renderer: Node2D = null
@@ -31,6 +31,12 @@ var _pulse_phase: float = 0.0
 var _movement_event_count: int = 0
 var _geometry_rebuild_count: int = 0
 var _geometry_rebuild_elapsed_us: int = 0
+var _geometry_dirty: bool = false
+var _geometry_revision: int = 0
+var _last_drawn_geometry_revision: int = -1
+var _last_transform_rebuild_frame: int = -1
+var _coalesced_transform_invalidation_count: int = 0
+var _max_transform_rebuilds_single_frame: int = 0
 
 
 func _ready() -> void:
@@ -66,6 +72,7 @@ func begin_or_update(
 	if requested_type != TARGET_LANE and requested_type != TARGET_GLOBAL:
 		return false
 	var replacing: bool = not _active or _pointer_session_id != pointer_session_id or _target_type != requested_type
+	var eligible_geometry_changed: bool = false
 	if replacing:
 		_reset_state(false, "session_replaced")
 		_active = true
@@ -79,6 +86,7 @@ func begin_or_update(
 		if normalized != _eligible_lane_ids:
 			_eligible_lane_ids = normalized
 			_lane_geometry_cache.clear()
+			eligible_geometry_changed = true
 		if replacing and selected_target_type == TARGET_LANE and selected_target_id != null:
 			var selected_id: int = int(selected_target_id)
 			_selected_lane_id = selected_id if _eligible_lane_ids.has(selected_id) else -1
@@ -86,9 +94,20 @@ func begin_or_update(
 		_eligible_lane_ids.clear()
 		_lane_geometry_cache.clear()
 		_global_valid = selected_target_type == TARGET_GLOBAL and str(selected_target_id) == TARGET_GLOBAL
-	_last_transform_signature = _transform_signature()
-	_last_renderer_generation = _renderer_generation()
+	var current_transform_signature: Variant = _transform_signature()
+	var current_renderer_generation: int = _renderer_generation()
+	if not replacing and requested_type == TARGET_LANE \
+	and (current_transform_signature != _last_transform_signature or current_renderer_generation != _last_renderer_generation):
+		_mark_transform_geometry_dirty("pointer_transform_changed")
+		_flush_transform_geometry("pointer_transform_changed")
+		return true
+	_last_transform_signature = current_transform_signature
+	_last_renderer_generation = current_renderer_generation
+	_geometry_dirty = false
 	_recompute_selection("pointer_update")
+	if eligible_geometry_changed:
+		_geometry_revision += 1
+		_last_drawn_geometry_revision = -1
 	return true
 
 
@@ -97,6 +116,11 @@ func update_finger(pointer_session_id: int, finger_root_screen_pos: Vector2) -> 
 		return false
 	_finger_root_screen_pos = finger_root_screen_pos
 	_movement_event_count += 1
+	if _transform_signature() != _last_transform_signature:
+		_mark_transform_geometry_dirty("pointer_transform_changed")
+		_flush_transform_geometry("pointer_transform_changed")
+	if _geometry_dirty:
+		return true
 	_recompute_selection("pointer_moved")
 	return true
 
@@ -113,17 +137,29 @@ func clear(pointer_session_id: int = -1, notify_shell: bool = true, reason: Stri
 func notify_render_nodes_changed() -> void:
 	_lane_geometry_cache.clear()
 	_last_renderer_generation = _renderer_generation()
-	if _active and _target_type == TARGET_LANE:
+	if _active and _target_type == TARGET_LANE and not _geometry_dirty:
 		_recompute_selection("lane_renderer_changed")
+		_geometry_revision += 1
 
 
 func force_recompute(reason: String = "forced") -> void:
 	if not _active:
 		return
-	_lane_geometry_cache.clear()
-	_last_transform_signature = _transform_signature()
-	_last_renderer_generation = _renderer_generation()
-	_recompute_selection(reason)
+	_mark_transform_geometry_dirty(reason)
+	_flush_transform_geometry(reason)
+
+
+func is_release_ready(pointer_session_id: int, target_type: String) -> bool:
+	if not _active or pointer_session_id != _pointer_session_id or target_type != _target_type:
+		return false
+	if target_type != TARGET_LANE:
+		return _global_valid
+	if _transform_signature() != _last_transform_signature or _renderer_generation() != _last_renderer_generation:
+		_mark_transform_geometry_dirty("release_transform_dirty")
+		return false
+	return not _geometry_dirty \
+		and _selected_lane_id > 0 \
+		and _last_drawn_geometry_revision == _geometry_revision
 
 
 func set_phase_override(phase: float) -> void:
@@ -149,13 +185,18 @@ func get_snapshot() -> Dictionary:
 		"geometry_cache_size": _lane_geometry_cache.size(),
 		"geometry_rebuild_count": _geometry_rebuild_count,
 		"geometry_rebuild_elapsed_us": _geometry_rebuild_elapsed_us,
+		"geometry_dirty": _geometry_dirty,
+		"geometry_revision": _geometry_revision,
+		"last_drawn_geometry_revision": _last_drawn_geometry_revision,
+		"coalesced_transform_invalidation_count": _coalesced_transform_invalidation_count,
+		"max_transform_rebuilds_single_frame": _max_transform_rebuilds_single_frame,
 		"processing": is_processing()
 	}
 
 
 func get_visual_state_snapshot() -> Dictionary:
 	var lanes: Dictionary = {}
-	if _active and _target_type == TARGET_LANE:
+	if _active and _target_type == TARGET_LANE and not _geometry_dirty:
 		_ensure_lane_geometry_cache()
 		for lane_id in _eligible_lane_ids:
 			var cached_any: Variant = _lane_geometry_cache.get(lane_id, null)
@@ -169,8 +210,8 @@ func get_visual_state_snapshot() -> Dictionary:
 				"pulse_phase": _pulse_phase,
 				"path_revision": int(cached.get("path_revision", 0)),
 				"point_count": (cached.get("screen_points", PackedVector2Array()) as PackedVector2Array).size(),
-				"eligible_width_px": 7.0,
-				"selected_width_px": 16.0 if lane_id == _selected_lane_id else 7.0
+				"eligible_width_px": Config.LANE_ELIGIBLE_WIDTH_LOCAL_PX,
+				"selected_width_px": Config.LANE_PREVIEW_WIDTH_LOCAL_PX if lane_id == _selected_lane_id else Config.LANE_ELIGIBLE_WIDTH_LOCAL_PX
 			}
 	return {
 		"target_type": _target_type,
@@ -186,10 +227,8 @@ func _process(_delta: float) -> void:
 	var transform_signature: Variant = _transform_signature()
 	var renderer_generation: int = _renderer_generation()
 	if transform_signature != _last_transform_signature or renderer_generation != _last_renderer_generation:
-		_last_transform_signature = transform_signature
-		_last_renderer_generation = renderer_generation
-		_lane_geometry_cache.clear()
-		_recompute_selection("presentation_transform_changed")
+		_mark_transform_geometry_dirty("presentation_transform_changed")
+	_flush_transform_geometry("presentation_transform_changed")
 	queue_redraw()
 
 
@@ -197,8 +236,40 @@ func _update_pulse_phase() -> void:
 	if _phase_override >= 0.0:
 		_pulse_phase = _phase_override
 		return
-	var cycle_ms: float = PULSE_CYCLE_SECONDS * 1000.0
-	_pulse_phase = fmod(float(Time.get_ticks_msec()), cycle_ms) / cycle_ms
+	var seconds: float = float(Time.get_ticks_msec()) / 1000.0
+	_pulse_phase = fposmod(seconds * Config.ELIGIBLE_PULSE_FREQUENCY_HZ, 1.0)
+
+
+func _mark_transform_geometry_dirty(reason: String) -> void:
+	if not _active or _target_type != TARGET_LANE:
+		return
+	if _geometry_dirty:
+		_coalesced_transform_invalidation_count += 1
+	else:
+		_geometry_dirty = true
+		_lane_geometry_cache.clear()
+		_geometry_revision += 1
+		_last_drawn_geometry_revision = -1
+	_set_lane_selection(-1, reason)
+	queue_redraw()
+
+
+func _flush_transform_geometry(reason: String) -> bool:
+	if not _geometry_dirty or not _active or _target_type != TARGET_LANE:
+		return false
+	var frame: int = Engine.get_process_frames()
+	if _last_transform_rebuild_frame == frame:
+		_coalesced_transform_invalidation_count += 1
+		return false
+	_last_transform_rebuild_frame = frame
+	_max_transform_rebuilds_single_frame = maxi(_max_transform_rebuilds_single_frame, 1)
+	_last_transform_signature = _transform_signature()
+	_last_renderer_generation = _renderer_generation()
+	_lane_geometry_cache.clear()
+	_geometry_dirty = false
+	_recompute_selection(reason)
+	_geometry_revision += 1
+	return true
 
 
 func _recompute_selection(reason: String) -> void:
@@ -212,6 +283,9 @@ func _recompute_selection(reason: String) -> void:
 
 
 func _recompute_lane(reason: String) -> void:
+	if _geometry_dirty:
+		_set_lane_selection(-1, reason)
+		return
 	_global_valid = false
 	_global_boundary_local = PackedVector2Array()
 	_ensure_lane_geometry_cache()
@@ -387,6 +461,8 @@ func _set_lane_selection(lane_id: int, reason: String) -> void:
 	if lane_id == _selected_lane_id:
 		return
 	_selected_lane_id = lane_id
+	_geometry_revision += 1
+	_last_drawn_geometry_revision = -1
 	emit_signal(
 		"selection_changed",
 		_pointer_session_id,
@@ -408,6 +484,9 @@ func _reset_state(notify_shell: bool, reason: String) -> void:
 	_lane_geometry_cache.clear()
 	_global_boundary_local = PackedVector2Array()
 	_movement_event_count = 0
+	_geometry_dirty = false
+	_geometry_revision += 1
+	_last_drawn_geometry_revision = -1
 	set_process(false)
 	queue_redraw()
 	if notify_shell and old_session_id > 0 and had_selection:
@@ -485,6 +564,8 @@ func _draw() -> void:
 	if _target_type == TARGET_GLOBAL:
 		_draw_global_boundary()
 		return
+	if _geometry_dirty:
+		return
 	_ensure_lane_geometry_cache()
 	for lane_id in _eligible_lane_ids:
 		if lane_id == _selected_lane_id:
@@ -492,6 +573,7 @@ func _draw() -> void:
 		_draw_lane_path(lane_id, false)
 	if _selected_lane_id > 0:
 		_draw_lane_path(_selected_lane_id, true)
+	_last_drawn_geometry_revision = _geometry_revision
 
 
 func _draw_lane_path(lane_id: int, selected: bool) -> void:
@@ -502,12 +584,12 @@ func _draw_lane_path(lane_id: int, selected: bool) -> void:
 	if points.size() < 2:
 		return
 	var pulse: float = 0.5 - 0.5 * cos(_pulse_phase * TAU)
-	var base_alpha: float = lerpf(0.20, 0.40, pulse)
-	var width: float = 7.0
+	var base_alpha: float = lerpf(Config.ELIGIBLE_PULSE_ALPHA_MIN, Config.ELIGIBLE_PULSE_ALPHA_MAX, pulse)
+	var width: float = Config.LANE_ELIGIBLE_WIDTH_LOCAL_PX
 	if selected:
-		draw_polyline(points, Color(0.01, 0.03, 0.06, 0.72), 20.0, true)
-		draw_polyline(points, Color(1.0, 1.0, 1.0, 0.88), 16.0, true)
-		width = 8.0
+		draw_polyline(points, Color(0.01, 0.03, 0.06, 0.72), Config.LANE_PREVIEW_BACKDROP_WIDTH_LOCAL_PX, true)
+		draw_polyline(points, Color(1.0, 1.0, 1.0, Config.PREVIEW_PULSE_STRENGTH), Config.LANE_PREVIEW_WIDTH_LOCAL_PX, true)
+		width = Config.LANE_ELIGIBLE_WIDTH_LOCAL_PX + 1.0
 	else:
 		draw_polyline(points, Color(1.0, 1.0, 1.0, base_alpha), width, true)
 	_draw_traveling_path(points, Color(1.0, 1.0, 1.0, 1.0 if selected else 0.78), width, _pulse_phase)
@@ -520,7 +602,7 @@ func _draw_global_boundary() -> void:
 	if closed[0] != closed[closed.size() - 1]:
 		closed.append(closed[0])
 	var pulse: float = 0.5 - 0.5 * cos(_pulse_phase * TAU)
-	draw_polyline(closed, Color(1.0, 1.0, 1.0, lerpf(0.28, 0.52, pulse)), 6.0, true)
+	draw_polyline(closed, Color(1.0, 1.0, 1.0, lerpf(Config.ELIGIBLE_PULSE_ALPHA_MIN, Config.ELIGIBLE_PULSE_ALPHA_MAX, pulse)), Config.GLOBAL_BOUNDARY_WIDTH_LOCAL_PX, true)
 	_draw_traveling_path(closed, Color(1.0, 1.0, 1.0, 0.88), 3.0, _pulse_phase)
 
 

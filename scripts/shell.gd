@@ -13,6 +13,7 @@ const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/
 const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
 const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
 const BuffPointerSessionScript := preload("res://scripts/shell_helpers/buff_pointer_session.gd")
+const BuffTargetingPresentationConfig := preload("res://scripts/renderers/buff_targeting_presentation_config.gd")
 const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const AdSurfaceScript: Script = preload("res://scripts/ui/ad_surface.gd")
@@ -26,11 +27,6 @@ const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/Oppo
 const SHELL_OPPONENT_BUFF_STRIP_B_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStripB"
 const SHELL_ALLY_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/AllyBuffStrip"
 const MATCH_BUFF_TARGETING_ENABLED: bool = false
-const BUFF_POINTER_TOUCH_SLOP_PX: float = 18.0
-const BUFF_DRAG_OVERLAY_TOUCH_OFFSET_PX: Vector2 = Vector2(0.0, -56.0)
-const BUFF_DRAG_OVERLAY_MOUSE_OFFSET_PX: Vector2 = Vector2(0.0, -28.0)
-const BUFF_DRAG_OVERLAY_SIZE_PX: Vector2 = Vector2(64.0, 64.0)
-const BUFF_INVALID_SNAP_BACK_SECONDS: float = 0.16
 const PENDING_APPLY_MAX_TRIES: int = 60
 const TRACE_SHELL_LOGS: bool = false
 const MVP_SMOKE_ARENA_PATH: String = "/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena"
@@ -162,6 +158,7 @@ var _buff_pointer_release_guard: Dictionary = {}
 var _buff_drag_overlay: TextureRect = null
 var _buff_drag_overlay_tween: Tween = null
 var _buff_drag_overlay_session_id: int = 0
+var _buff_drag_overlay_generation: int = 0
 var _buff_app_lifecycle: Node = null
 var _font_regular: Font
 var _font_semibold: Font
@@ -2631,6 +2628,7 @@ func _on_player_buff_press_captured(
 ) -> void:
 	if _buff_pointer_session.is_active():
 		cancel_buff_pointer_session("superseded_capture")
+	_invalidate_buff_overlay_animation_for_new_capture()
 	var arena_node: Node = _resolve_runtime_arena_node()
 	if arena_node == null or not arena_node.has_method("get_buff_activation_source_snapshot"):
 		_clear_strip_pointer_capture()
@@ -2677,7 +2675,7 @@ func _on_player_buff_pointer_moved(
 		pointer_id,
 		pointer_session_id,
 		root_screen_pos,
-		BUFF_POINTER_TOUCH_SLOP_PX
+		BuffTargetingPresentationConfig.TOUCH_SLOP_ROOT_SCREEN_PX
 	)
 	if not bool(movement.get("ok", false)):
 		return
@@ -2741,6 +2739,12 @@ func _on_player_buff_pointer_released(
 	# Release uses the same unshifted fingertip and the retained visible selection.
 	# No target type performs a second geometric pick here.
 	_update_buff_targeting_presentation(arena_node, pointer_session_id, root_screen_pos)
+	if arena_node.has_method("is_buff_targeting_release_ready") and not bool(arena_node.call(
+		"is_buff_targeting_release_ready", pointer_session_id,
+		str((session.get("preview", {}) as Dictionary).get("target_type", ""))
+	)):
+		_finish_invalid_buff_release(session, "presentation_geometry_not_rendered")
+		return
 	session = _buff_pointer_session.snapshot()
 	preview = session.get("preview", {}) as Dictionary
 	var selected_type: String = str(preview.get("selected_target_type", ""))
@@ -2761,6 +2765,7 @@ func _on_player_buff_pointer_released(
 	if not arena_node.has_method("submit_buff_activation"):
 		_finish_invalid_buff_release(session, "submission_api_missing")
 		return
+	var submission_started_msec: int = Time.get_ticks_msec()
 	var activation_any: Variant = arena_node.call(
 		"submit_buff_activation",
 		_buff_ui_last_active_pid,
@@ -2772,6 +2777,14 @@ func _on_player_buff_pointer_released(
 	if not bool(activation.get("ok", false)):
 		_finish_invalid_buff_release(session, str(activation.get("reason", "submission_rejected")))
 		return
+	if arena_node.has_method("register_buff_activation_presentation_receipt"):
+		arena_node.call(
+			"register_buff_activation_presentation_receipt",
+			activation,
+			str(candidate.get("target_type", "global")),
+			candidate.get("target_id", "global"),
+			submission_started_msec
+		)
 	_buff_pointer_session.mark_submitted(pointer_session_id)
 	_clear_buff_targeting_presentation(arena_node, pointer_session_id, "release_submitted")
 	_hide_buff_drag_overlay(pointer_session_id)
@@ -2867,7 +2880,8 @@ func get_buff_drag_overlay_snapshot() -> Dictionary:
 		"visible": _buff_drag_overlay != null and _buff_drag_overlay.visible,
 		"position": _buff_drag_overlay.position if _buff_drag_overlay != null else Vector2.ZERO,
 		"size": _buff_drag_overlay.size if _buff_drag_overlay != null else Vector2.ZERO,
-		"pointer_session_id": _buff_drag_overlay_session_id
+		"pointer_session_id": _buff_drag_overlay_session_id,
+		"generation": _buff_drag_overlay_generation
 	}
 
 
@@ -3069,8 +3083,8 @@ func _ensure_buff_drag_overlay() -> TextureRect:
 	_buff_drag_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_buff_drag_overlay.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_buff_drag_overlay.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_buff_drag_overlay.custom_minimum_size = BUFF_DRAG_OVERLAY_SIZE_PX
-	_buff_drag_overlay.size = BUFF_DRAG_OVERLAY_SIZE_PX
+	_buff_drag_overlay.custom_minimum_size = BuffTargetingPresentationConfig.DRAG_OVERLAY_SIZE_UI_PX
+	_buff_drag_overlay.size = BuffTargetingPresentationConfig.DRAG_OVERLAY_SIZE_UI_PX
 	_buff_drag_overlay.z_as_relative = false
 	_buff_drag_overlay.z_index = 10000
 	_buff_drag_overlay.visible = false
@@ -3090,6 +3104,7 @@ func _show_buff_drag_overlay(
 	if _buff_drag_overlay_tween != null and _buff_drag_overlay_tween.is_valid():
 		_buff_drag_overlay_tween.kill()
 	_buff_drag_overlay_tween = null
+	_buff_drag_overlay_generation += 1
 	_buff_drag_overlay_session_id = pointer_session_id
 	if _player_buff_strip != null and _player_buff_strip.has_method("get_slot_icon_texture"):
 		overlay.texture = _player_buff_strip.call("get_slot_icon_texture", slot_index) as Texture2D
@@ -3104,9 +3119,10 @@ func _position_buff_drag_overlay(pointer_session_id: int, pointer_kind: String, 
 	if hud_root == null:
 		return
 	var local_fingertip: Vector2 = hud_root.get_global_transform_with_canvas().affine_inverse() * root_screen_pos
-	var logical_offset: Vector2 = BUFF_DRAG_OVERLAY_MOUSE_OFFSET_PX \
-		if pointer_kind == BuffPointerSessionScript.POINTER_MOUSE else BUFF_DRAG_OVERLAY_TOUCH_OFFSET_PX
-	_buff_drag_overlay.position = local_fingertip + logical_offset - (_buff_drag_overlay.size * 0.5)
+	var root_screen_offset: Vector2 = BuffTargetingPresentationConfig.MOUSE_OVERLAY_OFFSET_ROOT_SCREEN_PX \
+		if pointer_kind == BuffPointerSessionScript.POINTER_MOUSE else BuffTargetingPresentationConfig.TOUCH_OVERLAY_OFFSET_ROOT_SCREEN_PX
+	var local_offset_endpoint: Vector2 = hud_root.get_global_transform_with_canvas().affine_inverse() * (root_screen_pos + root_screen_offset)
+	_buff_drag_overlay.position = local_fingertip + (local_offset_endpoint - local_fingertip) - (_buff_drag_overlay.size * 0.5)
 
 
 func _start_buff_overlay_snap_back(pointer_session_id: int, slot_index: int) -> void:
@@ -3125,19 +3141,31 @@ func _start_buff_overlay_snap_back(pointer_session_id: int, slot_index: int) -> 
 	local_target -= _buff_drag_overlay.size * 0.5
 	if _buff_drag_overlay_tween != null and _buff_drag_overlay_tween.is_valid():
 		_buff_drag_overlay_tween.kill()
+	var animation_generation: int = _buff_drag_overlay_generation
+	var overlay_instance_id: int = _buff_drag_overlay.get_instance_id()
 	_buff_drag_overlay_tween = create_tween()
 	_buff_drag_overlay_tween.tween_property(
 		_buff_drag_overlay,
 		"position",
 		local_target,
-		BUFF_INVALID_SNAP_BACK_SECONDS
+		BuffTargetingPresentationConfig.INVALID_RELEASE_SNAP_BACK_SECONDS
 	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_buff_drag_overlay_tween.tween_callback(Callable(self, "_finish_buff_overlay_snap_back").bind(pointer_session_id))
+	_buff_drag_overlay_tween.tween_callback(Callable(self, "_finish_buff_overlay_snap_back").bind(
+		pointer_session_id, animation_generation, overlay_instance_id
+	))
 
 
-func _finish_buff_overlay_snap_back(pointer_session_id: int) -> void:
-	if _buff_drag_overlay_session_id == pointer_session_id:
+func _finish_buff_overlay_snap_back(pointer_session_id: int, animation_generation: int, overlay_instance_id: int) -> void:
+	if _buff_drag_overlay != null \
+	and _buff_drag_overlay.get_instance_id() == overlay_instance_id \
+	and _buff_drag_overlay_generation == animation_generation \
+	and _buff_drag_overlay_session_id == pointer_session_id:
 		_hide_buff_drag_overlay(pointer_session_id)
+
+
+func _invalidate_buff_overlay_animation_for_new_capture() -> void:
+	_buff_drag_overlay_generation += 1
+	_hide_buff_drag_overlay()
 
 
 func _hide_buff_drag_overlay(pointer_session_id: int = -1) -> void:
