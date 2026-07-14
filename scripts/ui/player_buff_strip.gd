@@ -33,6 +33,7 @@ var _state_labels: Array[Label] = []
 var _icon_rects: Array[TextureRect] = []
 var _fill_overlays: Array[Panel] = []
 var _countdown_labels: Array[Label] = []
+var _use_slash_labels: Array[Label] = []
 var _slot_snapshots: Array[Dictionary] = []
 var _slots_row: HBoxContainer = null
 var _snapshot_pid: int = 1
@@ -203,6 +204,7 @@ func _ensure_slot_labels() -> void:
 func _ensure_slot_runtime_fx() -> void:
 	_fill_overlays.clear()
 	_countdown_labels.clear()
+	_use_slash_labels.clear()
 	for idx in range(_slots.size()):
 		var slot: Panel = _slots[idx]
 		slot.clip_contents = true
@@ -238,10 +240,26 @@ func _ensure_slot_runtime_fx() -> void:
 			countdown.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
 			countdown.add_theme_constant_override("outline_size", 2)
 			slot.add_child(countdown)
+		var use_slash: Label = slot.get_node_or_null("UseSlash") as Label
+		if use_slash == null:
+			use_slash = Label.new()
+			use_slash.name = "UseSlash"
+			use_slash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			use_slash.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+			use_slash.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			use_slash.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			use_slash.text = "/"
+			use_slash.add_theme_font_size_override("font_size", 76)
+			use_slash.add_theme_color_override("font_color", Color(0.92, 0.08, 0.08, 0.94))
+			use_slash.add_theme_color_override("font_outline_color", Color(0.12, 0.0, 0.0, 0.95))
+			use_slash.add_theme_constant_override("outline_size", 2)
+			slot.add_child(use_slash)
 		fill.visible = false
 		countdown.visible = false
+		use_slash.visible = false
 		_fill_overlays.append(fill)
 		_countdown_labels.append(countdown)
+		_use_slash_labels.append(use_slash)
 
 func _apply_empty_state() -> void:
 	for i in range(_slots.size()):
@@ -342,6 +360,9 @@ func _apply_slot_visual(slot_index: int, slot_data: Dictionary) -> void:
 	var locked: bool = bool(slot_data.get("locked", false))
 	var active: bool = bool(slot_data.get("active", false))
 	var consumed: bool = bool(slot_data.get("consumed", false))
+	var uses_remaining: int = maxi(0, int(slot_data.get("uses_remaining", 1)))
+	var uses_total: int = maxi(1, int(slot_data.get("uses_total", 1)))
+	var one_use_spent: bool = uses_total == 2 and uses_remaining == 1
 	var remaining_ms: int = max(0, int(slot_data.get("remaining_ms", 0)))
 	var state_text: String = "READY"
 	var meta_text: String = tier_text
@@ -360,20 +381,28 @@ func _apply_slot_visual(slot_index: int, slot_data: Dictionary) -> void:
 		meta_text = ""
 		tint = SLOT_ACTIVE_COLOR
 		show_detail_labels = false
-		show_icon = true
+		# The second Async activation exhausts the contest allowance immediately.
+		# Keep the duration fill/countdown, but remove the buff sprite at 0/2.
+		show_icon = not (uses_total == 2 and uses_remaining <= 0)
 		remaining_ms = _active_remaining_ms(slot_index, slot_data)
 		var tier_key: String = tier_text.to_lower()
 		var duration_ms: int = int(TIER_DURATION_MS.get(tier_key, TIER_DURATION_MS["classic"]))
 		active_fill_pct = clampf(float(remaining_ms) / float(maxi(1, duration_ms)), 0.0, 1.0)
 		countdown_text = "%.1f" % (float(remaining_ms) / 1000.0)
 	elif consumed:
-		state_text = "USED"
-		meta_text = "SPENT"
+		state_text = "EMPTY" if uses_total == 2 else "USED"
+		meta_text = "0/2" if uses_total == 2 else "SPENT"
 		tint = SLOT_USED_COLOR
+		if uses_total == 2:
+			show_icon = false
+	elif one_use_spent:
+		state_text = "1 USE LEFT"
+		meta_text = "%s • 1/2" % tier_text
 	_slots[slot_index].self_modulate = tint
 	_set_slot_icon(slot_index, str(slot_data.get("icon_path", "")), show_icon)
 	_set_slot_active_fill(slot_index, active_fill_pct, _team_color_for_pid(_snapshot_pid))
 	_set_slot_countdown(slot_index, countdown_text, active)
+	_set_slot_use_slash(slot_index, one_use_spent and not consumed)
 	if slot_index >= 0 and slot_index < _name_labels.size():
 		_name_labels[slot_index].visible = show_detail_labels
 		_name_labels[slot_index].text = name_text
@@ -431,6 +460,13 @@ func _set_slot_countdown(slot_index: int, text: String, visible: bool) -> void:
 		return
 	label.visible = visible
 	label.text = text
+
+func _set_slot_use_slash(slot_index: int, visible: bool) -> void:
+	if slot_index < 0 or slot_index >= _use_slash_labels.size():
+		return
+	var slash: Label = _use_slash_labels[slot_index]
+	if slash != null:
+		slash.visible = visible
 
 func _set_slot_icon(slot_index: int, icon_path: String, visible: bool) -> void:
 	if slot_index < 0 or slot_index >= _icon_rects.size():

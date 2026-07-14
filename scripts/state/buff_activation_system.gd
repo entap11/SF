@@ -3,6 +3,7 @@ extends Node
 
 const BuffDefinitions = preload("res://scripts/state/buff_definitions.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const BuffTargetResolver = preload("res://scripts/state/buff_target_resolver.gd")
 
 signal buff_state_changed(snapshot: Dictionary)
 signal activation_result(result: Dictionary)
@@ -13,6 +14,7 @@ signal supercharge_release_requested(payload: Dictionary)
 
 var _buff_state: BuffState = BuffState.new()
 var _ops_state: Node = null
+var _target_resolver: RefCounted = BuffTargetResolver.new()
 
 func _ready() -> void:
 	_ops_state = get_node_or_null(ops_state_path)
@@ -80,7 +82,7 @@ func intent_activate_buff(
 			}
 			activation_result.emit(missing_target)
 			return missing_target
-		var validate_target: Dictionary = _validate_target_for_owner(owner_id, target_type, target)
+		var validate_target: Dictionary = _validate_target_for_owner(owner_id, canonical_id, target_type, target)
 		if not bool(validate_target.get("ok", false)):
 			var invalid_hint: Dictionary = {
 				"target_type": target_type,
@@ -235,67 +237,20 @@ func _active_enemy_lane_buff_for_unit(lane_id: int, unit_owner_id: int) -> Dicti
 		return {}
 	return active
 
-func _validate_target_for_owner(owner_id: int, target_type: String, target: Dictionary) -> Dictionary:
-	match target_type:
-		BuffDefinitions.TARGET_HIVE:
-			var hive_id: int = int(target.get("hive_id", -1))
-			if hive_id <= 0:
-				return {"ok": false, "code": "missing_hive_target", "message": "Hive target required."}
-			var hive_owner: int = _hive_owner_id(hive_id)
-			if hive_owner <= 0:
-				return {"ok": false, "code": "hive_not_found", "message": "Hive target not found."}
-			if hive_owner != owner_id:
-				return {"ok": false, "code": "hive_not_owned", "message": "Target hive must be owned by activator."}
-			return {"ok": true}
-		BuffDefinitions.TARGET_LANE:
-			var lane_id: int = int(target.get("lane_id", -1))
-			if lane_id <= 0:
-				return {"ok": false, "code": "missing_lane_target", "message": "Lane target required."}
-			if not _lane_exists(lane_id):
-				return {"ok": false, "code": "lane_not_found", "message": "Lane target not found."}
-			return {"ok": true}
-		_:
-			return {"ok": true}
-
-func _hive_owner_id(hive_id: int) -> int:
-	var game_state: Object = _ops_game_state()
-	if game_state == null:
-		return -1
-	var hives_any: Variant = game_state.get("hives")
-	if typeof(hives_any) != TYPE_ARRAY:
-		return -1
-	for hive_any in hives_any as Array:
-		if hive_any == null:
-			continue
-		if hive_any is RefCounted:
-			var hive_obj: RefCounted = hive_any as RefCounted
-			if int(hive_obj.get("id")) == hive_id:
-				return int(hive_obj.get("owner_id"))
-		elif typeof(hive_any) == TYPE_DICTIONARY:
-			var hive_dict: Dictionary = hive_any as Dictionary
-			if int(hive_dict.get("id", -1)) == hive_id:
-				return int(hive_dict.get("owner_id", -1))
-	return -1
-
-func _lane_exists(lane_id: int) -> bool:
-	var game_state: Object = _ops_game_state()
-	if game_state == null:
-		return false
-	var lanes_any: Variant = game_state.get("lanes")
-	if typeof(lanes_any) != TYPE_ARRAY:
-		return false
-	for lane_any in lanes_any as Array:
-		if lane_any == null:
-			continue
-		if lane_any is RefCounted:
-			var lane_obj: RefCounted = lane_any as RefCounted
-			if int(lane_obj.get("id")) == lane_id:
-				return true
-		elif typeof(lane_any) == TYPE_DICTIONARY:
-			var lane_dict: Dictionary = lane_any as Dictionary
-			if int(lane_dict.get("id", -1)) == lane_id:
-				return true
-	return false
+func _validate_target_for_owner(owner_id: int, buff_id: String, target_type: String, target: Dictionary) -> Dictionary:
+	var target_id: Variant = "global"
+	if target_type == BuffDefinitions.TARGET_HIVE:
+		target_id = int(target.get("hive_id", -1))
+	elif target_type == BuffDefinitions.TARGET_LANE:
+		target_id = int(target.get("lane_id", -1))
+	var result: Dictionary = _target_resolver.validate_canonical_target(
+		_ops_game_state(), owner_id, buff_id, target_type, target_id
+	)
+	if bool(result.get("ok", false)):
+		return result
+	result["code"] = str(result.get("reason", "invalid_target"))
+	result["message"] = "Target is not eligible."
+	return result
 
 func _ops_game_state() -> Object:
 	if _ops_state == null:

@@ -62,6 +62,28 @@ func _run() -> void:
 		push_error("MAIN_MENU_BUFFS_LAYOUT_SMOKE: library buttons are still too small")
 		quit(1)
 		return
+	if first_library_button.icon == null:
+		push_error("MAIN_MENU_BUFFS_LAYOUT_SMOKE: library buff sprite was not assigned")
+		quit(1)
+		return
+	var starter_buff_id: String = "buff_swarm_speed_classic"
+	if int(menu.call("_buff_cart_max_qty_for_id", starter_buff_id)) <= 1:
+		push_error("MAIN_MENU_BUFFS_LAYOUT_SMOKE: consumable buff inventory is not stackable")
+		quit(1)
+		return
+	menu.call("_set_buff_mode", "async")
+	await process_frame
+	var mode_copy: Label = menu.get_node_or_null("DashPanel/DashBuffsPanel/BuffsVBox/BuffsSub") as Label
+	if mode_copy == null or not mode_copy.text.contains("two activations"):
+		push_error("MAIN_MENU_BUFFS_LAYOUT_SMOKE: Async two-use rule copy missing")
+		quit(1)
+		return
+	menu.call("_set_buff_mode", "vs")
+	await process_frame
+	if mode_copy == null or not mode_copy.text.contains("one activation"):
+		push_error("MAIN_MENU_BUFFS_LAYOUT_SMOKE: VS one-use rule copy missing")
+		quit(1)
+		return
 
 	var cart_root: Control = menu.get_node_or_null("DashPanel/DashBuffsPanel/BuffsVBox/BuffsBody/BuffsBodyVBox/BuffCartRoot") as Control
 	if cart_root == null or cart_root.custom_minimum_size.y < 232.0:

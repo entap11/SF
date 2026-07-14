@@ -187,14 +187,12 @@ func intent_unlock_additional_slot(player_id: String) -> Dictionary:
 	var max_additional: int = maxi(0, int(mode_rule.get("max_additional_slots", 0)))
 	if current_additional >= max_additional:
 		return _error("max_slots_unlocked", "All additional slots are already unlocked.")
-	var spend_result: Dictionary = intent_spend_nectar(clean_id, _config.slot_unlock_cost_nectar, "slot_unlock")
-	if not bool(spend_result.get("ok", false)):
-		return spend_result
 	_unlocked_additional_slots_by_player[clean_id] = current_additional + 1
 	_save_state()
 	_emit_changed()
 	return {
 		"ok": true,
+		"cost": 0,
 		"additional_slots_unlocked": int(_unlocked_additional_slots_by_player.get(clean_id, 0)),
 		"available_slots": _available_slots(clean_id)
 	}
@@ -223,39 +221,16 @@ func intent_purchase_buff_access(player_id: String, buff_id: String, nectar_cost
 		return _error("missing_buff_id", "Buff id is required.")
 	if BuffCatalog.get_buff(clean_buff_id).is_empty():
 		return _error("unknown_buff", "Unknown buff id.")
-	var cost: int = maxi(0, nectar_cost)
-	if cost <= 0:
-		return _error("invalid_amount", "Nectar cost must be positive.")
-	_ensure_player(clean_id)
-	var spend_result: Dictionary = intent_spend_nectar(clean_id, cost, "buff_access:%s" % clean_buff_id)
-	if not bool(spend_result.get("ok", false)):
-		return spend_result
-	return {"ok": true, "buff_id": clean_buff_id, "cost": cost, "wallet": _wallet_for_player(clean_id)}
+	var _discarded_legacy_cost: int = nectar_cost
+	return _error("nectar_not_currency", "Nectar is seasonal progression XP and cannot purchase buffs.")
 
 func intent_spend_nectar(player_id: String, nectar_amount: int, reason: String) -> Dictionary:
 	var clean_id: String = player_id.strip_edges()
 	if clean_id == "":
 		return _error("missing_player_id", "Player id is required.")
-	if nectar_amount <= 0:
-		return _error("invalid_amount", "Nectar amount must be positive.")
-	_ensure_player(clean_id)
-	var wallet: Dictionary = _wallet_for_player(clean_id)
-	var balance: int = int(wallet.get("nectar", 0))
-	if balance < nectar_amount:
-		return _error("insufficient_nectar", "Not enough Nectar.")
-	wallet["nectar"] = balance - nectar_amount
-	_wallets_by_player[clean_id] = wallet
-	_save_state()
-	_emit_changed()
-	var event: Dictionary = {
-		"type": "nectar_spent",
-		"player_id": clean_id,
-		"amount": nectar_amount,
-		"reason": reason
-	}
-	buff_event.emit(event)
-	SFLog.info("BUFF_RULES", event)
-	return {"ok": true, "wallet": wallet.duplicate(true)}
+	var _discarded_legacy_amount: int = nectar_amount
+	var _discarded_legacy_reason: String = reason
+	return _error("nectar_not_currency", "Nectar is seasonal progression XP and cannot be spent.")
 
 func intent_record_match_completion(player_id: String, paid_entry: bool) -> Dictionary:
 	if _tree_is_crucible():

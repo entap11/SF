@@ -11,7 +11,7 @@ const REWARD_BUNDLE_TOKEN: String = "bundle_token"
 const REWARD_AD_FREE_DAYS: String = "ad_free_days"
 
 const INVENTORY_COSMETICS: String = "cosmetics"
-const INVENTORY_BUFFS: String = "buffs"
+const LEGACY_INVENTORY_BUFFS: String = "buffs"
 const INVENTORY_ACCESS_TICKETS: String = "access_tickets"
 const INVENTORY_ANALYTICS_CREDITS: String = "analytics_credits"
 const INVENTORY_BUNDLE_TOKENS: String = "bundle_tokens"
@@ -28,7 +28,6 @@ func normalize_wallet(raw_wallet: Dictionary) -> Dictionary:
 func normalize_inventory(raw_inventory: Dictionary) -> Dictionary:
 	var inventory: Dictionary = {
 		INVENTORY_COSMETICS: {},
-		INVENTORY_BUFFS: {},
 		INVENTORY_ACCESS_TICKETS: 0,
 		INVENTORY_ANALYTICS_CREDITS: {},
 		INVENTORY_BUNDLE_TOKENS: {},
@@ -37,9 +36,6 @@ func normalize_inventory(raw_inventory: Dictionary) -> Dictionary:
 	var cosmetics_any: Variant = raw_inventory.get(INVENTORY_COSMETICS, {})
 	if typeof(cosmetics_any) == TYPE_DICTIONARY:
 		inventory[INVENTORY_COSMETICS] = (cosmetics_any as Dictionary).duplicate(true)
-	var buffs_any: Variant = raw_inventory.get(INVENTORY_BUFFS, {})
-	if typeof(buffs_any) == TYPE_DICTIONARY:
-		inventory[INVENTORY_BUFFS] = (buffs_any as Dictionary).duplicate(true)
 	inventory[INVENTORY_ACCESS_TICKETS] = maxi(0, int(raw_inventory.get(INVENTORY_ACCESS_TICKETS, 0)))
 	var analytics_any: Variant = raw_inventory.get(INVENTORY_ANALYTICS_CREDITS, {})
 	if typeof(analytics_any) == TYPE_DICTIONARY:
@@ -49,6 +45,27 @@ func normalize_inventory(raw_inventory: Dictionary) -> Dictionary:
 		inventory[INVENTORY_BUNDLE_TOKENS] = (bundle_any as Dictionary).duplicate(true)
 	inventory[INVENTORY_AD_FREE_DAYS] = maxi(0, int(raw_inventory.get(INVENTORY_AD_FREE_DAYS, 0)))
 	return inventory
+
+func migrate_legacy_buff_inventory(raw_inventory: Dictionary, profile_manager: Node) -> int:
+	if profile_manager == null:
+		return 0
+	var buffs_any: Variant = raw_inventory.get(LEGACY_INVENTORY_BUFFS, {})
+	if typeof(buffs_any) != TYPE_DICTIONARY:
+		return 0
+	var migrated: int = 0
+	for buff_id_any in (buffs_any as Dictionary).keys():
+		var buff_id: String = str(buff_id_any).strip_edges()
+		if buff_id == "":
+			continue
+		var entry_any: Variant = (buffs_any as Dictionary).get(buff_id_any, {})
+		if typeof(entry_any) == TYPE_DICTIONARY and not bool((entry_any as Dictionary).get("owned", true)):
+			continue
+		var already_owned: bool = profile_manager.has_method("owns_buff") and bool(profile_manager.call("owns_buff", buff_id, "vs", 1))
+		if not already_owned and profile_manager.has_method("grant_buff"):
+			var result: Dictionary = profile_manager.call("grant_buff", buff_id, 1, "battle_pass_legacy_migration") as Dictionary
+			if bool(result.get("ok", false)):
+				migrated += 1
+	return migrated
 
 func grant_reward(
 	reward_def: Dictionary,
@@ -90,19 +107,32 @@ func grant_reward(
 				"wallet": wallet,
 				"inventory": inventory
 			}
-		var buffs: Dictionary = inventory.get(INVENTORY_BUFFS, {}) as Dictionary
-		buffs[buff_id] = {
-			"owned": true,
-			"account_bound": true
-		}
-		inventory[INVENTORY_BUFFS] = buffs
-		if profile_manager != null and profile_manager.has_method("add_owned_buffs"):
-			profile_manager.call("add_owned_buffs", [buff_id])
+		if profile_manager == null or not profile_manager.has_method("grant_buff"):
+			return {
+				"ok": false,
+				"reason": "buff_inventory_authority_missing",
+				"wallet": wallet,
+				"inventory": inventory
+			}
+		var ownership_result: Dictionary = profile_manager.call(
+			"grant_buff",
+			buff_id,
+			quantity,
+			"battle_pass_reward"
+		) as Dictionary
+		if not bool(ownership_result.get("ok", false)):
+			return {
+				"ok": false,
+				"reason": str(ownership_result.get("reason", "buff_grant_failed")),
+				"wallet": wallet,
+				"inventory": inventory
+			}
 		return {
 			"ok": true,
 			"reward_type": REWARD_BUFF,
 			"buff_id": buff_id,
-			"quantity": 1,
+			"quantity": quantity,
+			"ownership": ownership_result,
 			"wallet": wallet,
 			"inventory": inventory
 		}

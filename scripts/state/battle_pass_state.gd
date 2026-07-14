@@ -1717,7 +1717,10 @@ func _apply_loaded_state(state: Dictionary) -> void:
 	var wallet_any: Variant = state.get("wallet", {})
 	var inventory_any: Variant = state.get("inventory", {})
 	_wallet = _rewards.normalize_wallet(wallet_any as Dictionary if typeof(wallet_any) == TYPE_DICTIONARY else {})
-	_inventory = _rewards.normalize_inventory(inventory_any as Dictionary if typeof(inventory_any) == TYPE_DICTIONARY else {})
+	var raw_inventory: Dictionary = inventory_any as Dictionary if typeof(inventory_any) == TYPE_DICTIONARY else {}
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	_rewards.migrate_legacy_buff_inventory(raw_inventory, profile_manager)
+	_inventory = _rewards.normalize_inventory(raw_inventory)
 	var awarded_ids_any: Variant = state.get("awarded_match_ids", {})
 	_awarded_match_ids = (awarded_ids_any as Dictionary).duplicate(true) if typeof(awarded_ids_any) == TYPE_DICTIONARY else {}
 	var first_win_any: Variant = state.get("first_win_bonus_by_day_player", {})

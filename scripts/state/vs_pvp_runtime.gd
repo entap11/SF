@@ -1,5 +1,7 @@
 extends Node
 
+signal command_publish_result(payload: Dictionary)
+
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const VsHandshakeTransportHttp := preload("res://scripts/state/vs_handshake_transport_http.gd")
 
@@ -537,6 +539,8 @@ func _record_local_command_accepted(command: Dictionary) -> void:
 		event_type = "swarm_intent_sent" if intent == "swarm" else "lane_intent_sent"
 	elif kind == "lane_retract":
 		event_type = "lane_retract_sent"
+	elif kind == "buff_activate":
+		event_type = "buff_activation_sent"
 	_push_debug_event(event_type, _command_debug_payload(command, "accepted"))
 
 func _next_client_command_id(kind: String, issued_tick: int) -> String:
@@ -719,7 +723,11 @@ func _command_log_summary(command: Dictionary) -> Dictionary:
 		"sender_seat": int(command.get("sender_seat", 0)),
 		"src": int(command.get("src", command.get("from_id", command.get("barracks_id", -1)))),
 		"dst": int(command.get("dst", command.get("to_id", -1))),
-		"intent": str(command.get("intent", ""))
+		"intent": str(command.get("intent", "")),
+		"activation_id": str(command.get("activation_id", "")),
+		"buff_id": str(command.get("buff_id", "")),
+		"target_type": str(command.get("target_type", "")),
+		"target_id": command.get("target_id", null)
 	}
 
 func _compare_state_hash_if_ready(hash_tick: int) -> void:
@@ -929,6 +937,33 @@ func record_local_barracks_route(barracks_id: int, route_hive_ids: Array, owner_
 		return false
 	return _publish_command(command)
 
+func record_local_buff_activation(reservation: Dictionary) -> bool:
+	if not is_active():
+		return true
+	if not can_accept_gameplay_intents():
+		_record_input_blocked_runtime_state({
+			"kind": "buff_activate",
+			"activation_id": str(reservation.get("activation_id", ""))
+		})
+		return false
+	var owner_id: int = int(reservation.get("owner_id", 0))
+	if owner_id != _local_seat:
+		return false
+	var command: Dictionary = _contract_command_base("buff_activate")
+	command.merge({
+		"activation_id": str(reservation.get("activation_id", "")).strip_edges(),
+		"owner_id": owner_id,
+		"buff_id": str(reservation.get("buff_id", "")).strip_edges(),
+		"tier": str(reservation.get("tier", "")).strip_edges().to_lower(),
+		"target_type": str(reservation.get("target_type", "")).strip_edges().to_lower(),
+		"target_id": reservation.get("target_id", "global"),
+		"source_kind": str(reservation.get("source_kind", "")).strip_edges().to_lower(),
+		"source_use_ordinal": int(reservation.get("source_use_ordinal", 1))
+	})
+	if not _validate_contract_command(command, "outgoing"):
+		return false
+	return _publish_command(command)
+
 func _publish_command(command: Dictionary) -> bool:
 	if not _validate_contract_command(command, "publish"):
 		return false
@@ -967,9 +1002,19 @@ func _handle_publish_result(command: Dictionary, result: Dictionary, t0_us: int)
 			"kind": str(command.get("kind", "")),
 			"err": str(result.get("err", "unknown"))
 		}, "", 500)
-		_contract_violation("publish_failed_after_local_mutation", {
-			"command": command.duplicate(true),
-			"result": result.duplicate(true)
+		if str(command.get("kind", "")).strip_edges().to_lower() != "buff_activate":
+			_contract_violation("publish_failed_after_local_mutation", {
+				"command": command.duplicate(true),
+				"result": result.duplicate(true)
+			})
+		command_publish_result.emit({
+			"ok": false,
+			"kind": str(command.get("kind", "")),
+			"activation_id": str(command.get("activation_id", "")),
+			"owner_id": int(command.get("owner_id", 0)),
+			"reason": str(result.get("err", "publish_rejected")),
+			"request_command": command.duplicate(true),
+			"transport_result": result.duplicate(true)
 		})
 		return
 	_intent_events_tx += 1
@@ -977,6 +1022,14 @@ func _handle_publish_result(command: Dictionary, result: Dictionary, t0_us: int)
 	_queue_scheduled_command(canonical_command)
 	if not (_should_publish_on_worker_thread(command) and _command_needs_local_pending_accept(command)):
 		_record_local_command_accepted(canonical_command)
+	command_publish_result.emit({
+		"ok": true,
+		"kind": str(command.get("kind", "")),
+		"activation_id": str(command.get("activation_id", "")),
+		"owner_id": int(command.get("owner_id", 0)),
+		"canonical_command": canonical_command.duplicate(true),
+		"transport_result": result.duplicate(true)
+	})
 	_update_runtime_telemetry()
 
 func _poll_remote_intents() -> void:
@@ -1065,6 +1118,8 @@ func _record_remote_command_received(command: Dictionary) -> void:
 			_push_debug_event(event_type, command)
 		"lane_retract":
 			_push_debug_event("lane_update_received", command)
+		"buff_activate":
+			_push_debug_event("buff_activation_received", command)
 		_:
 			return
 
@@ -1137,6 +1192,33 @@ func _validate_contract_command(command: Dictionary, direction: String) -> bool:
 			var route_any: Variant = command.get("route_hive_ids", [])
 			if typeof(route_any) != TYPE_ARRAY:
 				return _contract_violation("bad_barracks_route_type", {"direction": direction, "command": command.duplicate(true)})
+		"buff_activate":
+			if int(command.get("execute_tick", -1)) < 0:
+				return _contract_violation("missing_execute_tick", {"direction": direction, "command": command.duplicate(true)})
+			if str(command.get("activation_id", "")).strip_edges().is_empty():
+				return _contract_violation("bad_buff_activation_id", {"direction": direction, "command": command.duplicate(true)})
+			var owner_id: int = int(command.get("owner_id", 0))
+			if owner_id <= 0 or owner_id != int(command.get("sender_seat", 0)):
+				return _contract_violation("bad_buff_owner", {"direction": direction, "command": command.duplicate(true)})
+			if str(command.get("buff_id", "")).strip_edges().is_empty() or str(command.get("tier", "")).strip_edges().is_empty():
+				return _contract_violation("bad_buff_identity", {"direction": direction, "command": command.duplicate(true)})
+			var target_type: String = str(command.get("target_type", "")).strip_edges().to_lower()
+			if target_type != "hive" and target_type != "lane" and target_type != "global":
+				return _contract_violation("bad_buff_target_type", {"direction": direction, "command": command.duplicate(true)})
+			if target_type == "global":
+				if str(command.get("target_id", "")).strip_edges().to_lower() != "global":
+					return _contract_violation("bad_global_buff_target", {"direction": direction, "command": command.duplicate(true)})
+			elif int(command.get("target_id", -1)) <= 0:
+				return _contract_violation("bad_buff_target_id", {"direction": direction, "command": command.duplicate(true)})
+			for forbidden_key in ["world_pos", "local_pos", "grid_pos", "touch_id", "screen_pos"]:
+				if command.has(forbidden_key):
+					return _contract_violation("buff_command_contains_transient_target", {"direction": direction, "key": forbidden_key, "command": command.duplicate(true)})
+			var source_kind: String = str(command.get("source_kind", "")).strip_edges().to_lower()
+			var ordinal: int = int(command.get("source_use_ordinal", 0))
+			if source_kind != "inventory" and source_kind != "vs" and source_kind != "async":
+				return _contract_violation("bad_buff_source_kind", {"direction": direction, "command": command.duplicate(true)})
+			if ((source_kind == "inventory" or source_kind == "vs") and ordinal != 1) or (source_kind == "async" and (ordinal < 1 or ordinal > 2)):
+				return _contract_violation("bad_buff_source_ordinal", {"direction": direction, "command": command.duplicate(true)})
 		_:
 			return _contract_violation("unknown_command_kind", {"direction": direction, "command": command.duplicate(true)})
 	return true
@@ -1318,7 +1400,11 @@ func _command_debug_payload(command: Dictionary, action_taken: String) -> Dictio
 		"action_taken": action_taken,
 		"state_hash": state_hash,
 		"src": int(command.get("src", command.get("from_id", -1))),
-		"dst": int(command.get("dst", command.get("to_id", -1)))
+		"dst": int(command.get("dst", command.get("to_id", -1))),
+		"activation_id": str(command.get("activation_id", "")),
+		"buff_id": str(command.get("buff_id", "")),
+		"target_type": str(command.get("target_type", "")),
+		"target_id": command.get("target_id", null)
 	}
 
 func _contract_diagnostics_snapshot() -> Dictionary:

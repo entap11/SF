@@ -5,6 +5,8 @@ signal achievement_granted(achievement_id: String)
 signal powerbar_theme_changed(theme_id: String)
 signal garage_selection_changed(category_id: String, item_id: String)
 signal social_destination_changed(destination_id: String, enabled: bool)
+signal buff_inventory_changed(mode: String, owned_ids: Array[String], reason: String)
+signal buff_loadout_changed(mode: String, loadout_ids: Array[String])
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
@@ -130,6 +132,8 @@ var _owned_buff_ids: Array[String] = []
 var _buff_loadout_ids: Array[String] = []
 var _owned_buff_ids_by_mode: Dictionary = {}
 var _buff_loadout_ids_by_mode: Dictionary = {}
+var _buff_inventory_counts: Dictionary = {}
+var _buff_inventory_counts_loaded: bool = false
 var _honey_balance: int = DEFAULT_HONEY_BALANCE
 var _economy_epoch: String = EconomyEpochScript.CURRENT
 var _store_entitlements: Dictionary = {}
@@ -223,10 +227,15 @@ func ensure_loaded() -> void:
 		_performance_mode = _sanitize_performance_mode(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, PERFORMANCE_MODE_QUALITY)))
 		_admin_dashboard_username = _sanitize_admin_dashboard_username(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_USERNAME, DEFAULT_ADMIN_DASHBOARD_USERNAME)))
 		_admin_dashboard_password = _sanitize_admin_dashboard_password(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD, DEFAULT_ADMIN_DASHBOARD_PASSWORD)))
-		_owned_buff_ids = _sanitize_owned_ids(cfg.get_value(PROFILE_SECTION, "owned_buff_ids", []))
+		var legacy_owned_default: Array[String] = []
+		if not cfg.has_section_key(PROFILE_SECTION, "owned_buff_ids"):
+			legacy_owned_default = _default_owned_ids()
+		_owned_buff_ids = _sanitize_owned_ids(cfg.get_value(PROFILE_SECTION, "owned_buff_ids", legacy_owned_default))
 		_buff_loadout_ids = _sanitize_loadout_ids(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids", []))
 		_owned_buff_ids_by_mode = _sanitize_owned_mode_map(cfg.get_value(PROFILE_SECTION, "owned_buff_ids_by_mode", {}))
 		_buff_loadout_ids_by_mode = _sanitize_loadout_mode_map(cfg.get_value(PROFILE_SECTION, "buff_loadout_ids_by_mode", {}), _owned_buff_ids_by_mode)
+		_buff_inventory_counts_loaded = cfg.has_section_key(PROFILE_SECTION, "buff_inventory_counts")
+		_buff_inventory_counts = _sanitize_buff_inventory_counts(cfg.get_value(PROFILE_SECTION, "buff_inventory_counts", {}))
 		_honey_balance = maxi(0, int(cfg.get_value(PROFILE_SECTION, "honey_balance", DEFAULT_HONEY_BALANCE)))
 		_economy_epoch = str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ECONOMY_EPOCH, "")).strip_edges()
 		_store_entitlements = _sanitize_store_entitlements(cfg.get_value(PROFILE_SECTION, "store_entitlements", {}))
@@ -274,6 +283,8 @@ func ensure_loaded() -> void:
 		_admin_dashboard_password = DEFAULT_ADMIN_DASHBOARD_PASSWORD
 		_owned_buff_ids = _default_owned_ids()
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
+		_buff_inventory_counts = _inventory_counts_from_ids(_owned_buff_ids)
+		_buff_inventory_counts_loaded = true
 		_honey_balance = DEFAULT_HONEY_BALANCE
 		_economy_epoch = EconomyEpochScript.CURRENT
 		_store_entitlements = {}
@@ -316,9 +327,6 @@ func ensure_loaded() -> void:
 		var clean_admin_password: String = _sanitize_admin_dashboard_password(_admin_dashboard_password)
 		if clean_admin_password != _admin_dashboard_password:
 			_admin_dashboard_password = clean_admin_password
-			updated = true
-		if _owned_buff_ids.is_empty():
-			_owned_buff_ids = _default_owned_ids()
 			updated = true
 		var clean_tutorial_status: String = _sanitize_tutorial_section1_status(_tutorial_section1_status)
 		if clean_tutorial_status != _tutorial_section1_status:
@@ -400,7 +408,6 @@ func ensure_loaded() -> void:
 			updated = true
 		if _ensure_mode_maps():
 			updated = true
-		_ensure_loadout_owned()
 		if updated:
 			_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 
@@ -1076,41 +1083,116 @@ func add_owned_buffs(ids: Array) -> int:
 
 func get_owned_buff_ids_for_mode(mode: String) -> Array[String]:
 	ensure_loaded()
-	var mode_key: String = _normalize_buff_mode(mode)
-	return _copy_string_array(_owned_buff_ids_by_mode.get(mode_key, []))
+	var _mode_key: String = _normalize_buff_mode(mode)
+	return _expanded_buff_inventory_ids()
+
+func owns_buff(buff_id: String, mode: String = BUFF_MODE_VS, quantity: int = 1) -> bool:
+	ensure_loaded()
+	var clean_id: String = buff_id.strip_edges()
+	if clean_id == "" or quantity <= 0:
+		return false
+	var _mode_key: String = _normalize_buff_mode(mode)
+	return int(_buff_inventory_counts.get(clean_id, 0)) >= quantity
+
+func get_owned_buff_quantity(buff_id: String, mode: String = BUFF_MODE_VS) -> int:
+	ensure_loaded()
+	var _mode_key: String = _normalize_buff_mode(mode)
+	return maxi(0, int(_buff_inventory_counts.get(buff_id.strip_edges(), 0)))
+
+func get_buff_inventory_snapshot() -> Dictionary:
+	ensure_loaded()
+	return {
+		"counts": _buff_inventory_counts.duplicate(true),
+		"revision": get_buff_inventory_revision(),
+		BUFF_MODE_VS: get_owned_buff_ids_for_mode(BUFF_MODE_VS),
+		BUFF_MODE_ASYNC: get_owned_buff_ids_for_mode(BUFF_MODE_ASYNC)
+	}
+
+func get_buff_inventory_revision() -> String:
+	ensure_loaded()
+	var ids: Array[String] = []
+	for buff_id_any in _buff_inventory_counts.keys():
+		ids.append(str(buff_id_any))
+	ids.sort()
+	var parts: PackedStringArray = []
+	for buff_id in ids:
+		parts.append("%s=%d" % [buff_id, maxi(0, int(_buff_inventory_counts.get(buff_id, 0)))])
+	return ("|".join(parts)).sha256_text()
+
+func grant_buff(buff_id: String, quantity: int = 1, reason: String = "") -> Dictionary:
+	ensure_loaded()
+	var clean_id: String = buff_id.strip_edges()
+	if clean_id == "" or BuffCatalog.get_buff(clean_id).is_empty():
+		return {"ok": false, "reason": "unknown_buff", "buff_id": clean_id}
+	var safe_quantity: int = maxi(1, quantity)
+	_buff_inventory_counts[clean_id] = maxi(0, int(_buff_inventory_counts.get(clean_id, 0))) + safe_quantity
+	_sync_inventory_projections_and_loadouts()
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	_emit_buff_inventory_changed(reason)
+	return {
+		"ok": true,
+		"buff_id": clean_id,
+		"quantity": safe_quantity,
+		"new_quantity": int(_buff_inventory_counts.get(clean_id, 0)),
+		"inventory": get_buff_inventory_snapshot()
+	}
+
+func consume_buff(buff_id: String, quantity: int = 1, reason: String = "") -> Dictionary:
+	ensure_loaded()
+	var clean_id: String = buff_id.strip_edges()
+	var safe_quantity: int = maxi(1, quantity)
+	var available: int = maxi(0, int(_buff_inventory_counts.get(clean_id, 0)))
+	if clean_id == "" or available < safe_quantity:
+		return {
+			"ok": false,
+			"reason": "not_owned",
+			"buff_id": clean_id,
+			"requested": safe_quantity,
+			"available": available
+		}
+	var remaining: int = available - safe_quantity
+	if remaining > 0:
+		_buff_inventory_counts[clean_id] = remaining
+	else:
+		_buff_inventory_counts.erase(clean_id)
+	_sync_inventory_projections_and_loadouts()
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	_emit_buff_inventory_changed(reason)
+	return {
+		"ok": true,
+		"buff_id": clean_id,
+		"consumed": safe_quantity,
+		"remaining": remaining,
+		"inventory": get_buff_inventory_snapshot()
+	}
+
+func revoke_buff_for_mode(mode: String, buff_id: String, quantity: int = 1, reason: String = "") -> Dictionary:
+	var _mode_key: String = _normalize_buff_mode(mode)
+	return consume_buff(buff_id, quantity, reason)
 
 func set_owned_buff_ids_for_mode(mode: String, ids: Array) -> void:
 	ensure_loaded()
-	var mode_key: String = _normalize_buff_mode(mode)
-	var owned_ids: Array[String] = _sanitize_owned_ids_for_mode(ids, mode_key)
-	_owned_buff_ids_by_mode[mode_key] = owned_ids
-	var current_loadout: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(mode_key, []))
-	_buff_loadout_ids_by_mode[mode_key] = _sanitize_loadout_ids_for_mode(current_loadout, mode_key, owned_ids)
-	_ensure_loadout_owned_for_mode(mode_key)
-	_sync_legacy_from_vs_mode()
+	var _mode_key: String = _normalize_buff_mode(mode)
+	var owned_ids: Array[String] = _sanitize_owned_ids_for_mode(ids, BUFF_MODE_ASYNC)
+	_buff_inventory_counts = _inventory_counts_from_ids(owned_ids)
+	_sync_inventory_projections_and_loadouts()
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	_emit_buff_inventory_changed("inventory_replaced")
 
-func add_owned_buffs_for_mode(mode: String, ids: Array) -> int:
+func add_owned_buffs_for_mode(mode: String, ids: Array, reason: String = "") -> int:
 	ensure_loaded()
-	var mode_key: String = _normalize_buff_mode(mode)
-	var allow_duplicates: bool = _mode_allows_duplicates(mode_key)
-	var owned_ids: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(mode_key, []))
+	var _mode_key: String = _normalize_buff_mode(mode)
 	var added: int = 0
 	for buff_id_v in ids:
 		var buff_id: String = str(buff_id_v).strip_edges()
-		if buff_id == "":
+		if buff_id == "" or BuffCatalog.get_buff(buff_id).is_empty():
 			continue
-		if BuffCatalog.get_buff(buff_id).is_empty():
-			continue
-		if (not allow_duplicates) and owned_ids.has(buff_id):
-			continue
-		owned_ids.append(buff_id)
+		_buff_inventory_counts[buff_id] = maxi(0, int(_buff_inventory_counts.get(buff_id, 0))) + 1
 		added += 1
 	if added > 0:
-		_owned_buff_ids_by_mode[mode_key] = owned_ids
-		_ensure_loadout_owned_for_mode(mode_key)
-		_sync_legacy_from_vs_mode()
+		_sync_inventory_projections_and_loadouts()
 		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		_emit_buff_inventory_changed(reason)
 	return added
 
 func get_buff_loadout_ids() -> Array[String]:
@@ -1437,13 +1519,19 @@ func set_buff_loadout_ids_for_mode(mode: String, ids: Array) -> bool:
 	var mode_key: String = _normalize_buff_mode(mode)
 	var owned_ids: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(mode_key, []))
 	var next_ids: Array[String] = _sanitize_loadout_ids_for_mode(ids, mode_key, owned_ids)
+	var requested_ids: Array[String] = _sanitize_catalog_loadout_ids(ids, mode_key)
+	var raw_requested_ids: Array[String] = _copy_string_array(ids)
+	if raw_requested_ids.size() > BUFF_LOADOUT_SIZE:
+		return false
+	if requested_ids != raw_requested_ids or next_ids != requested_ids:
+		return false
 	var current_ids: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(mode_key, []))
 	if next_ids == current_ids:
 		return true
 	_buff_loadout_ids_by_mode[mode_key] = next_ids
-	_ensure_loadout_owned_for_mode(mode_key)
 	_sync_legacy_from_vs_mode()
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	buff_loadout_changed.emit(mode_key, next_ids.duplicate())
 	return true
 
 func _save_profile(user_id: String, display_name: String, created_at: int, onboarding_complete: bool) -> void:
@@ -1493,6 +1581,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids", _buff_loadout_ids)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids_by_mode", _owned_buff_ids_by_mode)
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids_by_mode", _buff_loadout_ids_by_mode)
+	cfg.set_value(PROFILE_SECTION, "buff_inventory_counts", _buff_inventory_counts)
 	cfg.set_value(PROFILE_SECTION, "honey_balance", _honey_balance)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_ECONOMY_EPOCH, _economy_epoch)
 	cfg.set_value(PROFILE_SECTION, "store_entitlements", _store_entitlements)
@@ -1901,10 +1990,63 @@ func _default_owned_ids() -> Array[String]:
 		out.append(buff_id)
 	return out
 
+func _sanitize_buff_inventory_counts(raw: Variant) -> Dictionary:
+	var out: Dictionary = {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	for buff_id_any in (raw as Dictionary).keys():
+		var buff_id: String = str(buff_id_any).strip_edges()
+		var quantity: int = maxi(0, int((raw as Dictionary).get(buff_id_any, 0)))
+		if buff_id == "" or quantity <= 0 or BuffCatalog.get_buff(buff_id).is_empty():
+			continue
+		out[buff_id] = quantity
+	return out
+
+func _inventory_counts_from_ids(raw_ids: Variant) -> Dictionary:
+	var out: Dictionary = {}
+	if typeof(raw_ids) != TYPE_ARRAY:
+		return out
+	for buff_id_any in raw_ids as Array:
+		var buff_id: String = str(buff_id_any).strip_edges()
+		if buff_id == "" or BuffCatalog.get_buff(buff_id).is_empty():
+			continue
+		out[buff_id] = maxi(0, int(out.get(buff_id, 0))) + 1
+	return out
+
+func _merge_inventory_counts_max(target: Dictionary, raw_ids: Variant) -> void:
+	var candidate: Dictionary = _inventory_counts_from_ids(raw_ids)
+	for buff_id_any in candidate.keys():
+		var buff_id: String = str(buff_id_any)
+		target[buff_id] = maxi(int(target.get(buff_id, 0)), int(candidate.get(buff_id_any, 0)))
+
+func _expanded_buff_inventory_ids() -> Array[String]:
+	var out: Array[String] = []
+	for buff_id_any in _buff_inventory_counts.keys():
+		var buff_id: String = str(buff_id_any)
+		var quantity: int = maxi(0, int(_buff_inventory_counts.get(buff_id_any, 0)))
+		for _index in range(quantity):
+			out.append(buff_id)
+	return out
+
+func _sync_inventory_projections_and_loadouts() -> void:
+	var owned_ids: Array[String] = _expanded_buff_inventory_ids()
+	_owned_buff_ids_by_mode[BUFF_MODE_VS] = owned_ids.duplicate()
+	_owned_buff_ids_by_mode[BUFF_MODE_ASYNC] = owned_ids.duplicate()
+	for mode in [BUFF_MODE_VS, BUFF_MODE_ASYNC]:
+		var current: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(mode, []))
+		_buff_loadout_ids_by_mode[mode] = _sanitize_loadout_ids_for_mode(current, mode, owned_ids)
+	_sync_legacy_from_vs_mode()
+
+func _emit_buff_inventory_changed(reason: String) -> void:
+	var owned_ids: Array[String] = _expanded_buff_inventory_ids()
+	for mode in [BUFF_MODE_VS, BUFF_MODE_ASYNC]:
+		buff_inventory_changed.emit(mode, owned_ids.duplicate(), reason)
+		buff_loadout_changed.emit(mode, get_buff_loadout_ids_for_mode(mode))
+
 func _sanitize_owned_ids(raw: Variant) -> Array[String]:
 	var out: Array[String] = []
 	if typeof(raw) != TYPE_ARRAY:
-		return _default_owned_ids()
+		return out
 	for buff_id_v in raw as Array:
 		var buff_id: String = str(buff_id_v).strip_edges()
 		if buff_id == "":
@@ -1914,42 +2056,25 @@ func _sanitize_owned_ids(raw: Variant) -> Array[String]:
 		if out.has(buff_id):
 			continue
 		out.append(buff_id)
-	if out.is_empty():
-		out = _default_owned_ids()
 	return out
 
 func _sanitize_loadout_ids(raw: Variant) -> Array[String]:
-	var base: Array[String] = _default_owned_ids()
 	var out: Array[String] = []
 	if typeof(raw) == TYPE_ARRAY:
-		for buff_id_v in raw as Array:
+		var raw_ids: Array = raw as Array
+		for index in range(mini(raw_ids.size(), BUFF_LOADOUT_SIZE)):
+			var buff_id_v: Variant = raw_ids[index]
 			var buff_id: String = str(buff_id_v).strip_edges()
 			if buff_id == "":
+				out.append("")
 				continue
 			if BuffCatalog.get_buff(buff_id).is_empty():
+				out.append("")
 				continue
 			if out.has(buff_id):
+				out.append("")
 				continue
 			out.append(buff_id)
-	if out.size() > BUFF_LOADOUT_SIZE:
-		out = out.slice(0, BUFF_LOADOUT_SIZE)
-	var fill_i: int = 0
-	while out.size() < BUFF_LOADOUT_SIZE and fill_i < base.size():
-		var fallback_id: String = base[fill_i]
-		if not out.has(fallback_id):
-			out.append(fallback_id)
-		fill_i += 1
-	while out.size() < BUFF_LOADOUT_SIZE:
-		for fallback_id in DEFAULT_BUFF_LOADOUT_IDS:
-			if BuffCatalog.get_buff(fallback_id).is_empty():
-				continue
-			if out.has(fallback_id):
-				continue
-			out.append(fallback_id)
-			break
-		if out.size() >= BUFF_LOADOUT_SIZE:
-			break
-		break
 	return out
 
 func _sanitize_store_entitlements(raw: Variant) -> Dictionary:
@@ -2070,45 +2195,54 @@ func _sanitize_owned_ids_for_mode(raw: Variant, mode: String) -> Array[String]:
 			if (not allow_duplicates) and out.has(buff_id):
 				continue
 			out.append(buff_id)
-	if out.is_empty():
-		out = _default_owned_ids()
 	return out
 
 func _sanitize_loadout_ids_for_mode(raw: Variant, mode: String, owned_ids: Array[String]) -> Array[String]:
-	var allow_duplicates: bool = _mode_allows_duplicates(mode)
-	var base: Array[String] = owned_ids.duplicate()
-	if base.is_empty():
-		base = _default_owned_ids()
+	var allow_duplicates: bool = false
 	var out: Array[String] = []
+	var used_counts: Dictionary = {}
 	if typeof(raw) == TYPE_ARRAY:
-		for buff_id_v in raw as Array:
+		var raw_ids: Array = raw as Array
+		for index in range(mini(raw_ids.size(), BUFF_LOADOUT_SIZE)):
+			var buff_id_v: Variant = raw_ids[index]
 			var buff_id: String = str(buff_id_v).strip_edges()
 			if buff_id == "":
+				out.append("")
 				continue
 			if BuffCatalog.get_buff(buff_id).is_empty():
+				out.append("")
 				continue
 			if (not allow_duplicates) and out.has(buff_id):
+				out.append("")
+				continue
+			var available: int = _count_buff_in_list(owned_ids, buff_id)
+			var used: int = int(used_counts.get(buff_id, 0))
+			if available <= used:
+				out.append("")
 				continue
 			out.append(buff_id)
-	if out.size() > BUFF_LOADOUT_SIZE:
-		out = out.slice(0, BUFF_LOADOUT_SIZE)
-	var fill_i: int = 0
-	while out.size() < BUFF_LOADOUT_SIZE and fill_i < base.size():
-		var fallback_id: String = base[fill_i]
-		if allow_duplicates or (not out.has(fallback_id)):
-			out.append(fallback_id)
-		fill_i += 1
-	while out.size() < BUFF_LOADOUT_SIZE:
-		for fallback_id in DEFAULT_BUFF_LOADOUT_IDS:
-			if BuffCatalog.get_buff(fallback_id).is_empty():
-				continue
-			if (not allow_duplicates) and out.has(fallback_id):
-				continue
-			out.append(fallback_id)
-			break
-		if out.size() >= BUFF_LOADOUT_SIZE:
-			break
-		break
+			used_counts[buff_id] = used + 1
+	return out
+
+func _sanitize_catalog_loadout_ids(raw: Variant, mode: String) -> Array[String]:
+	var allow_duplicates: bool = false
+	var out: Array[String] = []
+	if typeof(raw) != TYPE_ARRAY:
+		return out
+	var raw_ids: Array = raw as Array
+	for index in range(mini(raw_ids.size(), BUFF_LOADOUT_SIZE)):
+		var buff_id_v: Variant = raw_ids[index]
+		var buff_id: String = str(buff_id_v).strip_edges()
+		if buff_id == "":
+			out.append("")
+			continue
+		if BuffCatalog.get_buff(buff_id).is_empty():
+			out.append("")
+			continue
+		if (not allow_duplicates) and out.has(buff_id):
+			out.append("")
+			continue
+		out.append(buff_id)
 	return out
 
 func _sanitize_owned_mode_map(raw: Variant) -> Dictionary:
@@ -2129,7 +2263,7 @@ func _sanitize_loadout_mode_map(raw: Variant, owned_by_mode: Dictionary) -> Dict
 	for mode in [BUFF_MODE_VS, BUFF_MODE_ASYNC]:
 		if not map_any.has(mode):
 			continue
-		var owned_any: Variant = owned_by_mode.get(mode, _default_owned_ids())
+		var owned_any: Variant = owned_by_mode.get(mode, [])
 		var owned_ids: Array[String] = _copy_string_array(owned_any)
 		out[mode] = _sanitize_loadout_ids_for_mode(map_any.get(mode, []), mode, owned_ids)
 	return out
@@ -2144,94 +2278,42 @@ func _count_buff_in_list(entries: Array[String], buff_id: String) -> int:
 	return out
 
 func _ensure_mode_maps() -> bool:
-	var changed: bool = false
+	var before_inventory: Dictionary = _buff_inventory_counts.duplicate(true)
+	var before_owned_modes: Dictionary = _owned_buff_ids_by_mode.duplicate(true)
+	var before_loadout_modes: Dictionary = _buff_loadout_ids_by_mode.duplicate(true)
+	var before_legacy_owned: Array[String] = _owned_buff_ids.duplicate()
+	var before_legacy_loadout: Array[String] = _buff_loadout_ids.duplicate()
 	var legacy_owned_vs: Array[String] = _sanitize_owned_ids(_owned_buff_ids)
 	var legacy_loadout_vs: Array[String] = _sanitize_loadout_ids(_buff_loadout_ids)
-	for mode in [BUFF_MODE_VS, BUFF_MODE_ASYNC]:
-		if not _owned_buff_ids_by_mode.has(mode):
-			if mode == BUFF_MODE_VS:
-				_owned_buff_ids_by_mode[mode] = legacy_owned_vs.duplicate()
-			else:
-				_owned_buff_ids_by_mode[mode] = legacy_owned_vs.duplicate()
-			changed = true
-	var vs_owned_any: Variant = _owned_buff_ids_by_mode.get(BUFF_MODE_VS, legacy_owned_vs)
-	var vs_owned_ids: Array[String] = _sanitize_owned_ids_for_mode(vs_owned_any, BUFF_MODE_VS)
-	if vs_owned_ids != _copy_string_array(vs_owned_any):
-		changed = true
-	_owned_buff_ids_by_mode[BUFF_MODE_VS] = vs_owned_ids
-	var async_owned_any: Variant = _owned_buff_ids_by_mode.get(BUFF_MODE_ASYNC, vs_owned_ids)
-	var async_owned_ids: Array[String] = _sanitize_owned_ids_for_mode(async_owned_any, BUFF_MODE_ASYNC)
-	if async_owned_ids != _copy_string_array(async_owned_any):
-		changed = true
-	_owned_buff_ids_by_mode[BUFF_MODE_ASYNC] = async_owned_ids
-
-	for mode in [BUFF_MODE_VS, BUFF_MODE_ASYNC]:
-		if not _buff_loadout_ids_by_mode.has(mode):
-			if mode == BUFF_MODE_VS:
-				_buff_loadout_ids_by_mode[mode] = legacy_loadout_vs.duplicate()
-			else:
-				_buff_loadout_ids_by_mode[mode] = legacy_loadout_vs.duplicate()
-			changed = true
+	if not _buff_inventory_counts_loaded:
+		_buff_inventory_counts.clear()
+		_merge_inventory_counts_max(_buff_inventory_counts, legacy_owned_vs)
+		_merge_inventory_counts_max(_buff_inventory_counts, _owned_buff_ids_by_mode.get(BUFF_MODE_VS, []))
+		_merge_inventory_counts_max(_buff_inventory_counts, _owned_buff_ids_by_mode.get(BUFF_MODE_ASYNC, []))
+		_buff_inventory_counts_loaded = true
+	var owned_ids: Array[String] = _expanded_buff_inventory_ids()
 	var vs_loadout_any: Variant = _buff_loadout_ids_by_mode.get(BUFF_MODE_VS, legacy_loadout_vs)
-	var vs_loadout_ids: Array[String] = _sanitize_loadout_ids_for_mode(vs_loadout_any, BUFF_MODE_VS, vs_owned_ids)
-	if vs_loadout_ids != _copy_string_array(vs_loadout_any):
-		changed = true
-	_buff_loadout_ids_by_mode[BUFF_MODE_VS] = vs_loadout_ids
+	var vs_loadout_ids: Array[String] = _sanitize_loadout_ids_for_mode(vs_loadout_any, BUFF_MODE_VS, owned_ids)
 	var async_loadout_any: Variant = _buff_loadout_ids_by_mode.get(BUFF_MODE_ASYNC, vs_loadout_ids)
-	var async_loadout_ids: Array[String] = _sanitize_loadout_ids_for_mode(async_loadout_any, BUFF_MODE_ASYNC, async_owned_ids)
-	if async_loadout_ids != _copy_string_array(async_loadout_any):
-		changed = true
+	var async_loadout_ids: Array[String] = _sanitize_loadout_ids_for_mode(async_loadout_any, BUFF_MODE_ASYNC, owned_ids)
+	_owned_buff_ids_by_mode[BUFF_MODE_VS] = owned_ids.duplicate()
+	_owned_buff_ids_by_mode[BUFF_MODE_ASYNC] = owned_ids.duplicate()
+	_buff_loadout_ids_by_mode[BUFF_MODE_VS] = vs_loadout_ids
 	_buff_loadout_ids_by_mode[BUFF_MODE_ASYNC] = async_loadout_ids
-
-	var before_vs_owned: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_VS, []))
-	var before_async_owned: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_ASYNC, []))
-	_ensure_loadout_owned_for_mode(BUFF_MODE_VS)
-	_ensure_loadout_owned_for_mode(BUFF_MODE_ASYNC)
-	if before_vs_owned != _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_VS, [])):
-		changed = true
-	if before_async_owned != _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_ASYNC, [])):
-		changed = true
-
-	var old_legacy_owned: Array[String] = _owned_buff_ids.duplicate()
-	var old_legacy_loadout: Array[String] = _buff_loadout_ids.duplicate()
 	_sync_legacy_from_vs_mode()
-	if old_legacy_owned != _owned_buff_ids:
-		changed = true
-	if old_legacy_loadout != _buff_loadout_ids:
-		changed = true
-	return changed
-
-func _ensure_loadout_owned_for_mode(mode: String) -> void:
-	var mode_key: String = _normalize_buff_mode(mode)
-	var owned_ids: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(mode_key, []))
-	var loadout_ids: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(mode_key, []))
-	if _mode_allows_duplicates(mode_key):
-		for buff_id in loadout_ids:
-			if buff_id == "":
-				continue
-			var required: int = _count_buff_in_list(loadout_ids, buff_id)
-			var available: int = _count_buff_in_list(owned_ids, buff_id)
-			while available < required:
-				owned_ids.append(buff_id)
-				available += 1
-	else:
-		for buff_id in loadout_ids:
-			if buff_id == "":
-				continue
-			if owned_ids.has(buff_id):
-				continue
-			owned_ids.append(buff_id)
-	_owned_buff_ids_by_mode[mode_key] = owned_ids
+	return (
+		before_inventory != _buff_inventory_counts
+		or before_owned_modes != _owned_buff_ids_by_mode
+		or before_loadout_modes != _buff_loadout_ids_by_mode
+		or before_legacy_owned != _owned_buff_ids
+		or before_legacy_loadout != _buff_loadout_ids
+	)
 
 func _sync_legacy_from_vs_mode() -> void:
-	var vs_owned: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_VS, _default_owned_ids()))
-	var vs_loadout: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(BUFF_MODE_VS, _sanitize_loadout_ids(vs_owned)))
+	var vs_owned: Array[String] = _copy_string_array(_owned_buff_ids_by_mode.get(BUFF_MODE_VS, []))
+	var vs_loadout: Array[String] = _copy_string_array(_buff_loadout_ids_by_mode.get(BUFF_MODE_VS, []))
 	_owned_buff_ids = _sanitize_owned_ids_for_mode(vs_owned, BUFF_MODE_VS)
 	_buff_loadout_ids = _sanitize_loadout_ids_for_mode(vs_loadout, BUFF_MODE_VS, _owned_buff_ids)
-
-func _ensure_loadout_owned() -> void:
-	_ensure_loadout_owned_for_mode(BUFF_MODE_VS)
-	_sync_legacy_from_vs_mode()
 
 # Legacy compatibility (single-profile semantics).
 func get_profiles() -> Array[Dictionary]:

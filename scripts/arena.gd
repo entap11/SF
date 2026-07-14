@@ -28,6 +28,8 @@ const ProgressiveConfigScript := preload("res://scripts/state/progressive_config
 const ProgressiveRunStoreScript := preload("res://scripts/state/progressive_run_store.gd")
 const ProgressiveStarDecayHudScript := preload("res://scripts/ui/progressive_star_decay_hud.gd")
 const AsyncRecordEligibilityPolicy := preload("res://scripts/state/async_record_eligibility_policy.gd")
+const BuffTargetResolverScript := preload("res://scripts/state/buff_target_resolver.gd")
+const BuffActivationTransactionScript := preload("res://scripts/state/buff_activation_transaction.gd")
 const TeamVisuals = preload("res://scripts/renderers/team_visuals.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaTutorialControlsController := preload("res://scripts/arena_helpers/tutorial_controls_controller.gd")
@@ -149,6 +151,8 @@ const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
 const TREE_META_CONTEST_RESULT_SIGNATURE: String = "contest_result_commit_signature"
 const TREE_META_VS_STAGE_RUN_ID: String = "vs_stage_run_id"
+const TREE_META_ASYNC_BUFF_CONTEST_STATE: String = "async_buff_contest_state"
+const TREE_META_BUFF_ACTIVATION_RUNTIME_STATE: String = "buff_activation_runtime_state"
 const TREE_META_PENDING_STAGE_LEADERBOARD: String = "pending_stage_leaderboard_open"
 const TREE_META_PENDING_STAGE_LEADERBOARD_CONTEXT: String = "pending_stage_leaderboard_context"
 const TREE_META_VS_WINDOW_DEADLINE_UNIX: String = "vs_window_deadline_unix"
@@ -458,6 +462,10 @@ var buff_states: Dictionary = {}
 var buff_active_slots: Dictionary = {}
 var buff_instances: Dictionary = {}
 var buff_mods: Dictionary = {}
+var _buff_target_resolver: RefCounted = BuffTargetResolverScript.new()
+var _buff_activation_transactions: RefCounted = BuffActivationTransactionScript.new()
+var _buff_canonical_outcomes: Dictionary = {}
+var _buff_activation_counter: int = 0
 const RUNTIME_SUPPORTED_BUFF_EFFECT_TYPES: Dictionary = {
 	"swarm_speed_pct": true,
 	"hive_production_time_pct": true,
@@ -549,6 +557,7 @@ var _lifecycle_local_pause_reason: String = ""
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	_restore_buff_activation_runtime_state()
 	_allow_camfit_log_tags()
 	SFLog.allow_tag("ARENA_FRAME_HEARTBEAT")
 	SFLog.allow_tag("RUNTIME_TELEMETRY")
@@ -1715,6 +1724,9 @@ func _configure_vs_pvp_runtime() -> void:
 	var tree: SceneTree = get_tree()
 	var roster: Array = OpsState.match_roster if OpsState != null else []
 	_vs_pvp_runtime.call("configure_from_tree", tree, roster)
+	var publish_result_cb: Callable = Callable(self, "_on_vs_command_publish_result")
+	if _vs_pvp_runtime.has_signal("command_publish_result") and not _vs_pvp_runtime.is_connected("command_publish_result", publish_result_cb):
+		_vs_pvp_runtime.connect("command_publish_result", publish_result_cb)
 	_sync_active_player_from_vs_runtime()
 
 func _sync_active_player_from_vs_runtime() -> void:
@@ -2151,6 +2163,8 @@ func _apply_remote_pvp_commands(commands: Array) -> void:
 					OpsState.request_barracks_route(barracks_id, route, owner_for_route)
 				)
 				mark_render_dirty("vs_scheduled_barracks_route")
+			"buff_activate":
+				_execute_canonical_buff_activation(cmd)
 			_:
 				continue
 
@@ -5356,6 +5370,8 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		SFLog.info("MATCH_END_DUPLICATE_SKIP", {"winner_id": winner_id_in})
 		return
 	_match_end_handled = true
+	_buff_activation_transactions.terminate_match(_buff_match_id(), "match_ended:%s" % reason)
+	_persist_buff_activation_runtime_state()
 	if floor_influence_system != null:
 		floor_influence_system.notify_match_ended()
 	if input_system != null:
@@ -6570,6 +6586,8 @@ func _clear_stage_runtime_meta() -> void:
 		TREE_META_VS_STAGE_CURRENT_INDEX,
 		TREE_META_VS_STAGE_ROUND_RESULTS,
 		TREE_META_VS_STAGE_RUN_ID,
+		TREE_META_ASYNC_BUFF_CONTEST_STATE,
+		TREE_META_BUFF_ACTIVATION_RUNTIME_STATE,
 		TREE_META_CONTEST_RESULT_SIGNATURE,
 		"miss_n_out_local_player_id",
 		"miss_n_out_eliminated",
@@ -6821,6 +6839,9 @@ func _return_to_main_menu() -> void:
 		outcome_overlay.hide_overlay()
 	if sim_runner != null:
 		sim_runner.log_pause_snapshot("arena_return_to_main_menu")
+	var tree: SceneTree = get_tree()
+	if tree != null and tree.has_meta(TREE_META_ASYNC_BUFF_CONTEST_STATE):
+		tree.remove_meta(TREE_META_ASYNC_BUFF_CONTEST_STATE)
 	await _fade_out_post_match_song_blocking()
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
 
@@ -9816,6 +9837,8 @@ func _init_buff_states() -> void:
 		return
 	if not buffs_enabled:
 		return
+	if _is_async_runtime_mode():
+		_ensure_async_buff_contest_state()
 	for pid in [1, 2, 3, 4]:
 		var buff_state: BuffState = BuffState.new()
 		var result: Dictionary = buff_state.configure_loadout(_default_buff_loadout(pid))
@@ -9830,43 +9853,478 @@ func _default_buff_loadout(pid: int = -1) -> Array:
 	if resolved_pid <= 0:
 		resolved_pid = int(active_player_id)
 	if resolved_pid == int(active_player_id):
-		return _build_loadout_entries(profile_ids)
+		return _build_loadout_entries(profile_ids, _is_async_runtime_mode())
 	var candidate_pool: Array[String] = _supported_runtime_classic_buff_ids(profile_ids)
 	if candidate_pool.size() < BuffState.LOADOUT_SIZE:
 		candidate_pool = _supported_runtime_classic_buff_ids([])
 	var seeded_ids: Array[String] = _pick_seeded_unique_ids(candidate_pool, resolved_pid, BuffState.LOADOUT_SIZE)
 	if seeded_ids.size() < BuffState.LOADOUT_SIZE:
 		seeded_ids = profile_ids
-	return _build_loadout_entries(seeded_ids)
+	return _build_loadout_entries(seeded_ids, false)
 
 func _resolve_profile_loadout_ids() -> Array[String]:
 	var ids: Array[String] = []
-	if ProfileManager != null and ProfileManager.has_method("get_buff_loadout_ids"):
-		var profile_ids: Variant = ProfileManager.call("get_buff_loadout_ids")
-		if typeof(profile_ids) == TYPE_ARRAY:
-			for buff_id_v in profile_ids as Array:
-				var buff_id: String = str(buff_id_v).strip_edges()
-				if buff_id == "":
-					continue
-				if BuffCatalog.get_buff(buff_id).is_empty():
-					continue
-				ids.append(buff_id)
-	if ids.size() != 3:
-		ids = debug_buff_loadout
-	if ids.size() != 3:
-		ids = [
-			"buff_swarm_speed_classic",
-			"buff_hive_faster_production_classic",
-			"buff_tower_fire_rate_classic"
-		]
+	var profile_ids: Variant = []
+	if _is_async_runtime_mode():
+		var contest_state: Dictionary = _ensure_async_buff_contest_state()
+		profile_ids = contest_state.get("loadout", [])
+	elif ProfileManager != null and ProfileManager.has_method("get_buff_loadout_ids_for_mode"):
+		profile_ids = ProfileManager.call("get_buff_loadout_ids_for_mode", "vs")
+	elif ProfileManager != null and ProfileManager.has_method("get_buff_loadout_ids"):
+		profile_ids = ProfileManager.call("get_buff_loadout_ids")
+	if typeof(profile_ids) == TYPE_ARRAY:
+		for buff_id_v in profile_ids as Array:
+			var buff_id: String = str(buff_id_v).strip_edges()
+			if buff_id == "":
+				continue
+			if BuffCatalog.get_buff(buff_id).is_empty():
+				continue
+			if _is_async_runtime_mode() and _async_buff_uses_remaining(buff_id) <= 0:
+				continue
+			ids.append(buff_id)
 	return ids
 
-func _build_loadout_entries(ids: Array[String]) -> Array:
+func _build_loadout_entries(ids: Array[String], use_async_contest_charges: bool = false) -> Array:
 	var out: Array = []
 	var count: int = mini(ids.size(), BuffState.LOADOUT_SIZE)
 	for i in range(count):
-		out.append({"id": ids[i], "tier": "classic"})
+		var buff: Dictionary = BuffCatalog.get_buff(ids[i])
+		if buff.is_empty():
+			continue
+		out.append({
+			"id": ids[i],
+			"tier": str(buff.get("tier", "classic")),
+			"uses": _async_buff_uses_remaining(ids[i]) if use_async_contest_charges else 1,
+			"uses_total": 2 if use_async_contest_charges else 1
+		})
 	return out
+
+func _ensure_async_buff_contest_state() -> Dictionary:
+	var tree: SceneTree = get_tree()
+	if tree == null or not _is_async_runtime_mode():
+		return {}
+	var existing_any: Variant = tree.get_meta(TREE_META_ASYNC_BUFF_CONTEST_STATE, {})
+	if typeof(existing_any) == TYPE_DICTIONARY and not (existing_any as Dictionary).is_empty():
+		return (existing_any as Dictionary).duplicate(true)
+	var loadout: Array[String] = []
+	if ProfileManager != null and ProfileManager.has_method("get_buff_loadout_ids_for_mode"):
+		loadout = _string_ids(ProfileManager.call("get_buff_loadout_ids_for_mode", "async"))
+	elif ProfileManager != null and ProfileManager.has_method("get_buff_loadout_ids"):
+		loadout = _string_ids(ProfileManager.call("get_buff_loadout_ids"))
+	var charges: Dictionary = {}
+	for buff_id in loadout:
+		if buff_id == "" or BuffCatalog.get_buff(buff_id).is_empty() or charges.has(buff_id):
+			continue
+		charges[buff_id] = {"remaining": 2, "inventory_consumed": false}
+	var state_out: Dictionary = {
+		"loadout": loadout.duplicate(),
+		"charges": charges,
+		"uses_per_item": 2
+	}
+	tree.set_meta(TREE_META_ASYNC_BUFF_CONTEST_STATE, state_out)
+	return state_out.duplicate(true)
+
+func _string_ids(raw: Variant) -> Array[String]:
+	var out: Array[String] = []
+	if typeof(raw) != TYPE_ARRAY:
+		return out
+	for value_any in raw as Array:
+		out.append(str(value_any).strip_edges())
+	return out
+
+func _async_buff_uses_remaining(buff_id: String) -> int:
+	if not _is_async_runtime_mode():
+		return 1
+	var state_now: Dictionary = _ensure_async_buff_contest_state()
+	var charges_any: Variant = state_now.get("charges", {})
+	if typeof(charges_any) != TYPE_DICTIONARY:
+		return 0
+	var entry_any: Variant = (charges_any as Dictionary).get(buff_id, {})
+	if typeof(entry_any) != TYPE_DICTIONARY:
+		return 0
+	return maxi(0, int((entry_any as Dictionary).get("remaining", 0)))
+
+func preview_buff_targets(pid: int, slot_index: int) -> Dictionary:
+	var owner_id: int = int(active_player_id)
+	if pid != owner_id:
+		return {"ok": false, "status": "rejected", "reason": "owner_mismatch", "owner_id": owner_id}
+	if buff_states.is_empty():
+		_init_buff_states()
+	var buff_state: BuffState = buff_states.get(owner_id)
+	if buff_state == null or slot_index < 0 or slot_index >= buff_state.slots.size():
+		return {"ok": false, "status": "rejected", "reason": "slot_out_of_range"}
+	var slot: Dictionary = buff_state.slots[slot_index] as Dictionary
+	return _buff_target_resolver.get_preview_eligible_targets(
+		_buff_authoritative_game_state(),
+		owner_id,
+		str(slot.get("inventory_id", slot.get("id", "")))
+	)
+
+func submit_buff_activation(
+	pid: int,
+	slot_index: int,
+	target_type: String,
+	target_id: Variant,
+	activation_id: String = ""
+) -> Dictionary:
+	if not buffs_enabled or _is_crucible_match():
+		return {"ok": false, "status": "rejected", "reason": "buffs_disabled"}
+	var owner_id: int = int(active_player_id)
+	if pid != owner_id:
+		return {"ok": false, "status": "rejected", "reason": "owner_mismatch", "owner_id": owner_id}
+	var clean_activation_id: String = activation_id.strip_edges()
+	if not clean_activation_id.is_empty():
+		var existing: Dictionary = _buff_activation_transactions.get_transaction(_buff_match_id(), owner_id, clean_activation_id)
+		if bool(existing.get("ok", false)):
+			existing["duplicate"] = true
+			return existing
+	if buff_states.is_empty():
+		_init_buff_states()
+	var buff_state: BuffState = buff_states.get(owner_id)
+	if buff_state == null:
+		return {"ok": false, "status": "rejected", "reason": "missing_player_state"}
+	if slot_index < 0 or slot_index >= buff_state.slots.size():
+		return {"ok": false, "status": "rejected", "reason": "slot_out_of_range"}
+	if not buff_state.can_activate_slot(slot_index):
+		return {"ok": false, "status": "rejected", "reason": "slot_blocked"}
+	var slot: Dictionary = buff_state.slots[slot_index] as Dictionary
+	var inventory_buff_id: String = str(slot.get("inventory_id", slot.get("id", ""))).strip_edges()
+	var target_result: Dictionary = _buff_target_resolver.validate_canonical_target(
+		_buff_authoritative_game_state(), owner_id, inventory_buff_id, target_type, target_id
+	)
+	if not bool(target_result.get("ok", false)):
+		return target_result
+	if clean_activation_id.is_empty():
+		clean_activation_id = _next_buff_activation_id(owner_id)
+	var source: Dictionary = _buff_source_descriptor(owner_id, inventory_buff_id)
+	if not bool(source.get("ok", false)):
+		return source
+	# One equipped slot represents one reservable contest use even when the
+	# fungible inventory owns several copies of the same buff.
+	source["capacity"] = mini(1, int(source.get("capacity", 0)))
+	var request: Dictionary = {
+		"match_id": _buff_match_id(),
+		"owner_id": owner_id,
+		"activation_id": clean_activation_id,
+		"slot_index": slot_index,
+		"buff_id": inventory_buff_id,
+		"canonical_buff_id": str(target_result.get("canonical_buff_id", slot.get("id", ""))),
+		"tier": str(slot.get("tier", target_result.get("tier", "classic"))),
+		"target_type": str(target_result.get("target_type", target_type)),
+		"target_id": target_result.get("target_id", target_id),
+		"target_payload": _buff_target_resolver.canonical_target_payload(
+			str(target_result.get("target_type", target_type)), target_result.get("target_id", target_id)
+		),
+		"source_kind": str(source.get("source_kind", "vs")),
+		"source_use_ordinal": int(source.get("source_use_ordinal", 1)),
+		"charge_key": str(source.get("charge_key", "")),
+		"inventory_revision": _buff_inventory_revision()
+	}
+	var reserved: Dictionary = _buff_activation_transactions.reserve_validated(request, target_result, int(source.get("capacity", 0)))
+	if not bool(reserved.get("ok", false)) or bool(reserved.get("duplicate", false)):
+		return reserved
+	_buff_activation_transactions.mark_submitted(_buff_match_id(), owner_id, clean_activation_id)
+	_persist_buff_activation_runtime_state()
+	if _is_pvp_runtime_active():
+		var accepted: bool = _vs_pvp_runtime.has_method("record_local_buff_activation") and bool(
+			_vs_pvp_runtime.call("record_local_buff_activation", reserved)
+		)
+		if not accepted:
+			var rejected: Dictionary = _buff_activation_transactions.reject_submission(
+				_buff_match_id(), owner_id, clean_activation_id, "publish_rejected"
+			)
+			_persist_buff_activation_runtime_state()
+			return rejected
+		return _buff_activation_transactions.get_transaction(_buff_match_id(), owner_id, clean_activation_id)
+	var local_command: Dictionary = _canonical_buff_command_from_reservation(reserved)
+	_buff_activation_transactions.mark_canonically_scheduled(
+		_buff_match_id(), owner_id, clean_activation_id, str(local_command.get("command_id", "")), int(local_command.get("execute_tick", -1))
+	)
+	return _execute_canonical_buff_activation(local_command)
+
+func _buff_source_descriptor(pid: int, buff_id: String) -> Dictionary:
+	if pid != int(active_player_id):
+		return {
+			"ok": true,
+			"source_kind": "async" if _is_async_runtime_mode() else "vs",
+			"source_use_ordinal": 1,
+			"charge_key": "bot:%s:%d:%s" % [_buff_match_id(), pid, buff_id],
+			"capacity": 1
+		}
+	if _is_async_runtime_mode():
+		var state_now: Dictionary = _ensure_async_buff_contest_state()
+		var charges: Dictionary = state_now.get("charges", {}) as Dictionary
+		var entry: Dictionary = charges.get(buff_id, {}) as Dictionary
+		var remaining: int = maxi(0, int(entry.get("remaining", 0)))
+		var consumed: bool = bool(entry.get("inventory_consumed", false))
+		if remaining <= 0:
+			return {"ok": false, "status": "rejected", "reason": "no_contest_uses"}
+		if consumed:
+			if remaining != 1:
+				return {"ok": false, "status": "rejected", "reason": "invalid_async_charge_state"}
+			return {
+				"ok": true,
+				"source_kind": "async",
+				"source_use_ordinal": 2,
+				"charge_key": "async:%s:%d:%s:2" % [_buff_match_id(), pid, buff_id],
+				"capacity": 1
+			}
+		if remaining != 2:
+			return {"ok": false, "status": "rejected", "reason": "invalid_async_charge_state"}
+	var quantity: int = _buff_inventory_quantity(buff_id)
+	return {
+		"ok": quantity > 0,
+		"status": "available" if quantity > 0 else "rejected",
+		"reason": "" if quantity > 0 else "insufficient_charges",
+		"source_kind": "async" if _is_async_runtime_mode() else "vs",
+		"source_use_ordinal": 1,
+		"charge_key": "inventory:%d:%s" % [pid, buff_id],
+		"capacity": quantity
+	}
+
+func _canonical_buff_command_from_reservation(reservation: Dictionary) -> Dictionary:
+	var tick: int = int((_buff_authoritative_game_state() as Object).get("tick")) if _buff_authoritative_game_state() != null else 0
+	return {
+		"kind": "buff_activate",
+		"command_id": "local:%s" % str(reservation.get("activation_id", "")),
+		"activation_id": str(reservation.get("activation_id", "")),
+		"owner_id": int(reservation.get("owner_id", 0)),
+		"sender_seat": int(reservation.get("owner_id", 0)),
+		"buff_id": str(reservation.get("buff_id", "")),
+		"tier": str(reservation.get("tier", "classic")),
+		"target_type": str(reservation.get("target_type", "global")),
+		"target_id": reservation.get("target_id", "global"),
+		"source_kind": str(reservation.get("source_kind", "vs")),
+		"source_use_ordinal": int(reservation.get("source_use_ordinal", 1)),
+		"execute_tick": tick
+	}
+
+func _on_vs_command_publish_result(payload: Dictionary) -> void:
+	if str(payload.get("kind", "")).strip_edges().to_lower() != "buff_activate":
+		return
+	var activation_id: String = str(payload.get("activation_id", ""))
+	var owner_id: int = int(payload.get("owner_id", 0))
+	if bool(payload.get("ok", false)):
+		var command: Dictionary = payload.get("canonical_command", {}) as Dictionary
+		_buff_activation_transactions.mark_canonically_scheduled(
+			_buff_match_id(), owner_id, activation_id,
+			str(command.get("command_id", "")), int(command.get("execute_tick", -1))
+		)
+	else:
+		_buff_activation_transactions.reject_submission(
+			_buff_match_id(), owner_id, activation_id, str(payload.get("reason", "publish_rejected"))
+		)
+	_persist_buff_activation_runtime_state()
+
+func _execute_canonical_buff_activation(command: Dictionary) -> Dictionary:
+	var owner_id: int = int(command.get("owner_id", 0))
+	var activation_id: String = str(command.get("activation_id", "")).strip_edges()
+	var outcome_key: String = "%s|%d|%s" % [_buff_match_id(), owner_id, activation_id]
+	if _buff_canonical_outcomes.has(outcome_key):
+		var duplicate: Dictionary = (_buff_canonical_outcomes.get(outcome_key, {}) as Dictionary).duplicate(true)
+		duplicate["duplicate"] = true
+		return duplicate
+	var target_result: Dictionary = _buff_target_resolver.validate_canonical_target(
+		_buff_authoritative_game_state(), owner_id, str(command.get("buff_id", "")),
+		str(command.get("target_type", "")), command.get("target_id", null)
+	)
+	if not bool(target_result.get("ok", false)):
+		return _finalize_buff_canonical_no_op(command, str(target_result.get("reason", "target_stale")), outcome_key)
+	var local_transaction: Dictionary = _buff_activation_transactions.get_transaction(_buff_match_id(), owner_id, activation_id)
+	var is_local_transaction: bool = bool(local_transaction.get("ok", false))
+	if buff_states.is_empty():
+		_init_buff_states()
+	var buff_state: BuffState = buff_states.get(owner_id)
+	if buff_state == null:
+		return _finalize_buff_canonical_no_op(command, "missing_player_state", outcome_key)
+	var target_payload: Dictionary = _buff_target_resolver.canonical_target_payload(
+		str(command.get("target_type", "global")), command.get("target_id", "global")
+	)
+	target_payload["owner_id"] = owner_id
+	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
+	var activation_result: Dictionary = buff_state.intent_activate_buff(
+		owner_id, str(command.get("buff_id", "")), str(command.get("tier", "classic")), target_payload, now_ms, -1
+	)
+	if not bool(activation_result.get("ok", false)):
+		return _finalize_buff_canonical_no_op(command, str(activation_result.get("reason", activation_result.get("code", "activation_rejected"))), outcome_key)
+	if is_local_transaction:
+		var slot_commit: Dictionary = buff_state.commit_slot_use(int(local_transaction.get("slot_index", -1)), now_ms)
+		if not bool(slot_commit.get("ok", false)):
+			SFLog.error("BUFF_SLOT_USE_COMMIT_FAILED", {"transaction": local_transaction, "result": slot_commit})
+	var outcome: Dictionary = {
+		"ok": true,
+		"status": "executed",
+		"reason": "activated",
+		"match_id": _buff_match_id(),
+		"owner_id": owner_id,
+		"activation_id": activation_id,
+		"canonical_command_id": str(command.get("command_id", "")),
+		"execution_tick": int(command.get("execute_tick", -1)),
+		"buff_id": str(command.get("buff_id", "")),
+		"target_type": str(command.get("target_type", "")),
+		"target_id": command.get("target_id", null)
+	}
+	if is_local_transaction:
+		_buff_activation_transactions.resolve_canonical_outcome(
+			_buff_match_id(), owner_id, activation_id, true, "activated",
+			str(command.get("command_id", "")), int(command.get("execute_tick", -1))
+		)
+		var charge_result: Dictionary = _commit_reserved_buff_charge(local_transaction)
+		if not bool(charge_result.get("ok", false)):
+			SFLog.error("BUFF_RESERVED_COMMIT_FAILED", {"transaction": local_transaction, "result": charge_result})
+		else:
+			_buff_activation_transactions.mark_committed(_buff_match_id(), owner_id, activation_id)
+	_buff_canonical_outcomes[outcome_key] = outcome.duplicate(true)
+	_record_match_telemetry_buff_activation(owner_id, str(command.get("buff_id", "")), target_payload, now_ms)
+	_sync_buff_effects(now_ms)
+	_update_buff_ui()
+	mark_render_dirty("buff_activate_canonical")
+	_persist_buff_activation_runtime_state()
+	return outcome
+
+func _finalize_buff_canonical_no_op(command: Dictionary, reason: String, outcome_key: String) -> Dictionary:
+	var outcome: Dictionary = {
+		"ok": false,
+		"status": "deterministic_no_op",
+		"reason": reason,
+		"match_id": _buff_match_id(),
+		"owner_id": int(command.get("owner_id", 0)),
+		"activation_id": str(command.get("activation_id", "")),
+		"canonical_command_id": str(command.get("command_id", "")),
+		"execution_tick": int(command.get("execute_tick", -1))
+	}
+	var transaction: Dictionary = _buff_activation_transactions.get_transaction(
+		_buff_match_id(), int(command.get("owner_id", 0)), str(command.get("activation_id", ""))
+	)
+	if bool(transaction.get("ok", false)):
+		_buff_activation_transactions.resolve_canonical_outcome(
+			_buff_match_id(), int(command.get("owner_id", 0)), str(command.get("activation_id", "")),
+			false, reason, str(command.get("command_id", "")), int(command.get("execute_tick", -1))
+		)
+	_buff_canonical_outcomes[outcome_key] = outcome.duplicate(true)
+	_persist_buff_activation_runtime_state()
+	return outcome
+
+func _can_commit_reserved_buff_charge(transaction: Dictionary) -> bool:
+	if int(transaction.get("owner_id", 0)) != int(active_player_id):
+		return true
+	var buff_id: String = str(transaction.get("buff_id", ""))
+	var source_kind: String = str(transaction.get("source_kind", ""))
+	var ordinal: int = int(transaction.get("source_use_ordinal", 1))
+	if source_kind == "vs":
+		return ordinal == 1 and _buff_inventory_quantity(buff_id) > 0
+	var state_now: Dictionary = _ensure_async_buff_contest_state()
+	var entry: Dictionary = (state_now.get("charges", {}) as Dictionary).get(buff_id, {}) as Dictionary
+	var remaining: int = int(entry.get("remaining", 0))
+	var consumed: bool = bool(entry.get("inventory_consumed", false))
+	if ordinal == 1:
+		return remaining == 2 and not consumed and _buff_inventory_quantity(buff_id) > 0
+	return ordinal == 2 and remaining == 1 and consumed
+
+func _commit_reserved_buff_charge(transaction: Dictionary) -> Dictionary:
+	if not _can_commit_reserved_buff_charge(transaction):
+		return {"ok": false, "reason": "reservation_source_changed"}
+	return _commit_runtime_buff_charge(int(transaction.get("owner_id", 0)), str(transaction.get("buff_id", "")))
+
+func _buff_inventory_quantity(buff_id: String) -> int:
+	if ProfileManager == null or not ProfileManager.has_method("get_owned_buff_quantity"):
+		return 0
+	return maxi(0, int(ProfileManager.call("get_owned_buff_quantity", buff_id, "vs")))
+
+func _buff_inventory_revision() -> String:
+	if ProfileManager != null and ProfileManager.has_method("get_buff_inventory_revision"):
+		return str(ProfileManager.call("get_buff_inventory_revision"))
+	return ""
+
+func _buff_authoritative_game_state() -> Object:
+	if OpsState != null and OpsState.has_method("get_state"):
+		var state_any: Variant = OpsState.call("get_state")
+		if state_any is Object:
+			return state_any as Object
+	return state
+
+func _buff_match_id() -> String:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return "local_match"
+	for key in ["vs_handshake_session_id", TREE_META_CONTEST_ID, TREE_META_VS_STAGE_RUN_ID, "progressive_run_id"]:
+		var value: String = str(tree.get_meta(key, "")).strip_edges()
+		if not value.is_empty():
+			return value
+	return "local:%s:%d" % [current_map_path, match_seed]
+
+func _next_buff_activation_id(pid: int) -> String:
+	_buff_activation_counter += 1
+	return "%s:%d:%d:%d" % [_buff_match_id(), pid, Time.get_ticks_msec(), _buff_activation_counter]
+
+func _persist_buff_activation_runtime_state() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	tree.set_meta(TREE_META_BUFF_ACTIVATION_RUNTIME_STATE, {
+		"transactions": _buff_activation_transactions.export_state(),
+		"canonical_outcomes": _buff_canonical_outcomes.duplicate(true),
+		"activation_counter": _buff_activation_counter
+	})
+
+func _restore_buff_activation_runtime_state() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var raw_any: Variant = tree.get_meta(TREE_META_BUFF_ACTIVATION_RUNTIME_STATE, {})
+	if typeof(raw_any) != TYPE_DICTIONARY:
+		return
+	var raw: Dictionary = raw_any as Dictionary
+	var transactions_any: Variant = raw.get("transactions", {})
+	if typeof(transactions_any) == TYPE_DICTIONARY:
+		_buff_activation_transactions.import_state(transactions_any as Dictionary)
+	var outcomes_any: Variant = raw.get("canonical_outcomes", {})
+	if typeof(outcomes_any) == TYPE_DICTIONARY:
+		_buff_canonical_outcomes = (outcomes_any as Dictionary).duplicate(true)
+	_buff_activation_counter = maxi(0, int(raw.get("activation_counter", 0)))
+
+func _runtime_buff_charge_available(pid: int, buff_id: String) -> bool:
+	if pid != int(active_player_id):
+		return true
+	if _is_async_runtime_mode():
+		var state_now: Dictionary = _ensure_async_buff_contest_state()
+		var charges: Dictionary = state_now.get("charges", {}) as Dictionary
+		var entry: Dictionary = charges.get(buff_id, {}) as Dictionary
+		if maxi(0, int(entry.get("remaining", 0))) <= 0:
+			return false
+		if bool(entry.get("inventory_consumed", false)):
+			return true
+	return ProfileManager != null and ProfileManager.has_method("owns_buff") and bool(ProfileManager.call("owns_buff", buff_id, "async", 1))
+
+func _commit_runtime_buff_charge(pid: int, buff_id: String) -> Dictionary:
+	if pid != int(active_player_id):
+		return {"ok": true, "remaining": 0, "bot": true}
+	if not _is_async_runtime_mode():
+		if ProfileManager == null or not ProfileManager.has_method("consume_buff"):
+			return {"ok": false, "reason": "inventory_authority_missing"}
+		return ProfileManager.call("consume_buff", buff_id, 1, "vs_buff_activation") as Dictionary
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return {"ok": false, "reason": "missing_tree"}
+	var state_now: Dictionary = _ensure_async_buff_contest_state()
+	var charges: Dictionary = state_now.get("charges", {}) as Dictionary
+	var entry: Dictionary = charges.get(buff_id, {}) as Dictionary
+	var remaining: int = maxi(0, int(entry.get("remaining", 0)))
+	if remaining <= 0:
+		return {"ok": false, "reason": "no_contest_uses"}
+	if not bool(entry.get("inventory_consumed", false)):
+		if ProfileManager == null or not ProfileManager.has_method("consume_buff"):
+			return {"ok": false, "reason": "inventory_authority_missing"}
+		var consume_result: Dictionary = ProfileManager.call("consume_buff", buff_id, 1, "async_buff_first_activation") as Dictionary
+		if not bool(consume_result.get("ok", false)):
+			return consume_result
+		entry["inventory_consumed"] = true
+	remaining -= 1
+	entry["remaining"] = remaining
+	charges[buff_id] = entry
+	state_now["charges"] = charges
+	tree.set_meta(TREE_META_ASYNC_BUFF_CONTEST_STATE, state_now)
+	return {"ok": true, "buff_id": buff_id, "remaining": remaining, "uses_total": 2}
 
 func _supported_runtime_classic_buff_ids(excluded_ids: Array[String]) -> Array[String]:
 	var excluded_lookup: Dictionary = {}
@@ -10140,12 +10598,15 @@ func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> D
 		var ends_ms: int = int(slot.get("ends_ms", 0))
 		var active: bool = bool(slot.get("active", false))
 		var consumed: bool = bool(slot.get("consumed", false))
+		var uses_remaining: int = maxi(0, int(slot.get("uses_remaining", 0)))
+		var uses_total: int = maxi(1, int(slot.get("uses_total", 1)))
 		var remaining_ms: int = 0
 		if active:
 			remaining_ms = max(0, ends_ms - now_ms)
 		slots_out.append({
 			"index": i,
 			"id": buff_id,
+			"inventory_id": str(slot.get("inventory_id", buff_id)),
 			"name": str(buff_def.get("name", buff_id)),
 			"tier": tier,
 			"category": str(buff_def.get("category", "unknown")),
@@ -10153,6 +10614,9 @@ func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> D
 			"locked": i >= int(buff_state.slots_active),
 			"active": active,
 			"consumed": consumed,
+			"uses_remaining": uses_remaining,
+			"uses_total": uses_total,
+			"one_use_spent": uses_total == 2 and uses_remaining == 1,
 			"ends_ms": ends_ms,
 			"remaining_ms": remaining_ms
 		})
@@ -10186,21 +10650,21 @@ func request_buff_drop(pid: int, slot_index: int, world_pos: Vector2) -> Diction
 	if not buff_state.can_activate_slot(slot_index):
 		result["reason"] = "slot_blocked"
 		return result
-	_try_activate_buff_slot(pid, slot_index)
 	var slot: Dictionary = buff_state.slots[slot_index]
-	result["ok"] = bool(slot.get("active", false))
-	if not bool(result["ok"]):
-		result["reason"] = "activation_failed"
-		return result
-	result["buff_id"] = str(slot.get("id", ""))
-	result["ends_ms"] = int(slot.get("ends_ms", 0))
-	_record_match_telemetry_buff_activation(
-		int(result.get("pid", pid)),
-		str(result.get("buff_id", "")),
-		result.get("target", {}),
-		int(_authoritative_sim_time_us() / 1000)
-	)
-	return result
+	var preview: Dictionary = preview_buff_targets(pid, slot_index)
+	if not bool(preview.get("ok", false)):
+		return preview
+	var resolved_target_type: String = str(preview.get("target_type", "global"))
+	var context: Dictionary = result.get("target", {}) as Dictionary
+	var resolved_target_id: Variant = "global"
+	if resolved_target_type == BuffDefinitions.TARGET_HIVE:
+		resolved_target_id = int(context.get("hive_id", -1))
+	elif resolved_target_type == BuffDefinitions.TARGET_LANE:
+		resolved_target_id = int(context.get("lane_id", -1))
+	var activation: Dictionary = submit_buff_activation(pid, slot_index, resolved_target_type, resolved_target_id)
+	activation["target"] = result.get("target", {})
+	activation["buff_id"] = str(slot.get("inventory_id", slot.get("id", "")))
+	return activation
 
 func _record_match_telemetry_buff_activation(
 	pid: int,
@@ -10310,32 +10774,22 @@ func _try_activate_buff_slot(pid: int, slot_index: int) -> void:
 	var buff_state: BuffState = buff_states.get(pid)
 	if buff_state == null:
 		return
-	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
-	if not buff_state.activate_slot(slot_index, now_ms):
-		SFLog.info("BUFF_ACTIVATE_BLOCKED", {
-			"pid": pid,
-			"slot_index": slot_index,
-			"slots_active": int(buff_state.slots_active),
-			"is_active": bool(buff_state.is_slot_active(slot_index)),
-			"is_consumed": bool(buff_state.is_slot_consumed(slot_index))
-		})
+	if slot_index < 0 or slot_index >= buff_state.slots.size():
 		return
-	var slot: Dictionary = buff_state.slots[slot_index]
-	SFLog.info("BUFF_ACTIVATED", {
-		"pid": pid,
-		"slot_index": slot_index,
-		"buff_id": str(slot.get("id", "")),
-		"ends_ms": int(slot.get("ends_ms", 0))
-	})
-	SFLog.warn("BUFF_FIRED", {
-		"pid": pid,
-		"slot_index": slot_index,
-		"buff_id": str(slot.get("id", "")),
-		"ends_ms": int(slot.get("ends_ms", 0))
-	})
-	_sync_buff_effects(now_ms)
-	_update_buff_ui()
-	mark_render_dirty("buff_activate")
+	var preview: Dictionary = preview_buff_targets(pid, slot_index)
+	if not bool(preview.get("ok", false)):
+		return
+	var target_type: String = str(preview.get("target_type", "global"))
+	var target_id: Variant = "global"
+	var eligible: Array = preview.get("eligible_target_ids", []) as Array
+	if target_type != "global":
+		var slot_target: Dictionary = (buff_state.slots[slot_index] as Dictionary).get("target", {}) as Dictionary
+		target_id = int(slot_target.get("hive_id" if target_type == BuffDefinitions.TARGET_HIVE else "lane_id", -1))
+		if not eligible.has(target_id):
+			return
+	var activation: Dictionary = submit_buff_activation(pid, slot_index, target_type, target_id)
+	if not bool(activation.get("ok", false)):
+		SFLog.info("BUFF_ACTIVATE_BLOCKED", {"pid": pid, "slot_index": slot_index, "reason": activation.get("reason", "rejected")})
 
 func _reset_sim_state() -> void:
 	units.clear()

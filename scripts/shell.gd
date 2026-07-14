@@ -24,7 +24,7 @@ const SHELL_PLAYER_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/BuffSl
 const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStrip"
 const SHELL_OPPONENT_BUFF_STRIP_B_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStripB"
 const SHELL_ALLY_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/AllyBuffStrip"
-const LEGACY_MATCH_BUFF_STRIPS_ENABLED: bool = false
+const MATCH_BUFF_TARGETING_ENABLED: bool = false
 const PENDING_APPLY_MAX_TRIES: int = 60
 const TRACE_SHELL_LOGS: bool = false
 const MVP_SMOKE_ARENA_PATH: String = "/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena"
@@ -744,7 +744,7 @@ func _resolve_buff_ui_nodes() -> void:
 	_opponent_buff_strip = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_PATH) as Control
 	_opponent_buff_strip_b = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_B_PATH) as Control
 	_ally_buff_strip = get_node_or_null(SHELL_ALLY_BUFF_STRIP_PATH) as Control
-	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
+	if not MATCH_BUFF_TARGETING_ENABLED:
 		_set_buff_strip_visibility(false, false, false, false)
 	SFLog.info("BUFF_UI_RESOLVE", {
 		"player_strip": _diag_resolve(_player_buff_strip),
@@ -757,7 +757,7 @@ func _wire_buff_ui() -> void:
 	if _player_buff_strip == null:
 		SFLog.warn("BUFF_UI_MISSING_PLAYER_STRIP", {})
 		return
-	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
+	if not MATCH_BUFF_TARGETING_ENABLED:
 		_set_buff_strip_visibility(false, false, false, false)
 		SFLog.info("BUFF_UI_LEGACY_STRIPS_DISABLED", {})
 		return
@@ -2006,7 +2006,7 @@ func _restart_arena_match_flow_for_shell_tutorial() -> void:
 		arena_node.call("restart_match_flow_for_shell_launch")
 
 func _sync_buff_ui() -> void:
-	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
+	if not MATCH_BUFF_TARGETING_ENABLED:
 		_set_buff_strip_visibility(false, false, false, false)
 		return
 	if _player_buff_strip == null:
@@ -2085,7 +2085,7 @@ func _set_buff_strip_visibility(player_visible: bool, opponent_visible: bool, op
 		_ally_buff_strip.visible = ally_visible
 
 func _layout_buff_strip_positions() -> void:
-	if not LEGACY_MATCH_BUFF_STRIPS_ENABLED:
+	if not MATCH_BUFF_TARGETING_ENABLED:
 		return
 	_layout_player_strip_inside_bottom_buffer()
 	_layout_side_strips_inside_bottom_buffer()

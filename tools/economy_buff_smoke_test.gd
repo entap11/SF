@@ -68,7 +68,7 @@ func _init() -> void:
 	var esports_equip_attempt: Dictionary = state.intent_equip_buff(PLAYER_ID, 0, BUFF_CLASSIC)
 	_assert_code(esports_equip_attempt, "standardized_no_loadout", "cannot change standardized esports buff")
 
-	# D) Nectar award + spend flow.
+	# D) Nectar is seasonal progression XP: it can be earned, never spent.
 	_assert_ok(state.intent_set_mode("STANDARD"), "back to standard for nectar checks")
 	var before_wallet: Dictionary = state.get_player_snapshot(PLAYER_ID).get("wallet", {}) as Dictionary
 	var free_award: Dictionary = state.intent_record_match_completion(PLAYER_ID, false)
@@ -76,10 +76,11 @@ func _init() -> void:
 	_assert_true(int(paid_award.get("awarded", 0)) > int(free_award.get("awarded", 0)), "paid match awards more nectar")
 	var purchase_award: Dictionary = state.intent_record_store_purchase(PLAYER_ID, 10.0)
 	_assert_true(int(purchase_award.get("awarded", 0)) == 60, "purchase kickback is deterministic")
-	_assert_ok(state.intent_pay_tournament_entry(PLAYER_ID), "spend nectar on tournament entry")
-	_assert_ok(state.intent_purchase_buff_access(PLAYER_ID, BUFF_PREMIUM, 20), "spend nectar on buff access")
+	_assert_code(state.intent_pay_tournament_entry(PLAYER_ID), "nectar_not_currency", "reject nectar tournament entry")
+	_assert_code(state.intent_purchase_buff_access(PLAYER_ID, BUFF_PREMIUM, 20), "nectar_not_currency", "reject nectar buff purchase")
+	_assert_code(state.intent_spend_nectar(PLAYER_ID, 20, "legacy_test"), "nectar_not_currency", "reject direct nectar spending")
 	var after_wallet: Dictionary = state.get_player_snapshot(PLAYER_ID).get("wallet", {}) as Dictionary
-	_assert_true(int(after_wallet.get("nectar", 0)) != int(before_wallet.get("nectar", 0)), "nectar balance changes through awards/spends")
+	_assert_true(int(after_wallet.get("nectar", 0)) > int(before_wallet.get("nectar", 0)), "nectar only increases through awards")
 
 	print("ECONOMY_BUFF_SMOKE: PASS")
 	quit(0)

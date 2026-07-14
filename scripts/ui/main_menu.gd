@@ -717,6 +717,8 @@ const BUFF_UI_SMALL_FONT_SIZE: int = 14
 const BUFF_UI_MODE_BUTTON_HEIGHT: float = 48.0
 const BUFF_UI_SLOT_BUTTON_HEIGHT: float = 38.0
 const BUFF_UI_LIBRARY_BUTTON_HEIGHT: float = 38.0
+const BUFF_UI_ICON_SIZE: int = 30
+const BUFF_UI_CART_ICON_SIZE: int = 32
 const BUFF_UI_LOADOUT_TOP_HEIGHT: float = 194.0
 const BUFF_UI_CART_HEIGHT: float = 232.0
 const BUFF_UI_CART_PANEL_HEIGHT: float = 188.0
@@ -966,6 +968,7 @@ var _buff_cart_buy_button: Button = null
 var _buff_cart_clear_button: Button = null
 var _buff_cart_counts: Dictionary = {}
 var _buff_drag_state: Dictionary = {}
+var _buff_icon_cache: Dictionary = {}
 var _usd_skin_cache: Dictionary = {}
 var _bottom_nav_skin_cache: Dictionary = {}
 var _cancel_skin_cache: Texture2D = null
@@ -9369,22 +9372,22 @@ func _apply_buffs_mode_copy() -> void:
 	var sub_label: Label = $DashPanel/DashBuffsPanel/BuffsVBox/BuffsSub
 	if _buff_active_mode == BUFF_MODE_ASYNC:
 		if sub_label != null:
-			sub_label.text = "ASYNC buffs: stronger and longer. Stacks allowed when owned."
+			sub_label.text = "ASYNC buffs: one item gives two activations in the same contest."
 		if buffs_footer_label != null:
-			buffs_footer_label.text = "Async uses limited-item stacks. Equip repeats only when you own multiple copies."
+			buffs_footer_label.text = "Use both activations before the contest ends; an unused second activation is forfeited."
 		if buffs_loadout_header != null:
 			buffs_loadout_header.text = "LOADOUT (ASYNC)"
 		if _buff_owned_empty_label != null:
-			_buff_owned_empty_label.text = "Drag from Library to buy Async copies into Owned."
+			_buff_owned_empty_label.text = "No consumable buffs in inventory."
 	else:
 		if sub_label != null:
-			sub_label.text = "VS buffs: balanced loadout with one copy per buff."
+			sub_label.text = "VS buffs: one item gives one activation, then it is consumed."
 		if buffs_footer_label != null:
-			buffs_footer_label.text = "VS loadout enforces one copy per buff for fair match balance."
+			buffs_footer_label.text = "Inventory is shared with Async. Loadout slots cannot repeat the same buff."
 		if buffs_loadout_header != null:
 			buffs_loadout_header.text = "LOADOUT (VS)"
 		if _buff_owned_empty_label != null:
-			_buff_owned_empty_label.text = "Drag selected buffs from Library to buy ownership."
+			_buff_owned_empty_label.text = "No consumable buffs in inventory."
 
 func _ensure_buffs_owned_panel() -> void:
 	if _buff_owned_panel != null and is_instance_valid(_buff_owned_panel):
@@ -9551,11 +9554,10 @@ func _buff_cart_display_name(buff: Dictionary, buff_id: String) -> String:
 	return "%s | %s | %s" % [category, name, tier]
 
 func _buff_cart_max_qty_for_id(buff_id: String) -> int:
-	if _buff_mode_allows_duplicates():
-		return 99
-	if _buff_owned_ids.has(buff_id):
+	var clean_id: String = buff_id.strip_edges()
+	if clean_id == "" or BuffCatalog.get_buff(clean_id).is_empty():
 		return 0
-	return 1
+	return 99
 
 func _buff_cart_subtotal_usd() -> float:
 	var subtotal_usd: float = 0.0
@@ -9609,6 +9611,9 @@ func _refresh_buffs_cart_ui() -> void:
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_theme_constant_override("separation", 8)
 		_buff_cart_rows.add_child(row)
+
+		var icon_rect: TextureRect = _new_buff_icon_rect(buff, BUFF_UI_CART_ICON_SIZE)
+		row.add_child(icon_rect)
 
 		var name_label: Label = Label.new()
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -9687,7 +9692,7 @@ func _add_buffs_to_cart(ids: Array[String]) -> int:
 func _drop_library_to_cart(ids: Array[String]) -> void:
 	var added: int = _add_buffs_to_cart(ids)
 	if added <= 0:
-		status_label.text = "Cart unchanged (already owned or max quantity reached)."
+		status_label.text = "Cart unchanged (invalid buff or max quantity reached)."
 		return
 	status_label.text = "Added %d buff type(s) to cart." % added
 
@@ -9906,7 +9911,6 @@ func _ensure_buffs_library_nav() -> void:
 		_buff_library_tier_headers[tier_id] = header
 
 func _load_buff_profile_state() -> void:
-	var allow_duplicates: bool = _buff_mode_allows_duplicates()
 	var owned_any: Variant = []
 	if ProfileManager.has_method("get_owned_buff_ids_for_mode"):
 		owned_any = ProfileManager.call("get_owned_buff_ids_for_mode", _buff_active_mode)
@@ -9919,8 +9923,6 @@ func _load_buff_profile_state() -> void:
 			if buff_id == "":
 				continue
 			if BuffCatalog.get_buff(buff_id).is_empty():
-				continue
-			if not allow_duplicates and _buff_owned_ids.has(buff_id):
 				continue
 			_buff_owned_ids.append(buff_id)
 	var loadout_any: Variant = []
@@ -9936,40 +9938,18 @@ func _load_buff_profile_state() -> void:
 				continue
 			if BuffCatalog.get_buff(buff_id).is_empty():
 				continue
-			if not allow_duplicates and _buff_loadout_ids.has(buff_id):
+			if _buff_loadout_ids.has(buff_id):
 				continue
 			_buff_loadout_ids.append(buff_id)
-	while _buff_loadout_ids.size() < BUFF_LOADOUT_SIZE:
-		var fallback: String = _fallback_buff_for_index(_buff_loadout_ids.size())
-		if fallback == "":
-			break
-		if not allow_duplicates and _buff_loadout_ids.has(fallback):
-			break
-		_buff_loadout_ids.append(fallback)
-	for buff_id in _buff_loadout_ids:
-		if buff_id == "":
-			continue
-		if not allow_duplicates and _buff_owned_ids.has(buff_id):
-			continue
-		if allow_duplicates:
-			var need_count: int = _count_buff_in_ids(_buff_loadout_ids, buff_id)
-			var have_count: int = _count_buff_in_ids(_buff_owned_ids, buff_id)
-			while have_count < need_count:
-				_buff_owned_ids.append(buff_id)
-				have_count += 1
-		else:
-			_buff_owned_ids.append(buff_id)
-	_persist_buff_profile_state()
 
 func _persist_buff_profile_state() -> void:
-	if ProfileManager.has_method("set_owned_buff_ids_for_mode"):
-		ProfileManager.call("set_owned_buff_ids_for_mode", _buff_active_mode, _buff_owned_ids)
-	elif ProfileManager.has_method("set_owned_buff_ids"):
-		ProfileManager.call("set_owned_buff_ids", _buff_owned_ids)
+	var accepted: bool = false
 	if ProfileManager.has_method("set_buff_loadout_ids_for_mode"):
-		ProfileManager.call("set_buff_loadout_ids_for_mode", _buff_active_mode, _buff_loadout_ids)
+		accepted = bool(ProfileManager.call("set_buff_loadout_ids_for_mode", _buff_active_mode, _buff_loadout_ids))
 	elif ProfileManager.has_method("set_buff_loadout_ids"):
-		ProfileManager.call("set_buff_loadout_ids", _buff_loadout_ids)
+		accepted = bool(ProfileManager.call("set_buff_loadout_ids", _buff_loadout_ids))
+	if not accepted:
+		_load_buff_profile_state()
 	_refresh_dash_account_snapshot()
 	_refresh_dash_active_hero()
 
@@ -9991,9 +9971,6 @@ func _buff_price_usd(buff: Dictionary) -> float:
 		tier_name = "classic"
 	return maxf(0.0, float(BUFF_PRICE_USD_BY_TIER.get(tier_name, 0.20)))
 
-func _buff_mode_allows_duplicates() -> bool:
-	return _buff_active_mode == BUFF_MODE_ASYNC
-
 func _count_buff_in_ids(buff_ids: Array[String], buff_id: String) -> int:
 	if buff_id == "":
 		return 0
@@ -10007,7 +9984,6 @@ func _purchase_library_buffs(ids: Array[String]) -> Dictionary:
 	var purchase_ids: Array[String] = []
 	var total_cost_usd: float = 0.0
 	var total_cost_cents: int = 0
-	var seen_nonstack_batch: Dictionary = {}
 	for buff_id in ids:
 		var clean_buff_id: String = buff_id.strip_edges()
 		if clean_buff_id == "":
@@ -10015,49 +9991,41 @@ func _purchase_library_buffs(ids: Array[String]) -> Dictionary:
 		var buff: Dictionary = BuffCatalog.get_buff(clean_buff_id)
 		if buff.is_empty():
 			continue
-		if not _buff_mode_allows_duplicates():
-			if _buff_owned_ids.has(clean_buff_id):
-				continue
-			if seen_nonstack_batch.has(clean_buff_id):
-				continue
-			seen_nonstack_batch[clean_buff_id] = true
 		purchase_ids.append(clean_buff_id)
 		var unit_price_usd: float = _buff_price_usd(buff)
 		total_cost_usd += unit_price_usd
 		total_cost_cents += int(round(unit_price_usd * 100.0))
 	if purchase_ids.is_empty():
-		return {"ok": false, "reason": "already_owned_or_invalid", "total_cost_usd": 0.0}
+		return {"ok": false, "reason": "invalid_buff_selection", "total_cost_usd": 0.0}
 	if not LOCAL_REAL_PURCHASES_ENABLED:
 		return {
 			"ok": false,
 			"reason": "iap_not_wired",
 			"total_cost_usd": total_cost_usd
 		}
+	var purchased_ids: Array[String] = []
 	for buff_id in purchase_ids:
-		_buff_owned_ids.append(buff_id)
-	_persist_buff_profile_state()
+		var grant_result: Dictionary = {}
+		if ProfileManager.has_method("grant_buff"):
+			grant_result = ProfileManager.call("grant_buff", buff_id, 1, "iap_purchase") as Dictionary
+		elif ProfileManager.has_method("add_owned_buffs_for_mode"):
+			var added: int = int(ProfileManager.call("add_owned_buffs_for_mode", _buff_active_mode, [buff_id], "iap_purchase"))
+			grant_result = {"ok": added > 0}
+		if bool(grant_result.get("ok", false)):
+			purchased_ids.append(buff_id)
+	if purchased_ids.is_empty():
+		return {"ok": false, "reason": "inventory_grant_failed", "total_cost_usd": total_cost_usd}
+	_load_buff_profile_state()
 	_refresh_buffs_owned_ui()
 	_refresh_buffs_library_buttons()
 	_update_buff_details()
 	_play_store_purchase_sfx()
 	return {
 		"ok": true,
-		"purchased_ids": purchase_ids.duplicate(),
+		"purchased_ids": purchased_ids.duplicate(),
 		"total_cost_usd": total_cost_usd,
 		"total_cost_cents": total_cost_cents
 	}
-
-func _has_async_copy_available_for_slot(buff_id: String, target_slot: int) -> bool:
-	if _buff_active_mode != BUFF_MODE_ASYNC:
-		return true
-	var owned_count: int = _count_buff_in_ids(_buff_owned_ids, buff_id)
-	var equipped_count_excluding_target: int = 0
-	for idx in range(mini(_buff_loadout_ids.size(), BUFF_LOADOUT_SIZE)):
-		if idx == target_slot:
-			continue
-		if _buff_loadout_ids[idx] == buff_id:
-			equipped_count_excluding_target += 1
-	return owned_count > equipped_count_excluding_target
 
 func _refresh_buffs_library_buttons() -> void:
 	for button in _buff_library_runtime_buttons:
@@ -10079,16 +10047,13 @@ func _refresh_buffs_library_buttons() -> void:
 		var selected_mark: String = "[x] " if selected else "[ ] "
 		var price_usd: float = _buff_price_usd(buff)
 		var owned_count: int = _count_buff_in_ids(_buff_owned_ids, buff_id)
-		var ownership_tag: String = ""
-		if _buff_active_mode == BUFF_MODE_ASYNC:
-			ownership_tag = " x%d" % owned_count if owned_count > 0 else ""
-		elif owned_count > 0:
-			ownership_tag = " (OWNED)"
+		var ownership_tag: String = " x%d" % owned_count if owned_count > 0 else ""
 		var button: Button = Button.new()
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size = Vector2(0.0, BUFF_UI_LIBRARY_BUTTON_HEIGHT)
 		button.clip_text = true
 		button.text = "%s%s%s - $%.2f" % [selected_mark, str(buff.get("name", buff_id)), ownership_tag, price_usd]
+		_apply_buff_icon(button, buff)
 		_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 		var press_cb: Callable = Callable(self, "_on_buff_library_pressed_by_id").bind(buff_id)
@@ -10138,6 +10103,7 @@ func _refresh_buffs_owned_ui() -> void:
 		button.text = str(buff.get("name", buff_id))
 		if owned_count > 1:
 			button.text = "%s x%d" % [button.text, owned_count]
+		_apply_buff_icon(button, buff)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size = Vector2(0.0, BUFF_UI_SLOT_BUTTON_HEIGHT)
 		button.clip_text = true
@@ -10180,6 +10146,37 @@ func _refresh_buffs_loadout_ui() -> void:
 		if _buff_selected_origin == "loadout" and _buff_selected_slot_index == idx:
 			label = "> " + label
 		button.text = label
+		_apply_buff_icon(button, buff)
+
+func _apply_buff_icon(button: Button, buff: Dictionary) -> void:
+	if button == null:
+		return
+	button.icon = _buff_icon_texture(buff)
+	button.expand_icon = true
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.add_theme_constant_override("icon_max_width", BUFF_UI_ICON_SIZE)
+
+func _new_buff_icon_rect(buff: Dictionary, icon_size: int) -> TextureRect:
+	var icon_rect: TextureRect = TextureRect.new()
+	icon_rect.custom_minimum_size = Vector2(float(icon_size), float(icon_size))
+	icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_rect.texture = _buff_icon_texture(buff)
+	icon_rect.visible = icon_rect.texture != null
+	return icon_rect
+
+func _buff_icon_texture(buff: Dictionary) -> Texture2D:
+	var icon_path: String = str(buff.get("icon_path", "")).strip_edges()
+	if icon_path == "":
+		return null
+	if _buff_icon_cache.has(icon_path):
+		return _buff_icon_cache.get(icon_path) as Texture2D
+	var texture: Texture2D = null
+	if ResourceLoader.exists(icon_path):
+		texture = ResourceLoader.load(icon_path) as Texture2D
+	_buff_icon_cache[icon_path] = texture
+	return texture
 
 func _set_selected_buff(buff_id: String, origin: String, slot_index: int = -1) -> void:
 	_buff_selected_id = buff_id
@@ -10209,11 +10206,8 @@ func _update_buff_details() -> void:
 		var origin_tag: String = _buff_selected_origin.to_upper()
 		var mode_tag: String = _buff_active_mode.to_upper()
 		var price_usd: float = _buff_price_usd(buff)
-		if _buff_active_mode == BUFF_MODE_ASYNC:
-			var owned_count: int = _count_buff_in_ids(_buff_owned_ids, _buff_selected_id)
-			buffs_detail_meta_label.text = "Tier: %s | Category: %s | Source: %s | Mode: %s | Cost: $%.2f | Copies: %d" % [tier, category, origin_tag, mode_tag, price_usd, owned_count]
-		else:
-			buffs_detail_meta_label.text = "Tier: %s | Category: %s | Source: %s | Mode: %s | Cost: $%.2f" % [tier, category, origin_tag, mode_tag, price_usd]
+		var owned_count: int = _count_buff_in_ids(_buff_owned_ids, _buff_selected_id)
+		buffs_detail_meta_label.text = "Tier: %s | Category: %s | Source: %s | Mode: %s | Cost: $%.2f | Inventory: %d" % [tier, category, origin_tag, mode_tag, price_usd, owned_count]
 
 func _buff_description(buff: Dictionary) -> String:
 	var effects_any: Variant = buff.get("effects", [])
@@ -10390,7 +10384,7 @@ func _drop_library_to_owned(ids: Array[String]) -> void:
 	if reason == "iap_not_wired":
 		status_label.text = "Buff purchases require payment wiring (IAP disabled)."
 		return
-	status_label.text = "All selected buffs already owned."
+	status_label.text = "No valid buffs selected."
 
 func _drop_owned_to_loadout(buff_id: String, slot_index: int) -> void:
 	if slot_index < 0 or slot_index >= BUFF_LOADOUT_SIZE:
@@ -10399,17 +10393,7 @@ func _drop_owned_to_loadout(buff_id: String, slot_index: int) -> void:
 		status_label.text = "You must own a buff before equipping."
 		return
 	while _buff_loadout_ids.size() < BUFF_LOADOUT_SIZE:
-		_buff_loadout_ids.append(_fallback_buff_for_index(_buff_loadout_ids.size()))
-	if _buff_mode_allows_duplicates():
-		if not _has_async_copy_available_for_slot(buff_id, slot_index):
-			status_label.text = "No additional Async copy available for this slot."
-			return
-		_buff_loadout_ids[slot_index] = buff_id
-		_persist_buff_profile_state()
-		_set_selected_buff(buff_id, "loadout", slot_index)
-		_play_buff_equip_sfx()
-		status_label.text = "Equipped to slot %d (Async stack)." % (slot_index + 1)
-		return
+		_buff_loadout_ids.append("")
 	var existing_slot: int = _buff_loadout_ids.find(buff_id)
 	if existing_slot == slot_index:
 		status_label.text = "Already equipped to slot %d." % (slot_index + 1)
@@ -10429,7 +10413,7 @@ func _swap_loadout_slots(a: int, b: int) -> void:
 	if a < 0 or a >= BUFF_LOADOUT_SIZE or b < 0 or b >= BUFF_LOADOUT_SIZE:
 		return
 	while _buff_loadout_ids.size() < BUFF_LOADOUT_SIZE:
-		_buff_loadout_ids.append(_fallback_buff_for_index(_buff_loadout_ids.size()))
+		_buff_loadout_ids.append("")
 	var tmp: String = _buff_loadout_ids[a]
 	_buff_loadout_ids[a] = _buff_loadout_ids[b]
 	_buff_loadout_ids[b] = tmp
@@ -10470,20 +10454,24 @@ func _on_buff_remove_pressed() -> void:
 			status_label.text = "Unselected from batch."
 		return
 	if _buff_selected_origin == "owned":
-		if _buff_active_mode == BUFF_MODE_ASYNC:
-			var owned_count: int = _count_buff_in_ids(_buff_owned_ids, _buff_selected_id)
-			var equipped_count: int = _count_buff_in_ids(_buff_loadout_ids, _buff_selected_id)
-			if owned_count <= equipped_count:
-				status_label.text = "Cannot remove: all copies are equipped in Async loadout."
-				return
-		elif _buff_loadout_ids.has(_buff_selected_id):
-			status_label.text = "Cannot remove: buff is equipped in loadout."
+		var owned_count: int = _count_buff_in_ids(_buff_owned_ids, _buff_selected_id)
+		if owned_count <= 1 and _buff_loadout_ids.has(_buff_selected_id):
+			status_label.text = "Cannot remove the last item while this buff is equipped."
 			return
 		if _buff_owned_ids.has(_buff_selected_id):
-			var remove_index: int = _buff_owned_ids.find(_buff_selected_id)
-			if remove_index >= 0:
-				_buff_owned_ids.remove_at(remove_index)
-			_persist_buff_profile_state()
+			var revoke_result: Dictionary = {}
+			if ProfileManager.has_method("revoke_buff_for_mode"):
+				revoke_result = ProfileManager.call(
+					"revoke_buff_for_mode",
+					_buff_active_mode,
+					_buff_selected_id,
+					1,
+					"inventory_ui_remove"
+				) as Dictionary
+			if not bool(revoke_result.get("ok", false)):
+				status_label.text = "Could not remove buff from inventory."
+				return
+			_load_buff_profile_state()
 			_refresh_buffs_owned_ui()
 			_set_selected_buff("", "", -1)
 			status_label.text = "Removed from Owned."
@@ -10505,15 +10493,6 @@ func _first_owned_not_in_loadout(exclude_slot: int) -> String:
 	var current_buff: String = ""
 	if exclude_slot >= 0 and exclude_slot < _buff_loadout_ids.size():
 		current_buff = _buff_loadout_ids[exclude_slot]
-	if _buff_active_mode == BUFF_MODE_ASYNC:
-		for buff_id in _buff_owned_ids:
-			if buff_id == "":
-				continue
-			if buff_id == current_buff:
-				continue
-			if _has_async_copy_available_for_slot(buff_id, exclude_slot):
-				return buff_id
-		return ""
 	for buff_id in _buff_owned_ids:
 		if buff_id == current_buff:
 			continue

@@ -38,8 +38,8 @@ var _buff_category_timers: Dictionary = {
 var _last_update_ms: int = 0
 
 func configure_loadout(entries: Array) -> Dictionary:
-	if entries.size() != LOADOUT_SIZE:
-		return {"ok": false, "error": "Loadout must have %d buffs" % LOADOUT_SIZE}
+	if entries.size() > LOADOUT_SIZE:
+		return {"ok": false, "error": "Loadout cannot exceed %d buffs" % LOADOUT_SIZE}
 	var next_slots: Array = []
 	for entry_any in entries:
 		if typeof(entry_any) != TYPE_DICTIONARY:
@@ -59,13 +59,19 @@ func configure_loadout(entries: Array) -> Dictionary:
 		var target: Dictionary = {}
 		if typeof(target_any) == TYPE_DICTIONARY:
 			target = (target_any as Dictionary).duplicate(true)
+		var uses: int = maxi(1, int(entry.get("uses", 1)))
+		var uses_total: int = maxi(uses, int(entry.get("uses_total", uses)))
 		next_slots.append({
 			"id": canonical_id,
+			"inventory_id": buff_id,
 			"tier": tier,
 			"category": BuffDefinitions.category_for(canonical_id),
 			"target": target,
 			"active": false,
 			"consumed": false,
+			"initial_uses": uses,
+			"uses_total": uses_total,
+			"uses_remaining": uses,
 			"ends_ms": 0
 		})
 	loadout = entries.duplicate(true)
@@ -81,7 +87,8 @@ func reset_for_match() -> void:
 	for i in range(slots.size()):
 		var slot: Dictionary = slots[i] as Dictionary
 		slot["active"] = false
-		slot["consumed"] = false
+		slot["uses_remaining"] = maxi(0, int(slot.get("initial_uses", slot.get("uses_total", 1))))
+		slot["consumed"] = int(slot.get("uses_remaining", 0)) <= 0
 		slot["ends_ms"] = 0
 		slots[i] = slot
 	_active_by_category[BuffDefinitions.CATEGORY_UNIT] = {}
@@ -124,11 +131,16 @@ func can_activate_slot(slot_index: int) -> bool:
 		return false
 	if bool(slot.get("consumed", false)):
 		return false
+	if int(slot.get("uses_remaining", 0)) <= 0:
+		return false
 	return true
 
 func activate_slot(slot_index: int, now_ms: int, target: Dictionary = {}) -> bool:
+	return bool(activate_slot_with_result(slot_index, now_ms, target).get("ok", false))
+
+func activate_slot_with_result(slot_index: int, now_ms: int, target: Dictionary = {}) -> Dictionary:
 	if not can_activate_slot(slot_index):
-		return false
+		return {"ok": false, "status": "rejected", "reason": "slot_blocked", "slot_index": slot_index}
 	var slot: Dictionary = slots[slot_index] as Dictionary
 	var slot_target: Dictionary = {}
 	if typeof(slot.get("target", {})) == TYPE_DICTIONARY:
@@ -144,7 +156,40 @@ func activate_slot(slot_index: int, now_ms: int, target: Dictionary = {}) -> boo
 		now_ms,
 		slot_index
 	)
-	return bool(result.get("ok", false))
+	if not bool(result.get("ok", false)):
+		var rejected: Dictionary = result.duplicate(true)
+		rejected["status"] = "rejected"
+		rejected["reason"] = str(result.get("code", "activation_rejected"))
+		rejected["slot_index"] = slot_index
+		return rejected
+	var remaining: int = maxi(0, int(slot.get("uses_remaining", 1)) - 1)
+	slot["uses_remaining"] = remaining
+	slot["consumed"] = remaining <= 0
+	slots[slot_index] = slot
+	_sync_slots_from_active(now_ms)
+	_emit_state_changed()
+	var activated: Dictionary = result.duplicate(true)
+	activated["ok"] = true
+	activated["status"] = "executed"
+	activated["reason"] = "activated"
+	activated["slot_index"] = slot_index
+	activated["uses_remaining"] = remaining
+	return activated
+
+func commit_slot_use(slot_index: int, now_ms: int) -> Dictionary:
+	if slot_index < 0 or slot_index >= slots.size():
+		return {"ok": false, "status": "rejected", "reason": "slot_out_of_range", "slot_index": slot_index}
+	var slot: Dictionary = slots[slot_index] as Dictionary
+	var remaining_before: int = maxi(0, int(slot.get("uses_remaining", 0)))
+	if remaining_before <= 0:
+		return {"ok": false, "status": "rejected", "reason": "slot_already_consumed", "slot_index": slot_index}
+	var remaining: int = remaining_before - 1
+	slot["uses_remaining"] = remaining
+	slot["consumed"] = remaining <= 0
+	slots[slot_index] = slot
+	_sync_slots_from_active(now_ms)
+	_emit_state_changed()
+	return {"ok": true, "status": "committed", "reason": "use_recorded", "slot_index": slot_index, "uses_remaining": remaining}
 
 func update(now_ms: int) -> void:
 	if _last_update_ms == 0:
@@ -177,6 +222,8 @@ func refill_slot(slot_index: int) -> bool:
 	var slot: Dictionary = slots[slot_index] as Dictionary
 	if not bool(slot.get("consumed", false)):
 		return false
+	slot["uses_remaining"] = 1
+	slot["uses_total"] = maxi(1, int(slot.get("uses_total", 1)))
 	slot["consumed"] = false
 	slots[slot_index] = slot
 	_emit_state_changed()
@@ -371,7 +418,7 @@ func _expire_category(category: String, reason: String, now_ms: int) -> void:
 	if slot_index >= 0 and slot_index < slots.size():
 		var slot: Dictionary = slots[slot_index] as Dictionary
 		slot["active"] = false
-		slot["consumed"] = true
+		slot["consumed"] = int(slot.get("uses_remaining", 0)) <= 0
 		slot["ends_ms"] = now_ms
 		slots[slot_index] = slot
 	_active_by_category[category] = {}
@@ -402,7 +449,7 @@ func _sync_slots_from_active(now_ms: int) -> void:
 			continue
 		var slot: Dictionary = slots[slot_index] as Dictionary
 		slot["active"] = true
-		slot["consumed"] = false
+		slot["consumed"] = int(slot.get("uses_remaining", 0)) <= 0
 		slot["ends_ms"] = int(active.get("ends_ms", now_ms))
 		slots[slot_index] = slot
 
