@@ -1,9 +1,10 @@
 extends Control
 class_name PlayerBuffStrip
 
-signal buff_drag_started(slot_index: int, buff_id: String)
-signal buff_drop_requested(slot_index: int, screen_pos: Vector2, held_ms: int)
-signal buff_drag_cancelled(slot_index: int, reason: String)
+signal buff_press_captured(slot_index: int, buff_id: String, pointer_kind: String, pointer_id: int, root_screen_pos: Vector2)
+signal buff_pointer_moved(pointer_kind: String, pointer_id: int, pointer_session_id: int, root_screen_pos: Vector2)
+signal buff_pointer_released(pointer_kind: String, pointer_id: int, pointer_session_id: int, root_screen_pos: Vector2)
+signal buff_pointer_cancelled(pointer_kind: String, pointer_id: int, pointer_session_id: int, reason: String)
 
 const SLOT_READY_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
 const SLOT_ACTIVE_COLOR: Color = Color(0.62, 1.0, 0.64, 1.0)
@@ -20,11 +21,9 @@ const TIER_DURATION_MS := {
 	"elite": 20000
 }
 
-const HOLD_TO_ARM_MS: int = 180
-const DRAG_DEADZONE_PX: float = 18.0
-
-@export var allow_tap_activation: bool = false
-@export var require_hold_before_drag: bool = true
+const POINTER_TOUCH: String = "touch"
+const POINTER_MOUSE: String = "mouse"
+const MOUSE_POINTER_ID: int = 0
 
 var _slots: Array[Panel] = []
 var _name_labels: Array[Label] = []
@@ -40,10 +39,10 @@ var _snapshot_pid: int = 1
 var _ui_remaining_ms: Array[int] = []
 
 var _press_slot_index: int = -1
-var _press_started_ms: int = 0
-var _press_start_screen: Vector2 = Vector2.ZERO
-var _drag_armed: bool = false
-var _active_touch_id: int = -1
+var _press_pointer_kind: String = ""
+var _press_pointer_id: int = -1
+var _pointer_session_id: int = 0
+var _pointer_drag_visual: bool = false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -90,24 +89,42 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 			_ui_remaining_ms[i] = 0
 		_slot_snapshots.append(slot_data)
 		_apply_slot_visual(i, slot_data)
+	if _pointer_drag_visual and _press_slot_index >= 0:
+		_apply_slot_armed_visual(_press_slot_index)
 
 func _input(event: InputEvent) -> void:
 	if _press_slot_index < 0:
 		return
-	if event is InputEventMouseMotion:
-		_handle_pointer_motion(_viewport_pointer_pos())
+	if event is InputEventMouseMotion and _press_pointer_kind == POINTER_MOUSE:
+		var mouse_motion: InputEventMouseMotion = event as InputEventMouseMotion
+		_emit_pointer_motion(mouse_motion.position)
 	elif event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed:
-			_handle_pointer_release(_viewport_pointer_pos())
+		if _press_pointer_kind == POINTER_MOUSE and mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed:
+			_emit_pointer_release(mb.position)
 	elif event is InputEventScreenDrag:
 		var sd: InputEventScreenDrag = event as InputEventScreenDrag
-		if _active_touch_id == sd.index:
-			_handle_pointer_motion(sd.position)
+		if _press_pointer_kind == POINTER_TOUCH and _press_pointer_id == sd.index:
+			_emit_pointer_motion(sd.position)
 	elif event is InputEventScreenTouch:
 		var st: InputEventScreenTouch = event as InputEventScreenTouch
-		if _active_touch_id == st.index and not st.pressed:
-			_handle_pointer_release(st.position)
+		if _press_pointer_kind == POINTER_TOUCH and _press_pointer_id == st.index and not st.pressed:
+			if st.canceled:
+				_emit_pointer_cancelled("touch_cancelled")
+			else:
+				_emit_pointer_release(st.position)
+
+
+func _exit_tree() -> void:
+	if _press_slot_index >= 0:
+		emit_signal(
+			"buff_pointer_cancelled",
+			_press_pointer_kind,
+			_press_pointer_id,
+			_pointer_session_id,
+			"strip_scene_exit"
+		)
+	_reset_interaction_state()
 
 func _cache_slots() -> void:
 	_slots.clear()
@@ -276,55 +293,146 @@ func _on_slot_gui_input(event: InputEvent, slot_index: int) -> void:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		if mb.button_index != MOUSE_BUTTON_LEFT:
 			return
+		var root_screen_pos: Vector2 = _slot_event_root_screen_pos(slot_index, mb.position)
 		if mb.pressed:
-			_try_begin_press(slot_index, _viewport_pointer_pos(), -1)
-		else:
-			_handle_pointer_release(_viewport_pointer_pos())
+			_try_capture_press(slot_index, POINTER_MOUSE, MOUSE_POINTER_ID, root_screen_pos)
+		elif _press_pointer_kind == POINTER_MOUSE:
+			_emit_pointer_release(root_screen_pos)
 	elif event is InputEventScreenTouch:
 		var st: InputEventScreenTouch = event as InputEventScreenTouch
+		var root_screen_pos: Vector2 = _slot_event_root_screen_pos(slot_index, st.position)
 		if st.pressed:
-			_try_begin_press(slot_index, st.position, st.index)
-		elif _active_touch_id == st.index:
-			_handle_pointer_release(st.position)
+			_try_capture_press(slot_index, POINTER_TOUCH, st.index, root_screen_pos)
+		elif _press_pointer_kind == POINTER_TOUCH and _press_pointer_id == st.index:
+			if st.canceled:
+				_emit_pointer_cancelled("touch_cancelled")
+			else:
+				_emit_pointer_release(root_screen_pos)
 
-func _try_begin_press(slot_index: int, screen_pos: Vector2, touch_id: int) -> void:
+
+func _try_capture_press(slot_index: int, pointer_kind: String, pointer_id: int, root_screen_pos: Vector2) -> void:
+	if _press_slot_index >= 0:
+		return
 	if not _slot_can_arm(slot_index):
 		return
 	_press_slot_index = slot_index
-	_press_started_ms = Time.get_ticks_msec()
-	_press_start_screen = screen_pos
-	_drag_armed = false
-	_active_touch_id = touch_id
+	_press_pointer_kind = pointer_kind
+	_press_pointer_id = pointer_id
+	_pointer_session_id = 0
+	_pointer_drag_visual = false
+	var slot_data: Dictionary = _slot_snapshot(_press_slot_index)
+	emit_signal(
+		"buff_press_captured",
+		_press_slot_index,
+		str(slot_data.get("id", "")),
+		pointer_kind,
+		pointer_id,
+		root_screen_pos
+	)
+	_mark_pointer_event_handled()
 
-func _handle_pointer_motion(screen_pos: Vector2) -> void:
+
+func _emit_pointer_motion(root_screen_pos: Vector2) -> void:
 	if _press_slot_index < 0:
 		return
-	if _drag_armed:
-		return
-	var held_ms: int = Time.get_ticks_msec() - _press_started_ms
-	if require_hold_before_drag and held_ms < HOLD_TO_ARM_MS:
-		return
-	if screen_pos.distance_to(_press_start_screen) < DRAG_DEADZONE_PX:
-		return
-	_drag_armed = true
-	_apply_slot_armed_visual(_press_slot_index)
-	var slot_data: Dictionary = _slot_snapshot(_press_slot_index)
-	emit_signal("buff_drag_started", _press_slot_index, str(slot_data.get("id", "")))
+	emit_signal(
+		"buff_pointer_moved",
+		_press_pointer_kind,
+		_press_pointer_id,
+		_pointer_session_id,
+		root_screen_pos
+	)
+	_mark_pointer_event_handled()
 
-func _handle_pointer_release(screen_pos: Vector2) -> void:
+
+func _emit_pointer_release(root_screen_pos: Vector2) -> void:
 	if _press_slot_index < 0:
 		return
 	var slot_index: int = _press_slot_index
-	var held_ms: int = Time.get_ticks_msec() - _press_started_ms
-	if _drag_armed:
-		emit_signal("buff_drop_requested", slot_index, screen_pos, held_ms)
-	elif allow_tap_activation and _slot_can_arm(slot_index):
-		emit_signal("buff_drop_requested", slot_index, screen_pos, held_ms)
-	else:
-		emit_signal("buff_drag_cancelled", slot_index, "tap_ignored")
+	emit_signal(
+		"buff_pointer_released",
+		_press_pointer_kind,
+		_press_pointer_id,
+		_pointer_session_id,
+		root_screen_pos
+	)
 	_reset_interaction_state()
 	var slot_data: Dictionary = _slot_snapshot(slot_index)
 	_apply_slot_visual(slot_index, slot_data)
+	_mark_pointer_event_handled()
+
+
+func _emit_pointer_cancelled(reason: String) -> void:
+	if _press_slot_index < 0:
+		return
+	var slot_index: int = _press_slot_index
+	emit_signal(
+		"buff_pointer_cancelled",
+		_press_pointer_kind,
+		_press_pointer_id,
+		_pointer_session_id,
+		reason
+	)
+	_reset_interaction_state()
+	_apply_slot_visual(slot_index, _slot_snapshot(slot_index))
+	_mark_pointer_event_handled()
+
+
+func bind_pointer_session(pointer_kind: String, pointer_id: int, pointer_session_id: int) -> bool:
+	if _press_slot_index < 0 or _press_pointer_kind != pointer_kind or _press_pointer_id != pointer_id:
+		return false
+	_pointer_session_id = pointer_session_id
+	return true
+
+
+func set_pointer_dragging(pointer_session_id: int, dragging: bool) -> bool:
+	if _press_slot_index < 0 or _pointer_session_id != pointer_session_id:
+		return false
+	if dragging:
+		_pointer_drag_visual = true
+		_apply_slot_armed_visual(_press_slot_index)
+	else:
+		_pointer_drag_visual = false
+		_apply_slot_visual(_press_slot_index, _slot_snapshot(_press_slot_index))
+	return true
+
+
+func clear_pointer_capture(pointer_session_id: int = -1) -> bool:
+	if _press_slot_index < 0:
+		return false
+	if pointer_session_id >= 0 and _pointer_session_id != pointer_session_id:
+		return false
+	var slot_index: int = _press_slot_index
+	_reset_interaction_state()
+	_apply_slot_visual(slot_index, _slot_snapshot(slot_index))
+	return true
+
+
+func get_slot_icon_texture(slot_index: int) -> Texture2D:
+	if slot_index < 0 or slot_index >= _icon_rects.size():
+		return null
+	var icon_rect: TextureRect = _icon_rects[slot_index]
+	return icon_rect.texture if icon_rect != null else null
+
+
+func get_slot_root_screen_center(slot_index: int) -> Vector2:
+	if slot_index < 0 or slot_index >= _slots.size() or _slots[slot_index] == null:
+		return Vector2.ZERO
+	var slot: Control = _slots[slot_index]
+	return slot.get_global_transform_with_canvas() * (slot.size * 0.5)
+
+
+func _slot_event_root_screen_pos(slot_index: int, local_event_pos: Vector2) -> Vector2:
+	if slot_index < 0 or slot_index >= _slots.size() or _slots[slot_index] == null:
+		return local_event_pos
+	return _slots[slot_index].get_global_transform_with_canvas() * local_event_pos
+
+
+func _mark_pointer_event_handled() -> void:
+	accept_event()
+	var viewport: Viewport = get_viewport()
+	if viewport != null:
+		viewport.set_input_as_handled()
 
 func _slot_can_arm(slot_index: int) -> bool:
 	var slot_data: Dictionary = _slot_snapshot(slot_index)
@@ -349,8 +457,8 @@ func _apply_slot_armed_visual(slot_index: int) -> void:
 	if slot_index >= 0 and slot_index < _state_labels.size():
 		_name_labels[slot_index].visible = true
 		_meta_labels[slot_index].visible = true
-		_state_labels[slot_index].visible = true
-		_state_labels[slot_index].text = "DROP TO APPLY"
+		_state_labels[slot_index].visible = false
+		_state_labels[slot_index].text = ""
 
 func _apply_slot_visual(slot_index: int, slot_data: Dictionary) -> void:
 	if slot_index < 0 or slot_index >= _slots.size():
@@ -498,15 +606,9 @@ func _team_color_for_pid(pid: int) -> Color:
 			return TEAM_COLOR_P4
 	return TEAM_COLOR_P1
 
-func _viewport_pointer_pos() -> Vector2:
-	var viewport: Viewport = get_viewport()
-	if viewport == null:
-		return Vector2.ZERO
-	return viewport.get_mouse_position()
-
 func _reset_interaction_state() -> void:
 	_press_slot_index = -1
-	_press_started_ms = 0
-	_press_start_screen = Vector2.ZERO
-	_drag_armed = false
-	_active_touch_id = -1
+	_press_pointer_kind = ""
+	_press_pointer_id = -1
+	_pointer_session_id = 0
+	_pointer_drag_visual = false

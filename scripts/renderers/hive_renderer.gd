@@ -90,6 +90,36 @@ func get_hive_center_local(hive_id: int) -> Vector2:
 		return Vector2.INF
 	return n.position
 
+func get_buff_target_probe(hive_id: int) -> Dictionary:
+	var node: Node = get_hive_node_by_id(hive_id)
+	if not (node is Node2D) or not is_instance_valid(node) or node.is_queued_for_deletion():
+		return {"ok": false, "reason": "render_node_missing", "hive_id": hive_id}
+	var canvas_item: CanvasItem = node as CanvasItem
+	if not canvas_item.visible or not canvas_item.is_visible_in_tree():
+		return {"ok": false, "reason": "render_node_hidden", "hive_id": hive_id}
+	var node_2d: Node2D = node as Node2D
+	var base_radius: float = maxf(1.0, float(node.get("radius_px")))
+	var map_parent: Node2D = get_parent() as Node2D
+	if map_parent == null:
+		return {"ok": false, "reason": "map_parent_missing", "hive_id": hive_id}
+	# Probe the unanimated HiveNode root and authored base radius. Presentation
+	# children, selector scale, textures, and collision shapes never feed back
+	# into acquisition geometry.
+	var center_world: Vector2 = node_2d.global_position
+	var edge_world: Vector2 = node_2d.to_global(Vector2(base_radius, 0.0))
+	var ring_center_world: Vector2 = node_2d.to_global(Vector2(0.0, base_radius))
+	var center_local: Vector2 = map_parent.to_local(center_world)
+	var edge_local: Vector2 = map_parent.to_local(edge_world)
+	return {
+		"ok": true,
+		"hive_id": hive_id,
+		"center_arena_local": center_local,
+		"radius_edge_arena_local": edge_local,
+		"ring_center_arena_local": map_parent.to_local(ring_center_world),
+		"base_radius_arena_local": center_local.distance_to(edge_local),
+		"render_instance_id": node.get_instance_id()
+	}
+
 func get_hive_nodes_by_id_safe() -> Dictionary:
 	return hive_nodes_by_id
 
@@ -528,8 +558,10 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 		if node != null:
 			node.queue_free()
 		hive_nodes_by_id.erase(key)
+	_notify_buff_target_render_nodes_changed()
 
 func _clear_hive_nodes() -> void:
+	_clear_buff_target_presentation("hive_renderer_clear")
 	for key in hive_nodes_by_id.keys():
 		var node: Node2D = hive_nodes_by_id.get(key, null)
 		if node != null:
@@ -538,6 +570,22 @@ func _clear_hive_nodes() -> void:
 	_drag_target_hive_id = -1
 	_drag_target_valid = false
 	_drag_target_reason = ""
+
+func _buff_target_controller() -> Node:
+	var map_parent: Node = get_parent()
+	if map_parent == null:
+		return null
+	return map_parent.get_node_or_null("BuffHiveTargetPresentation")
+
+func _notify_buff_target_render_nodes_changed() -> void:
+	var controller: Node = _buff_target_controller()
+	if controller != null and controller.has_method("notify_render_nodes_changed"):
+		controller.call("notify_render_nodes_changed")
+
+func _clear_buff_target_presentation(reason: String) -> void:
+	var controller: Node = _buff_target_controller()
+	if controller != null and controller.has_method("clear"):
+		controller.call("clear", -1, true, reason)
 
 func _resolve_hive_id(raw: Variant) -> int:
 	if raw is int:

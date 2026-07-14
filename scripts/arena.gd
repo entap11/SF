@@ -278,6 +278,7 @@ var _last_render_hives_version: int = -1
 @onready var lane_renderer = $MapRoot/LaneRenderer
 @onready var tower_renderer_node = $MapRoot/TowerRenderer
 @onready var hive_renderer: HiveRenderer = $MapRoot/HiveRenderer
+@onready var buff_hive_targeting_controller: Node2D = $MapRoot/BuffHiveTargetPresentation
 @onready var unit_renderer: Node2D = _resolve_unit_renderer()
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
@@ -600,6 +601,7 @@ func _ready() -> void:
 	for c in get_tree().root.get_children():
 		SFLog.trace(" - ", {"path": _node_path_for_log(c), "type": c.get_class()})
 	clear_map_render()
+	_setup_buff_hive_targeting_presentation()
 	_ensure_arena_polish_layer()
 	_apply_arena_polish_runtime_settings()
 	$MapRoot/HiveRenderer.visible = true
@@ -5370,6 +5372,9 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		SFLog.info("MATCH_END_DUPLICATE_SKIP", {"winner_id": winner_id_in})
 		return
 	_match_end_handled = true
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("cancel_buff_pointer_session"):
+		shell.call("cancel_buff_pointer_session", "match_ended:%s" % reason)
 	_buff_activation_transactions.terminate_match(_buff_match_id(), "match_ended:%s" % reason)
 	_persist_buff_activation_runtime_state()
 	if floor_influence_system != null:
@@ -7070,6 +7075,10 @@ func _create_system(script_path: String, label: String) -> RefCounted:
 		return null
 	return instance
 
+func _exit_tree() -> void:
+	clear_buff_hive_targeting(-1, "arena_scene_exit")
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_SIZE_CHANGED:
 		if FIT_DEBUG:
@@ -7233,6 +7242,8 @@ func _apply_neutral_towers(map_data: Dictionary) -> void:
 		SFLog.info("TOWER_FIRST_POS", {"grid_pos": first_gp, "pos_px": px_pos})
 
 func load_from_map(map_data: Dictionary) -> void:
+	_cancel_shell_buff_pointer_session("map_reload")
+	clear_buff_hive_targeting(-1, "map_reload")
 	if not _is_dev_or_editor_context():
 		SFLog.warn("MAP_APPLY_ONE_WAY_DOOR", {
 			"entrypoint": "Arena.load_from_map",
@@ -7421,6 +7432,8 @@ func reset_match() -> void:
 	load_from_map(current_map_data.duplicate(true))
 
 func notify_map_built() -> void:
+	_cancel_shell_buff_pointer_session("map_rebuilt")
+	clear_buff_hive_targeting(-1, "map_rebuilt")
 	_fit_serial += 1
 	_fit_applied_serial = -1
 	_camera_fit_signature_last = ""
@@ -7428,6 +7441,7 @@ func notify_map_built() -> void:
 func on_map_built() -> void:
 	if _map_built_version == _map_build_version:
 		return
+	_cancel_shell_buff_pointer_session("map_rebuilt")
 	_map_built_version = _map_build_version
 	_rebuild_map_markers()
 	_normalize_map_root()
@@ -7442,6 +7456,11 @@ func on_map_built() -> void:
 	mark_render_dirty("map_built")
 	_debug_map_bounds("map_built")
 	_debug_camera("map_built")
+
+func _cancel_shell_buff_pointer_session(reason: String) -> void:
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("cancel_buff_pointer_session"):
+		shell.call("cancel_buff_pointer_session", reason)
 
 func fitcam_once() -> void:
 	apply_camera_fit_next_frame("fitcam_once")
@@ -9960,6 +9979,155 @@ func preview_buff_targets(pid: int, slot_index: int) -> Dictionary:
 		str(slot.get("inventory_id", slot.get("id", "")))
 	)
 
+
+func _setup_buff_hive_targeting_presentation() -> void:
+	if buff_hive_targeting_controller == null:
+		return
+	buff_hive_targeting_controller.call("setup", self, hive_renderer)
+	var selection_cb := Callable(self, "_on_buff_hive_target_selection_changed")
+	if not buff_hive_targeting_controller.is_connected("selection_changed", selection_cb):
+		buff_hive_targeting_controller.connect("selection_changed", selection_cb)
+
+
+func update_buff_hive_targeting(
+	pointer_session_id: int,
+	preview: Dictionary,
+	selected_hive_id: int,
+	root_screen_pos: Vector2
+) -> Dictionary:
+	if buff_hive_targeting_controller == null:
+		return {"ok": false, "reason": "hive_targeting_controller_missing"}
+	if not bool(preview.get("ok", false)) or str(preview.get("target_type", "")) != BuffDefinitions.TARGET_HIVE:
+		clear_buff_hive_targeting(pointer_session_id, "not_hive_targeting")
+		return {"ok": false, "reason": "not_hive_targeting"}
+	var eligible: Array = preview.get("eligible_target_ids", []) as Array
+	var updated: bool = bool(buff_hive_targeting_controller.call(
+		"begin_or_update",
+		pointer_session_id,
+		eligible,
+		selected_hive_id,
+		root_screen_pos
+	))
+	var snapshot: Dictionary = buff_hive_targeting_controller.call("get_snapshot") as Dictionary
+	snapshot["ok"] = updated
+	if not updated:
+		snapshot["reason"] = "pointer_session_mismatch"
+	return snapshot
+
+
+func clear_buff_hive_targeting(pointer_session_id: int = -1, reason: String = "cleared") -> bool:
+	if buff_hive_targeting_controller == null:
+		return false
+	return bool(buff_hive_targeting_controller.call("clear", pointer_session_id, true, reason))
+
+
+func get_buff_hive_targeting_snapshot() -> Dictionary:
+	if buff_hive_targeting_controller == null:
+		return {"active": false}
+	return buff_hive_targeting_controller.call("get_snapshot") as Dictionary
+
+
+func buff_arena_local_to_root_screen(arena_local_pos: Vector2) -> Dictionary:
+	var subviewport: SubViewport = get_viewport() as SubViewport
+	var container: SubViewportContainer = subviewport.get_parent() as SubViewportContainer if subviewport != null else null
+	return _input_bridge_utils.arena_local_to_root_screen(
+		arena_local_pos,
+		container,
+		subviewport,
+		map_root
+	)
+
+
+func buff_arena_local_to_world(arena_local_pos: Vector2) -> Vector2:
+	return map_root.to_global(arena_local_pos) if map_root != null else arena_local_pos
+
+
+func _on_buff_hive_target_selection_changed(pointer_session_id: int, hive_id: int, reason: String) -> void:
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell == null or not shell.has_method("update_buff_pointer_selected_target"):
+		return
+	shell.call(
+		"update_buff_pointer_selected_target",
+		pointer_session_id,
+		BuffDefinitions.TARGET_HIVE if hive_id > 0 else "",
+		hive_id if hive_id > 0 else null,
+		reason
+	)
+
+
+func get_buff_activation_source_snapshot(pid: int, slot_index: int) -> Dictionary:
+	var owner_id: int = int(active_player_id)
+	if pid != owner_id:
+		return {"ok": false, "reason": "owner_mismatch", "owner_id": owner_id}
+	if buff_states.is_empty():
+		_init_buff_states()
+	var buff_state: BuffState = buff_states.get(owner_id)
+	if buff_state == null or slot_index < 0 or slot_index >= buff_state.slots.size():
+		return {"ok": false, "reason": "slot_out_of_range"}
+	if not buff_state.can_activate_slot(slot_index):
+		return {"ok": false, "reason": "slot_blocked"}
+	var slot: Dictionary = buff_state.slots[slot_index] as Dictionary
+	var inventory_buff_id: String = str(slot.get("inventory_id", slot.get("id", ""))).strip_edges()
+	var source: Dictionary = _buff_source_descriptor(owner_id, inventory_buff_id)
+	if not bool(source.get("ok", false)):
+		return source
+	return {
+		"ok": true,
+		"owner_id": owner_id,
+		"slot_index": slot_index,
+		"inventory_revision": _buff_inventory_revision(),
+		"slot": {
+			"id": str(slot.get("id", "")),
+			"inventory_id": inventory_buff_id,
+			"tier": str(slot.get("tier", "classic")),
+			"active": bool(slot.get("active", false)),
+			"consumed": bool(slot.get("consumed", false)),
+			"uses_remaining": int(slot.get("uses_remaining", 0)),
+			"uses_total": int(slot.get("uses_total", 1))
+		},
+		"source_kind": str(source.get("source_kind", "")),
+		"source_use_ordinal": int(source.get("source_use_ordinal", 0)),
+		"charge_key": str(source.get("charge_key", "")),
+		"quantity": int(source.get("capacity", 0))
+	}
+
+
+func root_screen_to_buff_arena_local(root_screen_pos: Vector2) -> Dictionary:
+	var subviewport: SubViewport = get_viewport() as SubViewport
+	var container: SubViewportContainer = subviewport.get_parent() as SubViewportContainer if subviewport != null else null
+	return _input_bridge_utils.root_screen_to_arena_local(
+		root_screen_pos,
+		container,
+		subviewport,
+		map_root,
+		true
+	)
+
+
+func resolve_buff_release_candidate(pid: int, slot_index: int, arena_local_pos: Vector2) -> Dictionary:
+	var preview: Dictionary = preview_buff_targets(pid, slot_index)
+	if not bool(preview.get("ok", false)):
+		return preview
+	var target_type: String = str(preview.get("target_type", "global"))
+	var target_id: Variant = "global"
+	if target_type != "global":
+		var world_pos: Vector2 = map_root.to_global(arena_local_pos) if map_root != null else arena_local_pos
+		var context: Dictionary = _buff_target_context_from_world(world_pos)
+		if target_type == BuffDefinitions.TARGET_HIVE:
+			target_id = int(context.get("hive_id", -1))
+		elif target_type == BuffDefinitions.TARGET_LANE:
+			target_id = int(context.get("lane_id", -1))
+		else:
+			return {"ok": false, "reason": "unsupported_target_type"}
+		var eligible: Array = preview.get("eligible_target_ids", []) as Array
+		if not eligible.has(target_id):
+			return {"ok": false, "reason": "release_target_ineligible"}
+	return {
+		"ok": true,
+		"target_type": target_type,
+		"target_id": target_id
+	}
+
 func submit_buff_activation(
 	pid: int,
 	slot_index: int,
@@ -10571,6 +10739,7 @@ func get_buff_ui_snapshot() -> Dictionary:
 	var snapshot: Dictionary = {
 		"buffs_enabled": bool(buffs_enabled) and not _is_crucible_match(),
 		"active_player_id": int(active_player_id),
+		"inventory_revision": _buff_inventory_revision(),
 		"overtime_active": bool(overtime_active),
 		"sim_time_ms": now_ms,
 		"players": {}
@@ -10628,43 +10797,18 @@ func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> D
 	}
 
 func request_buff_drop(pid: int, slot_index: int, world_pos: Vector2) -> Dictionary:
-	var result: Dictionary = {
-		"ok": false,
-		"pid": pid,
-		"slot_index": slot_index,
-		"reason": "",
-		"target": _buff_target_context_from_world(world_pos)
-	}
-	if not buffs_enabled:
-		result["reason"] = "buffs_disabled"
-		return result
-	if buff_states.is_empty():
-		_init_buff_states()
-	var buff_state: BuffState = buff_states.get(pid)
-	if buff_state == null:
-		result["reason"] = "missing_player_state"
-		return result
-	if slot_index < 0 or slot_index >= buff_state.slots.size():
-		result["reason"] = "slot_out_of_range"
-		return result
-	if not buff_state.can_activate_slot(slot_index):
-		result["reason"] = "slot_blocked"
-		return result
-	var slot: Dictionary = buff_state.slots[slot_index]
-	var preview: Dictionary = preview_buff_targets(pid, slot_index)
-	if not bool(preview.get("ok", false)):
-		return preview
-	var resolved_target_type: String = str(preview.get("target_type", "global"))
-	var context: Dictionary = result.get("target", {}) as Dictionary
-	var resolved_target_id: Variant = "global"
-	if resolved_target_type == BuffDefinitions.TARGET_HIVE:
-		resolved_target_id = int(context.get("hive_id", -1))
-	elif resolved_target_type == BuffDefinitions.TARGET_LANE:
-		resolved_target_id = int(context.get("lane_id", -1))
-	var activation: Dictionary = submit_buff_activation(pid, slot_index, resolved_target_type, resolved_target_id)
-	activation["target"] = result.get("target", {})
-	activation["buff_id"] = str(slot.get("inventory_id", slot.get("id", "")))
-	return activation
+	# Compatibility-only wrapper. Production PlayerBuffStrip release uses the
+	# stable-ID resolve_buff_release_candidate -> submit_buff_activation path.
+	var arena_local_pos: Vector2 = map_root.to_local(world_pos) if map_root != null else world_pos
+	var candidate: Dictionary = resolve_buff_release_candidate(pid, slot_index, arena_local_pos)
+	if not bool(candidate.get("ok", false)):
+		return candidate
+	return submit_buff_activation(
+		pid,
+		slot_index,
+		str(candidate.get("target_type", "global")),
+		candidate.get("target_id", "global")
+	)
 
 func _record_match_telemetry_buff_activation(
 	pid: int,
@@ -10759,37 +10903,15 @@ func _buff_target_context_from_world(world_pos: Vector2) -> Dictionary:
 		"tower_id": -1
 	}
 
+
 func _try_activate_buff_slot(pid: int, slot_index: int) -> void:
-	if _is_crucible_match():
-		SFLog.info("BUFF_ACTIVATE_BLOCKED", {
-			"pid": pid,
-			"slot_index": slot_index,
-			"reason": "crucible_buffs_disabled"
-		})
-		return
-	if not buffs_enabled:
-		return
-	if buff_states.is_empty():
-		_init_buff_states()
-	var buff_state: BuffState = buff_states.get(pid)
-	if buff_state == null:
-		return
-	if slot_index < 0 or slot_index >= buff_state.slots.size():
-		return
-	var preview: Dictionary = preview_buff_targets(pid, slot_index)
-	if not bool(preview.get("ok", false)):
-		return
-	var target_type: String = str(preview.get("target_type", "global"))
-	var target_id: Variant = "global"
-	var eligible: Array = preview.get("eligible_target_ids", []) as Array
-	if target_type != "global":
-		var slot_target: Dictionary = (buff_state.slots[slot_index] as Dictionary).get("target", {}) as Dictionary
-		target_id = int(slot_target.get("hive_id" if target_type == BuffDefinitions.TARGET_HIVE else "lane_id", -1))
-		if not eligible.has(target_id):
-			return
-	var activation: Dictionary = submit_buff_activation(pid, slot_index, target_type, target_id)
-	if not bool(activation.get("ok", false)):
-		SFLog.info("BUFF_ACTIVATE_BLOCKED", {"pid": pid, "slot_index": slot_index, "reason": activation.get("reason", "rejected")})
+	# Compatibility endpoint for ArenaApi. Slot-only activation cannot provide a
+	# stable target and must never bypass the production release pipeline.
+	SFLog.info("BUFF_STABLE_TARGET_REQUIRED", {
+		"pid": pid,
+		"slot_index": slot_index,
+		"reason": "slot_only_activation_disabled"
+	})
 
 func _reset_sim_state() -> void:
 	units.clear()
@@ -10984,6 +11106,16 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	return _input_bridge_utils.screen_to_world(vp, get_global_mouse_position(), screen_pos)
 
 func _unhandled_input(event: InputEvent) -> void:
+	var buff_pointer: Dictionary = _buff_pointer_identity_for_event(event)
+	if not buff_pointer.is_empty() and _shell_suppresses_buff_pointer_event(
+		str(buff_pointer.get("pointer_kind", "")),
+		int(buff_pointer.get("pointer_id", -1)),
+		str(buff_pointer.get("phase", ""))
+	):
+		var event_viewport: Viewport = get_viewport()
+		if event_viewport != null:
+			event_viewport.set_input_as_handled()
+		return
 	if state == null:
 		return
 	if input_system == null or api == null:
@@ -11027,6 +11159,34 @@ func _unhandled_input(event: InputEvent) -> void:
 		_send_pointer_event(false, 0, lp, true, wp, sd.position, true, int(sd.index))
 		return
 	input_system.handle_input(event, api)
+
+
+func _buff_pointer_identity_for_event(event: InputEvent) -> Dictionary:
+	if event is InputEventScreenTouch:
+		var touch: InputEventScreenTouch = event as InputEventScreenTouch
+		return {
+			"pointer_kind": "touch",
+			"pointer_id": int(touch.index),
+			"phase": "press" if touch.pressed else "release"
+		}
+	if event is InputEventScreenDrag:
+		var drag: InputEventScreenDrag = event as InputEventScreenDrag
+		return {"pointer_kind": "touch", "pointer_id": int(drag.index), "phase": "move"}
+	if event is InputEventMouseButton:
+		var button: InputEventMouseButton = event as InputEventMouseButton
+		if button.button_index != MOUSE_BUTTON_LEFT:
+			return {}
+		return {"pointer_kind": "mouse", "pointer_id": 0, "phase": "press" if button.pressed else "release"}
+	if event is InputEventMouseMotion:
+		return {"pointer_kind": "mouse", "pointer_id": 0, "phase": "move"}
+	return {}
+
+
+func _shell_suppresses_buff_pointer_event(pointer_kind: String, pointer_id: int, phase: String) -> bool:
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell == null or not shell.has_method("should_suppress_buff_pointer_event"):
+		return false
+	return bool(shell.call("should_suppress_buff_pointer_event", pointer_kind, pointer_id, phase))
 
 func _pointer_local_from_screen(screen_pos: Vector2) -> Vector2:
 	return _input_bridge_utils.pointer_local_from_screen(

@@ -12,6 +12,7 @@ const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prema
 const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/startup_launch_request_resolver.gd")
 const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
 const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
+const BuffPointerSessionScript := preload("res://scripts/shell_helpers/buff_pointer_session.gd")
 const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const AdSurfaceScript: Script = preload("res://scripts/ui/ad_surface.gd")
@@ -25,6 +26,11 @@ const SHELL_OPPONENT_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/Oppo
 const SHELL_OPPONENT_BUFF_STRIP_B_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/OpponentBuffStripB"
 const SHELL_ALLY_BUFF_STRIP_PATH: String = SHELL_BOTTOM_BUFFER_PATH + "/AllyBuffStrip"
 const MATCH_BUFF_TARGETING_ENABLED: bool = false
+const BUFF_POINTER_TOUCH_SLOP_PX: float = 18.0
+const BUFF_DRAG_OVERLAY_TOUCH_OFFSET_PX: Vector2 = Vector2(0.0, -56.0)
+const BUFF_DRAG_OVERLAY_MOUSE_OFFSET_PX: Vector2 = Vector2(0.0, -28.0)
+const BUFF_DRAG_OVERLAY_SIZE_PX: Vector2 = Vector2(64.0, 64.0)
+const BUFF_INVALID_SNAP_BACK_SECONDS: float = 0.16
 const PENDING_APPLY_MAX_TRIES: int = 60
 const TRACE_SHELL_LOGS: bool = false
 const MVP_SMOKE_ARENA_PATH: String = "/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena"
@@ -151,6 +157,12 @@ var _err_conn_ready: bool = false
 var _frame_once: bool = false
 var _team_mode_ui: String = "2v2"
 var _buff_ui_last_active_pid: int = 1
+var _buff_pointer_session: RefCounted = BuffPointerSessionScript.new()
+var _buff_pointer_release_guard: Dictionary = {}
+var _buff_drag_overlay: TextureRect = null
+var _buff_drag_overlay_tween: Tween = null
+var _buff_drag_overlay_session_id: int = 0
+var _buff_app_lifecycle: Node = null
 var _font_regular: Font
 var _font_semibold: Font
 var _shell_prematch_team_ui_formatter: ArenaPrematchTeamUiFormatter = ArenaPrematchTeamUiFormatter.new()
@@ -287,6 +299,7 @@ func _ready() -> void:
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 050: before_wire_map_picker_ui")
 	_safe_call("wire_map_picker_ui", Callable(self, "_wire_map_picker_ui"))
 	_safe_call("wire_buff_ui", Callable(self, "_wire_buff_ui"))
+	_safe_call("bind_buff_pointer_lifecycle", Callable(self, "_bind_buff_pointer_lifecycle"))
 	_safe_call("ensure_pvp_debug_overlay", Callable(self, "_ensure_pvp_debug_overlay"))
 	if TRACE_SHELL_LOGS: print("BOOT_BEACON 060: after_wire_map_picker_ui")
 	if back_button != null:
@@ -761,18 +774,19 @@ func _wire_buff_ui() -> void:
 		_set_buff_strip_visibility(false, false, false, false)
 		SFLog.info("BUFF_UI_LEGACY_STRIPS_DISABLED", {})
 		return
-	if _player_buff_strip.has_signal("buff_drag_started"):
-		var drag_started_cb: Callable = Callable(self, "_on_player_buff_drag_started")
-		if not _player_buff_strip.is_connected("buff_drag_started", drag_started_cb):
-			_player_buff_strip.connect("buff_drag_started", drag_started_cb)
-	if _player_buff_strip.has_signal("buff_drop_requested"):
-		var drop_cb: Callable = Callable(self, "_on_player_buff_drop_requested")
-		if not _player_buff_strip.is_connected("buff_drop_requested", drop_cb):
-			_player_buff_strip.connect("buff_drop_requested", drop_cb)
-	if _player_buff_strip.has_signal("buff_drag_cancelled"):
-		var cancel_cb: Callable = Callable(self, "_on_player_buff_drag_cancelled")
-		if not _player_buff_strip.is_connected("buff_drag_cancelled", cancel_cb):
-			_player_buff_strip.connect("buff_drag_cancelled", cancel_cb)
+	var pointer_signals: Dictionary = {
+		"buff_press_captured": "_on_player_buff_press_captured",
+		"buff_pointer_moved": "_on_player_buff_pointer_moved",
+		"buff_pointer_released": "_on_player_buff_pointer_released",
+		"buff_pointer_cancelled": "_on_player_buff_pointer_cancelled"
+	}
+	for signal_name_any in pointer_signals.keys():
+		var signal_name: String = str(signal_name_any)
+		if not _player_buff_strip.has_signal(signal_name):
+			continue
+		var callback: Callable = Callable(self, str(pointer_signals[signal_name]))
+		if not _player_buff_strip.is_connected(signal_name, callback):
+			_player_buff_strip.connect(signal_name, callback)
 	if _player_buff_strip.has_method("apply_snapshot"):
 		_player_buff_strip.call("apply_snapshot", {"slots_active": 0, "slots": []})
 	if _opponent_buff_strip != null and _opponent_buff_strip.has_method("set_visible_slot_count"):
@@ -801,6 +815,7 @@ func _resolve_dev_map_loader_node() -> Node:
 	return _dev_loader
 
 func _exit_tree() -> void:
+	cancel_buff_pointer_session("shell_scene_exit")
 	_shell_exit_count += 1
 	_map_prewarm_generation += 1
 	_finish_map_prewarm(true)
@@ -1467,6 +1482,7 @@ func _on_back_pressed() -> void:
 	_stop_game()
 
 func _stop_game() -> void:
+	cancel_buff_pointer_session("arena_scene_exit")
 	if _arena_instance != null:
 		_arena_instance.queue_free()
 		_arena_instance = null
@@ -2041,6 +2057,17 @@ func _sync_buff_ui() -> void:
 	if typeof(players_any) == TYPE_DICTIONARY:
 		players = players_any as Dictionary
 	var player_data: Dictionary = _player_data_for_pid(players, active_pid)
+	if _buff_pointer_session.is_active():
+		var active_session: Dictionary = _buff_pointer_session.snapshot()
+		var source_now: Dictionary = _current_buff_source_snapshot(
+			arena_node,
+			int(active_session.get("slot_index", -1))
+		)
+		if not _buff_source_snapshot_matches(
+			active_session.get("source_snapshot", {}) as Dictionary,
+			source_now
+		):
+			cancel_buff_pointer_session("source_snapshot_changed")
 	if _player_buff_strip.has_method("apply_snapshot"):
 		_player_buff_strip.call("apply_snapshot", player_data)
 	var active_seats: Array = _active_seats_from_hud()
@@ -2574,42 +2601,504 @@ func _collect_used_slots(player_data: Dictionary) -> Array:
 			used.append(i)
 	return used
 
-func _on_player_buff_drag_started(slot_index: int, buff_id: String) -> void:
-	SFLog.info("BUFF_DRAG_STARTED", {
+func _bind_buff_pointer_lifecycle() -> void:
+	_buff_app_lifecycle = get_node_or_null("/root/AppLifecycle")
+	if _buff_app_lifecycle == null:
+		return
+	var background_cb: Callable = Callable(self, "_on_buff_pointer_app_backgrounded")
+	if _buff_app_lifecycle.has_signal("app_backgrounded") and not _buff_app_lifecycle.is_connected("app_backgrounded", background_cb):
+		_buff_app_lifecycle.connect("app_backgrounded", background_cb)
+	var focus_cb: Callable = Callable(self, "_on_buff_pointer_focus_changed")
+	if _buff_app_lifecycle.has_signal("app_focus_changed") and not _buff_app_lifecycle.is_connected("app_focus_changed", focus_cb):
+		_buff_app_lifecycle.connect("app_focus_changed", focus_cb)
+
+
+func _on_buff_pointer_app_backgrounded(reason: String, _paused_at_msec: int, _paused_at_unix: int) -> void:
+	cancel_buff_pointer_session("app_backgrounded:%s" % reason)
+
+
+func _on_buff_pointer_focus_changed(focused: bool, reason: String) -> void:
+	if not focused:
+		cancel_buff_pointer_session("focus_lost:%s" % reason)
+
+
+func _on_player_buff_press_captured(
+	slot_index: int,
+	buff_id: String,
+	pointer_kind: String,
+	pointer_id: int,
+	root_screen_pos: Vector2
+) -> void:
+	if _buff_pointer_session.is_active():
+		cancel_buff_pointer_session("superseded_capture")
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node == null or not arena_node.has_method("get_buff_activation_source_snapshot"):
+		_clear_strip_pointer_capture()
+		return
+	var source_any: Variant = arena_node.call("get_buff_activation_source_snapshot", _buff_ui_last_active_pid, slot_index)
+	var source_snapshot: Dictionary = source_any as Dictionary if typeof(source_any) == TYPE_DICTIONARY else {}
+	if not bool(source_snapshot.get("ok", false)):
+		_clear_strip_pointer_capture()
+		return
+	var slot_snapshot: Dictionary = source_snapshot.get("slot", {}) as Dictionary
+	if str(slot_snapshot.get("id", "")) != buff_id:
+		_clear_strip_pointer_capture()
+		return
+	var session: Dictionary = _buff_pointer_session.begin(
+		pointer_kind,
+		pointer_id,
+		slot_index,
+		buff_id,
+		root_screen_pos,
+		source_snapshot,
+		str(source_snapshot.get("inventory_revision", ""))
+	)
+	_buff_pointer_release_guard.clear()
+	var pointer_session_id: int = int(session.get("pointer_session_id", 0))
+	if _player_buff_strip != null and _player_buff_strip.has_method("bind_pointer_session"):
+		_player_buff_strip.call("bind_pointer_session", pointer_kind, pointer_id, pointer_session_id)
+	SFLog.info("BUFF_POINTER_CAPTURED", {
 		"pid": _buff_ui_last_active_pid,
 		"slot_index": slot_index,
-		"buff_id": buff_id
+		"buff_id": buff_id,
+		"pointer_kind": pointer_kind,
+		"pointer_session_id": pointer_session_id
 	})
 
-func _on_player_buff_drop_requested(slot_index: int, screen_pos: Vector2, held_ms: int) -> void:
-	var arena_node: Node = _resolve_runtime_arena_node()
-	if arena_node == null or not arena_node.has_method("request_buff_drop"):
+
+func _on_player_buff_pointer_moved(
+	pointer_kind: String,
+	pointer_id: int,
+	pointer_session_id: int,
+	root_screen_pos: Vector2
+) -> void:
+	var movement: Dictionary = _buff_pointer_session.move(
+		pointer_kind,
+		pointer_id,
+		pointer_session_id,
+		root_screen_pos,
+		BUFF_POINTER_TOUCH_SLOP_PX
+	)
+	if not bool(movement.get("ok", false)):
 		return
-	var world_pos: Vector2 = screen_pos
-	if arena_node.has_method("_screen_to_world"):
-		world_pos = arena_node.call("_screen_to_world", screen_pos)
-	var result_v: Variant = arena_node.call("request_buff_drop", _buff_ui_last_active_pid, slot_index, world_pos)
-	var result: Dictionary = {}
-	if typeof(result_v) == TYPE_DICTIONARY:
-		result = result_v as Dictionary
-	SFLog.info("BUFF_DROP_REQUEST", {
+	if bool(movement.get("drag_started", false)):
+		var arena_node: Node = _resolve_runtime_arena_node()
+		if arena_node == null or not arena_node.has_method("preview_buff_targets"):
+			cancel_buff_pointer_session("arena_missing_at_drag_start")
+			return
+		var session: Dictionary = _buff_pointer_session.snapshot()
+		var preview_any: Variant = arena_node.call(
+			"preview_buff_targets",
+			_buff_ui_last_active_pid,
+			int(session.get("slot_index", -1))
+		)
+		var preview: Dictionary = preview_any as Dictionary if typeof(preview_any) == TYPE_DICTIONARY else {}
+		if not bool(preview.get("ok", false)):
+			cancel_buff_pointer_session("preview_rejected:%s" % str(preview.get("reason", "unknown")))
+			return
+		_buff_pointer_session.set_preview(pointer_session_id, preview)
+		if _player_buff_strip != null and _player_buff_strip.has_method("set_pointer_dragging"):
+			_player_buff_strip.call("set_pointer_dragging", pointer_session_id, true)
+		_show_buff_drag_overlay(pointer_session_id, pointer_kind, int(session.get("slot_index", -1)), root_screen_pos)
+		_update_buff_hive_targeting(arena_node, pointer_session_id, root_screen_pos)
+		SFLog.info("BUFF_POINTER_DRAG_STARTED", {
+			"pid": _buff_ui_last_active_pid,
+			"slot_index": int(session.get("slot_index", -1)),
+			"pointer_kind": pointer_kind,
+			"pointer_session_id": pointer_session_id
+		})
+	elif str(movement.get("state", "")) == BuffPointerSessionScript.STATE_DRAGGING:
+		_position_buff_drag_overlay(pointer_session_id, pointer_kind, root_screen_pos)
+		var arena_node: Node = _resolve_runtime_arena_node()
+		_update_buff_hive_targeting(arena_node, pointer_session_id, root_screen_pos)
+
+
+func _on_player_buff_pointer_released(
+	pointer_kind: String,
+	pointer_id: int,
+	pointer_session_id: int,
+	root_screen_pos: Vector2
+) -> void:
+	if not _buff_pointer_session.matches(pointer_kind, pointer_id, pointer_session_id):
+		return
+	_mark_buff_pointer_release_guard(pointer_kind, pointer_id, pointer_session_id)
+	var session: Dictionary = _buff_pointer_session.snapshot()
+	if str(session.get("state", BuffPointerSessionScript.STATE_IDLE)) != BuffPointerSessionScript.STATE_DRAGGING:
+		cancel_buff_pointer_session("released_before_drag")
+		return
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node == null:
+		_finish_invalid_buff_release(session, "arena_missing")
+		return
+	var source_now: Dictionary = _current_buff_source_snapshot(
+		arena_node,
+		int(session.get("slot_index", -1))
+	)
+	if not _buff_source_snapshot_matches(session.get("source_snapshot", {}) as Dictionary, source_now):
+		_finish_invalid_buff_release(session, "source_changed")
+		return
+	var preview: Dictionary = session.get("preview", {}) as Dictionary
+	var candidate: Dictionary = {}
+	if str(preview.get("target_type", "")) == "hive":
+		# Re-evaluate presentation with the unshifted release point so a release
+		# outside the Arena cannot submit a hive that is no longer visibly selected.
+		_update_buff_hive_targeting(arena_node, pointer_session_id, root_screen_pos)
+		session = _buff_pointer_session.snapshot()
+		preview = session.get("preview", {}) as Dictionary
+		var selected_hive_id: Variant = preview.get("selected_target_id", null)
+		if str(preview.get("selected_target_type", "")) == "hive" and selected_hive_id != null:
+			candidate = {
+				"ok": true,
+				"target_type": "hive",
+				"target_id": int(selected_hive_id)
+			}
+		else:
+			candidate = {"ok": false, "reason": "release_target_not_selected"}
+	else:
+		if not arena_node.has_method("root_screen_to_buff_arena_local"):
+			_finish_invalid_buff_release(session, "coordinate_converter_missing")
+			return
+		var conversion_any: Variant = arena_node.call("root_screen_to_buff_arena_local", root_screen_pos)
+		var conversion: Dictionary = conversion_any as Dictionary if typeof(conversion_any) == TYPE_DICTIONARY else {}
+		if not bool(conversion.get("ok", false)):
+			_finish_invalid_buff_release(session, str(conversion.get("reason", "coordinate_conversion_failed")))
+			return
+		if not arena_node.has_method("resolve_buff_release_candidate"):
+			_finish_invalid_buff_release(session, "release_resolver_missing")
+			return
+		var candidate_any: Variant = arena_node.call(
+			"resolve_buff_release_candidate",
+			_buff_ui_last_active_pid,
+			int(session.get("slot_index", -1)),
+			conversion.get("arena_local_pos", Vector2.ZERO)
+		)
+		candidate = candidate_any as Dictionary if typeof(candidate_any) == TYPE_DICTIONARY else {}
+	if not bool(candidate.get("ok", false)) or not _candidate_matches_buff_preview(
+		candidate,
+		preview
+	):
+		_finish_invalid_buff_release(session, str(candidate.get("reason", "release_target_ineligible")))
+		return
+	if not arena_node.has_method("submit_buff_activation"):
+		_finish_invalid_buff_release(session, "submission_api_missing")
+		return
+	var activation_any: Variant = arena_node.call(
+		"submit_buff_activation",
+		_buff_ui_last_active_pid,
+		int(session.get("slot_index", -1)),
+		str(candidate.get("target_type", "global")),
+		candidate.get("target_id", "global")
+	)
+	var activation: Dictionary = activation_any as Dictionary if typeof(activation_any) == TYPE_DICTIONARY else {}
+	if not bool(activation.get("ok", false)):
+		_finish_invalid_buff_release(session, str(activation.get("reason", "submission_rejected")))
+		return
+	_buff_pointer_session.mark_submitted(pointer_session_id)
+	_clear_buff_hive_targeting(arena_node, pointer_session_id, "release_submitted")
+	_hide_buff_drag_overlay(pointer_session_id)
+	_clear_strip_pointer_capture(pointer_session_id)
+	_buff_pointer_session.clear(pointer_session_id)
+	SFLog.info("BUFF_POINTER_SUBMITTED", {
 		"pid": _buff_ui_last_active_pid,
-		"slot_index": slot_index,
-		"held_ms": held_ms,
-		"screen_pos": screen_pos,
-		"world_pos": world_pos,
-		"ok": bool(result.get("ok", false)),
-		"reason": str(result.get("reason", "")),
-		"target": result.get("target", {})
+		"slot_index": int(session.get("slot_index", -1)),
+		"pointer_session_id": pointer_session_id,
+		"target_type": str(candidate.get("target_type", "")),
+		"target_id": candidate.get("target_id", null),
+		"status": str(activation.get("status", "submitted"))
 	})
 	call_deferred("_sync_buff_ui")
 
-func _on_player_buff_drag_cancelled(slot_index: int, reason: String) -> void:
-	SFLog.info("BUFF_DRAG_CANCELLED", {
+
+func _on_player_buff_pointer_cancelled(
+	pointer_kind: String,
+	pointer_id: int,
+	pointer_session_id: int,
+	reason: String
+) -> void:
+	if _buff_pointer_session.matches(pointer_kind, pointer_id, pointer_session_id):
+		cancel_buff_pointer_session(reason)
+
+
+func cancel_buff_pointer_session(reason: String = "cancelled") -> bool:
+	var session: Dictionary = _buff_pointer_session.snapshot()
+	if session.is_empty():
+		return false
+	var pointer_session_id: int = int(session.get("pointer_session_id", 0))
+	_clear_buff_hive_targeting(_resolve_runtime_arena_node(), pointer_session_id, reason)
+	_buff_pointer_session.clear(pointer_session_id)
+	_clear_strip_pointer_capture(pointer_session_id)
+	_hide_buff_drag_overlay(pointer_session_id)
+	SFLog.info("BUFF_POINTER_CANCELLED", {
 		"pid": _buff_ui_last_active_pid,
-		"slot_index": slot_index,
+		"slot_index": int(session.get("slot_index", -1)),
+		"pointer_session_id": pointer_session_id,
+		"reason": reason,
+		"submitted": bool(session.get("submitted", false))
+	})
+	return true
+
+
+func should_suppress_buff_pointer_event(pointer_kind: String, pointer_id: int, phase: String) -> bool:
+	if _buff_pointer_session.matches(pointer_kind, pointer_id):
+		return true
+	return phase == "release" \
+		and str(_buff_pointer_release_guard.get("pointer_kind", "")) == pointer_kind \
+		and int(_buff_pointer_release_guard.get("pointer_id", -1)) == pointer_id
+
+
+func get_buff_pointer_session_snapshot() -> Dictionary:
+	return _buff_pointer_session.snapshot()
+
+
+func update_buff_pointer_selected_target(
+	pointer_session_id: int,
+	target_type: String,
+	target_id: Variant,
+	reason: String = "presentation_update"
+) -> bool:
+	var session: Dictionary = _buff_pointer_session.snapshot()
+	if session.is_empty() or int(session.get("pointer_session_id", 0)) != pointer_session_id:
+		return false
+	var preview: Dictionary = session.get("preview", {}) as Dictionary
+	var old_type: String = str(preview.get("selected_target_type", ""))
+	var old_id: Variant = preview.get("selected_target_id", null)
+	var eligible: Array = preview.get("eligible_target_ids", []) as Array
+	var requested_type: String = target_type.strip_edges()
+	var valid_selection: bool = requested_type == str(preview.get("target_type", "")) \
+		and target_id != null and eligible.has(target_id)
+	var changed: bool = false
+	if valid_selection:
+		changed = old_type != requested_type or old_id != target_id
+		_buff_pointer_session.set_selected_target(pointer_session_id, requested_type, target_id)
+	else:
+		changed = not old_type.is_empty() or old_id != null
+		_buff_pointer_session.clear_selected_target(pointer_session_id)
+	if changed:
+		SFLog.info("BUFF_POINTER_PREVIEW_TARGET_CHANGED", {
+			"pointer_session_id": pointer_session_id,
+			"target_type": requested_type if valid_selection else "",
+			"target_id": target_id if valid_selection else null,
+			"reason": reason
+		})
+	return true
+
+
+func get_buff_drag_overlay_snapshot() -> Dictionary:
+	return {
+		"visible": _buff_drag_overlay != null and _buff_drag_overlay.visible,
+		"position": _buff_drag_overlay.position if _buff_drag_overlay != null else Vector2.ZERO,
+		"size": _buff_drag_overlay.size if _buff_drag_overlay != null else Vector2.ZERO,
+		"pointer_session_id": _buff_drag_overlay_session_id
+	}
+
+
+func _update_buff_hive_targeting(
+	arena_node: Node,
+	pointer_session_id: int,
+	root_screen_pos: Vector2
+) -> Dictionary:
+	if arena_node == null or not arena_node.has_method("update_buff_hive_targeting"):
+		return {"ok": false, "reason": "hive_targeting_api_missing"}
+	var session: Dictionary = _buff_pointer_session.snapshot()
+	if session.is_empty() or int(session.get("pointer_session_id", 0)) != pointer_session_id:
+		return {"ok": false, "reason": "pointer_session_mismatch"}
+	var preview: Dictionary = session.get("preview", {}) as Dictionary
+	if str(preview.get("target_type", "")) != "hive":
+		return {"ok": false, "reason": "not_hive_targeting"}
+	var selected_id: int = int(preview.get("selected_target_id", -1)) if preview.get("selected_target_id", null) != null else -1
+	var result_any: Variant = arena_node.call(
+		"update_buff_hive_targeting",
+		pointer_session_id,
+		preview,
+		selected_id,
+		root_screen_pos
+	)
+	var result: Dictionary = result_any as Dictionary if typeof(result_any) == TYPE_DICTIONARY else {}
+	# Production receives the controller signal synchronously. This explicit
+	# generation-checked sync also keeps narrow harnesses independent of /root/Shell.
+	var resolved_id: int = int(result.get("selected_hive_id", -1))
+	update_buff_pointer_selected_target(
+		pointer_session_id,
+		"hive" if resolved_id > 0 else "",
+		resolved_id if resolved_id > 0 else null,
+		str(result.get("reason", "presentation_update"))
+	)
+	return result
+
+
+func _clear_buff_hive_targeting(
+	arena_node: Node,
+	pointer_session_id: int,
+	reason: String
+) -> void:
+	if arena_node != null and arena_node.has_method("clear_buff_hive_targeting"):
+		arena_node.call("clear_buff_hive_targeting", pointer_session_id, reason)
+	_buff_pointer_session.clear_selected_target(pointer_session_id)
+
+
+func _current_buff_source_snapshot(arena_node: Node, slot_index: int) -> Dictionary:
+	if arena_node == null or not arena_node.has_method("get_buff_activation_source_snapshot"):
+		return {}
+	var source_any: Variant = arena_node.call(
+		"get_buff_activation_source_snapshot",
+		_buff_ui_last_active_pid,
+		slot_index
+	)
+	return source_any as Dictionary if typeof(source_any) == TYPE_DICTIONARY else {}
+
+
+func _buff_source_snapshot_matches(expected: Dictionary, current: Dictionary) -> bool:
+	if not bool(expected.get("ok", false)) or not bool(current.get("ok", false)):
+		return false
+	for key in [
+		"owner_id",
+		"slot_index",
+		"inventory_revision",
+		"source_kind",
+		"source_use_ordinal",
+		"charge_key",
+		"quantity"
+	]:
+		if expected.get(key) != current.get(key):
+			return false
+	return (expected.get("slot", {}) as Dictionary) == (current.get("slot", {}) as Dictionary)
+
+
+func _candidate_matches_buff_preview(candidate: Dictionary, preview: Dictionary) -> bool:
+	if not bool(preview.get("ok", false)):
+		return false
+	var target_type: String = str(candidate.get("target_type", ""))
+	var target_id: Variant = candidate.get("target_id", null)
+	if target_type != str(preview.get("target_type", "")):
+		return false
+	return (preview.get("eligible_target_ids", []) as Array).has(target_id)
+
+
+func _finish_invalid_buff_release(session: Dictionary, reason: String) -> void:
+	var pointer_session_id: int = int(session.get("pointer_session_id", 0))
+	_start_buff_overlay_snap_back(pointer_session_id, int(session.get("slot_index", -1)))
+	_clear_buff_hive_targeting(_resolve_runtime_arena_node(), pointer_session_id, reason)
+	_clear_strip_pointer_capture(pointer_session_id)
+	_buff_pointer_session.clear(pointer_session_id)
+	SFLog.info("BUFF_POINTER_RELEASE_REJECTED", {
+		"pid": _buff_ui_last_active_pid,
+		"slot_index": int(session.get("slot_index", -1)),
+		"pointer_session_id": pointer_session_id,
 		"reason": reason
 	})
+
+
+func _mark_buff_pointer_release_guard(pointer_kind: String, pointer_id: int, pointer_session_id: int) -> void:
+	_buff_pointer_release_guard = {
+		"pointer_kind": pointer_kind,
+		"pointer_id": pointer_id,
+		"pointer_session_id": pointer_session_id
+	}
+	call_deferred("_clear_buff_pointer_release_guard", pointer_session_id)
+
+
+func _clear_buff_pointer_release_guard(pointer_session_id: int) -> void:
+	if int(_buff_pointer_release_guard.get("pointer_session_id", 0)) == pointer_session_id:
+		_buff_pointer_release_guard.clear()
+
+
+func _clear_strip_pointer_capture(pointer_session_id: int = -1) -> void:
+	if _player_buff_strip != null and _player_buff_strip.has_method("clear_pointer_capture"):
+		_player_buff_strip.call("clear_pointer_capture", pointer_session_id)
+
+
+func _ensure_buff_drag_overlay() -> TextureRect:
+	if _buff_drag_overlay != null and is_instance_valid(_buff_drag_overlay):
+		return _buff_drag_overlay
+	var hud_root: Control = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as Control
+	if hud_root == null:
+		return null
+	_buff_drag_overlay = TextureRect.new()
+	_buff_drag_overlay.name = "BuffDragOverlay"
+	_buff_drag_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_buff_drag_overlay.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_buff_drag_overlay.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_buff_drag_overlay.custom_minimum_size = BUFF_DRAG_OVERLAY_SIZE_PX
+	_buff_drag_overlay.size = BUFF_DRAG_OVERLAY_SIZE_PX
+	_buff_drag_overlay.z_as_relative = false
+	_buff_drag_overlay.z_index = 10000
+	_buff_drag_overlay.visible = false
+	hud_root.add_child(_buff_drag_overlay)
+	return _buff_drag_overlay
+
+
+func _show_buff_drag_overlay(
+	pointer_session_id: int,
+	pointer_kind: String,
+	slot_index: int,
+	root_screen_pos: Vector2
+) -> void:
+	var overlay: TextureRect = _ensure_buff_drag_overlay()
+	if overlay == null:
+		return
+	if _buff_drag_overlay_tween != null and _buff_drag_overlay_tween.is_valid():
+		_buff_drag_overlay_tween.kill()
+	_buff_drag_overlay_tween = null
+	_buff_drag_overlay_session_id = pointer_session_id
+	if _player_buff_strip != null and _player_buff_strip.has_method("get_slot_icon_texture"):
+		overlay.texture = _player_buff_strip.call("get_slot_icon_texture", slot_index) as Texture2D
+	overlay.visible = overlay.texture != null
+	_position_buff_drag_overlay(pointer_session_id, pointer_kind, root_screen_pos)
+
+
+func _position_buff_drag_overlay(pointer_session_id: int, pointer_kind: String, root_screen_pos: Vector2) -> void:
+	if _buff_drag_overlay == null or _buff_drag_overlay_session_id != pointer_session_id:
+		return
+	var hud_root: Control = _buff_drag_overlay.get_parent() as Control
+	if hud_root == null:
+		return
+	var local_fingertip: Vector2 = hud_root.get_global_transform_with_canvas().affine_inverse() * root_screen_pos
+	var logical_offset: Vector2 = BUFF_DRAG_OVERLAY_MOUSE_OFFSET_PX \
+		if pointer_kind == BuffPointerSessionScript.POINTER_MOUSE else BUFF_DRAG_OVERLAY_TOUCH_OFFSET_PX
+	_buff_drag_overlay.position = local_fingertip + logical_offset - (_buff_drag_overlay.size * 0.5)
+
+
+func _start_buff_overlay_snap_back(pointer_session_id: int, slot_index: int) -> void:
+	if _buff_drag_overlay == null or not _buff_drag_overlay.visible or _buff_drag_overlay_session_id != pointer_session_id:
+		_hide_buff_drag_overlay(pointer_session_id)
+		return
+	if _player_buff_strip == null or not _player_buff_strip.has_method("get_slot_root_screen_center"):
+		_hide_buff_drag_overlay(pointer_session_id)
+		return
+	var root_target: Vector2 = _player_buff_strip.call("get_slot_root_screen_center", slot_index) as Vector2
+	var hud_root: Control = _buff_drag_overlay.get_parent() as Control
+	if hud_root == null:
+		_hide_buff_drag_overlay(pointer_session_id)
+		return
+	var local_target: Vector2 = hud_root.get_global_transform_with_canvas().affine_inverse() * root_target
+	local_target -= _buff_drag_overlay.size * 0.5
+	if _buff_drag_overlay_tween != null and _buff_drag_overlay_tween.is_valid():
+		_buff_drag_overlay_tween.kill()
+	_buff_drag_overlay_tween = create_tween()
+	_buff_drag_overlay_tween.tween_property(
+		_buff_drag_overlay,
+		"position",
+		local_target,
+		BUFF_INVALID_SNAP_BACK_SECONDS
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_buff_drag_overlay_tween.tween_callback(Callable(self, "_finish_buff_overlay_snap_back").bind(pointer_session_id))
+
+
+func _finish_buff_overlay_snap_back(pointer_session_id: int) -> void:
+	if _buff_drag_overlay_session_id == pointer_session_id:
+		_hide_buff_drag_overlay(pointer_session_id)
+
+
+func _hide_buff_drag_overlay(pointer_session_id: int = -1) -> void:
+	if pointer_session_id >= 0 and _buff_drag_overlay_session_id != pointer_session_id:
+		return
+	if _buff_drag_overlay_tween != null and _buff_drag_overlay_tween.is_valid():
+		_buff_drag_overlay_tween.kill()
+	_buff_drag_overlay_tween = null
+	if _buff_drag_overlay != null:
+		_buff_drag_overlay.visible = false
+		_buff_drag_overlay.texture = null
+	_buff_drag_overlay_session_id = 0
 
 func _sync_power_bar_buffer_placement() -> void:
 	if _arena_instance == null:
