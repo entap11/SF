@@ -9,6 +9,7 @@ const BuffCatalog := preload("res://scripts/state/buff_catalog.gd")
 const TICKS_PER_SECOND: int = 10
 const MAX_OUTCOME_HISTORY: int = 128
 const TARGET_GLOBAL: String = "global"
+const SUPERCHARGE_TRAIN_SPACING_PX: float = 12.0
 
 static func activate(state: GameState, command: Dictionary) -> Dictionary:
 	if state == null:
@@ -108,7 +109,10 @@ static func tick(state: GameState, evaluation_tick: int = -1) -> Array[Dictionar
 			events.append(_expire(state, activation_id, invalid_reason, at_tick))
 			continue
 		if at_tick >= int(effect.get("expires_tick", 0)):
-			events.append(_expire(state, activation_id, "timer_expired", at_tick))
+			if str(effect.get("buff_id", "")) == BuffDefinitions.HIVE_SUPERCHARGE_QUEUE:
+				events.append(_release_supercharge(state, effect, at_tick))
+			else:
+				events.append(_expire(state, activation_id, "timer_expired", at_tick))
 	return events
 
 static func snapshot(state: GameState) -> Dictionary:
@@ -164,6 +168,35 @@ static func stamp_ordinary_unit(state: GameState, unit: Dictionary) -> Dictionar
 		unit["ordinary_count"] = 0
 		unit["enhanced_full_count"] = amount
 	return unit
+
+static func production_time_permille(state: GameState, owner_id: int, hive_id: int) -> int:
+	var single: Dictionary = active_effect(state, owner_id, BuffDefinitions.HIVE_SINGLE_PRODUCTION_BOOST)
+	if not single.is_empty() and int(single.get("target_id", -1)) == hive_id:
+		return 700
+	var global: Dictionary = active_effect(state, owner_id, BuffDefinitions.HIVE_GLOBAL_PRODUCTION_BOOST)
+	if not global.is_empty() and (global.get("scoped_hive_ids", []) as Array).has(hive_id):
+		var hive: HiveData = state.find_hive_by_id(hive_id)
+		if hive != null and int(hive.owner_id) == owner_id:
+			return 700
+	return 1000
+
+static func notify_ordinary_unit_produced(state: GameState, unit: Dictionary) -> void:
+	if state == null or str(unit.get("arrive_source", "lane")).strip_edges().to_lower() != "lane":
+		return
+	var owner_id: int = int(unit.get("owner_id", 0))
+	var effect: Dictionary = active_effect(state, owner_id, BuffDefinitions.HIVE_SUPERCHARGE_QUEUE)
+	if effect.is_empty():
+		return
+	var target: Dictionary = effect.get("target", {}) as Dictionary
+	if int(effect.get("target_id", -1)) != int(unit.get("lane_id", -1)):
+		return
+	if int(target.get("source_hive_id", -1)) != int(unit.get("from_id", -1)):
+		return
+	if int(target.get("destination_hive_id", -1)) != int(unit.get("to_id", -1)):
+		return
+	var activation_id: String = str(effect.get("activation_id", ""))
+	effect["queued_units"] = int(effect.get("queued_units", 0)) + maxi(1, int(unit.get("amount", 1)))
+	state.buff_effects_by_activation_id[activation_id] = effect
 
 static func _identity(requested_id: String) -> Dictionary:
 	var clean_id: String = requested_id.strip_edges()
@@ -251,6 +284,48 @@ static func _expire(state: GameState, activation_id: String, reason: String, at_
 	if str(state.buff_active_by_owner_category.get(category_key, "")) == activation_id:
 		state.buff_active_by_owner_category.erase(category_key)
 	return {"event": "buff_expired", "activation_id": activation_id, "reason": reason, "tick": at_tick, "effect": effect}
+
+static func _release_supercharge(state: GameState, effect: Dictionary, at_tick: int) -> Dictionary:
+	var queued_units: int = maxi(0, int(effect.get("queued_units", 0)))
+	var released: int = 0
+	var target: Dictionary = effect.get("target", {}) as Dictionary
+	var lane: LaneData = _lane_by_id(state, int(effect.get("target_id", -1)))
+	var unit_system: Object = state.unit_system
+	if queued_units > 0 and lane != null and unit_system != null and unit_system.has_method("spawn_unit"):
+		var source_hive_id: int = int(target.get("source_hive_id", -1))
+		var destination_hive_id: int = int(target.get("destination_hive_id", -1))
+		var from_is_a: bool = bool(target.get("source_is_a", false))
+		var source_pos: Vector2 = state.hive_world_pos_by_id(source_hive_id)
+		var destination_pos: Vector2 = state.hive_world_pos_by_id(destination_hive_id)
+		var lane_length: float = maxf(1.0, source_pos.distance_to(destination_pos) - GameState.HIVE_DIAMETER_PX)
+		var spacing_t: float = SUPERCHARGE_TRAIN_SPACING_PX / lane_length
+		for index in range(queued_units):
+			var progress: float = minf(0.98, float(queued_units - index - 1) * spacing_t)
+			var unit: Dictionary = {
+				"from_id": source_hive_id,
+				"to_id": destination_hive_id,
+				"owner_id": int(effect.get("owner_id", 0)),
+				"amount": 1,
+				"lane_id": int(lane.id),
+				"a_id": int(lane.a_id),
+				"b_id": int(lane.b_id),
+				"dir": 1 if from_is_a else -1,
+				"t": progress if from_is_a else 1.0 - progress,
+				"arrive_source": "supercharge_release",
+				"supercharge_activation_id": str(effect.get("activation_id", "")),
+				"supercharge_train_index": index,
+				"speed_permille": 1000,
+				"ordinary_count": 1,
+				"enhanced_full_count": 0,
+				"enhanced_spent_count": 0
+			}
+			if bool(unit_system.call("spawn_unit", unit, true)):
+				released += 1
+	var event: Dictionary = _expire(state, str(effect.get("activation_id", "")), "timer_expired", at_tick)
+	event["event"] = "supercharge_released"
+	event["queued_units"] = queued_units
+	event["released_units"] = released
+	return event
 
 static func _lane_by_id(state: GameState, lane_id: int) -> LaneData:
 	for lane_any in state.lanes:

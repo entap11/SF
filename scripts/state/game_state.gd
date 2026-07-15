@@ -84,6 +84,7 @@ var buff_active_by_owner_category: Dictionary = {}
 var buff_chill_until_tick_by_owner: Dictionary = {}
 var buff_outcomes_by_activation_id: Dictionary = {}
 var buff_outcome_order: Array[String] = []
+var buff_production_interval_ms_by_lane_side: Dictionary = {}
 var _unintended_power_accum_by_hive: Dictionary = {}
 var passive_power_block_until_ms_by_hive: Dictionary = {}
 var _available_lane_unattended_ms_by_hive: Dictionary = {}
@@ -275,6 +276,7 @@ func reset_map_only() -> void:
 	buff_chill_until_tick_by_owner.clear()
 	buff_outcomes_by_activation_id.clear()
 	buff_outcome_order.clear()
+	buff_production_interval_ms_by_lane_side.clear()
 	_unintended_power_accum_by_hive.clear()
 	passive_power_block_until_ms_by_hive.clear()
 	_available_lane_unattended_ms_by_hive.clear()
@@ -1464,8 +1466,8 @@ func _accumulate_lane_pressure(
 					lane.spawn_accum_a_ms = 0.0
 					_log_spawn_block(lane, "A", "CONTESTED_CAPTURE")
 				else:
+					var spawn_ms: float = _effective_spawn_ms(lane, true, a_hive)
 					lane.spawn_accum_a_ms += dt_ms
-					var spawn_ms: float = _spawn_ms_for_hive(int(a_hive.power))
 					var lane_cap_a: float = _lane_hard_cap_units(lane_len)
 					var spawned_any := false
 					while lane.spawn_accum_a_ms >= spawn_ms:
@@ -1514,8 +1516,8 @@ func _accumulate_lane_pressure(
 					lane.spawn_accum_b_ms = 0.0
 					_log_spawn_block(lane, "B", "CONTESTED_CAPTURE")
 				else:
+					var spawn_ms: float = _effective_spawn_ms(lane, false, b_hive)
 					lane.spawn_accum_b_ms += dt_ms
-					var spawn_ms: float = _spawn_ms_for_hive(int(b_hive.power))
 					var lane_cap_b: float = _lane_hard_cap_units(lane_len)
 					var spawned_any := false
 					while lane.spawn_accum_b_ms >= spawn_ms:
@@ -1731,6 +1733,20 @@ func _clear_all_outgoing_from(hive_id: int) -> void:
 func _spawn_ms_for_hive(power: int) -> int:
 	var p: int = int(maxi(1, power))
 	return maxi(int(SimTuning.MIN_SPAWN_MS), int(SimTuning.BASE_SPAWN_MS) - (p - 1) * int(SimTuning.PER_POWER_MS))
+
+func _effective_spawn_ms(lane: LaneData, from_is_a: bool, hive: HiveData) -> float:
+	var base_interval: float = float(_spawn_ms_for_hive(int(hive.power)))
+	var multiplier_permille: int = AuthoritativeBuffSystem.production_time_permille(self, int(hive.owner_id), int(hive.id))
+	var effective_interval: float = base_interval * float(multiplier_permille) / 1000.0
+	var key: String = "lane:%d:%s" % [int(lane.id), "a" if from_is_a else "b"]
+	var previous_interval: float = float(buff_production_interval_ms_by_lane_side.get(key, effective_interval))
+	if not is_equal_approx(previous_interval, effective_interval) and previous_interval > 0.0:
+		if from_is_a:
+			lane.spawn_accum_a_ms *= effective_interval / previous_interval
+		else:
+			lane.spawn_accum_b_ms *= effective_interval / previous_interval
+	buff_production_interval_ms_by_lane_side[key] = effective_interval
+	return effective_interval
 
 func _pressure_per_spawn() -> float:
 	return float(SimTuning.PRESSURE_PER_SPAWN)

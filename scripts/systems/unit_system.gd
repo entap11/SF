@@ -294,8 +294,14 @@ func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive:
 		_log_unit_gate_blocked(lane_id, int(from_hive.id), int(to_hive.id), "contested_capture", float(lane.build_t))
 		return
 	var accum := float(spawn_accum_by_lane.get(key, 0.0))
+	var base_interval_ms := _spawn_interval_ms_for_power(int(from_hive.power))
+	var interval_ms: float = base_interval_ms * float(AuthoritativeBuffSystem.production_time_permille(state, int(from_hive.owner_id), int(from_hive.id))) / 1000.0
+	var interval_key: String = "unit:%s" % key
+	var previous_interval_ms: float = float(state.buff_production_interval_ms_by_lane_side.get(interval_key, interval_ms))
+	if not is_equal_approx(previous_interval_ms, interval_ms) and previous_interval_ms > 0.0:
+		accum *= interval_ms / previous_interval_ms
+	state.buff_production_interval_ms_by_lane_side[interval_key] = interval_ms
 	accum += dt_ms
-	var interval_ms := _spawn_interval_ms_for_power(int(from_hive.power))
 	var lane_cap := _lane_hard_cap_units(_lane_length(lane))
 	var spawned := 0
 	while accum >= interval_ms and (not ENABLE_MAX_SPAWNS_PER_TICK or spawned < MAX_SPAWNS_PER_TICK):
@@ -381,6 +387,7 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		return true
 	_adjust_lane_pressure(int(lane.id), from_is_a, 1)
 	units.append(unit)
+	AuthoritativeBuffSystem.notify_ordinary_unit_produced(state, unit)
 	_sync_units_to_state()
 	return true
 
@@ -1815,7 +1822,7 @@ func _remove_unit(
 		return true
 	return false
 
-func spawn_unit(unit: Dictionary) -> bool:
+func spawn_unit(unit: Dictionary, bypass_capacity: bool = false) -> bool:
 	var spawn_start_usec := Time.get_ticks_usec()
 	if state == null:
 		_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
@@ -1857,7 +1864,7 @@ func spawn_unit(unit: Dictionary) -> bool:
 			build_t
 		)
 		_unit_flow_profile_add_stage("unit_spawn_gate_check", gate_start_usec)
-	if not can_accept_unit():
+	if not bypass_capacity and not can_accept_unit():
 		_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
 		return false
 	var setup_start_usec := Time.get_ticks_usec()
@@ -1887,6 +1894,8 @@ func spawn_unit(unit: Dictionary) -> bool:
 	_telemetry_record_unit_produced(int(unit.get("owner_id", 0)), int(unit.get("amount", 1)), production_source)
 	_unit_flow_profile_add_stage("unit_spawn_telemetry", telemetry_start_usec)
 	units.append(unit)
+	if production_source == "lane":
+		AuthoritativeBuffSystem.notify_ordinary_unit_produced(state, unit)
 	_sync_units_to_state()
 	_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
 	return true

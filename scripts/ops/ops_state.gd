@@ -426,6 +426,7 @@ func get_authority_snapshot() -> Dictionary:
 			"buff_chill_until_tick_by_owner": st.buff_chill_until_tick_by_owner.duplicate(true),
 			"buff_outcomes_by_activation_id": st.buff_outcomes_by_activation_id.duplicate(true),
 			"buff_outcome_order": st.buff_outcome_order.duplicate(),
+			"buff_production_interval_ms_by_lane_side": st.buff_production_interval_ms_by_lane_side.duplicate(true),
 			"hives": _authority_snapshot_hives(st),
 			"lanes": _authority_snapshot_lanes(st),
 			"lane_candidates": st.lane_candidates.duplicate(true),
@@ -508,6 +509,7 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	st.buff_active_by_owner_category = (state_snapshot.get("buff_active_by_owner_category", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_active_by_owner_category", {})) == TYPE_DICTIONARY else {}
 	st.buff_chill_until_tick_by_owner = (state_snapshot.get("buff_chill_until_tick_by_owner", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_chill_until_tick_by_owner", {})) == TYPE_DICTIONARY else {}
 	st.buff_outcomes_by_activation_id = (state_snapshot.get("buff_outcomes_by_activation_id", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_outcomes_by_activation_id", {})) == TYPE_DICTIONARY else {}
+	st.buff_production_interval_ms_by_lane_side = (state_snapshot.get("buff_production_interval_ms_by_lane_side", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_production_interval_ms_by_lane_side", {})) == TYPE_DICTIONARY else {}
 	st.buff_outcome_order.clear()
 	var outcome_order_any: Variant = state_snapshot.get("buff_outcome_order", [])
 	if typeof(outcome_order_any) == TYPE_ARRAY:
@@ -968,6 +970,10 @@ func _build_contract_state_signature() -> String:
 	for outcome_key in st.buff_outcome_order:
 		var buff_outcome: Dictionary = st.buff_outcomes_by_activation_id.get(outcome_key, {}) as Dictionary
 		parts.append("buffout:%s:%d:%s" % [outcome_key, 1 if bool(buff_outcome.get("ok", false)) else 0, str(buff_outcome.get("reason", ""))])
+	var production_interval_keys: Array = st.buff_production_interval_ms_by_lane_side.keys()
+	production_interval_keys.sort()
+	for interval_key_any in production_interval_keys:
+		parts.append("buffprod:%s:%d" % [str(interval_key_any), _round_contract_float(float(st.buff_production_interval_ms_by_lane_side.get(interval_key_any, 0.0)))])
 	var retract_rows: Array = []
 	for retract_any in st.lane_retract_requests:
 		if typeof(retract_any) != TYPE_DICTIONARY:
