@@ -10915,7 +10915,12 @@ func _reset_buff_states() -> void:
 	if bool(_buff_device_evidence_session.call("is_enabled")):
 		var active_state: BuffState = buff_states.get(int(active_player_id)) as BuffState
 		if active_state != null:
-			active_state.unlock_third_slot()
+			var evidence_loadout: Array = _buff_device_evidence_session.call("loadout_entries") as Array
+			var configure_result: Dictionary = active_state.configure_loadout(evidence_loadout)
+			if not bool(configure_result.get("ok", false)):
+				push_error("BUFF_TARGETING_DEVICE_SIM_SESSION_BLOCKED: %s" % str(configure_result.get("error", "loadout_configuration_failed")))
+			else:
+				active_state.unlock_third_slot()
 	_reset_buff_runtime()
 
 func _update_buff_states() -> void:

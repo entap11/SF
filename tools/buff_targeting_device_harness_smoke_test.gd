@@ -4,6 +4,7 @@ const RuntimeGate := preload("res://scripts/shell_helpers/buff_targeting_runtime
 const HeavyFixtureScript := preload("res://scripts/dev/buff_targeting_device_heavy_fixture.gd")
 const DeviceSessionScript := preload("res://scripts/arena_helpers/buff_device_evidence_session.gd")
 const CollectorScript := preload("res://scripts/dev/buff_targeting_device_evidence_collector.gd")
+const BuffStateScript := preload("res://scripts/state/buff_state.gd")
 
 var _failed: bool = false
 
@@ -84,6 +85,17 @@ func _test_device_sim_session_contract() -> void:
 	], "device session must guarantee hive, lane, and global buff identities")
 	_expect(int(local_snapshot.get("uses_per_slot", 0)) == 64, "local evidence role must provide a bounded repeat-sampling allotment")
 	_expect(not bool(local_snapshot.get("persistent_inventory_mutated", true)), "device session must remain match-scoped and non-persistent")
+	var local_entries: Array = session.call("loadout_entries") as Array
+	_expect(local_entries.size() == 3, "device session must build three catalog-valid loadout entries")
+	var local_state: RefCounted = BuffStateScript.new()
+	var configure_result: Dictionary = local_state.call("configure_loadout", local_entries) as Dictionary
+	_expect(bool(configure_result.get("ok", false)), "device evidence entries must configure the production BuffState")
+	var configured_slots: Array = local_state.get("slots") as Array
+	var configured_ids: Array[String] = []
+	for slot_any: Variant in configured_slots:
+		configured_ids.append(str((slot_any as Dictionary).get("inventory_id", "")))
+	_expect(configured_ids == (local_snapshot.get("loadout_ids", []) as Array), "production BuffState must retain the exact evidence inventory IDs")
+	_expect(int((configured_slots[0] as Dictionary).get("uses_remaining", 0)) == 64, "production BuffState must retain the local evidence use allotment")
 
 	var async_args := PackedStringArray([
 		RuntimeGate.DEVICE_HARNESS_ARG,
