@@ -14,7 +14,7 @@ Production gate: `const MATCH_BUFF_TARGETING_ENABLED: bool = false`
 
 ## Preparation boundary
 
-The Xcode project is exported to the untracked `artifacts/` tree. An unsigned generic-iOS compile completed with `** BUILD SUCCEEDED **`; its `.app` is intentionally not installable. Nothing has been signed, installed, launched on-device, pushed, deployed, or used to enable rollout.
+The Xcode project is exported to the untracked `artifacts/` tree. The commit-isolated debug app at `b0b6880eb1c6ca1841e148fca06f97a9d7bb5345` was signed, installed, and launched on the connected iPhone. Nothing was pushed, deployed, or used to enable rollout. The production gate remained false.
 
 The device harness uses the production Shell, buff strips, Arena controllers, presentation controllers, command bridge, and canonical-outcome bridge. It changes only the runtime decision that exposes those existing production components in a debug build. It does not mutate OpsState/SimState, bypass command validation, synthesize canonical outcomes, or create a second gameplay state.
 
@@ -56,7 +56,20 @@ The commit-isolated generic iOS build succeeded using command-line automatic sig
 - `com.apple.developer.team-identifier=SH6675DXQ5`
 - `get-task-allow=true`
 
-The first installation attempt did not install the app. It stopped while enabling developer disk image services because the iPhone was locked (`kAMDMobileImageMounterDeviceLocked`). Unlock the phone and keep it awake before retrying the exact installation command.
+The first installation attempt stopped while enabling developer disk image services because the iPhone was locked (`kAMDMobileImageMounterDeviceLocked`). After the phone was unlocked, the exact signed app installed successfully as `com.matthew.swarmfront`.
+
+## First physical pass and remediation
+
+The first corrected physical harness run proved attribution and release-gate isolation, but it did not produce targeting evidence. It found:
+
+- The original documented launch omitted Godot's standalone `--` user-argument separator. That run never enabled the harness. The commands below are corrected.
+- The corrected process printed the harness start marker and periodic attributed JSON, but the persisted profile had no usable buff loadout. No pointer movement, receipt, canonical outcome, or latency sample occurred.
+- Phone-scale match and diagnostic text were not acceptably readable.
+- Three decorative text shaders failed on iOS because stage-only built-ins were referenced from helper functions.
+- The inactive CTF sample reached p50 `31.67 ms`, p95 `43.07 ms`, p99 `51.63 ms`, and maximum `143.01 ms` over approximately 135 seconds. This blocks rollout and requires a remediated-build retest with the added CPU/render counters.
+- The inactive presentation controller set remained stable at three nodes with zero measured node or material growth; that is not active-targeting evidence.
+
+The remediation keeps the production gate false, supplies match-scoped evidence charges from Arena without changing persisted inventory, fails loudly if the expected strip is absent, enlarges targeting controls/treatments for the phone canvas, removes the iOS shader-helper incompatibility, and reduces collector work to a 4 Hz diagnostic cadence. None of these results counts as passed physical evidence until the rebuilt app is rerun.
 
 The safe compile-only verification command already run was:
 
@@ -131,6 +144,7 @@ xcrun devicectl device process launch \
   --console \
   --terminate-existing \
   com.matthew.swarmfront \
+  -- \
   --buff-targeting-device-harness \
   --buff-targeting-device-role=local \
   --buff-targeting-device-build=<focused-evidence-harness-commit-sha>
@@ -146,11 +160,16 @@ xcrun devicectl device process launch \
   --console \
   --terminate-existing \
   com.matthew.swarmfront \
+  -- \
   --buff-targeting-device-heavy-fixture \
   --buff-targeting-device-build=<focused-evidence-harness-commit-sha>
 ```
 
 Each run prints periodic single-line JSON prefixed by `BUFF_TARGETING_DEVICE_EVIDENCE` or `BUFF_TARGETING_DEVICE_HEAVY_EVIDENCE` and writes the latest snapshot under `user://`. Console capture is the primary evidence path. If a file copy is needed, use the app data container after confirming the displayed path with `devicectl`:
+
+The standalone `--` after the bundle identifier is mandatory. Godot exposes only arguments after that separator through `OS.get_cmdline_user_args()`. A production-component run is invalid unless the console prints `BUFF_TARGETING_DEVICE_HARNESS_STARTED` followed, once the Arena exists, by `BUFF_TARGETING_DEVICE_HARNESS_READY`. `BUFF_TARGETING_DEVICE_HARNESS_BLOCKED` is a fail-loud result; do not continue the matrix on that process.
+
+The debug evidence session supplies a bounded, match-scoped loadout containing one hive, one lane, and one global buff. Arena—the simulation owner—creates and commits those ephemeral evidence charges through the existing resolver, reservation, canonical command, effect, and outcome paths. The session never grants, revokes, consumes, or rewrites persisted ProfileManager inventory or loadouts. Release builds cannot create the session.
 
 ```sh
 xcrun devicectl device copy from \

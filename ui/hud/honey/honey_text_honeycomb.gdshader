@@ -23,24 +23,24 @@ float hash12(vec2 p) {
 	return fract((p3.x + p3.y) * p3.z);
 }
 
-float sample_dilate(vec2 uv, vec2 texel) {
-	float s = texture(TEXTURE, uv).a;
-	s = max(s, texture(TEXTURE, uv + texel * vec2(1.00, 0.00)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(-1.00, 0.00)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(0.00, 1.00)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(0.00, -1.00)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(0.71, 0.71)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(-0.71, 0.71)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(0.71, -0.71)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(-0.71, -0.71)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(1.00, 0.45)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(-1.00, 0.45)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(1.00, -0.45)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(-1.00, -0.45)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(0.45, 1.00)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(-0.45, 1.00)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(0.45, -1.00)).a);
-	s = max(s, texture(TEXTURE, uv + texel * vec2(-0.45, -1.00)).a);
+float sample_dilate(sampler2D source_texture, vec2 uv, vec2 texel) {
+	float s = texture(source_texture, uv).a;
+	s = max(s, texture(source_texture, uv + texel * vec2(1.00, 0.00)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(-1.00, 0.00)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(0.00, 1.00)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(0.00, -1.00)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(0.71, 0.71)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(-0.71, 0.71)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(0.71, -0.71)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(-0.71, -0.71)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(1.00, 0.45)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(-1.00, 0.45)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(1.00, -0.45)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(-1.00, -0.45)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(0.45, 1.00)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(-0.45, 1.00)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(0.45, -1.00)).a);
+	s = max(s, texture(source_texture, uv + texel * vec2(-0.45, -1.00)).a);
 	return s;
 }
 
@@ -55,8 +55,8 @@ void fragment() {
 	vec2 uv_warp = UV;
 	float wobble = sin((UV.y * 18.0) + sin(UV.y * 37.0)) * 0.0022;
 	uv_warp.x += wobble;
-	float body = sample_dilate(uv_warp, texel * inflate_px);
-	float outer = sample_dilate(uv_warp, texel * (inflate_px * 1.9));
+	float body = sample_dilate(TEXTURE, uv_warp, texel * inflate_px);
+	float outer = sample_dilate(TEXTURE, uv_warp, texel * (inflate_px * 1.9));
 	float alpha = smoothstep(0.16, 0.95, body) * COLOR.a;
 	if (alpha <= 0.001) {
 		discard;

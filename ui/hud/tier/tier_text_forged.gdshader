@@ -15,36 +15,36 @@ uniform float sweep_pos : hint_range(-0.5, 1.5) = -0.3;
 uniform float sweep_width : hint_range(0.02, 0.5) = 0.18;
 uniform float sweep_strength : hint_range(0.0, 1.5) = 0.0;
 
-float sample_alpha(vec2 uv) {
-	return texture(TEXTURE, uv).a * COLOR.a;
+float sample_alpha(sampler2D source_texture, vec2 uv, float color_alpha) {
+	return texture(source_texture, uv).a * color_alpha;
 }
 
 void fragment() {
-	float alpha = sample_alpha(UV);
+	float alpha = sample_alpha(TEXTURE, UV, COLOR.a);
 
 	vec2 texel = TEXTURE_PIXEL_SIZE;
 	vec2 stroke_step = texel * stroke_width;
-	float a_r = sample_alpha(UV + vec2(stroke_step.x, 0.0));
-	float a_l = sample_alpha(UV + vec2(-stroke_step.x, 0.0));
-	float a_d = sample_alpha(UV + vec2(0.0, stroke_step.y));
-	float a_u = sample_alpha(UV + vec2(0.0, -stroke_step.y));
-	float a_ur = sample_alpha(UV + vec2(stroke_step.x, -stroke_step.y));
-	float a_ul = sample_alpha(UV + vec2(-stroke_step.x, -stroke_step.y));
-	float a_dr = sample_alpha(UV + vec2(stroke_step.x, stroke_step.y));
-	float a_dl = sample_alpha(UV + vec2(-stroke_step.x, stroke_step.y));
+	float a_r = sample_alpha(TEXTURE, UV + vec2(stroke_step.x, 0.0), COLOR.a);
+	float a_l = sample_alpha(TEXTURE, UV + vec2(-stroke_step.x, 0.0), COLOR.a);
+	float a_d = sample_alpha(TEXTURE, UV + vec2(0.0, stroke_step.y), COLOR.a);
+	float a_u = sample_alpha(TEXTURE, UV + vec2(0.0, -stroke_step.y), COLOR.a);
+	float a_ur = sample_alpha(TEXTURE, UV + vec2(stroke_step.x, -stroke_step.y), COLOR.a);
+	float a_ul = sample_alpha(TEXTURE, UV + vec2(-stroke_step.x, -stroke_step.y), COLOR.a);
+	float a_dr = sample_alpha(TEXTURE, UV + vec2(stroke_step.x, stroke_step.y), COLOR.a);
+	float a_dl = sample_alpha(TEXTURE, UV + vec2(-stroke_step.x, stroke_step.y), COLOR.a);
 
 	float dilated = max(max(max(a_r, a_l), max(a_d, a_u)), max(max(a_ur, a_ul), max(a_dr, a_dl)));
 	float outline = clamp(dilated - alpha, 0.0, 1.0);
 
 	vec2 glow_step = texel * glow_radius;
-	float g_r = sample_alpha(UV + vec2(glow_step.x, 0.0));
-	float g_l = sample_alpha(UV + vec2(-glow_step.x, 0.0));
-	float g_d = sample_alpha(UV + vec2(0.0, glow_step.y));
-	float g_u = sample_alpha(UV + vec2(0.0, -glow_step.y));
-	float g_ur = sample_alpha(UV + vec2(glow_step.x, -glow_step.y));
-	float g_ul = sample_alpha(UV + vec2(-glow_step.x, -glow_step.y));
-	float g_dr = sample_alpha(UV + vec2(glow_step.x, glow_step.y));
-	float g_dl = sample_alpha(UV + vec2(-glow_step.x, glow_step.y));
+	float g_r = sample_alpha(TEXTURE, UV + vec2(glow_step.x, 0.0), COLOR.a);
+	float g_l = sample_alpha(TEXTURE, UV + vec2(-glow_step.x, 0.0), COLOR.a);
+	float g_d = sample_alpha(TEXTURE, UV + vec2(0.0, glow_step.y), COLOR.a);
+	float g_u = sample_alpha(TEXTURE, UV + vec2(0.0, -glow_step.y), COLOR.a);
+	float g_ur = sample_alpha(TEXTURE, UV + vec2(glow_step.x, -glow_step.y), COLOR.a);
+	float g_ul = sample_alpha(TEXTURE, UV + vec2(-glow_step.x, -glow_step.y), COLOR.a);
+	float g_dr = sample_alpha(TEXTURE, UV + vec2(glow_step.x, glow_step.y), COLOR.a);
+	float g_dl = sample_alpha(TEXTURE, UV + vec2(-glow_step.x, glow_step.y), COLOR.a);
 	float glow_mask = max(max(max(g_r, g_l), max(g_d, g_u)), max(max(g_ur, g_ul), max(g_dr, g_dl)));
 	float glow = clamp(glow_mask - alpha, 0.0, 1.0) * glow_strength;
 	if (max(max(alpha, outline), glow) <= 0.001) {
@@ -55,10 +55,10 @@ void fragment() {
 	float inner_edge = clamp(alpha - eroded, 0.0, 1.0);
 	float inner_shadow = inner_edge * inner_shadow_strength;
 
-	float bevel_sample_l = sample_alpha(UV + vec2(-texel.x, 0.0));
-	float bevel_sample_r = sample_alpha(UV + vec2(texel.x, 0.0));
-	float bevel_sample_u = sample_alpha(UV + vec2(0.0, -texel.y));
-	float bevel_sample_d = sample_alpha(UV + vec2(0.0, texel.y));
+	float bevel_sample_l = sample_alpha(TEXTURE, UV + vec2(-texel.x, 0.0), COLOR.a);
+	float bevel_sample_r = sample_alpha(TEXTURE, UV + vec2(texel.x, 0.0), COLOR.a);
+	float bevel_sample_u = sample_alpha(TEXTURE, UV + vec2(0.0, -texel.y), COLOR.a);
+	float bevel_sample_d = sample_alpha(TEXTURE, UV + vec2(0.0, texel.y), COLOR.a);
 	vec2 gradient = vec2(bevel_sample_r - bevel_sample_l, bevel_sample_d - bevel_sample_u);
 	vec2 light_dir = normalize(vec2(-0.55, -0.85));
 	float bevel = clamp(dot(-gradient, light_dir), -1.0, 1.0) * bevel_strength;

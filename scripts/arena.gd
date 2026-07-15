@@ -33,6 +33,7 @@ const AsyncRecordEligibilityPolicy := preload("res://scripts/state/async_record_
 const BuffTargetResolverScript := preload("res://scripts/state/buff_target_resolver.gd")
 const BuffActivationTransactionScript := preload("res://scripts/state/buff_activation_transaction.gd")
 const BuffTargetingPresentationConfig := preload("res://scripts/renderers/buff_targeting_presentation_config.gd")
+const ArenaBuffDeviceEvidenceSessionScript := preload("res://scripts/arena_helpers/buff_device_evidence_session.gd")
 const TeamVisuals = preload("res://scripts/renderers/team_visuals.gd")
 const ArenaControlsHintController := preload("res://scripts/arena_helpers/controls_hint_controller.gd")
 const ArenaTutorialControlsController := preload("res://scripts/arena_helpers/tutorial_controls_controller.gd")
@@ -473,6 +474,7 @@ var _buff_activation_transactions: RefCounted = BuffActivationTransactionScript.
 var _buff_canonical_outcomes: Dictionary = {}
 var _buff_activation_counter: int = 0
 var _buff_presentation_epoch: String = ""
+var _buff_device_evidence_session: RefCounted = ArenaBuffDeviceEvidenceSessionScript.new()
 const RUNTIME_SUPPORTED_BUFF_EFFECT_TYPES: Dictionary = {
 	"swarm_speed_pct": true,
 	"hive_production_time_pct": true,
@@ -651,6 +653,7 @@ func _ready() -> void:
 		sim_runner.autostart_on_bind = false
 		sim_runner.bind_state(state)
 	los_cache.clear()
+	_configure_buff_device_evidence_session()
 	_init_buff_states()
 	_reset_match_stats()
 	_reset_buff_states()
@@ -9858,6 +9861,23 @@ func _dispatch_events() -> void:
 		debug_system.handle_events(events, api)
 	events.clear()
 
+
+func _configure_buff_device_evidence_session() -> void:
+	_buff_device_evidence_session.call("configure", OS.is_debug_build(), OS.get_cmdline_user_args())
+	var snapshot: Dictionary = _buff_device_evidence_session.call("snapshot") as Dictionary
+	if not bool(snapshot.get("enabled", false)):
+		return
+	SFLog.info("BUFF_TARGETING_DEVICE_SIM_SESSION_CONFIGURED", {
+		"role": str(snapshot.get("role", "unspecified")),
+		"loadout": (snapshot.get("loadout_ids", []) as Array).duplicate(),
+		"uses_per_slot": int(snapshot.get("uses_per_slot", 0)),
+		"persistent_inventory_mutated": false
+	})
+
+
+func get_buff_device_evidence_session_snapshot() -> Dictionary:
+	return _buff_device_evidence_session.call("snapshot") as Dictionary
+
 func _update_hive_shock(dt: float) -> void:
 	var dt_ms := dt * 1000.0
 	for hive in state.hives:
@@ -9883,10 +9903,12 @@ func _init_buff_states() -> void:
 		buff_states[pid] = buff_state
 
 func _default_buff_loadout(pid: int = -1) -> Array:
-	var profile_ids: Array[String] = _resolve_profile_loadout_ids()
 	var resolved_pid: int = pid
 	if resolved_pid <= 0:
 		resolved_pid = int(active_player_id)
+	if bool(_buff_device_evidence_session.call("is_enabled")) and resolved_pid == int(active_player_id):
+		return _buff_device_evidence_session.call("loadout_entries") as Array
+	var profile_ids: Array[String] = _resolve_profile_loadout_ids()
 	if resolved_pid == int(active_player_id):
 		return _build_loadout_entries(profile_ids, _is_async_runtime_mode())
 	var candidate_pool: Array[String] = _supported_runtime_classic_buff_ids(profile_ids)
@@ -10516,6 +10538,10 @@ func submit_buff_activation(
 	return _execute_canonical_buff_activation(local_command)
 
 func _buff_source_descriptor(pid: int, buff_id: String) -> Dictionary:
+	if pid == int(active_player_id):
+		var device_source: Dictionary = _buff_device_evidence_session.call("source_descriptor", buff_id) as Dictionary
+		if not device_source.is_empty():
+			return device_source
 	if pid != int(active_player_id):
 		return {
 			"ok": true,
@@ -10686,6 +10712,8 @@ func _can_commit_reserved_buff_charge(transaction: Dictionary) -> bool:
 	var buff_id: String = str(transaction.get("buff_id", ""))
 	var source_kind: String = str(transaction.get("source_kind", ""))
 	var ordinal: int = int(transaction.get("source_use_ordinal", 1))
+	if bool(_buff_device_evidence_session.call("has_buff", buff_id)):
+		return bool(_buff_device_evidence_session.call("can_commit", buff_id, source_kind, ordinal))
 	if source_kind == "vs":
 		return ordinal == 1 and _buff_inventory_quantity(buff_id) > 0
 	var state_now: Dictionary = _ensure_async_buff_contest_state()
@@ -10702,11 +10730,15 @@ func _commit_reserved_buff_charge(transaction: Dictionary) -> Dictionary:
 	return _commit_runtime_buff_charge(int(transaction.get("owner_id", 0)), str(transaction.get("buff_id", "")))
 
 func _buff_inventory_quantity(buff_id: String) -> int:
+	if bool(_buff_device_evidence_session.call("has_buff", buff_id)):
+		return int(_buff_device_evidence_session.call("quantity", buff_id))
 	if ProfileManager == null or not ProfileManager.has_method("get_owned_buff_quantity"):
 		return 0
 	return maxi(0, int(ProfileManager.call("get_owned_buff_quantity", buff_id, "vs")))
 
 func _buff_inventory_revision() -> String:
+	if bool(_buff_device_evidence_session.call("is_enabled")):
+		return str(_buff_device_evidence_session.call("revision"))
 	if ProfileManager != null and ProfileManager.has_method("get_buff_inventory_revision"):
 		return str(ProfileManager.call("get_buff_inventory_revision"))
 	return ""
@@ -10761,6 +10793,8 @@ func _restore_buff_activation_runtime_state() -> void:
 func _runtime_buff_charge_available(pid: int, buff_id: String) -> bool:
 	if pid != int(active_player_id):
 		return true
+	if bool(_buff_device_evidence_session.call("has_buff", buff_id)):
+		return int(_buff_device_evidence_session.call("quantity", buff_id)) > 0
 	if _is_async_runtime_mode():
 		var state_now: Dictionary = _ensure_async_buff_contest_state()
 		var charges: Dictionary = state_now.get("charges", {}) as Dictionary
@@ -10774,6 +10808,8 @@ func _runtime_buff_charge_available(pid: int, buff_id: String) -> bool:
 func _commit_runtime_buff_charge(pid: int, buff_id: String) -> Dictionary:
 	if pid != int(active_player_id):
 		return {"ok": true, "remaining": 0, "bot": true}
+	if bool(_buff_device_evidence_session.call("has_buff", buff_id)):
+		return _buff_device_evidence_session.call("commit", buff_id) as Dictionary
 	if not _is_async_runtime_mode():
 		if ProfileManager == null or not ProfileManager.has_method("consume_buff"):
 			return {"ok": false, "reason": "inventory_authority_missing"}
@@ -10870,10 +10906,16 @@ func _reset_buff_states() -> void:
 		return
 	if not buffs_enabled:
 		return
+	if bool(_buff_device_evidence_session.call("is_enabled")):
+		_buff_device_evidence_session.call("reset_for_match")
 	if buff_states.is_empty():
 		_init_buff_states()
 	for buff_state in buff_states.values():
 		buff_state.reset_for_match()
+	if bool(_buff_device_evidence_session.call("is_enabled")):
+		var active_state: BuffState = buff_states.get(int(active_player_id)) as BuffState
+		if active_state != null:
+			active_state.unlock_third_slot()
 	_reset_buff_runtime()
 
 func _update_buff_states() -> void:

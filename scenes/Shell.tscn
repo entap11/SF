@@ -341,27 +341,27 @@ grow_vertical = 2
 mouse_filter = 2
 
 [node name="SlotsRow" type="HBoxContainer" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip/Center"]
-custom_minimum_size = Vector2(0, 96)
+custom_minimum_size = Vector2(0, 144)
 layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 2
-theme_override_constants/separation = 48
+theme_override_constants/separation = 32
 alignment = 2
 
 [node name="BuffSlot1" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip/Center/SlotsRow"]
-custom_minimum_size = Vector2(96, 96)
+custom_minimum_size = Vector2(144, 144)
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
 
 [node name="BuffSlot2" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip/Center/SlotsRow"]
-custom_minimum_size = Vector2(96, 96)
+custom_minimum_size = Vector2(144, 144)
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")
 
 [node name="BuffSlot3" type="Panel" parent="HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/BuffSlotsStrip/Center/SlotsRow"]
-custom_minimum_size = Vector2(96, 96)
+custom_minimum_size = Vector2(144, 144)
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_buff_slot")

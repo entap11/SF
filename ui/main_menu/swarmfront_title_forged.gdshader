@@ -23,37 +23,37 @@ float hash12(vec2 p) {
 	return fract((p3.x + p3.y) * p3.z);
 }
 
-float sample_alpha(vec2 uv) {
-	return texture(TEXTURE, uv).a * COLOR.a;
+float sample_alpha(sampler2D source_texture, vec2 uv, float color_alpha) {
+	return texture(source_texture, uv).a * color_alpha;
 }
 
-float dilate_alpha(vec2 uv, vec2 texel_step) {
-	float a0 = sample_alpha(uv + vec2(texel_step.x, 0.0));
-	float a1 = sample_alpha(uv + vec2(-texel_step.x, 0.0));
-	float a2 = sample_alpha(uv + vec2(0.0, texel_step.y));
-	float a3 = sample_alpha(uv + vec2(0.0, -texel_step.y));
-	float a4 = sample_alpha(uv + vec2(texel_step.x, texel_step.y));
-	float a5 = sample_alpha(uv + vec2(-texel_step.x, texel_step.y));
-	float a6 = sample_alpha(uv + vec2(texel_step.x, -texel_step.y));
-	float a7 = sample_alpha(uv + vec2(-texel_step.x, -texel_step.y));
+float dilate_alpha(sampler2D source_texture, vec2 uv, vec2 texel_step, float color_alpha) {
+	float a0 = sample_alpha(source_texture, uv + vec2(texel_step.x, 0.0), color_alpha);
+	float a1 = sample_alpha(source_texture, uv + vec2(-texel_step.x, 0.0), color_alpha);
+	float a2 = sample_alpha(source_texture, uv + vec2(0.0, texel_step.y), color_alpha);
+	float a3 = sample_alpha(source_texture, uv + vec2(0.0, -texel_step.y), color_alpha);
+	float a4 = sample_alpha(source_texture, uv + vec2(texel_step.x, texel_step.y), color_alpha);
+	float a5 = sample_alpha(source_texture, uv + vec2(-texel_step.x, texel_step.y), color_alpha);
+	float a6 = sample_alpha(source_texture, uv + vec2(texel_step.x, -texel_step.y), color_alpha);
+	float a7 = sample_alpha(source_texture, uv + vec2(-texel_step.x, -texel_step.y), color_alpha);
 	return max(max(max(a0, a1), max(a2, a3)), max(max(a4, a5), max(a6, a7)));
 }
 
 void fragment() {
-	float alpha = sample_alpha(UV);
+	float alpha = sample_alpha(TEXTURE, UV, COLOR.a);
 	vec2 texel = TEXTURE_PIXEL_SIZE;
 
 	float inner = min(
-		min(sample_alpha(UV + vec2(texel.x, 0.0)), sample_alpha(UV + vec2(-texel.x, 0.0))),
-		min(sample_alpha(UV + vec2(0.0, texel.y)), sample_alpha(UV + vec2(0.0, -texel.y)))
+		min(sample_alpha(TEXTURE, UV + vec2(texel.x, 0.0), COLOR.a), sample_alpha(TEXTURE, UV + vec2(-texel.x, 0.0), COLOR.a)),
+		min(sample_alpha(TEXTURE, UV + vec2(0.0, texel.y), COLOR.a), sample_alpha(TEXTURE, UV + vec2(0.0, -texel.y), COLOR.a))
 	);
 	float inner_edge = clamp(alpha - inner, 0.0, 1.0);
 	float inner_shadow = inner_edge * inner_shadow_strength;
 
-	float grad_l = sample_alpha(UV + vec2(-texel.x, 0.0));
-	float grad_r = sample_alpha(UV + vec2(texel.x, 0.0));
-	float grad_u = sample_alpha(UV + vec2(0.0, -texel.y));
-	float grad_d = sample_alpha(UV + vec2(0.0, texel.y));
+	float grad_l = sample_alpha(TEXTURE, UV + vec2(-texel.x, 0.0), COLOR.a);
+	float grad_r = sample_alpha(TEXTURE, UV + vec2(texel.x, 0.0), COLOR.a);
+	float grad_u = sample_alpha(TEXTURE, UV + vec2(0.0, -texel.y), COLOR.a);
+	float grad_d = sample_alpha(TEXTURE, UV + vec2(0.0, texel.y), COLOR.a);
 	vec2 normal2d = vec2(grad_r - grad_l, grad_d - grad_u);
 	vec2 light_dir = normalize(vec2(-0.62, -0.78));
 	float bevel = clamp(dot(-normal2d, light_dir), -1.0, 1.0) * bevel_strength;
@@ -71,13 +71,13 @@ void fragment() {
 
 	vec2 core_step = texel * halo_core_radius_px;
 	vec2 outer_step = texel * halo_outer_radius_px;
-	float core_dilate = dilate_alpha(UV, core_step);
-	float outer_dilate = dilate_alpha(UV, outer_step);
+	float core_dilate = dilate_alpha(TEXTURE, UV, core_step, COLOR.a);
+	float outer_dilate = dilate_alpha(TEXTURE, UV, outer_step, COLOR.a);
 	float halo_core = clamp(core_dilate - alpha, 0.0, 1.0) * halo_core_strength;
 	float halo_outer = clamp(outer_dilate - core_dilate, 0.0, 1.0) * halo_outer_strength;
 
 	vec2 spill_shift_uv = vec2(0.0, wall_spill_shift_px * texel.y);
-	float spill_dilate = dilate_alpha(UV - spill_shift_uv, outer_step);
+	float spill_dilate = dilate_alpha(TEXTURE, UV - spill_shift_uv, outer_step, COLOR.a);
 	float spill = clamp(spill_dilate - outer_dilate, 0.0, 1.0) * wall_spill_strength;
 
 	vec3 backlight = backlight_color.rgb * (halo_core + halo_outer + spill);

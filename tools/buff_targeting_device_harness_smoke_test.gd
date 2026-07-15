@@ -2,6 +2,8 @@ extends SceneTree
 
 const RuntimeGate := preload("res://scripts/shell_helpers/buff_targeting_runtime_gate.gd")
 const HeavyFixtureScript := preload("res://scripts/dev/buff_targeting_device_heavy_fixture.gd")
+const DeviceSessionScript := preload("res://scripts/arena_helpers/buff_device_evidence_session.gd")
+const CollectorScript := preload("res://scripts/dev/buff_targeting_device_evidence_collector.gd")
 
 var _failed: bool = false
 
@@ -13,6 +15,8 @@ func _init() -> void:
 func _run() -> void:
 	_test_debug_gate_contract()
 	_test_release_inert_source_contract()
+	_test_device_sim_session_contract()
+	_test_collector_readiness_contract()
 	await _test_heavy_fixture_uses_production_controller()
 	if not _failed:
 		print("BUFF_TARGETING_DEVICE_HARNESS_SMOKE: PASS")
@@ -41,9 +45,11 @@ func _test_debug_gate_contract() -> void:
 
 func _test_release_inert_source_contract() -> void:
 	var shell_source: String = FileAccess.get_file_as_string("res://scripts/shell.gd")
+	var arena_source: String = FileAccess.get_file_as_string("res://scripts/arena.gd")
 	var gate_source: String = FileAccess.get_file_as_string("res://scripts/shell_helpers/buff_targeting_runtime_gate.gd")
 	var collector_source: String = FileAccess.get_file_as_string("res://scripts/dev/buff_targeting_device_evidence_collector.gd")
 	var fixture_source: String = FileAccess.get_file_as_string("res://scripts/dev/buff_targeting_device_heavy_fixture.gd")
+	var device_plan: String = FileAccess.get_file_as_string("res://docs/buff_targeting_loop5_iphone_device_plan_2026-07-15.md")
 	_expect(shell_source.count("const MATCH_BUFF_TARGETING_ENABLED: bool = false") == 1, "production gate must remain exactly false")
 	_expect(shell_source.count("_buff_targeting_runtime_enabled()") >= 5, "all production gate call sites must use the guarded runtime decision")
 	_expect(gate_source.contains("if not is_debug_build:") and gate_source.contains("return false"), "runtime gate must fail closed before reading the debug argument")
@@ -51,6 +57,80 @@ func _test_release_inert_source_contract() -> void:
 		_expect(not source.contains("get_environment") and not source.contains("OpsConfig") and not source.contains("remote"), "device harness must not expose a remote, environment, or ops override")
 	_expect(fixture_source.contains("if not OS.is_debug_build():"), "heavy fixture must contain its own release-build refusal")
 	_expect(collector_source.contains("production_gate_constant\": false"), "device evidence must record that the production constant stayed false")
+	_expect(collector_source.contains("BUFF_TARGETING_DEVICE_HARNESS_READY") and collector_source.contains("BUFF_TARGETING_DEVICE_HARNESS_BLOCKED"), "device harness must fail loudly when its production buff UI is unavailable")
+	_expect(not arena_source.contains("grant_buff(") and not arena_source.contains("set_buff_loadout_ids_for_mode"), "device session must not mutate persisted profile inventory or loadouts")
+	_expect(device_plan.contains("com.matthew.swarmfront \\\n  -- \\\n  --buff-targeting-device-harness"), "documented device launch must place custom arguments after Godot's user-argument separator")
+
+
+func _test_device_sim_session_contract() -> void:
+	var session: RefCounted = DeviceSessionScript.new()
+	session.call("configure", false, PackedStringArray([
+		RuntimeGate.DEVICE_HARNESS_ARG,
+		"--buff-targeting-device-role=local"
+	]))
+	_expect(not bool((session.call("snapshot") as Dictionary).get("enabled", true)), "release runtime must not configure a device simulation session")
+
+	var local_args := PackedStringArray([
+		RuntimeGate.DEVICE_HARNESS_ARG,
+		"--buff-targeting-device-role=local"
+	])
+	session.call("configure", true, local_args)
+	var local_snapshot: Dictionary = session.call("snapshot") as Dictionary
+	_expect(bool(local_snapshot.get("enabled", false)), "debug harness must configure the simulation-owned device session")
+	_expect((local_snapshot.get("loadout_ids", []) as Array) == [
+		"buff_unit_speed_classic",
+		"buff_freeze_lane_classic",
+		"buff_global_production_boost_classic"
+	], "device session must guarantee hive, lane, and global buff identities")
+	_expect(int(local_snapshot.get("uses_per_slot", 0)) == 64, "local evidence role must provide a bounded repeat-sampling allotment")
+	_expect(not bool(local_snapshot.get("persistent_inventory_mutated", true)), "device session must remain match-scoped and non-persistent")
+
+	var async_args := PackedStringArray([
+		RuntimeGate.DEVICE_HARNESS_ARG,
+		"--buff-targeting-device-role=async_first"
+	])
+	session.call("configure", true, async_args)
+	var buff_id := "buff_unit_speed_classic"
+	var source_one: Dictionary = session.call("source_descriptor", buff_id) as Dictionary
+	_expect(bool(source_one.get("ok", false)) and int(source_one.get("source_use_ordinal", 0)) == 1, "Async device use one must expose ordinal one")
+	_expect(bool((session.call("commit", buff_id) as Dictionary).get("ok", false)), "Async device use one must commit through Arena-owned session")
+	var source_two: Dictionary = session.call("source_descriptor", buff_id) as Dictionary
+	_expect(bool(source_two.get("ok", false)) and int(source_two.get("source_use_ordinal", 0)) == 2, "Async device use two must expose ordinal two")
+	_expect(bool((session.call("commit", buff_id) as Dictionary).get("ok", false)), "Async device use two must commit through Arena-owned session")
+	var source_three: Dictionary = session.call("source_descriptor", buff_id) as Dictionary
+	_expect(not bool(source_three.get("ok", true)) and str(source_three.get("reason", "")) == "device_evidence_uses_exhausted", "Async device use three must reject without profile consumption")
+
+
+func _test_collector_readiness_contract() -> void:
+	var collector: Node = CollectorScript.new()
+	collector.set("_role", "local")
+	collector.set("_latest_device_session_snapshot", {
+		"enabled": true,
+		"role": "local",
+		"persistent_inventory_mutated": false
+	})
+	collector.set("_latest_buff_ui_snapshot", {
+		"buffs_enabled": true,
+		"active_player_id": 1,
+		"players": {
+			1: {
+				"slots_active": 3,
+				"slots": [
+					{"inventory_id": "buff_unit_speed_classic"},
+					{"inventory_id": "buff_freeze_lane_classic"},
+					{"inventory_id": "buff_global_production_boost_classic"}
+				]
+			}
+		}
+	})
+	_expect(str(collector.call("_device_readiness_failure")) == "", "collector must accept the complete production buff snapshot")
+	collector.set("_latest_buff_ui_snapshot", {
+		"buffs_enabled": true,
+		"active_player_id": 1,
+		"players": {1: {"slots_active": 0, "slots": []}}
+	})
+	_expect(str(collector.call("_device_readiness_failure")) == "three_active_slots_unavailable", "collector must fail loudly when the player strip has no usable slots")
+	collector.free()
 
 
 func _test_heavy_fixture_uses_production_controller() -> void:

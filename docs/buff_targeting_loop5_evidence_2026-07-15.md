@@ -6,7 +6,7 @@ Baseline commit: `26127d43dbb599023e82318d42bbc49d957be72b`
 
 Production gate: `const MATCH_BUFF_TARGETING_ENABLED: bool = false`
 
-Status: **Automated hardening complete; physical-device and production-latency evidence incomplete.**
+Status: **Automated hardening complete; first physical pass blocked; remediated device evidence pending.**
 
 Rollout recommendation: **HOLD. Do not enable the production gate.**
 
@@ -14,7 +14,9 @@ Rollout recommendation: **HOLD. Do not enable the production gate.**
 
 Loop 5 introduced no gameplay rules, buff types, targeting behavior, command fields, reservation semantics, or state-authority changes.
 
-The only production-code addition is bounded, epoch-scoped, presentation-only latency distribution reporting in `BuffCanonicalFeedbackController`. It records successful canonical feedback events and exposes minimum, p50, p95, p99, maximum, total count, and bounded-window count. The sample window is capped at 256 entries and uses the nearest-rank rule.
+Release builds receive bounded, epoch-scoped, presentation-only latency distribution reporting in `BuffCanonicalFeedbackController`, larger presentation artwork and buff-strip dimensions, and iOS-compatible shader helper signatures. The targeting acquisition, retention, switch, touch-slop, and raw-fingertip rules remain unchanged. The latency sample window is capped at 256 entries and uses the nearest-rank rule.
+
+The device-evidence session is an Arena-owned debug-build facility. It fails closed in release exports, supplies a fixed match-scoped loadout only when the explicit device-harness argument is present, and never reads or writes persisted inventory. Its charges still pass through the existing resolver, reservation, canonical command, effect, and outcome path; it does not mutate render- or input-owned state.
 
 The automated cross-layer matrix proves:
 
@@ -148,7 +150,15 @@ Device discovery found:
 - No connected Android device.
 - iPhone and iPad simulators are installed, but simulators are not accepted as physical touch, thumb-occlusion, interruption, or low-end performance evidence.
 
-No development build was silently installed on the connected phone. The required device work involves a person handling the device and remains not executed:
+A signed, commit-isolated debug build was installed with explicit user authorization and run on the connected iPhone. The first corrected harness process was attributed to `b0b6880eb1c6ca1841e148fca06f97a9d7bb5345`, kept the production gate false, and emitted periodic evidence JSON. It produced a blocking result rather than a pass:
+
+- No usable persisted buff loadout was available, so pointer, receipt, outcome, and latency counts remained zero.
+- The physical match presentation and diagnostics were too small to read comfortably.
+- Three decorative text shaders failed compilation on iOS.
+- The inactive CTF frame distribution reached p50 `31.67 ms`, p95 `43.07 ms`, p99 `51.63 ms`, and maximum `143.01 ms` over approximately 135 seconds.
+- Three inactive targeting presentation nodes remained stable with zero measured node/material growth, but no active targeting path was exercised.
+
+The remediation adds a release-inert, Arena-owned evidence loadout, explicit READY/BLOCKED assertions, phone-scale targeting controls, iOS-safe shader helpers, and additional CPU/render counters. It must be rebuilt and physically rerun before any item below can pass:
 
 - Small-phone, large-phone, tablet, and lowest-supported-device coverage.
 - Physical single-touch, foreign multi-touch, and touch-to-mouse adaptation where supported.

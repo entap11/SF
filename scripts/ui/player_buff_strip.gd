@@ -167,10 +167,10 @@ func _ensure_slot_labels() -> void:
 			icon_rect.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
 			icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			icon_rect.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-			icon_rect.offset_left = 6.0
-			icon_rect.offset_top = 6.0
-			icon_rect.offset_right = -6.0
-			icon_rect.offset_bottom = -6.0
+			icon_rect.offset_left = 10.0
+			icon_rect.offset_top = 10.0
+			icon_rect.offset_right = -10.0
+			icon_rect.offset_bottom = -10.0
 			slot.add_child(icon_rect)
 		slot.move_child(icon_rect, 0)
 		var vbox: VBoxContainer = slot.get_node_or_null("SlotText") as VBoxContainer
@@ -179,10 +179,10 @@ func _ensure_slot_labels() -> void:
 			vbox.name = "SlotText"
 			vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-			vbox.offset_left = 8.0
-			vbox.offset_top = 8.0
-			vbox.offset_right = -8.0
-			vbox.offset_bottom = -8.0
+			vbox.offset_left = 10.0
+			vbox.offset_top = 10.0
+			vbox.offset_right = -10.0
+			vbox.offset_bottom = -10.0
 			vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 			vbox.add_theme_constant_override("separation", 2)
 			slot.add_child(vbox)
@@ -193,7 +193,7 @@ func _ensure_slot_labels() -> void:
 			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 			name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			name_label.add_theme_font_size_override("font_size", 14)
+			name_label.add_theme_font_size_override("font_size", 24)
 			vbox.add_child(name_label)
 		var meta_label: Label = vbox.get_node_or_null("Meta") as Label
 		if meta_label == null:
@@ -201,7 +201,7 @@ func _ensure_slot_labels() -> void:
 			meta_label.name = "Meta"
 			meta_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			meta_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			meta_label.add_theme_font_size_override("font_size", 12)
+			meta_label.add_theme_font_size_override("font_size", 20)
 			meta_label.modulate = Color(0.86, 0.90, 0.98, 0.95)
 			vbox.add_child(meta_label)
 		var state_label: Label = vbox.get_node_or_null("State") as Label
@@ -210,7 +210,7 @@ func _ensure_slot_labels() -> void:
 			state_label.name = "State"
 			state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			state_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			state_label.add_theme_font_size_override("font_size", 12)
+			state_label.add_theme_font_size_override("font_size", 20)
 			state_label.modulate = Color(0.96, 0.96, 0.96, 0.92)
 			vbox.add_child(state_label)
 		_icon_rects.append(icon_rect)
@@ -252,7 +252,7 @@ func _ensure_slot_runtime_fx() -> void:
 			countdown.set_anchors_preset(Control.PRESET_FULL_RECT, true)
 			countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			countdown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			countdown.add_theme_font_size_override("font_size", 28)
+			countdown.add_theme_font_size_override("font_size", 42)
 			countdown.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.98))
 			countdown.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
 			countdown.add_theme_constant_override("outline_size", 2)
@@ -266,7 +266,7 @@ func _ensure_slot_runtime_fx() -> void:
 			use_slash.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			use_slash.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 			use_slash.text = "/"
-			use_slash.add_theme_font_size_override("font_size", 76)
+			use_slash.add_theme_font_size_override("font_size", 112)
 			use_slash.add_theme_color_override("font_color", Color(0.92, 0.08, 0.08, 0.94))
 			use_slash.add_theme_color_override("font_outline_color", Color(0.12, 0.0, 0.0, 0.95))
 			use_slash.add_theme_constant_override("outline_size", 2)
