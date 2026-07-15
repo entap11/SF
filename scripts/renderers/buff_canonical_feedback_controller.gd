@@ -16,6 +16,7 @@ var _flashes: Array[Dictionary] = []
 var _latency_sample_count: int = 0
 var _latency_total_msec: int = 0
 var _latency_max_msec: int = 0
+var _latency_samples_msec: Array[int] = []
 
 
 func _ready() -> void:
@@ -40,6 +41,7 @@ func set_presentation_epoch(presentation_epoch: String) -> void:
 	_presentation_epoch = clean_epoch
 	_receipts.clear()
 	_flashes.clear()
+	_reset_latency_metrics()
 	set_process(false)
 	queue_redraw()
 
@@ -87,6 +89,9 @@ func handle_canonical_outcome(outcome: Dictionary, presentation_epoch: String) -
 	_latency_sample_count += 1
 	_latency_total_msec += latency_msec
 	_latency_max_msec = maxi(_latency_max_msec, latency_msec)
+	_latency_samples_msec.append(latency_msec)
+	while _latency_samples_msec.size() > Config.MAX_LATENCY_SAMPLES:
+		_latency_samples_msec.pop_front()
 	_flashes.append({
 		"activation_id": activation_id,
 		"target_type": target_type,
@@ -110,15 +115,39 @@ func clear_presentation() -> void:
 
 func get_snapshot() -> Dictionary:
 	var receipt_snapshot: Dictionary = _receipts.snapshot()
+	var sorted_latency: Array[int] = _latency_samples_msec.duplicate()
+	sorted_latency.sort()
 	receipt_snapshot.merge({
 		"presentation_epoch": _presentation_epoch,
 		"active_flash_count": _flashes.size(),
 		"latency_sample_count": _latency_sample_count,
+		"latency_window_sample_count": sorted_latency.size(),
+		"latency_max_window_sample_count": Config.MAX_LATENCY_SAMPLES,
 		"latency_average_msec": float(_latency_total_msec) / float(_latency_sample_count) if _latency_sample_count > 0 else 0.0,
+		"latency_min_msec": sorted_latency[0] if not sorted_latency.is_empty() else 0,
+		"latency_p50_msec": _latency_percentile(sorted_latency, 0.50),
+		"latency_p95_msec": _latency_percentile(sorted_latency, 0.95),
+		"latency_p99_msec": _latency_percentile(sorted_latency, 0.99),
 		"latency_max_msec": _latency_max_msec,
+		"latency_percentile_rule": "nearest_rank_bounded_window",
 		"processing": is_processing()
 	}, true)
 	return receipt_snapshot
+
+
+func _reset_latency_metrics() -> void:
+	_latency_sample_count = 0
+	_latency_total_msec = 0
+	_latency_max_msec = 0
+	_latency_samples_msec.clear()
+
+
+func _latency_percentile(sorted_samples: Array[int], percentile: float) -> int:
+	if sorted_samples.is_empty():
+		return 0
+	var rank: int = int(ceil(clampf(percentile, 0.0, 1.0) * float(sorted_samples.size())))
+	var index: int = clampi(rank - 1, 0, sorted_samples.size() - 1)
+	return sorted_samples[index]
 
 
 func _process(_delta: float) -> void:

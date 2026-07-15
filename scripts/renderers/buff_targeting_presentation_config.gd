@@ -45,6 +45,7 @@ const SUCCESS_GLOBAL_WIDTH_LOCAL_PX: float = 10.0
 const ACTIVATION_RECEIPT_TIMEOUT_MSEC: int = 8000
 const MAX_LIVE_ACTIVATION_RECEIPTS: int = 32
 const MAX_HANDLED_OUTCOMES: int = 128
+const MAX_LATENCY_SAMPLES: int = 256
 
 
 static func tuning_snapshot() -> Dictionary:
@@ -69,5 +70,6 @@ static func tuning_snapshot() -> Dictionary:
 		"success_flash_strength": SUCCESS_FLASH_STRENGTH,
 		"receipt_timeout_msec": ACTIVATION_RECEIPT_TIMEOUT_MSEC,
 		"max_live_receipts": MAX_LIVE_ACTIVATION_RECEIPTS,
-		"max_handled_outcomes": MAX_HANDLED_OUTCOMES
+		"max_handled_outcomes": MAX_HANDLED_OUTCOMES,
+		"max_latency_samples": MAX_LATENCY_SAMPLES
 	}
