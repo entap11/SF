@@ -4,6 +4,7 @@ extends RefCounted
 const BuffDefinitions := preload("res://scripts/state/buff_definitions.gd")
 
 const BUFF_SPRITE_DIR: String = "res://assets/sprites/sf_skin_v1/buffs"
+const RETIRED_STEAL_LANE_PREFIX: String = "buff_steal_lane_"
 
 static var _loaded: bool = false
 static var _by_id: Dictionary = {}
@@ -104,12 +105,12 @@ static func _sprite_stems_for(canonical_id: String) -> PackedStringArray:
 			return PackedStringArray(["hive_global_hivedefense"])
 		BuffDefinitions.HIVE_SHOCK_IMMUNITY:
 			return PackedStringArray(["hive_lane_hivedefense", "hive_global_hivedefense"])
+		BuffDefinitions.HIVE_GLOBAL_SHOCK_IMMUNITY:
+			return PackedStringArray(["hive_global_hivedefense", "hive_lane_hivedefense"])
 		BuffDefinitions.HIVE_SUPERCHARGE_QUEUE:
 			return PackedStringArray(["hive_global_production", "hive_lane_production"])
 		BuffDefinitions.LANE_FREEZE:
 			return PackedStringArray(["tower_rangeincrease_local"])
-		BuffDefinitions.LANE_STEAL:
-			return PackedStringArray(["tower_doubletap"])
 		BuffDefinitions.LANE_TREACHEROUS:
 			return PackedStringArray(["tower_doubletap"])
 	return PackedStringArray()
@@ -144,6 +145,23 @@ static func get_buff(buff_id: String) -> Dictionary:
 		return {}
 	if _by_id.has(clean_id):
 		return (_by_id.get(clean_id, {}) as Dictionary).duplicate(true)
+	var retired_tier: String = clean_id.to_lower().trim_prefix(RETIRED_STEAL_LANE_PREFIX)
+	if clean_id.to_lower().begins_with(RETIRED_STEAL_LANE_PREFIX) and [
+		BuffDefinitions.TIER_CLASSIC,
+		BuffDefinitions.TIER_PREMIUM,
+		BuffDefinitions.TIER_ELITE
+	].has(retired_tier):
+		return {
+			"id": clean_id,
+			"canonical_id": "STEAL_LANE",
+			"name": "Steal Lane (Retired)",
+			"category": BuffDefinitions.CATEGORY_LANE,
+			"target_type": BuffDefinitions.TARGET_LANE,
+			"tier": retired_tier,
+			"retired": true,
+			"selectable": false,
+			"effects": []
+		}
 	var upper_id: String = clean_id.to_upper()
 	if BuffDefinitions.has_definition(upper_id):
 		var fallback_id: String = "buff_%s_%s" % [upper_id.to_lower(), BuffDefinitions.TIER_CLASSIC]
@@ -152,6 +170,10 @@ static func get_buff(buff_id: String) -> Dictionary:
 			fallback["id"] = clean_id
 			return fallback
 	return {}
+
+static func is_selectable(buff_id: String) -> bool:
+	var buff: Dictionary = get_buff(buff_id)
+	return not buff.is_empty() and bool(buff.get("selectable", true)) and not bool(buff.get("retired", false))
 
 static func list_all() -> Array:
 	if not _ensure_loaded():

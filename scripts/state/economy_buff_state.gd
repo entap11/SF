@@ -90,6 +90,8 @@ func intent_equip_buff(player_id: String, slot_index: int, buff_id: String) -> D
 	var buff_def: Dictionary = BuffCatalog.get_buff(clean_buff_id)
 	if buff_def.is_empty():
 		return _error("unknown_buff", "Unknown buff id.")
+	if not BuffCatalog.is_selectable(clean_buff_id):
+		return _error("retired_buff", "Buff is retired and cannot be equipped.")
 
 	var old_loadout: Array[String] = _loadout_for_player(clean_id)
 	var loadout: Array[String] = old_loadout.duplicate()
@@ -163,6 +165,8 @@ func intent_activate_buff(player_id: String, slot_index: int) -> Dictionary:
 	var buff_def: Dictionary = BuffCatalog.get_buff(buff_id)
 	if buff_def.is_empty():
 		return _error("unknown_buff", "Equipped buff is not in catalog.")
+	if not BuffCatalog.is_selectable(buff_id):
+		return _error("retired_buff", "Equipped buff is retired.")
 
 	if bool(mode_rule.get("classic_requires_overtime", false)):
 		var classic_slot_index: int = int(mode_rule.get("classic_slot_index", -1))
@@ -301,6 +305,8 @@ func validate_loadout(mode_key: String, loadout: Array[String], overtime_active:
 		var buff_def: Dictionary = BuffCatalog.get_buff(buff_id)
 		if buff_def.is_empty():
 			return _error("unknown_buff", "Loadout contains unknown buff id: %s" % buff_id)
+		if not BuffCatalog.is_selectable(buff_id):
+			return _error("retired_buff", "Loadout contains retired buff id: %s" % buff_id)
 		var tier_name: String = EconomyBuffModelsScript.tier_name_from_buff(buff_def)
 		if tier_name == EconomyBuffModelsScript.TIER_PREMIUM:
 			premium_count += 1

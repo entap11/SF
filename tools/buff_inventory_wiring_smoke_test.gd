@@ -9,6 +9,7 @@ const PREMIUM_BUFF: String = "buff_unit_speed_premium"
 const STARTER_HIVE: String = "buff_hive_faster_production_classic"
 const STARTER_TOWER: String = "buff_tower_fire_rate_classic"
 const TEST_USER_ID: String = "018f2b2c-1234-7abc-8def-123456789abc"
+const RETIRED_STEAL: String = "buff_steal_lane_classic"
 
 func _init() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://profile.cfg"))
@@ -88,6 +89,28 @@ func _init() -> void:
 	_assert_ok(consume_result, "shared inventory consumption")
 	_assert_true(int(reloaded.call("get_owned_buff_quantity", PREMIUM_BUFF, "vs")) == 2, "consumption decrements VS view")
 	_assert_true(int(reloaded.call("get_owned_buff_quantity", PREMIUM_BUFF, "async")) == 2, "consumption decrements Async view")
+	_assert_true(not bool(reloaded.call("grant_buff", RETIRED_STEAL, 1, "retired_contract").get("ok", false)), "retired Steal Lane cannot be newly granted")
+	_assert_true(not bool(reloaded.call("set_buff_loadout_ids_for_mode", "vs", [RETIRED_STEAL, STARTER_HIVE, STARTER_TOWER])), "retired Steal Lane cannot be equipped")
+
+	# Compatibility audit: persisted legacy inventory survives loading verbatim,
+	# while a legacy equipped slot is cleared instead of being reinterpreted.
+	reloaded.free()
+	var cfg := ConfigFile.new()
+	var profile_path: String = ProjectSettings.globalize_path("user://profile.cfg")
+	_assert_true(cfg.load(profile_path) == OK, "saved profile opens for legacy compatibility fixture")
+	var counts: Dictionary = cfg.get_value("profile", "buff_inventory_counts", {}) as Dictionary
+	counts[RETIRED_STEAL] = 2
+	cfg.set_value("profile", "buff_inventory_counts", counts)
+	var loadouts: Dictionary = cfg.get_value("profile", "buff_loadout_ids_by_mode", {}) as Dictionary
+	loadouts["vs"] = [RETIRED_STEAL, STARTER_HIVE, STARTER_TOWER]
+	cfg.set_value("profile", "buff_loadout_ids_by_mode", loadouts)
+	_assert_true(cfg.save(profile_path) == OK, "legacy compatibility fixture saves")
+	var compatibility_reload: Node = ProfileManagerScript.new()
+	compatibility_reload.name = "BuffInventoryCompatibilityReload"
+	get_root().add_child(compatibility_reload)
+	await process_frame
+	_assert_true(int(compatibility_reload.call("get_owned_buff_quantity", RETIRED_STEAL, "vs")) == 2, "legacy Steal Lane inventory is preserved without remapping")
+	_assert_true(not (compatibility_reload.call("get_buff_loadout_ids_for_mode", "vs") as Array).has(RETIRED_STEAL), "legacy Steal Lane is removed from equipped slots")
 
 	print("BUFF_INVENTORY_WIRING_SMOKE: PASS")
 	quit(0)

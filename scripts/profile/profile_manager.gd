@@ -1122,7 +1122,7 @@ func get_buff_inventory_revision() -> String:
 func grant_buff(buff_id: String, quantity: int = 1, reason: String = "") -> Dictionary:
 	ensure_loaded()
 	var clean_id: String = buff_id.strip_edges()
-	if clean_id == "" or BuffCatalog.get_buff(clean_id).is_empty():
+	if clean_id == "" or not BuffCatalog.is_selectable(clean_id):
 		return {"ok": false, "reason": "unknown_buff", "buff_id": clean_id}
 	var safe_quantity: int = maxi(1, quantity)
 	_buff_inventory_counts[clean_id] = maxi(0, int(_buff_inventory_counts.get(clean_id, 0))) + safe_quantity
@@ -1185,7 +1185,7 @@ func add_owned_buffs_for_mode(mode: String, ids: Array, reason: String = "") -> 
 	var added: int = 0
 	for buff_id_v in ids:
 		var buff_id: String = str(buff_id_v).strip_edges()
-		if buff_id == "" or BuffCatalog.get_buff(buff_id).is_empty():
+		if buff_id == "" or not BuffCatalog.is_selectable(buff_id):
 			continue
 		_buff_inventory_counts[buff_id] = maxi(0, int(_buff_inventory_counts.get(buff_id, 0))) + 1
 		added += 1
@@ -1983,7 +1983,7 @@ static func _is_valid_entap_id_static(value: String) -> bool:
 func _default_owned_ids() -> Array[String]:
 	var out: Array[String] = []
 	for buff_id in DEFAULT_BUFF_LOADOUT_IDS:
-		if BuffCatalog.get_buff(buff_id).is_empty():
+		if not BuffCatalog.is_selectable(buff_id):
 			continue
 		if out.has(buff_id):
 			continue
@@ -2068,7 +2068,7 @@ func _sanitize_loadout_ids(raw: Variant) -> Array[String]:
 			if buff_id == "":
 				out.append("")
 				continue
-			if BuffCatalog.get_buff(buff_id).is_empty():
+			if not BuffCatalog.is_selectable(buff_id):
 				out.append("")
 				continue
 			if out.has(buff_id):
@@ -2209,7 +2209,7 @@ func _sanitize_loadout_ids_for_mode(raw: Variant, mode: String, owned_ids: Array
 			if buff_id == "":
 				out.append("")
 				continue
-			if BuffCatalog.get_buff(buff_id).is_empty():
+			if not BuffCatalog.is_selectable(buff_id):
 				out.append("")
 				continue
 			if (not allow_duplicates) and out.has(buff_id):
@@ -2236,7 +2236,7 @@ func _sanitize_catalog_loadout_ids(raw: Variant, mode: String) -> Array[String]:
 		if buff_id == "":
 			out.append("")
 			continue
-		if BuffCatalog.get_buff(buff_id).is_empty():
+		if not BuffCatalog.is_selectable(buff_id):
 			out.append("")
 			continue
 		if (not allow_duplicates) and out.has(buff_id):

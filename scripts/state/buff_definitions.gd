@@ -27,6 +27,12 @@ const DURATION_SHORT_BY_TIER: Dictionary = {
 	TIER_ELITE: 7.0
 }
 
+const DURATION_SUPERCHARGE_BY_TIER: Dictionary = {
+	TIER_CLASSIC: 5.0,
+	TIER_PREMIUM: 7.0,
+	TIER_ELITE: 9.0
+}
+
 const UNIT_SWARM_DAMAGE: String = "SWARM_DAMAGE"
 const UNIT_HIVE_IMPACT_DAMAGE: String = "HIVE_IMPACT_DAMAGE"
 const UNIT_SPEED: String = "UNIT_SPEED"
@@ -36,10 +42,10 @@ const HIVE_GLOBAL_PRODUCTION_BOOST: String = "GLOBAL_PRODUCTION_BOOST"
 const HIVE_SHIELD_SINGLE: String = "HIVE_SHIELD_SINGLE"
 const HIVE_SHIELD_GLOBAL: String = "HIVE_SHIELD_GLOBAL"
 const HIVE_SHOCK_IMMUNITY: String = "SHOCK_IMMUNITY"
+const HIVE_GLOBAL_SHOCK_IMMUNITY: String = "GLOBAL_SHOCK_IMMUNITY"
 const HIVE_SUPERCHARGE_QUEUE: String = "SUPERCHARGE_QUEUE"
 
 const LANE_FREEZE: String = "FREEZE_LANE"
-const LANE_STEAL: String = "STEAL_LANE"
 const LANE_TREACHEROUS: String = "TREACHEROUS_LANE"
 
 const _BUFFS: Dictionary = {
@@ -50,7 +56,7 @@ const _BUFFS: Dictionary = {
 		"target_type": TARGET_NONE,
 		"duration_profile": "standard",
 		"effects": {
-			"swarm_combat_damage_mult": 1.25,
+			"swarm_combat_damage_mult": 2,
 			"exclude_hive_impact": true
 		}
 	},
@@ -130,16 +136,27 @@ const _BUFFS: Dictionary = {
 			"shock_immune": true
 		}
 	},
+	HIVE_GLOBAL_SHOCK_IMMUNITY: {
+		"id": HIVE_GLOBAL_SHOCK_IMMUNITY,
+		"display_name": "Global Shock Immunity",
+		"category": CATEGORY_HIVE,
+		"target_type": TARGET_NONE,
+		"duration_profile": "short",
+		"effects": {
+			"shock_immune": true,
+			"scope": "owned_hives_snapshot"
+		}
+	},
 	HIVE_SUPERCHARGE_QUEUE: {
 		"id": HIVE_SUPERCHARGE_QUEUE,
 		"display_name": "Supercharge Queue",
 		"category": CATEGORY_HIVE,
-		"target_type": TARGET_HIVE,
-		"duration_profile": "standard",
+		"target_type": TARGET_LANE,
+		"duration_profile": "supercharge",
 		"effects": {
 			"queue_mode": true,
-			"manual_release_required": true,
-			"visual_indicator_required": true
+			"automatic_release": true,
+			"source_loss_forfeits_queue": true
 		}
 	},
 	LANE_FREEZE: {
@@ -151,16 +168,6 @@ const _BUFFS: Dictionary = {
 		"effects": {
 			"freeze_enemy_advance": true,
 			"enemy_still_can_fight": true
-		}
-	},
-	LANE_STEAL: {
-		"id": LANE_STEAL,
-		"display_name": "Steal Lane",
-		"category": CATEGORY_LANE,
-		"target_type": TARGET_LANE,
-		"duration_profile": "standard",
-		"effects": {
-			"enemy_convert_ratio": 0.5
 		}
 	},
 	LANE_TREACHEROUS: {
@@ -219,6 +226,8 @@ static func duration_seconds_for(buff_id: String, tier: String) -> float:
 	var normalized_tier: String = normalize_tier(tier)
 	if duration_profile == "short":
 		return float(DURATION_SHORT_BY_TIER.get(normalized_tier, DURATION_SHORT_BY_TIER[TIER_CLASSIC]))
+	if duration_profile == "supercharge":
+		return float(DURATION_SUPERCHARGE_BY_TIER.get(normalized_tier, DURATION_SUPERCHARGE_BY_TIER[TIER_CLASSIC]))
 	return float(DURATION_STANDARD_BY_TIER.get(normalized_tier, DURATION_STANDARD_BY_TIER[TIER_CLASSIC]))
 
 static func category_for(buff_id: String) -> String:
