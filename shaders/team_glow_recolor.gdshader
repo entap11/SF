@@ -22,6 +22,14 @@ uniform float selected_hot = 0.0;
 uniform vec4 selected_hot_color : source_color = vec4(1.0, 0.96, 0.82, 1.0);
 uniform float selected_metal_lift = 0.0;
 uniform float selected_hot_edge = 0.0;
+uniform vec4 body_glow_color : source_color = vec4(1.0, 0.72, 0.08, 1.0);
+uniform vec2 body_glow_center = vec2(0.5, 0.50);
+uniform vec2 body_glow_radius = vec2(0.17, 0.25);
+uniform float body_glow_strength = 0.0;
+uniform float body_glow_luma_floor = 0.08;
+uniform float body_pulse_strength = 0.0;
+uniform float body_pulse_speed = 4.8;
+uniform float body_pulse_phase = 0.0;
 
 vec3 rgb2hsv(vec3 c) {
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -30,6 +38,12 @@ vec3 rgb2hsv(vec3 c) {
 	float d = q.x - min(q.w, q.y);
 	float e = 1e-10;
 	return vec3(abs(q.z + (q.w - q.y) / ((6.0 * d) + e)), d / (q.x + e), q.x);
+}
+
+float body_mask_at(vec2 uv) {
+	vec2 safe_radius = max(body_glow_radius, vec2(0.0001));
+	vec2 body_delta = (uv - body_glow_center) / safe_radius;
+	return 1.0 - smoothstep(0.72, 1.0, length(body_delta));
 }
 
 void fragment() {
@@ -66,5 +80,9 @@ void fragment() {
 	vec3 hot_metal = mix(out_rgb, hot_base, metal_gate * selected_metal_lift);
 	float hot_edge = smoothstep(0.30, 0.98, bright) * metal_gate;
 	out_rgb = mix(out_rgb, hot_metal + (selected_hot_color.rgb * hot_edge * selected_hot_edge), selected_hot);
+	float body_pulse_wave = (sin((TIME * body_pulse_speed) + body_pulse_phase) * 0.5) + 0.5;
+	float body_burst = 1.0 + (pow(body_pulse_wave, 3.0) * body_pulse_strength);
+	float body_emission = tex.a * body_mask_at(UV) * smoothstep(body_glow_luma_floor, 1.0, lum);
+	out_rgb += body_glow_color.rgb * body_emission * body_glow_strength * body_burst;
 	COLOR = vec4(out_rgb, tex.a * global_alpha);
 }

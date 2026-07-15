@@ -3,6 +3,7 @@ extends SceneTree
 var _failed: bool = false
 
 func _init() -> void:
+	get_root().size = Vector2i(944, 2048)
 	await process_frame
 	var overlay: OutcomeOverlay = OutcomeOverlay.new()
 	overlay.name = "OutcomeOverlay"
@@ -41,11 +42,18 @@ func _init() -> void:
 	_assert_true(not _node_visible(overlay, "Panel/VBox/StatsHeader"), "stats hidden")
 	_assert_eq(_label_text(overlay, "Panel/VBox/NectarSummary"), "Nectar earned: +61 (play +10, win +8, first win +20, 1.6x pass)", "nectar summary")
 	_assert_eq(_label_text(overlay, "Panel/VBox/Status"), "Play again?", "status")
-	_assert_true(_font_size(overlay, "Panel/VBox/Title") >= 30, "title font should be readable")
-	_assert_true(_font_size(overlay, "Panel/VBox/Result") >= 24, "result font should be readable")
-	_assert_true(_button_min_height(overlay, "Panel/VBox/Buttons/Rematch") >= 58.0, "rematch button should be readable")
+	_assert_true(_font_size(overlay, "Panel/VBox/Title") >= 70, "title must meet the enlarged in-game screen-title floor")
+	_assert_true(_font_size(overlay, "Panel/VBox/Result") >= 60, "result must meet the enlarged in-game panel-title floor")
+	_assert_true(_font_size(overlay, "Panel/VBox/Reason") >= 40, "reason must meet the enlarged in-game body floor")
+	_assert_true(_font_size(overlay, "Panel/VBox/NectarSummary") >= 40, "economy summary must meet the enlarged in-game body floor")
+	_assert_true(_font_size(overlay, "Panel/VBox/Countdown") >= 40, "rematch countdown must meet the enlarged in-game body floor")
+	_assert_true(_font_size(overlay, "Panel/VBox/Status") >= 40, "decision status must meet the enlarged in-game body floor")
+	_assert_true(_button_font_size(overlay, "Panel/VBox/Buttons/Exit") >= 43, "main-menu action must meet the enlarged in-game button floor")
+	_assert_true(_button_min_height(overlay, "Panel/VBox/Buttons/Rematch") >= 110.0, "rematch button must meet the enlarged persistent-action floor")
 	var panel: Control = overlay.get_node_or_null("Panel") as Control
-	_assert_true(panel != null and panel.custom_minimum_size.x >= 360.0 and panel.custom_minimum_size.y >= 420.0, "outcome panel should be larger")
+	_assert_true(panel != null and panel.custom_minimum_size.x >= 880.0 and panel.custom_minimum_size.y < 1150.0, "simple outcome panel should hug its reformatted content")
+	_assert_true(_node_visible(overlay, "Panel/VBox/Buttons"), "wide outcome actions should use the two-column row")
+	_assert_true(not _node_visible(overlay, "Panel/VBox/StackedButtons"), "wide outcome actions should not use the narrow stack")
 
 	_set_crucible_tree_meta()
 	overlay.show_outcome(1, "capture_all", 1)
@@ -54,6 +62,22 @@ func _init() -> void:
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatMaxHivePower"), "Wax: start 50.000 Wax | after escrow 49.000 Wax | finish 51.000 Wax", "crucible balance status")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Stake 1.000 Wax | Winner payout 2.000 Wax | Burn 0.000 Wax | Net +1.000 Wax", "crucible stake status")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Crucible settlement: Settled. You won this Wax match.", "crucible settlement status")
+	_assert_true(_font_size(overlay, "Panel/VBox/StatUnitsKilled") >= 40, "essential Wax status must meet the enlarged in-game body floor")
+	_assert_content_fits(overlay, "944x2048 Crucible result")
+	get_root().size = Vector2i(720, 1280)
+	overlay.call("_apply_readable_layout_for_size", Vector2(720.0, 1280.0))
+	await process_frame
+	_assert_content_fits(overlay, "720x1280 Crucible result")
+	_assert_true(_node_visible(overlay, "Panel/VBox/StackedButtons"), "narrow outcome actions should stack vertically")
+	_assert_true(not _node_visible(overlay, "Panel/VBox/Buttons"), "narrow outcome actions should leave the two-column row")
+	_assert_true(panel != null and panel.size.x <= 664.0 and panel.size.y <= 1224.0, "narrow outcome panel should respect the reformatted layout bounds")
+	overlay.call("_apply_readable_layout_for_size", Vector2(432.0, 768.0))
+	await process_frame
+	_assert_content_fits(overlay, "432x768 compact-window Crucible result")
+	_assert_true(panel != null and panel.size.x <= 376.0 and panel.size.y <= 712.0, "compact-window outcome panel should remain inside its layout bounds")
+	get_root().size = Vector2i(944, 2048)
+	overlay.call("_apply_readable_layout")
+	await process_frame
 	_clear_crucible_tree_meta()
 	if has_meta("battle_pass_latest_nectar_award"):
 		remove_meta("battle_pass_latest_nectar_award")
@@ -87,6 +111,7 @@ func _init() -> void:
 	_assert_eq(_button_text(overlay, "Panel/VBox/Buttons/Rematch"), "Next Stage", "progressive next button")
 	_assert_true(not _node_visible(overlay, "Panel/VBox/Buttons/Rematch"), "progressive next button hidden during auto-advance")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Next stage starts automatically.", "progressive auto-advance text")
+	_assert_content_fits(overlay, "944x2048 progressive stage result")
 
 	overlay.show_stage_round_outcome({
 		"round_number": 3,
@@ -120,6 +145,7 @@ func _init() -> void:
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatMaxHivePower"), "Wallet: start $500.00 | after entry $480.00 | finish $480.00", "paid stage wallet status")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Entry: $20.00 | Rank: #1 provisional | Pot: $20.00", "paid stage rank status")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Payout pending until contest close (3/3 maps).", "paid stage payout pending")
+	_assert_content_fits(overlay, "944x2048 paid stage result")
 
 	if _failed:
 		quit(1)
@@ -161,32 +187,67 @@ func _build_overlay_children(overlay: Control) -> void:
 	buttons.add_child(exit)
 
 func _label_text(root: Node, path: String) -> String:
-	var label: Label = root.get_node_or_null(path) as Label
+	var label: Label = _node_by_path_or_name(root, path) as Label
 	if label == null:
 		return "<missing>"
 	return label.text
 
 func _node_visible(root: Node, path: String) -> bool:
-	var control: Control = root.get_node_or_null(path) as Control
+	var control: Control = _node_by_path_or_name(root, path) as Control
 	return control != null and control.visible
 
 func _font_size(root: Node, path: String) -> int:
-	var label: Label = root.get_node_or_null(path) as Label
+	var label: Label = _node_by_path_or_name(root, path) as Label
 	if label == null:
 		return 0
 	return int(label.get_theme_font_size("font_size"))
 
 func _button_min_height(root: Node, path: String) -> float:
-	var button: Button = root.get_node_or_null(path) as Button
+	var button: Button = _node_by_path_or_name(root, path) as Button
 	if button == null:
 		return 0.0
 	return float(button.custom_minimum_size.y)
 
+func _button_font_size(root: Node, path: String) -> int:
+	var button: Button = _node_by_path_or_name(root, path) as Button
+	if button == null:
+		return 0
+	return int(button.get_theme_font_size("font_size"))
+
+func _assert_content_fits(overlay: OutcomeOverlay, label: String) -> void:
+	var panel: Control = overlay.get_node_or_null("Panel") as Control
+	var vbox: VBoxContainer = overlay.get_node_or_null("Panel/VBox") as VBoxContainer
+	if panel == null or vbox == null:
+		_assert_true(false, "%s hierarchy missing" % label)
+		return
+	var available_height: float = vbox.size.y
+	var required_height: float = vbox.get_combined_minimum_size().y
+	_assert_true(required_height <= available_height + 1.0, "%s content clips: required %.1f available %.1f" % [label, required_height, available_height])
+	var viewport_rect: Rect2 = overlay.get_viewport().get_visible_rect()
+	var panel_rect: Rect2 = panel.get_global_rect()
+	_assert_true(panel_rect.position.x >= -1.0 and panel_rect.end.x <= viewport_rect.size.x + 1.0, "%s panel exceeds viewport width" % label)
+	_assert_true(panel_rect.position.y >= -1.0 and panel_rect.end.y <= viewport_rect.size.y + 1.0, "%s panel exceeds viewport height" % label)
+	for button_name in ["Rematch", "Exit"]:
+		var button: Button = overlay.find_child(button_name, true, false) as Button
+		if button == null or not button.visible:
+			continue
+		var button_rect: Rect2 = button.get_global_rect()
+		_assert_true(panel_rect.encloses(button_rect), "%s %s action exceeds the fixed footer: panel=%s button=%s parent=%s" % [label, button_name, str(panel_rect), str(button_rect), str(button.get_parent().name)])
+
 func _button_text(root: Node, path: String) -> String:
-	var button: Button = root.get_node_or_null(path) as Button
+	var button: Button = _node_by_path_or_name(root, path) as Button
 	if button == null:
 		return "<missing>"
 	return button.text
+
+func _node_by_path_or_name(root: Node, path: String) -> Node:
+	var direct: Node = root.get_node_or_null(path)
+	if direct != null:
+		return direct
+	var segments: PackedStringArray = path.split("/", false)
+	if segments.is_empty():
+		return null
+	return root.find_child(segments[segments.size() - 1], true, false)
 
 func _set_crucible_tree_meta() -> void:
 	set_meta("vs_crucible", true)

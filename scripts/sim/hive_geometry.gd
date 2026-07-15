@@ -34,6 +34,15 @@ const HIVE_VISUAL_FOOTPRINT_SCALE_LARGE: float = 3.95
 const HIVE_VISUAL_FOOTPRINT_SCALE_MAX: float = 4.40
 const HIVE_INPUT_PICK_PAD_PX: float = 0.0
 
+static func hive_visual_height_tier_scale(power: int) -> float:
+	if power >= TIER_4_MIN_POWER:
+		return HIVE_HEIGHT_SCALE_MAX
+	if power >= TIER_3_MIN_POWER:
+		return HIVE_HEIGHT_SCALE_LARGE
+	if power >= TIER_2_MIN_POWER:
+		return HIVE_HEIGHT_SCALE_MED
+	return HIVE_HEIGHT_SCALE_SMALL
+
 static func lane_occlusion_radius_px(base_radius_px: float) -> float:
 	var radius: float = maxf(1.0, base_radius_px)
 	return radius * LANE_OCCLUSION_RADIUS_SCALE

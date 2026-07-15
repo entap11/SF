@@ -111,6 +111,13 @@ func _cache_signature(gs: GameState) -> String:
 	for lane_any in gs.lanes:
 		lane_sigs.append(_lane_sig_for(lane_any))
 	lane_sigs.sort()
+	var hive_tier_sigs: Array[String] = []
+	for hive_any in gs.hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive == null:
+			continue
+		hive_tier_sigs.append("%d:%.2f" % [int(hive.id), HiveGeometry.hive_visual_height_tier_scale(int(hive.power))])
+	hive_tier_sigs.sort()
 	return "%d|%d|%s|%s|%s" % [
 		int(gs.get_instance_id()),
 		int(gs.hives_set_version),
@@ -118,10 +125,13 @@ func _cache_signature(gs: GameState) -> String:
 		str(snapped(lane_end_cap_trim_px, 0.001)),
 		"|".join([
 			"|".join(lane_sigs),
+			"|".join(hive_tier_sigs),
 			str(snapped(LANE_CAP_TRIM_RADIUS_RATIO, 0.001)),
 			str(snapped(float(HiveNodeScript.LANE_ANCHOR_Y_PX), 0.001)),
 			str(snapped(float(HiveNodeScript.LANE_ANCHOR_LEFT_EXTRA_Y_PX), 0.001)),
-			str(snapped(float(HiveNodeScript.LANE_ANCHOR_RIGHT_EXTRA_Y_PX), 0.001))
+			str(snapped(float(HiveNodeScript.LANE_ANCHOR_RIGHT_EXTRA_Y_PX), 0.001)),
+			str(snapped(float(HiveNodeScript.LANE_SHELL_SKIRT_Y_RADIUS_MULT), 0.001)),
+			str(snapped(float(HiveNodeScript.LANE_SHELL_SKIRT_Y_EXTRA_PX), 0.001))
 		])
 	]
 
@@ -225,7 +235,11 @@ func rebuild_edge_cache(state: Object) -> void:
 			dst_center_world,
 			null,
 			src_radius,
-			dst_radius
+			dst_radius,
+			null,
+			null,
+			int(src_hive.power),
+			int(dst_hive.power)
 		)
 		var a: Vector2 = anchor_pair.get("a", HiveNodeScript.lane_anchor_world_from_center(src_center_world))
 		var b: Vector2 = anchor_pair.get("b", HiveNodeScript.lane_anchor_world_from_center(dst_center_world))

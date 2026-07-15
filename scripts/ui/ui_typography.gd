@@ -6,13 +6,21 @@ const FONT_SEMIBOLD_PATH: String = "res://assets/fonts/brand/Iceland/Iceland-Reg
 const FONT_FREE_ROLL_ATLAS_PATH: String = "res://assets/fonts/free_roll_display_v2_font.tres"
 const FONT_FREE_ROLL_SUPPORTED: String = " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
 
+# The main portrait canvas is authored at 1080 px wide. Dashboard panels are
+# instantiated scenes, so they do not inherit MainMenu's local text scale.
+# Keep their scale here so every dashboard surface uses the same contract.
+const PORTRAIT_CANVAS_SCALE: float = 2.0
+const PORTRAIT_TOUCH_HEIGHT: float = 64.0
+
 const SIZE_TOKENS: Dictionary = {
-	"screen_title": 24,
-	"panel_title": 20,
-	"panel_subtitle": 14,
-	"body": 13,
-	"meta": 11,
-	"button": 13
+	"screen_title": 28,
+	"panel_title": 24,
+	"section_title": 18,
+	"panel_subtitle": 17,
+	"body": 16,
+	"meta": 15,
+	"button": 17,
+	"compact_button": 15
 }
 
 static var _regular_font: Font = null
@@ -49,6 +57,21 @@ static func apply_font(control: Control, font: Font, size: int, scale: float = 1
 		return
 	control.add_theme_font_override("font", font)
 	control.add_theme_font_size_override("font_size", scaled_size(size, scale))
+
+static func apply_token(control: Control, font: Font, token: String, scale: float = 1.0) -> void:
+	apply_font(control, font, int(SIZE_TOKENS.get(token, SIZE_TOKENS["body"])), scale)
+
+static func apply_button_token(
+	button: BaseButton,
+	font: Font,
+	token: String = "button",
+	scale: float = 1.0,
+	minimum_height: float = PORTRAIT_TOUCH_HEIGHT
+) -> void:
+	if button == null:
+		return
+	apply_token(button, font, token, scale)
+	button.custom_minimum_size.y = maxf(button.custom_minimum_size.y, minimum_height)
 
 static func _control_text(control: Control) -> String:
 	if control is Label:

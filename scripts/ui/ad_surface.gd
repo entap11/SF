@@ -1,6 +1,8 @@
 class_name AdSurface
 extends PanelContainer
 
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
+
 const PLACEHOLDER_ENV: String = "SF_AD_PLACEHOLDERS"
 const ZERO_ADS_ENTITLEMENT: String = "zero_ads"
 const PLACEMENT_HANDSHAKE: String = "handshake"
@@ -12,6 +14,7 @@ const CONTENT_MODE_HIDDEN: String = "hidden"
 const HANDSHAKE_AUTO_DISMISS_SEC: float = 8.0
 const POST_MATCH_AUTO_DISMISS_SEC: float = 9.0
 const IMPRESSION_VIEWABLE_MS: float = 1000.0
+const TICKER_TYPE_SCALE: float = 2.5
 
 var slot_id: String = ""
 var placement: String = ""
@@ -96,9 +99,11 @@ func _ensure_placeholder_ui() -> void:
 		_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		_label.add_theme_font_size_override("font_size", 13)
+		_label.clip_text = true
+		_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		_label.add_theme_color_override("font_color", Color(0.88, 0.90, 0.96, 0.82))
 		add_child(_label)
+	UITypography.apply_token(_label, UITypography.regular_font(), "meta", TICKER_TYPE_SCALE)
 	_label.set_anchors_preset(Control.PRESET_FULL_RECT, true)
 	_ensure_creative_texture_rect()
 	_label.text = "AD SPACE" if slot_id.is_empty() else "AD SPACE: %s" % slot_id
@@ -403,11 +408,11 @@ func _ticker_label_text() -> String:
 			return "  |  ".join(lines)
 	match placement:
 		PLACEMENT_HANDSHAKE:
-			return "SWARMFRONT STATUS  |  Match systems standing by  |  Queue secured"
+			return "SWARMFRONT STATUS  |  QUEUE SECURED"
 		PLACEMENT_IN_GAME:
-			return "SWARMFRONT LIVE  |  Hold lanes  |  Break hives  |  Watch tower control"
+			return "SWARMFRONT LIVE  |  HOLD LANES  |  BREAK HIVES"
 		PLACEMENT_POST_MATCH:
-			return "SWARMFRONT RECAP  |  Match complete  |  Review lanes, buffs, and next run"
+			return "SWARMFRONT RECAP  |  REVIEW THE REPLAY"
 	return "SWARMFRONT TICKER"
 
 func _apply_surface_style(internal_ticker: bool) -> void:

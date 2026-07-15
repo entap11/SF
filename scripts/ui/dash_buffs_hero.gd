@@ -46,18 +46,22 @@ func _load_fonts() -> void:
 
 func _style_ui() -> void:
 	title_label.text = "BUFFS"
-	sub_label.text = "Mode-aware loadout control for competitive PvP and Time Puzzle routes."
+	sub_label.text = "Review the loadout for each game type."
 	snapshot_title.text = "LOADOUT SNAPSHOT"
 	library_title.text = "BUFF LIBRARY"
-	_apply_font(title_label, _font_semibold, 24)
-	_apply_font(sub_label, _font_regular, 13)
-	_apply_font(snapshot_title, _font_semibold, 14)
-	_apply_font(snapshot_sub, _font_regular, 12)
-	_apply_font(library_title, _font_semibold, 14)
-	_apply_font(library_sub, _font_regular, 12)
-	_apply_font(footer_label, _font_regular, 12)
-	_apply_font(pvp_tab, _font_semibold, 11)
-	_apply_font(time_puzzle_tab, _font_semibold, 11)
+	_apply_token(title_label, _font_semibold, "screen_title")
+	_apply_token(sub_label, _font_regular, "panel_subtitle")
+	_apply_token(snapshot_title, _font_semibold, "section_title")
+	_apply_token(snapshot_sub, _font_regular, "body")
+	_apply_token(library_title, _font_semibold, "section_title")
+	_apply_token(library_sub, _font_regular, "body")
+	_apply_token(footer_label, _font_regular, "meta")
+	_apply_button_token(pvp_tab, _font_semibold, "button")
+	_apply_button_token(time_puzzle_tab, _font_semibold, "button")
+	var footer_panel: Control = footer_label.get_parent().get_parent() as Control
+	if footer_panel != null:
+		footer_panel.visible = false
+		footer_panel.custom_minimum_size = Vector2.ZERO
 	_style_panel($VBox/Body/TopRow/SnapshotPanel, Color(0.08, 0.09, 0.12, 0.92), Color(0.34, 0.36, 0.44, 0.72))
 	_style_panel($VBox/Body/TopRow/LibraryPanel, Color(0.08, 0.09, 0.12, 0.92), Color(0.34, 0.36, 0.44, 0.72))
 	_style_panel($VBox/Body/FooterPanel, Color(0.08, 0.09, 0.12, 0.92), Color(0.34, 0.36, 0.44, 0.72))
@@ -89,7 +93,7 @@ func _refresh_snapshot() -> void:
 	if loadout.is_empty():
 		var empty := Label.new()
 		empty.text = "No buffs equipped yet."
-		_apply_font(empty, _font_regular, 12)
+		_apply_token(empty, _font_regular, "body")
 		slots_list.add_child(empty)
 		return
 	for idx in range(loadout.size()):
@@ -97,7 +101,7 @@ func _refresh_snapshot() -> void:
 		var buff: Dictionary = BuffCatalog.get_buff(buff_id)
 		var row := Label.new()
 		row.text = "Slot %d  %s" % [idx + 1, str(buff.get("name", buff_id))]
-		_apply_font(row, _font_semibold, 12)
+		_apply_token(row, _font_semibold, "body")
 		slots_list.add_child(row)
 
 func _refresh_library() -> void:
@@ -118,14 +122,14 @@ func _refresh_library() -> void:
 	if categories.is_empty():
 		var empty := Label.new()
 		empty.text = "No owned buffs yet."
-		_apply_font(empty, _font_regular, 12)
+		_apply_token(empty, _font_regular, "body")
 		category_list.add_child(empty)
 		return
 	for category_any in categories:
 		var category: String = str(category_any)
 		var row := Label.new()
 		row.text = "%s  |  %d owned" % [category.capitalize(), int(unique_by_category.get(category, 0))]
-		_apply_font(row, _font_regular, 12)
+		_apply_token(row, _font_regular, "body")
 		category_list.add_child(row)
 
 func _refresh_footer() -> void:
@@ -155,7 +159,13 @@ func _mode_owned_ids() -> Array[String]:
 	return out
 
 func _apply_font(control: Control, font: Font, size: int) -> void:
-	UITypography.apply_font(control, font, size)
+	UITypography.apply_font(control, font, size, UITypography.PORTRAIT_CANVAS_SCALE)
+
+func _apply_token(control: Control, font: Font, token: String) -> void:
+	UITypography.apply_token(control, font, token, UITypography.PORTRAIT_CANVAS_SCALE)
+
+func _apply_button_token(button: BaseButton, font: Font, token: String) -> void:
+	UITypography.apply_button_token(button, font, token, UITypography.PORTRAIT_CANVAS_SCALE)
 
 func _style_button(button: Button, fill: Color, border: Color, text_color: Color) -> void:
 	if button == null:

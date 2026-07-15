@@ -77,6 +77,10 @@ func _run() -> void:
 		push_error("AD_SURFACE_SMOKE: zero_ads ticker label missing")
 		quit(1)
 		return
+	if ticker_label.get_theme_font_size("font_size") < 38:
+		push_error("AD_SURFACE_SMOKE: ticker text is below the enlarged in-game meta-text floor")
+		quit(1)
+		return
 	surface.call("set_internal_ticker_items", ["LANE ALERT", "HIVE PRESSURE"])
 	if ticker_label.text != "LANE ALERT  |  HIVE PRESSURE":
 		push_error("AD_SURFACE_SMOKE: custom ticker items did not render")

@@ -20,14 +20,18 @@ const SELECTOR_STATE_SELECTED := 2
 const SELECTOR_STATE_ACTIVATED := 3
 const SELECTOR_STATE_TARGET_VALID := 4
 const SELECTOR_STATE_TARGET_INVALID := 5
-# Edge trims define contact along the lane axis; this Y bias sets the visible
-# lane "height" on the hive plate.
+# Legacy zero-direction fallback used when no lane bearing is available.
 const LANE_ANCHOR_Y_PX: float = -24.0
-const LANE_ANCHOR_LEFT_EXTRA_Y_PX: float = 1.0
+const LANE_ANCHOR_LEFT_EXTRA_Y_PX: float = 0.0
 const LANE_ANCHOR_RIGHT_EXTRA_Y_PX: float = 0.0
 const LANE_SHELL_RADIUS_X_MULT: float = 1.55
 const LANE_SHELL_RADIUS_Y_TOP_MULT: float = 1.08
 const LANE_SHELL_RADIUS_Y_BOTTOM_MULT: float = 0.92
+# The hive art is a perspective cylinder: side-facing sockets belong on the
+# lower skirt, while vertical lanes should retain their straight centerline.
+# This radius multiplier matches the skirt at the current canonical art scale.
+const LANE_SHELL_SKIRT_Y_RADIUS_MULT: float = 1.65
+const LANE_SHELL_SKIRT_Y_EXTRA_PX: float = 10.0
 
 @export var hive_id: int = -1
 @export var owner_id: int = 0
@@ -101,7 +105,7 @@ var _swarm_cooldown_total_ms: int = 5000
 static func lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return center_world + Vector2(0.0, -LANE_ANCHOR_Y_PX)
 
-static func lane_shell_anchor_world(center_world: Vector2, outward_dir: Vector2, radius_px: float) -> Vector2:
+static func lane_shell_anchor_world(center_world: Vector2, outward_dir: Vector2, radius_px: float, power: int = 0) -> Vector2:
 	var dir: Vector2 = outward_dir
 	if dir.length_squared() <= 0.000001:
 		return lane_anchor_world_from_center(center_world)
@@ -114,7 +118,12 @@ static func lane_shell_anchor_world(center_world: Vector2, outward_dir: Vector2,
 	var denom: float = sqrt((dir.x * dir.x) / (rx * rx) + (dir.y * dir.y) / (ry * ry))
 	if denom <= 0.000001:
 		return center_world
-	return center_world + (dir / denom)
+	var anchor: Vector2 = center_world + (dir / denom)
+	var side_weight: float = absf(dir.x)
+	var tier_scale: float = HiveGeometry.hive_visual_height_tier_scale(power)
+	var skirt_y: float = (radius_px * LANE_SHELL_SKIRT_Y_RADIUS_MULT * tier_scale) + LANE_SHELL_SKIRT_Y_EXTRA_PX
+	anchor.y += skirt_y * side_weight
+	return anchor
 
 static func lane_anchor_pair_world(
 	a_center_world: Vector2,
@@ -123,14 +132,16 @@ static func lane_anchor_pair_world(
 	_src_radius_px: float = 0.0,
 	_dst_radius_px: float = 0.0,
 	_src_global_xform: Variant = null,
-	_dst_global_xform: Variant = null
+	_dst_global_xform: Variant = null,
+	_src_power: int = 0,
+	_dst_power: int = 0
 ) -> Dictionary:
 	var lane_vec: Vector2 = b_center_world - a_center_world
 	var center_dir: Vector2 = Vector2.ZERO
 	if lane_vec.length_squared() > 0.000001:
 		center_dir = lane_vec.normalized()
-	var a_anchor: Vector2 = lane_shell_anchor_world(a_center_world, center_dir, _src_radius_px)
-	var b_anchor: Vector2 = lane_shell_anchor_world(b_center_world, -center_dir, _dst_radius_px)
+	var a_anchor: Vector2 = lane_shell_anchor_world(a_center_world, center_dir, _src_radius_px, _src_power)
+	var b_anchor: Vector2 = lane_shell_anchor_world(b_center_world, -center_dir, _dst_radius_px, _dst_power)
 	var side_weight: float = 1.0
 	if center_dir.length_squared() > 0.000001:
 		side_weight = absf(center_dir.x)

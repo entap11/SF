@@ -48,6 +48,7 @@ const ArenaFloorInfluenceSystem := preload("res://scripts/fx/arena_floor_influen
 const ArenaPolishLayerScript: Script = preload("res://scripts/renderers/arena_polish_layer.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const AdSurfaceScript: Script = preload("res://scripts/ui/ad_surface.gd")
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const FORCE_DISABLE_FLOOR_INFLUENCE: bool = true
 
 const GRID_W := 18
@@ -184,16 +185,22 @@ const TREE_META_VS_CPU_TIER: String = "vs_cpu_tier"
 const TREE_META_VS_STAGE_ROUND_RESULTS: String = "vs_stage_round_results"
 const COUNTDOWN_DEBUG_SCRIPT: Script = preload("res://scripts/ui/prematch_countdown_view.gd")
 const TOUCH_MOUSE_SUPPRESS_MS: int = 120
-const PREMATCH_RECORDS_WIDTH_PX: float = 520.0
-const PREMATCH_RECORDS_HEIGHT_PX: float = 168.0
+const PREMATCH_RECORDS_WIDTH_PX: float = 840.0
+const PREMATCH_RECORDS_HEIGHT_PX: float = 460.0
 const PREMATCH_RECORDS_TOP_GAP_PX: float = 24.0
-const PREMATCH_RECORDS_FONT_SIZE: int = 17
-const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
-const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
-const PREMATCH_AD_SIZE: Vector2 = Vector2(468.0, 60.0)
-const IN_GAME_AD_SIZE: Vector2 = Vector2(320.0, 50.0)
-const IN_GAME_AD_TOP_MARGIN_PX: float = 8.0
-const IN_GAME_AD_MIN_WIDTH_PX: float = 280.0
+const PREMATCH_BANNER_FONT_SIZE: int = 60
+const PREMATCH_ROUND_FONT_SIZE: int = 43
+const PREMATCH_BODY_FONT_SIZE: int = 40
+const PREMATCH_META_FONT_SIZE: int = 38
+const PREMATCH_STATUS_FONT_SIZE: int = 45
+const PREMATCH_FACTS_CARD_ENABLED: bool = false
+const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 840.0
+const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 680.0
+const PREMATCH_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
+const IN_GAME_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
+# Keep the readable ticker below the persistent 225x110 Menu action.
+const IN_GAME_AD_TOP_MARGIN_PX: float = 142.0
+const IN_GAME_AD_MIN_WIDTH_PX: float = 560.0
 const IN_GAME_AD_HUD_Z_INDEX: int = 3200
 const POWER_BAR_ARENA_TOP_GAP_PX: float = -8.0
 const PREMATCH_UI_CROSSFADE_MS: int = 350
@@ -2269,6 +2276,7 @@ func _ensure_prematch_ui() -> void:
 	records.anchor_bottom = 0.0
 	records.z_as_relative = false
 	records.z_index = 1000
+	records.visible = PREMATCH_FACTS_CARD_ENABLED
 	_layout_prematch_records_panel(records)
 
 	var records_bg := records.get_node_or_null("RecordsBg") as Panel
@@ -2311,11 +2319,11 @@ func _ensure_prematch_ui() -> void:
 	records_vbox.anchor_right = 1.0
 	records_vbox.anchor_top = 0.0
 	records_vbox.anchor_bottom = 1.0
-	records_vbox.offset_left = 10.0
-	records_vbox.offset_top = 8.0
-	records_vbox.offset_right = -10.0
-	records_vbox.offset_bottom = -8.0
-	records_vbox.add_theme_constant_override("separation", 2)
+	records_vbox.offset_left = 24.0
+	records_vbox.offset_top = 20.0
+	records_vbox.offset_right = -24.0
+	records_vbox.offset_bottom = -20.0
+	records_vbox.add_theme_constant_override("separation", 8)
 	var p1: Label = _ensure_prematch_record_label(records_vbox, "RecordP1")
 	var p2: Label = _ensure_prematch_record_label(records_vbox, "RecordP2")
 	var p3: Label = _ensure_prematch_record_label(records_vbox, "RecordP3")
@@ -2359,11 +2367,11 @@ func _ensure_prematch_ui() -> void:
 		ctf_vbox.name = "VBox"
 		ctf_panel.add_child(ctf_vbox)
 	ctf_vbox.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	ctf_vbox.offset_left = 12.0
-	ctf_vbox.offset_top = 10.0
-	ctf_vbox.offset_right = -12.0
-	ctf_vbox.offset_bottom = -10.0
-	ctf_vbox.add_theme_constant_override("separation", 6)
+	ctf_vbox.offset_left = 24.0
+	ctf_vbox.offset_top = 20.0
+	ctf_vbox.offset_right = -24.0
+	ctf_vbox.offset_bottom = -20.0
+	ctf_vbox.add_theme_constant_override("separation", 12)
 	var ctf_title := ctf_vbox.get_node_or_null("Title") as Label
 	if ctf_title == null:
 		ctf_title = Label.new()
@@ -2375,9 +2383,9 @@ func _ensure_prematch_ui() -> void:
 		ctf_body.name = "Body"
 		ctf_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		ctf_vbox.add_child(ctf_body)
-	ctf_title.add_theme_font_size_override("font_size", 21)
+	ctf_title.add_theme_font_size_override("font_size", PREMATCH_STATUS_FONT_SIZE)
 	ctf_title.add_theme_color_override("font_color", Color(1.0, 0.90, 0.38, 1.0))
-	ctf_body.add_theme_font_size_override("font_size", 16)
+	ctf_body.add_theme_font_size_override("font_size", PREMATCH_BODY_FONT_SIZE)
 	ctf_body.add_theme_color_override("font_color", Color(0.94, 0.96, 0.99, 1.0))
 	_layout_capture_flag_instruction_panel(ctf_panel)
 	_ensure_prematch_ad_surface()
@@ -2551,7 +2559,7 @@ func _ensure_identity_label(parent: Control, node_name: String) -> Label:
 func _style_identity_small_label(label: Label) -> void:
 	if label == null:
 		return
-	label.add_theme_font_size_override("font_size", 19)
+	label.add_theme_font_size_override("font_size", PREMATCH_META_FONT_SIZE)
 	label.add_theme_color_override("font_color", Color(0.82, 0.88, 0.96, 0.96))
 	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 	label.add_theme_constant_override("outline_size", 2)
@@ -2561,7 +2569,7 @@ func _style_identity_name_label(label: Label, align: HorizontalAlignment) -> voi
 		return
 	label.horizontal_alignment = align
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 34)
+	label.add_theme_font_size_override("font_size", PREMATCH_STATUS_FONT_SIZE)
 	label.add_theme_color_override("font_color", Color(0.98, 0.99, 1.0, 1.0))
 	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 	label.add_theme_constant_override("outline_size", 3)
@@ -2572,7 +2580,7 @@ func _style_identity_vs_label(label: Label) -> void:
 	label.text = "VS."
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 36)
+	label.add_theme_font_size_override("font_size", PREMATCH_BANNER_FONT_SIZE)
 	label.add_theme_color_override("font_color", Color(1.0, 0.96, 0.78, 1.0))
 	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 	label.add_theme_constant_override("outline_size", 3)
@@ -2589,7 +2597,7 @@ func _layout_prematch_identity_card() -> void:
 	var team_2v2: bool = _prematch_identity_uses_team_2v2()
 	var quadrant_4p: bool = _prematch_identity_uses_quadrant_4p()
 	var stacked_3p: bool = _prematch_identity_uses_stacked_3p()
-	var card_height: float = clampf(viewport_rect.size.y * (0.24 if (quadrant_4p or team_2v2) else (0.22 if stacked_3p else 0.18)), 280.0 if (quadrant_4p or team_2v2) else (250.0 if stacked_3p else 210.0), 380.0 if (quadrant_4p or team_2v2) else (360.0 if stacked_3p else 300.0))
+	var card_height: float = clampf(viewport_rect.size.y * (0.28 if (quadrant_4p or team_2v2) else (0.24 if stacked_3p else 0.20)), 380.0 if (quadrant_4p or team_2v2) else (360.0 if stacked_3p else 280.0), 520.0 if (quadrant_4p or team_2v2) else (480.0 if stacked_3p else 360.0))
 	var card_top: float = top_inset + maxf(24.0, viewport_rect.size.y * 0.08)
 	_prematch_identity_card.position = Vector2((viewport_rect.size.x - card_width) * 0.5, card_top)
 	_prematch_identity_card.size = Vector2(card_width, card_height)
@@ -2658,22 +2666,22 @@ func _layout_prematch_identity_card() -> void:
 		p1_label.visible = true
 		p1_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		p1_label.position = Vector2(28.0, 38.0)
-		p1_label.size = Vector2(card_width * 0.48, 28.0)
+		p1_label.size = Vector2(card_width * 0.48, 48.0)
 	if p1_name != null:
 		p1_name.visible = true
 		p1_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		p1_name.position = Vector2(28.0, 66.0)
-		p1_name.size = Vector2(card_width * 0.56, 54.0)
+		p1_name.position = Vector2(28.0, 84.0)
+		p1_name.size = Vector2(card_width * 0.56, 64.0)
 	if p2_label != null:
 		p2_label.visible = true
-		p2_label.position = Vector2(card_width * 0.48, card_height - 110.0)
-		p2_label.size = Vector2(card_width * 0.48 - 28.0, 28.0)
+		p2_label.position = Vector2(card_width * 0.48, card_height - 140.0)
+		p2_label.size = Vector2(card_width * 0.48 - 28.0, 48.0)
 		p2_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	if p2_name != null:
 		p2_name.visible = true
 		p2_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		p2_name.position = Vector2(card_width * 0.38, card_height - 82.0)
-		p2_name.size = Vector2(card_width * 0.58, 54.0)
+		p2_name.position = Vector2(card_width * 0.38, card_height - 92.0)
+		p2_name.size = Vector2(card_width * 0.58, 64.0)
 
 func _layout_prematch_identity_card_3p(card_width: float, card_height: float) -> void:
 	var divider: ColorRect = _prematch_identity_card.get_node_or_null("DiagonalDivider") as ColorRect
@@ -2713,7 +2721,7 @@ func _layout_prematch_identity_card_3p(card_width: float, card_height: float) ->
 			label.visible = true
 			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 			label.position = Vector2(28.0, row_top + 25.0)
-			label.size = Vector2(card_width * 0.32, 24.0)
+			label.size = Vector2(card_width * 0.32, 48.0)
 		if name_label != null:
 			name_label.visible = true
 			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -2766,13 +2774,13 @@ func _layout_prematch_identity_card_2v2(card_width: float, card_height: float) -
 		if label != null:
 			label.visible = true
 			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			label.position = quadrant_pos + Vector2(24.0, 34.0)
-			label.size = Vector2(quadrant_size.x - 48.0, 24.0)
+			label.position = quadrant_pos + Vector2(24.0, 30.0)
+			label.size = Vector2(quadrant_size.x - 48.0, 48.0)
 		if name_label != null:
 			name_label.visible = true
 			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			name_label.position = quadrant_pos + Vector2(24.0, 62.0)
-			name_label.size = Vector2(quadrant_size.x - 48.0, quadrant_size.y - 74.0)
+			name_label.position = quadrant_pos + Vector2(24.0, 78.0)
+			name_label.size = Vector2(quadrant_size.x - 48.0, quadrant_size.y - 90.0)
 	var streak: ColorRect = _prematch_identity_card.get_node_or_null("TeamVsStreak") as ColorRect
 	if streak != null:
 		var left_width: float = card_width * 0.5
@@ -2783,8 +2791,8 @@ func _layout_prematch_identity_card_2v2(card_width: float, card_height: float) -
 		streak.rotation = -atan2(card_height, left_width)
 	var vs_label: Label = _prematch_identity_card.get_node_or_null("TeamVsLabel") as Label
 	if vs_label != null:
-		vs_label.position = Vector2((card_width * 0.25) - 54.0, (card_height * 0.5) - 28.0)
-		vs_label.size = Vector2(108.0, 56.0)
+		vs_label.position = Vector2((card_width * 0.25) - 64.0, (card_height * 0.5) - 38.0)
+		vs_label.size = Vector2(128.0, 76.0)
 
 func _layout_prematch_identity_card_4p(card_width: float, card_height: float) -> void:
 	var diagonal: ColorRect = _prematch_identity_card.get_node_or_null("DiagonalDivider") as ColorRect
@@ -2824,13 +2832,13 @@ func _layout_prematch_identity_card_4p(card_width: float, card_height: float) ->
 		if label != null:
 			label.visible = true
 			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			label.position = quadrant_pos + Vector2(24.0, 34.0)
-			label.size = Vector2(quadrant_size.x - 48.0, 24.0)
+			label.position = quadrant_pos + Vector2(24.0, 30.0)
+			label.size = Vector2(quadrant_size.x - 48.0, 48.0)
 		if name_label != null:
 			name_label.visible = true
 			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			name_label.position = quadrant_pos + Vector2(24.0, 62.0)
-			name_label.size = Vector2(quadrant_size.x - 48.0, quadrant_size.y - 74.0)
+			name_label.position = quadrant_pos + Vector2(24.0, 78.0)
+			name_label.size = Vector2(quadrant_size.x - 48.0, quadrant_size.y - 90.0)
 
 func _set_identity_player_visible(seat: int, visible: bool) -> void:
 	var label: Label = _prematch_identity_card.get_node_or_null("P%dLabel" % seat) as Label
@@ -3211,6 +3219,7 @@ func _layout_prematch_records_panel(records: Control) -> void:
 	var vr: Rect2 = vp.get_visible_rect()
 	var top_inset: float = _ui_top_inset_px()
 	var panel_size: Vector2 = _prematch_records_panel_size()
+	panel_size.x = minf(panel_size.x, maxf(320.0, vr.size.x - 32.0))
 	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX
 	records.position = Vector2((vr.size.x - panel_size.x) * 0.5, panel_top)
 	records.size = panel_size
@@ -3221,9 +3230,11 @@ func _layout_capture_flag_instruction_panel(panel: Control = null) -> void:
 		return
 	var vr := get_viewport().get_visible_rect()
 	var top_inset: float = _ui_top_inset_px()
-	var width: float = 540.0
-	var height: float = 146.0
-	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX + _prematch_records_panel_size().y + 16.0
+	var width: float = minf(840.0, maxf(320.0, vr.size.x - 32.0))
+	var height: float = 260.0
+	var panel_top: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX
+	if _prematch_identity_card != null and _prematch_identity_card.visible:
+		panel_top = maxf(panel_top, _prematch_identity_card.position.y + _prematch_identity_card.size.y + 16.0)
 	target.position = Vector2((vr.size.x - width) * 0.5, panel_top)
 	target.size = Vector2(width, height)
 
@@ -3260,11 +3271,11 @@ func _layout_prematch_ad_surface() -> void:
 		minf(PREMATCH_AD_SIZE.x, maxf(300.0, vr.size.x - 32.0)),
 		PREMATCH_AD_SIZE.y
 	)
-	var records_bottom: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX + _prematch_records_panel_size().y
-	var ctf_bottom: float = records_bottom
+	var ctf_bottom: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX
 	if _prematch_ctf_panel != null and _prematch_ctf_panel.visible:
 		ctf_bottom = maxf(ctf_bottom, _prematch_ctf_panel.position.y + _prematch_ctf_panel.size.y)
-	_prematch_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, ctf_bottom + 14.0)
+	var ad_top: float = ctf_bottom + 14.0 if _prematch_ctf_panel != null and _prematch_ctf_panel.visible else ctf_bottom
+	_prematch_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, ad_top)
 	_prematch_ad_surface.size = ad_size
 
 func _ensure_in_game_ad_surface() -> void:
@@ -3491,7 +3502,8 @@ func _style_prematch_record_label(label: Label) -> void:
 		return
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", PREMATCH_RECORDS_FONT_SIZE)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", PREMATCH_BODY_FONT_SIZE)
 	label.add_theme_color_override("font_color", Color(0.97, 0.99, 1.0, 1.0))
 	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 	label.add_theme_constant_override("outline_size", 2)
@@ -3501,13 +3513,14 @@ func _style_prematch_team_label(label: Label) -> void:
 		return
 	_style_prematch_record_label(label)
 	label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
+	label.add_theme_font_size_override("font_size", PREMATCH_BANNER_FONT_SIZE)
 
 func _style_prematch_team_arrow_label(label: Label) -> void:
 	if label == null:
 		return
 	_style_prematch_record_label(label)
 	label.add_theme_color_override("font_color", Color(0.82, 0.92, 1.0, 0.92))
-	label.add_theme_font_size_override("font_size", PREMATCH_RECORDS_FONT_SIZE + 1)
+	label.add_theme_font_size_override("font_size", PREMATCH_ROUND_FONT_SIZE)
 
 func _log_prematch_ui_state() -> void:
 	var overlay_dict := {}
@@ -3577,33 +3590,14 @@ func _show_prematch_ui() -> void:
 		_prematch_countdown_label.add_theme_color_override("font_color", _local_countdown_color())
 		_prematch_countdown_label.visible = true
 	_show_prematch_identity_card()
-	_refresh_prematch_records()
 	_refresh_capture_flag_prematch_prompt()
 	if _prematch_records_panel != null:
-		_layout_prematch_records_panel(_prematch_records_panel)
-		_prematch_records_panel.visible = true
-		_prematch_records_panel.modulate = Color(1, 1, 1, 1)
-		SFLog.warn("PREMATCH_UI_VIS", {
-			"records_path": _node_path_for_log(_prematch_records_panel),
-			"records_visible": _prematch_records_panel.visible,
-			"records_pos": _prematch_records_panel.global_position,
-			"records_size": _prematch_records_panel.size,
-			"records_z": _prematch_records_panel.z_index,
-			"record_p1": _prematch_record_p1.text if _prematch_record_p1 != null else "<null>",
-			"record_p2": _prematch_record_p2.text if _prematch_record_p2 != null else "<null>",
-			"record_p3": _prematch_record_p3.text if _prematch_record_p3 != null else "<null>",
-			"record_p4": _prematch_record_p4.text if _prematch_record_p4 != null else "<null>",
-			"record_h2h": _prematch_record_h2h.text if _prematch_record_h2h != null else "<null>",
-			"record_teams": _prematch_record_teams.text if _prematch_record_teams != null else "<null>",
-			"record_team_links": _prematch_record_team_arrows.text if _prematch_record_team_arrows != null else "<null>",
-			"overlay_path": _node_path_for_log(_prematch_overlay),
-			"overlay_visible": _prematch_overlay.visible,
-			"overlay_z": _prematch_overlay.z_index
-		}, "", 250)
+		_prematch_records_panel.visible = PREMATCH_FACTS_CARD_ENABLED
+	_prematch_records_faded = true
 	SFLog.info("PREMATCH_UI_INIT", {
 		"overlay_ok": _prematch_overlay != null,
 		"countdown_ok": _prematch_countdown_label != null,
-		"records_ok": _prematch_records_panel != null
+		"facts_card_enabled": PREMATCH_FACTS_CARD_ENABLED
 	})
 
 func _refresh_prematch_records() -> void:
@@ -3644,25 +3638,25 @@ func _refresh_async_prematch_card() -> void:
 	var sec_left: int = maxi(0, int(ceil(_prematch_remaining_ms_f / 1000.0)))
 	var detail_lines: Array[String] = _async_prematch_detail_lines()
 	if _prematch_record_teams != null:
-		_prematch_record_teams.add_theme_font_size_override("font_size", 28)
+		_prematch_record_teams.add_theme_font_size_override("font_size", PREMATCH_BANNER_FONT_SIZE)
 		_prematch_record_teams.text = _async_prematch_mode_banner()
 	if _prematch_record_team_arrows != null:
-		_prematch_record_team_arrows.add_theme_font_size_override("font_size", 20)
+		_prematch_record_team_arrows.add_theme_font_size_override("font_size", PREMATCH_ROUND_FONT_SIZE)
 		_prematch_record_team_arrows.text = _async_prematch_round_line()
 	if _prematch_record_p1 != null:
-		_prematch_record_p1.add_theme_font_size_override("font_size", 18)
+		_prematch_record_p1.add_theme_font_size_override("font_size", PREMATCH_BODY_FONT_SIZE)
 		_prematch_record_p1.text = detail_lines[0] if detail_lines.size() > 0 else ""
 	if _prematch_record_p2 != null:
-		_prematch_record_p2.add_theme_font_size_override("font_size", 18)
+		_prematch_record_p2.add_theme_font_size_override("font_size", PREMATCH_BODY_FONT_SIZE)
 		_prematch_record_p2.text = detail_lines[1] if detail_lines.size() > 1 else ""
 	if _prematch_record_p3 != null:
-		_prematch_record_p3.add_theme_font_size_override("font_size", 18)
+		_prematch_record_p3.add_theme_font_size_override("font_size", PREMATCH_BODY_FONT_SIZE)
 		_prematch_record_p3.text = detail_lines[2] if detail_lines.size() > 2 else ""
 	if _prematch_record_p4 != null:
-		_prematch_record_p4.add_theme_font_size_override("font_size", 18)
+		_prematch_record_p4.add_theme_font_size_override("font_size", PREMATCH_BODY_FONT_SIZE)
 		_prematch_record_p4.text = detail_lines[3] if detail_lines.size() > 3 else ""
 	if _prematch_record_h2h != null:
-		_prematch_record_h2h.add_theme_font_size_override("font_size", 24)
+		_prematch_record_h2h.add_theme_font_size_override("font_size", PREMATCH_STATUS_FONT_SIZE)
 		_prematch_record_h2h.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
 		_prematch_record_h2h.text = "Starts in %d" % sec_left
 
@@ -4238,17 +4232,12 @@ func _update_prematch_flow(delta: float) -> void:
 	if _prematch_remaining_ms_f <= float(PREMATCH_COUNTDOWN_RETURN_MS) and not _prematch_countdown_return_started:
 		_return_camera_to_gameplay_view()
 	_refresh_capture_flag_prematch_prompt()
-	if _uses_async_prematch_card():
-		_refresh_prematch_records()
 	if sec_left != _prematch_last_sec:
 		_prematch_last_sec = sec_left
 		SFLog.info("PREMATCH_TICK", {
 			"ms": OpsState.prematch_remaining_ms,
 			"sec": int(ceil(float(OpsState.prematch_remaining_ms) / 1000.0))
 		})
-	if _prematch_remaining_ms_f <= float(PREMATCH_UI_CROSSFADE_MS) and not _prematch_records_faded:
-		_prematch_records_faded = true
-		_fade_prematch_records()
 	# Apply one final fit during prematch so RUNNING does not need a visible camera correction.
 	if _prematch_remaining_ms_f <= float(PREMATCH_UI_CROSSFADE_MS) and not _prematch_final_fit_requested:
 		_prematch_final_fit_requested = true
@@ -7109,8 +7098,6 @@ func _on_viewport_size_changed() -> void:
 	_apply_map_mm_background_art_layout()
 	_resize_world_viewport()
 	_center_match_timer()
-	if _prematch_records_panel != null and _prematch_records_panel.visible:
-		_layout_prematch_records_panel(_prematch_records_panel)
 	if _prematch_ad_surface != null:
 		_layout_prematch_ad_surface()
 	if _in_game_ad_surface != null:

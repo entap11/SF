@@ -287,7 +287,7 @@ func _refresh_primary_heights() -> void:
 	if hero_panel != null:
 		hero_panel.custom_minimum_size = Vector2(maxf(hero_panel.custom_minimum_size.x, SELECTED_CARD_MIN_WIDTH), maxf(HERO_PANEL_MIN_HEIGHT, selected_height))
 	if selector_panel != null:
-		var selector_height: float = 540.0 if _uses_touch_layout() else 430.0
+		var selector_height: float = 700.0 if _uses_touch_layout() else 430.0
 		selector_panel.custom_minimum_size = Vector2(0.0, selector_height)
 	if leaderboard_panel != null:
 		leaderboard_panel.custom_minimum_size = Vector2(_leaderboard_panel_width(), _leaderboard_panel_height())
@@ -465,12 +465,26 @@ func _style_controls() -> void:
 		hero_actions.visible = false
 		hero_actions.custom_minimum_size = Vector2.ZERO
 	if footer_close_button != null:
-		footer_close_button.visible = false
-		footer_close_button.custom_minimum_size = Vector2.ZERO
+		if footer_close_button.get_parent() != self:
+			_reparent_keep_owner(footer_close_button, self)
+		footer_close_button.visible = true
+		footer_close_button.text = "BACK TO MAIN MENU"
+		footer_close_button.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+		footer_close_button.offset_left = 112.0
+		footer_close_button.offset_top = -136.0
+		footer_close_button.offset_right = -112.0
+		footer_close_button.offset_bottom = -24.0
+		footer_close_button.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		_apply_font(footer_close_button, _font_semibold, _scaled_touch_font_size(28))
+		_style_footer_back_button(footer_close_button)
+		footer_close_button.z_index = 20
+	if root_vbox != null:
+		root_vbox.offset_bottom = -156.0
 	var footer_spacer: Control = get_node_or_null("VBox/FooterSafeSpacer") as Control
 	if footer_spacer != null:
 		footer_spacer.visible = false
 		footer_spacer.custom_minimum_size = Vector2.ZERO
+		footer_spacer.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	for button in [map_left_button, map_right_button]:
 		_apply_font(button, _font_semibold, _scaled_touch_font_size(11))
 		_style_button(button)
@@ -1457,3 +1471,28 @@ func _style_button(button: Button) -> void:
 	if button == null:
 		return
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+func _style_footer_back_button(button: Button) -> void:
+	if button == null:
+		return
+	_style_button(button)
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.13, 0.10, 0.045, 0.98)
+	normal.border_color = Color(0.96, 0.76, 0.20, 0.94)
+	normal.set_border_width_all(3)
+	normal.set_corner_radius_all(10)
+	normal.content_margin_left = 24.0
+	normal.content_margin_right = 24.0
+	normal.content_margin_top = 16.0
+	normal.content_margin_bottom = 16.0
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = normal.bg_color.lightened(0.08)
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = normal.bg_color.lightened(0.14)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("focus", hover)
+	button.add_theme_color_override("font_color", Color(1.0, 0.92, 0.62, 1.0))
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)

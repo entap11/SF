@@ -264,10 +264,11 @@ autowrap_mode = 3
 text = "Badge note"
 
 [node name="FooterCloseButton" type="Button" parent="VBox"]
-custom_minimum_size = Vector2(240, 52)
+custom_minimum_size = Vector2(720, 112)
 size_flags_horizontal = 4
-text = "CLOSE"
+text = "BACK TO MAIN MENU"
 
 [node name="FooterSafeSpacer" type="Control" parent="VBox"]
-custom_minimum_size = Vector2(0, 50)
+custom_minimum_size = Vector2(0, 0)
+size_flags_vertical = 3
 mouse_filter = 2

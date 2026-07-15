@@ -216,7 +216,7 @@ const DASH_HEX_BASE_SIZE: Vector2 = Vector2(90.0, 64.0)
 const DASH_HEX_SIZE_SCALE: float = 1.38
 const DASH_HEX_CONTAINER_RIGHT_MARGIN: float = 8.0
 const DASH_HEX_CONTAINER_EXTRA_WIDTH: float = 16.0
-const DASH_TOP_TAB_SIZE: Vector2 = Vector2(132.0, 44.0)
+const DASH_TOP_TAB_SIZE: Vector2 = Vector2(132.0, 64.0)
 const DASH_EDGE_TAB_SIZE: Vector2 = Vector2(180.0, 360.0)
 const DASH_TAB_CLOSED_EDGE_SHIFT: float = 0.0
 const HIVE_VIEW_MEMBER := "member"
@@ -726,6 +726,7 @@ const USD_SKIN_DIR_PATH: String = "res://assets/sprites/sf_skin_v1"
 const USD_SKIN_FALLBACK_PATH: String = "res://assets/sprites/sf_skin_v1/$.png"
 const CANCEL_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/cancel.png"
 const CLOSE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/Close.png"
+const CRUCIBLE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/crucible.png"
 const STORE_CATEGORY_SKIN_BY_ID: Dictionary = {
 	"BUNDLES": "res://assets/sprites/sf_skin_v1/Bundles.png",
 	"BATTLEPASS": "res://assets/sprites/sf_skin_v1/battle_pass.png",
@@ -770,8 +771,8 @@ const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(64.0, 36.0)
 const BOTTOM_NAV_OUTER_PADDING: float = 8.0
 const BOTTOM_NAV_BUTTON_SEPARATION: int = 8
 const BOTTOM_NAV_ROW_SEPARATION: float = 12.0
-const HIVE_DROPDOWN_WIDTH: float = 420.0
-const HIVE_DROPDOWN_HEIGHT: float = 292.0
+const HIVE_DROPDOWN_WIDTH: float = 720.0
+const HIVE_DROPDOWN_HEIGHT: float = 640.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
 const HIVE_PULLDOWN_DURATION: float = 0.24
 const GAME_MENU_BUTTON_SCALE: float = 1.2
@@ -975,6 +976,8 @@ var _cancel_skin_cache: Texture2D = null
 var _cancel_skin_loaded: bool = false
 var _close_skin_cache: Texture2D = null
 var _close_skin_loaded: bool = false
+var _crucible_skin_cache: Texture2D = null
+var _crucible_skin_loaded: bool = false
 var _async_cycle_skin_cache: Dictionary = {}
 var _human_mode_skin_cache: Dictionary = {}
 var _async_mode_skin_cache: Dictionary = {}
@@ -2779,7 +2782,7 @@ func _style_dash_top_tabs() -> void:
 		button.toggle_mode = button != _dash_help_tab
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		button.custom_minimum_size = DASH_TOP_TAB_SIZE
-		_apply_font(button, _font_semibold, 12)
+		_apply_font(button, _font_semibold, 15)
 	_refresh_dash_top_tabs()
 
 func _style_panels() -> void:
@@ -3106,11 +3109,11 @@ func _ensure_hive_dropdown() -> void:
 	body.name = "HiveDropdownVBox"
 	body.layout_mode = 1
 	body.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	body.offset_left = 14.0
-	body.offset_top = 14.0
-	body.offset_right = -14.0
-	body.offset_bottom = -14.0
-	body.add_theme_constant_override("separation", 8)
+	body.offset_left = 24.0
+	body.offset_top = 24.0
+	body.offset_right = -24.0
+	body.offset_bottom = -24.0
+	body.add_theme_constant_override("separation", 14)
 	panel.add_child(body)
 
 	_rebuild_hive_dropdown_options(false)
@@ -3126,10 +3129,10 @@ func _add_hive_dropdown_label(body: VBoxContainer, text: String, font_size: int,
 func _add_hive_dropdown_button(body: VBoxContainer, text: String, action: String, primary: bool = false) -> Button:
 	var button: Button = Button.new()
 	button.text = text
-	button.custom_minimum_size = Vector2(0.0, 32.0)
+	button.custom_minimum_size = Vector2(0.0, 72.0)
 	button.pressed.connect(func(): _on_hive_dropdown_action(action))
 	body.add_child(button)
-	_apply_font(button, _font_regular, 13)
+	_apply_font(button, _font_semibold, 18)
 	if primary:
 		_style_button(button, Color(0.15, 0.11, 0.05), Color(0.84, 0.66, 0.24), Color(0.98, 0.93, 0.80))
 	else:
@@ -3145,22 +3148,22 @@ func _rebuild_hive_dropdown_options(is_member: bool = false) -> void:
 	for child in body.get_children():
 		body.remove_child(child)
 		child.queue_free()
-	_add_hive_dropdown_label(body, "HIVE MENU", 16)
+	_add_hive_dropdown_label(body, "HIVE MENU", 22)
 	if is_member:
-		_add_hive_dropdown_label(body, "Opening your hive dashboard.", 12)
+		_add_hive_dropdown_label(body, "Manage your hive and its members.", 17)
 		_add_hive_dropdown_button(body, "OPEN HIVE DASHBOARD", "dashboard", true)
 	else:
-		_add_hive_dropdown_label(body, "Join a hive or start your own.", 12)
+		_add_hive_dropdown_label(body, "Join a hive or start your own.", 17)
 		_add_hive_dropdown_button(body, "CREATE A HIVE", "create", true)
 		_add_hive_dropdown_button(body, "BROWSE HIVES", "browse")
 		_add_hive_dropdown_button(body, "MY INVITES", "my_invites")
 		_add_hive_dropdown_button(body, "HIVE RANKINGS", "ladder")
 	var close_button: Button = Button.new()
-	close_button.text = "CLOSE"
-	close_button.custom_minimum_size = Vector2(0.0, 30.0)
+	close_button.text = "BACK"
+	close_button.custom_minimum_size = Vector2(0.0, 72.0)
 	close_button.pressed.connect(func(): _set_hive_dropdown_open(false))
 	body.add_child(close_button)
-	_apply_font(close_button, _font_regular, 12)
+	_apply_font(close_button, _font_semibold, 18)
 	_style_button(close_button, Color(0.14, 0.12, 0.08), Color(0.72, 0.6, 0.28), Color(0.96, 0.92, 0.8))
 
 func _on_hive_dropdown_action(action: String) -> void:
@@ -8705,6 +8708,33 @@ func _close_skin_texture() -> Texture2D:
 		_close_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D, 512, 256)
 	return _close_skin_cache
 
+func _crucible_skin_texture() -> Texture2D:
+	if _crucible_skin_loaded:
+		return _crucible_skin_cache
+	_crucible_skin_loaded = true
+	if not ResourceLoader.exists(CRUCIBLE_SKIN_PATH):
+		return null
+	var loaded_any: Variant = load(CRUCIBLE_SKIN_PATH)
+	if not (loaded_any is Texture2D):
+		return null
+	var source_image: Image = (loaded_any as Texture2D).get_image()
+	if source_image == null or source_image.is_empty():
+		return null
+	# The supplied art is square and includes a baked hex backdrop. Keep the
+	# authored button band, then use the same soft black key as the other modes.
+	var source_height: int = source_image.get_height()
+	var crop_top: int = clampi(int(round(float(source_height) * 0.31)), 0, source_height - 1)
+	var crop_bottom: int = clampi(int(round(float(source_height) * 0.69)), crop_top + 1, source_height)
+	var cropped_image: Image = source_image.get_region(Rect2i(
+		0,
+		crop_top,
+		source_image.get_width(),
+		crop_bottom - crop_top
+	))
+	var cropped_texture: ImageTexture = ImageTexture.create_from_image(cropped_image)
+	_crucible_skin_cache = _key_black_to_alpha_texture(cropped_texture, 768, 256)
+	return _crucible_skin_cache
+
 func _apply_close_skin_to_button(button: Button) -> void:
 	if button == null:
 		return
@@ -13962,10 +13992,21 @@ func _style_game_hub_cancel_button(button: Button, size_scale: float = 1.0, pres
 func _apply_crucible_button_skin(button: Button) -> void:
 	if button == null:
 		return
-	button.text = "CRUCIBLE"
 	button.tooltip_text = "Pure 1V1 Wax stake queue"
 	button.set_meta("sf_cancel_skin", false)
 	button.set_meta("sf_close_skin", false)
+	var tex: Texture2D = _crucible_skin_texture()
+	if tex != null:
+		button.icon = tex
+		button.text = ""
+		button.set("expand_icon", true)
+		button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
+		_set_layout_driven_icon_width(button, GAME_HUB_CYCLE_ICON_MAX_WIDTH)
+		button.add_theme_constant_override("h_separation", 0)
+		_style_usd_sprite_button(button, true)
+		return
+	button.icon = null
+	button.text = "CRUCIBLE"
 	_apply_font(button, _font_semibold, 14)
 	_style_button(button, Color(0.10, 0.11, 0.13, 0.96), Color(0.84, 0.72, 0.42, 0.86), Color(0.96, 0.91, 0.78, 1.0))
 

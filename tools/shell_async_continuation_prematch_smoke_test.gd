@@ -35,9 +35,9 @@ func _run() -> void:
 	for mode in ["STAGE_RACE", "TIMED_RACE", "MISS_N_OUT"]:
 		_set_continuation_meta(mode)
 		var should_show: bool = bool(shell.call("_show_shell_async_prematch_card"))
-		_expect(should_show, "%s continuation should show prematch countdown card" % mode)
+		_expect(not should_show, "%s continuation should not repeat match facts in prematch" % mode)
 		var line: String = str(shell.call("_shell_async_prematch_round_line"))
-		_expect(line.find("2") >= 0 and line.find("3") >= 0, "%s continuation should render map/round progress: %s" % [mode, line])
+		_expect(line.find("2") >= 0 and line.find("3") >= 0, "%s continuation state should retain internal round progress: %s" % [mode, line])
 
 	shell.queue_free()
 	if not _failed:

@@ -34,9 +34,9 @@ const PENDING_APPLY_MAX_TRIES: int = 60
 const TRACE_SHELL_LOGS: bool = false
 const MVP_SMOKE_ARENA_PATH: String = "/root/Shell/ArenaRoot/Main/WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena"
 const MVP_SMOKE_PREMATCH_OVERLAY_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/PreMatchOverlay"
-const MVP_SMOKE_RECORDS_PATH: String = MVP_SMOKE_PREMATCH_OVERLAY_PATH + "/RecordsPanel"
-const MVP_SMOKE_RECORD_P1_PATH: String = MVP_SMOKE_RECORDS_PATH + "/RecordsBg/RecordsVBox/RecordP1"
-const MVP_SMOKE_RECORD_H2H_PATH: String = MVP_SMOKE_RECORDS_PATH + "/RecordsBg/RecordsVBox/RecordH2H"
+const MVP_SMOKE_IDENTITY_PATH: String = MVP_SMOKE_PREMATCH_OVERLAY_PATH + "/IdentityCard"
+const MVP_SMOKE_IDENTITY_P1_PATH: String = MVP_SMOKE_IDENTITY_PATH + "/P1Name"
+const MVP_SMOKE_IDENTITY_P2_PATH: String = MVP_SMOKE_IDENTITY_PATH + "/P2Name"
 const MVP_SMOKE_OUTCOME_OVERLAY_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/OutcomeOverlay"
 const MVP_SMOKE_DEFAULT_BOOT_TIMEOUT_MS: int = 7000
 const MVP_SMOKE_DEFAULT_RUN_TIMEOUT_MS: int = 12000
@@ -89,10 +89,15 @@ const BUFF_PLAYER_STRIP_LIFT_PX: float = 45.0
 const BUFF_PLAYER_SLOT_SIZE_PX: float = 84.0
 const BUFF_PLAYER_SLOT_SEPARATION_PX: int = 24
 const PREMATCH_POWERBAR_REVEAL_WINDOW_MS: int = 350
-const SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX: float = 640.0
-const SHELL_ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 208.0
+const SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX: float = 840.0
+const SHELL_ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 680.0
 const SHELL_ASYNC_PREMATCH_TOP_GAP_PX: float = 24.0
-const SHELL_HANDSHAKE_AD_SIZE: Vector2 = Vector2(468.0, 60.0)
+const SHELL_HANDSHAKE_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
+const SHELL_PREMATCH_BANNER_FONT_SIZE: int = 60
+const SHELL_PREMATCH_ROUND_FONT_SIZE: int = 43
+const SHELL_PREMATCH_BODY_FONT_SIZE: int = 40
+const SHELL_PREMATCH_STATUS_FONT_SIZE: int = 45
+const PREMATCH_FACTS_CARD_ENABLED: bool = false
 const SHELL_WORLD_VIEWPORT_LEFT_INSET_PX: float = 0.0
 const SHELL_WORLD_VIEWPORT_RIGHT_INSET_PX: float = 0.0
 const SHELL_WORLD_VIEWPORT_TOP_INSET_PX: float = 60.0
@@ -613,8 +618,7 @@ func _apply_dev_menu_fonts() -> void:
 	if _picker_summary_label != null:
 		_apply_font(_picker_summary_label, _font_regular, 14)
 	if back_button != null:
-		back_button.custom_minimum_size.y = maxf(back_button.custom_minimum_size.y, 56.0)
-		_apply_font(back_button, _font_regular, 18)
+		UITypography.apply_button_token(back_button, _font_regular, "compact_button", 2.5, 110.0)
 	_apply_team_mode_button_font()
 	_log_dev_menu_font_state()
 
@@ -874,8 +878,8 @@ func _position_back_button() -> void:
 	back_button.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	back_button.offset_left = 16.0
 	back_button.offset_top = 16.0
-	back_button.offset_right = 136.0
-	back_button.offset_bottom = 52.0
+	back_button.offset_right = 241.0
+	back_button.offset_bottom = 126.0
 
 func _refresh_back_button_state(in_menu: bool) -> void:
 	if back_button == null:
@@ -3342,13 +3346,15 @@ func _mode_uses_async_prematch_details(mode_id: String) -> bool:
 			return false
 
 func _sync_shell_async_prematch_overlay() -> void:
+	var should_show: bool = _show_shell_async_prematch_card()
+	if not should_show:
+		if _shell_prematch_overlay != null:
+			_shell_prematch_overlay.visible = false
+		return
 	var overlay: Control = _ensure_shell_async_prematch_overlay()
 	if overlay == null:
 		return
-	var should_show: bool = _show_shell_async_prematch_card()
-	overlay.visible = should_show
-	if not should_show:
-		return
+	overlay.visible = true
 	_layout_shell_async_prematch_overlay()
 	var detail_lines: Array[String] = _shell_async_prematch_detail_lines()
 	if _shell_prematch_record_teams != null:
@@ -3377,6 +3383,8 @@ func _sync_shell_async_prematch_overlay() -> void:
 		_shell_prematch_record_h2h.text = "Starts in %d" % sec_left
 
 func _show_shell_async_prematch_card() -> bool:
+	if not PREMATCH_FACTS_CARD_ENABLED:
+		return false
 	if _arena_instance == null or OpsState == null:
 		return false
 	if int(OpsState.match_phase) != int(OpsState.MatchPhase.PREMATCH):
@@ -3459,11 +3467,11 @@ func _ensure_shell_async_prematch_overlay() -> Control:
 		records_vbox.name = "RecordsVBox"
 		records_bg.add_child(records_vbox)
 	records_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	records_vbox.offset_left = 10.0
-	records_vbox.offset_top = 8.0
-	records_vbox.offset_right = -10.0
-	records_vbox.offset_bottom = -8.0
-	records_vbox.add_theme_constant_override("separation", 2)
+	records_vbox.offset_left = 24.0
+	records_vbox.offset_top = 20.0
+	records_vbox.offset_right = -24.0
+	records_vbox.offset_bottom = -20.0
+	records_vbox.add_theme_constant_override("separation", 8)
 
 	_shell_prematch_record_teams = _ensure_shell_prematch_label(records_vbox, "RecordTeams")
 	_shell_prematch_record_team_arrows = _ensure_shell_prematch_label(records_vbox, "RecordTeamArrows")
@@ -3493,22 +3501,23 @@ func _style_shell_prematch_labels() -> void:
 		var label: Label = label_any as Label
 		if label == null:
 			continue
-		label.add_theme_font_size_override("font_size", 18)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.add_theme_font_size_override("font_size", SHELL_PREMATCH_BODY_FONT_SIZE)
 		label.add_theme_color_override("font_color", Color(0.97, 0.99, 1.0, 1.0))
 		label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 		label.add_theme_constant_override("outline_size", 2)
 	if _shell_prematch_record_teams != null:
-		_shell_prematch_record_teams.add_theme_font_size_override("font_size", 28)
+		_shell_prematch_record_teams.add_theme_font_size_override("font_size", SHELL_PREMATCH_BANNER_FONT_SIZE)
 		_shell_prematch_record_teams.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
 		_shell_prematch_record_teams.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 		_shell_prematch_record_teams.add_theme_constant_override("outline_size", 2)
 	if _shell_prematch_record_team_arrows != null:
-		_shell_prematch_record_team_arrows.add_theme_font_size_override("font_size", 20)
+		_shell_prematch_record_team_arrows.add_theme_font_size_override("font_size", SHELL_PREMATCH_ROUND_FONT_SIZE)
 		_shell_prematch_record_team_arrows.add_theme_color_override("font_color", Color(0.82, 0.92, 1.0, 0.92))
 		_shell_prematch_record_team_arrows.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 		_shell_prematch_record_team_arrows.add_theme_constant_override("outline_size", 2)
 	if _shell_prematch_record_h2h != null:
-		_shell_prematch_record_h2h.add_theme_font_size_override("font_size", 24)
+		_shell_prematch_record_h2h.add_theme_font_size_override("font_size", SHELL_PREMATCH_STATUS_FONT_SIZE)
 		_shell_prematch_record_h2h.add_theme_color_override("font_color", Color(1.0, 0.93, 0.66, 1.0))
 
 func _style_shell_prematch_countdown(label: Label) -> void:
@@ -3551,12 +3560,13 @@ func _layout_shell_async_prematch_overlay() -> void:
 	var top_inset: float = 0.0
 	if top_buffer != null:
 		top_inset = maxf(0.0, top_buffer.get_global_rect().size.y)
+	var card_width: float = minf(SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX, maxf(320.0, visible_rect.size.x - 32.0))
 	_shell_prematch_records_panel.position = Vector2(
-		(visible_rect.size.x - SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX) * 0.5,
+		(visible_rect.size.x - card_width) * 0.5,
 		top_inset + SHELL_ASYNC_PREMATCH_TOP_GAP_PX
 	)
 	_shell_prematch_records_panel.size = Vector2(
-		SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX,
+		card_width,
 		SHELL_ASYNC_PREMATCH_CARD_HEIGHT_PX
 	)
 	_layout_shell_handshake_ad_surface(visible_rect, top_inset)
@@ -4284,11 +4294,11 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 	else:
 		fails += _mvp_smoke_fail("arena_spawned", {"path": MVP_SMOKE_ARENA_PATH})
 
-	var records_ok: bool = await _mvp_wait_for_records_visible(boot_timeout_ms)
-	if records_ok:
-		passes += _mvp_smoke_pass("prematch_records_visible", {"path": MVP_SMOKE_RECORDS_PATH})
+	var identity_ok: bool = await _mvp_wait_for_identity_card_visible(boot_timeout_ms)
+	if identity_ok:
+		passes += _mvp_smoke_pass("prematch_identity_visible", {"path": MVP_SMOKE_IDENTITY_PATH})
 	else:
-		fails += _mvp_smoke_fail("prematch_records_visible", {"path": MVP_SMOKE_RECORDS_PATH})
+		fails += _mvp_smoke_fail("prematch_identity_visible", {"path": MVP_SMOKE_IDENTITY_PATH})
 
 	var sim_runner_node: Node = arena_node.get_node_or_null("SimRunner") if arena_node != null else null
 	var sim_stopped_during_prematch: bool = sim_runner_node != null and not bool(sim_runner_node.get("running"))
@@ -4301,26 +4311,17 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 			"phase": int(OpsState.match_phase)
 		})
 
-	var record_text_ready: bool = await _mvp_wait_for_record_text_populated(boot_timeout_ms)
-	var p1_label: Label = get_node_or_null(MVP_SMOKE_RECORD_P1_PATH) as Label
+	var identity_text_ready: bool = await _mvp_wait_for_identity_names_populated(boot_timeout_ms)
+	var p1_label: Label = get_node_or_null(MVP_SMOKE_IDENTITY_P1_PATH) as Label
+	var p2_label: Label = get_node_or_null(MVP_SMOKE_IDENTITY_P2_PATH) as Label
 	var p1_ok: bool = p1_label != null and not str(p1_label.text).strip_edges().is_empty()
-	if record_text_ready and p1_ok:
-		passes += _mvp_smoke_pass("prematch_record_text_populated", {"text": p1_label.text})
+	var p2_ok: bool = p2_label != null and not str(p2_label.text).strip_edges().is_empty()
+	if identity_text_ready and p1_ok and p2_ok:
+		passes += _mvp_smoke_pass("prematch_identity_names_populated", {"p1": p1_label.text, "p2": p2_label.text})
 	else:
-		fails += _mvp_smoke_fail("prematch_record_text_populated", {"text": p1_label.text if p1_label != null else "<null>"})
-	var h2h_label: Label = get_node_or_null(MVP_SMOKE_RECORD_H2H_PATH) as Label
-	var records_no_tbd: bool = p1_label != null and h2h_label != null \
-		and str(p1_label.text).find("TBD") == -1 \
-		and str(h2h_label.text).find("TBD") == -1
-	if records_no_tbd:
-		passes += _mvp_smoke_pass("prematch_records_no_tbd", {
-			"p1": p1_label.text,
-			"h2h": h2h_label.text
-		})
-	else:
-		fails += _mvp_smoke_fail("prematch_records_no_tbd", {
+		fails += _mvp_smoke_fail("prematch_identity_names_populated", {
 			"p1": p1_label.text if p1_label != null else "<null>",
-			"h2h": h2h_label.text if h2h_label != null else "<null>"
+			"p2": p2_label.text if p2_label != null else "<null>"
 		})
 
 	var countdown_count: int = _mvp_count_hud_countdowns()
@@ -5127,26 +5128,24 @@ func _mvp_wait_for_node(path: String, timeout_ms: int) -> Node:
 		_mvp_waiter = ShellMvpWaiter.new()
 	return await _mvp_waiter.wait_for_node(self, path, timeout_ms)
 
-func _mvp_wait_for_records_visible(timeout_ms: int) -> bool:
-	if _mvp_waiter == null:
-		_mvp_waiter = ShellMvpWaiter.new()
-	return await _mvp_waiter.wait_for_records_visible(
-		self,
-		MVP_SMOKE_RECORDS_PATH,
-		OpsState,
-		int(OpsState.MatchPhase.PREMATCH),
-		timeout_ms
-	)
-
-func _mvp_wait_for_record_text_populated(timeout_ms: int) -> bool:
+func _mvp_wait_for_identity_card_visible(timeout_ms: int) -> bool:
 	var deadline: int = Time.get_ticks_msec() + timeout_ms
 	while Time.get_ticks_msec() < deadline:
-		var p1_label: Label = get_node_or_null(MVP_SMOKE_RECORD_P1_PATH) as Label
-		var h2h_label: Label = get_node_or_null(MVP_SMOKE_RECORD_H2H_PATH) as Label
-		if p1_label != null and h2h_label != null:
+		var card: Control = get_node_or_null(MVP_SMOKE_IDENTITY_PATH) as Control
+		if card != null and card.visible:
+			return true
+		await get_tree().process_frame
+	return false
+
+func _mvp_wait_for_identity_names_populated(timeout_ms: int) -> bool:
+	var deadline: int = Time.get_ticks_msec() + timeout_ms
+	while Time.get_ticks_msec() < deadline:
+		var p1_label: Label = get_node_or_null(MVP_SMOKE_IDENTITY_P1_PATH) as Label
+		var p2_label: Label = get_node_or_null(MVP_SMOKE_IDENTITY_P2_PATH) as Label
+		if p1_label != null and p2_label != null:
 			var p1_text: String = str(p1_label.text).strip_edges()
-			var h2h_text: String = str(h2h_label.text).strip_edges()
-			if not p1_text.is_empty() and not h2h_text.is_empty():
+			var p2_text: String = str(p2_label.text).strip_edges()
+			if not p1_text.is_empty() and not p2_text.is_empty():
 				return true
 		await get_tree().process_frame
 	return false

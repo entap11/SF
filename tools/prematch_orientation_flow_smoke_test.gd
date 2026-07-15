@@ -53,6 +53,10 @@ func _run() -> void:
 	_expect(_label_text(card, "P2Label") == "PLAYER 2", "P2 label missing", {"text": _label_text(card, "P2Label")})
 	_expect(_label_text(card, "P1Name") == "Swarm Father", "P1 metadata name not used", {"text": _label_text(card, "P1Name")})
 	_expect(_label_text(card, "P2Name") == "Mrs. SwarmDaddy", "P2 metadata name not used", {"text": _label_text(card, "P2Name")})
+	_expect(_label_font_size(card, "P1Label") >= 38, "Prematch player label is below the in-game readability floor", {"font_size": _label_font_size(card, "P1Label")})
+	_expect(_label_font_size(card, "P1Name") >= 45, "Prematch player name is below the in-game readability floor", {"font_size": _label_font_size(card, "P1Name")})
+	var records_panel: Control = tree.root.get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/PreMatchOverlay/RecordsPanel") as Control
+	_expect(records_panel == null or not records_panel.visible, "Redundant prematch facts card should stay hidden", {})
 
 	var top_wash: TextureRect = tree.root.get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground/LocalTeamColorWash") as TextureRect
 	var bottom_wash: TextureRect = tree.root.get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/BottomBufferBackground/LocalTeamColorWash") as TextureRect
@@ -137,6 +141,12 @@ func _label_text(root: Node, path: String) -> String:
 	if label == null:
 		return ""
 	return label.text
+
+func _label_font_size(root: Node, path: String) -> int:
+	var label: Label = root.get_node_or_null(path) as Label
+	if label == null:
+		return 0
+	return label.get_theme_font_size("font_size")
 
 func _assert_local_hives_owned(arena_node: Node, hive_ids: Array) -> void:
 	var state_ref: Variant = arena_node.get("state")

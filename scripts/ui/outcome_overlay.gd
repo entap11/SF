@@ -4,6 +4,7 @@ extends Control
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const PostMatchSummaryPanelScript := preload("res://scripts/ui/ui_post_match_summary.gd")
 const AdSurfaceScript := preload("res://scripts/ui/ad_surface.gd")
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
 signal post_match_action(action: String)
 
@@ -34,17 +35,23 @@ var _stage_status_text: String = ""
 var _post_match_summary_panel: Control = null
 var _post_match_ad_surface: Control = null
 var _nectar_summary_label: Label = null
+var _details_scroll: ScrollContainer = null
+var _details_vbox: VBoxContainer = null
+var _buttons_row: HBoxContainer = null
+var _buttons_stack: VBoxContainer = null
+var _layout_refresh_queued: bool = false
+var _layout_viewport_size_override: Vector2 = Vector2.ZERO
 
-const PANEL_MAX_SIZE: Vector2 = Vector2(740.0, 620.0)
+const PANEL_MAX_SIZE: Vector2 = Vector2(888.0, 1180.0)
 const PANEL_MARGIN_PX: float = 28.0
-const PANEL_PAD_PX: float = 24.0
-const LABEL_FONT_BODY: int = 18
-const LABEL_FONT_TITLE: int = 30
-const LABEL_FONT_RESULT: int = 24
-const LABEL_FONT_STATUS: int = 18
-const BUTTON_FONT_SIZE: int = 18
-const BUTTON_MIN_SIZE: Vector2 = Vector2(190.0, 58.0)
-const POST_MATCH_AD_SIZE: Vector2 = Vector2(520.0, 72.0)
+const PANEL_PAD_PX: float = 40.0
+const IN_GAME_TYPE_SCALE: float = 2.5
+const BUTTON_MIN_SIZE: Vector2 = Vector2(270.0, 110.0)
+const NARROW_ACTION_BREAKPOINT_PX: float = 700.0
+const DETAILS_MIN_VISIBLE_HEIGHT_PX: float = 96.0
+const DETAILS_MAX_HEIGHT_PX: float = 420.0
+const DETAILS_MAX_NARROW_HEIGHT_PX: float = 300.0
+const POST_MATCH_AD_SIZE: Vector2 = Vector2(800.0, 120.0)
 const PANEL_BG: Color = Color(0.035, 0.038, 0.048, 0.92)
 const PANEL_BORDER: Color = Color(0.95, 0.82, 0.24, 0.55)
 const FONT_MAIN: Color = Color(0.96, 0.95, 0.88, 1.0)
@@ -61,6 +68,7 @@ func _ready() -> void:
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_ensure_post_match_layout_structure()
 	_ensure_nectar_summary_label()
 	_ensure_post_match_summary_panel()
 	_ensure_post_match_ad_surface()
@@ -207,6 +215,70 @@ func hide_overlay() -> void:
 	visible = false
 	set_process(false)
 
+func _ensure_post_match_layout_structure() -> void:
+	if vbox == null:
+		return
+	_buttons_row = vbox.get_node_or_null("Buttons") as HBoxContainer
+	if _details_scroll == null or not is_instance_valid(_details_scroll):
+		_details_scroll = vbox.get_node_or_null("DetailsScroll") as ScrollContainer
+	if _details_vbox == null or not is_instance_valid(_details_vbox):
+		if _details_scroll != null:
+			_details_vbox = _details_scroll.get_node_or_null("DetailsVBox") as VBoxContainer
+	if _details_scroll == null:
+		var insert_index: int = 3
+		if record_label != null and record_label.get_parent() == vbox:
+			insert_index = record_label.get_index()
+		_details_scroll = ScrollContainer.new()
+		_details_scroll.name = "DetailsScroll"
+		_details_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		_details_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		_details_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_details_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+		vbox.add_child(_details_scroll)
+		vbox.move_child(_details_scroll, clampi(insert_index, 0, vbox.get_child_count() - 1))
+	if _details_vbox == null:
+		_details_vbox = VBoxContainer.new()
+		_details_vbox.name = "DetailsVBox"
+		_details_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_details_vbox.add_theme_constant_override("separation", 15)
+		_details_scroll.add_child(_details_vbox)
+	for detail_node in [record_label, h2h_label, stats_header, stat_max_power, stat_units_killed, stat_units_landed, countdown_label]:
+		if detail_node != null and detail_node.get_parent() != _details_vbox:
+			detail_node.reparent(_details_vbox)
+	if _buttons_stack == null or not is_instance_valid(_buttons_stack):
+		_buttons_stack = vbox.get_node_or_null("StackedButtons") as VBoxContainer
+	if _buttons_stack == null:
+		_buttons_stack = VBoxContainer.new()
+		_buttons_stack.name = "StackedButtons"
+		_buttons_stack.visible = false
+		_buttons_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_buttons_stack.add_theme_constant_override("separation", 15)
+		var action_index: int = vbox.get_child_count()
+		if _buttons_row != null:
+			action_index = _buttons_row.get_index() + 1
+		vbox.add_child(_buttons_stack)
+		vbox.move_child(_buttons_stack, clampi(action_index, 0, vbox.get_child_count() - 1))
+
+func _set_actions_stacked(stacked: bool) -> void:
+	if _buttons_row == null or _buttons_stack == null:
+		return
+	var target: Container = _buttons_stack if stacked else _buttons_row
+	for button in [rematch_button, exit_button]:
+		if button != null and button.get_parent() != target:
+			button.reparent(target)
+	_buttons_row.visible = not stacked
+	_buttons_stack.visible = stacked
+	_style_button(rematch_button, stacked)
+	_style_button(exit_button, stacked)
+
+func _details_have_visible_content() -> bool:
+	if _details_vbox == null:
+		return false
+	for child in _details_vbox.get_children():
+		if child is CanvasItem and (child as CanvasItem).visible:
+			return true
+	return false
+
 func set_nectar_award_summary(award: Dictionary = {}) -> void:
 	_ensure_nectar_summary_label()
 	if _nectar_summary_label == null:
@@ -215,9 +287,11 @@ func set_nectar_award_summary(award: Dictionary = {}) -> void:
 	if lines.is_empty():
 		_nectar_summary_label.visible = false
 		_nectar_summary_label.text = ""
+		_apply_readable_layout()
 		return
 	_nectar_summary_label.text = " | ".join(lines)
 	_nectar_summary_label.visible = true
+	_apply_readable_layout()
 
 func set_post_match_summary(summary: Dictionary, winner_id: int, player_id: int) -> void:
 	_ensure_post_match_summary_panel()
@@ -235,6 +309,7 @@ func set_post_match_summary(summary: Dictionary, winner_id: int, player_id: int)
 	var victory: bool = winner_id > 0 and winner_id == local_id
 	if _post_match_summary_panel.has_method("render_summary"):
 		_post_match_summary_panel.call("render_summary", summary, victory)
+	_apply_readable_layout()
 
 func clear_post_match_summary() -> void:
 	_ensure_post_match_summary_panel()
@@ -242,13 +317,15 @@ func clear_post_match_summary() -> void:
 		return
 	if _post_match_summary_panel.has_method("clear_summary"):
 		_post_match_summary_panel.call("clear_summary")
+	_apply_readable_layout()
 
 func _ensure_post_match_summary_panel() -> void:
 	if _post_match_summary_panel != null and is_instance_valid(_post_match_summary_panel):
 		return
-	if vbox == null:
+	_ensure_post_match_layout_structure()
+	if _details_vbox == null:
 		return
-	var existing: Node = vbox.get_node_or_null("PostMatchSummaryPanel")
+	var existing: Node = _details_vbox.get_node_or_null("PostMatchSummaryPanel")
 	if existing != null and existing.has_method("render_summary") and existing.has_method("clear_summary"):
 		_post_match_summary_panel = existing as Control
 		return
@@ -258,41 +335,33 @@ func _ensure_post_match_summary_panel() -> void:
 	var created: Control = created_any as Control
 	created.name = "PostMatchSummaryPanel"
 	created.visible = false
-	var insert_index: int = vbox.get_child_count()
-	if countdown_label != null and countdown_label.get_parent() == vbox:
-		insert_index = countdown_label.get_index()
-	vbox.add_child(created)
-	if insert_index >= 0 and insert_index < vbox.get_child_count() - 1:
-		vbox.move_child(created, insert_index)
+	_details_vbox.add_child(created)
 	_post_match_summary_panel = created
 
 func _ensure_nectar_summary_label() -> void:
 	if _nectar_summary_label != null and is_instance_valid(_nectar_summary_label):
 		return
-	if vbox == null:
+	_ensure_post_match_layout_structure()
+	if _details_vbox == null:
 		return
-	var existing: Node = vbox.get_node_or_null("NectarSummary")
+	var existing: Node = _details_vbox.get_node_or_null("NectarSummary")
 	if existing is Label:
 		_nectar_summary_label = existing as Label
 	else:
 		var created: Label = Label.new()
 		created.name = "NectarSummary"
 		created.visible = false
-		var insert_index: int = vbox.get_child_count()
-		if countdown_label != null and countdown_label.get_parent() == vbox:
-			insert_index = countdown_label.get_index()
-		vbox.add_child(created)
-		if insert_index >= 0 and insert_index < vbox.get_child_count() - 1:
-			vbox.move_child(created, insert_index)
+		_details_vbox.add_child(created)
 		_nectar_summary_label = created
-	_style_label(_nectar_summary_label, LABEL_FONT_BODY, FONT_RESULT, HORIZONTAL_ALIGNMENT_CENTER)
+	_style_label(_nectar_summary_label, "body", FONT_RESULT, HORIZONTAL_ALIGNMENT_CENTER)
 
 func _ensure_post_match_ad_surface() -> void:
 	if _post_match_ad_surface != null and is_instance_valid(_post_match_ad_surface):
 		return
-	if vbox == null:
+	_ensure_post_match_layout_structure()
+	if _details_vbox == null:
 		return
-	var existing: Node = vbox.get_node_or_null("PostMatchAdSurface")
+	var existing: Node = _details_vbox.get_node_or_null("PostMatchAdSurface")
 	if existing is Control:
 		_post_match_ad_surface = existing as Control
 	else:
@@ -301,7 +370,7 @@ func _ensure_post_match_ad_surface() -> void:
 			return
 		var created: Control = created_any as Control
 		created.name = "PostMatchAdSurface"
-		vbox.add_child(created)
+		_details_vbox.add_child(created)
 		_post_match_ad_surface = created
 	if _post_match_ad_surface.has_method("configure"):
 		_post_match_ad_surface.call(
@@ -311,11 +380,10 @@ func _ensure_post_match_ad_surface() -> void:
 			POST_MATCH_AD_SIZE,
 			false
 		)
-	var insert_index: int = vbox.get_child_count()
-	if countdown_label != null and countdown_label.get_parent() == vbox:
-		insert_index = countdown_label.get_index()
-	if _post_match_ad_surface.get_parent() == vbox and insert_index >= 0 and _post_match_ad_surface.get_index() > insert_index:
-		vbox.move_child(_post_match_ad_surface, mini(insert_index, vbox.get_child_count() - 1))
+	if _post_match_ad_surface.get_parent() == _details_vbox:
+		_details_vbox.move_child(_post_match_ad_surface, _details_vbox.get_child_count() - 1)
+	if countdown_label != null and countdown_label.get_parent() == _details_vbox:
+		_details_vbox.move_child(countdown_label, _details_vbox.get_child_count() - 1)
 
 func _process(_delta: float) -> void:
 	if not visible:
@@ -345,6 +413,7 @@ func _apply_outcome(winner_id: int, reason: String, _record_text: String, _h2h_t
 	set_nectar_award_summary()
 	_update_countdown_label()
 	_update_status()
+	_apply_readable_layout()
 
 func _apply_stage_round_outcome(data: Dictionary) -> void:
 	if str(data.get("mode_id", "")).strip_edges().to_upper() == "PROGRESSIVE":
@@ -496,6 +565,7 @@ func _apply_tutorial_complete_outcome(winner_id: int, reason: String) -> void:
 	exit_button.text = "MAIN MENU"
 	exit_button.custom_minimum_size = Vector2(maxf(exit_button.custom_minimum_size.x, 220.0), maxf(exit_button.custom_minimum_size.y, 72.0))
 	_update_status()
+	_apply_readable_layout()
 
 func _apply_tutorial_controls_complete_outcome(_winner_id: int, _reason: String) -> void:
 	_set_standard_rows_visible(false)
@@ -517,6 +587,7 @@ func _apply_tutorial_controls_complete_outcome(_winner_id: int, _reason: String)
 	exit_button.text = "CONTINUE"
 	exit_button.custom_minimum_size = Vector2(maxf(exit_button.custom_minimum_size.x, 240.0), maxf(exit_button.custom_minimum_size.y, 78.0))
 	_update_status()
+	_apply_readable_layout()
 
 func _set_standard_rows_visible(show_rows: bool) -> void:
 	reason_label.visible = true
@@ -915,26 +986,38 @@ func _force_fullscreen_anchors() -> void:
 	offset_right = 0.0
 	offset_bottom = 0.0
 
-func _apply_readable_layout() -> void:
+func _apply_readable_layout(queue_second_pass: bool = true) -> void:
 	if panel == null or vbox == null:
 		return
+	_ensure_post_match_layout_structure()
 	var viewport_size: Vector2 = PANEL_MAX_SIZE + Vector2(PANEL_MARGIN_PX * 2.0, PANEL_MARGIN_PX * 2.0)
 	var viewport := get_viewport()
 	if viewport != null:
 		viewport_size = viewport.get_visible_rect().size
-	var panel_size := Vector2(
-		minf(PANEL_MAX_SIZE.x, maxf(360.0, viewport_size.x - PANEL_MARGIN_PX * 2.0)),
-		minf(PANEL_MAX_SIZE.y, maxf(420.0, viewport_size.y - PANEL_MARGIN_PX * 2.0))
-	)
+	if _layout_viewport_size_override.x > 0.0 and _layout_viewport_size_override.y > 0.0:
+		viewport_size = _layout_viewport_size_override
+	var available_panel_width: float = maxf(280.0, viewport_size.x - PANEL_MARGIN_PX * 2.0)
+	var available_panel_height: float = maxf(320.0, viewport_size.y - PANEL_MARGIN_PX * 2.0)
+	var panel_width: float = minf(PANEL_MAX_SIZE.x, available_panel_width)
+	var max_panel_height: float = minf(PANEL_MAX_SIZE.y, available_panel_height)
+	var stacked_actions: bool = panel_width < NARROW_ACTION_BREAKPOINT_PX
+	var panel_padding: float = 24.0 if stacked_actions else PANEL_PAD_PX
+	var layout_separation: int = 8 if stacked_actions else 15
+	_set_actions_stacked(stacked_actions)
+	vbox.add_theme_constant_override("separation", layout_separation)
+	if _details_vbox != null:
+		_details_vbox.add_theme_constant_override("separation", layout_separation)
+	if _buttons_stack != null:
+		_buttons_stack.add_theme_constant_override("separation", layout_separation)
+	panel.custom_minimum_size = Vector2(panel_width, 0.0)
 	panel.anchor_left = 0.5
 	panel.anchor_top = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -panel_size.x * 0.5
-	panel.offset_top = -panel_size.y * 0.5
-	panel.offset_right = panel_size.x * 0.5
-	panel.offset_bottom = panel_size.y * 0.5
-	panel.custom_minimum_size = panel_size
+	panel.offset_left = -panel_width * 0.5
+	panel.offset_top = -max_panel_height * 0.5
+	panel.offset_right = panel_width * 0.5
+	panel.offset_bottom = max_panel_height * 0.5
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = PANEL_BG
 	panel_style.border_color = PANEL_BORDER
@@ -943,62 +1026,111 @@ func _apply_readable_layout() -> void:
 	panel_style.corner_radius_top_right = 6
 	panel_style.corner_radius_bottom_left = 6
 	panel_style.corner_radius_bottom_right = 6
-	panel_style.content_margin_left = PANEL_PAD_PX
-	panel_style.content_margin_top = PANEL_PAD_PX
-	panel_style.content_margin_right = PANEL_PAD_PX
-	panel_style.content_margin_bottom = PANEL_PAD_PX
+	panel_style.content_margin_left = panel_padding
+	panel_style.content_margin_top = panel_padding
+	panel_style.content_margin_right = panel_padding
+	panel_style.content_margin_bottom = panel_padding
 	panel.add_theme_stylebox_override("panel", panel_style)
 
 	vbox.anchor_left = 0.0
 	vbox.anchor_top = 0.0
 	vbox.anchor_right = 1.0
 	vbox.anchor_bottom = 1.0
-	vbox.offset_left = PANEL_PAD_PX
-	vbox.offset_top = PANEL_PAD_PX
-	vbox.offset_right = -PANEL_PAD_PX
-	vbox.offset_bottom = -PANEL_PAD_PX
-	vbox.add_theme_constant_override("separation", 8)
+	vbox.offset_left = panel_padding
+	vbox.offset_top = panel_padding
+	vbox.offset_right = -panel_padding
+	vbox.offset_bottom = -panel_padding
 
-	_style_label(title_label, LABEL_FONT_TITLE, FONT_MAIN, HORIZONTAL_ALIGNMENT_CENTER)
-	_style_label(result_label, LABEL_FONT_RESULT, FONT_RESULT, HORIZONTAL_ALIGNMENT_CENTER)
-	_style_label(reason_label, LABEL_FONT_BODY, FONT_MUTED)
-	_style_label(record_label, LABEL_FONT_BODY, FONT_MAIN)
-	_style_label(h2h_label, LABEL_FONT_BODY, FONT_MAIN)
-	_style_label(stats_header, LABEL_FONT_BODY, FONT_RESULT)
-	_style_label(stat_max_power, LABEL_FONT_BODY, FONT_MAIN)
-	_style_label(stat_units_killed, LABEL_FONT_BODY, FONT_MAIN)
-	_style_label(stat_units_landed, LABEL_FONT_BODY, FONT_MAIN)
-	_style_label(countdown_label, LABEL_FONT_STATUS, FONT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	_style_label(status_label, LABEL_FONT_STATUS, FONT_MAIN, HORIZONTAL_ALIGNMENT_CENTER)
-	_style_button(rematch_button)
-	_style_button(exit_button)
+	_style_label(title_label, "screen_title", FONT_MAIN, HORIZONTAL_ALIGNMENT_CENTER, true)
+	_style_label(result_label, "panel_title", FONT_RESULT, HORIZONTAL_ALIGNMENT_CENTER, true)
+	_style_label(reason_label, "body", FONT_MUTED)
+	_style_label(record_label, "body", FONT_MAIN)
+	_style_label(h2h_label, "body", FONT_MAIN)
+	_style_label(stats_header, "section_title", FONT_RESULT, HORIZONTAL_ALIGNMENT_LEFT, true)
+	_style_label(stat_max_power, "body", FONT_MAIN)
+	_style_label(stat_units_killed, "body", FONT_MAIN)
+	_style_label(stat_units_landed, "body", FONT_MAIN)
+	_style_label(countdown_label, "body", FONT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_style_label(status_label, "body", FONT_MAIN, HORIZONTAL_ALIGNMENT_CENTER)
+	_style_button(rematch_button, stacked_actions)
+	_style_button(exit_button, stacked_actions)
+	var inner_width: float = maxf(200.0, panel_width - panel_padding * 2.0)
 	if _post_match_ad_surface != null:
 		_post_match_ad_surface.custom_minimum_size = Vector2(
-			minf(POST_MATCH_AD_SIZE.x, maxf(320.0, panel_size.x - PANEL_PAD_PX * 2.0)),
+			minf(POST_MATCH_AD_SIZE.x, inner_width),
 			POST_MATCH_AD_SIZE.y
 		)
+	var details_visible: bool = _details_have_visible_content()
+	if _details_scroll != null:
+		_details_scroll.visible = details_visible
+		_details_scroll.custom_minimum_size = Vector2(0.0, 0.0)
+		_details_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	if _details_vbox != null:
+		_details_vbox.custom_minimum_size.x = maxf(160.0, inner_width - 20.0)
+	var fixed_content_height: float = vbox.get_combined_minimum_size().y
+	var max_inner_height: float = maxf(0.0, max_panel_height - panel_padding * 2.0)
+	var detail_height: float = 0.0
+	if details_visible and _details_vbox != null and _details_scroll != null:
+		var detail_content_height: float = _details_vbox.get_combined_minimum_size().y
+		var details_cap: float = DETAILS_MAX_NARROW_HEIGHT_PX if stacked_actions else DETAILS_MAX_HEIGHT_PX
+		var detail_budget: float = maxf(0.0, max_inner_height - fixed_content_height)
+		detail_height = minf(detail_content_height, minf(details_cap, detail_budget))
+		if detail_content_height > detail_height and detail_budget >= DETAILS_MIN_VISIBLE_HEIGHT_PX:
+			detail_height = maxf(detail_height, DETAILS_MIN_VISIBLE_HEIGHT_PX)
+		_details_scroll.custom_minimum_size.y = detail_height
+	var required_panel_height: float = fixed_content_height + detail_height + panel_padding * 2.0
+	var min_panel_height: float = minf(420.0, max_panel_height)
+	var panel_height: float = minf(max_panel_height, maxf(min_panel_height, required_panel_height))
+	panel.offset_top = -panel_height * 0.5
+	panel.offset_bottom = panel_height * 0.5
+	panel.custom_minimum_size = Vector2(panel_width, panel_height)
+	if queue_second_pass and is_inside_tree() and not _layout_refresh_queued:
+		_layout_refresh_queued = true
+		call_deferred("_apply_readable_layout_second_pass")
 
-func _style_label(label: Label, font_size: int, color: Color, alignment: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> void:
+func _apply_readable_layout_second_pass() -> void:
+	_layout_refresh_queued = false
+	_apply_readable_layout(false)
+
+func _apply_readable_layout_for_size(viewport_size: Vector2) -> void:
+	_layout_viewport_size_override = viewport_size
+	_apply_readable_layout(false)
+	_layout_viewport_size_override = Vector2.ZERO
+
+func _style_label(
+	label: Label,
+	type_role: String,
+	color: Color,
+	alignment: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT,
+	semibold: bool = false
+) -> void:
 	if label == null:
 		return
 	label.horizontal_alignment = alignment
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.add_theme_font_size_override("font_size", font_size)
+	var font: Font = UITypography.semibold_font() if semibold else UITypography.regular_font()
+	UITypography.apply_token(label, font, type_role, IN_GAME_TYPE_SCALE)
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.86))
 	label.add_theme_constant_override("shadow_offset_x", 2)
 	label.add_theme_constant_override("shadow_offset_y", 2)
 
-func _style_button(button: Button) -> void:
+func _style_button(button: Button, stacked: bool = false) -> void:
 	if button == null:
 		return
 	button.custom_minimum_size = Vector2(
-		maxf(button.custom_minimum_size.x, BUTTON_MIN_SIZE.x),
-		maxf(button.custom_minimum_size.y, BUTTON_MIN_SIZE.y)
+		0.0 if stacked else BUTTON_MIN_SIZE.x,
+		BUTTON_MIN_SIZE.y
 	)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE)
+	UITypography.apply_button_token(
+		button,
+		UITypography.semibold_font(),
+		"button",
+		IN_GAME_TYPE_SCALE,
+		BUTTON_MIN_SIZE.y
+	)
 
 func _ensure_outcome_layer() -> void:
 	var tree := get_tree()

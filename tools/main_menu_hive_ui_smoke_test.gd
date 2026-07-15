@@ -27,11 +27,20 @@ func _init() -> void:
 		push_error("MAIN_MENU_HIVE_UI_SMOKE: Hive dropdown body missing")
 		quit(1)
 		return
+	var dropdown_panel: Panel = menu.get_node_or_null("HiveDropdown") as Panel
+	if dropdown_panel == null or dropdown_panel.offset_right - dropdown_panel.offset_left < 700.0:
+		push_error("MAIN_MENU_HIVE_UI_SMOKE: Hive dropdown is too narrow for readable mobile type")
+		quit(1)
+		return
 	var dropdown_buttons: Array[String] = []
 	for child in dropdown_body.get_children():
 		var button: Button = child as Button
 		if button != null:
 			dropdown_buttons.append(button.text)
+			if button.custom_minimum_size.y < 64.0 or button.get_theme_font_size("font_size") < 32:
+				push_error("MAIN_MENU_HIVE_UI_SMOKE: Hive dropdown action is not mobile-readable: %s" % button.text)
+				quit(1)
+				return
 	for required in ["CREATE A HIVE", "BROWSE HIVES", "MY INVITES", "HIVE RANKINGS"]:
 		if not dropdown_buttons.has(required):
 			push_error("MAIN_MENU_HIVE_UI_SMOKE: Hive dropdown missing %s" % required)

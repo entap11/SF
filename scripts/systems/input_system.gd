@@ -1077,7 +1077,16 @@ func _arm_lane_grab(arena_api: ArenaAPI) -> void:
 		"side": _lane_grab_side,
 		"player_id": _lane_grab_player_id
 	})
-	_set_lane_grab_preview(arena_api, false, Vector2.ZERO, Vector2.ZERO)
+	var metrics: Dictionary = _lane_grab_metrics(_lane_grab_current_local, arena_api)
+	if bool(metrics.get("ok", false)):
+		_set_lane_grab_preview(
+			arena_api,
+			true,
+			metrics.get("closest", _lane_grab_current_local) as Vector2,
+			_lane_grab_current_local
+		)
+	else:
+		_set_lane_grab_preview(arena_api, false, Vector2.ZERO, Vector2.ZERO)
 
 func _update_lane_grab_motion(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
 	if _lane_grab_state == LANE_GRAB_STATE_IDLE:
@@ -1100,15 +1109,14 @@ func _update_lane_grab_motion(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
 	var perp_dist: float = float(metrics.get("perp_dist", 0.0))
 	if perp_dist >= LANE_GRAB_THROW_DISTANCE_PX:
 		_lane_grab_state = LANE_GRAB_STATE_THROW_READY
-		_set_lane_grab_preview(
-			arena_api,
-			true,
-			metrics.get("closest", Vector2.ZERO) as Vector2,
-			local_pos
-		)
 	else:
 		_lane_grab_state = LANE_GRAB_STATE_ARMED
-		_set_lane_grab_preview(arena_api, false, Vector2.ZERO, Vector2.ZERO)
+	_set_lane_grab_preview(
+		arena_api,
+		true,
+		metrics.get("closest", Vector2.ZERO) as Vector2,
+		local_pos
+	)
 	return true
 
 func _finish_lane_grab_release(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
@@ -1214,20 +1222,30 @@ func _lane_grab_segment_local(lane: LaneData, arena_api: ArenaAPI) -> Dictionary
 		end_pos = a_pos
 	return {"ok": true, "start": start_pos, "end": end_pos}
 
-func _set_lane_grab_preview(arena_api: ArenaAPI, tension: bool, _anchor_local: Vector2, pull_local: Vector2) -> void:
+func _set_lane_grab_preview(arena_api: ArenaAPI, tension: bool, anchor_local: Vector2, pull_local: Vector2) -> void:
 	var lr := _get_lane_renderer(arena_api)
 	if lr == null or not lr.has_method("set_lane_grab_preview"):
 		return
 	var source_world: Vector2 = Vector2.ZERO
 	var dest_world: Vector2 = Vector2.ZERO
 	var pull_world: Vector2 = _map_local_to_world(pull_local, arena_api) if tension else Vector2.ZERO
+	var anchor_world: Vector2 = _map_local_to_world(anchor_local, arena_api) if tension else Vector2.ZERO
 	if tension:
 		var lane: LaneData = arena_api.find_lane_by_id(_lane_grab_lane_id) if arena_api != null else null
 		var seg: Dictionary = _lane_grab_segment_local(lane, arena_api)
 		if bool(seg.get("ok", false)):
 			source_world = _map_local_to_world(seg.get("start", Vector2.ZERO) as Vector2, arena_api)
 			dest_world = _map_local_to_world(seg.get("end", Vector2.ZERO) as Vector2, arena_api)
-	lr.call("set_lane_grab_preview", _lane_grab_lane_id, _lane_grab_side, _lane_grab_state, source_world, dest_world, pull_world)
+	lr.call(
+		"set_lane_grab_preview",
+		_lane_grab_lane_id,
+		_lane_grab_side,
+		_lane_grab_state,
+		source_world,
+		dest_world,
+		pull_world,
+		anchor_world
+	)
 
 func _clear_lane_grab_preview(arena_api: ArenaAPI) -> void:
 	var lr := _get_lane_renderer(arena_api)

@@ -33,9 +33,9 @@ static func profile_for_state(state_name: String) -> Dictionary:
 				"z_index": 9,
 				"alpha": 0.98,
 				"width": 13.0,
-				"glow_alpha": 0.45,
-				"brightness": 1.25,
-				"saturation": 1.15,
+				"glow_alpha": 0.04,
+				"brightness": 0.82,
+				"saturation": 1.05,
 				"pulse_enabled": true
 			}
 		STATE_ACTIVE:
@@ -44,8 +44,8 @@ static func profile_for_state(state_name: String) -> Dictionary:
 				"z_index": 3,
 				"alpha": 0.78,
 				"width": 9.5,
-				"glow_alpha": 0.20,
-				"brightness": 1.05,
+				"glow_alpha": 0.0,
+				"brightness": 0.70,
 				"saturation": 0.95,
 				"pulse_enabled": false
 			}

@@ -69,10 +69,27 @@ func _run() -> void:
 	_assert_button(panel, "EntryScroll/EntryBody/EntryCanvas/CancelButton", 320.0, 116.0, "cancel")
 	var crucible_button: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/CrucibleButton") as Button
 	var weekly_rect: Rect2 = (panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/WeeklyButton") as Button).get_rect()
-	if crucible_button == null or crucible_button.text != "CRUCIBLE" or crucible_button.get_rect().intersects(weekly_rect):
+	if crucible_button == null or crucible_button.icon == null or not crucible_button.text.is_empty() or crucible_button.get_rect().intersects(weekly_rect):
 		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: Crucible button missing or overlaps weekly row")
 		quit(1)
 		return
+	var crucible_image: Image = crucible_button.icon.get_image()
+	if crucible_image == null or crucible_image.is_empty():
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: Crucible button art did not produce an image")
+		quit(1)
+		return
+	var crucible_aspect: float = float(crucible_image.get_width()) / float(crucible_image.get_height())
+	if crucible_aspect < 2.4 or crucible_image.get_pixel(0, 0).a > 0.05:
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: Crucible art was not cropped/keyed for the button slot")
+		quit(1)
+		return
+	var capture_path: String = OS.get_environment("SF_CRUCIBLE_CAPTURE_PATH")
+	if not capture_path.is_empty():
+		var capture_error: Error = crucible_image.save_png(capture_path)
+		if capture_error != OK:
+			push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: failed to save Crucible art capture")
+			quit(1)
+			return
 
 	var button: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/Human1v1Button") as Button
 	if button == null or not button.has_meta("sf_free_roll_press_guard"):

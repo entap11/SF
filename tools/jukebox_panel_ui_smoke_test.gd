@@ -22,6 +22,35 @@ func _run() -> void:
 	panel.visible = true
 	panel.size = TEST_VIEWPORT_SIZE
 	await process_frame
+	var footer_close: Button = panel.get_node_or_null("FooterCloseButton") as Button
+	if footer_close == null or not footer_close.visible:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: persistent footer back button missing")
+		quit(1)
+		return
+	if footer_close.text != "BACK TO MAIN MENU":
+		push_error("JUKEBOX_PANEL_UI_SMOKE: footer action does not clearly return to main menu")
+		quit(1)
+		return
+	if footer_close.custom_minimum_size.y < 88.0 or footer_close.get_theme_font_size("font_size") < 32:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button is not mobile-readable")
+		quit(1)
+		return
+	var footer_rect: Rect2 = footer_close.get_global_rect()
+	var panel_rect: Rect2 = panel.get_global_rect()
+	if not panel_rect.encloses(footer_rect) or panel_rect.end.y - footer_rect.end.y > 40.0:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button is not persistently anchored at the bottom")
+		quit(1)
+		return
+	var closed_events: Array[int] = []
+	panel.closed.connect(func() -> void:
+		closed_events.append(1)
+	)
+	footer_close.pressed.emit()
+	await process_frame
+	if closed_events.size() != 1:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button did not emit closed")
+		quit(1)
+		return
 
 	var brand_banner: TextureRect = panel.get_node_or_null("VBox/BrandBannerArt") as TextureRect
 	if brand_banner == null or brand_banner.texture == null:
@@ -176,7 +205,7 @@ func _run() -> void:
 		return
 	for blocker_path in [
 		"VBox/SelectorPanel",
-		"VBox/FooterCloseButton"
+		"FooterCloseButton"
 	]:
 		var blocker: Control = panel.get_node_or_null(blocker_path) as Control
 		if blocker != null and blocker.visible and blocker.get_global_rect().intersects(play_rect):

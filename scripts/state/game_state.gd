@@ -603,7 +603,11 @@ func _lane_segment_world(a_hive: HiveData, b_hive: HiveData) -> Dictionary:
 		b_center,
 		null,
 		maxf(0.0, float(a_hive.radius_px)),
-		maxf(0.0, float(b_hive.radius_px))
+		maxf(0.0, float(b_hive.radius_px)),
+		null,
+		null,
+		int(a_hive.power),
+		int(b_hive.power)
 	)
 
 func _wall_segments_world() -> Array:

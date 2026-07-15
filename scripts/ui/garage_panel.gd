@@ -24,6 +24,7 @@ const PREVIEW_3D_DEPTH: float = 0.38
 @onready var preview_texture: TextureRect = $VBox/Body/PreviewPanel/PreviewVBox/PreviewFrame/PreviewTexture
 @onready var preview_badge_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/PreviewFrame/PreviewBadge
 @onready var turntable_row: HBoxContainer = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow
+@onready var turntable_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/TurntableLabel
 @onready var turntable_slider: HSlider = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/TurntableSlider
 @onready var selected_desc_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/SelectedDesc
 @onready var selection_status_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/SelectionStatus
@@ -313,22 +314,29 @@ func _style_static_ui() -> void:
 	sub_label.visible = false
 	loadout_summary_label.visible = false
 	category_sub_label.visible = false
-	$VBox/Body/CategoryPanel.custom_minimum_size = Vector2(0.0, 214.0)
-	_apply_font(title_label, _font_semibold, 24)
-	_apply_font(sub_label, _font_regular, 13)
-	_apply_font(loadout_summary_label, _font_regular, 12)
-	_apply_font(category_header_label, _font_semibold, 14)
-	_apply_font(category_sub_label, _font_regular, 12)
-	_apply_font(selected_title_label, _font_semibold, 20)
-	_apply_font(selected_meta_label, _font_regular, 12)
-	_apply_font(preview_badge_label, _font_semibold, 11)
-	_apply_font(selected_desc_label, _font_regular, 12)
-	_apply_font(selection_status_label, _font_regular, 12)
-	_apply_font(inventory_header_label, _font_semibold, 14)
-	_apply_font(inventory_pvp_tab, _font_semibold, 11)
-	_apply_font(inventory_time_puzzle_tab, _font_semibold, 11)
-	_apply_font(inventory_note_label, _font_regular, 12)
-	_apply_font(equip_button, _font_semibold, 13)
+	selected_desc_label.visible = false
+	selected_desc_label.custom_minimum_size = Vector2.ZERO
+	inventory_note_label.visible = false
+	inventory_note_label.custom_minimum_size = Vector2.ZERO
+	$VBox/Body/CategoryPanel.custom_minimum_size = Vector2(0.0, 470.0)
+	$VBox/Body/CategoryPanel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	$VBox/Body/InventoryPanel.custom_minimum_size = Vector2(0.0, 230.0)
+	_apply_token(title_label, _font_semibold, "screen_title")
+	_apply_token(sub_label, _font_regular, "panel_subtitle")
+	_apply_token(loadout_summary_label, _font_regular, "meta")
+	_apply_token(category_header_label, _font_semibold, "section_title")
+	_apply_token(category_sub_label, _font_regular, "body")
+	_apply_token(selected_title_label, _font_semibold, "panel_title")
+	_apply_token(selected_meta_label, _font_regular, "meta")
+	_apply_token(preview_badge_label, _font_semibold, "meta")
+	_apply_token(turntable_label, _font_regular, "meta")
+	_apply_token(selected_desc_label, _font_regular, "body")
+	_apply_token(selection_status_label, _font_regular, "body")
+	_apply_token(inventory_header_label, _font_semibold, "section_title")
+	_apply_button_token(inventory_pvp_tab, _font_semibold, "compact_button")
+	_apply_button_token(inventory_time_puzzle_tab, _font_semibold, "compact_button")
+	_apply_token(inventory_note_label, _font_regular, "meta")
+	_apply_button_token(equip_button, _font_semibold, "button")
 	_style_button(equip_button, Color(0.34, 0.23, 0.09, 0.98), Color(0.95, 0.73, 0.25, 0.85), Color(0.99, 0.96, 0.86, 1.0))
 	_style_panel($VBox/Body/CategoryPanel, Color(0.08, 0.09, 0.12, 0.92), Color(0.34, 0.36, 0.44, 0.72))
 	_style_panel($VBox/Body/PreviewPanel, Color(0.08, 0.09, 0.12, 0.92), Color(0.34, 0.36, 0.44, 0.72))
@@ -339,7 +347,9 @@ func _style_static_ui() -> void:
 	turntable_slider.min_value = -PREVIEW_3D_YAW_RANGE_DEG
 	turntable_slider.max_value = PREVIEW_3D_YAW_RANGE_DEG
 	loadout_summary_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	category_list.columns = CATEGORY_ORDER.size()
+	category_list.columns = 3
+	category_list.add_theme_constant_override("h_separation", 8)
+	category_list.add_theme_constant_override("v_separation", 8)
 	_refresh_buff_mode_tabs()
 
 func _build_category_buttons() -> void:
@@ -353,7 +363,7 @@ func _build_category_buttons() -> void:
 		var button := Button.new()
 		button.text = _category_tab_label(category_id, category)
 		button.toggle_mode = true
-		button.custom_minimum_size = Vector2(0.0, 34.0)
+		button.custom_minimum_size = Vector2(0.0, UITypography.PORTRAIT_TOUCH_HEIGHT)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void:
 			_selected_category = category_id
@@ -367,7 +377,7 @@ func _build_category_buttons() -> void:
 		)
 		category_list.add_child(button)
 		_category_buttons[category_id] = button
-		_apply_font(button, _font_semibold, 12)
+		_apply_button_token(button, _font_semibold, "compact_button")
 
 func _refresh_category_copy() -> void:
 	var category: Dictionary = _catalog.get(_selected_category, {}) as Dictionary
@@ -415,7 +425,7 @@ func _ensure_category_option_shelf() -> void:
 	var category_vbox: VBoxContainer = $VBox/Body/CategoryPanel/CategoryVBox
 	_category_option_scroll = ScrollContainer.new()
 	_category_option_scroll.name = "CategoryOptionScroll"
-	_category_option_scroll.custom_minimum_size = Vector2(0.0, 84.0)
+	_category_option_scroll.custom_minimum_size = Vector2(0.0, 118.0)
 	_category_option_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_category_option_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_category_option_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
@@ -436,7 +446,7 @@ func _make_inventory_button(item: Dictionary, state: Dictionary, compact: bool) 
 	button.toggle_mode = true
 	button.button_pressed = str(item.get("id", "")) == _selected_item_id
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size = Vector2(0.0, 50.0 if compact else 74.0)
+	button.custom_minimum_size = Vector2(0.0, 78.0 if compact else 96.0)
 	if compact:
 		button.text = "%s\n%s" % [str(item.get("title", "Cosmetic")), _compact_item_badge(state)]
 	else:
@@ -447,7 +457,7 @@ func _make_inventory_button(item: Dictionary, state: Dictionary, compact: bool) 
 		_refresh_inventory()
 		_refresh_preview()
 	)
-	_apply_font(button, _font_semibold, 12)
+	_apply_button_token(button, _font_semibold, "meta", button.custom_minimum_size.y)
 	if bool(state.get("equipped", false)):
 		_style_button(button, Color(0.18, 0.15, 0.08, 0.98), Color(0.95, 0.77, 0.33, 0.92), Color(1.0, 0.97, 0.88, 1.0))
 	elif bool(state.get("owned", false)):
@@ -950,7 +960,13 @@ func _on_profile_social_destination_changed(_destination_id: String, _enabled: b
 	refresh_view()
 
 func _apply_font(control: Control, font: Font, size: int) -> void:
-	UITypography.apply_font(control, font, size)
+	UITypography.apply_font(control, font, size, UITypography.PORTRAIT_CANVAS_SCALE)
+
+func _apply_token(control: Control, font: Font, token: String) -> void:
+	UITypography.apply_token(control, font, token, UITypography.PORTRAIT_CANVAS_SCALE)
+
+func _apply_button_token(button: BaseButton, font: Font, token: String, minimum_height: float = UITypography.PORTRAIT_TOUCH_HEIGHT) -> void:
+	UITypography.apply_button_token(button, font, token, UITypography.PORTRAIT_CANVAS_SCALE, minimum_height)
 
 func _style_button(button: Button, fill: Color, border: Color, text_color: Color) -> void:
 	if button == null:

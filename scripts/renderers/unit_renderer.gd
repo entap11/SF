@@ -45,8 +45,10 @@ const UNIT_RADIUS_PX := 3.5
 const UNIT_DRAW_RADIUS_PX: float = 4.0
 const UNIT_RENDER_SCALE: float = 1.44
 const UNIT_VISUAL_SCALE_MULT: float = 0.88
-const UNIT_OUTLINE_ENABLED: bool = true
-const UNIT_OUTLINE_SCALE_MULT: float = 1.32
+# unit_v3 carries its deliberate heavy contour in the sprite. A scaled black
+# duplicate bloats that hard silhouette beyond the lane again.
+const UNIT_OUTLINE_ENABLED: bool = false
+const UNIT_OUTLINE_SCALE_MULT: float = 1.0
 const UNIT_OUTLINE_COLOR: Color = Color(0.02, 0.02, 0.03, 0.98)
 const UNIT_SPRITE_FORWARD_DEG: float = 90.0
 const UNIT_TRAVEL_T_EPS: float = 0.02
@@ -1796,7 +1798,8 @@ func _hive_shell_contact_world(hive_id: int, hive_by_id: Dictionary, outward_dir
 		return null
 	var center_world: Vector2 = center_any as Vector2
 	var radius_px: float = _target_hive_radius_px(hive_id, hive_by_id)
-	return HiveNodeScript.lane_shell_anchor_world(center_world, outward_dir, radius_px)
+	var power: int = _target_hive_power(hive_id, hive_by_id)
+	return HiveNodeScript.lane_shell_anchor_world(center_world, outward_dir, radius_px, power)
 
 func _hive_shell_contact_local(hive_id: int, hive_by_id: Dictionary, outward_dir: Vector2) -> Variant:
 	var shell_world_v: Variant = _hive_shell_contact_world(hive_id, hive_by_id, outward_dir)
@@ -1827,6 +1830,19 @@ func _target_hive_radius_px(to_hive_id: int, hive_by_id: Dictionary) -> float:
 				if resolved_radius > 0.0:
 					radius_px = resolved_radius
 	return radius_px
+
+func _target_hive_power(to_hive_id: int, hive_by_id: Dictionary) -> int:
+	var hive_data_any: Variant = hive_by_id.get(to_hive_id, null)
+	if typeof(hive_data_any) == TYPE_DICTIONARY:
+		return int((hive_data_any as Dictionary).get("power", 0))
+	var hive_node_any: Variant = hive_nodes_by_id.get(to_hive_id, null)
+	if hive_node_any is Node:
+		var hive_node: Node = hive_node_any as Node
+		if hive_node != null and is_instance_valid(hive_node):
+			var power_any: Variant = hive_node.get("power")
+			if typeof(power_any) == TYPE_INT or typeof(power_any) == TYPE_FLOAT:
+				return int(power_any)
+	return 0
 
 func _is_rear_hive_approach(travel_dir_world: Vector2) -> bool:
 	if travel_dir_world.length_squared() <= 0.000001:
@@ -4216,16 +4232,30 @@ func _get_unit_colorkey_material(sprite_key: String, owner_id: int, registry: Sp
 	_mat_set(mat, "softness", ck_softness)
 	_mat_set(mat, "outline_color", Color(0.0, 0.0, 0.0, 0.96))
 	_mat_set(mat, "outline_px", 1.8)
-	_mat_set(mat, "outline_strength", 1.0)
-	_mat_set(mat, "inner_outline_strength", 0.78)
+	_mat_set(mat, "outline_strength", 0.0)
+	_mat_set(mat, "inner_outline_strength", 0.0)
 	var glow_color: Color = _owner_color(owner_id).lightened(0.18)
 	glow_color.a = 1.0
 	_mat_set(mat, "glow_color", glow_color)
-	_mat_set(mat, "glow_strength", 1.08)
+	_mat_set(mat, "glow_strength", 0.68)
 	_mat_set(mat, "glow_luma_floor", 0.02)
-	_mat_set(mat, "glow_pulse_strength", 0.30)
+	_mat_set(mat, "glow_pulse_strength", 0.32)
 	_mat_set(mat, "glow_pulse_speed", 5.6)
 	_mat_set(mat, "glow_pulse_phase", float(owner_id) * 1.37)
+	# Keep the wings bright, then give the central abdomen a warmer, hotter
+	# emission and halo. This separates the yellow values without creating two
+	# unrelated colors or changing the unit's hard lane footprint.
+	_mat_set(mat, "body_glow_color", Color(1.0, 0.80, 0.12, 1.0))
+	_mat_set(mat, "body_glow_center", Vector2(0.5, 0.50))
+	_mat_set(mat, "body_glow_radius", Vector2(0.19, 0.28))
+	_mat_set(mat, "body_glow_strength", 2.60)
+	_mat_set(mat, "body_glow_luma_floor", 0.025)
+	_mat_set(mat, "body_halo_radius_uv", 0.065)
+	_mat_set(mat, "body_halo_alpha", 0.88)
+	_mat_set(mat, "body_halo_brightness", 2.60)
+	_mat_set(mat, "body_pulse_strength", 1.40)
+	_mat_set(mat, "body_pulse_speed", 4.80)
+	_mat_set(mat, "body_pulse_phase", float(owner_id) * 1.37)
 	_unit_material_by_sprite[key] = mat
 	return mat
 
@@ -4241,6 +4271,17 @@ func _get_neutral_unit_material(sprite_key: String, owner_id: int, _registry: Sp
 	_mat_set(mat, "glow_strength", 0.62)
 	_mat_set(mat, "colorize_strength", 0.92)
 	_mat_set(mat, "additive_glow", 0.12)
+	# Neutral units use the same compact sprite, so keep their body readable too.
+	# This shader is shared by other visuals; its body glow defaults to zero and
+	# is enabled only on this neutral-unit material instance.
+	_mat_set(mat, "body_glow_color", Color(1.0, 0.80, 0.12, 1.0))
+	_mat_set(mat, "body_glow_center", Vector2(0.5, 0.50))
+	_mat_set(mat, "body_glow_radius", Vector2(0.19, 0.28))
+	_mat_set(mat, "body_glow_strength", 1.80)
+	_mat_set(mat, "body_glow_luma_floor", 0.025)
+	_mat_set(mat, "body_pulse_strength", 0.85)
+	_mat_set(mat, "body_pulse_speed", 4.80)
+	_mat_set(mat, "body_pulse_phase", 0.0)
 	_neutral_unit_material_by_sprite[key] = mat
 	return mat
 

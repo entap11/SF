@@ -1207,7 +1207,7 @@ func _arrival_target_shell_world(unit: Dictionary, to_hive_id: int) -> Variant:
 	if travel_dir.length_squared() <= 0.000001:
 		return null
 	var hive_center: Vector2 = state.hive_world_pos_by_id(to_hive_id)
-	return HiveNodeScript.lane_shell_anchor_world(hive_center, -travel_dir.normalized(), float(to_hive.radius_px))
+	return HiveNodeScript.lane_shell_anchor_world(hive_center, -travel_dir.normalized(), float(to_hive.radius_px), int(to_hive.power))
 
 func _arrival_impact_dir(unit: Dictionary) -> Vector2:
 	var from_any: Variant = unit.get("from_pos", null)
@@ -1634,7 +1634,11 @@ func _edge_points(from_hive: HiveData, to_hive: HiveData, lane_id: int = -1) -> 
 		b_pos,
 		null,
 		float(from_hive.radius_px),
-		float(to_hive.radius_px)
+		float(to_hive.radius_px),
+		null,
+		null,
+		int(from_hive.power),
+		int(to_hive.power)
 	)
 	var start_edge: Vector2 = anchor_pair.get("a", _lane_anchor_world_from_center(a_pos))
 	var end_edge: Vector2 = anchor_pair.get("b", _lane_anchor_world_from_center(b_pos))
@@ -1666,8 +1670,8 @@ func _skin_edge_points_to_hive_shell(start_edge: Vector2, end_edge: Vector2, fro
 	axis = axis.normalized()
 	var from_center: Vector2 = state.hive_world_pos_by_id(int(from_hive.id)) if state != null else start_edge
 	var to_center: Vector2 = state.hive_world_pos_by_id(int(to_hive.id)) if state != null else end_edge
-	var start_shell: Vector2 = HiveNodeScript.lane_shell_anchor_world(from_center, axis, float(from_hive.radius_px))
-	var end_shell: Vector2 = HiveNodeScript.lane_shell_anchor_world(to_center, -axis, float(to_hive.radius_px))
+	var start_shell: Vector2 = HiveNodeScript.lane_shell_anchor_world(from_center, axis, float(from_hive.radius_px), int(from_hive.power))
+	var end_shell: Vector2 = HiveNodeScript.lane_shell_anchor_world(to_center, -axis, float(to_hive.radius_px), int(to_hive.power))
 	return [start_shell, end_shell]
 
 func _ensure_unit_edges(unit: Dictionary) -> Dictionary:

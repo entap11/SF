@@ -1,5 +1,9 @@
 # SF UI SPRITES — INVENTORY (MENU + DASH FAMILY)
 
+> This is an asset inventory. Interaction, hierarchy, navigation, typography,
+> and component behavior are governed by
+> [UX & Menu Visuals Bible](UX_MENU_VISUALS_BIBLE.md).
+
 Status legend: DONE / NEXT / LATER
 
 A) DONE — ALREADY CREATED (LOCKED)

@@ -168,6 +168,51 @@ The remediation adds a release-inert, Arena-owned evidence loadout, explicit REA
 - All four team colors and accessibility scale, contrast, and motion settings.
 - Physical-device camera performance and production-role latency.
 
+## Recorded Post-Loop-5 Buff-State UX Requirement
+
+The first successful corrected-device activation used the visually leftmost icon. The production strip deliberately renders slots in `3, 2, 1` order, so that activation was Global Production rather than Unit Speed. No unit-speed change was expected, and that run is not evidence for or against the perceptibility of Unit Speed's gameplay effect.
+
+Physical review nevertheless identified a required follow-up: a successful buff must visibly communicate both canonical acceptance and the period during which its effect is active. The gameplay magnitude must not be increased merely to make the buff noticeable. Add presentation-only state that reads the authoritative buff/effect state and never creates, extends, commits, cancels, or otherwise mutates an effect or transaction.
+
+The follow-up should provide:
+
+- an immediate, exactly-once canonical-success cue on the submitted target;
+- a bounded active treatment on the corresponding buff-strip icon;
+- a restrained, readable treatment on affected units, hives, lanes, or the global arena boundary, appropriate to the buff type;
+- deterministic expiry and complete cleanup on effect end, rejection, match end, scene replacement, backgrounding, and teardown;
+- reduced-motion and color-independent readability; and
+- physical-device evidence that the effect is noticeable without implying a larger competitive advantage than the simulation actually grants.
+
+Validate Unit Speed separately with the visually rightmost icon before deciding whether its movement delta or presentation is perceptible. This requirement is recorded for the next approved visual-feedback loop and must not expand or interrupt the current Loop 5 targeting-evidence scope.
+
+### Corrected-build local Unit Speed observation
+
+The corrected debug build `47d8766b4567944087abaad7039eed9ea44350ff` was launched on an iPhone 16 Pro through CoreDevice's wireless connection; the phone was not connected by USB. The production-component harness reported READY with the exact 64-use evidence loadout and `persistent_inventory_mutated=false`.
+
+The tester dragged the visually rightmost Unit Speed icon to a valid friendly hive. Device evidence recorded:
+
+- exactly one use, with Unit Speed decreasing from 64 to 63;
+- exactly one canonical `feedback_started` outcome;
+- 1 ms accepted-submission-to-canonical-feedback latency;
+- no duplicate activation;
+- no node or material growth from the three targeting presentation controllers;
+- no recurrence of the out-of-range canvas z-index diagnostic fixed in this build; and
+- clean targeting-presentation teardown after release.
+
+The interaction did not receive physical UX sign-off. The tester believed it worked chiefly because an immediate second activation was unavailable and described the activation feedback as underwhelming. The remaining count of 63 proves that this was not charge depletion; the UI did not make the successful activation or active-effect state sufficiently legible. Treat this as a blocking visual-readability result and as direct evidence for the post-Loop-5 buff-state UX requirement above.
+
+The final local-process frame window contained 2,879 samples: p50 `48.18 ms`, p95 `73.96 ms`, p99 `89.32 ms`, and maximum `142.20 ms`. This is not acceptable rollout frame pacing. The process exited with code 0 and the existing ObjectDB/resources-at-exit diagnostics.
+
+### Corrected-build Freeze Lane authority failure
+
+A subsequent untethered local run activated the visually middle Freeze Lane icon on a selected lane. Device evidence recorded exactly one canonical outcome, 2 ms presentation latency, and a single charge decrement from 64 to 63. The tester reported that friendly units appeared frozen while opposing units did not receive the intended effect.
+
+The activation and charge transaction succeeded, but the gameplay-effect path is not valid. Code audit found that Arena's live `_apply_buff_effects` adapter accepts only the legacy keys `swarm_speed_pct`, `hive_production_time_pct`, `tower_fire_rate_pct`, `lane_slow_pct`, and `lane_insight`. The targeted buff definitions instead emit keys including `unit_speed_mult`, `freeze_enemy_advance`, and `production_time_mult`; the live adapter silently ignores them. `BuffActivationSystem` contains an enemy-owner exclusion helper for lane freeze, but no production Arena or simulation consumer instantiates or calls that system or its query.
+
+Therefore this run does not prove that Freeze Lane froze either side through its intended authoritative effect. The reported friendly-unit stoppage requires a separate deterministic simulation trace, but the absence of any wired enemy-freeze consumer already blocks rollout. Unit Speed and Global Production are subject to the same definition-to-runtime adapter mismatch and must not be considered gameplay-effect passes based only on successful targeting, canonical outcomes, or charge consumption.
+
+Do not resume physical rollout evidence until one authoritative simulation integration maps the canonical targeted definitions to deterministic unit, lane, and hive behavior; tests prove exact owner/target semantics; and a corrected device build confirms that Freeze Lane affects opposing units only.
+
 ## Remaining Completion Gates
 
 Loop 5 must remain incomplete until all of the following are recorded and accepted:

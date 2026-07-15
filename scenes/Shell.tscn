@@ -203,14 +203,14 @@ theme_override_font_sizes/font_size = 20
 text = "BACK"
 
 [node name="BackButton" type="Button" parent="MenuRoot"]
-custom_minimum_size = Vector2(0, 44)
+custom_minimum_size = Vector2(225, 110)
 layout_mode = 0
 offset_left = 16.0
 offset_top = 16.0
-offset_right = 136.0
-offset_bottom = 52.0
+offset_right = 241.0
+offset_bottom = 126.0
 theme_override_fonts/font = ExtResource("3")
-theme_override_font_sizes/font_size = 18
+theme_override_font_sizes/font_size = 38
 text = "BACK"
 
 [node name="ArenaRoot" type="Node2D" parent="."]

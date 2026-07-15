@@ -69,6 +69,9 @@ const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
 const LANE_FRONT_INTERP_DELAY_TICKS: float = 0.75
 const LANE_FRONT_MAX_EXTRAP_SEC: float = 0.05
+const LANE_BASE_BRIGHTNESS: float = 0.68
+const LANE_ENDPOINT_TAPER_FRACTION: float = 0.15
+const LANE_ENDPOINT_WIDTH_SCALE: float = 0.75
 const DRAG_PREVIEW_MIN_LEN_PX := 2.0
 const DRAG_PREVIEW_SHIMMER_HZ: float = 1.75
 const DRAG_PREVIEW_BLACK_ALPHA_MIN: float = 0.28
@@ -96,7 +99,15 @@ const DEBUG_PICK_DOT_MS := 200
 const DEBUG_PICK_DOT_RADIUS := 3.5
 const DEBUG_PICK_DOT_COLOR := Color(1.0, 0.2, 0.9, 0.9)
 const LANE_GRAB_HIGHLIGHT_COLOR := Color(1.0, 1.0, 1.0, 0.96)
-const LANE_GRAB_TENSION_COLOR := Color(1.0, 1.0, 1.0, 0.50)
+const LANE_GRAB_TENSION_COLOR := Color(1.0, 1.0, 1.0, 1.0)
+const LANE_GRAB_GLOW_COLOR := Color(1.0, 1.0, 1.0, 0.22)
+const LANE_GRAB_RAIL_COLOR := Color(3.4, 3.4, 3.4, 0.92)
+const LANE_GRAB_BRIGHTNESS_MULTIPLIER: float = 5.0
+const LANE_GRAB_GLOW_BOOST: float = 2.5
+const LANE_GRAB_GLOW_WIDTH_MULTIPLIER: float = 1.6
+const LANE_GRAB_MAX_BEND_DEG: float = 30.0
+const LANE_GRAB_FULL_BEND_PULL_PX: float = 120.0
+const LANE_GRAB_CURVE_STEPS: int = 24
 
 var state: GameState = null
 var sel: Object = null
@@ -156,6 +167,9 @@ var _lane_front_visual_by_id: Dictionary = {}
 var _lane_grab_preview: Dictionary = {}
 var _lane_grab_tension_sprite: Sprite2D = null
 var _lane_grab_tension_line: Line2D = null
+var _lane_grab_tension_glow_line: Line2D = null
+var _lane_grab_edge_rail_a: Line2D = null
+var _lane_grab_edge_rail_b: Line2D = null
 var _buff_target_lane_probes: Dictionary = {}
 var _buff_target_lane_generation: int = 0
 var _buff_target_next_path_revision: int = 1
@@ -365,12 +379,18 @@ func _compute_lane_endpoints_from_centers_local(a_center_local: Vector2, b_cente
 	var b_anchor_world: Vector2 = to_global(b_center_local)
 	var src_radius: float = _hive_radius_px_for_lane(_a_id)
 	var dst_radius: float = _hive_radius_px_for_lane(_b_id)
+	var src_power: int = _hive_power_for_lane(_a_id)
+	var dst_power: int = _hive_power_for_lane(_b_id)
 	var anchor_pair: Dictionary = HiveNodeScript.lane_anchor_pair_world(
 		a_anchor_world,
 		b_anchor_world,
 		null,
 		src_radius,
-		dst_radius
+		dst_radius,
+		null,
+		null,
+		src_power,
+		dst_power
 	)
 	var from_anchor_world: Vector2 = anchor_pair.get("a", a_anchor_world)
 	var to_anchor_world: Vector2 = anchor_pair.get("b", b_anchor_world)
@@ -816,7 +836,15 @@ func flash_lane(lane_id: int, duration_ms: int = LANE_FLASH_DEFAULT_MS) -> void:
 	_lane_flash_expire_by_id[lane_id] = now_ms + maxi(1, duration_ms)
 	queue_redraw()
 
-func set_lane_grab_preview(lane_id: int, side: String, state_name: String, source_world: Vector2 = Vector2.ZERO, dest_world: Vector2 = Vector2.ZERO, pull_world: Vector2 = Vector2.ZERO) -> void:
+func set_lane_grab_preview(
+	lane_id: int,
+	side: String,
+	state_name: String,
+	source_world: Vector2 = Vector2.ZERO,
+	dest_world: Vector2 = Vector2.ZERO,
+	pull_world: Vector2 = Vector2.ZERO,
+	anchor_world: Vector2 = Vector2.ZERO
+) -> void:
 	if lane_id <= 0 or not (side == "a" or side == "b"):
 		clear_lane_grab_preview()
 		return
@@ -827,7 +855,8 @@ func set_lane_grab_preview(lane_id: int, side: String, state_name: String, sourc
 		"source_world": source_world,
 		"dest_world": dest_world,
 		"pull_world": pull_world,
-		"tension": state_name == "throw_ready"
+		"anchor_world": anchor_world,
+		"tension": state_name == "armed" or state_name == "throw_ready"
 	}
 	_apply_lane_grab_tension_sprite()
 	_update_lane_sprite_tints()
@@ -1344,16 +1373,22 @@ func _get_lane_band_material() -> ShaderMaterial:
 	mat.shader = LANE_BAND_SHADER
 	mat.set_shader_parameter("band", 0.94)
 	mat.set_shader_parameter("feather", 0.04)
-	mat.set_shader_parameter("team_saturation", 1.35)
-	mat.set_shader_parameter("lane_brightness", 1.55)
-	mat.set_shader_parameter("highlight_boost", 0.85)
-	mat.set_shader_parameter("glow_boost", 0.55)
+	# Lanes are colored infrastructure, not light sources. Keep the exact team
+	# hue while compressing the source texture into an eggshell tonal range.
+	mat.set_shader_parameter("team_saturation", 1.0)
+	mat.set_shader_parameter("lane_brightness", LANE_BASE_BRIGHTNESS)
+	mat.set_shader_parameter("highlight_boost", 0.05)
+	mat.set_shader_parameter("glow_boost", 0.0)
+	mat.set_shader_parameter("surface_variation", 0.10)
+	mat.set_shader_parameter("satin_lift", 0.035)
+	mat.set_shader_parameter("endpoint_taper_fraction", LANE_ENDPOINT_TAPER_FRACTION)
+	mat.set_shader_parameter("endpoint_width_scale", LANE_ENDPOINT_WIDTH_SCALE)
 	mat.set_shader_parameter("ink_luma_floor", 0.20)
 	mat.set_shader_parameter("ink_luma_full", 0.52)
 	mat.set_shader_parameter("ink_chroma_floor", 0.10)
 	mat.set_shader_parameter("ink_chroma_full", 0.30)
 	if AUDIT_RENDER:
-		_audit_mat_sets += 10
+		_audit_mat_sets += 14
 	_lane_band_material = mat
 	return mat
 
@@ -1718,7 +1753,10 @@ func _create_lane_sprite_node() -> Sprite2D:
 	sprite.texture = _lane_tex
 	sprite.centered = true
 	sprite.z_index = LANE_FRIENDLY_Z_INDEX
-	sprite.material = _get_lane_band_material()
+	# Each persistent piece needs its own canonical lane-U range so gaps and
+	# contested splits do not introduce false tapers. Materials are allocated
+	# only with sprite creation and then reused on every visual update.
+	sprite.material = _get_lane_band_material().duplicate() as ShaderMaterial
 	sprite.visible = false
 	return sprite
 
@@ -1902,13 +1940,31 @@ func _update_lane_visuals(delta: float) -> void:
 			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, _lane_front_visual_t(lane_id, raw_front_t, Time.get_ticks_usec()))
 			var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
 			# Contested lanes should show a stable split immediately.
-			_apply_lane_sprite_visual_with_gaps(entry, "a", a_pos, front_pos, color_a, lane_id, a_id, b_id, lane_z_index, profile_width_px, unit_body_px, lane_basis_dir, true, prepared_by_key, key_any)
-			_apply_lane_sprite_visual_with_gaps(entry, "b", front_pos, b_pos, color_b, lane_id, a_id, b_id, lane_z_index, profile_width_px, unit_body_px, lane_basis_dir, false, prepared_by_key, key_any)
+			_apply_lane_sprite_visual_with_gaps(
+				entry, "a", a_pos, front_pos, color_a, lane_id, a_id, b_id,
+				lane_z_index, profile_width_px, unit_body_px, lane_basis_dir,
+				a_pos, b_pos, true, prepared_by_key, key_any
+			)
+			_apply_lane_sprite_visual_with_gaps(
+				entry, "b", front_pos, b_pos, color_b, lane_id, a_id, b_id,
+				lane_z_index, profile_width_px, unit_body_px, lane_basis_dir,
+				a_pos, b_pos, false, prepared_by_key, key_any
+			)
 		elif send_a:
-			_apply_lane_sprite_visual_with_gaps(entry, "a", a_pos, a_pos.lerp(b_pos, visual_t), color_a, lane_id, a_id, b_id, lane_z_index, profile_width_px, unit_body_px, lane_basis_dir, true, prepared_by_key, key_any)
+			_apply_lane_sprite_visual_with_gaps(
+				entry, "a", a_pos, a_pos.lerp(b_pos, visual_t), color_a,
+				lane_id, a_id, b_id, lane_z_index, profile_width_px,
+				unit_body_px, lane_basis_dir, a_pos, b_pos, true,
+				prepared_by_key, key_any
+			)
 			_hide_lane_sprite_parts(entry, "b")
 		elif send_b:
-			_apply_lane_sprite_visual_with_gaps(entry, "b", b_pos.lerp(a_pos, visual_t), b_pos, color_b, lane_id, a_id, b_id, lane_z_index, profile_width_px, unit_body_px, lane_basis_dir, false, prepared_by_key, key_any)
+			_apply_lane_sprite_visual_with_gaps(
+				entry, "b", b_pos.lerp(a_pos, visual_t), b_pos, color_b,
+				lane_id, a_id, b_id, lane_z_index, profile_width_px,
+				unit_body_px, lane_basis_dir, a_pos, b_pos, false,
+				prepared_by_key, key_any
+			)
 			_hide_lane_sprite_parts(entry, "a")
 		else:
 			_hide_lane_sprite_parts(entry, "a")
@@ -2023,6 +2079,19 @@ func _hive_radius_px_for_lane(hive_id: int) -> float:
 				return meta_radius
 	return fallback_radius
 
+func _hive_power_for_lane(hive_id: int) -> int:
+	var node_any: Variant = hive_nodes_by_id.get(hive_id, null)
+	if node_any is Node:
+		var node: Node = node_any as Node
+		if node != null and is_instance_valid(node):
+			var power_any: Variant = node.get("power")
+			if typeof(power_any) == TYPE_INT or typeof(power_any) == TYPE_FLOAT:
+				return int(power_any)
+	var meta_any: Variant = _hive_meta_by_id.get(hive_id, null)
+	if typeof(meta_any) == TYPE_DICTIONARY:
+		return int((meta_any as Dictionary).get("power", 0))
+	return 0
+
 func _maybe_log_lane_sprite_coverage(length_px: float, segment_count: int, effective_seg_len: float) -> void:
 	if not AUDIT_RENDER:
 		return
@@ -2053,6 +2122,8 @@ func _apply_lane_sprite_visual_with_gaps(
 	target_thickness_px: float,
 	unit_body_px: float,
 	lane_basis_dir: Vector2,
+	lane_start_pos: Vector2,
+	lane_end_pos: Vector2,
 	points_toward_end: bool,
 	prepared_by_key: Dictionary,
 	self_key: Variant
@@ -2079,6 +2150,8 @@ func _apply_lane_sprite_visual_with_gaps(
 			continue
 		var sprite: Sprite2D = _lane_sprite_for_part(entry, side, drawn)
 		sprite.z_index = lane_z_index
+		var lane_u_start: float = _lane_t_for_point(seg_start, lane_start_pos, lane_end_pos)
+		var lane_u_end: float = _lane_t_for_point(seg_end, lane_start_pos, lane_end_pos)
 		_apply_lane_sprite_visual(
 			sprite,
 			seg_start,
@@ -2088,8 +2161,11 @@ func _apply_lane_sprite_visual_with_gaps(
 			target_thickness_px,
 			unit_body_px,
 			lane_basis_dir,
-			points_toward_end
+			points_toward_end,
+			lane_u_start,
+			lane_u_end
 		)
+		_apply_lane_grab_piece_material(sprite, lane_id, side)
 		drawn += 1
 	_hide_lane_sprite_parts(entry, side, drawn)
 
@@ -2124,6 +2200,33 @@ func _lane_visible_intervals_for_overlaps(
 func _lanes_share_hive_endpoint(a_id: int, b_id: int, other_a_id: int, other_b_id: int) -> bool:
 	return LaneOverlapGapsScript.share_hive_endpoint(a_id, b_id, other_a_id, other_b_id)
 
+func _lane_t_for_point(point: Vector2, lane_start: Vector2, lane_end: Vector2) -> float:
+	var lane_vec: Vector2 = lane_end - lane_start
+	var lane_len_sq: float = lane_vec.length_squared()
+	if lane_len_sq <= 0.000001:
+		return 0.0
+	return clampf((point - lane_start).dot(lane_vec) / lane_len_sq, 0.0, 1.0)
+
+func _lane_grab_side_is_selected(lane_id: int, side: String) -> bool:
+	if _lane_grab_preview.is_empty():
+		return false
+	return lane_id > 0 \
+		and lane_id == int(_lane_grab_preview.get("lane_id", -1)) \
+		and side == str(_lane_grab_preview.get("side", ""))
+
+func _apply_lane_grab_piece_material(sprite: Sprite2D, lane_id: int, side: String) -> void:
+	if sprite == null:
+		return
+	var lane_mat: ShaderMaterial = sprite.material as ShaderMaterial
+	if lane_mat == null:
+		return
+	var selected: bool = _lane_grab_side_is_selected(lane_id, side)
+	lane_mat.set_shader_parameter(
+		"lane_brightness",
+		LANE_BASE_BRIGHTNESS * (LANE_GRAB_BRIGHTNESS_MULTIPLIER if selected else 1.0)
+	)
+	lane_mat.set_shader_parameter("glow_boost", LANE_GRAB_GLOW_BOOST if selected else 0.0)
+
 func _other_lane_occludes_current(
 	lane_id: int,
 	lane_z_index: int,
@@ -2149,7 +2252,9 @@ func _apply_lane_sprite_visual(
 	target_thickness_px: float,
 	unit_body_px: float,
 	lane_basis_dir: Vector2 = Vector2.ZERO,
-	points_toward_end: bool = true
+	points_toward_end: bool = true,
+	lane_u_start: float = 0.0,
+	lane_u_end: float = 1.0
 ) -> void:
 	if sprite == null or sprite.texture == null:
 		return
@@ -2190,6 +2295,10 @@ func _apply_lane_sprite_visual(
 	sprite.flip_h = not points_toward_end
 	sprite.scale = Vector2(scale_x, scale_y)
 	sprite.modulate = color
+	var lane_mat: ShaderMaterial = sprite.material as ShaderMaterial
+	if lane_mat != null:
+		lane_mat.set_shader_parameter("lane_u_start", clampf(lane_u_start, 0.0, 1.0))
+		lane_mat.set_shader_parameter("lane_u_end", clampf(lane_u_end, 0.0, 1.0))
 	if lane_id == 9 and not _lane_align_logged:
 		_lane_align_logged = true
 		var dir_norm: Vector2 = Vector2.ZERO
@@ -2533,38 +2642,83 @@ func _draw_lane_textured_segment(start: Vector2, end: Vector2, color: Color, lan
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _lane_grab_preview_color(lane_id: int, side: String, base_color: Color) -> Color:
-	if _lane_grab_preview.is_empty():
+	if not _lane_grab_side_is_selected(lane_id, side):
 		return base_color
-	if lane_id <= 0 or lane_id != int(_lane_grab_preview.get("lane_id", -1)):
-		return base_color
-	if side != str(_lane_grab_preview.get("side", "")):
-		return base_color
+	# Once the textured curve is available, replace the straight selected side so
+	# the destination visibly detaches instead of leaving a ghost rail beneath it.
+	if _lane_grab_has_curve():
+		return Color(1.0, 1.0, 1.0, 0.0)
 	return LANE_GRAB_HIGHLIGHT_COLOR
 
-func _apply_lane_grab_tension_sprite() -> void:
+func _lane_grab_has_curve() -> bool:
 	if _lane_grab_preview.is_empty() or not bool(_lane_grab_preview.get("tension", false)):
+		return false
+	var source_v: Variant = _lane_grab_preview.get("source_world", null)
+	var dest_v: Variant = _lane_grab_preview.get("dest_world", null)
+	return source_v is Vector2 \
+		and dest_v is Vector2 \
+		and (source_v as Vector2).distance_to(dest_v as Vector2) > 2.0
+
+func _apply_lane_grab_tension_sprite() -> void:
+	if not _lane_grab_has_curve():
 		_hide_lane_grab_tension_sprite()
 		return
 	var source_world_v: Variant = _lane_grab_preview.get("source_world", null)
 	var dest_world_v: Variant = _lane_grab_preview.get("dest_world", null)
 	var pull_world_v: Variant = _lane_grab_preview.get("pull_world", null)
-	if not (source_world_v is Vector2 and dest_world_v is Vector2 and pull_world_v is Vector2):
+	var anchor_world_v: Variant = _lane_grab_preview.get("anchor_world", null)
+	if not (source_world_v is Vector2 and dest_world_v is Vector2 and pull_world_v is Vector2 and anchor_world_v is Vector2):
 		_hide_lane_grab_tension_sprite()
 		return
 	var source_local: Vector2 = to_local(source_world_v as Vector2)
 	var dest_local: Vector2 = to_local(dest_world_v as Vector2)
 	var pull_local: Vector2 = to_local(pull_world_v as Vector2)
-	if source_local.distance_to(dest_local) <= 2.0 or dest_local.distance_to(pull_local) <= 2.0:
-		_hide_lane_grab_tension_sprite()
-		return
+	var anchor_local: Vector2 = to_local(anchor_world_v as Vector2)
+	var points: PackedVector2Array = _lane_grab_tension_curve_points(
+		source_local,
+		dest_local,
+		anchor_local,
+		pull_local
+	)
 	var line: Line2D = _ensure_lane_grab_tension_line()
-	if line == null:
+	var glow_line: Line2D = _ensure_lane_grab_tension_glow_line()
+	if line == null or glow_line == null:
 		return
-	line.z_index = 64
-	line.width = maxf(10.0, lane_thickness_px * 0.48)
+	var rail_width: float = _lane_grab_curve_width()
+	glow_line.width = rail_width * LANE_GRAB_GLOW_WIDTH_MULTIPLIER
+	glow_line.default_color = LANE_GRAB_GLOW_COLOR
+	glow_line.points = points
+	glow_line.visible = points.size() >= 2
+	line.width = rail_width
 	line.default_color = LANE_GRAB_TENSION_COLOR
-	line.points = _lane_grab_tension_curve_points(source_local, dest_local, pull_local)
-	line.visible = line.points.size() >= 2
+	line.points = points
+	line.visible = points.size() >= 2
+	var edge_offset: float = rail_width * 0.30
+	var edge_width: float = maxf(1.5, rail_width * 0.14)
+	_lane_grab_edge_rail_a = _ensure_lane_grab_edge_rail(_lane_grab_edge_rail_a, "LaneGrabEdgeRailA")
+	_lane_grab_edge_rail_b = _ensure_lane_grab_edge_rail(_lane_grab_edge_rail_b, "LaneGrabEdgeRailB")
+	for edge_data in [
+		{"line": _lane_grab_edge_rail_a, "offset": -edge_offset},
+		{"line": _lane_grab_edge_rail_b, "offset": edge_offset}
+	]:
+		var edge_line: Line2D = edge_data.get("line", null) as Line2D
+		if edge_line == null:
+			continue
+		edge_line.width = edge_width
+		edge_line.default_color = LANE_GRAB_RAIL_COLOR
+		edge_line.points = _offset_lane_curve_points(points, float(edge_data.get("offset", 0.0)))
+		edge_line.visible = edge_line.points.size() >= 2
+
+func _lane_grab_curve_width() -> float:
+	var lane_id: int = int(_lane_grab_preview.get("lane_id", -1))
+	var lane_key: String = str(_lane_key_by_id.get(lane_id, ""))
+	var entry_any: Variant = _lane_nodes_by_key.get(lane_key, null)
+	if typeof(entry_any) == TYPE_DICTIONARY:
+		var entry: Dictionary = entry_any as Dictionary
+		var profile_any: Variant = entry.get("visual_profile_current", null)
+		if typeof(profile_any) == TYPE_DICTIONARY:
+			return maxf(6.0, float((profile_any as Dictionary).get("width", LANE_WIDTH_PX)))
+	return LANE_WIDTH_PX
 
 func _ensure_lane_grab_tension_sprite() -> Sprite2D:
 	if _lane_grab_tension_sprite != null and is_instance_valid(_lane_grab_tension_sprite):
@@ -2587,40 +2741,138 @@ func _ensure_lane_grab_tension_line() -> Line2D:
 	var line := Line2D.new()
 	line.name = "LaneGrabTensionLine"
 	line.z_as_relative = false
-	line.z_index = 64
+	line.z_index = 65
 	line.default_color = LANE_GRAB_TENSION_COLOR
-	line.width = maxf(10.0, lane_thickness_px * 0.48)
+	line.width = LANE_WIDTH_PX
 	line.antialiased = true
+	line.joint_mode = Line2D.LINE_JOINT_ROUND
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_ROUND
 	if _lane_tex == null:
 		_load_lane_textures()
 	if _lane_tex != null:
 		line.texture = _lane_tex
+		# Normal lanes stretch this complete multi-rail source once across their
+		# length. Stretching it along the arc preserves that exact visual language.
+		line.texture_mode = Line2D.LINE_TEXTURE_STRETCH
+		line.texture_repeat = CanvasItem.TEXTURE_REPEAT_DISABLED
+	var line_mat: ShaderMaterial = _get_lane_band_material().duplicate() as ShaderMaterial
+	line_mat.set_shader_parameter("lane_brightness", LANE_BASE_BRIGHTNESS * LANE_GRAB_BRIGHTNESS_MULTIPLIER)
+	line_mat.set_shader_parameter("glow_boost", LANE_GRAB_GLOW_BOOST)
+	line_mat.set_shader_parameter("endpoint_width_scale", 1.0)
+	# The source lane includes a gray plate behind its actual rails. Normal flat
+	# lanes can tolerate that surface, but a bent Line2D reads as a solid hose if
+	# it survives. Keep only the bright rails, joints, and arrows here.
+	line_mat.set_shader_parameter("ink_luma_floor", 0.58)
+	line_mat.set_shader_parameter("ink_luma_full", 0.82)
+	line.material = line_mat
 	add_child(line)
 	_lane_grab_tension_line = line
 	return line
 
-func _lane_grab_tension_curve_points(source_local: Vector2, dest_local: Vector2, pull_local: Vector2) -> PackedVector2Array:
-	var lane_vec: Vector2 = dest_local - source_local
-	var pull_offset: Vector2 = pull_local - dest_local
-	var pulled_dest: Vector2 = dest_local + pull_offset * 0.92
-	var c1: Vector2 = source_local + lane_vec * 0.42
-	var c2: Vector2 = dest_local + pull_offset * 0.64
-	var points := PackedVector2Array()
-	var steps: int = 14
-	for i in range(steps + 1):
-		var t: float = float(i) / float(steps)
-		points.append(_cubic_bezier_point(source_local, c1, c2, pulled_dest, t))
-	return points
+func _ensure_lane_grab_tension_glow_line() -> Line2D:
+	if _lane_grab_tension_glow_line != null and is_instance_valid(_lane_grab_tension_glow_line):
+		return _lane_grab_tension_glow_line
+	var line := Line2D.new()
+	line.name = "LaneGrabTensionGlow"
+	line.z_as_relative = false
+	line.z_index = 64
+	line.default_color = LANE_GRAB_GLOW_COLOR
+	line.width = LANE_WIDTH_PX * LANE_GRAB_GLOW_WIDTH_MULTIPLIER
+	line.antialiased = true
+	line.joint_mode = Line2D.LINE_JOINT_ROUND
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	if _lane_tex == null:
+		_load_lane_textures()
+	if _lane_tex != null:
+		line.texture = _lane_tex
+		line.texture_mode = Line2D.LINE_TEXTURE_STRETCH
+		line.texture_repeat = CanvasItem.TEXTURE_REPEAT_DISABLED
+	var glow_mat: ShaderMaterial = _get_lane_band_material().duplicate() as ShaderMaterial
+	glow_mat.set_shader_parameter("lane_brightness", LANE_BASE_BRIGHTNESS * 3.0)
+	glow_mat.set_shader_parameter("glow_boost", LANE_GRAB_GLOW_BOOST * 1.6)
+	glow_mat.set_shader_parameter("endpoint_width_scale", 1.0)
+	glow_mat.set_shader_parameter("ink_luma_floor", 0.58)
+	glow_mat.set_shader_parameter("ink_luma_full", 0.82)
+	line.material = glow_mat
+	add_child(line)
+	_lane_grab_tension_glow_line = line
+	return line
 
-func _cubic_bezier_point(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:
-	var inv_t: float = 1.0 - t
-	return (p0 * inv_t * inv_t * inv_t) + (p1 * 3.0 * inv_t * inv_t * t) + (p2 * 3.0 * inv_t * t * t) + (p3 * t * t * t)
+func _ensure_lane_grab_edge_rail(existing: Line2D, node_name: String) -> Line2D:
+	if existing != null and is_instance_valid(existing):
+		return existing
+	var line := Line2D.new()
+	line.name = node_name
+	line.z_as_relative = false
+	line.z_index = 66
+	line.default_color = LANE_GRAB_RAIL_COLOR
+	line.width = 1.5
+	line.antialiased = true
+	line.joint_mode = Line2D.LINE_JOINT_ROUND
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	var rail_mat := CanvasItemMaterial.new()
+	rail_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	line.material = rail_mat
+	add_child(line)
+	return line
+
+func _offset_lane_curve_points(points: PackedVector2Array, offset: float) -> PackedVector2Array:
+	var offset_points := PackedVector2Array()
+	if points.size() < 2:
+		return offset_points
+	for i in range(points.size()):
+		var prev_point: Vector2 = points[maxi(0, i - 1)]
+		var next_point: Vector2 = points[mini(points.size() - 1, i + 1)]
+		var tangent: Vector2 = (next_point - prev_point).normalized()
+		var normal := Vector2(-tangent.y, tangent.x)
+		offset_points.append(points[i] + normal * offset)
+	return offset_points
+
+func _lane_grab_tension_curve_points(
+	source_local: Vector2,
+	dest_local: Vector2,
+	anchor_local: Vector2,
+	pull_local: Vector2
+) -> PackedVector2Array:
+	var lane_vec: Vector2 = dest_local - source_local
+	var lane_len: float = lane_vec.length()
+	if lane_len <= 0.000001:
+		return PackedVector2Array()
+	var lane_dir: Vector2 = lane_vec / lane_len
+	var lane_normal := Vector2(-lane_dir.y, lane_dir.x)
+	var signed_pull: float = (pull_local - anchor_local).dot(lane_normal)
+	var bend_ratio: float = clampf(absf(signed_pull) / LANE_GRAB_FULL_BEND_PULL_PX, 0.0, 1.0)
+	var bend_sign: float = signf(signed_pull)
+	var total_angle: float = deg_to_rad(LANE_GRAB_MAX_BEND_DEG) * bend_ratio
+	var points := PackedVector2Array()
+	for i in range(LANE_GRAB_CURVE_STEPS + 1):
+		var t: float = float(i) / float(LANE_GRAB_CURVE_STEPS)
+		if total_angle <= 0.000001 or bend_sign == 0.0:
+			points.append(source_local + lane_vec * t)
+			continue
+		# A circular arc has constant curvature: its tangent turns by the same
+		# amount over every equal-length section and never flattens at the tip.
+		var sample_angle: float = total_angle * t
+		var radius: float = lane_len / total_angle
+		var axial: float = radius * sin(sample_angle)
+		var lateral: float = radius * (1.0 - cos(sample_angle)) * bend_sign
+		points.append(source_local + lane_dir * axial + lane_normal * lateral)
+	return points
 
 func _hide_lane_grab_tension_sprite() -> void:
 	if _lane_grab_tension_sprite != null and is_instance_valid(_lane_grab_tension_sprite):
 		_lane_grab_tension_sprite.visible = false
 	if _lane_grab_tension_line != null and is_instance_valid(_lane_grab_tension_line):
 		_lane_grab_tension_line.visible = false
+	if _lane_grab_tension_glow_line != null and is_instance_valid(_lane_grab_tension_glow_line):
+		_lane_grab_tension_glow_line.visible = false
+	if _lane_grab_edge_rail_a != null and is_instance_valid(_lane_grab_edge_rail_a):
+		_lane_grab_edge_rail_a.visible = false
+	if _lane_grab_edge_rail_b != null and is_instance_valid(_lane_grab_edge_rail_b):
+		_lane_grab_edge_rail_b.visible = false
 
 func _resolve_lane_color(a_id: int, b_id: int, send_a: bool, send_b: bool, rm: Dictionary, lane: Dictionary = {}) -> Color:
 	var owner_a: int = _owner_id_for_lane(a_id, rm)

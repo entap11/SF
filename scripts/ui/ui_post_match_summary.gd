@@ -1,6 +1,9 @@
 class_name PostMatchSummaryPanel
 extends VBoxContainer
 
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
+const IN_GAME_TYPE_SCALE: float = 2.5
+
 var _header_label: Label = null
 var _outcome_label: Label = null
 var _insights_header_label: Label = null
@@ -11,7 +14,7 @@ var _stats_list: VBoxContainer = null
 func _ready() -> void:
 	name = "PostMatchSummaryPanel"
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_theme_constant_override("separation", 6)
+	add_theme_constant_override("separation", 15)
 	_ensure_ui()
 	hide()
 
@@ -31,7 +34,7 @@ func render_summary(summary: Dictionary, victory: bool) -> void:
 				continue
 			var label: Label = Label.new()
 			label.text = "• %s" % text
-			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_style_label(label, "body")
 			_insights_list.add_child(label)
 
 	var key_stats_any: Variant = summary.get("key_stats", [])
@@ -46,16 +49,18 @@ func render_summary(summary: Dictionary, victory: bool) -> void:
 				continue
 			var row: Label = Label.new()
 			row.text = "%s: %s" % [label_text, value_text]
-			row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_style_label(row, "body")
 			_stats_list.add_child(row)
 
 	if _insights_list.get_child_count() == 0:
 		var fallback: Label = Label.new()
 		fallback.text = "• No analyzer insights for this match."
+		_style_label(fallback, "body")
 		_insights_list.add_child(fallback)
 	if _stats_list.get_child_count() == 0:
 		var fallback_stat: Label = Label.new()
 		fallback_stat.text = "No key stats available."
+		_style_label(fallback_stat, "body")
 		_stats_list.add_child(fallback_stat)
 
 func clear_summary() -> void:
@@ -69,29 +74,41 @@ func _ensure_ui() -> void:
 		return
 	_header_label = Label.new()
 	_header_label.text = "GAME ANALYZER"
+	_style_label(_header_label, "section_title", true)
 	add_child(_header_label)
 
 	_outcome_label = Label.new()
 	_outcome_label.text = "Outcome: --"
+	_style_label(_outcome_label, "body", true)
 	add_child(_outcome_label)
 
 	_insights_header_label = Label.new()
 	_insights_header_label.text = "Key Insights"
+	_style_label(_insights_header_label, "panel_subtitle", true)
 	add_child(_insights_header_label)
 
 	_insights_list = VBoxContainer.new()
 	_insights_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_insights_list.add_theme_constant_override("separation", 3)
+	_insights_list.add_theme_constant_override("separation", 10)
 	add_child(_insights_list)
 
 	_stats_header_label = Label.new()
 	_stats_header_label.text = "Key Stats"
+	_style_label(_stats_header_label, "panel_subtitle", true)
 	add_child(_stats_header_label)
 
 	_stats_list = VBoxContainer.new()
 	_stats_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_stats_list.add_theme_constant_override("separation", 2)
+	_stats_list.add_theme_constant_override("separation", 10)
 	add_child(_stats_list)
+
+func _style_label(label: Label, type_role: String, semibold: bool = false) -> void:
+	if label == null:
+		return
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var font: Font = UITypography.semibold_font() if semibold else UITypography.regular_font()
+	UITypography.apply_token(label, font, type_role, IN_GAME_TYPE_SCALE)
 
 func _clear_children(node: Node) -> void:
 	if node == null:
