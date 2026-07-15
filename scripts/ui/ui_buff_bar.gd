@@ -5,7 +5,6 @@ const BuffDefinitions = preload("res://scripts/state/buff_definitions.gd")
 
 signal activate_intent(owner_id: int, buff_id: String, tier: String, target: Dictionary)
 signal target_highlight_intent(target_type: String, buff_id: String)
-signal release_supercharge_intent(owner_id: int, hive_id: int)
 
 @export var player_id: int = 1
 @export var default_tier: String = BuffDefinitions.TIER_CLASSIC
@@ -101,9 +100,6 @@ func select_lane_target(lane_id: int) -> void:
 	activate_intent.emit(player_id, _pending_target_buff_id, default_tier, payload)
 	_status_label.text = "Requested %s on lane %d" % [_pending_target_buff_id, lane_id]
 	_clear_pending_target()
-
-func release_supercharge(hive_id: int) -> void:
-	release_supercharge_intent.emit(player_id, hive_id)
 
 func set_default_tier(tier: String) -> void:
 	default_tier = BuffDefinitions.normalize_tier(tier)

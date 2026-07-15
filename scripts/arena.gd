@@ -88,6 +88,7 @@ const TICK_MS := 100.0
 const TICK_DEBUG := false
 const MAX_FRAME_DT := 0.25
 const MAX_STEPS_PER_FRAME := 8
+const MAX_BUFF_CANONICAL_OUTCOMES: int = 256
 const MAX_ACCUM_DT := 1.0
 const MAX_SPAWNS_PER_TICK := 5
 const ENABLE_MAX_SPAWNS_PER_TICK := false
@@ -479,6 +480,7 @@ var buff_mods: Dictionary = {}
 var _buff_target_resolver: RefCounted = BuffTargetResolverScript.new()
 var _buff_activation_transactions: RefCounted = BuffActivationTransactionScript.new()
 var _buff_canonical_outcomes: Dictionary = {}
+var _buff_canonical_outcome_order: Array[String] = []
 var _buff_activation_counter: int = 0
 var _buff_presentation_epoch: String = ""
 var _buff_device_evidence_session: RefCounted = ArenaBuffDeviceEvidenceSessionScript.new()
@@ -10620,6 +10622,8 @@ func _execute_canonical_buff_activation(command: Dictionary) -> Dictionary:
 	var buff_state: BuffState = buff_states.get(owner_id)
 	if is_local_transaction and buff_state == null:
 		return _finalize_buff_canonical_no_op(command, "missing_player_state", outcome_key)
+	if is_local_transaction and not _can_commit_reserved_buff_charge(local_transaction):
+		return _finalize_buff_canonical_no_op(command, "reservation_source_changed", outcome_key)
 	var target_payload: Dictionary = _buff_target_resolver.canonical_target_payload(
 		str(command.get("target_type", "global")), command.get("target_id", "global")
 	)
@@ -10644,7 +10648,7 @@ func _execute_canonical_buff_activation(command: Dictionary) -> Dictionary:
 			SFLog.error("BUFF_RESERVED_COMMIT_FAILED", {"transaction": local_transaction, "result": charge_result})
 		else:
 			_buff_activation_transactions.mark_committed(_buff_match_id(), owner_id, activation_id)
-	_buff_canonical_outcomes[outcome_key] = outcome.duplicate(true)
+	_remember_buff_canonical_outcome(outcome_key, outcome)
 	_record_match_telemetry_buff_activation(owner_id, str(command.get("buff_id", "")), target_payload, now_ms)
 	_sync_buff_effects(now_ms)
 	_update_buff_ui()
@@ -10672,7 +10676,7 @@ func _finalize_buff_canonical_no_op(command: Dictionary, reason: String, outcome
 			_buff_match_id(), int(command.get("owner_id", 0)), str(command.get("activation_id", "")),
 			false, reason, str(command.get("command_id", "")), int(command.get("execute_tick", -1))
 		)
-	_buff_canonical_outcomes[outcome_key] = outcome.duplicate(true)
+	_remember_buff_canonical_outcome(outcome_key, outcome)
 	_persist_buff_activation_runtime_state()
 	buff_canonical_outcome_recorded.emit(outcome.duplicate(true), _buff_presentation_epoch)
 	return outcome
@@ -10694,6 +10698,14 @@ func _can_commit_reserved_buff_charge(transaction: Dictionary) -> bool:
 	if ordinal == 1:
 		return remaining == 2 and not consumed and _buff_inventory_quantity(buff_id) > 0
 	return ordinal == 2 and remaining == 1 and consumed
+
+func _remember_buff_canonical_outcome(outcome_key: String, outcome: Dictionary) -> void:
+	if not _buff_canonical_outcomes.has(outcome_key):
+		_buff_canonical_outcome_order.append(outcome_key)
+	_buff_canonical_outcomes[outcome_key] = outcome.duplicate(true)
+	while _buff_canonical_outcome_order.size() > MAX_BUFF_CANONICAL_OUTCOMES:
+		var oldest_key: String = _buff_canonical_outcome_order.pop_front()
+		_buff_canonical_outcomes.erase(oldest_key)
 
 func _commit_reserved_buff_charge(transaction: Dictionary) -> Dictionary:
 	if not _can_commit_reserved_buff_charge(transaction):
@@ -10742,6 +10754,7 @@ func _persist_buff_activation_runtime_state() -> void:
 	tree.set_meta(TREE_META_BUFF_ACTIVATION_RUNTIME_STATE, {
 		"transactions": _buff_activation_transactions.export_state(),
 		"canonical_outcomes": _buff_canonical_outcomes.duplicate(true),
+		"canonical_outcome_order": _buff_canonical_outcome_order.duplicate(),
 		"activation_counter": _buff_activation_counter
 	})
 
@@ -10759,6 +10772,22 @@ func _restore_buff_activation_runtime_state() -> void:
 	var outcomes_any: Variant = raw.get("canonical_outcomes", {})
 	if typeof(outcomes_any) == TYPE_DICTIONARY:
 		_buff_canonical_outcomes = (outcomes_any as Dictionary).duplicate(true)
+	_buff_canonical_outcome_order.clear()
+	var outcome_order_any: Variant = raw.get("canonical_outcome_order", [])
+	if typeof(outcome_order_any) == TYPE_ARRAY:
+		for outcome_key_any in outcome_order_any as Array:
+			var outcome_key: String = str(outcome_key_any)
+			if _buff_canonical_outcomes.has(outcome_key) and not _buff_canonical_outcome_order.has(outcome_key):
+				_buff_canonical_outcome_order.append(outcome_key)
+	var restored_outcome_keys: Array = _buff_canonical_outcomes.keys()
+	restored_outcome_keys.sort()
+	for outcome_key_any in restored_outcome_keys:
+		var outcome_key: String = str(outcome_key_any)
+		if not _buff_canonical_outcome_order.has(outcome_key):
+			_buff_canonical_outcome_order.append(outcome_key)
+	while _buff_canonical_outcome_order.size() > MAX_BUFF_CANONICAL_OUTCOMES:
+		var oldest_key: String = _buff_canonical_outcome_order.pop_front()
+		_buff_canonical_outcomes.erase(oldest_key)
 	_buff_activation_counter = maxi(0, int(raw.get("activation_counter", 0)))
 
 func _runtime_buff_charge_available(pid: int, buff_id: String) -> bool:

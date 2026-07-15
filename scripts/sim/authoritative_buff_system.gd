@@ -8,6 +8,7 @@ const BuffCatalog := preload("res://scripts/state/buff_catalog.gd")
 
 const TICKS_PER_SECOND: int = 10
 const MAX_OUTCOME_HISTORY: int = 128
+const MAX_SUPERCHARGE_QUEUE_UNITS: int = 128
 const TARGET_GLOBAL: String = "global"
 const SUPERCHARGE_TRAIN_SPACING_PX: float = 12.0
 
@@ -230,7 +231,10 @@ static func notify_ordinary_unit_produced(state: GameState, unit: Dictionary) ->
 	if int(target.get("destination_hive_id", -1)) != int(unit.get("to_id", -1)):
 		return
 	var activation_id: String = str(effect.get("activation_id", ""))
-	effect["queued_units"] = int(effect.get("queued_units", 0)) + maxi(1, int(unit.get("amount", 1)))
+	effect["queued_units"] = mini(
+		MAX_SUPERCHARGE_QUEUE_UNITS,
+		int(effect.get("queued_units", 0)) + maxi(1, int(unit.get("amount", 1)))
+	)
 	state.buff_effects_by_activation_id[activation_id] = effect
 
 static func _identity(requested_id: String) -> Dictionary:
