@@ -3133,7 +3133,8 @@ func _ensure_buff_drag_overlay() -> TextureRect:
 	_buff_drag_overlay.custom_minimum_size = BuffTargetingPresentationConfig.DRAG_OVERLAY_SIZE_UI_PX
 	_buff_drag_overlay.size = BuffTargetingPresentationConfig.DRAG_OVERLAY_SIZE_UI_PX
 	_buff_drag_overlay.z_as_relative = false
-	_buff_drag_overlay.z_index = 10000
+	# Godot canvas items accept z-index values only through 4095.
+	_buff_drag_overlay.z_index = 4095
 	_buff_drag_overlay.visible = false
 	hud_root.add_child(_buff_drag_overlay)
 	return _buff_drag_overlay
