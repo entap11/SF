@@ -13,7 +13,10 @@ const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/
 const ShellMvpWaiter := preload("res://scripts/shell_helpers/mvp_waiter.gd")
 const ShellMvpMapUtils := preload("res://scripts/shell_helpers/mvp_map_utils.gd")
 const BuffPointerSessionScript := preload("res://scripts/shell_helpers/buff_pointer_session.gd")
+const BuffTargetingRuntimeGate := preload("res://scripts/shell_helpers/buff_targeting_runtime_gate.gd")
 const BuffTargetingPresentationConfig := preload("res://scripts/renderers/buff_targeting_presentation_config.gd")
+const BuffTargetingDeviceEvidenceCollectorScript := preload("res://scripts/dev/buff_targeting_device_evidence_collector.gd")
+const BuffTargetingDeviceHeavyFixtureScript := preload("res://scripts/dev/buff_targeting_device_heavy_fixture.gd")
 const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const AdSurfaceScript: Script = preload("res://scripts/ui/ad_surface.gd")
@@ -267,6 +270,9 @@ func _ready() -> void:
 		"name": name
 	})
 	set_process(true)
+	if _maybe_start_buff_targeting_device_heavy_fixture():
+		return
+	_maybe_attach_buff_targeting_device_evidence_collector()
 	_apply_content_scale_from_profile()
 	_request_main_menu_preload()
 	_request_match_scene_preload()
@@ -754,7 +760,7 @@ func _resolve_buff_ui_nodes() -> void:
 	_opponent_buff_strip = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_PATH) as Control
 	_opponent_buff_strip_b = get_node_or_null(SHELL_OPPONENT_BUFF_STRIP_B_PATH) as Control
 	_ally_buff_strip = get_node_or_null(SHELL_ALLY_BUFF_STRIP_PATH) as Control
-	if not MATCH_BUFF_TARGETING_ENABLED:
+	if not _buff_targeting_runtime_enabled():
 		_set_buff_strip_visibility(false, false, false, false)
 	SFLog.info("BUFF_UI_RESOLVE", {
 		"player_strip": _diag_resolve(_player_buff_strip),
@@ -767,7 +773,7 @@ func _wire_buff_ui() -> void:
 	if _player_buff_strip == null:
 		SFLog.warn("BUFF_UI_MISSING_PLAYER_STRIP", {})
 		return
-	if not MATCH_BUFF_TARGETING_ENABLED:
+	if not _buff_targeting_runtime_enabled():
 		_set_buff_strip_visibility(false, false, false, false)
 		SFLog.info("BUFF_UI_LEGACY_STRIPS_DISABLED", {})
 		return
@@ -2019,7 +2025,7 @@ func _restart_arena_match_flow_for_shell_tutorial() -> void:
 		arena_node.call("restart_match_flow_for_shell_launch")
 
 func _sync_buff_ui() -> void:
-	if not MATCH_BUFF_TARGETING_ENABLED:
+	if not _buff_targeting_runtime_enabled():
 		_set_buff_strip_visibility(false, false, false, false)
 		return
 	if _player_buff_strip == null:
@@ -2108,8 +2114,49 @@ func _set_buff_strip_visibility(player_visible: bool, opponent_visible: bool, op
 	if _ally_buff_strip != null:
 		_ally_buff_strip.visible = ally_visible
 
+
+func _buff_targeting_runtime_enabled() -> bool:
+	return BuffTargetingRuntimeGate.enabled_for_runtime(
+		MATCH_BUFF_TARGETING_ENABLED,
+		OS.is_debug_build(),
+		OS.get_cmdline_user_args()
+	)
+
+
+func _maybe_attach_buff_targeting_device_evidence_collector() -> void:
+	if not _buff_targeting_runtime_enabled() or not OS.is_debug_build():
+		return
+	if get_node_or_null("BuffTargetingDeviceEvidenceCollector") != null:
+		return
+	var collector: Node = BuffTargetingDeviceEvidenceCollectorScript.new()
+	collector.name = "BuffTargetingDeviceEvidenceCollector"
+	add_child(collector)
+	collector.call(
+		"setup",
+		self,
+		BuffTargetingRuntimeGate.device_role(OS.get_cmdline_user_args()),
+		BuffTargetingRuntimeGate.device_build_id(OS.get_cmdline_user_args())
+	)
+
+
+func _maybe_start_buff_targeting_device_heavy_fixture() -> bool:
+	if not BuffTargetingRuntimeGate.heavy_fixture_enabled_for_runtime(
+		OS.is_debug_build(), OS.get_cmdline_user_args()
+	):
+		return false
+	for child: Node in get_children():
+		if child is CanvasItem:
+			(child as CanvasItem).visible = false
+		child.process_mode = Node.PROCESS_MODE_DISABLED
+	set_process(false)
+	var fixture: Node = BuffTargetingDeviceHeavyFixtureScript.new()
+	fixture.name = "BuffTargetingDeviceHeavyFixture"
+	add_child(fixture)
+	SFLog.info("BUFF_TARGETING_DEVICE_HEAVY_FIXTURE_ROUTE", {"debug_build": OS.is_debug_build()})
+	return true
+
 func _layout_buff_strip_positions() -> void:
-	if not MATCH_BUFF_TARGETING_ENABLED:
+	if not _buff_targeting_runtime_enabled():
 		return
 	_layout_player_strip_inside_bottom_buffer()
 	_layout_side_strips_inside_bottom_buffer()

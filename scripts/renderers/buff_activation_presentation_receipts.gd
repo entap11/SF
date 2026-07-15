@@ -108,9 +108,15 @@ func clear() -> void:
 
 
 func snapshot() -> Dictionary:
+	var handled_reason_counts: Dictionary = {}
+	for handled_any: Variant in _handled.values():
+		var handled: Dictionary = handled_any as Dictionary
+		var reason: String = str(handled.get("reason", "unknown"))
+		handled_reason_counts[reason] = int(handled_reason_counts.get(reason, 0)) + 1
 	return {
 		"live_receipt_count": _receipts.size(),
 		"handled_outcome_count": _handled.size(),
+		"handled_reason_counts": handled_reason_counts,
 		"receipt_timeout_msec": Config.ACTIVATION_RECEIPT_TIMEOUT_MSEC,
 		"max_live_receipt_count": Config.MAX_LIVE_ACTIVATION_RECEIPTS,
 		"max_handled_outcome_count": Config.MAX_HANDLED_OUTCOMES,
