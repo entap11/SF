@@ -38,6 +38,7 @@ Automated contract coverage: `tools/buff_targeting_device_harness_smoke_test.gd`
 - `devicectl`: 506.7
 - Project: `artifacts/buff_targeting_loop5_device/SwarmfrontLoop5.xcodeproj`
 - Unsigned compile output: `artifacts/buff_targeting_loop5_device/DerivedData/Build/Products/Debug-iphoneos/SwarmfrontLoop5.app`
+- Commit-isolated signed output: `artifacts/buff_targeting_loop5_device/b0b6880eb1c6ca1841e148fca06f97a9d7bb5345/SignedDerivedData/Build/Products/Debug-iphoneos/SwarmfrontLoop5.app`
 - Scheme and target: `SwarmfrontLoop5`
 - Product: `SwarmfrontLoop5.app`
 - Bundle identifier: `com.matthew.swarmfront`
@@ -47,12 +48,15 @@ Automated contract coverage: `tools/buff_targeting_device_harness_smoke_test.gd`
 - CoreDevice identifier: `B8F36805-35EE-5AC8-B9A7-4944062B98F7`
 - Target family: iPhone and iPad (`TARGETED_DEVICE_FAMILY=1,2`)
 
-The generated Xcode project uses manual signing. The available local Apple Development identities currently display team `GP77ZSW359`, while the export preset and app target specify `SH6675DXQ5`. Before a device build, the user must explicitly authorize one of these signing resolutions:
+The signing audit established `SH6675DXQ5` as the intended Swarmfront team. The committed export preset has used that team with `com.matthew.swarmfront` since its introduction; Xcode's configured individual team matches it; the installed development profile authorizes `SH6675DXQ5.com.matthew.swarmfront` and includes the connected iPhone; and the development certificate's signed subject has `OU=SH6675DXQ5`. The `GP77ZSW359` suffix displayed in the Keychain identity label is not the certificate's team identifier.
 
-1. Sign in to the Apple developer account for `SH6675DXQ5` in Xcode and let Xcode create/download a matching development certificate and provisioning profile; or
-2. Explicitly approve changing the development team used by this device-only build.
+The commit-isolated generic iOS build succeeded using command-line automatic signing with the existing local profile. No team, bundle identifier, Godot export preset, or generated Xcode project setting was rewritten. `codesign --verify --deep --strict` passes, and the signed entitlements report:
 
-No team or signing setting has been changed during preparation.
+- `application-identifier=SH6675DXQ5.com.matthew.swarmfront`
+- `com.apple.developer.team-identifier=SH6675DXQ5`
+- `get-task-allow=true`
+
+The first installation attempt did not install the app. It stopped while enabling developer disk image services because the iPhone was locked (`kAMDMobileImageMounterDeviceLocked`). Unlock the phone and keep it awake before retrying the exact installation command.
 
 The safe compile-only verification command already run was:
 
@@ -89,34 +93,34 @@ godot --headless \
   /Users/matthewballou/SideProjects/SF/project/artifacts/buff_targeting_loop5_device/SwarmfrontLoop5.xcodeproj
 ```
 
-After explicit approval and signing resolution, build the development app with:
+The successful commit-isolated signing command was:
 
 ```sh
 ROOT=/Users/matthewballou/SideProjects/SF/project
-PROJECT="$ROOT/artifacts/buff_targeting_loop5_device/SwarmfrontLoop5.xcodeproj"
-DERIVED="$ROOT/artifacts/buff_targeting_loop5_device/DerivedData"
-DEVICE_UDID=00008140-000614482E00401C
+EVIDENCE_COMMIT=b0b6880eb1c6ca1841e148fca06f97a9d7bb5345
+PROJECT="$ROOT/artifacts/buff_targeting_loop5_device/$EVIDENCE_COMMIT/SwarmfrontLoop5.xcodeproj"
+DERIVED="$ROOT/artifacts/buff_targeting_loop5_device/$EVIDENCE_COMMIT/SignedDerivedData"
 
 xcodebuild \
   -project "$PROJECT" \
   -scheme SwarmfrontLoop5 \
   -configuration Debug \
-  -destination "platform=iOS,id=$DEVICE_UDID" \
+  -destination 'generic/platform=iOS' \
   -derivedDataPath "$DERIVED" \
   DEVELOPMENT_TEAM=SH6675DXQ5 \
   CODE_SIGN_STYLE=Automatic \
-  -allowProvisioningUpdates \
+  'CODE_SIGN_IDENTITY=Apple Development' \
   build
 ```
 
-That command may require an Xcode Apple-account login, Keychain approval for the development certificate, registration of the connected device, an updated development provisioning profile, Developer Mode on the iPhone, and trust confirmation on the Mac/iPhone. `-allowProvisioningUpdates` permits Xcode to contact Apple and update signing assets; it must not be run without approval.
+No `-allowProvisioningUpdates` option was needed or used. The existing local certificate and Xcode-managed development profile were sufficient.
 
-The exact installation command, also not yet authorized, is:
+The exact installation retry command, after the phone is unlocked and awake, is:
 
 ```sh
 xcrun devicectl device install app \
   --device B8F36805-35EE-5AC8-B9A7-4944062B98F7 \
-  /Users/matthewballou/SideProjects/SF/project/artifacts/buff_targeting_loop5_device/DerivedData/Build/Products/Debug-iphoneos/SwarmfrontLoop5.app
+  /Users/matthewballou/SideProjects/SF/project/artifacts/buff_targeting_loop5_device/b0b6880eb1c6ca1841e148fca06f97a9d7bb5345/SignedDerivedData/Build/Products/Debug-iphoneos/SwarmfrontLoop5.app
 ```
 
 Launch a production-component evidence role with:
