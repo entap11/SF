@@ -7,6 +7,7 @@ extends RefCounted
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
+const AuthoritativeBuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
 
 const SWARM_SPEED_MULT := 2.0
 const SWARM_MAX_START := 5
@@ -124,6 +125,7 @@ func _spawn_swarm(src_id: int, dst_id: int) -> void:
 		"to_id": dst_id,
 		"owner_id": owner_id,
 		"count": start_count,
+		"damage_multiplier": AuthoritativeBuffSystem.manual_swarm_damage_multiplier(state, owner_id),
 		"dir": dir,
 		"t": t,
 		"from_pos": a_edge,
@@ -268,6 +270,7 @@ func _apply_swarm_arrival(packet: Dictionary, unit_system: UnitSystem) -> void:
 			"to_id": dst_id,
 			"owner_id": int(packet.get("owner_id", -1)),
 			"amount": count,
+			"impact_strength_override": count * maxi(1, int(packet.get("damage_multiplier", 1))),
 			"lane_id": int(packet.get("lane_id", -1)),
 			"a_id": int(packet.get("a_id", -1)),
 			"b_id": int(packet.get("b_id", -1)),

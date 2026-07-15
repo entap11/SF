@@ -12,6 +12,7 @@ const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
+const AuthoritativeBuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
 
 const BASE_MS := SimTuning.BASE_SPAWN_MS
 const PER_POWER_MS := SimTuning.PER_POWER_MS
@@ -360,6 +361,7 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		"to_pos": b_pos,
 		"pos": pos
 	}
+	unit = AuthoritativeBuffSystem.stamp_ordinary_unit(state, unit)
 	unit_id_counter += 1
 	_telemetry_record_unit_produced(int(from_hive.owner_id), int(unit.get("amount", 1)), "lane")
 	if SFLog.verbose_sim:
@@ -385,9 +387,9 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 func _update_units(dt: float) -> void:
 	if units.is_empty():
 		return
-	var delta_px := float(SimTuning.UNIT_SPEED_PX_PER_SEC) * dt
 	for i in range(units.size()):
 		var unit: Dictionary = units[i] as Dictionary
+		var delta_px: float = float(SimTuning.UNIT_SPEED_PX_PER_SEC) * dt * (float(int(unit.get("speed_permille", 1000))) / 1000.0)
 		unit = _ensure_unit_edges(unit)
 		var dir := _unit_dir(unit)
 		var lane_len := _unit_lane_len(unit)
@@ -457,13 +459,16 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 				break
 			var a_owner := int(a.get("owner_id", 0))
 			var b_owner := int(b.get("owner_id", 0))
+			a = _ensure_combat_cohorts(a)
+			b = _ensure_combat_cohorts(b)
 			var a_amt: int = int(a.get("amount", 0))
 			var b_amt: int = int(b.get("amount", 0))
 			var collision_t := clampf((a_t + b_t) * 0.5, 0.0, 1.0)
 			if _are_allied_owners(a_owner, b_owner):
 				var keep_ab := a_t >= (1.0 - b_t)
 				if keep_ab:
-					a_amt += b_amt
+					a = _merge_combat_cohorts(a, b)
+					a_amt = int(a.get("amount", 0))
 					_adjust_lane_pressure(int(lane_id), true, b_amt)
 					_adjust_lane_pressure(int(lane_id), false, -b_amt)
 					a["amount"] = a_amt
@@ -475,7 +480,8 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 					if debug_collisions:
 						SFLog.info("UNIT_MERGE", {"lane_id": lane_id, "keep": "ab", "amount": a_amt})
 				else:
-					b_amt += a_amt
+					b = _merge_combat_cohorts(b, a)
+					b_amt = int(b.get("amount", 0))
 					_adjust_lane_pressure(int(lane_id), true, -a_amt)
 					_adjust_lane_pressure(int(lane_id), false, a_amt)
 					b["amount"] = b_amt
@@ -489,17 +495,21 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 				continue
 			var a_before := a_amt
 			var b_before := b_amt
-			var kill: int = min(a_amt, b_amt)
-			a_amt -= kill
-			b_amt -= kill
-			if kill > 0:
+			a = _apply_cohort_damage(a, b_before)
+			b = _apply_cohort_damage(b, a_before)
+			a_amt = int(a.get("amount", 0))
+			b_amt = int(b.get("amount", 0))
+			var a_lost: int = a_before - a_amt
+			var b_lost: int = b_before - b_amt
+			var kill: int = maxi(a_lost, b_lost)
+			if a_lost > 0 or b_lost > 0:
 				_record_lane_visual_impact(int(lane_id), collision_t)
-				_adjust_lane_pressure(int(lane_id), true, -kill)
-				_adjust_lane_pressure(int(lane_id), false, -kill)
+				_adjust_lane_pressure(int(lane_id), true, -a_lost)
+				_adjust_lane_pressure(int(lane_id), false, -b_lost)
 				var ops_state: Node = _ops_state()
 				if ops_state != null:
-					ops_state.call("add_units_killed", a_owner, kill)
-					ops_state.call("add_units_killed", b_owner, kill)
+					ops_state.call("add_units_killed", a_owner, b_lost)
+					ops_state.call("add_units_killed", b_owner, a_lost)
 				_telemetry_record_collision(
 					int(round(float(now_us) / 1000.0)),
 					int(lane_id),
@@ -508,7 +518,7 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 					b_before,
 					a_owner,
 					b_owner,
-					kill
+					mini(a_lost, b_lost)
 				)
 			a["amount"] = a_amt
 			b["amount"] = b_amt
@@ -625,6 +635,58 @@ func _unit_dir(unit: Dictionary) -> int:
 	if from_id > 0 and a_id > 0 and b_id > 0:
 		return 1 if from_id == a_id else -1
 	return 1
+
+func _ensure_combat_cohorts(unit: Dictionary) -> Dictionary:
+	var amount: int = maxi(0, int(unit.get("amount", 0)))
+	if not unit.has("ordinary_count") and not unit.has("enhanced_full_count") and not unit.has("enhanced_spent_count"):
+		unit["ordinary_count"] = amount
+		unit["enhanced_full_count"] = 0
+		unit["enhanced_spent_count"] = 0
+		return unit
+	var ordinary: int = maxi(0, int(unit.get("ordinary_count", 0)))
+	var enhanced_full: int = maxi(0, int(unit.get("enhanced_full_count", 0)))
+	var enhanced_spent: int = maxi(0, int(unit.get("enhanced_spent_count", 0)))
+	var cohort_amount: int = ordinary + enhanced_full + enhanced_spent
+	if cohort_amount < amount:
+		ordinary += amount - cohort_amount
+	unit["ordinary_count"] = ordinary
+	unit["enhanced_full_count"] = enhanced_full
+	unit["enhanced_spent_count"] = enhanced_spent
+	unit["amount"] = ordinary + enhanced_full + enhanced_spent
+	return unit
+
+func _merge_combat_cohorts(keep: Dictionary, incoming: Dictionary) -> Dictionary:
+	keep = _ensure_combat_cohorts(keep)
+	incoming = _ensure_combat_cohorts(incoming)
+	for key in ["ordinary_count", "enhanced_full_count", "enhanced_spent_count"]:
+		keep[key] = int(keep.get(key, 0)) + int(incoming.get(key, 0))
+	keep["amount"] = int(keep.get("ordinary_count", 0)) + int(keep.get("enhanced_full_count", 0)) + int(keep.get("enhanced_spent_count", 0))
+	keep["speed_permille"] = mini(int(keep.get("speed_permille", 1000)), int(incoming.get("speed_permille", 1000)))
+	return keep
+
+func _apply_cohort_damage(unit: Dictionary, incoming_hits: int) -> Dictionary:
+	unit = _ensure_combat_cohorts(unit)
+	var damage: int = maxi(0, incoming_hits)
+	var ordinary: int = int(unit.get("ordinary_count", 0))
+	var enhanced_full: int = int(unit.get("enhanced_full_count", 0))
+	var enhanced_spent: int = int(unit.get("enhanced_spent_count", 0))
+	var removed: int = mini(damage, ordinary)
+	ordinary -= removed
+	damage -= removed
+	removed = mini(damage, enhanced_spent)
+	enhanced_spent -= removed
+	damage -= removed
+	var degraded: int = mini(damage, enhanced_full)
+	enhanced_full -= degraded
+	enhanced_spent += degraded
+	damage -= degraded
+	removed = mini(damage, enhanced_spent)
+	enhanced_spent -= removed
+	unit["ordinary_count"] = ordinary
+	unit["enhanced_full_count"] = enhanced_full
+	unit["enhanced_spent_count"] = enhanced_spent
+	unit["amount"] = ordinary + enhanced_full + enhanced_spent
+	return unit
 
 func _unit_lane_len(unit: Dictionary) -> float:
 	var from_pos_v: Variant = unit.get("from_pos")
@@ -816,7 +878,10 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		})
 		return
 	_in_owner_update = true
+	unit = _ensure_combat_cohorts(unit)
 	var amount: int = int(unit.get("amount", 1))
+	var cohort_impact: int = int(unit.get("ordinary_count", amount)) + int(unit.get("enhanced_full_count", 0)) * 2 + int(unit.get("enhanced_spent_count", 0))
+	var impact_amount: int = maxi(0, int(unit.get("impact_strength_override", cohort_impact)))
 	var skip_pressure := bool(unit.get("skip_pressure", false))
 	if amount > 0 and not skip_pressure:
 		var from_is_a := _unit_dir(unit) >= 0
@@ -868,14 +933,14 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 				if before_power_same_owner >= SimTuning.MAX_POWER and arrive_source != "recall":
 					_pass_through_arrival(hive, pass_owner, amount)
 	else:
-		var applied_damage: int = mini(maxi(0, before_power), maxi(0, amount))
+		var applied_damage: int = mini(maxi(0, before_power), maxi(0, impact_amount))
 		if before_owner > 0 and applied_damage > 0 and arrive_source != "recall" and state.has_method("mark_hive_attacked_for_passive_suppression"):
 			state.call("mark_hive_attacked_for_passive_suppression", int(hive.id))
-		hive.power -= amount
+		hive.power -= impact_amount
 		if owner_id > 0 and before_owner > 0 and applied_damage > 0:
 			_telemetry_record_hive_damage(owner_id, before_owner, applied_damage)
 		if hive.power <= 0:
-			var capture_power: int = maxi(SimTuning.CAPTURE_START_POWER, amount - maxi(0, before_power))
+			var capture_power: int = maxi(SimTuning.CAPTURE_START_POWER, impact_amount - maxi(0, before_power))
 			hive.owner_id = owner_id
 			hive.power = clampi(capture_power, 1, SimTuning.MAX_POWER)
 			_mark_contested_capture_if_needed(int(hive.id), owner_id, before_owner)
@@ -1801,6 +1866,11 @@ func spawn_unit(unit: Dictionary) -> bool:
 		_next_external_unit_id += 1
 	if not unit.has("amount") or int(unit.get("amount", 0)) <= 0:
 		unit["amount"] = 1
+	var production_source: String = str(unit.get("arrive_source", "lane")).strip_edges().to_lower()
+	if production_source == "":
+		production_source = "lane"
+	if production_source == "lane":
+		unit = AuthoritativeBuffSystem.stamp_ordinary_unit(state, unit)
 	var dir := _unit_dir(unit)
 	if not unit.has("t"):
 		unit["t"] = 0.0 if dir >= 0 else 1.0
@@ -1813,9 +1883,6 @@ func spawn_unit(unit: Dictionary) -> bool:
 	var movement_start_usec := Time.get_ticks_usec()
 	unit = _update_unit_pos_from_t(unit)
 	_unit_flow_profile_add_stage("unit_spawn_issue_movement_update", movement_start_usec)
-	var production_source: String = str(unit.get("arrive_source", "lane")).strip_edges().to_lower()
-	if production_source == "":
-		production_source = "lane"
 	var telemetry_start_usec := Time.get_ticks_usec()
 	_telemetry_record_unit_produced(int(unit.get("owner_id", 0)), int(unit.get("amount", 1)), production_source)
 	_unit_flow_profile_add_stage("unit_spawn_telemetry", telemetry_start_usec)

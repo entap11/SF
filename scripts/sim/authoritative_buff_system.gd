@@ -90,10 +90,11 @@ static func activate(state: GameState, command: Dictionary) -> Dictionary:
 	}, true)
 	return _remember_outcome(state, outcome_key, outcome)
 
-static func tick(state: GameState) -> Array[Dictionary]:
+static func tick(state: GameState, evaluation_tick: int = -1) -> Array[Dictionary]:
 	var events: Array[Dictionary] = []
 	if state == null or state.buff_effects_by_activation_id.is_empty():
 		return events
+	var at_tick: int = int(state.tick) if evaluation_tick < 0 else evaluation_tick
 	var activation_ids: Array = state.buff_effects_by_activation_id.keys()
 	activation_ids.sort()
 	for activation_any in activation_ids:
@@ -104,10 +105,10 @@ static func tick(state: GameState) -> Array[Dictionary]:
 		var effect: Dictionary = effect_any as Dictionary
 		var invalid_reason: String = _target_loss_reason(state, effect)
 		if not invalid_reason.is_empty():
-			events.append(_expire(state, activation_id, invalid_reason, int(state.tick)))
+			events.append(_expire(state, activation_id, invalid_reason, at_tick))
 			continue
-		if int(state.tick) >= int(effect.get("expires_tick", 0)):
-			events.append(_expire(state, activation_id, "timer_expired", int(state.tick)))
+		if at_tick >= int(effect.get("expires_tick", 0)):
+			events.append(_expire(state, activation_id, "timer_expired", at_tick))
 	return events
 
 static func snapshot(state: GameState) -> Dictionary:
@@ -138,6 +139,31 @@ static func active_effect(state: GameState, owner_id: int, buff_id: String) -> D
 		if int(effect.get("owner_id", 0)) == owner_id and str(effect.get("buff_id", "")) == buff_id:
 			return effect
 	return {}
+
+static func manual_swarm_damage_multiplier(state: GameState, owner_id: int) -> int:
+	return 2 if not active_effect(state, owner_id, BuffDefinitions.UNIT_SWARM_DAMAGE).is_empty() else 1
+
+static func stamp_ordinary_unit(state: GameState, unit: Dictionary) -> Dictionary:
+	if state == null:
+		return unit
+	var owner_id: int = int(unit.get("owner_id", 0))
+	var source_hive_id: int = int(unit.get("from_id", -1))
+	var amount: int = maxi(1, int(unit.get("amount", 1)))
+	unit["ordinary_count"] = amount
+	unit["enhanced_full_count"] = 0
+	unit["enhanced_spent_count"] = 0
+	unit["speed_permille"] = 1000
+	var source_hive: HiveData = state.find_hive_by_id(source_hive_id)
+	if source_hive == null or int(source_hive.owner_id) != owner_id:
+		return unit
+	var speed_effect: Dictionary = active_effect(state, owner_id, BuffDefinitions.UNIT_SPEED)
+	if not speed_effect.is_empty() and int(speed_effect.get("target_id", -1)) == source_hive_id:
+		unit["speed_permille"] = 1250
+	var impact_effect: Dictionary = active_effect(state, owner_id, BuffDefinitions.UNIT_HIVE_IMPACT_DAMAGE)
+	if not impact_effect.is_empty():
+		unit["ordinary_count"] = 0
+		unit["enhanced_full_count"] = amount
+	return unit
 
 static func _identity(requested_id: String) -> Dictionary:
 	var clean_id: String = requested_id.strip_edges()

@@ -492,13 +492,13 @@ func _tick_systems(dt: float) -> void:
 		if bot_system != null and bot_system.has_method("tick"):
 			bot_system.call("tick", dt)
 	)
+	_timed_phase("buff_effects", func() -> void:
+		OpsState.tick_authoritative_buff_effects(int(state_ref.tick) + 1)
+	)
 	_timed_phase("lane_flow", func() -> void:
 		state_ref.tick_lane_flow(dt * 1000.0)
 		if lane_system != null:
 			lane_system.tick_lane_fronts(dt)
-	)
-	_timed_phase("buff_effects", func() -> void:
-		OpsState.tick_authoritative_buff_effects()
 	)
 	_timed_phase("edge_cache", func() -> void:
 		if edge_cache_system != null:

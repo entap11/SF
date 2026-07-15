@@ -366,12 +366,12 @@ func apply_authoritative_buff_command(command: Dictionary) -> Dictionary:
 	)
 	return (result_holder.get("outcome", {}) as Dictionary).duplicate(true)
 
-func tick_authoritative_buff_effects() -> Array[Dictionary]:
+func tick_authoritative_buff_effects(evaluation_tick: int = -1) -> Array[Dictionary]:
 	if state == null:
 		return []
 	var result_holder: Dictionary = {"events": []}
 	sim_mutate("authoritative_buff_tick", func() -> void:
-		result_holder["events"] = AuthoritativeBuffSystem.tick(state)
+		result_holder["events"] = AuthoritativeBuffSystem.tick(state, evaluation_tick)
 	)
 	var events: Array[Dictionary] = []
 	var events_any: Variant = result_holder.get("events", [])
@@ -885,7 +885,7 @@ func _build_contract_state_signature() -> String:
 			var unit_id: int = int(unit.get("id", -1))
 			unit_rows.append([
 				unit_id,
-				"u:%d:%d:%d:%d:%d:%d:%d:%d" % [
+				"u:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
 					unit_id,
 					int(unit.get("lane_id", -1)),
 					int(unit.get("owner_id", 0)),
@@ -893,7 +893,12 @@ func _build_contract_state_signature() -> String:
 					int(unit.get("to_id", -1)),
 					int(unit.get("dir", 0)),
 					int(unit.get("amount", 0)),
-					_round_contract_float(float(unit.get("t", 0.0)))
+					_round_contract_float(float(unit.get("t", 0.0))),
+					int(unit.get("ordinary_count", unit.get("amount", 0))),
+					int(unit.get("enhanced_full_count", 0)),
+					int(unit.get("enhanced_spent_count", 0)),
+					int(unit.get("speed_permille", 1000)),
+					int(unit.get("impact_strength_override", 0))
 				]
 			])
 	unit_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
@@ -917,14 +922,15 @@ func _build_contract_state_signature() -> String:
 		var swarm_id: int = int(swarm.get("id", -1))
 		swarm_rows.append([
 			swarm_id,
-			"s:%d:%d:%d:%d:%d:%d:%d" % [
+			"s:%d:%d:%d:%d:%d:%d:%d:%d" % [
 				swarm_id,
 				int(swarm.get("lane_id", -1)),
 				int(swarm.get("owner_id", 0)),
 				int(swarm.get("from_id", -1)),
 				int(swarm.get("to_id", -1)),
 				int(swarm.get("count", 0)),
-				_round_contract_float(float(swarm.get("t", 0.0)))
+				_round_contract_float(float(swarm.get("t", 0.0))),
+				int(swarm.get("damage_multiplier", 1))
 			]
 		])
 	swarm_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
