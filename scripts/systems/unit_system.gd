@@ -13,6 +13,7 @@ const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const AuthoritativeBuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
+const BuffDefinitions := preload("res://scripts/state/buff_definitions.gd")
 
 const BASE_MS := SimTuning.BASE_SPAWN_MS
 const PER_POWER_MS := SimTuning.PER_POWER_MS
@@ -36,6 +37,7 @@ const ARRIVE_EPS_T: float = 0.995
 const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 const CONTESTED_CAPTURE_BLOCK_US: int = 3000000
+const TREACHEROUS_CLEARANCE_PX: float = 15.0
 
 var state: GameState = null
 var units: Array = []
@@ -368,6 +370,7 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		"pos": pos
 	}
 	unit = AuthoritativeBuffSystem.stamp_ordinary_unit(state, unit)
+	unit = _stamp_new_treacherous_unit(unit)
 	unit_id_counter += 1
 	_telemetry_record_unit_produced(int(from_hive.owner_id), int(unit.get("amount", 1)), "lane")
 	if SFLog.verbose_sim:
@@ -403,11 +406,87 @@ func _update_units(dt: float) -> void:
 		if lane_len <= 0.001:
 			units[i] = unit
 			continue
+		if _unit_is_frozen(unit):
+			units[i] = unit
+			continue
+		if bool(unit.get("treacherous_pending", false)):
+			var clearance_remaining: float = maxf(0.0, float(unit.get("treacherous_clearance_remaining_px", TREACHEROUS_CLEARANCE_PX)))
+			var clearance_step: float = minf(delta_px, clearance_remaining)
+			var clearance_t: float = clearance_step / lane_len
+			unit["t"] = clampf(float(unit.get("t", 0.0)) + (float(dir) * clearance_t), 0.0, 1.0)
+			clearance_remaining = maxf(0.0, clearance_remaining - clearance_step)
+			unit["treacherous_clearance_remaining_px"] = clearance_remaining
+			if clearance_remaining <= 0.0001:
+				unit = _commit_treacherous_turn(unit)
+			unit = _update_unit_pos_from_t(unit)
+			units[i] = unit
+			continue
 		var delta_t := delta_px / lane_len
 		var t := clampf(float(unit.get("t", 0.0)) + (float(dir) * delta_t), 0.0, 1.0)
 		unit["t"] = t
 		unit = _update_unit_pos_from_t(unit)
 		units[i] = unit
+
+func _unit_is_frozen(unit: Dictionary) -> bool:
+	if state == null:
+		return false
+	var lane_id: int = int(unit.get("lane_id", -1))
+	var unit_owner_id: int = int(unit.get("owner_id", 0))
+	for effect in AuthoritativeBuffSystem.active_lane_effects(state, BuffDefinitions.LANE_FREEZE, lane_id):
+		if not _are_allied_owners(int(effect.get("owner_id", 0)), unit_owner_id):
+			return true
+	return false
+
+func apply_treacherous_activation(activating_owner_id: int, lane_id: int, activation_id: String) -> int:
+	var turned_units: int = 0
+	for index in range(units.size()):
+		var unit: Dictionary = units[index] as Dictionary
+		if int(unit.get("lane_id", -1)) != lane_id:
+			continue
+		if _are_allied_owners(activating_owner_id, int(unit.get("owner_id", 0))):
+			continue
+		if bool(unit.get("treacherous_committed", false)):
+			continue
+		unit["treacherous_activation_id"] = activation_id
+		unit["treacherous_origin_hive_id"] = int(unit.get("from_id", -1))
+		unit = _commit_treacherous_turn(unit)
+		units[index] = unit
+		turned_units += maxi(1, int(unit.get("amount", 1)))
+	if turned_units > 0:
+		_sync_units_to_state()
+	return turned_units
+
+func _stamp_new_treacherous_unit(unit: Dictionary) -> Dictionary:
+	if state == null or str(unit.get("arrive_source", "lane")).strip_edges().to_lower() != "lane":
+		return unit
+	var lane_id: int = int(unit.get("lane_id", -1))
+	var unit_owner_id: int = int(unit.get("owner_id", 0))
+	for effect in AuthoritativeBuffSystem.active_lane_effects(state, BuffDefinitions.LANE_TREACHEROUS, lane_id):
+		if _are_allied_owners(int(effect.get("owner_id", 0)), unit_owner_id):
+			continue
+		unit["treacherous_activation_id"] = str(effect.get("activation_id", ""))
+		unit["treacherous_origin_hive_id"] = int(unit.get("from_id", -1))
+		unit["treacherous_pending"] = true
+		unit["treacherous_committed"] = false
+		unit["treacherous_clearance_remaining_px"] = TREACHEROUS_CLEARANCE_PX
+		break
+	return unit
+
+func _commit_treacherous_turn(unit: Dictionary) -> Dictionary:
+	var old_dir: int = _unit_dir(unit)
+	var amount: int = maxi(0, int(unit.get("amount", 1)))
+	var old_from_id: int = int(unit.get("from_id", -1))
+	var old_to_id: int = int(unit.get("to_id", -1))
+	unit["from_id"] = old_to_id
+	unit["to_id"] = int(unit.get("treacherous_origin_hive_id", old_from_id))
+	unit["dir"] = -old_dir
+	unit["treacherous_pending"] = false
+	unit["treacherous_committed"] = true
+	unit["treacherous_clearance_remaining_px"] = 0.0
+	if amount > 0:
+		_adjust_lane_pressure(int(unit.get("lane_id", -1)), old_dir >= 0, -amount)
+		_adjust_lane_pressure(int(unit.get("lane_id", -1)), old_dir < 0, amount)
+	return unit
 
 func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 	if units.is_empty():
@@ -895,7 +974,8 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		_adjust_lane_pressure(int(unit.get("lane_id", -1)), from_is_a, -amount)
 	var before_owner := int(hive.owner_id)
 	var before_power := int(hive.power)
-	var friendly_arrival: bool = _are_allied_owners(before_owner, owner_id)
+	var treacherous_arrival: bool = bool(unit.get("treacherous_committed", false)) and int(unit.get("treacherous_origin_hive_id", -1)) == to_id
+	var friendly_arrival: bool = _are_allied_owners(before_owner, owner_id) and not treacherous_arrival
 	var shielded_enemy_arrival: bool = not friendly_arrival and before_owner > 0 and AuthoritativeBuffSystem.hive_is_shielded(state, before_owner, to_id)
 	if owner_id > 0:
 		var arrival_key: String = "%d:%d" % [to_id, owner_id]
@@ -947,7 +1027,9 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		hive.power -= impact_amount
 		if owner_id > 0 and before_owner > 0 and applied_damage > 0:
 			_telemetry_record_hive_damage(owner_id, before_owner, applied_damage)
-		if hive.power <= 0:
+		if hive.power <= 0 and treacherous_arrival and _are_allied_owners(before_owner, owner_id):
+			hive.power = 1
+		elif hive.power <= 0:
 			var capture_power: int = maxi(SimTuning.CAPTURE_START_POWER, impact_amount - maxi(0, before_power))
 			hive.owner_id = owner_id
 			hive.power = clampi(capture_power, 1, SimTuning.MAX_POWER)
@@ -1879,6 +1961,7 @@ func spawn_unit(unit: Dictionary, bypass_capacity: bool = false) -> bool:
 		production_source = "lane"
 	if production_source == "lane":
 		unit = AuthoritativeBuffSystem.stamp_ordinary_unit(state, unit)
+		unit = _stamp_new_treacherous_unit(unit)
 	var dir := _unit_dir(unit)
 	if not unit.has("t"):
 		unit["t"] = 0.0 if dir >= 0 else 1.0

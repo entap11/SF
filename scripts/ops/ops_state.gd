@@ -887,7 +887,7 @@ func _build_contract_state_signature() -> String:
 			var unit_id: int = int(unit.get("id", -1))
 			unit_rows.append([
 				unit_id,
-				"u:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
+				"u:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%s" % [
 					unit_id,
 					int(unit.get("lane_id", -1)),
 					int(unit.get("owner_id", 0)),
@@ -900,7 +900,12 @@ func _build_contract_state_signature() -> String:
 					int(unit.get("enhanced_full_count", 0)),
 					int(unit.get("enhanced_spent_count", 0)),
 					int(unit.get("speed_permille", 1000)),
-					int(unit.get("impact_strength_override", 0))
+					int(unit.get("impact_strength_override", 0)),
+					1 if bool(unit.get("treacherous_pending", false)) else 0,
+					1 if bool(unit.get("treacherous_committed", false)) else 0,
+					int(unit.get("treacherous_origin_hive_id", -1)),
+					_round_contract_float(float(unit.get("treacherous_clearance_remaining_px", 0.0))),
+					str(unit.get("treacherous_activation_id", ""))
 				]
 			])
 	unit_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))

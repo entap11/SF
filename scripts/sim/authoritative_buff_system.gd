@@ -80,6 +80,7 @@ static func activate(state: GameState, command: Dictionary) -> Dictionary:
 	state.buff_effects_by_activation_id[activation_id] = effect
 	state.buff_active_by_owner_category[category_key] = activation_id
 	state.buff_chill_until_tick_by_owner[owner_id] = current_tick + int(round(BuffDefinitions.BUFF_CHILL_SECONDS * float(TICKS_PER_SECOND)))
+	_apply_activation_side_effects(state, effect)
 	var outcome: Dictionary = _base_outcome(command)
 	outcome.merge({
 		"ok": true,
@@ -144,6 +145,21 @@ static func active_effect(state: GameState, owner_id: int, buff_id: String) -> D
 		if int(effect.get("owner_id", 0)) == owner_id and str(effect.get("buff_id", "")) == buff_id:
 			return effect
 	return {}
+
+static func active_lane_effects(state: GameState, buff_id: String, lane_id: int) -> Array[Dictionary]:
+	var matches: Array[Dictionary] = []
+	if state == null:
+		return matches
+	var activation_ids: Array = state.buff_effects_by_activation_id.keys()
+	activation_ids.sort()
+	for activation_id_any in activation_ids:
+		var effect_any: Variant = state.buff_effects_by_activation_id.get(activation_id_any, {})
+		if typeof(effect_any) != TYPE_DICTIONARY:
+			continue
+		var effect: Dictionary = effect_any as Dictionary
+		if str(effect.get("buff_id", "")) == buff_id and int(effect.get("target_id", -1)) == lane_id:
+			matches.append(effect)
+	return matches
 
 static func manual_swarm_damage_multiplier(state: GameState, owner_id: int) -> int:
 	return 2 if not active_effect(state, owner_id, BuffDefinitions.UNIT_SWARM_DAMAGE).is_empty() else 1
@@ -226,6 +242,18 @@ static func _identity(requested_id: String) -> Dictionary:
 	if not BuffDefinitions.has_definition(canonical_id):
 		return {"ok": false, "reason": "unknown_buff"}
 	return {"ok": true, "canonical_id": canonical_id}
+
+static func _apply_activation_side_effects(state: GameState, effect: Dictionary) -> void:
+	if str(effect.get("buff_id", "")) != BuffDefinitions.LANE_TREACHEROUS:
+		return
+	var unit_system: Object = state.unit_system
+	if unit_system != null and unit_system.has_method("apply_treacherous_activation"):
+		unit_system.call(
+			"apply_treacherous_activation",
+			int(effect.get("owner_id", 0)),
+			int(effect.get("target_id", -1)),
+			str(effect.get("activation_id", ""))
+		)
 
 static func _resolve_target(state: GameState, owner_id: int, buff_id: String, target_type: String, target_id_any: Variant) -> Dictionary:
 	if target_type == TARGET_GLOBAL:
