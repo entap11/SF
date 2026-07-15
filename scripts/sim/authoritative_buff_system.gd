@@ -72,6 +72,7 @@ static func activate(state: GameState, command: Dictionary) -> Dictionary:
 		"duration_ticks": duration_ticks,
 		"source_slot_index": int(command.get("source_slot_index", -1)),
 		"queued_units": 0,
+		"queued_cohorts": [],
 		"status": "active"
 	}
 	var category_key: String = _category_key(owner_id, category)
@@ -147,7 +148,7 @@ static func active_effect(state: GameState, owner_id: int, buff_id: String) -> D
 			return effect
 	return {}
 
-static func active_lane_effects(state: GameState, buff_id: String, lane_id: int) -> Array[Dictionary]:
+static func active_lane_effects(state: GameState, buff_id: String, lane_id: int, lane_generation: int = 0) -> Array[Dictionary]:
 	var matches: Array[Dictionary] = []
 	if state == null:
 		return matches
@@ -158,7 +159,9 @@ static func active_lane_effects(state: GameState, buff_id: String, lane_id: int)
 		if typeof(effect_any) != TYPE_DICTIONARY:
 			continue
 		var effect: Dictionary = effect_any as Dictionary
-		if str(effect.get("buff_id", "")) == buff_id and int(effect.get("target_id", -1)) == lane_id:
+		var target: Dictionary = effect.get("target", {}) as Dictionary
+		var generation_matches: bool = lane_generation <= 0 or int(target.get("lane_generation", 0)) == lane_generation
+		if str(effect.get("buff_id", "")) == buff_id and int(effect.get("target_id", -1)) == lane_id and generation_matches:
 			matches.append(effect)
 	return matches
 
@@ -171,6 +174,9 @@ static func stamp_ordinary_unit(state: GameState, unit: Dictionary) -> Dictionar
 	var owner_id: int = int(unit.get("owner_id", 0))
 	var source_hive_id: int = int(unit.get("from_id", -1))
 	var amount: int = maxi(1, int(unit.get("amount", 1)))
+	unit["original_owner_id"] = int(unit.get("original_owner_id", owner_id))
+	unit["combat_allegiance_id"] = int(unit.get("combat_allegiance_id", owner_id))
+	unit["allegiance_mode"] = str(unit.get("allegiance_mode", "normal"))
 	unit["ordinary_count"] = amount
 	unit["enhanced_full_count"] = 0
 	unit["enhanced_spent_count"] = 0
@@ -216,26 +222,76 @@ static func hive_is_shock_immune(state: GameState, owner_id: int, hive_id: int) 
 	var global: Dictionary = active_effect(state, owner_id, BuffDefinitions.HIVE_GLOBAL_SHOCK_IMMUNITY)
 	return not global.is_empty() and (global.get("scoped_hive_ids", []) as Array).has(hive_id)
 
-static func notify_ordinary_unit_produced(state: GameState, unit: Dictionary) -> void:
-	if state == null or str(unit.get("arrive_source", "lane")).strip_edges().to_lower() != "lane":
+static func notify_production_event(state: GameState, event: Dictionary, unit: Dictionary) -> void:
+	if state == null:
 		return
-	var owner_id: int = int(unit.get("owner_id", 0))
+	if str(event.get("producer_kind", "")) != "hive" or str(event.get("spawn_reason", "")) != "normal_production":
+		return
+	var owner_id: int = int(event.get("owner_id", 0))
 	var effect: Dictionary = active_effect(state, owner_id, BuffDefinitions.HIVE_SUPERCHARGE_QUEUE)
 	if effect.is_empty():
 		return
 	var target: Dictionary = effect.get("target", {}) as Dictionary
-	if int(effect.get("target_id", -1)) != int(unit.get("lane_id", -1)):
+	if int(effect.get("target_id", -1)) != int(event.get("directed_lane_id", -1)):
 		return
-	if int(target.get("source_hive_id", -1)) != int(unit.get("from_id", -1)):
+	if int(target.get("lane_generation", 0)) != int(event.get("lane_generation", 0)):
+		return
+	if int(target.get("source_hive_id", -1)) != int(event.get("source_hive_id", -1)):
 		return
 	if int(target.get("destination_hive_id", -1)) != int(unit.get("to_id", -1)):
 		return
 	var activation_id: String = str(effect.get("activation_id", ""))
-	effect["queued_units"] = mini(
-		MAX_SUPERCHARGE_QUEUE_UNITS,
-		int(effect.get("queued_units", 0)) + maxi(1, int(unit.get("amount", 1)))
-	)
+	var queued_units: int = int(effect.get("queued_units", 0))
+	var room: int = maxi(0, MAX_SUPERCHARGE_QUEUE_UNITS - queued_units)
+	var runs: Array[Dictionary] = _inheritable_cohort_runs(unit, mini(room, maxi(1, int(event.get("unit_count", 1)))))
+	var queued_cohorts: Array = effect.get("queued_cohorts", []) as Array
+	for run in runs:
+		if int(run.get("count", 0)) <= 0:
+			continue
+		if not queued_cohorts.is_empty() and _cohort_stamp_equal(queued_cohorts[queued_cohorts.size() - 1] as Dictionary, run):
+			var last: Dictionary = queued_cohorts[queued_cohorts.size() - 1] as Dictionary
+			last["count"] = int(last.get("count", 0)) + int(run.get("count", 0))
+			queued_cohorts[queued_cohorts.size() - 1] = last
+		else:
+			queued_cohorts.append(run)
+		queued_units += int(run.get("count", 0))
+	effect["queued_units"] = queued_units
+	effect["queued_cohorts"] = queued_cohorts
 	state.buff_effects_by_activation_id[activation_id] = effect
+
+static func notify_ordinary_unit_produced(state: GameState, unit: Dictionary) -> void:
+	# Compatibility boundary for older callers. New production must use the
+	# transient ProductionEventSystem so event identity remains deterministic.
+	notify_production_event(state, {
+		"producer_kind": "hive",
+		"spawn_reason": "normal_production",
+		"source_hive_id": int(unit.get("from_id", -1)),
+		"directed_lane_id": int(unit.get("lane_id", -1)),
+		"lane_generation": int(unit.get("lane_generation", 0)),
+		"owner_id": int(unit.get("owner_id", 0)),
+		"unit_count": maxi(1, int(unit.get("amount", 1)))
+	}, unit)
+
+static func _inheritable_cohort_runs(unit: Dictionary, max_count: int) -> Array[Dictionary]:
+	var runs: Array[Dictionary] = []
+	var remaining: int = maxi(0, max_count)
+	var speed_permille: int = int(unit.get("speed_permille", 1000))
+	for cohort_type in ["ordinary", "enhanced_full", "enhanced_spent"]:
+		if remaining <= 0:
+			break
+		var field: String = "%s_count" % cohort_type
+		var count: int = mini(remaining, maxi(0, int(unit.get(field, 0))))
+		if count <= 0:
+			continue
+		runs.append({"count": count, "speed_permille": speed_permille, "cohort_type": cohort_type})
+		remaining -= count
+	if remaining > 0:
+		runs.append({"count": remaining, "speed_permille": speed_permille, "cohort_type": "ordinary"})
+	return runs
+
+static func _cohort_stamp_equal(a: Dictionary, b: Dictionary) -> bool:
+	return int(a.get("speed_permille", 1000)) == int(b.get("speed_permille", 1000)) \
+		and str(a.get("cohort_type", "ordinary")) == str(b.get("cohort_type", "ordinary"))
 
 static func _identity(requested_id: String) -> Dictionary:
 	var clean_id: String = requested_id.strip_edges()
@@ -256,7 +312,8 @@ static func _apply_activation_side_effects(state: GameState, effect: Dictionary)
 			"apply_treacherous_activation",
 			int(effect.get("owner_id", 0)),
 			int(effect.get("target_id", -1)),
-			str(effect.get("activation_id", ""))
+			str(effect.get("activation_id", "")),
+			int((effect.get("target", {}) as Dictionary).get("lane_generation", 0))
 		)
 
 static func _resolve_target(state: GameState, owner_id: int, buff_id: String, target_type: String, target_id_any: Variant) -> Dictionary:
@@ -280,7 +337,9 @@ static func _resolve_target(state: GameState, owner_id: int, buff_id: String, ta
 		var lane: LaneData = _lane_by_id(state, lane_id)
 		if lane == null or not _lane_active(lane):
 			return {"ok": false, "reason": "target_ineligible"}
-		var target: Dictionary = {"kind": "lane", "lane_id": lane_id, "a_id": int(lane.a_id), "b_id": int(lane.b_id)}
+		if int(lane.generation) <= 0:
+			lane.generation = state.allocate_lane_generation()
+		var target: Dictionary = {"kind": "lane", "lane_id": lane_id, "lane_generation": int(lane.generation), "a_id": int(lane.a_id), "b_id": int(lane.b_id)}
 		if buff_id == BuffDefinitions.HIVE_SUPERCHARGE_QUEUE:
 			var source: Dictionary = _supercharge_source(state, lane, owner_id)
 			if not bool(source.get("ok", false)):
@@ -315,8 +374,10 @@ static func _target_loss_reason(state: GameState, effect: Dictionary) -> String:
 		var lane: LaneData = _lane_by_id(state, int(effect.get("target_id", -1)))
 		if lane == null or not _lane_active(lane):
 			return "target_lane_lost"
+		var target: Dictionary = effect.get("target", {}) as Dictionary
+		if int(lane.generation) != int(target.get("lane_generation", 0)):
+			return "target_lane_reconstructed"
 		if str(effect.get("buff_id", "")) == BuffDefinitions.HIVE_SUPERCHARGE_QUEUE:
-			var target: Dictionary = effect.get("target", {}) as Dictionary
 			var source: HiveData = state.find_hive_by_id(int(target.get("source_hive_id", -1)))
 			if source == null or int(source.owner_id) != owner_id:
 				return "source_hive_lost"
@@ -370,14 +431,24 @@ static func _release_supercharge(state: GameState, effect: Dictionary, at_tick: 
 		var destination_pos: Vector2 = state.hive_world_pos_by_id(destination_hive_id)
 		var lane_length: float = maxf(1.0, source_pos.distance_to(destination_pos) - GameState.HIVE_DIAMETER_PX)
 		var spacing_t: float = SUPERCHARGE_TRAIN_SPACING_PX / lane_length
-		for index in range(queued_units):
+		var released_stamps: Array[Dictionary] = []
+		for cohort_any in effect.get("queued_cohorts", []) as Array:
+			var cohort: Dictionary = cohort_any as Dictionary
+			for _count_index in range(maxi(0, int(cohort.get("count", 0)))):
+				released_stamps.append(cohort)
+		while released_stamps.size() < queued_units:
+			released_stamps.append({"speed_permille": 1000, "cohort_type": "ordinary"})
+		for index in range(mini(queued_units, released_stamps.size())):
+			var stamp: Dictionary = released_stamps[index] as Dictionary
 			var progress: float = minf(0.98, float(queued_units - index - 1) * spacing_t)
+			var cohort_type: String = str(stamp.get("cohort_type", "ordinary"))
 			var unit: Dictionary = {
 				"from_id": source_hive_id,
 				"to_id": destination_hive_id,
 				"owner_id": int(effect.get("owner_id", 0)),
 				"amount": 1,
 				"lane_id": int(lane.id),
+				"lane_generation": int(lane.generation),
 				"a_id": int(lane.a_id),
 				"b_id": int(lane.b_id),
 				"dir": 1 if from_is_a else -1,
@@ -385,10 +456,13 @@ static func _release_supercharge(state: GameState, effect: Dictionary, at_tick: 
 				"arrive_source": "supercharge_release",
 				"supercharge_activation_id": str(effect.get("activation_id", "")),
 				"supercharge_train_index": index,
-				"speed_permille": 1000,
-				"ordinary_count": 1,
-				"enhanced_full_count": 0,
-				"enhanced_spent_count": 0
+				"speed_permille": int(stamp.get("speed_permille", 1000)),
+				"ordinary_count": 1 if cohort_type == "ordinary" else 0,
+				"enhanced_full_count": 1 if cohort_type == "enhanced_full" else 0,
+				"enhanced_spent_count": 1 if cohort_type == "enhanced_spent" else 0,
+				"original_owner_id": int(effect.get("owner_id", 0)),
+				"combat_allegiance_id": int(effect.get("owner_id", 0)),
+				"allegiance_mode": "normal"
 			}
 			if bool(unit_system.call("spawn_unit", unit, true)):
 				released += 1

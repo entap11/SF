@@ -14,6 +14,7 @@ const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const AuthoritativeBuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
 const BuffDefinitions := preload("res://scripts/state/buff_definitions.gd")
+const ProductionEventSystem := preload("res://scripts/sim/production_event_system.gd")
 
 const BASE_MS := SimTuning.BASE_SPAWN_MS
 const PER_POWER_MS := SimTuning.PER_POWER_MS
@@ -37,7 +38,7 @@ const ARRIVE_EPS_T: float = 0.995
 const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 const CONTESTED_CAPTURE_BLOCK_US: int = 3000000
-const TREACHEROUS_CLEARANCE_PX: float = 15.0
+const TREACHEROUS_CLEARANCE_MILLI_PX: int = 15000
 
 var state: GameState = null
 var units: Array = []
@@ -332,6 +333,8 @@ func _accum_spawn(lane: LaneData, from_is_a: bool, from_hive: HiveData, to_hive:
 func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is_a: bool) -> bool:
 	if state == null:
 		return false
+	if int(lane.generation) <= 0:
+		lane.generation = state.allocate_lane_generation()
 	var a_hive: HiveData = state.find_hive_by_id(int(lane.a_id))
 	var b_hive: HiveData = state.find_hive_by_id(int(lane.b_id))
 	if a_hive == null or b_hive == null:
@@ -360,6 +363,7 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		"owner_id": int(from_hive.owner_id),
 		"amount": 1,
 		"lane_id": int(lane.id),
+		"lane_generation": int(lane.generation),
 		"a_id": int(lane.a_id),
 		"b_id": int(lane.b_id),
 		"lane_key": state.lane_key(int(lane.a_id), int(lane.b_id)),
@@ -367,10 +371,15 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		"t": t,
 		"from_pos": a_pos,
 		"to_pos": b_pos,
-		"pos": pos
+		"pos": pos,
+		"arrive_source": "lane"
 	}
 	unit = AuthoritativeBuffSystem.stamp_ordinary_unit(state, unit)
 	unit = _stamp_new_treacherous_unit(unit)
+	var production_event: Dictionary = ProductionEventSystem.prepare(state, unit, "lane")
+	if not bool(production_event.get("ok", false)):
+		return false
+	ProductionEventSystem.commit(state, production_event, unit)
 	unit_id_counter += 1
 	_telemetry_record_unit_produced(int(from_hive.owner_id), int(unit.get("amount", 1)), "lane")
 	if SFLog.verbose_sim:
@@ -390,7 +399,6 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 		return true
 	_adjust_lane_pressure(int(lane.id), from_is_a, 1)
 	units.append(unit)
-	AuthoritativeBuffSystem.notify_ordinary_unit_produced(state, unit)
 	_sync_units_to_state()
 	return true
 
@@ -410,13 +418,16 @@ func _update_units(dt: float) -> void:
 			units[i] = unit
 			continue
 		if bool(unit.get("treacherous_pending", false)):
-			var clearance_remaining: float = maxf(0.0, float(unit.get("treacherous_clearance_remaining_px", TREACHEROUS_CLEARANCE_PX)))
-			var clearance_step: float = minf(delta_px, clearance_remaining)
+			var legacy_remaining_milli: int = int(round(float(unit.get("treacherous_clearance_remaining_px", 15.0)) * 1000.0))
+			var clearance_remaining_milli: int = maxi(0, int(unit.get("treacherous_clearance_remaining_milli_px", legacy_remaining_milli)))
+			var clearance_step_milli: int = mini(maxi(0, int(round(delta_px * 1000.0))), clearance_remaining_milli)
+			var clearance_step: float = float(clearance_step_milli) / 1000.0
 			var clearance_t: float = clearance_step / lane_len
 			unit["t"] = clampf(float(unit.get("t", 0.0)) + (float(dir) * clearance_t), 0.0, 1.0)
-			clearance_remaining = maxf(0.0, clearance_remaining - clearance_step)
-			unit["treacherous_clearance_remaining_px"] = clearance_remaining
-			if clearance_remaining <= 0.0001:
+			clearance_remaining_milli = maxi(0, clearance_remaining_milli - clearance_step_milli)
+			unit["treacherous_clearance_remaining_milli_px"] = clearance_remaining_milli
+			unit["treacherous_clearance_remaining_px"] = float(clearance_remaining_milli) / 1000.0
+			if clearance_remaining_milli <= 0:
 				unit = _commit_treacherous_turn(unit)
 			unit = _update_unit_pos_from_t(unit)
 			units[i] = unit
@@ -431,24 +442,33 @@ func _unit_is_frozen(unit: Dictionary) -> bool:
 	if state == null:
 		return false
 	var lane_id: int = int(unit.get("lane_id", -1))
-	var unit_owner_id: int = int(unit.get("owner_id", 0))
-	for effect in AuthoritativeBuffSystem.active_lane_effects(state, BuffDefinitions.LANE_FREEZE, lane_id):
+	var unit_owner_id: int = _unit_combat_allegiance(unit)
+	var lane_generation: int = int(unit.get("lane_generation", 0))
+	for effect in AuthoritativeBuffSystem.active_lane_effects(state, BuffDefinitions.LANE_FREEZE, lane_id, lane_generation):
 		if not _are_allied_owners(int(effect.get("owner_id", 0)), unit_owner_id):
 			return true
 	return false
 
-func apply_treacherous_activation(activating_owner_id: int, lane_id: int, activation_id: String) -> int:
+func apply_treacherous_activation(activating_owner_id: int, lane_id: int, activation_id: String, lane_generation: int = 0) -> int:
 	var turned_units: int = 0
 	for index in range(units.size()):
 		var unit: Dictionary = units[index] as Dictionary
 		if int(unit.get("lane_id", -1)) != lane_id:
 			continue
-		if _are_allied_owners(activating_owner_id, int(unit.get("owner_id", 0))):
+		if lane_generation > 0 and int(unit.get("lane_generation", 0)) != lane_generation:
 			continue
-		if bool(unit.get("treacherous_committed", false)):
+		if str(unit.get("allegiance_mode", "normal")) == "betrayed":
 			continue
+		if _are_allied_owners(activating_owner_id, _unit_combat_allegiance(unit)):
+			continue
+		unit["original_owner_id"] = int(unit.get("original_owner_id", unit.get("owner_id", 0)))
+		unit["combat_allegiance_id"] = activating_owner_id
+		unit["allegiance_mode"] = "betrayed"
 		unit["treacherous_activation_id"] = activation_id
 		unit["treacherous_origin_hive_id"] = int(unit.get("from_id", -1))
+		unit["treacherous_lane_id"] = lane_id
+		unit["treacherous_lane_generation"] = int(unit.get("lane_generation", lane_generation))
+		unit["betrayal_state"] = "committed_return"
 		unit = _commit_treacherous_turn(unit)
 		units[index] = unit
 		turned_units += maxi(1, int(unit.get("amount", 1)))
@@ -460,15 +480,25 @@ func _stamp_new_treacherous_unit(unit: Dictionary) -> Dictionary:
 	if state == null or str(unit.get("arrive_source", "lane")).strip_edges().to_lower() != "lane":
 		return unit
 	var lane_id: int = int(unit.get("lane_id", -1))
-	var unit_owner_id: int = int(unit.get("owner_id", 0))
-	for effect in AuthoritativeBuffSystem.active_lane_effects(state, BuffDefinitions.LANE_TREACHEROUS, lane_id):
+	var unit_owner_id: int = _unit_combat_allegiance(unit)
+	var lane_generation: int = int(unit.get("lane_generation", 0))
+	if str(unit.get("allegiance_mode", "normal")) == "betrayed":
+		return unit
+	for effect in AuthoritativeBuffSystem.active_lane_effects(state, BuffDefinitions.LANE_TREACHEROUS, lane_id, lane_generation):
 		if _are_allied_owners(int(effect.get("owner_id", 0)), unit_owner_id):
 			continue
 		unit["treacherous_activation_id"] = str(effect.get("activation_id", ""))
 		unit["treacherous_origin_hive_id"] = int(unit.get("from_id", -1))
+		unit["treacherous_lane_id"] = lane_id
+		unit["treacherous_lane_generation"] = lane_generation
 		unit["treacherous_pending"] = true
 		unit["treacherous_committed"] = false
-		unit["treacherous_clearance_remaining_px"] = TREACHEROUS_CLEARANCE_PX
+		unit["treacherous_clearance_remaining_milli_px"] = TREACHEROUS_CLEARANCE_MILLI_PX
+		unit["treacherous_clearance_remaining_px"] = float(TREACHEROUS_CLEARANCE_MILLI_PX) / 1000.0
+		unit["betrayal_state"] = "pending_betrayal"
+		unit["original_owner_id"] = int(unit.get("original_owner_id", unit.get("owner_id", 0)))
+		unit["combat_allegiance_id"] = int(effect.get("owner_id", 0))
+		unit["allegiance_mode"] = "betrayed"
 		break
 	return unit
 
@@ -483,6 +513,8 @@ func _commit_treacherous_turn(unit: Dictionary) -> Dictionary:
 	unit["treacherous_pending"] = false
 	unit["treacherous_committed"] = true
 	unit["treacherous_clearance_remaining_px"] = 0.0
+	unit["treacherous_clearance_remaining_milli_px"] = 0
+	unit["betrayal_state"] = "committed_return"
 	if amount > 0:
 		_adjust_lane_pressure(int(unit.get("lane_id", -1)), old_dir >= 0, -amount)
 		_adjust_lane_pressure(int(unit.get("lane_id", -1)), old_dir < 0, amount)
@@ -545,12 +577,18 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 				break
 			var a_owner := int(a.get("owner_id", 0))
 			var b_owner := int(b.get("owner_id", 0))
+			var a_combat_owner: int = _unit_combat_allegiance(a)
+			var b_combat_owner: int = _unit_combat_allegiance(b)
 			a = _ensure_combat_cohorts(a)
 			b = _ensure_combat_cohorts(b)
 			var a_amt: int = int(a.get("amount", 0))
 			var b_amt: int = int(b.get("amount", 0))
 			var collision_t := clampf((a_t + b_t) * 0.5, 0.0, 1.0)
-			if _are_allied_owners(a_owner, b_owner):
+			if _are_allied_owners(a_combat_owner, b_combat_owner):
+				if not _units_can_merge(a, b):
+					ab.pop_back()
+					ba.pop_front()
+					continue
 				var keep_ab := a_t >= (1.0 - b_t)
 				if keep_ab:
 					a = _merge_combat_cohorts(a, b)
@@ -594,8 +632,12 @@ func resolve_lane_interactions(state_ref: GameState, now_us: int) -> void:
 				_adjust_lane_pressure(int(lane_id), false, -b_lost)
 				var ops_state: Node = _ops_state()
 				if ops_state != null:
-					ops_state.call("add_units_killed", a_owner, b_lost)
-					ops_state.call("add_units_killed", b_owner, a_lost)
+					var a_credit_owner: int = _unit_kill_credit_owner(a)
+					var b_credit_owner: int = _unit_kill_credit_owner(b)
+					if a_credit_owner > 0 and b_lost > 0:
+						ops_state.call("add_units_killed", a_credit_owner, b_lost)
+					if b_credit_owner > 0 and a_lost > 0:
+						ops_state.call("add_units_killed", b_credit_owner, a_lost)
 				_telemetry_record_collision(
 					int(round(float(now_us) / 1000.0)),
 					int(lane_id),
@@ -747,8 +789,34 @@ func _merge_combat_cohorts(keep: Dictionary, incoming: Dictionary) -> Dictionary
 	for key in ["ordinary_count", "enhanced_full_count", "enhanced_spent_count"]:
 		keep[key] = int(keep.get(key, 0)) + int(incoming.get(key, 0))
 	keep["amount"] = int(keep.get("ordinary_count", 0)) + int(keep.get("enhanced_full_count", 0)) + int(keep.get("enhanced_spent_count", 0))
-	keep["speed_permille"] = mini(int(keep.get("speed_permille", 1000)), int(incoming.get("speed_permille", 1000)))
 	return keep
+
+func _units_can_merge(a: Dictionary, b: Dictionary) -> bool:
+	# Provenance such as production tick/event/id is intentionally excluded.
+	# Only stamps that can change future simulation behavior block aggregation.
+	if int(a.get("speed_permille", 1000)) != int(b.get("speed_permille", 1000)):
+		return false
+	if int(a.get("owner_id", 0)) != int(b.get("owner_id", 0)):
+		return false
+	if int(a.get("lane_generation", 0)) != int(b.get("lane_generation", 0)):
+		return false
+	if str(a.get("allegiance_mode", "normal")) != str(b.get("allegiance_mode", "normal")):
+		return false
+	if str(a.get("allegiance_mode", "normal")) == "betrayed":
+		return false
+	if _unit_combat_allegiance(a) != _unit_combat_allegiance(b):
+		return false
+	if int(a.get("impact_strength_override", 0)) != int(b.get("impact_strength_override", 0)):
+		return false
+	return true
+
+func _unit_combat_allegiance(unit: Dictionary) -> int:
+	return int(unit.get("combat_allegiance_id", unit.get("owner_id", 0)))
+
+func _unit_kill_credit_owner(unit: Dictionary) -> int:
+	if str(unit.get("allegiance_mode", "normal")) == "betrayed":
+		return 0
+	return int(unit.get("owner_id", 0))
 
 func _apply_cohort_damage(unit: Dictionary, incoming_hits: int) -> Dictionary:
 	unit = _ensure_combat_cohorts(unit)
@@ -831,6 +899,8 @@ func scoop_units_for_swarm(
 				desired_dir = -1
 	for i in range(units.size() - 1, -1, -1):
 		var unit: Dictionary = units[i] as Dictionary
+		if str(unit.get("allegiance_mode", "normal")) == "betrayed":
+			continue
 		if int(unit.get("owner_id", 0)) != owner_id:
 			continue
 		if lane_id > 0 and int(unit.get("lane_id", -1)) != lane_id:
@@ -977,11 +1047,11 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	var treacherous_arrival: bool = bool(unit.get("treacherous_committed", false)) and int(unit.get("treacherous_origin_hive_id", -1)) == to_id
 	var friendly_arrival: bool = _are_allied_owners(before_owner, owner_id) and not treacherous_arrival
 	var shielded_enemy_arrival: bool = not friendly_arrival and before_owner > 0 and AuthoritativeBuffSystem.hive_is_shielded(state, before_owner, to_id)
-	if owner_id > 0:
+	if owner_id > 0 and not treacherous_arrival:
 		var arrival_key: String = "%d:%d" % [to_id, owner_id]
 		arrival_counts_by_hive_owner[arrival_key] = int(arrival_counts_by_hive_owner.get(arrival_key, 0)) + amount
 	var ops_state: Node = _ops_state()
-	if ops_state != null:
+	if ops_state != null and not treacherous_arrival:
 		ops_state.call("add_units_landed", owner_id, amount)
 		if friendly_arrival and before_owner > 0:
 			ops_state.call("add_units_fed_friendly", owner_id, amount)
@@ -1025,9 +1095,9 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		if before_owner > 0 and applied_damage > 0 and arrive_source != "recall" and state.has_method("mark_hive_attacked_for_passive_suppression"):
 			state.call("mark_hive_attacked_for_passive_suppression", int(hive.id))
 		hive.power -= impact_amount
-		if owner_id > 0 and before_owner > 0 and applied_damage > 0:
+		if owner_id > 0 and before_owner > 0 and applied_damage > 0 and not treacherous_arrival:
 			_telemetry_record_hive_damage(owner_id, before_owner, applied_damage)
-		if hive.power <= 0 and treacherous_arrival and _are_allied_owners(before_owner, owner_id):
+		if hive.power <= 0 and treacherous_arrival:
 			hive.power = 1
 		elif hive.power <= 0:
 			var capture_power: int = maxi(SimTuning.CAPTURE_START_POWER, impact_amount - maxi(0, before_power))
@@ -1515,9 +1585,9 @@ func _active_enemy_forces_for_hive(hive_id: int, owner_id: int) -> Array[Diction
 		if typeof(unit_any) != TYPE_DICTIONARY:
 			continue
 		var unit: Dictionary = unit_any as Dictionary
-		var unit_owner: int = int(unit.get("owner_id", 0))
-		if unit_owner > 0 and not _are_allied_owners(owner_id, unit_owner):
-			_add_owner_to_force_list(forces, unit_owner, float(unit.get("amount", 1)))
+		var combat_owner: int = _unit_combat_allegiance(unit)
+		if combat_owner > 0 and not _are_allied_owners(owner_id, combat_owner):
+			_add_owner_to_force_list(forces, combat_owner, float(unit.get("amount", 1)))
 	for unit_any in units:
 		if typeof(unit_any) != TYPE_DICTIONARY:
 			continue
@@ -1526,9 +1596,9 @@ func _active_enemy_forces_for_hive(hive_id: int, owner_id: int) -> Array[Diction
 			continue
 		if int(unit.get("to_id", -1)) != hive_id:
 			continue
-		var unit_owner: int = int(unit.get("owner_id", 0))
-		if unit_owner > 0 and not _are_allied_owners(owner_id, unit_owner):
-			_add_owner_to_force_list(forces, unit_owner, float(unit.get("amount", 1)))
+		var combat_owner: int = _unit_combat_allegiance(unit)
+		if combat_owner > 0 and not _are_allied_owners(owner_id, combat_owner):
+			_add_owner_to_force_list(forces, combat_owner, float(unit.get("amount", 1)))
 	if state != null:
 		for lane_any in state.lanes:
 			if not (lane_any is LaneData):
@@ -1608,6 +1678,8 @@ func _recall_units_for_lane(lane_id: int, from_id: int, owner_id: int) -> int:
 	var recalled: int = 0
 	for i in range(units.size()):
 		var unit: Dictionary = units[i] as Dictionary
+		if str(unit.get("allegiance_mode", "normal")) == "betrayed":
+			continue
 		if int(unit.get("lane_id", -1)) != lane_id:
 			continue
 		if int(unit.get("from_id", -1)) != from_id:
@@ -1667,6 +1739,8 @@ func redirect_units_for_lane_direction(lane_id: int, from_id: int, to_id: int, o
 	var redirected: int = 0
 	for i in range(units.size()):
 		var unit: Dictionary = units[i] as Dictionary
+		if str(unit.get("allegiance_mode", "normal")) == "betrayed":
+			continue
 		if int(unit.get("lane_id", -1)) != lane_id:
 			continue
 		if bool(unit.get("returning", false)):
@@ -1712,7 +1786,7 @@ func apply_tower_hit(victim_unit_id: int, tower_owner_id: int, source_tower_id: 
 		var unit: Dictionary = units[i] as Dictionary
 		if int(unit.get("id", -1)) != victim_unit_id:
 			continue
-		if _are_allied_owners(int(unit.get("owner_id", 0)), tower_owner_id):
+		if _are_allied_owners(_unit_combat_allegiance(unit), tower_owner_id):
 			return false
 		var hit_pos: Vector2 = Vector2.ZERO
 		var pos_v: Variant = unit.get("pos", null)
@@ -1911,6 +1985,12 @@ func spawn_unit(unit: Dictionary, bypass_capacity: bool = false) -> bool:
 		_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
 		return false
 	var lane_id := int(unit.get("lane_id", -1))
+	var lane_for_generation: LaneData = state.find_lane_by_id(lane_id) as LaneData if lane_id > 0 else null
+	if lane_for_generation != null:
+		if int(lane_for_generation.generation) <= 0:
+			lane_for_generation.generation = state.allocate_lane_generation()
+		if int(unit.get("lane_generation", 0)) <= 0:
+			unit["lane_generation"] = int(lane_for_generation.generation)
 	if lane_id > 0 and ENABLE_LANE_ESTABLISH_SPAWN_GATE:
 		var gate_start_usec := Time.get_ticks_usec()
 		var established := false
@@ -1974,12 +2054,15 @@ func spawn_unit(unit: Dictionary, bypass_capacity: bool = false) -> bool:
 	var movement_start_usec := Time.get_ticks_usec()
 	unit = _update_unit_pos_from_t(unit)
 	_unit_flow_profile_add_stage("unit_spawn_issue_movement_update", movement_start_usec)
+	var production_event: Dictionary = ProductionEventSystem.prepare(state, unit, production_source)
+	if not bool(production_event.get("ok", false)):
+		_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
+		return false
+	ProductionEventSystem.commit(state, production_event, unit)
 	var telemetry_start_usec := Time.get_ticks_usec()
 	_telemetry_record_unit_produced(int(unit.get("owner_id", 0)), int(unit.get("amount", 1)), production_source)
 	_unit_flow_profile_add_stage("unit_spawn_telemetry", telemetry_start_usec)
 	units.append(unit)
-	if production_source == "lane":
-		AuthoritativeBuffSystem.notify_ordinary_unit_produced(state, unit)
 	_sync_units_to_state()
 	_unit_flow_profile_add_stage("unit_spawn_total", spawn_start_usec)
 	return true

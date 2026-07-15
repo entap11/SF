@@ -4,6 +4,7 @@ extends RefCounted
 const SEGMENTS := 8
 
 var id: int
+var generation: int
 var a_id: int
 var b_id: int
 var dir: int
@@ -45,9 +46,11 @@ func _init(
 	p_spawn_accum_a_ms: float = 0.0,
 	p_spawn_accum_b_ms: float = 0.0,
 	p_retract_a: bool = false,
-	p_retract_b: bool = false
+	p_retract_b: bool = false,
+	p_generation: int = 0
 ) -> void:
 	self.id = p_id
+	self.generation = p_generation
 	self.a_id = p_a_id
 	self.b_id = p_b_id
 	self.dir = p_dir

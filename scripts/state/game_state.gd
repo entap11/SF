@@ -85,6 +85,10 @@ var buff_chill_until_tick_by_owner: Dictionary = {}
 var buff_outcomes_by_activation_id: Dictionary = {}
 var buff_outcome_order: Array[String] = []
 var buff_production_interval_ms_by_lane_side: Dictionary = {}
+var next_lane_generation: int = 1
+var production_event_receipt_tick: int = -1
+var production_event_local_ordinal_by_producer: Dictionary = {}
+var production_event_receipts_this_tick: Dictionary = {}
 var _unintended_power_accum_by_hive: Dictionary = {}
 var passive_power_block_until_ms_by_hive: Dictionary = {}
 var _available_lane_unattended_ms_by_hive: Dictionary = {}
@@ -277,6 +281,10 @@ func reset_map_only() -> void:
 	buff_outcomes_by_activation_id.clear()
 	buff_outcome_order.clear()
 	buff_production_interval_ms_by_lane_side.clear()
+	next_lane_generation = 1
+	production_event_receipt_tick = -1
+	production_event_local_ordinal_by_producer.clear()
+	production_event_receipts_this_tick.clear()
 	_unintended_power_accum_by_hive.clear()
 	passive_power_block_until_ms_by_hive.clear()
 	_available_lane_unattended_ms_by_hive.clear()
@@ -816,6 +824,10 @@ func rebuild_indexes() -> void:
 		if not (lane is LaneData):
 			continue
 		var ld := lane as LaneData
+		if int(ld.generation) <= 0:
+			ld.generation = allocate_lane_generation()
+		else:
+			next_lane_generation = maxi(next_lane_generation, int(ld.generation) + 1)
 		var key := _lane_key(int(ld.a_id), int(ld.b_id))
 		if lane_index_by_key.has(key):
 			if SFLog.LOGGING_ENABLED:
@@ -828,6 +840,11 @@ func rebuild_indexes() -> void:
 	_refresh_hives_set_version()
 
 	rebuild_lane_adjacency()
+
+func allocate_lane_generation() -> int:
+	var generation: int = maxi(1, next_lane_generation)
+	next_lane_generation = generation + 1
+	return generation
 
 func _refresh_hives_set_version() -> void:
 	var count: int = hives.size()

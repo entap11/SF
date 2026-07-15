@@ -427,6 +427,7 @@ func get_authority_snapshot() -> Dictionary:
 			"buff_outcomes_by_activation_id": st.buff_outcomes_by_activation_id.duplicate(true),
 			"buff_outcome_order": st.buff_outcome_order.duplicate(),
 			"buff_production_interval_ms_by_lane_side": st.buff_production_interval_ms_by_lane_side.duplicate(true),
+			"next_lane_generation": int(st.next_lane_generation),
 			"hives": _authority_snapshot_hives(st),
 			"lanes": _authority_snapshot_lanes(st),
 			"lane_candidates": st.lane_candidates.duplicate(true),
@@ -510,6 +511,7 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	st.buff_chill_until_tick_by_owner = (state_snapshot.get("buff_chill_until_tick_by_owner", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_chill_until_tick_by_owner", {})) == TYPE_DICTIONARY else {}
 	st.buff_outcomes_by_activation_id = (state_snapshot.get("buff_outcomes_by_activation_id", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_outcomes_by_activation_id", {})) == TYPE_DICTIONARY else {}
 	st.buff_production_interval_ms_by_lane_side = (state_snapshot.get("buff_production_interval_ms_by_lane_side", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_production_interval_ms_by_lane_side", {})) == TYPE_DICTIONARY else {}
+	st.next_lane_generation = maxi(1, int(state_snapshot.get("next_lane_generation", 1)))
 	st.buff_outcome_order.clear()
 	var outcome_order_any: Variant = state_snapshot.get("buff_outcome_order", [])
 	if typeof(outcome_order_any) == TYPE_ARRAY:
@@ -747,6 +749,7 @@ func _authority_snapshot_lanes(st: GameState) -> Array:
 		var lane: LaneData = lane_any as LaneData
 		rows.append({
 			"id": int(lane.id),
+			"generation": int(lane.generation),
 			"a_id": int(lane.a_id),
 			"b_id": int(lane.b_id),
 			"dir": int(lane.dir),
@@ -798,7 +801,8 @@ func _authority_restore_lanes(lanes_any: Variant) -> Array:
 			float(data.get("spawn_accum_a_ms", 0.0)),
 			float(data.get("spawn_accum_b_ms", 0.0)),
 			bool(data.get("retract_a", false)),
-			bool(data.get("retract_b", false))
+			bool(data.get("retract_b", false)),
+			int(data.get("generation", 0))
 		)
 		var a_seg_any: Variant = data.get("a_seg", [])
 		var b_seg_any: Variant = data.get("b_seg", [])
@@ -822,6 +826,7 @@ func _build_contract_state_signature() -> String:
 	parts.append("map=%s" % current_map_id)
 	parts.append("tick=%d" % int(st.tick))
 	parts.append("sim_us=%d" % int(st.get("_sim_time_us")))
+	parts.append("next_lane_generation=%d" % int(st.next_lane_generation))
 	parts.append("phase=%d" % int(match_phase))
 	parts.append("outcome=%d" % int(outcome))
 	parts.append("outcome_tick=%d" % int(outcome_tick))
@@ -854,8 +859,9 @@ func _build_contract_state_signature() -> String:
 			var lane: LaneData = lane_any as LaneData
 			lane_rows.append([
 				int(lane.id),
-				"l:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
+				"l:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d" % [
 					int(lane.id),
+					int(lane.generation),
 					int(lane.a_id),
 					int(lane.b_id),
 					1 if bool(lane.send_a) else 0,
@@ -887,7 +893,7 @@ func _build_contract_state_signature() -> String:
 			var unit_id: int = int(unit.get("id", -1))
 			unit_rows.append([
 				unit_id,
-				"u:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%s" % [
+				"u:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%s:%d:%d:%s:%s:%d:%d" % [
 					unit_id,
 					int(unit.get("lane_id", -1)),
 					int(unit.get("owner_id", 0)),
@@ -904,8 +910,14 @@ func _build_contract_state_signature() -> String:
 					1 if bool(unit.get("treacherous_pending", false)) else 0,
 					1 if bool(unit.get("treacherous_committed", false)) else 0,
 					int(unit.get("treacherous_origin_hive_id", -1)),
-					_round_contract_float(float(unit.get("treacherous_clearance_remaining_px", 0.0))),
-					str(unit.get("treacherous_activation_id", ""))
+					int(unit.get("treacherous_clearance_remaining_milli_px", int(round(float(unit.get("treacherous_clearance_remaining_px", 0.0)) * 1000.0)))),
+					str(unit.get("treacherous_activation_id", "")),
+					int(unit.get("lane_generation", 0)),
+					int(unit.get("original_owner_id", unit.get("owner_id", 0))),
+					str(unit.get("allegiance_mode", "normal")),
+					str(unit.get("betrayal_state", "normal")),
+					int(unit.get("combat_allegiance_id", unit.get("owner_id", 0))),
+					int(unit.get("treacherous_lane_generation", 0))
 				]
 			])
 	unit_rows.sort_custom(Callable(self, "_sort_contract_row_by_id"))
@@ -954,19 +966,21 @@ func _build_contract_state_signature() -> String:
 	for activation_any in buff_effect_ids:
 		var effect: Dictionary = st.buff_effects_by_activation_id.get(activation_any, {}) as Dictionary
 		var target: Dictionary = effect.get("target", {}) as Dictionary
-		parts.append("buff:%s:%d:%s:%s:%s:%d:%d:%d:%d:%d:%d:%s" % [
+		parts.append("buff:%s:%d:%s:%s:%s:%d:%d:%d:%d:%d:%d:%d:%s:%s" % [
 			str(activation_any),
 			int(effect.get("owner_id", 0)),
 			str(effect.get("buff_id", "")),
 			str(effect.get("tier", "")),
 			str(effect.get("target_type", "")),
 			int(effect.get("target_id", -1)) if str(effect.get("target_type", "")) != "global" else 0,
+			int(target.get("lane_generation", 0)),
 			int(target.get("source_hive_id", -1)),
 			int(target.get("destination_hive_id", -1)),
 			int(effect.get("started_tick", 0)),
 			int(effect.get("expires_tick", 0)),
 			int(effect.get("queued_units", 0)),
-			JSON.stringify(effect.get("scoped_hive_ids", []))
+			JSON.stringify(effect.get("scoped_hive_ids", [])),
+			JSON.stringify(effect.get("queued_cohorts", []))
 		])
 	var chill_owners: Array = st.buff_chill_until_tick_by_owner.keys()
 	chill_owners.sort()
