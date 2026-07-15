@@ -78,6 +78,12 @@ var _arrival_q: Dictionary = {}
 var _sim_time_us: int = 0
 var hive_spawn_block_until_us: Dictionary = {}
 var tick: int = 0
+var buff_match_id: String = ""
+var buff_effects_by_activation_id: Dictionary = {}
+var buff_active_by_owner_category: Dictionary = {}
+var buff_chill_until_tick_by_owner: Dictionary = {}
+var buff_outcomes_by_activation_id: Dictionary = {}
+var buff_outcome_order: Array[String] = []
 var _unintended_power_accum_by_hive: Dictionary = {}
 var passive_power_block_until_ms_by_hive: Dictionary = {}
 var _available_lane_unattended_ms_by_hive: Dictionary = {}
@@ -263,6 +269,12 @@ func reset_map_only() -> void:
 	hive_spawn_block_until_us.clear()
 	_lane_spawn_disabled_logged = false
 	tick = 0
+	buff_match_id = ""
+	buff_effects_by_activation_id.clear()
+	buff_active_by_owner_category.clear()
+	buff_chill_until_tick_by_owner.clear()
+	buff_outcomes_by_activation_id.clear()
+	buff_outcome_order.clear()
 	_unintended_power_accum_by_hive.clear()
 	passive_power_block_until_ms_by_hive.clear()
 	_available_lane_unattended_ms_by_hive.clear()

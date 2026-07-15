@@ -40,7 +40,9 @@ func get_snapshot() -> Dictionary:
 	return _buff_state.get_runtime_snapshot()
 
 func authoritative_tick(now_ms: int) -> void:
-	_buff_state.update(now_ms)
+	# Legacy adapter is presentation-only. Fixed-tick gameplay lives in
+	# AuthoritativeBuffSystem through OpsState.
+	var _unused_now_ms: int = now_ms
 
 func intent_activate_buff(
 	owner_id: int,
@@ -49,6 +51,19 @@ func intent_activate_buff(
 	target: Dictionary,
 	now_ms: int
 ) -> Dictionary:
+	var _unused_request: Dictionary = {
+		"owner_id": owner_id,
+		"buff_id": buff_id,
+		"tier": tier,
+		"target": target,
+		"now_ms": now_ms
+	}
+	var fenced: Dictionary = {"ok": false, "code": "legacy_effect_adapter_fenced", "message": "Use OpsState authoritative buff commands."}
+	activation_result.emit(fenced)
+	return fenced
+	# The code below is retained temporarily for source compatibility and is
+	# unreachable by design during the authoritative migration.
+	@warning_ignore("unreachable_code")
 	var clean_id: String = buff_id.strip_edges()
 	if clean_id == "":
 		var missing_id: Dictionary = {"ok": false, "code": "missing_buff_id", "message": "Buff id is required."}
@@ -106,11 +121,14 @@ func intent_activate_buff(
 	return result
 
 func request_supercharge_release(owner_id: int, hive_id: int, now_ms: int) -> Dictionary:
-	var result: Dictionary = _buff_state.intent_release_supercharge(owner_id, hive_id, now_ms)
+	var result: Dictionary = {"ok": false, "code": "automatic_release_only", "owner_id": owner_id, "legacy_hive_id": hive_id, "at_ms": now_ms}
 	activation_result.emit(result)
 	return result
 
 func swarm_combat_damage_multiplier(owner_id: int) -> float:
+	var _unused_owner_id: int = owner_id
+	return 1.0
+	@warning_ignore("unreachable_code")
 	var active_any: Variant = _buff_state.get_active_unit_buff()
 	if typeof(active_any) != TYPE_DICTIONARY:
 		return 1.0
@@ -123,6 +141,9 @@ func swarm_combat_damage_multiplier(owner_id: int) -> float:
 	return float(effects.get("swarm_combat_damage_mult", 1.0))
 
 func hive_impact_damage_multiplier(owner_id: int) -> int:
+	var _unused_owner_id: int = owner_id
+	return 1
+	@warning_ignore("unreachable_code")
 	var active_any: Variant = _buff_state.get_active_unit_buff()
 	if typeof(active_any) != TYPE_DICTIONARY:
 		return 1
@@ -135,6 +156,9 @@ func hive_impact_damage_multiplier(owner_id: int) -> int:
 	return int(effects.get("hive_impact_damage_mult", 1))
 
 func unit_speed_multiplier_for_spawn_hive(owner_id: int, spawn_hive_id: int) -> float:
+	var _unused_ids: Vector2i = Vector2i(owner_id, spawn_hive_id)
+	return 1.0
+	@warning_ignore("unreachable_code")
 	var active_any: Variant = _buff_state.get_active_unit_buff()
 	if typeof(active_any) != TYPE_DICTIONARY:
 		return 1.0
@@ -150,6 +174,9 @@ func unit_speed_multiplier_for_spawn_hive(owner_id: int, spawn_hive_id: int) -> 
 	return float(effects.get("unit_speed_mult", 1.0))
 
 func hive_production_time_multiplier(owner_id: int, hive_id: int) -> float:
+	var _unused_ids: Vector2i = Vector2i(owner_id, hive_id)
+	return 1.0
+	@warning_ignore("unreachable_code")
 	var active_any: Variant = _buff_state.get_active_hive_buff()
 	if typeof(active_any) != TYPE_DICTIONARY:
 		return 1.0
@@ -166,6 +193,9 @@ func hive_production_time_multiplier(owner_id: int, hive_id: int) -> float:
 	return 1.0
 
 func hive_is_landing_damage_immune(owner_id: int, hive_id: int) -> bool:
+	var _unused_ids: Vector2i = Vector2i(owner_id, hive_id)
+	return false
+	@warning_ignore("unreachable_code")
 	var active_any: Variant = _buff_state.get_active_hive_buff()
 	if typeof(active_any) != TYPE_DICTIONARY:
 		return false
@@ -181,6 +211,9 @@ func hive_is_landing_damage_immune(owner_id: int, hive_id: int) -> bool:
 	return false
 
 func hive_is_shock_immune(owner_id: int, hive_id: int) -> bool:
+	var _unused_ids: Vector2i = Vector2i(owner_id, hive_id)
+	return false
+	@warning_ignore("unreachable_code")
 	var active_any: Variant = _buff_state.get_active_hive_buff()
 	if typeof(active_any) != TYPE_DICTIONARY:
 		return false
@@ -193,6 +226,9 @@ func hive_is_shock_immune(owner_id: int, hive_id: int) -> bool:
 	return int(target.get("hive_id", -1)) == hive_id
 
 func hive_is_supercharge_queue_active(owner_id: int, hive_id: int) -> bool:
+	var _unused_ids: Vector2i = Vector2i(owner_id, hive_id)
+	return false
+	@warning_ignore("unreachable_code")
 	var active_any: Variant = _buff_state.get_active_hive_buff()
 	if typeof(active_any) != TYPE_DICTIONARY:
 		return false
@@ -205,20 +241,22 @@ func hive_is_supercharge_queue_active(owner_id: int, hive_id: int) -> bool:
 	return int(target.get("hive_id", -1)) == hive_id
 
 func lane_freeze_blocks_enemy(lane_id: int, unit_owner_id: int) -> bool:
+	var _unused_ids: Vector2i = Vector2i(lane_id, unit_owner_id)
+	return false
+	@warning_ignore("unreachable_code")
 	var active: Dictionary = _active_enemy_lane_buff_for_unit(lane_id, unit_owner_id)
 	if active.is_empty():
 		return false
 	return str(active.get("id", "")) == BuffDefinitions.LANE_FREEZE
 
 func lane_should_convert_enemy_entering(lane_id: int, unit_owner_id: int, rng_value_0_to_1: float) -> bool:
-	var active: Dictionary = _active_enemy_lane_buff_for_unit(lane_id, unit_owner_id)
-	if active.is_empty():
-		return false
-	if str(active.get("id", "")) != BuffDefinitions.LANE_STEAL:
-		return false
-	return rng_value_0_to_1 < 0.5
+	var _unused: Vector3 = Vector3(lane_id, unit_owner_id, rng_value_0_to_1)
+	return false
 
 func lane_should_reverse_enemy(lane_id: int, unit_owner_id: int) -> bool:
+	var _unused_ids: Vector2i = Vector2i(lane_id, unit_owner_id)
+	return false
+	@warning_ignore("unreachable_code")
 	var active: Dictionary = _active_enemy_lane_buff_for_unit(lane_id, unit_owner_id)
 	if active.is_empty():
 		return false

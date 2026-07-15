@@ -10572,6 +10572,7 @@ func _canonical_buff_command_from_reservation(reservation: Dictionary) -> Dictio
 	var tick: int = int((_buff_authoritative_game_state() as Object).get("tick")) if _buff_authoritative_game_state() != null else 0
 	return {
 		"kind": "buff_activate",
+		"match_id": _buff_match_id(),
 		"command_id": "local:%s" % str(reservation.get("activation_id", "")),
 		"activation_id": str(reservation.get("activation_id", "")),
 		"owner_id": int(reservation.get("owner_id", 0)),
@@ -10582,6 +10583,7 @@ func _canonical_buff_command_from_reservation(reservation: Dictionary) -> Dictio
 		"target_id": reservation.get("target_id", "global"),
 		"source_kind": str(reservation.get("source_kind", "vs")),
 		"source_use_ordinal": int(reservation.get("source_use_ordinal", 1)),
+		"source_slot_index": int(reservation.get("slot_index", -1)),
 		"execute_tick": tick
 	}
 
@@ -10610,46 +10612,28 @@ func _execute_canonical_buff_activation(command: Dictionary) -> Dictionary:
 		var duplicate: Dictionary = (_buff_canonical_outcomes.get(outcome_key, {}) as Dictionary).duplicate(true)
 		duplicate["duplicate"] = true
 		return duplicate
-	var target_result: Dictionary = _buff_target_resolver.validate_canonical_target(
-		_buff_authoritative_game_state(), owner_id, str(command.get("buff_id", "")),
-		str(command.get("target_type", "")), command.get("target_id", null)
-	)
-	if not bool(target_result.get("ok", false)):
-		return _finalize_buff_canonical_no_op(command, str(target_result.get("reason", "target_stale")), outcome_key)
+	command["match_id"] = str(command.get("match_id", _buff_match_id()))
 	var local_transaction: Dictionary = _buff_activation_transactions.get_transaction(_buff_match_id(), owner_id, activation_id)
 	var is_local_transaction: bool = bool(local_transaction.get("ok", false))
 	if buff_states.is_empty():
 		_init_buff_states()
 	var buff_state: BuffState = buff_states.get(owner_id)
-	if buff_state == null:
+	if is_local_transaction and buff_state == null:
 		return _finalize_buff_canonical_no_op(command, "missing_player_state", outcome_key)
 	var target_payload: Dictionary = _buff_target_resolver.canonical_target_payload(
 		str(command.get("target_type", "global")), command.get("target_id", "global")
 	)
 	target_payload["owner_id"] = owner_id
 	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
-	var activation_result: Dictionary = buff_state.intent_activate_buff(
-		owner_id, str(command.get("buff_id", "")), str(command.get("tier", "classic")), target_payload, now_ms, -1
-	)
+	var activation_result: Dictionary = OpsState.apply_authoritative_buff_command(command)
 	if not bool(activation_result.get("ok", false)):
 		return _finalize_buff_canonical_no_op(command, str(activation_result.get("reason", activation_result.get("code", "activation_rejected"))), outcome_key)
 	if is_local_transaction:
 		var slot_commit: Dictionary = buff_state.commit_slot_use(int(local_transaction.get("slot_index", -1)), now_ms)
 		if not bool(slot_commit.get("ok", false)):
 			SFLog.error("BUFF_SLOT_USE_COMMIT_FAILED", {"transaction": local_transaction, "result": slot_commit})
-	var outcome: Dictionary = {
-		"ok": true,
-		"status": "executed",
-		"reason": "activated",
-		"match_id": _buff_match_id(),
-		"owner_id": owner_id,
-		"activation_id": activation_id,
-		"canonical_command_id": str(command.get("command_id", "")),
-		"execution_tick": int(command.get("execute_tick", -1)),
-		"buff_id": str(command.get("buff_id", "")),
-		"target_type": str(command.get("target_type", "")),
-		"target_id": command.get("target_id", null)
-	}
+	var outcome: Dictionary = activation_result.duplicate(true)
+	outcome["match_id"] = _buff_match_id()
 	if is_local_transaction:
 		_buff_activation_transactions.resolve_canonical_outcome(
 			_buff_match_id(), owner_id, activation_id, true, "activated",
@@ -10918,10 +10902,7 @@ func _update_buff_states() -> void:
 		return
 	if buff_states.is_empty():
 		return
-	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
-	for buff_state in buff_states.values():
-		buff_state.update(now_ms)
-	_sync_buff_effects(now_ms)
+	_sync_buff_effects(int(_authoritative_sim_time_us() / 1000))
 
 func _enter_overtime() -> void:
 	overtime_active = true
@@ -10967,26 +10948,13 @@ func _authoritative_sim_time_us() -> int:
 	return int(sim_time_us)
 
 func _sync_buff_effects(now_ms: int) -> void:
+	if OpsState == null or not OpsState.has_method("get_authoritative_buff_snapshot"):
+		return
+	var authoritative: Dictionary = OpsState.get_authoritative_buff_snapshot()
 	for pid_v in buff_states.keys():
 		var pid: int = int(pid_v)
 		var buff_state: BuffState = buff_states[pid]
-		var slot_map: Dictionary = buff_active_slots.get(pid, {})
-		for slot_index in range(buff_state.slots.size()):
-			var slot: Dictionary = buff_state.slots[slot_index]
-			var is_active: bool = bool(slot.get("active", false))
-			if is_active:
-				if not slot_map.has(slot_index):
-					var buff_id: String = str(slot.get("id", ""))
-					if buff_id != "":
-						_apply_buff(pid, buff_id, now_ms)
-						slot_map[slot_index] = buff_id
-			else:
-				if slot_map.has(slot_index):
-					var ended_id: String = str(slot_map[slot_index])
-					if ended_id != "":
-						_remove_buff(pid, ended_id)
-					slot_map.erase(slot_index)
-		buff_active_slots[pid] = slot_map
+		buff_state.apply_authoritative_projection(pid, authoritative, now_ms)
 
 func _apply_buff(pid: int, buff_id: String, now_ms: int) -> void:
 	if _is_crucible_match():

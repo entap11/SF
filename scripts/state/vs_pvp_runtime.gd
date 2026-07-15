@@ -951,6 +951,7 @@ func record_local_buff_activation(reservation: Dictionary) -> bool:
 		return false
 	var command: Dictionary = _contract_command_base("buff_activate")
 	command.merge({
+		"match_id": str(reservation.get("match_id", _session_id)),
 		"activation_id": str(reservation.get("activation_id", "")).strip_edges(),
 		"owner_id": owner_id,
 		"buff_id": str(reservation.get("buff_id", "")).strip_edges(),
@@ -958,7 +959,8 @@ func record_local_buff_activation(reservation: Dictionary) -> bool:
 		"target_type": str(reservation.get("target_type", "")).strip_edges().to_lower(),
 		"target_id": reservation.get("target_id", "global"),
 		"source_kind": str(reservation.get("source_kind", "")).strip_edges().to_lower(),
-		"source_use_ordinal": int(reservation.get("source_use_ordinal", 1))
+		"source_use_ordinal": int(reservation.get("source_use_ordinal", 1)),
+		"source_slot_index": int(reservation.get("slot_index", -1))
 	})
 	if not _validate_contract_command(command, "outgoing"):
 		return false

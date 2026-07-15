@@ -307,29 +307,11 @@ func intent_activate_buff(
 	return payload
 
 func intent_release_supercharge(owner_id: int, hive_id: int, now_ms: int) -> Dictionary:
-	var active_hive_any: Variant = get_active_hive_buff()
-	if typeof(active_hive_any) != TYPE_DICTIONARY:
-		return _reject("no_active_hive_buff", "No active hive buff.")
-	var active_hive: Dictionary = active_hive_any as Dictionary
-	if str(active_hive.get("id", "")) != BuffDefinitions.HIVE_SUPERCHARGE_QUEUE:
-		return _reject("not_supercharge", "Active hive buff is not supercharge queue.")
-	if int(active_hive.get("owner_id", -1)) != owner_id:
-		return _reject("not_owner", "Only the activating player can release supercharge.")
-	var target_any: Variant = active_hive.get("target", {})
-	if typeof(target_any) != TYPE_DICTIONARY:
-		return _reject("missing_target", "Supercharge target hive missing.")
-	var target: Dictionary = target_any as Dictionary
-	if int(target.get("hive_id", -1)) != hive_id:
-		return _reject("wrong_hive", "Supercharge release hive mismatch.")
-	var event: Dictionary = {
-		"ok": true,
+	return _reject("automatic_release_only", "Supercharge releases automatically in authoritative simulation.", {
 		"owner_id": owner_id,
-		"hive_id": hive_id,
-		"at_ms": now_ms,
-		"buff_id": BuffDefinitions.HIVE_SUPERCHARGE_QUEUE
-	}
-	supercharge_release_requested.emit(event)
-	return event
+		"legacy_hive_id": hive_id,
+		"at_ms": now_ms
+	})
 
 func get_runtime_snapshot() -> Dictionary:
 	return {
@@ -342,6 +324,40 @@ func get_runtime_snapshot() -> Dictionary:
 		"tap_to_top_enabled": tap_to_top_enabled,
 		"slots": slots.duplicate(true)
 	}
+
+func apply_authoritative_projection(owner_id: int, snapshot: Dictionary, now_ms: int) -> void:
+	_active_by_category[BuffDefinitions.CATEGORY_UNIT] = {}
+	_active_by_category[BuffDefinitions.CATEGORY_HIVE] = {}
+	_active_by_category[BuffDefinitions.CATEGORY_LANE] = {}
+	_buff_category_timers[BuffDefinitions.CATEGORY_UNIT] = 0.0
+	_buff_category_timers[BuffDefinitions.CATEGORY_HIVE] = 0.0
+	_buff_category_timers[BuffDefinitions.CATEGORY_LANE] = 0.0
+	var state_tick: int = int(snapshot.get("tick", 0))
+	var ticks_per_second: float = 10.0
+	var chill_by_owner: Dictionary = snapshot.get("chill_until_tick_by_owner", {}) as Dictionary
+	_buff_chill_timer_sec = maxf(0.0, float(int(chill_by_owner.get(owner_id, 0)) - state_tick) / ticks_per_second)
+	var effects_any: Variant = snapshot.get("effects", [])
+	if typeof(effects_any) == TYPE_ARRAY:
+		for effect_any in effects_any as Array:
+			if typeof(effect_any) != TYPE_DICTIONARY:
+				continue
+			var effect: Dictionary = effect_any as Dictionary
+			if int(effect.get("owner_id", 0)) != owner_id:
+				continue
+			var category: String = str(effect.get("category", ""))
+			if not _active_by_category.has(category):
+				continue
+			var remaining_ticks: int = maxi(0, int(effect.get("expires_tick", state_tick)) - state_tick)
+			var projected: Dictionary = effect.duplicate(true)
+			projected["id"] = str(effect.get("buff_id", ""))
+			projected["effects"] = BuffDefinitions.effect_payload_for(str(effect.get("buff_id", "")))
+			projected["remaining_sec"] = float(remaining_ticks) / ticks_per_second
+			projected["ends_ms"] = now_ms + remaining_ticks * 100
+			_active_by_category[category] = projected
+			_buff_category_timers[category] = projected["remaining_sec"]
+	_sync_slots_from_active(now_ms)
+	_last_update_ms = now_ms
+	_emit_state_changed()
 
 func get_active_unit_buff() -> Variant:
 	return _active_or_null(BuffDefinitions.CATEGORY_UNIT)

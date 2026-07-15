@@ -497,6 +497,9 @@ func _tick_systems(dt: float) -> void:
 		if lane_system != null:
 			lane_system.tick_lane_fronts(dt)
 	)
+	_timed_phase("buff_effects", func() -> void:
+		OpsState.tick_authoritative_buff_effects()
+	)
 	_timed_phase("edge_cache", func() -> void:
 		if edge_cache_system != null:
 			edge_cache_system.rebuild_edge_cache(OpsState)

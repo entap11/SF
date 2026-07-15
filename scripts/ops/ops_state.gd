@@ -9,6 +9,7 @@ const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
 const BotTelemetryStoreScript := preload("res://scripts/state/bot_telemetry_store.gd")
+const AuthoritativeBuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
 
 signal map_selected(map_id: String)
 signal state_changed(state: GameState)
@@ -356,6 +357,33 @@ func toggle_ops_console(parent: Node = null) -> void:
 func get_contract_state_hash() -> String:
 	return _build_contract_state_signature().sha256_text()
 
+func apply_authoritative_buff_command(command: Dictionary) -> Dictionary:
+	if state == null:
+		return {"ok": false, "status": "deterministic_no_op", "reason": "missing_game_state"}
+	var result_holder: Dictionary = {"outcome": {}}
+	sim_mutate("authoritative_buff_command", func() -> void:
+		result_holder["outcome"] = AuthoritativeBuffSystem.activate(state, command)
+	)
+	return (result_holder.get("outcome", {}) as Dictionary).duplicate(true)
+
+func tick_authoritative_buff_effects() -> Array[Dictionary]:
+	if state == null:
+		return []
+	var result_holder: Dictionary = {"events": []}
+	sim_mutate("authoritative_buff_tick", func() -> void:
+		result_holder["events"] = AuthoritativeBuffSystem.tick(state)
+	)
+	var events: Array[Dictionary] = []
+	var events_any: Variant = result_holder.get("events", [])
+	if typeof(events_any) == TYPE_ARRAY:
+		for event_any in events_any as Array:
+			if typeof(event_any) == TYPE_DICTIONARY:
+				events.append((event_any as Dictionary).duplicate(true))
+	return events
+
+func get_authoritative_buff_snapshot() -> Dictionary:
+	return AuthoritativeBuffSystem.snapshot(state)
+
 func get_authority_snapshot() -> Dictionary:
 	var st: GameState = state
 	if st == null:
@@ -363,7 +391,7 @@ func get_authority_snapshot() -> Dictionary:
 	var unit_system: Object = st.unit_system
 	var units_any: Variant = unit_system.get("units") if unit_system != null else []
 	return {
-		"version": 1,
+		"version": 2,
 		"hash": get_contract_state_hash(),
 		"tick": int(st.tick),
 		"current_map_id": current_map_id,
@@ -392,6 +420,12 @@ func get_authority_snapshot() -> Dictionary:
 		"match_roster": match_roster.duplicate(true),
 		"lane_front_by_lane_id": lane_front_by_lane_id.duplicate(true),
 		"state": {
+			"buff_match_id": st.buff_match_id,
+			"buff_effects_by_activation_id": st.buff_effects_by_activation_id.duplicate(true),
+			"buff_active_by_owner_category": st.buff_active_by_owner_category.duplicate(true),
+			"buff_chill_until_tick_by_owner": st.buff_chill_until_tick_by_owner.duplicate(true),
+			"buff_outcomes_by_activation_id": st.buff_outcomes_by_activation_id.duplicate(true),
+			"buff_outcome_order": st.buff_outcome_order.duplicate(),
 			"hives": _authority_snapshot_hives(st),
 			"lanes": _authority_snapshot_lanes(st),
 			"lane_candidates": st.lane_candidates.duplicate(true),
@@ -469,6 +503,16 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	st.tower_owner_by_node_id = st.structure_owner_by_node_id
 	st.hive_spawn_block_until_us = (state_snapshot.get("hive_spawn_block_until_us", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("hive_spawn_block_until_us", {})) == TYPE_DICTIONARY else {}
 	st.passive_power_block_until_ms_by_hive = (state_snapshot.get("passive_power_block_until_ms_by_hive", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("passive_power_block_until_ms_by_hive", {})) == TYPE_DICTIONARY else {}
+	st.buff_match_id = str(state_snapshot.get("buff_match_id", ""))
+	st.buff_effects_by_activation_id = (state_snapshot.get("buff_effects_by_activation_id", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_effects_by_activation_id", {})) == TYPE_DICTIONARY else {}
+	st.buff_active_by_owner_category = (state_snapshot.get("buff_active_by_owner_category", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_active_by_owner_category", {})) == TYPE_DICTIONARY else {}
+	st.buff_chill_until_tick_by_owner = (state_snapshot.get("buff_chill_until_tick_by_owner", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_chill_until_tick_by_owner", {})) == TYPE_DICTIONARY else {}
+	st.buff_outcomes_by_activation_id = (state_snapshot.get("buff_outcomes_by_activation_id", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("buff_outcomes_by_activation_id", {})) == TYPE_DICTIONARY else {}
+	st.buff_outcome_order.clear()
+	var outcome_order_any: Variant = state_snapshot.get("buff_outcome_order", [])
+	if typeof(outcome_order_any) == TYPE_ARRAY:
+		for outcome_key_any in outcome_order_any as Array:
+			st.buff_outcome_order.append(str(outcome_key_any))
 	st.tick = int(state_snapshot.get("tick", st.tick))
 	st.set("_sim_time_us", int(state_snapshot.get("sim_time_us", st.get("_sim_time_us"))))
 	st.units_set_version = int(state_snapshot.get("units_set_version", st.units_set_version))
@@ -891,6 +935,33 @@ func _build_contract_state_signature() -> String:
 	cooldown_keys.sort()
 	for key_any in cooldown_keys:
 		parts.append("swcool:%s:%d" % [str(key_any), int(st.swarm_cooldown_until_us.get(key_any, 0))])
+	parts.append("buffmatch:%s" % st.buff_match_id)
+	var buff_effect_ids: Array = st.buff_effects_by_activation_id.keys()
+	buff_effect_ids.sort()
+	for activation_any in buff_effect_ids:
+		var effect: Dictionary = st.buff_effects_by_activation_id.get(activation_any, {}) as Dictionary
+		var target: Dictionary = effect.get("target", {}) as Dictionary
+		parts.append("buff:%s:%d:%s:%s:%s:%d:%d:%d:%d:%d:%d:%s" % [
+			str(activation_any),
+			int(effect.get("owner_id", 0)),
+			str(effect.get("buff_id", "")),
+			str(effect.get("tier", "")),
+			str(effect.get("target_type", "")),
+			int(effect.get("target_id", -1)) if str(effect.get("target_type", "")) != "global" else 0,
+			int(target.get("source_hive_id", -1)),
+			int(target.get("destination_hive_id", -1)),
+			int(effect.get("started_tick", 0)),
+			int(effect.get("expires_tick", 0)),
+			int(effect.get("queued_units", 0)),
+			JSON.stringify(effect.get("scoped_hive_ids", []))
+		])
+	var chill_owners: Array = st.buff_chill_until_tick_by_owner.keys()
+	chill_owners.sort()
+	for owner_any in chill_owners:
+		parts.append("buffchill:%d:%d" % [int(owner_any), int(st.buff_chill_until_tick_by_owner.get(owner_any, 0))])
+	for outcome_key in st.buff_outcome_order:
+		var buff_outcome: Dictionary = st.buff_outcomes_by_activation_id.get(outcome_key, {}) as Dictionary
+		parts.append("buffout:%s:%d:%s" % [outcome_key, 1 if bool(buff_outcome.get("ok", false)) else 0, str(buff_outcome.get("reason", ""))])
 	var retract_rows: Array = []
 	for retract_any in st.lane_retract_requests:
 		if typeof(retract_any) != TYPE_DICTIONARY:
