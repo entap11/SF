@@ -104,6 +104,7 @@ static func tick(state: GameState, evaluation_tick: int = -1) -> Array[Dictionar
 		if typeof(effect_any) != TYPE_DICTIONARY:
 			continue
 		var effect: Dictionary = effect_any as Dictionary
+		_prune_global_hive_scope(state, effect)
 		var invalid_reason: String = _target_loss_reason(state, effect)
 		if not invalid_reason.is_empty():
 			events.append(_expire(state, activation_id, invalid_reason, at_tick))
@@ -179,6 +180,24 @@ static func production_time_permille(state: GameState, owner_id: int, hive_id: i
 		if hive != null and int(hive.owner_id) == owner_id:
 			return 700
 	return 1000
+
+static func hive_is_shielded(state: GameState, protected_owner_id: int, hive_id: int) -> bool:
+	if not _hive_is_owned_by(state, hive_id, protected_owner_id):
+		return false
+	var single: Dictionary = active_effect(state, protected_owner_id, BuffDefinitions.HIVE_SHIELD_SINGLE)
+	if not single.is_empty() and int(single.get("target_id", -1)) == hive_id:
+		return true
+	var global: Dictionary = active_effect(state, protected_owner_id, BuffDefinitions.HIVE_SHIELD_GLOBAL)
+	return not global.is_empty() and (global.get("scoped_hive_ids", []) as Array).has(hive_id)
+
+static func hive_is_shock_immune(state: GameState, owner_id: int, hive_id: int) -> bool:
+	if not _hive_is_owned_by(state, hive_id, owner_id):
+		return false
+	var single: Dictionary = active_effect(state, owner_id, BuffDefinitions.HIVE_SHOCK_IMMUNITY)
+	if not single.is_empty() and int(single.get("target_id", -1)) == hive_id:
+		return true
+	var global: Dictionary = active_effect(state, owner_id, BuffDefinitions.HIVE_GLOBAL_SHOCK_IMMUNITY)
+	return not global.is_empty() and (global.get("scoped_hive_ids", []) as Array).has(hive_id)
 
 static func notify_ordinary_unit_produced(state: GameState, unit: Dictionary) -> void:
 	if state == null or str(unit.get("arrive_source", "lane")).strip_edges().to_lower() != "lane":
@@ -274,6 +293,26 @@ static func _target_loss_reason(state: GameState, effect: Dictionary) -> String:
 			if not bool(target.get("source_is_a", false)) and not bool(lane.send_b):
 				return "source_lane_direction_lost"
 	return ""
+
+static func _prune_global_hive_scope(state: GameState, effect: Dictionary) -> void:
+	if str(effect.get("target_type", "")) != TARGET_GLOBAL:
+		return
+	var owner_id: int = int(effect.get("owner_id", 0))
+	var prior_scope: Array = effect.get("scoped_hive_ids", []) as Array
+	var retained_scope: Array = []
+	for hive_id_any in prior_scope:
+		var hive_id: int = int(hive_id_any)
+		if _hive_is_owned_by(state, hive_id, owner_id):
+			retained_scope.append(hive_id)
+	if retained_scope != prior_scope:
+		effect["scoped_hive_ids"] = retained_scope
+		state.buff_effects_by_activation_id[str(effect.get("activation_id", ""))] = effect
+
+static func _hive_is_owned_by(state: GameState, hive_id: int, owner_id: int) -> bool:
+	if state == null or owner_id <= 0:
+		return false
+	var hive: HiveData = state.find_hive_by_id(hive_id)
+	return hive != null and int(hive.owner_id) == owner_id
 
 static func _expire(state: GameState, activation_id: String, reason: String, at_tick: int) -> Dictionary:
 	var effect: Dictionary = (state.buff_effects_by_activation_id.get(activation_id, {}) as Dictionary).duplicate(true)

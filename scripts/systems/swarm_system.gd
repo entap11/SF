@@ -96,16 +96,17 @@ func _spawn_swarm(src_id: int, dst_id: int) -> void:
 	var start_count := maxi(clampi(power_before - 1, 1, SWARM_MAX_START), chained_count)
 	var power_after := power_before - start_count
 	from_hive.power = power_after
-	if state.hive_spawn_block_until_us == null:
-		state.hive_spawn_block_until_us = {}
-	var now_us: int = int(state._sim_time_us)
-	var block_until_us: int = now_us + (SWARM_SHOCK_MS * 1000)
-	state.hive_spawn_block_until_us[src_id] = block_until_us
-	SFLog.info("SWARM_SHOCK_APPLY", {
-		"src": src_id,
-		"until_us": block_until_us,
-		"ms": SWARM_SHOCK_MS
-	})
+	if not AuthoritativeBuffSystem.hive_is_shock_immune(state, owner_id, src_id):
+		if state.hive_spawn_block_until_us == null:
+			state.hive_spawn_block_until_us = {}
+		var now_us: int = int(state._sim_time_us)
+		var block_until_us: int = now_us + (SWARM_SHOCK_MS * 1000)
+		state.hive_spawn_block_until_us[src_id] = block_until_us
+		SFLog.info("SWARM_SHOCK_APPLY", {
+			"src": src_id,
+			"until_us": block_until_us,
+			"ms": SWARM_SHOCK_MS
+		})
 
 	var edge_points := _edge_points(int(lane.a_id), int(lane.b_id))
 	if edge_points.is_empty():

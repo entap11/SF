@@ -896,6 +896,7 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 	var before_owner := int(hive.owner_id)
 	var before_power := int(hive.power)
 	var friendly_arrival: bool = _are_allied_owners(before_owner, owner_id)
+	var shielded_enemy_arrival: bool = not friendly_arrival and before_owner > 0 and AuthoritativeBuffSystem.hive_is_shielded(state, before_owner, to_id)
 	if owner_id > 0:
 		var arrival_key: String = "%d:%d" % [to_id, owner_id]
 		arrival_counts_by_hive_owner[arrival_key] = int(arrival_counts_by_hive_owner.get(arrival_key, 0)) + amount
@@ -939,7 +940,7 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 			else:
 				if before_power_same_owner >= SimTuning.MAX_POWER and arrive_source != "recall":
 					_pass_through_arrival(hive, pass_owner, amount)
-	else:
+	elif not shielded_enemy_arrival:
 		var applied_damage: int = mini(maxi(0, before_power), maxi(0, impact_amount))
 		if before_owner > 0 and applied_damage > 0 and arrive_source != "recall" and state.has_method("mark_hive_attacked_for_passive_suppression"):
 			state.call("mark_hive_attacked_for_passive_suppression", int(hive.id))
