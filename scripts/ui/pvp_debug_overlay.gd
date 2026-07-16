@@ -4,10 +4,14 @@ const SETTINGS_ENABLED: String = "swarmfront/debug/pvp_overlay_enabled"
 const ENV_ENABLED: String = "SF_PVP_DEBUG_OVERLAY"
 const UPDATE_INTERVAL_SEC: float = 0.25
 const PANEL_WIDTH: float = 430.0
+const STUDY_PANEL_HEIGHT: float = 142.0
 
 var _panel: PanelContainer = null
 var _label: Label = null
 var _toggle_button: Button = null
+var _study_panel: PanelContainer = null
+var _study_status: Label = null
+var _study_hint: Label = null
 var _update_accum: float = 0.0
 var _panel_open: bool = true
 var _build_marker: String = ""
@@ -17,6 +21,7 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT, true)
 	_build_marker = _resolve_build_marker()
 	_build_ui()
+	_build_screen_angle_study_ui()
 	set_process(true)
 	_refresh_visibility()
 	_update_text()
@@ -29,6 +34,8 @@ func _process(delta: float) -> void:
 	_refresh_visibility()
 	if visible and _panel_open:
 		_update_text()
+	if visible:
+		_update_screen_angle_study_ui()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event == null:
@@ -92,6 +99,110 @@ func _build_ui() -> void:
 	_label.add_theme_constant_override("outline_size", 1)
 	margin.add_child(_label)
 
+func _build_screen_angle_study_ui() -> void:
+	_study_panel = PanelContainer.new()
+	_study_panel.name = "BattlefieldScreenAngleStudy"
+	_study_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_study_panel.anchor_left = 1.0
+	_study_panel.anchor_right = 1.0
+	_study_panel.anchor_top = 0.0
+	_study_panel.anchor_bottom = 0.0
+	_study_panel.offset_left = -PANEL_WIDTH - 12.0
+	_study_panel.offset_right = -12.0
+	_study_panel.custom_minimum_size = Vector2(PANEL_WIDTH, STUDY_PANEL_HEIGHT)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.035, 0.055, 0.075, 0.92)
+	style.border_color = Color(0.38, 0.84, 0.96, 0.92)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	_study_panel.add_theme_stylebox_override("panel", style)
+	add_child(_study_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	_study_panel.add_child(margin)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 5)
+	margin.add_child(column)
+
+	_study_status = Label.new()
+	_study_status.add_theme_font_size_override("font_size", 14)
+	_study_status.add_theme_color_override("font_color", Color(0.76, 0.94, 1.0, 1.0))
+	column.add_child(_study_status)
+
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 5)
+	column.add_child(buttons)
+	_add_study_angle_button(buttons, "-4°", -4.0)
+	_add_study_angle_button(buttons, "-2°", -2.0)
+	_add_study_angle_button(buttons, "0°", 0.0)
+	_add_study_angle_button(buttons, "+2°", 2.0)
+	_add_study_angle_button(buttons, "+4°", 4.0)
+	var ab_button := Button.new()
+	ab_button.name = "SameStateAB"
+	ab_button.text = "A/B"
+	ab_button.tooltip_text = "Toggle between 0° and the last non-zero candidate without resetting the match."
+	ab_button.focus_mode = Control.FOCUS_NONE
+	ab_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	ab_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ab_button.pressed.connect(_toggle_screen_angle_study_ab)
+	buttons.add_child(ab_button)
+
+	_study_hint = Label.new()
+	_study_hint.add_theme_font_size_override("font_size", 11)
+	_study_hint.add_theme_color_override("font_color", Color(0.72, 0.78, 0.84, 1.0))
+	_study_hint.text = "Same-state comparison • camera roll only • simulation unchanged"
+	column.add_child(_study_hint)
+
+func _add_study_angle_button(parent: HBoxContainer, text_value: String, angle_deg: float) -> void:
+	var button := Button.new()
+	button.name = "Angle%s" % text_value.replace("°", "").replace("+", "Plus").replace("-", "Minus")
+	button.text = text_value
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.pressed.connect(func() -> void: _set_screen_angle_study_angle(angle_deg))
+	parent.add_child(button)
+
+func _set_screen_angle_study_angle(angle_deg: float) -> void:
+	var shell: Node = _shell()
+	if shell != null and shell.has_method("set_battlefield_screen_angle_degrees"):
+		shell.call("set_battlefield_screen_angle_degrees", angle_deg)
+	_update_screen_angle_study_ui()
+
+func _toggle_screen_angle_study_ab() -> void:
+	var shell: Node = _shell()
+	if shell != null and shell.has_method("toggle_battlefield_screen_angle_ab"):
+		shell.call("toggle_battlefield_screen_angle_ab")
+	_update_screen_angle_study_ui()
+
+func _screen_angle_study_snapshot() -> Dictionary:
+	var shell: Node = _shell()
+	if shell != null and shell.has_method("get_battlefield_screen_angle_study_snapshot"):
+		var snapshot_any: Variant = shell.call("get_battlefield_screen_angle_study_snapshot")
+		if typeof(snapshot_any) == TYPE_DICTIONARY:
+			return snapshot_any as Dictionary
+	return {"available": false}
+
+func _update_screen_angle_study_ui() -> void:
+	if _study_panel == null or not _study_panel.visible:
+		return
+	var snapshot: Dictionary = _screen_angle_study_snapshot()
+	var angle_deg: float = float(snapshot.get("screen_angle_deg", 0.0))
+	var mode: String = "BASELINE" if absf(angle_deg) <= 0.001 else "CANDIDATE"
+	var applied_text: String = "LIVE" if bool(snapshot.get("applied", false)) else "WAITING FOR MATCH"
+	if _study_status != null:
+		_study_status.text = "BATTLEFIELD SCREEN ANGLE • %s %+.1f° • %s" % [mode, angle_deg, applied_text]
+	if _study_hint != null:
+		_study_hint.text = "A/B keeps the same match state • input: %s" % str(snapshot.get("input_mapping", "pending"))
+
+func _shell() -> Node:
+	return get_node_or_null("/root/Shell")
+
 func _toggle_panel() -> void:
 	_panel_open = not _panel_open
 	if _panel != null:
@@ -100,13 +211,23 @@ func _toggle_panel() -> void:
 		_update_text()
 
 func _refresh_visibility() -> void:
-	var enabled: bool = _overlay_enabled()
-	var pvp_context: bool = _is_pvp_context()
-	visible = enabled and pvp_context
+	var debug_visible: bool = _overlay_enabled() and _is_pvp_context()
+	var study_snapshot: Dictionary = _screen_angle_study_snapshot()
+	var study_visible: bool = (
+		bool(study_snapshot.get("available", false))
+		and bool(study_snapshot.get("armed", false))
+		and bool(study_snapshot.get("arena_present", false))
+	)
+	visible = debug_visible or study_visible
 	if _toggle_button != null:
-		_toggle_button.visible = visible
+		_toggle_button.visible = debug_visible
 	if _panel != null:
-		_panel.visible = visible and _panel_open
+		_panel.visible = debug_visible and _panel_open
+	if _study_panel != null:
+		_study_panel.visible = study_visible
+		var top: float = 442.0 if debug_visible and _panel_open else 12.0
+		_study_panel.offset_top = top
+		_study_panel.offset_bottom = top + STUDY_PANEL_HEIGHT
 
 func _overlay_enabled() -> bool:
 	var env_value: String = OS.get_environment(ENV_ENABLED).strip_edges().to_lower()

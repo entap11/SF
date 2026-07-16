@@ -1,6 +1,7 @@
 extends SceneTree
 
 const UnitRendererScript = preload("res://scripts/renderers/unit_renderer.gd")
+const UnitEmissionShader = preload("res://shaders/unit_emission.gdshader")
 const OFFSCREEN_POS: Vector2 = Vector2(-99999.0, -99999.0)
 
 func _initialize() -> void:
@@ -27,12 +28,28 @@ func _initialize() -> void:
 	var first_id: int = int(first_node.get_instance_id())
 	first_node.name = "Unit_77"
 	first_node.set_meta("unit_id", 77)
+	var tracked_nodes: Dictionary = renderer.get("unit_nodes_by_id") as Dictionary
+	tracked_nodes[77] = first_node
 	first_node.visible = true
 	first_node.position = Vector2(128.0, 64.0)
+	var emission_sprite: Sprite2D = first_node.get_node_or_null("UnitEmissionSprite") as Sprite2D
+	_assert_true(emission_sprite != null, "pooled unit should contain an emission sprite")
+	if emission_sprite != null:
+		var emission_controller: Variant = renderer.call("_ensure_bee_clip_emission_controller", 77, emission_sprite)
+		_assert_true(emission_controller != null, "emission sprite should receive a clip-synchronized controller")
+		var emission_material: ShaderMaterial = emission_sprite.material as ShaderMaterial
+		_assert_true(emission_material != null, "emission sprite should receive an emission material")
+		if emission_material != null:
+			_assert_true(emission_material.shader == UnitEmissionShader, "emission sprite should use the additive unit emission shader")
+		emission_sprite.visible = true
 	renderer.call("_pool_release", first_node)
 	_assert_true(not first_node.visible, "released unit should be hidden")
 	_assert_true(first_node.position == OFFSCREEN_POS, "released unit should move to sentinel offscreen position")
 	_assert_true(int(first_node.get_meta("unit_id", -1)) == -1, "released unit id metadata should reset")
+	if emission_sprite != null:
+		_assert_true(not emission_sprite.visible, "released emission sprite should be hidden")
+		_assert_true(emission_sprite.texture == null, "released emission sprite texture should reset")
+		_assert_true(emission_sprite.material == null, "released emission sprite material should reset")
 
 	var second_any: Variant = renderer.call("_pool_acquire")
 	var second_node: Node2D = second_any as Node2D
@@ -49,6 +66,7 @@ func _initialize() -> void:
 	_assert_true(int(telemetry.get("pool_hits", 0)) >= 2, "pool telemetry should count hits")
 	_assert_true(int(telemetry.get("runtime_instantiates_avoided", 0)) >= 2, "pool telemetry should count avoided runtime instantiates")
 	_assert_true(int(telemetry.get("total_pooled_objects", 0)) == 400, "hard pool should contain exactly 400 nodes")
+	_assert_true(int(telemetry.get("active_emission_materials", -1)) == 0, "released units should leave no live emission materials")
 
 	var held_nodes: Array[Node2D] = []
 	for i in range(400):

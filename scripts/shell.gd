@@ -102,6 +102,9 @@ const SHELL_WORLD_VIEWPORT_LEFT_INSET_PX: float = 0.0
 const SHELL_WORLD_VIEWPORT_RIGHT_INSET_PX: float = 0.0
 const SHELL_WORLD_VIEWPORT_TOP_INSET_PX: float = 60.0
 const SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX: float = 40.0
+const BATTLEFIELD_SCREEN_ANGLE_STUDY_ENV: String = "SF_BATTLEFIELD_SCREEN_ANGLE_STUDY"
+const BATTLEFIELD_SCREEN_ANGLE_LIMIT_DEG: float = 4.0
+const BATTLEFIELD_SCREEN_ANGLE_DEFAULT_CANDIDATE_DEG: float = 2.0
 @export var start_in_menu := true
 @export var enable_dev_map_loader := true
 @export var show_dev_map_loader_in_game := true
@@ -114,6 +117,7 @@ const SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX: float = 40.0
 @export var ctf_bot_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/CtfBotButton")
 @export var team_mode_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TeamModeButton")
 @export var telemetry_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/TelemetryButton")
+@export var screen_angle_study_button_path: NodePath = NodePath("MenuRoot/MenuPanel/VBox/ButtonsRow/ScreenAngleStudyButton")
 @export var play_selected_button_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerButtonsRow/PlaySelectedButton")
 @export var picker_back_button_path: NodePath = NodePath("MenuRoot/MenuPanel/MapPickerPanel/Center/Panel/VBox/PickerButtonsRow/PickerBackButton")
 @export var dev_map_loader_path: NodePath = NodePath("DevMapLoader")
@@ -137,6 +141,7 @@ const SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX: float = 40.0
 @onready var _ctf_bot_button: Button = get_node_or_null(ctf_bot_button_path) as Button
 @onready var _team_mode_button: Button = get_node_or_null(team_mode_button_path) as Button
 @onready var _telemetry_button: Button = get_node_or_null(telemetry_button_path) as Button
+@onready var _screen_angle_study_button: Button = get_node_or_null(screen_angle_study_button_path) as Button
 @onready var _play_selected_button: Button = get_node_or_null(play_selected_button_path) as Button
 @onready var _picker_back_button: Button = get_node_or_null(picker_back_button_path) as Button
 @onready var _player_buff_strip: Control = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
@@ -196,6 +201,10 @@ var _shell_prematch_record_h2h: Label = null
 var _shell_handshake_ad_surface: Control = null
 var _telemetry_dashboard_panel: Control = null
 var _pvp_debug_overlay: Control = null
+var _battlefield_screen_angle_deg: float = 0.0
+var _battlefield_screen_angle_candidate_deg: float = BATTLEFIELD_SCREEN_ANGLE_DEFAULT_CANDIDATE_DEG
+var _battlefield_screen_angle_camera_baselines: Dictionary = {}
+var _battlefield_screen_angle_study_armed: bool = false
 
 func _install_error_hooks() -> void:
 	if _err_conn_ready:
@@ -299,6 +308,7 @@ func _ready() -> void:
 	_resolve_ctf_bot_ui_node()
 	_resolve_team_mode_ui_node()
 	_resolve_telemetry_ui_node()
+	_resolve_screen_angle_study_ui_node()
 	_resolve_dev_map_loader()
 	_resolve_buff_ui_nodes()
 	_apply_dev_menu_fonts()
@@ -559,6 +569,15 @@ func _resolve_telemetry_ui_node() -> void:
 	if _telemetry_button != null and not _telemetry_button.pressed.is_connected(_on_telemetry_pressed):
 		_telemetry_button.pressed.connect(_on_telemetry_pressed)
 
+func _resolve_screen_angle_study_ui_node() -> void:
+	_screen_angle_study_button = get_node_or_null(screen_angle_study_button_path) as Button
+	if _screen_angle_study_button == null:
+		return
+	_screen_angle_study_button.visible = battlefield_screen_angle_study_available()
+	_screen_angle_study_button.disabled = not battlefield_screen_angle_study_available()
+	if not _screen_angle_study_button.pressed.is_connected(_on_screen_angle_study_pressed):
+		_screen_angle_study_button.pressed.connect(_on_screen_angle_study_pressed)
+
 func _on_team_mode_pressed() -> void:
 	var next_mode: String = "ffa" if _team_mode_ui == "2v2" else "2v2"
 	_set_team_mode_ui(next_mode)
@@ -607,6 +626,9 @@ func _apply_dev_menu_fonts() -> void:
 	if _telemetry_button != null:
 		_telemetry_button.custom_minimum_size.y = maxf(_telemetry_button.custom_minimum_size.y, 78.0)
 		_apply_font(_telemetry_button, _font_regular, 28)
+	if _screen_angle_study_button != null:
+		_screen_angle_study_button.custom_minimum_size.y = maxf(_screen_angle_study_button.custom_minimum_size.y, 78.0)
+		_apply_font(_screen_angle_study_button, _font_regular, 24)
 	if _play_selected_button != null:
 		_play_selected_button.custom_minimum_size.y = maxf(_play_selected_button.custom_minimum_size.y, 78.0)
 		_apply_font(_play_selected_button, _font_regular, 28)
@@ -646,6 +668,9 @@ func _configure_shell_menu_ui() -> void:
 		_ctf_bot_button.text = "HIDDEN CTF BOT"
 	if _telemetry_button != null:
 		_telemetry_button.text = "TELEMETRY"
+	if _screen_angle_study_button != null:
+		_screen_angle_study_button.text = "ANGLE A/B TEST"
+		_screen_angle_study_button.tooltip_text = "Choose a map, then compare 0° with a live screen-angle candidate."
 	if _picker_title_label != null:
 		_picker_title_label.text = "SELECT PRACTICE MAP"
 		_picker_title_label.add_theme_color_override("font_color", Color(0.98, 0.98, 0.99, 0.98))
@@ -686,6 +711,9 @@ func _set_shell_status(text: String, tone: String = "neutral") -> void:
 	menu_status_label.add_theme_color_override("font_color", _shell_status_color(tone))
 
 func _refresh_shell_menu_status() -> void:
+	if _battlefield_screen_angle_study_armed:
+		_set_shell_status("Angle A/B test armed. Choose a map; live controls will appear during the match.", "success")
+		return
 	if _selected_map_path.strip_edges().is_empty():
 		_set_shell_status("Team mode: %s. Select a map for direct launch, or use Tutorial / Hidden CTF for preset runs." % _shell_mode_label())
 		return
@@ -707,9 +735,15 @@ func _refresh_picker_summary() -> void:
 		return
 	var selected_path: String = _selected_map_path_from_ui()
 	if selected_path.strip_edges().is_empty():
-		_set_picker_summary("%d local maps found. Choose one to enable Launch Map." % count)
+		if _battlefield_screen_angle_study_armed:
+			_set_picker_summary("ANGLE A/B armed. Choose a map, then use the live 0° / ±2° / ±4° controls.", "success")
+		else:
+			_set_picker_summary("%d local maps found. Choose one to enable Launch Map." % count)
 		return
-	_set_picker_summary("%d local maps found. Current selection: %s." % [count, _map_display_name(selected_path)], "success")
+	if _battlefield_screen_angle_study_armed:
+		_set_picker_summary("ANGLE A/B armed for %s. Launch to begin at 0°." % _map_display_name(selected_path), "success")
+	else:
+		_set_picker_summary("%d local maps found. Current selection: %s." % [count, _map_display_name(selected_path)], "success")
 
 func _refresh_play_selected_state() -> void:
 	if _play_selected_button == null:
@@ -891,6 +925,17 @@ func _on_select_map_pressed() -> void:
 	SFLog.info("MAP_PICKER_OPEN", {})
 	_show_map_picker()
 
+func _on_screen_angle_study_pressed() -> void:
+	if not battlefield_screen_angle_study_available():
+		_set_shell_status("Angle A/B study is available only in debug builds.", "error")
+		return
+	_battlefield_screen_angle_study_armed = true
+	set_battlefield_screen_angle_degrees(0.0)
+	SFLog.info("BATTLEFIELD_SCREEN_ANGLE_STUDY_ARMED", {
+		"candidate_angle_deg": _battlefield_screen_angle_candidate_deg
+	})
+	_show_map_picker()
+
 func _on_telemetry_pressed() -> void:
 	SFLog.info("TELEMETRY_DASHBOARD_OPEN", {})
 	_open_telemetry_dashboard()
@@ -932,6 +977,94 @@ func _close_telemetry_dashboard() -> void:
 		_telemetry_dashboard_panel = null
 		return
 	_telemetry_dashboard_panel.visible = false
+
+func battlefield_screen_angle_study_available() -> bool:
+	var env_value: String = OS.get_environment(BATTLEFIELD_SCREEN_ANGLE_STUDY_ENV).strip_edges().to_lower()
+	if env_value == "0" or env_value == "false" or env_value == "off":
+		return false
+	if env_value == "1" or env_value == "true" or env_value == "on":
+		return true
+	return OS.is_debug_build() or Engine.is_editor_hint()
+
+func set_battlefield_screen_angle_degrees(value: float) -> Dictionary:
+	if not battlefield_screen_angle_study_available():
+		return {"ok": false, "reason": "study_unavailable"}
+	_battlefield_screen_angle_study_armed = true
+	var clamped: float = clampf(value, -BATTLEFIELD_SCREEN_ANGLE_LIMIT_DEG, BATTLEFIELD_SCREEN_ANGLE_LIMIT_DEG)
+	if absf(clamped) < 0.001:
+		clamped = 0.0
+	else:
+		_battlefield_screen_angle_candidate_deg = clamped
+	_battlefield_screen_angle_deg = clamped
+	var result: Dictionary = _apply_battlefield_screen_angle()
+	SFLog.info("BATTLEFIELD_SCREEN_ANGLE_STUDY_SET", {
+		"screen_angle_deg": _battlefield_screen_angle_deg,
+		"camera_roll_deg": -_battlefield_screen_angle_deg,
+		"applied": bool(result.get("applied", false)),
+		"insertion_point": "world_subviewport_camera_roll"
+	})
+	return result
+
+func toggle_battlefield_screen_angle_ab() -> Dictionary:
+	var next_angle: float = 0.0 if absf(_battlefield_screen_angle_deg) > 0.001 else _battlefield_screen_angle_candidate_deg
+	return set_battlefield_screen_angle_degrees(next_angle)
+
+func get_battlefield_screen_angle_study_snapshot() -> Dictionary:
+	var arena_node: Node = _resolve_runtime_arena_node()
+	var cam: Camera2D = arena_node.get_node_or_null("Camera2D") as Camera2D if arena_node != null else null
+	var expected_rotation_deg: float = -_battlefield_screen_angle_deg
+	var expected_ignore_rotation: bool = false
+	if cam != null and absf(_battlefield_screen_angle_deg) <= 0.001:
+		var baseline: Dictionary = _battlefield_screen_angle_camera_baselines.get(int(cam.get_instance_id()), {}) as Dictionary
+		expected_rotation_deg = rad_to_deg(float(baseline.get("rotation", 0.0)))
+		expected_ignore_rotation = bool(baseline.get("ignore_rotation", true))
+	var applied: bool = cam != null and is_equal_approx(cam.rotation_degrees, expected_rotation_deg)
+	if applied:
+		applied = cam.ignore_rotation == expected_ignore_rotation
+	return {
+		"available": battlefield_screen_angle_study_available(),
+		"armed": _battlefield_screen_angle_study_armed,
+		"arena_present": cam != null,
+		"screen_angle_deg": _battlefield_screen_angle_deg,
+		"candidate_angle_deg": _battlefield_screen_angle_candidate_deg,
+		"mode": "baseline" if absf(_battlefield_screen_angle_deg) <= 0.001 else "candidate",
+		"applied": applied,
+		"camera_roll_deg": cam.rotation_degrees if cam != null else 0.0,
+		"insertion_point": "WorldViewport/Camera2D roll",
+		"world_coordinates_changed": false,
+		"gameplay_state_changed": false,
+		"input_mapping": "SubViewport canvas transform inverse"
+	}
+
+func _apply_battlefield_screen_angle() -> Dictionary:
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node == null:
+		return {"ok": true, "applied": false, "reason": "arena_not_instanced"}
+	var cam: Camera2D = arena_node.get_node_or_null("Camera2D") as Camera2D
+	if cam == null:
+		return {"ok": false, "applied": false, "reason": "camera_missing"}
+	var camera_id: int = int(cam.get_instance_id())
+	if not _battlefield_screen_angle_camera_baselines.has(camera_id):
+		_battlefield_screen_angle_camera_baselines[camera_id] = {
+			"rotation": cam.rotation,
+			"ignore_rotation": cam.ignore_rotation
+		}
+	var baseline: Dictionary = _battlefield_screen_angle_camera_baselines.get(camera_id, {}) as Dictionary
+	if absf(_battlefield_screen_angle_deg) <= 0.001:
+		cam.rotation = float(baseline.get("rotation", 0.0))
+		cam.ignore_rotation = bool(baseline.get("ignore_rotation", true))
+	else:
+		# Camera canvas transforms are inverse transforms: negative camera roll produces
+		# a positive displayed battlefield angle while preserving all world coordinates.
+		cam.ignore_rotation = false
+		cam.rotation_degrees = -_battlefield_screen_angle_deg
+	cam.force_update_scroll()
+	return {
+		"ok": true,
+		"applied": true,
+		"screen_angle_deg": _battlefield_screen_angle_deg,
+		"camera_roll_deg": cam.rotation_degrees
+	}
 
 func _ensure_pvp_debug_overlay() -> Control:
 	if _pvp_debug_overlay != null and is_instance_valid(_pvp_debug_overlay):
@@ -1060,7 +1193,10 @@ func _show_map_picker() -> void:
 	else:
 		_refresh_play_selected_state()
 	_refresh_picker_summary()
-	_set_shell_status("Map picker open. Choose a local map for direct launch.", "neutral")
+	if _battlefield_screen_angle_study_armed:
+		_set_shell_status("Angle A/B test armed. Choose and launch a map.", "success")
+	else:
+		_set_shell_status("Map picker open. Choose a local map for direct launch.", "neutral")
 
 func _scan_maps_into_list() -> void:
 	if _map_list == null:
@@ -1450,6 +1586,7 @@ func _configure_shell_world_viewport_opening() -> void:
 	world_fit.set("top_overlap_px", 0.0)
 	if world_fit.has_method("_apply_layout"):
 		world_fit.call("_apply_layout")
+	_apply_battlefield_screen_angle()
 
 func _ensure_vs_frame_visible() -> void:
 	var hud_root: CanvasItem = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as CanvasItem

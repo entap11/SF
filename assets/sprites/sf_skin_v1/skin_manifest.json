@@ -256,39 +256,39 @@
       "scale": 1.0
     },
     "unit.neutral": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_v3.png",
+      "path": "res://assets/sprites/sf_skin_v1/unit_v4.png",
       "scale": 2.52,
-      "key_color": "#ff00ff",
-      "threshold": 0.01,
-      "softness": 0.005
+      "key_color": "#00ff00",
+      "threshold": 0.1,
+      "softness": 0.05
     },
     "unit.p1": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_v3.png",
+      "path": "res://assets/sprites/sf_skin_v1/unit_v4.png",
       "scale": 2.52,
-      "key_color": "#ff00ff",
-      "threshold": 0.01,
-      "softness": 0.005
+      "key_color": "#00ff00",
+      "threshold": 0.1,
+      "softness": 0.05
     },
     "unit.p2": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_v3.png",
+      "path": "res://assets/sprites/sf_skin_v1/unit_v4.png",
       "scale": 2.52,
-      "key_color": "#ff00ff",
-      "threshold": 0.01,
-      "softness": 0.005
+      "key_color": "#00ff00",
+      "threshold": 0.1,
+      "softness": 0.05
     },
     "unit.p3": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_v3.png",
+      "path": "res://assets/sprites/sf_skin_v1/unit_v4.png",
       "scale": 2.52,
-      "key_color": "#ff00ff",
-      "threshold": 0.01,
-      "softness": 0.005
+      "key_color": "#00ff00",
+      "threshold": 0.1,
+      "softness": 0.05
     },
     "unit.p4": {
-      "path": "res://assets/sprites/sf_skin_v1/unit_v3.png",
+      "path": "res://assets/sprites/sf_skin_v1/unit_v4.png",
       "scale": 2.52,
-      "key_color": "#ff00ff",
-      "threshold": 0.01,
-      "softness": 0.005
+      "key_color": "#00ff00",
+      "threshold": 0.1,
+      "softness": 0.05
     }
   }
 }

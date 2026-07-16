@@ -133,6 +133,15 @@ theme_override_fonts/font = ExtResource("3")
 theme_override_font_sizes/font_size = 20
 text = "TELEMETRY"
 
+[node name="ScreenAngleStudyButton" type="Button" parent="MenuRoot/MenuPanel/VBox/ButtonsRow"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_fonts/font = ExtResource("3")
+theme_override_font_sizes/font_size = 20
+text = "ANGLE A/B TEST"
+tooltip_text = "Launch a map with the same-state battlefield screen-angle tester."
+
 [node name="StatusLabel" type="Label" parent="MenuRoot/MenuPanel/VBox"]
 layout_mode = 2
 text = "Select a map for direct launch."

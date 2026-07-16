@@ -30,6 +30,10 @@ uniform float body_glow_luma_floor = 0.08;
 uniform float body_pulse_strength = 0.0;
 uniform float body_pulse_speed = 4.8;
 uniform float body_pulse_phase = 0.0;
+uniform vec4 key_color : source_color = vec4(0.0, 1.0, 0.0, 1.0);
+uniform float key_threshold = 0.10;
+uniform float key_softness = 0.05;
+uniform float key_enabled = 0.0;
 
 vec3 rgb2hsv(vec3 c) {
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -48,6 +52,15 @@ float body_mask_at(vec2 uv) {
 
 void fragment() {
 	vec4 tex = texture(TEXTURE, UV);
+	float source_alpha = tex.a;
+	if (key_enabled > 0.5) {
+		float key_distance = distance(tex.rgb, key_color.rgb);
+		source_alpha *= smoothstep(
+			key_threshold - key_softness,
+			key_threshold + key_softness,
+			key_distance
+		);
+	}
 	vec3 hsv = rgb2hsv(tex.rgb);
 
 	// Basic luminance/brightness
@@ -75,14 +88,14 @@ void fragment() {
 	vec3 lit = mix(tex.rgb, preserved, mask * detail_preserve);
 	vec3 out_rgb = (lit * body_pulse) + (emissive * mask * additive_glow * glow_pulse);
 	float dark_mask = 1.0 - smoothstep(0.16, 0.62, lum);
-	float metal_gate = dark_mask * smoothstep(0.18, 0.95, tex.a);
+	float metal_gate = dark_mask * smoothstep(0.18, 0.95, source_alpha);
 	vec3 hot_base = mix(vec3(0.86, 0.90, 0.95), selected_hot_color.rgb, 0.52);
 	vec3 hot_metal = mix(out_rgb, hot_base, metal_gate * selected_metal_lift);
 	float hot_edge = smoothstep(0.30, 0.98, bright) * metal_gate;
 	out_rgb = mix(out_rgb, hot_metal + (selected_hot_color.rgb * hot_edge * selected_hot_edge), selected_hot);
 	float body_pulse_wave = (sin((TIME * body_pulse_speed) + body_pulse_phase) * 0.5) + 0.5;
 	float body_burst = 1.0 + (pow(body_pulse_wave, 3.0) * body_pulse_strength);
-	float body_emission = tex.a * body_mask_at(UV) * smoothstep(body_glow_luma_floor, 1.0, lum);
+	float body_emission = source_alpha * body_mask_at(UV) * smoothstep(body_glow_luma_floor, 1.0, lum);
 	out_rgb += body_glow_color.rgb * body_emission * body_glow_strength * body_burst;
-	COLOR = vec4(out_rgb, tex.a * global_alpha);
+	COLOR = vec4(out_rgb, source_alpha * global_alpha);
 }

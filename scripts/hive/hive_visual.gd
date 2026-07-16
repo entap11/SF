@@ -123,6 +123,7 @@ const LANE_BUDGET_PIP_SPACING: float = 29.0
 const LANE_BUDGET_LABEL_SIDE_GAP: float = 18.0
 const LANE_BUDGET_LABEL_TOP_GAP: float = 22.5
 const LANE_BUDGET_THREE_TOP_LIFT: float = 19.5
+const LANE_BUDGET_VERTICAL_NUDGE_PX: float = -10.0
 const LANE_BUDGET_SINGLE_POS := Vector2(0.0, -46.5)
 const LANE_BUDGET_LOBE_POS := Vector2(22.5, -42.0)
 const LANE_BUDGET_CENTER_POS := Vector2(0.0, -54.0)
@@ -454,7 +455,7 @@ func _process(delta: float) -> void:
 		var label_pos: Vector2 = base_offset + Vector2(0.0, bob_y)
 		_power_label_holder.position = label_pos
 		if _lane_budget_layer != null and is_instance_valid(_lane_budget_layer):
-			_lane_budget_layer.position = label_pos
+			_lane_budget_layer.position = label_pos + Vector2(0.0, LANE_BUDGET_VERTICAL_NUDGE_PX)
 		_power_label_holder.modulate.a = 1.0
 	if _power_projector_beam != null and is_instance_valid(_power_projector_beam):
 		var beam_color: Color = _projection_color()
@@ -1377,9 +1378,10 @@ func _update_lane_budget_indicators() -> void:
 			_lane_budget_layer.add_child(fill)
 			_lane_budget_pips.append({"outline": outline, "fill": fill})
 	var label_size: Vector2 = _lane_budget_reference_label_size()
-	_lane_budget_layer.position = _power_label_offset()
+	_lane_budget_layer.position = _power_label_offset() + Vector2(0.0, LANE_BUDGET_VERTICAL_NUDGE_PX)
 	_update_power_projection_layout()
-	var indicator_color: Color = LANE_BUDGET_PIP_COLOR
+	var indicator_color: Color = Color.WHITE if owner_id == 2 else LANE_BUDGET_PIP_COLOR
+	var indicator_outline_color: Color = Color.WHITE if owner_id == 2 else LANE_BUDGET_PIP_OUTLINE_COLOR
 	for i in range(slot_count):
 		var entry: Dictionary = _lane_budget_pips[i]
 		var outline_line: Line2D = entry.get("outline", null) as Line2D
@@ -1393,15 +1395,15 @@ func _update_lane_budget_indicators() -> void:
 			fill_poly.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
 		var is_used: bool = i < _lane_budget_used
 		var is_available: bool = i < _lane_budget_max
-		var outline_color: Color = LANE_BUDGET_PIP_OUTLINE_COLOR
+		var outline_color: Color = indicator_outline_color
 		outline_color.a = 0.30
 		var fill_color: Color = Color(0.0, 0.0, 0.0, 0.0)
 		if is_used:
-			outline_color = LANE_BUDGET_PIP_OUTLINE_COLOR
+			outline_color = indicator_outline_color
 			outline_color.a = 0.98
 			fill_color = Color(0.0, 0.0, 0.0, 0.0)
 		elif is_available:
-			outline_color = LANE_BUDGET_PIP_OUTLINE_COLOR
+			outline_color = indicator_outline_color
 			outline_color.a = 0.98
 			fill_color = indicator_color
 			fill_color.a = 0.94
