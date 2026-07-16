@@ -4,9 +4,11 @@ extends Node2D
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const HiveNodeScene := preload("res://scenes/hive/HiveNode.tscn")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
+const MatchShadowControllerScript := preload("res://scripts/renderers/match_shadow_controller.gd")
 
 var state: Object
 var sel: Object
@@ -39,25 +41,41 @@ var _drag_target_hive_id: int = -1
 var _drag_target_valid: bool = false
 var _drag_target_reason: String = ""
 var _sprite_registry: SpriteRegistry = null
+var _growth_projection_by_id: Dictionary = {}
+var _growth_history_armed: bool = false
+var _growth_model_iid: int = -1
+var _app_lifecycle: Node = null
+var _match_shadow_controller: RefCounted = null
 
 func setup(state_ref: Object, sel_ref: Object, arena_ref: Node2D) -> void:
+	_cancel_all_growth_transitions("renderer_setup")
+	_reset_growth_history()
 	state = state_ref
 	sel = sel_ref
 	arena = arena_ref
 	_dirty = true
 	_last_render_version = -1
+	_ensure_match_shadow_controller(true)
 	_connect_selection_signal()
+	_bind_app_lifecycle()
 	call_deferred("_prewarm_hive_sprite_cache")
 	queue_redraw()
 
 func set_model(m: Dictionary) -> void:
 	SFLog.log_once("hive_renderer_set_model_stack", "HiveRenderer set_model called by:\n%s" % [str(get_stack())], SFLog.Level.TRACE)
+	_ensure_match_shadow_controller()
+	if _match_shadow_controller != null:
+		_match_shadow_controller.call("update_from_render_model", m)
+	var growth_context_by_id: Dictionary = _growth_contexts_for_model(m)
 	model = m
-	_sync_hive_nodes(m)
+	_sync_hive_nodes(m, growth_context_by_id)
+	_commit_growth_projection(m)
 	_dirty = true
 	queue_redraw()
 
 func clear_all() -> void:
+	_cancel_all_growth_transitions("renderer_clear")
+	_reset_growth_history()
 	model = {}
 	_dirty = true
 	queue_redraw()
@@ -123,6 +141,11 @@ func get_buff_target_probe(hive_id: int) -> Dictionary:
 func get_hive_nodes_by_id_safe() -> Dictionary:
 	return hive_nodes_by_id
 
+func get_match_shadow_debug_snapshot() -> Dictionary:
+	if _match_shadow_controller == null:
+		return {"enabled": false, "material_count": 0}
+	return _match_shadow_controller.call("debug_snapshot") as Dictionary
+
 func set_selected_hive(hive_id: int, color: Color) -> void:
 	if hive_id == _selected_hive_id and color == _selected_color:
 		return
@@ -179,7 +202,7 @@ func _connect_selection_signal() -> void:
 		return
 	if not ("api" in arena):
 		return
-	var arena_api: ArenaAPI = arena.api
+	var arena_api: Object = arena.api
 	if arena_api == null:
 		return
 	var cb := Callable(self, "_on_selected_hive_changed")
@@ -187,7 +210,7 @@ func _connect_selection_signal() -> void:
 		arena_api.connect("selected_hive_changed", cb)
 	_apply_selection(_current_selected_hive_id(arena_api))
 
-func _current_selected_hive_id(arena_api: ArenaAPI) -> int:
+func _current_selected_hive_id(arena_api: Object) -> int:
 	var api_selected_id: int = int(arena_api.selected_hive_id) if arena_api != null else -1
 	if api_selected_id > 0:
 		return api_selected_id
@@ -263,7 +286,7 @@ func _bind_node_signals(node: Area2D) -> void:
 	if not ("input_system" in arena) or not ("api" in arena):
 		return
 	var input_sys: Object = arena.input_system
-	var arena_api: ArenaAPI = arena.api
+	var arena_api: Object = arena.api
 	if input_sys == null or arena_api == null:
 		return
 	# Primary input path is Arena._unhandled_input -> InputSystem.handle_pointer_event.
@@ -351,7 +374,8 @@ func _draw_model() -> void:
 		var kind: String = str(hd.get("kind", "Hive"))
 		var pwr: int = int(hd.get("pwr", hd.get("power", 0)))
 		color = _team_color_for_player(owner_id)
-		_draw_hive_visual(pos, radius, owner_id, color, kind, pwr)
+		var growth_tier: int = int(hd.get("growth_tier", hd.get("lane_budget_max", HiveGrowthRules.TIER_SMALL)))
+		_draw_hive_visual(pos, radius, owner_id, color, kind, growth_tier)
 		var text_color := _power_label_color(owner_id, color)
 		if font != null:
 			var text: String = str(pwr)
@@ -439,7 +463,8 @@ func _draw_state() -> void:
 
 		var color: Color = Color(1, 1, 1, 1)
 		color = _team_color_for_player(owner_id)
-		_draw_hive_visual(pos, radius, owner_id, color, kind, pwr)
+		var growth_tier: int = int(state.call("lanes_allowed_for_power", pwr)) if state.has_method("lanes_allowed_for_power") else HiveGrowthRules.TIER_SMALL
+		_draw_hive_visual(pos, radius, owner_id, color, kind, growth_tier)
 
 		if font != null:
 			var text := str(pwr)
@@ -448,7 +473,7 @@ func _draw_state() -> void:
 			var text_color := _power_label_color(owner_id, color)
 			draw_string(font, text_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
-func _sync_hive_nodes(rm: Dictionary) -> void:
+func _sync_hive_nodes(rm: Dictionary, growth_context_by_id: Dictionary = {}) -> void:
 	var cell: float = float(rm.get("cell_size", cell_px))
 	if cell <= 0.0:
 		cell = float(cell_px)
@@ -457,6 +482,8 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 		if cell_v != null:
 			cell = float(cell_v)
 	var hives: Array = rm.get("hives", []) as Array
+	var viewer_owner_id: int = int(rm.get("viewer_owner_id", 0))
+	var distress_motion_mode: String = _distress_motion_mode()
 	_reset_color_log_if_needed(hives)
 	var seen: Dictionary = {}
 	for hive in hives:
@@ -503,6 +530,11 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 		var budget_state: Dictionary = _lane_budget_for_hive(id, pwr, hd)
 		var lane_budget_used: int = int(budget_state.get("used", 0))
 		var lane_budget_max: int = int(budget_state.get("max", 3))
+		var growth_tier: int = clampi(
+			int(hd.get("growth_tier", lane_budget_max)),
+			HiveGrowthRules.TIER_SMALL,
+			HiveGrowthRules.TIER_LARGE
+		)
 		var radius: float = cell * 0.42
 		if arena != null:
 			var radius_v: Variant = (arena as Node).get("HIVE_RADIUS_PX")
@@ -520,9 +552,29 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 				"color": color
 			})
 		if node.has_method("apply_render"):
-			node.call("apply_render", owner_id, pwr, radius, color, POWER_LABEL_FONT_SIZE, kind, lane_budget_used, lane_budget_max)
+			node.call(
+				"apply_render",
+				owner_id,
+				pwr,
+				radius,
+				color,
+				POWER_LABEL_FONT_SIZE,
+				kind,
+				lane_budget_used,
+				lane_budget_max,
+				growth_tier,
+				growth_context_by_id.get(id, {}) as Dictionary
+			)
 		else:
 			node.set("owner_id", owner_id)
+		if node.has_method("apply_match_shadow_presentation"):
+			var shadow_presentation: Dictionary = {"enabled": false}
+			if _match_shadow_controller != null:
+				shadow_presentation = _match_shadow_controller.call(
+					"presentation_for_tier",
+					growth_tier
+				) as Dictionary
+			node.call("apply_match_shadow_presentation", shadow_presentation)
 		if node.has_method("set_capture_flag_marker"):
 			node.call(
 				"set_capture_flag_marker",
@@ -537,6 +589,14 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 				"set_swarm_cooldown",
 				int(hd.get("swarm_cooldown_remaining_ms", 0)),
 				int(hd.get("swarm_cooldown_total_ms", 5000))
+			)
+		if node.has_method("apply_distress_presentation"):
+			node.call(
+				"apply_distress_presentation",
+				viewer_owner_id,
+				bool(hd.get("hostile_capture_pressure", false)),
+				color,
+				distress_motion_mode
 			)
 		if node.has_method("set_selected"):
 			node.call("set_selected", id == _selected_hive_id, _selected_color)
@@ -556,6 +616,8 @@ func _sync_hive_nodes(rm: Dictionary) -> void:
 	for key in to_remove:
 		var node: Node2D = hive_nodes_by_id.get(key, null)
 		if node != null:
+			if node.has_method("cancel_growth_transition"):
+				node.call("cancel_growth_transition", "hive_removed")
 			node.queue_free()
 		hive_nodes_by_id.erase(key)
 	_notify_buff_target_render_nodes_changed()
@@ -565,11 +627,190 @@ func _clear_hive_nodes() -> void:
 	for key in hive_nodes_by_id.keys():
 		var node: Node2D = hive_nodes_by_id.get(key, null)
 		if node != null:
+			if node.has_method("cancel_growth_transition"):
+				node.call("cancel_growth_transition", "hive_renderer_clear")
 			node.queue_free()
 	hive_nodes_by_id.clear()
 	_drag_target_hive_id = -1
 	_drag_target_valid = false
 	_drag_target_reason = ""
+
+func _growth_contexts_for_model(rm: Dictionary) -> Dictionary:
+	var contexts: Dictionary = {}
+	if not _is_canonical_growth_model(rm):
+		if _growth_history_armed:
+			_cancel_all_growth_transitions("noncanonical_model")
+		_reset_growth_history()
+		return contexts
+	var iid: int = int(rm.get("iid", -1))
+	if _growth_model_iid != -1 and iid != _growth_model_iid:
+		_cancel_all_growth_transitions("state_instance_changed")
+		_reset_growth_history()
+	if not _growth_history_armed:
+		return contexts
+	var mode: String = _growth_motion_mode()
+	if mode == "none":
+		return contexts
+	var hives: Array = rm.get("hives", []) as Array
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		var hive_id: int = _resolve_hive_id(hive.get("id", 0))
+		if hive_id <= 0 or not _growth_projection_by_id.has(hive_id):
+			continue
+		if not hive_nodes_by_id.has(hive_id):
+			continue
+		var previous: Dictionary = _growth_projection_by_id[hive_id] as Dictionary
+		var old_tier: int = int(previous.get("tier", HiveGrowthRules.TIER_SMALL))
+		var new_tier: int = int(hive.get("growth_tier", old_tier))
+		if new_tier <= old_tier:
+			continue
+		var old_budget: int = int(previous.get("lane_budget_max", old_tier))
+		var new_budget: int = int(hive.get("lane_budget_max", new_tier))
+		contexts[hive_id] = {
+			"play": true,
+			"mode": mode,
+			"old_tier": old_tier,
+			"new_tier": new_tier,
+			"old_lane_budget_max": old_budget,
+			"new_lane_budget_max": new_budget,
+			"unlocked_slot_index": new_budget - 1 if new_budget > old_budget else -1
+		}
+	return contexts
+
+func _commit_growth_projection(rm: Dictionary) -> void:
+	if not _is_canonical_growth_model(rm):
+		return
+	var next_projection: Dictionary = {}
+	var hives: Array = rm.get("hives", []) as Array
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		var hive_id: int = _resolve_hive_id(hive.get("id", 0))
+		if hive_id <= 0:
+			continue
+		var tier: int = clampi(
+			int(hive.get("growth_tier", HiveGrowthRules.TIER_SMALL)),
+			HiveGrowthRules.TIER_SMALL,
+			HiveGrowthRules.TIER_LARGE
+		)
+		next_projection[hive_id] = {
+			"tier": tier,
+			"lane_budget_max": int(hive.get("lane_budget_max", tier))
+		}
+	_growth_projection_by_id = next_projection
+	_growth_model_iid = int(rm.get("iid", -1))
+	_growth_history_armed = true
+
+func _is_canonical_growth_model(rm: Dictionary) -> bool:
+	if not rm.has("iid") or typeof(rm.get("hives", null)) != TYPE_ARRAY:
+		return false
+	for hive_any in rm.get("hives", []) as Array:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		if not (hive_any as Dictionary).has("growth_tier"):
+			return false
+	return true
+
+func _reset_growth_history() -> void:
+	_growth_projection_by_id.clear()
+	_growth_history_armed = false
+	_growth_model_iid = -1
+
+func _growth_motion_mode() -> String:
+	if not animations_enabled:
+		return "none"
+	if _app_lifecycle != null and _app_lifecycle.has_method("is_backgrounded"):
+		if bool(_app_lifecycle.call("is_backgrounded")):
+			return "none"
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager != null and profile_manager.has_method("is_gpu_vfx_enabled"):
+		if not bool(profile_manager.call("is_gpu_vfx_enabled")):
+			return "reduced"
+	return "full"
+
+func _distress_motion_mode() -> String:
+	return _growth_motion_mode()
+
+func _cancel_all_growth_transitions(reason: String) -> void:
+	for node_any in hive_nodes_by_id.values():
+		var node: Node = node_any as Node
+		if node != null and is_instance_valid(node) and node.has_method("cancel_growth_transition"):
+			node.call("cancel_growth_transition", reason)
+
+func _bind_app_lifecycle() -> void:
+	_app_lifecycle = get_node_or_null("/root/AppLifecycle")
+	if _app_lifecycle == null or not _app_lifecycle.has_signal("app_backgrounded"):
+		return
+	var background_callback := Callable(self, "_on_app_backgrounded")
+	if not _app_lifecycle.is_connected("app_backgrounded", background_callback):
+		_app_lifecycle.connect("app_backgrounded", background_callback)
+	var foreground_callback := Callable(self, "_on_app_foregrounded")
+	if (
+		_app_lifecycle.has_signal("app_foregrounded")
+		and not _app_lifecycle.is_connected("app_foregrounded", foreground_callback)
+	):
+		_app_lifecycle.connect("app_foregrounded", foreground_callback)
+
+func _on_app_backgrounded(_reason: String, _paused_at_msec: int, _paused_at_unix: int) -> void:
+	_cancel_all_growth_transitions("app_backgrounded")
+	_set_all_distress_lifecycle_suspended(true)
+
+func _on_app_foregrounded(_reason: String, _elapsed_msec: int, _resumed_at_unix: int) -> void:
+	_set_all_distress_lifecycle_suspended(false)
+
+func _set_all_distress_lifecycle_suspended(suspended: bool) -> void:
+	for node_any in hive_nodes_by_id.values():
+		var node: Node = node_any as Node
+		if (
+			node != null
+			and is_instance_valid(node)
+			and node.has_method("set_distress_lifecycle_suspended")
+		):
+			node.call("set_distress_lifecycle_suspended", suspended)
+
+func get_growth_debug_snapshot() -> Dictionary:
+	var active_count: int = 0
+	for node_any in hive_nodes_by_id.values():
+		var node: Node = node_any as Node
+		if node == null or not node.has_method("get_growth_transition_debug_snapshot"):
+			continue
+		var snapshot: Dictionary = node.call("get_growth_transition_debug_snapshot") as Dictionary
+		if bool(snapshot.get("active", false)):
+			active_count += 1
+	return {
+		"history_armed": _growth_history_armed,
+		"model_iid": _growth_model_iid,
+		"projection_count": _growth_projection_by_id.size(),
+		"active_count": active_count
+	}
+
+func get_distress_debug_snapshot() -> Dictionary:
+	var active_count: int = 0
+	var imminent_count: int = 0
+	var max_child_count: int = 0
+	var by_hive: Dictionary = {}
+	for hive_id_any in hive_nodes_by_id.keys():
+		var node: Node = hive_nodes_by_id.get(hive_id_any, null) as Node
+		if node == null or not node.has_method("get_distress_debug_snapshot"):
+			continue
+		var snapshot: Dictionary = node.call("get_distress_debug_snapshot") as Dictionary
+		by_hive[int(hive_id_any)] = snapshot
+		var state_name: String = str(snapshot.get("state", "normal"))
+		if state_name != "normal":
+			active_count += 1
+		if state_name == "imminent":
+			imminent_count += 1
+		max_child_count = maxi(max_child_count, int(snapshot.get("child_count", 0)))
+	return {
+		"active_count": active_count,
+		"imminent_count": imminent_count,
+		"hive_count": by_hive.size(),
+		"max_component_child_count": max_child_count,
+		"by_hive": by_hive
+	}
 
 func _buff_target_controller() -> Node:
 	var map_parent: Node = get_parent()
@@ -616,11 +857,7 @@ func _lane_budget_for_hive(hive_id: int, power: int, hd: Dictionary) -> Dictiona
 	}
 
 func _fallback_lanes_allowed_for_power(power: int) -> int:
-	if power <= 9:
-		return 1
-	if power <= 24:
-		return 2
-	return 3
+	return HiveGrowthRules.lane_budget_for_power(power)
 
 func _count_active_outgoing_from_model(hive_id: int) -> int:
 	var lanes_v: Variant = model.get("lanes", [])
@@ -639,12 +876,12 @@ func _count_active_outgoing_from_model(hive_id: int) -> int:
 			count += 1
 	return count
 
-func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color, kind: String, power: int = 0) -> void:
+func _draw_hive_visual(pos: Vector2, radius: float, owner_id: int, color: Color, kind: String, growth_tier: int = HiveGrowthRules.TIER_SMALL) -> void:
 	var visual_radius := radius * HIVE_FALLBACK_VISUAL_SCALE
 	var tex: Texture2D = null
 	var registry := _get_sprite_registry()
 	if registry != null:
-		var resolved: Dictionary = CosmeticThemeDB.resolve_hive_sprite(owner_id, kind, power, registry)
+		var resolved: Dictionary = CosmeticThemeDB.resolve_hive_sprite_for_tier(owner_id, kind, growth_tier, registry)
 		tex = resolved.get("texture", null) as Texture2D
 	if tex != null:
 		var size := Vector2(visual_radius * 2.0 * HIVE_FALLBACK_WIDTH_SCALE, visual_radius * 2.0)
@@ -664,6 +901,13 @@ func _get_sprite_registry() -> SpriteRegistry:
 	if _sprite_registry == null:
 		_sprite_registry = SpriteRegistry.get_instance()
 	return _sprite_registry
+
+func _ensure_match_shadow_controller(reconfigure: bool = false) -> void:
+	if _match_shadow_controller == null:
+		_match_shadow_controller = MatchShadowControllerScript.new()
+		reconfigure = true
+	if reconfigure:
+		_match_shadow_controller.call("configure")
 
 func _prewarm_hive_sprite_cache() -> void:
 	var registry := _get_sprite_registry()

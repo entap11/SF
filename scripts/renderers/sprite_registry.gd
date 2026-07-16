@@ -2,10 +2,9 @@ class_name SpriteRegistry
 extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 
 const DEFAULT_MANIFEST_PATH := "res://assets/sprites/sf_skin_v1/skin_manifest.json"
-const HIVE_SMALL_MAX_POWER := 9
-const HIVE_MED_MAX_POWER := 24
 
 static var _instance: SpriteRegistry = null
 
@@ -52,11 +51,13 @@ static func hive_kind_key(kind: String) -> String:
 	return normalized
 
 static func hive_power_tier_key(power: int) -> String:
-	if power <= HIVE_SMALL_MAX_POWER:
-		return "small"
-	if power <= HIVE_MED_MAX_POWER:
-		return "med"
-	return "large"
+	return HiveGrowthRules.tier_key(HiveGrowthRules.tier_for_power(power))
+
+static func hive_tier_key(tier: int) -> String:
+	return HiveGrowthRules.tier_key(tier)
+
+static func hive_sprite_key_for_tier(owner_id: int, tier: int) -> String:
+	return "hive.%s.%s" % [hive_tier_key(tier), owner_key(owner_id)]
 
 static func hive_sprite_key(owner_id: int, kind: String, power: int = 0) -> String:
 	return "hive.%s.%s" % [

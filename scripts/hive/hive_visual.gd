@@ -8,6 +8,7 @@ const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const VisualShadow := preload("res://scripts/renderers/visual_shadow.gd")
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 const TEAM_GLOW_SHADER := preload("res://shaders/team_glow_recolor.gdshader")
 const NPC_GRAYSCALE_SHADER := preload("res://shaders/hive_npc_grayscale.gdshader")
 const CORE_ENERGY_SHADER := preload("res://shaders/hive_core_energy.gdshader")
@@ -50,11 +51,11 @@ const LIGHT_PROJECTION_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/light_pro
 @export_range(0.0, 0.35, 0.01) var hive_sprite_pulse_strength: float = 0.18
 @export_range(0.0, 8.0, 0.01) var hive_sprite_pulse_speed: float = 2.65
 
-const TIER_2_MIN_POWER := 10
-const TIER_3_MIN_POWER := 25
+const TIER_2_MIN_POWER := HiveGrowthRules.TIER_MEDIUM_MIN_POWER
+const TIER_3_MIN_POWER := HiveGrowthRules.TIER_LARGE_MIN_POWER
 const TIER_4_MIN_POWER := 50
-const SMALL_MAX_POWER := 9
-const MED_MAX_POWER := 24
+const SMALL_MAX_POWER := TIER_2_MIN_POWER - 1
+const MED_MAX_POWER := TIER_3_MIN_POWER - 1
 const LARGE_MAX_POWER := 50
 const HEIGHT_MED_SCALE := HiveGeometry.HIVE_HEIGHT_SCALE_MED
 const HEIGHT_LARGE_SCALE := HiveGeometry.HIVE_HEIGHT_SCALE_LARGE
@@ -84,6 +85,7 @@ const FLOOR_REFLECTION_SCALE := Vector2(0.96, 0.42)
 const FLOOR_REFLECTION_CONTACT_SCALE := Vector2(0.78, 0.22)
 const FLOOR_REFLECTION_TINT := Color(0.72, 0.62, 0.98, 1.0)
 const POWER_LABEL_OFFSET := Vector2(0.0, -42.0)
+const POWER_LABEL_RAISE_PX: float = 12.0
 const POWER_LABEL_TOP_GAP_PX: float = 8.0
 const POWER_LABEL_SCALE := 0.50
 const POWER_LABEL_FONT_SIZE := 84
@@ -109,9 +111,10 @@ const POWER_HOLOGRAM_SLOT_RISE: float = 1.0
 const POWER_PROJECTION_LAYOUT_NUDGE := Vector2(0.0, 40.0)
 const POWER_PROJECTION_SOURCE_NUDGE_Y: float = 40.0
 const FLAT_TOP_LABEL_Y_RATIO: float = -0.345
+const DISTRESS_OUTLET_Y_RATIO_SMALL: float = -0.405
+const DISTRESS_OUTLET_Y_RATIO_MEDIUM: float = -0.415
+const DISTRESS_OUTLET_Y_RATIO_LARGE: float = -0.425
 const FLAT_TOP_PIP_Y: float = 30.0
-const FLAT_TOP_SMALL_PIP_Y: float = 9.0
-const FLAT_TOP_MED_PIP_Y: float = 12.0
 const FLAT_TOP_PIP_SPACING: float = 18.0
 const POWER_PROJECTION_SMALL_SIZE := Vector2(58.0, 72.0)
 const POWER_PROJECTION_MEDIUM_SIZE := Vector2(74.0, 84.0)
@@ -172,6 +175,7 @@ var _core_glow_layer: Node2D = null
 var _lane_budget_layer: Node2D = null
 var _power_projection: Node2D = null
 var _fx_layer: Node2D = null
+var _growth_transition: Node = null
 var _lane_port_layer: Node2D = null
 var _sprite: Sprite2D = null
 var _ground_shadow: VisualShadow = null
@@ -216,6 +220,7 @@ var _hive_id_label: Label = null
 var _lane_budget_pips: Array[Dictionary] = []
 var _lane_budget_used: int = 0
 var _lane_budget_max: int = LANE_BUDGET_DEFAULT_SLOTS
+var _pending_growth_lane_budget: Dictionary = {}
 var _activity_state: String = "idle"
 var _current_size: Vector2 = Vector2.ZERO
 var _base_scale: Vector2 = Vector2.ONE
@@ -239,6 +244,7 @@ static var _scale_logged: bool = false
 
 func _ready() -> void:
 	_ensure_presentation_layers()
+	_ensure_growth_transition()
 	_ensure_shadows()
 	_ensure_lane_occluder()
 	_ensure_core_layers()
@@ -263,10 +269,29 @@ func configure(
 	font_size_value: int,
 	kind_value: String = "Hive",
 	lane_budget_used: int = 0,
-	lane_budget_max: int = LANE_BUDGET_DEFAULT_SLOTS
+	lane_budget_max: int = LANE_BUDGET_DEFAULT_SLOTS,
+	growth_tier_value: int = 0,
+	growth_transition: Dictionary = {}
 ) -> void:
 	scale = _base_scale
 	var previous_power: int = power
+	var previous_tier: int = _visual_tier
+	var desired_tier: int = clampi(
+		growth_tier_value if growth_tier_value > 0 else HiveGrowthRules.tier_for_power(power_value),
+		HiveGrowthRules.TIER_SMALL,
+		HiveGrowthRules.TIER_LARGE
+	)
+	var transition_mode: String = str(growth_transition.get("mode", "none"))
+	var transition_requested: bool = (
+		bool(growth_transition.get("play", false))
+		and transition_mode != "none"
+		and _has_configured
+		and previous_tier > 0
+		and desired_tier > previous_tier
+	)
+	_ensure_growth_transition()
+	if transition_requested and _growth_transition != null and _growth_transition.has_method("capture_old_sprite"):
+		_growth_transition.call("capture_old_sprite", _sprite, _current_size)
 	owner_id = owner_id_value
 	owner_color = color
 	radius_px = radius
@@ -278,7 +303,6 @@ func configure(
 		"HiveVisual.configure called: owner=%s power=%s kind=%s radius=%s" % [str(owner_id), str(power), str(hive_kind), str(radius_px)],
 		SFLog.Level.INFO
 	)
-	var desired_tier := _visual_tier_for_power(power)
 	var kind_key := _tier_key_for_tier(desired_tier)
 	var key := "hive.%s.%s" % [
 		kind_key,
@@ -290,7 +314,7 @@ func configure(
 		SFLog.Level.INFO
 	)
 	var registry := SpriteRegistry.get_instance()
-	var resolved_sprite: Dictionary = CosmeticThemeDB.resolve_hive_sprite(owner_id, hive_kind, power, registry)
+	var resolved_sprite: Dictionary = CosmeticThemeDB.resolve_hive_sprite_for_tier(owner_id, hive_kind, desired_tier, registry)
 	key = str(resolved_sprite.get("key", key))
 	var next_tex: Texture2D = resolved_sprite.get("texture", null) as Texture2D
 	var next_scale := float(resolved_sprite.get("scale", registry.get_scale(key) if registry != null else 1.0))
@@ -342,9 +366,30 @@ func configure(
 	_update_power_label(owner_id, power, should_respond)
 	if should_respond:
 		_trigger_core_power_response(power - previous_power)
-	set_lane_budget(lane_budget_used, lane_budget_max)
+	if transition_requested:
+		_pending_growth_lane_budget = {
+			"used": lane_budget_used,
+			"max": lane_budget_max,
+			"unlocked_slot_index": int(growth_transition.get("unlocked_slot_index", -1))
+		}
+	else:
+		_pending_growth_lane_budget.clear()
+		set_lane_budget(lane_budget_used, lane_budget_max)
 	set_activity_state(_activity_state)
 	_has_configured = true
+	if transition_requested and _growth_transition != null and _growth_transition.has_method("play"):
+		_growth_transition.call(
+			"play",
+			_current_size,
+			_sprite_offset,
+			_owner_accent_color(),
+			previous_tier,
+			desired_tier,
+			{},
+			transition_mode
+		)
+	elif tier_changed:
+		cancel_growth_transition("tier_downgrade" if desired_tier < previous_tier else "tier_change_without_effect")
 	queue_redraw()
 
 func set_power(value: int) -> void:
@@ -734,13 +779,14 @@ func _power_label_local_nudge() -> Vector2:
 func _power_label_offset() -> Vector2:
 	if power_label_offset_override != Vector2.INF:
 		return power_label_offset_override
+	var label_rise := Vector2(0.0, -POWER_LABEL_RAISE_PX)
 	if _current_size.y <= 0.0:
-		return POWER_LABEL_OFFSET
+		return POWER_LABEL_OFFSET + label_rise
 	if _uses_flat_top_label_layout():
-		return _sprite_offset + Vector2(0.0, _current_size.y * FLAT_TOP_LABEL_Y_RATIO)
+		return _sprite_offset + Vector2(0.0, _current_size.y * FLAT_TOP_LABEL_Y_RATIO) + label_rise
 	var slot_count: int = _lane_budget_display_slot_count()
 	var rise: float = POWER_HOLOGRAM_BASE_RISE + (float(slot_count - 1) * POWER_HOLOGRAM_SLOT_RISE)
-	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - rise) + POWER_PROJECTION_LAYOUT_NUDGE
+	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - rise) + POWER_PROJECTION_LAYOUT_NUDGE + label_rise
 
 func _ensure_power_projection_fx() -> void:
 	if _power_label_holder == null or not is_instance_valid(_power_label_holder):
@@ -978,6 +1024,44 @@ func _ensure_presentation_layers() -> void:
 		_power_projection = projection_node as Node2D
 		_power_projection.name = "PowerProjection"
 		_power_projection.z_index = 20
+
+func _ensure_growth_transition() -> void:
+	if _growth_transition != null and is_instance_valid(_growth_transition):
+		return
+	_ensure_presentation_layers()
+	if _fx_layer == null:
+		return
+	_growth_transition = _fx_layer.get_node_or_null("HiveGrowthTransition")
+
+func _growth_port_entry(index: int) -> Dictionary:
+	if index < 0 or index >= _lane_budget_pips.size():
+		return {}
+	return (_lane_budget_pips[index] as Dictionary).duplicate()
+
+func commit_growth_presentation() -> void:
+	if _pending_growth_lane_budget.is_empty():
+		return
+	var pending: Dictionary = _pending_growth_lane_budget
+	_pending_growth_lane_budget = {}
+	set_lane_budget(int(pending.get("used", _lane_budget_used)), int(pending.get("max", _lane_budget_max)))
+	var unlocked_index: int = int(pending.get("unlocked_slot_index", -1))
+	if (
+		unlocked_index >= 0
+		and _growth_transition != null
+		and _growth_transition.has_method("confirm_port_entry")
+	):
+		_growth_transition.call("confirm_port_entry", _growth_port_entry(unlocked_index))
+
+func cancel_growth_transition(reason: String = "cancelled") -> void:
+	_ensure_growth_transition()
+	if _growth_transition != null and _growth_transition.has_method("cancel_and_reveal_final"):
+		_growth_transition.call("cancel_and_reveal_final", reason)
+
+func get_growth_transition_debug_snapshot() -> Dictionary:
+	_ensure_growth_transition()
+	if _growth_transition != null and _growth_transition.has_method("get_debug_snapshot"):
+		return _growth_transition.call("get_debug_snapshot") as Dictionary
+	return {"active": false, "missing": true}
 
 func _ensure_child_layer(layer_name: String, z_value: int) -> Node2D:
 	var existing: Node = get_node_or_null(layer_name)
@@ -1380,8 +1464,8 @@ func _update_lane_budget_indicators() -> void:
 	var label_size: Vector2 = _lane_budget_reference_label_size()
 	_lane_budget_layer.position = _power_label_offset() + Vector2(0.0, LANE_BUDGET_VERTICAL_NUDGE_PX)
 	_update_power_projection_layout()
-	var indicator_color: Color = Color.WHITE if owner_id == 2 else LANE_BUDGET_PIP_COLOR
-	var indicator_outline_color: Color = Color.WHITE if owner_id == 2 else LANE_BUDGET_PIP_OUTLINE_COLOR
+	var indicator_color: Color = Color.WHITE if owner_id > 0 else LANE_BUDGET_PIP_COLOR
+	var indicator_outline_color: Color = Color.WHITE if owner_id > 0 else LANE_BUDGET_PIP_OUTLINE_COLOR
 	for i in range(slot_count):
 		var entry: Dictionary = _lane_budget_pips[i]
 		var outline_line: Line2D = entry.get("outline", null) as Line2D
@@ -1447,17 +1531,8 @@ func _lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vec
 	var center: float = (float(slot_count) - 1.0) * 0.5
 	return Vector2((float(slot_index) - center) * LANE_BUDGET_PIP_SPACING, top_y)
 
-func _flat_top_lane_budget_pip_position(slot_count: int, slot_index: int, label_size: Vector2) -> Vector2:
+func _flat_top_lane_budget_pip_position(slot_count: int, slot_index: int, _label_size: Vector2) -> Vector2:
 	var center: float = (float(slot_count) - 1.0) * 0.5
-	var tier: int = _resolve_tier(power)
-	if tier <= 1:
-		if slot_count == 1:
-			return Vector2((label_size.x * 0.5) + 10.0, FLAT_TOP_SMALL_PIP_Y)
-		var small_spacing: float = maxf(22.0, label_size.x + 10.0)
-		return Vector2((float(slot_index) - center) * small_spacing, FLAT_TOP_SMALL_PIP_Y)
-	if tier == 2:
-		var med_spacing: float = maxf(28.0, label_size.x + 12.0)
-		return Vector2((float(slot_index) - center) * med_spacing, FLAT_TOP_MED_PIP_Y)
 	return Vector2((float(slot_index) - center) * FLAT_TOP_PIP_SPACING, FLAT_TOP_PIP_Y)
 
 func _lane_budget_display_slot_count() -> int:
@@ -1703,25 +1778,13 @@ func _resolve_tier(power_value: int) -> int:
 	return _visual_tier_for_power(power_value)
 
 static func visual_tier_for_power_value(power_value: int) -> int:
-	if power_value <= 0:
-		return 1
-	if power_value <= SMALL_MAX_POWER:
-		return 1
-	if power_value <= MED_MAX_POWER:
-		return 2
-	return 3
+	return HiveGrowthRules.tier_for_power(power_value)
 
 static func tier_key_for_power_value(power_value: int) -> String:
 	return SpriteRegistry.hive_power_tier_key(power_value)
 
 static func tier_key_for_tier_value(tier: int) -> String:
-	match tier:
-		2:
-			return "med"
-		3:
-			return "large"
-		_:
-			return "small"
+	return HiveGrowthRules.tier_key(tier)
 
 func _visual_tier_for_power(power_value: int) -> int:
 	return visual_tier_for_power_value(power_value)
@@ -1879,6 +1942,22 @@ func _apply_sprite() -> void:
 	_update_lane_occluder()
 	_update_phase3_layout()
 	_update_lane_budget_indicators()
+
+func get_match_shadow_ground_contact_local() -> Vector2:
+	if _current_size == Vector2.ZERO:
+		return _sprite_offset
+	return _sprite_offset + Vector2(0.0, _current_size.y * FLOOR_CONTACT_Y_RATIO)
+
+func get_distress_outlet_anchor_local(tier: int = -1) -> Vector2:
+	if _current_size == Vector2.ZERO:
+		return _sprite_offset + Vector2(0.0, -maxf(18.0, radius_px))
+	var resolved_tier: int = _visual_tier if tier <= 0 else tier
+	var y_ratio: float = DISTRESS_OUTLET_Y_RATIO_SMALL
+	if resolved_tier >= HiveGrowthRules.TIER_LARGE:
+		y_ratio = DISTRESS_OUTLET_Y_RATIO_LARGE
+	elif resolved_tier >= HiveGrowthRules.TIER_MEDIUM:
+		y_ratio = DISTRESS_OUTLET_Y_RATIO_MEDIUM
+	return _sprite_offset + Vector2(0.0, _current_size.y * y_ratio)
 
 func _hive_tex_debug(tex: Texture2D, key: String, scale: float, offset: Vector2) -> String:
 	var region_enabled := false

@@ -17,6 +17,7 @@ const WallRenderer := preload("res://scripts/renderers/wall_renderer.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 const SimEvents := preload("res://scripts/sim/sim_events.gd")
 const VfxManager := preload("res://scripts/vfx/vfx_manager.gd")
 const MatchRecordsStore := preload("res://scripts/state/match_records_store.gd")
@@ -9184,6 +9185,14 @@ func export_render_model() -> Dictionary:
 	var capture_flag_by_hive_id: Dictionary = {}
 	var cell_px: float = float(_cell_px())
 	var local_owner_id: int = _resolve_local_owner_id()
+	var hostile_capture_pressure_by_hive_id: Dictionary = {}
+	if (
+		unit_system != null
+		and unit_system.has_method("build_hive_hostile_capture_pressure_projection")
+	):
+		hostile_capture_pressure_by_hive_id = unit_system.call(
+			"build_hive_hostile_capture_pressure_projection"
+		) as Dictionary
 	var local_flag_hive_id: int = 0
 	if OpsState != null and OpsState.has_method("build_capture_flag_view"):
 		capture_flag_view = OpsState.call("build_capture_flag_view", local_owner_id) as Dictionary
@@ -9228,6 +9237,10 @@ func export_render_model() -> Dictionary:
 				"radius_px": radius_px,
 				"owner_id": int(h.owner_id),
 				"pwr": int(h.power),
+				"growth_tier": int(HiveGrowthRules.tier_for_power(int(h.power))),
+				"hostile_capture_pressure": bool(
+					hostile_capture_pressure_by_hive_id.get(int(h.id), false)
+				),
 				"lane_budget_used": int(state.outgoing_active_count(int(h.id))),
 				"lane_budget_max": int(state.lanes_allowed_for_power(int(h.power))),
 				"kind": String(h.kind)
@@ -9477,6 +9490,7 @@ func export_render_model() -> Dictionary:
 	var clock_payload: Dictionary = {}
 	if state != null:
 		var duration_ms := int(OpsState.match_duration_ms)
+		var regulation_duration_ms := int(OpsState.match_regulation_duration_ms)
 		var elapsed_ms := int(OpsState.match_elapsed_ms)
 		var remaining_ms := maxi(0, duration_ms - elapsed_ms)
 		var over := OpsState.has_outcome()
@@ -9485,7 +9499,12 @@ func export_render_model() -> Dictionary:
 		clock_payload = {
 			"elapsed_ms": elapsed_ms,
 			"duration_ms": duration_ms,
+			"regulation_duration_ms": regulation_duration_ms,
 			"remaining_ms": remaining_ms,
+			"started": bool(OpsState.match_clock_started),
+			"running": bool(OpsState.match_clock_running),
+			"paused": bool(OpsState.match_clock_paused),
+			"in_overtime": bool(OpsState.in_overtime),
 			"over": over,
 			"winner_id": winner_id,
 			"reason": reason
@@ -9510,6 +9529,7 @@ func export_render_model() -> Dictionary:
 		"winner_id": int(OpsState.winner_id) if state != null else 0,
 		"victory_mode": str(OpsState.get_victory_mode()) if state != null and OpsState != null and OpsState.has_method("get_victory_mode") else "conquest",
 		"capture_flag": capture_flag_view,
+		"viewer_owner_id": local_owner_id,
 		"match_time_remaining_sec": float(OpsState.match_time_remaining_sec) if state != null else 0.0,
 		"match_clock_running": bool(OpsState.match_clock_running) if state != null else false,
 		"selected_lane_id": int(sel.selected_lane_id) if sel != null else -1,

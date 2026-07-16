@@ -1,7 +1,7 @@
 extends SceneTree
 
-const UNIT_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/unit_v4.png"
-const UNIT_IMPORT_PATH: String = "res://assets/sprites/sf_skin_v1/unit_v4.png.import"
+const UNIT_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/unit_v5.png"
+const UNIT_IMPORT_PATH: String = "res://assets/sprites/sf_skin_v1/unit_v5.png.import"
 const MANIFEST_PATH: String = "res://assets/sprites/sf_skin_v1/skin_manifest.json"
 const UNIT_RENDERER_PATH: String = "res://scripts/renderers/unit_renderer.gd"
 const LANE_RENDERER_PATH: String = "res://scripts/renderers/lane_renderer.gd"
@@ -25,20 +25,20 @@ func _init() -> void:
 	if _failed:
 		quit(1)
 		return
-	print("UNIT_V4_PRESENTATION_SMOKE: PASS")
+	print("UNIT_V5_PRESENTATION_SMOKE: PASS")
 	quit(0)
 
 func _validate_asset_alpha_and_lane_fit() -> void:
 	var imported_texture: Texture2D = load(UNIT_TEXTURE_PATH) as Texture2D
-	_expect(imported_texture != null, "unit_v4 must load through Godot's texture importer")
+	_expect(imported_texture != null, "unit_v5 must load through Godot's texture importer")
 	var absolute_path: String = ProjectSettings.globalize_path(UNIT_TEXTURE_PATH)
 	var image: Image = Image.load_from_file(absolute_path)
-	_expect(image != null and not image.is_empty(), "unit_v4 image must load")
+	_expect(image != null and not image.is_empty(), "unit_v5 image must load")
 	if image == null or image.is_empty():
 		return
-	_expect(image.get_width() == 1254 and image.get_height() == 1254, "unit_v4 canvas must remain 1254x1254")
-	_expect(image.get_pixel(0, 0).a <= 0.001, "unit_v4 corner must be transparent")
-	_expect(image.get_pixel(image.get_width() / 2, image.get_height() / 2).a >= 0.99, "unit_v4 body center must be opaque")
+	_expect(image.get_width() == 1254 and image.get_height() == 1254, "unit_v5 canvas must remain 1254x1254")
+	_expect(image.get_pixel(0, 0).a <= 0.001, "unit_v5 corner must be transparent")
+	_expect(image.get_pixel(image.get_width() / 2, image.get_height() / 2).a >= 0.99, "unit_v5 body center must be opaque")
 
 	var min_x: int = image.get_width()
 	var max_x: int = -1
@@ -48,7 +48,7 @@ func _validate_asset_alpha_and_lane_fit() -> void:
 				continue
 			min_x = mini(min_x, x)
 			max_x = maxi(max_x, x)
-	_expect(max_x >= min_x, "unit_v4 must contain opaque sprite pixels")
+	_expect(max_x >= min_x, "unit_v5 must contain opaque sprite pixels")
 	if max_x < min_x:
 		return
 
@@ -60,23 +60,23 @@ func _validate_asset_alpha_and_lane_fit() -> void:
 	var rendered_box_px: float = UNIT_BASE_DIAMETER_PX * registry_scale * UNIT_RENDER_SCALE * UNIT_VISUAL_SCALE_MULT
 	var rendered_hard_width_px: float = rendered_box_px * opaque_width_ratio
 	var lane_width_px: float = UNIT_BASE_DIAMETER_PX * registry_scale * LANE_UNIT_SCALE_MATCH * LANE_NARROW_WIDTH_MULTIPLIER
-	_expect(rendered_hard_width_px <= lane_width_px + 1.0, "unit_v4 hard silhouette should fit within one pixel of the lane width")
+	_expect(rendered_hard_width_px <= lane_width_px + 1.0, "unit_v5 hard silhouette should fit within one pixel of the lane width")
 
 func _validate_manifest() -> void:
 	var manifest: Dictionary = _manifest_root()
 	var sprites: Dictionary = manifest.get("sprites", {}) as Dictionary
 	for key in ["unit.neutral", "unit.p1", "unit.p2", "unit.p3", "unit.p4"]:
 		var entry: Dictionary = sprites.get(key, {}) as Dictionary
-		_expect(str(entry.get("path", "")) == UNIT_TEXTURE_PATH, "%s must resolve to unit_v4" % key)
-		_expect(str(entry.get("key_color", "")).to_lower() == "#00ff00", "%s must key the generated edge matte's green fringe" % key)
+		_expect(str(entry.get("path", "")) == UNIT_TEXTURE_PATH, "%s must resolve to unit_v5" % key)
+		_expect(str(entry.get("key_color", "")).to_lower() == "#ff00ff", "%s must key the generated edge matte's magenta fringe" % key)
 
 func _validate_renderer_contract() -> void:
 	var unit_renderer_source: String = FileAccess.get_file_as_string(UNIT_RENDERER_PATH)
 	var lane_renderer_source: String = FileAccess.get_file_as_string(LANE_RENDERER_PATH)
 	var import_source: String = FileAccess.get_file_as_string(UNIT_IMPORT_PATH)
-	_expect(unit_renderer_source.contains("const UNIT_OUTLINE_ENABLED: bool = false"), "scaled duplicate outline must stay disabled for unit_v4")
+	_expect(unit_renderer_source.contains("const UNIT_OUTLINE_ENABLED: bool = false"), "scaled duplicate outline must stay disabled for unit_v5")
 	_expect(unit_renderer_source.contains("TEXTURE_FILTER_LINEAR_WITH_MIPMAPS"), "production sprites must use mipmapped minification filtering")
-	_expect(import_source.contains("mipmaps/generate=true"), "unit_v4 import must generate mipmaps for gameplay-scale minification")
+	_expect(import_source.contains("mipmaps/generate=true"), "unit_v5 import must generate mipmaps for gameplay-scale minification")
 	_expect(unit_renderer_source.contains("const UNIT_RENDER_SCALE: float = %.2f" % UNIT_RENDER_SCALE), "smoke-test unit render scale must match the renderer")
 	_expect(unit_renderer_source.contains("const UNIT_VISUAL_SCALE_MULT: float = %.2f" % UNIT_VISUAL_SCALE_MULT), "smoke-test visual scale must match the renderer")
 	_expect(lane_renderer_source.contains("const UNIT_RENDER_SCALE_MATCH: float = %.2f" % LANE_UNIT_SCALE_MATCH), "smoke-test lane unit scale must match the renderer")
@@ -113,4 +113,4 @@ func _expect(condition: bool, message: String) -> void:
 	if condition:
 		return
 	_failed = true
-	push_error("UNIT_V4_PRESENTATION_SMOKE: %s" % message)
+	push_error("UNIT_V5_PRESENTATION_SMOKE: %s" % message)

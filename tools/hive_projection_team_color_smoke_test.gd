@@ -3,6 +3,7 @@ extends SceneTree
 const HiveVisualScript := preload("res://scripts/hive/hive_visual.gd")
 const SpriteRegistryScript := preload("res://scripts/renderers/sprite_registry.gd")
 const TeamVisualsScript := preload("res://scripts/renderers/team_visuals.gd")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 
 var _failed: bool = false
 
@@ -34,6 +35,11 @@ func _init() -> void:
 	var power_label_layer: Node2D = visual.get_node_or_null("PowerProjection") as Node2D
 	_assert_true(pip_fill != null, "lane budget pip should exist")
 	_assert_true(pip_layer != null and power_label_layer != null and is_equal_approx(pip_layer.position.y, power_label_layer.position.y - 10.0), "lane budget indicators should remain 10 px above the moving power-label layer")
+	var medium_size: Vector2 = visual.get("_current_size") as Vector2
+	var medium_offset: Vector2 = visual.get("_sprite_offset") as Vector2
+	var expected_power_y: float = medium_offset.y + (medium_size.y * -0.345) - 12.0
+	var power_base_offset: Vector2 = visual.call("_power_label_offset") as Vector2
+	_assert_true(is_equal_approx(power_base_offset.y, expected_power_y), "power number should be raised 12 px above the flat-top anchor")
 	_assert_true(_is_white(pip_fill.color), "available red-team pip should be white")
 	_assert_true(pip_outline != null and _is_white(pip_outline.default_color), "red-team pip container should be white")
 	_assert_true(pip_fill.color.a > 0.5, "available P2 pip should be visible")
@@ -48,12 +54,16 @@ func _init() -> void:
 	_assert_true(small_projection != null and not small_projection.visible, "small flat-top hive should not show old projection sprite")
 	var small_pip_fill: Polygon2D = small_visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_0") as Polygon2D
 	_assert_true(small_pip_fill != null, "small lane budget pip should exist")
-	_assert_true(small_pip_fill.position.x > 8.0, "small flat-top pip should clear the power number")
+	_assert_true(is_equal_approx(small_pip_fill.position.x, 0.0), "single small flat-top pip should be centered under the power number")
+	_assert_true(is_equal_approx(small_pip_fill.position.y, 30.0), "small flat-top pip should sit below the power number")
+	_assert_true(_is_white(small_pip_fill.color), "available P1 pip should be white")
 	_assert_true(small_pip_fill.visible and small_pip_fill.color.a > 0.5, "small lane budget pip should be visible")
 
 	var medium_second_pip: Polygon2D = visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_1") as Polygon2D
 	_assert_true(medium_second_pip != null, "medium second lane budget pip should exist")
-	_assert_true(absf(medium_second_pip.position.x - pip_fill.position.x) >= 24.0, "medium flat-top pips should clear the power number")
+	_assert_true(is_equal_approx((medium_second_pip.position.x + pip_fill.position.x) * 0.5, 0.0), "medium flat-top pips should be centered under the power number")
+	_assert_true(is_equal_approx(absf(medium_second_pip.position.x - pip_fill.position.x), 18.0), "medium flat-top pips should use the compact under-number spacing")
+	_assert_true(is_equal_approx(pip_fill.position.y, 30.0) and is_equal_approx(medium_second_pip.position.y, 30.0), "medium flat-top pips should sit below the power number")
 	_assert_true(pip_fill.visible and medium_second_pip.visible, "medium lane budget pips should be visible")
 
 	var spent_visual: Node2D = await _configured_visual(owner_id, 50, 3, 3)
@@ -72,7 +82,7 @@ func _init() -> void:
 	var large_available_pip: Polygon2D = large_available_visual.get_node_or_null("LaneBudgetIndicators/BudgetPipFill_0") as Polygon2D
 	_assert_true(large_available_pip != null, "large available lane budget pip should exist")
 	_assert_true(large_available_pip.visible and large_available_pip.color.a > 0.5, "large available lane budget pip should be visible")
-	_assert_true(_is_magenta(large_available_pip.color), "large available lane budget pip should be magenta")
+	_assert_true(_is_white(large_available_pip.color), "large available P1 lane budget pip should be white")
 
 	var npc_visual: Node2D = await _configured_visual(0, 8, 0, 3)
 	var npc_sprite: Sprite2D = npc_visual.get_node_or_null("BaseSpriteLayer/BaseSprite") as Sprite2D
@@ -112,7 +122,8 @@ func _configured_visual(owner_id: int, power: int, lane_budget_used: int, lane_b
 		14,
 		"Hive",
 		lane_budget_used,
-		lane_budget_max
+		lane_budget_max,
+		HiveGrowthRules.tier_for_power(power)
 	)
 	await process_frame
 	await process_frame

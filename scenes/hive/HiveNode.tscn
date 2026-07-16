@@ -1,13 +1,30 @@
-[gd_scene load_steps=4 format=3 uid="uid://cgnt8ipev5gkm"]
+[gd_scene load_steps=7 format=3 uid="uid://cgnt8ipev5gkm"]
 
 [ext_resource type="Script" path="res://scripts/hive/hive_node.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/hive/hive_visual.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/hive/hive_growth_transition.gd" id="3"]
+[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/flag_ctf.png" id="4"]
+[ext_resource type="Script" path="res://scripts/hive/hive_distress_light.gd" id="5"]
 
 [sub_resource type="CircleShape2D" id="1"]
 radius = 18.0
 
 [node name="HiveNode" type="Area2D"]
 script = ExtResource("1")
+
+[node name="MatchShadowSprite" type="Sprite2D" parent="."]
+z_index = -9
+centered = false
+visible = false
+
+[node name="MatchContactShadowSprite" type="Sprite2D" parent="."]
+z_index = -5
+visible = false
+
+[node name="CaptureFlagSprite" type="Sprite2D" parent="."]
+z_index = -7
+texture = ExtResource("4")
+visible = false
 
 [node name="Visual" type="Node2D" parent="."]
 script = ExtResource("2")
@@ -35,6 +52,12 @@ z_index = 12
 
 [node name="FxLayer" type="Node2D" parent="Visual"]
 z_index = 18
+
+[node name="HiveGrowthTransition" type="Node2D" parent="Visual/FxLayer"]
+script = ExtResource("3")
+
+[node name="HiveDistressLight" type="Node2D" parent="Visual/FxLayer"]
+script = ExtResource("5")
 
 [node name="PowerProjection" type="Node2D" parent="Visual"]
 position = Vector2(2.08165e-12, -120)

@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "enabled": true,
+  "profiles": {
+    "small": {
+      "enabled": true,
+      "allow_mismatched_canvases": true,
+      "ground_anchor_px": [300, 760],
+      "local_offset": [0, 0],
+      "scale": 0.19,
+      "length_scale": 0.86,
+      "edge_softness_px": 1.35,
+      "opacity": 0.44,
+      "color": "#08070B",
+      "keyframes": [
+        {
+          "progress": 0.0,
+          "path": "res://assets/sprites/sf_skin_v1/shadow_large_2.png",
+          "mask_source": "alpha"
+        },
+        {
+          "progress": 1.0,
+          "path": "res://assets/sprites/sf_skin_v1/shadow_large_3.png",
+          "mask_source": "luminance_inverse",
+          "mask_cutoff": 0.12,
+          "mask_softness": 0.18
+        }
+      ]
+    },
+    "med": {
+      "enabled": true,
+      "allow_mismatched_canvases": true,
+      "ground_anchor_px": [300, 760],
+      "local_offset": [0, 0],
+      "scale": 0.245,
+      "length_scale": 0.9,
+      "edge_softness_px": 1.35,
+      "opacity": 0.44,
+      "color": "#08070B",
+      "keyframes": [
+        {
+          "progress": 0.0,
+          "path": "res://assets/sprites/sf_skin_v1/shadow_large_2.png",
+          "mask_source": "alpha"
+        },
+        {
+          "progress": 1.0,
+          "path": "res://assets/sprites/sf_skin_v1/shadow_large_3.png",
+          "mask_source": "luminance_inverse",
+          "mask_cutoff": 0.12,
+          "mask_softness": 0.18
+        }
+      ]
+    },
+    "large": {
+      "enabled": true,
+      "allow_mismatched_canvases": true,
+      "ground_anchor_px": [300, 760],
+      "local_offset": [0, 0],
+      "scale": 0.3,
+      "length_scale": 0.93,
+      "edge_softness_px": 1.35,
+      "opacity": 0.44,
+      "color": "#08070B",
+      "keyframes": [
+        {
+          "progress": 0.0,
+          "path": "res://assets/sprites/sf_skin_v1/shadow_large_2.png",
+          "mask_source": "alpha"
+        },
+        {
+          "progress": 1.0,
+          "path": "res://assets/sprites/sf_skin_v1/shadow_large_3.png",
+          "mask_source": "luminance_inverse",
+          "mask_cutoff": 0.12,
+          "mask_softness": 0.18
+        }
+      ]
+    }
+  }
+}

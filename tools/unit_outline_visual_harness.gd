@@ -1,8 +1,8 @@
 extends SceneTree
 
-const UNIT_V2: Texture2D = preload("res://assets/sprites/sf_skin_v1/unit_v2.png")
 const UNIT_V3: Texture2D = preload("res://assets/sprites/sf_skin_v1/unit_v3.png")
 const UNIT_V4: Texture2D = preload("res://assets/sprites/sf_skin_v1/unit_v4.png")
+const UNIT_V5: Texture2D = preload("res://assets/sprites/sf_skin_v1/unit_v5.png")
 const UNIT_SHADER: Shader = preload("res://shaders/sf_colorkey_alpha.gdshader")
 const NEUTRAL_UNIT_SHADER: Shader = preload("res://shaders/team_glow_recolor.gdshader")
 const CAPTURE_SIZE: Vector2i = Vector2i(1024, 256)
@@ -23,7 +23,7 @@ func _run() -> void:
 	root.size = CAPTURE_SIZE
 	RenderingServer.set_default_clear_color(BACKGROUND)
 	DirAccess.make_dir_recursive_absolute(OUTPUT_PATH.get_base_dir())
-	var textures: Array[Texture2D] = [UNIT_V2, UNIT_V3, UNIT_V4, UNIT_V4]
+	var textures: Array[Texture2D] = [UNIT_V3, UNIT_V4, UNIT_V5, UNIT_V5]
 	for index in range(textures.size()):
 		_add_unit(CENTERS[index], textures[index], index == 3)
 	for _frame in range(6):
@@ -46,7 +46,7 @@ func _run() -> void:
 		push_error("UNIT_OUTLINE_VISUAL: failed to save capture (%d)" % save_error)
 		quit(1)
 		return
-	print("UNIT_OUTLINE_VISUAL: PASS (V2, V3, V4 player, V4 neutral left to right)")
+	print("UNIT_OUTLINE_VISUAL: PASS (V3, V4, V5 player, V5 neutral left to right)")
 	print(OUTPUT_PATH)
 	quit(0)
 
@@ -55,21 +55,21 @@ func _add_unit(center: Vector2, texture: Texture2D, neutral: bool) -> void:
 	sprite.position = center
 	sprite.texture = texture
 	sprite.centered = true
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS if texture == UNIT_V4 else CanvasItem.TEXTURE_FILTER_LINEAR
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS if texture == UNIT_V5 else CanvasItem.TEXTURE_FILTER_LINEAR
 	var texture_width: float = maxf(1.0, float(texture.get_width()))
 	sprite.scale = Vector2.ONE * (UNIT_BOX_PX / texture_width)
 	if neutral:
 		var neutral_material: ShaderMaterial = ShaderMaterial.new()
 		neutral_material.shader = NEUTRAL_UNIT_SHADER
-		neutral_material.set_shader_parameter(&"key_color", Color(0.0, 1.0, 0.0, 1.0))
+		neutral_material.set_shader_parameter(&"key_color", Color(1.0, 0.0, 1.0, 1.0))
 		neutral_material.set_shader_parameter(&"key_threshold", 0.10)
 		neutral_material.set_shader_parameter(&"key_softness", 0.05)
 		neutral_material.set_shader_parameter(&"key_enabled", 1.0)
 		sprite.material = neutral_material
-	elif texture == UNIT_V4:
+	elif texture == UNIT_V5:
 		var material: ShaderMaterial = ShaderMaterial.new()
 		material.shader = UNIT_SHADER
-		material.set_shader_parameter(&"key_color", Color(0.0, 1.0, 0.0, 1.0))
+		material.set_shader_parameter(&"key_color", Color(1.0, 0.0, 1.0, 1.0))
 		material.set_shader_parameter(&"threshold", 0.10)
 		material.set_shader_parameter(&"softness", 0.05)
 		material.set_shader_parameter(&"outline_strength", 0.0)

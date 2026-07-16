@@ -1,6 +1,6 @@
 extends SceneTree
 
-const UNIT_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/unit_v4.png")
+const UNIT_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/unit_v5.png")
 const UNIT_EMISSION_SHADER: Shader = preload("res://shaders/unit_emission.gdshader")
 const CAPTURE_SIZE: Vector2i = Vector2i(512, 384)
 # Matches the production renderer's approximately 64 px texture box for the

@@ -1,6 +1,8 @@
 class_name HiveGeometry
 extends RefCounted
 
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
+
 # Single source of truth for hive base geometry used by both visuals and LOS occlusion.
 const BASE_DIAMETER_PX: float = 64.8
 const BASE_RADIUS_PX: float = BASE_DIAMETER_PX * 0.5
@@ -9,8 +11,8 @@ const BASE_RADIUS_PX: float = BASE_DIAMETER_PX * 0.5
 const LANE_OCCLUSION_RADIUS_SCALE: float = 1.0
 const DEFAULT_LANE_BODY_HALF_WIDTH_PX: float = 28.0
 const DEFAULT_LANE_OCCLUSION_PAD_PX: float = 8.0
-const TIER_2_MIN_POWER := 10
-const TIER_3_MIN_POWER := 25
+const TIER_2_MIN_POWER := HiveGrowthRules.TIER_MEDIUM_MIN_POWER
+const TIER_3_MIN_POWER := HiveGrowthRules.TIER_LARGE_MIN_POWER
 const TIER_4_MIN_POWER := 50
 const DEFAULT_CELL_SIZE: float = 64.0
 const DEFAULT_HIVE_RADIUS_RATIO: float = BASE_RADIUS_PX / DEFAULT_CELL_SIZE
@@ -37,9 +39,10 @@ const HIVE_INPUT_PICK_PAD_PX: float = 0.0
 static func hive_visual_height_tier_scale(power: int) -> float:
 	if power >= TIER_4_MIN_POWER:
 		return HIVE_HEIGHT_SCALE_MAX
-	if power >= TIER_3_MIN_POWER:
+	var tier: int = HiveGrowthRules.tier_for_power(power)
+	if tier == HiveGrowthRules.TIER_LARGE:
 		return HIVE_HEIGHT_SCALE_LARGE
-	if power >= TIER_2_MIN_POWER:
+	if tier == HiveGrowthRules.TIER_MEDIUM:
 		return HIVE_HEIGHT_SCALE_MED
 	return HIVE_HEIGHT_SCALE_SMALL
 
@@ -52,9 +55,9 @@ static func hive_visual_footprint_radius_px(base_radius_px: float, power: int = 
 	var scale: float = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_SMALL)
 	if power >= TIER_4_MIN_POWER:
 		scale = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_MAX)
-	elif power >= TIER_3_MIN_POWER:
+	elif HiveGrowthRules.tier_for_power(power) == HiveGrowthRules.TIER_LARGE:
 		scale = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_LARGE)
-	elif power >= TIER_2_MIN_POWER:
+	elif HiveGrowthRules.tier_for_power(power) == HiveGrowthRules.TIER_MEDIUM:
 		scale = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_MED)
 	return radius * scale
 
@@ -63,9 +66,9 @@ static func hive_visual_footprint_half_extents_px(base_radius_px: float, power: 
 	var scale: float = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_SMALL)
 	if power >= TIER_4_MIN_POWER:
 		scale = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_MAX)
-	elif power >= TIER_3_MIN_POWER:
+	elif HiveGrowthRules.tier_for_power(power) == HiveGrowthRules.TIER_LARGE:
 		scale = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_LARGE)
-	elif power >= TIER_2_MIN_POWER:
+	elif HiveGrowthRules.tier_for_power(power) == HiveGrowthRules.TIER_MEDIUM:
 		scale = _scaled_hive_footprint_scale(HIVE_VISUAL_FOOTPRINT_SCALE_MED)
 	return Vector2(radius * scale, radius * scale)
 

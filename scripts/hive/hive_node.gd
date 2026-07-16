@@ -8,11 +8,15 @@ signal hive_unhovered(hive_id: int)
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
+const HiveDistressLightScript := preload("res://scripts/hive/hive_distress_light.gd")
 const SELECTOR_PULSE_SHADER := preload("res://shaders/selector_pulse.gdshader")
 const SELECTOR_SMALL_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_small.tres"
 const SELECTOR_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_medium.tres"
 const SELECTOR_LARGE_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_large.tres"
-const FLAG_BADGE_FONT_PATH := "res://assets/fonts/brand/Iceland/Iceland-Regular.ttf"
+const FLAG_CTF_PATH := "res://assets/sprites/sf_skin_v1/flag_ctf.png"
+const FLAG_HCTF_PATH := "res://assets/sprites/sf_skin_v1/flag_hctf.png"
+const FLAG_PROJECTION_SHADER := preload("res://assets/shaders/sf_color_swap.gdshader")
 
 const SELECTOR_STATE_INACTIVE := 0
 const SELECTOR_STATE_HOVER := 1
@@ -37,6 +41,7 @@ const LANE_SHELL_SKIRT_Y_EXTRA_PX: float = 10.0
 @export var owner_id: int = 0
 
 var power: int = 0
+var growth_tier: int = HiveGrowthRules.TIER_SMALL
 var radius_px: float = 18.0
 var _selected := false
 var _hovered := false
@@ -78,13 +83,20 @@ const SELECTOR_BASE_ALPHA := 0.85
 const SELECTOR_TARGET_VALID_ALPHA := 1.0
 const SELECTOR_TARGET_INVALID_ALPHA := 0.78
 const TARGET_INVALID_GREY := Color(0.62, 0.66, 0.70, 1.0)
-const SELECTOR_TIER_2_MIN_POWER := 10
-const SELECTOR_TIER_3_MIN_POWER := 25
-const SELECTOR_TIER_4_MIN_POWER := 50
 const SWARM_COOLDOWN_SHAKE_PX := 2.8
 const SWARM_COOLDOWN_SHAKE_HZ := 24.0
+const FLAG_Z_INDEX := -7
+const FLAG_TARGET_HEIGHT_SMALL_PX := 92.0
+const FLAG_TARGET_HEIGHT_MEDIUM_PX := 104.0
+const FLAG_TARGET_HEIGHT_LARGE_PX := 118.0
+const FLAG_OFFSET_SMALL := Vector2(1.10, 0.60)
+const FLAG_OFFSET_MEDIUM := Vector2(1.25, 0.75)
+const FLAG_OFFSET_LARGE := Vector2(1.40, 0.90)
 
 @onready var visual: Node2D = $Visual
+@onready var match_shadow_sprite: Sprite2D = $MatchShadowSprite
+@onready var match_contact_shadow_sprite: Sprite2D = $MatchContactShadowSprite
+@onready var capture_flag_sprite: Sprite2D = $CaptureFlagSprite
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
 @onready var pick_shape: CollisionShape2D = $PickShape2D
 
@@ -96,11 +108,25 @@ var _selector_mat: ShaderMaterial = null
 var _selector_state: int = SELECTOR_STATE_INACTIVE
 var _last_kind: String = ""
 var _sim_events: Node = null
-var _flag_badge: Panel = null
-var _flag_badge_label: Label = null
+var _distress_light: Node2D = null
+var _latest_distress_presentation: Dictionary = {}
+var _flag_projection_material: ShaderMaterial = null
+var _flag_ctf_texture: Texture2D = null
+var _flag_hctf_texture: Texture2D = null
 var _visual_rest_position: Vector2 = Vector2.ZERO
 var _swarm_cooldown_until_msec: int = 0
 var _swarm_cooldown_total_ms: int = 5000
+var _match_shadow_profile_id: String = ""
+var _pending_match_shadow_presentation: Dictionary = {}
+var _defer_match_shadow_swap: bool = false
+var _pending_growth_tier: int = 0
+static var _match_contact_shadow_texture: Texture2D = null
+
+const MATCH_CONTACT_TEXTURE_SIZE := Vector2i(128, 64)
+const MATCH_CONTACT_SIZE_SMALL := Vector2(74.0, 16.0)
+const MATCH_CONTACT_SIZE_MEDIUM := Vector2(96.0, 20.0)
+const MATCH_CONTACT_SIZE_LARGE := Vector2(120.0, 24.0)
+const MATCH_CONTACT_OFFSET := Vector2(0.0, 15.0)
 
 static func lane_anchor_world_from_center(center_world: Vector2) -> Vector2:
 	return center_world + Vector2(0.0, -LANE_ANCHOR_Y_PX)
@@ -213,7 +239,8 @@ func _ready() -> void:
 	_sync_collision()
 	_load_selector_textures()
 	_ensure_selector_sprite()
-	_ensure_flag_badge()
+	_ensure_capture_flag_sprite()
+	_bind_growth_transition_shadow_swap()
 	_refresh_selector_state()
 
 func _fit_pick_hitbox_to_sprite() -> void:
@@ -239,15 +266,36 @@ func apply_render(
 	font_size: int,
 	kind: String = "Hive",
 	lane_budget_used: int = 0,
-	lane_budget_max: int = 3
+	lane_budget_max: int = 3,
+	growth_tier_in: int = 0,
+	growth_transition: Dictionary = {}
 ) -> void:
 	SFLog.log_once(
 		"HIVENODE_APPLY_RENDER",
 		"HiveNode.apply_render called (sample): id=%s owner=%s power=%s kind=%s" % [str(hive_id), str(owner_id_in), str(power_in), str(kind)],
 		SFLog.Level.INFO
 	)
+	var previous_growth_tier: int = growth_tier
+	var desired_growth_tier: int = clampi(
+		growth_tier_in if growth_tier_in > 0 else HiveGrowthRules.tier_for_power(power_in),
+		HiveGrowthRules.TIER_SMALL,
+		HiveGrowthRules.TIER_LARGE
+	)
+	var transition_mode: String = str(growth_transition.get("mode", "none"))
+	var transition_will_cover_swap: bool = (
+		bool(growth_transition.get("play", false))
+		and transition_mode != "none"
+		and desired_growth_tier > previous_growth_tier
+	)
+	if not (_defer_match_shadow_swap and _growth_transition_active()):
+		_defer_match_shadow_swap = transition_will_cover_swap
 	owner_id = owner_id_in
 	power = power_in
+	if transition_will_cover_swap:
+		_pending_growth_tier = desired_growth_tier
+	else:
+		_pending_growth_tier = 0
+		growth_tier = desired_growth_tier
 	radius_px = maxf(float(radius_in), MIN_RENDER_RADIUS_PX)
 	var prev_kind: String = _last_kind
 	_last_kind = kind
@@ -257,7 +305,19 @@ func apply_render(
 			sim_events.emit_signal("hive_kind_changed", hive_id, owner_id, global_position, prev_kind, kind)
 	_sync_collision()
 	if visual != null and visual.has_method("configure"):
-		visual.call("configure", owner_id, color, radius_px, power, font_size, kind, lane_budget_used, lane_budget_max)
+		visual.call(
+			"configure",
+			owner_id,
+			color,
+			radius_px,
+			power,
+			font_size,
+			kind,
+			lane_budget_used,
+			lane_budget_max,
+				desired_growth_tier,
+				growth_transition
+			)
 	if visual is CanvasItem:
 		var ci := visual as CanvasItem
 		if ci.has_method("set_self_modulate"):
@@ -269,27 +329,341 @@ func apply_render(
 	_update_selector_visual()
 	if _selected:
 		queue_redraw()
-	_update_flag_badge_layout()
+	_update_capture_flag_layout()
+
+func apply_match_shadow_presentation(presentation: Dictionary) -> void:
+	var next_profile_id: String = str(presentation.get("profile_id", ""))
+	if (
+		_defer_match_shadow_swap
+		and _growth_transition_active()
+		and next_profile_id != _match_shadow_profile_id
+	):
+		_pending_match_shadow_presentation = presentation.duplicate()
+		return
+	_apply_match_shadow_presentation_now(presentation)
+
+func _apply_match_shadow_presentation_now(presentation: Dictionary) -> void:
+	var shadow: Sprite2D = _ensure_match_shadow_sprite()
+	if shadow == null:
+		return
+	if not bool(presentation.get("enabled", false)):
+		_match_shadow_profile_id = ""
+		shadow.visible = false
+		shadow.texture = null
+		shadow.material = null
+		_hide_match_contact_shadow()
+		return
+	var texture: Texture2D = presentation.get("canvas_texture", null) as Texture2D
+	var material: Material = presentation.get("material", null) as Material
+	if texture == null or material == null:
+		_match_shadow_profile_id = ""
+		shadow.visible = false
+		shadow.texture = null
+		shadow.material = null
+		_hide_match_contact_shadow()
+		return
+	_match_shadow_profile_id = str(presentation.get("profile_id", ""))
+	shadow.texture = texture
+	shadow.material = material
+	shadow.centered = false
+	shadow.z_index = -9
+	var base_scale: float = maxf(0.0001, float(presentation.get("scale", 1.0)))
+	var length_scale: float = clampf(float(presentation.get("length_scale", 1.0)), 0.01, 1.0)
+	shadow.scale = Vector2(base_scale * length_scale, base_scale)
+	_update_match_shadow_layout(presentation)
+	_update_match_contact_shadow(presentation)
+	shadow.self_modulate = Color.WHITE
+	shadow.visible = true
+
+func _bind_growth_transition_shadow_swap() -> void:
+	var transition: Node = get_node_or_null("Visual/FxLayer/HiveGrowthTransition")
+	if transition == null:
+		return
+	var started_callback := Callable(self, "_on_growth_transition_started_for_distress")
+	if transition.has_signal("transition_started") and not transition.is_connected("transition_started", started_callback):
+		transition.connect("transition_started", started_callback)
+	var reveal_callback := Callable(self, "_on_final_ring_reveal_started")
+	if transition.has_signal("final_ring_reveal_started") and not transition.is_connected("final_ring_reveal_started", reveal_callback):
+		transition.connect("final_ring_reveal_started", reveal_callback)
+	var finished_callback := Callable(self, "_on_growth_transition_finished_for_shadow")
+	if transition.has_signal("transition_finished") and not transition.is_connected("transition_finished", finished_callback):
+		transition.connect("transition_finished", finished_callback)
+	var cancelled_callback := Callable(self, "_on_growth_transition_cancelled_for_shadow")
+	if transition.has_signal("transition_cancelled") and not transition.is_connected("transition_cancelled", cancelled_callback):
+		transition.connect("transition_cancelled", cancelled_callback)
+
+func _on_final_ring_reveal_started(_new_tier: int) -> void:
+	_commit_pending_growth_presentation()
+
+func _on_growth_transition_finished_for_shadow(_new_tier: int) -> void:
+	_commit_pending_growth_presentation()
+	_set_distress_growth_suppressed(false)
+
+func _on_growth_transition_cancelled_for_shadow(_reason: String) -> void:
+	_commit_pending_growth_presentation()
+	_set_distress_growth_suppressed(false)
+
+func _on_growth_transition_started_for_distress(_old_tier: int, _new_tier: int) -> void:
+	_set_distress_growth_suppressed(true)
+
+func _commit_pending_growth_presentation() -> void:
+	if _pending_growth_tier > 0:
+		growth_tier = _pending_growth_tier
+		_pending_growth_tier = 0
+	if visual != null and visual.has_method("commit_growth_presentation"):
+		visual.call("commit_growth_presentation")
+	_update_selector_visual()
+	_update_capture_flag_layout()
+	if _selected:
+		queue_redraw()
+	_flush_pending_match_shadow_presentation()
+
+func _flush_pending_match_shadow_presentation() -> void:
+	_defer_match_shadow_swap = false
+	if _pending_match_shadow_presentation.is_empty():
+		return
+	var pending: Dictionary = _pending_match_shadow_presentation
+	_pending_match_shadow_presentation = {}
+	_apply_match_shadow_presentation_now(pending)
+
+func _growth_transition_active() -> bool:
+	if visual != null and visual.has_method("get_growth_transition_debug_snapshot"):
+		var snapshot: Dictionary = visual.call("get_growth_transition_debug_snapshot") as Dictionary
+		return bool(snapshot.get("active", false))
+	return false
+
+func get_match_shadow_debug_snapshot() -> Dictionary:
+	var shadow: Sprite2D = _ensure_match_shadow_sprite()
+	if shadow == null:
+		return {"available": false}
+	var assigned_material: Material = shadow.material
+	var assigned_texture: Texture2D = shadow.texture
+	var contact: Sprite2D = _ensure_match_contact_shadow_sprite()
+	return {
+		"available": true,
+		"visible": shadow.visible,
+		"profile_id": _match_shadow_profile_id,
+		"position": shadow.position,
+		"scale": shadow.scale,
+		"has_material": assigned_material != null,
+		"material_class": assigned_material.get_class() if assigned_material != null else "",
+		"material_instance_id": assigned_material.get_instance_id() if assigned_material != null else 0,
+		"has_texture": assigned_texture != null,
+		"texture_size": assigned_texture.get_size() if assigned_texture != null else Vector2.ZERO,
+		"contact_visible": contact != null and contact.visible,
+		"contact_position": contact.position if contact != null else Vector2.ZERO,
+		"contact_scale": contact.scale if contact != null else Vector2.ZERO,
+		"is_visual_child": visual != null and visual.is_ancestor_of(shadow)
+	}
+
+func _ensure_match_shadow_sprite() -> Sprite2D:
+	if match_shadow_sprite != null and is_instance_valid(match_shadow_sprite):
+		return match_shadow_sprite
+	var existing: Node = get_node_or_null("MatchShadowSprite")
+	if existing is Sprite2D:
+		match_shadow_sprite = existing as Sprite2D
+		return match_shadow_sprite
+	var shadow := Sprite2D.new()
+	shadow.name = "MatchShadowSprite"
+	shadow.centered = false
+	shadow.z_index = -9
+	shadow.visible = false
+	add_child(shadow)
+	match_shadow_sprite = shadow
+	return match_shadow_sprite
+
+func _ensure_match_contact_shadow_sprite() -> Sprite2D:
+	if match_contact_shadow_sprite != null and is_instance_valid(match_contact_shadow_sprite):
+		return match_contact_shadow_sprite
+	var existing: Node = get_node_or_null("MatchContactShadowSprite")
+	if existing is Sprite2D:
+		match_contact_shadow_sprite = existing as Sprite2D
+		return match_contact_shadow_sprite
+	var contact := Sprite2D.new()
+	contact.name = "MatchContactShadowSprite"
+	contact.z_index = -5
+	contact.visible = false
+	add_child(contact)
+	match_contact_shadow_sprite = contact
+	return match_contact_shadow_sprite
+
+func _hide_match_contact_shadow() -> void:
+	var contact: Sprite2D = _ensure_match_contact_shadow_sprite()
+	if contact != null:
+		contact.visible = false
+
+func _update_match_contact_shadow(presentation: Dictionary) -> void:
+	var contact: Sprite2D = _ensure_match_contact_shadow_sprite()
+	if contact == null:
+		return
+	var contact_texture: Texture2D = _get_match_contact_shadow_texture()
+	if contact_texture == null:
+		contact.visible = false
+		return
+	var tier: int = clampi(
+		int(presentation.get("tier", growth_tier)),
+		HiveGrowthRules.TIER_SMALL,
+		HiveGrowthRules.TIER_LARGE
+	)
+	var target_size: Vector2 = MATCH_CONTACT_SIZE_SMALL
+	if tier >= HiveGrowthRules.TIER_LARGE:
+		target_size = MATCH_CONTACT_SIZE_LARGE
+	elif tier >= HiveGrowthRules.TIER_MEDIUM:
+		target_size = MATCH_CONTACT_SIZE_MEDIUM
+	contact.texture = contact_texture
+	contact.centered = true
+	contact.z_index = -5
+	contact.position = _stable_match_shadow_ground_contact() + MATCH_CONTACT_OFFSET
+	contact.scale = Vector2(
+		target_size.x / float(MATCH_CONTACT_TEXTURE_SIZE.x),
+		target_size.y / float(MATCH_CONTACT_TEXTURE_SIZE.y)
+	)
+	contact.self_modulate = Color.WHITE
+	contact.visible = true
+
+static func _get_match_contact_shadow_texture() -> Texture2D:
+	if _match_contact_shadow_texture != null:
+		return _match_contact_shadow_texture
+	var image: Image = Image.create(
+		MATCH_CONTACT_TEXTURE_SIZE.x,
+		MATCH_CONTACT_TEXTURE_SIZE.y,
+		false,
+		Image.FORMAT_RGBA8
+	)
+	for y in range(MATCH_CONTACT_TEXTURE_SIZE.y):
+		var normalized_y: float = (
+			(float(y) + 0.5) / float(MATCH_CONTACT_TEXTURE_SIZE.y) - 0.5
+		) * 2.0
+		for x in range(MATCH_CONTACT_TEXTURE_SIZE.x):
+			var normalized_x: float = (
+				(float(x) + 0.5) / float(MATCH_CONTACT_TEXTURE_SIZE.x) - 0.5
+			) * 2.0
+			var radial_distance: float = sqrt(
+				(normalized_x * normalized_x) + (normalized_y * normalized_y)
+			)
+			var falloff: float = clampf(1.0 - radial_distance, 0.0, 1.0)
+			var alpha: float = pow(falloff, 1.65) * 0.52
+			image.set_pixel(x, y, Color(0.018, 0.016, 0.024, alpha))
+	_match_contact_shadow_texture = ImageTexture.create_from_image(image)
+	return _match_contact_shadow_texture
+
+func _stable_match_shadow_ground_contact() -> Vector2:
+	var ground_contact: Vector2 = Vector2.ZERO
+	if visual != null and visual.has_method("get_match_shadow_ground_contact_local"):
+		var visual_contact: Vector2 = visual.call("get_match_shadow_ground_contact_local") as Vector2
+		var stable_visual_transform: Transform2D = visual.transform
+		stable_visual_transform.origin = _visual_rest_position
+		ground_contact = stable_visual_transform * visual_contact
+	return ground_contact
+
+func _update_match_shadow_layout(presentation: Dictionary) -> void:
+	if match_shadow_sprite == null or not is_instance_valid(match_shadow_sprite):
+		return
+	var ground_contact: Vector2 = _stable_match_shadow_ground_contact()
+	var local_offset: Vector2 = presentation.get("local_offset", Vector2.ZERO) as Vector2
+	var anchor_px: Vector2 = presentation.get("ground_anchor_px", Vector2.ZERO) as Vector2
+	match_shadow_sprite.position = (
+		ground_contact
+		+ local_offset
+		- Vector2(anchor_px.x * match_shadow_sprite.scale.x, anchor_px.y * match_shadow_sprite.scale.y)
+	)
+
+func cancel_growth_transition(reason: String = "cancelled") -> void:
+	if visual != null and visual.has_method("cancel_growth_transition"):
+		visual.call("cancel_growth_transition", reason)
+
+func get_growth_transition_debug_snapshot() -> Dictionary:
+	if visual != null and visual.has_method("get_growth_transition_debug_snapshot"):
+		return visual.call("get_growth_transition_debug_snapshot") as Dictionary
+	return {"active": false, "missing": true}
+
+func apply_distress_presentation(
+	viewer_owner_id: int,
+	hostile_capture_pressure: bool,
+	color: Color,
+	motion_mode: String
+) -> void:
+	_latest_distress_presentation = {
+		"viewer_owner_id": viewer_owner_id,
+		"hostile_capture_pressure": hostile_capture_pressure,
+		"color": color,
+		"motion_mode": motion_mode
+	}
+	_refresh_distress_presentation()
+
+func _refresh_distress_presentation() -> void:
+	var distress: Node2D = _ensure_distress_light()
+	if distress == null or _latest_distress_presentation.is_empty():
+		return
+	var outlet_anchor: Vector2 = Vector2(0.0, -maxf(18.0, radius_px))
+	if visual != null and visual.has_method("get_distress_outlet_anchor_local"):
+		outlet_anchor = visual.call(
+			"get_distress_outlet_anchor_local",
+			growth_tier
+		) as Vector2
+	distress.call(
+		"apply_presentation",
+		hive_id,
+		int(_latest_distress_presentation.get("viewer_owner_id", 0)),
+		owner_id,
+		power,
+		bool(_latest_distress_presentation.get("hostile_capture_pressure", false)),
+		outlet_anchor,
+		_latest_distress_presentation.get("color", Color.WHITE) as Color,
+		str(_latest_distress_presentation.get("motion_mode", "full"))
+	)
+	if distress.has_method("set_growth_suppressed"):
+		distress.call("set_growth_suppressed", _growth_transition_active())
+
+func _ensure_distress_light() -> Node2D:
+	if _distress_light != null and is_instance_valid(_distress_light):
+		return _distress_light
+	var existing: Node = get_node_or_null("Visual/FxLayer/HiveDistressLight")
+	if existing is Node2D:
+		_distress_light = existing as Node2D
+		return _distress_light
+	var fx_layer: Node = get_node_or_null("Visual/FxLayer")
+	if fx_layer == null:
+		return null
+	var created: Node2D = HiveDistressLightScript.new() as Node2D
+	created.name = "HiveDistressLight"
+	fx_layer.add_child(created)
+	_distress_light = created
+	return _distress_light
+
+func _set_distress_growth_suppressed(suppressed: bool) -> void:
+	var distress: Node2D = _ensure_distress_light()
+	if distress != null and distress.has_method("set_growth_suppressed"):
+		distress.call("set_growth_suppressed", suppressed)
+	if not suppressed:
+		_refresh_distress_presentation()
+
+func set_distress_lifecycle_suspended(suspended: bool) -> void:
+	var distress: Node2D = _ensure_distress_light()
+	if distress != null and distress.has_method("set_lifecycle_suspended"):
+		distress.call("set_lifecycle_suspended", suspended)
+
+func get_distress_debug_snapshot() -> Dictionary:
+	var distress: Node2D = _ensure_distress_light()
+	if distress != null and distress.has_method("get_debug_snapshot"):
+		return distress.call("get_debug_snapshot") as Dictionary
+	return {"state": "normal", "missing": true}
 
 func set_capture_flag_marker(visible: bool, flag_owner_id: int = 0, hidden: bool = false) -> void:
-	var badge: Panel = _ensure_flag_badge()
-	if badge == null:
+	var flag_sprite: Sprite2D = _ensure_capture_flag_sprite()
+	if flag_sprite == null:
 		return
-	badge.visible = visible
+	var flag_texture: Texture2D = _capture_flag_texture(hidden)
+	if flag_texture != null and flag_sprite.texture != flag_texture:
+		flag_sprite.texture = flag_texture
+	flag_sprite.visible = visible
+	flag_sprite.set_meta("capture_flag_hidden", hidden)
+	flag_sprite.set_meta("capture_flag_owner_id", flag_owner_id)
 	if not visible:
-		badge.scale = Vector2.ONE
-		_update_fallback_process()
 		return
 	var accent: Color = TeamVisuals.owner_color(flag_owner_id) if flag_owner_id > 0 else Color(1.0, 0.92, 0.35, 1.0)
-	_style_flag_badge(accent)
-	if _flag_badge_label != null:
-		_flag_badge_label.text = "FLAG"
-	var tooltip_text: String = "Hidden Flag" if hidden else "Flag Hive"
-	if flag_owner_id > 0:
-		tooltip_text += " P%d" % flag_owner_id
-	badge.tooltip_text = tooltip_text
-	_update_flag_badge_layout()
-	_update_fallback_process()
+	_apply_capture_flag_team_color(accent)
+	_update_capture_flag_layout()
 
 func set_selected(on: bool, color: Color) -> void:
 	_selected = on
@@ -338,7 +712,7 @@ func set_swarm_cooldown(remaining_ms: int, total_ms: int = 5000) -> void:
 
 func _process(delta: float) -> void:
 	var cooldown_active: bool = _swarm_cooldown_active()
-	if not (_selected or _hovered or _activated or _target_hint_active or (_flag_badge != null and _flag_badge.visible) or cooldown_active):
+	if not (_selected or _hovered or _activated or _target_hint_active or cooldown_active):
 		return
 	_sel_t += delta * 3.0
 	if visual != null:
@@ -350,9 +724,6 @@ func _process(delta: float) -> void:
 		elif visual.position != _visual_rest_position:
 			visual.position = _visual_rest_position
 			_update_fallback_process()
-	if _flag_badge != null and _flag_badge.visible:
-		var badge_pulse: float = 1.0 + (0.045 * (0.5 + 0.5 * sin(_sel_t * 1.4)))
-		_flag_badge.scale = Vector2(badge_pulse, badge_pulse)
 	queue_redraw()
 
 func _draw() -> void:
@@ -374,7 +745,7 @@ func _draw() -> void:
 	var c := _selector_color_for_state(_selector_state)
 	c.a *= pulse
 	var pts := PackedVector2Array()
-	var offset := _selector_offset_for_power(power)
+	var offset := _selector_offset_for_tier(growth_tier)
 	for i in range(SEL_SEG + 1):
 		var a := float(i) / float(SEL_SEG) * TAU
 		pts.append(Vector2(cos(a), sin(a)) * r + offset)
@@ -442,61 +813,75 @@ func _get_sim_events() -> Node:
 	_sim_events = tree.get_first_node_in_group("sim_events")
 	return _sim_events
 
-func _style_flag_badge(accent: Color) -> void:
-	if _flag_badge == null or not is_instance_valid(_flag_badge):
-		return
-	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color(0.03, 0.05, 0.09, 0.94)
-	panel_style.border_color = accent.lightened(0.12)
-	panel_style.border_width_left = 2
-	panel_style.border_width_top = 2
-	panel_style.border_width_right = 2
-	panel_style.border_width_bottom = 2
-	panel_style.corner_radius_top_left = 10
-	panel_style.corner_radius_top_right = 10
-	panel_style.corner_radius_bottom_left = 10
-	panel_style.corner_radius_bottom_right = 10
-	panel_style.shadow_color = Color(0.0, 0.0, 0.0, 0.45)
-	panel_style.shadow_size = 3
-	_flag_badge.add_theme_stylebox_override("panel", panel_style)
-	if _flag_badge_label != null:
-		_flag_badge_label.add_theme_color_override("font_color", accent.lightened(0.20))
+func _ensure_capture_flag_sprite() -> Sprite2D:
+	if capture_flag_sprite != null and is_instance_valid(capture_flag_sprite):
+		_cache_capture_flag_textures()
+		return capture_flag_sprite
+	var existing: Node = get_node_or_null("CaptureFlagSprite")
+	if existing is Sprite2D:
+		capture_flag_sprite = existing as Sprite2D
+	else:
+		var sprite := Sprite2D.new()
+		sprite.name = "CaptureFlagSprite"
+		add_child(sprite)
+		capture_flag_sprite = sprite
+	if capture_flag_sprite.texture == null and ResourceLoader.exists(FLAG_CTF_PATH):
+		capture_flag_sprite.texture = ResourceLoader.load(FLAG_CTF_PATH) as Texture2D
+	_cache_capture_flag_textures()
+	capture_flag_sprite.centered = true
+	capture_flag_sprite.z_index = FLAG_Z_INDEX
+	capture_flag_sprite.visible = false
+	_update_capture_flag_layout()
+	return capture_flag_sprite
 
-func _ensure_flag_badge() -> Panel:
-	if _flag_badge != null and is_instance_valid(_flag_badge):
-		return _flag_badge
-	var badge := Panel.new()
-	badge.name = "FlagBadge"
-	badge.visible = false
-	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.size = Vector2(82.0, 28.0)
-	badge.pivot_offset = badge.size * 0.5
-	add_child(badge)
-	var label := Label.new()
-	label.name = "FlagText"
-	label.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.text = "FLAG"
-	label.add_theme_font_size_override("font_size", 15)
-	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
-	label.add_theme_constant_override("outline_size", 3)
-	if ResourceLoader.exists(FLAG_BADGE_FONT_PATH):
-		var badge_font: Resource = load(FLAG_BADGE_FONT_PATH)
-		if badge_font is Font:
-			label.add_theme_font_override("font", badge_font as Font)
-	badge.add_child(label)
-	_flag_badge = badge
-	_flag_badge_label = label
-	_style_flag_badge(Color(1.0, 0.92, 0.35, 1.0))
-	_update_flag_badge_layout()
-	return _flag_badge
+func _cache_capture_flag_textures() -> void:
+	if _flag_ctf_texture == null:
+		if capture_flag_sprite != null and capture_flag_sprite.texture != null:
+			_flag_ctf_texture = capture_flag_sprite.texture
+		elif ResourceLoader.exists(FLAG_CTF_PATH):
+			_flag_ctf_texture = ResourceLoader.load(FLAG_CTF_PATH) as Texture2D
+	if _flag_hctf_texture == null and ResourceLoader.exists(FLAG_HCTF_PATH):
+		_flag_hctf_texture = ResourceLoader.load(FLAG_HCTF_PATH) as Texture2D
 
-func _update_flag_badge_layout() -> void:
-	if _flag_badge == null or not is_instance_valid(_flag_badge):
+func _capture_flag_texture(hidden: bool) -> Texture2D:
+	_cache_capture_flag_textures()
+	if hidden and _flag_hctf_texture != null:
+		return _flag_hctf_texture
+	return _flag_ctf_texture
+
+func _apply_capture_flag_team_color(accent: Color) -> void:
+	if capture_flag_sprite == null or not is_instance_valid(capture_flag_sprite):
 		return
-	var y_offset: float = -maxf(radius_px, MIN_RENDER_RADIUS_PX) - 34.0
-	_flag_badge.position = Vector2(maxf(12.0, radius_px * 0.55), y_offset)
+	if _flag_projection_material == null:
+		_flag_projection_material = ShaderMaterial.new()
+		_flag_projection_material.shader = FLAG_PROJECTION_SHADER
+		_flag_projection_material.set_shader_parameter("from_color", Color.WHITE)
+		_flag_projection_material.set_shader_parameter("hue_thresh", 0.0)
+		_flag_projection_material.set_shader_parameter("sat_min", 1.0)
+		_flag_projection_material.set_shader_parameter("val_min", 0.50)
+		_flag_projection_material.set_shader_parameter("softness", 0.08)
+		_flag_projection_material.set_shader_parameter("white_sat_max", TeamVisuals.WHITE_SAT_MAX)
+		_flag_projection_material.set_shader_parameter("white_val_min", 0.50)
+		_flag_projection_material.set_shader_parameter("white_strength", 1.0)
+	_flag_projection_material.set_shader_parameter("to_color", accent)
+	capture_flag_sprite.material = _flag_projection_material
+	capture_flag_sprite.self_modulate = Color.WHITE
+
+func _update_capture_flag_layout() -> void:
+	if capture_flag_sprite == null or not is_instance_valid(capture_flag_sprite):
+		return
+	var target_height: float = FLAG_TARGET_HEIGHT_SMALL_PX
+	var offset_mul: Vector2 = FLAG_OFFSET_SMALL
+	if growth_tier >= HiveGrowthRules.TIER_LARGE:
+		target_height = FLAG_TARGET_HEIGHT_LARGE_PX
+		offset_mul = FLAG_OFFSET_LARGE
+	elif growth_tier >= HiveGrowthRules.TIER_MEDIUM:
+		target_height = FLAG_TARGET_HEIGHT_MEDIUM_PX
+		offset_mul = FLAG_OFFSET_MEDIUM
+	var texture_height: float = float(capture_flag_sprite.texture.get_height()) if capture_flag_sprite.texture != null else 0.0
+	var uniform_scale: float = target_height / texture_height if texture_height > 0.0 else 1.0
+	capture_flag_sprite.scale = Vector2.ONE * uniform_scale
+	capture_flag_sprite.position = Vector2(radius_px * offset_mul.x, radius_px * offset_mul.y)
 
 func _ensure_selector_sprite() -> void:
 	if _selector_sprite != null and is_instance_valid(_selector_sprite):
@@ -525,12 +910,10 @@ func _ensure_selector_sprite() -> void:
 	_selector_sprite.z_index = -2
 	_selector_sprite.visible = false
 
-func _selector_texture_for_power(power_value: int) -> Texture2D:
-	if power_value >= SELECTOR_TIER_4_MIN_POWER:
+func _selector_texture_for_tier(tier: int) -> Texture2D:
+	if tier >= HiveGrowthRules.TIER_LARGE:
 		return _selector_tex_large
-	if power_value >= SELECTOR_TIER_3_MIN_POWER:
-		return _selector_tex_large
-	if power_value >= SELECTOR_TIER_2_MIN_POWER:
+	if tier >= HiveGrowthRules.TIER_MEDIUM:
 		return _selector_tex_med
 	return _selector_tex_small
 
@@ -555,10 +938,10 @@ func _update_selector_visual() -> void:
 		_selector_sprite.visible = false
 		_selector_sprite.texture = null
 		return
-	var tex := _selector_texture_for_power(power)
+	var tex := _selector_texture_for_tier(growth_tier)
 	_selector_sprite.texture = tex
 	_selector_sprite.visible = _selector_state != SELECTOR_STATE_INACTIVE and tex != null
-	_selector_sprite.position = _selector_offset_for_power(power)
+	_selector_sprite.position = _selector_offset_for_tier(growth_tier)
 	_selector_sprite.modulate = _selector_color_for_state(_selector_state)
 	if tex == null:
 		return
@@ -574,13 +957,11 @@ func _update_selector_visual() -> void:
 	_selector_sprite.scale = Vector2(s, s)
 	_apply_selector_shader_state(_selector_state)
 
-func _selector_offset_for_power(power_value: int) -> Vector2:
+func _selector_offset_for_tier(tier: int) -> Vector2:
 	var offset_mul := SELECTOR_OFFSET_SMALL_MUL
-	if power_value >= SELECTOR_TIER_4_MIN_POWER:
+	if tier >= HiveGrowthRules.TIER_LARGE:
 		offset_mul = SELECTOR_OFFSET_LARGE_MUL
-	elif power_value >= SELECTOR_TIER_3_MIN_POWER:
-		offset_mul = SELECTOR_OFFSET_LARGE_MUL
-	elif power_value >= SELECTOR_TIER_2_MIN_POWER:
+	elif tier >= HiveGrowthRules.TIER_MEDIUM:
 		offset_mul = SELECTOR_OFFSET_MED_MUL
 	return Vector2(0.0, radius_px * offset_mul)
 
@@ -662,7 +1043,7 @@ func _swarm_cooldown_active() -> bool:
 func _update_fallback_process() -> void:
 	var needs_fallback := _selector_sprite == null or _selector_sprite.texture == null
 	var selector_needs_process := needs_fallback and (_hovered or _target_hint_active)
-	set_process(selector_needs_process or (_flag_badge != null and _flag_badge.visible) or _swarm_cooldown_active())
+	set_process(selector_needs_process or _swarm_cooldown_active())
 
 func _on_mouse_entered() -> void:
 	_hovered = true

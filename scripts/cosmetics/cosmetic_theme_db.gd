@@ -1,6 +1,8 @@
 class_name CosmeticThemeDB
 extends RefCounted
 
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
+
 const THEME_BASE: String = "base"
 const THEME_UPGRADED: String = "upgraded"
 const THEME_UPGRADED_DYNAMIC: String = "upgraded_dynamic"
@@ -17,7 +19,7 @@ const DEFAULT_HIVE_ITEM_ID: String = "hive_classic"
 const DEFAULT_LANE_ITEM_ID: String = "lane_classic"
 const DEFAULT_FLOOR_ITEM_ID: String = "floor_standard"
 const DEFAULT_VFX_ITEM_ID: String = "vfx_ion_pop"
-const DEFAULT_UNIT_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/unit_v4.png"
+const DEFAULT_UNIT_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/unit_v5.png"
 const DEFAULT_LANE_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/lane_white_5space.png"
 const DEFAULT_FLOOR_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/dark_floor.png"
 const DEFAULT_VFX_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/light_projection.png"
@@ -190,8 +192,11 @@ static func resolve_unit_sprite(owner_id: int, registry: Object) -> Dictionary:
 	}
 
 static func resolve_hive_sprite(owner_id: int, kind: String, power: int, registry: Object) -> Dictionary:
+	return resolve_hive_sprite_for_tier(owner_id, kind, HiveGrowthRules.tier_for_power(power), registry)
+
+static func resolve_hive_sprite_for_tier(owner_id: int, kind: String, growth_tier: int, registry: Object) -> Dictionary:
 	var owner_key: String = _owner_key(owner_id)
-	var tier_key: String = _hive_tier_key(kind, power)
+	var tier_key: String = HiveGrowthRules.tier_key(growth_tier)
 	var selection_id: String = get_garage_selection("hives")
 	var def: Dictionary = _garage_def("hives", selection_id)
 	var registry_key: String = _format_garage_key(str(def.get("registry_key_template", "hive.{tier}.{owner}")), owner_key, tier_key, kind)
@@ -291,11 +296,7 @@ static func _owner_key(owner_id: int) -> String:
 
 static func _hive_tier_key(kind: String, power: int) -> String:
 	if power > 0:
-		if power <= 9:
-			return "small"
-		if power <= 24:
-			return "med"
-		return "large"
+		return HiveGrowthRules.tier_key(HiveGrowthRules.tier_for_power(power))
 	var clean_kind: String = kind.strip_edges().to_lower()
 	if clean_kind == "medium":
 		return "med"

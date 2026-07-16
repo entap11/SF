@@ -42,8 +42,8 @@ func _run() -> void:
 	if fill == null or not fill.visible:
 		_fail("lane budget pip fill should be visible")
 		return
-	if fill.color.r < 0.95 or fill.color.g > 0.05 or fill.color.b < 0.70:
-		_fail("lane budget pip fill should be magenta")
+	if fill.color.r < 0.95 or fill.color.g < 0.95 or fill.color.b < 0.95:
+		_fail("lane budget pip fill should be white for every player")
 		return
 	node.call("set_selected", true, Color(1.0, 0.82, 0.0, 1.0))
 	await process_frame

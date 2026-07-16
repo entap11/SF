@@ -82,3 +82,4 @@ arena/premium_polish_enabled=false
 arena/tower_visual_scale=1.0
 arena/polish_comparison_mode="settings"
 arena/lane_visual_hierarchy_enabled=false
+arena/dynamic_hive_shadows_enabled=true

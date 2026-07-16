@@ -71,6 +71,10 @@ var _pass_through_emit_accum_ms_by_key: Dictionary = {}
 var _pass_through_last_log_ms_by_key: Dictionary = {}
 var _contested_capture_block_until_us_by_hive: Dictionary = {}
 var _current_arrivals_by_hive: Dictionary = {}
+var _capture_pressure_projection_scratch: Dictionary = {}
+var _capture_pressure_lane_by_id_scratch: Dictionary = {}
+var _capture_pressure_owner_by_hive_id_scratch: Dictionary = {}
+var _capture_pressure_last_profile: Dictionary = {}
 var arrival_counts_by_hive_owner: Dictionary = {}
 var _pending_tower_hits: Array = []
 var _match_telemetry_collector: RefCounted = null
@@ -166,6 +170,10 @@ func bind_state(state_ref: GameState) -> void:
 	_pass_through_last_log_ms_by_key.clear()
 	_contested_capture_block_until_us_by_hive.clear()
 	_current_arrivals_by_hive.clear()
+	_capture_pressure_projection_scratch.clear()
+	_capture_pressure_lane_by_id_scratch.clear()
+	_capture_pressure_owner_by_hive_id_scratch.clear()
+	_capture_pressure_last_profile.clear()
 	arrival_counts_by_hive_owner.clear()
 	_pending_tower_hits.clear()
 	if state != null:
@@ -1613,6 +1621,103 @@ func _active_enemy_forces_for_hive(hive_id: int, owner_id: int) -> Array[Diction
 				if b_hive != null and int(b_hive.owner_id) > 0 and not _are_allied_owners(owner_id, int(b_hive.owner_id)):
 					_add_owner_to_force_list(forces, int(b_hive.owner_id), 1.0)
 	return forces
+
+# Read-only presentation projection. This never becomes authoritative state:
+# it is rebuilt on demand for the current render-model export and only answers
+# whether genuine hostile force remains committed to a hive.
+func build_hive_hostile_capture_pressure_projection() -> Dictionary:
+	var started_usec: int = Time.get_ticks_usec()
+	_capture_pressure_projection_scratch.clear()
+	_capture_pressure_lane_by_id_scratch.clear()
+	_capture_pressure_owner_by_hive_id_scratch.clear()
+	if state == null:
+		_capture_pressure_last_profile = {
+			"unit_count": 0,
+			"arrival_count": 0,
+			"lane_count": 0,
+			"threatened_hive_count": 0,
+			"elapsed_usec": Time.get_ticks_usec() - started_usec
+		}
+		return _capture_pressure_projection_scratch
+
+	for lane_any in state.lanes:
+		if lane_any is LaneData:
+			var lane: LaneData = lane_any as LaneData
+			_capture_pressure_lane_by_id_scratch[int(lane.id)] = lane
+	for hive_any in state.hives:
+		if hive_any is HiveData:
+			var hive: HiveData = hive_any as HiveData
+			_capture_pressure_owner_by_hive_id_scratch[int(hive.id)] = int(hive.owner_id)
+
+	var arrival_count: int = 0
+	for hive_id_any in _current_arrivals_by_hive.keys():
+		var arrivals_any: Variant = _current_arrivals_by_hive.get(hive_id_any, [])
+		if typeof(arrivals_any) != TYPE_ARRAY:
+			continue
+		for unit_any in arrivals_any as Array:
+			if typeof(unit_any) != TYPE_DICTIONARY:
+				continue
+			arrival_count += 1
+			_project_hostile_capture_commitment(unit_any as Dictionary, true)
+
+	for unit_any in units:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		_project_hostile_capture_commitment(unit_any as Dictionary, false)
+
+	_capture_pressure_last_profile = {
+		"unit_count": units.size(),
+		"arrival_count": arrival_count,
+		"lane_count": _capture_pressure_lane_by_id_scratch.size(),
+		"threatened_hive_count": _capture_pressure_projection_scratch.size(),
+		"elapsed_usec": Time.get_ticks_usec() - started_usec
+	}
+	return _capture_pressure_projection_scratch
+
+func _project_hostile_capture_commitment(unit: Dictionary, resolving_arrival: bool) -> void:
+	if maxi(0, int(unit.get("amount", 0))) <= 0:
+		return
+	var to_id: int = int(unit.get("to_id", -1))
+	if to_id <= 0:
+		return
+	if _capture_pressure_projection_scratch.has(to_id):
+		return
+	var target_owner_id: int = int(_capture_pressure_owner_by_hive_id_scratch.get(to_id, 0))
+	if target_owner_id <= 0:
+		return
+	var combat_owner: int = _unit_combat_allegiance(unit)
+	if combat_owner <= 0 or _are_allied_owners(target_owner_id, combat_owner):
+		return
+	if not resolving_arrival:
+		if _unit_has_arrived(unit):
+			return
+		if not _unit_has_valid_capture_route(unit):
+			return
+	_capture_pressure_projection_scratch[to_id] = true
+
+func _unit_has_valid_capture_route(unit: Dictionary) -> bool:
+	var lane_id: int = int(unit.get("lane_id", -1))
+	if lane_id <= 0:
+		return false
+	var lane: LaneData = _capture_pressure_lane_by_id_scratch.get(lane_id, null) as LaneData
+	if lane == null:
+		return false
+	var from_id: int = int(unit.get("from_id", -1))
+	var to_id: int = int(unit.get("to_id", -1))
+	var endpoints_match: bool = (
+		(from_id == int(lane.a_id) and to_id == int(lane.b_id))
+		or (from_id == int(lane.b_id) and to_id == int(lane.a_id))
+	)
+	if not endpoints_match:
+		return false
+	var unit_generation: int = int(unit.get("lane_generation", 0))
+	var lane_generation: int = int(lane.generation)
+	if unit_generation > 0 and lane_generation > 0 and unit_generation != lane_generation:
+		return false
+	return true
+
+func get_hive_hostile_capture_pressure_profile() -> Dictionary:
+	return _capture_pressure_last_profile.duplicate()
 
 func _add_owner_to_force_list(forces: Array[Dictionary], owner_id: int, amount: float) -> void:
 	if owner_id <= 0 or amount <= 0.0:

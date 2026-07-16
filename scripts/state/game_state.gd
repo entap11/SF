@@ -9,6 +9,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
 
 const HIVE_DIAMETER_PX := HiveGeometry.BASE_DIAMETER_PX
@@ -1018,11 +1019,7 @@ func intent_is_on(from_id: int, to_id: int) -> bool:
 func lanes_allowed_for_power(power: int) -> int:
 	if not ENABLE_OUTGOING_LANE_BUDGET:
 		return 999
-	if power <= 9:
-		return 1
-	if power <= 24:
-		return 2
-	return 3
+	return HiveGrowthRules.lane_budget_for_power(power)
 
 func count_active_outgoing(hive_id: int) -> int:
 	var count := 0

@@ -92,6 +92,7 @@ var rematch_deadline_ms: int = 0
 var rematch_votes: Dictionary = {}
 var post_end_action: String = ""
 var stats_by_team: Dictionary = {}
+var match_regulation_duration_ms: int = GameState.MATCH_DURATION_MS
 var match_duration_ms: int = GameState.MATCH_DURATION_MS
 var match_elapsed_ms: int = 0
 var match_time_remaining_sec: float = float(GameState.MATCH_DURATION_MS) / 1000.0
@@ -401,18 +402,21 @@ func get_authority_snapshot() -> Dictionary:
 		"outcome_reason": outcome_reason,
 		"winner_id": int(winner_id),
 		"end_reason": end_reason,
+		"match_regulation_duration_ms": int(match_regulation_duration_ms),
 		"match_duration_ms": int(match_duration_ms),
-			"match_elapsed_ms": int(match_elapsed_ms),
-			"match_time_remaining_ms": int(match_time_remaining_ms),
-			"match_remaining_ms": int(match_remaining_ms),
-			"match_deadline_ms": int(match_deadline_ms),
-			"match_clock_running": bool(match_clock_running),
-			"match_clock_started": bool(match_clock_started),
-			"match_clock_paused": bool(match_clock_paused),
-			"match_clock_pause_started_ms": int(match_clock_pause_started_ms),
-			"match_clock_pause_accumulated_ms": int(match_clock_pause_accumulated_ms),
-			"match_clock_pause_reason": match_clock_pause_reason,
-			"victory_mode": victory_mode,
+		"match_elapsed_ms": int(match_elapsed_ms),
+		"match_time_remaining_ms": int(match_time_remaining_ms),
+		"match_remaining_ms": int(match_remaining_ms),
+		"match_deadline_ms": int(match_deadline_ms),
+		"match_clock_running": bool(match_clock_running),
+		"match_clock_started": bool(match_clock_started),
+		"match_clock_paused": bool(match_clock_paused),
+		"match_clock_pause_started_ms": int(match_clock_pause_started_ms),
+		"match_clock_pause_accumulated_ms": int(match_clock_pause_accumulated_ms),
+		"match_clock_pause_reason": match_clock_pause_reason,
+		"in_overtime": bool(in_overtime),
+		"ot_checked": bool(ot_checked),
+		"victory_mode": victory_mode,
 		"victory_rules": victory_rules.duplicate(true),
 		"capture_flag_state": capture_flag_state.duplicate(true),
 		"stats_by_team": stats_by_team.duplicate(true),
@@ -471,6 +475,10 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	outcome_reason = str(snapshot.get("outcome_reason", outcome_reason))
 	winner_id = int(snapshot.get("winner_id", winner_id))
 	end_reason = str(snapshot.get("end_reason", end_reason))
+	match_regulation_duration_ms = int(snapshot.get(
+		"match_regulation_duration_ms",
+		match_regulation_duration_ms
+	))
 	match_duration_ms = int(snapshot.get("match_duration_ms", match_duration_ms))
 	match_elapsed_ms = int(snapshot.get("match_elapsed_ms", match_elapsed_ms))
 	match_time_remaining_ms = int(snapshot.get("match_time_remaining_ms", match_time_remaining_ms))
@@ -483,6 +491,8 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	match_clock_pause_started_ms = int(snapshot.get("match_clock_pause_started_ms", match_clock_pause_started_ms))
 	match_clock_pause_accumulated_ms = int(snapshot.get("match_clock_pause_accumulated_ms", match_clock_pause_accumulated_ms))
 	match_clock_pause_reason = str(snapshot.get("match_clock_pause_reason", match_clock_pause_reason))
+	in_overtime = bool(snapshot.get("in_overtime", in_overtime))
+	ot_checked = bool(snapshot.get("ot_checked", ot_checked))
 	victory_mode = str(snapshot.get("victory_mode", victory_mode))
 	victory_rules = (snapshot.get("victory_rules", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("victory_rules", {})) == TYPE_DICTIONARY else {}
 	capture_flag_state = (snapshot.get("capture_flag_state", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("capture_flag_state", {})) == TYPE_DICTIONARY else {}
@@ -1193,7 +1203,8 @@ func reset_match_state() -> void:
 	rematch_votes.clear()
 	post_end_action = ""
 	stats_by_team = {}
-	match_duration_ms = _configured_match_duration_ms()
+	match_regulation_duration_ms = _configured_match_duration_ms()
+	match_duration_ms = match_regulation_duration_ms
 	match_elapsed_ms = 0
 	match_time_remaining_sec = float(match_duration_ms) / 1000.0
 	match_time_remaining_ms = match_duration_ms
@@ -3182,7 +3193,8 @@ func tick_match_clock(state_ref: GameState, dt_ms: int) -> void:
 		match_elapsed_ms = 0
 		match_clock_running = true
 		match_end_reason = ""
-		match_duration_ms = _configured_match_duration_ms()
+		match_regulation_duration_ms = _configured_match_duration_ms()
+		match_duration_ms = match_regulation_duration_ms
 		match_time_remaining_sec = float(match_duration_ms) / 1000.0
 		match_time_remaining_ms = match_duration_ms
 		match_remaining_ms = match_duration_ms
