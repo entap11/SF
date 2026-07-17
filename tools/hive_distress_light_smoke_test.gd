@@ -110,6 +110,27 @@ func _run() -> void:
 	await _set_model(renderer, 510, 5, 1, 1, true)
 	var hive: Node = renderer.get_hive_node_by_id(1)
 	var component: Node = hive.get_node_or_null("Visual/FxLayer/HiveDistressLight") if hive != null else null
+	var fx_layer: CanvasItem = hive.get_node_or_null("Visual/FxLayer") as CanvasItem if hive != null else null
+	var power_projection: CanvasItem = hive.get_node_or_null("Visual/PowerProjection") as CanvasItem if hive != null else null
+	var budget_indicators: CanvasItem = hive.get_node_or_null("Visual/LaneBudgetIndicators") as CanvasItem if hive != null else null
+	var distress_item: CanvasItem = component as CanvasItem
+	_expect(
+		distress_item != null
+		and fx_layer != null
+		and power_projection != null
+		and budget_indicators != null,
+		"distress and hive readability layers must exist"
+	)
+	if distress_item != null and fx_layer != null and power_projection != null and budget_indicators != null:
+		var distress_effective_z: int = fx_layer.z_index + distress_item.z_index
+		_expect(
+			distress_effective_z < power_projection.z_index,
+			"distress must render behind the power projection"
+		)
+		_expect(
+			distress_effective_z < budget_indicators.z_index,
+			"distress must render behind the lane-budget indicators"
+		)
 	var child_count: int = component.get_child_count() if component != null else -1
 	var material_id: int = int(_snapshot(renderer).get("material_instance_id", 0))
 	for i in range(20):

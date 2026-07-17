@@ -5,6 +5,7 @@ const HiveDistressRules := preload("res://scripts/hive/hive_distress_rules.gd")
 
 const RECOVERY_FADE_SEC: float = 0.18
 const CAPTURE_SUPPRESS_SEC: float = 0.12
+const LOCAL_Z_INDEX: int = 1
 const MIN_FOOTPRINT: Vector2 = Vector2(40.0, 52.0)
 const PLUME_HEIGHT_SCALE: float = 0.82
 const PLUME_WIDTH_SCALE: float = 0.72
@@ -44,7 +45,9 @@ var _lifecycle_suspended: bool = false
 var _presentation_t: float = 0.0
 
 func _ready() -> void:
-	z_index = 4
+	# FxLayer is Z 18, so this resolves to Z 19: above the hive body while
+	# remaining behind the Z 20 power projection and Z 24 budget indicators.
+	z_index = LOCAL_Z_INDEX
 	var additive_material := CanvasItemMaterial.new()
 	additive_material.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	material = additive_material
