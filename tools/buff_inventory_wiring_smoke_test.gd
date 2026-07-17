@@ -60,6 +60,26 @@ func _init() -> void:
 	_assert_true((reloaded.call("get_buff_loadout_ids_for_mode", "async") as Array) == async_loadout, "Async loadout survives restart")
 	_assert_true(int(reloaded.call("get_owned_buff_quantity", PREMIUM_BUFF, "async")) == 3, "inventory quantity survives restart")
 
+	var welcome_pack_baseline: Dictionary = {}
+	for buff_any in BuffCatalog.list_by_tier("classic"):
+		if typeof(buff_any) != TYPE_DICTIONARY:
+			continue
+		var welcome_buff_id: String = str((buff_any as Dictionary).get("id", ""))
+		if BuffCatalog.is_selectable(welcome_buff_id):
+			welcome_pack_baseline[welcome_buff_id] = int(reloaded.call("get_owned_buff_quantity", welcome_buff_id, "vs"))
+	var welcome_result: Dictionary = reloaded.call("claim_tutorial_controls_welcome_pack", 2) as Dictionary
+	_assert_ok(welcome_result, "tutorial controls Welcome Pack claim")
+	_assert_true(int(welcome_result.get("buff_types", 0)) == welcome_pack_baseline.size(), "Welcome Pack includes every selectable Classic buff type")
+	for welcome_buff_id_any in welcome_pack_baseline.keys():
+		var welcome_buff_id: String = str(welcome_buff_id_any)
+		_assert_true(
+			int(reloaded.call("get_owned_buff_quantity", welcome_buff_id, "vs")) == int(welcome_pack_baseline.get(welcome_buff_id, 0)) + 2,
+			"Welcome Pack grants two %s buffs" % welcome_buff_id
+		)
+	_assert_true(bool(reloaded.call("has_tutorial_controls_welcome_pack_claimed")), "Welcome Pack claim flag is set")
+	var duplicate_welcome_result: Dictionary = reloaded.call("claim_tutorial_controls_welcome_pack", 2) as Dictionary
+	_assert_true(not bool(duplicate_welcome_result.get("ok", false)) and str(duplicate_welcome_result.get("reason", "")) == "already_claimed", "Welcome Pack cannot be claimed twice")
+
 	var legacy_inventory: Dictionary = {"buffs": {PREMIUM_BUFF: {"owned": true}}}
 	var before_migration_quantity: int = int(reloaded.call("get_owned_buff_quantity", PREMIUM_BUFF, "async"))
 	rewards.migrate_legacy_buff_inventory(legacy_inventory, reloaded)
@@ -111,6 +131,7 @@ func _init() -> void:
 	await process_frame
 	_assert_true(int(compatibility_reload.call("get_owned_buff_quantity", RETIRED_STEAL, "vs")) == 2, "legacy Steal Lane inventory is preserved without remapping")
 	_assert_true(not (compatibility_reload.call("get_buff_loadout_ids_for_mode", "vs") as Array).has(RETIRED_STEAL), "legacy Steal Lane is removed from equipped slots")
+	_assert_true(bool(compatibility_reload.call("has_tutorial_controls_welcome_pack_claimed")), "Welcome Pack claim survives restart")
 
 	print("BUFF_INVENTORY_WIRING_SMOKE: PASS")
 	quit(0)

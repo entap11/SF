@@ -31,18 +31,18 @@ Each step owns a narrow contract: instruction copy, named source/target anchors,
 | `select_start_hive` | Tap the highlighted source hive. | tap |
 | `feed_friend` | Tap the highlighted friendly destination hive to make a feed lane, then watch at least three bees land before the next prompt. | tap, wait |
 | `reverse_feed` | Tap the current destination hive, then tap the original source hive to reverse the lane, then watch two bees land back at the original hive. | tap, wait |
-| `cancel_lane_grab_throw` | Spotlight the source half of the friendly lane and teach both cancel options: double-tap near source or hold-drag-throw. | lane_source_double_tap, lane_grab_throw |
-| `remake_friend_lane` | After the lane is removed, require remaking the lower-left to upper-left friendly lane before attack lessons continue. Top-to-bottom remake is blocked. | tap, drag |
-| `attack_enemy_hive` | Teach attacking with a drag from the friendly source hive to the enemy hive. | drag |
+| `cancel_lane_grab_throw` | Spotlight the source half of the friendly lane and require one continuous press-pull-release throw. The first valid press is routed directly to lane grab, including where the hive hit area overlaps the lane. | lane_grab_throw |
+| `remake_friend_lane` | After the lane is removed, require remaking the lower-left to upper-left friendly lane before attack lessons continue. Both “tap source — tap destination” and drag are accepted; top-to-bottom remake is blocked. | tap, drag |
+| `attack_enemy_hive` | Teach attacking from the friendly source hive to the enemy hive. Accept both “tap source — tap destination” and drag. | tap, drag |
 | `contest_enemy_lane` | Let the first enemy attack lane run, have the enemy oppose it, and wait for three unit cancellations. | wait |
 | `attack_enemy_from_start` | After three cancellations, pause and explain that equal lane pressure can continue indefinitely, then ask the player to attack the red hive from the original hive. | tap, drag |
 | `attack_enemy_from_start_guided` | If the player waits ten seconds, pause and guide tap source, then tap red hive. | tap |
 | `take_neutral_hive` | Ask the player to take the gray NPC hive from the original hive. | tap, drag |
 | `attack_enemy_from_neutral` | Pause after gray capture, then ask the player to make an attack lane from gray to red. | tap, drag |
 | `swarm_intro` | Pause and introduce the two swarm methods. | tap_anywhere |
-| `swarm_by_overlap` | Teach swarming by creating a lane over an already active gray-to-red lane. | tap, drag |
+| `swarm_by_overlap` | Teach swarming over an active lane. All three player-owned hives are valid sources; both tap/tap and drag to the red hive are accepted. | tap, drag |
 | `wait_overlap_swarm_hit` | Let the first swarm hit before continuing. | wait |
-| `swarm_double_tap` | Teach double-tap swarm on the middle or bottom red lane while locking out the gray-to-red lane. | lane_double_tap |
+| `swarm_double_tap` | Teach double-tap swarm anywhere on the red/destination half of the middle or bottom lane while locking out the gray-to-red lane. | lane_double_tap |
 | `finish_fight` | Finish the fight without prompts blocking play. | free_play |
 | `complete` | Mark the tutorial complete. | none |
 
@@ -64,3 +64,6 @@ Each step owns a narrow contract: instruction copy, named source/target anchors,
 - Chunk 14: win-path swarm lesson. After the second red attack, the enemy opposes that lane too. The tutorial then teaches taking the gray hive from top-left, attacking red from gray, swarming by creating over the existing gray-red lane, and finally double-tap swarming only on the middle or bottom red lane.
 - Chunk 15: startup and pacing pass. Controls v1 now skips normal prematch startup so the first highlighted hive is clickable immediately. Action-result transitions use a 4.5 second dwell before the next prompt appears, letting lane creation, captures, contests, and swarms breathe.
 - Chunk 16: direction and contest fixes. Remaking the friendly lane is locked to lower-left source into upper-left destination, preventing accidental top-to-bottom lane use. The first cancellation lesson now pauses with explanatory copy after the cancellation count. Red starts with 3 lanes, has autonomous bot decisions disabled for controls v1, and immediately opposes the gray-to-red attack before swarm instruction begins.
+- Chunk 17: direct lane-throw action gate. The cancel lesson no longer uses a dismiss-on-input readout or the double-tap shortcut. An animated hand and elastic lane shadow demonstrate the sideways pull, and the first valid press is constrained to the lane-grab input path so an overlapping hive hit cannot steal the gesture. The sim stays paused only until that valid press, then resumes for the pull/release and any retry; the constrained gesture ignores incidental structure overlap and uses a forgiving throw threshold.
+- Chunk 18: completion and gesture reliability. Red-half swarm double taps use a generous screen-space lane target and bypass overlapping hive selection; friendly-lane remake explicitly guides and accepts tap/tap as well as drag. Tutorial completion is latched through match end so the dedicated congratulations screen appears, then automatically launches the existing easy-turtle 1v1 follow-up after a short countdown.
+- Chunk 19: first-match onboarding reward. The first easy-turtle match after the controls tutorial ends on a one-time Welcome Pack screen. Opening it atomically grants two of every selectable Classic buff type, persists the claim, and returns to the main menu.

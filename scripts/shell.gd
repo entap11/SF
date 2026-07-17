@@ -4654,25 +4654,44 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "cancel_lane_grab_throw", run_timeout_ms, "tutorial_controls_advances_after_reverse_feed", {"src": friend_id, "dst": start_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
+	var cancel_snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+	if bool(cancel_snapshot.get("overlay_visible", false)) and bool(cancel_snapshot.get("lane_pull_demo_visible", false)):
+		passes += _mvp_smoke_pass("tutorial_controls_lane_pull_demo_visible", {})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_lane_pull_demo_visible", cancel_snapshot)
+	var cancel_lane_id: int = _tutorial_controls_smoke_lane_id_between(friend_id, start_id)
+	if _tutorial_controls_smoke_lane_grab_press_constrained(arena_node, cancel_lane_id, friend_id):
+		passes += _mvp_smoke_pass("tutorial_controls_first_cancel_press_routes_to_lane_grab", {"lane_id": cancel_lane_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_first_cancel_press_routes_to_lane_grab", {
+			"lane_id": cancel_lane_id,
+			"snapshot": _tutorial_controls_smoke_snapshot(arena_node)
+		})
 
-	OpsState.retract_lane(friend_id, start_id, 1)
+	var lane_grab_completed: bool = arena_node != null \
+		and arena_node.has_method("tutorial_controls_smoke_perform_lane_grab") \
+		and bool(arena_node.call("tutorial_controls_smoke_perform_lane_grab", friend_id, start_id))
+	if lane_grab_completed:
+		passes += _mvp_smoke_pass("tutorial_controls_lane_grab_retracts_authoritative_lane", {"src": friend_id, "dst": start_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_lane_grab_retracts_authoritative_lane", _tutorial_controls_smoke_snapshot(arena_node))
 	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "remake_friend_lane", run_timeout_ms, "tutorial_controls_advances_after_lane_retract", {"src": friend_id, "dst": start_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
-	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_remake_friend_lane_intent", friend_id, start_id, "feed")
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
+	if _tutorial_controls_smoke_commit_hive_press(arena_node, friend_id) and _tutorial_controls_smoke_commit_hive_press(arena_node, start_id):
+		passes += _mvp_smoke_pass("tutorial_controls_remake_tap_tap_intent", {"src": friend_id, "dst": start_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_remake_tap_tap_intent", _tutorial_controls_smoke_snapshot(arena_node))
 	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "attack_enemy_hive", run_timeout_ms, "tutorial_controls_advances_after_remake_friend_lane", {"src": friend_id, "dst": start_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
-	if _tutorial_controls_smoke_wrong_press_blocked(arena_node, enemy_id):
-		passes += _mvp_smoke_pass("tutorial_controls_attack_tap_tap_blocked", {"step": "attack_enemy_hive", "hive_id": enemy_id})
+	var attack_tap_tap_completed: bool = arena_node != null \
+		and arena_node.has_method("tutorial_controls_smoke_perform_hive_tap_pair") \
+		and bool(arena_node.call("tutorial_controls_smoke_perform_hive_tap_pair", friend_id, enemy_id))
+	if attack_tap_tap_completed:
+		passes += _mvp_smoke_pass("tutorial_controls_attack_tap_tap_intent", {"src": friend_id, "dst": enemy_id})
 	else:
-		fails += _mvp_smoke_fail("tutorial_controls_attack_tap_tap_blocked", _tutorial_controls_smoke_snapshot(arena_node))
-
-	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_attack_enemy_intent", friend_id, enemy_id, "attack")
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
+		fails += _mvp_smoke_fail("tutorial_controls_attack_tap_tap_intent", _tutorial_controls_smoke_snapshot(arena_node))
 	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "contest_enemy_lane", run_timeout_ms, "tutorial_controls_advances_after_attack_enemy", {"src": friend_id, "dst": enemy_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
@@ -4691,9 +4710,13 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
 
-	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_attack_neutral_intent", start_id, neutral_id, "attack")
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
+	var take_neutral_tap_tap_completed: bool = arena_node != null \
+		and arena_node.has_method("tutorial_controls_smoke_perform_hive_tap_pair") \
+		and bool(arena_node.call("tutorial_controls_smoke_perform_hive_tap_pair", start_id, neutral_id))
+	if take_neutral_tap_tap_completed:
+		passes += _mvp_smoke_pass("tutorial_controls_take_neutral_tap_tap_intent", {"src": start_id, "dst": neutral_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_take_neutral_tap_tap_intent", _tutorial_controls_smoke_snapshot(arena_node))
 	if _tutorial_controls_smoke_set_hive_owner(neutral_id, 1, 12):
 		passes += _mvp_smoke_pass("tutorial_controls_capture_neutral_mutation", {"hive_id": neutral_id})
 	else:
@@ -4712,18 +4735,33 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_by_overlap", maxi(run_timeout_ms, 7000), "tutorial_controls_swarm_intro_auto_advances", {"src": neutral_id, "dst": enemy_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
+	var overlap_snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+	var overlap_source_ids: Array = overlap_snapshot.get("swarm_overlap_available_source_ids", []) as Array
+	if overlap_source_ids.has(start_id) and overlap_source_ids.has(friend_id) and overlap_source_ids.has(neutral_id):
+		passes += _mvp_smoke_pass("tutorial_controls_all_three_swarm_sources_available", {"source_ids": overlap_source_ids})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_all_three_swarm_sources_available", overlap_snapshot)
 
-	_tutorial_controls_smoke_boost_hive(neutral_id, 30)
-	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_overlap_swarm_intent", neutral_id, enemy_id, "swarm")
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
-	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "wait_overlap_swarm_hit", run_timeout_ms, "tutorial_controls_advances_after_overlap_swarm", {"src": neutral_id, "dst": enemy_id})
+	_tutorial_controls_smoke_boost_hive(friend_id, 30)
+	var overlap_tap_tap_completed: bool = arena_node != null \
+		and arena_node.has_method("tutorial_controls_smoke_perform_swarm_tap_pair") \
+		and bool(arena_node.call("tutorial_controls_smoke_perform_swarm_tap_pair", friend_id, enemy_id))
+	if overlap_tap_tap_completed:
+		passes += _mvp_smoke_pass("tutorial_controls_overlap_swarm_tap_tap_intent", {"src": friend_id, "dst": enemy_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_overlap_swarm_tap_tap_intent", _tutorial_controls_smoke_snapshot(arena_node))
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "wait_overlap_swarm_hit", run_timeout_ms, "tutorial_controls_advances_after_overlap_swarm", {"src": friend_id, "dst": enemy_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
 	_tutorial_controls_smoke_clear_swarms()
 	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_double_tap", run_timeout_ms, "tutorial_controls_advances_after_overlap_hit", {"src": neutral_id, "dst": enemy_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
+	var swarm_lane_id: int = _tutorial_controls_smoke_lane_id_between(start_id, enemy_id)
+	if _tutorial_controls_smoke_lane_double_tap_press_constrained(arena_node, swarm_lane_id, enemy_id):
+		passes += _mvp_smoke_pass("tutorial_controls_red_half_double_tap_routes_to_lane", {"lane_id": swarm_lane_id})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_red_half_double_tap_routes_to_lane", _tutorial_controls_smoke_snapshot(arena_node))
 
 	_tutorial_controls_smoke_boost_hive(start_id, 30)
 	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_double_tap_swarm_intent", start_id, enemy_id, "swarm")
@@ -4742,6 +4780,20 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 		passes += _mvp_smoke_pass("tutorial_controls_completion_persisted", {"status": "completed"})
 	else:
 		fails += _mvp_smoke_fail("tutorial_controls_completion_persisted", _tutorial_controls_smoke_profile_snapshot())
+	var completion_outcome_ok: bool = await _tutorial_controls_smoke_wait_completion_outcome(arena_node, run_timeout_ms)
+	if completion_outcome_ok:
+		passes += _mvp_smoke_pass("tutorial_controls_completion_routes_to_followup", _tutorial_controls_smoke_snapshot(arena_node))
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_completion_routes_to_followup", _tutorial_controls_smoke_snapshot(arena_node))
+	var followup_auto_launch_ok: bool = await _tutorial_controls_smoke_wait_followup_auto_launch(10000)
+	if followup_auto_launch_ok:
+		passes += _mvp_smoke_pass("tutorial_controls_followup_auto_launches_easy_bot", {
+			"vs_mode": str(get_tree().get_meta("vs_mode", "")),
+			"bot_style": str(get_tree().get_meta("vs_cpu_style", "")),
+			"bot_tier": str(get_tree().get_meta("vs_cpu_tier", ""))
+		})
+	else:
+		fails += _mvp_smoke_fail("tutorial_controls_followup_auto_launches_easy_bot", {})
 
 	var summary_status: String = "pass" if fails == 0 else "fail"
 	SFLog.warn("MVP_SMOKE_SUMMARY", {"passes": passes, "fails": fails, "map": map_path, "status": summary_status, "mode": "tutorial_controls"})
@@ -4822,6 +4874,61 @@ func _tutorial_controls_smoke_commit_hive_press(arena_node: Node, hive_id: int) 
 		return true
 	return _tutorial_controls_smoke_valid_consumed_prompt(before_snapshot, after_snapshot)
 
+func _tutorial_controls_smoke_lane_id_between(a_id: int, b_id: int) -> int:
+	var tutorial_state: GameState = OpsState.get_state()
+	if tutorial_state == null:
+		return -1
+	for lane_any in tutorial_state.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		if (int(lane.a_id) == a_id and int(lane.b_id) == b_id) or (int(lane.a_id) == b_id and int(lane.b_id) == a_id):
+			return int(lane.id)
+	return -1
+
+func _tutorial_controls_smoke_lane_grab_press_constrained(arena_node: Node, lane_id: int, overlapping_hive_id: int) -> bool:
+	if arena_node == null or lane_id <= 0 or not arena_node.has_method("tutorial_controls_smoke_should_allow_pointer_event"):
+		return false
+	var press_ev: Dictionary = {
+		"type": "press",
+		"button": 96,
+		"local_pos": Vector2.ZERO,
+		"world_pos": Vector2.ZERO,
+		"screen_pos": Vector2.ZERO,
+		"is_touch": false,
+		"touch_index": -1,
+		"hive_id": overlapping_hive_id,
+		"lane_id": lane_id
+	}
+	var allowed: bool = bool(arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev))
+	var constrained: bool = allowed and int(press_ev.get("hive_id", overlapping_hive_id)) == -1 and bool(press_ev.get("lane_grab_only", false))
+	press_ev["type"] = "release"
+	arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev)
+	return constrained
+
+func _tutorial_controls_smoke_lane_double_tap_press_constrained(arena_node: Node, lane_id: int, overlapping_hive_id: int) -> bool:
+	if arena_node == null or lane_id <= 0 or not arena_node.has_method("tutorial_controls_smoke_should_allow_pointer_event"):
+		return false
+	var press_ev: Dictionary = {
+		"type": "press",
+		"button": 95,
+		"local_pos": Vector2.ZERO,
+		"world_pos": Vector2.ZERO,
+		"screen_pos": Vector2.ZERO,
+		"is_touch": false,
+		"touch_index": -1,
+		"hive_id": overlapping_hive_id,
+		"lane_id": lane_id
+	}
+	var allowed: bool = bool(arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev))
+	var constrained: bool = allowed \
+		and int(press_ev.get("hive_id", overlapping_hive_id)) == -1 \
+		and int(press_ev.get("lane_id", -1)) == lane_id \
+		and bool(press_ev.get("lane_double_tap_only", false))
+	press_ev["type"] = "release"
+	arena_node.call("tutorial_controls_smoke_should_allow_pointer_event", press_ev)
+	return constrained
+
 func _tutorial_controls_smoke_valid_consumed_prompt(before_snapshot: Dictionary, after_snapshot: Dictionary) -> bool:
 	var before_step: String = str(before_snapshot.get("current_step", ""))
 	var after_step: String = str(after_snapshot.get("current_step", ""))
@@ -4838,6 +4945,9 @@ func _tutorial_controls_smoke_valid_consumed_prompt(before_snapshot: Dictionary,
 			if before_phase == "tap_source":
 				return after_step == "reverse_feed" and bool(after_snapshot.get("reverse_feed_arrival_wait_active", false))
 			return false
+		"remake_friend_lane":
+			return (after_step == "remake_friend_lane" and str(after_snapshot.get("pending_next_step", "")) == "attack_enemy_hive") \
+				or after_step == "attack_enemy_hive"
 		_:
 			return false
 
@@ -4872,6 +4982,31 @@ func _tutorial_controls_smoke_wait_step(arena_node: Node, step_id: String, timeo
 		if bool(snapshot.get("active", false)) and str(snapshot.get("current_step", "")) == step_id:
 			return true
 		await _mvp_wait_ms(50)
+	return false
+
+func _tutorial_controls_smoke_wait_completion_outcome(arena_node: Node, timeout_ms: int) -> bool:
+	var deadline_ms: int = Time.get_ticks_msec() + maxi(1000, timeout_ms)
+	while Time.get_ticks_msec() < deadline_ms:
+		var snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+		if bool(snapshot.get("completed_this_match", false)) \
+			and bool(snapshot.get("completion_outcome_visible", false)) \
+			and str(snapshot.get("completion_outcome_title", "")) == "TUTORIAL COMPLETE" \
+			and str(snapshot.get("completion_outcome_reason", "")).contains("real game"):
+			return true
+		await get_tree().process_frame
+	return false
+
+func _tutorial_controls_smoke_wait_followup_auto_launch(timeout_ms: int) -> bool:
+	var deadline_ms: int = Time.get_ticks_msec() + maxi(1000, timeout_ms)
+	while Time.get_ticks_msec() < deadline_ms:
+		var tree: SceneTree = get_tree()
+		if tree != null \
+			and bool(tree.get_meta("tutorial_controls_followup_match", false)) \
+			and str(tree.get_meta("vs_mode", "")).to_upper() == "1V1" \
+			and str(tree.get_meta("vs_cpu_style", "")).to_lower() == "turtle" \
+			and str(tree.get_meta("vs_cpu_tier", "")).to_lower() == "easy":
+			return true
+		await get_tree().process_frame
 	return false
 
 func _tutorial_controls_smoke_apply_intent(check_name: String, src_id: int, dst_id: int, intent: String) -> Dictionary:

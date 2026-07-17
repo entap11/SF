@@ -32,6 +32,14 @@ const REVERSE_PHASE_TAP_DESTINATION: String = "tap_destination"
 const REVERSE_PHASE_TAP_SOURCE: String = "tap_source"
 const START_ATTACK_PHASE_TAP_SOURCE: String = "tap_source"
 const START_ATTACK_PHASE_TAP_TARGET: String = "tap_target"
+const REMAKE_PHASE_TAP_SOURCE: String = "tap_source"
+const REMAKE_PHASE_TAP_TARGET: String = "tap_target"
+const ATTACK_ENEMY_PHASE_TAP_SOURCE: String = "tap_source"
+const ATTACK_ENEMY_PHASE_TAP_TARGET: String = "tap_target"
+const TAKE_NEUTRAL_PHASE_TAP_SOURCE: String = "tap_source"
+const TAKE_NEUTRAL_PHASE_TAP_TARGET: String = "tap_target"
+const SWARM_OVERLAP_PHASE_TAP_SOURCE: String = "tap_source"
+const SWARM_OVERLAP_PHASE_TAP_TARGET: String = "tap_target"
 
 const ANCHOR_START_HIVE: String = "start_hive"
 const ANCHOR_NEUTRAL_HIVE: String = "neutral_hive"
@@ -46,8 +54,10 @@ const ANCHOR_POSITIONS := {
 }
 const POST_ACTION_DWELL_MS: int = 4500
 const SWARM_INTRO_AUTO_ADVANCE_MS: int = 5000
+const SWARM_DOUBLE_TAP_SCREEN_PICK_RADIUS_PX: float = 56.0
 
 var _active: bool = false
+var _completed_this_match: bool = false
 var _current_step: String = STEP_SELECT_START_HIVE
 var _local_owner_id: int = 1
 var _anchor_ids: Dictionary = {}
@@ -60,12 +70,15 @@ var _skip_button: Button = null
 var _source_ring: Panel = null
 var _target_ring: Panel = null
 var _lane_line: ColorRect = null
+var _lane_pull_ghost_shadow: Line2D = null
+var _lane_pull_ghost: Line2D = null
 var _double_tap_lane_glows: Array = []
 var _double_tap_lane_cores: Array = []
 var _tap_hand: Control = null
 var _last_state: GameState = null
 var _signal_bound: bool = false
 var _saw_friend_lane_retract: bool = false
+var _cancel_lane_gesture_started: bool = false
 var _hive_screen_pos_cb: Callable = Callable()
 var _pause_sim_cb: Callable = Callable()
 var _resume_sim_cb: Callable = Callable()
@@ -80,6 +93,11 @@ var _feed_friend_arrival_wait_active: bool = false
 var _feed_friend_arrival_baseline: int = 0
 var _feed_friend_arrival_target: int = 3
 var _reverse_feed_phase: String = REVERSE_PHASE_TAP_DESTINATION
+var _remake_friend_phase: String = REMAKE_PHASE_TAP_SOURCE
+var _attack_enemy_phase: String = ATTACK_ENEMY_PHASE_TAP_SOURCE
+var _take_neutral_phase: String = TAKE_NEUTRAL_PHASE_TAP_SOURCE
+var _swarm_overlap_phase: String = SWARM_OVERLAP_PHASE_TAP_SOURCE
+var _swarm_overlap_source_anchor: String = ""
 var _reverse_feed_arrival_wait_active: bool = false
 var _reverse_feed_arrival_baseline: int = 0
 var _reverse_feed_arrival_target: int = 2
@@ -106,16 +124,16 @@ static func step_contracts() -> Array:
 		_contract(STEP_SELECT_START_HIVE, "Tap your hive.", "There are several ways to make a lane. The first way is to tap the hive that I have highlighted for you.", ANCHOR_START_HIVE, "", ["tap"], "paused", "tutorial_select_start"),
 		_contract(STEP_FEED_FRIEND, "Tap the destination.", "...and tap the desired destination.", "", ANCHOR_FRIEND_HIVE, ["tap"], "paused", "tutorial_feed_friend"),
 		_contract(STEP_REVERSE_FEED, "Reverse the lane.", "To reverse this flow and send units back the other way, simply reverse the steps.\n\nTap the destination hive.", "", ANCHOR_FRIEND_HIVE, ["tap"], "paused", "tutorial_reverse_feed"),
-		_contract(STEP_CANCEL_LANE_GRAB_THROW, "Get rid of your lane.", "Now that you can make a lane, let's learn how to get rid of it.\n\nYou can either double tap the lane next to the source hive, or you can grab the lane by holding on it, drag in any direction other than where the lane is pointed, and throw it away.", ANCHOR_FRIEND_HIVE, ANCHOR_START_HIVE, ["lane_source_double_tap", "lane_grab_throw"], "paused", "tutorial_lane_cancel"),
-		_contract(STEP_REMAKE_FRIEND_LANE, "Remake the lane.", "Great, now you're going to want that lane there, so go ahead and remake it.", ANCHOR_FRIEND_HIVE, ANCHOR_START_HIVE, ["tap", "drag"], "paused", "tutorial_remake_friend_lane"),
-		_contract(STEP_ATTACK_ENEMY_HIVE, "Drag to attack.", "Next, let's learn how to attack.\n\nYou can do this two ways: the tap source, tap destination method you just learned, or you can drag from the source hive and land on the destination hive. Let's try it!", ANCHOR_FRIEND_HIVE, ANCHOR_ENEMY_HIVE, ["drag"], "paused", "tutorial_attack_enemy_drag"),
+		_contract(STEP_CANCEL_LANE_GRAB_THROW, "Get rid of your lane.", "Now that you can make a lane, let's learn how to get rid of it.\n\nPress the highlighted lane near the source hive, pull it sideways, and release to throw it away. Follow the hand, then do the same gesture yourself.", ANCHOR_FRIEND_HIVE, ANCHOR_START_HIVE, ["lane_grab_throw"], "paused_until_action", "tutorial_lane_cancel"),
+		_contract(STEP_REMAKE_FRIEND_LANE, "Remake the lane.", "Great. Remake that lane using either the “tap source — tap destination” method or by dragging from source to destination.", ANCHOR_FRIEND_HIVE, ANCHOR_START_HIVE, ["tap", "drag"], "paused", "tutorial_remake_friend_lane"),
+		_contract(STEP_ATTACK_ENEMY_HIVE, "Attack the enemy.", "Next, let's learn how to attack.\n\nYou can do this two ways: the “tap source — tap destination” method you just learned, or you can drag from the source hive and land on the destination hive. Let's try it!", ANCHOR_FRIEND_HIVE, ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_attack_enemy"),
 		_contract(STEP_CONTEST_ENEMY_LANE, "Watch the lane fight.", "Watch the lane fight.", ANCHOR_FRIEND_HIVE, ANCHOR_ENEMY_HIVE, ["wait"], "normal", "tutorial_enemy_contest_wait"),
 		_contract(STEP_ATTACK_ENEMY_FROM_START, "Attack from another hive.", "See how the bees are canceling each other?\n\nThis can go on all day, so you need to attack that hive from somewhere else. Attack from that top-left hive too.", ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_attack_enemy_from_start"),
 		_contract(STEP_ATTACK_ENEMY_FROM_START_GUIDED, "Attack from this hive.", "OK, let's attack from this hive.", ANCHOR_START_HIVE, "", ["tap"], "paused", "tutorial_attack_enemy_from_start_guided"),
 		_contract(STEP_TAKE_NEUTRAL_HIVE, "Take the gray hive.", "So, it's time to win this game. Take that small NPC gray hive.", ANCHOR_START_HIVE, ANCHOR_NEUTRAL_HIVE, ["tap", "drag"], "normal", "tutorial_take_neutral"),
 		_contract(STEP_ATTACK_ENEMY_FROM_NEUTRAL, "Attack from gray.", "Now, make a lane to attack that enemy hive and I'll show you a trick.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_attack_enemy_from_neutral"),
 		_contract(STEP_SWARM_INTRO, "Time to swarm.", "You want to win now? It's time to swarm. There are two ways to swarm and we will try them both.", "", "", ["wait"], "paused", "tutorial_swarm_intro"),
-		_contract(STEP_SWARM_BY_OVERLAP, "Create over the lane.", "First, create a lane over the top of an existing lane.\n\nTap your hive, then tap the enemy hive, or drag a lane to it.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_swarm_overlap"),
+		_contract(STEP_SWARM_BY_OVERLAP, "Create over the lane.", "First, create a lane over the top of an existing lane.\n\nUse any of your three hives: tap your hive, then tap the enemy hive, or drag a lane to it.", "", ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_swarm_overlap"),
 		_contract(STEP_WAIT_OVERLAP_SWARM_HIT, "Watch the swarm hit.", "Watch the swarm hit.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["wait"], "normal", "tutorial_swarm_overlap_wait"),
 		_contract(STEP_SWARM_DOUBLE_TAP, "Double tap to swarm.", "Perfect. Now let's double tap him!\n\nSimply double tap the lane near the enemy hive you want to swarm. Try either the middle or bottom lane this time.", ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE, ["lane_double_tap"], "paused", "tutorial_swarm_double_tap"),
 		_contract(STEP_FINISH_FIGHT, "Finish the fight.", "Finish the fight.", "", "", ["free_play"], "normal", "tutorial_finish_fight"),
@@ -155,8 +173,10 @@ func start_if_needed(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb:
 	_resume_sim_cb = resume_sim_cb
 	_arrival_count_cb = arrival_count_cb
 	_current_step = STEP_SELECT_START_HIVE
+	_completed_this_match = false
 	_last_state = state
 	_saw_friend_lane_retract = false
+	_cancel_lane_gesture_started = false
 	_blocked_pointer_keys.clear()
 	_recovery_keys_logged.clear()
 	_readout_waiting_for_input = false
@@ -166,6 +186,7 @@ func start_if_needed(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb:
 	_feed_friend_arrival_wait_active = false
 	_feed_friend_arrival_baseline = 0
 	_reverse_feed_phase = REVERSE_PHASE_TAP_DESTINATION
+	_remake_friend_phase = REMAKE_PHASE_TAP_SOURCE
 	_reverse_feed_arrival_wait_active = false
 	_reverse_feed_arrival_baseline = 0
 	_contest_cancel_wait_active = false
@@ -215,6 +236,8 @@ func ensure_overlay(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: 
 	_source_ring = overlay.get_node_or_null("SourceFocusRing") as Panel
 	_target_ring = overlay.get_node_or_null("TargetFocusRing") as Panel
 	_lane_line = overlay.get_node_or_null("FocusLine") as ColorRect
+	_lane_pull_ghost_shadow = overlay.get_node_or_null("LanePullGhostShadow") as Line2D
+	_lane_pull_ghost = overlay.get_node_or_null("LanePullGhost") as Line2D
 	_double_tap_lane_glows.clear()
 	_double_tap_lane_cores.clear()
 	for i in range(2):
@@ -232,6 +255,9 @@ func ensure_overlay(resolve_hud_root_cb: Callable, force_fullscreen_anchors_cb: 
 func is_active() -> bool:
 	return _active
 
+func completed_this_match() -> bool:
+	return _completed_this_match
+
 func current_step_id() -> String:
 	return _current_step
 
@@ -247,6 +273,7 @@ func smoke_snapshot() -> Dictionary:
 	return {
 		"active": _active,
 		"current_step": _current_step,
+		"completed_this_match": _completed_this_match,
 		"anchors": _anchor_ids.duplicate(true),
 		"contracts": step_contracts(),
 		"overlay_visible": _overlay != null and is_instance_valid(_overlay) and _overlay.visible,
@@ -256,6 +283,12 @@ func smoke_snapshot() -> Dictionary:
 		"feed_friend_arrival_target": _feed_friend_arrival_target,
 		"feed_friend_arrival_wait_active": _feed_friend_arrival_wait_active,
 		"reverse_feed_phase": _reverse_feed_phase,
+		"remake_friend_phase": _remake_friend_phase,
+		"attack_enemy_phase": _attack_enemy_phase,
+		"take_neutral_phase": _take_neutral_phase,
+		"swarm_overlap_phase": _swarm_overlap_phase,
+		"swarm_overlap_source_anchor": _swarm_overlap_source_anchor,
+		"swarm_overlap_available_source_ids": _swarm_overlap_source_ids(_last_state),
 		"reverse_feed_arrival_delta": _reverse_feed_arrival_delta(),
 		"reverse_feed_arrival_target": _reverse_feed_arrival_target,
 		"reverse_feed_arrival_wait_active": _reverse_feed_arrival_wait_active,
@@ -273,6 +306,8 @@ func smoke_snapshot() -> Dictionary:
 		"source_focus_visible": _source_ring != null and is_instance_valid(_source_ring) and _source_ring.visible,
 		"target_focus_visible": _target_ring != null and is_instance_valid(_target_ring) and _target_ring.visible,
 		"lane_focus_visible": _lane_line != null and is_instance_valid(_lane_line) and _lane_line.visible,
+		"lane_pull_demo_visible": _lane_pull_ghost != null and is_instance_valid(_lane_pull_ghost) and _lane_pull_ghost.visible,
+		"cancel_lane_gesture_started": _cancel_lane_gesture_started,
 		"double_tap_lane_focus_visible": _double_tap_focus_visible(),
 		"tap_hand_visible": _tap_hand != null and is_instance_valid(_tap_hand) and _tap_hand.visible
 	}
@@ -308,6 +343,26 @@ func should_allow_pointer_event(ev: Dictionary, state: GameState) -> bool:
 		_anchor_ids = _resolve_anchor_ids(state)
 	var allowed: Dictionary = _press_allowed_for_step(ev, state)
 	if bool(allowed.get("ok", false)):
+		if _current_step == STEP_CANCEL_LANE_GRAB_THROW:
+			# Route the first accepted press into the lane gesture even when the
+			# generous hive hit area overlaps the highlighted lane segment.
+			ev["hive_id"] = -1
+			ev["lane_grab_only"] = true
+			_cancel_lane_gesture_started = true
+			_resume_after_readout()
+		elif _current_step == STEP_SWARM_DOUBLE_TAP:
+			# The red/destination half is a lane-only target. This prevents the
+			# enemy hive's generous hit area from stealing either click.
+			ev["hive_id"] = -1
+			ev["lane_double_tap_only"] = true
+		elif _current_step == STEP_ATTACK_ENEMY_HIVE or _current_step == STEP_TAKE_NEUTRAL_HIVE or _current_step == STEP_SWARM_BY_OVERLAP:
+			# The existing friendly lane reaches the source hive's hit area. Keep
+			# tutorial source/destination taps on hives so the lane cannot steal them.
+			ev["hive_tap_only"] = true
+			if str(allowed.get("reason", "")).ends_with("source"):
+				ev["hive_source_select_only"] = true
+				if _current_step == STEP_SWARM_BY_OVERLAP:
+					_swarm_overlap_source_anchor = _anchor_name_for_hive_id(int(ev.get("hive_id", -1)))
 		if _current_step == STEP_ATTACK_ENEMY_HIVE and str(allowed.get("reason", "")) == "attack_enemy_drag_source":
 			_begin_attack_drag(pointer_key, ev)
 		if _handle_prompted_tap_press(str(allowed.get("reason", "valid_press")), state):
@@ -395,7 +450,7 @@ func tick(state: GameState, local_owner_id: int) -> void:
 		_anchor_ids = _resolve_anchor_ids(state)
 	_last_state = state
 	_maybe_advance_delayed_step()
-	if _readout_waiting_for_input:
+	if _readout_waiting_for_input or (_step_uses_direct_action_gate(_current_step) and not _cancel_lane_gesture_started):
 		_pause_for_readout()
 	_maybe_auto_advance_swarm_intro()
 	_evaluate_current_step(state)
@@ -529,12 +584,12 @@ func _next_step_for_state(state: GameState) -> String:
 		return ""
 	if _current_step == STEP_SWARM_BY_OVERLAP:
 		_oppose_enemy_lane_if_needed(state, ANCHOR_NEUTRAL_HIVE)
-		if _has_swarm_between(state, ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE):
+		if _has_swarm_from_any_player_hive_to_enemy(state):
 			return STEP_WAIT_OVERLAP_SWARM_HIT
 		return ""
 	if _current_step == STEP_WAIT_OVERLAP_SWARM_HIT:
 		_oppose_enemy_lane_if_needed(state, ANCHOR_NEUTRAL_HIVE)
-		if _has_swarm_between(state, ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE):
+		if _has_swarm_from_any_player_hive_to_enemy(state):
 			_overlap_swarm_seen = true
 			return ""
 		if _overlap_swarm_seen:
@@ -603,8 +658,9 @@ func _apply_recovery_guards(state: GameState) -> void:
 	_clear_wrong_selection_for_step(state)
 	match _current_step:
 		STEP_SWARM_BY_OVERLAP:
-			if not _intent_is_on_between(state, ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE):
-				_restore_intent_between(ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, "attack", "missing_overlap_swarm_lane")
+			for source_anchor in [ANCHOR_START_HIVE, ANCHOR_FRIEND_HIVE, ANCHOR_NEUTRAL_HIVE]:
+				if not _intent_is_on_between(state, source_anchor, ANCHOR_ENEMY_HIVE):
+					_restore_intent_between(source_anchor, ANCHOR_ENEMY_HIVE, "attack", "missing_overlap_swarm_lane_%s" % source_anchor)
 		STEP_SWARM_DOUBLE_TAP:
 			if not _intent_is_on_between(state, ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE):
 				_restore_intent_between(ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE, "attack", "missing_middle_swarm_lane")
@@ -630,15 +686,17 @@ func _clear_wrong_selection_for_step(state: GameState) -> void:
 		STEP_REVERSE_FEED:
 			allowed = [ANCHOR_FRIEND_HIVE, ANCHOR_START_HIVE]
 		STEP_REMAKE_FRIEND_LANE:
-			allowed = [ANCHOR_FRIEND_HIVE]
+			allowed = [ANCHOR_START_HIVE] if _remake_friend_phase == REMAKE_PHASE_TAP_TARGET else [ANCHOR_FRIEND_HIVE]
 		STEP_ATTACK_ENEMY_HIVE:
 			allowed = [ANCHOR_FRIEND_HIVE, ANCHOR_ENEMY_HIVE]
 		STEP_ATTACK_ENEMY_FROM_START, STEP_ATTACK_ENEMY_FROM_START_GUIDED:
 			allowed = [ANCHOR_START_HIVE] if _readout_waiting_for_input else [ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE]
 		STEP_TAKE_NEUTRAL_HIVE:
 			allowed = [ANCHOR_START_HIVE, ANCHOR_NEUTRAL_HIVE]
-		STEP_ATTACK_ENEMY_FROM_NEUTRAL, STEP_SWARM_BY_OVERLAP:
+		STEP_ATTACK_ENEMY_FROM_NEUTRAL:
 			allowed = [ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE]
+		STEP_SWARM_BY_OVERLAP:
+			allowed = [ANCHOR_START_HIVE, ANCHOR_FRIEND_HIVE, ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE]
 		_:
 			return
 	for anchor_any in allowed:
@@ -692,8 +750,20 @@ func _advance_to_step(step_id: String) -> void:
 	_current_step = step_id
 	if step_id == STEP_CANCEL_LANE_GRAB_THROW:
 		_saw_friend_lane_retract = false
+		_cancel_lane_gesture_started = false
+	if step_id == STEP_REMAKE_FRIEND_LANE:
+		_remake_friend_phase = REMAKE_PHASE_TAP_SOURCE
+	if step_id == STEP_ATTACK_ENEMY_HIVE:
+		_attack_enemy_phase = ATTACK_ENEMY_PHASE_TAP_SOURCE
+		_clear_tutorial_selection("attack_enemy_hive_entry")
+	if step_id == STEP_TAKE_NEUTRAL_HIVE:
+		_take_neutral_phase = TAKE_NEUTRAL_PHASE_TAP_SOURCE
+		_clear_tutorial_selection("take_neutral_hive_entry")
 	if step_id == STEP_SWARM_BY_OVERLAP:
 		_overlap_swarm_seen = false
+		_swarm_overlap_phase = SWARM_OVERLAP_PHASE_TAP_SOURCE
+		_swarm_overlap_source_anchor = ""
+		_clear_tutorial_selection("swarm_by_overlap_entry")
 	if step_id == STEP_SWARM_DOUBLE_TAP:
 		_double_tap_swarm_seen = false
 	if step_id == STEP_SWARM_INTRO:
@@ -733,6 +803,13 @@ func _enter_step(step_id: String) -> void:
 		_readout_step_id = step_id
 		_show_overlay()
 		_pause_for_readout()
+	elif _step_uses_direct_action_gate(step_id):
+		# The instruction is already live: the first accepted pointer press must
+		# begin the requested action, never dismiss or advance the readout.
+		_readout_waiting_for_input = false
+		_readout_step_id = ""
+		_show_overlay()
+		_pause_for_readout()
 	elif _step_uses_live_overlay(step_id):
 		_readout_waiting_for_input = false
 		_readout_step_id = ""
@@ -750,10 +827,13 @@ func _enter_step(step_id: String) -> void:
 
 func _step_uses_readout_gate(step_id: String) -> bool:
 	match step_id:
-		STEP_WELCOME, STEP_SELECT_START_HIVE, STEP_ATTACK_NEUTRAL_HIVE, STEP_FEED_FRIEND, STEP_REVERSE_FEED, STEP_CANCEL_LANE_GRAB_THROW, STEP_REMAKE_FRIEND_LANE, STEP_ATTACK_ENEMY_HIVE, STEP_ATTACK_ENEMY_FROM_START, STEP_ATTACK_ENEMY_FROM_START_GUIDED, STEP_ATTACK_ENEMY_FROM_NEUTRAL, STEP_SWARM_INTRO, STEP_SWARM_BY_OVERLAP, STEP_SWARM_DOUBLE_TAP:
+		STEP_WELCOME, STEP_SELECT_START_HIVE, STEP_ATTACK_NEUTRAL_HIVE, STEP_FEED_FRIEND, STEP_REVERSE_FEED, STEP_REMAKE_FRIEND_LANE, STEP_ATTACK_ENEMY_HIVE, STEP_ATTACK_ENEMY_FROM_START, STEP_ATTACK_ENEMY_FROM_START_GUIDED, STEP_ATTACK_ENEMY_FROM_NEUTRAL, STEP_SWARM_INTRO, STEP_SWARM_BY_OVERLAP, STEP_SWARM_DOUBLE_TAP:
 			return true
 		_:
 			return false
+
+func _step_uses_direct_action_gate(step_id: String) -> bool:
+	return step_id == STEP_CANCEL_LANE_GRAB_THROW
 
 func _step_uses_live_overlay(step_id: String) -> bool:
 	return step_id == STEP_TAKE_NEUTRAL_HIVE
@@ -870,6 +950,40 @@ func _handle_prompted_tap_press(reason: String, state: GameState) -> bool:
 					_evaluate_current_step(state)
 			return true
 		STEP_REMAKE_FRIEND_LANE:
+			if _remake_friend_phase == REMAKE_PHASE_TAP_SOURCE:
+				_remake_friend_phase = REMAKE_PHASE_TAP_TARGET
+				_refresh_overlay_copy()
+				_refresh_focus_visuals()
+				return false
+			var remake_result: Dictionary = _apply_tutorial_lane_intent(ANCHOR_FRIEND_HIVE, ANCHOR_START_HIVE, "feed", reason)
+			if bool(remake_result.get("ok", false)):
+				_commit_readout_for_step_input(reason, false)
+				_resume_after_readout()
+				if state != null:
+					_evaluate_current_step(state)
+			return true
+		STEP_ATTACK_ENEMY_HIVE:
+			if _attack_enemy_phase == ATTACK_ENEMY_PHASE_TAP_SOURCE:
+				_attack_enemy_phase = ATTACK_ENEMY_PHASE_TAP_TARGET
+				_refresh_overlay_copy()
+				_refresh_focus_visuals()
+			# Both phases pass through to InputSystem. The source release selects the
+			# hive; the destination release emits the authoritative attack intent.
+			# A held source press can instead continue through the existing drag path.
+			return false
+		STEP_TAKE_NEUTRAL_HIVE:
+			if _take_neutral_phase == TAKE_NEUTRAL_PHASE_TAP_SOURCE:
+				_take_neutral_phase = TAKE_NEUTRAL_PHASE_TAP_TARGET
+				_refresh_overlay_copy()
+				_refresh_focus_visuals()
+			# InputSystem owns both source selection and the authoritative attack intent.
+			return false
+		STEP_SWARM_BY_OVERLAP:
+			if _swarm_overlap_phase == SWARM_OVERLAP_PHASE_TAP_SOURCE:
+				_swarm_overlap_phase = SWARM_OVERLAP_PHASE_TAP_TARGET
+				_refresh_overlay_copy()
+				_refresh_focus_visuals()
+			# InputSystem turns the already-active attack lane into a swarm intent.
 			return false
 		STEP_ATTACK_ENEMY_FROM_START:
 			if _readout_waiting_for_input:
@@ -1034,6 +1148,7 @@ func _apply_tutorial_lane_intent(from_anchor: String, to_anchor: String, intent:
 	return result
 
 func _complete_tutorial() -> void:
+	_completed_this_match = true
 	var profile_manager: Object = _get_profile_manager()
 	if profile_manager != null and profile_manager.has_method("mark_tutorial_controls_completed"):
 		profile_manager.call("mark_tutorial_controls_completed")
@@ -1069,7 +1184,7 @@ func _refresh_overlay_copy() -> void:
 	if _title_label != null:
 		_title_label.text = "Controls Tutorial"
 	if _body_label != null:
-		if _readout_waiting_for_input:
+		if _readout_waiting_for_input or _step_uses_direct_action_gate(_current_step) or (_current_step == STEP_TAKE_NEUTRAL_HIVE and _take_neutral_phase == TAKE_NEUTRAL_PHASE_TAP_TARGET):
 			_body_label.text = _readout_text_for_current_step(contract)
 		else:
 			_body_label.text = str(contract.get("instruction", ""))
@@ -1100,6 +1215,14 @@ func _contract_for_step(step_id: String) -> Dictionary:
 func _readout_text_for_current_step(contract: Dictionary) -> String:
 	if _current_step == STEP_REVERSE_FEED and _reverse_feed_phase == REVERSE_PHASE_TAP_SOURCE:
 		return "...and tap the source hive."
+	if _current_step == STEP_REMAKE_FRIEND_LANE and _remake_friend_phase == REMAKE_PHASE_TAP_TARGET:
+		return "Now tap the destination hive — or keep dragging there and release."
+	if _current_step == STEP_ATTACK_ENEMY_HIVE and _attack_enemy_phase == ATTACK_ENEMY_PHASE_TAP_TARGET:
+		return "Now tap the red destination hive — or keep dragging there and release."
+	if _current_step == STEP_TAKE_NEUTRAL_HIVE and _take_neutral_phase == TAKE_NEUTRAL_PHASE_TAP_TARGET:
+		return "Now tap the gray destination hive — or keep dragging there and release."
+	if _current_step == STEP_SWARM_BY_OVERLAP and _swarm_overlap_phase == SWARM_OVERLAP_PHASE_TAP_TARGET:
+		return "Now tap the red destination hive — or keep dragging there and release to swarm."
 	if _current_step == STEP_ATTACK_ENEMY_FROM_START_GUIDED and _start_attack_phase == START_ATTACK_PHASE_TAP_TARGET:
 		return "...and tap the red hive."
 	return str(contract.get("readout", contract.get("instruction", "")))
@@ -1173,6 +1296,11 @@ func _build_overlay() -> Control:
 	focus_line.z_index = 1
 	overlay.add_child(focus_line)
 
+	var lane_pull_ghost_shadow := _build_lane_pull_ghost("LanePullGhostShadow", Color(0.02, 0.03, 0.05, 0.50), 18.0, 5)
+	overlay.add_child(lane_pull_ghost_shadow)
+	var lane_pull_ghost := _build_lane_pull_ghost("LanePullGhost", Color(0.54, 0.88, 1.0, 0.86), 8.0, 6)
+	overlay.add_child(lane_pull_ghost)
+
 	for i in range(2):
 		var lane_glow := _build_focus_line_rect("DoubleTapLaneGlow%d" % i, Color(1.0, 0.08, 0.05, 0.58), 3)
 		overlay.add_child(lane_glow)
@@ -1196,6 +1324,18 @@ func _build_focus_line_rect(node_name: String, color: Color, z: int) -> ColorRec
 	rect.color = color
 	rect.z_index = z
 	return rect
+
+func _build_lane_pull_ghost(node_name: String, color: Color, width_px: float, z: int) -> Line2D:
+	var line := Line2D.new()
+	line.name = node_name
+	line.visible = false
+	line.default_color = color
+	line.width = width_px
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	line.joint_mode = Line2D.LINE_JOINT_ROUND
+	line.z_index = z
+	return line
 
 func _build_focus_ring(node_name: String, color: Color) -> Panel:
 	var ring := Panel.new()
@@ -1311,10 +1451,12 @@ func _refresh_focus_visuals() -> void:
 		_position_double_tap_focus()
 		return
 	_hide_double_tap_focus()
+	_hide_lane_pull_demo()
 	if _current_step == STEP_CANCEL_LANE_GRAB_THROW:
 		_position_focus_ring(_source_ring, Vector2(-9999.0, -9999.0), 86.0)
 		_position_focus_ring(_target_ring, Vector2(-9999.0, -9999.0), 78.0)
 		_position_focus_line(source_pos, target_pos, 0.5)
+		_position_lane_pull_demo(source_pos, target_pos)
 		return
 	_position_focus_ring(_source_ring, source_pos, 86.0)
 	_position_focus_ring(_target_ring, target_pos, 78.0)
@@ -1328,6 +1470,7 @@ func _hide_focus_visuals() -> void:
 	if _lane_line != null:
 		_lane_line.visible = false
 	_hide_double_tap_focus()
+	_hide_lane_pull_demo()
 
 func _screen_pos_for_anchor(anchor_name: String) -> Vector2:
 	var hive_id: int = _anchor_id(anchor_name)
@@ -1411,6 +1554,54 @@ func _position_tap_hand(tap_pos: Vector2) -> void:
 	_tap_hand.size = hand_size
 	_tap_hand.position = tap_pos - Vector2(56.0, 122.0) + Vector2(0.0, press_offset - 18.0)
 
+func _position_lane_pull_demo(source_pos: Vector2, target_pos: Vector2) -> void:
+	if _lane_pull_ghost == null or _lane_pull_ghost_shadow == null or _tap_hand == null:
+		return
+	if source_pos.x < -1000.0 or target_pos.x < -1000.0:
+		_hide_lane_pull_demo()
+		return
+	var lane_delta: Vector2 = target_pos - source_pos
+	if lane_delta.length_squared() <= 1.0:
+		_hide_lane_pull_demo()
+		return
+	var grab_pos: Vector2 = source_pos.lerp(target_pos, 0.32)
+	var pull_dir: Vector2 = Vector2(-lane_delta.y, lane_delta.x).normalized()
+	var viewport_size: Vector2 = _overlay.size if _overlay != null else Vector2.ZERO
+	if _overlay != null and _overlay.get_viewport() != null:
+		viewport_size = _overlay.get_viewport().get_visible_rect().size
+	var pull_distance: float = clampf(lane_delta.length() * 0.28, 96.0, 180.0)
+	var pull_end_a: Vector2 = grab_pos + pull_dir * pull_distance
+	var pull_end_b: Vector2 = grab_pos - pull_dir * pull_distance
+	var viewport_center: Vector2 = viewport_size * 0.5
+	var pull_end: Vector2 = pull_end_a
+	if pull_end_b.distance_squared_to(viewport_center) < pull_end_a.distance_squared_to(viewport_center):
+		pull_end = pull_end_b
+
+	var phase: float = float(Time.get_ticks_msec() % 2200) / 2200.0
+	var pull_t: float = 0.0
+	if phase >= 0.18 and phase < 0.66:
+		pull_t = smoothstep(0.0, 1.0, (phase - 0.18) / 0.48)
+	elif phase >= 0.66 and phase < 0.82:
+		pull_t = 1.0
+	elif phase >= 0.82:
+		pull_t = 1.0 - smoothstep(0.0, 1.0, (phase - 0.82) / 0.18)
+	var hand_pos: Vector2 = grab_pos.lerp(pull_end, pull_t)
+	var bend_pos: Vector2 = grab_pos.lerp(hand_pos, 0.62)
+	var ghost_points := PackedVector2Array([source_pos, grab_pos, bend_pos, hand_pos])
+	_lane_pull_ghost_shadow.points = ghost_points
+	_lane_pull_ghost.points = ghost_points
+	_lane_pull_ghost_shadow.visible = true
+	_lane_pull_ghost.visible = true
+	_tap_hand.visible = true
+	_tap_hand.size = Vector2(112.0, 132.0)
+	_tap_hand.position = hand_pos - Vector2(56.0, 122.0)
+
+func _hide_lane_pull_demo() -> void:
+	if _lane_pull_ghost_shadow != null:
+		_lane_pull_ghost_shadow.visible = false
+	if _lane_pull_ghost != null:
+		_lane_pull_ghost.visible = false
+
 func _hide_double_tap_focus() -> void:
 	for glow_any in _double_tap_lane_glows:
 		var glow: ColorRect = glow_any as ColorRect
@@ -1442,7 +1633,7 @@ func _position_instruction_panel(source_pos: Vector2, target_pos: Vector2) -> vo
 	if viewport_size.x <= 1.0 or viewport_size.y <= 1.0:
 		return
 	var panel_w: float = clampf(viewport_size.x - 48.0, 720.0, 1040.0)
-	var panel_h: float = 660.0 if _readout_waiting_for_input else 336.0
+	var panel_h: float = 660.0 if _readout_waiting_for_input or _step_uses_direct_action_gate(_current_step) else 336.0
 	var focus_y: float = source_pos.y
 	if target_pos.x > -1000.0:
 		focus_y = maxf(focus_y, target_pos.y)
@@ -1491,13 +1682,15 @@ func _press_allowed_for_step(ev: Dictionary, state: GameState) -> Dictionary:
 				return {"ok": true, "reason": "cancel_lane_source_half", "defer_commit": true}
 			return {"ok": false, "reason": "cancel_lane_source_half"}
 		STEP_REMAKE_FRIEND_LANE:
-			var remake_anchors: Array = [ANCHOR_START_HIVE] if _selected_hive_is_anchor(state, ANCHOR_FRIEND_HIVE) else [ANCHOR_FRIEND_HIVE]
+			var remake_anchors: Array = [ANCHOR_START_HIVE] if _remake_friend_phase == REMAKE_PHASE_TAP_TARGET or _selected_hive_is_anchor(state, ANCHOR_FRIEND_HIVE) else [ANCHOR_FRIEND_HIVE]
 			var remake_allowed: Dictionary = _allow_hive(hive_id, remake_anchors, "remake_friend_lane_bottom_to_top")
 			if bool(remake_allowed.get("ok", false)):
 				remake_allowed["defer_commit"] = true
 			return remake_allowed
 		STEP_ATTACK_ENEMY_HIVE:
-			var attack_source_allowed: Dictionary = _allow_hive(hive_id, [ANCHOR_FRIEND_HIVE], "attack_enemy_drag_source")
+			var attack_anchors: Array = [ANCHOR_ENEMY_HIVE] if _attack_enemy_phase == ATTACK_ENEMY_PHASE_TAP_TARGET else [ANCHOR_FRIEND_HIVE]
+			var attack_reason: String = "attack_enemy_target" if _attack_enemy_phase == ATTACK_ENEMY_PHASE_TAP_TARGET else "attack_enemy_drag_source"
+			var attack_source_allowed: Dictionary = _allow_hive(hive_id, attack_anchors, attack_reason)
 			if bool(attack_source_allowed.get("ok", false)):
 				attack_source_allowed["defer_commit"] = true
 			return attack_source_allowed
@@ -1515,7 +1708,12 @@ func _press_allowed_for_step(ev: Dictionary, state: GameState) -> Dictionary:
 				start_attack_allowed["defer_commit"] = true
 			return start_attack_allowed
 		STEP_TAKE_NEUTRAL_HIVE:
-			return _allow_hive(hive_id, [ANCHOR_START_HIVE, ANCHOR_NEUTRAL_HIVE], "take_neutral_from_start")
+			var take_neutral_anchors: Array = [ANCHOR_NEUTRAL_HIVE] if _take_neutral_phase == TAKE_NEUTRAL_PHASE_TAP_TARGET else [ANCHOR_START_HIVE]
+			var take_neutral_reason: String = "take_neutral_target" if _take_neutral_phase == TAKE_NEUTRAL_PHASE_TAP_TARGET else "take_neutral_source"
+			var take_neutral_allowed: Dictionary = _allow_hive(hive_id, take_neutral_anchors, take_neutral_reason)
+			if bool(take_neutral_allowed.get("ok", false)):
+				take_neutral_allowed["defer_commit"] = true
+			return take_neutral_allowed
 		STEP_ATTACK_ENEMY_FROM_NEUTRAL:
 			var neutral_attack_anchors: Array = [ANCHOR_NEUTRAL_HIVE] if _readout_waiting_for_input else [ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE]
 			var neutral_attack_allowed: Dictionary = _allow_hive(hive_id, neutral_attack_anchors, "attack_enemy_from_neutral")
@@ -1525,16 +1723,18 @@ func _press_allowed_for_step(ev: Dictionary, state: GameState) -> Dictionary:
 		STEP_SWARM_INTRO:
 			return {"ok": false, "reason": "swarm_intro_auto_advance"}
 		STEP_SWARM_BY_OVERLAP:
-			var overlap_allowed: Dictionary = _allow_hive(hive_id, [ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE], "swarm_by_overlap")
+			var overlap_anchors: Array = [ANCHOR_ENEMY_HIVE] if _swarm_overlap_phase == SWARM_OVERLAP_PHASE_TAP_TARGET else _swarm_overlap_source_anchors(state)
+			var overlap_reason: String = "swarm_by_overlap_target" if _swarm_overlap_phase == SWARM_OVERLAP_PHASE_TAP_TARGET else "swarm_by_overlap_source"
+			var overlap_allowed: Dictionary = _allow_hive(hive_id, overlap_anchors, overlap_reason)
 			if bool(overlap_allowed.get("ok", false)):
 				overlap_allowed["defer_commit"] = true
 			return overlap_allowed
 		STEP_SWARM_DOUBLE_TAP:
-			if _lane_id_matches_anchors(state, lane_id, ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE):
-				return {"ok": false, "reason": "double_tap_middle_or_bottom_lane"}
-			if _lane_id_matches_anchors(state, lane_id, ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE) or _lane_id_matches_anchors(state, lane_id, ANCHOR_FRIEND_HIVE, ANCHOR_ENEMY_HIVE):
+			var swarm_lane_id: int = _swarm_double_tap_lane_id_for_press(ev, state)
+			if swarm_lane_id > 0:
+				ev["lane_id"] = swarm_lane_id
 				return {"ok": true, "reason": "swarm_double_tap_lane", "defer_commit": true}
-			return {"ok": false, "reason": "swarm_double_tap_lane"}
+			return {"ok": false, "reason": "swarm_double_tap_red_half"}
 		_:
 			return {"ok": true}
 
@@ -1561,6 +1761,58 @@ func _lane_id_matches_anchors(state: GameState, lane_id: int, anchor_a: String, 
 			continue
 		return (int(lane.a_id) == a_id and int(lane.b_id) == b_id) or (int(lane.a_id) == b_id and int(lane.b_id) == a_id)
 	return false
+
+func _swarm_double_tap_lane_id_for_press(ev: Dictionary, state: GameState) -> int:
+	if state == null:
+		return -1
+	var event_lane_id: int = int(ev.get("lane_id", -1))
+	var screen_v: Variant = ev.get("screen_pos", Vector2.ZERO)
+	var has_screen_pos: bool = screen_v is Vector2 and (screen_v as Vector2).length_squared() > 0.001
+	var screen_pos: Vector2 = screen_v as Vector2 if screen_v is Vector2 else Vector2.ZERO
+	var best_lane_id: int = -1
+	var best_distance: float = INF
+	for source_anchor in [ANCHOR_START_HIVE, ANCHOR_FRIEND_HIVE]:
+		if not _intent_is_on_between(state, source_anchor, ANCHOR_ENEMY_HIVE):
+			continue
+		var eligible_lane_id: int = _lane_id_between_anchors(state, source_anchor, ANCHOR_ENEMY_HIVE)
+		if eligible_lane_id <= 0:
+			continue
+		if not has_screen_pos:
+			if event_lane_id == eligible_lane_id:
+				return eligible_lane_id
+			continue
+		var source_pos: Vector2 = _screen_pos_for_anchor(source_anchor)
+		var enemy_pos: Vector2 = _screen_pos_for_anchor(ANCHOR_ENEMY_HIVE)
+		if source_pos.x < -1000.0 or enemy_pos.x < -1000.0:
+			continue
+		var segment: Vector2 = enemy_pos - source_pos
+		var length_sq: float = segment.length_squared()
+		if length_sq <= 1.0:
+			continue
+		var t: float = clampf((screen_pos - source_pos).dot(segment) / length_sq, 0.0, 1.0)
+		if t < 0.5:
+			continue
+		var closest: Vector2 = source_pos.lerp(enemy_pos, t)
+		var distance: float = screen_pos.distance_to(closest)
+		if distance <= SWARM_DOUBLE_TAP_SCREEN_PICK_RADIUS_PX and distance < best_distance:
+			best_distance = distance
+			best_lane_id = eligible_lane_id
+	return best_lane_id
+
+func _lane_id_between_anchors(state: GameState, anchor_a: String, anchor_b: String) -> int:
+	if state == null:
+		return -1
+	var a_id: int = _anchor_id(anchor_a)
+	var b_id: int = _anchor_id(anchor_b)
+	if a_id <= 0 or b_id <= 0:
+		return -1
+	for lane_any in state.lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		if (int(lane.a_id) == a_id and int(lane.b_id) == b_id) or (int(lane.a_id) == b_id and int(lane.b_id) == a_id):
+			return int(lane.id)
+	return -1
 
 func _lane_press_is_on_cancel_source_half(ev: Dictionary, state: GameState) -> bool:
 	var source_anchor: String = _cancel_lane_source_anchor(state)
@@ -1609,6 +1861,32 @@ func _log_input_block(reason: String, ev: Dictionary) -> void:
 func _anchor_id(anchor_name: String) -> int:
 	return int(_anchor_ids.get(anchor_name, -1))
 
+func _anchor_name_for_hive_id(hive_id: int) -> String:
+	if hive_id <= 0:
+		return ""
+	for anchor_name_any in _anchor_ids.keys():
+		var anchor_name: String = str(anchor_name_any)
+		if _anchor_id(anchor_name) == hive_id:
+			return anchor_name
+	return ""
+
+func _swarm_overlap_source_anchors(state: GameState) -> Array:
+	var out: Array = []
+	if state == null:
+		return out
+	for source_anchor in [ANCHOR_START_HIVE, ANCHOR_FRIEND_HIVE, ANCHOR_NEUTRAL_HIVE]:
+		if _anchor_owner_is_local(state, source_anchor) and _intent_is_on_between(state, source_anchor, ANCHOR_ENEMY_HIVE):
+			out.append(source_anchor)
+	return out
+
+func _swarm_overlap_source_ids(state: GameState) -> Array[int]:
+	var out: Array[int] = []
+	for source_anchor_any in _swarm_overlap_source_anchors(state):
+		var hive_id: int = _anchor_id(str(source_anchor_any))
+		if hive_id > 0:
+			out.append(hive_id)
+	return out
+
 func _selected_hive_is_anchor(state: GameState, anchor_name: String) -> bool:
 	if state == null or state.selection == null:
 		return false
@@ -1616,6 +1894,17 @@ func _selected_hive_is_anchor(state: GameState, anchor_name: String) -> bool:
 	if selected_id <= 0:
 		return false
 	return selected_id == _anchor_id(anchor_name)
+
+func _clear_tutorial_selection(reason: String) -> void:
+	if _last_state == null or _last_state.selection == null:
+		return
+	var ops_state: Node = _get_ops_state()
+	if ops_state == null or not ops_state.has_method("sim_mutate"):
+		return
+	ops_state.call("sim_mutate", "tutorial_controls_clear_selection_%s" % reason, func() -> void:
+		if _last_state != null and _last_state.selection != null:
+			_last_state.selection.clear_selection()
+	)
 
 func _force_select_hive(state: GameState, hive_id: int) -> void:
 	if state == null or state.selection == null or hive_id <= 0:
@@ -1669,7 +1958,7 @@ func _update_step_edge_memory(state: GameState) -> void:
 		return
 	if _current_step == STEP_CANCEL_LANE_GRAB_THROW and _has_retract_between(state, ANCHOR_START_HIVE, ANCHOR_FRIEND_HIVE):
 		_saw_friend_lane_retract = true
-	if _current_step == STEP_SWARM_BY_OVERLAP and _has_swarm_between(state, ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE):
+	if _current_step == STEP_SWARM_BY_OVERLAP and _has_swarm_from_any_player_hive_to_enemy(state):
 		_overlap_swarm_seen = true
 	if _current_step == STEP_SWARM_DOUBLE_TAP and (_has_swarm_between(state, ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE) or _has_swarm_between(state, ANCHOR_FRIEND_HIVE, ANCHOR_ENEMY_HIVE)):
 		_double_tap_swarm_seen = true
@@ -1707,6 +1996,12 @@ func _has_swarm_between(state: GameState, src_anchor: String, dst_anchor: String
 			continue
 		var packet: Dictionary = packet_any as Dictionary
 		if _is_local_swarm_between(state, int(packet.get("from_id", -1)), int(packet.get("to_id", -1)), src_id, dst_id):
+			return true
+	return false
+
+func _has_swarm_from_any_player_hive_to_enemy(state: GameState) -> bool:
+	for source_anchor in [ANCHOR_START_HIVE, ANCHOR_FRIEND_HIVE, ANCHOR_NEUTRAL_HIVE]:
+		if _has_swarm_between(state, source_anchor, ANCHOR_ENEMY_HIVE):
 			return true
 	return false
 

@@ -33,6 +33,7 @@ var _overlay_mode: String = "rematch"
 var _stage_next_action: String = "next_round"
 var _stage_next_available: bool = false
 var _stage_status_text: String = ""
+var _tutorial_followup_auto_at_ms: int = 0
 var _post_match_summary_panel: Control = null
 var _post_match_stats_panel: Control = null
 var _post_match_ad_surface: Control = null
@@ -64,7 +65,9 @@ const OVERLAY_MODE_REMATCH: String = "rematch"
 const OVERLAY_MODE_STAGE_ROUND: String = "stage_round"
 const OVERLAY_MODE_TUTORIAL_COMPLETE: String = "tutorial_complete"
 const OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE: String = "tutorial_controls_complete"
+const OVERLAY_MODE_TUTORIAL_WELCOME_PACK: String = "tutorial_welcome_pack"
 const SETTINGS_POST_MATCH_STATS_ENABLED: String = "swarmfront/ui/post_match_stats_enabled"
+const TUTORIAL_FOLLOWUP_AUTO_DELAY_MS: int = 6000
 
 func _ready() -> void:
 	_force_fullscreen_anchors()
@@ -93,6 +96,7 @@ func show_outcome(
 	_stage_next_action = "next_round"
 	_stage_next_available = false
 	_stage_status_text = ""
+	_tutorial_followup_auto_at_ms = 0
 	SFLog.info("OUTCOME_OVERLAY_SHOW_CALL", {
 		"iid": int(get_instance_id()),
 		"inside_tree": is_inside_tree(),
@@ -124,6 +128,7 @@ func show_stage_round_outcome(data: Dictionary) -> void:
 	_stage_next_action = str(data.get("next_action", "next_round"))
 	_stage_next_available = bool(data.get("next_button_enabled", data.get("next_round_available", false)))
 	_stage_status_text = str(data.get("status_text", "Ready for next round?"))
+	_tutorial_followup_auto_at_ms = 0
 	SFLog.info("OUTCOME_OVERLAY_STAGE_SHOW_CALL", {
 		"iid": int(get_instance_id()),
 		"inside_tree": is_inside_tree(),
@@ -157,6 +162,7 @@ func show_tutorial_complete(winner_id: int, reason: String, player_id: int) -> v
 	_stage_next_action = "main_menu"
 	_stage_next_available = false
 	_stage_status_text = ""
+	_tutorial_followup_auto_at_ms = 0
 	SFLog.info("OUTCOME_OVERLAY_TUTORIAL_SHOW_CALL", {
 		"iid": int(get_instance_id()),
 		"inside_tree": is_inside_tree(),
@@ -187,7 +193,8 @@ func show_tutorial_controls_complete(winner_id: int, reason: String, player_id: 
 	_overlay_mode = OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE
 	_stage_next_action = "tutorial_controls_followup"
 	_stage_next_available = true
-	_stage_status_text = "Click to Continue."
+	_stage_status_text = "Starting an easy 1v1 automatically."
+	_tutorial_followup_auto_at_ms = Time.get_ticks_msec() + TUTORIAL_FOLLOWUP_AUTO_DELAY_MS
 	SFLog.info("OUTCOME_OVERLAY_TUTORIAL_CONTROLS_SHOW_CALL", {
 		"iid": int(get_instance_id()),
 		"inside_tree": is_inside_tree(),
@@ -214,8 +221,36 @@ func show_tutorial_controls_complete(winner_id: int, reason: String, player_id: 
 	_log_show_state()
 	call_deferred("_log_layout_after_frame")
 
+func show_tutorial_welcome_pack(winner_id: int, reason: String, player_id: int, buff_type_count: int, quantity_each: int = 2) -> void:
+	_overlay_mode = OVERLAY_MODE_TUTORIAL_WELCOME_PACK
+	_stage_next_action = "tutorial_welcome_pack_open"
+	_stage_next_available = true
+	_stage_status_text = ""
+	_tutorial_followup_auto_at_ms = 0
+	_force_fullscreen_anchors()
+	_apply_readable_layout()
+	_ensure_outcome_layer()
+	local_player_id = maxi(1, player_id)
+	_action_taken = false
+	clear_post_match_summary()
+	visible = true
+	panel.visible = true
+	show()
+	if get_parent() != null:
+		get_parent().move_child(self, get_parent().get_child_count() - 1)
+	modulate = Color(1, 1, 1, 1)
+	self_modulate = Color(1, 1, 1, 1)
+	panel.modulate = Color(1, 1, 1, 1)
+	panel.self_modulate = Color(1, 1, 1, 1)
+	_apply_tutorial_welcome_pack_outcome(winner_id, reason, buff_type_count, quantity_each)
+	set_process(true)
+	exit_button.grab_focus()
+	_log_show_state()
+	call_deferred("_log_layout_after_frame")
+
 func hide_overlay() -> void:
 	clear_post_match_summary()
+	_tutorial_followup_auto_at_ms = 0
 	visible = false
 	set_process(false)
 
@@ -455,6 +490,7 @@ func _process(_delta: float) -> void:
 		return
 	_update_countdown_label()
 	_update_status()
+	_maybe_auto_launch_tutorial_followup()
 
 func _apply_outcome(winner_id: int, reason: String, _record_text: String, _h2h_text: String) -> void:
 	_set_standard_rows_visible(false)
@@ -639,7 +675,7 @@ func _apply_tutorial_controls_complete_outcome(_winner_id: int, _reason: String)
 	reason_label.visible = true
 	reason_label.text = "Let's get you into a real game and put those skills to work."
 	record_label.visible = true
-	record_label.text = "Click to Continue."
+	record_label.text = "An easy 1v1 training match will start automatically."
 	h2h_label.text = ""
 	stats_header.text = ""
 	stat_max_power.text = ""
@@ -649,7 +685,7 @@ func _apply_tutorial_controls_complete_outcome(_winner_id: int, _reason: String)
 	countdown_label.text = ""
 	rematch_button.visible = false
 	rematch_button.disabled = true
-	exit_button.text = "CONTINUE"
+	exit_button.text = "START NOW"
 	exit_button.custom_minimum_size = Vector2(maxf(exit_button.custom_minimum_size.x, 240.0), maxf(exit_button.custom_minimum_size.y, 78.0))
 	_update_status()
 	_apply_readable_layout()
@@ -785,8 +821,27 @@ func _update_stat_labels() -> void:
 	stat_units_killed.text = "Units Killed: %d" % killed
 	stat_units_landed.text = "Units Landed: %d" % landed
 
+func _apply_tutorial_welcome_pack_outcome(winner_id: int, _reason: String, buff_type_count: int, quantity_each: int) -> void:
+	_set_standard_rows_visible(true)
+	title_label.text = "WELCOME PACK"
+	result_label.text = "FIRST BATTLE COMPLETE" if winner_id != local_player_id else "GREAT FIRST WIN"
+	reason_label.text = "Your starter supply drop is ready. Open it to add these buffs to your inventory."
+	record_label.text = "%d Classic buff types" % maxi(0, buff_type_count)
+	h2h_label.text = "%d of every type" % maxi(1, quantity_each)
+	stats_header.text = "Inside Your Pack"
+	stat_max_power.text = "Unit buffs × %d each" % maxi(1, quantity_each)
+	stat_units_killed.text = "Hive buffs × %d each" % maxi(1, quantity_each)
+	stat_units_landed.text = "Lane buffs × %d each" % maxi(1, quantity_each)
+	set_nectar_award_summary({})
+	countdown_label.text = ""
+	rematch_button.visible = false
+	rematch_button.disabled = true
+	exit_button.text = "OPEN PACK"
+	_update_status()
+	_apply_readable_layout()
+
 func _update_countdown_label() -> void:
-	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
+	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND or _overlay_mode == OVERLAY_MODE_TUTORIAL_WELCOME_PACK:
 		countdown_label.text = ""
 		return
 	var ops_state: Node = _ops_state()
@@ -802,8 +857,16 @@ func _update_countdown_label() -> void:
 	countdown_label.text = "Rematch available for %ds" % sec
 
 func _update_status() -> void:
+	if _overlay_mode == OVERLAY_MODE_TUTORIAL_WELCOME_PACK:
+		status_label.text = "Opening your Welcome Pack..." if _action_taken else "Tap OPEN PACK to claim everything and return to the main menu."
+		return
 	if _overlay_mode == OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE:
-		status_label.text = "Click to Continue."
+		if _action_taken:
+			status_label.text = "Starting your first 1v1..."
+			return
+		var remaining_ms: int = maxi(0, _tutorial_followup_auto_at_ms - Time.get_ticks_msec())
+		var remaining_sec: int = maxi(1, int(ceil(float(remaining_ms) / 1000.0)))
+		status_label.text = "Starting your first 1v1 in %d..." % remaining_sec
 		return
 	if _overlay_mode == OVERLAY_MODE_TUTORIAL_COMPLETE:
 		status_label.text = "Ready for the next lesson."
@@ -837,6 +900,15 @@ func _update_status() -> void:
 		return
 	status_label.text = "Play again?"
 
+func _maybe_auto_launch_tutorial_followup() -> void:
+	if _overlay_mode != OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE or _action_taken:
+		return
+	if _tutorial_followup_auto_at_ms <= 0 or Time.get_ticks_msec() < _tutorial_followup_auto_at_ms:
+		return
+	_action_taken = true
+	_tutorial_followup_auto_at_ms = 0
+	emit_signal("post_match_action", "tutorial_controls_followup")
+
 func _on_rematch_pressed() -> void:
 	if _overlay_mode == OVERLAY_MODE_STAGE_ROUND:
 		if _action_taken or rematch_button.disabled:
@@ -854,6 +926,9 @@ func _on_exit_pressed() -> void:
 	_action_taken = true
 	if _overlay_mode == OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE:
 		emit_signal("post_match_action", "tutorial_controls_followup")
+		return
+	if _overlay_mode == OVERLAY_MODE_TUTORIAL_WELCOME_PACK:
+		emit_signal("post_match_action", "tutorial_welcome_pack_open")
 		return
 	emit_signal("post_match_action", "main_menu")
 

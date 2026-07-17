@@ -178,6 +178,35 @@ func _init() -> void:
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Payout pending until contest close (3/3 maps).", "paid stage payout pending")
 	_assert_content_fits(overlay, "944x2048 paid stage result")
 
+	var tutorial_actions: Array[String] = []
+	overlay.post_match_action.connect(func(action: String) -> void:
+		tutorial_actions.append(action)
+	)
+	overlay.show_tutorial_controls_complete(1, "conquest", 1)
+	await process_frame
+	_assert_eq(_label_text(overlay, "Panel/VBox/Title"), "TUTORIAL COMPLETE", "controls tutorial completion title")
+	_assert_eq(_label_text(overlay, "Panel/VBox/Result"), "Great! Now you know how the controls work.", "controls tutorial completion message")
+	_assert_eq(_label_text(overlay, "Panel/VBox/Reason"), "Let's get you into a real game and put those skills to work.", "controls tutorial follow-up message")
+	_assert_eq(_button_text(overlay, "Panel/VBox/Buttons/Exit"), "START NOW", "controls tutorial immediate follow-up action")
+	_assert_true(_label_text(overlay, "Panel/VBox/Status").begins_with("Starting your first 1v1 in "), "controls tutorial auto-launch countdown")
+	overlay.set("_tutorial_followup_auto_at_ms", Time.get_ticks_msec() - 1)
+	overlay.call("_process", 0.0)
+	_assert_true(tutorial_actions.has("tutorial_controls_followup"), "controls tutorial must auto-launch the easy 1v1 follow-up")
+
+	overlay.show_tutorial_welcome_pack(1, "conquest", 1, 12, 2)
+	await process_frame
+	_assert_eq(_label_text(overlay, "Panel/VBox/Title"), "WELCOME PACK", "tutorial Welcome Pack title")
+	_assert_eq(_label_text(overlay, "Panel/VBox/Result"), "GREAT FIRST WIN", "tutorial Welcome Pack result")
+	_assert_eq(_label_text(overlay, "Panel/VBox/Record"), "12 Classic buff types", "tutorial Welcome Pack type count")
+	_assert_eq(_label_text(overlay, "Panel/VBox/H2H"), "2 of every type", "tutorial Welcome Pack quantity")
+	_assert_eq(_button_text(overlay, "Panel/VBox/Buttons/Exit"), "OPEN PACK", "tutorial Welcome Pack open action")
+	_assert_true(not _node_visible(overlay, "Panel/VBox/Buttons/Rematch"), "tutorial Welcome Pack hides rematch")
+	var welcome_open_button: Button = overlay.get_node_or_null("Panel/VBox/Buttons/Exit") as Button
+	_assert_true(welcome_open_button != null, "tutorial Welcome Pack open button exists")
+	if welcome_open_button != null:
+		welcome_open_button.emit_signal("pressed")
+	_assert_true(tutorial_actions.has("tutorial_welcome_pack_open"), "tutorial Welcome Pack emits claim-and-return action")
+
 	ProjectSettings.set_setting(SETTINGS_POST_MATCH_STATS_ENABLED, previous_stats_setting)
 
 	if _failed:

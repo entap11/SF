@@ -34,6 +34,7 @@ const LANE_GRAB_STATE_COMMITTED := "committed"
 const LANE_GRAB_STATE_CANCELLED := "cancelled"
 const LANE_GRAB_ARM_MS := 160
 const LANE_GRAB_THROW_DISTANCE_PX := 44.0
+const TUTORIAL_LANE_GRAB_THROW_DISTANCE_PX := 30.0
 const ENABLE_ROUTE_LANE_FLASH := true
 const ROUTE_LANE_FLASH_MS := 250
 
@@ -61,6 +62,10 @@ var _press_hive_id: int = -1
 var _press_lane_id: int = -1
 var _press_player_id: int = -1
 var _press_is_touch: bool = false
+var _press_lane_grab_only: bool = false
+var _press_lane_double_tap_only: bool = false
+var _press_hive_tap_only: bool = false
+var _press_hive_source_select_only: bool = false
 var _hover_hive_id: int = -1
 var _selected_hive_id: int = -1 # P1 selection mirror
 var _selected_by_player: Dictionary = {1: -1, 2: -1, 3: -1, 4: -1}
@@ -94,6 +99,7 @@ var _lane_grab_press_ms: int = 0
 var _lane_grab_start_local: Vector2 = Vector2.ZERO
 var _lane_grab_current_local: Vector2 = Vector2.ZERO
 var _lane_grab_reason: String = ""
+var _lane_grab_constrained: bool = false
 
 func setup(selection_state: SelectionState) -> void:
 	if selection_state != null:
@@ -139,6 +145,10 @@ func _clear_interaction_state() -> void:
 	_press_lane_id = -1
 	_press_player_id = -1
 	_press_is_touch = false
+	_press_lane_grab_only = false
+	_press_lane_double_tap_only = false
+	_press_hive_tap_only = false
+	_press_hive_source_select_only = false
 	_press_prev_selected_id = -1
 	_press_prev_selected_lane_id = -1
 	_dragging = false
@@ -244,13 +254,17 @@ func handle_pointer_event(ev: Dictionary, arena_api: ArenaAPI) -> void:
 	var local_pos: Vector2 = ev.get("local_pos", Vector2.ZERO)
 	var hive_id: int = int(ev.get("hive_id", -1))
 	var lane_id: int = int(ev.get("lane_id", -1))
+	var lane_grab_only: bool = bool(ev.get("lane_grab_only", false))
+	var lane_double_tap_only: bool = bool(ev.get("lane_double_tap_only", false))
+	var hive_tap_only: bool = bool(ev.get("hive_tap_only", false))
+	var hive_source_select_only: bool = bool(ev.get("hive_source_select_only", false))
 	if event_type == "press" or event_type == "release":
 		var actor_id := _player_id_from_button(button_index, arena_api, dev_pid)
-		hive_id = _pick_hive_id_with_destination_assist(local_pos, hive_id, actor_id, arena_api)
+		hive_id = -1 if lane_grab_only or lane_double_tap_only else _pick_hive_id_with_destination_assist(local_pos, hive_id, actor_id, arena_api)
 	SFLog.log_once("input_path_pointer", "INPUT_PATH: handle_pointer_event", SFLog.Level.INFO)
 	match event_type:
 		"press":
-			_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index, is_touch, touch_index)
+			_handle_press(local_pos, hive_id, lane_id, dev_pid, arena_api, button_index, is_touch, touch_index, lane_grab_only, lane_double_tap_only, hive_tap_only, hive_source_select_only)
 		"motion":
 			_handle_drag(local_pos, hive_id, lane_id, arena_api)
 		"release":
@@ -1039,6 +1053,7 @@ func _start_lane_grab_candidate(lane_id: int, local_pos: Vector2, player_id: int
 	_lane_grab_start_local = local_pos
 	_lane_grab_current_local = local_pos
 	_lane_grab_reason = ""
+	_lane_grab_constrained = false
 	SFLog.info("LANE_GRAB_START", {
 		"lane_id": lane_id,
 		"side": _lane_grab_side,
@@ -1093,13 +1108,13 @@ func _update_lane_grab_motion(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
 		return false
 	_lane_grab_current_local = local_pos
 	if _lane_grab_state == LANE_GRAB_STATE_CANDIDATE:
-		if _lane_grab_structure_hit(local_pos, arena_api):
+		if not _lane_grab_constrained and _lane_grab_structure_hit(local_pos, arena_api):
 			_cancel_lane_grab("structure_hit", arena_api, true)
 			return true
 		if Time.get_ticks_msec() - _lane_grab_press_ms >= LANE_GRAB_ARM_MS:
 			_arm_lane_grab(arena_api)
 		return true
-	if _lane_grab_structure_hit(local_pos, arena_api):
+	if not _lane_grab_constrained and _lane_grab_structure_hit(local_pos, arena_api):
 		_cancel_lane_grab("structure_hit", arena_api, true)
 		return true
 	var metrics: Dictionary = _lane_grab_metrics(local_pos, arena_api)
@@ -1107,7 +1122,7 @@ func _update_lane_grab_motion(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
 		_cancel_lane_grab(str(metrics.get("reason", "lane_removed")), arena_api, true)
 		return true
 	var perp_dist: float = float(metrics.get("perp_dist", 0.0))
-	if perp_dist >= LANE_GRAB_THROW_DISTANCE_PX:
+	if perp_dist >= _lane_grab_throw_distance_px():
 		_lane_grab_state = LANE_GRAB_STATE_THROW_READY
 	else:
 		_lane_grab_state = LANE_GRAB_STATE_ARMED
@@ -1147,10 +1162,13 @@ func _finish_lane_grab_release(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
 	if bool(metrics.get("ok", false)):
 		var parallel_abs: float = float(metrics.get("parallel_abs", 0.0))
 		var perp_dist: float = float(metrics.get("perp_dist", 0.0))
-		if parallel_abs >= LANE_GRAB_THROW_DISTANCE_PX and parallel_abs > perp_dist:
+		if parallel_abs >= _lane_grab_throw_distance_px() and parallel_abs > perp_dist:
 			reason = "drag_along_lane"
 	_cancel_lane_grab(reason, arena_api, true)
 	return true
+
+func _lane_grab_throw_distance_px() -> float:
+	return TUTORIAL_LANE_GRAB_THROW_DISTANCE_PX if _lane_grab_constrained else LANE_GRAB_THROW_DISTANCE_PX
 
 func _lane_grab_structure_hit(local_pos: Vector2, arena_api: ArenaAPI) -> bool:
 	if arena_api == null:
@@ -1282,6 +1300,7 @@ func _reset_lane_grab_state() -> void:
 	_lane_grab_start_local = Vector2.ZERO
 	_lane_grab_current_local = Vector2.ZERO
 	_lane_grab_reason = ""
+	_lane_grab_constrained = false
 
 func _pick_barracks_id_at(pos_map_local: Vector2) -> int:
 	var arena_api: ArenaAPI = _last_arena_api
@@ -1691,7 +1710,7 @@ func _is_dev_mouse_override() -> bool:
 func _dev_mouse_pid_from_button(button_index: int) -> int:
 	return InputEventUtils.dev_mouse_pid_from_button(button_index)
 
-func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, button_index: int, is_touch: bool = false, touch_index: int = -1) -> void:
+func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int, arena_api: ArenaAPI, button_index: int, is_touch: bool = false, touch_index: int = -1, lane_grab_only: bool = false, lane_double_tap_only: bool = false, hive_tap_only: bool = false, hive_source_select_only: bool = false) -> void:
 	if _handling_click:
 		if SFLog.LOGGING_ENABLED:
 			print("HIVE: re-entrant click blocked")
@@ -1718,6 +1737,10 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 	_press_lane_id = lane_id
 	_press_player_id = actor_id
 	_press_is_touch = is_touch
+	_press_lane_grab_only = lane_grab_only
+	_press_lane_double_tap_only = lane_double_tap_only
+	_press_hive_tap_only = hive_tap_only
+	_press_hive_source_select_only = hive_source_select_only
 	if _lane_grab_state != LANE_GRAB_STATE_IDLE:
 		_cancel_lane_grab("touch_cancelled", arena_api, true)
 	_clear_drag_target_visual(arena_api)
@@ -1791,9 +1814,14 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 		selection.drag_hover_reason = ""
 		selection.last_vibe_target_id = -1
 		selection.drag_dev_pid = actor_id
-		if _press_candidate_barracks_id == -1 and _pick_tower_at_local(local_pos, arena_api) == -1:
+		if _press_candidate_barracks_id == -1 and _pick_tower_at_local(local_pos, arena_api) == -1 and not lane_double_tap_only:
 			var candidate_lane_id: int = _pick_lane_id_for_click(local_pos, lane_id, arena_api)
-			_start_lane_grab_candidate(candidate_lane_id, local_pos, actor_id, touch_index if is_touch else -1, arena_api)
+			var lane_grab_started: bool = _start_lane_grab_candidate(candidate_lane_id, local_pos, actor_id, touch_index if is_touch else -1, arena_api)
+			if lane_grab_only:
+				_reset_lane_tap_state()
+				if lane_grab_started:
+					_lane_grab_constrained = true
+					_arm_lane_grab(arena_api)
 	_handling_click = false
 	_queue_lane_preview_redraw(arena_api)
 	arena_api.mark_render_dirty("input_press")
@@ -1802,6 +1830,14 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 	if not _press_active:
 		return
 	_press_active = false
+	var lane_grab_only: bool = _press_lane_grab_only
+	_press_lane_grab_only = false
+	var lane_double_tap_only: bool = _press_lane_double_tap_only
+	_press_lane_double_tap_only = false
+	var hive_tap_only: bool = _press_hive_tap_only
+	_press_hive_tap_only = false
+	var hive_source_select_only: bool = _press_hive_source_select_only
+	_press_hive_source_select_only = false
 	_press_last_world = _map_local_to_world(local_pos, arena_api)
 	_press_candidate_barracks_id = -1
 	if _press_consumed:
@@ -1823,6 +1859,8 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		selection.drag_start_hive_id
 	)
 	var release_lane_id: int = _pick_lane_id_for_click(local_pos, lane_id, arena_api)
+	if lane_double_tap_only and _press_lane_id > 0:
+		release_lane_id = _press_lane_id
 	if _lane_grab_state == LANE_GRAB_STATE_CANDIDATE:
 		_cancel_lane_grab("released_before_arm", arena_api, false)
 	elif _lane_grab_state == LANE_GRAB_STATE_ARMED or _lane_grab_state == LANE_GRAB_STATE_THROW_READY:
@@ -1832,6 +1870,13 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 			_queue_lane_preview_redraw(arena_api)
 			arena_api.mark_render_dirty("input_release_lane_grab")
 			return
+	if lane_grab_only:
+		# A lane-only tutorial press cannot fall through into lane tap/double-tap
+		# handling. An incomplete pull simply leaves the same action gate active.
+		reset_drag()
+		_queue_lane_preview_redraw(arena_api)
+		arena_api.mark_render_dirty("input_release_lane_grab_only")
+		return
 	if selection.drag_active and selection.drag_moved and selection.drag_start_hive_id > 0:
 		var start_id: int = selection.drag_start_hive_id
 		if end_id > 0 and end_id != start_id:
@@ -1844,17 +1889,24 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		arena_api.mark_render_dirty("input_release")
 		return
 	if _press_hive_id > 0:
-		if _should_route_hive_click_to_lane(_press_prev_selected_id, _press_hive_id, release_lane_id, local_pos, player_id, arena_api):
+		if hive_source_select_only:
+			var source_hive: HiveData = arena_api.find_hive_by_id(_press_hive_id)
+			if source_hive != null and int(source_hive.owner_id) == player_id:
+				_set_selected_for_player(arena_api, player_id, _press_hive_id)
+				if player_id == 1:
+					selection.selected_cell = arena_api.cell_from_point(local_pos)
+			clear_tap_state()
+		elif not hive_tap_only and _should_route_hive_click_to_lane(_press_prev_selected_id, _press_hive_id, release_lane_id, local_pos, player_id, arena_api):
 			SFLog.info("HIVE_CLICK_LANE_FALLTHROUGH", {
 				"hive_id": _press_hive_id,
 				"lane_id": release_lane_id,
 				"player_id": player_id
 			})
-			_handle_click_ground(release_lane_id, local_pos, arena_api, player_id)
+			_handle_click_ground(release_lane_id, local_pos, arena_api, player_id, lane_double_tap_only)
 		else:
 			_handle_click_hive(_press_prev_selected_id, _press_hive_id, player_id, player_id, arena_api, local_pos)
 	else:
-		_handle_click_ground(release_lane_id, local_pos, arena_api, player_id)
+		_handle_click_ground(release_lane_id, local_pos, arena_api, player_id, lane_double_tap_only)
 	_clear_drag_target_visual(arena_api)
 	reset_drag()
 	_queue_lane_preview_redraw(arena_api)
@@ -1959,7 +2011,7 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 			selection.selected_cell = arena_api.cell_from_point(local_pos)
 	clear_tap_state()
 
-func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI, player_id: int) -> void:
+func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI, player_id: int, lane_double_tap_only: bool = false) -> void:
 	if selected_barracks_id != -1:
 		var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
 		var barracks_id: int = _pick_barracks_at_world(world_pos, arena_api)
@@ -1975,7 +2027,8 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 		if lane != null:
 			if _is_lane_double_tap(lane.id, local_pos, player_id, _press_is_touch):
 				_reset_lane_tap_state()
-				if _handle_lane_double_tap(local_pos, player_id, player_id, arena_api):
+				var handled_double_tap: bool = _handle_lane_swarm_double_tap_by_id(lane.id, player_id, arena_api) if lane_double_tap_only else _handle_lane_double_tap(local_pos, player_id, player_id, arena_api)
+				if handled_double_tap:
 					_clear_selected_for_player(arena_api, player_id)
 					selection.selected_lane_id = -1
 					clear_tap_state()
@@ -1991,6 +2044,26 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 	selection.selected_cell = arena_api.cell_from_point(local_pos)
 	arena_api.dbg("SF: Cell selected %d,%d" % [selection.selected_cell.x, selection.selected_cell.y])
 	clear_tap_state()
+
+func _handle_lane_swarm_double_tap_by_id(lane_id: int, player_id: int, arena_api: ArenaAPI) -> bool:
+	if lane_id <= 0 or player_id <= 0 or arena_api == null:
+		return false
+	var lane: LaneData = arena_api.find_lane_by_id(lane_id)
+	if lane == null:
+		return false
+	var src_id: int = _owned_active_lane_source(lane, player_id, arena_api)
+	if src_id <= 0:
+		return false
+	var dst_id: int = int(lane.b_id) if src_id == int(lane.a_id) else int(lane.a_id)
+	if dst_id <= 0 or not arena_api.intent_is_on(src_id, dst_id):
+		return false
+	SFLog.info("LANE_DBL_SWARM", {
+		"lane_id": lane_id,
+		"src": src_id,
+		"dst": dst_id,
+		"tutorial_target_half": true
+	})
+	return _issue_swarm_intent(src_id, dst_id, player_id)
 
 func _apply_hive_to_hive_action(from_id: int, to_id: int, player_id: int, dev_pid: int, arena_api: ArenaAPI) -> Dictionary:
 	var rejected: Dictionary = {

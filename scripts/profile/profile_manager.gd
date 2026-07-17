@@ -30,6 +30,7 @@ const PROFILE_KEY_FORCED_RENAME_REQUIRED: String = "forced_rename_required"
 const PROFILE_KEY_FORCED_RENAME_REASON: String = "forced_rename_reason"
 const PROFILE_KEY_FORCED_RENAME_ACTION_ID: String = "forced_rename_action_id"
 const PROFILE_KEY_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED: String = "tutorial_controls_followup_bonus_claimed"
+const PROFILE_KEY_TUTORIAL_CONTROLS_WELCOME_PACK_CLAIMED: String = "tutorial_controls_welcome_pack_claimed"
 const PROFILE_KEY_ECONOMY_EPOCH: String = "economy_epoch"
 const USER_ID_PREFIX: String = "u_"
 const USER_ID_HEX_LEN: int = 12
@@ -112,6 +113,7 @@ var _tutorial_section3_step: String = TUTORIAL_SECTION3_STEP_0_INTRO
 var _tutorial_controls_status: String = TUTORIAL_CONTROLS_STATUS_NOT_STARTED
 var _tutorial_controls_version: int = TUTORIAL_CONTROLS_VERSION
 var _tutorial_controls_followup_bonus_claimed: bool = false
+var _tutorial_controls_welcome_pack_claimed: bool = false
 var _id: String = ""
 var _entap_id: String = ""
 var _call_sign: String = ""
@@ -219,6 +221,7 @@ func ensure_loaded() -> void:
 		)
 		_tutorial_controls_version = maxi(0, int(cfg.get_value(PROFILE_SECTION, "tutorial_controls_version", TUTORIAL_CONTROLS_VERSION)))
 		_tutorial_controls_followup_bonus_claimed = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED, false))
+		_tutorial_controls_welcome_pack_claimed = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_TUTORIAL_CONTROLS_WELCOME_PACK_CLAIMED, false))
 		_gpu_vfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, true))
 		_audio_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, true))
 		_sfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, true))
@@ -273,6 +276,7 @@ func ensure_loaded() -> void:
 		_tutorial_controls_status = TUTORIAL_CONTROLS_STATUS_NOT_STARTED
 		_tutorial_controls_version = TUTORIAL_CONTROLS_VERSION
 		_tutorial_controls_followup_bonus_claimed = false
+		_tutorial_controls_welcome_pack_claimed = false
 		_gpu_vfx_enabled = true
 		_audio_enabled = true
 		_sfx_enabled = true
@@ -998,6 +1002,46 @@ func mark_tutorial_controls_followup_bonus_claimed() -> bool:
 	SFLog.info("PROFILE_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED", {"user_id": _user_id})
 	return true
 
+func has_tutorial_controls_welcome_pack_claimed() -> bool:
+	ensure_loaded()
+	return _tutorial_controls_welcome_pack_claimed
+
+func claim_tutorial_controls_welcome_pack(quantity_each: int = 2) -> Dictionary:
+	ensure_loaded()
+	if _tutorial_controls_welcome_pack_claimed:
+		return {"ok": false, "reason": "already_claimed", "granted": {}}
+	var safe_quantity: int = maxi(1, quantity_each)
+	var classic_buffs: Array = BuffCatalog.list_by_tier("classic")
+	classic_buffs.sort_custom(func(a: Variant, b: Variant) -> bool:
+		return str((a as Dictionary).get("id", "")) < str((b as Dictionary).get("id", ""))
+	)
+	var granted: Dictionary = {}
+	for buff_any in classic_buffs:
+		if typeof(buff_any) != TYPE_DICTIONARY:
+			continue
+		var buff_id: String = str((buff_any as Dictionary).get("id", "")).strip_edges()
+		if buff_id.is_empty() or not BuffCatalog.is_selectable(buff_id) or granted.has(buff_id):
+			continue
+		_buff_inventory_counts[buff_id] = maxi(0, int(_buff_inventory_counts.get(buff_id, 0))) + safe_quantity
+		granted[buff_id] = safe_quantity
+	if granted.is_empty():
+		return {"ok": false, "reason": "no_selectable_classic_buffs", "granted": {}}
+	_tutorial_controls_welcome_pack_claimed = true
+	_sync_inventory_projections_and_loadouts()
+	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+	_emit_buff_inventory_changed("tutorial_controls_welcome_pack")
+	SFLog.info("PROFILE_TUTORIAL_CONTROLS_WELCOME_PACK_CLAIMED", {
+		"buff_types": granted.size(),
+		"quantity_each": safe_quantity
+	})
+	return {
+		"ok": true,
+		"quantity_each": safe_quantity,
+		"buff_types": granted.size(),
+		"granted": granted,
+		"inventory": get_buff_inventory_snapshot()
+	}
+
 func mark_tutorial_controls_skipped() -> void:
 	ensure_loaded()
 	if _tutorial_controls_status == TUTORIAL_CONTROLS_STATUS_SKIPPED and _tutorial_controls_version == TUTORIAL_CONTROLS_VERSION:
@@ -1569,6 +1613,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, "tutorial_controls_status", _tutorial_controls_status)
 	cfg.set_value(PROFILE_SECTION, "tutorial_controls_version", _tutorial_controls_version)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_TUTORIAL_CONTROLS_FOLLOWUP_BONUS_CLAIMED, _tutorial_controls_followup_bonus_claimed)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_TUTORIAL_CONTROLS_WELCOME_PACK_CLAIMED, _tutorial_controls_welcome_pack_claimed)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_GPU_VFX_ENABLED, _gpu_vfx_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_AUDIO_ENABLED, _audio_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, _sfx_enabled)

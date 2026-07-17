@@ -856,12 +856,90 @@ func _tutorial_launch_section() -> String:
 func tutorial_controls_smoke_snapshot() -> Dictionary:
 	if _tutorial_controls_controller == null:
 		return {"active": false, "current_step": "", "anchors": {}, "contracts": []}
-	return _tutorial_controls_controller.smoke_snapshot()
+	var snapshot: Dictionary = _tutorial_controls_controller.smoke_snapshot()
+	var completion_visible: bool = outcome_overlay != null and is_instance_valid(outcome_overlay) and outcome_overlay.visible
+	snapshot["completion_outcome_visible"] = completion_visible
+	if completion_visible:
+		var completion_title: Label = outcome_overlay.get_node_or_null("Panel/VBox/Title") as Label
+		var completion_reason: Label = outcome_overlay.get_node_or_null("Panel/VBox/Reason") as Label
+		snapshot["completion_outcome_title"] = completion_title.text if completion_title != null else ""
+		snapshot["completion_outcome_reason"] = completion_reason.text if completion_reason != null else ""
+	return snapshot
 
 func tutorial_controls_smoke_should_allow_pointer_event(ev: Dictionary) -> bool:
 	if _tutorial_controls_controller == null:
 		return true
 	return _tutorial_controls_controller.should_allow_pointer_event(ev, state)
+
+func tutorial_controls_smoke_perform_lane_grab(source_hive_id: int, target_hive_id: int) -> bool:
+	if state == null or source_hive_id <= 0 or target_hive_id <= 0:
+		return false
+	if not state.intent_is_on(source_hive_id, target_hive_id):
+		return false
+	var source_screen: Vector2 = _tutorial_hive_screen_pos(source_hive_id)
+	var target_screen: Vector2 = _tutorial_hive_screen_pos(target_hive_id)
+	if source_screen.x < -1000.0 or target_screen.x < -1000.0:
+		return false
+	var lane_delta: Vector2 = target_screen - source_screen
+	if lane_delta.length_squared() <= 1.0:
+		return false
+	var press_screen: Vector2 = source_screen.lerp(target_screen, 0.32)
+	var pull_dir: Vector2 = Vector2(-lane_delta.y, lane_delta.x).normalized()
+	var viewport_center: Vector2 = get_viewport_rect().size * 0.5
+	if (press_screen - pull_dir * 120.0).distance_squared_to(viewport_center) < (press_screen + pull_dir * 120.0).distance_squared_to(viewport_center):
+		pull_dir = -pull_dir
+	var release_screen: Vector2 = press_screen + pull_dir * 120.0
+	var press_local: Vector2 = _pointer_local_from_screen(press_screen)
+	var release_local: Vector2 = _pointer_local_from_screen(release_screen)
+	_send_pointer_event(true, MOUSE_BUTTON_LEFT, press_local, false, _screen_to_world(press_screen), press_screen)
+	_send_pointer_event(true, MOUSE_BUTTON_LEFT, release_local, true, _screen_to_world(release_screen), release_screen)
+	_send_pointer_event(false, MOUSE_BUTTON_LEFT, release_local, false, _screen_to_world(release_screen), release_screen)
+	return not state.intent_is_on(source_hive_id, target_hive_id)
+
+func tutorial_controls_smoke_perform_hive_tap_pair(source_hive_id: int, target_hive_id: int) -> bool:
+	if state == null or source_hive_id <= 0 or target_hive_id <= 0:
+		return false
+	var source_screen: Vector2 = _tutorial_hive_screen_pos(source_hive_id)
+	var target_screen: Vector2 = _tutorial_hive_screen_pos(target_hive_id)
+	if source_screen.x < -1000.0 or target_screen.x < -1000.0:
+		return false
+	for screen_pos in [source_screen, target_screen]:
+		var local_pos: Vector2 = _pointer_local_from_screen(screen_pos)
+		var world_pos: Vector2 = _screen_to_world(screen_pos)
+		_send_pointer_event(true, MOUSE_BUTTON_LEFT, local_pos, false, world_pos, screen_pos)
+		_send_pointer_event(false, MOUSE_BUTTON_LEFT, local_pos, false, world_pos, screen_pos)
+	return state.intent_is_on(source_hive_id, target_hive_id)
+
+func tutorial_controls_smoke_perform_swarm_tap_pair(source_hive_id: int, target_hive_id: int) -> bool:
+	if state == null or not state.intent_is_on(source_hive_id, target_hive_id):
+		return false
+	var source_screen: Vector2 = _tutorial_hive_screen_pos(source_hive_id)
+	var target_screen: Vector2 = _tutorial_hive_screen_pos(target_hive_id)
+	if source_screen.x < -1000.0 or target_screen.x < -1000.0:
+		return false
+	for screen_pos in [source_screen, target_screen]:
+		var local_pos: Vector2 = _pointer_local_from_screen(screen_pos)
+		var world_pos: Vector2 = _screen_to_world(screen_pos)
+		_send_pointer_event(true, MOUSE_BUTTON_LEFT, local_pos, false, world_pos, screen_pos)
+		_send_pointer_event(false, MOUSE_BUTTON_LEFT, local_pos, false, world_pos, screen_pos)
+	return _tutorial_state_has_swarm_between(source_hive_id, target_hive_id)
+
+func _tutorial_state_has_swarm_between(source_hive_id: int, target_hive_id: int) -> bool:
+	if state == null:
+		return false
+	for request_any in state.swarm_requests:
+		if typeof(request_any) != TYPE_DICTIONARY:
+			continue
+		var request: Dictionary = request_any as Dictionary
+		if int(request.get("src", -1)) == source_hive_id and int(request.get("dst", -1)) == target_hive_id:
+			return true
+	for packet_any in state.swarm_packets:
+		if typeof(packet_any) != TYPE_DICTIONARY:
+			continue
+		var packet: Dictionary = packet_any as Dictionary
+		if int(packet.get("from_id", -1)) == source_hive_id and int(packet.get("to_id", -1)) == target_hive_id:
+			return true
+	return false
 
 func _tutorial_arrival_count(hive_id: int, owner_id: int) -> int:
 	if unit_system != null and unit_system.has_method("get_arrival_count"):
@@ -5697,7 +5775,10 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	if _controls_hint_controller != null:
 		_controls_hint_controller.hide(false)
 	var tutorial_section1_ended: bool = _tutorial_section1_controller != null and _tutorial_section1_controller.is_active()
-	var tutorial_controls_ended: bool = _tutorial_controls_controller != null and _tutorial_controls_controller.is_active() and winner_id_in == _resolve_local_owner_id()
+	var tutorial_controls_ended: bool = _tutorial_controls_controller != null \
+		and (_tutorial_controls_controller.is_active() or _tutorial_controls_controller.completed_this_match()) \
+		and winner_id_in == _resolve_local_owner_id()
+	var tutorial_welcome_pack_ready: bool = _tutorial_controls_welcome_pack_should_show()
 	if _tutorial_controls_controller != null:
 		_tutorial_controls_controller.on_match_ended()
 	if _tutorial_section1_controller != null:
@@ -5728,7 +5809,9 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 		var record_slot: int = clampi(active_player_id, 1, 4)
 		var record_text: String = _get_player_record_line(record_slot)
 		var h2h_text: String = _get_h2h_record_line()
-		if tutorial_controls_ended and outcome_overlay.has_method("show_tutorial_controls_complete"):
+		if tutorial_welcome_pack_ready and outcome_overlay.has_method("show_tutorial_welcome_pack"):
+			outcome_overlay.call("show_tutorial_welcome_pack", winner_id_in, reason, active_player_id, _tutorial_controls_welcome_pack_buff_type_count(), 2)
+		elif tutorial_controls_ended and outcome_overlay.has_method("show_tutorial_controls_complete"):
 			outcome_overlay.call("show_tutorial_controls_complete", winner_id_in, reason, active_player_id)
 		elif tutorial_section1_ended and outcome_overlay.has_method("show_tutorial_complete"):
 			outcome_overlay.call("show_tutorial_complete", winner_id_in, reason, active_player_id)
@@ -5736,7 +5819,7 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 			outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
 			if outcome_overlay.has_method("set_post_match_stats"):
 				outcome_overlay.call("set_post_match_stats", _post_match_stats_snapshot.duplicate(true))
-		if not tutorial_section1_ended and not tutorial_controls_ended and outcome_overlay.has_method("set_post_match_summary"):
+		if not tutorial_welcome_pack_ready and not tutorial_section1_ended and not tutorial_controls_ended and outcome_overlay.has_method("set_post_match_summary"):
 			outcome_overlay.call("set_post_match_summary", _post_match_analysis_summary, winner_id_in, active_player_id)
 	else:
 		SFLog.warn("POSTMATCH_UI_MISSING", {"kind": "outcome_overlay"})
@@ -5939,6 +6022,9 @@ func _on_post_match_action(action: String) -> void:
 		"tutorial_controls_followup":
 			_post_match_action_taken = true
 			_launch_tutorial_controls_followup_match()
+		"tutorial_welcome_pack_open":
+			_post_match_action_taken = true
+			_claim_tutorial_controls_welcome_pack_and_return()
 		"next_round":
 			_post_match_action_taken = true
 			if _is_progressive_runtime_mode():
@@ -5975,6 +6061,42 @@ func _launch_tutorial_controls_followup_match() -> void:
 		shell.call_deferred("launch_tutorial_controls_followup_bot")
 		return
 	SFLog.warn("TUTORIAL_CONTROLS_FOLLOWUP_LAUNCH_MISSING_SHELL", {})
+	_return_to_main_menu()
+
+func _tutorial_controls_welcome_pack_should_show() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null or not bool(tree.get_meta("tutorial_controls_followup_match", false)):
+		return false
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	if profile_manager == null:
+		return false
+	if profile_manager.has_method("has_tutorial_controls_welcome_pack_claimed"):
+		return not bool(profile_manager.call("has_tutorial_controls_welcome_pack_claimed"))
+	return false
+
+func _tutorial_controls_welcome_pack_buff_type_count() -> int:
+	var ids: Dictionary = {}
+	for buff_any in BuffCatalog.list_by_tier("classic"):
+		if typeof(buff_any) != TYPE_DICTIONARY:
+			continue
+		var buff_id: String = str((buff_any as Dictionary).get("id", "")).strip_edges()
+		if not buff_id.is_empty() and BuffCatalog.is_selectable(buff_id):
+			ids[buff_id] = true
+	return ids.size()
+
+func _claim_tutorial_controls_welcome_pack_and_return() -> void:
+	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
+	var result: Dictionary = {"ok": false, "reason": "profile_manager_missing"}
+	if profile_manager != null and profile_manager.has_method("claim_tutorial_controls_welcome_pack"):
+		var result_any: Variant = profile_manager.call("claim_tutorial_controls_welcome_pack", 2)
+		if typeof(result_any) == TYPE_DICTIONARY:
+			result = result_any as Dictionary
+	SFLog.info("TUTORIAL_CONTROLS_WELCOME_PACK_OPENED", {
+		"ok": bool(result.get("ok", false)),
+		"reason": str(result.get("reason", "")),
+		"buff_types": int(result.get("buff_types", 0)),
+		"quantity_each": int(result.get("quantity_each", 0))
+	})
 	_return_to_main_menu()
 
 func _is_stage_race_runtime_mode() -> bool:
