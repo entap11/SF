@@ -110,6 +110,8 @@ var _last_kind: String = ""
 var _sim_events: Node = null
 var _distress_light: Node2D = null
 var _latest_distress_presentation: Dictionary = {}
+var _distress_pre_transition_footprint: Vector2 = Vector2.ZERO
+var _distress_current_footprint: Vector2 = Vector2.ZERO
 var _flag_projection_material: ShaderMaterial = null
 var _flag_ctf_texture: Texture2D = null
 var _flag_hctf_texture: Texture2D = null
@@ -275,6 +277,7 @@ func apply_render(
 		"HiveNode.apply_render called (sample): id=%s owner=%s power=%s kind=%s" % [str(hive_id), str(owner_id_in), str(power_in), str(kind)],
 		SFLog.Level.INFO
 	)
+	_distress_pre_transition_footprint = _get_visual_footprint()
 	var previous_growth_tier: int = growth_tier
 	var desired_growth_tier: int = clampi(
 		growth_tier_in if growth_tier_in > 0 else HiveGrowthRules.tier_for_power(power_in),
@@ -315,9 +318,10 @@ func apply_render(
 			kind,
 			lane_budget_used,
 			lane_budget_max,
-				desired_growth_tier,
-				growth_transition
-			)
+			desired_growth_tier,
+			growth_transition
+		)
+	_distress_current_footprint = _get_visual_footprint()
 	if visual is CanvasItem:
 		var ci := visual as CanvasItem
 		if ci.has_method("set_self_modulate"):
@@ -581,13 +585,18 @@ func apply_distress_presentation(
 	viewer_owner_id: int,
 	hostile_capture_pressure: bool,
 	color: Color,
-	motion_mode: String
+	motion_mode: String,
+	presentation: Dictionary = {}
 ) -> void:
+	var resolved: Dictionary = presentation.duplicate(true)
+	resolved["pre_transition_size"] = _distress_pre_transition_footprint
+	resolved["current_size"] = _distress_current_footprint
 	_latest_distress_presentation = {
 		"viewer_owner_id": viewer_owner_id,
 		"hostile_capture_pressure": hostile_capture_pressure,
 		"color": color,
-		"motion_mode": motion_mode
+		"motion_mode": motion_mode,
+		"resolved": resolved
 	}
 	_refresh_distress_presentation()
 
@@ -604,13 +613,11 @@ func _refresh_distress_presentation() -> void:
 	distress.call(
 		"apply_presentation",
 		hive_id,
-		int(_latest_distress_presentation.get("viewer_owner_id", 0)),
-		owner_id,
-		power,
-		bool(_latest_distress_presentation.get("hostile_capture_pressure", false)),
 		outlet_anchor,
 		_latest_distress_presentation.get("color", Color.WHITE) as Color,
-		str(_latest_distress_presentation.get("motion_mode", "full"))
+		str(_latest_distress_presentation.get("motion_mode", "full")),
+		_latest_distress_presentation.get("resolved", {}) as Dictionary,
+		bool(_latest_distress_presentation.get("hostile_capture_pressure", false))
 	)
 	if distress.has_method("set_growth_suppressed"):
 		distress.call("set_growth_suppressed", _growth_transition_active())
@@ -630,6 +637,12 @@ func _ensure_distress_light() -> Node2D:
 	fx_layer.add_child(created)
 	_distress_light = created
 	return _distress_light
+
+func _get_visual_footprint() -> Vector2:
+	if visual != null and visual.has_method("get_rendered_footprint_local"):
+		return visual.call("get_rendered_footprint_local") as Vector2
+	var fallback_diameter: float = maxf(20.0, radius_px * 2.0)
+	return Vector2(fallback_diameter, fallback_diameter)
 
 func _set_distress_growth_suppressed(suppressed: bool) -> void:
 	var distress: Node2D = _ensure_distress_light()

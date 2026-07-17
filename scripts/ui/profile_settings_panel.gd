@@ -3,22 +3,36 @@ extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
+const TOGGLE_ON_TEXTURE: Texture2D = preload("res://assets/ui/toggles/sf_toggle_on.svg")
+const TOGGLE_OFF_TEXTURE: Texture2D = preload("res://assets/ui/toggles/sf_toggle_off.svg")
+const TOGGLE_ON_DISABLED_TEXTURE: Texture2D = preload("res://assets/ui/toggles/sf_toggle_on_disabled.svg")
+const TOGGLE_OFF_DISABLED_TEXTURE: Texture2D = preload("res://assets/ui/toggles/sf_toggle_off_disabled.svg")
 
 const MIN_HANDLE_LEN: int = 3
 const MAX_HANDLE_LEN: int = 16
 const DEV_ALLOW_UID_EDIT: bool = false
-const SETTINGS_UI_SCALE: float = 1.0
-const SETTINGS_BASE_MIN_HEIGHT: float = 760.0
+const SETTINGS_CONTROL_HEIGHT: float = 72.0
+const SETTINGS_TOGGLE_HEIGHT: float = 88.0
+const SETTINGS_TOGGLE_WIDTH: float = 184.0
+const SETTINGS_TOGGLE_TEXT_GAP: int = 16
+const SETTINGS_TEXT_EDIT_HEIGHT: float = 144.0
+const SETTINGS_CATEGORY_BAR_HEIGHT: float = 72.0
+const SETTINGS_CATEGORY_GAP: float = 24.0
+const CATEGORY_ACCOUNT: String = "account"
+const CATEGORY_AUDIO: String = "audio"
+const CATEGORY_GRAPHICS: String = "graphics"
+const CATEGORY_SUPPORT: String = "support"
 const PERF_MODE_QUALITY: String = "quality"
 const PERF_MODE_BALANCED: String = "balanced"
 const PERF_MODE_PERFORMANCE: String = "performance"
 const ADMIN_DASHBOARD_URL_DEFAULT: String = "http://127.0.0.1:8787/dashboard"
-const ADMIN_DASHBOARD_USERNAME_DEFAULT: String = "Mattballou"
-const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = "$warmFr0nt"
+const ADMIN_DASHBOARD_USERNAME_DEFAULT: String = ""
+const ADMIN_DASHBOARD_PASSWORD_DEFAULT: String = ""
 const REPORT_CATEGORY_OPTIONS: Array[String] = ["call_sign", "hive", "match", "chat", "other"]
 
 @onready var profile_dropdown: OptionButton = $VBox/ProfileRow/ProfileDropdown
 @onready var display_name_input: LineEdit = $VBox/ProfileRow/DisplayNameInput
+@onready var apply_display_name_button: Button = $VBox/ProfileRow/ApplyDisplayNameButton
 @onready var current_user_id_label: Label = $VBox/UserIdSection/UserIdCurrentRow/CurrentUserIdLabel
 @onready var copy_user_id_button: Button = $VBox/UserIdSection/UserIdCurrentRow/CopyUserIdButton
 @onready var user_id_input: LineEdit = $VBox/UserIdSection/UserIdRow/UserIdInput
@@ -60,17 +74,21 @@ const REPORT_CATEGORY_OPTIONS: Array[String] = ["call_sign", "hive", "match", "c
 @export var admin_tools_enabled_in_release: bool = false
 var _font_regular: Font = null
 var _font_semibold: Font = null
+var _category_tabs: HBoxContainer = null
+var _category_buttons: Dictionary = {}
+var _active_category: String = CATEGORY_ACCOUNT
 
 func _ready() -> void:
 	ProfileManager.ensure_loaded()
 	_apply_readability_layout()
+	_build_category_tabs()
 	profile_dropdown.item_selected.connect(_on_profile_selected)
 	new_button.pressed.connect(_on_new_profile_pressed)
 	rename_button.pressed.connect(_on_rename_pressed)
 	delete_button.pressed.connect(_on_delete_pressed)
 	rename_dialog.confirmed.connect(_on_rename_confirmed)
 	display_name_input.text_submitted.connect(_on_display_name_submitted)
-	display_name_input.focus_exited.connect(_on_display_name_focus_exited)
+	apply_display_name_button.pressed.connect(_apply_display_name)
 	set_user_id_button.pressed.connect(_on_set_user_id_pressed)
 	copy_user_id_button.pressed.connect(_on_copy_user_id_pressed)
 	gpu_vfx_toggle.toggled.connect(_on_gpu_vfx_toggled)
@@ -79,18 +97,14 @@ func _ready() -> void:
 	haptics_toggle.toggled.connect(_on_haptics_toggled)
 	performance_mode_option.item_selected.connect(_on_performance_mode_selected)
 	floor_graphics_toggle.toggled.connect(_on_floor_graphics_toggled)
-	admin_username_input.text_submitted.connect(_on_admin_credentials_submitted)
-	admin_password_input.text_submitted.connect(_on_admin_credentials_submitted)
-	admin_username_input.focus_exited.connect(_on_admin_credentials_focus_exited)
-	admin_password_input.focus_exited.connect(_on_admin_credentials_focus_exited)
-	admin_open_button.pressed.connect(_on_admin_open_pressed)
 	support_diagnostics_button.pressed.connect(_on_support_diagnostics_pressed)
 	community_safety_button.pressed.connect(_on_community_safety_pressed)
+	community_safety_dialog.canceled.connect(_restore_community_safety_focus)
+	community_safety_dialog.confirmed.connect(_restore_community_safety_focus)
 	submit_report_button.pressed.connect(_on_submit_report_pressed)
 	submit_appeal_button.pressed.connect(_on_submit_appeal_pressed)
 	_disable_legacy_profile_controls()
 	_set_uid_edit_enabled(DEV_ALLOW_UID_EDIT)
-	_refresh_admin_credentials()
 	_refresh_admin_tools()
 	_build_report_category_options()
 	_build_performance_options()
@@ -100,6 +114,7 @@ func _ready() -> void:
 	_refresh_gpu_vfx()
 	_refresh_audio_settings()
 	_refresh_performance_settings()
+	_set_active_category(CATEGORY_ACCOUNT)
 	_apply_master_audio_setting()
 	_apply_performance_mode_setting()
 
@@ -165,6 +180,11 @@ func _category_label(category: String) -> String:
 func _on_community_safety_pressed() -> void:
 	_refresh_community_safety_dialog()
 	community_safety_dialog.popup_centered_ratio(0.86)
+	report_target_input.call_deferred("grab_focus")
+
+func _restore_community_safety_focus() -> void:
+	if community_safety_button != null and community_safety_button.is_visible_in_tree():
+		community_safety_button.call_deferred("grab_focus")
 
 func _refresh_community_safety_dialog(status_message: String = "") -> void:
 	var public_identity: Dictionary = {}
@@ -377,9 +397,6 @@ func _on_delete_pressed() -> void:
 func _on_display_name_submitted(_text: String) -> void:
 	_apply_display_name()
 
-func _on_display_name_focus_exited() -> void:
-	_apply_display_name()
-
 func _apply_display_name() -> void:
 	var attempted: String = display_name_input.text
 	var result: Dictionary = ProfileManager.request_handle_change(attempted, false, "settings")
@@ -468,12 +485,10 @@ func _on_floor_graphics_toggled(enabled: bool) -> void:
 		arena_any.call("set_floor_graphics_enabled", enabled)
 
 func _refresh_admin_tools() -> void:
-	var enabled: bool = OS.is_debug_build() or admin_tools_enabled_in_release
-	admin_section.visible = enabled
-	admin_open_button.visible = enabled
-	admin_open_button.disabled = not enabled
-	admin_status_label.visible = enabled
-	admin_status_label.text = "Private admin dashboard. Use in-app credentials."
+	admin_section.visible = false
+	admin_open_button.visible = false
+	admin_open_button.disabled = true
+	admin_status_label.visible = false
 
 func _refresh_admin_credentials() -> void:
 	var username: String = ADMIN_DASHBOARD_USERNAME_DEFAULT
@@ -541,75 +556,71 @@ func _on_admin_credentials_focus_exited() -> void:
 
 func _apply_readability_layout() -> void:
 	_load_fonts()
-	custom_minimum_size = Vector2(0.0, SETTINGS_BASE_MIN_HEIGHT * SETTINGS_UI_SCALE)
 	var root_vbox: VBoxContainer = get_node("VBox") as VBoxContainer
 	_ensure_scroll_layout(root_vbox)
 	if root_vbox != null:
-		root_vbox.custom_minimum_size = Vector2(root_vbox.custom_minimum_size.x, SETTINGS_BASE_MIN_HEIGHT * SETTINGS_UI_SCALE)
-		root_vbox.add_theme_constant_override("separation", _scaled_int(14))
+		root_vbox.custom_minimum_size = Vector2(root_vbox.custom_minimum_size.x, 0.0)
+		root_vbox.add_theme_constant_override("separation", 24)
 	for node_any in find_children("*", "VBoxContainer", true, false):
 		var vbox: VBoxContainer = node_any as VBoxContainer
 		if vbox == null or vbox == root_vbox:
 			continue
-		vbox.add_theme_constant_override("separation", _scaled_int(8))
+		vbox.add_theme_constant_override("separation", 16)
 	for node_any in find_children("*", "HBoxContainer", true, false):
 		var hbox: HBoxContainer = node_any as HBoxContainer
 		if hbox == null:
 			continue
-		hbox.add_theme_constant_override("separation", _scaled_int(14))
+		hbox.add_theme_constant_override("separation", 16)
 	for node_any in find_children("*", "Label", true, false):
 		var label: Label = node_any as Label
 		if label == null:
 			continue
-		_apply_font(label, _font_regular, _scaled_int(16))
+		UITypography.apply_token(label, _font_regular, "body", UITypography.PORTRAIT_CANVAS_SCALE)
 	for node_any in find_children("*", "Button", true, false):
 		var button: Button = node_any as Button
 		if button == null:
 			continue
-		_apply_font(button, _font_regular, _scaled_int(16))
-		_set_control_min_height(button, _scaled_float(44.0))
+		UITypography.apply_button_token(button, _font_regular, "button", UITypography.PORTRAIT_CANVAS_SCALE, SETTINGS_CONTROL_HEIGHT)
 	for node_any in find_children("*", "CheckButton", true, false):
 		var toggle: CheckButton = node_any as CheckButton
 		if toggle == null:
 			continue
-		_apply_font(toggle, _font_regular, _scaled_int(16))
-		_set_control_min_height(toggle, _scaled_float(40.0))
+		_style_settings_toggle(toggle)
 	for node_any in find_children("*", "OptionButton", true, false):
 		var option: OptionButton = node_any as OptionButton
 		if option == null:
 			continue
-		_apply_font(option, _font_regular, _scaled_int(16))
-		_set_control_min_height(option, _scaled_float(44.0))
+		UITypography.apply_button_token(option, _font_regular, "button", UITypography.PORTRAIT_CANVAS_SCALE, SETTINGS_CONTROL_HEIGHT)
 	for node_any in find_children("*", "LineEdit", true, false):
 		var line_edit: LineEdit = node_any as LineEdit
 		if line_edit == null:
 			continue
-		_apply_font(line_edit, _font_regular, _scaled_int(16))
-		_set_control_min_height(line_edit, _scaled_float(44.0))
+		UITypography.apply_token(line_edit, _font_regular, "body", UITypography.PORTRAIT_CANVAS_SCALE)
+		_set_control_min_height(line_edit, SETTINGS_CONTROL_HEIGHT)
 	for node_any in find_children("*", "TextEdit", true, false):
 		var text_edit: TextEdit = node_any as TextEdit
 		if text_edit == null:
 			continue
-		_apply_font(text_edit, _font_regular, _scaled_int(16))
-		_set_control_min_height(text_edit, _scaled_float(72.0))
+		UITypography.apply_token(text_edit, _font_regular, "body", UITypography.PORTRAIT_CANVAS_SCALE)
+		_set_control_min_height(text_edit, SETTINGS_TEXT_EDIT_HEIGHT)
 	if root_vbox != null:
 		var header_label: Label = root_vbox.get_node_or_null("Header") as Label
 		if header_label != null:
-			_apply_font(header_label, _font_semibold, _scaled_int(26))
+			UITypography.apply_token(header_label, _font_semibold, "panel_title", UITypography.PORTRAIT_CANVAS_SCALE)
 	var section_title_paths: Array[String] = [
 		"ProfileRow/ProfileLabel",
 		"UserIdSection/UserIdLabel",
 		"VideoSection/VideoLabel",
 		"AudioSection/AudioLabel",
 		"PerformanceSection/PerformanceLabel",
-		"AdminSection/AdminLabel",
+		"SupportSection/SupportLabel",
 		"CommunitySafetySection/CommunitySafetyLabel"
 	]
 	for section_path in section_title_paths:
 		if root_vbox == null or not root_vbox.has_node(section_path):
 			continue
 		var section_label: Label = root_vbox.get_node(section_path) as Label
-		_apply_font(section_label, _font_semibold, _scaled_int(18))
+		UITypography.apply_token(section_label, _font_semibold, "section_title", UITypography.PORTRAIT_CANVAS_SCALE)
 	display_name_input.placeholder_text = "Call sign"
 	current_user_id_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	current_user_id_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -619,6 +630,117 @@ func _apply_readability_layout() -> void:
 	community_safety_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	safety_overview.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	safety_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var safety_close_button: Button = community_safety_dialog.get_ok_button()
+	if safety_close_button != null:
+		safety_close_button.text = "CLOSE"
+		UITypography.apply_button_token(safety_close_button, _font_regular, "button", UITypography.PORTRAIT_CANVAS_SCALE, SETTINGS_CONTROL_HEIGHT)
+
+func _style_settings_toggle(toggle: CheckButton) -> void:
+	if toggle == null:
+		return
+	UITypography.apply_button_token(toggle, _font_regular, "button", UITypography.PORTRAIT_CANVAS_SCALE, SETTINGS_TOGGLE_HEIGHT)
+	toggle.custom_minimum_size.x = maxf(toggle.custom_minimum_size.x, SETTINGS_TOGGLE_WIDTH)
+	toggle.add_theme_icon_override("checked", TOGGLE_ON_TEXTURE)
+	toggle.add_theme_icon_override("unchecked", TOGGLE_OFF_TEXTURE)
+	toggle.add_theme_icon_override("checked_disabled", TOGGLE_ON_DISABLED_TEXTURE)
+	toggle.add_theme_icon_override("unchecked_disabled", TOGGLE_OFF_DISABLED_TEXTURE)
+	toggle.add_theme_constant_override("h_separation", SETTINGS_TOGGLE_TEXT_GAP)
+	toggle.add_theme_constant_override("check_v_offset", 0)
+
+func _build_category_tabs() -> void:
+	if _category_tabs != null and is_instance_valid(_category_tabs):
+		return
+	var scroll: ScrollContainer = get_node_or_null("SettingsScroll") as ScrollContainer
+	if scroll == null:
+		return
+	_category_tabs = HBoxContainer.new()
+	_category_tabs.name = "SettingsCategoryTabs"
+	_category_tabs.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_category_tabs.offset_left = 0.0
+	_category_tabs.offset_top = 0.0
+	_category_tabs.offset_right = 0.0
+	_category_tabs.offset_bottom = SETTINGS_CATEGORY_BAR_HEIGHT
+	_category_tabs.add_theme_constant_override("separation", 12)
+	add_child(_category_tabs)
+	move_child(_category_tabs, scroll.get_index())
+	scroll.offset_top = SETTINGS_CATEGORY_BAR_HEIGHT + SETTINGS_CATEGORY_GAP
+	for category_data in [
+		{ "id": CATEGORY_ACCOUNT, "label": "ACCOUNT" },
+		{ "id": CATEGORY_AUDIO, "label": "AUDIO" },
+		{ "id": CATEGORY_GRAPHICS, "label": "GRAPHICS" },
+		{ "id": CATEGORY_SUPPORT, "label": "SUPPORT" }
+	]:
+		var category_id: String = str(category_data.get("id", ""))
+		var button := Button.new()
+		button.name = "%sTab" % category_id.capitalize()
+		button.text = str(category_data.get("label", category_id.to_upper()))
+		button.toggle_mode = true
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0.0, SETTINGS_CATEGORY_BAR_HEIGHT)
+		UITypography.apply_button_token(button, _font_semibold, "compact_button", UITypography.PORTRAIT_CANVAS_SCALE, SETTINGS_CATEGORY_BAR_HEIGHT)
+		button.pressed.connect(Callable(self, "_set_active_category").bind(category_id))
+		_category_tabs.add_child(button)
+		_category_buttons[category_id] = button
+
+func _set_active_category(category_id: String) -> void:
+	if not [CATEGORY_ACCOUNT, CATEGORY_AUDIO, CATEGORY_GRAPHICS, CATEGORY_SUPPORT].has(category_id):
+		category_id = CATEGORY_ACCOUNT
+	_active_category = category_id
+	var root_vbox: VBoxContainer = get_node_or_null("SettingsScroll/VBox") as VBoxContainer
+	if root_vbox == null:
+		return
+	var header: Label = root_vbox.get_node_or_null("Header") as Label
+	if header != null:
+		header.text = category_id.to_upper()
+	_set_section_visible(root_vbox, "ProfileRow", category_id == CATEGORY_ACCOUNT)
+	_set_section_visible(root_vbox, "UserIdSection", category_id == CATEGORY_ACCOUNT)
+	_set_section_visible(root_vbox, "RenamePolicyLabel", category_id == CATEGORY_ACCOUNT)
+	_set_section_visible(root_vbox, "AudioSection", category_id == CATEGORY_AUDIO)
+	_set_section_visible(root_vbox, "VideoSection", category_id == CATEGORY_GRAPHICS)
+	_set_section_visible(root_vbox, "PerformanceSection", category_id == CATEGORY_GRAPHICS)
+	_set_section_visible(root_vbox, "SupportSection", category_id == CATEGORY_SUPPORT)
+	_set_section_visible(root_vbox, "CommunitySafetySection", category_id == CATEGORY_SUPPORT)
+	_set_section_visible(root_vbox, "AdminSection", false)
+	_set_section_visible(root_vbox, "ButtonsRow", false)
+	profile_dropdown.visible = false
+	for button_id in _category_buttons.keys():
+		var button: Button = _category_buttons.get(button_id, null) as Button
+		if button == null:
+			continue
+		var selected: bool = str(button_id) == category_id
+		button.button_pressed = selected
+		_style_category_button(button, selected)
+	var scroll: ScrollContainer = get_node_or_null("SettingsScroll") as ScrollContainer
+	if scroll != null:
+		scroll.scroll_vertical = 0
+
+func _set_section_visible(root_vbox: VBoxContainer, path: String, visible: bool) -> void:
+	var control: Control = root_vbox.get_node_or_null(path) as Control
+	if control != null:
+		control.visible = visible
+
+func _style_category_button(button: Button, selected: bool) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.30, 0.25, 0.16, 0.98) if selected else Color(0.08, 0.09, 0.12, 0.98)
+	style.border_color = Color(0.93, 0.67, 0.18, 0.95) if selected else Color(0.34, 0.36, 0.44, 0.82)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(8)
+	style.content_margin_left = 12.0
+	style.content_margin_right = 12.0
+	button.add_theme_stylebox_override("normal", style)
+	button.add_theme_stylebox_override("hover", style.duplicate())
+	button.add_theme_stylebox_override("pressed", style.duplicate())
+	button.add_theme_stylebox_override("focus", style.duplicate())
+	button.add_theme_color_override("font_color", Color(1.0, 0.95, 0.80, 1.0) if selected else Color(0.91, 0.92, 0.96, 1.0))
+
+func focus_default_control() -> void:
+	var button: Button = _category_buttons.get(_active_category, null) as Button
+	if button != null and button.is_visible_in_tree():
+		button.grab_focus()
+
+func prepare_for_open() -> void:
+	display_name_input.text = ProfileManager.get_display_name()
+	_set_active_category(CATEGORY_ACCOUNT)
 
 func _ensure_scroll_layout(root_vbox: VBoxContainer) -> void:
 	if root_vbox == null:
@@ -638,18 +760,9 @@ func _ensure_scroll_layout(root_vbox: VBoxContainer) -> void:
 	root_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
-func _scaled_int(value: int) -> int:
-	return int(roundi(float(value) * SETTINGS_UI_SCALE))
-
-func _scaled_float(value: float) -> float:
-	return value * SETTINGS_UI_SCALE
-
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()
 	_font_semibold = UITypography.semibold_font()
-
-func _apply_font(control: Control, font: Font, size: int) -> void:
-	UITypography.apply_font(control, font, size)
 
 func _set_control_min_height(control: Control, min_height: float) -> void:
 	if control == null:

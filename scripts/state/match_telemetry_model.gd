@@ -1,7 +1,7 @@
 class_name MatchTelemetryModel
 extends RefCounted
 
-const SCHEMA_VERSION: int = 7
+const SCHEMA_VERSION: int = 8
 const SELF_SCRIPT_PATH: String = "res://scripts/state/match_telemetry_model.gd"
 
 const MATCH_TYPE_VS: int = 0
@@ -143,6 +143,8 @@ static func _default_metrics() -> Dictionary:
 		"units_sent_by_player": [],
 		"barracks_units_produced_by_player": [],
 		"total_swarms_sent_by_player": [],
+		"hives_captured_by_player": [],
+		"units_first_landed_by_player": [],
 		"meaningful_actions_by_player": [],
 		"meaningful_actions_per_min_by_player": [],
 		"lane_reversals_by_player": [],
@@ -211,6 +213,8 @@ static func _default_totals() -> Dictionary:
 		"event_count": 0,
 		"player_ids": [],
 		"unit_spawn_by_player": {},
+		"hive_captures_by_player": {},
+		"unit_first_land_by_player": {},
 		"unit_land_friendly_by_player": {},
 		"unit_land_enemy_by_player": {},
 		"unit_land_npc_by_player": {},

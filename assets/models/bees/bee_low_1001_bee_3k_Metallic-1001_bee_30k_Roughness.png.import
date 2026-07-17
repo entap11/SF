@@ -1,0 +1,37 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://bv80bxou6iaab"
+path="res://.godot/imported/bee_low_1001_bee_3k_Metallic-1001_bee_30k_Roughness.png-ac59661ff88fab82bbb2b18bf65a9d35.ctex"
+metadata={
+"vram_texture": false
+}
+generator_parameters={
+"md5": "84dec4521fe9ccec3b53bc2c6a21917a"
+}
+
+[deps]
+
+source_file="res://assets/models/bees/bee_low_1001_bee_3k_Metallic-1001_bee_30k_Roughness.png"
+dest_files=["res://.godot/imported/bee_low_1001_bee_3k_Metallic-1001_bee_30k_Roughness.png-ac59661ff88fab82bbb2b18bf65a9d35.ctex"]
+
+[params]
+
+compress/mode=0
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=1

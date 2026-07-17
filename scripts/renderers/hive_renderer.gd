@@ -5,6 +5,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const HiveNodeScene := preload("res://scenes/hive/HiveNode.tscn")
 const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
+const HiveDistressRules := preload("res://scripts/hive/hive_distress_rules.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
@@ -44,6 +45,7 @@ var _sprite_registry: SpriteRegistry = null
 var _growth_projection_by_id: Dictionary = {}
 var _growth_history_armed: bool = false
 var _growth_model_iid: int = -1
+var _presentation_viewer_owner_id: int = -1
 var _app_lifecycle: Node = null
 var _match_shadow_controller: RefCounted = null
 
@@ -67,8 +69,9 @@ func set_model(m: Dictionary) -> void:
 	if _match_shadow_controller != null:
 		_match_shadow_controller.call("update_from_render_model", m)
 	var growth_context_by_id: Dictionary = _growth_contexts_for_model(m)
+	var distress_context_by_id: Dictionary = _distress_contexts_for_model(m)
 	model = m
-	_sync_hive_nodes(m, growth_context_by_id)
+	_sync_hive_nodes(m, growth_context_by_id, distress_context_by_id)
 	_commit_growth_projection(m)
 	_dirty = true
 	queue_redraw()
@@ -473,7 +476,11 @@ func _draw_state() -> void:
 			var text_color := _power_label_color(owner_id, color)
 			draw_string(font, text_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
-func _sync_hive_nodes(rm: Dictionary, growth_context_by_id: Dictionary = {}) -> void:
+func _sync_hive_nodes(
+	rm: Dictionary,
+	growth_context_by_id: Dictionary = {},
+	distress_context_by_id: Dictionary = {}
+) -> void:
 	var cell: float = float(rm.get("cell_size", cell_px))
 	if cell <= 0.0:
 		cell = float(cell_px)
@@ -596,7 +603,8 @@ func _sync_hive_nodes(rm: Dictionary, growth_context_by_id: Dictionary = {}) -> 
 				viewer_owner_id,
 				bool(hd.get("hostile_capture_pressure", false)),
 				color,
-				distress_motion_mode
+				distress_motion_mode,
+				distress_context_by_id.get(id, {}) as Dictionary
 			)
 		if node.has_method("set_selected"):
 			node.call("set_selected", id == _selected_hive_id, _selected_color)
@@ -646,6 +654,13 @@ func _growth_contexts_for_model(rm: Dictionary) -> Dictionary:
 	if _growth_model_iid != -1 and iid != _growth_model_iid:
 		_cancel_all_growth_transitions("state_instance_changed")
 		_reset_growth_history()
+	var viewer_owner_id: int = int(rm.get("viewer_owner_id", 0))
+	if (
+		_presentation_viewer_owner_id != -1
+		and viewer_owner_id != _presentation_viewer_owner_id
+	):
+		_cancel_all_growth_transitions("viewer_identity_changed")
+		_reset_growth_history()
 	if not _growth_history_armed:
 		return contexts
 	var mode: String = _growth_motion_mode()
@@ -679,6 +694,76 @@ func _growth_contexts_for_model(rm: Dictionary) -> Dictionary:
 		}
 	return contexts
 
+func _distress_contexts_for_model(rm: Dictionary) -> Dictionary:
+	var contexts: Dictionary = {}
+	if not _is_canonical_growth_model(rm):
+		return contexts
+	var viewer_owner_id: int = int(rm.get("viewer_owner_id", 0))
+	var history_available: bool = _growth_history_armed
+	var hives: Array = rm.get("hives", []) as Array
+	for hive_any in hives:
+		if typeof(hive_any) != TYPE_DICTIONARY:
+			continue
+		var hive: Dictionary = hive_any as Dictionary
+		var hive_id: int = _resolve_hive_id(hive.get("id", 0))
+		if hive_id <= 0:
+			continue
+		var new_owner_id: int = _owner_id_for_hive_model(hive)
+		var new_power: int = int(hive.get("pwr", hive.get("power", 0)))
+		var new_tier: int = clampi(
+			int(hive.get("growth_tier", HiveGrowthRules.tier_for_power(new_power))),
+			HiveGrowthRules.TIER_SMALL,
+			HiveGrowthRules.TIER_LARGE
+		)
+		var previous: Dictionary = _growth_projection_by_id.get(hive_id, {}) as Dictionary
+		var history_valid: bool = history_available and not previous.is_empty()
+		var old_owner_id: int = int(previous.get("owner_id", new_owner_id))
+		var old_power: int = int(previous.get("power", new_power))
+		var old_tier: int = int(previous.get("tier", new_tier))
+		var eligible: bool = (
+			history_valid
+			and viewer_owner_id > 0
+			and old_owner_id == new_owner_id
+			and new_owner_id == viewer_owner_id
+		)
+		var burst_kind: String = HiveDistressRules.BURST_NONE
+		if eligible:
+			burst_kind = HiveDistressRules.classify_tier_rupture(old_tier, new_tier)
+		var pressure_transition: String = HiveDistressRules.classify_pressure_transition(
+			history_valid,
+			viewer_owner_id,
+			old_owner_id,
+			new_owner_id,
+			old_power,
+			new_power,
+			bool(hive.get("hostile_capture_pressure", false))
+		)
+		var play_pressure_entry: bool = (
+			pressure_transition == HiveDistressRules.PRESSURE_TRIGGER
+			and burst_kind == HiveDistressRules.BURST_NONE
+		)
+		var surge_delay: float = 0.0
+		if burst_kind != HiveDistressRules.BURST_NONE:
+			var profile: Dictionary = HiveDistressRules.profile_for_burst(burst_kind)
+			surge_delay = float(profile.get("critical_handoff_sec", 0.0))
+		elif play_pressure_entry:
+			surge_delay = HiveDistressRules.CRITICAL_ENTRY_HANDOFF_SEC
+		contexts[hive_id] = {
+			"burst_kind": burst_kind,
+			"pressure_transition": pressure_transition,
+			"play_pressure_entry": play_pressure_entry,
+			"critical_surge_delay": surge_delay,
+			"history_valid": history_valid,
+			"reset_transients": pressure_transition == HiveDistressRules.PRESSURE_RESET,
+			"old_power": old_power,
+			"new_power": new_power,
+			"old_tier": old_tier,
+			"new_tier": new_tier,
+			"old_owner_id": old_owner_id,
+			"new_owner_id": new_owner_id
+		}
+	return contexts
+
 func _commit_growth_projection(rm: Dictionary) -> void:
 	if not _is_canonical_growth_model(rm):
 		return
@@ -698,10 +783,13 @@ func _commit_growth_projection(rm: Dictionary) -> void:
 		)
 		next_projection[hive_id] = {
 			"tier": tier,
-			"lane_budget_max": int(hive.get("lane_budget_max", tier))
+			"lane_budget_max": int(hive.get("lane_budget_max", tier)),
+			"owner_id": _owner_id_for_hive_model(hive),
+			"power": int(hive.get("pwr", hive.get("power", 0)))
 		}
 	_growth_projection_by_id = next_projection
 	_growth_model_iid = int(rm.get("iid", -1))
+	_presentation_viewer_owner_id = int(rm.get("viewer_owner_id", 0))
 	_growth_history_armed = true
 
 func _is_canonical_growth_model(rm: Dictionary) -> bool:
@@ -718,6 +806,12 @@ func _reset_growth_history() -> void:
 	_growth_projection_by_id.clear()
 	_growth_history_armed = false
 	_growth_model_iid = -1
+	_presentation_viewer_owner_id = -1
+
+func _owner_id_for_hive_model(hive: Dictionary) -> int:
+	if hive.has("owner"):
+		return MapSchema.owner_to_owner_id(str(hive.get("owner", "")))
+	return int(hive.get("owner_id", 0))
 
 func _growth_motion_mode() -> String:
 	if not animations_enabled:
@@ -789,7 +883,8 @@ func get_growth_debug_snapshot() -> Dictionary:
 
 func get_distress_debug_snapshot() -> Dictionary:
 	var active_count: int = 0
-	var imminent_count: int = 0
+	var pressure_count: int = 0
+	var rupture_count: int = 0
 	var max_child_count: int = 0
 	var by_hive: Dictionary = {}
 	for hive_id_any in hive_nodes_by_id.keys():
@@ -801,12 +896,16 @@ func get_distress_debug_snapshot() -> Dictionary:
 		var state_name: String = str(snapshot.get("state", "normal"))
 		if state_name != "normal":
 			active_count += 1
-		if state_name == "imminent":
-			imminent_count += 1
+		if bool(snapshot.get("pressure_active", false)):
+			pressure_count += 1
+		if str(snapshot.get("burst_kind", "none")) != HiveDistressRules.BURST_NONE:
+			rupture_count += 1
 		max_child_count = maxi(max_child_count, int(snapshot.get("child_count", 0)))
 	return {
 		"active_count": active_count,
-		"imminent_count": imminent_count,
+		"pressure_count": pressure_count,
+		"critical_count": pressure_count,
+		"rupture_count": rupture_count,
 		"hive_count": by_hive.size(),
 		"max_component_child_count": max_child_count,
 		"by_hive": by_hive

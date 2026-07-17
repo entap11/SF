@@ -36,7 +36,12 @@ func _initialize() -> void:
 	collector.record_unit_produced(1000, 1, 2, "lane")
 	collector.record_unit_arrival(2000, 2, 17, 1, 2, "enemy", "lane", 3)
 	collector.record_unit_death(3000, 2, 1, "tower_hit", 4)
+	collector.record_unit_arrival(3500, 1, 11, 1, 1, "friendly", "pass_through", 5)
+	collector.record_unit_arrival(3600, 1, 11, 1, 1, "friendly", "recall", 4)
+	collector.record_unit_arrival(3700, 1, 11, 1, 1, "friendly", "lane", 2)
+	collector.record_unit_arrival(3800, 1, 17, 2, 1, "enemy", "lane", 1)
 	collector.record_action_event(1200, 1, "lane_open_attack", {"lane_id": 7, "src": 11, "dst": 12, "src_owner": 1, "dst_owner": 2})
+	collector.record_action_event(1250, 1, "swarm_send", {"lane_id": 7, "src": 11, "dst": 12})
 	collector.record_intent_event(1200, 1, 11, 12, "attack", true, "", 7, {"src_power": 24, "src_budget": 2, "src_open_slots": 1})
 	collector.record_hive_damage(1500, 1, 2, 5)
 	collector.record_intent_event(4000, 2, 17, 99, "attack", false, "budget", -1, {"src_power": 10, "src_budget": 1, "src_open_slots": 0})
@@ -74,6 +79,7 @@ func _initialize() -> void:
 		"packet_dropped": 1
 	})
 	var model: Variant = collector.finalize_match(1, 60000)
+	collector.record_unit_arrival(61000, 2, 17, 1, 2, "enemy", "lane", 99)
 	if model == null:
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: missing model")
 		quit(1)
@@ -176,11 +182,21 @@ func _initialize() -> void:
 		quit(1)
 		return
 	var spawn_totals: Dictionary = totals.get("unit_spawn_by_player", {})
+	var capture_totals: Dictionary = totals.get("hive_captures_by_player", {})
+	var first_land_totals: Dictionary = totals.get("unit_first_land_by_player", {})
 	var land_enemy_totals: Dictionary = totals.get("unit_land_enemy_by_player", {})
 	var death_victim_totals: Dictionary = totals.get("unit_deaths_by_victim_player", {})
 	var death_killer_totals: Dictionary = totals.get("unit_deaths_by_killer_player", {})
 	if int(spawn_totals.get("1", 0)) != 2:
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: bad spawn totals %s" % str(spawn_totals))
+		quit(1)
+		return
+	if int(capture_totals.get("1", 0)) != 1 or int(capture_totals.get("2", 0)) != 1:
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: bad capture totals %s" % str(capture_totals))
+		quit(1)
+		return
+	if int(first_land_totals.get("1", 0)) != 3 or int(first_land_totals.get("2", 0)) != 3:
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: first-land totals should exclude pass-through, recall, and post-finalize arrivals %s" % str(first_land_totals))
 		quit(1)
 		return
 	if int(land_enemy_totals.get("2", 0)) != 3:
@@ -189,6 +205,13 @@ func _initialize() -> void:
 		return
 	if int(death_victim_totals.get("2", 0)) != 4 or int(death_killer_totals.get("1", 0)) != 4:
 		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: bad death totals victims=%s killers=%s" % [str(death_victim_totals), str(death_killer_totals)])
+		quit(1)
+		return
+	var captures_by_player: Array = metrics.get("hives_captured_by_player", [])
+	var first_landed_by_player: Array = metrics.get("units_first_landed_by_player", [])
+	var swarms_by_player: Array = metrics.get("total_swarms_sent_by_player", [])
+	if captures_by_player != [1, 1] or first_landed_by_player != [3, 3] or swarms_by_player != [1, 0]:
+		push_error("MATCH_TELEMETRY_HOOKS_SMOKE: canonical post-match arrays bad captures=%s first_landed=%s swarms=%s" % [str(captures_by_player), str(first_landed_by_player), str(swarms_by_player)])
 		quit(1)
 		return
 	var profile_store: Variant = PlayerTelemetryProfileStoreScript.new()

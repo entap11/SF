@@ -136,19 +136,74 @@ offset_right = 190.0
 offset_bottom = 34.0
 text = "GARAGE HERO"
 
-[node name="TurntableRow" type="HBoxContainer" parent="VBox/Body/PreviewPanel/PreviewVBox"]
+[node name="TurntableRow" type="VBoxContainer" parent="VBox/Body/PreviewPanel/PreviewVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Header" type="HBoxContainer" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="TurntableLabel" type="Label" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow"]
-layout_mode = 2
-text = "Inspect Angle"
-
-[node name="TurntableSlider" type="HSlider" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow"]
+[node name="TurntableLabel" type="Label" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/Header"]
 layout_mode = 2
 size_flags_horizontal = 3
-max_value = 68.0
-min_value = -68.0
+text = "Inspect Rotation · drag model for X/Y"
+
+[node name="ResetButton" type="Button" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/Header"]
+layout_mode = 2
+text = "RESET"
+
+[node name="AxisGrid" type="GridContainer" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow"]
+layout_mode = 2
+columns = 3
+theme_override_constants/h_separation = 8
+
+[node name="XAxis" type="VBoxContainer" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="Label" type="Label" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/XAxis"]
+layout_mode = 2
+text = "X · TILT"
+
+[node name="Slider" type="HSlider" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/XAxis"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -180.0
+max_value = 180.0
+step = 1.0
+
+[node name="YAxis" type="VBoxContainer" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="Label" type="Label" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/YAxis"]
+layout_mode = 2
+text = "Y · SPIN"
+
+[node name="Slider" type="HSlider" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/YAxis"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -180.0
+max_value = 180.0
+step = 1.0
+
+[node name="ZAxis" type="VBoxContainer" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="Label" type="Label" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/ZAxis"]
+layout_mode = 2
+text = "Z · ROLL"
+
+[node name="Slider" type="HSlider" parent="VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/ZAxis"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -180.0
+max_value = 180.0
 step = 1.0
 
 [node name="SelectedDesc" type="Label" parent="VBox/Body/PreviewPanel/PreviewVBox"]

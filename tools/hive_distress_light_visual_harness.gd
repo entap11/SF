@@ -1,6 +1,7 @@
 extends SceneTree
 
 const HiveRendererScript := preload("res://scripts/renderers/hive_renderer.gd")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 const ARTIFACT_DIR: String = "res://artifacts/hive_distress_light"
 
 var _renderer: Node2D = null
@@ -22,100 +23,99 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 
-	await _present_and_capture(
-		"01_normal_and_light_pressure",
-		"NORMAL + LIGHT PRESSURE — no distress expected",
-		[
-			_hive(1, 2.5, 4.5, 1, 20, false),
-			_hive(2, 11.0, 4.5, 1, 8, true),
-			_hive(3, 2.5, 13.5, 2, 2, true),
-			_hive(4, 11.0, 13.5, 0, 2, true)
-		]
-	)
-	await _present_and_capture(
-		"02_critical",
-		"CRITICAL — viewer hive, power 6, committed hostile unit",
-		[
-			_hive(1, 6.7, 8.5, 1, 6, true)
-		]
-	)
-	await _present_and_capture(
-		"03_imminent_dense",
-		"IMMINENT — viewer hive, power 2, dense traffic",
-		[
-			_hive(1, 6.7, 8.5, 1, 2, true)
-		]
-	)
-	await _present_and_capture(
-		"04_viewer_relative",
-		"VIEWER RELATIVE — only P1 should warn",
-		[
-			_hive(1, 2.5, 8.5, 1, 2, true),
-			_hive(2, 11.0, 8.5, 2, 2, true)
-		]
-	)
-	await _present_and_capture(
-		"05_multiple_critical",
-		"MULTIPLE VIEWER HIVES — bounded simultaneous effects",
-		[
-			_hive(1, 2.5, 4.5, 1, 6, true),
-			_hive(2, 11.0, 4.5, 1, 3, true),
-			_hive(3, 2.5, 13.5, 1, 2, true),
-			_hive(4, 11.0, 13.5, 2, 2, true)
-		]
-	)
+	_set_status("MINOR RUPTURE — large to medium")
+	await _begin_scenario([_hive(1, 6.7, 8.5, 1, 30, false)])
+	_set_hives([_hive(1, 6.7, 8.5, 1, 24, false)])
+	await process_frame
+	_set_debug_phase(1, 0.12)
+	_capture("01_minor_flash")
+	_set_debug_phase(1, 0.46)
+	_capture("02_minor_peak")
+
+	_set_status("MAJOR COLLAPSE — medium to small")
+	await _begin_scenario([_hive(1, 6.7, 8.5, 1, 11, false)])
+	_set_hives([_hive(1, 6.7, 8.5, 1, 9, false)])
+	await process_frame
+	_set_debug_phase(1, 0.12)
+	_capture("03_major_flash")
+	_set_debug_phase(1, 0.44)
+	_capture("04_major_peak")
+
+	_set_status("PRESSURE ENTRY — hostile 6 to 5")
+	await _begin_scenario([_hive(1, 6.7, 8.5, 1, 6, true)])
+	_set_hives([_hive(1, 6.7, 8.5, 1, 5, true)])
+	await process_frame
+	_set_debug_phase(1, 0.40)
+	_capture("05_pressure_entry")
+	_set_status("PRESSURE SURGE — bounded emission during active decline")
+	_set_debug_phase(1, 1.0, 0.48, 4)
+	_capture("06_pressure_strong_surge")
+
+	_set_status("VIEWER RELATIVE — only P1 receives pressure presentation")
+	await _begin_scenario([
+		_hive(1, 2.5, 8.5, 1, 6, true),
+		_hive(2, 11.0, 8.5, 2, 6, true)
+	])
+	_set_hives([
+		_hive(1, 2.5, 8.5, 1, 5, true),
+		_hive(2, 11.0, 8.5, 2, 5, true)
+	])
+	await process_frame
+	_capture("07_viewer_relative")
+
+	_set_status("MULTIPLE DECLINING HIVES — bounded simultaneous effects")
+	await _begin_scenario([
+		_hive(1, 2.5, 4.5, 1, 6, true),
+		_hive(2, 11.0, 4.5, 1, 6, true),
+		_hive(3, 2.5, 13.5, 1, 6, true),
+		_hive(4, 11.0, 13.5, 2, 6, true)
+	])
+	_set_hives([
+		_hive(1, 2.5, 4.5, 1, 5, true),
+		_hive(2, 11.0, 4.5, 1, 4, true),
+		_hive(3, 2.5, 13.5, 1, 3, true),
+		_hive(4, 11.0, 13.5, 2, 3, true)
+	])
+	await process_frame
+	for hive_id in [1, 2, 3]:
+		_set_debug_phase(hive_id, -1.0, 0.52, 4)
+	_capture("08_multiple_pressure")
 
 	_renderer.set("animations_enabled", false)
-	await _present_and_capture(
-		"06_static_motion_mode",
-		"GPU/ANIMATION REDUCED — static localized warning",
-		[
-			_hive(1, 6.7, 8.5, 1, 2, true)
-		]
-	)
+	_set_status("ANIMATION DISABLED — static active-pressure treatment")
+	await _begin_scenario([_hive(1, 6.7, 8.5, 1, 6, true)])
+	_set_hives([_hive(1, 6.7, 8.5, 1, 5, true)])
+	await process_frame
+	_capture("09_static_motion_mode")
 	_renderer.set("animations_enabled", true)
 
-	_set_status("CAPTURE PRECEDENCE — distress must cut out")
-	_set_hives([_hive(1, 6.7, 8.5, 1, 2, true)])
-	await create_timer(0.24).timeout
+	_set_status("CAPTURE PRECEDENCE — pressure clears immediately")
+	await _begin_scenario([_hive(1, 6.7, 8.5, 1, 6, true)])
+	_set_hives([_hive(1, 6.7, 8.5, 1, 5, true)])
+	await process_frame
 	_set_hives([_hive(1, 6.7, 8.5, 2, 1, true)])
 	await process_frame
-	_capture("07_capture_precedence")
+	_capture("10_capture_precedence")
 
-	_set_status("RECOVERY — residual fade at 90 ms")
-	_set_hives([_hive(1, 6.7, 8.5, 1, 2, true)])
-	await create_timer(0.24).timeout
-	_set_hives([_hive(1, 6.7, 8.5, 1, 7, false)])
-	await create_timer(0.09).timeout
-	_capture("08_recovery_fade")
-	await create_timer(0.16).timeout
-	_capture("09_recovery_clear")
-
-	await _present_and_capture(
-		"10_anchor_geometry_only",
-		"GEOMETRY ONLY — noncanonical tier anchor alignment review",
-		[
-			_hive(1, 2.5, 8.5, 1, 2, true, 1),
-			_hive(2, 6.7, 8.5, 1, 2, true, 2),
-			_hive(3, 11.0, 8.5, 1, 2, true, 3)
-		]
-	)
+	_set_status("STABLE LOW POWER — bounded hold fully clears")
+	await _begin_scenario([_hive(1, 6.7, 8.5, 1, 6, true)])
+	_set_hives([_hive(1, 6.7, 8.5, 1, 5, true)])
+	await process_frame
+	_set_hives([_hive(1, 6.7, 8.5, 1, 5, true)])
+	await create_timer(0.90).timeout
+	_capture("11_stable_low_cleared")
 
 	print("HIVE_DISTRESS_LIGHT_VISUAL_HARNESS: CAPTURED")
 	quit(0)
 
-func _present_and_capture(
-	filename: String,
-	status_text: String,
-	hives: Array[Dictionary]
-) -> void:
-	_set_status(status_text)
+
+func _begin_scenario(hives: Array[Dictionary]) -> void:
+	_iid += 1
 	_set_hives(hives)
-	await create_timer(0.28).timeout
-	_capture(filename)
+	await process_frame
+	await create_timer(0.14).timeout
 
 func _set_hives(hives: Array[Dictionary]) -> void:
-	_iid += 1
 	_renderer.call("set_model", {
 		"iid": _iid,
 		"cell_size": 64,
@@ -124,6 +124,24 @@ func _set_hives(hives: Array[Dictionary]) -> void:
 		"hives": hives,
 		"lanes": []
 	})
+
+func _set_debug_phase(
+	hive_id: int,
+	burst_progress: float,
+	surge_progress: float = -1.0,
+	pulse_index: int = 1
+) -> void:
+	var hive_node: Node = _renderer.call("get_hive_node_by_id", hive_id) as Node
+	if hive_node == null:
+		return
+	var component: Node = hive_node.get_node_or_null("Visual/FxLayer/HiveDistressLight")
+	if component != null and component.has_method("set_debug_presentation_phase"):
+		component.call(
+			"set_debug_presentation_phase",
+			burst_progress,
+			surge_progress,
+			pulse_index
+		)
 
 func _hive(
 	id: int,
@@ -172,7 +190,7 @@ func _build_background() -> void:
 		get_root().add_child(line)
 	var title := Label.new()
 	title.position = Vector2(42.0, 34.0)
-	title.text = "CRITICAL HIVE DISTRESS LIGHT"
+	title.text = "HIVE TIER RUPTURE / ACTIVE PRESSURE"
 	title.add_theme_font_size_override("font_size", 34)
 	title.add_theme_color_override("font_color", Color(0.90, 0.95, 1.0, 1.0))
 	get_root().add_child(title)
@@ -222,7 +240,14 @@ func _set_status(text: String) -> void:
 func _capture(filename: String) -> void:
 	var absolute_dir: String = ProjectSettings.globalize_path(ARTIFACT_DIR)
 	DirAccess.make_dir_recursive_absolute(absolute_dir)
-	var image: Image = get_root().get_texture().get_image()
+	var viewport_texture: ViewportTexture = get_root().get_texture()
+	if viewport_texture == null:
+		push_warning("HIVE_DISTRESS_LIGHT_VISUAL_HARNESS: capture unavailable for the active display driver")
+		return
+	var image: Image = viewport_texture.get_image()
+	if image == null:
+		push_warning("HIVE_DISTRESS_LIGHT_VISUAL_HARNESS: viewport returned no image")
+		return
 	var path: String = "%s/%s.png" % [absolute_dir, filename]
 	var error: Error = image.save_png(path)
 	if error != OK:

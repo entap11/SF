@@ -497,6 +497,7 @@ var _match_telemetry_collector: Variant = MatchTelemetryCollectorScript.new()
 var _match_analyzer: Variant = MatchAnalyzerScript.new()
 var _player_telemetry_profiles: Variant = PlayerTelemetryProfileStoreScript.new()
 var _post_match_analysis_summary: Dictionary = {}
+var _post_match_stats_snapshot: Dictionary = {}
 var _post_match_telemetry_path: String = ""
 var _telemetry_active: bool = false
 var _last_screen_pointer_ms: int = -1000000
@@ -4360,6 +4361,7 @@ func _start_match_sim(reason: String) -> void:
 		return
 	_match_started = true
 	_post_match_analysis_summary.clear()
+	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	_begin_match_telemetry_session(reason)
 	_prewarm_render_assets()
@@ -4446,6 +4448,7 @@ func _tutorial_first_ready_buff_slot_index() -> int:
 func _begin_match_telemetry_session(reason: String) -> void:
 	_telemetry_active = false
 	_post_match_analysis_summary.clear()
+	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	if state == null:
 		return
@@ -4524,6 +4527,11 @@ func _finalize_match_telemetry_session(winner_id_in: int) -> void:
 		_telemetry_active = false
 		return
 	var telemetry_model: Variant = _match_telemetry_collector.call("finalize_match", winner_id_in, end_utc_ms)
+	_post_match_stats_snapshot = _build_post_match_stats_snapshot(
+		telemetry_model,
+		winner_id_in,
+		maxi(0, int(OpsState.match_elapsed_ms)) if OpsState != null else 0
+	)
 	var summary_any: Variant = {}
 	if _match_analyzer != null and _match_analyzer.has_method("analyze"):
 		summary_any = _match_analyzer.call("analyze", telemetry_model, clampi(active_player_id, 1, 4))
@@ -4556,6 +4564,86 @@ func _finalize_match_telemetry_session(winner_id_in: int) -> void:
 		"save_path": _post_match_telemetry_path,
 		"profile_updated_player_ids": profile_result.get("updated_player_ids", [])
 	})
+
+func _build_post_match_stats_snapshot(telemetry_model: Variant, winner_id_in: int, duration_ms: int) -> Dictionary:
+	if telemetry_model == null or not (telemetry_model is Object):
+		return {}
+	var telemetry_object: Object = telemetry_model as Object
+	if not telemetry_object.has_method("to_dict"):
+		return {}
+	var payload_any: Variant = telemetry_object.call("to_dict")
+	if typeof(payload_any) != TYPE_DICTIONARY:
+		return {}
+	var payload: Dictionary = payload_any as Dictionary
+	var metadata_any: Variant = payload.get("metadata", {})
+	var metrics_any: Variant = payload.get("metrics", {})
+	if typeof(metadata_any) != TYPE_DICTIONARY or typeof(metrics_any) != TYPE_DICTIONARY:
+		return {}
+	var metadata: Dictionary = metadata_any as Dictionary
+	var metrics: Dictionary = metrics_any as Dictionary
+	var metric_players_any: Variant = metrics.get("players", [])
+	if typeof(metric_players_any) != TYPE_ARRAY:
+		return {}
+	var metric_players: Array = metric_players_any as Array
+	if metric_players.is_empty():
+		return {}
+	var roster_by_seat: Dictionary = {}
+	var roster_any: Variant = metadata.get("players", [])
+	if typeof(roster_any) == TYPE_ARRAY:
+		for roster_entry_any in roster_any as Array:
+			if typeof(roster_entry_any) != TYPE_DICTIONARY:
+				continue
+			var roster_entry: Dictionary = roster_entry_any as Dictionary
+			var roster_seat: int = int(roster_entry.get("seat", 0))
+			if roster_seat > 0:
+				roster_by_seat[roster_seat] = roster_entry
+	var player_index_any: Variant = metrics.get("player_index", {})
+	var player_index: Dictionary = player_index_any as Dictionary if typeof(player_index_any) == TYPE_DICTIONARY else {}
+	var players: Array[Dictionary] = []
+	var winner_team_id: int = _resolve_team_for_seat(winner_id_in) if winner_id_in > 0 else 0
+	for fallback_index in range(metric_players.size()):
+		var seat: int = int(metric_players[fallback_index])
+		if seat <= 0:
+			continue
+		var metric_index: int = int(player_index.get(str(seat), fallback_index))
+		var roster_entry: Dictionary = roster_by_seat.get(seat, {}) as Dictionary
+		var persistent_player_id: String = str(roster_entry.get("player_id", "")).strip_edges()
+		if persistent_player_id.is_empty():
+			persistent_player_id = "seat_%d" % seat
+		var is_cpu: bool = bool(roster_entry.get("is_cpu", false))
+		var display_name: String = str(roster_entry.get("display_name", "")).strip_edges()
+		if display_name.is_empty():
+			display_name = _display_name_for_seat(seat, persistent_player_id, is_cpu)
+		var team_id: int = _resolve_team_for_seat(seat)
+		players.append({
+			"seat": seat,
+			"player_id": persistent_player_id,
+			"display_name": display_name,
+			"team_id": team_id,
+			"is_local": bool(roster_entry.get("is_local", seat == active_player_id)),
+			"is_winner": winner_team_id > 0 and team_id == winner_team_id,
+			"hives_captured": _post_match_metric_int(metrics, "hives_captured_by_player", metric_index),
+			"units_created": _post_match_metric_int(metrics, "total_units_produced_by_player", metric_index),
+			"units_landed": _post_match_metric_int(metrics, "units_first_landed_by_player", metric_index),
+			"swarms_initiated": _post_match_metric_int(metrics, "total_swarms_sent_by_player", metric_index)
+		})
+	if players.is_empty():
+		return {}
+	return {
+		"schema_version": 1,
+		"match_instance_id": str(metadata.get("match_id", "")).strip_edges(),
+		"duration_ms": maxi(0, duration_ms),
+		"players": players
+	}.duplicate(true)
+
+func _post_match_metric_int(metrics: Dictionary, key: String, index: int) -> int:
+	var values_any: Variant = metrics.get(key, [])
+	if typeof(values_any) != TYPE_ARRAY:
+		return 0
+	var values: Array = values_any as Array
+	if index < 0 or index >= values.size():
+		return 0
+	return maxi(0, int(values[index]))
 
 func _poll_match_telemetry_async_save() -> void:
 	if _match_telemetry_collector == null or not _match_telemetry_collector.has_method("poll_async_save"):
@@ -5646,6 +5734,8 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 			outcome_overlay.call("show_tutorial_complete", winner_id_in, reason, active_player_id)
 		else:
 			outcome_overlay.show_outcome(winner_id_in, reason, active_player_id, record_text, h2h_text)
+			if outcome_overlay.has_method("set_post_match_stats"):
+				outcome_overlay.call("set_post_match_stats", _post_match_stats_snapshot.duplicate(true))
 		if not tutorial_section1_ended and not tutorial_controls_ended and outcome_overlay.has_method("set_post_match_summary"):
 			outcome_overlay.call("set_post_match_summary", _post_match_analysis_summary, winner_id_in, active_player_id)
 	else:
@@ -7010,6 +7100,7 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	end_reason = ""
 	_telemetry_active = false
 	_post_match_analysis_summary.clear()
+	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
 		_match_telemetry_collector.call("reset")
@@ -11339,6 +11430,7 @@ func _reset_sim_state() -> void:
 	_ctf_move_armed = false
 	_telemetry_active = false
 	_post_match_analysis_summary.clear()
+	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
 		_match_telemetry_collector.call("reset")

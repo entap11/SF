@@ -1697,7 +1697,7 @@ text = "SETTINGS"
 
 [node name="SettingsSub" type="Label" parent="DashPanel/DashSettingsPanel/SettingsVBox"]
 layout_mode = 2
-text = "Audio, performance, floor graphics, and profile"
+text = "Account, audio, graphics, and support"
 
 [node name="SettingsBody" type="Panel" parent="DashPanel/DashSettingsPanel/SettingsVBox"]
 layout_mode = 2
@@ -1708,7 +1708,7 @@ anchors_preset = 0
 
 [node name="SettingsClose" type="Button" parent="DashPanel/DashSettingsPanel/SettingsVBox"]
 layout_mode = 2
-text = "Close"
+text = "DONE"
 
 [node name="DashBadgesPanel" type="Panel" parent="DashPanel"]
 visible = false

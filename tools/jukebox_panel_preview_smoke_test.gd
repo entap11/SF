@@ -39,6 +39,14 @@ func _test_jukebox_preview_and_play_button_layout() -> bool:
 	var play_sprite: TextureRect = play_button.find_child("PlaySprite", true, false) as TextureRect
 	if play_sprite == null or play_sprite.texture == null:
 		return _fail("PlaySprite missing texture")
+	if not play_sprite.visible or play_sprite.self_modulate.a < 0.9:
+		return _fail("PlaySprite should be the visible PlayButton treatment")
+	var footer_button: Button = panel.get_node_or_null("FooterCloseButton") as Button
+	var footer_sprite: TextureRect = footer_button.get_node_or_null("MainMenuSprite") as TextureRect if footer_button != null else null
+	if footer_button == null or footer_sprite == null or footer_sprite.texture == null or not footer_sprite.visible:
+		return _fail("Footer Main Menu sprite missing")
+	if footer_button.custom_minimum_size.y < 64.0:
+		return _fail("Footer Main Menu action is below the 64-unit touch floor")
 	if play_button.text != "PLAY":
 		return _fail("PlayButton should use readable PLAY text")
 	if play_button.get_theme_font_size("font_size") < 42:

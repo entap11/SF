@@ -18,15 +18,20 @@ const RING_STAGGER_SEC: float = 0.105
 const RING_LIFETIME_SEC: float = 0.250
 const SETTLE_SEC: float = 0.160
 const REDUCED_RING_SEC: float = 0.145
-const RING_START_WIDTH_SCALE: float = 0.96
-const RING_END_WIDTH_SCALE: float = 1.08
-const RING_FOOTPRINT_WIDTH_SCALE: float = 1.04
-const RING_FOOTPRINT_HEIGHT_SCALE: float = 0.44
-const RING_MIN_HEIGHT_PX: float = 34.0
-const RING_MAX_HEIGHT_PX: float = 58.0
+const RING_START_WIDTH_SCALE: float = 0.98
+const RING_END_WIDTH_SCALE: float = 1.12
+const RING_FOOTPRINT_WIDTH_SCALE: float = 1.38
+const RING_FOOTPRINT_HEIGHT_SCALE: float = 0.52
+const RING_MIN_HEIGHT_PX: float = 40.0
+const RING_MAX_HEIGHT_PX: float = 68.0
 const RING_VERTICAL_PAD_PX: float = 3.0
-const RING_CORE_LINE_WIDTH_PX: float = 1.65
+const RING_SHADER_RADIUS: float = 0.72
+const RING_SHADER_CORE_OUTER: float = 0.080
+const RING_CORE_LINE_WIDTH_PX: float = 2.60
 const RING_CORE_ARC_SEGMENTS: int = 24
+const RING_REAR_INTENSITY: float = 0.82
+const RING_FRONT_INTENSITY: float = 1.00
+const FINAL_RING_INTENSITY_MULTIPLIER: float = 1.15
 const PORT_CONFIRM_SEC: float = 0.240
 
 var _old_sprite: Sprite2D = null
@@ -43,6 +48,7 @@ var _ring_start_y: float = 0.0
 var _ring_end_y: float = 0.0
 var _ring_width: float = 80.0
 var _ring_height: float = 20.0
+var _configured_bounds: Vector2 = Vector2.ZERO
 var _active: bool = false
 var _mode: String = "none"
 var _old_tier: int = 0
@@ -106,7 +112,7 @@ func play(
 	_active = true
 	_reveal_event_emitted = false
 	_pending_port_entry = port_entry.duplicate()
-	_ring_count = clampi(new_tier, 2, MAX_RING_COUNT)
+	_ring_count = 1 if mode == "reduced" else clampi(new_tier, 2, MAX_RING_COUNT)
 	_final_ring_index = _ring_count - 1
 	var bounds := Vector2(
 		maxf(_captured_old_size.x, final_size.x),
@@ -167,10 +173,15 @@ func is_active() -> bool:
 
 func get_debug_snapshot() -> Dictionary:
 	var visible_rings: int = 0
+	var material_instance_ids: Array[int] = []
 	for slot in _ring_slots:
 		var root: Node2D = slot.get("root", null) as Node2D
 		if root != null and root.visible:
 			visible_rings += 1
+		for key in ["rear_material", "front_material"]:
+			var ring_material: ShaderMaterial = slot.get(key, null) as ShaderMaterial
+			if ring_material != null:
+				material_instance_ids.append(ring_material.get_instance_id())
 	return {
 		"active": _active,
 		"old_tier": _old_tier,
@@ -180,8 +191,39 @@ func get_debug_snapshot() -> Dictionary:
 		"final_ring_index": _final_ring_index,
 		"reveal_started": _reveal_event_emitted,
 		"old_proxy_visible": _old_sprite != null and _old_sprite.visible,
+		"ring_width": _ring_width,
+		"ring_height": _ring_height,
+		"configured_bounds": _configured_bounds,
+		"bright_outer_width_ratio": (
+			(_ring_width * (RING_SHADER_RADIUS + RING_SHADER_CORE_OUTER))
+			/ _configured_bounds.x
+			if _configured_bounds.x > 0.0
+			else 0.0
+		),
+		"core_line_width": RING_CORE_LINE_WIDTH_PX,
+		"rear_intensity": RING_REAR_INTENSITY,
+		"front_intensity": RING_FRONT_INTENSITY,
+		"final_ring_intensity_multiplier": FINAL_RING_INTENSITY_MULTIPLIER,
+		"rear_z_index": -22,
+		"front_z_index": -7,
+		"material_instance_ids": material_instance_ids,
+		"material_count": material_instance_ids.size(),
 		"child_count": get_child_count()
 	}
+
+func set_debug_ring_phase(index: int, progress: float) -> void:
+	if index < 0 or index >= _ring_slots.size():
+		return
+	_kill_tweens()
+	for slot in _ring_slots:
+		var slot_root: Node2D = slot.get("root", null) as Node2D
+		if slot_root != null:
+			slot_root.visible = false
+	var root: Node2D = (_ring_slots[index] as Dictionary).get("root", null) as Node2D
+	if root == null:
+		return
+	root.visible = true
+	_set_ring_progress(clampf(progress, 0.0, 0.999), index)
 
 func confirm_port_entry(port_entry: Dictionary) -> void:
 	_capture_port_entry(port_entry)
@@ -197,8 +239,6 @@ func _play_full() -> void:
 	_timeline_tween.tween_callback(_finish)
 
 func _play_reduced() -> void:
-	_ring_count = 1
-	_final_ring_index = 0
 	_launch_ring_tween(0, 0.0, REDUCED_RING_SEC)
 	_timeline_tween = create_tween()
 	_timeline_tween.tween_interval(REDUCED_RING_SEC)
@@ -241,8 +281,8 @@ func _set_ring_progress(progress: float, index: int) -> void:
 	var travel_t: float = smoothstep(0.0, 1.0, t)
 	root.position.y = lerpf(_ring_start_y, _ring_end_y, travel_t)
 	root.scale.x = lerpf(RING_START_WIDTH_SCALE, RING_END_WIDTH_SCALE, t)
-	var fade_in: float = smoothstep(0.0, 0.12, t)
-	var fade_out: float = 1.0 - smoothstep(0.58, 0.84, t)
+	var fade_in: float = smoothstep(0.0, 0.10, t)
+	var fade_out: float = 1.0 - smoothstep(0.66, 0.92, t)
 	root.modulate.a = pow(maxf(0.0, fade_in * fade_out), 0.72)
 	if index == _final_ring_index:
 		_set_old_reveal_progress(smoothstep(0.02, 0.98, t))
@@ -303,6 +343,7 @@ func _set_old_reveal_progress(progress: float) -> void:
 	_old_sprite.visible = true
 
 func _configure_geometry(bounds: Vector2, center: Vector2) -> void:
+	_configured_bounds = bounds
 	_ring_width = maxf(48.0, bounds.x * RING_FOOTPRINT_WIDTH_SCALE)
 	_ring_height = clampf(bounds.x * RING_FOOTPRINT_HEIGHT_SCALE, RING_MIN_HEIGHT_PX, RING_MAX_HEIGHT_PX)
 	_ring_start_y = center.y + (bounds.y * 0.47) - RING_VERTICAL_PAD_PX
@@ -324,12 +365,26 @@ func _configure_colors(owner_color: Color) -> void:
 	var shoulder := Color(1.0, 0.94, 0.76, 1.0)
 	var fringe := owner_color.lerp(Color(1.0, 0.84, 0.48, 1.0), 0.78)
 	fringe.a = 1.0
-	for slot in _ring_slots:
+	for index in range(_ring_slots.size()):
+		var slot: Dictionary = _ring_slots[index]
+		var final_multiplier: float = (
+			FINAL_RING_INTENSITY_MULTIPLIER if index == _final_ring_index else 1.0
+		)
 		for key in ["rear_material", "front_material"]:
 			var material: ShaderMaterial = slot.get(key, null) as ShaderMaterial
 			if material != null:
 				material.set_shader_parameter("shoulder_color", shoulder)
 				material.set_shader_parameter("fringe_color", fringe)
+				var arc_intensity: float = (
+					RING_REAR_INTENSITY if key == "rear_material" else RING_FRONT_INTENSITY
+				)
+				material.set_shader_parameter("intensity", arc_intensity * final_multiplier)
+		var rear_core: Line2D = slot.get("rear_core", null) as Line2D
+		if rear_core != null:
+			rear_core.default_color = Color(1.0, 0.965, 0.82, 0.62 * final_multiplier)
+		var front_core: Line2D = slot.get("front_core", null) as Line2D
+		if front_core != null:
+			front_core.default_color = Color(1.0, 0.995, 0.96, minf(1.0, final_multiplier))
 
 func _set_ring_quad(poly: Polygon2D, width: float, height: float) -> void:
 	if poly == null:
@@ -354,7 +409,7 @@ func _set_ring_core_arc(line: Line2D, width: float, height: float, front: bool) 
 	var points := PackedVector2Array()
 	var start_angle: float = 0.0 if front else PI
 	var end_angle: float = PI if front else TAU
-	var radius := Vector2(width, height) * 0.5 * 0.72
+	var radius := Vector2(width, height) * 0.5 * RING_SHADER_RADIUS
 	for i in range(RING_CORE_ARC_SEGMENTS + 1):
 		var t: float = float(i) / float(RING_CORE_ARC_SEGMENTS)
 		var angle: float = lerpf(start_angle, end_angle, t)
@@ -447,6 +502,7 @@ func _ensure_nodes() -> void:
 		var rear_material := ShaderMaterial.new()
 		rear_material.shader = RING_SHADER
 		rear_material.set_shader_parameter("front_arc", false)
+		rear_material.set_shader_parameter("intensity", RING_REAR_INTENSITY)
 		var rear := Polygon2D.new()
 		rear.name = "RearArc"
 		rear.z_index = -22
@@ -462,6 +518,7 @@ func _ensure_nodes() -> void:
 		var front_material := ShaderMaterial.new()
 		front_material.shader = RING_SHADER
 		front_material.set_shader_parameter("front_arc", true)
+		front_material.set_shader_parameter("intensity", RING_FRONT_INTENSITY)
 		var front := Polygon2D.new()
 		front.name = "FrontArc"
 		front.z_index = -7

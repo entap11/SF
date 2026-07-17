@@ -1,14 +1,14 @@
 extends SceneTree
 
-const GameStateScript := preload("res://scripts/state/game_state.gd")
-const HiveDataScript := preload("res://scripts/data/hive_data.gd")
+const HiveRendererScript := preload("res://scripts/renderers/hive_renderer.gd")
+const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 const ARTIFACT_DIR: String = "res://artifacts/hive_growth_transition"
 
-var _state: GameState = null
 var _renderer: Node2D = null
+var _background: ColorRect = null
+var _status: Label = null
+var _iid: int = 8100
 var _capture_once: bool = false
-var _slow_motion: bool = false
-var _status_label: Label = null
 
 func _init() -> void:
 	call_deferred("_run")
@@ -17,34 +17,59 @@ func _run() -> void:
 	_capture_once = "--capture" in OS.get_cmdline_user_args()
 	get_root().size = Vector2i(1080, 1920)
 	get_root().window_input.connect(_on_window_input)
-	_build_background()
-	_build_battlefield_overlays()
-	_build_fixture()
+	_build_stage()
+	_renderer = HiveRendererScript.new()
+	_renderer.name = "HiveRenderer"
+	_renderer.position = Vector2(30.0, 180.0)
+	get_root().add_child(_renderer)
+	_renderer.call("setup", null, null, null)
 	await process_frame
 	await process_frame
-	if _capture_once:
-		await _run_capture_sequence()
+	if not _capture_once:
+		_set_status("READY — 1 small→medium, 2 medium→large, 3 bright-field review, Esc exit")
 		return
-	_set_status("READY — choose a transition")
 
-func _run_capture_sequence() -> void:
-	_capture("baseline")
-	await create_timer(0.35).timeout
-	_authoritative_fixture_growth()
-	await create_timer(0.04).timeout
-	_capture("precharge")
-	await create_timer(0.09).timeout
-	_capture("first_ring")
-	await create_timer(0.10).timeout
-	_capture("overlapping_rings")
-	await create_timer(0.07).timeout
-	_capture("final_ring_reveal_start")
-	await create_timer(0.08).timeout
-	_capture("mid_reveal")
-	await create_timer(0.13).timeout
-	_capture("final_ring_clear")
-	await create_timer(0.20).timeout
-	_capture("settled")
+	_set_status("P1 SMALL → MEDIUM — first ring spawn")
+	await _begin_growth(1, 9, 10)
+	_set_ring_phase(0, 0.08)
+	await _capture("01_p1_small_medium_spawn")
+	_set_status("P1 SMALL → MEDIUM — first ring peak")
+	_set_ring_phase(0, 0.38)
+	await _capture("02_p1_small_medium_peak")
+	_set_status("P1 SMALL → MEDIUM — final reveal ring")
+	_set_ring_phase(1, 0.46)
+	await _capture("03_p1_small_medium_final")
+
+	_set_status("P2 MEDIUM → LARGE — three-ring final peak")
+	await _begin_growth(2, 24, 25)
+	_set_ring_phase(2, 0.46)
+	await _capture("04_p2_medium_large_final")
+
+	_background.color = Color(0.46, 0.50, 0.54, 1.0)
+	_set_status("BRIGHT BATTLEFIELD — emissive bands remain distinct")
+	await _begin_growth(1, 24, 25)
+	_set_ring_phase(2, 0.46)
+	await _capture("05_bright_battlefield_final")
+
+	_background.color = Color(0.018, 0.026, 0.045, 1.0)
+	_set_status("LOWER-COST PATH — one fixed reduced ring")
+	await _begin_growth(1, 9, 10)
+	var transition: Node = _transition()
+	if transition != null:
+		transition.call("cancel_and_reveal_final", "visual_harness_reduced", false)
+		transition.call(
+			"play",
+			Vector2(104.0, 126.0),
+			Vector2.ZERO,
+			Color(0.32, 0.74, 1.0, 1.0),
+			HiveGrowthRules.TIER_SMALL,
+			HiveGrowthRules.TIER_MEDIUM,
+			{},
+			"reduced"
+		)
+		transition.call("set_debug_ring_phase", 0, 0.46)
+	await _capture("06_reduced_motion_ring")
+
 	print("HIVE_GROWTH_TRANSITION_VISUAL_HARNESS: CAPTURED")
 	quit(0)
 
@@ -56,207 +81,117 @@ func _on_window_input(event: InputEvent) -> void:
 		return
 	match key.keycode:
 		KEY_1:
-			_trigger_small_to_medium()
+			_background.color = Color(0.018, 0.026, 0.045, 1.0)
+			_set_status("P1 SMALL → MEDIUM")
+			_begin_growth(1, 9, 10)
 		KEY_2:
-			_trigger_medium_to_large()
+			_background.color = Color(0.018, 0.026, 0.045, 1.0)
+			_set_status("P2 MEDIUM → LARGE")
+			_begin_growth(2, 24, 25)
 		KEY_3:
-			_trigger_small_to_large()
-		KEY_R:
-			_reset_all()
-		KEY_SPACE:
-			_repeat_all()
-		KEY_S:
-			_toggle_slow_motion()
+			_background.color = Color(0.46, 0.50, 0.54, 1.0)
+			_set_status("BRIGHT BATTLEFIELD — P1 MEDIUM → LARGE")
+			_begin_growth(1, 24, 25)
 		KEY_ESCAPE:
-			Engine.time_scale = 1.0
 			quit(0)
 
-func _build_background() -> void:
-	var background := ColorRect.new()
-	background.name = "Background"
-	background.position = Vector2.ZERO
-	background.size = Vector2(1080.0, 1920.0)
-	background.color = Color(0.025, 0.032, 0.048, 1.0)
-	background.z_index = -100
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	get_root().add_child(background)
-	for x in range(0, 1081, 64):
-		var grid_line := Line2D.new()
-		grid_line.points = PackedVector2Array([Vector2(x, 190), Vector2(x, 1740)])
-		grid_line.width = 1.0
-		grid_line.default_color = Color(0.16, 0.24, 0.34, 0.14)
-		grid_line.z_index = -90
-		get_root().add_child(grid_line)
-	for y in range(190, 1741, 64):
-		var grid_line := Line2D.new()
-		grid_line.points = PackedVector2Array([Vector2(0, y), Vector2(1080, y)])
-		grid_line.width = 1.0
-		grid_line.default_color = Color(0.16, 0.24, 0.34, 0.14)
-		grid_line.z_index = -90
-		get_root().add_child(grid_line)
-	var title := Label.new()
-	title.position = Vector2(48.0, 48.0)
-	title.text = "HIVE GROWTH — ENERGY RING REVIEW"
-	title.add_theme_font_size_override("font_size", 32)
-	title.add_theme_color_override("font_color", Color(0.88, 0.94, 1.0, 1.0))
-	get_root().add_child(title)
-	var controls := Label.new()
-	controls.position = Vector2(50.0, 98.0)
-	controls.text = "1 Small→Medium   2 Medium→Large   3 Small→Large   R Reset   Space Repeat all   S 0.25×   Esc Exit"
-	controls.add_theme_font_size_override("font_size", 20)
-	controls.add_theme_color_override("font_color", Color(0.62, 0.76, 0.88, 1.0))
-	get_root().add_child(controls)
-	_status_label = Label.new()
-	_status_label.position = Vector2(50.0, 138.0)
-	_status_label.add_theme_font_size_override("font_size", 18)
-	_status_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.48, 1.0))
-	get_root().add_child(_status_label)
+func _begin_growth(owner_id: int, old_power: int, new_power: int) -> void:
+	_iid += 1
+	_set_model(owner_id, old_power)
+	await process_frame
+	await create_timer(0.06).timeout
+	_set_model(owner_id, new_power)
+	await process_frame
 
-func _build_battlefield_overlays() -> void:
-	var lanes: Array[PackedVector2Array] = [
-		PackedVector2Array([Vector2(300, 530), Vector2(650, 790)]),
-		PackedVector2Array([Vector2(650, 790), Vector2(330, 1260)]),
-		PackedVector2Array([Vector2(330, 1260), Vector2(760, 1450)])
-	]
-	for i in range(lanes.size()):
-		var lane := Line2D.new()
-		lane.name = "RepresentativeLane_%d" % i
-		lane.points = lanes[i]
-		lane.width = 18.0
-		lane.default_color = Color(0.22, 0.52, 0.76, 0.26)
-		lane.z_index = -40
-		get_root().add_child(lane)
-		var lane_core := Line2D.new()
-		lane_core.points = lanes[i]
-		lane_core.width = 3.0
-		lane_core.default_color = Color(0.52, 0.82, 1.0, 0.54)
-		lane_core.z_index = -39
-		get_root().add_child(lane_core)
-	for position in [Vector2(460, 650), Vector2(555, 735), Vector2(500, 1030), Vector2(435, 1165)]:
-		var unit := Polygon2D.new()
-		unit.position = position
-		unit.polygon = PackedVector2Array([
-			Vector2(0, -8), Vector2(7, 5), Vector2(0, 9), Vector2(-7, 5)
-		])
-		unit.color = Color(0.72, 0.90, 1.0, 0.92)
-		unit.z_index = -10
-		get_root().add_child(unit)
-
-func _build_fixture() -> void:
-	_state = GameStateScript.new()
-	_state.hives = [
-		HiveDataScript.new(1, Vector2i(3, 6), 1, 9),
-		HiveDataScript.new(2, Vector2i(8, 11), 2, 24),
-		HiveDataScript.new(3, Vector2i(3, 17), 3, 9)
-	]
-	var renderer_script: Script = load("res://scripts/renderers/hive_renderer.gd") as Script
-	if renderer_script == null:
-		push_error("HIVE_GROWTH_TRANSITION_VISUAL_HARNESS: renderer script failed to load")
-		quit(1)
-		return
-	_renderer = renderer_script.new()
-	_renderer.name = "HiveRenderer"
-	_renderer.position = Vector2(130.0, 110.0)
-	_renderer.z_index = 10
-	get_root().add_child(_renderer)
-	_renderer.setup(_state, null, null)
-	_push_authoritative_model()
-
-func _trigger_small_to_medium() -> void:
-	_set_power(1, 9)
-	_push_authoritative_model()
-	_set_power(1, 10)
-	_push_authoritative_model()
-	_set_status("SMALL → MEDIUM — two rings")
-
-func _trigger_medium_to_large() -> void:
-	_set_power(2, 24)
-	_push_authoritative_model()
-	_set_power(2, 25)
-	_push_authoritative_model()
-	_set_status("MEDIUM → LARGE — three rings")
-
-func _trigger_small_to_large() -> void:
-	_set_power(3, 9)
-	_push_authoritative_model()
-	_set_power(3, 25)
-	_push_authoritative_model()
-	_set_status("SMALL → LARGE — three rings")
-
-func _repeat_all() -> void:
-	_reset_all()
-	call_deferred("_authoritative_fixture_growth")
-	_set_status("ALL TRANSITIONS")
-
-func _reset_all() -> void:
-	_authoritative_fixture_reset()
-	_set_status("RESET")
-
-func _toggle_slow_motion() -> void:
-	_slow_motion = not _slow_motion
-	Engine.time_scale = 0.25 if _slow_motion else 1.0
-	_set_status("SLOW MOTION 0.25×" if _slow_motion else "NORMAL SPEED")
-
-func _authoritative_fixture_growth() -> void:
-	_set_power(1, 10)
-	_set_power(2, 25)
-	_set_power(3, 25)
-	_push_authoritative_model()
-
-func _authoritative_fixture_reset() -> void:
-	_set_power(1, 9)
-	_set_power(2, 24)
-	_set_power(3, 9)
-	_push_authoritative_model()
-
-func _set_power(hive_id: int, power: int) -> void:
-	var hive: HiveData = _state.find_hive_by_id(hive_id)
-	if hive != null:
-		hive.power = power
-
-func _push_authoritative_model() -> void:
-	var hives: Array[Dictionary] = []
-	for hive_any in _state.hives:
-		var hive: HiveData = hive_any as HiveData
-		var tier: int = int(_state.lanes_allowed_for_power(int(hive.power)))
-		hives.append({
-			"id": int(hive.id),
-			"x": float(hive.grid_pos.x),
-			"y": float(hive.grid_pos.y),
-			"owner_id": int(hive.owner_id),
-			"pwr": int(hive.power),
-			"growth_tier": tier,
-			"lane_budget_used": 0,
-			"lane_budget_max": tier,
-			"kind": "Hive"
-		})
-	_renderer.set_model({
-		"iid": int(_state.get_instance_id()),
+func _set_model(owner_id: int, power: int) -> void:
+	var tier: int = HiveGrowthRules.tier_for_power(power)
+	_renderer.call("set_model", {
+		"iid": _iid,
 		"cell_size": 64,
 		"sim_running": true,
-		"hives": hives,
+		"viewer_owner_id": 1,
+		"hives": [{
+			"id": 1,
+			"x": 7.6,
+			"y": 12.0,
+			"owner_id": owner_id,
+			"pwr": power,
+			"growth_tier": tier,
+			"lane_budget_used": 0,
+			"lane_budget_max": HiveGrowthRules.lane_budget_for_power(power),
+			"hostile_capture_pressure": false,
+			"kind": "Hive"
+		}],
 		"lanes": []
 	})
 
-func _set_status(text: String) -> void:
-	if _status_label != null:
-		_status_label.text = "%s    speed=%s" % [text, "0.25×" if _slow_motion else "1×"]
+func _transition() -> Node:
+	var hive: Node = _renderer.call("get_hive_node_by_id", 1) as Node
+	if hive == null:
+		return null
+	return hive.get_node_or_null("Visual/FxLayer/HiveGrowthTransition")
 
-func _capture(label: String) -> void:
-	var debug_rows: Array = []
-	for hive_id in [1, 2, 3]:
-		var hive_node: Node = _renderer.call("get_hive_node_by_id", hive_id)
-		if hive_node == null:
-			continue
-		debug_rows.append({
-			"hive_id": hive_id,
-			"growth": hive_node.call("get_growth_transition_debug_snapshot")
-		})
-	print("HIVE_GROWTH_CAPTURE_STATE ", label, " ", debug_rows)
+func _set_ring_phase(index: int, progress: float) -> void:
+	var transition: Node = _transition()
+	if transition != null and transition.has_method("set_debug_ring_phase"):
+		transition.call("set_debug_ring_phase", index, progress)
+
+func _build_stage() -> void:
+	_background = ColorRect.new()
+	_background.position = Vector2.ZERO
+	_background.size = Vector2(1080.0, 1920.0)
+	_background.color = Color(0.018, 0.026, 0.045, 1.0)
+	_background.z_index = -100
+	_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	get_root().add_child(_background)
+	for x in range(0, 1081, 64):
+		var vertical := Line2D.new()
+		vertical.points = PackedVector2Array([Vector2(x, 170), Vector2(x, 1840)])
+		vertical.width = 1.0
+		vertical.default_color = Color(0.18, 0.34, 0.50, 0.16)
+		vertical.z_index = -90
+		get_root().add_child(vertical)
+	for y in range(170, 1841, 64):
+		var horizontal := Line2D.new()
+		horizontal.points = PackedVector2Array([Vector2(0, y), Vector2(1080, y)])
+		horizontal.width = 1.0
+		horizontal.default_color = Color(0.18, 0.34, 0.50, 0.16)
+		horizontal.z_index = -90
+		get_root().add_child(horizontal)
+	var title := Label.new()
+	title.position = Vector2(42.0, 34.0)
+	title.text = "HIVE GROWTH-RING FIXED-PHASE HARNESS"
+	title.add_theme_font_size_override("font_size", 32)
+	title.add_theme_color_override("font_color", Color(0.90, 0.95, 1.0, 1.0))
+	get_root().add_child(title)
+	_status = Label.new()
+	_status.position = Vector2(44.0, 86.0)
+	_status.size = Vector2(990.0, 70.0)
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.add_theme_font_size_override("font_size", 22)
+	_status.add_theme_color_override("font_color", Color(1.0, 0.82, 0.40, 1.0))
+	get_root().add_child(_status)
+
+func _set_status(text: String) -> void:
+	if _status != null:
+		_status.text = text
+
+func _capture(filename: String) -> void:
+	await process_frame
 	var absolute_dir: String = ProjectSettings.globalize_path(ARTIFACT_DIR)
 	DirAccess.make_dir_recursive_absolute(absolute_dir)
-	var image: Image = get_root().get_texture().get_image()
-	var path: String = "%s/%s.png" % [absolute_dir, label]
-	var err: Error = image.save_png(path)
-	if err != OK:
-		push_error("HIVE_GROWTH_TRANSITION_VISUAL_HARNESS: capture failed %s (%d)" % [path, int(err)])
+	var viewport_texture: ViewportTexture = get_root().get_texture()
+	if viewport_texture == null:
+		push_warning("HIVE_GROWTH_TRANSITION_VISUAL_HARNESS: capture unavailable for the active display driver")
+		return
+	var image: Image = viewport_texture.get_image()
+	if image == null:
+		push_warning("HIVE_GROWTH_TRANSITION_VISUAL_HARNESS: viewport returned no image")
+		return
+	var path: String = "%s/%s.png" % [absolute_dir, filename]
+	var error: Error = image.save_png(path)
+	if error != OK:
+		push_error("HIVE_GROWTH_TRANSITION_VISUAL_HARNESS: capture failed %s (%d)" % [path, int(error)])
+	var transition: Node = _transition()
+	var debug: Dictionary = transition.call("get_debug_snapshot") as Dictionary if transition != null else {}
+	print("HIVE_GROWTH_CAPTURE ", filename, " ", debug)

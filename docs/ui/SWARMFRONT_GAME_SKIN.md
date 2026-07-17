@@ -69,6 +69,8 @@ Current mobile control floor: 64 authored units high
 Standard menu actions: 64–72
 Persistent or high-consequence actions: 88–112
 
+Swarmfront settings toggles use an 88-unit control height and a 112 × 56 visible track. The toggle control reserves at least 184 units of width for its ON/OFF label, spacing, and track. The 40-unit thumb changes position between states; gold is reinforcement, not the only state cue.
+
 These are Swarmfront authored-canvas values, not automatic numeric requirements for another title.
 
 ## Working palette

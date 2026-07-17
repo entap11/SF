@@ -7,8 +7,8 @@ func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	if not is_equal_approx(float(SimTuning.UNIT_SPEED_PX_PER_SEC), 176.4):
-		_fail("unit speed should be 5 percent above 168.0")
+	if not is_equal_approx(float(SimTuning.UNIT_SPEED_PX_PER_SEC), 194.04):
+		_fail("unit speed should be 10 percent above the prior 176.4")
 		return
 	var arena_source: String = FileAccess.get_file_as_string("res://scripts/arena.gd")
 	var input_source: String = FileAccess.get_file_as_string("res://scripts/systems/input_system.gd")

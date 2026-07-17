@@ -1,8 +1,11 @@
 extends SceneTree
 
 var _failed: bool = false
+const SETTINGS_POST_MATCH_STATS_ENABLED: String = "swarmfront/ui/post_match_stats_enabled"
 
 func _init() -> void:
+	var previous_stats_setting: Variant = ProjectSettings.get_setting(SETTINGS_POST_MATCH_STATS_ENABLED, false)
+	ProjectSettings.set_setting(SETTINGS_POST_MATCH_STATS_ENABLED, false)
 	get_root().size = Vector2i(944, 2048)
 	await process_frame
 	var overlay: OutcomeOverlay = OutcomeOverlay.new()
@@ -55,9 +58,36 @@ func _init() -> void:
 	_assert_true(_node_visible(overlay, "Panel/VBox/Buttons"), "wide outcome actions should use the two-column row")
 	_assert_true(not _node_visible(overlay, "Panel/VBox/StackedButtons"), "wide outcome actions should not use the narrow stack")
 
+	ProjectSettings.set_setting(SETTINGS_POST_MATCH_STATS_ENABLED, true)
+	overlay.call("set_post_match_stats", _sample_stats_snapshot())
+	await process_frame
+	_assert_true(_node_visible(overlay, "PostMatchStatsPanel"), "enabled standard outcome should show canonical match statistics")
+	_assert_eq(_label_text(overlay, "MatchLength"), "MATCH LENGTH   04:32", "authoritative match length")
+	_assert_true(overlay.find_child("PlayerComparisonTable", true, false) != null, "wide 1v1 should use a comparison table")
+	_assert_eq(_label_text(overlay, "Player1_hives_captured"), "7", "local hives captured")
+	_assert_eq(_label_text(overlay, "Player2_units_created"), "280", "opponent units created")
+	_assert_eq(_label_text(overlay, "Player1_units_landed"), "201", "local units landed")
+	_assert_eq(_label_text(overlay, "Player2_swarms_initiated"), "14", "opponent swarms initiated")
+	_assert_content_fits(overlay, "944x2048 standard stats result")
+	get_root().size = Vector2i(720, 1280)
+	overlay.call("_apply_readable_layout_for_size", Vector2(720.0, 1280.0))
+	overlay.call("set_post_match_stats", _four_player_stats_snapshot())
+	overlay.call("_apply_readable_layout_for_size", Vector2(720.0, 1280.0))
+	await process_frame
+	var player_cards: VBoxContainer = overlay.find_child("PlayerCards", true, false) as VBoxContainer
+	_assert_true(player_cards != null and player_cards.get_child_count() == 4, "four-player outcome should use four stacked cards")
+	_assert_true(player_cards != null and player_cards.get_child(0).name == "Player3Card", "local player card should sort first")
+	_assert_true(player_cards != null and player_cards.get_child(1).name == "Player2Card", "non-local winner should sort after the local player")
+	_assert_content_fits(overlay, "720x1280 four-player stats result")
+	get_root().size = Vector2i(944, 2048)
+	overlay.call("_apply_readable_layout")
+	await process_frame
+
 	_set_crucible_tree_meta()
 	overlay.show_outcome(1, "capture_all", 1)
+	overlay.call("set_post_match_stats", _sample_stats_snapshot())
 	await process_frame
+	_assert_true(not _node_visible(overlay, "PostMatchStatsPanel"), "Crucible must reject the standard stats component")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatsHeader"), "Wax Wager", "crucible header")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatMaxHivePower"), "Wax: start 50.000 Wax | after escrow 49.000 Wax | finish 51.000 Wax", "crucible balance status")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Stake 1.000 Wax | Winner payout 2.000 Wax | Burn 0.000 Wax | Net +1.000 Wax", "crucible stake status")
@@ -105,6 +135,7 @@ func _init() -> void:
 			"status_text": "Run stars: 7 / 72. Ready for the next stage?"
 		})
 	await process_frame
+	_assert_true(not _node_visible(overlay, "PostMatchStatsPanel"), "Progressive result must keep standard stats hidden")
 	_assert_eq(_label_text(overlay, "Panel/VBox/Title"), "GAUNTLET 2 OF 18", "progressive title")
 	_assert_eq(_label_text(overlay, "Panel/VBox/Result"), "STAGE RESULT: YOU WON", "progressive result")
 	_assert_eq(_label_text(overlay, "Panel/VBox/H2H"), "Run Stars: 7 / 72", "progressive running tally")
@@ -147,11 +178,56 @@ func _init() -> void:
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Payout pending until contest close (3/3 maps).", "paid stage payout pending")
 	_assert_content_fits(overlay, "944x2048 paid stage result")
 
+	ProjectSettings.set_setting(SETTINGS_POST_MATCH_STATS_ENABLED, previous_stats_setting)
+
 	if _failed:
 		quit(1)
 		return
 	print("OUTCOME_OVERLAY_SMOKE: PASS")
 	quit(0)
+
+func _sample_stats_snapshot() -> Dictionary:
+	return {
+		"schema_version": 1,
+		"match_instance_id": "outcome_smoke",
+		"duration_ms": 272000,
+		"players": [
+			{
+				"seat": 1,
+				"player_id": "local_smoke",
+				"display_name": "Local Pilot",
+				"team_id": 1,
+				"is_local": true,
+				"is_winner": true,
+				"hives_captured": 7,
+				"units_created": 312,
+				"units_landed": 201,
+				"swarms_initiated": 18
+			},
+			{
+				"seat": 2,
+				"player_id": "remote_smoke",
+				"display_name": "BUFFBOT WITH A VERY LONG NAME",
+				"team_id": 2,
+				"is_local": false,
+				"is_winner": false,
+				"hives_captured": 4,
+				"units_created": 280,
+				"units_landed": 176,
+				"swarms_initiated": 14
+			}
+		]
+	}
+
+func _four_player_stats_snapshot() -> Dictionary:
+	var snapshot: Dictionary = _sample_stats_snapshot()
+	snapshot["players"] = [
+		{"seat": 1, "display_name": "ALPHA", "team_id": 1, "is_local": false, "is_winner": false, "hives_captured": 2, "units_created": 210, "units_landed": 150, "swarms_initiated": 11},
+		{"seat": 2, "display_name": "BRAVO", "team_id": 2, "is_local": false, "is_winner": true, "hives_captured": 8, "units_created": 330, "units_landed": 245, "swarms_initiated": 22},
+		{"seat": 3, "display_name": "LOCAL", "team_id": 3, "is_local": true, "is_winner": false, "hives_captured": 5, "units_created": 290, "units_landed": 201, "swarms_initiated": 17},
+		{"seat": 4, "display_name": "DELTA WITH THE LONGEST NAME", "team_id": 4, "is_local": false, "is_winner": false, "hives_captured": 3, "units_created": 260, "units_landed": 188, "swarms_initiated": 15}
+	]
+	return snapshot
 
 func _build_overlay_children(overlay: Control) -> void:
 	var panel: Panel = Panel.new()

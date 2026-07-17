@@ -156,9 +156,9 @@ const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
 const HONEY_WIDGET_TOP_OFFSET: float = 10.0
 const TIER_WIDGET_LEFT_MARGIN: float = 8.0
 const TIER_WIDGET_TOP_OFFSET: float = 10.0
-const TIER_WIDGET_PANEL_WIDTH: float = 272.0
+const TIER_WIDGET_PANEL_WIDTH: float = 415.0
 const TIER_WIDGET_PANEL_HEIGHT: float = 200.0
-const MM_BACKGROUND_Y_SHIFT: float = -680.0
+const MM_BACKGROUND_Y_SHIFT: float = -655.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -1753,6 +1753,14 @@ func _input(event: InputEvent) -> void:
 		if not touch.pressed:
 			_finish_buff_drag(touch.position)
 
+func _unhandled_input(event: InputEvent) -> void:
+	if dash_settings_panel == null or not dash_settings_panel.visible:
+		return
+	if not event.is_action_pressed("ui_cancel"):
+		return
+	_on_dash_settings_close_pressed()
+	get_viewport().set_input_as_handled()
+
 func _apply_surface_hex_background_presets() -> void:
 	_apply_hex_background_preset(main_hex_background, StringName("dash"))
 	_apply_hex_background_preset(dash_buffs_background, StringName("dash"))
@@ -1939,17 +1947,18 @@ func _apply_settings_panel_layout() -> void:
 		settings_vbox.offset_top = inner_pad
 		settings_vbox.offset_right = -inner_pad
 		settings_vbox.offset_bottom = -inner_pad
+		settings_vbox.add_theme_constant_override("separation", 24)
 	var settings_title: Label = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsTitle") as Label
 	if settings_title != null:
-		UITypography.apply_font(settings_title, _font_semibold, 22)
+		UITypography.apply_token(settings_title, _font_semibold, "screen_title", UITypography.PORTRAIT_CANVAS_SCALE)
 		settings_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		settings_title.clip_text = true
-		settings_title.custom_minimum_size = Vector2(0.0, 32.0)
+		settings_title.clip_text = false
+		settings_title.custom_minimum_size = Vector2(0.0, 72.0)
 	var settings_sub: Label = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsSub") as Label
 	if settings_sub != null:
-		UITypography.apply_font(settings_sub, _font_regular, 15)
+		UITypography.apply_token(settings_sub, _font_regular, "panel_subtitle", UITypography.PORTRAIT_CANVAS_SCALE)
 		settings_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		settings_sub.custom_minimum_size = Vector2(0.0, 40.0)
+		settings_sub.custom_minimum_size = Vector2(0.0, 56.0)
 	var settings_body: Panel = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsBody") as Panel
 	if settings_body != null:
 		settings_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1961,8 +1970,9 @@ func _apply_settings_panel_layout() -> void:
 		profile_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var close_button: Button = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsClose") as Button
 	if close_button != null:
-		close_button.custom_minimum_size = Vector2(0.0, 52.0)
-		UITypography.apply_font(close_button, _font_regular, 16)
+		close_button.text = "DONE"
+		close_button.custom_minimum_size = Vector2(0.0, 96.0)
+		UITypography.apply_button_token(close_button, _font_semibold, "button", UITypography.PORTRAIT_CANVAS_SCALE, 96.0)
 
 func _apply_hive_panel_mobile_layout() -> void:
 	if dash_hive_panel == null:
@@ -2790,8 +2800,9 @@ func _style_panels() -> void:
 	_style_panel(dash_panel, DASH_PANEL_BG_COLOR, DASH_PANEL_BORDER_COLOR)
 	_style_panel(dash_match_panel, Color(0.07, 0.08, 0.1, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel(dash_badges_panel, Color(0.07, 0.08, 0.1, 0.9), Color(0.35, 0.36, 0.44, 0.6))
-	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_badges_panel_full, dash_settings_panel]:
+	for panel in [dash_stats_panel, dash_analysis_panel, dash_replay_panel, dash_buffs_panel, dash_badges_panel_full]:
 		_style_panel(panel, Color(0.06, 0.07, 0.1, 0.98), Color(0.45, 0.48, 0.58, 0.8))
+	_style_panel(dash_settings_panel, Color(0.06, 0.07, 0.1, 1.0), Color(0.45, 0.48, 0.58, 0.9))
 	_style_panel($DashPanel/DashStatsPanel/StatsVBox/StatsBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashAnalysisPanel/AnalysisVBox/AnalysisBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
 	_style_panel($DashPanel/DashReplayPanel/ReplayVBox/ReplayBody, Color(0.08, 0.09, 0.12, 0.9), Color(0.35, 0.36, 0.44, 0.6))
@@ -7084,9 +7095,9 @@ func _apply_top_safe_area_layout() -> void:
 	_apply_hero_panel_usable_top(usable_top)
 	if _jukebox_panel != null:
 		if _jukebox_panel.has_method("set_content_top_offset"):
-			_jukebox_panel.call("set_content_top_offset", usable_top)
+			_jukebox_panel.call("set_content_top_offset", inset)
 		elif _jukebox_panel.has_method("set_top_safe_inset"):
-			_jukebox_panel.call("set_top_safe_inset", usable_top)
+			_jukebox_panel.call("set_top_safe_inset", inset)
 
 func _apply_main_menu_surface_top(control: Control, usable_top: float) -> void:
 	if control == null:
@@ -8732,7 +8743,25 @@ func _crucible_skin_texture() -> Texture2D:
 		crop_bottom - crop_top
 	))
 	var cropped_texture: ImageTexture = ImageTexture.create_from_image(cropped_image)
-	_crucible_skin_cache = _key_black_to_alpha_texture(cropped_texture, 768, 256)
+	var keyed_texture: Texture2D = _key_black_to_alpha_texture(cropped_texture, 768, 256)
+	var keyed_image: Image = keyed_texture.get_image() if keyed_texture != null else null
+	if keyed_image == null or keyed_image.is_empty():
+		return null
+	# Human-match art uses a 3:2 source canvas with transparent space around its
+	# button band. Frame the tightly cropped Crucible band the same way so Godot's
+	# expand-icon sizing gives it the same visible footprint as 1V1 and CTF.
+	var framed_image: Image = Image.create(768, 512, false, Image.FORMAT_RGBA8)
+	framed_image.fill(Color(0.0, 0.0, 0.0, 0.0))
+	var framed_position := Vector2i(
+		(768 - keyed_image.get_width()) / 2,
+		(512 - keyed_image.get_height()) / 2
+	)
+	framed_image.blit_rect(
+		keyed_image,
+		Rect2i(0, 0, keyed_image.get_width(), keyed_image.get_height()),
+		framed_position
+	)
+	_crucible_skin_cache = ImageTexture.create_from_image(framed_image)
 	return _crucible_skin_cache
 
 func _apply_close_skin_to_button(button: Button) -> void:
@@ -12965,12 +12994,12 @@ func _apply_free_roll_scene_layout(panel: Panel) -> void:
 	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/MatchTypeLabel", 18.0, 28.0)
 	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HumanMatchesHeading", 58.0, 34.0)
 	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human1v1Button", 54.0, 110.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HumanCtfButton", 450.0, 110.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HumanHiddenCtfButton", 54.0, 286.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human2v2Button", 450.0, 286.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human3pFfaButton", 54.0, 462.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human4pFfaButton", 450.0, 462.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
-	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CrucibleButton", 252.0, 638.0, FREE_ROLL_CRUCIBLE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/CrucibleButton", 450.0, 110.0, FREE_ROLL_CRUCIBLE_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HumanCtfButton", 54.0, 286.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/HumanHiddenCtfButton", 450.0, 286.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human2v2Button", 54.0, 462.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human3pFfaButton", 450.0, 462.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
+	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/Human4pFfaButton", 252.0, 638.0, FREE_ROLL_HUMAN_BUTTON_SIZE)
 	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesHeading", 832.0, 34.0)
 	_set_free_roll_label_rect(panel, "EntryScroll/EntryBody/EntryCanvas/TimePuzzlesSubtext", 868.0, 30.0)
 	_set_free_roll_button_rect(panel, "EntryScroll/EntryBody/EntryCanvas/WeeklyButton", 54.0, 930.0, FREE_ROLL_CYCLE_BUTTON_SIZE)
@@ -13177,6 +13206,7 @@ func _layout_free_roll_game_hub_scene(panel: Panel) -> void:
 
 	var human_paths: Array[String] = [
 		"EntryScroll/EntryBody/EntryCanvas/Human1v1Button",
+		"EntryScroll/EntryBody/EntryCanvas/CrucibleButton",
 		"EntryScroll/EntryBody/EntryCanvas/HumanCtfButton",
 		"EntryScroll/EntryBody/EntryCanvas/HumanHiddenCtfButton",
 		"EntryScroll/EntryBody/EntryCanvas/Human2v2Button",
@@ -14001,7 +14031,6 @@ func _apply_crucible_button_skin(button: Button) -> void:
 		button.text = ""
 		button.set("expand_icon", true)
 		button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
-		_set_layout_driven_icon_width(button, GAME_HUB_CYCLE_ICON_MAX_WIDTH)
 		button.add_theme_constant_override("h_separation", 0)
 		_style_usd_sprite_button(button, true)
 		return
@@ -16021,19 +16050,26 @@ func _open_settings_panel() -> void:
 	_settings_direct_mode = true
 	_hide_dash_panels()
 	_set_dash_chrome_visible(false)
+	if _payout_proof_button != null:
+		_payout_proof_button.visible = false
 	_set_dash_offsets(0.0)
 	dash_panel.visible = true
 	dash_settings_panel.visible = true
 	_apply_settings_panel_layout()
+	_focus_settings_content()
 	_dash_open = true
 
 func _close_settings_panel() -> void:
 	_settings_direct_mode = false
 	dash_settings_panel.visible = false
 	_set_dash_chrome_visible(true)
+	if _payout_proof_button != null:
+		_payout_proof_button.visible = true
 	_set_dash_offsets(_dash_hidden_x)
 	dash_panel.visible = false
 	_dash_open = false
+	if menu_unused_button != null and menu_unused_button.is_visible_in_tree():
+		menu_unused_button.call_deferred("grab_focus")
 
 func _on_dash_store_close_pressed() -> void:
 	if _store_direct_mode:
@@ -16110,6 +16146,10 @@ func _open_dash_panel(panel: Panel) -> void:
 	_play_mm_base_drop_sfx()
 	_close_top_level_windows(UI_SURFACE_DASH)
 	_set_dash_chrome_visible(true)
+	if dash_tab != null:
+		dash_tab.visible = panel != dash_settings_panel
+	if _payout_proof_button != null:
+		_payout_proof_button.visible = panel != dash_settings_panel
 	_set_dash_panel_store_passthrough(panel == dash_store_panel)
 	if panel == dash_store_panel:
 		_apply_store_window_scale()
@@ -16123,6 +16163,7 @@ func _open_dash_panel(panel: Panel) -> void:
 	if panel == dash_settings_panel:
 		_apply_settings_panel_layout()
 		_refresh_dash_top_tabs()
+		_focus_settings_content()
 	if panel == _dash_scholastic_panel:
 		_refresh_dash_top_tabs()
 
@@ -16144,9 +16185,21 @@ func _close_dash_panel(panel: Panel) -> void:
 		_set_dash_panel_store_passthrough(false)
 	panel.visible = false
 	if panel == dash_settings_panel:
+		_set_dash_chrome_visible(true)
+		if _payout_proof_button != null:
+			_payout_proof_button.visible = true
 		_refresh_dash_top_tabs()
+		if dash_settings_tab != null and dash_settings_tab.is_visible_in_tree():
+			dash_settings_tab.call_deferred("grab_focus")
 	if panel == _dash_scholastic_panel:
 		_refresh_dash_top_tabs()
+
+func _focus_settings_content() -> void:
+	var profile_panel: Control = dash_settings_panel.get_node_or_null("SettingsVBox/SettingsBody/ProfilePanel") as Control if dash_settings_panel != null else null
+	if profile_panel != null and profile_panel.has_method("prepare_for_open"):
+		profile_panel.call("prepare_for_open")
+	if profile_panel != null and profile_panel.has_method("focus_default_control"):
+		profile_panel.call_deferred("focus_default_control")
 
 func _close_direct_replay_panel() -> void:
 	_stop_replay_playback()
@@ -16195,9 +16248,9 @@ func _ensure_jukebox_panel() -> void:
 			_jukebox_panel.visible = false
 			dash_panel.add_child(_jukebox_panel)
 			if _jukebox_panel.has_method("set_content_top_offset"):
-				_jukebox_panel.call("set_content_top_offset", _main_usable_top_px())
+				_jukebox_panel.call("set_content_top_offset", _top_safe_area_inset_px())
 			elif _jukebox_panel.has_method("set_top_safe_inset"):
-				_jukebox_panel.call("set_top_safe_inset", _main_usable_top_px())
+				_jukebox_panel.call("set_top_safe_inset", _top_safe_area_inset_px())
 			if _jukebox_panel.has_signal("closed"):
 				_jukebox_panel.connect("closed", func() -> void:
 					_close_jukebox_panel()

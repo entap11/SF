@@ -31,6 +31,15 @@ func _run() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: footer action does not clearly return to main menu")
 		quit(1)
 		return
+	var footer_sprite: TextureRect = footer_close.get_node_or_null("MainMenuSprite") as TextureRect
+	if footer_sprite == null or footer_sprite.texture == null or not footer_sprite.visible:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: Main Menu sprite is not wired into the footer action")
+		quit(1)
+		return
+	if footer_sprite.self_modulate.a < 0.9:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: Main Menu sprite is visually hidden")
+		quit(1)
+		return
 	if footer_close.custom_minimum_size.y < 88.0 or footer_close.get_theme_font_size("font_size") < 32:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button is not mobile-readable")
 		quit(1)
@@ -39,6 +48,19 @@ func _run() -> void:
 	var panel_rect: Rect2 = panel.get_global_rect()
 	if not panel_rect.encloses(footer_rect) or panel_rect.end.y - footer_rect.end.y > 40.0:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button is not persistently anchored at the bottom")
+		quit(1)
+		return
+	panel.call("set_content_top_offset", 32.0)
+	await process_frame
+	if not footer_close.get_global_rect().is_equal_approx(footer_rect):
+		push_error("JUKEBOX_PANEL_UI_SMOKE: moving Jukebox content changed the persistent footer anchor")
+		quit(1)
+		return
+	panel.call("set_content_top_offset", 0.0)
+	await process_frame
+	var main_menu_source: String = FileAccess.get_file_as_string("res://scripts/ui/main_menu.gd")
+	if main_menu_source.contains("_jukebox_panel.call(\"set_content_top_offset\", usable_top)") or main_menu_source.contains("_jukebox_panel.call(\"set_content_top_offset\", _main_usable_top_px())"):
+		push_error("JUKEBOX_PANEL_UI_SMOKE: Jukebox still reserves hidden Dashboard chrome")
 		quit(1)
 		return
 	var closed_events: Array[int] = []
@@ -59,6 +81,10 @@ func _run() -> void:
 		return
 	if brand_banner.custom_minimum_size.y < 130.0:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: brand banner art is too small")
+		quit(1)
+		return
+	if brand_banner.get_global_rect().position.y - panel_rect.position.y > 64.0:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: Jukebox content stack does not begin near the top safe area")
 		quit(1)
 		return
 	var play_any: Node = panel.find_child("PlayButton", true, false)
@@ -83,6 +109,10 @@ func _run() -> void:
 	var play_sprite: TextureRect = play_sprite_any as TextureRect
 	if play_sprite.texture == null:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: play sprite texture not applied")
+		quit(1)
+		return
+	if not play_sprite.visible or play_sprite.self_modulate.a < 0.9:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: play sprite is visually hidden")
 		quit(1)
 		return
 	if play_button.custom_minimum_size.y < 120.0:

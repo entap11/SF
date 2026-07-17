@@ -68,9 +68,20 @@ func _run() -> void:
 	_assert_button(panel, "EntryScroll/EntryBody/EntryCanvas/WeeklyButton", 360.0, 142.0, "weekly")
 	_assert_button(panel, "EntryScroll/EntryBody/EntryCanvas/CancelButton", 320.0, 116.0, "cancel")
 	var crucible_button: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/CrucibleButton") as Button
+	var one_v_one_button: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/Human1v1Button") as Button
+	var four_player_button: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/Human4pFfaButton") as Button
+	var time_puzzles_heading: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/TimePuzzlesHeading") as Label
 	var weekly_rect: Rect2 = (panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/WeeklyButton") as Button).get_rect()
 	if crucible_button == null or crucible_button.icon == null or not crucible_button.text.is_empty() or crucible_button.get_rect().intersects(weekly_rect):
 		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: Crucible button missing or overlaps weekly row")
+		quit(1)
+		return
+	if one_v_one_button == null or not is_equal_approx(crucible_button.position.y, one_v_one_button.position.y):
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: Crucible is not paired with 1V1")
+		quit(1)
+		return
+	if four_player_button == null or time_puzzles_heading == null or four_player_button.get_rect().end.y > time_puzzles_heading.position.y:
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: multiplayer grid overlaps Time Puzzles")
 		quit(1)
 		return
 	var crucible_image: Image = crucible_button.icon.get_image()
@@ -79,8 +90,8 @@ func _run() -> void:
 		quit(1)
 		return
 	var crucible_aspect: float = float(crucible_image.get_width()) / float(crucible_image.get_height())
-	if crucible_aspect < 2.4 or crucible_image.get_pixel(0, 0).a > 0.05:
-		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: Crucible art was not cropped/keyed for the button slot")
+	if crucible_aspect < 1.45 or crucible_aspect > 1.55 or crucible_image.get_pixel(0, 0).a > 0.05:
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: Crucible art was not normalized to the human-match frame")
 		quit(1)
 		return
 	var capture_path: String = OS.get_environment("SF_CRUCIBLE_CAPTURE_PATH")

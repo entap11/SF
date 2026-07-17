@@ -9,6 +9,7 @@ const HexSeamBackgroundScript := preload("res://ui/backgrounds/HexSeamBackground
 const CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/up_down_chevron.png"
 const SIDE_CHEVRON_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/Left_right_chevrons.png"
 const PLAY_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/play.png"
+const MAIN_MENU_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/Back.png"
 const BRAND_BANNER_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/signage_banner_reflect_red.tres"
 const SWARMFRONT_TITLE_SHADER_PATH := "res://ui/main_menu/swarmfront_title_forged.gdshader"
 const PAGE_SIZE: int = 3
@@ -93,6 +94,7 @@ const TOP_LIMIT: int = 50
 @onready var your_best_label: Label = $VBox/LeaderboardPanel/LeaderboardVBox/YourBest
 @onready var badge_note_label: Label = $VBox/LeaderboardPanel/LeaderboardVBox/BadgeNote
 @onready var footer_close_button: Button = $VBox/FooterCloseButton
+@onready var footer_close_sprite: TextureRect = $VBox/FooterCloseButton/MainMenuSprite
 @onready var root_vbox: VBoxContainer = $VBox
 
 var _font_regular: Font = null
@@ -101,6 +103,7 @@ var _swarmfront_title_shader: Shader = null
 var _chevron_texture: Texture2D = null
 var _side_chevron_texture: Texture2D = null
 var _play_texture: Texture2D = null
+var _main_menu_texture: Texture2D = null
 var _brand_banner_texture: Texture2D = null
 var _brand_banner_image: TextureRect = null
 var _jukebox_state = JukeboxStateScript.new()
@@ -383,6 +386,8 @@ func _load_fonts() -> void:
 		_side_chevron_texture = load(SIDE_CHEVRON_TEXTURE_PATH) as Texture2D
 	if ResourceLoader.exists(PLAY_TEXTURE_PATH):
 		_play_texture = load(PLAY_TEXTURE_PATH) as Texture2D
+	if ResourceLoader.exists(MAIN_MENU_TEXTURE_PATH):
+		_main_menu_texture = load(MAIN_MENU_TEXTURE_PATH) as Texture2D
 	if ResourceLoader.exists(BRAND_BANNER_TEXTURE_PATH):
 		_brand_banner_texture = load(BRAND_BANNER_TEXTURE_PATH) as Texture2D
 
@@ -469,6 +474,7 @@ func _style_controls() -> void:
 			_reparent_keep_owner(footer_close_button, self)
 		footer_close_button.visible = true
 		footer_close_button.text = "BACK TO MAIN MENU"
+		footer_close_button.tooltip_text = "Return to Main Menu"
 		footer_close_button.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 		footer_close_button.offset_left = 112.0
 		footer_close_button.offset_top = -136.0
@@ -663,7 +669,7 @@ func _refresh_map_list() -> void:
 	if not _selected_map_path.is_empty() and _entry_by_path(_selected_map_path).is_empty() and not visible_entries.is_empty():
 		_selected_map_path = str(visible_entries[0].get("path", "")).strip_edges()
 	if play_button != null:
-		play_button.disabled = _selected_map_path.is_empty()
+		_set_play_button_disabled(_selected_map_path.is_empty())
 	map_count_label.text = "%d maps in %s" % [visible_entries.size(), _selected_category]
 	_apply_font(map_count_label, _font_regular, _scaled_touch_font_size(SELECTOR_META_FONT_SIZE))
 	var max_offset: int = maxi(0, visible_entries.size() - MAP_WINDOW_SIZE)
@@ -705,7 +711,7 @@ func _select_first_visible_map() -> void:
 		selected_meta_label.text = ""
 		selected_desc_label.text = "No map entries are available in this category."
 		if play_button != null:
-			play_button.disabled = true
+			_set_play_button_disabled(true)
 		_refresh_leaderboard()
 		return
 	if not _selected_map_path.is_empty():
@@ -729,7 +735,7 @@ func _select_map(map_path: String) -> void:
 	_apply_font(selected_meta_label, _font_semibold, _scaled_touch_font_size(24))
 	selected_desc_label.text = ""
 	_refresh_hero_preview(selected)
-	play_button.disabled = _selected_map_path.is_empty()
+	_set_play_button_disabled(_selected_map_path.is_empty())
 	_refresh_map_list()
 	_refresh_leaderboard()
 
@@ -1150,51 +1156,74 @@ func _style_play_button() -> void:
 	play_button.text = "PLAY"
 	play_button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	play_button.tooltip_text = "Play selected map"
-	play_button.flat = false
+	play_button.flat = true
 	play_button.icon = null
 	play_button.modulate = Color.WHITE
 	play_button.self_modulate = Color.WHITE
-	play_button.add_theme_color_override("font_color", Color(1.0, 0.92, 0.42, 1.0))
-	play_button.add_theme_color_override("font_hover_color", Color(1.0, 0.98, 0.62, 1.0))
-	play_button.add_theme_color_override("font_pressed_color", Color(1.0, 0.70, 0.20, 1.0))
-	play_button.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
-	play_button.add_theme_constant_override("outline_size", 4)
-	_apply_play_button_styleboxes()
+	_hide_sprite_button_text(play_button)
+	_apply_sprite_button_styleboxes(play_button)
 	if play_sprite != null:
 		if play_sprite.texture == null and _play_texture != null:
 			play_sprite.texture = _play_texture
-		play_sprite.visible = false
-		play_sprite.modulate = Color(1.0, 1.0, 1.0, 0.0)
-		play_sprite.self_modulate = Color(1.0, 1.0, 1.0, 0.0)
-		play_sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		play_sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		play_sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		play_sprite.set_anchors_preset(Control.PRESET_FULL_RECT)
-		play_sprite.offset_left = 0.0
-		play_sprite.offset_top = 0.0
-		play_sprite.offset_right = 0.0
-		play_sprite.offset_bottom = 0.0
+		_prepare_sprite_button(play_button, play_sprite)
 
-func _apply_play_button_styleboxes() -> void:
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.18, 0.025, 0.018, 0.92)
-	normal.border_color = Color(1.0, 0.72, 0.12, 0.96)
-	normal.set_border_width_all(3)
-	normal.set_corner_radius_all(8)
-	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
-	hover.bg_color = Color(0.26, 0.035, 0.020, 0.98)
-	hover.border_color = Color(1.0, 0.88, 0.24, 1.0)
-	var pressed: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
-	pressed.bg_color = Color(0.09, 0.010, 0.008, 0.98)
-	pressed.border_color = Color(1.0, 0.45, 0.08, 1.0)
-	var disabled: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
-	disabled.bg_color = Color(0.08, 0.08, 0.08, 0.62)
-	disabled.border_color = Color(0.36, 0.32, 0.24, 0.55)
-	play_button.add_theme_stylebox_override("normal", normal)
-	play_button.add_theme_stylebox_override("hover", hover)
-	play_button.add_theme_stylebox_override("focus", hover)
-	play_button.add_theme_stylebox_override("pressed", pressed)
-	play_button.add_theme_stylebox_override("disabled", disabled)
+func _hide_sprite_button_text(button: Button) -> void:
+	var transparent := Color(1.0, 1.0, 1.0, 0.0)
+	for color_name in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_disabled_color", "font_outline_color"]:
+		button.add_theme_color_override(color_name, transparent)
+	button.add_theme_constant_override("outline_size", 0)
+
+func _apply_sprite_button_styleboxes(button: Button) -> void:
+	var empty := StyleBoxEmpty.new()
+	for style_name in ["normal", "hover", "pressed", "disabled"]:
+		button.add_theme_stylebox_override(style_name, empty)
+	var focus := StyleBoxFlat.new()
+	focus.bg_color = Color.TRANSPARENT
+	focus.border_color = Color(1.0, 0.82, 0.24, 0.92)
+	focus.set_border_width_all(3)
+	focus.set_corner_radius_all(10)
+	button.add_theme_stylebox_override("focus", focus)
+
+func _prepare_sprite_button(button: Button, sprite: TextureRect) -> void:
+	if button == null or sprite == null:
+		return
+	sprite.visible = true
+	sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	sprite.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sprite.offset_left = 0.0
+	sprite.offset_top = 0.0
+	sprite.offset_right = 0.0
+	sprite.offset_bottom = 0.0
+	if not button.has_meta("sprite_state_wired"):
+		var refresh := Callable(self, "_refresh_sprite_button_state").bind(button, sprite)
+		button.mouse_entered.connect(refresh)
+		button.mouse_exited.connect(refresh)
+		button.focus_entered.connect(refresh)
+		button.focus_exited.connect(refresh)
+		button.button_down.connect(refresh)
+		button.button_up.connect(refresh)
+		button.set_meta("sprite_state_wired", true)
+	_refresh_sprite_button_state(button, sprite)
+
+func _refresh_sprite_button_state(button: Button, sprite: TextureRect) -> void:
+	if button == null or sprite == null:
+		return
+	if button.disabled:
+		sprite.self_modulate = Color(0.44, 0.44, 0.44, 0.72)
+	elif button.get_draw_mode() in [BaseButton.DRAW_PRESSED, BaseButton.DRAW_HOVER_PRESSED]:
+		sprite.self_modulate = Color(0.78, 0.72, 0.56, 1.0)
+	elif button.is_hovered() or button.has_focus():
+		sprite.self_modulate = Color.WHITE
+	else:
+		sprite.self_modulate = Color(0.92, 0.92, 0.92, 1.0)
+
+func _set_play_button_disabled(is_disabled: bool) -> void:
+	if play_button == null:
+		return
+	play_button.disabled = is_disabled
+	_refresh_sprite_button_state(play_button, play_sprite)
 
 func _content_width() -> float:
 	var width: float = size.x
@@ -1476,23 +1505,10 @@ func _style_footer_back_button(button: Button) -> void:
 	if button == null:
 		return
 	_style_button(button)
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.13, 0.10, 0.045, 0.98)
-	normal.border_color = Color(0.96, 0.76, 0.20, 0.94)
-	normal.set_border_width_all(3)
-	normal.set_corner_radius_all(10)
-	normal.content_margin_left = 24.0
-	normal.content_margin_right = 24.0
-	normal.content_margin_top = 16.0
-	normal.content_margin_bottom = 16.0
-	var hover := normal.duplicate() as StyleBoxFlat
-	hover.bg_color = normal.bg_color.lightened(0.08)
-	var pressed := normal.duplicate() as StyleBoxFlat
-	pressed.bg_color = normal.bg_color.lightened(0.14)
-	button.add_theme_stylebox_override("normal", normal)
-	button.add_theme_stylebox_override("hover", hover)
-	button.add_theme_stylebox_override("pressed", pressed)
-	button.add_theme_stylebox_override("focus", hover)
-	button.add_theme_color_override("font_color", Color(1.0, 0.92, 0.62, 1.0))
-	button.add_theme_color_override("font_hover_color", Color.WHITE)
-	button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	button.flat = true
+	_hide_sprite_button_text(button)
+	_apply_sprite_button_styleboxes(button)
+	if footer_close_sprite != null:
+		if footer_close_sprite.texture == null and _main_menu_texture != null:
+			footer_close_sprite.texture = _main_menu_texture
+		_prepare_sprite_button(button, footer_close_sprite)

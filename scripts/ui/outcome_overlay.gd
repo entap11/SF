@@ -3,6 +3,7 @@ extends Control
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const PostMatchSummaryPanelScript := preload("res://scripts/ui/ui_post_match_summary.gd")
+const PostMatchStatsPanelScript := preload("res://scripts/ui/ui_post_match_stats.gd")
 const AdSurfaceScript := preload("res://scripts/ui/ad_surface.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
@@ -33,6 +34,7 @@ var _stage_next_action: String = "next_round"
 var _stage_next_available: bool = false
 var _stage_status_text: String = ""
 var _post_match_summary_panel: Control = null
+var _post_match_stats_panel: Control = null
 var _post_match_ad_surface: Control = null
 var _nectar_summary_label: Label = null
 var _details_scroll: ScrollContainer = null
@@ -62,6 +64,7 @@ const OVERLAY_MODE_REMATCH: String = "rematch"
 const OVERLAY_MODE_STAGE_ROUND: String = "stage_round"
 const OVERLAY_MODE_TUTORIAL_COMPLETE: String = "tutorial_complete"
 const OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE: String = "tutorial_controls_complete"
+const SETTINGS_POST_MATCH_STATS_ENABLED: String = "swarmfront/ui/post_match_stats_enabled"
 
 func _ready() -> void:
 	_force_fullscreen_anchors()
@@ -69,6 +72,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_ensure_post_match_layout_structure()
+	_ensure_post_match_stats_panel()
 	_ensure_nectar_summary_label()
 	_ensure_post_match_summary_panel()
 	_ensure_post_match_ad_surface()
@@ -311,13 +315,74 @@ func set_post_match_summary(summary: Dictionary, winner_id: int, player_id: int)
 		_post_match_summary_panel.call("render_summary", summary, victory)
 	_apply_readable_layout()
 
+func set_post_match_stats(snapshot: Dictionary) -> void:
+	_ensure_post_match_stats_panel()
+	if _post_match_stats_panel == null:
+		return
+	if snapshot.is_empty() or not _post_match_stats_display_allowed():
+		clear_post_match_stats()
+		return
+	if _post_match_stats_panel.has_method("render_stats"):
+		_post_match_stats_panel.call("render_stats", snapshot.duplicate(true))
+	_apply_readable_layout()
+
+func clear_post_match_stats() -> void:
+	_ensure_post_match_stats_panel()
+	if _post_match_stats_panel == null:
+		return
+	if _post_match_stats_panel.has_method("clear_stats"):
+		_post_match_stats_panel.call("clear_stats")
+	_apply_readable_layout()
+
 func clear_post_match_summary() -> void:
 	_ensure_post_match_summary_panel()
 	if _post_match_summary_panel == null:
 		return
 	if _post_match_summary_panel.has_method("clear_summary"):
 		_post_match_summary_panel.call("clear_summary")
+	clear_post_match_stats()
 	_apply_readable_layout()
+
+func _ensure_post_match_stats_panel() -> void:
+	if _post_match_stats_panel != null and is_instance_valid(_post_match_stats_panel):
+		return
+	_ensure_post_match_layout_structure()
+	if _details_vbox == null:
+		return
+	var existing: Node = _details_vbox.get_node_or_null("PostMatchStatsPanel")
+	if existing != null and existing.has_method("render_stats") and existing.has_method("clear_stats"):
+		_post_match_stats_panel = existing as Control
+		return
+	var created_any: Variant = PostMatchStatsPanelScript.new()
+	if not (created_any is Control):
+		return
+	var created: Control = created_any as Control
+	created.name = "PostMatchStatsPanel"
+	created.visible = false
+	_details_vbox.add_child(created)
+	_details_vbox.move_child(created, 0)
+	_post_match_stats_panel = created
+
+func _post_match_stats_display_allowed() -> bool:
+	if not bool(ProjectSettings.get_setting(SETTINGS_POST_MATCH_STATS_ENABLED, false)):
+		return false
+	if _overlay_mode != OVERLAY_MODE_REMATCH:
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	var vs_mode: String = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
+	if vs_mode in ["PROGRESSIVE", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED"]:
+		return false
+	var ruleset: String = str(tree.get_meta("vs_ruleset", "")).strip_edges().to_upper()
+	if ruleset == "CRUCIBLE" or bool(tree.get_meta("vs_crucible", false)):
+		return false
+	if tree.has_meta("canonical_wax_result"):
+		return false
+	var money_status: String = str(tree.get_meta("vs_money_ledger_status", "")).strip_edges()
+	if not money_status.is_empty() or int(tree.get_meta("vs_wager_cents", 0)) > 0:
+		return false
+	return true
 
 func _ensure_post_match_summary_panel() -> void:
 	if _post_match_summary_panel != null and is_instance_valid(_post_match_summary_panel):

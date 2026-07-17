@@ -30,7 +30,19 @@ func _run() -> void:
 	await process_frame
 	_expect(_transition_starts == 1, "9 to 10 must trigger exactly once")
 	_expect(int(renderer.get_growth_debug_snapshot().get("active_count", 0)) == 1, "9 to 10 transition must be active")
-	_expect(int(transition.call("get_debug_snapshot").get("ring_count", 0)) == 2, "small to medium must use exactly two rings")
+	var ring_snapshot: Dictionary = transition.call("get_debug_snapshot") as Dictionary
+	_expect(int(ring_snapshot.get("ring_count", 0)) == 2, "small to medium must use exactly two rings")
+	_expect(
+		float(ring_snapshot.get("bright_outer_width_ratio", 0.0)) >= 1.08
+		and float(ring_snapshot.get("bright_outer_width_ratio", 0.0)) <= 1.12,
+		"bright ring core must clear the rendered hive by 8-12 percent"
+	)
+	_expect(float(ring_snapshot.get("core_line_width", 0.0)) >= 2.5, "explicit ring core must remain materially thick")
+	_expect(int(ring_snapshot.get("rear_z_index", 0)) < int(ring_snapshot.get("front_z_index", 0)), "rear arc must remain behind the front arc")
+	_expect(float(ring_snapshot.get("rear_intensity", 1.0)) < float(ring_snapshot.get("front_intensity", 0.0)), "rear arc must remain dimmer than the front arc")
+	_expect(float(ring_snapshot.get("final_ring_intensity_multiplier", 0.0)) > 1.0, "final ring must receive explicit emissive emphasis")
+	_expect(int(ring_snapshot.get("material_count", 0)) == 6, "three fixed ring slots must own six materials")
+	var material_instance_ids: Array = (ring_snapshot.get("material_instance_ids", []) as Array).duplicate()
 	_expect(int(hive.get("growth_tier")) == 1, "presentation tier must remain small before the final ring reveal")
 	var visual: Node = hive.get_node_or_null("Visual")
 	_expect(str(visual.get("_sprite_key")) == "hive.med.p1", "final medium sprite must be applied immediately under the effect")
@@ -76,6 +88,8 @@ func _run() -> void:
 	await process_frame
 	await create_timer(0.76).timeout
 	_expect(transition.get_child_count() == component_children, "repeated transitions must keep a stable component node count")
+	var repeated_snapshot: Dictionary = transition.call("get_debug_snapshot") as Dictionary
+	_expect((repeated_snapshot.get("material_instance_ids", []) as Array) == material_instance_ids, "repeated transitions must retain the same ring materials")
 
 	renderer.setup(null, null, null)
 	renderer.set_model(_model(101, 25, 3, 3))

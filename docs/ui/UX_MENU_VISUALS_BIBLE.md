@@ -308,6 +308,17 @@ Every title MUST define a semantic spacing scale with at least tight, standard, 
 - A target MUST NOT shrink because its icon looks small.
 - Important targets SHOULD avoid screen corners and unsafe edges.
 
+### 10.1 Binary toggles
+
+A toggle's hit target and its visible switch are separate requirements. A large invisible target does not excuse a switch that still looks too small to identify, aim at, or read at the expected viewing distance.
+
+- The complete toggle control MUST meet the title's touch-target floor.
+- Each Game Skin MUST declare a visible track size as well as the control's hit size.
+- The visible track SHOULD be at least twice as wide as it is tall and its height SHOULD be 60–75% of the control's minimum touch height.
+- The thumb SHOULD occupy at least 60% of the track height and MUST move far enough that position communicates state without color.
+- The current state MUST also be available through text, accessibility state, or another non-color cue.
+- A setting row SHOULD treat its label and switch as one semantic control when the platform and input model allow it.
+
 ## 11. Button hierarchy, states, and feedback
 
 ### 11.1 Hierarchy

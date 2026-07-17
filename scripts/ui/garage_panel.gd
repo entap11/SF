@@ -8,9 +8,14 @@ const PREVIEW_BADGE_TEXT: String = "GARAGE HERO"
 const BUFF_MODE_VS: String = "vs"
 const BUFF_MODE_ASYNC: String = "async"
 const UNIT_PREVIEW_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/mvp_unit2.png"
-const PREVIEW_3D_YAW_RANGE_DEG: float = 68.0
+const UNIT_PREVIEW_MODEL_HIGH_PATH: String = "res://assets/models/bees/bee_high.glb"
+const UNIT_PREVIEW_MODEL_LOW_PATH: String = "res://assets/models/bees/bee_low.glb"
+const PREVIEW_3D_ROTATION_RANGE_DEG: float = 180.0
+const PREVIEW_3D_DEFAULT_ROTATION_DEG := Vector3(90.0, 0.0, 0.0)
+const PREVIEW_3D_SOURCE_ORIENTATION_DEG := Vector3(-90.0, 0.0, 0.0)
 const PREVIEW_3D_SLICE_COUNT: int = 13
 const PREVIEW_3D_DEPTH: float = 0.38
+const PREVIEW_3D_MODEL_SPAN: float = 1.82
 
 @onready var title_label: Label = $VBox/Body/CategoryPanel/CategoryVBox/Header/TitleBlock/Title
 @onready var sub_label: Label = $VBox/Body/CategoryPanel/CategoryVBox/Header/TitleBlock/Sub
@@ -23,9 +28,15 @@ const PREVIEW_3D_DEPTH: float = 0.38
 @onready var preview_frame: Control = $VBox/Body/PreviewPanel/PreviewVBox/PreviewFrame
 @onready var preview_texture: TextureRect = $VBox/Body/PreviewPanel/PreviewVBox/PreviewFrame/PreviewTexture
 @onready var preview_badge_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/PreviewFrame/PreviewBadge
-@onready var turntable_row: HBoxContainer = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow
-@onready var turntable_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/TurntableLabel
-@onready var turntable_slider: HSlider = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/TurntableSlider
+@onready var turntable_row: VBoxContainer = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow
+@onready var turntable_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/Header/TurntableLabel
+@onready var turntable_reset_button: Button = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/Header/ResetButton
+@onready var turntable_x_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/XAxis/Label
+@onready var turntable_y_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/YAxis/Label
+@onready var turntable_z_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/ZAxis/Label
+@onready var turntable_x_slider: HSlider = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/XAxis/Slider
+@onready var turntable_y_slider: HSlider = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/YAxis/Slider
+@onready var turntable_z_slider: HSlider = $VBox/Body/PreviewPanel/PreviewVBox/TurntableRow/AxisGrid/ZAxis/Slider
 @onready var selected_desc_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/SelectedDesc
 @onready var selection_status_label: Label = $VBox/Body/PreviewPanel/PreviewVBox/SelectionStatus
 @onready var inventory_header_label: Label = $VBox/Body/InventoryPanel/InventoryVBox/InventoryHeaderRow/InventoryHeader
@@ -44,10 +55,13 @@ var _selected_item_id: String = ""
 var _status_flash_message: String = ""
 var _buff_context_mode: String = BUFF_MODE_VS
 var _preview_dragging: bool = false
+var _preview_roll_dragging: bool = false
 var _preview_3d_container: SubViewportContainer = null
 var _preview_3d_viewport: SubViewport = null
 var _preview_3d_root: Node3D = null
 var _preview_3d_model: Node3D = null
+var _preview_3d_asset_anchor: Node3D = null
+var _preview_3d_asset: Node3D = null
 var _preview_3d_slices: Array[MeshInstance3D] = []
 var _preview_3d_materials: Array[StandardMaterial3D] = []
 var _preview_3d_enabled: bool = false
@@ -63,7 +77,9 @@ func _ready() -> void:
 	preview_frame.gui_input.connect(_on_preview_frame_gui_input)
 	if not preview_texture.resized.is_connected(_update_preview_pivot):
 		preview_texture.resized.connect(_update_preview_pivot)
-	turntable_slider.value_changed.connect(_on_turntable_value_changed)
+	for slider in _turntable_sliders():
+		slider.value_changed.connect(_on_turntable_value_changed)
+	turntable_reset_button.pressed.connect(_reset_preview_rotation)
 	equip_button.pressed.connect(_on_equip_pressed)
 	inventory_pvp_tab.pressed.connect(func() -> void:
 		_set_buff_context_mode(BUFF_MODE_VS)
@@ -120,6 +136,7 @@ func _build_catalog() -> void:
 					"meta": "Owned | Starter silhouette",
 					"desc": "Baseline unit shell. Clean read, safe contrast, ready for live equip flow.",
 					"preview_path": UNIT_PREVIEW_TEXTURE_PATH,
+					"preview_model_path": UNIT_PREVIEW_MODEL_HIGH_PATH,
 					"preview_3d": true
 				},
 				{
@@ -128,6 +145,7 @@ func _build_catalog() -> void:
 					"meta": "Scaffold | Art hook parked",
 					"desc": "Parked slot for premium unit cosmetics once variant art and runtime swaps are wired.",
 					"preview_path": UNIT_PREVIEW_TEXTURE_PATH,
+					"preview_model_path": UNIT_PREVIEW_MODEL_LOW_PATH,
 					"preview_3d": true,
 					"scaffold_only": true
 				}
@@ -330,6 +348,10 @@ func _style_static_ui() -> void:
 	_apply_token(selected_meta_label, _font_regular, "meta")
 	_apply_token(preview_badge_label, _font_semibold, "meta")
 	_apply_token(turntable_label, _font_regular, "meta")
+	_apply_token(turntable_x_label, _font_semibold, "meta")
+	_apply_token(turntable_y_label, _font_semibold, "meta")
+	_apply_token(turntable_z_label, _font_semibold, "meta")
+	_apply_button_token(turntable_reset_button, _font_semibold, "compact_button")
 	_apply_token(selected_desc_label, _font_regular, "body")
 	_apply_token(selection_status_label, _font_regular, "body")
 	_apply_token(inventory_header_label, _font_semibold, "section_title")
@@ -344,8 +366,9 @@ func _style_static_ui() -> void:
 	_style_panel($VBox/Body/InventoryPanel, Color(0.08, 0.09, 0.12, 0.92), Color(0.34, 0.36, 0.44, 0.72))
 	preview_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	preview_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	turntable_slider.min_value = -PREVIEW_3D_YAW_RANGE_DEG
-	turntable_slider.max_value = PREVIEW_3D_YAW_RANGE_DEG
+	for slider in _turntable_sliders():
+		slider.min_value = -PREVIEW_3D_ROTATION_RANGE_DEG
+		slider.max_value = PREVIEW_3D_ROTATION_RANGE_DEG
 	loadout_summary_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	category_list.columns = 3
 	category_list.add_theme_constant_override("h_separation", 8)
@@ -707,6 +730,7 @@ func _apply_preview_item(item: Dictionary) -> void:
 	preview_texture.material = null
 	_preview_3d_enabled = false
 	_set_preview_3d_visible(false)
+	_clear_preview_3d_asset()
 	var supports_3d_preview: bool = _selected_category == "units" or _selected_category == "hives"
 	_set_turntable_enabled(supports_3d_preview)
 	if _selected_category == "power_bars":
@@ -732,22 +756,27 @@ func _apply_preview_item(item: Dictionary) -> void:
 	else:
 		var preview_path: String = str(item.get("preview_path", ""))
 		var texture: Texture2D = _load_texture(preview_path)
-		if supports_3d_preview and bool(item.get("preview_3d", false)) and texture != null:
+		var preview_model_path: String = str(item.get("preview_model_path", ""))
+		if supports_3d_preview and bool(item.get("preview_3d", false)) and _apply_preview_3d_model(preview_model_path):
+			pass
+		elif supports_3d_preview and bool(item.get("preview_3d", false)) and texture != null:
 			_apply_preview_3d_texture(texture)
 		else:
 			preview_texture.visible = true
 			preview_texture.texture = texture
-	turntable_slider.value = 0.0
 	_preview_dragging = false
-	_on_turntable_value_changed(turntable_slider.value)
+	_preview_roll_dragging = false
+	_reset_preview_rotation()
 	_update_preview_pivot()
 
 func _set_turntable_enabled(enabled: bool) -> void:
 	if turntable_row != null:
 		turntable_row.visible = enabled
-	if turntable_slider != null:
-		turntable_slider.editable = enabled
-		turntable_slider.mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+	for slider in _turntable_sliders():
+		slider.editable = enabled
+		slider.mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+	if turntable_reset_button != null:
+		turntable_reset_button.disabled = not enabled
 
 func _load_texture(path: String) -> Texture2D:
 	if path == "":
@@ -757,21 +786,34 @@ func _load_texture(path: String) -> Texture2D:
 		return resource as Texture2D
 	return null
 
-func _on_turntable_value_changed(value: float) -> void:
+func _turntable_sliders() -> Array[HSlider]:
+	return [turntable_x_slider, turntable_y_slider, turntable_z_slider]
+
+func _on_turntable_value_changed(_value: float) -> void:
 	if _preview_3d_enabled:
-		_update_preview_3d_yaw(value)
+		_update_preview_3d_rotation()
 		return
 	preview_texture.rotation_degrees = 0.0
+
+func _reset_preview_rotation() -> void:
+	if turntable_x_slider == null or turntable_y_slider == null or turntable_z_slider == null:
+		return
+	turntable_x_slider.value = PREVIEW_3D_DEFAULT_ROTATION_DEG.x
+	turntable_y_slider.value = PREVIEW_3D_DEFAULT_ROTATION_DEG.y
+	turntable_z_slider.value = PREVIEW_3D_DEFAULT_ROTATION_DEG.z
+	_update_preview_3d_rotation()
 
 func _on_preview_frame_gui_input(event: InputEvent) -> void:
 	if not _preview_3d_enabled:
 		_preview_dragging = false
+		_preview_roll_dragging = false
 		return
 	if event is InputEventMouseButton:
 		var mouse_button: InputEventMouseButton = event as InputEventMouseButton
-		if mouse_button.button_index != MOUSE_BUTTON_LEFT:
-			return
-		_preview_dragging = mouse_button.pressed
+		if mouse_button.button_index == MOUSE_BUTTON_LEFT:
+			_preview_dragging = mouse_button.pressed
+		elif mouse_button.button_index == MOUSE_BUTTON_RIGHT:
+			_preview_roll_dragging = mouse_button.pressed
 		return
 	if event is InputEventScreenTouch:
 		var screen_touch: InputEventScreenTouch = event as InputEventScreenTouch
@@ -779,18 +821,25 @@ func _on_preview_frame_gui_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion:
 		var mouse_motion: InputEventMouseMotion = event as InputEventMouseMotion
-		if _preview_dragging:
-			_apply_preview_drag_delta(mouse_motion.relative.x)
+		if _preview_roll_dragging:
+			_apply_preview_roll_delta(mouse_motion.relative.x)
+		elif _preview_dragging:
+			_apply_preview_drag_delta(mouse_motion.relative)
 		return
 	if event is InputEventScreenDrag:
 		var screen_drag: InputEventScreenDrag = event as InputEventScreenDrag
-		_apply_preview_drag_delta(screen_drag.relative.x)
+		_apply_preview_drag_delta(screen_drag.relative)
 
-func _apply_preview_drag_delta(delta_x: float) -> void:
-	if turntable_slider == null:
+func _apply_preview_drag_delta(delta: Vector2) -> void:
+	if turntable_x_slider == null or turntable_y_slider == null:
 		return
-	var next_value: float = clampf(turntable_slider.value + (delta_x * 0.18), turntable_slider.min_value, turntable_slider.max_value)
-	turntable_slider.value = next_value
+	turntable_x_slider.value = clampf(turntable_x_slider.value + (delta.y * 0.22), turntable_x_slider.min_value, turntable_x_slider.max_value)
+	turntable_y_slider.value = clampf(turntable_y_slider.value + (delta.x * 0.22), turntable_y_slider.min_value, turntable_y_slider.max_value)
+
+func _apply_preview_roll_delta(delta_x: float) -> void:
+	if turntable_z_slider == null:
+		return
+	turntable_z_slider.value = clampf(turntable_z_slider.value + (delta_x * 0.22), turntable_z_slider.min_value, turntable_z_slider.max_value)
 
 func _update_preview_pivot() -> void:
 	preview_texture.pivot_offset = preview_texture.size * 0.5
@@ -824,6 +873,18 @@ func _ensure_preview_3d() -> void:
 	_preview_3d_root.name = "PreviewWorld"
 	_preview_3d_viewport.add_child(_preview_3d_root)
 
+	var world_environment := WorldEnvironment.new()
+	world_environment.name = "PreviewEnvironment"
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = Color(0.01, 0.012, 0.018, 0.0)
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color(0.54, 0.58, 0.68, 1.0)
+	environment.ambient_light_energy = 0.72
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	world_environment.environment = environment
+	_preview_3d_root.add_child(world_environment)
+
 	var camera := Camera3D.new()
 	camera.name = "PreviewCamera"
 	camera.position = Vector3(0.0, 0.0, 3.2)
@@ -836,21 +897,35 @@ func _ensure_preview_3d() -> void:
 
 	var key_light := DirectionalLight3D.new()
 	key_light.name = "KeyLight"
-	key_light.light_energy = 1.45
+	key_light.light_energy = 1.1
 	key_light.rotation_degrees = Vector3(-34.0, -38.0, 0.0)
 	_preview_3d_root.add_child(key_light)
 
 	var fill_light := OmniLight3D.new()
 	fill_light.name = "FillLight"
-	fill_light.position = Vector3(-1.4, 0.9, 1.8)
-	fill_light.light_energy = 0.72
-	fill_light.omni_range = 4.0
+	fill_light.position = Vector3(-1.5, 0.8, 2.2)
+	fill_light.light_color = Color(0.72, 0.82, 1.0, 1.0)
+	fill_light.light_energy = 1.35
+	fill_light.omni_range = 5.0
 	_preview_3d_root.add_child(fill_light)
+
+	var rim_light := OmniLight3D.new()
+	rim_light.name = "RimLight"
+	rim_light.position = Vector3(1.6, -0.7, 1.4)
+	rim_light.light_color = Color(1.0, 0.72, 0.28, 1.0)
+	rim_light.light_energy = 1.05
+	rim_light.omni_range = 4.5
+	_preview_3d_root.add_child(rim_light)
 
 	_preview_3d_model = Node3D.new()
 	_preview_3d_model.name = "UnitModel"
-	_preview_3d_model.rotation_degrees = Vector3(-7.0, 0.0, 0.0)
+	_preview_3d_model.rotation_degrees = PREVIEW_3D_DEFAULT_ROTATION_DEG
 	_preview_3d_root.add_child(_preview_3d_model)
+
+	_preview_3d_asset_anchor = Node3D.new()
+	_preview_3d_asset_anchor.name = "AssetAnchor"
+	_preview_3d_asset_anchor.rotation_degrees = PREVIEW_3D_SOURCE_ORIENTATION_DEG
+	_preview_3d_model.add_child(_preview_3d_asset_anchor)
 
 	_preview_3d_slices.clear()
 	_preview_3d_materials.clear()
@@ -881,6 +956,7 @@ func _apply_preview_3d_texture(texture: Texture2D) -> void:
 	preview_texture.rotation_degrees = 0.0
 	_preview_3d_enabled = true
 	_set_preview_3d_visible(true)
+	_set_preview_3d_slices_visible(true)
 	for material in _preview_3d_materials:
 		material.albedo_texture = texture
 	var tex_size: Vector2 = texture.get_size()
@@ -890,7 +966,87 @@ func _apply_preview_3d_texture(texture: Texture2D) -> void:
 		if quad != null:
 			var base_height: float = 1.62
 			quad.size = Vector2(base_height * aspect, base_height)
-	_update_preview_3d_yaw(turntable_slider.value if turntable_slider != null else 0.0)
+	_update_preview_3d_rotation()
+
+func _apply_preview_3d_model(model_path: String) -> bool:
+	if model_path == "":
+		return false
+	_ensure_preview_3d()
+	if _preview_3d_asset_anchor == null:
+		return false
+	var packed: PackedScene = load(model_path) as PackedScene
+	if packed == null:
+		return false
+	var instance: Node = packed.instantiate()
+	if not (instance is Node3D):
+		instance.free()
+		return false
+	_clear_preview_3d_asset()
+	_preview_3d_asset = instance as Node3D
+	_preview_3d_asset_anchor.add_child(_preview_3d_asset)
+	_fit_preview_3d_asset(_preview_3d_asset)
+	_play_preview_3d_animation(_preview_3d_asset)
+	_set_preview_3d_slices_visible(false)
+	preview_texture.visible = false
+	preview_texture.texture = null
+	preview_texture.rotation_degrees = 0.0
+	_preview_3d_enabled = true
+	_set_preview_3d_visible(true)
+	_update_preview_3d_rotation()
+	return true
+
+func _fit_preview_3d_asset(asset: Node3D) -> void:
+	var bounds: AABB = AABB()
+	var has_bounds: bool = false
+	for node_any in asset.find_children("", "MeshInstance3D", true, false):
+		var mesh_instance := node_any as MeshInstance3D
+		if mesh_instance == null or mesh_instance.mesh == null:
+			continue
+		var relative_transform: Transform3D = _transform_relative_to(mesh_instance, asset)
+		var mesh_bounds: AABB = relative_transform * mesh_instance.get_aabb()
+		bounds = bounds.merge(mesh_bounds) if has_bounds else mesh_bounds
+		has_bounds = true
+	if not has_bounds:
+		return
+	var largest_span: float = maxf(bounds.size.x, maxf(bounds.size.y, bounds.size.z))
+	if largest_span <= 0.001:
+		return
+	var uniform_scale: float = PREVIEW_3D_MODEL_SPAN / largest_span
+	asset.scale = Vector3.ONE * uniform_scale
+	asset.position = -bounds.get_center() * uniform_scale
+
+func _transform_relative_to(node: Node3D, ancestor: Node3D) -> Transform3D:
+	var relative: Transform3D = node.transform
+	var parent: Node = node.get_parent()
+	while parent != null and parent != ancestor:
+		if parent is Node3D:
+			relative = (parent as Node3D).transform * relative
+		parent = parent.get_parent()
+	return relative
+
+func _play_preview_3d_animation(asset: Node3D) -> void:
+	for player_any in asset.find_children("", "AnimationPlayer", true, false):
+		var player := player_any as AnimationPlayer
+		if player == null:
+			continue
+		var animation_names: PackedStringArray = player.get_animation_list()
+		if animation_names.is_empty():
+			continue
+		var animation_name: StringName = animation_names[0]
+		var animation: Animation = player.get_animation(animation_name)
+		if animation != null:
+			animation.loop_mode = Animation.LOOP_LINEAR
+		player.play(animation_name)
+
+func _clear_preview_3d_asset() -> void:
+	if _preview_3d_asset != null and is_instance_valid(_preview_3d_asset):
+		_preview_3d_asset.free()
+	_preview_3d_asset = null
+
+func _set_preview_3d_slices_visible(visible: bool) -> void:
+	for slice in _preview_3d_slices:
+		if slice != null and is_instance_valid(slice):
+			slice.visible = visible
 
 func _make_preview_3d_slice_material(index: int, depth_t: float) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
@@ -911,11 +1067,16 @@ func _set_preview_3d_visible(visible: bool) -> void:
 	if _preview_3d_container != null:
 		_preview_3d_container.visible = visible
 
-func _update_preview_3d_yaw(value: float) -> void:
+func _update_preview_3d_rotation() -> void:
 	if _preview_3d_model == null:
 		return
-	var yaw: float = clampf(value, -PREVIEW_3D_YAW_RANGE_DEG, PREVIEW_3D_YAW_RANGE_DEG)
-	_preview_3d_model.rotation_degrees = Vector3(-7.0, yaw, 0.0)
+	if turntable_x_slider == null or turntable_y_slider == null or turntable_z_slider == null:
+		return
+	_preview_3d_model.rotation_degrees = Vector3(
+		clampf(turntable_x_slider.value, -PREVIEW_3D_ROTATION_RANGE_DEG, PREVIEW_3D_ROTATION_RANGE_DEG),
+		clampf(turntable_y_slider.value, -PREVIEW_3D_ROTATION_RANGE_DEG, PREVIEW_3D_ROTATION_RANGE_DEG),
+		clampf(turntable_z_slider.value, -PREVIEW_3D_ROTATION_RANGE_DEG, PREVIEW_3D_ROTATION_RANGE_DEG)
+	)
 
 func _on_equip_pressed() -> void:
 	var item: Dictionary = _selected_item()

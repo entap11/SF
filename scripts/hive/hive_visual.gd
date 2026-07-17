@@ -1948,6 +1948,12 @@ func get_match_shadow_ground_contact_local() -> Vector2:
 		return _sprite_offset
 	return _sprite_offset + Vector2(0.0, _current_size.y * FLOOR_CONTACT_Y_RATIO)
 
+func get_rendered_footprint_local() -> Vector2:
+	if _current_size != Vector2.ZERO:
+		return Vector2(absf(_current_size.x), absf(_current_size.y))
+	var fallback_diameter: float = maxf(20.0, radius_px * 2.0)
+	return Vector2(fallback_diameter, fallback_diameter)
+
 func get_distress_outlet_anchor_local(tier: int = -1) -> Vector2:
 	if _current_size == Vector2.ZERO:
 		return _sprite_offset + Vector2(0.0, -maxf(18.0, radius_px))

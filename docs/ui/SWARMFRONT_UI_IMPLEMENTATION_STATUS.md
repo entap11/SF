@@ -3,7 +3,7 @@
 Status: Time-sensitive implementation record
 Governed by: [UX & Menu Visuals Bible](UX_MENU_VISUALS_BIBLE.md)
 Skin: [Swarmfront Game Skin](SWARMFRONT_GAME_SKIN.md)
-Snapshot date: 2026-07-15
+Snapshot date: 2026-07-16
 
 This record may become stale without changing the validity of the normative UX standard.
 
@@ -14,12 +14,13 @@ This record may become stale without changing the validity of the normative UX s
 - Shared semantic typography tokens in `UITypography`
 - 64-unit baseline mobile touch target
 - Larger Dashboard tabs and readable Garage category grid
+- Dashboard Settings as a modal category workspace with 2× menu type tokens, 64-unit controls, explicit Call Sign commit, player-only content, and persistent DONE/Back escape behavior
 - Portrait stacking for Buffs and Achievements dashboard panels
 - Enlarged primary Hive pull-down with explicit Back action
 - Persistent bottom “BACK TO MAIN MENU” action in Jukebox
 - Identity-first pre-match presentation with redundant map/mode facts removed; countdown and actionable setup prompts remain
 - Content-hugging post-match modal with scrollable details and an always-visible responsive action footer
-- Portrait smoke coverage for Dashboard, Hive, Jukebox, and dense post-match layout/exit behavior
+- Portrait smoke coverage for Dashboard, Settings, Hive, Jukebox, and dense post-match layout/exit behavior
 - Dark panel, steel edge, and honey-gold emphasis direction
 - Hex background presets for Store, Hive, Dash, and Popup contexts
 

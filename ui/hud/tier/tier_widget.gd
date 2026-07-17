@@ -4,6 +4,7 @@ class_name TierWidget
 signal tier_pressed()
 signal rank_pressed()
 
+const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const HERO_BLOCK_FONT: Font = preload("res://assets/fonts/brand/Iceland/Iceland-Regular.ttf")
 const DISPLAY_ATLAS_FONT_PATH: String = "res://assets/fonts/free_roll_display_v2_font.tres"
 const DISPLAY_ATLAS_SUPPORTED: String = " ABCDEFGHIJKLMNOPQRSTUVWXYZ01235789"
@@ -11,8 +12,14 @@ const HERO_YELLOW_TOP: Color = Color(0.90, 0.74, 0.09, 1.0)
 const HERO_YELLOW_BOTTOM: Color = Color(1.0, 0.831, 0.0, 1.0) # #FFD400
 const HERO_STROKE: Color = Color(0.44, 0.28, 0.05, 1.0)
 const HERO_GLOW: Color = Color(1.0, 0.80, 0.22, 1.0)
-const VALUE_CUTOUT_STROKE: Color = Color(0.0, 0.0, 0.0, 0.98)
 const DEFAULT_WIDGET_HEIGHT: float = 200.0
+const VALUE_FONT_SIZE: int = 100
+const VALUE_MIN_FONT_SIZE: int = 36
+const VALUE_HORIZONTAL_PADDING: float = 12.0
+const LABEL_GLOW_STRENGTH: float = 0.22
+const VALUE_GLOW_STRENGTH: float = 0.42
+const LABEL_GLOW_RADIUS: float = 2.3
+const VALUE_GLOW_RADIUS: float = 3.2
 
 @export var rank_state_path: NodePath = NodePath("/root/RankState")
 @export var rank_config_path: String = "res://data/rank/rank_config.tres"
@@ -24,6 +31,7 @@ const DEFAULT_WIDGET_HEIGHT: float = 200.0
 @export var tier_value_label_path: NodePath = NodePath("Row/TierColumn/TierValue")
 @export var tier_name_label_path: NodePath = NodePath("Row/TierColumn/TierName")
 @export var rank_title_label_path: NodePath = NodePath("Row/RankColumn/RankTitle")
+@export var rank_name_spacer_path: NodePath = NodePath("Row/RankColumn/RankNameSpacer")
 @export var rank_value_label_path: NodePath = NodePath("Row/RankColumn/RankValue")
 @export var rank_up_flash_path: NodePath = NodePath("RankUpFlash")
 @export var rankup_duration_sec: float = 0.20
@@ -38,6 +46,7 @@ var _tier_title_label: Label = null
 var _tier_value_label: Label = null
 var _tier_name_label: Label = null
 var _rank_title_label: Label = null
+var _rank_name_spacer: Control = null
 var _rank_value_label: Label = null
 var _rank_up_flash: ColorRect = null
 
@@ -49,7 +58,6 @@ var _tier_rank: int = 0
 var _tier_total: int = 0
 var _tier_population: int = 0
 var _tier_name: String = "Drone"
-var _rank_color_id: String = "GREEN"
 
 var _text_materials: Array[ShaderMaterial] = []
 var _material_base_inlay: Array[float] = []
@@ -85,32 +93,35 @@ func _apply_hero_font(font: Font, base_size: int) -> void:
 		widget_height = custom_minimum_size.y
 	if widget_height < 1.0:
 		widget_height = DEFAULT_WIDGET_HEIGHT
-	var title_size: int = maxi(11, int(round(widget_height * 0.075)))
-	var hinted_title_size: int = maxi(11, int(round(float(base_size) * 0.64)))
+	var title_floor: int = UITypography.token_size("section_title", 18, UITypography.PORTRAIT_CANVAS_SCALE)
+	var name_floor: int = UITypography.token_size("body", 16, UITypography.PORTRAIT_CANVAS_SCALE)
+	var title_size: int = maxi(title_floor, int(round(widget_height * 0.15)))
+	var hinted_title_size: int = maxi(title_floor, base_size)
 	title_size = maxi(title_size, hinted_title_size)
-	var tier_name_size: int = maxi(title_size + 1, int(round(widget_height * 0.095)))
-	var value_size: int = maxi(title_size + 16, int(round(widget_height * 0.58)))
-	var hinted_value_size: int = maxi(title_size + 16, int(round(float(base_size) * 2.10)))
+	var tier_name_size: int = maxi(name_floor, int(round(widget_height * 0.16)))
+	var value_size: int = maxi(VALUE_FONT_SIZE, int(round(widget_height * 0.50)))
+	var hinted_value_size: int = maxi(VALUE_MIN_FONT_SIZE, int(round(float(base_size) * 2.10)))
 	value_size = maxi(value_size, hinted_value_size)
 	for label in [_tier_title_label, _rank_title_label]:
 		if label == null:
 			continue
 		label.add_theme_font_override("font", font)
 		label.add_theme_font_size_override("font_size", title_size)
-		label.add_theme_constant_override("outline_size", 1)
-		label.custom_minimum_size = Vector2(0.0, round(float(title_size) * 0.92))
+		label.add_theme_constant_override("outline_size", 2)
+		label.custom_minimum_size = Vector2(0.0, round(float(title_size) * 1.05))
 	for label in [_tier_value_label, _rank_value_label]:
 		if label == null:
 			continue
 		label.add_theme_font_override("font", font)
 		label.add_theme_font_size_override("font_size", value_size)
-		label.add_theme_constant_override("outline_size", 5)
-		label.custom_minimum_size = Vector2(0.0, round(float(value_size) * 0.98))
+		label.add_theme_constant_override("outline_size", 3)
+		label.custom_minimum_size = Vector2(0.0, round(float(value_size) * 0.90))
 	if _tier_name_label != null:
 		_tier_name_label.add_theme_font_override("font", font)
 		_tier_name_label.add_theme_font_size_override("font_size", tier_name_size)
-		_tier_name_label.add_theme_constant_override("outline_size", 1)
-		_tier_name_label.custom_minimum_size = Vector2(0.0, round(float(tier_name_size) * 0.94))
+		_tier_name_label.add_theme_constant_override("outline_size", 2)
+		_tier_name_label.custom_minimum_size = Vector2(0.0, round(float(tier_name_size) * 1.05))
+	_sync_rank_name_spacer()
 	_apply_display_fonts(font, title_size, tier_name_size)
 
 func _load_display_atlas_font() -> void:
@@ -121,10 +132,11 @@ func _load_display_atlas_font() -> void:
 func _apply_display_fonts(fallback_font: Font, title_size: int, tier_name_size: int) -> void:
 	_apply_display_font_override(_tier_title_label, "TIER", title_size, fallback_font)
 	_apply_display_font_override(_rank_title_label, "RANK", title_size, fallback_font)
-	var tier_name_text: String = _tier_name.to_upper()
-	if _tier_name_label != null and _tier_name_label.text.strip_edges() != "":
-		tier_name_text = _tier_name_label.text.to_upper()
-	_apply_display_font_override(_tier_name_label, tier_name_text, tier_name_size, fallback_font)
+	# Tier names are dynamic player-facing copy, so the Game Skin's limited
+	# atlas face is not permitted here even when a current name happens to fit.
+	if _tier_name_label != null:
+		_tier_name_label.add_theme_font_override("font", fallback_font)
+		_tier_name_label.add_theme_font_size_override("font_size", maxi(1, tier_name_size))
 
 func _apply_display_font_override(label: Label, text: String, size: int, fallback_font: Font) -> void:
 	if label == null:
@@ -150,6 +162,7 @@ func _resolve_nodes() -> void:
 	_tier_value_label = get_node_or_null(tier_value_label_path) as Label
 	_tier_name_label = get_node_or_null(tier_name_label_path) as Label
 	_rank_title_label = get_node_or_null(rank_title_label_path) as Label
+	_rank_name_spacer = get_node_or_null(rank_name_spacer_path) as Control
 	_rank_value_label = get_node_or_null(rank_value_label_path) as Label
 	_rank_up_flash = get_node_or_null(rank_up_flash_path) as ColorRect
 
@@ -187,8 +200,8 @@ func _apply_base_typography() -> void:
 	for label in [_tier_value_label, _rank_value_label]:
 		if label == null:
 			continue
-		label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.0))
-		label.add_theme_color_override("font_outline_color", VALUE_CUTOUT_STROKE)
+		label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
+		label.add_theme_color_override("font_outline_color", HERO_STROKE)
 		label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.0))
 		label.add_theme_constant_override("shadow_offset_x", 0)
 		label.add_theme_constant_override("shadow_offset_y", 0)
@@ -202,24 +215,13 @@ func _apply_base_typography() -> void:
 func _prepare_text_materials() -> void:
 	_text_materials.clear()
 	_material_base_inlay.clear()
-	_register_label_material(_tier_title_label)
-	_register_label_material(_rank_title_label)
-	_apply_value_cutout_style(_tier_value_label)
-	_apply_value_cutout_style(_rank_value_label)
+	_register_label_material(_tier_title_label, LABEL_GLOW_STRENGTH, LABEL_GLOW_RADIUS)
+	_register_label_material(_rank_title_label, LABEL_GLOW_STRENGTH, LABEL_GLOW_RADIUS)
+	_register_label_material(_tier_value_label, VALUE_GLOW_STRENGTH, VALUE_GLOW_RADIUS)
+	_register_label_material(_rank_value_label, VALUE_GLOW_STRENGTH, VALUE_GLOW_RADIUS)
 	_apply_sweep_state(-0.3, 0.0, 1.0)
 
-func _apply_value_cutout_style(label: Label) -> void:
-	if label == null:
-		return
-	label.material = null
-	label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.0))
-	label.add_theme_color_override("font_outline_color", VALUE_CUTOUT_STROKE)
-	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.0))
-	label.add_theme_constant_override("outline_size", 5)
-	label.add_theme_constant_override("shadow_offset_x", 0)
-	label.add_theme_constant_override("shadow_offset_y", 0)
-
-func _register_label_material(label: Label) -> void:
+func _register_label_material(label: Label, glow_strength: float, glow_radius: float) -> void:
 	if label == null:
 		return
 	var material_any: Variant = label.material
@@ -233,8 +235,8 @@ func _register_label_material(label: Label) -> void:
 	unique_mat.set_shader_parameter("stroke_color", HERO_STROKE)
 	unique_mat.set_shader_parameter("stroke_width", 1.0)
 	unique_mat.set_shader_parameter("glow_color", HERO_GLOW)
-	unique_mat.set_shader_parameter("glow_strength", 0.22)
-	unique_mat.set_shader_parameter("glow_radius", 2.3)
+	unique_mat.set_shader_parameter("glow_strength", glow_strength)
+	unique_mat.set_shader_parameter("glow_radius", glow_radius)
 	unique_mat.set_shader_parameter("bevel_strength", 0.20)
 	unique_mat.set_shader_parameter("inner_shadow_strength", 0.16)
 	var bevel_strength_any: Variant = unique_mat.get_shader_parameter("bevel_strength")
@@ -350,7 +352,6 @@ func _set_values(metrics: Dictionary, allow_anim: bool) -> void:
 	var tier_total: int = maxi(0, int(metrics.get("tier_total", 0)))
 	var tier_population: int = maxi(0, int(metrics.get("tier_population", 0)))
 	var tier_name: String = str(metrics.get("tier_name", "Drone")).strip_edges()
-	var color_id: String = str(metrics.get("color_id", "GREEN")).strip_edges().to_upper()
 
 	var play_rankup: bool = false
 	if _has_values and allow_anim:
@@ -366,7 +367,6 @@ func _set_values(metrics: Dictionary, allow_anim: bool) -> void:
 	_tier_total = tier_total
 	_tier_population = tier_population
 	_tier_name = tier_name if tier_name != "" else "Drone"
-	_rank_color_id = color_id
 	_has_values = true
 	_update_text()
 	if play_rankup:
@@ -384,8 +384,54 @@ func _update_text() -> void:
 	if _rank_value_label != null:
 		_rank_value_label.text = str(maxi(0, _tier_rank))
 	_apply_display_fonts(_base_label_font, _tier_title_label.get_theme_font_size("font_size") if _tier_title_label != null else 12, _tier_name_label.get_theme_font_size("font_size") if _tier_name_label != null else 14)
+	_fit_tier_name_label()
+	_fit_value_labels()
 	_apply_shader_palette(_tier_value_label, _hero_value_palette())
-	_apply_shader_palette(_rank_value_label, _rank_value_palette(_rank_color_id))
+	_apply_shader_palette(_rank_value_label, _hero_value_palette())
+
+func _fit_value_labels() -> void:
+	if _tier_value_label == null or _rank_value_label == null:
+		return
+	var tier_font: Font = _tier_value_label.get_theme_font("font")
+	var rank_font: Font = _rank_value_label.get_theme_font("font")
+	if tier_font == null or rank_font == null:
+		return
+	var fitted_size: int = VALUE_FONT_SIZE
+	while fitted_size > VALUE_MIN_FONT_SIZE:
+		var tier_fits: bool = tier_font.get_string_size(_tier_value_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fitted_size).x <= _label_available_width(_tier_value_label)
+		var rank_fits: bool = rank_font.get_string_size(_rank_value_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fitted_size).x <= _label_available_width(_rank_value_label)
+		if tier_fits and rank_fits:
+			break
+		fitted_size -= 2
+	for label in [_tier_value_label, _rank_value_label]:
+		label.add_theme_font_size_override("font_size", fitted_size)
+		# The common font size and slot height keep the two number baselines aligned.
+		label.custom_minimum_size.y = round(float(VALUE_FONT_SIZE) * 0.90)
+
+func _fit_tier_name_label() -> void:
+	if _tier_name_label == null:
+		return
+	var body_floor: int = UITypography.token_size("body", 16, UITypography.PORTRAIT_CANVAS_SCALE)
+	var available_width: float = _label_available_width(_tier_name_label)
+	var font: Font = _tier_name_label.get_theme_font("font")
+	if font == null:
+		return
+	var fitted_size: int = maxi(body_floor, _tier_name_label.get_theme_font_size("font_size"))
+	while fitted_size > body_floor and font.get_string_size(_tier_name_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fitted_size).x > available_width:
+		fitted_size -= 1
+	_tier_name_label.add_theme_font_size_override("font_size", fitted_size)
+	_tier_name_label.custom_minimum_size.y = round(float(fitted_size) * 1.05)
+	_sync_rank_name_spacer()
+
+func _sync_rank_name_spacer() -> void:
+	if _rank_name_spacer == null or _tier_name_label == null:
+		return
+	_rank_name_spacer.custom_minimum_size.y = _tier_name_label.custom_minimum_size.y
+
+func _label_available_width(label: Label) -> float:
+	if label != null and label.size.x > VALUE_HORIZONTAL_PADDING:
+		return label.size.x - VALUE_HORIZONTAL_PADDING
+	return maxf(1.0, (size.x - 8.0) * 0.5 - VALUE_HORIZONTAL_PADDING)
 
 func _apply_shader_palette(label: Label, palette: Dictionary) -> void:
 	if label == null:
@@ -406,31 +452,6 @@ func _hero_value_palette() -> Dictionary:
 		"stroke": HERO_STROKE,
 		"glow": HERO_GLOW
 	}
-
-func _rank_value_palette(color_id: String) -> Dictionary:
-	var rank_base: Color = _rank_color_for_id(color_id)
-	return {
-		"top": rank_base.lightened(0.26),
-		"bottom": rank_base.darkened(0.12),
-		"stroke": rank_base.darkened(0.55),
-		"glow": rank_base.lightened(0.20)
-	}
-
-func _rank_color_for_id(color_id: String) -> Color:
-	match color_id.strip_edges().to_upper():
-		"YELLOW":
-			return Color(1.0, 0.90, 0.38, 1.0)
-		"RED":
-			return Color(1.0, 0.37, 0.28, 1.0)
-		"GREEN":
-			return Color(0.47, 1.0, 0.49, 1.0)
-		"BLUE":
-			return Color(0.48, 0.78, 1.0, 1.0)
-		"BLACK":
-			# Keep it readable on dark UI while honoring the black tier band.
-			return Color(0.85, 0.88, 0.95, 1.0)
-		_:
-			return Color(0.98, 0.96, 0.90, 1.0)
 
 func _resolve_tier_name(tier_id: String) -> String:
 	if not ResourceLoader.exists(rank_config_path):

@@ -29,9 +29,9 @@ theme_override_constants/separation = 14
 
 [node name="Header" type="Label" parent="VBox"]
 layout_mode = 2
-text = "Profile"
+text = "ACCOUNT"
 
-[node name="ProfileRow" type="HBoxContainer" parent="VBox"]
+[node name="ProfileRow" type="VBoxContainer" parent="VBox"]
 layout_mode = 2
 
 [node name="ProfileLabel" type="Label" parent="VBox/ProfileRow"]
@@ -47,6 +47,10 @@ layout_mode = 2
 size_flags_horizontal = 3
 placeholder_text = "Call sign"
 
+[node name="ApplyDisplayNameButton" type="Button" parent="VBox/ProfileRow"]
+layout_mode = 2
+text = "CHANGE CALL SIGN"
+
 [node name="UserIdSection" type="VBoxContainer" parent="VBox"]
 layout_mode = 2
 
@@ -58,7 +62,7 @@ text = "ENTaP ID"
 layout_mode = 2
 text = "Permanent public account number for support, recovery, tournaments, and exact friend lookup."
 
-[node name="UserIdCurrentRow" type="HBoxContainer" parent="VBox/UserIdSection"]
+[node name="UserIdCurrentRow" type="VBoxContainer" parent="VBox/UserIdSection"]
 layout_mode = 2
 
 [node name="CurrentUserIdLabel" type="Label" parent="VBox/UserIdSection/UserIdCurrentRow"]
@@ -67,7 +71,7 @@ text = "Current: "
 
 [node name="CopyUserIdButton" type="Button" parent="VBox/UserIdSection/UserIdCurrentRow"]
 layout_mode = 2
-text = "Copy"
+text = "COPY ENTaP ID"
 
 [node name="UserIdRow" type="HBoxContainer" parent="VBox/UserIdSection"]
 layout_mode = 2
@@ -154,7 +158,7 @@ layout_mode = 2
 layout_mode = 2
 text = "Performance"
 
-[node name="PerformanceModeRow" type="HBoxContainer" parent="VBox/PerformanceSection"]
+[node name="PerformanceModeRow" type="VBoxContainer" parent="VBox/PerformanceSection"]
 layout_mode = 2
 
 [node name="PerformanceModeLabel" type="Label" parent="VBox/PerformanceSection/PerformanceModeRow"]
@@ -179,6 +183,7 @@ layout_mode = 2
 text = "ON"
 
 [node name="AdminSection" type="VBoxContainer" parent="VBox"]
+visible = false
 layout_mode = 2
 
 [node name="AdminLabel" type="Label" parent="VBox/AdminSection"]
@@ -192,14 +197,12 @@ layout_mode = 2
 layout_mode = 2
 size_flags_horizontal = 3
 placeholder_text = "Username"
-text = "Mattballou"
 
 [node name="AdminPasswordInput" type="LineEdit" parent="VBox/AdminSection/AdminCredentialsRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 secret = true
 placeholder_text = "Password"
-text = "$warmFr0nt"
 
 [node name="AdminRow" type="HBoxContainer" parent="VBox/AdminSection"]
 layout_mode = 2
@@ -224,7 +227,7 @@ layout_mode = 2
 layout_mode = 2
 text = "Support"
 
-[node name="SupportRow" type="HBoxContainer" parent="VBox/SupportSection"]
+[node name="SupportRow" type="VBoxContainer" parent="VBox/SupportSection"]
 layout_mode = 2
 
 [node name="SupportHint" type="Label" parent="VBox/SupportSection/SupportRow"]
@@ -234,7 +237,7 @@ text = "Account and diagnostics payload"
 
 [node name="SupportDiagnosticsButton" type="Button" parent="VBox/SupportSection/SupportRow"]
 layout_mode = 2
-text = "Diagnostics"
+text = "OPEN DIAGNOSTICS"
 
 [node name="RenamePolicyLabel" type="Label" parent="VBox"]
 layout_mode = 2
@@ -248,7 +251,7 @@ layout_mode = 2
 layout_mode = 2
 text = "Community Safety"
 
-[node name="CommunitySafetyRow" type="HBoxContainer" parent="VBox/CommunitySafetySection"]
+[node name="CommunitySafetyRow" type="VBoxContainer" parent="VBox/CommunitySafetySection"]
 layout_mode = 2
 
 [node name="CommunitySafetyHint" type="Label" parent="VBox/CommunitySafetySection/CommunitySafetyRow"]
@@ -258,7 +261,7 @@ text = "Reports, appeals, Call Sign policy, and privacy posture."
 
 [node name="CommunitySafetyButton" type="Button" parent="VBox/CommunitySafetySection/CommunitySafetyRow"]
 layout_mode = 2
-text = "Open Safety"
+text = "OPEN COMMUNITY SAFETY"
 
 [node name="CommunitySafetyStatusLabel" type="Label" parent="VBox/CommunitySafetySection"]
 layout_mode = 2

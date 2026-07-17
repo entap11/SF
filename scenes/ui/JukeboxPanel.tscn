@@ -1,13 +1,22 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/jukebox_panel.gd" id="1"]
 [ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/play.png" id="2"]
 [ext_resource type="Shader" path="res://shaders/BlackKeyAlpha.gdshader" id="3"]
+[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/Back.png" id="4"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_play_key"]
 shader = ExtResource("3")
 shader_parameter/key_threshold = 0.018
 shader_parameter/feather = 0.018
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_play_trimmed"]
+atlas = ExtResource("2")
+region = Rect2(192, 272, 1152, 404)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_main_menu_trimmed"]
+atlas = ExtResource("4")
+region = Rect2(208, 300, 1120, 360)
 
 [node name="JukeboxPanel" type="Panel"]
 visible = false
@@ -195,7 +204,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-texture = ExtResource("2")
+texture = SubResource("AtlasTexture_play_trimmed")
 expand_mode = 1
 stretch_mode = 5
 
@@ -266,7 +275,21 @@ text = "Badge note"
 [node name="FooterCloseButton" type="Button" parent="VBox"]
 custom_minimum_size = Vector2(720, 112)
 size_flags_horizontal = 4
+tooltip_text = "Return to Main Menu"
 text = "BACK TO MAIN MENU"
+flat = true
+
+[node name="MainMenuSprite" type="TextureRect" parent="VBox/FooterCloseButton"]
+material = SubResource("ShaderMaterial_play_key")
+mouse_filter = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = SubResource("AtlasTexture_main_menu_trimmed")
+expand_mode = 1
+stretch_mode = 5
 
 [node name="FooterSafeSpacer" type="Control" parent="VBox"]
 custom_minimum_size = Vector2(0, 0)

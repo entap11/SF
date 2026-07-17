@@ -16,8 +16,7 @@ func _run() -> void:
 	for result in results:
 		var warning_ms: int = int(result.get("critical_to_capture_ms", 0))
 		_expect(warning_ms > 0, "%s flow must provide measurable warning time" % str(result.get("flow", "")))
-		_expect(int(result.get("critical_power", -1)) == 6, "%s flow must enter at calibration power 6" % str(result.get("flow", "")))
-		_expect(int(result.get("imminent_power", -1)) == 3, "%s flow must enter imminent at calibration power 3" % str(result.get("flow", "")))
+		_expect(int(result.get("critical_power", -1)) == 4, "%s flow must enter critical eruption below power 5" % str(result.get("flow", "")))
 
 	if _failed:
 		quit(1)
@@ -41,9 +40,7 @@ func _run_flow(flow_name: String, impact_interval_sec: float, intermittent_recov
 	var target: HiveData = state.find_hive_by_id(1)
 	var started_ms: int = Time.get_ticks_msec()
 	var critical_at_ms: int = -1
-	var imminent_at_ms: int = -1
 	var critical_power: int = -1
-	var imminent_power: int = -1
 	var recovered_once: bool = false
 	var hit_count: int = 0
 
@@ -52,12 +49,9 @@ func _run_flow(flow_name: String, impact_interval_sec: float, intermittent_recov
 		_apply_arrival(unit_system, 2, 1, 1)
 		hit_count += 1
 		var now_ms: int = Time.get_ticks_msec()
-		if int(target.owner_id) == 1 and int(target.power) <= 6 and critical_at_ms < 0:
+		if int(target.owner_id) == 1 and int(target.power) < 5 and critical_at_ms < 0:
 			critical_at_ms = now_ms
 			critical_power = int(target.power)
-		if int(target.owner_id) == 1 and int(target.power) <= 3 and imminent_at_ms < 0:
-			imminent_at_ms = now_ms
-			imminent_power = int(target.power)
 		if (
 			intermittent_recovery
 			and not recovered_once
@@ -74,9 +68,7 @@ func _run_flow(flow_name: String, impact_interval_sec: float, intermittent_recov
 		"impact_interval_ms": int(round(impact_interval_sec * 1000.0)),
 		"hit_count": hit_count,
 		"critical_power": critical_power,
-		"imminent_power": imminent_power,
 		"critical_to_capture_ms": maxi(0, captured_ms - critical_at_ms),
-		"imminent_to_capture_ms": maxi(0, captured_ms - imminent_at_ms),
 		"total_fixture_ms": captured_ms - started_ms,
 		"recovery_injected": recovered_once
 	}

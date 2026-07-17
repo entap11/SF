@@ -32,6 +32,8 @@ var _total_swarm_collisions: int = 0
 var _units_produced_by_player: Dictionary = {}
 var _barracks_units_produced_by_player: Dictionary = {}
 var _swarms_sent_by_player: Dictionary = {}
+var _hives_captured_by_player: Dictionary = {}
+var _units_first_landed_by_player: Dictionary = {}
 var _meaningful_actions_by_player: Dictionary = {}
 var _lane_reversals_by_player: Dictionary = {}
 var _units_arrived_friendly_hive_by_player: Dictionary = {}
@@ -98,6 +100,8 @@ func reset() -> void:
 	_units_produced_by_player.clear()
 	_barracks_units_produced_by_player.clear()
 	_swarms_sent_by_player.clear()
+	_hives_captured_by_player.clear()
+	_units_first_landed_by_player.clear()
 	_meaningful_actions_by_player.clear()
 	_lane_reversals_by_player.clear()
 	_units_arrived_friendly_hive_by_player.clear()
@@ -175,6 +179,8 @@ func begin_match(
 		_units_produced_by_player[player_id] = 0
 		_barracks_units_produced_by_player[player_id] = 0
 		_swarms_sent_by_player[player_id] = 0
+		_hives_captured_by_player[player_id] = 0
+		_units_first_landed_by_player[player_id] = 0
 		_meaningful_actions_by_player[player_id] = 0
 		_lane_reversals_by_player[player_id] = 0
 		_units_arrived_friendly_hive_by_player[player_id] = 0
@@ -409,6 +415,11 @@ func record_unit_arrival(
 	var clean_relation: String = relation.strip_edges().to_lower()
 	var clean_source: String = arrive_source.strip_edges().to_lower()
 	var count_as_landing: bool = clean_source != "recall"
+	var count_as_first_landing: bool = count_as_landing and clean_source != "pass_through"
+	if count_as_first_landing:
+		_units_first_landed_by_player[player_id] = int(_units_first_landed_by_player.get(player_id, 0)) + amount
+	if target_owner_before != target_owner_after and target_owner_after == player_id:
+		_hives_captured_by_player[player_id] = int(_hives_captured_by_player.get(player_id, 0)) + 1
 	if count_as_landing:
 		match clean_relation:
 			"friendly":
@@ -887,6 +898,8 @@ func _build_totals() -> Dictionary:
 		"event_count": _model.events.size(),
 		"player_ids": players,
 		"unit_spawn_by_player": _dict_by_player(players, _units_produced_by_player),
+		"hive_captures_by_player": _dict_by_player(players, _hives_captured_by_player),
+		"unit_first_land_by_player": _dict_by_player(players, _units_first_landed_by_player),
 		"unit_land_friendly_by_player": _dict_by_player(players, _units_arrived_friendly_hive_by_player),
 		"unit_land_enemy_by_player": _dict_by_player(players, _units_arrived_enemy_hive_by_player),
 		"unit_land_npc_by_player": _dict_by_player(players, _units_arrived_npc_hive_by_player),
@@ -1046,6 +1059,8 @@ func _build_metrics(duration_s: float) -> Dictionary:
 	var won_match: Array = []
 	var lost_match: Array = []
 	var swarms_sent: Array = []
+	var hives_captured: Array = []
+	var units_first_landed: Array = []
 	var meaningful_actions: Array = []
 	var meaningful_apm: Array = []
 	var lane_reversals: Array = []
@@ -1144,6 +1159,8 @@ func _build_metrics(duration_s: float) -> Dictionary:
 		lost_match.append(1 if winner_player_id > 0 and winner_player_id != player_id else 0)
 		barracks_produced.append(barracks_count)
 		swarms_sent.append(swarm_count)
+		hives_captured.append(int(_hives_captured_by_player.get(player_id, 0)))
+		units_first_landed.append(int(_units_first_landed_by_player.get(player_id, 0)))
 		meaningful_actions.append(meaningful_count)
 		meaningful_apm.append(meaningful_apm_value)
 		lane_reversals.append(lane_reversal_count)
@@ -1240,6 +1257,8 @@ func _build_metrics(duration_s: float) -> Dictionary:
 		"units_sent_by_player": units_sent,
 		"barracks_units_produced_by_player": barracks_produced,
 		"total_swarms_sent_by_player": swarms_sent,
+		"hives_captured_by_player": hives_captured,
+		"units_first_landed_by_player": units_first_landed,
 		"meaningful_actions_by_player": meaningful_actions,
 		"meaningful_actions_per_min_by_player": meaningful_apm,
 		"lane_reversals_by_player": lane_reversals,
@@ -1844,6 +1863,10 @@ func _ensure_player_slot(player_id: int) -> void:
 		_barracks_units_produced_by_player[player_id] = 0
 	if not _swarms_sent_by_player.has(player_id):
 		_swarms_sent_by_player[player_id] = 0
+	if not _hives_captured_by_player.has(player_id):
+		_hives_captured_by_player[player_id] = 0
+	if not _units_first_landed_by_player.has(player_id):
+		_units_first_landed_by_player[player_id] = 0
 	if not _meaningful_actions_by_player.has(player_id):
 		_meaningful_actions_by_player[player_id] = 0
 	if not _lane_reversals_by_player.has(player_id):
