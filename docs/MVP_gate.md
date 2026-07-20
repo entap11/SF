@@ -36,7 +36,7 @@ scripts/dev/run_mvp_smoke.sh
 Optional map override:
 
 ```bash
-MVP_SMOKE_MAP="res://maps/json/MAP_RACE_WALLS_8x12_v1xy.json" scripts/dev/run_mvp_smoke.sh
+MVP_SMOKE_MAP="res://maps/_future/knifefight/MAP_knifefight__SBASE__1p.json" scripts/dev/run_mvp_smoke.sh
 ```
 
 Current automated checks (`scripts/dev/run_mvp_smoke.sh`, shell smoke mode):
