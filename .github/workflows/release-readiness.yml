@@ -45,10 +45,21 @@ on:
         default: false
         type: boolean
       perf_harness_diagnose:
-        description: Capture the Harness V1 windowed pacing diagnostic matrix
+        description: Capture one isolated Harness V1 windowed pacing diagnostic
         required: false
         default: false
         type: boolean
+      perf_harness_diagnostic_variant:
+        description: Isolated Harness V1 diagnostic variant
+        required: false
+        default: default_awake_minimal
+        type: choice
+        options:
+          - default_awake_minimal
+          - default_awake_repeat_minimal
+          - default_awake_full
+          - vsync_disabled_full
+          - post_load_awake_minimal
   schedule:
     - cron: "17 11 * * *"
 
@@ -317,6 +328,7 @@ jobs:
     timeout-minutes: 60
     env:
       GODOT_BIN: ${{ vars.GODOT_BIN || 'godot' }}
+      PERF_PACING_DIAGNOSTIC_VARIANT: ${{ inputs.perf_harness_diagnostic_variant || 'default_awake_minimal' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -353,7 +365,13 @@ jobs:
           done
           echo "PERF_PACING_DIAGNOSTIC_IMPORT_READY import_rc=${import_rc}"
 
-      - name: Capture controlled pacing matrix
+      - name: Verify interrupted cleanup
+        run: |
+          set -euo pipefail
+          "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" \
+            --script res://tools/perf_interrupted_cleanup_smoke_test.gd
+
+      - name: Capture isolated pacing variant
         run: |
           set -euo pipefail
           command -v caffeinate

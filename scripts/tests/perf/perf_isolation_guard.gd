@@ -90,9 +90,9 @@ static func restore(snapshot: Dictionary, tree: SceneTree, ops_state: Node) -> D
 	return verification
 
 
-static func release_fixture_state(snapshot: Dictionary, ops_state: Node) -> Dictionary:
-	if ops_state == null:
-		return {"released": false, "reason": "ops_state_missing"}
+static func release_fixture_state(snapshot: Dictionary, ops_state: Variant) -> Dictionary:
+	if ops_state == null or not is_instance_valid(ops_state):
+		return {"released": false, "reason": "ops_state_unavailable"}
 	var original_properties: Dictionary = snapshot.get("ops_properties", {}) as Dictionary
 	var original_state: Variant = original_properties.get("state")
 	var fixture_state: Variant = ops_state.get("state")

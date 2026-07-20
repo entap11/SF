@@ -61,9 +61,13 @@ var _user_data_isolation: Dictionary = {
 	"path": "",
 	"error": ""
 }
+var _diagnostic_window_lifecycle: bool = false
+var _diagnostic_window_events: Array[Dictionary] = []
 
 func _init() -> void:
-	_configure_user_data_isolation(OS.get_cmdline_user_args())
+	var user_args: PackedStringArray = OS.get_cmdline_user_args()
+	_configure_user_data_isolation(user_args)
+	_configure_diagnostic_window_lifecycle(user_args)
 	call_deferred("_run_entry")
 
 func _run_entry() -> void:
@@ -98,6 +102,11 @@ func _run_entry() -> void:
 		return
 	await _prime_harness_shared_services()
 	var report: Dictionary = await _run_suite(args)
+	if _diagnostic_window_lifecycle:
+		report["diagnostic_window_lifecycle"] = {
+			"auto_accept_quit": auto_accept_quit,
+			"events": _diagnostic_window_events.duplicate(true)
+		}
 	var output_path := str(args.get("output", DEFAULT_OUTPUT_PATH))
 	_write_json(output_path, report)
 	for scenario_any in report.get("scenarios", []) as Array:
@@ -3551,16 +3560,25 @@ func _disarm_interrupted_cleanup() -> void:
 func _recover_interrupted_repetition() -> void:
 	if _interrupted_isolation_snapshot.is_empty():
 		return
+	var tree_available: bool = root != null and is_instance_valid(root)
+	var ops_state_available: bool = OpsState != null and is_instance_valid(OpsState)
+	_diagnostic_window_event("interrupted_recovery", {
+		"tree_available": tree_available,
+		"ops_state_available": ops_state_available
+	})
 	if _interrupted_arena != null and is_instance_valid(_interrupted_arena) and _interrupted_arena.has_method("clear_perf_match_seed_override"):
 		_interrupted_arena.call("clear_perf_match_seed_override")
-	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
+	if ops_state_available and OpsState.has_method("set_match_telemetry_collector"):
 		OpsState.call("set_match_telemetry_collector", null)
 	if _interrupted_scene_root != null and is_instance_valid(_interrupted_scene_root):
 		_interrupted_scene_root.process_mode = Node.PROCESS_MODE_DISABLED
 		_interrupted_scene_root.free()
-	_free_fixture_root_additions(_interrupted_isolation_snapshot)
-	PERF_ISOLATION_GUARD.release_fixture_state(_interrupted_isolation_snapshot, OpsState)
-	PERF_ISOLATION_GUARD.restore(_interrupted_isolation_snapshot, self, OpsState)
+	if tree_available:
+		_free_fixture_root_additions(_interrupted_isolation_snapshot)
+	if ops_state_available:
+		PERF_ISOLATION_GUARD.release_fixture_state(_interrupted_isolation_snapshot, OpsState)
+	if tree_available and ops_state_available:
+		PERF_ISOLATION_GUARD.restore(_interrupted_isolation_snapshot, self, OpsState)
 	_disarm_interrupted_cleanup()
 
 func _free_fixture_root_additions(isolation_snapshot: Dictionary) -> void:
@@ -3580,9 +3598,9 @@ func _free_fixture_root_additions(isolation_snapshot: Dictionary) -> void:
 		child.free()
 
 func _cleanup_entry_state() -> void:
-	if _analytics_isolation_active:
+	if _analytics_isolation_active and root != null and is_instance_valid(root):
 		_set_analytics_harness_isolation(false)
-		_analytics_isolation_active = false
+	_analytics_isolation_active = false
 	if has_meta("sf_perf_harness_active"):
 		remove_meta("sf_perf_harness_active")
 	_restore_gpu_vfx_auto_fallback_environment()
@@ -3609,6 +3627,11 @@ func _restore_gpu_vfx_auto_fallback_environment() -> void:
 	_gpu_vfx_auto_fallback_env_restore.clear()
 
 func _finalize() -> void:
+	_diagnostic_window_event("scene_tree_finalize", {
+		"interrupted_repetition_armed": not _interrupted_isolation_snapshot.is_empty(),
+		"tree_available": root != null and is_instance_valid(root),
+		"ops_state_available": OpsState != null and is_instance_valid(OpsState)
+	})
 	_recover_interrupted_repetition()
 	_cleanup_entry_state()
 
@@ -3618,10 +3641,53 @@ func _prime_harness_shared_services() -> void:
 	await process_frame
 
 func _set_analytics_harness_isolation(enabled: bool) -> bool:
+	if root == null or not is_instance_valid(root):
+		return false
 	var analytics: Node = root.get_node_or_null("/root/AnalyticsClient")
 	return analytics != null \
 		and analytics.has_method("set_perf_harness_isolation") \
 		and bool(analytics.call("set_perf_harness_isolation", enabled))
+
+func _configure_diagnostic_window_lifecycle(user_args: PackedStringArray) -> void:
+	if not user_args.has("--diagnose-window-lifecycle"):
+		return
+	_diagnostic_window_lifecycle = true
+	auto_accept_quit = false
+	if root != null and is_instance_valid(root):
+		if root.has_signal("close_requested"):
+			root.connect("close_requested", _on_diagnostic_close_requested)
+		if root.has_signal("focus_entered"):
+			root.connect("focus_entered", _on_diagnostic_focus_entered)
+		if root.has_signal("focus_exited"):
+			root.connect("focus_exited", _on_diagnostic_focus_exited)
+	_diagnostic_window_event("diagnostic_lifecycle_armed", {
+		"auto_accept_quit": auto_accept_quit,
+		"display_server": DisplayServer.get_name()
+	})
+
+func _on_diagnostic_close_requested() -> void:
+	_diagnostic_window_event("window_close_requested", {
+		"action": "ignored_in_diagnostic_mode"
+	})
+
+func _on_diagnostic_focus_entered() -> void:
+	_diagnostic_window_event("window_focus_entered")
+
+func _on_diagnostic_focus_exited() -> void:
+	_diagnostic_window_event("window_focus_exited")
+
+func _diagnostic_window_event(event_name: String, details: Dictionary = {}) -> void:
+	if not _diagnostic_window_lifecycle:
+		return
+	var event: Dictionary = {
+		"event": event_name,
+		"ticks_msec": Time.get_ticks_msec(),
+		"unix_time": Time.get_unix_time_from_system()
+	}
+	for key_any in details.keys():
+		event[str(key_any)] = details.get(key_any)
+	_diagnostic_window_events.append(event)
+	print("PERF_WINDOW_LIFECYCLE: %s" % JSON.stringify(event))
 
 func _backend_isolation_state() -> Dictionary:
 	var analytics: Node = root.get_node_or_null("/root/AnalyticsClient")

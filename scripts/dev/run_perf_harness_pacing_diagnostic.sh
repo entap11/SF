@@ -7,6 +7,9 @@ ARTIFACT_DIR="${PERF_PACING_DIAGNOSTIC_DIR:-${ROOT_DIR}/artifacts/perf_harness_p
 HARNESS="res://scripts/tests/perf_benchmark_suite.gd"
 SUITE="phase1_static_fixtures"
 MODE="static_windowed_deterministic"
+VARIANT="${PERF_PACING_DIAGNOSTIC_VARIANT:-default_awake_minimal}"
+RUN_ID="${GITHUB_RUN_ID:-local}"
+RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-1}"
 
 mkdir -p "${ARTIFACT_DIR}"
 
@@ -49,19 +52,70 @@ capture_variant() {
   local report_path="${ROOT_DIR}/${report_rel}"
   local log_path="${ARTIFACT_DIR}/${label}.log"
   local summary_path="${ARTIFACT_DIR}/${label}.summary.json"
-  local user_dir="SwarmfrontPerfPacingDiagnostic_${label}"
+  local user_dir="SwarmfrontPerfPacingDiagnostic_${RUN_ID}_${RUN_ATTEMPT}_${label}"
+  local lifecycle_path="${ARTIFACT_DIR}/${label}.process.json"
+  local system_log_path="${ARTIFACT_DIR}/${label}.macos.log"
+  local started_at
+  local ended_at
+  local godot_pid
   local rc
+  local signal_number=0
+  local signal_name=""
 
+  started_at="$(date '+%Y-%m-%d %H:%M:%S')"
   set +e
   "${GODOT_BIN}" "$@" --path "${ROOT_DIR}" --script "${HARNESS}" -- \
     --sf-perf-harness \
+    --diagnose-window-lifecycle \
     --perf-user-dir="${user_dir}" \
     --collection-level="${collection_level}" \
     --suite="${SUITE}" \
     --mode="${MODE}" \
-    --output="res://${report_rel}" 2>&1 | tee "${log_path}"
-  rc=${PIPESTATUS[0]}
+    --output="res://${report_rel}" >"${log_path}" 2>&1 &
+  godot_pid=$!
+  printf 'PERF_PACING_DIAGNOSTIC_PROCESS label=%s pid=%s started_at=%s\n' "${label}" "${godot_pid}" "${started_at}"
+  wait "${godot_pid}"
+  rc=$?
   set -e
+  ended_at="$(date '+%Y-%m-%d %H:%M:%S')"
+  cat "${log_path}"
+
+  if (( rc > 128 )); then
+    signal_number=$((rc - 128))
+    signal_name="$(kill -l "${signal_number}" 2>/dev/null || true)"
+  fi
+  jq -n \
+    --arg label "${label}" \
+    --arg variant "${VARIANT}" \
+    --arg user_dir "${user_dir}" \
+    --arg started_at "${started_at}" \
+    --arg ended_at "${ended_at}" \
+    --arg signal_name "${signal_name}" \
+    --argjson pid "${godot_pid}" \
+    --argjson process_rc "${rc}" \
+    --argjson signal_number "${signal_number}" \
+    '{
+      label: $label,
+      variant: $variant,
+      user_dir: $user_dir,
+      started_at: $started_at,
+      ended_at: $ended_at,
+      pid: $pid,
+      process_rc: $process_rc,
+      signal_number: $signal_number,
+      signal_name: $signal_name
+    }' >"${lifecycle_path}"
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v log >/dev/null 2>&1; then
+    log show \
+      --start "${started_at}" \
+      --end "${ended_at}" \
+      --style compact \
+      --info \
+      --debug \
+      --predicate 'process == "Godot" OR process == "godot"' \
+      >"${system_log_path}" 2>&1 || true
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\n' "${label}" "${collection_level}" "${godot_pid}" "${rc}" "${signal_name}" >>"${ARTIFACT_DIR}/process_status.tsv"
 
   if [[ ! -f "${report_path}" ]]; then
     echo "PERF_PACING_DIAGNOSTIC_FAIL label=${label} reason=report_missing rc=${rc}"
@@ -105,7 +159,6 @@ capture_variant() {
       fixture_config_hash
     }]
   }' "${report_path}" >"${summary_path}"
-  printf '%s\t%s\t%s\n' "${label}" "${collection_level}" "${rc}" >>"${ARTIFACT_DIR}/process_status.tsv"
   echo "PERF_PACING_DIAGNOSTIC_CAPTURE label=${label} collection=${collection_level} performance_rc=${rc} correctness=PASS"
 }
 
@@ -139,23 +192,36 @@ run_focused_gate_load() {
 
 rm -f "${ARTIFACT_DIR}/process_status.tsv"
 capture_host_state
-capture_variant default_first_minimal MINIMAL
-capture_variant default_repeat_minimal MINIMAL
-capture_variant default_raw_full FULL
-capture_variant vsync_disabled_full FULL --disable-vsync
-run_focused_gate_load 2>&1 | tee "${ARTIFACT_DIR}/focused_gate_load.log"
-capture_variant default_post_load_minimal MINIMAL
+
+case "${VARIANT}" in
+  default_awake_minimal)
+    capture_variant "${VARIANT}" MINIMAL
+    ;;
+  default_awake_repeat_minimal)
+    capture_variant "${VARIANT}" MINIMAL
+    ;;
+  default_awake_full)
+    capture_variant "${VARIANT}" FULL
+    ;;
+  vsync_disabled_full)
+    capture_variant "${VARIANT}" FULL --disable-vsync
+    ;;
+  post_load_awake_minimal)
+    run_focused_gate_load 2>&1 | tee "${ARTIFACT_DIR}/focused_gate_load.log"
+    capture_variant "${VARIANT}" MINIMAL
+    ;;
+  *)
+    echo "PERF_PACING_DIAGNOSTIC_FAIL reason=unknown_variant variant=${VARIANT}"
+    exit 2
+    ;;
+esac
 
 jq -s '{
-  schema: "sf_perf_harness_pacing_diagnostic_matrix_v1",
+  schema: "sf_perf_harness_pacing_diagnostic_isolated_v1",
   status: "CAPTURED",
   variants: .
 }' \
-  "${ARTIFACT_DIR}/default_first_minimal.summary.json" \
-  "${ARTIFACT_DIR}/default_repeat_minimal.summary.json" \
-  "${ARTIFACT_DIR}/default_raw_full.summary.json" \
-  "${ARTIFACT_DIR}/vsync_disabled_full.summary.json" \
-  "${ARTIFACT_DIR}/default_post_load_minimal.summary.json" \
+  "${ARTIFACT_DIR}/${VARIANT}.summary.json" \
   >"${ARTIFACT_DIR}/matrix_summary.json"
 
-echo "PERF_PACING_DIAGNOSTIC: PASS correctness_contracts=5 matrix=${ARTIFACT_DIR}/matrix_summary.json"
+echo "PERF_PACING_DIAGNOSTIC: PASS correctness_contracts=1 variant=${VARIANT} matrix=${ARTIFACT_DIR}/matrix_summary.json"
