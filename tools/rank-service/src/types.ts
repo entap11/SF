@@ -58,11 +58,34 @@ export interface RankServiceConfig {
   apiToken: string;
   economyMutationsEnabled: boolean;
   economyResetEnabled: boolean;
+  verifiedMatchMutationsEnabled: boolean;
+  publicLeaderboardsEnabled: boolean;
   databaseUrl: string;
   legacyStatePath: string;
   enforceCanonicalPlayerIds: boolean;
   allowDebugActions: boolean;
   economyEpoch: string;
+  identity: {
+    issuer: string;
+    audience: string;
+    keyId: string;
+    privateKeyPem: string;
+    publicKeyPem: string;
+    accessTokenTtlSec: number;
+    challengeTtlSec: number;
+  };
+  serviceAuth: {
+    issuer: string;
+    audience: string;
+    subject: string;
+    keyId: string;
+    publicKeyPem: string;
+  };
+  verifier: {
+    keyId: string;
+    publicKeyPem: string;
+    workerBuildId: string;
+  };
   rank: RankRuntimeConfig;
 }
 

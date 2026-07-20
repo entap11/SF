@@ -105,6 +105,18 @@ func _init() -> void:
 	_expect(int(round(float(get_meta("canonical_wax_delta", -1.0)))) == 0, "runtime quarantine fabricated a Wax delta")
 	_expect(int(round(float(get_meta("canonical_wax_balance", 0.0)))) == 200, "runtime quarantine erased cached Wax")
 
+	for key in ["canonical_wax_status", "canonical_wax_delta", "canonical_wax_balance"]:
+		if has_meta(key):
+			remove_meta(key)
+	set_meta("vs_mode", "CAPTURE_FLAG")
+	set_meta("practice", true)
+	set_meta("ranked", false)
+	fake_runner.emit_signal("match_ended", 1, "flag_capture")
+	await process_frame
+	_expect(not has_meta("canonical_wax_status"), "practice CTF reached the client rank mutation path")
+	remove_meta("practice")
+	remove_meta("ranked")
+
 	var synced_contest: Dictionary = runtime_awards.call("sync_contest_rank_rewards", "WEEKLY_USD_1_2025-W52", "WEEKLY", 5) as Dictionary
 	_assert_quarantined(synced_contest, "runtime contest award")
 	_assert_cached_wax(rank_state, LOCAL_ID, 200, "runtime contest preserved cached Wax")

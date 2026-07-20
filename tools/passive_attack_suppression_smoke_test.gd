@@ -11,7 +11,7 @@ func _init() -> void:
 	state.rebuild_indexes()
 
 	state.mark_hive_attacked_for_passive_suppression(1)
-	state._apply_passive_tick(1, 1)
+	state._tick_dormant_hive_production(state.PASSIVE_MS_PER_POWER)
 	_assert_eq(int(state.hives[0].power), 10, "attacked hive should not gain passive power")
 	_assert_eq(int(state.hives[1].power), 11, "idle owned hive should still gain passive power")
 	_assert_eq(int(state.hives[2].power), 10, "NPC hive should not gain passive power")

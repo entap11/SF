@@ -64,6 +64,115 @@ Example:
   - Failure: `{ "ok": false, "err": "reason_code", ... }`
 - If `ok` is omitted, client treats response as success by default.
 
+## Session roster contract (v2)
+
+Every synchronized session response includes one canonical roster. `host` and
+`guest` remain compatibility aliases for roster seats 1 and 2; new code must use
+`roster`.
+
+```json
+{
+  "contract_version": 2,
+  "contract_hash": "64 lowercase hex characters",
+  "required_players": 4,
+  "roster": [
+    { "uid": "u1", "display_name": "P1", "seat": 1, "role": "host", "team_id": 1, "ready": false },
+    { "uid": "u2", "display_name": "P2", "seat": 2, "role": "player", "team_id": 2, "ready": false },
+    { "uid": "u3", "display_name": "P3", "seat": 3, "role": "player", "team_id": 1, "ready": false },
+    { "uid": "u4", "display_name": "P4", "seat": 4, "role": "player", "team_id": 2, "ready": false }
+  ]
+}
+```
+
+Required seats are derived from the canonical mode and cannot be reduced by a
+client-provided value:
+
+- `1V1`, `PVP`, `CAPTURE_FLAG`, and `HIDDEN_CAPTURE_FLAG`: 2
+- `3P FFA` / `3P_FFA`: 3
+- `2V2` and `4P FFA` / `4P_FFA`: 4
+
+Seats are contiguous for the active session contract and UIDs are unique.
+For `2V2`, seats 1 and 3 are team 1 and seats 2 and 4 are team 2. A synchronized
+session remains `waiting` until the roster is complete and may not become
+`started` early. The contract hash binds the mode, required seat count, map/setup
+inputs, and ordered `{seat, uid, team_id}` roster.
+
+## Authenticated durable Standard 1v1
+
+The public-v2 route slice is separately gated by `VS_DURABLE_CORE_ENABLED` and
+`VS_DURABLE_PUBLIC_1V1_ENABLED`. Every request requires an ES256 player access
+token with `match:queue` scope. The service derives player identity from token
+`sub`; body `uid` or `player_id` fields are never authority.
+
+Queue entry is `enqueue_public_1v1` with `protocol_version: 2`, a pinned
+`client_build`, `request_id`, and an allowlisted `mode_id` (`STANDARD_1V1`,
+`CTF_1V1`, or separately gated `HCTF_1V1`). The server supplies ruleset/map IDs and
+hashes, simulation build, seats, teams, colors, rank policy, and economy policy.
+The remaining actions are:
+
+- `poll_public_1v1` and `cancel_public_1v1` by `ticket_id`.
+- `get_public_1v1_session`, `set_public_1v1_ready`, `start_public_1v1`, and
+  `leave_public_1v1` by `match_id`.
+- `publish_public_1v1_command` with a stable `client_command_id`, and
+  `poll_public_1v1_commands` with `after_seq`.
+- `resume_public_1v1` to restore the authenticated player's newest live match
+  and original seat during the stored reconnect grace period.
+- `get_public_bot_fallback_offer` to read server-time eligibility for a waiting
+  CTF/HCTF ticket, and `accept_public_bot_fallback` for explicit, idempotent
+  conversion into a separate canonical-bot practice contract. Acceptance
+  cancels the human ticket; it never mutates the ticket into a bot opponent.
+
+Mutating lifecycle requests require a stable `request_id`. Reads do not.
+`roster[]` is canonical in all matched/session responses; `host` and `guest` are
+derived compatibility projections. The Package 1 proof slice is unranked and
+non-economic. The public durable path remains non-economic and freezes rank
+eligibility only when `VS_ENABLE_PUBLIC_1V1=true`; its server-owned authority
+tier must also be `AUTHORITY_VERIFIED`.
+
+### Trusted Standard 1v1 and visible CTF result verification
+
+This separately gated path requires `VS_MATCH_VERIFICATION_ENABLED=true`, both
+durable gates, an `AUTHORITY_VERIFIED` frozen contract, and migration 003.
+
+Authenticated roster members call `submit_public_1v1_terminal_report` with a
+stable `request_id`, `match_id`, final-state hash, elapsed ticks, claimed terminal
+reason/winner, and bounded diagnostics. These fields are replay hints only. Once
+both roster reports exist, the service creates one stable verification job.
+`get_public_1v1_result` returns report count, pending/leased/completed status, and
+the immutable result and detached signed receipt when available.
+
+The separately deployed verifier uses `x-verifier-worker-token`—never a player or
+admin credential—to call `lease_match_verification`,
+`complete_match_verification`, and `fail_match_verification`. Completion requires
+an ES256 signature over canonical JSON and exact binding to result ID, contract,
+epoch, command high-water/hash, simulation and worker builds, verification time,
+and key ID. A stale epoch, changed input, wrong signer, or malformed placement
+fails closed. Rank and economy are separate disabled consumers and are not
+mutated by these routes.
+
+Visible `CTF_1V1` uses the same result path with its frozen CTF rules/map hashes
+and remains unranked. `CTF_BOT`/`HCTF_BOT` practice is excluded. Human HCTF is
+also excluded until live hidden-state secrecy exists; post-match replay cannot
+prevent an opposing peer from inspecting hidden state during play.
+
+### Standard 1v1 settlement and Global Rank
+
+Migration 004 stores one settlement job per signed verified result. Reconciliation
+selects only `STANDARD_1V1`, `AUTHORITY_VERIFIED` contracts with frozen enabled
+rank policy. Delivery to Rank uses a short-lived ES256 service JWT and forwards
+the detached verifier receipt; `rank_event_id` must equal the receipt's immutable
+`result_id`. Retryable failure remains durable and `get_public_1v1_result` includes
+the roster member's settlement status.
+
+`get_public_global_rank` is a public read controlled by
+`VS_ENABLE_PUBLIC_LEADERBOARDS`. It proxies Rank's shared Global board. Responses
+include `generated_at`, `cache_age_seconds`, `stale`, and `source`. Only a bounded
+previous server snapshot may be used during outage; no local leaderboard is a
+valid fallback.
+
+`VS_ENABLE_PUBLIC_1V1`, `VS_ENABLE_RANK_MUTATIONS`, and
+`VS_ENABLE_PUBLIC_LEADERBOARDS` default false and are independent.
+
 ## Actions
 
 ### `create_invite`
@@ -100,6 +209,10 @@ Response:
   "session": { "...": "session object" }
 }
 ```
+
+For a 3- or 4-seat mode, the same invite remains joinable until `roster` reaches
+`required_players`. Intermediate responses use `status: "waiting"`; the final
+seat completes the handshake.
 
 ### `enqueue_quick_match`
 Request:

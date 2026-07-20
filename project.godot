@@ -17,6 +17,7 @@ config/icon="res://assets/branding/swarmfront_logo_1024.png"
 
 [autoload]
 
+MainMenuLoadingCoordinator="*res://scenes/ui/MainMenuLoadingCover.tscn"
 OpsState="*res://scripts/ops/ops_state.gd"
 ContestState="*res://scripts/state/contest_state.gd"
 ProfileManager="*res://scripts/profile/profile_manager.gd"
@@ -36,6 +37,7 @@ AdManager="*res://scripts/state/ad_manager.gd"
 JukeboxRuntime="*res://scripts/state/jukebox_runtime.gd"
 AppLifecycle="*res://scripts/state/app_lifecycle_state.gd"
 VsHandshake="*res://scripts/state/vs_handshake_state.gd"
+PublicContestState="*res://scripts/state/public_contest_state.gd"
 VsPvpRuntime="*res://scripts/state/vs_pvp_runtime.gd"
 Gamebot="*res://scripts/autoload/game_boot.gd"
 
@@ -74,7 +76,6 @@ ads/dev_biodynamic_test_ads=true
 ads/dev_biodynamic_image_path="res://assets/ads/test_creatives/biodynamic_laser_cleaning_banner.png"
 ads/dev_biodynamic_destination_url="https://www.biodynamicusa.com"
 ads/dev_biodynamic_open_url_on_tap=true
-ui/post_match_stats_enabled=false
 vs/backend_url="https://sf-zr2m.onrender.com/v1"
 vs/backend_token=""
 vs/backend_timeout_sec=6.0

@@ -763,6 +763,8 @@ func _local_honey_rewards_enabled() -> bool:
 func _match_reward_blocked_reason(metadata: Dictionary) -> String:
 	if str(metadata.get("event_id", "")).strip_edges().is_empty():
 		return "event_id_missing"
+	if metadata.has("economic") and not bool(metadata.get("economic", true)):
+		return "economic_disabled"
 	for flag in ["tutorial", "practice", "custom_match", "private_match", "no_contest", "refunded", "immediate_surrender", "afk", "insufficient_input", "insufficient_participation", "desync", "invalid_result", "early_quit"]:
 		if bool(metadata.get(flag, false)):
 			return flag

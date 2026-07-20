@@ -45,14 +45,38 @@ func _run() -> void:
 	_assert_tooltip_button(buttons, "Weekly", 400.0, 110.0)
 	_assert_tooltip_button(buttons, "Monthly", 400.0, 110.0)
 	_assert_text_button(buttons, "DIVISION I", 208.0, 112.0)
-	_assert_text_button(buttons, "$1", 168.0, 78.0)
+	_assert_tier_sprite(buttons, 1, 168.0, 78.0)
+	_assert_tier_sprite(buttons, 2, 168.0, 78.0)
+	_assert_tier_sprite(buttons, 3, 168.0, 78.0)
+	var crucible_money_button: Button = _find_tooltip_button(buttons, "1V1")
+	if crucible_money_button == null or crucible_money_button.icon == null:
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: paid 1V1 Crucible art missing")
+		quit(1)
+		return
+	var crucible_money_image: Image = crucible_money_button.icon.get_image()
+	if crucible_money_image == null or crucible_money_image.is_empty():
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: paid 1V1 Crucible art did not produce an image")
+		quit(1)
+		return
+	var crucible_money_aspect: float = float(crucible_money_image.get_width()) / float(crucible_money_image.get_height())
+	if crucible_money_aspect < 1.62 or crucible_money_aspect > 1.72 or crucible_money_image.get_pixel(0, 0).a > 0.05:
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: paid 1V1 is not using normalized Money Games Crucible art")
+		quit(1)
+		return
+	_press_text_button(buttons, "DIVISION II")
+	await create_timer(0.35).timeout
+	buttons = _collect_buttons(panel)
+	_assert_tier_sprite(buttons, 5, 168.0, 78.0)
+	_assert_tier_sprite(buttons, 10, 168.0, 78.0)
+	_assert_tier_text_fallback(buttons, 15, 168.0, 78.0)
 	_press_text_button(buttons, "DIVISION III")
 	await create_timer(0.35).timeout
 	buttons = _collect_buttons(panel)
-	_assert_text_button(buttons, "$50", 168.0, 78.0)
-	_assert_text_button_unaffordable_clickable(buttons, "$50")
+	_assert_tier_sprite(buttons, 20, 168.0, 78.0)
+	_assert_tier_sprite(buttons, 50, 168.0, 78.0)
+	_assert_tier_unaffordable_clickable(buttons, 50)
 	_assert_tooltip_button_unaffordable_clickable(buttons, "1V1")
-	_press_tooltip_button(buttons, "1V1")
+	_press_tier_button(buttons, 50)
 	await process_frame
 	await process_frame
 	var funds_panel: Control = menu.get("_entry_route_modal") as Control
@@ -79,13 +103,18 @@ func _collect_buttons(root_node: Node) -> Array[Button]:
 	return out
 
 func _assert_tooltip_button(buttons: Array[Button], token: String, min_width: float, min_height: float) -> void:
-	for button in buttons:
-		if not button.tooltip_text.contains(token):
-			continue
+	var button: Button = _find_tooltip_button(buttons, token)
+	if button != null:
 		_assert_button_size(button, min_width, min_height, token)
 		return
 	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing tooltip button %s" % token)
 	quit(1)
+
+func _find_tooltip_button(buttons: Array[Button], token: String) -> Button:
+	for button in buttons:
+		if button.tooltip_text.contains(token):
+			return button
+	return null
 
 func _assert_text_button(buttons: Array[Button], text_value: String, min_width: float, min_height: float) -> void:
 	for button in buttons:
@@ -96,21 +125,54 @@ func _assert_text_button(buttons: Array[Button], text_value: String, min_width: 
 	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing text button %s" % text_value)
 	quit(1)
 
-func _assert_text_button_unaffordable_clickable(buttons: Array[Button], text_value: String) -> void:
+func _find_tier_button(buttons: Array[Button], amount: int) -> Button:
 	for button in buttons:
-		if button.text.strip_edges() != text_value:
-			continue
-		if button.disabled:
-			push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: %s button should stay clickable" % text_value)
-			quit(1)
-			return
-		if not bool(button.get_meta("sf_money_unaffordable", false)):
-			push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: %s button should be marked unaffordable" % text_value)
-			quit(1)
-			return
+		if int(button.get_meta("sf_money_entry_tier_usd", 0)) == amount:
+			return button
+	return null
+
+func _assert_tier_sprite(buttons: Array[Button], amount: int, min_width: float, min_height: float) -> void:
+	var button: Button = _find_tier_button(buttons, amount)
+	if button == null:
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing $%d tier button" % amount)
+		quit(1)
 		return
-	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing unaffordable text button %s" % text_value)
-	quit(1)
+	_assert_button_size(button, min_width, min_height, "$%d" % amount)
+	var expected_path: String = "res://assets/sprites/sf_skin_v1/$%d.png" % amount
+	if button.icon == null or not button.text.strip_edges().is_empty():
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: $%d tier is not using sprite art" % amount)
+		quit(1)
+		return
+	if str(button.get_meta("sf_money_entry_tier_asset_path", "")) != expected_path:
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: $%d tier uses the wrong sprite asset" % amount)
+		quit(1)
+		return
+	var image: Image = button.icon.get_image()
+	if image == null or image.is_empty():
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: $%d tier sprite did not produce an image" % amount)
+		quit(1)
+
+func _assert_tier_text_fallback(buttons: Array[Button], amount: int, min_width: float, min_height: float) -> void:
+	var button: Button = _find_tier_button(buttons, amount)
+	if button == null or button.text.strip_edges() != "$%d" % amount or button.icon != null:
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: $%d tier should retain its text fallback" % amount)
+		quit(1)
+		return
+	_assert_button_size(button, min_width, min_height, "$%d" % amount)
+
+func _assert_tier_unaffordable_clickable(buttons: Array[Button], amount: int) -> void:
+	var button: Button = _find_tier_button(buttons, amount)
+	if button == null:
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing unaffordable $%d tier button" % amount)
+		quit(1)
+		return
+	if button.disabled:
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: $%d button should stay clickable" % amount)
+		quit(1)
+		return
+	if not bool(button.get_meta("sf_money_unaffordable", false)):
+		push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: $%d button should be marked unaffordable" % amount)
+		quit(1)
 
 func _assert_tooltip_button_unaffordable_clickable(buttons: Array[Button], token: String) -> void:
 	for button in buttons:
@@ -141,13 +203,12 @@ func _press_text_button(buttons: Array[Button], text_value: String) -> void:
 	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing press target %s" % text_value)
 	quit(1)
 
-func _press_tooltip_button(buttons: Array[Button], token: String) -> void:
-	for button in buttons:
-		if not button.tooltip_text.contains(token):
-			continue
+func _press_tier_button(buttons: Array[Button], amount: int) -> void:
+	var button: Button = _find_tier_button(buttons, amount)
+	if button != null:
 		button.emit_signal("pressed")
 		return
-	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing tooltip press target %s" % token)
+	push_error("MAIN_MENU_MONEY_GAMES_LAYOUT_SMOKE: missing tier press target $%d" % amount)
 	quit(1)
 
 func _assert_button_size(button: Button, min_width: float, min_height: float, label: String) -> void:

@@ -9,7 +9,14 @@ This service is separate from analytics and the VS backend. The game points `SF_
 ## API shape
 
 - Beta identity route: `POST /v1/rank/register_player`
+- Device-backed registration: `POST /v1/identity/register`
+- Device challenge: `POST /v1/identity/challenge`
+- Player session issuance: `POST /v1/identity/session`
+- Current-session revocation: `POST /v1/identity/session/revoke`
+- Player-token JWKS: `GET /.well-known/jwks.json`
 - General route shape: `POST /v1/rank/<action>`
+- Verified Standard 1v1 settlement: `POST /v1/service/settle-standard-1v1` (VS service JWT only)
+- Public Global Rank: `GET /v1/public/leaderboard/global` (independently gated)
 - Matches `/Users/home/SideProjects/SF/project/docs/rank_backend_contract.md`
 - Responses use `{ "ok": true, ... }` / `{ "ok": false, "err": "..." }`
 
@@ -61,14 +68,39 @@ RANK_DATABASE_URL=postgres://user:pass@host:5432/swarmfront_rank ./tools/run_ran
 - Debug rank mutation endpoints are disabled by default.
 - Admin/ops routes are available under `/v1/admin/*` and use the same bearer token gate as gameplay routes when `RANK_API_TOKEN` is set.
 
+## Device-backed player sessions
+
+Package 1 adds a separate player credential path without changing the legacy beta registration route:
+
+1. A device creates a non-exportable ECDSA P-256 key and sends only its public JWK to `/v1/identity/register` with a stable request ID.
+2. The service atomically creates the UUIDv7 player, registered device, and single-use challenge.
+3. The device signs the returned challenge with ECDSA/SHA-256 and submits the base64url signature to `/v1/identity/session`.
+4. The service returns a ten-minute ES256 player JWT scoped to `match:queue`
+   and `contest:play`; neither scope grants rank/economy/service mutation.
+
+The player JWT is distinct from `RANK_API_TOKEN`. It cannot authorize rank mutation, admin, or service operations. Private device keys never reach this service.
+
+Configure an ES256 issuer key pair through `ENTAP_PLAYER_TOKEN_PRIVATE_KEY_PEM` and `ENTAP_PLAYER_TOKEN_PUBLIC_KEY_PEM`. Both endpoints fail closed with HTTP 503 when keys are absent. PEM environment values may contain real newlines or escaped `\\n` newlines. Generate a staging pair outside the repository, store the private key only in service secret storage, and copy only the public key to VS.
+
+Useful checks:
+
+```bash
+npm run build
+npm run smoke:player-token
+RANK_ECONOMY_MUTATIONS_ENABLED=true npm run smoke:verified-settlement
+RANK_SMOKE_BASE_URL=http://127.0.0.1:8790/v1/rank npm run smoke:session
+```
+
+`smoke:session` requires a running migrated rank service configured with the player-token key pair.
+
 ## Wire Godot client
 
 Set environment (or project setting) so rank transport points to this service:
 
 ```bash
 SF_RANK_BACKEND_URL=http://127.0.0.1:8790/v1/rank
-# optional if set on service
-SF_RANK_BACKEND_TOKEN=<same-as-RANK_API_TOKEN; required in production>
+# Do not ship RANK_API_TOKEN in a public client. The new player-session flow supplies
+# a short-lived player token to authenticated player routes instead.
 ```
 
 For staging/production beta builds, configure the deployed Render URL instead of the local URL.
@@ -109,6 +141,15 @@ npm run smoke:identity
 - Match result applies wax + recomputes tier/color/rank immediately.
 - Response is returned only after commit, so a player crossing a tier threshold is promoted as they exit that match.
 - Demotion smoothing defaults to 5 pass-through slots (`RANK_TIER_DEMOTION_GRACE_SLOTS=5`), and overflow in a full tier is pushed upward by promoting the top edge into the next tier.
+
+## Verified Standard 1v1 settlement
+
+- `RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=false` is the dedicated verified-result consumer gate; the existing `RANK_ECONOMY_MUTATIONS_ENABLED` gate must also be true before a rank write can occur.
+- VS authenticates with a short-lived ES256 JWT whose issuer, audience, subject, key ID, public key, scope, and lifetime are checked exactly. Configure the accepted identity with `RANK_SERVICE_TOKEN_*`; the private key remains in VS secret storage.
+- Rank independently verifies the detached ES256 match-authority receipt using `RANK_VERIFIER_KEY_ID`, `RANK_VERIFIER_PUBLIC_KEY_PEM`, and `RANK_VERIFIER_WORKER_BUILD_ID` before applying a result.
+- `rank_event_id` is the immutable verifier `result_id`. The processed-event ledger makes retries and post-restart delivery idempotent.
+- `RANK_PUBLIC_LEADERBOARDS_ENABLED=false` independently gates the shared Global Rank read. The endpoint labels its generation time and cache age and has no device-local fallback.
+- Run `npm run smoke:verified-settlement` for embedded-PostgreSQL service-token, receipt-signature, durable dedupe, and audit evidence.
 
 ## Admin endpoints
 

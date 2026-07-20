@@ -1,11 +1,8 @@
 extends SceneTree
 
 var _failed: bool = false
-const SETTINGS_POST_MATCH_STATS_ENABLED: String = "swarmfront/ui/post_match_stats_enabled"
 
 func _init() -> void:
-	var previous_stats_setting: Variant = ProjectSettings.get_setting(SETTINGS_POST_MATCH_STATS_ENABLED, false)
-	ProjectSettings.set_setting(SETTINGS_POST_MATCH_STATS_ENABLED, false)
 	get_root().size = Vector2i(944, 2048)
 	await process_frame
 	var overlay: OutcomeOverlay = OutcomeOverlay.new()
@@ -58,7 +55,6 @@ func _init() -> void:
 	_assert_true(_node_visible(overlay, "Panel/VBox/Buttons"), "wide outcome actions should use the two-column row")
 	_assert_true(not _node_visible(overlay, "Panel/VBox/StackedButtons"), "wide outcome actions should not use the narrow stack")
 
-	ProjectSettings.set_setting(SETTINGS_POST_MATCH_STATS_ENABLED, true)
 	overlay.call("set_post_match_stats", _sample_stats_snapshot())
 	await process_frame
 	_assert_true(_node_visible(overlay, "PostMatchStatsPanel"), "enabled standard outcome should show canonical match statistics")
@@ -69,6 +65,22 @@ func _init() -> void:
 	_assert_eq(_label_text(overlay, "Player1_units_landed"), "201", "local units landed")
 	_assert_eq(_label_text(overlay, "Player2_swarms_initiated"), "14", "opponent swarms initiated")
 	_assert_content_fits(overlay, "944x2048 standard stats result")
+
+	set_meta("vs_mode", "ASYNC_SINGLE_MAP_TIMED")
+	set_meta("jukebox_board_enabled", true)
+	overlay.show_outcome(1, "conquest", 1)
+	overlay.call("set_post_match_stats", _sample_stats_snapshot())
+	await process_frame
+	_assert_true(_node_visible(overlay, "PostMatchStatsPanel"), "Jukebox map result should show canonical match statistics")
+	set_meta("jukebox_board_enabled", false)
+	overlay.call("set_post_match_stats", _sample_stats_snapshot())
+	await process_frame
+	_assert_true(not _node_visible(overlay, "PostMatchStatsPanel"), "non-Jukebox single-map timed result should keep standard stats hidden")
+	remove_meta("jukebox_board_enabled")
+	remove_meta("vs_mode")
+	overlay.call("set_post_match_stats", _sample_stats_snapshot())
+	await process_frame
+
 	get_root().size = Vector2i(720, 1280)
 	overlay.call("_apply_readable_layout_for_size", Vector2(720.0, 1280.0))
 	overlay.call("set_post_match_stats", _four_player_stats_snapshot())
@@ -206,8 +218,6 @@ func _init() -> void:
 	if welcome_open_button != null:
 		welcome_open_button.emit_signal("pressed")
 	_assert_true(tutorial_actions.has("tutorial_welcome_pack_open"), "tutorial Welcome Pack emits claim-and-return action")
-
-	ProjectSettings.set_setting(SETTINGS_POST_MATCH_STATS_ENABLED, previous_stats_setting)
 
 	if _failed:
 		quit(1)

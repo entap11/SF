@@ -37,6 +37,10 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+function normalizePem(value: string | undefined): string {
+  return String(value ?? "").trim().replace(/\\n/g, "\n");
+}
+
 const tierBands = [
   { id: "DRONE", name: "Drone", min_pct: 0.0, max_pct: 0.2 },
   { id: "WORKER", name: "Worker", min_pct: 0.2, max_pct: 0.35 },
@@ -61,6 +65,8 @@ export const config: RankServiceConfig = {
   apiToken: process.env.RANK_API_TOKEN?.trim() || "",
   economyMutationsEnabled: parseBoolean(process.env.RANK_ECONOMY_MUTATIONS_ENABLED, false),
   economyResetEnabled: parseBoolean(process.env.RANK_ECONOMY_RESET_ENABLED, false),
+  verifiedMatchMutationsEnabled: parseBoolean(process.env.RANK_VERIFIED_MATCH_MUTATIONS_ENABLED, false),
+  publicLeaderboardsEnabled: parseBoolean(process.env.RANK_PUBLIC_LEADERBOARDS_ENABLED, false),
   databaseUrl: process.env.DATABASE_URL?.trim() || "",
   legacyStatePath: process.env.RANK_STATE_PATH?.trim()
     ? path.resolve(process.cwd(), process.env.RANK_STATE_PATH.trim())
@@ -68,6 +74,27 @@ export const config: RankServiceConfig = {
   enforceCanonicalPlayerIds: parseBoolean(process.env.RANK_ENFORCE_CANONICAL_PLAYER_IDS, true),
   allowDebugActions: parseBoolean(process.env.RANK_ENABLE_DEBUG_ACTIONS, false),
   economyEpoch: process.env.RANK_ECONOMY_EPOCH?.trim() || "",
+  identity: {
+    issuer: process.env.ENTAP_PLAYER_TOKEN_ISSUER?.trim() || "entap-identity",
+    audience: process.env.ENTAP_PLAYER_TOKEN_AUDIENCE?.trim() || "swarmfront-vs",
+    keyId: process.env.ENTAP_PLAYER_TOKEN_KEY_ID?.trim() || "entap-player-v1",
+    privateKeyPem: normalizePem(process.env.ENTAP_PLAYER_TOKEN_PRIVATE_KEY_PEM),
+    publicKeyPem: normalizePem(process.env.ENTAP_PLAYER_TOKEN_PUBLIC_KEY_PEM),
+    accessTokenTtlSec: Math.max(60, parseIntValue(process.env.ENTAP_PLAYER_TOKEN_TTL_SEC, 10 * 60)),
+    challengeTtlSec: Math.max(30, parseIntValue(process.env.ENTAP_DEVICE_CHALLENGE_TTL_SEC, 5 * 60))
+  },
+  serviceAuth: {
+    issuer: process.env.RANK_SERVICE_TOKEN_ISSUER?.trim() || "swarmfront-vs",
+    audience: process.env.RANK_SERVICE_TOKEN_AUDIENCE?.trim() || "swarmfront-rank",
+    subject: process.env.RANK_SERVICE_TOKEN_SUBJECT?.trim() || "vs-settlement-worker",
+    keyId: process.env.RANK_SERVICE_TOKEN_KEY_ID?.trim() || "vs-rank-service-v1",
+    publicKeyPem: normalizePem(process.env.RANK_SERVICE_TOKEN_PUBLIC_KEY_PEM)
+  },
+  verifier: {
+    keyId: process.env.RANK_VERIFIER_KEY_ID?.trim() || "",
+    publicKeyPem: normalizePem(process.env.RANK_VERIFIER_PUBLIC_KEY_PEM),
+    workerBuildId: process.env.RANK_VERIFIER_WORKER_BUILD_ID?.trim() || ""
+  },
   rank: {
     baseGain: parseFloatValue(process.env.RANK_BASE_GAIN, 100.0),
     opponentStrengthExponent: parseFloatValue(process.env.RANK_OPPONENT_STRENGTH_EXPONENT, 0.6),

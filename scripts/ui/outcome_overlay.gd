@@ -66,7 +66,6 @@ const OVERLAY_MODE_STAGE_ROUND: String = "stage_round"
 const OVERLAY_MODE_TUTORIAL_COMPLETE: String = "tutorial_complete"
 const OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE: String = "tutorial_controls_complete"
 const OVERLAY_MODE_TUTORIAL_WELCOME_PACK: String = "tutorial_welcome_pack"
-const SETTINGS_POST_MATCH_STATS_ENABLED: String = "swarmfront/ui/post_match_stats_enabled"
 const TUTORIAL_FOLLOWUP_AUTO_DELAY_MS: int = 6000
 
 func _ready() -> void:
@@ -399,15 +398,16 @@ func _ensure_post_match_stats_panel() -> void:
 	_post_match_stats_panel = created
 
 func _post_match_stats_display_allowed() -> bool:
-	if not bool(ProjectSettings.get_setting(SETTINGS_POST_MATCH_STATS_ENABLED, false)):
-		return false
 	if _overlay_mode != OVERLAY_MODE_REMATCH:
 		return false
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return false
 	var vs_mode: String = str(tree.get_meta("vs_mode", "")).strip_edges().to_upper()
-	if vs_mode in ["PROGRESSIVE", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT", "ASYNC_SINGLE_MAP_TIMED"]:
+	var is_jukebox_run: bool = bool(tree.get_meta("jukebox_board_enabled", false))
+	if vs_mode in ["PROGRESSIVE", "STAGE_RACE", "TIMED_RACE", "MISS_N_OUT"]:
+		return false
+	if vs_mode == "ASYNC_SINGLE_MAP_TIMED" and not is_jukebox_run:
 		return false
 	var ruleset: String = str(tree.get_meta("vs_ruleset", "")).strip_edges().to_upper()
 	if ruleset == "CRUCIBLE" or bool(tree.get_meta("vs_crucible", false)):
@@ -879,6 +879,18 @@ func _update_status() -> void:
 			status_label.text = _stage_status_text
 			return
 		status_label.text = "Ready for next round?"
+		return
+	var tree: SceneTree = get_tree()
+	if tree != null and bool(tree.get_meta("durable_contract", false)) \
+			and not bool(tree.get_meta("practice", tree.get_meta("vs_practice", false))):
+		var verification: Dictionary = tree.get_meta("vs_verification_status", {}) as Dictionary if typeof(tree.get_meta("vs_verification_status", {})) == TYPE_DICTIONARY else {}
+		var verification_status: String = str(verification.get("status", "AWAITING_REPORTS")).to_upper()
+		if verification_status == "COMPLETED":
+			status_label.text = "Server-verified result recorded."
+		elif verification_status == "FAILED":
+			status_label.text = "Result verification needs review; no award was issued."
+		else:
+			status_label.text = "Server verification pending. You may safely return to the menu."
 		return
 	var ops_state: Node = _ops_state()
 	var votes: Dictionary = ops_state.get("rematch_votes") if ops_state != null else {}

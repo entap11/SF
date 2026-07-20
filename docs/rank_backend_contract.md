@@ -160,6 +160,41 @@ Response:
 }
 ```
 
+The legacy action above is not the public Standard 1v1 trust path. Public
+settlement is server-to-server only:
+
+### `POST /v1/service/settle-standard-1v1`
+
+Requires a short-lived ES256 VS service JWT with `rank:settle` scope and the
+exact configured issuer, audience, subject, and key ID. Request:
+
+```json
+{
+  "rank_event_id": "01900000-0000-7000-8000-000000000123",
+  "mode_id": "STANDARD_1V1",
+  "signed_result": {
+    "payload": { "result_id": "01900000-0000-7000-8000-000000000123" },
+    "payload_hash": "<sha256 canonical JSON>",
+    "key_id": "authority-key-v1",
+    "algorithm": "ES256",
+    "signature": "<base64url P-256 signature>"
+  }
+}
+```
+
+Rank independently verifies the authority receipt and its Standard 1v1 ordered
+placements. `rank_event_id` must equal `result_id`; retries return the existing
+settlement and cannot apply a second mutation. This route requires both
+`RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=true` and the separate economy-mutation
+gate. Both default false.
+
+### `GET /v1/public/leaderboard/global?limit=25`
+
+Requires `RANK_PUBLIC_LEADERBOARDS_ENABLED=true`, which defaults false. The board
+is shared PostgreSQL-backed Rank data and includes `generated_at`,
+`cache_age_seconds`, `stale`, and `source`. Public clients must not substitute a
+device-local board when this endpoint is unavailable.
+
 ### `apply_decay_tick`
 Request:
 ```json

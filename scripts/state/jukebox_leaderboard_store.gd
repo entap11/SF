@@ -73,7 +73,6 @@ func get_board_snapshot(
 			"player_id": player_id,
 			"handle": str(row.get("handle", player_id)),
 			"time_ms": time_ms,
-			"badge": _badge_for_rank(rank),
 			"updated_at": int(row.get("updated_at", 0)),
 			"source": str(row.get("source", "local"))
 		})
@@ -356,15 +355,6 @@ func _save() -> void:
 func _resolved_save_path() -> String:
 	var clean: String = save_path.strip_edges()
 	return clean if not clean.is_empty() else SAVE_PATH_DEFAULT
-
-func _badge_for_rank(rank: int) -> String:
-	if rank <= 0:
-		return ""
-	if rank <= 5:
-		return "TOP %d" % rank
-	if rank <= 10:
-		return "TOP 10"
-	return ""
 
 func _board_key(map_id: String, mode: String, period: String, period_scope: String) -> String:
 	return "%s|%s|%s|%s" % [

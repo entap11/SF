@@ -1,0 +1,49 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Texture2D" uid="uid://dwclf0rr04bi2" path="res://assets/sprites/sf_skin_v1/signage_main_yellow.png" id="1_signage"]
+[ext_resource type="Script" path="res://scripts/ui/main_menu_loading_coordinator.gd" id="2_coordinator"]
+[ext_resource type="Texture2D" uid="uid://5my64casxvc0" path="res://assets/branding/swarmfront_logo_1024.png" id="3_logo_eyes"]
+
+[node name="MainMenuLoadingCover" type="CanvasLayer"]
+visible = false
+layer = 100
+script = ExtResource("2_coordinator")
+
+[node name="Black" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0, 0, 0, 1)
+
+[node name="Signage" type="TextureRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 25.0
+offset_bottom = 25.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("1_signage")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="LogoEyes" type="TextureRect" parent="."]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.25
+anchor_right = 0.5
+anchor_bottom = 0.25
+offset_left = -270.0
+offset_top = -270.0
+offset_right = 270.0
+offset_bottom = 270.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("3_logo_eyes")
+expand_mode = 1
+stretch_mode = 5

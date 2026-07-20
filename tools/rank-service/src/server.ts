@@ -33,6 +33,17 @@ import {
 } from "./logic.js";
 import { RankStore } from "./store.js";
 import type { MatchQueueEntry, PlayerRecord, RankState } from "./types.js";
+import {
+  bearerTokenFromHeader,
+  playerTokenConfigured,
+  playerTokenPublicJwk,
+  PlayerTokenError,
+  verifyPlayerAccessToken
+} from "./identity/playerToken.js";
+import { IdentitySessionError, IdentitySessionStore } from "./identity/sessionStore.js";
+import { bearerToken, ServiceTrustError, verifyServiceJwt } from "./serviceTrust.js";
+import { parseSignedVerifierReceipt, VerifiedReceiptError, verifyStandard1v1Receipt } from "./verifiedReceipt.js";
+import { applyVerifiedStandard1v1Settlement } from "./verifiedSettlement.js";
 
 const BOT_PLAYER_ID = /^bot_[0-9]{6}$/;
 const PROCESS_START_UNIX = nowUnix();
@@ -279,6 +290,22 @@ function unauthorized(res: Response): void {
   res.status(401).json({ ok: false, err: "unauthorized" });
 }
 
+function validRequestId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(value);
+}
+
+function identityFailure(res: Response, error: unknown): void {
+  if (error instanceof IdentitySessionError) {
+    res.status(error.status).json({ ok: false, err: error.code });
+    return;
+  }
+  if (error instanceof PlayerTokenError) {
+    res.status(error.code === "token_scope_missing" ? 403 : 401).json({ ok: false, err: error.code });
+    return;
+  }
+  throw error;
+}
+
 function requireBearerAuth(req: Request, res: Response, next: NextFunction): void {
   if (!config.apiToken) {
     res.status(503).json({ ok: false, err: "rank_auth_not_configured", code: "rank_auth_not_configured" });
@@ -337,6 +364,8 @@ function normalizeQueueEntries(raw: unknown): MatchQueueEntry[] {
 async function main(): Promise<void> {
   const store = new RankStore(pool, config.legacyStatePath);
   await store.init();
+  const identitySessions = new IdentitySessionStore(pool, config.identity, config.identity.challengeTtlSec);
+  const identityConfigured = playerTokenConfigured(config.identity);
   if (economyResetPermitted()) {
     const economyEpochResult = await store.applyEconomyEpoch(
       config.economyEpoch,
@@ -357,8 +386,15 @@ async function main(): Promise<void> {
         service: "swarmfront-rank-service",
         build: SERVICE_BUILD,
         economy_mutations_enabled: economyMutationsEnabled(),
+        verified_match_mutations_enabled: config.verifiedMatchMutationsEnabled,
+        public_leaderboards_enabled: config.publicLeaderboardsEnabled,
+        service_auth_configured: Boolean(config.serviceAuth.publicKeyPem),
+        verifier_receipt_auth_configured: Boolean(config.verifier.publicKeyPem),
         admin_auth_required: Boolean(config.apiToken),
         match_authority_auth_required: Boolean(config.apiToken),
+        player_identity_sessions_configured: identityConfigured,
+        player_token_issuer: config.identity.issuer,
+        player_token_audience: config.identity.audience,
         storage: { kind: "postgres", path: redactDatabaseUrl(config.databaseUrl) }
       });
     })
@@ -367,6 +403,187 @@ async function main(): Promise<void> {
   app.get("/", (_req, res) => {
     res.json({ ok: true, service: "swarmfront-rank-service", route: "/v1/rank/<action>" });
   });
+
+  app.get(
+    "/v1/public/leaderboard/global",
+    asyncHandler(async (req, res) => {
+      if (!config.publicLeaderboardsEnabled) {
+        res.status(503).json({ ok: false, err: "public_leaderboards_disabled" });
+        return;
+      }
+      const limit = Math.max(1, Math.min(100, Math.trunc(toNumberValue(req.query.limit, 25))));
+      const generatedAt = new Date().toISOString();
+      const board = await store.read((state) => buildLeaderboardView(state, "", "GLOBAL", limit));
+      res.json({
+        ok: true,
+        board: { ...board, generated_at: generatedAt, cache_age_seconds: 0, stale: false, source: "rank_primary" }
+      });
+    })
+  );
+
+  app.post(
+    "/v1/service/settle-standard-1v1",
+    asyncHandler(async (req, res) => {
+      if (!config.verifiedMatchMutationsEnabled) {
+        res.status(503).json({ ok: false, err: "rank_mutations_disabled" });
+        return;
+      }
+      if (!economyMutationsEnabled()) {
+        res.status(503).json(economyDisabledResult());
+        return;
+      }
+      try {
+        const claims = verifyServiceJwt(bearerToken(req.header("authorization")), config.serviceAuth, "rank:settle");
+        if (toStringValue(isRecord(req.body) ? req.body.mode_id : "") !== "STANDARD_1V1") {
+          throw new VerifiedReceiptError("rank_mode_invalid");
+        }
+        const receipt = parseSignedVerifierReceipt(isRecord(req.body) ? req.body.signed_result : null);
+        const payload = verifyStandard1v1Receipt(receipt, config.verifier);
+        if (toStringValue(isRecord(req.body) ? req.body.rank_event_id : "") !== String(payload.result_id)) {
+          throw new VerifiedReceiptError("rank_event_binding_invalid");
+        }
+        const result = await applyVerifiedStandard1v1Settlement(store, payload, String(claims.sub));
+        const status = result.ok === false && result.err === "rank_players_missing" ? 409 : 200;
+        res.status(status).json(result);
+      } catch (error) {
+        if (error instanceof ServiceTrustError || error instanceof VerifiedReceiptError) {
+          res.status(error.status).json({ ok: false, err: error.code });
+          return;
+        }
+        throw error;
+      }
+    })
+  );
+
+  const servePlayerJwks = (_req: Request, res: Response): void => {
+    if (!identityConfigured) {
+      res.status(503).json({ ok: false, err: "player_identity_sessions_not_configured" });
+      return;
+    }
+    res.json({ keys: [playerTokenPublicJwk(config.identity)] });
+  };
+  app.get("/.well-known/jwks.json", servePlayerJwks);
+  app.get("/v1/identity/.well-known/jwks.json", servePlayerJwks);
+
+  app.post(
+    "/v1/identity/register",
+    asyncHandler(async (req, res) => {
+      if (!identityConfigured) {
+        res.status(503).json({ ok: false, err: "player_identity_sessions_not_configured" });
+        return;
+      }
+      const payload = isRecord(req.body) ? req.body : {};
+      const requestId = toStringValue(payload.request_id);
+      const callSign = toStringValue(payload.call_sign) || toStringValue(payload.display_name);
+      if (!validRequestId(requestId)) {
+        invalidRequest(res, "invalid_request_id", { expected: "8-128 URL-safe characters" });
+        return;
+      }
+      if (!isCallSign(callSign)) {
+        invalidRequest(res, "invalid_call_sign", { expected: "^[A-Za-z0-9_]{3,16}$" });
+        return;
+      }
+      const device = isRecord(payload.device) ? payload.device : {};
+      const publicKeyJwk = device.public_key_jwk;
+      if (!isRecord(publicKeyJwk)) {
+        invalidRequest(res, "invalid_device_public_key");
+        return;
+      }
+      try {
+        const result = await identitySessions.registerIdentityAndDevice({
+          requestId,
+          callSign,
+          region: toStringValue(payload.region).toUpperCase() || config.rank.defaultRegion,
+          publicKeyJwk,
+          platform: toStringValue(device.platform).toLowerCase().slice(0, 32) || "unknown",
+          deviceLabel: toStringValue(device.label).slice(0, 80),
+          installMetadata: isRecord(payload.install_metadata) ? payload.install_metadata : {}
+        });
+        res.status(result.duplicate ? 200 : 201).json({ ok: true, ...result });
+      } catch (error) {
+        identityFailure(res, error);
+      }
+    })
+  );
+
+  app.post(
+    "/v1/identity/challenge",
+    asyncHandler(async (req, res) => {
+      if (!identityConfigured) {
+        res.status(503).json({ ok: false, err: "player_identity_sessions_not_configured" });
+        return;
+      }
+      const payload = isRecord(req.body) ? req.body : {};
+      const deviceId = toStringValue(payload.device_id);
+      const requestId = toStringValue(payload.request_id);
+      if (!isUuidV7(deviceId)) {
+        invalidRequest(res, "invalid_device_id", { expected: "UUIDv7" });
+        return;
+      }
+      if (!validRequestId(requestId)) {
+        invalidRequest(res, "invalid_request_id", { expected: "8-128 URL-safe characters" });
+        return;
+      }
+      try {
+        const challenge = await identitySessions.issueChallenge(deviceId, requestId);
+        res.json({ ok: true, challenge });
+      } catch (error) {
+        identityFailure(res, error);
+      }
+    })
+  );
+
+  app.post(
+    "/v1/identity/session",
+    asyncHandler(async (req, res) => {
+      if (!identityConfigured) {
+        res.status(503).json({ ok: false, err: "player_identity_sessions_not_configured" });
+        return;
+      }
+      const payload = isRecord(req.body) ? req.body : {};
+      const challengeId = toStringValue(payload.challenge_id);
+      const signature = toStringValue(payload.signature);
+      if (!isUuidV7(challengeId) || !signature) {
+        invalidRequest(res, "invalid_session_proof");
+        return;
+      }
+      try {
+        const session = await identitySessions.createSession(challengeId, signature);
+        res.status(201).json({ ok: true, ...session });
+      } catch (error) {
+        identityFailure(res, error);
+      }
+    })
+  );
+
+  app.post(
+    "/v1/identity/session/revoke",
+    asyncHandler(async (req, res) => {
+      if (!identityConfigured) {
+        res.status(503).json({ ok: false, err: "player_identity_sessions_not_configured" });
+        return;
+      }
+      try {
+        const token = bearerTokenFromHeader(req.header("authorization"));
+        if (!token) {
+          throw new PlayerTokenError("token_missing");
+        }
+        const claims = verifyPlayerAccessToken(token, config.identity);
+        const requestedSessionId = toStringValue(isRecord(req.body) ? req.body.session_id : "");
+        if (requestedSessionId && requestedSessionId !== claims.sid) {
+          res.status(403).json({ ok: false, err: "session_owner_mismatch" });
+          return;
+        }
+        const revoked = await identitySessions.revokeSession(claims.sid, claims.sub,
+          toStringValue(isRecord(req.body) ? req.body.reason : "player_request"));
+        res.status(revoked ? 200 : 404).json(revoked
+          ? { ok: true, session_id: claims.sid, revoked: true }
+          : { ok: false, err: "session_not_found" });
+      } catch (error) {
+        identityFailure(res, error);
+      }
+    })
+  );
 
   app.get(
     "/health/details",

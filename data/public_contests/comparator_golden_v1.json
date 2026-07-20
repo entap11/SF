@@ -1,0 +1,59 @@
+{
+  "schema": "swarmfront.public_contest_comparator_golden.v1",
+  "cases": [
+    {
+      "id": "time-three-complete",
+      "comparator_id": "TIME_TOTAL_V1",
+      "map_ids": ["map-a", "map-b", "map-c"],
+      "attempt_policy": {},
+      "metrics": {
+        "per_map": [
+          {"map_id": "map-a", "completed": true, "elapsed_ticks": 100, "penalty_ticks": 0},
+          {"map_id": "map-b", "completed": true, "elapsed_ticks": 150, "penalty_ticks": 5},
+          {"map_id": "map-c", "completed": true, "elapsed_ticks": 200, "penalty_ticks": 0}
+        ],
+        "aggregate_elapsed_ticks": 455
+      },
+      "expected": {"primary": -455, "secondary": 0, "tertiary": 0, "aggregate_elapsed_ticks": 455}
+    },
+    {
+      "id": "gauntlet-three-wins",
+      "comparator_id": "GAUNTLET_STARS_V1",
+      "map_ids": ["map-a", "map-b", "map-c"],
+      "attempt_policy": {
+        "stage_plan": [
+          {"stage_number": 1, "map_id": "map-a", "thresholds_ms": {"four_star_ms": 10000, "three_star_ms": 20000, "two_star_ms": 30000}},
+          {"stage_number": 2, "map_id": "map-b", "thresholds_ms": {"four_star_ms": 10000, "three_star_ms": 20000, "two_star_ms": 30000}},
+          {"stage_number": 3, "map_id": "map-c", "thresholds_ms": {"four_star_ms": 10000, "three_star_ms": 20000, "two_star_ms": 30000}}
+        ]
+      },
+      "metrics": {
+        "stage_evidence": [
+          {"stage_number": 1, "map_id": "map-a", "elapsed_ticks": 100, "won": true, "win_reason": "domination", "final_state_hash": "a", "command_log_hash": "aa"},
+          {"stage_number": 2, "map_id": "map-b", "elapsed_ticks": 250, "won": true, "win_reason": "conquest", "final_state_hash": "b", "command_log_hash": "bb"},
+          {"stage_number": 3, "map_id": "map-c", "elapsed_ticks": 400, "won": true, "win_reason": "elimination", "final_state_hash": "c", "command_log_hash": "cc"}
+        ]
+      },
+      "expected": {"primary": 7, "secondary": 3, "tertiary": -750, "stars": 7, "completed_stage_count": 3, "elapsed_ticks": 750}
+    },
+    {
+      "id": "gauntlet-terminal-loss",
+      "comparator_id": "GAUNTLET_STARS_V1",
+      "map_ids": ["map-a", "map-b", "map-c"],
+      "attempt_policy": {
+        "stage_plan": [
+          {"stage_number": 1, "map_id": "map-a", "thresholds_ms": {"four_star_ms": 10000, "three_star_ms": 20000, "two_star_ms": 30000}},
+          {"stage_number": 2, "map_id": "map-b", "thresholds_ms": {"four_star_ms": 10000, "three_star_ms": 20000, "two_star_ms": 30000}},
+          {"stage_number": 3, "map_id": "map-c", "thresholds_ms": {"four_star_ms": 10000, "three_star_ms": 20000, "two_star_ms": 30000}}
+        ]
+      },
+      "metrics": {
+        "stage_evidence": [
+          {"stage_number": 1, "map_id": "map-a", "elapsed_ticks": 90, "won": true, "win_reason": "", "final_state_hash": "a", "command_log_hash": "aa"},
+          {"stage_number": 2, "map_id": "map-b", "elapsed_ticks": 130, "won": false, "win_reason": "defeat", "final_state_hash": "b", "command_log_hash": "bb"}
+        ]
+      },
+      "expected": {"primary": 4, "secondary": 1, "tertiary": -220, "stars": 4, "completed_stage_count": 1, "elapsed_ticks": 220}
+    }
+  ]
+}
