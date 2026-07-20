@@ -19,6 +19,7 @@ capture_host_state() {
     printf 'git_dirty=%s\n' "$(test -n "$(git -C "${ROOT_DIR}" status --porcelain)" && printf true || printf false)"
     printf 'godot_version=%s\n' "$("${GODOT_BIN}" --version)"
     printf 'machine_arch=%s\n' "$(uname -m)"
+    printf 'display_precondition=%s\n' "${PERF_PACING_DISPLAY_PRECONDITION:-OBSERVE_ONLY}"
     uname -a
     uptime
     sw_vers

@@ -354,7 +354,12 @@ jobs:
           echo "PERF_PACING_DIAGNOSTIC_IMPORT_READY import_rc=${import_rc}"
 
       - name: Capture controlled pacing matrix
-        run: scripts/dev/run_perf_harness_pacing_diagnostic.sh
+        run: |
+          set -euo pipefail
+          command -v caffeinate
+          caffeinate -u -t 5
+          PERF_PACING_DISPLAY_PRECONDITION=WAKE_AND_HOLD \
+            caffeinate -dimsu scripts/dev/run_perf_harness_pacing_diagnostic.sh
 
       - name: Upload pacing diagnostic
         if: always()
