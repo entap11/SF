@@ -26,7 +26,7 @@
     },
     {
       "phase_id": "P2_B_MOVING_UNIT_SCALE",
-      "status": "PLANNED",
+      "status": "IMPLEMENTED",
       "fixtures": [
         "MOVING_UNIT_SCALE_050_V1",
         "MOVING_UNIT_SCALE_100_V1",

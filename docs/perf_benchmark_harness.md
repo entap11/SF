@@ -157,10 +157,13 @@ Windowed renderer run:
 godot --path . \
   --script res://scripts/tests/perf_benchmark_suite.gd -- \
   --sf-perf-harness \
+  --perf-user-dir=SwarmfrontPerfHarnessV1Local \
   --suite=quick \
   --mode=render_windowed \
   --output=res://debug_reports/perf_benchmark_render_latest.json
 ```
+
+Use a dedicated `--perf-user-dir` namespace whenever another Swarmfront process may be open. The runner accepts only a short alphanumeric, dot, dash, or underscore name, creates the corresponding Godot user-data directory, and records the resolved namespace in `user_data_isolation`. This keeps live profile, progression, rank, and analytics files outside the harness fingerprint window. On Godot 4.2 windowed runs, changing the namespace after renderer startup can emit shader-cache save warnings during teardown; scenario results remain authoritative, while any protected-state, cleanup, or backend-isolation mismatch still fails the run.
 
 Compatible investigative comparison:
 

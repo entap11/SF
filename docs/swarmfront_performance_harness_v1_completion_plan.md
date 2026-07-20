@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness V1 Completion Plan
 
-Status: `P2-A COMPLETE — P2-B NEXT`
+Status: `P2-B COMPLETE — P2-C NEXT`
 
 Branch: `codex/perf-harness-v1-completion`
 
@@ -32,6 +32,14 @@ Freeze phase order, exclusions, ownership, stop conditions, and required evidenc
 ### P2-B — Moving unit scale
 
 Add deterministic moving profiles for 50, 100, 200, and 400 units. Setup continues to use accepted, fully built production lanes and public `UnitSystem.spawn_unit`. Measurement advances canonical simulation; it must prove starting scale, bounded evolution, repeatable final state, no capacity bypass, no renderer-pool expansion, and exact cleanup.
+
+Implemented evidence:
+
+- `phase2_moving_unit_scale` runs all four exact scales through production `UnitSystem` movement and canonical `SimRunner._tick(0.1)`.
+- Three repetitions compare configuration, seed, schedule, final state, lane setup, pool state, unit-count timeline, and unit-motion hashes.
+- The 12-run acceptance matrix completed with integrity, determinism, protected-state restoration, analytics isolation, and backend denial all passing; renderer pool misses and expansions remained zero.
+- Moving-unit frame timing remains diagnostic and baseline-ineligible until P2-G reviews device-stable thresholds. Observed hitches are retained in the reports and are not converted into correctness failures.
+- `--perf-user-dir=<safe-name>` redirects harness save files into a dedicated namespace before capture, preventing a concurrently running game from invalidating protected-state evidence. The runner validates the namespace, creates it explicitly, and records it in the report.
 
 ### P2-C — Hive upgrade and Super Swarm stress
 

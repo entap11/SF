@@ -59,6 +59,7 @@ func _validate_phases(phases_any: Variant) -> void:
 	var phases: Array = phases_any as Array
 	_expect(phases.size() == EXPECTED_PHASES.size(), "phase count must be exact")
 	var seen: Dictionary = {}
+	var planned_phase_seen: bool = false
 	for phase_any in phases:
 		_expect(typeof(phase_any) == TYPE_DICTIONARY, "each phase must be a dictionary")
 		if typeof(phase_any) != TYPE_DICTIONARY:
@@ -69,10 +70,12 @@ func _validate_phases(phases_any: Variant) -> void:
 		_expect(not seen.has(phase_id), "phase id must be unique: %s" % phase_id)
 		seen[phase_id] = true
 		var status: String = str(phase.get("status", ""))
-		if phase_id == "P2_A_PROGRAM_CONTRACT":
-			_expect(status == "IMPLEMENTED", "P2-A must be implemented")
-		else:
-			_expect(status == "PLANNED", "%s must not be pre-approved" % phase_id)
+		_expect(status in ["IMPLEMENTED", "PLANNED"], "%s status must be fail-closed" % phase_id)
+		if status == "PLANNED":
+			planned_phase_seen = true
+		elif status == "IMPLEMENTED":
+			_expect(not planned_phase_seen, "%s cannot skip a planned predecessor" % phase_id)
+	_expect(not phases.is_empty() and str((phases[0] as Dictionary).get("status", "")) == "IMPLEMENTED", "P2-A must be implemented")
 
 func _validate_exclusions(exclusions_any: Variant) -> void:
 	_expect(typeof(exclusions_any) == TYPE_ARRAY, "explicit exclusions must be an array")

@@ -50,13 +50,24 @@ var _analytics_isolation_active: bool = false
 var _interrupted_isolation_snapshot: Dictionary = {}
 var _interrupted_scene_root: Node = null
 var _interrupted_arena: Node = null
+var _user_data_isolation: Dictionary = {
+	"enabled": false,
+	"name": "",
+	"path": "",
+	"error": ""
+}
 
 func _init() -> void:
+	_configure_user_data_isolation(OS.get_cmdline_user_args())
 	call_deferred("_run_entry")
 
 func _run_entry() -> void:
 	var args: Dictionary = _parse_args()
 	var user_args: PackedStringArray = OS.get_cmdline_user_args()
+	if not str(_user_data_isolation.get("error", "")).is_empty():
+		push_error("perf_benchmark_suite: %s" % str(_user_data_isolation.get("error", "")))
+		quit(2)
+		return
 	if not PERF_RUN_POLICY.enabled_for_runtime(OS.is_debug_build(), user_args):
 		push_error("perf_benchmark_suite: %s" % PERF_RUN_POLICY.refusal_reason(OS.is_debug_build(), user_args))
 		quit(2)
@@ -212,6 +223,7 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		"git": _git_metadata(),
 		"godot": Engine.get_version_info(),
 		"machine": _machine_metadata(),
+		"user_data_isolation": _user_data_isolation.duplicate(true),
 		"fixture_catalog": fixture_catalog_identity,
 		"gates": gates.duplicate(true),
 		"gate_source": str(gate_result.get("source", "")),
@@ -582,8 +594,11 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var observed_measurement_duration_ms: float = 0.0
 	var tick_index: int = 0
 	var target_units: int = int(scenario_def.get("target_units", 0))
+	var unit_count_policy: String = str(scenario_def.get("unit_count_policy", "exact_static"))
 	var unit_count_min: int = _runtime_unit_count(state) if target_units > 0 else 0
 	var unit_count_max: int = unit_count_min
+	var unit_motion_start: Array = _unit_motion_snapshot(state) if target_units > 0 else []
+	var unit_count_timeline: Array = []
 	var render_monitor_peaks: Dictionary = {
 		"draw_calls": 0,
 		"rendered_objects": 0,
@@ -597,6 +612,11 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 			if not issued.is_empty():
 				command_log.append({"tick": tick_index, "commands": issued})
 			sim_runner.call("_tick", SIM_TICK_INTERVAL_SEC)
+			if target_units > 0 and unit_count_policy == "bounded_moving":
+				unit_count_timeline.append({
+					"tick": tick_index,
+					"units": _runtime_unit_count(state)
+				})
 		await process_frame
 		if target_units > 0:
 			var current_unit_count: int = _runtime_unit_count(state)
@@ -647,16 +667,34 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	if final_state_hash.is_empty():
 		integrity_failures.append("final_state_hash_missing")
 	var final_unit_count: int = _runtime_unit_count(state)
-	if target_units > 0 and (unit_count_min != target_units or unit_count_max != target_units or final_unit_count != target_units):
-		integrity_failures.append("unit_count_measurement_invariant_failed")
+	var unit_motion_end: Array = _unit_motion_snapshot(state) if target_units > 0 else []
+	var unit_motion_evidence: Dictionary = _unit_motion_evidence(unit_motion_start, unit_motion_end) if target_units > 0 else {}
+	if target_units > 0:
+		match unit_count_policy:
+			"exact_static":
+				if unit_count_min != target_units or unit_count_max != target_units or final_unit_count != target_units:
+					integrity_failures.append("unit_count_measurement_invariant_failed")
+			"bounded_moving":
+				if int(unit_scale_setup.get("actual_units", 0)) != target_units or unit_count_min < 0 or unit_count_max > target_units or final_unit_count > target_units:
+					integrity_failures.append("moving_unit_count_bounds_failed")
+				if unit_count_timeline.size() != adapter.total_ticks():
+					integrity_failures.append("moving_unit_timeline_incomplete")
+				if int(unit_motion_evidence.get("changed_or_arrived", 0)) <= 0:
+					integrity_failures.append("moving_unit_progress_not_observed")
+			_:
+				integrity_failures.append("unit_count_policy_unsupported")
 	var renderer_pool_end: Dictionary = _unit_renderer_pool_snapshot(arena)
 	var renderer_pool_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(_stable_pool_identity(renderer_pool_end)) if target_units > 0 else ""
 	if target_units > 0 and int(renderer_pool_end.get("pool_expansions", -1)) != int((unit_scale_setup.get("renderer_pool_before", {}) as Dictionary).get("pool_expansions", -2)):
 		integrity_failures.append("unexpected_renderer_pool_expansion")
 	if target_units > 0 and int(renderer_pool_end.get("pool_misses", -1)) != int((unit_scale_setup.get("renderer_pool_before", {}) as Dictionary).get("pool_misses", -2)):
 		integrity_failures.append("unexpected_renderer_pool_miss")
-	if target_units > 0 and int(renderer_pool_end.get("active_pooled_objects", -1)) != target_units:
-		integrity_failures.append("renderer_active_count_mismatch")
+	var active_pool_count: int = int(renderer_pool_end.get("active_pooled_objects", -1))
+	if target_units > 0:
+		if unit_count_policy == "exact_static" and active_pool_count != target_units:
+			integrity_failures.append("renderer_active_count_mismatch")
+		elif unit_count_policy == "bounded_moving" and (active_pool_count < final_unit_count or active_pool_count > target_units):
+			integrity_failures.append("moving_renderer_active_count_out_of_bounds")
 	if command_count < int(scenario_def.get("expected_command_count_min", 0)):
 		integrity_failures.append("scheduled_command_count_below_minimum")
 	if scenario_def.has("expected_command_count_exact") and command_count != int(scenario_def.get("expected_command_count_exact", -1)):
@@ -719,17 +757,23 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"bot_isolation": bot_isolation,
 		"unit_scale_setup": unit_scale_setup,
 		"target_units": target_units,
+		"unit_count_policy": unit_count_policy,
 		"unit_count_window": {
 			"target": target_units,
 			"start": int(unit_scale_setup.get("actual_units", 0)) if target_units > 0 else 0,
 			"minimum": unit_count_min,
 			"maximum": unit_count_max,
 			"end": final_unit_count,
-			"invariant": target_units <= 0 or (unit_count_min == target_units and unit_count_max == target_units and final_unit_count == target_units)
+			"invariant": target_units <= 0 or (unit_count_min == target_units and unit_count_max == target_units and final_unit_count == target_units) if unit_count_policy == "exact_static" else (int(unit_scale_setup.get("actual_units", 0)) == target_units and unit_count_min >= 0 and unit_count_max <= target_units and final_unit_count <= target_units)
 		},
+		"unit_count_timeline": unit_count_timeline,
+		"unit_count_timeline_hash": PERF_DETERMINISTIC_HASH.hash_variant(unit_count_timeline) if target_units > 0 else "",
+		"unit_motion_evidence": unit_motion_evidence,
+		"unit_motion_hash": PERF_DETERMINISTIC_HASH.hash_variant(unit_motion_evidence) if target_units > 0 else "",
 		"unit_injection_hash": str(unit_scale_setup.get("injection_hash", "")),
 		"lane_setup_hash": str(unit_scale_setup.get("lane_setup_hash", "")),
 		"renderer_pool_telemetry": renderer_pool_end,
+		"renderer_sim_count_delta": active_pool_count - final_unit_count if target_units > 0 else 0,
 		"renderer_pool_hash": renderer_pool_hash,
 		"match": _match_summary(state, tick_index),
 		"average_frame_ms": collection.get("average_ms"),
@@ -744,6 +788,8 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"worst_frames": _frame_worst_records(collection.get("worst_records", []) as Array),
 		"worst_sim_ticks": [],
 		"performance_status": "NOT_COLLECTED" if not collector.timing_enabled() else "GATED_WINDOWED" if performance_gating else "NOT_GATED_GATE_PROBE",
+		"performance_gating": performance_gating,
+		"performance_gate_disposition": str(scenario_def.get("performance_gate_disposition", "GATED" if performance_gating else "DIAGNOSTIC_ONLY")),
 		"pass": integrity_failures.is_empty() and failed_gates.is_empty(),
 		"integrity_failures": integrity_failures,
 		"failed_gates": failed_gates
@@ -1221,6 +1267,61 @@ func _runtime_unit_count(state: GameState) -> int:
 		return -1
 	return (state.units_by_lane.get("_all", []) as Array).size()
 
+func _unit_motion_snapshot(state: GameState) -> Array:
+	var out: Array = []
+	if state == null:
+		return out
+	for unit_any in state.units_by_lane.get("_all", []) as Array:
+		if typeof(unit_any) != TYPE_DICTIONARY:
+			continue
+		var unit: Dictionary = unit_any as Dictionary
+		out.append({
+			"id": int(unit.get("id", -1)),
+			"owner_id": int(unit.get("owner_id", 0)),
+			"lane_id": int(unit.get("lane_id", -1)),
+			"lane_generation": int(unit.get("lane_generation", 0)),
+			"from_id": int(unit.get("from_id", -1)),
+			"to_id": int(unit.get("to_id", -1)),
+			"dir": int(unit.get("dir", 0)),
+			"t": snappedf(float(unit.get("t", 0.0)), 0.000001)
+		})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("id", -1)) < int(b.get("id", -1))
+	)
+	return out
+
+func _unit_motion_evidence(start_snapshot: Array, end_snapshot: Array) -> Dictionary:
+	var end_by_id: Dictionary = {}
+	for row_any in end_snapshot:
+		if typeof(row_any) == TYPE_DICTIONARY:
+			var row: Dictionary = row_any as Dictionary
+			end_by_id[int(row.get("id", -1))] = row
+	var changed_or_arrived: int = 0
+	var retained_changed: int = 0
+	var arrived_or_removed: int = 0
+	for start_any in start_snapshot:
+		if typeof(start_any) != TYPE_DICTIONARY:
+			continue
+		var start_row: Dictionary = start_any as Dictionary
+		var unit_id: int = int(start_row.get("id", -1))
+		if not end_by_id.has(unit_id):
+			changed_or_arrived += 1
+			arrived_or_removed += 1
+			continue
+		var end_row: Dictionary = end_by_id.get(unit_id, {}) as Dictionary
+		if PERF_DETERMINISTIC_HASH.hash_variant(start_row) != PERF_DETERMINISTIC_HASH.hash_variant(end_row):
+			changed_or_arrived += 1
+			retained_changed += 1
+	return {
+		"start_count": start_snapshot.size(),
+		"end_count": end_snapshot.size(),
+		"changed_or_arrived": changed_or_arrived,
+		"retained_changed": retained_changed,
+		"arrived_or_removed": arrived_or_removed,
+		"start_hash": PERF_DETERMINISTIC_HASH.hash_variant(start_snapshot),
+		"end_hash": PERF_DETERMINISTIC_HASH.hash_variant(end_snapshot)
+	}
+
 func _unit_renderer_pool_snapshot(arena: Node) -> Dictionary:
 	var renderer: Node = arena.get_node_or_null("PoolsRoot/UnitRenderer") if arena != null else null
 	if renderer == null or not renderer.has_method("get_pool_telemetry_snapshot"):
@@ -1390,6 +1491,13 @@ func _scenario_definitions(
 				_phase1_unit_scale_catalog_scenario("UNIT_SCALE_100_V1", catalog_fixtures_by_id, catalog_common),
 				_phase1_unit_scale_catalog_scenario("UNIT_SCALE_200_V1", catalog_fixtures_by_id, catalog_common),
 				_phase1_unit_scale_catalog_scenario("UNIT_SCALE_400_V1", catalog_fixtures_by_id, catalog_common)
+			]
+		"phase2_moving_unit_scale":
+			scenarios = [
+				_phase2_moving_unit_scale_scenario(50, catalog_fixtures_by_id, catalog_common),
+				_phase2_moving_unit_scale_scenario(100, catalog_fixtures_by_id, catalog_common),
+				_phase2_moving_unit_scale_scenario(200, catalog_fixtures_by_id, catalog_common),
+				_phase2_moving_unit_scale_scenario(400, catalog_fixtures_by_id, catalog_common)
 			]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
@@ -1690,6 +1798,28 @@ func _phase1_unit_scale_catalog_scenario(fixture_id: String, catalog_fixtures_by
 	scenario["cadence"] = cadence
 	scenario["performance_gating"] = true
 	scenario["baseline_candidate"] = bool(fixture.get("baseline_candidate", false))
+	return scenario
+
+func _phase2_moving_unit_scale_scenario(target_units: int, catalog_fixtures_by_id: Dictionary, catalog_common: Dictionary) -> Dictionary:
+	var source_fixture_id: String = "UNIT_SCALE_%03d_V1" % target_units
+	var scenario: Dictionary = _phase1_unit_scale_catalog_scenario(source_fixture_id, catalog_fixtures_by_id, catalog_common)
+	if scenario.is_empty():
+		return {}
+	var fixture_id: String = "MOVING_UNIT_SCALE_%03d_V1" % target_units
+	scenario["scenario_id"] = fixture_id
+	scenario["fixture_id"] = fixture_id
+	scenario["catalog_fixture_registered"] = false
+	scenario["measurement_profile"] = "deterministic_windowed_presentation"
+	scenario["systems"] = ["canonical_simrunner"]
+	scenario["unit_count_policy"] = "bounded_moving"
+	scenario["phase2_requires_three_repetitions"] = true
+	scenario["baseline_candidate"] = false
+	scenario["baseline_ineligible_reason"] = "phase2_moving_scale_diagnostic_not_yet_baseline_approved"
+	scenario["performance_gating"] = false
+	scenario["performance_gate_disposition"] = "DIAGNOSTIC_PENDING_BASELINE_REVIEW"
+	var cadence: Dictionary = (scenario.get("cadence", {}) as Dictionary).duplicate(true)
+	cadence["simulation_active"] = true
+	scenario["cadence"] = cadence
 	return scenario
 
 func _phase0_collector_calibration_scenarios() -> Array:
@@ -1996,6 +2126,7 @@ func _base_scenario_report(scenario_def: Dictionary, benchmark_mode: String, gat
 		"fixture_id": fixture_id,
 		"fixture_version": int(scenario_def.get("fixture_version", 1)),
 		"catalog_fixture_registered": bool(scenario_def.get("catalog_fixture_registered", false)),
+		"phase2_requires_three_repetitions": bool(scenario_def.get("phase2_requires_three_repetitions", false)),
 		"measurement_profile": str(scenario_def.get("measurement_profile", _measurement_profile_for_benchmark_mode(benchmark_mode))),
 		"content_kind": str(scenario_def.get("content_kind", "production_map")),
 		"content_identity": str(scenario_def.get("content_identity", "sha256:%s" % map_content_hash)),
@@ -2499,6 +2630,8 @@ func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
 		"initial_swarms": int(scenario_def.get("initial_swarms", 0)),
 		"initial_barracks_routes": int(scenario_def.get("initial_barracks_routes", 0)),
 		"target_units": int(scenario_def.get("target_units", 0)),
+		"unit_count_policy": str(scenario_def.get("unit_count_policy", "exact_static")),
+		"phase2_requires_three_repetitions": bool(scenario_def.get("phase2_requires_three_repetitions", false)),
 		"lane_build_timeout_ms": int(scenario_def.get("lane_build_timeout_ms", 0)),
 		"renderer_ready_timeout_ms": int(scenario_def.get("renderer_ready_timeout_ms", 0)),
 		"capacity_bypass_allowed": bool(scenario_def.get("capacity_bypass_allowed", true)),
@@ -2533,7 +2666,7 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 		var fixture_id: String = str(fixture_id_any)
 		var repetitions: Array = by_fixture.get(fixture_id, []) as Array
 		var first_repetition: Dictionary = repetitions[0] as Dictionary if not repetitions.is_empty() else {}
-		var required_repetitions: int = 3 if fixture_id in ["PHASE0_INTEGRITY_CENTERSTRIKE_V1", "P1B_WINDOWED_ADAPTER_PROBE_V1", "P1D_NORMAL_MATCH_PILOT_V1"] or bool(first_repetition.get("catalog_fixture_registered", false)) else 1
+		var required_repetitions: int = 3 if fixture_id in ["PHASE0_INTEGRITY_CENTERSTRIKE_V1", "P1B_WINDOWED_ADAPTER_PROBE_V1", "P1D_NORMAL_MATCH_PILOT_V1"] or bool(first_repetition.get("catalog_fixture_registered", false)) or bool(first_repetition.get("phase2_requires_three_repetitions", false)) else 1
 		var fields: Array[String] = [
 			"fixture_config_hash",
 			"requested_seed",
@@ -2555,6 +2688,8 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 			])
 		if int(first_repetition.get("target_units", 0)) > 0:
 			fields.append_array(["unit_injection_hash", "lane_setup_hash", "renderer_pool_hash"])
+			if str(first_repetition.get("unit_count_policy", "exact_static")) == "bounded_moving":
+				fields.append_array(["unit_count_timeline_hash", "unit_motion_hash"])
 		var mismatches: Array = []
 		if repetitions.size() < required_repetitions:
 			mismatches.append("repetition_count:%d<%d" % [repetitions.size(), required_repetitions])
@@ -2883,6 +3018,49 @@ func _parse_switch_override(raw: String, out: Dictionary) -> void:
 				out[key] = float(value_raw)
 			else:
 				out[key] = value_raw
+
+func _configure_user_data_isolation(args: PackedStringArray) -> void:
+	var isolation_name: String = ""
+	var i: int = 0
+	while i < args.size():
+		var arg: String = str(args[i])
+		if arg.begins_with("--perf-user-dir="):
+			isolation_name = arg.trim_prefix("--perf-user-dir=").strip_edges()
+		elif arg == "--perf-user-dir" and i + 1 < args.size():
+			i += 1
+			isolation_name = str(args[i]).strip_edges()
+		i += 1
+	if isolation_name.is_empty():
+		return
+	if not _valid_user_data_isolation_name(isolation_name):
+		_user_data_isolation["error"] = "perf_user_dir_name_invalid"
+		return
+	ProjectSettings.set_setting("application/config/use_custom_user_dir", true)
+	ProjectSettings.set_setting("application/config/custom_user_dir_name", isolation_name)
+	var isolated_path: String = ProjectSettings.globalize_path("user://")
+	var make_error: Error = DirAccess.make_dir_recursive_absolute(isolated_path)
+	if make_error != OK:
+		_user_data_isolation["error"] = "perf_user_dir_create_failed:%d" % make_error
+		return
+	_user_data_isolation = {
+		"enabled": true,
+		"name": isolation_name,
+		"path": isolated_path,
+		"error": ""
+	}
+
+func _valid_user_data_isolation_name(value: String) -> bool:
+	if value in [".", ".."] or value.length() > 80:
+		return false
+	for index in range(value.length()):
+		var code: int = value.unicode_at(index)
+		var allowed: bool = (code >= 48 and code <= 57) \
+			or (code >= 65 and code <= 90) \
+			or (code >= 97 and code <= 122) \
+			or code in [45, 46, 95]
+		if not allowed:
+			return false
+	return true
 
 func _cmdline_args() -> PackedStringArray:
 	var user_args := OS.get_cmdline_user_args()
