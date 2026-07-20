@@ -1,6 +1,6 @@
 # Public Modes Staging Certification Evidence
 
-- Status: `IN PROGRESS — P4`
+- Status: `IN PROGRESS — P5`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 - Branch: `sprint/staging-certification`
@@ -19,8 +19,8 @@ only for observed evidence. Planned work remains `NOT RUN`.
 | P1 environment inventory | `PASS` | Render inventory and immutable candidate below | — |
 | P2 database recovery rehearsal | `PASS` | [P2 runbook](staging-certification-p2-runbook.md) | — |
 | P3 all-off deployment | `PASS` | Immutable deploy/rollback table below | — |
-| P4 remote config/operations | `NOT RUN` | — | — |
-| P5 authority/workers | `NOT RUN` | — | P4 |
+| P4 remote config/operations | `PASS` | All-false revision/alert evidence below | — |
+| P5 authority/workers | `NOT RUN` | — | — |
 | P6 physical device matrix | `NOT RUN` | — | P4–P5 and devices |
 | P7 canary recommendation | `NOT RUN` | — | P0–P6 |
 
@@ -431,9 +431,50 @@ P5 gate; P3 does not claim that it can yet execute a replay job.
 
 ## P4 remote configuration and operations
 
-Status: `NOT RUN`
+Status: `PASS`
 
-No remote configuration revision has been published by this sprint.
+Only `VS_ENABLE_REMOTE_OPS_CONFIG=true` and
+`VS_OPS_RECONCILE_INTERVAL_MS=60000` changed from the P3 provider environment.
+The manual config transition deployed exact candidate `1beb355` as
+`dep-d9f7578s116c738d4mf0`; auto-deploy remained off. All public, durable-route,
+verification, rank, reward, spectator-live, bot-fallback, and economy caps
+remained false.
+
+With no active revision, the public endpoint returned
+`NO_ACTIVE_REMOTE_CONFIG`, 16 false flags, minimum build zero, and
+`Cache-Control: public, max-age=15, must-revalidate`. Negative publication
+tests rejected an unknown flag, a non-boolean flag, malformed expiry, and a
+missing idempotency key with the expected 400 errors.
+
+### Append-only all-false history
+
+| Purpose | Revision ID | Config hash / result |
+| --- | --- | --- |
+| Omitted-field/expiry proof | `019f80f3-b4d3-7480-bace-1c6006dad757` | `08ab125fa83b8160465e062ad949d8e5e92c7b187c055f80bb39a5c61abea891`; omitted flags normalized false; expiry returned to `NO_ACTIVE_REMOTE_CONFIG` |
+| Primary all-false revision | `019f80f4-227f-7ab9-b553-eb2c9283019b` | `6453b4180dba435631dd6f2451dcf5d3f2510bb95b9f5908b8e138137be44076`; minimum build `2026071701`; duplicate request returned the same revision |
+| Cache/history successor | `019f80f4-d139-702b-8451-af10aea98a87` | Old weak ETag revalidated to the new all-false revision rather than serving stale config |
+| Append-only rollback | `019f80f4-d26c-74a4-8f3b-1a1924d8e65d` | `3151e14680bf2816a4acc8cf984ddbef42ee1963e78175eb138f8990bf562aa5`; `rollback_of` points to the primary revision |
+
+The final client-visible version is `p4-rollback-all-false-20260720-1`, source
+`REMOTE_AND_DEPLOYMENT_CAPS`, minimum build `2026071701`, and all 16 effective
+flags false. The server emits the config hash as a standards-valid weak ETag;
+revalidation returned the current revision.
+
+Manual reconciliation run `019f80f4-d203-72b6-aa6e-76b91d1a61cb` completed
+`OK`. Scheduled run `019f80f4-c459-78a1-acef-0368cedfd2a6` proved the 60-second
+job path. A controlled one-unit divergence in the isolated
+`system:issuance` account opened real CRITICAL alert
+`crucible_ledger_reconciliation` during run
+`019f80f5-6617-7525-900e-ae283c1052c8`. The exact original account value was
+restored, run `019f80f5-692f-734d-abdb-9c1c43b04e46` completed `OK`, and the
+authenticated dashboard showed the alert resolved. A later healthy scheduled
+run removed the resolved tombstone as designed.
+
+At the exit snapshot there were four immutable config revisions and seven
+reconciliation runs. The schema hash remained
+`e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3`;
+the two seed Crucible accounts and all non-ops P3 counts were preserved. No
+public or economic route was enabled or used.
 
 ## P5 authority and workers
 
@@ -472,6 +513,8 @@ No public mode or mutation/economy capability is authorized.
 | P3 Rank candidate deploy | `dep-d9f6ud37uimc73aq0570` | `474a226f3286042b6d347f43f4799522c428aa47e69e4ef70f51d48e326711ca` | 2026-07-20T18:57Z | Render deploy/log retention | Environment operator |
 | P3 VS candidate deploy | `dep-d9f6skv7f7vs73c27tmg` | `55cccabc683055d8fb5d460cdfffb878d9bd94b25d20be4313b8a53928327760` | 2026-07-20T18:54Z | Render deploy/log retention | Environment operator |
 | P3 authority candidate deploy | `dep-d9f6qrgs116c738cjec0` | `1aab33cd811fdce38ea7f51fefb3c86d40e6a0d33e13398da9888eec38a1055a` | 2026-07-20T18:50Z | Render deploy/log retention | Environment operator |
+| P4 VS remote-ops deploy | `dep-d9f7578s116c738d4mf0` | `55cccabc683055d8fb5d460cdfffb878d9bd94b25d20be4313b8a53928327760` | 2026-07-20T19:13Z | Render deploy/log retention | Environment operator |
+| P4 final all-false config | `019f80f4-d26c-74a4-8f3b-1a1924d8e65d` | `3151e14680bf2816a4acc8cf984ddbef42ee1963e78175eb138f8990bf562aa5` | 2026-07-20T19:15Z | Certification database retention | Environment operator |
 
 Never put credentials, private keys, connection strings, raw database exports,
 unredacted device identifiers, or user identifiers in this index.

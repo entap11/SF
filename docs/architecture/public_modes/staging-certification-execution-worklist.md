@@ -3,7 +3,7 @@
 - Program: Public Modes staging certification
 - Branch: `sprint/staging-certification`
 - Base revision: `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`
-- Current phase: `P4`
+- Current phase: `P5`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 
@@ -216,18 +216,18 @@ rollback work while effective features stay false.
 
 ### Execution order
 
-- [ ] Reconfirm every static deployment capability is false.
-- [ ] Enable only `VS_ENABLE_REMOTE_OPS_CONFIG` and the agreed non-zero
+- [x] Reconfirm every static deployment capability is false.
+- [x] Enable only `VS_ENABLE_REMOTE_OPS_CONFIG` and the agreed non-zero
   reconciliation interval.
-- [ ] Prove no active revision returns `NO_ACTIVE_REMOTE_CONFIG` and all false.
-- [ ] Publish one authenticated, expiring, all-false revision with the selected
+- [x] Prove no active revision returns `NO_ACTIVE_REMOTE_CONFIG` and all false.
+- [x] Publish one authenticated, expiring, all-false revision with the selected
   minimum client build.
-- [ ] Verify client-visible source, version, hash, expiry, minimum build, and
+- [x] Verify client-visible source, version, hash, expiry, minimum build, and
   blocker diagnostics.
-- [ ] Exercise omitted/unknown flags, malformed input, stale cache, expiration,
+- [x] Exercise omitted/unknown flags, malformed input, stale cache, expiration,
   history, manual reconciliation, scheduled reconciliation, and alert
   open/resolve delivery.
-- [ ] Roll back by publishing a new audited all-false revision copied from the
+- [x] Roll back by publishing a new audited all-false revision copied from the
   prior known-good revision.
 
 ### Exit artifact
@@ -371,8 +371,8 @@ the required managed-environment and physical-device evidence.
 
 ## Next executable action
 
-Begin P4 by reconfirming the final P3 candidate deploy IDs and explicit all-off
-provider values, then enable only `VS_ENABLE_REMOTE_OPS_CONFIG` with the agreed
-non-zero reconciliation interval. Publish an authenticated, expiring all-false
-revision; no public, mutation, rank, reward, or economy capability may be
-enabled during P4.
+Begin P5 by packaging the pinned headless Godot runtime and exact map/rules
+manifest for `swarmfront-cert-authority`. Keep public, rank, reward, and economy
+caps false while exercising authenticated lease ownership, duplicate delivery,
+wrong worker/build/key/content identities, replay disagreement, receipt
+verification, and worker interruption recovery.
