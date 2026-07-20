@@ -3,7 +3,12 @@ extends RefCounted
 
 const MapLoader := preload("res://scripts/maps/map_loader.gd")
 
-const SUPPORTED_MODES: Array[String] = ["canonical_sim_headless", "layer_isolation_noncanonical", "render_windowed"]
+const SUPPORTED_MODES: Array[String] = [
+	"canonical_sim_headless",
+	"deterministic_windowed_presentation",
+	"layer_isolation_noncanonical",
+	"render_windowed"
+]
 const SUPPORTED_FIXTURE_VERSIONS: Array[int] = [1]
 const SUPPORTED_COMMAND_KINDS: Array[String] = ["lane_intent_pair", "swarm_active_lane"]
 const MAX_DURATION_SEC: float = 600.0

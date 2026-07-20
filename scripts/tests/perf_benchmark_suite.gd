@@ -5,6 +5,7 @@ const ARENA_POLISH_LAYER := preload("res://scripts/renderers/arena_polish_layer.
 const PERF_RUN_POLICY := preload("res://scripts/tests/perf/perf_run_policy.gd")
 const PERF_FIXTURE_CATALOG := preload("res://scripts/tests/perf/perf_fixture_catalog.gd")
 const PERF_FIXTURE_VALIDATOR := preload("res://scripts/tests/perf/perf_fixture_validator.gd")
+const PERF_DETERMINISTIC_WINDOWED_ADAPTER := preload("res://scripts/tests/perf/perf_deterministic_windowed_adapter.gd")
 const PERF_DETERMINISTIC_HASH := preload("res://scripts/tests/perf/perf_deterministic_hash.gd")
 const PERF_ISOLATION_GUARD := preload("res://scripts/tests/perf/perf_isolation_guard.gd")
 const PERF_RESULT_CONTRACT := preload("res://scripts/tests/perf/perf_result_contract.gd")
@@ -24,12 +25,14 @@ const SIM_TICK_INTERVAL_SEC: float = 0.1
 const RENDER_DISCARD_INITIAL_FRAMES: int = 3
 
 const MAP_QUICK := "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__2p.json"
+const MAP_PHASE1 := "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__1p.json"
 const MAP_LAYERS := "res://maps/_future/nomansland/MAP_nomansland__545__v08_spine_knife_fight__npc20__1p.json"
 const MAP_STRUCTURES := "res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json"
 const MAP_STRESS := "res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__npc20__1p.json"
 
 const EXPECTED_COUNTS_BY_MAP := {
 	MAP_QUICK: {"hives": 12, "towers": 0, "barracks": 0, "structure_slots": 0},
+	MAP_PHASE1: {"hives": 12, "towers": 0, "barracks": 0, "structure_slots": 0},
 	MAP_LAYERS: {"hives": 14, "towers": 0, "barracks": 0, "structure_slots": 2},
 	MAP_STRUCTURES: {"hives": 16, "towers": 0, "barracks": 0, "structure_slots": 4},
 	MAP_STRESS: {"hives": 14, "towers": 0, "barracks": 0, "structure_slots": 2}
@@ -99,8 +102,9 @@ func _run_suite(args: Dictionary) -> Dictionary:
 	var collection_level: String = PERF_RESULT_CONTRACT.normalize_collection_level(str(args.get("collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL)))
 	if not PERF_RESULT_CONTRACT.is_known_collection_level(collection_level):
 		return _invalid_suite_report(suite_id, benchmark_mode, "collection_level_invalid", ["expected OFF, MINIMAL, or FULL"], args)
-	if benchmark_mode == "render_windowed" and DisplayServer.get_name() == "headless":
-		return _invalid_suite_report(suite_id, benchmark_mode, "render_windowed_requires_display", ["windowed frame timing is unavailable on the headless display server"], args)
+	if benchmark_mode in ["render_windowed", "deterministic_windowed_presentation"] and DisplayServer.get_name() == "headless":
+		var refusal: String = "deterministic_windowed_requires_display" if benchmark_mode == "deterministic_windowed_presentation" else "render_windowed_requires_display"
+		return _invalid_suite_report(suite_id, benchmark_mode, refusal, ["windowed frame timing is unavailable on the headless display server"], args)
 	var gate_result: Dictionary = PERF_FIXTURE_VALIDATOR.load_gate_config(str(args.get("gates", DEFAULT_GATES_PATH)))
 	if not bool(gate_result.get("ok", false)):
 		return _invalid_suite_report(suite_id, benchmark_mode, "gate_validation_failed", gate_result.get("errors", []), args)
@@ -148,6 +152,8 @@ func _run_suite(args: Dictionary) -> Dictionary:
 			scenario_def["_suite_sequence_index"] = suite_sequence_index
 			var scenario: Dictionary
 			match benchmark_mode:
+				"deterministic_windowed_presentation":
+					scenario = await _run_deterministic_windowed_scenario(scenario_def, benchmark_mode, gates)
 				"render_windowed":
 					scenario = await _run_render_scenario(scenario_def, benchmark_mode, gates)
 				"layer_isolation_noncanonical":
@@ -452,6 +458,179 @@ func _run_layer_isolation_scenario(scenario_def: Dictionary, benchmark_mode: Str
 		"worst_sim_ticks": _canonical_worst_records(sim_phase_collection.get("worst_records", []) as Array),
 		"performance_status": "NOT_COLLECTED" if not collector.timing_enabled() else "GATED_NONCANONICAL",
 		"pass": failed_gates.is_empty(),
+		"failed_gates": failed_gates
+	}, true)
+	return await _finalize_scenario(report, isolation_snapshot, scene_root, arena)
+
+func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mode: String, gates: Dictionary) -> Dictionary:
+	var isolation_snapshot: Dictionary = PERF_ISOLATION_GUARD.capture(self, OpsState)
+	_arm_interrupted_cleanup(isolation_snapshot)
+	var adapter := PERF_DETERMINISTIC_WINDOWED_ADAPTER.new(scenario_def.get("cadence", {}) as Dictionary)
+	var cadence_errors: Array[String] = adapter.validation_errors()
+	if not cadence_errors.is_empty():
+		return await _finalize_scenario(
+			_scenario_error(scenario_def, benchmark_mode, "deterministic_cadence_invalid:%s" % str(cadence_errors), gates),
+			isolation_snapshot,
+			null,
+			null
+		)
+	Engine.max_fps = adapter.target_fps
+	var setup_start_usec: int = Time.get_ticks_usec()
+	var setup: Dictionary = await _setup_arena_for_scenario(scenario_def, true)
+	if not bool(setup.get("ok", false)):
+		return await _finalize_scenario(
+			_scenario_error(scenario_def, benchmark_mode, str(setup.get("reason", "setup_failed")), gates),
+			isolation_snapshot,
+			setup.get("scene_root", null) as Node,
+			setup.get("arena", null) as Node
+		)
+	var scene_root: Node = setup.get("scene_root", null) as Node
+	var arena: Node = setup.get("arena", null) as Node
+	_update_interrupted_cleanup_nodes(scene_root, arena)
+	var sim_runner: Node = _arena_sim_runner(arena)
+	if sim_runner == null or not sim_runner.has_method("_tick"):
+		return await _finalize_scenario(
+			_scenario_error(scenario_def, benchmark_mode, "deterministic_simrunner_tick_missing", gates),
+			isolation_snapshot,
+			scene_root,
+			arena
+		)
+	# The adapter, not production processing or elapsed wall time, owns tick ordering.
+	sim_runner.set_process(false)
+	sim_runner.set_physics_process(false)
+	sim_runner.set_process_unhandled_input(false)
+	var state: GameState = OpsState.require_state()
+	_prepare_match_for_benchmark()
+	_disable_bots_for_benchmark()
+	var initial_commands: Array = _apply_scenario_initial_state(arena, state, scenario_def)
+	_apply_render_isolation(arena, scenario_def)
+	var camera_settle: Dictionary = await _settle_windowed_camera(arena, str(scenario_def.get("camera_policy", "production_map_fit")))
+	var camera_identity: Dictionary = camera_settle.get("identity", {}) as Dictionary
+	var camera_identity_hash: String = str(camera_settle.get("hash", ""))
+	var cadence_identity: Dictionary = adapter.cadence_identity()
+	# Keep this explicit in the runner source: elapsed_wall_time_controls_simulation is always false.
+	cadence_identity["elapsed_wall_time_controls_simulation"] = false
+	var cadence_identity_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(cadence_identity)
+	var setup_ms: float = float(Time.get_ticks_usec() - setup_start_usec) / 1000.0
+	var collection_level: String = str(scenario_def.get("_collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL))
+	var collector := PERF_METRICS_COLLECTOR.new(
+		collection_level,
+		int(gates.get("worst_frame_limit", 10)),
+		float(gates.get("target_frame_ms", INF)),
+		-1,
+		-1,
+		0
+	)
+	var command_log: Array = []
+	if not initial_commands.is_empty():
+		command_log.append({"tick": 0, "commands": initial_commands})
+	var measured_frame_count: int = 0
+	var observed_warmup_duration_ms: float = 0.0
+	var observed_measurement_duration_ms: float = 0.0
+	var tick_index: int = 0
+	var render_monitor_peaks: Dictionary = {
+		"draw_calls": 0,
+		"rendered_objects": 0,
+		"rendered_primitives": 0
+	}
+	for frame_number in range(1, adapter.total_frames() + 1):
+		var frame_start_usec: int = Time.get_ticks_usec()
+		if adapter.should_tick(frame_number):
+			tick_index = adapter.tick_number_for_frame(frame_number)
+			var issued: Array = _issue_commands_for_tick(arena, state, scenario_def, tick_index)
+			if not issued.is_empty():
+				command_log.append({"tick": tick_index, "commands": issued})
+			sim_runner.call("_tick", SIM_TICK_INTERVAL_SEC)
+		await process_frame
+		var frame_ms: float = float(Time.get_ticks_usec() - frame_start_usec) / 1000.0
+		if adapter.is_measurement_frame(frame_number):
+			measured_frame_count += 1
+			observed_measurement_duration_ms += frame_ms
+			if collector.timing_enabled():
+				var frame_context: Dictionary = {}
+				if collector.needs_forensic_context(frame_ms):
+					frame_context = {
+						"tick": tick_index,
+						"phase": "deterministic_windowed_presentation",
+						"classification": _classification_for_frame(frame_ms, gates, {}),
+						"renderer_configuration_state": _renderer_configuration_state(arena)
+					}
+				collector.observe(measured_frame_count, frame_ms, frame_context)
+			_capture_render_monitor_peaks(render_monitor_peaks)
+		else:
+			observed_warmup_duration_ms += frame_ms
+	var collection: Dictionary = collector.summary()
+	var metrics: Dictionary = _collector_frame_metrics(collection)
+	var performance_gating: bool = bool(scenario_def.get("performance_gating", true))
+	var failed_gates: Array = _failed_gates(metrics, int(collection.get("hitch_count", 0)), gates) if collector.timing_enabled() and performance_gating else []
+	var command_count: int = _scripted_command_count_from_log(command_log)
+	var requested_seed: int = int(scenario_def.get("seed", 0))
+	var effective_seed: int = int(setup.get("effective_seed", 0))
+	var final_state_hash: String = str(OpsState.call("get_contract_state_hash")) if OpsState.has_method("get_contract_state_hash") else ""
+	var integrity_failures: Array = []
+	if requested_seed != effective_seed:
+		integrity_failures.append("effective_seed_mismatch")
+	if not bool(camera_settle.get("pass", false)):
+		integrity_failures.append("camera_settle_failed")
+	if camera_identity_hash.is_empty():
+		integrity_failures.append("camera_hash_missing")
+	if tick_index != adapter.total_ticks():
+		integrity_failures.append("tick_count_mismatch")
+	if measured_frame_count != adapter.measurement_frames:
+		integrity_failures.append("measurement_frame_count_mismatch")
+	if final_state_hash.is_empty():
+		integrity_failures.append("final_state_hash_missing")
+	if command_count < int(scenario_def.get("expected_command_count_min", 0)):
+		integrity_failures.append("scheduled_command_count_below_minimum")
+	if OpsState.match_phase != OpsState.MatchPhase.RUNNING or bool(OpsState.match_over):
+		integrity_failures.append("fixture_ended_match")
+	var report := _base_scenario_report(scenario_def, benchmark_mode, gates)
+	report.merge({
+		"canonical_simulation": true,
+		"baseline_eligible": false,
+		"baseline_ineligible_reasons": ["phase1_gate_b_internal_probe"],
+		"duration_sec": float(adapter.total_ticks()) * SIM_TICK_INTERVAL_SEC,
+		"target_duration_sec": float(adapter.total_frames()) / float(adapter.target_fps),
+		"warmup_duration_sec": float(adapter.warmup_frames) / float(adapter.target_fps),
+		"measurement_duration_sec": float(adapter.measurement_frames) / float(adapter.target_fps),
+		"observed_warmup_duration_sec": observed_warmup_duration_ms / 1000.0,
+		"observed_measurement_duration_sec": observed_measurement_duration_ms / 1000.0,
+		"sim_tick_interval_sec": SIM_TICK_INTERVAL_SEC,
+		"setup_duration_ms": setup_ms,
+		"frame_count": adapter.total_frames(),
+		"warmup_frame_count": adapter.warmup_frames,
+		"measured_frame_count": measured_frame_count,
+		"tick_count": tick_index,
+		"warmup_tick_count": adapter.warmup_ticks(),
+		"measured_tick_count": adapter.measurement_ticks(),
+		"collection": collection,
+		"scripted_command_count": command_count,
+		"scripted_command_ticks": command_log,
+		"command_schedule_hash": PERF_DETERMINISTIC_HASH.hash_variant(command_log),
+		"effective_seed": effective_seed,
+		"final_state_hash": final_state_hash,
+		"camera_settle": camera_settle,
+		"camera_identity": camera_identity,
+		"camera_identity_hash": camera_identity_hash,
+		"cadence_identity": cadence_identity,
+		"cadence_identity_hash": cadence_identity_hash,
+		"renderer_configuration_state": _renderer_configuration_state(arena),
+		"render_monitor_peaks": render_monitor_peaks,
+		"match": _match_summary(state, tick_index),
+		"average_frame_ms": collection.get("average_ms"),
+		"median_frame_ms": collection.get("median_ms"),
+		"p95_frame_ms": collection.get("p95_ms"),
+		"p99_frame_ms": collection.get("p99_ms"),
+		"p999_frame_ms": collection.get("p999_ms"),
+		"max_frame_ms": collection.get("max_ms"),
+		"hitch_threshold_ms": float(gates.get("target_frame_ms", 0.0)),
+		"hitch_count": collection.get("hitch_count"),
+		"hitches": _collector_hitch_records(collection.get("hitch_records", []) as Array),
+		"worst_frames": _frame_worst_records(collection.get("worst_records", []) as Array),
+		"worst_sim_ticks": [],
+		"performance_status": "NOT_COLLECTED" if not collector.timing_enabled() else "GATED_WINDOWED" if performance_gating else "NOT_GATED_GATE_PROBE",
+		"pass": integrity_failures.is_empty() and failed_gates.is_empty(),
+		"integrity_failures": integrity_failures,
 		"failed_gates": failed_gates
 	}, true)
 	return await _finalize_scenario(report, isolation_snapshot, scene_root, arena)
@@ -829,6 +1008,8 @@ func _scenario_definitions(suite_id: String, switch_overrides: Dictionary = {}, 
 	match suite_id:
 		"phase0_integrity":
 			scenarios = [_phase0_integrity_scenario()]
+		"phase1_windowed_adapter":
+			scenarios = [_phase1_windowed_adapter_probe_scenario()]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
 		"phase0_isolation":
@@ -933,6 +1114,37 @@ func _phase0_integrity_scenario() -> Dictionary:
 		{"tick": 25, "kind": "lane_intent_pair", "pair_index": 5, "intent": "attack"},
 		{"tick": 35, "kind": "lane_intent_pair", "pair_index": 6, "intent": "attack"}
 	]
+	return scenario
+
+func _phase1_windowed_adapter_probe_scenario() -> Dictionary:
+	var scenario: Dictionary = _scenario_def(
+		"P1B_WINDOWED_ADAPTER_PROBE_V1",
+		MAP_PHASE1,
+		12.0,
+		6101,
+		["canonical_simrunner"],
+		0,
+		0,
+		1
+	)
+	scenario["fixture_id"] = "P1B_WINDOWED_ADAPTER_PROBE_V1"
+	scenario["measurement_profile"] = "deterministic_windowed_presentation"
+	scenario["catalog_fixture_registered"] = false
+	scenario["camera_policy"] = "production_map_fit"
+	scenario["tick_count"] = 120
+	scenario["warmup_ticks"] = 20
+	scenario["repetitions"] = 3
+	scenario["initial_lanes"] = 0
+	scenario["command_schedule"] = []
+	scenario["performance_gating"] = false
+	scenario["cadence"] = {
+		"target_fps": 30,
+		"simulation_hz": 10,
+		"frames_per_simulation_tick": 3,
+		"warmup_frames": 60,
+		"measurement_frames": 300,
+		"simulation_active": true
+	}
 	return scenario
 
 func _phase0_collector_calibration_scenarios() -> Array:
@@ -1158,6 +1370,60 @@ func _apply_render_isolation(arena: Node, scenario_def: Dictionary) -> void:
 		var node: Node = arena.get_node_or_null(str(paths[key_any]))
 		if node is CanvasItem:
 			(node as CanvasItem).visible = bool(allowed.get(key, false))
+
+func _settle_windowed_camera(arena: Node, camera_policy: String) -> Dictionary:
+	if arena == null:
+		return {"pass": false, "reason": "arena_missing", "identity": {}, "hash": ""}
+	if camera_policy == "production_map_fit":
+		if not arena.has_method("apply_camera_fit_next_frame"):
+			return {"pass": false, "reason": "production_camera_fit_missing", "identity": {}, "hash": ""}
+		arena.call("apply_camera_fit_next_frame", "fitcam_once")
+		for _frame in range(4):
+			await process_frame
+	var first: Dictionary = _windowed_camera_identity(arena, camera_policy)
+	await process_frame
+	var second: Dictionary = _windowed_camera_identity(arena, camera_policy)
+	var first_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(first) if not first.is_empty() else ""
+	var second_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(second) if not second.is_empty() else ""
+	return {
+		"pass": not first_hash.is_empty() and first_hash == second_hash and bool(second.get("is_current", false)),
+		"policy": camera_policy,
+		"settle_frames": 5 if camera_policy == "production_map_fit" else 1,
+		"consecutive_hashes": [first_hash, second_hash],
+		"identity": second,
+		"hash": second_hash,
+		"reason": "" if first_hash == second_hash else "camera_transform_changed_after_settle"
+	}
+
+func _windowed_camera_identity(arena: Node, camera_policy: String) -> Dictionary:
+	var camera_node: Camera2D = arena.get_node_or_null("Camera2D") as Camera2D
+	if camera_node == null:
+		return {}
+	var viewport: Viewport = camera_node.get_viewport()
+	var viewport_size: Vector2i = viewport.get_visible_rect().size if viewport != null else Vector2i.ZERO
+	return {
+		"identity_version": 1,
+		"policy": camera_policy,
+		"node_path": str(arena.get_path_to(camera_node)),
+		"is_current": viewport != null and viewport.get_camera_2d() == camera_node,
+		"global_position": [_quantized_float(camera_node.global_position.x), _quantized_float(camera_node.global_position.y)],
+		"zoom": [_quantized_float(camera_node.zoom.x), _quantized_float(camera_node.zoom.y)],
+		"rotation_radians": _quantized_float(camera_node.global_rotation),
+		"offset": [_quantized_float(camera_node.offset.x), _quantized_float(camera_node.offset.y)],
+		"anchor_mode": int(camera_node.anchor_mode),
+		"ignore_rotation": camera_node.ignore_rotation,
+		"position_smoothing_enabled": camera_node.position_smoothing_enabled,
+		"viewport_width": viewport_size.x,
+		"viewport_height": viewport_size.y
+	}
+
+func _quantized_float(value: float) -> float:
+	return snappedf(value, 0.000001)
+
+func _capture_render_monitor_peaks(peaks: Dictionary) -> void:
+	peaks["draw_calls"] = maxi(int(peaks.get("draw_calls", 0)), int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)))
+	peaks["rendered_objects"] = maxi(int(peaks.get("rendered_objects", 0)), int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)))
+	peaks["rendered_primitives"] = maxi(int(peaks.get("rendered_primitives", 0)), int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)))
 
 func _renderer_configuration_state(arena: Node) -> Dictionary:
 	var state: Dictionary = {}
@@ -1635,6 +1901,8 @@ func _normalized_benchmark_mode(raw_mode: String) -> String:
 
 func _measurement_profile_for_benchmark_mode(benchmark_mode: String) -> String:
 	match benchmark_mode:
+		"deterministic_windowed_presentation":
+			return "deterministic_windowed_presentation"
 		"render_windowed":
 			return "investigative_render_windowed"
 		"layer_isolation_noncanonical":
@@ -1665,6 +1933,8 @@ func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
 		"swarm_burst": int(scenario_def.get("swarm_burst", 0)),
 		"command_schedule": (scenario_def.get("command_schedule", []) as Array).duplicate(true),
 		"runtime_switches": (scenario_def.get("runtime_switches", {}) as Dictionary).duplicate(true),
+		"camera_policy": str(scenario_def.get("camera_policy", "")),
+		"cadence": (scenario_def.get("cadence", {}) as Dictionary).duplicate(true),
 		"expected_counts": (scenario_def.get("expected_counts", {}) as Dictionary).duplicate(true)
 	}
 
@@ -1683,7 +1953,7 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 	for fixture_id_any in by_fixture.keys():
 		var fixture_id: String = str(fixture_id_any)
 		var repetitions: Array = by_fixture.get(fixture_id, []) as Array
-		var required_repetitions: int = 3 if fixture_id == "PHASE0_INTEGRITY_CENTERSTRIKE_V1" else 1
+		var required_repetitions: int = 3 if fixture_id in ["PHASE0_INTEGRITY_CENTERSTRIKE_V1", "P1B_WINDOWED_ADAPTER_PROBE_V1"] else 1
 		var fields: Array[String] = [
 			"fixture_config_hash",
 			"map_content_hash",
@@ -1692,6 +1962,15 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 			"command_schedule_hash",
 			"final_state_hash"
 		]
+		if fixture_id == "P1B_WINDOWED_ADAPTER_PROBE_V1":
+			fields.append_array([
+				"camera_identity_hash",
+				"cadence_identity_hash",
+				"frame_count",
+				"measured_frame_count",
+				"tick_count",
+				"measured_tick_count"
+			])
 		var mismatches: Array = []
 		if repetitions.size() < required_repetitions:
 			mismatches.append("repetition_count:%d<%d" % [repetitions.size(), required_repetitions])
@@ -2018,7 +2297,7 @@ func _metric_contract_for_scenario(scenario: Dictionary) -> Dictionary:
 			"layer_isolation_noncanonical":
 				for metric_name in ["layer_iteration_average_ms", "layer_iteration_p95_ms", "layer_iteration_p99_ms", "layer_iteration_max_ms"]:
 					metrics[metric_name] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
-			"render_windowed":
+			"render_windowed", "deterministic_windowed_presentation":
 				for metric_name in ["display_frame_average_ms", "display_frame_median_ms", "display_frame_p95_ms", "display_frame_p99_ms", "display_frame_max_ms"]:
 					metrics[metric_name] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
 	else:
@@ -2036,18 +2315,18 @@ func _metric_contract_for_scenario(scenario: Dictionary) -> Dictionary:
 				metrics["layer_iteration_p95_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p95_frame_ms"), "ms", timing_source)
 				metrics["layer_iteration_p99_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p99_frame_ms"), "ms", timing_source)
 				metrics["layer_iteration_max_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("max_frame_ms"), "ms", timing_source)
-			"render_windowed":
+			"render_windowed", "deterministic_windowed_presentation":
 				metrics["display_frame_sample_count"] = PERF_RESULT_CONTRACT.metric("DIRECT", int(collection.get("sample_count", 0)), "count", timing_source)
 				metrics["display_frame_average_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("average_frame_ms"), "ms", timing_source)
 				metrics["display_frame_median_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("median_frame_ms"), "ms", timing_source)
 				metrics["display_frame_p95_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p95_frame_ms"), "ms", timing_source)
 				metrics["display_frame_p99_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p99_frame_ms"), "ms", timing_source)
 				metrics["display_frame_max_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("max_frame_ms"), "ms", timing_source)
-	if benchmark_mode == "render_windowed" and not setup_failed:
+	if benchmark_mode in ["render_windowed", "deterministic_windowed_presentation"] and not setup_failed:
 		metrics["renderer_visibility"] = PERF_RESULT_CONTRACT.metric("CONFIGURATION_STATE", (scenario.get("renderer_configuration_state", {}) as Dictionary).duplicate(true), "state", "CanvasItem visibility captured at measurement end")
 	else:
 		metrics["renderer_visibility"] = PERF_RESULT_CONTRACT.unavailable_metric("CONFIGURATION_STATE", "state", "renderer visibility is not captured as timing in this execution mode")
-	if benchmark_mode != "render_windowed":
+	if benchmark_mode not in ["render_windowed", "deterministic_windowed_presentation"]:
 		metrics["display_frame_delta_ms"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", "this mode does not execute a windowed display-frame measurement loop")
 	elif not timing_available:
 		metrics["display_frame_delta_ms"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)

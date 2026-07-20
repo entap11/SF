@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness Phase 1 Plan
 
-Status: `P1-A COMPLETE — P1-B NEXT`
+Status: `P1-B COMPLETE — P1-C NEXT`
 
 Phase 0 is complete with limitations. Phase 1 begins with the four approved fixture families below. This plan is derived from the current Godot project, not from an abstract benchmark design. It does not approve baselines, gameplay changes, 3-/4-player fixtures, or multi-map/multi-stage async fixtures.
 
@@ -126,6 +126,8 @@ Implemented evidence:
 
 ### P1-B — Deterministic windowed execution
 
+Status: `COMPLETE`
+
 Add the manual frame/tick adapter without changing production gameplay defaults. Capture camera and cadence identity and preserve the existing investigative mode.
 
 Pass evidence:
@@ -137,6 +139,15 @@ Pass evidence:
 - interrupted-run cleanup and Phase 0 isolation suites still pass.
 
 Stop if elapsed wall time changes the number or ordering of simulation ticks.
+
+Implemented evidence:
+
+- the new frame-index adapter executes exactly 360 frames and 120 manual simulation ticks, with 60/20 warmup and 300/100 measured windows;
+- automatic `SimRunner` process, physics-process, and input processing are disabled only inside the isolated harness repetition;
+- production camera fit settles to two identical consecutive hashes and is included with cadence in environment compatibility identity;
+- three real windowed repetitions produced identical frame/tick counts, final-state hashes, camera hashes, cadence hashes, and isolation hashes;
+- deterministic windowed execution fails closed on the headless display server, while the existing `render_windowed` investigative path remains available;
+- Phase 0 Gates A–F, P1-A/P1-B smokes, interrupted-cleanup coverage, and the Phase 0 isolation suite pass.
 
 ### P1-C — Empty and static fixtures
 
@@ -210,4 +221,4 @@ Phase 0: complete with documented limitations.
 
 Phase 1 design: complete. The catalog, production map hash, fixture matrix, and current Phase 0 validator contract have been checked against the repository.
 
-Phase 1 implementation: P1-A complete. The next executable increment is P1-B, deterministic windowed execution.
+Phase 1 implementation: P1-A and P1-B complete. The next executable increment is P1-C, empty and static fixtures.
