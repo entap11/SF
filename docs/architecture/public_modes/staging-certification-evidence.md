@@ -15,7 +15,7 @@ only for observed evidence. Planned work remains `NOT RUN`.
 
 | Phase | Status | Evidence anchor | Blocking item |
 | --- | --- | --- | --- |
-| P0 repository/control baseline | `IN PROGRESS` | This document | Owners and external auto-deploy posture outstanding |
+| P0 repository/control baseline | `IN PROGRESS` | This document | External provider auto-deploy posture outstanding |
 | P1 environment inventory | `NOT RUN` | — | P0 exit gate |
 | P2 database recovery rehearsal | `NOT RUN` | — | P1 and staging clone details |
 | P3 all-off deployment | `NOT RUN` | — | P2 and operator approval |
@@ -47,6 +47,29 @@ Exact-base run `29749297605` completed successfully on the home runner from
 - PR boot/runtime: 24 passed, 0 failed, 5 invalid rows skipped;
 - deterministic PR soak: 18 passed, 0 failed, seeds 123–124; and
 - final result: `RELEASE_READINESS_PASS`.
+
+Branch-head run `29757549846` independently completed successfully at revision
+`e8265616a0ce611b6490d719fc1ad019effaea18` from 2026-07-20T15:59:22Z through
+2026-07-20T16:26:48Z. It reported the same result counts and final
+`RELEASE_READINESS_PASS`, confirming the certification documentation, timeout,
+and redacted preflight changes are green on the published branch.
+
+### Named owners
+
+| Role | Named owner/operator | Status |
+| --- | --- | --- |
+| Product owner | Matthew Ballou | Accountable |
+| Repository operator | Codex, operating under Matthew Ballou's authorization | Acting |
+| Environment operator | Matthew Ballou | Accountable |
+| Database operator | Matthew Ballou | Accountable |
+| Deployment operator | Matthew Ballou | Accountable |
+| Security/credential owner | Matthew Ballou | Accountable |
+| Device-test operator | Matthew Ballou | Accountable |
+| Evidence reviewer | Matthew Ballou | Accountable; independent second reviewer preferred for P7 |
+
+One person may hold multiple roles under the execution plan. Separation of
+duties is not a P1 prerequisite, but the P7 recommendation should seek a second
+reviewer if one is available before any public `GO` decision.
 
 ### Repository-visible default-off checks
 
@@ -100,10 +123,12 @@ nightly result is not used to waive the exact-base push gate.
 ### P0 open items
 
 - [x] Exact-base Release Readiness run completes successfully.
-- [ ] Environment owner recorded.
-- [ ] Database owner recorded.
-- [ ] Deployment operator recorded.
-- [ ] Evidence reviewer recorded.
+- [x] Environment owner recorded.
+- [x] Database owner recorded.
+- [x] Deployment operator recorded.
+- [x] Security/credential owner recorded.
+- [x] Device-test operator recorded.
+- [x] Evidence reviewer recorded.
 - [ ] External auto-sync/auto-deploy posture reconfirmed without recording secrets.
 
 ## P1 environment inventory
@@ -182,6 +207,8 @@ No public mode or mutation/economy capability is authorized.
 | Local PR soak report | `artifacts/player_config_matrix/soak_latest.json` | `1a351cd52f389f525f06cec12164ff42e76494461d981c37ea838af30a990c50` | 2026-07-20T15:37:27Z | Ephemeral work machine | Repository operator |
 | Exact-base PR matrix | GitHub artifact `8467182728` | `7ac3f3aa69b67cd10adc6e63e315eefe82ae1e9d546f64891705bc62faa95d60` | 2026-07-20T15:53:36Z | 2026-10-18 | GitHub Actions |
 | Exact-base smoke logs | GitHub artifact `8467183582` | `8f937c28c43288429d163fa86e468bd6faca8d599cdcb027ebcfc55e761ebf9c` | 2026-07-20T15:53:37Z | 2026-10-18 | GitHub Actions |
+| Branch-head PR matrix | GitHub artifact `8468173706` | `52ee41c38098216305fda12d7e2730313bba57012d40557fb23a693027d4a656` | 2026-07-20T16:26:42Z | 2026-10-18 | GitHub Actions |
+| Branch-head smoke logs | GitHub artifact `8468174477` | `8411b73458477a5512be5d2822d58cd6ad9445a8f4bf6a412a847e7359bc6286` | 2026-07-20T16:26:44Z | 2026-10-18 | GitHub Actions |
 | Scheduled nightly matrix | GitHub artifact `8466303731` | `e09237236837e5811fb2153d1c00284f2fa3c70b5e402f51492ccac08a93dc05` | 2026-07-20T15:26:07Z | 2026-10-18 | GitHub Actions |
 | Scheduled nightly smoke logs | GitHub artifact `8466304673` | `3e9fbd55866cfe4b3242830cf8e9a7f1d58b32ec4c21db9151ad3ecc99f49db8` | 2026-07-20T15:26:09Z | 2026-10-18 | GitHub Actions |
 

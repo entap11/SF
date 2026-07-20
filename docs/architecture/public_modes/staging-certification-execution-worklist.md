@@ -53,7 +53,7 @@ repository or evidence record.
 
 These are identifiers and decisions, not secret values:
 
-- [ ] Names of the environment, database, deployment, credential, device, and
+- [x] Names of the environment, database, deployment, credential, device, and
   evidence owners.
 - [ ] Staging provider and non-secret service identifiers for VS, Rank, match
   authority, and PostgreSQL.
@@ -84,11 +84,11 @@ Target outcome: a clean, pushed certification branch based on an exact green
 - [x] Confirm the 16 canonical bundled and sample remote flags are false.
 - [x] Confirm `render.yaml` declares `autoDeploy: false` and Rank mutation caps
   are false.
-- [ ] Record successful Release Readiness for exact base `b9c35e5`.
-- [ ] Add the run ID, tested SHA, result counts, artifact IDs, digests, and
+- [x] Record successful Release Readiness for exact base `b9c35e5`.
+- [x] Add the run ID, tested SHA, result counts, artifact IDs, digests, and
   retention to the evidence record.
-- [ ] Record all named owners and external auto-deploy confirmation.
-- [ ] Push `sprint/staging-certification` and verify remote/local SHA equality.
+- [ ] Record external provider auto-deploy confirmation; all named owners are recorded.
+- [x] Push `sprint/staging-certification` and verify remote/local SHA equality.
 
 ### Exit artifact
 
@@ -370,7 +370,7 @@ the required managed-environment and physical-device evidence.
 
 ## Next executable action
 
-Finish P0. Wait for exact-base Release Readiness run `29749297605`, preserve its
-result and artifacts, name the six roles above, reconfirm external auto-deploy
-controls, then publish `sprint/staging-certification`. No P1 environment action
-is required before those items are complete.
+Finish P0 by reconfirming external provider auto-deploy controls are off. The
+exact-base and branch-head Release Readiness runs are green, their artifacts are
+indexed, all roles are named, and `sprint/staging-certification` is published.
+After the provider check is recorded, begin the read-only P1 inventory.
