@@ -113,6 +113,10 @@ func _test_source_contracts() -> void:
 	_expect(analytics_source.contains("perf_harness_isolated"), "analytics client must retain the harness denial path")
 	var lifecycle_source: String = FileAccess.get_file_as_string("res://scripts/state/app_lifecycle_state.gd")
 	_expect(lifecycle_source.contains("_perf_harness_isolation"), "AppLifecycle must retain the harness notification isolation path")
+	var pacing_diagnostic_source: String = FileAccess.get_file_as_string("res://scripts/dev/run_perf_harness_pacing_diagnostic.sh")
+	_expect(pacing_diagnostic_source.contains("/usr/bin/open -n -F -W"), "foreground diagnostic must use a fresh LaunchServices app process")
+	_expect(pacing_diagnostic_source.contains("--perf-user-dir=${user_dir}"), "LaunchServices diagnostic must discover the unique Godot process")
+	_expect(pacing_diagnostic_source.contains("reason=godot_pid_undiscovered"), "LaunchServices diagnostic must fail closed without an actual Godot PID")
 
 
 func _expect(condition: bool, message: String) -> void:

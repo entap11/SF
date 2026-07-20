@@ -13,15 +13,44 @@ RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-1}"
 
 mkdir -p "${ARTIFACT_DIR}"
 
+resolve_godot_app() {
+  local command_path
+  local resolved_path
+  local app_path
+  command_path="$(command -v "${GODOT_BIN}")" || return 1
+  resolved_path="$(perl -MCwd=realpath -e 'print realpath($ARGV[0])' "${command_path}")"
+  case "${resolved_path}" in
+    *.app/Contents/MacOS/*)
+      app_path="${resolved_path%%.app/Contents/MacOS/*}.app"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  [[ -d "${app_path}" && -x "${app_path}/Contents/MacOS/Godot" ]] || return 1
+  printf '%s\n' "${app_path}"
+}
+
 capture_host_state() {
   local destination="${ARTIFACT_DIR}/host_state.txt"
+  local command_path
+  local resolved_path
+  local app_path
+  command_path="$(command -v "${GODOT_BIN}")"
+  resolved_path="$(perl -MCwd=realpath -e 'print realpath($ARGV[0])' "${command_path}")"
+  app_path="$(resolve_godot_app 2>/dev/null || true)"
   {
     date -u '+utc=%Y-%m-%dT%H:%M:%SZ'
     printf 'git_commit=%s\n' "$(git -C "${ROOT_DIR}" rev-parse HEAD)"
     printf 'git_branch=%s\n' "$(git -C "${ROOT_DIR}" branch --show-current)"
     printf 'git_dirty=%s\n' "$(test -n "$(git -C "${ROOT_DIR}" status --porcelain)" && printf true || printf false)"
     printf 'godot_version=%s\n' "$("${GODOT_BIN}" --version)"
+    printf 'godot_command=%s\n' "${command_path}"
+    printf 'godot_resolved=%s\n' "${resolved_path}"
+    printf 'godot_app=%s\n' "${app_path:-UNRESOLVED}"
     printf 'machine_arch=%s\n' "$(uname -m)"
+    printf 'runner_user=%s\n' "$(id -un)"
+    printf 'console_user=%s\n' "$(stat -f '%Su' /dev/console)"
     printf 'display_precondition=%s\n' "${PERF_PACING_DISPLAY_PRECONDITION:-OBSERVE_ONLY}"
     uname -a
     uptime
@@ -53,6 +82,7 @@ capture_variant() {
   local report_rel="artifacts/perf_harness_pacing_diagnostic/${label}.json"
   local report_path="${ROOT_DIR}/${report_rel}"
   local log_path="${ARTIFACT_DIR}/${label}.log"
+  local stderr_log_path="${ARTIFACT_DIR}/${label}.stderr.log"
   local summary_path="${ARTIFACT_DIR}/${label}.summary.json"
   local user_dir="SwarmfrontPerfPacingDiagnostic_${RUN_ID}_${RUN_ATTEMPT}_${label}"
   local lifecycle_path="${ARTIFACT_DIR}/${label}.process.json"
@@ -60,21 +90,29 @@ capture_variant() {
   local started_at
   local ended_at
   local godot_pid
+  local launcher_pid
   local rc
   local signal_number=0
   local signal_name=""
   local require_window_foreground=false
-  local godot_command=("${GODOT_BIN}")
+  local launch_via_launchservices=false
+  local godot_args=()
+  local launch_mode="direct"
+  local rc_source="godot_wait"
+  local godot_app=""
+  local discovery_deadline=0
 
   while (( $# > 0 )); do
     if [[ "$1" == "--require-window-foreground" ]]; then
       require_window_foreground=true
+    elif [[ "$1" == "--launch-via-launchservices" ]]; then
+      launch_via_launchservices=true
     else
-      godot_command+=("$1")
+      godot_args+=("$1")
     fi
     shift
   done
-  godot_command+=(
+  godot_args+=(
     --path "${ROOT_DIR}"
     --script "${HARNESS}"
     --
@@ -86,20 +124,60 @@ capture_variant() {
     --mode="${MODE}"
   )
   if [[ "${require_window_foreground}" == "true" ]]; then
-    godot_command+=(--require-window-foreground)
+    godot_args+=(--require-window-foreground)
   fi
-  godot_command+=(--output="res://${report_rel}")
+  godot_args+=(--output="res://${report_rel}")
+  if [[ "${launch_via_launchservices}" == "true" ]]; then
+    if ! godot_app="$(resolve_godot_app)"; then
+      echo "PERF_PACING_DIAGNOSTIC_FAIL label=${label} reason=godot_app_unresolved"
+      return 2
+    fi
+  fi
 
   started_at="$(date '+%Y-%m-%d %H:%M:%S')"
   set +e
-  "${godot_command[@]}" >"${log_path}" 2>&1 &
-  godot_pid=$!
-  printf 'PERF_PACING_DIAGNOSTIC_PROCESS label=%s pid=%s started_at=%s\n' "${label}" "${godot_pid}" "${started_at}"
-  wait "${godot_pid}"
-  rc=$?
+  if [[ "${launch_via_launchservices}" == "true" ]]; then
+    launch_mode="launchservices"
+    rc_source="open_wait"
+    : >"${log_path}"
+    : >"${stderr_log_path}"
+    /usr/bin/open -n -F -W -a "${godot_app}" \
+      -o "${log_path}" \
+      --stderr "${stderr_log_path}" \
+      --args "${godot_args[@]}" &
+    launcher_pid=$!
+    godot_pid=0
+    discovery_deadline=$((SECONDS + 15))
+    while (( SECONDS < discovery_deadline )); do
+      godot_pid="$(pgrep -f -- "--perf-user-dir=${user_dir}" | tail -1)"
+      if [[ -n "${godot_pid}" ]]; then
+        break
+      fi
+      if ! kill -0 "${launcher_pid}" 2>/dev/null; then
+        break
+      fi
+      sleep 0.2
+    done
+    godot_pid="${godot_pid:-0}"
+    printf 'PERF_PACING_DIAGNOSTIC_PROCESS label=%s launch_mode=%s launcher_pid=%s pid=%s started_at=%s app=%s\n' \
+      "${label}" "${launch_mode}" "${launcher_pid}" "${godot_pid}" "${started_at}" "${godot_app}"
+    wait "${launcher_pid}"
+    rc=$?
+  else
+    "${GODOT_BIN}" "${godot_args[@]}" >"${log_path}" 2>&1 &
+    godot_pid=$!
+    launcher_pid="${godot_pid}"
+    printf 'PERF_PACING_DIAGNOSTIC_PROCESS label=%s launch_mode=%s pid=%s started_at=%s\n' \
+      "${label}" "${launch_mode}" "${godot_pid}" "${started_at}"
+    wait "${godot_pid}"
+    rc=$?
+  fi
   set -e
   ended_at="$(date '+%Y-%m-%d %H:%M:%S')"
   cat "${log_path}"
+  if [[ -s "${stderr_log_path}" ]]; then
+    cat "${stderr_log_path}"
+  fi
 
   if (( rc > 128 )); then
     signal_number=$((rc - 128))
@@ -112,7 +190,11 @@ capture_variant() {
     --arg started_at "${started_at}" \
     --arg ended_at "${ended_at}" \
     --arg signal_name "${signal_name}" \
+    --arg launch_mode "${launch_mode}" \
+    --arg rc_source "${rc_source}" \
+    --arg godot_app "${godot_app}" \
     --argjson pid "${godot_pid}" \
+    --argjson launcher_pid "${launcher_pid}" \
     --argjson process_rc "${rc}" \
     --argjson signal_number "${signal_number}" \
     '{
@@ -122,7 +204,11 @@ capture_variant() {
       started_at: $started_at,
       ended_at: $ended_at,
       pid: $pid,
+      launcher_pid: $launcher_pid,
+      launch_mode: $launch_mode,
+      godot_app: $godot_app,
       process_rc: $process_rc,
+      process_rc_source: $rc_source,
       signal_number: $signal_number,
       signal_name: $signal_name
     }' >"${lifecycle_path}"
@@ -133,10 +219,15 @@ capture_variant() {
       --style compact \
       --info \
       --debug \
-      --predicate 'process == "Godot" OR process == "godot"' \
+      --predicate "processIdentifier == ${godot_pid}" \
       >"${system_log_path}" 2>&1 || true
   fi
   printf '%s\t%s\t%s\t%s\t%s\n' "${label}" "${collection_level}" "${godot_pid}" "${rc}" "${signal_name}" >>"${ARTIFACT_DIR}/process_status.tsv"
+
+  if [[ "${launch_via_launchservices}" == "true" && "${godot_pid}" == "0" ]]; then
+    echo "PERF_PACING_DIAGNOSTIC_FAIL label=${label} reason=godot_pid_undiscovered rc=${rc}"
+    return 2
+  fi
 
   if [[ ! -f "${report_path}" ]]; then
     echo "PERF_PACING_DIAGNOSTIC_FAIL label=${label} reason=report_missing rc=${rc}"
@@ -149,7 +240,7 @@ capture_variant() {
   if [[ "${collection_level}" == "FULL" ]]; then
     jq -e 'all(.scenarios[]; .collection.retention.raw_sample_capture == true and .collection.retention.retained_raw_sample_count == 300)' "${report_path}" >/dev/null
   fi
-  if [[ "${VARIANT}" == "foreground_awake_minimal" ]]; then
+  if [[ "${VARIANT}" == "foreground_awake_minimal" || "${VARIANT}" == "launchservices_foreground_awake_minimal" ]]; then
     jq -e '
       any(.diagnostic_window_lifecycle.events[]; .event == "diagnostic_foreground_preflight" and .pass == true and .after.window_focused == true and .after.low_processor_usage_mode == false) and
       ([.diagnostic_window_lifecycle.events[] | select(.event == "scenario_begin" or .event == "scenario_end")] | length == 12) and
@@ -231,6 +322,9 @@ case "${VARIANT}" in
     ;;
   foreground_awake_minimal)
     capture_variant "${VARIANT}" MINIMAL --require-window-foreground
+    ;;
+  launchservices_foreground_awake_minimal)
+    capture_variant "${VARIANT}" MINIMAL --launch-via-launchservices --require-window-foreground
     ;;
   default_awake_full)
     capture_variant "${VARIANT}" FULL
