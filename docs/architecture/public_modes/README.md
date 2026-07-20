@@ -52,3 +52,8 @@ Package 1 may start only when the decisions and schemas linked above are accepte
 - [Package 6 — Human CTF and explicit bot fallback](package-6-evidence.md)
 - [Package 7 — Durable non-economic contest platform](package-7-evidence.md)
 - [Package 8 — Time Puzzles and weekly Gauntlet](package-8-evidence.md)
+- [Package 9 — Crucible settlement correction](package-9-evidence.md)
+- [Package 10 — Free async cohorts](package-10-evidence.md)
+- [Package 11 — Multi-seat synchronized modes](package-11-evidence.md)
+- [Package 12 — Operations and controlled rollout](package-12-evidence.md)
+- [Sprint completion handoff](sprint-completion-handoff.md)
