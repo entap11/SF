@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { requirePublicRollout } from "./publicModesOpsHttp.js";
 import { signServiceJwt } from "./serviceJwt.js";
 import { sha256Canonical, type JsonRecord } from "./repositories/durableCore.js";
 import { getRankSettlementRepository, getVerificationRepository } from "./repositories/durableCoreRuntime.js";
@@ -15,7 +16,8 @@ export async function expireReconnectGrace(nowIso = new Date().toISOString()): P
 }
 
 export async function processOneRankSettlement(workerId: string, nowIso = new Date().toISOString()): Promise<boolean> {
-  if (!config.enableRankMutations || config.durableStore !== "postgres") return false;
+  if (config.durableStore !== "postgres") return false;
+  try { await requirePublicRollout("enable_rank_mutations"); } catch { return false; }
   if (!config.rankServiceUrl || !config.rankServicePrivateKeyPem) throw new Error("rank_settlement_not_configured");
   const repository = getRankSettlementRepository();
   const job = await repository.leaseNext(workerId, nowIso, config.rankSettlementLeaseSec);

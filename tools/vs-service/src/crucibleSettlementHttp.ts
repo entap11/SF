@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { config } from "./config.js";
 import { DurableCoreError, type JsonRecord } from "./repositories/durableCore.js";
 import { getCrucibleSettlementRepository } from "./repositories/durableCoreRuntime.js";
+import { requirePublicRollout } from "./publicModesOpsHttp.js";
 
 const ACTIONS = new Set([
   "open_public_crucible_escrow", "settle_public_crucible_verified", "refund_public_crucible",
@@ -23,7 +24,7 @@ export async function handleCrucibleSettlementAction(action: string, req: Reques
       ok(res, await repository.setPlayerBalance(text(req.body?.player_id), integer(req.body?.balance_millis),
         requestKey(req), nowIso)); return true;
     }
-    if (!config.enableCrucibleWaxSettlement) throw new DurableCoreError("crucible_wax_settlement_disabled");
+    await requirePublicRollout("enable_crucible_wax_settlement", null, "crucible_wax_settlement_disabled");
     if (action === "refund_public_crucible" || action === "reverse_public_crucible_settlement") {
       requireToken(req, config.adminToken, "admin_auth_required");
       const matchId = text(req.body?.match_id); const reason = text(req.body?.reason) || "ops_correction";
@@ -33,7 +34,7 @@ export async function handleCrucibleSettlementAction(action: string, req: Reques
       return true;
     }
     requireToken(req, config.matchAuthorityToken, "match_authority_required");
-    if (!config.enablePublicCrucible) throw new DurableCoreError("public_crucible_disabled");
+    await requirePublicRollout("enable_public_crucible", null, "public_crucible_disabled");
     if (action === "open_public_crucible_escrow") {
       ok(res, await repository.openEscrow(text(req.body?.match_id), requestKey(req), nowIso)); return true;
     }

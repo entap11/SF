@@ -28,6 +28,9 @@ import { handleVerificationAction } from "./verificationHttp.js";
 import { handlePublicRankAction } from "./publicRankHttp.js";
 import { handlePublicContestAction } from "./publicContestHttp.js";
 import { handleCrucibleSettlementAction } from "./crucibleSettlementHttp.js";
+import {
+  handlePublicModesOpsAction, handlePublicOpsConfigGet, runPublicModesReconciliation
+} from "./publicModesOpsHttp.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -913,6 +916,7 @@ function actionName(req: Request): string {
 async function handleAction(req: Request, res: Response): Promise<void> {
   prune();
   const action = actionName(req);
+  if (await handlePublicModesOpsAction(action, req, res)) return;
   if (await handlePublicContestAction(action, req, res)) return;
   if (await handlePublicRankAction(action, req, res)) return;
   if (await handleVerificationAction(action, req, res)) return;
@@ -2527,6 +2531,9 @@ function healthPayload(): JsonRecord {
     public_gauntlet_enabled: config.enablePublicGauntlet,
     public_async_3map_enabled: config.enablePublicAsync3map,
     public_async_5map_enabled: config.enablePublicAsync5map,
+    contest_rewards_enabled: config.enableContestRewards,
+    remote_ops_config_enabled: config.enableRemoteOpsConfig,
+    ops_reconcile_interval_ms: config.opsReconcileIntervalMs,
     public_contests_store_authorized: config.durableStore === "postgres" && Boolean(config.databaseUrl),
     storage: {
       vs_core: durableCoreStatus(),
@@ -2593,6 +2600,9 @@ export function createApp(): express.Express {
     prune();
     res.json({ ok: true, ...healthPayload() });
   });
+  app.get("/v1/public_ops_config", (req, res, next) => {
+    void handlePublicOpsConfigGet(req, res).catch(next);
+  });
   app.get("/v1/contest_dash/config", (req, res, next) => {
     void handleContestDashState(req, res).catch(next);
   });
@@ -2622,6 +2632,15 @@ export function startServer(port = config.port, host = config.bindHost): http.Se
       queue_ttl_sec: config.queueTtlSec
     }));
   });
+  if (config.opsReconcileIntervalMs > 0 && config.enableRemoteOpsConfig
+    && config.durableStore === "postgres" && Boolean(config.databaseUrl)) {
+    const timer = setInterval(() => {
+      void runPublicModesReconciliation().catch((error) => console.error(JSON.stringify({
+        ts: new Date().toISOString(), event: "public_modes_reconciliation_failed", error: String(error)
+      })));
+    }, config.opsReconcileIntervalMs);
+    timer.unref();
+  }
   return server;
 }
 

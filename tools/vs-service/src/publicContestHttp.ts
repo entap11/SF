@@ -7,6 +7,8 @@ import type { ContestFamily, ContestScope, PublishContestInput } from "./reposit
 import { bearerPlayerToken, PlayerAuthError, verifyPlayerToken } from "./playerAuth.js";
 import { buildTimeGauntletPeriodInputs } from "./publicContestPeriods.js";
 import { buildAsyncCohortInputs } from "./publicAsyncCohorts.js";
+import { effectivePublicRollout } from "./publicModesOpsHttp.js";
+import type { PublicRolloutFlags } from "./repositories/publicModesOps.js";
 
 const ACTIONS = new Set([
   "list_public_contests", "get_public_contest_roster", "enter_public_contest",
@@ -32,13 +34,19 @@ export async function handlePublicContestAction(action: string, req: Request, re
   const repository = getPublicContestRepository();
   const nowIso = new Date().toISOString();
   try {
+    const rollout = await effectivePublicRollout(nowIso);
+    if (!["publish_public_contest", "publish_public_time_gauntlet_periods", "publish_public_async_cohorts",
+      "reconcile_public_contests", "lease_public_contest_evidence", "complete_public_contest_evidence",
+      "reject_public_contest_evidence"].includes(action)) {
+      requireMinimumClientBuild(rollout.minSupportedBuild, text(req.body?.client_build));
+    }
     switch (action) {
       case "list_public_contests": {
         const family = optionalFamily(req.body?.family);
         const scope = optionalScope(req.body?.scope);
         const mapCount = optionalPositiveInteger(req.body?.map_count);
         const contests = (await repository.listCurrent({ family, scope, mapCount }, nowIso))
-          .filter((definition) => familyEnabled(definition));
+          .filter((definition) => familyEnabled(definition, rollout.flags));
         ok(res, { contests: contests.map(definitionJson),
           server_time: nowIso, source: "SERVER_PUBLIC_CONTEST_STORE" });
         return true;
@@ -52,7 +60,8 @@ export async function handlePublicContestAction(action: string, req: Request, re
         return true;
       }
       case "get_public_contest_leaderboard": {
-        requireFamilyEnabled(await repository.getDefinition(text(req.body?.contest_id)));
+        if (!rollout.flags.enable_public_leaderboards) throw new ContestHttpError("public_leaderboards_disabled", 503);
+        requireFamilyEnabled(await repository.getDefinition(text(req.body?.contest_id)), rollout.flags);
         const board = await repository.getLeaderboard(text(req.body?.contest_id),
           Math.min(config.publicContestLeaderboardLimit, optionalPositiveInteger(req.body?.limit) ?? config.publicContestLeaderboardLimit),
           nowIso);
@@ -62,7 +71,7 @@ export async function handlePublicContestAction(action: string, req: Request, re
       case "enter_public_contest": {
         const player = authenticatedPlayer(req);
         rejectConflictingIdentity(req, player.playerId);
-        requireFamilyEnabled(await repository.getDefinition(text(req.body?.contest_id)));
+        requireFamilyEnabled(await repository.getDefinition(text(req.body?.contest_id)), rollout.flags);
         const result = await repository.enter({
           contestId: text(req.body?.contest_id), playerId: player.playerId,
           displayName: player.displayName || `Player_${player.playerId.slice(-6)}`,
@@ -76,7 +85,7 @@ export async function handlePublicContestAction(action: string, req: Request, re
       case "submit_public_contest_evidence": {
         const player = authenticatedPlayer(req);
         rejectConflictingIdentity(req, player.playerId);
-        requireFamilyEnabled(await repository.getDefinition(text(req.body?.contest_id)));
+        requireFamilyEnabled(await repository.getDefinition(text(req.body?.contest_id)), rollout.flags);
         const evidence = await repository.submitEvidence({
           contestId: text(req.body?.contest_id), attemptId: text(req.body?.attempt_id),
           playerId: player.playerId, submissionId: requestKey(req),
@@ -230,20 +239,26 @@ function workerIdentity(req: Request): string {
   return workerId;
 }
 
-function familyEnabled(definition: { family: ContestFamily; mapCount: number }): boolean {
-  if (definition.family === "TIME_PUZZLE") return config.enablePublicTimePuzzles;
-  if (definition.family === "GAUNTLET") return config.enablePublicGauntlet;
-  return definition.mapCount === 3 ? config.enablePublicAsync3map
-    : definition.mapCount === 5 ? config.enablePublicAsync5map : false;
+function familyEnabled(definition: { family: ContestFamily; mapCount: number }, flags: PublicRolloutFlags): boolean {
+  if (definition.family === "TIME_PUZZLE") return flags.enable_public_time_puzzles;
+  if (definition.family === "GAUNTLET") return flags.enable_public_gauntlet;
+  return definition.mapCount === 3 ? flags.enable_public_async_3map
+    : definition.mapCount === 5 ? flags.enable_public_async_5map : false;
 }
 
-function requireFamilyEnabled(definition: { family: ContestFamily; mapCount: number }): void {
-  if (!familyEnabled(definition)) throw new ContestHttpError("public_contest_family_disabled", 503);
+function requireFamilyEnabled(definition: { family: ContestFamily; mapCount: number }, flags: PublicRolloutFlags): void {
+  if (!familyEnabled(definition, flags)) throw new ContestHttpError("public_contest_family_disabled", 503);
 }
 
 function rejectConflictingIdentity(req: Request, playerId: string): void {
   const supplied = text(req.body?.player_id ?? req.body?.uid);
   if (supplied && supplied !== playerId) throw new PlayerAuthError("identity_mismatch", 403);
+}
+
+function requireMinimumClientBuild(minimum: number, clientBuild: string): void {
+  if (minimum <= 0) return;
+  const parsed = Number.parseInt(clientBuild, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) throw new ContestHttpError("minimum_client_build_required", 426);
 }
 
 function publishInput(body: unknown, nowIso: string): PublishContestInput {

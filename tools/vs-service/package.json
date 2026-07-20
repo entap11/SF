@@ -25,6 +25,7 @@
     "smoke:crucible-settlement": "tsx src/repositories/crucibleSettlementEmbeddedSmoke.ts",
     "smoke:public-async-cohorts": "tsx src/repositories/publicAsyncCohortEmbeddedSmoke.ts",
     "smoke:public-multiseat": "tsx src/repositories/publicMultiseatEmbeddedSmoke.ts",
+    "smoke:public-modes-ops": "tsx src/repositories/publicModesOpsEmbeddedSmoke.ts && tsx src/publicModesOpsHttpSmoke.ts",
     "worker:rank-settlement": "node --enable-source-maps dist/rankSettlementWorker.js"
   },
   "dependencies": {

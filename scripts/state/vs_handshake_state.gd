@@ -993,7 +993,7 @@ func get_public_1v1_result(match_id: String) -> Dictionary:
 	return _call_public_transport("get_public_1v1_result", {"match_id": match_id.strip_edges()})
 
 func list_public_contests(family: String = "", scope: String = "", map_count: int = 0) -> Dictionary:
-	var payload: Dictionary = {}
+	var payload: Dictionary = {"client_build": _public_client_build()}
 	if not family.strip_edges().is_empty():
 		payload["family"] = family.strip_edges().to_upper()
 	if not scope.strip_edges().is_empty():
@@ -1005,12 +1005,14 @@ func list_public_contests(family: String = "", scope: String = "", map_count: in
 func enter_public_contest(contest_id: String, request_id: String = "") -> Dictionary:
 	return _call_public_transport("enter_public_contest", {
 		"contest_id": contest_id.strip_edges(),
+		"client_build": _public_client_build(),
 		"request_id": request_id.strip_edges() if not request_id.strip_edges().is_empty() else _new_public_request_id("contest_enter")
 	})
 
 func get_public_contest_leaderboard(contest_id: String, limit: int = 25) -> Dictionary:
 	return _call_public_transport("get_public_contest_leaderboard", {
-		"contest_id": contest_id.strip_edges(), "limit": clampi(limit, 1, 100)
+		"contest_id": contest_id.strip_edges(), "limit": clampi(limit, 1, 100),
+		"client_build": _public_client_build()
 	})
 
 func submit_public_contest_evidence(contest_id: String, attempt: Dictionary, evidence: Dictionary,
@@ -1020,21 +1022,26 @@ func submit_public_contest_evidence(contest_id: String, attempt: Dictionary, evi
 		"attempt_id": str(attempt.get("attempt_id", "")).strip_edges(),
 		"definition_hash": str(attempt.get("definition_hash", "")).strip_edges(),
 		"grant_hash": str(attempt.get("grant_hash", "")).strip_edges(),
+		"client_build": _public_client_build(),
 		"evidence": evidence.duplicate(true),
 		"request_id": request_id.strip_edges() if not request_id.strip_edges().is_empty() else _new_public_request_id("contest_evidence")
 	})
 
 func get_public_contest_evidence(evidence_id: String) -> Dictionary:
-	return _call_public_transport("get_public_contest_evidence", {"evidence_id": evidence_id.strip_edges()})
+	return _call_public_transport("get_public_contest_evidence", {"evidence_id": evidence_id.strip_edges(),
+		"client_build": _public_client_build()})
 
 func list_public_contest_messages(limit: int = 25) -> Dictionary:
-	return _call_public_transport("list_public_contest_messages", {"limit": clampi(limit, 1, 100)})
+	return _call_public_transport("list_public_contest_messages", {"limit": clampi(limit, 1, 100),
+		"client_build": _public_client_build()})
 
 func acknowledge_public_contest_message(event_id: String) -> Dictionary:
-	return _call_public_transport("ack_public_contest_message", {"event_id": event_id.strip_edges()})
+	return _call_public_transport("ack_public_contest_message", {"event_id": event_id.strip_edges(),
+		"client_build": _public_client_build()})
 
 func get_public_global_rank(limit: int = 25) -> Dictionary:
-	var transport: Dictionary = _call_transport("get_public_global_rank", {"limit": clampi(limit, 1, 100)})
+	var transport: Dictionary = _call_transport("get_public_global_rank", {"limit": clampi(limit, 1, 100),
+		"client_build": _public_client_build()})
 	if bool(transport.get("handled", false)):
 		return transport.get("result", {}) as Dictionary
 	return {"ok": false, "err": "public_leaderboard_unavailable"}

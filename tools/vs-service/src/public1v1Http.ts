@@ -5,6 +5,7 @@ import { DurableCoreError, type JsonRecord } from "./repositories/durableCore.js
 import { getCrucibleSettlementRepository, getPublic1v1Repository } from "./repositories/durableCoreRuntime.js";
 import type { Public1v1Policy, Public1v1QueueResult, PublicDuelQueueMode } from "./repositories/public1v1.js";
 import { bearerPlayerToken, PlayerAuthError, verifyPlayerToken } from "./playerAuth.js";
+import { requirePublicRollout } from "./publicModesOpsHttp.js";
 
 const ACTIONS = new Set([
   "poll_public_1v1", "cancel_public_1v1", "get_public_1v1_session",
@@ -51,9 +52,10 @@ export async function handleDurablePublic1v1Action(
       case "enqueue_public_1v1": {
         const requestId = requestKey(req);
         const modeId = publicMode(req.body?.mode_id);
-        const policy = policyForMode(modeId);
+        const policy = await policyForMode(modeId, text(req.body?.client_build));
         if (modeId === "CRUCIBLE_1V1") {
-          if (!config.enableCrucibleWaxSettlement) throw new DurableCoreError("crucible_wax_settlement_disabled");
+          await requirePublicRollout("enable_crucible_wax_settlement", text(req.body?.client_build),
+            "crucible_wax_settlement_disabled");
           if (await getCrucibleSettlementRepository().balance(authenticated.playerId) < 1000) {
             throw new DurableCoreError("insufficient_wax");
           }
@@ -86,14 +88,14 @@ export async function handleDurablePublic1v1Action(
         return true;
       }
       case "get_public_bot_fallback_offer": {
-        if (!config.enableCtfBotFallback) throw new DurableCoreError("ctf_bot_fallback_disabled");
+        await requirePublicRollout("enable_bot_fallback", text(req.body?.client_build), "ctf_bot_fallback_disabled");
         const offer = await repository.getBotFallbackOffer(text(req.body?.ticket_id), authenticated.playerId,
           nowIso, config.ctfBotFallbackThresholdSec);
         ok(res, { offer });
         return true;
       }
       case "accept_public_bot_fallback": {
-        if (!config.enableCtfBotFallback) throw new DurableCoreError("ctf_bot_fallback_disabled");
+        await requirePublicRollout("enable_bot_fallback", text(req.body?.client_build), "ctf_bot_fallback_disabled");
         const ticketId = text(req.body?.ticket_id);
         const offer = await repository.getBotFallbackOffer(ticketId, authenticated.playerId,
           nowIso, config.ctfBotFallbackThresholdSec);
@@ -242,6 +244,8 @@ function respondQueue(res: Response, result: Public1v1QueueResult): void {
 }
 
 function statusFor(code: string): number {
+  if (code === "minimum_client_build_required") return 426;
+  if (code.startsWith("enable_") && code.endsWith("_disabled")) return 503;
   if (["queue_ticket_not_found", "resumable_match_not_found", "contract_missing"].includes(code)) return 404;
   if (["player_not_in_match", "command_sender_mismatch"].includes(code)) return 403;
   if (["idempotency_conflict", "idempotency_in_progress", "roster_not_ready",
@@ -263,9 +267,23 @@ function publicMode(value: unknown): PublicDuelQueueMode {
   throw new DurableCoreError("public_duel_mode_unsupported");
 }
 
-function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
+async function policyForMode(modeId: PublicDuelQueueMode, clientBuild: string): Promise<Public1v1Policy> {
+  const flag = modeId === "STANDARD_1V1" ? "enable_public_1v1"
+    : modeId === "STANDARD_3P_FFA" ? "enable_public_3p_ffa"
+    : modeId === "STANDARD_2V2" ? "enable_public_2v2"
+    : modeId === "STANDARD_4P_FFA" ? "enable_public_4p_ffa"
+    : modeId === "CTF_1V1" ? "enable_public_ctf"
+    : modeId === "HCTF_1V1" ? "enable_public_hctf" : "enable_public_crucible";
+  const disabledCode = modeId === "STANDARD_1V1" ? "public_1v1_disabled"
+    : modeId === "STANDARD_3P_FFA" ? "public_3p_ffa_disabled"
+    : modeId === "STANDARD_2V2" ? "public_2v2_disabled"
+    : modeId === "STANDARD_4P_FFA" ? "public_4p_ffa_disabled"
+    : modeId === "CTF_1V1" ? "public_ctf_disabled"
+    : modeId === "HCTF_1V1" ? "public_hctf_disabled" : "public_crucible_disabled";
+  const rollout = await requirePublicRollout(flag, clientBuild, disabledCode);
   const shared = {
-    minimumClientBuild: config.public1v1MinimumClientBuild,
+    minimumClientBuild: String(Math.max(Number.parseInt(config.public1v1MinimumClientBuild, 10) || 0,
+      rollout.minSupportedBuild)) || config.public1v1MinimumClientBuild,
     simBuildId: config.public1v1SimBuildId,
     queueTtlSec: config.queueTtlSec,
     sessionTtlSec: config.sessionTtlSec,
@@ -273,7 +291,6 @@ function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
     authorityTier: config.public1v1AuthorityTier
   };
   if (modeId === "STANDARD_1V1") {
-    if (!config.enablePublic1v1) throw new DurableCoreError("public_1v1_disabled");
     return {
       ...shared, modeId, clientMode: "1V1", vsRuleset: "STANDARD",
       rulesetId: config.public1v1RulesetId, rulesetHash: config.public1v1RulesetHash,
@@ -283,9 +300,6 @@ function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
   if (["STANDARD_3P_FFA", "STANDARD_2V2", "STANDARD_4P_FFA"].includes(modeId)) {
     if (config.durableStore !== "postgres") throw new DurableCoreError("postgres_multiseat_store_required");
     const mode = modeId as "STANDARD_3P_FFA" | "STANDARD_2V2" | "STANDARD_4P_FFA";
-    if (mode === "STANDARD_3P_FFA" && !config.enablePublic3pFfa) throw new DurableCoreError("public_3p_ffa_disabled");
-    if (mode === "STANDARD_2V2" && !config.enablePublic2v2) throw new DurableCoreError("public_2v2_disabled");
-    if (mode === "STANDARD_4P_FFA" && !config.enablePublic4pFfa) throw new DurableCoreError("public_4p_ffa_disabled");
     const presentation = mode === "STANDARD_3P_FFA" ? { clientMode: "3P FFA" as const, requiredPlayers: 3 as const,
       mapId: config.public3pFfaMapId, mapHash: config.public3pFfaMapHash }
       : mode === "STANDARD_2V2" ? { clientMode: "2V2" as const, requiredPlayers: 4 as const,
@@ -294,7 +308,8 @@ function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
         mapId: config.public4pFfaMapId, mapHash: config.public4pFfaMapHash };
     return {
       ...shared,
-      minimumClientBuild: config.publicMultiMinimumClientBuild,
+      minimumClientBuild: String(Math.max(Number.parseInt(config.publicMultiMinimumClientBuild, 10) || 0,
+        rollout.minSupportedBuild)) || config.publicMultiMinimumClientBuild,
       simBuildId: config.publicMultiSimBuildId,
       modeId: mode,
       clientMode: presentation.clientMode,
@@ -309,7 +324,6 @@ function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
     };
   }
   if (modeId === "CTF_1V1") {
-    if (!config.enablePublicCtf) throw new DurableCoreError("public_ctf_disabled");
     return {
       ...shared, modeId, clientMode: "CAPTURE_FLAG", vsRuleset: "CAPTURE_FLAG",
       rulesetId: config.publicCtfRulesetId, rulesetHash: config.publicCtfRulesetHash,
@@ -317,14 +331,12 @@ function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
     };
   }
   if (modeId === "CRUCIBLE_1V1") {
-    if (!config.enablePublicCrucible) throw new DurableCoreError("public_crucible_disabled");
     return {
       ...shared, modeId, clientMode: "1V1", vsRuleset: "CRUCIBLE",
       rulesetId: config.publicCrucibleRulesetId, rulesetHash: config.publicCrucibleRulesetHash,
       mapId: config.publicCrucibleMapId, mapHash: config.publicCrucibleMapHash, ranked: false
     };
   }
-  if (!config.enablePublicHctf) throw new DurableCoreError("public_hctf_disabled");
   if (!config.hctfLiveSecrecyCertified) throw new DurableCoreError("human_hctf_secrecy_not_certified");
   return {
     ...shared, modeId, clientMode: "HIDDEN_CAPTURE_FLAG", vsRuleset: "HIDDEN_CAPTURE_FLAG",

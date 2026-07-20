@@ -12363,6 +12363,9 @@ func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -
 	_entry_route_modal = panel
 
 func _open_crucible_confirmation() -> void:
+	if not _public_rollout_allows_mode("CRUCIBLE"):
+		status_label.text = "Crucible is not open in the current rollout."
+		return
 	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
 	if crucible_state == null:
 		status_label.text = "Crucible is unavailable."
@@ -14572,6 +14575,9 @@ func _on_touch_drag_scroll_gui_input(event: InputEvent, scroll: ScrollContainer)
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("human matches"):
 		return
+	if not _public_rollout_allows_mode(mode_id):
+		status_label.text = "%s is not open in the current rollout." % mode_id.capitalize()
+		return
 	if paid and not _paid_entries_enabled():
 		status_label.text = "Paid entries are disabled for this beta build."
 		return
@@ -14693,6 +14699,9 @@ func _on_async_cycle_selected(scope: String, paid: bool, denomination: int) -> v
 	_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
 
 func _open_public_contest_dash(scope: String = "WEEKLY", family: String = "TIME_PUZZLE", map_count: int = 3) -> void:
+	if not _public_rollout_allows_contest(family, map_count):
+		status_label.text = "That public contest is not open in the current rollout."
+		return
 	_close_entry_route_modal()
 	_close_top_level_windows(UI_SURFACE_TIME_PUZZLE)
 	if _time_puzzle_lobby != null:
@@ -14992,6 +15001,10 @@ func _progressive_launch_clear_keys() -> Array[String]:
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("async matches"):
 		return
+	if not paid and ["CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG"].has(mode_id) \
+			and not _public_rollout_allows_flag("enable_bot_fallback"):
+		status_label.text = "Bot flag practice is not open in the current rollout."
+		return
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
 		return
 	if mode_id == PROGRESSIVE_MODE_ID:
@@ -15096,6 +15109,44 @@ func _paid_entries_enabled() -> bool:
 	var ops_config: Node = get_node_or_null("/root/OpsConfig")
 	if ops_config != null and ops_config.has_method("paid_entries_enabled"):
 		return bool(ops_config.call("paid_entries_enabled"))
+	return false
+
+func _public_rollout_enforcement_active() -> bool:
+	# Editor/headless harnesses retain their local fixtures. Every release export,
+	# and any debug client actually connected with player auth, obeys remote rollout.
+	if not OS.is_debug_build():
+		return true
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	return handshake != null and handshake.has_method("is_authoritative_transport_online") \
+		and handshake.has_method("has_player_access_token") \
+		and bool(handshake.call("is_authoritative_transport_online")) \
+		and bool(handshake.call("has_player_access_token"))
+
+func _public_rollout_allows_flag(flag_name: String) -> bool:
+	if not _public_rollout_enforcement_active():
+		return true
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	return ops_config != null and ops_config.has_method("public_flag_enabled") \
+		and bool(ops_config.call("public_flag_enabled", flag_name))
+
+func _public_rollout_allows_mode(mode_id: String) -> bool:
+	if not _public_rollout_enforcement_active():
+		return true
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	return ops_config != null and ops_config.has_method("public_mode_enabled") \
+		and bool(ops_config.call("public_mode_enabled", mode_id))
+
+func _public_rollout_allows_contest(family: String, map_count: int) -> bool:
+	var clean: String = family.strip_edges().to_upper()
+	if clean == "TIME_PUZZLE":
+		return _public_rollout_allows_flag("enable_public_time_puzzles") \
+			and _public_rollout_allows_flag("enable_public_leaderboards")
+	if clean == "GAUNTLET":
+		return _public_rollout_allows_flag("enable_public_gauntlet") \
+			and _public_rollout_allows_flag("enable_public_leaderboards")
+	if clean == "ASYNC_MAP_SET":
+		return _public_rollout_allows_flag("enable_public_async_3map" if map_count == 3 else "enable_public_async_5map") \
+			and _public_rollout_allows_flag("enable_public_leaderboards")
 	return false
 
 func _resolve_entry_overlay_size(size: Vector2) -> Vector2:
