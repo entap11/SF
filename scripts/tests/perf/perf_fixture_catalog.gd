@@ -361,9 +361,36 @@ static func _validate_fixture(
 		"NORMAL_MATCH_V1":
 			if str(fixture.get("command_selector_version", "")) != "sorted_candidate_pair_v1":
 				errors.append("normal_match_command_selector_not_approved")
-			if str(fixture.get("schedule_status", "")) != "PILOT_REQUIRED_BEFORE_FREEZE":
-				errors.append("normal_match_schedule_not_fail_closed")
+			if str(fixture.get("schedule_status", "")) != "FROZEN_AFTER_PILOT":
+				errors.append("normal_match_schedule_not_frozen")
+			_validate_normal_match_schedule(fixture, errors)
 			_validate_normal_match_timing(fixture.get("timing"), errors)
+
+
+static func _validate_normal_match_schedule(fixture: Dictionary, errors: Array[String]) -> void:
+	var approved_schedule: Array = [
+		{"tick": 5, "kind": "lane_intent_pair", "pair_index": 4, "intent": "attack"},
+		{"tick": 15, "kind": "swarm_active_lane", "salt": 0},
+		{"tick": 25, "kind": "lane_intent_pair", "pair_index": 5, "intent": "attack"},
+		{"tick": 35, "kind": "lane_intent_pair", "pair_index": 6, "intent": "attack"}
+	]
+	var approved_commands: Array = [
+		{"tick": 5, "type": "attack", "src": 2, "dst": 9, "schedule_index": 0},
+		{"tick": 15, "type": "swarm", "src": 2, "dst": 9, "schedule_index": 1},
+		{"tick": 25, "type": "attack", "src": 3, "dst": 8, "schedule_index": 2},
+		{"tick": 35, "type": "attack", "src": 3, "dst": 8, "schedule_index": 3}
+	]
+	if PERF_DETERMINISTIC_HASH.hash_variant(fixture.get("command_schedule", [])) != PERF_DETERMINISTIC_HASH.hash_variant(approved_schedule):
+		errors.append("normal_match_schedule_not_approved")
+	if PERF_DETERMINISTIC_HASH.hash_variant(fixture.get("expected_accepted_commands", [])) != PERF_DETERMINISTIC_HASH.hash_variant(approved_commands):
+		errors.append("normal_match_accepted_commands_not_approved")
+	if int(fixture.get("expected_command_count", 0)) != 4:
+		errors.append("normal_match_expected_command_count_invalid")
+	if PERF_DETERMINISTIC_HASH.hash_variant(fixture.get("expected_command_types", [])) != PERF_DETERMINISTIC_HASH.hash_variant(["attack", "swarm"]):
+		errors.append("normal_match_expected_command_types_invalid")
+	for hash_key in ["pilot_accepted_command_hash", "pilot_canonical_final_state_hash"]:
+		if str(fixture.get(hash_key, "")).length() != 64:
+			errors.append("normal_match_pilot_hash_invalid:%s" % hash_key)
 
 
 static func _validate_profiles(profiles_any: Variant, fixture_id: String, errors: Array[String]) -> void:

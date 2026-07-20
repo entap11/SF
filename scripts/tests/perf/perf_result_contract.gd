@@ -453,7 +453,7 @@ static func _validate_catalog_identity(catalog_any: Variant, errors: Array) -> v
 		errors.append("fixture_catalog_schema_unsupported")
 	if int(catalog.get("version", 0)) != 1:
 		errors.append("fixture_catalog_version_unsupported")
-	if str(catalog.get("status", "")) != "DESIGN_APPROVED_NOT_IMPLEMENTED":
+	if not ["DESIGN_APPROVED_NOT_IMPLEMENTED", "IMPLEMENTATION_IN_PROGRESS", "IMPLEMENTED"].has(str(catalog.get("status", ""))):
 		errors.append("fixture_catalog_status_invalid")
 	if str(catalog.get("content_hash", "")).length() != 64:
 		errors.append("fixture_catalog_hash_invalid")

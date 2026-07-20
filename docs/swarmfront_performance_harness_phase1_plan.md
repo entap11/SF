@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness Phase 1 Plan
 
-Status: `P1-C COMPLETE — P1-D NEXT`
+Status: `P1-D COMPLETE — P1-E NEXT`
 
 Phase 0 is complete with limitations. Phase 1 begins with the four approved fixture families below. This plan is derived from the current Godot project, not from an abstract benchmark design. It does not approve baselines, gameplay changes, 3-/4-player fixtures, or multi-map/multi-stage async fixtures.
 
@@ -174,6 +174,8 @@ Implemented evidence:
 
 ### P1-D — Normal match
 
+Status: `COMPLETE`
+
 Run the command pilot, freeze the schedule, then implement canonical-headless and deterministic-windowed profiles.
 
 Pass evidence:
@@ -185,6 +187,14 @@ Pass evidence:
 - no automatic bots or wall-time-derived commands.
 
 Stop if deterministic selector resolution changes between repetitions or the schedule cannot be expressed through production command paths.
+
+Implemented evidence:
+
+- the three-repetition pilot froze four accepted production commands at ticks 5/15/25/35, resolving to attack `2→9`, swarm `2→9`, attack `3→8`, and attack `3→8`;
+- the catalog records and validates the frozen selector version, pair indexes, resolved endpoints, accepted-command hash, and pilot canonical final-state hash;
+- the registered canonical and deterministic-windowed profiles each execute 20 warmup and 100 measured ticks with automatic bots disabled;
+- the presentation profile additionally executes 60 warmup and 300 measured frames with no wall-time-derived commands;
+- all repetitions preserve the exact command count/hash/meaning and the same final-state hash, while the windowed profile passes camera, cadence, renderer, performance, schema, backend, and isolation checks.
 
 ### P1-E — Static unit-scale matrix
 
@@ -231,4 +241,4 @@ Phase 0: complete with documented limitations.
 
 Phase 1 design: complete. The catalog, production map hash, fixture matrix, and current Phase 0 validator contract have been checked against the repository.
 
-Phase 1 implementation: P1-A through P1-C complete. The next executable increment is P1-D, the normal-match command pilot and its canonical/windowed profiles.
+Phase 1 implementation: P1-A through P1-D complete. The next executable increment is P1-E, the static unit-scale matrix.

@@ -37,6 +37,12 @@ const EXPECTED_COUNTS_BY_MAP := {
 	MAP_STRUCTURES: {"hives": 16, "towers": 0, "barracks": 0, "structure_slots": 4},
 	MAP_STRESS: {"hives": 14, "towers": 0, "barracks": 0, "structure_slots": 2}
 }
+const NORMAL_MATCH_PILOT_SCHEDULE: Array = [
+	{"tick": 5, "kind": "lane_intent_pair", "pair_index": 4, "intent": "attack"},
+	{"tick": 15, "kind": "swarm_active_lane", "salt": 0},
+	{"tick": 25, "kind": "lane_intent_pair", "pair_index": 5, "intent": "attack"},
+	{"tick": 35, "kind": "lane_intent_pair", "pair_index": 6, "intent": "attack"}
+]
 
 var OpsState: Node = null
 var _analytics_isolation_active: bool = false
@@ -116,6 +122,8 @@ func _run_suite(args: Dictionary) -> Dictionary:
 	var scenario_defs: Array = _scenario_definitions(suite_id, switch_overrides, str(args.get("scenario", "")).strip_edges(), catalog_fixtures_by_id, catalog_common)
 	for scenario_any in scenario_defs:
 		var scenario_def: Dictionary = scenario_any as Dictionary
+		if str(scenario_def.get("measurement_profile", "")).strip_edges().is_empty():
+			scenario_def["measurement_profile"] = _measurement_profile_for_benchmark_mode(benchmark_mode)
 		var scenario_collection_level: String = PERF_RESULT_CONTRACT.normalize_collection_level(str(scenario_def.get("_collection_level_override", collection_level)))
 		if not PERF_RESULT_CONTRACT.is_known_collection_level(scenario_collection_level):
 			return _invalid_suite_report(suite_id, benchmark_mode, "scenario_collection_level_invalid", [str(scenario_def.get("scenario_id", "unknown"))], args)
@@ -267,6 +275,7 @@ func _run_canonical_sim_scenario(scenario_def: Dictionary, benchmark_mode: Strin
 	var state: GameState = OpsState.require_state()
 	_prepare_match_for_benchmark()
 	_disable_bots_for_benchmark()
+	var bot_isolation: Dictionary = _bot_isolation_evidence()
 	var command_log: Array = []
 	var initial_commands: Array = _apply_scenario_initial_state(arena, state, scenario_def)
 	if not initial_commands.is_empty():
@@ -305,16 +314,28 @@ func _run_canonical_sim_scenario(scenario_def: Dictionary, benchmark_mode: Strin
 	var measurement_wall_duration_ms: float = float(Time.get_ticks_usec() - measurement_wall_start_usec) / 1000.0 if measurement_wall_start_usec > 0 else 0.0
 	var collection: Dictionary = collector.summary()
 	var command_count: int = _scripted_command_count_from_log(command_log)
+	var command_log_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(command_log)
+	var accepted_command_evidence: Array = _flatten_command_log(command_log)
 	var requested_seed: int = int(scenario_def.get("seed", 0))
 	var effective_seed: int = int(setup.get("effective_seed", 0))
 	var final_state_hash: String = str(OpsState.call("get_contract_state_hash")) if OpsState.has_method("get_contract_state_hash") else ""
 	var integrity_failures: Array = []
+	if not bool(bot_isolation.get("pass", false)):
+		integrity_failures.append("bots_not_disabled")
 	if requested_seed != effective_seed:
 		integrity_failures.append("effective_seed_mismatch")
 	if final_state_hash.is_empty():
 		integrity_failures.append("final_state_hash_missing")
 	if command_count < int(scenario_def.get("expected_command_count_min", 0)):
 		integrity_failures.append("scheduled_command_count_below_minimum")
+	if scenario_def.has("expected_command_count_exact") and command_count != int(scenario_def.get("expected_command_count_exact", -1)):
+		integrity_failures.append("scheduled_command_count_not_exact")
+	if not str(scenario_def.get("expected_command_log_hash", "")).is_empty() and command_log_hash != str(scenario_def.get("expected_command_log_hash", "")):
+		integrity_failures.append("accepted_command_hash_mismatch")
+	if scenario_def.has("expected_accepted_commands") and PERF_DETERMINISTIC_HASH.hash_variant(accepted_command_evidence) != PERF_DETERMINISTIC_HASH.hash_variant(scenario_def.get("expected_accepted_commands", [])):
+		integrity_failures.append("accepted_command_evidence_mismatch")
+	if benchmark_mode == "canonical_sim_headless" and not str(scenario_def.get("expected_canonical_final_state_hash", "")).is_empty() and final_state_hash != str(scenario_def.get("expected_canonical_final_state_hash", "")):
+		integrity_failures.append("canonical_final_state_hash_mismatch")
 	var observed_command_types: Array[String] = _command_types_from_log(command_log)
 	for expected_type_any in scenario_def.get("expected_command_types", []) as Array:
 		var expected_type: String = str(expected_type_any)
@@ -322,7 +343,7 @@ func _run_canonical_sim_scenario(scenario_def: Dictionary, benchmark_mode: Strin
 			integrity_failures.append("scheduled_command_type_missing:%s" % expected_type)
 	if OpsState.match_phase != OpsState.MatchPhase.RUNNING or bool(OpsState.match_over):
 		integrity_failures.append("fixture_ended_match")
-	var baseline_reasons: Array = ["phase0_integrity_or_unapproved_fixture"]
+	var baseline_reasons: Array = ["phase1_fixture_not_baseline_approved"] if bool(scenario_def.get("catalog_fixture_registered", false)) else ["phase0_integrity_or_unapproved_fixture"]
 	if int(scenario_def.get("calibration_sequence_index", 0)) > 0:
 		baseline_reasons = ["collector_overhead_calibration"]
 	if collection_level == PERF_METRICS_COLLECTOR.LEVEL_OFF:
@@ -344,10 +365,21 @@ func _run_canonical_sim_scenario(scenario_def: Dictionary, benchmark_mode: Strin
 		"collection": collection,
 		"scripted_command_count": command_count,
 		"scripted_command_ticks": command_log,
-		"command_schedule_hash": PERF_DETERMINISTIC_HASH.hash_variant(command_log),
+		"command_schedule_hash": command_log_hash,
+		"accepted_command_evidence": accepted_command_evidence,
 		"effective_seed": effective_seed,
 		"observed_command_types": observed_command_types,
 		"final_state_hash": final_state_hash,
+		"runtime_counts": PERF_FIXTURE_VALIDATOR.runtime_counts(state, arena),
+		"fixture_setup_evidence": {
+			"content_kind": str(setup.get("content_kind", "")),
+			"map_loader_used": bool(setup.get("map_loader_used", false)),
+			"map_applier_used": bool(setup.get("map_applier_used", false)),
+			"expected_counts": (setup.get("expected_counts", {}) as Dictionary).duplicate(true),
+			"actual_counts": (setup.get("actual_counts", {}) as Dictionary).duplicate(true),
+			"exact_counts": bool(setup.get("counts_exact", false))
+		},
+		"bot_isolation": bot_isolation,
 		"match": _match_summary(state, tick_count),
 		"average_tick_ms": collection.get("average_ms"),
 		"median_tick_ms": collection.get("median_ms"),
@@ -505,6 +537,7 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var state: GameState = OpsState.require_state()
 	_prepare_match_for_benchmark()
 	_disable_bots_for_benchmark()
+	var bot_isolation: Dictionary = _bot_isolation_evidence()
 	var initial_commands: Array = _apply_scenario_initial_state(arena, state, scenario_def)
 	_apply_render_isolation(arena, scenario_def)
 	var camera_settle: Dictionary = await _settle_windowed_camera(arena, str(scenario_def.get("camera_policy", "production_map_fit")))
@@ -567,12 +600,16 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var performance_gating: bool = bool(scenario_def.get("performance_gating", true))
 	var failed_gates: Array = _failed_gates(metrics, int(collection.get("hitch_count", 0)), gates) if collector.timing_enabled() and performance_gating else []
 	var command_count: int = _scripted_command_count_from_log(command_log)
+	var command_log_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(command_log)
+	var accepted_command_evidence: Array = _flatten_command_log(command_log)
 	var requested_seed: int = int(scenario_def.get("seed", 0))
 	var effective_seed: int = int(setup.get("effective_seed", 0))
 	var final_state_hash: String = str(OpsState.call("get_contract_state_hash")) if OpsState.has_method("get_contract_state_hash") else ""
 	var renderer_configuration_state: Dictionary = _renderer_configuration_state(arena)
 	var renderer_configuration_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(renderer_configuration_state)
 	var integrity_failures: Array = []
+	if not bool(bot_isolation.get("pass", false)):
+		integrity_failures.append("bots_not_disabled")
 	if requested_seed != effective_seed:
 		integrity_failures.append("effective_seed_mismatch")
 	if not bool(camera_settle.get("pass", false)):
@@ -587,6 +624,17 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		integrity_failures.append("final_state_hash_missing")
 	if command_count < int(scenario_def.get("expected_command_count_min", 0)):
 		integrity_failures.append("scheduled_command_count_below_minimum")
+	if scenario_def.has("expected_command_count_exact") and command_count != int(scenario_def.get("expected_command_count_exact", -1)):
+		integrity_failures.append("scheduled_command_count_not_exact")
+	if not str(scenario_def.get("expected_command_log_hash", "")).is_empty() and command_log_hash != str(scenario_def.get("expected_command_log_hash", "")):
+		integrity_failures.append("accepted_command_hash_mismatch")
+	if scenario_def.has("expected_accepted_commands") and PERF_DETERMINISTIC_HASH.hash_variant(accepted_command_evidence) != PERF_DETERMINISTIC_HASH.hash_variant(scenario_def.get("expected_accepted_commands", [])):
+		integrity_failures.append("accepted_command_evidence_mismatch")
+	var observed_command_types: Array[String] = _command_types_from_log(command_log)
+	for expected_type_any in scenario_def.get("expected_command_types", []) as Array:
+		var expected_type: String = str(expected_type_any)
+		if not observed_command_types.has(expected_type):
+			integrity_failures.append("scheduled_command_type_missing:%s" % expected_type)
 	if OpsState.match_phase != OpsState.MatchPhase.RUNNING or bool(OpsState.match_over):
 		integrity_failures.append("fixture_ended_match")
 	var report := _base_scenario_report(scenario_def, benchmark_mode, gates)
@@ -611,7 +659,9 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"collection": collection,
 		"scripted_command_count": command_count,
 		"scripted_command_ticks": command_log,
-		"command_schedule_hash": PERF_DETERMINISTIC_HASH.hash_variant(command_log),
+		"command_schedule_hash": command_log_hash,
+		"accepted_command_evidence": accepted_command_evidence,
+		"observed_command_types": observed_command_types,
 		"effective_seed": effective_seed,
 		"final_state_hash": final_state_hash,
 		"camera_settle": camera_settle,
@@ -631,6 +681,7 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 			"actual_counts": (setup.get("actual_counts", {}) as Dictionary).duplicate(true),
 			"exact_counts": bool(setup.get("counts_exact", false))
 		},
+		"bot_isolation": bot_isolation,
 		"match": _match_summary(state, tick_index),
 		"average_frame_ms": collection.get("average_ms"),
 		"median_frame_ms": collection.get("median_ms"),
@@ -914,6 +965,23 @@ func _disable_bots_for_benchmark() -> void:
 	for seat_any in profiles.keys():
 		OpsState.call("set_bot_profile", int(seat_any), {"enabled": false})
 
+func _bot_isolation_evidence() -> Dictionary:
+	if not OpsState.has_method("get_bot_profiles_snapshot"):
+		return {"pass": false, "reason": "bot_profile_snapshot_unavailable", "profiles": {}}
+	var profiles: Dictionary = OpsState.call("get_bot_profiles_snapshot") as Dictionary
+	var enabled_seats: Array[int] = []
+	for seat_any in profiles.keys():
+		var profile_any: Variant = profiles.get(seat_any)
+		if typeof(profile_any) == TYPE_DICTIONARY and bool((profile_any as Dictionary).get("enabled", false)):
+			enabled_seats.append(int(seat_any))
+	enabled_seats.sort()
+	return {
+		"pass": enabled_seats.is_empty(),
+		"enabled_seats": enabled_seats,
+		"profile_count": profiles.size(),
+		"profiles_hash": PERF_DETERMINISTIC_HASH.hash_variant(profiles)
+	}
+
 func _issue_commands_for_tick(arena: Node, state: GameState, scenario_def: Dictionary, tick: int) -> Array:
 	var schedule: Array = scenario_def.get("command_schedule", []) as Array
 	if not schedule.is_empty():
@@ -1058,6 +1126,10 @@ func _scenario_definitions(
 				_phase1_static_catalog_scenario("EMPTY_ARENA_V1", catalog_fixtures_by_id, catalog_common),
 				_phase1_static_catalog_scenario("STATIC_BATTLEFIELD_V1", catalog_fixtures_by_id, catalog_common)
 			]
+		"phase1_normal_match_pilot":
+			scenarios = [_phase1_normal_match_pilot_scenario()]
+		"phase1_normal_match":
+			scenarios = [_phase1_normal_match_catalog_scenario(catalog_fixtures_by_id, catalog_common)]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
 		"phase0_isolation":
@@ -1243,6 +1315,77 @@ func _phase1_static_catalog_scenario(fixture_id: String, catalog_fixtures_by_id:
 			"structure_slots": [],
 			"spawns": []
 		}
+	return scenario
+
+func _phase1_normal_match_pilot_scenario() -> Dictionary:
+	var scenario: Dictionary = _scenario_def(
+		"P1D_NORMAL_MATCH_PILOT_V1",
+		MAP_PHASE1,
+		12.0,
+		6201,
+		["canonical_simrunner"],
+		0,
+		0,
+		1
+	)
+	scenario["fixture_id"] = "P1D_NORMAL_MATCH_PILOT_V1"
+	scenario["measurement_profile"] = "canonical_sim_headless"
+	scenario["catalog_fixture_registered"] = false
+	scenario["command_selector_version"] = "sorted_candidate_pair_v1"
+	scenario["tick_count"] = 120
+	scenario["warmup_ticks"] = 20
+	scenario["repetitions"] = 3
+	scenario["initial_lanes"] = 0
+	scenario["expected_command_count_min"] = 4
+	scenario["expected_command_count_exact"] = 4
+	scenario["expected_command_types"] = ["attack", "swarm"]
+	scenario["command_schedule"] = NORMAL_MATCH_PILOT_SCHEDULE.duplicate(true)
+	return scenario
+
+func _phase1_normal_match_catalog_scenario(catalog_fixtures_by_id: Dictionary, catalog_common: Dictionary) -> Dictionary:
+	var fixture: Dictionary = catalog_fixtures_by_id.get("NORMAL_MATCH_V1", {}) as Dictionary
+	if fixture.is_empty():
+		return {}
+	var production_map: Dictionary = catalog_common.get("production_map", {}) as Dictionary
+	var timing: Dictionary = fixture.get("timing", {}) as Dictionary
+	var expected_counts: Dictionary = (production_map.get("expected_counts", {}) as Dictionary).duplicate(true)
+	expected_counts["active_lanes"] = 0
+	expected_counts["units"] = 0
+	var scenario: Dictionary = _scenario_def(
+		"NORMAL_MATCH_V1",
+		str(production_map.get("path", "")),
+		float(timing.get("total_ticks", 120)) * SIM_TICK_INTERVAL_SEC,
+		int(fixture.get("seed", 0)),
+		["canonical_simrunner"],
+		0,
+		0,
+		1
+	)
+	scenario["fixture_id"] = "NORMAL_MATCH_V1"
+	scenario["fixture_version"] = int(fixture.get("fixture_version", 1))
+	scenario["fixture_catalog_status"] = str(fixture.get("status", ""))
+	scenario["catalog_fixture_registered"] = true
+	scenario["content_kind"] = "production_map"
+	scenario["content_identity"] = "sha256:%s" % str(production_map.get("sha256", ""))
+	scenario["camera_policy"] = "production_map_fit"
+	scenario["command_selector_version"] = str(fixture.get("command_selector_version", ""))
+	scenario["tick_count"] = int(timing.get("total_ticks", 120))
+	scenario["warmup_ticks"] = int(timing.get("warmup_ticks", 20))
+	scenario["repetitions"] = int(catalog_common.get("repetitions", 3))
+	scenario["initial_lanes"] = 0
+	scenario["command_schedule"] = (fixture.get("command_schedule", []) as Array).duplicate(true)
+	scenario["expected_command_count_min"] = int(fixture.get("expected_command_count", 0))
+	scenario["expected_command_count_exact"] = int(fixture.get("expected_command_count", 0))
+	scenario["expected_command_types"] = (fixture.get("expected_command_types", []) as Array).duplicate(true)
+	scenario["expected_accepted_commands"] = (fixture.get("expected_accepted_commands", []) as Array).duplicate(true)
+	scenario["expected_command_log_hash"] = str(fixture.get("pilot_accepted_command_hash", ""))
+	scenario["expected_canonical_final_state_hash"] = str(fixture.get("pilot_canonical_final_state_hash", ""))
+	scenario["expected_counts"] = expected_counts
+	var cadence: Dictionary = (catalog_common.get("deterministic_windowed_cadence", {}) as Dictionary).duplicate(true)
+	cadence["simulation_active"] = true
+	scenario["cadence"] = cadence
+	scenario["performance_gating"] = true
+	scenario["baseline_candidate"] = bool(fixture.get("baseline_candidate", false))
 	return scenario
 
 func _phase0_collector_calibration_scenarios() -> Array:
@@ -1652,6 +1795,26 @@ func _scripted_command_count_from_log(command_log: Array) -> int:
 		count += commands.size()
 	return count
 
+func _flatten_command_log(command_log: Array) -> Array:
+	var out: Array = []
+	for entry_any in command_log:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var tick: int = int(entry.get("tick", 0))
+		for command_any in entry.get("commands", []) as Array:
+			if typeof(command_any) != TYPE_DICTIONARY:
+				continue
+			var command: Dictionary = command_any as Dictionary
+			out.append({
+				"tick": tick,
+				"type": str(command.get("type", "")),
+				"src": int(command.get("src", -1)),
+				"dst": int(command.get("dst", -1)),
+				"schedule_index": int(command.get("schedule_index", -1))
+			})
+	return out
+
 func _command_types_from_log(command_log: Array) -> Array[String]:
 	var seen: Dictionary = {}
 	for entry_any in command_log:
@@ -1888,6 +2051,9 @@ func _cleanup_repetition(isolation_snapshot: Dictionary, scene_root: Node, arena
 		"before_protected_state": settled_result.get("before_protected_state", {}),
 		"after_protected_state": settled_result.get("after_protected_state", {}),
 		"mismatches": mismatches,
+		"mismatched_components": (settled_result.get("mismatched_components", []) as Array).duplicate(),
+		"component_hashes_before": (settled_result.get("component_hashes_before", {}) as Dictionary).duplicate(true),
+		"component_hashes_after": (settled_result.get("component_hashes_after", {}) as Dictionary).duplicate(true),
 		"fixture_root_freed": node_freed,
 		"fixture_state_release": fixture_state_release,
 		"settle_frames_before_restore": 3,
@@ -2029,6 +2195,8 @@ func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
 		"initial_swarms": int(scenario_def.get("initial_swarms", 0)),
 		"initial_barracks_routes": int(scenario_def.get("initial_barracks_routes", 0)),
 		"command_interval_ticks": int(scenario_def.get("command_interval_ticks", 0)),
+		"command_selector_version": str(scenario_def.get("command_selector_version", "")),
+		"expected_command_count_exact": int(scenario_def.get("expected_command_count_exact", -1)),
 		"commands_per_burst": int(scenario_def.get("commands_per_burst", 0)),
 		"swarm_burst": int(scenario_def.get("swarm_burst", 0)),
 		"command_schedule": (scenario_def.get("command_schedule", []) as Array).duplicate(true),
@@ -2055,7 +2223,7 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 		var fixture_id: String = str(fixture_id_any)
 		var repetitions: Array = by_fixture.get(fixture_id, []) as Array
 		var first_repetition: Dictionary = repetitions[0] as Dictionary if not repetitions.is_empty() else {}
-		var required_repetitions: int = 3 if fixture_id in ["PHASE0_INTEGRITY_CENTERSTRIKE_V1", "P1B_WINDOWED_ADAPTER_PROBE_V1"] or bool(first_repetition.get("catalog_fixture_registered", false)) else 1
+		var required_repetitions: int = 3 if fixture_id in ["PHASE0_INTEGRITY_CENTERSTRIKE_V1", "P1B_WINDOWED_ADAPTER_PROBE_V1", "P1D_NORMAL_MATCH_PILOT_V1"] or bool(first_repetition.get("catalog_fixture_registered", false)) else 1
 		var fields: Array[String] = [
 			"fixture_config_hash",
 			"requested_seed",
