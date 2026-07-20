@@ -1,6 +1,6 @@
 # Public Modes Staging Certification Evidence
 
-- Status: `IN PROGRESS — P5`
+- Status: `P5 PASS — P6 BLOCKED — P7 HOLD`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 - Branch: `sprint/staging-certification`
@@ -9,7 +9,8 @@
 
 This is the append-only summary for work performed under
 [the staging certification plan](staging-certification-plan.md). `PASS` is used
-only for observed evidence. Planned work remains `NOT RUN`.
+only for observed evidence. `BLOCKED` records a verified missing prerequisite;
+other planned work remains `NOT RUN`.
 
 ## Decision matrix
 
@@ -20,9 +21,9 @@ only for observed evidence. Planned work remains `NOT RUN`.
 | P2 database recovery rehearsal | `PASS` | [P2 runbook](staging-certification-p2-runbook.md) | — |
 | P3 all-off deployment | `PASS` | Immutable deploy/rollback table below | — |
 | P4 remote config/operations | `PASS` | All-false revision/alert evidence below | — |
-| P5 authority/workers | `NOT RUN` | — | — |
-| P6 physical device matrix | `NOT RUN` | — | P4–P5 and devices |
-| P7 canary recommendation | `NOT RUN` | — | P0–P6 |
+| P5 authority/workers | `PASS` | Exact candidate, managed matrix, and containment below | — |
+| P6 physical device matrix | `BLOCKED` | Redacted device/build inventory below | Three additional physical devices and signed client builds |
+| P7 canary recommendation | `HOLD` | P0–P6 summary below | P6 and separate product-owner decision |
 
 ## P0 repository/control baseline
 
@@ -478,21 +479,108 @@ public or economic route was enabled or used.
 
 ## P5 authority and workers
 
-Status: `NOT RUN`
+Status: `PASS`
 
-No external worker has been started or modified by this sprint.
+### Exact candidate and artifacts
+
+The certified candidate is
+`60bef51e6a2e10fe60be05017053f8550df143c0`. Release Readiness run
+`29782481384` passed that exact SHA in 8m57s. The deployment branch
+`deploy/staging-cert-20260720` remains pinned to it and auto-deploy remains off.
+
+| Artifact | Immutable identity |
+| --- | --- |
+| VS source archive | `da660c16151e2d21fa32e733d514226e773c450810bc6bed3f00767cecea68c6` |
+| Rank source archive | `fb18f22191cc300f33e7214a6f43cc53f5f0bb08133b6a3b93a95d59cd5a0d3a` |
+| Authority source archive | `664230404700871d0e72d8f880427649a7657474b48da93442d5bdd43c47ec3d` |
+| Simulation archive | `b9a8b90f99dd142f7b90c12d698680a17af2e67c727d2a986c81e1f2dcd0fef0` |
+| Client archive | `4992a030e43f003352c23bf9844aac8edce7df3f261b8e6531cd2134a3b69764` |
+| Worker/simulation IDs | `authority-worker-60bef51`; `sf-sim-60bef51` |
+| Authority manifest | `66c84f08b8771551ab3cf7e49a9ecfd0afcca7fef53a89c23ecdabac8f7bee13` |
+| Map | `MAP_closequarters__CQ2__1p`; `325e97a6677eb32e2f396fa9077b614c76a2150dad960243e8ae00b55909d14a` |
+| Rules | `standard-v1`; `d7a78887b71c7d010db1b8ea1af84aa847ca877644878f6c3a0d96aed26aa57c` |
+| Verifier | key ID `sf-cert-verifier-20260720`; ES256; private key retained only in Render secrets |
+| Godot | Official 4.2.2 Linux x86_64; download SHA `69eb9881e1b82ab93924c83106a7c031497f252bc0c08e199e4da6380072d6ef` |
+
+Final exact P5 deployments were Rank `dep-d9f9qhbrjlhs739srt10`, VS
+`dep-d9f9qhe7r5hc73bsg9e0`, and authority `dep-d9f9qh8k1i2s73aormlg`.
+The final all-off revisions were VS `dep-d9fa2turnols73acnkkg` and authority
+`dep-d9fa2treo5us73836h9g`, still at exact `60bef51`.
+
+### Deployed and managed matrix
+
+Authority smoke job `job-d9f9sldaeets73bo5720` passed with deterministic state
+hash `1f1b5b8c77cc57fce7623ed6b5cd1a28ea176fcd95b1bd275f1517e54ebaab33`.
+It covered deterministic replay, the managed three-tick command lead, authored
+map normalization, wrong map, artifact path escape, command binding and
+ownership rejection, lifecycle forfeit/no-contest, visible CTF, and ES256
+signing.
+
+| Case | Managed result | Receipt/result boundary |
+| --- | --- | --- |
+| Positive replay | Job `019f819b-17b5-795e-a493-9f9db2a31717` `COMPLETED`; final hash `acef412b5d19007eb490f662b9ef15d740f2c3baa496ab9d358a1f6ed424078b` | One run, one receipt, `OBJECTIVE_COMPLETE` |
+| Wrong map | `019f819b-1bf7-73f3-a501-fb7d61aefbdd` `FAILED`, `ARTIFACT_UNAVAILABLE` | Zero receipts/results |
+| Wrong rules | `019f819b-1eae-7a41-b008-46827da7102c` `FAILED`, `ARTIFACT_UNAVAILABLE` | Zero receipts/results |
+| Wrong simulation | `019f819b-210c-7572-bada-4b08394071e6` `FAILED`, `SIM_BUILD_UNAVAILABLE` | Zero receipts/results |
+| Duplicate completion | `019f819b-24fd-71c1-bb27-e2d3ca5f7a02` remained `COMPLETED` after exact request replay | Still one run and one receipt |
+| Lease expiry/restart | `019f819b-27b7-753c-b8ab-a35314c5a1c3` leased by an exiting worker, then recovered | `COMPLETED` on attempt 2; one run and one receipt |
+| Disconnect forfeit | `019f81a2-8d0c-7981-93fe-5d0b177125fd` `COMPLETED` | One receipt; `FORFEIT_DISCONNECT` |
+| Simultaneous expiry | `019f81a2-8e95-709b-a993-b5de0dcd3143` `QUARANTINED` | One receipt; `NO_CONTEST` |
+
+Deployed Rank trust job `job-d9fa1pbbc2fs73b29nn0` accepted the intended
+ES256 service/receipt identities and rejected wrong issuer, audience, subject,
+service key, verifier key, worker build, forged signature, stale receipt, and
+future receipt. Exact-head Release Readiness also passed the embedded duplicate
+Rank settlement/idempotency smoke.
+
+The first managed attempt correctly failed closed and exposed that the P5
+fixture requested tick 1 while the durable repository enforces a three-tick
+lead. Commit `60bef51` shifted only the certification schedule by two ticks and
+added a two-replay smoke assertion before rerun. Earlier pre-fix replay and
+operator-command failures, including the Render env pagination recovery and
+one malformed lease-only command (`job-d9f9v1taeets73bo9ml0`), remain retained
+in provider logs; none produced a receipt, result, rank mutation, or economy
+mutation.
+
+### Mutation boundary and containment
+
+Before and after P5, Rank had zero players, zero processed events, total Wax
+zero, and one unchanged seed audit. Crucible retained two seed accounts with
+aggregate balance zero; transactions, escrows, journal entries, settlements,
+refunds, and reversals remained zero. Contest attempts/results/evidence, Rank
+settlement jobs/attempts, and outbox rows remained zero. Honey and Crucible
+service ledger files were absent both before and after. Verification-only state
+grew as expected to 10 contracts, 165 commands, 14 recorded runs, five terminal
+results, and five signed receipts; idempotency receipts grew from 1 to 10 for
+the staged contract writes.
+
+At exit, Rank/VS health reported exact `60bef51`; all public, rank, contest
+reward, and economy capabilities were false. The three private P5 gates were
+restored false, authority tier returned to `RELAY_ATTESTED`, and VS durable-core
+storage reported disabled. The authority service is user-suspended with
+auto-deploy off.
+
 
 ## P6 physical devices
 
-Status: `NOT RUN`
+Status: `BLOCKED`
 
-No physical-device certification evidence has been collected by this sprint.
+The redacted inventory contains one physical iPhone on iOS 26.5.2, no connected
+Android device, and no signed `.ipa`, `.apk`, or `.aab` candidate. Simulators do
+not satisfy this gate. The required two-iOS/two-Android mixed-platform and
+four-seat cells therefore cannot run, and no product-owner limitation has been
+accepted. Unique device identifiers were intentionally not recorded.
 
 ## P7 decision
 
 Status: `HOLD`
 
-No public mode or mutation/economy capability is authorized.
+P0–P5 pass, but P6 is blocked. The recommended eventual first candidate remains
+non-economic Standard 1v1 with a bounded audience and duration, existing alert
+and rollback owners, and immediate termination on authority/receipt,
+reconnect/seat, or mutation-boundary failure. No public mode or
+mutation/economy capability is authorized without a separate product-owner
+`GO` after P6.
 
 ## Artifact index
 
@@ -515,6 +603,12 @@ No public mode or mutation/economy capability is authorized.
 | P3 authority candidate deploy | `dep-d9f6qrgs116c738cjec0` | `1aab33cd811fdce38ea7f51fefb3c86d40e6a0d33e13398da9888eec38a1055a` | 2026-07-20T18:50Z | Render deploy/log retention | Environment operator |
 | P4 VS remote-ops deploy | `dep-d9f7578s116c738d4mf0` | `55cccabc683055d8fb5d460cdfffb878d9bd94b25d20be4313b8a53928327760` | 2026-07-20T19:13Z | Render deploy/log retention | Environment operator |
 | P4 final all-false config | `019f80f4-d26c-74a4-8f3b-1a1924d8e65d` | `3151e14680bf2816a4acc8cf984ddbef42ee1963e78175eb138f8990bf562aa5` | 2026-07-20T19:15Z | Certification database retention | Environment operator |
+| P5 exact-head matrix | GitHub artifact `8477351302` | `abca20b39ad2df407fb3e52a0d2b9e8bfce968f2312e09022b57269e6b632eba` | 2026-07-20T22:11:21Z | 2026-10-18 | GitHub Actions |
+| P5 exact-head smoke logs | GitHub artifact `8477351910` | `4cb02b381b4a82e846f4aae9c8389972d7c530d326849f4d4b578f48ce8dc27a` | 2026-07-20T22:11:23Z | 2026-10-18 | GitHub Actions |
+| P5 authority manifest | `dep-d9f9qh8k1i2s73aormlg/.authority/cert-manifest.json` | `66c84f08b8771551ab3cf7e49a9ecfd0afcca7fef53a89c23ecdabac8f7bee13` | 2026-07-20T22:16Z | Render deploy retention | Environment operator |
+| P5 Rank exact deploy | `dep-d9f9qhbrjlhs739srt10` | `fb18f22191cc300f33e7214a6f43cc53f5f0bb08133b6a3b93a95d59cd5a0d3a` | 2026-07-20T22:14Z | Render deploy/log retention | Environment operator |
+| P5 VS final all-off deploy | `dep-d9fa2turnols73acnkkg` | `da660c16151e2d21fa32e733d514226e773c450810bc6bed3f00767cecea68c6` | 2026-07-20T22:33Z | Render deploy/log retention | Environment operator |
+| P5 authority final all-off deploy | `dep-d9fa2treo5us73836h9g` | `664230404700871d0e72d8f880427649a7657474b48da93442d5bdd43c47ec3d` | 2026-07-20T22:34Z | Render deploy/log retention | Environment operator |
 
 Never put credentials, private keys, connection strings, raw database exports,
 unredacted device identifiers, or user identifiers in this index.

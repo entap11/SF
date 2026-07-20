@@ -3,7 +3,7 @@
 - Program: Public Modes staging certification
 - Branch: `sprint/staging-certification`
 - Base revision: `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`
-- Current phase: `P5`
+- Current phase: `P6 BLOCKED / P7 HOLD`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 
@@ -246,21 +246,21 @@ all mutation stores remain unchanged.
 
 ### Repository work
 
-- [ ] Produce the exact worker artifact manifest and SHA-256 digest.
-- [ ] Record map/ruleset/simulation/client hashes and verifier key ID; never
+- [x] Produce the exact worker artifact manifest and SHA-256 digest.
+- [x] Record map/ruleset/simulation/client hashes and verifier key ID; never
   record the private key.
-- [ ] Prepare positive replay plus wrong issuer, audience, subject, key ID,
+- [x] Prepare positive replay plus wrong issuer, audience, subject, key ID,
   worker build, map hash, ruleset hash, simulation hash, stale receipt, duplicate
   receipt, lease expiry, restart, forfeit, and no-contest cases.
-- [ ] Record before/after bounded summaries for Rank, Wax, Honey, contest reward,
+- [x] Record before/after bounded summaries for Rank, Wax, Honey, contest reward,
   paid-entry, ledger, receipt, and outbox state.
 
 ### Operator actions
 
-- [ ] Inject scoped worker/verifier credentials through the secret manager.
-- [ ] Start one bounded staging worker and execute the case matrix.
-- [ ] Stop/restart the worker during an active lease and verify recovery.
-- [ ] Remove or disable the worker after certification.
+- [x] Inject scoped worker/verifier credentials through the secret manager.
+- [x] Start bounded staging workers and execute the case matrix.
+- [x] Stop/restart the worker during an active lease and verify recovery.
+- [x] Remove or disable the worker after certification.
 
 ### Exit artifact
 
@@ -278,6 +278,12 @@ network, reconnect, authority, and rollback behavior on real devices.
 
 Preferred: two current supported iOS devices and two current supported Android
 devices. Record model class and OS version, but redact unique device IDs.
+
+Current blocker (2026-07-20): only one physical iPhone on iOS 26.5.2 is
+connected; no Android device and no signed iOS/Android client candidate are
+available. Simulators do not satisfy this gate. P6 remains blocked until the
+minimum physical inventory and signed builds exist or the product owner accepts
+an explicit limitation with impact and follow-up owner.
 
 ### Minimum scenario matrix
 
