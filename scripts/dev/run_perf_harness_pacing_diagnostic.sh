@@ -84,7 +84,7 @@ capture_variant() {
   local log_path="${ARTIFACT_DIR}/${label}.log"
   local stderr_log_path="${ARTIFACT_DIR}/${label}.stderr.log"
   local summary_path="${ARTIFACT_DIR}/${label}.summary.json"
-  local user_dir="SwarmfrontPerfPacingDiagnostic_${RUN_ID}_${RUN_ATTEMPT}_${label}"
+  local user_dir="SFPerf_${RUN_ID}_${RUN_ATTEMPT}_${label}"
   local lifecycle_path="${ARTIFACT_DIR}/${label}.process.json"
   local system_log_path="${ARTIFACT_DIR}/${label}.macos.log"
   local started_at
@@ -101,6 +101,11 @@ capture_variant() {
   local rc_source="godot_wait"
   local godot_app=""
   local discovery_deadline=0
+
+  if (( ${#user_dir} > 80 )) || [[ ! "${user_dir}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "PERF_PACING_DIAGNOSTIC_FAIL label=${label} reason=perf_user_dir_name_invalid user_dir=${user_dir}"
+    return 2
+  fi
 
   while (( $# > 0 )); do
     if [[ "$1" == "--require-window-foreground" ]]; then

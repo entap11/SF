@@ -117,6 +117,7 @@ func _test_source_contracts() -> void:
 	_expect(pacing_diagnostic_source.contains("/usr/bin/open -n -F -W"), "foreground diagnostic must use a fresh LaunchServices app process")
 	_expect(pacing_diagnostic_source.contains("--perf-user-dir=${user_dir}"), "LaunchServices diagnostic must discover the unique Godot process")
 	_expect(pacing_diagnostic_source.contains("reason=godot_pid_undiscovered"), "LaunchServices diagnostic must fail closed without an actual Godot PID")
+	_expect(pacing_diagnostic_source.contains("reason=perf_user_dir_name_invalid"), "pacing diagnostic must validate the derived user-directory name before launch")
 
 
 func _expect(condition: bool, message: String) -> void:
