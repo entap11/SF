@@ -193,6 +193,7 @@ async function replayTwice(config: WorkerConfig, job: Job): Promise<[ReplayResul
     contract: contractForGodot(contract),
     commands: job.commands.map((entry) => entry.command as RecordJson),
     map_data: JSON.parse(mapBytes.toString("utf8")),
+    map_artifact_path: projectResourcePath(projectPath, mapPath),
     ruleset_data: JSON.parse(rulesBytes.toString("utf8"))
   };
   return [await runGodot(config, projectPath, replayInput), await runGodot(config, projectPath, replayInput)];
@@ -222,7 +223,9 @@ async function runGodot(config: WorkerConfig, projectPath: string, input: Record
       child.on("error", (error) => { clearTimeout(timeout); reject(error); });
       child.on("exit", (code) => {
         clearTimeout(timeout);
-        code === 0 ? resolve() : reject(new AuthorityError(`GODOT_EXIT_${code}:${stderr.slice(-500)}`, true));
+        code === 0 || code === 3
+          ? resolve()
+          : reject(new AuthorityError(`GODOT_EXIT_${code}:${stderr.slice(-500)}`, true));
       });
     });
     return JSON.parse(await readFile(outputPath, "utf8")) as ReplayResult;
@@ -246,7 +249,17 @@ function resolveArtifact(value: unknown, hash: string, projectPath: string): str
   if (typeof value !== "object" || value == null || Array.isArray(value)) throw new AuthorityError("ARTIFACT_MANIFEST_INVALID", false);
   const artifact = String((value as RecordJson)[hash] ?? "");
   if (!artifact) throw new AuthorityError("ARTIFACT_UNAVAILABLE", false);
-  return path.resolve(projectPath, artifact);
+  const resolved = path.resolve(projectPath, artifact);
+  projectResourcePath(projectPath, resolved);
+  return resolved;
+}
+
+function projectResourcePath(projectPath: string, artifactPath: string): string {
+  const relative = path.relative(projectPath, artifactPath);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new AuthorityError("ARTIFACT_PATH_INVALID", false);
+  }
+  return `res://${relative.split(path.sep).join("/")}`;
 }
 
 function contractForGodot(contract: RecordJson): RecordJson {

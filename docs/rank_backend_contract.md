@@ -184,9 +184,11 @@ exact configured issuer, audience, subject, and key ID. Request:
 
 Rank independently verifies the authority receipt and its Standard 1v1 ordered
 placements. `rank_event_id` must equal `result_id`; retries return the existing
-settlement and cannot apply a second mutation. This route requires both
-`RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=true` and the separate economy-mutation
-gate. Both default false.
+settlement and cannot apply a second mutation. Receipts older than
+`RANK_VERIFIER_RECEIPT_MAX_AGE_SEC` (3,600 seconds by default), or dated more
+than five seconds in the future, fail with `verifier_receipt_stale`. This route
+requires both `RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=true` and the separate
+economy-mutation gate. Both default false.
 
 ### `GET /v1/public/leaderboard/global?limit=25`
 

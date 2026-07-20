@@ -35,11 +35,11 @@ function expectCode(run: () => unknown, code: string): void {
   }
   throw new Error(`expected ${code}`);
 }
-function serviceToken(privateKey: string, now: number): string {
+function serviceToken(privateKey: string, now: number, claimOverrides: JsonRecord = {}): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const head = encode({ alg: "ES256", typ: "JWT", kid: "service-key" });
   const body = encode({ iss: "vs-smoke", aud: "rank-smoke", sub: "settlement-smoke", scp: ["rank:settle"],
-    iat: now, nbf: now - 1, exp: now + 60, jti: generateUuidV7() });
+    iat: now, nbf: now - 1, exp: now + 60, jti: generateUuidV7(), ...claimOverrides });
   const input = `${head}.${body}`;
   return `${input}.${crypto.sign("sha256", Buffer.from(input), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("base64url")}`;
 }
@@ -77,6 +77,20 @@ async function main(): Promise<void> {
     issuer: "vs-smoke", audience: "wrong-audience", subject: "settlement-smoke", keyId: "service-key",
     publicKeyPem: servicePair.publicKey.export({ format: "pem", type: "spki" }).toString()
   }, "rank:settle", now), "service_token_invalid");
+  for (const claimOverrides of [{ iss: "wrong-issuer" }, { aud: "wrong-audience" }, { sub: "wrong-subject" }]) {
+    expectCode(() => verifyServiceJwt(serviceToken(
+      servicePair.privateKey.export({ format: "pem", type: "pkcs8" }).toString(), now, claimOverrides
+    ), {
+      issuer: "vs-smoke", audience: "rank-smoke", subject: "settlement-smoke", keyId: "service-key",
+      publicKeyPem: servicePair.publicKey.export({ format: "pem", type: "spki" }).toString()
+    }, "rank:settle", now), "service_token_invalid");
+  }
+  expectCode(() => verifyServiceJwt(serviceToken(
+    servicePair.privateKey.export({ format: "pem", type: "pkcs8" }).toString(), now
+  ), {
+    issuer: "vs-smoke", audience: "rank-smoke", subject: "settlement-smoke", keyId: "wrong-key",
+    publicKeyPem: servicePair.publicKey.export({ format: "pem", type: "spki" }).toString()
+  }, "rank:settle", now), "service_token_invalid");
 
   const verifier = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const payload: JsonRecord = {
@@ -96,12 +110,31 @@ async function main(): Promise<void> {
   };
   const verified = verifyStandard1v1Receipt(signed, {
     keyId: "verifier-smoke", publicKeyPem: verifier.publicKey.export({ format: "pem", type: "spki" }).toString(),
-    workerBuildId: "worker-smoke"
+    workerBuildId: "worker-smoke", receiptMaxAgeSec: 3_600
   });
   expectCode(() => verifyStandard1v1Receipt({ ...signed, signature: Buffer.alloc(64).toString("base64url") }, {
     keyId: "verifier-smoke", publicKeyPem: verifier.publicKey.export({ format: "pem", type: "spki" }).toString(),
-    workerBuildId: "worker-smoke"
+    workerBuildId: "worker-smoke", receiptMaxAgeSec: 3_600
   }), "verifier_receipt_signature_invalid");
+  expectCode(() => verifyStandard1v1Receipt(signed, {
+    keyId: "verifier-smoke", publicKeyPem: verifier.publicKey.export({ format: "pem", type: "spki" }).toString(),
+    workerBuildId: "wrong-worker", receiptMaxAgeSec: 3_600
+  }), "verifier_receipt_binding_invalid");
+  expectCode(() => verifyStandard1v1Receipt(signed, {
+    keyId: "wrong-verifier", publicKeyPem: verifier.publicKey.export({ format: "pem", type: "spki" }).toString(),
+    workerBuildId: "worker-smoke", receiptMaxAgeSec: 3_600
+  }), "verifier_receipt_signature_invalid");
+  const stalePayload = { ...payload, verified_at: new Date(Date.now() - 3_601_000).toISOString() };
+  const staleSigned = {
+    ...signed, payload: stalePayload, payloadHash: sha256Canonical(stalePayload),
+    signature: crypto.sign("sha256", Buffer.from(canonicalJson(stalePayload)), {
+      key: verifier.privateKey, dsaEncoding: "ieee-p1363"
+    }).toString("base64url")
+  };
+  expectCode(() => verifyStandard1v1Receipt(staleSigned, {
+    keyId: "verifier-smoke", publicKeyPem: verifier.publicKey.export({ format: "pem", type: "spki" }).toString(),
+    workerBuildId: "worker-smoke", receiptMaxAgeSec: 3_600
+  }), "verifier_receipt_stale");
   const first = await applyVerifiedStandard1v1Settlement(store, verified, String(claims.sub));
   const restartedStore = new RankStore(pool, "/nonexistent-rank-smoke.json");
   await restartedStore.init();
@@ -118,8 +151,11 @@ async function main(): Promise<void> {
   expect(counts.rows[0]?.processed === "1" && counts.rows[0]?.audits === "1", "durable dedupe/audit mismatch", counts.rows[0]);
   expect((board.rows as unknown[]).length === 2, "public global board missing settled players", board);
   console.log(JSON.stringify({ ok: true, smoke: "verified_rank_settlement", idempotent: true, restart_retry: true,
-    service_jwt: "ES256", wrong_audience_rejected: true, verifier_receipt: "ES256",
-    forged_receipt_rejected: true, processed_events: 1, audit_events: 1 }));
+    service_jwt: "ES256", wrong_issuer_rejected: true, wrong_audience_rejected: true,
+    wrong_subject_rejected: true, wrong_service_key_rejected: true, verifier_receipt: "ES256",
+    forged_receipt_rejected: true, wrong_verifier_key_rejected: true,
+    wrong_worker_build_rejected: true, stale_receipt_rejected: true,
+    processed_events: 1, audit_events: 1 }));
   await db.close();
 }
 

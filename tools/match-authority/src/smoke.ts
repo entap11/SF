@@ -12,11 +12,15 @@ function expect(condition: unknown, message: string, details?: unknown): void {
 async function main(): Promise<void> {
   const projectPath = path.resolve(import.meta.dirname, "../../..");
   const mapRelative = "tools/match-authority/fixtures/authority-map.json";
+  const authoredMapRelative = "maps/_future/closequarters/MAP_closequarters__CQ2__1p.json";
+  const authoredIntentsRelative = "tools/match-authority/fixtures/closequarters-standard-golden-intents.json";
   const rulesRelative = "tools/match-authority/fixtures/standard-rules.json";
-  const [mapBytes, rulesBytes] = await Promise.all([
-    readFile(path.join(projectPath, mapRelative)), readFile(path.join(projectPath, rulesRelative))
+  const [mapBytes, authoredMapBytes, authoredIntentsBytes, rulesBytes] = await Promise.all([
+    readFile(path.join(projectPath, mapRelative)), readFile(path.join(projectPath, authoredMapRelative)),
+    readFile(path.join(projectPath, authoredIntentsRelative)), readFile(path.join(projectPath, rulesRelative))
   ]);
   const mapHash = crypto.createHash("sha256").update(mapBytes).digest("hex");
+  const authoredMapHash = crypto.createHash("sha256").update(authoredMapBytes).digest("hex");
   const rulesHash = crypto.createHash("sha256").update(rulesBytes).digest("hex");
   const keyPair = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const privateKey = keyPair.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
@@ -27,7 +31,12 @@ async function main(): Promise<void> {
     worker_build_id: "authority-worker-smoke-v1",
     sim_build_id: "godot-4.2.2-smoke",
     project_path: projectPath,
-    map_artifacts: { [mapHash]: mapRelative, ["0".repeat(64)]: mapRelative },
+    map_artifacts: {
+      [mapHash]: mapRelative,
+      [authoredMapHash]: authoredMapRelative,
+      ["0".repeat(64)]: mapRelative,
+      ["e".repeat(64)]: "../outside-project.json"
+    },
     ruleset_artifacts: { [rulesHash]: rulesRelative }
   }));
   const playerA = "0190f47a-1234-7abc-8def-123456789abc";
@@ -91,6 +100,83 @@ async function main(): Promise<void> {
     const [first, second] = await replayJobTwice(config, job);
     expect(first.ok && second.ok && first.final_state_hash === second.final_state_hash,
       "headless replays diverged", { first, second });
+    const authoredFixture = JSON.parse(authoredIntentsBytes.toString("utf8")) as Record<string, unknown>;
+    const authoredCommands = (authoredFixture.intents as Record<string, unknown>[]).map((intent, index) => ({
+      command: { ...intent, kind: "lane_intent", command_seq: index + 1, command_id: `closequarters-golden:${index + 1}` }
+    }));
+    const authoredCommandPayloads = authoredCommands.map((entry) => entry.command);
+    const authoredMapJob: Job = {
+      ...job,
+      jobId: "0190f47a-e234-7abc-8def-123456789abc",
+      resultId: "0190f47a-f234-7abc-8def-123456789abc",
+      finalCommandSeq: authoredCommands.length,
+      commandLogHash: sha256Canonical(authoredCommandPayloads),
+      contract: { ...job.contract, mapHash: authoredMapHash },
+      commands: authoredCommands
+    };
+    authoredMapJob.inputHash = sha256Canonical({
+      contract_id: authoredMapJob.contract.contractId,
+      contract_hash: authoredMapJob.contract.contractHash,
+      match_epoch: authoredMapJob.contract.matchEpoch,
+      commands: authoredCommandPayloads, lifecycle_events: []
+    });
+    validateJobBundle(authoredMapJob);
+    const [authoredFirst, authoredSecond] = await replayJobTwice(config, authoredMapJob);
+    expect(authoredFirst.ok && authoredSecond.ok
+      && authoredFirst.final_state_hash === authoredSecond.final_state_hash
+      && authoredFirst.winner_player_id === playerA
+      && authoredFirst.applied_commands === authoredCommands.length,
+    "authored v1.xy golden replay did not terminate deterministically", { authoredFirst, authoredSecond });
+    const managedAuthoredCommands = authoredCommands.map((entry) => ({
+      command: {
+        ...entry.command,
+        execute_tick: Number((entry.command as Record<string, unknown>).execute_tick) + 2
+      }
+    }));
+    const managedAuthoredPayloads = managedAuthoredCommands.map((entry) => entry.command);
+    const managedAuthoredJob: Job = {
+      ...authoredMapJob,
+      jobId: "0190f47a-e234-7abc-8def-123456789abd",
+      resultId: "0190f47a-f234-7abc-8def-123456789abd",
+      commandLogHash: sha256Canonical(managedAuthoredPayloads),
+      commands: managedAuthoredCommands
+    };
+    managedAuthoredJob.inputHash = sha256Canonical({
+      contract_id: managedAuthoredJob.contract.contractId,
+      contract_hash: managedAuthoredJob.contract.contractHash,
+      match_epoch: managedAuthoredJob.contract.matchEpoch,
+      commands: managedAuthoredPayloads, lifecycle_events: []
+    });
+    validateJobBundle(managedAuthoredJob);
+    const [managedFirst, managedSecond] = await replayJobTwice(config, managedAuthoredJob);
+    expect(managedFirst.ok && managedSecond.ok
+      && managedFirst.final_state_hash === managedSecond.final_state_hash
+      && managedFirst.winner_player_id === playerA
+      && managedFirst.applied_commands === managedAuthoredCommands.length,
+    "managed-command-lead golden replay did not terminate deterministically", { managedFirst, managedSecond });
+    const rejectedCommands: { command: Record<string, unknown> }[] = authoredCommands
+      .map((entry) => ({ command: { ...entry.command } }));
+    rejectedCommands[0]!.command.seat_id = 2;
+    const rejectedPayloads = rejectedCommands.map((entry) => entry.command);
+    const rejectedJob: Job = {
+      ...authoredMapJob,
+      jobId: "0190f47a-0234-7abc-8def-123456789abc",
+      resultId: "0190f47a-1234-7abc-8def-123456789abd",
+      commandLogHash: sha256Canonical(rejectedPayloads),
+      commands: rejectedCommands
+    };
+    rejectedJob.inputHash = sha256Canonical({
+      contract_id: rejectedJob.contract.contractId,
+      contract_hash: rejectedJob.contract.contractHash,
+      match_epoch: rejectedJob.contract.matchEpoch,
+      commands: rejectedPayloads, lifecycle_events: []
+    });
+    validateJobBundle(rejectedJob);
+    const [rejectedFirst, rejectedSecond] = await replayJobTwice(config, rejectedJob);
+    expect(!rejectedFirst.ok && !rejectedSecond.ok
+      && rejectedFirst.error_code === "COMMAND_OWNERSHIP_INVALID"
+      && rejectedSecond.error_code === "COMMAND_OWNERSHIP_INVALID",
+    "structured replay rejection was not retained", { rejectedFirst, rejectedSecond });
     const ctfJob: Job = {
       ...job,
       jobId: "0190f47a-a234-7abc-8def-123456789abc",
@@ -157,6 +243,16 @@ async function main(): Promise<void> {
       expect(error instanceof AuthorityError && error.code === "MAP_HASH_MISMATCH",
         "wrong map artifact did not fail closed", error instanceof Error ? error.message : error);
     }
+    try {
+      await replayJobTwice(config, {
+        ...job,
+        contract: { ...job.contract, mapHash: "e".repeat(64) }
+      });
+      throw new Error("out-of-project artifact path was accepted");
+    } catch (error) {
+      expect(error instanceof AuthorityError && error.code === "ARTIFACT_PATH_INVALID",
+        "out-of-project artifact path did not fail closed", error instanceof Error ? error.message : error);
+    }
     const payloadHash = sha256Canonical(winner);
     const signature = crypto.sign("sha256", Buffer.from(canonicalJson(winner)), {
       key: privateKey, dsaEncoding: "ieee-p1363"
@@ -167,6 +263,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ ok: true, smoke: "match_authority", deterministic_hash: first.final_state_hash,
       elapsed_sim_ticks: first.elapsed_sim_ticks, disagreement: "NO_CONTEST", lifecycle_forfeit: true,
       lifecycle_no_contest: true, human_ctf_replay: true, wrong_map_rejected: true,
+      authored_map_normalized: true, managed_command_lead: true, artifact_path_escape_rejected: true,
       command_binding_rejected: true, signature: "ES256" }));
   } finally {
     await rm(tempDir, { recursive: true, force: true });

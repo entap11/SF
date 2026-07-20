@@ -49,7 +49,7 @@ Options:
 
 Default matrix timeout budgets:
   fast:    900 seconds
-  pr:      1800 seconds
+  pr:      2700 seconds
   nightly: 7200 seconds
 
 Environment overrides:
@@ -137,7 +137,11 @@ case "${MATRIX_GATE_TIER}" in
     MATRIX_TIMEOUT_SECONDS="${MATRIX_TIMEOUT_SECONDS:-900}"
     ;;
   pr)
-    MATRIX_TIMEOUT_SECONDS="${MATRIX_TIMEOUT_SECONDS:-1800}"
+    # The PR tier runs the complete boot/runtime route matrix before two soak
+    # seeds. On the supported work Mac the boot routes alone can take about 26
+    # minutes, so a 30-minute wrapper can terminate healthy soak work. Keep the
+    # full coverage and give the declared workload a bounded 45-minute budget.
+    MATRIX_TIMEOUT_SECONDS="${MATRIX_TIMEOUT_SECONDS:-2700}"
     ;;
   nightly)
     MATRIX_TIMEOUT_SECONDS="${MATRIX_TIMEOUT_SECONDS:-7200}"

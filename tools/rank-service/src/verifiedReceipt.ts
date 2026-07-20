@@ -25,8 +25,8 @@ export function parseSignedVerifierReceipt(value: unknown): SignedVerifierReceip
 }
 
 export function verifyStandard1v1Receipt(receipt: SignedVerifierReceipt, config: {
-  keyId: string; publicKeyPem: string; workerBuildId: string;
-}): JsonRecord {
+  keyId: string; publicKeyPem: string; workerBuildId: string; receiptMaxAgeSec: number;
+}, nowMs = Date.now()): JsonRecord {
   if (!config.keyId || !config.publicKeyPem || !config.workerBuildId) {
     throw new VerifiedReceiptError("verifier_receipt_auth_not_configured", 503);
   }
@@ -38,6 +38,12 @@ export function verifyStandard1v1Receipt(receipt: SignedVerifierReceipt, config:
     key: config.publicKeyPem, dsaEncoding: "ieee-p1363"
   }, signature)) throw new VerifiedReceiptError("verifier_receipt_signature_invalid");
   const payload = receipt.payload;
+  const verifiedAt = String(payload.verified_at ?? "");
+  const verifiedAtMs = new Date(verifiedAt).getTime();
+  if (!Number.isFinite(verifiedAtMs) || verifiedAtMs > nowMs + 5_000
+    || nowMs - verifiedAtMs > config.receiptMaxAgeSec * 1_000) {
+    throw new VerifiedReceiptError("verifier_receipt_stale");
+  }
   const placements = Array.isArray(payload.placements) ? payload.placements.map(record) : [];
   const playerIds = placements.flatMap((group) => Array.isArray(group.player_ids) ? group.player_ids.map(String) : []);
   if (payload.result_schema_version !== 1 || !isUuidV7(String(payload.result_id ?? ""))
@@ -51,7 +57,7 @@ export function verifyStandard1v1Receipt(receipt: SignedVerifierReceipt, config:
     || !/^[0-9a-f]{64}$/.test(String(payload.command_log_hash ?? ""))
     || !Number.isSafeInteger(payload.elapsed_sim_ticks) || Number(payload.elapsed_sim_ticks) < 0
     || !String(payload.sim_build_id ?? "") || !String(payload.worker_build_id ?? "")
-    || !validIso(String(payload.verified_at ?? ""))
+    || !validIso(verifiedAt)
     || payload.worker_build_id !== config.workerBuildId || payload.verifier_key_id !== config.keyId) {
     throw new VerifiedReceiptError("verifier_receipt_binding_invalid");
   }

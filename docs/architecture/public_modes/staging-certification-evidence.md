@@ -1,0 +1,625 @@
+# Public Modes Staging Certification Evidence
+
+- Status: `P5 PASS — P6 BLOCKED — P7 HOLD`
+- Public enablement: `HOLD`
+- Mutation/economy enablement: `HOLD`
+- Branch: `sprint/staging-certification`
+- Branch base: `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`
+- Started: 2026-07-20
+
+This is the append-only summary for work performed under
+[the staging certification plan](staging-certification-plan.md). `PASS` is used
+only for observed evidence. `BLOCKED` records a verified missing prerequisite;
+other planned work remains `NOT RUN`.
+
+## Decision matrix
+
+| Phase | Status | Evidence anchor | Blocking item |
+| --- | --- | --- | --- |
+| P0 repository/control baseline | `PASS` | This document | — |
+| P1 environment inventory | `PASS` | Render inventory and immutable candidate below | — |
+| P2 database recovery rehearsal | `PASS` | [P2 runbook](staging-certification-p2-runbook.md) | — |
+| P3 all-off deployment | `PASS` | Immutable deploy/rollback table below | — |
+| P4 remote config/operations | `PASS` | All-false revision/alert evidence below | — |
+| P5 authority/workers | `PASS` | Exact candidate, managed matrix, and containment below | — |
+| P6 physical device matrix | `BLOCKED` | Redacted device/build inventory below | Three additional physical devices and signed client builds |
+| P7 canary recommendation | `HOLD` | P0–P6 summary below | P6 and separate product-owner decision |
+
+## P0 repository/control baseline
+
+### Repository identity
+
+| Check | Observed value | Result |
+| --- | --- | --- |
+| Branch base | `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90` | `PASS` |
+| Base contains Public Modes exit handoff | Merge commit `b9c35e5` | `PASS` |
+| Base synchronized with `origin/main` at branch creation | Exact SHA match | `PASS` |
+| Release Readiness for exact base | GitHub Actions run `29749297605`, SHA `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90` | `PASS` |
+| Prior integrated Public Modes certification | Run `29722881367`, SHA `1e03a70dd9c5a63351e8f09a09d93bfabe06a4dc` | `PASS` |
+
+The exact-base run remains the P0 gate even though the branch delta from the
+previous green revision is documentation-only.
+
+Exact-base run `29749297605` completed successfully on the home runner from
+2026-07-20T15:26:16Z through 2026-07-20T15:53:42Z:
+
+- MVP smoke: 26 passed, 0 failed;
+- PR contract: 31 passed, 0 failed, 29 delegated runtime rows skipped;
+- PR boot/runtime: 24 passed, 0 failed, 5 invalid rows skipped;
+- deterministic PR soak: 18 passed, 0 failed, seeds 123–124; and
+- final result: `RELEASE_READINESS_PASS`.
+
+Branch-head run `29757549846` independently completed successfully at revision
+`e8265616a0ce611b6490d719fc1ad019effaea18` from 2026-07-20T15:59:22Z through
+2026-07-20T16:26:48Z. It reported the same result counts and final
+`RELEASE_READINESS_PASS`, confirming the certification documentation, timeout,
+and redacted preflight changes are green on the published branch.
+
+### Named owners
+
+| Role | Named owner/operator | Status |
+| --- | --- | --- |
+| Product owner | Matthew Ballou | Accountable |
+| Repository operator | Codex, operating under Matthew Ballou's authorization | Acting |
+| Environment operator | Matthew Ballou | Accountable |
+| Database operator | Matthew Ballou | Accountable |
+| Deployment operator | Matthew Ballou | Accountable |
+| Security/credential owner | Matthew Ballou | Accountable |
+| Device-test operator | Matthew Ballou | Accountable |
+| Evidence reviewer | Matthew Ballou | Accountable; independent second reviewer preferred for P7 |
+
+One person may hold multiple roles under the execution plan. Separation of
+duties is not a P1 prerequisite, but the P7 recommendation should seek a second
+reviewer if one is available before any public `GO` decision.
+
+### Repository-visible default-off checks
+
+| Check | Source | Result |
+| --- | --- | --- |
+| Bundled Public Modes flags false | `data/ops/ops_config_defaults.json` | `PASS` |
+| Sample remote Public Modes flags false | `data/ops/ops_config_remote_sample.json` | `PASS` |
+| Rank staging blueprint auto-deploy disabled | `render.yaml` | `PASS` |
+| Rank mutation/reset/verified/public leaderboard caps false | `render.yaml` | `PASS` |
+| Release Readiness workflow contains testing/artifact work, not deployment | `.github/workflows/release-readiness.yml` | `PASS` |
+
+These checks describe repository files only. External dashboard settings must be
+reconfirmed and recorded during P1; repository evidence cannot prove them.
+
+At 2026-07-20T17:41:45Z, the authenticated Render CLI independently reported
+`autoDeploy: no` and `autoDeployTrigger: off` for both existing web services,
+`SF` and `entap-identity-rank-staging`. This read-only provider result closes
+the external P0 gate. No deployment, restart, or service setting was changed.
+
+### Local PR-tier supplemental evidence
+
+The work Mac ran the same PR-tier workload locally on 2026-07-20. The original
+wrapper stopped during soak because its 1,800-second matrix budget expired; no
+scenario failure was reported. Boot routes had consumed 1,537.842 seconds,
+leaving too little time for the declared two-seed soak workload. This branch
+raises only the PR matrix wrapper to a bounded 2,700 seconds and preserves every
+scenario and repetition.
+
+The interrupted stages and an independent completion of the soak stage produced:
+
+| Stage | Result | Detail |
+| --- | --- | --- |
+| MVP smoke | `PASS` | 26 passed, 0 failed |
+| PR contract | `PASS` | 31 passed, 0 failed, 29 intentionally skipped delegated runtime rows |
+| PR boot/runtime routes | `PASS` | 24 passed, 0 failed, 5 intentionally skipped invalid rows |
+| PR deterministic soak | `PASS` | 18 passed, 0 failed, seeds 123–124 |
+| Original wrapper | `TIMEOUT` | 1,800-second infrastructure budget; not a scenario failure |
+| Updated wrapper syntax/help | `PASS` | PR budget 2,700 seconds |
+
+The local reports are supplemental. The exact-base GitHub push workflow remains
+the P0 authority.
+
+### Scheduled nightly diagnostic
+
+Scheduled run `29745742713` exercised the prior integrated revision
+`1e03a70dd9c5a63351e8f09a09d93bfabe06a4dc`. Its full matrix passed: 31 contract
+checks, 24 boot/runtime rows, and 72 soak runs, all with zero failures. The
+workflow then failed the separate legacy performance soak because observed
+maximum process time was 54.30 ms against 45.00 ms and maximum tick time was
+172.70 ms against 8.00 ms. The Godot process exited normally.
+
+This is a disclosed performance diagnostic, not a Public Modes contract or
+determinism failure. Performance Harness V1 remains an independent review; the
+nightly result is not used to waive the exact-base push gate.
+
+### P0 open items
+
+- [x] Exact-base Release Readiness run completes successfully.
+- [x] Environment owner recorded.
+- [x] Database owner recorded.
+- [x] Deployment operator recorded.
+- [x] Security/credential owner recorded.
+- [x] Device-test operator recorded.
+- [x] Evidence reviewer recorded.
+- [x] External auto-sync/auto-deploy posture reconfirmed without recording secrets.
+
+## P1 environment inventory
+
+Status: `PASS`
+
+Record service/region identifiers, immutable artifact identities, redacted
+capability values, credential trust roles, database recovery capabilities,
+alert destination, retention, and rollback targets here.
+
+### Render resource inventory
+
+The environment operator authenticated the official Render CLI and selected
+`Matt's workspace`. The following provider data was read at
+2026-07-20T17:41:45Z. No sensitive connection strings or environment-variable
+values were requested or recorded.
+
+| Role | Render target | Placement / region | Current live revision | Prior rollback revision | Observed posture |
+| --- | --- | --- | --- | --- | --- |
+| VS | `SF` (`srv-d7uho16gvqtc73feh9s0`) | `My project` / `Production`; Oregon | Deploy `dep-d90aqv8jo6nc73cgdae0`; `676b70e839377b18aed9d2ff1cd5c8c0906c575f` | Deploy `dep-d905p6e7r5hc73b6ktn0`; `9bba4153fe726f88ba3b7aa3fae770faf2c64a53` | Free web service; branch `main`; auto-deploy off; public ingress; no configured health path |
+| Rank | `entap-identity-rank-staging` (`srv-d8uqramrnols73fjl820`) | Not assigned to a project environment; Oregon | Deploy `dep-d9akqmlaeets73bp7n6g`; `73fbc032a6c0edb03908d6deb0f50ca10882621b` | Deploy `dep-d8uqrb6rnols73fjl8u0`; `2c9d8c2911f7bbc57f5cd2e119c67752c7b1d81b` | Starter web service; branch `main`; auto-deploy off; public ingress; health path `/health` |
+| PostgreSQL | `entap-identity-rank-staging-db` (`dpg-d8uqqq6rnols73fjkoag-a`) | Not assigned to a project environment; Oregon | PostgreSQL 18; status `available` | PITR/backup details not yet exercised | `basic_256mb`; 15 GB; no HA; disk autoscaling off; external allow list currently `0.0.0.0/0` |
+| Match authority | None found | — | — | — | `MISSING` for certification topology |
+
+The VS service's two newest deployment attempts failed; the currently live
+revision is the older successful `676b70e8` deployment shown above. Rank's
+current deployment is live. These are inventory facts, not candidates approved
+for P3.
+
+The only Render project environment is `My project` / `Production`. It is
+unprotected, cross-environment network isolation is disabled, and it contains
+only the VS service. Rank and PostgreSQL are workspace-level resources outside
+that environment. This confirms that the existing layout is not the isolated
+certification topology proposed for P2–P6.
+
+### Immutable certification candidate
+
+The deployment branch `deploy/staging-cert-20260720` is pinned at
+`1beb3553f2e619fe41ae88e4cb2be71695b4f3e0`. It is not advanced with the
+certification evidence branch. Its runtime tree differs from the exact green
+base `b9c35e5` only by release-readiness timeout and staging-preflight scripts;
+gameplay, service, map, configuration, and Render runtime files are unchanged.
+
+| Candidate input | Selected identity | SHA-256 |
+| --- | --- | --- |
+| VS source archive | Git tree under `tools/vs-service` at `1beb355` | `55cccabc683055d8fb5d460cdfffb878d9bd94b25d20be4313b8a53928327760` |
+| Rank source archive | Git tree under `tools/rank-service` at `1beb355` | `474a226f3286042b6d347f43f4799522c428aa47e69e4ef70f51d48e326711ca` |
+| Authority source archive | `tools/match-authority` plus replay entrypoint at `1beb355` | `1aab33cd811fdce38ea7f51fefb3c86d40e6a0d33e13398da9888eec38a1055a` |
+| Godot simulation archive | `project.godot`, `scripts`, and replay entrypoint at `1beb355` | `01e2166ddf471d8bb494d3ec80699e12b41cdc2d57c60344200e987d5f083578` |
+| Client source archive | project, export settings, scripts, scenes, data, and maps at `1beb355` | `93cf3b5d06c355a2ca2edb7cc40fb56c8bb03de29d4d6ab04240af19db983a2e` |
+| Client build | Export build `2026071701`; short version `0.1.1` | Source archive above; signed binary digest deferred to P6 |
+| Simulation build | Godot `4.2.stable.official.46dc27791`; ID `sf-sim-1beb355` | Simulation archive above |
+| Standard 1v1 map | `MAP_closequarters__CQ2__1p` | `325e97a6677eb32e2f396fa9077b614c76a2150dad960243e8ae00b55909d14a` |
+| Standard rules | `standard-v1` | `d7a78887b71c7d010db1b8ea1af84aa847ca877644878f6c3a0d96aed26aa57c` |
+| Authority worker | ID `authority-worker-1beb355` | Authority source archive above; deployed artifact ID deferred to P5 |
+
+Render native builds do not have a provider artifact or deploy ID before they
+exist. P3 and P5 must bind each service to the pinned deployment branch and add
+its actual deploy ID to this record. The signed Godot binary remains a P6
+artifact. These are staged evidence handoffs, not mutable identity gaps.
+
+### Isolated target topology
+
+| Role | Exact target | Required posture before first use |
+| --- | --- | --- |
+| Environment | `My project` / `Certification` | Protected; network isolation requested; provider-plan rejection is a hard stop |
+| VS | `swarmfront-cert-vs` | Oregon; `deploy/staging-cert-20260720`; manual deploy; all capabilities false |
+| Rank | `swarmfront-cert-rank` | Oregon; same pinned branch; manual deploy; all mutation/public caps false |
+| Match authority | `swarmfront-cert-authority` | Oregon background worker; pinned worker/sim/content manifest; no public ingress |
+| Primary rehearsal database | `swarmfront-cert-db` | Paid PostgreSQL 18; isolated from existing Rank data; external access restricted |
+| Fresh restore target | `swarmfront-cert-db-restore` | Empty paid PostgreSQL 18; temporary P2 restore/comparison target |
+
+No existing service or database is moved into this environment. The existing
+`SF`, `entap-identity-rank-staging`, and
+`entap-identity-rank-staging-db` resources are read-only reference inventory
+and are not migration, deployment, or recovery targets.
+
+### Capability and credential posture
+
+The Render API was queried locally and filtered before output so secret values
+were never printed. All 27 VS capability variables and all four Rank capability
+variables are absent on the existing services and therefore use their explicit
+false code defaults. The target services will set every one of these values to
+`false` rather than relying on absence.
+
+Credential presence on the existing services is redacted:
+
+| Service | Present | Absent |
+| --- | --- | --- |
+| VS | Legacy match-authority token | Database URL, admin token, verifier worker token/public key, player public key, VS-to-Rank private key |
+| Rank | Database URL, Rank API token | Player signing pair, VS-to-Rank public key, verifier public key |
+
+The target uses newly generated, certification-only credentials. No existing
+credential is copied. Production-mode Rank refuses to start without its API
+token and database URL; protected VS routes reject empty admin, authority, and
+worker credentials; the authority worker exits with
+`match_authority_not_configured` when any required worker/signing/artifact
+credential is missing. This is the required fail-closed posture.
+
+### Credential trust map
+
+| Trust boundary | Private credential holder | Verifier / consumer | Scope |
+| --- | --- | --- | --- |
+| Player identity | Certification Rank only | VS receives public key only | Short-lived player/session JWTs |
+| Ops admin | Environment operator only; injected into VS | VS admin endpoints | P4 config, reconciliation, rollback |
+| VS-to-Rank | VS settlement worker only | Rank receives public key only | Verified result settlement |
+| Authority worker lease | VS and authority worker | VS verification endpoints | Lease/complete/fail jobs only |
+| Verifier signing | Authority worker only | VS and Rank receive public key only | Detached ES256 result receipts |
+| Database | Render secret manager; service-specific roles | VS and Rank migration/runtime clients | Separate schemas/permissions; no client access |
+
+Player, admin, authority, verifier, VS-to-Rank, and database credentials are
+distinct. Godot clients receive only public player-verification material and
+public service URLs; they never receive admin, worker, signing-private, Rank, or
+database credentials.
+
+### Recovery, alerting, retention, and commands
+
+- P2 source is a new empty paid PostgreSQL 18 certification database, not a
+  clone of live user data. A provider logical export and PITR recovery instance
+  are the backup/restore evidence. Paid Render PostgreSQL provides PITR; use the
+  conservative Hobby minimum of three days unless the Billing page proves the
+  seven-day Pro window. Provider logical exports retain for seven days.
+- The restore target is `swarmfront-cert-db-restore`. Database exports remain
+  outside Git; only provider IDs, timestamps, bounded counts, and SHA-256
+  digests enter this evidence record.
+- Platform alert destination is the Render workspace-owner email with all
+  notifications selected for certification services. Application alert rows
+  remain support-visible in the authenticated P4 dashboard and must prove a
+  real open/resolve cycle there.
+- Use the conservative Hobby log and metric retention of seven days unless the
+  provider reports a longer plan window. Evidence needed beyond that window is
+  hashed and indexed outside raw service logs.
+- Rollback revisions are the pinned candidate's immediately preceding live
+  deploys recorded in the Render inventory. New certification services have no
+  prior deploy until P3; their first known-good all-off deploy becomes the
+  rollback target before any P4 configuration publication.
+
+Exact redacted preflight and health commands:
+
+```bash
+scripts/dev/run_staging_certification_preflight.sh --environment
+curl --fail --silent --show-error "$VS_HEALTH_URL/health"
+curl --fail --silent --show-error "$RANK_HEALTH_URL/health"
+```
+
+Capability and credential variables for the preflight are supplied only by the
+operator's local environment or provider secret manager. URLs and secrets are
+never committed.
+
+### Read-only discovery completed during P0
+
+- GitHub exposes environments named `main - entap-identity-rank-staging` and
+  `main - entap-identity-rank-staging-db`.
+- The latest repository-visible Rank staging deployment is deployment
+  `5431008160`, revision `73fbc032a6c0edb03908d6deb0f50ca10882621b`,
+  recorded successful on 2026-07-13. It is not the staging candidate for this
+  sprint.
+- Repository Actions variables and Actions secrets lists are empty. This says
+  nothing about provider-managed secrets.
+- At initial discovery this work machine had no Render CLI/API identity and no
+  VS/Rank database or staging endpoint variables present. The CLI is now
+  authenticated; no secrets have been copied into the repository or evidence.
+- No repository-visible VS or match-authority deployment environment was found.
+- `scripts/dev/run_staging_certification_preflight.sh` passes the repository and
+  local environment checks, reports all local capability variables absent with
+  false code defaults, and reports credential presence only as absent. A
+  deliberate `VS_ENABLE_PUBLIC_1V1=true` test fails closed as required.
+
+The P1 inventory is complete. Actual environment/resource creation begins in
+P2 under the explicit product-owner authorization issued on 2026-07-20.
+
+## P2 database migration and recovery
+
+Status: `PASS`
+
+The protected, network-isolated `Certification` environment was created as
+`evm-d9f68mos116c738bmf60`. Two new paid PostgreSQL 18 instances were created
+inside it; no existing service or database was changed:
+
+| Role | Provider ID | Result |
+| --- | --- | --- |
+| Migration source | `dpg-d9f68vn7f7vs73c0tal0-a` | `PASS` |
+| Fresh restore/interruption target | `dpg-d9f6chgs116c738bsdv0-a` | `PASS` |
+
+All 11 VS and six Rank migrations applied from exact candidate `1beb355`, then
+reapplied idempotently. Source, restored, and recovered schema fingerprints are
+identical at
+`e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3`.
+All bounded table counts matched. The only seed rows are one Rank audit row and
+two Crucible account rows created by the migrations.
+
+The controlled restore-target restart took 43 seconds to real SQL connectivity
+and 51 seconds to complete verification. Render reported `available` after
+seven seconds while TLS connections still failed; future restart checks must
+use SQL connectivity rather than provider status alone. Full commands, backup
+digests, preservation families, failure history, and timing are recorded in the
+[P2 runbook](staging-certification-p2-runbook.md).
+
+## P3 manual all-off deployment
+
+Status: `PASS`
+
+Three new Starter services were created inside protected, network-isolated
+Render environment `Certification` (`evm-d9f68mos116c738bmf60`). All use
+manual deployment (`autoDeploy: no`) in Oregon. Rank and VS are web services
+with `/health`; the authority is a background worker with no ingress. The two
+existing web services and existing Rank database remained on their exact P1
+deploy/provider identities throughout P3.
+
+### Build and permission failure history
+
+The first baseline builds failed safely before runtime because
+`NODE_ENV=production` caused `npm ci` to omit TypeScript and other build-only
+dependencies. All three build commands were corrected to
+`npm ci --include=dev && npm run build`; runtime remains in production mode.
+Rank's first corrected runtime start then failed at the non-mutating
+`CREATE TABLE IF NOT EXISTS schema_migrations` probe because its restricted role
+lacked PostgreSQL schema `CREATE`. The certification Rank role received that
+permission because Rank owns its startup migration procedure; VS remains
+restricted to its `vs_*` tables and sequences. No migration was pending or
+applied during P3. These failed deploys never became live.
+
+The redacted provisioner is
+`scripts/dev/provision_staging_certification_p3.rb`. It generates separate
+player, admin, VS-to-Rank, worker, verifier, and database credentials in memory,
+creates service-specific database roles, and refuses to rotate those roles if
+any target service already exists.
+
+### Immutable deployment identities
+
+The remote rollback branch `deploy/staging-cert-baseline-20260720` is pinned at
+the exact green base `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`. The
+candidate branch remains pinned at
+`1beb3553f2e619fe41ae88e4cb2be71695b4f3e0`.
+
+| Role | Service ID | Known-good baseline deploy | First candidate deploy | Final restored candidate deploy |
+| --- | --- | --- | --- | --- |
+| Rank | `srv-d9f6j1l7vvec73foama0` | `dep-d9f6mlbbc2fs73983ccg` at `b9c35e5` | `dep-d9f6o9t7vvec73fokpu0` at `1beb355` | `dep-d9f6ud37uimc73aq0570` at `1beb355` |
+| VS | `srv-d9f6j25aeets73ci1fjg` | `dep-d9f6l9b7uimc73apggig` at `b9c35e5` | `dep-d9f6o9n7f7vs73c1vd0g` at `1beb355` | `dep-d9f6skv7f7vs73c27tmg` at `1beb355` |
+| Authority | `srv-d9f6j2gs116c738c7er0` | `dep-d9f6l9f7f7vs73c1paag` at `b9c35e5` | `dep-d9f6o9j7uimc73aplr70` at `1beb355` | `dep-d9f6qrgs116c738cjec0` at `1beb355` |
+
+At exit, all three services reported the candidate branch, `autoDeploy: no`,
+and the final `1beb355` deploy above as `live`.
+
+### All-off and authentication evidence
+
+Provider-side environment inspection found all 27 canonical VS capability
+variables explicitly `false`, plus `VS_SPECTATOR_ENABLED=false` and
+`VS_SPECTATOR_DEV_OPEN=false`. All four Rank capability variables and the Rank
+debug-action gate are explicitly `false`. Health reported every public,
+durable-route, verification, remote-config, spectator-live, rank, contest,
+reward, bot-fallback, and economy result false after baseline deployment,
+candidate deployment, restart, rollback, and restoration.
+
+Observed fail-closed HTTP results:
+
+| Probe | Expected/observed result | Status |
+| --- | --- | --- |
+| Rank public leaderboard while disabled | `503 public_leaderboards_disabled` | `PASS` |
+| Rank admin details with missing bearer | `401 unauthorized` | `PASS` |
+| Rank admin details with wrong bearer | `401 unauthorized` | `PASS` |
+| VS public 1v1 enqueue while disabled | `503 authenticated_1v1_slice_disabled` | `PASS` |
+| Correctly signed player JWT with wrong audience | `401 token_issuer_or_audience_invalid` | `PASS` |
+| Correct VS admin credential with wrong role | `401 admin_auth_required` | `PASS` |
+| Rank admin credential presented to VS admin route | `401 admin_auth_required` | `PASS` |
+
+No credential value, private key, or database connection string was printed or
+committed.
+
+### Restart, rollback, and preservation
+
+Each candidate service produced an observed provider restart event. Rank and VS
+returned healthy; the no-ingress authority returned provider-live. Ten seconds
+after all restarts, health remained all-off and the database fingerprint/counts
+were unchanged.
+
+| Role | Rollback deploy | Baseline verification | Measured rollback | Candidate restoration |
+| --- | --- | --- | ---: | --- |
+| Authority | `dep-d9f6qej7uimc73appla0` | `b9c35e5`, provider-live, no ingress | 52 s | `dep-d9f6qrgs116c738cjec0`, live |
+| VS | `dep-d9f6s53rjlhs73dlupsg` | `b9c35e5`, health pass, all caps false | 62 s | `dep-d9f6skv7f7vs73c27tmg`, health pass |
+| Rank | `dep-d9f6u01kh4rs73d8dlig` | `b9c35e5`, health pass, all caps false | 53 s | `dep-d9f6ud37uimc73aq0570`, health pass |
+
+The post-restoration database schema SHA-256 remains
+`e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3`.
+`schema_migrations=17`, `rank_audit_events=1`, and
+`vs_crucible_accounts=2`; all other application-table counts remain zero.
+These bounded values are the authoritative all-off persistence fingerprint for
+P3. The existing VS deploy `dep-d90aqv8jo6nc73cgdae0`, existing Rank deploy
+`dep-d9akqmlaeets73bp7n6g`, and existing Rank database provider `updatedAt`
+`2026-06-25T22:36:25.431367Z` remained unchanged.
+
+The authority worker was certified here only as an all-off, no-ingress service
+process. Its pinned Godot binary and real artifact manifest are intentionally a
+P5 gate; P3 does not claim that it can yet execute a replay job.
+
+## P4 remote configuration and operations
+
+Status: `PASS`
+
+Only `VS_ENABLE_REMOTE_OPS_CONFIG=true` and
+`VS_OPS_RECONCILE_INTERVAL_MS=60000` changed from the P3 provider environment.
+The manual config transition deployed exact candidate `1beb355` as
+`dep-d9f7578s116c738d4mf0`; auto-deploy remained off. All public, durable-route,
+verification, rank, reward, spectator-live, bot-fallback, and economy caps
+remained false.
+
+With no active revision, the public endpoint returned
+`NO_ACTIVE_REMOTE_CONFIG`, 16 false flags, minimum build zero, and
+`Cache-Control: public, max-age=15, must-revalidate`. Negative publication
+tests rejected an unknown flag, a non-boolean flag, malformed expiry, and a
+missing idempotency key with the expected 400 errors.
+
+### Append-only all-false history
+
+| Purpose | Revision ID | Config hash / result |
+| --- | --- | --- |
+| Omitted-field/expiry proof | `019f80f3-b4d3-7480-bace-1c6006dad757` | `08ab125fa83b8160465e062ad949d8e5e92c7b187c055f80bb39a5c61abea891`; omitted flags normalized false; expiry returned to `NO_ACTIVE_REMOTE_CONFIG` |
+| Primary all-false revision | `019f80f4-227f-7ab9-b553-eb2c9283019b` | `6453b4180dba435631dd6f2451dcf5d3f2510bb95b9f5908b8e138137be44076`; minimum build `2026071701`; duplicate request returned the same revision |
+| Cache/history successor | `019f80f4-d139-702b-8451-af10aea98a87` | Old weak ETag revalidated to the new all-false revision rather than serving stale config |
+| Append-only rollback | `019f80f4-d26c-74a4-8f3b-1a1924d8e65d` | `3151e14680bf2816a4acc8cf984ddbef42ee1963e78175eb138f8990bf562aa5`; `rollback_of` points to the primary revision |
+
+The final client-visible version is `p4-rollback-all-false-20260720-1`, source
+`REMOTE_AND_DEPLOYMENT_CAPS`, minimum build `2026071701`, and all 16 effective
+flags false. The server emits the config hash as a standards-valid weak ETag;
+revalidation returned the current revision.
+
+Manual reconciliation run `019f80f4-d203-72b6-aa6e-76b91d1a61cb` completed
+`OK`. Scheduled run `019f80f4-c459-78a1-acef-0368cedfd2a6` proved the 60-second
+job path. A controlled one-unit divergence in the isolated
+`system:issuance` account opened real CRITICAL alert
+`crucible_ledger_reconciliation` during run
+`019f80f5-6617-7525-900e-ae283c1052c8`. The exact original account value was
+restored, run `019f80f5-692f-734d-abdb-9c1c43b04e46` completed `OK`, and the
+authenticated dashboard showed the alert resolved. A later healthy scheduled
+run removed the resolved tombstone as designed.
+
+At the exit snapshot there were four immutable config revisions and seven
+reconciliation runs. The schema hash remained
+`e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3`;
+the two seed Crucible accounts and all non-ops P3 counts were preserved. No
+public or economic route was enabled or used.
+
+## P5 authority and workers
+
+Status: `PASS`
+
+### Exact candidate and artifacts
+
+The certified candidate is
+`60bef51e6a2e10fe60be05017053f8550df143c0`. Release Readiness run
+`29782481384` passed that exact SHA in 8m57s. The deployment branch
+`deploy/staging-cert-20260720` remains pinned to it and auto-deploy remains off.
+
+| Artifact | Immutable identity |
+| --- | --- |
+| VS source archive | `da660c16151e2d21fa32e733d514226e773c450810bc6bed3f00767cecea68c6` |
+| Rank source archive | `fb18f22191cc300f33e7214a6f43cc53f5f0bb08133b6a3b93a95d59cd5a0d3a` |
+| Authority source archive | `664230404700871d0e72d8f880427649a7657474b48da93442d5bdd43c47ec3d` |
+| Simulation archive | `b9a8b90f99dd142f7b90c12d698680a17af2e67c727d2a986c81e1f2dcd0fef0` |
+| Client archive | `4992a030e43f003352c23bf9844aac8edce7df3f261b8e6531cd2134a3b69764` |
+| Worker/simulation IDs | `authority-worker-60bef51`; `sf-sim-60bef51` |
+| Authority manifest | `66c84f08b8771551ab3cf7e49a9ecfd0afcca7fef53a89c23ecdabac8f7bee13` |
+| Map | `MAP_closequarters__CQ2__1p`; `325e97a6677eb32e2f396fa9077b614c76a2150dad960243e8ae00b55909d14a` |
+| Rules | `standard-v1`; `d7a78887b71c7d010db1b8ea1af84aa847ca877644878f6c3a0d96aed26aa57c` |
+| Verifier | key ID `sf-cert-verifier-20260720`; ES256; private key retained only in Render secrets |
+| Godot | Official 4.2.2 Linux x86_64; download SHA `69eb9881e1b82ab93924c83106a7c031497f252bc0c08e199e4da6380072d6ef` |
+
+Final exact P5 deployments were Rank `dep-d9f9qhbrjlhs739srt10`, VS
+`dep-d9f9qhe7r5hc73bsg9e0`, and authority `dep-d9f9qh8k1i2s73aormlg`.
+The final all-off revisions were VS `dep-d9fa2turnols73acnkkg` and authority
+`dep-d9fa2treo5us73836h9g`, still at exact `60bef51`.
+
+### Deployed and managed matrix
+
+Authority smoke job `job-d9f9sldaeets73bo5720` passed with deterministic state
+hash `1f1b5b8c77cc57fce7623ed6b5cd1a28ea176fcd95b1bd275f1517e54ebaab33`.
+It covered deterministic replay, the managed three-tick command lead, authored
+map normalization, wrong map, artifact path escape, command binding and
+ownership rejection, lifecycle forfeit/no-contest, visible CTF, and ES256
+signing.
+
+| Case | Managed result | Receipt/result boundary |
+| --- | --- | --- |
+| Positive replay | Job `019f819b-17b5-795e-a493-9f9db2a31717` `COMPLETED`; final hash `acef412b5d19007eb490f662b9ef15d740f2c3baa496ab9d358a1f6ed424078b` | One run, one receipt, `OBJECTIVE_COMPLETE` |
+| Wrong map | `019f819b-1bf7-73f3-a501-fb7d61aefbdd` `FAILED`, `ARTIFACT_UNAVAILABLE` | Zero receipts/results |
+| Wrong rules | `019f819b-1eae-7a41-b008-46827da7102c` `FAILED`, `ARTIFACT_UNAVAILABLE` | Zero receipts/results |
+| Wrong simulation | `019f819b-210c-7572-bada-4b08394071e6` `FAILED`, `SIM_BUILD_UNAVAILABLE` | Zero receipts/results |
+| Duplicate completion | `019f819b-24fd-71c1-bb27-e2d3ca5f7a02` remained `COMPLETED` after exact request replay | Still one run and one receipt |
+| Lease expiry/restart | `019f819b-27b7-753c-b8ab-a35314c5a1c3` leased by an exiting worker, then recovered | `COMPLETED` on attempt 2; one run and one receipt |
+| Disconnect forfeit | `019f81a2-8d0c-7981-93fe-5d0b177125fd` `COMPLETED` | One receipt; `FORFEIT_DISCONNECT` |
+| Simultaneous expiry | `019f81a2-8e95-709b-a993-b5de0dcd3143` `QUARANTINED` | One receipt; `NO_CONTEST` |
+
+Deployed Rank trust job `job-d9fa1pbbc2fs73b29nn0` accepted the intended
+ES256 service/receipt identities and rejected wrong issuer, audience, subject,
+service key, verifier key, worker build, forged signature, stale receipt, and
+future receipt. Exact-head Release Readiness also passed the embedded duplicate
+Rank settlement/idempotency smoke.
+
+The first managed attempt correctly failed closed and exposed that the P5
+fixture requested tick 1 while the durable repository enforces a three-tick
+lead. Commit `60bef51` shifted only the certification schedule by two ticks and
+added a two-replay smoke assertion before rerun. Earlier pre-fix replay and
+operator-command failures, including the Render env pagination recovery and
+one malformed lease-only command (`job-d9f9v1taeets73bo9ml0`), remain retained
+in provider logs; none produced a receipt, result, rank mutation, or economy
+mutation.
+
+### Mutation boundary and containment
+
+Before and after P5, Rank had zero players, zero processed events, total Wax
+zero, and one unchanged seed audit. Crucible retained two seed accounts with
+aggregate balance zero; transactions, escrows, journal entries, settlements,
+refunds, and reversals remained zero. Contest attempts/results/evidence, Rank
+settlement jobs/attempts, and outbox rows remained zero. Honey and Crucible
+service ledger files were absent both before and after. Verification-only state
+grew as expected to 10 contracts, 165 commands, 14 recorded runs, five terminal
+results, and five signed receipts; idempotency receipts grew from 1 to 10 for
+the staged contract writes.
+
+At exit, Rank/VS health reported exact `60bef51`; all public, rank, contest
+reward, and economy capabilities were false. The three private P5 gates were
+restored false, authority tier returned to `RELAY_ATTESTED`, and VS durable-core
+storage reported disabled. The authority service is user-suspended with
+auto-deploy off.
+
+
+## P6 physical devices
+
+Status: `BLOCKED`
+
+The redacted inventory contains one physical iPhone on iOS 26.5.2, no connected
+Android device, and no signed `.ipa`, `.apk`, or `.aab` candidate. Simulators do
+not satisfy this gate. The required two-iOS/two-Android mixed-platform and
+four-seat cells therefore cannot run, and no product-owner limitation has been
+accepted. Unique device identifiers were intentionally not recorded.
+
+## P7 decision
+
+Status: `HOLD`
+
+P0–P5 pass, but P6 is blocked. The recommended eventual first candidate remains
+non-economic Standard 1v1 with a bounded audience and duration, existing alert
+and rollback owners, and immediate termination on authority/receipt,
+reconnect/seat, or mutation-boundary failure. No public mode or
+mutation/economy capability is authorized without a separate product-owner
+`GO` after P6.
+
+## Artifact index
+
+| Artifact | External ID | SHA-256 | Created UTC | Retention | Owner |
+| --- | --- | --- | --- | --- | --- |
+| Local MVP smoke log | `/tmp/swarmfront_mvp_smoke.log` | `65ceaf30d5a3502c42f0f451577af66fc7fb2e1989a014125e179c80c8957fb7` | 2026-07-20T15:07:08Z | Ephemeral work machine | Repository operator |
+| Local PR contract report | `artifacts/player_config_matrix/latest.json` | `99ecf4846a6464bcd8bc9b5590dd43f19bb9d4ab8d2be5afb0d33b201262473d` | 2026-07-20T14:51:44Z | Ephemeral work machine | Repository operator |
+| Local PR boot report | `artifacts/player_config_matrix/boot_routes_latest.json` | `0b712221c9fe3ebfa83b115f43f3c41daa70b2a08ced809411300ddeebecd7e2` | 2026-07-20T15:17:39Z | Ephemeral work machine | Repository operator |
+| Local PR soak report | `artifacts/player_config_matrix/soak_latest.json` | `1a351cd52f389f525f06cec12164ff42e76494461d981c37ea838af30a990c50` | 2026-07-20T15:37:27Z | Ephemeral work machine | Repository operator |
+| Exact-base PR matrix | GitHub artifact `8467182728` | `7ac3f3aa69b67cd10adc6e63e315eefe82ae1e9d546f64891705bc62faa95d60` | 2026-07-20T15:53:36Z | 2026-10-18 | GitHub Actions |
+| Exact-base smoke logs | GitHub artifact `8467183582` | `8f937c28c43288429d163fa86e468bd6faca8d599cdcb027ebcfc55e761ebf9c` | 2026-07-20T15:53:37Z | 2026-10-18 | GitHub Actions |
+| Branch-head PR matrix | GitHub artifact `8468173706` | `52ee41c38098216305fda12d7e2730313bba57012d40557fb23a693027d4a656` | 2026-07-20T16:26:42Z | 2026-10-18 | GitHub Actions |
+| Branch-head smoke logs | GitHub artifact `8468174477` | `8411b73458477a5512be5d2822d58cd6ad9445a8f4bf6a412a847e7359bc6286` | 2026-07-20T16:26:44Z | 2026-10-18 | GitHub Actions |
+| Scheduled nightly matrix | GitHub artifact `8466303731` | `e09237236837e5811fb2153d1c00284f2fa3c70b5e402f51492ccac08a93dc05` | 2026-07-20T15:26:07Z | 2026-10-18 | GitHub Actions |
+| Scheduled nightly smoke logs | GitHub artifact `8466304673` | `3e9fbd55866cfe4b3242830cf8e9a7f1d58b32ec4c21db9151ad3ecc99f49db8` | 2026-07-20T15:26:09Z | 2026-10-18 | GitHub Actions |
+| P2 local PostgreSQL 18 dump | Temporary external file; source `dpg-d9f68vn7f7vs73c0tal0-a` | `a9e39db57dc449484d6669bc2980277dc746dc516ba7a0c54cf947314ba2039d` | 2026-07-20T18:17Z | Ephemeral; provider export/PITR are retained copies | Database operator |
+| P2 Render logical export | `dpg-d9f68vn7f7vs73c0tal0-a/2026-07-20T18:17Z` | `e101d71937d2bf4068cc4df5ef713894211beb37ed6b2d275d6239dc4fe022de` | 2026-07-20T18:17Z | Render 7-day export window | Database operator |
+| P3 Rank candidate deploy | `dep-d9f6ud37uimc73aq0570` | `474a226f3286042b6d347f43f4799522c428aa47e69e4ef70f51d48e326711ca` | 2026-07-20T18:57Z | Render deploy/log retention | Environment operator |
+| P3 VS candidate deploy | `dep-d9f6skv7f7vs73c27tmg` | `55cccabc683055d8fb5d460cdfffb878d9bd94b25d20be4313b8a53928327760` | 2026-07-20T18:54Z | Render deploy/log retention | Environment operator |
+| P3 authority candidate deploy | `dep-d9f6qrgs116c738cjec0` | `1aab33cd811fdce38ea7f51fefb3c86d40e6a0d33e13398da9888eec38a1055a` | 2026-07-20T18:50Z | Render deploy/log retention | Environment operator |
+| P4 VS remote-ops deploy | `dep-d9f7578s116c738d4mf0` | `55cccabc683055d8fb5d460cdfffb878d9bd94b25d20be4313b8a53928327760` | 2026-07-20T19:13Z | Render deploy/log retention | Environment operator |
+| P4 final all-false config | `019f80f4-d26c-74a4-8f3b-1a1924d8e65d` | `3151e14680bf2816a4acc8cf984ddbef42ee1963e78175eb138f8990bf562aa5` | 2026-07-20T19:15Z | Certification database retention | Environment operator |
+| P5 exact-head matrix | GitHub artifact `8477351302` | `abca20b39ad2df407fb3e52a0d2b9e8bfce968f2312e09022b57269e6b632eba` | 2026-07-20T22:11:21Z | 2026-10-18 | GitHub Actions |
+| P5 exact-head smoke logs | GitHub artifact `8477351910` | `4cb02b381b4a82e846f4aae9c8389972d7c530d326849f4d4b578f48ce8dc27a` | 2026-07-20T22:11:23Z | 2026-10-18 | GitHub Actions |
+| P5 authority manifest | `dep-d9f9qh8k1i2s73aormlg/.authority/cert-manifest.json` | `66c84f08b8771551ab3cf7e49a9ecfd0afcca7fef53a89c23ecdabac8f7bee13` | 2026-07-20T22:16Z | Render deploy retention | Environment operator |
+| P5 Rank exact deploy | `dep-d9f9qhbrjlhs739srt10` | `fb18f22191cc300f33e7214a6f43cc53f5f0bb08133b6a3b93a95d59cd5a0d3a` | 2026-07-20T22:14Z | Render deploy/log retention | Environment operator |
+| P5 VS final all-off deploy | `dep-d9fa2turnols73acnkkg` | `da660c16151e2d21fa32e733d514226e773c450810bc6bed3f00767cecea68c6` | 2026-07-20T22:33Z | Render deploy/log retention | Environment operator |
+| P5 authority final all-off deploy | `dep-d9fa2treo5us73836h9g` | `664230404700871d0e72d8f880427649a7657474b48da93442d5bdd43c47ec3d` | 2026-07-20T22:34Z | Render deploy/log retention | Environment operator |
+
+Never put credentials, private keys, connection strings, raw database exports,
+unredacted device identifiers, or user identifiers in this index.
+
+## Limitations and maintenance outside this sprint
+
+- Performance Harness V1 remains on its independent review branch and is not
+  part of this staging branch.
+- The future Corkscrew fixture opening-lane diagnostic remains separate map
+  maintenance and is not selected by a Public Modes contract.
+- Pre-existing Godot shader, resource UID, NUL-map, and teardown diagnostics are
+  tracked separately unless their behavior changes during certification.
+- GitHub action-version maintenance is separate unless it prevents the exact
+  certification workflow from running.

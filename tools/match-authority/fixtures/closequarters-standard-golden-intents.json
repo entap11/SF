@@ -1,0 +1,23 @@
+{
+  "map_id": "MAP_closequarters__CQ2__1p",
+  "source": "pinned authority replay raider:medium vs idle seat 2",
+  "expected_winner_seat": 1,
+  "intents": [
+    { "execute_tick": 1, "seat_id": 1, "src": 4, "dst": 2, "intent": "attack" },
+    { "execute_tick": 3, "seat_id": 1, "src": 4, "dst": 3, "intent": "attack" },
+    { "execute_tick": 185, "seat_id": 1, "src": 2, "dst": 5, "intent": "attack" },
+    { "execute_tick": 187, "seat_id": 1, "src": 3, "dst": 8, "intent": "attack" },
+    { "execute_tick": 189, "seat_id": 1, "src": 3, "dst": 6, "intent": "attack" },
+    { "execute_tick": 191, "seat_id": 1, "src": 2, "dst": 7, "intent": "attack" },
+    { "execute_tick": 379, "seat_id": 1, "src": 5, "dst": 1, "intent": "attack" },
+    { "execute_tick": 381, "seat_id": 1, "src": 8, "dst": 1, "intent": "attack" },
+    { "execute_tick": 383, "seat_id": 1, "src": 6, "dst": 1, "intent": "attack" },
+    { "execute_tick": 385, "seat_id": 1, "src": 7, "dst": 1, "intent": "attack" },
+    { "execute_tick": 407, "seat_id": 1, "src": 2, "dst": 1, "intent": "attack" },
+    { "execute_tick": 409, "seat_id": 1, "src": 3, "dst": 1, "intent": "attack" },
+    { "execute_tick": 449, "seat_id": 1, "src": 5, "dst": 4, "intent": "feed" },
+    { "execute_tick": 451, "seat_id": 1, "src": 8, "dst": 4, "intent": "feed" },
+    { "execute_tick": 453, "seat_id": 1, "src": 6, "dst": 5, "intent": "feed" },
+    { "execute_tick": 455, "seat_id": 1, "src": 7, "dst": 4, "intent": "feed" }
+  ]
+}

@@ -55,6 +55,8 @@ var _last_phase_log_ms: int = 0
 var _match_over := false
 var _end_sequence_started := false
 var _end_sequence_winner_id := 0
+var _deterministic_clock_enabled: bool = false
+var _deterministic_now_ms: int = 0
 var _had_player_control_during_match: bool = false
 var _had_multiple_teams_during_match: bool = false
 var _last_pause_snapshot_sig: String = ""
@@ -220,6 +222,10 @@ func set_running(value: bool, reason: String = "set_running") -> void:
 		return
 	_set_running(false, reason)
 	_pending_start = false
+
+func enable_deterministic_clock(start_ms: int = 0) -> void:
+	_deterministic_clock_enabled = true
+	_deterministic_now_ms = maxi(0, start_ms)
 
 func start_sim() -> void:
 	_pending_start = true
@@ -448,7 +454,9 @@ func _tick(dt: float) -> void:
 	_current_tick_phase_costs.clear()
 	var tick_t0_us: int = Time.get_ticks_usec()
 	_log_sim_tick()
-	var now_ms: int = Time.get_ticks_msec()
+	var now_ms: int = _deterministic_now_ms if _deterministic_clock_enabled else Time.get_ticks_msec()
+	if _deterministic_clock_enabled:
+		_deterministic_now_ms += maxi(0, int(round(dt * 1000.0)))
 	var phase: int = OpsState.match_phase
 	if phase == OpsState.MatchPhase.ENDED:
 		OpsState.enforce_post_match_authority("SimRunner._tick:ENDED")

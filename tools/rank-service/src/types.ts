@@ -85,6 +85,7 @@ export interface RankServiceConfig {
     keyId: string;
     publicKeyPem: string;
     workerBuildId: string;
+    receiptMaxAgeSec: number;
   };
   rank: RankRuntimeConfig;
 }
