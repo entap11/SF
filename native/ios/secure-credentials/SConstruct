@@ -1,0 +1,43 @@
+import os
+import subprocess
+
+opts = Variables([], ARGUMENTS)
+opts.Add(PathVariable("godot_source", "Godot 4.2.2 source tree with generated headers", ""))
+opts.Add(EnumVariable("target", "Compilation target", "release_debug", ["release_debug", "release"]))
+opts.Add(EnumVariable("arch", "Compilation architecture", "arm64", ["arm64", "x86_64"]))
+opts.Add(BoolVariable("simulator", "Build for the iOS simulator", False))
+opts.Add(PathVariable("target_path", "Library output directory", "bin"))
+
+env = DefaultEnvironment()
+opts.Update(env)
+
+if not env["godot_source"]:
+    print("godot_source must point to a Godot 4.2.2 source tree with generated headers")
+    Exit(1)
+
+sdk_name = "iphonesimulator" if env["simulator"] else "iphoneos"
+sdk_path = subprocess.check_output(["xcrun", "--sdk", sdk_name, "--show-sdk-path"], text=True).strip()
+minimum_flag = "-mios-simulator-version-min=12.0" if env["simulator"] else "-miphoneos-version-min=12.0"
+
+env["CC"] = "clang"
+env["CXX"] = "clang++"
+env.Append(
+    CCFLAGS=[
+        "-arch", env["arch"], "-isysroot", sdk_path, minimum_flag,
+        "-fobjc-arc", "-fmodules", "-fcxx-modules", "-fvisibility=hidden",
+        "-fno-exceptions", "-DIOS_ENABLED", "-DUNIX_ENABLED", "-DPTRCALL_ENABLED",
+    ],
+    CXXFLAGS=["-std=gnu++17", "-DVULKAN_ENABLED"],
+    CPPPATH=[env["godot_source"], os.path.join(env["godot_source"], "platform", "ios")],
+    LINKFLAGS=["-arch", env["arch"], "-isysroot", sdk_path, minimum_flag],
+)
+
+if env["target"] == "release_debug":
+    env.Append(CCFLAGS=["-O2", "-DDEBUG_ENABLED"])
+else:
+    env.Append(CCFLAGS=["-O2", "-DNDEBUG"])
+
+platform_name = "simulator" if env["simulator"] else "ios"
+library_name = "SwarmfrontSecureCredentials.%s-%s.%s.a" % (env["arch"], platform_name, env["target"])
+sources = Glob("*.cpp") + Glob("*.mm")
+Default(env.StaticLibrary(target=os.path.join(env["target_path"], library_name), source=sources))

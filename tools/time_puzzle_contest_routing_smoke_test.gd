@@ -1,6 +1,9 @@
 extends SceneTree
 
 func _init() -> void:
+	# Paid local-fixture contests still exercise the legacy adapter, so give the
+	# smoke identity an explicit test balance instead of depending on user state.
+	set_meta("wallet_balance_cents", 100000)
 	await process_frame
 	var contest_state: Node = get_root().get_node_or_null("ContestState")
 	if contest_state == null:
@@ -68,6 +71,12 @@ func _assert_scope_routes_to_stage_race_lobby(scope: String) -> void:
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s contest hub missing" % scope)
 		quit(1)
 		return
+	# This test owns route coverage, not paid-ledger integration. Mark the fixture
+	# entered so an unavailable backend cannot turn the route assertion into an
+	# economy test.
+	var route_contest_state: Node = get_root().get_node_or_null("ContestState")
+	if route_contest_state != null:
+		route_contest_state.call("enter_contest", hub.contest_id)
 	var play_button: Button = hub.get_node_or_null("Panel/VBox/StageRaceActions/StageRacePlay") as Button
 	if play_button == null:
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s play button missing" % scope)
@@ -81,7 +90,8 @@ func _assert_scope_routes_to_stage_race_lobby(scope: String) -> void:
 	await process_frame
 	var vs_lobby: Control = _find_descendant_by_name(hub, "VsLobby") as Control
 	if vs_lobby == null:
-		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s did not open Stage Race VS lobby" % scope)
+		var route_summary: Label = hub.get_node_or_null("Panel/VBox/StageRaceSummary") as Label
+		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s did not open Stage Race VS lobby (%s)" % [scope, route_summary.text if route_summary != null else "no summary"])
 		quit(1)
 		return
 	var summary: Label = vs_lobby.get_node_or_null("Panel/VBox/Summary") as Label

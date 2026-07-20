@@ -18,6 +18,12 @@ func configure(base_url: String, timeout_sec: float = DEFAULT_TIMEOUT_SEC, auth_
 func configured() -> bool:
 	return not _base_url.is_empty()
 
+func set_auth_token(auth_token: String) -> void:
+	_auth_token = auth_token.strip_edges()
+
+func clear_auth_token() -> void:
+	_auth_token = ""
+
 func call_action(action: String, payload: Dictionary) -> Dictionary:
 	if _unsafe_test_backend_blocked:
 		return {

@@ -72,7 +72,7 @@ const DASH_GAP_PX := 6.0
 const BASE_MS := SimTuning.BASE_SPAWN_MS
 const PER_POWER_MS := SimTuning.PER_POWER_MS
 const START_POWER := 10
-const IDLE_GROWTH_MS := 1500.0
+const IDLE_GROWTH_MS := GameState.PASSIVE_MS_PER_POWER
 const CAPTURE_SHOCK_MS := 3000.0
 const SWARM_SHOCK_MS := 3000.0
 const DRAG_DEADZONE_PX := 8.0
@@ -455,6 +455,8 @@ var sim_time_us: int = 0
 var match_seed: int = 1
 # Gameplay RNG boundary: gameplay logic must not call global rand* functions.
 var game_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var _perf_match_seed_override_enabled: bool = false
+var _perf_match_seed_override: int = 0
 var tie_history: Dictionary = {}
 var tie_cache: Dictionary = {}
 var tie_toast_ms: float = 0.0
@@ -2038,6 +2040,7 @@ func _configure_special_victory_mode() -> void:
 		"flag_selection_player_select_pct": 100 if hidden_ctf else clampi(int(_tree_meta_value("ctf_player_select_pct", CTF_PLAYER_SELECT_PCT_DEFAULT)), 0, 100),
 		"flag_selection_random_mirrored": _tree_meta_bool("ctf_randomize_flag_hive", true),
 		"flag_selection_owner_id": _resolve_local_owner_id(),
+		"flag_selection_seed": maxi(1, str(_tree_meta_value("match_seed", "")).hash()),
 		"flag_hives": {} if hidden_ctf else _tree_meta_value("ctf_flag_hives", current_map_data.get("ctf_flag_hives", {})),
 		"map_data": current_map_data.duplicate(true)
 	}
@@ -4181,6 +4184,35 @@ func _match_roster_from_vs_tree_meta(tree: SceneTree) -> Array:
 	var session_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
 	if session_id.is_empty():
 		return []
+	var contract_roster_any: Variant = tree.get_meta("vs_roster", [])
+	if typeof(contract_roster_any) == TYPE_ARRAY and not (contract_roster_any as Array).is_empty():
+		var seats: Dictionary = {}
+		for player_any in contract_roster_any as Array:
+			if typeof(player_any) != TYPE_DICTIONARY:
+				continue
+			var player: Dictionary = (player_any as Dictionary).duplicate(true)
+			var seat: int = int(player.get("seat", 0))
+			var uid: String = str(player.get("uid", "")).strip_edges()
+			if seat < 1 or seat > 4 or uid.is_empty():
+				continue
+			player["uid"] = uid
+			player["active"] = true
+			player["is_local"] = bool(player.get("is_local", false))
+			player["is_cpu"] = bool(player.get("is_cpu", false))
+			player["team_id"] = int(player.get("team_id", seat))
+			seats[seat] = player
+		var canonical: Array = []
+		for seat in range(1, 5):
+			canonical.append(seats.get(seat, {
+				"seat": seat,
+				"uid": "",
+				"display_name": "",
+				"is_local": false,
+				"is_cpu": false,
+				"active": false,
+				"team_id": seat
+			}))
+		return canonical
 	if not _vs_tree_meta_is_two_player_session(tree):
 		return []
 	var local_any: Variant = tree.get_meta("vs_local_profile", {})
@@ -5565,8 +5597,65 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	_maybe_record_stage_race_contest_result(winner_id_in, reason)
 	_maybe_settle_vs_money_match(winner_id_in, reason)
 	_maybe_settle_crucible_match(winner_id_in, reason)
+	call_deferred("_submit_durable_terminal_report", winner_id_in, reason)
 	SFLog.info("MATCH_END_HANDLE", {"winner_id": winner_id_in})
 	call_deferred("_match_end_deferred", winner_id_in, reason)
+
+func _submit_durable_terminal_report(winner_id_in: int, reason: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or not bool(tree.get_meta("durable_contract", false)):
+		return
+	if bool(tree.get_meta("practice", tree.get_meta("vs_practice", false))):
+		return
+	var mode: String = _current_vs_mode().strip_edges().to_upper()
+	if not ["1V1", "PVP", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG", "2V2", "3P FFA", "4P FFA"].has(mode):
+		return
+	var match_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if match_id.is_empty() or handshake == null or not handshake.has_method("submit_public_1v1_terminal_report"):
+		SFLog.warn("DURABLE_TERMINAL_REPORT_SKIPPED", {"mode": mode, "match_id": match_id})
+		return
+	var final_state_hash: String = str(OpsState.call("get_contract_state_hash")) if OpsState != null and OpsState.has_method("get_contract_state_hash") else ""
+	var current_state: GameState = OpsState.call("get_state") as GameState if OpsState != null and OpsState.has_method("get_state") else null
+	var elapsed_sim_ticks: int = maxi(0, int(current_state.tick)) if current_state != null else 0
+	var winner_player_id: String = ""
+	if winner_id_in > 0:
+		winner_player_id = str((_get_roster_entry_for_slot(winner_id_in) as Dictionary).get("uid", "")).strip_edges()
+	var claimed_terminal_reason: String = "OBJECTIVE_COMPLETE" if winner_id_in > 0 else "NO_CONTEST"
+	var result: Dictionary = handshake.call(
+		"submit_public_1v1_terminal_report",
+		match_id,
+		final_state_hash,
+		elapsed_sim_ticks,
+		claimed_terminal_reason,
+		winner_player_id,
+		{"client_reason": reason, "mode": mode}
+	) as Dictionary
+	if bool(result.get("ok", false)):
+		tree.set_meta("vs_verification_status", (result.get("verification", {}) as Dictionary).duplicate(true))
+		SFLog.info("DURABLE_TERMINAL_REPORT_SUBMITTED", {"match_id": match_id, "mode": mode})
+		call_deferred("_poll_durable_verification_until_terminal", match_id)
+	else:
+		tree.set_meta("vs_verification_submit_error", result.duplicate(true))
+		SFLog.warn("DURABLE_TERMINAL_REPORT_FAILED", {"match_id": match_id, "mode": mode, "err": result.get("err", "")})
+
+func _poll_durable_verification_until_terminal(match_id: String) -> void:
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("get_public_1v1_result"):
+		return
+	for _attempt in range(30):
+		var tree: SceneTree = get_tree()
+		if tree == null:
+			return
+		await tree.create_timer(1.0).timeout
+		var result: Dictionary = handshake.call("get_public_1v1_result", match_id) as Dictionary
+		if not bool(result.get("ok", false)):
+			tree.set_meta("vs_verification_poll_error", result.duplicate(true))
+			continue
+		var verification: Dictionary = result.get("verification", {}) as Dictionary
+		tree.set_meta("vs_verification_status", verification.duplicate(true))
+		if ["COMPLETED", "FAILED"].has(str(verification.get("status", "")).to_upper()):
+			return
 
 func _maybe_award_tutorial_controls_followup_win(winner_id_in: int, reason: String) -> void:
 	var tree: SceneTree = get_tree()
@@ -6156,6 +6245,8 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 	var opponent_owner_id: int = _resolve_stage_opponent_owner_id(owned_by_owner, local_owner_id, winner_id_in)
 	var opponent_owned_hives: int = int(owned_by_owner.get(opponent_owner_id, 0))
 	var elapsed_ms: int = maxi(0, int(OpsState.match_elapsed_ms))
+	var current_state: GameState = OpsState.call("get_state") as GameState if OpsState != null and OpsState.has_method("get_state") else null
+	var elapsed_sim_ticks: int = maxi(0, int(current_state.tick)) if current_state != null else int(round(float(elapsed_ms) / TICK_MS))
 	var round_result: Dictionary = {
 		"round_index": round_index,
 		"round_number": round_index + 1,
@@ -6163,6 +6254,8 @@ func _build_stage_round_summary(winner_id_in: int, reason: String) -> Dictionary
 		"winner_id": winner_id_in,
 		"reason": reason,
 		"elapsed_ms": elapsed_ms,
+		"elapsed_sim_ticks": elapsed_sim_ticks,
+		"final_state_hash": str(OpsState.call("get_contract_state_hash")) if OpsState != null and OpsState.has_method("get_contract_state_hash") else "",
 		"local_owner_id": local_owner_id,
 		"opponent_owner_id": opponent_owner_id,
 		"local_owned_hives": local_owned_hives,
@@ -6277,11 +6370,15 @@ func _build_progressive_stage_summary(winner_id_in: int, reason: String) -> Dict
 	var elapsed_ms: int = maxi(0, int(OpsState.match_elapsed_ms))
 	var won: bool = winner_id_in > 0 and winner_id_in == local_owner_id
 	var stars: int = ProgressiveConfigScript.stars_for_elapsed(elapsed_ms, thresholds, won, reason)
+	var current_state: GameState = OpsState.call("get_state") as GameState if OpsState != null and OpsState.has_method("get_state") else null
+	var elapsed_sim_ticks: int = maxi(0, int(current_state.tick)) if current_state != null else int(round(float(elapsed_ms) / TICK_MS))
 	var result: Dictionary = _progressive_run_store.record_stage_result(run_id, {
 		"stage_index": stage_index,
 		"map_path": str(stage.get("map_path", "")),
 		"map_id": str(stage.get("map_id", "")),
 		"elapsed_ms": elapsed_ms,
+		"elapsed_sim_ticks": elapsed_sim_ticks,
+		"final_state_hash": str(OpsState.call("get_contract_state_hash")) if OpsState != null and OpsState.has_method("get_contract_state_hash") else "",
 		"winner_id": winner_id_in,
 		"reason": reason,
 		"passed": won and stars > 0,
@@ -6368,6 +6465,9 @@ func _maybe_record_gauntlet_contest_result(run: Dictionary, fallback: Dictionary
 	var max_stars: int = int(run_data.get("max_stars", fallback.get("max_stars", tree.get_meta("progressive_max_stars", 0))))
 	var completed_stages: int = _progressive_completed_stage_count(stage_results)
 	var total_elapsed_ms: int = _progressive_total_elapsed_ms(stage_results)
+	if str(tree.get_meta("public_contest_family", "")).to_upper() == "GAUNTLET":
+		_submit_public_gauntlet_evidence(tree, contest_id, run_id, stage_results, fallback)
+		return
 	var result_signature: String = "gauntlet|%s|%s|%s|%d|%d|%d" % [contest_id, player_id, run_id, total_stars, completed_stages, total_elapsed_ms]
 	if str(tree.get_meta(TREE_META_CONTEST_RESULT_SIGNATURE, "")).strip_edges() == result_signature:
 		return
@@ -6418,6 +6518,9 @@ func _maybe_record_timed_race_contest_result(results: Array, winner_id_in: int, 
 	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
 	var map_count: int = maxi(1, stage_maps.size())
 	var ordered_results: Array[Dictionary] = _ordered_stage_results(results)
+	if str(tree.get_meta("public_contest_family", "")).to_upper() in ["TIME_PUZZLE", "ASYNC_MAP_SET"]:
+		_submit_public_time_puzzle_evidence(tree, contest_id, ordered_results, local_owner_id, winner_id_in, reason)
+		return
 	var map_times: Array[int] = []
 	var completed_maps: int = 0
 	var failed_elapsed_ms: int = 0
@@ -6565,6 +6668,49 @@ func _submit_async_contest_result_backend(contest_id: String, contest_family: St
 	if handshake == null or not handshake.has_method("submit_async_contest_result"):
 		return {"ok": false, "handled": false, "err": "transport_not_configured"}
 	return handshake.call("submit_async_contest_result", contest_id, contest_family, player_id, result, idempotency_key) as Dictionary
+
+func _submit_public_time_puzzle_evidence(tree: SceneTree, contest_id: String, results: Array[Dictionary],
+		local_owner_id: int, winner_id_in: int, reason: String) -> void:
+	var attempt: Dictionary = tree.get_meta("public_contest_attempt", {}) as Dictionary
+	if attempt.is_empty():
+		return
+	var map_ids: Array = tree.get_meta("public_contest_map_ids", []) as Array
+	var per_map: Array = []
+	var aggregate: int = 0
+	for index in range(mini(results.size(), map_ids.size())):
+		var row: Dictionary = results[index]
+		var completed: bool = int(row.get("winner_id", 0)) == local_owner_id
+		var ticks: int = maxi(0, int(row.get("elapsed_sim_ticks", round(float(row.get("elapsed_ms", 0)) / TICK_MS))))
+		per_map.append({"map_id": str(map_ids[index]), "completed": completed,
+			"elapsed_ticks": ticks, "penalty_ticks": 0, "final_state_hash": str(row.get("final_state_hash", ""))})
+		aggregate += ticks
+	var family: String = str(tree.get_meta("public_contest_family", "")).to_upper()
+	var evidence: Dictionary = {"schema": "swarmfront.async_map_set_evidence.v1" if family == "ASYNC_MAP_SET" else "swarmfront.time_puzzle_evidence.v1", "per_map": per_map,
+		"aggregate_elapsed_ticks": aggregate, "terminal_winner_id": winner_id_in, "terminal_reason": reason}
+	var request_id: String = "%s:%s" % ["async-map-set" if family == "ASYNC_MAP_SET" else "time-puzzle", str(attempt.get("attempt_id", ""))]
+	var contest_state: Node = get_node_or_null("/root/PublicContestState")
+	var response: Dictionary = contest_state.call("submit_evidence", contest_id, attempt, evidence, request_id) as Dictionary if contest_state != null else {"ok": false, "err": "public_contest_state_missing"}
+	tree.set_meta("public_contest_evidence_status", response.duplicate(true))
+
+func _submit_public_gauntlet_evidence(tree: SceneTree, contest_id: String, run_id: String,
+		stage_results: Array, fallback: Dictionary) -> void:
+	var attempt: Dictionary = tree.get_meta("public_contest_attempt", {}) as Dictionary
+	if attempt.is_empty():
+		return
+	var stage_evidence: Array = []
+	for index in range(stage_results.size()):
+		var row: Dictionary = stage_results[index] as Dictionary
+		var elapsed_ms: int = maxi(0, int(row.get("elapsed_ms", 0)))
+		stage_evidence.append({"stage_number": index + 1, "map_id": str(row.get("map_id", "")),
+			"elapsed_ticks": maxi(0, int(row.get("elapsed_sim_ticks", round(float(elapsed_ms) / TICK_MS)))), "won": bool(row.get("passed", false)),
+			"win_reason": str(row.get("reason", "")), "final_state_hash": str(row.get("final_state_hash", "")),
+			"command_log_hash": str(row.get("command_log_hash", ""))})
+	var evidence: Dictionary = {"schema": "swarmfront.gauntlet_evidence.v1", "run_id": run_id,
+		"stage_evidence": stage_evidence, "terminal_reason": str(fallback.get("reason", ""))}
+	var contest_state: Node = get_node_or_null("/root/PublicContestState")
+	var response: Dictionary = contest_state.call("submit_evidence", contest_id, attempt, evidence,
+		"gauntlet:%s" % str(attempt.get("attempt_id", ""))) as Dictionary if contest_state != null else {"ok": false, "err": "public_contest_state_missing"}
+	tree.set_meta("public_contest_evidence_status", response.duplicate(true))
 
 func _runtime_contest_id(tree: SceneTree) -> String:
 	if tree == null:
@@ -11572,6 +11718,23 @@ func _seed_game_rng() -> void:
 		assert(game_rng != null, "Gameplay logic must not call global rand* functions.")
 	game_rng.seed = match_seed
 
+func set_perf_match_seed_override(seed_value: int) -> bool:
+	var tree: SceneTree = get_tree()
+	if not OS.is_debug_build() or tree == null or not bool(tree.get_meta("sf_perf_harness_active", false)):
+		return false
+	_perf_match_seed_override = seed_value
+	_perf_match_seed_override_enabled = true
+	match_seed = _compute_match_seed()
+	_seed_game_rng()
+	return match_seed == seed_value
+
+func clear_perf_match_seed_override() -> void:
+	_perf_match_seed_override_enabled = false
+	_perf_match_seed_override = 0
+
+func get_effective_match_seed() -> int:
+	return match_seed
+
 func _init_towers() -> void:
 	var structure_sets: Array = []
 	var structure_positions: Array = []
@@ -15276,6 +15439,8 @@ func _lane_has_player_send(lane: LaneData, pid: int) -> bool:
 	return false
 
 func _compute_match_seed() -> int:
+	if _perf_match_seed_override_enabled:
+		return _perf_match_seed_override
 	var source: String = current_map_name
 	if source == "":
 		source = current_map_path

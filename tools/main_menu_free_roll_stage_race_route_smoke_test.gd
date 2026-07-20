@@ -44,7 +44,7 @@ func _run() -> void:
 		button.pressed.emit()
 		await process_frame
 		await process_frame
-		if not _assert_stage_race_launch(expected_maps):
+		if not _assert_public_async_cohort_route(menu, expected_maps):
 			menu.queue_free()
 			return
 		menu.queue_free()
@@ -79,44 +79,19 @@ func _open_free_roll_panel(menu: Node) -> Control:
 		return null
 	return panel
 
-func _assert_stage_race_launch(expected_maps: int) -> bool:
-	if not bool(get_meta("start_game", false)):
-		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: Stage Race %d-map did not start a run" % expected_maps)
+func _assert_public_async_cohort_route(menu: Node, expected_maps: int) -> bool:
+	var dash: Control = menu.get("_public_contest_dash") as Control
+	if dash == null or not dash.visible:
+		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: %d-map did not open the public cohort Dash" % expected_maps)
 		quit(1)
 		return false
-	if str(get_meta("vs_mode", "")) != "STAGE_RACE":
-		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: Stage Race %d-map launched wrong mode: %s" % [expected_maps, str(get_meta("vs_mode", ""))])
+	if str(dash.get("_family")) != "ASYNC_MAP_SET" or str(dash.get("_scope")) != "ROLLING_COHORT" \
+			or int(dash.get("_map_count")) != expected_maps:
+		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: public cohort selection mismatch family=%s scope=%s maps=%s" % [str(dash.get("_family")), str(dash.get("_scope")), str(dash.get("_map_count"))])
 		quit(1)
 		return false
-	if not bool(get_meta("vs_free_roll", false)):
-		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: Stage Race %d-map did not preserve free roll" % expected_maps)
-		quit(1)
-		return false
-	var stage_paths: Array = get_meta("vs_stage_map_paths", []) as Array
-	if stage_paths.size() != expected_maps:
-		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: expected %d stage maps, got %d" % [expected_maps, stage_paths.size()])
-		quit(1)
-		return false
-	if str(get_meta("contest_id", "")).strip_edges().is_empty():
-		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: Stage Race %d-map missing contest_id" % expected_maps)
-		quit(1)
-		return false
-	if str(get_meta("contest_scope", "")).strip_edges().to_upper() != "WEEKLY":
-		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: Stage Race %d-map missing weekly contest scope" % expected_maps)
-		quit(1)
-		return false
-	var map_ids_any: Variant = get_meta("map_ids", PackedStringArray())
-	var map_id_count: int = 0
-	if typeof(map_ids_any) == TYPE_PACKED_STRING_ARRAY:
-		map_id_count = (map_ids_any as PackedStringArray).size()
-	elif typeof(map_ids_any) == TYPE_ARRAY:
-		map_id_count = (map_ids_any as Array).size()
-	if map_id_count != expected_maps:
-		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: expected %d contest map ids, got %d" % [expected_maps, map_id_count])
-		quit(1)
-		return false
-	if _shell.applied_maps.is_empty() or _shell.applied_maps[_shell.applied_maps.size() - 1].strip_edges().is_empty():
-		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: Stage Race %d-map did not apply first map" % expected_maps)
+	if bool(get_meta("start_game", false)):
+		push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: client bypassed authenticated cohort entry")
 		quit(1)
 		return false
 	return true

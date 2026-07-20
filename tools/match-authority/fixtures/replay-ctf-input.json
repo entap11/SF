@@ -1,0 +1,40 @@
+{
+  "contract": {
+    "protocol_version": 2,
+    "mode_id": "CTF_1V1",
+    "authority_tier": "AUTHORITY_VERIFIED",
+    "seed": "84",
+    "roster": [
+      { "player_id": "0190f47a-1234-7abc-8def-123456789abc", "seat_id": 1, "team_id": 1 },
+      { "player_id": "0190f47a-2234-7abc-8def-123456789abc", "seat_id": 2, "team_id": 2 }
+    ]
+  },
+  "commands": [
+    {
+      "command_seq": 1,
+      "command_id": "ctf-fixture:1",
+      "kind": "lane_intent",
+      "seat_id": 1,
+      "src": 1,
+      "dst": 2,
+      "intent": "attack",
+      "execute_tick": 1
+    }
+  ],
+  "map_data": {
+    "map_id": "authority_ctf_fixture",
+    "hives": [
+      { "id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 100, "kind": "Hive" },
+      { "id": 2, "x": 2, "y": 0, "owner_id": 2, "power": 1, "kind": "Hive" }
+    ],
+    "lane_candidates": [
+      { "a_id": 1, "b_id": 2 }
+    ]
+  },
+  "ruleset_data": {
+    "ruleset_id": "capture-flag-v1",
+    "max_sim_ticks": 2000,
+    "flag_selection_mode": "auto_random",
+    "flag_move_count_max": 0
+  }
+}

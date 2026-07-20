@@ -49,6 +49,15 @@ func _on_filter_pressed(filter_name: String) -> void:
 	_refresh_from_state()
 
 func _refresh_from_state() -> void:
+	if _selected_filter == "GLOBAL":
+		var vs_state: Node = get_node_or_null("/root/VsHandshakeState")
+		if vs_state != null and vs_state.has_method("get_public_global_rank"):
+			var result: Dictionary = vs_state.call("get_public_global_rank", 25) as Dictionary
+			if bool(result.get("ok", false)) and typeof(result.get("board", null)) == TYPE_DICTIONARY:
+				_render_public_global(result.get("board", {}) as Dictionary)
+				return
+		_render_public_global_unavailable()
+		return
 	var state_node: Node = _rank_state()
 	if state_node == null:
 		player_label.text = "RankState missing"
@@ -58,6 +67,24 @@ func _refresh_from_state() -> void:
 		return
 	var view: Dictionary = state_node.get_local_rank_view(_selected_filter, 25)
 	_render(view)
+
+func _render_public_global(board: Dictionary) -> void:
+	var stale: bool = bool(board.get("stale", false))
+	var cache_age_seconds: int = maxi(0, int(board.get("cache_age_seconds", 0)))
+	player_label.text = "Global Rank · shared server board"
+	tier_label.text = "Cached server snapshot" if stale else "Live server data"
+	var generated_at: String = str(board.get("generated_at", "")).strip_edges()
+	if stale:
+		gap_label.text = "Snapshot age: %d seconds%s" % [cache_age_seconds, " · %s" % generated_at if not generated_at.is_empty() else ""]
+	else:
+		gap_label.text = "Updated %s" % generated_at if not generated_at.is_empty() else "Updated now"
+	_render_rows(board.get("rows", []))
+
+func _render_public_global_unavailable() -> void:
+	player_label.text = "Global Rank unavailable."
+	tier_label.text = "No shared server snapshot is available."
+	gap_label.text = "Local device data is not substituted for public standings."
+	leaderboard_text.text = ""
 
 func _render(view: Dictionary) -> void:
 	var player: Dictionary = view.get("player", {}) as Dictionary
@@ -77,7 +104,9 @@ func _render(view: Dictionary) -> void:
 	var places_to_next_tier: int = int(local_context.get("places_to_next_tier", 0))
 	gap_label.text = "Gap to next player: %.1f wax · Places to next tier: %d" % [wax_gap, places_to_next_tier]
 
-	var rows_any: Variant = view.get("rows", [])
+	_render_rows(view.get("rows", []))
+
+func _render_rows(rows_any: Variant) -> void:
 	if typeof(rows_any) != TYPE_ARRAY:
 		leaderboard_text.text = ""
 		return

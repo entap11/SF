@@ -20,7 +20,8 @@ const STATUS_FAILED: String = "FAILED"
 
 const LEDGER_ESCROW_DEBIT: String = "ESCROW_DEBIT"
 const LEDGER_ESCROW_REFUND: String = "ESCROW_REFUND"
-const LEDGER_BURN: String = "BURN"
+const LEDGER_AWARD_RESERVE: String = "AWARD_RESERVE_CONTRIBUTION"
+const AWARD_RESERVE_ACCOUNT: String = "crucible_award_reserve"
 const LEDGER_WINNER_PAYOUT: String = "WINNER_PAYOUT"
 const LEDGER_COMPETITIVE_WAX_AWARD: String = "COMPETITIVE_WAX_AWARD"
 const LEDGER_COMPETITIVE_WAX_LOSS: String = "COMPETITIVE_WAX_LOSS"
@@ -315,6 +316,7 @@ func intent_open_escrow(match_id: String, player_a_id: String, player_b_id: Stri
 		"stake_unit": "wax_millis",
 		"pot": int(preview.get("pot", 0)),
 		"burn": int(preview.get("burn", 0)),
+		"award_reserve": int(preview.get("award_reserve", 0)),
 		"winner_payout": int(preview.get("winner_payout", 0)),
 		"config_version": int(preview.get("config_version", _runtime_config().config_version)),
 		"config_hash": str(preview.get("config_hash", _runtime_config().config_hash())),
@@ -358,7 +360,7 @@ func intent_settle_match(match_id: String, winner_id: String, result_source: Str
 	if clean_winner.is_empty() or clean_winner == "0" or (clean_winner != player_a and clean_winner != player_b):
 		return _no_contest_from_escrow(escrow, clean_source, reason if not reason.is_empty() else "no_winner", metadata)
 	var loser: String = player_b if clean_winner == player_a else player_a
-	var burn: int = maxi(0, int(escrow.get("burn", 0)))
+	var reserve: int = maxi(0, int(escrow.get("award_reserve", 0)))
 	var payout: int = maxi(0, int(escrow.get("winner_payout", 0)))
 	var risk: Dictionary = _risk_assessment(escrow, metadata)
 	if bool(risk.get("hold", false)):
@@ -379,16 +381,15 @@ func intent_settle_match(match_id: String, winner_id: String, result_source: Str
 	var settlement: Dictionary = _settlement_record(escrow, STATUS_SETTLED, clean_winner, loser, clean_source, reason, metadata)
 	_settlements_by_match_id[clean_match_id] = settlement
 	_update_escrow_status(str(escrow.get("escrow_id", "")), STATUS_SETTLED)
-	if burn > 0:
-		_append_ledger(LEDGER_BURN, clean_match_id, "", -burn, str(escrow.get("escrow_id", "")), {})
-		_emit_event("crucible_wax_burned", {"match_id": clean_match_id, "burn": burn})
+	if reserve > 0:
+		_balances_by_player[AWARD_RESERVE_ACCOUNT] = get_balance_millis(AWARD_RESERVE_ACCOUNT) + reserve
+		_append_ledger(LEDGER_AWARD_RESERVE, clean_match_id, AWARD_RESERVE_ACCOUNT, reserve, str(escrow.get("escrow_id", "")), {})
+		_emit_event("crucible_award_reserve_contributed", {"match_id": clean_match_id, "award_reserve": reserve})
 	if payout > 0:
 		_append_ledger(LEDGER_WINNER_PAYOUT, clean_match_id, clean_winner, payout, str(escrow.get("escrow_id", "")), {})
 		_emit_event("crucible_wax_awarded", {"match_id": clean_match_id, "winner_id": clean_winner, "winner_payout": payout})
-	var loser_burn_share: int = int(floor(float(burn) / 2.0))
-	var winner_burn_share: int = maxi(0, burn - loser_burn_share)
-	_apply_wax_stats(clean_winner, payout, winner_burn_share)
-	_apply_wax_stats(loser, -maxi(0, int(escrow.get("stake_each", 0))), loser_burn_share)
+	_apply_wax_stats(clean_winner, payout, 0)
+	_apply_wax_stats(loser, -maxi(0, int(escrow.get("stake_each", 0))), 0)
 	_sync_rank_wax_after_crucible_result(clean_winner, loser)
 	_audit_records.append(settlement.duplicate(true))
 	_emit_event("crucible_match_completed", settlement)
@@ -658,7 +659,7 @@ func _apply_config_patch(patch: Dictionary) -> void:
 			"burn_bps":
 				_config.burn_bps = clampi(int(patch[key]), 0, 10000)
 			"minimum_stake_millis":
-				_config.minimum_stake_millis = maxi(1, int(patch[key]))
+				_config.minimum_stake_millis = 1000
 			"starting_crucible_wax_millis":
 				_config.starting_crucible_wax_millis = maxi(0, int(patch[key]))
 			"launch_grant_enabled":
@@ -726,7 +727,7 @@ func _release_held_settlement(escrow: Dictionary, winner_id: String, actor_id: S
 	if winner_id.is_empty() or (winner_id != player_a and winner_id != player_b):
 		return _error("missing_held_winner", "Held settlement does not contain a valid winner.")
 	var loser_id: String = player_b if winner_id == player_a else player_a
-	var burn: int = maxi(0, int(escrow.get("burn", 0)))
+	var reserve: int = maxi(0, int(escrow.get("award_reserve", 0)))
 	var payout: int = maxi(0, int(escrow.get("winner_payout", 0)))
 	_balances_by_player[winner_id] = get_balance_millis(winner_id) + payout
 	var settlement_metadata: Dictionary = metadata.duplicate(true)
@@ -736,14 +737,13 @@ func _release_held_settlement(escrow: Dictionary, winner_id: String, actor_id: S
 	_settlements_by_match_id[match_id] = settlement
 	_review_records_by_match_id[match_id] = settlement.duplicate(true)
 	_update_escrow_status(str(escrow.get("escrow_id", "")), STATUS_SETTLED)
-	if burn > 0:
-		_append_ledger(LEDGER_BURN, match_id, "", -burn, str(escrow.get("escrow_id", "")), {"review_release": true, "actor_id": actor_id})
+	if reserve > 0:
+		_balances_by_player[AWARD_RESERVE_ACCOUNT] = get_balance_millis(AWARD_RESERVE_ACCOUNT) + reserve
+		_append_ledger(LEDGER_AWARD_RESERVE, match_id, AWARD_RESERVE_ACCOUNT, reserve, str(escrow.get("escrow_id", "")), {"review_release": true, "actor_id": actor_id})
 	if payout > 0:
 		_append_ledger(LEDGER_WINNER_PAYOUT, match_id, winner_id, payout, str(escrow.get("escrow_id", "")), {"review_release": true, "actor_id": actor_id})
-	var loser_burn_share: int = int(floor(float(burn) / 2.0))
-	var winner_burn_share: int = maxi(0, burn - loser_burn_share)
-	_apply_wax_stats(winner_id, payout, winner_burn_share)
-	_apply_wax_stats(loser_id, -maxi(0, int(escrow.get("stake_each", 0))), loser_burn_share)
+	_apply_wax_stats(winner_id, payout, 0)
+	_apply_wax_stats(loser_id, -maxi(0, int(escrow.get("stake_each", 0))), 0)
 	_sync_rank_wax_after_crucible_result(winner_id, loser_id)
 	_audit_records.append(settlement.duplicate(true))
 	_emit_event("crucible_review_approved", settlement)
@@ -797,6 +797,7 @@ func _settlement_record(
 		"stake_unit": str(escrow.get("stake_unit", "wax_millis")),
 		"pot": maxi(0, int(escrow.get("pot", 0))),
 		"burn": maxi(0, int(escrow.get("burn", 0))),
+		"award_reserve": maxi(0, int(escrow.get("award_reserve", 0))),
 		"winner_payout": maxi(0, int(escrow.get("winner_payout", 0))),
 		"winner_id": winner_id,
 		"loser_id": loser_id,

@@ -9,6 +9,10 @@
     "build": "tsc -p tsconfig.json",
     "migrate": "tsx src/cli/migrate.ts",
     "smoke:identity": "tsx src/smoke.ts",
+    "smoke:player-token": "tsx src/identity/playerTokenSmoke.ts",
+    "smoke:session": "tsx src/identity/sessionSmoke.ts",
+    "smoke:session:embedded": "tsx src/identity/embeddedSessionSmoke.ts",
+    "smoke:verified-settlement": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded RANK_ECONOMY_MUTATIONS_ENABLED=true RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=true tsx src/verifiedSettlementEmbeddedSmoke.ts",
     "smoke:quarantine": "DATABASE_URL=postgres://quarantine:quarantine@127.0.0.1:1/quarantine tsx src/economyQuarantineSmoke.ts",
     "simulate:beta": "DATABASE_URL=postgres://sim:sim@127.0.0.1:5432/sim tsx src/cli/beta-sim.ts"
   },
@@ -18,6 +22,7 @@
     "pg": "^8.13.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@types/express": "^4.17.21",
     "@types/node": "^20.17.24",
     "@types/pg": "^8.11.11",

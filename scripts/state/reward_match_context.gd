@@ -13,6 +13,9 @@ const QUALITY_FAILURE_REASONS: Array[String] = [
 
 static func enrich(tree: SceneTree, base: Dictionary, winner_id: int, reason: String, ops_state: Node = null) -> Dictionary:
 	var metadata: Dictionary = base.duplicate(true)
+	if tree != null:
+		metadata["practice"] = bool(tree.get_meta("practice", tree.get_meta("vs_practice", false)))
+		metadata["economic"] = bool(tree.get_meta("economic", tree.get_meta("vs_economic", true)))
 	for key in ["match_elapsed_ms", "elapsed_ms", "match_duration_ms", "duration_ms", "match_remaining_ms", "remaining_ms", "in_overtime", "overtime_active"]:
 		if tree != null and tree.has_meta(key):
 			metadata[key] = tree.get_meta(key)

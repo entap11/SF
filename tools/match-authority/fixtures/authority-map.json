@@ -1,0 +1,1 @@
+{"map_id":"authority_fixture","hives":[{"id":1,"x":0,"y":0,"owner_id":1,"power":100,"kind":"Hive"},{"id":2,"x":2,"y":0,"owner_id":2,"power":1,"kind":"Hive"}],"lane_candidates":[{"a_id":1,"b_id":2}]}

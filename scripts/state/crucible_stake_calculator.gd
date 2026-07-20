@@ -2,6 +2,9 @@ class_name CrucibleStakeCalculator
 extends RefCounted
 
 const CrucibleConfigScript = preload("res://scripts/state/crucible_config.gd")
+const STAKE_EACH_MILLIS: int = 1000
+const WINNER_PAYOUT_MILLIS: int = 1800
+const AWARD_RESERVE_MILLIS: int = 200
 
 static func preview_stake(player_a_balance_millis: int, player_b_balance_millis: int, config: CrucibleConfigScript) -> Dictionary:
 	if config == null:
@@ -15,16 +18,17 @@ static func preview_stake(player_a_balance_millis: int, player_b_balance_millis:
 	var minimum: int = maxi(1, config.minimum_stake_millis)
 	if a_balance < minimum or b_balance < minimum:
 		return _blocked("insufficient_wax", "Both players need Wax to enter.")
-	var stake: int = minimum
+	var stake: int = STAKE_EACH_MILLIS
 	var pot: int = stake * 2
 	var burn: int = 0
-	var payout: int = maxi(0, pot - burn)
+	var payout: int = WINNER_PAYOUT_MILLIS
 	return {
 		"ok": true,
 		"stake_each": stake,
 		"stake_unit": "wax_millis",
 		"pot": pot,
 		"burn": burn,
+		"award_reserve": AWARD_RESERVE_MILLIS,
 		"winner_payout": payout,
 		"config_version": config.config_version,
 		"config_hash": config.config_hash()

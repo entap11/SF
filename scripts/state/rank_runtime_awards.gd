@@ -171,6 +171,12 @@ func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 	var mode_id: String = str(tree.get_meta("vs_mode", "")).strip_edges()
 	if mode_id.is_empty():
 		return
+	if bool(tree.get_meta("durable_contract", false)) \
+			or bool(tree.get_meta("practice", tree.get_meta("vs_practice", false))) \
+			or (tree.has_meta("ranked") and not bool(tree.get_meta("ranked", false))) \
+			or (tree.has_meta("vs_ranked") and not bool(tree.get_meta("vs_ranked", false))):
+		SFLog.info("RANK_RUNTIME_AWARD", {"type": "client_award_blocked", "mode_id": mode_id})
+		return
 	if CrucibleRulesetPolicyScript.is_crucible_tree(tree):
 		_settle_crucible_match_result(tree, winner_id, reason)
 		return

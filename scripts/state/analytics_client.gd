@@ -1,5 +1,7 @@
 extends Node
 
+const TestBackendPolicyScript := preload("res://scripts/state/test_backend_policy.gd")
+
 signal queue_changed(count: int)
 
 const QUEUE_PATH: String = "user://analytics_queue_v1.jsonl"
@@ -28,14 +30,17 @@ var _last_flush_unix_ms: int = 0
 var _last_auto_flush_unix_ms: int = 0
 var _auto_flush_count: int = 0
 var _flush_timer: Timer = null
+var _perf_harness_isolation: bool = false
 
 func _ready() -> void:
+	if TestBackendPolicyScript.automated_test_process():
+		_perf_harness_isolation = true
 	_load_state()
 	_load_queue()
 	_bind_ops_config()
 	_bind_app_lifecycle()
 	_ensure_flush_timer()
-	if _session_id.is_empty():
+	if _session_id.is_empty() and not _perf_harness_isolation:
 		start_session("cold")
 	_sync_flush_timer()
 
@@ -57,6 +62,8 @@ func end_session(duration_ms: int = 0, matches_played: int = 0, purchases_made: 
 	flush_if_ready("session_end")
 
 func record_event(event_name: String, props: Dictionary = {}) -> Dictionary:
+	if _perf_harness_isolation:
+		return {"ok": false, "err": "perf_harness_isolated"}
 	var clean_name: String = event_name.strip_edges()
 	if not PHASE0_EVENTS.has(clean_name):
 		return {"ok": false, "err": "unsupported_event_name"}
@@ -107,6 +114,8 @@ func clear_queue_for_smoke() -> void:
 	_sync_flush_timer()
 
 func flush() -> Dictionary:
+	if _perf_harness_isolation:
+		return {"ok": false, "err": "perf_harness_isolated", "remaining": _queue.size()}
 	_load_queue()
 	if _queue.is_empty():
 		_last_flush_result = {"ok": true, "flushed": 0, "remaining": 0}
@@ -145,6 +154,8 @@ func flush() -> Dictionary:
 	return result
 
 func flush_if_ready(reason: String = "manual") -> Dictionary:
+	if _perf_harness_isolation:
+		return {"ok": false, "err": "perf_harness_isolated", "reason": reason, "remaining": _queue.size()}
 	if not _auto_flush_enabled():
 		return {"ok": false, "err": "auto_flush_not_ready", "reason": reason, "remaining": _queue.size()}
 	if _queue.is_empty():
@@ -194,6 +205,16 @@ func get_health_snapshot() -> Dictionary:
 		"last_flush_result": _last_flush_result.duplicate(true)
 	}
 
+func set_perf_harness_isolation(enabled: bool) -> bool:
+	if not OS.is_debug_build():
+		return false
+	var tree: SceneTree = get_tree()
+	if enabled and (tree == null or not bool(tree.get_meta("sf_perf_harness_active", false))):
+		return false
+	_perf_harness_isolation = enabled
+	_sync_flush_timer()
+	return _perf_harness_isolation == enabled
+
 func _bind_ops_config() -> void:
 	var ops_config: Node = get_node_or_null("/root/OpsConfig")
 	if ops_config == null or not ops_config.has_signal("config_changed"):
@@ -231,6 +252,8 @@ func _sync_flush_timer() -> void:
 		_flush_timer.start()
 
 func _auto_flush_enabled() -> bool:
+	if _perf_harness_isolation:
+		return false
 	return _enabled() and not _endpoint_url().is_empty() and _flush_interval_sec() > 0.0
 
 func _flush_interval_sec() -> float:
@@ -299,6 +322,8 @@ func _flush_to_file_sink(path: String, batch: Array[Dictionary]) -> Dictionary:
 	return {"ok": true, "sink": "file"}
 
 func _flush_http(endpoint: String, batch: Array[Dictionary]) -> Dictionary:
+	if _perf_harness_isolation:
+		return {"ok": false, "err": "perf_harness_isolated"}
 	var parsed: Dictionary = _parse_http_url(endpoint)
 	if not bool(parsed.get("ok", false)):
 		return parsed

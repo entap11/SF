@@ -16,6 +16,21 @@ import { honeyLedger } from "./honeyLedger.js";
 import { honeyActivitySpecsSnapshot } from "./honeyEconomyPolicy.js";
 import { waxPolicySnapshot } from "./waxRewardPolicy.js";
 import { economyDisabledResult, economyMutationsEnabled } from "./economyGuard.js";
+import {
+  bearerPlayerToken,
+  playerAuthConfigured,
+  PlayerAuthError,
+  verifyPlayerToken
+} from "./playerAuth.js";
+import { durableCoreStatus } from "./repositories/durableCoreRuntime.js";
+import { handleDurablePublic1v1Action } from "./public1v1Http.js";
+import { handleVerificationAction } from "./verificationHttp.js";
+import { handlePublicRankAction } from "./publicRankHttp.js";
+import { handlePublicContestAction } from "./publicContestHttp.js";
+import { handleCrucibleSettlementAction } from "./crucibleSettlementHttp.js";
+import {
+  handlePublicModesOpsAction, handlePublicOpsConfigGet, runPublicModesReconciliation
+} from "./publicModesOpsHttp.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -67,6 +82,9 @@ type Player = {
   color_id?: string;
   balance_cents?: number;
   crucible_wax_millis?: number;
+  seat?: number;
+  role?: "host" | "player";
+  team_id?: number;
 };
 
 type Session = {
@@ -80,6 +98,10 @@ type Session = {
   status: "waiting" | "matched" | "ready" | "started" | "closed";
   host: Player;
   guest: Player;
+  roster: Player[];
+  required_players: number;
+  contract_version: number;
+  contract_hash: string;
   close_reason: string;
 };
 
@@ -374,6 +396,10 @@ function cloneSession(session: Session): Session {
   delete cloned.host.crucible_wax_millis;
   delete cloned.guest.balance_cents;
   delete cloned.guest.crucible_wax_millis;
+  for (const player of cloned.roster ?? []) {
+    delete player.balance_cents;
+    delete player.crucible_wax_millis;
+  }
   for (const key of [
     "player_balances_cents", "balance_cents", "crucible_wax_millis",
     "player_balance_millis_by_id", "crucible_local_balance_start_millis",
@@ -458,29 +484,88 @@ function nextBotUid(): string {
 
 function newSession(host: Player, context: JsonRecord, source: "invite" | "quick"): Session {
   const createdUnix = nowUnix();
-  return {
+  const preparedContext = prepareSessionContext(context);
+  const hostPlayer = rosterPlayer(host, 1);
+  const session: Session = {
     id: nextSessionId(),
     invite_code: nextInviteCode(),
     source,
-    context: cloneContext(context),
+    context: preparedContext,
     created_unix: createdUnix,
     expires_unix: createdUnix + Math.max(1, config.sessionTtlSec),
     status: "waiting",
-    host: {
-      uid: host.uid,
-      display_name: host.display_name || "Player 1",
-      ready: false,
-      ticket_id: host.ticket_id,
-      tier_id: host.tier_id,
-      rank_position: host.rank_position,
-      wax_score: host.wax_score,
-      color_id: host.color_id,
-      balance_cents: host.balance_cents,
-      crucible_wax_millis: host.crucible_wax_millis
-    },
+    host: hostPlayer,
     guest: { uid: "", display_name: "", ready: false },
+    roster: [hostPlayer],
+    required_players: requiredPlayersForContext(preparedContext),
+    contract_version: 2,
+    contract_hash: "",
     close_reason: ""
   };
+  syncSessionRoster(session, session.roster);
+  return session;
+}
+
+function requiredPlayersForContext(context: JsonRecord): number {
+  const mode = stringValue(context.mode).trim().toUpperCase().replaceAll("_", " ").replaceAll("-", " ");
+  if (mode === "2V2" || mode === "4P FFA") return 4;
+  if (mode === "3P FFA") return 3;
+  return 2;
+}
+
+function prepareSessionContext(context: JsonRecord): JsonRecord {
+  const out = cloneContext(context);
+  out.required_players = requiredPlayersForContext(out);
+  out.session_contract_version = 2;
+  return out;
+}
+
+function rosterPlayer(player: Player, seat: number): Player {
+  const cleanSeat = Math.max(1, Math.min(4, Math.trunc(seat)));
+  return {
+    ...player,
+    display_name: player.display_name || `Player ${cleanSeat}`,
+    ready: Boolean(player.ready),
+    seat: cleanSeat,
+    role: cleanSeat === 1 ? "host" : "player",
+    team_id: cleanSeat
+  };
+}
+
+function sessionContractHash(session: Session): string {
+  const immutable = {
+    version: 2,
+    mode: stringValue(session.context.mode).toUpperCase(),
+    required_players: session.required_players,
+    map_count: numberValue(session.context.map_count, 1),
+    stage_map_paths: session.context.stage_map_paths ?? [],
+    match_setup: session.context.match_setup ?? session.context.match_setup_randomizer ?? {},
+    roster: session.roster.map((player) => ({ seat: player.seat, uid: player.uid, team_id: player.team_id }))
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(immutable)).digest("hex");
+}
+
+function syncSessionRoster(session: Session, roster: Player[]): void {
+  const seen = new Set<string>();
+  session.roster = roster
+    .filter((player) => Boolean(player.uid) && !seen.has(player.uid) && (seen.add(player.uid) || true))
+    .slice(0, 4)
+    .map((player, index) => {
+      const normalized = rosterPlayer(player, index + 1);
+      if (stringValue(session.context.mode).toUpperCase() === "2V2") {
+        normalized.team_id = normalized.seat === 1 || normalized.seat === 3 ? 1 : 2;
+      }
+      return normalized;
+    });
+  session.required_players = requiredPlayersForContext(session.context);
+  session.host = session.roster[0] ?? { uid: "", display_name: "", ready: false };
+  session.guest = session.roster[1] ?? { uid: "", display_name: "", ready: false };
+  session.contract_version = 2;
+  session.contract_hash = sessionContractHash(session);
+}
+
+function sessionIsFull(session: Session): boolean {
+  return session.roster.length >= session.required_players;
 }
 
 function markSessionStarted(session: Session): void {
@@ -526,6 +611,15 @@ function sessionFundingPlayer(player: Player): { player_id: string; balance_cent
 }
 
 function startSessionAuthoritatively(session: Session): LedgerJsonRecord {
+  if (!sessionIsFull(session)) {
+    return {
+      ok: false,
+      err: "not_enough_players",
+      code: "not_enough_players",
+      required_players: session.required_players,
+      current_players: session.roster.length
+    };
+  }
   if ((contextIsCrucible(session.context) || contextIsPaid(session.context)) && !economyMutationsEnabled()) {
     return economyDisabledResult();
   }
@@ -587,13 +681,13 @@ function startSessionAuthoritatively(session: Session): LedgerJsonRecord {
     markSessionStarted(session);
     return { ok: true, session };
   }
-  if (!session.host.uid || !session.guest.uid) {
+  if (!sessionIsFull(session)) {
     return { ok: false, err: "not_enough_players", code: "not_enough_players" };
   }
   const wagerCents = contextWagerCents(session.context);
   const escrow = moneyLedger.openMoneyEscrow(
     session.id,
-    [sessionFundingPlayer(session.host), sessionFundingPlayer(session.guest)],
+    session.roster.map(sessionFundingPlayer),
     wagerCents,
     `open:${session.id}`
   );
@@ -617,15 +711,15 @@ function refreshSessionStatus(session: Session): void {
   if (session.status === "started" || session.status === "closed") {
     return;
   }
-  if (!session.guest.uid) {
+  if (!sessionIsFull(session)) {
     session.status = "waiting";
     return;
   }
-  session.status = session.host.ready && session.guest.ready ? "ready" : "matched";
+  session.status = session.roster.every((player) => player.ready) ? "ready" : "matched";
 }
 
 function sessionHasPlayer(session: Session, uid: string): boolean {
-  return session.host.uid === uid || session.guest.uid === uid;
+  return session.roster.some((player) => player.uid === uid);
 }
 
 function isSessionLive(session: Session): boolean {
@@ -819,9 +913,15 @@ function actionName(req: Request): string {
   return stringValue(req.params.action);
 }
 
-function handleAction(req: Request, res: Response): void {
+async function handleAction(req: Request, res: Response): Promise<void> {
   prune();
   const action = actionName(req);
+  if (await handlePublicModesOpsAction(action, req, res)) return;
+  if (await handlePublicContestAction(action, req, res)) return;
+  if (await handlePublicRankAction(action, req, res)) return;
+  if (await handleVerificationAction(action, req, res)) return;
+  if (await handleDurablePublic1v1Action(action, req, res)) return;
+  if (await handleCrucibleSettlementAction(action, req, res)) return;
   if (QUARANTINED_ECONOMY_ACTIONS.has(action) && !requireEconomyMutations(res)) {
     return;
   }
@@ -841,6 +941,8 @@ function handleAction(req: Request, res: Response): void {
       return joinInvite(req, res);
     case "enqueue_quick_match":
       return enqueueQuickMatch(req, res);
+    case "enqueue_public_1v1":
+      return enqueuePublic1v1(req, res);
     case "poll_quick_match":
       return pollQuickMatch(req, res);
     case "cancel_quick_match":
@@ -1277,29 +1379,25 @@ function joinInvite(req: Request, res: Response): void {
   if (session.host.uid === guest.uid) {
     return fail(res, "cannot_join_own_invite");
   }
-  if (session.guest.uid && session.guest.uid !== guest.uid) {
+  const existingIndex = session.roster.findIndex((player) => player.uid === guest.uid);
+  if (existingIndex < 0 && sessionIsFull(session)) {
     return fail(res, "invite_full");
   }
-  const previousGuest = { ...session.guest };
-  const existingReady = session.guest.ready;
-  session.guest = {
-    uid: guest.uid,
-    display_name: guest.display_name,
-    ready: existingReady,
-    tier_id: guest.tier_id,
-    rank_position: guest.rank_position,
-    wax_score: guest.wax_score,
-    color_id: guest.color_id,
-    balance_cents: guest.balance_cents,
-    crucible_wax_millis: guest.crucible_wax_millis
-  };
-  const startResult = startSessionAuthoritatively(session);
-  if (startResult.ok !== true) {
-    session.guest = previousGuest;
-    refreshSessionStatus(session);
-    return failLedger(res, startResult, 402);
+  const previousRoster = session.roster.map((player) => ({ ...player }));
+  if (existingIndex < 0) {
+    syncSessionRoster(session, [...session.roster, guest]);
   }
-  return ok(res, { session_id: session.id, session: cloneSession(session) });
+  if (sessionIsFull(session)) {
+    const startResult = startSessionAuthoritatively(session);
+    if (startResult.ok !== true) {
+      syncSessionRoster(session, previousRoster);
+      refreshSessionStatus(session);
+      return failLedger(res, startResult, 402);
+    }
+  } else {
+    refreshSessionStatus(session);
+  }
+  return ok(res, { session_id: session.id, seat: existingIndex >= 0 ? existingIndex + 1 : session.roster.length, session: cloneSession(session) });
 }
 
 function enqueueQuickMatch(req: Request, res: Response): void {
@@ -1314,6 +1412,24 @@ function enqueueQuickMatch(req: Request, res: Response): void {
   const existing = queue.find((ticket) => ticket.uid === player.uid);
   if (existing) {
     return ok(res, { matched: false, ticket_id: existing.id });
+  }
+  const preparedContext = prepareSessionContext(context);
+  const openSession = [...sessions.values()].find((candidate) =>
+    candidate.source === "quick" && candidate.status !== "started" && isSessionLive(candidate) &&
+    !sessionIsFull(candidate) && contextsCompatible(candidate.context, preparedContext)
+  );
+  if (openSession) {
+    syncSessionRoster(openSession, [...openSession.roster, player]);
+    if (sessionIsFull(openSession)) {
+      const startResult = startSessionAuthoritatively(openSession);
+      if (startResult.ok !== true) {
+        syncSessionRoster(openSession, openSession.roster.filter((entry) => entry.uid !== player.uid));
+        return failLedger(res, startResult, 402);
+      }
+    } else {
+      refreshSessionStatus(openSession);
+    }
+    return ok(res, { matched: true, session_id: openSession.id, seat: openSession.roster.length, session: cloneSession(openSession) });
   }
   const matchIndex = bestQuickMatchIndex(player, context);
   if (matchIndex >= 0) {
@@ -1331,7 +1447,7 @@ function enqueueQuickMatch(req: Request, res: Response): void {
       crucible_wax_millis: other.crucible_wax_millis
     };
     const session = newSession(host, other.context, "quick");
-    session.guest = {
+    const guestPlayer: Player = {
       uid: player.uid,
       display_name: player.display_name || "Player 2",
       ready: false,
@@ -1343,10 +1459,15 @@ function enqueueQuickMatch(req: Request, res: Response): void {
       balance_cents: player.balance_cents,
       crucible_wax_millis: player.crucible_wax_millis
     };
-    const startResult = startSessionAuthoritatively(session);
-    if (startResult.ok !== true) {
-      queue.splice(matchIndex, 0, other);
-      return failLedger(res, startResult, 402);
+    syncSessionRoster(session, [host, guestPlayer]);
+    if (sessionIsFull(session)) {
+      const startResult = startSessionAuthoritatively(session);
+      if (startResult.ok !== true) {
+        queue.splice(matchIndex, 0, other);
+        return failLedger(res, startResult, 402);
+      }
+    } else {
+      refreshSessionStatus(session);
     }
     sessions.set(session.id, session);
     inviteToSession.set(session.invite_code, session.id);
@@ -1379,6 +1500,66 @@ function enqueueQuickMatch(req: Request, res: Response): void {
   return ok(res, { matched: false, ticket_id: ticket.id });
 }
 
+function enqueuePublic1v1(req: Request, res: Response): void {
+  if (!config.authenticated1v1SliceEnabled) {
+    return fail(res, "authenticated_1v1_slice_disabled", 503);
+  }
+  const authConfig = {
+    issuer: config.playerTokenIssuer,
+    audience: config.playerTokenAudience,
+    keyId: config.playerTokenKeyId,
+    publicKeyPem: config.playerTokenPublicKeyPem
+  };
+  try {
+    const token = bearerPlayerToken(req.header("authorization"));
+    if (!token) {
+      throw new PlayerAuthError("player_token_required", 401);
+    }
+    const authenticated = verifyPlayerToken(token, authConfig, "match:queue");
+    const suppliedProfile = isRecord(req.body?.profile) ? req.body.profile : {};
+    const suppliedUid = stringValue(suppliedProfile.uid ?? req.body?.uid ?? req.body?.player_id);
+    if (suppliedUid && suppliedUid !== authenticated.playerId) {
+      return fail(res, "identity_mismatch", 403);
+    }
+    const requestedContext = cloneContext(req.body?.context);
+    if (contextIsPaid(requestedContext) || contextIsCrucible(requestedContext)) {
+      return fail(res, "standard_1v1_only", 400);
+    }
+    const requestedRuleset = stringValue(requestedContext.vs_ruleset ?? requestedContext.ruleset).toUpperCase();
+    if (requestedRuleset && !["STANDARD", "1V1"].includes(requestedRuleset)) {
+      return fail(res, "standard_1v1_only", 400);
+    }
+    req.body = {
+      profile: {
+        uid: authenticated.playerId,
+        display_name: authenticated.displayName || `Player_${authenticated.playerId.slice(-6)}`,
+        tier_id: "DRONE",
+        rank_position: 0,
+        wax_score: 0,
+        color_id: "GREEN"
+      },
+      context: {
+        ...requestedContext,
+        mode: "1V1",
+        vs_mode: "1V1",
+        vs_ruleset: "STANDARD",
+        human_pvp: true,
+        free_roll: true,
+        paid_entry: false,
+        ranked: false,
+        authority_tier: "RELAY_ATTESTED",
+        authenticated_slice: true
+      }
+    };
+    return enqueueQuickMatch(req, res);
+  } catch (error) {
+    if (error instanceof PlayerAuthError) {
+      return fail(res, error.code, error.status);
+    }
+    throw error;
+  }
+}
+
 function pollQuickMatch(req: Request, res: Response): void {
   const ticketId = stringValue(req.body?.ticket_id);
   if (!ticketId) {
@@ -1388,7 +1569,7 @@ function pollQuickMatch(req: Request, res: Response): void {
     if (session.source !== "quick") {
       continue;
     }
-    if (session.host.ticket_id === ticketId || session.guest.ticket_id === ticketId) {
+    if (session.roster.some((player) => player.ticket_id === ticketId)) {
       return ok(res, { matched: true, session_id: session.id, session: cloneSession(session) });
     }
   }
@@ -1442,12 +1623,13 @@ function fillQuickMatchInternal(req: Request, res: Response): void {
     crucible_wax_millis: ticket.crucible_wax_millis
   };
   const session = newSession(host, ticket.context, "quick");
-  session.guest = {
+  const bot: Player = {
     uid: nextBotUid(),
     display_name: botName,
     ready: true,
     crucible_wax_millis: ticket.crucible_wax_millis
   };
+  syncSessionRoster(session, [host, bot]);
   const startResult = startSessionAuthoritatively(session);
   if (startResult.ok !== true) {
     queue.splice(index, 0, ticket);
@@ -1472,12 +1654,16 @@ function fillSessionInternal(req: Request, res: Response): void {
     res.status(503).json(economyDisabledResult());
     return;
   }
-  if (!session.guest.uid) {
-    session.guest = {
+  if (!sessionIsFull(session)) {
+    syncSessionRoster(session, [...session.roster, {
       uid: nextBotUid(),
       display_name: botName,
       ready: true
-    };
+    }]);
+  }
+  if (!sessionIsFull(session)) {
+    refreshSessionStatus(session);
+    return ok(res, { session_id: session.id, session: cloneSession(session) });
   }
   const startResult = startSessionAuthoritatively(session);
   if (startResult.ok !== true) {
@@ -1529,13 +1715,13 @@ function setReady(req: Request, res: Response): void {
   if (!session || !uid) {
     return fail(res, "invalid_args");
   }
-  if (session.host.uid === uid) {
-    session.host.ready = boolValue(req.body?.ready);
-  } else if (session.guest.uid === uid) {
-    session.guest.ready = boolValue(req.body?.ready);
-  } else {
+  const playerIndex = session.roster.findIndex((player) => player.uid === uid);
+  if (playerIndex < 0) {
     return fail(res, "player_not_in_session");
   }
+  const roster = session.roster.map((player) => ({ ...player }));
+  roster[playerIndex].ready = boolValue(req.body?.ready);
+  syncSessionRoster(session, roster);
   refreshSessionStatus(session);
   return ok(res, { session: cloneSession(session) });
 }
@@ -1544,7 +1730,7 @@ function canStart(req: Request, res: Response): void {
   const sessionId = stringValue(req.body?.session_id);
   const uid = stringValue(req.body?.uid);
   const session = sessions.get(sessionId);
-  const allowed = Boolean(session && ["matched", "ready", "started"].includes(session.status) && session.host.uid === uid);
+  const allowed = Boolean(session && sessionIsFull(session) && ["matched", "ready", "started"].includes(session.status) && session.host.uid === uid);
   return ok(res, { can_start: allowed });
 }
 
@@ -1558,7 +1744,7 @@ function startSession(req: Request, res: Response): void {
   if (session.status === "started" && session.host.uid === uid) {
     return ok(res, { session: cloneSession(session) });
   }
-  if (!["matched", "ready"].includes(session.status) || session.host.uid !== uid) {
+  if (!sessionIsFull(session) || !["matched", "ready"].includes(session.status) || session.host.uid !== uid) {
     return fail(res, "not_ready_or_not_host");
   }
   const startResult = startSessionAuthoritatively(session);
@@ -1599,7 +1785,7 @@ function requestPlayerFundings(body: JsonRecord, fallbackPlayers: Player[] = [])
 function openMoneyEscrow(req: Request, res: Response): void {
   const sessionId = stringValue(req.body?.session_id);
   const session = sessions.get(sessionId);
-  const fallbackPlayers = session ? [session.host, session.guest] : [];
+  const fallbackPlayers = session ? session.roster : [];
   const wagerCents = Math.trunc(numberValue(req.body?.wager_cents, session ? contextWagerCents(session.context) : 0));
   const idempotencyKey = stringValue(req.body?.idempotency_key);
   const result = moneyLedger.openMoneyEscrow(sessionId, requestPlayerFundings(req.body ?? {}, fallbackPlayers), wagerCents, idempotencyKey);
@@ -2102,9 +2288,10 @@ function leaveSession(req: Request, res: Response): void {
     closeSession(sessionId, "host_left");
     return ok(res, { closed: true });
   }
-  if (session.guest.uid === uid) {
-    session.guest = { uid: "", display_name: "", ready: false };
-    session.host.ready = false;
+  const playerIndex = session.roster.findIndex((player) => player.uid === uid);
+  if (playerIndex >= 0) {
+    const roster = session.roster.filter((player) => player.uid !== uid).map((player) => ({ ...player, ready: false }));
+    syncSessionRoster(session, roster);
     refreshSessionStatus(session);
     return ok(res, { closed: false, session: cloneSession(session) });
   }
@@ -2203,22 +2390,22 @@ function respondFriendInvite(req: Request, res: Response): void {
     invite.status = "expired";
     return fail(res, "session_not_found", 404);
   }
-  const previousGuest = { ...session.guest };
-  session.guest = {
-    uid: guest.uid,
-    display_name: guest.display_name || "Player 2",
-    ready: false,
-    tier_id: guest.tier_id,
-    rank_position: guest.rank_position,
-    wax_score: guest.wax_score,
-    color_id: guest.color_id,
-    balance_cents: guest.balance_cents
-  };
-  const startResult = startSessionAuthoritatively(session);
-  if (startResult.ok !== true) {
-    session.guest = previousGuest;
+  const previousRoster = session.roster.map((player) => ({ ...player }));
+  if (!session.roster.some((player) => player.uid === guest.uid)) {
+    if (sessionIsFull(session)) {
+      return fail(res, "invite_full");
+    }
+    syncSessionRoster(session, [...session.roster, guest]);
+  }
+  if (sessionIsFull(session)) {
+    const startResult = startSessionAuthoritatively(session);
+    if (startResult.ok !== true) {
+      syncSessionRoster(session, previousRoster);
+      refreshSessionStatus(session);
+      return failLedger(res, startResult, 402);
+    }
+  } else {
     refreshSessionStatus(session);
-    return failLedger(res, startResult, 402);
   }
   invite.status = "accepted";
   return ok(res, { accepted: true, session_id: session.id, session: cloneSession(session) });
@@ -2235,10 +2422,17 @@ function publishIntent(req: Request, res: Response): void {
   if (!sessionHasPlayer(session, uid)) {
     return fail(res, "player_not_in_session");
   }
+  const player = session.roster.find((entry) => entry.uid === uid);
+  const expectedSeat = Number(player?.seat ?? 0);
+  const claimedSeat = Math.trunc(numberValue(command.sender_seat, 0));
+  if (claimedSeat > 0 && claimedSeat !== expectedSeat) {
+    return fail(res, "sender_seat_mismatch");
+  }
+  const authoritativeInput = { ...command, sender_seat: expectedSeat };
   const stream = intentStreams.get(sessionId) ?? { nextSeq: 1, events: [], lastExecuteTick: -1 };
   const seq = stream.nextSeq;
   stream.nextSeq += 1;
-  const canonicalCommand = canonicalizeAuthoritativeCommand(sessionId, uid, command, seq, stream);
+  const canonicalCommand = canonicalizeAuthoritativeCommand(sessionId, uid, authoritativeInput, seq, stream);
   stream.events.push({ seq, uid, command: canonicalCommand, ts_unix: nowUnix() });
   while (stream.events.length > config.intentStreamMaxEvents) {
     stream.events.shift();
@@ -2311,7 +2505,38 @@ function healthPayload(): JsonRecord {
     economy_mutations_enabled: economyMutationsEnabled(),
     admin_auth_required: Boolean(config.adminToken),
     match_authority_auth_required: Boolean(config.matchAuthorityToken),
+    player_auth_configured: playerAuthConfigured({
+      issuer: config.playerTokenIssuer,
+      audience: config.playerTokenAudience,
+      keyId: config.playerTokenKeyId,
+      publicKeyPem: config.playerTokenPublicKeyPem
+    }),
+    authenticated_1v1_slice_enabled: config.authenticated1v1SliceEnabled,
+    durable_public_1v1_enabled: config.durablePublic1v1Enabled,
+    match_verification_enabled: config.matchVerificationEnabled,
+    public_1v1_enabled: config.enablePublic1v1,
+    public_3p_ffa_enabled: config.enablePublic3pFfa,
+    public_2v2_enabled: config.enablePublic2v2,
+    public_4p_ffa_enabled: config.enablePublic4pFfa,
+    public_ctf_enabled: config.enablePublicCtf,
+    public_hctf_enabled: config.enablePublicHctf,
+    public_crucible_enabled: config.enablePublicCrucible,
+    crucible_wax_settlement_enabled: config.enableCrucibleWaxSettlement,
+    hctf_live_secrecy_certified: config.hctfLiveSecrecyCertified,
+    ctf_bot_fallback_enabled: config.enableCtfBotFallback,
+    rank_mutations_enabled: config.enableRankMutations,
+    public_leaderboards_enabled: config.enablePublicLeaderboards,
+    public_contests_enabled: config.enablePublicContests,
+    public_time_puzzles_enabled: config.enablePublicTimePuzzles,
+    public_gauntlet_enabled: config.enablePublicGauntlet,
+    public_async_3map_enabled: config.enablePublicAsync3map,
+    public_async_5map_enabled: config.enablePublicAsync5map,
+    contest_rewards_enabled: config.enableContestRewards,
+    remote_ops_config_enabled: config.enableRemoteOpsConfig,
+    ops_reconcile_interval_ms: config.opsReconcileIntervalMs,
+    public_contests_store_authorized: config.durableStore === "postgres" && Boolean(config.databaseUrl),
     storage: {
+      vs_core: durableCoreStatus(),
       money: { kind: "memory", path: "" },
       crucible: { kind: crucibleLedger.getStorageSnapshot().kind, path: config.crucibleLedgerPath },
       honey: { kind: honeyLedger.getStorageSnapshot().kind, path: config.honeyLedgerPath }
@@ -2375,6 +2600,9 @@ export function createApp(): express.Express {
     prune();
     res.json({ ok: true, ...healthPayload() });
   });
+  app.get("/v1/public_ops_config", (req, res, next) => {
+    void handlePublicOpsConfigGet(req, res).catch(next);
+  });
   app.get("/v1/contest_dash/config", (req, res, next) => {
     void handleContestDashState(req, res).catch(next);
   });
@@ -2386,8 +2614,8 @@ export function createApp(): express.Express {
     if (!requireEconomyMutations(res) || !requireAdmin(req, res)) return;
     void handleContestDashDelete(req, res).catch(next);
   });
-  app.post("/:action", handleAction);
-  app.post("/v1/:action", handleAction);
+  app.post("/:action", (req, res, next) => { void handleAction(req, res).catch(next); });
+  app.post("/v1/:action", (req, res, next) => { void handleAction(req, res).catch(next); });
   app.use((_req, res) => fail(res, "not_found", 404));
   return app;
 }
@@ -2404,6 +2632,15 @@ export function startServer(port = config.port, host = config.bindHost): http.Se
       queue_ttl_sec: config.queueTtlSec
     }));
   });
+  if (config.opsReconcileIntervalMs > 0 && config.enableRemoteOpsConfig
+    && config.durableStore === "postgres" && Boolean(config.databaseUrl)) {
+    const timer = setInterval(() => {
+      void runPublicModesReconciliation().catch((error) => console.error(JSON.stringify({
+        ts: new Date().toISOString(), event: "public_modes_reconciliation_failed", error: String(error)
+      })));
+    }, config.opsReconcileIntervalMs);
+    timer.unref();
+  }
   return server;
 }
 

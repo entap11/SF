@@ -45,6 +45,8 @@ func _test_jukebox_preview_and_play_button_layout() -> bool:
 	var footer_sprite: TextureRect = footer_button.get_node_or_null("MainMenuSprite") as TextureRect if footer_button != null else null
 	if footer_button == null or footer_sprite == null or footer_sprite.texture == null or not footer_sprite.visible:
 		return _fail("Footer Main Menu sprite missing")
+	if panel.find_child("MapBest", true, false) != null:
+		return _fail("Redundant top Map PB label should be removed")
 	if footer_button.custom_minimum_size.y < 64.0:
 		return _fail("Footer Main Menu action is below the 64-unit touch floor")
 	if play_button.text != "PLAY":
@@ -62,35 +64,41 @@ func _test_jukebox_preview_and_play_button_layout() -> bool:
 	var hero_panel: Control = panel.get_node_or_null("VBox/HeroPanel") as Control
 	if hero_panel == null:
 		return _fail("HeroPanel missing")
-	if hero_panel.size_flags_horizontal != Control.SIZE_SHRINK_CENTER:
-		return _fail("HeroPanel should shrink-center around selected map card")
-	var selected_title: Label = panel.find_child("SelectedTitle", true, false) as Label
-	var selected_title_width: float = selected_title.get_combined_minimum_size().x if selected_title != null else 0.0
+	if hero_panel.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
+		return _fail("HeroPanel should fill the content width so the schematic can align left")
+	var selector_panel: Control = panel.find_child("SelectorPanel", true, false) as Control
+	if selector_panel == null:
+		return _fail("SelectorPanel missing")
 	var leaderboard_panel: Control = panel.find_child("LeaderboardPanel", true, false) as Control
-	var leaderboard_width: float = leaderboard_panel.custom_minimum_size.x if leaderboard_panel != null else 0.0
 	var preview_rect: Rect2 = preview_panel.get_global_rect()
+	var selector_rect: Rect2 = selector_panel.get_global_rect()
 	var leaderboard_rect: Rect2 = leaderboard_panel.get_global_rect() if leaderboard_panel != null else Rect2()
-	var uses_side_leaderboard: bool = leaderboard_panel != null and leaderboard_rect.position.x > preview_rect.end.x
-	var card_content_width: float = maxf(maxf(preview_panel.custom_minimum_size.x, play_button.custom_minimum_size.x), selected_title_width)
-	if uses_side_leaderboard:
-		card_content_width = maxf(card_content_width, maxf(preview_panel.custom_minimum_size.x, play_button.custom_minimum_size.x) + leaderboard_width)
-	else:
-		card_content_width = maxf(card_content_width, leaderboard_width)
-	if hero_panel.custom_minimum_size.x > card_content_width + 80.0:
-		return _fail("HeroPanel is too wide for compact preview card: hero=%s preview=%s play=%s" % [str(hero_panel.custom_minimum_size), str(preview_panel.custom_minimum_size), str(play_button.custom_minimum_size)])
-	if hero_panel.custom_minimum_size.x > TEST_VIEWPORT_SIZE.x * 0.94:
-		return _fail("HeroPanel still reads as a full-width billboard on mobile: %s" % str(hero_panel.custom_minimum_size))
-	if hero_panel.custom_minimum_size.x < TEST_VIEWPORT_SIZE.x * 0.82:
-		return _fail("HeroPanel should use the available left/right space: %s" % str(hero_panel.custom_minimum_size))
-	if not uses_side_leaderboard:
-		return _fail("Leaderboard should sit beside the preview when the debug/mobile panel is wide enough")
-	if absf(leaderboard_panel.custom_minimum_size.x - preview_panel.custom_minimum_size.x) > 2.0:
-		return _fail("Side leaderboard should match preview width: leaderboard=%s preview=%s" % [str(leaderboard_panel.custom_minimum_size), str(preview_panel.custom_minimum_size)])
-	if absf(leaderboard_panel.custom_minimum_size.y - preview_panel.custom_minimum_size.y) > 2.0:
-		return _fail("Side leaderboard should match preview height: leaderboard=%s preview=%s" % [str(leaderboard_panel.custom_minimum_size), str(preview_panel.custom_minimum_size)])
+	if selector_rect.position.x <= preview_rect.end.x:
+		return _fail("Map selector should sit beside the preview when the debug/mobile panel is wide enough")
+	var hero_rect: Rect2 = hero_panel.get_global_rect()
+	var expected_preview_left: float = hero_rect.position.x + 14.0
+	if absf(preview_rect.position.x - expected_preview_left) > 2.0:
+		return _fail("Map schematic should align to the left edge of HeroPanel content: hero=%s preview=%s" % [str(hero_rect), str(preview_rect)])
+	if not hero_rect.encloses(selector_rect):
+		return _fail("Map selector should stay inside the selected-map panel: hero=%s selector=%s" % [str(hero_rect), str(selector_rect)])
+	if leaderboard_rect.position.y < hero_rect.end.y:
+		return _fail("Leaderboard should occupy the full-width slot below the selected map: hero=%s leaderboard=%s" % [str(hero_rect), str(leaderboard_rect)])
+	if leaderboard_rect.size.x < hero_rect.size.x - 2.0:
+		return _fail("Leaderboard should use the full landscape width: hero=%s leaderboard=%s" % [str(hero_rect), str(leaderboard_rect)])
+	if leaderboard_rect.size.y < 650.0:
+		return _fail("Leaderboard should inherit the tall selector slot: %s" % str(leaderboard_rect))
+	if int(panel.call("_leaderboard_page_size")) != 5:
+		return _fail("Full-width leaderboard should expose exactly five ranked slots")
 	var leaderboard_list: VBoxContainer = panel.find_child("LeaderboardList", true, false) as VBoxContainer
 	if leaderboard_list == null or leaderboard_list.get_child_count() <= 0:
 		return _fail("LeaderboardList should contain header rows")
+	if leaderboard_list.get_child_count() != 6:
+		return _fail("LeaderboardList should contain one header and five ranked slots")
+	for slot_index in range(5):
+		var slot_row: HBoxContainer = leaderboard_list.get_child(slot_index + 1) as HBoxContainer
+		var slot_rank: Label = slot_row.get_child(0) as Label if slot_row != null and slot_row.get_child_count() > 0 else null
+		if slot_rank == null or slot_rank.text != "%d." % (slot_index + 1):
+			return _fail("Leaderboard slot %d should remain visibly ranked" % (slot_index + 1))
 	var leaderboard_header: HBoxContainer = leaderboard_list.get_child(0) as HBoxContainer
 	if leaderboard_header == null or leaderboard_header.get_child_count() <= 0:
 		return _fail("Leaderboard header row missing")
@@ -123,18 +131,21 @@ func _test_jukebox_preview_and_play_button_layout() -> bool:
 	var desktop_hero_panel: Control = panel.get_node_or_null("VBox/HeroPanel") as Control
 	if desktop_hero_panel == null:
 		return _fail("Desktop HeroPanel missing")
-	var desktop_title: Label = panel.find_child("SelectedTitle", true, false) as Label
-	var desktop_title_width: float = desktop_title.get_combined_minimum_size().x if desktop_title != null else 0.0
+	var desktop_selector_panel: Control = panel.find_child("SelectorPanel", true, false) as Control
 	var desktop_leaderboard_panel: Control = panel.find_child("LeaderboardPanel", true, false) as Control
-	var desktop_leaderboard_width: float = desktop_leaderboard_panel.custom_minimum_size.x if desktop_leaderboard_panel != null else 0.0
-	var desktop_card_content_width: float = maxf(desktop_preview_panel.custom_minimum_size.x, play_button.custom_minimum_size.x) + desktop_leaderboard_width
-	desktop_card_content_width = maxf(desktop_card_content_width, desktop_title_width)
-	if desktop_hero_panel.custom_minimum_size.x > desktop_card_content_width + 80.0:
-		return _fail("Desktop HeroPanel does not hug selected map content: hero=%s preview=%s play=%s" % [str(desktop_hero_panel.custom_minimum_size), str(desktop_preview_panel.custom_minimum_size), str(play_button.custom_minimum_size)])
-	if desktop_hero_panel.custom_minimum_size.x > 980.0:
-		return _fail("Desktop HeroPanel should stay compact while hosting leaderboard: %s" % str(desktop_hero_panel.custom_minimum_size))
-	if desktop_leaderboard_panel == null or desktop_leaderboard_panel.get_global_rect().position.x <= desktop_preview_panel.get_global_rect().end.x:
-		return _fail("Desktop leaderboard should sit beside the preview")
+	if desktop_selector_panel == null or desktop_selector_panel.get_global_rect().position.x <= desktop_preview_panel.get_global_rect().end.x:
+		return _fail("Desktop map selector should sit beside the preview")
+	if desktop_leaderboard_panel == null:
+		return _fail("Desktop leaderboard missing")
+	var desktop_hero_rect: Rect2 = desktop_hero_panel.get_global_rect()
+	var desktop_preview_rect: Rect2 = desktop_preview_panel.get_global_rect()
+	if absf(desktop_preview_rect.position.x - (desktop_hero_rect.position.x + 14.0)) > 2.0:
+		return _fail("Desktop map schematic should remain left-aligned: hero=%s preview=%s" % [str(desktop_hero_rect), str(desktop_preview_rect)])
+	var desktop_leaderboard_rect: Rect2 = desktop_leaderboard_panel.get_global_rect()
+	if desktop_leaderboard_rect.position.y < desktop_hero_rect.end.y:
+		return _fail("Desktop leaderboard should sit below the selected-map panel")
+	if desktop_leaderboard_rect.size.x < desktop_hero_rect.size.x - 2.0:
+		return _fail("Desktop leaderboard should use the full landscape width")
 	var desktop_ratio: float = desktop_preview_panel.custom_minimum_size.y / 900.0
 	if desktop_ratio < 0.25 or desktop_ratio > 0.43:
 		return _fail("Desktop preview should occupy 25-43%% of panel height, got %.3f with %s" % [desktop_ratio, str(desktop_preview_panel.custom_minimum_size)])

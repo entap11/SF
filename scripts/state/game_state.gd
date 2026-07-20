@@ -30,7 +30,8 @@ const DEFAULT_CELL_SIZE := 64.0
 const MATCH_DURATION_MS := 300000
 const DEFAULT_UNINTENDED_POWER_PER_SEC := 1.0
 const PASSIVE_CHILL_MS := 3000
-const PASSIVE_MS_PER_POWER: float = 3000.0
+const DORMANT_LEVEL_ONE_PRODUCTION_RATE: float = 0.5
+const PASSIVE_MS_PER_POWER: float = SimTuning.BASE_SPAWN_MS / DORMANT_LEVEL_ONE_PRODUCTION_RATE
 const PASSIVE_ATTACK_SUPPRESS_MS := 20000
 const EXECUTION_METRICS_TICK_MS: float = 500.0
 const HIGH_POWER_IDLE_THRESHOLD := 25
@@ -90,16 +91,13 @@ var next_lane_generation: int = 1
 var production_event_receipt_tick: int = -1
 var production_event_local_ordinal_by_producer: Dictionary = {}
 var production_event_receipts_this_tick: Dictionary = {}
-var _unintended_power_accum_by_hive: Dictionary = {}
 var passive_power_block_until_ms_by_hive: Dictionary = {}
 var _available_lane_unattended_ms_by_hive: Dictionary = {}
 var _max_available_lane_unattended_ms_by_hive: Dictionary = {}
 var _high_power_idle_ms_by_hive: Dictionary = {}
 var _max_high_power_idle_ms_by_hive: Dictionary = {}
-var _passive_accum_ms: float = 0.0
 var _execution_metrics_accum_ms: float = 0.0
 var _passive_config_logged: bool = false
-var _outgoing_sample_log_ms: int = 0
 
 # Indexes
 var hive_by_id: Dictionary = {}
@@ -286,16 +284,13 @@ func reset_map_only() -> void:
 	production_event_receipt_tick = -1
 	production_event_local_ordinal_by_producer.clear()
 	production_event_receipts_this_tick.clear()
-	_unintended_power_accum_by_hive.clear()
 	passive_power_block_until_ms_by_hive.clear()
 	_available_lane_unattended_ms_by_hive.clear()
 	_max_available_lane_unattended_ms_by_hive.clear()
 	_high_power_idle_ms_by_hive.clear()
 	_max_high_power_idle_ms_by_hive.clear()
-	_passive_accum_ms = 0.0
 	_execution_metrics_accum_ms = 0.0
 	_passive_config_logged = false
-	_outgoing_sample_log_ms = 0
 	units_set_version = 0
 	_last_hives_set_count = -1
 	_last_hives_set_sig = 0
@@ -1105,71 +1100,75 @@ func tick_unintended_power(dt_ms: float) -> void:
 		_execution_metrics_accum_ms = 0.0
 		_clear_execution_opportunity_streaks()
 	if ops_state != null and match_phase == 0:
-		_passive_accum_ms = 0.0
+		_reset_dormant_hive_production_clocks()
 		return
 	if not _passive_config_logged:
 		_passive_config_logged = true
 		SFLog.info("PASSIVE_CONFIG", {
 			"chill_ms": PASSIVE_CHILL_MS,
-			"ms_per_power": PASSIVE_MS_PER_POWER
+			"ms_per_power": PASSIVE_MS_PER_POWER,
+			"level_one_production_rate": DORMANT_LEVEL_ONE_PRODUCTION_RATE,
+			"clock": "per_hive"
 		})
 	if ops_state != null and int(ops_state.get("match_elapsed_ms")) < PASSIVE_CHILL_MS:
-		_passive_accum_ms = 0.0
+		_reset_dormant_hive_production_clocks()
 		return
-	_passive_accum_ms += dt_ms
-	var ticks_fired: int = 0
-	while _passive_accum_ms >= PASSIVE_MS_PER_POWER:
-		_passive_accum_ms -= PASSIVE_MS_PER_POWER
-		ticks_fired += 1
-		_apply_passive_tick(1, ticks_fired)
+	_tick_dormant_hive_production(dt_ms)
 
-func _apply_passive_tick(inc: int, ticks_fired: int) -> void:
-	var eligible_count: int = 0
+func _reset_dormant_hive_production_clocks() -> void:
+	for hive_any in hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive != null:
+			hive.idle_accum_ms = 0.0
+
+func _tick_dormant_hive_production(dt_ms: float) -> void:
+	if dt_ms <= 0.0:
+		return
 	var applied_count: int = 0
 	var attack_blocked_count: int = 0
 	var sample: Array = []
-	for hive in hives:
+	for hive_any in hives:
+		var hive: HiveData = hive_any as HiveData
 		if hive == null:
 			continue
-		var hid: int = int(hive.id)
+		var hive_id: int = int(hive.id)
 		if _is_npc_hive(hive):
+			hive.idle_accum_ms = 0.0
 			continue
-		if _is_passive_power_attack_blocked(hid):
+		if _is_passive_power_attack_blocked(hive_id):
 			attack_blocked_count += 1
+			hive.idle_accum_ms = 0.0
 			continue
-		var outgoing: int = outgoing_active_count(hid)
+		var outgoing: int = outgoing_active_count(hive_id)
 		if outgoing > 0:
+			# Dormant production is the hive's own cycle. Becoming active ends it;
+			# returning to dormancy begins a fresh half-base production cycle.
+			hive.idle_accum_ms = 0.0
 			continue
-		eligible_count += 1
-		var before: int = int(hive.power)
-		var after: int = mini(SimTuning.MAX_POWER, before + inc)
-		if after > before:
-			hive.power = after
-			applied_count += 1
-		if sample.size() < 3:
-			sample.append({
-				"id": hid,
-				"outgoing": outgoing,
-				"p0": before,
-				"p1": int(hive.power),
-				"inc": inc
-			})
-	SFLog.info("PASSIVE_TICK", {
-		"ticks_fired": ticks_fired,
-		"eligible_count": eligible_count,
-		"applied_count": applied_count,
-		"attack_blocked_count": attack_blocked_count,
-		"sample": sample
-	})
-	var now_ms := Time.get_ticks_msec()
-	if now_ms - _outgoing_sample_log_ms >= 2000 and hives.size() > 0:
-		_outgoing_sample_log_ms = now_ms
-		var sample_h := hives[0] as HiveData
-		if sample_h != null:
-			SFLog.info("OUTGOING_COUNT_SAMPLE", {
-				"id": int(sample_h.id),
-				"outgoing_active_count": outgoing_active_count(int(sample_h.id))
-			})
+		var accumulated_ms: float = float(hive.idle_accum_ms) + dt_ms
+		var produced_power: int = int(floor(accumulated_ms / PASSIVE_MS_PER_POWER))
+		if produced_power > 0:
+			accumulated_ms -= float(produced_power) * PASSIVE_MS_PER_POWER
+			var before: int = int(hive.power)
+			hive.power = mini(SimTuning.MAX_POWER, before + produced_power)
+			if int(hive.power) > before:
+				applied_count += int(hive.power) - before
+			if sample.size() < 3:
+				sample.append({
+					"id": hive_id,
+					"outgoing": outgoing,
+					"p0": before,
+					"p1": int(hive.power),
+					"produced": produced_power
+				})
+		hive.idle_accum_ms = accumulated_ms
+	if not sample.is_empty():
+		SFLog.info("PASSIVE_TICK", {
+			"clock": "per_hive",
+			"applied_count": applied_count,
+			"attack_blocked_count": attack_blocked_count,
+			"sample": sample
+		})
 
 func mark_hive_attacked_for_passive_suppression(hive_id: int, duration_ms: int = PASSIVE_ATTACK_SUPPRESS_MS) -> void:
 	if hive_id <= 0:

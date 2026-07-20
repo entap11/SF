@@ -1,9 +1,10 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/jukebox_panel.gd" id="1"]
 [ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/play.png" id="2"]
 [ext_resource type="Shader" path="res://shaders/BlackKeyAlpha.gdshader" id="3"]
 [ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/Back.png" id="4"]
+[ext_resource type="Texture2D" path="res://assets/sprites/sf_skin_v1/Left_right_chevrons.png" id="5"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_play_key"]
 shader = ExtResource("3")
@@ -17,6 +18,14 @@ region = Rect2(192, 272, 1152, 404)
 [sub_resource type="AtlasTexture" id="AtlasTexture_main_menu_trimmed"]
 atlas = ExtResource("4")
 region = Rect2(208, 300, 1120, 360)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_map_left"]
+atlas = ExtResource("5")
+region = Rect2(0, 0, 1024, 768)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_map_right"]
+atlas = ExtResource("5")
+region = Rect2(0, 768, 1024, 768)
 
 [node name="JukeboxPanel" type="Panel"]
 visible = false
@@ -98,9 +107,33 @@ theme_override_constants/separation = 10
 custom_minimum_size = Vector2(92, 92)
 text = "LEFT"
 
+[node name="ChevronSprite" type="TextureRect" parent="VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow/MapLeft"]
+material = SubResource("ShaderMaterial_play_key")
+mouse_filter = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = SubResource("AtlasTexture_map_left")
+expand_mode = 1
+stretch_mode = 5
+
 [node name="MapRight" type="Button" parent="VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow"]
 custom_minimum_size = Vector2(92, 92)
 text = "RIGHT"
+
+[node name="ChevronSprite" type="TextureRect" parent="VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow/MapRight"]
+material = SubResource("ShaderMaterial_play_key")
+mouse_filter = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = SubResource("AtlasTexture_map_right")
+expand_mode = 1
+stretch_mode = 5
 
 [node name="CpuPanel" type="Panel" parent="VBox"]
 custom_minimum_size = Vector2(0, 136)
@@ -208,9 +241,6 @@ texture = SubResource("AtlasTexture_play_trimmed")
 expand_mode = 1
 stretch_mode = 5
 
-[node name="MapBest" type="Label" parent="VBox/HeroPanel/HeroVBox"]
-text = "Map PB: --"
-
 [node name="SelectedDesc" type="Label" parent="VBox/HeroPanel/HeroVBox"]
 custom_minimum_size = Vector2(0, 44)
 autowrap_mode = 3
@@ -265,15 +295,14 @@ horizontal_alignment = 1
 custom_minimum_size = Vector2(76, 52)
 text = "DOWN"
 
-[node name="YourBest" type="Label" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
+[node name="YourBestLift" type="MarginContainer" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
+theme_override_constants/margin_bottom = 10
+
+[node name="YourBest" type="Label" parent="VBox/LeaderboardPanel/LeaderboardVBox/YourBestLift"]
 text = "Your best: --"
 
-[node name="BadgeNote" type="Label" parent="VBox/LeaderboardPanel/LeaderboardVBox"]
-autowrap_mode = 3
-text = "Badge note"
-
 [node name="FooterCloseButton" type="Button" parent="VBox"]
-custom_minimum_size = Vector2(720, 112)
+custom_minimum_size = Vector2(640, 100)
 size_flags_horizontal = 4
 tooltip_text = "Return to Main Menu"
 text = "BACK TO MAIN MENU"

@@ -14,7 +14,6 @@ const INVALID_SOURCE_MATCH_ID: String = "crucible_smoke_invalid_source_001"
 const RUNTIME_MATCH_ID: String = "crucible_smoke_runtime_001"
 const LIFECYCLE_MATCH_ID: String = "crucible_smoke_lifecycle_001"
 const DESYNC_MATCH_ID: String = "crucible_smoke_desync_001"
-const BUFF_CLASSIC: String = "buff_unit_speed_classic"
 
 func _init() -> void:
 	await process_frame
@@ -23,8 +22,7 @@ func _init() -> void:
 	var honey_state: Node = get_root().get_node_or_null("HoneyProgressionState")
 	var battle_pass_state: Node = get_root().get_node_or_null("BattlePassState")
 	var rank_state: Node = get_root().get_node_or_null("RankState")
-	var economy_state: Node = get_root().get_node_or_null("EconomyBuffState")
-	if crucible_state == null or honey_state == null or battle_pass_state == null or rank_state == null or economy_state == null:
+	if crucible_state == null or honey_state == null or battle_pass_state == null or rank_state == null:
 		_fail("required autoload missing")
 		return
 
@@ -41,14 +39,15 @@ func _init() -> void:
 	var capacity_status: Dictionary = crucible_state.call("preview_entry_status", PLAYER_A, 100, false) as Dictionary
 	_assert_code(capacity_status, "capacity", "capacity block should be distinct from no Wax")
 
-	# Stake math: Crucible always stakes exactly 1 Wax from each player and burns nothing.
+	# Stake math: Crucible stakes exactly 1 Wax from each player and moves 0.2 Wax to the award reserve.
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_A, 5000) as Dictionary, "seed A low balance")
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_B, 50000) as Dictionary, "seed B high balance")
 	var low_preview: Dictionary = crucible_state.call("preview_match", PLAYER_A, PLAYER_B) as Dictionary
 	_assert_ok(low_preview, "low-vs-high preview")
 	_assert_eq(int(low_preview.get("stake_each", 0)), 1000, "5 vs 50 Wax should stake 1 Wax")
 	_assert_eq(int(low_preview.get("burn", 0)), 0, "Crucible burns no Wax")
-	_assert_eq(int(low_preview.get("winner_payout", 0)), 2000, "1+1 Wax pot should pay 2 Wax")
+	_assert_eq(int(low_preview.get("award_reserve", 0)), 200, "award reserve contribution")
+	_assert_eq(int(low_preview.get("winner_payout", 0)), 1800, "1+1 Wax pot should pay 1.8 Wax")
 
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_A, 50000) as Dictionary, "seed A 50 Wax")
 	_assert_ok(crucible_state.call("intent_set_balance_millis", PLAYER_B, 50000) as Dictionary, "seed B 50 Wax")
@@ -56,7 +55,8 @@ func _init() -> void:
 	_assert_ok(equal_preview, "equal preview")
 	_assert_eq(int(equal_preview.get("stake_each", 0)), 1000, "50 vs 50 Wax should stake 1 Wax")
 	_assert_eq(int(equal_preview.get("burn", 0)), 0, "Crucible burns no Wax")
-	_assert_eq(int(equal_preview.get("winner_payout", 0)), 2000, "1+1 Wax pot should pay 2 Wax")
+	_assert_eq(int(equal_preview.get("award_reserve", 0)), 200, "award reserve contribution")
+	_assert_eq(int(equal_preview.get("winner_payout", 0)), 1800, "1+1 Wax pot should pay 1.8 Wax")
 
 	var escrow_result: Dictionary = crucible_state.call("intent_open_escrow", MATCH_ID, PLAYER_A, PLAYER_B, {}) as Dictionary
 	_assert_ok(escrow_result, "open escrow")
@@ -72,7 +72,7 @@ func _init() -> void:
 	) as Dictionary
 	_assert_ok(settle_result, "settle winner")
 	var settlement: Dictionary = settle_result.get("settlement", {}) as Dictionary
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 51000, "winner receives 2-Wax payout")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 50800, "winner receives 1.8-Wax payout")
 	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "loser remains debited")
 	_assert_str_eq(str(settlement.get("ruleset", "")), "CRUCIBLE", "audit ruleset")
 	_assert_str_eq(str(settlement.get("settlement_status", "")), "SETTLED", "settlement status")
@@ -152,18 +152,10 @@ func _init() -> void:
 	var rank_direct: Dictionary = rank_state.call("intent_record_match_result", PLAYER_A, PLAYER_B, true, "CRUCIBLE", {"ruleset": "CRUCIBLE"}) as Dictionary
 	_assert_true(bool(rank_direct.get("suppressed", false)), "normal rank wax suppressed")
 
-	# Saved loadout cannot activate when the match tree is Crucible.
-	_assert_ok(economy_state.call("intent_set_mode", "STANDARD") as Dictionary, "standard economy mode")
-	_assert_ok(economy_state.call("intent_set_wallet", PLAYER_A, {"nectar": 200, "honey": 0, "wax": 0, "usd": 0}) as Dictionary, "seed economy wallet")
-	_assert_ok(economy_state.call("intent_equip_buff", PLAYER_A, 0, BUFF_CLASSIC) as Dictionary, "saved loadout exists")
-	CrucibleRulesetPolicyScript.apply_crucible_tree_meta(self)
-	var blocked_activate: Dictionary = economy_state.call("intent_activate_buff", PLAYER_A, 0) as Dictionary
-	_assert_code(blocked_activate, "crucible_buffs_disabled", "Crucible blocks saved loadout activation")
-	CrucibleRulesetPolicyScript.clear_ruleset_tree_meta(self)
-	_assert_ok(economy_state.call("intent_set_mode", "CRUCIBLE") as Dictionary, "crucible economy mode")
-	var crucible_snap: Dictionary = economy_state.call("get_player_snapshot", PLAYER_A) as Dictionary
-	_assert_true(not bool(crucible_snap.get("loadout_ui_enabled", true)), "Crucible hides loadout UI")
-	_assert_eq((crucible_snap.get("entries", []) as Array).size(), 0, "Crucible strips loadout entries")
+	# The current buff policy no longer uses the removed EconomyBuffState autoload.
+	var purity: Dictionary = CrucibleRulesetPolicyScript.purity_requirements()
+	_assert_true(not bool(purity.get("buff_selection_enabled", true)), "Crucible disables buff selection")
+	_assert_true(not bool(purity.get("buff_activation_enabled", true)), "Crucible disables buff activation")
 
 	# Runtime listeners suppress Honey/Nectar and settle through CrucibleState only.
 	if honey_state.has_method("debug_reset_state"):
@@ -196,7 +188,7 @@ func _init() -> void:
 	_assert_eq(int(honey_snapshot.get("total_honey_centi_awarded", 0)), 0, "runtime Crucible awards no Honey")
 	_assert_eq(int(bp_snapshot.get("battle_pass_xp", 0)), 0, "runtime Crucible awards no Nectar")
 	_assert_true(settlements.has(RUNTIME_MATCH_ID), "runtime Crucible settles via CrucibleState")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 51000, "runtime winner payout")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 50800, "runtime winner payout")
 	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "runtime loser debit")
 
 	print("CRUCIBLE_RULESET_SMOKE: PASS")

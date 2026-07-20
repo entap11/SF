@@ -53,11 +53,14 @@ var _local_uid: String = ""
 var _local_seat: int = 1
 var _remote_uid: String = ""
 var _remote_seat: int = 2
+var _remote_uids: PackedStringArray = PackedStringArray()
+var _remote_seat_by_uid: Dictionary = {}
 var _last_seq: int = 0
 var _poll_accum: float = 0.0
 var _pending_remote_commands: Array[Dictionary] = []
 var _local_hash_by_tick: Dictionary = {}
 var _remote_hash_by_tick: Dictionary = {}
+var _remote_hash_by_peer_tick: Dictionary = {}
 var _packet_tx: int = 0
 var _packet_rx: int = 0
 var _packet_dropped: int = 0
@@ -150,11 +153,14 @@ func clear() -> void:
 	_local_seat = 1
 	_remote_uid = ""
 	_remote_seat = 2
+	_remote_uids = PackedStringArray()
+	_remote_seat_by_uid.clear()
 	_last_seq = 0
 	_poll_accum = 0.0
 	_pending_remote_commands.clear()
 	_local_hash_by_tick.clear()
 	_remote_hash_by_tick.clear()
+	_remote_hash_by_peer_tick.clear()
 	_debug_event_log.clear()
 	_last_debug_event = {}
 	_desync_event_before_divergence = {}
@@ -231,6 +237,16 @@ func configure_from_tree(tree: SceneTree, roster: Array) -> void:
 		return
 	_remote_uid = _resolve_remote_uid(roster, local_uid)
 	_remote_seat = _resolve_remote_seat(roster, _local_seat)
+	for entry_any in roster:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		var peer_uid: String = str(entry.get("uid", "")).strip_edges()
+		var peer_seat: int = int(entry.get("seat", 0))
+		if peer_uid.is_empty() or peer_uid == local_uid or peer_seat < 1 or peer_seat > 4 or not bool(entry.get("active", true)):
+			continue
+		_remote_uids.append(peer_uid)
+		_remote_seat_by_uid[peer_uid] = peer_seat
 	_active = true
 	SFLog.allow_tag("VS_PVP_RUNTIME_CONFIG")
 	SFLog.info("VS_PVP_RUNTIME_CONFIG", {
@@ -241,6 +257,8 @@ func configure_from_tree(tree: SceneTree, roster: Array) -> void:
 		"local_seat": _local_seat,
 		"remote_uid": _remote_uid,
 		"remote_seat": _remote_seat,
+		"remote_uids": _remote_uids.duplicate(),
+		"remote_seat_by_uid": _remote_seat_by_uid.duplicate(true),
 		"role": role
 	})
 
@@ -272,6 +290,8 @@ func get_debug_snapshot() -> Dictionary:
 		"local_seat": _local_seat,
 		"remote_uid": _remote_uid,
 		"remote_seat": _remote_seat,
+		"remote_uids": _remote_uids.duplicate(),
+		"remote_seat_by_uid": _remote_seat_by_uid.duplicate(true),
 		"publish_count": _publish_count,
 		"publish_fail_count": _publish_fail_count,
 		"poll_count": _poll_count,
@@ -614,6 +634,11 @@ func _handle_remote_state_hash(command: Dictionary) -> void:
 	if hash_tick < 0 or state_hash.is_empty():
 		_contract_violation("bad_remote_state_hash", {"command": command.duplicate(true)})
 		return
+	var sender_uid: String = str(command.get("sender_uid", "")).strip_edges()
+	if not sender_uid.is_empty():
+		var peer_hashes: Dictionary = (_remote_hash_by_peer_tick.get(hash_tick, {}) as Dictionary).duplicate(true)
+		peer_hashes[sender_uid] = state_hash
+		_remote_hash_by_peer_tick[hash_tick] = peer_hashes
 	_remote_hash_by_tick[hash_tick] = state_hash
 	_prune_hash_windows(hash_tick)
 	_compare_state_hash_if_ready(hash_tick)
@@ -735,7 +760,18 @@ func _compare_state_hash_if_ready(hash_tick: int) -> void:
 		return
 	var local_hash: String = str(_local_hash_by_tick.get(hash_tick, ""))
 	var remote_hash: String = str(_remote_hash_by_tick.get(hash_tick, ""))
-	if local_hash == remote_hash:
+	var all_remote_hashes_match: bool = local_hash == remote_hash
+	var peer_hashes_any: Variant = _remote_hash_by_peer_tick.get(hash_tick, {})
+	if typeof(peer_hashes_any) == TYPE_DICTIONARY and not (peer_hashes_any as Dictionary).is_empty():
+		all_remote_hashes_match = true
+		for peer_hash_any in (peer_hashes_any as Dictionary).values():
+			var peer_hash: String = str(peer_hash_any)
+			if peer_hash == local_hash:
+				continue
+			all_remote_hashes_match = false
+			remote_hash = peer_hash
+			break
+	if all_remote_hashes_match:
 		_record_hash_match(hash_tick)
 		_last_matching_checkpoint_tick = maxi(_last_matching_checkpoint_tick, int(hash_tick))
 		if _recovery_state == RECOVERY_STATE_WAITING_FOR_PEER:
@@ -858,6 +894,9 @@ func _prune_hash_windows(latest_tick: int) -> void:
 	for tick_any in _remote_hash_by_tick.keys():
 		if int(tick_any) < min_tick:
 			_remote_hash_by_tick.erase(tick_any)
+	for tick_any in _remote_hash_by_peer_tick.keys():
+		if int(tick_any) < min_tick:
+			_remote_hash_by_peer_tick.erase(tick_any)
 
 func get_last_contract_violation() -> Dictionary:
 	return _last_contract_violation.duplicate(true)
@@ -1091,16 +1130,26 @@ func _handle_remote_intent_poll_result(result: Dictionary, t0_us: int, after_seq
 		var sender_uid: String = str(event.get("uid", "")).strip_edges()
 		if sender_uid.is_empty() or sender_uid == _local_uid:
 			continue
-		if _remote_uid.is_empty():
+		if _remote_uids.is_empty() and _remote_uid.is_empty():
 			_remote_uid = sender_uid
-		elif sender_uid != _remote_uid:
+			_remote_uids.append(sender_uid)
+		elif not _remote_uids.has(sender_uid) and sender_uid != _remote_uid:
 			continue
 		var command_any: Variant = event.get("command", {})
 		if typeof(command_any) != TYPE_DICTIONARY:
 			_contract_violation("remote_command_not_dictionary", {"event": event.duplicate(true)})
 			continue
 		var command: Dictionary = _normalize_authoritative_command(command_any as Dictionary, seq)
+		command["sender_uid"] = sender_uid
 		if not _validate_contract_command(command, "remote"):
+			continue
+		var expected_sender_seat: int = int(_remote_seat_by_uid.get(sender_uid, 0))
+		if expected_sender_seat > 0 and int(command.get("sender_seat", 0)) != expected_sender_seat:
+			_contract_violation("remote_sender_seat_mismatch", {
+				"sender_uid": sender_uid,
+				"expected_seat": expected_sender_seat,
+				"command_seat": int(command.get("sender_seat", 0))
+			})
 			continue
 		if str(command.get("kind", "")).strip_edges().to_lower() == "state_hash":
 			_handle_remote_state_hash(command)

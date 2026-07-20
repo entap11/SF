@@ -67,6 +67,7 @@ const BOT_FILL_JUKEBOX_BOARD_PERIOD: String = "WEEKLY"
 @onready var timeout_timer: Timer = $TimeoutTimer
 
 var _mode := ""
+var _requested_mode := ""
 var _map_count := 3
 var _price_usd := 1
 var _wager_cents := 100
@@ -89,6 +90,7 @@ var _dev_async_bot_tier_override: String = ""
 var _context_meta: Dictionary = {}
 var _force_async_window: bool = false
 var _auto_start_quick_search: bool = false
+var _durable_public_1v1: bool = false
 
 var _local_uid: String = ""
 var _local_name: String = "You"
@@ -110,6 +112,7 @@ var _font_free_roll_atlas: Font
 
 func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, options: Dictionary = {}) -> void:
 	_mode = mode
+	_requested_mode = mode
 	_map_count = map_count
 	_price_usd = price_usd
 	_free_roll = free_roll
@@ -121,6 +124,10 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	_standard_bot_tier = ""
 	_force_async_window = bool(options.get("force_async_window", false))
 	_auto_start_quick_search = bool(options.get("human_pvp", false)) and not _force_async_window
+	var normalized_mode: String = _mode.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+	_durable_public_1v1 = bool(options.get("durable_public_1v1", false)) \
+		and bool(options.get("human_pvp", false)) \
+		and ["1V1", "PVP", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG", "2V2", "3P_FFA", "4P_FFA"].has(normalized_mode)
 	_window_sec = maxi(1, int(options.get("window_sec", ASYNC_WINDOW_COUNTDOWN_SEC)))
 	_sync_join_sec = maxi(1, int(options.get("sync_join_sec", SYNC_JOIN_COUNTDOWN_SEC)))
 	var start_players: int = int(options.get("start_players", _min_players()))
@@ -128,7 +135,7 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	_context_meta = {}
 	for key in options.keys():
 		match str(key):
-			"window_sec", "sync_join_sec", "start_players", "force_async_window":
+			"window_sec", "sync_join_sec", "start_players", "force_async_window", "durable_public_1v1":
 				continue
 			_:
 				_context_meta[str(key)] = options[key]
@@ -354,10 +361,10 @@ func _on_join_pressed() -> void:
 		status_label.text = _handshake_failure_text("Join failed", result)
 		return
 	_session_id = str(result.get("session_id", ""))
-	_session_role = "guest"
 	_invite_code = code
 	_local_joined = true
 	var joined_session: Dictionary = result.get("session", {}) as Dictionary
+	_session_role = _role_for_local_player(joined_session)
 	_apply_session_context(joined_session)
 	invite_label.visible = false
 	_start_handshake_poll()
@@ -374,14 +381,18 @@ func _begin_quick_search() -> void:
 	_standard_bot_style = ""
 	_standard_bot_tier = ""
 	_leave_session(false)
-	var result: Dictionary = handshake.call("enqueue_quick_match", _local_profile(), _handshake_context()) as Dictionary
+	var result: Dictionary
+	if _durable_public_1v1 and handshake.has_method("enqueue_public_1v1"):
+		result = handshake.call("enqueue_public_1v1", {}, _handshake_context()) as Dictionary
+	else:
+		result = handshake.call("enqueue_quick_match", _local_profile(), _handshake_context()) as Dictionary
 	if not bool(result.get("ok", false)):
 		status_label.text = _handshake_failure_text("Quick queue failed", result)
 		return
 	if bool(result.get("matched", false)):
 		_session_id = str(result.get("session_id", ""))
-		_session_role = "guest"
 		var matched_session: Dictionary = result.get("session", {}) as Dictionary
+		_session_role = _role_for_local_player(matched_session)
 		_apply_session_context(matched_session)
 		_start_handshake_poll()
 		_refresh_sync_session_ui()
@@ -464,24 +475,30 @@ func _refresh_sync_session_ui() -> void:
 			status_label.text = "Session ended."
 		_leave_session(false)
 		return
+	var contract_validation: Dictionary = _validate_session_contract(session)
+	if not bool(contract_validation.get("ok", false)):
+		status_label.text = "Session contract rejected (%s)." % str(contract_validation.get("reason", "invalid_contract"))
+		return
 	_apply_session_context(session)
-	var host: Dictionary = session.get("host", {}) as Dictionary
-	var guest: Dictionary = session.get("guest", {}) as Dictionary
-	var host_name: String = str(host.get("display_name", "Player 1"))
-	var guest_name: String = str(guest.get("display_name", "")).strip_edges()
-	_assigned_players = [host_name]
-	if not guest_name.is_empty():
-		_assigned_players.append(guest_name)
-	var open_slots: int = maxi(2 - _assigned_players.size(), 0)
+	var roster: Array = _session_roster(session)
+	_assigned_players = []
+	for player_any in roster:
+		if typeof(player_any) != TYPE_DICTIONARY:
+			continue
+		var player_name: String = str((player_any as Dictionary).get("display_name", "")).strip_edges()
+		if not player_name.is_empty():
+			_assigned_players.append(player_name)
+	_session_role = _role_for_local_player(session)
+	var open_slots: int = maxi(_required_human_players_for_mode() - _assigned_players.size(), 0)
 	slots_label.text = "Assigned: %s\nOpen slots: %d" % [", ".join(_assigned_players), open_slots]
 	var status: String = str(session.get("status", "waiting"))
 	if status == "waiting":
 		if _session_role == "host":
-			_status("Waiting for opponent")
+			_status("Waiting for players")
 		else:
 			_status("Joined lobby")
 	elif status == "matched":
-		_status("Opponent connected. Starting")
+		_status("Roster complete. Starting")
 		if _session_role == "host":
 			var start_result: Dictionary = handshake.call("start_session", _session_id, _local_uid) as Dictionary
 			if bool(start_result.get("ok", false)):
@@ -496,7 +513,7 @@ func _refresh_sync_session_ui() -> void:
 		_start_match(true)
 	else:
 		_status("Lobby")
-	if _session_role == "host" and not _invite_code.is_empty() and guest_name.is_empty():
+	if _session_role == "host" and not _invite_code.is_empty() and open_slots > 0:
 		invite_label.text = "Invite code: %s\nLink: sf://vs/%s" % [_invite_code, _invite_code]
 		invite_label.visible = false
 	else:
@@ -509,8 +526,11 @@ func _cancel_quick_ticket() -> void:
 	if _quick_ticket_id.is_empty():
 		return
 	var handshake: Node = _handshake()
-	if handshake != null and handshake.has_method("cancel_quick_match"):
-		handshake.call("cancel_quick_match", _quick_ticket_id, _local_uid)
+	if handshake != null:
+		if _durable_public_1v1 and handshake.has_method("cancel_public_1v1"):
+			handshake.call("cancel_public_1v1", _quick_ticket_id)
+		elif handshake.has_method("cancel_quick_match"):
+			handshake.call("cancel_quick_match", _quick_ticket_id, _local_uid)
 	_quick_ticket_id = ""
 	_search_elapsed_sec = 0
 	_debug_filled = false
@@ -623,8 +643,9 @@ func _status(label: String) -> void:
 			status_label.text += " " + randomizer_note
 		slots_label.text = "Assigned: %s\nOpen slots: %d" % [", ".join(_assigned_players), open_slots]
 		return
-	var sync_open_slots: int = maxi(2 - assigned, 0)
-	status_label.text = "%s: %d/2 connected." % [label, assigned]
+	var sync_required: int = _effective_required_players()
+	var sync_open_slots: int = maxi(sync_required - assigned, 0)
+	status_label.text = "%s: %d/%d connected." % [label, assigned, sync_required]
 	if not randomizer_note.is_empty():
 		status_label.text += " " + randomizer_note
 	slots_label.text = "Assigned: %s\nOpen slots: %d" % [", ".join(_assigned_players), sync_open_slots]
@@ -674,6 +695,7 @@ func _on_countdown_tick() -> void:
 		_search_elapsed_sec += 1
 		_poll_quick_search()
 		if _countdown_mode == "open_host_poll":
+			_maybe_show_standard_bot_fill_prompt()
 			_status("Open host")
 			_update_countdown_label()
 		return
@@ -719,7 +741,11 @@ func _poll_quick_search() -> void:
 		return
 	if _quick_ticket_id.is_empty():
 		return
-	var poll: Dictionary = handshake.call("poll_quick_match", _quick_ticket_id) as Dictionary
+	var poll: Dictionary
+	if _durable_public_1v1 and handshake.has_method("poll_public_1v1"):
+		poll = handshake.call("poll_public_1v1", _quick_ticket_id) as Dictionary
+	else:
+		poll = handshake.call("poll_quick_match", _quick_ticket_id) as Dictionary
 	if bool(poll.get("ok", false)) and bool(poll.get("matched", false)):
 		_session_id = str(poll.get("session_id", ""))
 		_quick_ticket_id = ""
@@ -754,6 +780,14 @@ func _maybe_show_standard_bot_fill_prompt() -> void:
 		return
 	if not _is_waiting_for_human_opponent():
 		return
+	if _durable_public_1v1:
+		var handshake: Node = _handshake()
+		if handshake == null or not handshake.has_method("get_public_bot_fallback_offer"):
+			return
+		var offer_result: Dictionary = handshake.call("get_public_bot_fallback_offer", _quick_ticket_id) as Dictionary
+		var offer: Dictionary = offer_result.get("offer", {}) as Dictionary
+		if not bool(offer_result.get("ok", false)) or not bool(offer.get("eligible", false)):
+			return
 	_bot_fill_prompt_shown = true
 	_show_standard_bot_fill_dialog()
 
@@ -762,9 +796,12 @@ func _can_offer_standard_bot_fill() -> bool:
 		return false
 	if _uses_async_window():
 		return false
+	if _durable_public_1v1:
+		var mode: String = _mode.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+		return mode == "CAPTURE_FLAG" or mode == "HIDDEN_CAPTURE_FLAG"
 	if _is_strict_human_1v1_context():
 		return false
-	return true
+	return _required_human_players_for_mode() == 2
 
 func _is_waiting_for_human_opponent() -> bool:
 	if not _quick_ticket_id.is_empty():
@@ -789,7 +826,8 @@ func _show_standard_bot_fill_dialog() -> void:
 	var dialog: ConfirmationDialog = _ensure_standard_bot_fill_dialog()
 	if dialog == null:
 		return
-	dialog.dialog_text = "No human opponent found yet.\n\nDo you want to fill any open seat with a standard bot?"
+	var selected_mode: String = "Hidden Capture the Flag" if _mode.strip_edges().to_upper() == "HIDDEN_CAPTURE_FLAG" else "Capture the Flag"
+	dialog.dialog_text = "No human opponent found yet.\n\nContinue searching, play %s against a practice bot, or cancel the search." % selected_mode
 	_style_standard_bot_fill_dialog(dialog)
 	dialog.popup_centered(BOT_FILL_DIALOG_SIZE)
 
@@ -803,8 +841,10 @@ func _ensure_standard_bot_fill_dialog() -> ConfirmationDialog:
 	add_child(dialog)
 	dialog.get_ok_button().text = "Use Bot"
 	dialog.get_cancel_button().text = "Keep Waiting"
+	dialog.add_button("Cancel Search", true, "cancel_search")
 	_style_standard_bot_fill_dialog(dialog)
 	dialog.confirmed.connect(_on_standard_bot_fill_confirmed)
+	dialog.custom_action.connect(_on_standard_bot_fill_custom_action)
 	_bot_fill_dialog = dialog
 	return _bot_fill_dialog
 
@@ -834,10 +874,39 @@ func _on_standard_bot_fill_confirmed() -> void:
 		return
 	_fill_open_seat_with_standard_bot()
 
+func _on_standard_bot_fill_custom_action(action: StringName) -> void:
+	if str(action) != "cancel_search":
+		return
+	_cancel_quick_ticket()
+	_status("Search cancelled")
+
 func _fill_open_seat_with_standard_bot() -> void:
 	var bot_profile: Dictionary = _random_standard_bot_profile()
 	var handshake: Node = _handshake()
 	if handshake != null:
+		if _durable_public_1v1 and not _quick_ticket_id.is_empty() and handshake.has_method("accept_public_bot_fallback"):
+			var accepted: Dictionary = handshake.call("accept_public_bot_fallback", _quick_ticket_id) as Dictionary
+			if not bool(accepted.get("ok", false)):
+				status_label.text = _handshake_failure_text("Bot practice unavailable", accepted)
+				return
+			var accepted_session: Dictionary = accepted.get("session", {}) as Dictionary
+			var accepted_roster: Array = accepted_session.get("roster", []) as Array
+			for entry_any in accepted_roster:
+				if typeof(entry_any) != TYPE_DICTIONARY:
+					continue
+				var entry: Dictionary = entry_any as Dictionary
+				if str(entry.get("participant_type", "")).to_upper() != "BOT":
+					continue
+				bot_profile = {
+					"uid": str(entry.get("uid", "bot_ctf_practice")),
+					"display_name": str(entry.get("display_name", "Practice Bot")),
+					"is_cpu": true,
+					"style": "balancer",
+					"tier": "medium"
+				}
+				break
+			_apply_bot_fill_session(accepted, bot_profile)
+			return
 		if handshake.has_method("fill_free_bot_match"):
 			var free_fill: Dictionary = handshake.call("fill_free_bot_match", _quick_ticket_id, _session_id, str(bot_profile.get("display_name", "Rival"))) as Dictionary
 			if bool(free_fill.get("ok", false)):
@@ -913,22 +982,22 @@ func _random_standard_bot_profile() -> Dictionary:
 	}
 
 func _role_for_local_player(session: Dictionary) -> String:
-	var host: Dictionary = session.get("host", {}) as Dictionary
-	var guest: Dictionary = session.get("guest", {}) as Dictionary
-	if str(host.get("uid", "")) == _local_uid:
-		return "host"
-	if str(guest.get("uid", "")) == _local_uid:
-		return "guest"
+	for player_any in _session_roster(session):
+		if typeof(player_any) != TYPE_DICTIONARY:
+			continue
+		var player: Dictionary = player_any as Dictionary
+		if str(player.get("uid", "")) != _local_uid:
+			continue
+		return "host" if int(player.get("seat", 0)) == 1 else "guest"
 	return ""
 
 func _is_local_ready(session: Dictionary) -> bool:
-	var role: String = _role_for_local_player(session)
-	if role == "host":
-		var host: Dictionary = session.get("host", {}) as Dictionary
-		return bool(host.get("ready", false))
-	if role == "guest":
-		var guest: Dictionary = session.get("guest", {}) as Dictionary
-		return bool(guest.get("ready", false))
+	for player_any in _session_roster(session):
+		if typeof(player_any) != TYPE_DICTIONARY:
+			continue
+		var player: Dictionary = player_any as Dictionary
+		if str(player.get("uid", "")) == _local_uid:
+			return bool(player.get("ready", false))
 	return false
 
 func _on_timeout_tick() -> void:
@@ -946,13 +1015,22 @@ func _start_match(session_already_started: bool = false) -> void:
 	if _uses_async_window() and not _contest_window_open:
 		status_label.text = "Contest window closed."
 		return
-	if not _uses_async_window() and not _bot_filled_match:
+	var contract_content_error: String = str(_context_meta.get("contract_content_error", "")).strip_edges()
+	if _durable_public_1v1 and not contract_content_error.is_empty():
+		status_label.text = "Contract content unavailable (%s)." % contract_content_error
+		return
+	if not _uses_async_window() and (not _bot_filled_match or _durable_public_1v1):
 		if not _sync_transport_ready():
 			return
 		if _session_id.is_empty() and _handshake() != null:
 			status_label.text = "Create or join a PvP session first."
 			return
 		if not _money_game_has_required_humans():
+			return
+		var live_contract: Dictionary = _current_session_contract()
+		var contract_validation: Dictionary = _validate_session_contract(live_contract)
+		if not bool(contract_validation.get("ok", false)):
+			status_label.text = "Session contract rejected (%s)." % str(contract_validation.get("reason", "invalid_contract"))
 			return
 		if _handshake() != null and not session_already_started:
 			var start_result: Dictionary = _handshake().call("start_session", _session_id, _local_uid) as Dictionary
@@ -1005,6 +1083,8 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("vs_paid_entry", not _free_roll and _wager_cents > 0)
 	tree.set_meta("vs_free_roll", _free_roll)
 	tree.set_meta("vs_assigned_players", _assigned_players.duplicate())
+	var contract_roster: Array = _current_session_roster_for_tree()
+	tree.set_meta("vs_roster", contract_roster)
 	tree.set_meta("vs_open_slots", maxi(_max_players() - _assigned_players.size(), 0))
 	tree.set_meta("vs_required_players", _effective_required_players())
 	tree.set_meta("vs_sync_start", not _uses_async_window())
@@ -1020,6 +1100,9 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("vs_handshake_session_id", _session_id)
 	tree.set_meta("vs_handshake_role", _session_role)
 	tree.set_meta("vs_handshake_invite_code", _invite_code)
+	var session_contract: Dictionary = _current_session_contract()
+	tree.set_meta("vs_session_contract_version", int(session_contract.get("contract_version", 0)))
+	tree.set_meta("vs_session_contract_hash", str(session_contract.get("contract_hash", "")))
 	var local_profile_for_tree: Dictionary = _local_profile()
 	local_profile_for_tree["seat"] = _local_tree_seat()
 	tree.set_meta("vs_local_profile", local_profile_for_tree)
@@ -1179,6 +1262,7 @@ func _bot_fill_jukebox_clear_keys() -> Array[String]:
 		"crucible_stake_each_millis",
 		"crucible_pot_millis",
 		"crucible_burn_millis",
+		"crucible_award_reserve_millis",
 		"crucible_winner_payout_millis",
 		"crucible_local_balance_start_millis",
 		"crucible_local_balance_after_escrow_millis",
@@ -1198,6 +1282,9 @@ func _bot_fill_jukebox_clear_keys() -> Array[String]:
 		"vs_paid_entry",
 		"vs_free_roll",
 		"vs_assigned_players",
+		"vs_roster",
+		"vs_session_contract_version",
+		"vs_session_contract_hash",
 		"vs_open_slots",
 		"vs_required_players",
 		"vs_sync_start",
@@ -1248,6 +1335,7 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"crucible_stake_each_millis",
 		"crucible_pot_millis",
 		"crucible_burn_millis",
+		"crucible_award_reserve_millis",
 		"crucible_winner_payout_millis",
 		"crucible_local_balance_start_millis",
 		"crucible_local_balance_after_escrow_millis",
@@ -1267,6 +1355,9 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"vs_paid_entry",
 		"vs_free_roll",
 		"vs_assigned_players",
+		"vs_roster",
+		"vs_session_contract_version",
+		"vs_session_contract_hash",
 		"vs_open_slots",
 		"vs_required_players",
 		"vs_sync_start",
@@ -1318,7 +1409,9 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"async_money_ledger_source",
 		"async_money_balance_start_cents",
 		"async_money_balance_after_entry_cents",
-		"async_money_balance_finish_cents"
+		"async_money_balance_finish_cents",
+		"public_contest_id", "public_contest_family", "public_contest_definition_hash",
+		"public_contest_attempt", "public_contest_map_ids", "public_contest_submission_deadline_at"
 	]
 
 func _remote_profile_for_tree() -> Dictionary:
@@ -1331,16 +1424,17 @@ func _remote_profile_for_tree() -> Dictionary:
 	var session: Dictionary = _handshake().call("get_session", _session_id) as Dictionary
 	if session.is_empty():
 		return {}
-	var host: Dictionary = session.get("host", {}) as Dictionary
-	var guest: Dictionary = session.get("guest", {}) as Dictionary
 	var remote: Dictionary = {}
 	var remote_seat: int = 0
-	if str(host.get("uid", "")) == _local_uid:
-		remote = guest
-		remote_seat = 2
-	elif str(guest.get("uid", "")) == _local_uid:
-		remote = host
-		remote_seat = 1
+	for player_any in _session_roster(session):
+		if typeof(player_any) != TYPE_DICTIONARY:
+			continue
+		var candidate: Dictionary = player_any as Dictionary
+		if str(candidate.get("uid", "")) == _local_uid:
+			continue
+		remote = candidate
+		remote_seat = int(candidate.get("seat", 0))
+		break
 	if remote.is_empty():
 		return {}
 	var uid: String = str(remote.get("uid", "")).strip_edges()
@@ -1355,10 +1449,83 @@ func _remote_profile_for_tree() -> Dictionary:
 	}
 
 func _local_tree_seat() -> int:
+	for player_any in _current_session_roster_for_tree():
+		if typeof(player_any) == TYPE_DICTIONARY and str((player_any as Dictionary).get("uid", "")) == _local_uid:
+			return clampi(int((player_any as Dictionary).get("seat", 1)), 1, 4)
 	return 2 if _session_role.strip_edges().to_lower() == "guest" else 1
+
+func _current_session_contract() -> Dictionary:
+	if _session_id.is_empty() or _handshake() == null:
+		return {}
+	return _handshake().call("get_session", _session_id) as Dictionary
+
+func _current_session_roster_for_tree() -> Array:
+	var session: Dictionary = _current_session_contract()
+	var roster: Array = _session_roster(session)
+	var out: Array = []
+	for player_any in roster:
+		if typeof(player_any) != TYPE_DICTIONARY:
+			continue
+		var player: Dictionary = (player_any as Dictionary).duplicate(true)
+		player["is_local"] = str(player.get("uid", "")) == _local_uid
+		var uid: String = str(player.get("uid", ""))
+		player["is_cpu"] = bool(player.get("is_cpu", false)) or uid.begins_with("bot_") or uid.begins_with("standard_bot_")
+		player["active"] = true
+		out.append(player)
+	return out
+
+func _validate_session_contract(session: Dictionary) -> Dictionary:
+	if session.is_empty():
+		return {"ok": false, "reason": "session_missing"}
+	var context_any: Variant = session.get("context", {})
+	if typeof(context_any) != TYPE_DICTIONARY:
+		return {"ok": false, "reason": "context_missing"}
+	var context: Dictionary = context_any as Dictionary
+	var actual_mode: String = str(context.get("mode", "")).strip_edges().to_upper().replace("_", " ")
+	var expected_mode: String = _requested_mode.strip_edges().to_upper().replace("_", " ")
+	if not expected_mode.is_empty() and actual_mode != expected_mode:
+		return {"ok": false, "reason": "mode_mismatch"}
+	var expected_players: int = _required_human_players_for_mode()
+	var declared_players: int = int(session.get("required_players", context.get("required_players", expected_players)))
+	if declared_players != expected_players:
+		return {"ok": false, "reason": "required_players_mismatch"}
+	var roster: Array = _session_roster(session)
+	if roster.size() > expected_players:
+		return {"ok": false, "reason": "roster_overflow"}
+	var seen_uids: Dictionary = {}
+	for i in range(roster.size()):
+		if typeof(roster[i]) != TYPE_DICTIONARY:
+			return {"ok": false, "reason": "roster_entry_invalid"}
+		var player: Dictionary = roster[i] as Dictionary
+		var uid: String = str(player.get("uid", "")).strip_edges()
+		if uid.is_empty() or seen_uids.has(uid):
+			return {"ok": false, "reason": "roster_uid_invalid"}
+		if int(player.get("seat", i + 1)) != i + 1:
+			return {"ok": false, "reason": "roster_seat_invalid"}
+		seen_uids[uid] = true
+	if expected_players > 2:
+		if int(session.get("contract_version", 0)) < 2:
+			return {"ok": false, "reason": "contract_version_unsupported"}
+		if str(session.get("contract_hash", "")).strip_edges().is_empty():
+			return {"ok": false, "reason": "contract_hash_missing"}
+	if str(session.get("status", "")) == "started" and roster.size() != expected_players:
+		return {"ok": false, "reason": "started_roster_incomplete"}
+	return {"ok": true, "reason": ""}
 
 func _prepare_crucible_match_context() -> bool:
 	if not _context_is_crucible():
+		return true
+	if _durable_public_1v1:
+		_context_meta["vs_ruleset"] = CrucibleRulesetPolicy.RULESET_CRUCIBLE
+		_context_meta["vs_crucible"] = true
+		_context_meta["crucible_match_id"] = str(_context_meta.get("crucible_match_id", _session_id))
+		_context_meta["crucible_stake_each_millis"] = 1000
+		_context_meta["crucible_pot_millis"] = 2000
+		_context_meta["crucible_winner_payout_millis"] = 1800
+		_context_meta["crucible_award_reserve_millis"] = 200
+		_context_meta["crucible_burn_millis"] = 0
+		status_label.text = "Crucible escrow locked by the server: stake 1.000 Wax | winner payout 1.800 Wax."
+		_refresh_summary()
 		return true
 	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
 	if crucible_state == null:
@@ -1416,6 +1583,7 @@ func _prepare_crucible_match_context() -> bool:
 	_context_meta["crucible_stake_each_millis"] = maxi(0, int(escrow.get("stake_each", 0)))
 	_context_meta["crucible_pot_millis"] = maxi(0, int(escrow.get("pot", 0)))
 	_context_meta["crucible_burn_millis"] = maxi(0, int(escrow.get("burn", 0)))
+	_context_meta["crucible_award_reserve_millis"] = maxi(0, int(escrow.get("award_reserve", 0)))
 	_context_meta["crucible_winner_payout_millis"] = maxi(0, int(escrow.get("winner_payout", 0)))
 	_context_meta["crucible_local_balance_start_millis"] = local_balance_before
 	_context_meta["crucible_local_balance_after_escrow_millis"] = local_balance_after
@@ -1474,7 +1642,35 @@ func _apply_session_context(session: Dictionary) -> void:
 				continue
 			_:
 				_context_meta[str(key)] = context[key]
+	_apply_contract_map_binding(context)
 	_refresh_summary()
+
+func _apply_contract_map_binding(context: Dictionary) -> void:
+	_context_meta.erase("contract_content_error")
+	if not bool(context.get("durable_contract", false)):
+		return
+	var map_id: String = str(context.get("map_id", "")).strip_edges()
+	var expected_hash: String = str(context.get("map_hash", "")).strip_edges().to_lower()
+	if map_id.is_empty() or expected_hash.is_empty():
+		_context_meta["contract_content_error"] = "map_contract_missing"
+		return
+	var candidates: Array[String] = []
+	if map_id.begins_with("res://") and FileAccess.file_exists(map_id):
+		candidates.append(map_id)
+	else:
+		for path_any in MAP_REGISTRY.list_map_paths():
+			var path: String = str(path_any)
+			if MAP_REGISTRY.map_id_from_path(path) == MAP_REGISTRY.map_id_from_input(map_id):
+				candidates.append(path)
+	if candidates.size() != 1:
+		_context_meta["contract_content_error"] = "map_id_unresolved"
+		return
+	var resolved_path: String = candidates[0]
+	var actual_hash: String = FileAccess.get_file_as_string(resolved_path).sha256_text().to_lower()
+	if actual_hash != expected_hash:
+		_context_meta["contract_content_error"] = "map_hash_mismatch"
+		return
+	_context_meta["stage_map_paths"] = [resolved_path]
 
 func _sync_transport_ready() -> bool:
 	var handshake: Node = _handshake()
@@ -1593,7 +1789,7 @@ func _max_players() -> int:
 		if _mode == "MISS_N_OUT":
 			return MISS_N_OUT_MAX_PLAYERS
 		return BASE_MAX_PLAYERS
-	return 2
+	return _required_human_players_for_mode()
 
 func _fill_to_required_players() -> void:
 	var required: int = _effective_required_players()
@@ -1636,7 +1832,7 @@ func _effective_required_players() -> int:
 		return 1
 	if _uses_async_window():
 		return _required_players
-	return 2
+	return _required_human_players_for_mode()
 
 func _money_game_has_required_humans() -> bool:
 	if _free_roll:
@@ -1673,8 +1869,7 @@ func _current_session_human_count() -> int:
 	if session.is_empty():
 		return _assigned_players.size()
 	var count: int = 0
-	for key in ["host", "guest"]:
-		var profile_any: Variant = session.get(key, {})
+	for profile_any in _session_roster(session):
 		if typeof(profile_any) != TYPE_DICTIONARY:
 			continue
 		var profile: Dictionary = profile_any as Dictionary
@@ -1683,6 +1878,22 @@ func _current_session_human_count() -> int:
 			continue
 		count += 1
 	return count
+
+func _session_roster(session: Dictionary) -> Array:
+	var roster_any: Variant = session.get("roster", [])
+	if typeof(roster_any) == TYPE_ARRAY and not (roster_any as Array).is_empty():
+		return (roster_any as Array).duplicate(true)
+	var legacy: Array = []
+	for key in ["host", "guest"]:
+		var profile_any: Variant = session.get(key, {})
+		if typeof(profile_any) != TYPE_DICTIONARY:
+			continue
+		var profile: Dictionary = (profile_any as Dictionary).duplicate(true)
+		if str(profile.get("uid", "")).strip_edges().is_empty():
+			continue
+		profile["seat"] = legacy.size() + 1
+		legacy.append(profile)
+	return legacy
 
 func _on_dev_min_override_pressed() -> void:
 	if not _free_roll:
@@ -1801,9 +2012,8 @@ func _sync_quick_button_text() -> void:
 		quick_button.disabled = false
 		_apply_quick_button_font()
 		return
-	var guest: Dictionary = session.get("guest", {}) as Dictionary
-	var has_guest: bool = not str(guest.get("uid", "")).strip_edges().is_empty()
-	if not has_guest:
+	var has_full_roster: bool = _session_roster(session).size() >= _required_human_players_for_mode()
+	if not has_full_roster:
 		quick_button.text = "Waiting..."
 		quick_button.disabled = true
 		_apply_quick_button_font()

@@ -16,6 +16,7 @@ const QUEUE_TTL_SEC: int = 90
 const INTENT_STREAM_MAX_EVENTS: int = 512
 const ENV_BACKEND_URL: String = "SF_VS_BACKEND_URL"
 const ENV_BACKEND_TOKEN: String = "SF_VS_BACKEND_TOKEN"
+const ENV_PUBLIC_CLIENT_BUILD: String = "SF_PUBLIC_CLIENT_BUILD"
 const SETTINGS_BACKEND_URL: String = "swarmfront/vs/backend_url"
 const SETTINGS_BACKEND_TOKEN: String = "swarmfront/vs/backend_token"
 const SETTINGS_BACKEND_TIMEOUT_SEC: String = "swarmfront/vs/backend_timeout_sec"
@@ -26,6 +27,10 @@ const AUTH_COMMAND_LEAD_TICKS: int = 6
 const TRANSPORT_ERROR_BACKOFF_MS: int = 60000
 const DIAGNOSTIC_LOG_PATH: String = "user://vs_handshake_diagnostics.jsonl"
 const DIAGNOSTIC_MAX_PAYLOAD_CHARS: int = 1200
+const SESSION_CONTRACT_VERSION: int = 2
+const PUBLIC_MATCH_PROTOCOL_VERSION: int = 2
+const SETTINGS_PUBLIC_CLIENT_BUILD: String = "swarmfront/vs/public_client_build"
+const MAX_SYNC_PLAYERS: int = 4
 const TIER_ORDER: Array[String] = [
 	"DRONE",
 	"WORKER",
@@ -58,6 +63,9 @@ var _transport_error_logged: bool = false
 var _transport_config_blocker: String = ""
 var _last_transport_error: Dictionary = {}
 var _transport_backoff_until_msec: int = 0
+var _player_access_token: String = ""
+var _durable_public_ticket_ids: Dictionary = {}
+var _durable_public_match_ids: Dictionary = {}
 var _money_ledger = MoneyGameLedgerScript.new()
 
 func _ready() -> void:
@@ -82,7 +90,7 @@ func _configure_transport() -> void:
 	_transport_http.configure(
 		backend_url,
 		_configured_backend_timeout_sec(),
-		_configured_backend_token()
+		_player_access_token if not _player_access_token.is_empty() else _configured_backend_token()
 	)
 	_transport_mode = "http"
 	SFLog.allow_tag("VS_TRANSPORT_CONFIG")
@@ -106,6 +114,19 @@ func get_authoritative_transport_blocker() -> String:
 
 func get_last_transport_error() -> Dictionary:
 	return _last_transport_error.duplicate(true)
+
+func set_player_access_token(access_token: String) -> void:
+	_player_access_token = access_token.strip_edges()
+	if _transport_http != null:
+		_transport_http.set_auth_token(_player_access_token)
+
+func clear_player_access_token() -> void:
+	_player_access_token = ""
+	if _transport_http != null:
+		_transport_http.clear_auth_token()
+
+func has_player_access_token() -> bool:
+	return not _player_access_token.is_empty()
 
 func get_diagnostic_log_path() -> String:
 	return ProjectSettings.globalize_path(DIAGNOSTIC_LOG_PATH)
@@ -132,6 +153,8 @@ func clear() -> void:
 	_last_transport_error = {}
 	_transport_backoff_until_msec = 0
 	_transport_error_logged = false
+	_durable_public_ticket_ids.clear()
+	_durable_public_match_ids.clear()
 	_money_ledger = MoneyGameLedgerScript.new()
 	emit_signal("queue_changed", _queue.size())
 
@@ -511,6 +534,117 @@ func _ops_config_debug_snapshot() -> Dictionary:
 		return ops_config.call("get_debug_snapshot") as Dictionary
 	return {}
 
+func _call_public_transport(action: String, payload: Dictionary) -> Dictionary:
+	if _player_access_token.is_empty():
+		return {"ok": false, "err": "player_token_required"}
+	var transport: Dictionary = _call_transport(action, payload)
+	if not bool(transport.get("handled", false)):
+		return {
+			"ok": false,
+			"err": "authenticated_transport_required",
+			"transport_error": true
+		}
+	var result: Dictionary = (transport.get("result", {}) as Dictionary).duplicate(true)
+	if not bool(result.get("ok", false)):
+		return result
+	var session_v: Variant = result.get("session", null)
+	if typeof(session_v) == TYPE_DICTIONARY and not (session_v as Dictionary).is_empty():
+		var normalized: Dictionary = _normalize_public_session(session_v as Dictionary)
+		if normalized.is_empty():
+			return {"ok": false, "err": "public_match_contract_invalid"}
+		result["session"] = normalized
+		_remember_public_session(normalized)
+	var ticket_id: String = str(result.get("ticket_id", "")).strip_edges()
+	if not ticket_id.is_empty():
+		_durable_public_ticket_ids[ticket_id] = true
+	return result
+
+func _normalize_public_session(source: Dictionary) -> Dictionary:
+	if int(source.get("protocol_version", source.get("contract_version", 0))) != PUBLIC_MATCH_PROTOCOL_VERSION:
+		return {}
+	var roster_v: Variant = source.get("roster", [])
+	if typeof(roster_v) != TYPE_ARRAY:
+		return {}
+	var source_roster: Array = roster_v as Array
+	var roster: Array = []
+	var seen_uids: Dictionary = {}
+	var seen_colors: Dictionary = {}
+	for index in range(source_roster.size()):
+		if typeof(source_roster[index]) != TYPE_DICTIONARY:
+			return {}
+		var entry: Dictionary = (source_roster[index] as Dictionary).duplicate(true)
+		var uid: String = str(entry.get("player_id", "")).strip_edges()
+		if entry.get("player_id", null) == null or uid.is_empty():
+			uid = str(entry.get("uid", "")).strip_edges()
+		var seat: int = int(entry.get("seat_id", entry.get("seat", 0)))
+		if uid.is_empty() or seen_uids.has(uid) or seat != index + 1:
+			return {}
+		seen_uids[uid] = true
+		entry["uid"] = uid
+		entry["player_id"] = uid
+		entry["seat"] = seat
+		entry["seat_id"] = seat
+		entry["role"] = "host" if seat == 1 else "player"
+		var color_id: String = str(entry.get("color_id", "")).strip_edges().to_upper()
+		if source_roster.size() > 2 and (color_id.is_empty() or seen_colors.has(color_id)):
+			return {}
+		if not color_id.is_empty():
+			seen_colors[color_id] = true
+		roster.append(entry)
+	var required_players: int = int(source.get("required_players", 0))
+	var context: Dictionary = source.get("context", {}) as Dictionary
+	if required_players < 2 or required_players > MAX_SYNC_PLAYERS \
+			or required_players != _required_players_for_context(context) \
+			or roster.size() != required_players:
+		return {}
+	var mode: String = str(context.get("mode", "")).strip_edges().to_upper().replace("_", " ")
+	if mode == "2V2":
+		var team_counts: Dictionary = {}
+		for player_any in roster:
+			var team_id: int = int((player_any as Dictionary).get("team_id", 0))
+			if team_id not in [1, 2]:
+				return {}
+			team_counts[team_id] = int(team_counts.get(team_id, 0)) + 1
+		if int(team_counts.get(1, 0)) != 2 or int(team_counts.get(2, 0)) != 2:
+			return {}
+	elif required_players > 2:
+		var ffa_teams: Dictionary = {}
+		for player_any in roster:
+			var team_id: int = int((player_any as Dictionary).get("team_id", 0))
+			if team_id <= 0 or ffa_teams.has(team_id):
+				return {}
+			ffa_teams[team_id] = true
+	var session: Dictionary = source.duplicate(true)
+	session["id"] = str(source.get("match_id", source.get("session_id", source.get("id", ""))))
+	session["session_id"] = str(session.get("id", ""))
+	if str(session.get("id", "")).is_empty():
+		return {}
+	session["contract_version"] = PUBLIC_MATCH_PROTOCOL_VERSION
+	session["protocol_version"] = PUBLIC_MATCH_PROTOCOL_VERSION
+	session["required_players"] = required_players
+	session["roster"] = roster
+	session["host"] = (roster[0] as Dictionary).duplicate(true)
+	session["guest"] = (roster[1] as Dictionary).duplicate(true)
+	return session
+
+func _remember_public_session(session: Dictionary) -> void:
+	var match_id: String = str(session.get("match_id", session.get("session_id", session.get("id", "")))).strip_edges()
+	if not match_id.is_empty():
+		_durable_public_match_ids[match_id] = true
+
+func _new_public_request_id(action: String) -> String:
+	return "%s-%d-%d" % [action, Time.get_ticks_usec(), _rng.randi()]
+
+func _public_client_build() -> String:
+	var env_build: String = OS.get_environment(ENV_PUBLIC_CLIENT_BUILD).strip_edges()
+	if not env_build.is_empty():
+		return env_build
+	if ProjectSettings.has_setting(SETTINGS_PUBLIC_CLIENT_BUILD):
+		var configured: String = str(ProjectSettings.get_setting(SETTINGS_PUBLIC_CLIENT_BUILD, "")).strip_edges()
+		if not configured.is_empty():
+			return configured
+	return str(ProjectSettings.get_setting("application/config/version", "dev")).strip_edges()
+
 func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 	if _transport_http == null or not _transport_http.configured():
 		if _release_requires_authoritative_transport():
@@ -609,21 +743,22 @@ func join_invite(invite_code: String, profile: Dictionary) -> Dictionary:
 	var host: Dictionary = session.get("host", {}) as Dictionary
 	if str(host.get("uid", "")) == str(guest.get("uid", "")):
 		return {"ok": false, "err": "cannot_join_own_invite"}
-	var existing_guest: Dictionary = session.get("guest", {}) as Dictionary
-	var existing_guest_uid: String = str(existing_guest.get("uid", ""))
-	if existing_guest_uid != "" and existing_guest_uid != str(guest.get("uid", "")):
+	var roster: Array = _session_roster(session)
+	var existing_index: int = _session_roster_index_for_uid(roster, str(guest.get("uid", "")))
+	if existing_index < 0 and roster.size() >= _session_required_players(session):
 		return {"ok": false, "err": "invite_full"}
-	session["guest"] = {
-		"uid": str(guest.get("uid", "")),
-		"display_name": str(guest.get("display_name", "Player 2")),
-		"ready": bool(existing_guest.get("ready", false))
-	}
-	var start_result: Dictionary = _mark_session_started(session)
-	if not bool(start_result.get("ok", false)):
-		return start_result
+	if existing_index < 0:
+		roster.append(_roster_player_from_profile(guest, roster.size() + 1, false))
+	_set_session_roster(session, roster)
+	if _session_has_required_players(session):
+		var start_result: Dictionary = _mark_session_started(session)
+		if not bool(start_result.get("ok", false)):
+			return start_result
+	else:
+		_session_refresh_status(session)
 	_sessions[session_id] = session
 	_emit_session_changed(session_id)
-	return {"ok": true, "session_id": session_id, "session": _dup_session(session)}
+	return {"ok": true, "session_id": session_id, "seat": existing_index + 1 if existing_index >= 0 else roster.size(), "session": _dup_session(session)}
 
 func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dictionary:
 	var transport := _call_transport("enqueue_quick_match", {
@@ -637,6 +772,30 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 	if player.is_empty():
 		return {"ok": false, "err": "invalid_profile"}
 	var uid: String = str(player.get("uid", ""))
+	var prepared_context: Dictionary = _prepare_session_context(context)
+	for session_id_any in _sessions.keys():
+		var open_session_id: String = str(session_id_any)
+		var open_session: Dictionary = _sessions.get(open_session_id, {}) as Dictionary
+		if str(open_session.get("source", "")) != "quick" or not _is_session_live(open_session):
+			continue
+		if _session_has_required_players(open_session) or str(open_session.get("status", "")) == "started":
+			continue
+		if not _contexts_compatible(open_session.get("context", {}) as Dictionary, prepared_context):
+			continue
+		var open_roster: Array = _session_roster(open_session)
+		if _session_roster_index_for_uid(open_roster, uid) >= 0:
+			return {"ok": true, "matched": true, "session_id": open_session_id, "session": _dup_session(open_session)}
+		open_roster.append(_roster_player_from_profile(player, open_roster.size() + 1, false))
+		_set_session_roster(open_session, open_roster)
+		if _session_has_required_players(open_session):
+			var open_start: Dictionary = _mark_session_started(open_session)
+			if not bool(open_start.get("ok", false)):
+				return open_start
+		else:
+			_session_refresh_status(open_session)
+		_sessions[open_session_id] = open_session
+		_emit_session_changed(open_session_id)
+		return {"ok": true, "matched": true, "session_id": open_session_id, "seat": open_roster.size(), "session": _dup_session(open_session)}
 	for ticket in _queue:
 		if str(ticket.get("uid", "")) == uid:
 			return {
@@ -669,9 +828,16 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 			"wax_score": float(player.get("wax_score", 0.0)),
 			"color_id": str(player.get("color_id", "GREEN"))
 		}
-		var start_result: Dictionary = _mark_session_started(session)
-		if not bool(start_result.get("ok", false)):
-			return start_result
+		_set_session_roster(session, [
+			_roster_player_from_profile(host, 1, true),
+			_roster_player_from_profile(player, 2, false)
+		])
+		if _session_has_required_players(session):
+			var start_result: Dictionary = _mark_session_started(session)
+			if not bool(start_result.get("ok", false)):
+				return start_result
+		else:
+			_session_refresh_status(session)
 		var session_id: String = str(session.get("id", ""))
 		_sessions[session_id] = session
 		_invite_to_session[str(session.get("invite_code", ""))] = session_id
@@ -704,6 +870,182 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 		"ticket_id": ticket_id
 	}
 
+func enqueue_public_1v1(_profile: Dictionary = {}, context: Dictionary = {}) -> Dictionary:
+	if _player_access_token.is_empty():
+		return {"ok": false, "err": "player_token_required"}
+	var request_id: String = str(context.get("request_id", "")).strip_edges()
+	if request_id.is_empty():
+		request_id = _new_public_request_id("enqueue")
+	return _call_public_transport("enqueue_public_1v1", {
+		"request_id": request_id,
+		"mode_id": _public_duel_mode_id(context),
+		"protocol_version": PUBLIC_MATCH_PROTOCOL_VERSION,
+		"client_build": _public_client_build()
+	})
+
+func poll_public_1v1(ticket_id: String) -> Dictionary:
+	return _call_public_transport("poll_public_1v1", {"ticket_id": ticket_id.strip_edges()})
+
+func cancel_public_1v1(ticket_id: String, request_id: String = "") -> Dictionary:
+	var clean_request_id: String = request_id.strip_edges()
+	if clean_request_id.is_empty():
+		clean_request_id = _new_public_request_id("cancel")
+	return _call_public_transport("cancel_public_1v1", {
+		"ticket_id": ticket_id.strip_edges(),
+		"request_id": clean_request_id
+	})
+
+func get_public_bot_fallback_offer(ticket_id: String) -> Dictionary:
+	return _call_public_transport("get_public_bot_fallback_offer", {
+		"ticket_id": ticket_id.strip_edges()
+	})
+
+func accept_public_bot_fallback(ticket_id: String, request_id: String = "") -> Dictionary:
+	var clean_request_id: String = request_id.strip_edges()
+	if clean_request_id.is_empty():
+		clean_request_id = _new_public_request_id("bot_fallback")
+	return _call_public_transport("accept_public_bot_fallback", {
+		"ticket_id": ticket_id.strip_edges(),
+		"request_id": clean_request_id
+	})
+
+func _public_duel_mode_id(context: Dictionary) -> String:
+	if bool(context.get("vs_crucible", false)) or str(context.get("vs_ruleset", "")).strip_edges().to_upper() == "CRUCIBLE":
+		return "CRUCIBLE_1V1"
+	var mode: String = str(context.get("mode", context.get("vs_mode", "1V1"))).strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+	if mode == "CAPTURE_FLAG" or mode == "CTF":
+		return "CTF_1V1"
+	if mode == "HIDDEN_CAPTURE_FLAG" or mode == "HIDDEN_CTF" or mode == "HCTF":
+		return "HCTF_1V1"
+	if mode == "3P_FFA":
+		return "STANDARD_3P_FFA"
+	if mode == "2V2":
+		return "STANDARD_2V2"
+	if mode == "4P_FFA":
+		return "STANDARD_4P_FFA"
+	return "STANDARD_1V1"
+
+func get_public_1v1_session(match_id: String) -> Dictionary:
+	var result: Dictionary = _call_public_transport("get_public_1v1_session", {"match_id": match_id.strip_edges()})
+	if not bool(result.get("ok", false)):
+		return {}
+	return result.get("session", {}) as Dictionary
+
+func set_public_1v1_ready(match_id: String, ready: bool, request_id: String = "") -> Dictionary:
+	return _call_public_transport("set_public_1v1_ready", {
+		"match_id": match_id.strip_edges(),
+		"ready": ready,
+		"request_id": request_id.strip_edges() if not request_id.strip_edges().is_empty() else _new_public_request_id("ready")
+	})
+
+func start_public_1v1(match_id: String, request_id: String = "") -> Dictionary:
+	return _call_public_transport("start_public_1v1", {
+		"match_id": match_id.strip_edges(),
+		"request_id": request_id.strip_edges() if not request_id.strip_edges().is_empty() else _new_public_request_id("start")
+	})
+
+func publish_public_1v1_command(match_id: String, command: Dictionary) -> Dictionary:
+	var payload_command: Dictionary = command.duplicate(true)
+	var command_id: String = str(payload_command.get("client_command_id", "")).strip_edges()
+	if command_id.is_empty():
+		command_id = _new_public_request_id("command")
+		payload_command["client_command_id"] = command_id
+	return _call_public_transport("publish_public_1v1_command", {
+		"match_id": match_id.strip_edges(),
+		"client_command_id": command_id,
+		"command": payload_command
+	})
+
+func poll_public_1v1_commands(match_id: String, after_seq: int = 0) -> Dictionary:
+	return _call_public_transport("poll_public_1v1_commands", {
+		"match_id": match_id.strip_edges(),
+		"after_seq": maxi(0, after_seq)
+	})
+
+func leave_public_1v1(match_id: String, request_id: String = "") -> Dictionary:
+	return _call_public_transport("leave_public_1v1", {
+		"match_id": match_id.strip_edges(),
+		"request_id": request_id.strip_edges() if not request_id.strip_edges().is_empty() else _new_public_request_id("leave")
+	})
+
+func resume_public_1v1(request_id: String = "") -> Dictionary:
+	return _call_public_transport("resume_public_1v1", {
+		"request_id": request_id.strip_edges() if not request_id.strip_edges().is_empty() else _new_public_request_id("resume")
+	})
+
+func submit_public_1v1_terminal_report(match_id: String, final_state_hash: String,
+		elapsed_sim_ticks: int, claimed_terminal_reason: String,
+		claimed_winner_player_id: String = "", diagnostics: Dictionary = {}, request_id: String = "") -> Dictionary:
+	var clean_request_id: String = request_id.strip_edges()
+	if clean_request_id.is_empty():
+		clean_request_id = _new_public_request_id("terminal")
+	return _call_public_transport("submit_public_1v1_terminal_report", {
+		"match_id": match_id.strip_edges(),
+		"request_id": clean_request_id,
+		"final_state_hash": final_state_hash.strip_edges().to_lower(),
+		"elapsed_sim_ticks": maxi(0, elapsed_sim_ticks),
+		"claimed_terminal_reason": claimed_terminal_reason.strip_edges().to_upper(),
+		"claimed_winner_player_id": claimed_winner_player_id.strip_edges(),
+		"diagnostics": diagnostics.duplicate(true)
+	})
+
+func get_public_1v1_result(match_id: String) -> Dictionary:
+	return _call_public_transport("get_public_1v1_result", {"match_id": match_id.strip_edges()})
+
+func list_public_contests(family: String = "", scope: String = "", map_count: int = 0) -> Dictionary:
+	var payload: Dictionary = {"client_build": _public_client_build()}
+	if not family.strip_edges().is_empty():
+		payload["family"] = family.strip_edges().to_upper()
+	if not scope.strip_edges().is_empty():
+		payload["scope"] = scope.strip_edges().to_upper()
+	if map_count > 0:
+		payload["map_count"] = map_count
+	return _call_public_transport("list_public_contests", payload)
+
+func enter_public_contest(contest_id: String, request_id: String = "") -> Dictionary:
+	return _call_public_transport("enter_public_contest", {
+		"contest_id": contest_id.strip_edges(),
+		"client_build": _public_client_build(),
+		"request_id": request_id.strip_edges() if not request_id.strip_edges().is_empty() else _new_public_request_id("contest_enter")
+	})
+
+func get_public_contest_leaderboard(contest_id: String, limit: int = 25) -> Dictionary:
+	return _call_public_transport("get_public_contest_leaderboard", {
+		"contest_id": contest_id.strip_edges(), "limit": clampi(limit, 1, 100),
+		"client_build": _public_client_build()
+	})
+
+func submit_public_contest_evidence(contest_id: String, attempt: Dictionary, evidence: Dictionary,
+		request_id: String = "") -> Dictionary:
+	return _call_public_transport("submit_public_contest_evidence", {
+		"contest_id": contest_id.strip_edges(),
+		"attempt_id": str(attempt.get("attempt_id", "")).strip_edges(),
+		"definition_hash": str(attempt.get("definition_hash", "")).strip_edges(),
+		"grant_hash": str(attempt.get("grant_hash", "")).strip_edges(),
+		"client_build": _public_client_build(),
+		"evidence": evidence.duplicate(true),
+		"request_id": request_id.strip_edges() if not request_id.strip_edges().is_empty() else _new_public_request_id("contest_evidence")
+	})
+
+func get_public_contest_evidence(evidence_id: String) -> Dictionary:
+	return _call_public_transport("get_public_contest_evidence", {"evidence_id": evidence_id.strip_edges(),
+		"client_build": _public_client_build()})
+
+func list_public_contest_messages(limit: int = 25) -> Dictionary:
+	return _call_public_transport("list_public_contest_messages", {"limit": clampi(limit, 1, 100),
+		"client_build": _public_client_build()})
+
+func acknowledge_public_contest_message(event_id: String) -> Dictionary:
+	return _call_public_transport("ack_public_contest_message", {"event_id": event_id.strip_edges(),
+		"client_build": _public_client_build()})
+
+func get_public_global_rank(limit: int = 25) -> Dictionary:
+	var transport: Dictionary = _call_transport("get_public_global_rank", {"limit": clampi(limit, 1, 100),
+		"client_build": _public_client_build()})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "err": "public_leaderboard_unavailable"}
+
 func poll_quick_match(ticket_id: String) -> Dictionary:
 	var transport := _call_transport("poll_quick_match", {
 		"ticket_id": ticket_id
@@ -719,9 +1061,12 @@ func poll_quick_match(ticket_id: String) -> Dictionary:
 		var source: String = str(session.get("source", ""))
 		if source != "quick":
 			continue
-		var host: Dictionary = session.get("host", {}) as Dictionary
-		var guest: Dictionary = session.get("guest", {}) as Dictionary
-		if str(host.get("ticket_id", "")) == tid or str(guest.get("ticket_id", "")) == tid:
+		var ticket_found: bool = false
+		for roster_any in _session_roster(session):
+			if typeof(roster_any) == TYPE_DICTIONARY and str((roster_any as Dictionary).get("ticket_id", "")) == tid:
+				ticket_found = true
+				break
+		if ticket_found:
 			return {
 				"ok": true,
 				"matched": true,
@@ -737,6 +1082,8 @@ func poll_quick_match(ticket_id: String) -> Dictionary:
 	return {"ok": false, "err": "ticket_not_found"}
 
 func cancel_quick_match(ticket_id: String, uid: String = "") -> Dictionary:
+	if _durable_public_ticket_ids.has(ticket_id.strip_edges()):
+		return cancel_public_1v1(ticket_id)
 	var transport := _call_transport("cancel_quick_match", {
 		"ticket_id": ticket_id,
 		"uid": uid
@@ -842,6 +1189,8 @@ func fill_free_bot_match(ticket_id: String = "", session_id: String = "", bot_na
 	return debug_fill_session(session_id, bot_name)
 
 func get_session(session_id: String) -> Dictionary:
+	if _durable_public_match_ids.has(session_id.strip_edges()):
+		return get_public_1v1_session(session_id)
 	var transport := _call_transport("get_session", {"session_id": session_id})
 	if bool(transport.get("handled", false)):
 		var result: Dictionary = transport.get("result", {}) as Dictionary
@@ -858,6 +1207,8 @@ func get_session(session_id: String) -> Dictionary:
 	return _dup_session(_sessions.get(sid, {}) as Dictionary)
 
 func set_ready(session_id: String, uid: String, ready: bool) -> Dictionary:
+	if _durable_public_match_ids.has(session_id.strip_edges()):
+		return set_public_1v1_ready(session_id, ready)
 	var transport := _call_transport("set_ready", {
 		"session_id": session_id,
 		"uid": uid,
@@ -873,24 +1224,25 @@ func set_ready(session_id: String, uid: String, ready: bool) -> Dictionary:
 	if not _sessions.has(sid):
 		return {"ok": false, "err": "session_not_found"}
 	var session: Dictionary = _sessions.get(sid, {}) as Dictionary
-	var host: Dictionary = session.get("host", {}) as Dictionary
-	var guest: Dictionary = session.get("guest", {}) as Dictionary
-	var host_uid: String = str(host.get("uid", ""))
-	var guest_uid: String = str(guest.get("uid", ""))
-	if player_uid == host_uid:
-		host["ready"] = ready
-		session["host"] = host
-	elif player_uid == guest_uid and guest_uid != "":
-		guest["ready"] = ready
-		session["guest"] = guest
-	else:
+	var roster: Array = _session_roster(session)
+	var player_index: int = _session_roster_index_for_uid(roster, player_uid)
+	if player_index < 0:
 		return {"ok": false, "err": "player_not_in_session"}
+	var player_entry: Dictionary = roster[player_index] as Dictionary
+	player_entry["ready"] = ready
+	roster[player_index] = player_entry
+	_set_session_roster(session, roster)
 	_session_refresh_status(session)
 	_sessions[sid] = session
 	_emit_session_changed(sid)
 	return {"ok": true, "session": _dup_session(session)}
 
 func can_start(session_id: String, uid: String) -> bool:
+	if _durable_public_match_ids.has(session_id.strip_edges()):
+		var public_session: Dictionary = get_public_1v1_session(session_id)
+		if public_session.is_empty() or not ["ready", "started"].has(str(public_session.get("status", ""))):
+			return false
+		return _session_roster_index_for_uid(_session_roster(public_session), uid) >= 0
 	var transport := _call_transport("can_start", {
 		"session_id": session_id,
 		"uid": uid
@@ -904,12 +1256,16 @@ func can_start(session_id: String, uid: String) -> bool:
 	if sid.is_empty() or player_uid.is_empty() or not _sessions.has(sid):
 		return false
 	var session: Dictionary = _sessions.get(sid, {}) as Dictionary
+	if not _session_has_required_players(session):
+		return false
 	if not ["matched", "ready", "started"].has(str(session.get("status", ""))):
 		return false
 	var host: Dictionary = session.get("host", {}) as Dictionary
 	return str(host.get("uid", "")) == player_uid
 
 func start_session(session_id: String, uid: String) -> Dictionary:
+	if _durable_public_match_ids.has(session_id.strip_edges()):
+		return start_public_1v1(session_id)
 	var transport := _call_transport("start_session", {
 		"session_id": session_id,
 		"uid": uid
@@ -1100,6 +1456,7 @@ func prepare_money_rematch(session_id: String) -> Dictionary:
 		"wax_score": float(guest.get("wax_score", 0.0)),
 		"color_id": str(guest.get("color_id", "GREEN"))
 	}
+	_set_session_roster(rematch_session, [host, rematch_session.get("guest", {}) as Dictionary])
 	var start_result: Dictionary = _mark_session_started(rematch_session)
 	if not bool(start_result.get("ok", false)):
 		return start_result
@@ -1120,6 +1477,8 @@ func prepare_money_rematch(session_id: String) -> Dictionary:
 	}
 
 func leave_session(session_id: String, uid: String) -> Dictionary:
+	if _durable_public_match_ids.has(session_id.strip_edges()):
+		return leave_public_1v1(session_id)
 	var transport := _call_transport("leave_session", {
 		"session_id": session_id,
 		"uid": uid
@@ -1133,19 +1492,23 @@ func leave_session(session_id: String, uid: String) -> Dictionary:
 		return {"ok": false, "err": "session_not_found"}
 	var session: Dictionary = _sessions.get(sid, {}) as Dictionary
 	var host: Dictionary = session.get("host", {}) as Dictionary
-	var guest: Dictionary = session.get("guest", {}) as Dictionary
 	if str(host.get("uid", "")) == player_uid:
 		_close_session_internal(sid, "host_left")
 		return {"ok": true, "closed": true}
-	if str(guest.get("uid", "")) == player_uid:
-		session["guest"] = {"uid": "", "display_name": "", "ready": false}
-		host["ready"] = false
-		session["host"] = host
-		_session_refresh_status(session)
-		_sessions[sid] = session
-		_emit_session_changed(sid)
-		return {"ok": true, "closed": false, "session": _dup_session(session)}
-	return {"ok": false, "err": "player_not_in_session"}
+	var roster: Array = _session_roster(session)
+	var player_index: int = _session_roster_index_for_uid(roster, player_uid)
+	if player_index < 0:
+		return {"ok": false, "err": "player_not_in_session"}
+	roster.remove_at(player_index)
+	for i in range(roster.size()):
+		var remaining: Dictionary = roster[i] as Dictionary
+		remaining["ready"] = false
+		roster[i] = remaining
+	_set_session_roster(session, roster)
+	_session_refresh_status(session)
+	_sessions[sid] = session
+	_emit_session_changed(sid)
+	return {"ok": true, "closed": false, "session": _dup_session(session)}
 
 func heartbeat(profile: Dictionary) -> Dictionary:
 	var transport := _call_transport("heartbeat", {"profile": profile})
@@ -1271,9 +1634,16 @@ func respond_friend_invite(invite_id: String, profile: Dictionary, accept: bool)
 		"display_name": str(guest.get("display_name", "Player 2")),
 		"ready": false
 	}
-	var start_result: Dictionary = _mark_session_started(session)
-	if not bool(start_result.get("ok", false)):
-		return start_result
+	var roster: Array = _session_roster(session)
+	if _session_roster_index_for_uid(roster, str(guest.get("uid", ""))) < 0:
+		roster.append(_roster_player_from_profile(guest, roster.size() + 1, false))
+	_set_session_roster(session, roster)
+	if _session_has_required_players(session):
+		var start_result: Dictionary = _mark_session_started(session)
+		if not bool(start_result.get("ok", false)):
+			return start_result
+	else:
+		_session_refresh_status(session)
 	_sessions[session_id] = session
 	invite["status"] = "accepted"
 	_friend_invites[clean_id] = invite
@@ -1281,6 +1651,8 @@ func respond_friend_invite(invite_id: String, profile: Dictionary, accept: bool)
 	return {"ok": true, "accepted": true, "session_id": session_id, "session": _dup_session(session)}
 
 func publish_intent(session_id: String, uid: String, command: Dictionary) -> Dictionary:
+	if _durable_public_match_ids.has(session_id.strip_edges()):
+		return publish_public_1v1_command(session_id, command)
 	var start_ms: int = Time.get_ticks_msec()
 	var transport := _call_transport("publish_intent", {
 		"session_id": session_id,
@@ -1299,12 +1671,20 @@ func publish_intent(session_id: String, uid: String, command: Dictionary) -> Dic
 		return {"ok": false, "err": "session_not_found"}
 	if not _session_has_player_uid(session, sender_uid):
 		return {"ok": false, "err": "player_not_in_session"}
+	var roster: Array = _session_roster(session)
+	var roster_index: int = _session_roster_index_for_uid(roster, sender_uid)
+	var expected_seat: int = roster_index + 1
+	var claimed_seat: int = int(command.get("sender_seat", 0))
+	if claimed_seat > 0 and claimed_seat != expected_seat:
+		return {"ok": false, "err": "sender_seat_mismatch", "expected_seat": expected_seat}
+	var authoritative_input: Dictionary = command.duplicate(true)
+	authoritative_input["sender_seat"] = expected_seat
 	var stream: Dictionary = _intent_streams.get(sid, {"next_seq": 1, "events": []}) as Dictionary
 	var seq: int = int(stream.get("next_seq", 1))
 	if seq <= 0:
 		seq = 1
 	stream["next_seq"] = seq + 1
-	var canonical_command: Dictionary = _canonicalize_authoritative_command(sid, sender_uid, command, seq, stream)
+	var canonical_command: Dictionary = _canonicalize_authoritative_command(sid, sender_uid, authoritative_input, seq, stream)
 	var events_any: Variant = stream.get("events", [])
 	var events: Array = events_any as Array if typeof(events_any) == TYPE_ARRAY else []
 	var event: Dictionary = {
@@ -1351,6 +1731,8 @@ func _canonicalize_authoritative_command(session_id: String, sender_uid: String,
 	return canonical
 
 func poll_intents(session_id: String, uid: String, after_seq: int = 0) -> Dictionary:
+	if _durable_public_match_ids.has(session_id.strip_edges()):
+		return poll_public_1v1_commands(session_id, after_seq)
 	var start_ms: int = Time.get_ticks_msec()
 	var transport := _call_transport("poll_intents", {
 		"session_id": session_id,
@@ -1479,9 +1861,7 @@ func _session_has_player_uid(session: Dictionary, uid: String) -> bool:
 	var target_uid: String = uid.strip_edges()
 	if target_uid.is_empty():
 		return false
-	var host: Dictionary = session.get("host", {}) as Dictionary
-	var guest: Dictionary = session.get("guest", {}) as Dictionary
-	return str(host.get("uid", "")) == target_uid or str(guest.get("uid", "")) == target_uid
+	return _session_roster_index_for_uid(_session_roster(session), target_uid) >= 0
 
 func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dictionary:
 	var now_unix: int = int(Time.get_unix_time_from_system())
@@ -1499,7 +1879,7 @@ func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dict
 	}
 	if host.has("ticket_id"):
 		host_copy["ticket_id"] = str(host.get("ticket_id", ""))
-	return {
+	var session: Dictionary = {
 		"id": session_id,
 		"invite_code": invite_code,
 		"source": source,
@@ -1515,6 +1895,122 @@ func _new_session(host: Dictionary, context: Dictionary, source: String) -> Dict
 		},
 		"close_reason": ""
 	}
+	_set_session_roster(session, [_roster_player_from_profile(host_copy, 1, true)])
+	return session
+
+func _required_players_for_context(context: Dictionary) -> int:
+	var declared: int = int(context.get("required_players", 0))
+	var mode: String = str(context.get("mode", "")).strip_edges().to_upper().replace("_", " ").replace("-", " ")
+	var inferred: int = 2
+	match mode:
+		"2V2", "4P FFA":
+			inferred = 4
+		"3P FFA":
+			inferred = 3
+		_:
+			inferred = 2
+	if declared > 0 and declared != inferred:
+		SFLog.warn("VS_SESSION_CONTRACT_NORMALIZED", {
+			"mode": mode,
+			"declared_required_players": declared,
+			"required_players": inferred
+		})
+	return clampi(inferred, 2, MAX_SYNC_PLAYERS)
+
+func _session_required_players(session: Dictionary) -> int:
+	var context: Dictionary = session.get("context", {}) as Dictionary
+	return _required_players_for_context(context)
+
+func _session_has_required_players(session: Dictionary) -> bool:
+	return _session_roster(session).size() >= _session_required_players(session)
+
+func _session_roster(session: Dictionary) -> Array:
+	var roster_any: Variant = session.get("roster", [])
+	if typeof(roster_any) == TYPE_ARRAY and not (roster_any as Array).is_empty():
+		return (roster_any as Array).duplicate(true)
+	var legacy: Array = []
+	for key in ["host", "guest"]:
+		var profile_any: Variant = session.get(key, {})
+		if typeof(profile_any) != TYPE_DICTIONARY:
+			continue
+		var profile: Dictionary = profile_any as Dictionary
+		if str(profile.get("uid", "")).strip_edges().is_empty():
+			continue
+		legacy.append(_roster_player_from_profile(profile, legacy.size() + 1, legacy.is_empty()))
+	return legacy
+
+func _session_roster_index_for_uid(roster: Array, uid: String) -> int:
+	var target_uid: String = uid.strip_edges()
+	if target_uid.is_empty():
+		return -1
+	for i in range(roster.size()):
+		if typeof(roster[i]) != TYPE_DICTIONARY:
+			continue
+		if str((roster[i] as Dictionary).get("uid", "")).strip_edges() == target_uid:
+			return i
+	return -1
+
+func _roster_player_from_profile(profile: Dictionary, seat: int, is_host: bool) -> Dictionary:
+	var clean_seat: int = clampi(seat, 1, MAX_SYNC_PLAYERS)
+	var player: Dictionary = {
+		"uid": str(profile.get("uid", "")).strip_edges(),
+		"display_name": str(profile.get("display_name", "Player %d" % clean_seat)),
+		"ready": bool(profile.get("ready", false)),
+		"seat": clean_seat,
+		"role": "host" if is_host else "player",
+		"team_id": clean_seat
+	}
+	for key in ["ticket_id", "tier_id", "rank_position", "wax_score", "color_id", "balance_cents", "crucible_wax_millis", "is_cpu"]:
+		if profile.has(key):
+			player[key] = profile[key]
+	return player
+
+func _set_session_roster(session: Dictionary, roster: Array) -> void:
+	var normalized: Array = []
+	for player_any in roster:
+		if typeof(player_any) != TYPE_DICTIONARY or normalized.size() >= MAX_SYNC_PLAYERS:
+			continue
+		var profile: Dictionary = player_any as Dictionary
+		var uid: String = str(profile.get("uid", "")).strip_edges()
+		if uid.is_empty() or _session_roster_index_for_uid(normalized, uid) >= 0:
+			continue
+		var seat: int = normalized.size() + 1
+		var normalized_player: Dictionary = _roster_player_from_profile(profile, seat, seat == 1)
+		var mode: String = str((session.get("context", {}) as Dictionary).get("mode", "")).strip_edges().to_upper()
+		if mode == "2V2":
+			normalized_player["team_id"] = 1 if seat == 1 or seat == 3 else 2
+		normalized.append(normalized_player)
+	session["roster"] = normalized
+	session["required_players"] = _session_required_players(session)
+	session["contract_version"] = SESSION_CONTRACT_VERSION
+	if not normalized.is_empty():
+		session["host"] = (normalized[0] as Dictionary).duplicate(true)
+	else:
+		session["host"] = {"uid": "", "display_name": "", "ready": false}
+	if normalized.size() > 1:
+		session["guest"] = (normalized[1] as Dictionary).duplicate(true)
+	else:
+		session["guest"] = {"uid": "", "display_name": "", "ready": false}
+	session["contract_hash"] = _session_contract_hash(session)
+
+func _session_contract_hash(session: Dictionary) -> String:
+	var context: Dictionary = session.get("context", {}) as Dictionary
+	var parts: PackedStringArray = PackedStringArray([
+		"v%d" % SESSION_CONTRACT_VERSION,
+		str(context.get("mode", "")).strip_edges().to_upper(),
+		str(_session_required_players(session)),
+		str(context.get("map_count", 1)),
+		str(context.get("stage_map_paths", [])),
+		str(context.get("match_setup", context.get(MatchSetupRandomizer.CONTEXT_KEY, {})))
+	])
+	var roster_any: Variant = session.get("roster", [])
+	if typeof(roster_any) == TYPE_ARRAY:
+		for player_any in roster_any as Array:
+			if typeof(player_any) != TYPE_DICTIONARY:
+				continue
+			var player: Dictionary = player_any as Dictionary
+			parts.append("%d:%s:%d" % [int(player.get("seat", 0)), str(player.get("uid", "")), int(player.get("team_id", 0))])
+	return "|".join(parts).sha256_text()
 
 func _prepare_session_context(context: Dictionary) -> Dictionary:
 	var out: Dictionary = context.duplicate(true)
@@ -1529,6 +2025,8 @@ func _prepare_session_context(context: Dictionary) -> Dictionary:
 	out["wager_cents"] = wager_cents
 	out["free_roll"] = free_roll
 	out["paid_entry"] = not free_roll and wager_cents > 0
+	out["required_players"] = _required_players_for_context(out)
+	out["session_contract_version"] = SESSION_CONTRACT_VERSION
 	var requested_count: int = maxi(1, int(out.get("map_count", 1)))
 	var stage_maps: Array[String] = _stage_map_paths_from_context_stage_paths(out, requested_count)
 	if stage_maps.is_empty():
@@ -1721,20 +2219,29 @@ func _normalize_bucket(value: String) -> String:
 	return value.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
 
 func _session_refresh_status(session: Dictionary) -> void:
-	var host: Dictionary = session.get("host", {}) as Dictionary
-	var guest: Dictionary = session.get("guest", {}) as Dictionary
-	var guest_uid: String = str(guest.get("uid", ""))
-	var host_ready: bool = bool(host.get("ready", false))
-	var guest_ready: bool = bool(guest.get("ready", false))
-	if guest_uid == "":
+	var roster: Array = _session_roster(session)
+	if roster.size() < _session_required_players(session):
 		session["status"] = "waiting"
 		return
-	if host_ready and guest_ready:
+	var all_ready: bool = true
+	for player_any in roster:
+		if typeof(player_any) != TYPE_DICTIONARY or not bool((player_any as Dictionary).get("ready", false)):
+			all_ready = false
+			break
+	if all_ready:
 		session["status"] = "ready"
 		return
 	session["status"] = "matched"
 
 func _mark_session_started(session: Dictionary) -> Dictionary:
+	if not _session_has_required_players(session):
+		return {
+			"ok": false,
+			"err": "not_enough_players",
+			"code": "not_enough_players",
+			"required_players": _session_required_players(session),
+			"current_players": _session_roster(session).size()
+		}
 	var escrow_result: Dictionary = _ensure_money_escrow_for_session(session)
 	if not bool(escrow_result.get("ok", false)):
 		return escrow_result
@@ -1776,8 +2283,7 @@ func _ensure_money_escrow_for_session(session: Dictionary) -> Dictionary:
 
 func _money_player_ids_for_session(session: Dictionary) -> Array[String]:
 	var out: Array[String] = []
-	for key in ["host", "guest"]:
-		var profile_any: Variant = session.get(key, {})
+	for profile_any in _session_roster(session):
 		if typeof(profile_any) != TYPE_DICTIONARY:
 			continue
 		var profile: Dictionary = profile_any as Dictionary
@@ -1788,18 +2294,13 @@ func _money_player_ids_for_session(session: Dictionary) -> Array[String]:
 	return out
 
 func _money_player_uid_for_owner_id(session: Dictionary, owner_id: int) -> String:
-	var key: String = ""
-	match owner_id:
-		1:
-			key = "host"
-		2:
-			key = "guest"
-		_:
-			return ""
-	var profile_any: Variant = session.get(key, {})
-	if typeof(profile_any) != TYPE_DICTIONARY:
-		return ""
-	return str((profile_any as Dictionary).get("uid", "")).strip_edges()
+	for profile_any in _session_roster(session):
+		if typeof(profile_any) != TYPE_DICTIONARY:
+			continue
+		var profile: Dictionary = profile_any as Dictionary
+		if int(profile.get("seat", 0)) == owner_id:
+			return str(profile.get("uid", "")).strip_edges()
+	return ""
 
 func _refund_money_match_for_session(session: Dictionary, reason: String) -> Dictionary:
 	var sid: String = str(session.get("id", "")).strip_edges()
@@ -2059,6 +2560,21 @@ func _should_record_diagnostic(action: String) -> bool:
 		"create_invite",
 		"join_invite",
 		"enqueue_quick_match",
+		"enqueue_public_1v1",
+		"poll_public_1v1",
+		"cancel_public_1v1",
+		"get_public_bot_fallback_offer",
+		"accept_public_bot_fallback",
+		"get_public_1v1_session",
+		"set_public_1v1_ready",
+		"start_public_1v1",
+		"publish_public_1v1_command",
+		"poll_public_1v1_commands",
+		"leave_public_1v1",
+		"resume_public_1v1",
+		"submit_public_1v1_terminal_report",
+		"get_public_1v1_result",
+		"get_public_global_rank",
 		"poll_quick_match",
 		"cancel_quick_match",
 		"debug_fill_quick_match",

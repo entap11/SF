@@ -629,6 +629,23 @@ static func _apply_tree_vs_profiles_to_roster(roster: Array, active_seats: Array
 	var tree: SceneTree = Engine.get_main_loop() as SceneTree
 	if tree == null:
 		return
+	var contract_roster_any: Variant = tree.get_meta("vs_roster", [])
+	if typeof(contract_roster_any) == TYPE_ARRAY and not (contract_roster_any as Array).is_empty():
+		for seat in range(1, 5):
+			_set_roster_local_flag(roster, seat, false)
+		for player_any in contract_roster_any as Array:
+			if typeof(player_any) != TYPE_DICTIONARY:
+				continue
+			var player: Dictionary = player_any as Dictionary
+			var player_seat: int = int(player.get("seat", 0))
+			if player_seat < 1 or player_seat > 4:
+				continue
+			_apply_profile_to_roster_entry(roster, player_seat, player, active_seats, bool(player.get("is_local", false)))
+			var index: int = player_seat - 1
+			var entry: Dictionary = roster[index] as Dictionary
+			entry["team_id"] = int(player.get("team_id", entry.get("team_id", player_seat)))
+			roster[index] = entry
+		return
 	var role: String = str(tree.get_meta("vs_handshake_role", "host")).strip_edges().to_lower()
 	var local_seat: int = 2 if role == "guest" else 1
 	var remote_seat: int = 1 if local_seat == 2 else 2

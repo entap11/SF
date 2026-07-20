@@ -158,7 +158,7 @@ const TIER_WIDGET_LEFT_MARGIN: float = 8.0
 const TIER_WIDGET_TOP_OFFSET: float = 10.0
 const TIER_WIDGET_PANEL_WIDTH: float = 415.0
 const TIER_WIDGET_PANEL_HEIGHT: float = 200.0
-const MM_BACKGROUND_Y_SHIFT: float = -655.0
+const MM_BACKGROUND_Y_SHIFT: float = -615.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
 const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -386,6 +386,7 @@ const HIVE_INACTIVE_QUEEN_SUCCESSION_SEC: int = 12 * 7 * 24 * 60 * 60
 var _store_category_buttons: Array = []
 var _store_sku_buttons: Array = []
 var _time_puzzle_lobby: TimePuzzleLobby = null
+var _public_contest_dash: Control = null
 var _time_puzzle_return_async_panel: bool = false
 var _play_mode_select: Control = null
 var _vs_lobby: Control = null
@@ -743,6 +744,9 @@ const HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
 	"3P FFA": "res://assets/sprites/sf_skin_v1/3_player.png",
 	"4P FFA": "res://assets/sprites/sf_skin_v1/4p_ffa.png"
 }
+const MONEY_HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
+	"1V1": "res://assets/sprites/sf_skin_v1/crucible_money.png"
+}
 const ASYNC_CYCLE_SKIN_BY_LABEL: Dictionary = {
 	"WEEKLY": "res://assets/sprites/sf_skin_v1/weekly_color.png",
 	"MONTHLY": "res://assets/sprites/sf_skin_v1/monthly.png",
@@ -754,7 +758,8 @@ const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
 	"HIDDEN FLAG": "res://assets/sprites/sf_skin_v1/hidden_flag.png",
 	"STAGE RACE": "res://assets/sprites/sf_skin_v1/Stage_Race.png",
 	"RACE": "res://assets/sprites/sf_skin_v1/Race.png",
-	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png"
+	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png",
+	"GAUNTLET": "res://assets/sprites/sf_skin_v1/gauntlet.png"
 }
 const PROGRESSIVE_MODE_ID: String = "PROGRESSIVE"
 const PROGRESSIVE_LABEL: String = "GAUNTLET"
@@ -1399,6 +1404,22 @@ func _ready() -> void:
 	call_deferred("_auto_start_home_replay")
 	call_deferred("_layout_payout_proof_button")
 	call_deferred("_apply_ops_config_menu_gates")
+	call_deferred("_release_main_menu_loading_cover")
+
+func _release_main_menu_loading_cover() -> void:
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator == null:
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		loading_coordinator.hide_immediately()
+		return
+	# This deferred call runs after the other deferred boot work. Give resulting
+	# layout changes two more ticks before the persistent cover begins its reveal.
+	await tree.process_frame
+	await tree.process_frame
+	if is_instance_valid(loading_coordinator):
+		await loading_coordinator.release_after_main_menu_ready()
 
 func _maybe_route_headless_shell_smoke() -> bool:
 	for arg_any in OS.get_cmdline_user_args():
@@ -4381,6 +4402,9 @@ func _launch_local_hive_tournament_run(assignment: Dictionary = {}) -> bool:
 	tree.set_meta("vs_handshake_session_id", "")
 	tree.set_meta("vs_handshake_role", "host")
 	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_roster", [])
+	tree.set_meta("vs_session_contract_version", 0)
+	tree.set_meta("vs_session_contract_hash", "")
 	tree.set_meta("vs_local_profile", {
 		"uid": local_uid,
 		"display_name": local_name
@@ -4425,6 +4449,9 @@ func _clear_direct_match_launch_tree_metas() -> void:
 		"vs_handshake_session_id",
 		"vs_handshake_role",
 		"vs_handshake_invite_code",
+		"vs_roster",
+		"vs_session_contract_version",
+		"vs_session_contract_hash",
 		"vs_local_profile",
 		"vs_remote_profile",
 		"vs_money_ledger_status",
@@ -8677,6 +8704,18 @@ func _apply_usd_skin_to_button(button: Button, amount: int, label_text: String) 
 	button.set("icon_alignment", HORIZONTAL_ALIGNMENT_CENTER)
 	button.add_theme_constant_override("h_separation", 0)
 
+func _apply_money_entry_tier_skin(button: Button, amount: int) -> void:
+	if button == null or amount <= 0:
+		return
+	var exact_path: String = "%s/$%d.png" % [USD_SKIN_DIR_PATH, amount]
+	# Tier selectors must remain legible when a denomination has no dedicated art.
+	# In particular, the current asset set has no $15 sprite.
+	if not ResourceLoader.exists(exact_path):
+		return
+	_apply_usd_skin_to_button(button, amount, _money_entry_tooltip(amount))
+	if button.icon != null:
+		button.set_meta("sf_money_entry_tier_asset_path", exact_path)
+
 func _style_usd_sprite_button(button: Button, selected: bool) -> void:
 	if button == null:
 		return
@@ -8985,14 +9024,17 @@ func _key_neutral_to_alpha_texture(source_tex: Texture2D, max_width: int = 1024,
 	var keyed_tex: ImageTexture = ImageTexture.create_from_image(source_image)
 	return keyed_tex
 
-func _human_mode_skin_for_mode(mode_id: String) -> Texture2D:
-	var cache_key: String = mode_id.strip_edges()
+func _human_mode_skin_for_mode(mode_id: String, paid: bool = false) -> Texture2D:
+	var clean_mode_id: String = mode_id.strip_edges()
+	var uses_money_skin: bool = paid and MONEY_HUMAN_MODE_SKIN_BY_MODE.has(clean_mode_id)
+	var cache_key: String = "%s:%s" % ["money" if uses_money_skin else "standard", clean_mode_id]
 	if _human_mode_skin_cache.has(cache_key):
 		var cached_any: Variant = _human_mode_skin_cache.get(cache_key)
 		if cached_any is Texture2D:
 			return cached_any as Texture2D
 		return null
-	var path: String = str(HUMAN_MODE_SKIN_BY_MODE.get(cache_key, ""))
+	var skin_map: Dictionary = MONEY_HUMAN_MODE_SKIN_BY_MODE if uses_money_skin else HUMAN_MODE_SKIN_BY_MODE
+	var path: String = str(skin_map.get(clean_mode_id, ""))
 	if path.is_empty():
 		_human_mode_skin_cache[cache_key] = null
 		return null
@@ -9011,8 +9053,8 @@ func _human_mode_skin_for_mode(mode_id: String) -> Texture2D:
 func _apply_human_mode_skin_to_button(button: Button, mode_id: String, paid: bool, denomination: int, preserve_layout: bool = false) -> void:
 	if button == null:
 		return
-	var label_text: String = "%s  $%d" % [mode_id, denomination] if paid else mode_id
-	var tex: Texture2D = _human_mode_skin_for_mode(mode_id)
+	var label_text: String = mode_id
+	var tex: Texture2D = _human_mode_skin_for_mode(mode_id, paid)
 	button.tooltip_text = label_text
 	if tex == null:
 		button.text = label_text
@@ -9125,7 +9167,7 @@ func _async_cycle_skin_for_label(label: String) -> Texture2D:
 func _apply_async_cycle_skin_to_button(button: Button, label: String, paid: bool, denomination: int, preserve_layout: bool = false) -> void:
 	if button == null:
 		return
-	var label_text: String = "%s  $%d" % [label, denomination] if paid else label
+	var label_text: String = label
 	var tex: Texture2D = _async_cycle_skin_for_label(label)
 	button.tooltip_text = label_text
 	if tex == null:
@@ -9149,7 +9191,7 @@ func _apply_async_cycle_skin_to_button(button: Button, label: String, paid: bool
 func _apply_async_mode_skin_to_button(button: Button, label: String, paid: bool, denomination: int, preserve_layout: bool = false) -> void:
 	if button == null:
 		return
-	var label_text: String = "%s  $%d" % [label, denomination] if paid else label
+	var label_text: String = label
 	var tex: Texture2D = _async_mode_skin_for_label(label)
 	button.tooltip_text = label_text
 	if tex == null:
@@ -12321,6 +12363,9 @@ func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -
 	_entry_route_modal = panel
 
 func _open_crucible_confirmation() -> void:
+	if not _public_rollout_allows_mode("CRUCIBLE"):
+		status_label.text = "Crucible is not open in the current rollout."
+		return
 	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
 	if crucible_state == null:
 		status_label.text = "Crucible is unavailable."
@@ -12353,11 +12398,11 @@ func _open_crucible_confirmation() -> void:
 		return
 	var facts: Label = Label.new()
 	facts.name = "CrucibleConfirmationFacts"
-	facts.text = "Current Wax: %s\nRequired stake: %s\nWinner payout after burn: %s\nBurn amount: %s" % [
+	facts.text = "Current Wax: %s\nRequired stake: %s\nWinner payout: %s\nAward reserve: %s" % [
 		_format_crucible_wax_millis(int(entry_status.get("balance_millis", 0))),
 		_format_crucible_wax_millis(int(stake_preview.get("stake_each", 0))),
 		_format_crucible_wax_millis(int(stake_preview.get("winner_payout", 0))),
-		_format_crucible_wax_millis(int(stake_preview.get("burn", 0)))
+		_format_crucible_wax_millis(int(stake_preview.get("award_reserve", 0)))
 	]
 	facts.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	facts.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -12755,23 +12800,29 @@ func _add_paid_contest_button_grid(parent: VBoxContainer, scope: String, family_
 		var family_label: String = str(family_def.get("label", family_id)).strip_edges()
 		if family_id.is_empty() or family_label.is_empty():
 			continue
-		for denom in _paid_contest_denominations_for_family(family_def, schedule_kind):
-			var button := Button.new()
-			button.custom_minimum_size = Vector2(260.0, 72.0) * maxf(0.78, lower_rows_scale)
-			button.text = "%s  $%d" % [family_label.to_upper(), denom]
-			button.set_meta("sf_paid_contest_scope", scope)
-			button.set_meta("sf_paid_contest_family", family_id)
-			button.set_meta("sf_paid_contest_schedule_kind", schedule_kind)
-			button.set_meta("sf_paid_contest_denomination", denom)
-			button.tooltip_text = _money_entry_tooltip(denom, "%s %s $%d" % [_scope_display_label(scope), family_label, denom])
-			button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			button.pressed.connect(func() -> void:
-				_on_paid_async_contest_button_pressed(scope, family_id, schedule_kind, denom)
+		var allowed_denominations: Array[int] = _paid_contest_denominations_for_family(family_def, schedule_kind)
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(260.0, 72.0) * maxf(0.78, lower_rows_scale)
+		button.text = family_label.to_upper()
+		button.set_meta("sf_paid_contest_scope", scope)
+		button.set_meta("sf_paid_contest_family", family_id)
+		button.set_meta("sf_paid_contest_family_label", family_label)
+		button.set_meta("sf_paid_contest_schedule_kind", schedule_kind)
+		button.set_meta("sf_paid_contest_allowed_denominations", allowed_denominations)
+		button.set_meta("sf_paid_contest_denomination", _money_games_selected_tier)
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		button.pressed.connect(func() -> void:
+			_on_paid_async_contest_button_pressed(
+				str(button.get_meta("sf_paid_contest_scope", scope)),
+				str(button.get_meta("sf_paid_contest_family", family_id)),
+				str(button.get_meta("sf_paid_contest_schedule_kind", schedule_kind)),
+				int(button.get_meta("sf_paid_contest_denomination", _money_games_selected_tier))
 			)
-			grid.add_child(button)
-			_apply_font(button, _font_semibold, 16)
-			_style_paid_contest_route_button(button, denom)
-			_configure_game_hub_option_button(button, broadcast_mode)
+		)
+		grid.add_child(button)
+		_apply_async_mode_skin_to_button(button, family_label.to_upper(), true, _money_games_selected_tier, true)
+		_refresh_money_games_paid_contest_button(button)
+		_configure_game_hub_option_button(button, broadcast_mode)
 
 func _paid_contest_denominations_for_family(family_def: Dictionary, schedule_kind: String) -> Array[int]:
 	var out: Array[int] = []
@@ -12784,6 +12835,13 @@ func _paid_contest_denominations_for_family(family_def: Dictionary, schedule_kin
 
 func _style_paid_contest_route_button(button: Button, denomination: int) -> void:
 	if button == null:
+		return
+	if button.icon != null:
+		_style_usd_sprite_button(button, true)
+		if not _can_afford_money_entry(denomination):
+			button.modulate = Color(0.42, 0.42, 0.42, 0.58)
+		else:
+			button.modulate = Color(1.0, 1.0, 1.0, 1.0)
 		return
 	_style_button(button, Color(0.1, 0.11, 0.14), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
 	if not _can_afford_money_entry(denomination):
@@ -12915,14 +12973,14 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		if button == null or mode_id.is_empty():
 			continue
 		if mode_id == PROGRESSIVE_MODE_ID:
-			_connect_free_roll_guarded_press(button, Callable(self, "_on_progressive_selected"))
+			_connect_free_roll_guarded_press(button, Callable(self, "_open_public_contest_dash").bind("WEEKLY", "GAUNTLET", 18))
 		else:
 			_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
 		_apply_async_cycle_skin_to_button(button, label, false, selected_denom, true)
 		_configure_game_hub_option_button(button, broadcast_free_roll)
 	var map_defs: Array[Dictionary] = [
-		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/CaptureFlagButton"), "label": "CAPTURE FLAG", "mode": "CAPTURE_FLAG", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE},
-		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/HiddenFlagButton"), "label": "HIDDEN FLAG", "mode": "HIDDEN_CAPTURE_FLAG", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/CaptureFlagButton"), "label": "CTF BOT", "mode": "CAPTURE_FLAG", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE},
+		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/HiddenFlagButton"), "label": "HIDDEN CTF BOT", "mode": "HIDDEN_CAPTURE_FLAG", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE},
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/StageRace3Button"), "label": "STAGE RACE", "mode": "STAGE_RACE_3", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/TimedRace3Button"), "label": "RACE", "mode": "TIMED_RACE_3", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/MissNOut3Button"), "label": "MISS N OUT", "mode": "MISS_N_OUT_3", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
@@ -12930,6 +12988,9 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/TimedRace5Button"), "label": "RACE", "mode": "TIMED_RACE_5", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE},
 		{"path": NodePath("EntryScroll/EntryBody/EntryCanvas/MissNOut5Button"), "label": "MISS N OUT", "mode": "MISS_N_OUT_5", "scale": GAME_HUB_FREE_LOWER_ROWS_SCALE * GAME_HUB_FREE_TRIPLE_ROW_SCALE}
 	]
+	var bot_practice_heading: Label = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/OneMapHeading") as Label
+	if bot_practice_heading != null:
+		bot_practice_heading.text = "BOT PRACTICE"
 	for def in map_defs:
 		var button: Button = panel.get_node_or_null(def.get("path", NodePath(""))) as Button
 		var label: String = str(def.get("label", ""))
@@ -12937,9 +12998,9 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		if button == null or mode_id.is_empty():
 			continue
 		if mode_id == "STAGE_RACE_3":
-			_connect_free_roll_guarded_press(button, Callable(self, "_start_free_stage_race_contest").bind("WEEKLY", 3))
+			_connect_free_roll_guarded_press(button, Callable(self, "_open_public_contest_dash").bind("ROLLING_COHORT", "ASYNC_MAP_SET", 3))
 		elif mode_id == "STAGE_RACE_5":
-			_connect_free_roll_guarded_press(button, Callable(self, "_start_free_stage_race_contest").bind("WEEKLY", 5))
+			_connect_free_roll_guarded_press(button, Callable(self, "_open_public_contest_dash").bind("ROLLING_COHORT", "ASYNC_MAP_SET", 5))
 		else:
 			_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
 		_apply_async_mode_skin_to_button(button, label, false, selected_denom, true)
@@ -13672,6 +13733,8 @@ func _rebuild_money_games_tier_row(
 				button.set_meta("sf_money_entry_tier_usd", tier)
 				button.set_meta("sf_money_unaffordable", not _can_afford_money_entry(tier))
 				button.tooltip_text = _money_entry_tooltip(tier)
+				_apply_money_entry_tier_skin(button, tier)
+				button.custom_minimum_size = MONEY_ENTRY_TIER_BUTTON_SIZE
 				button.pressed.connect(func() -> void:
 					_on_money_games_tier_pressed(bound_tier, tier_row, division_arena_label, entry_fee_label)
 				)
@@ -13703,7 +13766,7 @@ func _on_money_games_tier_pressed(
 		var button: Button = child as Button
 		if button == null:
 			continue
-		var active: bool = button.text.strip_edges() == "$%d" % _money_games_selected_tier
+		var active: bool = int(button.get_meta("sf_money_entry_tier_usd", 0)) == _money_games_selected_tier
 		_style_money_entry_tier_button(button, active)
 	_refresh_money_games_context_labels(division_arena_label, entry_fee_label)
 	_refresh_money_games_paid_route_buttons()
@@ -13714,6 +13777,11 @@ func _on_money_games_tier_pressed(
 
 func _style_money_entry_tier_button(button: Button, active: bool) -> void:
 	if button == null:
+		return
+	if button.icon != null:
+		_style_usd_sprite_button(button, active)
+		if bool(button.get_meta("sf_money_unaffordable", false)):
+			button.modulate = Color(0.42, 0.42, 0.42, 0.58)
 		return
 	var style := StyleBoxFlat.new()
 	style.corner_radius_bottom_left = 6
@@ -13772,6 +13840,29 @@ func _refresh_money_games_paid_route_buttons() -> void:
 	_collect_money_game_paid_route_buttons(_entry_route_modal, buttons)
 	for button in buttons:
 		_refresh_money_game_paid_route_button(button)
+	_refresh_money_games_paid_contest_buttons(_entry_route_modal)
+
+func _refresh_money_games_paid_contest_buttons(root_node: Node) -> void:
+	if root_node == null:
+		return
+	if root_node is Button and root_node.has_meta("sf_paid_contest_denomination"):
+		_refresh_money_games_paid_contest_button(root_node as Button)
+	for child in root_node.get_children():
+		_refresh_money_games_paid_contest_buttons(child)
+
+func _refresh_money_games_paid_contest_button(button: Button) -> void:
+	if button == null:
+		return
+	var allowed_denominations: Array = button.get_meta("sf_paid_contest_allowed_denominations", []) as Array
+	var entry_usd: int = maxi(1, _money_games_selected_tier)
+	button.visible = allowed_denominations.has(entry_usd)
+	button.set_meta("sf_paid_contest_denomination", entry_usd)
+	var scope: String = str(button.get_meta("sf_paid_contest_scope", "WEEKLY"))
+	var family_label: String = str(button.get_meta("sf_paid_contest_family_label", button.text))
+	button.tooltip_text = _money_entry_tooltip(entry_usd, "%s %s" % [_scope_display_label(scope), family_label])
+	_style_paid_contest_route_button(button, entry_usd)
+	if button.has_meta("sf_game_hub_motion"):
+		button.set_meta("sf_game_hub_base_modulate", button.modulate)
 
 func _collect_money_game_paid_route_buttons(root_node: Node, out: Array[Button]) -> void:
 	if root_node == null:
@@ -13787,7 +13878,7 @@ func _refresh_money_game_paid_route_button(button: Button) -> void:
 	var entry_usd: int = maxi(1, _money_games_selected_tier)
 	var route_kind: String = str(button.get_meta("sf_money_route_kind", ""))
 	var route_label: String = str(button.get_meta("sf_money_route_label", ""))
-	var label_text: String = "%s  $%d" % [route_label, entry_usd] if not route_label.is_empty() else "$%d Entry" % entry_usd
+	var label_text: String = route_label if not route_label.is_empty() else "PLAY"
 	var unaffordable: bool = not _can_afford_money_entry(entry_usd)
 	button.disabled = false
 	button.set_meta("sf_money_entry_usd", entry_usd)
@@ -14484,6 +14575,9 @@ func _on_touch_drag_scroll_gui_input(event: InputEvent, scroll: ScrollContainer)
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("human matches"):
 		return
+	if not _public_rollout_allows_mode(mode_id):
+		status_label.text = "%s is not open in the current rollout." % mode_id.capitalize()
+		return
 	if paid and not _paid_entries_enabled():
 		status_label.text = "Paid entries are disabled for this beta build."
 		return
@@ -14504,18 +14598,16 @@ func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> 
 			status_label.text = "Human %s free roll selected. PvP lobby opened." % mode_id
 		return
 	if mode_id == "CTF":
-		var entry_usd: int = maxi(0, denomination)
-		if not paid:
-			entry_usd = 0
-		if _launch_direct_capture_flag("CAPTURE_FLAG", not paid, entry_usd):
-			_close_entry_route_modal()
+		_close_entry_route_modal()
+		var entry_usd: int = maxi(1, denomination) if paid else 0
+		_open_human_pvp_lobby("CAPTURE_FLAG", not paid, entry_usd)
+		status_label.text = "Human Capture the Flag lobby opened."
 		return
 	if mode_id == "HIDDEN CTF":
-		var hidden_entry_usd: int = maxi(0, denomination)
-		if not paid:
-			hidden_entry_usd = 0
-		if _launch_direct_capture_flag("HIDDEN_CAPTURE_FLAG", not paid, hidden_entry_usd):
-			_close_entry_route_modal()
+		_close_entry_route_modal()
+		var hidden_entry_usd: int = maxi(1, denomination) if paid else 0
+		_open_human_pvp_lobby("HIDDEN_CAPTURE_FLAG", not paid, hidden_entry_usd)
+		status_label.text = "Human Hidden CTF lobby opened."
 		return
 	_close_entry_route_modal()
 	get_tree().set_meta("requested_human_mode", mode_id)
@@ -14531,15 +14623,35 @@ func _open_human_pvp_lobby(mode_id: String, free_play: bool, entry_usd: int) -> 
 	_open_async_vs_lobby(mode_id, 1, free_play, maxi(0, entry_usd), lobby_options)
 
 func _human_pvp_lobby_options(mode_id: String) -> Dictionary:
+	var required_players: int = _human_pvp_required_players(mode_id)
 	var lobby_options: Dictionary = {
 		"human_pvp": true,
-		"start_players": 2,
+		"start_players": required_players,
+		"required_players": required_players,
+		"session_contract_version": 2,
 		"pregame_setup": "session_seeded"
 	}
+	var normalized_mode: String = mode_id.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
+	if ["1V1", "PVP", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG", "2V2", "3P_FFA", "4P_FFA"].has(normalized_mode):
+		var handshake: Node = get_node_or_null("/root/VsHandshake")
+		if handshake != null and handshake.has_method("is_authoritative_transport_online") \
+				and handshake.has_method("has_player_access_token") \
+				and bool(handshake.call("is_authoritative_transport_online")) \
+				and bool(handshake.call("has_player_access_token")):
+			lobby_options["durable_public_1v1"] = true
 	var team_override: String = _human_pvp_team_mode_override(mode_id)
 	if not team_override.is_empty():
 		lobby_options["team_mode_override"] = team_override
 	return lobby_options
+
+func _human_pvp_required_players(mode_id: String) -> int:
+	match mode_id.strip_edges().to_upper().replace("_", " "):
+		"2V2", "4P FFA":
+			return 4
+		"3P FFA":
+			return 3
+		_:
+			return 2
 
 func _human_pvp_map_ids(mode_id: String) -> PackedStringArray:
 	var random_ids: PackedStringArray = _free_roll_random_map_ids(mode_id, 1)
@@ -14581,9 +14693,60 @@ func _on_async_cycle_selected(scope: String, paid: bool, denomination: int) -> v
 		clean_scope = "WEEKLY"
 	_apply_async_entry_amount(paid, denomination)
 	_close_entry_route_modal()
+	if not paid:
+		_open_public_contest_dash(clean_scope, "TIME_PUZZLE", 3)
+		return
 	_open_stage_race_tournament_lobby(clean_scope, paid, denomination)
 
-func _on_progressive_selected(paid: bool = false, denomination: int = 0, contest_id: String = "", contest_scope: String = "", schedule_kind: String = "SIT_AND_GO") -> void:
+func _open_public_contest_dash(scope: String = "WEEKLY", family: String = "TIME_PUZZLE", map_count: int = 3) -> void:
+	if not _public_rollout_allows_contest(family, map_count):
+		status_label.text = "That public contest is not open in the current rollout."
+		return
+	_close_entry_route_modal()
+	_close_top_level_windows(UI_SURFACE_TIME_PUZZLE)
+	if _time_puzzle_lobby != null:
+		if is_instance_valid(_time_puzzle_lobby):
+			_time_puzzle_lobby.queue_free()
+		_time_puzzle_lobby = null
+	if _public_contest_dash == null:
+		_public_contest_dash = preload("res://scenes/ui/PublicContestDashPanel.tscn").instantiate() as Control
+		_public_contest_dash.connect("closed", func():
+			if _public_contest_dash != null and is_instance_valid(_public_contest_dash):
+				_public_contest_dash.queue_free()
+			_public_contest_dash = null
+		)
+		_public_contest_dash.connect("play_requested", _on_public_contest_play_requested)
+		add_child(_public_contest_dash)
+	_public_contest_dash.call("configure", scope, family, map_count)
+	_public_contest_dash.visible = true
+	status_label.text = "%s public contests." % scope.capitalize()
+
+func _on_public_contest_play_requested(definition: Dictionary, attempt: Dictionary) -> void:
+	if _public_contest_dash != null:
+		_public_contest_dash.visible = false
+	var family: String = str(definition.get("family", "")).to_upper()
+	var validation: Dictionary = definition.get("client_content_validation", {}) as Dictionary
+	var common: Dictionary = {
+		"contest_id": str(definition.get("contest_id", "")),
+		"contest_scope": str(definition.get("scope", "")),
+		"public_contest_id": str(definition.get("contest_id", "")),
+		"public_contest_family": family,
+		"public_contest_definition_hash": str(definition.get("definition_hash", "")),
+		"public_contest_attempt": attempt.duplicate(true),
+		"public_contest_map_ids": (definition.get("map_ids", []) as Array).duplicate(),
+		"public_contest_submission_deadline_at": str(attempt.get("submission_deadline_at", ""))
+	}
+	if family == "GAUNTLET":
+		_on_progressive_selected(false, 0, str(definition.get("contest_id", "")), "WEEKLY", "SCHEDULED", definition, attempt)
+		return
+	common["map_ids"] = PackedStringArray(definition.get("map_ids", []))
+	common["stage_map_paths"] = validation.get("map_paths", PackedStringArray())
+	common["start_players"] = ASYNC_WINDOW_START_PLAYERS
+	common["sync_join_sec"] = ASYNC_TIMED_RACE_SYNC_JOIN_SEC
+	if not _launch_async_vs_match_direct("TIMED_RACE", int(definition.get("map_count", 3)), true, 0, common):
+		status_label.text = "Public async contest launch failed."
+
+func _on_progressive_selected(paid: bool = false, denomination: int = 0, contest_id: String = "", contest_scope: String = "", schedule_kind: String = "SIT_AND_GO", public_definition: Dictionary = {}, public_attempt: Dictionary = {}) -> void:
 	if _block_for_active_hive_tournament("progressive"):
 		return
 	_close_entry_route_modal()
@@ -14616,7 +14779,9 @@ func _on_progressive_selected(paid: bool = false, denomination: int = 0, contest
 		"contest_id": contest_id.strip_edges(),
 		"contest_scope": contest_scope.strip_edges().to_upper(),
 		"schedule_kind": schedule_kind.strip_edges().to_upper(),
-		"escrow": escrow
+		"escrow": escrow,
+		"public_definition": public_definition.duplicate(true),
+		"public_attempt": public_attempt.duplicate(true)
 	}
 	if _launch_progressive_stage_direct(run, stage, launch_options):
 		status_label.text = "Gauntlet $%d stage 1 starting..." % entry_usd if paid else "Gauntlet stage 1 starting..."
@@ -14685,6 +14850,15 @@ func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary, launch
 		tree.set_meta("async_money_contest_id", contest_id)
 	if not contest_scope.is_empty():
 		tree.set_meta("contest_scope", contest_scope)
+	var public_definition: Dictionary = launch_options.get("public_definition", {}) as Dictionary
+	var public_attempt: Dictionary = launch_options.get("public_attempt", {}) as Dictionary
+	if not public_definition.is_empty() and not public_attempt.is_empty():
+		tree.set_meta("public_contest_id", str(public_definition.get("contest_id", "")))
+		tree.set_meta("public_contest_family", str(public_definition.get("family", "")))
+		tree.set_meta("public_contest_definition_hash", str(public_definition.get("definition_hash", "")))
+		tree.set_meta("public_contest_attempt", public_attempt.duplicate(true))
+		tree.set_meta("public_contest_map_ids", (public_definition.get("map_ids", []) as Array).duplicate())
+		tree.set_meta("public_contest_submission_deadline_at", str(public_attempt.get("submission_deadline_at", "")))
 	tree.set_meta("vs_assigned_players", [local_name, bot_name])
 	tree.set_meta("vs_open_slots", 0)
 	tree.set_meta("vs_required_players", 2)
@@ -14700,6 +14874,9 @@ func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary, launch
 	tree.set_meta("vs_handshake_session_id", "")
 	tree.set_meta("vs_handshake_role", "")
 	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_roster", [])
+	tree.set_meta("vs_session_contract_version", 0)
+	tree.set_meta("vs_session_contract_hash", "")
 	tree.set_meta("vs_local_profile", player_profile.duplicate(true))
 	tree.set_meta("vs_remote_profile", bot_profile)
 	tree.set_meta("vs_cpu_style", bot_style)
@@ -14763,6 +14940,9 @@ func _progressive_launch_clear_keys() -> Array[String]:
 		"vs_handshake_session_id",
 		"vs_handshake_role",
 		"vs_handshake_invite_code",
+		"vs_roster",
+		"vs_session_contract_version",
+		"vs_session_contract_hash",
 		"vs_local_profile",
 		"vs_remote_profile",
 		"vs_money_ledger_status",
@@ -14809,11 +14989,21 @@ func _progressive_launch_clear_keys() -> Array[String]:
 		"progressive_human_owner_id",
 		"progressive_bot_attack_grace_broken",
 		"progressive_total_stars",
-		"progressive_max_stars"
+		"progressive_max_stars",
+		"public_contest_id",
+		"public_contest_family",
+		"public_contest_definition_hash",
+		"public_contest_attempt",
+		"public_contest_map_ids",
+		"public_contest_submission_deadline_at"
 	]
 
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("async matches"):
+		return
+	if not paid and ["CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG"].has(mode_id) \
+			and not _public_rollout_allows_flag("enable_bot_fallback"):
+		status_label.text = "Bot flag practice is not open in the current rollout."
 		return
 	if paid and not _require_balance_for_entry(maxi(1, denomination)):
 		return
@@ -14919,6 +15109,44 @@ func _paid_entries_enabled() -> bool:
 	var ops_config: Node = get_node_or_null("/root/OpsConfig")
 	if ops_config != null and ops_config.has_method("paid_entries_enabled"):
 		return bool(ops_config.call("paid_entries_enabled"))
+	return false
+
+func _public_rollout_enforcement_active() -> bool:
+	# Editor/headless harnesses retain their local fixtures. Every release export,
+	# and any debug client actually connected with player auth, obeys remote rollout.
+	if not OS.is_debug_build():
+		return true
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	return handshake != null and handshake.has_method("is_authoritative_transport_online") \
+		and handshake.has_method("has_player_access_token") \
+		and bool(handshake.call("is_authoritative_transport_online")) \
+		and bool(handshake.call("has_player_access_token"))
+
+func _public_rollout_allows_flag(flag_name: String) -> bool:
+	if not _public_rollout_enforcement_active():
+		return true
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	return ops_config != null and ops_config.has_method("public_flag_enabled") \
+		and bool(ops_config.call("public_flag_enabled", flag_name))
+
+func _public_rollout_allows_mode(mode_id: String) -> bool:
+	if not _public_rollout_enforcement_active():
+		return true
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	return ops_config != null and ops_config.has_method("public_mode_enabled") \
+		and bool(ops_config.call("public_mode_enabled", mode_id))
+
+func _public_rollout_allows_contest(family: String, map_count: int) -> bool:
+	var clean: String = family.strip_edges().to_upper()
+	if clean == "TIME_PUZZLE":
+		return _public_rollout_allows_flag("enable_public_time_puzzles") \
+			and _public_rollout_allows_flag("enable_public_leaderboards")
+	if clean == "GAUNTLET":
+		return _public_rollout_allows_flag("enable_public_gauntlet") \
+			and _public_rollout_allows_flag("enable_public_leaderboards")
+	if clean == "ASYNC_MAP_SET":
+		return _public_rollout_allows_flag("enable_public_async_3map" if map_count == 3 else "enable_public_async_5map") \
+			and _public_rollout_allows_flag("enable_public_leaderboards")
 	return false
 
 func _resolve_entry_overlay_size(size: Vector2) -> Vector2:
@@ -15856,12 +16084,20 @@ func _close_vs_lobby() -> void:
 	_vs_lobby_return_async_panel = false
 
 func _close_time_puzzle_lobby() -> void:
+	_close_public_contest_dash()
 	if _time_puzzle_lobby == null:
 		return
 	if is_instance_valid(_time_puzzle_lobby):
 		_time_puzzle_lobby.queue_free()
 	_time_puzzle_lobby = null
 	_time_puzzle_return_async_panel = false
+
+func _close_public_contest_dash() -> void:
+	if _public_contest_dash == null:
+		return
+	if is_instance_valid(_public_contest_dash):
+		_public_contest_dash.queue_free()
+	_public_contest_dash = null
 
 func _close_top_level_windows(except_surface: String = "") -> void:
 	if except_surface != UI_SURFACE_ENTRY:
@@ -16402,6 +16638,9 @@ func _launch_jukebox_map(map_path: String, cpu_style: String = "", cpu_tier: Str
 		"vs_handshake_session_id",
 		"vs_handshake_role",
 		"vs_handshake_invite_code",
+		"vs_roster",
+		"vs_session_contract_version",
+		"vs_session_contract_hash",
 		"vs_local_profile",
 		"vs_remote_profile",
 		"vs_money_ledger_status",
@@ -17141,6 +17380,7 @@ func _open_stage_race_tournament_lobby(scope: String, paid: bool = true, denomin
 		tree.set_meta("wallet_balance_usd", _wallet_balance_usd())
 		tree.set_meta("wallet_balance_cents", _wallet_balance_usd() * 100)
 	_close_top_level_windows(UI_SURFACE_TIME_PUZZLE)
+	_close_public_contest_dash()
 	_time_puzzle_return_async_panel = return_async_panel
 	if _time_puzzle_lobby == null:
 		_time_puzzle_lobby = preload("res://scenes/ui/TimePuzzleLobby.tscn").instantiate()
@@ -17359,6 +17599,9 @@ func _on_async_miss_n_out_selected(free_play: bool, requested_map_count: int = 5
 func _on_async_capture_flag_selected(free_play: bool) -> bool:
 	if _block_for_active_hive_tournament("async matches"):
 		return false
+	if not free_play:
+		status_label.text = "CTF bot matches are free practice only."
+		return false
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
 	var escrow: Dictionary = {}
@@ -17375,6 +17618,9 @@ func _on_async_capture_flag_selected(free_play: bool) -> bool:
 
 func _on_async_hidden_capture_flag_selected(free_play: bool) -> bool:
 	if _block_for_active_hive_tournament("async matches"):
+		return false
+	if not free_play:
+		status_label.text = "Hidden CTF bot matches are free practice only."
 		return false
 	var track_label: String = "Free Play" if free_play else "Ladder"
 	var entry_usd: int = 0 if free_play else _current_async_paid_entry_usd()
@@ -17431,6 +17677,9 @@ func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: in
 	tree.set_meta("vs_wager_cents", 0 if free_roll else maxi(0, entry_usd) * 100)
 	tree.set_meta("vs_paid_entry", not free_roll and entry_usd > 0)
 	tree.set_meta("vs_free_roll", free_roll)
+	tree.set_meta("vs_practice", true)
+	tree.set_meta("vs_ranked", false)
+	tree.set_meta("vs_economic", false)
 	tree.set_meta("vs_assigned_players", [local_name, "CPU"])
 	tree.set_meta("vs_open_slots", 0)
 	tree.set_meta("vs_required_players", 2)
@@ -17445,13 +17694,16 @@ func _launch_direct_capture_flag(mode_id: String, free_roll: bool, entry_usd: in
 	tree.set_meta("vs_handshake_session_id", "")
 	tree.set_meta("vs_handshake_role", "host")
 	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_roster", [])
+	tree.set_meta("vs_session_contract_version", 0)
+	tree.set_meta("vs_session_contract_hash", "")
 	tree.set_meta("vs_local_profile", {
 		"uid": local_uid,
 		"display_name": local_name
 	})
 	tree.set_meta("vs_remote_profile", {
-		"uid": "bot_ctf_direct",
-		"display_name": "CPU",
+		"uid": "bot_hctf-practice-v1" if hidden_mode else "bot_ctf-practice-v1",
+		"display_name": "Hidden Flag Practice Bot" if hidden_mode else "Capture Flag Practice Bot",
 		"is_cpu": true
 	})
 	tree.set_meta("ctf_flag_selection_mode", "player_select" if hidden_mode else "weighted")
@@ -17489,6 +17741,9 @@ func _direct_async_launch_clear_keys() -> Array[String]:
 		"vs_wager_cents",
 		"vs_paid_entry",
 		"vs_free_roll",
+		"vs_practice",
+		"vs_ranked",
+		"vs_economic",
 		"vs_assigned_players",
 		"vs_open_slots",
 		"vs_required_players",
@@ -17637,16 +17892,7 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
 	}
 	if free_play:
-		var free_map_ids: PackedStringArray = _free_roll_random_map_ids("STAGE_RACE", map_count)
-		if free_map_ids.is_empty():
-			status_label.text = "No Free Roll maps available for Stage Race."
-			return
-		var free_map_labels: Array[String] = []
-		for free_map_id in free_map_ids:
-			free_map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(free_map_id))
-		lobby_options["map_ids"] = free_map_ids
-		status_label.text = "%s Stage Race (%d maps, randomized): %s" % [track_label, free_map_ids.size(), ", ".join(free_map_labels)]
-		_open_async_vs_lobby("STAGE_RACE", free_map_ids.size(), free_play, entry_usd, lobby_options)
+		_open_public_contest_dash("ROLLING_COHORT", "ASYNC_MAP_SET", map_count)
 		return
 	if contest_state == null:
 		status_label.text = "%s Stage Race paid contest unavailable." % track_label

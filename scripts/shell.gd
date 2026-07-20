@@ -181,6 +181,7 @@ var _mvp_waiter: ShellMvpWaiter = ShellMvpWaiter.new()
 var _mvp_map_utils: ShellMvpMapUtils = ShellMvpMapUtils.new()
 var _main_menu_preload_requested: bool = false
 var _main_menu_preloaded_scene: PackedScene = null
+var _opening_main_menu: bool = false
 var _match_scene_preload_requested: bool = false
 var _match_preloaded_scene: PackedScene = null
 var _map_prewarm_thread: Thread = null
@@ -288,7 +289,6 @@ func _ready() -> void:
 		return
 	_maybe_attach_buff_targeting_device_evidence_collector()
 	_apply_content_scale_from_profile()
-	_request_main_menu_preload()
 	_request_match_scene_preload()
 	if SFLog.LOGGING_ENABLED:
 		if TRACE_SHELL_LOGS: print("MAIN FLAGS: start_in_menu=", start_in_menu,
@@ -1796,6 +1796,9 @@ func _prepare_tutorial_controls_followup_tree_meta(map_path: String) -> void:
 	tree.set_meta("vs_wager_cents", 0)
 	tree.set_meta("vs_paid_entry", false)
 	tree.set_meta("vs_free_roll", true)
+	tree.set_meta("vs_practice", true)
+	tree.set_meta("vs_ranked", false)
+	tree.set_meta("vs_economic", false)
 	tree.set_meta("vs_assigned_players", [local_name, str(remote_profile.get("display_name", "CPU"))])
 	tree.set_meta("vs_open_slots", 0)
 	tree.set_meta("vs_required_players", 2)
@@ -1810,6 +1813,9 @@ func _prepare_tutorial_controls_followup_tree_meta(map_path: String) -> void:
 	tree.set_meta("vs_handshake_session_id", "")
 	tree.set_meta("vs_handshake_role", "host")
 	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_roster", [])
+	tree.set_meta("vs_session_contract_version", 0)
+	tree.set_meta("vs_session_contract_hash", "")
 	tree.set_meta("vs_local_profile", {
 		"uid": local_uid,
 		"display_name": local_name,
@@ -1887,13 +1893,16 @@ func _prepare_ctf_bot_tree_meta(map_path: String) -> void:
 	tree.set_meta("vs_handshake_session_id", "")
 	tree.set_meta("vs_handshake_role", "host")
 	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_roster", [])
+	tree.set_meta("vs_session_contract_version", 0)
+	tree.set_meta("vs_session_contract_hash", "")
 	tree.set_meta("vs_local_profile", {
 		"uid": local_uid,
 		"display_name": local_name
 	})
 	tree.set_meta("vs_remote_profile", {
-		"uid": "bot_ctf_hidden",
-		"display_name": "CPU",
+		"uid": "bot_hctf-practice-v1",
+		"display_name": "Hidden Flag Practice Bot",
 		"is_cpu": true
 	})
 	tree.set_meta("ctf_flag_selection_mode", "player_select")
@@ -1906,15 +1915,59 @@ func _prepare_ctf_bot_tree_meta(map_path: String) -> void:
 	tree.set_meta("hidden_ctf_allotment_seed", maxi(1, Time.get_ticks_msec()))
 
 func _open_main_menu() -> void:
+	if _opening_main_menu:
+		return
 	if main_menu_scene_path.is_empty():
 		_set_shell_status("Main menu scene path is empty.", "error")
 		return
-	var preloaded_scene: PackedScene = _get_preloaded_main_menu_scene()
-	var err: Error = get_tree().change_scene_to_packed(preloaded_scene) if preloaded_scene != null else get_tree().change_scene_to_file(main_menu_scene_path)
+	_opening_main_menu = true
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		_opening_main_menu = false
+		_set_shell_status("Failed to open main menu.", "error")
+		return
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null:
+		await loading_coordinator.present_for_main_menu()
+	else:
+		await tree.process_frame
+	var preloaded_scene: PackedScene = await _await_preloaded_main_menu_scene()
+	if preloaded_scene == null:
+		_opening_main_menu = false
+		_hide_main_menu_loading_cover()
+		_set_shell_status("Failed to load main menu.", "error")
+		return
+	var err: Error = tree.change_scene_to_packed(preloaded_scene)
 	if err != OK:
+		_opening_main_menu = false
+		_hide_main_menu_loading_cover()
 		_set_shell_status("Failed to open main menu.", "error")
 		if SFLog.LOGGING_ENABLED:
 			push_error("SHELL: failed to open main menu: %s" % main_menu_scene_path)
+
+func _hide_main_menu_loading_cover() -> void:
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null:
+		loading_coordinator.hide_immediately()
+
+func _await_preloaded_main_menu_scene() -> PackedScene:
+	if _main_menu_preloaded_scene != null:
+		return _main_menu_preloaded_scene
+	if not _main_menu_preload_requested:
+		_request_main_menu_preload()
+	if not _main_menu_preload_requested:
+		return load(main_menu_scene_path) as PackedScene
+	var tree: SceneTree = get_tree()
+	while tree != null:
+		var status: int = ResourceLoader.load_threaded_get_status(main_menu_scene_path)
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			var loaded: Resource = ResourceLoader.load_threaded_get(main_menu_scene_path)
+			_main_menu_preloaded_scene = loaded as PackedScene
+			return _main_menu_preloaded_scene
+		if status == ResourceLoader.THREAD_LOAD_FAILED or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			return load(main_menu_scene_path) as PackedScene
+		await tree.process_frame
+	return null
 
 func _request_main_menu_preload() -> void:
 	if _main_menu_preload_requested or _main_menu_preloaded_scene != null:
@@ -1928,20 +1981,6 @@ func _request_main_menu_preload() -> void:
 	var err: Error = ResourceLoader.load_threaded_request(path, "PackedScene")
 	if err != OK and err != ERR_BUSY:
 		_main_menu_preload_requested = false
-
-func _get_preloaded_main_menu_scene() -> PackedScene:
-	if _main_menu_preloaded_scene != null:
-		return _main_menu_preloaded_scene
-	if not _main_menu_preload_requested:
-		_request_main_menu_preload()
-	if not _main_menu_preload_requested:
-		return null
-	var status: int = ResourceLoader.load_threaded_get_status(main_menu_scene_path)
-	if status != ResourceLoader.THREAD_LOAD_LOADED:
-		return null
-	var loaded: Resource = ResourceLoader.load_threaded_get(main_menu_scene_path)
-	_main_menu_preloaded_scene = loaded as PackedScene
-	return _main_menu_preloaded_scene
 
 func _request_match_scene_preload() -> void:
 	if _match_scene_preload_requested or _match_preloaded_scene != null:

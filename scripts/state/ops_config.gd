@@ -8,6 +8,9 @@ const ENV_REMOTE_URL: String = "SF_OPS_CONFIG_URL"
 const SETTINGS_REMOTE_URL: String = "swarmfront/ops_config/remote_url"
 const SETTINGS_FETCH_TIMEOUT_SEC: String = "swarmfront/ops_config/fetch_timeout_sec"
 const SETTINGS_CLIENT_BUILD: String = "application/config/version"
+const SETTINGS_VS_BACKEND_URL: String = "swarmfront/vs/backend_url"
+const ENV_VS_BACKEND_URL: String = "SF_VS_BACKEND_URL"
+const VS_REMOTE_SENTINEL: String = "vs://public_ops_config"
 const SOURCE_BUNDLED_DEFAULT: String = "bundled_default"
 const SOURCE_REMOTE_FRESH: String = "remote_fresh"
 const SOURCE_REMOTE_CACHED: String = "remote_cached"
@@ -15,6 +18,13 @@ const SOURCE_MALFORMED_FALLBACK: String = "malformed_fallback"
 const SOURCE_FETCH_FAILED_FALLBACK: String = "fetch_failed_fallback"
 const SCHEMA_VERSION: int = 1
 const DEFAULT_TIMEOUT_SEC: float = 2.0
+const PUBLIC_ROLLOUT_FLAGS: Array = [
+	"enable_public_1v1", "enable_public_crucible", "enable_public_3p_ffa",
+	"enable_public_2v2", "enable_public_4p_ffa", "enable_public_ctf", "enable_public_hctf",
+	"enable_public_time_puzzles", "enable_public_gauntlet", "enable_public_async_3map",
+	"enable_public_async_5map", "enable_rank_mutations", "enable_crucible_wax_settlement",
+	"enable_contest_rewards", "enable_bot_fallback", "enable_public_leaderboards"
+]
 
 var _defaults: Dictionary = {}
 var _config: Dictionary = {}
@@ -92,6 +102,9 @@ func validate_config_payload(config: Dictionary) -> Dictionary:
 	if typeof(config.get("analytics", {})) != TYPE_DICTIONARY:
 		errors.append("analytics_not_dictionary")
 	var flags: Dictionary = _dict(config.get("feature_flags", {}))
+	for rollout_flag in PUBLIC_ROLLOUT_FLAGS:
+		if flags.has(rollout_flag) and typeof(flags.get(rollout_flag)) != TYPE_BOOL:
+			errors.append("rollout_flag_not_boolean:%s" % rollout_flag)
 	var ads: Dictionary = _dict(config.get("ads", {}))
 	if bool(flags.get("enable_ads", false)) and not bool(ads.get("external_ads_enabled", false)):
 		warnings.append("enable_ads_true_but_external_ads_disabled")
@@ -122,7 +135,9 @@ func get_fail_closed_policy() -> Dictionary:
 		"external_ads": false,
 		"house_ads": true,
 		"maintenance_mode_requires_valid_config": true,
-		"force_update_requires_valid_config": true
+		"force_update_requires_valid_config": true,
+		"public_modes_require_fresh_or_unexpired_cached_config": true,
+		"public_modes_require_supported_client_build": true
 	}
 
 func get_debug_snapshot() -> Dictionary:
@@ -135,7 +150,13 @@ func get_debug_snapshot() -> Dictionary:
 		"last_fetch_unix_ms": _last_fetch_unix_ms,
 		"cache_loaded_unix_ms": _cache_loaded_unix_ms,
 		"remote_url": _redacted_url(_configured_remote_url()),
-		"client_build": get_client_build()
+		"client_build": get_client_build(),
+		"min_supported_build": int(_config.get("min_supported_build", 0)),
+		"force_update_required": is_force_update_required(),
+		"public_rollout_eligible": public_rollout_eligible(),
+		"public_rollout_blocker": public_rollout_blocker(),
+		"effective_public_flags": get_effective_public_flags(),
+		"expires_utc": str(_config.get("expires_utc", ""))
 	}
 
 func get_config_source() -> String:
@@ -156,6 +177,62 @@ func get_client_build() -> int:
 func get_flag(flag_name: String, fallback: bool = false) -> bool:
 	var flags: Dictionary = _dict(_config.get("feature_flags", {}))
 	return bool(flags.get(flag_name.strip_edges(), fallback))
+
+func public_rollout_eligible(client_build: int = -1) -> bool:
+	if _config_source != SOURCE_REMOTE_FRESH and _config_source != SOURCE_REMOTE_CACHED:
+		return false
+	var expires_utc: String = str(_config.get("expires_utc", "")).strip_edges()
+	if _config_source == SOURCE_REMOTE_CACHED and expires_utc.is_empty():
+		return false
+	if not expires_utc.is_empty():
+		var expiry: int = _parse_iso_unix(expires_utc)
+		if expiry <= 0 or int(Time.get_unix_time_from_system()) >= expiry:
+			return false
+	var build: int = get_client_build() if client_build < 0 else client_build
+	return build >= int(_config.get("min_supported_build", 0))
+
+func public_rollout_blocker(client_build: int = -1) -> String:
+	if _config_source != SOURCE_REMOTE_FRESH and _config_source != SOURCE_REMOTE_CACHED:
+		return "remote_config_unavailable"
+	var expires_utc: String = str(_config.get("expires_utc", "")).strip_edges()
+	if _config_source == SOURCE_REMOTE_CACHED and expires_utc.is_empty():
+		return "cached_config_has_no_expiry"
+	if not expires_utc.is_empty():
+		var expiry: int = _parse_iso_unix(expires_utc)
+		if expiry <= 0 or int(Time.get_unix_time_from_system()) >= expiry:
+			return "config_expired"
+	var build: int = get_client_build() if client_build < 0 else client_build
+	if build < int(_config.get("min_supported_build", 0)):
+		return "minimum_client_build_required"
+	return ""
+
+func public_flag_enabled(flag_name: String, client_build: int = -1) -> bool:
+	var clean: String = flag_name.strip_edges().to_lower()
+	if not PUBLIC_ROLLOUT_FLAGS.has(clean):
+		return false
+	return public_rollout_eligible(client_build) and get_flag(clean, false)
+
+func get_effective_public_flags(client_build: int = -1) -> Dictionary:
+	var out: Dictionary = {}
+	for flag_name in PUBLIC_ROLLOUT_FLAGS:
+		out[flag_name] = public_flag_enabled(flag_name, client_build)
+	return out
+
+func public_mode_enabled(mode_id: String, client_build: int = -1) -> bool:
+	var clean: String = mode_id.strip_edges().to_upper().replace("-", "_").replace(" ", "_")
+	var flag: String = {
+		"1V1": "enable_public_1v1", "STANDARD_1V1": "enable_public_1v1",
+		"CRUCIBLE": "enable_public_crucible", "CRUCIBLE_1V1": "enable_public_crucible",
+		"3P_FFA": "enable_public_3p_ffa", "2V2": "enable_public_2v2", "4P_FFA": "enable_public_4p_ffa",
+		"CTF": "enable_public_ctf", "CAPTURE_FLAG": "enable_public_ctf", "CTF_1V1": "enable_public_ctf",
+		"HCTF": "enable_public_hctf", "HIDDEN_CTF": "enable_public_hctf",
+		"HIDDEN_CAPTURE_FLAG": "enable_public_hctf", "HCTF_1V1": "enable_public_hctf"
+	}.get(clean, "")
+	if flag.is_empty() or not public_flag_enabled(flag, client_build):
+		return false
+	if flag == "enable_public_crucible":
+		return public_flag_enabled("enable_crucible_wax_settlement", client_build)
+	return true
 
 func paid_entries_enabled() -> bool:
 	return get_flag("enable_paid_entries", false)
@@ -263,6 +340,7 @@ func _sanitize_config(config: Dictionary) -> Dictionary:
 	merged["config_version"] = str(merged.get("config_version", "unknown")).strip_edges()
 	merged["min_supported_build"] = maxi(0, int(merged.get("min_supported_build", 0)))
 	merged["force_update"] = bool(merged.get("force_update", false))
+	merged["expires_utc"] = str(merged.get("expires_utc", "")).strip_edges()
 	var flags: Dictionary = _dict(merged.get("feature_flags", {}))
 	flags["enable_ads"] = bool(flags.get("enable_ads", false))
 	flags["enable_house_ads"] = bool(flags.get("enable_house_ads", true))
@@ -273,6 +351,8 @@ func _sanitize_config(config: Dictionary) -> Dictionary:
 	flags["enable_local_honey_rewards"] = bool(flags.get("enable_local_honey_rewards", false))
 	flags["enable_rank_backend"] = bool(flags.get("enable_rank_backend", false))
 	flags["enable_rank_local_beta_fallback"] = bool(flags.get("enable_rank_local_beta_fallback", true))
+	for rollout_flag in PUBLIC_ROLLOUT_FLAGS:
+		flags[rollout_flag] = bool(flags.get(rollout_flag, false))
 	merged["feature_flags"] = flags
 	var ads: Dictionary = _dict(merged.get("ads", {}))
 	ads["external_ads_enabled"] = bool(ads.get("external_ads_enabled", false))
@@ -426,7 +506,15 @@ func _configured_remote_url() -> String:
 	var env_url: String = OS.get_environment(ENV_REMOTE_URL).strip_edges()
 	if not env_url.is_empty():
 		return env_url
-	return str(ProjectSettings.get_setting(SETTINGS_REMOTE_URL, "")).strip_edges()
+	var configured: String = str(ProjectSettings.get_setting(SETTINGS_REMOTE_URL, "")).strip_edges()
+	if not configured.is_empty() and configured != VS_REMOTE_SENTINEL:
+		return configured
+	var backend: String = OS.get_environment(ENV_VS_BACKEND_URL).strip_edges()
+	if backend.is_empty():
+		backend = str(ProjectSettings.get_setting(SETTINGS_VS_BACKEND_URL, "")).strip_edges()
+	if backend.is_empty():
+		return ""
+	return backend.trim_suffix("/") + "/public_ops_config"
 
 func _configured_timeout_sec() -> float:
 	return maxf(0.1, float(ProjectSettings.get_setting(SETTINGS_FETCH_TIMEOUT_SEC, DEFAULT_TIMEOUT_SEC)))
@@ -464,6 +552,7 @@ func _minimal_defaults() -> Dictionary:
 		"config_version": "minimal-fail-closed",
 		"min_supported_build": 0,
 		"force_update": false,
+		"expires_utc": "",
 		"maintenance": {"enabled": false, "severity": "info"},
 		"feature_flags": {
 			"enable_ads": false,

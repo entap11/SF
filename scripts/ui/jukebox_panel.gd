@@ -13,13 +13,13 @@ const MAIN_MENU_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/Back.png"
 const BRAND_BANNER_TEXTURE_PATH := "res://assets/sprites/sf_skin_v1/signage_banner_reflect_red.tres"
 const SWARMFRONT_TITLE_SHADER_PATH := "res://ui/main_menu/swarmfront_title_forged.gdshader"
 const PAGE_SIZE: int = 3
+const LEADERBOARD_LANDSCAPE_PAGE_SIZE: int = 5
 const MAP_WINDOW_SIZE: int = 6
 const SELECTOR_META_FONT_SIZE: int = 22
 const SELECTOR_TAB_FONT_SIZE: int = 20
 const SELECTOR_CARD_FONT_SIZE: int = 28
 const LEADERBOARD_HEADER_FONT_SIZE: int = 22
 const LEADERBOARD_ROW_FONT_SIZE: int = 24
-const LEADERBOARD_BADGE_FONT_SIZE: int = 22
 const LEADERBOARD_FONT_SCALE: float = 2.0
 const BASE_CONTENT_MARGIN_TOP: float = 18.0
 const CATEGORY_TAB_MIN_WIDTH: float = 86.0
@@ -49,7 +49,7 @@ const SELECTED_CARD_SIDE_MAX_WIDTH: float = 980.0
 const SELECTED_CARD_SIDE_BREAKPOINT: float = 360.0
 const SELECTED_CARD_COLUMN_GAP: float = 10.0
 const LEADERBOARD_SIDE_MIN_WIDTH: float = 140.0
-const LEADERBOARD_SIDE_MAX_WIDTH: float = 430.0
+const LEADERBOARD_SIDE_MAX_WIDTH: float = 560.0
 const LEADERBOARD_STACK_MAX_WIDTH: float = 470.0
 const BRAND_BANNER_TOUCH_HEIGHT: float = 144.0
 const BRAND_BANNER_DESKTOP_HEIGHT: float = 116.0
@@ -69,6 +69,8 @@ const TOP_LIMIT: int = 50
 @onready var map_list: VBoxContainer = $VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapList
 @onready var map_left_button: Button = $VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow/MapLeft
 @onready var map_right_button: Button = $VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow/MapRight
+@onready var map_left_sprite: TextureRect = $VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow/MapLeft/ChevronSprite
+@onready var map_right_sprite: TextureRect = $VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapBottomRow/MapRight/ChevronSprite
 @onready var map_count_label: Label = $VBox/SelectorPanel/SelectorVBox/SelectorMetaRow/MapCount
 @onready var map_hint_label: Label = $VBox/SelectorPanel/SelectorVBox/SelectorMetaRow/MapHint
 @onready var hero_preview: TextureRect = $VBox/HeroPanel/HeroVBox/HeroPreviewPanel/HeroPreview
@@ -77,7 +79,6 @@ const TOP_LIMIT: int = 50
 @onready var selected_title_label: Label = $VBox/HeroPanel/HeroVBox/SelectedTitle
 @onready var selected_meta_label: Label = $VBox/HeroPanel/HeroVBox/SelectedMeta
 @onready var selected_desc_label: Label = $VBox/HeroPanel/HeroVBox/SelectedDesc
-@onready var map_best_label: Label = $VBox/HeroPanel/HeroVBox/MapBest
 @onready var play_button: Button = $VBox/HeroPanel/HeroVBox/PlayButton
 @onready var play_sprite: TextureRect = $VBox/HeroPanel/HeroVBox/PlayButton/PlaySprite
 @onready var scout_button: Button = $VBox/HeroPanel/HeroVBox/HeroActions/ScoutButton
@@ -91,8 +92,7 @@ const TOP_LIMIT: int = 50
 @onready var leaderboard_up_button: Button = $VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav/LeaderboardUp
 @onready var leaderboard_page_label: Label = $VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav/LeaderboardPage
 @onready var leaderboard_down_button: Button = $VBox/LeaderboardPanel/LeaderboardVBox/LeaderboardNav/LeaderboardDown
-@onready var your_best_label: Label = $VBox/LeaderboardPanel/LeaderboardVBox/YourBest
-@onready var badge_note_label: Label = $VBox/LeaderboardPanel/LeaderboardVBox/BadgeNote
+@onready var your_best_label: Label = $VBox/LeaderboardPanel/LeaderboardVBox/YourBestLift/YourBest
 @onready var footer_close_button: Button = $VBox/FooterCloseButton
 @onready var footer_close_sprite: TextureRect = $VBox/FooterCloseButton/MainMenuSprite
 @onready var root_vbox: VBoxContainer = $VBox
@@ -163,23 +163,19 @@ func _apply_responsive_layout() -> void:
 	_refresh_play_button_width()
 	_refresh_selected_card_size()
 	_refresh_map_card_widths()
-	if badge_note_label != null:
-		badge_note_label.visible = false
 
 func _sync_content_layout() -> void:
 	if root_vbox == null or selector_panel == null or hero_panel == null:
 		return
 	if hero_panel.get_parent() != root_vbox:
 		_reparent_keep_owner(hero_panel, root_vbox)
-	if selector_panel.get_parent() != root_vbox:
-		_reparent_keep_owner(selector_panel, root_vbox)
+	if leaderboard_panel != null and leaderboard_panel.get_parent() != root_vbox:
+		_reparent_keep_owner(leaderboard_panel, root_vbox)
 	root_vbox.move_child(hero_panel, 1)
-	root_vbox.move_child(selector_panel, 2)
-	selector_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	selector_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	hero_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if leaderboard_panel != null:
+		root_vbox.move_child(leaderboard_panel, 2)
+	hero_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hero_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	selector_panel.custom_minimum_size = Vector2(0.0, SELECTOR_PANEL_MIN_HEIGHT)
 	hero_panel.custom_minimum_size = Vector2(maxf(hero_panel.custom_minimum_size.x, SELECTED_CARD_MIN_WIDTH), HERO_PANEL_MIN_HEIGHT)
 	var hero_vbox: VBoxContainer = hero_panel.get_node_or_null("HeroVBox") as VBoxContainer
 	if hero_vbox != null:
@@ -194,8 +190,12 @@ func _sync_selected_card_layout() -> void:
 	_ensure_selected_card_containers(hero_vbox)
 	var use_side_layout: bool = _uses_side_leaderboard_layout()
 	leaderboard_panel.visible = true
+	if leaderboard_panel.get_parent() != root_vbox:
+		_reparent_keep_owner(leaderboard_panel, root_vbox)
+	root_vbox.move_child(leaderboard_panel, mini(hero_panel.get_index() + 1, root_vbox.get_child_count() - 1))
+	leaderboard_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	leaderboard_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	leaderboard_panel.custom_minimum_size = Vector2(_leaderboard_panel_width(), _leaderboard_panel_height())
+	leaderboard_panel.custom_minimum_size = Vector2(0.0, _leaderboard_panel_height())
 	if use_side_layout:
 		_hero_middle_row.visible = true
 		if _hero_middle_row.get_parent() != hero_vbox:
@@ -203,27 +203,31 @@ func _sync_selected_card_layout() -> void:
 		hero_vbox.move_child(_hero_middle_row, mini(selected_meta_label.get_index() + 1, hero_vbox.get_child_count() - 1))
 		if _preview_column.get_parent() != _hero_middle_row:
 			_reparent_keep_owner(_preview_column, _hero_middle_row)
-		if leaderboard_panel.get_parent() != _hero_middle_row:
-			_reparent_keep_owner(leaderboard_panel, _hero_middle_row)
+		if selector_panel.get_parent() != _hero_middle_row:
+			_reparent_keep_owner(selector_panel, _hero_middle_row)
 		_hero_middle_row.move_child(_preview_column, 0)
-		_hero_middle_row.move_child(leaderboard_panel, 1)
+		_hero_middle_row.move_child(selector_panel, 1)
 		_hero_middle_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 		_hero_middle_row.add_theme_constant_override("separation", int(SELECTED_CARD_COLUMN_GAP))
-		_hero_middle_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		_hero_middle_row.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		_preview_column.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		leaderboard_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		selector_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		selector_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		selector_panel.custom_minimum_size = Vector2(_selector_side_panel_width(), _selector_panel_height())
 		hero_preview_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		play_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	else:
 		_hero_middle_row.visible = false
 		if _preview_column.get_parent() != hero_vbox:
 			_reparent_keep_owner(_preview_column, hero_vbox)
-		if leaderboard_panel.get_parent() != hero_vbox:
-			_reparent_keep_owner(leaderboard_panel, hero_vbox)
+		if selector_panel.get_parent() != hero_vbox:
+			_reparent_keep_owner(selector_panel, hero_vbox)
 		hero_vbox.move_child(_preview_column, mini(selected_meta_label.get_index() + 1, hero_vbox.get_child_count() - 1))
-		hero_vbox.move_child(leaderboard_panel, mini(_preview_column.get_index() + 1, hero_vbox.get_child_count() - 1))
+		hero_vbox.move_child(selector_panel, mini(_preview_column.get_index() + 1, hero_vbox.get_child_count() - 1))
 		_preview_column.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		leaderboard_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		selector_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		selector_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		selector_panel.custom_minimum_size = Vector2(0.0, _selector_panel_height())
 		hero_preview_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		play_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_refresh_leaderboard_compact_controls()
@@ -246,7 +250,7 @@ func _ensure_selected_card_containers(hero_vbox: VBoxContainer) -> void:
 			_hero_middle_row.name = "SelectedMiddleRow"
 			_hero_middle_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 			_hero_middle_row.add_theme_constant_override("separation", int(SELECTED_CARD_COLUMN_GAP))
-			_hero_middle_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			_hero_middle_row.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 			_hero_middle_row.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 			hero_vbox.add_child(_hero_middle_row)
 	if hero_preview_panel.get_parent() != _preview_column:
@@ -255,9 +259,6 @@ func _ensure_selected_card_containers(hero_vbox: VBoxContainer) -> void:
 		_reparent_keep_owner(play_button, _preview_column)
 	_preview_column.move_child(hero_preview_panel, 0)
 	_preview_column.move_child(play_button, 1)
-	if map_best_label != null and leaderboard_vbox != null and map_best_label.get_parent() != leaderboard_vbox:
-		_reparent_keep_owner(map_best_label, leaderboard_vbox)
-		leaderboard_vbox.move_child(map_best_label, mini(1, leaderboard_vbox.get_child_count() - 1))
 
 func _sync_selector_hierarchy() -> void:
 	if selector_panel == null or category_tabs == null:
@@ -286,14 +287,14 @@ func _refresh_primary_heights() -> void:
 	var preview_height: float = _target_preview_height()
 	var selected_height: float = preview_height + PLAY_BUTTON_HEIGHT + (144.0 if _uses_touch_layout() else 116.0)
 	if not _uses_side_leaderboard_layout():
-		selected_height += _leaderboard_panel_height() + 12.0
+		selected_height += _selector_panel_height() + 12.0
 	if hero_panel != null:
 		hero_panel.custom_minimum_size = Vector2(maxf(hero_panel.custom_minimum_size.x, SELECTED_CARD_MIN_WIDTH), maxf(HERO_PANEL_MIN_HEIGHT, selected_height))
 	if selector_panel != null:
-		var selector_height: float = 700.0 if _uses_touch_layout() else 430.0
-		selector_panel.custom_minimum_size = Vector2(0.0, selector_height)
+		var selector_width: float = _selector_side_panel_width() if _uses_side_leaderboard_layout() else 0.0
+		selector_panel.custom_minimum_size = Vector2(selector_width, _selector_panel_height())
 	if leaderboard_panel != null:
-		leaderboard_panel.custom_minimum_size = Vector2(_leaderboard_panel_width(), _leaderboard_panel_height())
+		leaderboard_panel.custom_minimum_size = Vector2(0.0, _leaderboard_panel_height())
 
 func _refresh_brand_scale() -> void:
 	var height: float = BRAND_BANNER_TOUCH_HEIGHT if _uses_touch_layout() else BRAND_BANNER_DESKTOP_HEIGHT
@@ -453,8 +454,6 @@ func _style_controls() -> void:
 		cpu_panel.custom_minimum_size = Vector2.ZERO
 	_apply_font(leaderboard_page_label, _font_semibold, _scaled_touch_font_size(22))
 	_apply_font(your_best_label, _font_semibold, _scaled_touch_font_size(26))
-	_apply_font(map_best_label, _font_regular, _scaled_touch_font_size(20))
-	_apply_font(badge_note_label, _font_regular, _scaled_touch_font_size(16))
 	_apply_font(play_button, _font_semibold, _scaled_touch_font_size(38))
 	_style_button(play_button)
 	_style_play_button()
@@ -475,11 +474,12 @@ func _style_controls() -> void:
 		footer_close_button.visible = true
 		footer_close_button.text = "BACK TO MAIN MENU"
 		footer_close_button.tooltip_text = "Return to Main Menu"
+		footer_close_button.custom_minimum_size = Vector2(640.0, 100.0)
 		footer_close_button.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-		footer_close_button.offset_left = 112.0
-		footer_close_button.offset_top = -136.0
-		footer_close_button.offset_right = -112.0
-		footer_close_button.offset_bottom = -24.0
+		footer_close_button.offset_left = 132.0
+		footer_close_button.offset_top = -120.0
+		footer_close_button.offset_right = -132.0
+		footer_close_button.offset_bottom = -20.0
 		footer_close_button.grow_horizontal = Control.GROW_DIRECTION_BOTH
 		_apply_font(footer_close_button, _font_semibold, _scaled_touch_font_size(28))
 		_style_footer_back_button(footer_close_button)
@@ -500,7 +500,6 @@ func _style_controls() -> void:
 		_style_button(button)
 		_style_nav_button(button)
 	scout_button.disabled = true
-	badge_note_label.text = "Top 5 badge ownership is live-scarcity: lose the spot, lose the badge."
 	hero_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	hero_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	_refresh_hero_preview_size()
@@ -749,7 +748,6 @@ func _refresh_leaderboard() -> void:
 		leaderboard_nav.visible = false
 		leaderboard_page_label.text = "0-0 / 0"
 		your_best_label.text = "Your best: --"
-		map_best_label.text = "Map PB: --"
 		return
 	var board: Dictionary = _jukebox_state.board_snapshot(_selected_map_path, _selected_period, TOP_LIMIT)
 	var page_size: int = _leaderboard_page_size()
@@ -770,12 +768,6 @@ func _refresh_leaderboard() -> void:
 	header.add_child(head_handle)
 	_apply_font(head_handle, _font_semibold, _leaderboard_font_size(LEADERBOARD_HEADER_FONT_SIZE))
 	if not micro_side:
-		var head_badge := Label.new()
-		head_badge.text = "BADGE"
-		head_badge.custom_minimum_size = Vector2(104.0 if _uses_side_leaderboard_layout() else 88.0, 0.0)
-		head_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		header.add_child(head_badge)
-		_apply_font(head_badge, _font_semibold, _leaderboard_font_size(LEADERBOARD_HEADER_FONT_SIZE))
 		var head_time := Label.new()
 		head_time.text = "TIME"
 		head_time.custom_minimum_size = Vector2(132.0 if _uses_side_leaderboard_layout() else 128.0, 0.0)
@@ -797,52 +789,41 @@ func _refresh_leaderboard() -> void:
 					_leaderboard_offset = clampi(highlight_index, 0, max_offset)
 				break
 	_leaderboard_offset = clampi(_leaderboard_offset, 0, max_offset)
-	if total_entries <= 0:
-		var empty := Label.new()
-		empty.text = "No recorded runs for this map yet."
-		empty.custom_minimum_size = Vector2(0.0, _leaderboard_empty_height())
-		empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		leaderboard_list.add_child(empty)
-		_apply_font(empty, _font_regular, _leaderboard_font_size(LEADERBOARD_ROW_FONT_SIZE))
-		_refresh_leaderboard_nav(0)
-		your_best_label.text = "Your best: --"
-		_refresh_map_best()
-		return
-	var end_index: int = mini(_leaderboard_offset + page_size, total_entries)
-	for entry_index in range(_leaderboard_offset, end_index):
-		var entry_any: Variant = entries[entry_index]
-		if typeof(entry_any) != TYPE_DICTIONARY:
-			continue
-		var entry: Dictionary = entry_any as Dictionary
+	for slot_index in range(page_size):
+		var entry_index: int = _leaderboard_offset + slot_index
+		var entry: Dictionary = {}
+		var has_entry: bool = false
+		if entry_index < total_entries:
+			var entry_any: Variant = entries[entry_index]
+			if typeof(entry_any) == TYPE_DICTIONARY:
+				entry = entry_any as Dictionary
+				has_entry = true
 		var row := HBoxContainer.new()
+		row.set_meta("leaderboard_placeholder", not has_entry)
+		row.set_meta("leaderboard_slot_rank", entry_index + 1)
 		row.add_theme_constant_override("separation", row_separation)
 		row.custom_minimum_size = Vector2(0.0, _leaderboard_row_height())
 		var rank_label := Label.new()
-		rank_label.text = "%02d" % int(entry.get("rank", 0))
+		rank_label.text = "%d." % int(entry.get("rank", entry_index + 1))
 		rank_label.custom_minimum_size = Vector2(rank_width, 0.0)
 		row.add_child(rank_label)
 		_apply_font(rank_label, _font_semibold, _leaderboard_font_size(LEADERBOARD_ROW_FONT_SIZE))
 		var handle_label := Label.new()
-		handle_label.text = str(entry.get("handle", "--"))
+		handle_label.text = str(entry.get("handle", "")) if has_entry else ""
 		handle_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		handle_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		row.add_child(handle_label)
 		_apply_font(handle_label, _font_regular, _leaderboard_font_size(LEADERBOARD_ROW_FONT_SIZE))
 		if not micro_side:
-			var badge_label := Label.new()
-			badge_label.text = str(entry.get("badge", ""))
-			badge_label.custom_minimum_size = Vector2(104.0 if _uses_side_leaderboard_layout() else 88.0, 0.0)
-			badge_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			row.add_child(badge_label)
-			_apply_font(badge_label, _font_regular, _leaderboard_font_size(LEADERBOARD_BADGE_FONT_SIZE))
 			var time_label := Label.new()
-			time_label.text = _format_time_ms(int(entry.get("time_ms", 0)))
+			var entry_time_ms: int = int(entry.get("time_ms", 0)) if has_entry else 0
+			time_label.text = _format_time_ms(entry_time_ms) if entry_time_ms > 0 else ""
 			time_label.custom_minimum_size = Vector2(132.0 if _uses_side_leaderboard_layout() else 128.0, 0.0)
 			time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 			row.add_child(time_label)
 			_apply_font(time_label, _font_semibold, _leaderboard_font_size(LEADERBOARD_ROW_FONT_SIZE))
 		leaderboard_list.add_child(row)
-		if str(entry.get("player_id", "")).strip_edges() == _highlight_player_id and Time.get_ticks_msec() <= _highlight_until_msec:
+		if has_entry and str(entry.get("player_id", "")).strip_edges() == _highlight_player_id and Time.get_ticks_msec() <= _highlight_until_msec:
 			_pulse_leaderboard_row(row)
 	_refresh_leaderboard_nav(total_entries)
 	var your_best_ms: int = int(board.get("your_best_ms", 0))
@@ -851,7 +832,6 @@ func _refresh_leaderboard() -> void:
 		your_best_label.text = "Your best: --"
 	else:
 		your_best_label.text = "Your best: #%d  %s" % [your_rank, _format_time_ms(your_best_ms)]
-	_refresh_map_best()
 
 func _pulse_leaderboard_row(row: Control) -> void:
 	if row == null:
@@ -865,26 +845,6 @@ func _pulse_leaderboard_row(row: Control) -> void:
 		if is_instance_valid(row):
 			row.modulate = Color.WHITE
 	)
-
-func _refresh_map_best() -> void:
-	if _selected_map_path.is_empty():
-		map_best_label.text = "Map PB: --"
-		return
-	var player_id: String = ""
-	var player_handle: String = ""
-	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
-	if profile_manager != null:
-		if profile_manager.has_method("get_user_id"):
-			player_id = str(profile_manager.call("get_user_id")).strip_edges()
-		if profile_manager.has_method("get_display_name"):
-			player_handle = str(profile_manager.call("get_display_name")).strip_edges()
-	var summary: Dictionary = _jukebox_state.player_map_summary(_selected_map_path, player_id, player_handle, "ALL TIME")
-	var best_time_ms: int = int(summary.get("best_time_ms", 0))
-	var run_count: int = int(summary.get("run_count", 0))
-	if best_time_ms <= 0 or run_count <= 0:
-		map_best_label.text = "Map PB: --"
-		return
-	map_best_label.text = "Map PB: %s  |  %d runs" % [_format_time_ms(best_time_ms), run_count]
 
 func _ensure_map_schematic_preview() -> void:
 	if hero_preview_panel == null:
@@ -1106,6 +1066,9 @@ func _uses_touch_layout() -> bool:
 func _uses_side_leaderboard_layout() -> bool:
 	return _content_width() >= SELECTED_CARD_SIDE_BREAKPOINT
 
+func _leaderboard_uses_full_width_layout() -> bool:
+	return leaderboard_panel != null and leaderboard_panel.get_parent() == root_vbox
+
 func _scaled_touch_font_size(size_value: int) -> int:
 	if not _uses_touch_layout():
 		return size_value
@@ -1129,10 +1092,10 @@ func _leaderboard_period_tab_height() -> float:
 	return 58.0 if _uses_side_leaderboard_layout() else 52.0
 
 func _leaderboard_page_size() -> int:
-	return 1 if _uses_side_leaderboard_layout() else PAGE_SIZE
+	return LEADERBOARD_LANDSCAPE_PAGE_SIZE if _leaderboard_uses_full_width_layout() else PAGE_SIZE
 
 func _uses_micro_side_leaderboard() -> bool:
-	return _uses_side_leaderboard_layout() and _leaderboard_panel_width() < 420.0
+	return not _leaderboard_uses_full_width_layout() and _uses_side_leaderboard_layout() and _leaderboard_panel_width() < 420.0
 
 func _style_nav_button(button: Button) -> void:
 	if button == null:
@@ -1263,6 +1226,8 @@ func _control_content_width(control: Control, fallback: float) -> float:
 	return maxf(1.0, width - 32.0)
 
 func _selector_content_width() -> float:
+	if _hero_middle_row != null and selector_panel != null and selector_panel.get_parent() == _hero_middle_row:
+		return maxf(1.0, _selector_side_panel_width() - 32.0)
 	return _control_content_width(selector_panel, _content_width())
 
 func _hero_content_width() -> float:
@@ -1281,12 +1246,12 @@ func _period_tab_width() -> float:
 	var count: int = maxi(1, _jukebox_state.PERIOD_LABELS.size())
 	var separation: float = 8.0
 	var available: float = _leaderboard_content_width() - separation * float(maxi(0, count - 1))
-	if _uses_side_leaderboard_layout():
+	if _uses_side_leaderboard_layout() and not _leaderboard_uses_full_width_layout():
 		return clampf(floor(available / float(count)), 24.0, 92.0)
 	return clampf(floor(available / float(count)), PERIOD_TAB_MIN_WIDTH, PERIOD_TAB_MAX_WIDTH)
 
 func _period_tab_display_text(period_label: String) -> String:
-	if not _uses_side_leaderboard_layout():
+	if not _uses_side_leaderboard_layout() or _leaderboard_uses_full_width_layout():
 		return period_label
 	match period_label:
 		"WEEKLY":
@@ -1315,15 +1280,28 @@ func _play_button_width() -> float:
 	var target_width: float = maxf(preview_width, 320.0)
 	return clampf(target_width, PLAY_BUTTON_MIN_WIDTH, PLAY_BUTTON_MAX_WIDTH)
 
+func _selector_panel_height() -> float:
+	return 700.0 if _uses_touch_layout() else 430.0
+
+func _selector_side_panel_width() -> float:
+	var content_width: float = _content_width()
+	var preview_width: float = hero_preview_panel.custom_minimum_size.x if hero_preview_panel != null else 0.0
+	var fallback_preview_width: float = floor(content_width * 0.42)
+	var resolved_preview_width: float = preview_width if preview_width > 1.0 else fallback_preview_width
+	var target_width: float = content_width - resolved_preview_width - SELECTED_CARD_COLUMN_GAP - SELECTED_CARD_HORIZONTAL_PAD
+	return clampf(floor(target_width), LEADERBOARD_SIDE_MIN_WIDTH, minf(LEADERBOARD_SIDE_MAX_WIDTH, content_width))
+
 func _leaderboard_panel_width() -> float:
 	var content_width: float = _content_width()
+	if _leaderboard_uses_full_width_layout():
+		return content_width
 	if _uses_side_leaderboard_layout():
-		var preview_width: float = hero_preview_panel.custom_minimum_size.x if hero_preview_panel != null else 0.0
-		var target_width: float = preview_width if preview_width > 1.0 else floor(content_width * 0.42)
-		return clampf(floor(target_width), LEADERBOARD_SIDE_MIN_WIDTH, minf(LEADERBOARD_SIDE_MAX_WIDTH, content_width))
+		return _selector_side_panel_width()
 	return clampf(floor(content_width - SELECTED_CARD_HORIZONTAL_PAD), SELECTED_CARD_MIN_WIDTH, minf(LEADERBOARD_STACK_MAX_WIDTH, content_width))
 
 func _leaderboard_panel_height() -> float:
+	if _leaderboard_uses_full_width_layout():
+		return _selector_panel_height()
 	var target_height: float = clampf(_layout_height() * 0.16, 170.0, 320.0)
 	if _uses_side_leaderboard_layout():
 		var preview_height: float = hero_preview_panel.custom_minimum_size.y if hero_preview_panel != null else _target_preview_height()
@@ -1335,7 +1313,6 @@ func _selected_card_width() -> float:
 	var play_width: float = _play_button_width()
 	var title_width: float = selected_title_label.get_combined_minimum_size().x if selected_title_label != null else 0.0
 	var meta_width: float = selected_meta_label.get_combined_minimum_size().x if selected_meta_label != null else 0.0
-	var best_width: float = map_best_label.get_combined_minimum_size().x if map_best_label != null and map_best_label.visible else 0.0
 	var leaderboard_width: float = _leaderboard_panel_width() if leaderboard_panel != null else 0.0
 	var content_limit: float = maxf(SELECTED_CARD_MIN_WIDTH, _content_width())
 	var width: float = 0.0
@@ -1343,7 +1320,7 @@ func _selected_card_width() -> float:
 		var preview_column_width: float = maxf(preview_width, play_width)
 		width = maxf(preview_column_width + SELECTED_CARD_COLUMN_GAP + leaderboard_width, maxf(title_width, meta_width)) + SELECTED_CARD_HORIZONTAL_PAD
 		return clampf(width, SELECTED_CARD_MIN_WIDTH, minf(SELECTED_CARD_SIDE_MAX_WIDTH, content_limit))
-	width = maxf(maxf(maxf(preview_width, play_width), leaderboard_width), maxf(title_width, maxf(meta_width, best_width))) + SELECTED_CARD_HORIZONTAL_PAD
+	width = maxf(maxf(maxf(preview_width, play_width), leaderboard_width), maxf(title_width, meta_width)) + SELECTED_CARD_HORIZONTAL_PAD
 	return clampf(width, SELECTED_CARD_MIN_WIDTH, minf(SELECTED_CARD_MAX_WIDTH, content_limit))
 
 func _map_card_font_size(card_width: float) -> int:
@@ -1394,15 +1371,13 @@ func _refresh_leaderboard_compact_controls() -> void:
 		_apply_font(leaderboard_page_label, _font_semibold, _leaderboard_font_size(22))
 	if your_best_label != null:
 		_apply_font(your_best_label, _font_semibold, _leaderboard_font_size(26))
-	if map_best_label != null:
-		_apply_font(map_best_label, _font_regular, _leaderboard_font_size(20))
 
 func _refresh_selected_card_size() -> void:
 	if hero_panel == null:
 		return
-	hero_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	hero_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hero_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	hero_panel.custom_minimum_size.x = _selected_card_width()
+	hero_panel.custom_minimum_size.x = 0.0
 
 func _refresh_hero_preview_size() -> void:
 	if hero_preview_panel == null:
@@ -1437,7 +1412,7 @@ func _refresh_hero_preview_size() -> void:
 		hero_panel.custom_minimum_size.y = maxf(hero_panel.custom_minimum_size.y, preview_height + PLAY_BUTTON_HEIGHT + 132.0)
 	_refresh_play_button_width()
 	if leaderboard_panel != null:
-		leaderboard_panel.custom_minimum_size = Vector2(_leaderboard_panel_width(), _leaderboard_panel_height())
+		leaderboard_panel.custom_minimum_size = Vector2(0.0 if _leaderboard_uses_full_width_layout() else _leaderboard_panel_width(), _leaderboard_panel_height())
 	_refresh_selected_card_size()
 
 func _target_preview_height() -> float:
@@ -1469,10 +1444,12 @@ func _apply_nav_icons() -> void:
 func _apply_selector_nav_icons() -> void:
 	if _side_chevron_texture == null:
 		return
-	map_left_button.icon = _side_chevron_atlas(false)
-	map_right_button.icon = _side_chevron_atlas(true)
+	map_left_button.icon = null
+	map_right_button.icon = null
 	map_left_button.text = ""
 	map_right_button.text = ""
+	map_left_sprite.texture = _side_chevron_atlas(false)
+	map_right_sprite.texture = _side_chevron_atlas(true)
 
 func _chevron_atlas(is_down: bool) -> Texture2D:
 	if _chevron_texture == null:

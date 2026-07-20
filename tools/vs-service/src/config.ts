@@ -22,10 +22,22 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+function normalizePem(value: string | undefined): string {
+  return String(value ?? "").trim().replace(/\\n/g, "\n");
+}
+
 const productionMode = process.env.NODE_ENV?.trim().toLowerCase() === "production"
   || parseBoolean(process.env.VS_PRODUCTION_MODE, false)
   || parseBoolean(process.env.RENDER, false)
   || Boolean(process.env.RENDER_SERVICE_ID?.trim());
+
+const durableStore: "memory" | "postgres" = process.env.VS_DURABLE_STORE?.trim().toLowerCase() === "postgres"
+  ? "postgres"
+  : "memory";
+
+const public1v1AuthorityTier: "RELAY_ATTESTED" | "AUTHORITY_VERIFIED" =
+  process.env.VS_PUBLIC_1V1_AUTHORITY_TIER?.trim().toUpperCase() === "AUTHORITY_VERIFIED"
+    ? "AUTHORITY_VERIFIED" : "RELAY_ATTESTED";
 
 export const config = {
   port: parseIntValue(process.env.PORT, 8791),
@@ -54,5 +66,89 @@ export const config = {
   crucibleLedgerStore: process.env.CRUCIBLE_LEDGER_STORE?.trim() || "file",
   crucibleLedgerPath: process.env.CRUCIBLE_LEDGER_PATH?.trim() || "data/crucible-ledger.json",
   honeyLedgerStore: process.env.HONEY_LEDGER_STORE?.trim() || "file",
-  honeyLedgerPath: process.env.HONEY_LEDGER_PATH?.trim() || "data/honey-ledger.json"
+  honeyLedgerPath: process.env.HONEY_LEDGER_PATH?.trim() || "data/honey-ledger.json",
+  durableCoreEnabled: parseBoolean(process.env.VS_DURABLE_CORE_ENABLED, false),
+  durableStore,
+  databaseUrl: process.env.VS_DATABASE_URL?.trim() || process.env.DATABASE_URL?.trim() || "",
+  databasePoolMax: Math.max(1, parseIntValue(process.env.VS_DATABASE_POOL_MAX, 16)),
+  durableRetentionDays: Math.max(30, parseIntValue(process.env.VS_DURABLE_RETENTION_DAYS, 120)),
+  durablePublic1v1Enabled: parseBoolean(process.env.VS_DURABLE_PUBLIC_1V1_ENABLED, false),
+  enablePublic1v1: parseBoolean(process.env.VS_ENABLE_PUBLIC_1V1, false),
+  enablePublic3pFfa: parseBoolean(process.env.VS_ENABLE_PUBLIC_3P_FFA, false),
+  enablePublic2v2: parseBoolean(process.env.VS_ENABLE_PUBLIC_2V2, false),
+  enablePublic4pFfa: parseBoolean(process.env.VS_ENABLE_PUBLIC_4P_FFA, false),
+  enablePublicCtf: parseBoolean(process.env.VS_ENABLE_PUBLIC_CTF, false),
+  enablePublicHctf: parseBoolean(process.env.VS_ENABLE_PUBLIC_HCTF, false),
+  enablePublicCrucible: parseBoolean(process.env.VS_ENABLE_PUBLIC_CRUCIBLE, false),
+  enableCrucibleWaxSettlement: parseBoolean(process.env.VS_ENABLE_CRUCIBLE_WAX_SETTLEMENT, false),
+  hctfLiveSecrecyCertified: parseBoolean(process.env.VS_HCTF_LIVE_SECRECY_CERTIFIED, false),
+  enableCtfBotFallback: parseBoolean(process.env.VS_ENABLE_CTF_BOT_FALLBACK, false),
+  enableRankMutations: parseBoolean(process.env.VS_ENABLE_RANK_MUTATIONS, false),
+  enablePublicLeaderboards: parseBoolean(process.env.VS_ENABLE_PUBLIC_LEADERBOARDS, false),
+  enablePublicContests: parseBoolean(process.env.VS_ENABLE_PUBLIC_CONTESTS, false),
+  enablePublicTimePuzzles: parseBoolean(process.env.VS_ENABLE_PUBLIC_TIME_PUZZLES, false),
+  enablePublicGauntlet: parseBoolean(process.env.VS_ENABLE_PUBLIC_GAUNTLET, false),
+  enablePublicAsync3map: parseBoolean(process.env.VS_ENABLE_PUBLIC_ASYNC_3MAP, false),
+  enablePublicAsync5map: parseBoolean(process.env.VS_ENABLE_PUBLIC_ASYNC_5MAP, false),
+  enableContestRewards: parseBoolean(process.env.VS_ENABLE_CONTEST_REWARDS, false),
+  enableRemoteOpsConfig: parseBoolean(process.env.VS_ENABLE_REMOTE_OPS_CONFIG, false),
+  opsReconcileIntervalMs: Math.max(0, parseIntValue(process.env.VS_OPS_RECONCILE_INTERVAL_MS, 0)),
+  publicContestGrantSecret: process.env.VS_PUBLIC_CONTEST_GRANT_SECRET?.trim() || "",
+  publicContestLeaderboardLimit: Math.max(1,
+    Math.min(100, parseIntValue(process.env.VS_PUBLIC_CONTEST_LEADERBOARD_LIMIT, 25))),
+  public1v1MinimumClientBuild: process.env.VS_PUBLIC_1V1_MINIMUM_CLIENT_BUILD?.trim() || "",
+  public1v1SimBuildId: process.env.VS_PUBLIC_1V1_SIM_BUILD_ID?.trim() || "",
+  public1v1RulesetId: process.env.VS_PUBLIC_1V1_RULESET_ID?.trim() || "",
+  public1v1RulesetHash: process.env.VS_PUBLIC_1V1_RULESET_HASH?.trim().toLowerCase() || "",
+  public1v1MapId: process.env.VS_PUBLIC_1V1_MAP_ID?.trim() || "",
+  public1v1MapHash: process.env.VS_PUBLIC_1V1_MAP_HASH?.trim().toLowerCase() || "",
+  publicMultiMinimumClientBuild: process.env.VS_PUBLIC_MULTI_MINIMUM_CLIENT_BUILD?.trim() || "",
+  publicMultiSimBuildId: process.env.VS_PUBLIC_MULTI_SIM_BUILD_ID?.trim() || "",
+  publicMultiRulesetId: process.env.VS_PUBLIC_MULTI_RULESET_ID?.trim() || "",
+  publicMultiRulesetHash: process.env.VS_PUBLIC_MULTI_RULESET_HASH?.trim().toLowerCase() || "",
+  public3pFfaMapId: process.env.VS_PUBLIC_3P_FFA_MAP_ID?.trim() || "",
+  public3pFfaMapHash: process.env.VS_PUBLIC_3P_FFA_MAP_HASH?.trim().toLowerCase() || "",
+  public2v2MapId: process.env.VS_PUBLIC_2V2_MAP_ID?.trim() || "",
+  public2v2MapHash: process.env.VS_PUBLIC_2V2_MAP_HASH?.trim().toLowerCase() || "",
+  public4pFfaMapId: process.env.VS_PUBLIC_4P_FFA_MAP_ID?.trim() || "",
+  public4pFfaMapHash: process.env.VS_PUBLIC_4P_FFA_MAP_HASH?.trim().toLowerCase() || "",
+  publicCtfRulesetId: process.env.VS_PUBLIC_CTF_RULESET_ID?.trim() || "",
+  publicCtfRulesetHash: process.env.VS_PUBLIC_CTF_RULESET_HASH?.trim().toLowerCase() || "",
+  publicCtfMapId: process.env.VS_PUBLIC_CTF_MAP_ID?.trim() || "",
+  publicCtfMapHash: process.env.VS_PUBLIC_CTF_MAP_HASH?.trim().toLowerCase() || "",
+  publicHctfRulesetId: process.env.VS_PUBLIC_HCTF_RULESET_ID?.trim() || "",
+  publicHctfRulesetHash: process.env.VS_PUBLIC_HCTF_RULESET_HASH?.trim().toLowerCase() || "",
+  publicHctfMapId: process.env.VS_PUBLIC_HCTF_MAP_ID?.trim() || "",
+  publicHctfMapHash: process.env.VS_PUBLIC_HCTF_MAP_HASH?.trim().toLowerCase() || "",
+  publicCrucibleRulesetId: process.env.VS_PUBLIC_CRUCIBLE_RULESET_ID?.trim() || "",
+  publicCrucibleRulesetHash: process.env.VS_PUBLIC_CRUCIBLE_RULESET_HASH?.trim().toLowerCase() || "",
+  publicCrucibleMapId: process.env.VS_PUBLIC_CRUCIBLE_MAP_ID?.trim() || "",
+  publicCrucibleMapHash: process.env.VS_PUBLIC_CRUCIBLE_MAP_HASH?.trim().toLowerCase() || "",
+  ctfBotFallbackThresholdSec: Math.max(0, parseIntValue(process.env.VS_CTF_BOT_FALLBACK_THRESHOLD_SEC, 30)),
+  ctfBotProfileId: process.env.VS_CTF_BOT_PROFILE_ID?.trim() || "ctf-practice-v1",
+  hctfBotProfileId: process.env.VS_HCTF_BOT_PROFILE_ID?.trim() || "hctf-practice-v1",
+  public1v1ReconnectGraceSec: Math.max(5, parseIntValue(process.env.VS_PUBLIC_1V1_RECONNECT_GRACE_SEC, 30)),
+  public1v1AuthorityTier,
+  matchVerificationEnabled: parseBoolean(process.env.VS_MATCH_VERIFICATION_ENABLED, false),
+  verifierWorkerToken: process.env.VS_VERIFIER_WORKER_TOKEN?.trim() || "",
+  verifierKeyId: process.env.VS_VERIFIER_KEY_ID?.trim() || "",
+  verifierPublicKeyPem: normalizePem(process.env.VS_VERIFIER_PUBLIC_KEY_PEM),
+  verifierWorkerBuildId: process.env.VS_VERIFIER_WORKER_BUILD_ID?.trim() || "",
+  verifierLeaseSec: Math.max(10, parseIntValue(process.env.VS_VERIFIER_LEASE_SEC, 60)),
+  verifierRetryDelaySec: Math.max(1, parseIntValue(process.env.VS_VERIFIER_RETRY_DELAY_SEC, 10)),
+  rankServiceUrl: process.env.VS_RANK_SERVICE_URL?.trim().replace(/\/$/, "") || "",
+  rankServiceIssuer: process.env.VS_RANK_SERVICE_TOKEN_ISSUER?.trim() || "swarmfront-vs",
+  rankServiceAudience: process.env.VS_RANK_SERVICE_TOKEN_AUDIENCE?.trim() || "swarmfront-rank",
+  rankServiceSubject: process.env.VS_RANK_SERVICE_TOKEN_SUBJECT?.trim() || "vs-settlement-worker",
+  rankServiceKeyId: process.env.VS_RANK_SERVICE_TOKEN_KEY_ID?.trim() || "vs-rank-service-v1",
+  rankServicePrivateKeyPem: normalizePem(process.env.VS_RANK_SERVICE_TOKEN_PRIVATE_KEY_PEM),
+  rankSettlementLeaseSec: Math.max(10, parseIntValue(process.env.VS_RANK_SETTLEMENT_LEASE_SEC, 60)),
+  rankSettlementRetryDelaySec: Math.max(1, parseIntValue(process.env.VS_RANK_SETTLEMENT_RETRY_DELAY_SEC, 15)),
+  rankSettlementPollMs: Math.max(250, parseIntValue(process.env.VS_RANK_SETTLEMENT_POLL_MS, 1_000)),
+  rankLeaderboardMaxStaleSec: Math.max(0, parseIntValue(process.env.VS_RANK_LEADERBOARD_MAX_STALE_SEC, 300)),
+  authenticated1v1SliceEnabled: parseBoolean(process.env.VS_AUTHENTICATED_1V1_SLICE_ENABLED, false),
+  playerTokenIssuer: process.env.VS_PLAYER_TOKEN_ISSUER?.trim() || "entap-identity",
+  playerTokenAudience: process.env.VS_PLAYER_TOKEN_AUDIENCE?.trim() || "swarmfront-vs",
+  playerTokenKeyId: process.env.VS_PLAYER_TOKEN_KEY_ID?.trim() || "entap-player-v1",
+  playerTokenPublicKeyPem: normalizePem(process.env.VS_PLAYER_TOKEN_PUBLIC_KEY_PEM)
 };

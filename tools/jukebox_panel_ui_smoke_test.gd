@@ -40,12 +40,28 @@ func _run() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: Main Menu sprite is visually hidden")
 		quit(1)
 		return
+	if panel.find_child("MapBest", true, false) != null:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: redundant top Map PB label should be removed")
+		quit(1)
+		return
+	if panel.find_child("BadgeNote", true, false) != null or _has_label_text(panel, "BADGE") or _has_label_text(panel, "TOP 1"):
+		push_error("JUKEBOX_PANEL_UI_SMOKE: leaderboard badge copy should be removed")
+		quit(1)
+		return
 	if footer_close.custom_minimum_size.y < 88.0 or footer_close.get_theme_font_size("font_size") < 32:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button is not mobile-readable")
 		quit(1)
 		return
 	var footer_rect: Rect2 = footer_close.get_global_rect()
 	var panel_rect: Rect2 = panel.get_global_rect()
+	if not footer_close.custom_minimum_size.is_equal_approx(Vector2(640.0, 100.0)):
+		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button should use the smaller 640x100 treatment")
+		quit(1)
+		return
+	if absf(footer_close.offset_top + 120.0) > 0.1 or absf(footer_close.offset_bottom + 20.0) > 0.1:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button should be lowered by 10 units")
+		quit(1)
+		return
 	if not panel_rect.encloses(footer_rect) or panel_rect.end.y - footer_rect.end.y > 40.0:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: footer back button is not persistently anchored at the bottom")
 		quit(1)
@@ -97,7 +113,8 @@ func _run() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: play button should use readable PLAY text")
 		quit(1)
 		return
-	if panel.get_node_or_null("VBox/SelectorPanel/SelectorVBox/PlayButton") != null:
+	var selector_for_play_check: Control = panel.find_child("SelectorPanel", true, false) as Control
+	if selector_for_play_check != null and selector_for_play_check.find_child("PlayButton", true, false) != null:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: stale selector play button still present")
 		quit(1)
 		return
@@ -128,6 +145,18 @@ func _run() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: Jukebox CPU selector should be hidden")
 		quit(1)
 		return
+	for nav_name in ["MapLeft", "MapRight"]:
+		var nav_button: Button = panel.find_child(nav_name, true, false) as Button
+		var nav_sprite: TextureRect = nav_button.get_node_or_null("ChevronSprite") as TextureRect if nav_button != null else null
+		var nav_material: ShaderMaterial = nav_sprite.material as ShaderMaterial if nav_sprite != null else null
+		if nav_button == null or nav_button.icon != null or nav_sprite == null or nav_sprite.texture == null:
+			push_error("JUKEBOX_PANEL_UI_SMOKE: %s should use a dedicated chevron sprite" % nav_name)
+			quit(1)
+			return
+		if nav_material == null or nav_material.shader == null or nav_material.shader.resource_path != "res://shaders/BlackKeyAlpha.gdshader":
+			push_error("JUKEBOX_PANEL_UI_SMOKE: %s chevron is missing black-key alpha shader" % nav_name)
+			quit(1)
+			return
 	if not panel.has_method("capture_runtime_state"):
 		push_error("JUKEBOX_PANEL_UI_SMOKE: panel cannot expose runtime state")
 		quit(1)
@@ -179,7 +208,7 @@ func _run() -> void:
 		return
 	var hero_panel: Control = panel.get_node_or_null("VBox/HeroPanel") as Control
 	var hero_preview_panel: Control = panel.find_child("HeroPreviewPanel", true, false) as Control
-	var selector_panel: Control = panel.get_node_or_null("VBox/SelectorPanel") as Control
+	var selector_panel: Control = panel.find_child("SelectorPanel", true, false) as Control
 	var leaderboard_panel: Control = panel.find_child("LeaderboardPanel", true, false) as Control
 	var play_rect: Rect2 = play_button.get_global_rect()
 	var hero_rect: Rect2 = hero_panel.get_global_rect() if hero_panel != null else Rect2()
@@ -199,47 +228,50 @@ func _run() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: selector or leaderboard panel missing")
 		quit(1)
 		return
-	var selected_title: Label = panel.find_child("SelectedTitle", true, false) as Label
-	var selected_title_width: float = selected_title.get_combined_minimum_size().x if selected_title != null else 0.0
 	var preview_rect: Rect2 = hero_preview_panel.get_global_rect()
 	var leaderboard_rect: Rect2 = leaderboard_panel.get_global_rect()
-	var uses_side_leaderboard: bool = leaderboard_rect.position.x > preview_rect.end.x
-	var compact_content_width: float = maxf(maxf(hero_preview_panel.custom_minimum_size.x, play_button.custom_minimum_size.x), selected_title_width)
-	if uses_side_leaderboard:
-		compact_content_width = maxf(compact_content_width, maxf(hero_preview_panel.custom_minimum_size.x, play_button.custom_minimum_size.x) + leaderboard_panel.custom_minimum_size.x)
-	else:
-		compact_content_width = maxf(compact_content_width, leaderboard_panel.custom_minimum_size.x)
-	if hero_panel.custom_minimum_size.x > compact_content_width + 80.0:
-		push_error("JUKEBOX_PANEL_UI_SMOKE: selected map card is wider than its preview/play content")
-		quit(1)
-		return
-	if hero_panel.custom_minimum_size.x < TEST_VIEWPORT_SIZE.x * 0.82:
-		push_error("JUKEBOX_PANEL_UI_SMOKE: selected map card should use more left/right space")
+	var selector_rect: Rect2 = selector_panel.get_global_rect()
+	if hero_panel.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: selected map card should fill the available width")
 		quit(1)
 		return
 	if not (hero_panel.get_global_rect().position.y < selector_panel.get_global_rect().position.y):
 		push_error("JUKEBOX_PANEL_UI_SMOKE: visual hierarchy is not selected card -> map list")
 		quit(1)
 		return
-	if not uses_side_leaderboard:
-		push_error("JUKEBOX_PANEL_UI_SMOKE: leaderboard should sit beside preview at this debug/mobile width")
+	if selector_rect.position.x <= preview_rect.end.x:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: map selector should sit beside preview at this debug/mobile width")
 		quit(1)
 		return
-	if absf(leaderboard_panel.custom_minimum_size.x - hero_preview_panel.custom_minimum_size.x) > 2.0:
-		push_error("JUKEBOX_PANEL_UI_SMOKE: side leaderboard should match preview width")
+	if absf(preview_rect.position.x - (hero_rect.position.x + 14.0)) > 2.0:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: map schematic should align with the left edge of selected map content")
 		quit(1)
 		return
-	if absf(leaderboard_panel.custom_minimum_size.y - hero_preview_panel.custom_minimum_size.y) > 2.0:
-		push_error("JUKEBOX_PANEL_UI_SMOKE: side leaderboard should match preview height")
+	if not hero_rect.encloses(selector_rect):
+		push_error("JUKEBOX_PANEL_UI_SMOKE: map selector should stay inside the selected-map panel")
 		quit(1)
 		return
-	for blocker_path in [
-		"VBox/SelectorPanel",
-		"FooterCloseButton"
-	]:
-		var blocker: Control = panel.get_node_or_null(blocker_path) as Control
+	if leaderboard_rect.position.y < hero_rect.end.y or leaderboard_rect.size.x < hero_rect.size.x - 2.0:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: leaderboard should use the full-width slot below the selected map")
+		quit(1)
+		return
+	if leaderboard_rect.size.y < 650.0 or int(panel.call("_leaderboard_page_size")) != 5:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: full-width leaderboard should expose the expanded rank area")
+		quit(1)
+		return
+	var leaderboard_list: VBoxContainer = panel.find_child("LeaderboardList", true, false) as VBoxContainer
+	if leaderboard_list == null or leaderboard_list.get_child_count() != 6:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: leaderboard should render one header plus five ranked slots")
+		quit(1)
+		return
+	var your_best_lift: MarginContainer = panel.find_child("YourBestLift", true, false) as MarginContainer
+	if your_best_lift == null or your_best_lift.get_theme_constant("margin_bottom") != 10:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: Your best should have exactly 10 units of separation from the Back button")
+		quit(1)
+		return
+	for blocker in [selector_panel, footer_close]:
 		if blocker != null and blocker.visible and blocker.get_global_rect().intersects(play_rect):
-			push_error("JUKEBOX_PANEL_UI_SMOKE: play button is overlapped by %s" % blocker_path)
+			push_error("JUKEBOX_PANEL_UI_SMOKE: play button is overlapped by %s" % blocker.name)
 			quit(1)
 			return
 	var requested: Array[String] = []
@@ -284,7 +316,7 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 	var content_host: Control = panel.get_node_or_null("VBox/ContentHost") as Control
-	var desktop_selector: Control = panel.get_node_or_null("VBox/SelectorPanel") as Control
+	var desktop_selector: Control = panel.find_child("SelectorPanel", true, false) as Control
 	var desktop_hero: Control = panel.get_node_or_null("VBox/HeroPanel") as Control
 	var desktop_leaderboard: Control = panel.find_child("LeaderboardPanel", true, false) as Control
 	var desktop_preview: Control = panel.find_child("HeroPreviewPanel", true, false) as Control
@@ -296,16 +328,24 @@ func _run() -> void:
 		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop hierarchy is not selected card -> map list")
 		quit(1)
 		return
-	if desktop_hero.custom_minimum_size.x > 980.0:
-		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop selected map card should stay compact while hosting leaderboard")
+	if desktop_hero.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop selected map card should fill the available width")
 		quit(1)
 		return
-	if desktop_preview == null or desktop_leaderboard.get_global_rect().position.x <= desktop_preview.get_global_rect().end.x:
-		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop leaderboard should sit beside preview")
+	if desktop_preview == null or desktop_selector.get_global_rect().position.x <= desktop_preview.get_global_rect().end.x:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop map selector should sit beside preview")
 		quit(1)
 		return
-	if not _rect_contains_rect(desktop_hero.get_global_rect(), desktop_leaderboard.get_global_rect()):
-		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop leaderboard should stay inside selected map card")
+	if absf(desktop_preview.get_global_rect().position.x - (desktop_hero.get_global_rect().position.x + 14.0)) > 2.0:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop map schematic should stay left-aligned")
+		quit(1)
+		return
+	if desktop_leaderboard.get_global_rect().position.y < desktop_hero.get_global_rect().end.y:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop leaderboard should sit below the selected-map panel")
+		quit(1)
+		return
+	if desktop_leaderboard.get_global_rect().size.x < desktop_hero.get_global_rect().size.x - 2.0:
+		push_error("JUKEBOX_PANEL_UI_SMOKE: desktop leaderboard should use the full landscape width")
 		quit(1)
 		return
 
@@ -349,17 +389,18 @@ func _first_alternate_category_button(panel: Control) -> Button:
 	return null
 
 func _map_list(panel: Control) -> VBoxContainer:
-	return panel.get_node_or_null("VBox/SelectorPanel/SelectorVBox/MapSelectorRows/MapList") as VBoxContainer
+	return panel.find_child("MapList", true, false) as VBoxContainer
+
+func _has_label_text(root: Node, expected_text: String) -> bool:
+	if root is Label and (root as Label).text.strip_edges().to_upper() == expected_text:
+		return true
+	for child in root.get_children():
+		if _has_label_text(child, expected_text):
+			return true
+	return false
 
 func _category_tabs(panel: Control) -> Node:
-	for path in [
-		"VBox/SelectorPanel/SelectorVBox/CategoryTabs",
-		"VBox/SelectorPanel/SelectorVBox/CategoryTabsScroll/CategoryTabs"
-	]:
-		var tabs: Node = panel.get_node_or_null(path)
-		if tabs != null:
-			return tabs
-	return null
+	return panel.find_child("CategoryTabs", true, false)
 
 func _rect_contains_rect(outer: Rect2, inner: Rect2) -> bool:
 	return inner.position.x >= outer.position.x \

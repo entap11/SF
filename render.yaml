@@ -28,8 +28,26 @@ services:
         value: "false"
       - key: RANK_ECONOMY_EPOCH
         value: beta_2026071301
+      - key: RANK_VERIFIED_MATCH_MUTATIONS_ENABLED
+        value: "false"
+      - key: RANK_PUBLIC_LEADERBOARDS_ENABLED
+        value: "false"
       - key: RANK_DEFAULT_REGION
         value: GLOBAL
+      - key: ENTAP_PLAYER_TOKEN_ISSUER
+        value: entap-identity
+      - key: ENTAP_PLAYER_TOKEN_AUDIENCE
+        value: swarmfront-vs
+      - key: ENTAP_PLAYER_TOKEN_KEY_ID
+        value: entap-player-v1
+      - key: ENTAP_PLAYER_TOKEN_PRIVATE_KEY_PEM
+        sync: false
+      - key: ENTAP_PLAYER_TOKEN_PUBLIC_KEY_PEM
+        sync: false
+      - key: ENTAP_PLAYER_TOKEN_TTL_SEC
+        value: "600"
+      - key: ENTAP_DEVICE_CHALLENGE_TTL_SEC
+        value: "300"
 
 databases:
   - name: entap-identity-rank-staging-db
