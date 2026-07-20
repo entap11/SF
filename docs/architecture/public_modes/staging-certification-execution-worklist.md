@@ -3,7 +3,7 @@
 - Program: Public Modes staging certification
 - Branch: `sprint/staging-certification`
 - Base revision: `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`
-- Current phase: `P0`
+- Current phase: `P1`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 
@@ -57,7 +57,7 @@ These are identifiers and decisions, not secret values:
   evidence owners.
 - [ ] Staging provider and non-secret service identifiers for VS, Rank, match
   authority, and PostgreSQL.
-- [ ] Confirmation that all service auto-sync/auto-deploy controls are off.
+- [x] Confirmation that all existing service auto-sync/auto-deploy controls are off.
 - [ ] Isolated PostgreSQL clone/snapshot and permission to create a separate
   restore target.
 - [ ] Backup/PITR mechanism, retention window, and external artifact location.
@@ -87,7 +87,7 @@ Target outcome: a clean, pushed certification branch based on an exact green
 - [x] Record successful Release Readiness for exact base `b9c35e5`.
 - [x] Add the run ID, tested SHA, result counts, artifact IDs, digests, and
   retention to the evidence record.
-- [ ] Record external provider auto-deploy confirmation; all named owners are recorded.
+- [x] Record external provider auto-deploy confirmation; all named owners are recorded.
 - [x] Push `sprint/staging-certification` and verify remote/local SHA equality.
 
 ### Exit artifact
@@ -109,7 +109,7 @@ rollback target unambiguous.
 - [x] Add a redacted repository/environment preflight at
   `scripts/dev/run_staging_certification_preflight.sh`; it prints credential
   presence only and fails if any capability is enabled or malformed.
-- [ ] Add an evidence table for service name, provider, region, source SHA,
+- [x] Add an evidence table for service name, provider, region, source SHA,
   build/artifact digest, prior rollback revision, and health URL class.
 - [ ] Add the selected Godot build number plus map, ruleset, simulation, and
   manifest hashes.
@@ -124,7 +124,7 @@ rollback target unambiguous.
 
 ### Operator actions
 
-- [ ] Confirm external auto-sync/auto-deploy controls are off.
+- [x] Confirm external auto-sync/auto-deploy controls are off.
 - [ ] Confirm every VS and Rank capability gate is false.
 - [ ] Confirm services fail closed when required credentials are absent.
 - [ ] Confirm deployment and database rollback targets still exist.

@@ -1,6 +1,6 @@
 # Public Modes Staging Certification Evidence
 
-- Status: `IN PROGRESS — P0`
+- Status: `IN PROGRESS — P1`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 - Branch: `sprint/staging-certification`
@@ -15,8 +15,8 @@ only for observed evidence. Planned work remains `NOT RUN`.
 
 | Phase | Status | Evidence anchor | Blocking item |
 | --- | --- | --- | --- |
-| P0 repository/control baseline | `IN PROGRESS` | This document | External provider auto-deploy posture outstanding |
-| P1 environment inventory | `NOT RUN` | — | P0 exit gate |
+| P0 repository/control baseline | `PASS` | This document | — |
+| P1 environment inventory | `IN PROGRESS` | Render inventory below | Isolated target topology, capability/trust map, recovery and alert details |
 | P2 database recovery rehearsal | `NOT RUN` | — | P1 and staging clone details |
 | P3 all-off deployment | `NOT RUN` | — | P2 and operator approval |
 | P4 remote config/operations | `NOT RUN` | — | P3 |
@@ -84,6 +84,11 @@ reviewer if one is available before any public `GO` decision.
 These checks describe repository files only. External dashboard settings must be
 reconfirmed and recorded during P1; repository evidence cannot prove them.
 
+At 2026-07-20T17:41:45Z, the authenticated Render CLI independently reported
+`autoDeploy: no` and `autoDeployTrigger: off` for both existing web services,
+`SF` and `entap-identity-rank-staging`. This read-only provider result closes
+the external P0 gate. No deployment, restart, or service setting was changed.
+
 ### Local PR-tier supplemental evidence
 
 The work Mac ran the same PR-tier workload locally on 2026-07-20. The original
@@ -129,15 +134,40 @@ nightly result is not used to waive the exact-base push gate.
 - [x] Security/credential owner recorded.
 - [x] Device-test operator recorded.
 - [x] Evidence reviewer recorded.
-- [ ] External auto-sync/auto-deploy posture reconfirmed without recording secrets.
+- [x] External auto-sync/auto-deploy posture reconfirmed without recording secrets.
 
 ## P1 environment inventory
 
-Status: `NOT RUN`
+Status: `IN PROGRESS`
 
 Record service/region identifiers, immutable artifact identities, redacted
 capability values, credential trust roles, database recovery capabilities,
-alert destination, retention, and rollback targets here after P0 exits.
+alert destination, retention, and rollback targets here.
+
+### Render resource inventory
+
+The environment operator authenticated the official Render CLI and selected
+`Matt's workspace`. The following provider data was read at
+2026-07-20T17:41:45Z. No sensitive connection strings or environment-variable
+values were requested or recorded.
+
+| Role | Render target | Placement / region | Current live revision | Prior rollback revision | Observed posture |
+| --- | --- | --- | --- | --- | --- |
+| VS | `SF` (`srv-d7uho16gvqtc73feh9s0`) | `My project` / `Production`; Oregon | Deploy `dep-d90aqv8jo6nc73cgdae0`; `676b70e839377b18aed9d2ff1cd5c8c0906c575f` | Deploy `dep-d905p6e7r5hc73b6ktn0`; `9bba4153fe726f88ba3b7aa3fae770faf2c64a53` | Free web service; branch `main`; auto-deploy off; public ingress; no configured health path |
+| Rank | `entap-identity-rank-staging` (`srv-d8uqramrnols73fjl820`) | Not assigned to a project environment; Oregon | Deploy `dep-d9akqmlaeets73bp7n6g`; `73fbc032a6c0edb03908d6deb0f50ca10882621b` | Deploy `dep-d8uqrb6rnols73fjl8u0`; `2c9d8c2911f7bbc57f5cd2e119c67752c7b1d81b` | Starter web service; branch `main`; auto-deploy off; public ingress; health path `/health` |
+| PostgreSQL | `entap-identity-rank-staging-db` (`dpg-d8uqqq6rnols73fjkoag-a`) | Not assigned to a project environment; Oregon | PostgreSQL 18; status `available` | PITR/backup details not yet exercised | `basic_256mb`; 15 GB; no HA; disk autoscaling off; external allow list currently `0.0.0.0/0` |
+| Match authority | None found | — | — | — | `MISSING` for certification topology |
+
+The VS service's two newest deployment attempts failed; the currently live
+revision is the older successful `676b70e8` deployment shown above. Rank's
+current deployment is live. These are inventory facts, not candidates approved
+for P3.
+
+The only Render project environment is `My project` / `Production`. It is
+unprotected, cross-environment network isolation is disabled, and it contains
+only the VS service. Rank and PostgreSQL are workspace-level resources outside
+that environment. This confirms that the existing layout is not the isolated
+certification topology proposed for P2–P6.
 
 ### Read-only discovery completed during P0
 
@@ -149,17 +179,18 @@ alert destination, retention, and rollback targets here after P0 exits.
   sprint.
 - Repository Actions variables and Actions secrets lists are empty. This says
   nothing about provider-managed secrets.
-- This work machine has no Render CLI/API identity and no VS/Rank database or
-  staging endpoint variables present.
+- At initial discovery this work machine had no Render CLI/API identity and no
+  VS/Rank database or staging endpoint variables present. The CLI is now
+  authenticated; no secrets have been copied into the repository or evidence.
 - No repository-visible VS or match-authority deployment environment was found.
 - `scripts/dev/run_staging_certification_preflight.sh` passes the repository and
   local environment checks, reports all local capability variables absent with
   false code defaults, and reports credential presence only as absent. A
   deliberate `VS_ENABLE_PUBLIC_1V1=true` test fails closed as required.
 
-These findings are inventory inputs only. P1 cannot pass until a credentialed
-operator confirms provider settings, service identities, rollback targets,
-backup/PITR, alert delivery, and the redacted trust map.
+These findings are inventory inputs only. P1 cannot pass until the isolated
+target topology, capability values, credential trust boundaries, backup/PITR,
+alert delivery, signed client build, and initial content revisions are recorded.
 
 ## P2 database migration and recovery
 
