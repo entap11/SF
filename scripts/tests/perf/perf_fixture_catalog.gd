@@ -8,7 +8,8 @@ const UNIT_RENDERER := preload("res://scripts/renderers/unit_renderer.gd")
 
 const CATALOG_SCHEMA: String = "sf_perf_fixture_catalog_design_v1"
 const CATALOG_VERSION: int = 1
-const CATALOG_STATUS: String = "DESIGN_APPROVED_NOT_IMPLEMENTED"
+const CATALOG_STATUSES: Array[String] = ["DESIGN_APPROVED_NOT_IMPLEMENTED", "IMPLEMENTATION_IN_PROGRESS", "IMPLEMENTED"]
+const FIXTURE_STATUSES: Array[String] = ["DESIGN_APPROVED_NOT_IMPLEMENTED", "IMPLEMENTED"]
 const REQUIRED_RESULT_SCHEMA_VERSION: int = 3
 const REQUIRED_COLLECTION_LEVEL: String = "MINIMAL"
 const REQUIRED_REPETITIONS: int = 3
@@ -86,8 +87,8 @@ static func validate_catalog(catalog: Dictionary) -> Dictionary:
 		errors.append("catalog_schema_unsupported")
 	if int(catalog.get("catalog_version", 0)) != CATALOG_VERSION:
 		errors.append("catalog_version_unsupported")
-	if str(catalog.get("status", "")) != CATALOG_STATUS:
-		errors.append("catalog_status_not_design_approved")
+	if not CATALOG_STATUSES.has(str(catalog.get("status", ""))):
+		errors.append("catalog_status_unsupported")
 	_validate_baseline_policy(catalog.get("baseline_policy"), errors)
 	_validate_common(catalog.get("common"), errors)
 	_validate_fixtures(catalog.get("fixtures"), errors)
@@ -311,8 +312,8 @@ static func _validate_fixture(
 ) -> void:
 	if int(fixture.get("fixture_version", 0)) != 1:
 		errors.append("fixture_version_unsupported:%s" % fixture_id)
-	if str(fixture.get("status", "")) != CATALOG_STATUS:
-		errors.append("fixture_status_not_design_approved:%s" % fixture_id)
+	if not FIXTURE_STATUSES.has(str(fixture.get("status", ""))):
+		errors.append("fixture_status_unsupported:%s" % fixture_id)
 	if not _is_number(fixture.get("seed")):
 		errors.append("fixture_seed_invalid:%s" % fixture_id)
 	elif int(fixture.get("seed", 0)) != int(APPROVED_SEEDS.get(fixture_id, -1)):

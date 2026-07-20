@@ -6,6 +6,7 @@ const MapLoader := preload("res://scripts/maps/map_loader.gd")
 const SUPPORTED_MODES: Array[String] = [
 	"canonical_sim_headless",
 	"deterministic_windowed_presentation",
+	"static_windowed_deterministic",
 	"layer_isolation_noncanonical",
 	"render_windowed"
 ]
@@ -58,6 +59,8 @@ static func validate_gate_config(gates: Dictionary) -> Dictionary:
 			errors.append("gate %s must be numeric" % key)
 		elif gates.has(key) and float(gates.get(key)) <= 0.0:
 			errors.append("gate %s must be greater than zero" % key)
+	if gates.has("hitch_threshold_ms") and (not _is_number(gates.get("hitch_threshold_ms")) or float(gates.get("hitch_threshold_ms", 0.0)) <= 0.0):
+		errors.append("gate hitch_threshold_ms must be a positive number when present")
 	for key in ["max_hitches", "warn_regression_percent", "fail_regression_percent"]:
 		if gates.has(key) and not _is_number(gates.get(key)):
 			errors.append("gate %s must be numeric" % key)
@@ -138,6 +141,34 @@ static func static_preflight(scenario: Dictionary, execution_mode: String) -> Di
 	for key in ["initial_lanes", "initial_swarms", "initial_barracks_routes", "commands_per_burst", "swarm_burst"]:
 		if int(scenario.get(key, 0)) < 0:
 			errors.append("%s cannot be negative" % key)
+	var content_kind: String = str(scenario.get("content_kind", "production_map"))
+	var expected_counts_any: Variant = scenario.get("expected_counts", {})
+	if typeof(expected_counts_any) != TYPE_DICTIONARY:
+		errors.append("expected_counts must be a Dictionary when present")
+		expected_counts_any = {}
+	if content_kind == "synthetic_scene":
+		if str(scenario.get("content_identity", "")).strip_edges().is_empty():
+			errors.append("synthetic content_identity is required")
+		if not str(scenario.get("map_path", "")).strip_edges().is_empty():
+			errors.append("synthetic fixture cannot declare a map_path")
+		var synthetic_counts: Dictionary = (expected_counts_any as Dictionary).duplicate(true)
+		for key_any in synthetic_counts.keys():
+			var key: String = str(key_any)
+			if not ["hives", "active_lanes", "units", "towers", "barracks", "structure_slots", "walls"].has(key):
+				errors.append("unsupported expected count: %s" % key)
+			elif not _is_number(synthetic_counts.get(key_any)) or int(synthetic_counts.get(key_any, -1)) < 0:
+				errors.append("expected count %s must be a non-negative number" % key)
+		return {
+			"ok": errors.is_empty(),
+			"errors": errors,
+			"map_path": "",
+			"map_content_hash": "",
+			"map_data": {},
+			"synthetic": true,
+			"expected_runtime_counts": synthetic_counts
+		}
+	if content_kind != "production_map":
+		errors.append("unsupported content_kind: %s" % content_kind)
 	var map_path: String = str(scenario.get("map_path", "")).strip_edges()
 	if map_path.is_empty():
 		errors.append("map_path is required")
@@ -154,10 +185,7 @@ static func static_preflight(scenario: Dictionary, execution_mode: String) -> Di
 		return {"ok": false, "errors": errors, "map_path": map_path, "map_content_hash": map_hash}
 	var map_data: Dictionary = load_result.get("data", {}) as Dictionary
 	var normalized_counts: Dictionary = counts_from_map_data(map_data)
-	var expected_counts_any: Variant = scenario.get("expected_counts", {})
-	if typeof(expected_counts_any) != TYPE_DICTIONARY:
-		errors.append("expected_counts must be a Dictionary when present")
-	else:
+	if typeof(expected_counts_any) == TYPE_DICTIONARY:
 		var expected_counts: Dictionary = expected_counts_any as Dictionary
 		for key in expected_counts.keys():
 			var clean_key: String = str(key)
@@ -198,9 +226,12 @@ static func validate_post_apply(expected_counts: Dictionary, actual_counts: Dict
 static func counts_from_map_data(map_data: Dictionary) -> Dictionary:
 	return {
 		"hives": _array_count(map_data.get("hives", [])),
+		"active_lanes": 0,
+		"units": 0,
 		"towers": _array_count(map_data.get("towers", [])),
 		"barracks": _array_count(map_data.get("barracks", [])),
-		"structure_slots": _array_count(map_data.get("structure_slots", []))
+		"structure_slots": _array_count(map_data.get("structure_slots", [])),
+		"walls": _array_count(map_data.get("walls", []))
 	}
 
 
@@ -212,9 +243,12 @@ static func runtime_counts(state: GameState, arena: Node) -> Dictionary:
 			current_map_data = map_data_any as Dictionary
 	return {
 		"hives": state.hives.size() if state != null else -1,
+		"active_lanes": state.lanes.size() if state != null else -1,
+		"units": _array_count(state.units_by_lane.get("_all", [])) if state != null else -1,
 		"towers": state.towers.size() if state != null else -1,
 		"barracks": state.barracks.size() if state != null else -1,
-		"structure_slots": _array_count(current_map_data.get("structure_slots", []))
+		"structure_slots": _array_count(current_map_data.get("structure_slots", [])) if not current_map_data.is_empty() else 0,
+		"walls": state.walls.size() if state != null else -1
 	}
 
 

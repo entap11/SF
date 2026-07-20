@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness Phase 1 Plan
 
-Status: `P1-B COMPLETE — P1-C NEXT`
+Status: `P1-C COMPLETE — P1-D NEXT`
 
 Phase 0 is complete with limitations. Phase 1 begins with the four approved fixture families below. This plan is derived from the current Godot project, not from an abstract benchmark design. It does not approve baselines, gameplay changes, 3-/4-player fixtures, or multi-map/multi-stage async fixtures.
 
@@ -151,6 +151,8 @@ Implemented evidence:
 
 ### P1-C — Empty and static fixtures
 
+Status: `COMPLETE`
+
 Implement `EMPTY_ARENA_V1` and `STATIC_BATTLEFIELD_V1`. Keep synthetic and production-map content identities distinct.
 
 Pass evidence:
@@ -161,6 +163,14 @@ Pass evidence:
 - stable camera/config hashes over three repetitions.
 
 Stop if the empty fixture requires weakening production map validation.
+
+Implemented evidence:
+
+- `EMPTY_ARENA_V1` uses the production `Arena.tscn` shell plus a hashed synthetic descriptor and never invokes or claims `MapLoader`, `MapApplier`, or a map hash;
+- `STATIC_BATTLEFIELD_V1` uses the approved production loader/applier path and records the exact approved map SHA-256;
+- three repetitions of each fixture preserve exact hives, active lanes, units, structures, structure slots, and wall counts;
+- authored empty-camera identity, production map-fit camera identity, cadence identity, renderer configuration, and final state are stable across repetitions;
+- both profiles complete 60 warmup and 300 measured frames with zero simulation ticks, pass configured performance gates, restore isolation, and validate against schema v3.
 
 ### P1-D — Normal match
 
@@ -221,4 +231,4 @@ Phase 0: complete with documented limitations.
 
 Phase 1 design: complete. The catalog, production map hash, fixture matrix, and current Phase 0 validator contract have been checked against the repository.
 
-Phase 1 implementation: P1-A and P1-B complete. The next executable increment is P1-C, empty and static fixtures.
+Phase 1 implementation: P1-A through P1-C complete. The next executable increment is P1-D, the normal-match command pilot and its canonical/windowed profiles.

@@ -398,6 +398,8 @@ static func _apply_scenario_identity_defaults(scenario: Dictionary) -> void:
 		match benchmark_mode:
 			"deterministic_windowed_presentation":
 				scenario["measurement_profile"] = "deterministic_windowed_presentation"
+			"static_windowed_deterministic":
+				scenario["measurement_profile"] = "static_windowed_deterministic"
 			"render_windowed":
 				scenario["measurement_profile"] = "investigative_render_windowed"
 			"layer_isolation_noncanonical":

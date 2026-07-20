@@ -1,7 +1,7 @@
 {
   "catalog_schema": "sf_perf_fixture_catalog_design_v1",
   "catalog_version": 1,
-  "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+  "status": "IMPLEMENTATION_IN_PROGRESS",
   "baseline_policy": {
     "catalog_entries_are_candidates_only": true,
     "default_baseline_eligible": false,
@@ -63,7 +63,7 @@
     {
       "fixture_id": "EMPTY_ARENA_V1",
       "fixture_version": 1,
-      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "status": "IMPLEMENTED",
       "seed": 6101,
       "content_kind": "synthetic_scene",
       "content_identity": "empty_arena_scene_descriptor_v1",
@@ -88,7 +88,7 @@
     {
       "fixture_id": "STATIC_BATTLEFIELD_V1",
       "fixture_version": 1,
-      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "status": "IMPLEMENTED",
       "seed": 6111,
       "content_kind": "production_map",
       "map_ref": "common.production_map",

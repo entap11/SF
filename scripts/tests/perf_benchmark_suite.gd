@@ -99,18 +99,21 @@ func _run_suite(args: Dictionary) -> Dictionary:
 	if not bool(catalog_result.get("ok", false)):
 		return _invalid_suite_report(suite_id, benchmark_mode, "fixture_catalog_validation_failed", catalog_result.get("errors", []), args)
 	var fixture_catalog_identity: Dictionary = (catalog_result.get("identity", {}) as Dictionary).duplicate(true)
+	var fixture_catalog: Dictionary = catalog_result.get("catalog", {}) as Dictionary
+	var catalog_fixtures_by_id: Dictionary = catalog_result.get("fixtures_by_id", {}) as Dictionary
+	var catalog_common: Dictionary = fixture_catalog.get("common", {}) as Dictionary
 	var collection_level: String = PERF_RESULT_CONTRACT.normalize_collection_level(str(args.get("collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL)))
 	if not PERF_RESULT_CONTRACT.is_known_collection_level(collection_level):
 		return _invalid_suite_report(suite_id, benchmark_mode, "collection_level_invalid", ["expected OFF, MINIMAL, or FULL"], args)
-	if benchmark_mode in ["render_windowed", "deterministic_windowed_presentation"] and DisplayServer.get_name() == "headless":
-		var refusal: String = "deterministic_windowed_requires_display" if benchmark_mode == "deterministic_windowed_presentation" else "render_windowed_requires_display"
+	if benchmark_mode in ["render_windowed", "deterministic_windowed_presentation", "static_windowed_deterministic"] and DisplayServer.get_name() == "headless":
+		var refusal: String = "deterministic_windowed_requires_display" if benchmark_mode != "render_windowed" else "render_windowed_requires_display"
 		return _invalid_suite_report(suite_id, benchmark_mode, refusal, ["windowed frame timing is unavailable on the headless display server"], args)
 	var gate_result: Dictionary = PERF_FIXTURE_VALIDATOR.load_gate_config(str(args.get("gates", DEFAULT_GATES_PATH)))
 	if not bool(gate_result.get("ok", false)):
 		return _invalid_suite_report(suite_id, benchmark_mode, "gate_validation_failed", gate_result.get("errors", []), args)
 	var gates: Dictionary = gate_result.get("gates", {}) as Dictionary
 	var switch_overrides: Dictionary = args.get("switch_overrides", {}) as Dictionary
-	var scenario_defs: Array = _scenario_definitions(suite_id, switch_overrides, str(args.get("scenario", "")).strip_edges())
+	var scenario_defs: Array = _scenario_definitions(suite_id, switch_overrides, str(args.get("scenario", "")).strip_edges(), catalog_fixtures_by_id, catalog_common)
 	for scenario_any in scenario_defs:
 		var scenario_def: Dictionary = scenario_any as Dictionary
 		var scenario_collection_level: String = PERF_RESULT_CONTRACT.normalize_collection_level(str(scenario_def.get("_collection_level_override", collection_level)))
@@ -152,7 +155,7 @@ func _run_suite(args: Dictionary) -> Dictionary:
 			scenario_def["_suite_sequence_index"] = suite_sequence_index
 			var scenario: Dictionary
 			match benchmark_mode:
-				"deterministic_windowed_presentation":
+				"deterministic_windowed_presentation", "static_windowed_deterministic":
 					scenario = await _run_deterministic_windowed_scenario(scenario_def, benchmark_mode, gates)
 				"render_windowed":
 					scenario = await _run_render_scenario(scenario_def, benchmark_mode, gates)
@@ -516,7 +519,7 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var collector := PERF_METRICS_COLLECTOR.new(
 		collection_level,
 		int(gates.get("worst_frame_limit", 10)),
-		float(gates.get("target_frame_ms", INF)),
+		float(gates.get("hitch_threshold_ms", gates.get("p99_max_ms", INF))),
 		-1,
 		-1,
 		0
@@ -567,6 +570,8 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var requested_seed: int = int(scenario_def.get("seed", 0))
 	var effective_seed: int = int(setup.get("effective_seed", 0))
 	var final_state_hash: String = str(OpsState.call("get_contract_state_hash")) if OpsState.has_method("get_contract_state_hash") else ""
+	var renderer_configuration_state: Dictionary = _renderer_configuration_state(arena)
+	var renderer_configuration_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(renderer_configuration_state)
 	var integrity_failures: Array = []
 	if requested_seed != effective_seed:
 		integrity_failures.append("effective_seed_mismatch")
@@ -586,10 +591,10 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		integrity_failures.append("fixture_ended_match")
 	var report := _base_scenario_report(scenario_def, benchmark_mode, gates)
 	report.merge({
-		"canonical_simulation": true,
+		"canonical_simulation": adapter.simulation_active,
 		"baseline_eligible": false,
-		"baseline_ineligible_reasons": ["phase1_gate_b_internal_probe"],
-		"duration_sec": float(adapter.total_ticks()) * SIM_TICK_INTERVAL_SEC,
+		"baseline_ineligible_reasons": [str(scenario_def.get("baseline_ineligible_reason", "phase1_fixture_not_baseline_approved" if bool(scenario_def.get("catalog_fixture_registered", false)) else "phase1_gate_b_internal_probe"))],
+		"duration_sec": float(adapter.total_frames()) / float(adapter.target_fps),
 		"target_duration_sec": float(adapter.total_frames()) / float(adapter.target_fps),
 		"warmup_duration_sec": float(adapter.warmup_frames) / float(adapter.target_fps),
 		"measurement_duration_sec": float(adapter.measurement_frames) / float(adapter.target_fps),
@@ -614,8 +619,18 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"camera_identity_hash": camera_identity_hash,
 		"cadence_identity": cadence_identity,
 		"cadence_identity_hash": cadence_identity_hash,
-		"renderer_configuration_state": _renderer_configuration_state(arena),
+		"renderer_configuration_state": renderer_configuration_state,
+		"renderer_configuration_hash": renderer_configuration_hash,
 		"render_monitor_peaks": render_monitor_peaks,
+		"runtime_counts": (setup.get("actual_counts", {}) as Dictionary).duplicate(true),
+		"fixture_setup_evidence": {
+			"content_kind": str(setup.get("content_kind", "")),
+			"map_loader_used": bool(setup.get("map_loader_used", false)),
+			"map_applier_used": bool(setup.get("map_applier_used", false)),
+			"expected_counts": (setup.get("expected_counts", {}) as Dictionary).duplicate(true),
+			"actual_counts": (setup.get("actual_counts", {}) as Dictionary).duplicate(true),
+			"exact_counts": bool(setup.get("counts_exact", false))
+		},
 		"match": _match_summary(state, tick_index),
 		"average_frame_ms": collection.get("average_ms"),
 		"median_frame_ms": collection.get("median_ms"),
@@ -623,7 +638,7 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"p99_frame_ms": collection.get("p99_ms"),
 		"p999_frame_ms": collection.get("p999_ms"),
 		"max_frame_ms": collection.get("max_ms"),
-		"hitch_threshold_ms": float(gates.get("target_frame_ms", 0.0)),
+		"hitch_threshold_ms": float(gates.get("hitch_threshold_ms", gates.get("p99_max_ms", 0.0))),
 		"hitch_count": collection.get("hitch_count"),
 		"hitches": _collector_hitch_records(collection.get("hitch_records", []) as Array),
 		"worst_frames": _frame_worst_records(collection.get("worst_records", []) as Array),
@@ -773,14 +788,30 @@ func _setup_arena_for_scenario(scenario_def: Dictionary, real_scene: bool) -> Di
 		_teardown_node(scene_root)
 		return {"ok": false, "reason": "arena_missing", "scene_path": scene_path}
 	_apply_project_switches(scenario_def)
+	var content_kind: String = str(scenario_def.get("content_kind", "production_map"))
 	var map_path := str(scenario_def.get("map_path", MAP_QUICK))
-	var map_data: Dictionary = scenario_def.get("_preflight_map_data", {}) as Dictionary
-	if map_data.is_empty():
-		_teardown_node(scene_root)
-		return {"ok": false, "reason": "fixture_preflight_data_missing", "map_path": map_path}
-	MAP_APPLIER.apply_map(arena as Node2D, map_data)
-	await process_frame
-	await process_frame
+	var map_loader_used: bool = content_kind == "production_map"
+	var map_applier_used: bool = content_kind == "production_map"
+	if content_kind == "synthetic_scene":
+		var synthetic_descriptor: Dictionary = scenario_def.get("synthetic_descriptor", {}) as Dictionary
+		if synthetic_descriptor.is_empty():
+			_teardown_node(scene_root)
+			return {"ok": false, "reason": "synthetic_descriptor_missing", "map_path": ""}
+		OpsState.call("reset_state_from_map", synthetic_descriptor.duplicate(true))
+		if "current_map_data" in arena:
+			arena.set("current_map_data", {})
+		if arena.has_method("clear_map_render"):
+			arena.call("clear_map_render")
+		for _frame in range(3):
+			await process_frame
+	else:
+		var map_data: Dictionary = scenario_def.get("_preflight_map_data", {}) as Dictionary
+		if map_data.is_empty():
+			_teardown_node(scene_root)
+			return {"ok": false, "reason": "fixture_preflight_data_missing", "map_path": map_path}
+		MAP_APPLIER.apply_map(arena as Node2D, map_data)
+		await process_frame
+		await process_frame
 	var state: GameState = OpsState.require_state()
 	var expected_counts: Dictionary = scenario_def.get("_preflight_runtime_counts", {}) as Dictionary
 	var actual_counts: Dictionary = PERF_FIXTURE_VALIDATOR.runtime_counts(state, arena)
@@ -816,7 +847,13 @@ func _setup_arena_for_scenario(scenario_def: Dictionary, real_scene: bool) -> Di
 		"scene_root": scene_root,
 		"arena": arena,
 		"map_path": map_path,
-		"effective_seed": effective_seed
+		"effective_seed": effective_seed,
+		"content_kind": content_kind,
+		"map_loader_used": map_loader_used,
+		"map_applier_used": map_applier_used,
+		"expected_counts": expected_counts.duplicate(true),
+		"actual_counts": actual_counts.duplicate(true),
+		"counts_exact": bool(post_apply.get("ok", false))
 	}
 
 func _prepare_match_for_benchmark() -> void:
@@ -1003,13 +1040,24 @@ func _issue_scripted_commands(arena: Node, state: GameState, scenario_def: Dicti
 		arena.call("mark_render_dirty", "perf_benchmark_scripted")
 	return issued
 
-func _scenario_definitions(suite_id: String, switch_overrides: Dictionary = {}, scenario_filter: String = "") -> Array:
+func _scenario_definitions(
+	suite_id: String,
+	switch_overrides: Dictionary = {},
+	scenario_filter: String = "",
+	catalog_fixtures_by_id: Dictionary = {},
+	catalog_common: Dictionary = {}
+) -> Array:
 	var scenarios: Array
 	match suite_id:
 		"phase0_integrity":
 			scenarios = [_phase0_integrity_scenario()]
 		"phase1_windowed_adapter":
 			scenarios = [_phase1_windowed_adapter_probe_scenario()]
+		"phase1_static_fixtures":
+			scenarios = [
+				_phase1_static_catalog_scenario("EMPTY_ARENA_V1", catalog_fixtures_by_id, catalog_common),
+				_phase1_static_catalog_scenario("STATIC_BATTLEFIELD_V1", catalog_fixtures_by_id, catalog_common)
+			]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
 		"phase0_isolation":
@@ -1145,6 +1193,56 @@ func _phase1_windowed_adapter_probe_scenario() -> Dictionary:
 		"measurement_frames": 300,
 		"simulation_active": true
 	}
+	return scenario
+
+func _phase1_static_catalog_scenario(fixture_id: String, catalog_fixtures_by_id: Dictionary, catalog_common: Dictionary) -> Dictionary:
+	var fixture: Dictionary = catalog_fixtures_by_id.get(fixture_id, {}) as Dictionary
+	if fixture.is_empty():
+		return {}
+	var production_map: Dictionary = catalog_common.get("production_map", {}) as Dictionary
+	var content_kind: String = str(fixture.get("content_kind", ""))
+	var map_path: String = str(production_map.get("path", "")) if content_kind == "production_map" else ""
+	var scenario: Dictionary = _scenario_def(
+		fixture_id,
+		map_path,
+		12.0,
+		int(fixture.get("seed", 0)),
+		[],
+		0,
+		0,
+		1
+	)
+	scenario["fixture_id"] = fixture_id
+	scenario["fixture_version"] = int(fixture.get("fixture_version", 1))
+	scenario["fixture_catalog_status"] = str(fixture.get("status", ""))
+	scenario["measurement_profile"] = "static_windowed_deterministic"
+	scenario["catalog_fixture_registered"] = true
+	scenario["content_kind"] = content_kind
+	scenario["content_identity"] = str(fixture.get("content_identity", "")) if content_kind == "synthetic_scene" else "sha256:%s" % str(production_map.get("sha256", ""))
+	scenario["camera_policy"] = "authored_scene_transform" if content_kind == "synthetic_scene" else "production_map_fit"
+	scenario["repetitions"] = int(catalog_common.get("repetitions", 3))
+	scenario["initial_lanes"] = 0
+	scenario["initial_swarms"] = 0
+	scenario["command_schedule"] = []
+	scenario["expected_counts"] = (fixture.get("expected_counts", {}) as Dictionary).duplicate(true)
+	var cadence: Dictionary = (catalog_common.get("deterministic_windowed_cadence", {}) as Dictionary).duplicate(true)
+	cadence["simulation_active"] = false
+	scenario["cadence"] = cadence
+	scenario["performance_gating"] = true
+	scenario["baseline_candidate"] = bool(fixture.get("baseline_candidate", false))
+	if content_kind == "synthetic_scene":
+		scenario["synthetic_descriptor"] = {
+			"_schema": "sf_perf_synthetic_scene_v1",
+			"map_id": str(fixture.get("content_identity", fixture_id)),
+			"grid": {"width": 12, "height": 20},
+			"hives": [],
+			"lane_candidates": [],
+			"walls": [],
+			"towers": [],
+			"barracks": [],
+			"structure_slots": [],
+			"spawns": []
+		}
 	return scenario
 
 func _phase0_collector_calibration_scenarios() -> Array:
@@ -1903,6 +2001,8 @@ func _measurement_profile_for_benchmark_mode(benchmark_mode: String) -> String:
 	match benchmark_mode:
 		"deterministic_windowed_presentation":
 			return "deterministic_windowed_presentation"
+		"static_windowed_deterministic":
+			return "static_windowed_deterministic"
 		"render_windowed":
 			return "investigative_render_windowed"
 		"layer_isolation_noncanonical":
@@ -1935,6 +2035,7 @@ func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
 		"runtime_switches": (scenario_def.get("runtime_switches", {}) as Dictionary).duplicate(true),
 		"camera_policy": str(scenario_def.get("camera_policy", "")),
 		"cadence": (scenario_def.get("cadence", {}) as Dictionary).duplicate(true),
+		"synthetic_descriptor": (scenario_def.get("synthetic_descriptor", {}) as Dictionary).duplicate(true),
 		"expected_counts": (scenario_def.get("expected_counts", {}) as Dictionary).duplicate(true)
 	}
 
@@ -1953,19 +2054,22 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 	for fixture_id_any in by_fixture.keys():
 		var fixture_id: String = str(fixture_id_any)
 		var repetitions: Array = by_fixture.get(fixture_id, []) as Array
-		var required_repetitions: int = 3 if fixture_id in ["PHASE0_INTEGRITY_CENTERSTRIKE_V1", "P1B_WINDOWED_ADAPTER_PROBE_V1"] else 1
+		var first_repetition: Dictionary = repetitions[0] as Dictionary if not repetitions.is_empty() else {}
+		var required_repetitions: int = 3 if fixture_id in ["PHASE0_INTEGRITY_CENTERSTRIKE_V1", "P1B_WINDOWED_ADAPTER_PROBE_V1"] or bool(first_repetition.get("catalog_fixture_registered", false)) else 1
 		var fields: Array[String] = [
 			"fixture_config_hash",
-			"map_content_hash",
 			"requested_seed",
 			"effective_seed",
 			"command_schedule_hash",
 			"final_state_hash"
 		]
-		if fixture_id == "P1B_WINDOWED_ADAPTER_PROBE_V1":
+		if str(first_repetition.get("content_kind", "production_map")) == "production_map":
+			fields.append("map_content_hash")
+		if str(first_repetition.get("benchmark_mode", "")) in ["deterministic_windowed_presentation", "static_windowed_deterministic"]:
 			fields.append_array([
 				"camera_identity_hash",
 				"cadence_identity_hash",
+				"renderer_configuration_hash",
 				"frame_count",
 				"measured_frame_count",
 				"tick_count",
@@ -2297,7 +2401,7 @@ func _metric_contract_for_scenario(scenario: Dictionary) -> Dictionary:
 			"layer_isolation_noncanonical":
 				for metric_name in ["layer_iteration_average_ms", "layer_iteration_p95_ms", "layer_iteration_p99_ms", "layer_iteration_max_ms"]:
 					metrics[metric_name] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
-			"render_windowed", "deterministic_windowed_presentation":
+			"render_windowed", "deterministic_windowed_presentation", "static_windowed_deterministic":
 				for metric_name in ["display_frame_average_ms", "display_frame_median_ms", "display_frame_p95_ms", "display_frame_p99_ms", "display_frame_max_ms"]:
 					metrics[metric_name] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
 	else:
@@ -2315,18 +2419,18 @@ func _metric_contract_for_scenario(scenario: Dictionary) -> Dictionary:
 				metrics["layer_iteration_p95_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p95_frame_ms"), "ms", timing_source)
 				metrics["layer_iteration_p99_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p99_frame_ms"), "ms", timing_source)
 				metrics["layer_iteration_max_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("max_frame_ms"), "ms", timing_source)
-			"render_windowed", "deterministic_windowed_presentation":
+			"render_windowed", "deterministic_windowed_presentation", "static_windowed_deterministic":
 				metrics["display_frame_sample_count"] = PERF_RESULT_CONTRACT.metric("DIRECT", int(collection.get("sample_count", 0)), "count", timing_source)
 				metrics["display_frame_average_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("average_frame_ms"), "ms", timing_source)
 				metrics["display_frame_median_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("median_frame_ms"), "ms", timing_source)
 				metrics["display_frame_p95_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p95_frame_ms"), "ms", timing_source)
 				metrics["display_frame_p99_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p99_frame_ms"), "ms", timing_source)
 				metrics["display_frame_max_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("max_frame_ms"), "ms", timing_source)
-	if benchmark_mode in ["render_windowed", "deterministic_windowed_presentation"] and not setup_failed:
+	if benchmark_mode in ["render_windowed", "deterministic_windowed_presentation", "static_windowed_deterministic"] and not setup_failed:
 		metrics["renderer_visibility"] = PERF_RESULT_CONTRACT.metric("CONFIGURATION_STATE", (scenario.get("renderer_configuration_state", {}) as Dictionary).duplicate(true), "state", "CanvasItem visibility captured at measurement end")
 	else:
 		metrics["renderer_visibility"] = PERF_RESULT_CONTRACT.unavailable_metric("CONFIGURATION_STATE", "state", "renderer visibility is not captured as timing in this execution mode")
-	if benchmark_mode not in ["render_windowed", "deterministic_windowed_presentation"]:
+	if benchmark_mode not in ["render_windowed", "deterministic_windowed_presentation", "static_windowed_deterministic"]:
 		metrics["display_frame_delta_ms"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", "this mode does not execute a windowed display-frame measurement loop")
 	elif not timing_available:
 		metrics["display_frame_delta_ms"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
