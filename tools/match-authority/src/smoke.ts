@@ -13,10 +13,11 @@ async function main(): Promise<void> {
   const projectPath = path.resolve(import.meta.dirname, "../../..");
   const mapRelative = "tools/match-authority/fixtures/authority-map.json";
   const authoredMapRelative = "maps/_future/closequarters/MAP_closequarters__CQ2__1p.json";
+  const authoredIntentsRelative = "tools/match-authority/fixtures/closequarters-standard-golden-intents.json";
   const rulesRelative = "tools/match-authority/fixtures/standard-rules.json";
-  const [mapBytes, authoredMapBytes, rulesBytes] = await Promise.all([
+  const [mapBytes, authoredMapBytes, authoredIntentsBytes, rulesBytes] = await Promise.all([
     readFile(path.join(projectPath, mapRelative)), readFile(path.join(projectPath, authoredMapRelative)),
-    readFile(path.join(projectPath, rulesRelative))
+    readFile(path.join(projectPath, authoredIntentsRelative)), readFile(path.join(projectPath, rulesRelative))
   ]);
   const mapHash = crypto.createHash("sha256").update(mapBytes).digest("hex");
   const authoredMapHash = crypto.createHash("sha256").update(authoredMapBytes).digest("hex");
@@ -99,27 +100,33 @@ async function main(): Promise<void> {
     const [first, second] = await replayJobTwice(config, job);
     expect(first.ok && second.ok && first.final_state_hash === second.final_state_hash,
       "headless replays diverged", { first, second });
+    const authoredFixture = JSON.parse(authoredIntentsBytes.toString("utf8")) as Record<string, unknown>;
+    const authoredCommands = (authoredFixture.intents as Record<string, unknown>[]).map((intent, index) => ({
+      command: { ...intent, kind: "lane_intent", command_seq: index + 1, command_id: `closequarters-golden:${index + 1}` }
+    }));
+    const authoredCommandPayloads = authoredCommands.map((entry) => entry.command);
     const authoredMapJob: Job = {
       ...job,
       jobId: "0190f47a-e234-7abc-8def-123456789abc",
       resultId: "0190f47a-f234-7abc-8def-123456789abc",
-      finalCommandSeq: 0,
-      commandLogHash: sha256Canonical([]),
+      finalCommandSeq: authoredCommands.length,
+      commandLogHash: sha256Canonical(authoredCommandPayloads),
       contract: { ...job.contract, mapHash: authoredMapHash },
-      commands: []
+      commands: authoredCommands
     };
     authoredMapJob.inputHash = sha256Canonical({
       contract_id: authoredMapJob.contract.contractId,
       contract_hash: authoredMapJob.contract.contractHash,
       match_epoch: authoredMapJob.contract.matchEpoch,
-      commands: [], lifecycle_events: []
+      commands: authoredCommandPayloads, lifecycle_events: []
     });
     validateJobBundle(authoredMapJob);
     const [authoredFirst, authoredSecond] = await replayJobTwice(config, authoredMapJob);
-    expect(!authoredFirst.ok && !authoredSecond.ok
-      && authoredFirst.error_code === "MATCH_NOT_TERMINAL"
-      && authoredSecond.error_code === "MATCH_NOT_TERMINAL",
-    "authored v1.xy map did not reach the normalized simulation path", { authoredFirst, authoredSecond });
+    expect(authoredFirst.ok && authoredSecond.ok
+      && authoredFirst.final_state_hash === authoredSecond.final_state_hash
+      && authoredFirst.winner_player_id === playerA
+      && authoredFirst.applied_commands === authoredCommands.length,
+    "authored v1.xy golden replay did not terminate deterministically", { authoredFirst, authoredSecond });
     const ctfJob: Job = {
       ...job,
       jobId: "0190f47a-a234-7abc-8def-123456789abc",
