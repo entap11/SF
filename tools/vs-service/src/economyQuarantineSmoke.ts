@@ -88,7 +88,8 @@ async function main(): Promise<void> {
       "ctf_bot_fallback_enabled",
       "durable_public_1v1_enabled", "economy_mutations_enabled", "hctf_live_secrecy_certified",
       "match_authority_auth_required", "match_verification_enabled", "ok", "player_auth_configured",
-      "public_1v1_enabled", "public_async_3map_enabled", "public_async_5map_enabled",
+      "public_1v1_enabled", "public_2v2_enabled", "public_3p_ffa_enabled", "public_4p_ffa_enabled",
+      "public_async_3map_enabled", "public_async_5map_enabled",
       "public_contests_enabled", "public_contests_store_authorized",
       "public_crucible_enabled",
       "public_ctf_enabled", "public_gauntlet_enabled", "public_hctf_enabled", "public_leaderboards_enabled",
@@ -98,7 +99,9 @@ async function main(): Promise<void> {
     expect(health.economy_mutations_enabled === false && health.admin_auth_required === true
       && health.match_authority_auth_required === true && health.authenticated_1v1_slice_enabled === false
       && health.match_verification_enabled === false && health.durable_public_1v1_enabled === false
-      && health.public_1v1_enabled === false && health.public_async_3map_enabled === false
+      && health.public_1v1_enabled === false && health.public_2v2_enabled === false
+      && health.public_3p_ffa_enabled === false && health.public_4p_ffa_enabled === false
+      && health.public_async_3map_enabled === false
       && health.public_async_5map_enabled === false && health.public_ctf_enabled === false
       && health.public_hctf_enabled === false && health.hctf_live_secrecy_certified === false
       && health.public_crucible_enabled === false && health.crucible_wax_settlement_enabled === false

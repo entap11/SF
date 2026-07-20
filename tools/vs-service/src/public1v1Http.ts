@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { config } from "./config.js";
 import { DurableCoreError, type JsonRecord } from "./repositories/durableCore.js";
@@ -9,7 +10,7 @@ const ACTIONS = new Set([
   "poll_public_1v1", "cancel_public_1v1", "get_public_1v1_session",
   "set_public_1v1_ready", "start_public_1v1", "publish_public_1v1_command",
   "poll_public_1v1_commands", "leave_public_1v1", "resume_public_1v1",
-  "get_public_bot_fallback_offer", "accept_public_bot_fallback"
+  "get_public_bot_fallback_offer", "accept_public_bot_fallback", "sync_public_competitive_identity"
 ]);
 
 export async function handleDurablePublic1v1Action(
@@ -28,6 +29,20 @@ export async function handleDurablePublic1v1Action(
     return true;
   }
   try {
+    if (action === "sync_public_competitive_identity") {
+      requireAdmin(req);
+      if (config.durableStore !== "postgres") throw new DurableCoreError("postgres_multiseat_store_required");
+      const identity = await getPublic1v1Repository().syncCompetitiveIdentity({
+        playerId: text(req.body?.player_id),
+        rankValue: integer(req.body?.rank_value, Number.NaN),
+        friendPlayerIds: Array.isArray(req.body?.friend_player_ids)
+          ? req.body.friend_player_ids.map(text).filter(Boolean) : [],
+        sourceRevision: text(req.body?.source_revision),
+        nowIso: new Date().toISOString()
+      });
+      ok(res, { identity });
+      return true;
+    }
     const authenticated = authenticatedPlayer(req);
     rejectConflictingIdentity(req, authenticated.playerId);
     const repository = getPublic1v1Repository();
@@ -234,14 +249,17 @@ function statusFor(code: string): number {
     "bot_fallback_not_eligible"].includes(code)) return 409;
   if (["durable_1v1_contract_not_configured", "command_stream_missing", "public_1v1_disabled",
     "public_ctf_disabled", "public_hctf_disabled", "human_hctf_secrecy_not_certified",
-    "ctf_bot_fallback_disabled", "public_crucible_disabled", "crucible_wax_settlement_disabled"].includes(code)) return 503;
+    "ctf_bot_fallback_disabled", "public_crucible_disabled", "crucible_wax_settlement_disabled",
+    "public_3p_ffa_disabled", "public_2v2_disabled", "public_4p_ffa_disabled",
+    "postgres_multiseat_store_required"].includes(code)) return 503;
   if (code === "insufficient_wax") return 402;
   return 400;
 }
 
 function publicMode(value: unknown): PublicDuelQueueMode {
   const mode = text(value).toUpperCase() || "STANDARD_1V1";
-  if (mode === "STANDARD_1V1" || mode === "CTF_1V1" || mode === "HCTF_1V1" || mode === "CRUCIBLE_1V1") return mode;
+  if (["STANDARD_1V1", "CTF_1V1", "HCTF_1V1", "CRUCIBLE_1V1", "STANDARD_3P_FFA",
+    "STANDARD_2V2", "STANDARD_4P_FFA"].includes(mode)) return mode as PublicDuelQueueMode;
   throw new DurableCoreError("public_duel_mode_unsupported");
 }
 
@@ -260,6 +278,34 @@ function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
       ...shared, modeId, clientMode: "1V1", vsRuleset: "STANDARD",
       rulesetId: config.public1v1RulesetId, rulesetHash: config.public1v1RulesetHash,
       mapId: config.public1v1MapId, mapHash: config.public1v1MapHash, ranked: true
+    };
+  }
+  if (["STANDARD_3P_FFA", "STANDARD_2V2", "STANDARD_4P_FFA"].includes(modeId)) {
+    if (config.durableStore !== "postgres") throw new DurableCoreError("postgres_multiseat_store_required");
+    const mode = modeId as "STANDARD_3P_FFA" | "STANDARD_2V2" | "STANDARD_4P_FFA";
+    if (mode === "STANDARD_3P_FFA" && !config.enablePublic3pFfa) throw new DurableCoreError("public_3p_ffa_disabled");
+    if (mode === "STANDARD_2V2" && !config.enablePublic2v2) throw new DurableCoreError("public_2v2_disabled");
+    if (mode === "STANDARD_4P_FFA" && !config.enablePublic4pFfa) throw new DurableCoreError("public_4p_ffa_disabled");
+    const presentation = mode === "STANDARD_3P_FFA" ? { clientMode: "3P FFA" as const, requiredPlayers: 3 as const,
+      mapId: config.public3pFfaMapId, mapHash: config.public3pFfaMapHash }
+      : mode === "STANDARD_2V2" ? { clientMode: "2V2" as const, requiredPlayers: 4 as const,
+        mapId: config.public2v2MapId, mapHash: config.public2v2MapHash }
+      : { clientMode: "4P FFA" as const, requiredPlayers: 4 as const,
+        mapId: config.public4pFfaMapId, mapHash: config.public4pFfaMapHash };
+    return {
+      ...shared,
+      minimumClientBuild: config.publicMultiMinimumClientBuild,
+      simBuildId: config.publicMultiSimBuildId,
+      modeId: mode,
+      clientMode: presentation.clientMode,
+      vsRuleset: "STANDARD",
+      rulesetId: config.publicMultiRulesetId,
+      rulesetHash: config.publicMultiRulesetHash,
+      mapId: presentation.mapId,
+      mapHash: presentation.mapHash,
+      ranked: false,
+      requiredPlayers: presentation.requiredPlayers,
+      assignmentPolicyId: mode === "STANDARD_2V2" ? "FRIEND_THEN_RANK_V1" : "SERVER_SEATS_COLORS_V1"
     };
   }
   if (modeId === "CTF_1V1") {
@@ -285,6 +331,14 @@ function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
     rulesetId: config.publicHctfRulesetId, rulesetHash: config.publicHctfRulesetHash,
     mapId: config.publicHctfMapId, mapHash: config.publicHctfMapHash, ranked: false
   };
+}
+
+function requireAdmin(req: Request): void {
+  const supplied = bearerPlayerToken(req.header("authorization"));
+  const expected = config.adminToken;
+  const valid = supplied.length === expected.length && supplied.length > 0
+    && crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+  if (!valid) throw new PlayerAuthError("admin_auth_required", 401);
 }
 
 function ok(res: Response, body: JsonRecord): void {

@@ -16,12 +16,13 @@ export type Public1v1Player = {
   publicEntapId?: string;
 };
 
-export type PublicDuelQueueMode = "STANDARD_1V1" | "CTF_1V1" | "HCTF_1V1" | "CRUCIBLE_1V1";
+export type PublicDuelQueueMode = "STANDARD_1V1" | "CTF_1V1" | "HCTF_1V1" | "CRUCIBLE_1V1"
+  | "STANDARD_3P_FFA" | "STANDARD_2V2" | "STANDARD_4P_FFA";
 export type PublicDuelContractMode = PublicDuelQueueMode | "CTF_BOT" | "HCTF_BOT";
 
 export type Public1v1Policy = {
   modeId: PublicDuelQueueMode;
-  clientMode: "1V1" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG";
+  clientMode: "1V1" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG" | "3P FFA" | "2V2" | "4P FFA";
   vsRuleset: "STANDARD" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG" | "CRUCIBLE";
   minimumClientBuild: string;
   simBuildId: string;
@@ -34,6 +35,16 @@ export type Public1v1Policy = {
   reconnectGraceSec: number;
   authorityTier: "RELAY_ATTESTED" | "AUTHORITY_VERIFIED";
   ranked: boolean;
+  requiredPlayers?: 2 | 3 | 4;
+  assignmentPolicyId?: "SERVER_SEATS_COLORS_V1" | "FRIEND_THEN_RANK_V1";
+};
+
+export type CompetitiveIdentityInput = {
+  playerId: string;
+  rankValue: number;
+  friendPlayerIds: string[];
+  sourceRevision: string;
+  nowIso: string;
 };
 
 export type PublicBotFallbackInput = {
@@ -99,6 +110,7 @@ export interface Public1v1Repository {
   resume(playerId: string, requestId: string, nowIso: string): Promise<JsonRecord>;
   appendCommand(input: AppendCommandInput): Promise<CommandReceipt>;
   readCommands(matchId: string, matchEpoch: number, playerId: string, afterSeq: number): Promise<CommandPage>;
+  syncCompetitiveIdentity(input: CompetitiveIdentityInput): Promise<JsonRecord>;
 }
 
 export function publicQueueRequestHash(input: EnqueuePublic1v1Input): string {
@@ -123,7 +135,9 @@ export function publicQueueCompatibilityHash(input: EnqueuePublic1v1Input): stri
     map_id: input.policy.mapId,
     map_hash: input.policy.mapHash,
     authority_tier: input.policy.authorityTier,
-    ranked: input.policy.ranked
+    ranked: input.policy.ranked,
+    required_players: input.policy.requiredPlayers ?? 2,
+    assignment_policy_id: input.policy.assignmentPolicyId ?? "SERVER_SEATS_COLORS_V1"
   });
 }
 
@@ -133,7 +147,16 @@ export function validatePublic1v1Enqueue(input: EnqueuePublic1v1Input): void {
     || !/^[0-9a-f]{64}$/.test(input.policy.rulesetHash) || !/^[0-9a-f]{64}$/.test(input.policy.mapHash)
     || !input.policy.minimumClientBuild.trim() || !input.policy.simBuildId.trim()
     || !input.policy.rulesetId.trim() || !input.policy.mapId.trim()
-    || !["STANDARD_1V1", "CTF_1V1", "HCTF_1V1", "CRUCIBLE_1V1"].includes(input.policy.modeId)) {
+    || !["STANDARD_1V1", "CTF_1V1", "HCTF_1V1", "CRUCIBLE_1V1", "STANDARD_3P_FFA",
+      "STANDARD_2V2", "STANDARD_4P_FFA"].includes(input.policy.modeId)) {
+    throw new DurableCoreError("durable_1v1_contract_not_configured");
+  }
+  const expectedPlayers = input.policy.modeId === "STANDARD_3P_FFA" ? 3
+    : ["STANDARD_2V2", "STANDARD_4P_FFA"].includes(input.policy.modeId) ? 4 : 2;
+  if ((input.policy.requiredPlayers ?? 2) !== expectedPlayers
+    || (input.policy.modeId === "STANDARD_2V2"
+      ? input.policy.assignmentPolicyId !== "FRIEND_THEN_RANK_V1"
+      : (input.policy.assignmentPolicyId ?? "SERVER_SEATS_COLORS_V1") !== "SERVER_SEATS_COLORS_V1")) {
     throw new DurableCoreError("durable_1v1_contract_not_configured");
   }
   if (input.clientBuild.localeCompare(input.policy.minimumClientBuild) < 0) {
@@ -213,6 +236,10 @@ export function publicSessionView(contract: DurableContract, rosterOverride?: Ro
       practice,
       bot_fill: practicePolicy.bot_fill === true,
       authority_tier: contract.authorityTier,
+      assignment_policy_id: String((recordValue(contract.contractJson.roster)).assignment_policy_id ?? ""),
+      assignment_evidence: deepClone(rankPolicy.assignment_evidence ?? {}),
+      team_mode_override: contract.modeId === "STANDARD_2V2" ? "2v2"
+        : ["STANDARD_3P_FFA", "STANDARD_4P_FFA"].includes(contract.modeId) ? "ffa" : null,
       authenticated_slice: true,
       durable_contract: true
     },
@@ -222,7 +249,7 @@ export function publicSessionView(contract: DurableContract, rosterOverride?: Ro
 }
 
 function presentationForMode(modeId: string): {
-  clientMode: "1V1" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG";
+  clientMode: "1V1" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG" | "3P FFA" | "2V2" | "4P FFA";
   vsRuleset: "STANDARD" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG" | "CRUCIBLE";
 } {
   if (["CTF_1V1", "CTF_BOT"].includes(modeId)) {
@@ -232,6 +259,9 @@ function presentationForMode(modeId: string): {
     return { clientMode: "HIDDEN_CAPTURE_FLAG", vsRuleset: "HIDDEN_CAPTURE_FLAG" };
   }
   if (modeId === "CRUCIBLE_1V1") return { clientMode: "1V1", vsRuleset: "CRUCIBLE" };
+  if (modeId === "STANDARD_3P_FFA") return { clientMode: "3P FFA", vsRuleset: "STANDARD" };
+  if (modeId === "STANDARD_2V2") return { clientMode: "2V2", vsRuleset: "STANDARD" };
+  if (modeId === "STANDARD_4P_FFA") return { clientMode: "4P FFA", vsRuleset: "STANDARD" };
   return { clientMode: "1V1", vsRuleset: "STANDARD" };
 }
 
@@ -243,5 +273,5 @@ function compatibilityStatus(status: DurableContract["status"], roster: JsonReco
   if (status === "RUNNING") return "started";
   if (status === "TERMINAL" || status === "CANCELLED") return "closed";
   if (status === "RECONNECTING") return "reconnecting";
-  return roster.length === 2 && roster.every((entry) => Boolean(entry.ready)) ? "ready" : "matched";
+  return roster.length > 0 && roster.every((entry) => Boolean(entry.ready)) ? "ready" : "matched";
 }

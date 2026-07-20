@@ -5608,7 +5608,7 @@ func _submit_durable_terminal_report(winner_id_in: int, reason: String) -> void:
 	if bool(tree.get_meta("practice", tree.get_meta("vs_practice", false))):
 		return
 	var mode: String = _current_vs_mode().strip_edges().to_upper()
-	if not ["1V1", "PVP", "CAPTURE_FLAG"].has(mode):
+	if not ["1V1", "PVP", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG", "2V2", "3P FFA", "4P FFA"].has(mode):
 		return
 	var match_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
 	var handshake: Node = get_node_or_null("/root/VsHandshake")

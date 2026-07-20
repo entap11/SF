@@ -568,6 +568,7 @@ func _normalize_public_session(source: Dictionary) -> Dictionary:
 	var source_roster: Array = roster_v as Array
 	var roster: Array = []
 	var seen_uids: Dictionary = {}
+	var seen_colors: Dictionary = {}
 	for index in range(source_roster.size()):
 		if typeof(source_roster[index]) != TYPE_DICTIONARY:
 			return {}
@@ -584,10 +585,35 @@ func _normalize_public_session(source: Dictionary) -> Dictionary:
 		entry["seat"] = seat
 		entry["seat_id"] = seat
 		entry["role"] = "host" if seat == 1 else "player"
+		var color_id: String = str(entry.get("color_id", "")).strip_edges().to_upper()
+		if source_roster.size() > 2 and (color_id.is_empty() or seen_colors.has(color_id)):
+			return {}
+		if not color_id.is_empty():
+			seen_colors[color_id] = true
 		roster.append(entry)
 	var required_players: int = int(source.get("required_players", 0))
-	if required_players != 2 or roster.size() != required_players:
+	var context: Dictionary = source.get("context", {}) as Dictionary
+	if required_players < 2 or required_players > MAX_SYNC_PLAYERS \
+			or required_players != _required_players_for_context(context) \
+			or roster.size() != required_players:
 		return {}
+	var mode: String = str(context.get("mode", "")).strip_edges().to_upper().replace("_", " ")
+	if mode == "2V2":
+		var team_counts: Dictionary = {}
+		for player_any in roster:
+			var team_id: int = int((player_any as Dictionary).get("team_id", 0))
+			if team_id not in [1, 2]:
+				return {}
+			team_counts[team_id] = int(team_counts.get(team_id, 0)) + 1
+		if int(team_counts.get(1, 0)) != 2 or int(team_counts.get(2, 0)) != 2:
+			return {}
+	elif required_players > 2:
+		var ffa_teams: Dictionary = {}
+		for player_any in roster:
+			var team_id: int = int((player_any as Dictionary).get("team_id", 0))
+			if team_id <= 0 or ffa_teams.has(team_id):
+				return {}
+			ffa_teams[team_id] = true
 	var session: Dictionary = source.duplicate(true)
 	session["id"] = str(source.get("match_id", source.get("session_id", source.get("id", ""))))
 	session["session_id"] = str(session.get("id", ""))
@@ -891,6 +917,12 @@ func _public_duel_mode_id(context: Dictionary) -> String:
 		return "CTF_1V1"
 	if mode == "HIDDEN_CAPTURE_FLAG" or mode == "HIDDEN_CTF" or mode == "HCTF":
 		return "HCTF_1V1"
+	if mode == "3P_FFA":
+		return "STANDARD_3P_FFA"
+	if mode == "2V2":
+		return "STANDARD_2V2"
+	if mode == "4P_FFA":
+		return "STANDARD_4P_FFA"
 	return "STANDARD_1V1"
 
 func get_public_1v1_session(match_id: String) -> Dictionary:

@@ -207,8 +207,23 @@ function validateResultShape(payload: JsonRecord, contract: DurableContract): vo
   }
   const playerIds = placements.flatMap((group) => Array.isArray(group.player_ids) ? group.player_ids.map(String) : []);
   const expected = contract.roster.map((entry) => entry.playerId).filter((value): value is string => value != null).sort();
-  if (placements.length !== 2 || playerIds.length !== expected.length
-    || playerIds.sort().join("|") !== expected.join("|") || placements.some((group, index) => Number(group.place) !== index + 1)) {
+  if (playerIds.length !== expected.length || new Set(playerIds).size !== expected.length
+    || playerIds.sort().join("|") !== expected.join("|")
+    || placements.some((group, index) => Number(group.place) !== index + 1)) {
+    throw new DurableCoreError("verifier_placements_invalid");
+  }
+  if (contract.modeId === "STANDARD_2V2") {
+    const teams = new Map(contract.roster.map((entry) => [entry.playerId, entry.teamId]));
+    if (placements.length !== 2 || placements.some((group) => {
+      const ids = Array.isArray(group.player_ids) ? group.player_ids.map(String) : [];
+      const groupTeams = new Set(ids.map((id) => teams.get(id)));
+      return ids.length !== 2 || groupTeams.size !== 1 || Number(group.team_id) !== [...groupTeams][0];
+    }) || Number(payload.winning_team_id) !== Number(placements[0]?.team_id)) {
+      throw new DurableCoreError("verifier_team_placements_invalid");
+    }
+  } else if (placements.length !== expected.length
+    || placements.some((group) => !Array.isArray(group.player_ids) || group.player_ids.length !== 1)
+    || payload.winning_team_id != null) {
     throw new DurableCoreError("verifier_placements_invalid");
   }
   if (payload.authority_method === "SIM_REPLAY"

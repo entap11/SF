@@ -14626,7 +14626,7 @@ func _human_pvp_lobby_options(mode_id: String) -> Dictionary:
 		"pregame_setup": "session_seeded"
 	}
 	var normalized_mode: String = mode_id.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
-	if required_players == 2 and ["1V1", "PVP", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG"].has(normalized_mode):
+	if ["1V1", "PVP", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG", "2V2", "3P_FFA", "4P_FFA"].has(normalized_mode):
 		var handshake: Node = get_node_or_null("/root/VsHandshake")
 		if handshake != null and handshake.has_method("is_authoritative_transport_online") \
 				and handshake.has_method("has_player_access_token") \

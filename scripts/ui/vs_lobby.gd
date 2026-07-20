@@ -127,7 +127,7 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	var normalized_mode: String = _mode.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
 	_durable_public_1v1 = bool(options.get("durable_public_1v1", false)) \
 		and bool(options.get("human_pvp", false)) \
-		and ["1V1", "PVP", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG"].has(normalized_mode)
+		and ["1V1", "PVP", "CAPTURE_FLAG", "HIDDEN_CAPTURE_FLAG", "2V2", "3P_FFA", "4P_FFA"].has(normalized_mode)
 	_window_sec = maxi(1, int(options.get("window_sec", ASYNC_WINDOW_COUNTDOWN_SEC)))
 	_sync_join_sec = maxi(1, int(options.get("sync_join_sec", SYNC_JOIN_COUNTDOWN_SEC)))
 	var start_players: int = int(options.get("start_players", _min_players()))
@@ -643,8 +643,9 @@ func _status(label: String) -> void:
 			status_label.text += " " + randomizer_note
 		slots_label.text = "Assigned: %s\nOpen slots: %d" % [", ".join(_assigned_players), open_slots]
 		return
-	var sync_open_slots: int = maxi(2 - assigned, 0)
-	status_label.text = "%s: %d/2 connected." % [label, assigned]
+	var sync_required: int = _effective_required_players()
+	var sync_open_slots: int = maxi(sync_required - assigned, 0)
+	status_label.text = "%s: %d/%d connected." % [label, assigned, sync_required]
 	if not randomizer_note.is_empty():
 		status_label.text += " " + randomizer_note
 	slots_label.text = "Assigned: %s\nOpen slots: %d" % [", ".join(_assigned_players), sync_open_slots]

@@ -17,6 +17,7 @@ import {
   publicQueueRequestHash,
   publicSessionView,
   validatePublic1v1Enqueue,
+  type CompetitiveIdentityInput,
   type EnqueuePublic1v1Input,
   type LifecycleInput,
   type Public1v1Policy,
@@ -54,6 +55,9 @@ export class MemoryPublic1v1Repository implements Public1v1Repository {
 
   async enqueue(input: EnqueuePublic1v1Input): Promise<Public1v1QueueResult> {
     validatePublic1v1Enqueue(input);
+    if (["STANDARD_3P_FFA", "STANDARD_2V2", "STANDARD_4P_FFA"].includes(input.policy.modeId)) {
+      throw new DurableCoreError("postgres_multiseat_store_required");
+    }
     this.expireTickets(input.nowIso);
     const requestHash = publicQueueRequestHash(input);
     const compatibilityHash = publicQueueCompatibilityHash(input);
@@ -336,6 +340,10 @@ export class MemoryPublic1v1Repository implements Public1v1Repository {
   async readCommands(matchId: string, matchEpoch: number, playerId: string, afterSeq: number): Promise<CommandPage> {
     this.matchForPlayer(matchId, playerId);
     return this.core.readCommands(matchId, matchEpoch, afterSeq);
+  }
+
+  async syncCompetitiveIdentity(_input: CompetitiveIdentityInput): Promise<JsonRecord> {
+    throw new DurableCoreError("postgres_multiseat_store_required");
   }
 
   private expireTickets(nowIso: string): void {

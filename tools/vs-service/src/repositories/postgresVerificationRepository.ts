@@ -4,6 +4,7 @@ import {
   DurableCoreError,
   sha256Canonical,
   uuidV7,
+  type DurableContract,
   type DurableCoreRepository,
   type JsonRecord,
   type TerminalResult
@@ -45,8 +46,9 @@ export class PostgresVerificationRepository implements VerificationRepository {
       );
       const contractRow = membership.rows[0];
       if (!contractRow) throw new DurableCoreError("player_not_in_match");
-      if (!["STANDARD_1V1", "CTF_1V1"].includes(String(contractRow.mode_id))
-        || Number(contractRow.required_players) !== 2) {
+      if (!["STANDARD_1V1", "CTF_1V1", "HCTF_1V1", "CRUCIBLE_1V1", "STANDARD_3P_FFA",
+        "STANDARD_2V2", "STANDARD_4P_FFA"].includes(String(contractRow.mode_id))
+        || ![2, 3, 4].includes(Number(contractRow.required_players))) {
         throw new DurableCoreError("verification_contract_unsupported");
       }
       if (String(contractRow.authority_tier) !== "AUTHORITY_VERIFIED") {
@@ -225,6 +227,7 @@ export class PostgresVerificationRepository implements VerificationRepository {
         "UPDATE vs_match_contracts SET status = 'TERMINAL', updated_at = $2 WHERE contract_id = $1",
         [job.contract_id, input.finishedAt]
       );
+      await insertPublicMatchHistory(client, bundle.contract, payload, terminal.resultId, input.finishedAt);
       await client.query("COMMIT");
       return this.status(terminal.matchId, terminal.matchEpoch);
     } catch (error) {
@@ -289,7 +292,10 @@ export class PostgresVerificationRepository implements VerificationRepository {
                ORDER BY r2.seat_id LIMIT 1) AS winner_player_id
            FROM vs_match_contracts c
            JOIN vs_match_reconnect_state rs ON rs.match_id = c.match_id AND rs.match_epoch = c.match_epoch
-           WHERE c.status = 'RECONNECTING' AND c.mode_id IN ('STANDARD_1V1', 'CTF_1V1')
+           WHERE c.status = 'RECONNECTING' AND c.mode_id IN (
+             'STANDARD_1V1', 'CTF_1V1', 'HCTF_1V1', 'CRUCIBLE_1V1',
+             'STANDARD_3P_FFA', 'STANDARD_2V2', 'STANDARD_4P_FFA'
+           )
              AND c.authority_tier = 'AUTHORITY_VERIFIED' AND rs.connection_state = 'GRACE'
              AND rs.grace_deadline_at <= $1
            ORDER BY rs.grace_deadline_at, c.match_id LIMIT 1
@@ -298,7 +304,9 @@ export class PostgresVerificationRepository implements VerificationRepository {
         const row = found.rows[0];
         if (!row) { await client.query("COMMIT"); break; }
         const contract = await readContract(client, String(row.contract_id));
-        if (!contract || !row.winner_player_id) throw new DurableCoreError("forfeit_contract_invalid");
+        if (!contract || (contract.requiredPlayers === 2 && !row.winner_player_id)) {
+          throw new DurableCoreError("forfeit_contract_invalid");
+        }
         const graceRows = await client.query<Row>(
           `SELECT player_id, grace_deadline_at FROM vs_match_reconnect_state
            WHERE match_id = $1 AND match_epoch = $2 AND connection_state = 'GRACE'
@@ -320,6 +328,11 @@ export class PostgresVerificationRepository implements VerificationRepository {
             JSON.stringify(simultaneousExpiry ? {
               no_contest_reason: "ALL_PLAYERS_GRACE_EXPIRED", elapsed_sim_ticks: elapsedTicks,
               expired_player_ids: expiredPlayers.map((entry) => String(entry.player_id))
+            } : contract.requiredPlayers > 2 ? {
+              expired_player_ids: expiredPlayers.map((entry) => String(entry.player_id)),
+              remaining_player_ids: contract.roster.map((entry) => entry.playerId)
+                .filter((playerId) => playerId != null && !expiredPlayers.some((expiredEntry) => String(expiredEntry.player_id) === playerId)),
+              forfeit_kind: "DISCONNECT", elapsed_sim_ticks: elapsedTicks
             } : {
               winner_player_id: String(row.winner_player_id), loser_player_id: String(row.loser_player_id),
               forfeit_kind: "DISCONNECT", elapsed_sim_ticks: elapsedTicks,
@@ -385,13 +398,14 @@ export class PostgresVerificationRepository implements VerificationRepository {
   }
 
   private async status(matchId: string, epoch: number): Promise<VerificationStatusView> {
-    const [reports, jobs, result] = await Promise.all([
+    const [reports, jobs, result, contract] = await Promise.all([
       this.pool.query<{ count: number }>(
         "SELECT count(*)::int AS count FROM vs_match_client_terminal_reports WHERE match_id = $1 AND match_epoch = $2",
         [matchId, epoch]
       ),
       this.pool.query<Row>("SELECT * FROM vs_match_verification_jobs WHERE match_id = $1 AND match_epoch = $2", [matchId, epoch]),
-      this.core.getTerminalResult(matchId, epoch)
+      this.core.getTerminalResult(matchId, epoch),
+      this.core.getContractByMatchId(matchId)
     ]);
     let signedReceipt: SignedSyncResult | null = null;
     if (result) {
@@ -401,9 +415,42 @@ export class PostgresVerificationRepository implements VerificationRepository {
     return {
       matchId, matchEpoch: epoch,
       status: jobs.rows[0] ? String(jobs.rows[0].status) as VerificationStatusView["status"] : "AWAITING_REPORTS",
-      reportCount: Number(reports.rows[0]?.count ?? 0), requiredReportCount: 2,
+      reportCount: Number(reports.rows[0]?.count ?? 0), requiredReportCount: contract?.requiredPlayers ?? 0,
       result, signedReceipt
     };
+  }
+}
+
+async function insertPublicMatchHistory(
+  client: PoolClient,
+  contract: DurableContract,
+  payload: JsonRecord,
+  resultId: string,
+  verifiedAt: string
+): Promise<void> {
+  if (String(payload.terminal_reason) === "NO_CONTEST") return;
+  const placements = Array.isArray(payload.placements) ? payload.placements as JsonRecord[] : [];
+  for (const entry of contract.roster) {
+    if (!entry.playerId) continue;
+    const group = placements.find((candidate) => Array.isArray(candidate.player_ids)
+      && candidate.player_ids.map(String).includes(entry.playerId!));
+    if (!group) throw new DurableCoreError("verifier_placements_invalid");
+    await client.query(
+      `INSERT INTO vs_public_match_history
+        (match_id, result_id, player_id, mode_id, seat_id, team_id, placement, terminal_reason, verified_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (match_id, player_id) DO NOTHING`,
+      [contract.matchId, resultId, entry.playerId, contract.modeId, entry.seatId, entry.teamId ?? null,
+        Number(group.place), String(payload.terminal_reason), verifiedAt]
+    );
+  }
+  if (["STANDARD_3P_FFA", "STANDARD_2V2", "STANDARD_4P_FFA"].includes(contract.modeId)) {
+    await client.query(
+      `INSERT INTO vs_public_shadow_results
+        (result_id, match_id, mode_id, result_payload, created_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5) ON CONFLICT (result_id) DO NOTHING`,
+      [resultId, contract.matchId, contract.modeId, JSON.stringify(payload), verifiedAt]
+    );
   }
 }
 

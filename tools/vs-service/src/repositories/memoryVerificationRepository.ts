@@ -55,7 +55,8 @@ export class MemoryVerificationRepository implements VerificationRepository {
     if (!contract || !contract.roster.some((entry) => entry.playerId === input.playerId)) {
       throw new DurableCoreError("player_not_in_match");
     }
-    if (!["STANDARD_1V1", "CTF_1V1"].includes(contract.modeId) || contract.requiredPlayers !== 2) {
+    if (!["STANDARD_1V1", "CTF_1V1", "HCTF_1V1", "CRUCIBLE_1V1", "STANDARD_3P_FFA",
+      "STANDARD_2V2", "STANDARD_4P_FFA"].includes(contract.modeId) || ![2, 3, 4].includes(contract.requiredPlayers)) {
       throw new DurableCoreError("verification_contract_unsupported");
     }
     if (contract.authorityTier !== "AUTHORITY_VERIFIED") throw new DurableCoreError("authority_tier_not_verifiable");
@@ -175,9 +176,10 @@ export class MemoryVerificationRepository implements VerificationRepository {
   private async status(matchId: string, epoch: number, knownResult?: TerminalResult): Promise<VerificationStatusView> {
     const job = this.jobs.get(jobKey(matchId, epoch));
     const result = knownResult ?? await this.core.getTerminalResult(matchId, epoch);
+    const contract = await this.core.getContractByMatchId(matchId);
     return {
       matchId, matchEpoch: epoch, status: job?.status ?? "AWAITING_REPORTS",
-      reportCount: this.reportsFor(matchId, epoch).length, requiredReportCount: 2,
+      reportCount: this.reportsFor(matchId, epoch).length, requiredReportCount: contract?.requiredPlayers ?? 0,
       result, signedReceipt: result ? deepClone(this.receipts.get(result.resultId) ?? null) : null
     };
   }

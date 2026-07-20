@@ -3,6 +3,7 @@ import {
   deepClone,
   DurableCoreError,
   materializeContract,
+  isUuidV7,
   sha256Canonical,
   uuidV7,
   type AppendCommandInput,
@@ -13,12 +14,15 @@ import {
   type RosterEntry
 } from "./durableCore.js";
 import { insertContract, readContract } from "./postgresDurableCoreRepository.js";
+import { assignMultiSeatRoster, requiredPlayersForPublicMode, type CompetitivePlayerSnapshot,
+  type FriendEdge, type MultiSeatMode } from "./multiSeatAssignment.js";
 import {
   publicQueueCompatibilityHash,
   publicQueueRequestHash,
   publicSessionView,
   validatePublic1v1Enqueue,
   type EnqueuePublic1v1Input,
+  type CompetitiveIdentityInput,
   type LifecycleInput,
   type Public1v1Policy,
   type PublicBotFallbackInput,
@@ -64,13 +68,14 @@ export class PostgresPublic1v1Repository implements Public1v1Repository {
         return result;
       }
 
+      const requiredPlayers = input.policy.requiredPlayers ?? requiredPlayersForPublicMode(input.policy.modeId);
       const candidateResult = await client.query<Row>(
         `SELECT * FROM vs_match_queue_tickets
          WHERE mode_id = $3 AND status = 'WAITING' AND compatibility_hash = $1
            AND player_id <> $2 AND expires_at >= $4
          ORDER BY created_at, ticket_id
-         LIMIT 1 FOR UPDATE SKIP LOCKED`,
-        [compatibilityHash, input.player.playerId, input.policy.modeId, input.nowIso]
+         LIMIT $5 FOR UPDATE SKIP LOCKED`,
+        [compatibilityHash, input.player.playerId, input.policy.modeId, input.nowIso, requiredPlayers - 1]
       );
       const ticketId = uuidV7();
       const expiresAt = new Date(new Date(input.nowIso).getTime() + input.policy.queueTtlSec * 1_000).toISOString();
@@ -86,25 +91,12 @@ export class PostgresPublic1v1Repository implements Public1v1Repository {
           JSON.stringify({ policy: input.policy }), input.nowIso, expiresAt, input.policy.modeId]
       );
 
-      const candidate = candidateResult.rows[0];
-      if (candidate) {
-        const roster: RosterEntry[] = [
-          rosterEntry(candidate, 1, input.nowIso),
-          {
-            playerId: input.player.playerId,
-            publicEntapId: input.player.publicEntapId ?? null,
-            displayName: input.player.displayName,
-            participantType: "HUMAN",
-            seatId: 2,
-            teamId: 2,
-            colorId: "PURPLE",
-            readyState: "NOT_READY",
-            connectionState: "CONNECTED",
-            joinedAt: input.nowIso
-          }
-        ];
+      const candidates = candidateResult.rows;
+      if (candidates.length === requiredPlayers - 1) {
+        const assignment = await assignedRoster(client, input, candidates);
+        const roster: RosterEntry[] = assignment.roster;
         const contract = materializeContract({
-          requestId: `pair:${String(candidate.ticket_id)}:${ticketId}`,
+          requestId: `match:${[...candidates.map((candidate) => String(candidate.ticket_id)), ticketId].join(":")}`,
           idempotencySubject: `${input.policy.modeId}:matchmaker`,
           minimumClientBuild: input.policy.minimumClientBuild,
           simBuildId: input.policy.simBuildId,
@@ -116,11 +108,11 @@ export class PostgresPublic1v1Repository implements Public1v1Repository {
           seed: randomSeed(),
           authorityTier: input.policy.authorityTier,
           status: "FROZEN",
-          assignmentPolicyId: "SERVER_SEATS_COLORS_V1",
+          assignmentPolicyId: assignment.assignmentPolicyId,
           roster,
           rankPolicy: input.policy.ranked
             ? { enabled: true, queue: "GLOBAL_RANK", policy_id: "STANDARD_1V1_V1" }
-            : { enabled: false, queue: "NONE", policy_id: "NONE" },
+            : { enabled: false, queue: "NONE", policy_id: "NONE", assignment_evidence: assignment.evidence },
           economyPolicy: input.policy.modeId === "CRUCIBLE_1V1"
             ? { policy_id: "CRUCIBLE_WAX_V1", stake_each_millis: 1000, winner_payout_millis: 1800,
               award_reserve_millis: 200 }
@@ -138,10 +130,11 @@ export class PostgresPublic1v1Repository implements Public1v1Repository {
           contract_id: contract.contractId,
           contract_hash: contract.contractHash
         }, input.nowIso);
+        const matchedTicketIds = [...candidates.map((candidate) => String(candidate.ticket_id)), ticketId];
         await client.query(
           `UPDATE vs_match_queue_tickets SET status = 'MATCHED', contract_id = $1, last_seen_at = $2
-           WHERE ticket_id IN ($3, $4)`,
-          [contract.contractId, input.nowIso, candidate.ticket_id, ticketId]
+           WHERE ticket_id = ANY($3::uuid[])`,
+          [contract.contractId, input.nowIso, matchedTicketIds]
         );
       }
       await completeReceipt(client, "match.queue.v1", subject, input.requestId,
@@ -421,7 +414,64 @@ export class PostgresPublic1v1Repository implements Public1v1Repository {
 
   async readCommands(matchId: string, matchEpoch: number, playerId: string, afterSeq: number): Promise<CommandPage> {
     await ensureMembership(this.pool, matchId, playerId);
-    return this.core.readCommands(matchId, matchEpoch, afterSeq);
+    const page = await this.core.readCommands(matchId, matchEpoch, afterSeq);
+    await this.pool.query(
+      `INSERT INTO vs_match_peer_acks
+        (match_id, match_epoch, player_id, acknowledged_seq, acknowledged_at)
+       VALUES ($1, $2, $3, $4, now())
+       ON CONFLICT (match_id, match_epoch, player_id) DO UPDATE SET
+         acknowledged_seq = GREATEST(vs_match_peer_acks.acknowledged_seq, EXCLUDED.acknowledged_seq),
+         acknowledged_at = EXCLUDED.acknowledged_at`,
+      [matchId, matchEpoch, playerId, Math.max(0, afterSeq)]
+    );
+    return page;
+  }
+
+  async syncCompetitiveIdentity(input: CompetitiveIdentityInput): Promise<JsonRecord> {
+    if (!isUuidV7(input.playerId) || !Number.isSafeInteger(input.rankValue)
+      || input.rankValue < -2_147_483_648 || input.rankValue > 2_147_483_647
+      || !input.sourceRevision.trim() || !Number.isFinite(new Date(input.nowIso).getTime())) {
+      throw new DurableCoreError("competitive_identity_invalid");
+    }
+    const friends = [...new Set(input.friendPlayerIds)].sort();
+    if (friends.some((friendId) => friendId === input.playerId || !isUuidV7(friendId))) {
+      throw new DurableCoreError("competitive_identity_invalid");
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO vs_public_competitive_profiles (player_id, rank_value, source_revision, updated_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (player_id) DO UPDATE SET rank_value = EXCLUDED.rank_value,
+           source_revision = EXCLUDED.source_revision, updated_at = EXCLUDED.updated_at`,
+        [input.playerId, input.rankValue, input.sourceRevision, input.nowIso]
+      );
+      await client.query(
+        `UPDATE vs_public_friend_relationships SET active = FALSE, source_revision = $2, updated_at = $3
+         WHERE player_a_id = $1 OR player_b_id = $1`,
+        [input.playerId, input.sourceRevision, input.nowIso]
+      );
+      for (const friendId of friends) {
+        const [playerAId, playerBId] = [input.playerId, friendId].sort();
+        await client.query(
+          `INSERT INTO vs_public_friend_relationships
+            (player_a_id, player_b_id, source_revision, active, updated_at)
+           VALUES ($1, $2, $3, TRUE, $4)
+           ON CONFLICT (player_a_id, player_b_id) DO UPDATE SET source_revision = EXCLUDED.source_revision,
+             active = TRUE, updated_at = EXCLUDED.updated_at`,
+          [playerAId, playerBId, input.sourceRevision, input.nowIso]
+        );
+      }
+      await client.query("COMMIT");
+      return { player_id: input.playerId, rank_value: input.rankValue,
+        friend_player_ids: friends, source_revision: input.sourceRevision };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw normalizePgError(error);
+    } finally {
+      client.release();
+    }
   }
 
   private async lifecycleTransaction(
@@ -460,6 +510,51 @@ export class PostgresPublic1v1Repository implements Public1v1Repository {
       client.release();
     }
   }
+}
+
+async function assignedRoster(
+  client: PoolClient,
+  input: EnqueuePublic1v1Input,
+  candidates: Row[]
+): Promise<{ assignmentPolicyId: string; roster: RosterEntry[]; evidence: JsonRecord }> {
+  const allRows: Row[] = [...candidates, {
+    player_id: input.player.playerId,
+    public_entap_id: input.player.publicEntapId ?? null,
+    display_name: input.player.displayName,
+    created_at: input.nowIso
+  }];
+  if (!["STANDARD_3P_FFA", "STANDARD_2V2", "STANDARD_4P_FFA"].includes(input.policy.modeId)) {
+    return {
+      assignmentPolicyId: "SERVER_SEATS_COLORS_V1",
+      roster: allRows.map((row, index) => rosterEntry(row, index + 1, iso(row.created_at ?? input.nowIso))),
+      evidence: {}
+    };
+  }
+  const playerIds = allRows.map((row) => String(row.player_id));
+  const [profiles, edges] = await Promise.all([
+    client.query<Row>(
+      "SELECT player_id, rank_value FROM vs_public_competitive_profiles WHERE player_id = ANY($1::uuid[])",
+      [playerIds]
+    ),
+    client.query<Row>(
+      `SELECT player_a_id, player_b_id FROM vs_public_friend_relationships
+       WHERE active AND player_a_id = ANY($1::uuid[]) AND player_b_id = ANY($1::uuid[])
+       ORDER BY player_a_id, player_b_id`,
+      [playerIds]
+    )
+  ]);
+  const ranks = new Map(profiles.rows.map((row) => [String(row.player_id), Number(row.rank_value)]));
+  const snapshots: CompetitivePlayerSnapshot[] = allRows.map((row) => ({
+    playerId: String(row.player_id),
+    publicEntapId: row.public_entap_id == null ? null : String(row.public_entap_id),
+    displayName: String(row.display_name),
+    rankValue: ranks.get(String(row.player_id)) ?? 0,
+    joinedAt: iso(row.created_at ?? input.nowIso)
+  }));
+  const friendEdges: FriendEdge[] = edges.rows.map((row) => ({
+    playerAId: String(row.player_a_id), playerBId: String(row.player_b_id)
+  }));
+  return assignMultiSeatRoster(input.policy.modeId as MultiSeatMode, snapshots, friendEdges);
 }
 
 async function queueResult(

@@ -13,6 +13,7 @@ func _init() -> void:
 	_test_canonical_roster_normalization(handshake)
 	_test_canonical_bot_normalization(handshake)
 	_test_public_ctf_mode_mapping(handshake)
+	_test_public_multiseat_contracts(handshake)
 	_test_invalid_contracts_fail_closed(handshake)
 	_test_lobby_opt_in_is_explicit()
 	if not _failed:
@@ -114,6 +115,36 @@ func _test_public_ctf_mode_mapping(handshake: Node) -> void:
 	_expect(str(handshake.call("_public_duel_mode_id", {"mode": "HIDDEN_CAPTURE_FLAG"})) == "HCTF_1V1",
 		"hidden CTF selects its separately gated durable queue mode", {})
 
+func _test_public_multiseat_contracts(handshake: Node) -> void:
+	for case in [
+		{"mode": "3P FFA", "mode_id": "STANDARD_3P_FFA", "players": 3},
+		{"mode": "2V2", "mode_id": "STANDARD_2V2", "players": 4},
+		{"mode": "4P FFA", "mode_id": "STANDARD_4P_FFA", "players": 4}
+	]:
+		var mode: String = str(case.get("mode", ""))
+		var required: int = int(case.get("players", 0))
+		_expect(str(handshake.call("_public_duel_mode_id", {"mode": mode})) == str(case.get("mode_id", "")),
+			"%s selects its durable queue mode" % mode, case)
+		var roster: Array = []
+		for index in range(required):
+			roster.append({
+				"player_id": "0190f47a-%04d-7abc-8def-%012d" % [3000 + index, 3000 + index],
+				"display_name": "Seat %d" % (index + 1),
+				"seat_id": index + 1,
+				"team_id": (1 if index < 2 else 2) if mode == "2V2" else index + 1,
+				"color_id": ["GREEN", "PURPLE", "ORANGE", "BLUE"][index],
+				"participant_type": "HUMAN"
+			})
+		var normalized: Dictionary = handshake.call("_normalize_public_session", {
+			"protocol_version": 2,
+			"match_id": "0190f47a-a234-7abc-8def-123456789abc",
+			"required_players": required,
+			"context": {"mode": mode},
+			"roster": roster
+		}) as Dictionary
+		_expect((normalized.get("roster", []) as Array).size() == required,
+			"%s retains every authenticated seat" % mode, normalized)
+
 func _test_lobby_opt_in_is_explicit() -> void:
 	var source: String = FileAccess.get_file_as_string("res://scripts/ui/vs_lobby.gd")
 	_expect(source.contains("durable_public_1v1") and source.contains("enqueue_public_1v1")
@@ -127,8 +158,9 @@ func _test_lobby_opt_in_is_explicit() -> void:
 		"handshake exposes terminal report/recovery seams", {})
 	var arena_source: String = FileAccess.get_file_as_string("res://scripts/arena.gd")
 	_expect(arena_source.contains("_submit_durable_terminal_report")
-		and arena_source.contains("_poll_durable_verification_until_terminal"),
-		"durable matches submit and recover their certified result from live gameplay", {})
+		and arena_source.contains("_poll_durable_verification_until_terminal")
+		and arena_source.contains("\"2V2\", \"3P FFA\", \"4P FFA\""),
+		"two- through four-seat durable matches submit and recover their certified result from live gameplay", {})
 	var rank_source: String = FileAccess.get_file_as_string("res://scripts/state/rank_runtime_awards.gd")
 	_expect(rank_source.contains("durable_contract") and rank_source.contains("client_award_blocked")
 		and rank_source.contains("vs_practice"),
