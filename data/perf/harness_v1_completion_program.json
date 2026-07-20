@@ -93,7 +93,7 @@
     },
     {
       "phase_id": "P2_F_FEATURE_ISOLATION",
-      "status": "PLANNED",
+      "status": "IMPLEMENTED",
       "required_evidence": [
         "complete required feature inventory",
         "PRESENT_ISOLATABLE, PRESENT_COUPLED, NOT_PRESENT, or FUTURE classification",

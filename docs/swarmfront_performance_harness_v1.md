@@ -66,6 +66,8 @@ The unversioned runner and fail-open comparator are now refusal shims. Rhythmic-
 
 ### Presence classification for deferred inventory
 
+Phase 2 supersedes this initial deferred sample with the validated 47-entry registry at `res://data/perf/feature_isolation_registry_v1.json`. The registry is authoritative for exact owners, classification, control kind, and off/production/exaggerated comparison safety; the table below remains the Phase 0 audit snapshot.
+
 | System | Classification | Note |
 | --- | --- | --- |
 | Unit pool and pool telemetry | `PRESENT_ISOLATABLE` | Fixed pool size 400; scale fixtures deferred |

@@ -5,6 +5,7 @@ const ARENA_POLISH_LAYER := preload("res://scripts/renderers/arena_polish_layer.
 const HIVE_GROWTH_RULES := preload("res://scripts/sim/hive_growth_rules.gd")
 const PERF_RUN_POLICY := preload("res://scripts/tests/perf/perf_run_policy.gd")
 const PERF_FIXTURE_CATALOG := preload("res://scripts/tests/perf/perf_fixture_catalog.gd")
+const PERF_FEATURE_REGISTRY := preload("res://scripts/tests/perf/perf_feature_registry.gd")
 const PERF_FIXTURE_VALIDATOR := preload("res://scripts/tests/perf/perf_fixture_validator.gd")
 const PERF_DETERMINISTIC_WINDOWED_ADAPTER := preload("res://scripts/tests/perf/perf_deterministic_windowed_adapter.gd")
 const PERF_DETERMINISTIC_HASH := preload("res://scripts/tests/perf/perf_deterministic_hash.gd")
@@ -18,6 +19,7 @@ const TEST_BACKEND_POLICY := preload("res://scripts/state/test_backend_policy.gd
 
 const DEFAULT_GATES_PATH := "res://data/perf/benchmark_gates.json"
 const DEFAULT_FIXTURE_CATALOG_PATH := "res://data/perf/phase1_fixture_catalog_v1.json"
+const DEFAULT_FEATURE_REGISTRY_PATH := "res://data/perf/feature_isolation_registry_v1.json"
 const DEFAULT_OUTPUT_PATH := "res://debug_reports/perf_benchmark_latest.json"
 const SCENARIO_OUTPUT_DIR := "res://debug_reports/perf_benchmarks"
 const ARENA_SCENE_PATH := "res://scenes/Arena.tscn"
@@ -124,6 +126,12 @@ func _run_suite(args: Dictionary) -> Dictionary:
 	var fixture_catalog: Dictionary = catalog_result.get("catalog", {}) as Dictionary
 	var catalog_fixtures_by_id: Dictionary = catalog_result.get("fixtures_by_id", {}) as Dictionary
 	var catalog_common: Dictionary = fixture_catalog.get("common", {}) as Dictionary
+	var feature_registry_result: Dictionary = PERF_FEATURE_REGISTRY.load_registry(DEFAULT_FEATURE_REGISTRY_PATH)
+	args["_feature_registry_identity"] = (feature_registry_result.get("identity", {}) as Dictionary).duplicate(true)
+	if not bool(feature_registry_result.get("ok", false)):
+		return _invalid_suite_report(suite_id, benchmark_mode, "feature_registry_validation_failed", feature_registry_result.get("errors", []), args)
+	var feature_registry: Dictionary = feature_registry_result.get("registry", {}) as Dictionary
+	var feature_registry_identity: Dictionary = (feature_registry_result.get("identity", {}) as Dictionary).duplicate(true)
 	var collection_level: String = PERF_RESULT_CONTRACT.normalize_collection_level(str(args.get("collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL)))
 	if not PERF_RESULT_CONTRACT.is_known_collection_level(collection_level):
 		return _invalid_suite_report(suite_id, benchmark_mode, "collection_level_invalid", ["expected OFF, MINIMAL, or FULL"], args)
@@ -135,6 +143,9 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		return _invalid_suite_report(suite_id, benchmark_mode, "gate_validation_failed", gate_result.get("errors", []), args)
 	var gates: Dictionary = gate_result.get("gates", {}) as Dictionary
 	var switch_overrides: Dictionary = args.get("switch_overrides", {}) as Dictionary
+	var switch_errors: Array[String] = _validate_switch_overrides(switch_overrides)
+	if not switch_errors.is_empty():
+		return _invalid_suite_report(suite_id, benchmark_mode, "feature_switch_validation_failed", switch_errors, args)
 	var scenario_defs: Array = _scenario_definitions(suite_id, switch_overrides, str(args.get("scenario", "")).strip_edges(), catalog_fixtures_by_id, catalog_common)
 	if args.has("repetitions"):
 		for scenario_any in scenario_defs:
@@ -217,6 +228,9 @@ func _run_suite(args: Dictionary) -> Dictionary:
 	var lifecycle_soak: Dictionary = _lifecycle_soak_evidence(scenarios) if suite_id == "phase2_lifecycle_soak" else {}
 	if not lifecycle_soak.is_empty() and not bool(lifecycle_soak.get("pass", false)):
 		integrity_failed.append("lifecycle_soak")
+	var feature_isolation: Dictionary = _feature_isolation_evidence(scenarios, feature_registry) if suite_id == "phase2_feature_isolation" else {}
+	if not feature_isolation.is_empty() and not bool(feature_isolation.get("pass", false)):
+		integrity_failed.append("feature_isolation")
 	var unit_scale_diagnostic: Dictionary = _unit_scale_diagnostic(scenarios) if suite_id == "phase1_unit_scale" else {}
 	var report := {
 		"report_type": "sf_perf_benchmark_suite",
@@ -232,6 +246,7 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		"machine": _machine_metadata(),
 		"user_data_isolation": _user_data_isolation.duplicate(true),
 		"fixture_catalog": fixture_catalog_identity,
+		"feature_registry": feature_registry_identity,
 		"gates": gates.duplicate(true),
 		"gate_source": str(gate_result.get("source", "")),
 		"switch_overrides": switch_overrides.duplicate(true),
@@ -242,8 +257,9 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		"backend_isolation": backend_isolation,
 		"collector_calibration": collector_calibration,
 		"lifecycle_soak": lifecycle_soak,
+		"feature_isolation": feature_isolation,
 		"unit_scale_diagnostic": unit_scale_diagnostic,
-		"pass": failed.is_empty() and bool(determinism.get("pass", true)) and bool(isolation.get("pass", true)) and bool(backend_isolation.get("pass", false)) and (collector_calibration.is_empty() or bool(collector_calibration.get("pass", false))) and (lifecycle_soak.is_empty() or bool(lifecycle_soak.get("pass", false))),
+		"pass": failed.is_empty() and bool(determinism.get("pass", true)) and bool(isolation.get("pass", true)) and bool(backend_isolation.get("pass", false)) and (collector_calibration.is_empty() or bool(collector_calibration.get("pass", false))) and (lifecycle_soak.is_empty() or bool(lifecycle_soak.get("pass", false))) and (feature_isolation.is_empty() or bool(feature_isolation.get("pass", false))),
 		"failed_scenarios": failed,
 		"integrity_failed_scenarios": integrity_failed
 	}
@@ -989,7 +1005,7 @@ func _setup_arena_for_scenario(scenario_def: Dictionary, real_scene: bool) -> Di
 	if arena == null:
 		_teardown_node(scene_root)
 		return {"ok": false, "reason": "arena_missing", "scene_path": scene_path}
-	_apply_project_switches(scenario_def)
+	_apply_project_switches(arena, scenario_def)
 	var content_kind: String = str(scenario_def.get("content_kind", "production_map"))
 	var map_path := str(scenario_def.get("map_path", MAP_QUICK))
 	var map_loader_used: bool = content_kind == "production_map"
@@ -1078,7 +1094,7 @@ func _prepare_match_for_benchmark() -> void:
 		OpsState.outcome = GameState.GameOutcome.NONE
 	)
 
-func _apply_project_switches(scenario_def: Dictionary) -> void:
+func _apply_project_switches(arena: Node, scenario_def: Dictionary) -> void:
 	var switches: Dictionary = scenario_def.get("runtime_switches", {}) as Dictionary
 	if switches.has("arena_polish_comparison_mode"):
 		ARENA_POLISH_LAYER.apply_comparison_mode(str(switches.get("arena_polish_comparison_mode", "settings")))
@@ -1086,6 +1102,9 @@ func _apply_project_switches(scenario_def: Dictionary) -> void:
 		ProjectSettings.set_setting("swarmfront/arena/premium_polish_enabled", bool(switches.get("premium_polish_enabled", false)))
 	if switches.has("tower_visual_scale"):
 		ProjectSettings.set_setting("swarmfront/arena/tower_visual_scale", float(switches.get("tower_visual_scale", 1.0)))
+	var polish_layer: Node = arena.get_node_or_null("MapRoot/ArenaPolishLayer") if arena != null else null
+	if polish_layer != null and polish_layer.has_method("apply_runtime_settings"):
+		polish_layer.call("apply_runtime_settings")
 
 func _apply_scenario_initial_state(arena: Node, state: GameState, scenario_def: Dictionary) -> Array:
 	var commands: Array = []
@@ -2082,6 +2101,12 @@ func _scenario_definitions(
 			]
 		"phase2_lifecycle_soak":
 			scenarios = [_phase2_lifecycle_soak_scenario()]
+		"phase2_feature_isolation":
+			scenarios = [
+				_phase2_feature_isolation_scenario("off"),
+				_phase2_feature_isolation_scenario("production"),
+				_phase2_feature_isolation_scenario("exaggerated")
+			]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
 		"phase0_isolation":
@@ -2727,6 +2752,53 @@ func _phase2_lifecycle_soak_scenario() -> Dictionary:
 	}
 	return scenario
 
+func _phase2_feature_isolation_scenario(variant: String) -> Dictionary:
+	var normalized: String = variant.strip_edges().to_lower()
+	var comparison_mode: String = {
+		"off": "baseline",
+		"production": "settings",
+		"exaggerated": "tower_150"
+	}.get(normalized, "")
+	var fixture_id: String = "ARENA_POLISH_%s_V1" % normalized.to_upper()
+	var scenario: Dictionary = _scenario_def(
+		fixture_id,
+		MAP_PHASE1,
+		4.0,
+		8201,
+		[],
+		0,
+		0,
+		1
+	)
+	scenario["fixture_id"] = fixture_id
+	scenario["feature_id"] = "arena_polish_bundle"
+	scenario["feature_variant"] = normalized
+	scenario["feature_control_value"] = comparison_mode
+	scenario["measurement_profile"] = "static_windowed_deterministic"
+	scenario["content_kind"] = "production_map"
+	scenario["camera_policy"] = "production_map_fit"
+	scenario["phase2_requires_three_repetitions"] = true
+	scenario["repetitions"] = 3
+	scenario["baseline_candidate"] = false
+	scenario["baseline_ineligible_reason"] = "phase2_feature_isolation_diagnostic_not_baseline_package"
+	scenario["performance_gating"] = false
+	scenario["performance_gate_disposition"] = "DIAGNOSTIC_FEATURE_COMPARISON"
+	scenario["runtime_switches"] = {
+		"arena_polish_comparison_mode": comparison_mode,
+		"premium_polish_enabled": false,
+		"tower_visual_scale": 1.0
+	}
+	scenario["expected_counts"] = {"hives": 12, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 0, "walls": 2}
+	scenario["cadence"] = {
+		"target_fps": 30,
+		"simulation_hz": 10,
+		"frames_per_simulation_tick": 3,
+		"warmup_frames": 30,
+		"measurement_frames": 90,
+		"simulation_active": false
+	}
+	return scenario
+
 func _phase0_collector_calibration_scenarios() -> Array:
 	var base: Dictionary = _phase0_integrity_scenario()
 	base["scenario_id"] = "PHASE0_COLLECTOR_CALIBRATION_V1"
@@ -2835,6 +2907,25 @@ func _apply_runtime_switch_overrides(scenario_def: Dictionary, switch_overrides:
 		switches[str(key_any)] = switch_overrides[key_any]
 	scenario_def["runtime_switches"] = switches
 
+func _validate_switch_overrides(switch_overrides: Dictionary) -> Array[String]:
+	var errors: Array[String] = []
+	for key_any in switch_overrides.keys():
+		var key: String = str(key_any)
+		var value: Variant = switch_overrides.get(key_any)
+		match key:
+			"arena_polish_comparison_mode":
+				if not (value is String) or not ARENA_POLISH_LAYER.comparison_modes().has(str(value)):
+					errors.append("arena_polish_comparison_mode is unsupported")
+			"premium_polish_enabled":
+				if typeof(value) != TYPE_BOOL:
+					errors.append("premium_polish_enabled must be boolean")
+			"tower_visual_scale":
+				if not (value is int or value is float) or float(value) < 1.0 or float(value) > 1.5:
+					errors.append("tower_visual_scale must be between 1.0 and 1.5")
+			_:
+				errors.append("feature switch is not registered: %s" % key)
+	return errors
+
 func _enabled_system_lookup(scenario_def: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
 	for system_any in scenario_def.get("systems", []) as Array:
@@ -2936,19 +3027,23 @@ func _apply_render_isolation(arena: Node, scenario_def: Dictionary) -> void:
 	for renderer_any in renderers:
 		allowed[str(renderer_any)] = true
 	var paths := {
-		"floor": "MapRoot/FloorRenderer",
-		"hive": "MapRoot/HiveRenderer",
-		"lane": "MapRoot/LaneRenderer",
-		"unit": "PoolsRoot/UnitRenderer",
-		"tower": "MapRoot/TowerRenderer",
-		"wall": "WallRenderer",
-		"barracks": "MapRoot/BarracksRenderer",
-		"polish": "MapRoot/ArenaPolishLayer"
+		"floor": ["MapRoot/FloorRenderer"],
+		"hive": ["MapRoot/HiveRenderer"],
+		"lane": ["MapRoot/LaneRenderer"],
+		"unit": ["PoolsRoot/UnitRenderer"],
+		"tower": ["MapRoot/TowerRenderer", "MapRoot/TowerGroundGlowRenderer"],
+		"wall": ["WallRenderer"],
+		"barracks": ["MapRoot/BarracksRenderer", "MapRoot/BarracksGroundGlowRenderer"],
+		"polish": ["MapRoot/ArenaPolishLayer"]
 	}
 	for key_any in paths.keys():
 		var key := str(key_any)
-		var node: Node = arena.get_node_or_null(str(paths[key_any]))
-		if node is CanvasItem:
+		for path_any in paths.get(key_any, []) as Array:
+			var node: Node = arena.get_node_or_null(str(path_any))
+			if not (node is CanvasItem):
+				continue
+			if key == "polish" and bool(allowed.get(key, false)):
+				continue
 			(node as CanvasItem).visible = bool(allowed.get(key, false))
 
 func _settle_windowed_camera(arena: Node, camera_policy: String) -> Dictionary:
@@ -3015,12 +3110,18 @@ func _renderer_configuration_state(arena: Node) -> Dictionary:
 		"lane_visible": "MapRoot/LaneRenderer",
 		"unit_visible": "PoolsRoot/UnitRenderer",
 		"tower_visible": "MapRoot/TowerRenderer",
+		"tower_ground_glow_visible": "MapRoot/TowerGroundGlowRenderer",
 		"wall_visible": "WallRenderer",
+		"barracks_visible": "MapRoot/BarracksRenderer",
+		"barracks_ground_glow_visible": "MapRoot/BarracksGroundGlowRenderer",
 		"polish_visible": "MapRoot/ArenaPolishLayer"
 	}
 	for key_any in renderer_paths.keys():
 		var node: Node = arena.get_node_or_null(str(renderer_paths[key_any]))
 		state[str(key_any)] = bool(node is CanvasItem and (node as CanvasItem).visible)
+	state["arena_polish_comparison_mode"] = ARENA_POLISH_LAYER.comparison_mode()
+	state["arena_polish_enabled"] = ARENA_POLISH_LAYER.is_polish_enabled()
+	state["arena_polish_tower_visual_scale"] = ARENA_POLISH_LAYER.tower_visual_scale()
 	return state
 
 func _base_scenario_report(scenario_def: Dictionary, benchmark_mode: String, gates: Dictionary) -> Dictionary:
@@ -3034,6 +3135,9 @@ func _base_scenario_report(scenario_def: Dictionary, benchmark_mode: String, gat
 		"phase2_requires_three_repetitions": bool(scenario_def.get("phase2_requires_three_repetitions", false)),
 		"phase2_stress_profile": str(scenario_def.get("phase2_stress_profile", "")),
 		"phase2_battlefield_profile": str(scenario_def.get("phase2_battlefield_profile", "")),
+		"feature_id": str(scenario_def.get("feature_id", "")),
+		"feature_variant": str(scenario_def.get("feature_variant", "")),
+		"feature_control_value": scenario_def.get("feature_control_value"),
 		"stress_target_hive_ids": (scenario_def.get("stress_target_hive_ids", []) as Array).duplicate(),
 		"measurement_profile": str(scenario_def.get("measurement_profile", _measurement_profile_for_benchmark_mode(benchmark_mode))),
 		"content_kind": str(scenario_def.get("content_kind", "production_map")),
@@ -3073,6 +3177,7 @@ func _invalid_suite_report(suite_id: String, benchmark_mode: String, reason: Str
 		"godot": Engine.get_version_info(),
 		"machine": _machine_metadata(),
 		"fixture_catalog": (args.get("_fixture_catalog_identity", {}) as Dictionary).duplicate(true),
+		"feature_registry": (args.get("_feature_registry_identity", {}) as Dictionary).duplicate(true),
 		"gate_source": str(args.get("gates", DEFAULT_GATES_PATH)),
 		"scenario_count": 0,
 		"scenarios": [],
@@ -3589,6 +3694,9 @@ func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
 		"phase2_lifecycle_profile": str(scenario_def.get("phase2_lifecycle_profile", "")),
 		"lifecycle_required_cycles": int(scenario_def.get("lifecycle_required_cycles", 0)),
 		"lifecycle_limits": (scenario_def.get("lifecycle_limits", {}) as Dictionary).duplicate(true),
+		"feature_id": str(scenario_def.get("feature_id", "")),
+		"feature_variant": str(scenario_def.get("feature_variant", "")),
+		"feature_control_value": scenario_def.get("feature_control_value"),
 		"lane_build_timeout_ms": int(scenario_def.get("lane_build_timeout_ms", 0)),
 		"renderer_ready_timeout_ms": int(scenario_def.get("renderer_ready_timeout_ms", 0)),
 		"capacity_bypass_allowed": bool(scenario_def.get("capacity_bypass_allowed", true)),
@@ -3987,6 +4095,99 @@ func _lifecycle_soak_evidence(scenarios: Array) -> Dictionary:
 			"handler": "_finalize->_recover_interrupted_repetition",
 			"focused_gate": "PERF_PHASE2_GATE_E_SMOKE"
 		},
+		"mismatches": mismatches
+	}
+
+func _feature_isolation_evidence(scenarios: Array, registry: Dictionary) -> Dictionary:
+	var mismatches: Array = []
+	var feature: Dictionary = PERF_FEATURE_REGISTRY.resolved_feature(registry, "arena_polish_bundle")
+	if feature.is_empty():
+		return {"pass": false, "mismatches": ["arena_polish_bundle_missing"]}
+	var expected_variants: Array[String] = ["off", "production", "exaggerated"]
+	var by_variant: Dictionary = {}
+	for variant in expected_variants:
+		by_variant[variant] = []
+	for scenario_any in scenarios:
+		var scenario: Dictionary = scenario_any as Dictionary
+		var variant: String = str(scenario.get("feature_variant", ""))
+		if str(scenario.get("feature_id", "")) != "arena_polish_bundle":
+			mismatches.append("unexpected_feature_id:%s" % str(scenario.get("feature_id", "")))
+		if not by_variant.has(variant):
+			mismatches.append("unexpected_variant:%s" % variant)
+			continue
+		(by_variant[variant] as Array).append(scenario)
+	var rows: Array = []
+	var variants: Dictionary = feature.get("variants", {}) as Dictionary
+	var first_scenario: Dictionary = scenarios[0] as Dictionary if not scenarios.is_empty() else {}
+	var shared_fields: Array[String] = [
+		"requested_seed", "effective_seed", "map_content_hash", "command_schedule_hash",
+		"final_state_hash", "camera_identity_hash", "cadence_identity_hash", "frame_count",
+		"measured_frame_count", "tick_count", "measured_tick_count", "collection_level"
+	]
+	for scenario_any in scenarios:
+		var scenario: Dictionary = scenario_any as Dictionary
+		for field in shared_fields:
+			if str(scenario.get(field, "")) != str(first_scenario.get(field, "")):
+				mismatches.append("non_target_identity_mismatch:%s:sequence_%d" % [field, int(scenario.get("suite_sequence_index", 0))])
+	for variant in expected_variants:
+		var repetitions: Array = by_variant.get(variant, []) as Array
+		if repetitions.size() != 3:
+			mismatches.append("variant_repetition_count:%s:%d!=3" % [variant, repetitions.size()])
+		var policy_row: Dictionary = variants.get(variant, {}) as Dictionary
+		if not bool(policy_row.get("supported", false)) or not bool(policy_row.get("comparison_safe", false)):
+			mismatches.append("variant_not_registry_approved:%s" % variant)
+		var expected_value: String = str(policy_row.get("value", ""))
+		var config_hashes: Array[String] = []
+		var timing_rows: Array = []
+		for repetition_any in repetitions:
+			var repetition: Dictionary = repetition_any as Dictionary
+			if str(repetition.get("feature_control_value", "")) != expected_value:
+				mismatches.append("control_value_mismatch:%s" % variant)
+			var renderer_state: Dictionary = repetition.get("renderer_configuration_state", {}) as Dictionary
+			if str(renderer_state.get("arena_polish_comparison_mode", "")) != expected_value:
+				mismatches.append("resolved_mode_mismatch:%s" % variant)
+			if variant == "off" and bool(renderer_state.get("arena_polish_enabled", true)):
+				mismatches.append("off_variant_remained_visible")
+			if variant == "exaggerated" and (
+				not bool(renderer_state.get("arena_polish_enabled", false))
+				or not is_equal_approx(float(renderer_state.get("arena_polish_tower_visual_scale", 0.0)), 1.5)
+			):
+				mismatches.append("exaggerated_variant_not_resolved")
+			config_hashes.append(str(repetition.get("renderer_configuration_hash", "")))
+			timing_rows.append({
+				"repetition": int(repetition.get("repetition_index", 0)),
+				"average_frame_ms": repetition.get("average_frame_ms"),
+				"p95_frame_ms": repetition.get("p95_frame_ms"),
+				"p99_frame_ms": repetition.get("p99_frame_ms"),
+				"max_frame_ms": repetition.get("max_frame_ms")
+			})
+		if config_hashes.size() == 3 and (config_hashes[0].is_empty() or config_hashes[0] != config_hashes[1] or config_hashes[0] != config_hashes[2]):
+			mismatches.append("variant_configuration_not_repeatable:%s" % variant)
+		rows.append({
+			"variant": variant,
+			"control_value": expected_value,
+			"repetition_count": repetitions.size(),
+			"renderer_configuration_hash": config_hashes[0] if not config_hashes.is_empty() else "",
+			"timings": timing_rows
+		})
+	var distinct_hashes: Dictionary = {}
+	for row_any in rows:
+		var hash_value: String = str((row_any as Dictionary).get("renderer_configuration_hash", ""))
+		if not hash_value.is_empty():
+			distinct_hashes[hash_value] = true
+	# Production currently resolves arena polish off, so off/production may share
+	# a renderer hash. Exaggerated must remain observably distinct.
+	if distinct_hashes.size() < 2:
+		mismatches.append("feature_variants_not_observably_distinct")
+	return {
+		"pass": mismatches.is_empty(),
+		"feature_id": "arena_polish_bundle",
+		"classification": str(feature.get("classification", "")),
+		"owner": str(feature.get("owner", "")),
+		"control": (feature.get("control", {}) as Dictionary).duplicate(true),
+		"variants": rows,
+		"one_variable_shared_fields": shared_fields,
+		"production_default_note": "production settings currently resolve arena polish disabled; off and production may match",
 		"mismatches": mismatches
 	}
 

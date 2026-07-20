@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness V1 Completion Plan
 
-Status: `P2-E COMPLETE — P2-F NEXT`
+Status: `P2-F COMPLETE — P2-G NEXT`
 
 Branch: `codex/perf-harness-v1-completion`
 
@@ -81,6 +81,14 @@ Implemented evidence:
 ### P2-F — Feature isolation
 
 Complete the requested feature inventory. Every entry is classified as `PRESENT_ISOLATABLE`, `PRESENT_COUPLED`, `NOT_PRESENT`, or `FUTURE`, records its exact owner, and declares whether off/production/exaggerated variants are comparison-safe. Only exact, reversible controls enter the regression harness.
+
+Implemented evidence:
+
+- `feature_isolation_registry_v1.json` inventories 47 code-derived feature groups across every requested domain: 13 `PRESENT_ISOLATABLE`, 24 `PRESENT_COUPLED`, five `NOT_PRESENT`, and five `FUTURE`. Every present entry names its exact scene/script owner and every entry resolves an explicit off/production/exaggerated policy.
+- Registry validation rejects unknown classifications, missing owners/sources, duplicate IDs, incomplete categories, unsafe scene paths, broad/fragment controls, and supported variants on absent/future features. Unknown CLI switches refuse before fixture setup.
+- Whole renderer-layer controls use exact Arena paths; tower and barracks controls include their exact ground-glow companions. Coupled subvisuals remain production-only rather than acquiring test-only seams.
+- `phase2_feature_isolation` runs arena polish at `baseline`, production `settings`, and diagnostic `tower_150`. Three repetitions per variant preserve all non-target identities, restore global state, and produce stable variant configuration hashes.
+- The current production setting resolves polish disabled; the report states this explicitly. The exaggerated variant resolves polish enabled at exactly 1.5×. Timing remains diagnostic and is not promoted to a performance claim.
 
 ### P2-G — Baselines and exit
 
