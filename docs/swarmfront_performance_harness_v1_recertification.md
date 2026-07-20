@@ -1,12 +1,14 @@
-# Swarmfront Performance Harness V1 Recertification Sprint
+# Swarmfront Performance Harness V1 Host Recertification Review
 
-Status: `P0 EVIDENCE FROZEN`
+Status: `HOST DIAGNOSTIC CONCLUDED`
 
 Branch: `sprint/perf-harness-recertification`
 
 Integration source: `a6e19247a5fa9992e96a8747e140ec9d700a9811`
 
-The Harness V1 integration passes its correctness, determinism, isolation, cleanup, and backend-denial gates. It is not ready to merge because two clean Apple M2 Pro recertification attempts reproducibly failed the static windowed timing contract before baseline packaging.
+The Harness V1 integration passes its correctness, determinism, isolation, cleanup, and backend-denial gates. Two clean Apple M2 Pro attempts reproducibly failed the static windowed timing contract before baseline packaging. Those failures are retained, and neither result may be promoted as a host baseline.
+
+They do not, by themselves, block integration of this mobile-only game's performance harness. The original exit and handoff define the windowed package as an exact-fingerprint debug-host regression reference, not a release-device performance claim. Physical iOS or Android evidence is the applicable source for mobile GPU, thermal, energy, and device frame-pacing conclusions.
 
 The machine-readable sprint record is `data/perf/harness_v1_recertification_sprint.json`. It preserves the workflow run IDs, artifact IDs and digests, source commit, timing ranges, and the refusal to promote either result.
 
@@ -19,13 +21,17 @@ The machine-readable sprint record is `data/perf/harness_v1_recertification_spri
 
 Both reports came from clean commit `a6e1924`, Godot 4.2.2 stable, and an Apple M2 Pro. Both passed integrity, determinism, isolation, fixture cleanup, and backend isolation. The enforced timing contract remains p99 at or below 41.67 ms with zero frames above the 41.67 ms hitch threshold.
 
-## Sequential execution gates
+## Diagnostic conclusion
 
-1. P1 must isolate whether runner state, VSync/display cadence, warmup, or preceding workload causes the failure.
-2. P2 may implement only the smallest evidence-backed correction. A timing-contract change must be versioned and explicitly reviewed.
-3. P3 requires all focused gates plus three consecutive clean arm64 recertifications on one exact commit.
-4. P4 may promote only one passing four-report package with verified hashes and 4/4 self-comparisons.
-5. P5 requires exact-commit Release Readiness and an authority-boundary audit.
-6. P6 merges through a rollback-friendly merge commit and requires the exact main merge SHA to pass post-merge readiness.
+Subsequent isolated launches, display-awake assertions, focus variants, and LaunchServices foreground launches did not establish a reliable focused Godot window on the self-hosted macOS runner. Some variants still showed periodic host presentation stalls while continuing to pass correctness and isolation. Provisioning another desktop runner is not required for the mobile merge decision.
 
-No phase may advance after an unresolved failure.
+The host timing contract remains valid for its narrow purpose: a candidate may be promoted only when its complete comparison fingerprint matches and all timing limits pass. A failed or incompatible host capture must still fail closed. This review changes no timing threshold and promotes no new baseline.
+
+## Integration gates
+
+1. Run all 19 focused correctness, determinism, isolation, cleanup, and backend-denial gates.
+2. Verify the existing curated package hashes and its 4/4 compatible self-comparisons.
+3. Audit the integration diff for the authoritative-state boundary.
+4. Run exact-commit Release Readiness.
+5. Treat physical-device performance evidence as an explicit merge limitation unless it is collected on a connected device.
+6. Merge through a rollback-friendly merge commit only when the applicable gates pass and the documented device-evidence limitation is accepted.

@@ -40,7 +40,7 @@ on:
         default: false
         type: boolean
       perf_harness_recertify:
-        description: Run Harness V1 focused gates and baseline recertification
+        description: Run focused gates and optional exact-host baseline recertification (not mobile certification)
         required: false
         default: false
         type: boolean
@@ -192,7 +192,7 @@ jobs:
           if-no-files-found: ignore
 
   perf-harness-recertification:
-    name: Performance Harness V1 Recertification
+    name: Performance Harness V1 Host Baseline Recertification
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.perf_harness_recertify && !inputs.perf_harness_diagnose }}
     runs-on: [self-hosted, macOS, godot]
     timeout-minutes: 150
@@ -202,7 +202,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify compatible runner
+      - name: Verify compatible host runner
         run: |
           set -euo pipefail
           "${GODOT_BIN}" --version

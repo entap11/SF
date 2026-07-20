@@ -1,11 +1,11 @@
 {
-  "schema": "sf_perf_harness_v1_recertification_sprint_v1",
-  "version": 1,
-  "status": "P0_EVIDENCE_FROZEN",
+  "schema": "sf_perf_harness_v1_recertification_sprint_v2",
+  "version": 2,
+  "status": "HOST_DIAGNOSTIC_CONCLUDED",
   "branch": "sprint/perf-harness-recertification",
   "integration_source_commit": "a6e19247a5fa9992e96a8747e140ec9d700a9811",
   "target_branch_commit": "b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90",
-  "performance_gate_contract": {
+  "host_baseline_contract": {
     "target_fps": 30,
     "target_frame_ms": 33.5,
     "hitch_threshold_ms": 41.67,
@@ -63,11 +63,28 @@
       "baseline_approval": "REFUSED"
     }
   ],
-  "diagnostic_conclusion": "repeatable windowed frame-pacing failure; correctness and isolation contracts pass; no baseline may be promoted",
+  "diagnostic_conclusion": "repeatable macOS host window-pacing failure; correctness and isolation contracts pass; no host baseline may be promoted from these results",
+  "policy_boundary": {
+    "product_platform": "mobile_only",
+    "host_windowed_evidence": "exact-fingerprint debug-host regression and renderer diagnostic only",
+    "mobile_performance_evidence": "physical iOS or Android device capture",
+    "integration_effect": "host timing failures remain diagnostic and do not independently block harness integration",
+    "threshold_change": "NONE",
+    "baseline_promotion": "NONE"
+  },
+  "integration_recommendation": "HARNESS V1 READY WITH LIMITATIONS",
+  "required_integration_gates": [
+    "19 focused harness gates",
+    "curated package hash and self-comparison verification",
+    "authoritative-state boundary audit",
+    "exact-commit Release Readiness",
+    "explicit acceptance or collection of physical-device evidence"
+  ],
   "guardrails": [
     "do not retry until green without preserving every result",
-    "do not weaken timing gates without an explicitly reviewed calibration decision",
+    "do not weaken host timing gates without an explicitly reviewed calibration decision",
     "do not promote failed or dirty reports",
+    "do not represent host windowed results as mobile release-device performance",
     "do not change gameplay or authoritative simulation state during recertification work"
   ]
 }
