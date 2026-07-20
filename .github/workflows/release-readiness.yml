@@ -44,13 +44,18 @@ on:
         required: false
         default: false
         type: boolean
+      perf_harness_diagnose:
+        description: Capture the Harness V1 windowed pacing diagnostic matrix
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "17 11 * * *"
 
 jobs:
   release-readiness:
     name: Release Readiness
-    if: ${{ !inputs.perf_harness_recertify }}
+    if: ${{ !inputs.perf_harness_recertify && !inputs.perf_harness_diagnose }}
     runs-on: [self-hosted, macOS, godot]
     timeout-minutes: 150
     env:
@@ -175,7 +180,7 @@ jobs:
 
   perf-harness-recertification:
     name: Performance Harness V1 Recertification
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.perf_harness_recertify }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.perf_harness_recertify && !inputs.perf_harness_diagnose }}
     runs-on: [self-hosted, macOS, godot]
     timeout-minutes: 150
     env:
@@ -303,4 +308,58 @@ jobs:
         with:
           name: perf-harness-v1-recert-${{ github.run_id }}
           path: artifacts/perf_harness_recert/
+          if-no-files-found: error
+
+  perf-harness-pacing-diagnostic:
+    name: Performance Harness V1 Pacing Diagnostic
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.perf_harness_diagnose && !inputs.perf_harness_recertify }}
+    runs-on: [self-hosted, macOS, godot]
+    timeout-minutes: 60
+    env:
+      GODOT_BIN: ${{ vars.GODOT_BIN || 'godot' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify diagnostic runner
+        run: |
+          set -euo pipefail
+          "${GODOT_BIN}" --version
+          command -v jq
+          machine_arch="$(uname -m)"
+          if [[ "${machine_arch}" != "arm64" ]]; then
+            echo "PERF_PACING_DIAGNOSTIC_FAIL expected_arch=arm64 actual_arch=${machine_arch}"
+            exit 1
+          fi
+
+      - name: Import Godot resources
+        run: |
+          set -euo pipefail
+          import_log="${RUNNER_TEMP}/godot-perf-diagnostic-import.log"
+          set +e
+          "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" --import 2>&1 | tee "${import_log}"
+          import_rc=${PIPESTATUS[0]}
+          set -e
+          required_imports=(
+            "assets/fonts/brand/Iceland/Iceland-Regular.ttf.import"
+            "assets/sprites/sf_skin_v1/barracks.PNG.import"
+            "assets/sprites/sf_skin_v1/mm_back_art.png.import"
+          )
+          for required_import in "${required_imports[@]}"; do
+            if [[ ! -f "${required_import}" ]]; then
+              echo "PERF_PACING_DIAGNOSTIC_IMPORT_FAIL missing=${required_import} import_rc=${import_rc}"
+              exit 1
+            fi
+          done
+          echo "PERF_PACING_DIAGNOSTIC_IMPORT_READY import_rc=${import_rc}"
+
+      - name: Capture controlled pacing matrix
+        run: scripts/dev/run_perf_harness_pacing_diagnostic.sh
+
+      - name: Upload pacing diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-harness-pacing-diagnostic-${{ github.run_id }}
+          path: artifacts/perf_harness_pacing_diagnostic/
           if-no-files-found: error
