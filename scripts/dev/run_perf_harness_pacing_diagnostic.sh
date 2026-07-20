@@ -63,29 +63,36 @@ capture_variant() {
   local rc
   local signal_number=0
   local signal_name=""
-  local engine_args=()
-  local harness_args=()
+  local require_window_foreground=false
+  local godot_command=("${GODOT_BIN}")
 
   while (( $# > 0 )); do
     if [[ "$1" == "--require-window-foreground" ]]; then
-      harness_args+=("$1")
+      require_window_foreground=true
     else
-      engine_args+=("$1")
+      godot_command+=("$1")
     fi
     shift
   done
+  godot_command+=(
+    --path "${ROOT_DIR}"
+    --script "${HARNESS}"
+    --
+    --sf-perf-harness
+    --diagnose-window-lifecycle
+    --perf-user-dir="${user_dir}"
+    --collection-level="${collection_level}"
+    --suite="${SUITE}"
+    --mode="${MODE}"
+  )
+  if [[ "${require_window_foreground}" == "true" ]]; then
+    godot_command+=(--require-window-foreground)
+  fi
+  godot_command+=(--output="res://${report_rel}")
 
   started_at="$(date '+%Y-%m-%d %H:%M:%S')"
   set +e
-  "${GODOT_BIN}" "${engine_args[@]}" --path "${ROOT_DIR}" --script "${HARNESS}" -- \
-    --sf-perf-harness \
-    --diagnose-window-lifecycle \
-    --perf-user-dir="${user_dir}" \
-    --collection-level="${collection_level}" \
-    --suite="${SUITE}" \
-    --mode="${MODE}" \
-    "${harness_args[@]}" \
-    --output="res://${report_rel}" >"${log_path}" 2>&1 &
+  "${godot_command[@]}" >"${log_path}" 2>&1 &
   godot_pid=$!
   printf 'PERF_PACING_DIAGNOSTIC_PROCESS label=%s pid=%s started_at=%s\n' "${label}" "${godot_pid}" "${started_at}"
   wait "${godot_pid}"
