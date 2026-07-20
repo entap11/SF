@@ -1,10 +1,20 @@
 extends SceneTree
 
-const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const ARENA_POLISH_LAYER := preload("res://scripts/renderers/arena_polish_layer.gd")
+const PERF_RUN_POLICY := preload("res://scripts/tests/perf/perf_run_policy.gd")
+const PERF_FIXTURE_CATALOG := preload("res://scripts/tests/perf/perf_fixture_catalog.gd")
+const PERF_FIXTURE_VALIDATOR := preload("res://scripts/tests/perf/perf_fixture_validator.gd")
+const PERF_DETERMINISTIC_HASH := preload("res://scripts/tests/perf/perf_deterministic_hash.gd")
+const PERF_ISOLATION_GUARD := preload("res://scripts/tests/perf/perf_isolation_guard.gd")
+const PERF_RESULT_CONTRACT := preload("res://scripts/tests/perf/perf_result_contract.gd")
+const PERF_METRICS_COLLECTOR := preload("res://scripts/tests/perf/perf_metrics_collector.gd")
+const PERF_BASELINE_COMPARATOR := preload("res://scripts/tests/perf/perf_baseline_comparator.gd")
+const SPRITE_REGISTRY := preload("res://scripts/renderers/sprite_registry.gd")
+const TEST_BACKEND_POLICY := preload("res://scripts/state/test_backend_policy.gd")
 
 const DEFAULT_GATES_PATH := "res://data/perf/benchmark_gates.json"
+const DEFAULT_FIXTURE_CATALOG_PATH := "res://data/perf/phase1_fixture_catalog_v1.json"
 const DEFAULT_OUTPUT_PATH := "res://debug_reports/perf_benchmark_latest.json"
 const SCENARIO_OUTPUT_DIR := "res://debug_reports/perf_benchmarks"
 const ARENA_SCENE_PATH := "res://scenes/Arena.tscn"
@@ -14,22 +24,52 @@ const SIM_TICK_INTERVAL_SEC: float = 0.1
 const RENDER_DISCARD_INITIAL_FRAMES: int = 3
 
 const MAP_QUICK := "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__2p.json"
-const MAP_LAYERS := "res://maps/_future/nomansland/MAP_nomansland__545__v08_spine_knife_fight__npc20__p24.json"
+const MAP_LAYERS := "res://maps/_future/nomansland/MAP_nomansland__545__v08_spine_knife_fight__npc20__1p.json"
 const MAP_STRUCTURES := "res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json"
-const MAP_STRESS := "res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__npc20__p24.json"
+const MAP_STRESS := "res://maps/_future/nomansland/MAP_nomansland__545__v13_top3_each__npc20__1p.json"
+
+const EXPECTED_COUNTS_BY_MAP := {
+	MAP_QUICK: {"hives": 12, "towers": 0, "barracks": 0, "structure_slots": 0},
+	MAP_LAYERS: {"hives": 14, "towers": 0, "barracks": 0, "structure_slots": 2},
+	MAP_STRUCTURES: {"hives": 16, "towers": 0, "barracks": 0, "structure_slots": 4},
+	MAP_STRESS: {"hives": 14, "towers": 0, "barracks": 0, "structure_slots": 2}
+}
 
 var OpsState: Node = null
+var _analytics_isolation_active: bool = false
+var _interrupted_isolation_snapshot: Dictionary = {}
+var _interrupted_scene_root: Node = null
+var _interrupted_arena: Node = null
 
 func _init() -> void:
 	call_deferred("_run_entry")
 
 func _run_entry() -> void:
+	var args: Dictionary = _parse_args()
+	var user_args: PackedStringArray = OS.get_cmdline_user_args()
+	if not PERF_RUN_POLICY.enabled_for_runtime(OS.is_debug_build(), user_args):
+		push_error("perf_benchmark_suite: %s" % PERF_RUN_POLICY.refusal_reason(OS.is_debug_build(), user_args))
+		quit(2)
+		return
+	set_meta("sf_perf_harness_active", true)
 	OpsState = root.get_node_or_null("/root/OpsState")
 	if OpsState == null:
 		push_error("perf_benchmark_suite: OpsState autoload is not available")
+		remove_meta("sf_perf_harness_active")
 		quit(2)
 		return
-	var args: Dictionary = _parse_args()
+	if not _set_analytics_harness_isolation(true):
+		push_error("perf_benchmark_suite: analytics_isolation_unavailable")
+		remove_meta("sf_perf_harness_active")
+		quit(2)
+		return
+	_analytics_isolation_active = true
+	if not bool(_backend_isolation_state().get("pass", false)):
+		push_error("perf_benchmark_suite: backend_isolation_unavailable")
+		_cleanup_entry_state()
+		quit(2)
+		return
+	await _prime_harness_shared_services()
 	var report: Dictionary = await _run_suite(args)
 	var output_path := str(args.get("output", DEFAULT_OUTPUT_PATH))
 	_write_json(output_path, report)
@@ -37,80 +77,321 @@ func _run_entry() -> void:
 		var scenario: Dictionary = scenario_any as Dictionary
 		_write_json("%s/%s_latest.json" % [SCENARIO_OUTPUT_DIR, str(scenario.get("scenario_id", "unknown"))], scenario)
 	print("perf_benchmark_suite: %s" % JSON.stringify(_summary_for_print(report)))
-	quit(0 if bool(report.get("pass", false)) else 1)
+	_cleanup_entry_state()
+	var exit_code: int = 0 if bool(report.get("pass", false)) else 2 if str(report.get("run_status", "")) == "INVALID" else 1
+	call_deferred("_quit_after_entry_unwinds", exit_code)
+
+func _quit_after_entry_unwinds(exit_code: int) -> void:
+	quit(exit_code)
 
 func _run_suite(args: Dictionary) -> Dictionary:
-	var benchmark_mode := str(args.get("mode", "sim_headless")).strip_edges()
+	var benchmark_mode := _normalized_benchmark_mode(str(args.get("mode", "canonical_sim_headless")).strip_edges())
 	if benchmark_mode.is_empty():
-		benchmark_mode = "sim_headless"
+		benchmark_mode = "canonical_sim_headless"
 	var suite_id := str(args.get("suite", "quick")).strip_edges()
 	if suite_id.is_empty():
 		suite_id = "quick"
-	var gates: Dictionary = _load_json(str(args.get("gates", DEFAULT_GATES_PATH)))
-	if gates.is_empty():
-		gates = _default_gates()
+	var catalog_result: Dictionary = PERF_FIXTURE_CATALOG.load_catalog(str(args.get("catalog", DEFAULT_FIXTURE_CATALOG_PATH)))
+	args["_fixture_catalog_identity"] = (catalog_result.get("identity", {}) as Dictionary).duplicate(true)
+	if not bool(catalog_result.get("ok", false)):
+		return _invalid_suite_report(suite_id, benchmark_mode, "fixture_catalog_validation_failed", catalog_result.get("errors", []), args)
+	var fixture_catalog_identity: Dictionary = (catalog_result.get("identity", {}) as Dictionary).duplicate(true)
+	var collection_level: String = PERF_RESULT_CONTRACT.normalize_collection_level(str(args.get("collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL)))
+	if not PERF_RESULT_CONTRACT.is_known_collection_level(collection_level):
+		return _invalid_suite_report(suite_id, benchmark_mode, "collection_level_invalid", ["expected OFF, MINIMAL, or FULL"], args)
+	if benchmark_mode == "render_windowed" and DisplayServer.get_name() == "headless":
+		return _invalid_suite_report(suite_id, benchmark_mode, "render_windowed_requires_display", ["windowed frame timing is unavailable on the headless display server"], args)
+	var gate_result: Dictionary = PERF_FIXTURE_VALIDATOR.load_gate_config(str(args.get("gates", DEFAULT_GATES_PATH)))
+	if not bool(gate_result.get("ok", false)):
+		return _invalid_suite_report(suite_id, benchmark_mode, "gate_validation_failed", gate_result.get("errors", []), args)
+	var gates: Dictionary = gate_result.get("gates", {}) as Dictionary
 	var switch_overrides: Dictionary = args.get("switch_overrides", {}) as Dictionary
 	var scenario_defs: Array = _scenario_definitions(suite_id, switch_overrides, str(args.get("scenario", "")).strip_edges())
+	for scenario_any in scenario_defs:
+		var scenario_def: Dictionary = scenario_any as Dictionary
+		var scenario_collection_level: String = PERF_RESULT_CONTRACT.normalize_collection_level(str(scenario_def.get("_collection_level_override", collection_level)))
+		if not PERF_RESULT_CONTRACT.is_known_collection_level(scenario_collection_level):
+			return _invalid_suite_report(suite_id, benchmark_mode, "scenario_collection_level_invalid", [str(scenario_def.get("scenario_id", "unknown"))], args)
+		scenario_def["_collection_level"] = scenario_collection_level
 	if args.has("map") and not str(args.get("map", "")).strip_edges().is_empty():
 		for scenario_any in scenario_defs:
 			var scenario_def: Dictionary = scenario_any as Dictionary
 			scenario_def["map_path"] = str(args.get("map", ""))
+			scenario_def.erase("expected_counts")
+	if scenario_defs.is_empty():
+		return _invalid_suite_report(suite_id, benchmark_mode, "scenario_selection_empty", ["suite or scenario filter selected no scenarios"], args)
+	var preflight_errors: Array = []
+	for scenario_any in scenario_defs:
+		var scenario_def: Dictionary = scenario_any as Dictionary
+		var preflight: Dictionary = PERF_FIXTURE_VALIDATOR.static_preflight(scenario_def, benchmark_mode)
+		if not bool(preflight.get("ok", false)):
+			preflight_errors.append({
+				"scenario_id": str(scenario_def.get("scenario_id", "unknown")),
+				"errors": (preflight.get("errors", []) as Array).duplicate(true)
+			})
+			continue
+		scenario_def["_preflight_map_data"] = (preflight.get("map_data", {}) as Dictionary).duplicate(true)
+		scenario_def["_preflight_runtime_counts"] = (preflight.get("expected_runtime_counts", {}) as Dictionary).duplicate(true)
+		scenario_def["_preflight_map_content_hash"] = str(preflight.get("map_content_hash", ""))
+		scenario_def["_fixture_config_hash"] = PERF_DETERMINISTIC_HASH.hash_variant(_fixture_identity_payload(scenario_def))
+	if not preflight_errors.is_empty():
+		return _invalid_suite_report(suite_id, benchmark_mode, "fixture_preflight_failed", preflight_errors, args)
 	var scenarios: Array = []
+	var suite_sequence_index: int = 0
 	for scenario_def_any in scenario_defs:
-		var scenario: Dictionary
-		var scenario_def: Dictionary = scenario_def_any as Dictionary
-		if benchmark_mode == "render_windowed":
-			scenario = await _run_render_scenario(scenario_def, benchmark_mode, gates)
-		else:
-			scenario = await _run_sim_scenario(scenario_def, benchmark_mode, gates)
-		scenarios.append(scenario)
+		var base_scenario_def: Dictionary = scenario_def_any as Dictionary
+		var repetitions: int = clampi(int(base_scenario_def.get("repetitions", 1)), 1, 10)
+		for repetition_index in range(repetitions):
+			suite_sequence_index += 1
+			var scenario_def: Dictionary = base_scenario_def.duplicate(true)
+			scenario_def["_repetition_index"] = repetition_index + 1
+			scenario_def["_suite_sequence_index"] = suite_sequence_index
+			var scenario: Dictionary
+			match benchmark_mode:
+				"render_windowed":
+					scenario = await _run_render_scenario(scenario_def, benchmark_mode, gates)
+				"layer_isolation_noncanonical":
+					scenario = await _run_layer_isolation_scenario(scenario_def, benchmark_mode, gates)
+				_:
+					scenario = await _run_canonical_sim_scenario(scenario_def, benchmark_mode, gates)
+			scenarios.append(scenario)
 	var failed: Array = []
+	var integrity_failed: Array = []
 	for scenario_any in scenarios:
 		var scenario: Dictionary = scenario_any as Dictionary
 		if not bool(scenario.get("pass", false)) and not bool(scenario.get("allowed_failure", false)):
 			failed.append(str(scenario.get("scenario_id", "")))
+		for gate_any in scenario.get("failed_gates", []) as Array:
+			if typeof(gate_any) == TYPE_DICTIONARY and str((gate_any as Dictionary).get("gate", "")) == "scenario_setup":
+				integrity_failed.append(str(scenario.get("scenario_id", "")))
+	var determinism: Dictionary = _determinism_evidence(scenarios)
+	if not bool(determinism.get("pass", true)):
+		integrity_failed.append("determinism")
+	var isolation: Dictionary = _isolation_evidence(scenarios)
+	if not bool(isolation.get("pass", true)):
+		integrity_failed.append("isolation")
+	var backend_isolation: Dictionary = _backend_isolation_state()
+	if not bool(backend_isolation.get("pass", false)):
+		integrity_failed.append("backend_isolation")
+	var collector_calibration: Dictionary = {}
+	if suite_id == "phase0_collector_calibration":
+		collector_calibration = _collector_calibration_evidence(scenarios)
+		if not bool(collector_calibration.get("pass", false)):
+			integrity_failed.append("collector_calibration")
 	var report := {
 		"report_type": "sf_perf_benchmark_suite",
+		"result_schema_version": PERF_RESULT_CONTRACT.RESULT_SCHEMA_VERSION,
+		"run_status": "INVALID" if not integrity_failed.is_empty() else "COMPLETED",
+		"integrity_status": "FAIL" if not integrity_failed.is_empty() else "PASS",
 		"suite_id": suite_id,
 		"benchmark_mode": benchmark_mode,
+		"collection_level": collection_level,
 		"generated_at_unix": Time.get_unix_time_from_system(),
 		"git": _git_metadata(),
 		"godot": Engine.get_version_info(),
 		"machine": _machine_metadata(),
+		"fixture_catalog": fixture_catalog_identity,
 		"gates": gates.duplicate(true),
+		"gate_source": str(gate_result.get("source", "")),
 		"switch_overrides": switch_overrides.duplicate(true),
 		"scenario_count": scenarios.size(),
 		"scenarios": scenarios,
-		"pass": failed.is_empty(),
-		"failed_scenarios": failed
+		"determinism": determinism,
+		"isolation": isolation,
+		"backend_isolation": backend_isolation,
+		"collector_calibration": collector_calibration,
+		"pass": failed.is_empty() and bool(determinism.get("pass", true)) and bool(isolation.get("pass", true)) and bool(backend_isolation.get("pass", false)) and (collector_calibration.is_empty() or bool(collector_calibration.get("pass", false))),
+		"failed_scenarios": failed,
+		"integrity_failed_scenarios": integrity_failed
 	}
+	report.merge(_result_environment(gates), true)
+	_apply_result_contract(report)
 	var baseline_path := str(args.get("baseline", "")).strip_edges()
 	if not baseline_path.is_empty():
 		var baseline: Dictionary = _load_json(baseline_path)
 		if not baseline.is_empty():
-			report["baseline_comparison"] = _compare_reports(baseline, report, gates)
+			var comparison: Dictionary = _compare_reports(baseline, report, gates)
+			report["baseline_comparison"] = comparison
+			report["baseline_approval"] = PERF_RESULT_CONTRACT.baseline_approval(report, comparison.get("compatibility", {}) as Dictionary, baseline)
+		else:
+			report["baseline_comparison"] = {
+				"status": "INVALID_BASELINE",
+				"pass": false,
+				"baseline_path": baseline_path,
+				"reason": "baseline_missing_or_invalid_json"
+			}
+			var approval: Dictionary = PERF_RESULT_CONTRACT.baseline_approval(report)
+			var approval_reasons: Array = (approval.get("reasons", []) as Array).duplicate()
+			approval_reasons.append("baseline_missing_or_invalid_json")
+			approval["status"] = "REFUSED"
+			approval["eligible"] = false
+			approval["reasons"] = approval_reasons
+			report["baseline_approval"] = approval
 	return report
 
-func _run_sim_scenario(scenario_def: Dictionary, benchmark_mode: String, gates: Dictionary) -> Dictionary:
+func _run_canonical_sim_scenario(scenario_def: Dictionary, benchmark_mode: String, gates: Dictionary) -> Dictionary:
+	var isolation_snapshot: Dictionary = PERF_ISOLATION_GUARD.capture(self, OpsState)
+	_arm_interrupted_cleanup(isolation_snapshot)
+	var setup_start_usec: int = Time.get_ticks_usec()
+	var setup: Dictionary = await _setup_arena_for_scenario(scenario_def, false)
+	if not bool(setup.get("ok", false)):
+		return await _finalize_scenario(
+			_scenario_error(scenario_def, benchmark_mode, str(setup.get("reason", "setup_failed")), gates),
+			isolation_snapshot,
+			setup.get("scene_root", null) as Node,
+			setup.get("arena", null) as Node
+		)
+	var scene_root: Node = setup.get("scene_root", null) as Node
+	var arena: Node = setup.get("arena", null) as Node
+	_update_interrupted_cleanup_nodes(scene_root, arena)
+	var sim_runner: Node = _arena_sim_runner(arena)
+	if sim_runner == null or not sim_runner.has_method("_tick"):
+		return await _finalize_scenario(
+			_scenario_error(scenario_def, benchmark_mode, "canonical_simrunner_tick_missing", gates),
+			isolation_snapshot,
+			scene_root,
+			arena
+		)
+	sim_runner.set_process(false)
+	sim_runner.set_physics_process(false)
+	sim_runner.set_process_unhandled_input(false)
+	var state: GameState = OpsState.require_state()
+	_prepare_match_for_benchmark()
+	_disable_bots_for_benchmark()
+	var command_log: Array = []
+	var initial_commands: Array = _apply_scenario_initial_state(arena, state, scenario_def)
+	if not initial_commands.is_empty():
+		command_log.append({"tick": 0, "commands": initial_commands})
+	var setup_ms: float = float(Time.get_ticks_usec() - setup_start_usec) / 1000.0
+	var tick_count: int = int(scenario_def.get("tick_count", round(float(scenario_def.get("duration_sec", 1.0)) / SIM_TICK_INTERVAL_SEC)))
+	tick_count = maxi(1, tick_count)
+	var warmup_ticks: int = clampi(int(scenario_def.get("warmup_ticks", 0)), 0, tick_count - 1)
+	var collection_level: String = str(scenario_def.get("_collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL))
+	var collector := PERF_METRICS_COLLECTOR.new(
+		collection_level,
+		int(gates.get("worst_frame_limit", 10)),
+		float(gates.get("target_frame_ms", INF))
+	)
+	var measured_tick_count: int = tick_count - warmup_ticks
+	var measurement_wall_start_usec: int = 0
+	for tick_index in range(1, tick_count + 1):
+		var issued: Array = _issue_commands_for_tick(arena, state, scenario_def, tick_index)
+		if not issued.is_empty():
+			command_log.append({"tick": tick_index, "commands": issued})
+		var measured: bool = tick_index > warmup_ticks
+		if measured and measurement_wall_start_usec == 0:
+			measurement_wall_start_usec = Time.get_ticks_usec()
+		if measured and collector.timing_enabled():
+			var tick_start_usec: int = Time.get_ticks_usec()
+			sim_runner.call("_tick", SIM_TICK_INTERVAL_SEC)
+			var tick_ms: float = float(Time.get_ticks_usec() - tick_start_usec) / 1000.0
+			var context: Dictionary = {}
+			if collector.needs_forensic_context(tick_ms):
+				var phase_any: Variant = sim_runner.get("_last_tick_phase_costs")
+				if typeof(phase_any) == TYPE_DICTIONARY:
+					context["phase_times_ms"] = phase_any as Dictionary
+			collector.observe(tick_index, tick_ms, context)
+		else:
+			sim_runner.call("_tick", SIM_TICK_INTERVAL_SEC)
+	var measurement_wall_duration_ms: float = float(Time.get_ticks_usec() - measurement_wall_start_usec) / 1000.0 if measurement_wall_start_usec > 0 else 0.0
+	var collection: Dictionary = collector.summary()
+	var command_count: int = _scripted_command_count_from_log(command_log)
+	var requested_seed: int = int(scenario_def.get("seed", 0))
+	var effective_seed: int = int(setup.get("effective_seed", 0))
+	var final_state_hash: String = str(OpsState.call("get_contract_state_hash")) if OpsState.has_method("get_contract_state_hash") else ""
+	var integrity_failures: Array = []
+	if requested_seed != effective_seed:
+		integrity_failures.append("effective_seed_mismatch")
+	if final_state_hash.is_empty():
+		integrity_failures.append("final_state_hash_missing")
+	if command_count < int(scenario_def.get("expected_command_count_min", 0)):
+		integrity_failures.append("scheduled_command_count_below_minimum")
+	var observed_command_types: Array[String] = _command_types_from_log(command_log)
+	for expected_type_any in scenario_def.get("expected_command_types", []) as Array:
+		var expected_type: String = str(expected_type_any)
+		if not observed_command_types.has(expected_type):
+			integrity_failures.append("scheduled_command_type_missing:%s" % expected_type)
+	if OpsState.match_phase != OpsState.MatchPhase.RUNNING or bool(OpsState.match_over):
+		integrity_failures.append("fixture_ended_match")
+	var baseline_reasons: Array = ["phase0_integrity_or_unapproved_fixture"]
+	if int(scenario_def.get("calibration_sequence_index", 0)) > 0:
+		baseline_reasons = ["collector_overhead_calibration"]
+	if collection_level == PERF_METRICS_COLLECTOR.LEVEL_OFF:
+		baseline_reasons.append("timing_collection_off")
+	var report := _base_scenario_report(scenario_def, benchmark_mode, gates)
+	report.merge({
+		"canonical_simulation": true,
+		"baseline_eligible": false,
+		"baseline_ineligible_reasons": baseline_reasons,
+		"duration_sec": float(tick_count) * SIM_TICK_INTERVAL_SEC,
+		"warmup_duration_sec": float(warmup_ticks) * SIM_TICK_INTERVAL_SEC,
+		"measurement_duration_sec": float(measured_tick_count) * SIM_TICK_INTERVAL_SEC,
+		"measurement_wall_duration_ms": measurement_wall_duration_ms,
+		"sim_tick_interval_sec": SIM_TICK_INTERVAL_SEC,
+		"setup_duration_ms": setup_ms,
+		"tick_count": tick_count,
+		"warmup_tick_count": warmup_ticks,
+		"measured_tick_count": measured_tick_count,
+		"collection": collection,
+		"scripted_command_count": command_count,
+		"scripted_command_ticks": command_log,
+		"command_schedule_hash": PERF_DETERMINISTIC_HASH.hash_variant(command_log),
+		"effective_seed": effective_seed,
+		"observed_command_types": observed_command_types,
+		"final_state_hash": final_state_hash,
+		"match": _match_summary(state, tick_count),
+		"average_tick_ms": collection.get("average_ms"),
+		"median_tick_ms": collection.get("median_ms"),
+		"p95_tick_ms": collection.get("p95_ms"),
+		"p99_tick_ms": collection.get("p99_ms"),
+		"max_tick_ms": collection.get("max_ms"),
+		"worst_sim_ticks": _canonical_worst_records(collection.get("worst_records", []) as Array),
+		"performance_status": "NOT_COLLECTED" if not collector.timing_enabled() else "NOT_GATED",
+		"pass": integrity_failures.is_empty(),
+		"integrity_failures": integrity_failures,
+		"failed_gates": []
+	}, true)
+	return await _finalize_scenario(report, isolation_snapshot, scene_root, arena)
+
+func _run_layer_isolation_scenario(scenario_def: Dictionary, benchmark_mode: String, gates: Dictionary) -> Dictionary:
+	var isolation_snapshot: Dictionary = PERF_ISOLATION_GUARD.capture(self, OpsState)
+	_arm_interrupted_cleanup(isolation_snapshot)
 	var setup_start_usec := Time.get_ticks_usec()
 	var setup: Dictionary = await _setup_arena_for_scenario(scenario_def, false)
 	if not bool(setup.get("ok", false)):
-		return _scenario_error(scenario_def, benchmark_mode, str(setup.get("reason", "setup_failed")), gates)
+		return await _finalize_scenario(
+			_scenario_error(scenario_def, benchmark_mode, str(setup.get("reason", "setup_failed")), gates),
+			isolation_snapshot,
+			setup.get("scene_root", null) as Node,
+			setup.get("arena", null) as Node
+		)
+	var scene_root: Node = setup.get("scene_root", null) as Node
 	var arena: Node = setup.get("arena", null) as Node
+	_update_interrupted_cleanup_nodes(scene_root, arena)
 	var sim_runner: Node = _arena_sim_runner(arena)
 	var state: GameState = OpsState.require_state()
 	_prepare_match_for_benchmark()
-	_apply_scenario_initial_state(arena, state, scenario_def)
+	var initial_commands: Array = _apply_scenario_initial_state(arena, state, scenario_def)
 	var setup_ms := float(Time.get_ticks_usec() - setup_start_usec) / 1000.0
-	var frames: Array = []
-	var hitches: Array = []
-	var tick_reports: Array = []
 	var command_log: Array = []
+	if not initial_commands.is_empty():
+		command_log.append({"tick": 0, "commands": initial_commands})
 	var frame_count: int = int(ceil(float(scenario_def.get("duration_sec", 1.0)) / FRAME_DELTA_SEC))
+	var collection_level: String = str(scenario_def.get("_collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL))
+	var collector := PERF_METRICS_COLLECTOR.new(
+		collection_level,
+		int(gates.get("worst_frame_limit", 10)),
+		float(gates.get("target_frame_ms", INF))
+	)
+	var sim_phase_collector := PERF_METRICS_COLLECTOR.new(
+		collection_level,
+		int(gates.get("worst_frame_limit", 10)),
+		INF
+	)
 	var tick_accumulator := 0.0
 	var tick_index := 0
 	for frame_index in range(frame_count):
-		var frame_start_usec := Time.get_ticks_usec()
+		var frame_start_usec: int = Time.get_ticks_usec() if collector.timing_enabled() else 0
 		tick_accumulator += FRAME_DELTA_SEC
 		var last_sections: Dictionary = {}
 		while tick_accumulator + 0.000001 >= SIM_TICK_INTERVAL_SEC:
@@ -120,129 +401,175 @@ func _run_sim_scenario(scenario_def: Dictionary, benchmark_mode: String, gates: 
 			if not issued.is_empty():
 				command_log.append({"tick": tick_index, "commands": issued})
 			last_sections = _tick_selected_systems(arena, sim_runner, state, scenario_def, SIM_TICK_INTERVAL_SEC)
-			tick_reports.append({"tick": tick_index, "phase_times_ms": last_sections.duplicate(true)})
-		var frame_ms := float(Time.get_ticks_usec() - frame_start_usec) / 1000.0
-		frames.append(frame_ms)
-		_add_hitch_if_needed(
-			hitches,
-			frames.size(),
-			tick_index,
-			frame_ms,
-			"simulation",
-			_classification_for_frame(frame_ms, gates, last_sections, {}),
-			gates,
-			last_sections,
-			{}
-		)
-	var metrics: Dictionary = _frame_metrics(frames)
-	var failed_gates: Array = _failed_gates(metrics, hitches.size(), gates)
+			if sim_phase_collector.timing_enabled():
+				var sim_total_ms: float = float(last_sections.get("total_ms", 0.0))
+				var sim_context: Dictionary = {"phase_times_ms": last_sections} if sim_phase_collector.needs_forensic_context(sim_total_ms) else {}
+				sim_phase_collector.observe(tick_index, sim_total_ms, sim_context)
+		if collector.timing_enabled():
+			var frame_ms: float = float(Time.get_ticks_usec() - frame_start_usec) / 1000.0
+			var frame_context: Dictionary = {}
+			if collector.needs_forensic_context(frame_ms):
+				frame_context = {
+					"tick": tick_index,
+					"phase": "simulation",
+					"classification": _classification_for_frame(frame_ms, gates, last_sections),
+					"sim_sections": last_sections
+				}
+			collector.observe(frame_index + 1, frame_ms, frame_context)
+	var collection: Dictionary = collector.summary()
+	var sim_phase_collection: Dictionary = sim_phase_collector.summary()
+	var metrics: Dictionary = _collector_frame_metrics(collection)
+	var failed_gates: Array = _failed_gates(metrics, int(collection.get("hitch_count", 0)), gates) if collector.timing_enabled() else []
 	var report := _base_scenario_report(scenario_def, benchmark_mode, gates)
 	report.merge({
+		"canonical_simulation": false,
+		"baseline_eligible": false,
+		"baseline_ineligible_reasons": ["layer_isolation_noncanonical"],
 		"duration_sec": float(scenario_def.get("duration_sec", 0.0)),
+		"warmup_duration_sec": 0.0,
+		"measurement_duration_sec": float(scenario_def.get("duration_sec", 0.0)),
 		"frame_delta_sec": FRAME_DELTA_SEC,
 		"sim_tick_interval_sec": SIM_TICK_INTERVAL_SEC,
 		"setup_duration_ms": setup_ms,
-		"frame_count": frames.size(),
-		"measured_frame_count": frames.size(),
+		"frame_count": frame_count,
+		"measured_frame_count": frame_count,
+		"collection": collection,
+		"sim_phase_collection": sim_phase_collection,
 		"scripted_command_count": _scripted_command_count_from_log(command_log),
 		"scripted_command_ticks": command_log,
+		"command_schedule_hash": PERF_DETERMINISTIC_HASH.hash_variant(command_log),
 		"match": _match_summary(state, tick_index),
-		"average_frame_ms": metrics.get("average_frame_ms", 0.0),
-		"median_frame_ms": metrics.get("median_frame_ms", 0.0),
-		"p95_frame_ms": metrics.get("p95_frame_ms", 0.0),
-		"p99_frame_ms": metrics.get("p99_frame_ms", 0.0),
-		"p999_frame_ms": metrics.get("p999_frame_ms", 0.0),
-		"max_frame_ms": metrics.get("max_frame_ms", 0.0),
-		"hitch_threshold_ms": float(gates.get("target_frame_ms", 16.67)),
-		"hitch_count": hitches.size(),
-		"hitches": hitches,
-		"worst_frames": _worst_frames(frames, int(gates.get("worst_frame_limit", 10))),
-		"worst_sim_ticks": _worst_sim_ticks(tick_reports, int(gates.get("worst_frame_limit", 10))),
+		"average_frame_ms": collection.get("average_ms"),
+		"median_frame_ms": collection.get("median_ms"),
+		"p95_frame_ms": collection.get("p95_ms"),
+		"p99_frame_ms": collection.get("p99_ms"),
+		"p999_frame_ms": collection.get("p999_ms"),
+		"max_frame_ms": collection.get("max_ms"),
+		"hitch_threshold_ms": float(gates.get("target_frame_ms", 0.0)),
+		"hitch_count": collection.get("hitch_count"),
+		"hitches": _collector_hitch_records(collection.get("hitch_records", []) as Array),
+		"worst_frames": _frame_worst_records(collection.get("worst_records", []) as Array),
+		"worst_sim_ticks": _canonical_worst_records(sim_phase_collection.get("worst_records", []) as Array),
+		"performance_status": "NOT_COLLECTED" if not collector.timing_enabled() else "GATED_NONCANONICAL",
 		"pass": failed_gates.is_empty(),
 		"failed_gates": failed_gates
 	}, true)
-	_teardown_node(arena)
-	await process_frame
-	return report
+	return await _finalize_scenario(report, isolation_snapshot, scene_root, arena)
 
 func _run_render_scenario(scenario_def: Dictionary, benchmark_mode: String, gates: Dictionary) -> Dictionary:
+	var isolation_snapshot: Dictionary = PERF_ISOLATION_GUARD.capture(self, OpsState)
+	_arm_interrupted_cleanup(isolation_snapshot)
 	var setup: Dictionary = await _setup_arena_for_scenario(scenario_def, true)
 	if not bool(setup.get("ok", false)):
-		return _scenario_error(scenario_def, benchmark_mode, str(setup.get("reason", "setup_failed")), gates)
+		return await _finalize_scenario(
+			_scenario_error(scenario_def, benchmark_mode, str(setup.get("reason", "setup_failed")), gates),
+			isolation_snapshot,
+			setup.get("scene_root", null) as Node,
+			setup.get("arena", null) as Node
+		)
 	var scene_root: Node = setup.get("scene_root", null) as Node
 	var arena: Node = setup.get("arena", null) as Node
+	_update_interrupted_cleanup_nodes(scene_root, arena)
 	var state: GameState = OpsState.require_state()
 	_prepare_match_for_benchmark()
-	_apply_scenario_initial_state(arena, state, scenario_def)
+	var initial_commands: Array = _apply_scenario_initial_state(arena, state, scenario_def)
 	_apply_render_isolation(arena, scenario_def)
 	if arena.has_method("start_sim"):
 		arena.call("start_sim")
 	var discard_initial_frames: int = max(0, int(scenario_def.get("render_discard_initial_frames", RENDER_DISCARD_INITIAL_FRAMES)))
 	var duration_sec := float(scenario_def.get("duration_sec", 1.0))
 	var max_frames: int = int(ceil(duration_sec * 90.0)) + discard_initial_frames
-	var frames: Array = []
-	var hitches: Array = []
+	var collection_level: String = str(scenario_def.get("_collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL))
+	var collector := PERF_METRICS_COLLECTOR.new(
+		collection_level,
+		int(gates.get("worst_frame_limit", 10)),
+		float(gates.get("target_frame_ms", INF)),
+		-1,
+		-1,
+		0
+	)
 	var command_log: Array = []
+	if not initial_commands.is_empty():
+		command_log.append({"tick": 0, "commands": initial_commands})
+	var discarded_duration_ms: float = 0.0
+	var observed_measurement_duration_ms: float = 0.0
+	var measured_frame_count: int = 0
 	var started_usec := Time.get_ticks_usec()
 	var last_usec := started_usec
 	var tick_index := 0
+	var last_command_tick: int = 0
 	for frame_index in range(max_frames):
 		await process_frame
 		var now_usec := Time.get_ticks_usec()
 		var elapsed_sec := float(now_usec - started_usec) / 1000000.0
 		var frame_ms := float(now_usec - last_usec) / 1000.0
 		last_usec = now_usec
-		if frame_index >= discard_initial_frames:
-			frames.append(frame_ms)
-			var issued: Array = _issue_scripted_commands(arena, state, scenario_def, tick_index)
-			if not issued.is_empty():
-				command_log.append({"frame": frame_index + 1, "commands": issued})
-			var render_sections: Dictionary = _render_sections_for_frame(arena, frame_ms)
-			_add_hitch_if_needed(
-				hitches,
-				frames.size(),
-				tick_index,
-				frame_ms,
-				"render",
-				_classification_for_frame(frame_ms, gates, {}, render_sections),
-				gates,
-				{},
-				render_sections
-			)
 		tick_index = int(round(elapsed_sec / SIM_TICK_INTERVAL_SEC))
+		if frame_index >= discard_initial_frames:
+			measured_frame_count += 1
+			if tick_index > last_command_tick:
+				for command_tick in range(last_command_tick + 1, tick_index + 1):
+					var issued: Array = _issue_commands_for_tick(arena, state, scenario_def, command_tick)
+					if not issued.is_empty():
+						command_log.append({"tick": command_tick, "commands": issued})
+				last_command_tick = tick_index
+			if collector.timing_enabled():
+				observed_measurement_duration_ms += frame_ms
+				var frame_context: Dictionary = {}
+				if collector.needs_forensic_context(frame_ms):
+					frame_context = {
+						"tick": tick_index,
+						"phase": "render",
+						"classification": _classification_for_frame(frame_ms, gates, {}),
+						"renderer_configuration_state": _renderer_configuration_state(arena)
+					}
+				collector.observe(measured_frame_count, frame_ms, frame_context)
+		else:
+			discarded_duration_ms += frame_ms
 		if elapsed_sec >= duration_sec:
 			break
-	var metrics: Dictionary = _frame_metrics(frames)
-	var failed_gates: Array = _failed_gates(metrics, hitches.size(), gates)
+	var collection: Dictionary = collector.summary()
+	var metrics: Dictionary = _collector_frame_metrics(collection)
+	var failed_gates: Array = _failed_gates(metrics, int(collection.get("hitch_count", 0)), gates) if collector.timing_enabled() else []
 	var report := _base_scenario_report(scenario_def, benchmark_mode, gates)
 	report.merge({
+		"canonical_simulation": false,
+		"baseline_eligible": false,
+		"baseline_ineligible_reasons": ["phase0_render_fixture_not_approved"],
 		"duration_sec": duration_sec,
 		"target_duration_sec": duration_sec,
+		"warmup_duration_sec": float(discard_initial_frames) * FRAME_DELTA_SEC,
+		"measurement_duration_sec": duration_sec,
+		"observed_warmup_duration_sec": discarded_duration_ms / 1000.0 if collector.timing_enabled() else null,
+		"observed_measurement_duration_sec": observed_measurement_duration_ms / 1000.0 if collector.timing_enabled() else null,
 		"frame_delta_sec": 0.0,
 		"sim_tick_interval_sec": SIM_TICK_INTERVAL_SEC,
-		"frame_count": frames.size() + discard_initial_frames,
-		"measured_frame_count": frames.size(),
+		"frame_count": measured_frame_count + discard_initial_frames,
+		"measured_frame_count": measured_frame_count,
 		"discarded_initial_frames": discard_initial_frames,
+		"render_loop_control_clock_reads_per_frame": 1,
+		"collection": collection,
 		"scripted_command_count": _scripted_command_count_from_log(command_log),
 		"scripted_command_ticks": command_log,
+		"command_schedule_hash": PERF_DETERMINISTIC_HASH.hash_variant(command_log),
+		"renderer_configuration_state": _renderer_configuration_state(arena),
 		"match": _match_summary(state, tick_index),
-		"average_frame_ms": metrics.get("average_frame_ms", 0.0),
-		"median_frame_ms": metrics.get("median_frame_ms", 0.0),
-		"p95_frame_ms": metrics.get("p95_frame_ms", 0.0),
-		"p99_frame_ms": metrics.get("p99_frame_ms", 0.0),
-		"p999_frame_ms": metrics.get("p999_frame_ms", 0.0),
-		"max_frame_ms": metrics.get("max_frame_ms", 0.0),
-		"hitch_threshold_ms": float(gates.get("target_frame_ms", 16.67)),
-		"hitch_count": hitches.size(),
-		"hitches": hitches,
-		"worst_frames": _worst_frames(frames, int(gates.get("worst_frame_limit", 10))),
+		"average_frame_ms": collection.get("average_ms"),
+		"median_frame_ms": collection.get("median_ms"),
+		"p95_frame_ms": collection.get("p95_ms"),
+		"p99_frame_ms": collection.get("p99_ms"),
+		"p999_frame_ms": collection.get("p999_ms"),
+		"max_frame_ms": collection.get("max_ms"),
+		"hitch_threshold_ms": float(gates.get("target_frame_ms", 0.0)),
+		"hitch_count": collection.get("hitch_count"),
+		"hitches": _collector_hitch_records(collection.get("hitch_records", []) as Array),
+		"worst_frames": _frame_worst_records(collection.get("worst_records", []) as Array),
 		"worst_sim_ticks": [],
+		"performance_status": "NOT_COLLECTED" if not collector.timing_enabled() else "GATED_WINDOWED",
 		"pass": failed_gates.is_empty(),
 		"failed_gates": failed_gates
 	}, true)
-	_teardown_node(scene_root)
-	await process_frame
-	return report
+	return await _finalize_scenario(report, isolation_snapshot, scene_root, arena)
 
 func _setup_arena_for_scenario(scenario_def: Dictionary, real_scene: bool) -> Dictionary:
 	var scene_path := MAIN_SCENE_PATH if real_scene else ARENA_SCENE_PATH
@@ -268,20 +595,50 @@ func _setup_arena_for_scenario(scenario_def: Dictionary, real_scene: bool) -> Di
 		return {"ok": false, "reason": "arena_missing", "scene_path": scene_path}
 	_apply_project_switches(scenario_def)
 	var map_path := str(scenario_def.get("map_path", MAP_QUICK))
-	var load_result: Dictionary = MAP_LOADER.load_map(map_path)
-	if not bool(load_result.get("ok", false)):
+	var map_data: Dictionary = scenario_def.get("_preflight_map_data", {}) as Dictionary
+	if map_data.is_empty():
 		_teardown_node(scene_root)
-		return {"ok": false, "reason": "map_load_failed:%s" % str(load_result.get("err", load_result.get("error", "unknown"))), "map_path": map_path}
-	var map_data: Dictionary = load_result.get("data", {}) as Dictionary
+		return {"ok": false, "reason": "fixture_preflight_data_missing", "map_path": map_path}
 	MAP_APPLIER.apply_map(arena as Node2D, map_data)
 	await process_frame
 	await process_frame
+	var state: GameState = OpsState.require_state()
+	var expected_counts: Dictionary = scenario_def.get("_preflight_runtime_counts", {}) as Dictionary
+	var actual_counts: Dictionary = PERF_FIXTURE_VALIDATOR.runtime_counts(state, arena)
+	var post_apply: Dictionary = PERF_FIXTURE_VALIDATOR.validate_post_apply(expected_counts, actual_counts)
+	if not bool(post_apply.get("ok", false)):
+		_teardown_node(scene_root)
+		return {
+			"ok": false,
+			"reason": "post_apply_validation_failed:%s" % str(post_apply.get("errors", [])),
+			"map_path": map_path,
+			"expected_counts": expected_counts.duplicate(true),
+			"actual_counts": actual_counts.duplicate(true)
+		}
+	if not arena.has_method("set_perf_match_seed_override") or not bool(arena.call("set_perf_match_seed_override", int(scenario_def.get("seed", 0)))):
+		_teardown_node(scene_root)
+		return {"ok": false, "reason": "perf_seed_override_refused", "map_path": map_path}
+	var effective_seed: int = int(arena.call("get_effective_match_seed")) if arena.has_method("get_effective_match_seed") else 0
+	if effective_seed != int(scenario_def.get("seed", 0)):
+		_teardown_node(scene_root)
+		return {
+			"ok": false,
+			"reason": "effective_seed_mismatch",
+			"requested_seed": int(scenario_def.get("seed", 0)),
+			"effective_seed": effective_seed
+		}
 	var sim_runner: Node = _arena_sim_runner(arena)
 	if sim_runner != null and sim_runner.has_method("bind_state"):
 		sim_runner.call("bind_state", OpsState.require_state())
 		await process_frame
 		await process_frame
-	return {"ok": true, "scene_root": scene_root, "arena": arena, "map_path": map_path}
+	return {
+		"ok": true,
+		"scene_root": scene_root,
+		"arena": arena,
+		"map_path": map_path,
+		"effective_seed": effective_seed
+	}
 
 func _prepare_match_for_benchmark() -> void:
 	OpsState.sim_mutate("PerfBenchmark.prepare_match", func() -> void:
@@ -305,7 +662,8 @@ func _apply_project_switches(scenario_def: Dictionary) -> void:
 	if switches.has("tower_visual_scale"):
 		ProjectSettings.set_setting("swarmfront/arena/tower_visual_scale", float(switches.get("tower_visual_scale", 1.0)))
 
-func _apply_scenario_initial_state(arena: Node, state: GameState, scenario_def: Dictionary) -> void:
+func _apply_scenario_initial_state(arena: Node, state: GameState, scenario_def: Dictionary) -> Array:
+	var commands: Array = []
 	var initial_lanes: int = max(0, int(scenario_def.get("initial_lanes", 4)))
 	var issued := 0
 	var candidate_pairs: Array = _candidate_attack_pairs(state)
@@ -317,14 +675,69 @@ func _apply_scenario_initial_state(arena: Node, state: GameState, scenario_def: 
 		var result: Dictionary = OpsState.apply_lane_intent(int(pair.get("src", -1)), int(pair.get("dst", -1)), intent)
 		if bool(result.get("ok", false)):
 			issued += 1
+			commands.append({"type": intent, "src": int(pair.get("src", -1)), "dst": int(pair.get("dst", -1)), "setup": true})
 	var swarm_count: int = max(0, int(scenario_def.get("initial_swarms", 0)))
 	for i in range(swarm_count):
-		_issue_swarm_on_active_lane(state, i)
+		var swarm_report: Dictionary = _issue_swarm_on_active_lane(state, i)
+		if bool(swarm_report.get("ok", false)):
+			swarm_report["setup"] = true
+			commands.append(swarm_report)
 	var route_count: int = max(0, int(scenario_def.get("initial_barracks_routes", 0)))
 	if route_count > 0:
 		_seed_barracks_routes(state, route_count)
 	if arena != null and arena.has_method("mark_render_dirty"):
 		arena.call("mark_render_dirty", "perf_benchmark_setup")
+	return commands
+
+func _disable_bots_for_benchmark() -> void:
+	if OpsState.has_method("ensure_bot_profiles_from_roster"):
+		OpsState.call("ensure_bot_profiles_from_roster")
+	if not OpsState.has_method("get_bot_profiles_snapshot") or not OpsState.has_method("set_bot_profile"):
+		return
+	var profiles: Dictionary = OpsState.call("get_bot_profiles_snapshot") as Dictionary
+	for seat_any in profiles.keys():
+		OpsState.call("set_bot_profile", int(seat_any), {"enabled": false})
+
+func _issue_commands_for_tick(arena: Node, state: GameState, scenario_def: Dictionary, tick: int) -> Array:
+	var schedule: Array = scenario_def.get("command_schedule", []) as Array
+	if not schedule.is_empty():
+		return _issue_scheduled_commands(arena, state, schedule, tick)
+	return _issue_scripted_commands(arena, state, scenario_def, tick)
+
+func _issue_scheduled_commands(arena: Node, state: GameState, schedule: Array, tick: int) -> Array:
+	var issued: Array = []
+	for schedule_index in range(schedule.size()):
+		var command_any: Variant = schedule[schedule_index]
+		if typeof(command_any) != TYPE_DICTIONARY:
+			continue
+		var command: Dictionary = command_any as Dictionary
+		if int(command.get("tick", -1)) != tick:
+			continue
+		var kind: String = str(command.get("kind", ""))
+		match kind:
+			"lane_intent_pair":
+				var pairs: Array = _candidate_attack_pairs(state)
+				if pairs.is_empty():
+					continue
+				var pair_index: int = posmod(int(command.get("pair_index", 0)), pairs.size())
+				var pair: Dictionary = pairs[pair_index] as Dictionary
+				var intent: String = str(command.get("intent", "attack"))
+				var result: Dictionary = OpsState.apply_lane_intent(int(pair.get("src", -1)), int(pair.get("dst", -1)), intent)
+				if bool(result.get("ok", false)):
+					issued.append({
+						"type": intent,
+						"src": int(pair.get("src", -1)),
+						"dst": int(pair.get("dst", -1)),
+						"schedule_index": schedule_index
+					})
+			"swarm_active_lane":
+				var swarm_report: Dictionary = _issue_swarm_on_active_lane(state, int(command.get("salt", schedule_index)))
+				if bool(swarm_report.get("ok", false)):
+					swarm_report["schedule_index"] = schedule_index
+					issued.append(swarm_report)
+	if arena != null and arena.has_method("mark_render_dirty") and not issued.is_empty():
+		arena.call("mark_render_dirty", "perf_benchmark_scheduled")
+	return issued
 
 func _tick_selected_systems(arena: Node, sim_runner: Node, state: GameState, scenario_def: Dictionary, dt: float) -> Dictionary:
 	var enabled: Dictionary = _enabled_system_lookup(scenario_def)
@@ -414,6 +827,17 @@ func _issue_scripted_commands(arena: Node, state: GameState, scenario_def: Dicti
 func _scenario_definitions(suite_id: String, switch_overrides: Dictionary = {}, scenario_filter: String = "") -> Array:
 	var scenarios: Array
 	match suite_id:
+		"phase0_integrity":
+			scenarios = [_phase0_integrity_scenario()]
+		"phase0_collector_calibration":
+			scenarios = _phase0_collector_calibration_scenarios()
+		"phase0_isolation":
+			var sentinel: Dictionary = _phase0_isolation_sentinel_scenario()
+			scenarios = [
+				sentinel,
+				_phase0_isolation_mutator_scenario(),
+				sentinel.duplicate(true)
+			]
 		"quick":
 			scenarios = [
 				_scenario_def("sim_bootstrap_5s", MAP_QUICK, 5.0, 4101, ["ops_events", "lane_flow", "edge_cache", "render_model"], 4, 0, 1),
@@ -465,7 +889,11 @@ func _scenario_def(
 		"scenario_id": scenario_id,
 		"map_path": map_path,
 		"duration_sec": duration_sec,
+		"fixture_version": 1,
 		"seed": seed_value,
+		"tick_count": maxi(1, int(round(duration_sec / SIM_TICK_INTERVAL_SEC))),
+		"warmup_ticks": 0,
+		"repetitions": 1,
 		"systems": systems.duplicate(),
 		"initial_lanes": initial_lanes,
 		"initial_swarms": initial_swarms,
@@ -473,13 +901,104 @@ func _scenario_def(
 		"command_interval_ticks": 5,
 		"commands_per_burst": commands_per_burst,
 		"swarm_burst": initial_swarms,
+		"command_schedule": [],
 		"runtime_switches": {
 			"arena_polish_comparison_mode": "baseline",
 			"premium_polish_enabled": false,
 			"tower_visual_scale": 1.0
 		},
-		"renderers": ["floor", "hive", "lane", "unit", "tower", "wall", "barracks", "polish"]
+		"renderers": ["floor", "hive", "lane", "unit", "tower", "wall", "barracks", "polish"],
+		"expected_counts": (EXPECTED_COUNTS_BY_MAP.get(map_path, {}) as Dictionary).duplicate(true)
 	}
+
+func _phase0_integrity_scenario() -> Dictionary:
+	var scenario: Dictionary = _scenario_def(
+		"PHASE0_INTEGRITY_CENTERSTRIKE_V1",
+		MAP_QUICK,
+		5.0,
+		4101,
+		["canonical_simrunner"],
+		4,
+		0,
+		1
+	)
+	scenario["tick_count"] = 50
+	scenario["warmup_ticks"] = 10
+	scenario["repetitions"] = 3
+	scenario["expected_command_count_min"] = 8
+	scenario["expected_command_types"] = ["attack", "swarm"]
+	scenario["command_schedule"] = [
+		{"tick": 5, "kind": "lane_intent_pair", "pair_index": 4, "intent": "attack"},
+		{"tick": 15, "kind": "swarm_active_lane", "salt": 0},
+		{"tick": 25, "kind": "lane_intent_pair", "pair_index": 5, "intent": "attack"},
+		{"tick": 35, "kind": "lane_intent_pair", "pair_index": 6, "intent": "attack"}
+	]
+	return scenario
+
+func _phase0_collector_calibration_scenarios() -> Array:
+	var base: Dictionary = _phase0_integrity_scenario()
+	base["scenario_id"] = "PHASE0_COLLECTOR_CALIBRATION_V1"
+	base["repetitions"] = 1
+	var order: Array[String] = [
+		"OFF", "MINIMAL", "FULL",
+		"FULL", "OFF", "MINIMAL",
+		"MINIMAL", "FULL", "OFF"
+	]
+	var scenarios: Array = []
+	for sequence_index in range(order.size()):
+		var scenario: Dictionary = base.duplicate(true)
+		scenario["_collection_level_override"] = order[sequence_index]
+		scenario["calibration_sequence_index"] = sequence_index + 1
+		scenarios.append(scenario)
+	return scenarios
+
+func _phase0_isolation_sentinel_scenario() -> Dictionary:
+	var scenario: Dictionary = _scenario_def(
+		"PHASE0_ISOLATION_SENTINEL_V1",
+		MAP_QUICK,
+		3.0,
+		4101,
+		["canonical_simrunner"],
+		4,
+		0,
+		1
+	)
+	scenario["tick_count"] = 30
+	scenario["warmup_ticks"] = 5
+	scenario["expected_command_count_min"] = 7
+	scenario["expected_command_types"] = ["attack", "swarm"]
+	scenario["command_schedule"] = [
+		{"tick": 5, "kind": "lane_intent_pair", "pair_index": 4, "intent": "attack"},
+		{"tick": 15, "kind": "swarm_active_lane", "salt": 0},
+		{"tick": 25, "kind": "lane_intent_pair", "pair_index": 5, "intent": "attack"}
+	]
+	return scenario
+
+func _phase0_isolation_mutator_scenario() -> Dictionary:
+	var scenario: Dictionary = _scenario_def(
+		"PHASE0_ISOLATION_MUTATOR_V1",
+		MAP_QUICK,
+		3.0,
+		5201,
+		["canonical_simrunner"],
+		6,
+		0,
+		1
+	)
+	scenario["tick_count"] = 30
+	scenario["warmup_ticks"] = 5
+	scenario["expected_command_count_min"] = 8
+	scenario["expected_command_types"] = ["attack", "swarm"]
+	scenario["runtime_switches"] = {
+		"arena_polish_comparison_mode": "tower_150",
+		"premium_polish_enabled": true,
+		"tower_visual_scale": 1.5
+	}
+	scenario["command_schedule"] = [
+		{"tick": 5, "kind": "lane_intent_pair", "pair_index": 7, "intent": "attack"},
+		{"tick": 15, "kind": "swarm_active_lane", "salt": 1}
+	]
+	return scenario
 
 func _stress_scenario() -> Dictionary:
 	var scenario: Dictionary = _scenario_def(
@@ -554,7 +1073,15 @@ func _candidate_attack_pairs(state: GameState) -> Array:
 		var bf := bool(b.get("friendly", false))
 		if af != bf:
 			return not af
-		return float(a.get("dist2", 0.0)) < float(b.get("dist2", 0.0))
+		var ad: float = float(a.get("dist2", 0.0))
+		var bd: float = float(b.get("dist2", 0.0))
+		if not is_equal_approx(ad, bd):
+			return ad < bd
+		var asrc: int = int(a.get("src", -1))
+		var bsrc: int = int(b.get("src", -1))
+		if asrc != bsrc:
+			return asrc < bsrc
+		return int(a.get("dst", -1)) < int(b.get("dst", -1))
 	)
 	return pairs
 
@@ -577,6 +1104,13 @@ func _issue_swarm_on_active_lane(state: GameState, salt: int) -> Dictionary:
 			candidates.append({"src": int(lane.b_id), "dst": int(lane.a_id)})
 	if candidates.is_empty():
 		return {"ok": false, "type": "swarm"}
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var asrc: int = int(a.get("src", -1))
+		var bsrc: int = int(b.get("src", -1))
+		if asrc != bsrc:
+			return asrc < bsrc
+		return int(a.get("dst", -1)) < int(b.get("dst", -1))
+	)
 	var pair: Dictionary = candidates[abs(salt) % candidates.size()] as Dictionary
 	var result: Dictionary = OpsState.apply_lane_intent(int(pair.get("src", -1)), int(pair.get("dst", -1)), "swarm")
 	return {"ok": bool(result.get("ok", false)), "type": "swarm", "src": pair.get("src", -1), "dst": pair.get("dst", -1)}
@@ -625,10 +1159,10 @@ func _apply_render_isolation(arena: Node, scenario_def: Dictionary) -> void:
 		if node is CanvasItem:
 			(node as CanvasItem).visible = bool(allowed.get(key, false))
 
-func _render_sections_for_frame(arena: Node, frame_ms: float) -> Dictionary:
-	var sections := {"frame_ms": frame_ms}
+func _renderer_configuration_state(arena: Node) -> Dictionary:
+	var state: Dictionary = {}
 	if arena == null:
-		return sections
+		return state
 	var renderer_paths := {
 		"floor_visible": "MapRoot/FloorRenderer",
 		"hive_visible": "MapRoot/HiveRenderer",
@@ -640,25 +1174,73 @@ func _render_sections_for_frame(arena: Node, frame_ms: float) -> Dictionary:
 	}
 	for key_any in renderer_paths.keys():
 		var node: Node = arena.get_node_or_null(str(renderer_paths[key_any]))
-		sections[str(key_any)] = 1.0 if node is CanvasItem and (node as CanvasItem).visible else 0.0
-	return sections
+		state[str(key_any)] = bool(node is CanvasItem and (node as CanvasItem).visible)
+	return state
 
 func _base_scenario_report(scenario_def: Dictionary, benchmark_mode: String, gates: Dictionary) -> Dictionary:
+	var fixture_id: String = str(scenario_def.get("fixture_id", scenario_def.get("scenario_id", "unknown")))
+	var map_content_hash: String = str(scenario_def.get("_preflight_map_content_hash", ""))
 	return {
 		"scenario_id": str(scenario_def.get("scenario_id", "unknown")),
+		"fixture_id": fixture_id,
+		"fixture_version": int(scenario_def.get("fixture_version", 1)),
+		"catalog_fixture_registered": bool(scenario_def.get("catalog_fixture_registered", false)),
+		"measurement_profile": str(scenario_def.get("measurement_profile", _measurement_profile_for_benchmark_mode(benchmark_mode))),
+		"content_kind": str(scenario_def.get("content_kind", "production_map")),
+		"content_identity": str(scenario_def.get("content_identity", "sha256:%s" % map_content_hash)),
+		"fixture_config_hash": str(scenario_def.get("_fixture_config_hash", "")),
+		"repetition_index": int(scenario_def.get("_repetition_index", 1)),
+		"suite_sequence_index": int(scenario_def.get("_suite_sequence_index", 1)),
 		"benchmark_mode": benchmark_mode,
-		"seed": int(scenario_def.get("seed", 0)),
+		"collection_level": str(scenario_def.get("_collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL)),
+		"calibration_sequence_index": int(scenario_def.get("calibration_sequence_index", 0)),
+		"requested_seed": int(scenario_def.get("seed", 0)),
+		"effective_seed": int(scenario_def.get("seed", 0)),
 		"map_path": str(scenario_def.get("map_path", "")),
+		"map_content_hash": map_content_hash,
 		"systems": (scenario_def.get("systems", []) as Array).duplicate(true),
 		"runtime_switches": (scenario_def.get("runtime_switches", {}) as Dictionary).duplicate(true),
 		"renderers": (scenario_def.get("renderers", []) as Array).duplicate(true),
 		"allowed_failure": bool(scenario_def.get("allowed_failure", false)),
-		"target_frame_ms": float(gates.get("target_frame_ms", 16.67)),
-		"scripted_command_count": 0
+		"target_frame_ms": float(gates.get("target_frame_ms", 0.0)),
+		"scripted_command_count": 0,
+		"command_schedule_hash": PERF_DETERMINISTIC_HASH.hash_variant((scenario_def.get("command_schedule", []) as Array).duplicate(true)),
+		"warmup_duration_sec": 0.0,
+		"measurement_duration_sec": 0.0
 	}
+
+func _invalid_suite_report(suite_id: String, benchmark_mode: String, reason: String, errors: Variant, args: Dictionary) -> Dictionary:
+	var report := {
+		"report_type": "sf_perf_benchmark_suite",
+		"result_schema_version": PERF_RESULT_CONTRACT.RESULT_SCHEMA_VERSION,
+		"run_status": "INVALID",
+		"integrity_status": "FAIL",
+		"suite_id": suite_id,
+		"benchmark_mode": benchmark_mode,
+		"collection_level": PERF_RESULT_CONTRACT.normalize_collection_level(str(args.get("collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL))),
+		"generated_at_unix": Time.get_unix_time_from_system(),
+		"git": _git_metadata(),
+		"godot": Engine.get_version_info(),
+		"machine": _machine_metadata(),
+		"fixture_catalog": (args.get("_fixture_catalog_identity", {}) as Dictionary).duplicate(true),
+		"gate_source": str(args.get("gates", DEFAULT_GATES_PATH)),
+		"scenario_count": 0,
+		"scenarios": [],
+		"pass": false,
+		"failure_reason": reason,
+		"errors": errors
+	}
+	report.merge(_result_environment({}), true)
+	_apply_result_contract(report)
+	return report
 
 func _scenario_error(scenario_def: Dictionary, benchmark_mode: String, reason: String, gates: Dictionary) -> Dictionary:
 	var report := _base_scenario_report(scenario_def, benchmark_mode, gates)
+	var failed_collection := PERF_METRICS_COLLECTOR.new(
+		str(scenario_def.get("_collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL)),
+		int(gates.get("worst_frame_limit", 10)),
+		float(gates.get("target_frame_ms", INF))
+	).summary()
 	report.merge({
 		"duration_sec": 0.0,
 		"frame_count": 0,
@@ -669,11 +1251,12 @@ func _scenario_error(scenario_def: Dictionary, benchmark_mode: String, reason: S
 		"p99_frame_ms": 0.0,
 		"p999_frame_ms": 0.0,
 		"max_frame_ms": 0.0,
-		"hitch_threshold_ms": float(gates.get("target_frame_ms", 16.67)),
+		"hitch_threshold_ms": float(gates.get("target_frame_ms", 0.0)),
 		"hitch_count": 0,
 		"hitches": [],
 		"worst_frames": [],
 		"worst_sim_ticks": [],
+		"collection": failed_collection,
 		"pass": false,
 		"failed_gates": [{"gate": "scenario_setup", "actual": reason, "limit": "ready"}]
 	}, true)
@@ -705,78 +1288,94 @@ func _scripted_command_count_from_log(command_log: Array) -> int:
 		count += commands.size()
 	return count
 
-func _add_hitch_if_needed(hitches: Array, frame: int, tick: int, duration_ms: float, phase: String, classification: String, gates: Dictionary, sim_sections: Dictionary, render_sections: Dictionary) -> void:
-	var threshold := float(gates.get("target_frame_ms", 16.67))
-	if duration_ms <= threshold:
-		return
-	hitches.append({
-		"frame": frame,
-		"tick": tick,
-		"duration_ms": duration_ms,
-		"phase": phase,
-		"classification": classification,
-		"top_sim_sections": _top_sections(sim_sections, 5),
-		"top_render_sections": _top_sections(render_sections, 5)
-	})
+func _command_types_from_log(command_log: Array) -> Array[String]:
+	var seen: Dictionary = {}
+	for entry_any in command_log:
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		for command_any in (entry_any as Dictionary).get("commands", []) as Array:
+			if typeof(command_any) != TYPE_DICTIONARY:
+				continue
+			var command_type: String = str((command_any as Dictionary).get("type", ""))
+			if not command_type.is_empty():
+				seen[command_type] = true
+	var out: Array[String] = []
+	for key_any in seen.keys():
+		out.append(str(key_any))
+	out.sort()
+	return out
 
-func _classification_for_frame(frame_ms: float, gates: Dictionary, sim_sections: Dictionary, render_sections: Dictionary) -> String:
-	if frame_ms <= float(gates.get("target_frame_ms", 16.67)):
+func _classification_for_frame(frame_ms: float, gates: Dictionary, sim_sections: Dictionary) -> String:
+	if frame_ms <= float(gates.get("target_frame_ms", 0.0)):
 		return "normal_frame"
 	var sim_total := float(sim_sections.get("total_ms", 0.0))
-	var render_total := _sum_values(render_sections)
-	if render_total > sim_total and render_total > 1.0:
-		return "render_work"
 	if sim_total > 1.0:
 		return "sim_work"
-	return "frame_pacing_or_external"
+	return "frame_pacing_or_unattributed"
 
-func _frame_metrics(values: Array) -> Dictionary:
+func _collector_frame_metrics(collection: Dictionary) -> Dictionary:
 	return {
-		"average_frame_ms": _avg(values),
-		"median_frame_ms": _percentile(values, 0.5),
-		"p95_frame_ms": _percentile(values, 0.95),
-		"p99_frame_ms": _percentile(values, 0.99),
-		"p999_frame_ms": _percentile(values, 0.999),
-		"max_frame_ms": _max(values)
+		"average_frame_ms": collection.get("average_ms"),
+		"median_frame_ms": collection.get("median_ms"),
+		"p95_frame_ms": collection.get("p95_ms"),
+		"p99_frame_ms": collection.get("p99_ms"),
+		"p999_frame_ms": collection.get("p999_ms"),
+		"max_frame_ms": collection.get("max_ms")
 	}
+
+func _frame_worst_records(records: Array) -> Array:
+	var out: Array = []
+	for record_any in records:
+		var record: Dictionary = record_any as Dictionary
+		out.append({
+			"frame": int(record.get("sample_index", 0)),
+			"duration_ms": float(record.get("duration_ms", 0.0))
+		})
+	return out
+
+func _canonical_worst_records(records: Array) -> Array:
+	var out: Array = []
+	for record_any in records:
+		var record: Dictionary = record_any as Dictionary
+		var context: Dictionary = record.get("context", {}) as Dictionary
+		var sections: Dictionary = context.get("phase_times_ms", {}) as Dictionary
+		out.append({
+			"tick": int(record.get("sample_index", 0)),
+			"total_ms": float(record.get("duration_ms", 0.0)),
+			"top_sim_sections": _top_sections(sections, 5)
+		})
+	return out
+
+func _collector_hitch_records(records: Array) -> Array:
+	var out: Array = []
+	for record_any in records:
+		var record: Dictionary = record_any as Dictionary
+		var context: Dictionary = record.get("context", {}) as Dictionary
+		var sim_sections: Dictionary = context.get("sim_sections", {}) as Dictionary
+		out.append({
+			"frame": int(record.get("sample_index", 0)),
+			"tick": int(context.get("tick", 0)),
+			"duration_ms": float(record.get("duration_ms", 0.0)),
+			"phase": str(context.get("phase", "")),
+			"classification": str(context.get("classification", "")),
+			"top_sim_sections": _top_sections(sim_sections, 5),
+			"renderer_configuration_state": (context.get("renderer_configuration_state", {}) as Dictionary).duplicate(true)
+		})
+	return out
 
 func _failed_gates(metrics: Dictionary, hitch_count: int, gates: Dictionary) -> Array:
 	var failed: Array = []
-	if float(metrics.get("average_frame_ms", 0.0)) > float(gates.get("target_frame_ms", 16.67)):
-		failed.append({"gate": "average_frame_ms", "actual": metrics.get("average_frame_ms", 0.0), "limit": gates.get("target_frame_ms", 16.67)})
-	if float(metrics.get("p95_frame_ms", 0.0)) > float(gates.get("p95_max_ms", 22.0)):
-		failed.append({"gate": "p95_frame_ms", "actual": metrics.get("p95_frame_ms", 0.0), "limit": gates.get("p95_max_ms", 22.0)})
-	if float(metrics.get("p99_frame_ms", 0.0)) > float(gates.get("p99_max_ms", 33.33)):
-		failed.append({"gate": "p99_frame_ms", "actual": metrics.get("p99_frame_ms", 0.0), "limit": gates.get("p99_max_ms", 33.33)})
-	if float(metrics.get("max_frame_ms", 0.0)) > float(gates.get("max_frame_ms", 50.0)):
-		failed.append({"gate": "max_frame_ms", "actual": metrics.get("max_frame_ms", 0.0), "limit": gates.get("max_frame_ms", 50.0)})
+	if float(metrics.get("average_frame_ms", 0.0)) > float(gates.get("target_frame_ms", 0.0)):
+		failed.append({"gate": "average_frame_ms", "actual": metrics.get("average_frame_ms", 0.0), "limit": gates.get("target_frame_ms", 0.0)})
+	if gates.has("p95_max_ms") and float(metrics.get("p95_frame_ms", 0.0)) > float(gates.get("p95_max_ms")):
+		failed.append({"gate": "p95_frame_ms", "actual": metrics.get("p95_frame_ms", 0.0), "limit": gates.get("p95_max_ms")})
+	if float(metrics.get("p99_frame_ms", 0.0)) > float(gates.get("p99_max_ms", 0.0)):
+		failed.append({"gate": "p99_frame_ms", "actual": metrics.get("p99_frame_ms", 0.0), "limit": gates.get("p99_max_ms", 0.0)})
+	if float(metrics.get("max_frame_ms", 0.0)) > float(gates.get("max_frame_ms", 0.0)):
+		failed.append({"gate": "max_frame_ms", "actual": metrics.get("max_frame_ms", 0.0), "limit": gates.get("max_frame_ms", 0.0)})
 	if hitch_count > int(gates.get("max_hitches", 0)):
 		failed.append({"gate": "hitch_count", "actual": hitch_count, "limit": gates.get("max_hitches", 0)})
 	return failed
-
-func _worst_frames(values: Array, limit: int) -> Array:
-	var out: Array = []
-	for i in range(values.size()):
-		out.append({"frame": i + 1, "duration_ms": float(values[i])})
-	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return float(a.get("duration_ms", 0.0)) > float(b.get("duration_ms", 0.0))
-	)
-	return out.slice(0, mini(limit, out.size()))
-
-func _worst_sim_ticks(reports: Array, limit: int) -> Array:
-	var out: Array = []
-	for report_any in reports:
-		var report: Dictionary = report_any as Dictionary
-		var sections: Dictionary = report.get("phase_times_ms", {}) as Dictionary
-		out.append({
-			"tick": int(report.get("tick", 0)),
-			"total_ms": float(sections.get("total_ms", 0.0)),
-			"top_sim_sections": _top_sections(sections, 5)
-		})
-	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return float(a.get("total_ms", 0.0)) > float(b.get("total_ms", 0.0))
-	)
-	return out.slice(0, mini(limit, out.size()))
 
 func _top_sections(sections: Dictionary, limit: int) -> Array:
 	var out: Array = []
@@ -864,22 +1463,396 @@ func _arena_sim_runner(arena: Node) -> Node:
 func _teardown_node(node: Node) -> void:
 	if node == null:
 		return
-	if node.get_parent() != null:
-		node.get_parent().remove_child(node)
 	node.queue_free()
+
+func _finalize_scenario(
+	report: Dictionary,
+	isolation_snapshot: Dictionary,
+	scene_root: Node,
+	arena: Node
+) -> Dictionary:
+	var cleanup: Dictionary = await _cleanup_repetition(isolation_snapshot, scene_root, arena)
+	_disarm_interrupted_cleanup()
+	report["isolation_cleanup"] = cleanup
+	if not bool(cleanup.get("pass", false)):
+		report["pass"] = false
+		var integrity_failures: Array = (report.get("integrity_failures", []) as Array).duplicate()
+		if not integrity_failures.has("isolation_restore_failed"):
+			integrity_failures.append("isolation_restore_failed")
+		report["integrity_failures"] = integrity_failures
+		var failed_gates: Array = (report.get("failed_gates", []) as Array).duplicate(true)
+		failed_gates.append({
+			"gate": "scenario_isolation",
+			"actual": (cleanup.get("mismatches", []) as Array).duplicate(),
+			"limit": "exact_pre_scenario_state"
+		})
+		report["failed_gates"] = failed_gates
+	return report
+
+func _cleanup_repetition(isolation_snapshot: Dictionary, scene_root: Node, arena: Node) -> Dictionary:
+	if arena != null and is_instance_valid(arena) and arena.has_method("clear_perf_match_seed_override"):
+		arena.call("clear_perf_match_seed_override")
+	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
+		OpsState.call("set_match_telemetry_collector", null)
+	if scene_root != null and is_instance_valid(scene_root):
+		scene_root.process_mode = Node.PROCESS_MODE_DISABLED
+		if not scene_root.is_queued_for_deletion():
+			scene_root.queue_free()
+	_queue_fixture_root_additions(isolation_snapshot)
+	for _frame in range(3):
+		await process_frame
+	var node_freed: bool = scene_root == null or not is_instance_valid(scene_root)
+	var fixture_state_release: Dictionary = PERF_ISOLATION_GUARD.release_fixture_state(isolation_snapshot, OpsState)
+	var restore_result: Dictionary = PERF_ISOLATION_GUARD.restore(isolation_snapshot, self, OpsState)
+	for _frame in range(2):
+		await process_frame
+	var settled_result: Dictionary = PERF_ISOLATION_GUARD.verify(isolation_snapshot, self, OpsState)
+	var mismatches: Array = []
+	for source_any in [restore_result.get("mismatches", []), settled_result.get("mismatches", [])]:
+		for mismatch_any in source_any as Array:
+			var mismatch: String = str(mismatch_any)
+			if not mismatches.has(mismatch):
+				mismatches.append(mismatch)
+	if not node_freed:
+		mismatches.append("fixture_root_not_freed")
+	return {
+		"pass": mismatches.is_empty(),
+		"before_hash": str(isolation_snapshot.get("before_hash", "")),
+		"after_hash": str(settled_result.get("after_hash", "")),
+		"before_protected_state_hash": str(settled_result.get("before_protected_state_hash", "")),
+		"after_protected_state_hash": str(settled_result.get("after_protected_state_hash", "")),
+		"before_protected_state": settled_result.get("before_protected_state", {}),
+		"after_protected_state": settled_result.get("after_protected_state", {}),
+		"mismatches": mismatches,
+		"fixture_root_freed": node_freed,
+		"fixture_state_release": fixture_state_release,
+		"settle_frames_before_restore": 3,
+		"settle_frames_after_restore": 2,
+		"before_topology": settled_result.get("before_topology", {}),
+		"after_topology": settled_result.get("after_topology", {})
+	}
+
+func _arm_interrupted_cleanup(isolation_snapshot: Dictionary) -> void:
+	_interrupted_isolation_snapshot = isolation_snapshot
+	_interrupted_scene_root = null
+	_interrupted_arena = null
+
+func _update_interrupted_cleanup_nodes(scene_root: Node, arena: Node) -> void:
+	_interrupted_scene_root = scene_root
+	_interrupted_arena = arena
+
+func _disarm_interrupted_cleanup() -> void:
+	_interrupted_isolation_snapshot = {}
+	_interrupted_scene_root = null
+	_interrupted_arena = null
+
+func _recover_interrupted_repetition() -> void:
+	if _interrupted_isolation_snapshot.is_empty():
+		return
+	if _interrupted_arena != null and is_instance_valid(_interrupted_arena) and _interrupted_arena.has_method("clear_perf_match_seed_override"):
+		_interrupted_arena.call("clear_perf_match_seed_override")
+	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
+		OpsState.call("set_match_telemetry_collector", null)
+	if _interrupted_scene_root != null and is_instance_valid(_interrupted_scene_root):
+		_interrupted_scene_root.process_mode = Node.PROCESS_MODE_DISABLED
+		_interrupted_scene_root.free()
+	_free_fixture_root_additions(_interrupted_isolation_snapshot)
+	PERF_ISOLATION_GUARD.release_fixture_state(_interrupted_isolation_snapshot, OpsState)
+	PERF_ISOLATION_GUARD.restore(_interrupted_isolation_snapshot, self, OpsState)
+	_disarm_interrupted_cleanup()
+
+func _free_fixture_root_additions(isolation_snapshot: Dictionary) -> void:
+	if root == null:
+		return
+	var topology: Dictionary = isolation_snapshot.get("tree_topology", {}) as Dictionary
+	var allowed_ids: Dictionary = {}
+	for instance_id_any in topology.get("root_child_instance_ids", []) as Array:
+		allowed_ids[int(instance_id_any)] = true
+	for child_any in root.get_children():
+		if not (child_any is Node):
+			continue
+		var child: Node = child_any as Node
+		if bool(allowed_ids.get(int(child.get_instance_id()), false)):
+			continue
+		child.process_mode = Node.PROCESS_MODE_DISABLED
+		child.free()
+
+func _cleanup_entry_state() -> void:
+	if _analytics_isolation_active:
+		_set_analytics_harness_isolation(false)
+		_analytics_isolation_active = false
+	if has_meta("sf_perf_harness_active"):
+		remove_meta("sf_perf_harness_active")
+
+func _finalize() -> void:
+	_recover_interrupted_repetition()
+	_cleanup_entry_state()
+
+func _prime_harness_shared_services() -> void:
+	SPRITE_REGISTRY.get_instance()
+	await process_frame
+	await process_frame
+
+func _set_analytics_harness_isolation(enabled: bool) -> bool:
+	var analytics: Node = root.get_node_or_null("/root/AnalyticsClient")
+	return analytics != null \
+		and analytics.has_method("set_perf_harness_isolation") \
+		and bool(analytics.call("set_perf_harness_isolation", enabled))
+
+func _backend_isolation_state() -> Dictionary:
+	var analytics: Node = root.get_node_or_null("/root/AnalyticsClient")
+	var analytics_isolated: bool = analytics != null and bool(analytics.get("_perf_harness_isolation"))
+	var live_blocked: bool = not TEST_BACKEND_POLICY.request_allowed("https://benchmark-isolation.invalid")
+	var loopback_blocked: bool = not TEST_BACKEND_POLICY.request_allowed("http://127.0.0.1:1")
+	return {
+		"pass": analytics_isolated and live_blocked and loopback_blocked,
+		"analytics_writes_blocked": analytics_isolated,
+		"live_transport_blocked": live_blocked,
+		"loopback_transport_blocked": loopback_blocked,
+		"policy": "deny_all_while_sf_perf_harness_active"
+	}
+
+func _queue_fixture_root_additions(isolation_snapshot: Dictionary) -> void:
+	var topology: Dictionary = isolation_snapshot.get("tree_topology", {}) as Dictionary
+	var allowed_ids: Dictionary = {}
+	for instance_id_any in topology.get("root_child_instance_ids", []) as Array:
+		allowed_ids[int(instance_id_any)] = true
+	for child_any in root.get_children():
+		if not (child_any is Node):
+			continue
+		var child: Node = child_any as Node
+		if bool(allowed_ids.get(int(child.get_instance_id()), false)):
+			continue
+		child.process_mode = Node.PROCESS_MODE_DISABLED
+		if not child.is_queued_for_deletion():
+			child.queue_free()
+
+func _normalized_benchmark_mode(raw_mode: String) -> String:
+	var clean_mode: String = raw_mode.strip_edges().to_lower()
+	if clean_mode.is_empty() or clean_mode == "sim_headless":
+		return "canonical_sim_headless"
+	return clean_mode
+
+func _measurement_profile_for_benchmark_mode(benchmark_mode: String) -> String:
+	match benchmark_mode:
+		"render_windowed":
+			return "investigative_render_windowed"
+		"layer_isolation_noncanonical":
+			return "investigative_layer_isolation"
+		_:
+			return "canonical_sim_headless"
+
+func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
+	return {
+		"scenario_id": str(scenario_def.get("scenario_id", "")),
+		"fixture_id": str(scenario_def.get("fixture_id", scenario_def.get("scenario_id", ""))),
+		"fixture_version": int(scenario_def.get("fixture_version", 1)),
+		"catalog_fixture_registered": bool(scenario_def.get("catalog_fixture_registered", false)),
+		"measurement_profile": str(scenario_def.get("measurement_profile", "")),
+		"content_kind": str(scenario_def.get("content_kind", "production_map")),
+		"content_identity": str(scenario_def.get("content_identity", "")),
+		"map_path": str(scenario_def.get("map_path", "")),
+		"map_content_hash": str(scenario_def.get("_preflight_map_content_hash", "")),
+		"seed": int(scenario_def.get("seed", 0)),
+		"tick_count": int(scenario_def.get("tick_count", 0)),
+		"warmup_ticks": int(scenario_def.get("warmup_ticks", 0)),
+		"systems": (scenario_def.get("systems", []) as Array).duplicate(true),
+		"initial_lanes": int(scenario_def.get("initial_lanes", 0)),
+		"initial_swarms": int(scenario_def.get("initial_swarms", 0)),
+		"initial_barracks_routes": int(scenario_def.get("initial_barracks_routes", 0)),
+		"command_interval_ticks": int(scenario_def.get("command_interval_ticks", 0)),
+		"commands_per_burst": int(scenario_def.get("commands_per_burst", 0)),
+		"swarm_burst": int(scenario_def.get("swarm_burst", 0)),
+		"command_schedule": (scenario_def.get("command_schedule", []) as Array).duplicate(true),
+		"runtime_switches": (scenario_def.get("runtime_switches", {}) as Dictionary).duplicate(true),
+		"expected_counts": (scenario_def.get("expected_counts", {}) as Dictionary).duplicate(true)
+	}
+
+func _determinism_evidence(scenarios: Array) -> Dictionary:
+	var by_fixture: Dictionary = {}
+	for scenario_any in scenarios:
+		if typeof(scenario_any) != TYPE_DICTIONARY:
+			continue
+		var scenario: Dictionary = scenario_any as Dictionary
+		var fixture_id: String = str(scenario.get("fixture_id", scenario.get("scenario_id", "unknown")))
+		if not by_fixture.has(fixture_id):
+			by_fixture[fixture_id] = []
+		(by_fixture[fixture_id] as Array).append(scenario)
+	var fixture_rows: Array = []
+	var all_pass: bool = true
+	for fixture_id_any in by_fixture.keys():
+		var fixture_id: String = str(fixture_id_any)
+		var repetitions: Array = by_fixture.get(fixture_id, []) as Array
+		var required_repetitions: int = 3 if fixture_id == "PHASE0_INTEGRITY_CENTERSTRIKE_V1" else 1
+		var fields: Array[String] = [
+			"fixture_config_hash",
+			"map_content_hash",
+			"requested_seed",
+			"effective_seed",
+			"command_schedule_hash",
+			"final_state_hash"
+		]
+		var mismatches: Array = []
+		if repetitions.size() < required_repetitions:
+			mismatches.append("repetition_count:%d<%d" % [repetitions.size(), required_repetitions])
+		if repetitions.size() > 1:
+			var first: Dictionary = repetitions[0] as Dictionary
+			for field in fields:
+				var expected: String = str(first.get(field, ""))
+				if expected.is_empty():
+					mismatches.append("missing:%s" % field)
+					continue
+				for i in range(1, repetitions.size()):
+					var current: Dictionary = repetitions[i] as Dictionary
+					if str(current.get(field, "")) != expected:
+						mismatches.append("mismatch:%s:repetition_%d" % [field, i + 1])
+		var fixture_pass: bool = mismatches.is_empty()
+		all_pass = all_pass and fixture_pass
+		fixture_rows.append({
+			"fixture_id": fixture_id,
+			"repetition_count": repetitions.size(),
+			"required_repetition_count": required_repetitions,
+			"fields_compared": fields,
+			"pass": fixture_pass,
+			"mismatches": mismatches
+		})
+	fixture_rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return str(a.get("fixture_id", "")) < str(b.get("fixture_id", ""))
+	)
+	return {"pass": all_pass, "fixtures": fixture_rows}
+
+func _collector_calibration_evidence(scenarios: Array) -> Dictionary:
+	var by_level: Dictionary = {"OFF": [], "MINIMAL": [], "FULL": []}
+	var behavior_mismatches: Array = []
+	var sequence: Array = []
+	for scenario_any in scenarios:
+		if typeof(scenario_any) != TYPE_DICTIONARY:
+			continue
+		var scenario: Dictionary = scenario_any as Dictionary
+		var level: String = str(scenario.get("collection_level", ""))
+		if not by_level.has(level):
+			behavior_mismatches.append("unexpected_collection_level:%s" % level)
+			continue
+		var collection: Dictionary = scenario.get("collection", {}) as Dictionary
+		var timing_enabled: bool = bool(collection.get("timing_enabled", false))
+		var raw_capture: bool = bool((collection.get("retention", {}) as Dictionary).get("raw_sample_capture", false))
+		if level == "OFF" and (timing_enabled or raw_capture):
+			behavior_mismatches.append("OFF_behavior_not_disabled")
+		if level == "MINIMAL" and (not timing_enabled or raw_capture):
+			behavior_mismatches.append("MINIMAL_behavior_invalid")
+		if level == "FULL" and (not timing_enabled or not raw_capture):
+			behavior_mismatches.append("FULL_behavior_invalid")
+		var wall_duration_ms: float = float(scenario.get("measurement_wall_duration_ms", 0.0))
+		(by_level[level] as Array).append(wall_duration_ms)
+		sequence.append({
+			"suite_sequence_index": int(scenario.get("suite_sequence_index", 0)),
+			"collection_level": level,
+			"measurement_wall_duration_ms": wall_duration_ms,
+			"final_state_hash": str(scenario.get("final_state_hash", "")),
+			"command_schedule_hash": str(scenario.get("command_schedule_hash", ""))
+		})
+	var levels: Dictionary = {}
+	var repeat_mismatches: Array = []
+	for level_any in ["OFF", "MINIMAL", "FULL"]:
+		var level: String = str(level_any)
+		var samples: Array = by_level.get(level, []) as Array
+		if samples.size() < 3:
+			repeat_mismatches.append("%s_repetitions:%d<3" % [level, samples.size()])
+		levels[level] = {
+			"repetition_count": samples.size(),
+			"measurement_wall_duration_ms": samples.duplicate(),
+			"median_ms": _percentile(samples, 0.5) if not samples.is_empty() else null,
+			"min_ms": _min_float_array(samples) if not samples.is_empty() else null,
+			"max_ms": _max(samples) if not samples.is_empty() else null
+		}
+	var off_median: float = float((levels.get("OFF", {}) as Dictionary).get("median_ms", 0.0))
+	var observed_deltas: Dictionary = {}
+	if off_median > 0.0:
+		for level_any in ["MINIMAL", "FULL"]:
+			var level: String = str(level_any)
+			var level_median: float = float((levels.get(level, {}) as Dictionary).get("median_ms", 0.0))
+			observed_deltas[level] = ((level_median - off_median) / off_median) * 100.0
+	return {
+		"pass": behavior_mismatches.is_empty() and repeat_mismatches.is_empty(),
+		"fixture_id": "PHASE0_COLLECTOR_CALIBRATION_V1",
+		"method": "three staggered canonical-fixture repetitions per collection level",
+		"interpretation": "directional repeated evidence only; observed median deltas are not an exact instrumentation-cost claim",
+		"outer_measurement": "one wall-clock interval around the measured canonical tick window for every level",
+		"levels": levels,
+		"observed_median_delta_percent_vs_off": observed_deltas,
+		"sequence": sequence,
+		"behavior_mismatches": behavior_mismatches,
+		"repeat_mismatches": repeat_mismatches
+	}
+
+func _min_float_array(values: Array) -> float:
+	if values.is_empty():
+		return 0.0
+	var minimum: float = float(values[0])
+	for value_any in values:
+		minimum = minf(minimum, float(value_any))
+	return minimum
+
+func _isolation_evidence(scenarios: Array) -> Dictionary:
+	var rows: Array = []
+	var mismatches: Array = []
+	var expected_before_hash: String = ""
+	for scenario_any in scenarios:
+		if typeof(scenario_any) != TYPE_DICTIONARY:
+			continue
+		var scenario: Dictionary = scenario_any as Dictionary
+		var cleanup_any: Variant = scenario.get("isolation_cleanup", {})
+		var cleanup: Dictionary = cleanup_any as Dictionary if typeof(cleanup_any) == TYPE_DICTIONARY else {}
+		var scenario_id: String = str(scenario.get("scenario_id", "unknown"))
+		var sequence_index: int = int(scenario.get("suite_sequence_index", rows.size() + 1))
+		var before_hash: String = str(cleanup.get("before_hash", ""))
+		var after_hash: String = str(cleanup.get("after_hash", ""))
+		var row_mismatches: Array = (cleanup.get("mismatches", []) as Array).duplicate()
+		if before_hash.is_empty() or after_hash.is_empty():
+			row_mismatches.append("isolation_hash_missing")
+		if not before_hash.is_empty() and not after_hash.is_empty() and before_hash != after_hash:
+			row_mismatches.append("pre_post_hash_mismatch")
+		if expected_before_hash.is_empty() and not before_hash.is_empty():
+			expected_before_hash = before_hash
+		elif not before_hash.is_empty() and before_hash != expected_before_hash:
+			row_mismatches.append("cross_scenario_start_state_mismatch")
+		for mismatch_any in row_mismatches:
+			mismatches.append("sequence_%d:%s:%s" % [sequence_index, scenario_id, str(mismatch_any)])
+		rows.append({
+			"suite_sequence_index": sequence_index,
+			"scenario_id": scenario_id,
+			"before_hash": before_hash,
+			"after_hash": after_hash,
+			"fixture_root_freed": bool(cleanup.get("fixture_root_freed", false)),
+			"pass": row_mismatches.is_empty(),
+			"mismatches": row_mismatches
+		})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("suite_sequence_index", 0)) < int(b.get("suite_sequence_index", 0))
+	)
+	return {
+		"pass": mismatches.is_empty() and rows.size() == scenarios.size(),
+		"shared_start_state_hash": expected_before_hash,
+		"scenario_count": rows.size(),
+		"scenarios": rows,
+		"mismatches": mismatches
+	}
 
 func _summary_for_print(report: Dictionary) -> Dictionary:
 	var scenarios: Array = []
 	for scenario_any in report.get("scenarios", []) as Array:
 		var scenario: Dictionary = scenario_any as Dictionary
+		var canonical: bool = str(scenario.get("benchmark_mode", "")) == "canonical_sim_headless"
 		scenarios.append({
 			"scenario_id": scenario.get("scenario_id", ""),
+			"repetition_index": scenario.get("repetition_index", 1),
 			"pass": scenario.get("pass", false),
 			"allowed_failure": scenario.get("allowed_failure", false),
-			"average_frame_ms": scenario.get("average_frame_ms", 0.0),
-			"p95_frame_ms": scenario.get("p95_frame_ms", 0.0),
-			"p99_frame_ms": scenario.get("p99_frame_ms", 0.0),
-			"max_frame_ms": scenario.get("max_frame_ms", 0.0),
+			"primary_timing": "simulation_tick_ms" if canonical else "display_or_layer_iteration_ms",
+			"average_ms": scenario.get("average_tick_ms", 0.0) if canonical else scenario.get("average_frame_ms", 0.0),
+			"p95_ms": scenario.get("p95_tick_ms", 0.0) if canonical else scenario.get("p95_frame_ms", 0.0),
+			"p99_ms": scenario.get("p99_tick_ms", 0.0) if canonical else scenario.get("p99_frame_ms", 0.0),
+			"max_ms": scenario.get("max_tick_ms", 0.0) if canonical else scenario.get("max_frame_ms", 0.0),
 			"hitch_count": scenario.get("hitch_count", 0)
 		})
 	return {
@@ -890,57 +1863,15 @@ func _summary_for_print(report: Dictionary) -> Dictionary:
 	}
 
 func _compare_reports(baseline: Dictionary, current: Dictionary, gates: Dictionary) -> Dictionary:
-	var baseline_by_id: Dictionary = _scenarios_by_id(baseline)
-	var current_by_id: Dictionary = _scenarios_by_id(current)
-	var ids: Array = current_by_id.keys()
-	ids.sort()
-	var out: Dictionary = {"status": "PASS", "scenarios": []}
-	for id_any in ids:
-		var scenario_id := str(id_any)
-		var base: Dictionary = baseline_by_id.get(scenario_id, {}) as Dictionary
-		var cur: Dictionary = current_by_id.get(scenario_id, {}) as Dictionary
-		var rows: Array = []
-		var status := "PASS"
-		for key in ["average_frame_ms", "p95_frame_ms", "p99_frame_ms", "max_frame_ms", "hitch_count"]:
-			var base_value := float(base.get(key, 0.0))
-			var cur_value := float(cur.get(key, 0.0))
-			var regression := _regression_percent(base_value, cur_value)
-			var marker := _marker_for_regression(regression, gates)
-			if marker == "FAIL" and not bool(cur.get("allowed_failure", false)):
-				status = "FAIL"
-				out["status"] = "FAIL"
-			elif marker == "WARN" and status == "PASS":
-				status = "WARN"
-				if str(out.get("status", "PASS")) == "PASS":
-					out["status"] = "WARN"
-			rows.append({"metric": key, "baseline": base_value, "current": cur_value, "regression_percent": regression, "status": marker})
-		out["scenarios"].append({"scenario_id": scenario_id, "status": status, "metrics": rows})
-	return out
-
-func _scenarios_by_id(report: Dictionary) -> Dictionary:
-	var out: Dictionary = {}
-	for scenario_any in report.get("scenarios", []) as Array:
-		var scenario: Dictionary = scenario_any as Dictionary
-		out[str(scenario.get("scenario_id", ""))] = scenario
-	return out
-
-func _marker_for_regression(regression_percent: float, gates: Dictionary) -> String:
-	if regression_percent >= float(gates.get("fail_regression_percent", 20.0)):
-		return "FAIL"
-	if regression_percent >= float(gates.get("warn_regression_percent", 10.0)):
-		return "WARN"
-	return "PASS"
-
-func _regression_percent(baseline_value: float, current_value: float) -> float:
-	if baseline_value <= 0.000001:
-		return 0.0 if current_value <= 0.000001 else 9999.0
-	return ((current_value - baseline_value) / baseline_value) * 100.0
+	return PERF_BASELINE_COMPARATOR.compare(baseline, current, gates)
 
 func _parse_args() -> Dictionary:
 	var out := {
-		"mode": "sim_headless",
+		"mode": "canonical_sim_headless",
 		"suite": "quick",
+		"collection_level": PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL,
 		"gates": DEFAULT_GATES_PATH,
+		"catalog": DEFAULT_FIXTURE_CATALOG_PATH,
 		"output": DEFAULT_OUTPUT_PATH,
 		"switch_overrides": {}
 	}
@@ -958,6 +1889,11 @@ func _parse_args() -> Dictionary:
 		elif arg == "--suite" and i + 1 < args.size():
 			i += 1
 			out["suite"] = str(args[i])
+		elif arg.begins_with("--collection-level="):
+			out["collection_level"] = arg.trim_prefix("--collection-level=")
+		elif arg == "--collection-level" and i + 1 < args.size():
+			i += 1
+			out["collection_level"] = str(args[i])
 		elif arg.begins_with("--scenario="):
 			out["scenario"] = arg.trim_prefix("--scenario=")
 		elif arg == "--scenario" and i + 1 < args.size():
@@ -968,6 +1904,11 @@ func _parse_args() -> Dictionary:
 		elif arg == "--gates" and i + 1 < args.size():
 			i += 1
 			out["gates"] = str(args[i])
+		elif arg.begins_with("--catalog="):
+			out["catalog"] = arg.trim_prefix("--catalog=")
+		elif arg == "--catalog" and i + 1 < args.size():
+			i += 1
+			out["catalog"] = str(args[i])
 		elif arg.begins_with("--output="):
 			out["output"] = arg.trim_prefix("--output=")
 		elif arg == "--output" and i + 1 < args.size():
@@ -1037,18 +1978,149 @@ func _write_json(path: String, data: Dictionary) -> void:
 		return
 	file.store_string(JSON.stringify(data, "\t"))
 
-func _default_gates() -> Dictionary:
+func _apply_result_contract(report: Dictionary) -> void:
+	report["collection_contract_version"] = 1
+	report["metric_classifications"] = PERF_RESULT_CONTRACT.METRIC_CLASSIFICATIONS.duplicate()
+	report["comparison_critical_fields"] = PERF_RESULT_CONTRACT.COMPARISON_CRITICAL_FIELDS.duplicate()
+	var scenarios: Array = report.get("scenarios", []) as Array
+	for scenario_index in range(scenarios.size()):
+		var scenario: Dictionary = scenarios[scenario_index] as Dictionary
+		if not scenario.has("collection_level"):
+			scenario["collection_level"] = str(report.get("collection_level", PERF_RESULT_CONTRACT.COLLECTION_LEVEL_MINIMAL))
+		scenario["metrics"] = _metric_contract_for_scenario(scenario)
+		PERF_RESULT_CONTRACT.attach_scenario_fingerprint(report, scenario)
+		scenarios[scenario_index] = scenario
+	report["scenarios"] = scenarios
+	report["result_validation"] = PERF_RESULT_CONTRACT.validate_report(report)
+	report["baseline_approval"] = PERF_RESULT_CONTRACT.baseline_approval(report)
+
+func _metric_contract_for_scenario(scenario: Dictionary) -> Dictionary:
+	var metrics: Dictionary = {}
+	var benchmark_mode: String = str(scenario.get("benchmark_mode", ""))
+	var collection: Dictionary = scenario.get("collection", {}) as Dictionary
+	var timing_available: bool = bool(collection.get("available", false))
+	var collection_level: String = str(scenario.get("collection_level", ""))
+	var timing_source: String = "bounded %s collector" % collection_level
+	var timing_reason: String = str(collection.get("unavailable_reason", "timing unavailable"))
+	var setup_failed: bool = false
+	for failed_gate_any in scenario.get("failed_gates", []) as Array:
+		if typeof(failed_gate_any) == TYPE_DICTIONARY and str((failed_gate_any as Dictionary).get("gate", "")) == "scenario_setup":
+			setup_failed = true
+			break
+	if setup_failed:
+		metrics["primary_timing"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", "scenario setup failed before measurement")
+	elif not timing_available:
+		metrics["primary_timing"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
+		match benchmark_mode:
+			"canonical_sim_headless":
+				for metric_name in ["simulation_tick_average_ms", "simulation_tick_median_ms", "simulation_tick_p95_ms", "simulation_tick_p99_ms", "simulation_tick_max_ms"]:
+					metrics[metric_name] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
+			"layer_isolation_noncanonical":
+				for metric_name in ["layer_iteration_average_ms", "layer_iteration_p95_ms", "layer_iteration_p99_ms", "layer_iteration_max_ms"]:
+					metrics[metric_name] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
+			"render_windowed":
+				for metric_name in ["display_frame_average_ms", "display_frame_median_ms", "display_frame_p95_ms", "display_frame_p99_ms", "display_frame_max_ms"]:
+					metrics[metric_name] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
+	else:
+		match benchmark_mode:
+			"canonical_sim_headless":
+				metrics["simulation_tick_sample_count"] = PERF_RESULT_CONTRACT.metric("DIRECT", int(collection.get("sample_count", 0)), "count", timing_source)
+				metrics["simulation_tick_average_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("average_tick_ms"), "ms", timing_source)
+				metrics["simulation_tick_median_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("median_tick_ms"), "ms", timing_source)
+				metrics["simulation_tick_p95_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p95_tick_ms"), "ms", timing_source)
+				metrics["simulation_tick_p99_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p99_tick_ms"), "ms", timing_source)
+				metrics["simulation_tick_max_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("max_tick_ms"), "ms", timing_source)
+			"layer_isolation_noncanonical":
+				metrics["layer_iteration_sample_count"] = PERF_RESULT_CONTRACT.metric("DIRECT", int(collection.get("sample_count", 0)), "count", timing_source)
+				metrics["layer_iteration_average_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("average_frame_ms"), "ms", timing_source)
+				metrics["layer_iteration_p95_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p95_frame_ms"), "ms", timing_source)
+				metrics["layer_iteration_p99_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p99_frame_ms"), "ms", timing_source)
+				metrics["layer_iteration_max_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("max_frame_ms"), "ms", timing_source)
+			"render_windowed":
+				metrics["display_frame_sample_count"] = PERF_RESULT_CONTRACT.metric("DIRECT", int(collection.get("sample_count", 0)), "count", timing_source)
+				metrics["display_frame_average_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("average_frame_ms"), "ms", timing_source)
+				metrics["display_frame_median_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("median_frame_ms"), "ms", timing_source)
+				metrics["display_frame_p95_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p95_frame_ms"), "ms", timing_source)
+				metrics["display_frame_p99_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("p99_frame_ms"), "ms", timing_source)
+				metrics["display_frame_max_ms"] = PERF_RESULT_CONTRACT.metric("DERIVED", scenario.get("max_frame_ms"), "ms", timing_source)
+	if benchmark_mode == "render_windowed" and not setup_failed:
+		metrics["renderer_visibility"] = PERF_RESULT_CONTRACT.metric("CONFIGURATION_STATE", (scenario.get("renderer_configuration_state", {}) as Dictionary).duplicate(true), "state", "CanvasItem visibility captured at measurement end")
+	else:
+		metrics["renderer_visibility"] = PERF_RESULT_CONTRACT.unavailable_metric("CONFIGURATION_STATE", "state", "renderer visibility is not captured as timing in this execution mode")
+	if benchmark_mode != "render_windowed":
+		metrics["display_frame_delta_ms"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", "this mode does not execute a windowed display-frame measurement loop")
+	elif not timing_available:
+		metrics["display_frame_delta_ms"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", timing_reason)
+	metrics["gpu_frame_time_ms"] = PERF_RESULT_CONTRACT.unavailable_metric("EXTERNAL_PROFILER_REQUIRED", "ms", "Godot 4.2.2 harness exposes no trustworthy per-frame GPU duration for this runner")
+	metrics["render_section_cost_ms"] = PERF_RESULT_CONTRACT.unavailable_metric("UNAVAILABLE", "ms", "renderer visibility is configuration state, not measured renderer section cost")
+	return metrics
+
+func _result_environment(gates: Dictionary) -> Dictionary:
+	var viewport_size: Vector2i = root.size
+	var target_frame_ms: float = float(gates.get("target_frame_ms", 0.0))
+	var target_fps: int = int(round(1000.0 / target_frame_ms)) if target_frame_ms > 0.0 else 0
+	var video_adapter: String = RenderingServer.get_video_adapter_name().strip_edges()
+	if video_adapter.is_empty():
+		video_adapter = "UNAVAILABLE_HEADLESS" if DisplayServer.get_name() == "headless" else "UNAVAILABLE"
 	return {
-		"target_fps": 60,
-		"target_frame_ms": 16.67,
-		"p95_max_ms": 22.0,
-		"p99_max_ms": 33.33,
-		"max_frame_ms": 50.0,
-		"max_hitches": 0,
-		"worst_frame_limit": 10,
-		"warn_regression_percent": 10.0,
-		"fail_regression_percent": 20.0
+		"build": {
+			"type": "debug" if OS.is_debug_build() else "release",
+			"debug": OS.is_debug_build()
+		},
+		"renderer": {
+			"rendering_method": _effective_renderer_option("rendering-method", "rendering/renderer/rendering_method", "forward_plus"),
+			"rendering_method_source": "engine command line override or effective ProjectSettings configuration",
+			"rendering_driver": _effective_renderer_option("rendering-driver", "rendering/rendering_device/driver", "default"),
+			"rendering_driver_source": "engine command line override or effective ProjectSettings configuration",
+			"video_adapter": video_adapter,
+			"video_adapter_reason": "headless rendering server does not expose an adapter" if video_adapter == "UNAVAILABLE_HEADLESS" else "",
+			"display_server": DisplayServer.get_name(),
+			"headless": DisplayServer.get_name() == "headless"
+		},
+		"viewport": {
+			"width": viewport_size.x,
+			"height": viewport_size.y,
+			"content_scale_factor": root.content_scale_factor,
+			"content_scale_width": root.content_scale_size.x,
+			"content_scale_height": root.content_scale_size.y,
+			"stretch_mode": str(ProjectSettings.get_setting("display/window/stretch/mode", "disabled")),
+			"stretch_aspect": str(ProjectSettings.get_setting("display/window/stretch/aspect", "ignore")),
+			"render_scale_3d": float(ProjectSettings.get_setting("rendering/scaling_3d/scale", 1.0))
+		},
+		"pacing": {
+			"benchmark_target_frame_ms": target_frame_ms,
+			"benchmark_target_fps": target_fps,
+			"engine_max_fps": Engine.max_fps,
+			"physics_ticks_per_second": Engine.physics_ticks_per_second,
+			"time_scale": Engine.time_scale,
+			"vsync_mode": int(DisplayServer.window_get_vsync_mode()),
+			"vsync_mode_name": _vsync_mode_name(int(DisplayServer.window_get_vsync_mode()))
+		}
 	}
+
+func _effective_renderer_option(option_name: String, project_setting: String, fallback: String) -> String:
+	var args: PackedStringArray = OS.get_cmdline_args()
+	for arg_index in range(args.size()):
+		var arg: String = str(args[arg_index])
+		var prefix: String = "--%s=" % option_name
+		if arg.begins_with(prefix):
+			return arg.trim_prefix(prefix)
+		if arg == "--%s" % option_name and arg_index + 1 < args.size():
+			return str(args[arg_index + 1])
+	return str(ProjectSettings.get_setting(project_setting, fallback))
+
+func _vsync_mode_name(mode: int) -> String:
+	match mode:
+		DisplayServer.VSYNC_DISABLED:
+			return "DISABLED"
+		DisplayServer.VSYNC_ENABLED:
+			return "ENABLED"
+		DisplayServer.VSYNC_ADAPTIVE:
+			return "ADAPTIVE"
+		DisplayServer.VSYNC_MAILBOX:
+			return "MAILBOX"
+		_:
+			return "UNKNOWN_%d" % mode
 
 func _git_metadata() -> Dictionary:
 	return {
@@ -1060,6 +2132,8 @@ func _git_metadata() -> Dictionary:
 func _machine_metadata() -> Dictionary:
 	return {
 		"os": OS.get_name(),
+		"model_name": OS.get_model_name(),
+		"architecture": Engine.get_architecture_name(),
 		"processor_count": OS.get_processor_count(),
 		"video_adapter": RenderingServer.get_video_adapter_name(),
 		"display_server": DisplayServer.get_name(),

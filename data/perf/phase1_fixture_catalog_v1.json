@@ -1,0 +1,208 @@
+{
+  "catalog_schema": "sf_perf_fixture_catalog_design_v1",
+  "catalog_version": 1,
+  "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+  "baseline_policy": {
+    "catalog_entries_are_candidates_only": true,
+    "default_baseline_eligible": false,
+    "required_repetitions": 3,
+    "required_collection_level": "MINIMAL",
+    "required_result_schema_version": 3,
+    "require_clean_worktree": true,
+    "require_integrity_pass": true,
+    "require_determinism_pass": true,
+    "require_isolation_pass": true,
+    "require_backend_isolation_pass": true,
+    "require_exact_fixture_counts": true,
+    "baseline_key_fields": [
+      "fixture_id",
+      "fixture_version",
+      "measurement_profile",
+      "fixture_config_hash",
+      "environment_compatibility_hash"
+    ]
+  },
+  "common": {
+    "scene_path": "res://scenes/Arena.tscn",
+    "repetitions": 3,
+    "collection_level": "MINIMAL",
+    "viewport": {
+      "width": 1080,
+      "height": 1920,
+      "stretch_mode": "viewport",
+      "stretch_aspect": "keep_width"
+    },
+    "deterministic_windowed_cadence": {
+      "target_fps": 30,
+      "simulation_hz": 10,
+      "frames_per_simulation_tick": 3,
+      "warmup_frames": 60,
+      "measurement_frames": 300
+    },
+    "production_map": {
+      "path": "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__1p.json",
+      "sha256": "5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+      "mode": "1p",
+      "player_buckets": [
+        "1P"
+      ],
+      "start_slots": [
+        "p1h1",
+        "p2h1"
+      ],
+      "expected_counts": {
+        "hives": 12,
+        "towers": 0,
+        "barracks": 0,
+        "structure_slots": 0,
+        "walls": 2
+      }
+    }
+  },
+  "fixtures": [
+    {
+      "fixture_id": "EMPTY_ARENA_V1",
+      "fixture_version": 1,
+      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "seed": 6101,
+      "content_kind": "synthetic_scene",
+      "content_identity": "empty_arena_scene_descriptor_v1",
+      "map_path": null,
+      "setup_path": "Arena.tscn shell initialization without MapLoader or MapApplier",
+      "camera_policy": "authored Arena.tscn Camera2D transform, captured and hashed; production map-fit is inapplicable without hives",
+      "expected_counts": {
+        "hives": 0,
+        "active_lanes": 0,
+        "units": 0,
+        "towers": 0,
+        "barracks": 0,
+        "structure_slots": 0,
+        "walls": 0
+      },
+      "measurement_profiles": [
+        "static_windowed_deterministic"
+      ],
+      "baseline_candidate": true,
+      "baseline_eligible": false
+    },
+    {
+      "fixture_id": "STATIC_BATTLEFIELD_V1",
+      "fixture_version": 1,
+      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "seed": 6111,
+      "content_kind": "production_map",
+      "map_ref": "common.production_map",
+      "setup_path": "MapLoader plus MapApplier; simulation and bots disabled after setup",
+      "camera_policy": "production map fit, settled and hashed",
+      "expected_counts": {
+        "hives": 12,
+        "active_lanes": 0,
+        "units": 0,
+        "towers": 0,
+        "barracks": 0,
+        "structure_slots": 0,
+        "walls": 2
+      },
+      "measurement_profiles": [
+        "static_windowed_deterministic"
+      ],
+      "baseline_candidate": true,
+      "baseline_eligible": false
+    },
+    {
+      "fixture_id": "NORMAL_MATCH_V1",
+      "fixture_version": 1,
+      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "seed": 6201,
+      "content_kind": "production_map",
+      "map_ref": "common.production_map",
+      "setup_path": "MapLoader plus MapApplier plus canonical SimRunner; bots disabled; versioned fixed command schedule",
+      "camera_policy": "not applicable to canonical headless; production map fit, settled and hashed for deterministic windowed",
+      "command_selector_version": "sorted_candidate_pair_v1",
+      "schedule_status": "PILOT_REQUIRED_BEFORE_FREEZE",
+      "timing": {
+        "warmup_ticks": 20,
+        "measurement_ticks": 100,
+        "total_ticks": 120
+      },
+      "measurement_profiles": [
+        "canonical_sim_headless",
+        "deterministic_windowed_presentation"
+      ],
+      "baseline_candidate": true,
+      "baseline_eligible": false
+    },
+    {
+      "fixture_id": "UNIT_SCALE_050_V1",
+      "fixture_version": 1,
+      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "seed": 6401,
+      "content_kind": "production_map",
+      "map_ref": "common.production_map",
+      "target_units": 50,
+      "setup_path": "Accepted production lane intents, condition-based lane-build completion outside measurement, then deterministic UnitSystem.spawn_unit injection; simulation paused during measurement",
+      "camera_policy": "production map fit, settled and hashed",
+      "measurement_profiles": [
+        "static_windowed_deterministic"
+      ],
+      "baseline_candidate": true,
+      "baseline_eligible": false
+    },
+    {
+      "fixture_id": "UNIT_SCALE_100_V1",
+      "fixture_version": 1,
+      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "seed": 6401,
+      "content_kind": "production_map",
+      "map_ref": "common.production_map",
+      "target_units": 100,
+      "setup_path": "Accepted production lane intents, condition-based lane-build completion outside measurement, then deterministic UnitSystem.spawn_unit injection; simulation paused during measurement",
+      "camera_policy": "production map fit, settled and hashed",
+      "measurement_profiles": [
+        "static_windowed_deterministic"
+      ],
+      "baseline_candidate": true,
+      "baseline_eligible": false
+    },
+    {
+      "fixture_id": "UNIT_SCALE_200_V1",
+      "fixture_version": 1,
+      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "seed": 6401,
+      "content_kind": "production_map",
+      "map_ref": "common.production_map",
+      "target_units": 200,
+      "setup_path": "Accepted production lane intents, condition-based lane-build completion outside measurement, then deterministic UnitSystem.spawn_unit injection; simulation paused during measurement",
+      "camera_policy": "production map fit, settled and hashed",
+      "measurement_profiles": [
+        "static_windowed_deterministic"
+      ],
+      "baseline_candidate": true,
+      "baseline_eligible": false
+    },
+    {
+      "fixture_id": "UNIT_SCALE_400_V1",
+      "fixture_version": 1,
+      "status": "DESIGN_APPROVED_NOT_IMPLEMENTED",
+      "seed": 6401,
+      "content_kind": "production_map",
+      "map_ref": "common.production_map",
+      "target_units": 400,
+      "setup_path": "Accepted production lane intents, condition-based lane-build completion outside measurement, then deterministic UnitSystem.spawn_unit injection; simulation paused during measurement",
+      "camera_policy": "production map fit, settled and hashed",
+      "measurement_profiles": [
+        "static_windowed_deterministic"
+      ],
+      "baseline_candidate": true,
+      "baseline_eligible": false
+    }
+  ],
+  "deferred": [
+    "moving UNIT_SCALE profile",
+    "HIVE_UPGRADE_STORM",
+    "SUPER_SWARM_CHAIN",
+    "3-player fixtures",
+    "4-player fixtures",
+    "multi-map or multi-stage async fixtures"
+  ]
+}
