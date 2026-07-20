@@ -58,3 +58,5 @@ Package 1 may start only when the decisions and schemas linked above are accepte
 - [Package 12 — Operations and controlled rollout](package-12-evidence.md)
 - [Sprint completion handoff](sprint-completion-handoff.md)
 - [Exit report and work-machine handoff — 2026-07-20](exit-report-and-work-handoff-2026-07-20.md)
+- [Staging certification plan](staging-certification-plan.md)
+- [Staging certification evidence record](staging-certification-evidence.md)
