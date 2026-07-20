@@ -29,7 +29,7 @@ func _run() -> void:
 	if not program.is_empty():
 		_expect(str(program.get("program_schema", "")) == "sf_perf_harness_v1_completion_program_v1", "program schema must fail closed")
 		_expect(int(program.get("program_version", 0)) == 1, "program version must be explicit")
-		_expect(str(program.get("status", "")) == "IMPLEMENTATION_APPROVED", "program approval status must be explicit")
+		_expect(str(program.get("status", "")) in ["IMPLEMENTATION_APPROVED", "COMPLETE"], "program approval/completion status must be explicit")
 		_expect(program.get("phase_order", []) == EXPECTED_PHASES, "phase order must be exact")
 		_validate_phases(program.get("phases", []))
 		_validate_exclusions(program.get("explicit_exclusions", []))

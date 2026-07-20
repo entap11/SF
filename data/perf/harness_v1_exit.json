@@ -1,0 +1,85 @@
+{
+  "exit_schema": "sf_perf_harness_v1_exit_v1",
+  "exit_version": 1,
+  "status": "COMPLETE",
+  "recommendation": "HARNESS V1 READY WITH LIMITATIONS",
+  "branch": "codex/perf-harness-v1-completion",
+  "candidate_source_commit": "557a8e5",
+  "baseline_package": {
+    "manifest": "res://data/perf/baselines/harness_v1/manifest.json",
+    "status": "APPROVED",
+    "report_count": 4,
+    "scenario_count": 24,
+    "self_comparisons_passed": 4,
+    "supersedes": "res://data/perf/baselines/phase1/manifest.json",
+    "supersession_reason": "finalized renderer-isolation configuration changes fixture_config_hash and must fail closed against the older package"
+  },
+  "exit_matrix": {
+    "focused_gates_before_gate_g": 18,
+    "focused_gates_total": 19,
+    "real_scenario_runs": 95,
+    "failed_scenario_runs": 0,
+    "phase0": {
+      "integrity_runs": 3,
+      "isolation_runs": 3,
+      "collector_calibration_runs": 9
+    },
+    "phase1_clean_candidates": 24,
+    "phase2": {
+      "moving_unit_scale_runs": 12,
+      "upgrade_and_swarm_runs": 6,
+      "battlefield_and_ui_runs": 21,
+      "lifecycle_cycles": 8,
+      "feature_isolation_runs": 9
+    }
+  },
+  "collector_calibration": {
+    "status": "PASS",
+    "interpretation": "directional repeated evidence only; not an exact instrumentation-cost claim",
+    "minimal_median_delta_percent_vs_off": 0.748966942148758,
+    "full_median_delta_percent_vs_off": 1.24225206611571
+  },
+  "environment": {
+    "godot": "4.2.2-stable official",
+    "build_type": "debug",
+    "os": "macOS",
+    "architecture": "arm64",
+    "processor_count": 10,
+    "video_adapter": "Apple M2 Pro",
+    "rendering_method": "forward_plus",
+    "rendering_driver": "vulkan",
+    "viewport": "1080x1920",
+    "target_fps": 30,
+    "physics_ticks_per_second": 60
+  },
+  "device_evidence": {
+    "status": "UNAVAILABLE",
+    "xcode": "26.6 (17F113)",
+    "xctrace_templates_available": [
+      "Metal System Trace",
+      "Time Profiler"
+    ],
+    "ios_physical_device": "OFFLINE",
+    "android_adb": "NOT_INSTALLED",
+    "missing": [
+      "physical-device GPU trace",
+      "physical-device thermal evidence",
+      "physical-device energy evidence"
+    ]
+  },
+  "limitations": [
+    "baseline timing applies only to exact comparison fingerprints in the controlled debug environment",
+    "no physical-device GPU, thermal, or energy evidence was available",
+    "3-player, 4-player, multi-map async, and multi-stage async fixtures remain explicitly deferred",
+    "missing barracks.PNG and Godot shader-cache/NUL console warnings remain pre-existing external issues",
+    "Phase 2 diagnostic timings are not approved regression baselines"
+  ],
+  "checkpoint_commits": {
+    "P2_A": "792ee31",
+    "P2_B": "ac2cadb",
+    "P2_C": "755f555",
+    "P2_D": "dccce88",
+    "P2_E": "e2dd4ce",
+    "P2_F": "557a8e5"
+  }
+}

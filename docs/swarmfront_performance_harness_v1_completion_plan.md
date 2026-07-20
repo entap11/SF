@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness V1 Completion Plan
 
-Status: `P2-F COMPLETE — P2-G NEXT`
+Status: `SPRINT COMPLETE — MERGE EVALUATION READY`
 
 Branch: `codex/perf-harness-v1-completion`
 
@@ -94,6 +94,15 @@ Implemented evidence:
 
 Run all Phase 0–2 focused gates, deterministic suites, isolation sequences, collector calibration, lifecycle checks, and clean-tree candidate profiles. Package only compatible and eligible evidence. Device GPU, thermal, and energy evidence is collected only when tooling is available; otherwise the exact external workflow and missing evidence are reported.
 
+Implemented evidence:
+
+- All 18 Phase 0–2-F focused gates passed before Gate G. The exit exercise completed 95 real scenario runs with zero failures: 15 Phase 0 integrity/isolation/calibration runs, 24 clean Phase 1 candidates, and 56 Phase 2 correctness/diagnostic runs.
+- Four clean-tree candidate profile families from commit `557a8e5` were approved into `data/perf/baselines/harness_v1`. All use MINIMAL bounded collection, three repetitions, eligible runtime identities, and 4/4 compatible self-comparisons.
+- The older Phase 1 package is retained for audit but correctly compares as incompatible because finalized renderer-isolation configuration changed `fixture_config_hash`. Phase 2 diagnostics remain baseline-ineligible and were not packaged.
+- Collector calibration passed nine staggered repetitions. Observed median deltas versus OFF were 0.749% for MINIMAL and 1.242% for FULL, retained only as directional evidence.
+- Xcode 26.6 provides Metal System Trace and Time Profiler, but the physical iPhone was offline; Android `adb` is unavailable. The exit report records exact iOS and Android follow-up workflows and does not fabricate GPU, thermal, or energy values.
+- The machine-readable decision and full merge evaluation are `data/perf/harness_v1_exit.json` and `docs/swarmfront_performance_harness_v1_exit.md`. Final recommendation: `HARNESS V1 READY WITH LIMITATIONS`.
+
 ## Explicit exclusions
 
 - 3-player and 4-player fixtures;
@@ -116,10 +125,12 @@ For each phase:
 
 ## Exit recommendation
 
-The final report will choose exactly one:
+The final report chooses exactly one:
 
 - `HOLD`;
 - `HARNESS V1 READY WITH LIMITATIONS`;
 - `HARNESS V1 READY`.
+
+Selected: `HARNESS V1 READY WITH LIMITATIONS`.
 
 No merge or deployment is part of this sprint.

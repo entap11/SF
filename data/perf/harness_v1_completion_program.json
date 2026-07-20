@@ -1,7 +1,7 @@
 {
   "program_schema": "sf_perf_harness_v1_completion_program_v1",
   "program_version": 1,
-  "status": "IMPLEMENTATION_APPROVED",
+  "status": "COMPLETE",
   "source_baseline_commit": "5588c4b9a390b36cc5fb67eb11003aaf44fa38b7",
   "production_behavior_policy": "PRESERVE",
   "optimization_policy": "MEASURE_ONLY",
@@ -104,7 +104,7 @@
     },
     {
       "phase_id": "P2_G_BASELINES_AND_EXIT",
-      "status": "PLANNED",
+      "status": "IMPLEMENTED",
       "required_evidence": [
         "all Phase 0, Phase 1, and Phase 2 gates pass",
         "clean-tree eligible baseline candidates",

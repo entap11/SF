@@ -1,0 +1,4091 @@
+{
+	"backend_isolation": {
+		"analytics_writes_blocked": true,
+		"live_transport_blocked": true,
+		"loopback_transport_blocked": true,
+		"pass": true,
+		"policy": "deny_all_while_sf_perf_harness_active"
+	},
+	"baseline_approval": {
+		"eligible": true,
+		"policy": "clean_valid_compatible_baseline_eligible_results_only",
+		"reasons": [],
+		"status": "ELIGIBLE"
+	},
+	"benchmark_mode": "deterministic_windowed_presentation",
+	"build": {
+		"debug": true,
+		"type": "debug"
+	},
+	"collection_contract_version": 1,
+	"collection_level": "MINIMAL",
+	"collector_calibration": {
+
+	},
+	"comparison_critical_fields": [
+		"result_schema_version",
+		"fixture_id",
+		"fixture_version",
+		"catalog_schema",
+		"catalog_version",
+		"catalog_content_hash",
+		"catalog_fixture_registered",
+		"measurement_profile",
+		"content_kind",
+		"content_identity",
+		"environment_compatibility_hash",
+		"fixture_config_hash",
+		"map_content_hash",
+		"command_schedule_hash",
+		"godot_version",
+		"build_type",
+		"rendering_method",
+		"rendering_driver",
+		"video_adapter",
+		"viewport_width",
+		"viewport_height",
+		"content_scale_factor",
+		"stretch_mode",
+		"stretch_aspect",
+		"benchmark_mode",
+		"collection_level",
+		"warmup_duration_sec",
+		"measurement_duration_sec",
+		"target_fps",
+		"physics_ticks_per_second"
+	],
+	"determinism": {
+		"fixtures": [
+			{
+				"fields_compared": [
+					"fixture_config_hash",
+					"requested_seed",
+					"effective_seed",
+					"command_schedule_hash",
+					"final_state_hash",
+					"map_content_hash",
+					"camera_identity_hash",
+					"cadence_identity_hash",
+					"renderer_configuration_hash",
+					"frame_count",
+					"measured_frame_count",
+					"tick_count",
+					"measured_tick_count"
+				],
+				"fixture_id": "NORMAL_MATCH_V1",
+				"mismatches": [],
+				"pass": true,
+				"repetition_count": 3,
+				"required_repetition_count": 3
+			}
+		],
+		"pass": true
+	},
+	"failed_scenarios": [],
+	"feature_isolation": {
+
+	},
+	"feature_registry": {
+		"classification_counts": {
+			"FUTURE": 5,
+			"NOT_PRESENT": 5,
+			"PRESENT_COUPLED": 24,
+			"PRESENT_ISOLATABLE": 13
+		},
+		"content_hash": "fa50fd59704f6b487216da1e9ab7ae21be9296aaa9e1e4517f333ed5300ec978",
+		"feature_count": 47,
+		"registry_schema": "sf_perf_feature_isolation_registry_v1",
+		"registry_version": 1,
+		"source": "res://data/perf/feature_isolation_registry_v1.json"
+	},
+	"fixture_catalog": {
+		"baseline_default_eligible": false,
+		"content_hash": "03d9fb566b3e88d20418c8fb34ddcef8c3f7a1e0ffc525273ee3bd078c696bb7",
+		"fixture_count": 7,
+		"schema": "sf_perf_fixture_catalog_design_v1",
+		"source": "res://data/perf/phase1_fixture_catalog_v1.json",
+		"status": "IMPLEMENTED",
+		"validation": "PASS",
+		"version": 1
+	},
+	"gate_source": "res://data/perf/benchmark_gates.json",
+	"gates": {
+		"fail_regression_percent": 20,
+		"hitch_threshold_ms": 41.67,
+		"max_frame_ms": 55,
+		"max_hitches": 0,
+		"p99_max_ms": 41.67,
+		"target_fps": 30,
+		"target_frame_ms": 33.5,
+		"warn_regression_percent": 10
+	},
+	"generated_at_unix": 1784536940.11664,
+	"git": {
+		"branch": "codex/perf-harness-v1-completion",
+		"commit": "557a8e5",
+		"dirty": false
+	},
+	"godot": {
+		"build": "official",
+		"hash": "15073afe3856abd2aa1622492fe50026c7d63dc1",
+		"hex": 262658,
+		"major": 4,
+		"minor": 2,
+		"patch": 2,
+		"status": "stable",
+		"string": "4.2.2-stable (official)",
+		"year": 2024
+	},
+	"integrity_failed_scenarios": [],
+	"integrity_status": "PASS",
+	"isolation": {
+		"mismatches": [],
+		"pass": true,
+		"scenario_count": 3,
+		"scenarios": [
+			{
+				"after_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"before_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"fixture_root_freed": true,
+				"mismatches": [],
+				"pass": true,
+				"scenario_id": "NORMAL_MATCH_V1",
+				"suite_sequence_index": 1
+			},
+			{
+				"after_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"before_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"fixture_root_freed": true,
+				"mismatches": [],
+				"pass": true,
+				"scenario_id": "NORMAL_MATCH_V1",
+				"suite_sequence_index": 2
+			},
+			{
+				"after_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"before_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"fixture_root_freed": true,
+				"mismatches": [],
+				"pass": true,
+				"scenario_id": "NORMAL_MATCH_V1",
+				"suite_sequence_index": 3
+			}
+		],
+		"shared_start_state_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b"
+	},
+	"lifecycle_soak": {
+
+	},
+	"machine": {
+		"architecture": "arm64",
+		"display_server": "macOS",
+		"headless": false,
+		"model_name": "GenericDevice",
+		"os": "macOS",
+		"processor_count": 10,
+		"video_adapter": "Apple M2 Pro"
+	},
+	"metric_classifications": [
+		"DIRECT",
+		"DERIVED",
+		"CONFIGURATION_STATE",
+		"UNAVAILABLE",
+		"EXTERNAL_PROFILER_REQUIRED"
+	],
+	"pacing": {
+		"benchmark_target_fps": 30,
+		"benchmark_target_frame_ms": 33.5,
+		"engine_max_fps": 0,
+		"physics_ticks_per_second": 60,
+		"time_scale": 1,
+		"vsync_mode": 1,
+		"vsync_mode_name": "ENABLED"
+	},
+	"pass": true,
+	"renderer": {
+		"display_server": "macOS",
+		"headless": false,
+		"rendering_driver": "vulkan",
+		"rendering_driver_source": "engine command line override or effective ProjectSettings configuration",
+		"rendering_method": "forward_plus",
+		"rendering_method_source": "engine command line override or effective ProjectSettings configuration",
+		"video_adapter": "Apple M2 Pro",
+		"video_adapter_reason": ""
+	},
+	"report_type": "sf_perf_benchmark_suite",
+	"result_schema_version": 3,
+	"result_validation": {
+		"errors": [],
+		"pass": true,
+		"schema_version": 3,
+		"status": "VALID"
+	},
+	"run_status": "COMPLETED",
+	"runtime_baseline_eligibility": {
+		"eligible": true,
+		"eligible_scenarios": 3,
+		"global_reasons": [],
+		"policy_version": 1,
+		"required_collection_level": "MINIMAL",
+		"required_repetitions": 3,
+		"scenario_count": 3,
+		"status": "ELIGIBLE"
+	},
+	"scenario_count": 3,
+	"scenarios": [
+		{
+			"accepted_command_evidence": [
+				{
+					"dst": 9,
+					"schedule_index": 0,
+					"src": 2,
+					"tick": 5,
+					"type": "attack"
+				},
+				{
+					"dst": 9,
+					"schedule_index": 1,
+					"src": 2,
+					"tick": 15,
+					"type": "swarm"
+				},
+				{
+					"dst": 8,
+					"schedule_index": 2,
+					"src": 3,
+					"tick": 25,
+					"type": "attack"
+				},
+				{
+					"dst": 8,
+					"schedule_index": 3,
+					"src": 3,
+					"tick": 35,
+					"type": "attack"
+				}
+			],
+			"allowed_failure": false,
+			"average_frame_ms": 33.1962233333333,
+			"baseline_eligible": true,
+			"baseline_ineligible_reasons": [],
+			"benchmark_mode": "deterministic_windowed_presentation",
+			"bot_isolation": {
+				"enabled_seats": [],
+				"pass": true,
+				"profile_count": 1,
+				"profiles_hash": "9f485988e2d72f3b6b998142c18e53c03cab5a7cd8f0b59950f4704a88eb485f"
+			},
+			"cadence_identity": {
+				"adapter_version": 1,
+				"control_clock": "rendered_frame_index",
+				"elapsed_wall_time_controls_simulation": false,
+				"frames_per_simulation_tick": 3,
+				"measurement_frames": 300,
+				"measurement_ticks": 100,
+				"simulation_active": true,
+				"simulation_hz": 10,
+				"target_fps": 30,
+				"total_frames": 360,
+				"total_ticks": 120,
+				"warmup_frames": 60,
+				"warmup_ticks": 20
+			},
+			"cadence_identity_hash": "e6d1e70fca971fe335e45c74bcb3e0df939b40494dd0562b6ab71d1e51d36b29",
+			"calibration_sequence_index": 0,
+			"camera_identity": {
+				"anchor_mode": 1,
+				"global_position": [
+					576,
+					896
+				],
+				"identity_version": 1,
+				"ignore_rotation": true,
+				"is_current": true,
+				"node_path": "Camera2D",
+				"offset": [
+					0,
+					0
+				],
+				"policy": "production_map_fit",
+				"position_smoothing_enabled": false,
+				"rotation_radians": 0,
+				"viewport_height": 1920,
+				"viewport_width": 1080,
+				"zoom": [
+					0.803571,
+					0.803571
+				]
+			},
+			"camera_identity_hash": "303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+			"camera_settle": {
+				"consecutive_hashes": [
+					"303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+					"303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c"
+				],
+				"hash": "303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+				"identity": {
+					"anchor_mode": 1,
+					"global_position": [
+						576,
+						896
+					],
+					"identity_version": 1,
+					"ignore_rotation": true,
+					"is_current": true,
+					"node_path": "Camera2D",
+					"offset": [
+						0,
+						0
+					],
+					"policy": "production_map_fit",
+					"position_smoothing_enabled": false,
+					"rotation_radians": 0,
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"zoom": [
+						0.803571,
+						0.803571
+					]
+				},
+				"pass": true,
+				"policy": "production_map_fit",
+				"reason": "",
+				"settle_frames": 5
+			},
+			"canonical_simulation": true,
+			"catalog_fixture_registered": true,
+			"collection": {
+				"available": true,
+				"average_ms": 33.1962233333333,
+				"hitch_count": 0,
+				"hitch_records": [],
+				"level": "MINIMAL",
+				"max_ms": 35.488,
+				"median_ms": 33.223,
+				"min_ms": 31.083,
+				"overhead_contract": {
+					"additional_per_sample_clock_reads": 0,
+					"aggregate_updates": true,
+					"forensic_context_copied_only_when_retained": true,
+					"percentile_retention": true,
+					"raw_sample_allocation": false
+				},
+				"p95_ms": 34.249,
+				"p999_ms": 35.488,
+				"p99_ms": 35.071,
+				"raw_samples": [],
+				"retention": {
+					"dropped_percentile_sample_count": 0,
+					"dropped_raw_sample_count": 0,
+					"forensic_record_limit": 10,
+					"percentile_sample_limit": 4096,
+					"percentiles_exact": true,
+					"raw_sample_capture": false,
+					"raw_sample_limit": 0,
+					"retained_hitch_record_count": 0,
+					"retained_percentile_sample_count": 300,
+					"retained_raw_sample_count": 0,
+					"retained_worst_record_count": 10,
+					"truncated": false
+				},
+				"sample_count": 300,
+				"timing_enabled": true,
+				"unavailable_reason": "",
+				"worst_records": [
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 35
+						},
+						"duration_ms": 35.488,
+						"sample_index": 47
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 95
+						},
+						"duration_ms": 35.169,
+						"sample_index": 225
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 107
+						},
+						"duration_ms": 35.163,
+						"sample_index": 262
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 56
+						},
+						"duration_ms": 35.071,
+						"sample_index": 109
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 108
+						},
+						"duration_ms": 34.968,
+						"sample_index": 264
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 84
+						},
+						"duration_ms": 34.945,
+						"sample_index": 194
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 46
+						},
+						"duration_ms": 34.911,
+						"sample_index": 78
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 79
+						},
+						"duration_ms": 34.608,
+						"sample_index": 179
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 45
+						},
+						"duration_ms": 34.598,
+						"sample_index": 76
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 73
+						},
+						"duration_ms": 34.572,
+						"sample_index": 161
+					}
+				]
+			},
+			"collection_level": "MINIMAL",
+			"command_schedule_hash": "b46681f7890f5cc2b7f99b6662e13666db00c8a2e679ed7e02bfaa42e2c78516",
+			"comparison_fingerprint": {
+				"hash": "8eeeedb25a1252bb82bc386797961f949c7cb82b7757eb059d719678d89339cb",
+				"payload": {
+					"benchmark_mode": "deterministic_windowed_presentation",
+					"build_type": "debug",
+					"catalog_content_hash": "03d9fb566b3e88d20418c8fb34ddcef8c3f7a1e0ffc525273ee3bd078c696bb7",
+					"catalog_fixture_registered": true,
+					"catalog_schema": "sf_perf_fixture_catalog_design_v1",
+					"catalog_version": 1,
+					"collection_level": "MINIMAL",
+					"command_schedule_hash": "b46681f7890f5cc2b7f99b6662e13666db00c8a2e679ed7e02bfaa42e2c78516",
+					"content_identity": "sha256:5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+					"content_kind": "production_map",
+					"content_scale_factor": 1,
+					"environment_compatibility_hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+					"fixture_config_hash": "f0890368dbd38333983a0ca00df01faaec48817901445b63ea91edcf0c4d8fd8",
+					"fixture_id": "NORMAL_MATCH_V1",
+					"fixture_version": 1,
+					"godot_version": "4.2.2-stable (official)",
+					"map_content_hash": "5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+					"measurement_duration_sec": 10,
+					"measurement_profile": "deterministic_windowed_presentation",
+					"physics_ticks_per_second": 60,
+					"rendering_driver": "vulkan",
+					"rendering_method": "forward_plus",
+					"repetition_index": 1,
+					"result_schema_version": 3,
+					"stretch_aspect": "keep_width",
+					"stretch_mode": "viewport",
+					"suite_sequence_index": 1,
+					"target_fps": 30,
+					"video_adapter": "Apple M2 Pro",
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"warmup_duration_sec": 2
+				},
+				"version": 2
+			},
+			"content_identity": "sha256:5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+			"content_kind": "production_map",
+			"duration_sec": 12,
+			"effective_seed": 6201,
+			"environment_compatibility": {
+				"hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+				"payload": {
+					"build_type": "debug",
+					"cadence_identity": {
+						"adapter_version": 1,
+						"control_clock": "rendered_frame_index",
+						"elapsed_wall_time_controls_simulation": false,
+						"frames_per_simulation_tick": 3,
+						"measurement_frames": 300,
+						"measurement_ticks": 100,
+						"simulation_active": true,
+						"simulation_hz": 10,
+						"target_fps": 30,
+						"total_frames": 360,
+						"total_ticks": 120,
+						"warmup_frames": 60,
+						"warmup_ticks": 20
+					},
+					"camera_identity": {
+						"anchor_mode": 1,
+						"global_position": [
+							576,
+							896
+						],
+						"identity_version": 1,
+						"ignore_rotation": true,
+						"is_current": true,
+						"node_path": "Camera2D",
+						"offset": [
+							0,
+							0
+						],
+						"policy": "production_map_fit",
+						"position_smoothing_enabled": false,
+						"rotation_radians": 0,
+						"viewport_height": 1920,
+						"viewport_width": 1080,
+						"zoom": [
+							0.803571,
+							0.803571
+						]
+					},
+					"content_scale_factor": 1,
+					"display_server": "macOS",
+					"godot_version": "4.2.2-stable (official)",
+					"headless": false,
+					"measurement_profile": "deterministic_windowed_presentation",
+					"physics_ticks_per_second": 60,
+					"render_scale_3d": 1,
+					"rendering_driver": "vulkan",
+					"rendering_method": "forward_plus",
+					"stretch_aspect": "keep_width",
+					"stretch_mode": "viewport",
+					"target_fps": 30,
+					"video_adapter": "Apple M2 Pro",
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"vsync_mode": 1
+				},
+				"version": 1
+			},
+			"environment_compatibility_hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+			"expected_pool_capacity": 0,
+			"expected_pool_expansions": -1,
+			"failed_gates": [],
+			"feature_control_value": null,
+			"feature_id": "",
+			"feature_variant": "",
+			"final_state_hash": "ee84e0d4491b403c5f69cda788b6950ecb9784dae3c3cb2165406628ef48705a",
+			"fixture_config_hash": "f0890368dbd38333983a0ca00df01faaec48817901445b63ea91edcf0c4d8fd8",
+			"fixture_id": "NORMAL_MATCH_V1",
+			"fixture_setup_evidence": {
+				"actual_counts": {
+					"active_lanes": 0,
+					"barracks": 0,
+					"hives": 12,
+					"structure_slots": 0,
+					"towers": 0,
+					"units": 0,
+					"walls": 2
+				},
+				"content_kind": "production_map",
+				"exact_counts": true,
+				"expected_counts": {
+					"active_lanes": 0,
+					"barracks": 0,
+					"hives": 12,
+					"structure_slots": 0,
+					"towers": 0,
+					"units": 0,
+					"walls": 2
+				},
+				"map_applier_used": true,
+				"map_loader_used": true
+			},
+			"fixture_version": 1,
+			"frame_count": 360,
+			"hitch_count": 0,
+			"hitch_threshold_ms": 41.67,
+			"hitches": [],
+			"integrity_failures": [],
+			"isolation_cleanup": {
+				"after_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"after_protected_state": {
+					"autoloads": {
+						"AchievementService": {
+							"present": true,
+							"property_count": 1,
+							"state_hash": "b55bc2ed86f0e46b1eed062bf10a0e8ec02df771bfe9680759bd734ec6947139"
+						},
+						"AnalyticsClient": {
+							"present": true,
+							"property_count": 9,
+							"state_hash": "2b777722b2d5a35cf1699c1cb654bb98769083b2442cb81d03068d21210d9daf"
+						},
+						"BattlePassRuntimeAwards": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "b92735b7997dfc72acc2669d9499f852671af1c58926d9f75d3171bcfa9833f3"
+						},
+						"BattlePassState": {
+							"present": true,
+							"property_count": 41,
+							"state_hash": "627e2839cb89a795867f4746ea785871424d90a66f3cacb2c992df68e5399b7e"
+						},
+						"ContestState": {
+							"present": true,
+							"property_count": 5,
+							"state_hash": "542c5dd95718b219dcec829426cefd1b45c44d87ccf4eaceb7bceab58543e48d"
+						},
+						"CrucibleState": {
+							"present": true,
+							"property_count": 12,
+							"state_hash": "b7155e185b5bfa64a73e7556d03e2c3177622548ebe5e0ab93db0730161ee601"
+						},
+						"HiveClanState": {
+							"present": true,
+							"property_count": 14,
+							"state_hash": "46e0ad6e2341018865ae0efb27f8206763237a5b6ab4c3b042838e043c81188c"
+						},
+						"HoneyProgressionState": {
+							"present": true,
+							"property_count": 10,
+							"state_hash": "b32a2e1680f80c12007b6d50101ba28a9917f4c5e69d0d892134ec63482c5bf2"
+						},
+						"JukeboxRuntime": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "7d6ae58537fe74a1222c23980d3ed64b9c963f714b9ada4793941c34eaa65b11"
+						},
+						"ProfileManager": {
+							"present": true,
+							"property_count": 54,
+							"state_hash": "0fc389c558b8837c220fb939390c1d94c9fb5adaf02343b14a2a8dbcc18e8e2d"
+						},
+						"RankState": {
+							"present": true,
+							"property_count": 16,
+							"state_hash": "2cd67c3e9ae2aec7cda0f415a20bb6d4c3d011afaad0da5ef1befe3c568539c3"
+						}
+					},
+					"save_files": {
+						"user://analytics_queue_v1.jsonl": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://analytics_state_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://battle_pass_state.json": {
+							"exists": true,
+							"length": 1791,
+							"modified_time": 1784536898,
+							"sha256": "ac72519b6ce11ca8557cd128142f0a82d25ab9efdb5dd0154af8a9c0b621cfa6"
+						},
+						"user://contest_entries.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://contest_leaderboards_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://crucible_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://hive_clan_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://honey_progression_state.json": {
+							"exists": true,
+							"length": 279,
+							"modified_time": 1784536898,
+							"sha256": "6ce56267738cb7b1518841b3f9c5bfd253165c761524a2fcf485d2a5cb189f0c"
+						},
+						"user://profile.cfg": {
+							"exists": true,
+							"length": 2370,
+							"modified_time": 1784536898,
+							"sha256": "456950e3e2ca9f7723872863ba8f0f6af3606448ef5153ced101b88535ca1f5f"
+						},
+						"user://rank_state.json": {
+							"exists": true,
+							"length": 542,
+							"modified_time": 1784536898,
+							"sha256": "244cf25d3b547e675d4ac38da4c3ff7941c3937abef587520973d16e542687c8"
+						}
+					}
+				},
+				"after_protected_state_hash": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+				"after_topology": {
+					"arena_instance_ids": [],
+					"ops_signal_connections": {
+						"hud_changed": [],
+						"lane_intent_changed": [],
+						"lanes_changed": [],
+						"ops_state_changed": [],
+						"state_changed": []
+					},
+					"root_child_instance_ids": [
+						44543509716,
+						45650805983,
+						46405780691,
+						46774879431,
+						48083502331,
+						48452601099,
+						49945773326,
+						50566530327,
+						50935629081,
+						54341403920,
+						57881396518,
+						59072578862,
+						59609449788,
+						59894662463,
+						60263761194,
+						60565751105,
+						61387834691,
+						61773710662,
+						63132665159,
+						64776832335,
+						65062045014,
+						1570179646839
+					],
+					"root_child_rows": [
+						"1570179646839|SpriteRegistry|Node|res://scripts/renderers/sprite_registry.gd",
+						"44543509716|OpsState|Node|res://scripts/ops/ops_state.gd",
+						"45650805983|ContestState|Node|res://scripts/state/contest_state.gd",
+						"46405780691|ProfileManager|Node|res://scripts/profile/profile_manager.gd",
+						"46774879431|ModerationState|Node|res://scripts/state/moderation_state.gd",
+						"48083502331|HoneyProgressionState|Node|res://scripts/state/honey_progression_state.gd",
+						"48452601099|HiveClanState|Node|res://scripts/state/hive_clan_state.gd",
+						"49945773326|BattlePassState|Node|res://scripts/state/battle_pass_state.gd",
+						"50566530327|BattlePassRuntimeAwards|Node|res://scripts/state/battle_pass_runtime_awards.gd",
+						"50935629081|AchievementService|Node|res://scripts/achievements/achievement_service.gd",
+						"54341403920|ScholasticState|Node|res://scripts/state/scholastic_state.gd",
+						"57881396518|RankState|Node|res://scripts/state/rank_state.gd",
+						"59072578862|CrucibleState|Node|res://scripts/state/crucible_state.gd",
+						"59609449788|RankRuntimeAwards|Node|res://scripts/state/rank_runtime_awards.gd",
+						"59894662463|OpsConfig|Node|res://scripts/state/ops_config.gd",
+						"60263761194|AnalyticsClient|Node|res://scripts/state/analytics_client.gd",
+						"60565751105|AdManager|Node|res://scripts/state/ad_manager.gd",
+						"61387834691|JukeboxRuntime|Node|res://scripts/state/jukebox_runtime.gd",
+						"61773710662|AppLifecycle|Node|res://scripts/state/app_lifecycle_state.gd",
+						"63132665159|VsHandshake|Node|res://scripts/state/vs_handshake_state.gd",
+						"64776832335|VsPvpRuntime|Node|res://scripts/state/vs_pvp_runtime.gd",
+						"65062045014|Gamebot|Node|res://scripts/autoload/game_boot.gd"
+					]
+				},
+				"before_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"before_protected_state": {
+					"autoloads": {
+						"AchievementService": {
+							"present": true,
+							"property_count": 1,
+							"state_hash": "b55bc2ed86f0e46b1eed062bf10a0e8ec02df771bfe9680759bd734ec6947139"
+						},
+						"AnalyticsClient": {
+							"present": true,
+							"property_count": 9,
+							"state_hash": "2b777722b2d5a35cf1699c1cb654bb98769083b2442cb81d03068d21210d9daf"
+						},
+						"BattlePassRuntimeAwards": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "b92735b7997dfc72acc2669d9499f852671af1c58926d9f75d3171bcfa9833f3"
+						},
+						"BattlePassState": {
+							"present": true,
+							"property_count": 41,
+							"state_hash": "627e2839cb89a795867f4746ea785871424d90a66f3cacb2c992df68e5399b7e"
+						},
+						"ContestState": {
+							"present": true,
+							"property_count": 5,
+							"state_hash": "542c5dd95718b219dcec829426cefd1b45c44d87ccf4eaceb7bceab58543e48d"
+						},
+						"CrucibleState": {
+							"present": true,
+							"property_count": 12,
+							"state_hash": "b7155e185b5bfa64a73e7556d03e2c3177622548ebe5e0ab93db0730161ee601"
+						},
+						"HiveClanState": {
+							"present": true,
+							"property_count": 14,
+							"state_hash": "46e0ad6e2341018865ae0efb27f8206763237a5b6ab4c3b042838e043c81188c"
+						},
+						"HoneyProgressionState": {
+							"present": true,
+							"property_count": 10,
+							"state_hash": "b32a2e1680f80c12007b6d50101ba28a9917f4c5e69d0d892134ec63482c5bf2"
+						},
+						"JukeboxRuntime": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "7d6ae58537fe74a1222c23980d3ed64b9c963f714b9ada4793941c34eaa65b11"
+						},
+						"ProfileManager": {
+							"present": true,
+							"property_count": 54,
+							"state_hash": "0fc389c558b8837c220fb939390c1d94c9fb5adaf02343b14a2a8dbcc18e8e2d"
+						},
+						"RankState": {
+							"present": true,
+							"property_count": 16,
+							"state_hash": "2cd67c3e9ae2aec7cda0f415a20bb6d4c3d011afaad0da5ef1befe3c568539c3"
+						}
+					},
+					"save_files": {
+						"user://analytics_queue_v1.jsonl": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://analytics_state_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://battle_pass_state.json": {
+							"exists": true,
+							"length": 1791,
+							"modified_time": 1784536898,
+							"sha256": "ac72519b6ce11ca8557cd128142f0a82d25ab9efdb5dd0154af8a9c0b621cfa6"
+						},
+						"user://contest_entries.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://contest_leaderboards_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://crucible_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://hive_clan_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://honey_progression_state.json": {
+							"exists": true,
+							"length": 279,
+							"modified_time": 1784536898,
+							"sha256": "6ce56267738cb7b1518841b3f9c5bfd253165c761524a2fcf485d2a5cb189f0c"
+						},
+						"user://profile.cfg": {
+							"exists": true,
+							"length": 2370,
+							"modified_time": 1784536898,
+							"sha256": "456950e3e2ca9f7723872863ba8f0f6af3606448ef5153ced101b88535ca1f5f"
+						},
+						"user://rank_state.json": {
+							"exists": true,
+							"length": 542,
+							"modified_time": 1784536898,
+							"sha256": "244cf25d3b547e675d4ac38da4c3ff7941c3937abef587520973d16e542687c8"
+						}
+					}
+				},
+				"before_protected_state_hash": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+				"before_topology": {
+					"arena_instance_ids": [],
+					"ops_signal_connections": {
+						"hud_changed": [],
+						"lane_intent_changed": [],
+						"lanes_changed": [],
+						"ops_state_changed": [],
+						"state_changed": []
+					},
+					"root_child_instance_ids": [
+						44543509716,
+						45650805983,
+						46405780691,
+						46774879431,
+						48083502331,
+						48452601099,
+						49945773326,
+						50566530327,
+						50935629081,
+						54341403920,
+						57881396518,
+						59072578862,
+						59609449788,
+						59894662463,
+						60263761194,
+						60565751105,
+						61387834691,
+						61773710662,
+						63132665159,
+						64776832335,
+						65062045014,
+						1570179646839
+					],
+					"root_child_rows": [
+						"1570179646839|SpriteRegistry|Node|res://scripts/renderers/sprite_registry.gd",
+						"44543509716|OpsState|Node|res://scripts/ops/ops_state.gd",
+						"45650805983|ContestState|Node|res://scripts/state/contest_state.gd",
+						"46405780691|ProfileManager|Node|res://scripts/profile/profile_manager.gd",
+						"46774879431|ModerationState|Node|res://scripts/state/moderation_state.gd",
+						"48083502331|HoneyProgressionState|Node|res://scripts/state/honey_progression_state.gd",
+						"48452601099|HiveClanState|Node|res://scripts/state/hive_clan_state.gd",
+						"49945773326|BattlePassState|Node|res://scripts/state/battle_pass_state.gd",
+						"50566530327|BattlePassRuntimeAwards|Node|res://scripts/state/battle_pass_runtime_awards.gd",
+						"50935629081|AchievementService|Node|res://scripts/achievements/achievement_service.gd",
+						"54341403920|ScholasticState|Node|res://scripts/state/scholastic_state.gd",
+						"57881396518|RankState|Node|res://scripts/state/rank_state.gd",
+						"59072578862|CrucibleState|Node|res://scripts/state/crucible_state.gd",
+						"59609449788|RankRuntimeAwards|Node|res://scripts/state/rank_runtime_awards.gd",
+						"59894662463|OpsConfig|Node|res://scripts/state/ops_config.gd",
+						"60263761194|AnalyticsClient|Node|res://scripts/state/analytics_client.gd",
+						"60565751105|AdManager|Node|res://scripts/state/ad_manager.gd",
+						"61387834691|JukeboxRuntime|Node|res://scripts/state/jukebox_runtime.gd",
+						"61773710662|AppLifecycle|Node|res://scripts/state/app_lifecycle_state.gd",
+						"63132665159|VsHandshake|Node|res://scripts/state/vs_handshake_state.gd",
+						"64776832335|VsPvpRuntime|Node|res://scripts/state/vs_pvp_runtime.gd",
+						"65062045014|Gamebot|Node|res://scripts/autoload/game_boot.gd"
+					]
+				},
+				"component_hashes_after": {
+					"audio_buses": "8a8dc77444e79b4077ea3b52316263e009bad45487c7d7943897910689d7a60e",
+					"engine": "fa82daf89ff8fc5cb011fed76c47c711898f0cd32b29ebc25ea62f320a2a2830",
+					"ops_properties": "f443d05a50ce6dcc906ede8179de2a4518a353cb614a7a61b66f855d21b7d398",
+					"ops_rng_states": "98d87ccdce22bc77052044b12a35a60446eeec01d80e6774fe1afd05c95bd603",
+					"project_settings": "af456db4093ec62dc621f76ae06338ba4fc65f708db9eb535fd02864065a50e1",
+					"protected_state": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+					"rendering_default_clear_color": "9dd575e4de4c7d400d3ba1602ab322bc44e859131578b5280a4d07605c15648c",
+					"shared_runtime_properties": "b00c592a950c355cdfc3aece794f46f16e5505bd3b04f04db29cf6d98dd3f473",
+					"tree_metadata": "56f33987e34717d5ee7d2263f996cc0bc5ff32ac5d1d6822c4ab7164ef8b43c2",
+					"tree_topology": "b80df346b879b6a021865ceb406f41d482533026045b9d560b33abc52dc564b4"
+				},
+				"component_hashes_before": {
+					"audio_buses": "8a8dc77444e79b4077ea3b52316263e009bad45487c7d7943897910689d7a60e",
+					"engine": "fa82daf89ff8fc5cb011fed76c47c711898f0cd32b29ebc25ea62f320a2a2830",
+					"ops_properties": "f443d05a50ce6dcc906ede8179de2a4518a353cb614a7a61b66f855d21b7d398",
+					"ops_rng_states": "98d87ccdce22bc77052044b12a35a60446eeec01d80e6774fe1afd05c95bd603",
+					"project_settings": "af456db4093ec62dc621f76ae06338ba4fc65f708db9eb535fd02864065a50e1",
+					"protected_state": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+					"rendering_default_clear_color": "9dd575e4de4c7d400d3ba1602ab322bc44e859131578b5280a4d07605c15648c",
+					"shared_runtime_properties": "b00c592a950c355cdfc3aece794f46f16e5505bd3b04f04db29cf6d98dd3f473",
+					"tree_metadata": "56f33987e34717d5ee7d2263f996cc0bc5ff32ac5d1d6822c4ab7164ef8b43c2",
+					"tree_topology": "b80df346b879b6a021865ceb406f41d482533026045b9d560b33abc52dc564b4"
+				},
+				"fixture_root_freed": true,
+				"fixture_state_release": {
+					"fixture_state_instance_id": -9223370322609172480,
+					"released": true,
+					"unit_system_cycle_broken": true
+				},
+				"mismatched_components": [],
+				"mismatches": [],
+				"pass": true,
+				"settle_frames_after_restore": 2,
+				"settle_frames_before_restore": 3
+			},
+			"lane_setup_hash": "",
+			"lifecycle_limits": {
+
+			},
+			"lifecycle_required_cycles": 0,
+			"lifecycle_runtime_before": {
+
+			},
+			"lifecycle_runtime_during": {
+
+			},
+			"map_content_hash": "5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+			"map_path": "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__1p.json",
+			"match": {
+				"barracks_count": 0,
+				"final_tick": 120,
+				"hive_count": 12,
+				"lane_count": 2,
+				"status": "1",
+				"tower_count": 0,
+				"unit_count": 5,
+				"winner_id": 0
+			},
+			"max_frame_ms": 35.488,
+			"measured_frame_count": 300,
+			"measured_tick_count": 100,
+			"measurement_duration_sec": 10,
+			"measurement_profile": "deterministic_windowed_presentation",
+			"median_frame_ms": 33.223,
+			"metrics": {
+				"display_frame_average_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 33.1962233333333
+				},
+				"display_frame_max_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 35.488
+				},
+				"display_frame_median_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 33.223
+				},
+				"display_frame_p95_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 34.249
+				},
+				"display_frame_p99_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 35.071
+				},
+				"display_frame_sample_count": {
+					"available": true,
+					"classification": "DIRECT",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "count",
+					"value": 300
+				},
+				"gpu_frame_time_ms": {
+					"available": false,
+					"classification": "EXTERNAL_PROFILER_REQUIRED",
+					"reason": "Godot 4.2.2 harness exposes no trustworthy per-frame GPU duration for this runner",
+					"source": "not_collected",
+					"unit": "ms",
+					"value": null
+				},
+				"render_section_cost_ms": {
+					"available": false,
+					"classification": "UNAVAILABLE",
+					"reason": "renderer visibility is configuration state, not measured renderer section cost",
+					"source": "not_collected",
+					"unit": "ms",
+					"value": null
+				},
+				"renderer_visibility": {
+					"available": true,
+					"classification": "CONFIGURATION_STATE",
+					"reason": "",
+					"source": "CanvasItem visibility captured at measurement end",
+					"unit": "state",
+					"value": {
+						"arena_polish_comparison_mode": "baseline",
+						"arena_polish_enabled": false,
+						"arena_polish_tower_visual_scale": 1,
+						"barracks_ground_glow_visible": true,
+						"barracks_visible": true,
+						"floor_visible": true,
+						"hive_visible": true,
+						"lane_visible": true,
+						"polish_visible": false,
+						"tower_ground_glow_visible": true,
+						"tower_visible": true,
+						"unit_visible": true,
+						"wall_visible": true
+					}
+				}
+			},
+			"observed_command_types": [
+				"attack",
+				"swarm"
+			],
+			"observed_measurement_duration_sec": 9.958867,
+			"observed_warmup_duration_sec": 1.998411,
+			"p95_frame_ms": 34.249,
+			"p999_frame_ms": 35.488,
+			"p99_frame_ms": 35.071,
+			"pass": true,
+			"performance_gate_disposition": "GATED",
+			"performance_gating": true,
+			"performance_status": "GATED_WINDOWED",
+			"phase2_battlefield_event_hash": "",
+			"phase2_battlefield_evidence": {
+
+			},
+			"phase2_battlefield_profile": "",
+			"phase2_battlefield_render_hash": "",
+			"phase2_event_hash": "",
+			"phase2_lifecycle_profile": "",
+			"phase2_render_lifecycle_hash": "",
+			"phase2_requires_three_repetitions": false,
+			"phase2_stress_evidence": {
+
+			},
+			"phase2_stress_profile": "",
+			"render_monitor_peaks": {
+				"draw_calls": 0,
+				"rendered_objects": 0,
+				"rendered_primitives": 0
+			},
+			"renderer_configuration_hash": "8b22061bc846546e9dd214c7c04736675ea32f111026802f0aa4b158aaa90d97",
+			"renderer_configuration_state": {
+				"arena_polish_comparison_mode": "baseline",
+				"arena_polish_enabled": false,
+				"arena_polish_tower_visual_scale": 1,
+				"barracks_ground_glow_visible": true,
+				"barracks_visible": true,
+				"floor_visible": true,
+				"hive_visible": true,
+				"lane_visible": true,
+				"polish_visible": false,
+				"tower_ground_glow_visible": true,
+				"tower_visible": true,
+				"unit_visible": true,
+				"wall_visible": true
+			},
+			"renderer_pool_hash": "",
+			"renderer_pool_telemetry": {
+				"active_emission_materials": 0,
+				"active_pooled_objects": 0,
+				"available_pooled_objects": 400,
+				"match_prewarm_duration_ms": 0.02,
+				"peak_pooled_objects": 1,
+				"pool_expansions": 0,
+				"pool_hits": 2,
+				"pool_misses": 0,
+				"runtime_instantiates_avoided": 2,
+				"total_pooled_objects": 400
+			},
+			"renderer_sim_count_delta": 0,
+			"renderers": [
+				"floor",
+				"hive",
+				"lane",
+				"unit",
+				"tower",
+				"wall",
+				"barracks",
+				"polish"
+			],
+			"repetition_index": 1,
+			"requested_seed": 6201,
+			"runtime_counts": {
+				"active_lanes": 0,
+				"barracks": 0,
+				"hives": 12,
+				"structure_slots": 0,
+				"towers": 0,
+				"units": 0,
+				"walls": 2
+			},
+			"runtime_switches": {
+				"arena_polish_comparison_mode": "baseline",
+				"premium_polish_enabled": false,
+				"tower_visual_scale": 1
+			},
+			"scenario_id": "NORMAL_MATCH_V1",
+			"scripted_command_count": 4,
+			"scripted_command_ticks": [
+				{
+					"commands": [
+						{
+							"dst": 9,
+							"schedule_index": 0,
+							"src": 2,
+							"type": "attack"
+						}
+					],
+					"tick": 5
+				},
+				{
+					"commands": [
+						{
+							"dst": 9,
+							"ok": true,
+							"schedule_index": 1,
+							"src": 2,
+							"type": "swarm"
+						}
+					],
+					"tick": 15
+				},
+				{
+					"commands": [
+						{
+							"dst": 8,
+							"schedule_index": 2,
+							"src": 3,
+							"type": "attack"
+						}
+					],
+					"tick": 25
+				},
+				{
+					"commands": [
+						{
+							"dst": 8,
+							"schedule_index": 3,
+							"src": 3,
+							"type": "attack"
+						}
+					],
+					"tick": 35
+				}
+			],
+			"setup_duration_ms": 3145.091,
+			"sim_tick_interval_sec": 0.1,
+			"stress_target_hive_ids": [],
+			"suite_sequence_index": 1,
+			"systems": [
+				"canonical_simrunner"
+			],
+			"target_duration_sec": 12,
+			"target_frame_ms": 33.5,
+			"target_units": 0,
+			"tick_count": 120,
+			"unit_count_policy": "exact_static",
+			"unit_count_timeline": [],
+			"unit_count_timeline_hash": "",
+			"unit_count_window": {
+				"end": 5,
+				"invariant": true,
+				"maximum": 0,
+				"minimum": 0,
+				"start": 0,
+				"target": 0
+			},
+			"unit_injection_hash": "",
+			"unit_motion_evidence": {
+
+			},
+			"unit_motion_hash": "",
+			"unit_scale_setup": {
+
+			},
+			"warmup_duration_sec": 2,
+			"warmup_frame_count": 60,
+			"warmup_tick_count": 20,
+			"worst_frames": [
+				{
+					"duration_ms": 35.488,
+					"frame": 47
+				},
+				{
+					"duration_ms": 35.169,
+					"frame": 225
+				},
+				{
+					"duration_ms": 35.163,
+					"frame": 262
+				},
+				{
+					"duration_ms": 35.071,
+					"frame": 109
+				},
+				{
+					"duration_ms": 34.968,
+					"frame": 264
+				},
+				{
+					"duration_ms": 34.945,
+					"frame": 194
+				},
+				{
+					"duration_ms": 34.911,
+					"frame": 78
+				},
+				{
+					"duration_ms": 34.608,
+					"frame": 179
+				},
+				{
+					"duration_ms": 34.598,
+					"frame": 76
+				},
+				{
+					"duration_ms": 34.572,
+					"frame": 161
+				}
+			],
+			"worst_sim_ticks": []
+		},
+		{
+			"accepted_command_evidence": [
+				{
+					"dst": 9,
+					"schedule_index": 0,
+					"src": 2,
+					"tick": 5,
+					"type": "attack"
+				},
+				{
+					"dst": 9,
+					"schedule_index": 1,
+					"src": 2,
+					"tick": 15,
+					"type": "swarm"
+				},
+				{
+					"dst": 8,
+					"schedule_index": 2,
+					"src": 3,
+					"tick": 25,
+					"type": "attack"
+				},
+				{
+					"dst": 8,
+					"schedule_index": 3,
+					"src": 3,
+					"tick": 35,
+					"type": "attack"
+				}
+			],
+			"allowed_failure": false,
+			"average_frame_ms": 33.2028966666667,
+			"baseline_eligible": true,
+			"baseline_ineligible_reasons": [],
+			"benchmark_mode": "deterministic_windowed_presentation",
+			"bot_isolation": {
+				"enabled_seats": [],
+				"pass": true,
+				"profile_count": 1,
+				"profiles_hash": "9f485988e2d72f3b6b998142c18e53c03cab5a7cd8f0b59950f4704a88eb485f"
+			},
+			"cadence_identity": {
+				"adapter_version": 1,
+				"control_clock": "rendered_frame_index",
+				"elapsed_wall_time_controls_simulation": false,
+				"frames_per_simulation_tick": 3,
+				"measurement_frames": 300,
+				"measurement_ticks": 100,
+				"simulation_active": true,
+				"simulation_hz": 10,
+				"target_fps": 30,
+				"total_frames": 360,
+				"total_ticks": 120,
+				"warmup_frames": 60,
+				"warmup_ticks": 20
+			},
+			"cadence_identity_hash": "e6d1e70fca971fe335e45c74bcb3e0df939b40494dd0562b6ab71d1e51d36b29",
+			"calibration_sequence_index": 0,
+			"camera_identity": {
+				"anchor_mode": 1,
+				"global_position": [
+					576,
+					896
+				],
+				"identity_version": 1,
+				"ignore_rotation": true,
+				"is_current": true,
+				"node_path": "Camera2D",
+				"offset": [
+					0,
+					0
+				],
+				"policy": "production_map_fit",
+				"position_smoothing_enabled": false,
+				"rotation_radians": 0,
+				"viewport_height": 1920,
+				"viewport_width": 1080,
+				"zoom": [
+					0.803571,
+					0.803571
+				]
+			},
+			"camera_identity_hash": "303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+			"camera_settle": {
+				"consecutive_hashes": [
+					"303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+					"303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c"
+				],
+				"hash": "303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+				"identity": {
+					"anchor_mode": 1,
+					"global_position": [
+						576,
+						896
+					],
+					"identity_version": 1,
+					"ignore_rotation": true,
+					"is_current": true,
+					"node_path": "Camera2D",
+					"offset": [
+						0,
+						0
+					],
+					"policy": "production_map_fit",
+					"position_smoothing_enabled": false,
+					"rotation_radians": 0,
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"zoom": [
+						0.803571,
+						0.803571
+					]
+				},
+				"pass": true,
+				"policy": "production_map_fit",
+				"reason": "",
+				"settle_frames": 5
+			},
+			"canonical_simulation": true,
+			"catalog_fixture_registered": true,
+			"collection": {
+				"available": true,
+				"average_ms": 33.2028966666667,
+				"hitch_count": 0,
+				"hitch_records": [],
+				"level": "MINIMAL",
+				"max_ms": 35.162,
+				"median_ms": 33.223,
+				"min_ms": 31.141,
+				"overhead_contract": {
+					"additional_per_sample_clock_reads": 0,
+					"aggregate_updates": true,
+					"forensic_context_copied_only_when_retained": true,
+					"percentile_retention": true,
+					"raw_sample_allocation": false
+				},
+				"p95_ms": 34.504,
+				"p999_ms": 35.162,
+				"p99_ms": 35.05,
+				"raw_samples": [],
+				"retention": {
+					"dropped_percentile_sample_count": 0,
+					"dropped_raw_sample_count": 0,
+					"forensic_record_limit": 10,
+					"percentile_sample_limit": 4096,
+					"percentiles_exact": true,
+					"raw_sample_capture": false,
+					"raw_sample_limit": 0,
+					"retained_hitch_record_count": 0,
+					"retained_percentile_sample_count": 300,
+					"retained_raw_sample_count": 0,
+					"retained_worst_record_count": 10,
+					"truncated": false
+				},
+				"sample_count": 300,
+				"timing_enabled": true,
+				"unavailable_reason": "",
+				"worst_records": [
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 51
+						},
+						"duration_ms": 35.162,
+						"sample_index": 94
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 44
+						},
+						"duration_ms": 35.144,
+						"sample_index": 72
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 58
+						},
+						"duration_ms": 35.077,
+						"sample_index": 116
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 109
+						},
+						"duration_ms": 35.05,
+						"sample_index": 267
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 66
+						},
+						"duration_ms": 35.048,
+						"sample_index": 140
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 55
+						},
+						"duration_ms": 34.941,
+						"sample_index": 105
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 41
+						},
+						"duration_ms": 34.935,
+						"sample_index": 63
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 49
+						},
+						"duration_ms": 34.835,
+						"sample_index": 87
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 81
+						},
+						"duration_ms": 34.754,
+						"sample_index": 183
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 87
+						},
+						"duration_ms": 34.689,
+						"sample_index": 201
+					}
+				]
+			},
+			"collection_level": "MINIMAL",
+			"command_schedule_hash": "b46681f7890f5cc2b7f99b6662e13666db00c8a2e679ed7e02bfaa42e2c78516",
+			"comparison_fingerprint": {
+				"hash": "5b77451df4a856d4e42b4973ea0fad88c446b2aeadb188831e9e7b3532658aa2",
+				"payload": {
+					"benchmark_mode": "deterministic_windowed_presentation",
+					"build_type": "debug",
+					"catalog_content_hash": "03d9fb566b3e88d20418c8fb34ddcef8c3f7a1e0ffc525273ee3bd078c696bb7",
+					"catalog_fixture_registered": true,
+					"catalog_schema": "sf_perf_fixture_catalog_design_v1",
+					"catalog_version": 1,
+					"collection_level": "MINIMAL",
+					"command_schedule_hash": "b46681f7890f5cc2b7f99b6662e13666db00c8a2e679ed7e02bfaa42e2c78516",
+					"content_identity": "sha256:5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+					"content_kind": "production_map",
+					"content_scale_factor": 1,
+					"environment_compatibility_hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+					"fixture_config_hash": "f0890368dbd38333983a0ca00df01faaec48817901445b63ea91edcf0c4d8fd8",
+					"fixture_id": "NORMAL_MATCH_V1",
+					"fixture_version": 1,
+					"godot_version": "4.2.2-stable (official)",
+					"map_content_hash": "5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+					"measurement_duration_sec": 10,
+					"measurement_profile": "deterministic_windowed_presentation",
+					"physics_ticks_per_second": 60,
+					"rendering_driver": "vulkan",
+					"rendering_method": "forward_plus",
+					"repetition_index": 2,
+					"result_schema_version": 3,
+					"stretch_aspect": "keep_width",
+					"stretch_mode": "viewport",
+					"suite_sequence_index": 2,
+					"target_fps": 30,
+					"video_adapter": "Apple M2 Pro",
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"warmup_duration_sec": 2
+				},
+				"version": 2
+			},
+			"content_identity": "sha256:5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+			"content_kind": "production_map",
+			"duration_sec": 12,
+			"effective_seed": 6201,
+			"environment_compatibility": {
+				"hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+				"payload": {
+					"build_type": "debug",
+					"cadence_identity": {
+						"adapter_version": 1,
+						"control_clock": "rendered_frame_index",
+						"elapsed_wall_time_controls_simulation": false,
+						"frames_per_simulation_tick": 3,
+						"measurement_frames": 300,
+						"measurement_ticks": 100,
+						"simulation_active": true,
+						"simulation_hz": 10,
+						"target_fps": 30,
+						"total_frames": 360,
+						"total_ticks": 120,
+						"warmup_frames": 60,
+						"warmup_ticks": 20
+					},
+					"camera_identity": {
+						"anchor_mode": 1,
+						"global_position": [
+							576,
+							896
+						],
+						"identity_version": 1,
+						"ignore_rotation": true,
+						"is_current": true,
+						"node_path": "Camera2D",
+						"offset": [
+							0,
+							0
+						],
+						"policy": "production_map_fit",
+						"position_smoothing_enabled": false,
+						"rotation_radians": 0,
+						"viewport_height": 1920,
+						"viewport_width": 1080,
+						"zoom": [
+							0.803571,
+							0.803571
+						]
+					},
+					"content_scale_factor": 1,
+					"display_server": "macOS",
+					"godot_version": "4.2.2-stable (official)",
+					"headless": false,
+					"measurement_profile": "deterministic_windowed_presentation",
+					"physics_ticks_per_second": 60,
+					"render_scale_3d": 1,
+					"rendering_driver": "vulkan",
+					"rendering_method": "forward_plus",
+					"stretch_aspect": "keep_width",
+					"stretch_mode": "viewport",
+					"target_fps": 30,
+					"video_adapter": "Apple M2 Pro",
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"vsync_mode": 1
+				},
+				"version": 1
+			},
+			"environment_compatibility_hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+			"expected_pool_capacity": 0,
+			"expected_pool_expansions": -1,
+			"failed_gates": [],
+			"feature_control_value": null,
+			"feature_id": "",
+			"feature_variant": "",
+			"final_state_hash": "ee84e0d4491b403c5f69cda788b6950ecb9784dae3c3cb2165406628ef48705a",
+			"fixture_config_hash": "f0890368dbd38333983a0ca00df01faaec48817901445b63ea91edcf0c4d8fd8",
+			"fixture_id": "NORMAL_MATCH_V1",
+			"fixture_setup_evidence": {
+				"actual_counts": {
+					"active_lanes": 0,
+					"barracks": 0,
+					"hives": 12,
+					"structure_slots": 0,
+					"towers": 0,
+					"units": 0,
+					"walls": 2
+				},
+				"content_kind": "production_map",
+				"exact_counts": true,
+				"expected_counts": {
+					"active_lanes": 0,
+					"barracks": 0,
+					"hives": 12,
+					"structure_slots": 0,
+					"towers": 0,
+					"units": 0,
+					"walls": 2
+				},
+				"map_applier_used": true,
+				"map_loader_used": true
+			},
+			"fixture_version": 1,
+			"frame_count": 360,
+			"hitch_count": 0,
+			"hitch_threshold_ms": 41.67,
+			"hitches": [],
+			"integrity_failures": [],
+			"isolation_cleanup": {
+				"after_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"after_protected_state": {
+					"autoloads": {
+						"AchievementService": {
+							"present": true,
+							"property_count": 1,
+							"state_hash": "b55bc2ed86f0e46b1eed062bf10a0e8ec02df771bfe9680759bd734ec6947139"
+						},
+						"AnalyticsClient": {
+							"present": true,
+							"property_count": 9,
+							"state_hash": "2b777722b2d5a35cf1699c1cb654bb98769083b2442cb81d03068d21210d9daf"
+						},
+						"BattlePassRuntimeAwards": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "b92735b7997dfc72acc2669d9499f852671af1c58926d9f75d3171bcfa9833f3"
+						},
+						"BattlePassState": {
+							"present": true,
+							"property_count": 41,
+							"state_hash": "627e2839cb89a795867f4746ea785871424d90a66f3cacb2c992df68e5399b7e"
+						},
+						"ContestState": {
+							"present": true,
+							"property_count": 5,
+							"state_hash": "542c5dd95718b219dcec829426cefd1b45c44d87ccf4eaceb7bceab58543e48d"
+						},
+						"CrucibleState": {
+							"present": true,
+							"property_count": 12,
+							"state_hash": "b7155e185b5bfa64a73e7556d03e2c3177622548ebe5e0ab93db0730161ee601"
+						},
+						"HiveClanState": {
+							"present": true,
+							"property_count": 14,
+							"state_hash": "46e0ad6e2341018865ae0efb27f8206763237a5b6ab4c3b042838e043c81188c"
+						},
+						"HoneyProgressionState": {
+							"present": true,
+							"property_count": 10,
+							"state_hash": "b32a2e1680f80c12007b6d50101ba28a9917f4c5e69d0d892134ec63482c5bf2"
+						},
+						"JukeboxRuntime": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "7d6ae58537fe74a1222c23980d3ed64b9c963f714b9ada4793941c34eaa65b11"
+						},
+						"ProfileManager": {
+							"present": true,
+							"property_count": 54,
+							"state_hash": "0fc389c558b8837c220fb939390c1d94c9fb5adaf02343b14a2a8dbcc18e8e2d"
+						},
+						"RankState": {
+							"present": true,
+							"property_count": 16,
+							"state_hash": "2cd67c3e9ae2aec7cda0f415a20bb6d4c3d011afaad0da5ef1befe3c568539c3"
+						}
+					},
+					"save_files": {
+						"user://analytics_queue_v1.jsonl": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://analytics_state_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://battle_pass_state.json": {
+							"exists": true,
+							"length": 1791,
+							"modified_time": 1784536898,
+							"sha256": "ac72519b6ce11ca8557cd128142f0a82d25ab9efdb5dd0154af8a9c0b621cfa6"
+						},
+						"user://contest_entries.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://contest_leaderboards_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://crucible_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://hive_clan_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://honey_progression_state.json": {
+							"exists": true,
+							"length": 279,
+							"modified_time": 1784536898,
+							"sha256": "6ce56267738cb7b1518841b3f9c5bfd253165c761524a2fcf485d2a5cb189f0c"
+						},
+						"user://profile.cfg": {
+							"exists": true,
+							"length": 2370,
+							"modified_time": 1784536898,
+							"sha256": "456950e3e2ca9f7723872863ba8f0f6af3606448ef5153ced101b88535ca1f5f"
+						},
+						"user://rank_state.json": {
+							"exists": true,
+							"length": 542,
+							"modified_time": 1784536898,
+							"sha256": "244cf25d3b547e675d4ac38da4c3ff7941c3937abef587520973d16e542687c8"
+						}
+					}
+				},
+				"after_protected_state_hash": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+				"after_topology": {
+					"arena_instance_ids": [],
+					"ops_signal_connections": {
+						"hud_changed": [],
+						"lane_intent_changed": [],
+						"lanes_changed": [],
+						"ops_state_changed": [],
+						"state_changed": []
+					},
+					"root_child_instance_ids": [
+						44543509716,
+						45650805983,
+						46405780691,
+						46774879431,
+						48083502331,
+						48452601099,
+						49945773326,
+						50566530327,
+						50935629081,
+						54341403920,
+						57881396518,
+						59072578862,
+						59609449788,
+						59894662463,
+						60263761194,
+						60565751105,
+						61387834691,
+						61773710662,
+						63132665159,
+						64776832335,
+						65062045014,
+						1570179646839
+					],
+					"root_child_rows": [
+						"1570179646839|SpriteRegistry|Node|res://scripts/renderers/sprite_registry.gd",
+						"44543509716|OpsState|Node|res://scripts/ops/ops_state.gd",
+						"45650805983|ContestState|Node|res://scripts/state/contest_state.gd",
+						"46405780691|ProfileManager|Node|res://scripts/profile/profile_manager.gd",
+						"46774879431|ModerationState|Node|res://scripts/state/moderation_state.gd",
+						"48083502331|HoneyProgressionState|Node|res://scripts/state/honey_progression_state.gd",
+						"48452601099|HiveClanState|Node|res://scripts/state/hive_clan_state.gd",
+						"49945773326|BattlePassState|Node|res://scripts/state/battle_pass_state.gd",
+						"50566530327|BattlePassRuntimeAwards|Node|res://scripts/state/battle_pass_runtime_awards.gd",
+						"50935629081|AchievementService|Node|res://scripts/achievements/achievement_service.gd",
+						"54341403920|ScholasticState|Node|res://scripts/state/scholastic_state.gd",
+						"57881396518|RankState|Node|res://scripts/state/rank_state.gd",
+						"59072578862|CrucibleState|Node|res://scripts/state/crucible_state.gd",
+						"59609449788|RankRuntimeAwards|Node|res://scripts/state/rank_runtime_awards.gd",
+						"59894662463|OpsConfig|Node|res://scripts/state/ops_config.gd",
+						"60263761194|AnalyticsClient|Node|res://scripts/state/analytics_client.gd",
+						"60565751105|AdManager|Node|res://scripts/state/ad_manager.gd",
+						"61387834691|JukeboxRuntime|Node|res://scripts/state/jukebox_runtime.gd",
+						"61773710662|AppLifecycle|Node|res://scripts/state/app_lifecycle_state.gd",
+						"63132665159|VsHandshake|Node|res://scripts/state/vs_handshake_state.gd",
+						"64776832335|VsPvpRuntime|Node|res://scripts/state/vs_pvp_runtime.gd",
+						"65062045014|Gamebot|Node|res://scripts/autoload/game_boot.gd"
+					]
+				},
+				"before_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"before_protected_state": {
+					"autoloads": {
+						"AchievementService": {
+							"present": true,
+							"property_count": 1,
+							"state_hash": "b55bc2ed86f0e46b1eed062bf10a0e8ec02df771bfe9680759bd734ec6947139"
+						},
+						"AnalyticsClient": {
+							"present": true,
+							"property_count": 9,
+							"state_hash": "2b777722b2d5a35cf1699c1cb654bb98769083b2442cb81d03068d21210d9daf"
+						},
+						"BattlePassRuntimeAwards": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "b92735b7997dfc72acc2669d9499f852671af1c58926d9f75d3171bcfa9833f3"
+						},
+						"BattlePassState": {
+							"present": true,
+							"property_count": 41,
+							"state_hash": "627e2839cb89a795867f4746ea785871424d90a66f3cacb2c992df68e5399b7e"
+						},
+						"ContestState": {
+							"present": true,
+							"property_count": 5,
+							"state_hash": "542c5dd95718b219dcec829426cefd1b45c44d87ccf4eaceb7bceab58543e48d"
+						},
+						"CrucibleState": {
+							"present": true,
+							"property_count": 12,
+							"state_hash": "b7155e185b5bfa64a73e7556d03e2c3177622548ebe5e0ab93db0730161ee601"
+						},
+						"HiveClanState": {
+							"present": true,
+							"property_count": 14,
+							"state_hash": "46e0ad6e2341018865ae0efb27f8206763237a5b6ab4c3b042838e043c81188c"
+						},
+						"HoneyProgressionState": {
+							"present": true,
+							"property_count": 10,
+							"state_hash": "b32a2e1680f80c12007b6d50101ba28a9917f4c5e69d0d892134ec63482c5bf2"
+						},
+						"JukeboxRuntime": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "7d6ae58537fe74a1222c23980d3ed64b9c963f714b9ada4793941c34eaa65b11"
+						},
+						"ProfileManager": {
+							"present": true,
+							"property_count": 54,
+							"state_hash": "0fc389c558b8837c220fb939390c1d94c9fb5adaf02343b14a2a8dbcc18e8e2d"
+						},
+						"RankState": {
+							"present": true,
+							"property_count": 16,
+							"state_hash": "2cd67c3e9ae2aec7cda0f415a20bb6d4c3d011afaad0da5ef1befe3c568539c3"
+						}
+					},
+					"save_files": {
+						"user://analytics_queue_v1.jsonl": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://analytics_state_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://battle_pass_state.json": {
+							"exists": true,
+							"length": 1791,
+							"modified_time": 1784536898,
+							"sha256": "ac72519b6ce11ca8557cd128142f0a82d25ab9efdb5dd0154af8a9c0b621cfa6"
+						},
+						"user://contest_entries.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://contest_leaderboards_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://crucible_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://hive_clan_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://honey_progression_state.json": {
+							"exists": true,
+							"length": 279,
+							"modified_time": 1784536898,
+							"sha256": "6ce56267738cb7b1518841b3f9c5bfd253165c761524a2fcf485d2a5cb189f0c"
+						},
+						"user://profile.cfg": {
+							"exists": true,
+							"length": 2370,
+							"modified_time": 1784536898,
+							"sha256": "456950e3e2ca9f7723872863ba8f0f6af3606448ef5153ced101b88535ca1f5f"
+						},
+						"user://rank_state.json": {
+							"exists": true,
+							"length": 542,
+							"modified_time": 1784536898,
+							"sha256": "244cf25d3b547e675d4ac38da4c3ff7941c3937abef587520973d16e542687c8"
+						}
+					}
+				},
+				"before_protected_state_hash": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+				"before_topology": {
+					"arena_instance_ids": [],
+					"ops_signal_connections": {
+						"hud_changed": [],
+						"lane_intent_changed": [],
+						"lanes_changed": [],
+						"ops_state_changed": [],
+						"state_changed": []
+					},
+					"root_child_instance_ids": [
+						44543509716,
+						45650805983,
+						46405780691,
+						46774879431,
+						48083502331,
+						48452601099,
+						49945773326,
+						50566530327,
+						50935629081,
+						54341403920,
+						57881396518,
+						59072578862,
+						59609449788,
+						59894662463,
+						60263761194,
+						60565751105,
+						61387834691,
+						61773710662,
+						63132665159,
+						64776832335,
+						65062045014,
+						1570179646839
+					],
+					"root_child_rows": [
+						"1570179646839|SpriteRegistry|Node|res://scripts/renderers/sprite_registry.gd",
+						"44543509716|OpsState|Node|res://scripts/ops/ops_state.gd",
+						"45650805983|ContestState|Node|res://scripts/state/contest_state.gd",
+						"46405780691|ProfileManager|Node|res://scripts/profile/profile_manager.gd",
+						"46774879431|ModerationState|Node|res://scripts/state/moderation_state.gd",
+						"48083502331|HoneyProgressionState|Node|res://scripts/state/honey_progression_state.gd",
+						"48452601099|HiveClanState|Node|res://scripts/state/hive_clan_state.gd",
+						"49945773326|BattlePassState|Node|res://scripts/state/battle_pass_state.gd",
+						"50566530327|BattlePassRuntimeAwards|Node|res://scripts/state/battle_pass_runtime_awards.gd",
+						"50935629081|AchievementService|Node|res://scripts/achievements/achievement_service.gd",
+						"54341403920|ScholasticState|Node|res://scripts/state/scholastic_state.gd",
+						"57881396518|RankState|Node|res://scripts/state/rank_state.gd",
+						"59072578862|CrucibleState|Node|res://scripts/state/crucible_state.gd",
+						"59609449788|RankRuntimeAwards|Node|res://scripts/state/rank_runtime_awards.gd",
+						"59894662463|OpsConfig|Node|res://scripts/state/ops_config.gd",
+						"60263761194|AnalyticsClient|Node|res://scripts/state/analytics_client.gd",
+						"60565751105|AdManager|Node|res://scripts/state/ad_manager.gd",
+						"61387834691|JukeboxRuntime|Node|res://scripts/state/jukebox_runtime.gd",
+						"61773710662|AppLifecycle|Node|res://scripts/state/app_lifecycle_state.gd",
+						"63132665159|VsHandshake|Node|res://scripts/state/vs_handshake_state.gd",
+						"64776832335|VsPvpRuntime|Node|res://scripts/state/vs_pvp_runtime.gd",
+						"65062045014|Gamebot|Node|res://scripts/autoload/game_boot.gd"
+					]
+				},
+				"component_hashes_after": {
+					"audio_buses": "8a8dc77444e79b4077ea3b52316263e009bad45487c7d7943897910689d7a60e",
+					"engine": "fa82daf89ff8fc5cb011fed76c47c711898f0cd32b29ebc25ea62f320a2a2830",
+					"ops_properties": "f443d05a50ce6dcc906ede8179de2a4518a353cb614a7a61b66f855d21b7d398",
+					"ops_rng_states": "98d87ccdce22bc77052044b12a35a60446eeec01d80e6774fe1afd05c95bd603",
+					"project_settings": "af456db4093ec62dc621f76ae06338ba4fc65f708db9eb535fd02864065a50e1",
+					"protected_state": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+					"rendering_default_clear_color": "9dd575e4de4c7d400d3ba1602ab322bc44e859131578b5280a4d07605c15648c",
+					"shared_runtime_properties": "b00c592a950c355cdfc3aece794f46f16e5505bd3b04f04db29cf6d98dd3f473",
+					"tree_metadata": "56f33987e34717d5ee7d2263f996cc0bc5ff32ac5d1d6822c4ab7164ef8b43c2",
+					"tree_topology": "b80df346b879b6a021865ceb406f41d482533026045b9d560b33abc52dc564b4"
+				},
+				"component_hashes_before": {
+					"audio_buses": "8a8dc77444e79b4077ea3b52316263e009bad45487c7d7943897910689d7a60e",
+					"engine": "fa82daf89ff8fc5cb011fed76c47c711898f0cd32b29ebc25ea62f320a2a2830",
+					"ops_properties": "f443d05a50ce6dcc906ede8179de2a4518a353cb614a7a61b66f855d21b7d398",
+					"ops_rng_states": "98d87ccdce22bc77052044b12a35a60446eeec01d80e6774fe1afd05c95bd603",
+					"project_settings": "af456db4093ec62dc621f76ae06338ba4fc65f708db9eb535fd02864065a50e1",
+					"protected_state": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+					"rendering_default_clear_color": "9dd575e4de4c7d400d3ba1602ab322bc44e859131578b5280a4d07605c15648c",
+					"shared_runtime_properties": "b00c592a950c355cdfc3aece794f46f16e5505bd3b04f04db29cf6d98dd3f473",
+					"tree_metadata": "56f33987e34717d5ee7d2263f996cc0bc5ff32ac5d1d6822c4ab7164ef8b43c2",
+					"tree_topology": "b80df346b879b6a021865ceb406f41d482533026045b9d560b33abc52dc564b4"
+				},
+				"fixture_root_freed": true,
+				"fixture_state_release": {
+					"fixture_state_instance_id": -9223370114924016640,
+					"released": true,
+					"unit_system_cycle_broken": true
+				},
+				"mismatched_components": [],
+				"mismatches": [],
+				"pass": true,
+				"settle_frames_after_restore": 2,
+				"settle_frames_before_restore": 3
+			},
+			"lane_setup_hash": "",
+			"lifecycle_limits": {
+
+			},
+			"lifecycle_required_cycles": 0,
+			"lifecycle_runtime_before": {
+
+			},
+			"lifecycle_runtime_during": {
+
+			},
+			"map_content_hash": "5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+			"map_path": "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__1p.json",
+			"match": {
+				"barracks_count": 0,
+				"final_tick": 120,
+				"hive_count": 12,
+				"lane_count": 2,
+				"status": "1",
+				"tower_count": 0,
+				"unit_count": 5,
+				"winner_id": 0
+			},
+			"max_frame_ms": 35.162,
+			"measured_frame_count": 300,
+			"measured_tick_count": 100,
+			"measurement_duration_sec": 10,
+			"measurement_profile": "deterministic_windowed_presentation",
+			"median_frame_ms": 33.223,
+			"metrics": {
+				"display_frame_average_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 33.2028966666667
+				},
+				"display_frame_max_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 35.162
+				},
+				"display_frame_median_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 33.223
+				},
+				"display_frame_p95_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 34.504
+				},
+				"display_frame_p99_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 35.05
+				},
+				"display_frame_sample_count": {
+					"available": true,
+					"classification": "DIRECT",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "count",
+					"value": 300
+				},
+				"gpu_frame_time_ms": {
+					"available": false,
+					"classification": "EXTERNAL_PROFILER_REQUIRED",
+					"reason": "Godot 4.2.2 harness exposes no trustworthy per-frame GPU duration for this runner",
+					"source": "not_collected",
+					"unit": "ms",
+					"value": null
+				},
+				"render_section_cost_ms": {
+					"available": false,
+					"classification": "UNAVAILABLE",
+					"reason": "renderer visibility is configuration state, not measured renderer section cost",
+					"source": "not_collected",
+					"unit": "ms",
+					"value": null
+				},
+				"renderer_visibility": {
+					"available": true,
+					"classification": "CONFIGURATION_STATE",
+					"reason": "",
+					"source": "CanvasItem visibility captured at measurement end",
+					"unit": "state",
+					"value": {
+						"arena_polish_comparison_mode": "baseline",
+						"arena_polish_enabled": false,
+						"arena_polish_tower_visual_scale": 1,
+						"barracks_ground_glow_visible": true,
+						"barracks_visible": true,
+						"floor_visible": true,
+						"hive_visible": true,
+						"lane_visible": true,
+						"polish_visible": false,
+						"tower_ground_glow_visible": true,
+						"tower_visible": true,
+						"unit_visible": true,
+						"wall_visible": true
+					}
+				}
+			},
+			"observed_command_types": [
+				"attack",
+				"swarm"
+			],
+			"observed_measurement_duration_sec": 9.960869,
+			"observed_warmup_duration_sec": 1.997932,
+			"p95_frame_ms": 34.504,
+			"p999_frame_ms": 35.162,
+			"p99_frame_ms": 35.05,
+			"pass": true,
+			"performance_gate_disposition": "GATED",
+			"performance_gating": true,
+			"performance_status": "GATED_WINDOWED",
+			"phase2_battlefield_event_hash": "",
+			"phase2_battlefield_evidence": {
+
+			},
+			"phase2_battlefield_profile": "",
+			"phase2_battlefield_render_hash": "",
+			"phase2_event_hash": "",
+			"phase2_lifecycle_profile": "",
+			"phase2_render_lifecycle_hash": "",
+			"phase2_requires_three_repetitions": false,
+			"phase2_stress_evidence": {
+
+			},
+			"phase2_stress_profile": "",
+			"render_monitor_peaks": {
+				"draw_calls": 0,
+				"rendered_objects": 0,
+				"rendered_primitives": 0
+			},
+			"renderer_configuration_hash": "8b22061bc846546e9dd214c7c04736675ea32f111026802f0aa4b158aaa90d97",
+			"renderer_configuration_state": {
+				"arena_polish_comparison_mode": "baseline",
+				"arena_polish_enabled": false,
+				"arena_polish_tower_visual_scale": 1,
+				"barracks_ground_glow_visible": true,
+				"barracks_visible": true,
+				"floor_visible": true,
+				"hive_visible": true,
+				"lane_visible": true,
+				"polish_visible": false,
+				"tower_ground_glow_visible": true,
+				"tower_visible": true,
+				"unit_visible": true,
+				"wall_visible": true
+			},
+			"renderer_pool_hash": "",
+			"renderer_pool_telemetry": {
+				"active_emission_materials": 0,
+				"active_pooled_objects": 0,
+				"available_pooled_objects": 400,
+				"match_prewarm_duration_ms": 0.02,
+				"peak_pooled_objects": 1,
+				"pool_expansions": 0,
+				"pool_hits": 2,
+				"pool_misses": 0,
+				"runtime_instantiates_avoided": 2,
+				"total_pooled_objects": 400
+			},
+			"renderer_sim_count_delta": 0,
+			"renderers": [
+				"floor",
+				"hive",
+				"lane",
+				"unit",
+				"tower",
+				"wall",
+				"barracks",
+				"polish"
+			],
+			"repetition_index": 2,
+			"requested_seed": 6201,
+			"runtime_counts": {
+				"active_lanes": 0,
+				"barracks": 0,
+				"hives": 12,
+				"structure_slots": 0,
+				"towers": 0,
+				"units": 0,
+				"walls": 2
+			},
+			"runtime_switches": {
+				"arena_polish_comparison_mode": "baseline",
+				"premium_polish_enabled": false,
+				"tower_visual_scale": 1
+			},
+			"scenario_id": "NORMAL_MATCH_V1",
+			"scripted_command_count": 4,
+			"scripted_command_ticks": [
+				{
+					"commands": [
+						{
+							"dst": 9,
+							"schedule_index": 0,
+							"src": 2,
+							"type": "attack"
+						}
+					],
+					"tick": 5
+				},
+				{
+					"commands": [
+						{
+							"dst": 9,
+							"ok": true,
+							"schedule_index": 1,
+							"src": 2,
+							"type": "swarm"
+						}
+					],
+					"tick": 15
+				},
+				{
+					"commands": [
+						{
+							"dst": 8,
+							"schedule_index": 2,
+							"src": 3,
+							"type": "attack"
+						}
+					],
+					"tick": 25
+				},
+				{
+					"commands": [
+						{
+							"dst": 8,
+							"schedule_index": 3,
+							"src": 3,
+							"type": "attack"
+						}
+					],
+					"tick": 35
+				}
+			],
+			"setup_duration_ms": 621.3,
+			"sim_tick_interval_sec": 0.1,
+			"stress_target_hive_ids": [],
+			"suite_sequence_index": 2,
+			"systems": [
+				"canonical_simrunner"
+			],
+			"target_duration_sec": 12,
+			"target_frame_ms": 33.5,
+			"target_units": 0,
+			"tick_count": 120,
+			"unit_count_policy": "exact_static",
+			"unit_count_timeline": [],
+			"unit_count_timeline_hash": "",
+			"unit_count_window": {
+				"end": 5,
+				"invariant": true,
+				"maximum": 0,
+				"minimum": 0,
+				"start": 0,
+				"target": 0
+			},
+			"unit_injection_hash": "",
+			"unit_motion_evidence": {
+
+			},
+			"unit_motion_hash": "",
+			"unit_scale_setup": {
+
+			},
+			"warmup_duration_sec": 2,
+			"warmup_frame_count": 60,
+			"warmup_tick_count": 20,
+			"worst_frames": [
+				{
+					"duration_ms": 35.162,
+					"frame": 94
+				},
+				{
+					"duration_ms": 35.144,
+					"frame": 72
+				},
+				{
+					"duration_ms": 35.077,
+					"frame": 116
+				},
+				{
+					"duration_ms": 35.05,
+					"frame": 267
+				},
+				{
+					"duration_ms": 35.048,
+					"frame": 140
+				},
+				{
+					"duration_ms": 34.941,
+					"frame": 105
+				},
+				{
+					"duration_ms": 34.935,
+					"frame": 63
+				},
+				{
+					"duration_ms": 34.835,
+					"frame": 87
+				},
+				{
+					"duration_ms": 34.754,
+					"frame": 183
+				},
+				{
+					"duration_ms": 34.689,
+					"frame": 201
+				}
+			],
+			"worst_sim_ticks": []
+		},
+		{
+			"accepted_command_evidence": [
+				{
+					"dst": 9,
+					"schedule_index": 0,
+					"src": 2,
+					"tick": 5,
+					"type": "attack"
+				},
+				{
+					"dst": 9,
+					"schedule_index": 1,
+					"src": 2,
+					"tick": 15,
+					"type": "swarm"
+				},
+				{
+					"dst": 8,
+					"schedule_index": 2,
+					"src": 3,
+					"tick": 25,
+					"type": "attack"
+				},
+				{
+					"dst": 8,
+					"schedule_index": 3,
+					"src": 3,
+					"tick": 35,
+					"type": "attack"
+				}
+			],
+			"allowed_failure": false,
+			"average_frame_ms": 33.1993266666666,
+			"baseline_eligible": true,
+			"baseline_ineligible_reasons": [],
+			"benchmark_mode": "deterministic_windowed_presentation",
+			"bot_isolation": {
+				"enabled_seats": [],
+				"pass": true,
+				"profile_count": 1,
+				"profiles_hash": "9f485988e2d72f3b6b998142c18e53c03cab5a7cd8f0b59950f4704a88eb485f"
+			},
+			"cadence_identity": {
+				"adapter_version": 1,
+				"control_clock": "rendered_frame_index",
+				"elapsed_wall_time_controls_simulation": false,
+				"frames_per_simulation_tick": 3,
+				"measurement_frames": 300,
+				"measurement_ticks": 100,
+				"simulation_active": true,
+				"simulation_hz": 10,
+				"target_fps": 30,
+				"total_frames": 360,
+				"total_ticks": 120,
+				"warmup_frames": 60,
+				"warmup_ticks": 20
+			},
+			"cadence_identity_hash": "e6d1e70fca971fe335e45c74bcb3e0df939b40494dd0562b6ab71d1e51d36b29",
+			"calibration_sequence_index": 0,
+			"camera_identity": {
+				"anchor_mode": 1,
+				"global_position": [
+					576,
+					896
+				],
+				"identity_version": 1,
+				"ignore_rotation": true,
+				"is_current": true,
+				"node_path": "Camera2D",
+				"offset": [
+					0,
+					0
+				],
+				"policy": "production_map_fit",
+				"position_smoothing_enabled": false,
+				"rotation_radians": 0,
+				"viewport_height": 1920,
+				"viewport_width": 1080,
+				"zoom": [
+					0.803571,
+					0.803571
+				]
+			},
+			"camera_identity_hash": "303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+			"camera_settle": {
+				"consecutive_hashes": [
+					"303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+					"303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c"
+				],
+				"hash": "303fcbd8529bad86c8ecfd5bf82010d9d354b5e3f31cd98a2a6c9c9bd09ad04c",
+				"identity": {
+					"anchor_mode": 1,
+					"global_position": [
+						576,
+						896
+					],
+					"identity_version": 1,
+					"ignore_rotation": true,
+					"is_current": true,
+					"node_path": "Camera2D",
+					"offset": [
+						0,
+						0
+					],
+					"policy": "production_map_fit",
+					"position_smoothing_enabled": false,
+					"rotation_radians": 0,
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"zoom": [
+						0.803571,
+						0.803571
+					]
+				},
+				"pass": true,
+				"policy": "production_map_fit",
+				"reason": "",
+				"settle_frames": 5
+			},
+			"canonical_simulation": true,
+			"catalog_fixture_registered": true,
+			"collection": {
+				"available": true,
+				"average_ms": 33.1993266666666,
+				"hitch_count": 0,
+				"hitch_records": [],
+				"level": "MINIMAL",
+				"max_ms": 35.273,
+				"median_ms": 33.222,
+				"min_ms": 31.182,
+				"overhead_contract": {
+					"additional_per_sample_clock_reads": 0,
+					"aggregate_updates": true,
+					"forensic_context_copied_only_when_retained": true,
+					"percentile_retention": true,
+					"raw_sample_allocation": false
+				},
+				"p95_ms": 34.29,
+				"p999_ms": 35.273,
+				"p99_ms": 34.914,
+				"raw_samples": [],
+				"retention": {
+					"dropped_percentile_sample_count": 0,
+					"dropped_raw_sample_count": 0,
+					"forensic_record_limit": 10,
+					"percentile_sample_limit": 4096,
+					"percentiles_exact": true,
+					"raw_sample_capture": false,
+					"raw_sample_limit": 0,
+					"retained_hitch_record_count": 0,
+					"retained_percentile_sample_count": 300,
+					"retained_raw_sample_count": 0,
+					"retained_worst_record_count": 10,
+					"truncated": false
+				},
+				"sample_count": 300,
+				"timing_enabled": true,
+				"unavailable_reason": "",
+				"worst_records": [
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 86
+						},
+						"duration_ms": 35.273,
+						"sample_index": 198
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 33
+						},
+						"duration_ms": 35.147,
+						"sample_index": 40
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 41
+						},
+						"duration_ms": 35.017,
+						"sample_index": 64
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 59
+						},
+						"duration_ms": 34.914,
+						"sample_index": 117
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 59
+						},
+						"duration_ms": 34.906,
+						"sample_index": 119
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 87
+						},
+						"duration_ms": 34.899,
+						"sample_index": 201
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 64
+						},
+						"duration_ms": 34.849,
+						"sample_index": 132
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 77
+						},
+						"duration_ms": 34.842,
+						"sample_index": 173
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 88
+						},
+						"duration_ms": 34.752,
+						"sample_index": 204
+					},
+					{
+						"context": {
+							"classification": "frame_pacing_or_unattributed",
+							"phase": "deterministic_windowed_presentation",
+							"renderer_configuration_state": {
+								"arena_polish_comparison_mode": "baseline",
+								"arena_polish_enabled": false,
+								"arena_polish_tower_visual_scale": 1,
+								"barracks_ground_glow_visible": true,
+								"barracks_visible": true,
+								"floor_visible": true,
+								"hive_visible": true,
+								"lane_visible": true,
+								"polish_visible": false,
+								"tower_ground_glow_visible": true,
+								"tower_visible": true,
+								"unit_visible": true,
+								"wall_visible": true
+							},
+							"tick": 99
+						},
+						"duration_ms": 34.683,
+						"sample_index": 239
+					}
+				]
+			},
+			"collection_level": "MINIMAL",
+			"command_schedule_hash": "b46681f7890f5cc2b7f99b6662e13666db00c8a2e679ed7e02bfaa42e2c78516",
+			"comparison_fingerprint": {
+				"hash": "f8caefade37eea330271bb8f5dce16e525032f31d4279d82692bdc43558d5ab0",
+				"payload": {
+					"benchmark_mode": "deterministic_windowed_presentation",
+					"build_type": "debug",
+					"catalog_content_hash": "03d9fb566b3e88d20418c8fb34ddcef8c3f7a1e0ffc525273ee3bd078c696bb7",
+					"catalog_fixture_registered": true,
+					"catalog_schema": "sf_perf_fixture_catalog_design_v1",
+					"catalog_version": 1,
+					"collection_level": "MINIMAL",
+					"command_schedule_hash": "b46681f7890f5cc2b7f99b6662e13666db00c8a2e679ed7e02bfaa42e2c78516",
+					"content_identity": "sha256:5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+					"content_kind": "production_map",
+					"content_scale_factor": 1,
+					"environment_compatibility_hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+					"fixture_config_hash": "f0890368dbd38333983a0ca00df01faaec48817901445b63ea91edcf0c4d8fd8",
+					"fixture_id": "NORMAL_MATCH_V1",
+					"fixture_version": 1,
+					"godot_version": "4.2.2-stable (official)",
+					"map_content_hash": "5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+					"measurement_duration_sec": 10,
+					"measurement_profile": "deterministic_windowed_presentation",
+					"physics_ticks_per_second": 60,
+					"rendering_driver": "vulkan",
+					"rendering_method": "forward_plus",
+					"repetition_index": 3,
+					"result_schema_version": 3,
+					"stretch_aspect": "keep_width",
+					"stretch_mode": "viewport",
+					"suite_sequence_index": 3,
+					"target_fps": 30,
+					"video_adapter": "Apple M2 Pro",
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"warmup_duration_sec": 2
+				},
+				"version": 2
+			},
+			"content_identity": "sha256:5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+			"content_kind": "production_map",
+			"duration_sec": 12,
+			"effective_seed": 6201,
+			"environment_compatibility": {
+				"hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+				"payload": {
+					"build_type": "debug",
+					"cadence_identity": {
+						"adapter_version": 1,
+						"control_clock": "rendered_frame_index",
+						"elapsed_wall_time_controls_simulation": false,
+						"frames_per_simulation_tick": 3,
+						"measurement_frames": 300,
+						"measurement_ticks": 100,
+						"simulation_active": true,
+						"simulation_hz": 10,
+						"target_fps": 30,
+						"total_frames": 360,
+						"total_ticks": 120,
+						"warmup_frames": 60,
+						"warmup_ticks": 20
+					},
+					"camera_identity": {
+						"anchor_mode": 1,
+						"global_position": [
+							576,
+							896
+						],
+						"identity_version": 1,
+						"ignore_rotation": true,
+						"is_current": true,
+						"node_path": "Camera2D",
+						"offset": [
+							0,
+							0
+						],
+						"policy": "production_map_fit",
+						"position_smoothing_enabled": false,
+						"rotation_radians": 0,
+						"viewport_height": 1920,
+						"viewport_width": 1080,
+						"zoom": [
+							0.803571,
+							0.803571
+						]
+					},
+					"content_scale_factor": 1,
+					"display_server": "macOS",
+					"godot_version": "4.2.2-stable (official)",
+					"headless": false,
+					"measurement_profile": "deterministic_windowed_presentation",
+					"physics_ticks_per_second": 60,
+					"render_scale_3d": 1,
+					"rendering_driver": "vulkan",
+					"rendering_method": "forward_plus",
+					"stretch_aspect": "keep_width",
+					"stretch_mode": "viewport",
+					"target_fps": 30,
+					"video_adapter": "Apple M2 Pro",
+					"viewport_height": 1920,
+					"viewport_width": 1080,
+					"vsync_mode": 1
+				},
+				"version": 1
+			},
+			"environment_compatibility_hash": "d2c612c83cfc0403ba952c748bea475e76c30089d44f8518c7408b72b67732d6",
+			"expected_pool_capacity": 0,
+			"expected_pool_expansions": -1,
+			"failed_gates": [],
+			"feature_control_value": null,
+			"feature_id": "",
+			"feature_variant": "",
+			"final_state_hash": "ee84e0d4491b403c5f69cda788b6950ecb9784dae3c3cb2165406628ef48705a",
+			"fixture_config_hash": "f0890368dbd38333983a0ca00df01faaec48817901445b63ea91edcf0c4d8fd8",
+			"fixture_id": "NORMAL_MATCH_V1",
+			"fixture_setup_evidence": {
+				"actual_counts": {
+					"active_lanes": 0,
+					"barracks": 0,
+					"hives": 12,
+					"structure_slots": 0,
+					"towers": 0,
+					"units": 0,
+					"walls": 2
+				},
+				"content_kind": "production_map",
+				"exact_counts": true,
+				"expected_counts": {
+					"active_lanes": 0,
+					"barracks": 0,
+					"hives": 12,
+					"structure_slots": 0,
+					"towers": 0,
+					"units": 0,
+					"walls": 2
+				},
+				"map_applier_used": true,
+				"map_loader_used": true
+			},
+			"fixture_version": 1,
+			"frame_count": 360,
+			"hitch_count": 0,
+			"hitch_threshold_ms": 41.67,
+			"hitches": [],
+			"integrity_failures": [],
+			"isolation_cleanup": {
+				"after_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"after_protected_state": {
+					"autoloads": {
+						"AchievementService": {
+							"present": true,
+							"property_count": 1,
+							"state_hash": "b55bc2ed86f0e46b1eed062bf10a0e8ec02df771bfe9680759bd734ec6947139"
+						},
+						"AnalyticsClient": {
+							"present": true,
+							"property_count": 9,
+							"state_hash": "2b777722b2d5a35cf1699c1cb654bb98769083b2442cb81d03068d21210d9daf"
+						},
+						"BattlePassRuntimeAwards": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "b92735b7997dfc72acc2669d9499f852671af1c58926d9f75d3171bcfa9833f3"
+						},
+						"BattlePassState": {
+							"present": true,
+							"property_count": 41,
+							"state_hash": "627e2839cb89a795867f4746ea785871424d90a66f3cacb2c992df68e5399b7e"
+						},
+						"ContestState": {
+							"present": true,
+							"property_count": 5,
+							"state_hash": "542c5dd95718b219dcec829426cefd1b45c44d87ccf4eaceb7bceab58543e48d"
+						},
+						"CrucibleState": {
+							"present": true,
+							"property_count": 12,
+							"state_hash": "b7155e185b5bfa64a73e7556d03e2c3177622548ebe5e0ab93db0730161ee601"
+						},
+						"HiveClanState": {
+							"present": true,
+							"property_count": 14,
+							"state_hash": "46e0ad6e2341018865ae0efb27f8206763237a5b6ab4c3b042838e043c81188c"
+						},
+						"HoneyProgressionState": {
+							"present": true,
+							"property_count": 10,
+							"state_hash": "b32a2e1680f80c12007b6d50101ba28a9917f4c5e69d0d892134ec63482c5bf2"
+						},
+						"JukeboxRuntime": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "7d6ae58537fe74a1222c23980d3ed64b9c963f714b9ada4793941c34eaa65b11"
+						},
+						"ProfileManager": {
+							"present": true,
+							"property_count": 54,
+							"state_hash": "0fc389c558b8837c220fb939390c1d94c9fb5adaf02343b14a2a8dbcc18e8e2d"
+						},
+						"RankState": {
+							"present": true,
+							"property_count": 16,
+							"state_hash": "2cd67c3e9ae2aec7cda0f415a20bb6d4c3d011afaad0da5ef1befe3c568539c3"
+						}
+					},
+					"save_files": {
+						"user://analytics_queue_v1.jsonl": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://analytics_state_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://battle_pass_state.json": {
+							"exists": true,
+							"length": 1791,
+							"modified_time": 1784536898,
+							"sha256": "ac72519b6ce11ca8557cd128142f0a82d25ab9efdb5dd0154af8a9c0b621cfa6"
+						},
+						"user://contest_entries.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://contest_leaderboards_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://crucible_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://hive_clan_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://honey_progression_state.json": {
+							"exists": true,
+							"length": 279,
+							"modified_time": 1784536898,
+							"sha256": "6ce56267738cb7b1518841b3f9c5bfd253165c761524a2fcf485d2a5cb189f0c"
+						},
+						"user://profile.cfg": {
+							"exists": true,
+							"length": 2370,
+							"modified_time": 1784536898,
+							"sha256": "456950e3e2ca9f7723872863ba8f0f6af3606448ef5153ced101b88535ca1f5f"
+						},
+						"user://rank_state.json": {
+							"exists": true,
+							"length": 542,
+							"modified_time": 1784536898,
+							"sha256": "244cf25d3b547e675d4ac38da4c3ff7941c3937abef587520973d16e542687c8"
+						}
+					}
+				},
+				"after_protected_state_hash": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+				"after_topology": {
+					"arena_instance_ids": [],
+					"ops_signal_connections": {
+						"hud_changed": [],
+						"lane_intent_changed": [],
+						"lanes_changed": [],
+						"ops_state_changed": [],
+						"state_changed": []
+					},
+					"root_child_instance_ids": [
+						44543509716,
+						45650805983,
+						46405780691,
+						46774879431,
+						48083502331,
+						48452601099,
+						49945773326,
+						50566530327,
+						50935629081,
+						54341403920,
+						57881396518,
+						59072578862,
+						59609449788,
+						59894662463,
+						60263761194,
+						60565751105,
+						61387834691,
+						61773710662,
+						63132665159,
+						64776832335,
+						65062045014,
+						1570179646839
+					],
+					"root_child_rows": [
+						"1570179646839|SpriteRegistry|Node|res://scripts/renderers/sprite_registry.gd",
+						"44543509716|OpsState|Node|res://scripts/ops/ops_state.gd",
+						"45650805983|ContestState|Node|res://scripts/state/contest_state.gd",
+						"46405780691|ProfileManager|Node|res://scripts/profile/profile_manager.gd",
+						"46774879431|ModerationState|Node|res://scripts/state/moderation_state.gd",
+						"48083502331|HoneyProgressionState|Node|res://scripts/state/honey_progression_state.gd",
+						"48452601099|HiveClanState|Node|res://scripts/state/hive_clan_state.gd",
+						"49945773326|BattlePassState|Node|res://scripts/state/battle_pass_state.gd",
+						"50566530327|BattlePassRuntimeAwards|Node|res://scripts/state/battle_pass_runtime_awards.gd",
+						"50935629081|AchievementService|Node|res://scripts/achievements/achievement_service.gd",
+						"54341403920|ScholasticState|Node|res://scripts/state/scholastic_state.gd",
+						"57881396518|RankState|Node|res://scripts/state/rank_state.gd",
+						"59072578862|CrucibleState|Node|res://scripts/state/crucible_state.gd",
+						"59609449788|RankRuntimeAwards|Node|res://scripts/state/rank_runtime_awards.gd",
+						"59894662463|OpsConfig|Node|res://scripts/state/ops_config.gd",
+						"60263761194|AnalyticsClient|Node|res://scripts/state/analytics_client.gd",
+						"60565751105|AdManager|Node|res://scripts/state/ad_manager.gd",
+						"61387834691|JukeboxRuntime|Node|res://scripts/state/jukebox_runtime.gd",
+						"61773710662|AppLifecycle|Node|res://scripts/state/app_lifecycle_state.gd",
+						"63132665159|VsHandshake|Node|res://scripts/state/vs_handshake_state.gd",
+						"64776832335|VsPvpRuntime|Node|res://scripts/state/vs_pvp_runtime.gd",
+						"65062045014|Gamebot|Node|res://scripts/autoload/game_boot.gd"
+					]
+				},
+				"before_hash": "51e68efec16508cac23683eb5246cadea49ce671275f83362655b6b25664a02b",
+				"before_protected_state": {
+					"autoloads": {
+						"AchievementService": {
+							"present": true,
+							"property_count": 1,
+							"state_hash": "b55bc2ed86f0e46b1eed062bf10a0e8ec02df771bfe9680759bd734ec6947139"
+						},
+						"AnalyticsClient": {
+							"present": true,
+							"property_count": 9,
+							"state_hash": "2b777722b2d5a35cf1699c1cb654bb98769083b2442cb81d03068d21210d9daf"
+						},
+						"BattlePassRuntimeAwards": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "b92735b7997dfc72acc2669d9499f852671af1c58926d9f75d3171bcfa9833f3"
+						},
+						"BattlePassState": {
+							"present": true,
+							"property_count": 41,
+							"state_hash": "627e2839cb89a795867f4746ea785871424d90a66f3cacb2c992df68e5399b7e"
+						},
+						"ContestState": {
+							"present": true,
+							"property_count": 5,
+							"state_hash": "542c5dd95718b219dcec829426cefd1b45c44d87ccf4eaceb7bceab58543e48d"
+						},
+						"CrucibleState": {
+							"present": true,
+							"property_count": 12,
+							"state_hash": "b7155e185b5bfa64a73e7556d03e2c3177622548ebe5e0ab93db0730161ee601"
+						},
+						"HiveClanState": {
+							"present": true,
+							"property_count": 14,
+							"state_hash": "46e0ad6e2341018865ae0efb27f8206763237a5b6ab4c3b042838e043c81188c"
+						},
+						"HoneyProgressionState": {
+							"present": true,
+							"property_count": 10,
+							"state_hash": "b32a2e1680f80c12007b6d50101ba28a9917f4c5e69d0d892134ec63482c5bf2"
+						},
+						"JukeboxRuntime": {
+							"present": true,
+							"property_count": 3,
+							"state_hash": "7d6ae58537fe74a1222c23980d3ed64b9c963f714b9ada4793941c34eaa65b11"
+						},
+						"ProfileManager": {
+							"present": true,
+							"property_count": 54,
+							"state_hash": "0fc389c558b8837c220fb939390c1d94c9fb5adaf02343b14a2a8dbcc18e8e2d"
+						},
+						"RankState": {
+							"present": true,
+							"property_count": 16,
+							"state_hash": "2cd67c3e9ae2aec7cda0f415a20bb6d4c3d011afaad0da5ef1befe3c568539c3"
+						}
+					},
+					"save_files": {
+						"user://analytics_queue_v1.jsonl": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://analytics_state_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://battle_pass_state.json": {
+							"exists": true,
+							"length": 1791,
+							"modified_time": 1784536898,
+							"sha256": "ac72519b6ce11ca8557cd128142f0a82d25ab9efdb5dd0154af8a9c0b621cfa6"
+						},
+						"user://contest_entries.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://contest_leaderboards_v1.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://crucible_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://hive_clan_state.json": {
+							"exists": false,
+							"length": 0,
+							"modified_time": 0,
+							"sha256": ""
+						},
+						"user://honey_progression_state.json": {
+							"exists": true,
+							"length": 279,
+							"modified_time": 1784536898,
+							"sha256": "6ce56267738cb7b1518841b3f9c5bfd253165c761524a2fcf485d2a5cb189f0c"
+						},
+						"user://profile.cfg": {
+							"exists": true,
+							"length": 2370,
+							"modified_time": 1784536898,
+							"sha256": "456950e3e2ca9f7723872863ba8f0f6af3606448ef5153ced101b88535ca1f5f"
+						},
+						"user://rank_state.json": {
+							"exists": true,
+							"length": 542,
+							"modified_time": 1784536898,
+							"sha256": "244cf25d3b547e675d4ac38da4c3ff7941c3937abef587520973d16e542687c8"
+						}
+					}
+				},
+				"before_protected_state_hash": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+				"before_topology": {
+					"arena_instance_ids": [],
+					"ops_signal_connections": {
+						"hud_changed": [],
+						"lane_intent_changed": [],
+						"lanes_changed": [],
+						"ops_state_changed": [],
+						"state_changed": []
+					},
+					"root_child_instance_ids": [
+						44543509716,
+						45650805983,
+						46405780691,
+						46774879431,
+						48083502331,
+						48452601099,
+						49945773326,
+						50566530327,
+						50935629081,
+						54341403920,
+						57881396518,
+						59072578862,
+						59609449788,
+						59894662463,
+						60263761194,
+						60565751105,
+						61387834691,
+						61773710662,
+						63132665159,
+						64776832335,
+						65062045014,
+						1570179646839
+					],
+					"root_child_rows": [
+						"1570179646839|SpriteRegistry|Node|res://scripts/renderers/sprite_registry.gd",
+						"44543509716|OpsState|Node|res://scripts/ops/ops_state.gd",
+						"45650805983|ContestState|Node|res://scripts/state/contest_state.gd",
+						"46405780691|ProfileManager|Node|res://scripts/profile/profile_manager.gd",
+						"46774879431|ModerationState|Node|res://scripts/state/moderation_state.gd",
+						"48083502331|HoneyProgressionState|Node|res://scripts/state/honey_progression_state.gd",
+						"48452601099|HiveClanState|Node|res://scripts/state/hive_clan_state.gd",
+						"49945773326|BattlePassState|Node|res://scripts/state/battle_pass_state.gd",
+						"50566530327|BattlePassRuntimeAwards|Node|res://scripts/state/battle_pass_runtime_awards.gd",
+						"50935629081|AchievementService|Node|res://scripts/achievements/achievement_service.gd",
+						"54341403920|ScholasticState|Node|res://scripts/state/scholastic_state.gd",
+						"57881396518|RankState|Node|res://scripts/state/rank_state.gd",
+						"59072578862|CrucibleState|Node|res://scripts/state/crucible_state.gd",
+						"59609449788|RankRuntimeAwards|Node|res://scripts/state/rank_runtime_awards.gd",
+						"59894662463|OpsConfig|Node|res://scripts/state/ops_config.gd",
+						"60263761194|AnalyticsClient|Node|res://scripts/state/analytics_client.gd",
+						"60565751105|AdManager|Node|res://scripts/state/ad_manager.gd",
+						"61387834691|JukeboxRuntime|Node|res://scripts/state/jukebox_runtime.gd",
+						"61773710662|AppLifecycle|Node|res://scripts/state/app_lifecycle_state.gd",
+						"63132665159|VsHandshake|Node|res://scripts/state/vs_handshake_state.gd",
+						"64776832335|VsPvpRuntime|Node|res://scripts/state/vs_pvp_runtime.gd",
+						"65062045014|Gamebot|Node|res://scripts/autoload/game_boot.gd"
+					]
+				},
+				"component_hashes_after": {
+					"audio_buses": "8a8dc77444e79b4077ea3b52316263e009bad45487c7d7943897910689d7a60e",
+					"engine": "fa82daf89ff8fc5cb011fed76c47c711898f0cd32b29ebc25ea62f320a2a2830",
+					"ops_properties": "f443d05a50ce6dcc906ede8179de2a4518a353cb614a7a61b66f855d21b7d398",
+					"ops_rng_states": "98d87ccdce22bc77052044b12a35a60446eeec01d80e6774fe1afd05c95bd603",
+					"project_settings": "af456db4093ec62dc621f76ae06338ba4fc65f708db9eb535fd02864065a50e1",
+					"protected_state": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+					"rendering_default_clear_color": "9dd575e4de4c7d400d3ba1602ab322bc44e859131578b5280a4d07605c15648c",
+					"shared_runtime_properties": "b00c592a950c355cdfc3aece794f46f16e5505bd3b04f04db29cf6d98dd3f473",
+					"tree_metadata": "56f33987e34717d5ee7d2263f996cc0bc5ff32ac5d1d6822c4ab7164ef8b43c2",
+					"tree_topology": "b80df346b879b6a021865ceb406f41d482533026045b9d560b33abc52dc564b4"
+				},
+				"component_hashes_before": {
+					"audio_buses": "8a8dc77444e79b4077ea3b52316263e009bad45487c7d7943897910689d7a60e",
+					"engine": "fa82daf89ff8fc5cb011fed76c47c711898f0cd32b29ebc25ea62f320a2a2830",
+					"ops_properties": "f443d05a50ce6dcc906ede8179de2a4518a353cb614a7a61b66f855d21b7d398",
+					"ops_rng_states": "98d87ccdce22bc77052044b12a35a60446eeec01d80e6774fe1afd05c95bd603",
+					"project_settings": "af456db4093ec62dc621f76ae06338ba4fc65f708db9eb535fd02864065a50e1",
+					"protected_state": "7bd265e980741f5ffdf5706c6969b9b2cae03d943812d45fcb2cfaf4259a689b",
+					"rendering_default_clear_color": "9dd575e4de4c7d400d3ba1602ab322bc44e859131578b5280a4d07605c15648c",
+					"shared_runtime_properties": "b00c592a950c355cdfc3aece794f46f16e5505bd3b04f04db29cf6d98dd3f473",
+					"tree_metadata": "56f33987e34717d5ee7d2263f996cc0bc5ff32ac5d1d6822c4ab7164ef8b43c2",
+					"tree_topology": "b80df346b879b6a021865ceb406f41d482533026045b9d560b33abc52dc564b4"
+				},
+				"fixture_root_freed": true,
+				"fixture_state_release": {
+					"fixture_state_instance_id": -9223369910325868544,
+					"released": true,
+					"unit_system_cycle_broken": true
+				},
+				"mismatched_components": [],
+				"mismatches": [],
+				"pass": true,
+				"settle_frames_after_restore": 2,
+				"settle_frames_before_restore": 3
+			},
+			"lane_setup_hash": "",
+			"lifecycle_limits": {
+
+			},
+			"lifecycle_required_cycles": 0,
+			"lifecycle_runtime_before": {
+
+			},
+			"lifecycle_runtime_during": {
+
+			},
+			"map_content_hash": "5f7c582e8a45e2d6df96023216bd9c3be7a9f5e874956786c200e2a662dd0104",
+			"map_path": "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__1p.json",
+			"match": {
+				"barracks_count": 0,
+				"final_tick": 120,
+				"hive_count": 12,
+				"lane_count": 2,
+				"status": "1",
+				"tower_count": 0,
+				"unit_count": 5,
+				"winner_id": 0
+			},
+			"max_frame_ms": 35.273,
+			"measured_frame_count": 300,
+			"measured_tick_count": 100,
+			"measurement_duration_sec": 10,
+			"measurement_profile": "deterministic_windowed_presentation",
+			"median_frame_ms": 33.222,
+			"metrics": {
+				"display_frame_average_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 33.1993266666666
+				},
+				"display_frame_max_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 35.273
+				},
+				"display_frame_median_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 33.222
+				},
+				"display_frame_p95_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 34.29
+				},
+				"display_frame_p99_ms": {
+					"available": true,
+					"classification": "DERIVED",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "ms",
+					"value": 34.914
+				},
+				"display_frame_sample_count": {
+					"available": true,
+					"classification": "DIRECT",
+					"reason": "",
+					"source": "bounded MINIMAL collector",
+					"unit": "count",
+					"value": 300
+				},
+				"gpu_frame_time_ms": {
+					"available": false,
+					"classification": "EXTERNAL_PROFILER_REQUIRED",
+					"reason": "Godot 4.2.2 harness exposes no trustworthy per-frame GPU duration for this runner",
+					"source": "not_collected",
+					"unit": "ms",
+					"value": null
+				},
+				"render_section_cost_ms": {
+					"available": false,
+					"classification": "UNAVAILABLE",
+					"reason": "renderer visibility is configuration state, not measured renderer section cost",
+					"source": "not_collected",
+					"unit": "ms",
+					"value": null
+				},
+				"renderer_visibility": {
+					"available": true,
+					"classification": "CONFIGURATION_STATE",
+					"reason": "",
+					"source": "CanvasItem visibility captured at measurement end",
+					"unit": "state",
+					"value": {
+						"arena_polish_comparison_mode": "baseline",
+						"arena_polish_enabled": false,
+						"arena_polish_tower_visual_scale": 1,
+						"barracks_ground_glow_visible": true,
+						"barracks_visible": true,
+						"floor_visible": true,
+						"hive_visible": true,
+						"lane_visible": true,
+						"polish_visible": false,
+						"tower_ground_glow_visible": true,
+						"tower_visible": true,
+						"unit_visible": true,
+						"wall_visible": true
+					}
+				}
+			},
+			"observed_command_types": [
+				"attack",
+				"swarm"
+			],
+			"observed_measurement_duration_sec": 9.959798,
+			"observed_warmup_duration_sec": 1.997977,
+			"p95_frame_ms": 34.29,
+			"p999_frame_ms": 35.273,
+			"p99_frame_ms": 34.914,
+			"pass": true,
+			"performance_gate_disposition": "GATED",
+			"performance_gating": true,
+			"performance_status": "GATED_WINDOWED",
+			"phase2_battlefield_event_hash": "",
+			"phase2_battlefield_evidence": {
+
+			},
+			"phase2_battlefield_profile": "",
+			"phase2_battlefield_render_hash": "",
+			"phase2_event_hash": "",
+			"phase2_lifecycle_profile": "",
+			"phase2_render_lifecycle_hash": "",
+			"phase2_requires_three_repetitions": false,
+			"phase2_stress_evidence": {
+
+			},
+			"phase2_stress_profile": "",
+			"render_monitor_peaks": {
+				"draw_calls": 0,
+				"rendered_objects": 0,
+				"rendered_primitives": 0
+			},
+			"renderer_configuration_hash": "8b22061bc846546e9dd214c7c04736675ea32f111026802f0aa4b158aaa90d97",
+			"renderer_configuration_state": {
+				"arena_polish_comparison_mode": "baseline",
+				"arena_polish_enabled": false,
+				"arena_polish_tower_visual_scale": 1,
+				"barracks_ground_glow_visible": true,
+				"barracks_visible": true,
+				"floor_visible": true,
+				"hive_visible": true,
+				"lane_visible": true,
+				"polish_visible": false,
+				"tower_ground_glow_visible": true,
+				"tower_visible": true,
+				"unit_visible": true,
+				"wall_visible": true
+			},
+			"renderer_pool_hash": "",
+			"renderer_pool_telemetry": {
+				"active_emission_materials": 0,
+				"active_pooled_objects": 0,
+				"available_pooled_objects": 400,
+				"match_prewarm_duration_ms": 0.03,
+				"peak_pooled_objects": 1,
+				"pool_expansions": 0,
+				"pool_hits": 2,
+				"pool_misses": 0,
+				"runtime_instantiates_avoided": 2,
+				"total_pooled_objects": 400
+			},
+			"renderer_sim_count_delta": 0,
+			"renderers": [
+				"floor",
+				"hive",
+				"lane",
+				"unit",
+				"tower",
+				"wall",
+				"barracks",
+				"polish"
+			],
+			"repetition_index": 3,
+			"requested_seed": 6201,
+			"runtime_counts": {
+				"active_lanes": 0,
+				"barracks": 0,
+				"hives": 12,
+				"structure_slots": 0,
+				"towers": 0,
+				"units": 0,
+				"walls": 2
+			},
+			"runtime_switches": {
+				"arena_polish_comparison_mode": "baseline",
+				"premium_polish_enabled": false,
+				"tower_visual_scale": 1
+			},
+			"scenario_id": "NORMAL_MATCH_V1",
+			"scripted_command_count": 4,
+			"scripted_command_ticks": [
+				{
+					"commands": [
+						{
+							"dst": 9,
+							"schedule_index": 0,
+							"src": 2,
+							"type": "attack"
+						}
+					],
+					"tick": 5
+				},
+				{
+					"commands": [
+						{
+							"dst": 9,
+							"ok": true,
+							"schedule_index": 1,
+							"src": 2,
+							"type": "swarm"
+						}
+					],
+					"tick": 15
+				},
+				{
+					"commands": [
+						{
+							"dst": 8,
+							"schedule_index": 2,
+							"src": 3,
+							"type": "attack"
+						}
+					],
+					"tick": 25
+				},
+				{
+					"commands": [
+						{
+							"dst": 8,
+							"schedule_index": 3,
+							"src": 3,
+							"type": "attack"
+						}
+					],
+					"tick": 35
+				}
+			],
+			"setup_duration_ms": 633.667,
+			"sim_tick_interval_sec": 0.1,
+			"stress_target_hive_ids": [],
+			"suite_sequence_index": 3,
+			"systems": [
+				"canonical_simrunner"
+			],
+			"target_duration_sec": 12,
+			"target_frame_ms": 33.5,
+			"target_units": 0,
+			"tick_count": 120,
+			"unit_count_policy": "exact_static",
+			"unit_count_timeline": [],
+			"unit_count_timeline_hash": "",
+			"unit_count_window": {
+				"end": 5,
+				"invariant": true,
+				"maximum": 0,
+				"minimum": 0,
+				"start": 0,
+				"target": 0
+			},
+			"unit_injection_hash": "",
+			"unit_motion_evidence": {
+
+			},
+			"unit_motion_hash": "",
+			"unit_scale_setup": {
+
+			},
+			"warmup_duration_sec": 2,
+			"warmup_frame_count": 60,
+			"warmup_tick_count": 20,
+			"worst_frames": [
+				{
+					"duration_ms": 35.273,
+					"frame": 198
+				},
+				{
+					"duration_ms": 35.147,
+					"frame": 40
+				},
+				{
+					"duration_ms": 35.017,
+					"frame": 64
+				},
+				{
+					"duration_ms": 34.914,
+					"frame": 117
+				},
+				{
+					"duration_ms": 34.906,
+					"frame": 119
+				},
+				{
+					"duration_ms": 34.899,
+					"frame": 201
+				},
+				{
+					"duration_ms": 34.849,
+					"frame": 132
+				},
+				{
+					"duration_ms": 34.842,
+					"frame": 173
+				},
+				{
+					"duration_ms": 34.752,
+					"frame": 204
+				},
+				{
+					"duration_ms": 34.683,
+					"frame": 239
+				}
+			],
+			"worst_sim_ticks": []
+		}
+	],
+	"suite_id": "phase1_normal_match",
+	"switch_overrides": {
+
+	},
+	"unit_scale_diagnostic": {
+
+	},
+	"user_data_isolation": {
+		"enabled": true,
+		"error": "",
+		"name": "SwarmfrontPerfExitNormalWindow",
+		"path": "/Users/home/Library/Application Support/SwarmfrontPerfExitNormalWindow/"
+	},
+	"viewport": {
+		"content_scale_factor": 1,
+		"content_scale_height": 1920,
+		"content_scale_width": 1080,
+		"height": 1920,
+		"render_scale_3d": 1,
+		"stretch_aspect": "keep_width",
+		"stretch_mode": "viewport",
+		"width": 1080
+	}
+}
