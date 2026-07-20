@@ -2522,6 +2522,8 @@ function healthPayload(): JsonRecord {
     public_contests_enabled: config.enablePublicContests,
     public_time_puzzles_enabled: config.enablePublicTimePuzzles,
     public_gauntlet_enabled: config.enablePublicGauntlet,
+    public_async_3map_enabled: config.enablePublicAsync3map,
+    public_async_5map_enabled: config.enablePublicAsync5map,
     public_contests_store_authorized: config.durableStore === "postgres" && Boolean(config.databaseUrl),
     storage: {
       vs_core: durableCoreStatus(),

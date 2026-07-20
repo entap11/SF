@@ -207,7 +207,23 @@ export function validatePublishInput(input: PublishContestInput): void {
     }
   }
   const closureKind = stringValue(input.closurePolicy.kind);
-  if (closureKind !== "SERVER_TIME") throw new DurableCoreError("contest_closure_policy_unsupported");
+  if (!["SERVER_TIME", "QUALIFIED_PLAYER_COUNT"].includes(closureKind)) {
+    throw new DurableCoreError("contest_closure_policy_unsupported");
+  }
+  if (closureKind === "QUALIFIED_PLAYER_COUNT") {
+    const familyId = stringValue(input.closurePolicy.cohort_family_id);
+    const expectedFamily = input.mapCount === 3 ? "ASYNC_3_ROLLING_4P_V1"
+      : input.mapCount === 5 ? "ASYNC_5_ROLLING_4P_V1" : "";
+    if (input.family !== "ASYNC_MAP_SET" || input.scope !== "ROLLING_COHORT"
+      || !expectedFamily || familyId !== expectedFamily
+      || input.closurePolicy.qualified_player_count !== 4
+      || input.closurePolicy.roster_capacity !== 4
+      || input.eligibilityPolicy.authentication_required !== true
+      || input.eligibilityPolicy.authority_required !== true
+      || input.eligibilityPolicy.payouts_enabled === true) {
+      throw new DurableCoreError("invalid_async_cohort_policy");
+    }
+  }
   const rollover = input.closurePolicy.rollover_interval_sec;
   if (rollover != null && (!Number.isSafeInteger(rollover) || Number(rollover) < 1)) {
     throw new DurableCoreError("invalid_contest_rollover");

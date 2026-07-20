@@ -23,6 +23,7 @@
     "smoke:public-rank": "tsx src/publicRankHttpSmoke.ts",
     "smoke:public-contests": "tsx src/repositories/publicContestEmbeddedSmoke.ts",
     "smoke:crucible-settlement": "tsx src/repositories/crucibleSettlementEmbeddedSmoke.ts",
+    "smoke:public-async-cohorts": "tsx src/repositories/publicAsyncCohortEmbeddedSmoke.ts",
     "worker:rank-settlement": "node --enable-source-maps dist/rankSettlementWorker.js"
   },
   "dependencies": {

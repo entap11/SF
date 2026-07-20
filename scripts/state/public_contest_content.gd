@@ -47,7 +47,7 @@ static func validate_definition(definition: Dictionary) -> Dictionary:
 	var family: String = str(definition.get("family", "")).to_upper()
 	var catalog: Dictionary = build_catalog()
 	var expected: Dictionary
-	if family == "TIME_PUZZLE":
+	if family == "TIME_PUZZLE" or family == "ASYNC_MAP_SET":
 		var key: String = "three_map" if int(definition.get("map_count", 0)) == 3 else "five_map"
 		expected = (catalog.get("time_puzzle", {}) as Dictionary).get(key, {}) as Dictionary
 	elif family == "GAUNTLET":
@@ -74,8 +74,16 @@ static func validate_definition(definition: Dictionary) -> Dictionary:
 	if family == "GAUNTLET":
 		var policy: Dictionary = definition.get("attempt_policy", {}) as Dictionary
 		if str(policy.get("stage_plan_hash", "")) != pack_hash \
-				or policy.get("stage_plan", []) != local_maps:
+			or policy.get("stage_plan", []) != local_maps:
 			return {"ok": false, "err": "public_contest_stage_plan_hash_mismatch"}
+	if family == "ASYNC_MAP_SET":
+		var closure: Dictionary = definition.get("closure_policy", {}) as Dictionary
+		var expected_family: String = "ASYNC_3_ROLLING_4P_V1" if int(definition.get("map_count", 0)) == 3 else "ASYNC_5_ROLLING_4P_V1"
+		if str(definition.get("scope", "")) != "ROLLING_COHORT" \
+				or str(closure.get("cohort_family_id", "")) != expected_family \
+				or int(closure.get("roster_capacity", 0)) != 4 \
+				or int(closure.get("qualified_player_count", 0)) != 4:
+			return {"ok": false, "err": "public_async_cohort_policy_mismatch"}
 	return {"ok": true, "map_paths": paths, "catalog_hash": pack_hash}
 
 static func _map_entry(map_id: String) -> Dictionary:

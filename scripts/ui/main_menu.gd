@@ -12995,9 +12995,9 @@ func _configure_free_roll_game_hub_scene(panel: Panel, selected_denom: int) -> v
 		if button == null or mode_id.is_empty():
 			continue
 		if mode_id == "STAGE_RACE_3":
-			_connect_free_roll_guarded_press(button, Callable(self, "_open_public_contest_dash").bind("WEEKLY", "TIME_PUZZLE", 3))
+			_connect_free_roll_guarded_press(button, Callable(self, "_open_public_contest_dash").bind("ROLLING_COHORT", "ASYNC_MAP_SET", 3))
 		elif mode_id == "STAGE_RACE_5":
-			_connect_free_roll_guarded_press(button, Callable(self, "_open_public_contest_dash").bind("WEEKLY", "TIME_PUZZLE", 5))
+			_connect_free_roll_guarded_press(button, Callable(self, "_open_public_contest_dash").bind("ROLLING_COHORT", "ASYNC_MAP_SET", 5))
 		else:
 			_connect_free_roll_guarded_press(button, Callable(self, "_on_async_mode_selected").bind(mode_id, false, 0))
 		_apply_async_mode_skin_to_button(button, label, false, selected_denom, true)
@@ -14735,7 +14735,7 @@ func _on_public_contest_play_requested(definition: Dictionary, attempt: Dictiona
 	common["start_players"] = ASYNC_WINDOW_START_PLAYERS
 	common["sync_join_sec"] = ASYNC_TIMED_RACE_SYNC_JOIN_SEC
 	if not _launch_async_vs_match_direct("TIMED_RACE", int(definition.get("map_count", 3)), true, 0, common):
-		status_label.text = "Public Time Puzzle launch failed."
+		status_label.text = "Public async contest launch failed."
 
 func _on_progressive_selected(paid: bool = false, denomination: int = 0, contest_id: String = "", contest_scope: String = "", schedule_kind: String = "SIT_AND_GO", public_definition: Dictionary = {}, public_attempt: Dictionary = {}) -> void:
 	if _block_for_active_hive_tournament("progressive"):
@@ -17841,16 +17841,7 @@ func _on_async_stage_race_selected(map_count: int, free_play: bool) -> void:
 		"window_sec": ASYNC_STAGE_AND_MISS_WINDOW_SEC
 	}
 	if free_play:
-		var free_map_ids: PackedStringArray = _free_roll_random_map_ids("STAGE_RACE", map_count)
-		if free_map_ids.is_empty():
-			status_label.text = "No Free Roll maps available for Stage Race."
-			return
-		var free_map_labels: Array[String] = []
-		for free_map_id in free_map_ids:
-			free_map_labels.append(MAP_REGISTRY.public_map_display_name_for_id(free_map_id))
-		lobby_options["map_ids"] = free_map_ids
-		status_label.text = "%s Stage Race (%d maps, randomized): %s" % [track_label, free_map_ids.size(), ", ".join(free_map_labels)]
-		_open_async_vs_lobby("STAGE_RACE", free_map_ids.size(), free_play, entry_usd, lobby_options)
+		_open_public_contest_dash("ROLLING_COHORT", "ASYNC_MAP_SET", map_count)
 		return
 	if contest_state == null:
 		status_label.text = "%s Stage Race paid contest unavailable." % track_label

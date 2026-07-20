@@ -25,8 +25,10 @@ export class PostgresPublicContestRepository implements PublicContestRepository 
     const starts = parseIso(input.startsAt, "invalid_contest_starts_at");
     const ends = parseIso(input.endsAt, "invalid_contest_ends_at");
     const status = now < starts ? "SCHEDULED" : now < ends ? "OPEN" : "CLOSED";
+    const client = await this.pool.connect();
     try {
-      const inserted = await this.pool.query<Row>(
+      await client.query("BEGIN");
+      const inserted = await client.query<Row>(
         `INSERT INTO vs_public_contests
           (contest_id, leaderboard_id, contest_schema_version, series_key, generation,
            family, scope, map_count, status, map_pack_id, map_ids, content_hashes,
@@ -44,10 +46,17 @@ export class PostgresPublicContestRepository implements PublicContestRepository 
           status === "OPEN" ? input.createdAt : null, status === "CLOSED" ? input.createdAt : null,
           definitionHash, JSON.stringify(document)]
       );
+      if (input.family === "ASYNC_MAP_SET" && input.scope === "ROLLING_COHORT") {
+        await insertCohortRecord(client, contestId, input.closurePolicy, input.createdAt);
+      }
+      await client.query("COMMIT");
       return definitionFromRow(inserted.rows[0]);
     } catch (error) {
+      await rollbackQuietly(client);
       if (isUniqueViolation(error)) throw new DurableCoreError("contest_definition_conflict");
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -74,10 +83,13 @@ export class PostgresPublicContestRepository implements PublicContestRepository 
         if (!row) break;
         const finalized = await closeContest(client, row, nowIso);
         if (finalized) closed += 1;
-        const intervalSec = integerOrZero(jsonRecord(row.closure_policy).rollover_interval_sec);
+        const closure = jsonRecord(row.closure_policy);
+        const intervalSec = integerOrZero(closure.rollover_interval_sec);
         if (intervalSec > 0) {
           const created = await cloneNextGeneration(client, row, intervalSec, nowIso);
           if (created) rolled += 1;
+        } else if (finalized && closure.auto_rollover === true && String(closure.kind) === "QUALIFIED_PLAYER_COUNT") {
+          if (await cloneRollingCohort(client, row, nowIso)) rolled += 1;
         }
         if (guard === 99) throw new DurableCoreError("contest_rollover_limit_exceeded");
       }
@@ -91,11 +103,17 @@ export class PostgresPublicContestRepository implements PublicContestRepository 
           `SELECT c.* FROM vs_public_contests c
            WHERE c.status = 'FINALIZING'
              AND NOT EXISTS (SELECT 1 FROM vs_public_contest_evidence e
-               WHERE e.contest_id = c.contest_id AND e.status IN ('PENDING', 'LEASED'))
+               JOIN vs_public_contest_attempts a ON a.attempt_id = e.attempt_id
+               WHERE e.contest_id = c.contest_id AND e.status IN ('PENDING', 'LEASED') AND a.status = 'ISSUED')
            ORDER BY c.ends_at, c.contest_id FOR UPDATE OF c SKIP LOCKED LIMIT 1`
         );
         if (!ready.rows[0]) break;
-        if (await closeContest(client, ready.rows[0], nowIso)) closed += 1;
+        if (await closeContest(client, ready.rows[0], nowIso)) {
+          closed += 1;
+          const closure = jsonRecord(ready.rows[0].closure_policy);
+          if (closure.auto_rollover === true && String(closure.kind) === "QUALIFIED_PLAYER_COUNT"
+            && await cloneRollingCohort(client, ready.rows[0], nowIso)) rolled += 1;
+        }
         if (guard === 99) throw new DurableCoreError("contest_finalize_limit_exceeded");
       }
       await client.query("COMMIT");
@@ -168,15 +186,47 @@ export class PostgresPublicContestRepository implements PublicContestRepository 
         );
         if ((scored.rowCount ?? 0) > 0) throw new DurableCoreError("contest_player_already_scored");
       }
+      const cohort = await cohortForContest(client, contest);
+      const rosterMembership = cohort ? await client.query(
+        "SELECT 1 FROM vs_public_contest_roster WHERE contest_id = $1 AND player_id = $2",
+        [input.contestId, input.playerId]) : null;
+      if (cohort && (rosterMembership?.rowCount ?? 0) === 0) {
+        const rosterCount = await client.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM vs_public_contest_roster WHERE contest_id = $1", [input.contestId]
+        );
+        if (cohort.roster_locked_at != null || Number(rosterCount.rows[0]?.count ?? 0) >= Number(cohort.roster_capacity)) {
+          throw new DurableCoreError("contest_cohort_roster_locked");
+        }
+      }
+      const identityConflict = cohort ? "DO NOTHING" : `DO UPDATE SET
+           display_name = EXCLUDED.display_name,
+           public_entap_id = COALESCE(EXCLUDED.public_entap_id, vs_public_contest_roster.public_entap_id)`;
       await client.query(
         `INSERT INTO vs_public_contest_roster
           (contest_id, player_id, display_name, public_entap_id, joined_at)
          VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (contest_id, player_id) DO UPDATE SET
-           display_name = EXCLUDED.display_name,
-           public_entap_id = COALESCE(EXCLUDED.public_entap_id, vs_public_contest_roster.public_entap_id)`,
+         ON CONFLICT (contest_id, player_id) ${identityConflict}`,
         [input.contestId, input.playerId, input.displayName, input.publicEntapId ?? null, input.nowIso]
       );
+      if (cohort) {
+        const afterJoin = await client.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM vs_public_contest_roster WHERE contest_id = $1", [input.contestId]
+        );
+        if (Number(afterJoin.rows[0]?.count ?? 0) === Number(cohort.roster_capacity)) {
+          await client.query(
+            `UPDATE vs_public_contest_cohorts SET roster_locked_at = COALESCE(roster_locked_at, $2), updated_at = $2
+             WHERE contest_id = $1`, [input.contestId, input.nowIso]
+          );
+        }
+        const maxAttempts = integerOrZero(jsonRecord(contest.attempt_policy).max_attempts_per_player);
+        const issued = await client.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM vs_public_contest_attempts WHERE contest_id = $1 AND player_id = $2",
+          [input.contestId, input.playerId]
+        );
+        if (maxAttempts > 0 && Number(issued.rows[0]?.count ?? 0) >= maxAttempts) {
+          throw new DurableCoreError("contest_attempt_limit_reached");
+        }
+      }
       const sequence = await client.query<{ next_number: number }>(
         `SELECT COALESCE(MAX(attempt_number), 0)::int + 1 AS next_number
          FROM vs_public_contest_attempts WHERE contest_id = $1 AND player_id = $2`,
@@ -256,6 +306,7 @@ export class PostgresPublicContestRepository implements PublicContestRepository 
       const found = await client.query<Row>(
         `SELECT a.*, c.status AS contest_status, c.ends_at, c.map_ids, c.comparator_id,
                 c.best_entry_policy, c.definition_hash AS contest_definition_hash,
+                c.attempt_policy, c.closure_policy, c.family, c.scope, c.leaderboard_id,
                 r.display_name
          FROM vs_public_contest_attempts a
          JOIN vs_public_contests c ON c.contest_id = a.contest_id
@@ -326,6 +377,27 @@ export class PostgresPublicContestRepository implements PublicContestRepository 
           "UPDATE vs_public_contests SET leaderboard_version = leaderboard_version + 1, updated_at = $2 WHERE contest_id = $1",
           [input.contestId, input.qualifiedAt]
         );
+      }
+      const closure = jsonRecord(row.closure_policy);
+      if (String(row.family) === "ASYNC_MAP_SET" && String(row.scope) === "ROLLING_COHORT"
+        && String(closure.kind) === "QUALIFIED_PLAYER_COUNT") {
+        const qualified = await client.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM vs_public_contest_best_results WHERE contest_id = $1", [input.contestId]
+        );
+        const qualifiedCount = Number(qualified.rows[0]?.count ?? 0);
+        await client.query(
+          `UPDATE vs_public_contest_cohorts SET qualified_player_count = $2, updated_at = $3
+           WHERE contest_id = $1`, [input.contestId, qualifiedCount, input.qualifiedAt]
+        );
+        if (qualifiedCount >= Number(closure.qualified_player_count ?? 4)) {
+          const contestForClose = await client.query<Row>(
+            "SELECT * FROM vs_public_contests WHERE contest_id = $1 FOR UPDATE", [input.contestId]
+          );
+          if (contestForClose.rows[0] && await closeContest(client, contestForClose.rows[0], input.qualifiedAt)
+            && closure.auto_rollover === true) {
+            await cloneRollingCohort(client, contestForClose.rows[0], input.qualifiedAt);
+          }
+        }
       }
       const version = await client.query<{ leaderboard_version: string }>(
         "SELECT leaderboard_version::text FROM vs_public_contests WHERE contest_id = $1", [input.contestId]
@@ -544,13 +616,15 @@ export class PostgresPublicContestRepository implements PublicContestRepository 
 }
 
 async function closeContest(client: PoolClient, contest: Row, nowIso: string): Promise<boolean> {
+  if (String(contest.status) === "CLOSED") return false;
   await client.query(
     "UPDATE vs_public_contests SET status = 'FINALIZING', updated_at = $2 WHERE contest_id = $1",
     [contest.contest_id, nowIso]
   );
   const unresolved = await client.query(
-    `SELECT 1 FROM vs_public_contest_evidence
-     WHERE contest_id = $1 AND status IN ('PENDING', 'LEASED') LIMIT 1`, [contest.contest_id]
+    `SELECT 1 FROM vs_public_contest_evidence e
+     JOIN vs_public_contest_attempts a ON a.attempt_id = e.attempt_id
+     WHERE e.contest_id = $1 AND e.status IN ('PENDING', 'LEASED') AND a.status = 'ISSUED' LIMIT 1`, [contest.contest_id]
   );
   if ((unresolved.rowCount ?? 0) > 0) return false;
   const best = await client.query<Row>(
@@ -571,31 +645,111 @@ async function closeContest(client: PoolClient, contest: Row, nowIso: string): P
        VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (contest_id, player_id) DO NOTHING`,
       [contest.contest_id, row.player_id, row.contest_result_id, index + 1, competitivePlace, nowIso]
     );
-    if (index < 3) {
-      const payload = {
-        message_schema_version: 1, message_kind: "PUBLIC_CONTEST_PLACEMENT",
-        contest_id: String(contest.contest_id), leaderboard_id: String(contest.leaderboard_id),
-        definition_hash: String(contest.definition_hash), ordinal_place: index + 1,
-        competitive_place: competitivePlace, contest_result_id: String(row.contest_result_id),
-        closed_at: nowIso
-      };
-      const dedupeKey = `${contest.contest_id}:${row.player_id}:placement`;
-      await client.query(
-        `INSERT INTO vs_outbox_events
-          (event_id, topic, recipient_player_id, aggregate_type, aggregate_id,
-           dedupe_namespace, dedupe_key, request_hash, payload, available_at)
-         VALUES ($1, 'PUBLIC_CONTEST_RESULT_V1', $2, 'PUBLIC_CONTEST', $3,
-           'contest.message.v1', $4, $5, $6::jsonb, $7)
-         ON CONFLICT (dedupe_namespace, dedupe_key) DO NOTHING`,
-        [uuidV7(dateMs(nowIso) + index), row.player_id, contest.contest_id, dedupeKey,
-          sha256Canonical(payload), JSON.stringify(payload), nowIso]
-      );
-    }
+  }
+  const roster = await client.query<Row>(
+    "SELECT * FROM vs_public_contest_roster WHERE contest_id = $1 ORDER BY joined_at, player_id", [contest.contest_id]
+  );
+  const rankedByPlayer = new Map(best.rows.map((row, index) => [String(row.player_id), { row, index }]));
+  for (let index = 0; index < roster.rows.length; index += 1) {
+    const entrant = roster.rows[index];
+    const ranked = rankedByPlayer.get(String(entrant.player_id));
+    const ordinalPlace = ranked ? ranked.index + 1 : null;
+    const placement = ranked ? await client.query<Row>(
+      "SELECT competitive_place FROM vs_public_contest_placements WHERE contest_id = $1 AND player_id = $2",
+      [contest.contest_id, entrant.player_id]) : null;
+    const payload = {
+      message_schema_version: 1,
+      message_kind: ranked ? "PUBLIC_CONTEST_PLACEMENT" : "PUBLIC_CONTEST_DNF",
+      contest_id: String(contest.contest_id), leaderboard_id: String(contest.leaderboard_id),
+      definition_hash: String(contest.definition_hash), ordinal_place: ordinalPlace,
+      competitive_place: ranked ? Number(placement?.rows[0]?.competitive_place) : null,
+      top_three: ordinalPlace != null && ordinalPlace <= 3,
+      contest_result_id: ranked ? String(ranked.row.contest_result_id) : null,
+      qualified: Boolean(ranked), payouts: [], closed_at: nowIso
+    };
+    const dedupeKey = `${contest.contest_id}:${entrant.player_id}:placement`;
+    await client.query(
+      `INSERT INTO vs_outbox_events
+        (event_id, topic, recipient_player_id, aggregate_type, aggregate_id,
+         dedupe_namespace, dedupe_key, request_hash, payload, available_at)
+       VALUES ($1, 'PUBLIC_CONTEST_RESULT_V1', $2, 'PUBLIC_CONTEST', $3,
+         'contest.message.v1', $4, $5, $6::jsonb, $7)
+       ON CONFLICT (dedupe_namespace, dedupe_key) DO NOTHING`,
+      [uuidV7(dateMs(nowIso) + index), entrant.player_id, contest.contest_id, dedupeKey,
+        sha256Canonical(payload), JSON.stringify(payload), nowIso]
+    );
+  }
+  const closure = jsonRecord(contest.closure_policy);
+  if (String(contest.family) === "ASYNC_MAP_SET" && String(contest.scope) === "ROLLING_COHORT"
+    && String(closure.kind) === "QUALIFIED_PLAYER_COUNT") {
+    const snapshot = { contest_id: String(contest.contest_id), cohort_family_id: String(closure.cohort_family_id),
+      roster: roster.rows.map((row) => ({ player_id: String(row.player_id), display_name: String(row.display_name) })),
+      rankings: best.rows.map((row, index) => ({ ordinal_place: index + 1, player_id: String(row.player_id),
+        contest_result_id: String(row.contest_result_id), competitive_primary: Number(row.competitive_primary),
+        competitive_secondary: Number(row.competitive_secondary), competitive_tertiary: Number(row.competitive_tertiary) })),
+      finalized_at: nowIso, payouts: [] };
+    await client.query(
+      `UPDATE vs_public_contest_cohorts SET finalized_at = COALESCE(finalized_at, $2),
+        qualified_player_count = $3, closure_snapshot_hash = COALESCE(closure_snapshot_hash, $4),
+        closure_snapshot = COALESCE(closure_snapshot, $5::jsonb), updated_at = $2 WHERE contest_id = $1`,
+      [contest.contest_id, nowIso, best.rows.length, sha256Canonical(snapshot), JSON.stringify(snapshot)]
+    );
   }
   await client.query(
     "UPDATE vs_public_contests SET status = 'CLOSED', closed_at = $2, updated_at = $2 WHERE contest_id = $1",
     [contest.contest_id, nowIso]
   );
+  return true;
+}
+
+async function insertCohortRecord(client: PoolClient, contestId: string, closurePolicy: JsonRecord,
+  createdAt: string): Promise<void> {
+  await client.query(
+    `INSERT INTO vs_public_contest_cohorts
+      (contest_id, cohort_family_id, roster_capacity, completion_target, created_at, updated_at)
+     VALUES ($1, $2, 4, 4, $3, $3)`, [contestId, closurePolicy.cohort_family_id, createdAt]
+  );
+}
+
+async function cohortForContest(client: PoolClient, contest: Row): Promise<Row | null> {
+  if (String(contest.family) !== "ASYNC_MAP_SET" || String(contest.scope) !== "ROLLING_COHORT") return null;
+  const found = await client.query<Row>(
+    "SELECT * FROM vs_public_contest_cohorts WHERE contest_id = $1 FOR UPDATE", [contest.contest_id]
+  );
+  if (!found.rows[0]) throw new DurableCoreError("contest_cohort_missing");
+  return found.rows[0];
+}
+
+async function cloneRollingCohort(client: PoolClient, row: Row, nowIso: string): Promise<boolean> {
+  const generation = Number(row.generation) + 1;
+  const exists = await client.query(
+    "SELECT 1 FROM vs_public_contests WHERE series_key = $1 AND generation = $2", [row.series_key, generation]
+  );
+  if ((exists.rowCount ?? 0) > 0) return false;
+  const closure = jsonRecord(row.closure_policy);
+  const windowSec = Math.max(60, integerOrZero(closure.cohort_window_sec) || 7 * 86_400);
+  const contestId = uuidV7(dateMs(nowIso) + 10);
+  const leaderboardId = uuidV7(dateMs(nowIso) + 11);
+  const startsAt = nowIso;
+  const endsAt = new Date(dateMs(nowIso) + windowSec * 1_000).toISOString();
+  const original = jsonRecord(row.definition_json);
+  const document: JsonRecord = { ...original, contest_id: contestId, leaderboard_id: leaderboardId,
+    generation, starts_at: startsAt, ends_at: endsAt };
+  await client.query(
+    `INSERT INTO vs_public_contests
+      (contest_id, leaderboard_id, contest_schema_version, series_key, generation, family, scope,
+       map_count, status, map_pack_id, map_ids, content_hashes, sim_build_id, comparator_id,
+       best_entry_policy, attempt_policy, closure_policy, eligibility_policy, starts_at, ends_at,
+       created_at, opened_at, definition_hash, definition_json)
+     VALUES ($1, $2, 1, $3, $4, $5, $6, $7, 'OPEN', $8, $9::jsonb, $10::jsonb, $11, $12,
+       $13, $14::jsonb, $15::jsonb, $16::jsonb, $17, $18, $17, $17, $19, $20::jsonb)`,
+    [contestId, leaderboardId, row.series_key, generation, row.family, row.scope, row.map_count,
+      row.map_pack_id, JSON.stringify(stringArray(row.map_ids)), JSON.stringify(jsonRecord(row.content_hashes)),
+      row.sim_build_id, row.comparator_id, row.best_entry_policy, JSON.stringify(jsonRecord(row.attempt_policy)),
+      JSON.stringify(closure), JSON.stringify(jsonRecord(row.eligibility_policy)), startsAt, endsAt,
+      sha256Canonical(document), JSON.stringify(document)]
+  );
+  await insertCohortRecord(client, contestId, closure, nowIso);
   return true;
 }
 

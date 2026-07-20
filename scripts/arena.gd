@@ -6518,7 +6518,7 @@ func _maybe_record_timed_race_contest_result(results: Array, winner_id_in: int, 
 	var stage_maps: Array[String] = _get_stage_map_paths_runtime()
 	var map_count: int = maxi(1, stage_maps.size())
 	var ordered_results: Array[Dictionary] = _ordered_stage_results(results)
-	if str(tree.get_meta("public_contest_family", "")).to_upper() == "TIME_PUZZLE":
+	if str(tree.get_meta("public_contest_family", "")).to_upper() in ["TIME_PUZZLE", "ASYNC_MAP_SET"]:
 		_submit_public_time_puzzle_evidence(tree, contest_id, ordered_results, local_owner_id, winner_id_in, reason)
 		return
 	var map_times: Array[int] = []
@@ -6684,9 +6684,10 @@ func _submit_public_time_puzzle_evidence(tree: SceneTree, contest_id: String, re
 		per_map.append({"map_id": str(map_ids[index]), "completed": completed,
 			"elapsed_ticks": ticks, "penalty_ticks": 0, "final_state_hash": str(row.get("final_state_hash", ""))})
 		aggregate += ticks
-	var evidence: Dictionary = {"schema": "swarmfront.time_puzzle_evidence.v1", "per_map": per_map,
+	var family: String = str(tree.get_meta("public_contest_family", "")).to_upper()
+	var evidence: Dictionary = {"schema": "swarmfront.async_map_set_evidence.v1" if family == "ASYNC_MAP_SET" else "swarmfront.time_puzzle_evidence.v1", "per_map": per_map,
 		"aggregate_elapsed_ticks": aggregate, "terminal_winner_id": winner_id_in, "terminal_reason": reason}
-	var request_id: String = "time-puzzle:%s" % str(attempt.get("attempt_id", ""))
+	var request_id: String = "%s:%s" % ["async-map-set" if family == "ASYNC_MAP_SET" else "time-puzzle", str(attempt.get("attempt_id", ""))]
 	var contest_state: Node = get_node_or_null("/root/PublicContestState")
 	var response: Dictionary = contest_state.call("submit_evidence", contest_id, attempt, evidence, request_id) as Dictionary if contest_state != null else {"ok": false, "err": "public_contest_state_missing"}
 	tree.set_meta("public_contest_evidence_status", response.duplicate(true))

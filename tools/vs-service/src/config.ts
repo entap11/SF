@@ -85,6 +85,8 @@ export const config = {
   enablePublicContests: parseBoolean(process.env.VS_ENABLE_PUBLIC_CONTESTS, false),
   enablePublicTimePuzzles: parseBoolean(process.env.VS_ENABLE_PUBLIC_TIME_PUZZLES, false),
   enablePublicGauntlet: parseBoolean(process.env.VS_ENABLE_PUBLIC_GAUNTLET, false),
+  enablePublicAsync3map: parseBoolean(process.env.VS_ENABLE_PUBLIC_ASYNC_3MAP, false),
+  enablePublicAsync5map: parseBoolean(process.env.VS_ENABLE_PUBLIC_ASYNC_5MAP, false),
   publicContestGrantSecret: process.env.VS_PUBLIC_CONTEST_GRANT_SECRET?.trim() || "",
   publicContestLeaderboardLimit: Math.max(1,
     Math.min(100, parseIntValue(process.env.VS_PUBLIC_CONTEST_LEADERBOARD_LIMIT, 25))),

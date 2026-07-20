@@ -24,7 +24,8 @@ func _ready() -> void:
 
 func configure(scope: String = "WEEKLY", family: String = "TIME_PUZZLE", map_count: int = 0) -> void:
 	_scope = _normalize_scope(scope)
-	_family = "GAUNTLET" if family.to_upper() == "GAUNTLET" else "TIME_PUZZLE"
+	var requested_family: String = family.to_upper()
+	_family = requested_family if requested_family in ["TIME_PUZZLE", "GAUNTLET", "ASYNC_MAP_SET"] else "TIME_PUZZLE"
 	if map_count in [3, 5]:
 		_map_count = map_count
 	if is_node_ready():
@@ -70,7 +71,7 @@ func _build_ui() -> void:
 	header.add_child(close)
 	var scopes := HBoxContainer.new()
 	root.add_child(scopes)
-	for scope in ["WEEKLY", "MONTHLY", "SEASONAL"]:
+	for scope in ["WEEKLY", "MONTHLY", "SEASONAL", "ROLLING_COHORT"]:
 		var button := Button.new()
 		button.text = scope
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -81,7 +82,9 @@ func _build_ui() -> void:
 	root.add_child(modes)
 	for mode in [{"label": "3 MAP", "family": "TIME_PUZZLE", "count": 3},
 		{"label": "5 MAP", "family": "TIME_PUZZLE", "count": 5},
-		{"label": "GAUNTLET", "family": "GAUNTLET", "count": 18}]:
+		{"label": "GAUNTLET", "family": "GAUNTLET", "count": 18},
+		{"label": "ASYNC 3", "family": "ASYNC_MAP_SET", "count": 3},
+		{"label": "ASYNC 5", "family": "ASYNC_MAP_SET", "count": 5}]:
 		var button := Button.new()
 		button.text = str(mode.label)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -126,6 +129,8 @@ func _select_mode(family: String, map_count: int) -> void:
 	_map_count = map_count
 	if _family == "GAUNTLET":
 		_scope = "WEEKLY"
+	elif _family == "ASYNC_MAP_SET":
+		_scope = "ROLLING_COHORT"
 	_refresh()
 
 func _refresh() -> void:
@@ -196,7 +201,11 @@ func _update_button_states() -> void:
 		(_mode_buttons[key] as Button).disabled = selected
 
 func _mode_label() -> String:
-	return "Weekly Gauntlet" if _family == "GAUNTLET" else "%s %d-map Time Puzzle" % [_scope.capitalize(), _map_count]
+	if _family == "GAUNTLET":
+		return "Weekly Gauntlet"
+	if _family == "ASYNC_MAP_SET":
+		return "Rolling %d-map async cohort" % _map_count
+	return "%s %d-map Time Puzzle" % [_scope.capitalize(), _map_count]
 
 func _format_ticks(ticks: int) -> String:
 	var total_ms: int = maxi(0, ticks) * 100
@@ -206,4 +215,4 @@ func _normalize_scope(value: String) -> String:
 	var result: String = value.strip_edges().to_upper()
 	if result in ["YEARLY", "SEASON"]:
 		return "SEASONAL"
-	return result if result in ["WEEKLY", "MONTHLY", "SEASONAL"] else "WEEKLY"
+	return result if result in ["WEEKLY", "MONTHLY", "SEASONAL", "ROLLING_COHORT"] else "WEEKLY"
