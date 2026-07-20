@@ -396,6 +396,10 @@ static func _apply_scenario_identity_defaults(scenario: Dictionary) -> void:
 	var benchmark_mode: String = str(scenario.get("benchmark_mode", ""))
 	if str(scenario.get("measurement_profile", "")).strip_edges().is_empty():
 		match benchmark_mode:
+			"deterministic_windowed_presentation":
+				scenario["measurement_profile"] = "deterministic_windowed_presentation"
+			"static_windowed_deterministic":
+				scenario["measurement_profile"] = "static_windowed_deterministic"
 			"render_windowed":
 				scenario["measurement_profile"] = "investigative_render_windowed"
 			"layer_isolation_noncanonical":
@@ -449,7 +453,7 @@ static func _validate_catalog_identity(catalog_any: Variant, errors: Array) -> v
 		errors.append("fixture_catalog_schema_unsupported")
 	if int(catalog.get("version", 0)) != 1:
 		errors.append("fixture_catalog_version_unsupported")
-	if str(catalog.get("status", "")) != "DESIGN_APPROVED_NOT_IMPLEMENTED":
+	if not ["DESIGN_APPROVED_NOT_IMPLEMENTED", "IMPLEMENTATION_IN_PROGRESS", "IMPLEMENTED"].has(str(catalog.get("status", ""))):
 		errors.append("fixture_catalog_status_invalid")
 	if str(catalog.get("content_hash", "")).length() != 64:
 		errors.append("fixture_catalog_hash_invalid")

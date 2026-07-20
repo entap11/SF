@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness Phase 1 Plan
 
-Status: `P1-A COMPLETE — P1-B NEXT`
+Status: `PHASE 1 COMPLETE — APPROVED BASELINES`
 
 Phase 0 is complete with limitations. Phase 1 begins with the four approved fixture families below. This plan is derived from the current Godot project, not from an abstract benchmark design. It does not approve baselines, gameplay changes, 3-/4-player fixtures, or multi-map/multi-stage async fixtures.
 
@@ -126,6 +126,8 @@ Implemented evidence:
 
 ### P1-B — Deterministic windowed execution
 
+Status: `COMPLETE`
+
 Add the manual frame/tick adapter without changing production gameplay defaults. Capture camera and cadence identity and preserve the existing investigative mode.
 
 Pass evidence:
@@ -138,7 +140,18 @@ Pass evidence:
 
 Stop if elapsed wall time changes the number or ordering of simulation ticks.
 
+Implemented evidence:
+
+- the new frame-index adapter executes exactly 360 frames and 120 manual simulation ticks, with 60/20 warmup and 300/100 measured windows;
+- automatic `SimRunner` process, physics-process, and input processing are disabled only inside the isolated harness repetition;
+- production camera fit settles to two identical consecutive hashes and is included with cadence in environment compatibility identity;
+- three real windowed repetitions produced identical frame/tick counts, final-state hashes, camera hashes, cadence hashes, and isolation hashes;
+- deterministic windowed execution fails closed on the headless display server, while the existing `render_windowed` investigative path remains available;
+- Phase 0 Gates A–F, P1-A/P1-B smokes, interrupted-cleanup coverage, and the Phase 0 isolation suite pass.
+
 ### P1-C — Empty and static fixtures
+
+Status: `COMPLETE`
 
 Implement `EMPTY_ARENA_V1` and `STATIC_BATTLEFIELD_V1`. Keep synthetic and production-map content identities distinct.
 
@@ -151,7 +164,17 @@ Pass evidence:
 
 Stop if the empty fixture requires weakening production map validation.
 
+Implemented evidence:
+
+- `EMPTY_ARENA_V1` uses the production `Arena.tscn` shell plus a hashed synthetic descriptor and never invokes or claims `MapLoader`, `MapApplier`, or a map hash;
+- `STATIC_BATTLEFIELD_V1` uses the approved production loader/applier path and records the exact approved map SHA-256;
+- three repetitions of each fixture preserve exact hives, active lanes, units, structures, structure slots, and wall counts;
+- authored empty-camera identity, production map-fit camera identity, cadence identity, renderer configuration, and final state are stable across repetitions;
+- both profiles complete 60 warmup and 300 measured frames with zero simulation ticks, pass configured performance gates, restore isolation, and validate against schema v3.
+
 ### P1-D — Normal match
+
+Status: `COMPLETE`
 
 Run the command pilot, freeze the schedule, then implement canonical-headless and deterministic-windowed profiles.
 
@@ -164,6 +187,14 @@ Pass evidence:
 - no automatic bots or wall-time-derived commands.
 
 Stop if deterministic selector resolution changes between repetitions or the schedule cannot be expressed through production command paths.
+
+Implemented evidence:
+
+- the three-repetition pilot froze four accepted production commands at ticks 5/15/25/35, resolving to attack `2→9`, swarm `2→9`, attack `3→8`, and attack `3→8`;
+- the catalog records and validates the frozen selector version, pair indexes, resolved endpoints, accepted-command hash, and pilot canonical final-state hash;
+- the registered canonical and deterministic-windowed profiles each execute 20 warmup and 100 measured ticks with automatic bots disabled;
+- the presentation profile additionally executes 60 warmup and 300 measured frames with no wall-time-derived commands;
+- all repetitions preserve the exact command count/hash/meaning and the same final-state hash, while the windowed profile passes camera, cadence, renderer, performance, schema, backend, and isolation checks.
 
 ### P1-E — Static unit-scale matrix
 
@@ -180,6 +211,15 @@ Pass evidence:
 
 Stop if lane construction times out, an injection is rejected, or the target cannot be represented by both the production active-unit limit and the renderer pool.
 
+Implemented evidence:
+
+- all four registered fixtures create exactly two accepted production lanes, wait on the production lane-build condition with a 3-second hard timeout, and use no fixed sleep;
+- deterministic injection uses public `UnitSystem.spawn_unit` with capacity bypass explicitly prohibited;
+- every 50/100/200/400 target remains exact from measurement start through measurement end across three repetitions;
+- the production 400-node renderer pool has zero misses and zero expansions, including the 400-unit boundary with no nodes remaining available;
+- lane, injection, pool, camera, cadence, fixture, and final-state identities are stable across repetitions;
+- the full twelve-run matrix passes performance, schema, backend isolation, scenario isolation, and determinism gates; workload monotonicity remains diagnostic-only.
+
 ### P1-F — Candidate baselines and Phase 1 exit
 
 Run all implemented profiles from a clean worktree on a recorded environment. Produce comparison-compatible candidate artifacts, run regression gates, and review diagnostics before explicitly approving baselines.
@@ -192,6 +232,15 @@ Pass evidence:
 - baseline manifests contain fixture, profile, content, configuration, environment, camera, and cadence identities.
 
 Phase 1 exits only after approved clean-tree baselines exist. Completing P1-A alone does not approve or execute a product fixture.
+
+Implemented evidence:
+
+- fail-closed runtime eligibility requires one clean commit, MINIMAL collection, exact three-repetition fixture/profile sets, implemented catalog registration, exact setup counts, and passing scenario/determinism/isolation/backend evidence;
+- four clean candidate reports from commit `521b1b5` pass schema validation and return baseline approval `ELIGIBLE`;
+- the explicit packager validates a shared source commit and catalog hash before writing the approved report set and identity manifest;
+- all four packaged baselines self-compare as compatible `PASS` through the supported comparator;
+- Phase 0 Gates A–F, Phase 1 Gates P1-A–P1-F, canonical integrity, isolation, and collector calibration all pass at exit;
+- the formal package, diagnostics, limitations, and recommendation are recorded in [swarmfront_performance_harness_phase1_exit.md](swarmfront_performance_harness_phase1_exit.md).
 
 ## Explicit deferrals
 
@@ -210,4 +259,4 @@ Phase 0: complete with documented limitations.
 
 Phase 1 design: complete. The catalog, production map hash, fixture matrix, and current Phase 0 validator contract have been checked against the repository.
 
-Phase 1 implementation: P1-A complete. The next executable increment is P1-B, deterministic windowed execution.
+Phase 1 implementation: complete through P1-F. Approved clean-tree baselines exist for every Phase 1 fixture/profile, and the sprint is ready for branch integration review.
