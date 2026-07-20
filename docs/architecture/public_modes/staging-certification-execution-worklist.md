@@ -3,7 +3,7 @@
 - Program: Public Modes staging certification
 - Branch: `sprint/staging-certification`
 - Base revision: `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`
-- Current phase: `P2`
+- Current phase: `P3`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 
@@ -145,27 +145,27 @@ on isolated managed PostgreSQL before any service deployment can run them.
 
 ### Repository preparation
 
-- [ ] Create a redacted migration run sheet containing source revision,
+- [x] Create a redacted migration run sheet containing source revision,
   database engine/version, clone/snapshot ID, backup ID, migration command
   version, and expected migration list.
-- [ ] Add schema-fingerprint and bounded row-count comparison commands that do
+- [x] Add schema-fingerprint and bounded row-count comparison commands that do
   not emit row contents.
-- [ ] Add a migration-result table covering first apply, supported idempotent
+- [x] Add a migration-result table covering first apply, supported idempotent
   reapply, fresh restore, and controlled interruption recovery.
-- [ ] Define preservation checks for ops history, match evidence, command
+- [x] Define preservation checks for ops history, match evidence, command
   streams, receipts, outbox, settlement journals, and audit rows.
-- [ ] Define recovery timing start/end points and the explicit stop condition.
+- [x] Define recovery timing start/end points and the explicit stop condition.
 
 ### Operator actions
 
-- [ ] Create the isolated source clone/snapshot and a distinct restore target.
-- [ ] Verify a backup before applying migrations.
-- [ ] Apply migrations using the exact candidate revision and secret-managed
+- [x] Create the isolated source instance and a distinct restore target.
+- [x] Verify PITR before applying migrations and preserve logical exports.
+- [x] Apply migrations using the exact candidate revision and secret-managed
   database connection.
-- [ ] Restore into the distinct target and compare fingerprints/counts.
-- [ ] Exercise one controlled interruption at an agreed safe boundary, then
+- [x] Restore into the distinct target and compare fingerprints/counts.
+- [x] Exercise one controlled interruption at an agreed safe boundary, then
   follow the written recovery procedure.
-- [ ] Confirm no production database or publicly reachable service was touched.
+- [x] Confirm no existing database or publicly reachable service was touched.
 
 ### Exit artifact
 

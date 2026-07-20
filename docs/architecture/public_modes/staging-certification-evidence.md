@@ -1,6 +1,6 @@
 # Public Modes Staging Certification Evidence
 
-- Status: `IN PROGRESS — P2`
+- Status: `IN PROGRESS — P3`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 - Branch: `sprint/staging-certification`
@@ -17,8 +17,8 @@ only for observed evidence. Planned work remains `NOT RUN`.
 | --- | --- | --- | --- |
 | P0 repository/control baseline | `PASS` | This document | — |
 | P1 environment inventory | `PASS` | Render inventory and immutable candidate below | — |
-| P2 database recovery rehearsal | `NOT RUN` | — | Isolated environment and recovery instances not yet created |
-| P3 all-off deployment | `NOT RUN` | — | P2 and operator approval |
+| P2 database recovery rehearsal | `PASS` | [P2 runbook](staging-certification-p2-runbook.md) | — |
+| P3 all-off deployment | `NOT RUN` | — | All-off services not yet created |
 | P4 remote config/operations | `NOT RUN` | — | P3 |
 | P5 authority/workers | `NOT RUN` | — | P3–P4 |
 | P6 physical device matrix | `NOT RUN` | — | P3–P5 and devices |
@@ -307,9 +307,30 @@ P2 under the explicit product-owner authorization issued on 2026-07-20.
 
 ## P2 database migration and recovery
 
-Status: `NOT RUN`
+Status: `PASS`
 
-No managed database has been changed by this sprint.
+The protected, network-isolated `Certification` environment was created as
+`evm-d9f68mos116c738bmf60`. Two new paid PostgreSQL 18 instances were created
+inside it; no existing service or database was changed:
+
+| Role | Provider ID | Result |
+| --- | --- | --- |
+| Migration source | `dpg-d9f68vn7f7vs73c0tal0-a` | `PASS` |
+| Fresh restore/interruption target | `dpg-d9f6chgs116c738bsdv0-a` | `PASS` |
+
+All 11 VS and six Rank migrations applied from exact candidate `1beb355`, then
+reapplied idempotently. Source, restored, and recovered schema fingerprints are
+identical at
+`e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3`.
+All bounded table counts matched. The only seed rows are one Rank audit row and
+two Crucible account rows created by the migrations.
+
+The controlled restore-target restart took 43 seconds to real SQL connectivity
+and 51 seconds to complete verification. Render reported `available` after
+seven seconds while TLS connections still failed; future restart checks must
+use SQL connectivity rather than provider status alone. Full commands, backup
+digests, preservation families, failure history, and timing are recorded in the
+[P2 runbook](staging-certification-p2-runbook.md).
 
 ## P3 manual all-off deployment
 
@@ -355,6 +376,8 @@ No public mode or mutation/economy capability is authorized.
 | Branch-head smoke logs | GitHub artifact `8468174477` | `8411b73458477a5512be5d2822d58cd6ad9445a8f4bf6a412a847e7359bc6286` | 2026-07-20T16:26:44Z | 2026-10-18 | GitHub Actions |
 | Scheduled nightly matrix | GitHub artifact `8466303731` | `e09237236837e5811fb2153d1c00284f2fa3c70b5e402f51492ccac08a93dc05` | 2026-07-20T15:26:07Z | 2026-10-18 | GitHub Actions |
 | Scheduled nightly smoke logs | GitHub artifact `8466304673` | `3e9fbd55866cfe4b3242830cf8e9a7f1d58b32ec4c21db9151ad3ecc99f49db8` | 2026-07-20T15:26:09Z | 2026-10-18 | GitHub Actions |
+| P2 local PostgreSQL 18 dump | Temporary external file; source `dpg-d9f68vn7f7vs73c0tal0-a` | `a9e39db57dc449484d6669bc2980277dc746dc516ba7a0c54cf947314ba2039d` | 2026-07-20T18:17Z | Ephemeral; provider export/PITR are retained copies | Database operator |
+| P2 Render logical export | `dpg-d9f68vn7f7vs73c0tal0-a/2026-07-20T18:17Z` | `e101d71937d2bf4068cc4df5ef713894211beb37ed6b2d275d6239dc4fe022de` | 2026-07-20T18:17Z | Render 7-day export window | Database operator |
 
 Never put credentials, private keys, connection strings, raw database exports,
 unredacted device identifiers, or user identifiers in this index.
