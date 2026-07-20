@@ -134,7 +134,9 @@ func _scenario_identities(report: Dictionary) -> Array:
 			"content_identity": str(scenario.get("content_identity", "")),
 			"fixture_config_hash": str(scenario.get("fixture_config_hash", "")),
 			"environment_compatibility_hash": str(scenario.get("environment_compatibility_hash", "")),
+			"camera_identity": scenario.get("camera_identity", "NOT_CAPTURED_FOR_PROFILE"),
 			"camera_identity_hash": str(scenario.get("camera_identity_hash", "")),
+			"cadence_identity": scenario.get("cadence_identity", "CANONICAL_PROFILE_DEFAULT"),
 			"cadence_identity_hash": str(scenario.get("cadence_identity_hash", ""))
 		})
 	return identities

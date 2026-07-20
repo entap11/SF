@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness Phase 1 Plan
 
-Status: `P1-E COMPLETE — P1-F NEXT`
+Status: `PHASE 1 COMPLETE — APPROVED BASELINES`
 
 Phase 0 is complete with limitations. Phase 1 begins with the four approved fixture families below. This plan is derived from the current Godot project, not from an abstract benchmark design. It does not approve baselines, gameplay changes, 3-/4-player fixtures, or multi-map/multi-stage async fixtures.
 
@@ -233,6 +233,15 @@ Pass evidence:
 
 Phase 1 exits only after approved clean-tree baselines exist. Completing P1-A alone does not approve or execute a product fixture.
 
+Implemented evidence:
+
+- fail-closed runtime eligibility requires one clean commit, MINIMAL collection, exact three-repetition fixture/profile sets, implemented catalog registration, exact setup counts, and passing scenario/determinism/isolation/backend evidence;
+- four clean candidate reports from commit `521b1b5` pass schema validation and return baseline approval `ELIGIBLE`;
+- the explicit packager validates a shared source commit and catalog hash before writing the approved report set and identity manifest;
+- all four packaged baselines self-compare as compatible `PASS` through the supported comparator;
+- Phase 0 Gates A–F, Phase 1 Gates P1-A–P1-F, canonical integrity, isolation, and collector calibration all pass at exit;
+- the formal package, diagnostics, limitations, and recommendation are recorded in [swarmfront_performance_harness_phase1_exit.md](swarmfront_performance_harness_phase1_exit.md).
+
 ## Explicit deferrals
 
 - moving-unit scale profile;
@@ -250,4 +259,4 @@ Phase 0: complete with documented limitations.
 
 Phase 1 design: complete. The catalog, production map hash, fixture matrix, and current Phase 0 validator contract have been checked against the repository.
 
-Phase 1 implementation: P1-A through P1-E complete. The next executable increment is P1-F, clean-tree candidate baselines and the Phase 1 exit package.
+Phase 1 implementation: complete through P1-F. Approved clean-tree baselines exist for every Phase 1 fixture/profile, and the sprint is ready for branch integration review.
