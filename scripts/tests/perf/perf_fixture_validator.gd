@@ -11,7 +11,12 @@ const SUPPORTED_MODES: Array[String] = [
 	"render_windowed"
 ]
 const SUPPORTED_FIXTURE_VERSIONS: Array[int] = [1]
-const SUPPORTED_COMMAND_KINDS: Array[String] = ["lane_intent_pair", "swarm_active_lane"]
+const SUPPORTED_COMMAND_KINDS: Array[String] = [
+	"lane_intent_pair",
+	"swarm_active_lane",
+	"exact_lane_intent",
+	"exact_swarm_intent"
+]
 const MAX_DURATION_SEC: float = 600.0
 const REQUIRED_GATE_KEYS: Array[String] = [
 	"target_fps",
@@ -133,6 +138,13 @@ static func static_preflight(scenario: Dictionary, execution_mode: String) -> Di
 					errors.append("lane_intent_pair intent must be attack or feed")
 			elif command_kind == "swarm_active_lane" and command.has("salt") and not _is_number(command.get("salt")):
 				errors.append("swarm_active_lane salt must be numeric when present")
+			elif command_kind in ["exact_lane_intent", "exact_swarm_intent"]:
+				if not _is_number(command.get("src")) or int(command.get("src", 0)) <= 0:
+					errors.append("%s src must be a positive number" % command_kind)
+				if not _is_number(command.get("dst")) or int(command.get("dst", 0)) <= 0:
+					errors.append("%s dst must be a positive number" % command_kind)
+				if command_kind == "exact_lane_intent" and not ["attack", "feed"].has(str(command.get("intent", ""))):
+					errors.append("exact_lane_intent intent must be attack or feed")
 	var camera_schedule_any: Variant = scenario.get("camera_schedule", [])
 	if typeof(camera_schedule_any) != TYPE_ARRAY:
 		errors.append("camera_schedule must be an Array when present")

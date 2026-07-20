@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness V1 Completion Plan
 
-Status: `P2-B COMPLETE — P2-C NEXT`
+Status: `P2-C COMPLETE — P2-D NEXT`
 
 Branch: `codex/perf-harness-v1-completion`
 
@@ -44,6 +44,15 @@ Implemented evidence:
 ### P2-C — Hive upgrade and Super Swarm stress
 
 Add `HIVE_UPGRADE_STORM_V1` and `SUPER_SWARM_CHAIN_V1` through production state and command paths. Fixed schedules must prove exact transition/swarm events and stable hashes across three repetitions. If production APIs cannot express the state safely, the fixture remains blocked rather than gaining a test-only gameplay shortcut.
+
+Implemented evidence:
+
+- Both fixtures build deterministic topology and starting power only; every lane and swarm action is accepted through production `OpsState.apply_lane_intent`, and every simulation advance uses canonical `SimRunner._tick(0.1)`.
+- `HIVE_UPGRADE_STORM_V1` drives six concurrent six-unit Super Swarms into six exact production tier crossings. The acceptance matrix observed six active swarm renderers, six active growth transitions, 15 visible growth rings, 78 growth materials, and complete active-transition/swarm cleanup.
+- `SUPER_SWARM_CHAIN_V1` proves the production landing ledger and carry consumption across two consecutive six-unit swarms, including renderer creation, tier crossing, and final cleanup.
+- Three repetitions per fixture produced identical command, event, and final-state hashes. All six repetitions restored the same protected-state hash and passed analytics/backend isolation.
+- The runner disables only the existing process-local automatic GPU-VFX fallback while a benchmark is active, then restores the environment. Full GPU VFX remain enabled and the isolated profile remains unchanged; ordinary game behavior is unaffected.
+- Windowed timing remains diagnostic for P2-C. This acceptance run exposed periodic roughly one-second presentation stalls (9–12 hitches per repetition, maximum 1039.421 ms), retained as a P2-G investigation item rather than hidden or promoted to a correctness failure.
 
 ### P2-D — Battlefield and UI stress
 

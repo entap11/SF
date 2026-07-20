@@ -2,6 +2,7 @@ extends SceneTree
 
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const ARENA_POLISH_LAYER := preload("res://scripts/renderers/arena_polish_layer.gd")
+const HIVE_GROWTH_RULES := preload("res://scripts/sim/hive_growth_rules.gd")
 const PERF_RUN_POLICY := preload("res://scripts/tests/perf/perf_run_policy.gd")
 const PERF_FIXTURE_CATALOG := preload("res://scripts/tests/perf/perf_fixture_catalog.gd")
 const PERF_FIXTURE_VALIDATOR := preload("res://scripts/tests/perf/perf_fixture_validator.gd")
@@ -24,6 +25,7 @@ const MAIN_SCENE_PATH := "res://scenes/Main.tscn"
 const FRAME_DELTA_SEC: float = 1.0 / 60.0
 const SIM_TICK_INTERVAL_SEC: float = 0.1
 const RENDER_DISCARD_INITIAL_FRAMES: int = 3
+const DISABLE_GPU_VFX_AUTO_FALLBACK_ENV: String = "SF_DISABLE_GPU_VFX_AUTO_FALLBACK"
 
 const MAP_QUICK := "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__2p.json"
 const MAP_PHASE1 := "res://maps/_future/centerstrike/MAP_centerstrike__SBASE__1p.json"
@@ -47,6 +49,7 @@ const NORMAL_MATCH_PILOT_SCHEDULE: Array = [
 
 var OpsState: Node = null
 var _analytics_isolation_active: bool = false
+var _gpu_vfx_auto_fallback_env_restore: Dictionary = {}
 var _interrupted_isolation_snapshot: Dictionary = {}
 var _interrupted_scene_root: Node = null
 var _interrupted_arena: Node = null
@@ -72,6 +75,7 @@ func _run_entry() -> void:
 		push_error("perf_benchmark_suite: %s" % PERF_RUN_POLICY.refusal_reason(OS.is_debug_build(), user_args))
 		quit(2)
 		return
+	_disable_gpu_vfx_auto_fallback_for_harness()
 	set_meta("sf_perf_harness_active", true)
 	OpsState = root.get_node_or_null("/root/OpsState")
 	if OpsState == null:
@@ -599,6 +603,9 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var unit_count_max: int = unit_count_min
 	var unit_motion_start: Array = _unit_motion_snapshot(state) if target_units > 0 else []
 	var unit_count_timeline: Array = []
+	var phase2_stress_profile: String = str(scenario_def.get("phase2_stress_profile", ""))
+	var phase2_stress_tracker: Dictionary = _phase2_stress_tracker_start(state, scenario_def) if not phase2_stress_profile.is_empty() else {}
+	var phase2_render_peaks: Dictionary = {}
 	var render_monitor_peaks: Dictionary = {
 		"draw_calls": 0,
 		"rendered_objects": 0,
@@ -612,12 +619,23 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 			if not issued.is_empty():
 				command_log.append({"tick": tick_index, "commands": issued})
 			sim_runner.call("_tick", SIM_TICK_INTERVAL_SEC)
+			if not phase2_stress_tracker.is_empty():
+				# Manual deterministic ticks bypass Arena's process-owned publish cadence.
+				# Publish the resulting canonical model through the production renderer path.
+				if arena.has_method("mark_render_dirty"):
+					arena.call("mark_render_dirty", "perf_phase2_canonical_tick")
+				if arena.has_method("_push_render_model"):
+					arena.call("_push_render_model")
+			if not phase2_stress_tracker.is_empty():
+				_phase2_stress_track_tick(phase2_stress_tracker, state, sim_runner, tick_index)
 			if target_units > 0 and unit_count_policy == "bounded_moving":
 				unit_count_timeline.append({
 					"tick": tick_index,
 					"units": _runtime_unit_count(state)
 				})
 		await process_frame
+		if not phase2_stress_tracker.is_empty():
+			_phase2_stress_track_render(phase2_render_peaks, arena)
 		if target_units > 0:
 			var current_unit_count: int = _runtime_unit_count(state)
 			unit_count_min = mini(unit_count_min, current_unit_count)
@@ -651,6 +669,7 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var final_state_hash: String = str(OpsState.call("get_contract_state_hash")) if OpsState.has_method("get_contract_state_hash") else ""
 	var renderer_configuration_state: Dictionary = _renderer_configuration_state(arena)
 	var renderer_configuration_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(renderer_configuration_state)
+	var phase2_stress_evidence: Dictionary = _phase2_stress_finalize(phase2_stress_tracker, phase2_render_peaks, state, sim_runner, arena, scenario_def) if not phase2_stress_tracker.is_empty() else {}
 	var integrity_failures: Array = []
 	if not bool(bot_isolation.get("pass", false)):
 		integrity_failures.append("bots_not_disabled")
@@ -666,6 +685,9 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		integrity_failures.append("measurement_frame_count_mismatch")
 	if final_state_hash.is_empty():
 		integrity_failures.append("final_state_hash_missing")
+	if not phase2_stress_evidence.is_empty() and not bool(phase2_stress_evidence.get("pass", false)):
+		for failure_any in phase2_stress_evidence.get("failures", []) as Array:
+			integrity_failures.append("phase2_stress:%s" % str(failure_any))
 	var final_unit_count: int = _runtime_unit_count(state)
 	var unit_motion_end: Array = _unit_motion_snapshot(state) if target_units > 0 else []
 	var unit_motion_evidence: Dictionary = _unit_motion_evidence(unit_motion_start, unit_motion_end) if target_units > 0 else {}
@@ -744,6 +766,10 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"cadence_identity_hash": cadence_identity_hash,
 		"renderer_configuration_state": renderer_configuration_state,
 		"renderer_configuration_hash": renderer_configuration_hash,
+		"phase2_stress_profile": phase2_stress_profile,
+		"phase2_stress_evidence": phase2_stress_evidence,
+		"phase2_event_hash": str(phase2_stress_evidence.get("event_hash", "")),
+		"phase2_render_lifecycle_hash": str(phase2_stress_evidence.get("render_lifecycle_hash", "")),
 		"render_monitor_peaks": render_monitor_peaks,
 		"runtime_counts": (setup.get("actual_counts", {}) as Dictionary).duplicate(true),
 		"fixture_setup_evidence": {
@@ -986,6 +1012,13 @@ func _setup_arena_for_scenario(scenario_def: Dictionary, real_scene: bool) -> Di
 	var sim_runner: Node = _arena_sim_runner(arena)
 	if sim_runner != null and sim_runner.has_method("bind_state"):
 		sim_runner.call("bind_state", OpsState.require_state())
+		await process_frame
+		await process_frame
+	if content_kind == "synthetic_scene":
+		if arena.has_method("mark_render_dirty"):
+			arena.call("mark_render_dirty", "perf_synthetic_fixture_publish")
+		if arena.has_method("_push_render_model"):
+			arena.call("_push_render_model")
 		await process_frame
 		await process_frame
 	return {
@@ -1322,6 +1355,276 @@ func _unit_motion_evidence(start_snapshot: Array, end_snapshot: Array) -> Dictio
 		"end_hash": PERF_DETERMINISTIC_HASH.hash_variant(end_snapshot)
 	}
 
+func _phase2_stress_tracker_start(state: GameState, scenario_def: Dictionary) -> Dictionary:
+	return {
+		"profile": str(scenario_def.get("phase2_stress_profile", "")),
+		"target_hive_ids": (scenario_def.get("stress_target_hive_ids", []) as Array).duplicate(),
+		"previous_tiers": _phase2_hive_tier_snapshot(state),
+		"previous_swarms": _phase2_swarm_snapshot(state),
+		"previous_chain_ledger_hash": "",
+		"hive_tier_events": [],
+		"swarm_events": [],
+		"chain_ledger_events": [],
+		"max_active_swarms": 0,
+		"max_swarm_count_by_id": {}
+	}
+
+func _phase2_stress_track_tick(tracker: Dictionary, state: GameState, sim_runner: Node, tick: int) -> void:
+	var target_hive_ids: Array = tracker.get("target_hive_ids", []) as Array
+	var previous_tiers: Dictionary = tracker.get("previous_tiers", {}) as Dictionary
+	var current_tiers: Dictionary = _phase2_hive_tier_snapshot(state)
+	for hive_id_any in current_tiers.keys():
+		var hive_id: int = int(hive_id_any)
+		if not target_hive_ids.is_empty() and not target_hive_ids.has(hive_id):
+			continue
+		var old_tier: int = int(previous_tiers.get(hive_id, current_tiers.get(hive_id, 0)))
+		var new_tier: int = int(current_tiers.get(hive_id, old_tier))
+		if new_tier != old_tier:
+			var hive: HiveData = state.find_hive_by_id(hive_id) if state != null else null
+			(tracker.get("hive_tier_events", []) as Array).append({
+				"tick": tick,
+				"hive_id": hive_id,
+				"old_tier": old_tier,
+				"new_tier": new_tier,
+				"power": int(hive.power) if hive != null else -1
+			})
+	tracker["previous_tiers"] = current_tiers
+
+	var previous_swarms: Dictionary = tracker.get("previous_swarms", {}) as Dictionary
+	var current_swarms: Dictionary = _phase2_swarm_snapshot(state)
+	var swarm_events: Array = tracker.get("swarm_events", []) as Array
+	var max_counts: Dictionary = tracker.get("max_swarm_count_by_id", {}) as Dictionary
+	for swarm_id_any in current_swarms.keys():
+		var swarm_id: int = int(swarm_id_any)
+		var current: Dictionary = current_swarms.get(swarm_id, {}) as Dictionary
+		var current_count: int = int(current.get("count", 0))
+		max_counts[swarm_id] = maxi(int(max_counts.get(swarm_id, 0)), current_count)
+		if not previous_swarms.has(swarm_id):
+			swarm_events.append({
+				"tick": tick,
+				"event": "spawned",
+				"swarm_id": swarm_id,
+				"src": int(current.get("src", -1)),
+				"dst": int(current.get("dst", -1)),
+				"count": current_count
+			})
+		else:
+			var previous: Dictionary = previous_swarms.get(swarm_id, {}) as Dictionary
+			var previous_count: int = int(previous.get("count", 0))
+			if current_count > previous_count:
+				swarm_events.append({
+					"tick": tick,
+					"event": "grew",
+					"swarm_id": swarm_id,
+					"from_count": previous_count,
+					"to_count": current_count
+				})
+	for swarm_id_any in previous_swarms.keys():
+		var swarm_id: int = int(swarm_id_any)
+		if current_swarms.has(swarm_id):
+			continue
+		var previous: Dictionary = previous_swarms.get(swarm_id, {}) as Dictionary
+		swarm_events.append({
+			"tick": tick,
+			"event": "landed",
+			"swarm_id": swarm_id,
+			"src": int(previous.get("src", -1)),
+			"dst": int(previous.get("dst", -1)),
+			"count": int(previous.get("count", 0))
+		})
+	tracker["previous_swarms"] = current_swarms
+	tracker["max_active_swarms"] = maxi(int(tracker.get("max_active_swarms", 0)), current_swarms.size())
+	tracker["max_swarm_count_by_id"] = max_counts
+
+	var ledger: Array = _phase2_swarm_chain_ledger_snapshot(sim_runner)
+	var ledger_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(ledger)
+	if not ledger.is_empty() and ledger_hash != str(tracker.get("previous_chain_ledger_hash", "")):
+		(tracker.get("chain_ledger_events", []) as Array).append({"tick": tick, "entries": ledger})
+	tracker["previous_chain_ledger_hash"] = ledger_hash
+
+func _phase2_hive_tier_snapshot(state: GameState) -> Dictionary:
+	var out: Dictionary = {}
+	if state == null:
+		return out
+	for hive_any in state.hives:
+		if hive_any is HiveData:
+			var hive: HiveData = hive_any as HiveData
+			out[int(hive.id)] = HIVE_GROWTH_RULES.tier_for_power(int(hive.power))
+	return out
+
+func _phase2_swarm_snapshot(state: GameState) -> Dictionary:
+	var out: Dictionary = {}
+	if state == null:
+		return out
+	for swarm_any in state.swarm_packets:
+		if typeof(swarm_any) != TYPE_DICTIONARY:
+			continue
+		var swarm: Dictionary = swarm_any as Dictionary
+		var swarm_id: int = int(swarm.get("id", -1))
+		if swarm_id <= 0:
+			continue
+		out[swarm_id] = {
+			"src": int(swarm.get("from_id", -1)),
+			"dst": int(swarm.get("to_id", -1)),
+			"lane_id": int(swarm.get("lane_id", -1)),
+			"owner_id": int(swarm.get("owner_id", 0)),
+			"count": int(swarm.get("count", 0))
+		}
+	return out
+
+func _phase2_swarm_chain_ledger_snapshot(sim_runner: Node) -> Array:
+	var out: Array = []
+	var swarm_system: Object = sim_runner.get("swarm_system") if sim_runner != null else null
+	if swarm_system == null:
+		return out
+	var ledger_any: Variant = swarm_system.get("_recent_landed_swarms_by_hive")
+	if typeof(ledger_any) != TYPE_DICTIONARY:
+		return out
+	var ledger: Dictionary = ledger_any as Dictionary
+	var hive_ids: Array = ledger.keys()
+	hive_ids.sort()
+	for hive_id_any in hive_ids:
+		var entry_any: Variant = ledger.get(hive_id_any, {})
+		if typeof(entry_any) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_any as Dictionary
+		out.append({
+			"hive_id": int(hive_id_any),
+			"owner_id": int(entry.get("owner_id", 0)),
+			"count": int(entry.get("count", 0)),
+			"source_swarm_id": int(entry.get("swarm_id", -1)),
+			"expires_us": int(entry.get("expires_us", 0))
+		})
+	return out
+
+func _phase2_stress_track_render(peaks: Dictionary, arena: Node) -> void:
+	var snapshot: Dictionary = _phase2_render_lifecycle_snapshot(arena)
+	for key in [
+		"growth_active_count",
+		"growth_visible_ring_count",
+		"growth_material_count",
+		"growth_child_count",
+		"swarm_renderer_count",
+		"swarm_renderer_child_count"
+	]:
+		peaks[key] = maxi(int(peaks.get(key, 0)), int(snapshot.get(key, 0)))
+
+func _phase2_render_lifecycle_snapshot(arena: Node) -> Dictionary:
+	var out: Dictionary = {
+		"growth_active_count": 0,
+		"growth_visible_ring_count": 0,
+		"growth_material_count": 0,
+		"growth_child_count": 0,
+		"swarm_renderer_count": 0,
+		"swarm_renderer_child_count": 0
+	}
+	if arena == null:
+		return out
+	var hive_renderer: Node = arena.get_node_or_null("MapRoot/HiveRenderer")
+	if hive_renderer != null and hive_renderer.has_method("get_hive_nodes"):
+		for node_any in hive_renderer.call("get_hive_nodes") as Array:
+			var hive_node: Node = node_any as Node
+			if hive_node == null or not hive_node.has_method("get_growth_transition_debug_snapshot"):
+				continue
+			var growth: Dictionary = hive_node.call("get_growth_transition_debug_snapshot") as Dictionary
+			if bool(growth.get("active", false)):
+				out["growth_active_count"] = int(out.get("growth_active_count", 0)) + 1
+			out["growth_visible_ring_count"] = int(out.get("growth_visible_ring_count", 0)) + int(growth.get("visible_ring_count", 0))
+			out["growth_material_count"] = int(out.get("growth_material_count", 0)) + int(growth.get("material_count", 0))
+			out["growth_child_count"] = int(out.get("growth_child_count", 0)) + int(growth.get("child_count", 0))
+	var unit_renderer: Node = arena.get_node_or_null("PoolsRoot/UnitRenderer")
+	if unit_renderer != null:
+		var swarm_nodes_any: Variant = unit_renderer.get("swarm_nodes_by_id")
+		if typeof(swarm_nodes_any) == TYPE_DICTIONARY:
+			var swarm_nodes: Dictionary = swarm_nodes_any as Dictionary
+			out["swarm_renderer_count"] = swarm_nodes.size()
+			for swarm_node_any in swarm_nodes.values():
+				var swarm_node: Node = swarm_node_any as Node
+				if swarm_node != null:
+					out["swarm_renderer_child_count"] = int(out.get("swarm_renderer_child_count", 0)) + swarm_node.get_child_count()
+	return out
+
+func _phase2_stress_finalize(
+	tracker: Dictionary,
+	render_peaks: Dictionary,
+	state: GameState,
+	sim_runner: Node,
+	arena: Node,
+	scenario_def: Dictionary
+) -> Dictionary:
+	var profile: String = str(tracker.get("profile", ""))
+	var failures: Array = []
+	var tier_events: Array = tracker.get("hive_tier_events", []) as Array
+	var swarm_events: Array = tracker.get("swarm_events", []) as Array
+	var ledger_events: Array = tracker.get("chain_ledger_events", []) as Array
+	var max_counts: Dictionary = tracker.get("max_swarm_count_by_id", {}) as Dictionary
+	var final_render: Dictionary = _phase2_render_lifecycle_snapshot(arena)
+	var final_swarms: Dictionary = _phase2_swarm_snapshot(state)
+	var final_ledger: Array = _phase2_swarm_chain_ledger_snapshot(sim_runner)
+	if profile == "hive_upgrade_storm":
+		if tier_events.size() != (scenario_def.get("stress_target_hive_ids", []) as Array).size():
+			failures.append("hive_upgrade_transition_count_mismatch")
+		for event_any in tier_events:
+			var event: Dictionary = event_any as Dictionary
+			if int(event.get("new_tier", 0)) != int(event.get("old_tier", 0)) + 1:
+				failures.append("hive_upgrade_skipped_tier")
+		if int(render_peaks.get("growth_active_count", 0)) <= 0:
+			failures.append("hive_growth_renderer_transition_not_observed")
+		if int(render_peaks.get("growth_visible_ring_count", 0)) <= 0:
+			failures.append("hive_growth_ring_vfx_not_observed")
+		if int(final_render.get("growth_active_count", 0)) != 0:
+			failures.append("hive_growth_renderer_not_settled")
+	elif profile == "super_swarm_chain":
+		var spawned_ids: Array[int] = []
+		var landed_ids: Array[int] = []
+		for event_any in swarm_events:
+			var event: Dictionary = event_any as Dictionary
+			var event_name: String = str(event.get("event", ""))
+			var swarm_id: int = int(event.get("swarm_id", -1))
+			if event_name == "spawned" and not spawned_ids.has(swarm_id):
+				spawned_ids.append(swarm_id)
+			elif event_name == "landed" and not landed_ids.has(swarm_id):
+				landed_ids.append(swarm_id)
+		spawned_ids.sort()
+		landed_ids.sort()
+		if spawned_ids.size() < 2:
+			failures.append("super_swarm_two_hop_spawn_missing")
+		if landed_ids.size() < 2:
+			failures.append("super_swarm_two_hop_landing_missing")
+		if ledger_events.is_empty():
+			failures.append("super_swarm_chain_ledger_not_observed")
+		if spawned_ids.size() >= 1 and int(max_counts.get(spawned_ids[0], 0)) <= 5:
+			failures.append("super_swarm_pickup_growth_not_observed")
+		if spawned_ids.size() >= 2 and int(max_counts.get(spawned_ids[1], 0)) <= 5:
+			failures.append("super_swarm_carry_chain_not_observed")
+		if int(render_peaks.get("swarm_renderer_count", 0)) <= 0:
+			failures.append("super_swarm_renderer_not_observed")
+		if not final_swarms.is_empty() or int(final_render.get("swarm_renderer_count", 0)) != 0:
+			failures.append("super_swarm_lifecycle_not_settled")
+	else:
+		failures.append("phase2_stress_profile_unknown")
+	var event_payload: Dictionary = {
+		"hive_tier_events": tier_events,
+		"swarm_events": swarm_events,
+		"chain_ledger_events": ledger_events,
+		"max_active_swarms": int(tracker.get("max_active_swarms", 0)),
+		"max_swarm_count_by_id": max_counts
+	}
+	var render_payload: Dictionary = {
+		"peaks": render_peaks.duplicate(true),
+		"final": final_render,
+		"final_chain_ledger": final_ledger
+	}
+	return {
+		"pass": failures.is_empty(),
+		"failures": failures,
+		"profile": profile,
+		"events": event_payload,
+		"event_hash": PERF_DETERMINISTIC_HASH.hash_variant(event_payload),
+		"render_lifecycle": render_payload,
+		"render_lifecycle_hash": PERF_DETERMINISTIC_HASH.hash_variant(render_payload)
+	}
+
 func _unit_renderer_pool_snapshot(arena: Node) -> Dictionary:
 	var renderer: Node = arena.get_node_or_null("PoolsRoot/UnitRenderer") if arena != null else null
 	if renderer == null or not renderer.has_method("get_pool_telemetry_snapshot"):
@@ -1374,6 +1677,19 @@ func _issue_scheduled_commands(arena: Node, state: GameState, schedule: Array, t
 				if bool(swarm_report.get("ok", false)):
 					swarm_report["schedule_index"] = schedule_index
 					issued.append(swarm_report)
+			"exact_lane_intent":
+				var src_id: int = int(command.get("src", -1))
+				var dst_id: int = int(command.get("dst", -1))
+				var intent: String = str(command.get("intent", "feed"))
+				var lane_result: Dictionary = OpsState.apply_lane_intent(src_id, dst_id, intent)
+				if bool(lane_result.get("ok", false)):
+					issued.append({"type": intent, "src": src_id, "dst": dst_id, "schedule_index": schedule_index})
+			"exact_swarm_intent":
+				var src_id: int = int(command.get("src", -1))
+				var dst_id: int = int(command.get("dst", -1))
+				var swarm_result: Dictionary = OpsState.apply_lane_intent(src_id, dst_id, "swarm")
+				if bool(swarm_result.get("ok", false)):
+					issued.append({"type": "swarm", "src": src_id, "dst": dst_id, "schedule_index": schedule_index})
 	if arena != null and arena.has_method("mark_render_dirty") and not issued.is_empty():
 		arena.call("mark_render_dirty", "perf_benchmark_scheduled")
 	return issued
@@ -1498,6 +1814,11 @@ func _scenario_definitions(
 				_phase2_moving_unit_scale_scenario(100, catalog_fixtures_by_id, catalog_common),
 				_phase2_moving_unit_scale_scenario(200, catalog_fixtures_by_id, catalog_common),
 				_phase2_moving_unit_scale_scenario(400, catalog_fixtures_by_id, catalog_common)
+			]
+		"phase2_upgrade_swarm_stress":
+			scenarios = [
+				_phase2_hive_upgrade_storm_scenario(),
+				_phase2_super_swarm_chain_scenario()
 			]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
@@ -1822,6 +2143,112 @@ func _phase2_moving_unit_scale_scenario(target_units: int, catalog_fixtures_by_i
 	scenario["cadence"] = cadence
 	return scenario
 
+func _phase2_hive_upgrade_storm_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_stress_scenario_base("HIVE_UPGRADE_STORM_V1", 7101)
+	scenario["phase2_stress_profile"] = "hive_upgrade_storm"
+	scenario["expected_command_count_exact"] = 12
+	scenario["stress_target_hive_ids"] = [2, 4, 6, 8, 10, 12]
+	var schedule: Array = []
+	for pair_index in range(6):
+		var src_id: int = (pair_index * 2) + 1
+		var dst_id: int = src_id + 1
+		schedule.append({"tick": 1, "kind": "exact_lane_intent", "src": src_id, "dst": dst_id, "intent": "feed"})
+		schedule.append({"tick": 30, "kind": "exact_swarm_intent", "src": src_id, "dst": dst_id})
+	scenario["command_schedule"] = schedule
+	scenario["synthetic_descriptor"] = _phase2_hive_upgrade_storm_descriptor()
+	scenario["expected_counts"] = {"hives": 13, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 0, "walls": 0}
+	return scenario
+
+func _phase2_super_swarm_chain_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_stress_scenario_base("SUPER_SWARM_CHAIN_V1", 7201)
+	scenario["phase2_stress_profile"] = "super_swarm_chain"
+	scenario["expected_command_count_exact"] = 4
+	scenario["command_schedule"] = [
+		{"tick": 1, "kind": "exact_lane_intent", "src": 1, "dst": 2, "intent": "feed"},
+		{"tick": 1, "kind": "exact_lane_intent", "src": 2, "dst": 3, "intent": "feed"},
+		{"tick": 30, "kind": "exact_swarm_intent", "src": 1, "dst": 2},
+		{"tick": 36, "kind": "exact_swarm_intent", "src": 2, "dst": 3}
+	]
+	scenario["synthetic_descriptor"] = _phase2_super_swarm_chain_descriptor()
+	scenario["expected_counts"] = {"hives": 4, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 0, "walls": 0}
+	return scenario
+
+func _phase2_stress_scenario_base(fixture_id: String, seed_value: int) -> Dictionary:
+	var scenario: Dictionary = _scenario_def(
+		fixture_id,
+		"",
+		8.0,
+		seed_value,
+		["canonical_simrunner", "swarm_system", "unit_system", "render_model"],
+		0,
+		0,
+		1
+	)
+	scenario["fixture_id"] = fixture_id
+	scenario["content_kind"] = "synthetic_scene"
+	scenario["content_identity"] = "sf_perf:%s:v1" % fixture_id.to_lower()
+	scenario["measurement_profile"] = "deterministic_windowed_presentation"
+	scenario["camera_policy"] = "authored_scene_transform"
+	scenario["phase2_requires_three_repetitions"] = true
+	scenario["baseline_candidate"] = false
+	scenario["baseline_ineligible_reason"] = "phase2_upgrade_swarm_stress_diagnostic_not_yet_baseline_approved"
+	scenario["performance_gating"] = false
+	scenario["performance_gate_disposition"] = "DIAGNOSTIC_PENDING_BASELINE_REVIEW"
+	scenario["tick_count"] = 80
+	scenario["warmup_ticks"] = 10
+	scenario["repetitions"] = 3
+	scenario["renderers"] = ["floor", "hive", "lane", "unit"]
+	scenario["cadence"] = {
+		"target_fps": 30,
+		"simulation_hz": 10,
+		"frames_per_simulation_tick": 3,
+		"warmup_frames": 30,
+		"measurement_frames": 210,
+		"simulation_active": true
+	}
+	return scenario
+
+func _phase2_hive_upgrade_storm_descriptor() -> Dictionary:
+	var hives: Array = []
+	var positions: Array = [
+		[2, 5], [5, 5], [8, 5], [11, 5], [14, 5], [17, 5],
+		[2, 15], [5, 15], [8, 15], [11, 15], [14, 15], [17, 15]
+	]
+	for index in range(positions.size()):
+		var is_source: bool = index % 2 == 0
+		var pair_index: int = int(index / 2)
+		hives.append({
+			"id": index + 1,
+			"grid_pos": (positions[index] as Array).duplicate(),
+			"owner_id": 1,
+			"power": 30 if is_source else 7 if pair_index % 2 == 0 else 22,
+			"kind": "Hive"
+		})
+	hives.append({"id": 13, "grid_pos": [10, 21], "owner_id": 2, "power": 5, "kind": "Hive"})
+	return _phase2_synthetic_descriptor("HIVE_UPGRADE_STORM_V1", 20, 22, hives)
+
+func _phase2_super_swarm_chain_descriptor() -> Dictionary:
+	return _phase2_synthetic_descriptor("SUPER_SWARM_CHAIN_V1", 12, 20, [
+		{"id": 1, "grid_pos": [2, 10], "owner_id": 1, "power": 30, "kind": "Hive"},
+		{"id": 2, "grid_pos": [5, 10], "owner_id": 1, "power": 2, "kind": "Hive"},
+		{"id": 3, "grid_pos": [8, 10], "owner_id": 1, "power": 2, "kind": "Hive"},
+		{"id": 4, "grid_pos": [10, 3], "owner_id": 2, "power": 5, "kind": "Hive"}
+	])
+
+func _phase2_synthetic_descriptor(map_id: String, width: int, height: int, hives: Array) -> Dictionary:
+	return {
+		"_schema": "sf_perf_synthetic_scene_v1",
+		"map_id": map_id,
+		"grid": {"width": width, "height": height},
+		"hives": hives.duplicate(true),
+		"lane_candidates": [],
+		"walls": [],
+		"towers": [],
+		"barracks": [],
+		"structure_slots": [],
+		"spawns": []
+	}
+
 func _phase0_collector_calibration_scenarios() -> Array:
 	var base: Dictionary = _phase0_integrity_scenario()
 	base["scenario_id"] = "PHASE0_COLLECTOR_CALIBRATION_V1"
@@ -2127,6 +2554,8 @@ func _base_scenario_report(scenario_def: Dictionary, benchmark_mode: String, gat
 		"fixture_version": int(scenario_def.get("fixture_version", 1)),
 		"catalog_fixture_registered": bool(scenario_def.get("catalog_fixture_registered", false)),
 		"phase2_requires_three_repetitions": bool(scenario_def.get("phase2_requires_three_repetitions", false)),
+		"phase2_stress_profile": str(scenario_def.get("phase2_stress_profile", "")),
+		"stress_target_hive_ids": (scenario_def.get("stress_target_hive_ids", []) as Array).duplicate(),
 		"measurement_profile": str(scenario_def.get("measurement_profile", _measurement_profile_for_benchmark_mode(benchmark_mode))),
 		"content_kind": str(scenario_def.get("content_kind", "production_map")),
 		"content_identity": str(scenario_def.get("content_identity", "sha256:%s" % map_content_hash)),
@@ -2548,6 +2977,28 @@ func _cleanup_entry_state() -> void:
 		_analytics_isolation_active = false
 	if has_meta("sf_perf_harness_active"):
 		remove_meta("sf_perf_harness_active")
+	_restore_gpu_vfx_auto_fallback_environment()
+
+func _disable_gpu_vfx_auto_fallback_for_harness() -> void:
+	if not _gpu_vfx_auto_fallback_env_restore.is_empty():
+		return
+	_gpu_vfx_auto_fallback_env_restore = {
+		"existed": OS.has_environment(DISABLE_GPU_VFX_AUTO_FALLBACK_ENV),
+		"value": OS.get_environment(DISABLE_GPU_VFX_AUTO_FALLBACK_ENV)
+	}
+	OS.set_environment(DISABLE_GPU_VFX_AUTO_FALLBACK_ENV, "1")
+
+func _restore_gpu_vfx_auto_fallback_environment() -> void:
+	if _gpu_vfx_auto_fallback_env_restore.is_empty():
+		return
+	if bool(_gpu_vfx_auto_fallback_env_restore.get("existed", false)):
+		OS.set_environment(
+			DISABLE_GPU_VFX_AUTO_FALLBACK_ENV,
+			str(_gpu_vfx_auto_fallback_env_restore.get("value", ""))
+		)
+	else:
+		OS.unset_environment(DISABLE_GPU_VFX_AUTO_FALLBACK_ENV)
+	_gpu_vfx_auto_fallback_env_restore.clear()
 
 func _finalize() -> void:
 	_recover_interrupted_repetition()
@@ -2690,6 +3141,8 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 			fields.append_array(["unit_injection_hash", "lane_setup_hash", "renderer_pool_hash"])
 			if str(first_repetition.get("unit_count_policy", "exact_static")) == "bounded_moving":
 				fields.append_array(["unit_count_timeline_hash", "unit_motion_hash"])
+		if not str(first_repetition.get("phase2_stress_profile", "")).is_empty():
+			fields.append("phase2_event_hash")
 		var mismatches: Array = []
 		if repetitions.size() < required_repetitions:
 			mismatches.append("repetition_count:%d<%d" % [repetitions.size(), required_repetitions])

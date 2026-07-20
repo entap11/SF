@@ -44,7 +44,7 @@
     },
     {
       "phase_id": "P2_C_UPGRADE_AND_SWARM_STRESS",
-      "status": "PLANNED",
+      "status": "IMPLEMENTED",
       "fixtures": [
         "HIVE_UPGRADE_STORM_V1",
         "SUPER_SWARM_CHAIN_V1"
