@@ -59,4 +59,5 @@ Package 1 may start only when the decisions and schemas linked above are accepte
 - [Sprint completion handoff](sprint-completion-handoff.md)
 - [Exit report and work-machine handoff — 2026-07-20](exit-report-and-work-handoff-2026-07-20.md)
 - [Staging certification plan](staging-certification-plan.md)
+- [Staging certification execution worklist](staging-certification-execution-worklist.md)
 - [Staging certification evidence record](staging-certification-evidence.md)

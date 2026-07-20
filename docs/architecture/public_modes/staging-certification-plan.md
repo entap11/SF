@@ -21,6 +21,10 @@ The living result record is
 must describe what actually ran; placeholders and planned commands are never
 recorded as passes.
 
+The phase-by-phase assignments, prerequisites, execution order, and commit
+checkpoints are maintained in
+[staging-certification-execution-worklist.md](staging-certification-execution-worklist.md).
+
 ## Authority and safety invariants
 
 1. `OpsState`/`SimState` remains the only gameplay-state authority. Staging
